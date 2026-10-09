@@ -406,12 +406,9 @@ function musterModel(b, S, st, R) {
 }
 function townModel(b, S, st, R) {
   const banners = [];
+  buildHouses(S, st, R); // houses have their own meshes and shader (04e_houses.js)
   for (const h of S.houses) {
     const by = heightAt(h.x, h.z);
-    const M = new THREE.Matrix4().compose(new THREE.Vector3(h.x, by, h.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, h.yaw, 0)), new THREE.Vector3(1, 1, 1));
-    if (R.style === 'round') houseEriu(b, M, h, st, R, by);
-    else if (R.style === 'timber') houseThule(b, M, h, st, R, by);
-    else houseLogres(b, M, h, st, R, by);
     if (h.kind === 'hall') {
       const fd = R.style === 'round' ? roundHouseR(h) + 1.7 : h.d / 2 + 0.3;
       banners.push({ world: true, x: h.x + Math.sin(h.yaw) * fd + Math.cos(h.yaw) * 1.6, y: by + Math.min(h.h, 3.4) - 0.1, z: h.z + Math.cos(h.yaw) * fd - Math.sin(h.yaw) * 1.6, yaw: h.yaw, w: 1.3, h: 2.4, kind: 0 });

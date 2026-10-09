@@ -339,6 +339,7 @@ function simStep(dt) {
   updateLoot(dt);
   updateGates(dt);
   updateBarrow(dt);
+  updateHouses(dt);
 }
 function tick(dt) {
   renderer.info.reset();
@@ -379,6 +380,7 @@ function tick(dt) {
   drawTargetAndMarks();
   drawRelicsAndPortals();
   drawTownLife(dt);
+  drawHouses(dt);
   drawFires(dt);
   updateAmbientLife(dt);
   drawProjectiles();

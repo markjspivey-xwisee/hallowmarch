@@ -535,6 +535,7 @@ function socialAggro(e, t) {
   for (const [, o] of near.slice(0, max)) { o.threat = o.threat || new Map(); o.threat.set(t.id, 0.5); o.ai.pulled = true; }
 }
 function thinkVillager(e, dt) {
+  if (houseLife(e, dt)) return; // townsfolk keep house (08f_townlife.js)
   const ai = e.ai;
   if (e.role === 'merchant') {
     const P = GAME.player;

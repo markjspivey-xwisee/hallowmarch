@@ -65,6 +65,7 @@ function dragonFoes(e, r) {
   return out;
 }
 function dragonBurn(e, x, z, dx, dz, range, half, mult) {
+  fireConeAt(x, z, dx, dz, range, half);
   for (const o of dragonFoes(e, range + 3)) {
     const ox = o.x - x, oz = o.z - z, d = Math.hypot(ox, oz);
     if (d > range + o.radius) continue;

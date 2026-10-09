@@ -52,6 +52,7 @@ function precipGeometry(max, seed) {
 const PRECIP_COMMON = /* glsl */`
   ${GLSL_COMMON}
   ${GLSL_WORLD}
+  ${GLSL_ROOFS}
   uniform float uTime, uWind;
   uniform vec2 uWindDir;
   uniform vec3 uBox;
@@ -78,7 +79,7 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime));
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec3 dir = safeNormalize(vec3(wind.x, -fall, wind.z));
         vec3 side = safeNormalize(cross(dir, safeNormalize(rel)));
         vec3 p = wp - dir * position.y * (0.55 + 0.35 * aSeed.w) + side * position.x * 0.016 * (1.0 + hd * 0.03);
@@ -113,7 +114,7 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime) + sway);
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec4 mv = viewMatrix * vec4(wp, 1.0);
         float s = 0.035 + 0.04 * fract(aSeed.w * 7.3);
         mv.xy += (position.xy - vec2(0.0, 0.5)) * s;
@@ -180,6 +181,7 @@ function updateWeather(dt) {
       W2.splash -= 1;
       const a = Math.random() * TAU, r = 1.5 + Math.random() * 11;
       const x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r, y = heightAt(x, z) + 0.03;
+      if (houseRoofOver(x, z)) continue; // no splashes on a floor
       const A = U.uAmbient.value;
       fxAlpha.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.6, (Math.random() - 0.5) * 0.6, 0.22, A.x * 0.9 + 0.1, A.y * 0.9 + 0.1, A.z * 0.9 + 0.12, 0.05, 9, 0);
     }
