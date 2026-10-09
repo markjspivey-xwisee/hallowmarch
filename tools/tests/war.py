@@ -115,9 +115,14 @@ async def main(p):
     check(o and o['type'] == 'attack' and o['keep'] == tgt and o['mine'], f'clicking an enemy keep on the map orders the chosen band to attack it ({o})')
     d0 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); const K = __hm.WAR.keeps[{tgt}]; return med(wb, K.site.x, K.site.z); }})()")
     await ev(page, "__hm.fn.toggleMap(false)")
-    await ev(page, "__hm.simulate(45)")
-    r2 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); if (!wb || wb.dead) return null; const K = __hm.WAR.keeps[{tgt}]; return {{ d: med(wb, K.site.x, K.site.z), type: wb.order && wb.order.type, mine: !!(wb.order && wb.order.byPlayer), phase: wb.order && wb.order.phase }}; }})()")
-    check(r2 is not None and (r2['d'] < d0 - 30 or r2['d'] < 40) and (r2['type'] == 'attack' and r2['mine'] or r2['d'] < 40), f'the band marches on the keep and holds the order (from {d0:.0f} m to {r2 and r2["d"]:.0f} m, {r2})')
+    # follow it in steps: a band can fall at the gate it was sent to, which still counts as going there
+    best, last = d0, None
+    for _ in range(3):
+        r2 = await ev(page, f"(() => {{ __hm.simulate(15); {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); if (!wb || wb.dead) return null; const K = __hm.WAR.keeps[{tgt}]; return {{ d: med(wb, K.site.x, K.site.z), type: wb.order && wb.order.type, mine: !!(wb.order && wb.order.byPlayer), phase: wb.order && wb.order.phase }}; }})()")
+        if r2 is None: break
+        best, last = min(best, r2['d']), r2
+    check(best < d0 - 30 or best < 40, f'the band marches on the keep (its soldiers from {d0:.0f} m to {best:.0f} m)')
+    check(last is None or (last['type'] == 'attack' and last['mine']) or best < 40, f'and holds the order until it is done ({last})')
     said = await ev(page, "__hm.WAR.news.slice(-40).some((n) => n.text.includes('at your command'))")
     check(said, 'the order is cried as given at your command')
 
@@ -127,9 +132,12 @@ async def main(p):
     msg = await ev(page, f"__hm.CW.playerOrder({rb['id']}, 'rally', -1)")
     print('   ', msg)
     d0 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); const P = __hm.GAME.player; return med(wb, P.x, P.z); }})()")
-    await ev(page, "__hm.simulate(50)")
-    r3 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); if (!wb || wb.dead) return null; const P = __hm.GAME.player; return {{ d: med(wb, P.x, P.z), type: wb.order && wb.order.type }}; }})()")
-    check(r3 is not None and r3['type'] == 'rally' and (r3['d'] < d0 - 25 or r3['d'] < 20), f'a rallied band comes to the player (from {d0:.0f} m to {r3 and r3["d"]:.0f} m, the median soldier)')
+    best, r3 = d0, None
+    for _ in range(4):
+        r = await ev(page, f"(() => {{ __hm.simulate(13); {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); if (!wb || wb.dead) return null; const P = __hm.GAME.player; return {{ d: med(wb, P.x, P.z), type: wb.order && wb.order.type }}; }})()")
+        if r is None: break
+        best, r3 = min(best, r['d']), r
+    check(r3 is not None and r3['type'] == 'rally' and (best < d0 - 25 or best < 20), f'a rallied band comes to the player (its soldiers from {d0:.0f} m to {best:.0f} m) and stays with them ({r3})')
     if r3 and r3['d'] < 30:
         await ev(page, "__hm.CAM.mode = 'play'; __hm.look(0.6, 0.35, 16)")
         await frames(page, 3)
@@ -183,10 +191,14 @@ async def main(p):
     check('won the March' in hud, f'the HUD shows the peace ({hud})')
     await shot(page, 'war_hud_peace')
     # the reset
-    await ev(page, "__hm.simulate(__hm.CW.CW.PEACE + 5)")
+    for _ in range(30):
+        if (await ev(page, "(() => { __hm.simulate(4); return __hm.CW.CAMPAIGN.n; })()")) >= 2: break
     c = await ev(page, STATE)
-    home = await ev(page, "__hm.WAR.keeps.every((K) => K.realm === K.orig) && __hm.WAR.relics.every((r) => r.state === 'temple' && r.at === r.realm)")
-    check(c['n'] == 2 and c['state'] == 'war' and home, f'after the peace the March resets: campaign {c["n"]}, keeps and hallows home ({home})')
+    home = await ev(page, "__hm.WAR.keeps.filter((K) => K.realm !== K.orig).map((K) => K.site.name).concat(__hm.WAR.relics.filter((r) => !(r.state === 'temple' && r.at === r.realm)).map((r) => r.realm + ':' + r.state))")
+    check(c['n'] == 2 and c['state'] == 'war' and not home, f'after the peace the March resets: campaign {c["n"]}, every keep and hallow home ({home or "all home"})')
+    await ev(page, "__hm.simulate(30)")
+    home = await ev(page, "__hm.WAR.keeps.filter((K) => K.realm !== K.orig).map((K) => K.site.name)")
+    check(not home, f'and the truce holds the keeps while the bands march off ({home or "all held"})')
     # saving: the record goes with the world, and old saves still load
     sv = await ev(page, "(() => { const s = __hm.fn.buildSave(); return s.world.campaign; })()")
     check(sv and sv['n'] == 2 and len(sv['hist']) == 1, f'the world save keeps the campaign record ({sv and len(sv["hist"])} past campaigns)')

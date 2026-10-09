@@ -31,7 +31,7 @@ const CW = {
 const CAMPAIGN = {
   n: 1, t0: 0, state: 'war', peaceUntil: 0, winner: -1, how: '',
   claims: [0, 1, 2].map(() => ({ k: 0, h: 0, kOn: false, hOn: false, warned: 0 })),
-  renown: [0, 0, 0], story: null, history: [], longSaid: false, pendingVictory: null,
+  renown: [0, 0, 0], story: null, history: [], longSaid: false, pendingVictory: null, truceUntil: 0,
   seen: { keeps: [], doors: new Map(), relics: [] },
 };
 const WB_ORD = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'];
@@ -380,12 +380,10 @@ function updateCampaign(dt) {
       wb.cwMine = null;
     }
   }
-  if (CAMPAIGN.state === 'peace') {
-    // the truce: no keep changes hands while the armies go home
-    for (const K of WAR.keeps) { const Lr = getEnt(K.lord); if (Lr && Lr.alive) Lr.hp = Lr.maxHp; }
-    if (now > CAMPAIGN.peaceUntil) resetMarch();
-    return;
-  }
+  // the truce: no keep changes hands while the armies go home, nor in the first half minute after the
+  // reset, while bands still near a keep they were fighting for walk away to their new orders
+  if (CAMPAIGN.state === 'peace' || now < CAMPAIGN.truceUntil) for (const K of WAR.keeps) { const Lr = getEnt(K.lord); if (Lr && Lr.alive) Lr.hp = Lr.maxHp; }
+  if (CAMPAIGN.state === 'peace') { if (now > CAMPAIGN.peaceUntil) resetMarch(); return; }
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
@@ -487,6 +485,7 @@ function resetMarch() {
   updateRelicBonuses();
   CAMPAIGN.n++;
   CAMPAIGN.t0 = GAME.t;
+  CAMPAIGN.truceUntil = GAME.t + 30;
   CAMPAIGN.state = 'war';
   CAMPAIGN.winner = -1;
   CAMPAIGN.how = '';
