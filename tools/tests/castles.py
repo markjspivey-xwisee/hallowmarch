@@ -126,8 +126,49 @@ async def main():
             for realm in (0, 1, 2):
                 r = await ev(page, f'archer walks up {realm}', f"(() => {{ const K = T.keep({realm}, 0); const S = K.site; T.put(S, 0, 60); for (const id of [...K.guards]) {{ const g = __hm.fn.getEnt(id); if (g && g.ai.slot === 'w0') {{ g.alive = false; K.guards.delete(id); __hm.fn.removeEnt(g); }} }} __hm.fn.fillGarrison(K, false); __hm.fn.fillGarrison(K, false); const g = [...K.guards].map(__hm.fn.getEnt).find((e) => e && e.ai.slot === 'w0'); if (!g) return null; const start = {{ x: g.x, z: g.z, y: +(g.y - S.y).toFixed(2), route: !!g.ai.route }}; const ys = []; for (let i = 0; i < 30 && g.ai.route; i++) {{ __hm.simulate(1); ys.push(+(g.y - S.y).toFixed(1)); }} return {{ start, ys, end: {{ y: +(g.y - S.y).toFixed(2), d: +Math.hypot(g.x - g.ai.post.x, g.z - g.ai.post.z).toFixed(2), route: !!g.ai.route }}, post: K.slots.walls[0] }}; }})()")
                 check(r and r['start']['route'] and r['start']['y'] < 0.5 and not r['end']['route'] and r['end']['d'] < 1.0 and abs(r['end']['y'] - r['post'][1]) < 0.4, f'a new wall archer walks up the stairs from the courtyard to its post (realm {realm})')
-            r = await ev(page, 'attacker climbs', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, 70); const e = T.foe(S, 1, 8, -2, 'warrior'); e.tweak = { hp: 30 }; __hm.fn.setupStats(e); let maxY = 0; for (let i = 0; i < 24; i++) { __hm.simulate(0.5); maxY = Math.max(maxY, e.y - S.y); } const r = { maxY: +maxY.toFixed(2), alive: e.alive, target: e.target }; T.clearFoes(); return r; })()")
+            r = await ev(page, 'attacker climbs', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, 70); for (const id of [...K.guards]) { const g = __hm.fn.getEnt(id); if (g && !g.ai.wall) { K.guards.delete(id); __hm.fn.removeEnt(g); } } { const L = __hm.fn.getEnt(K.lord); if (L) { __hm.fn.removeEnt(L); K.lord = null; } } K.nextGuardAt = 1e9; const e = T.foe(S, 1, 8, -2, 'warrior'); e.tweak = { hp: 30 }; __hm.fn.setupStats(e); let maxY = 0; for (let i = 0; i < 24; i++) { __hm.simulate(0.5); maxY = Math.max(maxY, e.y - S.y); } const r = { maxY: +maxY.toFixed(2), alive: e.alive, target: e.target }; T.clearFoes(); return r; })()")
             check(r['maxY'] > 6.5, 'an enemy who gets into the courtyard climbs the stairs after the archers')
+
+        # 4. a wall section is battered to a breach, walked through, and rebuilt
+        if not ONLY or ONLY == 'breach':
+            r = await ev(page, 'breach', "(() => { const K = T.keep(0, 0), S = K.site, C = S.castle, W = C.sections[0]; T.put(S, 0, 70); const e = T.foe(S, 1, 0, 60, 'mage'); const hp = []; for (let i = 0; i < 30 && W.state === 'whole'; i++) { __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); hp.push(+(W.hp / W.maxHp).toFixed(2)); } T.clearFoes(); return { state: W.state, hits: hp.length, hp: hp.slice(0, 4), coll: W.coll ? W.coll.active : null, floors: W.floors.map((f) => f.active), wreck: W.wreck.visible, patched: __hm.fn.CASTLE_PATCHED.slice() }; })()")
+            check(r['state'] == 'breach' and r['coll'] is False and not any(r['floors']) and r['wreck'], 'meteors crack a wall section and bring it down into a breach (collider and walk gone, rubble shown)')
+            check(len(r['patched']) == 2, 'the castle shader patched in its breach cut and its cracks')
+            if SHOTS:
+                await shot(page, 'castle_breach', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'through the breach', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.put(S, W.lx - 4.5, W.lz); const a = T.walkTo(S, W.lx + 4.5, W.lz, 6); return a; })()")
+            check(r['lx'] > -12.5, 'the player climbs over the rubble through the breach into the courtyard')
+            r = await ev(page, 'repair', "(() => { const K = T.keep(0, 0), S = K.site, W = S.castle.sections[0]; T.put(S, 0, 70); K.lastEnemyNear = -999; __hm.simulate(30); const a = { state: W.state, t: +W.t.toFixed(2), scaffold: W.scaffold.visible }; return a; })()")
+            check(r['state'] == 'repair' and r['scaffold'], 'when the castle is quiet its owners put up scaffolding and start to rebuild')
+            if SHOTS:
+                await shot(page, 'castle_repair', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; __hm.simulate(40); T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'repaired', "(() => { const K = T.keep(0, 0), S = K.site, W = S.castle.sections[0]; K.lastEnemyNear = -999; for (let i = 0; i < 20 && W.state !== 'whole'; i++) __hm.simulate(10); return { state: W.state, coll: W.coll.active, floors: W.floors.map((f) => f.active), fresh: +W.fresh.toFixed(2), scaffold: W.scaffold.visible }; })()")
+            check(r['state'] == 'whole' and r['coll'] and all(r['floors']) and not r['scaffold'], 'after a few minutes the wall stands whole again, walk and all')
+            if SHOTS:
+                await shot(page, 'castle_rebuilt', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'round breach', "(() => { const S = T.keep(1, 1).site, W = S.castle.sections[0]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
+            check(r['state'] == 'breach' and r['coll'] is False, 'a round rath\'s ring wall can be breached too')
+            if SHOTS:
+                await shot(page, 'castle_breach_round', "(() => { const S = T.keep(1, 1).site, W = S.castle.sections[0]; const o = { x: W.lx * 1.9, z: W.lz * 1.9 }; T.cam(S, o.x, 7, o.z, W.lx, 3, W.lz); })()")
+            r = await ev(page, 'timber breach', "(() => { const S = T.keep(2, 1).site, W = S.castle.sections[1]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
+            check(r['state'] == 'breach' and r['coll'] is False, 'a timber palisade can be breached too')
+            if SHOTS:
+                await shot(page, 'castle_breach_timber', "(() => { const S = T.keep(2, 1).site, W = S.castle.sections[1]; T.cam(S, W.lx + 12, 6, W.lz + 5, W.lx, 3, W.lz); })()")
+
+        # 5. how it all looks
+        if SHOTS and (not ONLY or ONLY == 'shots'):
+            await ev(page, 'shots setup', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 4); __hm.simulate(3); return T.gate(S); })()")
+            await shot(page, 'castle_stone', "(() => { const S = T.keep(0, 0).site; T.cam(S, -30, 21, 40, 0, 3, 3); })()")
+            await shot(page, 'castle_stone_gate', "(() => { const S = T.keep(0, 0).site; T.cam(S, 6, 3.2, 27, 0, 3.2, 14); })()")
+            await shot(page, 'castle_stone_stairs', "(() => { const S = T.keep(0, 0).site; T.cam(S, 1, 5.5, 8, 13, 4.5, -3); })()")
+            await shot(page, 'castle_stone_walk', "(() => { const S = T.keep(0, 0).site; T.cam(S, 14.4, 8.8, -4.2, 14.6, 8.6, 8); })()")
+            await shot(page, 'castle_stone_tower', "(() => { const S = T.keep(0, 0).site; T.cam(S, 6, 14, 3, 14.8, 10.5, 14.8); })()")
+            await shot(page, 'castle_round', "(() => { const S = T.keep(1, 0).site; T.cam(S, -27, 19, 30, 0, 2, 0); })()")
+            await shot(page, 'castle_round_inside', "(() => { const S = T.keep(1, 0).site; T.cam(S, -4, 7, -4, 13, 4, 6); })()")
+            await shot(page, 'castle_timber', "(() => { const S = T.keep(2, 0).site; T.cam(S, -27, 18, 30, 0, 2, 0); })()")
+            await shot(page, 'castle_timber_inside', "(() => { const S = T.keep(2, 0).site; T.cam(S, -2, 6.5, -6, 12, 4, 6); })()")
+            await shot(page, 'castle_temple', "(() => { const S = __hm.REALMS[0].templeSite; T.cam(S, -20, 13, 26, 0, 1.5, 0); })()")
+            await shot(page, 'castle_banners_town', "(() => { const S = __hm.REALMS[0].town, h = S.houses.find((q) => q.kind === 'hall'); const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const y = __hm.fn.heightAt(h.x, h.z); H.camera.position.set(h.x + fx * (h.d / 2 + 12) + fz * 4, y + 4.5, h.z + fz * (h.d / 2 + 12) - fx * 4); H.camera.lookAt(h.x + fx * (h.d / 2 + 2), y + 3, h.z + fz * (h.d / 2 + 2)); H.camera.updateMatrixWorld(); })()")
 
         r = await ev(page, 'errors', "__hm.errors.slice(0, 5)")
         check(len(r) == 0, '__hm.errors is empty')

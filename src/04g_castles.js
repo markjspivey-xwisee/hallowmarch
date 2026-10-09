@@ -423,7 +423,7 @@ function portcullisGeo(w, h) {
   return b.build();
 }
 function gateWreckGeo(S, st, hw, h, timber) {
-  const b = new Batch(), M = siteMatrix(S), gz = S.gateLocal.z, wood = darker(st.wood, 0.7), r = mulberry(S.x * 13 + S.z * 7);
+  const b = new Batch(), M = siteMatrix(S), gz = S.gateLocal.z, wood = darker(st.wood, 0.7), r = mulberry(Math.round(Math.abs(S.x * 13 + S.z * 7)));
   // one leaf hangs from its lowest hinge, smashed off above; the other lies broken across the threshold inside
   const nb = Math.round(hw / 0.36);
   for (let i = 0; i < nb; i++) {
@@ -610,7 +610,9 @@ function castleInside(C, x, z) {
 function castleWaypoint(e, t) {
   const C = castleAt(t.x, t.z);
   if (!C || !C.posts.length) return null;
-  const up = t.y - e.y > 2.2, down = e.y - t.y > 2.2;
+  // heights above the ground, so a foe up a hillside is not mistaken for one up on a wall
+  const dy = (t.y - heightAt(t.x, t.z)) - (e.y - heightAt(e.x, e.z));
+  const up = dy > 2.2, down = dy < -2.2;
   if (!up && !down) return null;
   if (!elevatedEnt(e) && !castleInside(C, e.x, e.z)) return null;
   const K = C.S.keepRef;
@@ -641,8 +643,9 @@ function castleClimbToward(e, t, dt) {
   return true;
 }
 function castleCanReach(e, t) {
-  if (e.rangedKind) return true;
-  if (Math.abs(t.y - e.y) < 2.2) return true;
+  if (e.rangedKind || t.kind === 'door') return true;
+  const dy = (t.y - heightAt(t.x, t.z)) - (e.y - heightAt(e.x, e.z));
+  if (Math.abs(dy) < 2.2) return true;
   const C = castleAt(t.x, t.z);
   return !!(C && C.posts.length && (elevatedEnt(e) || castleInside(C, e.x, e.z)));
 }
@@ -722,7 +725,6 @@ function castleSplitColl(c, axis, u0, u1) {
   piece(-ext, u0); piece(u1, ext);
   return piece(u0, u1);
 }
-function siteLocal(S, x, z) { const dx = x - S.x, dz = z - S.z, c = Math.cos(S.yaw), s = Math.sin(S.yaw); return { lx: dx * c - dz * s, lz: dx * s + dz * c }; }
 function breachGeo(C, W) {
   const b = new Batch(), M = C.M, st = C.st, r = mulberry(Math.round(C.S.x * 7 + C.S.z * 3 + W.k * 101));
   const px = -W.az, pz = W.ax; // across, in the site frame

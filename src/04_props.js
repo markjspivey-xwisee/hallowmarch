@@ -221,14 +221,6 @@ const buildingMat = mat({
 });
 
 /* --- realm-specific keep builders (site frame: +Z faces the centre) --- */
-function merlonRow(b, M, x0, z0, x1, z1, y, st, mt = MAT.stone) {
-  const len = Math.hypot(x1 - x0, z1 - z0), n = Math.floor(len / 1.35);
-  const yaw = Math.atan2(x1 - x0, z1 - z0);
-  for (let i = 0; i < n; i++) {
-    const t = (i + 0.5) / n;
-    b.add(G.box, lm(M, lerp(x0, x1, t), y, lerp(z0, z1, t), yaw, 0.55, 0.9, 0.75), mt, st);
-  }
-}
 function keepStone(b, S, st, R) {
   const M = siteMatrix(S), hs = KEEP_HS, t = KEEP_T, H = WALL_H, by = S.y;
   const wall = (x, z, sx, sz) => b.add(G.box, lm(M, x, H / 2 - 0.7, z, 0, sx, H + 1.4, sz), MAT.stone, st.stone, by, 4);
@@ -399,7 +391,6 @@ function townModel(b, S, st, R) {
   const banners = [];
   buildHouses(S, st, R); // houses have their own meshes and shader (04e_houses.js)
   for (const h of S.houses) {
-    const by = heightAt(h.x, h.z);
     if (h.kind === 'hall') {
       // castles: the hall's banners hang from crossbars on their own poles out in front, clear of the eaves,
       // the door and the shutters, free to stream with the wind (they used to hang in the air)
