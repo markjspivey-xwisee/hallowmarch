@@ -214,6 +214,7 @@ function updateHUD(dt) {
   // error fade
   if (UI.errorT > 0) { UI.errorT -= dt; if (UI.errorT <= 0) $('error').classList.remove('on'); }
   if (UI.frame % 15 === 1) updateWarPanel();
+  updateCampaignUI(dt); // [campaign] the victory screen and the live map (08g_campaign.js)
   if (UI.frame % 3 === 1) drawMinimap();
   updateNameplates();
   updateFloaters(dt);
@@ -225,7 +226,7 @@ function updateWarPanel() {
     const rel = WAR.relics.filter((x) => x.state === 'temple' && x.at === R.id).map((x) => `<i style="--rc:${REALMS[x.realm].color}" title="${REALMS[x.realm].hallow}"></i>`).join('');
     return `<div class="row ${R.id === P.faction ? 'me' : ''}" style="--rc:${R.color}"><span class="sw"></span><span>${R.name}</span><span class="k" title="Keeps held">${keeps} keeps</span><span class="rel">${rel}</span></div>`;
   }).join('');
-  const html = rows + `<div class="tod"><span>${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
+  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + `<div class="tod"><span>${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
   const w = $('war');
   if (w._h !== html) { w.innerHTML = html; w._h = html; }
 }
@@ -366,6 +367,7 @@ function drawMinimap() {
     ctx.beginPath(); ctx.arc(x, y, (e.faction <= 2 && e.faction !== P.faction ? 2.4 : 1.8) * dpr, 0, TAU); ctx.fill();
   });
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = toM(p.x, p.z); ctx.fillStyle = '#ffe28a'; ctx.beginPath(); ctx.arc(x, y, 3.2 * dpr, 0, TAU); ctx.fill(); }
+  if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   const t = getEnt(P.target);
   if (t) { const [x, y] = toM(t.x, t.z); ctx.strokeStyle = '#ffe28a'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(x, y, 5 * dpr, 0, TAU); ctx.stroke(); }
   // view cone and player arrow
@@ -417,7 +419,7 @@ function drawDungeonMapView(ctx, S, P) {
     <button class="btn" type="button" id="btn-mapclose">Close map</button>`;
   $('btn-mapclose').onclick = () => toggleMap(false);
 }
-function drawWorldMap() {
+function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live redraw leaves the side panel alone
   const cv = $('mapcanvas'), P = GAME.player;
   const ctx = cv.getContext('2d');
   const S = cv.width;
@@ -452,6 +454,7 @@ function drawWorldMap() {
     ctx.beginPath(); ctx.arc(x, y, S * 0.0075, 0, TAU); ctx.fill(); ctx.stroke();
     if (wb.engaged) { ctx.strokeStyle = 'rgba(255,220,120,0.9)'; ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6); ctx.stroke(); }
   }
+  drawCampaignMap(ctx, S, P); // [campaign] routes, order badges and the claim (08g_campaign.js)
   const b = GAME.prog.bounty;
   if (b && !b.done) { const c = CAMPS[b.camp]; const [x, y] = w2m(c.x, c.z, S); ctx.strokeStyle = '#ffd36a'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(x, y, S * 0.02, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
   const [px, py] = w2m(P.x, P.z, S);
@@ -459,6 +462,7 @@ function drawWorldMap() {
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, -S * 0.016); ctx.lineTo(S * 0.011, S * 0.013); ctx.lineTo(0, S * 0.006); ctx.lineTo(-S * 0.011, S * 0.013); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
+  if (canvasOnly) return; // [campaign]
   // side panel
   const side = $('mapside');
   const keepRows = WAR.keeps.map((K) => `<li><b>${K.site.name}</b><span style="color:${REALMS[K.realm].color}">${REALMS[K.realm].name}${GAME.t < K.underSiegeUntil ? ' · under siege' : ''}</span></li>`).join('');
@@ -467,10 +471,11 @@ function drawWorldMap() {
     return `<li><b style="color:${REALMS[r.realm].light}">${REALMS[r.realm].hallowName}</b><span>${where}</span></li>`;
   }).join('');
   const news = WAR.news.slice(-6).reverse().map((n) => `<div>${n.text}</div>`).join('') || '<div>The frontier is quiet, for now.</div>';
-  side.innerHTML = `<h3>The Hallowmarch</h3>
+  side.innerHTML = `<h3>The Hallowmarch</h3><div id="cw-side-host"></div>
     <div class="legend"><span><i style="background:#ddd;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)"></i>Keep (colour shows the holder)</span><span><i style="background:#ddd;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)"></i>Temple of a hallow</span><span><i style="background:#ddd;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>Muster and portal</span><span><i style="background:#ffe28a;border-radius:50%"></i>A hallow</span></div>
     <ul>${keepRows}</ul><ul>${relicRows}</ul><div class="news">${news}</div>
     <button class="btn" type="button" id="btn-mapclose">Close map</button>`;
+  cwRefreshSide(true); // [campaign] the campaign and the warbands (08g_campaign.js)
   $('btn-mapclose').onclick = () => toggleMap(false);
 }
 function bgClose(id, fn) {
@@ -524,6 +529,7 @@ function updateNameplates() {
     const txt = e.kind === 'door' ? e.name : `${e.name}`;
     if (el._txt !== txt) { el._n.textContent = txt; el._txt = txt; }
     el.style.setProperty('--nc', nameColor(e, P));
+    campaignPlate(el, e); // [campaign] a band's order over its captain (08g_campaign.js)
     const sel = P.target === e.id;
     el.classList.toggle('sel', sel);
     const showBar = sel || (e.alive && e.hp < e.maxHp * 0.999) || (e.faction <= 2 && e.faction !== P.faction);
@@ -709,7 +715,7 @@ function renderMenu(tab) {
       <kbd>Target · Use · Jump</kbd><span>Cycle enemies, use a portal stone or take a hallow, and jump.</span>
       <kbd>Ride</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>
       <kbd>Potion · Kit</kbd><span>Drink a healing draught · open your gear and bags.</span></div>
-      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>`
+      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>The war is fought in campaigns. A realm that holds four of the six keeps for five minutes, or both enemy hallows for four, wins the March; after an hour the realm with the most renown wins. Then the keeps and hallows go home and a new campaign begins. From realm rank 3 or level 20 you can command your realm's warbands from the map.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>`
       : `<div class="keys">
       <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
       <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
@@ -720,7 +726,7 @@ function renderMenu(tab) {
       <kbd>R</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>
       <kbd>I · Q</kbd><span>Your gear and bags · drink a healing draught.</span>
       <kbd>M · L · Esc</kbd><span>Map · log · menu.</span></div>
-      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>`;
+      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>The war is fought in campaigns. A realm that holds four of the six keeps for five minutes, or both enemy hallows for four, wins the March; after an hour the realm with the most renown wins. Then the keeps and hallows go home and a new campaign begins. From realm rank 3 or level 20 you can command your realm's warbands from the map.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>`;
   }
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });
@@ -764,6 +770,7 @@ function openHerald() {
     body += `<p>The ${nb.name}s are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
     acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${nb.name}s`, 'quest'); saveSoon(); }]);
   }
+  if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

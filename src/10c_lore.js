@@ -395,6 +395,9 @@ const FIELD_NOTES = {
   dragon: { t: 'Cinderwing', x: () => 'The great red dragon. It lands on high ground to fight: keep out of the line of its fire and away from its tail, and do not take it on alone unless you are far stronger.' },
   lowhp: { t: 'Badly hurt', x: () => `${capFirst(LK().potion)} to drink a healing draught and win back 40% of your health. Out of a fight you heal on your own.` },
   carry: { t: 'Hallow-bearer', x: (R) => `You carry a hallow. You walk slowly and cannot ride or fight, and every enemy wants you dead. Get it to the ${R.templeName} with your warband around you.` },
+  command: { t: 'Command', x: (R) => `You may now command the warbands of ${R.name}. Open the map (${LK().map}), choose a band, and give it a keep or temple to take, or tell it to rally to you.` },
+  claim: { t: 'A claim on the March', x: () => 'A realm holds four keeps, or both enemy hallows. If it keeps them long enough it wins the campaign: watch the countdown under the minimap, and break the hold if it is not yours.' },
+  campaign: { t: 'The campaign is over', x: () => 'After a short peace every keep and hallow goes back to its own realm and a new campaign begins. The Chronicle keeps the record of each.' },
   death: { t: 'Death', x: (R) => `You lose nothing but the walk back: your gear, gold and experience stay with you. Release to rise again at ${R.name} Muster if you fell on the frontier, or in ${R.townName} at home.` },
 };
 const LOADING_TIPS = [
@@ -416,7 +419,10 @@ const LOADING_TIPS = [
   'A realm down to its last keep musters bigger warbands, and faster.',
   'Named champions lead the camps of the borderlands, from level 20 to 40.',
   'Realm points come from enemy soldiers, keeps and hallows. Each realm rank adds to your health and damage.',
-  'Commanders send their warbands at near, weak keeps, and above all at keeps their own realm has lost.',
+  'Commanders send their warbands at near, weak keeps, and above all at keeps their own realm has lost. Every order is drawn on your map.',
+  'A realm wins the campaign by holding four of the six keeps for five minutes, or both enemy hallows for four.',
+  'From realm rank 3 or level 20 you can command your realm\'s warbands from the map.',
+  'After an hour of war the elders give the March to the realm with the most renown.',
   'Your path, at the left of the screen, always shows your next step, and every step pays a reward.',
   'Out of a fight, you heal on your own. In one, a healing draught is quicker.',
   'Cinderwing rests on high ground. Keep out of the line of its fire and away from its tail.',
@@ -1077,6 +1083,10 @@ function loreWatch() {
     want('dragon', () => { const D = DRAGON.e; return out && !!D && D.alive && !D.removed && dist2(P.x, P.z, D.x, D.z) < 140 * 140; });
     want('lowhp', () => P.hp < P.maxHp * 0.35 && GAME.t < P.combatUntil && INV.potions > 0);
     want('carry', () => P.carrying != null);
+    // [campaign] (08g_campaign.js)
+    want('command', () => out && cwCanCommand() && Math.hypot(P.x, P.z) < R_RING + 40);
+    want('claim', () => CAMPAIGN.claims.some((c) => c.kOn || c.hOn));
+    want('campaign', () => CWUI.vicShown && UI.modal !== 'victory');
   }
 }
 // a field note in the banner lane; returns whether it was shown
@@ -1309,15 +1319,14 @@ function chronWar() {
   return `<p>The war has one aim: to bring the other realms' hallows home. Every hallow you hold makes your realm stronger, and every hallow you lose makes an enemy stronger. This is how a hallow changes hands.</p>
     <figure class="figure"><div class="dg-wide">${warDiagram(true)}</div><div class="dg-tall">${warDiagram(false)}</div></figure>
     <ol class="how">
-      <li><b>Break the gate.</b> A keep's gate is a target like any foe: strike it until it falls. Archers on the walls and guards in the court defend it. A gate left alone for half a minute starts to mend, and a broken gate is rebuilt once the keep has been quiet for forty seconds.</li>
+      <li><b>Break the gate.</b> A keep's gate is a target like any foe: strike it until it falls. Archers on the walls and guards in the court defend it. A gate left alone for half a minute starts to mend, and a broken gate is rebuilt once the keep has been quiet for forty seconds (longer, late in a long campaign).</li>
       <li><b>Slay the lord.</b> With the gate down, fight into the courtyard. The keep lord stands at its heart, and whoever lands the killing blow claims the keep for their realm.</li>
       <li><b>The keep is yours.</b> Its banners turn to your colours, its old garrison is gone and your realm's guards begin to arrive. Everyone of your realm nearby earns realm points.</li>
       <li><b>Their temple opens.</b> A temple gate cannot be harmed while its realm holds both of its own keeps. Once either falls, the gate can be broken, and it stays open to attack for three minutes after the keep is taken back.</li>
       <li><b>Carry the hallow home.</b> Break the temple gate, take the hallow (${LK().use}) and bring it to your own temple gate. A bearer walks slowly, cannot ride or fight, and drops the hallow if slain; a dropped hallow goes back to the temple it was taken from after a minute and a half.</li>
       <li><b>Strike harder.</b> Each foreign hallow in your temple adds a tenth to the damage of every soldier of your realm, you among them. Taking back your own hallow does not make you stronger, but it ends the enemy's gain.</li>
     </ol>
-    <h3>Why nobody seems to win</h3>
-    <p>Gates are rebuilt, keeps are retaken and dropped hallows go home, so the March swings back and forth like a tide. The realm holding the most hallows is winning, and the realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster.</p>
+    ${campaignChronHTML() /* [campaign] how a campaign is won, the standing and past campaigns (08g_campaign.js) */}
     <div class="tide" role="table" aria-label="The war now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Bonus</span><span class="h w" role="columnheader">Its own hallow</span>
       ${tide.map((t) => `<span class="r" style="--rc:${t.R.color}"><i></i>${t.R.name}</span><span class="c">${t.keeps}</span><span class="c">${t.bonus ? '+' + t.bonus + '%' : '·'}</span><span class="w">${t.R.hallowName} ${t.ownAt}</span>`).join('')}</div>
     <p class="now">${lead}</p>`;
@@ -1325,11 +1334,12 @@ function chronWar() {
 
 const ORDER_INFO = [
   { k: 'attack', ic: 'sword', t: 'Attack', when: 'The usual order', x: 'March on an enemy keep, lay siege to its gate, storm the courtyard and kill the lord. A band that takes a keep holds it for half a minute before its next order.' },
-  { k: 'defend', ic: 'shield', t: 'Defend', when: 'A keep of ours is under attack', x: 'March to the keep and fight the besiegers until it has been quiet for a while, or until it falls.' },
-  { k: 'raid', ic: 'flame', t: 'Raid', when: 'An enemy temple lies open', x: 'Break the temple gate and seize a hallow, their own first if that enemy holds it. A second band musters at once to follow the first.' },
+  { k: 'defend', ic: 'shield', t: 'Defend', when: 'A keep of ours is in danger', x: 'March to a keep whose gate is badly battered or broken, and fight the besiegers until it has been quiet for a while, or until it falls.' },
+  { k: 'raid', ic: 'flame', t: 'Raid', when: 'An enemy temple lies open', x: 'Break the temple gate and seize a hallow, our own first if that enemy holds it. Only one realm raids a temple at a time; the others leave it be.' },
   { k: 'carry', ic: 'lcarry', t: 'Carry', when: 'One of the band holds a hallow', x: 'Escort the bearer home to the temple gate. The bearer walks slowly and cannot fight; the band fights around them.' },
   { k: 'retrieve', ic: 'lretrieve', t: 'Retrieve', when: 'The most urgent order of all', x: 'A hallow lies in the field, or an enemy is carrying ours away: run it down and take it back.' },
-  { k: 'patrol', ic: 'lpatrol', t: 'Patrol', when: 'Raiders at our temple, or nothing to do', x: 'Guard our temple gate while raiders are at it. With nothing better to do, a band walks to one of our keeps and keeps watch.' },
+  { k: 'patrol', ic: 'lpatrol', t: 'Patrol', when: 'Raiders at our temple, or nothing to do', x: 'Guard our temple gate while raiders are at it. With nothing better to do, a band walks to our most battered keep and keeps watch. When a campaign ends, every band patrols home.' },
+  { k: 'rally', ic: 'horn', t: 'Rally', when: 'Only at your command', x: 'Follow you about the frontier and fight at your side for five minutes, or until you fall or leave the frontier.' },
 ];
 function orderLine(wb) {
   const O = wb.order, n = wbMembers(wb).length;
@@ -1340,20 +1350,24 @@ function orderLine(wb) {
   else if (O.temple) what = O.temple.site.name;
   else if (O.relic) what = REALMS[O.relic.realm].hallowName + (O.type === 'carry' ? ', home' : '');
   else if (O.node) { const K = WAR.keeps.find((q) => q.nav.gate === O.node), T = WAR.temples.find((q) => q.nav.tg === O.node); what = K ? K.site.name : T ? T.site.name : ''; }
+  else if (O.type === 'rally') what = GAME.player.name;
   const ph = O.type === 'carry' ? 'bearing it home' : O.type === 'retrieve' ? 'giving chase' : O.type === 'patrol' ? 'on watch' : { travel: 'on the march', siege: 'at the gate', assault: 'storming the court', hold: 'holding it' }[O.phase] || '';
-  return { ic: I.ic, t: `${I.t}${what ? ': ' + what : ''}`, ph: `${n} soldiers · ${ph}` };
+  return { ic: I.ic, t: `${wbName(wb, false)} · ${I.t}${what ? ': ' + what : ''}`, ph: `${n} soldiers · ${O.byPlayer ? 'your order · ' : ''}${O.home ? 'marching home' : O.type === 'rally' ? 'at your side' : ph}` }; // [campaign] band names, your orders
 }
 function chronOrders() {
   const P = GAME.player, R = REALMS[P.faction];
   const mine = WAR.warbands.filter((wb) => wb.realm === P.faction && !wb.dead);
   const live = mine.length ? mine.map((wb) => { const o = orderLine(wb); return `<div>${iconSvg(o.ic, 16)}<span>${esc(o.t)}</span><em>${o.ph}</em></div>`; }).join('') : `<div>${iconSvg('lpatrol', 16)}<span>No warbands of ${R.name} are in the field.</span><em>more gather at the muster</em></div>`;
-  return `<p>Each realm has a commander who gives every warband an order and thinks again every few seconds. Bands obey the most urgent need first, which is why a band will sometimes turn around in the middle of a march.</p>
+  // [campaign] the commanders as they now think (08g_campaign.js)
+  return `<p>Each realm has a commander who gives every warband an order, thinks again every few seconds, and says what each band is doing and why. The orders are cried in the log, drawn on the map and the minimap as routes to their objectives, and shown over each band's captain.</p>
     <div class="grid2">${ORDER_INFO.map((o) => `<div class="order"><b>${iconSvg(o.ic, 18)}${o.t}</b><em>${o.when}</em><p>${o.x}</p></div>`).join('')}</div>
-    <h3>In order of urgency</h3>
-    <ol class="how"><li><b>Retrieve</b> a hallow lying in the field or being carried off.</li><li><b>Patrol</b> our own temple gate while raiders are at it.</li><li><b>Defend</b> a keep of ours under siege.</li><li><b>Raid</b> an open enemy temple, when the chance comes.</li><li><b>Attack</b> the most tempting enemy keep.</li><li><b>Patrol</b> one of our keeps when there is nothing else to do.</li></ol>
-    <h3>Why the attacks can look random</h3>
-    <p>A commander weighs every enemy keep: how far it is from the muster, how many guards it has and how battered its gate is, and above all whether it was built by his own realm and lost. A little chance decides between keeps that score about the same, so two bands may march two ways, and no more than two bands go after one keep.</p>
-    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster.</p>
+    <h3>How a commander chooses</h3>
+    <ol class="how"><li><b>Retrieve</b> a hallow lying in the field or being carried off: the nearest band on the march turns round for it.</li><li><b>Patrol</b> our own temple gate while raiders are at it.</li><li><b>Defend</b> a keep of ours whose gate is badly battered or broken. When a gate falls, the nearest band on the march turns back to save it.</li><li><b>Raid</b> an enemy temple left open, to bring our own hallow home, or to take the second hallow of a claim.</li><li><b>Attack</b> the best enemy keep: one our realm built and lost, one whose gate is already down, one that would give us a fourth keep, or one held by a realm close to winning. Nearer keeps and thinner garrisons count too, and a little chance decides between keeps that score about the same.</li><li><b>Patrol</b> our most battered keep when there is nothing else to do.</li></ol>
+    <h3>Spreading out</h3>
+    <p>Each band leans toward one of its realm's two fronts, so a realm fights in two places at once. Two bands of one realm go after the same keep only when it is decisive: its gate is down, it is ours by right, or it wins or saves the March. A commander also keeps out of a fight two other realms are already having, so all three armies rarely meet in one place.</p>
+    <p>On the way, a band is <b>on the march</b>; at an enemy gate it <b>lays siege</b> and strikes the gate whenever no defender is in reach; once the gate falls it <b>storms the court</b>; after a capture it <b>holds</b> the keep. New bands of seven to ten soldiers gather at the muster every half minute or so, two to four at a time depending on your graphics setting. A realm down to its last keep musters bigger bands, faster, and late in a long campaign every muster sends bigger bands of veterans.</p>
+    <h3>Your orders</h3>
+    <p>${cwCanCommand() ? 'You have earned the right to command.' : 'From realm rank 3 or level 20 you may command too.'} Open the map (${LK().map}), choose one of ${R.name}'s warbands, then pick a keep to attack or defend or an open temple to raid, or tell it to rally to you. A band holds your order until the deed is done, a keep taken, a siege lifted, a hallow seized or the rally over, and then its commander takes it back. You can hand it back to the commander at any time.</p>
     <h3>The warbands of ${R.name} now</h3>
     <div class="live">${live}</div>`;
 }
