@@ -238,7 +238,7 @@ const nearTreeMat = mat({
         col += uLightColor * spow(dot(n, H), 24.0) * 0.08 * sh;
       }
       /* ---- weather (feature/weather): wet bark darkens, wet leaves shine, snow lies along the boughs too ---- */
-      if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.4 : 0.15); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.75), vPart < 0.5 ? 0.8 : 0.3, sh) * vAO; }
+      if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.4 : 0.15); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.35), vPart < 0.5 ? 0.8 : 0.65, sh) * vAO; }
       if (vPart < 0.5) col = mix(col, snowAlbedo(vW) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), snowAmount(vW, n, uSnowCover, vec3(0.0)) * 0.9);
       // snow lies on the boughs in clumps, thickest on what faces up (feature/weather: was only on faces turned straight up)
       float sF = uSnowCover * smoothstep(-0.25, 0.55, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 2.1 + vW.y * 1.3))) * step(0.5, vPart);
