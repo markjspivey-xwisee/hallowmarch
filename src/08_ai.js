@@ -766,6 +766,13 @@ function thinkSoldier(e, dt) {
     if (wb.leaderGoal) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 1, 0.5);
     return;
   }
+  // [campaign] a band called to the player's side: its leader breaks off any fight and goes, and the
+  // rest follow once their foes are left behind (08g_campaign.js)
+  if (O && O.type === 'rally' && e === L && wb.leaderGoal && O.point && dist(e.x, e.z, O.point.x, O.point.z) > 12) {
+    e.target = null; e.casting = null;
+    moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 1, 0.8);
+    return;
+  }
   let t = getEnt(e.target);
   const anchor = L || e;
   if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, anchor.x, anchor.z) > 40 || !canReach(e, t))) { t = null; e.target = null; }
