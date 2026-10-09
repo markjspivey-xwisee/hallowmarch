@@ -180,6 +180,7 @@ function updateHUD(dt) {
   // cast bar
   const cb = $('castbar');
   if (P.casting) { cb.classList.add('on'); const A = ABILITIES[P.casting.id]; setT($('cast-n'), A.name); setT($('cast-t'), Math.max(0, P.casting.total - P.casting.t).toFixed(1) + ' s'); setW($('cast-b'), P.casting.t / P.casting.total); }
+  else if (NATURE.job) { const J = NATURE.job; cb.classList.add('on'); setT($('cast-n'), J.kind === 'chop' ? 'Chopping' : 'Splitting the log'); setT($('cast-t'), `${J.swings} / ${J.need}`); setW($('cast-b'), J.swings / J.need); } // nature (05h_nature.js): axe work
   else cb.classList.remove('on');
   // hotbar
   const abil = CLASSES[P.cls].abilities;

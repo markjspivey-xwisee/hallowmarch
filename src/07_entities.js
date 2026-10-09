@@ -506,6 +506,7 @@ function executeAbility(e, A, t, cast = null) {
           dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
           FX.sparks(o.x, chest(o), o.z);
         });
+        natureSwing(e, A.spin + 0.4, Math.PI, 30); // nature: the blade cuts the grass round about and bites into trees
         sfx('hit');
       };
       for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfx('swing'); FX.dust(e.x, e.y, e.z, 3); } });
@@ -565,6 +566,7 @@ function executeAbility(e, A, t, cast = null) {
         spellDisc(gx, gz, A.radius * 0.9, DISC_KIND.scorch, 14, [1, 1, 1]);
         spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
+        natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
         fireLandsAt(gx, gy, gz, A.radius);
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
@@ -657,6 +659,7 @@ function executeAbility(e, A, t, cast = null) {
       if (!e.alive) return;
       if (A.arc) {
         spawnSlash(e, false);
+        natureSwing(e, A.arc + 0.3, 1.1, 40); // nature: the cleave cuts the grass in its arc and bites into trees
         forNear(e.x, e.z, A.arc + 1, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           const ang = Math.abs(angDiff(e.yaw, Math.atan2(o.x - e.x, o.z - e.z)));
@@ -670,6 +673,7 @@ function executeAbility(e, A, t, cast = null) {
       }
       if (!t.alive || dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 1.5) return;
       spawnSlash(e, A.anim === 8);
+      natureSwing(e, 2.2, 0.6, 12); // nature: a low swing cuts the grass in front
       const r = computeDamage(e, t, A.dmg * rk);
       dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
       FX.sparks(t.x, chest(t), t.z);
@@ -727,6 +731,7 @@ function leapLand(e, A, rk) {
   FX.burst(e.x, e.y + 0.3, e.z, 18, [1.6, 1.3, 0.9], 5, 0.35, 0.1, 9);
   spellDisc(e.x, e.z, A.radius * 1.35, DISC_KIND.shock, 0.6, [1.4, 1.2, 0.9]);
   spellDisc(e.x, e.z, A.radius * 0.85, DISC_KIND.crack, 9, [1, 1, 1], 0.07);
+  natureSwing(e, A.radius * 0.9, Math.PI, 0); natureImpact(e.x, e.z, 'leap', A.radius); // nature: grass cut, a dent in the ground, trees knocked
   cameraShake(0.32, e.x, e.z);
   sfx('slam');
 }

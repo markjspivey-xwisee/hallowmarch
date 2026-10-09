@@ -119,6 +119,7 @@ function thinkDragon(e, dt) {
       FX.ring(e.x, e.y + 0.3, e.z, 2, [0.5, 0.45, 0.38], 50, 9);
       FX.dust(e.x, e.y, e.z, 40, [0.45, 0.4, 0.32]);
       cameraShake(0.5, e.x, e.z);
+      natureImpact(e.x, e.z, 'dragon'); // nature (05h_nature.js): the landing craters the ground and throws down trees
       sfx('thud');
       if (Pl && dist(Pl.x, Pl.z, e.x, e.z) < 260) news(`${DRAGON_NAME} has landed in the March!`, -1, 'big');
     }

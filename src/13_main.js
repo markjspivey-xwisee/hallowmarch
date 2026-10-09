@@ -83,7 +83,7 @@ async function boot() {
   await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); });
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); });
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); });
+  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); });
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
@@ -342,6 +342,7 @@ function simStep(dt) {
   updateBarrow(dt);
   updateHouses(dt);
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
+  updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
 }
 function tick(dt) {
   renderer.info.reset();
@@ -384,6 +385,7 @@ function tick(dt) {
   drawTownLife(dt);
   drawHouses(dt);
   drawFires(dt);
+  drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
@@ -481,6 +483,7 @@ window.__hm = {
   look(yaw, pitch, dist) { if (yaw !== undefined) CAM.yaw = yaw; if (pitch !== undefined) CAM.pitch = pitch; if (dist !== undefined) CAM.dist = CAM.targetDist = dist; },
   frame(dt = 1 / 60) { tick(dt); },
   INV, LOOT, QUALITY, ABILITIES, CLASSES, SPELL,
+  nature: NATURE_DEBUG, // nature (05h_nature.js)
   fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
 };
 

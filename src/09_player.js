@@ -202,6 +202,7 @@ function currentInteraction() {
   } else if (BARROW.door && P.carrying == null) offer(dist(P.x, P.z, BARROW.door.x, BARROW.door.z), 3.8, 'Enter the Hollow Barrow', () => enterBarrow());
   houseOffers(P, offer); // doors and shutters
   wearOffers(P, offer); // feature/weather: wash muddy, bloody gear at a town well or trough
+  natureOffers(P, offer); // nature (05h_nature.js): trees to chop, logs to split, firewood to light
   return best;
 }
 function playerInteract() {
