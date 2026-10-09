@@ -8,7 +8,8 @@
 // uSnowCover (05e_weather.js) through the GLSL_WEATHER chunk in 02_render.js.
 const DUR_MAX = 100;
 const ARMOUR_SLOTS = ['head', 'chest', 'hands', 'legs', 'cloak'];
-const WEAR = { strikeIn: 24, warnT: 0, wells: null, hooked: false, strikes: [], washMsgAt: -99, hud: null, lastWarn: '' };
+const WEAR = { strikeIn: 24, warnT: 0, wells: null, hooked: false, strikes: [], washMsgAt: -99, lastWarn: '' };
+let WEAR_HUD = null; // the warning on the player frame (kept out of WEAR so __hm.dbg.WEAR stays plain data)
 // the source named when the sky itself does the damage
 const SKY_SRC = { id: -78, name: 'the lightning', faction: 4 /* FACTION_NEUTRAL, defined later in 07_entities.js */, role: 'trap', level: 20, buffs: [], alive: false, scale: 1, x: 0, z: 0, y: 0 };
 
@@ -351,7 +352,7 @@ function strikeAt(c) {
 
 /* ---- the warning on the player's frame when gear is breaking ---- */
 function updateGearWarn() {
-  if (!WEAR.hud) {
+  if (!WEAR_HUD) {
     const pf = document.getElementById('pf');
     if (!pf) return;
     const st = document.createElement('style');
@@ -366,11 +367,11 @@ function updateGearWarn() {
     const d = document.createElement('div');
     d.id = 'pf-gear'; d.hidden = true;
     pf.appendChild(d);
-    WEAR.hud = d;
+    WEAR_HUD = d;
   }
   let worst = null;
   for (const s of SLOTS) { const it = INV.eq[s]; if (it && (!worst || itemDur(it) < itemDur(worst))) worst = it; }
-  const d = WEAR.hud, low = worst && itemDur(worst) < 25;
+  const d = WEAR_HUD, low = worst && itemDur(worst) < 25;
   const text = !low ? '' : itemDur(worst) <= 0 ? `${worst.name} is broken: mend it at a merchant` : `${worst.name} is breaking (${Math.ceil(itemDur(worst))}%)`;
   if (text !== WEAR.lastWarn) {
     WEAR.lastWarn = text;
