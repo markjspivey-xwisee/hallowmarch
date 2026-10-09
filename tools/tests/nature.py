@@ -62,8 +62,10 @@ window.T = {
     const W = this.F.W;
     for (let k = 0; k < 4000; k++) {
       const a = k * 2.4, r = 6 + k * 0.08, x = cx + Math.sin(a) * r, z = cz + Math.cos(a) * r;
-      if (!this.F.isWalkable(x, z)) continue;
+      if (!this.F.isWalkable(x, z) || Math.hypot(x, z) > 430) continue;
       if (this.F.sampleGrid(W.grass, x, z) < 0.7 || this.F.sampleGrid(W.road, x, z) > 0.05) continue;
+      const hh = this.F.heightAt;
+      if (Math.abs(hh(x + 6, z) - hh(x - 6, z)) + Math.abs(hh(x, z + 6) - hh(x, z - 6)) > 1.6) continue; // fairly level ground
       if (W.trees.some((t) => Math.abs(t.x - x) < 12 && Math.abs(t.z - z) < 12)) continue;
       if (this.H.REALMS.some((R) => Math.hypot(x - R.town.x, z - R.town.z) < 70)) continue;
       return { x, z };
