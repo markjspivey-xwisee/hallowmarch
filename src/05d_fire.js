@@ -106,13 +106,14 @@ function drawFires(dt) {
         0.42 + Math.random() * 0.3, c[0] * k, c[1] * k, c[2] * k, (0.26 + Math.random() * 0.2) * s, -1.2, 0.6);
     }
     f.emberAcc += dt * 4 * s;
+    if (f.indoor) f.emberAcc = 0; // a hearth: its sparks and smoke go up the chimney
     while (f.emberAcc >= 1) {
       f.emberAcc -= 1;
       fxAdd.emit(f.x + (Math.random() - 0.5) * 0.4 * s, f.y + 0.4 * s, f.z + (Math.random() - 0.5) * 0.4 * s,
         (Math.random() - 0.5) * 0.9, 1.6 + Math.random() * 1.6, (Math.random() - 0.5) * 0.9,
         1.2 + Math.random() * 0.8, c[0] * 1.2, c[1] * 1.1, c[2], 0.05, -0.4, 0.3);
     }
-    if (!f.ghost) {
+    if (!f.ghost && !f.indoor) {
       f.smokeAcc += dt * 2.2 * s;
       while (f.smokeAcc >= 1) {
         f.smokeAcc -= 1;

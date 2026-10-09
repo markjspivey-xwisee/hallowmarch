@@ -259,8 +259,7 @@ function buildTown(S, R, rnd) {
     const house = { x: p.x, z: p.z, w, d, yaw: S.yaw + yawLocal, h: 3.2 + rnd() * 0.8, kind: i === 4 ? 'hall' : 'house', seed: rnd() };
     if (house.kind === 'hall') { house.w = 8.5; house.d = 13; house.h = 4.6; }
     S.houses.push(house);
-    if (R.style === 'round') S.colliders.push(addCircle(p.x, p.z, roundHouseR(house) + 0.1, 'house', house.h + 3));
-    else S.colliders.push(addBox(p.x, p.z, house.w / 2 + 0.1, house.d / 2 + 0.1, house.yaw, 'house', house.h + 3));
+    S.colliders.push(...planHouse(S, R, house, S.houses.length - 1)); // walls with a doorway, the door, the furniture
   }
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * TAU + TAU / 12;

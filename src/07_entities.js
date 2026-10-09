@@ -423,6 +423,7 @@ function finishCast(e) {
   e.casting = null;
   if (c.id === 'summon') { mountUp(e); return; }
   const A = ABILITIES[c.id];
+  if (c.aim) { houseCastFinish(e, A, c); return; } // aimed at a house
   let t = getEnt(c.targetId);
   if (!A.ground && !A.self) {
     if (A.friendly) { if (!t || !t.alive) t = e; }
@@ -474,6 +475,7 @@ function executeAbility(e, A, t, cast = null) {
       FX.burst(e.x, e.y + 0.8, e.z, 40, [2.0, 0.8, 0.25], 6, 0.6, 0.3, 1);
       spellDisc(e.x, e.z, A.pbaoe, DISC_KIND.shock, 0.55, [2.2, 0.9, 0.3]);
       spellDisc(e.x, e.z, A.pbaoe * 0.8, DISC_KIND.scorch, 7, [1, 1, 1]);
+      fireLandsAt(e.x, e.y, e.z, A.pbaoe);
       forNear(e.x, e.z, A.pbaoe, (o) => {
         if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
         const r = computeDamage(e, o, A.dmg * rk);
@@ -561,6 +563,7 @@ function executeAbility(e, A, t, cast = null) {
         spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
+        fireLandsAt(gx, gy, gz, A.radius);
         sfx('boom');
         cameraShake(0.4, gx, gz);
       });
@@ -819,6 +822,7 @@ function updateProjectiles(dt) {
       if (p.kind === 'deadeye') spellRibbon([p.ox, p.oy, p.oz], [tx, ty, tz], 'tracer', [1.8, 1.6, 1.1], 0.16, 0.45);
       const c = PROJ_COL[p.kind];
       if (c && p.kind !== 'meteor') spellImpact(p.kind, tx, ty, tz);
+      if (p.kind === 'fire' || p.kind === 'firearrow') fireLandsAt(tx, ty, tz, 1);
       else if (c) FX.burst(tx, ty, tz, 4, c, 3, 0.4, 0.16, 2);
       else if (!p.visualOnly && t) FX.sparks(tx, ty, tz);
       continue;

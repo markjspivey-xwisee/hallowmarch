@@ -164,7 +164,9 @@ function playerUseSlot(i) {
     cycleTarget();
     t = getEnt(P.target);
   }
-  const r = useAbility(P, id, t);
+  // with no foe to aim at, a fire spell can be aimed at the house in front of you
+  const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive) ? houseFireAim(P, id) : null;
+  const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
     const msg = { cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];
     if (msg) uiError(msg);
@@ -198,6 +200,7 @@ function currentInteraction() {
     offer(dist(P.x, P.z, ex.x, ex.z), 3.4, 'Climb back up to the daylight', () => leaveBarrow());
     for (const ch of DUN.chests) if (ch.ready && !ch.opened) offer(dist(P.x, P.z, ch.x, ch.z), 3.0, ch.label || 'Open the chest', () => openChest(ch), 0.3);
   } else if (BARROW.door && P.carrying == null) offer(dist(P.x, P.z, BARROW.door.x, BARROW.door.z), 3.8, 'Enter the Hollow Barrow', () => enterBarrow());
+  houseOffers(P, offer); // doors and shutters
   return best;
 }
 function playerInteract() {
@@ -366,6 +369,9 @@ function updateCamera(dt) {
     const roof = Math.min(dunCeilAt(cx, cz), dunCeilAt(P.x, P.z), dunCeilAt((cx + P.x) / 2, (cz + P.z) / 2)) - 0.5;
     if (cy > roof) cy = Math.max(roof, fy - 0.4);
   }
+  // houses: the camera stays in the room the player is in, or outside if the player is
+  const hc = houseCamera(P.x, fy, P.z, cx, cy, cz, dt);
+  if (hc) { cx = hc.x; cy = hc.y; cz = hc.z; }
   CAM.pos.set(cx, cy, cz);
   camera.position.copy(CAM.pos);
   if (CAM.shake > 0) {
