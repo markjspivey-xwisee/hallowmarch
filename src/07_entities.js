@@ -313,7 +313,9 @@ function stepTo(e, nx, nz) {
     else return false;
   }
   _mv.x = nx; _mv.z = nz;
-  resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, null, e.faction);
+  const by = e.y - (e.hover || 0); // castles: colliders and raised floors know how high the body stands (04g_castles.js)
+  resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, by, e.faction);
+  if (castleStepBlocked(e, _mv.x, _mv.z, by)) return false;
   const Dg = DRAGON.e;
   if (Dg && Dg !== e && !Dg.removed && !Dg.flying) {
     const ddx = _mv.x - Dg.x, ddz = _mv.z - Dg.z, dd = Math.hypot(ddx, ddz), rr = 2.7 + e.radius;
@@ -333,7 +335,7 @@ function moveToward(e, tx, tz, dt, speedMul = 1, stopDist = 0.3) {
   turnToward(e, tx, tz, dt * 9);
   return false;
 }
-function groundY(e) { return e.fixedY !== null ? e.fixedY : heightAt(e.x, e.z); }
+function groundY(e) { return e.fixedY !== null ? e.fixedY : floorAt(e.x, e.z, e.y - (e.hover || 0)); } // floorAt: stairs and wall walks (04g_castles.js)
 // returns true while the body is in flight and nothing else should move it
 function updateMotion(e, dt) {
   const m = e.motion;
@@ -564,6 +566,7 @@ function executeAbility(e, A, t, cast = null) {
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
         fireLandsAt(gx, gy, gz, A.radius);
+        castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
         sfx('boom');
         cameraShake(0.4, gx, gz);
       });

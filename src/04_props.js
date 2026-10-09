@@ -239,19 +239,13 @@ function keepStone(b, S, st, R) {
   wall(-(GATE_HW + seg), hs - t / 2, 2 * seg, t);
   wall(GATE_HW + seg, hs - t / 2, 2 * seg, t);
   b.add(G.box, lm(M, 0, H - 1.0, hs - t / 2, 0, 2 * GATE_HW + 0.6, 2.2, t + 0.5), MAT.stone, darker(st.stone, 0.92), by, 4);
-  const o = 0.2;
-  merlonRow(b, M, -hs, -hs + o, hs, -hs + o, H + 0.45, st.stone);
-  merlonRow(b, M, -hs + o, -hs, -hs + o, hs, H + 0.45, st.stone);
-  merlonRow(b, M, hs - o, -hs, hs - o, hs, H + 0.45, st.stone);
-  merlonRow(b, M, -hs, hs - o, -GATE_HW - 2, hs - o, H + 0.45, st.stone);
-  merlonRow(b, M, GATE_HW + 2, hs - o, hs, hs - o, H + 0.45, st.stone);
+  // castles: the crenellated parapets, the open fighting tops of the corner towers and their stairs are in 04g_castles.js
   const banners = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const x = sx * (hs - 1.2), z = sz * (hs - 1.2);
     b.add(G.cyl12, lm(M, x, 10.5 / 2 - 0.7, z, 0, 3.4, 10.5 + 1.4, 3.4), MAT.stone, st.stone, by, 5);
-    b.add(G.cone12, lm(M, x, 9.8 + 2.3, z, 0, 3.95, 4.6, 3.95), st.roofMat, st.roof);
-    b.add(G.cyl8, lm(M, x, 14.4 + 1.2, z, 0, 0.07, 2.4, 0.07), MAT.wood, st.wood);
-    banners.push({ local: [x, 16.6, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
+    b.add(G.cyl8, lm(M, x, 10.5 + 2.1, z, 0, 0.08, 4.2, 0.08), MAT.wood, st.wood);
+    banners.push({ local: [x, 14.5, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
   }
   for (const sx of [-1, 1]) {
     const x = sx * (GATE_HW + 1.9), z = hs - 0.8;
@@ -261,8 +255,9 @@ function keepStone(b, S, st, R) {
   b.add(G.box, lm(M, 0, 6.5 - 0.7, -hs + t + 5.2, 0, 12.4, 13 + 1.4, 10.4), MAT.stone, darker(st.stone, 0.95), by, 5);
   b.add(G.prism, lm(M, 0, 12.3, -hs + t + 5.2, 0, 13.2, 4.6, 11.2), st.roofMat, st.roof);
   b.add(G.box, lm(M, 0, 2.2, -hs + t + 10.45, 0, 2.4, 3.6, 0.3), MAT.wood, st.wood);
-  banners.push({ local: [0, H - 0.1, hs + 0.25], yaw: 0, w: 2.4, h: 4.2, kind: 0 });
-  banners.push({ local: [0, 12.2, -hs + t + 10.5], yaw: 0, w: 2.2, h: 4.0, kind: 0 });
+  // hung clear of the masonry, above the gate rather than across it
+  banners.push({ local: [0, H + 0.05, hs - t / 2 + (t + 0.5) / 2 + 0.14], yaw: 0, w: 2.2, h: 2.0, kind: 0 });
+  banners.push({ local: [0, 12.2, -hs + t + 10.4 + 0.14], yaw: 0, w: 2.2, h: 4.0, kind: 0 });
   return banners;
 }
 function keepRound(b, S, st, R) {
@@ -285,15 +280,11 @@ function keepRound(b, S, st, R) {
     b.add(G.cyl8, lm(M, x, 11.8 + 1.0, z, 0, 0.07, 2.0, 0.07), MAT.wood, st.wood);
     banners.push({ local: [x, 13.6, z], yaw: 0, w: 1.5, h: 0.85, kind: 1 });
   }
-  for (const sx of [-1, 1]) {
-    const x = sx * R0, z = 0;
-    b.add(G.cyl12, lm(M, x, 3.6, z, 0, 2.2, 8.6, 2.2), MAT.stone, st.stone, by, 5);
-    b.add(G.cone12, lm(M, x, 7.9 + 1.7, z, 0, 2.6, 3.4, 2.6), MAT.thatch, st.thatch);
-  }
+  // castles: the two side towers are open lookouts the wall walk runs through (04g_castles.js)
   b.add(G.cyl16, lm(M, 0, 2.1 - 0.5, -6.5, 0, 6.2, 4.2 + 1.0, 6.2), MAT.stone, st.stone, by, 4);
   b.add(G.cone16, lm(M, 0, 3.6 + 3.25, -6.5, 0, 7.4, 6.5, 7.4), MAT.thatch, st.thatch);
   b.add(G.box, lm(M, 0, 1.4, -0.35, 0, 1.6, 2.6, 0.3), MAT.wood, st.wood);
-  banners.push({ local: [0, H - 0.2, R0 + 1.2], yaw: 0, w: 2.4, h: 4.0, kind: 0 });
+  banners.push({ local: [0, H + 0.25, R0 + (KEEP_T + 0.5) / 2 + 0.14], yaw: 0, w: 2.2, h: 1.6, kind: 0 });
   b.add(G.cyl8, lm(M, 0, 10.4 + 1.4, -6.5, 0, 0.08, 2.8, 0.08), MAT.wood, st.wood);
   banners.push({ local: [0, 13.0, -6.5], yaw: 0, w: 2.0, h: 1.1, kind: 1 });
   return banners;
@@ -315,8 +306,7 @@ function keepTimber(b, S, st, R) {
   palisadeWall(b, M, -hs + 1, hs - t / 2, -GATE_HW, hs - t / 2, H, st, by);
   palisadeWall(b, M, GATE_HW, hs - t / 2, hs - 1, hs - t / 2, H, st, by);
   b.add(G.box, lm(M, 0, H - 0.8, hs - t / 2, 0, 2 * GATE_HW + 1.2, 1.4, 1.4), MAT.wood, st.wood);
-  // walkway behind the palisade
-  for (const [x, z, sx, sz] of [[0, -hs + 2.6, 2 * hs - 4, 1.6], [-hs + 2.6, 0, 1.6, 2 * hs - 4], [hs - 2.6, 0, 1.6, 2 * hs - 4]]) b.add(G.box, lm(M, x, H - 2.2, z, 0, sx, 0.3, sz), MAT.wood, st.wood);
+  // castles: the walkway behind the palisade, its stairs and loopholes are in 04g_castles.js
   const banners = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const x = sx * (hs - 1.2), z = sz * (hs - 1.2);
@@ -337,7 +327,7 @@ function keepTimber(b, S, st, R) {
   b.add(G.prism, lm(M, 0, 4.8, lz, 0, 13.4, 6.2, 11.6), MAT.shingle, st.roof);
   b.add(G.box, lm(M, 0, 1.6, lz + 5.25, 0, 2.2, 3.2, 0.3), MAT.wood, darker(st.wood, 0.7));
   for (const sx of [-1, 1]) b.add(G.box, lm(M, sx * 6.9, 11.2, lz, sx * 0.4, 0.3, 1.6, 0.3), MAT.wood, st.wood);
-  banners.push({ local: [0, H - 0.2, hs + 0.6], yaw: 0, w: 2.4, h: 4.0, kind: 0 });
+  banners.push({ local: [0, H - 0.1, hs - t / 2 + 0.7 + 0.14], yaw: 0, w: 2.2, h: 1.25, kind: 0 });
   b.add(G.cyl8, lm(M, 0, 11.2 + 1.4, lz, 0, 0.08, 2.8, 0.08), MAT.wood, st.wood);
   banners.push({ local: [0, 13.8, lz], yaw: 0, w: 2.0, h: 1.1, kind: 1 });
   return banners;
@@ -379,7 +369,8 @@ function templeModel(b, S, st, R) {
   }
   b.add(G.box, lm(M, 0, 1.25, -1, 0, 2.6, 1.3, 1.4), MAT.stone, darker(st.stone, 1.15));
   for (const sx of [-1, 1]) b.add(G.cyl12, lm(M, sx * 4.5, 1.25, -1, 0, 0.55, 1.3, 0.55), MAT.stone, darker(st.stone, 1.15));
-  return [{ local: [-4.25, 4.95, R0 + 0.3], yaw: 0, w: 1.3, h: 2.6, kind: 0 }, { local: [4.25, 4.95, R0 + 0.3], yaw: 0, w: 1.3, h: 2.6, kind: 0 }];
+  // on the outer faces of the gate pillars, clear of the stone (they used to hang inside it)
+  return [{ local: [-4.25, 4.45, R0 + 1.45 + 0.12], yaw: 0, w: 1.3, h: 2.6, kind: 0 }, { local: [4.25, 4.45, R0 + 1.45 + 0.12], yaw: 0, w: 1.3, h: 2.6, kind: 0 }];
 }
 function musterModel(b, S, st, R) {
   const M = siteMatrix(S), R0 = 18, by = S.y, segs = 22;
@@ -410,9 +401,19 @@ function townModel(b, S, st, R) {
   for (const h of S.houses) {
     const by = heightAt(h.x, h.z);
     if (h.kind === 'hall') {
-      const fd = R.style === 'round' ? roundHouseR(h) + 1.7 : h.d / 2 + 0.3;
-      banners.push({ world: true, x: h.x + Math.sin(h.yaw) * fd + Math.cos(h.yaw) * 1.6, y: by + Math.min(h.h, 3.4) - 0.1, z: h.z + Math.cos(h.yaw) * fd - Math.sin(h.yaw) * 1.6, yaw: h.yaw, w: 1.3, h: 2.4, kind: 0 });
-      banners.push({ world: true, x: h.x + Math.sin(h.yaw) * fd - Math.cos(h.yaw) * 1.6, y: by + Math.min(h.h, 3.4) - 0.1, z: h.z + Math.cos(h.yaw) * fd + Math.sin(h.yaw) * 1.6, yaw: h.yaw, w: 1.3, h: 2.4, kind: 0 });
+      // castles: the hall's banners hang from crossbars on their own poles out in front, clear of the eaves,
+      // the door and the shutters, free to stream with the wind (they used to hang in the air)
+      const fd = (R.style === 'round' ? roundHouseR(h) : h.d / 2) + 2.3;
+      for (const sd of [-1, 1]) {
+        const x = h.x + Math.sin(h.yaw) * fd + Math.cos(h.yaw) * 2.2 * sd, z = h.z + Math.cos(h.yaw) * fd - Math.sin(h.yaw) * 2.2 * sd;
+        const gy = heightAt(x, z), Mp = new THREE.Matrix4().compose(new THREE.Vector3(x, gy, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, h.yaw, 0)), new THREE.Vector3(1, 1, 1));
+        b.add(G.cyl8, lm(Mp, 0, 2.3, 0, 0, 0.09, 4.8, 0.09), MAT.wood, st.wood, gy, 2);
+        b.add(G.cyl8, lm(Mp, 0, 4.42, 0.1, 0, 0.05, 1.5, 0.05, 0, Math.PI / 2), MAT.wood, darker(st.wood, 0.85));
+        b.add(G.cone8, lm(Mp, 0, 4.86, 0, 0, 0.12, 0.25, 0.12), MAT.gold, [0.75, 0.6, 0.3]);
+        S.colliders.push(addCircle(x, z, 0.16, 'post', 4.8));
+        // the cloth hangs in front of the pole and only ever billows away from it
+        banners.push({ world: true, x: x + Math.sin(h.yaw) * 0.17, y: gy + 4.38, z: z + Math.cos(h.yaw) * 0.17, yaw: h.yaw, w: 1.3, h: 2.4, kind: 0 });
+      }
     }
   }
   for (const p of S.props || []) propModel(b, p, st, R);
@@ -425,21 +426,6 @@ function townModel(b, S, st, R) {
   }
   b.add(G.cyl8, lm(M, 0, 0.1, 0, 0, 2.6, 0.3, 2.6), MAT.rune, [0.25, 0.5, 0.6]);
   return banners;
-}
-
-/* doors */
-function doorModel(S, R, temple) {
-  const b = new Batch();
-  const st = STYLE[R.style];
-  const M = siteMatrix(S);
-  const gz = S.gateLocal.z;
-  const w = temple ? 5.8 : 2 * GATE_HW + 0.4, h = temple ? 3.2 : 5.6;
-  b.add(G.box, lm(M, 0, h / 2, gz, 0, w, h, 0.45), MAT.wood, darker(st.wood, 0.85));
-  for (const y of [0.25, 0.55, 0.85]) b.add(G.box, lm(M, 0, h * y, gz + 0.25, 0, w + 0.05, 0.22, 0.08), MAT.metal, [0.3, 0.31, 0.33]);
-  const g = b.build();
-  const mesh = new THREE.Mesh(g, shareMat(buildingMat, { uFlash: { value: 0 } }));
-  mesh.renderOrder = 1;
-  return mesh;
 }
 
 /* banners: instanced cloth with realm emblems */
@@ -463,7 +449,8 @@ const bannerMat = mat({
     uRealmLight: { value: [...REALMS.map((R) => new THREE.Vector3(...hex3(R.light))), new THREE.Vector3(0.85, 0.82, 0.74)] },
   },
   vertexShader: /* glsl */`
-    uniform float uTime;
+    uniform float uTime, uWind;
+    uniform vec2 uWindDir;
     attribute vec4 aB0; attribute vec4 aB1;
     varying vec2 vUv; varying vec3 vW; varying float vRealm; varying float vShade;
     void main(){
@@ -472,16 +459,21 @@ const bannerMat = mat({
       float u = position.x, v = -position.y;
       vec3 p;
       float seed = aB0.w * 3.7 + aB0.x * 0.1;
+      float gust = 0.45 + 0.55 * uWind;
+      float yaw = aB0.w;
       if (kind < 0.5) {
-        float wave = sin(uTime * 1.6 + v * 3.0 + seed) * 0.09 * v * h + sin(uTime * 2.3 + u * 4.0 + seed) * 0.03 * v;
+        // castles: a banner hung against a wall (or in front of its pole) billows only away from it, never into it
+        float wave = (0.55 + 0.45 * sin(uTime * 1.6 + v * 3.0 + seed)) * 0.09 * v * h * gust + (0.5 + 0.5 * sin(uTime * 2.3 + u * 4.0 + seed)) * 0.03 * v;
         p = vec3((u - 0.5) * w, -v * h, wave);
         vShade = 0.85 + 0.3 * cos(uTime * 1.6 + v * 3.0 + seed) * v;
       } else {
-        float wave = sin(uTime * 3.2 - u * 5.0 + seed) * 0.16 * u * w * 0.4;
-        p = vec3(u * w, -v * h + 0.0, wave);
+        // a flag on a pole streams downwind from the pole (the poles stand clear of everything a flag's length around)
+        yaw = atan(-uWindDir.y, uWindDir.x) + sin(uTime * 0.37 + seed) * 0.22;
+        float wave = sin(uTime * (2.2 + 1.6 * uWind) - u * 5.0 + seed) * 0.16 * u * w * 0.4 * gust;
+        p = vec3(u * w, -v * h * mix(1.0, 0.92, uWind) - u * (1.0 - uWind) * 0.25 * h, wave);
         vShade = 0.85 + 0.3 * cos(uTime * 3.2 - u * 5.0 + seed) * u;
       }
-      float c = cos(aB0.w), s = sin(aB0.w);
+      float c = cos(yaw), s = sin(yaw);
       vec3 wp = aB0.xyz + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
       vW = wp;
       gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -970,16 +962,14 @@ function buildStructures() {
     for (const S of R.keepSites) {
       const b = new Batch();
       const banners = R.style === 'round' ? keepRound(b, S, st, R) : R.style === 'timber' ? keepTimber(b, S, st, R) : keepStone(b, S, st, R);
-      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m);
+      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); S.mesh = m; // castles: breaches cut this mesh (04g_castles.js)
       for (const sp of banners) addBanner(S, sp, R.id);
-      S.doorMesh = doorModel(S, R, false); scene.add(S.doorMesh);
     }
     {
       const S = R.templeSite, b = new Batch();
       const banners = templeModel(b, S, st, R);
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m);
       for (const sp of banners) addBanner(S, sp, R.id);
-      S.doorMesh = doorModel(S, R, true); scene.add(S.doorMesh);
     }
     {
       const S = R.musterSite, b = new Batch();
@@ -996,6 +986,6 @@ function buildStructures() {
   }
   BUILDING_DEPTH = BUILDING_DEPTH || depthFrom(buildingMat);
   for (const m of SITE_MESHES) shadowCaster(m, BUILDING_DEPTH);
-  for (const R of REALMS) for (const S of [...R.keepSites, R.templeSite]) if (S.doorMesh) shadowCaster(S.doorMesh, BUILDING_DEPTH);
+  buildCastles(); // castles: hinged gates, stairs, wall walks, parapets, breaches (04g_castles.js)
   buildFireProps();
 }

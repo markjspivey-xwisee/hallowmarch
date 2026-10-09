@@ -283,7 +283,8 @@ function updatePlayer(dt) {
   }
   if (!sprinting) P.endurance = Math.min(100, P.endurance + dt * (GAME.t > P.combatUntil ? 14 : 7));
   // jumping
-  const gy = heightAt(P.x, P.z);
+  const gy = floorAt(P.x, P.z, P.y); // stairs, wall walks and tower tops (04g_castles.js)
+  if (P.onGround && P.y > gy + 0.7) { P.onGround = false; P.vy = 0; } // stepped off an edge: fall
   if (keyDown('Space') && P.onGround && !UI.modal && !isRooted(P)) { P.vy = P.mount ? 7.0 : 6.2; P.onGround = false; }
   if (!P.onGround) {
     P.vy -= 18 * dt;

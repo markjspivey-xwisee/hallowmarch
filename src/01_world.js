@@ -718,6 +718,8 @@ function resolveCollisions(p, r, y = null, faction = -1) {
       if (!c.active) continue;
       if (c.tag === 'door' && c.owner === faction) continue; // a realm's own gates open for its people
       if (y !== null && y > c.baseY + c.h + 0.5) continue;
+      // castles (04g_castles.js): walls you can stand on and parapets up on the wall walks block only at their own height
+      if (y !== null && c.vert) { const bot = c.y0 != null ? c.y0 : c.baseY; if (y > bot + c.h - 0.55 || y + 1.7 < bot) continue; }
       if (c.type === 'circle') {
         const dx = p.x - c.x, dz = p.z - c.z, d2 = dx * dx + dz * dz, rr = c.r + r;
         if (d2 < rr * rr) {

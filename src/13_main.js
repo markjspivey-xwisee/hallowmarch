@@ -337,6 +337,7 @@ function simStep(dt) {
   updateDragonWorld(dt);
   updateLoot(dt);
   updateGates(dt);
+  updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
   updateBarrow(dt);
   updateHouses(dt);
 }

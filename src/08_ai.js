@@ -136,7 +136,7 @@ function keepSlots(K) {
     : [[-8, WALL_H, KEEP_HS - 1.1], [8, WALL_H, KEEP_HS - 1.1], [-(KEEP_HS - 1.1), WALL_H, 3], [KEEP_HS - 1.1, WALL_H, 3]];
   const court = round ? [[-9, 0, 6], [9, 0, 6], [-10, 0, -6], [10, 0, -6]] : [[-9, 0, 8], [9, 0, 8], [-10, 0, -6], [10, 0, -6]];
   const lord = round ? [0, 0, 1.8] : [0, 0, -1.2];
-  return { walls, court, lord };
+  return { walls: castlePostSlots(K) || walls, court, lord }; // castles: posts up on the walks and tower tops (04g_castles.js)
 }
 function initWar() {
   for (const R of REALMS) {
@@ -184,15 +184,21 @@ function fillGarrison(K, all) {
     if (!all) return;
   }
   const need = [];
-  K.slots.walls.slice(0, 3).forEach((s, i) => need.push({ slot: 'w' + i, pos: s, cls: 'archer' }));
+  K.slots.walls.slice(0, 3).forEach((s, i) => need.push({ slot: 'w' + i, pos: s, cls: 'archer', post: i }));
   K.slots.court.slice(0, 3).forEach((s, i) => need.push({ slot: 'c' + i, pos: s, cls: i === 2 ? 'priest' : 'warrior' }));
   const have = new Set([...K.guards].map((id) => getEnt(id)).filter((g) => g && g.alive).map((g) => g.ai.slot));
   for (const n of need) {
     if (have.has(n.slot)) continue;
     const p = siteWorld(S, n.pos[0], n.pos[1], n.pos[2]);
-    const g = spawnRealmUnit(R, n.cls, lvl, 'guard', p.x, p.z, { yaw: S.yaw });
-    if (n.pos[1] > 0.5) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; g.tweak = { rangedRange: 36, dmg: 0.55, swing: 3.0 }; setupStats(g); }
-    g.ai.post = { x: p.x, z: p.z, leash: n.pos[1] > 0.5 ? 0 : 11 };
+    // castles: wall archers stand on real walks; at the start they are at their posts, later ones walk up the stairs
+    const wall = n.pos[1] > 0.5, route = wall ? castleRoute(K, n.post) : null;
+    const from = wall && route && !all ? route[0] : p;
+    const g = spawnRealmUnit(R, n.cls, lvl, 'guard', from.x, from.z, { yaw: S.yaw });
+    if (wall) {
+      g.tweak = { rangedRange: 36, dmg: 0.55, swing: 3.0 }; setupStats(g); g.ai.wall = true;
+      if (!route) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; } else if (all) g.y = route[route.length - 1].y; else { g.ai.route = route; g.ai.ri = 0; }
+    }
+    g.ai.post = { x: p.x, z: p.z, leash: wall ? 0 : 11 };
     g.ai.slot = n.slot;
     g.keep = K;
     K.guards.add(g.id);
@@ -390,11 +396,12 @@ function onEntityKilled(e, killer) {
 function canReach(e, t) {
   // melee units cannot reach archers standing on walls
   if (!e.rangedKind && t.fixedY !== null && t.fixedY > groundY(e) + 2) return false;
+  if (!castleCanReach(e, t)) return false; // castles: melee climbs the stairs, or cannot reach (04g_castles.js)
   return true;
 }
 // can e see o? walls block fights on the ground; archers on walls see over them
 function inSight(e, o) {
-  if (e.fixedY !== null || o.fixedY !== null) return true;
+  if (e.fixedY !== null || o.fixedY !== null || elevatedEnt(e) || elevatedEnt(o)) return true;
   return segmentClear(e.x, e.z, o.x, o.z, 0.15, false);
 }
 const _cands = [];
@@ -442,6 +449,7 @@ function fightTarget(e, t, dt, opts = {}) {
       moveToward(e, ax, az, dt, 0.8, 0.1);
     } else turnToward(e, t.x, t.z, dt * 10);
   } else {
+    if (castleClimbToward(e, t, dt)) return; // castles: up the stairs after a foe on the walls (04g_castles.js)
     const reach = (e.rangedKind ? e.rangedRange : e.meleeRange * (e.scale || 1)) + tr - 0.4;
     if (d > reach && !e.casting) moveToward(e, t.x, t.z, dt, 1, reach * 0.9);
     else turnToward(e, t.x, t.z, dt * 10);
@@ -554,6 +562,7 @@ function thinkVillager(e, dt) {
 function thinkPosted(e, dt, aggroR) {
   // garrison troops: hold a post, fight what comes near, never wander off
   const post = e.ai.post;
+  if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
   let t = getEnt(e.target);
   if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, post.x, post.z) > aggroR + 8 || !canReach(e, t))) { t = null; e.target = null; }
   if (!t && GAME.t > (e.ai.nextScan || 0)) {
@@ -632,7 +641,7 @@ function wbEnemiesNear(wb, x, z, r) {
   // enemies on walls or behind them do not hold the band in place
   let n = 0;
   forNear(x, z, r, (o) => {
-    if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null) return;
+    if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null || elevatedEnt(o)) return;
     if (segmentClear(x, z, o.x, o.z, 0.2, false)) n++;
   });
   return n;
@@ -987,7 +996,7 @@ function updateNPCs(dt) {
       if (e.role === 'mob') { if (e.dunPack != null) thinkBarrowMob(e, dt); else thinkMob(e, dt); }
       else if (e.role === 'dungeonBoss') thinkHollowKing(e, dt);
       else if (e.role === 'soldier') thinkSoldier(e, dt);
-      else if (e.role === 'guard') thinkPosted(e, dt, e.fixedY !== null ? 38 : 22);
+      else if (e.role === 'guard') thinkPosted(e, dt, e.fixedY !== null || e.ai.wall ? 38 : 22);
       else if (e.role === 'lord') thinkPosted(e, dt, 14);
       else if (e.role === 'guardian') thinkPosted(e, dt, 16);
       else if (e.role === 'muster') thinkPosted(e, dt, 26);
