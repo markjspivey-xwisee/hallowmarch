@@ -20,9 +20,9 @@ const NATURE = {
 };
 const TREE_DIM = {
   // trunk radius at the cut, the cut height, the trunk below the crown, the crown radius and the top (all before scale)
-  oak: { r: 0.4, cut: 0.42, trunk: 3.1, crownY: 4.5, crown: 2.4, top: 6.9, hp: 130 },
-  birch: { r: 0.19, cut: 0.36, trunk: 4.0, crownY: 5.0, crown: 1.4, top: 7.3, hp: 80 },
-  pine: { r: 0.26, cut: 0.4, trunk: 6.3, crownY: 3.8, crown: 2.0, top: 7.7, hp: 105 },
+  oak: { r: 0.39, cut: 0.55, trunk: 3.1, crownY: 4.5, crown: 2.4, top: 6.9, hp: 130 },
+  birch: { r: 0.19, cut: 0.46, trunk: 4.0, crownY: 5.0, crown: 1.4, top: 7.3, hp: 80 },
+  pine: { r: 0.25, cut: 0.5, trunk: 6.3, crownY: 3.8, crown: 2.0, top: 7.7, hp: 105 },
 };
 const NAT_REGROW = { cut: 180, burnt: 420, earth: 900, felled: 300, grow: 360, snag: 600 };
 const NAT_CAP = { full: 40, bark: 180, stumps: 600, piles: 40 };
@@ -52,7 +52,7 @@ function natFuel(i, j) {
   const g = W.grass[k] + W.field[k] * 0.6;
   if (g < 0.12) return 0;
   const o = natIdx(i, j) * 4;
-  if (NAT.data[o + 1] > 90 || NAT.data[o + 2] > 0) return 0; // burnt already, or burning
+  if (NAT.data[o + 1] > 40 || NAT.data[o + 2] > 0) return 0; // burnt already (until it has grown back), or burning
   return Math.min(1, g) * (1 - 0.6 * NAT.data[o] / 255);
 }
 function natDry() {
@@ -186,7 +186,7 @@ const natTreeMat = mat({
         vec3 H = safeNormalize(uLightDir + V);
         col += uLightColor * spow(dot(n, H), 24.0) * 0.08 * sh;
         float lick = step(0.5, hash12(floor(vUV * 3.0) + vSeed * 7.0 + floor(uTime * 9.0 + vSeed * 5.0)));
-        glow = vec3(2.5, 0.9, 0.2) * fire * (0.25 + 0.75 * lick) * (1.0 - smoothstep(0.7, 1.0, charK));
+        glow = vec3(2.4, 0.82, 0.18) * fire * (0.1 + 0.6 * lick) * (1.0 - smoothstep(0.6, 1.0, charK));
       }
       col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), uSnowCover * 0.65 * smoothstep(0.35, 0.85, n.y) * step(0.5, vPart) * (1.0 - fire));
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO * (1.0 - 0.7 * charK);
@@ -824,7 +824,9 @@ function stepRegrow(dt) {
     const last = NATURE.tiles.get(key);
     const el = (GAME.t - last) * NATURE.speed;
     NATURE.tiles.set(key, GAME.t);
-    const dc = Math.ceil(255 * el / NAT_REGROW.cut), db = Math.ceil(255 * el / NAT_REGROW.burnt), de = Math.ceil(255 * el / NAT_REGROW.earth);
+    // whole steps of the 0-255 scale, with the fraction rounded at random so slow rates come out right on average
+    const steps = (rate) => { const v = 255 * el / rate, f = Math.floor(v); return f + (Math.random() < v - f ? 1 : 0); };
+    const dc = steps(NAT_REGROW.cut), db = steps(NAT_REGROW.burnt), de = steps(NAT_REGROW.earth);
     const ti = (key % 32) * 32, tj = Math.floor(key / 32) * 32;
     let any = false;
     for (let j = tj; j < tj + 32; j++) {
@@ -1047,6 +1049,8 @@ function natureStartJob(kind, t) {
   NATURE.job = { kind, tree: t, px: P.x, pz: P.z, yaw, t: 0, next: 0.15, hitAt: 0, swings: 0, need, tx, tz };
   P.yaw = yaw; P.target = null;
   if (kind === 'chop') { natTake(t); t.notchYaw = yaw + Math.PI; }
+  // the woodcutter tramples the grass where they work
+  natureCut(kind === 'chop' ? t.x : tx, kind === 'chop' ? t.z : tz, 1.8, 0.8, false);
   uiToast(kind === 'chop' ? `Chopping the ${t.kind}. Move to stop.` : 'Cutting the log into firewood. Move to stop.', 'hint');
 }
 function natureStopJob(msg) {
@@ -1233,7 +1237,7 @@ function drawNature(dt) {
     A.iP.array.set([p.x, p.y, p.z, 1], n * 4);
     _natQ.setFromAxisAngle(_natAx.set(0, 1, 0), p.yaw);
     A.iQ.array.set([_natQ.x, _natQ.y, _natQ.z, _natQ.w], n * 4);
-    A.iSc.array.set([1, 1, 1, p.lit ? 0.5 + 0.5 * (1 - p.char) : 0], n * 4);
+    A.iSc.array.set([1, 1, 1, p.lit ? 0.16 + 0.22 * (1 - p.char) : 0], n * 4);
     A.iW.array.set([p.lit ? p.char : 0, 0, p.seed, p.kind], n * 4);
   }
   pl.geo.instanceCount = pl.n;

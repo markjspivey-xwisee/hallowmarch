@@ -173,7 +173,7 @@ const terrainMat = mat({
         vec3 burnt = lightSurface(mix(vec3(0.028, 0.025, 0.022), vec3(0.24, 0.23, 0.22), smoothstep(0.58, 0.86, ash) * (1.0 - nat.b)), n, 1.0);
         col = mix(col, burnt, smoothstep(0.02, 0.6, nat.g) * 0.94);
         float emb = smoothstep(0.42, 0.82, vnoise(vW.xz * 3.4 + vec2(uTime * 0.6, -uTime * 0.4)) * 0.7 + vnoise(vW.xz * 11.0) * 0.3);
-        col += vec3(2.3, 0.72, 0.14) * nat.b * (0.25 + 1.1 * emb);
+        col += vec3(2.1, 0.62, 0.12) * nat.b * (0.06 + 1.0 * emb * emb);
       }
       /* nature: end */
       // decals and the night glow of trampled paths
@@ -576,7 +576,7 @@ const GRASS_FRAG = /* glsl */`
     /* nature (05h_nature.js): pale cut ends, black singed stubs, blades glowing in the fire */
     col = mix(col, col * vec3(1.3, 1.15, 0.55) + vec3(0.03, 0.03, 0.0), vNat.r * smoothstep(0.55, 1.0, t) * 0.6);
     col = mix(col, vec3(0.03, 0.026, 0.022) * (0.6 + t), clamp(vNat.g * 1.6, 0.0, 1.0));
-    col += vec3(2.4, 0.85, 0.2) * vNat.b * (0.3 + 0.9 * t * t);
+    col += vec3(2.4, 0.8, 0.18) * vNat.b * (0.12 + 0.85 * t * t);
     /* nature: end */
     // target rings and spell areas tint the blades so they show through tall grass
     col = mix(col, uTargetColor * 1.5, clamp(vDecal.g, 0.0, 1.0) * (0.45 + 0.4 * t));

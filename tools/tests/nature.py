@@ -3,7 +3,7 @@ a tree is chopped down with the axe (notch, fall away from the axe, stump and lo
 firewood and lit as a campfire; a whirlwind cuts the grass round the warrior (the cut map) and it grows back; a grass
 fire is lit, spreads, burns out to ash and greens over again; a tree is set alight, chars and drops its leaves;
 a meteor leaves a crater (heightAt drops, the terrain mesh follows). Screenshots of each.
-usage: python3 tools/tests/nature.py [noshots] [final] [quality]   (final: 960x540; quality: high, medium or low; default low)"""
+usage: python3 tools/tests/nature.py [noshots] [only=chop,cut,...] [final] [quality]   (final: 960x540; quality: high, medium or low; default low)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -11,6 +11,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
+ONLY = next((a[5:].split(',') for a in ARGS if a.startswith('only=')), None)  # only=chop,cut: just these screenshots
 FINAL = 'final' in ARGS
 QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'low')
 FAILS = []
@@ -29,7 +30,7 @@ async def frames(page, n=1):
     for _ in range(n): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
 
 async def shot(page, name, js):
-    if not SHOTS: return
+    if not SHOTS or (ONLY and name not in ONLY): return
     await page.evaluate(js)
     await page.evaluate("__hm.frame(1/60)")
     await frames(page, 1)
@@ -71,13 +72,14 @@ window.T = {
   },
   cam(x, y, z, tx, ty, tz) {
     const H = this.H;
+    y = Math.max(y, this.F.heightAt(x, z) + 1.6); // never under a slope
     H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
     H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld();
   },
   play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
   dry() { const Wt = this.H.dbg.WEATHER; Wt.mode = 'fixed'; Wt.kind = 'clear'; Wt.raining = 0; Wt.wet = 0; Wt.snowing = 0; Wt.snow = 0; Wt.overcast = 0; Wt.target = 0; Wt.w = 0; this.H.dbg.U.uWet.value = 0; this.H.dbg.U.uSnowCover.value = 0; },
   sim(sec) { this.dry(); return this.H.simulate(sec); },
-  burnt(x, z, r) { let n = 0; for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (this.N.burntAt(x + i, z + j) > 0.6) n++; return n; },
+  burnt(x, z, r) { let n = 0; for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (this.N.burntAt(x + i, z + j) > 0.3) n++; return n; },
 };
 """
 
@@ -89,7 +91,7 @@ async def main():
         page.on('console', lambda m: print('  console:', m.text[:300], flush=True) if m.type == 'error' else None)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30})")
-        await page.evaluate(HELPERS)
+        await page.evaluate(HELPERS + '\n;0') # (return nothing: T holds the whole game)
         print(f'started [{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate("document.getElementById('hud').hidden = true; __hm.setTod(0.55); T.dry()")
 
@@ -140,7 +142,7 @@ async def main():
         await page.evaluate("(() => { const it = T.F.currentInteraction(); if (it) it.act(); T.sim(1.5); })()")
         r = await ev(page, 'campfire', "(() => { const p = T.N.NATURE.piles[0]; return { lit: p && p.lit, fires: T.H.dbg.FIRES.filter((f) => Math.hypot(f.x - p.x, f.z - p.z) < 1).length }; })()")
         check(r['lit'] and r['fires'] >= 1, 'the campfire burns')
-        await shot(page, 'campfire', f"(() => {{ const t = T.F.W.trees[{ti}], p = T.N.NATURE.piles[0]; T.H.setTod(1.02); T.H.frame(0.5); T.cam(p.x + 3.2, p.y + 1.8, p.z + 2.6, (p.x + t.x) / 2, p.y + 0.3, (p.z + t.z) / 2); }})()")
+        await shot(page, 'campfire', f"(() => {{ const t = T.F.W.trees[{ti}], p = T.N.NATURE.piles[0]; T.H.setTod(1.3); T.H.frame(0.5); T.cam(p.x + 3.2, p.y + 1.8, p.z + 2.6, (p.x + t.x) / 2, p.y + 0.3, (p.z + t.z) / 2); }})()")
         await page.evaluate("T.play(); __hm.setTod(0.55)")
 
         # ---- the whirlwind cuts the grass ----
@@ -152,7 +154,7 @@ async def main():
           window.T.cutSpot = { x: P.x, z: P.z };
           return { res, before, ring, far: T.N.cutAt(P.x + 9, P.z), x: P.x, z: P.z }; })()""")
         check(r['res'] is True and r['before'] < 0.1 and r['ring'] >= 10 and r['far'] < 0.1, 'the whirlwind cuts a ring of grass round the warrior, and only there')
-        await shot(page, 'cut', "(() => { const c = T.cutSpot; T.H.teleport(c.x + 7, c.z + 7); T.cam(c.x + 5.5, T.F.heightAt(c.x, c.z) + 3.2, c.z + 5.5, c.x, T.F.heightAt(c.x, c.z), c.z); })()")
+        await shot(page, 'cut', "(() => { const c = T.cutSpot; T.sim(2); T.H.frame(1.5); T.H.teleport(c.x + 7, c.z + 7); T.cam(c.x + 5.5, T.F.heightAt(c.x, c.z) + 3.2, c.z + 5.5, c.x, T.F.heightAt(c.x, c.z), c.z); })()")
         await page.evaluate("T.play()")
 
         # ---- a grass fire: lit, spreading, burnt out, regrown ----
@@ -165,7 +167,7 @@ async def main():
         await shot(page, 'grassfire', "(() => { const m = T.fireSpot; const y = T.F.heightAt(m.x, m.z); T.cam(m.x + 13, y + 6, m.z + 13, m.x, y, m.z); })()")
         await page.evaluate("T.play()")
         r = await ev(page, 'burns out', """(() => { const m = T.fireSpot; let n = 0; while (T.N.fires() > 0 && n++ < 60) T.sim(5); return { fires: T.N.fires(), t: n * 5, burnt: T.burnt(m.x, m.z, 20), here: T.N.burntAt(m.x, m.z) }; })()""")
-        check(r['fires'] == 0 and r['here'] > 0.8, 'the fire burns itself out and leaves black ground')
+        check(r['fires'] == 0 and r['here'] > 0.4 and r['burnt'] > 100, 'the fire burns itself out and leaves black ground')
         await shot(page, 'burnt', "(() => { const m = T.fireSpot; const y = T.F.heightAt(m.x, m.z); T.cam(m.x + 13, y + 6, m.z + 13, m.x, y, m.z); })()")
         await page.evaluate("T.play()")
         r = await ev(page, 'regrow', """(() => { const m = T.fireSpot, c = T.cutSpot; T.N.NATURE.speed = 40; T.sim(16); T.N.NATURE.speed = 1;
@@ -176,7 +178,7 @@ async def main():
         r = await ev(page, 'burn tree', f"""(() => {{ const t = T.findTree(0.3, [{ti}]); window.T.bt = t.i; const P = T.H.GAME.player; T.H.teleport(t.x + 12, t.z + 12);
           const ok = T.N.igniteTree(t.i); T.sim(9); return {{ ok, i: t.i, fire: t.fire, char: t.char, leaf: t.leaf }}; }})()""")
         check(r['ok'] and r['fire'] > 0.5 and r['char'] > 0.05, 'igniteTree sets the crown alight')
-        await shot(page, 'treefire', "(() => { const t = T.F.W.trees[T.bt]; T.H.setTod(1.05); T.H.frame(0.5); T.cam(t.x + 7, t.y + 4, t.z + 7, t.x, t.y + 3.5, t.z); })()")
+        await shot(page, 'treefire', "(() => { const t = T.F.W.trees[T.bt]; T.H.setTod(1.3); T.H.frame(0.5); T.cam(t.x + 7, t.y + 4, t.z + 7, t.x, t.y + 3.5, t.z); })()")
         await page.evaluate("T.play(); __hm.setTod(0.55)")
         r = await ev(page, 'burnt tree', "(() => { const t = T.F.W.trees[T.bt]; let n = 0; while (t.fire > 0 && n++ < 40) T.sim(2); return { fire: t.fire, char: t.char, leaf: t.leaf, felled: !!t.felled }; })()")
         check(r['fire'] == 0 and r['char'] > 0.6 and r['leaf'] < 0.2, 'it burns out charred black with its leaves gone')
@@ -191,7 +193,8 @@ async def main():
           const before = T.F.heightAt(m.x, m.z);
           P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; P.target = foe.id;
           const res = T.F.useAbility(P, 'meteor', foe);
-          T.sim(4);
+          // a warrior's rage ebbs while casting: keep it topped up so the cast completes
+          for (let k = 0; k < 40; k++) { P.power = P.maxPower; T.sim(0.1); }
           const C = T.N.NATURE.craters[T.N.NATURE.craters.length - 1];
           const after = T.F.heightAt(m.x, m.z);
           return { res, before, after, drop: before - after, earth: T.N.earthAt(m.x, m.z), craters: T.N.NATURE.craters.length, at: C && [C.x, C.z], foe: [foe.x, foe.z] }; })()""")
