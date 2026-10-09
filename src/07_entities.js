@@ -1,0 +1,708 @@
+/* ================================================================== */
+/* entities, stats, combat, abilities, projectiles                     */
+/* ================================================================== */
+const FACTION_MONSTER = 3, FACTION_NEUTRAL = 4;
+const GAME = { t: 0, player: null, prog: null, started: false, paused: false, over: false, dt: 0 };
+const ENT = [];
+const ENT_BY_ID = new Map();
+let ENT_NEXT = 1;
+
+function makeEnt(o) {
+  const e = Object.assign({
+    id: ENT_NEXT++, kind: 'humanoid', faction: FACTION_MONSTER, role: 'mob', name: '', level: 1, cls: null, mobType: null,
+    x: 0, y: 0, z: 0, yaw: 0, vy: 0, onGround: true, fixedY: null,
+    radius: 0.45, speed: 6.5, hp: 100, maxHp: 100, power: 100, maxPower: 100,
+    alive: true, deadAt: 0, removeAt: 0, removed: false,
+    target: null, threat: null, damagers: null, lastHitBy: null, lastHitAt: -99,
+    casting: null, swingAt: 0, cds: {}, gcdUntil: 0, buffs: [],
+    anim: { phase: Math.random() * TAU, amt: 0, act: 0, actT: 0, actDur: 0, flash: 0, death: 0 },
+    look: null, ai: { think: Math.random() * 0.5 }, home: null, warband: null, keep: null, carrying: null,
+    combatUntil: -99, dmgMult: 1, drBase: 0, swing: 2.4, meleeRange: 2.6, rangedKind: null, rangedRange: 0,
+    prevX: 0, prevZ: 0, scale: 1, hover: 0,
+  }, o);
+  e.prevX = e.x; e.prevZ = e.z;
+  ENT.push(e);
+  ENT_BY_ID.set(e.id, e);
+  return e;
+}
+function removeEnt(e) {
+  e.removed = true;
+  ENT_BY_ID.delete(e.id);
+  const i = ENT.indexOf(e);
+  if (i >= 0) ENT.splice(i, 1);
+}
+const getEnt = (id) => (id == null ? null : ENT_BY_ID.get(id) || null);
+
+/* spatial hash, rebuilt every simulation step */
+const SGRID = new Map();
+const SCELL = 12;
+const gkey = (cx, cz) => ((cx + 1024) << 11) | (cz + 1024);
+function rebuildGrid() {
+  SGRID.clear();
+  for (const e of ENT) {
+    const k = gkey(Math.floor(e.x / SCELL), Math.floor(e.z / SCELL));
+    let l = SGRID.get(k);
+    if (!l) SGRID.set(k, l = []);
+    l.push(e);
+  }
+}
+function forNear(x, z, r, fn) {
+  const r2 = r * r;
+  const x0 = Math.floor((x - r) / SCELL), x1 = Math.floor((x + r) / SCELL), z0 = Math.floor((z - r) / SCELL), z1 = Math.floor((z + r) / SCELL);
+  for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+    const l = SGRID.get(gkey(cx, cz));
+    if (!l) continue;
+    for (const e of l) { const d2 = dist2(x, z, e.x, e.z); if (d2 <= r2) fn(e, d2); }
+  }
+}
+function nearestWhere(x, z, r, pred) {
+  let best = null, bd = Infinity;
+  forNear(x, z, r, (e, d2) => { if (d2 < bd && pred(e)) { bd = d2; best = e; } });
+  return best;
+}
+
+function isEnemy(a, b) {
+  if (!a || !b || a === b) return false;
+  if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return false;
+  if (a.flying || b.flying) return false;
+  return a.faction !== b.faction;
+}
+const isActor = (e) => e.kind !== 'door';
+
+/* ------------------------------------------------------------------ */
+/* stats                                                               */
+/* ------------------------------------------------------------------ */
+const ROLE_MULT = {
+  player: [1.1, 1.25], dungeonBoss: [10, 1.25], soldier: [1, 1], guard: [1.15, 0.95], lord: [3.2, 1.25], guardian: [1.7, 1.05], muster: [7, 3.2], mob: [1, 1], villager: [1, 0], herald: [1, 0],
+};
+function setupStats(e, keepRatio = false) {
+  const ratio = keepRatio && e.maxHp > 0 ? e.hp / e.maxHp : 1;
+  const [hm, dm] = ROLE_MULT[e.role] || [1, 1];
+  if (e.cls && CLASSES[e.cls]) {
+    const C = CLASSES[e.cls];
+    e.maxHp = baseHp(e.level) * C.hp * hm;
+    e.maxPower = basePower(e.level);
+    e.dmgMult = C.dmg * dm;
+    e.drBase = C.dr;
+    e.swing = C.swing;
+    e.meleeRange = C.ranged ? 2.6 : C.range;
+    e.rangedKind = C.ranged || null;
+    e.rangedRange = C.ranged ? C.range : 0;
+    e.speed = 6.6;
+  } else if (e.mobType && MOBS[e.mobType]) {
+    const M = MOBS[e.mobType];
+    e.maxHp = baseHp(e.level) * 0.82 * M.hp * hm;
+    e.maxPower = 100;
+    e.dmgMult = 0.72 * M.dmg * dm;
+    e.drBase = 0;
+    e.swing = M.swing;
+    e.meleeRange = M.ranged ? 2.4 : M.range;
+    e.rangedKind = M.ranged || null;
+    e.rangedRange = M.ranged ? M.range : 0;
+    e.speed = M.speed;
+  }
+  if (e.role === 'player') {
+    const rr = realmRank(GAME.prog ? GAME.prog.rp : 0);
+    e.maxHp *= 1 + 0.015 * (rr - 1);
+    // what the player wears and wields
+    const g = e.gear;
+    if (g) {
+      e.maxHp *= 1 + g.hp / 100;
+      e.dmgMult *= 1 + g.dmg / 100;
+      e.drBase = 1 - (1 - e.drBase) * (1 - g.arm / 100);
+      e.maxPower *= 1 + g.pow / 100;
+      e.critBonus = g.crit / 100;
+    }
+  }
+  e.hp = e.maxHp * ratio;
+  e.power = Math.min(e.power, e.maxPower);
+  if (!keepRatio) e.power = e.maxPower;
+}
+
+/* ------------------------------------------------------------------ */
+/* buffs                                                               */
+/* ------------------------------------------------------------------ */
+function addBuff(e, kind, value, dur, src = null, extra = null) {
+  const now = GAME.t;
+  let b = e.buffs.find((x) => x.kind === kind && x.src === src);
+  if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
+  else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }
+  return b;
+}
+const hasBuff = (e, kind) => e.buffs.some((b) => b.kind === kind && b.until > GAME.t);
+function buffMax(e, kind) { let v = 0; for (const b of e.buffs) if (b.kind === kind && b.until > GAME.t && b.value > v) v = b.value; return v; }
+function buffSum(e, kind) { let v = 0; for (const b of e.buffs) if (b.kind === kind && b.until > GAME.t) v += b.value; return v; }
+const isStunned = (e) => hasBuff(e, 'stun');
+const isRooted = (e) => hasBuff(e, 'root') || isStunned(e);
+function effectiveSpeed(e) {
+  if (!e.alive || isRooted(e)) return 0;
+  let s = e.speed;
+  if (!hasBuff(e, 'free')) s *= 1 - buffMax(e, 'snare');
+  if (e.carrying) s *= 0.72;
+  return s;
+}
+function tickBuffs(e, dt) {
+  const now = GAME.t;
+  for (let i = e.buffs.length - 1; i >= 0; i--) {
+    const b = e.buffs[i];
+    if (!b) continue; // a dot can kill, which clears the list
+    if (b.kind === 'hot' || b.kind === 'dot') {
+      while (b.tick + 1 <= now && b.tick + 1 <= b.until + 0.01) {
+        b.tick += 1;
+        const src = getEnt(b.src) || e;
+        if (b.kind === 'hot') healEnt(src, e, b.value, true);
+        else if (e.alive) dealDamage(src, e, b.value, { dot: true });
+        if (!e.alive) return;
+      }
+    }
+    if (b.until <= now || (b.kind === 'shield' && b.value <= 0)) e.buffs.splice(i, 1);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* relic bonus (set by the war system)                                 */
+/* ------------------------------------------------------------------ */
+const REALM_BONUS = [1, 1, 1];
+function computeDamage(src, dst, mult) {
+  let d = baseDmg(src.level) * src.dmgMult * mult;
+  d *= 0.9 + Math.random() * 0.2;
+  d *= clamp(1 + 0.07 * (src.level - dst.level), 0.45, 1.7);
+  if (src.faction <= 2) d *= REALM_BONUS[src.faction];
+  if (src.role === 'player' && GAME.prog) d *= 1 + 0.015 * (realmRank(GAME.prog.rp) - 1);
+  d *= 1 + buffSum(src, 'dmg');
+  const crit = Math.random() < 0.08 + (src.critBonus || 0);
+  if (crit) d *= 1.5;
+  return { d, crit };
+}
+function dealDamage(src, dst, amount, opts = {}) {
+  if (!dst || !dst.alive || !(amount > 0)) return 0;
+  if (dst.kind === 'door') {
+    if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
+    amount *= opts.siege ? 1 : 0.5;
+  }
+  let dmg = amount * (1 - dst.drBase) * (1 - buffMax(dst, 'dr'));
+  let absorbed = 0;
+  for (const b of dst.buffs) {
+    if (b.kind === 'shield' && b.value > 0 && dmg > 0) { const a = Math.min(b.value, dmg); b.value -= a; dmg -= a; absorbed += a; }
+  }
+  dst.hp -= dmg;
+  if (dst.mount && dmg > 0 && !opts.dot) dismount(dst, 'You are thrown from the saddle!');
+  const now = GAME.t;
+  dst.combatUntil = now + 6;
+  if (src) src.combatUntil = now + 6;
+  if (src && src !== dst) {
+    if (!dst.threat) dst.threat = new Map();
+    dst.threat.set(src.id, (dst.threat.get(src.id) || 0) + dmg + absorbed + 1);
+    if (!dst.damagers) dst.damagers = new Set();
+    dst.damagers.add(src.id);
+    dst.lastHitBy = src.id;
+    dst.lastHitAt = now;
+  }
+  if (dst.kind !== 'door') {
+    dst.anim.flash = 1;
+    if (!opts.dot && Math.random() < 0.3 && !dst.casting && dst.alive && dst.anim.act === 0) setAct(dst, 4, 0.35);
+  }
+  onDamageFeedback(src, dst, dmg, absorbed, opts);
+  onImpact(src, dst, dmg, opts);
+  if (dst.hp <= 0) killEnt(dst, src);
+  return dmg;
+}
+function healEnt(src, dst, amount, quiet = false) {
+  if (!dst || !dst.alive || dst.kind === 'door') return 0;
+  const before = dst.hp;
+  dst.hp = Math.min(dst.maxHp, dst.hp + amount);
+  const h = dst.hp - before;
+  if (h > 0.5) {
+    onHealFeedback(src, dst, h, quiet);
+    // healers draw the attention of whoever is fighting the healed unit
+    if (src && src !== dst) {
+      forNear(dst.x, dst.z, 25, (o) => { if (o.alive && o.threat && o.threat.has(dst.id) && isEnemy(o, src)) o.threat.set(src.id, (o.threat.get(src.id) || 0) + h * 0.5); });
+    }
+  }
+  return h;
+}
+function killEnt(e, killer) {
+  if (!e.alive) return;
+  e.alive = false;
+  e.hp = 0;
+  e.deadAt = GAME.t;
+  e.casting = null;
+  e.target = null;
+  e.buffs.length = 0;
+  e.mount = null;
+  if (e.kind !== 'door') e.removeAt = e.role === 'player' ? Infinity : GAME.t + 10;
+  if (e.carrying != null) dropRelic(e);
+  deathEffects(e);
+  const P = GAME.player;
+  if (P && e !== P && e.damagers && e.damagers.has(P.id)) grantKillRewards(e);
+  onEntityKilled(e, killer);
+}
+
+/* ------------------------------------------------------------------ */
+/* animation helpers                                                   */
+/* ------------------------------------------------------------------ */
+function setAct(e, type, dur) { e.anim.act = type; e.anim.actT = 0; e.anim.actDur = dur; }
+function faceToward(e, x, z) { if (Math.abs(x - e.x) + Math.abs(z - e.z) > 1e-3) e.yaw = Math.atan2(x - e.x, z - e.z); }
+function turnToward(e, x, z, rate) {
+  if (Math.abs(x - e.x) + Math.abs(z - e.z) < 1e-3) return;
+  const want = Math.atan2(x - e.x, z - e.z);
+  const d = angDiff(e.yaw, want);
+  e.yaw += clamp(d, -rate, rate);
+}
+function updateAnim(e, dt) {
+  const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
+  e.prevX = e.x; e.prevZ = e.z;
+  const want = clamp(sp / 4.3, 0, 1.5);
+  e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * 10));
+  const stride = (e.kind === 'humanoid' ? 1.75 : beastStride(e.kind, e.anim.amt)) * (e.scale || 1);
+  e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
+  if (e.mount) updateMountAnim(e, dt, sp);
+  if (e.anim.actDur > 0) {
+    e.anim.actT += dt;
+    if (e.anim.actT >= e.anim.actDur) { e.anim.act = 0; e.anim.actDur = 0; }
+  }
+  e.anim.flash = Math.max(0, e.anim.flash - dt * 5);
+  e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
+}
+function animActValue(e) {
+  if (e.casting) return e.casting.id === 'summon' ? 0 : 3 + clamp(e.casting.t / e.casting.total, 0, 0.999);
+  if (!e.onGround && e.role === 'player') return 6.5;
+  if (e.anim.act && e.anim.actDur > 0) return e.anim.act + clamp(e.anim.actT / e.anim.actDur, 0, 0.999);
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* movement                                                            */
+/* ------------------------------------------------------------------ */
+const _mv = { x: 0, z: 0 };
+function stepTo(e, nx, nz) {
+  if (!isFiniteNum(nx) || !isFiniteNum(nz)) return false;
+  if (!isWalkable(nx, nz)) {
+    if (isWalkable(nx, e.z)) nz = e.z;
+    else if (isWalkable(e.x, nz)) nx = e.x;
+    else return false;
+  }
+  _mv.x = nx; _mv.z = nz;
+  resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, null, e.faction);
+  const Dg = DRAGON.e;
+  if (Dg && Dg !== e && !Dg.removed && !Dg.flying) {
+    const ddx = _mv.x - Dg.x, ddz = _mv.z - Dg.z, dd = Math.hypot(ddx, ddz), rr = 2.7 + e.radius;
+    if (dd < rr && dd > 1e-4) { _mv.x = Dg.x + ddx / dd * rr; _mv.z = Dg.z + ddz / dd * rr; }
+  }
+  if (!isWalkable(_mv.x, _mv.z)) return false;
+  e.x = _mv.x; e.z = _mv.z;
+  return true;
+}
+function moveToward(e, tx, tz, dt, speedMul = 1, stopDist = 0.3) {
+  const dx = tx - e.x, dz = tz - e.z, d = Math.hypot(dx, dz);
+  if (d <= stopDist) return true;
+  const sp = effectiveSpeed(e) * speedMul;
+  if (sp <= 0) return false;
+  const step = Math.min(d - stopDist * 0.5, sp * dt);
+  stepTo(e, e.x + (dx / d) * step, e.z + (dz / d) * step);
+  turnToward(e, tx, tz, dt * 9);
+  return false;
+}
+function groundY(e) { return e.fixedY !== null ? e.fixedY : heightAt(e.x, e.z); }
+
+/* ------------------------------------------------------------------ */
+/* abilities                                                           */
+/* ------------------------------------------------------------------ */
+function abilityRange(e, A, target) {
+  if (A.range === 'melee') return e.meleeRange + (target ? target.radius * (target.scale || 1) : 0) + 0.3;
+  return (A.range || 0) + (target ? target.radius * (target.scale || 1) : 0);
+}
+function resolveTarget(e, A, target) {
+  if (A.self) return e;
+  if (A.friendly) return target && target.alive && !isEnemy(e, target) && isActor(target) && target.faction === e.faction ? target : e;
+  return target;
+}
+function canUse(e, id, target, ignoreCd = false) {
+  const A = ABILITIES[id];
+  if (!A) return 'unknown';
+  if (!e.alive) return 'dead';
+  if (e.carrying != null) return 'carrying';
+  if (isStunned(e)) return 'stunned';
+  if (e.casting) return 'busy';
+  if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
+  if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
+  if (e.power < A.cost) return 'power';
+  const t = resolveTarget(e, A, target);
+  if (A.self) return null;
+  if (A.friendly) { if (t !== e && dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t)) return 'range'; return null; }
+  if (!t || !t.alive || !isEnemy(e, t)) return 'target';
+  const d = dist(e.x, e.z, t.x, t.z);
+  if (d > abilityRange(e, A, t)) return 'range';
+  if (A.minRange && d < A.minRange) return 'close';
+  return null;
+}
+function useAbility(e, id, target) {
+  const why = canUse(e, id, target);
+  if (why) return why;
+  const A = ABILITIES[id];
+  const t = resolveTarget(e, A, target);
+  if (t && t !== e) faceToward(e, t.x, t.z);
+  if (A.cast > 0) {
+    e.casting = { id, t: 0, total: A.cast, targetId: t ? t.id : null, gx: t ? t.x : e.x, gz: t ? t.z : e.z };
+    if (e.role === 'player') sfx('cast');
+    return true;
+  }
+  executeAbility(e, A, t);
+  return true;
+}
+function finishCast(e) {
+  const c = e.casting;
+  e.casting = null;
+  if (c.id === 'summon') { mountUp(e); return; }
+  const A = ABILITIES[c.id];
+  let t = getEnt(c.targetId);
+  if (!A.ground && !A.self) {
+    if (A.friendly) { if (!t || !t.alive) t = e; }
+    else if (!t || !t.alive || !isEnemy(e, t)) return;
+    if (t !== e && dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 4) { if (e.role === 'player') uiError('Your target is out of range'); return; }
+  }
+  if (e.power < A.cost) return;
+  executeAbility(e, A, t, c);
+}
+function executeAbility(e, A, t, cast = null) {
+  const now = GAME.t;
+  e.power -= A.cost;
+  e.cds[A.id] = now + A.cd;
+  if (e.role === 'player') e.gcdUntil = now + 0.6;
+  e.combatUntil = Math.max(e.combatUntil, A.friendly || A.self ? e.combatUntil : now + 6);
+  if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : A.anim === 8 ? 0.7 : 0.5);
+  const chest = (u) => u.y + 1.2 * (u.scale || 1);
+  // self abilities
+  if (A.self) {
+    if (A.healPct) healEnt(e, e, e.maxHp * A.healPct);
+    if (A.buff) addBuff(e, A.buff.kind, A.buff.value, A.buff.dur, e.id);
+    if (A.shieldPct) { addBuff(e, 'shield', e.maxHp * A.shieldPct, A.dur, e.id); FX.ring(e.x, e.y + 1, e.z, 1.2, [0.6, 0.9, 1.6], 24, 1.5); }
+    if (A.id === 'rally') { FX.ring(e.x, e.y + 0.3, e.z, 2, [2.0, 1.4, 0.5], 36); sfx('horn'); }
+    if (A.id === 'bulwark') FX.ring(e.x, e.y + 1, e.z, 1.0, [1.4, 1.4, 1.6], 20, 1.2);
+    if (A.blink) {
+      const dx = Math.sin(e.yaw), dz = Math.cos(e.yaw);
+      FX.burst(e.x, e.y + 1, e.z, 20, [0.8, 0.6, 2.0], 2, 0.5, 0.2, 0);
+      for (let s = A.blink; s > 0; s -= 1) {
+        const nx = e.x + dx * s, nz = e.z + dz * s;
+        if (isWalkable(nx, nz) && segmentClear(e.x, e.z, nx, nz, 0.3)) { e.x = nx; e.z = nz; e.prevX = nx; e.prevZ = nz; break; }
+      }
+      e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root');
+      FX.burst(e.x, e.y + 1, e.z, 20, [0.8, 0.6, 2.0], 2, 0.5, 0.2, 0);
+      sfx('blink');
+    }
+    if (A.dashBack) {
+      const dx = -Math.sin(e.yaw), dz = -Math.cos(e.yaw);
+      for (let s = A.dashBack; s > 0; s -= 1) {
+        const nx = e.x + dx * s, nz = e.z + dz * s;
+        if (isWalkable(nx, nz) && segmentClear(e.x, e.z, nx, nz, 0.3)) { e.x = nx; e.z = nz; break; }
+      }
+      e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root');
+      FX.dust(e.x, e.y, e.z, 10);
+    }
+    if (A.pbaoe) {
+      FX.ring(e.x, e.y + 0.6, e.z, A.pbaoe, [2.2, 0.9, 0.3], 60, A.pbaoe * 1.3);
+      FX.burst(e.x, e.y + 0.8, e.z, 40, [2.0, 0.8, 0.25], 6, 0.6, 0.3, 1);
+      forNear(e.x, e.z, A.pbaoe, (o) => {
+        if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
+        const r = computeDamage(e, o, A.dmg);
+        dealDamage(e, o, r.d, { crit: r.crit, kind: 'fire' });
+        if (A.root) addBuff(o, 'root', 1, A.root, e.id);
+      });
+      sfx('fire');
+    }
+    if (A.groupHeal) {
+      forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal); FX.heal(o.x, o.y, o.z); } });
+      FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
+      sfx('heal');
+    }
+    return;
+  }
+  // friendly single target
+  if (A.friendly) {
+    const f = t || e;
+    if (A.heal) { healEnt(e, f, f.maxHp * A.heal); FX.heal(f.x, f.y, f.z); sfx('heal'); }
+    if (A.hot) { addBuff(f, 'hot', (f.maxHp * A.hot[0]) / A.hot[1], A.hot[1], e.id); FX.heal(f.x, f.y, f.z); }
+    if (A.shieldPct) { addBuff(f, 'shield', f.maxHp * A.shieldPct, A.dur, e.id); addBuff(f, 'dr', 0.3, A.dur, e.id); FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2); sfx('heal'); }
+    return;
+  }
+  // ground-targeted
+  if (A.ground) {
+    const gx = t ? t.x : cast ? cast.gx : e.x, gz = t ? t.z : cast ? cast.gz : e.z;
+    if (A.id === 'volley') {
+      for (let w = 0; w < A.waves; w++) {
+        later(0.35 + w * 0.55, () => {
+          for (let k = 0; k < 7; k++) {
+            const a = Math.random() * TAU, r = Math.random() * A.radius;
+            spawnProjectile(e, null, 'arrow', null, { x: gx + Math.cos(a) * r, y: heightAt(gx, gz) + 0.2, z: gz + Math.sin(a) * r }, true);
+          }
+          later(0.5, () => areaDamage(e, gx, gz, A.radius, A.dmg, null));
+        });
+      }
+      aoeMarker(gx, gz, A.radius, 2.2);
+    } else if (A.id === 'meteor') {
+      const gy = heightAt(gx, gz);
+      spawnProjectile(e, null, 'meteor', null, { x: gx, y: gy, z: gz }, true, { x: gx - 8, y: gy + 26, z: gz - 6 });
+      aoeMarker(gx, gz, A.radius, 1.2);
+      later(0.95, () => {
+        FX.burst(gx, gy + 0.5, gz, 70, [2.4, 1.0, 0.3], 9, 0.8, 0.35, 6);
+        FX.ring(gx, gy + 0.3, gz, A.radius, [2.0, 0.8, 0.3], 60, 9);
+        FX.dust(gx, gy, gz, 24, [0.3, 0.26, 0.22]);
+        lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
+        areaDamage(e, gx, gz, A.radius, A.dmg, null);
+        sfx('boom');
+        cameraShake(0.4, gx, gz);
+      });
+    }
+    return;
+  }
+  if (!t) return;
+  if (A.range === 'melee') {
+    if (A.dash) {
+      const d = dist(e.x, e.z, t.x, t.z);
+      const dx = (t.x - e.x) / d, dz = (t.z - e.z) / d;
+      const stop = d - (e.meleeRange * 0.7 + t.radius);
+      for (let s = stop; s > 0; s -= 0.5) { const nx = e.x + dx * s, nz = e.z + dz * s; if (isWalkable(nx, nz) && segmentClear(e.x, e.z, nx, nz, 0.4)) { FX.dust(e.x, e.y, e.z, 8); e.x = nx; e.z = nz; break; } }
+      faceToward(e, t.x, t.z);
+    }
+    later(0.22, () => {
+      if (!e.alive) return;
+      if (A.arc) {
+        spawnSlash(e, false);
+        forNear(e.x, e.z, A.arc + 1, (o) => {
+          if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
+          const ang = Math.abs(angDiff(e.yaw, Math.atan2(o.x - e.x, o.z - e.z)));
+          if (ang > 1.1) return;
+          const r = computeDamage(e, o, A.dmg);
+          dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
+          FX.sparks(o.x, chest(o), o.z);
+        });
+        sfx('swing');
+        return;
+      }
+      if (!t.alive || dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 1.5) return;
+      spawnSlash(e, A.anim === 8);
+      const r = computeDamage(e, t, A.dmg);
+      dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
+      FX.sparks(t.x, chest(t), t.z);
+      if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); t.casting = null; FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+      if (A.snare) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
+      sfx('hit');
+    });
+    return;
+  }
+  if (A.proj) {
+    spawnProjectile(e, t, A.proj, { mult: A.dmg, snare: A.snare, ability: A.id });
+    sfx(A.proj === 'arrow' ? 'bow' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy');
+    return;
+  }
+  if (A.dot) {
+    const r = computeDamage(e, t, A.dot[0]);
+    addBuff(t, 'dot', r.d / A.dot[1], A.dot[1], e.id);
+    FX.burst(t.x, chest(t), t.z, 16, [2.0, 1.6, 0.6], 2, 0.6, 0.18, -1);
+    sfx('holy');
+    return;
+  }
+  if (A.line) {
+    const dx = t.x - e.x, dz = t.z - e.z, d = Math.hypot(dx, dz) || 1;
+    const ux = dx / d, uz = dz / d, L = 40;
+    spawnProjectile(e, null, 'arrow', null, { x: e.x + ux * L, y: heightAt(e.x + ux * L, e.z + uz * L) + 1.2, z: e.z + uz * L }, true);
+    later(0.2, () => {
+      forNear(e.x + ux * L / 2, e.z + uz * L / 2, L / 2 + 2, (o) => {
+        if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
+        const px = o.x - e.x, pz = o.z - e.z, along = px * ux + pz * uz;
+        if (along < 0 || along > L) return;
+        if (Math.abs(px * uz - pz * ux) > 1.3 + o.radius) return;
+        const r = computeDamage(e, o, A.dmg);
+        dealDamage(e, o, r.d, { crit: r.crit, kind: 'arrow' });
+      });
+    });
+    sfx('bow');
+  }
+}
+function areaDamage(src, x, z, radius, mult, extra) {
+  if (!src.alive && src.role !== 'player') return;
+  forNear(x, z, radius, (o) => {
+    if (!o.alive || !isEnemy(src, o) || !isActor(o)) return;
+    const r = computeDamage(src, o, mult);
+    dealDamage(src, o, r.d, { crit: r.crit, kind: 'aoe' });
+  });
+}
+/* delayed actions */
+const LATER = [];
+function later(dt, fn) { LATER.push({ t: GAME.t + dt, fn }); }
+function runLater() {
+  for (let i = LATER.length - 1; i >= 0; i--) {
+    if (LATER[i].t <= GAME.t) { const f = LATER[i].fn; LATER.splice(i, 1); try { f(); } catch (err) { console.warn(err); } }
+  }
+}
+const AOE_MARKS = [];
+function aoeMarker(x, z, r, dur) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur }); }
+
+/* ------------------------------------------------------------------ */
+/* auto attack                                                         */
+/* ------------------------------------------------------------------ */
+function autoAttack(e) {
+  if (e.target == null || e.casting || e.carrying != null || e.mount || isStunned(e)) return;
+  const t = getEnt(e.target);
+  if (!t || !t.alive || !isEnemy(e, t)) return;
+  const now = GAME.t;
+  if (now < e.swingAt) return;
+  const d = dist(e.x, e.z, t.x, t.z);
+  const tr = t.radius * (t.scale || 1);
+  const reach = e.rangedKind ? e.rangedRange + tr : e.meleeRange * (e.scale || 1) + tr;
+  if (d > reach) return;
+  if (e.role === 'player' && Math.abs(angDiff(e.yaw, Math.atan2(t.x - e.x, t.z - e.z))) > 1.4 && d > 2.5) return;
+  e.swingAt = now + e.swing * (0.95 + Math.random() * 0.1);
+  faceToward(e, t.x, t.z);
+  if (e.rangedKind) {
+    setAct(e, e.rangedKind === 'arrow' ? 2 : 3, e.rangedKind === 'arrow' ? 0.6 : 0.45);
+    later(e.rangedKind === 'arrow' ? 0.45 : 0.3, () => { if (e.alive && t.alive) spawnProjectile(e, t, e.rangedKind, { mult: e.rangedKind === 'arcane' ? 0.9 : 1.0 }); });
+    if (e.role === 'player') sfx(e.rangedKind === 'arrow' ? 'bow' : 'zap');
+  } else {
+    setAct(e, e.mobType === 'troll' ? 8 : 1, e.kind === 'humanoid' ? 0.6 : 0.45);
+    later(0.26, () => {
+      if (!e.alive || !t.alive) return;
+      if (dist(e.x, e.z, t.x, t.z) > reach + 1.2) return;
+      const r = computeDamage(e, t, 1);
+      spawnSlash(e, e.mobType === 'troll');
+      dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
+      if (t.kind !== 'door') FX.sparks(t.x, t.y + 1.1 * (t.scale || 1), t.z);
+      else FX.dust(t.x, t.y + 1, t.z, 4, [0.4, 0.3, 0.2]);
+      if (e.role === 'player' || t.role === 'player') sfx(t.kind === 'door' ? 'thud' : 'hit');
+    });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* projectiles                                                         */
+/* ------------------------------------------------------------------ */
+const PROJ = [];
+const PROJ_COL = { arrow: null, fire: [2.4, 1.0, 0.3], frost: [0.7, 1.4, 2.4], holy: [2.2, 1.9, 0.9], arcane: [1.1, 0.7, 2.2], wisp: [0.7, 1.9, 1.6], meteor: [2.6, 1.1, 0.35] };
+function spawnProjectile(src, target, kind, payload, point = null, visualOnly = false, from = null) {
+  const sc = src.scale || 1;
+  const sx = from ? from.x : src.x + Math.sin(src.yaw) * 0.4, sz = from ? from.z : src.z + Math.cos(src.yaw) * 0.4;
+  const sy = from ? from.y : src.y + 1.45 * sc;
+  PROJ.push({
+    kind, src: src.id, srcFaction: src.faction, tgt: target ? target.id : null, point,
+    x: sx, y: sy, z: sz, ox: sx, oy: sy, oz: sz,
+    speed: kind === 'arrow' ? 46 : kind === 'meteor' ? 32 : 24, payload, visualOnly, age: 0, life: 3.5,
+    dx: 0, dy: 0, dz: 1,
+  });
+}
+function updateProjectiles(dt) {
+  for (let i = PROJ.length - 1; i >= 0; i--) {
+    const p = PROJ[i];
+    p.age += dt;
+    const t = getEnt(p.tgt);
+    let tx, ty, tz;
+    if (p.point) { tx = p.point.x; ty = p.point.y; tz = p.point.z; }
+    else if (t) { tx = t.x; ty = t.kind === 'door' ? t.y + 2.5 : t.kind === 'dragon' ? t.y + 2.8 : t.y + 1.15 * (t.scale || 1); tz = t.z; }
+    else { PROJ.splice(i, 1); continue; }
+    const dx = tx - p.x, dy = ty - p.y, dz = tz - p.z, d = Math.hypot(dx, dy, dz);
+    const step = p.speed * dt;
+    if (d <= step + 0.3 || p.age > p.life) {
+      PROJ.splice(i, 1);
+      if (!p.visualOnly && t && t.alive) {
+        const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
+        const r = computeDamage(src, t, p.payload ? p.payload.mult || 1 : 1);
+        dealDamage(src, t, r.d, { crit: r.crit, kind: p.kind });
+        if (p.payload && p.payload.snare) addBuff(t, 'snare', p.payload.snare[0], p.payload.snare[1], p.src);
+      }
+      const c = PROJ_COL[p.kind];
+      if (c && p.kind !== 'meteor') spellImpact(p.kind, tx, ty, tz);
+      else if (c) FX.burst(tx, ty, tz, 4, c, 3, 0.4, 0.16, 2);
+      else if (!p.visualOnly && t) FX.sparks(tx, ty, tz);
+      continue;
+    }
+    p.dx = dx / d; p.dy = dy / d; p.dz = dz / d;
+    p.x += p.dx * step; p.y += p.dy * step; p.z += p.dz * step;
+    // a gentle arc for arrows
+    if (p.kind === 'arrow') {
+      const tot = Math.hypot(tx - p.ox, tz - p.oz) || 1, done = Math.hypot(p.x - p.ox, p.z - p.oz);
+      p.vis = Math.sin(clamp(done / tot, 0, 1) * Math.PI) * tot * 0.06;
+    } else p.vis = 0;
+    const c = PROJ_COL[p.kind];
+    if (c) { FX.trail(p.x, p.y, p.z, c, p.kind === 'meteor' ? 0.9 : 0.24, p.kind === 'meteor' ? 0.5 : 0.3); }
+  }
+}
+function drawProjectiles() {
+  for (const p of PROJ) {
+    const c = PROJ_COL[p.kind];
+    if (!c) arrowPush(p.x, p.y + (p.vis || 0), p.z, p.dx, p.dy + (p.vis ? 0.06 : 0), p.dz);
+    else { glowPush(p.x, p.y, p.z, c[0], c[1], c[2], p.kind === 'meteor' ? 2.4 : 0.7); glowPush(p.x, p.y, p.z, c[0] * 0.3, c[1] * 0.3, c[2] * 0.3, p.kind === 'meteor' ? 6 : 1.8); }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* progression                                                         */
+/* ------------------------------------------------------------------ */
+function grantKillRewards(e) {
+  const prog = GAME.prog, P = GAME.player;
+  if (!prog || !P) return;
+  if (e.kind === 'door') return;
+  const ci = conIndex(e.level, prog.level);
+  rollLoot(e);
+  if (e.role === 'dungeonBoss') {
+    addXP(Math.round(20 * e.level * Math.max(0.5, CON[ci].xp) * 10), e);
+    addRP(150);
+    prog.kills++;
+    uiToast(`You have laid ${e.name} to rest.`, 'quest');
+    return;
+  }
+  if (e.role === 'boss') {
+    addXP(Math.round(20 * e.level * Math.max(0.5, CON[ci].xp) * 14), e);
+    addRP(300);
+    prog.kills++;
+    uiToast(`You helped bring down ${e.name}!`, 'quest');
+    return;
+  }
+  if (e.faction === FACTION_MONSTER) {
+    const xp = Math.round(20 * e.level * CON[ci].xp * (e.mobType === 'troll' || e.mobType === 'bear' ? 1.2 : 1));
+    if (xp > 0) addXP(xp, e);
+    prog.kills++;
+    bountyOnKill(e);
+  } else if (e.faction <= 2 && e.faction !== P.faction) {
+    const mult = e.role === 'lord' ? 5 : e.role === 'guardian' ? 3 : e.role === 'guard' ? 1.3 : 1;
+    addRP(Math.round((10 + 2 * e.level) * mult));
+    const xp = Math.round(14 * e.level * Math.max(0.3, CON[ci].xp));
+    addXP(xp, e);
+    prog.realmKills++;
+  }
+}
+function addXP(n, src = null) {
+  const prog = GAME.prog;
+  if (prog.level >= LEVEL_CAP) return;
+  prog.xp += n;
+  uiLog(`You gain ${fmtInt(n)} experience.`, 'xp');
+  while (prog.level < LEVEL_CAP && prog.xp >= xpToNext(prog.level)) {
+    prog.xp -= xpToNext(prog.level);
+    prog.level++;
+    onLevelUp();
+  }
+  if (prog.level >= LEVEL_CAP) prog.xp = 0;
+}
+function addRP(n) {
+  const prog = GAME.prog;
+  const before = realmRank(prog.rp);
+  prog.rp += n;
+  uiLog(`You gain ${fmtInt(n)} realm points.`, 'rp');
+  const after = realmRank(prog.rp);
+  if (after > before) {
+    setupStats(GAME.player, true);
+    uiToast(`Realm rank ${after}: ${RANK_TITLES[after - 1]}`, 'rank');
+    sfx('levelup');
+  }
+}
+function onLevelUp() {
+  const P = GAME.player, prog = GAME.prog;
+  P.level = prog.level;
+  setupStats(P, false);
+  FX.levelUp(P.x, P.y, P.z);
+  lightFlash(P.x, P.y + 1.5, P.z, 10, [2.6, 2.1, 1.0], 1.2);
+  sfx('levelup');
+  flashScreen([1.0, 0.85, 0.4], 0.35);
+  const newAb = CLASSES[P.cls].abilities.map((k) => ABILITIES[k]).filter((A) => A.level === prog.level);
+  uiToast(`Level ${prog.level}` + (newAb.length ? `. New ability: ${newAb.map((a) => a.name).join(', ')}` : ''), 'level');
+  uiLog(`You have reached level ${prog.level}.`, 'level');
+  saveSoon();
+}

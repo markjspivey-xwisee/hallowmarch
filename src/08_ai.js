@@ -1,0 +1,953 @@
+/* ================================================================== */
+/* AI: monsters, garrisons, warbands, realm commanders, relics         */
+/* ================================================================== */
+const WAR = { keeps: [], temples: [], relics: [], warbands: [], commanders: [], news: [], nextWb: 1, stats: { captures: 0, raids: 0, raidOrders: 0, raidSieges: 0, raidAborts: 0, raidWiped: 0, templeGates: 0, seized: 0 } };
+const CAMPS = [];
+const MAX_WARBANDS = () => (quality.level === 'low' ? 2 : quality.level === 'medium' ? 3 : 4);
+
+function siteWorld(S, lx, ly, lz) { const p = siteToWorld(S, lx, lz); return { x: p.x, y: S.y + ly, z: p.z }; }
+
+/* ------------------------------------------------------------------ */
+/* spawning helpers                                                    */
+/* ------------------------------------------------------------------ */
+function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
+  const name = randomName(realm);
+  const look = classLook(cls, realm, Math.random, name);
+  if (role === 'lord') { look.outfit = OUTFIT.lord; look.mask = (look.mask & ~(WB.helmet | WB.hairShort | WB.hairLong)) | WB.circlet | WB.cape | WB.hairShort; }
+  const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: heightAt(x, z), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
+  setupStats(e);
+  return e;
+}
+function spawnMob(camp) {
+  const M = MOBS[camp.type];
+  const lvl = camp.lmin + Math.floor(Math.random() * (camp.lmax - camp.lmin + 1));
+  const a = Math.random() * TAU, r = Math.random() * camp.r;
+  let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
+  if (!isWalkable(x, z)) { x = camp.x; z = camp.z; }
+  const tier = Math.min(M.names.length - 1, Math.floor((lvl - camp.lmin) / Math.max(1, (camp.lmax - camp.lmin + 1) / M.names.length)));
+  const name = M.names[Math.min(M.names.length - 1, Math.floor(lvl / 5.5))] || M.names[tier];
+  const sc = lerp(M.scale[0], M.scale[1], (lvl - 1) / 19);
+  const e = makeEnt({
+    kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: camp.type, level: lvl, name,
+    x, z, y: heightAt(x, z), yaw: Math.random() * TAU, scale: sc, radius: M.radius, camp: camp.id,
+    home: { x: camp.x, z: camp.z, r: camp.r },
+    look: M.kind === 'humanoid' ? { tabard: M.tabard.map((v) => v * (0.8 + Math.random() * 0.4)), armor: M.armor, skin: Math.random() * 0.6, hair: Math.random(), mask: M.mask | (M.outfit === 5 && Math.random() < 0.3 ? WB.cape : 0) | (M.outfit === 5 && Math.random() < 0.5 ? WB.beard : 0), flags: M.flags || 0, scale: sc, outfit: M.outfit, emblem: 3, fem: 0, bulk: M.bulk || 0 } : M.colA ? { colA: M.colA.map((v) => v * (0.85 + Math.random() * 0.3)), colB: M.colB } : { colA: [0.6, 1.6, 1.4], colB: [0.3, 0.8, 0.7] },
+    hover: M.kind === 'wisp' ? 1.6 : 0,
+  });
+  setupStats(e);
+  camp.members.add(e.id);
+  return e;
+}
+function initCamps() {
+  for (const c of W.camps) {
+    const camp = { ...c, members: new Set(), respawnAt: [] };
+    CAMPS.push(camp);
+    for (let i = 0; i < camp.count; i++) spawnMob(camp);
+  }
+}
+function villagerLook(realm) {
+  const fem = Math.random() < 0.5 ? 1 : 0, r = Math.random;
+  const dyes = [[0.55, 0.42, 0.28], [0.36, 0.42, 0.3], [0.5, 0.3, 0.24], [0.62, 0.56, 0.42], [0.32, 0.36, 0.46], [0.44, 0.24, 0.3]];
+  return { tabard: pick(r, dyes), armor: [0.4, 0.33, 0.25], skin: r() * 0.8, hair: r(), mask: WB.skirt | WB.belt | hairAndBeard(r, fem, realm) | (fem && r() < 0.5 ? WB.robe : 0), flags: 0, scale: 0.9 + r() * 0.1, outfit: OUTFIT.villager, emblem: 3, fem, bulk: r() < 0.3 ? 0.35 : 0 };
+}
+function initTowns() {
+  for (const R of REALMS) {
+    const S = R.town;
+    const hp = siteWorld(S, 3.5, 0, 9);
+    const herald = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'herald', cls: 'priest', level: 30, name: `${R.name} Herald`, x: hp.x, z: hp.z, y: heightAt(hp.x, hp.z), yaw: S.yaw + Math.PI, look: { ...classLook('priest', R.id, Math.random, 'herald'), mask: WB.cape | WB.staff | WB.robe | WB.tabard | WB.circlet | WB.belt | WB.hairShort | WB.beard, outfit: OUTFIT.herald }, radius: 0.5 });
+    setupStats(herald);
+    herald.ai.post = { x: hp.x, z: hp.z };
+    R.herald = herald;
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * TAU, rr = 6 + Math.random() * 12;
+      const x = S.x + Math.cos(a) * rr, z = S.z + Math.sin(a) * rr;
+      const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: pick(Math.random, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
+      v.maxHp = v.hp = 300;
+    }
+    // muster wardens: very strong guards that keep the portal safe
+    const M = R.musterSite;
+    for (const [lx, lz] of [[-4.5, 15], [4.5, 15], [-4.5, -15], [4.5, -15]]) {
+      const p = siteWorld(M, lx, 0, lz);
+      const g = spawnRealmUnit(R.id, lz > 0 ? 'archer' : 'warrior', 30, 'muster', p.x, p.z, { yaw: M.yaw + (lz > 0 ? 0 : Math.PI) });
+      g.ai.post = { x: p.x, z: p.z, leash: 18 };
+      g.name = `${R.name} Warden`;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* keeps, temples, relics                                              */
+/* ------------------------------------------------------------------ */
+function keepSlots(K) {
+  const S = K.site, round = REALMS[K.orig].style === 'round';
+  const wallY = round ? 6.2 : WALL_H;
+  const walls = round
+    ? [[-0.5, 16.3], [0.5, 16.3], [-1.6, 16.3], [1.6, 16.3]].map(([a, r]) => [Math.sin(a) * r, wallY, Math.cos(a) * r])
+    : [[-8, WALL_H, KEEP_HS - 1.1], [8, WALL_H, KEEP_HS - 1.1], [-(KEEP_HS - 1.1), WALL_H, 3], [KEEP_HS - 1.1, WALL_H, 3]];
+  const court = round ? [[-9, 0, 6], [9, 0, 6], [-10, 0, -6], [10, 0, -6]] : [[-9, 0, 8], [9, 0, 8], [-10, 0, -6], [10, 0, -6]];
+  const lord = round ? [0, 0, 1.8] : [0, 0, -1.2];
+  return { walls, court, lord };
+}
+function initWar() {
+  for (const R of REALMS) {
+    R.keepSites.forEach((S, k) => {
+      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 22, x: 0, z: 0, radius: 3.2 });
+      const gp = siteWorld(S, 0, 0, S.gateLocal.z);
+      door.x = gp.x; door.z = gp.z; door.y = S.y;
+      door.maxHp = door.hp = 3600;
+      S.door.owner = R.id;
+      const K = { id: WAR.keeps.length, site: S, realm: R.id, orig: R.id, door, lord: null, guards: new Set(), nav: R.nav.k[k], underSiegeUntil: -99, lastEnemyNear: -99, nextGuardAt: 0, lastOwnerChange: -999, wantedBy: new Map() };
+      door.keepRef = K;
+      S.keepRef = K;
+      K.slots = keepSlots(K);
+      WAR.keeps.push(K);
+      fillGarrison(K, true);
+    });
+    const S = R.templeSite;
+    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 22, x: 0, z: 0, radius: 3.4 });
+    const gp = siteWorld(S, 0, 0, S.gateLocal.z);
+    door.x = gp.x; door.z = gp.z; door.y = S.y;
+    door.maxHp = door.hp = 2400;
+    S.door.owner = R.id;
+    const T = { id: WAR.temples.length, site: S, realm: R.id, door, guardians: new Set(), nav: R.nav, nextGuardAt: 0, lastEnemyNear: -99, exposedUntil: -99, underSiegeUntil: -99 };
+    door.templeRef = T;
+    S.templeRef = T;
+    WAR.temples.push(T);
+    fillGuardians(T, true);
+    const relic = { id: R.id, realm: R.id, state: 'temple', at: R.id, carrier: null, x: 0, y: 0, z: 0, since: 0, from: R.id, mesh: relicMesh(R.id), slot: 'home' };
+    scene.add(relic.mesh);
+    WAR.relics.push(relic);
+    WAR.commanders.push({ realm: R.id, nextThink: 2 + R.id, nextSpawn: 4 + R.id * 3 });
+  }
+  updateRelicBonuses();
+}
+function fillGarrison(K, all) {
+  const R = K.realm, S = K.site;
+  const lvl = 20;
+  if (!K.lord || !getEnt(K.lord) || !getEnt(K.lord).alive) {
+    const p = siteWorld(S, ...K.slots.lord);
+    const L = spawnRealmUnit(R, 'warrior', 24, 'lord', p.x, p.z, { yaw: S.yaw });
+    L.name = `Lord ${L.name}`;
+    L.ai.post = { x: p.x, z: p.z, leash: 12 };
+    L.keep = K;
+    K.lord = L.id;
+    if (!all) return;
+  }
+  const need = [];
+  K.slots.walls.slice(0, 3).forEach((s, i) => need.push({ slot: 'w' + i, pos: s, cls: 'archer' }));
+  K.slots.court.slice(0, 3).forEach((s, i) => need.push({ slot: 'c' + i, pos: s, cls: i === 2 ? 'priest' : 'warrior' }));
+  const have = new Set([...K.guards].map((id) => getEnt(id)).filter((g) => g && g.alive).map((g) => g.ai.slot));
+  for (const n of need) {
+    if (have.has(n.slot)) continue;
+    const p = siteWorld(S, n.pos[0], n.pos[1], n.pos[2]);
+    const g = spawnRealmUnit(R, n.cls, lvl, 'guard', p.x, p.z, { yaw: S.yaw });
+    if (n.pos[1] > 0.5) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; g.rangedRange = 36; g.dmgMult *= 0.55; g.swing = 3.0; }
+    g.ai.post = { x: p.x, z: p.z, leash: n.pos[1] > 0.5 ? 0 : 11 };
+    g.ai.slot = n.slot;
+    g.keep = K;
+    K.guards.add(g.id);
+    if (!all) return;
+  }
+}
+function fillGuardians(T, all) {
+  const S = T.site;
+  const slots = [[-3.2, 2.5], [3.2, 2.5], [0, -5]];
+  const have = new Set([...T.guardians].map((id) => getEnt(id)).filter((g) => g && g.alive).map((g) => g.ai.slot));
+  let added = 0;
+  slots.forEach(([lx, lz], i) => {
+    if (have.has(i)) return;
+    if (!all && added >= 1) return;
+    added++;
+    const p = siteWorld(S, lx, 0, lz);
+    const g = spawnRealmUnit(T.realm, i < 2 ? 'warrior' : 'priest', 22, 'guardian', p.x, p.z, { yaw: S.yaw });
+    g.name = `Hallow-warden ${g.name}`;
+    g.ai.post = { x: p.x, z: p.z, leash: 9 };
+    g.ai.slot = i;
+    g.temple = T;
+    T.guardians.add(g.id);
+    have.add(i);
+  });
+}
+function doorVulnerable(door) {
+  if (door.templeRef) return templeExposed(door.templeRef);
+  return true;
+}
+function templeExposed(T) { return GAME.t < T.exposedUntil || WAR.keeps.some((K) => K.orig === T.realm && K.realm !== T.realm); }
+function setDoorState(door, alive, hpFrac = 1) {
+  door.alive = alive;
+  door.hp = alive ? door.maxHp * hpFrac : 0;
+  const S = door.keepRef ? door.keepRef.site : door.templeRef.site;
+  door.faction = door.keepRef ? door.keepRef.realm : door.templeRef.realm;
+  if (S.door) { S.door.active = alive; S.door.owner = door.faction; }
+  if (S.doorMesh) S.doorMesh.visible = alive;
+  if (!alive) door.deadAt = GAME.t;
+}
+function relicSlotPos(T, slot) {
+  const S = T.site;
+  const bob = Math.sin(GAME.t * 1.4 + T.realm) * 0.08;
+  if (slot === 'home') return siteWorld(S, 0, 2.55 + bob, -1);
+  if (slot === 't0') return siteWorld(S, -4.5, 2.6 + bob, -1);
+  return siteWorld(S, 4.5, 2.6 + bob, -1);
+}
+function relicPosition(rel) {
+  if (rel.state === 'temple') return relicSlotPos(WAR.temples[rel.at], rel.slot);
+  if (rel.state === 'carried') { const c = getEnt(rel.carrier); if (c) return { x: c.x, y: c.y + 2.6 * (c.scale || 1), z: c.z }; }
+  return { x: rel.x, y: rel.y + 0.5 + Math.sin(GAME.t * 2) * 0.1, z: rel.z };
+}
+function updateRelicBonuses() {
+  for (let r = 0; r < 3; r++) REALM_BONUS[r] = 1 + 0.1 * WAR.relics.filter((x) => x.state === 'temple' && x.at === r && x.realm !== r).length;
+}
+function freeTrophySlot(T) {
+  const used = new Set(WAR.relics.filter((x) => x.state === 'temple' && x.at === T.realm).map((x) => x.slot));
+  return !used.has('t0') ? 't0' : 't1';
+}
+function pickUpRelic(rel, e) {
+  rel.state = 'carried';
+  rel.carrier = e.id;
+  rel.carrierRealm = e.faction;
+  e.carrying = rel.id;
+  e.casting = null;
+  dismount(e);
+  const R = REALMS[rel.realm], by = REALMS[e.faction];
+  const fromName = rel.state === 'ground' ? '' : '';
+  WAR.stats.seized++;
+  news(`${by.name} has seized ${R.hallow}!`, e.faction, rel.realm === e.faction ? 'good' : 'big');
+  if (e.role === 'player') uiToast(`You carry ${R.hallow}. Bring it to the ${by.templeName}.`, 'relic');
+  sfx('horn');
+  updateRelicBonuses();
+}
+function dropRelic(e) {
+  const rel = WAR.relics[e.carrying];
+  e.carrying = null;
+  if (!rel) return;
+  rel.state = 'ground';
+  rel.carrier = null;
+  rel.x = e.x; rel.z = e.z; rel.y = heightAt(e.x, e.z);
+  rel.since = GAME.t;
+  news(`${REALMS[rel.realm].hallow} has fallen to the ground near ${zoneAt(e.x, e.z).name}.`, rel.realm, 'big');
+  updateRelicBonuses();
+}
+function deliverRelic(rel, e) {
+  const T = WAR.temples[e.faction];
+  e.carrying = null;
+  rel.carrier = null;
+  rel.state = 'temple';
+  rel.at = T.realm;
+  rel.from = T.realm;
+  rel.slot = rel.realm === T.realm ? 'home' : freeTrophySlot(T);
+  const R = REALMS[rel.realm], by = REALMS[e.faction];
+  if (rel.realm === e.faction) news(`${by.name} has returned ${R.hallow} to the ${by.templeName}.`, e.faction, 'big');
+  else { news(`${by.name} has placed ${R.hallow} in the ${by.templeName}! Its warriors grow stronger.`, e.faction, 'big'); WAR.stats.raids++; }
+  if (e.role === 'player') { addRP(500); uiToast(`You delivered ${R.hallow}!`, 'relic'); flashScreen([1, 0.85, 0.4], 0.5); }
+  else if (GAME.player && GAME.player.faction === e.faction && dist(GAME.player.x, GAME.player.z, e.x, e.z) < 60) addRP(150);
+  sfx('fanfare');
+  updateRelicBonuses();
+  saveSoon();
+}
+function updateRelics(dt) {
+  for (const rel of WAR.relics) {
+    const p = relicPosition(rel);
+    rel.mesh.position.set(p.x, p.y, p.z);
+    rel.mesh.rotation.y += dt * 0.8;
+    if (rel.state === 'carried') {
+      const c = getEnt(rel.carrier);
+      if (!c || !c.alive) { if (c) dropRelic(c); else { rel.state = 'ground'; rel.since = GAME.t; } continue; }
+      const home = WAR.temples[c.faction].nav.tg;
+      if (dist(c.x, c.z, home.x, home.z) < 6) deliverRelic(rel, c);
+    } else if (rel.state === 'ground' && GAME.t - rel.since > 90) {
+      rel.state = 'temple';
+      rel.at = rel.from;
+      const T = WAR.temples[rel.from];
+      rel.slot = rel.realm === T.realm ? 'home' : freeTrophySlot(T);
+      news(`${REALMS[rel.realm].hallow} has returned to the ${REALMS[T.realm].templeName}.`, rel.realm, 'normal');
+      updateRelicBonuses();
+    }
+  }
+}
+// can entity e take this relic now?
+function relicTakeable(rel, e) {
+  if (!e.alive || e.faction > 2 || e.carrying != null) return false;
+  if (rel.state === 'ground') return true;
+  if (rel.state !== 'temple') return false;
+  if (rel.at === e.faction) return false;
+  const T = WAR.temples[rel.at];
+  return !T.door.alive;
+}
+
+function captureKeep(K, realm, killer) {
+  const old = K.realm;
+  K.realm = realm;
+  K.lastOwnerChange = GAME.t;
+  K.underSiegeUntil = -99;
+  WAR.stats.captures++;
+  for (const id of K.guards) { const g = getEnt(id); if (g && g.alive) { g.alive = false; g.removeAt = GAME.t; } }
+  K.guards.clear();
+  const L = getEnt(K.lord);
+  if (L && L.alive) { L.alive = false; L.removeAt = GAME.t; }
+  K.lord = null;
+  setDoorState(K.door, true, 0.5);
+  setSiteBanners(K.site, realm);
+  fillGarrison(K, false);
+  K.nextGuardAt = GAME.t + 8;
+  const S = K.site;
+  for (let i = 0; i < 6; i++) later(i * 0.25, () => FX.burst(S.x + (Math.random() - 0.5) * 20, S.y + 10 + Math.random() * 6, S.z + (Math.random() - 0.5) * 20, 30, REALMS[realm].rgb.map((v) => v * 2 + 0.4), 7, 1.0, 0.25, 3));
+  news(`${S.name} has been captured by ${REALMS[realm].name}!`, realm, 'big');
+  if (GAME.player && GAME.player.faction === realm && dist(GAME.player.x, GAME.player.z, S.x, S.z) < 70) { addRP(250); }
+  sfx('horn');
+  saveSoon();
+}
+
+/* ------------------------------------------------------------------ */
+/* entity death hooks                                                  */
+/* ------------------------------------------------------------------ */
+function onEntityKilled(e, killer) {
+  if (e.role === 'boss') { onDragonDeath(e); return; }
+  if (e.role === 'dungeonBoss') { onKingDeath(e, killer); return; }
+  if (e.dunPack != null) { onBarrowMobDeath(e); return; }
+  if (e.kind === 'door') {
+    const S = e.keepRef ? e.keepRef.site : e.templeRef.site;
+    if (S.door) S.door.active = false;
+    if (S.doorMesh) S.doorMesh.visible = false;
+    FX.splinters(e.x, e.y + 2, e.z);
+    sfx('crash');
+    if (e.templeRef) WAR.stats.templeGates++;
+    news(`The gate of ${S.name} has been broken!`, killer ? killer.faction : -1, e.faction === (GAME.player && GAME.player.faction) ? 'alarm' : 'normal');
+    return;
+  }
+  if (e.role === 'lord' && e.keep) {
+    const K = e.keep;
+    const realm = killer && killer.faction <= 2 && killer.faction !== K.realm ? killer.faction : null;
+    if (realm !== null) captureKeep(K, realm, killer);
+    else K.lord = null;
+    return;
+  }
+  if (e.role === 'guard' && e.keep) { e.keep.guards.delete(e.id); return; }
+  if (e.role === 'guardian' && e.temple) { e.temple.guardians.delete(e.id); return; }
+  if (e.role === 'mob' && e.camp != null) {
+    const camp = CAMPS[e.camp];
+    camp.members.delete(e.id);
+    camp.respawnAt.push(GAME.t + 45 + Math.random() * 30);
+    return;
+  }
+  if (e.role === 'player') onPlayerDeath(killer);
+}
+
+/* ------------------------------------------------------------------ */
+/* targeting                                                           */
+/* ------------------------------------------------------------------ */
+function canReach(e, t) {
+  // melee units cannot reach archers standing on walls
+  if (!e.rangedKind && t.fixedY !== null && t.fixedY > groundY(e) + 2) return false;
+  return true;
+}
+// can e see o? walls block fights on the ground; archers on walls see over them
+function inSight(e, o) {
+  if (e.fixedY !== null || o.fixedY !== null) return true;
+  return segmentClear(e.x, e.z, o.x, o.z, 0.15, false);
+}
+const _cands = [];
+function pickTarget(e, radius) {
+  _cands.length = 0;
+  forNear(e.x, e.z, radius, (o, d2) => {
+    if (!o.alive || !isEnemy(e, o) || o === e) return;
+    if (o.kind === 'door') return;
+    if (!canReach(e, o)) return;
+    let s = d2;
+    if (e.threat && e.threat.has(o.id)) s -= e.threat.get(o.id) * 4;
+    if (o.role === 'player') s *= 0.85;
+    if (o.carrying != null) s *= 0.4;
+    _cands.push([s, o]);
+  });
+  if (!_cands.length) return null;
+  _cands.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < Math.min(3, _cands.length); i++) if (inSight(e, _cands[i][1])) return _cands[i][1];
+  return null;
+}
+function topThreat(e) {
+  if (!e.threat) return null;
+  let best = null, bv = 0;
+  for (const [id, v] of e.threat) {
+    const o = getEnt(id);
+    if (!o || !o.alive) { e.threat.delete(id); continue; }
+    if (v > bv) { bv = v; best = o; }
+  }
+  return best;
+}
+
+/* combat behaviour shared by soldiers, guards and the player's allies */
+function fightTarget(e, t, dt, opts = {}) {
+  const d = dist(e.x, e.z, t.x, t.z);
+  const tr = t.radius * (t.scale || 1);
+  e.target = t.id;
+  const C = e.cls;
+  // healers look after their side first
+  if (C === 'priest' && e.ai.healCheck !== undefined) { /* handled in priestThink */ }
+  if (e.rangedKind && t.kind !== 'door') {
+    const want = Math.min(e.rangedRange - 4, 24);
+    if (d > e.rangedRange - 1 && !e.casting) moveToward(e, t.x, t.z, dt, 1, 0);
+    else if (d < 6 && !e.casting && e.fixedY === null && Math.random() < 0.6) {
+      const ax = e.x - (t.x - e.x) / d * 3, az = e.z - (t.z - e.z) / d * 3;
+      moveToward(e, ax, az, dt, 0.8, 0.1);
+    } else turnToward(e, t.x, t.z, dt * 10);
+  } else {
+    const reach = (e.rangedKind ? e.rangedRange : e.meleeRange * (e.scale || 1)) + tr - 0.4;
+    if (d > reach && !e.casting) moveToward(e, t.x, t.z, dt, 1, reach * 0.9);
+    else turnToward(e, t.x, t.z, dt * 10);
+  }
+}
+function npcAbilities(e, t) {
+  if (!e.cls || e.casting || GAME.t < (e.ai.nextAbility || 0)) return;
+  e.ai.nextAbility = GAME.t + 1.2 + Math.random() * 1.6;
+  const list = CLASSES[e.cls].abilities.filter((k) => ABILITIES[k].level <= e.level);
+  // priests: heal the weakest ally first
+  if (e.cls === 'priest') {
+    let weak = null, wf = 0.62;
+    forNear(e.x, e.z, 28, (o) => { if (o.alive && o.faction === e.faction && isActor(o) && o.hp / o.maxHp < wf) { wf = o.hp / o.maxHp; weak = o; } });
+    if (weak) {
+      if (wf < 0.4 && !canUse(e, 'mend', weak)) { useAbility(e, 'mend', weak); return; }
+      if (!hasBuff(weak, 'hot') && !canUse(e, 'renew', weak)) { useAbility(e, 'renew', weak); return; }
+      if (!canUse(e, 'mend', weak)) { useAbility(e, 'mend', weak); return; }
+    }
+  }
+  if (!t || !t.alive || t.kind === 'door') return;
+  const order = shuffle(Math.random, list.slice());
+  for (const k of order) {
+    const A = ABILITIES[k];
+    if (A.self) {
+      if (k === 'rally' && e.hp / e.maxHp > 0.6) continue;
+      if (k === 'bulwark' && e.hp / e.maxHp > 0.5) continue;
+      if (k === 'ward' && e.hp / e.maxHp > 0.7) continue;
+      if (k === 'blink' || k === 'tumble') continue;
+      if (k === 'nova' && dist(e.x, e.z, t.x, t.z) > 6) continue;
+      if (k === 'sanctuary') continue;
+    }
+    if (A.friendly) continue;
+    if (!canUse(e, k, t)) { useAbility(e, k, t); return; }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* per-role thinking                                                   */
+/* ------------------------------------------------------------------ */
+function thinkMob(e, dt) {
+  const M = MOBS[e.mobType];
+  const ai = e.ai;
+  if (ai.evade) {
+    e.target = null;
+    e.hp = Math.min(e.maxHp, e.hp + e.maxHp * dt * 0.5);
+    if (moveToward(e, e.home.x, e.home.z, dt, 1.25, 1.5)) { ai.evade = false; e.threat = null; e.damagers = null; }
+    return;
+  }
+  let t = getEnt(e.target);
+  if (t && (!t.alive || !isEnemy(e, t))) { t = null; e.target = null; }
+  const top = topThreat(e);
+  if (top) t = top;
+  if (!t && M.aggro > 0 && GAME.t > (ai.nextAggro || 0)) {
+    ai.nextAggro = GAME.t + 0.5;
+    t = nearestWhere(e.x, e.z, M.aggro, (o) => o.alive && o.faction <= 2 && isActor(o) && (o.role !== 'player' || conIndex(e.level, o.level) > 0));
+    if (t) { e.threat = e.threat || new Map(); e.threat.set(t.id, 1); }
+  }
+  if (t) {
+    if (dist(e.x, e.z, e.home.x, e.home.z) > 42) { ai.evade = true; e.target = null; return; }
+    if (!ai.pulled) { ai.pulled = true; socialAggro(e, t); }
+    fightTarget(e, t, dt);
+    return;
+  }
+  ai.pulled = false;
+  // idle wandering inside the camp
+  if (!ai.wander || GAME.t > ai.wanderUntil) {
+    const a = Math.random() * TAU, r = Math.random() * e.home.r;
+    ai.wander = { x: e.home.x + Math.cos(a) * r, z: e.home.z + Math.sin(a) * r };
+    ai.wanderUntil = GAME.t + 4 + Math.random() * 8;
+  }
+  if (e.hp < e.maxHp && GAME.t > e.combatUntil) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * dt * 0.08);
+  moveToward(e, ai.wander.x, ai.wander.z, dt, 0.3, 0.5);
+}
+function socialAggro(e, t) {
+  // pack animals bring at most one friend; bandits and the dead bring two
+  const camp = CAMPS[e.camp];
+  if (!camp) return;
+  const M = MOBS[e.mobType];
+  const max = M.aggro > 0 ? 2 : Math.random() < 0.45 ? 1 : 0;
+  const near = [];
+  for (const id of camp.members) {
+    const o = getEnt(id);
+    if (!o || o === e || !o.alive || o.ai.evade || (o.threat && o.threat.has(t.id))) continue;
+    const d2 = dist2(o.x, o.z, e.x, e.z);
+    if (d2 < 10 * 10) near.push([d2, o]);
+  }
+  near.sort((a, b) => a[0] - b[0]);
+  for (const [, o] of near.slice(0, max)) { o.threat = o.threat || new Map(); o.threat.set(t.id, 0.5); o.ai.pulled = true; }
+}
+function thinkVillager(e, dt) {
+  const ai = e.ai;
+  if (e.role === 'merchant') {
+    const P = GAME.player;
+    if (P && dist(P.x, P.z, e.x, e.z) < 9) turnToward(e, P.x, P.z, dt * 3);
+    else e.yaw += clamp(angDiff(e.yaw, ai.post.yaw), -dt * 2, dt * 2);
+    return;
+  }
+  if (e.role === 'herald') { if (ai.post) moveToward(e, ai.post.x, ai.post.z, dt, 0.4, 0.3); const P = GAME.player; if (P && dist(P.x, P.z, e.x, e.z) < 8) turnToward(e, P.x, P.z, dt * 3); return; }
+  if (!ai.wander || GAME.t > ai.wanderUntil) {
+    const a = Math.random() * TAU, r = 4 + Math.random() * e.home.r;
+    ai.wander = { x: e.home.x + Math.cos(a) * r, z: e.home.z + Math.sin(a) * r };
+    ai.wanderUntil = GAME.t + 6 + Math.random() * 10;
+  }
+  moveToward(e, ai.wander.x, ai.wander.z, dt, 1, 0.6);
+}
+function thinkPosted(e, dt, aggroR) {
+  // garrison troops: hold a post, fight what comes near, never wander off
+  const post = e.ai.post;
+  let t = getEnt(e.target);
+  if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, post.x, post.z) > aggroR + 8 || !canReach(e, t))) { t = null; e.target = null; }
+  if (!t && GAME.t > (e.ai.nextScan || 0)) {
+    e.ai.nextScan = GAME.t + 0.4 + Math.random() * 0.3;
+    t = topThreat(e);
+    if (t && dist(t.x, t.z, post.x, post.z) > aggroR + 8) t = null;
+    if (!t) t = pickTarget(e, aggroR);
+  }
+  if (e.cls === 'priest' || (t && t.alive)) npcAbilities(e, t);
+  if (t) {
+    if (e.fixedY !== null || post.leash === 0) { e.target = t.id; turnToward(e, t.x, t.z, dt * 10); return; }
+    const far = dist(e.x, e.z, post.x, post.z) > post.leash;
+    if (far && dist(t.x, t.z, post.x, post.z) > post.leash) { e.target = null; moveToward(e, post.x, post.z, dt, 1, 0.5); return; }
+    fightTarget(e, t, dt);
+    return;
+  }
+  e.target = null;
+  if (e.hp < e.maxHp && GAME.t > e.combatUntil + 4) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * dt * 0.05);
+  if (e.fixedY === null) moveToward(e, post.x, post.z, dt, 0.6, 0.4);
+}
+
+/* ------------------------------------------------------------------ */
+/* warbands                                                            */
+/* ------------------------------------------------------------------ */
+const WB_CLASSES = ['warrior', 'warrior', 'warrior', 'archer', 'archer', 'mage', 'priest', 'warrior', 'archer', 'priest', 'mage', 'warrior'];
+function spawnWarband(realm, size) {
+  const R = REALMS[realm], M = R.musterSite;
+  const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: M.x, progZ: M.z };
+  for (let i = 0; i < size; i++) {
+    const cls = WB_CLASSES[i % WB_CLASSES.length];
+    const a = (i / size) * TAU, r = 3 + Math.random() * 4;
+    const x = M.x + Math.cos(a) * r, z = M.z + Math.sin(a) * r;
+    const e = spawnRealmUnit(realm, cls, 15 + Math.floor(Math.random() * 6), 'soldier', x, z);
+    e.warband = wb;
+    wb.members.push(e.id);
+  }
+  WAR.warbands.push(wb);
+  return wb;
+}
+function wbMembers(wb) { return wb.members.map(getEnt).filter((e) => e && e.alive); }
+function wbLeader(wb) {
+  const m = wbMembers(wb);
+  if (!m.length) return null;
+  // prefer the relic carrier as the leader so the band escorts it
+  const carrier = m.find((e) => e.carrying != null);
+  return carrier || m[0];
+}
+function wbSetOrder(wb, order) {
+  if (order.type === 'raid') WAR.stats.raidOrders++;
+  wb.order = order;
+  wb.order.phase = 'travel';
+  wb.path = null;
+  wb.pathIdx = 0;
+  wb.lastProgress = GAME.t;
+  const L = wbLeader(wb);
+  if (L) { wb.progX = L.x; wb.progZ = L.z; }
+}
+function doorOpenFor(wb) {
+  return (a, b) => {
+    // a door edge may be walked once that gate is broken, and always by the realm that holds it
+    for (const K of WAR.keeps) if ((K.nav.gate.id === a && K.nav.court.id === b) || (K.nav.gate.id === b && K.nav.court.id === a)) return !K.door.alive || K.realm === wb.realm;
+    for (const T of WAR.temples) if ((T.nav.tg.id === a && T.nav.tc.id === b) || (T.nav.tg.id === b && T.nav.tc.id === a)) return !T.door.alive || T.realm === wb.realm;
+    return false;
+  };
+}
+function wbPlan(wb, goalNode) {
+  const L = wbLeader(wb);
+  if (!L) return;
+  const start = nearestNavNode(L.x, L.z, null, true);
+  const path = navPath(start.id, goalNode.id, doorOpenFor(wb));
+  wb.path = path || [goalNode.id];
+  wb.pathIdx = 0;
+  wb.goal = goalNode.id;
+}
+function wbEnemiesNear(wb, x, z, r) {
+  // enemies on walls or behind them do not hold the band in place
+  let n = 0;
+  forNear(x, z, r, (o) => {
+    if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null) return;
+    if (segmentClear(x, z, o.x, o.z, 0.2, false)) n++;
+  });
+  return n;
+}
+function updateWarband(wb, dt) {
+  const members = wbMembers(wb);
+  if (!members.length) { wb.dead = true; if (wb.order && wb.order.type === 'raid') WAR.stats.raidWiped++; return; }
+  const L = wbLeader(wb);
+  const O = wb.order;
+  if (!O) return;
+  // keep a record of progress so a stuck band can be nudged
+  if (dist(L.x, L.z, wb.progX, wb.progZ) > 6) { wb.progX = L.x; wb.progZ = L.z; wb.lastProgress = GAME.t; }
+  // footsteps for the rest of the band to follow
+  if (!wb.trail) { wb.trail = [{ x: L.x, z: L.z }]; wb.trailBase = 0; }
+  const lastStep = wb.trail[wb.trail.length - 1];
+  if (dist(L.x, L.z, lastStep.x, lastStep.z) > 2.5) {
+    wb.trail.push({ x: L.x, z: L.z });
+    if (wb.trail.length > 90) { wb.trail.shift(); wb.trailBase++; }
+  }
+  // engagement: any enemy near the leader holds the band in place
+  if (GAME.t > (wb.nextEngageCheck || 0)) {
+    wb.nextEngageCheck = GAME.t + 0.4;
+    if (wbEnemiesNear(wb, L.x, L.z, 24) > 0) wb.engagedUntil = GAME.t + 2.5;
+  }
+  const engaged = GAME.t < wb.engagedUntil;
+
+  let goal = null;
+  if (O.type === 'attack' || O.type === 'defend') {
+    const K = O.keep;
+    if (O.type === 'attack' && K.realm === wb.realm) {
+      if (O.phase !== 'hold') { O.phase = 'hold'; O.holdUntil = GAME.t + 35; wbPlan(wb, K.nav.court); }
+      if (GAME.t > O.holdUntil) { wb.order = null; return; }
+      goal = K.nav.court;
+    } else if (O.type === 'defend' && (K.realm !== wb.realm || (GAME.t > K.underSiegeUntil + 15 && GAME.t > O.since + 30))) { wb.order = null; return; }
+    else {
+      if (O.phase === 'travel' && K.realm !== wb.realm && dist(L.x, L.z, K.nav.gate.x, K.nav.gate.z) < 16) O.phase = 'siege';
+      if (O.phase === 'siege' && !K.door.alive) { O.phase = 'assault'; wbPlan(wb, K.nav.court); }
+      if (O.phase === 'assault' && K.door.alive) { O.phase = 'siege'; wbPlan(wb, K.nav.gate); }
+      goal = O.phase === 'assault' ? K.nav.court : K.nav.gate;
+    }
+  } else if (O.type === 'raid') {
+    const T = O.temple;
+    const rel = O.relic;
+    if (!rel || rel.state !== 'temple' || rel.at !== T.realm) { wb.order = null; return; }
+    if (!templeExposed(T) && T.door.alive) { WAR.stats.raidAborts++; wb.order = null; return; }
+    if (O.phase === 'travel' && dist(L.x, L.z, T.nav.tg.x, T.nav.tg.z) < 16) { O.phase = 'siege'; WAR.stats.raidSieges++; }
+    if (O.phase === 'siege' && !T.door.alive) { O.phase = 'assault'; wbPlan(wb, T.nav.tc); }
+    goal = O.phase === 'assault' ? T.nav.tc : T.nav.tg;
+    if (O.phase === 'assault') {
+      const rp = relicPosition(rel);
+      const grabber = members.filter((m) => m.cls !== 'priest').sort((a, b) => dist2(a.x, a.z, rp.x, rp.z) - dist2(b.x, b.z, rp.x, rp.z))[0];
+      if (grabber && dist(grabber.x, grabber.z, rp.x, rp.z) < 3.2 && relicTakeable(rel, grabber)) {
+        O.grabT = (O.grabT || 0) + dt;
+        grabber.casting = null;
+        if (O.grabT > 2.5) {
+          pickUpRelic(rel, grabber);
+          wbSetOrder(wb, { type: 'carry', relic: rel });
+          return;
+        }
+      } else O.grabT = 0;
+    }
+  } else if (O.type === 'carry') {
+    const rel = O.relic;
+    if (rel.state !== 'carried' || getEnt(rel.carrier)?.warband !== wb) {
+      if (rel.state === 'ground') { wbSetOrder(wb, { type: 'retrieve', relic: rel }); return; }
+      wb.order = null; return;
+    }
+    goal = WAR.temples[wb.realm].nav.tg;
+  } else if (O.type === 'retrieve') {
+    // pick up a hallow from the ground, or run down an enemy carrying ours
+    const rel = O.relic;
+    let px, pz;
+    if (rel.state === 'ground') { px = rel.x; pz = rel.z; }
+    else if (rel.state === 'carried') {
+      const c = getEnt(rel.carrier);
+      if (!c || !c.alive || c.faction === wb.realm) { wb.order = null; return; }
+      px = c.x; pz = c.z;
+    } else { wb.order = null; return; }
+    if (rel.state === 'ground') {
+      const grab = members.sort((a, b) => dist2(a.x, a.z, rel.x, rel.z) - dist2(b.x, b.z, rel.x, rel.z))[0];
+      if (grab && dist(grab.x, grab.z, rel.x, rel.z) < 2.5) { pickUpRelic(rel, grab); wbSetOrder(wb, { type: 'carry', relic: rel }); return; }
+    }
+    O.point = { x: px, z: pz };
+    if (GAME.t > (O.replanAt || 0)) {
+      O.replanAt = GAME.t + 4;
+      const n = nearestNavNode(px, pz, null, true);
+      if (n && wb.goal !== n.id) wbPlan(wb, n);
+    }
+  } else if (O.type === 'patrol') {
+    if (GAME.t > O.until) { wb.order = null; return; }
+    goal = O.node;
+  }
+  if (goal && wb.goal !== goal.id) wbPlan(wb, goal);
+  // stuck for a long time: replan from wherever the leader is
+  if (GAME.t - wb.lastProgress > 25 && !engaged) { if (goal) wbPlan(wb, goal); wb.lastProgress = GAME.t; }
+
+  // leader movement
+  let tx = L.x, tz = L.z;
+  if (O.type === 'retrieve' && O.point) {
+    const lastNode = wb.path && wb.path.length ? NAV.nodes[wb.path[Math.min(wb.pathIdx, wb.path.length - 1)]] : null;
+    if (!wb.path || !wb.path.length || wb.pathIdx >= wb.path.length || segmentClear(L.x, L.z, O.point.x, O.point.z, 0.4)) { tx = O.point.x; tz = O.point.z; }
+    else if (lastNode) { tx = lastNode.x; tz = lastNode.z; }
+    if (!wb.path) { const n = nearestNavNode(O.point.x, O.point.z, null, true); wbPlan(wb, n); }
+  } else if (wb.path && wb.pathIdx < wb.path.length) {
+    const n = NAV.nodes[wb.path[wb.pathIdx]];
+    tx = n.x; tz = n.z;
+    if (dist(L.x, L.z, n.x, n.z) < 3.5 && wb.pathIdx < wb.path.length - 1) wb.pathIdx++;
+  } else if (goal) { tx = goal.x; tz = goal.z; }
+  wb.leaderGoal = { x: tx, z: tz };
+  wb.engaged = engaged;
+  wb.L = L;
+}
+function thinkSoldier(e, dt) {
+  const wb = e.warband;
+  if (!wb || wb.dead) { e.warband = null; thinkPosted(e, dt, 24); return; }
+  const L = wb.L || wbLeader(wb);
+  const O = wb.order;
+  // carriers run home, they do not fight
+  if (e.carrying != null) {
+    e.target = null;
+    if (wb.leaderGoal) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 1, 0.5);
+    return;
+  }
+  let t = getEnt(e.target);
+  const anchor = L || e;
+  if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, anchor.x, anchor.z) > 40 || !canReach(e, t))) { t = null; e.target = null; }
+  if (GAME.t > (e.ai.nextScan || 0)) {
+    e.ai.nextScan = GAME.t + 0.35 + Math.random() * 0.3;
+    let cand = topThreat(e);
+    if (cand && (!canReach(e, cand) || dist(cand.x, cand.z, anchor.x, anchor.z) > 36 || !inSight(e, cand))) cand = null;
+    if (!cand) cand = pickTarget(e, e.rangedKind ? 30 : 22);
+    if (cand && dist(cand.x, cand.z, anchor.x, anchor.z) < 36) t = cand;
+    // sieges: with nothing better to hit, strike the gate
+    else if ((!t || t.kind === 'door') && O && O.phase === 'siege') {
+      const door = O.keep ? O.keep.door : O.temple ? O.temple.door : null;
+      t = door && door.alive && isEnemy(e, door) && doorVulnerable(door) ? door : null;
+    }
+  }
+  if (e.cls === 'priest' || t) npcAbilities(e, t && t.alive ? t : null);
+  if (t) { if (e.mount) { dismount(e); e.ai.remountAt = GAME.t + 12; } fightTarget(e, t, dt); return; }
+  e.target = null;
+  if (!L) return;
+  if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && (!O || O.phase !== 'siege')) mountUp(e, true);
+  if (e === L && e.mount && (wb.engaged || (O && (O.phase === 'siege' || O.phase === 'assault')))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
+  if (e === L) { if (wb.leaderGoal && (!wb.engaged || (O && (O.phase === 'siege' || O.phase === 'assault')))) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 0.92, 0.8); return; }
+  // formation behind the leader
+  const k = wb.members.indexOf(e.id);
+  const row = Math.floor(k / 3) + 1, col = (k % 3) - 1;
+  const c = Math.cos(L.yaw), s = Math.sin(L.yaw);
+  const ox = col * 2.4, oz = -row * 2.4;
+  const fx = L.x + ox * c + oz * s, fz = L.z - ox * s + oz * c;
+  const d = dist(e.x, e.z, fx, fz);
+  if (d > 6) {
+    if (GAME.t > (e.ai.losCheck || 0)) { e.ai.losCheck = GAME.t + 0.6; e.ai.blocked = !segmentClear(e.x, e.z, L.x, L.z, 0.3, false); }
+  } else e.ai.blocked = false;
+  if (e.ai.blocked && wb.trail && wb.trail.length > 1 && followTrail(e, wb, dt)) return;
+  e.ai.trailAbs = undefined;
+  moveToward(e, fx, fz, dt, d > 10 ? 1.15 : d > 3 ? 1.0 : 0.6, 0.6);
+}
+// walk the leader's recent footsteps (used when a wall or palisade is in the way)
+function followTrail(e, wb, dt) {
+  const base = wb.trailBase || 0, T = wb.trail;
+  let i = e.ai.trailAbs;
+  if (i === undefined || i < base || i >= base + T.length) {
+    // the nearest footstep this unit can walk to in a straight line
+    const order = T.map((p, j) => [dist2(e.x, e.z, p.x, p.z), j]).sort((a, b) => a[0] - b[0]);
+    i = -1;
+    for (let q = 0; q < Math.min(8, order.length); q++) { const p = T[order[q][1]]; if (segmentClear(e.x, e.z, p.x, p.z, 0.3, false)) { i = base + order[q][1]; break; } }
+    if (i < 0) i = base + order[0][1];
+  }
+  const p = T[i - base];
+  if (dist(e.x, e.z, p.x, p.z) < 2.2 && i < base + T.length - 1) i++;
+  e.ai.trailAbs = i;
+  const q = T[i - base];
+  moveToward(e, q.x, q.z, dt, 1.15, 0.2);
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* commanders                                                          */
+/* ------------------------------------------------------------------ */
+function looseRelicFor(r, mine) {
+  const M = REALMS[r].musterSite;
+  return WAR.relics.find((x) => {
+    if (mine.some((w) => w.order && w.order.relic === x)) return false;
+    if (x.state === 'ground') return dist(x.x, x.z, M.x, M.z) < 420;
+    return x.state === 'carried' && x.realm === r && x.carrierRealm !== r;
+  });
+}
+// take the nearest band that is only marching somewhere and give it a more urgent order
+function retask(mine, x, z, order) {
+  let best = null, bd = Infinity;
+  for (const wb of mine) {
+    const O = wb.order;
+    if (O && !((O.type === 'attack' && O.phase === 'travel') || O.type === 'patrol')) continue;
+    if (wbMembers(wb).length < 4) continue;
+    const L = wbLeader(wb);
+    const d = dist(L.x, L.z, x, z);
+    if (d < bd) { bd = d; best = wb; }
+  }
+  if (best) wbSetOrder(best, order);
+  return best;
+}
+function commanderThink(C) {
+  const r = C.realm, now = GAME.t;
+  const mine = WAR.warbands.filter((w) => w.realm === r && !w.dead);
+  // urgent: chase our stolen hallow, or seize a chance to raid an exposed temple
+  const loose = looseRelicFor(r, mine);
+  if (loose) { const p = relicPosition(loose); retask(mine, p.x, p.z, { type: 'retrieve', relic: loose }); }
+  else if (!mine.some((w) => w.order && (w.order.type === 'raid' || w.order.type === 'carry')) && Math.random() < 0.6) {
+    for (const T of WAR.temples) {
+      if (T.realm === r || !templeExposed(T)) continue;
+      const rel = WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm && x.realm !== r) || WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm);
+      if (rel && retask(mine, T.site.x, T.site.z, { type: 'raid', temple: T, relic: rel })) {
+        // a second band musters at once to follow the first
+        if (mine.length < MAX_WARBANDS() + 1) { const wb2 = spawnWarband(r, 8); wbSetOrder(wb2, { type: 'raid', temple: T, relic: rel }); C.nextSpawn = now + 30; }
+        break;
+      }
+    }
+  }
+  const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
+  const underdog = keepsOwned <= 1 ? 1 : 0;
+  if (mine.length < MAX_WARBANDS() + underdog && now > C.nextSpawn) {
+    const size = 7 + Math.floor(Math.random() * 4) + underdog * 2;
+    mine.push(spawnWarband(r, size));
+    C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
+  }
+  for (const wb of mine) {
+    if (wb.order) continue;
+    // 1. a hallow lies on the ground, or ours is being carried off
+    const loose = looseRelicFor(r, mine);
+    if (loose) { wbSetOrder(wb, { type: 'retrieve', relic: loose }); continue; }
+    // 2. guard our temple when raiders are at its gate
+    const T0 = WAR.temples[r];
+    if (now < T0.underSiegeUntil && !mine.some((w) => w.order && w.order.type === 'patrol' && w.order.node === T0.nav.tg)) { wbSetOrder(wb, { type: 'patrol', node: T0.nav.tg, until: now + 45 }); continue; }
+    // 3. defend a keep under siege
+    const sieged = WAR.keeps.filter((K) => K.realm === r && now < K.underSiegeUntil && !mine.some((w) => w.order && w.order.keep === K && w.order.type === 'defend'));
+    if (sieged.length) { wbSetOrder(wb, { type: 'defend', keep: sieged[0], since: now }); continue; }
+    // 3. raid an exposed temple
+    if (Math.random() < 0.45 && !mine.some((w) => w.order && (w.order.type === 'raid' || w.order.type === 'carry'))) {
+      const options = [];
+      for (const T of WAR.temples) {
+        if (T.realm === r || !templeExposed(T)) continue;
+        for (const rel of WAR.relics) if (rel.state === 'temple' && rel.at === T.realm) options.push({ T, rel, score: rel.realm === r ? 0 : 1 });
+      }
+      options.sort((a, b) => a.score - b.score);
+      if (options.length) { wbSetOrder(wb, { type: 'raid', temple: options[0].T, relic: options[0].rel }); continue; }
+    }
+    // 4. attack the most tempting keep
+    const M = REALMS[r].musterSite;
+    let best = null, bs = Infinity;
+    for (const K of WAR.keeps) {
+      if (K.realm === r) continue;
+      const already = mine.filter((w) => w.order && w.order.keep === K).length;
+      if (already >= 2) continue;
+      const guards = [...K.guards].filter((id) => getEnt(id)?.alive).length;
+      let s = dist(M.x, M.z, K.site.x, K.site.z) * (K.orig === r ? 0.55 : 1) * (1 + guards / 10) * (0.6 + K.door.hp / K.door.maxHp * 0.6);
+      s *= 0.8 + Math.random() * 0.5;
+      if (already === 1) s *= 0.7;
+      if (s < bs) { bs = s; best = K; }
+    }
+    if (best) { wbSetOrder(wb, { type: 'attack', keep: best }); continue; }
+    const own = WAR.keeps.filter((K) => K.realm === r);
+    if (own.length) wbSetOrder(wb, { type: 'patrol', node: pick(Math.random, own).nav.gate, until: now + 30 });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* the war tick                                                        */
+/* ------------------------------------------------------------------ */
+function updateWar(dt) {
+  const now = GAME.t;
+  for (const C of WAR.commanders) if (now > C.nextThink) { C.nextThink = now + 3 + Math.random() * 2; commanderThink(C); }
+  for (const wb of WAR.warbands) updateWarband(wb, dt);
+  for (let i = WAR.warbands.length - 1; i >= 0; i--) if (WAR.warbands[i].dead) WAR.warbands.splice(i, 1);
+  for (const K of WAR.keeps) {
+    // siege detection
+    let hostile = 0;
+    forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm) hostile++; });
+    if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) news(`${K.site.name} is under attack!`, K.realm, 'alarm'); K.underSiegeUntil = now + 20; } }
+    // door repair or rebuild
+    const D = K.door;
+    if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
+    if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); }
+    // reinforcements trickle in when the keep is quiet
+    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; fillGarrison(K, false); }
+  }
+  for (const T of WAR.temples) {
+    const D = T.door;
+    let hostile = 0;
+    forNear(T.site.x, T.site.z, 30, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== T.realm) hostile++; });
+    if (hostile) { T.lastEnemyNear = now; if (hostile >= 2 || D.hp < D.maxHp * 0.98) T.underSiegeUntil = now + 20; }
+    if (WAR.keeps.some((K) => K.orig === T.realm && K.realm !== T.realm)) T.exposedUntil = now + 180;
+    if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
+    if (!D.alive && now - T.lastEnemyNear > 40 && now - D.deadAt > 45) setDoorState(D, true, 0.4);
+    if (now > T.nextGuardAt && now - T.lastEnemyNear > 20) { T.nextGuardAt = now + 30; fillGuardians(T, false); }
+  }
+  updateRelics(dt);
+  // camps respawn
+  for (const c of CAMPS) {
+    for (let i = c.respawnAt.length - 1; i >= 0; i--) {
+      if (now > c.respawnAt[i]) {
+        const P = GAME.player;
+        if (P && dist(P.x, P.z, c.x, c.z) < 22) { c.respawnAt[i] = now + 10; continue; }
+        c.respawnAt.splice(i, 1);
+        spawnMob(c);
+      }
+    }
+  }
+}
+function news(text, realm, kind = 'normal') {
+  WAR.news.push({ t: GAME.t, text, realm, kind });
+  if (WAR.news.length > 60) WAR.news.shift();
+  uiLog(text, 'realm', realm);
+  const P = GAME.player;
+  if (P && (kind === 'big' || (kind === 'alarm' && realm === P.faction))) uiBanner(text, realm);
+}
+
+/* ------------------------------------------------------------------ */
+/* simulation step for every NPC                                       */
+/* ------------------------------------------------------------------ */
+function updateNPCs(dt) {
+  const P = GAME.player;
+  for (let i = ENT.length - 1; i >= 0; i--) {
+    const e = ENT[i];
+    if (e.removed) continue;
+    if (!e.alive) {
+      if (GAME.t > e.removeAt && e.kind !== 'door') removeEnt(e);
+      updateAnim(e, dt);
+      continue;
+    }
+    if (e.kind === 'door' || e.role === 'player') continue;
+    // home-zone creatures far from the player rest
+    const far = P ? dist2(e.x, e.z, P.x, P.z) : 0;
+    if ((e.role === 'mob' || e.role === 'villager' || e.role === 'critter') && far > 170 * 170) { e.prevX = e.x; e.prevZ = e.z; continue; }
+    if (e.role === 'critter') { thinkCritter(e, dt); e.y = heightAt(e.x, e.z); updateAnim(e, dt); continue; }
+    if (e.role === 'boss') { tickBuffs(e, dt); if (e.alive) thinkDragon(e, dt); updateAnim(e, dt); continue; }
+    tickBuffs(e, dt);
+    if (!e.alive) continue;
+    if (e.casting) {
+      if (isStunned(e)) e.casting = null;
+      else if (!e.casting.custom) { e.casting.t += dt; if (e.casting.t >= e.casting.total) finishCast(e); }
+    }
+    if (!isStunned(e)) {
+      if (e.role === 'mob') { if (e.dunPack != null) thinkBarrowMob(e, dt); else thinkMob(e, dt); }
+      else if (e.role === 'dungeonBoss') thinkHollowKing(e, dt);
+      else if (e.role === 'soldier') thinkSoldier(e, dt);
+      else if (e.role === 'guard') thinkPosted(e, dt, e.fixedY !== null ? 38 : 22);
+      else if (e.role === 'lord') thinkPosted(e, dt, 14);
+      else if (e.role === 'guardian') thinkPosted(e, dt, 16);
+      else if (e.role === 'muster') thinkPosted(e, dt, 26);
+      else if (e.role === 'villager' || e.role === 'herald' || e.role === 'merchant') thinkVillager(e, dt);
+      autoAttack(e);
+    }
+    // power regen
+    e.power = Math.min(e.maxPower, e.power + e.maxPower * dt * (GAME.t > e.combatUntil ? 0.05 : 0.02));
+    // separation
+    if (e.fixedY === null) {
+      forNear(e.x, e.z, 1.6, (o) => {
+        if (o === e || !o.alive || o.kind === 'door' || o.fixedY !== null) return;
+        const rr = (e.radius * (e.scale || 1) + o.radius * (o.scale || 1)) * 0.9;
+        const dx = e.x - o.x, dz = e.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 < rr * rr && d2 > 1e-6) {
+          const d = Math.sqrt(d2), push = (rr - d) * 0.5;
+          if (o.role !== 'player') stepTo(e, e.x + (dx / d) * push, e.z + (dz / d) * push);
+          else stepTo(e, e.x + (dx / d) * push * 2, e.z + (dz / d) * push * 2);
+        }
+      });
+    }
+    const gy = groundY(e) + (e.hover || 0) * (1 + 0.15 * Math.sin(GAME.t * 2 + e.id));
+    e.y = e.fixedY !== null ? e.fixedY : gy;
+    updateAnim(e, dt);
+  }
+}

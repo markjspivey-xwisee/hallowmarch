@@ -1,0 +1,9 @@
+# build output (python3 build.py)
+/hallowmarch.html
+
+# tooling
+tools/node_modules/
+tools/out/
+__pycache__/
+*.pyc
+.DS_Store

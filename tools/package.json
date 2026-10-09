@@ -1,0 +1,11 @@
+{
+  "name": "hallowmarch-tools",
+  "private": true,
+  "description": "Test and lint tooling for The Hallowmarch. three.js is served to the headless browser locally; eslint lints the built module.",
+  "dependencies": {
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}
