@@ -691,6 +691,7 @@ function humanVS(depth) {
     float swayX = 0.012 * sin(t * 0.45) * idle + 0.012 * s1 * k * (1.0 - run);
     float stepZ = 0.0;
     float capeX = 0.07 + 0.3 * k + 0.32 * run;
+    float spreadL = 0.0, spreadR = 0.0, crouch = 0.0;
     if (atype > 0.5 && atype < 1.5) {
       // one-handed strike: wind up, cut across, recover
       float wind = smoothstep(0.0, 0.35, at), strike = smoothstep(0.35, 0.55, at), rec = smoothstep(0.62, 1.0, at);
@@ -729,6 +730,31 @@ function humanVS(depth) {
       thL = mix(thL, -0.25, kk); shL = mix(shL, 0.3, kk); thR = mix(thR, 0.2, kk);
     } else if (atype > 5.5 && atype < 6.5) {
       thL = -0.85; thR = -0.45; shL = 1.3; shR = 0.95; uaL = -0.55; uaR = -0.55; uaLz = 0.55; uaRz = -0.55; capeX = 0.9;
+    } else if (atype > 6.5 && atype < 7.5) {
+      // whirlwind: arms flung wide with the blade level, knees bent, the body turning beneath
+      float kk = smoothstep(0.0, 0.12, at) * (1.0 - smoothstep(0.86, 1.0, at));
+      uaR = mix(uaR, -0.32, kk); uaRz = mix(uaRz, -1.4, kk); faR = mix(faR, -0.16, kk);
+      uaL = mix(uaL, -0.2, kk); uaLz = mix(uaLz, 1.28, kk); faL = mix(faL, -0.35, kk);
+      chestX = mix(chestX, 0.2, kk); chestY = mix(chestY, -0.32, kk); headX = mix(headX, 0.04, kk); headY = mix(headY, 0.0, kk);
+      thL = mix(thL, -0.45, kk); thR = mix(thR, -0.45, kk); shL = mix(shL, 0.62, kk); shR = mix(shR, 0.62, kk);
+      spreadL = 0.24 * kk; spreadR = -0.24 * kk; crouch = 0.13 * kk;
+      capeX += 0.75 * kk; stepZ = 0.0;
+    } else if (atype > 8.5 && atype < 9.5) {
+      // leap strike: spring, tuck with the blade high overhead, bring it down as the feet land
+      float lift = smoothstep(0.0, 0.12, at);
+      float air = 1.0 - smoothstep(0.58, 0.66, at);
+      float slam = smoothstep(0.58, 0.7, at), rec = smoothstep(0.8, 1.0, at);
+      float down = slam * (1.0 - rec), up = lift * (1.0 - slam);
+      thL = mix(thL, -1.0, lift * air); thR = mix(thR, -0.55, lift * air); shL = mix(shL, 1.4, lift * air); shR = mix(shR, 1.05, lift * air);
+      thL = mix(thL, -0.85, down); thR = mix(thR, -0.15, down); shL = mix(shL, 1.3, down); shR = mix(shR, 1.15, down);
+      crouch = 0.3 * down;
+      uaR = mix(uaR, -2.9, up); uaL = mix(uaL, -2.6, up); faR = mix(faR, -0.45, up); faL = mix(faL, -0.6, up);
+      uaLz = mix(uaLz, -0.2, up); uaRz = mix(uaRz, 0.2, up);
+      uaR = mix(uaR, 0.3, down); uaL = mix(uaL, -0.15, down); faR = mix(faR, -0.12, down); faL = mix(faL, -0.55, down);
+      chestX = mix(chestX, -0.14, up); chestX = mix(chestX, 0.6, down);
+      headX = mix(headX, -0.1, up); headX = mix(headX, 0.18, down);
+      capeX = mix(capeX, 1.15, lift * air);
+      stepZ = 0.08 * down;
     } else if (atype > 7.5 && atype < 8.5) {
       // overhead two-handed smash
       float wind = smoothstep(0.0, 0.4, at), strike = smoothstep(0.4, 0.6, at), rec = smoothstep(0.65, 1.0, at);
@@ -739,7 +765,6 @@ function humanVS(depth) {
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
     float mounted = mod(floor(iColB.w / 8.0), 2.0);
-    float spreadL = 0.0, spreadR = 0.0;
     if (mounted > 0.5) {
       float hk = clamp(amt * 2.2, 0.0, 1.0), trot = smoothstep(0.55, 0.95, amt), gal = smoothstep(1.05, 1.4, amt);
       thL = -1.28; thR = -1.28; shL = 1.22; shR = 1.22; spreadL = 0.5; spreadR = -0.5;
@@ -777,7 +802,7 @@ function humanVS(depth) {
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
     rotP(rotY(pelvisY), vec3(0.0, 0.95, 0.0));
-    P.y += bob - 0.2 * d1 * (1.0 - d2); P.x += swayX; P.z += stepZ;
+    P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX; P.z += stepZ;
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 
     float sc = iColA.w;

@@ -151,6 +151,14 @@ function sfx(name) {
       case 'kingDeath': { const o = tone('sawtooth', 150, 38, t, 2.8, 0.1, 0.1); o.detune.setValueAtTime(30, t); } noiseBurst(t, 2.8, 0.3, 'lowpass', 700, 80, 1.1, 0.2); [523, 659, 784].forEach((f, i) => tone('sine', f * 0.5, f * 0.5, t + 1.6 + i * 0.25, 2.0, 0.03, 0.4)); break;
       case 'descend': for (let i = 0; i < 5; i++) { tone('sine', 120 - i * 8, 60, t + i * 0.16, 0.09, 0.12, 0.003); noiseBurst(t + i * 0.16, 0.05, 0.06, 'bandpass', 900, 500, 1.5, 0.002); } noiseBurst(t + 0.1, 1.4, 0.14, 'lowpass', 700, 160, 0.8, 0.3); break;
       case 'ascend': for (let i = 0; i < 5; i++) { tone('sine', 90 + i * 8, 55, t + i * 0.15, 0.09, 0.11, 0.003); noiseBurst(t + i * 0.15, 0.05, 0.06, 'bandpass', 1000, 600, 1.5, 0.002); } noiseBurst(t + 0.2, 1.2, 0.12, 'bandpass', 600, 2400, 0.7, 0.4); break;
+      case 'whirl': for (let i = 0; i < 3; i++) noiseBurst(t + i * 0.2, 0.22, 0.16, 'bandpass', 600 + i * 300, 2800, 1.2, 0.04); tone('sine', 160, 110, t, 0.7, 0.05, 0.1); break;
+      case 'slam': noiseBurst(t, 0.6, 0.5, 'lowpass', 1400, 90, 0.9, 0.003); tone('sine', 92, 30, t, 0.6, 0.55); noiseBurst(t + 0.03, 0.4, 0.16, 'bandpass', 700, 300, 1.5, 0.01); break;
+      case 'shock': noiseBurst(t, 0.22, 0.28, 'highpass', 2200, 5200, 0.8, 0.002); tone('sawtooth', 140, 90, t, 0.18, 0.06, 0.004); noiseBurst(t + 0.04, 0.3, 0.12, 'bandpass', 3800, 1600, 2, 0.01); break;
+      case 'blizzard': noiseBurst(t, 2.6, 0.22, 'bandpass', 1800, 3600, 0.6, 0.4); noiseBurst(t, 2.4, 0.16, 'lowpass', 500, 300, 0.7, 0.5); [1760, 2349, 2794].forEach((f, i) => tone('sine', f, f * 1.01, t + 0.1 + i * 0.07, 0.6, 0.025, 0.01)); break;
+      case 'pillar': [392, 523.3, 659.3, 784, 1046.5].forEach((f, i) => tone('sine', f, f, t + i * 0.03, 1.5, 0.045, 0.08)); noiseBurst(t, 1.2, 0.12, 'highpass', 4000, 8000, 0.7, 0.2); tone('sine', 110, 55, t, 0.8, 0.2, 0.01); break;
+      case 'renew': [392, 494, 587, 784].forEach((f, i) => tone('sine', f, f, t + i * 0.09, 1.1, 0.04, 0.05)); noiseBurst(t, 1.0, 0.05, 'highpass', 5000, 7000, 0.7, 0.3); break;
+      case 'deadeye': tone('triangle', 240, 120, t, 0.2, 0.22); noiseBurst(t, 0.16, 0.18, 'highpass', 2800, 1600, 0.7, 0.002); tone('sine', 1900, 1500, t + 0.02, 0.35, 0.03, 0.002); break;
+      case 'ignite': noiseBurst(t, 0.45, 0.12, 'bandpass', 900, 2600, 1, 0.02); break;
       case 'drip': { const f = 1500 + Math.random() * 900; tone('sine', f, f * 0.55, t, 0.07, 0.03, 0.002); tone('sine', f * 0.9, f * 0.5, t + 0.16, 0.08, 0.012, 0.002); } break;
       default: break;
     }

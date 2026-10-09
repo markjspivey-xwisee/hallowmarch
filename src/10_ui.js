@@ -69,7 +69,7 @@ function bindHUD() {
   // abilities fire on touch-down for speed; the other buttons wait for a full tap
   $('tpad').addEventListener('pointerdown', (e) => {
     const b = e.target.closest('.slot');
-    if (b) { e.preventDefault(); playerUseSlot(+b.dataset.slot); }
+    if (b) { e.preventDefault(); if (b.dataset.potion) usePotion(); else playerUseSlot(+b.dataset.slot); }
   });
   $('tpad').addEventListener('click', (e) => {
     const P = GAME.player;
@@ -91,20 +91,28 @@ function bindHUD() {
 }
 function buildHUD() {
   if (!UI.hudBound) bindHUD();
+  buildHotbar();
+  if (IS_TOUCH) document.body.classList.add('touch');
+  $('log').innerHTML = '';
+  $('hud').hidden = false;
+  updateWarPanel();
+}
+// the ability bar, rebuilt on level-ups so ranks and new abilities show
+function buildHotbar() {
   const P = GAME.player;
+  if (!P) return;
   const abil = CLASSES[P.cls].abilities;
+  const rank = abilityRank(P.level), rn = RANK_NUMERAL[rank];
   const slotHTML = (k, i, keyLabel) => {
     const A = ABILITIES[k];
-    return `<button class="slot" type="button" data-slot="${i}" aria-label="${A.name}">${iconSvg(A.icon, 26)}<span class="key">${keyLabel}</span><span class="cost">${A.cost}</span><span class="cd"></span><span class="cdt"></span><span class="lock"></span><span class="tip panel"><b>${A.name}</b><em>${A.cast ? A.cast + ' s cast' : 'Instant'} · ${A.cost} power${A.cd ? ' · ' + A.cd + ' s cooldown' : ''}${typeof A.range === 'number' ? ' · ' + A.range + ' m' : ''}</em>${A.desc}<br><em style="margin-top:4px">Learned at level ${A.level}</em></span></button>`;
+    const known = A.level <= P.level, ranked = known && rank > 1;
+    return `<button class="slot" type="button" data-slot="${i}" aria-label="${A.name}">${iconSvg(A.icon, 26)}<span class="key">${keyLabel}</span>${ranked ? `<span class="rk">${rn}</span>` : ''}<span class="cost">${A.cost}</span><span class="cd"></span><span class="cdt"></span><span class="lock"></span><span class="tip panel"><b>${A.name}${ranked ? ' ' + rn : ''}</b><em>${A.cast ? A.cast + ' s cast' : 'Instant'} · ${A.cost} power${A.cd ? ' · ' + A.cd + ' s cooldown' : ''}${typeof A.range === 'number' ? ' · ' + A.range + ' m' : ''}</em>${A.desc}${ranked ? `<br><em style="margin-top:4px">Rank ${rn}: ${Math.round((rankMult(P.level) - 1) * 100)}% stronger. The next rank comes at level ${Math.min(LEVEL_CAP, 20 + rank * 10)}.</em>` : `<br><em style="margin-top:4px">Learned at level ${A.level}</em>`}</span></button>`;
   };
   const potHTML = (key) => `<button class="slot potion" type="button" data-potion="1" aria-label="Drink a healing draught">${iconSvg('potion', 26)}<span class="key">${key}</span><span class="cnt"></span><span class="cd"></span><span class="cdt"></span><span class="tip panel"><b>Healing draught</b><em>Instant · ${POTION.cd} s cooldown</em>Restores 40% of your health. Merchants in the towns sell them.</span></button>`;
   $('hotbar').innerHTML = abil.map((k, i) => slotHTML(k, i, i + 1)).join('') + '<span class="sep"></span>' + potHTML('Q');
   $('tpad').innerHTML = abil.map((k, i) => slotHTML(k, i, '')).join('') + `<div class="wide"><button class="btn" type="button" id="t-target">Target</button><button class="btn" type="button" id="t-use">Use</button><button class="btn" type="button" id="t-jump">Jump</button><button class="btn" type="button" id="t-ride">Ride</button><button class="btn" type="button" id="t-potion">Potion</button><button class="btn" type="button" id="t-kit">Kit</button></div>`;
-  if (IS_TOUCH) document.body.classList.add('touch');
-  $('log').innerHTML = '';
-  $('hud').hidden = false;
   UI.slots = [...document.querySelectorAll('#hotbar .slot:not(.potion)'), ...document.querySelectorAll('#tpad .slot:not(.potion)')];
-  updateWarPanel();
+  updatePotionSlot();
 }
 function flashSlot(i) { for (const s of UI.slots || []) if (+s.dataset.slot === i) { s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash'); } }
 function toggleLog() { const l = $('log'); if (IS_TOUCH) l.classList.toggle('show'); else l.classList.toggle('hidden'); }
@@ -114,7 +122,7 @@ function toggleLog() { const l = $('log'); if (IS_TOUCH) l.classList.toggle('sho
 /* ------------------------------------------------------------------ */
 const setW = (el, f) => { const v = (clamp(isFiniteNum(f) ? f : 0, 0, 1) * 100).toFixed(1) + '%'; if (el._w !== v) { el.style.width = v; el._w = v; } };
 const setT = (el, t) => { if (el._t !== t) { el.textContent = t; el._t = t; } };
-const BUFF_ICON = { stun: ['burst', '#ffd36a'], snare: ['chain', '#7fb0ff'], root: ['chain', '#7fe0ff'], dr: ['tower', '#e8e0c8'], dmg: ['horn', '#ffb36a'], shield: ['ward', '#a8d0ff'], hot: ['leaf', '#9fe89c'], dot: ['candle', '#ff9a6a'], free: ['leap', '#c8f0c8'] };
+const BUFF_ICON = { burn: ['flame', '#ff8a3a'], stun: ['burst', '#ffd36a'], snare: ['chain', '#7fb0ff'], root: ['chain', '#7fe0ff'], dr: ['tower', '#e8e0c8'], dmg: ['horn', '#ffb36a'], shield: ['ward', '#a8d0ff'], hot: ['leaf', '#9fe89c'], dot: ['candle', '#ff9a6a'], free: ['leap', '#c8f0c8'] };
 function buffsHTML(e) {
   const seen = new Set();
   return e.buffs.filter((b) => b.until > GAME.t && !seen.has(b.kind) && seen.add(b.kind)).map((b) => { const [ic, c] = BUFF_ICON[b.kind] || ['circle', '#ccc']; return `<span class="buff" style="--bc:${c}" title="${b.kind}">${iconSvg(ic, 14)}</span>`; }).join('');
@@ -562,7 +570,7 @@ function onDamageFeedback(src, dst, dmg, absorbed, opts) {
 // "the grey wolf", "The Hollow King", "Aldric": names read right in a sentence
 function theName(e) {
   const n = e.name || '';
-  if (/^the /i.test(n)) return n;
+  if (/^the /i.test(n) || e.properName) return n;
   if (e.role === 'mob' || e.role === 'critter' || e.role === 'trap') return 'the ' + n;
   return n;
 }
@@ -694,7 +702,7 @@ function renderMenu(tab) {
     body.innerHTML = IS_TOUCH ? `<div class="keys">
       <kbd>Left thumb</kbd><span>Drag anywhere on the left to move. Push to the edge to run.</span>
       <kbd>Right thumb</kbd><span>Drag to turn the camera. Tap a creature or soldier to target it.</span>
-      <kbd>Ability buttons</kbd><span>Use the six abilities of your class. Locked ones open as you level.</span>
+      <kbd>Ability buttons</kbd><span>Use the eight abilities of your class. Locked ones open as you level; past 20 they grow a rank stronger every ten levels.</span>
       <kbd>Target · Use · Jump</kbd><span>Cycle enemies, use a portal stone or take a hallow, and jump.</span>
       <kbd>Ride</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>
       <kbd>Potion · Kit</kbd><span>Drink a healing draught · open your gear and bags.</span></div>
@@ -703,7 +711,7 @@ function renderMenu(tab) {
       <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
       <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
       <kbd>Click</kbd><span>Target a creature, soldier, gate or friend.</span>
-      <kbd>1 – 6</kbd><span>Use your abilities. Casting stops if you move.</span>
+      <kbd>1 – 8</kbd><span>Use your abilities. Casting stops if you move. Past level 20 they grow a rank stronger every ten levels.</span>
       <kbd>Tab · F</kbd><span>Cycle enemies in front of you · target yourself.</span>
       <kbd>E</kbd><span>Use a portal stone, speak to the herald, take a hallow.</span>
       <kbd>R</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>

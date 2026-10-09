@@ -34,7 +34,7 @@ function spawnDragon() {
   const a = Math.random() * TAU;
   D.circ.ang = a; D.circ.dir = Math.random() < 0.5 ? 1 : -1;
   const x = Math.sin(a) * D.circ.r, z = Math.cos(a) * D.circ.r;
-  const e = makeEnt({ kind: 'dragon', faction: FACTION_MONSTER, role: 'boss', mobType: 'dragon', level: DRAGON_LEVEL, name: DRAGON_NAME, x, z, y: heightAt(x, z) + 45, yaw: 0, radius: 3.2, scale: 1 });
+  const e = makeEnt({ kind: 'dragon', faction: FACTION_MONSTER, role: 'boss', mobType: 'dragon', level: Math.max(DRAGON_LEVEL, warLevel() + 4), name: DRAGON_NAME, x, z, y: heightAt(x, z) + 45, yaw: 0, radius: 3.2, scale: 1 });
   setupStats(e);
   e.flying = true;
   e.fixedY = e.y;

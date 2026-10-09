@@ -640,6 +640,41 @@ function buildWorld(seed = 7) {
       camps.push({ id: camps.length, realm: R.id, type, lmin, lmax, x: best.x, z: best.z, r: 9, count: type === 'bear' || type === 'troll' ? 3 : 4 });
     }
   }
+  // the wild borderlands: harder camps for levels 20 to 40, out toward the edges of each realm,
+  // every one led by a named champion
+  const LATE_BY_REALM = [
+    [['bear', 20, 23], ['bandit', 22, 25], ['skeleton', 24, 27], ['wolf', 26, 29], ['bandit', 28, 31], ['bear', 30, 33], ['skeleton', 32, 36], ['bandit', 35, 40]],
+    [['wisp', 20, 23], ['boar', 22, 25], ['bandit', 24, 27], ['wisp', 26, 29], ['bear', 28, 31], ['wolf', 30, 33], ['wisp', 32, 36], ['bear', 35, 40]],
+    [['wolf', 20, 23], ['draugr', 22, 25], ['troll', 24, 27], ['bear', 26, 29], ['draugr', 28, 31], ['troll', 30, 33], ['wolf', 32, 36], ['troll', 35, 40]],
+  ];
+  for (const R of REALMS) {
+    const list = LATE_BY_REALM[R.id];
+    for (let ci = 0; ci < list.length; ci++) {
+      const [type, lmin, lmax] = list[ci];
+      const want = 150 + ci * 15;
+      let best = null;
+      for (let tries = 0; tries < 900; tries++) {
+        const a = rnd() * TAU, d = want + (rnd() - 0.5) * 34;
+        const x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
+        const r = Math.hypot(x, z);
+        if (r < R_RING + 30 || r > 488 || Math.abs(x) > HALF - 26 || Math.abs(z) > HALF - 26) continue;
+        if (Math.abs(angDiff(bearingOf(x, z), R.bearing)) > 58 * DEG) continue;
+        if (!isWalkable(x, z)) continue;
+        const h = heightAt(x, z);
+        if (h < WATER_Y + 1 || h > 27) continue;
+        if (blocked(x, z, 12) || nearRoad(x, z, 12)) continue;
+        if (camps.some((c) => dist2(c.x, c.z, x, z) < 44 * 44)) continue;
+        if (SITES.some((S) => dist2(S.x, S.z, x, z) < (S.r + 30) ** 2)) continue;
+        let ok = true;
+        for (let s = 0; s < 8 && ok; s++) { const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 11, z + Math.cos(aa) * 11)) ok = false; }
+        if (!ok) continue;
+        best = { x, z };
+        break;
+      }
+      if (!best) continue;
+      camps.push({ id: camps.length, realm: R.id, type, lmin, lmax, x: best.x, z: best.z, r: 10, count: type === 'bear' || type === 'troll' ? 3 : 4, elite: true });
+    }
+  }
   W.camps = camps;
   W.ready = true;
   return W;

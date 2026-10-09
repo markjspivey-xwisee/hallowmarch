@@ -84,7 +84,7 @@ async function boot() {
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); });
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); });
-  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
+  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
   await loadStep(0.78, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
@@ -96,8 +96,9 @@ async function boot() {
   await loadStep(0.9, 'Lighting the sky', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
-    try { DUN.root.visible = true; renderer.compile(scene, camera); } catch (e) { reportError(e); }
+    try { DUN.root.visible = true; spellCompileVisible(true); renderer.compile(scene, camera); } catch (e) { reportError(e); }
     DUN.root.visible = INDOOR.on;
+    spellCompileVisible(false);
   });
   await loadStep(0.97, 'Lighting the sky', () => tick(0.016));
   GAME.ready = true;
@@ -116,6 +117,7 @@ async function boot() {
 function startGame(save) {
   $('title').hidden = true;
   const P = createPlayer(save);
+  rescaleWar();
   buildHUD();
   GAME.started = true;
   lastZone = '';
@@ -380,6 +382,7 @@ function tick(dt) {
   drawFires(dt);
   updateAmbientLife(dt);
   drawProjectiles();
+  updateSpellFX(dt);
   drawLoot();
   renderDecals(fx, fz);
   stepTrail(dt, fx, fz);
@@ -472,8 +475,8 @@ window.__hm = {
   setTod(p, mode = 'fixed') { tod.p = p; tod.fixedP = p; tod.mode = mode === 'cycle' ? 'cycle' : 'fixed'; },
   look(yaw, pitch, dist) { if (yaw !== undefined) CAM.yaw = yaw; if (pitch !== undefined) CAM.pitch = pitch; if (dist !== undefined) CAM.dist = CAM.targetDist = dist; },
   frame(dt = 1 / 60) { tick(dt); },
-  INV, LOOT, QUALITY,
-  fn: { enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
+  INV, LOOT, QUALITY, ABILITIES, CLASSES, SPELL,
+  fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
 };
 
 boot().catch((err) => {

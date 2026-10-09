@@ -15,34 +15,84 @@ function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
   const look = classLook(cls, realm, Math.random, name);
   if (role === 'lord') { look.outfit = OUTFIT.lord; look.mask = (look.mask & ~(WB.helmet | WB.hairShort | WB.hairLong)) | WB.circlet | WB.cape | WB.hairShort; }
   const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: heightAt(x, z), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
+  if (role in WAR_LEVEL_OFF) e.wlOff = level - warLevel();
   setupStats(e);
   return e;
 }
-function spawnMob(camp) {
+
+/* ------------------------------------------------------------------ */
+/* the frontier keeps pace with you                                    */
+/* ------------------------------------------------------------------ */
+// past level 20 every realm's troops, gates and wardens rise with the strongest player,
+// keeping the same steps between them as at 20
+const WAR_LEVEL_OFF = { soldier: [-5, 0], guard: [0, 0], lord: [4, 4], guardian: [2, 2], muster: [10, 10] };
+function warUnitLevel(role) { const o = WAR_LEVEL_OFF[role] || [0, 0]; return warLevel() + o[0] + Math.floor(Math.random() * (o[1] - o[0] + 1)); }
+const DOOR_HP = { keep: 3600, temple: 2400 };
+const doorHpScale = () => baseDmg(warLevel() + 2) / baseDmg(22);
+const barrowBoost = () => Math.max(0, warLevel() - 20);
+function scaleDoor(door) {
+  const f = door.maxHp > 0 ? door.hp / door.maxHp : 1;
+  door.level = warLevel() + 2;
+  door.maxHp = (door.keepRef ? DOOR_HP.keep : DOOR_HP.temple) * doorHpScale();
+  if (door.alive) door.hp = door.maxHp * f;
+}
+function rescaleWar() {
+  const w = warLevel(), boost = barrowBoost();
+  for (const e of ENT) {
+    if (e.kind === 'door') { if (e.keepRef || e.templeRef) scaleDoor(e); continue; }
+    if (!e.alive || e.role === 'player') continue;
+    let lv = e.level;
+    if (e.faction <= 2 && e.wlOff != null) lv = w + e.wlOff;
+    else if (e.baseLevel != null) lv = e.baseLevel + boost;
+    else if (e.role === 'boss' && e.mobType === 'dragon') lv = Math.max(DRAGON_LEVEL, w + 4);
+    if (lv !== e.level) { e.level = lv; setupStats(e, true); }
+  }
+  VENT_SRC.level = 18 + boost;
+}
+function mobLook(M, type, lvl, sc, elite) {
+  const tier = mobTier(M, lvl), late = tier - 4;
+  if (M.kind !== 'humanoid') {
+    const pal = MOB_LATE[type] && late >= 0 ? MOB_LATE[type][Math.min(late, MOB_LATE[type].length - 1)] : null;
+    const A = pal ? pal[0] : M.colA || [0.6, 1.6, 1.4], B = pal ? pal[1] : M.colB || [0.3, 0.8, 0.7];
+    return { colA: A.map((v) => v * (0.88 + Math.random() * 0.24) * (elite ? 1.08 : 1)), colB: B.slice() };
+  }
+  let mask = M.mask | (M.outfit === 5 && Math.random() < 0.3 ? WB.cape : 0) | (M.outfit === 5 && Math.random() < 0.5 ? WB.beard : 0);
+  let flags = M.flags || 0, bulk = M.bulk || 0, tab = M.tabard.map((v) => v * (0.8 + Math.random() * 0.4)), armor = M.armor;
+  // past 20 the outlaws, the dead and the trolls come better armed and grimmer
+  if (late >= 0) {
+    if (type === 'bandit') { mask |= WB.pauldron | (Math.random() < 0.6 ? WB.helmet : WB.hood); tab = [0.4 + Math.random() * 0.08, 0.15, 0.13]; armor = [0.36, 0.34, 0.33]; }
+    if (type === 'skeleton' || type === 'draugr') { mask |= WB.pauldron | WB.helmet; flags |= (2 << 4) | ((late >= 2 ? 2 : 1) << 7); }
+    if (type === 'troll') bulk = 1.2 + 0.1 * Math.min(late, 3);
+    if (late >= 2) mask |= WB.cape;
+  }
+  if (elite) mask |= WB.cape | WB.pauldron;
+  return { tabard: tab, armor, skin: Math.random() * 0.6, hair: Math.random(), mask, flags, scale: sc, outfit: M.outfit, emblem: 3, fem: 0, bulk };
+}
+function spawnMob(camp, elite = false) {
   const M = MOBS[camp.type];
-  const lvl = camp.lmin + Math.floor(Math.random() * (camp.lmax - camp.lmin + 1));
-  const a = Math.random() * TAU, r = Math.random() * camp.r;
+  const lvl = elite ? camp.lmax + 1 : camp.lmin + Math.floor(Math.random() * (camp.lmax - camp.lmin + 1));
+  const a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
   let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
   if (!isWalkable(x, z)) { x = camp.x; z = camp.z; }
-  const tier = Math.min(M.names.length - 1, Math.floor((lvl - camp.lmin) / Math.max(1, (camp.lmax - camp.lmin + 1) / M.names.length)));
-  const name = M.names[Math.min(M.names.length - 1, Math.floor(lvl / 5.5))] || M.names[tier];
-  const sc = lerp(M.scale[0], M.scale[1], (lvl - 1) / 19);
+  const name = elite ? pick(Math.random, ELITE_NAMES[camp.type]) : M.names[mobTier(M, lvl)];
+  const sc = lerp(M.scale[0], M.scale[1], clamp((lvl - 1) / 19, 0, 1)) * (1 + 0.08 * clamp((lvl - 20) / 20, 0, 1)) * (elite ? 1.2 : 1);
   const e = makeEnt({
     kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: camp.type, level: lvl, name,
     x, z, y: heightAt(x, z), yaw: Math.random() * TAU, scale: sc, radius: M.radius, camp: camp.id,
     home: { x: camp.x, z: camp.z, r: camp.r },
-    look: M.kind === 'humanoid' ? { tabard: M.tabard.map((v) => v * (0.8 + Math.random() * 0.4)), armor: M.armor, skin: Math.random() * 0.6, hair: Math.random(), mask: M.mask | (M.outfit === 5 && Math.random() < 0.3 ? WB.cape : 0) | (M.outfit === 5 && Math.random() < 0.5 ? WB.beard : 0), flags: M.flags || 0, scale: sc, outfit: M.outfit, emblem: 3, fem: 0, bulk: M.bulk || 0 } : M.colA ? { colA: M.colA.map((v) => v * (0.85 + Math.random() * 0.3)), colB: M.colB } : { colA: [0.6, 1.6, 1.4], colB: [0.3, 0.8, 0.7] },
+    look: mobLook(M, camp.type, lvl, sc, elite),
     hover: M.kind === 'wisp' ? 1.6 : 0,
   });
+  if (elite) { e.elite = true; e.properName = true; e.tweak = { hp: 2.8, dmg: 1.3 }; camp.eliteId = e.id; }
   setupStats(e);
   camp.members.add(e.id);
   return e;
 }
 function initCamps() {
   for (const c of W.camps) {
-    const camp = { ...c, members: new Set(), respawnAt: [] };
+    const camp = { ...c, members: new Set(), respawnAt: [], eliteAt: 0, eliteId: null };
     CAMPS.push(camp);
-    for (let i = 0; i < camp.count; i++) spawnMob(camp);
+    for (let i = 0; i < camp.count; i++) spawnMob(camp, camp.elite && i === 0);
   }
 }
 function villagerLook(realm) {
@@ -68,7 +118,7 @@ function initTowns() {
     const M = R.musterSite;
     for (const [lx, lz] of [[-4.5, 15], [4.5, 15], [-4.5, -15], [4.5, -15]]) {
       const p = siteWorld(M, lx, 0, lz);
-      const g = spawnRealmUnit(R.id, lz > 0 ? 'archer' : 'warrior', 30, 'muster', p.x, p.z, { yaw: M.yaw + (lz > 0 ? 0 : Math.PI) });
+      const g = spawnRealmUnit(R.id, lz > 0 ? 'archer' : 'warrior', warUnitLevel('muster'), 'muster', p.x, p.z, { yaw: M.yaw + (lz > 0 ? 0 : Math.PI) });
       g.ai.post = { x: p.x, z: p.z, leash: 18 };
       g.name = `${R.name} Warden`;
     }
@@ -91,10 +141,10 @@ function keepSlots(K) {
 function initWar() {
   for (const R of REALMS) {
     R.keepSites.forEach((S, k) => {
-      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 22, x: 0, z: 0, radius: 3.2 });
+      const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.2 });
       const gp = siteWorld(S, 0, 0, S.gateLocal.z);
       door.x = gp.x; door.z = gp.z; door.y = S.y;
-      door.maxHp = door.hp = 3600;
+      door.maxHp = door.hp = DOOR_HP.keep * doorHpScale();
       S.door.owner = R.id;
       const K = { id: WAR.keeps.length, site: S, realm: R.id, orig: R.id, door, lord: null, guards: new Set(), nav: R.nav.k[k], underSiegeUntil: -99, lastEnemyNear: -99, nextGuardAt: 0, lastOwnerChange: -999, wantedBy: new Map() };
       door.keepRef = K;
@@ -104,10 +154,10 @@ function initWar() {
       fillGarrison(K, true);
     });
     const S = R.templeSite;
-    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: 22, x: 0, z: 0, radius: 3.4 });
+    const door = makeEnt({ kind: 'door', faction: R.id, role: 'door', name: `${S.name} gate`, level: warLevel() + 2, x: 0, z: 0, radius: 3.4 });
     const gp = siteWorld(S, 0, 0, S.gateLocal.z);
     door.x = gp.x; door.z = gp.z; door.y = S.y;
-    door.maxHp = door.hp = 2400;
+    door.maxHp = door.hp = DOOR_HP.temple * doorHpScale();
     S.door.owner = R.id;
     const T = { id: WAR.temples.length, site: S, realm: R.id, door, guardians: new Set(), nav: R.nav, nextGuardAt: 0, lastEnemyNear: -99, exposedUntil: -99, underSiegeUntil: -99 };
     door.templeRef = T;
@@ -123,10 +173,10 @@ function initWar() {
 }
 function fillGarrison(K, all) {
   const R = K.realm, S = K.site;
-  const lvl = 20;
+  const lvl = warUnitLevel('guard');
   if (!K.lord || !getEnt(K.lord) || !getEnt(K.lord).alive) {
     const p = siteWorld(S, ...K.slots.lord);
-    const L = spawnRealmUnit(R, 'warrior', 24, 'lord', p.x, p.z, { yaw: S.yaw });
+    const L = spawnRealmUnit(R, 'warrior', warUnitLevel('lord'), 'lord', p.x, p.z, { yaw: S.yaw });
     L.name = `Lord ${L.name}`;
     L.ai.post = { x: p.x, z: p.z, leash: 12 };
     L.keep = K;
@@ -141,7 +191,7 @@ function fillGarrison(K, all) {
     if (have.has(n.slot)) continue;
     const p = siteWorld(S, n.pos[0], n.pos[1], n.pos[2]);
     const g = spawnRealmUnit(R, n.cls, lvl, 'guard', p.x, p.z, { yaw: S.yaw });
-    if (n.pos[1] > 0.5) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; g.rangedRange = 36; g.dmgMult *= 0.55; g.swing = 3.0; }
+    if (n.pos[1] > 0.5) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; g.tweak = { rangedRange: 36, dmg: 0.55, swing: 3.0 }; setupStats(g); }
     g.ai.post = { x: p.x, z: p.z, leash: n.pos[1] > 0.5 ? 0 : 11 };
     g.ai.slot = n.slot;
     g.keep = K;
@@ -159,7 +209,7 @@ function fillGuardians(T, all) {
     if (!all && added >= 1) return;
     added++;
     const p = siteWorld(S, lx, 0, lz);
-    const g = spawnRealmUnit(T.realm, i < 2 ? 'warrior' : 'priest', 22, 'guardian', p.x, p.z, { yaw: S.yaw });
+    const g = spawnRealmUnit(T.realm, i < 2 ? 'warrior' : 'priest', warUnitLevel('guardian'), 'guardian', p.x, p.z, { yaw: S.yaw });
     g.name = `Hallow-warden ${g.name}`;
     g.ai.post = { x: p.x, z: p.z, leash: 9 };
     g.ai.slot = i;
@@ -326,7 +376,9 @@ function onEntityKilled(e, killer) {
   if (e.role === 'mob' && e.camp != null) {
     const camp = CAMPS[e.camp];
     camp.members.delete(e.id);
-    camp.respawnAt.push(GAME.t + 45 + Math.random() * 30);
+    // a champion takes longer to come back than its followers
+    if (e.elite) { camp.eliteId = null; camp.eliteAt = GAME.t + 300 + Math.random() * 120; news(`${e.name} has fallen in the borderlands of ${REALMS[camp.realm].name}.`, killer ? killer.faction : -1); }
+    else camp.respawnAt.push(GAME.t + 45 + Math.random() * 30);
     return;
   }
   if (e.role === 'player') onPlayerDeath(killer);
@@ -420,7 +472,10 @@ function npcAbilities(e, t) {
       if (k === 'blink' || k === 'tumble') continue;
       if (k === 'nova' && dist(e.x, e.z, t.x, t.z) > 6) continue;
       if (k === 'sanctuary') continue;
+      if (k === 'whirl' && !nearestWhere(e.x, e.z, A.spin, (o) => o.alive && isEnemy(e, o) && isActor(o))) continue;
+      if (k === 'massrenew' && !nearestWhere(e.x, e.z, A.radius, (o) => o.alive && o.faction === e.faction && isActor(o) && o.hp / o.maxHp < 0.7)) continue;
     }
+    if (k === 'leap' && (e.fixedY !== null || e.ai.post)) continue;
     if (A.friendly) continue;
     if (!canUse(e, k, t)) { useAbility(e, k, t); return; }
   }
@@ -530,7 +585,7 @@ function spawnWarband(realm, size) {
     const cls = WB_CLASSES[i % WB_CLASSES.length];
     const a = (i / size) * TAU, r = 3 + Math.random() * 4;
     const x = M.x + Math.cos(a) * r, z = M.z + Math.sin(a) * r;
-    const e = spawnRealmUnit(realm, cls, 15 + Math.floor(Math.random() * 6), 'soldier', x, z);
+    const e = spawnRealmUnit(realm, cls, warUnitLevel('soldier'), 'soldier', x, z);
     e.warband = wb;
     wb.members.push(e.id);
   }
@@ -885,6 +940,11 @@ function updateWar(dt) {
         spawnMob(c);
       }
     }
+    if (c.elite && c.eliteId == null && now > c.eliteAt) {
+      const P = GAME.player;
+      if (P && dist(P.x, P.z, c.x, c.z) < 26) c.eliteAt = now + 10;
+      else spawnMob(c, true);
+    }
   }
 }
 function news(text, realm, kind = 'normal') {
@@ -916,6 +976,8 @@ function updateNPCs(dt) {
     if (e.role === 'boss') { tickBuffs(e, dt); if (e.alive) thinkDragon(e, dt); updateAnim(e, dt); continue; }
     tickBuffs(e, dt);
     if (!e.alive) continue;
+    // mid-leap: the leap carries the body, nothing else does
+    if (e.motion && updateMotion(e, dt)) { updateAnim(e, dt); continue; }
     if (e.casting) {
       if (isStunned(e)) e.casting = null;
       else if (!e.casting.custom) { e.casting.t += dt; if (e.casting.t >= e.casting.total) finishCast(e); }

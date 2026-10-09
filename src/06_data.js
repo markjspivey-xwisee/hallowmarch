@@ -89,6 +89,25 @@ const MOBS = {
   troll: { kind: 'humanoid', names: ['hill troll', 'stone troll', 'moss troll', 'old troll', 'cave troll', 'mountain troll', 'troll elder', 'troll king', 'troll king'], hp: 1.9, dmg: 1.35, speed: 6.2, swing: 2.9, range: 3.4, aggro: 10, scale: [1.55, 1.8], tabard: [0.32, 0.28, 0.22], armor: [0.4, 0.36, 0.3], mask: WB.mace | WB.skirt | WB.belt | WB.hairLong, flags: 2 | 4, outfit: 8, bulk: 1, radius: 0.85 },
   wisp: { kind: 'wisp', names: ["will-o'-wisp", 'bog light', 'marsh lantern', 'pale wisp', 'grave light', 'storm wisp', 'ghost-fire', 'wisp-mother', 'wisp-mother'], hp: 0.75, dmg: 1.1, speed: 6.2, swing: 2.6, range: 20, aggro: 14, scale: [1, 1], radius: 0.4, ranged: 'wisp' },
 };
+// how the creatures of the deep wilds look past level 20, tier by tier: [fur or glow, shade]
+const MOB_LATE = {
+  wolf: [[[0.72, 0.75, 0.8], [0.48, 0.52, 0.58]], [[0.17, 0.16, 0.18], [0.08, 0.08, 0.09]], [[0.84, 0.83, 0.8], [0.58, 0.57, 0.55]], [[0.3, 0.3, 0.33], [0.13, 0.13, 0.15]]],
+  boar: [[[0.42, 0.4, 0.38], [0.25, 0.24, 0.23]], [[0.26, 0.2, 0.16], [0.14, 0.11, 0.09]], [[0.3, 0.32, 0.21], [0.17, 0.18, 0.12]], [[0.24, 0.13, 0.1], [0.11, 0.06, 0.05]]],
+  bear: [[[0.26, 0.18, 0.12], [0.15, 0.1, 0.07]], [[0.46, 0.41, 0.34], [0.3, 0.26, 0.21]], [[0.64, 0.62, 0.58], [0.42, 0.4, 0.37]], [[0.12, 0.1, 0.09], [0.06, 0.05, 0.05]]],
+  wisp: [[[1.4, 1.5, 1.7], [0.7, 0.75, 0.9]], [[0.9, 1.2, 2.5], [0.45, 0.6, 1.3]], [[0.6, 2.0, 0.8], [0.3, 1.0, 0.4]], [[1.7, 0.8, 2.3], [0.85, 0.4, 1.15]]],
+};
+// the champions who lead the camps of the borderlands
+const ELITE_NAMES = {
+  wolf: ['Grimfang', 'Ashmaw', 'Frostjaw', 'Nightrunner', 'Old Greymuzzle'],
+  boar: ['Ironbristle', 'Rootgore', 'Old Tusk', 'Thornhide'],
+  bear: ['Stonepaw', 'Gristlemaw', 'Mossback', 'Old Heavyfoot'],
+  bandit: ['Black Wenna', 'Red Osric', 'Hadwin Cutthroat', 'One-Eyed Peran'],
+  skeleton: ['the Nameless Knight', 'Sir Hollowmail', 'the Bone Herald'],
+  draugr: ['Hrolf Grave-Born', 'Jarl Coldbreath', 'Ulf the Unburied'],
+  troll: ['Gnarlbelly', 'Old Rockjaw', 'Mossgut the Elder'],
+  wisp: ['the Drowned Lantern', 'the Will of the Mere', 'the Pale Mother'],
+};
+const mobTier = (M, lvl) => Math.min(M.names.length - 1, Math.floor(lvl / 5.5));
 const CON = [
   { name: 'grey', col: '#9b9b9b', xp: 0 },
   { name: 'green', col: '#55c45a', xp: 0.55 },

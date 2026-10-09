@@ -27,14 +27,14 @@ function spawnBarrowMob(type, lvl, u, v, pack, extra = {}) {
   const p = dunPoint(u, v);
   const look = barrowLook(type, lvl, extra);
   const name = extra.name || (BARROW_NAMES[type] || M.names)[clamp(lvl - 15, 0, 3)];
+  // the dead grow stronger as the living do: the barrow keeps pace past level 20
   const e = makeEnt({
-    kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: type, level: lvl, name, x: p.x, z: p.z, y: p.y, yaw: Math.random() * TAU,
+    kind: M.kind, faction: FACTION_MONSTER, role: 'mob', mobType: type, level: lvl + barrowBoost(), baseLevel: lvl, name, x: p.x, z: p.z, y: p.y, yaw: Math.random() * TAU,
     scale: extra.scale || look.scale || 1, radius: M.radius, home: { x: p.x, z: p.z, r: pack ? pack.wander || 2 : 2 }, look, hover: M.kind === 'wisp' ? 1.6 : 0,
     dunPack: pack ? pack.idx : -1, camp: null,
   });
+  if (extra.hp || extra.dmg) e.tweak = { hp: extra.hp || 0, dmg: extra.dmg || 0 };
   setupStats(e);
-  if (extra.hp) { e.maxHp *= extra.hp; e.hp = e.maxHp; }
-  if (extra.dmg) e.dmgMult *= extra.dmg;
   if (extra.elite) e.elite = true;
   return e;
 }
@@ -87,13 +87,12 @@ function spawnWarden() {
 function spawnKing() {
   const sp = DUN.spots.seat;
   const e = makeEnt({
-    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 21, name: 'The Hollow King',
+    kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: 21 + barrowBoost(), baseLevel: 21, name: 'The Hollow King', tweak: { speed: 6.0, swing: 2.5, meleeRange: 3.0 },
     x: sp.x, z: sp.z, y: -6.2, yaw: -Math.PI / 2, scale: 1.62, radius: 0.5,
     look: { tabard: [0.13, 0.1, 0.16], armor: [0.6, 0.46, 0.24], skin: 0.2, hair: 0.3, mask: WB.sword | WB.cape | WB.circlet | WB.pauldron | WB.tabard | WB.belt | WB.skirt, flags: 1 | (2 << 4) | (3 << 7), scale: 1.62, outfit: OUTFIT.skeleton, emblem: 3, fem: 0, bulk: -0.6 },
     home: { x: sp.x, z: sp.z, r: 1 }, camp: null,
   });
   setupStats(e);
-  e.speed = 6.0; e.swing = 2.5; e.meleeRange = 3.0;
   e.ai.awake = false;
   e.seat = { y: sp.y }; e.fixedY = -6.2;
   for (const t of DUN.tombs) t.target = 0;
@@ -266,7 +265,7 @@ function openChest(ch) {
   ch.opened = true;
   ch.refillAt = GAME.t + (ch.id === 'vault' ? KING_RESPAWN : BARROW_RESPAWN * 2);
   sfx('chestOpen');
-  const lvl = clamp(GAME.prog.level + (ch.id === 'vault' ? 1 : 0), 15, 21);
+  const lvl = clamp(GAME.prog.level + (ch.id === 'vault' ? 1 : 0), 15, 21 + barrowBoost());
   later(0.45, () => {
     const n = ch.id === 'vault' ? 3 : 1 + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < n; i++) {

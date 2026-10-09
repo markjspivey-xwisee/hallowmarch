@@ -46,7 +46,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'KeyM') { toggleMap(); return; }
   if (k === 'KeyI' || k === 'KeyB') { if (!UI.modal || UI.modal === 'kit') toggleKit(); return; }
   if (UI.modal) return;
-  if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 6) playerUseSlot(n - 1); }
+  if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 8) playerUseSlot(n - 1); }
   if (k === 'Tab') cycleTarget(e.shiftKey);
   if (k === 'KeyF') { setPlayerTarget(GAME.player); }
   if (k === 'KeyE') playerInteract();
@@ -226,7 +226,7 @@ function chooseBounty() {
   const camps = CAMPS.filter((c) => c.realm === P.faction).map((c) => ({ c, mid: (c.lmin + c.lmax) / 2 }));
   camps.sort((a, b) => Math.abs(a.mid - prog.level - 0.5) - Math.abs(b.mid - prog.level - 0.5));
   const c = camps[Math.floor(Math.random() * Math.min(2, camps.length))].c;
-  return { type: c.type, camp: c.id, need: 6, have: 0, name: MOBS[c.type].names[Math.min(3, Math.floor(((c.lmin + c.lmax) / 2) / 5.5))], reward: Math.round(xpToNext(prog.level) * 0.35) };
+  return { type: c.type, camp: c.id, need: 6, have: 0, name: MOBS[c.type].names[mobTier(MOBS[c.type], (c.lmin + c.lmax) / 2)], reward: Math.round(xpToNext(prog.level) * 0.35) };
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;
@@ -246,6 +246,9 @@ function updatePlayer(dt) {
   if (!P.alive) return;
   tickBuffs(P, dt);
   if (!P.alive) return;
+  // in the air on a leap strike: the leap carries you
+  if (P.motion && updateMotion(P, dt)) { GAME.prog.played += dt; return; }
+  const spin = spinning(P);
   // movement intent relative to the camera
   let f = 0, s = 0;
   if (!UI.modal) {
@@ -269,7 +272,7 @@ function updatePlayer(dt) {
     const ok = stepTo(P, nx, nz);
     if (!ok) stepTo(P, P.x + mx * sp * dt * 0.5, P.z);
     const want = Math.atan2(mx, mz);
-    P.yaw += clamp(angDiff(P.yaw, want), -dt * (P.mount ? 5.5 : 12), dt * (P.mount ? 5.5 : 12));
+    if (!spin) P.yaw += clamp(angDiff(P.yaw, want), -dt * (P.mount ? 5.5 : 12), dt * (P.mount ? 5.5 : 12));
     if (sprinting) P.endurance = Math.max(0, P.endurance - dt * (P.mount ? 6 : 11));
   } else {
     const t = getEnt(P.target);

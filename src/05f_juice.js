@@ -52,14 +52,14 @@ slashMesh.renderOrder = 9;
 slashMesh.userData.keep = true;
 scene.add(slashMesh);
 let slashHead = 0;
-function spawnSlash(e, heavy = false, lifeOverride = 0) {
+function spawnSlash(e, heavy = false, lifeOverride = 0, rollOverride = null) {
   if (!e || dist2(e.x, e.z, camera.position.x, camera.position.z) > 50 * 50) return;
   const sc = e.scale || 1, i = slashHead;
   slashHead = (slashHead + 1) % SLASH_MAX;
   const beast = e.kind !== 'humanoid';
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
   const y = e.y + (beast ? 0.6 : 1.15) * sc;
-  const roll = heavy ? Math.PI / 2 + (Math.random() - 0.5) * 0.3 : (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.6);
+  const roll = rollOverride != null ? rollOverride : heavy ? Math.PI / 2 + (Math.random() - 0.5) * 0.3 : (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.6);
   const col = beast ? [1.5, 0.42, 0.3] : e.role === 'player' ? [1.7, 1.5, 1.15] : e.faction <= 2 ? REALMS[e.faction].rgb.map((v) => v * 0.9 + 0.55) : [1.2, 1.1, 1.0];
   const life = (lifeOverride || (beast ? 0.16 : 0.2)) * (Math.random() < 0.5 ? -1 : 1);
   slashGeo.attributes.iA.array.set([e.x + fx * 0.15, y, e.z + fz * 0.15, e.yaw], i * 4);
@@ -104,6 +104,16 @@ function spellImpact(kind, x, y, z) {
   } else if (kind === 'holy') {
     FX.burst(x, y, z, 20, [2.4, 2.1, 1.1], 2.5, 0.6, 0.18, -2);
     lightFlash(x, y, z, 7, [2.6, 2.3, 1.2], 0.35);
+  } else if (kind === 'firearrow') {
+    FX.burst(x, y, z, 16, [2.4, 1.0, 0.3], 3.4, 0.4, 0.16, 2);
+    FX.burst(x, y, z, 6, [2.6, 1.8, 0.7], 1.2, 0.22, 0.3, 0);
+    lightFlash(x, y, z, 6, [3.0, 1.4, 0.4], 0.3);
+  } else if (kind === 'deadeye') {
+    FX.burst(x, y, z, 30, [2.4, 2.1, 1.5], 6, 0.35, 0.09, 10);
+    FX.ring(x, y, z, 0.5, [2.2, 2.0, 1.4], 20, 3.5);
+    lightFlash(x, y, z, 8, [2.8, 2.5, 1.8], 0.25);
+  } else if (kind === 'ice') {
+    for (let i = 0; i < 4; i++) fxAdd.emit(x, y, z, (Math.random() - 0.5) * 2.4, 0.8 + Math.random() * 1.4, (Math.random() - 0.5) * 2.4, 0.4, 0.9, 1.3, 1.9, 0.08, 9, 0.6);
   } else if (kind === 'arcane' || kind === 'wisp') {
     FX.burst(x, y, z, 18, kind === 'wisp' ? [0.7, 1.9, 1.6] : [1.4, 0.8, 2.6], 3, 0.4, 0.16, 1);
     lightFlash(x, y, z, 5, kind === 'wisp' ? [0.7, 1.9, 1.6] : [1.4, 0.8, 2.6], 0.25);

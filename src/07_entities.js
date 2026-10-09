@@ -101,6 +101,16 @@ function setupStats(e, keepRatio = false) {
     e.rangedRange = M.ranged ? M.range : 0;
     e.speed = M.speed;
   }
+  // standing adjustments that survive a rescale: archers on the walls, the barrow's elites
+  const tw = e.tweak;
+  if (tw) {
+    if (tw.hp) e.maxHp *= tw.hp;
+    if (tw.dmg) e.dmgMult *= tw.dmg;
+    if (tw.rangedRange) e.rangedRange = tw.rangedRange;
+    if (tw.swing) e.swing = tw.swing;
+    if (tw.meleeRange) e.meleeRange = tw.meleeRange;
+    if (tw.speed) e.speed = tw.speed;
+  }
   if (e.role === 'player') {
     const rr = realmRank(GAME.prog ? GAME.prog.rp : 0);
     e.maxHp *= 1 + 0.015 * (rr - 1);
@@ -146,7 +156,8 @@ function tickBuffs(e, dt) {
   for (let i = e.buffs.length - 1; i >= 0; i--) {
     const b = e.buffs[i];
     if (!b) continue; // a dot can kill, which clears the list
-    if (b.kind === 'hot' || b.kind === 'dot') {
+    if (b.kind === 'burn' && e.alive && Math.random() < 0.8) burnFlames(e);
+    if (b.kind === 'hot' || b.kind === 'dot' || b.kind === 'burn') {
       while (b.tick + 1 <= now && b.tick + 1 <= b.until + 0.01) {
         b.tick += 1;
         const src = getEnt(b.src) || e;
@@ -157,6 +168,16 @@ function tickBuffs(e, dt) {
     }
     if (b.until <= now || (b.kind === 'shield' && b.value <= 0)) e.buffs.splice(i, 1);
   }
+}
+
+function burnFlames(e) {
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) > 55 * 55) return;
+  const sc = e.scale || 1;
+  for (let i = 0; i < 2; i++) {
+    const a = Math.random() * TAU, r = Math.random() * 0.32 * sc;
+    fxAdd.emit(e.x + Math.cos(a) * r, e.y + (0.25 + Math.random() * 1.35) * sc, e.z + Math.sin(a) * r, (Math.random() - 0.5) * 0.4, 1.1 + Math.random() * 1.1, (Math.random() - 0.5) * 0.4, 0.38 + Math.random() * 0.2, 2.4, 0.95 + Math.random() * 0.35, 0.28, 0.13 + Math.random() * 0.08, -1.8, 0.6);
+  }
+  if (Math.random() < 0.25) fxAlpha.emit(e.x, e.y + 1.6 * sc, e.z, (Math.random() - 0.5) * 0.3, 0.9, (Math.random() - 0.5) * 0.3, 1.4, 0.15, 0.13, 0.12, -0.45, -0.1, 0.3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,7 +201,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
   }
-  let dmg = amount * (1 - dst.drBase) * (1 - buffMax(dst, 'dr'));
+  let dmg = amount * (1 - (opts.pierce ? 0 : dst.drBase)) * (1 - buffMax(dst, 'dr'));
   let absorbed = 0;
   for (const b of dst.buffs) {
     if (b.kind === 'shield' && b.value > 0 && dmg > 0) { const a = Math.min(b.value, dmg); b.value -= a; dmg -= a; absorbed += a; }
@@ -241,10 +262,11 @@ function killEnt(e, killer) {
 /* ------------------------------------------------------------------ */
 /* animation helpers                                                   */
 /* ------------------------------------------------------------------ */
-function setAct(e, type, dur) { e.anim.act = type; e.anim.actT = 0; e.anim.actDur = dur; }
-function faceToward(e, x, z) { if (Math.abs(x - e.x) + Math.abs(z - e.z) > 1e-3) e.yaw = Math.atan2(x - e.x, z - e.z); }
+function setAct(e, type, dur, from = 0) { e.anim.act = type; e.anim.actT = dur * from; e.anim.actDur = dur; }
+const spinning = (e) => e.motion != null && e.motion.kind === 'spin';
+function faceToward(e, x, z) { if (!spinning(e) && Math.abs(x - e.x) + Math.abs(z - e.z) > 1e-3) e.yaw = Math.atan2(x - e.x, z - e.z); }
 function turnToward(e, x, z, rate) {
-  if (Math.abs(x - e.x) + Math.abs(z - e.z) < 1e-3) return;
+  if (spinning(e) || Math.abs(x - e.x) + Math.abs(z - e.z) < 1e-3) return;
   const want = Math.atan2(x - e.x, z - e.z);
   const d = angDiff(e.yaw, want);
   e.yaw += clamp(d, -rate, rate);
@@ -265,7 +287,15 @@ function updateAnim(e, dt) {
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
 }
 function animActValue(e) {
-  if (e.casting) return e.casting.id === 'summon' ? 0 : 3 + clamp(e.casting.t / e.casting.total, 0, 0.999);
+  if (e.casting) {
+    if (e.casting.id === 'summon') return 0;
+    const A = ABILITIES[e.casting.id];
+    // archers raise the bow and draw to the cheek, then hold until the shot goes
+    if (A && A.anim === 2) return 2 + clamp(e.casting.t / e.casting.total, 0, 1) * 0.8;
+    return 3 + clamp(e.casting.t / e.casting.total, 0, 0.999);
+  }
+  // the whirlwind and the leap own the whole body, even in the air
+  if (e.anim.act >= 7 && e.anim.actDur > 0) return e.anim.act + clamp(e.anim.actT / e.anim.actDur, 0, 0.999);
   if (!e.onGround && e.role === 'player') return 6.5;
   if (e.anim.act && e.anim.actDur > 0) return e.anim.act + clamp(e.anim.actT / e.anim.actDur, 0, 0.999);
   return 0;
@@ -304,6 +334,44 @@ function moveToward(e, tx, tz, dt, speedMul = 1, stopDist = 0.3) {
   return false;
 }
 function groundY(e) { return e.fixedY !== null ? e.fixedY : heightAt(e.x, e.z); }
+// returns true while the body is in flight and nothing else should move it
+function updateMotion(e, dt) {
+  const m = e.motion;
+  if (!m) return false;
+  m.t += dt;
+  const k = clamp(m.t / m.dur, 0, 1);
+  if (m.kind === 'spin') {
+    e.yaw += m.rate * dt;
+    if (k >= 1) e.motion = null;
+    return false;
+  }
+  // a leap: along the line to the landing spot, up and over in a parabola
+  const u = k * (1.15 - 0.15 * k);
+  e.x = lerp(m.x0, m.x1, u); e.z = lerp(m.z0, m.z1, u);
+  const g1 = m.y1;
+  e.y = lerp(m.y0, g1, u) + 4 * m.h * u * (1 - u);
+  e.onGround = false;
+  e.yaw = m.yaw;
+  if (k < 1) return true;
+  e.motion = null;
+  e.x = m.x1; e.z = m.z1; e.y = groundY(e);
+  e.onGround = true; e.vy = 0;
+  if (m.onLand) m.onLand();
+  return true;
+}
+function leapPlan(e, t) {
+  const d = Math.max(0.01, dist(e.x, e.z, t.x, t.z));
+  const ux = (t.x - e.x) / d, uz = (t.z - e.z) / d;
+  const want = Math.max(0, d - (t.radius * (t.scale || 1) + 0.9));
+  let land = 0;
+  for (let s = 0.5; s <= want + 1e-6; s += 0.5) {
+    const x = e.x + ux * s, z = e.z + uz * s;
+    if (!isWalkable(x, z) || Math.abs(heightAt(x, z) - e.y) > 6) break;
+    land = s;
+  }
+  while (land > 0 && !segmentClear(e.x, e.z, e.x + ux * land, e.z + uz * land, 0.3)) land -= 0.5;
+  return { x: e.x + ux * land, z: e.z + uz * land, d: land, yaw: Math.atan2(ux, uz) };
+}
 
 /* ------------------------------------------------------------------ */
 /* abilities                                                           */
@@ -323,7 +391,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (!e.alive) return 'dead';
   if (e.carrying != null) return 'carrying';
   if (isStunned(e)) return 'stunned';
-  if (e.casting) return 'busy';
+  if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
   if (e.power < A.cost) return 'power';
@@ -366,17 +434,19 @@ function finishCast(e) {
 }
 function executeAbility(e, A, t, cast = null) {
   const now = GAME.t;
+  // every ten levels past 20 an ability hits (and heals) a rank harder
+  const rk = rankMult(e.level);
   e.power -= A.cost;
   e.cds[A.id] = now + A.cd;
   if (e.role === 'player') e.gcdUntil = now + 0.6;
   e.combatUntil = Math.max(e.combatUntil, A.friendly || A.self ? e.combatUntil : now + 6);
-  if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : A.anim === 8 ? 0.7 : 0.5);
+  if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : A.anim === 8 ? 0.7 : 0.5, cast && A.anim === 2 ? 0.8 : 0);
   const chest = (u) => u.y + 1.2 * (u.scale || 1);
   // self abilities
   if (A.self) {
-    if (A.healPct) healEnt(e, e, e.maxHp * A.healPct);
+    if (A.healPct) healEnt(e, e, e.maxHp * A.healPct * rk);
     if (A.buff) addBuff(e, A.buff.kind, A.buff.value, A.buff.dur, e.id);
-    if (A.shieldPct) { addBuff(e, 'shield', e.maxHp * A.shieldPct, A.dur, e.id); FX.ring(e.x, e.y + 1, e.z, 1.2, [0.6, 0.9, 1.6], 24, 1.5); }
+    if (A.shieldPct) { addBuff(e, 'shield', e.maxHp * A.shieldPct * rk, A.dur, e.id); FX.ring(e.x, e.y + 1, e.z, 1.2, [0.6, 0.9, 1.6], 24, 1.5); }
     if (A.id === 'rally') { FX.ring(e.x, e.y + 0.3, e.z, 2, [2.0, 1.4, 0.5], 36); sfx('horn'); }
     if (A.id === 'bulwark') FX.ring(e.x, e.y + 1, e.z, 1.0, [1.4, 1.4, 1.6], 20, 1.2);
     if (A.blink) {
@@ -402,27 +472,66 @@ function executeAbility(e, A, t, cast = null) {
     if (A.pbaoe) {
       FX.ring(e.x, e.y + 0.6, e.z, A.pbaoe, [2.2, 0.9, 0.3], 60, A.pbaoe * 1.3);
       FX.burst(e.x, e.y + 0.8, e.z, 40, [2.0, 0.8, 0.25], 6, 0.6, 0.3, 1);
+      spellDisc(e.x, e.z, A.pbaoe, DISC_KIND.shock, 0.55, [2.2, 0.9, 0.3]);
+      spellDisc(e.x, e.z, A.pbaoe * 0.8, DISC_KIND.scorch, 7, [1, 1, 1]);
       forNear(e.x, e.z, A.pbaoe, (o) => {
         if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
-        const r = computeDamage(e, o, A.dmg);
+        const r = computeDamage(e, o, A.dmg * rk);
         dealDamage(e, o, r.d, { crit: r.crit, kind: 'fire' });
         if (A.root) addBuff(o, 'root', 1, A.root, e.id);
       });
       sfx('fire');
     }
     if (A.groupHeal) {
-      forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal); FX.heal(o.x, o.y, o.z); } });
+      forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk); FX.heal(o.x, o.y, o.z); } });
       FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
       sfx('heal');
+    }
+    if (A.spin) {
+      // whirlwind: two full turns with the blade held out, cutting everything in reach
+      const dur = 0.8;
+      e.motion = { kind: 'spin', t: 0, dur, rate: (2 * TAU) / dur };
+      setAct(e, 7, dur);
+      const cut = (part) => {
+        if (!e.alive) return;
+        forNear(e.x, e.z, A.spin + 1.5, (o) => {
+          if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
+          if (dist(e.x, e.z, o.x, o.z) > A.spin + o.radius * (o.scale || 1)) return;
+          const r = computeDamage(e, o, A.dmg * rk * part);
+          dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
+          FX.sparks(o.x, chest(o), o.z);
+        });
+        sfx('hit');
+      };
+      for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfx('swing'); FX.dust(e.x, e.y, e.z, 3); } });
+      later(0.32, () => cut(0.5));
+      later(0.66, () => cut(0.5));
+      spellDisc(e.x, e.z, A.spin + 0.8, DISC_KIND.shock, 0.75, [1.25, 1.1, 0.85]);
+      sfx('whirl');
+    }
+    if (A.groupHot) {
+      // mass renewal: a slow green light settles over everyone close by
+      forNear(e.x, e.z, A.radius, (o) => {
+        if (!o.alive || o.faction !== e.faction || !isActor(o)) return;
+        addBuff(o, 'hot', (o.maxHp * A.groupHot[0] * rk) / A.groupHot[1], A.groupHot[1], e.id);
+        FX.heal(o.x, o.y, o.z);
+      });
+      spellDisc(e.x, e.z, A.radius, DISC_KIND.renew, 1.8, [0.8, 1.55, 0.55]);
+      for (let i = 0; i < 46; i++) {
+        const a = Math.random() * TAU, r = Math.sqrt(Math.random()) * A.radius;
+        const x = e.x + Math.cos(a) * r, z = e.z + Math.sin(a) * r;
+        fxAdd.emit(x, heightAt(x, z) + 0.1, z, (Math.random() - 0.5) * 0.3, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 0.3, 1.4 + Math.random(), 0.9, 1.6, 0.55, 0.14, -0.2, 0.4);
+      }
+      sfx('renew');
     }
     return;
   }
   // friendly single target
   if (A.friendly) {
     const f = t || e;
-    if (A.heal) { healEnt(e, f, f.maxHp * A.heal); FX.heal(f.x, f.y, f.z); sfx('heal'); }
-    if (A.hot) { addBuff(f, 'hot', (f.maxHp * A.hot[0]) / A.hot[1], A.hot[1], e.id); FX.heal(f.x, f.y, f.z); }
-    if (A.shieldPct) { addBuff(f, 'shield', f.maxHp * A.shieldPct, A.dur, e.id); addBuff(f, 'dr', 0.3, A.dur, e.id); FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2); sfx('heal'); }
+    if (A.heal) { healEnt(e, f, f.maxHp * A.heal * rk); FX.heal(f.x, f.y, f.z); sfx('heal'); }
+    if (A.hot) { addBuff(f, 'hot', (f.maxHp * A.hot[0] * rk) / A.hot[1], A.hot[1], e.id); FX.heal(f.x, f.y, f.z); }
+    if (A.shieldPct) { addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id); addBuff(f, 'dr', 0.3, A.dur, e.id); FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2); sfx('heal'); }
     return;
   }
   // ground-targeted
@@ -435,7 +544,7 @@ function executeAbility(e, A, t, cast = null) {
             const a = Math.random() * TAU, r = Math.random() * A.radius;
             spawnProjectile(e, null, 'arrow', null, { x: gx + Math.cos(a) * r, y: heightAt(gx, gz) + 0.2, z: gz + Math.sin(a) * r }, true);
           }
-          later(0.5, () => areaDamage(e, gx, gz, A.radius, A.dmg, null));
+          later(0.5, () => areaDamage(e, gx, gz, A.radius, A.dmg * rk, null));
         });
       }
       aoeMarker(gx, gz, A.radius, 2.2);
@@ -447,15 +556,88 @@ function executeAbility(e, A, t, cast = null) {
         FX.burst(gx, gy + 0.5, gz, 70, [2.4, 1.0, 0.3], 9, 0.8, 0.35, 6);
         FX.ring(gx, gy + 0.3, gz, A.radius, [2.0, 0.8, 0.3], 60, 9);
         FX.dust(gx, gy, gz, 24, [0.3, 0.26, 0.22]);
+        spellDisc(gx, gz, A.radius * 1.2, DISC_KIND.shock, 0.7, [2.4, 1.0, 0.35]);
+        spellDisc(gx, gz, A.radius * 0.9, DISC_KIND.scorch, 14, [1, 1, 1]);
+        spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
-        areaDamage(e, gx, gz, A.radius, A.dmg, null);
+        areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
         sfx('boom');
         cameraShake(0.4, gx, gz);
       });
+    } else if (A.id === 'blizzard') {
+      // ice falls slanting on a bitter wind; the ground in the circle frosts over
+      spellDisc(gx, gz, A.radius, DISC_KIND.frost, A.ticks + 1.2, [0.5, 0.75, 1.1]);
+      spellEmitter({ kind: 'blizzard', x: gx, z: gz, r: A.radius, until: GAME.t + A.ticks + 0.3, src: e });
+      aoeMarker(gx, gz, A.radius, A.ticks + 0.4);
+      for (let i = 0; i < A.ticks; i++) {
+        later(0.5 + i, () => {
+          if (!e.alive && e.role !== 'player') return;
+          forNear(gx, gz, A.radius, (o) => {
+            if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
+            const r = computeDamage(e, o, A.dmg * rk);
+            dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost' });
+            addBuff(o, 'snare', A.snare[0], A.snare[1], e.id);
+          });
+        });
+      }
+      sfx('blizzard');
+    } else if (A.id === 'pillar') {
+      // a column of dawn-light comes down: the foe inside burns, friends inside are mended
+      const gy = heightAt(gx, gz);
+      spellPillar(gx, gy, gz, A.radius * 0.72, 30, 1.6, [1.9, 1.5, 0.7]);
+      spellDisc(gx, gz, A.radius, DISC_KIND.holy, 2.0, [1.7, 1.3, 0.55]);
+      lightFlash(gx, gy + 3, gz, 18, [2.9, 2.4, 1.2], 1.0);
+      later(0.2, () => {
+        FX.burst(gx, gy + 0.4, gz, 46, [2.4, 2.0, 1.0], 5, 0.7, 0.18, -1);
+        forNear(gx, gz, A.radius + 0.6, (o) => {
+          if (!o.alive || !isActor(o) || dist(gx, gz, o.x, o.z) > A.radius + o.radius) return;
+          if (isEnemy(e, o)) {
+            const r = computeDamage(e, o, A.dmg * rk);
+            dealDamage(e, o, r.d, { crit: r.crit, kind: 'holy' });
+          } else if (o.faction === e.faction) { healEnt(e, o, o.maxHp * A.healPct * rk); FX.heal(o.x, o.y, o.z); }
+        });
+      });
+      sfx('pillar');
     }
     return;
   }
   if (!t) return;
+  if (A.leap) {
+    // leap strike: up and over, landing on the foe with the blade coming down
+    const L = leapPlan(e, t);
+    const dur = clamp(L.d / 15, 0.42, 0.85);
+    e.motion = { kind: 'leap', t: 0, dur, x0: e.x, z0: e.z, y0: e.y, x1: L.x, z1: L.z, y1: heightAt(L.x, L.z), h: 1.4 + L.d * 0.11, yaw: L.yaw, onLand: () => leapLand(e, A, rk) };
+    e.yaw = L.yaw;
+    setAct(e, 9, dur / 0.65);
+    FX.dust(e.x, e.y, e.z, 12);
+    sfx('swing');
+    return;
+  }
+  if (A.chain) {
+    // chain lightning: from the hand to the foe, then on to the nearest foes in turn
+    const hits = [t];
+    let cur = t;
+    for (let j = 0; j < A.chain; j++) {
+      const n = nearestWhere(cur.x, cur.z, 11, (o) => o.alive && isEnemy(e, o) && isActor(o) && !hits.includes(o));
+      if (!n) break;
+      hits.push(n); cur = n;
+    }
+    hits.forEach((o, j) => {
+      later(j * 0.12, () => {
+        if (!o.alive) return;
+        const p = j === 0 ? null : hits[j - 1];
+        const from = p ? [p.x, chest(p), p.z] : [e.x + Math.sin(e.yaw) * 0.5, e.y + 1.45 * (e.scale || 1), e.z + Math.cos(e.yaw) * 0.5];
+        const to = [o.x, chest(o), o.z];
+        spellRibbon(from, to, 'bolt', [1.0, 1.35, 2.6], 0.5, 0.34);
+        const r = computeDamage(e, o, A.dmg * rk * Math.pow(0.8, j));
+        dealDamage(e, o, r.d, { crit: r.crit, kind: 'shock' });
+        FX.burst(to[0], to[1], to[2], 16, [1.2, 1.5, 2.8], 4.5, 0.32, 0.1, 7);
+        lightFlash(to[0], to[1], to[2], 9, [1.5, 1.9, 3.4], 0.28);
+        sfx('shock');
+      });
+    });
+    return;
+  }
   if (A.range === 'melee') {
     if (A.dash) {
       const d = dist(e.x, e.z, t.x, t.z);
@@ -472,7 +654,7 @@ function executeAbility(e, A, t, cast = null) {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           const ang = Math.abs(angDiff(e.yaw, Math.atan2(o.x - e.x, o.z - e.z)));
           if (ang > 1.1) return;
-          const r = computeDamage(e, o, A.dmg);
+          const r = computeDamage(e, o, A.dmg * rk);
           dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
           FX.sparks(o.x, chest(o), o.z);
         });
@@ -481,7 +663,7 @@ function executeAbility(e, A, t, cast = null) {
       }
       if (!t.alive || dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 1.5) return;
       spawnSlash(e, A.anim === 8);
-      const r = computeDamage(e, t, A.dmg);
+      const r = computeDamage(e, t, A.dmg * rk);
       dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
       FX.sparks(t.x, chest(t), t.z);
       if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); t.casting = null; FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
@@ -491,12 +673,13 @@ function executeAbility(e, A, t, cast = null) {
     return;
   }
   if (A.proj) {
-    spawnProjectile(e, t, A.proj, { mult: A.dmg, snare: A.snare, ability: A.id });
-    sfx(A.proj === 'arrow' ? 'bow' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy');
+    spawnProjectile(e, t, A.proj, { mult: A.dmg * rk, snare: A.snare, ability: A.id, burn: A.burn ? [A.burn[0] * rk, A.burn[1]] : null, pierce: A.id === 'deadeye' });
+    sfx(A.proj === 'arrow' || A.proj === 'firearrow' ? 'bow' : A.proj === 'deadeye' ? 'deadeye' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy');
+    if (A.proj === 'firearrow') sfx('ignite');
     return;
   }
   if (A.dot) {
-    const r = computeDamage(e, t, A.dot[0]);
+    const r = computeDamage(e, t, A.dot[0] * rk);
     addBuff(t, 'dot', r.d / A.dot[1], A.dot[1], e.id);
     FX.burst(t.x, chest(t), t.z, 16, [2.0, 1.6, 0.6], 2, 0.6, 0.18, -1);
     sfx('holy');
@@ -512,12 +695,33 @@ function executeAbility(e, A, t, cast = null) {
         const px = o.x - e.x, pz = o.z - e.z, along = px * ux + pz * uz;
         if (along < 0 || along > L) return;
         if (Math.abs(px * uz - pz * ux) > 1.3 + o.radius) return;
-        const r = computeDamage(e, o, A.dmg);
+        const r = computeDamage(e, o, A.dmg * rk);
         dealDamage(e, o, r.d, { crit: r.crit, kind: 'arrow' });
       });
     });
     sfx('bow');
   }
+}
+// the leap comes down: everything close is struck and staggered, and the ground takes the mark
+function leapLand(e, A, rk) {
+  if (!e.alive) return;
+  const chest = (u) => u.y + 1.2 * (u.scale || 1);
+  spawnSlash(e, true, 0.26);
+  forNear(e.x, e.z, A.radius + 1.5, (o) => {
+    if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(e.x, e.z, o.x, o.z) > A.radius + o.radius * (o.scale || 1)) return;
+    const r = computeDamage(e, o, A.dmg * rk);
+    dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
+    if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); o.casting = null; FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+  });
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * TAU;
+    fxAlpha.emit(e.x + Math.cos(a) * 0.6, e.y + 0.1, e.z + Math.sin(a) * 0.6, Math.cos(a) * (3 + Math.random() * 2), 0.6 + Math.random() * 0.8, Math.sin(a) * (3 + Math.random() * 2), 1.1, 0.42, 0.37, 0.3, 0.42, -0.1, 2.4);
+  }
+  FX.burst(e.x, e.y + 0.3, e.z, 18, [1.6, 1.3, 0.9], 5, 0.35, 0.1, 9);
+  spellDisc(e.x, e.z, A.radius * 1.35, DISC_KIND.shock, 0.6, [1.4, 1.2, 0.9]);
+  spellDisc(e.x, e.z, A.radius * 0.85, DISC_KIND.crack, 9, [1, 1, 1], 0.07);
+  cameraShake(0.32, e.x, e.z);
+  sfx('slam');
 }
 function areaDamage(src, x, z, radius, mult, extra) {
   if (!src.alive && src.role !== 'player') return;
@@ -577,7 +781,9 @@ function autoAttack(e) {
 /* projectiles                                                         */
 /* ------------------------------------------------------------------ */
 const PROJ = [];
-const PROJ_COL = { arrow: null, fire: [2.4, 1.0, 0.3], frost: [0.7, 1.4, 2.4], holy: [2.2, 1.9, 0.9], arcane: [1.1, 0.7, 2.2], wisp: [0.7, 1.9, 1.6], meteor: [2.6, 1.1, 0.35] };
+const PROJ_COL = { arrow: null, fire: [2.4, 1.0, 0.3], frost: [0.7, 1.4, 2.4], holy: [2.2, 1.9, 0.9], arcane: [1.1, 0.7, 2.2], wisp: [0.7, 1.9, 1.6], meteor: [2.6, 1.1, 0.35], firearrow: [2.4, 1.05, 0.3], deadeye: [2.2, 2.0, 1.5], ice: [0.8, 1.3, 2.2] };
+const ARROWLIKE = { arrow: true, firearrow: true, deadeye: true };
+const PROJ_SPEED = { arrow: 46, firearrow: 44, deadeye: 95, meteor: 32, ice: 30 };
 function spawnProjectile(src, target, kind, payload, point = null, visualOnly = false, from = null) {
   const sc = src.scale || 1;
   const sx = from ? from.x : src.x + Math.sin(src.yaw) * 0.4, sz = from ? from.z : src.z + Math.cos(src.yaw) * 0.4;
@@ -585,7 +791,7 @@ function spawnProjectile(src, target, kind, payload, point = null, visualOnly = 
   PROJ.push({
     kind, src: src.id, srcFaction: src.faction, tgt: target ? target.id : null, point,
     x: sx, y: sy, z: sz, ox: sx, oy: sy, oz: sz,
-    speed: kind === 'arrow' ? 46 : kind === 'meteor' ? 32 : 24, payload, visualOnly, age: 0, life: 3.5,
+    speed: PROJ_SPEED[kind] || 24, payload, visualOnly, age: 0, life: 3.5,
     dx: 0, dy: 0, dz: 1,
   });
 }
@@ -604,10 +810,13 @@ function updateProjectiles(dt) {
       PROJ.splice(i, 1);
       if (!p.visualOnly && t && t.alive) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
-        const r = computeDamage(src, t, p.payload ? p.payload.mult || 1 : 1);
-        dealDamage(src, t, r.d, { crit: r.crit, kind: p.kind });
-        if (p.payload && p.payload.snare) addBuff(t, 'snare', p.payload.snare[0], p.payload.snare[1], p.src);
+        const pl = p.payload || {};
+        const r = computeDamage(src, t, pl.mult || 1);
+        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: !!pl.pierce });
+        if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
+        if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }
       }
+      if (p.kind === 'deadeye') spellRibbon([p.ox, p.oy, p.oz], [tx, ty, tz], 'tracer', [1.8, 1.6, 1.1], 0.16, 0.45);
       const c = PROJ_COL[p.kind];
       if (c && p.kind !== 'meteor') spellImpact(p.kind, tx, ty, tz);
       else if (c) FX.burst(tx, ty, tz, 4, c, 3, 0.4, 0.16, 2);
@@ -616,20 +825,27 @@ function updateProjectiles(dt) {
     }
     p.dx = dx / d; p.dy = dy / d; p.dz = dz / d;
     p.x += p.dx * step; p.y += p.dy * step; p.z += p.dz * step;
-    // a gentle arc for arrows
-    if (p.kind === 'arrow') {
+    // a gentle arc for arrows (the deadeye shot flies flat)
+    if (p.kind === 'arrow' || p.kind === 'firearrow') {
       const tot = Math.hypot(tx - p.ox, tz - p.oz) || 1, done = Math.hypot(p.x - p.ox, p.z - p.oz);
       p.vis = Math.sin(clamp(done / tot, 0, 1) * Math.PI) * tot * 0.06;
     } else p.vis = 0;
     const c = PROJ_COL[p.kind];
-    if (c) { FX.trail(p.x, p.y, p.z, c, p.kind === 'meteor' ? 0.9 : 0.24, p.kind === 'meteor' ? 0.5 : 0.3); }
+    if (c) {
+      if (p.kind === 'ice') FX.trail(p.x, p.y, p.z, c, 0.12, 0.16);
+      else if (p.kind === 'deadeye') FX.trail(p.x, p.y, p.z, c, 0.1, 0.22);
+      else if (p.kind === 'firearrow') { FX.trail(p.x, p.y, p.z, c, 0.2, 0.32); if (Math.random() < 0.3) fxAlpha.emit(p.x, p.y, p.z, 0, 0.5, 0, 0.9, 0.16, 0.14, 0.13, -0.25, -0.1, 0.4); }
+      else FX.trail(p.x, p.y, p.z, c, p.kind === 'meteor' ? 0.9 : 0.24, p.kind === 'meteor' ? 0.5 : 0.3);
+    }
   }
 }
 function drawProjectiles() {
   for (const p of PROJ) {
     const c = PROJ_COL[p.kind];
-    if (!c) arrowPush(p.x, p.y + (p.vis || 0), p.z, p.dx, p.dy + (p.vis ? 0.06 : 0), p.dz);
-    else { glowPush(p.x, p.y, p.z, c[0], c[1], c[2], p.kind === 'meteor' ? 2.4 : 0.7); glowPush(p.x, p.y, p.z, c[0] * 0.3, c[1] * 0.3, c[2] * 0.3, p.kind === 'meteor' ? 6 : 1.8); }
+    if (ARROWLIKE[p.kind]) arrowPush(p.x, p.y + (p.vis || 0), p.z, p.dx, p.dy + (p.vis ? 0.06 : 0), p.dz);
+    if (c && ARROWLIKE[p.kind]) glowPush(p.x + p.dx * 0.38, p.y + (p.vis || 0) + p.dy * 0.38, p.z + p.dz * 0.38, c[0], c[1], c[2], p.kind === 'deadeye' ? 0.5 : 0.42);
+    else if (p.kind === 'ice') glowPush(p.x, p.y, p.z, c[0], c[1], c[2], 0.32);
+    else if (c) { glowPush(p.x, p.y, p.z, c[0], c[1], c[2], p.kind === 'meteor' ? 2.4 : 0.7); glowPush(p.x, p.y, p.z, c[0] * 0.3, c[1] * 0.3, c[2] * 0.3, p.kind === 'meteor' ? 6 : 1.8); }
   }
 }
 
@@ -702,7 +918,11 @@ function onLevelUp() {
   sfx('levelup');
   flashScreen([1.0, 0.85, 0.4], 0.35);
   const newAb = CLASSES[P.cls].abilities.map((k) => ABILITIES[k]).filter((A) => A.level === prog.level);
-  uiToast(`Level ${prog.level}` + (newAb.length ? `. New ability: ${newAb.map((a) => a.name).join(', ')}` : ''), 'level');
+  const rankUp = prog.level > 20 && (prog.level - 20) % 10 === 0;
+  uiToast(`Level ${prog.level}` + (newAb.length ? `. New ability: ${newAb.map((a) => a.name).join(', ')}` : '') + (rankUp ? `. Your abilities reach rank ${RANK_NUMERAL[abilityRank(prog.level)]}` : ''), 'level');
   uiLog(`You have reached level ${prog.level}.`, 'level');
+  if (rankUp) uiLog(`Every ability you know grows stronger: rank ${RANK_NUMERAL[abilityRank(prog.level)]}.`, 'level');
+  buildHotbar();
+  if (prog.level > 20) rescaleWar();
   saveSoon();
 }

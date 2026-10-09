@@ -133,6 +133,7 @@
   .slot { position: relative; width: 54px; height: 54px; border-radius: 5px; border: 1px solid var(--line-strong); background: radial-gradient(circle at 50% 35%, rgba(223, 193, 136, 0.16), rgba(0, 0, 0, 0.55)); display: grid; place-items: center; cursor: pointer; color: var(--bronze-hi); overflow: hidden; padding: 0; }
   .slot svg { width: 26px; height: 26px; }
   .slot .key { position: absolute; top: 2px; left: 4px; font: 700 11px var(--ui); color: var(--ink-dim); }
+  .slot .rk { position: absolute; top: 2px; right: 4px; font: 700 10px var(--caps); letter-spacing: 0.04em; color: var(--bronze-hi); text-shadow: 0 1px 2px #000; }
   .slot .cost { position: absolute; bottom: 2px; right: 4px; font: 500 10.5px var(--ui); color: #9cc2ff; font-variant-numeric: tabular-nums; }
   .slot .cd { position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.72) calc(var(--p, 0) * 1turn), transparent 0); pointer-events: none; }
   .slot .cdt { position: absolute; inset: 0; display: grid; place-items: center; font: 700 15px var(--ui); color: #fff; text-shadow: 0 1px 3px #000; pointer-events: none; }
@@ -188,9 +189,9 @@
   #joy.on { display: block; }
   #joy i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(223, 193, 136, 0.35); border: 1px solid var(--bronze-hi); }
   #joyhint { position: absolute; left: calc(var(--pad) + 18px); bottom: calc(var(--pad) + var(--safe-b) + 40px); width: 96px; height: 96px; border-radius: 50%; border: 1px dashed var(--line); display: grid; place-items: center; color: var(--ink-faint); font: 500 11px var(--caps); letter-spacing: 0.08em; text-align: center; pointer-events: none; }
-  #tpad { position: absolute; right: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); display: grid; grid-template-columns: repeat(3, 56px); gap: 7px; pointer-events: auto; }
-  #tpad .slot { width: 56px; height: 56px; }
-  #tpad .wide { grid-column: span 3; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  #tpad { position: absolute; right: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); display: grid; grid-template-columns: repeat(4, 52px); gap: 7px; pointer-events: auto; }
+  #tpad .slot { width: 52px; height: 52px; }
+  #tpad .wide { grid-column: span 4; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   #tpad .wide .btn { flex: 1; padding: 8px 6px; font-size: 13px; background: var(--slate); }
   body.touch #bottom #hotbar { display: none; }
   body.touch #prompt kbd { display: none; }
