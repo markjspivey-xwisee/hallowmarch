@@ -150,6 +150,52 @@ async def desktop(p):
     check(r['modal'] == 'death' and 'nothing but the walk back' in r['note'], 'the first death carries a field note')
     await page.click('#btn-release')
 
+    # ---- every other step, through the world's own state ----
+    r = await ev(page, """(() => {
+      const H = __hm, F = H.fn, L = H.LORE, P = H.GAME.player;
+      const settle = () => { for (let i = 0; i < 4; i++) L.check(); };
+      // fight beside a warband of your realm
+      const m = F.spawnRealmUnit(P.faction, 'warrior', 10, 'soldier', P.x + 3, P.z);
+      const wb = { id: 999, realm: P.faction, members: [m.id], order: null, dead: false };
+      H.WAR.warbands.push(wb);
+      m.combatUntil = P.combatUntil = H.GAME.t + 5;
+      settle();
+      H.WAR.warbands.splice(H.WAR.warbands.indexOf(wb), 1); F.removeEnt(m);
+      // break an enemy keep's gate
+      const K = H.WAR.keeps.find((k) => k.realm !== P.faction);
+      settle();
+      H.teleport(K.door.x + 6, K.door.z);
+      F.dealDamage(P, K.door, 1e9, { siege: true });
+      settle();
+      // slay a borderland champion
+      const c = H.CAMPS.find((q) => q.elite && F.getEnt(q.eliteId)), e = F.getEnt(c.eliteId);
+      H.teleport(e.x + 4, e.z);
+      settle();
+      F.dealDamage(P, e, 1e9);
+      settle();
+      // carry a hallow home to your temple gate
+      const rel = H.WAR.relics.find((x) => x.realm !== P.faction);
+      F.pickUpRelic(rel, P);
+      settle();
+      const tg = H.WAR.temples[P.faction].nav.tg;
+      H.teleport(tg.x, tg.z);
+      H.simulate(0.1);
+      settle();
+      // the Hollow King falls
+      H.GAME.prog.kingKills = 1;
+      settle();
+      return { done: L.progress().done, gate: K.door.alive, champ: e.alive, rel: rel.state + '@' + rel.at, me: P.faction };
+    })()""")
+    for k in ('warband', 'gate', 'champion', 'hallow', 'king'):
+        check(k in r['done'], f'the step "{k}" is taken in the world ({r["gate"]}, {r["champ"]}, {r["rel"]})')
+    await ev(page, "__hm.fn.enterBarrow()")
+    await page.wait_for_timeout(1500)
+    await ev(page, "(() => { for (let i = 0; i < 4; i++) __hm.LORE.check(); })()")
+    r = await ev(page, "({ done: __hm.LORE.progress().done, inside: __hm.INDOOR.on })")
+    check(r['inside'] and 'barrow' in r['done'], 'entering the Barrow takes its step')
+    await ev(page, "__hm.fn.leaveBarrow()")
+    await page.wait_for_timeout(1500)
+
     # ---- saves from before the path ----
     r = await ev(page, """(() => {
       const F = __hm.LORE.fn, s = F.buildSave();
