@@ -27,25 +27,27 @@ window.T = {
   H: __hm, F: __hm.fn,
   spot(P) {
     const H = this.H, F = this.F;
-    for (let i = 0; i < 400; i++) {
-      const a = (i * 2.399) % (Math.PI * 2), d = 60 + (i % 9) * 8;
+    for (let i = 0; i < 1500; i++) {
+      const a = (i * 2.399) % (Math.PI * 2), d = 40 + (i % 23) * 8;
       const x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
       let ok = true;
-      for (let k = 0; k < 16 && ok; k++) { const b = k / 16 * Math.PI * 2; for (const r of [4, 9, 15, 21, 26]) { const xx = x + Math.sin(b) * r, zz = z + Math.cos(b) * r; if (!F.isWalkable(xx, zz) || Math.abs(F.heightAt(xx, zz) - F.heightAt(x, z)) > 1.6) ok = false; } }
+      for (let k = 0; k < 12 && ok; k++) { const b = k / 12 * Math.PI * 2; for (const r of [5, 12, 20, 26]) { const xx = x + Math.sin(b) * r, zz = z + Math.cos(b) * r; if (!F.isWalkable(xx, zz) || Math.abs(F.heightAt(xx, zz) - F.heightAt(x, z)) > 2.2) ok = false; } }
       if (!ok) continue;
-      if (H.ENT.some((e) => e.alive && e !== P && Math.hypot(e.x - x, e.z - z) < 45)) continue;
+      if (H.ENT.some((e) => e.alive && e !== P && !e.testFoe && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < 32)) continue;
       return { x, z };
     }
-    return null;
+    throw new Error('no open ground found near ' + P.x.toFixed(0) + ',' + P.z.toFixed(0));
   },
   foe(realm, x, z, lvl, cls = 'warrior') {
     const e = this.F.spawnRealmUnit(realm, cls, lvl, 'guard', x, z);
     e.ai.post = { x, z, leash: 4 };
+    e.testFoe = true;
     return e;
   },
   clearAround(x, z, r) { for (const e of this.H.ENT) if (e.alive && e.role !== 'player' && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < r) { e.damagers = null; this.F.killEnt(e, null); this.F.removeEnt(e); } },
   fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
+    for (const e of H.ENT.slice()) if (e.testFoe) { e.damagers = null; if (e.alive) F.killEnt(e, null); F.removeEnt(e); }
     if (H.GAME.player) F.newCharacter();
     H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
