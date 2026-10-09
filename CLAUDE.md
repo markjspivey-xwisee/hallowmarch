@@ -3,6 +3,7 @@
 Read this before changing anything. It covers what the game is, the owner's standing requirements, how the code fits together, how to test it, and what is planned. The same handoff is also kept in the owner's Interego pod as the graph `urn:graph:project:hallowmarch`, updated at each milestone.
 
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)
+- **Repository:** https://github.com/markjspivey-xwisee/hallowmarch (private). Work on `main`, commit often, and push at each milestone.
 - **Live build:** Claude artifact https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T, which is private to the owner. It is published from the built `hallowmarch.html` with capabilities `{db:{}, user:{}}`. When you republish to that URL, omit `capabilities` so the stored set is kept.
 - **Published:** Version 5 (loot, merchants, the Barrow and the Hollow King).
 - **In progress:** Version 6 (see Roadmap).
@@ -59,6 +60,7 @@ The harness lives in `tools/`:
    - Set `__hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed'`, then position `__hm.camera`.
    - Use `page.screenshot(timeout=300000)`.
 5. For war or AI changes, run `python3 tools/soak.py 10`. It must show no errors and no non-finite positions.
+   For abilities, scaling and camps, run `python3 tools/tests/level50.py shots`.
 6. Check the phone layout with `python3 tools/tests/phone.py`.
 
 **Debug API (`window.__hm`, defined at the end of `13_main.js`):**
@@ -89,6 +91,7 @@ The harness lives in `tools/`:
 | `05d_fire.js` | Fires, braziers, flashes; `gatherLights` picks the point lights for each frame |
 | `05e_weather.js` | Rain, storms and lightning, northern snow, mist |
 | `05f_juice.js` | Slash trails, impact flashes, hit-stop |
+| `05g_spells.js` | Spell visuals: terrain-draped ground marks (`spellDisc`: frost, holy circle, renewal, shockwave, cracks, scorch), lightning and tracer ribbons (`spellRibbon`), columns of light (`spellPillar`), spell weather (`spellEmitter`) |
 | `06_data.js` | Classes, abilities, monsters, names, progression (`LEVEL_CAP`), realm ranks |
 | `06b_items.js` | Item quality, slots, generation, stats, how gear looks |
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
@@ -150,6 +153,15 @@ The harness lives in `tools/`:
 **Entities**
 - Factions: 0–2 are the realms, 3 is `FACTION_MONSTER`, 4 is `FACTION_NEUTRAL`.
 - Roles scale stats through `ROLE_MULT`. Gear is applied in `setupStats`.
+- Standing stat adjustments go in `e.tweak` (`hp`, `dmg`, `rangedRange`, `swing`, `meleeRange`, `speed`). `setupStats` reapplies them, so they survive a level change.
+- `e.motion` moves a body by itself: `spin` (whirlwind) or `leap` (a parabola to a landing spot). `updateMotion` runs for the player and for NPCs.
+
+**Scaling past 20**
+- `warLevel()` is the player's level, clamped to 20–50.
+- Realm units keep their offset from it in `e.wlOff`: soldiers −5 to 0, guards 0, lords +4, hallow-wardens +2, muster wardens +10. Gates are +2, and their HP scales with damage.
+- Barrow monsters keep `e.baseLevel` plus `barrowBoost()`. The dragon is `max(24, warLevel + 4)`.
+- `rescaleWar()` runs at game start and on every level-up past 20.
+- Ability potency rises by rank: `rankMult(level)` adds 12% for every ten levels past 20.
 
 **War AI**
 - Each realm commander issues orders: `attack`, `defend`, `raid`, `carry`, `retrieve`, `patrol`.
@@ -170,7 +182,7 @@ The harness lives in `tools/`:
 
 | # | Work | Status |
 |---|---|---|
-| 1 | Level cap 50. Frontier, Barrow and dragon scale with the player past 20. New outer camps for 20–40. Two new abilities per class (20, 30). Ability ranks every 10 levels. 8-slot hotbar | In progress (data done) |
+| 1 | Level cap 50. Frontier, Barrow and dragon scale with the player past 20. Borderland camps for 20–40 with named champions. Two new abilities per class (20, 30). Ability ranks every 10 levels. 8-slot hotbar | Built; being tested |
 | 2 | Lore and onboarding: prologue, Chronicle tab, milestone path with rewards, loading tips | Planned, version 6 |
 | 3 | Working castles: gates swing open for their own side; stairs and ramps to wall walks and towers; walkable wall tops with parapets; guards walk to their posts and attackers climb | Planned, version 6 |
 | 4 | Working houses: doors and shutters open and close; furnished interiors you can see through the windows and walk into | Planned, version 6 |
