@@ -142,7 +142,7 @@ function castleFlight(C, x0, z0, y0, x1, z1, y1, w, o = {}) {
       b.add(G.box, lm(M, cx, top - 0.05, cz, yaw, w, 0.1, tread + 0.08), MAT.wood, darker(st.wood, 0.9 + 0.2 * hash1(i * 5.7 + x0)));
     } else {
       const bot = base - 0.6;
-      b.add(G.box, lm(M, cx, (top + bot) / 2, cz, yaw, w, top - bot, tread + 0.02), MAT.stone, darker(st.stone, 0.9 + 0.14 * hash1(i * 7.1 + x0)), S.y + base, 3);
+      b.add(G.box, lm(M, cx, (top + bot) / 2, cz, yaw, w, top - bot, tread + 0.02), MAT.stone, darker(st.stone, 0.76 + 0.14 * hash1(i * 7.1 + x0)), S.y + base, 3);
       // a worn nosing on each tread
       b.add(G.box, lm(M, cx + (x1 - x0) / len * (tread / 2 - 0.04), top + 0.012, cz + (z1 - z0) / len * (tread / 2 - 0.04), yaw, w - 0.04, 0.03, 0.09), MAT.stone, darker(st.stone, 1.12));
     }

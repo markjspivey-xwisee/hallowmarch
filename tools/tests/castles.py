@@ -168,6 +168,7 @@ async def main():
             await shot(page, 'castle_stone_stairs', "(() => { const S = T.keep(0, 0).site; T.cam(S, 1, 5.5, 8, 13, 4.5, -3); })()")
             await shot(page, 'castle_stone_walk', "(() => { const S = T.keep(0, 0).site; T.cam(S, 14.4, 8.8, -4.2, 14.6, 8.6, 8); })()")
             await shot(page, 'castle_stone_tower', "(() => { const S = T.keep(0, 0).site; T.cam(S, 6, 14, 3, 14.8, 10.5, 14.8); })()")
+        if SHOTS and (not ONLY or ONLY in ('shots', 'shots2')):
             await shot(page, 'castle_round', "(() => { const S = T.keep(1, 0).site; T.cam(S, -27, 19, 30, 0, 2, 0); })()")
             await shot(page, 'castle_round_inside', "(() => { const S = T.keep(1, 0).site; T.cam(S, -4, 7, -4, 13, 4, 6); })()")
             await shot(page, 'castle_timber', "(() => { const S = T.keep(2, 0).site; T.cam(S, -27, 18, 30, 0, 2, 0); })()")
