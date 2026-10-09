@@ -524,6 +524,7 @@ const beastMat = mat({
     uniform vec4 uBeastK;
     uniform float uLegH, uTailZ;
     uniform float uWet, uSnowCover; // feature/weather
+    ${GLSL_WEATHER}
     varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;
     void main(){
       vec3 n = safeNormalize(vN);
@@ -586,6 +587,7 @@ const beastMat = mat({
       float sh = shadowAt(vW, n);
       vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
+      col += wetSheen(vW, n, V, uWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat
       // soft back-lit fringe along the silhouette
       float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
       col += (uLightColor * 0.22 * sh * max(0.0, dot(-V, uLightDir) * 0.5 + 0.5) + uAmbient * 0.1) * rim * (m == 11 || m == 12 ? 1.0 : 0.0) * alb * 2.0;

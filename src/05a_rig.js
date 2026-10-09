@@ -847,6 +847,7 @@ const humanoidMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
+    ${GLSL_WEATHER}
     varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit;
     varying vec4 vWear; // feature/weather
     float sdBox2(vec2 p, vec2 b){ vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
@@ -1002,6 +1003,7 @@ const humanoidMat = mat({
         alb = vec3(0.86, 0.84, 0.8); rough = 0.9;
       }
       /* ---- weather and wear (feature/weather, 05h_wear.js): mud climbing from the boots, battle damage, blood, rain, snow ---- */
+      float wFilm = 0.0, wFilmPor = 0.5;
       {
         float wWet = clamp(vWear.x, 0.0, 1.0), wSnow = clamp(vWear.y, 0.0, 1.0), wDirt = clamp(vWear.z, 0.0, 1.0);
         float wBlood = fract(vWear.w), wDmg = clamp(floor(vWear.w + 1e-3) / 15.0, 0.0, 1.0);
@@ -1044,12 +1046,14 @@ const humanoidMat = mat({
           float por = cloth ? 1.0 : hide ? 0.65 : m == 0 ? 0.25 : steel ? 0.0 : 0.5;
           alb *= 1.0 - wWet * mix(0.05, 0.46, por);
           rough = mix(rough, min(rough, mix(0.1, 0.4, por)), wWet);
+          wFilm = wWet; wFilmPor = por;
         }
         if (wSnow > 0.01) {
           // snow on the head, the shoulders and whatever else faces the sky
           float up = smoothstep(0.3, 0.8, n.y + (vnoise(vO.xz * 40.0 + vO.y * 20.0) - 0.5) * 0.45);
           float sk = clamp(up * smoothstep(0.0, 0.55, wSnow * 1.3 - (1.0 - n.y) * 0.35), 0.0, 1.0);
           alb = mix(alb, vec3(0.88, 0.9, 0.95), sk); rough = mix(rough, 0.85, sk); metal *= 1.0 - sk; sss = mix(sss, 0.35, sk);
+          wFilm *= 1.0 - sk;
         }
       }
       /* ---- end weather and wear ---- */
@@ -1057,6 +1061,7 @@ const humanoidMat = mat({
       vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
       col += alb * emit;
+      col += wetSheen(vW, n, V, wFilm, wFilmPor, sh) * ao; // feature/weather: the sky and the sun in a film of rain
       // enchanted weapons: a slow river of light along the blade or shaft
       int fl = int(vFlags + 0.5);
       int gk = (fl >> 4) & 7;

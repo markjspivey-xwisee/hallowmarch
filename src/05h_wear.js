@@ -183,9 +183,10 @@ function updateWear(dt) {
       if (heat > 0.05 && snow > 0) snow = Math.max(0, snow - dt * heat * 0.15);
     }
     e.wet = wet; e.snow = snow;
-    // rain and wading wash the mud and blood away; blood left alone dries and flakes off slowly
-    const wash = water ? 0.35 : rain * sky * 0.012;
-    if (wash > 0) { if (e.dirt) e.dirt = Math.max(0, e.dirt - dt * wash); if (e.blood) e.blood = Math.max(0, e.blood - dt * wash * 1.6); }
+    // wading washes the mud and blood away; rain rinses the blood off and the mud only slowly (feet still splash it
+    // up from a wet road); blood left alone dries and flakes off slowly
+    const wash = water ? 0.35 : rain * sky * 0.003;
+    if (wash > 0) { if (e.dirt) e.dirt = Math.max(0, e.dirt - dt * wash); if (e.blood) e.blood = Math.max(0, e.blood - dt * wash * (water ? 1.6 : 4)); }
     else if (e.blood && e !== P) e.blood = Math.max(0, e.blood - dt * 0.002);
     // the ground: mud when it is wet, dust when it is dry
     const sp = e._wx === undefined ? 0 : Math.hypot(e.x - e._wx, e.z - e._wz) / Math.max(dt, 1e-3);
@@ -214,17 +215,17 @@ function updateWear(dt) {
   if (!P) return;
   // the player's kit: rain slowly rinses it, wading through a lake or a pond washes it clean
   const pWater = !inDungeon(P) && heightAt(P.x, P.z) < WATER_Y - 0.2;
-  const wash = pWater ? 0.4 : rain * (P._sky || 0) * 0.01;
+  const wash = pWater ? 0.4 : rain * (P._sky || 0) * 0.0025, bloodK = pWater ? 1.5 : 5;
   if (wash > 0) {
     const before = kitDirt();
     for (const s of SLOTS) {
       const it = INV.eq[s];
       if (!it) continue;
       if (it.dirt) it.dirt = Math.max(0, it.dirt - dt * wash);
-      if (it.blood) it.blood = Math.max(0, it.blood - dt * wash * 1.5);
+      if (it.blood) it.blood = Math.max(0, it.blood - dt * wash * bloodK);
     }
     if (P.dirt) P.dirt = Math.max(0, P.dirt - dt * wash);
-    if (P.blood) P.blood = Math.max(0, P.blood - dt * wash * 1.5);
+    if (P.blood) P.blood = Math.max(0, P.blood - dt * wash * bloodK);
     if (pWater && before > 0.08 && kitDirt() <= 0.02 && GAME.t - WEAR.washMsgAt > 30) { WEAR.washMsgAt = GAME.t; uiLog('The water washes the mud and blood from your gear.', 'sys'); saveSoon(); }
   }
   // storms: now and then the lightning comes down near you, on whatever stands tallest

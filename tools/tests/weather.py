@@ -50,9 +50,10 @@ window.T = {
   cam(x, y, z, tx, ty, tz) {
     const H = this.H;
     H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+    document.getElementById('hud').style.visibility = 'hidden'; // a clean view of the world
     H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld();
   },
-  play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
+  play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; document.getElementById('hud').style.visibility = ''; },
   // move the player and bring the camera along (the sky follows the camera)
   go(x, z) { const H = this.H; H.teleport(x, z); const P = H.GAME.player; H.camera.position.set(P.x, P.y + 5, P.z + 7); H.camera.updateMatrixWorld(); return P; },
   P() { return this.H.GAME.player; },
