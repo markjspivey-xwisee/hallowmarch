@@ -62,6 +62,7 @@ The harness lives in `tools/`:
 5. For war or AI changes, run `python3 tools/soak.py 10`. It must show no errors and no non-finite positions.
    For abilities, scaling and camps, run `python3 tools/tests/level50.py shots`.
 6. Check the phone layout with `python3 tools/tests/phone.py`.
+7. For lore and onboarding (prologue, Chronicle, path, notes), run `python3 tools/tests/lore.py`.
 
 **Debug API (`window.__hm`, defined at the end of `13_main.js`):**
 
@@ -72,6 +73,7 @@ The harness lives in `tools/`:
 - `frame()` renders one frame; `renderInfo()` returns draw calls, triangles and programs.
 - `GAME`, `WAR`, `ENT`, `UI`, `CAM`, `DUN`, `INDOOR`, `BARROW`, `BARROW_STATE`, `INV`, `LOOT`.
 - `dbg.*` exposes renderer internals; `fn.*` exposes most game functions.
+- `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
 
 ## Architecture
 
@@ -104,6 +106,7 @@ The harness lives in `tools/`:
 | `09c_loot.js` | Inventory, drops, merchants, potions |
 | `10_ui.js` | Title, HUD, maps, menus, nameplates, log, help |
 | `10b_kit.js` | Equipment, bags and shop screen |
+| `10c_lore.js` | Lore and onboarding: the prologue, the Chronicle menu tab, the path tracker and its rewards, field notes, loading tips. It makes its own styles and markup; `startGame` calls `loreOnStart`, `tick` calls `updateLore`, saves carry `char.lore` |
 | `11_audio.js` | Synthesised sound effects and ambience (Web Audio) |
 | `12_save.js` | Saves: `claude.use('db')` document `data/users/<uid>/save`, falling back to localStorage `hallowmarch.save.v1`; `validSave()` sanitises |
 | `13_main.js` | Boot, `startGame`, `simStep(dt)` (fixed step), `tick(dt)` (frame), quality switching, `__hm` |
