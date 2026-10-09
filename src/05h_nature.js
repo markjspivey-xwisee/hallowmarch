@@ -967,6 +967,19 @@ function natureFireCone(x, z, dx, dz, range, half) {
   }
   if (Math.random() < 0.5) natTreesNear(x + dx * range * 0.5, z + dz * range * 0.5, range * 0.6, (t) => { if (Math.random() < 0.25) igniteTree(t); });
 }
+// lightning (for 05e_weather.js): the tallest thing near the strike takes it, else the grass where it lands
+function natureStrike(x, z, r = 8) {
+  if (!NATURE.built || x > DUN_X0 - 50) return -1;
+  const t = nearestTree(x, z, r, (o) => !o.felled && o.grow > 0.5);
+  if (t) {
+    igniteTree(t.i);
+    if (Math.random() < 0.25) treeBlow(t, 400, t.x + Math.random() - 0.5, t.z + Math.random() - 0.5); // split by the bolt
+    igniteGrass(t.x, t.z, 2, 3);
+    return t.i;
+  }
+  igniteGrass(x, z, 1.2, 4);
+  return -1;
+}
 // heavy impacts: a meteor, the leap strike, the dragon landing
 function natureImpact(x, z, kind, r = 3) {
   if (!NATURE.built || x > DUN_X0 - 50) return;
@@ -1314,7 +1327,7 @@ function natLights(burning, dt) {
 
 /* ---- debug and test hooks ---- */
 const NATURE_DEBUG = {
-  NATURE, NAT, TREE_DIM, igniteTree, igniteGrass, natureCut, natureSwing, natureCrater, natureImpact, natureBlowArea, fellTree, treeBlow, nearestTree, natureStartJob, natureLightPile,
+  NATURE, NAT, TREE_DIM, igniteTree, igniteGrass, natureStrike, natureCut, natureSwing, natureCrater, natureImpact, natureBlowArea, fellTree, treeBlow, nearestTree, natureStartJob, natureLightPile,
   cutAt: (x, z) => natGet(x, z, 0), burntAt: (x, z) => natGet(x, z, 1), fireAt: (x, z) => natGet(x, z, 2), earthAt: (x, z) => natGet(x, z, 3),
   fires: () => NATURE.fire.size,
   tree: (i) => { const t = W.trees[i]; return t && { i: t.i, kind: t.kind, x: t.x, z: t.z, y: t.y, state: t.state, felled: !!t.felled, log: !!t.log, fire: t.fire, char: t.char, leaf: t.leaf, grow: t.grow, s: t.s, fall: t.fall && { ang: t.fall.ang, stop: t.fall.stop, done: t.fall.done, ux: t.fall.ux, uz: t.fall.uz }, coll: t.coll && { tag: t.coll.tag, r: t.coll.r, h: t.coll.h, active: t.coll.active }, logColl: t.logColl && { hx: t.logColl.hx, hz: t.logColl.hz, active: t.logColl.active, x: t.logColl.x, z: t.logColl.z } }; },
