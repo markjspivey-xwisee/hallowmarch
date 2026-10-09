@@ -225,6 +225,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   }
   onDamageFeedback(src, dst, dmg, absorbed, opts);
   onImpact(src, dst, dmg, opts);
+  wearOnHit(src, dst, dmg, opts); // feature/weather: blood, battle damage and gear durability (05h_wear.js)
   if (dst.hp <= 0) killEnt(dst, src);
   return dmg;
 }

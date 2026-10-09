@@ -92,6 +92,7 @@ const buildingMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
+    ${GLSL_WEATHER}
     uniform float uFlash, uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying float vMat; varying float vAO;
     vec2 planarUV(vec3 p, vec3 n){ vec3 a = abs(n); if (a.y > 0.7) return p.xz; return a.x > a.z ? vec2(p.z, p.y) : vec2(p.x, p.y); }
@@ -191,14 +192,22 @@ const buildingMat = mat({
       }
       // rain darkens stone and wood; snow settles on roofs and ledges
       alb *= 1.0 - 0.22 * uWet;
-      alb = mix(alb, vec3(0.86, 0.88, 0.93), uSnowCover * smoothstep(0.35, 0.75, n.y) * smoothstep(0.3, 0.55, vnoise(vW.xz * 1.7) * 0.5 + 0.3 + uSnowCover * 0.4));
+      /* ---- weather (GLSL_WEATHER; feature/weather): soaked by porosity, sheltered undersides stay dry, snow on what faces up ---- */
+      float wWet = uWet * mix(0.12, 1.0, smoothstep(-0.7, 0.05, n.y)) * mix(0.65, 1.0, smoothstep(-0.1, 0.6, n.y));
+      float wPor = (m == 6 || m == 12 || m == 11 || m == 14) ? 0.0 : (m == 4 || m == 8) ? 1.0 : (m == 3 || m == 10 || m == 7) ? 0.3 : 0.6;
+      alb *= 1.0 - wWet * wPor * 0.3;
+      float wSnow = snowAmount(vW, n, uSnowCover, gPL) * (m == 14 ? 0.0 : 1.0);
+      alb = mix(alb, snowAlbedo(vW), wSnow);
+      /* ---- end weather ---- */
       vec3 col = lightSurface(alb, n, vAO);
+      /* ---- weather: the wet film, trickles down the walls, sparkle on the snow ---- */
       if (uWet > 0.01) {
         vec3 Vw = safeNormalize(cameraPosition - vW);
-        float fres = 0.03 + 0.97 * spow(1.0 - max(dot(n, Vw), 0.0), 5.0);
-        vec3 Rw = reflect(-Vw, n);
-        col += skyBase(safeNormalize(vec3(Rw.x, max(Rw.y, 0.03), Rw.z))) * fres * uWet * 0.35 * vAO;
+        col += wetSheen(vW, n, Vw, wWet * (1.0 - wSnow), wPor, gSh) * mix(0.55, 1.0, vAO);
+        col += (uAmbient * 0.55 + uLightColor * 0.25 * gSh) * rivulets(vW, n, wWet) * 0.3;
       }
+      if (wSnow > 0.01) col += uLightColor * snowSparkle(vW, safeNormalize(cameraPosition - vW), gSh) * wSnow * 0.7;
+      /* ---- end weather ---- */
       if (m == 6 || m == 12) {
         vec3 V = safeNormalize(cameraPosition - vW);
         vec3 H = safeNormalize(uLightDir + V);
@@ -473,6 +482,7 @@ const bannerMat = mat({
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
     uniform vec3 uRealmCol[4], uRealmLight[4];
+    uniform float uWet; // feature/weather
     varying vec2 vUv; varying vec3 vW; varying float vRealm; varying float vShade;
     float emblem(vec2 p, int r){
       if (r == 0) {
@@ -499,6 +509,7 @@ const bannerMat = mat({
       float trim = step(0.9, abs(vUv.x * 2.0 - 1.0)) + step(0.94, abs(vUv.y * 2.0 - 1.0));
       vec3 c = mix(base, light, max(emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r) * 0.92, clamp(trim, 0.0, 1.0) * 0.7));
       vec3 col = c * (uAmbient * 0.6 + uLightColor * 0.6) * vShade;
+      col *= 1.0 - 0.34 * uWet; // feature/weather: soaked cloth hangs darker
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
 });
@@ -664,7 +675,8 @@ const treeMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_CLEARVIEW}
     ${GLSL_PLIGHT}
-    uniform float uSnowCover;
+    ${GLSL_WEATHER}
+    uniform float uSnowCover, uWet;
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch;
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying float vFadeFar;
@@ -696,7 +708,11 @@ const treeMat = mat({
         float back = spow(clamp(dot(-V, uLightDir), 0.0, 1.0), 4.0);
         col = alb * (0.3 + 0.55 * vAO * mix(0.62, 1.0, sh) + 0.55 * ndl * vAO * mix(0.25, 1.0, sh)) + alb * back * 0.45 * vAO * sh;
       }
-      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), uSnowCover * 0.7 * smoothstep(0.35, 0.85, n.y) * step(0.5, vPart));
+      /* ---- weather (feature/weather): wet bark darkens, wet leaves shine ---- */
+      if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.38 : 0.14); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.3), vPart < 0.5 ? 0.8 : 0.7, sh) * vAO; }
+      // snow on the crowns in clumps, thickest on what faces up (feature/weather)
+      float sF = uSnowCover * smoothstep(-0.2, 0.6, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 1.3 + vW.y * 0.9))) * step(0.5, vPart);
+      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), clamp(sF, 0.0, 0.85));
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
@@ -773,6 +789,8 @@ const rockMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
+    ${GLSL_WEATHER}
+    uniform float uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying float vSeed;
     void main(){
       vec3 n = safeNormalize(vN);
@@ -781,7 +799,14 @@ const rockMat = mat({
       vec3 alb = vec3(0.47, 0.46, 0.44) * (0.75 + 0.4 * fbm3(vW.xz * 0.9 + vW.y * 0.7 + vSeed * 10.0));
       float moss = smoothstep(0.45, 0.85, n.y) * smoothstep(0.35, 0.65, vnoise(vW.xz * 0.8 + vSeed));
       alb = mix(alb, vec3(0.25, 0.34, 0.12), moss * 0.7);
-      gl_FragColor = vec4(safeColor(applyFog(lightSurface(alb, n, 0.85 + 0.15 * n.y), vW)), 1.0);
+      /* ---- weather (feature/weather): rain darkens and glosses the stone, snow caps it ---- */
+      float wWet = uWet * mix(0.2, 1.0, smoothstep(-0.6, 0.2, n.y));
+      alb = wetAlbedo(alb, wWet, 0.55 + 0.4 * moss);
+      float wSnow = snowAmount(vW, n, uSnowCover, gPL);
+      alb = mix(alb, snowAlbedo(vW), wSnow);
+      vec3 col = lightSurface(alb, n, 0.85 + 0.15 * n.y);
+      col += wetSheen(vW, n, safeNormalize(cameraPosition - vW), wWet * (1.0 - wSnow), 0.45, gSh);
+      gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
 });
 let ROCK_DEPTH = null, BUILDING_DEPTH = null;

@@ -523,6 +523,8 @@ const beastMat = mat({
     uniform vec3 uEye, uEyeAt;
     uniform vec4 uBeastK;
     uniform float uLegH, uTailZ;
+    uniform float uWet, uSnowCover; // feature/weather
+    ${GLSL_WEATHER}
     varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;
     void main(){
       vec3 n = safeNormalize(vN);
@@ -576,9 +578,16 @@ const beastMat = mat({
       else if (m == 15) { alb = vec3(0.85, 0.66, 0.3); rough = 0.25; metal = 0.9; sss = 0.0; }
       else if (m == 6) { alb = vec3(0.62, 0.63, 0.66); rough = 0.3; metal = 0.85; sss = 0.0; }
       else alb = vFur;
+      /* ---- weather (feature/weather): a soaked coat darkens and shines, snow settles along the back and the head ---- */
+      if (uWet > 0.01) { float por = (m == 6 || m == 15) ? 0.1 : 1.0; alb *= 1.0 - uWet * 0.34 * por; rough = mix(rough, min(rough, 0.38), uWet * 0.8); }
+      if (uSnowCover > 0.01) {
+        float sk = smoothstep(0.4, 0.85, n.y + (vnoise(vO.xz * 30.0 + vO.y * 11.0) - 0.5) * 0.4) * smoothstep(0.05, 0.6, uSnowCover);
+        alb = mix(alb, vec3(0.88, 0.9, 0.95), sk); rough = mix(rough, 0.85, sk); metal *= 1.0 - sk;
+      }
       float sh = shadowAt(vW, n);
       vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
+      col += wetSheen(vW, n, V, uWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat
       // soft back-lit fringe along the silhouette
       float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
       col += (uLightColor * 0.22 * sh * max(0.0, dot(-V, uLightDir) * 0.5 + 0.5) + uAmbient * 0.1) * rim * (m == 11 || m == 12 ? 1.0 : 0.0) * alb * 2.0;

@@ -58,6 +58,7 @@ window.T = {
   },
   play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
 };
+0; // return nothing: serialising window.T (and with it all of __hm) can stall Playwright for minutes
 """
 
 async def main():

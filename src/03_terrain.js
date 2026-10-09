@@ -153,6 +153,7 @@ const terrainMat = mat({
       }
       if (uSnowCover > 0.01) {
         float sn = uSnowCover * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + uSnowCover * 0.5 - A.r * 0.45);
+        sn *= 1.0 - smoothstep(0.1, 0.5, dot(gPL, vec3(0.33))); // feature/weather: melted round fires and torches
         col = mix(col, lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0), clamp(sn, 0.0, 1.0));
       }
       // decals and the night glow of trampled paths
@@ -224,6 +225,7 @@ const waterMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     uniform vec3 uLeaf;
+    uniform float uRain; // feature/weather
     varying vec3 vW;
     vec2 waveGrad(vec2 q, float t){
       vec2 g = vec2(vnoise(q + vec2(t * 0.3, t * 0.2)) - 0.5, vnoise(q * 1.7 - vec2(t * 0.25, -t * 0.31)) - 0.5);
@@ -238,6 +240,22 @@ const waterMat = mat({
       float dist = length(cameraPosition - vW);
       float t = uTime;
       vec2 g = waveGrad(vW.xz * 0.45, t) * mix(1.0, 0.4, smoothstep(30.0, 140.0, dist));
+      /* ---- weather (feature/weather): rain rings spreading over the water from the drops ---- */
+      if (uRain > 0.02 && dist < 70.0) {
+        vec2 rg = vec2(0.0);
+        for (int k = 0; k < 2; k++) {
+          vec2 q = vW.xz * (k == 0 ? 1.6 : 2.7) + float(k) * 7.3;
+          vec2 cell = floor(q), f = fract(q) - 0.5;
+          vec2 h2 = hash22(cell + float(k) * 13.0);
+          float rate = 0.8 + 0.5 * h2.x, cyc = t * rate + h2.y;
+          float ph = fract(cyc), r = ph * 0.48;
+          vec2 d = f - (h2 - 0.5) * 0.5;
+          float l = length(d);
+          float live = step(hash12(cell * 1.7 + floor(cyc) * 3.1 + float(k)), uRain);
+          rg += (l > 1e-4 ? d / l : vec2(0.0)) * sin((l - r) * 42.0) * exp(-abs(l - r) * 20.0) * (1.0 - ph) * live;
+        }
+        g += rg * 0.8 * uRain * (1.0 - smoothstep(30.0, 70.0, dist));
+      }
       vec3 n = safeNormalize(vec3(g.x * 0.17, 1.0, g.y * 0.17));
       float sh = shadowAt(vW, vec3(0.0, 1.0, 0.0));
       float fres = 0.03 + 0.97 * spow(1.0 - max(dot(n, V), 0.0), 5.0);

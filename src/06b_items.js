@@ -168,7 +168,7 @@ function itemScore(it) {
 function gearTotals(eq) {
   const t = { dmg: 0, hp: 0, arm: 0, crit: 0, pow: 0 };
   if (!eq) return t;
-  for (const s of SLOTS) { const it = eq[s]; if (it) for (const k in it.st) t[k] += it.st[k]; }
+  for (const s of SLOTS) { const it = eq[s]; if (it && !itemBroken(it)) for (const k in it.st) t[k] += it.st[k]; } // broken gear gives nothing (05h_wear.js)
   t.arm = Math.min(ARMOUR_CAP, t.arm);
   return t;
 }
@@ -203,5 +203,9 @@ function sanitizeItem(o) {
   const it = { id: typeof o.id === 'string' ? o.id.slice(0, 40) : `i${(ITEM_SEQ++).toString(36)}r`, slot: o.slot, base: o.base.slice(0, 40), vis: typeof o.vis === 'string' ? o.vis : '', q, lvl, st, cls: CLASSES[o.cls] ? o.cls : null, name: o.name.slice(0, 60) };
   if (Array.isArray(o.tint) && o.tint.length === 3 && o.tint.every((v) => Number.isFinite(+v))) it.tint = o.tint.map((v) => clamp(+v, 0, 1));
   if (o.glow >= 1 && o.glow <= 6) it.glow = Math.round(o.glow);
+  // feature/weather: wear (old saves have none, so their gear is whole and clean)
+  if (Number.isFinite(+o.dur) && o.dur !== null && o.dur !== '') it.dur = clamp(+o.dur, 0, 100);
+  if (+o.dirt > 0) it.dirt = clamp(+o.dirt, 0, 1);
+  if (+o.blood > 0) it.blood = clamp(+o.blood, 0, 1);
   return it;
 }

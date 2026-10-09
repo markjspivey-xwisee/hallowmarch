@@ -64,13 +64,14 @@ function renderKit() {
   if (shop) {
     const R = UI.kitShop, st = merchantStock(R), pp = potionPrice();
     left = `<h3>For sale</h3>
+      ${wearShopRow()}
       <div class="shoprow potionrow"><span class="ic" style="--qc:#e0605a">${iconSvg('potion', 22)}</span><span class="nm">Healing draught<small>Restores 40% of your health. ${INV.potions} / ${POTION.max} carried.</small></span><span class="pr">${fmtInt(pp)}</span><span class="bb"><button class="btn" type="button" data-buyp="1">Buy</button><button class="btn" type="button" data-buyp="5">Buy 5</button></span></div>
       ${st.items.map((it, i) => `<button type="button" class="shoprow item${UI.kitSel && UI.kitSel.item === it ? ' sel' : ''}" data-shop="${i}" style="--qc:${QUALITY[it.q].col}"><span class="ic">${iconSvg(itemIcon(it), 22)}</span><span class="nm">${esc(it.name)}<small>${itemLine(it)} · level ${it.lvl}</small></span><span class="pr">${fmtInt(buyPrice(it))}</span></button>`).join('') || '<p>Sold out for now.</p>'}
       <p class="fineprint">New stock arrives as you grow stronger.</p>`;
   } else {
     left = `<h3>Equipped</h3><div class="eqgrid">${SLOTS.map((s) => {
       const it = INV.eq[s], Q = it ? QUALITY[it.q] : null;
-      return `<button type="button" class="eqslot${UI.kitSel && it && UI.kitSel.item === it ? ' sel' : ''}" data-eq="${s}" style="${Q ? `--qc:${Q.col}` : ''}"><span class="ic">${iconSvg(itemIcon(it, s), 22)}</span><span class="nm">${it ? esc(it.name) : SLOT_NAME[s]}<small>${it ? itemLine(it) : 'Empty'}</small></span></button>`;
+      return `<button type="button" class="eqslot${UI.kitSel && it && UI.kitSel.item === it ? ' sel' : ''}${itemBroken(it) ? ' broken' : ''}" data-eq="${s}" style="${Q ? `--qc:${Q.col}` : ''}"><span class="ic">${iconSvg(itemIcon(it, s), 22)}</span><span class="nm">${it ? esc(it.name) : SLOT_NAME[s]}<small>${it ? (itemBroken(it) ? 'Broken' : itemLine(it)) : 'Empty'}</small></span>${wearSlotBar(it)}</button>`;
     }).join('')}</div>${statSummary()}`;
   }
   const cells = [];
@@ -111,6 +112,7 @@ function renderKitCard() {
     const req = itemReq(it), lowLv = GAME.prog.level < req, wrong = it.cls && it.cls !== GAME.player.cls;
     html += `<span class="sub">${Q.name} ${SLOT_NAME[it.slot].toLowerCase()}${it.base !== SLOT_NAME[it.slot] ? ' · ' + esc(it.base.toLowerCase()) : ''} · item level ${it.lvl}${wrong ? ` · <span class="down">${CLASSES[it.cls].name} only</span>` : ''}${lowLv ? ` · <span class="down">needs level ${req}</span>` : ''}</span>`;
     html += `<ul>${STAT_ORDER.filter((k) => it.st[k]).map((k) => `<li>${statText(k, it.st[k])}</li>`).join('')}${it.glow ? `<li class="glow" style="--gc:${['', '#ff8a3a', '#7cc4ff', '#ffe08a', '#c58cff', '#8cf07a', '#9cc8ff'][it.glow]}">Enchanted: ${GLOW_KIND[it.glow]}</li>` : ''}</ul>`;
+    html += wearCardLines(it); // feature/weather: durability, mud and blood
     const eq = INV.eq[it.slot];
     if (where !== 'eq' && eq !== it) {
       const lines = compareLines(it, eq);
@@ -157,6 +159,7 @@ function bindKit() {
     if (!b) return;
     if (b.id === 'kit-close') { closeKit(); return; }
     if (b.id === 'kit-junk') { sellJunk(); renderKit(); return; }
+    if (b.id === 'kit-repair') { repairAll(); renderKit(); return; } // feature/weather
     if (b.dataset.buyp) { buyPotions(+b.dataset.buyp); renderKit(); return; }
     if (b.dataset.act) { kitAction(b.dataset.act); return; }
     const s = kitItemFrom(b);

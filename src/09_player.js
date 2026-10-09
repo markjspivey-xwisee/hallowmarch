@@ -201,6 +201,7 @@ function currentInteraction() {
     for (const ch of DUN.chests) if (ch.ready && !ch.opened) offer(dist(P.x, P.z, ch.x, ch.z), 3.0, ch.label || 'Open the chest', () => openChest(ch), 0.3);
   } else if (BARROW.door && P.carrying == null) offer(dist(P.x, P.z, BARROW.door.x, BARROW.door.z), 3.8, 'Enter the Hollow Barrow', () => enterBarrow());
   houseOffers(P, offer); // doors and shutters
+  wearOffers(P, offer); // feature/weather: wash muddy, bloody gear at a town well or trough
   return best;
 }
 function playerInteract() {

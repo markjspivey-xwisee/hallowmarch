@@ -188,8 +188,10 @@ const nearTreeMat = mat({
     ${GLSL_FOLIAGE}
     ${GLSL_CLEARVIEW}
     ${GLSL_PLIGHT}
+    ${GLSL_WEATHER}
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch, uFoliageCut, uNeedle, uSnowCover;
+    uniform float uWet; // feature/weather
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying vec2 vUV; varying float vSeed; varying float vFade;
     void main(){
       if (bayer4(gl_FragCoord.xy) > vFade) discard;
@@ -235,7 +237,13 @@ const nearTreeMat = mat({
         vec3 H = safeNormalize(uLightDir + V);
         col += uLightColor * spow(dot(n, H), 24.0) * 0.08 * sh;
       }
-      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), uSnowCover * 0.65 * smoothstep(0.35, 0.85, n.y) * step(0.5, vPart));
+      /* ---- weather (feature/weather): wet bark darkens, wet leaves shine, snow lies along the boughs too ---- */
+      if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.4 : 0.15); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.35), vPart < 0.5 ? 0.8 : 0.65, sh) * vAO; }
+      if (vPart < 0.5) col = mix(col, snowAlbedo(vW) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), snowAmount(vW, n, uSnowCover, vec3(0.0)) * 0.9);
+      // snow lies on the boughs in clumps, thickest on what faces up (feature/weather: was only on faces turned straight up)
+      float sF = uSnowCover * smoothstep(-0.25, 0.55, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 2.1 + vW.y * 1.3))) * step(0.5, vPart);
+      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), clamp(sF, 0.0, 0.85));
+      /* ---- end weather ---- */
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), uFoliageCut < 0.1 ? clamp((alpha - 0.3) / max(fwidth(alpha), 0.05) + 0.5, 0.0, 1.0) : 1.0);
       if (uFoliageCut >= 0.1 && alpha < uFoliageCut) discard;
