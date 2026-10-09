@@ -261,7 +261,7 @@ function keepRound(b, S, st, R) {
     b.add(G.box, lm(M, Math.sin(am) * R0, H / 2 - 0.7, Math.cos(am) * R0, am, len, H + 1.4, KEEP_T), MAT.stone, st.stone, by, 4);
     b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.15), H + 0.25, Math.cos(am) * (R0 + 0.15), am, len, 0.5, KEEP_T + 0.5), MAT.darkstone, st.stone);
     // a timber hoarding every other segment
-    if (i % 2 === 0) b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.4), H + 1.1, Math.cos(am) * (R0 + 0.4), am, len * 0.8, 1.2, 0.25), MAT.wood, st.wood);
+    if (i % 2 === 0 && i !== 4 && i !== 14) b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.4), H + 1.1, Math.cos(am) * (R0 + 0.4), am, len * 0.8, 1.2, 0.25), MAT.wood, st.wood); // castles: not where the lookouts stand
   }
   b.add(G.box, lm(M, 0, H - 0.6, R0, 0, 2 * GATE_HW + 0.6, 1.8, KEEP_T + 0.5), MAT.darkstone, st.stone, by, 4);
   const banners = [];

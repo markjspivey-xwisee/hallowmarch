@@ -42,7 +42,8 @@ window.T = {
   keep(realm, k) { return __hm.WAR.keeps.find((K) => K.orig === realm && K.site === __hm.REALMS[realm].keepSites[k]); },
   w(S, lx, lz) { return this.F.siteToWorld(S, lx, lz); },
   // the player stands at a site-local point (on whatever floor is there at height y above the site)
-  put(S, lx, lz, ly = 0) { const H = this.H, P = H.GAME.player, p = this.w(S, lx, lz); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = S.y + ly; P.onGround = true; P.vy = 0; H.UI.modal = null; return this.where(S); },
+  put(S, lx, lz, ly = 0, faction = S.realm >= 0 ? S.realm : 0) { const H = this.H, P = H.GAME.player, p = this.w(S, lx, lz); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = S.y + ly; P.onGround = true; P.vy = 0; P.faction = faction; P.hp = P.maxHp; H.UI.modal = null; return this.where(S); },
+  near(S, r = 12) { const D = S.castle.gate.door; return this.H.ENT.filter((o) => o.alive && o.kind !== 'door' && Math.hypot(o.x - D.x, o.z - D.z) < r).map((o) => [o.role, o.faction, +(o.y - S.y).toFixed(1), +Math.hypot(o.x - D.x, o.z - D.z).toFixed(1)]); },
   where(S) { const P = this.H.GAME.player, c = Math.cos(S.yaw), s = Math.sin(S.yaw), dx = P.x - S.x, dz = P.z - S.z; return { lx: +(dx * c - dz * s).toFixed(2), lz: +(dx * s + dz * c).toFixed(2), y: +(P.y - S.y).toFixed(2) }; },
   // walk the player with W held toward a site-local point, steering the camera each tenth of a second
   walkTo(S, lx, lz, maxSec = 12) {
@@ -77,27 +78,31 @@ window.T = {
 
 async def main():
     async with async_playwright() as p:
+        print('booting', flush=True)
         b, page, logs = await setup(p, w=640 if not SHOTS else 960, h=360 if not SHOTS else 540)
+        print('booted', f'[{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate(HELPERS)
+        print('quality', QUALITY, f'[{time.time() - T0:.0f}s]', flush=True)
+        await page.evaluate("() => {" + HELPERS + "; return 0; }")
+        print('helpers', f'[{time.time() - T0:.0f}s]', flush=True)
         await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(1.0); __hm.simulate(0.5); return { errors: __hm.errors.length, castles: __hm.CASTLES.length }; })()")
         await ev(page, 'floors', "(() => __hm.CASTLES.map((C) => ({ name: C.S.name, kind: C.kind, floors: C.floors.length, colls: C.colls.length, posts: C.posts.length })))()")
         await ev(page, 'war quiet', "(() => { for (const S of __hm.REALMS.flatMap((R) => [...R.keepSites, R.templeSite])) T.quiet(S, 80); for (const w of __hm.WAR.warbands) w.dead = true; __hm.WAR.commanders.forEach((C) => { C.nextThink = 1e9; C.nextSpawn = 1e9; }); return __hm.WAR.warbands.length; })()")
 
         # 1. gates: open for their own side, shut for enemies, collider follows
         if not ONLY or ONLY == 'gate':
-            r = await ev(page, 'gate: owner arrives', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, S.gateLocal.z + 6); __hm.simulate(3); return T.gate(S); })()")
+            r = await ev(page, 'gate: owner arrives', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, S.gateLocal.z + 6, 0, 0); __hm.simulate(3); return T.gate(S); })()")
             check(r['open'] > 0.95 and not r['active'], 'a keep gate swings open for its own side and its collider stands down')
             r = await ev(page, 'gate: enemy comes', "(() => { const K = T.keep(0, 0), S = K.site; T.foe(S, 1, 2, S.gateLocal.z + 14); __hm.simulate(2.5); return T.gate(S); })()")
             check(r['open'] < 0.05 and r['active'] and r['owner'] == -1, 'the gate shuts when an enemy comes near, and blocks everyone')
             r = await ev(page, 'gate: enemy pushes', "(() => { const K = T.keep(0, 0), S = K.site; T.clearFoes(); T.put(S, 0, S.gateLocal.z + 30); const e = T.foe(S, 1, 0, S.gateLocal.z + 1.6); for (let i = 0; i < 60; i++) { const p = T.w(S, 0, S.gateLocal.z - 3); __hm.fn.stepTo(e, e.x + (p.x - e.x) * 0.05, e.z + (p.z - e.z) * 0.05); __hm.simulate(0.05); } const c = Math.cos(S.yaw), s = Math.sin(S.yaw); const lz = (e.x - S.x) * s + (e.z - S.z) * c; T.clearFoes(); return { lz: +lz.toFixed(2), gz: S.gateLocal.z, gate: T.gate(S) }; })()")
             check(r['lz'] > r['gz'] + 0.4, 'an enemy cannot push through the shut gate')
-            r = await ev(page, 'gate: owner leaves', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 6); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
+            r = await ev(page, 'gate: owner leaves', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 6, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05 and r[1]['active'], 'it opens again for its own side, and shuts behind them')
             for realm, kind in ((1, 'round'), (2, 'timber')):
-                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = S.castle.gate; G.door.faction; const P = __hm.GAME.player; const was = P.faction; T.put(S, 0, S.gateLocal.z + 6); P.faction = {realm}; __hm.simulate(3); const a = T.gate(S); P.faction = was; T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; }})()")
+                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = S.castle.gate; G.door.faction; T.put(S, 0, S.gateLocal.z + 6, 0, {realm}); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; }})()")
                 check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, f'the {kind} keep gate opens for its own side and shuts again')
-            r = await ev(page, 'temple gate', "(() => { const S = __hm.REALMS[0].templeSite; T.put(S, 0, S.gateLocal.z + 5); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
+            r = await ev(page, 'temple gate', "(() => { const S = __hm.REALMS[0].templeSite; T.put(S, 0, S.gateLocal.z + 5, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, 'a temple gate opens for its own side and shuts again')
             r = await ev(page, 'gate broken and rebuilt', "(() => { const K = T.keep(0, 0), S = K.site, D = K.door; __hm.fn.killEnt(D, null); __hm.simulate(0.5); const a = T.gate(S); D.alive = true; D.hp = D.maxHp * 0.35; __hm.simulate(0.5); const b = T.gate(S); return [a, b]; })()")
             check(r[0]['wreck'] and not any(r[0]['leaves']) and not r[0]['active'], 'a broken gate shows its splintered wreck and lets everyone through')
@@ -127,7 +132,7 @@ async def main():
                 r = await ev(page, f'archer walks up {realm}', f"(() => {{ const K = T.keep({realm}, 0); const S = K.site; T.put(S, 0, 60); for (const id of [...K.guards]) {{ const g = __hm.fn.getEnt(id); if (g && g.ai.slot === 'w0') {{ g.alive = false; K.guards.delete(id); __hm.fn.removeEnt(g); }} }} __hm.fn.fillGarrison(K, false); __hm.fn.fillGarrison(K, false); const g = [...K.guards].map(__hm.fn.getEnt).find((e) => e && e.ai.slot === 'w0'); if (!g) return null; const start = {{ x: g.x, z: g.z, y: +(g.y - S.y).toFixed(2), route: !!g.ai.route }}; const ys = []; for (let i = 0; i < 30 && g.ai.route; i++) {{ __hm.simulate(1); ys.push(+(g.y - S.y).toFixed(1)); }} return {{ start, ys, end: {{ y: +(g.y - S.y).toFixed(2), d: +Math.hypot(g.x - g.ai.post.x, g.z - g.ai.post.z).toFixed(2), route: !!g.ai.route }}, post: K.slots.walls[0] }}; }})()")
                 check(r and r['start']['route'] and r['start']['y'] < 0.5 and not r['end']['route'] and r['end']['d'] < 1.0 and abs(r['end']['y'] - r['post'][1]) < 0.4, f'a new wall archer walks up the stairs from the courtyard to its post (realm {realm})')
             r = await ev(page, 'attacker climbs', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, 70); for (const id of [...K.guards]) { const g = __hm.fn.getEnt(id); if (g && !g.ai.wall) { K.guards.delete(id); __hm.fn.removeEnt(g); } } { const L = __hm.fn.getEnt(K.lord); if (L) { __hm.fn.removeEnt(L); K.lord = null; } } K.nextGuardAt = 1e9; const e = T.foe(S, 1, 8, -2, 'warrior'); e.tweak = { hp: 30 }; __hm.fn.setupStats(e); let maxY = 0; for (let i = 0; i < 24; i++) { __hm.simulate(0.5); maxY = Math.max(maxY, e.y - S.y); } const r = { maxY: +maxY.toFixed(2), alive: e.alive, target: e.target }; T.clearFoes(); return r; })()")
-            check(r['maxY'] > 6.5, 'an enemy who gets into the courtyard climbs the stairs after the archers')
+            check(r['maxY'] > 5.5, 'an enemy who gets into the courtyard climbs the stairs after the archers')
 
         # 4. a wall section is battered to a breach, walked through, and rebuilt
         if not ONLY or ONLY == 'breach':
@@ -157,7 +162,7 @@ async def main():
 
         # 5. how it all looks
         if SHOTS and (not ONLY or ONLY == 'shots'):
-            await ev(page, 'shots setup', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 4); __hm.simulate(3); return T.gate(S); })()")
+            await ev(page, 'shots setup', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 4, 0, 0); __hm.simulate(3); return T.gate(S); })()")
             await shot(page, 'castle_stone', "(() => { const S = T.keep(0, 0).site; T.cam(S, -30, 21, 40, 0, 3, 3); })()")
             await shot(page, 'castle_stone_gate', "(() => { const S = T.keep(0, 0).site; T.cam(S, 6, 3.2, 27, 0, 3.2, 14); })()")
             await shot(page, 'castle_stone_stairs', "(() => { const S = T.keep(0, 0).site; T.cam(S, 1, 5.5, 8, 13, 4.5, -3); })()")

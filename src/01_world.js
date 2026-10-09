@@ -717,7 +717,7 @@ function resolveCollisions(p, r, y = null, faction = -1) {
     for (const c of _cn) {
       if (!c.active) continue;
       if (c.tag === 'door' && c.owner === faction) continue; // a realm's own gates open for its people
-      if (y !== null && y > c.baseY + c.h + 0.5) continue;
+      if (y !== null && !c.vert && y > c.baseY + c.h + 0.5) continue;
       // castles (04g_castles.js): walls you can stand on and parapets up on the wall walks block only at their own height
       if (y !== null && c.vert) { const bot = c.y0 != null ? c.y0 : c.baseY; if (y > bot + c.h - 0.55 || y + 1.7 < bot) continue; }
       if (c.type === 'circle') {

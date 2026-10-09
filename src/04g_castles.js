@@ -272,12 +272,15 @@ function castleRound(C) {
     const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
     if (Math.abs(angDiff(am, 0)) < 0.2) continue;
     const len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
-    C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, (KEEP_T + 0.5) / 2, am, WT);
-    // stone crenels where there is no timber hoarding; the hoarding is the parapet on the others
-    const pr = R0 + 0.62;
-    const ax = Math.sin(a0) * pr, az = Math.cos(a0) * pr, bx = Math.sin(a1) * pr, bz = Math.cos(a1) * pr;
-    if (i % 2 === 1) castleParapet(C, ax, az, bx, bz, WT, { th: 0.42, bh: 0.85, mh: 0.75, step: 1.45, mat: MAT.stone, col: st.stone });
-    else C.coll((ax + bx) / 2, (az + bz) / 2, 0.3, len / 2, am, WT - 0.1, 1.4);
+    C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, (KEEP_T + 0.5) / 2 + 0.3, am, WT); // wide enough to cover the curve at the ends
+    // stone crenels where there is no timber hoarding (the hoarding is the parapet on the others), and none
+    // inside the lookouts, which have their own breastworks
+    const pr = R0 + 0.62, look = i === 4 || i === 5 || i === 14 || i === 15;
+    let c0 = a0, c1 = a1;
+    if (look) { if (i === 4 || i === 14) c1 = a1 - 0.14; else c0 = a0 + 0.14; }
+    const ax = Math.sin(c0) * pr, az = Math.cos(c0) * pr, bx = Math.sin(c1) * pr, bz = Math.cos(c1) * pr;
+    if (i % 2 === 1 || look) castleParapet(C, ax, az, bx, bz, WT, { th: 0.42, bh: 0.85, mh: 0.75, step: 1.45, mat: MAT.stone, col: st.stone });
+    else C.coll((ax + bx) / 2, (az + bz) / 2, len / 2, 0.3, am, WT - 0.1, 1.4); // along the hoarding, at the outer edge
   }
   for (const sx of [-1, 1]) {
     const am = sx * 7.5 / segs * TAU;
@@ -351,8 +354,14 @@ function castleTimber(C) {
   for (const sx of [-1, 1]) for (const x of [7.6, 9.6, 11.4]) for (const sd of [-1, 1]) b.add(G.box, lm(M, sx * x, WT + 1.05, hs - t / 2 + sd * 0.505, 0, 0.11, 0.42, 0.012), MAT.water, ARROW_SLIT);
   for (const sx of [-1, 1]) C.sections.push({ lx: sx * (hs - t / 2), lz: -7.5, ax: 0, az: 1, axis: 'z', half: 2.0, across: 0.62, top: WALL_H + 0.9, rubble: 0.7, kind: 'timber' });
   // the stairs: timber flights with a rail on the open side, up the inside of the side walls
-  for (const sx of [-1, 1]) castleFlight(C, sx * 12.0, -3.2, 0, sx * 12.0, 4.3, WT, 1.55, { timber: true, base: 0, rail: -sx });
-  const foot = (sx) => [[sx * 10.2, -4.6], [sx * 12.0, -3.6], [sx * 12.0, 4.3], [sx * wc, 4.6]];
+  for (const sx of [-1, 1]) {
+    castleFlight(C, sx * 12.0, -3.2, 0, sx * 12.0, 4.3, WT, 1.55, { timber: true, base: 0, rail: -sx });
+    // a landing at the head of the stair, joined to the walk
+    b.add(G.box, lm(M, sx * 12.0, WT - 0.11, 4.75, 0, 1.55, 0.22, 0.9), MAT.wood, darker(st.wood, 1.02));
+    b.add(G.box, lm(M, sx * 11.3, (WT - 0.3) / 2, 5.15, 0, 0.2, WT - 0.3, 0.2), MAT.logH, st.logs, S.y, 3);
+    C.floor(sx * 12.0, 4.75, 0.8, 0.5, 0, WT, WT, 0, 0.4);
+  }
+  const foot = (sx) => [[sx * 10.2, -4.6], [sx * 12.0, -3.6], [sx * 12.0, 4.4], [sx * wc, 4.5]];
   C.posts = [
     { pos: [-9.0, WT, wc + 0.1], route: [...foot(-1), [-wc, 10.6], [-11.9, 11.9], [-11.0, wc], [-9.0, wc + 0.1]] },
     { pos: [9.0, WT, wc + 0.1], route: [...foot(1), [wc, 10.6], [11.9, 11.9], [11.0, wc], [9.0, wc + 0.1]] },
@@ -369,7 +378,7 @@ function castleTemple(C) {
     const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
     if (Math.abs(angDiff(am, 0)) < 0.2) continue;
     const len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.3;
-    C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, 0.7, am, WT);
+    C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, 0.7 + 0.3, am, WT); // wide enough to cover the curve at the ends
     const pr = R0 + 0.48;
     castleParapet(C, Math.sin(a0) * pr, Math.cos(a0) * pr, Math.sin(a1) * pr, Math.cos(a1) * pr, WT, timber ? { th: 0.42, bh: 0.95, timber: true } : { th: 0.42, bh: 0.8, mh: 0.65, step: 1.45 });
   }
@@ -385,7 +394,7 @@ function castleTemple(C) {
 /* ------------------------------------------------------------------ */
 /* gates: hinged leaves, a portcullis, and the wreck of a broken gate  */
 /* ------------------------------------------------------------------ */
-const GATE_OPEN = 1.52; // radians each leaf swings in
+const GATE_OPEN = 1.45; // radians each leaf swings in (short of square, so a leaf never meets the masonry)
 function gateLeafGeo(st, w, h, timber) {
   const b = new Batch(), I = new THREE.Matrix4();
   const wood = darker(st.wood, timber ? 0.92 : 0.82), iron = [0.27, 0.28, 0.3];
@@ -446,7 +455,7 @@ function buildCastleGate(C, temple) {
   const hw = temple ? 2.75 : R.style === 'round' ? 1.33 : R.style === 'stone' ? 2.28 : GATE_HW - 0.02;
   const h = temple ? 3.0 : R.style === 'round' ? 4.55 : timber ? 5.0 : 4.8;
   const geo = gateLeafGeo(st, hw, h, timber);
-  const G0 = { C, S, temple, hw, h, gz, swing: R.style === 'round' && !temple ? 1.42 : GATE_OPEN, open: 0, want: 0, leaves: [], port: null, portH: 0, wreck: null, scan: 0, alive: true, flashT: 0, door: null };
+  const G0 = { C, S, temple, hw, h, gz, swing: R.style === 'round' && !temple ? 1.4 : GATE_OPEN, open: 0, want: 0, leaves: [], port: null, portH: 0, wreck: null, scan: 0, alive: true, flashT: 0, door: null };
   for (const sx of [-1, 1]) {
     const m = new THREE.Mesh(geo, shareMat(buildingMat, { uFlash: { value: 0 } }));
     const p = siteToWorld(S, sx * hw, gz);
@@ -460,7 +469,7 @@ function buildCastleGate(C, temple) {
   }
   if (R.style === 'stone' && !temple) {
     const m = new THREE.Mesh(portcullisGeo(2 * hw + 0.1, h + 0.1), buildingMat);
-    const p = siteToWorld(S, 0, gz + 0.72);
+    const p = siteToWorld(S, 0, gz + 0.62);
     m.position.set(p.x, S.y, p.z);
     m.rotation.y = S.yaw;
     m.renderOrder = 1;
@@ -504,7 +513,8 @@ function updateGate(G0, dt) {
     const owner = D.faction;
     forNear(D.x, D.z, 19, (o, d2) => {
       if (!o.alive || !isActor(o) || o.faction === FACTION_NEUTRAL || o.role === 'critter') return;
-      if (o.faction === owner) { if (d2 < 9.5 * 9.5) friend = true; } else foe = true;
+      // archers up on the walls do not need the gate; anyone of another side does shut it
+      if (o.faction === owner) { if (d2 < 9.5 * 9.5 && !elevatedEnt(o)) friend = true; } else foe = true;
     });
     G0.want = friend && !foe ? 1 : 0;
   }
@@ -546,9 +556,10 @@ function buildCastles() {
             C.walls.push(n);
           } else C.walls.push(c);
         }
-        if (c.tag === 'tower' && R.style === 'stone' && !temple && c.r > 3) { c.vert = true; c.h = 10.5; }
+        if (c.tag === 'tower' && R.style === 'stone' && !temple && c.r > 3) { c.vert = true; c.h = 9.6; } // low enough that the last steps of the tower stairs clear it
       }
       const m = new THREE.Mesh(C.b.build(), buildingMat);
+      C.b = null; // the vertex lists are in the geometry now
       m.renderOrder = 1;
       scene.add(m);
       SITE_MESHES.push(m);
@@ -612,20 +623,28 @@ function castleWaypoint(e, t) {
   if (!C || !C.posts.length) return null;
   // heights above the ground, so a foe up a hillside is not mistaken for one up on a wall
   const dy = (t.y - heightAt(t.x, t.z)) - (e.y - heightAt(e.x, e.z));
-  const up = dy > 2.2, down = dy < -2.2;
+  const up = dy > 1.1, down = dy < -1.1;
   if (!up && !down) return null;
   if (!elevatedEnt(e) && !castleInside(C, e.x, e.z)) return null;
   const K = C.S.keepRef;
-  // the route that ends nearest to whoever is higher up
+  // the route that ends nearest to whoever is higher up; once on a route, keep to it for a while
   const hi = up ? t : e;
   let best = null, bd = Infinity, bi = 0;
-  C.posts.forEach((P, i) => { const Rt = castleRoute(K, i); const end = Rt[Rt.length - 1]; let d = Infinity; for (const q of Rt) if (Math.abs(q.y - hi.y) < 1.6) d = Math.min(d, dist2(q.x, q.z, hi.x, hi.z)); d = Math.min(d, dist2(end.x, end.z, hi.x, hi.z) + 4); if (d < bd) { bd = d; best = Rt; bi = i; } });
+  const keep = e.ai.climb && GAME.t < e.ai.climb.until ? e.ai.climb.ri : -1;
+  C.posts.forEach((P, i) => {
+    const Rt = castleRoute(K, i), end = Rt[Rt.length - 1];
+    let d = Infinity;
+    for (const q of Rt) if (Math.abs(q.y - hi.y) < 1.6) d = Math.min(d, dist2(q.x, q.z, hi.x, hi.z));
+    d = Math.min(d, dist2(end.x, end.z, hi.x, hi.z) + 4);
+    if (i === keep) d = -1;
+    if (d < bd) { bd = d; best = Rt; bi = i; }
+  });
   if (!best) return null;
-  // where e is along it now
-  const cl = e.ai.climb && e.ai.climb.ri === bi ? e.ai.climb : (e.ai.climb = { ri: bi, i: -1 });
+  // where e is along it now: the nearest waypoint at about e's height, and never one behind on the way
+  const cl = e.ai.climb && e.ai.climb.ri === bi && e.ai.climb.dir === (up ? 1 : -1) ? e.ai.climb : (e.ai.climb = { ri: bi, i: -1, dir: up ? 1 : -1, until: GAME.t + 12 });
   if (cl.i < 0) {
     let k = 0, kd = Infinity;
-    best.forEach((q, j) => { const d = dist2(q.x, q.z, e.x, e.z) + (Math.abs(q.y - e.y) > 1.4 ? 400 : 0); if (d < kd) { kd = d; k = j; } });
+    best.forEach((q, j) => { const d = dist2(q.x, q.z, e.x, e.z) + (Math.abs(q.y - e.y) > 2.6 ? 900 : 0); if (d < kd) { kd = d; k = j; } });
     cl.i = k;
   }
   const dir = up ? 1 : -1;
@@ -665,9 +684,7 @@ function castlePatch(src, anchor, fn) {
   CASTLE_PATCHED.push(anchor);
   return src.replace(anchor, fn(anchor));
 }
-const CASTLE_FS = (() => {
-  let fs = buildingMat.fragmentShader;
-  fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
+const CASTLE_CUT_GLSL = /* glsl */`
     uniform vec4 uCA[${CUT_MAX}]; uniform vec4 uCB[${CUT_MAX}]; uniform vec4 uCC[${CUT_MAX}];
     float cWear = 0.0, cFresh = 0.0;
     // inside a section's band and above the line the wall fell to (a ragged V), the stone is gone
@@ -689,6 +706,11 @@ const CASTLE_FS = (() => {
       }
       return cut;
     }
+`;
+const CASTLE_FS = (() => {
+  let fs = buildingMat.fragmentShader;
+  fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
+    ${CASTLE_CUT_GLSL}
     ${a}
     if (castleCut(vW)) discard;
   `);
@@ -706,6 +728,11 @@ const CASTLE_FS = (() => {
   `);
   return fs;
 })();
+const CASTLE_DEPTH_FS = /* glsl */`
+  ${GLSL_COMMON}
+  varying vec3 vW;
+  ${CASTLE_CUT_GLSL}
+  void main(){ if (castleCut(vW)) discard; gl_FragColor = vec4(1.0); }`;
 const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] } } });
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
@@ -778,6 +805,9 @@ function castleSections(C) {
   const m = shareMat(castleMat, { uFlash: buildingMat.uniforms.uFlash, ...C.cutU });
   C.mesh.material = m;
   if (S.mesh) S.mesh.material = m;
+  // the shadow of a breached wall has the same gap in it
+  const dm = depthFrom(m, CASTLE_DEPTH_FS);
+  for (const q of SHADOW.proxies) if (q.userData.src === C.mesh || q.userData.src === S.mesh) q.material = dm;
   const cs = Math.cos(S.yaw), sn = Math.sin(S.yaw);
   C.sections.forEach((W, k) => {
     W.k = k; W.C = C;
