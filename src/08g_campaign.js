@@ -556,7 +556,7 @@ function campaignHudHTML() {
     const top = cwTopClaims().slice(0, 2);
     body = top.length ? top.map((c) => {
       const R = REALMS[c.r];
-      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : 'keeps') : (c.on ? 'holds both hallows' : 'hallows')}</span><span class="num">${c.on ? fmtClock(c.left) : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`;
+      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on ? fmtClock(c.left) : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`;
     }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60}</div>`;
   }
   return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}</div>`;
@@ -932,9 +932,10 @@ function updateCampaignUI(dt) {
 #mapside .cw-side p { margin: 0; font-size: 12.5px; color: var(--ink-dim); line-height: 1.35; }
 #mapside .cw-side p b { color: var(--ink); }
 #mapside .cw-stand { display: grid; gap: 3px; }
-#mapside .cw-stand li { display: grid; grid-template-columns: 9px auto 1fr; gap: 6px; align-items: baseline; justify-content: start; font-size: 12.5px; }
-#mapside .cw-stand li i { width: 9px; height: 9px; border-radius: 2px; background: var(--rc); align-self: center; }
-#mapside .cw-stand li span { color: var(--ink-dim); text-align: right; }
+#mapside .cw-stand li { display: flex; gap: 6px; align-items: baseline; justify-content: flex-start; font-size: 12.5px; }
+#mapside .cw-stand li i { width: 9px; height: 9px; border-radius: 2px; background: var(--rc); align-self: center; flex: none; }
+#mapside .cw-stand li b { flex: none; }
+#mapside .cw-stand li span { color: var(--ink-dim); text-align: right; margin-left: auto; min-width: 0; }
 #mapside .cw-stand li em { color: #ffe7a8; font-style: normal; font-weight: 700; }
 #mapside .cw-bands { display: grid; gap: 4px; }
 #mapside .cw-band { display: grid; grid-template-columns: 18px 1fr; gap: 7px; align-items: start; text-align: left; padding: 6px 8px; border-radius: 5px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); color: var(--ink); cursor: pointer; font-size: 12px; line-height: 1.3; min-height: 40px; }
@@ -979,6 +980,15 @@ function updateCampaignUI(dt) {
   #cw-victory .cw-table { font-size: 12px; gap: 3px 6px; grid-template-columns: 1.2fr repeat(4, 1fr); }
   #cw-victory .cw-table .h { font-size: 9.5px; letter-spacing: 0.02em; }
   .np .cw-o { font-size: 9.5px; }
+}
+/* short screens: a smaller crest so the whole story and its button fit */
+@media (max-height: 640px) {
+  #cw-victory .cw-vic { gap: 6px; padding: 12px 18px; }
+  #cw-victory .cw-crest { width: 54px; height: 61px; }
+  #cw-victory h2 { font-size: 26px; }
+  #cw-victory .lead { font-size: 13.5px; }
+  #cw-victory .cw-table { padding: 6px 10px; gap: 2px 10px; }
+  #cw-victory .cw-next { display: none; }
 }
 /* a phone on its side: the map and its panel side by side, so the orders can be reached */
 @media (orientation: landscape) and (max-height: 520px) {
