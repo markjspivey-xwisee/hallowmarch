@@ -835,6 +835,7 @@ function igniteHouse(H, x, z) {
 }
 // a fire spell lands at (x, y, z) with reach r: any house it falls on or beside catches
 function fireLandsAt(x, y, z, r = 1) {
+  natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
   let n = 0;
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
@@ -848,6 +849,7 @@ function fireLandsAt(x, y, z, r = 1) {
 }
 // a cone of fire (a dragon's breath) from (x, z) along (dx, dz)
 function fireConeAt(x, z, dx, dz, range, half) {
+  natureFireCone(x, z, dx, dz, range, half); // nature (05h_nature.js): the breath sets the grass and trees alight
   let n = 0;
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;

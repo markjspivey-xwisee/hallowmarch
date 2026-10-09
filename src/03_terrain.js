@@ -48,6 +48,7 @@ const terrainMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
+    ${GLSL_NATURE}
     uniform sampler2D uTrail;
     uniform vec4 uTrailBounds;
     uniform vec3 uGrassBase, uGrassTip, uGlowColor;
@@ -155,6 +156,26 @@ const terrainMat = mat({
         float sn = uSnowCover * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + uSnowCover * 0.5 - A.r * 0.45);
         col = mix(col, lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0), clamp(sn, 0.0, 1.0));
       }
+      /* nature (05h_nature.js): clippings on cut turf, thrown earth round craters, ash and embers where fire passed */
+      vec4 nat = natureAt(vW.xz);
+      if (nat.r + nat.g + nat.b + nat.a > 0.004) {
+        vec2 cq = vW.xz * 6.0, cc = floor(cq), cf = fract(cq) - 0.5;
+        float ca = hash12(cc) * 6.2831;
+        vec2 cd = vec2(cos(ca), sin(ca));
+        float stroke = (1.0 - smoothstep(0.035, 0.085, abs(dot(cf, vec2(-cd.y, cd.x))))) * (1.0 - smoothstep(0.22, 0.4, abs(dot(cf, cd)))) * step(0.4, hash12(cc + 7.3));
+        vec3 clip = mix(vec3(0.42, 0.52, 0.17), vec3(0.66, 0.62, 0.3), hash12(cc + 3.1)) * tint;
+        col = mix(col, col * vec3(1.08, 1.05, 0.84), nat.r * 0.3 * A.g);
+        col = mix(col, lightSurface(clip, n, 1.0), stroke * nat.r * A.g * (0.35 + 0.6 * fine));
+        float clod = vnoise(vW.xz * 2.6) * 0.6 + vnoise(vW.xz * 8.0) * 0.4 * fine;
+        vec3 soil = lightSurface(vec3(0.21, 0.16, 0.11) * (0.62 + 0.7 * clod), bumpN(n, vW, clod, 0.6 * fine), mix(0.7, 1.0, clod));
+        col = mix(col, soil, smoothstep(0.04, 0.55, nat.a));
+        float ash = vnoise(vW.xz * 1.3) * 0.55 + vnoise(vW.xz * 5.0) * 0.45;
+        vec3 burnt = lightSurface(mix(vec3(0.028, 0.025, 0.022), vec3(0.24, 0.23, 0.22), smoothstep(0.58, 0.86, ash) * (1.0 - nat.b)), n, 1.0);
+        col = mix(col, burnt, smoothstep(0.02, 0.6, nat.g) * 0.94);
+        float emb = smoothstep(0.42, 0.82, vnoise(vW.xz * 3.4 + vec2(uTime * 0.6, -uTime * 0.4)) * 0.7 + vnoise(vW.xz * 11.0) * 0.3);
+        col += vec3(2.3, 0.72, 0.14) * nat.b * (0.25 + 1.1 * emb);
+      }
+      /* nature: end */
       // decals and the night glow of trampled paths
       col = applyDecal(col, sampleDecal(vW.xz));
       vec2 tuv = (vW.xz - uTrailBounds.xy) / uTrailBounds.zw;
@@ -464,13 +485,15 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_BEND}
   ${GLSL_DECAL}
   ${GLSL_SHADOW_V}
+  ${GLSL_NATURE}
+  varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   uniform float uTile, uFadeNear, uFadeFar, uInner, uWidthMul, uBladeWidth;
   uniform vec2 uCenter, uCam2;
   attribute vec2 aOff;
   attribute vec4 aRnd;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   void main(){
-    vSh = 1.0;
+    vSh = 1.0; vNat = vec4(0.0);
     vWorld = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vAcross = vec3(1.0, 0.0, 0.0); vInfo = vec4(0.0); vLook = vec4(0.0); vDecal = vec4(0.0);
     vec2 base = aOff + uTile * floor((uCenter - aOff) / uTile + 0.5);
     float dcam = length(base - uCam2);
@@ -488,6 +511,14 @@ const GRASS_VERT = /* glsl */`
     H *= 0.85 + 0.3 * vnoise(base * 0.3 + 7.0);
     float sparse = smoothstep(0.1, 0.62, A.g);
     H *= mix(0.38, 1.0, sparse); // sparse grass grows short
+    /* nature (05h_nature.js): cut to stubble, licked down by flames, burnt to stubs */
+    vec4 nat = natureAt(base);
+    float flick = 0.55 + 0.45 * sin(uTime * (9.0 + aRnd.z * 7.0) + aRnd.w * 40.0);
+    H *= mix(1.0, 0.12 + 0.12 * aRnd.y, nat.r);
+    H *= mix(1.0, 0.4 + 0.35 * flick, nat.b * (1.0 - nat.g));
+    H *= mix(1.0, 0.05, smoothstep(0.0, 0.5, nat.g));
+    vNat = vec4(nat.r, nat.g, nat.b * flick, nat.a);
+    /* nature: end */
     if (uWidthMul > 1.5 && (A.a > 0.35 || sparse < 0.2)) H = 0.0; // the wide far blades stay off thin turf and rock
     if (H < 0.03) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
     float t = position.y;
@@ -519,6 +550,7 @@ const GRASS_FRAG = /* glsl */`
   uniform vec3 uGrassBase, uGrassTip, uGrassTrans, uGlowColor, uTargetColor, uAoeColor;
   uniform float uWet, uSnowCover;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
+  varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   void main(){
     float t = clamp(vInfo.x, 0.0, 1.0);
     float sh = clamp(vSh, 0.0, 1.0);
@@ -541,6 +573,11 @@ const GRASS_FRAG = /* glsl */`
     col += uLightColor * spow(dot(n, H), 48.0) * (0.1 + 0.5 * uWet) * t * sh;
     col += vec3(0.17, 0.3, 0.08) * vLook.rgb * vInfo.z * pointLights(vWorld, n) * (0.35 + 0.65 * t) * ao;
     col *= 1.0 - 0.5 * vDecal.r * (1.0 - t * 0.5);
+    /* nature (05h_nature.js): pale cut ends, black singed stubs, blades glowing in the fire */
+    col = mix(col, col * vec3(1.3, 1.15, 0.55) + vec3(0.03, 0.03, 0.0), vNat.r * smoothstep(0.55, 1.0, t) * 0.6);
+    col = mix(col, vec3(0.03, 0.026, 0.022) * (0.6 + t), clamp(vNat.g * 1.6, 0.0, 1.0));
+    col += vec3(2.4, 0.85, 0.2) * vNat.b * (0.3 + 0.9 * t * t);
+    /* nature: end */
     // target rings and spell areas tint the blades so they show through tall grass
     col = mix(col, uTargetColor * 1.5, clamp(vDecal.g, 0.0, 1.0) * (0.45 + 0.4 * t));
     col = mix(col, uAoeColor * 1.4, clamp(vDecal.b, 0.0, 1.0) * (0.35 + 0.4 * t));
@@ -629,6 +666,7 @@ const flowerMat = mat({
     ${GLSL_WORLD}
     ${GLSL_BEND}
     ${GLSL_SHADOW_V}
+    ${GLSL_NATURE}
     uniform vec3 uPalL[6], uPalE[6], uPalT[6];
     uniform float uTile, uPetals;
     uniform vec2 uCenter, uCam2;
@@ -643,6 +681,7 @@ const flowerMat = mat({
       vec4 A = texture(uWorldA, worldUV(base));
       vec4 B = texture(uWorldB, worldUV(base));
       if (aRnd.x > A.b) fade = 0.0;
+      { vec4 nat = natureAt(base); if (max(nat.r, max(nat.g, nat.b)) > 0.25 + 0.5 * aRnd.y) fade = 0.0; } // nature: cut or burnt
       if (fade < 0.02) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
       int ci = int(aRnd.y * 5.99);
       float u = aRnd.z;
