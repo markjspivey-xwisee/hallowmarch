@@ -148,7 +148,7 @@ function houseDoorFrame(ctx, F, o = {}) {
   b.kind = HPART.LEAF; b.hinge = [L.hx, L.hz, L.i, L.swing];
   for (let k = 0; k < 4; k++) {
     const pu = hu + dir * (k + 0.5) * lw / 4;
-    b.add(G.box, lm(F, pu, lh / 2 + 0.015, n0, 0, lw / 4 - 0.008, lh, 0.05), MAT.wood, darker(leafCol, 0.9 + 0.16 * hash1(H.id * 7 + k)), by, 2.2);
+    b.add(G.box, lm(F, pu, lh / 2 + 0.015, n0, 0, lw / 4 - 0.008, lh, 0.05), MAT.wood, darker(leafCol, 0.9 + 0.16 * hash1(H.num * 7 + k)), by, 2.2);
   }
   const cu = hu + dir * lw / 2;
   for (const y of [0.36, lh - 0.36]) {
@@ -454,11 +454,17 @@ function shellEriu(ctx) {
   const nR = big ? 16 : 12;
   for (let k = 0; k < nR; k++) {
     const a = (k / nR) * TAU + 0.13, r0 = H.ri - 0.03, r1 = 0.3;
-    beam(fb, M, [Math.sin(a) * r0, H.ceilAt(r0) - 0.08, Math.cos(a) * r0], [Math.sin(a) * r1, H.ceilAt(r1) - 0.08, Math.cos(a) * r1], 0.075, MAT.wood, darker(st.wood, 0.8), 0.1);
+    beam(fb, M, [Math.sin(a) * r0, H.ceilAt(r0) - 0.1, Math.cos(a) * r0], [Math.sin(a) * r1, H.ceilAt(r1) - 0.1, Math.cos(a) * r1], 0.11, MAT.wood, darker(st.wood, 1.05), 0.14);
   }
   for (let i = 0; i < N; i++) {
     const F = facet(i * fa, r);
     fb.add(G.box, lm(F, 0, liningTop - 0.16, -t - 0.06, 0, (r - t) * Math.tan(fa / 2) * 2 + 0.04, 0.14, 0.12), MAT.wood, darker(st.wood, 0.85));
+  }
+  for (const rr of [H.ri * 0.62, H.ri * 0.3]) {
+    for (let k = 0; k < nR; k++) {
+      const a0 = (k / nR) * TAU + 0.13, a1 = ((k + 1) / nR) * TAU + 0.13, y = H.ceilAt(rr) - 0.2;
+      beam(fb, M, [Math.sin(a0) * rr, y, Math.cos(a0) * rr], [Math.sin(a1) * rr, y, Math.cos(a1) * rr], 0.07, MAT.wood, darker(st.wood, 0.95), 0.09);
+    }
   }
   // the door in the front facet, under a little gabled porch
   const F0 = facet(0, r);

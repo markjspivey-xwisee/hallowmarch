@@ -68,23 +68,23 @@ function houseEnterPlan(e, H) {
   const D = H.door, S = H.spots;
   const steps = [];
   if (!houseHas(H, e.x, e.z, -0.4)) steps.push(houseGo(D.out2.x, D.out2.z, { loose: true }), houseGo(D.out.x, D.out.z));
-  steps.push(lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { loose: true, via: H }), houseGo(D.in.x, D.in.z, { via: H }), lifeStep('door', { open: false }));
-  steps.push(houseGo(S.mid.wx, S.mid.wz, { loose: true }));
+  steps.push(lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { loose: true, via: H }), houseGo(D.in.x, D.in.z, { via: H, exact: true }), lifeStep('door', { open: false }));
+  steps.push(houseGo(S.mid.wx, S.mid.wz, { loose: true, room: H }));
   return steps;
 }
 function houseLeavePlan(e, H) {
   const D = H.door;
-  return [houseGo(D.in.x, D.in.z), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { loose: true, via: H }), houseGo(D.out.x, D.out.z, { via: H }), lifeStep('door', { open: false }), houseGo(D.out2.x, D.out2.z, { loose: true })];
+  return [houseGo(D.in.x, D.in.z, { room: H, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { loose: true, via: H }), houseGo(D.out.x, D.out.z, { via: H }), lifeStep('door', { open: false }), houseGo(D.out2.x, D.out2.z, { loose: true })];
 }
 function houseShutterPlan(e, H, wins, open) {
   const steps = [];
-  for (const w of wins) steps.push(houseGo(w.in.x, w.in.z), lifeStep('shutter', { win: w, open }));
+  for (const w of wins) steps.push(houseGo(w.in.x, w.in.z, { room: H }), lifeStep('shutter', { win: w, open }));
   return steps;
 }
 function houseRestPlan(e, H, dur) {
   const S = H.spots, steps = [];
-  if (S.seat && Math.random() < 0.6) steps.push(houseGo(S.seat.ax, S.seat.az), lifeStep('sit', { dur, y: H.y + S.seat.h, yaw: S.seat.wyaw, sx: S.seat.wx, sz: S.seat.wz }));
-  else steps.push(houseGo(S.hearth.wx, S.hearth.wz), lifeStep('wait', { dur, fx: S.hearth.fx ?? H.hearth.x, fz: S.hearth.fz ?? H.hearth.z }));
+  if (S.seat && Math.random() < 0.6) steps.push(houseGo(S.seat.ax, S.seat.az, { room: H }), lifeStep('sit', { dur, y: H.y + S.seat.h, yaw: S.seat.wyaw, sx: S.seat.wx, sz: S.seat.wz }));
+  else steps.push(houseGo(S.hearth.wx, S.hearth.wz, { room: H }), lifeStep('wait', { dur, fx: S.hearth.fx ?? H.hearth.x, fz: S.hearth.fz ?? H.hearth.z }));
   return steps;
 }
 // hammer at the new frame from a spot beside the scaffold
@@ -100,7 +100,7 @@ function houseFlee(e, F) {
   e.seat = null;
   if (houseHas(F, e.x, e.z, -0.6)) {
     const D = F.door;
-    steps.push(houseGo(D.in.x, D.in.z, { run: true, loose: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: F }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: F }));
+    steps.push(houseGo(D.in.x, D.in.z, { run: true, room: F, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: F }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: F }));
   }
   // a spot away from the fire, on the town side
   let dx = e.x - F.x, dz = e.z - F.z;
@@ -128,7 +128,14 @@ function lifeRun(e, dt) {
       // a door shut in the way is pushed open again
       const Fh = st.via;
       if (Fh && houseIntact(Fh) && Fh.door.leaf.target === 0 && dist2(e.x, e.z, Fh.door.c.x, Fh.door.c.z) < 2.6 * 2.6) { setAct(e, 5, 0.5); setHouseDoor(Fh, true, e); }
-      const done = moveToward(e, st.x, st.z, dt, st.run ? 1.65 : 0.9, st.loose ? 0.6 : 0.28);
+      // in a room the way goes round the furniture
+      if (st.room && !st.path) st.path = houseRoute(st.room, e.x, e.z, st.x, st.z) || [{ x: st.x, z: st.z }];
+      let tx = st.x, tz = st.z, last = true;
+      if (st.path) {
+        while (st.path.length > 1 && dist2(e.x, e.z, st.path[0].x, st.path[0].z) < 0.3 * 0.3) st.path.shift();
+        tx = st.path[0].x; tz = st.path[0].z; last = st.path.length === 1;
+      }
+      const done = moveToward(e, tx, tz, dt, st.run ? 1.65 : 0.9, last ? (st.loose ? 0.6 : st.exact ? 0.1 : 0.28) : 0.22) && last;
       if (done) next();
       else if (plan.t > 16) giveUp();
       return true;
@@ -206,4 +213,69 @@ function lifeWander(e) {
   ai.wanderT = (ai.wanderT || 0) + GAME.dt;
   if (moveToward(e, ai.wander.x, ai.wander.z, GAME.dt, 1, 0.6)) ai.wanderT = 0;
 }
-function lifeIdle(e, dt) { const ai = e.ai; if (ai.wander) moveToward(e, ai.wander.x, ai.wander.z, dt, 0.8, 0.6); }
+function lifeIdle(e, dt) { /* catch breath where you are */ }
+
+/* ------------------------------------------------------------------ */
+/* finding the way across a room                                       */
+/* ------------------------------------------------------------------ */
+// a grid over the floor, a quarter metre to a cell, free where a body fits between the walls and the furniture
+function houseGrid(H) {
+  if (H.grid) return H.grid;
+  const cs = 0.25, ext = (H.round ? H.ri : Math.max(H.iw, H.id)) + 0.25, n = Math.ceil((2 * ext) / cs) + 1;
+  const free = new Uint8Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const w = houseW(H, -ext + i * cs, -ext + j * cs);
+    free[j * n + i] = houseHas(H, w.x, w.z, 0.4) && !H.furnColl.some((c) => collCovers(c, w.x, w.z, 0.36)) ? 1 : 0;
+  }
+  return (H.grid = { cs, ext, n, free });
+}
+// waypoints from (ax, az) to (bx, bz) inside H, round the furniture; null if either end is not in the room
+function houseRoute(H, ax, az, bx, bz) {
+  const G2 = houseGrid(H), { cs, ext, n, free } = G2;
+  const cell = (x, z) => { const l = houseL(H, x, z); return [Math.round((l.x + ext) / cs), Math.round((l.z + ext) / cs)]; };
+  const nearestFree = ([i, j]) => {
+    if (i >= 0 && j >= 0 && i < n && j < n && free[j * n + i]) return [i, j];
+    for (let r = 1; r < 6; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+      const a = i + di, b = j + dj;
+      if (a >= 0 && b >= 0 && a < n && b < n && free[b * n + a]) return [a, b];
+    }
+    return null;
+  };
+  const s = nearestFree(cell(ax, az)), g = nearestFree(cell(bx, bz));
+  if (!s || !g) return null;
+  const key = (i, j) => j * n + i, gk = key(g[0], g[1]);
+  const open = [[s[0], s[1], 0, 0]], best = new Map([[key(s[0], s[1]), 0]]), from = new Map();
+  let found = false, guard = 0;
+  while (open.length && guard++ < 4000) {
+    let bi = 0;
+    for (let k = 1; k < open.length; k++) if (open[k][3] < open[bi][3]) bi = k;
+    const [i, j, c] = open.splice(bi, 1)[0];
+    if (key(i, j) === gk) { found = true; break; }
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const a = i + di, b = j + dj;
+      if (a < 0 || b < 0 || a >= n || b >= n || !free[b * n + a]) continue;
+      if (di && dj && (!free[j * n + a] || !free[b * n + i])) continue;
+      const nc = c + (di && dj ? 1.414 : 1), k = key(a, b);
+      if (nc >= (best.get(k) ?? Infinity)) continue;
+      best.set(k, nc); from.set(k, key(i, j));
+      open.push([a, b, nc, nc + Math.hypot(a - g[0], b - g[1])]);
+    }
+  }
+  if (!found) return null;
+  const cells = [];
+  for (let k = gk; k !== undefined; k = from.get(k)) cells.push([k % n, Math.floor(k / n)]);
+  cells.reverse();
+  // keep only the corners the straight line cannot cut
+  const clear = (p, q) => {
+    const steps = Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) * 2);
+    for (let t = 1; t < steps; t++) { const i = Math.round(p[0] + (q[0] - p[0]) * t / steps), j = Math.round(p[1] + (q[1] - p[1]) * t / steps); if (!free[j * n + i]) return false; }
+    return true;
+  };
+  const pts = [cells[0]];
+  for (let k = 1; k < cells.length; k++) if (!clear(pts[pts.length - 1], cells[k])) pts.push(cells[k - 1]);
+  pts.push(cells[cells.length - 1]);
+  const out = pts.slice(1).map(([i, j]) => houseW(H, -ext + i * cs, -ext + j * cs));
+  out.push({ x: bx, z: bz });
+  return out;
+}

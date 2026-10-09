@@ -95,12 +95,15 @@ const ROOM_ITEMS = {
     b.add(G.box, lm(T, 0, 0.72, -0.5, 0, 1.0, 0.6, 0.18), MAT.stone, stone);
     for (const s of [-1, 1]) b.add(G.box, lm(T, s * 0.45, 0.72, -0.08, 0, 0.16, 0.6, 0.66), MAT.stone, stone);
     b.add(G.box, lm(T, 0, 0.43, -0.1, 0, 0.74, 0.03, 0.66), MAT.darkstone, soot);
+    // the hood narrows from a wide mouth into the flue that carries the smoke to the stack
     const ceil = H.ceilLocal(it.x) + 0.25;
-    b.add(G.box, lm(T, 0, 1.62, -0.05, 0, 1.24, 0.36, 1.2), MAT.stone, darker(stone, 0.95));
-    b.add(G.box, lm(T, 0, (1.8 + ceil) / 2, -0.05, 0, 0.86, ceil - 1.8, 0.78), MAT.stone, darker(stone, 0.92), H.y, 3);
+    b.add(HG.hood, lm(T, 0, 1.95, -0.05, 0, 1.3, 0.62, 1.26), MAT.stone, darker(stone, 1.08), H.y, 3);
+    b.add(G.box, lm(T, 0, (2.2 + ceil) / 2, -0.05, 0, 0.8, ceil - 2.2, 0.74), MAT.stone, darker(stone, 1.02), H.y, 3);
     b.kind = HPART.EXT;
     f.kind = HPART.FURN;
-    for (const s of [-1, 1]) f.add(G.box, lm(T, s * 0.56, 1.02, 0.52, 0, 0.1, 1.2, 0.1), MAT.wood, roomWood(ctx, 0.6));
+    for (const s of [-1, 1]) f.add(G.box, lm(T, s * 0.56, 0.98, 0.52, 0, 0.1, 1.12, 0.1), MAT.wood, roomWood(ctx, 0.6));
+    for (const zz of [-0.56, 0.52]) f.add(G.box, lm(T, 0, 1.6, zz, 0, 1.36, 0.14, 0.12), MAT.wood, roomWood(ctx, 0.62));
+    for (const s of [-1, 1]) f.add(G.box, lm(T, s * 0.62, 1.6, -0.02, 0, 0.12, 0.14, 1.2), MAT.wood, roomWood(ctx, 0.62));
     for (const [x, a] of [[-0.1, 0.3], [0.12, -0.25]]) f.add(G.cyl8, lm(T, x, 0.5, -0.12, a, 0.055, 0.55, 0.055, 0, Math.PI / 2), MAT.logH, [0.3, 0.2, 0.12]);
     f.add(G.cyl12, lm(T, 0.38, 0.55, 0.35, 0, 0.16, 0.24, 0.16), MAT.metal, [0.12, 0.12, 0.13]);
     // firewood stacked beside it

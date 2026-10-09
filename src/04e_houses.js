@@ -44,7 +44,7 @@ function planHouse(S, R, h, ti) {
   const rnd = mulberry(Math.floor(h.seed * 1e6) + 7717);
   const by = heightAt(h.x, h.z);
   const H = {
-    id: HOUSES.length, ti, S, realm: R.id, style, round, big, kind: h.kind, src: h, seed: h.seed,
+    num: HOUSES.length, ti, S, realm: R.id, style, round, big, kind: h.kind, src: h, seed: h.seed,
     x: h.x, z: h.z, y: by, yaw: h.yaw, c: Math.cos(h.yaw), s: Math.sin(h.yaw),
     state: 'whole', stT: 0, char: 0, ember: 0, fall: 0, burn: null, residents: [], items: [], coll: [], furnColl: [],
   };
@@ -113,7 +113,7 @@ function planHouse(S, R, h, ti) {
     D.c = houseWorldOnFace(H, F, 0, -H.t / 2);
     D.out = houseWorldOnFace(H, F, 0, 1.0);
     D.out2 = houseWorldOnFace(H, F, 0, 3.4);
-    D.in = houseWorldOnFace(H, F, 0, -H.t - 1.4);  // clear of the leaf's swing
+    D.in = houseWorldOnFace(H, F, 0, -H.t - (H.round ? 1.45 : 1.55));  // far enough in that the swinging leaf clears whoever stands here
   }
   const zs = style === 'timber' ? 0.12 : round ? 0.1 : 0.13;
   H.wins.forEach((win, k) => {
@@ -155,20 +155,24 @@ function houseLayout(H, rnd) {
     const polar = (a, rad) => ({ x: Math.sin(a) * rad, z: Math.cos(a) * rad });
     const at = (type, a, rad, yaw, o) => { const p = polar(a, rad); return put(type, p.x, p.z, yaw, o); };
     if (!big) {
-      put('ringhearth', 0, 0, 0, { r: 0.56, coll: { r: 0.66 } });
-      for (const s of [-1, 1]) at('bed', s * 2.25, ri - 0.5, s * 2.25 + Math.PI / 2, { coll: { hx: 0.5, hz: 1.0 } });
-      at('table', -hs * 0.95, ri - 0.74, -hs * 0.95 + Math.PI / 2, { len: 1.2, benches: 1, coll: { hx: 0.6, hz: 0.64, ox: 0.18 } });
+      // a small roundhouse has room for one bed and a stool; a larger one for two beds and a bench
+      const small = ri < 3.0;
+      put('ringhearth', 0, 0, 0, { r: small ? 0.45 : 0.56, coll: { r: small ? 0.55 : 0.66 } });
+      for (const s of small ? [-hs] : [-1, 1]) at('bed', s * 2.25, ri - 0.5, s * 2.25 + Math.PI / 2, { coll: { hx: 0.5, hz: 1.0 } });
+      const ta = -hs * 0.95, tr = ri - (small ? 0.5 : 0.74);
+      at('table', ta, tr, ta + Math.PI / 2, { len: small ? 1.0 : 1.2, benches: small ? 0 : 1, coll: small ? { hx: 0.42, hz: 0.54 } : { hx: 0.6, hz: 0.64, ox: 0.18 } });
+      if (small) at('stool', ta, tr - 0.72, 0, {});
       at('loom', hs * 1.6, ri - 0.3, hs * 1.6 + Math.PI, { coll: { hx: 0.66, hz: 0.24 } });
       at('dresser', Math.PI, ri - 0.26, 0, { coll: { hx: 0.56, hz: 0.26 } });
-      at('barrels', hs * 0.84, ri - 0.44, 0, { coll: { r: 0.44 } });
+      at('barrels', hs * 1.08, ri - 0.44, 0, { coll: { r: 0.44 } });
       at('rug', -hs * 0.35, 1.2, -hs * 0.35, { sx: 1.1, sz: 0.75, fur: true });
       at('herbs', 2.6, ri - 0.9, 0, { n: 5 });
-      at('quern', -hs * 1.45, ri - 0.45, 0, { coll: { r: 0.32 } });
-      H.hearth = { lx: 0, lz: 0, y: 0.12, size: 0.5 };
+      if (!small) at('quern', -hs * 1.45, ri - 0.45, 0, { coll: { r: 0.32 } });
+      H.hearth = { lx: 0, lz: 0, y: 0.12, size: small ? 0.42 : 0.5 };
       H.lamp = { lx: Math.sin(Math.PI) * 1.4, lz: Math.cos(Math.PI) * 1.4, y: H.ceilAt(1.4) - 0.75 };
-      const sp = polar(-hs * 0.95, ri - 1.32);
-      spots.seat = { x: sp.x, z: sp.z, yaw: Math.atan2(polar(-hs * 0.95, ri).x - sp.x, polar(-hs * 0.95, ri).z - sp.z), h: 0.46 };
-      spots.hearth = { x: Math.sin(hs * 2.4) * 1.25, z: Math.cos(hs * 2.4) * 1.25 };
+      const sp = polar(ta, tr - (small ? 0.72 : 0.62));
+      spots.seat = { x: sp.x, z: sp.z, yaw: ta, h: 0.46, stool: small };
+      spots.hearth = { x: Math.sin(hs * 2.4) * (small ? 1.12 : 1.25), z: Math.cos(hs * 2.4) * (small ? 1.12 : 1.25) };
       spots.mid = { x: hs * 0.9, z: 1.25 };
     } else {
       // the hall: a great hearth, benches round it, box beds at the walls, the chieftain's seat at the back
@@ -200,7 +204,7 @@ function houseLayout(H, rnd) {
     put('shelves', iw - 2.45, -id, 0, { len: 0.9 });
     put('chest', iw - 0.32, -id + 1.32, Math.PI / 2, { coll: { hx: 0.42, hz: 0.25 } });
     put('barrels', cs * (iw - 0.42), id - 0.46, 0, { coll: { r: 0.44 } });
-    put('crate', cs * (iw - 1.02), id - 0.38, 0.3, { coll: { r: 0.38 } });
+    put('crate', cs * (iw - 0.38), id - 1.32, 0.3, { coll: { r: 0.38 } });
     put('rug', sx + 0.35, sz + 1.25, 0.15, { sx: 1.3, sz: 0.85, fur: true });
     put('shield', iw - 1.0, -id, 0, { y: 1.95 });
     put('herbs', sx + 0.7, -id * 0.48, 0, { n: 4 });
@@ -219,7 +223,7 @@ function houseLayout(H, rnd) {
     put('shelves', -iw, 0.0, Math.PI / 2, { len: 1.1 });
     put('rug', 0, -id + 1.45, 0, { sx: 1.6, sz: 1.0 });
     put('barrels', cs * (iw - 0.42), id - 0.46, 0, { coll: { r: 0.44 } });
-    put('crate', cs * (iw - 1.02), id - 0.38, 0.2, { coll: { r: 0.38 } });
+    put('crate', cs * (iw - 0.38), id - 1.32, 0.2, { coll: { r: 0.38 } });
     put('stool', 0.78, -id + 1.15, 0.4, {});
     put('herbs', 0.1, -id * 0.48, 0, { n: 5 });
     put('pegs', hs * (H.door.w / 2 + 0.42), id, Math.PI, { y: 1.42 });
@@ -234,7 +238,8 @@ function houseLayout(H, rnd) {
   H.hearth.x = hp.x; H.hearth.z = hp.z; H.hearth.wy = H.y + H.hearth.y;
   const lp = houseW(H, H.lamp.lx, H.lamp.lz);
   H.lamp.x = lp.x; H.lamp.z = lp.z; H.lamp.wy = H.y + H.lamp.y;
-  if (spots.seat) { const s = spots.seat; s.ax0 = s.x - Math.sin(s.yaw) * 0.68; s.az0 = s.z - Math.cos(s.yaw) * 0.68; }
+  // a bench is sat on from behind it; a stool from where it stands
+  if (spots.seat) { const s = spots.seat, k = s.stool ? 0 : 0.68; s.ax0 = s.x - Math.sin(s.yaw) * k; s.az0 = s.z - Math.cos(s.yaw) * k; }
   for (const k in spots) {
     const s = spots[k], w = houseW(H, s.x, s.z);
     if (s.ax0 !== undefined) { const a = houseW(H, s.ax0, s.az0); s.ax = a.x; s.az = a.z; }
@@ -396,7 +401,11 @@ class HouseBatch extends Batch {
   }
 }
 // a flat pane (glass) and a gable wedge
-const HG = { plane: new THREE.PlaneGeometry(1, 1) };
+const HG = {
+  plane: new THREE.PlaneGeometry(1, 1),
+  // a square frustum: 1 across at the base, 0.62 at the top, 1 high
+  hood: (() => { const g = new THREE.CylinderGeometry(0.62 * Math.SQRT1_2, Math.SQRT1_2, 1, 4, 1); g.rotateY(Math.PI / 4); const f = g.toNonIndexed(); f.computeVertexNormals(); return f; })(),
+};
 
 // The house shader is the building shader with four additions, patched in at named lines (and checked, so a change
 // to the building shader that moves one of them stops the boot instead of quietly breaking the houses):
@@ -469,7 +478,7 @@ const HOUSE_FS = (() => {
     // a room: dim daylight from the openings, sun patches, the hearth's flicker and the lamp, a little bounce
     vec3 houseIndoor(vec3 alb, vec3 n, float ao, int hi){
       float sun = houseShadow(vW, n) * clamp(dot(n, uLightDir), 0.0, 1.0);
-      vec3 amb = uAmbient * (0.13 + 0.2 * ao) + uZenith * 0.05;
+      vec3 amb = uAmbient * (0.17 + 0.23 * ao) + uZenith * 0.06;
       vec4 F = uHL[hi], M = uHM[hi];
       vec3 lf = F.xyz - vW; float df = max(length(lf), 0.05);
       float fl = 0.86 + 0.1 * sin(uTime * 11.3 + float(hi) * 1.7) + 0.05 * sin(uTime * 23.1 + float(hi));
@@ -493,7 +502,8 @@ const HOUSE_FS = (() => {
         float seam = smoothstep(0.0, 0.05, pf) * (1.0 - smoothstep(0.95, 1.0, pf)) * smoothstep(0.0, 0.012, bj) * (1.0 - smoothstep(0.988, 1.0, bj));
         float grain = vnoise(vec2(pf * 5.0 + pi * 3.1, v * 1.2)) * 0.5 + vnoise(vec2(pf * 21.0 + pi, v * 6.5)) * 0.5;
         float knot = smoothstep(0.84, 0.95, vnoise(vec2(pi * 5.3 + pf * 2.5, v * 1.9)));
-        alb *= (0.8 + 0.32 * id) * (0.8 + 0.32 * grain) * mix(0.42, 1.0, seam) * (1.0 - 0.38 * knot);
+        if (abs(n.y) > 0.55) alb *= (0.8 + 0.32 * id) * (0.8 + 0.32 * grain) * mix(0.42, 1.0, seam) * (1.0 - 0.38 * knot);
+        else alb *= (0.86 + 0.2 * id) * (0.88 + 0.18 * grain) * mix(0.62, 1.0, seam) * (1.0 - 0.2 * smoothstep(0.9, 0.98, vnoise(vec2(pi * 5.3 + pf * 2.5, v * 1.9))));
         if (n.y > 0.9) alb *= 1.0 + 0.12 * (1.0 - smoothstep(0.4, 1.4, abs(q.x)));
       } else if (m == 41) {
         float t = dot(vW.xz, vec2(n.z, -n.x));
@@ -523,24 +533,35 @@ const HOUSE_FS = (() => {
     vec3 hGlow = vec3(0.0);
     void houseFire(inout vec3 alb, int hi, int kind, int m){
       vec4 A = uHA[hi], B = uHB[hi], C = uHC[hi];
-      if (A.x < 0.001 && A.y < 0.5 && kind != 5) return;
+      bool ruin = A.y > 1.5 && A.y < 2.5;
+      if (A.x < 0.001 && !ruin && kind != 5) return;
       float nz = vnoise(vW.xz * 1.9 + vW.y * 2.3) * 0.6 + vnoise(vW.xz * 5.3 - vW.y * 4.1 + 7.0) * 0.4;
+      // charred wood splits into a crazing of thin cracks that glow while it is hot
+      float crack = smoothstep(0.86, 0.97, 1.0 - abs(vnoise(vW.xz * 5.0 + vW.y * 3.3) * 2.0 - 1.0));
+      bool stone = m == 0 || m == 9 || m == 15 || m == 16;
+      bool wood = m == 1 || m == 3 || m == 4 || m == 5 || m == 10 || m == 13 || m == 40;
       float burnt = 0.0, glow = 0.0;
       if (kind == 5) {
         burnt = 1.0;
-        glow = smoothstep(0.6, 0.82, vnoise(vec2(vW.x + vW.z, vW.y) * 6.0 + 3.0)) * A.w;
+        glow = (crack * 1.4 + smoothstep(0.62, 0.84, nz) * 0.5) * A.w;
       } else if (kind != 6) {
         float fromTop = (C.z - vW.y) / 3.2;
-        burnt = smoothstep(0.0, 0.4, A.x * 1.6 - fromTop * 0.6 + (nz - 0.5) * 0.55);
+        burnt = smoothstep(0.0, 0.35, A.x * 1.7 - fromTop * 1.1 + (wood ? 0.25 : 0.0) + (nz - 0.5) * 0.35);
         if (kind == 1 && B.w > 0.5) {
           float d = distance(vW.xz, B.xy) + (nz - 0.5) * 1.3;
           float behind = 1.0 - smoothstep(B.z - 0.7, B.z + 0.25, d);
           burnt = max(burnt, behind);
           float flick = 0.65 + 0.35 * sin(uTime * 9.0 + vW.x * 3.1 + vW.z * 2.3);
-          glow = exp(-pow((d - B.z) * 1.5, 2.0)) * flick * 1.3 + behind * smoothstep(0.55, 0.85, vnoise(vW.xz * 3.7 + vW.y * 2.9 + uTime * 0.7)) * 0.9;
+          glow = exp(-pow((d - B.z) * 1.5, 2.0)) * flick * 1.4 + behind * crack * (0.7 + 0.3 * sin(uTime * 3.0 + vW.x * 2.0 + vW.z));
         }
-        if (A.y > 1.5) { burnt = max(burnt, 0.85 + 0.15 * nz); glow = max(glow, smoothstep(0.7, 0.86, nz) * A.w * 0.7); }
-        if (m == 0 || m == 9 || m == 16) { burnt *= 0.6; glow *= 0.2; }
+        if (ruin) {
+          // a burnt-out shell: timber black and glowing in its cracks, plaster sooted in streaks from the top, stone blackened
+          float streak = vnoise(vec2((vW.x + vW.z) * 3.0, vW.y * 0.35));
+          float soot = wood ? 0.95 : stone ? 0.55 + 0.25 * streak : 0.5 + 0.3 * (1.0 - clamp(fromTop, 0.0, 1.0)) + 0.25 * streak;
+          burnt = max(burnt, soot * (0.85 + 0.15 * nz));
+          if (wood) glow = max(glow, crack * A.w * 0.9);
+        }
+        if (stone) { burnt *= 0.65; glow = 0.0; }
       }
       alb = mix(alb, vec3(0.05, 0.043, 0.037) * (0.75 + 0.5 * nz), clamp(burnt, 0.0, 1.0));
       hGlow = vec3(2.6, 0.72, 0.15) * glow;
@@ -602,7 +623,7 @@ const houseGlassMat = mat({
       vec3 col = sky * (0.3 + 0.9 * fres) + uLightColor * spow(max(dot(n, Hh), 0.0), 160.0) * 2.4;
       col = mix(col, vec3(0.55, 0.68, 0.6) * (uAmbient + uLightColor * 0.3), 0.2);
       int hi = int(vHi + 0.5);
-      col += vec3(1.0, 0.55, 0.22) * uHL[hi].w * 0.2 * uNight;
+      col += vec3(1.0, 0.55, 0.22) * uHL[hi].w * 0.35 * uNight;
       float a = clamp(0.1 + 0.8 * fres + abs(wob) * 0.07, 0.0, 0.92);
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), a);
     }`,
@@ -704,8 +725,15 @@ function setHouseDoor(H, open, who = null, quiet = false) {
   if (L.target === want) return true;
   if (!open && houseDoorBlocked(H)) return false;
   L.target = want;
+  houseNote(H, open ? 'door open' : 'door close', who);
   if (!quiet) houseSfx(open ? 'doorOpen' : 'doorClose', H.door.c.x, H.y + 1.2, H.door.c.z);
   return true;
+}
+// the last few things done to doors and shutters, and by whom (for tests and the curious)
+const HOUSE_EVENTS = [];
+function houseNote(H, what, who) {
+  HOUSE_EVENTS.push({ t: +GAME.t.toFixed(2), house: H.num, what, by: who ? (who.role === 'player' ? 'player' : who.role + ' ' + who.id) : 'nobody' });
+  if (HOUSE_EVENTS.length > 80) HOUSE_EVENTS.shift();
 }
 function setHouseShutters(H, win, open, who = null, quiet = false) {
   if (!H || !houseIntact(H) || !win || !win.leaves.length) return false;
@@ -713,6 +741,7 @@ function setHouseShutters(H, win, open, who = null, quiet = false) {
   if (win.target === want) return true;
   win.target = want;
   for (const L of win.leaves) L.target = want;
+  if (who) houseNote(H, open ? 'shutters open' : 'shutters close', who);
   if (!quiet) houseSfx(open ? 'shutterOpen' : 'shutterClose', win.c.x, H.y + win.y, win.c.z);
   return true;
 }
@@ -1071,24 +1100,44 @@ function drawHouses(dt) {
       T.uHA.value[i].set(H.char, houseStageNum(H), H.fall, H.ember);
       T.uHB.value[i].set(B ? B.x : 0, B ? B.z : 0, B ? B.R : 0, H.state === 'burning' ? 1 : 0);
       // a cooking fire by day, banked up at night; a house afire is lit red within
-      let fire = whole ? 0.6 + 0.7 * night : 0;
+      let fire = whole ? 0.6 + 0.9 * night : 0;
       if (H.state === 'burning') fire += H.char * 2.4;
       T.uHL.value[i].w = fire;
-      const lamp = whole ? 0.95 * smooth(clamp((night - 0.3) / 0.35, 0, 1)) : 0;
+      const lamp = whole ? 1.25 * smooth(clamp((night - 0.3) / 0.35, 0, 1)) : 0;
       T.uHM.value[i].w = lamp;
       // the hearth's real light falls on people only while they (or the camera) are in the room
       const f = H.hearth.fire;
       if (f) { const want = pin === H || cin === H ? 0.8 : 0; f.lightK += (want - f.lightK) * (1 - Math.exp(-dt * 5)); if (f.lightK < 0.005) f.lightK = 0; }
       if (near && lamp > 0.02 && dist2(cx, cz, H.x, H.z) < 70 * 70) {
-        const fl = lamp * (0.92 + 0.08 * Math.sin(renderTime * 9.1 + H.id * 2.3));
+        const fl = lamp * (0.92 + 0.08 * Math.sin(renderTime * 9.1 + H.num * 2.3));
         glowPush(H.lamp.x, H.lamp.wy, H.lamp.z, 1.9 * fl, 1.2 * fl, 0.5 * fl, 0.32);
         glowPush(H.lamp.x, H.lamp.wy, H.lamp.z, 0.5 * fl, 0.3 * fl, 0.12 * fl, 1.3);
         if (H.candles) for (const c of H.candles) { const k = lamp * (0.85 + 0.15 * Math.sin(renderTime * 13 + c.x * 7)); glowPush(c.x, c.y, c.z, 1.8 * k, 1.1 * k, 0.45 * k, 0.07); glowPush(c.x, c.y, c.z, 0.35 * k, 0.2 * k, 0.07 * k, 0.45); }
       }
     }
   }
+  houseSmoke(dt, cx, cz);
   houseRoofsForRain(cx, cz);
   houseSound(dt);
+}
+// a burning house sends up a thick column of dark smoke; a ruin smokes thinner as it cools
+function houseSmoke(dt, cx, cz) {
+  const A = U.uAmbient.value, Lc = U.uLightColor.value, wx = U.uWindDir.value.x * U.uWind.value, wz = U.uWindDir.value.y * U.uWind.value;
+  for (const H of HOUSES) {
+    const burning = H.state === 'burning', ruin = H.state === 'ruin' && H.stT < 85;
+    if ((!burning && !ruin) || dist2(cx, cz, H.x, H.z) > 220 * 220) continue;
+    const k = burning ? 0.35 + H.char : (1 - H.stT / 85) * 0.55;
+    H.smokeAcc = (H.smokeAcc || 0) + dt * 16 * k;
+    while (H.smokeAcc >= 1) {
+      H.smokeAcc -= 1;
+      let x = H.x, y = H.y + H.wallH, z = H.z;
+      const lit = burning ? H.burn.pts.filter((q) => q.fire) : H.burn.smoulder.filter((q) => q.f);
+      if (lit.length) { const q = lit[Math.floor(Math.random() * lit.length)]; x = burning ? q.x : q.f.x; y = burning ? q.y + 0.6 : q.f.y + 0.8; z = burning ? q.z : q.f.z; }
+      const g = (burning ? 0.32 : 0.55) + Math.random() * 0.15;
+      fxAlpha.emit(x + (Math.random() - 0.5) * 0.8, y, z + (Math.random() - 0.5) * 0.8, wx * 0.9 + (Math.random() - 0.5) * 0.4, (burning ? 1.8 : 1.0) + Math.random() * 1.2, wz * 0.9 + (Math.random() - 0.5) * 0.4,
+        6 + Math.random() * 4, (A.x * 0.7 + Lc.x * 0.2) * g, (A.y * 0.7 + Lc.y * 0.2) * g * 0.97, (A.z * 0.7 + Lc.z * 0.2) * g * 0.94, -(burning ? 2.4 : 1.6) - Math.random() * 1.6, -0.06, 0.12);
+    }
+  }
 }
 
 /* rain and snow do not fall indoors: the precipitation shaders skip drops under the nearest roofs */
@@ -1205,8 +1254,9 @@ function houseSound(dt) {
 function initHouses() {
   for (const H of HOUSES) if (H.state === 'whole' && H.S.houseSet) houseHearthOn(H);
   if (window.__hm && window.__hm.fn) {
-    Object.assign(window.__hm.fn, { houseAt, houseInside, houseHas, igniteHouse, fireLandsAt, fireConeAt, setHouseDoor, setHouseShutters, houseRestore, houseCamera, houseFireAim, castAtHouse, houseRoofOver, houseDoorBlocked, currentInteraction, houseL, houseW, stepTo, isRooted });
+    Object.assign(window.__hm.fn, { houseAt, houseInside, houseHas, igniteHouse, fireLandsAt, fireConeAt, setHouseDoor, setHouseShutters, houseRestore, houseCamera, houseFireAim, castAtHouse, houseRoofOver, houseDoorBlocked, currentInteraction, houseL, houseW, houseRoute, stepTo, isRooted });
     window.__hm.HOUSES = HOUSES;
+    window.__hm.HOUSE_EVENTS = HOUSE_EVENTS;
     window.__hm.fn.HOUSES = HOUSES;
   }
 }
