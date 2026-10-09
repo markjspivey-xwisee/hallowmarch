@@ -55,6 +55,8 @@ const LORE_CSS = `
 #lore-pro .dots { flex: 1; display: flex; gap: 8px; align-items: center; }
 #lore-pro .dots button { width: 10px; height: 10px; padding: 0; border-radius: 5px; border: 1px solid var(--bronze); background: transparent; cursor: pointer; transition: width 0.25s ease; }
 #lore-pro .dots button[aria-current="true"] { width: 24px; background: var(--bronze-hi); border-color: var(--bronze-hi); }
+#lore-pro .dots button { position: relative; }
+#lore-pro .dots button::after { content: ''; position: absolute; inset: -12px -4px; }
 #lore-pro .foot .btn { min-width: 88px; }
 @media (max-width: 760px) {
   #lore-pro { padding: calc(8px + var(--safe-t)) 8px calc(8px + var(--safe-b)); }
@@ -94,6 +96,7 @@ const LORE_CSS = `
 @media (max-width: 760px), (pointer: coarse) {
   #lore-path { width: 196px; padding: 7px 8px 8px; gap: 5px; }
   #lore-path.min { max-width: 196px; padding: 5px 6px 5px 9px; }
+  body.touch #lore-path .tog { width: 32px; height: 28px; }
   #lore-path .st { font-size: 13.5px; }
   #lore-path .hint { font-size: 12px; }
   #tf:not([hidden]) ~ #lore-path { display: none; }
@@ -270,51 +273,51 @@ function laShade(hex, k) { return '#' + hex3(hex).map((v) => Math.round(clamp(v 
 // lv: when the step usually comes; level: reached by levelling; old: a character from before
 // the path who is already this strong is taken to have done it (no reward)
 const PATH_STEPS = [
-  { id: 'herald', lv: 1, old: 5, title: 'Speak with the herald',
+  { id: 'herald', lv: 1, old: 5, title: 'Speak with the herald', short: 'The herald',
     hint: (R) => `The ${R.name} Herald stands in the square of ${R.townName}, by the portal stones. Walk up to him and ${LK().use}.`,
     reward: { potions: 2 } },
-  { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty',
+  { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty', short: 'A bounty',
     hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${prog.bounty.name}s at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
     meter: (prog) => (prog.bounty && !prog.bounty.done ? [prog.bounty.have / prog.bounty.need, `${prog.bounty.have} / ${prog.bounty.need} slain`] : null),
     reward: { item: { slot: 'weapon', q: 2 } } },
-  { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5',
+  { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5', short: 'Level 5',
     hint: (R) => `Hunt the creatures of ${homeIn(R)}. A name in green or blue is an easy kill; orange and red will hurt.`,
     reward: { gold: () => 40 } },
-  { id: 'draught', lv: 5, old: 8, title: 'Buy a healing draught',
+  { id: 'draught', lv: 5, old: 8, title: 'Buy a healing draught', short: 'A draught',
     hint: (R) => `${R.merchant ? R.merchant.name : 'The merchant'} keeps a stall in ${R.townName}: ${LK().use} beside it to trade. In a fight, ${LK().potion} to drink one.`,
     reward: { xp: 0.25 } },
-  { id: 'muster', lv: 14, old: 18, title: 'Go to the muster',
+  { id: 'muster', lv: 14, old: 18, title: 'Go to the muster', short: 'The muster',
     hint: (R, prog) => `${prog.level < 14 ? 'Once you reach level 14, step' : 'Step'} through the portal stones in ${R.townName} to ${R.name} Muster on the frontier.`,
     meter: (prog) => (prog.level < 14 ? [loreLvlFrac(prog, 14), `Level ${prog.level} of 14`] : null),
     reward: { item: { slot: 'cloak', q: 3 } } },
-  { id: 'warband', lv: 14, old: 20, title: "Join a warband's fight",
+  { id: 'warband', lv: 14, old: 20, title: "Join a warband's fight", short: 'A warband fight',
     hint: (R) => `Warbands of ${R.name} march out from the muster. Follow one to its fight (your realm's markers on the map) and fight beside it.`,
     reward: { xp: 1 / 3 } },
-  { id: 'gate', lv: 15, old: 22, title: 'Help break a keep gate',
+  { id: 'gate', lv: 15, old: 22, title: 'Help break a keep gate', short: 'A keep gate',
     hint: () => 'Target an enemy keep\'s gate and strike it while a warband lays siege. It takes many blows, and the archers on the walls shoot back.',
     reward: { gold: (L) => 40 + L * 6 } },
-  { id: 'hallow', lv: 16, title: 'Carry a hallow home',
+  { id: 'hallow', lv: 16, title: 'Carry a hallow home', short: 'A hallow home',
     hint: (R) => `Once an enemy realm has lost a keep, its temple gate can be broken. Take the hallow (${LK().use}) and carry it to the ${R.templeName}.`,
     reward: { item: { slot: 'weapon', q: 4 } } },
-  { id: 'barrow', lv: 18, title: 'Enter the Hollow Barrow',
+  { id: 'barrow', lv: 18, title: 'Enter the Hollow Barrow', short: 'The Barrow',
     hint: () => 'A long grassy mound just east of the Lone Tree, at the heart of the March, with a ring of standing stones before its door. Best at level 18 or so.',
     reward: { potions: 3 } },
-  { id: 'king', lv: 18, title: 'Defeat the Hollow King',
+  { id: 'king', lv: 18, title: 'Defeat the Hollow King', short: 'The Hollow King',
     hint: () => 'Fight down through the barrow, slay the warden of the Well of Souls to open its gate, and face the king on his throne.',
     reward: { gold: (L) => 120 + L * 8 } },
-  { id: 'lv20', lv: 20, level: 20, title: 'Reach level 20',
+  { id: 'lv20', lv: 20, level: 20, title: 'Reach level 20', short: 'Level 20',
     hint: () => 'Level 20 brings your seventh ability. From then on the frontier, the Barrow and Cinderwing rise to meet you.',
     reward: { item: { slot: 'ring', q: 3 } } },
-  { id: 'champion', lv: 20, title: 'Defeat a borderland champion',
+  { id: 'champion', lv: 20, title: 'Defeat a borderland champion', short: 'A champion',
     hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps, from level 20 to 40.`,
     reward: { item: { slot: 'charm', q: 4 } } },
-  { id: 'lv30', lv: 30, level: 30, title: 'Reach level 30',
+  { id: 'lv30', lv: 30, level: 30, title: 'Reach level 30', short: 'Level 30',
     hint: () => 'At 30 you learn your eighth ability, and every ability you know reaches rank II.',
     reward: { xp: 0.5 } },
-  { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40',
+  { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
     hint: () => 'Rank III at 40. The fiercest champions hold the camps for levels 35 to 40.',
     reward: { item: { slot: 'chest', q: 4 } } },
-  { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50',
+  { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
     hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you.',
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
@@ -988,7 +991,7 @@ function renderPathHud() {
       ? `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open">Your path is walked</button><span class="n">${N}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show your path">${iconSvg('lplus', 12)}</button></div>`
       : `<div class="ph"><span class="lbl">Your path</span><span class="n">${N} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div><button type="button" class="step" data-act="open"><span class="fin">Every step is walked. The March is yours to shape.</span></button>`;
   } else if (LORE.min) {
-    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}">${S.title}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
+    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="${S.title}: open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}" aria-label="Next step: ${S.title}">${S.short}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
   } else {
     const m = S.level ? [loreLvlFrac(prog, S.level), `Level ${prog.level} of ${S.level}`] : S.meter ? S.meter(prog) : null;
     const rw = rewardLabel(S, prog);
@@ -1211,14 +1214,14 @@ function marchMap() {
   }
   for (const K of WAR.keeps) g += glyph('keep', K.site.x, K.site.z, 17, REALMS[K.realm].color);
   for (const R of REALMS) {
-    const p = at(R, 312, 0);
+    const p = at(R, 298, 0);
     g += `<text x="${fx1(p.x)}" y="${fx1(p.z + 10)}" text-anchor="middle" font-family="IM Fell English SC, Georgia, serif" font-size="42" fill="${R.light}" stroke="#0b0c0e" stroke-width="6" paint-order="stroke">${R.name}</text>`;
   }
   // the Lone Tree and the Barrow
   g += `<g transform="translate(0 -4)"><path d="M-2,8v-12h4v12z" fill="#2a2016"/><circle cx="0" cy="-10" r="11" fill="#3f5a34" stroke="#0b0c0e" stroke-width="2"/></g>`;
   g += `<path d="M${BARROW.x - 14},${BARROW.z + 6}q14,-22 28,0z" fill="#7fd6d0" stroke="#0b0c0e" stroke-width="2"/>`;
-  g += `<text x="0" y="34" text-anchor="middle" font-family="Alegreya Sans, sans-serif" font-size="22" fill="#efe6d3" stroke="#0b0c0e" stroke-width="5" paint-order="stroke">Lone Tree</text>`;
-  g += `<text x="${BARROW.x + 4}" y="${BARROW.z - 16}" text-anchor="middle" font-family="Alegreya Sans, sans-serif" font-size="20" fill="#a9e6e0" stroke="#0b0c0e" stroke-width="5" paint-order="stroke">Barrow</text>`;
+  g += `<text x="0" y="38" text-anchor="middle" font-family="Alegreya Sans, sans-serif" font-size="28" fill="#efe6d3" stroke="#0b0c0e" stroke-width="6" paint-order="stroke">Lone Tree</text>`;
+  g += `<text x="${BARROW.x + 8}" y="${BARROW.z - 18}" text-anchor="middle" font-family="Alegreya Sans, sans-serif" font-size="26" fill="#a9e6e0" stroke="#0b0c0e" stroke-width="6" paint-order="stroke">Barrow</text>`;
   // you
   const px = inDungeon(P) ? BARROW.x : P.x, pz = inDungeon(P) ? BARROW.z : P.z;
   if (Math.abs(px) < 440 && Math.abs(pz) < 440) g += `<g transform="translate(${fx1(px)} ${fx1(pz)}) rotate(${fx1(180 - P.yaw / DEG)})"><path d="M0,-13L9,11L0,5L-9,11Z" fill="#fff" stroke="#0b0c0e" stroke-width="2.5"/></g>`;
@@ -1368,7 +1371,7 @@ function chronWilds() {
   const champs = REALMS.map((R) => {
     const list = CAMPS.filter((c) => c.realm === R.id && c.elite).map((c) => {
       const e = getEnt(c.eliteId);
-      return `<li>${e && e.alive ? `<b>${esc(e.name)}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${c.lmin}–${c.lmax}</small></li>`;
+      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${c.lmin}–${c.lmax}</small></li>`;
     }).join('');
     return `<div class="card rcard" style="--rc:${R.color}"><div class="rhead"><span class="em">${emblemSvg(R.id, 22)}</span><b style="font-size:20px">${R.homeName}</b></div><ul class="champs">${list}</ul></div>`;
   }).join('');
