@@ -255,6 +255,9 @@ function planWar(C) {
     const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
     const wb = spawnWarband(r, size);
     wbOrd(wb);
+    // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
+    const vet = Math.round(cwWeary() * 4);
+    if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
   }
@@ -377,11 +380,16 @@ function updateCampaign(dt) {
       wb.cwMine = null;
     }
   }
-  if (CAMPAIGN.state === 'peace') { if (now > CAMPAIGN.peaceUntil) resetMarch(); return; }
+  if (CAMPAIGN.state === 'peace') {
+    // the truce: no keep changes hands while the armies go home
+    for (const K of WAR.keeps) { const Lr = getEnt(K.lord); if (Lr && Lr.alive) Lr.hp = Lr.maxHp; }
+    if (now > CAMPAIGN.peaceUntil) resetMarch();
+    return;
+  }
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
-    news('The war drags on. Garrisons thin, broken gates mend slowly and the musters send out bigger bands.', -1, 'big');
+    news('The war drags on. Garrisons thin, broken gates mend slowly, and the musters send out bigger bands of veterans.', -1, 'big');
   }
   for (let r = 0; r < 3; r++) {
     const c = CAMPAIGN.claims[r], R = REALMS[r];
@@ -439,7 +447,7 @@ function campaignVictory(r, how) {
   const col = R.rgb.map((v) => v * 2 + 0.5);
   for (let i = 0; i < 14; i++) later(i * 0.45, () => { const Sx = spots[i % spots.length]; FX.burst(Sx.x + (Math.random() - 0.5) * 18, Sx.y + 12 + Math.random() * 8, Sx.z + (Math.random() - 0.5) * 18, 40, i % 3 ? col : [2.4, 2.0, 1.1], 8, 1.3, 0.28, 2.5); });
   cwFanfare(P ? P.faction === r : true);
-  CAMPAIGN.pendingVictory = rec;
+  CAMPAIGN.pendingVictory = P ? rec : null; // shown once no window is open
   saveSoon(800);
 }
 function cwFanfare(win) {
@@ -521,7 +529,7 @@ function applyCampaignSave(c) {
     reward: x.reward && typeof x.reward === 'object' ? { gold: num(x.reward.gold, 0, 1e6) | 0, rp: num(x.reward.rp, 0, 1e6) | 0, xp: num(x.reward.xp, 0, 1e8) | 0, item: typeof x.reward.item === 'string' ? x.reward.item.slice(0, 60) : '', q: num(x.reward.q, 0, 5) | 0 } : undefined,
   }));
   // saved in the peace: the reset comes as soon as the world is up
-  if (c.p) { CAMPAIGN.state = 'peace'; CAMPAIGN.peaceUntil = GAME.t + 3; }
+  if (c.p) { CAMPAIGN.state = 'peace'; CAMPAIGN.peaceUntil = GAME.t + 3; CAMPAIGN.winner = CAMPAIGN.history.length ? CAMPAIGN.history[CAMPAIGN.history.length - 1].w : 0; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -548,9 +556,9 @@ function campaignHudHTML() {
     body = top.length ? top.map((c) => {
       const R = REALMS[c.r];
       return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : 'keeps') : (c.on ? 'holds both hallows' : 'hallows')}</span><span class="num">${c.on ? fmtClock(c.left) : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`;
-    }).join('') : `<div class="cw-rule">Win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60}</div>`;
+    }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60}</div>`;
   }
-  return `<div class="cw-hud"><div class="cw-h"><span>Campaign ${CAMPAIGN.n}</span><span class="num" title="The elders call the war at one hour">${CAMPAIGN.state === 'peace' ? 'peace' : `${fmtClock(el)} / 60:00`}</span></div>${body}</div>`;
+  return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}</div>`;
 }
 function campaignHeraldText() {
   const P = GAME.player, R = REALMS[P.faction];
@@ -573,7 +581,7 @@ function campaignChronHTML() {
   const now = CAMPAIGN.state === 'peace' ? `${REALMS[CAMPAIGN.winner].name} has won the ${ordinalWord(CAMPAIGN.n)} campaign; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.` : `The ${ordinalWord(CAMPAIGN.n)} campaign has run for ${Math.floor(campaignElapsed() / 60)} minutes.`;
   return `<h3>How a campaign is won</h3>
     <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a quarter of the speed it grew. If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
-    <p>The winners share the spoils. After a short peace every keep and hallow goes back to its own realm and the next campaign begins. The realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster; and from a quarter of an hour on the long war thins the garrisons, slows the mending of broken gates and swells every muster, so no campaign stalls for ever.</p>
+    <p>The winners share the spoils. After a short peace every keep and hallow goes back to its own realm and the next campaign begins. The realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster; and from a quarter of an hour on the long war thins the garrisons, slows the mending of broken gates and swells every muster with veterans, so no campaign stalls for ever.</p>
     <div class="tide" role="table" aria-label="The campaign now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Renown</span><span class="h w" role="columnheader">Claim</span>${rows}</div>
     <p class="now">${now}</p>
     ${hist ? `<h3>Past campaigns</h3><ul class="plain">${hist}</ul>` : ''}`;
@@ -706,7 +714,7 @@ function drawCampaignMap(ctx, S, P) {
 }
 function drawCampaignMinimap(ctx, toM, S, dpr) {
   const P = GAME.player;
-  const sc = 1.6 * dpr;
+  const sc = 2.4 * dpr;
   for (const wb of WAR.warbands) {
     if (wb.dead || !wb.order || !cwSpotted(wb, P)) continue;
     cwDrawRoute(ctx, wb, toM, sc, wb.realm === P.faction ? 0.9 : 0.55, wb.id === CWUI.sel);
@@ -897,9 +905,9 @@ function updateCampaignUI(dt) {
   st.id = 'cw-css';
   st.textContent = `
 #war .cw-hud { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 5px; margin-top: 1px; }
-#war .cw-h { display: flex; justify-content: space-between; font: 500 11.5px var(--caps); letter-spacing: 0.06em; color: var(--bronze-hi); }
+#war .cw-h { display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; font: 500 11.5px var(--caps); letter-spacing: 0.06em; color: var(--bronze-hi); }
 #war .cw-h .num { color: var(--ink-dim); font-family: var(--ui); letter-spacing: 0; }
-#war .cw-claim { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; font-size: 12px; color: var(--ink-dim); }
+#war .cw-claim { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px; font-size: 12px; color: var(--ink-dim); line-height: 1.2; }
 #war .cw-claim b { color: var(--ink); font-weight: 700; }
 #war .cw-claim.on .num { color: #ffe7a8; font-weight: 700; }
 #war .cw-claim i { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(0, 0, 0, 0.5); overflow: hidden; }
@@ -963,6 +971,12 @@ function updateCampaignUI(dt) {
   #cw-victory .cw-table .h { font-size: 9.5px; letter-spacing: 0.02em; }
   .np .cw-o { font-size: 9.5px; }
 }
+/* a phone on its side: the map and its panel side by side, so the orders can be reached */
+@media (orientation: landscape) and (max-height: 520px) {
+  #mapov .mapbox { grid-template-columns: auto minmax(0, 1fr) !important; width: 100%; }
+  #mapcanvas { width: min(86vh, 52vw) !important; height: min(86vh, 52vw) !important; }
+  #mapside { max-height: 86vh !important; }
+}
 @media (prefers-reduced-motion: reduce) { #cw-victory .cw-crest, #cw-victory .cw-vic { animation: none !important; } }
 `;
   (document.body || document.documentElement).appendChild(st);
@@ -977,6 +991,7 @@ Object.assign(ICONS, {
 queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.CW = {
+    hud() { updateWarPanel(); return document.querySelector('#war .cw-hud')?.textContent || ''; },
     CAMPAIGN, CW, CWUI, planWar, playerOrder, campaignVictory, resetMarch, cwCanCommand, wbName, orderShort, orderPhrase, campaignSaveData, applyCampaignSave, cwTopClaims, showVictory, closeVictory,
     bands(r) { return WAR.warbands.filter((w) => !w.dead && (r === undefined || w.realm === r)).map((w) => { const L = wbLeader(w); const [, word, what] = orderShort(w); return { id: w.id, realm: w.realm, name: wbName(w), n: wbMembers(w).length, order: word, what, why: w.order ? w.order.why || '' : '', phase: w.order ? w.order.phase || '' : '', mine: !!(w.order && w.order.byPlayer), x: L ? Math.round(L.x) : null, z: L ? Math.round(L.z) : null }; }); },
     state() { return { n: CAMPAIGN.n, state: CAMPAIGN.state, el: Math.round(campaignElapsed()), winner: CAMPAIGN.winner, how: CAMPAIGN.how, claims: CAMPAIGN.claims.map((c) => ({ k: Math.round(c.k), h: Math.round(c.h), kOn: c.kOn, hOn: c.hOn })), renown: CAMPAIGN.renown.map((v) => Math.round(v)), keeps: [0, 1, 2].map((r) => WAR.keeps.filter((K) => K.realm === r).length), hallows: [0, 1, 2].map(foreignHallows), story: JSON.parse(JSON.stringify(CAMPAIGN.story)), history: CAMPAIGN.history.length, peaceLeft: CAMPAIGN.state === 'peace' ? Math.round(CAMPAIGN.peaceUntil - GAME.t) : 0 }; },

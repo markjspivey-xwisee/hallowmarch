@@ -2,7 +2,7 @@
 Simulates the war in chunks and prints the orders, the standing and the countdowns until a realm wins and the
 campaign resets; checks that orders are drawn on the map (screenshot), issues player orders and checks the
 warband follows them, and screenshots the HUD panel and the victory screen. Screenshots go to tools/out/war_*.
-usage: python3 tools/tests/war.py [low|medium|high] [phone] [noshots]"""
+usage: python3 tools/tests/war.py [low|medium|high] [phone] [final] [noshots]   (final: 960 x 540 screenshots)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -50,11 +50,14 @@ async def chunk(page, sec):
     }})()""")
 
 async def main(p):
-    w, h = (390, 780) if PHONE else (960, 540)
+    w, h = (390, 780) if PHONE else (960, 540) if 'final' in ARGS else (640, 360)
     print(f'war test, {QUALITY} quality, {w} x {h}{" touch" if PHONE else ""}', flush=True)
     b, page, logs = await setup(p, touch=PHONE, w=w, h=h)
     page.set_default_timeout(300000)
+    await page.emulate_media(reduced_motion='reduce')  # screens appear at once, for steady screenshots
     await ev(page, f"__hm.fn.setQuality('{QUALITY}')")
+    # a cheaper 3D view behind the interface being tested: the world renders at half resolution
+    await ev(page, "(() => { __hm.quality.scale = 0.5; dispatchEvent(new Event('resize')); })()")
     await ev(page, "__hm.start({realm: 0, cls: 'warrior', level: 20})")
     await ev(page, "__hm.UI.modal = null; document.querySelectorAll('.overlay').forEach((o) => { if (o.id !== 'hud') o.hidden = true; })")
     # to the muster, on the frontier, where a rally can reach
@@ -76,7 +79,7 @@ async def main(p):
     # ---- the HUD panel ----
     await ev(page, "__hm.CAM.mode = 'play'; __hm.look(2.4, 0.42, 12)")
     await frames(page, 3)
-    hud = await ev(page, "document.querySelector('#war .cw-hud') && document.querySelector('#war .cw-hud').textContent")
+    hud = await ev(page, "__hm.CW.hud()")
     check(bool(hud) and 'Campaign 1' in hud, f'the war panel shows the campaign ({hud})')
     await shot(page, 'war_hud_start')
 
@@ -98,7 +101,7 @@ async def main(p):
       let gold = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 230 && d[i + 1] > 210 && d[i + 2] > 140 && d[i + 2] < 200) gold++;
       return gold;
     })()""")
-    check(drawn > 20, f'the chosen band\\'s route is drawn on the map ({drawn} highlighted pixels)')
+    check(drawn > 20, f"the chosen band's route is drawn on the map ({drawn} highlighted pixels)")
     await shot(page, 'war_map')
 
     # ---- a player order: attack a keep, and the band goes there ----
@@ -129,7 +132,7 @@ async def main(p):
         await ev(page, "__hm.CAM.mode = 'play'; __hm.look(0.6, 0.35, 16)")
         await frames(page, 3)
         plate = await ev(page, "[...document.querySelectorAll('.np .cw-o')].filter((e) => e.style.display !== 'none' && e.closest('.np').style.display !== 'none').map((e) => e.textContent)")
-        check(any('Rally' in t for t in plate), f'the captain\\'s nameplate shows the order ({plate[:3]})')
+        check(any('Rally' in t for t in plate), f"the captain's nameplate shows the order ({plate[:3]})")
         await shot(page, 'war_rally')
     rel = await ev(page, f"__hm.CW.playerOrder({rb['id']}, 'release', -1)")
     o = await ev(page, f"(() => {{ __hm.simulate(6); const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); return wb && wb.order ? {{ type: wb.order.type, mine: !!wb.order.byPlayer }} : null; }})()")
@@ -160,12 +163,12 @@ async def main(p):
     await ev(page, "__hm.fn.toggleMap(false); __hm.UI.modal = null")
     await frames(page, 2)
     vic = await ev(page, "(() => { const o = document.getElementById('cw-victory'); return o && !o.hidden ? o.textContent : null; })()")
-    check(bool(vic) and 'wins the March' in vic and 'Your part' in vic, 'the victory screen tells the campaign\\'s story')
+    check(bool(vic) and 'wins the March' in vic and 'Your part' in vic, "the victory screen tells the campaign's story")
     banner = await ev(page, "__hm.WAR.news.slice(-30).some((n) => /has won the .* campaign/.test(n.text))")
     check(banner, 'the victory is cried in the news')
     await shot(page, 'war_victory')
     reward = await ev(page, "(() => { const h = __hm.CW.CAMPAIGN.history[__hm.CW.CAMPAIGN.history.length - 1]; return { w: h.w, reward: h.reward || null, you: h.you }; })()")
-    if reward['w'] == 0: check(reward['reward'] and reward['reward']['rp'] > 0, f'the winning realm\'s player is rewarded ({reward["reward"]})')
+    if reward['w'] == 0: check(reward['reward'] and reward['reward']['rp'] > 0, f"the winning realm's player is rewarded ({reward['reward']})")
     else: print(f"    (Logres did not win: no reward, as it should be: {reward['reward']})")
     await page.click('#cw-victory [data-cw="ok"]')
     check(await ev(page, "__hm.UI.modal") is None, 'Onward closes the victory screen')
@@ -174,7 +177,7 @@ async def main(p):
     check(all(o in ('Withdraw', 'Retrieve', 'Carry') for o in st), f'in the peace every band turns for home ({set(st)})')
     await frames(page, 2)
     await ev(page, "(() => { for (let i = 0; i < 16; i++) __hm.frame(1/30); })()")
-    hud = await ev(page, "document.querySelector('#war .cw-hud').textContent")
+    hud = await ev(page, "__hm.CW.hud()")
     check('won the March' in hud, f'the HUD shows the peace ({hud})')
     await shot(page, 'war_hud_peace')
     # the reset
