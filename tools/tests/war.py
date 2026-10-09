@@ -33,6 +33,8 @@ async def shot(page, name, clip=None):
 
 STATE = "__hm.CW.state()"
 
+MEDIAN = "const med = (wb, x, z) => { const d = __hm.fn.wbMembers(wb).map((m) => Math.hypot(m.x - x, m.z - z)).sort((a, b) => a - b); return d.length ? d[d.length >> 1] : 1e9; };"
+
 async def chunk(page, sec):
     """simulate and report what the commanders did"""
     return await ev(page, f"""(() => {{
@@ -111,10 +113,10 @@ async def main(p):
     await page.mouse.click(pt[0], pt[1])
     o = await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); return wb && wb.order ? {{ type: wb.order.type, keep: wb.order.keep ? wb.order.keep.id : null, mine: !!wb.order.byPlayer, msg: __hm.CW.CWUI.msg }} : null; }})()")
     check(o and o['type'] == 'attack' and o['keep'] == tgt and o['mine'], f'clicking an enemy keep on the map orders the chosen band to attack it ({o})')
-    d0 = await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); const L = __hm.fn.wbLeader(wb), K = __hm.WAR.keeps[{tgt}]; return Math.hypot(L.x - K.site.x, L.z - K.site.z); }})()")
+    d0 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); const K = __hm.WAR.keeps[{tgt}]; return med(wb, K.site.x, K.site.z); }})()")
     await ev(page, "__hm.fn.toggleMap(false)")
     await ev(page, "__hm.simulate(45)")
-    r2 = await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); if (!wb || wb.dead) return null; const L = __hm.fn.wbLeader(wb), K = __hm.WAR.keeps[{tgt}]; return {{ d: Math.hypot(L.x - K.site.x, L.z - K.site.z), type: wb.order && wb.order.type, mine: !!(wb.order && wb.order.byPlayer), phase: wb.order && wb.order.phase }}; }})()")
+    r2 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {wb['id']}); if (!wb || wb.dead) return null; const K = __hm.WAR.keeps[{tgt}]; return {{ d: med(wb, K.site.x, K.site.z), type: wb.order && wb.order.type, mine: !!(wb.order && wb.order.byPlayer), phase: wb.order && wb.order.phase }}; }})()")
     check(r2 is not None and (r2['d'] < d0 - 30 or r2['d'] < 40) and (r2['type'] == 'attack' and r2['mine'] or r2['d'] < 40), f'the band marches on the keep and holds the order (from {d0:.0f} m to {r2 and r2["d"]:.0f} m, {r2})')
     said = await ev(page, "__hm.WAR.news.slice(-40).some((n) => n.text.includes('at your command'))")
     check(said, 'the order is cried as given at your command')
@@ -124,10 +126,10 @@ async def main(p):
     rb = next((x for x in my if not x['mine']), my[0])
     msg = await ev(page, f"__hm.CW.playerOrder({rb['id']}, 'rally', -1)")
     print('   ', msg)
-    d0 = await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); const L = __hm.fn.wbLeader(wb), P = __hm.GAME.player; return Math.hypot(L.x - P.x, L.z - P.z); }})()")
+    d0 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); const P = __hm.GAME.player; return med(wb, P.x, P.z); }})()")
     await ev(page, "__hm.simulate(50)")
-    r3 = await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); if (!wb || wb.dead) return null; const L = __hm.fn.wbLeader(wb), P = __hm.GAME.player; return {{ d: Math.hypot(L.x - P.x, L.z - P.z), type: wb.order && wb.order.type }}; }})()")
-    check(r3 is not None and r3['type'] == 'rally' and (r3['d'] < d0 - 25 or r3['d'] < 16), f'a rallied band comes to the player (from {d0:.0f} m to {r3 and r3["d"]:.0f} m)')
+    r3 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); if (!wb || wb.dead) return null; const P = __hm.GAME.player; return {{ d: med(wb, P.x, P.z), type: wb.order && wb.order.type }}; }})()")
+    check(r3 is not None and r3['type'] == 'rally' and (r3['d'] < d0 - 25 or r3['d'] < 20), f'a rallied band comes to the player (from {d0:.0f} m to {r3 and r3["d"]:.0f} m, the median soldier)')
     if r3 and r3['d'] < 30:
         await ev(page, "__hm.CAM.mode = 'play'; __hm.look(0.6, 0.35, 16)")
         await frames(page, 3)

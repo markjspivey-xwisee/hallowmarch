@@ -599,7 +599,12 @@ function wbLeader(wb) {
   if (!m.length) return null;
   // prefer the relic carrier as the leader so the band escorts it
   const carrier = m.find((e) => e.carrying != null);
-  return carrier || m[0];
+  if (carrier) return carrier;
+  // [campaign] the same leader while it lives; when it falls, the soldier nearest to where it led takes
+  // over, so a band at a siege is not led away by a straggler far behind (08g_campaign.js)
+  let L = m.find((e) => e.id === wb.lid);
+  if (!L) { const p = wb.L || m[0]; L = m.reduce((a, e) => (dist2(e.x, e.z, p.x, p.z) < dist2(a.x, a.z, p.x, p.z) ? e : a), m[0]); wb.lid = L.id; }
+  return L;
 }
 function wbSetOrder(wb, order) {
   if (order.type === 'raid') WAR.stats.raidOrders++;
