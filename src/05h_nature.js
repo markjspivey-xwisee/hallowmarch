@@ -1259,14 +1259,14 @@ function drawNature(dt) {
       const x = t.x + _natAx.x, y = t.y - 0.15 + (t.felled ? D.cut * s : 0) + _natAx.y, z = t.z + _natAx.z;
       const k = 0.7 + Math.random() * 0.5;
       fxAdd.emit(x, y, z, (Math.random() - 0.5) * 0.4 + U.uWindDir.value.x * 0.5, 1.3 + Math.random() * 1.4, (Math.random() - 0.5) * 0.4 + U.uWindDir.value.y * 0.5,
-        0.45 + Math.random() * 0.35, FIRE_COL[0] * k, FIRE_COL[1] * k, FIRE_COL[2] * k, (0.32 + Math.random() * 0.3) * (inCrown ? 1.3 : 0.8), -1.4, 0.5);
+        0.45 + Math.random() * 0.35, FIRE_COL[0] * k, FIRE_COL[1] * k, FIRE_COL[2] * k, (0.28 + Math.random() * 0.3) * (inCrown ? 1.15 : 0.8), -1.4, 0.5);
       if (Math.random() < 0.08) fxAdd.emit(x, y + 0.5, z, (Math.random() - 0.5) * 1.4, 2 + Math.random() * 2, (Math.random() - 0.5) * 1.4, 1.6 + Math.random(), 2.6, 1.1, 0.3, 0.05, -0.3, 0.3);
       if (Math.random() < 0.12) {
         const g = 0.25 + Math.random() * 0.1;
         fxAlpha.emit(x, y + 1, z, U.uWindDir.value.x * 0.6, 0.9 + Math.random() * 0.4, U.uWindDir.value.y * 0.6, 5 + Math.random() * 3, (A.x * 0.7 + Lc.x * 0.2) * g, (A.y * 0.7 + Lc.y * 0.2) * g, (A.z * 0.7 + Lc.z * 0.2) * g, -(1.2 + Math.random() * 0.6), -0.05, 0.1);
       }
     }
-    glowPush(t.x + (F ? F.ux * D.trunk * s * 0.5 * Math.sin(F.ang) : 0), t.y + D.crownY * s * (F ? Math.cos(F.ang) * 0.7 + 0.15 : 1), t.z + (F ? F.uz * D.trunk * s * 0.5 * Math.sin(F.ang) : 0), 2.4 * t.fire, 1.0 * t.fire, 0.3 * t.fire, D.crown * s * 2.2);
+    glowPush(t.x + (F ? F.ux * D.trunk * s * 0.5 * Math.sin(F.ang) : 0), t.y + D.crownY * s * (F ? Math.cos(F.ang) * 0.7 + 0.15 : 1), t.z + (F ? F.uz * D.trunk * s * 0.5 * Math.sin(F.ang) : 0), 1.1 * t.fire, 0.42 * t.fire, 0.12 * t.fire, D.crown * s * 1.7);
     if (t.leaf > 0.05 && Math.random() < dt * 6) natLeafFall(t, 1);
     if (Math.random() < dt * 2) natSfx('crackle', t.x, t.z);
   }

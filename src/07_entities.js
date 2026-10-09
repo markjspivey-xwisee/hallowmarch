@@ -563,9 +563,9 @@ function executeAbility(e, A, t, cast = null) {
         spellDisc(gx, gz, A.radius * 0.9, DISC_KIND.scorch, 14, [1, 1, 1]);
         spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
+        natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
         fireLandsAt(gx, gy, gz, A.radius);
-        natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
         sfx('boom');
         cameraShake(0.4, gx, gz);
       });

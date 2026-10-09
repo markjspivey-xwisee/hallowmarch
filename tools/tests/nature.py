@@ -188,7 +188,7 @@ async def main():
         # ---- a meteor craters the ground ----
         r = await ev(page, 'meteor', """(() => { const P = T.H.GAME.player; const m = T.findMeadow(P.x + 50, P.z - 50); window.T.met = m;
           T.H.teleport(m.x + 14, m.z); T.sim(0.2);
-          const foe = T.F.spawnMob({ type: 'boar', lmin: 1, lmax: 1, x: m.x, z: m.z, r: 0.1, id: -1, members: new Set() });
+          const foe = T.F.spawnMob(T.H.CAMPS[0]); // a real camp, so its death is booked as usual
           foe.x = foe.prevX = m.x; foe.z = foe.prevZ = m.z; foe.y = T.F.heightAt(m.x, m.z); T.F.addBuff(foe, 'stun', 1, 20); T.F.addBuff(foe, 'root', 1, 20);
           const before = T.F.heightAt(m.x, m.z);
           P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; P.target = foe.id;
