@@ -73,12 +73,16 @@ function packItem(it) {
   if (it.tint) o.tint = it.tint.map((v) => Math.round(v * 1000) / 1000);
   if (it.glow) o.glow = it.glow;
   if (it.n > 1) o.n = it.n;
+  // feature/weather: wear travels with the item
+  if (Number.isFinite(it.dur) && it.dur < 100) o.dur = Math.round(it.dur * 10) / 10;
+  if (it.dirt > 0.005) o.dirt = Math.round(it.dirt * 1000) / 1000;
+  if (it.blood > 0.005) o.blood = Math.round(it.blood * 1000) / 1000;
   return o;
 }
 // the parts that matter enough to justify a write on their own
 function coreKey(s) {
   const c = s.char;
-  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id), c.lore], s.settings, s.world]);
+  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore], s.settings, s.world]);
 }
 function saveSoon(delay = 2500) {
   if (SAVE.wiping) return;

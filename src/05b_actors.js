@@ -39,7 +39,7 @@ class Crowd {
   }
 }
 const BEAST_ATTRS = ['iPos', 'iAnim', 'iColA', 'iColB'];
-const HUMAN_ATTRS = ['iPos', 'iAnim', 'iColA', 'iColB', 'iMisc', 'iStyle'];
+const HUMAN_ATTRS = ['iPos', 'iAnim', 'iColA', 'iColB', 'iMisc', 'iStyle', 'iWear']; // iWear: feature/weather (05h_wear.js)
 let crowdHuman, crowdHumanLo;
 const crowdBeast = {};
 function buildCrowds() {

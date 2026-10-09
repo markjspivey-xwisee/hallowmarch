@@ -163,8 +163,10 @@ function updateWeather(dt) {
   const precip = W2.raining;
   W2.snowing = precip * coldK;
   const rain = precip * (1 - coldK);
-  W2.wet = clamp(W2.wet + (rain > 0.2 ? dt * rain / 50 : -dt / 140), 0, 1);
-  W2.snow = clamp(W2.snow + (W2.snowing > 0.2 ? dt * W2.snowing / 70 : -dt / 200), 0, 1);
+  // surfaces soak up the rain and dry out after it, faster in sun and wind; snow builds while it falls and melts
+  // in sun and rain, slowly in the cold north (rates: 05h_wear.js)
+  W2.wet = clamp(W2.wet + (rain > 0.2 ? dt * rain / 50 : -dt * weatherDryRate() / 140), 0, 1);
+  W2.snow = clamp(W2.snow + (W2.snowing > 0.2 ? dt * W2.snowing / 70 : -dt * weatherMeltRate(coldK) / 200), 0, 1);
   U.uWet.value = W2.wet;
   U.uSnowCover.value = W2.snow;
   if (rainMesh) {

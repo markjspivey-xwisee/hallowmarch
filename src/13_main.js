@@ -175,7 +175,7 @@ const projView = new THREE.Matrix4();
 const _sph = new THREE.Sphere();
 const _fwd = new THREE.Vector3();
 const _p4 = [0, 0, 0, 0], _a4 = [0, 0, 0, 0], _ca = [0, 0, 0, 0], _cb = [0, 0, 0, 0], _mi = [0, 0, 0, 0], _st = [0, 0, 0, 0];
-const _ma = [0, 0, 0, 0], _hc = [0, 0, 0, 0], _hb = [0, 0, 0, 0];
+const _ma = [0, 0, 0, 0], _hc = [0, 0, 0, 0], _hb = [0, 0, 0, 0], _we = [0, 0, 0, 0];
 const HUMAN_LOD = { high: 30, medium: 22, low: 15 };
 const TRAIL_CAND = [];
 const SHADOW_R = { humanoid: 0.62, wolf: 0.75, boar: 0.72, bear: 1.15, wisp: 0.45, deer: 0.7, stag: 0.74, horse: 1.0 };
@@ -236,7 +236,8 @@ function drawActors(fx, fz) {
       }
       // seated: on a throne the body takes the rider's pose, hips on the seat
       if (e.seat && e.alive) { _p4[1] = e.seat.y - 0.86 * sc; _a4[0] = 0; _a4[1] = 0; _cb[3] = (L.flags || 0) | 8; }
-      (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st);
+      wearVisual(e, _we); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
+      (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we);
       // a gem of light on casters' hands while a spell builds
       if (e.casting && e.alive && e.casting.id !== 'summon') {
         const A = ABILITIES[e.casting.id];
@@ -339,6 +340,7 @@ function simStep(dt) {
   updateGates(dt);
   updateBarrow(dt);
   updateHouses(dt);
+  updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
 }
 function tick(dt) {
   renderer.info.reset();

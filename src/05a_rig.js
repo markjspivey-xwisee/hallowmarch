@@ -632,11 +632,12 @@ function humanVS(depth) {
   attribute vec4 iColB;  // armour / robe rgb, flags (1 bone, 2 troll, 4 hunched)
   attribute vec4 iMisc;  // skin tone, part mask, hit flash, hair tone
   attribute vec4 iStyle; // outfit, emblem realm, female, bulk
-  ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit;'}
+  attribute vec4 iWear;  // feature/weather: wet, snow, dirt, blood + whole steps of battle damage (05h_wear.js)
+  ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit; varying vec4 vWear;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
   void main(){
-    ${depth ? '' : 'vW = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vO = vec3(0.0); vUV = aUV; vMat = aMat; vAO = aAO; vTab = iColA.rgb; vArm = iColB.rgb; vMisc = iMisc; vStyle = iStyle; vFlags = iColB.w; vBit = aBit;'}
+    ${depth ? '' : 'vW = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vO = vec3(0.0); vUV = aUV; vMat = aMat; vAO = aAO; vTab = iColA.rgb; vArm = iColB.rgb; vMisc = iMisc; vStyle = iStyle; vFlags = iColB.w; vBit = aBit; vWear = iWear;'}
     if (aBit > -0.5) {
       int bit = int(aBit + 0.5);
       int mask = int(iMisc.y + 0.5);
@@ -847,6 +848,7 @@ const humanoidMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
     varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit;
+    varying vec4 vWear; // feature/weather
     float sdBox2(vec2 p, vec2 b){ vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
     float sdDiamond(vec2 p, float r){ return (abs(p.x) + abs(p.y)) * 0.7071 - r; }
     float emblemD(vec2 q, float realm){
@@ -999,6 +1001,58 @@ const humanoidMat = mat({
       } else if (m == 24) {
         alb = vec3(0.86, 0.84, 0.8); rough = 0.9;
       }
+      /* ---- weather and wear (feature/weather, 05h_wear.js): mud climbing from the boots, battle damage, blood, rain, snow ---- */
+      {
+        float wWet = clamp(vWear.x, 0.0, 1.0), wSnow = clamp(vWear.y, 0.0, 1.0), wDirt = clamp(vWear.z, 0.0, 1.0);
+        float wBlood = fract(vWear.w), wDmg = clamp(floor(vWear.w + 1e-3) / 15.0, 0.0, 1.0);
+        bool cloth = m == 1 || m == 8 || m == 10 || m == 16 || m == 7;
+        bool hide = m == 3 || m == 4 || m == 5 || m == 18 || m == 19;
+        bool steel = metal > 0.5;
+        bool gearSurf = !(m == 0 || m == 14 || m == 9 || m == 13 || m == 7);
+        float wN = vnoise(vO.xz * 17.0 + vO.y * 9.0);
+        if (wDirt > 0.01) {
+          // mud and road dust: boots first, then the shins and hems, in blotches
+          float line = 0.1 + 0.8 * wDirt + 0.14 * (wN - 0.5);
+          float dk = (1.0 - smoothstep(line - 0.16, line, vO.y)) * (gearSurf ? 1.0 : 0.6);
+          dk *= 0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vO.xy * 29.0 + vO.z * 13.0) + 0.35 * (1.0 - smoothstep(0.0, 0.25, vO.y)));
+          dk = clamp(dk * (0.6 + 0.6 * wDirt), 0.0, 0.9);
+          alb = mix(alb, vec3(0.21, 0.16, 0.1) * (0.7 + 0.6 * wN), dk); rough = mix(rough, 0.95, dk); metal *= 1.0 - dk;
+        }
+        if (wDmg > 0.01 && gearSurf) {
+          // scratches bright in steel, scuffs in leather; cloth frays, stains and tears
+          vec2 sq = vec2(vO.x * 0.7 + vO.z * 0.7, vO.y) * 34.0;
+          float scr = smoothstep(0.9, 0.98, vnoise(vec2(sq.x * 0.4 + sq.y * 0.9, sq.y * 0.15 - sq.x * 0.5) * 2.2));
+          scr = fineMix(scr, 0.08, sq);
+          float wornK = smoothstep(1.02 - wDmg * 0.8, 1.1 - wDmg * 0.5, vnoise(vO.xy * 8.0 + vO.z * 5.0 + 4.0) + 0.35);
+          if (steel) { alb = mix(alb, vec3(0.92, 0.92, 0.9), scr * wDmg); alb *= 1.0 - 0.4 * wornK; rough = mix(rough, 0.8, wornK); }
+          else if (hide) { alb = mix(alb, alb * 1.6 + 0.05, scr * wDmg * 0.7); alb *= 1.0 - 0.32 * wornK; }
+          else if (cloth) {
+            alb *= 1.0 - 0.38 * wornK;
+            float tear = smoothstep(0.9, 0.97, vnoise(vO.xy * 23.0 + vO.z * 9.0)) * step(0.45, wDmg);
+            alb = mix(alb, vec3(0.06, 0.05, 0.04), tear * 0.85);
+          } else alb *= 1.0 - 0.25 * wornK;
+        }
+        if (wBlood > 0.01) {
+          // spatter on the front and down the blade, darkening as it dries
+          float sp = smoothstep(0.66, 0.84, vnoise(vO.xy * 26.0 + vO.z * 13.0) * 0.65 + vnoise(vO.xy * 71.0 + 3.0) * 0.35);
+          float front = m == 6 ? 1.5 : clamp(0.3 + vO.z * 5.0, 0.0, 1.0) * smoothstep(0.45, 1.0, vO.y);
+          float bk = clamp(sp * front * wBlood * 1.8, 0.0, 0.95);
+          alb = mix(alb, vec3(0.32, 0.02, 0.015) * (0.6 + 0.6 * wN), bk); rough = mix(rough, 0.3, bk); metal *= 1.0 - bk; sss *= 1.0 - bk;
+        }
+        if (wWet > 0.01) {
+          // rain soaks cloth and hair dark, beads on skin and steel; everything turns glossy
+          float por = cloth ? 1.0 : hide ? 0.65 : m == 0 ? 0.25 : steel ? 0.0 : 0.5;
+          alb *= 1.0 - wWet * mix(0.05, 0.46, por);
+          rough = mix(rough, min(rough, mix(0.1, 0.4, por)), wWet);
+        }
+        if (wSnow > 0.01) {
+          // snow on the head, the shoulders and whatever else faces the sky
+          float up = smoothstep(0.3, 0.8, n.y + (vnoise(vO.xz * 40.0 + vO.y * 20.0) - 0.5) * 0.45);
+          float sk = clamp(up * smoothstep(0.0, 0.55, wSnow * 1.3 - (1.0 - n.y) * 0.35), 0.0, 1.0);
+          alb = mix(alb, vec3(0.88, 0.9, 0.95), sk); rough = mix(rough, 0.85, sk); metal *= 1.0 - sk; sss = mix(sss, 0.35, sk);
+        }
+      }
+      /* ---- end weather and wear ---- */
       float sh = shadowAt(vW, n);
       vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);

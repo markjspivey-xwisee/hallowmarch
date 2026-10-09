@@ -151,6 +151,45 @@ vec3 pointLights(vec3 wp, vec3 n){
   return sum;
 }
 `;
+/* ---- weather on surfaces (amounts come from 05e_weather.js and 05h_wear.js); needs GLSL_COMMON and GLSL_ATMOS ----
+   Rain darkens what soaks it up and glosses everything, runs down steep faces in trickles; snow settles on what faces
+   the sky, builds up as it falls and melts by fires and torches. Every material calls these with its own amounts, so
+   a sheltered surface simply passes a smaller wetness. */
+const GLSL_WEATHER = /* glsl */`
+// porosity: 0 metal or glass, 0.3 skin or dressed stone, 0.6 wood and rough stone, 1 cloth, thatch and earth
+vec3 wetAlbedo(vec3 alb, float wet, float por){ return alb * (1.0 - clamp(wet, 0.0, 1.0) * mix(0.06, 0.5, por)); }
+// a film of water: the sky mirrored in it and a hard glint of the sun
+vec3 wetSheen(vec3 wp, vec3 n, vec3 V, float wet, float por, float sh){
+  if (wet < 0.01) return vec3(0.0);
+  vec3 R = reflect(-V, n);
+  float fres = 0.02 + 0.98 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
+  vec3 sky = skyBase(safeNormalize(vec3(R.x, max(R.y, 0.03), R.z)));
+  vec3 H = safeNormalize(uLightDir + V);
+  float glint = spow(max(dot(n, H), 0.0), mix(260.0, 70.0, por)) * mix(1.4, 0.5, por);
+  return (sky * fres * 0.5 + uLightColor * glint * sh) * clamp(wet, 0.0, 1.0) * (1.0 - 0.5 * por);
+}
+// water running down a steep face: thin bright trickles sliding down
+float rivulets(vec3 wp, vec3 n, float wet){
+  float steep = 1.0 - smoothstep(0.35, 0.7, abs(n.y));
+  if (wet < 0.05 || steep < 0.01) return 0.0;
+  float u = dot(wp.xz, safeNormalize2(vec2(-n.z, n.x) + vec2(1e-4))) * 6.0;
+  float lane = smoothstep(0.8, 0.96, vnoise(vec2(u, 3.7)));
+  float flow = smoothstep(0.5, 0.9, vnoise(vec2(u * 1.3, wp.y * 1.6 + uTime * 2.4)));
+  return lane * flow * steep * smoothstep(0.3, 0.9, wet);
+}
+// how much snow lies here: on what faces up, drifted by the wind, thicker as it builds, gone where fire or torchlight warms it
+float snowAmount(vec3 wp, vec3 n, float cover, vec3 heat){
+  if (cover < 0.01) return 0.0;
+  float drift = vnoise(wp.xz * 1.9 + wp.y * 0.7) * 0.6 + vnoise(wp.xz * 7.3 + wp.y * 3.1) * 0.4;
+  float up = smoothstep(0.3, 0.72, n.y + (drift - 0.5) * 0.3 + cover * 0.12);
+  float lay = smoothstep(0.1, 0.45, cover * 1.3 + (drift - 0.5) * 0.6 - 0.15);
+  float melt = smoothstep(0.1, 0.5, dot(heat, vec3(0.33)));
+  return clamp(up * lay * (1.0 - melt), 0.0, 1.0);
+}
+vec3 snowAlbedo(vec3 wp){ return vec3(0.86, 0.89, 0.95) * (0.93 + 0.09 * vnoise(wp.xz * 13.0 + wp.y * 5.0)); }
+// a crystal catching the sun here and there
+float snowSparkle(vec3 wp, vec3 V, float sh){ return step(0.988, hash12(floor(wp.xz * 38.0 + wp.y * 9.0))) * sh * (0.5 + 0.5 * max(dot(V, uLightDir), 0.0)); }
+`;
 /* soft shadows from the sun or moon; need GLSL_COMMON first */
 const GLSL_SHADOW_BASE = /* glsl */`
 uniform highp sampler2D uShadowMap;
