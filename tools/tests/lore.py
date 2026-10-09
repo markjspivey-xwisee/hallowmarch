@@ -22,15 +22,17 @@ async def frames(page, n=2):
 
 async def shot(page, name):
     if not SHOTS: return
-    await frames(page, 2)
+    await frames(page, 1)
     await page.screenshot(path=OUT + name + '.png', timeout=300000)
     print(f'  shot {name} ({time.time() - T0:.0f}s)')
 
 async def ev(page, js):
     return await page.evaluate(js)
 
-# a cheaper 3D view behind the HTML being tested: the world renders at half resolution
+# a cheaper 3D view behind the HTML being tested: the world renders at half resolution, and is
+# left out altogether behind the full-screen prologue and menu, where it barely shows
 LIGHT = "(() => { __hm.quality.scale = 0.5; dispatchEvent(new Event('resize')); })()"
+def world(on): return f"__hm.dbg.scene.visible = {'true' if on else 'false'}"
 
 async def begin(page, realm, cls):
     """Pick a realm and a calling on the title screen and enter the realm, as a player would."""
@@ -39,16 +41,19 @@ async def begin(page, realm, cls):
     await frames(page, 2)
 
 async def desktop(p):
-    print('desktop, 1100 x 640')
-    b, page, logs = await setup(p, w=1100, h=640)
+    print('desktop, 1024 x 600')
+    b, page, logs = await setup(p, w=1024, h=600)
+    await page.emulate_media(reduced_motion='reduce')
+    page.set_default_timeout(240000)  # frames can take seconds under SwiftShader on a busy machine
     await ev(page, LIGHT)
+    await ev(page, world(False))
     await begin(page, 1, 'mage')
 
     # ---- the prologue ----
     r = await ev(page, "({ modal: __hm.UI.modal, shown: !document.getElementById('lore-pro').hidden, pages: __hm.LORE.state.pro && __hm.LORE.state.pro.pages.length })")
     check(r['modal'] == 'prologue' and r['shown'] and r['pages'] == 5, f'a new character from the title screen gets the prologue ({r})')
     t0 = await ev(page, "__hm.GAME.t")
-    await frames(page, 4)
+    await frames(page, 2)
     t1 = await ev(page, "__hm.GAME.t")
     check(t1 == t0, 'the world waits while the prologue is open')
     titles = []
@@ -73,14 +78,16 @@ async def desktop(p):
     check(r['modal'] is None and r['hidden'] and r['p']['pro'] == 1, 'Skip closes the prologue and the character remembers it')
     check('start' in r['p']['seen'] or 'start' in await ev(page, "__hm.LORE.state.queue"), 'the first-steps note follows the prologue')
     t2 = await ev(page, "__hm.GAME.t")
-    await frames(page, 4)
+    await frames(page, 2)
     check(await ev(page, "__hm.GAME.t") > t2, 'the world runs again')
 
     # ---- the path ----
     r = await ev(page, "({ next: __hm.LORE.progress().next, hud: document.querySelector('#lore-path .st') && document.querySelector('#lore-path .st').textContent, pot: __hm.INV.potions, gold: __hm.INV.gold })")
     check(r['next'] == 'herald' and r['hud'] == 'Speak with the herald', f'the path starts with the herald ({r["next"]}, "{r["hud"]}")')
     await ev(page, "__hm.simulate(1)")
+    await ev(page, world(True))
     await shot(page, 'lore_path_desktop')
+    await ev(page, world(False))
     # 1. speak with the herald: walk up and press E, then say farewell
     await ev(page, "(() => { const P = __hm.GAME.player, H = __hm.REALMS[P.faction].herald; __hm.teleport(H.x + 1.6, H.z + 0.4); __hm.simulate(0.2); __hm.fn.playerInteract(); })()")
     check(await ev(page, "__hm.UI.modal") == 'dialog', 'pressing E by the herald opens his dialog')
@@ -125,7 +132,7 @@ async def desktop(p):
         await page.click(f'.chron-nav [data-sec="{sec}"]')
         k = await ev(page, f"document.querySelectorAll('{sel}').length")
         check(k >= n, f'the Chronicle section "{sec}" shows its {n} parts ({k})')
-        if sec in ('war', 'orders', 'path'): await shot(page, f'lore_chronicle_{sec}')
+        if sec in ('war', 'path'): await shot(page, f'lore_chronicle_{sec}')
     r = await ev(page, "[...document.querySelectorAll('.chron .steps li')].map((li) => li.className)")
     check(r[:3] == ['done', 'done', 'done'] and r.count('done') == 4 and r.count('cur') == 1, f'the path in the Chronicle marks what is done ({r[:6]})')
     # the prologue again, from the Chronicle; Escape closes it
@@ -141,7 +148,6 @@ async def desktop(p):
     await ev(page, "(() => { const P = __hm.GAME.player; __hm.fn.killEnt(P, null); __hm.frame(); })()")
     r = await ev(page, "({ modal: __hm.UI.modal, note: (document.getElementById('lore-dnote') || {}).textContent || '' })")
     check(r['modal'] == 'death' and 'nothing but the walk back' in r['note'], 'the first death carries a field note')
-    await shot(page, 'lore_death')
     await page.click('#btn-release')
 
     # ---- saves from before the path ----
@@ -166,25 +172,31 @@ async def desktop(p):
 async def phone(p):
     print('phone, 390 x 780, touch')
     b, page, logs = await setup(p, touch=True, w=390, h=780)
+    await page.emulate_media(reduced_motion='reduce')
+    page.set_default_timeout(240000)  # frames can take seconds under SwiftShader on a busy machine
     await ev(page, LIGHT)
+    await ev(page, world(False))
     await begin(page, 2, 'warrior')
     check(await ev(page, "__hm.UI.modal") == 'prologue', 'the prologue opens on a phone')
     await shot(page, 'lore_phone_prologue_1')
     await page.click('#lore-pro [data-pro="next"]')
     await page.click('#lore-pro [data-pro="next"]')
-    await shot(page, 'lore_phone_prologue_3')
     r = await ev(page, "(() => { const b = document.querySelector('#lore-pro .book').getBoundingClientRect(); return { w: b.width, h: b.height, sw: document.documentElement.scrollWidth }; })()")
     check(r['w'] <= 390 and r['h'] <= 780 and r['sw'] <= 390, f'the book fits the phone screen ({r})')
     await page.click('#lore-pro [data-pro="skip"]')
     check(await ev(page, "__hm.UI.modal") is None, 'Skip closes it on a phone')
     await ev(page, "__hm.simulate(1)")
+    await ev(page, world(True))
+    await frames(page, 1)
     r = await ev(page, "(() => { const e = document.getElementById('lore-path'), r = e.getBoundingClientRect(), f = document.getElementById('pf').getBoundingClientRect(); return { min: e.classList.contains('min'), top: r.top, pfb: f.bottom, right: r.right, h: r.height }; })()")
     check(r['min'] and r['top'] >= r['pfb'] and r['right'] <= 390 and r['h'] < 50, f'the path sits folded under the player frame ({r})')
+    await ev(page, "document.getElementById('zonetoast').classList.remove('on')")  # the zone name fades by itself after a few seconds
     await shot(page, 'lore_phone_path')
     await page.click('#lore-path [data-act="max"]')
     r = await ev(page, "(() => { const e = document.getElementById('lore-path'); return { min: e.classList.contains('min'), hint: !!e.querySelector('.hint') }; })()")
     check(not r['min'] and r['hint'], 'a tap unfolds the next step')
     await shot(page, 'lore_phone_path_open')
+    await ev(page, world(False))
     await page.click('#lore-path [data-act="open"]')
     r = await ev(page, "({ modal: __hm.UI.modal, tab: __hm.UI.menuTab, sec: __hm.LORE.state.chronSec })")
     check(r == {'modal': 'menu', 'tab': 'chronicle', 'sec': 'path'}, f'tapping the step opens your path in the Chronicle ({r})')

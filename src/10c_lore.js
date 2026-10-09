@@ -49,6 +49,8 @@ const LORE_CSS = `
 #lore-pro .text p { margin: 0 0 0.8em; }
 #lore-pro .text p:first-child::first-letter { float: left; font: 400 3.1em/0.82 var(--display); margin: 0.06em 0.1em 0 0; color: var(--bronze-hi); }
 #lore-pro .text b { color: var(--ink); font-weight: 700; }
+#lore-pro .text.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 40px), transparent); mask-image: linear-gradient(#000 calc(100% - 40px), transparent); }
+@media (max-height: 680px) and (min-width: 761px) { #lore-pro .text { font-size: 15px; line-height: 1.5; } #lore-pro h2 { font-size: 34px; } #lore-pro .leaf { padding-top: 18px; } }
 #lore-pro .foot { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 #lore-pro .dots { flex: 1; display: flex; gap: 8px; align-items: center; }
 #lore-pro .dots button { width: 10px; height: 10px; padding: 0; border-radius: 5px; border: 1px solid var(--bronze); background: transparent; cursor: pointer; transition: width 0.25s ease; }
@@ -95,6 +97,8 @@ const LORE_CSS = `
   #lore-path .st { font-size: 13.5px; }
   #lore-path .hint { font-size: 12px; }
   #tf:not([hidden]) ~ #lore-path { display: none; }
+  #lore-path.min { transition: opacity 0.4s ease; }
+  #zonetoast.on ~ #lore-path.min { opacity: 0.12; pointer-events: none; }
 }
 
 /* field notes and finished steps, in the banner lane; messages read above the nameplates */
@@ -365,7 +369,7 @@ function pathComplete(S, silent = false) {
   host.appendChild(d);
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
-  uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'level');
+  uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
   sfx('fanfare');
   const el = $('lore-path');
   if (el) { el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
@@ -736,8 +740,8 @@ function laWilds() {
   // the hill of the Lone Tree, far off
   s += `<path d="M150,476C200,446 236,438 270,438C306,440 340,452 380,476Z" fill="#1d252b"/>` + laTree(270, 440, 66, 8, { bark: '#141a1e', depth: 5 });
   // lightning in the south
-  const bolt = [[700, 110], [686, 182], [706, 198], [678, 286], [698, 298], [668, 420]];
-  s += `<g class="la-bolt"><path d="M${laP(bolt)}" fill="none" stroke="#9fc4ff" stroke-width="9" stroke-opacity="0.35" stroke-linejoin="round"/><path d="M${laP(bolt)}" fill="none" stroke="#f4f8ff" stroke-width="2.4" stroke-linejoin="round"/><path d="M686,182l-24,42l7,4" fill="none" stroke="#e8f0ff" stroke-width="1.4"/></g>`;
+  const bolt = [[664, 110], [650, 182], [670, 198], [642, 286], [662, 298], [632, 420]];
+  s += `<g class="la-bolt"><path d="M${laP(bolt)}" fill="none" stroke="#9fc4ff" stroke-width="9" stroke-opacity="0.35" stroke-linejoin="round"/><path d="M${laP(bolt)}" fill="none" stroke="#f4f8ff" stroke-width="2.4" stroke-linejoin="round"/><path d="M650,182l-24,42l7,4" fill="none" stroke="#e8f0ff" stroke-width="1.4"/></g>`;
   // the barrow mound, its ring of stones and its glowing door
   const mid = laRidge({ seed: 15.5, y: 504, amp: 30, freq: 0.006 });
   s += `<path d="${laArea(mid)}" fill="#18201f"/>`;
@@ -838,14 +842,13 @@ function prologuePages() {
     ] },
     { k: 'IV · The Wilds', t: 'Older Than the War', art: 'wilds', p: [
       '<b>Cinderwing</b>, a great red dragon, circles above the March and comes down to rest on high ground. It is a fight for the strong, or for many.',
-      'East of the Lone Tree the old king\'s barrow still stands. He got his wish: he never died. The <b>Hollow King</b> waits on his throne at its far end with his court of the dead, guarding the richest hoard in the land.',
-      'In the wilds of every realm, beasts, outlaws and the restless dead gather, and on the borderlands named champions lead them. Over all of it the weather turns: rain and mist off the hills, snow in the north and on the passes, and storms that shake the sky.',
+      'East of the Lone Tree stands the old king\'s barrow. He got his wish: he never died. The <b>Hollow King</b> waits on his throne at its far end, with his court of the dead and the richest hoard in the land.',
+      'Beasts, outlaws and the restless dead roam the wilds of every realm, led on the borderlands by named champions. And over all of it the weather turns: rain and mist, snow in the north and on the passes, and storms that shake the sky.',
     ] },
     { k: 'V · Your Road', t: 'Your Road', art: 'road', p: [
       `You are <b>${esc(P.name)}</b>, ${loreAn(C.name)} ${C.name.toLowerCase()} of ${R.name}. ${vet ? `You come to ${R.townName} a veteran, ready for the frontier.` : `You begin in ${R.townName} as a recruit.`}`,
-      `Speak with the herald in the square for bounties, buy healing draughts from ${R.merchant ? R.merchant.name : 'the merchant'}, and grow strong against the creatures of ${homeIn(R)}. At level 14, step through the portal stones to ${R.name} Muster on the frontier.`,
-      `There, join a warband. Break a gate, slay a lord, and carry a hallow home to the ${R.templeName}.`,
-      `<b>Your path</b>, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, always shows your next step, and every step pays a reward. The whole story waits in the <b>Chronicle</b>, in the menu.`,
+      `Speak with the herald in the square for bounties, buy healing draughts from ${R.merchant ? R.merchant.name : 'the merchant'}, and grow strong against the creatures of ${homeIn(R)}. At level 14, step through the portal stones to ${R.name} Muster on the frontier, join a warband, and help carry a hallow home to the ${R.templeName}.`,
+      `<b>Your path</b>, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, shows your next step, and every step pays a reward. The whole story is in the <b>Chronicle</b>, in the menu.`,
     ] },
   ];
 }
@@ -898,6 +901,10 @@ function renderPrologue() {
         ${S.i > 0 ? '<button class="btn" type="button" data-pro="back">Back</button>' : ''}<button class="btn primary" type="button" data-pro="next">${last ? (S.replay ? 'Return to the march' : 'Begin') : 'Next'}</button></div>
     </div></div>`;
   if (!IS_TOUCH) { const nx = ov.querySelector('[data-pro="next"]'); if (nx) nx.focus({ preventScroll: true }); }
+  const tx = ov.querySelector('.text');
+  const more = () => tx.classList.toggle('more', tx.scrollHeight - tx.scrollTop - tx.clientHeight > 6);
+  tx.addEventListener('scroll', more, { passive: true });
+  requestAnimationFrame(more);
 }
 function prologueGo(d) {
   const S = LORE.pro;
@@ -981,12 +988,12 @@ function renderPathHud() {
       ? `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open">Your path is walked</button><span class="n">${N}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show your path">${iconSvg('lplus', 12)}</button></div>`
       : `<div class="ph"><span class="lbl">Your path</span><span class="n">${N} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div><button type="button" class="step" data-act="open"><span class="fin">Every step is walked. The March is yours to shape.</span></button>`;
   } else if (LORE.min) {
-    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="Open your path in the Chronicle">${S.title}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
+    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}">${S.title}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
   } else {
     const m = S.level ? [loreLvlFrac(prog, S.level), `Level ${prog.level} of ${S.level}`] : S.meter ? S.meter(prog) : null;
     const rw = rewardLabel(S, prog);
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
-      + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
+      + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
       + `<span class="rw">${iconSvg(rw.ic, 14)}Reward: ${rw.t}</span></button>`;
   }
@@ -1019,7 +1026,7 @@ function loreWatch() {
   if (INV.potions > LORE.potions && UI.modal === 'kit' && UI.kitMode === 'shop') ev.draught = true;
   LORE.potions = INV.potions;
   // the herald's dialog open beside him
-  if (UI.modal === 'dialog' && R.herald && dist2(P.x, P.z, R.herald.x, R.herald.z) < 49) ev.herald = true;
+  if (UI.modal === 'dialog' && R.herald && dist2(P.x, P.z, R.herald.x, R.herald.z) < 49 && $('dlg-title').textContent === R.herald.name) ev.herald = true;
   // a hallow carried all the way home
   if (P.carrying != null) LORE.carried = WAR.relics[P.carrying] || null;
   else if (LORE.carried) { const rel = LORE.carried; LORE.carried = null; if (rel.state === 'temple' && rel.at === P.faction) ev.hallow = true; }
