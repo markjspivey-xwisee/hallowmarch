@@ -75,7 +75,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960, h=540)
         await page.evaluate("__hm.fn.setQuality('high')")
-        await page.evaluate(HELPERS)
+        await page.evaluate("() => {" + HELPERS + "; return 0; }")  # a function, so Playwright does not serialise __hm back
 
         # ---- scaling: a level 35 player meets a level 35 frontier ----
         r = await ev(page, 'scaling', """(() => { const H = __hm, F = H.fn; H.start({ realm: 0, cls: 'warrior', level: 35 }); const P = H.GAME.player;

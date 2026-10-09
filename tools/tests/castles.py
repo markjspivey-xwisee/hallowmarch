@@ -43,7 +43,7 @@ window.T = {
   w(S, lx, lz) { return this.F.siteToWorld(S, lx, lz); },
   // the player stands at a site-local point (on whatever floor is there at height y above the site)
   put(S, lx, lz, ly = 0, faction = S.realm >= 0 ? S.realm : 0) { const H = this.H, P = H.GAME.player, p = this.w(S, lx, lz); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = S.y + ly; P.onGround = true; P.vy = 0; P.faction = faction; P.hp = P.maxHp; H.UI.modal = null; return this.where(S); },
-  near(S, r = 12) { const D = S.castle.gate.door; return this.H.ENT.filter((o) => o.alive && o.kind !== 'door' && Math.hypot(o.x - D.x, o.z - D.z) < r).map((o) => [o.role, o.faction, +(o.y - S.y).toFixed(1), +Math.hypot(o.x - D.x, o.z - D.z).toFixed(1)]); },
+  near(S, r = 12) { const D = __hm.fn.castleOf(S).gate.door; return this.H.ENT.filter((o) => o.alive && o.kind !== 'door' && Math.hypot(o.x - D.x, o.z - D.z) < r).map((o) => [o.role, o.faction, +(o.y - S.y).toFixed(1), +Math.hypot(o.x - D.x, o.z - D.z).toFixed(1)]); },
   where(S) { const P = this.H.GAME.player, c = Math.cos(S.yaw), s = Math.sin(S.yaw), dx = P.x - S.x, dz = P.z - S.z; return { lx: +(dx * c - dz * s).toFixed(2), lz: +(dx * s + dz * c).toFixed(2), y: +(P.y - S.y).toFixed(2) }; },
   // walk the player with W held toward a site-local point, steering the camera each tenth of a second
   walkTo(S, lx, lz, maxSec = 12) {
@@ -66,7 +66,7 @@ window.T = {
     H.camera.position.set(a.x, S.y + ly, a.z); H.camera.lookAt(b.x, S.y + ty, b.z); H.camera.updateMatrixWorld();
   },
   play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
-  gate(S) { const G = S.castle.gate; return { open: +G.open.toFixed(2), want: G.want, active: S.door.active, owner: S.door.owner, alive: G.door ? G.door.alive : null, wreck: G.wreck.visible, leaves: G.leaves.map((m) => m.visible) }; },
+  gate(S) { const G = __hm.fn.castleOf(S).gate; return { open: +G.open.toFixed(2), want: G.want, active: S.door.active, owner: S.door.owner, alive: G.door ? G.door.alive : null, wreck: G.wreck.visible, leaves: G.leaves.map((m) => m.visible) }; },
   foe(S, realm, lx, lz, cls = 'warrior') {
     const p = this.w(S, lx, lz), e = this.F.spawnRealmUnit(realm, cls, 20, 'guard', p.x, p.z, { yaw: S.yaw + Math.PI });
     e.ai.post = { x: p.x, z: p.z, leash: 60 }; e.testFoe = true; return e;
@@ -85,8 +85,8 @@ async def main():
         print('quality', QUALITY, f'[{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         print('helpers', f'[{time.time() - T0:.0f}s]', flush=True)
-        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(1.0); __hm.simulate(0.5); return { errors: __hm.errors.length, castles: __hm.CASTLES.length }; })()")
-        await ev(page, 'floors', "(() => __hm.CASTLES.map((C) => ({ name: C.S.name, kind: C.kind, floors: C.floors.length, colls: C.colls.length, posts: C.posts.length })))()")
+        await ev(page, 'start', "(() => { __hm.start({ realm: 0, cls: 'archer', level: 30 }); __hm.UI.modal = null; __hm.setTod(1.0); __hm.simulate(0.5); return { errors: __hm.errors.length, castles: __hm.fn.castles().length }; })()")
+        await ev(page, 'floors', "(() => __hm.fn.castles().map((C) => ({ name: C.S.name, kind: C.kind, floors: C.floors.length, colls: C.colls.length, posts: C.posts.length })))()")
         await ev(page, 'war quiet', "(() => { for (const S of __hm.REALMS.flatMap((R) => [...R.keepSites, R.templeSite])) T.quiet(S, 80); for (const w of __hm.WAR.warbands) w.dead = true; __hm.WAR.commanders.forEach((C) => { C.nextThink = 1e9; C.nextSpawn = 1e9; }); return __hm.WAR.warbands.length; })()")
 
         # 1. gates: open for their own side, shut for enemies, collider follows
@@ -100,7 +100,7 @@ async def main():
             r = await ev(page, 'gate: owner leaves', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 6, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05 and r[1]['active'], 'it opens again for its own side, and shuts behind them')
             for realm, kind in ((1, 'round'), (2, 'timber')):
-                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = S.castle.gate; G.door.faction; T.put(S, 0, S.gateLocal.z + 6, 0, {realm}); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; }})()")
+                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = __hm.fn.castleOf(S).gate; G.door.faction; T.put(S, 0, S.gateLocal.z + 6, 0, {realm}); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; }})()")
                 check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, f'the {kind} keep gate opens for its own side and shuts again')
             r = await ev(page, 'temple gate', "(() => { const S = __hm.REALMS[0].templeSite; T.put(S, 0, S.gateLocal.z + 5, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, 'a temple gate opens for its own side and shuts again')
@@ -136,29 +136,29 @@ async def main():
 
         # 4. a wall section is battered to a breach, walked through, and rebuilt
         if not ONLY or ONLY == 'breach':
-            r = await ev(page, 'breach', "(() => { const K = T.keep(0, 0), S = K.site, C = S.castle, W = C.sections[0]; T.put(S, 0, 70); const e = T.foe(S, 1, 0, 60, 'mage'); const hp = []; for (let i = 0; i < 30 && W.state === 'whole'; i++) { __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); hp.push(+(W.hp / W.maxHp).toFixed(2)); } T.clearFoes(); return { state: W.state, hits: hp.length, hp: hp.slice(0, 4), coll: W.coll ? W.coll.active : null, floors: W.floors.map((f) => f.active), wreck: W.wreck.visible, patched: __hm.fn.CASTLE_PATCHED.slice() }; })()")
+            r = await ev(page, 'breach', "(() => { const K = T.keep(0, 0), S = K.site, C = __hm.fn.castleOf(S), W = C.sections[0]; T.put(S, 0, 70); const e = T.foe(S, 1, 0, 60, 'mage'); const hp = []; for (let i = 0; i < 30 && W.state === 'whole'; i++) { __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); hp.push(+(W.hp / W.maxHp).toFixed(2)); } T.clearFoes(); return { state: W.state, hits: hp.length, hp: hp.slice(0, 4), coll: W.coll ? W.coll.active : null, floors: W.floors.map((f) => f.active), wreck: W.wreck.visible, patched: __hm.fn.CASTLE_PATCHED.slice() }; })()")
             check(r['state'] == 'breach' and r['coll'] is False and not any(r['floors']) and r['wreck'], 'meteors crack a wall section and bring it down into a breach (collider and walk gone, rubble shown)')
             check(len(r['patched']) == 2, 'the castle shader patched in its breach cut and its cracks')
             if SHOTS:
-                await shot(page, 'castle_breach', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
-            r = await ev(page, 'through the breach', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.put(S, W.lx - 4.5, W.lz); const a = T.walkTo(S, W.lx + 4.5, W.lz, 6); return a; })()")
+                await shot(page, 'castle_breach', "(() => { const S = T.keep(0, 0).site, W = __hm.fn.castleOf(S).sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'through the breach', "(() => { const S = T.keep(0, 0).site, W = __hm.fn.castleOf(S).sections[0]; T.put(S, W.lx - 4.5, W.lz); const a = T.walkTo(S, W.lx + 4.5, W.lz, 6); return a; })()")
             check(r['lx'] > -12.5, 'the player climbs over the rubble through the breach into the courtyard')
-            r = await ev(page, 'repair', "(() => { const K = T.keep(0, 0), S = K.site, W = S.castle.sections[0]; T.put(S, 0, 70); K.lastEnemyNear = -999; __hm.simulate(30); const a = { state: W.state, t: +W.t.toFixed(2), scaffold: W.scaffold.visible }; return a; })()")
+            r = await ev(page, 'repair', "(() => { const K = T.keep(0, 0), S = K.site, W = __hm.fn.castleOf(S).sections[0]; T.put(S, 0, 70); K.lastEnemyNear = -999; __hm.simulate(30); const a = { state: W.state, t: +W.t.toFixed(2), scaffold: W.scaffold.visible }; return a; })()")
             check(r['state'] == 'repair' and r['scaffold'], 'when the castle is quiet its owners put up scaffolding and start to rebuild')
             if SHOTS:
-                await shot(page, 'castle_repair', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; __hm.simulate(40); T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
-            r = await ev(page, 'repaired', "(() => { const K = T.keep(0, 0), S = K.site, W = S.castle.sections[0]; K.lastEnemyNear = -999; for (let i = 0; i < 20 && W.state !== 'whole'; i++) __hm.simulate(10); return { state: W.state, coll: W.coll.active, floors: W.floors.map((f) => f.active), fresh: +W.fresh.toFixed(2), scaffold: W.scaffold.visible }; })()")
+                await shot(page, 'castle_repair', "(() => { const S = T.keep(0, 0).site, W = __hm.fn.castleOf(S).sections[0]; __hm.simulate(40); T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'repaired', "(() => { const K = T.keep(0, 0), S = K.site, W = __hm.fn.castleOf(S).sections[0]; K.lastEnemyNear = -999; for (let i = 0; i < 20 && W.state !== 'whole'; i++) __hm.simulate(10); return { state: W.state, coll: W.coll.active, floors: W.floors.map((f) => f.active), fresh: +W.fresh.toFixed(2), scaffold: W.scaffold.visible }; })()")
             check(r['state'] == 'whole' and r['coll'] and all(r['floors']) and not r['scaffold'], 'after a few minutes the wall stands whole again, walk and all')
             if SHOTS:
-                await shot(page, 'castle_rebuilt', "(() => { const S = T.keep(0, 0).site, W = S.castle.sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
-            r = await ev(page, 'round breach', "(() => { const S = T.keep(1, 1).site, W = S.castle.sections[0]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
+                await shot(page, 'castle_rebuilt', "(() => { const S = T.keep(0, 0).site, W = __hm.fn.castleOf(S).sections[0]; T.cam(S, W.lx - 13, 5.5, W.lz + 6, W.lx, 3.2, W.lz); })()")
+            r = await ev(page, 'round breach', "(() => { const S = T.keep(1, 1).site, W = __hm.fn.castleOf(S).sections[0]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
             check(r['state'] == 'breach' and r['coll'] is False, 'a round rath\'s ring wall can be breached too')
             if SHOTS:
-                await shot(page, 'castle_breach_round', "(() => { const S = T.keep(1, 1).site, W = S.castle.sections[0]; const o = { x: W.lx * 1.9, z: W.lz * 1.9 }; T.cam(S, o.x, 7, o.z, W.lx, 3, W.lz); })()")
-            r = await ev(page, 'timber breach', "(() => { const S = T.keep(2, 1).site, W = S.castle.sections[1]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
+                await shot(page, 'castle_breach_round', "(() => { const S = T.keep(1, 1).site, W = __hm.fn.castleOf(S).sections[0]; const o = { x: W.lx * 1.9, z: W.lz * 1.9 }; T.cam(S, o.x, 7, o.z, W.lx, 3, W.lz); })()")
+            r = await ev(page, 'timber breach', "(() => { const S = T.keep(2, 1).site, W = __hm.fn.castleOf(S).sections[1]; const e = T.foe(S, 0, 0, 60, 'mage'); for (let i = 0; i < 30 && W.state === 'whole'; i++) __hm.fn.castleSiegeHit(e, W.wx, W.wz, 6, 3.0); T.clearFoes(); return { state: W.state, coll: W.coll ? W.coll.active : 'none' }; })()")
             check(r['state'] == 'breach' and r['coll'] is False, 'a timber palisade can be breached too')
             if SHOTS:
-                await shot(page, 'castle_breach_timber', "(() => { const S = T.keep(2, 1).site, W = S.castle.sections[1]; T.cam(S, W.lx + 12, 6, W.lz + 5, W.lx, 3, W.lz); })()")
+                await shot(page, 'castle_breach_timber', "(() => { const S = T.keep(2, 1).site, W = __hm.fn.castleOf(S).sections[1]; T.cam(S, W.lx + 12, 6, W.lz + 5, W.lx, 3, W.lz); })()")
 
         # 5. how it all looks
         if SHOTS and (not ONLY or ONLY == 'shots'):

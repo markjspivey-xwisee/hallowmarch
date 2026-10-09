@@ -80,6 +80,9 @@ function castleStepBlocked(e, x, z, y) {
 /* building helpers in a site's frame                                  */
 /* ------------------------------------------------------------------ */
 const CASTLES = []; // one per keep and temple: { S, R, kind, routes, posts, gate, sections }
+// kept off the sites themselves, so nothing that walks the world's plain data (saves, tests) wades through meshes
+const CASTLE_OF = new Map(), CASTLE_KEEP_MESH = new Map();
+const castleOf = (S) => CASTLE_OF.get(S) || null;
 function castleCtx(S, R, kind) {
   const C = {
     S, R, kind, M: siteMatrix(S), b: new Batch(), st: STYLE[R.style], routes: {}, posts: [], floors: [], colls: [], sections: [], walls: [],
@@ -568,23 +571,24 @@ function buildCastles() {
       castleSections(C);
       C.gate = buildCastleGate(C, temple);
       setGatePose(C.gate);
-      S.castle = C;
+      CASTLE_OF.set(S, C);
       CASTLES.push(C);
     }
   }
-  if (window.__hm) Object.assign(window.__hm.fn, { floorAt, floorSolidAt, castleRoute, castleWaypoint, elevatedEnt, setGatePose, fillGarrison, siteWorld, siteToWorld, stepTo, castleSiegeHit, castleBreach, castleRepairDone, updateBreaches, CASTLE_PATCHED });
-  if (window.__hm) window.__hm.CASTLES = CASTLES;
+  if (window.__hm) Object.assign(window.__hm.fn, { castleOf, floorAt, floorSolidAt, castleRoute, castleWaypoint, elevatedEnt, setGatePose, fillGarrison, siteWorld, siteToWorld, stepTo, castleSiegeHit, castleBreach, castleRepairDone, updateBreaches, CASTLE_PATCHED });
+  // behind a function, so a test that hands __hm back to Playwright does not try to serialise every castle
+  if (window.__hm) window.__hm.fn.castles = () => CASTLES;
 }
 // world route for a keep's wall post (computed when first asked, once the floors exist)
 function castleRoute(K, i) {
-  const C = K.site.castle;
+  const C = castleOf(K.site);
   if (!C || !C.posts[i]) return null;
   const P = C.posts[i];
   if (!P.world) P.world = castleRouteWorld(C, P.route);
   return P.world;
 }
 function castlePostSlots(K) {
-  const C = K.site.castle;
+  const C = castleOf(K.site);
   return C ? C.posts.map((p) => p.pos) : null;
 }
 function updateCastles(dt) {
@@ -804,10 +808,11 @@ function castleSections(C) {
   C.cutU = castleCutUniforms();
   const m = shareMat(castleMat, { uFlash: buildingMat.uniforms.uFlash, ...C.cutU });
   C.mesh.material = m;
-  if (S.mesh) S.mesh.material = m;
+  const km = CASTLE_KEEP_MESH.get(S);
+  if (km) km.material = m;
   // the shadow of a breached wall has the same gap in it
   const dm = depthFrom(m, CASTLE_DEPTH_FS);
-  for (const q of SHADOW.proxies) if (q.userData.src === C.mesh || q.userData.src === S.mesh) q.material = dm;
+  for (const q of SHADOW.proxies) if (q.userData.src === C.mesh || (km && q.userData.src === km)) q.material = dm;
   const cs = Math.cos(S.yaw), sn = Math.sin(S.yaw);
   C.sections.forEach((W, k) => {
     W.k = k; W.C = C;

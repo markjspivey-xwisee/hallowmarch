@@ -65,7 +65,7 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("__hm.start({realm:0, cls:'mage', level:20})")
-        await page.evaluate(HELPERS)
+        await page.evaluate("() => {" + HELPERS + "; return 0; }")  # a function, so Playwright does not serialise __hm back
         await page.evaluate("document.getElementById('hud').hidden = true")
 
         # ---- every town has its houses, each with a hinged door and shuttered windows ----

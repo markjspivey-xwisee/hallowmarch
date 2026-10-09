@@ -953,7 +953,7 @@ function buildStructures() {
     for (const S of R.keepSites) {
       const b = new Batch();
       const banners = R.style === 'round' ? keepRound(b, S, st, R) : R.style === 'timber' ? keepTimber(b, S, st, R) : keepStone(b, S, st, R);
-      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); S.mesh = m; // castles: breaches cut this mesh (04g_castles.js)
+      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); CASTLE_KEEP_MESH.set(S, m); // castles: breaches cut this mesh (04g_castles.js)
       for (const sp of banners) addBanner(S, sp, R.id);
     }
     {
