@@ -3,7 +3,7 @@ a tree is chopped down with the axe (notch, fall away from the axe, stump and lo
 firewood and lit as a campfire; a whirlwind cuts the grass round the warrior (the cut map) and it grows back; a grass
 fire is lit, spreads, burns out to ash and greens over again; a tree is set alight, chars and drops its leaves;
 a meteor leaves a crater (heightAt drops, the terrain mesh follows). Screenshots of each.
-usage: python3 tools/tests/nature.py [noshots] [final] [quality]   (final: 960x540; quality: high, medium or low; default medium)"""
+usage: python3 tools/tests/nature.py [noshots] [final] [quality]   (final: 960x540; quality: high, medium or low; default low)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
 FINAL = 'final' in ARGS
-QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'medium')
+QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'low')
 FAILS = []
 T0 = time.time()
 
@@ -85,9 +85,12 @@ async def main():
     async with async_playwright() as p:
         w, h = (960, 540) if FINAL else (640, 360)
         b, page, logs = await setup(p, w=w, h=h)
+        print(f'booted [{time.time() - T0:.0f}s]', flush=True)
+        page.on('console', lambda m: print('  console:', m.text[:300], flush=True) if m.type == 'error' else None)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30})")
         await page.evaluate(HELPERS)
+        print(f'started [{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate("document.getElementById('hud').hidden = true; __hm.setTod(0.55); T.dry()")
 
         # ---- the trees know their colliders and their far-forest instances ----
@@ -184,13 +187,14 @@ async def main():
         r = await ev(page, 'meteor', """(() => { const P = T.H.GAME.player; const m = T.findMeadow(P.x + 50, P.z - 50); window.T.met = m;
           T.H.teleport(m.x + 14, m.z); T.sim(0.2);
           const foe = T.F.spawnMob({ type: 'boar', lmin: 1, lmax: 1, x: m.x, z: m.z, r: 0.1, id: -1, members: new Set() });
-          foe.x = m.x; foe.z = m.z; foe.y = T.F.heightAt(m.x, m.z);
+          foe.x = foe.prevX = m.x; foe.z = foe.prevZ = m.z; foe.y = T.F.heightAt(m.x, m.z); T.F.addBuff(foe, 'stun', 1, 20); T.F.addBuff(foe, 'root', 1, 20);
           const before = T.F.heightAt(m.x, m.z);
           P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; P.target = foe.id;
           const res = T.F.useAbility(P, 'meteor', foe);
           T.sim(4);
-          const after = T.F.heightAt(m.x, m.z), rim = T.F.heightAt(m.x + 4.3, m.z);
-          return { res, before, after, drop: before - after, rim: rim - T.F.heightAt(m.x + 4.3, m.z), earth: T.N.earthAt(m.x, m.z), craters: T.N.NATURE.craters.length }; })()""")
+          const C = T.N.NATURE.craters[T.N.NATURE.craters.length - 1];
+          const after = T.F.heightAt(m.x, m.z);
+          return { res, before, after, drop: before - after, earth: T.N.earthAt(m.x, m.z), craters: T.N.NATURE.craters.length, at: C && [C.x, C.z], foe: [foe.x, foe.z] }; })()""")
         check(r['res'] is True and r['drop'] > 0.8 and r['earth'] > 0.5 and r['craters'] >= 1, 'a meteor leaves a crater: heightAt drops and the earth is thrown')
         r = await ev(page, 'walk into crater', """(() => { const m = T.met, P = T.H.GAME.player; T.H.teleport(m.x + 6, m.z); P.yaw = -Math.PI / 2; T.H.CAM.yaw = P.yaw; T.H.UI.modal = null;
           T.H.INPUT.keys.add('KeyW'); T.sim(1.0); T.H.INPUT.keys.delete('KeyW'); return { y: P.y, ground: T.F.heightAt(P.x, P.z), d: Math.hypot(P.x - m.x, P.z - m.z) }; })()""")

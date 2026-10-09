@@ -512,11 +512,11 @@ function natChips(x, y, z, ux, uz, n = 14) {
   }
 }
 // set a tree's crown alight (lightning, fire spells, grass fire, a burning house); false if it cannot burn now
-function igniteTree(i) {
+function igniteTree(i, heat = 1) {
   const t = typeof i === 'number' ? W.trees[i] : i;
-  if (!NATURE.built || !t || t.fire > 0.05 || t.char > 0.92 || t.grow < 0.3 || (t.felled && !t.log)) return false;
+  if (!NATURE.built || !t || t.fire > 0.05 || t.char > 0.92 || t.grow < 0.3 || (t.felled && !t.log) || heat <= 0.1) return false;
   natTake(t);
-  t.fire = Math.max(t.fire, 0.15); t.burnT = 0; t.burnDur = 20 + Math.random() * 14;
+  t.fire = Math.max(t.fire, 0.15); t.burnT = 0; t.burnDur = 20 + Math.random() * 14; t.heat = heat;
   natSfx('crackle', t.x, t.z);
   return true;
 }
@@ -537,8 +537,8 @@ function stepTree(t, dt) {
       // embers fall into the grass below and drift to neighbouring crowns
       const a = Math.random() * TAU, r = Math.random() * D.crown * s;
       const fx = t.felled && t.fall ? t.x + t.fall.ux * D.trunk * s * 0.8 : t.x, fz = t.felled && t.fall ? t.z + t.fall.uz * D.trunk * s * 0.8 : t.z;
-      igniteGrass(fx + Math.cos(a) * r, fz + Math.sin(a) * r, 0.8);
-      natTreesNear(t.x, t.z, (D.crown * s) * 2 + 1.5, (o) => { if (o !== t && Math.random() < 0.13 * t.fire * dry) igniteTree(o); });
+      igniteGrass(fx + Math.cos(a) * r, fz + Math.sin(a) * r, 0.8, 1, (t.heat || 1) * 0.7);
+      natTreesNear(t.x, t.z, (D.crown * s) * 2 + 1.5, (o) => { if (o !== t && Math.random() < 0.13 * t.fire * dry) igniteTree(o, (t.heat || 1) - 0.18 - Math.random() * 0.12); });
       if (typeof houseAt === 'function' && Math.random() < 0.12 * t.fire) { const H = houseAt(t.x, t.z, D.crown * s + 1); if (H) igniteHouse(H, t.x, t.z); }
     }
     if (t.fire <= 0) {
@@ -707,8 +707,8 @@ function natureSwing(e, r, half, treePower = 0) {
     });
   }
 }
-// set grass alight around (x, z): a few seed cells inside r
-function igniteGrass(x, z, r = 1, seeds = 0) {
+// set grass alight around (x, z): a few seed cells inside r. heat is how far the fire can run (about 35 m at 1)
+function igniteGrass(x, z, r = 1, seeds = 0, heat = 1) {
   if (!NATURE.built || x > DUN_X0 - 50) return 0;
   if (natDry() < 0.2) return 0;
   let n = 0;
@@ -716,16 +716,16 @@ function igniteGrass(x, z, r = 1, seeds = 0) {
   for (let k = 0; k < m; k++) {
     const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * r;
     const i = natCell(x + Math.cos(a) * d), j = natCell(z + Math.sin(a) * d);
-    if (natIgniteCell(i, j)) n++;
+    if (natIgniteCell(i, j, heat)) n++;
   }
   return n;
 }
-function natIgniteCell(i, j) {
-  if (NATURE.fire.size > 6000) return false;
+function natIgniteCell(i, j, heat = 1) {
+  if (NATURE.fire.size > 6000 || heat <= 0.04) return false;
   const f = natFuel(i, j);
   if (f <= 0.05) return false;
   const k = natIdx(i, j);
-  NATURE.fire.set(k, { i, j, t: 0, life: 3.5 + 4 * f + Math.random() * 2.5, f });
+  NATURE.fire.set(k, { i, j, t: 0, life: 3.5 + 4 * f + Math.random() * 2.5, f, heat });
   NAT.data[k * 4 + 2] = 90;
   natMark(i, j, i, j);
   natTouch(i, j);
@@ -759,24 +759,25 @@ function stepGrassFire(dt) {
     natMark(c.i, c.j, c.i, c.j);
     list.push(c);
     if (ramp < 0.35) continue;
-    // spread to the eight neighbours, and two cells downwind in a wind
+    // spread to the eight neighbours, and two cells downwind in a wind; each step passes on a little less heat
+    if (c.heat <= 0.05) continue;
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       if (!di && !dj) continue;
       const diag = di && dj ? 0.7 : 1;
       const along = (di * wx + dj * wz) / (diag === 1 ? 1 : 1.414);
-      const p = 0.11 * step / 0.25 * diag * dry * dry * clamp(1 + along * 0.9 * wind, 0.15, 2.6);
-      if (Math.random() < p * ramp) born.push(c.i + di, c.j + dj);
+      const p = 0.11 * step / 0.25 * diag * dry * dry * clamp(1 + along * 0.9 * wind, 0.15, 2.6) * (0.55 + 0.45 * Math.min(1, c.heat));
+      if (Math.random() < p * ramp) born.push(c.i + di, c.j + dj, c.heat - (0.016 + 0.022 * Math.random()) * clamp(1 - along * 0.45 * wind, 0.45, 1.5) / (diag === 1 ? 1 : 0.72));
     }
-    if (wind > 0.8 && Math.random() < 0.04 * wind * dry) born.push(c.i + Math.round(wx * 2.4), c.j + Math.round(wz * 2.4));
+    if (wind > 0.8 && Math.random() < 0.04 * wind * dry) born.push(c.i + Math.round(wx * 2.4), c.j + Math.round(wz * 2.4), c.heat - 0.05);
   }
-  for (let q = 0; q < born.length; q += 2) natIgniteCell(born[q], born[q + 1]);
+  for (let q = 0; q < born.length; q += 3) natIgniteCell(born[q], born[q + 1], born[q + 2]);
   // fire reaches the trees and houses at its edge
   const tries = Math.min(list.length, 24);
   for (let q = 0; q < tries; q++) {
     const c = list[Math.floor(Math.random() * list.length)];
     const x = c.i - 511.5, z = c.j - 511.5;
     const t = nearestTree(x, z, 1.6, (o) => !o.felled || o.log);
-    if (t && Math.random() < 0.35 * dry) igniteTree(t);
+    if (t && Math.random() < 0.35 * dry) igniteTree(t, Math.min(1, c.heat + 0.2));
     if (Math.random() < 0.2) { const H = houseAt(x, z, 1.2); if (H && Math.random() < 0.3) igniteHouse(H, x, z); }
   }
 }
@@ -804,7 +805,7 @@ function stepHouseFires(dt) {
   for (const H of HOUSES) {
     if (H.state !== 'burning' || H.char < 0.3 || Math.random() > 0.35) continue;
     const a = Math.random() * TAU, r = (H.foot || 4) + 0.8 + Math.random() * 1.5;
-    igniteGrass(H.x + Math.sin(a) * r, H.z + Math.cos(a) * r, 0.8, 1);
+    igniteGrass(H.x + Math.sin(a) * r, H.z + Math.cos(a) * r, 0.8, 1, 0.7);
   }
 }
 // cut and burnt grass grows back, a few tiles at a time
@@ -817,7 +818,7 @@ function stepRegrow(dt) {
   if (!keys.length) return;
   const D = NAT.data;
   const budget = Math.min(keys.length, 6);
-  for (let b = 0; b < budget; b++) {
+  for (let b = 0; b < budget && keys.length; b++) {
     if (NATURE.tileAt >= keys.length) NATURE.tileAt = 0;
     const key = keys[NATURE.tileAt];
     const last = NATURE.tiles.get(key);
@@ -955,15 +956,15 @@ function natureFireAt(x, y, z, r = 1) {
   const g = heightAt(x, z);
   if (y - g > 3.5) return;
   if (r <= 1.2 && Math.random() > 0.45) return; // a single bolt does not always take
-  igniteGrass(x, z, Math.max(0.8, r * 0.75), r <= 1.2 ? 2 : Math.round(3 + r * 2));
-  natTreesNear(x, z, r + 1.2, (t) => { if (!t.felled || t.log) { if (Math.random() < (r > 2 ? 0.75 : 0.4)) igniteTree(t); } });
+  igniteGrass(x, z, Math.max(0.8, r * 0.75), r <= 1.2 ? 2 : Math.round(3 + r * 2), r <= 1.2 ? 0.7 : 1.1);
+  natTreesNear(x, z, r + 1.2, (t) => { if (!t.felled || t.log) { if (Math.random() < (r > 2 ? 0.75 : 0.4)) igniteTree(t, r > 2 ? 1 : 0.7); } });
 }
 // a dragon's breath along (dx, dz)
 function natureFireCone(x, z, dx, dz, range, half) {
   if (!NATURE.built) return;
   for (let k = 0; k < 3; k++) {
     const a = Math.atan2(dx, dz) + (Math.random() * 2 - 1) * half * 0.8, d = 2 + Math.random() * range;
-    igniteGrass(x + Math.sin(a) * d, z + Math.cos(a) * d, 1.2, 2);
+    igniteGrass(x + Math.sin(a) * d, z + Math.cos(a) * d, 1.2, 2, 1);
   }
   if (Math.random() < 0.5) natTreesNear(x + dx * range * 0.5, z + dz * range * 0.5, range * 0.6, (t) => { if (Math.random() < 0.25) igniteTree(t); });
 }
@@ -986,7 +987,7 @@ function natureImpact(x, z, kind, r = 3) {
   if (kind === 'meteor') {
     natureCrater(x, z, r * 0.62, 1.5 + r * 0.12, 0.3);
     natureBlowArea(x, z, r * 1.25, 260);
-    igniteGrass(x, z, r * 0.9, Math.round(6 + r * 2));
+    igniteGrass(x, z, r * 0.9, Math.round(6 + r * 2), 1.4);
     natTreesNear(x, z, r * 1.3, (t) => { if (Math.random() < 0.8) igniteTree(t); });
     // the scorched bowl: no grass, black earth
     const i0 = natCell(x - r), i1 = natCell(x + r), j0 = natCell(z - r), j1 = natCell(z + r);
@@ -1134,6 +1135,13 @@ function stepPiles(dt) {
 /* ------------------------------------------------------------------ */
 function updateNature(dt) {
   if (!NATURE.built) return;
+  // lightning: each new bolt may set alight what it strikes (05e_weather.js can also call natureStrike or igniteTree itself)
+  for (const b of WEATHER.bolts) {
+    if (b.natDone) continue;
+    b.natDone = true;
+    const q = b.path && b.path[b.path.length - 1];
+    if (q && Math.random() < 0.6) natureStrike(q[0], q[2], 7);
+  }
   stepJob(dt);
   for (let i = NATURE.dyn.length - 1; i >= 0; i--) { const t = NATURE.dyn[i]; if (t) stepTree(t, dt); }
   stepFelled(dt);
