@@ -40,7 +40,7 @@ function wearItem(it, amount) {
 }
 function soilItem(it, key, amount) {
   if (!it || it.slot === 'junk') return;
-  it[key] = Math.round(clamp((it[key] || 0) + amount, 0, 1) * 1000) / 1000;
+  it[key] = clamp((it[key] || 0) + amount, 0, 1); // tiny steps add up; packItem rounds for the save
 }
 // how dirty the kit is overall (0 clean, 1 filthy)
 function kitDirt() {
@@ -220,8 +220,8 @@ function updateWear(dt) {
     for (const s of SLOTS) {
       const it = INV.eq[s];
       if (!it) continue;
-      if (it.dirt) it.dirt = Math.max(0, Math.round((it.dirt - dt * wash) * 1000) / 1000);
-      if (it.blood) it.blood = Math.max(0, Math.round((it.blood - dt * wash * 1.5) * 1000) / 1000);
+      if (it.dirt) it.dirt = Math.max(0, it.dirt - dt * wash);
+      if (it.blood) it.blood = Math.max(0, it.blood - dt * wash * 1.5);
     }
     if (P.dirt) P.dirt = Math.max(0, P.dirt - dt * wash);
     if (P.blood) P.blood = Math.max(0, P.blood - dt * wash * 1.5);
@@ -254,7 +254,8 @@ function wearVisual(e, out) {
 
 /* ---- lightning on the ground ---- */
 function treeHeight(t) { return (t.kind === 'pine' ? 10.5 : t.kind === 'birch' ? 8.5 : 8) * t.s; }
-function strikeNear(x, z, rMin = 9, rMax = 55) {
+// the ring starts close enough that sheltering under a tall tree in a storm is a real risk
+function strikeNear(x, z, rMin = 6, rMax = 55) {
   // tall things draw the bolt: trees, the towers under their banners, the ridges of roofs; open ground if nothing stands near
   const cands = [];
   const inRing = (tx, tz) => { const d2 = dist2(tx, tz, x, z); return d2 < rMax * rMax && d2 > rMin * rMin; };
@@ -319,15 +320,18 @@ function strikeAt(c) {
     FX.burst(c.x, c.gy + 0.3, c.z, 30, [2.6, 2.4, 3.2], 5, 0.5, 0.12, 6);
     FX.dust(c.x, c.gy, c.z, 12, [0.2, 0.18, 0.16]);
   }
-  // anyone close is thrown down: burnt and stunned
-  forNear(c.x, c.z, 6.5, (e, d2) => {
-    if (!e.alive || e.kind === 'door' || e.flying || inDungeon(e)) return;
-    if (c.kind === 'house' && houseInside(e.x, e.z)) return;
+  // anyone close is thrown down: burnt and stunned (a plain pass over everyone: strikes are rare, and the spatial
+  // grid may not hold someone who arrived this step)
+  for (const e of ENT.slice()) {
+    const d2 = dist2(e.x, e.z, c.x, c.z);
+    if (d2 > 6.5 * 6.5 || !e.alive || e.kind === 'door' || e.flying || inDungeon(e)) continue;
+    if (Math.min(Math.abs(e.y - c.gy), Math.abs(e.y + 1 - c.y)) > 4) continue; // on the ground below it, or up on the tower it hit
+    if (c.kind === 'house' && houseInside(e.x, e.z)) continue;
     const k = 1 - Math.sqrt(d2) / 6.5;
     dealDamage(SKY_SRC, e, e.maxHp * (0.08 + 0.3 * k), { kind: 'shock', pierce: true });
     if (e.alive && e.role !== 'boss' && e.role !== 'dungeonBoss') { addBuff(e, 'stun', 1, 0.8 + 1.6 * k, null); e.casting = null; }
     e.wet = 0; e.snow = 0;
-  });
+  }
   // and what it struck catches fire
   let lit = false;
   if (c.kind === 'house') lit = igniteHouse(c.H, c.x, c.z);
@@ -390,10 +394,12 @@ function wearSlotBar(it) {
 }
 // the repair row at the top of a merchant's stall
 function wearShopRow() {
+  // a smith's hammer for the row (ICONS lives in 10_ui.js, so it is added on first use)
+  if (!ICONS.mend) ICONS.mend = '<path d="M13.2 3.6l7.2 7.2-2.6 2.6-7.2-7.2z"/><path d="M12 8.6L3.9 16.7a1.9 1.9 0 0 0 2.7 2.7l8.1-8.1"/>';
   const c = repairAllCost();
   const items = kitItems(), worn = items.filter((it) => itemDur(it) < DUR_MAX);
   const avg = items.length ? Math.round(items.reduce((a, it) => a + itemDur(it), 0) / items.length) : 100;
-  return `<div class="shoprow kitrep"><span class="ic" style="--qc:#c9b48a">${iconSvg('coin', 22)}</span><span class="nm">Mend your gear<small>${worn.length ? `${worn.length} piece${worn.length === 1 ? '' : 's'} worn · ${avg}% on average` : 'Everything is in good repair.'}</small></span><span class="pr">${c ? fmtInt(c) : ''}</span><span class="bb"><button class="btn" type="button" id="kit-repair" ${c && INV.gold >= c ? '' : 'disabled'}>Repair all</button></span></div>`;
+  return `<div class="shoprow kitrep"><span class="ic" style="--qc:#c9b48a">${iconSvg('mend', 22)}</span><span class="nm">Mend your gear<small>${worn.length ? `${worn.length} piece${worn.length === 1 ? '' : 's'} worn · ${avg}% on average` : 'Everything is in good repair.'}</small></span><span class="pr">${c ? fmtInt(c) : ''}</span><span class="bb"><button class="btn" type="button" id="kit-repair" ${c && INV.gold >= c ? '' : 'disabled'}>Repair all</button></span></div>`;
 }
 
 /* ---- test hooks ---- */

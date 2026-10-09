@@ -169,6 +169,7 @@ function updateWeather(dt) {
   W2.snow = clamp(W2.snow + (W2.snowing > 0.2 ? dt * W2.snowing / 70 : -dt * weatherMeltRate(coldK) / 200), 0, 1);
   U.uWet.value = W2.wet;
   U.uSnowCover.value = W2.snow;
+  U.uRain.value = INDOOR.on ? 0 : rain;
   if (rainMesh) {
     rainMesh.material.uniforms.uAmount.value = rain;
     rainMesh.geometry.instanceCount = rain > 0.01 ? Math.round(RAIN_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.32) * clamp(rain * 1.2, 0, 1)) : 0;

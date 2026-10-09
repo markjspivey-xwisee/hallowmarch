@@ -5,7 +5,7 @@ a stun); the sun dries things faster than an overcast night; fighting wears gear
 roads muddy it, broken gear gives no stats, a merchant mends it, and a lake or a town well washes it clean; wear is
 saved with the items. Screenshots: a wet town, a wet keep, wet people, snow on roofs and trees, snowy people, a strike,
 the fire after, muddy and bloodied gear, the kit and the merchant's repair row.
-usage: python3 tools/tests/weather.py [noshots] [quality]   (quality: high, medium or low; default medium)"""
+usage: python3 tools/tests/weather.py [noshots] [small] [quality]   (quality: high, medium or low; default medium)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -14,6 +14,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
 QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'medium')
+SMALL = 'small' in ARGS  # 640x360 for quick functional runs; screenshots want the default 960x540
 FAILS = []
 T0 = time.time()
 
@@ -52,6 +53,8 @@ window.T = {
     H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld();
   },
   play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
+  // move the player and bring the camera along (the sky follows the camera)
+  go(x, z) { const H = this.H; H.teleport(x, z); const P = H.GAME.player; H.camera.position.set(P.x, P.y + 5, P.z + 7); H.camera.updateMatrixWorld(); return P; },
   P() { return this.H.GAME.player; },
   // the nearest standing house to (x, z)
   house(x, z) { let b = null, bd = 1e9; for (const h of this.H.HOUSES) { const d = (h.x - x) ** 2 + (h.z - z) ** 2; if (h.state === 'whole' && d < bd) { bd = d; b = h; } } return b; },
@@ -68,11 +71,13 @@ window.T = {
     return out;
   },
 };
+0;
 """
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=960, h=540)
+        b, page, logs = await setup(p, w=640, h=360) if SMALL else await setup(p, w=960, h=540)
+        print(f'ready [{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate(HELPERS)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await ev(page, 'start', "__hm.start({realm:0, cls:'warrior', level:20}), __hm.setTod(0.45), __hm.UI.modal = null, Object.keys(__hm.INV.eq)")
@@ -80,16 +85,16 @@ async def main():
         check(town['wells'] >= 1, 'towns have wells or troughs to wash at')
 
         # ---------------- rain ----------------
+        H = await ev(page, 'house', "(() => { const S = __hm.REALMS[0].town, h = T.house(S.x, S.z); T.go(h.x + 9, h.z + 9); return { x: h.x, z: h.z, y: h.y, top: h.top, w: h.w || h.Rr, yaw: Math.atan2(h.s, h.c) }; })()")
         await ev(page, 'rain', "T.weather('rain', 70)")
-        H = await ev(page, 'house', "(() => { const S = __hm.REALMS[0].town, h = T.house(S.x, S.z); return { x: h.x, z: h.z, y: h.y, top: h.top, w: h.w || h.Rr, yaw: Math.atan2(h.s, h.c) }; })()")
         # a guard out in the rain, one inside a house
         r = await ev(page, 'soak', f"""(() => {{
-          const P = T.P(); __hm.teleport({H['x']} + 9, {H['z']} + 9);
+          const P = T.go({H['x']} + 9, {H['z']} + 9);
           const out = T.crowd(P.x + 3, P.z + 3, 4);
           const inside = __hm.fn.spawnRealmUnit(0, 'archer', 20, 'guard', {H['x']}, {H['z']}); inside.ai.post = {{ x: inside.x, z: inside.z, yaw: 0 }};
           window.__crowd = out; window.__inside = inside;
           __hm.simulate(30);
-          return {{ wet: __hm.dbg.WEATHER.wet, player: P.wet, out: out.map((e) => +e.wet.toFixed(2)), inside: +(inside.wet || 0).toFixed(2), sky: __hm.fn.skyOver(inside), errors: __hm.errors.length }};
+          return {{ wet: __hm.dbg.WEATHER.wet, player: P.wet, out: out.map((e) => +(e.wet || 0).toFixed(2)), inside: +(inside.wet || 0).toFixed(2), sky: __hm.fn.skyOver(inside), errors: __hm.errors.length }};
         }})()""")
         check(r['wet'] > 0.7, 'the world is wet after a minute of rain')
         check(r['player'] > 0.6 and min(r['out']) > 0.6, 'people out in the rain are soaked')
@@ -116,8 +121,8 @@ async def main():
         check(r['playerAfter20s'] < 0.95, 'a soaked body dries in the sun')
 
         # ---------------- snow in the north ----------------
-        S2 = await ev(page, 'north', "(() => { const S = __hm.REALMS[2].town; const h = T.house(S.x, S.z); __hm.teleport(h.x + 8, h.z + 8); const P = T.P(); window.__crowd2 = T.crowd(P.x + 2.5, P.z + 2.5, 4); __hm.camera.position.set(P.x, P.y + 6, P.z + 8); return { x: h.x, z: h.z, y: h.y, px: P.x, pz: P.z, py: P.y }; })()")
-        r = await ev(page, 'snow', "(() => { __hm.setTod(0.45); const w = T.weather('rain', 100); __hm.simulate(40); return { ...w, player: +T.P().snow.toFixed(2), crowd: __crowd2.map((e) => +e.snow.toFixed(2)) }; })()")
+        S2 = await ev(page, 'north', "(() => { const S = __hm.REALMS[2].town; const h = T.house(S.x, S.z); const P = T.go(h.x + 8, h.z + 8); window.__crowd2 = T.crowd(P.x + 2.5, P.z + 2.5, 4); return { x: h.x, z: h.z, y: h.y, px: P.x, pz: P.z, py: P.y }; })()")
+        r = await ev(page, 'snow', "(() => { __hm.setTod(0.45); const w = T.weather('rain', 100); __hm.simulate(40); return { ...w, player: +T.P().snow.toFixed(2), crowd: __crowd2.map((e) => +(e.snow || 0).toFixed(2)) }; })()")
         check(r['snowing'] > 0.5 and r['snow'] > 0.6, 'precipitation falls as snow in the north and settles')
         check(r['player'] > 0.4, 'snow settles on a body standing out in it')
         await shot(page, 'snow_roofs', f"T.cam({S2['x']} + 15, {S2['y']} + 7, {S2['z']} + 13, {S2['x']}, {S2['y']} + 2.5, {S2['z']})")
@@ -130,13 +135,14 @@ async def main():
         # ---------------- storm: lightning on a tree and on a roof ----------------
         r = await ev(page, 'storm', f"""(() => {{
           const S = __hm.REALMS[0].town, h = T.house(S.x, S.z);
-          __hm.teleport(h.x + 10, h.z + 10);
+          T.go(h.x + 10, h.z + 10);
           T.weather('storm', 40);
           const P = T.P(), F = T.F;
           const i = T.tree(P.x, P.z, 10), t = F.W.trees[i];
           const fires0 = __hm.dbg.FIRES.length;
           // put a soldier right under the tree
           const vic = F.spawnRealmUnit(1, 'warrior', 20, 'soldier', t.x + 1.2, t.z + 0.6); vic.ai.post = {{ x: vic.x, z: vic.z, yaw: 0 }};
+          __hm.simulate(0.05);
           const hp0 = vic.hp;
           const a = F.strikeAt({{ kind: 'tree', i, x: t.x, z: t.z, y: t.y + 8 * t.s, gy: t.y, w: 1 }});
           const stunned = F.hasBuff(vic, 'stun');
@@ -161,7 +167,7 @@ async def main():
         r = await ev(page, 'fight', """(() => {
           T.play();
           const P = T.P(), F = T.F, INV = __hm.INV;
-          const S = __hm.REALMS[0].town; __hm.teleport(S.x + 20, S.z + 6);
+          const S = __hm.REALMS[0].town; T.go(S.x + 20, S.z + 6);
           const foe = F.spawnRealmUnit(1, 'warrior', 20, 'soldier', P.x + 1.5, P.z);
           foe.maxHp = foe.hp = 1e9;
           const d0 = Object.fromEntries(Object.entries(INV.eq).map(([s, it]) => [s, F.itemDur(it)]));
@@ -179,7 +185,7 @@ async def main():
           const S = __hm.REALMS[0].town;
           let best = null;
           for (let a = 0; a < 6.283; a += 0.05) for (let r = 8; r < 60; r += 2) { const x = S.x + Math.cos(a) * r, z = S.z + Math.sin(a) * r; const k = F.sampleGrid(F.W.road, x, z); if (k > 0.8 && F.isWalkable(x, z) && (!best || k > best.k)) best = { x, z, k, a }; }
-          __hm.teleport(best.x, best.z);
+          T.go(best.x, best.z); T.W.kind = 'clear'; T.W.snowing = 0; T.W.raining = 0; P.snow = 0; T.W.wet = 1;
           const d0 = (INV.eq.legs && INV.eq.legs.dirt) || P.dirt || 0;
           __hm.INPUT.keys.add('KeyW');
           for (let i = 0; i < 12; i++) { P.yaw = __hm.CAM.yaw = best.a + (i % 2 ? 3.14 : 0); __hm.simulate(2.5); }

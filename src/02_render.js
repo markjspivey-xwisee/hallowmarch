@@ -82,6 +82,7 @@ const U = {
   // weather: wetness of surfaces, flash of lightning
   uWet: { value: 0 },
   uSnowCover: { value: 0 },
+  uRain: { value: 0 }, // feature/weather: how hard it is raining right now (rings on the water)
   uFlashLight: { value: 0 },
 };
 const PL_MAX = 12;
