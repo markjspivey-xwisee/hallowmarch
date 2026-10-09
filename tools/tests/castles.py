@@ -71,6 +71,8 @@ window.T = {
     const p = this.w(S, lx, lz), e = this.F.spawnRealmUnit(realm, cls, 20, 'guard', p.x, p.z, { yaw: S.yaw + Math.PI });
     e.ai.post = { x: p.x, z: p.z, leash: 60 }; e.testFoe = true; return e;
   },
+  // nobody of another side near this gate (wandering wildlife or raiders would rightly keep it shut)
+  hush(S, r = 30) { const D = this.F.castleOf(S).gate.door; for (const e of this.H.ENT.slice()) if (e.alive && e.kind !== 'door' && e.role !== 'player' && e.faction !== D.faction && e.faction !== 4 && Math.hypot(e.x - D.x, e.z - D.z) < r) this.F.removeEnt(e); },
   clearFoes() { for (const e of this.H.ENT.slice()) if (e.testFoe) this.F.removeEnt(e); },
   quiet(S, r = 60) { for (const e of this.H.ENT.slice()) if (e.role === 'soldier' && Math.hypot(e.x - S.x, e.z - S.z) < r) this.F.removeEnt(e); },
 };
@@ -100,9 +102,9 @@ async def main():
             r = await ev(page, 'gate: owner leaves', "(() => { const S = T.keep(0, 0).site; T.put(S, 0, S.gateLocal.z + 6, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05 and r[1]['active'], 'it opens again for its own side, and shuts behind them')
             for realm, kind in ((1, 'round'), (2, 'timber')):
-                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = __hm.fn.castleOf(S).gate; G.door.faction; T.put(S, 0, S.gateLocal.z + 6, 0, {realm}); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; }})()")
+                r = await ev(page, f'gate {kind}', f"(() => {{ const S = T.keep({realm}, 0).site; const G = __hm.fn.castleOf(S).gate; G.door.faction; T.hush(S); T.put(S, 0, S.gateLocal.z + 6, 0, {realm}); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S), T.near(S)]; }})()")
                 check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, f'the {kind} keep gate opens for its own side and shuts again')
-            r = await ev(page, 'temple gate', "(() => { const S = __hm.REALMS[0].templeSite; T.put(S, 0, S.gateLocal.z + 5, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
+            r = await ev(page, 'temple gate', "(() => { const S = __hm.REALMS[0].templeSite; T.hush(S); T.put(S, 0, S.gateLocal.z + 5, 0, 0); __hm.simulate(3); const a = T.gate(S); T.put(S, 0, S.gateLocal.z + 40); __hm.simulate(3); return [a, T.gate(S)]; })()")
             check(r[0]['open'] > 0.95 and r[1]['open'] < 0.05, 'a temple gate opens for its own side and shuts again')
             r = await ev(page, 'gate broken and rebuilt', "(() => { const K = T.keep(0, 0), S = K.site, D = K.door; __hm.fn.killEnt(D, null); __hm.simulate(0.5); const a = T.gate(S); D.alive = true; D.hp = D.maxHp * 0.35; __hm.simulate(0.5); const b = T.gate(S); return [a, b]; })()")
             check(r[0]['wreck'] and not any(r[0]['leaves']) and not r[0]['active'], 'a broken gate shows its splintered wreck and lets everyone through')
@@ -174,7 +176,8 @@ async def main():
             await shot(page, 'castle_timber', "(() => { const S = T.keep(2, 0).site; T.cam(S, -27, 18, 30, 0, 2, 0); })()")
             await shot(page, 'castle_timber_inside', "(() => { const S = T.keep(2, 0).site; T.cam(S, -2, 6.5, -6, 12, 4, 6); })()")
             await shot(page, 'castle_temple', "(() => { const S = __hm.REALMS[0].templeSite; T.cam(S, -20, 13, 26, 0, 1.5, 0); })()")
-            await shot(page, 'castle_banners_town', "(() => { const S = __hm.REALMS[0].town, h = S.houses.find((q) => q.kind === 'hall'); const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const y = __hm.fn.heightAt(h.x, h.z); H.camera.position.set(h.x + fx * (h.d / 2 + 12) + fz * 4, y + 4.5, h.z + fz * (h.d / 2 + 12) - fx * 4); H.camera.lookAt(h.x + fx * (h.d / 2 + 2), y + 3, h.z + fz * (h.d / 2 + 2)); H.camera.updateMatrixWorld(); })()")
+        if SHOTS and (not ONLY or ONLY in ('shots', 'shots2', 'banners')):
+            await shot(page, 'castle_banners_town', "(() => { const S = __hm.REALMS.map((R) => R.town).find((t) => t.houses.some((q) => q.kind === 'hall')), h = S.houses.find((q) => q.kind === 'hall'); const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw); const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const y = __hm.fn.heightAt(h.x, h.z); H.camera.position.set(h.x + fx * (h.d / 2 + 12) + fz * 4, y + 4.5, h.z + fz * (h.d / 2 + 12) - fx * 4); H.camera.lookAt(h.x + fx * (h.d / 2 + 2), y + 3, h.z + fz * (h.d / 2 + 2)); H.camera.updateMatrixWorld(); })()")
 
         r = await ev(page, 'errors', "__hm.errors.slice(0, 5)")
         check(len(r) == 0, '__hm.errors is empty')
