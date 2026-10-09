@@ -15,6 +15,7 @@ ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
 QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'medium')
 SMALL = 'small' in ARGS  # 640x360 for quick functional runs; screenshots want the default 960x540
+SKIP = set(next((a[5:].split(',') for a in ARGS if a.startswith('skip=')), []))  # shots to leave out, e.g. skip=rain_town,rain_keep
 FAILS = []
 T0 = time.time()
 
@@ -31,7 +32,7 @@ async def frames(page, n=1):
     for _ in range(n): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
 
 async def shot(page, name, js='0'):
-    if not SHOTS: return
+    if not SHOTS or name in SKIP: return
     await page.evaluate(js)
     await frames(page, 2)
     await page.screenshot(path=OUT + 'weather_' + name + '.png', timeout=300000)
@@ -150,16 +151,20 @@ async def main():
           const b = F.strikeAt({{ kind: 'house', H: h, x: h.x, z: h.z, y: h.y + h.top, gy: h.y, w: 1 }});
           // and one picked the way the storm picks them
           const c = F.strikeNear(P.x, P.z);
-          window.__strike = {{ tx: t.x, tz: t.z, ty: t.y, hx: h.x, hz: h.z, hy: h.y }};
+          window.__strike = {{ i, tx: t.x, tz: t.z, ty: t.y, ts: t.s, hx: h.x, hz: h.z, hy: h.y }};
           return {{ tree: a, house: b, near: c, houseState: h.state, fires: __hm.dbg.FIRES.length - fires0, victimHurt: vic.hp < hp0, stunned, bolts: __hm.dbg.WEATHER.bolts.length }};
         }})()""")
         check(r['tree']['lit'], 'a struck tree catches fire')
         check(r['houseState'] == 'burning', 'a struck roof catches fire')
         check(r['victimHurt'] and r['stunned'], 'someone under the struck tree is hurt and stunned')
         check(r['bolts'] >= 2, 'the bolts are drawn')
-        await shot(page, 'storm_strike', """(() => { const s = __strike; const F = T.F;
-          F.strikeAt({ kind: 'ground', x: s.tx + 6, z: s.tz + 4, y: F.heightAt(s.tx + 6, s.tz + 4), gy: F.heightAt(s.tx + 6, s.tz + 4), w: 1 });
-          T.cam(s.tx + 22, s.ty + 9, s.tz + 20, s.tx + 3, s.ty + 6, s.tz + 2); __hm.frame(0.02); })()""")
+        await shot(page, 'storm_strike', """(() => { const s = __strike, F = T.F, P = T.P();
+          F.strikeAt({ kind: 'tree', i: s.i, x: s.tx, z: s.tz, y: s.ty + 8 * s.ts, gy: s.ty, w: 1 });
+          // hold the bolt on screen while the slow software renderer draws the shot
+          const W = __hm.dbg.WEATHER; W.bolts[W.bolts.length - 1].t = -4; W.flash = 1;
+          // look at the struck tree from the open ground where the player stands
+          const dx = P.x - s.tx, dz = P.z - s.tz, d = Math.hypot(dx, dz) || 1;
+          T.cam(s.tx + dx / d * 20, s.ty + 7, s.tz + dz / d * 20, s.tx, s.ty + 6, s.tz); })()""")
         await ev(page, 'burn', "__hm.simulate(6), T.W.bolts.length")
         await shot(page, 'storm_fire', "(() => { const s = __strike; T.cam(s.hx + 16, s.hy + 7, s.hz + 15, s.hx, s.hy + 3, s.hz); })()")
         await ev(page, 'calm', "T.weather('clear', 5), __hm.simulate(2), 0")

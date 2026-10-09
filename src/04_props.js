@@ -727,7 +727,9 @@ const treeMat = mat({
       }
       /* ---- weather (feature/weather): wet bark darkens, wet leaves shine ---- */
       if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.38 : 0.14); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.7), vPart < 0.5 ? 0.8 : 0.35, sh) * vAO; }
-      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), uSnowCover * 0.7 * smoothstep(0.35, 0.85, n.y) * step(0.5, vPart));
+      // snow on the crowns in clumps, thickest on what faces up (feature/weather)
+      float sF = uSnowCover * smoothstep(-0.2, 0.6, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 1.3 + vW.y * 0.9))) * step(0.5, vPart);
+      col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), clamp(sF, 0.0, 0.85));
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
