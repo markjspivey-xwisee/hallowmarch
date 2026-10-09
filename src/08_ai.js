@@ -610,6 +610,7 @@ function wbSetOrder(wb, order) {
   wb.lastProgress = GAME.t;
   const L = wbLeader(wb);
   if (L) { wb.progX = L.x; wb.progZ = L.z; }
+  announceOrder(wb, wb.order); // [campaign] every order is cried in the news (08g_campaign.js)
 }
 function doorOpenFor(wb) {
   return (a, b) => {
@@ -721,6 +722,9 @@ function updateWarband(wb, dt) {
       const n = nearestNavNode(px, pz, null, true);
       if (n && wb.goal !== n.id) wbPlan(wb, n);
     }
+  } else if (O.type === 'rally') {
+    // [campaign] the player called this band to their side (08g_campaign.js)
+    if (!rallyPoint(wb, O, L)) { wb.order = null; return; }
   } else if (O.type === 'patrol') {
     if (GAME.t > O.until) { wb.order = null; return; }
     goal = O.node;
@@ -731,7 +735,8 @@ function updateWarband(wb, dt) {
 
   // leader movement
   let tx = L.x, tz = L.z;
-  if (O.type === 'retrieve' && O.point) {
+  if ((O.type === 'retrieve' || O.type === 'rally') && O.point) { // [campaign] rally walks like retrieve
+    if (wb.path && wb.pathIdx < wb.path.length - 1) { const n = NAV.nodes[wb.path[wb.pathIdx]]; if (dist(L.x, L.z, n.x, n.z) < 3.5) wb.pathIdx++; } // [campaign] walk on along the path
     const lastNode = wb.path && wb.path.length ? NAV.nodes[wb.path[Math.min(wb.pathIdx, wb.path.length - 1)]] : null;
     if (!wb.path || !wb.path.length || wb.pathIdx >= wb.path.length || segmentClear(L.x, L.z, O.point.x, O.point.z, 0.4)) { tx = O.point.x; tz = O.point.z; }
     else if (lastNode) { tx = lastNode.x; tz = lastNode.z; }
@@ -827,7 +832,7 @@ function retask(mine, x, z, order) {
   let best = null, bd = Infinity;
   for (const wb of mine) {
     const O = wb.order;
-    if (O && !((O.type === 'attack' && O.phase === 'travel') || O.type === 'patrol')) continue;
+    if (O && (O.byPlayer || !((O.type === 'attack' && O.phase === 'travel') || O.type === 'patrol'))) continue; // [campaign] the player's orders hold
     if (wbMembers(wb).length < 4) continue;
     const L = wbLeader(wb);
     const d = dist(L.x, L.z, x, z);
@@ -836,69 +841,9 @@ function retask(mine, x, z, order) {
   if (best) wbSetOrder(best, order);
   return best;
 }
-function commanderThink(C) {
-  const r = C.realm, now = GAME.t;
-  const mine = WAR.warbands.filter((w) => w.realm === r && !w.dead);
-  // urgent: chase our stolen hallow, or seize a chance to raid an exposed temple
-  const loose = looseRelicFor(r, mine);
-  if (loose) { const p = relicPosition(loose); retask(mine, p.x, p.z, { type: 'retrieve', relic: loose }); }
-  else if (!mine.some((w) => w.order && (w.order.type === 'raid' || w.order.type === 'carry')) && Math.random() < 0.6) {
-    for (const T of WAR.temples) {
-      if (T.realm === r || !templeExposed(T)) continue;
-      const rel = WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm && x.realm !== r) || WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm);
-      if (rel && retask(mine, T.site.x, T.site.z, { type: 'raid', temple: T, relic: rel })) {
-        // a second band musters at once to follow the first
-        if (mine.length < MAX_WARBANDS() + 1) { const wb2 = spawnWarband(r, 8); wbSetOrder(wb2, { type: 'raid', temple: T, relic: rel }); C.nextSpawn = now + 30; }
-        break;
-      }
-    }
-  }
-  const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
-  const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (mine.length < MAX_WARBANDS() + underdog && now > C.nextSpawn) {
-    const size = 7 + Math.floor(Math.random() * 4) + underdog * 2;
-    mine.push(spawnWarband(r, size));
-    C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
-  }
-  for (const wb of mine) {
-    if (wb.order) continue;
-    // 1. a hallow lies on the ground, or ours is being carried off
-    const loose = looseRelicFor(r, mine);
-    if (loose) { wbSetOrder(wb, { type: 'retrieve', relic: loose }); continue; }
-    // 2. guard our temple when raiders are at its gate
-    const T0 = WAR.temples[r];
-    if (now < T0.underSiegeUntil && !mine.some((w) => w.order && w.order.type === 'patrol' && w.order.node === T0.nav.tg)) { wbSetOrder(wb, { type: 'patrol', node: T0.nav.tg, until: now + 45 }); continue; }
-    // 3. defend a keep under siege
-    const sieged = WAR.keeps.filter((K) => K.realm === r && now < K.underSiegeUntil && !mine.some((w) => w.order && w.order.keep === K && w.order.type === 'defend'));
-    if (sieged.length) { wbSetOrder(wb, { type: 'defend', keep: sieged[0], since: now }); continue; }
-    // 3. raid an exposed temple
-    if (Math.random() < 0.45 && !mine.some((w) => w.order && (w.order.type === 'raid' || w.order.type === 'carry'))) {
-      const options = [];
-      for (const T of WAR.temples) {
-        if (T.realm === r || !templeExposed(T)) continue;
-        for (const rel of WAR.relics) if (rel.state === 'temple' && rel.at === T.realm) options.push({ T, rel, score: rel.realm === r ? 0 : 1 });
-      }
-      options.sort((a, b) => a.score - b.score);
-      if (options.length) { wbSetOrder(wb, { type: 'raid', temple: options[0].T, relic: options[0].rel }); continue; }
-    }
-    // 4. attack the most tempting keep
-    const M = REALMS[r].musterSite;
-    let best = null, bs = Infinity;
-    for (const K of WAR.keeps) {
-      if (K.realm === r) continue;
-      const already = mine.filter((w) => w.order && w.order.keep === K).length;
-      if (already >= 2) continue;
-      const guards = [...K.guards].filter((id) => getEnt(id)?.alive).length;
-      let s = dist(M.x, M.z, K.site.x, K.site.z) * (K.orig === r ? 0.55 : 1) * (1 + guards / 10) * (0.6 + K.door.hp / K.door.maxHp * 0.6);
-      s *= 0.8 + Math.random() * 0.5;
-      if (already === 1) s *= 0.7;
-      if (s < bs) { bs = s; best = K; }
-    }
-    if (best) { wbSetOrder(wb, { type: 'attack', keep: best }); continue; }
-    const own = WAR.keeps.filter((K) => K.realm === r);
-    if (own.length) wbSetOrder(wb, { type: 'patrol', node: pick(Math.random, own).nav.gate, until: now + 30 });
-  }
-}
+// [campaign] the commander's thinking lives in 08g_campaign.js: objectives chosen for stated reasons,
+// bands spread across the realm's two fronts, every order announced
+function commanderThink(C) { planWar(C); }
 
 /* ------------------------------------------------------------------ */
 /* the war tick                                                        */
@@ -931,6 +876,7 @@ function updateWar(dt) {
     if (now > T.nextGuardAt && now - T.lastEnemyNear > 20) { T.nextGuardAt = now + 30; fillGuardians(T, false); }
   }
   updateRelics(dt);
+  updateCampaign(dt); // [campaign] claims, victory, the peace and the reset (08g_campaign.js)
   // camps respawn
   for (const c of CAMPS) {
     for (let i = c.respawnAt.length - 1; i >= 0; i--) {

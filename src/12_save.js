@@ -49,6 +49,7 @@ function buildSave() {
   const world = {
     keeps: WAR.keeps.map((K) => K.realm),
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
+    campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
   if (!P || !prog) return { v: 1, char: null, settings, world };
   const b = prog.bounty;
@@ -154,6 +155,7 @@ function applyWorldSave(w) {
     });
   }
   updateRelicBonuses();
+  applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
 }
 function applySettings(st) {
   if (!st) return;
