@@ -21,9 +21,9 @@
 /* ------------------------------------------------------------------ */
 const CW = {
   KEEPS: 4,           // keeps of the six that make a dominion
-  KEEP_HOLD: 360,     // seconds a dominion must stand to win
+  KEEP_HOLD: 300,     // seconds a dominion must stand to win
   HALLOW_HOLD: 240,   // seconds both enemy hallows must stay in one temple to win
-  DECAY: 0.25,        // a broken claim drains at a quarter of the speed it grew
+  DECAY: 1 / 6,       // a broken claim drains at a sixth of the speed it grew, so repeated holds add up
   PEACE: 90,          // seconds of peace before the March resets
   LONG: 900,          // from 15 minutes the long war thins the garrisons and slows the gates
   CALL: 3600,         // after an hour the elders call the war for the realm with the most renown
@@ -550,7 +550,8 @@ function campaignHudHTML() {
   let body;
   if (CAMPAIGN.state === 'peace') {
     const R = REALMS[CAMPAIGN.winner] || REALMS[0];
-    body = `<div class="cw-claim on" style="--rc:${R.color}"><span><b>${R.name}</b> won the March</span><span class="num">${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}</span><i><b style="width:100%"></b></i><em>Peace: the March resets in</em></div>`;
+    const left = CAMPAIGN.peaceUntil - GAME.t;
+    body = `<div class="cw-claim on" style="--rc:${R.color}"><span class="w"><b>${R.name}</b> won the March</span><span>New campaign in</span><span class="num">${fmtClock(left)}</span><i><b style="width:${(clamp(1 - left / CW.PEACE, 0, 1) * 100).toFixed(1)}%"></b></i></div>`;
   } else {
     const top = cwTopClaims().slice(0, 2);
     body = top.length ? top.map((c) => {
@@ -575,14 +576,14 @@ function campaignChronHTML() {
   const rows = [0, 1, 2].map((r) => {
     const c = claims.find((q) => q.r === r);
     const claim = c ? (c.on ? `${c.kind === 'keeps' ? 'keeps' : 'hallows'}: wins in ${fmtClock(c.left)}` : 'a fading claim') : '·';
-    return `<span class="r" style="--rc:${REALMS[r].color}"><i></i>${REALMS[r].name}</span><span class="c">${WAR.keeps.filter((K) => K.realm === r).length}</span><span class="c">${Math.round(CAMPAIGN.renown[r])}</span><span class="w">${claim}</span>`;
+    return `<span class="r" style="--rc:${REALMS[r].color}"><i></i>${REALMS[r].name}</span><span class="c">${Math.round(CAMPAIGN.renown[r])}</span><span class="c">${CAMPAIGN.story.captures[r]}</span><span class="w">${claim}</span>`;
   }).join('');
   const hist = CAMPAIGN.history.slice().reverse().map((h) => `<li><b style="color:${REALMS[h.w].light}">The ${ordinalWord(h.n)} campaign</b>: ${REALMS[h.w].name}, ${h.how === 'keeps' ? `holding ${CW.KEEPS} keeps` : h.how === 'hallows' ? 'holding both enemy hallows' : 'by renown'}, after ${h.m} minutes. Keeps taken ${h.cap.join(' · ')}; hallows carried home ${h.hal.join(' · ')}.</li>`).join('');
   const now = CAMPAIGN.state === 'peace' ? `${REALMS[CAMPAIGN.winner].name} has won the ${ordinalWord(CAMPAIGN.n)} campaign; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.` : `The ${ordinalWord(CAMPAIGN.n)} campaign has run for ${Math.floor(campaignElapsed() / 60)} minutes.`;
   return `<h3>How a campaign is won</h3>
-    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a quarter of the speed it grew. If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
+    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a sixth of the speed it grew, so a realm that keeps winning the fourth keep back gets there in the end. If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
     <p>The winners share the spoils. After a short peace every keep and hallow goes back to its own realm and the next campaign begins. The realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster; and from a quarter of an hour on the long war thins the garrisons, slows the mending of broken gates and swells every muster with veterans, so no campaign stalls for ever.</p>
-    <div class="tide" role="table" aria-label="The campaign now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Renown</span><span class="h w" role="columnheader">Claim</span>${rows}</div>
+    <div class="tide" role="table" aria-label="The campaign now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Renown</span><span class="h c" role="columnheader">Taken</span><span class="h w" role="columnheader">Claim on the March</span>${rows}</div>
     <p class="now">${now}</p>
     ${hist ? `<h3>Past campaigns</h3><ul class="plain">${hist}</ul>` : ''}`;
 }
@@ -650,49 +651,53 @@ function cwArrowHead(ctx, ax, ay, bx, by, s) {
   ctx.closePath();
   ctx.fill();
 }
-// one band's route: a dashed line in its realm's colour, an arrowhead at the objective, a ring on it
-function cwDrawRoute(ctx, wb, toPx, sc, alpha, sel) {
+// one band's route: a dashed line in its realm's colour, an arrowhead at the objective, a ring on it.
+// u is one screen pixel in canvas units, f the size of it all (the minimap draws smaller)
+function cwDrawRoute(ctx, wb, toPx, u, f, alpha, sel) {
   const pts = cwRoute(wb);
   if (!pts || pts.length < 2) return;
   const R = REALMS[wb.realm];
   const px = pts.map((p) => toPx(p.x, p.z));
   // the last leg ends short of the objective's ring
   const [tx, ty] = px[px.length - 1], [qx, qy] = px[px.length - 2];
-  const dl = Math.hypot(tx - qx, ty - qy), ring = sc * 2.6;
+  const dl = Math.hypot(tx - qx, ty - qy), ring = u * f * 10;
   const end = dl > ring ? [tx - ((tx - qx) * ring) / dl, ty - ((ty - qy) * ring) / dl] : [qx, qy];
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const line = () => { ctx.beginPath(); ctx.moveTo(px[0][0], px[0][1]); for (let i = 1; i < px.length - 1; i++) ctx.lineTo(px[i][0], px[i][1]); ctx.lineTo(end[0], end[1]); };
-  ctx.setLineDash([]); ctx.strokeStyle = 'rgba(8, 9, 11, 0.75)'; ctx.lineWidth = sc * (sel ? 1.25 : 0.9); line(); ctx.stroke();
-  ctx.setLineDash([sc * 1.6, sc * 1.1]); ctx.lineDashOffset = -renderTime * sc * 4;
-  ctx.strokeStyle = sel ? '#ffe7a8' : R.light; ctx.lineWidth = sc * (sel ? 0.62 : 0.42); line(); ctx.stroke();
+  const lw = u * f * (sel ? 3.4 : 2.4);
+  ctx.setLineDash([]); ctx.strokeStyle = 'rgba(8, 9, 11, 0.8)'; ctx.lineWidth = lw + u * 2.4; line(); ctx.stroke();
+  ctx.setLineDash([u * f * 8, u * f * 5]); ctx.lineDashOffset = -renderTime * u * f * 14;
+  ctx.strokeStyle = sel ? '#ffe7a8' : R.light; ctx.lineWidth = lw; line(); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = sel ? '#ffe7a8' : R.light; ctx.strokeStyle = 'rgba(8, 9, 11, 0.8)'; ctx.lineWidth = sc * 0.25;
+  ctx.fillStyle = sel ? '#ffe7a8' : R.light; ctx.strokeStyle = 'rgba(8, 9, 11, 0.85)'; ctx.lineWidth = u * 1.4;
   const pv = px.length > 2 ? px[px.length - 2] : px[0];
-  cwArrowHead(ctx, pv[0], pv[1], end[0], end[1], sc * 1.7);
+  cwArrowHead(ctx, pv[0], pv[1], end[0], end[1], u * f * 11);
   ctx.stroke();
   // the objective
-  ctx.strokeStyle = R.light; ctx.lineWidth = sc * 0.4;
+  ctx.strokeStyle = 'rgba(8, 9, 11, 0.8)'; ctx.lineWidth = u * f * 4.4;
+  ctx.beginPath(); ctx.arc(tx, ty, ring, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = sel ? '#ffe7a8' : R.light; ctx.lineWidth = u * f * 2.2;
   ctx.beginPath(); ctx.arc(tx, ty, ring, 0, TAU); ctx.stroke();
   ctx.restore();
 }
 function drawCampaignMap(ctx, S, P) {
   cwBindMap();
-  const sc = S * 0.0042;
+  const u = S / Math.max(1, $('mapcanvas').clientWidth || S), sc = u * 2.2;
   const toPx = (x, z) => w2m(x, z, S);
   const sel = CWUI.sel;
   const bands = WAR.warbands.filter((wb) => !wb.dead && wbLeader(wb) && cwSpotted(wb, P));
   // enemies first and fainter, then ours, the chosen band last and brightest
   bands.sort((a, b) => (a.realm === P.faction) - (b.realm === P.faction) || (a.id === sel) - (b.id === sel));
-  for (const wb of bands) cwDrawRoute(ctx, wb, toPx, sc, wb.realm === P.faction ? 0.95 : 0.6, wb.id === sel);
+  for (const wb of bands) cwDrawRoute(ctx, wb, toPx, u, 1, wb.realm === P.faction ? 0.95 : 0.6, wb.id === sel);
   for (const wb of bands) {
     const L = wbLeader(wb), [x, y] = toPx(L.x, L.z), R = REALMS[wb.realm];
     if (wb.id === sel) { ctx.strokeStyle = `rgba(255, 231, 168, ${0.6 + 0.4 * Math.sin(renderTime * 5)})`; ctx.lineWidth = sc * 0.6; ctx.beginPath(); ctx.arc(x, y, sc * 5.2, 0, TAU); ctx.stroke(); }
     const [g] = orderShort(wb);
-    cwBadge(ctx, x, y - sc * 4.2, sc * 2.7, g, wb.order && wb.order.byPlayer ? '#ffe7a8' : R.color);
+    cwBadge(ctx, x, y - sc * 5, sc * 4, g, wb.order && wb.order.byPlayer ? '#ffe7a8' : R.color);
     if (wb.realm === P.faction) {
-      ctx.font = `700 ${Math.max(S * 0.015, 10)}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
+      ctx.font = `700 ${11 * u}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
       const t = WB_ORD[wbOrd(wb) - 1] || '';
       ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillText(t, x + 1, y + sc * 5.6 + 1); ctx.fillStyle = '#f3e6c4'; ctx.fillText(t, x, y + sc * 5.6);
     }
@@ -703,21 +708,20 @@ function drawCampaignMap(ctx, S, P) {
   if (CAMPAIGN.state === 'peace') { const R = REALMS[CAMPAIGN.winner] || REALMS[0]; msg = `${R.name} has won the March · peace for ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}`; col = R.light; }
   else if (top && top.on) { const R = REALMS[top.r]; msg = `${R.name} ${top.kind === 'keeps' ? `holds ${WAR.keeps.filter((K) => K.realm === top.r).length} keeps` : 'holds both enemy hallows'} · victory in ${fmtClock(top.left)}`; col = R.light; }
   if (msg) {
-    ctx.font = `600 ${S * 0.024}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
+    ctx.font = `600 ${Math.max(S * 0.024, 13 * u)}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
     const w = ctx.measureText(msg).width + S * 0.04, h = S * 0.044;
     ctx.fillStyle = 'rgba(12, 13, 16, 0.86)'; ctx.strokeStyle = col; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.rect(S / 2 - w / 2, S * 0.018, w, h); ctx.fill(); ctx.stroke();
     ctx.fillStyle = col; ctx.fillText(msg, S / 2, S * 0.018 + h * 0.7);
     // a crown over every keep of the claim
-    if (CAMPAIGN.state === 'war' && top.kind === 'keeps') for (const K of WAR.keeps) if (K.realm === top.r) { const [x, y] = toPx(K.site.x, K.site.z); cwBadge(ctx, x + sc * 4, y - sc * 4, sc * 2.2, 'crown', col); }
+    if (CAMPAIGN.state === 'war' && top.kind === 'keeps') for (const K of WAR.keeps) if (K.realm === top.r) { const [x, y] = toPx(K.site.x, K.site.z); cwBadge(ctx, x + sc * 5, y - sc * 5, sc * 3.4, 'crown', col); }
   }
 }
 function drawCampaignMinimap(ctx, toM, S, dpr) {
   const P = GAME.player;
-  const sc = 2.4 * dpr;
   for (const wb of WAR.warbands) {
     if (wb.dead || !wb.order || !cwSpotted(wb, P)) continue;
-    cwDrawRoute(ctx, wb, toM, sc, wb.realm === P.faction ? 0.9 : 0.55, wb.id === CWUI.sel);
+    cwDrawRoute(ctx, wb, toM, dpr, 0.62, wb.realm === P.faction ? 0.9 : 0.55, wb.id === CWUI.sel);
     const L = wbLeader(wb);
     if (!L) continue;
     const [x, y] = toM(L.x, L.z);
@@ -749,7 +753,8 @@ function campaignSideHTML() {
   const claims = cwTopClaims();
   const standing = [0, 1, 2].sort((a, b) => CAMPAIGN.renown[b] - CAMPAIGN.renown[a]).map((r) => {
     const c = claims.find((q) => q.r === r && q.on);
-    return `<li style="--rc:${REALMS[r].color}"><i></i><b>${REALMS[r].name}</b><span>${WAR.keeps.filter((K) => K.realm === r).length} keeps · ${foreignHallows(r)} hallows · ${Math.round(CAMPAIGN.renown[r])} renown${c ? ` · <em>wins in ${fmtClock(c.left)}</em>` : ''}</span></li>`;
+    const k = WAR.keeps.filter((K) => K.realm === r).length, h = foreignHallows(r);
+    return `<li style="--rc:${REALMS[r].color}"><i></i><b>${REALMS[r].name}</b><span>${k} keep${k === 1 ? '' : 's'}${h ? ` · ${h} hallow${h === 1 ? '' : 's'}` : ''} · ${Math.round(CAMPAIGN.renown[r])} renown${c ? `<br><em>wins in ${fmtClock(c.left)}</em>` : ''}</span></li>`;
   }).join('');
   const head = CAMPAIGN.state === 'peace'
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`
@@ -861,7 +866,12 @@ function showVictory(rec) {
       : `After an hour of war the elders called it for ${R.name}, whose banners had flown longest over the March.`;
   const rows = [0, 1, 2].map((r) => `<span class="r" style="--rc:${REALMS[r].color}"><i></i>${REALMS[r].name}</span><span>${rec.cap[r]}</span><span>${rec.hal[r]}</span><span>${rec.gates[r]}</span><span>${rec.ren[r]}</span>`).join('');
   const y = rec.you;
-  const part = y && y.r === P.faction ? `You were there when ${y.cap} keep${y.cap === 1 ? '' : 's'} fell to ${REALMS[P.faction].name}, broke ${y.gates} gate${y.gates === 1 ? '' : 's'}, carried ${y.hal} hallow${y.hal === 1 ? '' : 's'} home and slew ${y.kills} foe${y.kills === 1 ? '' : 's'}. You gave ${y.orders} order${y.orders === 1 ? '' : 's'} to the warbands.` : 'You came late to this campaign.';
+  const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  const deeds = y && y.r === P.faction ? [
+    y.cap && `were there when ${n(y.cap, 'keep', 'keeps')} fell to ${REALMS[P.faction].name}`, y.gates && `broke ${n(y.gates, 'gate', 'gates')}`,
+    y.hal && `carried ${n(y.hal, 'hallow', 'hallows')} home`, y.kills && `slew ${n(y.kills, 'foe', 'foes')}`, y.orders && `gave ${n(y.orders, 'order', 'orders')} to the warbands`,
+  ].filter(Boolean) : [];
+  const part = deeds.length ? `You ${deeds.length > 1 ? deeds.slice(0, -1).join(', ') + ' and ' + deeds[deeds.length - 1] : deeds[0]}.` : 'You watched this campaign from afar. Break gates, take keeps and command the warbands in the next, and your deeds will be told here.';
   const rw = rec.reward;
   const reward = won && rw ? `<div class="cw-reward"><b>Your share of the spoils</b><span>${fmtInt(rw.rp)} realm points · ${fmtInt(rw.gold)} gold${rw.xp ? ` · ${fmtInt(rw.xp)} experience` : ''}</span><span style="color:${QUALITY[rw.q].col}">${esc(rw.item)}</span></div>` : `<div class="cw-reward lost"><b>${REALMS[P.faction].name} did not win this time.</b><span>Win the next campaign for a share of the spoils.</span></div>`;
   ov.innerHTML = `<div class="sheet panel cw-vic" role="dialog" aria-labelledby="cw-vic-title" style="--rc:${R.color};--rl:${R.light}">
@@ -912,7 +922,7 @@ function updateCampaignUI(dt) {
 #war .cw-claim.on .num { color: #ffe7a8; font-weight: 700; }
 #war .cw-claim i { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(0, 0, 0, 0.5); overflow: hidden; }
 #war .cw-claim i b { display: block; height: 100%; background: var(--rc); box-shadow: 0 0 6px var(--rc); }
-#war .cw-claim em { grid-column: 1 / -1; order: -1; font-style: normal; font-size: 11px; }
+#war .cw-claim .w { grid-column: 1 / -1; }
 #war .cw-rule { font-size: 11.5px; color: var(--ink-faint); line-height: 1.25; }
 .np .cw-o { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px 1px 4px; border-radius: 3px; background: rgba(10, 11, 14, 0.72); border: 1px solid rgba(223, 193, 136, 0.35); font: 600 10.5px/1.2 var(--ui); color: #f3e6c4; text-shadow: 0 1px 2px #000; }
 .np .cw-o svg { flex: none; color: #ffe7a8; }
@@ -942,10 +952,10 @@ function updateCampaignUI(dt) {
 #mapside .cw-msg { color: #ffe7a8; font-size: 12.5px; }
 #mapside .cw-tip { font-style: italic; }
 #cw-victory { z-index: 35; }
-#cw-victory .cw-vic { width: min(600px, 100%); text-align: center; justify-items: center; gap: 10px; border-color: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 60px color-mix(in srgb, var(--rc) 40%, transparent), 0 20px 50px rgba(0, 0, 0, 0.6); animation: cw-in 0.6s ease; }
-#cw-victory .cw-crest { width: 120px; height: 135px; margin-top: -4px; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); animation: cw-sway 4s ease-in-out infinite alternate; transform-origin: 50% 10%; }
+#cw-victory .cw-vic { width: min(600px, 100%); text-align: center; justify-items: center; gap: 8px; padding: 16px 22px; border-color: var(--rc); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 60px color-mix(in srgb, var(--rc) 40%, transparent), 0 20px 50px rgba(0, 0, 0, 0.6); animation: cw-in 0.6s ease; }
+#cw-victory .cw-crest { width: 84px; height: 95px; margin: -4px 0 -6px; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.5)); animation: cw-sway 4s ease-in-out infinite alternate; transform-origin: 50% 10%; }
 #cw-victory small { color: var(--ink-dim); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
-#cw-victory h2 { font-size: 34px; color: var(--rl); text-shadow: 0 2px 14px color-mix(in srgb, var(--rc) 55%, transparent); }
+#cw-victory h2 { font-size: 32px; color: var(--rl); text-shadow: 0 2px 14px color-mix(in srgb, var(--rc) 55%, transparent); }
 #cw-victory .lead { color: var(--ink); font-size: 15px; max-width: 46ch; }
 #cw-victory .cw-table { display: grid; grid-template-columns: 1.3fr repeat(4, 1fr); gap: 4px 10px; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; padding: 8px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); }
 #cw-victory .cw-table .h { font: 500 11px var(--caps); letter-spacing: 0.06em; color: var(--bronze-hi); text-transform: uppercase; }
@@ -962,9 +972,8 @@ function updateCampaignUI(dt) {
   #war .cw-claim { font-size: 10.5px; }
   #war .cw-h { font-size: 10.5px; }
   #war .cw-rule { font-size: 10px; }
-  #war .cw-claim em { font-size: 10px; }
   #cw-victory .cw-vic { padding: 14px; gap: 8px; }
-  #cw-victory .cw-crest { width: 84px; height: 95px; }
+  #cw-victory .cw-crest { width: 70px; height: 79px; }
   #cw-victory h2 { font-size: 26px; }
   #cw-victory .lead { font-size: 13.5px; }
   #cw-victory .cw-table { font-size: 12px; gap: 3px 6px; grid-template-columns: 1.2fr repeat(4, 1fr); }

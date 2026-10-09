@@ -420,7 +420,7 @@ const LOADING_TIPS = [
   'Named champions lead the camps of the borderlands, from level 20 to 40.',
   'Realm points come from enemy soldiers, keeps and hallows. Each realm rank adds to your health and damage.',
   'Commanders send their warbands at near, weak keeps, and above all at keeps their own realm has lost. Every order is drawn on your map.',
-  'A realm wins the campaign by holding four of the six keeps for six minutes, or both enemy hallows for four.',
+  'A realm wins the campaign by holding four of the six keeps for five minutes, or both enemy hallows for four.',
   'From realm rank 3 or level 20 you can command your realm\'s warbands from the map.',
   'After an hour of war the elders give the March to the realm with the most renown.',
   'Your path, at the left of the screen, always shows your next step, and every step pays a reward.',
