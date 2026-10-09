@@ -122,7 +122,6 @@ function startGame(save) {
   GAME.started = true;
   lastZone = '';
   INPUT.keys.clear();
-  const R = REALMS[P.faction];
   uiLog(`Welcome to ${zoneAt(P.x, P.z).name}, ${P.name}.`, 'sys');
   if (save.fresh) {
     // a pack for the road: draughts for a recruit, a veteran's kit for a veteran
@@ -136,8 +135,7 @@ function startGame(save) {
       applyGear();
       P.hp = P.maxHp;
     }
-    setTimeout(() => uiToast(IS_TOUCH ? 'Drag on the left side to walk. Tap a creature to target it.' : 'WASD to walk, drag to look. Click a creature, then press 1.', 'hint'), 1600);
-    setTimeout(() => { if (GAME.player === P) uiToast(P.level >= 14 ? `The portal stones in ${R.townName} lead to the frontier.` : `Speak with the herald in ${R.townName} for a bounty.`, 'hint'); }, 8000);
+    // first steps: the prologue and the path (10c_lore.js) take it from here
     SAVE.chain.then(() => saveNow());
   } else {
     uiLog(`Level ${GAME.prog.level} ${CLASSES[P.cls].name}, realm rank ${realmRank(GAME.prog.rp)}.`, 'sys');
@@ -152,6 +150,7 @@ function startGame(save) {
     }
   }
   sfx('portal');
+  loreOnStart(save);
 }
 function newCharacter() {
   wipeSave();
@@ -356,8 +355,8 @@ function tick(dt) {
   updateWeather(dt);
   applyWeather();
   applyIndoor();
-  // simulation (the menu pauses the world)
-  if (UI.modal !== 'menu') {
+  // simulation (the menu and the prologue pause the world)
+  if (UI.modal !== 'menu' && UI.modal !== 'prologue') {
     // up to two steps so a slow frame rate does not slow the world down
     let rest = Math.min(dt, 0.1);
     if (GAME.hitStop > 0) { GAME.hitStop -= dt; rest *= 0.06; }
@@ -412,6 +411,7 @@ function tick(dt) {
   renderPost();
   // interface
   if (GAME.started && GAME.player) updateHUD(dt);
+  if (GAME.started && GAME.player) updateLore(dt);
   updateAudio(dt);
   adaptQuality(dt);
 }

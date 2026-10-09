@@ -61,6 +61,7 @@ function buildSave() {
       pos: P.alive ? (inDungeon(P) ? { x: Math.round(BARROW.out.x * 10) / 10, z: Math.round(BARROW.out.z * 10) / 10 } : { x: Math.round(P.x * 10) / 10, z: Math.round(P.z * 10) / 10 }) : null,
       gold: Math.round(INV.gold), potions: INV.potions,
       bag: INV.bag.map(packItem), eq: Object.fromEntries(SLOTS.filter((s) => INV.eq[s]).map((s) => [s, packItem(INV.eq[s])])),
+      lore: loreSaveData(),
     },
     settings, world,
   };
@@ -77,7 +78,7 @@ function packItem(it) {
 // the parts that matter enough to justify a write on their own
 function coreKey(s) {
   const c = s.char;
-  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id)], s.settings, s.world]);
+  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id), c.lore], s.settings, s.world]);
 }
 function saveSoon(delay = 2500) {
   if (SAVE.wiping) return;

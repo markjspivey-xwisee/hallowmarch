@@ -698,6 +698,8 @@ function renderMenu(tab) {
     $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-s').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setSound(b.dataset.v === 'on'); renderMenu('settings'); saveSoon(); };
+  } else if (tab === 'chronicle') {
+    renderChronicle(body);
   } else {
     body.innerHTML = IS_TOUCH ? `<div class="keys">
       <kbd>Left thumb</kbd><span>Drag anywhere on the left to move. Push to the edge to run.</span>
