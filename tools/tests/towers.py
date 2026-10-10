@@ -110,7 +110,8 @@ window.TT = {
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
+        small = 'small' in ARGS # [keeps] 'small': the pictures drawn at 800x450 (a loaded machine), saved at 960x540
+        b, page, logs = await setup(p, w=(800 if small else 960) if SHOTS else 640, h=(450 if small else 540) if SHOTS else 360)
         print('booted', f'[{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
@@ -512,10 +513,10 @@ async def kshots(page):
     await page.evaluate("(() => { TT.quiet(); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; __hm.setTod(0.42); __hm.simulate(0.3, 0.05); TT.put(TT.kinds().lg.S, 0, 90, 0); return 0; })()")
     views = {
         'lg': [('outside', "T.aIn", 13, 3.2, "T.aIn", 0, 6.5), ('store', "T.aIn", 0.7, T_Y + "1.65", "0", 1.0, T_Y + "1.2"), ('room', "Math.PI + 0.4", 0.9, "T.H + 1.7", "0.3", 1.0, "T.H + 0.9"), ('top', "Math.PI", 0.6, "T.TT + 2.4", "0", 1.4, "T.TT + 0.3")],
-        'eg': [('outside', "Math.PI", 12, 3.0, "Math.PI", 0, 5.5), ('store', "Math.PI", 0.9, T_Y + "1.65", "0.5", 1.0, T_Y + "1.0"), ('top', "-1.2", 0.4, "T.TT + 1.7", "1.84", 2.0, "T.TT + 0.8")],
+        'eg': [('outside', "Math.PI", 12, 3.0, "Math.PI", 0, 5.5), ('top', "-1.2", 0.4, "T.TT + 1.7", "1.84", 2.0, "T.TT + 0.8")],
+        'el': [('outside', "T.aIn", 11, 3.0, "T.aIn", 0, 5.0)],
         'tc': [('outside', "T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0), ('store', "T.aIn", 1.3, T_Y + "1.65", "T.aIn + Math.PI", 1.3, T_Y + "1.0"), ('room', "T.aIn", 1.3, "T.H + 1.65", "T.aIn + Math.PI", 1.4, "T.H + 0.9"), ('top', "T.aIn", 1.6, "T.TT + 1.75", "T.aIn + Math.PI", 2.0, "T.TT + 0.9")],
         'tg': [('outside', "Math.PI", 11, 3.0, "Math.PI", 0, 6.0)],
-        'el': [('outside', "T.aIn", 11, 3.0, "T.aIn", 0, 5.0), ('store', "T.aIn", 0.8, T_Y + "1.65", "T.aIn + Math.PI", 1.0, T_Y + "1.0")],
     }
     for key, vs in views.items():
         for (nm, a, r, y, ta, tr, ty) in vs:
@@ -523,9 +524,8 @@ async def kshots(page):
             await shot(page, f'tower_{key}_{nm}', js)
     await shot(page, 'tower_tc_night', "(() => { __hm.setTod(0.97); __hm.simulate(0.2, 0.05); const T = TT.kinds().tc, S = T.S; TT.cam(S, T, T.aIn, 1.3, T.yG + 1.65, T.aIn + Math.PI, 1.3, T.yG + 1.0); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await shot(page, 'tower_lg_night', "(() => { const T = TT.kinds().lg, S = T.S; TT.cam(S, T, Math.PI + 0.4, 0.9, T.H + 1.7, 0.3, 1.0, T.H + 0.9); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
-    await shot(page, 'tower_eg_night', "(() => { const T = TT.kinds().eg, S = T.S; TT.cam(S, T, Math.PI, 0.9, T.yG + 1.65, 0.5, 1.0, T.yG + 1.0); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await page.evaluate("(() => { __hm.setTod(0.42); __hm.fn.setQuality('low'); __hm.simulate(0.2, 0.05); return 0; })()")
-    for key, (a, r, y, ta, tr, ty) in {'lg': ("T.aIn", 13, 3.2, "T.aIn", 0, 6.5), 'tc': ("T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0), 'eg': ("Math.PI", 12, 3.0, "Math.PI", 0, 5.5)}.items():
+    for key, (a, r, y, ta, tr, ty) in {'lg': ("T.aIn", 13, 3.2, "T.aIn", 0, 6.5), 'tc': ("T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0)}.items():
         await shot(page, f'tower_{key}_low', f"(() => {{ const T = TT.kinds()['{key}'], S = T.S; TT.cam(S, T, {a}, {r}, {y}, {ta}, {tr}, {ty}); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; }})()")
     await shot(page, 'tower_tc_room_low', "(() => { const T = TT.kinds().tc, S = T.S; TT.cam(S, T, T.aIn, 1.3, T.H + 1.65, T.aIn + Math.PI, 1.4, T.H + 0.9); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")

@@ -388,6 +388,7 @@ function towersChronHTML() {
       <li><b>Climbing.</b> Walk into the foot of a ladder, or ${k.use} beside it. A shut hatch above is pushed open as you come up to it; ${k.use} by a hatch opens or shuts it. On the rungs, ${touch ? 'drag the stick up to climb on, down to go back' : 'W climbs on and S goes back'}.</li>
       <li><b>One hand on the rungs.</b> A climber strikes a foe in reach at about three fifths of a blow, and cannot raise a shield, parry, draw a bow, cast a two-handed spell or leap. A heavy blow, a stun, a parried blow or a blunt arrow knocks a climber off, and the fall hurts by its height.</li>
       <li><b>Holding a hatch.</b> Stand on a shut hatch and a foe below cannot simply push it open: they heave at it, and now and then it throws you aside. When a foe comes up through an open hatch, ${k.use} to slam the lid down on them. The garrison does both.</li>
+      <li><b>Fire.</b> The log towers of Thule burn. A foe's fire spell, a burning arrow, the dragon's breath or a brand held to the logs (${k.use}) sets one alight; get out of it before its gallery and roof fall in. Rain damps a young fire. A burnt tower is built again once its keep has been quiet for a while.</li>
     </ul>`;
 }
 queueMicrotask(() => { if (window.__hm) window.__hm.ladders = { LADDER, LADDER_CLIMBERS, computeDamage, onLadder, ladderAllows, ladderCanStrike, ladderFoe, ladderFoeBelow, ladderPush, ladderSlam, ladderKnockOff, ladderTurn, ladderLidStanders, towerSightBlocked, towerOpeningSees, towerHatchSees }; });
