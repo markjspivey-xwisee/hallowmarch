@@ -326,10 +326,14 @@ const FG_FS = /* glsl */`
         : kind < 5.5 ? vec3(0.44, 0.54, 0.57) : kind < 6.5 ? vec3(0.3, 0.38, 0.26) : kind < 7.5 ? vec3(0.17, 0.33, 0.1) : vec3(0.22, 0.36, 0.11);
       float cl = vnoise(vO.xz * 13.0 + vO.y * 9.0 + seed * 7.0), fine = vnoise(vO.xz * 41.0 + vO.y * 33.0);
       // many small leaves: light and dark patches, each lump's surface bumped so it does not read as one smooth ball
-      float leafy = smoothstep(0.28, 0.72, vnoise(vec2(vO.x * 27.0 + vO.y * 13.0, vO.z * 27.0 - vO.y * 11.0) + seed * 3.0));
+      // (sampled on three planes by the facing, so no stripes run across a lump)
+      vec3 tw = abs(n); tw /= max(tw.x + tw.y + tw.z, 1e-3);
+      vec3 q = vW * 21.0 + seed * 5.0;
+      float leafy = smoothstep(0.3, 0.72, tw.x * vnoise(q.zy) + tw.y * vnoise(q.xz + 3.7) + tw.z * vnoise(q.xy + 9.1));
       alb = g * (0.5 + 0.55 * cl) * (0.6 + 0.65 * leafy) * (0.88 + 0.22 * fine) * (0.9 + 0.2 * hs);
       if (kind < 0.5 || kind > 7.5) {
-        n = safeNormalize(n + 0.55 * vec3(vnoise(vO.xy * 24.0 + 1.3) - 0.5, (vnoise(vO.xz * 24.0 + 7.1) - 0.5) * 0.6, vnoise(vO.zy * 24.0 + 4.7) - 0.5));
+        vec3 r3 = vW * 16.0;
+        n = safeNormalize(n + 0.6 * (vec3(vnoise(r3.zy + 1.3), vnoise(r3.xz + 7.1), vnoise(r3.xy + 4.7)) - 0.5));
         alb = mix(alb, alb * vec3(1.25, 1.2, 0.8), smoothstep(0.6, 0.9, fine) * 0.5); // the odd yellowing leaf
       }
       if (kind > 4.5 && kind < 5.5) alb += vec3(0.1, 0.12, 0.14) * step(0.7, fine); // rime on rimeleaf

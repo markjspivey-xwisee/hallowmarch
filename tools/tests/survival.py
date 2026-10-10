@@ -14,6 +14,7 @@ FAILS = []
 T0 = time.time()
 SHOTS = 'noshots' not in sys.argv
 ONLY_SHOTS = 'shotsonly' in sys.argv
+PICK = next((a[5:].split(',') for a in sys.argv if a.startswith('only=')), None) # only=bush,fishing: just those pictures
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -39,6 +40,7 @@ async def ev(page, name, js):
 # the page's own frame loop is slowed while pictures are taken (SwiftShader on a busy machine): frames are drawn here
 SLOW_RAF = "window.requestAnimationFrame = () => 0;0" # the loop stops; each picture is one frame drawn here
 async def shot(page, name, js, frames=1):
+    if PICK and name not in PICK: return
     await page.evaluate(js + ';0')
     for _ in range(frames): await page.evaluate('__hm.frame(0.1);0')
     path = OUT + f'survival_{name}.png'
@@ -63,7 +65,7 @@ async def main():
         if SHOTS:
           await shots(page)
         await b.close()
-        if SHOTS:
+        if SHOTS and (not PICK or 'phone' in PICK):
           await phone(p)
         print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
 
@@ -346,9 +348,10 @@ async def shots(page):
             await page.evaluate("__hm.fn.setQuality('low'); __hm.setTod(0.55); __hm.dbg.WEATHER.mode = 'clear';0")
             await page.evaluate(SLOW_RAF)
             # the needs on the HUD, in play
-            await page.evaluate("""(() => { const S = T.S, H = T.H, P = T.P(); const t = H.REALMS[0].town; T.stand(t.x + 18, t.z + 22); H.UI.modal = null; H.CAM.mode = 'play'; H.look(P.yaw + 2.6, 0.32, 7); S.SURV.hunger = 0.62; S.SURV.thirst = 0.21; })()""")
-            for _ in range(3): await page.evaluate('__hm.frame(0.1);0') # the path tracker settles under the taller player frame
-            await page.screenshot(path=OUT + 'survival_hud.png', timeout=300000); print('saved hud', flush=True)
+            if not PICK or 'hud' in PICK:
+              await page.evaluate("""(() => { const S = T.S, H = T.H, P = T.P(); const t = H.REALMS[0].town; T.stand(t.x + 18, t.z + 22); H.UI.modal = null; H.CAM.mode = 'play'; H.look(P.yaw + 2.6, 0.32, 7); S.SURV.hunger = 0.62; S.SURV.thirst = 0.21; })()""")
+              for _ in range(3): await page.evaluate('__hm.frame(0.1);0') # the path tracker settles under the taller player frame
+              await page.screenshot(path=OUT + 'survival_hud.png', timeout=300000); print('saved hud', flush=True)
             # a berry bush and a mushroom ring
             await shot(page, 'bush', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'bush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 2.2, p.y + 1.3, p.z + 1.6, p.x, p.y + 0.45, p.z); })()""")
             await shot(page, 'mushrooms', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'mush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 1.7, p.y + 1.0, p.z + 1.2, p.x, p.y + 0.05, p.z); })()""")
@@ -358,6 +361,7 @@ async def shots(page):
             # the forge in Logres
             await shot(page, 'forge', """(() => { const S = T.S, H = T.H; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; const sx = Math.cos(st.yaw), sz = -Math.sin(st.yaw), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); T.stand(st.x + sx * 1.0 + fx * 1.25, st.z + sz * 1.0 + fz * 1.25, st.x + sx * 0.72 + fx * 0.22, st.z + sz * 0.72 + fz * 0.22); T.P().yaw = Math.atan2(-fx, -fz); const a = st.yaw - 0.5; T.cam(st.x + Math.sin(a) * 5.0, st.y + 2.2, st.z + Math.cos(a) * 5.0, st.x, st.y + 1.0, st.z); })()""")
             # the crafting book
+            if PICK and 'craft' not in PICK: return
             await page.evaluate("""(() => { const S = T.S, H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); const F = T.F; F.goodsAdd('iron', 4, true); F.goodsAdd('stick', 3, true); F.goodsAdd('iron_ore', 3, true); S.openCraft('forge', st); S.CRAFT.ui.sel = 'tool_pick'; S.renderCraft(); })();0""")
             for _ in range(1): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_craft.png', timeout=300000); print('saved craft', flush=True)
