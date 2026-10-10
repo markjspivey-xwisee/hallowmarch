@@ -841,6 +841,7 @@ function fireLandsAt(x, y, z, r = 1, by = null) {
   if (!own) natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
   if (!own) depthFireAt(x, y, z, r); // [depth] berry bushes and apple trees catch (09u_depth.js)
   siegeFireAt(x, y, z, r); // [siege] siege engines catch (04h_siege.js)
+  boatFireAt(x, y, z, r, by); // [water2] boats catch (07e_boats.js)
   let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
@@ -858,6 +859,7 @@ function fireConeAt(x, z, dx, dz, range, half) {
   natureFireCone(x, z, dx, dz, range, half); // nature (05h_nature.js): the breath sets the grass and trees alight
   depthFireCone(x, z, dx, dz, range, half); // [depth] and the bushes and apple trees (09u_depth.js)
   siegeFireCone(x, z, dx, dz, range, half); // [siege] and siege engines (04h_siege.js)
+  boatFireCone(x, z, dx, dz, range, half); // [water2] and boats (07e_boats.js)
   let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;

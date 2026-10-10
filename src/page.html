@@ -640,6 +640,15 @@
     body.touch #tpad .cls-btn.hold { bottom: 62px; }
     body.touch #tpad .gslot { bottom: 124px; }
   }
+  /* water2: the breath bar under the water (07d_dive.js), the pad's Dive button (07d_dive.js), the boat's compass (07e_boats.js) */
+  #breath { position: absolute; left: 50%; top: calc(var(--pad) + var(--safe-t) + 64px); transform: translateX(-50%); width: 240px; display: none; padding: 4px 7px; }
+  #breath.on { display: grid; gap: 3px; }
+  #breath .lbl { font-size: 12px; display: flex; justify-content: space-between; color: var(--ink-dim); }
+  #breath.low .bar i { background: linear-gradient(90deg, #ff8a6a, #ffb08a); animation: w2pulse 0.8s ease-in-out infinite alternate; }
+  @keyframes w2pulse { from { opacity: 1; } to { opacity: 0.55; } }
+  #tpad .wide .btn.w2-dive { background: linear-gradient(180deg, rgba(90, 150, 190, 0.5), rgba(30, 60, 90, 0.75)); color: #e4f4ff; }
+  body.touch #breath { width: 200px; }
+  #lore-path .w2-path { font-size: 12px; line-height: 1.35; color: #a9d6ff; padding-left: 20px; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
@@ -723,6 +732,7 @@
   <div class="panel" id="carry"></div>
   <div id="nameplates"></div>
   <div id="floaters"></div>
+  <div class="panel" id="breath"><div class="lbl"><span>Breath</span><span id="breath-t" class="num"></span></div><div class="bar thin" style="--c: #8fd0ff"><i id="breath-b"></i></div></div><!-- [water2] -->
   <div id="bottom">
     <div class="panel" id="prompt"><kbd>E</kbd><span id="prompt-t"></span></div>
     <div class="panel" id="castbar"><div class="lbl"><span id="cast-n"></span><span id="cast-t" class="num"></span></div><div class="bar thin" style="--c: #e8c46a"><i id="cast-b"></i></div></div>

@@ -9,7 +9,8 @@
 // are mirrored on top. Rivers carry their ripples downstream (two flow-mapped layers cross-faded), run white where they
 // fall steeply, and the ripple simulation (02c_water_map.js) adds the rings bodies, fish, rain and spells make.
 const waterMat = mat({
-  uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uCloudCover: skyU.uCloudCover }, // visual pass: clouds in the mirror
+  uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uCloudCover: skyU.uCloudCover, // visual pass: clouds in the mirror
+    uIceHoles: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) } }, // [water2] holes cut in the winter ice: x, z, radius, on (07d_dive.js)
   vertexShader: /* glsl */`
     attribute vec4 aW; // flow x, flow z (m/s), white water, [seasons] lake ice (0 open water .. 1 thick; 05k_seasons.js)
     varying vec3 vW; varying vec4 vF;
@@ -28,7 +29,14 @@ const waterMat = mat({
     uniform float uRain; // feature/weather
     uniform vec3 uCloudLit, uCloudShade;
     uniform float uCloudCover;
+    uniform vec4 uIceHoles[4]; // [water2]
     varying vec3 vW; varying vec4 vF;
+    // [water2] 1 inside a hole cut in the ice (07d_dive.js)
+    float iceHole(vec2 xz){
+      float h = 0.0;
+      for (int i = 0; i < 4; i++) { vec4 q = uIceHoles[i]; if (q.w > 0.5) h = max(h, 1.0 - smoothstep(q.z * 0.82, q.z, length(xz - q.xy) + (vnoise(xz * 9.0) - 0.5) * 0.08)); }
+      return h;
+    }
     vec2 waveGrad(vec2 q, float t){
       vec2 g = vec2(vnoise(q + vec2(t * 0.3, t * 0.2)) - 0.5, vnoise(q * 1.7 - vec2(t * 0.25, -t * 0.31)) - 0.5);
       g += vec2(vnoise(q * 4.1 + t * 0.6) - 0.5, vnoise(q * 3.7 - t * 0.5) - 0.5) * 0.45;
@@ -39,6 +47,45 @@ const waterMat = mat({
       float bedY = terrainHeight(vW.xz);
       float depth = vW.y - bedY;
       if (depth < -0.02) discard; // the shore cuts the water
+      /* ---- [water2] the surface seen from under the water (07d_dive.js): inside the window the sky and the shore show
+         (the light bends up through it, and the sun blazes in it); outside it the surface is a silver mirror of the
+         depths; ripples break both up; winter ice is a dim, milky ceiling with light only at the holes ---- */
+      if (!gl_FrontFacing) {
+        if (uUnder.x < 0.5) discard;
+        float tU = uTime;
+        vec2 gU = waveGrad(vW.xz * 0.45, tU) * 1.3;
+        if (length(vF.xy) > 0.04) gU += waveGrad(vW.xz * 0.62 - vF.xy * tU * 0.5, tU * 0.45) * 0.8;
+        if (uRippleB.w > 0.5) { float e = uRippleB.z / 256.0; gU -= vec2(rippleAt(vW.xz + vec2(e, 0.0)) - rippleAt(vW.xz - vec2(e, 0.0)), rippleAt(vW.xz + vec2(0.0, e)) - rippleAt(vW.xz - vec2(0.0, e))) / (2.0 * e) / 0.17 * 0.9; }
+        vec3 nU = safeNormalize(vec3(gU.x * 0.2, -1.0, gU.y * 0.2));
+        vec3 I = safeNormalize(vW - cameraPosition);
+        vec3 T = refract(I, nU, 1.33);
+        float inWin = dot(T, T) > 0.01 ? 1.0 : 0.0;
+        float cosT = abs(T.y);
+        float R = inWin > 0.5 ? 0.02 + 0.98 * spow(1.0 - cosT, 5.0) : 1.0;
+        // at the waterline the surface closes on the bank: no window there, so nothing above the water shows through the seam
+        float tr = (1.0 - R) * inWin * smoothstep(0.03, 0.18, depth);
+        float iceU = smoothstep(0.05, 0.14, vF.w) * (1.0 - iceHole(vW.xz));
+        float thick = smoothstep(0.1, 0.6, vF.w);
+        float dayU = 1.0 - uNight * 0.85;
+        // the mirror of the depths: silvery, lit by the light scattered in the water, rippled with brighter crests
+        float crest = smoothstep(0.25, 0.9, length(gU) * 1.6) * 0.6 + vnoise(vW.xz * 0.8 + tU * 0.2) * 0.4;
+        vec3 mirror = uUnderCol * (1.3 + 0.9 * crest) + uLightColor * 0.045 * crest * dayU;
+        vec3 glare = uLightColor * (spow(max(dot(T, uLightDir), 0.0), 90.0) * 3.0 + spow(max(dot(T, uLightDir), 0.0), 8.0) * 0.25) * dayU * inWin;
+        vec3 rim = uLightColor * 0.12 * smoothstep(0.82, 1.0, 1.0 - cosT) * inWin * dayU;
+        vec3 iceC = vec3(0.5, 0.64, 0.74) * (uAmbient * 0.5 + uLightColor * 0.32 * dayU) * mix(0.85, 0.32, thick) * (0.8 + 0.4 * vnoise(vW.xz * 0.7));
+        vec2 qI = vW.xz * 0.32; float crk = 1.0 - smoothstep(0.0, 0.06, abs(vnoise(qI * 3.0) - 0.5));
+        iceC *= 1.0 - 0.4 * crk;
+        float trE = tr * (1.0 - iceU);
+        vec3 surfC = mix(mirror * (1.0 - tr) + rim, iceC, iceU) + glare * (1.0 - iceU);
+        float dU = length(cameraPosition - vW);
+        float fU = 1.0 - exp(-dU * uUnder.z * 1.3);
+        // what shows through the window is fogged by this same water already (applyFog's path above the surface, and the
+        // sky's): the surface fogs only its own light, and lets the rest through
+        vec3 premul = surfC * (1.0 - fU) + uUnderCol * 1.25 * fU * (1.0 - trE);
+        float aU = 1.0 - trE;
+        gl_FragColor = vec4(safeColor(premul), clamp(aU, 0.0, 1.0));
+        return;
+      }
       vec3 V = safeNormalize(cameraPosition - vW);
       float dist = length(cameraPosition - vW);
       float t = uTime;
@@ -57,6 +104,7 @@ const waterMat = mat({
       }
       g *= mix(1.0, 0.4, far);
       float iceK = smoothstep(0.05, 0.14, vF.w + (vnoise(vW.xz * 1.3) - 0.5) * 0.06); // [seasons] the ice stills the water under it
+      iceK *= 1.0 - iceHole(vW.xz); // [water2] a hole cut in it
       /* ---- weather (feature/weather): rain rings spreading over the water from the drops ---- */
       if (uRain > 0.02 && dist < 70.0) {
         vec2 rg = vec2(0.0);
@@ -173,7 +221,7 @@ const waterMat = mat({
       vec3 c = pm / max(a, 1e-3);
       gl_FragColor = vec4(safeColor(applyFog(c, vW)) * a, a);
     }`,
-  transparent: true, depthWrite: true,
+  transparent: true, depthWrite: true, side: THREE.DoubleSide, // [water2] seen from below too
   blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
 });
 const WATER_MESHES = [];
@@ -218,4 +266,5 @@ function buildWater() {
     WATER_MESHES.push(m);
   }
   WATERGRID.cells = WATER_MESHES.reduce((s, m) => s + m.geometry.index.count / 6, 0);
+  buildDive(); // [water2] the bed's finds, the fish, the shafts of light (07d_dive.js)
 }

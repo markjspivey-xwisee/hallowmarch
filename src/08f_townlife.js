@@ -15,6 +15,7 @@ function houseLife(e, dt) {
   const F = houseBurningNear(e.x, e.z, 19);
   if (F && !(ai.plan && ai.plan.flee === F)) { houseFlee(e, F); }
   if (ai.plan) { if (lifeRun(e, dt)) return true; }
+  if (boatLife(e, dt)) return true; // [water2] a fisher rows out in the morning (07e_boats.js)
   e.seat = null;
   if (GAME.t < (ai.lifeWait || 0)) { if (ai.lifeIdle) lifeIdle(e, dt); return true; }
   const inside = houseHas(H, e.x, e.z, -0.1);

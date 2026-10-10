@@ -735,6 +735,7 @@ function anPenGrass(pen) {
 function anPetThink(e, dt) {
   const rec = e.tame, ai = e.ai, P = GAME.player;
   if (!P) return true;
+  if (water2PetWait(e, dt)) return true; // [water2] riding in your boat, or waiting at the surface while you dive (07e_boats.js)
   if (!P.alive && rec.cmd !== 'stay') { e.target = null; return true; }
   const K = AKIND[rec.k];
   const d = dist(e.x, e.z, P.x, P.z);

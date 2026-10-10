@@ -16,6 +16,7 @@ function audioUnlock() {
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4;
       AUDIO.master.connect(comp).connect(ctx.destination);
+      AUDIO.comp = comp; // [water2] the muffled world under the water goes in before it (07d_dive.js)
       AUDIO.sfxBus = ctx.createGain();
       AUDIO.sfxBus.gain.value = 0.9;
       AUDIO.sfxBus.connect(AUDIO.master);

@@ -322,6 +322,7 @@ function updateAnim(e, dt) {
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
 }
 function animActValue(e) {
+  const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
   const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
   if (e.casting) {
     if (e.casting.id === 'summon') return 0;
@@ -352,7 +353,8 @@ function stepTo(e, nx, nz) {
   _mv.x = nx; _mv.z = nz;
   const by = e.y - (e.hover || 0); // castles: colliders and raised floors know how high the body stands (04g_castles.js)
   resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, by, e.faction);
-  if (!e.swim && castleStepBlocked(e, _mv.x, _mv.z, by)) return false; // [water] a swimmer floats over the drop of the bed
+  boatShove(_mv, e.radius * (e.scale || 1) * 0.9, by, e); // [water2] round a boat's hull, not through it (07e_boats.js)
+  if (!e.swim && castleStepBlocked(e, _mv.x, _mv.z, by) && !jettyJumpIn(e, _mv.x, _mv.z)) return false; // [water] a swimmer floats over the drop of the bed; [water2] a body that may swim goes off a jetty into deep water (07e_boats.js)
   const Dg = DRAGON.e;
   if (Dg && Dg !== e && !Dg.removed && !Dg.flying) {
     const ddx = _mv.x - Dg.x, ddz = _mv.z - Dg.z, dd = Math.hypot(ddx, ddz), rr = 2.7 + e.radius;

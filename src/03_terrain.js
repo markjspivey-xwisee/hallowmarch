@@ -102,6 +102,7 @@ function buildCoverMask() {
   }
   farmCoverAll(); // [farming] tilled beds and the town strips: no grass through the soil (08h_farming.js)
   mtnCoverAll(); // [land] nor up through a crag (03c_land.js)
+  boatsCover(); // [water2] no grass through the hull of a boat drawn up on the shore (07e_boats.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }
@@ -713,7 +714,7 @@ const GRASS_VERT = /* glsl */`
     H *= 0.86 + 0.28 * vnoise(base * 0.3 + 7.0);
     // [seasons] the sward lies down over winter and is buried where the snow lies deep
     vec4 szn = seasonMapAt(base);
-    H *= mix(1.0, 0.72, uSeasonA.w) * (1.0 - 0.85 * smoothstep(0.35, 0.95, szn.r));
+    H *= mix(1.0, 0.72, uSeasonA.w) * (1.0 - smoothstep(0.35, 0.9, szn.r)); // [water2] under a full cover of snow it is gone from sight (and the prints in the snow show: 07f_tracks.js)
     float sparse = smoothstep(0.1, 0.62, A.g);
     /* nature (05h_nature.js): cut to stubble, licked down by flames, burnt to stubs */
     vec4 nat = natureAt(base);

@@ -724,6 +724,7 @@ function fishRoll(x, z) {
 // where the line can go: deep water 4 to 9 m out, roughly the way the player faces
 function fishSpot(P) {
   if (inDungeon(P)) return null;
+  if (P.boat) return boatFishSpot(P); // [water2] over the side of a boat (07e_boats.js)
   if (SICE.on && seasonIceY(P.x, P.z) !== null) { const x = P.x + Math.sin(P.yaw) * 1.6, z = P.z + Math.cos(P.yaw) * 1.6; return survWaterHere(x, z, 0.6) ? { x, z, hole: true } : null; } // [seasons] fish through a hole in the ice (05k_seasons.js)
   if (survWaterHere(P.x, P.z, 0.5)) return null;
   let best = null, bs = -Infinity;

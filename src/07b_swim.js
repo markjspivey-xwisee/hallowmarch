@@ -35,6 +35,7 @@ function swimDimsOf(e, sc) {
 }
 // a body's floor in water: a swimmer floats at its own depth, anyone else stands on the bed (groundY, the player)
 function waterFloorY(e, g) {
+  if (e && e.boat) return boatSeatY(e, g); // [water2] in a boat: on its seat (07e_boats.js)
   if (!e || e.kind === 'door' || e.hover || e.fixedY !== null) return g;
   const w = waterAt(e.x, e.z);
   if (!w || onIce(e, w)) return g;
@@ -67,6 +68,8 @@ function swimAllowed(e) {
 }
 // the camera stays above the water
 function waterCamY(cx, cz, cy) {
+  const dy = diveCamY(cx, cz, cy); // [water2] a diver's camera goes under with them (07d_dive.js)
+  if (dy !== null) return dy;
   const w = waterAt(cx, cz);
   return w && cy < w.y + 0.45 ? w.y + 0.45 : cy;
 }
@@ -118,6 +121,11 @@ function waterInit() {
   if (typeof FIELD_NOTES === 'object') {
     FIELD_NOTES.swim = { t: 'Swimming', x: () => `In deep water you swim. You cannot cast or shoot while swimming, and a fire on you goes out. ${IS_TOUCH ? 'Use' : 'E'} at any water to drink, fill a waterskin or wash your gear.` };
     FIELD_NOTES.current = { t: 'The current', x: () => 'Rivers run down into the lakes, fastest where they fall and run white. The current carries a swimmer downstream: swim across it, or let it take you.' };
+    // [water2] diving and boats (07d_dive.js, 07e_boats.js)
+    FIELD_NOTES.dive = { t: 'Under the water', x: () => `Look where you want to go and swim: down, along the bed, up again. ${IS_TOUCH ? 'Tap Up' : 'Space'} rises; stop swimming and you drift up. Watch your breath: when it is gone the water takes your health. Lost things lie on the beds of the lakes and the deep pools: ${IS_TOUCH ? 'tap Use' : 'press E'} beside them.` };
+    FIELD_NOTES.divechest = { t: 'A sunken chest', x: () => 'Chests go down with boats and careless carters now and then, mostly in the deep middles of the lakes. Others will wash in, in time.' };
+    FIELD_NOTES.tracks = { t: 'Tracks', x: () => 'Feet leave prints in lying snow, in the mud after rain and on the wet sand at the water\'s edge: boots, hooves, paws, the arrows of birds\' feet. Fresh snow fills them and fine weather dries them away, so a clear track is a fresh one.' };
+    FIELD_NOTES.boat = { t: 'At the oars', x: () => `${IS_TOUCH ? 'Push the stick forward' : 'W'} to pull on the oars, ${IS_TOUCH ? 'back' : 'S'} to back water, ${IS_TOUCH ? 'left and right' : 'A and D'} to turn. The current takes a boat as it takes a swimmer, and a boat cannot cross land or ice: run it up on a shore to step out, or tie it up at a jetty. You can fish from it, and step out into deep water to dive.` };
   }
 }
 const _wUpd = { y: 0, depth: 0, fx: 0, fz: 0 };
@@ -126,17 +134,20 @@ function updateWater(dt) {
   const P = GAME.player, camX = camera.position.x, camZ = camera.position.z;
   for (const e of ENT) {
     if (e.removed || e.kind === 'door' || e.kind === 'wisp' || e.kind === 'dragon') continue;
+    if (e.boat) { if (e.swim || e.wd) { e.swim = false; e.wd = 0; e.wadeK = 0; } e.swimK = Math.max(0, (e.swimK || 0) - dt * 3); e.swimOK = false; continue; } // [water2] in a boat (07e_boats.js)
     const near = e === P || dist2(e.x, e.z, camX, camZ) < 160 * 160 || (P && dist2(e.x, e.z, P.x, P.z) < 160 * 160);
     if (!near) { e.swimOK = false; continue; }
     const D = swimDims(e);
     let w = D && !inDungeon(e) ? waterAt(e.x, e.z, _wUpd) : null;
     if (w && onIce(e, w)) w = null; // on the ice: dry feet
+    if (w && e.y > w.y + 0.1) w = null; // [water2] above it: on a jetty's deck, or in the air
     const was = !!e.swim;
     if (!w || !D) {
       if (e.swim || e.wd) { e.swim = false; e.wd = 0; e.wadeK = 0; }
       e.swimK = Math.max(0, (e.swimK || 0) - dt * 3);
       if (e.wl) e.wl = Math.max(0, e.wl - dt * 0.006);
       e.swimOK = e.alive ? swimAllowed(e) : false;
+      e._wAir = e.y; // [water2] a body in the air over the water splashes in below
       continue;
     }
     const sc = e.scale || 1;
@@ -173,12 +184,12 @@ function updateWater(dt) {
     e._wpx = e.x; e._wpz = e.z;
     const rel = Math.hypot(rx, rz) / Math.max(dt, 1e-4);
     const want = e.swim ? clamp(rel / 2.6, 0, 1.4) : 0;
-    e.swimAmt = lerp(e.swimAmt || 0, want, 1 - Math.exp(-dt * 5));
+    if (!e.dive) e.swimAmt = lerp(e.swimAmt || 0, want, 1 - Math.exp(-dt * 5)); // [water2] a diver's strokes are its own (07d_dive.js)
     // strokes: [motion] each carries the body about 2.2 m through the water, so the arms keep pace with the swim (treading
     // water keeps its own clock in the shader); paddling beasts beat faster
     const rate = e.kind === 'humanoid' ? (0.4 + 7.2 * e.swimAmt) : (5.5 + 4 * e.swimAmt); // [motion] a stroke carries a swimmer about 2.2 m (it was 4 m: slow-motion arms)
     const ph0 = e.swimPh || 0;
-    e.swimPh = (ph0 + dt * rate) % (TAU * 64);
+    if (!e.dive) e.swimPh = (ph0 + dt * rate) % (TAU * 64);
     if (e.swim) {
       // into the water: no saddle, no casting a horse, no burning
       if (e.mount) { dismount(e, e === P ? 'Your horse will not go so deep. You slide from the saddle and swim.' : null); splashAt(e.x, e.z, 1.2); }
@@ -192,7 +203,7 @@ function updateWater(dt) {
       if (burnt) { waterSteam(e.x, w.y, e.z, 14); if (e === P || dist2(e.x, e.z, camX, camZ) < 30 * 30) sfx('hiss'); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); }
     }
     // splashes and ripples: a wader's every footfall, a swimmer's strokes and wake
-    const vis = dist2(e.x, e.z, camX, camZ) < 45 * 45;
+    const vis = dist2(e.x, e.z, camX, camZ) < 45 * 45 && !e.dive; // [water2] a diver leaves no splashes on the surface
     if (vis) {
       if (e.swim) {
         const strokes = Math.floor(e.swimPh / Math.PI) !== Math.floor(ph0 / Math.PI);
@@ -216,6 +227,9 @@ function updateWater(dt) {
     }
     if (!e.swim && was && e === P) SWIM.leftAt = GAME.t;
   }
+  diveUpdate(dt); // [water2] breath, ice holes, the bed's finds (07d_dive.js)
+  boatsUpdate(dt); // [water2] boats on the water, rowers, fishers (07e_boats.js)
+  tracksUpdate(dt); // [water2] footprints and ruts (07f_tracks.js)
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,6 +258,9 @@ function drawWater(dt) {
   }
   stepRipples(dt, cx, cz);
   waterSound(dt, cx, cz);
+  diveDraw(dt); // [water2] the view under the water, fish, the breath bar (07d_dive.js)
+  boatsDraw(dt); // [water2] boats, oars, wakes (07e_boats.js)
+  tracksDraw(dt); // [water2] footprints, ruts, drifts (07f_tracks.js)
 }
 // the sound of running water near a river, louder where it runs fast
 function waterSound(dt, x, z) {
@@ -300,7 +317,9 @@ function waterNear(P) {
   return best;
 }
 function waterOffers(P, offer) {
-  if (inDungeon(P) || P.mount) return;
+  if (inDungeon(P)) return;
+  dive2Offers(P, offer); boatOffers(P, offer); // [water2] the bed's finds, holes in the ice, boats (07d_dive.js, 07e_boats.js)
+  if (P.mount || P.dive || P.boat) return;
   const s = waterNear(P);
   if (!s) return;
   // [survival] drinking is the survival module's (drink your fill, fill the empty waterskins); washing is ours
@@ -328,10 +347,15 @@ function chronWater() {
     <p>Foes and beasts follow you into the water when they are chasing you, and swim as slowly as you do; townsfolk keep to the dry land.</p>
     <h3>What water does</h3>
     <p>Water puts out fire: a burning brand goes out when you wade deep, and if you are alight, jump in. Your gear soaks up to the waterline and dries again in the sun, and wading washes off mud and blood.</p>
-    <p>Stand at the water's edge and ${IS_TOUCH ? 'tap Use' : 'press E'} to drink, to fill an empty waterskin to carry, or to wash your gear clean.</p>`;
+    <p>Stand at the water's edge and ${IS_TOUCH ? 'tap Use' : 'press E'} to drink, to fill an empty waterskin to carry, or to wash your gear clean.</p>
+    <h3>Diving</h3>
+    <p>Out of your depth, ${IS_TOUCH ? 'tap Dive' : 'press U'} to go under. You swim the way you look, ${IS_TOUCH ? 'Up' : 'Space'} takes you up, and if you stop swimming you drift slowly to the surface. Your breath lasts about half a minute (the bar under your feet); after that the water harms you until you reach the air. Fish scatter from you, and the beds of the lakes, the rivers' deep pools and the deepest ponds hold lost arrows, old blades, purses and now and then a sunken chest. In deep winter nobody comes up through the ice except at a hole: cut one (${IS_TOUCH ? 'tap Use' : 'press E'} on thick ice) or fish through one, and remember where it is.</p>
+    <h3>Boats</h3>
+    <p>Each town keeps rowing boats at a jetty on its lake, and others lie drawn up on the shores and the river banks. Step in (${IS_TOUCH ? 'tap Use' : 'press E'}) and row: forward and back pull and back the oars, left and right turn her. A river carries a boat downstream. A boat runs aground on a shore and will not cross ice; step out where she grounds, or tie her up again at a jetty. You can fish from a boat, a hound can sit in the bow, and you can step out into deep water to dive. Boats burn like anything else of wood; a burnt one can be rebuilt with planks and a hammer. The fishers of the towns row out in the mornings.</p>`;
 }
 function waterHelp() {
-  return `<h3>Water</h3><p>Wade into lakes, ponds and rivers; past chest height you swim, slowly, and cannot cast or shoot. Rivers carry you downstream. Water puts out fire, soaks your gear and washes it. At the water's edge ${IS_TOUCH ? 'tap Use' : 'press E'} to drink, fill a waterskin or wash your gear.</p>`;
+  return `<h3>Water</h3><p>Wade into lakes, ponds and rivers; past chest height you swim, slowly, and cannot cast or shoot. Rivers carry you downstream. Water puts out fire, soaks your gear and washes it. At the water's edge ${IS_TOUCH ? 'tap Use' : 'press E'} to drink, fill a waterskin or wash your gear.</p>
+    <p>${IS_TOUCH ? 'Tap Dive' : 'U'} goes under while you swim (from a boat: over the side and down) (${IS_TOUCH ? 'Up' : 'Space'} rises; mind your breath). ${IS_TOUCH ? 'Use' : 'E'} by a boat steps in; ${IS_TOUCH ? 'the stick rows' : 'W and S row, A and D turn'}.</p>`; // [water2]
 }
 
 /* test hooks (window.__hm.water) */
