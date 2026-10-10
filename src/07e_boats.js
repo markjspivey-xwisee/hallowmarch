@@ -162,6 +162,13 @@ function jettyMake(R, x0, z0, dx, dz, len, wy) {
   BOATS.jetties.push(J);
   return J;
 }
+// stepTo asks when a raised edge would hold a body back: one that may swim (a chaser, a companion) goes off a jetty's deck
+// into water deep enough to swim in, as it would wade in from the shore
+function jettyJumpIn(e, x, z) {
+  if (!e.swimOK || !BOATS.jetties.length || !jettyAt(e.x, e.z, 0.4) || jettyAt(x, z)) return false;
+  const w = waterAt(x, z, _bW);
+  return !!w && w.depth > 0.8;
+}
 // is (x, z) on a jetty's footprint (posts and deck: boats keep off)
 function jettyAt(x, z, pad = 0) {
   for (const J of BOATS.jetties) {
