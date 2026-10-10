@@ -66,16 +66,22 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       o.tz = lerp(o.tz, clamp((vz - 2 * reach / Math.max(duty, 0.05) * du) * Tst / 2, -0.25, 0.25), k);
     } else { o.tx *= 0.9; o.tz *= 0.9; }
     if (down) {
-      // it comes down where the gait puts it with what the swing brought it to (o.cx, o.cz)
-      if (!o.down) at(o, x0, along, o.cx, o.cz);
-      // the planted place in the body's frame, against the gait's
-      const dx = o.wx - e.x, dz = o.wz - e.z;
-      let cx = dx * c - dz * s - x0, cz = dx * s + dz * c - along;
-      const m = Math.hypot(cx, cz);
-      if (m > FL_MAX * 1.6) { cx = o.tx; cz = o.tz; at(o, x0, along, cx, cz); } // a jump (set down somewhere new): planted afresh
-      else if (m > FL_MAX) { const k = FL_MAX / m; cx *= k; cz *= k; at(o, x0, along, cx, cz); } // dragged too far: the foot gives way and slides after the body
-      o.cx = cx; o.cz = cz; o.lx = cx; o.lz = cz;
+      // it comes down where the gait puts it with what the swing brought it to (o.cx, o.cz); its place on the ground is
+      // taken where the body is drawn next (footLockSlot: the player moves after its gait steps, so a place taken here
+      // would be a step behind)
+      if (!o.down) o.fresh = true;
+      if (!o.fresh) {
+        // the planted place in the body's frame, against the gait's
+        const dx = o.wx - e.x, dz = o.wz - e.z;
+        let cx = dx * c - dz * s - x0, cz = dx * s + dz * c - along;
+        const m = Math.hypot(cx, cz);
+        if (m > FL_MAX * 1.6) { cx = o.tx; cz = o.tz; at(o, x0, along, cx, cz); } // a jump (set down somewhere new): planted afresh
+        else if (m > FL_MAX) { const k = FL_MAX / m; cx *= k; cz *= k; at(o, x0, along, cx, cz); } // dragged too far: the foot gives way and slides after the body
+        o.cx = cx; o.cz = cz;
+      }
+      o.lx = o.cx; o.lz = o.cz;
     } else {
+      o.fresh = false;
       // in the air: from where it lifted off to where it will come down, over the swing
       const w = clamp((u - duty) / Math.max(1 - duty, 0.05), 0, 1), k = w * w * (3 - 2 * w);
       o.cx = lerp(o.lx, o.tx, k); o.cz = lerp(o.lz, o.tz, k);
@@ -93,6 +99,11 @@ function footLockSlot(e, horse) {
   let any = false;
   for (const o of L) {
     if (!o) continue;
+    if (o.down && o.g && o.fresh) {
+      // planted since the last frame: its place is where it is drawn now
+      const lx = o.g[3] + o.cx, lz = o.along + o.cz;
+      o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.fresh = false;
+    }
     if (o.down && o.g) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;

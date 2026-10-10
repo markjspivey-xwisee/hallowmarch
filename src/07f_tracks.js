@@ -26,11 +26,13 @@ const trkMat = mat({
     attribute vec4 iP; attribute vec4 iK; attribute vec4 iT;
     varying vec2 vL; varying vec3 vW; varying vec4 vK; varying vec4 vT; varying float vYaw;
     void main(){
-      vec2 l = vec2(position.x * iT.w, position.y) * iP.w;
+      // [polish] in snow the quad is drawn wider than the print, for the trodden, kicked-up snow round it
+      float Q = iK.z < 0.5 && iK.x < 3.5 ? 1.9 : 1.0;
+      vec2 l = vec2(position.x * iT.w * mix(1.0, 1.35, step(1.5, Q)), position.y) * iP.w * Q;
       float c = cos(iP.z), s = sin(iP.z);
       vec2 xz = iP.xy + vec2(l.x * c + l.y * s, -l.x * s + l.y * c);
       vec3 w = vec3(xz.x, terrainHeight(xz) + 0.02, xz.y);
-      vL = vec2(position.x * iK.y, position.y); vW = w; vK = iK; vT = iT; vYaw = iP.z;
+      vL = vec2(position.x * iK.y * mix(1.0, 1.35, step(1.5, Q)), position.y) * Q; vW = w; vK = iK; vT = iT; vYaw = iP.z;
       gl_Position = iK.w > 0.001 ? projectionMatrix * viewMatrix * vec4(w, 1.0) : vec4(0.0, 0.0, -2.0, 1.0);
     }`,
   fragmentShader: /* glsl */`
@@ -40,14 +42,15 @@ const trkMat = mat({
     uniform vec4 uTrk;
     uniform float uSnowCover;
     varying vec2 vL; varying vec3 vW; varying vec4 vK; varying vec4 vT; varying float vYaw;
+    float uTread = 1.0; // [polish] (the boot's tread: faint in snow)
     float ell(vec2 p, vec2 c, vec2 r){ vec2 q = (p - c) / r; return 1.0 - smoothstep(0.75, 1.0, dot(q, q)); }
     float seg(vec2 p, vec2 a, vec2 b, float w){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return 1.0 - smoothstep(w * 0.6, w, length(pa - ba * h)); }
     // how deep the print is at p (local: x across -0.5..0.5, y along, toes at +y)
     float printD(vec2 p, int k){
-      if (k == 0) { // a boot: the sole's ball and the heel, a waist between, tread across
+      if (k == 0) { // a boot: the sole's ball and the heel, a waist between, tread across (lost in the snow's crumble)
         float d = max(ell(p, vec2(0.04, 0.17), vec2(0.42, 0.3)), ell(p, vec2(-0.02, -0.3), vec2(0.36, 0.19)));
         d = max(d, ell(p, vec2(0.0, -0.06), vec2(0.27, 0.2)) * 0.8);
-        return d * (0.85 + 0.15 * step(0.5, fract(p.y * 9.0)));
+        return d * (0.85 + 0.15 * step(0.5, fract(p.y * 9.0)) * uTread);
       }
       if (k == 1) { // a hoof: a cloven or round rim, deeper at the toe
         float o = ell(p, vec2(0.0, 0.0), vec2(0.46, 0.5)), i = ell(p, vec2(0.0, -0.12), vec2(0.24, 0.3));
@@ -71,7 +74,9 @@ const trkMat = mat({
     void main(){
       int k = int(vK.x + 0.5), surf = int(vK.z + 0.5);
       vec2 p = vL;
-      float d = printD(p, k);
+      if (surf == 0) uTread = 0.25;
+      if (abs(p.x) > 0.62 || abs(p.y) > 0.62) { if (surf != 0 || k > 3) discard; } // (only snow's wider quad reaches out here)
+      float d = abs(p.x) > 0.52 || abs(p.y) > 0.52 ? 0.0 : printD(p, k);
       // the rim pushed up round it, and which side the light comes from (a dent is lit on its far wall)
       float e = 0.035;
       float gx = printD(p + vec2(e, 0.0), k) - printD(p - vec2(e, 0.0), k), gy = printD(p + vec2(0.0, e), k) - printD(p - vec2(0.0, e), k);
@@ -91,6 +96,16 @@ const trkMat = mat({
         col = mix(vec3(0.4, 0.48, 0.66) * (uAmbient * 0.85 + uLightColor * 0.14), vec3(0.85, 0.9, 1.0) * (uAmbient * 0.6 + uLightColor * 0.6), clamp(-side * 0.6, 0.0, 1.0));
         a = (d * 0.85 * sh + rim * 0.25) * (1.0 - fill) * lie;
         col = mix(col, vec3(0.95, 0.97, 1.0) * (uAmbient * 0.6 + uLightColor * 0.7), rim / max(d * sh + rim, 1e-3) * 0.6);
+        // [polish] the dent deepens to a blue shadow at its floor, and the snow round it is trodden and kicked up: a grey-blue
+        // scuff that joins print to print into a trail read from afar (the prints alone were specks past a few metres)
+        if (k < 4) {
+          vec3 deep = vec3(0.3, 0.37, 0.55) * (uAmbient * 0.9 + uLightColor * 0.1);
+          col = mix(col, deep, smoothstep(0.55, 0.95, d) * 0.55);
+          float r = length(p * vec2(1.05, 0.82)), scuff = (1.0 - smoothstep(0.28, 0.6, r)) * (0.75 + 0.25 * vnoise(vW.xz * 9.0));
+          float sa = scuff * 0.3 * (1.0 - fill) * lie;
+          col = mix(vec3(0.62, 0.68, 0.8) * (uAmbient * 0.75 + uLightColor * 0.35), col, a / max(a + sa * (1.0 - a), 1e-3));
+          a = a + sa * (1.0 - a);
+        }
       } else if (surf == 1) {
         // mud: dark, wet, a film of water in the deepest part catching the sky; it dries out of the ground
         float dry = clamp((uTrk.y - vT.y) / 240.0, 0.0, 1.0);
@@ -204,7 +219,7 @@ function tracksUpdate(dt) {
     if (e.kind === 'humanoid' && !e.mount) {
       const x = e.x + fx * 0.08 * sc + rx * side * 0.11 * sc, z = e.z + fz * 0.08 * sc + rz * side * 0.11 * sc;
       const surf = trkSurface(x, z);
-      if (surf >= 0) trkLay(x, z, e.yaw - side * 0.07, TRK_KIND.boot, 0.29 * sc * (surf === 0 ? 1.3 : 1), side, surf, 0.42); // (in snow the print breaks wider than the boot)
+      if (surf >= 0) trkLay(x, z, e.yaw - side * 0.07, TRK_KIND.boot, 0.29 * sc * (surf === 0 ? 1.45 : 1), side, surf, 0.42); // (in snow the print breaks wider than the boot; [polish] a little wider again)
     } else {
       const K = e.mount ? TRK_BEAST.horse : B, s2 = e.mount ? 1 : sc;
       for (const [along, k2] of [[K[2], 0], [K[3], 1]]) {
@@ -310,6 +325,7 @@ function buildDrifts() {
         ch.idx.push(a, b, cc, b, d, cc);
       }
       ch.n += (segs + 1) * (R + 1);
+      driftMapFace(fx, fz, tx, tz, nx, nz, len, depth, c.h); // [polish] and into the grass's map of the drifts
     }
   }
   for (const ch of chunks.values()) {
@@ -327,6 +343,28 @@ function buildDrifts() {
     scene.add(m);
     TRACKS.drifts.push({ m, x: ch.x / ch.k, z: ch.z / ch.k, tris: ch.idx.length / 3 });
   }
+}
+// [polish] a drift's face into DRIFT_MAP (03_terrain.js): every texel it covers (sampled at the texel's middle and four
+// points round it) takes the drift's height there at full snow, as buildDrifts shapes it (the toe too)
+function driftMapFace(fx, fz, tx, tz, nx, nz, len, depth, wallH) {
+  const R = DRIFT_MAP.res, D = DRIFT_MAP.data, reach = depth * 1.25 + 0.6;
+  const xs = [fx + tx * len, fx - tx * len, fx + tx * len + nx * reach, fx - tx * len + nx * reach], zs = [fz + tz * len, fz - tz * len, fz + tz * len + nz * reach, fz - tz * len + nz * reach];
+  const i0 = Math.max(0, Math.floor(Math.min(...xs) + 512)), i1 = Math.min(R - 1, Math.ceil(Math.max(...xs) + 512));
+  const j0 = Math.max(0, Math.floor(Math.min(...zs) + 512)), j1 = Math.min(R - 1, Math.ceil(Math.max(...zs) + 512));
+  const at = (x, z) => {
+    const dx = x - fx, dz = z - fz, t = dx * tx + dz * tz, out = dx * nx + dz * nz;
+    if (Math.abs(t) > len || out < 0) return 0;
+    const u = (out - 0.04) / (depth * (0.8 + 0.4 * vnoise(t * 1.3 + fx, 0)));
+    if (u > 1) return 0;
+    const endK = sstep(0, 0.9, len - Math.abs(t)), h = (0.42 + 0.3 * vnoise(fx * 0.7 + t * 0.9, fz * 0.7 - t * 0.9)) * (0.25 + 0.75 * endK) * Math.min(1, (wallH || 3) / 1.4);
+    return h * Math.pow(Math.max(0, 1 - Math.max(u, 0)), 1.7) + 0.02;
+  };
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = i - 512 + 0.5, z = j - 512 + 0.5;
+    const h = Math.max(at(x, z), at(x - 0.4, z - 0.4), at(x + 0.4, z - 0.4), at(x - 0.4, z + 0.4), at(x + 0.4, z + 0.4));
+    if (h > 0) { const v = Math.min(255, Math.round(h / 1.28 * 255)); if (v > D[j * R + i]) D[j * R + i] = v; }
+  }
+  DRIFT_MAP.tex.needsUpdate = true;
 }
 function tracksDraw(dt) {
   if (!TRACKS.built) return;
@@ -354,6 +392,65 @@ function tracksDraw(dt) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* [polish] the world remembers its tracks                              */
+/* ------------------------------------------------------------------ */
+// The prints still showing near the player (the newest TRK_SAVE of them, within TRK_SAVE_R), saved with the world: each
+// with how much snow has fallen into it or how long it has dried, and its age, so on the next visit they lie where they
+// were, as filled or as dry as they had become, and go on filling and drying from there. Positions are centimetres,
+// each after the first as a step from the one before (prints come in trails). Drifts need nothing: they are raised by the
+// snow lying, which the seasons settle on loading (05k_seasons.js).
+const TRK_SAVE = 320, TRK_SAVE_R = 90;
+function tracksSave() {
+  const T = TRACKS, M = T.mesh;
+  if (!M || !T.n) return null;
+  const A = M.geometry.attributes, P = GAME.player, cap = Math.min(T.max, TRK_MAX[quality.level] || T.max), out = [];
+  // newest first, round the ring from its head
+  for (let k = 1; k <= T.n && out.length < TRK_SAVE; k++) {
+    const i = (T.head - k + cap * 2) % cap, o = i * 4;
+    if (A.iK.array[o + 3] <= 0 || (TRACKS_DEBUG.shows(i) < 0.12)) continue;
+    const x = A.iP.array[o], z = A.iP.array[o + 1];
+    if (P && dist2(x, z, P.x, P.z) > TRK_SAVE_R * TRK_SAVE_R) continue;
+    const surf = A.iK.array[o + 2], age = GAME.t - A.iT.array[o + 2];
+    if (age > 900) continue;
+    out.push([x, z, A.iP.array[o + 2], A.iP.array[o + 3], A.iK.array[o], A.iK.array[o + 1], surf, A.iT.array[o + 3], surf === 0 ? T.snowAcc - A.iT.array[o] : T.dryAcc - A.iT.array[o + 1], age]);
+  }
+  if (!out.length) return null;
+  out.reverse(); // (oldest first: laid again in the order they were made)
+  const flat = [];
+  let px = 0, pz = 0;
+  for (const q of out) {
+    const cx = Math.round(q[0] * 100), cz = Math.round(q[1] * 100);
+    flat.push(cx - px, cz - pz, Math.round(q[2] * 100), Math.round(q[3] * 100), q[4] * 16 + (q[5] > 0 ? 8 : 0) + q[6], Math.round(q[7] * 100), Math.round(q[8] * 10), Math.round(q[9]));
+    px = cx; pz = cz;
+  }
+  return { v: 1, p: flat, laid: T.laid };
+}
+function tracksLoad(d) {
+  const T = TRACKS;
+  if (!T.mesh || !d || typeof d !== 'object' || !Array.isArray(d.p)) return;
+  const p = d.p, A = T.mesh.geometry.attributes, n = Math.min(Math.floor(p.length / 8), TRK_SAVE);
+  let px = 0, pz = 0, put = 0;
+  for (let k = 0; k < n; k++) {
+    const q = p.slice(k * 8, k * 8 + 8);
+    if (!q.every((v) => Number.isFinite(v))) continue;
+    px += q[0]; pz += q[1];
+    const x = px / 100, z = pz / 100, yaw = q[2] / 100, size = q[3] / 100, kind = Math.floor(q[4] / 16), side = q[4] & 8 ? 1 : -1, surf = q[4] & 7, width = q[5] / 100;
+    if (Math.abs(x) > HALF || Math.abs(z) > HALF || kind < 0 || kind > 4 || surf > 2 || !(size > 0.01 && size < 8) || !(width > 0 && width < 4)) continue;
+    const i = trkLay(x, z, yaw, kind, size, side, surf, width);
+    if (i < 0) continue;
+    const o = i * 4, since = Math.max(0, q[6] / 10), age = clamp(q[7], 0, 900);
+    if (surf === 0) A.iT.array[o] = T.snowAcc - since; else A.iT.array[o + 1] = T.dryAcc - since;
+    A.iT.array[o + 2] = GAME.t - age;
+    put++;
+  }
+  T.laid = Math.max(T.laid, Number.isFinite(d.laid) ? d.laid : 0);
+  T.loaded = put;
+  trkMark(0); trkMark(T.max - 1);
+}
+// (a walk in the snow is not written every step: once in some forty prints)
+registerSavePart('world', 'tracks', { save: tracksSave, load: tracksLoad, key: (d) => (d && Number.isFinite(d.laid) ? Math.floor(d.laid / 40) : 0) });
+
 /* test hooks (window.__hm.water.tracks) */
 const TRACKS_DEBUG = {
   TRACKS, lay: trkLay, surface: trkSurface,
@@ -361,5 +458,6 @@ const TRACKS_DEBUG = {
   // how much of a print still shows (the shader's own sums, on the CPU)
   shows: (i) => { const A = TRACKS.mesh.geometry.attributes, o = i * 4, surf = A.iK.array[o + 2]; if (A.iK.array[o + 3] <= 0) return 0; if (surf === 0) return 1 - clamp((TRACKS.snowAcc - A.iT.array[o]) / TRK_FILL, 0, 1); return 1 - clamp((TRACKS.dryAcc - A.iT.array[o + 1]) / (surf === 1 ? 240 : 150), 0, 1) * (surf === 1 ? 0.92 : 1); },
   drifts: () => ({ n: TRACKS.drifts.length, tris: TRACKS.drifts.reduce((s, D) => s + D.tris, 0), on: TRACKS.driftOn, visible: TRACKS.drifts.filter((D) => D.m.visible).length }),
+  save: tracksSave, load: tracksLoad, driftMap: () => DRIFT_MAP, // [polish]
 };
 WATER_DEBUG.tracks = TRACKS_DEBUG; // window.__hm.water.tracks

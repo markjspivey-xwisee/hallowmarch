@@ -334,11 +334,17 @@ function boatPhys(B, dt, thrust, turn) {
   // touched: no further into it, a little back off it, and slide along
   const g = hit.why === 'post' || hit.why === 'boat' ? (() => { const dx = B.x - hit.x, dz = B.z - hit.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l }; })() : boatDeepDir(hit.x, hit.z, B.x, B.z);
   const vn = B.vx * g.x + B.vz * g.z, sp = Math.hypot(B.vx, B.vz);
-  if (vn < 0) { B.vx -= vn * g.x * 1.25; B.vz -= vn * g.z * 1.25; }
-  B.vx *= 0.7; B.vz *= 0.7; B.wr *= 0.5;
+  // [polish] a hard knock bounces her off; a slow touch (drifting in, pushed in) only stops her going further into it, so
+  // she comes to rest against it instead of shuddering on and off it every step
+  const hard = sp > 0.45 || thrust !== 0;
+  if (vn < 0) { const k = hard ? 1.25 : 1.0; B.vx -= vn * g.x * k; B.vz -= vn * g.z * k; }
+  B.vx *= hard ? 0.7 : 0.85; B.vz *= hard ? 0.7 : 0.85; B.wr *= 0.5;
   if (!boatHit(B, B.x, B.z, nyaw)) B.yaw = nyaw;
-  const px = B.x + g.x * 0.03 + B.vx * dt, pz = B.z + g.z * 0.03 + B.vz * dt;
+  const back = hard ? 0.03 : boatHit(B, B.x, B.z, B.yaw) ? 0.01 : 0; // (out of it only if she is in it)
+  const px = B.x + g.x * back + B.vx * dt, pz = B.z + g.z * back + B.vz * dt;
   if (!boatHit(B, px, pz, B.yaw)) { B.x = px; B.z = pz; }
+  // [polish] nobody at the oars and barely moving against it: she lies there until something moves her (boatsUpdate)
+  if (!B.rider && Math.hypot(B.vx, B.vz) < 0.12 && Math.abs(B.wr) < 0.15) { B.restN = (B.restN || 0) + 1; if (B.restN > 12) { B.still = true; B.vx = B.vz = B.wr = 0; } } else B.restN = 0;
   if (hit.why === 'shore' && sp > 0.25 && B.grounded < 0.5) { boatThud(B, sp, hit); }
   else if (sp > 0.6 && GAME.t - (B.thudAt || 0) > 0.8) boatThud(B, sp, hit);
   B.grounded = hit.why === 'shore' ? 1 : B.grounded;
@@ -536,6 +542,12 @@ function boatOffers(P, offer) {
     if (B.st === 'burning') continue;
     if (P.brand) offer(Math.max(0, d) + 0.4, 2.6, 'Set the boat alight', () => boatIgnite(B, P), -0.1);
     if (B.rider) continue;
+    // [polish] a boat lying on the shore or aground in the shallows: at the end of her that lies up the shore, put your
+    // shoulder to her and shove her off (beside her, you step in)
+    if ((B.st === 'beached' || B.grounded > 0.5) && !B.launch && !P.swim) {
+      const E = boatShoveEnd(B), dEnd = Math.hypot(E.x - P.x, E.z - P.z);
+      offer(Math.max(0, dEnd - 0.4), 2.2, 'Shove the boat into the water', () => boatShoveOff(B, P), 0.4);
+    }
     const label = P.swim ? 'Climb into the boat' : B.st === 'moored' ? 'Untie the boat and step in' : B.grounded > 0.5 ? 'Push the boat off and step in' : 'Step into the boat';
     offer(Math.max(0, d), 2.6, label, () => { if (boatBoard(B, P) && B.grounded > 0.5) { const g = boatDeepDir(B.x + Math.sin(B.yaw) * 1.9, B.z + Math.cos(B.yaw) * 1.9, B.x, B.z); B.vx += g.x * 0.6; B.vz += g.z * 0.6; } }, 0.12);
   }
@@ -547,6 +559,55 @@ function boatOffers(P, offer) {
       offer(0.5, 1, 'Climb up onto the jetty', () => { P.x = P.prevX = x; P.z = P.prevZ = z; P.y = J.deck; P.swim = false; splashAt(P.x, P.z, 0.5); }, 0.05);
     }
   }
+}
+
+// [polish] shoving a boat off the shore: you lean into her (body action 19) and she grinds down the beach into the water,
+// stern first or bow first as she lies, gathering way as she goes; afloat she drifts on (boatPhys), free for anyone to
+// step into, push about or row. Posts, jetties and other boats still stop her.
+// which way she goes when shoved (along her keel, away from the end that lies higher up the shore, unless she lies across
+// the slope: then straight down it), and the end you shove from
+function boatShoveDir(B) {
+  const c = Math.cos(B.yaw), s = Math.sin(B.yaw);
+  const hb = heightAt(B.x + s * 1.9, B.z + c * 1.9), hs = heightAt(B.x - s * 1.9, B.z - c * 1.9);
+  let gx = hb > hs ? -s : s, gz = hb > hs ? -c : c;
+  const deep = boatDeepDir(B.x, B.z, B.x - gx, B.z - gz);
+  if (deep.x * gx + deep.z * gz < -0.2) { gx = deep.x; gz = deep.z; }
+  return { x: gx, z: gz };
+}
+function boatShoveEnd(B) { const g = boatShoveDir(B); return { x: B.x - g.x * (BOAT_L / 2 + 0.45), z: B.z - g.z * (BOAT_L / 2 + 0.45) }; }
+function boatShoveOff(B, P) {
+  if (!B || B.rider != null || B.launch || B.st === 'burning' || B.st === 'burnt') return false;
+  const g0 = boatShoveDir(B), gx = g0.x, gz = g0.z;
+  B.launch = { t: 0, dx: gx, dz: gz };
+  B.st = 'free'; B.still = false;
+  if (P) {
+    setAct(P, 19, 1.3);
+    P.yaw = Math.atan2(gx, gz);
+    // round to the end she is shoved from, if you are not there already
+    const ex = B.x - gx * (BOAT_L / 2 + 0.45), ez = B.z - gz * (BOAT_L / 2 + 0.45);
+    if (Math.hypot(P.x - ex, P.z - ez) < 3.2 && isWalkable(ex, ez)) { P.x = P.prevX = ex; P.z = P.prevZ = ez; P.y = floorAt(ex, ez, heightAt(ex, ez) + 1); }
+  }
+  boatSfx('grind');
+  FX.dust(B.x - gx * 1.6, heightAt(B.x - gx * 1.6, B.z - gz * 1.6), B.z - gz * 1.6, 5, [0.42, 0.38, 0.3]);
+  saveSoon();
+  return true;
+}
+function boatLaunchStep(B, dt) {
+  const L = B.launch;
+  L.t += dt;
+  const sp = 1.1 * clamp((L.t - 0.25) / 0.5, 0, 1); // (the shove comes as the legs drive)
+  const nx = B.x + L.dx * sp * dt, nz = B.z + L.dz * sp * dt;
+  const hit = sp > 0 ? boatHit(B, nx, nz, B.yaw) : null;
+  if (hit && hit.why !== 'shore') { B.launch = null; B.grounded = 1; boatSfx('knock'); return; } // (a post, a jetty, a boat)
+  if (sp > 0) { B.x = nx; B.z = nz; if (Math.random() < dt * 6) FX.dust(B.x - L.dx * 1.8, heightAt(B.x, B.z), B.z - L.dz * 1.8, 2, [0.42, 0.38, 0.3]); }
+  B.grounded = 1; B.st = 'free';
+  if (sp > 0 && !boatHit(B, B.x, B.z, B.yaw)) {
+    // afloat: she slides on out with the way the shove gave her
+    B.launch = null; B.grounded = 0; B.vx = L.dx * sp * 0.9; B.vz = L.dz * sp * 0.9; B.wr = 0; B.restN = 0;
+    splashAt(B.x + L.dx * 1.9, B.z + L.dz * 1.9, 0.8); B.sway.pv += 0.2;
+    B.moved = true;
+    if (typeof loreNote === 'function' && dist2(B.x, B.z, GAME.player.x, GAME.player.z) < 100) loreNote('boat');
+  } else if (L.t > 5) B.launch = null; // (stuck fast)
 }
 
 /* ------------------------------------------------------------------ */
@@ -710,7 +771,7 @@ function boatLife(e, dt) {
 // stepTo (07_entities.js) asks after the colliders: a body moving to p (radius r, feet at by) is pushed out of any hull
 // it would stand in (beached on the shore, alongside a jetty, out on the water), unless it is in that boat, or it swims
 // under the keel, or it stands above the gunwale. The hull's plan is taken as an ellipse round its strakes.
-function boatShove(p, r, by, e) {
+function boatShove(p, r, by, e, react = 1) {
   if (!BOATS.built || (e && (e.boat || e.kind === 'door' || e.flying || e.hover))) return;
   const top = by + (e && e.kind === 'humanoid' ? 1.7 : 1.0) * ((e && e.scale) || 1);
   for (const B of BOATS.list) {
@@ -718,8 +779,40 @@ function boatShove(p, r, by, e) {
     if (dx * dx + dz * dz > (BOAT_L / 2 + r + 0.2) ** 2) continue;
     const by0 = boatFloatY(B);
     if (top < by0 - BOAT_DRAFT - 0.12 || by > by0 + boatSheer(0) + 0.15) continue; // under the keel, or over the side
-    boatShoveOut(p, B, r);
+    const x0 = p.x, z0 = p.z;
+    if (boatShoveOut(p, B, r) && e && react > 0) boatPushed(B, e, x0 - p.x, z0 - p.z, p.x, p.z, react);
   }
+}
+// [polish] a body in the water that walks or swims into a boat lying free pushes her: she takes the push by the body's
+// weight against hers, turns about her middle as far as it was off her middle, and drifts on through the water's drag
+// (boatPhys: never through the shore, a post, a jetty or another boat; boatShoveBodies sends bodies in her way aside).
+// Moored, beached, burning or rowed boats do not give.
+const BOAT_MASS = 2.2; // (a person is 1)
+function boatBodyMass(e) {
+  if (e.kind === 'humanoid') return (e.scale || 1) ** 2 * (e.mount ? 5 : 1);
+  return { horse: 5, horseWild: 5, horseTack: 5, cattle: 5, bull: 6, bear: 3.5, deer: 0.8, stag: 1, boar: 1, pig: 1, wolf: 0.45, hound: 0.4, sheep: 0.6, sheepShorn: 0.5 }[e.crowd || e.kind] ?? 0.5;
+}
+function boatPushed(B, e, px, pz, cx, cz, react) {
+  const pen = Math.hypot(px, pz), dt = GAME.dt || 1 / 60;
+  if (pen < 1e-4 || B.rider != null || B.launch || ['moored', 'beached', 'burning', 'burnt'].includes(B.st)) return;
+  const inWater = e.swim || (e.wd || 0) > 0.25 || !!waterAt(e.x, e.z, _bW);
+  if (!inWater) return;
+  const m = boatBodyMass(e), mu = m / (m + BOAT_MASS) * react;
+  const nx = px / pen, nz = pz / pen, push = Math.min(pen / dt, 4) * mu * 0.2; // (she gathers way over a few steps)
+  // no faster than the body itself goes into her
+  const along = B.vx * nx + B.vz * nz, add = Math.max(0, Math.min(push, pen / dt) - Math.max(0, along));
+  if (add <= 0) return;
+  B.vx += nx * add; B.vz += nz * add;
+  // the turn: the push's lever about her middle (her own frame: lx across, lz along the keel)
+  const c = Math.cos(B.yaw), s = Math.sin(B.yaw), rx = cx - B.x, rz = cz - B.z;
+  const lx = rx * c - rz * s, lz = rx * s + rz * c, fx = nx * c - nz * s, fz = nx * s + nz * c;
+  B.wr = clamp(B.wr + (lz * fx - lx * fz) * add / (BOAT_L * BOAT_L / 12) * 0.6, -1.2, 1.2);
+  B.still = false; B.restN = 0;
+  if (B.grounded > 0.5) B.grounded = 0.45; // off the bottom she can go (boatPhys grounds her again on the shore)
+  if (B.st === 'free' || !B.st) B.st = 'free';
+  B.moved = true;
+  B.pushedAt = GAME.t;
+  if (pen > 0.02 && GAME.t - (B.knockAt || 0) > 0.6 && dist2(B.x, B.z, camera.position.x, camera.position.z) < 30 * 30) { B.knockAt = GAME.t; boatSfx('knock'); B.sway.rv += (lx >= 0 ? -1 : 1) * 0.15 * add; rippleDrop(cx, cz, 0.5, 0.006); }
 }
 const _bsv = { x: 0, z: 0 }, _bfW = { y: 0, depth: 0, fx: 0, fz: 0 };
 // where she floats now (her drawn height lags for a boat out of sight)
@@ -760,7 +853,7 @@ function boatShoveBodies(B) {
     const dx = e.x - B.x, dz = e.z - B.z, r = (e.radius || 0.4) * (e.scale || 1) * 0.9;
     if (dx * dx + dz * dz > (BOAT_L / 2 + r + 0.2) ** 2) continue;
     _bsv.x = e.x; _bsv.z = e.z;
-    boatShove(_bsv, r, e.y, e);
+    boatShove(_bsv, r, e.y, e, 0.25); // [polish] a body in her way slows her a little
     if ((_bsv.x !== e.x || _bsv.z !== e.z) && (e.swimOK ? swimPassable : isWalkable)(_bsv.x, _bsv.z)) { e.x = _bsv.x; e.z = _bsv.z; }
   }
 }
@@ -778,7 +871,8 @@ function boatsUpdate(dt) {
     const rider = B.rider != null ? getEnt(B.rider) : null;
     if (B.rider != null && (!rider || !rider.alive || rider.boat !== B)) { if (rider && rider.boat === B) boatLeave(rider, null); B.rider = null; }
     // a boat nobody rows drifts with the stream until it grounds (moored and beached ones stay put)
-    if (!B.rider && B.st !== 'moored' && B.st !== 'beached' && B.grounded < 0.5) { boatPhys(B, dt, 0, 0); }
+    if (B.launch) boatLaunchStep(B, dt); // [polish] shoved off the shore (boatShoveOff)
+    else if (!B.rider && B.st !== 'moored' && B.st !== 'beached' && B.grounded < 0.5 && !B.still) { boatPhys(B, dt, 0, 0); }
     // at rest on a shore: no grass grows up through her
     if (B.grounded > 0.5 && !B.rider && Math.hypot(B.vx, B.vz) < 0.05 && (!B.coverAt || dist2(B.coverAt.x, B.coverAt.z, B.x, B.z) > 1) && heightAt(B.x + Math.sin(B.yaw) * 1.6, B.z + Math.cos(B.yaw) * 1.6) > (waterAt(B.x, B.z, _bW)?.y ?? -1e9) - 0.1) boatCoverMark(B);
     // the hound in the bow rides along
@@ -944,10 +1038,11 @@ const BOATS_DEBUG = {
   BOATS, board: (i) => boatBoard(BOATS.list[i], GAME.player), leave: (spot) => boatLeave(GAME.player, spot || null), moor: (i, j) => boatMoor(BOATS.list[i], BOATS.jetties[j ?? 0]), ignite: (i) => boatIgnite(BOATS.list[i], GAME.player), restore: (i) => boatRestore(BOATS.list[i]),
   hit: (i, x, z, yaw) => { const B = BOATS.list[i]; const h = boatHit(B, x ?? B.x, z ?? B.z, yaw ?? B.yaw); return h ? { x: h.x, z: h.z, why: h.why } : null; },
   phys: (i, dt, thrust, turn) => { const B = BOATS.list[i]; const h = boatPhys(B, dt, thrust, turn); boatPose(B, dt); return h ? h.why : null; },
-  state: (i) => { const B = BOATS.list[i]; if (!B) return null; return { id: B.id, realm: B.realm, x: B.x, z: B.z, y: B.y, yaw: B.yaw, vx: B.vx, vz: B.vz, sp: Math.hypot(B.vx, B.vz), st: B.st, char: B.char, rider: B.rider, pass: B.pass, grounded: B.grounded, ph: B.ph, eff: B.eff, home: B.home }; },
+  state: (i) => { const B = BOATS.list[i]; if (!B) return null; return { id: B.id, realm: B.realm, x: B.x, z: B.z, y: B.y, yaw: B.yaw, vx: B.vx, vz: B.vz, sp: Math.hypot(B.vx, B.vz), st: B.st, char: B.char, rider: B.rider, pass: B.pass, grounded: B.grounded, ph: B.ph, eff: B.eff, home: B.home, still: !!B.still, launch: !!B.launch, wr: B.wr }; },
   list: () => BOATS.list.map((B, i) => ({ i, id: B.id, realm: B.realm, x: B.x, z: B.z, st: B.st, home: !!B.home })),
   jetties: () => BOATS.jetties.map((J) => ({ realm: J.realm, x0: J.x0, z0: J.z0, dx: J.dx, dz: J.dz, len: J.len, deck: J.deck, end: J.end, land: J.land, berths: J.berths, steps: J.steps, fisher: J.fisher })),
   landing: (i) => boatLanding(BOATS.list[i]), offers: () => { const L = []; boatOffers(GAME.player, (d, r, label) => { if (d < r) L.push(label); }); return L; },
   life: boatLife, fisherMorning,
+  shoveOff: (i) => boatShoveOff(BOATS.list[i], GAME.player), pushed: boatPushed, shoveEnd: (i) => boatShoveEnd(BOATS.list[i]), // [polish]
 };
 WATER_DEBUG.boats = BOATS_DEBUG; // window.__hm.water.boats

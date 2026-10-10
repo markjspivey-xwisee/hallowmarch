@@ -908,6 +908,18 @@ function humanVS(depth) {
       pelvisY = mix(pelvisY, 0.05 * cl, kk); bob *= 1.0 - kk; swayX *= 1.0 - kk; stepZ = mix(stepZ, 0.0, kk); crouch = mix(crouch, 0.04, kk);
       capeX = mix(capeX, 0.05, kk);
     }
+    // [polish] shoving a boat off the shore (action 19, 07e_boats.js): leaning into her with both hands on the gunwale, the
+    // back leg driving, both feet flat on the ground
+    if (atype > 18.5 && atype < 19.5) {
+      float kk = smoothstep(0.0, 0.18, at) * (1.0 - smoothstep(0.85, 1.0, at)), drive = smoothstep(0.2, 0.75, at);
+      uaL = mix(uaL, -1.25 + 0.25 * drive, kk); uaR = mix(uaR, -1.25 + 0.25 * drive, kk);
+      faL = mix(faL, -0.95 + 0.7 * drive, kk); faR = mix(faR, -0.95 + 0.7 * drive, kk);
+      uaLz = mix(uaLz, -0.2, kk); uaRz = mix(uaRz, 0.2, kk);
+      chestX = mix(chestX, 0.62, kk); headX = mix(headX, -0.3, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
+      vec2 pF = legIK(0.3, -0.765), pB = legIK(-0.46, -0.765);
+      thL = mix(thL, pF.x, kk); shL = mix(shL, pF.y, kk); thR = mix(thR, pB.x, kk); shR = mix(shR, pB.y, kk);
+      crouch = mix(crouch, 0.08, kk); bob *= 1.0 - kk; stepZ = mix(stepZ, 0.06 * drive, kk); capeX = mix(capeX, 0.3, kk);
+    }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
     float swimK = clamp(-iAnim.w, 0.0, 1.0), swimPitch = 0.0;

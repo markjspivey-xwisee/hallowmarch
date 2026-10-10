@@ -64,6 +64,12 @@ float coverAt(vec2 xz){
   return texture(uCover, uv).r;
 }
 `;
+// [polish] the drifts against the walls (07f_tracks.js: buildDrifts) as a height map, 1 m texels, the drift's height at
+// full snow (0..1.28 m): the grass reads it with the snow lying there, so no blade shows through a drift, toe and all
+const DRIFT_MAP = { res: 1024, data: new Uint8Array(1024 * 1024), tex: null };
+DRIFT_MAP.tex = new THREE.DataTexture(DRIFT_MAP.data, DRIFT_MAP.res, DRIFT_MAP.res, THREE.RedFormat, THREE.UnsignedByteType);
+DRIFT_MAP.tex.minFilter = THREE.LinearFilter; DRIFT_MAP.tex.magFilter = THREE.LinearFilter; DRIFT_MAP.tex.generateMipmaps = false;
+U.uDriftMap = { value: DRIFT_MAP.tex };
 const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']);
 // mark the texels whose centres lie inside a shape (grown by pad); shape(x, z) says whether a point is inside
 function coverMark(cx, cz, rad, inside) {
@@ -718,6 +724,7 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_COVER}
   ${GLSL_MEADOW}
   ${GLSL_SEASON} // [seasons] 02d_season.js
+  uniform sampler2D uDriftMap; uniform float uSnowCover; // [polish] the drifts (07f_tracks.js) and the snow lying
   varying vec2 vSzn; // [seasons] the snow lying here (times uSnowCover), hoar frost
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
@@ -749,6 +756,9 @@ const GRASS_VERT = /* glsl */`
     // [seasons] the sward lies down over winter and is buried where the snow lies deep
     vec4 szn = seasonMapAt(base);
     H *= mix(1.0, 0.72, uSeasonA.w) * (1.0 - smoothstep(0.35, 0.9, szn.r)); // [water2] under a full cover of snow it is gone from sight (and the prints in the snow show: 07f_tracks.js)
+    // [polish] nor does a blade show through a drift against a wall: buried as deep as the drift stands with the snow lying here
+    float dLie = uSnowCover * clamp(max(uSnowK.x, szn.r) * uSnowK.y, 0.0, 100.0);
+    if (dLie > 0.12) H *= 1.0 - smoothstep(0.004, 0.03, texture(uDriftMap, clamp((base + 512.0) / 1024.0, vec2(0.0005), vec2(0.9995))).r * 1.28 * clamp(dLie * 1.25 - 0.18, 0.0, 1.0));
     float sparse = smoothstep(0.1, 0.62, A.g);
     /* nature (05h_nature.js): cut to stubble, licked down by flames, burnt to stubs */
     vec4 nat = natureAt(base);

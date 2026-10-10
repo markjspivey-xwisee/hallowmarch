@@ -482,6 +482,7 @@ function beastVS(depth) {
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
   ${beastBodyGLSL({ FT: 'uFT', FM: 'uFM', FL: 'uFL', FF: 'uFF', BT: 'uBT', BM: 'uBM', BL: 'uBL', BF: 'uBF', SP: 'uSpine', G: 'uGait' })}
   ${FOOT_LOCK_GLSL}
+  uniform vec4 uBbDbg;
   // [motion] two-bone IK in the leg's side plane (z forward, y up): from the top joint T through the middle joint M to
   // the foot F, the foot moved fx forward and ly up. Returns the turns about x of the upper bone and of the lower one
   // relative to it (as rotX takes them), bending the middle joint the way it bends at rest
@@ -569,7 +570,7 @@ function beastVS(depth) {
     // [motion] the lean into a turn as whole turns on the yaw (beastLeanYaw, 13r_motion.js); [polish] the body's row of
     // planted feet (footLockStep) above its weather in iColB.w
     float kT = floor(iPos.w * 0.159155 + 0.5), leanN = kT, leanA = leanN * 0.04, flSlot = floor(iColB.w / 256.0 + 1e-3);
-    float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck);
+    float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck) * (1.0 - uBbDbg.x);
     vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ) * vaultK : vec2(0.0);
     float thV = bbVaultA(sink); vec2 vPiv = bbVaultPiv();
     // child joints first, then their parents
@@ -584,7 +585,7 @@ function beastVS(depth) {
       vec2 fp = bbFoot(ph + o, duty, reachB);
       float lift = fp.y * fold;
       // [polish] a planted foot stays where it came down however the body moves over it (shoved, sliding by a wall, turning)
-      vec2 lk = footLock(flSlot, leg) / bsc; fp.x += lk.y; float dxM = lk.x;
+      vec2 lk = footLock(flSlot, leg) / bsc * (1.0 - uBbDbg.y); fp.x += lk.y; float dxM = lk.x;
       // [motion] the leg reaches by IK, so a planted foot stays on the ground all through the stance; in the air the foot
       // rises and the hoof or paw tucks up. [polish] The IK reaches the low joint with the hoof or paw level under it,
       // and its target is where the ground place lies in the leg's own frame: every turn and drop of the body above
@@ -605,7 +606,7 @@ function beastVS(depth) {
       float sw = ik.x + (fr ? frontReach : hindPush);
       float midA = ik.y + (fr ? -0.1 : 0.2) * lift;
       // [polish] the hoof or paw stays level (its rest angle) whatever the leg and the body above it do, then tucks in the air
-      float lowA = sw - midA - ((fr ? spine : -spine) + pitch + thV) + bbTuck(fr, fp, fold);
+      float lowA = (sw - midA - ((fr ? spine : -spine) + pitch + thV)) * (1.0 - uBbDbg.z) + bbTuck(fr, fp, fold);
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
       if (fr) { midA -= 0.25 * tuck; sw += 0.5 * tuck; } else { lowA -= 0.3 * tuck; sw -= 0.55 * tuck; }
       if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1); midA *= 1.0 - d1; lowA = mix(lowA, fr ? 0.25 : -0.15, d1); }
@@ -649,6 +650,7 @@ const beastMat = mat({
     uBeastK: { value: new THREE.Vector4() }, uFurK: { value: new THREE.Vector4() }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3() }, uEyeAt: { value: new THREE.Vector3() }, uLegH: { value: 0.5 }, uTailZ: { value: -0.5 },
     uGait: { value: new THREE.Vector4(1, 2, 1, 1) },
     uFootLock: { value: FOOT_LOCK.tex }, // [polish]
+    uBbDbg: { value: new THREE.Vector4() }, // [polish] tests: x leaves out the vault, y the lock, z the level hoof
   },
   vertexShader: beastVS(false),
   fragmentShader: /* glsl */`
