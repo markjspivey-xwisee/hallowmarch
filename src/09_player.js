@@ -209,6 +209,7 @@ function currentInteraction() {
   hallOffers(P, offer); // [building] a keep hall's war table, armourer, basin, hearth and stores (04k_hall.js)
   buildOffers(P, offer); // [building] work on, repair, open, use or pull down what you built (06k_build.js)
   survivalOffers(P, offer); // [survival] water, fires, plants, fishing, workstations, rocks (09s_survival.js)
+  farmOffers(P, offer); // [farming] till, sow, weed, harvest, keep seed; herbs; the farmer (08h_farming.js)
   return best;
 }
 function playerInteract() {

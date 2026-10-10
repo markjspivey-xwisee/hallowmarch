@@ -83,7 +83,7 @@ async function boot() {
   await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); });
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); }); // [survival] plants, workstations (before the grass reads the cover map)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); });
+  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
@@ -356,6 +356,7 @@ function simStep(dt) {
   updateBuild(dt); // [building] building work, fire and repair of placed structures (06k_build.js)
   updateClasses(dt); // [classes] the callings: blocks and parries, the draw and arrows in flight, snares, runes, steam, ice, holy ground (07b_classes.js)
   updateSurvival(dt); // [survival] hunger and thirst, work, fishing, regrowth (09s_survival.js)
+  updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -406,6 +407,7 @@ function tick(dt) {
   drawHall(dt); // [building] the torches of the keeps' halls (04k_hall.js)
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
+  drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   updateAmbientLife(dt);
   drawSurvival(dt); // [survival] plants, the rod and line, the spit, the needs on the HUD (after the fish: 09s_survival.js)
   drawProjectiles();

@@ -27,7 +27,7 @@ function setWeatherMode(m) {
 }
 function chooseWeather(camX, camZ) {
   const realm = realmAt(camX, camZ);
-  const odds = WEATHER_ODDS[realm];
+  const odds = seasonWeatherOdds(WEATHER_ODDS[realm]); // [farming] wet springs, dry summers, misty autumns (08h_farming.js)
   let r = Math.random(), i = 0;
   for (; i < odds.length - 1; i++) { if (r < odds[i]) break; r -= odds[i]; }
   return ['clear', 'cloudy', 'rain', 'storm', 'mist'][i];
@@ -159,7 +159,7 @@ function updateWeather(dt) {
   W2.mist = (W2.mist || 0) + (look[4] - (W2.mist || 0)) * k;
   // rain falls as snow in the north and up high
   const cold = clamp(realmWeightsAt(camX, camZ)[2] * 1.3 - 0.15, 0, 1) * 0.85 + clamp((camY - 16) / 10, 0, 1) * 0.6;
-  const coldK = clamp(cold, 0, 1);
+  const coldK = clamp(cold + seasonCold(), 0, 1); // [farming] winter brings the snow south (08h_farming.js)
   const precip = W2.raining;
   W2.snowing = precip * coldK;
   const rain = precip * (1 - coldK);
