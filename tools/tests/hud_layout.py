@@ -93,7 +93,7 @@ window.HL = {
         const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         // a control scrolled out of its row (the builder's pieces) is reached by scrolling, not measured
         let clipped = false;
-        for (let q = el.parentElement; q && q !== document.body; q = q.parentElement) { const o = getComputedStyle(q); if (o.overflowX !== 'visible' || o.overflowY !== 'visible') { const qr = q.getBoundingClientRect(); if (cx < qr.left || cx > qr.right || cy < qr.top || cy > qr.bottom) { clipped = true; break; } } }
+        for (let q = el.parentElement; q && q !== document.body; q = q.parentElement) { const o = getComputedStyle(q); if (o.overflowX !== 'visible' || o.overflowY !== 'visible') { const qr = q.getBoundingClientRect(); if (r.left < qr.left - 1 || r.right > qr.right + 1 || r.top < qr.top - 1 || r.bottom > qr.bottom + 1) { clipped = true; break; } } }
         if (clipped) continue;
         let ok = 0, n = 0; const miss = [];
         for (const [dx, dy] of [[0, 0], [-19, 0], [19, 0], [0, -19], [0, 19]]) {

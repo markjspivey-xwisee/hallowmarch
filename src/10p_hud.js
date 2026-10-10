@@ -149,7 +149,8 @@ function hudLayout(dt) {
       c = seek(sel, r);
     }
     if (c) { put(sel, el, r, c); continue; }
-    if (HUD_HIDE.has(sel) && touch) { el.classList.add('hl-off'); continue; } // it waits until there is room
+    // it waits until there is room (the plant card only while the builder's bar is open: E places pieces then)
+    if (touch && (HUD_HIDE.has(sel) || (sel === '#farmcard' && BUILD.mode))) { el.classList.add('hl-off'); continue; }
     placed.push({ ...r, sel }); // nowhere free: it keeps its own place
   }
   // the prompt and the cast bar rise above whatever they would cover (the pad, the builder's bar)

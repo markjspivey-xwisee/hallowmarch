@@ -131,7 +131,10 @@ async def main():
             goods0 = await page.evaluate("JSON.stringify(__hm.INV.goods)")
             btn = await page.evaluate("(() => { const b = [...document.querySelectorAll('#craft button[data-n]')].find((q) => !q.disabled && q.offsetParent); if (!b) return null; b.setAttribute('data-tf', '1'); return b.textContent.trim().slice(0, 40); })()")
             ok2 = btn and await tap(page, '#craft button[data-tf="1"]', 2)
-            await page.evaluate("__hm.UI.modal = null; __hm.simulate(12); 0")
+            # close the book as a finger would (its own close button, else Esc's way), then let the work finish
+            closed = await tap(page, '#craft-close', 2)
+            await page.evaluate("(() => { if (__hm.UI.modal === 'craft') __hm.surv.closeCraft(); __hm.simulate(12); return 0; })()")
+            check(closed, 'craft: the book closes with its own button')
             goods1 = await page.evaluate("JSON.stringify(__hm.INV.goods)")
             check(ok and modal == 'craft', f'craft: a tap on Use at the {r["kind"]} opens the crafting book ({r["label"]}, modal {modal})')
             check(bool(ok2) and goods1 != goods0, f'craft: a tap on a recipe makes it ("{btn}")')
