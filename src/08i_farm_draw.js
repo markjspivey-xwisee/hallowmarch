@@ -5,8 +5,10 @@
 /* soil meshes that darken and shine in the rain, take snow on their   */
 /* ridges and frost at night (state of each bed in a small texture)    */
 /* ================================================================== */
-const FARM_DRAW_R = { high: 58, medium: 42, low: 30 };
-const FARM_CAP = { grain: 7000, flax: 2500, cabbage: 2500, turnip: 2500, beans: 2000, weed: 3000 };
+const FARM_DRAW_R = { high: 52, medium: 38, low: 27 };
+// near the camera the full model, further out the low one
+const FARM_HI_R = { high: 15, medium: 11, low: 8 };
+const FARM_CAP = { grain: 1400, flax: 900, cabbage: 900, turnip: 900, beans: 800, weed: 1500, grain_lo: 6500, flax_lo: 2500, cabbage_lo: 2500, turnip_lo: 2500, beans_lo: 2000 };
 const FU = { uFarmFrost: { value: 0 }, uPlotTex: { value: null }, uDrawR: { value: 58 } };
 
 /* ---- a small kit for building plants: ribbons (leaves, blades), tubes (stems), blobs (heads, roots, caps), stars (flowers) ---- */
@@ -107,18 +109,18 @@ const FK = { STEM: 0, LEAF: 1, HEAD: 2, FLOWER: 3, GLOW: 4, POD: 5 };
 const FARM_MODELS = {
   grain(b) {
     const r = mulberry(11), leaf = hexc('#3f6e22'), straw = hexc('#c7a85a'), stalk = hexc('#5a8a2c'), ear = hexc('#7a9a38'), earR = hexc('#d8b45a');
-    for (let k = 0; k < 4; k++) {
-      const yaw = (k / 4) * TAU + r() * 0.6;
-      fkRibbon(b, fkArc([0, 0, 0], yaw, 1.15, 0.36 + r() * 0.1, 1.7, 3), (t) => 0.026 * (1 - Math.pow(t, 1.6)) + 0.002, fkSide(yaw), [FK.LEAF, 0.0, 0.32], [0, 0, 0], leaf, straw);
+    for (let k = 0; k < 3; k++) {
+      const yaw = (k / 3) * TAU + r() * 0.6;
+      fkRibbon(b, fkArc([0, 0, 0], yaw, 1.15, 0.36 + r() * 0.1, 1.7, 2), (t) => 0.028 * (1 - Math.pow(t, 1.6)) + 0.002, fkSide(yaw), [FK.LEAF, 0.0, 0.32], [0, 0, 0], leaf, straw);
     }
     for (let k = 0; k < 3; k++) {
       const yaw = (k / 3) * TAU + 0.5 + r() * 0.5, lean = 0.07 + r() * 0.06, H = 0.8 + r() * 0.2;
       const top = [Math.sin(yaw) * Math.sin(lean) * H, H, Math.cos(yaw) * Math.sin(lean) * H];
-      const pts = [[0, 0, 0], fv.mix([0, 0, 0], top, 0.35), fv.mix([0, 0, 0], top, 0.7), top];
+      const pts = [[0, 0, 0], fv.mix([0, 0, 0], top, 0.5), top];
       fkRibbon(b, pts, (t) => 0.013 - 0.005 * t, fkSide(yaw + 1.2), [FK.STEM, 0.22, 0.68], [0, 0, 0], stalk, straw);
       // the flag leaf
       const at = fv.mix([0, 0, 0], top, 0.42);
-      fkRibbon(b, fkArc(at, yaw + 2.2, 0.9, 0.24, 1.3, 2), (t) => 0.02 * (1 - t * t) + 0.002, fkSide(yaw + 2.2), [FK.LEAF, 0.28, 0.6], at, leaf, straw);
+      fkRibbon(b, fkArc(at, yaw + 2.2, 0.7, 0.22, 0.9, 1), (t) => 0.02 * (1 - t * t) + 0.002, fkSide(yaw + 2.2), [FK.LEAF, 0.28, 0.6], at, leaf, straw);
       // the ear: a spindle of grain on the top of the stalk, with its awns
       const dir = fv.nrm(fv.sub(top, at)), eb = top, et = fv.add(top, fv.sc(dir, 0.11));
       fkTube(b, [eb, fv.add(eb, fv.sc(dir, 0.03)), fv.add(eb, fv.sc(dir, 0.075)), et], (t) => (t < 0.01 || t > 0.99 ? 0.002 : 0.016 * Math.sin(Math.PI * (0.15 + 0.75 * t))), 3, [FK.HEAD, 0.48, 0.7], eb, ear, earR);
@@ -173,6 +175,44 @@ const FARM_MODELS = {
     for (let k = 0; k < 5; k++) { const yaw = (k / 5) * TAU + r(); fkRibbon(b, fkArc([0, 0, 0], yaw, 0.7, 0.15 + r() * 0.06, 0.9, 2), (t) => 0.06 * Math.sin(Math.PI * (0.15 + 0.8 * t)), fkSide(yaw), [FK.LEAF, 0.0, 0.5], [0, 0, 0], leaf, leaf); }
     fkRibbon(b, [[0, 0, 0], [0.01, 0.22, 0], [0.02, 0.42, 0.01]], () => 0.008, [1, 0, 0], [FK.STEM, 0.45, 0.85], [0, 0, 0], leaf, seed);
     fkTube(b, [[0.02, 0.32, 0.01], [0.02, 0.38, 0.01], [0.025, 0.46, 0.012]], (t) => 0.004 + 0.012 * Math.sin(Math.PI * t), 3, [FK.POD, 0.6, 0.95], [0.02, 0.32, 0.01], seed, seed);
+  },
+  // far away: the same plants with a handful of faces
+  grain_lo(b) {
+    const leaf = hexc('#3f6e22'), straw = hexc('#c7a85a'), stalk = hexc('#5a8a2c'), ear = hexc('#7a9a38'), earR = hexc('#d8b45a');
+    for (let k = 0; k < 3; k++) {
+      const yaw = (k / 3) * TAU + 0.4, H = 0.86 + k * 0.06, top = [Math.sin(yaw) * 0.08, H, Math.cos(yaw) * 0.08];
+      fkRibbon(b, fkArc([0, 0, 0], yaw + 1, 1.1, 0.38, 1.4, 1), (t) => 0.05 * (1 - t), fkSide(yaw + 1), [FK.LEAF, 0.0, 0.32], [0, 0, 0], leaf, straw);
+      fkRibbon(b, [[0, 0, 0], top], () => 0.016, fkSide(yaw + 1.2), [FK.STEM, 0.22, 0.68], [0, 0, 0], stalk, straw);
+      fkRibbon(b, [top, fv.add(top, [Math.sin(yaw) * 0.02, 0.12, Math.cos(yaw) * 0.02])], (t) => 0.034 * Math.sin(Math.PI * (0.2 + 0.7 * t)), fkSide(yaw + 1.2), [FK.HEAD, 0.48, 0.7], top, ear, earR);
+    }
+  },
+  flax_lo(b) {
+    const stem = hexc('#4f8a3a'), straw = hexc('#b39a5a'), flower = hexc('#7fb0e8'), boll = hexc('#7a9a40'), bollR = hexc('#a07a3a');
+    for (let k = 0; k < 4; k++) {
+      const yaw = (k / 4) * TAU + 0.3, top = [Math.sin(yaw) * 0.07, 0.72 + k * 0.03, Math.cos(yaw) * 0.07];
+      fkRibbon(b, [[0, 0, 0], top], () => 0.014, fkSide(yaw + 1.3), [FK.STEM, 0.0, 0.62], [0, 0, 0], stem, straw);
+      fkRibbon(b, [fv.add(top, [0, -0.02, 0]), fv.add(top, [0, 0.035, 0])], () => 0.05, fkSide(yaw + 1.3), [FK.FLOWER, 0.66, 0.73], top, flower, flower);
+      fkRibbon(b, [fv.add(top, [0, -0.005, 0]), fv.add(top, [0, 0.025, 0])], () => 0.028, fkSide(yaw - 0.3), [FK.POD, 0.78, 0.9], top, boll, bollR);
+    }
+  },
+  cabbage_lo(b) {
+    const leaf = hexc('#5a8a64'), head = (y) => fv.mix(hexc('#8fb07a'), hexc('#c4d8a4'), (y + 1) / 2);
+    for (let k = 0; k < 5; k++) { const yaw = (k / 5) * TAU; fkRibbon(b, fkArc([0, 0.02, 0], yaw, 0.6, 0.24, -0.3, 1), (t) => 0.1 + 0.08 * t, fkSide(yaw), [FK.LEAF, 0.0, 0.45], [0, 0, 0], leaf, leaf); }
+    fkBlob(b, [0, 0.11, 0], [0.12, 0.1, 0.12], 5, 3, [FK.HEAD, 0.42, 0.98], [0, 0.04, 0], head, head);
+  },
+  turnip_lo(b) {
+    const leaf = hexc('#4a7a2a'), leafR = hexc('#5f7a30'), root = (y) => (y > 0.25 ? hexc('#d8d0c8') : hexc('#f0ece0'));
+    for (let k = 0; k < 4; k++) { const yaw = (k / 4) * TAU + 0.2; fkRibbon(b, fkArc([0, 0.05, 0], yaw, 1.2, 0.32, 1.0, 1), (t) => 0.07 * Math.sin(Math.PI * (0.3 + 0.6 * t)), fkSide(yaw), [FK.LEAF, 0.0, 0.4], [0, 0, 0], leaf, leafR); }
+    fkBlob(b, [0, 0.03, 0], [0.07, 0.07, 0.07], 4, 2, [FK.HEAD, 0.4, 1.0], [0, -0.02, 0], root, root);
+  },
+  beans_lo(b) {
+    const stem = hexc('#4f7a3a'), dry = hexc('#5a4a30'), leaf = hexc('#3f6a3a'), pod = hexc('#6a9a3a'), podR = hexc('#4a3a28');
+    for (let k = 0; k < 2; k++) {
+      const yaw = k * Math.PI + 0.3, top = [Math.sin(yaw) * 0.05, 0.64, Math.cos(yaw) * 0.05];
+      fkRibbon(b, [[0, 0, 0], top], () => 0.02, fkSide(yaw + 1), [FK.STEM, 0.1, 0.65], [0, 0, 0], stem, dry);
+      fkRibbon(b, [fv.mix([0, 0, 0], top, 0.3), fv.add(fv.mix([0, 0, 0], top, 0.75), [Math.sin(yaw + 1.6) * 0.1, 0, Math.cos(yaw + 1.6) * 0.1])], () => 0.12, fkSide(yaw + 0.2), [FK.LEAF, 0.05, 0.45], [0, 0.2, 0], leaf, dry);
+      fkRibbon(b, [fv.mix([0, 0, 0], top, 0.55), fv.add(fv.mix([0, 0, 0], top, 0.4), [0.03, 0, 0.03])], () => 0.03, fkSide(yaw + 2), [FK.POD, 0.72, 0.9], fv.mix([0, 0, 0], top, 0.55), pod, podR);
+    }
   },
   herb_heal(b) {
     const leaf = hexc('#3f6a2a'), stem = hexc('#4a6a30'), fl = hexc('#c86a9a');
@@ -233,6 +273,7 @@ const FARM_LOOK = {
   cabbage: { a: ['#a8c88e', '#8a5a9a'], b: ['#c4d8a4', '#7a3a8a'], flowerEnd: 2 },
   turnip: { a: ['#f2eee4', '#b06aa8'], b: ['#f2eee4', '#8a3a8a'], flowerEnd: 2 },
   beans: { a: ['#f4f2ea', '#c49ae0'], b: ['#5a4a2e', '#3a2a24'], flowerEnd: 0.76 },
+  grain_lo: null, flax_lo: null, cabbage_lo: null, turnip_lo: null, beans_lo: null,
   weed: { a: ['#8a6a3a', '#8a6a3a'], b: ['#8a5a32', '#8a5a32'], flowerEnd: 2 },
   herb_heal: { a: ['#e88ab8', '#8a3ab0'], b: ['#9a6a7a', '#6a3a6a'], flowerEnd: 2 },
   herb_mana: { a: ['#f4f6ff', '#a8c8ff'], b: ['#e4ecff', '#98b8f8'], flowerEnd: 2, glow: 1 },
@@ -383,7 +424,7 @@ function farmSpecies(id, cap) {
   const arr = {};
   for (const k of ['iP', 'iG', 'iT', 'iX']) { arr[k] = new Float32Array(cap * 4); g.setAttribute(k, new THREE.InstancedBufferAttribute(arr[k], 4).setUsage(THREE.DynamicDrawUsage)); }
   g.instanceCount = 0;
-  const L = FARM_LOOK[id];
+  const L = FARM_LOOK[id] || FARM_LOOK[id.replace('_lo', '')];
   const v3 = (h) => new THREE.Vector3(...hex3(h));
   const m = shareMat(farmPlantMat, {
     uHueA0: { value: v3(L.a[0]) }, uHueA1: { value: v3(L.a[1]) }, uHueB0: { value: v3(L.b[0]) }, uHueB1: { value: v3(L.b[1]) },
@@ -393,8 +434,8 @@ function farmSpecies(id, cap) {
   mesh.frustumCulled = false;
   mesh.renderOrder = 2;
   scene.add(mesh);
-  shadowCaster(mesh, depthFrom(m));
-  const S = { id, mesh, g, arr, cap, n: 0, tris: b.i.length / 3 };
+  const proxy = shadowCaster(mesh, depthFrom(m));
+  const S = { id, mesh, g, arr, cap, n: 0, tris: b.i.length / 3, proxy };
   FARM_SPECIES[id] = S;
   return S;
 }
@@ -666,7 +707,7 @@ function farmUpdateOutline(T) {
 
 /* ---- building and drawing ---- */
 function farmBuildDraw() {
-  for (const id of ['grain', 'flax', 'cabbage', 'turnip', 'beans', 'weed']) farmSpecies(id, FARM_CAP[id]);
+  for (const id of ['grain', 'flax', 'cabbage', 'turnip', 'beans', 'weed', 'grain_lo', 'flax_lo', 'cabbage_lo', 'turnip_lo', 'beans_lo']) farmSpecies(id, FARM_CAP[id]);
   for (const id of FARM_HERB_IDS) farmSpecies(id, 900);
   farmBuildSoil();
   farmPlotTexUpdate();
@@ -674,7 +715,8 @@ function farmBuildDraw() {
 // every plant near the camera into its kind's instances
 function farmFill() {
   for (const k in FARM_SPECIES) FARM_SPECIES[k].n = 0;
-  const R = FARM_DRAW_R[quality.level] || 50, R2 = R * R;
+  const R = FARM_DRAW_R[quality.level] || 50, R2 = R * R, HR2 = (FARM_HI_R[quality.level] || 12) ** 2;
+  const SP = (id, d2) => (d2 < HR2 || !FARM_SPECIES[id + '_lo'] ? FARM_SPECIES[id] : FARM_SPECIES[id + '_lo']);
   const cx = camera.position.x, cz = camera.position.z;
   FU.uDrawR.value = R;
   if (INDOOR.on) { for (const k in FARM_SPECIES) farmFlush(FARM_SPECIES[k]); return; }
@@ -685,26 +727,27 @@ function farmFill() {
     const i0 = clamp(Math.floor((lc.u - R + P.hw) / FARM_SP), 0, P.cols - 1), i1 = clamp(Math.ceil((lc.u + R + P.hw) / FARM_SP), 0, P.cols - 1);
     const j0 = clamp(Math.floor((lc.v - R + P.hd) / FARM_SP), 0, P.rows - 1), j1 = clamp(Math.ceil((lc.v + R + P.hd) / FARM_SP), 0, P.rows - 1);
     const T = P.stand;
-    const C = T ? FARM_CROPS[T.crop] : null, S = T ? FARM_SPECIES[T.crop] : null;
+    const C = T ? FARM_CROPS[T.crop] : null;
     const show = T && T.phase === 'sown' && T.task !== 'sow' ? 1 : T && T.task === 'sow' ? 2 : 0;
     const wk = P.weeds * 0.55;
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const s = j * P.cols + i;
       if (P.valid && !P.valid[s]) continue;
-      const p = slotPos(P, s);
-      if (dist2(p.x, p.z, cx, cz) > R2) continue;
+      const p = slotPos(P, s), d2 = dist2(p.x, p.z, cx, cz);
+      if (d2 > R2) continue;
       const y = heightAt(p.x, p.z) + 0.1;
       const h1 = hash2(P.id * 131 + s, 7), h2 = hash2(P.id * 71 + s, 19);
       // a weed in the furrow beside the slot
-      if (h1 < wk && SW) { const q = plotWorld(P, slotUV(P, s)[0] + FARM_SP * 0.5, slotUV(P, s)[1] + (h2 - 0.5) * 0.3); farmPush(SW, q.x, heightAt(q.x, q.z) + 0.03, q.z, h2 * TAU, clamp(P.weeds * 1.3, 0.1, 1), 1, sstep(0.7, 1, P.weeds), 0, 0.5, 0.85 + h2 * 0.4, h1, 0, 0, P.char > 0.5 ? 1 : 0, 0); }
+      if (h1 < wk && SW && d2 < HR2 * 2.5) { const q = plotWorld(P, slotUV(P, s)[0] + FARM_SP * 0.5, slotUV(P, s)[1] + (h2 - 0.5) * 0.3); farmPush(SW, q.x, heightAt(q.x, q.z) + 0.03, q.z, h2 * TAU, clamp(P.weeds * 1.3, 0.1, 1), 1, sstep(0.7, 1, P.weeds), 0, 0.5, 0.85 + h2 * 0.4, h1, 0, 0, P.char > 0.5 ? 1 : 0, 0); }
       if (P.plants) {
         const pl = P.plants[s];
         if (!pl) continue;
-        const Sp = FARM_SPECIES[pl.crop];
+        const Sp = SP(pl.crop, d2);
         if (!Sp) continue;
         const ripe = sstep(0.84, 1, pl.g) + (pl.ripeT > 700 ? 0.15 : 0);
         farmPush(Sp, p.x, y, p.z, h1 * TAU, pl.char ? 0.6 : pl.g, pl.hp, ripe, pl.wilt, pl.tr.c, trHeight(pl.tr) * (0.9 + 0.2 * h2), h2, pl.dead ? 1 : 0, pl.trod, pl.char, pl.bite);
-      } else if (show && S) {
+      } else if (show && C) {
+        const S = SP(T.crop, d2);
         const frac = (j + 0.5) / P.rows;
         if (show === 2 && frac > T.p) continue;
         if (T.task === 'harvest' && frac < T.p) continue;
@@ -725,6 +768,12 @@ function farmFill() {
 }
 function drawFarming(dt) {
   if (!FARM.built) return;
+  // the plants cast shadows only at high quality (they are many)
+  const cast = quality.level === 'high';
+  if (cast !== FARM.casting) {
+    FARM.casting = cast;
+    for (const k in FARM_SPECIES) { const px = FARM_SPECIES[k].proxy; if (!px) continue; if (cast) SHADOW.scene.add(px); else SHADOW.scene.remove(px); }
+  }
   const C = FARM.clock;
   if (FARM.soilDirty) farmBuildSoil();
   const PL = GAME.player;

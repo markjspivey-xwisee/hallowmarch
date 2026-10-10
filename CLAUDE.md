@@ -78,6 +78,7 @@ The harness lives in `tools/`:
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
    - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
+   - `farming.py`: the season cycle and its weather; tilling, sowing and growth through every stage; harvest yields; frost, drought, weeds; crossing two strains and the offspring's traits; seed saving raising the yield over generations; the herbal; trampling and fire; the townsfolk working the fields; save and load (old and damaged saves); screenshots of beds at each stage after rain, the plant card, a townsfolk harvest, a ripe field and a herb patch in shade. `noshots` skips the screenshots.
    - `gifts.py`: each realm's passive gifts by their numbers, each realm ultimate (effects, cooldown, key 9, HUD, a champion using it), the Chronicle page, the phone pad; screenshots of each ultimate.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
@@ -91,6 +92,7 @@ The harness lives in `tools/`:
 - `GAME`, `WAR`, `ENT`, `UI`, `CAM`, `DUN`, `INDOOR`, `BARROW`, `BARROW_STATE`, `INV`, `LOOT`.
 - `dbg.*` exposes renderer internals; `fn.*` exposes most game functions.
 - `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
+- `farm` (attached by `08h_farming.js`): `FARM`, `SEASON`, `seasonNow`, `setSeason(k)`, `farmTempAt`, `till(x, z, ang)`, `tillWhy(x, z)`, `sow(plotId, goodId)`, `step(dt)` (grow every bed by dt seconds), `harvest`, `saveSeed(plotId, slot)`, `newStrain(crop, traits)`, `plants`, `strips`, `herbs`, `learn`, `gather`, `dig`, `ctx()` (what the plant card shows and offers), `act(action)`, `save`, `load`.
 - `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
 - `gifts` (attached by `06c_gifts.js`): `GIFT`, `GIFT_DEF`, `giftHas`, `giftHarmMult`, `giftBuffAdjust`, `giftSpeedMult`, `useRealmGift`, `castGiftUlt`, `state()`. `land` (also attached there): `landSave`, `landApply`, `landKey`, `LAND.restored` (what the last load read back).
 - Castles add `fn.castles()`, `fn.floorAt`, `fn.castleRoute`, `fn.castleSiegeHit` and `fn.CASTLE_PATCHED` (the building-shader anchors the castle patch found).
@@ -131,6 +133,8 @@ The harness lives in `tools/`:
 | `08c_dragon.js`, `08d_dragon_ai.js` | Cinderwing: the model and its behaviour |
 | `08e_barrow.js` | The Barrow's dead: packs, flow-field pathing, the burning gallery, chests, the Hollow King fight |
 | `08f_townlife.js` | Townsfolk's days: home at night, out by day, doors and shutters used for real, routes round the furniture, fleeing fires, rebuilding |
+| `08h_farming.js` | Farming, herb lore and plant breeding. `SEASON` and `seasonNow()` (spring, summer, autumn, winter: two days each, 2.4 hours a year; read by foraging and anything seasonal), `seasonCold()` and `seasonWeatherOdds()` (05e_weather.js asks), `farmTempAt(x, z)`. Beds (`FARM.plots`, own `'p'`): tilled with a hoe or by hand, 4 x 6 slots, each slot one plant with traits (`FARM_TR`: yield, hardiness, drought, speed, colour, height); growth through stages by season, warmth, water (`P.moist` from rain, lost to sun and heat), light, weeds and soil (`P.fert`, tired by harvests, rested, beans and `manure`); frost (by hardiness), drought, trampling, storms laying tall crops flat, grass fire, craters. Strains (`FARM.strains`): seed lots as goods of their own (`seed_grain_s104`), made by keeping the seed of one ripe plant (its traits blended with its pollen parent's: plants of a kind in flower within 3 m cross); harvests give seed of the strain sown. The town fields (`W.fieldRects`, own `'t'`): strips with a `stand` (one crop, rotation, sowing windows) tilled, sown, weeded and harvested by Brackenford's farmers (`farmLife` and the `'farm'` plan step in 08f_townlife.js), or by the town itself when nobody is near enough to watch; the granary. Wild herbs (`FARM.herbs`, `FARM_HERBS`: eight kinds by habitat) examined into the herbal, gathered (they grow back), dug up (a knife lifts the root whole) and planted. The farmer's dialog (seed, hoe, knife, manure; buys produce). The plant card (`#farmcard`): what you look at, its traits and parentage, and the actions; E does the first. Hooks for others: `farmGrowAt(x, z, r, k)` (growth magic), `farmEatAt(x, z, r)` (grazing). Saves: world part `farm`, char part `herbal`. Test hooks on `__hm.farm` |
+| `08i_farm_draw.js` | Farming drawn: every crop, weed and herb is a model built in code (`FARM_MODELS`, a near and a far model for each crop) whose parts grow out of their joints as the plant grows (`aPart`: kind, place along the part, the growth it appears at and is full at), one instanced mesh per kind with wind, wilting, nodding ripe ears, trampling, frost rime, snow, rain and char; flowers drop after flowering; night-glowing herbs. Beds are one merged furrowed soil mesh (ridges with the plants on their crests) whose shader reads each bed's state from a small texture (water, manure, ash, how far it is tilled, stubble, its crop's colour from afar). The dashed outline of a bed about to be tilled. Map patches (`drawFarmMap`) |
 | `08g_campaign.js` | The campaign: commanders' plans with announced reasons (`planWar`, `announceOrder`), routes and order badges on the maps and nameplates, player orders to warbands from the map, claims (4 of 6 keeps for 5 min, or both enemy hallows for 4 min), renown, the long-war rules, victory, peace and reset, campaign history in the world save |
 | `09_player.js` | Input, camera, movement, targeting, interaction |
 | `09b_mount.js` | Horses |
@@ -224,6 +228,12 @@ The harness lives in `tools/`:
 - A warband works through the phases `travel`, `siege`, `assault`, `hold`.
 - Keep doors are entities that let their owners pass. Relics are called "hallows" in game.
 
+**Farming**
+- A bed's slots are 0.6 m apart; `slotPos(P, s)` is where a plant stands; `plotAt(x, z)`, `plotLocal`/`plotWorld` convert to the bed's furrows (u across, v along).
+- Beds and strips go into the cover map (`farmCoverAll` at the end of `buildCoverMask`), so no grass grows through the soil; removing a bed rebuilds the cover map.
+- Growth is stepped every half second in `updateFarming` (`FARM.speed` speeds it for tests); drawing refills the instances twice a second, when the camera moves 3 m or when `FARM.drawDirty` is set.
+- After merging with the water branch, set `FARM.waterAt = waterAt` so beds keep off rivers.
+
 **Saves**
 - Old saves must always keep loading.
 - When you add fields, default them in `startGame` / `validSave` and include them in `coreKey`.
@@ -263,7 +273,7 @@ The harness lives in `tools/`:
 | 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Planned |
 | 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Planned |
 | 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Planned |
-| 19 | Farming and herb lore, plant breeding | Planned |
+| 19 | Farming and herb lore, plant breeding: seasons, beds, crops with stages and weather, weeds, soil, strains and crossing, town fields worked by the townsfolk, wild herbs and the herbal | Done on `feature/farming`. Left: crops in Ériu and Thule gardens; herbs' powers in potions (survival/crafting) |
 | 20 | Animals: taming, pets, livestock, breeding | Planned |
 | 21 | Building: placed structures | Planned |
 

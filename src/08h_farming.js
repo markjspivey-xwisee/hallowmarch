@@ -151,7 +151,7 @@ function strainName(crop, tr, gen) {
   const ord = gen === 1 ? '1st' : gen === 2 ? '2nd' : gen === 3 ? '3rd' : gen + 'th';
   return `${words.length ? words.join(' ') + ' ' : 'Kept '}${C.herb ? C.name.toLowerCase() : C.name.toLowerCase()} (${ord} sowing)`.replace(/^./, (s) => s.toUpperCase());
 }
-function farmStrainGood(S) { return S.common ? FARM_CROPS[S.crop].seed : `${FARM_CROPS[S.crop].seed}_s${S.id}`; }
+function farmStrainGood(S) { return S.common ? FARM_CROPS[S.crop].seed : `${FARM_CROPS[S.crop].seed}_${S.id}`; }
 function farmRegisterStrainGood(S) {
   const C = FARM_CROPS[S.crop], id = farmStrainGood(S);
   if (S.common) { GOODS[id].farmStrain = S.id; return id; }
@@ -1335,7 +1335,7 @@ function farmLoadData(d) {
 // what counts as a change worth writing: beds, strains and stages, never the clocks
 function farmSaveKey(d) {
   if (!d) return null;
-  return [SEASON_NAMES[Math.min(3, Math.floor((d.t / SEASON.yearSec) * 4))], (d.st || []).length, (d.pl || []).map((a) => [a[0], a[1], Math.round(a[7] / 25), String(a[9]).split(';').map((r) => { const f = r.split('|'); return f[0] + ':' + farmStageIdx((+f[1] || 0) / 1000) + f[10]; }).join(',')]), (d.tw || []).map((a) => a[0] + ':' + a[4] + ':' + farmStageIdx(a[2] / 1000)), (d.hb || []).length];
+  return [SEASON_NAMES[Math.min(3, Math.floor((d.t / SEASON.yearSec) * 4))], (d.st || []).length, (d.pl || []).map((a) => [a[0], a[1], Math.round(a[7] / 25), String(a[9]).split(';').map((r) => { const f = r.split('|'); return f[0] + ':' + farmStageIdx((+f[1] || 0) / 1000) + f[10]; }).join(',')]), (d.tw || []).map((a) => a[0] + ':' + a[4]), (d.hb || []).length];
 }
 registerSavePart('world', 'farm', { save: farmSaveData, load: farmLoadData, key: farmSaveKey });
 registerSavePart('char', 'herbal', {
