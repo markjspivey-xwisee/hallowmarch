@@ -16,7 +16,7 @@ const HUMAN_FAR = { high: 90, medium: 60, low: 38 };
 // chunks (its near trees draw the closest ones in full).
 const TREE_SPLIT_D = { medium: 60, low: 36 };
 // and beyond this (from the chunk's nearest edge) the farthest model: the crown's big lobes only
-const TREE_FAR2_D = { medium: 200, low: 100 };
+const TREE_FAR2_D = { medium: 200, low: 64 }; // [motion] low: the lobes beyond 64 m (with the near chunk split, the forest within its budget)
 // the triangles of an N-cell square at s-cell steps inside and full detail round its rim, in grid coordinates
 // (front faces up, as the full grid has them)
 function lodTris(N, s, emit) {
@@ -105,7 +105,7 @@ function lodBuild() {
       return g1;
     };
     const g1 = inst(f), g2 = inst(far2[k]);
-    LOD.trees.push({ m, gs: [g0, g1, g2], far: f, kind: k, x: m.userData.center.x, z: m.userData.center.y, lvl: 0, split: null });
+    LOD.trees.push({ m, gs: [g0, g1, g2], far: f, far2: far2[k], kind: k, x: m.userData.center.x, z: m.userData.center.y, lvl: 0, split: null });
   }
 }
 // a stand-in with no trees for the shadow pass (no draw at all)
@@ -113,46 +113,83 @@ function treeNoCast(T) {
   if (!T.none) { const g = new THREE.InstancedBufferGeometry(); for (const a of ['position', 'normal', 'aPart', 'aAO', 'iPos', 'iRot']) g.setAttribute(a, T.gs[1].attributes[a]); g.setIndex(T.gs[1].index); g.instanceCount = 0; g.boundingSphere = T.gs[0].boundingSphere; T.none = g; }
   return T.none;
 }
-// a chunk split tree by tree: two meshes of its own (full and far model) drawn in its place, the chunk itself hidden
-// (it keeps its instance data: the nature module writes felled and regrown trees there, and the split follows)
-function treeSplit(T, on, cx, cz, R) {
-  const m = T.m;
-  if (!on) { if (T.split && T.split.on) { T.split.on = false; T.split.hi.visible = T.split.lo.visible = false; m.visible = true; } return; }
-  let S = T.split;
-  const g0 = T.gs[0], n = g0.attributes.iPos.count;
-  if (!S) {
-    const mk = (src, cast) => {
-      const g = new THREE.InstancedBufferGeometry();
-      for (const a of ['position', 'normal', 'aPart', 'aAO']) g.setAttribute(a, src.attributes[a]);
-      g.setIndex(src.index);
-      g.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage));
-      g.setAttribute('iRot', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage));
-      g.instanceCount = 0; g.boundingSphere = g0.boundingSphere;
-      const mesh = new THREE.Mesh(g, m.material);
-      mesh.renderOrder = m.renderOrder; mesh.visible = false;
-      (m.parent || scene).add(mesh);
-      if (cast) shadowCaster(mesh, TREE_DEPTH); // only the near trees fall inside the shadow box
-      return mesh;
-    };
-    S = T.split = { hi: mk(g0, true), lo: mk(T.far, false), x: 1e9, z: 1e9, ver: -1 };
+// a chunk split tree by tree: the chunk's own mesh is hidden (it keeps its instance data: the nature module writes
+// felled and regrown trees there, and the bands follow) and its trees are drawn by the bands below. Returns true when
+// the chunk was split or joined again.
+function treeSplit(T, on) {
+  const S = T.split || (T.split = { on: false });
+  if (on) T.m.visible = false; // (updateTreeVisibility shows the chunks within reach every few frames)
+  if (S.on === on) return false;
+  S.on = on;
+  if (!on) T.m.visible = true;
+  return true;
+}
+// [motion] the trees of every split chunk, kind by kind, in three bands of one draw each, as whole chunks have them by
+// distance: the full model within the near reach (casting shadows), the far model to TREE_FAR2_D and the crown's lobes
+// beyond. Each tree is culled against the view (with a margin for the camera's turn), so the trees behind the camera
+// cost nothing; they are sorted again when the camera moves or turns, the quality changes, or a tree falls or grows
+// (the chunk's instance data).
+// (band 3 is the near band once more for the shadow pass only: every near tree all round, since their shadows fall
+// into view; its mesh sits in the scene on a layer the camera does not draw, so only its shadow proxy is drawn)
+function treeBand(kind, b, T0) {
+  const K = (LOD.bands = LOD.bands || {})[kind] || (LOD.bands[kind] = []);
+  if (!K[b]) {
+    const src = b === 0 || b === 3 ? T0.gs[0] : b === 1 ? T0.far : T0.far2, g = new THREE.InstancedBufferGeometry();
+    for (const a of ['position', 'normal', 'aPart', 'aAO']) g.setAttribute(a, src.attributes[a]);
+    g.setIndex(src.index);
+    g.instanceCount = 0; g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    const mesh = new THREE.Mesh(g, T0.m.material);
+    mesh.renderOrder = T0.m.renderOrder; mesh.visible = false; mesh.frustumCulled = false;
+    if (b === 3) mesh.layers.set(31);
+    (T0.m.parent || scene).add(mesh);
+    K[b] = { mesh, cap: 0 };
+    treeBandGrow(K[b], b === 1 || b === 2 ? 1024 : 384);
+    // only the near trees fall inside the sun's shadow box; bare broadleaves cast thin winter shadows ([seasons])
+    if (b === 3) shadowCaster(mesh, kind === 'pine' ? TREE_DEPTH : TREE_DEPTH_DECID);
   }
-  // stand in for the chunk (a chunk this near the camera is always within the trees' draw distance)
-  S.on = true; m.visible = false;
-  const src = g0.attributes.iPos, rot = g0.attributes.iRot;
-  if (Math.hypot(cx - S.x, cz - S.z) > 4 || src.version !== S.ver) {
-    S.x = cx; S.z = cz; S.ver = src.version;
-    const P = src.array, Rr = rot.array, hp = S.hi.geometry.attributes.iPos.array, hr = S.hi.geometry.attributes.iRot.array, lp = S.lo.geometry.attributes.iPos.array, lr = S.lo.geometry.attributes.iRot.array;
-    let nh = 0, nl = 0;
-    const cnt = Math.min(n, g0.instanceCount);
-    for (let i = 0; i < cnt; i++) {
-      const x = P[i * 4], z = P[i * 4 + 2];
-      if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < R * R) { hp[nh * 4] = x; hp[nh * 4 + 1] = P[i * 4 + 1]; hp[nh * 4 + 2] = z; hp[nh * 4 + 3] = P[i * 4 + 3]; hr[nh * 2] = Rr[i * 2]; hr[nh * 2 + 1] = Rr[i * 2 + 1]; nh++; }
-      else { lp[nl * 4] = x; lp[nl * 4 + 1] = P[i * 4 + 1]; lp[nl * 4 + 2] = z; lp[nl * 4 + 3] = P[i * 4 + 3]; lr[nl * 2] = Rr[i * 2]; lr[nl * 2 + 1] = Rr[i * 2 + 1]; nl++; }
+  return K[b];
+}
+function treeBandGrow(B, n) {
+  if (n <= B.cap) return;
+  const cap = Math.max(n, B.cap * 2), g = B.mesh.geometry, oP = g.attributes.iPos, oR = g.attributes.iRot;
+  const ip = new Float32Array(cap * 4), ir = new Float32Array(cap * 2);
+  if (oP) { ip.set(oP.array); ir.set(oR.array); }
+  g.setAttribute('iPos', new THREE.InstancedBufferAttribute(ip, 4).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('iRot', new THREE.InstancedBufferAttribute(ir, 2).setUsage(THREE.DynamicDrawUsage));
+  B.cap = cap;
+}
+const _tbS = new THREE.Sphere(), _tbF = new THREE.Vector3();
+function treeBandsFill(cx, cz, SD, RD2, shadows) {
+  const near2 = SD * SD, far2 = RD2 * RD2, cnt = {};
+  // the trees the near-tree set draws in full (bark, branches and leaf cards, 04c_trees.js) are left out: the chunk's
+  // model of them is faded out there anyway (uNearTree)
+  const NT = U.uNearTree.value, ntR = NT.z - 4, ntR2 = ntR > 0 ? ntR * ntR : -1;
+  const sh2 = (SHADOW.half + 14) ** 2; // the shadow copy: only trees that can shade the sun's shadow box round the view
+  const put = (B, k, x, y, z, s, r0, r1) => {
+    treeBandGrow(B, k + 1);
+    const ip = B.mesh.geometry.attributes.iPos.array, ir = B.mesh.geometry.attributes.iRot.array;
+    ip[k * 4] = x; ip[k * 4 + 1] = y; ip[k * 4 + 2] = z; ip[k * 4 + 3] = s; ir[k * 2] = r0; ir[k * 2 + 1] = r1;
+  };
+  for (const T of LOD.trees) {
+    if (!T.split || !T.split.on) continue;
+    const K = [0, 1, 2, 3].map((b) => (b < 3 || shadows ? treeBand(T.kind, b, T) : null)), c = cnt[T.kind] || (cnt[T.kind] = [0, 0, 0, 0]);
+    const g0 = T.gs[0], P = g0.attributes.iPos.array, Rr = g0.attributes.iRot.array, n = Math.min(g0.attributes.iPos.count, g0.instanceCount);
+    for (let i = 0; i < n; i++) {
+      const x = P[i * 4], y = P[i * 4 + 1], z = P[i * 4 + 2], s = P[i * 4 + 3], d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+      const b = d2 < near2 ? 0 : d2 < far2 ? 1 : 2;
+      if (b === 0 && ntR2 > 0 && (x - NT.x) * (x - NT.x) + (z - NT.y) * (z - NT.y) < ntR2) continue;
+      if (b === 0 && shadows && d2 < sh2) put(K[3], c[3]++, x, y, z, s, Rr[i * 2], Rr[i * 2 + 1]);
+      if (d2 > (b ? 0 : 100)) { _tbS.center.set(x, y + 6 * s, z); _tbS.radius = 9 * s + 0.12 * Math.sqrt(d2); if (!frustum.intersectsSphere(_tbS)) continue; }
+      put(K[b], c[b]++, x, y, z, s, Rr[i * 2], Rr[i * 2 + 1]);
     }
-    for (const [M, k] of [[S.hi, nh], [S.lo, nl]]) { const g = M.geometry; g.instanceCount = k; g.attributes.iPos.needsUpdate = true; g.attributes.iRot.needsUpdate = true; }
   }
-  S.hi.visible = S.hi.geometry.instanceCount > 0;
-  S.lo.visible = S.lo.geometry.instanceCount > 0;
+  for (const kind in LOD.bands) for (let b = 0; b < 4; b++) {
+    const B = LOD.bands[kind][b];
+    if (!B) continue;
+    const g = B.mesh.geometry, k = cnt[kind] ? cnt[kind][b] : 0;
+    g.instanceCount = k; g.attributes.iPos.needsUpdate = true; g.attributes.iRot.needsUpdate = true;
+    B.mesh.visible = k > 0;
+  }
 }
 // rocks: on medium and low only those within reach are drawn (the instance lists are cut down as the camera moves);
 // the far glass of towns and halls and the furrowed soil of fields far away are not drawn on low and medium
@@ -191,7 +228,7 @@ function updateLod() {
   if (!GAME.built) return;
   if (!LOD.built) lodBuild();
   const q = quality.level, cx = camera.position.x, cz = camera.position.z;
-  const TD = TERRAIN_LOD_D[q] || TERRAIN_LOD_D.high, RD = TREE_LOD_D[q] || TREE_LOD_D.high, RD2 = TREE_FAR2_D[q] || 1e9;
+  const TD = TERRAIN_LOD_D[q] || TERRAIN_LOD_D.high, RD = TREE_LOD_D[q] ?? TREE_LOD_D.high, RD2 = TREE_FAR2_D[q] || 1e9; // [motion] ?? (low's 0 read as missing gave it high's 140 m: sixteen chunks split tree by tree)
   const st = LOD.stats;
   st.terrain[0] = st.terrain[1] = st.terrain[2] = 0; st.trees[0] = st.trees[1] = st.trees[2] = 0;
   for (const T of LOD.terrain) {
@@ -212,9 +249,11 @@ function updateLod() {
   }
   lodRocks(cx, cz, q); lodFar(cx, cz, q);
   const SD = TREE_SPLIT_D[q] || 0;
+  let resort = false, ver = 0;
   for (const T of LOD.trees) {
     const d = lodEdge(T.x, T.z, cx, cz, 64);
-    const l = d <= RD ? 0 : d < RD2 ? 1 : 2;
+    // [motion] with a split, every chunk the near reach touches is split (its trees go into the bands)
+    const l = d <= (SD > 0 ? Math.max(RD, SD) : RD) ? 0 : d < RD2 ? 1 : 2;
     if (l !== T.lvl) {
       T.lvl = l; T.m.geometry = T.gs[l];
       // far chunks lie outside the sun's shadow box (it reaches 38 to 46 m round the view): they cast nothing
@@ -223,8 +262,17 @@ function updateLod() {
     }
     // trees felled or regrown change the chunk's instance count: keep the far model's in step
     if (T.gs[1].instanceCount !== T.gs[0].instanceCount) T.gs[1].instanceCount = T.gs[2].instanceCount = T.gs[0].instanceCount;
-    treeSplit(T, l === 0 && SD > 0, cx, cz, SD);
+    if (treeSplit(T, l === 0 && SD > 0)) resort = true;
+    if (T.split && T.split.on) ver += T.gs[0].attributes.iPos.version * 7 + T.gs[0].instanceCount + T.x * 1e-3;
     st.trees[l]++;
+  }
+  // [motion] the bands: sorted again when the camera moves 3 m or turns 5 degrees, or the split trees change
+  const L = LOD.bandAt || (LOD.bandAt = { x: 1e9, z: 1e9, f: new THREE.Vector3(), ver: -1, q: '' });
+  const NT = U.uNearTree.value; ver += NT.x * 0.37 + NT.y * 0.61 + NT.z * 0.83; // the near-tree set moved
+  _tbF.set(-camera.matrixWorld.elements[8], -camera.matrixWorld.elements[9], -camera.matrixWorld.elements[10]);
+  if (resort || ver !== L.ver || q !== L.q || Math.hypot(cx - L.x, cz - L.z) > 3 || _tbF.dot(L.f) < 0.996) {
+    L.x = cx; L.z = cz; L.ver = ver; L.q = q; L.f.copy(_tbF);
+    treeBandsFill(cx, cz, SD, RD2, !!SHADOW.rt);
   }
 }
 

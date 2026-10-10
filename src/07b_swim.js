@@ -72,7 +72,7 @@ function waterCamY(cx, cz, cy) {
 }
 // for the actor shaders: a swimmer's stroke phase and effort, and how far over to swimming it is (iAnim.w < 0)
 function waterAnimPack(e, a4) {
-  if (!e.alive || !(e.swimK > 0.01)) return;
+  if (!e.alive || !(e.swimK > 0.01) || e.role === 'bird') return; // [motion] a game bird's flight is packed by 09v_birds.js (a mallard rose from the water with its wings shut)
   a4[0] = e.swimPh || 0; a4[1] = e.swimAmt || 0; a4[3] = -Math.min(1, e.swimK);
 }
 // the waterline packed with the wetness for the actor shader (iWear.x: whole 5 cm steps of soaked height + wetness)
@@ -174,8 +174,9 @@ function updateWater(dt) {
     const rel = Math.hypot(rx, rz) / Math.max(dt, 1e-4);
     const want = e.swim ? clamp(rel / 2.6, 0, 1.4) : 0;
     e.swimAmt = lerp(e.swimAmt || 0, want, 1 - Math.exp(-dt * 5));
-    // strokes: about one every 1.6 s at an easy pace, faster when hurrying; paddling beasts beat faster
-    const rate = e.kind === 'humanoid' ? (0.55 + 3.4 * e.swimAmt) : (5.5 + 4 * e.swimAmt);
+    // strokes: [motion] each carries the body about 2.2 m through the water, so the arms keep pace with the swim (treading
+    // water keeps its own clock in the shader); paddling beasts beat faster
+    const rate = e.kind === 'humanoid' ? (0.4 + 7.2 * e.swimAmt) : (5.5 + 4 * e.swimAmt); // [motion] a stroke carries a swimmer about 2.2 m (it was 4 m: slow-motion arms)
     const ph0 = e.swimPh || 0;
     e.swimPh = (ph0 + dt * rate) % (TAU * 64);
     if (e.swim) {

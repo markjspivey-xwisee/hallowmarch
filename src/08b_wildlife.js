@@ -148,15 +148,29 @@ function buildBirds() {
         vec3 up = cross(right, fwd);
         right = right * cos(bank) + up * sin(bank);
         up = cross(right, fwd);
-        // flap, with long glides for birds and constant fluttering for bats
+        // flap, with long glides for birds and constant fluttering for bats.
+        // [motion] A beat is a quick downstroke and a slower upstroke; the arm leads and the hand follows a little late,
+        // folding in and back on the way up; the body rides each beat. Bats beat four times as fast, deeper, and fold
+        // their hands hard on every upstroke.
         float glide = smoothstep(0.2, 0.7, sin(uTime * 0.45 + iB.w * 20.0)) * (1.0 - bat);
-        float flap = sin(uTime * mix(9.0, 19.0, bat) + iB.y) * mix(0.85, 0.12, glide) + 0.1 * glide;
+        float bph = uTime * mix(9.0, 52.0, bat) * (1.0 + 0.12 * sin(iB.w * 31.0)) + iB.y;
+        float flap = sin(bph - 0.35 * sin(bph)) * mix(mix(0.85, 1.1, bat), 0.12, glide) + 0.1 * glide;
+        float upK = (1.0 - glide) * max(0.0, cos(bph));
+        c.y -= 0.035 * cos(bph) * (1.0 - glide) * mix(1.0, 0.6, bat);
         vec3 p = position;
         if (aSide != 0.0) {
-          float span = abs(p.x) - 0.03;
-          float a = flap * (0.4 + 0.6 * smoothstep(0.0, 0.2, span));
-          p.x = sign(p.x) * (0.03 + span * cos(a));
-          p.y += span * sin(a);
+          float span = abs(p.x) - 0.03, wr = 0.21;
+          float armA = flap * 0.8 * smoothstep(0.0, 0.06, span);
+          if (span <= wr) {
+            p.x = sign(p.x) * (0.03 + span * cos(armA));
+            p.y += span * sin(armA);
+          } else {
+            float handA = flap * 1.1 + 0.3 * sin(bph - 1.0) * (1.0 - glide);
+            float fold = upK * mix(0.3, 0.6, bat), hs = (span - wr) * (1.0 - fold);
+            p.z -= (span - wr) * fold * 0.6;
+            p.x = sign(p.x) * (0.03 + wr * cos(armA) + hs * cos(handA));
+            p.y += wr * sin(armA) + hs * sin(handA);
+          }
         }
         p *= iB.z * mix(1.0, 0.6, bat);
         vW = c + right * p.x + up * p.y + fwd * p.z;

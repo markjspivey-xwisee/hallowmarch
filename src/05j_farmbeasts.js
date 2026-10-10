@@ -59,7 +59,7 @@ BEASTS.pig = {
 BEASTS.hound = { ...BEASTS.wolf, fur: { ...BEASTS.wolf.fur, shag: 0.004, ruff: 0.008, saddle: 0.55, belly: 0.5 }, eye: [0.45, 0.28, 0.1], farm: { collar: true } };
 BEASTS.horseWild = { ...BEASTS.horse, tack: false };
 BEASTS.horseTack = { ...BEASTS.horse };
-BEASTS.hen = { stride: [0.075, 0.17] }; // the hen's own rig below; this is only her stride for the walk phase (beastStride)
+BEASTS.hen = { stride: [0.11, 0.26] }; // [motion] a hen's own steps: longer, so she does not scurry // the hen's own rig below; this is only her stride for the walk phase (beastStride)
 
 // join two rig geometries built by SkinKits (same attributes)
 function farmMergeGeo(a, b) {
@@ -292,6 +292,7 @@ function henVS(depth) {
   ${GLSL_COMMON}
   ${ACTOR_COMMON}
   uniform float uTime;
+  uniform vec4 uGait; // [motion] walk and run strides, leg length
   attribute float aBone; attribute float aW; attribute float aMat; attribute vec2 aUV; attribute float aAO;
   attribute vec4 iPos; attribute vec4 iAnim; attribute vec4 iColA; attribute vec4 iColB;
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx; varying vec2 vPat;'}
@@ -332,13 +333,17 @@ function henVS(depth) {
     if (isLeg) {
       // each foot is planted while it is down and swings forward through the air
       float c = ph + (b == 9 ? 0.0 : 3.1416);
-      float u = fract(c * 0.159155), duty = 0.6, reach = mix(0.075, 0.17, smoothstep(0.7, 1.4, amt)) * duty, fx, lift;
+      // [motion] the stride as beastStride gives it (05c_beasts.js: uGait holds the walk and run strides and the leg length),
+      // the pace kept between the slowest and quickest a leg this long takes
+      float amtS = clamp(iAnim.y, 0.0, 2.2), bsc = max(mod(iColA.w, 4.0), 0.2), vSpd = amtS * 4.3, fC = sqrt(1.06 / max(uGait.z * bsc, 0.05));
+      float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
+      float u = fract(c * 0.159155), duty = 0.6, reach = strideM * duty, fx, lift;
       if (u < duty) { fx = reach * (1.0 - 2.0 * u / duty); lift = 0.0; }
       else { float wv = (u - duty) / (1.0 - duty); fx = reach * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
-      float sw = asin(clamp(fx / 0.19, -0.95, 0.95)) * k;
+      float sw = asin(clamp(fx / 0.19, -0.95, 0.95)); // [motion] the planted foot keeps pace at any speed
       vec3 hip = b == 9 ? ${v(HEN.hipL)} : ${v(HEN.hipR)};
       // the shank folds as the foot lifts
-      if (P.y < 0.13) rotP(rotX(0.9 * lift * k), vec3(hip.x, 0.12, 0.0));
+      if (P.y < 0.13) rotP(rotX(0.9 * lift * smoothstep(0.0, 0.03, amtS)), vec3(hip.x, 0.12, 0.0)); // [motion] the shank folds and the foot leaves the ground
       rotP(rotX(-sw * w), hip);
       if (death > 0.0) rotP(rotX(0.8 * smoothstep(0.0, 0.5, death)), hip);
       b = 0;
@@ -370,7 +375,7 @@ function buildFarmCrowds() {
   }
   // hens: their own rig, the same coat and weather shading
   const hu = beastUniforms('wolf');
-  Object.assign(hu, { uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.2, 0.35, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.75, 0.45, 0.1) }, uEyeAt: { value: new THREE.Vector3(0.03, 0.462, 0.172) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.2 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
+  Object.assign(hu, { uGait: { value: new THREE.Vector4(0.11, 0.26, 0.2, 0.2) } /* [motion] her strides and leg length (henVS) */, uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.2, 0.35, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.75, 0.45, 0.1) }, uEyeAt: { value: new THREE.Vector3(0.03, 0.462, 0.172) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.2 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
   const hm = shareMat(beastMat, hu);
   hm.vertexShader = henVS(false);
   hm.fragmentShader = fs;

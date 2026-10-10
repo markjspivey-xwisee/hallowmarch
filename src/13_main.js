@@ -222,7 +222,7 @@ function drawActors(fx, fz) {
       continue;
     }
     _p4[0] = e.x; _p4[1] = y; _p4[2] = e.z; _p4[3] = e.yaw;
-    _a4[0] = e.anim.phase; _a4[1] = e.anim.amt; _a4[2] = animActValue(e); _a4[3] = e.anim.death;
+    _a4[0] = e.anim.phase; _a4[1] = e.anim.turn > 0.05 && e.anim.amt < 0.15 ? -e.anim.turn : e.anim.amt; _a4[2] = animActValue(e); _a4[3] = e.anim.death; // [motion] a negative amount: stepping round on the spot (humanVS)
     waterAnimPack(e, _a4); // [water] strokes, paddling and treading water (07b_swim.js)
     const L = e.look;
     if (e.kind === 'humanoid') {
@@ -236,6 +236,7 @@ function drawActors(fx, fz) {
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1 + (e.mount.crowd ? e.mount.visCode || 0 : 0);
         _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash); // the horse is as wet as its rider
+        _p4[3] = beastLeanYaw(e); // [motion] the horse leans into the turn with its rider (13r_motion.js)
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
         _a4[0] = MA.phase; _a4[1] = MA.amt;
@@ -244,6 +245,7 @@ function drawActors(fx, fz) {
       // seated: on a throne the body takes the rider's pose, hips on the seat
       if (e.seat && e.alive) { _p4[1] = e.seat.y - 0.86 * sc; _a4[0] = 0; _a4[1] = 0; _cb[3] = (L.flags || 0) | 8; }
       wearVisual(e, _we); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
+      _p4[3] = humanSlopeYaw(e, y, dx * dx + dz * dz < lodD2 * 2.5); // [motion] the floor's slope rides on the yaw (13r_motion.js)
       (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : dx * dx + dz * dz > farD2 && crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we); // [phones] far: crowdHumanFar
       // a gem of light on casters' hands while a spell builds
       if (e.casting && e.alive && e.casting.id !== 'summon') {
@@ -256,6 +258,7 @@ function drawActors(fx, fz) {
       _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc + (e.visCode || 0); // [animals] pattern and seed above the scale
       _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash); // visual pass: its own wet and snow
       const C = crowdBeast[e.crowd || e.kind]; // [animals] shorn sheep, bulls, tacked horses
+      if (C && e.role !== 'bird' && e.kind !== 'hen') _p4[3] = beastLeanYaw(e); // [motion] a beast leans into its turns (beastVS)
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
   }

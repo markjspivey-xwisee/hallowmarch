@@ -635,12 +635,15 @@ const HSK = { // skeleton constants for GLSL
 // agree: the walk cycle's phase advances by half a turn per step), and so does the time each foot spends in the air.
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
-  float humanStep(float v){ return min(0.40 + 0.20 * v + 0.006 * v * v, 2.2); }
+  float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
   // a foot at u of its cycle (0: it comes down ahead of the hip): how far ahead of the hip it is, and how high it is
   vec2 footPath(float u, float duty, float reach, float liftH, float runK){
     if (u < duty) return vec2(reach * (1.0 - 2.0 * u / duty), 0.0);
     float w = (u - duty) / (1.0 - duty);
     float e = w * w * (3.0 - 2.0 * w);
+    // [motion] the foot leaves the ground and meets it again moving back under the body at half the pace of the stance
+    // (a smoothstep alone brought it down moving with the body, so it skated in to land, most of all at a run)
+    e -= 0.5 * (1.0 - duty) / max(duty, 0.05) * w * (2.0 * w - 1.0) * (w - 1.0);
     float wl = pow(w, mix(1.0, 0.62, runK)); // a runner's heel kicks up early in the swing
     return vec2(reach * (2.0 * e - 1.0), liftH * pow(sin(3.14159 * wl), 0.85));
   }
@@ -653,7 +656,7 @@ const HUMAN_GAIT = /* glsl */`
     float d2 = fz * fz + fy * fy;
     if (d2 > dm * dm) { fy = -sqrt(dm * dm - fz * fz); d2 = dm * dm; }
     float d = sqrt(d2);
-    float a0 = atan(-fz, -fy);
+    float a0 = atan(-fz / max(-fy, 1e-4)); // [motion] one-argument: atan(-0.0, y) came back as pi on some drivers and a planted leg pointed at the sky
     float ca = clamp((l1 * l1 + d2 - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0);
     float cb = clamp((d2 - l1 * l1 - l2 * l2) / (2.0 * l1 * l2), -1.0, 1.0);
     return vec2(a0 - acos(ca) - rest1, acos(cb) - rest2);
@@ -710,6 +713,7 @@ function humanVS(depth) {
 
     /* ------------------- animation ------------------- */
     float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 2.2), death = clamp(iAnim.w, 0.0, 1.0);
+    float turnK = clamp(-iAnim.y, 0.0, 1.0); // [motion] stepping round on the spot (07_entities.js updateAnim)
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
     float k = min(amt, 1.0), run = clamp((amt - 1.0) * 2.0, 0.0, 1.0), idle = 1.0 - k;
     float hunched = mod(floor(iColB.w / 4.0), 2.0);
@@ -719,13 +723,20 @@ function humanVS(depth) {
     float vel = amt * 4.3 / max(iColA.w, 0.3);
     float runK = smoothstep(2.4, 4.4, vel), gk = smoothstep(0.02, 0.3, amt);
     float duty = mix(0.58, 0.26, runK) - 0.06 * smoothstep(6.5, 9.0, vel);
-    float reach = duty * humanStep(vel) * gk, liftH = mix(0.1, 0.3, runK) * gk;
+    float stepS = humanStep(vel);
+    float reach = duty * stepS, liftH = max(mix(0.1, 0.3, runK) * min(1.0, stepS / 0.42) * smoothstep(0.0, 0.04, amt), 0.075 * turnK); // [motion] the planted foot keeps pace at any speed; turning, the feet step
     float uL = fract((ph - 1.5708) * 0.159155);
     float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
     float gaitBob = mix(0.022, -0.03, runK) * gk * cos(12.566 * (uL - duty * 0.5));   // a walker vaults over the planted leg; a runner sinks into it
     vec2 fL = footPath(uL, duty, reach, liftH, runK), fR = footPath(fract(uL + 0.5), duty, reach, liftH, runK);
+    // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
+    // comes down on it, and the hips sink a little so the lower foot reaches
+    float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
+    float slopeK = clamp((slopeN - 41.0 * leanN) * 0.05, -1.0, 1.0), lean = leanN * 0.04;
+    float slopeDrop = min(0.1, abs(slopeK) * 0.14);
+    gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
-    vec2 ikL = legIK(fL.x, fL.y - 0.845 + gaitDrop - gaitBob), ikR = legIK(fR.x, fR.y - 0.845 + gaitDrop - gaitBob);
+    vec2 ikL = legIK(fL.x, fL.y + slopeK * fL.x - 0.845 + gaitDrop - gaitBob), ikR = legIK(fR.x, fR.y + slopeK * fR.x - 0.845 + gaitDrop - gaitBob);
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running
     float uaL = s1 * (0.42 + 0.25 * run) * k, uaR = -s1 * (0.42 + 0.25 * run) * k;
@@ -733,13 +744,14 @@ function humanVS(depth) {
     float uaLz = 0.05 + 0.03 * run + 0.02 * idle * sin(t * 0.9), uaRz = -0.05 - 0.03 * run - 0.02 * idle * sin(t * 0.9 + 1.0);
     float chestX = 0.05 * k + 0.2 * run + hunched * 0.38 + 0.012 * sin(t * 1.7) * idle;
     float chestY = -0.11 * s1 * k;
+    chestX += 0.3 * slopeK * k; // [motion] leaning into the climb, back against the descent
     float headX = -hunched * 0.3 + 0.05 * sin(t * 0.33) * idle - 0.06 * run, headY = 0.28 * sin(t * 0.21) * idle + 0.09 * s1 * k;
     float pelvisY = 0.1 * s1 * k;
     float bob = gaitBob;
     float swayX = 0.012 * sin(t * 0.45) * idle + 0.012 * s1 * k * (1.0 - run);
     float stepZ = 0.0;
     float capeX = 0.07 + 0.3 * k + 0.32 * run;
-    float spreadL = 0.0, spreadR = 0.0, crouch = gaitDrop;
+    float spreadL = 0.0, spreadR = 0.0, crouch = gaitDrop; // (with the slope's drop)
     // a burning brand (09d_brand.js: BRAND.pose) is held up and forward in the left hand
     bool brand = ((int(iMisc.y + 0.5) >> 20) & 1) == 1;
     if (brand) { uaL = -1.05 + 0.03 * sin(t * 1.7); uaLz = -0.1; faL = -0.78; }
@@ -797,7 +809,9 @@ function humanVS(depth) {
       float slam = smoothstep(0.58, 0.7, at), rec = smoothstep(0.8, 1.0, at);
       float down = slam * (1.0 - rec), up = lift * (1.0 - slam);
       thL = mix(thL, -1.0, lift * air); thR = mix(thR, -0.55, lift * air); shL = mix(shL, 1.4, lift * air); shR = mix(shR, 1.05, lift * air);
-      thL = mix(thL, -0.85, down); thR = mix(thR, -0.15, down); shL = mix(shL, 1.3, down); shR = mix(shR, 1.15, down);
+      // [motion] landing in a crouch with both feet flat on the ground (IK: they sank 10 cm with set angles)
+      vec2 lcL = legIK(0.15, -0.545), lcR = legIK(-0.05, -0.545);
+      thL = mix(thL, lcL.x, down); thR = mix(thR, lcR.x, down); shL = mix(shL, lcL.y, down); shR = mix(shR, lcR.y, down);
       crouch = 0.3 * down;
       uaR = mix(uaR, -2.9, up); uaL = mix(uaL, -2.6, up); faR = mix(faR, -0.45, up); faL = mix(faL, -0.6, up);
       uaLz = mix(uaLz, -0.2, up); uaRz = mix(uaRz, 0.2, up);
@@ -819,7 +833,8 @@ function humanVS(depth) {
       uaL = mix(uaL, -1.38, kk); faL = mix(faL, -1.05, kk); uaLz = mix(uaLz, -0.45, kk);
       uaR = mix(uaR, -1.95, kk); uaRz = mix(uaRz, -0.55, kk); faR = mix(faR, -1.25, kk);
       chestX = mix(chestX, 0.15, kk); chestY = mix(chestY, 0.3, kk); headX = mix(headX, 0.06, kk); headY = mix(headY, -0.2, kk);
-      thL = mix(thL, -0.32, still); shL = mix(shL, 0.45, still); thR = mix(thR, 0.24, still); shR = mix(shR, 0.32, still);
+      vec2 gL = legIK(0.08, -0.775), gR = legIK(-0.33, -0.775); // [motion] braced, the feet flat on the ground
+      thL = mix(thL, gL.x, still); shL = mix(shL, gL.y, still); thR = mix(thR, gR.x, still); shR = mix(shR, gR.y, still);
       crouch = max(crouch, 0.07 * still);
     } else if (atype > 10.5 && atype < 11.5) {
       // [classes] the parry: shield and blade sweep the blow aside, then a quick thrust back
@@ -835,8 +850,10 @@ function humanVS(depth) {
     } else if (atype > 11.5 && atype < 12.5) {
       // [classes] kneeling: down on the right knee, the left foot planted ahead, hands together, head bowed
       float kn = smoothstep(0.0, 0.25, at) * (1.0 - smoothstep(0.88, 1.0, at));
-      thL = mix(thL, -1.45, kn); shL = mix(shL, 1.45, kn);
-      thR = mix(thR, 0.1, kn); shR = mix(shR, 1.65, kn);
+      // [motion] the front foot flat on the ground ahead (IK: with set angles it sank 11 cm), the back knee on the ground
+      vec2 kF = legIK(0.5, -0.365);
+      thL = mix(thL, kF.x, kn); shL = mix(shL, kF.y, kn);
+      thR = mix(thR, 0.25, kn); shR = mix(shR, 1.5, kn);
       crouch = mix(crouch, 0.48, kn); bob *= 1.0 - kn;
       uaL = mix(uaL, -1.12, kn); uaR = mix(uaR, -1.12, kn); uaLz = mix(uaLz, -0.44, kn); uaRz = mix(uaRz, 0.44, kn);
       faL = mix(faL, -1.52, kn); faR = mix(faR, -1.52, kn);
@@ -845,7 +862,8 @@ function humanVS(depth) {
     } else if (atype > 12.5 && atype < 13.5) {
       // [survival] down on the haunches to reach the ground: picking mushrooms and herbs, drinking from a lake (the leap's landing crouch)
       float kk = smoothstep(0.0, 0.22, at) * (1.0 - smoothstep(0.8, 1.0, at));
-      thL = mix(thL, -0.85, kk); thR = mix(thR, -0.15, kk); shL = mix(shL, 1.3, kk); shR = mix(shR, 1.15, kk);
+      vec2 cL = legIK(0.15, -0.545), cR = legIK(-0.05, -0.545); // [motion] both feet flat on the ground (they sank 10 cm)
+      thL = mix(thL, cL.x, kk); thR = mix(thR, cR.x, kk); shL = mix(shL, cL.y, kk); shR = mix(shR, cR.y, kk);
       crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk;
       chestX = mix(chestX, 0.55, kk); headX = mix(headX, 0.12, kk);
       uaL = mix(uaL, -0.8, kk); faL = mix(faL, -0.3, kk); uaLz = mix(uaLz, -0.15, kk); uaR = mix(uaR, -0.3, kk); faR = mix(faR, -0.55, kk);
@@ -908,6 +926,17 @@ function humanVS(depth) {
       capeX = mix(capeX, -0.1, d2);
     }
 
+    // [motion] the ankles: a planted foot lies flat on the ground whatever the shin does (it rolled with the shin and its
+    // sole rocked and slid), lifts off the toes and reaches out heel first in the air; feet hang in the air and in the
+    // saddle, a kneeling back foot keeps its toes tucked under
+    float ankK = (1.0 - swimK) * (1.0 - mounted) * (1.0 - d1) * ((atype > 5.5 && atype < 6.5) || (atype > 8.5 && atype < 9.5) ? 0.0 : 1.0);
+    float ankKR = ankK * ((atype > 11.5 && atype < 12.5) ? 1.0 - smoothstep(0.0, 0.25, at) : 1.0);
+    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
+    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
+    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
+    float slopeA = 0.6 * atan(slopeK); // [motion] a planted foot follows the slope (part way: on stairs it stands on a level tread)
+    float footL = (toeL - thL - shL - slopeA) * ankK, footR = (toeR - thR - shR - slopeA) * ankKR;
+
     /* ------------------- skinning ------------------- */
     if (bone == 11) {
       // the cape hangs from the shoulders and trails with speed and wind
@@ -921,18 +950,24 @@ function humanVS(depth) {
     if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; rotP(rotZ(uaLz * w) * rotX(uaL * w), ${HSK.SHL}); }
     if (bone == 2) rotP(rotY(headY * aW) * rotX(headX * aW), ${HSK.NECK});
     if ((bone >= 1 && bone <= 6) || bone == 11) { float w = bone == 1 ? aW : 1.0; rotP(rotY(chestY * w) * rotX(chestX * w), ${HSK.SPINE}); }
+    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); rotP(rotX((bone == 8 ? footL : footR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
     if (bone == 8) rotP(rotX(shL * aW), ${HSK.KNL});
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
-    rotP(rotY(pelvisY), vec3(0.0, 0.95, 0.0));
-    P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX; P.z += stepZ;
+    // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
+    // the planted feet from side to side, a few centimetres each stride
+    float legW = (bone == 7 || bone == 9) ? 1.0 - aW : (bone == 8 || bone == 10) ? 0.0 : 1.0;
+    rotP(rotY(pelvisY * legW), vec3(0.0, 0.95, 0.0));
+    P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX * legW; P.z += stepZ;
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
+    if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 
     float sc = iColA.w;
     P *= sc;
-    float c = cos(iPos.w), s = sin(iPos.w);
+    float yawR = iPos.w - 6.2831853 * slopeN; // [motion] the yaw itself, the slope's and lean's whole turns taken off (precise sin and cos)
+    float c = cos(yawR), s = sin(yawR);
     vec3 w = iPos.xyz + vec3(P.x * c + P.z * s, P.y, -P.x * s + P.z * c);
     ${depth ? '' : 'vW = w; vN = vec3(Nn.x * c + Nn.z * s, Nn.y, -Nn.x * s + Nn.z * c);'}
     gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);

@@ -290,16 +290,29 @@ function turnToward(e, x, z, rate) {
   e.yaw += clamp(d, -rate, rate);
 }
 // one step (half a gait cycle) of a person moving at v m/s in their own size: the walk shader's humanStep (05a_rig.js)
-const humanStep = (v) => Math.min(0.40 + 0.20 * v + 0.006 * v * v, 2.2);
+// [motion] below about 1 m/s the steps shorten rather than slow (at least 1.6 steps a second): no slow-motion legs
+const humanStep = (v) => clamp(Math.min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2);
 function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
   e.prevX = e.x; e.prevZ = e.z;
   const want = clamp(sp / 4.3, 0, 2.2);
-  e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * 10));
+  // [motion] stopping, the gait settles twice as fast: a raised foot comes down instead of hanging in the air
+  e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * (sp < 0.05 && e.anim.amt > want ? 20 : 10)));
   // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
   const sc = e.scale || 1;
-  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt) * sc;
+  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
+  // [motion] a body leans into a turn as far as the turn's pull asks (a person up to about 14 degrees, a beast or a horse
+  // with its rider 11; 13r_motion.js packs it for the shaders)
+  const yrs = angDiff(e._ayaw ?? e.yaw, e.yaw) / Math.max(dt, 1e-4), yr = Math.abs(yrs);
+  e._ayaw = e.yaw;
+  const lmax = e.kind === 'humanoid' && !e.mount ? 0.25 : 0.2;
+  e.anim.lean = lerp(e.anim.lean || 0, sp > 1.5 && !e.seat && e.fixedY == null ? clamp(-yrs * sp / 9.8 * 0.7, -lmax, lmax) : 0, 1 - Math.exp(-dt * 5));
+  // [motion] turning on the spot: a person steps round (the feet lift and come down again) instead of pivoting on frozen feet
+  if (e.kind === 'humanoid') {
+    e.anim.turn = lerp(e.anim.turn || 0, sp < 0.6 && !e.mount && !e.seat ? clamp((yr - 0.6) / 3, 0, 1) : 0, 1 - Math.exp(-dt * 8));
+    if (e.anim.turn > 0.02 && sp < 0.6) e.anim.phase = (e.anim.phase + dt * TAU * 0.9 * e.anim.turn) % (TAU * 64);
+  }
   if (e.mount) updateMountAnim(e, dt, sp);
   if (e.anim.actDur > 0) {
     e.anim.actT += dt;

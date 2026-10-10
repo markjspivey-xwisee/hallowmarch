@@ -341,6 +341,7 @@ function raiseDead(e, n) {
       o.fixedY = T.y - 1.0;
       o.yaw = side > 0 ? 0 : Math.PI;
       o.ai.riseUntil = GAME.t + 1.25;
+      setAct(o, 13, 1.0, 0.22); // [motion] crouched in the tomb, it straightens as it comes up over the rim
       BARROW_STATE.adds.add(o.id);
       const P = GAME.player;
       if (P) o.threat = new Map([[P.id, 1]]);
@@ -365,6 +366,7 @@ function updateBarrowMotion(dt) {
     const R = o.rise, t = GAME.t - R.t0;
     if (t < 0.8) o.fixedY = lerp(R.y - 1.0, R.y + 0.45, smooth(t / 0.8));
     else if (t < 1.15) {
+      if (!R.hop) { R.hop = true; setAct(o, 6, 0.36); } // [motion] the hop down: knees drawn up in the air
       const k = smooth((t - 0.8) / 0.35);
       o.x = o.prevX = lerp(R.x0, R.x1, k); o.z = o.prevZ = lerp(R.z0, R.z1, k);
       o.fixedY = lerp(R.y + 0.45, R.y, k) + Math.sin(k * Math.PI) * 0.35;
@@ -373,7 +375,7 @@ function updateBarrowMotion(dt) {
   const K = getEnt(BARROW_STATE.king);
   if (K && K.ai.stepOff) {
     const S = K.ai.stepOff, k = clamp((GAME.t - S.t0) / 0.9, 0, 1);
-    K.x = K.prevX = lerp(S.x0, S.x1, smooth(k)); K.z = K.prevZ = lerp(S.z0, S.z1, smooth(k));
+    K.x = lerp(S.x0, S.x1, smooth(k)); K.z = lerp(S.z0, S.z1, smooth(k)); // [motion] he walks down (his legs step as he moves)
     K.fixedY = -6.2 + Math.sin(k * Math.PI) * 0.12;
     if (k >= 1) { K.ai.stepOff = null; K.fixedY = null; }
   }

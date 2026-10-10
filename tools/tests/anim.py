@@ -26,7 +26,7 @@ async def ev(page, label, js):
 
 # --- the planted-foot gait, ported from HUMAN_GAIT (05a_rig.js): a planted foot must not slide ---
 L1, L2, REST1, REST2 = 0.4205, 0.4265, -0.038, 0.118
-def human_step(v): return min(0.40 + 0.20 * v + 0.006 * v * v, 2.2)
+def human_step(v): return min(max(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03), 2.2)  # [motion] short steps when slow
 def sstep(a, b, x):
     t = min(1, max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t)
 def foot_path(u, duty, reach, lift_h, run_k):
@@ -43,7 +43,7 @@ def leg_ik(fz, fy):
 def gait_numbers(v):
     amt = min(v / 4.3, 2.2); vel = amt * 4.3; run_k = sstep(2.4, 4.4, vel); gk = sstep(0.02, 0.3, amt)
     duty = (0.58 + (0.26 - 0.58) * run_k) - 0.06 * sstep(6.5, 9.0, vel)
-    S = human_step(vel); reach = duty * S * gk; lift_h = (0.1 + 0.2 * run_k) * gk; drop = (0.015 + 0.075 * run_k) * gk
+    S = human_step(vel); reach = duty * S; lift_h = (0.1 + 0.2 * run_k) * min(1, S / 0.42) * sstep(0, 0.04, amt); drop = (0.015 + 0.075 * run_k) * gk
     dt = 1 / 600; x = 0; ph = 1.5708; stance = []; slip = 0; ends = 0
     for _ in range(int(4 * 2 * S / v / dt)):
         x += v * dt; ph += dt * v * math.pi / S
@@ -105,7 +105,7 @@ async def shot(page, name):
 async def main():
     print('gait numbers (port of the shader):')
     worst = 0
-    for v in [1.2, 1.6, 2.2, 3.4, 4.6, 6.5, 9.4]:
+    for v in [0.3, 0.7, 1.2, 1.6, 2.2, 3.4, 4.6, 6.5, 9.4]:
         g = gait_numbers(v); print('  ', g); worst = max(worst, g['slip_cm'])
         check(g['heel_cm'] < 14, f'at {v} m/s the heel rises at most 14 cm at the ends of a stance ({g["heel_cm"]} cm)')
     check(worst < 2.0, f'a planted foot slides less than 2 cm at any speed ({worst} cm)')

@@ -3,7 +3,7 @@ Views: the Logres town with its fields and common, a keep courtyard, inside its 
 with the war running, a forest, the Barrow. For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
-usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render]
+usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16]
 (js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view)
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib
@@ -96,7 +96,7 @@ async def main():
         for q in (QUALS if 'js' not in ARGS else []):
             await ev(page, f"__hm.fn.setQuality('{q}'); 0")
             for v in VIEWS:
-                await ev(page, f"PV.view('{v}'); __hm.simulate(0.3); __hm.frame(); 0")
+                await ev(page, f"PV.view('{v}'); __hm.simulate(0.3); __hm.frame(); for (let i = 0; i < {int(OPT.get('settle', 0))}; i++) __hm.frame(); 0")  # [motion] settle=N: N more frames so the levels of detail settle
                 r = await ev(page, "(() => { const f = __hm.perf.frame(); return f; })()")
                 r['frameMs'] = r['ms']
                 if 'shots' in ARGS and q in OPT.get('shotq', 'low').split(','):
