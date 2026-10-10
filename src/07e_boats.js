@@ -162,6 +162,16 @@ function jettyMake(R, x0, z0, dx, dz, len, wy) {
   BOATS.jetties.push(J);
   return J;
 }
+// buildCoverMask (03_terrain.js) asks: the ground under a boat drawn up on the shore grows no grass through her hull; one
+// that comes to rest aground later marks its own (boatsUpdate)
+function boatsCover() {
+  for (const B of BOATS.list) if (B.st === 'beached' || B.grounded > 0.5) boatCoverMark(B, false);
+}
+function boatCoverMark(B, live = true) {
+  B.coverAt = { x: B.x, z: B.z };
+  coverBox(B.x, B.z, BOAT_B / 2 + 0.1, BOAT_L / 2 + 0.1, Math.cos(B.yaw), Math.sin(B.yaw), 0.1);
+  if (live && COVER.tex) COVER.tex.needsUpdate = true;
+}
 // stepTo asks when a raised edge would hold a body back: one that may swim (a chaser, a companion) goes off a jetty's deck
 // into water deep enough to swim in, as it would wade in from the shore
 function jettyJumpIn(e, x, z) {
@@ -769,6 +779,8 @@ function boatsUpdate(dt) {
     if (B.rider != null && (!rider || !rider.alive || rider.boat !== B)) { if (rider && rider.boat === B) boatLeave(rider, null); B.rider = null; }
     // a boat nobody rows drifts with the stream until it grounds (moored and beached ones stay put)
     if (!B.rider && B.st !== 'moored' && B.st !== 'beached' && B.grounded < 0.5) { boatPhys(B, dt, 0, 0); }
+    // at rest on a shore: no grass grows up through her
+    if (B.grounded > 0.5 && !B.rider && Math.hypot(B.vx, B.vz) < 0.05 && (!B.coverAt || dist2(B.coverAt.x, B.coverAt.z, B.x, B.z) > 1) && heightAt(B.x + Math.sin(B.yaw) * 1.6, B.z + Math.cos(B.yaw) * 1.6) > (waterAt(B.x, B.z, _bW)?.y ?? -1e9) - 0.1) boatCoverMark(B);
     // the hound in the bow rides along
     const pet = B.pass != null ? getEnt(B.pass) : null;
     if (pet) { if (!pet.alive || pet.boat !== B) { B.pass = null; pet.boat = null; pet.fixedY = null; } else { boatSeat(pet, B, 'bow'); pet.yaw = B.yaw; if (!pet.anim.act) setAct(pet, 9, 9999); } }

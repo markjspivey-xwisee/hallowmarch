@@ -101,6 +101,7 @@ function buildCoverMask() {
     else coverBox(f.x, f.z, f.hx, f.hz, f.cos, f.sin, pad);
   }
   farmCoverAll(); // [farming] tilled beds and the town strips: no grass through the soil (08h_farming.js)
+  boatsCover(); // [water2] no grass through the hull of a boat drawn up on the shore (07e_boats.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }
