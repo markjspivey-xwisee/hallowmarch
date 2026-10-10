@@ -353,7 +353,7 @@ function landWalls(list, got) {
       Wl.maxHp = sectionMaxHp(); Wl.wear = wear; Wl.hp = Wl.maxHp * (1 - wear);
     } else {
       // down: the walk and its parapets go with it, the rubble can be climbed
-      Wl.state = 'breach'; Wl.hp = 0; Wl.quiet = 0; Wl.t = 0; Wl.wear = 1;
+      Wl.state = 'breach'; Wl.hp = 0; Wl.quiet = 0; Wl.t = 0; Wl.wear = wear;
       for (const f of Wl.floors) f.active = false;
       for (const q of Wl.colls) q.active = false;
       if (Wl.coll) Wl.coll.active = false;

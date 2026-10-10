@@ -233,7 +233,9 @@ async def main():
             else:
                 check(b2['inDyn'] and close(a['char'], b2['char'], 0.02) and (b2['fire'] > 0.05) == (a['fire'] > 0.05), f'tree {i}: charred and burning as it was')
         check(all(close(h0, h1, 0.03) for h0, h1 in zip(snap0['heights'], snap1['heights'])), f"the crater's heights are back: {snap0['heights']} vs {snap1['heights']}")
-        check(all(all(close(x, y, 0.08) for x, y in zip(a, b2)) for a, b2 in zip(snap0['nat'], snap1['nat'])), f"cut, burnt and dug ground: {snap0['nat']} vs {snap1['nat']}")
+        # (points 2 and 3 are in the grass fire, which burns on after the reload: there the ground may only get more burnt)
+        nat_ok = all(all(close(x, y, 0.08) if not (k in (2, 3) and c == 1) else y >= x - 0.08 for c, (x, y) in enumerate(zip(a, b2))) for k, (a, b2) in enumerate(zip(snap0['nat'], snap1['nat'])))
+        check(nat_ok, f"cut, burnt and dug ground: {snap0['nat']} vs {snap1['nat']}")
         check(snap1['fires'] > 3, f"the grass fire burns on ({snap1['fires']} cells)")
         check(len(snap1['piles']) == len(snap0['piles']) and all(close(a['x'], b2['x'], 0.06) and close(a['z'], b2['z'], 0.06) and a['lit'] == b2['lit'] and b2['coll'] for a, b2 in zip(snap0['piles'], snap1['piles'])), 'the firewood pile is where it was, still lit')
         hs0 = {h['num']: h for h in snap0['houses']}; hs1 = {h['num']: h for h in snap1['houses']}
@@ -257,7 +259,7 @@ async def main():
         check(not r['errors'] and r['nonFinite'] == 0, 'twenty seconds on: no errors, nothing non-finite')
 
         # ---- an old save (no land, no gift) loads into an untouched world ----
-        await page.evaluate("""(() => { const s = JSON.parse(localStorage.getItem('hallowmarch.save.v1')); delete s.world.land; if (s.char) delete s.char.gift; localStorage.setItem('hallowmarch.save.v1', JSON.stringify(s)); })()""")
+        await page.evaluate("""(() => { __hm.SAVE.wiping = true; const s = JSON.parse(localStorage.getItem('hallowmarch.save.v1')); delete s.world.land; if (s.char) delete s.char.gift; localStorage.setItem('hallowmarch.save.v1', JSON.stringify(s)); })()""")
         await boot_again(page)
         r = await ev(page, 'old save', """(() => { const N = __hm.nature.NATURE; return { errors: __hm.errors.slice(0, 4), restored: __hm.land.LAND.restored, felled: N.felled.length, craters: N.craters.length, fires: N.fire.size, tiles: N.tileKeys.length,
           houses: __hm.HOUSES.filter((h) => h.state !== 'whole').length, walls: __hm.fn.castles().reduce((a, C) => a + (C.sections || []).filter((w) => w.state !== 'whole' || w.wear > 0).length, 0), char: !!(__hm.SAVE.loaded && __hm.SAVE.loaded.char) }; })()""")
@@ -265,7 +267,7 @@ async def main():
         r = await ev(page, 'old continue', "(() => { document.getElementById('btn-continue').click(); const s = __hm.simulate(5); return { started: __hm.GAME.started, errors: s.errors }; })()")
         check(r['started'] and not r['errors'], 'and its character plays on')
         # a land record from the future (or damaged) is dropped, not trusted
-        await page.evaluate("""(() => { const s = JSON.parse(localStorage.getItem('hallowmarch.save.v1') || '{}'); s.world = s.world || {}; s.world.keeps = s.world.keeps || [0,0,1,1,2,2]; s.world.land = { v: 1, fel: [[999999, 3, 'x', null]], cr: [[1, 2, 3]], map: { t: [5], d: '!!!' }, hs: [[-4, 9]], ws: [[99, 99, 1]] }; localStorage.setItem('hallowmarch.save.v1', JSON.stringify(s)); })()""")
+        await page.evaluate("""(() => { __hm.SAVE.wiping = true; const s = JSON.parse(localStorage.getItem('hallowmarch.save.v1') || '{}'); s.world = s.world || {}; s.world.keeps = s.world.keeps || [0,0,1,1,2,2]; s.world.land = { v: 1, fel: [[999999, 3, 'x', null]], cr: [[1, 2, 3]], map: { t: [5], d: '!!!' }, hs: [[-4, 9]], ws: [[99, 99, 1]] }; localStorage.setItem('hallowmarch.save.v1', JSON.stringify(s)); })()""")
         await boot_again(page)
         r = await ev(page, 'damaged land', "(() => ({ errors: __hm.errors.slice(0, 4), restored: __hm.land.LAND.restored, felled: __hm.nature.NATURE.felled.length, ready: __hm.ready }))()")
         check(r['ready'] and r['felled'] == 0 and not r['errors'], f"a damaged land record does not stop the world loading (errors: {r['errors']})")
