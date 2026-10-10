@@ -288,7 +288,8 @@ function turnToward(e, x, z, rate) {
   e.yaw += clamp(d, -rate, rate);
 }
 // one step (half a gait cycle) of a person moving at v m/s in their own size: the walk shader's humanStep (05a_rig.js)
-const humanStep = (v) => Math.min(0.40 + 0.20 * v + 0.006 * v * v, 2.2);
+// [motion] below about 1 m/s the steps shorten rather than slow (at least 1.6 steps a second): no slow-motion legs
+const humanStep = (v) => clamp(Math.min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2);
 function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
   e.prevX = e.x; e.prevZ = e.z;
@@ -296,7 +297,7 @@ function updateAnim(e, dt) {
   e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * 10));
   // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
   const sc = e.scale || 1;
-  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt) * sc;
+  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
   if (e.mount) updateMountAnim(e, dt, sp);
   if (e.anim.actDur > 0) {

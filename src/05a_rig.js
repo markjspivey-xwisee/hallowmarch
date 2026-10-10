@@ -635,7 +635,7 @@ const HSK = { // skeleton constants for GLSL
 // agree: the walk cycle's phase advances by half a turn per step), and so does the time each foot spends in the air.
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
-  float humanStep(float v){ return min(0.40 + 0.20 * v + 0.006 * v * v, 2.2); }
+  float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
   // a foot at u of its cycle (0: it comes down ahead of the hip): how far ahead of the hip it is, and how high it is
   vec2 footPath(float u, float duty, float reach, float liftH, float runK){
     if (u < duty) return vec2(reach * (1.0 - 2.0 * u / duty), 0.0);
@@ -719,7 +719,8 @@ function humanVS(depth) {
     float vel = amt * 4.3 / max(iColA.w, 0.3);
     float runK = smoothstep(2.4, 4.4, vel), gk = smoothstep(0.02, 0.3, amt);
     float duty = mix(0.58, 0.26, runK) - 0.06 * smoothstep(6.5, 9.0, vel);
-    float reach = duty * humanStep(vel) * gk, liftH = mix(0.1, 0.3, runK) * gk;
+    float stepS = humanStep(vel);
+    float reach = duty * stepS, liftH = mix(0.1, 0.3, runK) * min(1.0, stepS / 0.42) * smoothstep(0.0, 0.04, amt); // [motion] the planted foot keeps pace at any speed
     float uL = fract((ph - 1.5708) * 0.159155);
     float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
     float gaitBob = mix(0.022, -0.03, runK) * gk * cos(12.566 * (uL - duty * 0.5));   // a walker vaults over the planted leg; a runner sinks into it
@@ -908,6 +909,16 @@ function humanVS(depth) {
       capeX = mix(capeX, -0.1, d2);
     }
 
+    // [motion] the ankles: a planted foot lies flat on the ground whatever the shin does (it rolled with the shin and its
+    // sole rocked and slid), lifts off the toes and reaches out heel first in the air; feet hang in the air and in the
+    // saddle, a kneeling back foot keeps its toes tucked under
+    float ankK = (1.0 - swimK) * (1.0 - mounted) * (1.0 - d1) * ((atype > 5.5 && atype < 6.5) || (atype > 8.5 && atype < 9.5) ? 0.0 : 1.0);
+    float ankKR = ankK * ((atype > 11.5 && atype < 12.5) ? 1.0 - smoothstep(0.0, 0.25, at) : 1.0);
+    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
+    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * gk;
+    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * gk;
+    float footL = (toeL - thL - shL) * ankK, footR = (toeR - thR - shR) * ankKR;
+
     /* ------------------- skinning ------------------- */
     if (bone == 11) {
       // the cape hangs from the shoulders and trails with speed and wind
@@ -921,6 +932,7 @@ function humanVS(depth) {
     if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; rotP(rotZ(uaLz * w) * rotX(uaL * w), ${HSK.SHL}); }
     if (bone == 2) rotP(rotY(headY * aW) * rotX(headX * aW), ${HSK.NECK});
     if ((bone >= 1 && bone <= 6) || bone == 11) { float w = bone == 1 ? aW : 1.0; rotP(rotY(chestY * w) * rotX(chestX * w), ${HSK.SPINE}); }
+    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); rotP(rotX((bone == 8 ? footL : footR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
     if (bone == 8) rotP(rotX(shL * aW), ${HSK.KNL});
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});

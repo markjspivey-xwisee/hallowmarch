@@ -162,9 +162,9 @@ function motionLook(e, which = ['feet'], opt = {}) {
   const at = new Map(uniq.map((v, i) => [v, res[i]]));
   const out = { kind: h.kind };
   for (const [w, g] of groups) {
-    let sx = 0, sy = 0, sz = 0, n = 0, minY = Infinity;
-    for (const v of g) { const p = at.get(v); if (!p) continue; sx += p[0]; sy += p[1]; sz += p[2]; n++; minY = Math.min(minY, p[1]); }
-    (out[w] = out[w] || []).push(n ? [sx / n, sy / n, sz / n, minY] : null);
+    let sx = 0, sy = 0, sz = 0, n = 0, minY = Infinity, maxY = -Infinity;
+    for (const v of g) { const p = at.get(v); if (!p) continue; sx += p[0]; sy += p[1]; sz += p[2]; n++; minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+    (out[w] = out[w] || []).push(n ? [sx / n, sy / n, sz / n, minY, maxY] : null);
   }
   return out;
 }
@@ -191,53 +191,52 @@ function motionRun(ents, sec, dt = 1 / 60, opt = {}) {
   }
   return rec;
 }
-// the measures of a run for one body
+// the measures of a run for one body. A foot bears weight while it is down (within 4 cm of the floor) and not moving
+// faster than the body: then it should stay where it is. slipK is how fast it moves then, as a share of the body's
+// speed (0: planted; 1: the legs stand still and the body glides). lift: how high a swinging foot rises (a foot that
+// never leaves the ground shuffles). The lowest foot over the floor: its 5th percentile (> 3 cm: the body floats)
+// and its lowest (< -4 cm: it sinks into the floor).
 function motionMeasure(samples, opt = {}) {
-  const contact = opt.contact ?? 0.03, skip = opt.skip ?? 0.4;
+  const contact = opt.contact ?? 0.04, skip = opt.skip ?? 0.4;
   const S = samples.filter((s) => s.t >= skip && s.L && s.L.feet);
   if (S.length < 4) return { err: 'not seen', n: S.length };
   const nf = S[0].L.feet.length, dt = S.length > 1 ? S[1].t - S[0].t : 1 / 60;
-  let slideMax = 0, slideSum = 0, runs = 0, stanceN = 0, slipV = 0, slipVn = 0;
-  const heights = [], lows = [];
-  let starts = 0;
+  let slideMax = 0, slideSum = 0, runs = 0, stanceN = 0, slipV = 0, slipVn = 0, starts = 0, pivot = 0, pivotN = 0;
+  const lows = [], swingH = [];
+  const vb = S.map((s, i) => (i ? Math.hypot(s.x - S[i - 1].x, s.z - S[i - 1].z) / dt : 0));
+  const H = S.map((s) => s.L.feet.map((p) => (p ? p[3] - motionFloor(p[0], p[2], s.y) : null)));
   for (let f = 0; f < nf; f++) {
     let run = [];
     const close = () => {
-      if (run.length >= 3) {
-        const a = run[0], b = run[run.length - 1];
-        const span = Math.hypot(b[0] - a[0], b[2] - a[2]);
-        slideMax = Math.max(slideMax, span); slideSum += span; runs++;
-      }
+      if (run.length >= 3) { const a = run[0], b = run[run.length - 1], span = Math.hypot(b[0] - a[0], b[2] - a[2]); slideMax = Math.max(slideMax, span); slideSum += span; runs++; }
       run = [];
     };
-    for (let i = 0; i < S.length; i++) {
-      const p = S[i].L.feet[f];
-      if (!p) { close(); continue; }
-      const g = motionFloor(p[0], p[2], S[i].y);
-      const h = p[3] - g;
-      heights.push(h);
-      if (h < contact) {
+    for (let i = 1; i < S.length; i++) {
+      const p = S[i].L.feet[f], q = S[i - 1].L.feet[f], h = H[i][f];
+      if (!p || !q || h === null) { close(); continue; }
+      const vf = Math.hypot(p[0] - q[0], p[2] - q[2]) / dt;
+      if (h < 0.02) { pivot += vf; pivotN++; }
+      if (h < contact && vf <= 1.05 * vb[i] + 0.05) {
         if (!run.length) starts++;
-        run.push(p); stanceN++;
-        if (i > 0 && S[i - 1].L.feet[f]) { const q = S[i - 1].L.feet[f]; const qh = q[3] - motionFloor(q[0], q[2], S[i - 1].y); if (qh < contact) { slipV += Math.hypot(p[0] - q[0], p[2] - q[2]) / dt; slipVn++; } }
-      } else close();
+        run.push(p); stanceN++; slipV += vf; slipVn++;
+      } else { close(); if (h >= contact) swingH.push(h); }
     }
     close();
   }
-  // per moment, the lowest foot: a body that floats never touches; one that sinks goes through
-  for (let i = 0; i < S.length; i++) { let lo = Infinity; for (const p of S[i].L.feet) if (p) lo = Math.min(lo, p[3] - motionFloor(p[0], p[2], S[i].y)); if (lo < Infinity) lows.push(lo); }
-  lows.sort((a, b) => a - b); heights.sort((a, b) => a - b);
-  const q = (a, k) => a.length ? a[Math.min(a.length - 1, Math.max(0, Math.round(k * (a.length - 1))))] : 0;
+  for (let i = 0; i < S.length; i++) { let lo = Infinity; for (const h of H[i]) if (h !== null) lo = Math.min(lo, h); if (lo < Infinity) lows.push(lo); }
+  lows.sort((a, b) => a - b); swingH.sort((a, b) => a - b);
+  const q = (a, k) => (a.length ? a[Math.min(a.length - 1, Math.max(0, Math.round(k * (a.length - 1))))] : 0);
   let dist = 0;
   for (let i = 1; i < S.length; i++) dist += Math.hypot(S[i].x - S[i - 1].x, S[i].z - S[i - 1].z);
   const T = S[S.length - 1].t - S[0].t || 1, v = dist / T;
   const cm = (x) => Math.round(x * 1000) / 10;
+  const sv = slipVn ? slipV / slipVn : 0;
   return {
     v: Math.round(v * 100) / 100,
     slideMax: cm(slideMax), slideMean: cm(runs ? slideSum / runs : 0),
-    slipV: Math.round((slipVn ? slipV / slipVn : 0) * 100) / 100, // how fast a planted foot moves, m/s
-    slipK: v > 0.05 ? Math.round((slipVn ? slipV / slipVn : 0) / v * 100) / 100 : null, // as a share of the body's speed
-    lowMedian: cm(q(lows, 0.5)), lowMin: cm(lows[0] ?? 0), lowMax: cm(q(lows, 1)), // the lowest foot over the ground
+    slipV: Math.round(sv * 100) / 100, slipK: v > 0.05 ? Math.round(sv / v * 100) / 100 : null,
+    pivot: Math.round((pivotN ? pivot / pivotN : 0) * 100) / 100, // how fast feet on the ground move, m/s (turning in place)
+    lift: cm(q(swingH, 0.9)), low5: cm(q(lows, 0.05)), lowMin: cm(lows[0] ?? 0), lowMedian: cm(q(lows, 0.5)),
     stanceShare: Math.round(stanceN / Math.max(1, S.length * nf) * 100) / 100,
     steps: Math.round(starts / T * 100) / 100, // feet coming down per second
   };

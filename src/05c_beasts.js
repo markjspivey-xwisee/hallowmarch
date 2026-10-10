@@ -404,6 +404,7 @@ function beastVS(depth) {
   ${ACTOR_COMMON}
   uniform float uTime;
   uniform vec3 uFT, uFM, uFL, uBT, uBM, uBL, uNeck, uJaw, uTail, uSpine;
+  uniform vec3 uFF, uBF; // [motion] the front and hind feet at rest, for the legs' IK
   uniform vec4 uBeastK; // x rears up to strike, y hooks with tusks, z lift when lying dead, w unused
   uniform vec4 uGait;   // half-cycle stride walking and galloping (beastStride), front and hind leg length
   attribute float aBone; attribute float aW; attribute float aMat; attribute vec2 aUV; attribute float aAO;
@@ -411,6 +412,22 @@ function beastVS(depth) {
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
+  // [motion] two-bone IK in the leg's side plane (z forward, y up): from the top joint T through the middle joint M to
+  // the foot F, the foot moved fx forward and ly up. Returns the turns about x of the upper bone and of the lower one
+  // relative to it (as rotX takes them), bending the middle joint the way it bends at rest
+  float bAng(vec2 v){ return atan(v.y + 1e-6, v.x); }
+  float bWrap(float a){ return a - 6.28318 * floor((a + 3.14159) / 6.28318); }
+  vec2 beastLegIK(vec2 T, vec2 M, vec2 F, float fx, float ly){
+    vec2 u0 = M - T, l0 = F - M, f0 = F - T, t = f0 + vec2(fx, ly);
+    float a = length(u0), b = length(l0);
+    float d = clamp(length(t), abs(a - b) + 1e-3, a + b - 1e-3);
+    float side = f0.x * u0.y - f0.y * u0.x >= 0.0 ? 1.0 : -1.0;
+    float g = acos(clamp((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0));
+    float upNew = bAng(t) + side * g, du = bWrap(upNew - bAng(u0));
+    vec2 Mn = a * vec2(cos(upNew), sin(upNew));
+    float dl = bWrap(bAng(t - Mn) - bAng(l0));
+    return vec2(du, -(dl - du));
+  }
   void main(){
     ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), floor((iColB.w + 1e-3) / 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position;'}
     P = position; Nn = normal;
@@ -426,7 +443,13 @@ function beastVS(depth) {
     // each foot is planted while it is down (it goes back under the body at the ground's pace) and swings through in the
     // air: the share of the cycle a foot is down falls from a walk to a trot to a gallop
     float duty = mix(mix(0.64, 0.46, trot), 0.26, gal);
-    float reachB = duty * mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amt));
+    // [motion] the stride (beastStride, 05c_beasts.js): its walk and gallop lengths, the pace held between the slowest
+    // and quickest steps a leg of its length takes (no slow-motion legs at a crawl, no frantic ones at a trot)
+    float amtS = clamp(iAnim.y, 0.0, 2.2), bsc = max(mod(iColA.w, 4.0), 0.2), vSpd = amtS * 4.3;
+    float fC = sqrt(1.06 / max(uGait.z * bsc, 0.05));
+    float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
+    duty = min(duty, 0.48 * min(uGait.z, uGait.w) / strideM); // a long gallop stride: the feet stay down only as long as the legs reach
+    float reachB = duty * strideM;
     float fold = (mix(0.55, 0.8, trot) + 0.4 * gal) * k;
     float spine = 0.1 * sin(ph + 0.9) * gal;
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
@@ -492,10 +515,14 @@ function beastVS(depth) {
       float u = fract((c - 1.5708) * 0.159155), fx, lift;
       if (u < duty) { fx = reachB * (1.0 - 2.0 * u / duty); lift = 0.0; }
       else { float wv = (u - duty) / (1.0 - duty); fx = reachB * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
-      float sw = asin(clamp(fx / (fr ? uGait.z : uGait.w), -0.95, 0.95)) * k + (fr ? frontReach : hindPush);
       lift *= fold;
-      float midA = fr ? -0.25 * lift : 0.55 * lift;
-      float lowA = fr ? 1.05 * lift : -0.95 * lift;
+      // [motion] the leg reaches its foot by IK, so a planted foot stays on the ground all through the stance; in the air
+      // the foot rises and the hoof or paw tucks up
+      float legL = fr ? uGait.z : uGait.w;
+      vec2 ik = beastLegIK(fr ? uFT.zy : uBT.zy, fr ? uFM.zy : uBM.zy, fr ? uFF.zy : uBF.zy, fx, lift * legL * (0.16 + 0.06 * trot));
+      float sw = ik.x + (fr ? frontReach : hindPush);
+      float midA = ik.y + (fr ? -0.1 : 0.2) * lift;
+      float lowA = fr ? 0.8 * lift : -0.7 * lift;
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
       if (fr) { midA -= 0.25 * tuck; sw += 0.5 * tuck; } else { lowA -= 0.3 * tuck; sw -= 0.55 * tuck; }
       if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1); midA *= 1.0 - d1; lowA = mix(lowA, fr ? 0.25 : -0.15, d1); }
@@ -530,6 +557,7 @@ const beastMat = mat({
   uniforms: {
     uFT: { value: new THREE.Vector3() }, uFM: { value: new THREE.Vector3() }, uFL: { value: new THREE.Vector3() },
     uBT: { value: new THREE.Vector3() }, uBM: { value: new THREE.Vector3() }, uBL: { value: new THREE.Vector3() },
+    uFF: { value: new THREE.Vector3() }, uBF: { value: new THREE.Vector3() }, // [motion]
     uNeck: { value: new THREE.Vector3() }, uJaw: { value: new THREE.Vector3() }, uTail: { value: new THREE.Vector3() }, uSpine: { value: new THREE.Vector3() },
     uBeastK: { value: new THREE.Vector4() }, uFurK: { value: new THREE.Vector4() }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3() }, uEyeAt: { value: new THREE.Vector3() }, uLegH: { value: 0.5 }, uTailZ: { value: -0.5 },
     uGait: { value: new THREE.Vector4(1, 2, 1, 1) },
@@ -633,6 +661,7 @@ function beastUniforms(kind) {
   return {
     uFT: { value: v(S.front.top) }, uFM: { value: v(S.front.mid) }, uFL: { value: v(S.front.low) },
     uBT: { value: v(S.back.top) }, uBM: { value: v(S.back.mid) }, uBL: { value: v(S.back.low) },
+    uFF: { value: v(S.front.foot) }, uBF: { value: v(S.back.foot) }, // [motion] the feet, for the legs' IK
     uNeck: { value: v([0, S.neck[0][1], S.neck[0][0]]) }, uJaw: { value: v([0, j[1] + j[3] * 0.8, j[0] - 0.03]) },
     uTail: { value: v([0, S.tail.pts[0][1], S.tail.pts[0][0]]) }, uSpine: { value: v([0, (S.body[4][1] + S.body[4][2]) / 2, S.spineZ]) },
     uBeastK: { value: new THREE.Vector4(S.rears ? 1 : 0, S.tusks ? 1 : 0, S.deadLift, 0) },
@@ -641,8 +670,13 @@ function beastUniforms(kind) {
     uGait: { value: new THREE.Vector4(S.stride[0], S.stride[1], S.front.top[1] - S.front.foot[1], S.back.top[1] - S.back.foot[1]) },
   };
 }
-// how far the animal travels per half gait cycle (walk, gallop), used for the phase rate
-function beastStride(kind, amt) {
+// how far the animal travels per half gait cycle (walk, gallop), used for the phase rate; in the world, at its scale.
+// [motion] The pace (half cycles a second) is held between the slowest and the quickest a leg of its length takes
+// (about 1.6 and 4 at a horse's leg, quicker for shorter legs), as the beast shader does
+function beastStride(kind, amt, sc = 1) {
   const S = BEASTS[kind];
-  return S ? lerp(S.stride[0], S.stride[1], sstepJ(0.7, 1.4, amt)) : 1.5;
+  if (!S) return 1.5 * sc;
+  const base = lerp(S.stride[0], S.stride[1], sstepJ(0.7, 1.4, amt)) * sc;
+  const L = Math.max((S.front ? S.front.top[1] - S.front.foot[1] : 0.2) * Math.max(sc, 0.2), 0.05), v = clamp(amt, 0, 2.2) * 4.3, f = Math.sqrt(1.06 / L);
+  return clamp(base, v / (4.0 * f), Math.max(v / (1.6 * f), 0.02 * Math.max(sc, 0.2)));
 }

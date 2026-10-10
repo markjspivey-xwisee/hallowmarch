@@ -100,9 +100,11 @@ window.MO = {
 def fmt(r):
     if 'err' in r: return f"{r.get('err')} (n={r.get('n')})"
     return (f"v {r['v']:5.2f}  slide {r['slideMax']:5.1f} cm (mean {r['slideMean']:4.1f})  slipK {r['slipK'] if r['slipK'] is not None else '-':>5}  "
-            f"slip {r['slipV']:4.2f} m/s  lowest foot: median {r['lowMedian']:5.1f} cm, min {r['lowMin']:5.1f}  stance {r['stanceShare']:4.2f}  steps/s {r['steps']:4.2f}")
+            f"lift {r['lift']:5.1f} cm  lowest foot: p5 {r['low5']:5.1f} cm, min {r['lowMin']:5.1f}  stance {r['stanceShare']:4.2f}  steps/s {r['steps']:5.2f}  pivot {r['pivot']:4.2f}")
 
 ROWS = []
+def score(r):
+    return max(r['slideMax'] / 4, (r['slipK'] or 0) / 0.15, max(0, r['low5']) / 3, max(0, -r['lowMin']) / 4)
 def report(label, rs, vs):
     for v, r in zip(vs, rs):
         print(f'  {label:10s} at {v:4.1f} m/s: {fmt(r)}', flush=True)
@@ -114,6 +116,7 @@ async def ev(page, js):
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
+        page.on('console', lambda m: logs.append(f'[{m.type}] {m.text[:300]}') if m.type == 'error' else None)
         await ev(page, f"__hm.fn.setQuality('{OPT.get('q', 'low')}'); 0")
         await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.setTod(0.45); 0")
         await ev(page, HELP)
@@ -138,11 +141,12 @@ async def main():
                 report(kind, r, vs); res[kind] = r
         pathlib.Path(OUT + f'motion_{TAG}.json').write_text(json.dumps({'rows': ROWS, 'res': res}, indent=1))
         # the worst offenders
-        bad = sorted([r for r in ROWS if 'err' not in r], key=lambda r: -(max(r['slideMax'] / 4, (r['slipK'] or 0) / 0.15, abs(r['lowMedian']) / 4)))
+        bad = sorted([r for r in ROWS if 'err' not in r], key=lambda r: -score(r))
         print('worst:', flush=True)
-        for r in bad[:12]: print(f"  {r['case']:10s} {r['want']:4.1f} m/s  slide {r['slideMax']} cm  slipK {r['slipK']}  lowest foot {r['lowMedian']} cm (min {r['lowMin']})", flush=True)
+        for r in bad[:14]: print(f"  {r['case']:10s} {r['want']:4.1f} m/s  slide {r['slideMax']} cm  slipK {r['slipK']}  lift {r['lift']} cm  lowest foot p5 {r['low5']} cm (min {r['lowMin']})  steps/s {r['steps']}", flush=True)
         errs = await ev(page, "__hm.errors")
         check(not errs, f'no runtime errors {errs[:2]}')
+        check(not any('Shader Error' in l for l in logs), 'every shader compiles ' + str([l for l in logs if 'Shader Error' in l][:1])[:300])
         print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
         await b.close()
 asyncio.run(main())
