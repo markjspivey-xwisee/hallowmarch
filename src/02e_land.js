@@ -35,10 +35,12 @@ vec3 landFacets(vec3 wp, vec3 n, out float edge, out float tone){
   vec2 ax = safeNormalize2(vec2(-n.z, n.x) + vec2(1e-4));
   float u = landAlong(wp, n) + vnoise(wp.xz * 0.05) * 7.0;
   float yb = wp.y + vnoise(wp.xz * 0.045) * 5.0 + vnoise(wp.xz * 0.19 + 4.0) * 0.9;
+  yb += 1.1 * sin(yb * 0.37); // beds thick and thin (a remap that only ever rises with the height)
   const float BH = 3.4;
   float row = floor(yb / BH), fy = fract(yb / BH);
   float bw = 4.0 + 8.0 * hash12(vec2(row, 7.7));
-  float uu = (u + hash12(vec2(row, 3.1)) * 13.0) / bw, col = floor(uu), fx = fract(uu);
+  // the joints lean, each bed's its own way, so the face never reads as coursed masonry
+  float uu = (u + hash12(vec2(row, 3.1)) * 13.0 + (fy - 0.5) * BH * (hash12(vec2(row, 9.4)) - 0.5) * 1.4) / bw, col = floor(uu), fx = fract(uu);
   float aa = 1.0 - smoothstep(0.06, 0.22, max(fwidth(yb) / BH, fwidth(uu)));
   vec2 id = vec2(col, row);
   float dBed = min(fy, 1.0 - fy) * BH * (0.7 + 0.6 * vnoise(vec2(u * 0.4, row)));

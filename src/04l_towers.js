@@ -505,7 +505,7 @@ function updateTowers(dt) {
   // the player walks into the foot of a ladder, or into the open hatch beside the top of one: they climb
   if (P && P.alive && !P.motion && TOWER.px !== null) {
     const mx = P.x - TOWER.px, mz = P.z - TOWER.pz, mv = Math.hypot(mx, mz);
-    if (mv > 0.004 && P.onGround) {
+    if (mv > 0.004 && mv < 0.4 && P.onGround) { // walking, not set down there (a teleport, a return to life)
       const n = towerLadderNear(P, 0.55);
       if (n) {
         const L = n.L, tx = n.dir > 0 ? L.lx - L.fx : L.lx - L.ox, tz = n.dir > 0 ? L.lz - L.fz : L.lz - L.oz, tl = Math.hypot(tx, tz) || 1;

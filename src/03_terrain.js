@@ -266,7 +266,7 @@ const terrainMat = mat({
           float d1 = 9.0, d2 = 9.0; vec2 sid = vec2(0.0);
           for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) - fp; float dd = dot(r, r); if (dd < d1) { d2 = d1; d1 = dd; sid = ip + g; } else if (dd < d2) d2 = dd; }
           float e = sqrt(d2) - sqrt(d1), big = hash12(sid + 2.0);
-          float stone = smoothstep(0.05, 0.16 + 0.24 * big, e) * step(0.3, big) * (1.0 - smoothstep(0.04, 0.12, px));
+          float stone = smoothstep(0.05, 0.16 + 0.24 * big, e) * step(0.42 - 0.2 * LM.g, big) * (1.0 - smoothstep(0.04, 0.12, px));
           float gh = stone * (0.4 + 0.6 * big) + vnoise(vW.xz * 7.0) * 0.25 * gritF;
           vec3 ns = bumpN(n, vW, gh, 0.4 * (1.0 - smoothstep(12.0, 30.0, d)));
           vec3 grit = mix(vec3(0.36, 0.34, 0.31), vec3(0.46, 0.44, 0.4), vnoise(vW.xz * 0.6));
