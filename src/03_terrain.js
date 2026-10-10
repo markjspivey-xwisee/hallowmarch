@@ -260,11 +260,13 @@ const terrainMat = mat({
         // packed in grit (a Voronoi of stones, each its own tone and height; plain grit far off)
         float scr = LM.g * (1.0 - A.r) * smoothstep(0.3, 0.62, LM.g + (vnoise(vW.xz * 0.37) - 0.5) * 0.5);
         if (scr > 0.002) {
-          vec2 sq = vW.xz * (0.9 + 0.6 * vnoise(vW.xz * 0.21)), ip = floor(sq), fp = fract(sq);
+          // (the stones' size varies by a warp of the grid, never by scaling the world position: that striped the
+          // ground with moire a long way from the origin)
+          vec2 sq = vW.xz * 2.3 + vec2(vnoise(vW.xz * 0.21), vnoise(vW.xz * 0.21 + 7.3)) * 3.0, ip = floor(sq), fp = fract(sq);
           float d1 = 9.0, d2 = 9.0; vec2 sid = vec2(0.0);
           for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) - fp; float dd = dot(r, r); if (dd < d1) { d2 = d1; d1 = dd; sid = ip + g; } else if (dd < d2) d2 = dd; }
           float e = sqrt(d2) - sqrt(d1), big = hash12(sid + 2.0);
-          float stone = smoothstep(0.04, 0.22 + 0.2 * big, e) * step(0.22, big) * (1.0 - smoothstep(0.04, 0.12, px));
+          float stone = smoothstep(0.05, 0.16 + 0.24 * big, e) * step(0.3, big) * (1.0 - smoothstep(0.04, 0.12, px));
           float gh = stone * (0.4 + 0.6 * big) + vnoise(vW.xz * 7.0) * 0.25 * gritF;
           vec3 ns = bumpN(n, vW, gh, 0.4 * (1.0 - smoothstep(12.0, 30.0, d)));
           vec3 grit = mix(vec3(0.36, 0.34, 0.31), vec3(0.46, 0.44, 0.4), vnoise(vW.xz * 0.6));

@@ -21,31 +21,32 @@ float landStrata(vec3 wp){
   float warp = vnoise(wp.xz * 0.045) * 9.0 + vnoise(wp.xz * 0.17 + 4.0) * 2.5;
   return 0.5 + 0.5 * sin((wp.y + warp) * 1.3);
 }
-// the faces broken into slabs and blocks that hold up at middle distance: a Voronoi on the face's own frame (along the
-// contour, and up), cells about 8 m across and flatter than wide like bedding; each slab leans its own way (a tilt
-// to add to the normal) and has its own tone, with a crack between slabs. Constant over a slab, so it never shimmers.
 // A coordinate along the face (across the fall line) that never swings with the normal: world x or z, whichever runs
 // more nearly along the contour, switched on a ragged line where the face looks along a diagonal (a fault). (The
 // position projected on the contour's own direction turned with every bend of a face and striped it with moire.)
 float landAlong(vec3 wp, vec3 n){ return abs(n.x) - abs(n.z) + (vnoise(wp.xz * 0.08) - 0.5) * 0.3 > 0.0 ? wp.z : wp.x; }
+// the faces broken into blocks that hold up at middle distance, as rock breaks: warped beds about 3.4 m thick (the
+// bedding planes run on round the mountain), each bed split by joints at its own spacing, staggered from the beds
+// above and below, not every joint open. Each block leans its own way (a tilt to add to the normal) and has its own
+// tone; edge is the distance in metres to the nearest open crack. Constant over a block, so it never shimmers; where
+// a block would be only a few pixels on the screen (far off, or seen edge on) it fades to the smooth face.
 vec3 landFacets(vec3 wp, vec3 n, out float edge, out float tone){
   float steep = 1.0 - smoothstep(0.62, 0.95, n.y);
   vec2 ax = safeNormalize2(vec2(-n.z, n.x) + vec2(1e-4));
-  vec2 q = vec2(landAlong(wp, n) * 0.1, wp.y * 0.21) + vec2(vnoise(wp.xz * 0.05) * 0.8, vnoise(wp.xz * 0.07 + 3.0) * 0.5);
-  // where a slab would be only a few pixels on the screen (far off, or seen edge on) it fades to the smooth face
-  float aa = 1.0 - smoothstep(0.06, 0.22, length(fwidth(q)));
-  vec2 ip = floor(q), fp = fract(q);
-  float d1 = 9.0, d2 = 9.0; vec2 id = vec2(0.0);
-  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-    vec2 g = vec2(float(i), float(j));
-    vec2 r = g + hash22(ip + g) * 0.85 - fp;
-    float dd = dot(r, r);
-    if (dd < d1) { d2 = d1; d1 = dd; id = ip + g; } else if (dd < d2) d2 = dd;
-  }
-  edge = (sqrt(d2) - sqrt(d1)) * 7.0 / (0.45 + 0.9 * vnoise(wp.xz * 0.31 + wp.y * 0.2)) / max(aa, 0.02); // metres to the crack, roughly; the cracks come and go
+  float u = landAlong(wp, n) + vnoise(wp.xz * 0.05) * 7.0;
+  float yb = wp.y + vnoise(wp.xz * 0.045) * 5.0 + vnoise(wp.xz * 0.19 + 4.0) * 0.9;
+  const float BH = 3.4;
+  float row = floor(yb / BH), fy = fract(yb / BH);
+  float bw = 4.0 + 8.0 * hash12(vec2(row, 7.7));
+  float uu = (u + hash12(vec2(row, 3.1)) * 13.0) / bw, col = floor(uu), fx = fract(uu);
+  float aa = 1.0 - smoothstep(0.06, 0.22, max(fwidth(yb) / BH, fwidth(uu)));
+  vec2 id = vec2(col, row);
+  float dBed = min(fy, 1.0 - fy) * BH * (0.7 + 0.6 * vnoise(vec2(u * 0.4, row)));
+  float open = step(0.3, hash12(id + 2.2)), dJoint = mix(9.0, min(fx, 1.0 - fx) * bw, open);
+  edge = min(dBed, dJoint) / max(aa, 0.02);
   vec2 h = hash22(id + 17.3) - 0.5;
   tone = mix(0.5, hash12(id + 5.1), aa);
-  return (vec3(ax.x, 0.0, ax.y) * h.x * 0.75 + vec3(0.0, h.y * 0.6, 0.0)) * steep * aa;
+  return (vec3(ax.x, 0.0, ax.y) * h.x * 0.7 + vec3(0.0, h.y * 0.5 + 0.06, 0.0)) * steep * aa;
 }
 // streaks where water runs down a face: dark stains, long and thin, across the face's own horizontal
 float landStreak1(float u, float y){ return vnoise(vec2(u * 0.55, y * 0.035)) * 0.65 + vnoise(vec2(u * 1.7, y * 0.09 + 3.0)) * 0.35; }

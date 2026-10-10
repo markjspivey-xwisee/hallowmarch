@@ -12,10 +12,14 @@ courtyard still climbs after the archers; no runtime errors. Screenshots (unless
 courtyard, the store room, the guard room with its ladder and hatch, the climb, the top with the hatch open, the
 store room by torchlight at night, the store room at low quality.
 usage: python3 tools/tests/towers.py [noshots] [quality]   (quality: high, medium or low; default medium)"""
-import json, asyncio, sys, pathlib, time
+import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
 from playwright.async_api import async_playwright
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
@@ -33,11 +37,15 @@ async def ev(page, label, js):
     return r
 
 async def shot(page, name, js):
+    # the frame is drawn here and read off the canvas (a page screenshot waits on the page's own frames, slow under
+    # SwiftShader on a busy machine)
     if not SHOTS: return
-    await page.evaluate(js)
-    for _ in range(2): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
-    await page.screenshot(path=OUT + name + '.png', timeout=300000)
-    print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
+    info = await page.evaluate(js)
+    url = await page.evaluate("(() => { __hm.frame(1/30); __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
+    data = base64.b64decode(url.split(',', 1)[1])
+    if Image: Image.open(io.BytesIO(data)).convert('RGB').resize((960, 540), Image.LANCZOS).save(OUT + name + '.png')
+    else: pathlib.Path(OUT + name + '.png').write_bytes(data)
+    print('  shot', name, json.dumps(info), f'[{time.time() - T0:.0f}s]', flush=True)
 
 HELPERS = r"""
 window.TT = {

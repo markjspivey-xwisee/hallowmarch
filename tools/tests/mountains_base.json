@@ -8,9 +8,9 @@
  "roads": 90,
  "roadSum": 489367491,
  "coll": {
-  "boxes": 1082,
-  "circles": 1376,
-  "sum": 817639046
+  "boxes": 850,
+  "circles": 1322,
+  "sum": 280371092
  },
  "trees": 2953,
  "treeSum": -974395901,

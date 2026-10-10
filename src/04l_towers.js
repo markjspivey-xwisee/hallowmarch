@@ -169,8 +169,19 @@ function towerFloor(T, y, rf, L, look) {
       const vc = (v0 + v1) / 2, lx = T.cx + ux * uc + vx * vc, lz = T.cz + uz * uc + vz * vc;
       const shade = 0.86 + 0.2 * hash1(k * 3.7 + v0 + y);
       if (look === 'boards') b.add(G.box, lm(M, lx, y - 0.06, lz, a, w - 0.025, 0.12, v1 - v0), MAT.wood, darker(st.wood, shade));
-      else if (look === 'flags') b.add(G.box, lm(M, lx, y - 0.2, lz, a, w - 0.03, 0.4, v1 - v0), MAT.stone, darker(st.stone, 0.72 * shade), S.y, 1);
-      else b.add(G.box, lm(M, lx, y - 0.15, lz, a, w - 0.03, 0.3, v1 - v0), MAT.stone, darker(st.stone, 1.02 * shade));
+      else {
+        // stone: the strip laid as flags about 0.8 m long, staggered from the strips beside it, each its own shade
+        // and a hair lower or higher (no gap to see through)
+        const L = v1 - v0, n = Math.max(1, Math.round(L / 0.8)), off = (k % 2) * 0.5;
+        for (let q = 0; q < n + (off ? 1 : 0); q++) {
+          const f0 = Math.max(0, (q - off) / n), f1 = Math.min(1, (q + 1 - off) / n);
+          if (f1 - f0 < 0.02) continue;
+          const va = v0 + L * f0, vb = v0 + L * f1, vm = (va + vb) / 2, sh2 = shade * (0.9 + 0.2 * hash1(k * 9.1 + q * 3.3 + y));
+          const fx = T.cx + ux * uc + vx * vm, fz = T.cz + uz * uc + vz * vm, dy = (hash1(k * 5.3 + q * 7.1) - 0.5) * 0.012;
+          if (look === 'flags') b.add(G.box, lm(M, fx, y - 0.2 + dy, fz, a, w, 0.4, vb - va), MAT.stone, darker(st.stone, 0.72 * sh2), S.y, 1);
+          else b.add(G.box, lm(M, fx, y - 0.15 + dy, fz, a, w, 0.3, vb - va), MAT.stone, darker(st.stone, 1.02 * sh2));
+        }
+      }
       // the strips overlap a little, so no body ever finds the crack between two of them
       C.floor(lx, lz, w / 2 + 0.02, (v1 - v0) / 2 + (hole ? 0 : 0.02), a, y, y, y - 1.2, look === 'flags' ? 0 : look === 'top' ? 0.45 : 0.3, look === 'top' ? 'top' : 'tower');
     }
@@ -210,6 +221,10 @@ function towerHatch(T, L) {
   g.add(G.box, lm(I, 0, 0.005, -D + 0.12, 0, 0.18, 0.02, 0.05), MAT.metal, [0.25, 0.25, 0.27]); // the ring to lift it by
   for (const sd of [-1, 1]) g.add(G.box, lm(I, sd * 0.32, 0.004, -0.15, 0, 0.06, 0.02, 0.3), MAT.metal, [0.25, 0.25, 0.27]);
   Hh.part = { batch: g, frame: () => lm(siteMatrix(S), hinge.x, L.yt, hinge.z, a, 1, 1, 1, Hh.k * 1.68) };
+  // open, the lid stands up along its hinge: nobody walks through it
+  const lc = twP(T, a, TW.R1 + 0.04);
+  Hh.lidColl = boxAt(S, lc.x, lc.z, TW.HW, 0.07, 'prop', 1.05, a);
+  Hh.lidColl.vert = true; Hh.lidColl.y0 = S.y + L.yt; Hh.lidColl.active = false;
   L.hatch = Hh;
   T.hatches.push(Hh);
   TOWER.hatches.push(Hh);
@@ -239,6 +254,10 @@ function towerDoor(T, a, y, h, hand) {
   // for hand = -1; it swings in (toward -v) as it opens
   const yaw0 = hand > 0 ? a : a + Math.PI, swing = hand * 1.62;
   D.part = { batch: g, frame: () => lm(siteMatrix(S), hinge.x, y, hinge.z, yaw0 + swing * D.k) };
+  // open, the leaf stands out into the room: nobody walks through it
+  const ph = yaw0 + swing, lx = hinge.x + Math.cos(ph) * (w / 2), lz = hinge.z - Math.sin(ph) * (w / 2);
+  D.leafColl = boxAt(S, lx, lz, 0.05, w / 2, 'prop', h, ph + Math.PI / 2);
+  D.leafColl.vert = true; D.leafColl.y0 = S.y + y; D.leafColl.active = false;
   TOWER.doors.push(D);
   return D;
 }
@@ -470,6 +489,7 @@ function updateTowers(dt) {
       if (P && (was === 0 || D.k === 0) && dist2(P.x, P.z, D.x, D.z) < 15 * 15) sfx(D.k === 0 ? 'thud' : 'click');
     }
     D.coll.active = D.k < 0.55;
+    D.leafColl.active = D.k > 0.85;
   }
   for (const Hh of TOWER.hatches) {
     const want = Hh.held || GAME.t < Hh.until;
@@ -480,6 +500,7 @@ function updateTowers(dt) {
       if (P && (Hh.k === 0) && dist2(P.x, P.z, Hh.x, Hh.z) < 15 * 15) sfx('thud');
     }
     Hh.floor.active = Hh.k < 0.25;
+    Hh.lidColl.active = Hh.k > 0.8;
   }
   // the player walks into the foot of a ladder, or into the open hatch beside the top of one: they climb
   if (P && P.alive && !P.motion && TOWER.px !== null) {
