@@ -546,8 +546,12 @@ function beastVS(depth) {
     P.y += bob; P.z += lungeZ;
     ${depth ? '' : 'vNo = Nn;'}
     if (death > 0.0) { rotP(rotZ(1.45 * d2), vec3(0.0)); P.y += uBeastK.z * d2; }
+    // [motion] leaning into a turn, about the feet (whole turns on the yaw: beastLeanYaw, 13r_motion.js)
+    float leanN = floor(iPos.w * 0.159155 + 0.5);
+    if (leanN != 0.0) rotP(rotZ(leanN * 0.04), vec3(0.0));
     P *= iColA.w;
-    float c = cos(iPos.w), s = sin(iPos.w);
+    float yawR = iPos.w - 6.2831853 * leanN;
+    float c = cos(yawR), s = sin(yawR);
     vec3 wp = iPos.xyz + vec3(P.x * c + P.z * s, P.y, -P.x * s + P.z * c);
     ${depth ? '' : 'vW = wp; vN = vec3(Nn.x * c + Nn.z * s, Nn.y, -Nn.x * s + Nn.z * c);'}
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);

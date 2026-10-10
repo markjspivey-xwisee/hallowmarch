@@ -349,7 +349,9 @@ function dragonTargetPose(dt) {
     const c = F.cyc - Math.floor(F.cyc), DOWN = 0.42;
     const dn = c < DOWN ? c / DOWN : 0, up = c < DOWN ? 0 : (c - DOWN) / (1 - DOWN);
     const ez = (x) => x * x * (3 - 2 * x);
-    const top = hover ? 1.15 : 1.0, bot = hover ? -0.85 : -0.68;
+    // [motion] close to the ground (taking off, landing) the downstroke is shallower: the tips never strike the ground
+    const low = hover && e ? clamp((e.y - Math.max(heightAt(e.x, e.z), WATER_Y)) / 8, 0, 1) : 1;
+    const top = hover ? 1.15 : 1.0, bot = hover ? lerp(-0.12, -0.85, low) : -0.68;
     const elev = c < DOWN ? lerp(top, bot, ez(dn)) : lerp(bot, top, ez(up));
     const sd = Math.sin(Math.PI * dn), su = Math.sin(Math.PI * up);
     F.clock = (F.clock || 0) + dt; // its own clock, so the trims run whenever the pose is stepped

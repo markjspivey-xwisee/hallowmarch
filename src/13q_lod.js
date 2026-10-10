@@ -164,6 +164,7 @@ function treeBandsFill(cx, cz, SD, RD2, shadows) {
   // the trees the near-tree set draws in full (bark, branches and leaf cards, 04c_trees.js) are left out: the chunk's
   // model of them is faded out there anyway (uNearTree)
   const NT = U.uNearTree.value, ntR = NT.z - 4, ntR2 = ntR > 0 ? ntR * ntR : -1;
+  const sh2 = (SHADOW.half + 14) ** 2; // the shadow copy: only trees that can shade the sun's shadow box round the view
   const put = (B, k, x, y, z, s, r0, r1) => {
     treeBandGrow(B, k + 1);
     const ip = B.mesh.geometry.attributes.iPos.array, ir = B.mesh.geometry.attributes.iRot.array;
@@ -177,7 +178,7 @@ function treeBandsFill(cx, cz, SD, RD2, shadows) {
       const x = P[i * 4], y = P[i * 4 + 1], z = P[i * 4 + 2], s = P[i * 4 + 3], d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz);
       const b = d2 < near2 ? 0 : d2 < far2 ? 1 : 2;
       if (b === 0 && ntR2 > 0 && (x - NT.x) * (x - NT.x) + (z - NT.y) * (z - NT.y) < ntR2) continue;
-      if (b === 0 && shadows) put(K[3], c[3]++, x, y, z, s, Rr[i * 2], Rr[i * 2 + 1]);
+      if (b === 0 && shadows && d2 < sh2) put(K[3], c[3]++, x, y, z, s, Rr[i * 2], Rr[i * 2 + 1]);
       if (d2 > (b ? 0 : 100)) { _tbS.center.set(x, y + 6 * s, z); _tbS.radius = 9 * s + 0.12 * Math.sqrt(d2); if (!frustum.intersectsSphere(_tbS)) continue; }
       put(K[b], c[b]++, x, y, z, s, Rr[i * 2], Rr[i * 2 + 1]);
     }

@@ -200,7 +200,15 @@ function motionRun(ents, sec, dt = 1 / 60, opt = {}) {
 // and its lowest (< -4 cm: it sinks into the floor).
 function motionMeasure(samples, opt = {}) {
   const contact = opt.contact ?? 0.04, skip = opt.skip ?? 0.4;
-  const S = samples.filter((s) => s.t >= skip && s.L && s.L.feet);
+  let S = samples.filter((s) => s.t >= skip && s.L && s.L.feet);
+  // steady: only the stretch at an even pace and heading (the player's runs end where something stops, turns or
+  // shoves them aside: a body pushed sideways by a wall drags its planted foot with it)
+  if (opt.steady && S.length > 8) {
+    const dtS = S[1].t - S[0].t, v = S.map((s, i) => (i ? Math.hypot(s.x - S[i - 1].x, s.z - S[i - 1].z) / dtS : 0)), m = v.slice(1).sort((a, b) => a - b)[Math.floor((v.length - 1) / 2)];
+    const dir = S.map((s, i) => (i ? Math.atan2(s.x - S[i - 1].x, s.z - S[i - 1].z) : 0)), d0 = dir[Math.min(4, dir.length - 1)];
+    const cut = v.findIndex((x, i) => i > 3 && (x < 0.85 * m || Math.abs(Math.atan2(Math.sin(dir[i] - d0), Math.cos(dir[i] - d0))) > 0.12));
+    if (cut > 8) S = S.slice(0, cut);
+  }
   if (S.length < 4) return { err: 'not seen', n: S.length };
   const nf = S[0].L.feet.length, dt = S.length > 1 ? S[1].t - S[0].t : 1 / 60;
   let slideMax = 0, slideSum = 0, runs = 0, stanceN = 0, slipV = 0, slipVn = 0, starts = 0, pivot = 0, pivotN = 0;
@@ -261,6 +269,13 @@ function humanSlopeYaw(e, y, near) {
   const k = clamp(Math.round(e._slope * 20), -20, 20) + 41 * clamp(Math.round((e.alive ? e.anim.lean || 0 : 0) / 0.04), -7, 7);
   return k ? yaw + TAU * k : yaw;
 }
+// [motion] a beast's lean into a turn (or a ridden horse's, from its rider) as whole turns on its yaw: n lean steps of
+// 0.04 rad (beastVS takes them off before its sine and cosine)
+function beastLeanYaw(e) {
+  const yaw = clamp(Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw)), -3.1414, 3.1414);
+  const k = e.alive ? clamp(Math.round((e.anim.lean || 0) / 0.04), -5, 5) : 0;
+  return k ? yaw + TAU * k : yaw;
+}
 // Cinderwing through a stretch of its flight (it is skinned on the CPU: its bones are read directly). how: 'fly' (on its
 // circuit), 'takeoff' (from a perch, then away), 'land' (coming in to a perch from 60 m out). Gives the wingbeats a
 // second, how far a wing tip travels up and down in a beat (m), the share of the time it glides, its greatest bank
@@ -305,7 +320,7 @@ function motionDragon(how, sec, dt = 1 / 30) {
   for (const q of S) { if (q.glide > 0.5) continue; const k = Math.floor(q.cyc); const r = per.get(k) || [1e9, -1e9]; r[0] = Math.min(r[0], q.tl); r[1] = Math.max(r[1], q.tl); per.set(k, r); }
   const ranges = [...per.values()].map((r) => r[1] - r[0]).sort((a, b) => a - b);
   const rng = (f) => { let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const q of S) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], f(q)[k]); hi[k] = Math.max(hi[k], f(q)[k]); } return +Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]).toFixed(2); };
-  const stand = S.filter((q) => q.st === 'perch');
+  const stand = S.filter((q) => q.st === 'perch').slice(8); // (from a quarter of a second after touching down: the crater opens under it)
   const feetLow = stand.length ? Math.min(...stand.flatMap((q) => q.feet)) : null, feetHigh = stand.length ? Math.max(...stand.map((q) => Math.min(...q.feet))) : null;
   const T = sec;
   return {
@@ -316,4 +331,4 @@ function motionDragon(how, sec, dt = 1 / 30) {
     trace: S.filter((q, i) => i % Math.round(0.25 / dt) === 0).map((q) => [+q.t.toFixed(2), q.st, +q.y.toFixed(1), +q.spd.toFixed(1), +q.tl.toFixed(2)]),
   };
 }
-window.__hm.motion = { MPROBE, mprobeRun, motionFind, motionParts, motionDraw, motionLook, motionRun, motionMeasure, motionFloor, motionDragon, humanSlopeYaw };
+window.__hm.motion = { MPROBE, mprobeRun, motionFind, motionParts, motionDraw, motionLook, motionRun, motionMeasure, motionFloor, motionDragon, humanSlopeYaw, beastLeanYaw };

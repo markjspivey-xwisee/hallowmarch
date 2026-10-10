@@ -300,12 +300,14 @@ function updateAnim(e, dt) {
   const sc = e.scale || 1;
   const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
+  // [motion] a body leans into a turn as far as the turn's pull asks (a person up to about 14 degrees, a beast or a horse
+  // with its rider 11; 13r_motion.js packs it for the shaders)
+  const yrs = angDiff(e._ayaw ?? e.yaw, e.yaw) / Math.max(dt, 1e-4), yr = Math.abs(yrs);
+  e._ayaw = e.yaw;
+  const lmax = e.kind === 'humanoid' && !e.mount ? 0.25 : 0.2;
+  e.anim.lean = lerp(e.anim.lean || 0, sp > 1.5 && !e.seat && e.fixedY == null ? clamp(-yrs * sp / 9.8 * 0.7, -lmax, lmax) : 0, 1 - Math.exp(-dt * 5));
   // [motion] turning on the spot: a person steps round (the feet lift and come down again) instead of pivoting on frozen feet
   if (e.kind === 'humanoid') {
-    const yrs = angDiff(e._ayaw ?? e.yaw, e.yaw) / Math.max(dt, 1e-4), yr = Math.abs(yrs);
-    e._ayaw = e.yaw;
-    // [motion] a runner leans into a turn (as far as the turn's pull asks, up to about 14 degrees; 13r_motion.js packs it)
-    e.anim.lean = lerp(e.anim.lean || 0, sp > 1.5 && !e.mount && !e.seat ? clamp(-yrs * sp / 9.8 * 0.7, -0.25, 0.25) : 0, 1 - Math.exp(-dt * 5));
     e.anim.turn = lerp(e.anim.turn || 0, sp < 0.6 && !e.mount && !e.seat ? clamp((yr - 0.6) / 3, 0, 1) : 0, 1 - Math.exp(-dt * 8));
     if (e.anim.turn > 0.02 && sp < 0.6) e.anim.phase = (e.anim.phase + dt * TAU * 0.9 * e.anim.turn) % (TAU * 64);
   }

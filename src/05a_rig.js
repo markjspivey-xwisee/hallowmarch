@@ -961,7 +961,7 @@ function humanVS(depth) {
     rotP(rotY(pelvisY * legW), vec3(0.0, 0.95, 0.0));
     P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX * legW; P.z += stepZ;
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
-    if (lean != 0.0) rotP(rotZ(lean), vec3(0.0)); // [motion] leaning into a turn, from the feet
+    if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 
     float sc = iColA.w;

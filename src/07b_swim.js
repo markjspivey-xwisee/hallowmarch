@@ -72,7 +72,7 @@ function waterCamY(cx, cz, cy) {
 }
 // for the actor shaders: a swimmer's stroke phase and effort, and how far over to swimming it is (iAnim.w < 0)
 function waterAnimPack(e, a4) {
-  if (!e.alive || !(e.swimK > 0.01)) return;
+  if (!e.alive || !(e.swimK > 0.01) || e.role === 'bird') return; // [motion] a game bird's flight is packed by 09v_birds.js (a mallard rose from the water with its wings shut)
   a4[0] = e.swimPh || 0; a4[1] = e.swimAmt || 0; a4[3] = -Math.min(1, e.swimK);
 }
 // the waterline packed with the wetness for the actor shader (iWear.x: whole 5 cm steps of soaked height + wetness)
