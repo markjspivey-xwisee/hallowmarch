@@ -237,7 +237,7 @@ function farmGroundWhy(x, z, strict = true) {
   if (x > DUN_X0 - 50 || Math.abs(x) > HALF - 12 || Math.abs(z) > HALF - 12) return 'Nothing grows here';
   if (!isWalkable(x, z)) return 'Too steep or too wet to till';
   const h = heightAt(x, z);
-  if (h < WATER_Y + 0.35 || (FARM.waterAt && FARM.waterAt(x, z))) return 'Too wet: this is the water\'s edge'; // FARM.waterAt: set to waterAt once rivers are in
+  if (h < WATER_Y + 0.35 || waterAt(x, z)) return 'Too wet: this is the water\'s edge'; // lakes, ponds and rivers (01b_water.js)
   if (sampleGrid(W.road, x, z) > 0.12) return 'That is a road';
   if (sampleGrid(W.rock, x, z) > 0.42) return 'Too stony to till';
   if (strict && sampleGrid(W.grass, x, z) < 0.22 && sampleGrid(W.field, x, z) < 0.3) return 'Only meadow can be tilled';

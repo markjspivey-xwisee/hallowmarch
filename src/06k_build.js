@@ -378,7 +378,8 @@ function bLandWhy(x, z, P) {
   for (const S of SITES) if (dist2(x, z, S.x, S.z) < (S.r + 10) ** 2) return `Too near ${S.name}`;
   if (dist2(x, z, BARROW.x, BARROW.z) < (BARROW.r + 14) ** 2) return 'Too near the Barrow';
   for (const c of CAMPS) if (dist2(x, z, c.x, c.z) < 24 * 24) return 'Too near a camp of wild things';
-  if (heightAt(x, z) < WATER_Y + 0.35 || (typeof waterAt === 'function' && waterAt(x, z))) return 'Not in the water'; // eslint-disable-line no-undef -- waterAt comes with feature/water
+  if (heightAt(x, z) < WATER_Y + 0.35 || waterAt(x, z)) return 'Not in the water'; // lakes, ponds and rivers (01b_water.js)
+  if (plotAt(x, z, 0.4)) return 'Not on a tilled bed'; // [farming] (08h_farming.js)
   if (sampleGrid(W.road, x, z) > 0.18) return 'Not on the road';
   return null;
 }

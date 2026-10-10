@@ -102,13 +102,10 @@ function weaponStyle(e) {
 }
 const hasShield = (e) => !!e.look && !!(e.look.mask & (WB.shield | WB.shieldRound));
 const realmFlavour = (e) => clsHas(e, 'realm') && e.faction <= 2;
-// rivers and streams come from the water module when it is there (feature/water: waterAt); found once, by name, so
-// this file builds with or without it
-let _waterFn;
-function waterFn() {
-  if (_waterFn === undefined) { try { _waterFn = eval('typeof waterAt === "function" ? waterAt : null'); } catch (err) { _waterFn = null; } }
-  return _waterFn;
-}
+// lakes, ponds and rivers: the water module (01b_water.js)
+const waterFn = () => waterAt;
+// the height of the water's surface at (x, z), or the lakes' level where there is none
+function waterTopAt(x, z) { const q = waterAt(x, z); return q ? q.y : WATER_Y; }
 function wetOf(e) {
   if (!e) return 0;
   let w = e.wet || 0;
@@ -739,12 +736,15 @@ function freezeWater(x, z, r, src) {
   // one sheet grows into the next rather than stacking
   for (const s of CLS.ice) if (dist(s.x, s.z, x, z) < s.r * 0.6 && s.until - GAME.t > 4) { s.until = Math.max(s.until, GAME.t + ICE_LIFE); s.r = Math.min(14, Math.max(s.r, r)); iceSheetRefresh(s); return s; }
   if (CLS.ice.length >= 7) iceSheetEnd(CLS.ice[0]);
-  const s = { x, z, r: Math.min(14, r), t0: GAME.t, until: GAME.t + ICE_LIFE + (src && src.cls === 'mage' ? attOf(src, 'frost') * 0.1 : 0), floor: null, mesh: null };
-  s.floor = addFloorDisc(x, z, s.r, WATER_Y + 0.07, WATER_Y - 4, 'ice');
+  const wy = waterTopAt(x, z); // [water] ponds and rivers lie at their own heights
+  const s = { x, z, wy, r: Math.min(14, r), t0: GAME.t, until: GAME.t + ICE_LIFE + (src && src.cls === 'mage' ? attOf(src, 'frost') * 0.1 : 0), floor: null, mesh: null };
+  s.floor = addFloorDisc(x, z, s.r, wy + 0.07, wy - 4, 'ice');
   CLS.ice.push(s);
   CLS.stats.ice++;
   iceSheetMesh(s);
-  iceBurst(x, WATER_Y + 0.3, z, 0.8);
+  iceBurst(x, wy + 0.3, z, 0.8);
+  // whoever is swimming where the water freezes is caught and lifted onto the ice
+  forNear(x, z, s.r, (o) => { if (o.swim && o.alive && o.fixedY === null && dist2(o.x, o.z, x, z) < s.r * s.r * 0.8) { o.y = wy + 0.07; o.swim = false; o.vy = 0; } });
   classSfx('freeze', x, z);
   return s;
 }
@@ -763,7 +763,7 @@ function iceAt(x, z) {
 const iceRadiusK = (s) => clamp((s.until - GAME.t) / 6, 0.35, 1);
 function fireMeetsIce(x, z, r, src) {
   for (const s of CLS.ice) if (!s.dead && dist(s.x, s.z, x, z) < s.r + r) { s.until = Math.min(s.until, GAME.t + 2.5); steamAt(x, z, Math.max(3, r), src, 4); }
-  if (isWaterAt(x, z)) steamPuff(x, WATER_Y + 0.2, z, 16);
+  if (isWaterAt(x, z)) steamPuff(x, waterTopAt(x, z) + 0.2, z, 16);
 }
 // a rune laid on the ground: it waits for a foe to step on it
 function layRune(e, x, z, el) {
@@ -896,12 +896,14 @@ function stepArrows(dt) {
       continue;
     }
     const gy = heightAt(A.x, A.z);
+    const wq = inDungeon(A) ? null : waterAt(A.x, A.z), surf = wq ? wq.y : -Infinity; // [water] an arrow stops at the water's surface
     const blocked = !segmentClear(A.px, A.pz, A.x, A.z, 0.05, false) && A.y < gy + 6;
-    if (A.y <= gy || blocked || A.age > 4 || A.y < WATER_Y - 2) {
+    if (A.y <= gy || A.y <= surf || blocked || A.age > 4 || A.y < WATER_Y - 2) {
       CLS.arrows.splice(i, 1);
       const x = blocked ? A.px : A.x, z = blocked ? A.pz : A.z, y = blocked ? A.py : gy;
-      if (A.type === 'fire') { if (!isWaterAt(x, z)) fireLandsAt(x, y, z, 1); else steamPuff(x, WATER_Y + 0.1, z, 3); }
-      if (isWaterAt(x, z) && !blocked) { if (dist2(x, z, camera.position.x, camera.position.z) < 50 * 50) for (let q = 0; q < 6; q++) fxAlpha.emit(x, WATER_Y + 0.05, z, (Math.random() - 0.5) * 1.5, 1.5 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5, 0.6, 0.6, 0.66, 0.7, 0.06, 9, 0.2); continue; }
+      const inWater = !blocked && (A.y <= surf || isWaterAt(x, z)), wy = surf > -Infinity ? surf : WATER_Y;
+      if (A.type === 'fire') { if (!inWater) fireLandsAt(x, y, z, 1); else steamPuff(x, wy + 0.1, z, 3); }
+      if (inWater) { splashAt(x, z, 0.3, { up: 1.2 }); continue; }
       FX.dust(x, y, z, 2);
       // it stays where it fell, and a special arrow can be picked up again
       const sp = Math.hypot(A.vx, A.vy, A.vz) || 1;

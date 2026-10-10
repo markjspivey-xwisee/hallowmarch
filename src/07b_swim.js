@@ -37,7 +37,7 @@ function swimDimsOf(e, sc) {
 function waterFloorY(e, g) {
   if (!e || e.kind === 'door' || e.hover || e.fixedY !== null) return g;
   const w = waterAt(e.x, e.z);
-  if (!w) return g;
+  if (!w || onIce(e, w)) return g;
   const D = swimDims(e);
   if (!D) return g;
   if (w.depth > D.start || (e.swim && w.depth > D.stop)) {
@@ -46,6 +46,8 @@ function waterFloorY(e, g) {
   }
   return g;
 }
+// standing on a mage's ice over the water (07b_classes.js): the ice is a floor, and nobody on it wades or swims
+function onIce(e, w) { return CLS.ice.length > 0 && e.y > w.y - 0.25 && !!iceAt(e.x, e.z); }
 // walking speed in water: knee-deep slows a little, waist-deep a lot; swimming is slow and sprinting it costs breath
 function waterSpeedMult(e) {
   if (e.swim) return e.kind === 'humanoid' ? 0.42 : 0.5;
@@ -59,6 +61,7 @@ function swimAllowed(e) {
   if (e.swim || deepWaterAt(e.x, e.z)) return true; // already in: let them out
   if (e.role === 'villager' || e.role === 'merchant' || e.role === 'herald' || e.role === 'guard' || e.role === 'lord' || e.role === 'guardian' || e.role === 'muster' || e.role === 'dungeonBoss' || e.role === 'boss') return false;
   if (e.role === 'critter') return !!(e.ai && e.ai.flee);
+  if (e.role === 'animal' && e.tame && e.tame.owner === 'player' && e.tame.cmd !== 'pen' && e.tame.cmd !== 'stay') return true; // [animals] companions swim after you
   const t = e.target != null ? getEnt(e.target) : null;
   return !!(t && t.alive);
 }
@@ -125,7 +128,8 @@ function updateWater(dt) {
     const near = e === P || dist2(e.x, e.z, camX, camZ) < 160 * 160 || (P && dist2(e.x, e.z, P.x, P.z) < 160 * 160);
     if (!near) { e.swimOK = false; continue; }
     const D = swimDims(e);
-    const w = D && !inDungeon(e) ? waterAt(e.x, e.z, _wUpd) : null;
+    let w = D && !inDungeon(e) ? waterAt(e.x, e.z, _wUpd) : null;
+    if (w && onIce(e, w)) w = null; // on the ice: dry feet
     const was = !!e.swim;
     if (!w || !D) {
       if (e.swim || e.wd) { e.swim = false; e.wd = 0; e.wadeK = 0; }
@@ -270,11 +274,7 @@ function waterSound(dt, x, z) {
 /* drinking, filling a waterskin, washing                               */
 /* ------------------------------------------------------------------ */
 registerGood('waterskin_empty', { name: 'Empty waterskin', plural: 'Empty waterskins', kind: 'misc', icon: 'drop', value: 2, desc: 'Fill it at any lake, pond or river (E by the water).' });
-if (GOODS.water) {
-  GOODS.water.empty = 'waterskin_empty';
-  // drinking from the skin gives the skin back (the survival system may give water its own use)
-  if (!GOODS.water.use) GOODS.water.use = (P, id) => { if (!goodsTake(id, 1)) return; drinkWater(P, 0.45, 'You drink from your waterskin.'); goodsAdd('waterskin_empty', 1, true); };
-}
+GOODS.water.empty = 'waterskin_empty'; // drinking from a skin leaves it empty (eatGood in 09s_survival.js)
 // every recruit is issued an empty waterskin (once per character; old characters get theirs on their next visit)
 registerSavePart('char', 'water', {
   save: () => (SWIM.skinGiven ? { skin: 1 } : null),
@@ -283,12 +283,6 @@ registerSavePart('char', 'water', {
     if (!SWIM.skinGiven) { SWIM.skinGiven = true; if (!goodsHave('waterskin_empty') && !goodsHave('water')) goodsAdd('waterskin_empty', 1, true); }
   },
 });
-function drinkWater(P, amount, msg) {
-  // eslint-disable-next-line no-undef -- the survival system brings thirst (needsDrink); without it water just refreshes
-  if (typeof needsDrink === 'function') needsDrink(amount);
-  uiLog(msg, 'sys');
-  sfx('gulp');
-}
 // the nearest water within arm's reach of the player: the spot and what kind of water it is
 function waterNear(P) {
   let best = null;
@@ -307,16 +301,16 @@ function waterOffers(P, offer) {
   if (inDungeon(P) || P.mount) return;
   const s = waterNear(P);
   if (!s) return;
-  if (kitDirt() >= 0.02) { offer(s.d * 0.5, 2.6, `Wash your gear in the ${s.kind}`, () => { washGear(null); splashAt(s.x, s.z, 0.6); }, 0.05); return; }
-  const fill = goodsHave('waterskin_empty');
-  offer(s.d * 0.5 + 0.3, 2.6, fill ? `Drink, and fill a waterskin from the ${s.kind}` : `Drink from the ${s.kind}`, () => {
+  // [survival] drinking is the survival module's (drink your fill, fill the empty waterskins); washing is ours
+  const thirsty = SURV.thirst < 0.97, fill = goodsHave('waterskin_empty'), dirty = kitDirt() >= 0.02;
+  if (dirty) offer(s.d * 0.5 + (SURV.thirst < 0.5 ? 0.6 : 0), 2.6, `Wash your gear in the ${s.kind}`, () => { washGear(null); splashAt(s.x, s.z, 0.6); }, 0.05);
+  if (SURV.job) return;
+  const label = thirsty && fill ? `Drink from the ${s.kind} and fill your waterskins` : thirsty ? `Drink from the ${s.kind}` : fill ? `Fill your waterskins at the ${s.kind}` : `Drink from the ${s.kind}`;
+  offer(s.d * 0.5 + (thirsty || fill ? 0.3 : 0.9), 2.6, label, () => {
     if (GAME.t - SWIM.drinkAt < 1.2) return;
     SWIM.drinkAt = GAME.t;
-    drinkWater(P, 0.35, { river: 'You drink from the river. It runs cold and clean.', lake: 'You drink from the lake. Cool and sweet.', pond: 'You drink from the pond. A little earthy, but good.' }[s.kind]);
-    splashAt(s.x, s.z, 0.35);
-    if (fill && goodsTake('waterskin_empty', 1)) goodsAdd('water', 1);
-    if (P.anim) setAct(P, 5, 0.9);
-  }, -0.1);
+    drinkAt({ x: s.x, z: s.z }, s.kind);
+  }, thirsty ? 0.06 : -0.1);
 }
 
 /* ------------------------------------------------------------------ */

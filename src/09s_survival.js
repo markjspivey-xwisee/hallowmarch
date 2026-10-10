@@ -22,13 +22,8 @@ const FORAGE_KINDS = {
 const FORAGE_DRAW = { high: 170, medium: 130, low: 90 };
 const FORAGE_REACH = { apple: 1.8, bush: 0.8, nettle: 0.4, mush: 0.3, ember: 0.35, heal: 0.25, mana: 0.25, frost: 0.25, storm: 0.25 }; // squared share of the draw distance: small plants only near
 
-/* ---- the water branch's rivers and the farming branch's seasons, when they are merged in ---- */
-let _survWaterFn, _survSeasonObj;
-function survWaterFn() {
-  // eslint-disable-next-line no-eval
-  if (_survWaterFn === undefined) _survWaterFn = typeof waterAt === 'function' ? eval('waterAt') : null; // feature/water
-  return _survWaterFn;
-}
+/* ---- lakes, ponds and rivers (01b_water.js) and the seasons (08h_farming.js) ---- */
+const survWaterFn = () => waterAt;
 // is there water deep enough to drink or fish at (x, z)?
 function survWaterHere(x, z, deep = 0.2) {
   if (x > DUN_X0) return false;
@@ -46,9 +41,7 @@ function survWaterHere(x, z, deep = 0.2) {
 }
 // 'winter', 'spring', 'summer', 'autumn' or null when there are no seasons
 function survSeason() {
-  // eslint-disable-next-line no-eval
-  if (_survSeasonObj === undefined) _survSeasonObj = typeof SEASON !== 'undefined' ? eval('() => SEASON') : null; // feature/farming: a getter, so a season that changes is read live
-  const S = _survSeasonObj ? _survSeasonObj() : null;
+  const S = SEASON;
   if (!S) return null;
   const v = typeof S === 'string' ? S : typeof S === 'object' ? (S.name || S.key || S.season || S.id || null) : null;
   if (typeof v !== 'string') return null;
@@ -81,6 +74,7 @@ function buildForage() {
     if (!isWalkable(x, z) || Math.hypot(x, z) > 470 || Math.hypot(x, z) < 34) return false;
     const h = heightAt(x, z);
     if (h < WATER_Y + 0.7 || sampleGrid(W.road, x, z) > 0.04 || sampleGrid(W.field, x, z) > 0.3) return false;
+    for (let k = 0; k < 5; k++) { const a = k * 1.2566, d = k ? r + 0.6 : 0; if (waterAt(x + Math.sin(a) * d, z + Math.cos(a) * d)) return false; } // [water] ponds and rivers lie above the lakes' level
     for (const S of SITES) if (dist2(x, z, S.x, S.z) < (S.r + 10) ** 2) return false;
     if (BARROW && BARROW.door && dist2(x, z, BARROW.door.x, BARROW.door.z) < 30 * 30) return false;
     const n = normalAt(x, z);
@@ -497,7 +491,13 @@ function stepForage(dt) {
 /* ------------------------------------------------------------------ */
 /* water: wells, troughs and lakes                                     */
 /* ------------------------------------------------------------------ */
-const WATERSKINS_MAX = 8;
+// waterskins are goods: 'water' (full) and 'waterskin_empty' (07b_swim.js). Drinking from one leaves it empty; any
+// water you drink at fills the empty ones.
+function fillWaterskins() {
+  const n = goodsCount('waterskin_empty');
+  if (n > 0 && goodsTake('waterskin_empty', n)) goodsAdd('water', n, true);
+  return n;
+}
 // the nearest shore point within reach, or null
 function shoreNear(P, reach = 2.6) {
   if (inDungeon(P) || survWaterHere(P.x, P.z, 0.35)) return null;
@@ -512,18 +512,18 @@ function drinkAt(spot, kind) {
   const P = GAME.player;
   if (!P) return;
   if (P.mount) dismount(P);
-  const lake = kind === 'lake';
+  const lake = kind !== 'well' && kind !== 'trough'; // a lake, a pond or a river: down on the haunches at the edge
   const yaw = Math.atan2(spot.x - P.x, spot.z - P.z);
   setAct(P, lake ? 13 : 5, lake ? 1.6 : 1.1);
   survStartJob({ kind: 'drink', label: lake ? 'Drinking' : 'Drawing water', dur: lake ? 1.6 : 1.2, yaw, done: () => {
     const before = SURV.thirst;
     needsDrink(1);
-    const fill = Math.max(0, WATERSKINS_MAX - goodsCount('water'));
-    if (fill > 0) goodsAdd('water', fill, true);
-    const what = kind === 'lake' ? 'the lake' : kind === 'trough' ? 'the trough' : 'the well';
-    uiLog(before < 0.97 && fill > 0 ? `You drink your fill from ${what} and fill your waterskins (${goodsCount('water')}).` : before < 0.97 ? `You drink your fill from ${what}.` : `You fill your waterskins at ${what} (${goodsCount('water')}).`, 'sys');
+    const fill = fillWaterskins();
+    const what = 'the ' + (kind || 'lake');
+    const taste = { river: ' It runs cold and clean.', pond: ' A little earthy, but good.' }[kind] || '';
+    uiLog(before < 0.97 && fill > 0 ? `You drink your fill from ${what} and fill your waterskins (${goodsCount('water')}).` : before < 0.97 ? `You drink your fill from ${what}.${taste}` : fill > 0 ? `You fill your waterskins at ${what} (${goodsCount('water')}).` : `You drink from ${what}.${taste}`, 'sys');
     sfx('drip'); later(0.18, () => sfx('drip'));
-    if (lake && typeof waterSplash === 'function') waterSplash(spot.x, spot.z, 0.35);
+    if (lake) splashAt(spot.x, spot.z, 0.35);
     return false;
   } });
 }
@@ -544,7 +544,7 @@ function eatGood(id, quiet = false) {
   const raw = id === 'meat_raw' || id === 'fish_raw';
   const art = G.plural && G.plural === G.name ? 'some' : /^[aeiou]/i.test(G.name) ? 'an' : 'a';
   uiLog(`You ${drink ? 'drink' : 'eat'} ${art} ${G.name.toLowerCase()}.${raw ? ' Raw, it does little for you: cook it at a fire.' : ''}`, 'sys');
-  if (id === 'water' && goodsCount('water') === 0) uiLog('Your waterskins are empty. Fill them at a well, a trough or a lake.', 'sys');
+  if (id === 'water') { goodsAdd('waterskin_empty', 1, true); if (goodsCount('water') === 0) uiLog('Your waterskins are empty. Fill them at a well, a trough or any water.', 'sys'); }
   GOODS_UI.dirty = true;
   if (UI.modal === 'kit') renderKit();
   return true;
@@ -837,13 +837,11 @@ function survivalOffers(P, offer) {
     return;
   }
   if (inDungeon(P) || P.mount) return;
-  const thirsty = SURV.thirst < 0.97, fill = goodsCount('water') < WATERSKINS_MAX;
+  const thirsty = SURV.thirst < 0.97, fill = goodsHave('waterskin_empty');
   const waterLabel = (what) => (thirsty && fill ? `Drink from ${what} and fill your waterskins` : thirsty ? `Drink from ${what}` : `Fill your waterskins at ${what}`);
   if (thirsty || fill) {
     for (const w of wellSpots()) offer(dist(P.x, P.z, w.x, w.z), w.kind === 'well' ? 2.9 : 2.6, waterLabel(`the ${w.kind}`), () => drinkAt(w, w.kind), thirsty ? 0.08 : 0.03);
-    const s = shoreNear(P);
-    if (s && !survWaterFn()) offer(Math.max(0.1, s.d - 0.6), 2.6, waterLabel('the lake'), () => drinkAt(s, 'lake'), thirsty ? 0.06 : 0.01);
-    else if (s && fill) offer(Math.max(0.1, s.d - 0.6), 2.6, 'Fill your waterskins', () => drinkAt(s, 'lake'), 0.01);
+    // lakes, ponds and rivers: the water module offers the drink (waterOffers in 07b_swim.js calls drinkAt)
   }
   // a fire: cook what is raw (stews and the rest in the crafting book, C)
   const f = fireNear(P);
@@ -1232,7 +1230,7 @@ function natSplitGoods(t) {
 function survivalHelpHTML() {
   return `<div class="survhelp"><h3>Food, water and crafting</h3>
     <p>You grow hungry and thirsty over an hour or two of play: faster when you run, fight or stand in the sun or by a fire, slower when you rest. The two bars under your health show it. Fed and watered, your health, power and endurance come back faster; hungry or thirsty, slower. You never starve to death. ${IS_TOUCH ? 'Tap the bars' : 'Press <kbd>V</kbd> or click the bars'} to eat or drink the best thing you carry.</p>
-    <p>Drink at a well, a trough or a lake (it fills your waterskins too). Pick berries, mushrooms, apples and herbs (E), hunt deer, wolves, boars and bears for meat and hides, fish with a rod at any water, and cook at any fire. Felled trees give logs and firewood; rocks give stone, and flint and iron ore to a pick.</p>
+    <p>Drink at a well, a trough or any water (it fills your empty waterskins too). Pick berries, mushrooms, apples and herbs (E), hunt deer, wolves, boars and bears for meat and hides, fish with a rod at any water, and cook at any fire. Felled trees give logs and firewood; rocks give stone, and flint and iron ore to a pick.</p>
     <p>Every town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table; every keep a forge and a workbench. ${IS_TOUCH ? 'Use one' : 'Press E at one'} to open its recipes, or ${IS_TOUCH ? 'open Crafting from your kit' : 'press <kbd>C</kbd>'} for what you can make by hand. The more you make, the better your gear turns out. The Chronicle's page <b>Living off the land</b> tells you more.</p></div>`;
 }
 function chronLiving() {
@@ -1244,7 +1242,7 @@ function chronLiving() {
     <p>Your belly empties over an hour or two of play, faster when you run or fight, slower when you rest; thirst comes a little sooner, sooner still in the sun or by a fire. Snow and rain make you hungrier. <b>Well fed</b> (both bars above half), health comes back a third faster and endurance a quarter faster. <b>Hungry</b> or <b>thirsty</b> (a bar below a quarter), they come back slowly; <b>starving</b> or <b>parched</b>, slower still. Nobody in the March dies of hunger: when you rise again the healers have fed you.</p>
     <p>Eat and drink from your bags, or ${IS_TOUCH ? 'tap the food and water bars' : 'press V or click the bars'} to take whatever helps most. Cooked food is four times as filling as raw; a bowl of stew is the best meal there is.</p>
     <h3>Water</h3>
-    <p>Every town has a well, and most a trough. Drink there or at the edge of any lake (E): it slakes your thirst and fills your waterskins, up to ${WATERSKINS_MAX}.</p>
+    <p>Every town has a well, and most a trough. Drink there or at the edge of any lake, pond or river (E): it slakes your thirst and fills your empty waterskins. A waterskin you drink from is empty until you fill it again.</p>
     <h3>Foraging</h3>
     <p><b>Berry bushes</b> grow along the woods' edges, <b>mushroom rings</b> in the shade of thick woods, and red <b>embercap</b> in the dark woods of Thule and the frontier, glowing after dusk. <b>Woundwort</b> likes damp meadows by the water, <b>starflower</b> the glens of Ériu, <b>rimeleaf</b> the cold of Thule and the heights, <b>thunder thistle</b> the rocky hills. <b>Nettles</b> give fibre for cloth and bowstrings. The <b>apple orchard</b> stands outside the town of Logres. Whatever you pick grows back in a few minutes${survSeason() ? ', though fruit and flowers wait out the winter' : ''}. A knife takes more from herbs and nettles.</p>
     <h3>Hunting and fishing</h3>

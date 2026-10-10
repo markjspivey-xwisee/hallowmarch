@@ -366,6 +366,8 @@ function survCraftOnce(rec, ctx = {}) {
   if (why) { if (!ctx.silent) uiError(why); return false; }
   const P = GAME.player;
   if (!goodsTakeAll(rec.need)) return false;
+  const skins = rec.need.reduce((n, q) => n + (q[0] === 'water' ? q[1] : 0), 0);
+  if (skins) goodsAdd('waterskin_empty', skins, true); // [water] the water is used, the skins come back empty
   const key = recipeSkill(rec), sk = SURV.skill[key] || 0;
   // a skilled hand wastes less
   if (rec.waste && Math.random() < sk / 250) { goodsAdd(rec.waste, 1, true); uiLog(`Your skill saves you ${/^[aeiou]/i.test(goodName(rec.waste)) ? 'an' : 'a'} ${goodName(rec.waste).toLowerCase()}.`, 'sys'); }

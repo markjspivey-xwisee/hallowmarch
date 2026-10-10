@@ -17,7 +17,7 @@ const ICE_VS = /* glsl */`
   }`;
 const iceSheetMat = mat({
   transparent: true, depthWrite: true,
-  uniforms: { uK: { value: 1 }, uAge: { value: 0 }, uSeed: { value: 0 }, uR: { value: 5 } },
+  uniforms: { uK: { value: 1 }, uAge: { value: 0 }, uSeed: { value: 0 }, uR: { value: 5 }, uWY: { value: WATER_Y } },
   vertexShader: ICE_VS,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
@@ -25,7 +25,7 @@ const iceSheetMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_WORLD}
     ${GLSL_WEATHER}
-    uniform float uK, uAge, uSeed, uR, uWet, uSnowCover;
+    uniform float uK, uAge, uSeed, uR, uWY, uWet, uSnowCover; // uWY: the frozen water's surface (ponds and rivers lie at their own heights)
     varying vec3 vW; varying vec2 vL;
     float cellsI(vec2 p){
       vec2 i = floor(p), f = fract(p);
@@ -44,8 +44,8 @@ const iceSheetMat = mat({
       float edge = (0.84 + 0.16 * fbm3(vW.xz * 0.45 + uSeed) - 0.07 * vnoise(vW.xz * 2.3)) * uK * grow;
       if (r > edge) discard;
       float th = terrainHeight(vW.xz);
-      if (th > ${WATER_Y.toFixed(2)} + 0.03) discard;
-      float depth = clamp((${WATER_Y.toFixed(2)} - th) / 3.0, 0.0, 1.0);
+      if (th > uWY + 0.03) discard;
+      float depth = clamp((uWY - th) / 3.0, 0.0, 1.0);
       float rim = smoothstep(edge - 0.16, edge, r);
       // clear dark ice over deep water, white rime in drifts and along the edge, cracks through it all
       float rime = clamp(smoothstep(0.42, 0.85, fbm3(vW.xz * 0.7 + uSeed * 1.7)) * 0.75 + rim * 0.85, 0.0, 1.0);
@@ -77,10 +77,11 @@ const iceSheetMat = mat({
 let ICE_GEO = null;
 function iceSheetMesh(s) {
   if (!ICE_GEO) ICE_GEO = new THREE.CircleGeometry(1, 72);
-  const m = new THREE.Mesh(ICE_GEO, shareMat(iceSheetMat, { uK: { value: 1 }, uAge: { value: 0 }, uSeed: { value: Math.random() * 50 }, uR: { value: s.r } }));
+  const wy = Number.isFinite(s.wy) ? s.wy : WATER_Y;
+  const m = new THREE.Mesh(ICE_GEO, shareMat(iceSheetMat, { uK: { value: 1 }, uAge: { value: 0 }, uSeed: { value: Math.random() * 50 }, uR: { value: s.r }, uWY: { value: wy } }));
   m.rotation.x = -Math.PI / 2;
   m.scale.setScalar(s.r * 1.05);
-  m.position.set(s.x, WATER_Y + 0.05, s.z);
+  m.position.set(s.x, wy + 0.05, s.z);
   m.renderOrder = 3;
   m.frustumCulled = false;
   scene.add(m);

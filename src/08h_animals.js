@@ -1,7 +1,6 @@
 /* ================================================================== */
 /* animals: taming, pets, livestock, paddocks, breeding                 */
 /* ================================================================== */
-/* global SEASON:readonly, waterAt:readonly */ // [animals] from feature/farming and feature/water when merged; always guarded with typeof
 // [animals] Wild wolves, boars, horses and deer can be won over: walk up calmly, hold out the food each kind likes,
 // and trust grows feeding by feeding (it falls if you rush them or hurt them). A tamed wolf becomes a hound, a boar a
 // pig, a wild horse your own mount, a deer a companion. Companions follow you along your own trail (round walls,
@@ -178,6 +177,8 @@ function penSiteOk(x, z, yaw, hw, hd) {
     if (Math.abs(heightAt(p.x, p.z) - h0) > 2.6) return 'The ground is too steep here';
     if (houseAt(p.x, p.z, 1)) return 'Too close to a house';
     if (sampleGrid(W.road, p.x, p.z) > 0.35) return 'Do not fence across a road';
+    if (waterAt(p.x, p.z)) return 'Not in the water'; // [water] ponds and rivers (01b_water.js)
+    if (plotAt(p.x, p.z, 0.8)) return 'Not over a tilled bed'; // [farming] beds and the town strips (08h_farming.js)
   }
   const near = [];
   collidersNear(x, z, Math.hypot(hw, hd) + 2, near);
