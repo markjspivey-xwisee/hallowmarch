@@ -28,6 +28,9 @@ const ACOATS = {
   horse: null, // HORSE_COATS (09b_mount.js) is read at boot: initAnimals
   deer: DEER_COLS.map((c) => [c, [c[0] * 0.55, c[1] * 0.5, c[2] * 0.45]]),
 };
+// each realm's own breeds on its common: Logres keeps cream sheep and red cattle, Ériu black-faced sheep and black
+// cattle, Thule grey and brown sheep and dun cattle (indexes into ACOATS)
+const REALM_BREEDS = [{ sheep: [1, 1, 0], cattle: [0, 0, 3] }, { sheep: [0, 0, 3], cattle: [1, 1, 4] }, { sheep: [2, 4, 3], cattle: [2, 2, 4] }];
 const PET_NAMES = ['Brindle', 'Ash', 'Moss', 'Fennick', 'Sorrel', 'Tansy', 'Bracken', 'Wren', 'Hollin', 'Rook', 'Thistle', 'Burdock', 'Nettle', 'Clover', 'Sloe', 'Juniper', 'Fern', 'Hazel', 'Rowan', 'Pip', 'Dun', 'Blossom', 'Corrie', 'Tarn', 'Gorse', 'Heather', 'Oatcake', 'Bramble', 'Dapple', 'Smudge', 'Kestrel', 'Merry', 'Biddy', 'Tuppence', 'Grizzle', 'Hob'];
 const PAT_NAMES = ['plain', 'patched', 'dappled', 'belted'];
 registerGood('manure', { name: 'Basket of manure', plural: 'Baskets of manure', kind: 'material', icon: 'seed', value: 1, desc: 'Mucked out of a paddock. It feeds the fields.' });
@@ -310,7 +313,8 @@ function initAnimals() {
     const r = mulberry(7100 + R.id * 3);
     const flock = [['sheep', 'm'], ['sheep', 'f'], ['sheep', 'f'], ['sheep', 'f'], ['sheep', 'f'], ['sheep', 'f'], ['cattle', 'm'], ['cattle', 'f'], ['cattle', 'f'], ['hen', 'm'], ['hen', 'f'], ['hen', 'f'], ['hen', 'f'], ['hen', 'f']];
     for (const [k, sex] of flock) {
-      const rec = anRecord(k, { owner: 'town', sex, tr: anWildTraits(k, r), name: pick(r, PET_NAMES), cmd: 'pen', pen: pen.id, wool: 0.3 + r() * 0.7 });
+      const br = REALM_BREEDS[R.id][k], ci = br ? br[Math.floor(r() * br.length)] : -1;
+      const rec = anRecord(k, { owner: 'town', sex, tr: anWildTraits(k, r, ci >= 0 ? { colA: ACOATS[k][ci][0], colB: ACOATS[k][ci][1] } : null), name: pick(r, PET_NAMES), cmd: 'pen', pen: pen.id, wool: 0.3 + r() * 0.7 });
       rec.breedAt = GAME.t + 200 + r() * 400;
       const p = penWorld(pen, (r() - 0.5) * (pen.hw * 2 - 3), (r() - 0.5) * (pen.hd * 2 - 3));
       anSpawn(rec, p.x, p.z);
@@ -323,8 +327,10 @@ function initAnimals() {
   anBuildUI();
   window.addEventListener('keydown', (ev) => {
     if (!GAME.started || typing() || ev.repeat) return;
-    if (ev.code === 'KeyK') { if (UI.modal === 'dialog' && ANIMALS.dlg) closeDialog(); else if (!UI.modal) openAnimals(); }
-  });
+    if (ev.code === 'KeyK') { if (UI.modal === 'dialog' && ANIMALS.dlg) anCloseDialog(); else if (!UI.modal) openAnimals(); }
+    // Esc while marking out a paddock stops marking (and nothing else)
+    if (ev.code === 'Escape' && ANIMALS.marking && !UI.modal) { ANIMALS.marking = null; ANIMALS.uiDirty = true; uiLog('You stop marking out the paddock.', 'sys'); ev.stopImmediatePropagation(); }
+  }, true);
   registerSavePart('char', 'animals', { save: animalsSave, load: animalsLoad, key: animalsKey });
   animalsNotes();
   window.__hm.animals = ANIMALS_DEBUG;
@@ -816,6 +822,8 @@ function anClock(e, dt) {
     if (!K.fights && rec.k !== 'hound' && sampleGrid(W.grass, e.x, e.z) > 0.4) rec.hunger = Math.min(1, rec.hunger + dt * 0.004);
   }
   if (rec.owner === 'town') { rec.hunger = Math.max(rec.hunger, 0.55); rec.thirst = Math.max(rec.thirst, 0.55); }
+  // a hound keeps pace with you as you level
+  if (K.fights && e.mobType && GAME.player && e.level !== clamp(GAME.player.level - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP)) anStats(e);
   const hungry = rec.hunger < 0.15;
   if (hungry !== !!rec._hungry) {
     rec._hungry = hungry;
@@ -1140,7 +1148,8 @@ function openHerder(pen) {
 function spendGold(n) { if ((INV.gold || 0) < n) return false; INV.gold -= n; sfx('coins'); saveSoon(); return true; }
 function anBuy(k, sex, pen, price) {
   if (!spendGold(price)) { uiError('Not enough gold'); return false; }
-  const rec = anRecord(k, { owner: 'player', sex, cmd: 'pen', pen: pen.id, tr: anWildTraits(k) });
+  const br = REALM_BREEDS[pen.realm] && REALM_BREEDS[pen.realm][k], ci = br ? br[Math.floor(Math.random() * br.length)] : -1;
+  const rec = anRecord(k, { owner: 'player', sex, cmd: 'pen', pen: pen.id, tr: anWildTraits(k, Math.random, ci >= 0 ? { colA: ACOATS[k][ci][0], colB: ACOATS[k][ci][1] } : null) });
   const p = penWorld(pen, (Math.random() - 0.5) * 4, pen.hd - 2.5);
   anSpawn(rec, p.x, p.z);
   uiLog(`You buy ${rec.name}, a ${AKIND[k][sex]}. It waits in the common; open its card to lead it away.`, 'loot');
@@ -1185,7 +1194,7 @@ function openAnimals() {
 function anMarkStart() {
   if (!goodsHave('fence_kit') && goodsCount('log') + goodsCount('plank') < 8) { uiError('You need a fence kit, or 8 logs or planks'); return; }
   ANIMALS.marking = { t: GAME.t };
-  uiToast('Walk to where the paddock should be, then press E (or Fence) to build it. Esc to stop.', 'hint');
+  uiToast(`Walk to where the paddock should be, then ${IS_TOUCH ? 'tap Fence here' : 'press E'} to build it. ${IS_TOUCH ? 'Stop' : 'Esc'} to stop.`, 'hint');
   ANIMALS.uiDirty = true;
 }
 function anMarkSpot() {
@@ -1226,6 +1235,7 @@ function anBuildUI() {
     const cmd = b.dataset.cmd;
     if (cmd === 'list') { if (!UI.modal) openAnimals(); return; }
     if (cmd === 'fence') { anMarkConfirm(); return; }
+    if (cmd === 'stopmark') { ANIMALS.marking = null; ANIMALS.uiDirty = true; return; }
     if (b.dataset.aid) { ANIMALS.pick = ANIMALS.pick === +b.dataset.aid ? null : +b.dataset.aid; ANIMALS.uiDirty = true; return; }
     const sel = ANIMALS.pick ? anCompanions().filter((e) => e.id === ANIMALS.pick) : anCompanions();
     if (cmd === 'attack' && !getEnt(GAME.player.target)) { uiError('Target a foe first'); return; }
@@ -1258,11 +1268,12 @@ function anUpdateUI(dt) {
   host.innerHTML = pets.slice(0, 4).map((e) => {
     const r = e.tame;
     return `<button type="button" class="pb-pet${ANIMALS.pick === e.id ? ' on' : ''}" data-aid="${e.id}" title="${esc(r.name)}: ${r.cmd}"><b>${esc(r.name)}</b><small>${anStage(r)}${AKIND[r.k].fights ? ' ' + r.lvl : ''} · ${r.cmd}</small><i class="pb-hp"><s style="width:${anPct(e.hp / e.maxHp)}"></s></i><i class="pb-fd"><s style="width:${anPct(r.hunger)}"></s></i></button>`;
-  }).join('') + (marking ? '<button type="button" class="pb-fence" data-cmd="fence">Fence here</button>' : '');
+  }).join('') + (marking ? '<div class="pb-mark"><button type="button" class="pb-fence" data-cmd="fence">Fence here</button><button type="button" class="pb-fence pb-stop" data-cmd="stopmark">Stop</button></div>' : '');
   bar.querySelector('.pb-cmds').hidden = !pets.length;
 }
 function drawAnimals(dt) {
   if (!ANIMALS.inited) return;
+  if (UI.modal !== 'dialog') ANIMALS.dlg = false;
   // gates swing open for whoever walks up and close behind them
   for (const pen of ANIMALS.pens) {
     const want = GAME.t < pen.gateWant ? 1 : 0;

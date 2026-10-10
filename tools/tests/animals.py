@@ -280,7 +280,9 @@ async def main():
 
 SHOT_SETUP = """(() => { const { H, A, F } = __an;
   H.setTod(0.42); H.dbg.WEATHER.mode = 'clear';
-  window.__view = (x, y, z, tx, ty, tz) => { H.UI.modal = 'menu'; document.getElementById('menu').hidden = true; document.getElementById('hud').hidden = true; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); for (let i = 0; i < 3; i++) H.frame(1 / 30); };
+  // the page's own frame loop is stopped so that under software WebGL each picture costs one frame, drawn here
+  if (!window.__rafOrig) { window.__rafOrig = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; }
+  window.__view = (x, y, z, tx, ty, tz) => { H.UI.modal = 'menu'; document.getElementById('menu').hidden = true; document.getElementById('hud').hidden = true; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); H.frame(1 / 30); };
   window.__live = (s) => { H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; H.simulate(s); };
   return 0; })()"""
 

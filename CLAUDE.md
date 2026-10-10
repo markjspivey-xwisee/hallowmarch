@@ -215,6 +215,13 @@ The harness lives in `tools/`:
 - Standing stat adjustments go in `e.tweak` (`hp`, `dmg`, `rangedRange`, `swing`, `meleeRange`, `speed`). `setupStats` reapplies them, so they survive a level change.
 - `e.motion` moves a body by itself: `spin` (whirlwind) or `leap` (a parabola to a landing spot). `updateMotion` runs for the player and for NPCs.
 
+**Animals** (`08h_animals.js`)
+- Kept animals are entities with role `animal` and a record in `e.tame` (`owner` `player`, `town` or `wild`; `k` hound, pig, horse, deer, sheep, cattle, hen; `cmd` follow, stay, guard, attack, pen; traits in `tr`). `updateNPCs` hands them to `thinkAnimal`; hounds fight through `fightTarget` and `autoAttack` like soldiers (faction of the player); the others are `FACTION_NEUTRAL`.
+- Which crowd draws a beast is `e.crowd || e.kind` (shorn sheep, bulls, saddled horses), and `e.visCode` rides above the scale in `iColA.w`; only the farm crowds (05j) decode it, so leave it 0 for the original crowds.
+- Wild wolves and boars stay camp mobs until tamed (`ai.tameHold` pauses `thinkMob` while one eats from your hand); deer stay critters (`animalsSparesDeer`).
+- Your own horse: `horseLook` asks `animalsRideLook`, `toggleMount` asks `animalsQuickMount`, `dismount` and `killEnt` hand the horse back through `animalsDismounted`; its speed trait scales `MOUNT_SPEED` (`animalsMountSpeed`).
+- Pens are rectangles in their own frame with the gate on the front (+z); `anSegClear` clips paths against them exactly (thin fences slip between `segmentClear`'s samples).
+
 **Scaling past 20**
 - `warLevel()` is the player's level, clamped to 20–50.
 - Realm units keep their offset from it in `e.wlOff`: soldiers −5 to 0, guards 0, lords +4, hallow-wardens +2, muster wardens +10. Gates are +2, and their HP scales with damage.
