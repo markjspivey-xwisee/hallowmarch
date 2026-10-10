@@ -1,14 +1,13 @@
 """[heights] The mountains shaped from everywhere (03d_heights.js): numbers through window.__hm, and screenshots.
-usage: python3 tools/tests/heights.py [noshots] [shotsonly] [q=high|medium|low] [small]
+usage: python3 tools/tests/heights.py
 Checks: the shaping ran and how long it took; the land before it is version 10's (mountains_base.json); nothing changed
 where anything is built or anyone goes (roads, sites, camps, water: heights read on them are exactly as they were);
 what anyone could reach is as walkable as it was and nothing new opens; the skyline along the ring's crest has more
 peaks and notches than before; every tree, rock, plant and herb stands on the ground (settled); the hardy trees
 (after every tree there was): enough of them, on walkable mountain ground, none above the snow line, in water, in a
-collider or on a road; one is felled and falls, one burns, both grow back; the canopy map shades the ground under
-them; birches stand bare in winter; snow lies on the new high ground in a Thule winter; no runtime errors.
-Screenshots heights_*.png: the Logres orchard, each realm's pass, a frontier road, a keep's wall, each town looking out,
-the range from Ériu's town and from a keep, by day, at dusk and in winter, hardy trees."""
+collider or on a road; the outcrops on the walkable lower slopes: enough, each with its collider, none by a road, in water, floating or on a tree, plant or herb; one tree is felled and falls, one burns, both grow back; the canopy map shades the ground under
+them; snow lies on the new high ground in a Thule winter; no runtime errors. (Screenshots: mountains.py, whose views
+include the range from a keep across the frontier, the towns and the hardy trees.)"""
 import json, asyncio, sys, time, pathlib, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
@@ -87,6 +86,18 @@ CHECKS = r"""(() => { const F = __hm.fn, W = F.W, T = __hm.heights, H = T.HTS, H
     if (t.chunk) chunk++;
   }
   out.hardy = { n: hard.length, kinds, walkBad, high, wet, inColl, onRoad, idxBad: idx, state, chunk, first: hard.length ? hard[0].i : -1, trees0: T.HTS.trees0, trees: W.trees.length };
+  // the outcrops on the walkable lower slopes
+  const oc = __hm.mtn.MTN.crags.filter((c) => c.outcrop);
+  let ocColl = 0, ocRoad = 0, ocWet = 0, ocFloat = 0, ocNear = 0;
+  for (const c of oc) {
+    if (c.coll && c.coll.active && c.coll.tag === 'rock') ocColl++;
+    if (W.roads.some((R) => { const ex = R.bx - R.ax, ez = R.bz - R.az, t = Math.max(0, Math.min(1, ((c.x - R.ax) * ex + (c.z - R.az) * ez) / (ex * ex + ez * ez || 1))); return Math.hypot(c.x - R.ax - ex * t, c.z - R.az - ez * t) < R.w + 6; })) ocRoad++;
+    let wet = false, flo = false;
+    for (let a = 0; a < 6.28; a += 0.4) for (const f of [0.4, 0.8, 1]) { const x = c.x + Math.sin(a) * c.r * f, z = c.z + Math.cos(a) * c.r * f; if (__hm.water.waterAt(x, z)) wet = true; if (F.heightAt(x, z) < c.y0 + 0.3) flo = true; }
+    if (wet) ocWet++; if (flo) ocFloat++;
+    if (W.trees.some((t) => Math.hypot(t.x - c.x, t.z - c.z) < c.r * 0.8) || __hm.surv.FORAGE.list.some((p) => Math.hypot(p.x - c.x, p.z - c.z) < c.r) || __hm.farm.FARM.herbs.some((h) => Math.hypot(h.x - c.x, h.z - c.z) < c.r)) ocNear++;
+  }
+  out.outcrops = { n: oc.length, coll: ocColl, road: ocRoad, wet: ocWet, float: ocFloat, near: ocNear };
   return out; })()"""
 
 async def main():
@@ -110,7 +121,7 @@ async def main():
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
         await page.evaluate("(() => { const P = __hm.GAME.player, S = __hm.REALMS[0].town; P.x = P.prevX = S.x; P.z = P.prevZ = S.z; P.hp = P.maxHp; document.getElementById('hud').hidden = true; return 0; })()")
-        if 'shotsonly' not in FLAGS:
+        if True:
             r = await page.evaluate(CHECKS)
             print('checks', json.dumps(r)[:3000], flush=True)
             st = r['stats']
@@ -135,6 +146,10 @@ async def main():
             check(hd['walkBad'] == 0 and hd['wet'] == 0 and hd['onRoad'] == 0 and hd['inColl'] == 0, f"none on blocked ground, in water, on a road or in a collider ({hd['walkBad']}, {hd['wet']}, {hd['onRoad']}, {hd['inColl']})")
             check(hd['high'] == 0, f"none above the snow line ({hd['high']})")
             check(hd['state'] == hd['n'] and hd['chunk'] == hd['n'], 'each has its felling and burning state, collider and chunk instance')
+            oc = r['outcrops']
+            check(oc['n'] >= 40, f"outcrops on the walkable lower slopes ({oc['n']})")
+            check(oc['coll'] == oc['n'], f"each has its collider ({oc['coll']} of {oc['n']})")
+            check(oc['road'] == 0 and oc['wet'] == 0 and oc['float'] == 0 and oc['near'] == 0, f"none by a road, in water, floating, or on a tree, plant or herb ({oc['road']}, {oc['wet']}, {oc['float']}, {oc['near']})")
             # one is felled, one burns, both grow back
             r = await page.evaluate("""(() => { const N = __hm.nature, W = __hm.fn.W, hard = W.trees.filter((t) => t.hardy); const a = hard[0], b = hard[Math.floor(hard.length / 2)];
               let blows = 0; while (!a.felled && blows < 40) { N.treeBlow(a, 60, a.x + 2, a.z); blows++; }

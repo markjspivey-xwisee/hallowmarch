@@ -2,7 +2,9 @@
 usage: python3 tools/tests/mountains.py [tag] [views=a,b,...] [q=high|medium|low] [noshots] [nochecks] [small]
   tag (default 'now') names the screenshots: tools/out/mtn_<tag>_<view>.png.
   Views: orchard, orchard_dusk, orchard_winter, orchard_low, pass0, pass1, pass2, road, wall, wall_low, foot, foot_low,
-  thule_winter, far (each from a fixed camera in clear weather; *_low at low quality, the rest at q, default high).
+  thule_winter, far, crag, crag_low, and ([heights]) keep_far, keep_far_low, keep_far_dusk (the range across the frontier
+  from a Logres keep, 350-450 m), town0, town2, town2_winter (the towns looking at the mountains), trees, trees_low (the
+  hardy trees) (each from a fixed camera in clear weather; *_low at low quality, the rest at q, default high).
   Checks (unless nochecks): the walk mask, the heights of every walkable texel, the navigation graph, the roads and the
   colliders are what they were before the mountains were reshaped (checksums below, taken on version 9); no new closed
   hollow on the mountains; the crags stand only on unwalkable mountain ground, clear of walkable ground, and nowhere in
@@ -25,7 +27,7 @@ def opt(name, default=None):
 FLAGS = {a for a in ARGS if '=' not in a}
 TAG = next((a for a in ARGS if '=' not in a and a not in ('noshots', 'nochecks', 'small')), 'now')
 Q = opt('q', 'high')
-ALL_VIEWS = ['orchard', 'orchard_dusk', 'orchard_winter', 'orchard_low', 'pass0', 'pass1', 'pass2', 'road', 'wall', 'wall_low', 'foot', 'foot_low', 'thule_winter', 'far', 'crag', 'crag_low']
+ALL_VIEWS = ['orchard', 'orchard_dusk', 'orchard_winter', 'orchard_low', 'pass0', 'pass1', 'pass2', 'road', 'wall', 'wall_low', 'foot', 'foot_low', 'thule_winter', 'far', 'crag', 'crag_low', 'keep_far', 'keep_far_low', 'keep_far_dusk', 'town0', 'town2', 'town2_winter', 'trees', 'trees_low']
 VIEWS = opt('views', ','.join(ALL_VIEWS)).split(',')
 SMALL = 'small' in FLAGS
 T0 = time.time()
@@ -103,6 +105,20 @@ window.M = {
       M.H.setTod(0.45); const b = best, y = h(b.x, b.z) + 1.7; M.cam(b.x, y, b.z, b.c.x, b.c.y0 + b.c.h * 0.6, b.c.z); return { cam: [b.x, y, b.z], crag: [b.c.x, b.c.z, b.c.kind, +b.c.h.toFixed(1)] }; },
     crag_low(M) { return M.views.crag(M); },
     far(M) { const S = M.H.REALMS[1].town; M.H.setTod(0.4); const R = M.H.REALMS[1]; return M.look(S.x, S.z, 14, R.bearing + Math.PI, 0.7, 0.3, 120); },
+    // [heights] the range from afar: from a Logres keep's wall walk across the frontier to the far side of the ring
+    // (350-450 m), and from the towns (each looking at the nearest mountains)
+    keep_far(M) { const S = M.H.REALMS[0].keepSites[0]; M.H.setTod(0.42); const y = S.y + 9, t = M.rp(2, 250, -60); M.cam(S.x, y, S.z, t.x, 24, t.z); return { cam: [S.x, y, S.z], at: [t.x, t.z], d: Math.hypot(t.x - S.x, t.z - S.z) }; },
+    keep_far_low(M) { return M.views.keep_far(M); },
+    keep_far_dusk(M) { const r = M.views.keep_far(M); M.H.setTod(1.62); M.F.applyTimeOfDay(1.62); return r; },
+    town0(M) { const S = M.H.REALMS[0].town; M.H.setTod(0.45); const R = M.H.REALMS[0]; return M.look(S.x, S.z, 3, R.bearing + Math.PI + 0.35, 0.5, 0.4, 70); },
+    town2(M) { const S = M.H.REALMS[2].town; M.H.setTod(0.45); const R = M.H.REALMS[2]; return M.look(S.x, S.z, 3, R.bearing + Math.PI - 0.3, 0.5, 0.4, 70); },
+    town2_winter(M) { M.season(0.875); return M.views.town2(M); },
+    // hardy trees on a lower slope: the most of them within 40 m, seen from below
+    trees(M) { const T = M.F.W.trees.filter((t) => t.hardy), h = M.F.heightAt; let best = null, bn = 0;
+      for (const t of T) { const n = T.filter((o) => Math.hypot(o.x - t.x, o.z - t.z) < 30).length; if (n > bn) { bn = n; best = t; } }
+      M.H.setTod(0.45); if (!best) return null; const a = Math.atan2(best.x, best.z), x = best.x - Math.sin(a) * 34, z = best.z - Math.cos(a) * 34, y = h(x, z) + 2;
+      M.cam(x, y, z, best.x, best.y + 4, best.z); return { cam: [x, y, z], at: [best.x, best.z], n: bn }; },
+    trees_low(M) { return M.views.trees(M); },
   },
   set(name) { this.dry(); if (!/winter/.test(name)) this.season(0.375); return this.views[name](this); },
 };

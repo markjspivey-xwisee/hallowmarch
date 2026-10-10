@@ -620,6 +620,7 @@ function mtnCheck() {
   const free = MTN.free;
   for (const c of MTN.crags) {
     out.kinds[c.kind]++;
+    if (c.outcrop) { out.outcrops = (out.outcrops || 0) + 1; continue; } // [heights] outcrops stand on walkable slopes, with colliders (03d_heights.js)
     const rr = c.r + 2.5, i0 = Math.floor((c.x - rr + HALF) / HS), i1 = Math.ceil((c.x + rr + HALF) / HS), j0 = Math.floor((c.z - rr + HALF) / HS), j1 = Math.ceil((c.z + rr + HALF) / HS);
     let bad = false;
     for (let j = j0; j <= j1 && !bad; j++) for (let i = i0; i <= i1; i++) {
