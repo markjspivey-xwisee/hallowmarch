@@ -171,7 +171,7 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];
+    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
     if (msg) uiError(msg);
   } else flashSlot(i);
 }
@@ -345,7 +345,7 @@ function cameraRoom(px, py, pz, cp, sp, dist) {
   for (let t = 0.8; t <= dist; t += 0.4) {
     const x = px + sx * t, z = pz + sz * t, y = py + sp * t;
     for (const c of _camColl) {
-      if (!c.active || c.tag === 'tree' || c.tag === 'rock' || y > c.baseY + c.h + 0.3) continue;
+      if (!c.active || c.tag === 'tree' || c.tag === 'rock' || y > (c.y0 ?? c.baseY) + c.h + 0.3 || (c.y0 != null && y < c.y0 - 0.3)) continue; // [keeps] a raised wall piece blocks only at its own height
       let hit;
       if (c.type === 'circle') hit = dist2(x, z, c.x, c.z) < (c.r + 0.35) ** 2;
       else { const dx = x - c.x, dz = z - c.z; hit = Math.abs(dx * c.cos - dz * c.sin) < c.hx + 0.35 && Math.abs(dx * c.sin + dz * c.cos) < c.hz + 0.35; }

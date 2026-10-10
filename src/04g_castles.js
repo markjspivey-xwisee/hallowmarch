@@ -221,8 +221,12 @@ function castleStone(C) {
     for (const [z0, z1] of [[-we, -11.1], [-11.1, -5.9], [-5.9, we]]) C.floor(sx * (hs - t / 2), (z0 + z1) / 2, t / 2, (z1 - z0) / 2, 0, H);
     C.sections.push({ lx: sx * (hs - t / 2), lz: -8.5, ax: 0, az: 1, axis: 'z', half: 2.2, across: t / 2 + 0.35, top: H, rubble: 1.1, kind: 'stone' });
   }
-  const seg = (we - GATE_HW) / 2;
-  for (const sx of [-1, 1]) C.floor(sx * (GATE_HW + seg), hs - t / 2, seg, t / 2, 0, H);
+  // [keeps] the front walks run from the corner towers to the gate towers' doors (the gate towers are hollow:
+  // towerGateStone, 04l_towers.js), and on over the gate between them behind the gatehouse
+  const gx0 = GATE_TW.stone.x + 1.9, gseg = (we - gx0) / 2;
+  for (const sx of [-1, 1]) C.floor(sx * (gx0 + gseg), hs - t / 2, gseg, t / 2, 0, H);
+  C.floor(0, hs - t / 2 - 0.55, GATE_TW.stone.x - 1.6, 0.75, 0, H);
+  C.coll(0, hs - t / 2 + 0.75, GATE_HW - 0.1, 0.62, 0, H - 0.1, 2.9);
   // crenellated parapets on the outer edges of the walks, from tower to tower ([land] no stairs climb the walks now)
   const pl = hs - 0.25, pe = TC - 2.9;
   castleParapet(C, -pe, -pl, pe, -pl, H);
@@ -235,6 +239,7 @@ function castleStone(C) {
   // and hatches up to the open fighting top with its corbelled ring, crenels and flagpole (04l_towers.js)
   const TWR = {};
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) TWR[sx + ',' + sz] = towerStone(C, sx, sz, H, TT, TC);
+  for (const sx of [-1, 1]) TWR['g' + sx] = towerGateStone(C, sx, H, TT); // [keeps] the gate towers (04l_towers.js)
   // two stairs from the courtyard up the inside of the side walls, each with a landing pier at the top
   for (const sx of [-1, 1]) {
     const x = sx * (wIn - 0.8);
@@ -245,9 +250,13 @@ function castleStone(C) {
   // posts for the archers: the tops of the two front towers, and the right-hand walk; how they walk up ([land] along
   // the side walk, in at the tower's door, up the guard room's ladder through the hatch onto the top)
   const foot = (sx) => [[sx * 10.6, -7.6], [sx * (wIn - 0.8), -6.6], [sx * (wIn - 0.8), 3.4], [sx * (wIn - 0.8), 4.1], [sx * wc, 4.1]];
+  // [keeps] the first three are the garrison's archers' (fillGarrison, 08_ai.js): the tops of the two gate towers, up
+  // through each from its courtyard door, and the right front corner tower's; the rest are ways up for the climbers
+  const gp = (sx) => { const T = TWR['g' + sx]; return { pos: [T.cx, TT, T.cz + 0.85], route: [...towerWayIn(T, [sx * 6.6, 9.6]), [T.cx, T.cz + 0.85]] }; };
   C.posts = [
-    { pos: [-TC + 0.6, TT, TC + 0.4], route: [...foot(-1), ...towerWayUp(TWR['-1,1'], wc), [-TC + 0.6, TC + 0.4]] },
+    gp(-1), gp(1),
     { pos: [TC - 0.6, TT, TC + 0.4], route: [...foot(1), ...towerWayUp(TWR['1,1'], wc), [TC - 0.6, TC + 0.4]] },
+    { pos: [-TC + 0.6, TT, TC + 0.4], route: [...foot(-1), ...towerWayUp(TWR['-1,1'], wc), [-TC + 0.6, TC + 0.4]] },
     { pos: [wc, H, 0.2], route: [...foot(1), [wc, 0.2]] },
   ];
 }
@@ -256,18 +265,22 @@ function castleStone(C) {
 /* Ériu: round stone raths                                             */
 /* ------------------------------------------------------------------ */
 const RATH_R = 16.5, RATH_WALK = 6.7;
+const RATH_GATE_A = 0.377; // [keeps] where the rath's wall meets the middle of a gate tower's masonry (keepRound, 04_props.js)
 function castleRound(C) {
   const { b, M, st, S } = C, R0 = RATH_R, segs = 20, WT = RATH_WALK;
   for (let i = 0; i < segs; i++) {
-    const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
-    if (Math.abs(angDiff(am, 0)) < 0.2) continue;
-    const len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
+    let a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU;
+    if (Math.abs(angDiff((a0 + a1) / 2, 0)) < 0.2) continue;
+    // [keeps] beside the gate the walk runs into the gate tower's platform (towerGateRath, 04l_towers.js)
+    if (i === 1) a0 = RATH_GATE_A; if (i === segs - 2) a1 = TAU - RATH_GATE_A;
+    const am = (a0 + a1) / 2, len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
     C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, (KEEP_T + 0.5) / 2 + 0.3, am, WT); // wide enough to cover the curve at the ends
     // stone crenels where there is no timber hoarding (the hoarding is the parapet on the others), and none
     // inside the lookouts, which have their own breastworks
     const pr = R0 + 0.62, look = i === 4 || i === 5 || i === 14 || i === 15;
     let c0 = a0, c1 = a1;
     if (look) { if (i === 4 || i === 14) c1 = a1 - 0.14; else c0 = a0 + 0.14; }
+    if (i === 1) c0 = RATH_GATE_A + 0.02; if (i === segs - 2) c1 = TAU - RATH_GATE_A - 0.02; // [keeps]
     const ax = Math.sin(c0) * pr, az = Math.cos(c0) * pr, bx = Math.sin(c1) * pr, bz = Math.cos(c1) * pr;
     if (i % 2 === 1 || look) castleParapet(C, ax, az, bx, bz, WT, { th: 0.42, bh: 0.85, mh: 0.75, step: 1.45, mat: MAT.stone, col: st.stone });
     else C.coll((ax + bx) / 2, (az + bz) / 2, len / 2, 0.3, am, WT - 0.1, 1.4); // along the hoarding, at the outer edge
@@ -305,21 +318,27 @@ function castleRound(C) {
   }
   const arc = (sx, aFrom, aTo, r) => { const out = [], n = Math.max(1, Math.ceil(Math.abs(aTo - aFrom) / 0.12)); for (let k = 0; k <= n; k++) { const a = sx * lerp(aFrom, aTo, k / n); out.push([Math.sin(a) * r, Math.cos(a) * r]); } return out; };
   const foot = (sx) => [[sx * 7.6, 9.6], ...arc(sx, 0.58, 1.4, 14.5), [Math.sin(sx * 1.4) * 16.2, Math.cos(sx * 1.4) * 16.2]];
+  // [keeps] the gate towers: hollow drums under thatch, a ladder up through a hatch onto the platform (04l_towers.js);
+  // the archers' posts are on the platforms, then the lookout, then the walk either side of the gate
+  const GT = {};
+  for (const sx of [-1, 1]) GT[sx] = towerGateRath(C, sx, WT);
+  const gp = (sx) => { const T = GT[sx]; return { pos: [T.cx, WT, T.cz + 1.0], route: [...towerWayIn(T, [sx * 5.6, 10.4]), [T.cx, T.cz + 1.0]] }; };
   C.posts = [
+    gp(-1), gp(1),
+    { pos: [16.0, WT, -0.4], route: [...foot(1), ...arc(1, 1.4, 1.6, 16.2), [16.0, -0.4]] },
     { pos: [Math.sin(-0.5) * 16.2, WT, Math.cos(-0.5) * 16.2], route: [...foot(-1), ...arc(-1, 1.4, 0.5, 16.2)] },
     { pos: [Math.sin(0.5) * 16.2, WT, Math.cos(0.5) * 16.2], route: [...foot(1), ...arc(1, 1.4, 0.5, 16.2)] },
-    { pos: [16.0, WT, -0.4], route: [...foot(1), ...arc(1, 1.4, 1.6, 16.2), [16.0, -0.4]] },
   ];
 }
 
 /* ------------------------------------------------------------------ */
 /* Thule: timber burhs                                                 */
 /* ------------------------------------------------------------------ */
-const BURH_WALK = 5.5;
+const BURH_WALK = 5.5, BURH_GALLERY = 9.0; // [keeps] the towers' fighting galleries
 function castleTimber(C) {
   const hs = KEEP_HS, t = KEEP_T, { b, M, st, S } = C, WT = BURH_WALK;
   const wIn = hs - t / 2 - 0.5 - 1.6, wOut = hs - t / 2 - 0.5, wc = (wIn + wOut) / 2; // 12.8 .. 14.4
-  const deck = (cx, cz, hx, hz) => {
+  const deck = (cx, cz, hx, hz, ends = true) => { // [keeps] ends: posts at its ends too (not where a tower's wall carries it)
     b.add(G.box, lm(M, cx, WT - 0.11, cz, 0, hx * 2, 0.22, hz * 2), MAT.wood, darker(st.wood, 1.05));
     C.floor(cx, cz, hx + 0.06, hz + 0.06, 0, WT, WT, 0, 0.4);
     // joists under the boards and posts down to the ground along the inner edge
@@ -327,14 +346,16 @@ function castleTimber(C) {
     for (let i = 0; i <= n; i++) {
       const u = -L / 2 + (L * i) / n;
       const px = along ? cx + u : cx + (cx > 0 ? -hx + 0.12 : hx - 0.12), pz = along ? cz + (cz > 0 ? -hz + 0.12 : hz - 0.12) : cz + u;
-      b.add(G.box, lm(M, px, (WT - 0.25) / 2 - 0.3, pz, 0, 0.2, WT - 0.25 + 0.6, 0.2), MAT.logH, st.logs, S.y, 3);
       b.add(G.box, lm(M, along ? cx + u : cx, WT - 0.3, along ? cz : cz + u, 0, along ? 0.16 : hx * 2, 0.18, along ? hz * 2 : 0.16), MAT.wood, darker(st.wood, 0.75));
+      if (!ends && (i === 0 || i === n)) continue;
+      b.add(G.box, lm(M, px, (WT - 0.25) / 2 - 0.3, pz, 0, 0.2, WT - 0.25 + 0.6, 0.2), MAT.logH, st.logs, S.y, 3);
       C.post(px, pz, 0.14, -0.5, WT - 0.3);
     }
   };
   // side walks between the corner towers, front walks between the gate towers and the corner towers
-  for (const sx of [-1, 1]) deck(sx * wc, 0, 0.8, 12.1);
-  for (const sx of [-1, 1]) deck(sx * 9.3, wc, 2.8, 0.8);
+  for (const sx of [-1, 1]) deck(sx * wc, 0, 0.8, 12.1, false);
+  const gx1 = GATE_TW.timber.x + GATE_TW.timber.HO; // [keeps] the front walks start at the gate towers' doors
+  for (const sx of [-1, 1]) deck(sx * (gx1 + 12.1) / 2, wc, (12.1 - gx1) / 2, 0.8, false);
   // corner decks join the side walks to the front ones in front of the towers
   for (const sx of [-1, 1]) deck(sx * 11.9, 11.75, 0.9, 1.35);
   // loopholes cut through the palisade along the walks
@@ -352,7 +373,17 @@ function castleTimber(C) {
     C.floor(sx * 12.0, 4.75, 0.8, 0.5, 0, WT, WT, 0, 0.4);
   }
   const foot = (sx) => [[sx * 10.2, -4.6], [sx * 12.0, -3.6], [sx * 12.0, 4.4], [sx * wc, 4.5]];
+  // [keeps] the towers: shafts of logs on stone footings, a store, a room at the walks' height with doors onto them, a
+  // fighting gallery under the shingles (towerTimber, 04l_towers.js); the archers' posts are in the gate towers'
+  // galleries and the right front corner tower's, then on the walks
+  const TT = BURH_GALLERY, TWR = {};
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) TWR[sx + ',' + sz] = towerTimber(C, 'corner', sx, sz, WT, TT);
+  for (const sx of [-1, 1]) TWR['g' + sx] = towerTimber(C, 'gate', sx, 1, WT, TT);
+  const gp = (sx) => { const T = TWR['g' + sx]; return { pos: [T.cx, TT, T.cz + 0.9], route: [...towerWayIn(T, [sx * 4.8, 10.6]), [T.cx, T.cz + 0.9]] }; };
+  const cT = TWR['1,1'];
   C.posts = [
+    gp(-1), gp(1),
+    { pos: [cT.cx + 1.0, TT, cT.cz - 1.0], route: [...towerWayIn(cT, [12.2, 9.0]), [cT.cx + 1.0, cT.cz - 1.0]] },
     { pos: [-9.0, WT, wc + 0.1], route: [...foot(-1), [-wc, 10.6], [-11.9, 11.9], [-11.0, wc], [-9.0, wc + 0.1]] },
     { pos: [9.0, WT, wc + 0.1], route: [...foot(1), [wc, 10.6], [11.9, 11.9], [11.0, wc], [9.0, wc + 0.1]] },
     { pos: [wc, WT, 0.5], route: [...foot(1), [wc, 0.5]] },
@@ -540,7 +571,7 @@ function buildCastles() {
       else castleStone(C);
       // the walls themselves can be stood on: they block a body only below their tops
       for (const c of S.colliders) {
-        if (c.tag === 'wall') {
+        if (c.tag === 'wall' && !c.cut) { // [keeps] (not one cut back into a tower's masonry: towerCutWalls, 04l_towers.js)
           c.vert = true;
           if (R.style === 'timber' && !temple && c.type === 'box') {
             // a palisade is a metre of logs, not the 2.2 m of a stone curtain: the walk behind it stays clear
@@ -611,6 +642,7 @@ function castleFollow(e, dt, speed = 0.85) {
   if (i >= Rt.length) { e.ai.route = null; e.ai.ri = 0; return false; }
   // [land] the next point is up or down a ladder: at its foot (or beside its hatch) the body climbs (04l_towers.js)
   if (Rt[i].ladder && towerLadderStart(e, Rt[i].ladder, Rt[i].y > e.y + 1 ? 1 : Rt[i].y < e.y - 1 ? -1 : 0)) return true;
+  if (Rt[i].ladder && Math.abs(Rt[i].y - e.y) > 1) { const L = Rt[i].ladder, up = Rt[i].y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, speed, 0.05); return true; } // [keeps] not yet at its start: go there
   const px = e.x, pz = e.z;
   moveToward(e, Rt[i].x, Rt[i].z, dt, speed, 0.05);
   // a body pushed off its line steps back toward the waypoint before
@@ -618,13 +650,15 @@ function castleFollow(e, dt, speed = 0.85) {
   return true;
 }
 function castleAt(x, z) {
-  for (const C of CASTLES) if (C.kind !== 'temple' && dist2(x, z, C.S.x, C.S.z) < 21 * 21) return C;
+  for (const C of CASTLES) if (C.kind !== 'temple' && dist2(x, z, C.S.x, C.S.z) < 25 * 25) return C; // [keeps] 21: the towers' outer rooms
   return null;
 }
 function castleInside(C, x, z) {
   const dx = x - C.S.x, dz = z - C.S.z, c = Math.cos(C.S.yaw), s = Math.sin(C.S.yaw);
   const lx = dx * c - dz * s, lz = dx * s + dz * c;
-  return C.kind === 'round' ? lx * lx + lz * lz < 15.2 * 15.2 : Math.abs(lx) < 13.7 && Math.abs(lz) < 13.7;
+  if (C.kind === 'round' ? lx * lx + lz * lz < 15.2 * 15.2 : Math.abs(lx) < 13.7 && Math.abs(lz) < 13.7) return true;
+  for (const T of TOWER.list) if (T.C === C && twInside(T, lx - T.cx, lz - T.cz, 0.2)) return true; // [keeps] and its towers' rooms
+  return false;
 }
 // the next waypoint for e to reach t at another height in the same castle (up or down the stairs), or null
 function castleWaypoint(e, t) {
@@ -668,6 +702,7 @@ function castleClimbToward(e, t, dt) {
   const wp = castleWaypoint(e, t);
   if (!wp) return false;
   if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true; // [land]
+  if (wp.ladder && Math.abs(wp.y - e.y) > 1) { const L = wp.ladder, up = wp.y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, 1, 0.05); return true; } // [keeps] go to its start
   moveToward(e, wp.x, wp.z, dt, 1, 0.05);
   return true;
 }

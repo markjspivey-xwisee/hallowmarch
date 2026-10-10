@@ -1351,6 +1351,7 @@ function chronWar() {
       <li><b>Strike harder.</b> Each foreign hallow in your temple adds a tenth to the damage of every soldier of your realm, you among them. Taking back your own hallow does not make you stronger, but it ends the enemy's gain.</li>
     </ol>
     ${campaignChronHTML() /* [campaign] how a campaign is won, the standing and past campaigns (08g_campaign.js) */}
+    ${towersChronHTML() /* [keeps] the towers, their ladders and hatches, fighting in them (04m_ladders.js) */}
     <div class="tide" role="table" aria-label="The war now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Bonus</span><span class="h w" role="columnheader">Its own hallow</span>
       ${tide.map((t) => `<span class="r" style="--rc:${t.R.color}"><i></i>${t.R.name}</span><span class="c">${t.keeps}</span><span class="c">${t.bonus ? '+' + t.bonus + '%' : '·'}</span><span class="w">${t.R.hallowName} ${t.ownAt}</span>`).join('')}</div>
     <p class="now">${lead}</p>`;

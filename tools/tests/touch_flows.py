@@ -3,7 +3,8 @@ plant card, the builder's bar, the companion bar, the crafting book) or a drag o
 scene (where to stand, what is in the bags) and lets time pass. Flows: drink at a river, fish (cast and strike),
 swim out with the stick, dive and come up again, row a boat away from a jetty and go over the side, till and sow, craft from
 the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table,
-go into a keep's corner tower and climb it hatch by hatch ([land]).
+go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
+fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -280,6 +281,44 @@ async def main():
                 ys.append([lab, lab2, y])
             check(ys[0][0] == 'Push the hatch open' and ys[0][1] == 'Climb the ladder' and abs(ys[0][2] - 7) < 0.1, f'tower: Use pushes the hatch open and climbs to the guard room ({json.dumps(ys[0])})')
             check(ys[1][0] == 'Push the hatch open' and ys[1][1] == 'Climb the ladder' and abs(ys[1][2] - 10.5) < 0.1, f'tower: and on through the next hatch onto the top ({json.dumps(ys[1])})')
+
+        # [keeps] a Logres gate tower and a Thule corner tower by touch: the stick walks you in at the courtyard door, taps
+        # on Use push each hatch open and climb each ladder; then a fight at a hatch: a foe comes up the ladder and a tap
+        # on Use slams the hatch on it, and on the rungs a drag of the stick down turns you back
+        for key, realm, pick in (('gatetower', 0, "q.look === 'stone' && q.role === 'gate' && q.sx === 1"), ('timbertower', 2, "q.look === 'timber' && q.role === 'corner' && q.sx === 1 && q.sz === 1")):
+            if not want(key): continue
+            r = await page.evaluate(f"""(() => {{ const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => {pick}), S = T.S, D = T.doors[0], P = TF.P();
+              P.faction = {realm}; const o = F.siteToWorld(S, T.cx + Math.sin(D.a) * (T.RO + 3.5) + Math.cos(D.a) * (D.off || 0), T.cz + Math.cos(D.a) * (T.RO + 3.5) - Math.sin(D.a) * (D.off || 0)), c = F.siteToWorld(S, T.cx + Math.cos(D.a) * (D.off || 0), T.cz - Math.sin(D.a) * (D.off || 0));
+              TF.stand(o.x, o.z, c.x, c.z); P.faction = {realm}; window.__tft = T; return 0; }})()""")
+            await drag_stick(page, cdp, 0, -45, 1.0)
+            inn = await page.evaluate("""(() => { const T = window.__tft, P = TF.P(), F = TF.H.fn, c = Math.cos(T.S.yaw), s = Math.sin(T.S.yaw), dx = P.x - T.S.x, dz = P.z - T.S.z, lx = dx * c - dz * s - T.cx, lz = dx * s + dz * c - T.cz;
+              const inside = T.kind === 'drum' ? Math.hypot(lx, lz) < T.RI : Math.abs(lx) < T.HI && Math.abs(lz) < T.HI; return { inside, y: +(P.y - T.S.y).toFixed(2), yG: +T.yG.toFixed(2), door: +T.doors[0].k.toFixed(2) }; })()""")
+            check(inn['inside'] and abs(inn['y'] - inn['yG']) < 0.2, f'{key}: the stick walks you in at the courtyard door, which swings open ({json.dumps(inn)})')
+            ys = []
+            for L in (0, 1):
+                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders.slice().sort((a, b) => a.yb - b.yb)[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); const P = TF.P(); H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; P.anim.act = 0; TF.stand(p.x, p.z, L.lx, L.lz); P.faction = {realm}; P.y = L.wyb; H.simulate(0.2); window.__tfl = L; return TF.label(); }})()""")
+                if lab == 'Push the hatch open':
+                    await tap(page, '#t-use'); await page.evaluate("__hm.simulate(1.2); 0")
+                lab2 = await page.evaluate("TF.label()")
+                await tap(page, '#t-use')
+                y = await page.evaluate("""(() => { const H = TF.H, P = TF.P(); for (let i = 0; i < 60 && (P.motion || i < 2); i++) H.simulate(0.25); return +(P.y - window.__tft.S.y).toFixed(2); })()""")
+                yt = await page.evaluate("+window.__tfl.yt.toFixed(2)")
+                ys.append([lab, lab2, y, yt])
+            check(all(q[1] == 'Climb the ladder' and abs(q[2] - q[3]) < 0.1 for q in ys), f'{key}: Use pushes each hatch open and climbs each ladder to the top ({json.dumps(ys)})')
+        if want('ladder'):
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
+              P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);
+              const f = H.fn.siteToWorld(S, L.foot.x, L.foot.z), c = F.spawnRealmUnit(1, 'warrior', 24, 'soldier', f.x, f.z, {}); c.y = L.wyb; c.ai.post = null; c.maxHp = c.hp = 4000; window.__tfc = c;
+              H.towers.towerClimb(c, L, 1); let lab = null; for (let i = 0; i < 60 && !(lab && lab.startsWith('Slam')); i++) { H.simulate(0.1); lab = TF.label(); } return lab; })()""")
+            ok = await tap(page, '#t-use')
+            st = await page.evaluate("(() => { __hm.simulate(0.3); const c = window.__tfc; return c.motion ? c.motion.st : null; })()")
+            check(r == 'Slam the hatch on them' and ok and st == 3, f'ladder: a foe comes up the ladder and a tap on Use slams the hatch on it ({r}, {st})')
+            await page.evaluate("(() => { const c = window.__tfc; __hm.simulate(2); __hm.fn.removeEnt(c); return 0; })()")
+            r = await page.evaluate("""(() => { const H = TF.H, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[0], P = TF.P(), p = H.fn.siteToWorld(S, L.foot.x, L.foot.z);
+              H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; TF.stand(p.x, p.z, L.lx, L.lz); P.y = L.wyb; H.towers.towerClimb(P, L, 1); H.simulate(2.5); return { y: +(P.y - S.y).toFixed(2), dir: P.motion ? P.motion.dir : null }; })()""")
+            await drag_stick(page, cdp, 0, 45, 0.6)
+            r2 = await page.evaluate("(() => { const P = TF.P(), S = __hm.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1).S; const d = P.motion ? P.motion.dir : null; for (let i = 0; i < 40 && P.motion; i++) __hm.simulate(0.25); return { dir: d, y: +(P.y - S.y).toFixed(2) }; })()")
+            check(r['dir'] == 1 and r2['dir'] == -1 and r2['y'] < 0.5, f'ladder: on the rungs a drag of the stick down turns you back down ({r}, {r2})')
 
         await page.screenshot(path=OUT + 'touch_flows.png', timeout=300000)
         errs = await page.evaluate("__hm.errors")

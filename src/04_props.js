@@ -240,10 +240,12 @@ function keepStone(b, S, st, R) {
   wall(0, -hs + t / 2, 2 * we, t);
   wall(-hs + t / 2, 0, t, 2 * we);
   wall(hs - t / 2, 0, t, 2 * we);
-  const seg = (we - GATE_HW) / 2;
-  wall(-(GATE_HW + seg), hs - t / 2, 2 * seg, t);
-  wall(GATE_HW + seg, hs - t / 2, 2 * seg, t);
-  b.add(G.box, lm(M, 0, H - 1.0, hs - t / 2, 0, 2 * GATE_HW + 0.6, 2.2, t + 0.5), MAT.stone, darker(st.stone, 0.92), by, 4);
+  // [keeps] the front curtains end in the gate towers' masonry (hollow: towerGateStone, 04l_towers.js), and the
+  // lintel over the gate is flush with the walk over it
+  const gx0 = GATE_TW.stone.x + 1.9, gseg = (we - gx0) / 2;
+  wall(-(gx0 + gseg), hs - t / 2, 2 * gseg, t);
+  wall(gx0 + gseg, hs - t / 2, 2 * gseg, t);
+  b.add(G.box, lm(M, 0, H - 1.05, hs - t / 2, 0, 2 * (GATE_TW.stone.x - 1.95), 2.1, t + 0.5), MAT.stone, darker(st.stone, 0.92), by, 4);
   // castles: the crenellated parapets, the open fighting tops of the corner towers and their stairs are in 04g_castles.js
   const banners = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -252,11 +254,7 @@ function keepStone(b, S, st, R) {
     b.add(G.cyl8, lm(M, x, 10.5 + 2.1, z, 0, 0.08, 4.2, 0.08), MAT.wood, st.wood);
     banners.push({ local: [x, 14.5, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
   }
-  for (const sx of [-1, 1]) {
-    const x = sx * (GATE_HW + 1.9), z = hs - 0.8;
-    b.add(G.cyl12, lm(M, x, 4.5 - 0.7, z, 0, 2.3, 9 + 1.4, 2.3), MAT.stone, st.stone, by, 5);
-    b.add(G.cone12, lm(M, x, 8.3 + 1.7, z, 0, 2.75, 3.4, 2.75), st.roofMat, st.roof);
-  }
+  // [keeps] the gate towers are hollow drums with open fighting tops, built with the castle (towerGateStone, 04l_towers.js)
   // [building] the great hall is a house of the keep now (planKeepHalls and keepHallPoles in 04k_hall.js)
   // hung clear of the masonry, above the gate rather than across it
   banners.push({ local: [0, H + 0.05, hs - t / 2 + (t + 0.5) / 2 + 0.14], yaw: 0, w: 2.2, h: 2.0, kind: 0 });
@@ -265,20 +263,20 @@ function keepStone(b, S, st, R) {
 function keepRound(b, S, st, R) {
   const M = siteMatrix(S), R0 = 16.5, H = 6.2, by = S.y, segs = 20;
   for (let i = 0; i < segs; i++) {
-    const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
-    if (Math.abs(angDiff(am, 0)) < 0.2) continue;
-    const len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
+    let a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU;
+    if (Math.abs(angDiff((a0 + a1) / 2, 0)) < 0.2) continue;
+    if (i === 1) a0 = RATH_GATE_A; if (i === segs - 2) a1 = TAU - RATH_GATE_A; // [keeps] into the gate towers' masonry
+    const am = (a0 + a1) / 2, len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
     b.add(G.box, lm(M, Math.sin(am) * R0, H / 2 - 0.7, Math.cos(am) * R0, am, len, H + 1.4, KEEP_T), MAT.stone, st.stone, by, 4);
     b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.15), H + 0.25, Math.cos(am) * (R0 + 0.15), am, len, 0.5, KEEP_T + 0.5), MAT.darkstone, st.stone);
     // a timber hoarding every other segment
     if (i % 2 === 0 && i !== 4 && i !== 14) b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.4), H + 1.1, Math.cos(am) * (R0 + 0.4), am, len * 0.8, 1.2, 0.25), MAT.wood, st.wood); // castles: not where the lookouts stand
   }
-  b.add(G.box, lm(M, 0, H - 0.6, R0, 0, 2 * GATE_HW + 0.6, 1.8, KEEP_T + 0.5), MAT.darkstone, st.stone, by, 4);
+  b.add(G.box, lm(M, 0, H - 0.6, R0, 0, 3.5, 1.8, KEEP_T + 0.5), MAT.darkstone, st.stone, by, 4); // [keeps] into the gate towers' masonry
   const banners = [];
   for (const sx of [-1, 1]) {
     const x = sx * 3.9, z = R0 - 0.6;
-    b.add(G.cyl12, lm(M, x, 4.25 - 0.7, z, 0, 2.6, 8.5 + 1.4, 2.6), MAT.stone, st.stone, by, 5);
-    b.add(G.cone12, lm(M, x, 7.8 + 2.0, z, 0, 3.1, 4.0, 3.1), MAT.thatch, st.thatch);
+    // [keeps] the gate towers are hollow drums with a platform under a thatched cone (towerGateRath, 04l_towers.js)
     b.add(G.cyl8, lm(M, x, 11.8 + 1.0, z, 0, 0.07, 2.0, 0.07), MAT.wood, st.wood);
     banners.push({ local: [x, 13.6, z], yaw: 0, w: 1.5, h: 0.85, kind: 1 });
   }
@@ -298,26 +296,22 @@ function palisadeWall(b, M, x0, z0, x1, z1, H, st, by) {
 }
 function keepTimber(b, S, st, R) {
   const M = siteMatrix(S), hs = KEEP_HS, t = KEEP_T, H = WALL_H, by = S.y;
-  palisadeWall(b, M, -hs + 1, -hs + t / 2, hs - 1, -hs + t / 2, H, st, by);
-  palisadeWall(b, M, -hs + t / 2, -hs + 1, -hs + t / 2, hs - 1, H, st, by);
-  palisadeWall(b, M, hs - t / 2, -hs + 1, hs - t / 2, hs - 1, H, st, by);
-  palisadeWall(b, M, -hs + 1, hs - t / 2, -GATE_HW, hs - t / 2, H, st, by);
-  palisadeWall(b, M, GATE_HW, hs - t / 2, hs - 1, hs - t / 2, H, st, by);
-  b.add(G.box, lm(M, 0, H - 0.8, hs - t / 2, 0, 2 * GATE_HW + 1.2, 1.4, 1.4), MAT.wood, st.wood);
+  // [keeps] the palisades end in the middle of the towers' log walls (hollow: towerTimber, 04l_towers.js)
+  const ce = hs - 1.2 - 2.475, ge = GATE_TW.timber.x + 1.89;
+  palisadeWall(b, M, -ce, -hs + t / 2, ce, -hs + t / 2, H, st, by);
+  palisadeWall(b, M, -hs + t / 2, -ce, -hs + t / 2, ce, H, st, by);
+  palisadeWall(b, M, hs - t / 2, -ce, hs - t / 2, ce, H, st, by);
+  palisadeWall(b, M, -ce, hs - t / 2, -ge, hs - t / 2, H, st, by);
+  palisadeWall(b, M, ge, hs - t / 2, ce, hs - t / 2, H, st, by);
+  b.add(G.box, lm(M, 0, H - 0.8, hs - t / 2, 0, 5.8, 1.4, 1.4), MAT.wood, st.wood);
   // castles: the walkway behind the palisade, its stairs and loopholes are in 04g_castles.js
   const banners = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const x = sx * (hs - 1.2), z = sz * (hs - 1.2);
-    b.add(G.box, lm(M, x, 5 - 0.7, z, 0, 5.4, 10 + 1.4, 5.4), MAT.wood, st.wood, by, 5);
-    b.add(G.box, lm(M, x, 0.6, z, 0, 5.8, 2.4, 5.8), MAT.stone, st.stone, by, 3);
-    b.add(G.pyr, lm(M, x, 9.6 + 2.2, z, 0, 4.5, 4.4, 4.5), MAT.shingle, st.roof);
-    b.add(G.cyl8, lm(M, x, 14 + 1.1, z, 0, 0.07, 2.2, 0.07), MAT.wood, st.wood);
-    banners.push({ local: [x, 16.0, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
-  }
-  for (const sx of [-1, 1]) {
-    const x = sx * (GATE_HW + 1.9), z = hs - 0.8;
-    b.add(G.box, lm(M, x, 4.3 - 0.7, z, 0, 3.8, 8.6 + 1.4, 3.8), MAT.wood, st.wood, by, 5);
-    b.add(G.pyr, lm(M, x, 7.9 + 1.7, z, 0, 3.2, 3.4, 3.2), MAT.shingle, st.roof);
+    // [keeps] the tower is a hollow shaft of logs on a stone footing with a gallery under its roof (towerTimber,
+    // 04l_towers.js); the flag flies above the roof's peak (14.9)
+    b.add(G.cyl8, lm(M, x, 15.0 + 1.1, z, 0, 0.07, 2.2, 0.07), MAT.wood, st.wood);
+    banners.push({ local: [x, 16.9, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
   }
   // [building] the longhouse is a house of the keep now (planKeepHalls and keepHallPoles in 04k_hall.js)
   banners.push({ local: [0, H - 0.1, hs - t / 2 + 0.7 + 0.14], yaw: 0, w: 2.2, h: 1.25, kind: 0 });

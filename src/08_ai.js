@@ -403,6 +403,7 @@ function canReach(e, t) {
 }
 // can e see o? walls block fights on the ground; archers on walls see over them
 function inSight(e, o) {
+  if (towerSightBlocked(e, o)) return false; // [keeps] a tower's floors, shut hatches and walls (04m_ladders.js)
   if (e.fixedY !== null || o.fixedY !== null || elevatedEnt(e) || elevatedEnt(o)) return true;
   return segmentClear(e.x, e.z, o.x, o.z, 0.15, false);
 }
@@ -983,7 +984,7 @@ function updateNPCs(dt0) {
     // separation
     if (e.fixedY === null) {
       forNear(e.x, e.z, 1.6, (o) => {
-        if (o === e || !o.alive || o.kind === 'door' || o.fixedY !== null) return;
+        if (o === e || !o.alive || o.kind === 'door' || o.fixedY !== null || Math.abs(o.y - e.y) > 1.5) return; // [keeps] not bodies on another floor
         const rr = (e.radius * (e.scale || 1) + o.radius * (o.scale || 1)) * 0.9;
         const dx = e.x - o.x, dz = e.z - o.z, d2 = dx * dx + dz * dz;
         if (d2 < rr * rr && d2 > 1e-6) {
