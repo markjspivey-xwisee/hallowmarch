@@ -18,23 +18,23 @@ function realmRank(rp) { let r = 1; for (let i = 0; i < REALM_RANKS.length; i++)
 
 const CLASSES = {
   warrior: {
-    name: 'Warrior', role: 'Front-line fighter', hp: 1.32, dmg: 1.1, dr: 0.15, range: 2.7, swing: 2.4, ranged: false,
-    blurb: 'Heavy armour, a blade and a shield. Holds the gate and hits hardest up close.',
+    name: 'Warrior', role: 'Front-line fighter', hp: 1.4, dmg: 1.1, dr: 0.15, range: 2.7, swing: 2.4, ranged: false, // [classes] balance
+    blurb: 'Heavy armour, a blade and a shield. Holds the gate, parries the blow and finishes what it starts.', // [classes]
     abilities: ['slash', 'bash', 'cleave', 'charge', 'rally', 'bulwark', 'whirl', 'leap'], icon: 'sword',
   },
   archer: {
-    name: 'Archer', role: 'Ranged damage', hp: 1.0, dmg: 1.0, dr: 0.06, range: 30, swing: 2.2, ranged: 'arrow',
-    blurb: 'A longbow and light leathers. Picks targets off from the walls and the treeline.',
+    name: 'Archer', role: 'Ranged damage', hp: 1.25, dmg: 1.0, dr: 0.12, range: 30, swing: 2.2, ranged: 'arrow', // [classes] balance: a little sturdier
+    blurb: 'A longbow and light leathers. Draws from the long grass and the treeline, and snares what comes close.', // [classes]
     abilities: ['quickshot', 'aimed', 'cripple', 'volley', 'tumble', 'pierce', 'firearrow', 'deadeye'], icon: 'bow',
   },
   mage: {
     name: 'Mage', role: 'Spells and control', hp: 0.86, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane',
-    blurb: 'Fire, frost and blink. Fragile, but breaks a charge before it lands.',
+    blurb: 'Fire, frost and storm, and what each does to the others. Fragile, but freezes a charge before it lands.', // [classes]
     abilities: ['firebolt', 'frost', 'nova', 'blink', 'ward', 'meteor', 'chain', 'blizzard'], icon: 'flame',
   },
   priest: {
-    name: 'Priest', role: 'Healer and support', hp: 0.98, dmg: 0.85, dr: 0.08, range: 2.7, swing: 2.5, ranged: false,
-    blurb: 'Mends wounds, shields allies and smites the faithless. Every warband wants one.',
+    name: 'Priest', role: 'Healer and support', hp: 1.05, dmg: 1.2, dr: 0.08, range: 2.7, swing: 2.5, ranged: false, // [classes] balance: holy light strikes harder
+    blurb: 'Mends wounds, hallows the ground and raises the fallen. Every warband wants one.', // [classes]
     abilities: ['smite', 'mend', 'renew', 'holyfire', 'sanctuary', 'divine', 'massrenew', 'pillar'], icon: 'sun',
   },
 };

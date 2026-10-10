@@ -152,6 +152,7 @@ function effectiveSpeed(e) {
   if (e.carrying) s *= 0.72;
   s *= giftSpeedMult(e); // [gifts] Wood-wise (06c_gifts.js)
   s *= waterSpeedMult(e); // [water] wading and swimming are slow (07b_swim.js)
+  s *= classSpeedMult(e); // [classes] chills, a raised shield, a drawn bow, prayer (07b_classes.js)
   return s;
 }
 function tickBuffs(e, dt) {
@@ -160,7 +161,7 @@ function tickBuffs(e, dt) {
     const b = e.buffs[i];
     if (!b) continue; // a dot can kill, which clears the list
     if (b.kind === 'burn' && e.alive && Math.random() < 0.8) burnFlames(e);
-    if (b.kind === 'hot' || b.kind === 'dot' || b.kind === 'burn') {
+    if (b.kind === 'hot' || b.kind === 'dot' || b.kind === 'burn' || b.kind === 'bleed') { // [classes] bleeding wounds tick too
       while (b.tick + 1 <= now && b.tick + 1 <= b.until + 0.01) {
         b.tick += 1;
         const src = getEnt(b.src) || e;
@@ -205,6 +206,8 @@ function dealDamage(src, dst, amount, opts = {}) {
     amount *= opts.siege ? 1 : 0.5;
   }
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
+  amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
+  if (!(amount > 0)) return 0;
   let dmg = amount * (1 - (opts.pierce ? 0 : dst.drBase)) * (1 - buffMax(dst, 'dr'));
   let absorbed = 0;
   for (const b of dst.buffs) {
@@ -231,6 +234,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   onImpact(src, dst, dmg, opts);
   wearOnHit(src, dst, dmg, opts); // feature/weather: blood, battle damage and gear durability (05h_wear.js)
   brandOnHit(src, dst, opts); // a blow struck with a burning brand can set the foe alight (09d_brand.js)
+  classOnHit(src, dst, dmg, opts); // [classes] momentum, weapon styles, finishers, devotion, arrow heads (07b_classes.js)
   if (dst.hp <= 0) killEnt(dst, src);
   return dmg;
 }
@@ -239,6 +243,7 @@ function healEnt(src, dst, amount, quiet = false) {
   const before = dst.hp;
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
+  classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)
   if (h > 0.5) {
     onHealFeedback(src, dst, h, quiet);
     // healers draw the attention of whoever is fighting the healed unit
@@ -297,6 +302,7 @@ function updateAnim(e, dt) {
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
 }
 function animActValue(e) {
+  const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
   if (e.casting) {
     if (e.casting.id === 'summon') return 0;
     const A = ABILITIES[e.casting.id];
@@ -408,7 +414,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
-  if (e.power < A.cost) return 'power';
+  if (e.power < A.cost && !classOvercast(e, A)) return 'power'; // [classes] a mage may overcast (07b_classes.js)
   const t = resolveTarget(e, A, target);
   if (A.self) return null;
   if (A.friendly) { if (t !== e && dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t)) return 'range'; return null; }
@@ -444,11 +450,12 @@ function finishCast(e) {
     else if (!t || !t.alive || !isEnemy(e, t)) return;
     if (t !== e && dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 4) { if (e.role === 'player') uiError('Your target is out of range'); return; }
   }
-  if (e.power < A.cost) return;
+  if (e.power < A.cost && !classOvercast(e, A)) return; // [classes]
   executeAbility(e, A, t, c);
 }
 function executeAbility(e, A, t, cast = null) {
   const now = GAME.t;
+  A = classAbility(e, A, t, cast); // [classes] this cast's view: stance, finisher, focus, attunement, devotion, arrows (07b_classes.js)
   // every ten levels past 20 an ability hits (and heals) a rank harder
   const rk = rankMult(e.level);
   e.power -= A.cost;
@@ -457,6 +464,7 @@ function executeAbility(e, A, t, cast = null) {
   e.combatUntil = Math.max(e.combatUntil, A.friendly || A.self ? e.combatUntil : now + 6);
   if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : A.anim === 8 ? 0.7 : 0.5, cast && A.anim === 2 ? 0.8 : 0);
   const chest = (u) => u.y + 1.2 * (u.scale || 1);
+  if (A.custom) { A.custom(e, A, t, cast, rk); return; } // [classes] frost nova, thunderclap, element wards and blinks, the storm chain, snares, holy ground, raising
   // self abilities
   if (A.self) {
     if (A.healPct) healEnt(e, e, e.maxHp * A.healPct * rk);
@@ -578,7 +586,7 @@ function executeAbility(e, A, t, cast = null) {
         spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
         natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
-        areaDamage(e, gx, gz, A.radius, A.dmg * rk, null);
+        areaDamage(e, gx, gz, A.radius, A.dmg * rk, { kind: 'fire' }); // [classes] the meteor's fire meets frost, wet and ice
         fireLandsAt(gx, gy, gz, A.radius);
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
         sfx('boom');
@@ -695,7 +703,7 @@ function executeAbility(e, A, t, cast = null) {
     return;
   }
   if (A.proj) {
-    spawnProjectile(e, t, A.proj, { mult: A.dmg * rk, snare: A.snare, ability: A.id, burn: A.burn ? [A.burn[0] * rk, A.burn[1]] : null, pierce: A.id === 'deadeye' });
+    spawnProjectile(e, t, A.proj, { mult: A.dmg * rk, snare: A.snare, ability: A.id, burn: A.burn ? [A.burn[0] * rk, A.burn[1]] : null, pierce: A.id === 'deadeye', arrow: A.arrow }); // [classes] arrow: the head chosen (07b_classes.js)
     sfx(A.proj === 'arrow' || A.proj === 'firearrow' ? 'bow' : A.proj === 'deadeye' ? 'deadeye' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy');
     if (A.proj === 'firearrow') sfx('ignite');
     return;
@@ -751,7 +759,7 @@ function areaDamage(src, x, z, radius, mult, extra) {
   forNear(x, z, radius, (o) => {
     if (!o.alive || !isEnemy(src, o) || !isActor(o)) return;
     const r = computeDamage(src, o, mult);
-    dealDamage(src, o, r.d, { crit: r.crit, kind: 'aoe' });
+    dealDamage(src, o, r.d, { crit: r.crit, kind: (extra && extra.kind) || 'aoe' }); // [classes] an element can ride on an area blow
   });
 }
 /* delayed actions */
@@ -769,7 +777,7 @@ function aoeMarker(x, z, r, dur) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur
 /* auto attack                                                         */
 /* ------------------------------------------------------------------ */
 function autoAttack(e) {
-  if (e.target == null || e.casting || e.carrying != null || e.mount || isStunned(e)) return;
+  if (e.target == null || e.casting || e.carrying != null || e.mount || isStunned(e) || classNoAuto(e)) return; // [classes] not with the shield up, the bow drawn or at prayer
   if (e.rangedKind && e.swim) return; // [water] no shooting while swimming
   const t = getEnt(e.target);
   if (!t || !t.alive || !isEnemy(e, t)) return;
@@ -784,7 +792,8 @@ function autoAttack(e) {
   faceToward(e, t.x, t.z);
   if (e.rangedKind) {
     setAct(e, e.rangedKind === 'arrow' ? 2 : 3, e.rangedKind === 'arrow' ? 0.6 : 0.45);
-    later(e.rangedKind === 'arrow' ? 0.45 : 0.3, () => { if (e.alive && t.alive) spawnProjectile(e, t, e.rangedKind, { mult: e.rangedKind === 'arcane' ? 0.9 : 1.0 }); });
+    const pk = classAutoKind(e); // [classes] a mage's bolt takes the element of the focus (07b_classes.js)
+    later(e.rangedKind === 'arrow' ? 0.45 : 0.3, () => { if (e.alive && t.alive) spawnProjectile(e, t, pk, { mult: e.rangedKind === 'arcane' ? 0.9 : 1.0, auto: true }); });
     if (e.role === 'player') sfx(e.rangedKind === 'arrow' ? 'bow' : 'zap');
   } else {
     setAct(e, e.mobType === 'troll' ? 8 : 1, e.kind === 'humanoid' ? 0.6 : 0.45);
@@ -793,7 +802,7 @@ function autoAttack(e) {
       if (dist(e.x, e.z, t.x, t.z) > reach + 1.2) return;
       const r = computeDamage(e, t, 1);
       spawnSlash(e, e.mobType === 'troll');
-      dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
+      dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee', auto: true }); // [classes] auto: a plain blow (momentum, weapon styles)
       if (t.kind !== 'door') FX.sparks(t.x, t.y + 1.1 * (t.scale || 1), t.z);
       else FX.dust(t.x, t.y + 1, t.z, 4, [0.4, 0.3, 0.2]);
       if (e.role === 'player' || t.role === 'player') sfx(t.kind === 'door' ? 'thud' : 'hit');
@@ -836,7 +845,7 @@ function updateProjectiles(dt) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
         const pl = p.payload || {};
         const r = computeDamage(src, t, pl.mult || 1);
-        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: !!pl.pierce });
+        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: !!pl.pierce || pl.arrow === 'bodkin', arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }
       }

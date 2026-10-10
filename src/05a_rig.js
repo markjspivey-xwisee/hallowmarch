@@ -813,6 +813,35 @@ function humanVS(depth) {
       uaR = a; uaL = a; faR = -0.35; faL = -0.35; uaLz = -0.22; uaRz = 0.22;
       chestX += 0.4 * strike * (1.0 - rec) - 0.25 * wind * (1.0 - strike);
       stepZ = 0.12 * strike * (1.0 - rec); thL = mix(thL, -0.4, strike * (1.0 - rec)); shL = mix(shL, 0.4, strike * (1.0 - rec));
+    } else if (atype > 9.5 && atype < 10.5) {
+      // [classes] the guard: shield raised across the body, the blade cocked back to answer, braced on bent knees
+      float kk = smoothstep(0.0, 0.5, at), still = kk * (1.0 - k);
+      uaL = mix(uaL, -1.38, kk); faL = mix(faL, -1.05, kk); uaLz = mix(uaLz, -0.45, kk);
+      uaR = mix(uaR, -1.95, kk); uaRz = mix(uaRz, -0.55, kk); faR = mix(faR, -1.25, kk);
+      chestX = mix(chestX, 0.15, kk); chestY = mix(chestY, 0.3, kk); headX = mix(headX, 0.06, kk); headY = mix(headY, -0.2, kk);
+      thL = mix(thL, -0.32, still); shL = mix(shL, 0.45, still); thR = mix(thR, 0.24, still); shR = mix(shR, 0.32, still);
+      crouch = max(crouch, 0.07 * still);
+    } else if (atype > 10.5 && atype < 11.5) {
+      // [classes] the parry: shield and blade sweep the blow aside, then a quick thrust back
+      float dfl = smoothstep(0.0, 0.16, at) * (1.0 - smoothstep(0.3, 0.45, at));
+      float rip = smoothstep(0.32, 0.5, at) * (1.0 - smoothstep(0.7, 1.0, at));
+      uaL = mix(uaL, -1.45, dfl); uaLz = mix(uaLz, 0.55, dfl); faL = mix(faL, -0.6, dfl);
+      uaR = mix(uaR, -1.5, dfl); uaRz = mix(uaRz, 0.7, dfl); faR = mix(faR, -0.3, dfl);
+      chestY = mix(chestY, -0.45, dfl); headY = mix(headY, 0.2, dfl);
+      uaR = mix(uaR, -1.48, rip); uaRz = mix(uaRz, -0.1, rip); faR = mix(faR, -0.04, rip);
+      uaL = mix(uaL, -0.9, rip); faL = mix(faL, -1.0, rip);
+      chestY = mix(chestY, 0.38, rip); chestX += 0.2 * rip; stepZ = 0.15 * rip;
+      thL = mix(thL, -0.42, rip); shL = mix(shL, 0.45, rip); thR = mix(thR, 0.26, rip);
+    } else if (atype > 11.5 && atype < 12.5) {
+      // [classes] kneeling: down on the right knee, the left foot planted ahead, hands together, head bowed
+      float kn = smoothstep(0.0, 0.25, at) * (1.0 - smoothstep(0.88, 1.0, at));
+      thL = mix(thL, -1.45, kn); shL = mix(shL, 1.45, kn);
+      thR = mix(thR, 0.1, kn); shR = mix(shR, 1.65, kn);
+      crouch = mix(crouch, 0.48, kn); bob *= 1.0 - kn;
+      uaL = mix(uaL, -1.12, kn); uaR = mix(uaR, -1.12, kn); uaLz = mix(uaLz, -0.44, kn); uaRz = mix(uaRz, 0.44, kn);
+      faL = mix(faL, -1.52, kn); faR = mix(faR, -1.52, kn);
+      headX = mix(headX, 0.38, kn); chestX = mix(chestX, 0.14, kn); headY = mix(headY, 0.0, kn);
+      capeX = mix(capeX, 0.02, kn);
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.

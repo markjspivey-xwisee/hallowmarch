@@ -413,6 +413,7 @@ function pickTarget(e, radius) {
     if (!o.alive || !isEnemy(e, o) || o === e) return;
     if (o.kind === 'door') return;
     if (!canReach(e, o)) return;
+    if (!classSeen(e, o, d2)) return; // [classes] a hidden archer is seen only close by
     let s = d2;
     if (e.threat && e.threat.has(o.id)) s -= e.threat.get(o.id) * 4;
     if (o.role === 'player') s *= 0.85;
@@ -460,6 +461,7 @@ function fightTarget(e, t, dt, opts = {}) {
 function npcAbilities(e, t) {
   if (!e.cls || e.casting || GAME.t < (e.ai.nextAbility || 0)) return;
   e.ai.nextAbility = GAME.t + 1.2 + Math.random() * 1.6;
+  if (classNpc(e, t)) return; // [classes] stances and finishers, draws and snares, elemental combos, holy ground and raising (07b_classes.js)
   const list = CLASSES[e.cls].abilities.filter((k) => ABILITIES[k].level <= e.level);
   // priests: heal the weakest ally first
   if (e.cls === 'priest') {
@@ -509,7 +511,7 @@ function thinkMob(e, dt) {
   if (top) t = top;
   if (!t && M.aggro > 0 && GAME.t > (ai.nextAggro || 0)) {
     ai.nextAggro = GAME.t + 0.5;
-    t = nearestWhere(e.x, e.z, M.aggro, (o) => o.alive && o.faction <= 2 && isActor(o) && (o.role !== 'player' || conIndex(e.level, o.level) > 0));
+    t = nearestWhere(e.x, e.z, M.aggro, (o) => o.alive && o.faction <= 2 && isActor(o) && (o.role !== 'player' || conIndex(e.level, o.level) > 0) && classSeen(e, o, dist2(e.x, e.z, o.x, o.z))); // [classes] hidden archers
     if (t) { e.threat = e.threat || new Map(); e.threat.set(t.id, 1); }
   }
   if (t) {

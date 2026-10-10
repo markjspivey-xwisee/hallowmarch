@@ -100,7 +100,7 @@ function splashAt(x, z, size = 1, opts = {}) {
   return true;
 }
 // steam where fire meets water
-function steamAt(x, y, z, n = 10) {
+function waterSteam(x, y, z, n = 10) {
   for (let i = 0; i < n; i++) fxAlpha.emit(x + (Math.random() - 0.5) * 0.5, y + Math.random() * 0.3, z + (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, 0.8 + Math.random() * 0.8, (Math.random() - 0.5) * 0.5, 1.4, 0.75, 0.77, 0.8, 0.3, -0.25, 1.2);
 }
 
@@ -183,7 +183,7 @@ function updateWater(dt) {
     if (e.swim || w.depth > 0.62 * sc) {
       let burnt = false;
       for (let i = e.buffs.length - 1; i >= 0; i--) if (e.buffs[i].kind === 'burn') { e.buffs.splice(i, 1); burnt = true; }
-      if (burnt) { steamAt(e.x, w.y, e.z, 14); if (e === P || dist2(e.x, e.z, camX, camZ) < 30 * 30) sfx('hiss'); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); }
+      if (burnt) { waterSteam(e.x, w.y, e.z, 14); if (e === P || dist2(e.x, e.z, camX, camZ) < 30 * 30) sfx('hiss'); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); }
     }
     // splashes and ripples: a wader's every footfall, a swimmer's strokes and wake
     const vis = dist2(e.x, e.z, camX, camZ) < 45 * 45;

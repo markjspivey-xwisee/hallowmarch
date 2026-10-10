@@ -353,6 +353,7 @@ function simStep(dt) {
   updateWater(dt); // [water] wading, swimming, the current, fire out, splashes (07b_swim.js)
   updateHall(dt); // [building] the war table's grant, resting by a hall's hearth (04k_hall.js)
   updateBuild(dt); // [building] building work, fire and repair of placed structures (06k_build.js)
+  updateClasses(dt); // [classes] the callings: blocks and parries, the draw and arrows in flight, snares, runes, steam, ice, holy ground (07b_classes.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -402,6 +403,7 @@ function tick(dt) {
   drawWater(dt); // [water] the ripple simulation, rain and spells on the water, the sound of rivers (07b_swim.js)
   drawHall(dt); // [building] the torches of the keeps' halls (04k_hall.js)
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
+  drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
@@ -435,6 +437,7 @@ function tick(dt) {
   // interface
   if (GAME.started && GAME.player) updateHUD(dt);
   if (GAME.started && GAME.player) updateLore(dt);
+  if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
   updateAudio(dt);
   adaptQuality(dt);
 }
