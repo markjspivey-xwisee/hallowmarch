@@ -163,7 +163,7 @@ function farmTraitWords(tr) {
 }
 function farmNewStrain(crop, tr, o = {}) {
   const id = o.id || 's' + FARM.nextStrain++;
-  const S = { id, crop, tr: { ...tr }, gen: o.gen || 1, sd: o.sd ?? 0.08, pa: o.pa || null, pb: o.pb || null, common: !!o.common, name: o.name || null };
+  const S = { id, crop, tr: { ...tr }, gen: o.gen ?? 1, sd: o.sd ?? 0.08, pa: o.pa || null, pb: o.pb || null, common: !!o.common, name: o.name || null };
   if (!S.name) S.name = strainName(crop, S.tr, S.gen);
   FARM.strains[id] = S;
   farmRegisterStrainGood(S);

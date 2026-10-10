@@ -518,7 +518,7 @@ const FARM_SOIL_FS = /* glsl */`
     gPL = pointLights(vW, n);
     // freshly turned loam on the ridges, darker and damper down in the furrows
     vec3 loam = mix(vec3(0.19, 0.135, 0.09), vec3(0.37, 0.28, 0.19), smoothstep(0.15, 0.85, clod));
-    loam *= (0.93 + 0.12 * crumb) * mix(0.8, 1.06, ridge);
+    loam *= (0.93 + 0.12 * crumb) * mix(0.68, 1.08, ridge);
     loam = mix(loam, vec3(0.44, 0.42, 0.38), stone * 0.75);
     // settled ground and stubble where it has not been tilled again
     vec2 cq = vW.xz * 9.0, cc = floor(cq), cf = fract(cq) - 0.5;
