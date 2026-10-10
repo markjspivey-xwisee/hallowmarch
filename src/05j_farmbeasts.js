@@ -185,7 +185,8 @@ function farmBeastVS(depth) {
 // the fur colour after countershading, with this animal's coat pattern laid over it
 const FARM_FS_PATTERN = /* glsl */`
       // [animals] coat patterns (patched, dappled, belted) and the fleece, face, horn and udder materials
-      if ((m == 11 || m == 30 || m == 33) && vPat.x > 0.5) {
+      // (a fleece only takes the patched pattern: belts and dapples are for short coats)
+      if ((m == 11 || m == 33 || m == 30 && vPat.x < 1.5) && vPat.x > 0.5) {
         float lumA = dot(alb, vec3(0.333)) / max(dot(vFur, vec3(0.333)), 0.03);
         vec3 c2 = uDarkCoat > 0.5 ? vec3(0.9, 0.88, 0.84) : vFur2; // a horse's second colour is its pale patches (vFur2 is its saddle cloth)
         vec3 pq = vO * 2.4 + vec3(vPat.y * 1.37, vPat.y * 0.71, vPat.y * 2.13);
