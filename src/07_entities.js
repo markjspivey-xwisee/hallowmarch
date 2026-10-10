@@ -134,6 +134,7 @@ function setupStats(e, keepRatio = false) {
 /* ------------------------------------------------------------------ */
 function addBuff(e, kind, value, dur, src = null, extra = null) {
   const now = GAME.t;
+  if (kind === 'stun' || kind === 'snare' || kind === 'root') { const g = giftBuffAdjust(e, kind, value, dur); value = g.value; dur = g.dur; } // [gifts] Unbroken, Cold-blooded (06c_gifts.js)
   let b = e.buffs.find((x) => x.kind === kind && x.src === src);
   if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
   else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }
@@ -149,6 +150,7 @@ function effectiveSpeed(e) {
   let s = e.speed;
   if (!hasBuff(e, 'free')) s *= 1 - buffMax(e, 'snare');
   if (e.carrying) s *= 0.72;
+  s *= giftSpeedMult(e); // [gifts] Wood-wise (06c_gifts.js)
   return s;
 }
 function tickBuffs(e, dt) {
@@ -201,6 +203,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
   }
+  amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
   let dmg = amount * (1 - (opts.pierce ? 0 : dst.drBase)) * (1 - buffMax(dst, 'dr'));
   let absorbed = 0;
   for (const b of dst.buffs) {

@@ -113,6 +113,7 @@ function buildHotbar() {
   $('tpad').innerHTML = abil.map((k, i) => slotHTML(k, i, '')).join('') + `<div class="wide"><button class="btn" type="button" id="t-target">Target</button><button class="btn" type="button" id="t-use">Use</button><button class="btn" type="button" id="t-jump">Jump</button><button class="btn" type="button" id="t-ride">Ride</button><button class="btn" type="button" id="t-potion">Potion</button><button class="btn" type="button" id="t-kit">Kit</button></div>`;
   UI.slots = [...document.querySelectorAll('#hotbar .slot:not(.potion)'), ...document.querySelectorAll('#tpad .slot:not(.potion)')];
   updatePotionSlot();
+  giftHotbar(); // [gifts] the realm gift on key 9 and on the phone pad, the passive marks (06c_gifts.js)
 }
 function flashSlot(i) { for (const s of UI.slots || []) if (+s.dataset.slot === i) { s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash'); } }
 function toggleLog() { const l = $('log'); if (IS_TOUCH) l.classList.toggle('show'); else l.classList.toggle('hidden'); }
