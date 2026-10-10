@@ -2,7 +2,7 @@
 /* the callings on screen: the class panel over the ability bar         */
 /* (stance and momentum, the draw and the quiver, attunement and the    */
 /* combo cue, devotion), the technique and hold buttons on the phone    */
-/* pad, the keys (G technique, V hold, T arrows), the Chronicle's page  */
+/* pad, the keys (T technique, X hold, Y arrows), the Chronicle's page  */
 /* on the callings and the help lines. Styles: page.html, "classes"   */
 /* ================================================================== */
 Object.assign(BUFF_ICON, {
@@ -32,10 +32,13 @@ function classHotbar() {
   const P = GAME.player;
   if (!P || !P.cls) return;
   let el = $('cls');
-  if (!el) { el = document.createElement('div'); el.id = 'cls'; el.className = 'panel'; $('bottom').insertBefore(el, $('hotbar')); el.addEventListener('click', classPanelClick); }
+  if (!el) { el = document.createElement('div'); el.id = 'cls'; el.className = 'panel'; el.addEventListener('click', classPanelClick); }
+  // over the ability bar on a desktop; on a phone under the frames at the top left, clear of the pad and the stick
+  if (IS_TOUCH) { if (el.parentNode !== $('hud')) $('hud').appendChild(el); }
+  else if (el.parentNode !== $('bottom')) $('bottom').insertBefore(el, $('hotbar'));
   CLS_UI.key = '';
   CLS_UI.el = el;
-  // the phone pad: the technique (G) and the held action (V)
+  // the phone pad: the technique (T) and the held action (X)
   const tp = $('tpad');
   for (const b of tp.querySelectorAll('.cls-btn')) b.remove();
   const L = classLabels(P);
@@ -82,21 +85,21 @@ function classPanelHTML(P) {
   const cs = csOf(P), kb = IS_TOUCH ? '' : (k) => `<kbd>${k}</kbd>`;
   const key = (k) => (kb ? kb(k) : '');
   if (P.cls === 'warrior') {
-    const st = clsHas(P, 'stances') ? `<span class="cls-stances">${STANCES.map((S, i) => `<button type="button" data-cls="stance" data-v="${i}" class="${i === cs.stance ? 'on' : ''}" title="${S.name}: ${S.text}">${iconSvg(S.icon, 15)}</button>`).join('')}${key('G')}</span>` : '';
+    const st = clsHas(P, 'stances') ? `<span class="cls-stances">${STANCES.map((S, i) => `<button type="button" data-cls="stance" data-v="${i}" class="${i === cs.stance ? 'on' : ''}" title="${S.name}: ${S.text}">${iconSvg(S.icon, 15)}</button>`).join('')}${key('T')}</span>` : '';
     const mom = clsHas(P, 'momentum') ? `<span class="cls-mom" title="Momentum: blows build it; at 3 or more, Slash becomes a finisher">${Array.from({ length: MOM_MAX }, (_, i) => `<i data-i="${i}"></i>`).join('')}</span>` : '';
-    return `<div class="cls-row">${st}${mom}<span class="cls-guard" title="Hold V to raise your shield; raise it just as a blow comes to parry">${iconSvg('shield', 16)}${key('V')}</span></div>`;
+    return `<div class="cls-row">${st}${mom}<span class="cls-guard" title="Hold X to raise your shield; raise it just as a blow comes to parry">${iconSvg('shield', 16)}${key('X')}</span></div>`;
   }
   if (P.cls === 'archer') {
-    const q = clsHas(P, 'arrows') ? `<button type="button" class="cls-quiver" data-cls="quiver" title="Choose your arrows (T)"><i class="sw"></i><span class="nm"></span><span class="ct"></span>${key('T')}</button>` : '';
+    const q = clsHas(P, 'arrows') ? `<button type="button" class="cls-quiver" data-cls="quiver" title="Choose your arrows (Y)"><i class="sw"></i><span class="nm"></span><span class="ct"></span>${key('Y')}</button>` : '';
     const hide = clsHas(P, 'hide') ? `<span class="cls-hide" title="Hidden in long grass or among trees: your first shot from cover strikes harder">${iconSvg('eye', 16)}</span>` : '';
-    const sn = clsHas(P, 'snare') ? `<span class="cls-snares" title="Snares laid (G)">${iconSvg('snare', 16)}<b></b>${key('G')}</span>` : '';
-    return `<div class="cls-row"><span class="cls-draw" title="Hold V to draw; let go to loose"><i></i><em></em>${key('V')}</span>${q}${hide}${sn}</div>`;
+    const sn = clsHas(P, 'snare') ? `<span class="cls-snares" title="Snares laid (T)">${iconSvg('snare', 16)}<b></b>${key('T')}</span>` : '';
+    return `<div class="cls-row"><span class="cls-draw" title="Hold X to draw; let go to loose"><i></i><em></em>${key('X')}</span>${q}${hide}${sn}</div>`;
   }
   if (P.cls === 'mage') {
     const list = clsHas(P, 'storm') ? ELEMENTS : ['fire', 'frost'];
-    return `<div class="cls-row">${list.map((el) => `<button type="button" class="cls-el ${el}" data-cls="focus" data-v="${el}" title="${ELEM_NAME[el]}: attunement (casting it charges it and strengthens the next spells of it)">${iconSvg(ELEM_ICON[el], 15)}<i><b></b></i></button>`).join('')}${clsHas(P, 'focus') ? key('G') : ''}<span class="cls-oc" title="Overcast: power is spent and does not return for a moment">${iconSvg('heart', 15)}</span></div>`;
+    return `<div class="cls-row">${list.map((el) => `<button type="button" class="cls-el ${el}" data-cls="focus" data-v="${el}" title="${ELEM_NAME[el]}: attunement (casting it charges it and strengthens the next spells of it)">${iconSvg(ELEM_ICON[el], 15)}<i><b></b></i></button>`).join('')}${clsHas(P, 'focus') ? key('T') : ''}<span class="cls-oc" title="Overcast: power is spent and does not return for a moment">${iconSvg('heart', 15)}</span></div>`;
   }
-  return `<div class="cls-row"><span class="cls-dev" title="Devotion: healing, prayer and holy acts build it"><i></i><em></em></span><span class="cls-sanc" title="Sanctified: near your temple or a hallow your realm holds">${iconSvg('sun', 16)}</span>${clsHas(P, 'consecrate') ? `<button type="button" class="cls-holy" data-cls="tech" title="Holy ground: 35 devotion (G)">${iconSvg('circle', 15)}${key('G')}</button>` : ''}<span class="cls-pray" title="Hold V to pray">${iconSvg('pray', 16)}${key('V')}</span></div>`;
+  return `<div class="cls-row"><span class="cls-dev" title="Devotion: healing, prayer and holy acts build it"><i></i><em></em></span><span class="cls-sanc" title="Sanctified: near your temple or a hallow your realm holds">${iconSvg('sun', 16)}</span>${clsHas(P, 'consecrate') ? `<button type="button" class="cls-holy" data-cls="tech" title="Holy ground: 35 devotion (T)">${iconSvg('circle', 15)}${key('T')}</button>` : ''}<span class="cls-pray" title="Hold X to pray">${iconSvg('pray', 16)}${key('X')}</span></div>`;
 }
 
 /* ---- every frame ---- */
@@ -172,16 +175,16 @@ function classHUD(dt) {
   if (tb) tb.classList.toggle('on', CLS.hold);
 }
 
-/* ---- keys: G the technique, V held for the shield, the draw or prayer, T the arrows ---- */
+/* ---- keys: T the technique, X held for the shield, the draw or prayer, Y the arrows ---- */
 window.addEventListener('keydown', (e) => {
   if (!GAME.started || UI.modal) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
-  if (e.code === 'KeyV' && !e.repeat) classHold(true, 'key');
-  else if (e.code === 'KeyG' && !e.repeat) classTechniqueUI();
-  else if (e.code === 'KeyT' && !e.repeat) cycleArrow(GAME.player);
+  if (e.code === 'KeyX' && !e.repeat) classHold(true, 'key');
+  else if (e.code === 'KeyT' && !e.repeat) classTechniqueUI();
+  else if (e.code === 'KeyY' && !e.repeat) cycleArrow(GAME.player);
 });
-window.addEventListener('keyup', (e) => { if (e.code === 'KeyV' && CLS.holdSrc === 'key') classHold(false); });
+window.addEventListener('keyup', (e) => { if (e.code === 'KeyX' && CLS.holdSrc === 'key') classHold(false); });
 window.addEventListener('blur', () => { if (CLS.hold) classHold(false); });
 
 /* ---- the help screen's lines for the callings ---- */
@@ -189,9 +192,9 @@ function classHelpKeys() {
   return IS_TOUCH
     ? `<kbd>Stance · Snare · Focus · Holy</kbd><span>Your calling's technique, on the round button over your abilities: a warrior's stance, an archer's snare, a mage's focus, a priest's holy ground (or raising the fallen).</span>
       <kbd>Block · Draw · Pray</kbd><span>Hold the second round button: raise your shield (just as a blow comes, to parry), draw your bow (let go to loose), or kneel to pray. A mage holds it to read the target.</span>`
-    : `<kbd>G</kbd><span>Your calling's technique: change stance (warrior), lay a snare (archer), turn your focus (mage), hallow the ground or raise the fallen (priest).</span>
-      <kbd>V (hold)</kbd><span>Raise your shield, and parry if you raise it just as a blow comes (warrior); draw your bow and let go to loose (archer); kneel and pray (priest).</span>
-      <kbd>T</kbd><span>Choose your arrows: plain, broadhead, bodkin, fire or blunt (archer).</span>`;
+    : `<kbd>T</kbd><span>Your calling's technique: change stance (warrior), lay a snare (archer), turn your focus (mage), hallow the ground or raise the fallen (priest).</span>
+      <kbd>X (hold)</kbd><span>Raise your shield, and parry if you raise it just as a blow comes (warrior); draw your bow and let go to loose (archer); kneel and pray (priest).</span>
+      <kbd>Y</kbd><span>Choose your arrows: plain, broadhead, bodkin, fire or blunt (archer).</span>`;
 }
 
 /* ---- the Chronicle's page on the callings (10c_lore.js lists it) ---- */
@@ -201,35 +204,47 @@ function chronClasses() {
   const at = (cls, k) => { const L = CLASS_UNLOCK[cls][k]; return mine === cls ? (lv >= L ? '<span class="now">yours</span>' : `<span class="now">at level ${L}</span>`) : `<span class="now">level ${L}</span>`; };
   const card = (cls, title, intro, rows) => `<div class="card${mine === cls ? ' mine' : ''}"><div class="rhead"><span class="em">${iconSvg(CLASSES[cls].icon, 24)}</span><b>${title}</b>${mine === cls ? '<small>Your calling</small>' : ''}</div><p>${intro}</p><dl class="facts">${rows.map(([dt, k, dd]) => `<dt>${dt}</dt><dd>${dd} ${k ? at(cls, k) : ''}</dd>`).join('')}</dl><p class="now"><b>${R.name}:</b> ${CLASS_REALM[cls][realm].name}. ${CLASS_REALM[cls][realm].text} ${at(cls, 'realm')}</p></div>`;
   return `<p class="lead">Every soldier of the March fights with eight abilities on keys 1 to 8, and every calling has a craft beneath them. A recruit can win a fight with the abilities alone; a veteran wins it with the craft. It opens up level by level, and each realm teaches it in its own way.</p>
-    <p>Two keys serve every calling: <b>G</b>, the calling's technique, and <b>V</b>, held, the calling's held action. On a phone they are the two round buttons over your abilities. What they do, and what you are building, shows in the panel over your ability bar.</p>
+    <p>Two keys serve every calling: <b>T</b>, the calling's technique, and <b>X</b>, held, the calling's held action. On a phone they are the two round buttons over your abilities. What they do, and what you are building, shows in the panel over your ability bar.</p>
     ${card('warrior', 'The warrior', 'A warrior builds <b>momentum</b> with every blow that lands and spends it in a <b>finisher</b>. The shield takes what the blade cannot: raised, it turns most of a blow from the front; raised at the very moment a blow arrives, it <b>parries</b>, and the attacker reels.', [
-      ['Shield', 'block', 'Hold V to raise it: 70% less harm from the front, 40% less from spells, at a cost in endurance. A broken guard staggers you.'],
+      ['Shield', 'block', 'Hold X to raise it: 70% less harm from the front, 40% less from spells, at a cost in endurance. A broken guard staggers you.'],
       ['Parry', 'block', 'Raise the shield just as a blow lands (a foe\'s weapon glints as its blow comes): no harm, the attacker is stunned and takes 20% more harm for 3 s, and you gain 2 momentum.'],
       ['Momentum', 'momentum', 'Each blow that lands builds it, up to 5. At 3 or more, Slash becomes a finisher: 160% and 50% more for each point.'],
       ['Weapon', '', 'The sword opens bleeding wounds, the axe breaks armour (each blow makes the foe take 6% more harm, up to three times), the mace breaks spells and staggers. A finisher drives the weapon\'s bite home.'],
-      ['Stances', 'stances', 'G changes stance. Guarded: 25% less harm taken, 10% less dealt, a wider shield. Balanced: steady. Fury: 20% more harm dealt, 15% more taken, faster blows. Each changes what Bash, Bulwark, Cleave, Whirlwind and Rallying Cry do.'],
+      ['Stances', 'stances', 'T changes stance. Guarded: 25% less harm taken, 10% less dealt, a wider shield. Balanced: steady. Fury: 20% more harm dealt, 15% more taken, faster blows. Each changes what Bash, Bulwark, Cleave, Whirlwind and Rallying Cry do.'],
     ])}
     ${card('archer', 'The archer', 'An archer\'s strength is the <b>draw</b>. A snap shot is quick and wild; a full draw flies true and hard, and every arrow loosed from the string falls in a real arc and drifts on the wind.', [
-      ['The draw', 'draw', 'Hold V to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
-      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (T to choose). Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
+      ['The draw', 'draw', 'Hold X to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
+      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose). Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
       ['Hiding', 'hide', 'Keep still in long grass or among trees, out of the fight for three seconds, and you are hidden: foes see you only close by, and your first shot strikes 50% harder.'],
-      ['Snares', 'snare', 'G lays a snare at your feet: the first foe to step on it is held fast for 3 s. Two at a time.'],
+      ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3 s. Two at a time.'],
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
     ${card('mage', 'The mage', 'A mage works with <b>fire</b>, <b>frost</b> and <b>storm</b>, and with what each does to the world and to the others. Frost chills and then freezes; fire burns; storm leaps from body to body. The art is in the order.', [
       ['Attunement', 'attune', 'Each spell charges its element (the three gauges) and strengthens the next spells of it by up to 30%; the others fade.'],
       ['Combos', '', 'Storm <b>shatters</b> a frozen foe (a heavy blow of any kind does too). Fire bursts the chilled and frozen into <b>steam</b> that blinds and soaks. Storm <b>overloads</b> the burning in an explosion. Frost <b>quenches</b> fire. Turning from a well-charged element makes the combo stronger.'],
       ['The world', '', 'Frost freezes water into ice you can walk on, and puts out fires. Fire is damped by rain and wet foes. Storm arcs further and harder through the wet, and a thunderstorm feeds it.'],
-      ['Focus', 'focus', 'G turns your focus. Your own bolt, Nova, Ward and Blink take its element: a frost nova roots and freezes, a storm nova throws foes back, a ward bites back, a blink leaves fire, frost or lightning behind.'],
+      ['Focus', 'focus', 'T turns your focus. Your own bolt, Nova, Ward and Blink take its element: a frost nova roots and freezes, a storm nova throws foes back, a ward bites back, a blink leaves fire, frost or lightning behind.'],
       ['Overcasting', 'overcast', 'Out of power, you can still cast: the spell takes its due in health, and no power returns for a moment.'],
     ])}
     ${card('priest', 'The priest', 'A priest gathers <b>devotion</b> by healing, by prayer and by holy acts, and spends it on greater works. Devotion also strengthens every heal.', [
       ['Devotion', 'devotion', 'Healing others, smiting the dead and praying build it; it fades when you rest on it. Every point makes your healing stronger, up to 25%.'],
-      ['Prayer', 'pray', 'Hold V to kneel and pray: devotion and power return.'],
-      ['Holy ground', 'consecrate', 'G hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, and the dead are burned and slowed.'],
+      ['Prayer', 'pray', 'Hold X to kneel and pray: devotion and power return.'],
+      ['Holy ground', 'consecrate', 'T hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, and the dead are burned and slowed.'],
       ['Smite', '', 'Holy light falls hardest on the dead of the Barrow: twice the harm, and devotion for every blow.'],
       ['Blessings', 'bless', 'With 20 devotion, Renewal also blesses its target in the way of your realm.'],
-      ['Raising', 'raise', 'Near a friend who fell a moment ago, G raises them (70 devotion).'],
+      ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion).'],
       ['Temples', '', 'At your realm\'s temple, or near a hallow your realm holds, you are sanctified: devotion comes twice as fast and you heal 15% more.'],
     ])}`;
 }
+
+/* ---- what the loading screen remembers of the callings ---- */
+LOADING_TIPS.push(
+  'A warrior who raises the shield just as a blow arrives parries it: the attacker reels, and momentum builds.',
+  'Three chills freeze a foe solid. Storm, or any heavy blow, shatters the ice; fire bursts it into blinding steam.',
+  'Lightning leaps further and harder through anyone wet: in the rain, in a river, or soaked in steam.',
+  'An archer who keeps still in long grass or among trees is hidden, and the first shot from cover strikes hardest.',
+  'Hold your draw to full and the arrow flies true and hard; a snap shot is quick but wild, and the wind carries it.',
+  'Frost freezes lakes and ponds into ice you can cross, for a while. Fire melts it fast.',
+  'A priest builds devotion by healing and prayer, and spends it to hallow the ground or raise the fallen.',
+  'Priests pray best at their own temple, or near a hallow their realm holds.',
+);

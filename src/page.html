@@ -397,6 +397,10 @@
   #tpad .cls-btn.on { background: radial-gradient(circle at 50% 38%, rgba(255, 220, 150, 0.55), rgba(0, 0, 0, 0.55) 72%); box-shadow: 0 0 12px rgba(255, 210, 130, 0.7); color: #fff3d8; }
   body.cls-hidden #hud::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgba(8, 22, 10, 0.42)); }
   .chron .card.mine { border-color: var(--line-strong); box-shadow: inset 3px 0 0 var(--bronze-hi); }
+  body.touch #cls { position: absolute; left: var(--pad); top: calc(var(--pad) + var(--safe-t) + 228px); max-width: 196px; justify-items: start; pointer-events: none; }
+  body.touch #cls .cls-quiver { pointer-events: auto; margin-left: 0; }
+  body.touch .cls-row { flex-wrap: wrap; row-gap: 4px; }
+  body.touch .cls-cue { text-align: left; white-space: normal; max-width: 186px; }
   @media (max-width: 760px), (pointer: coarse) {
     #cls { padding: 4px 7px 3px; }
     .cls-row { gap: 7px; }

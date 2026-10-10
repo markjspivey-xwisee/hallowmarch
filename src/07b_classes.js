@@ -33,7 +33,7 @@ const clsHas = (e, key) => !!e && !!e.cls && CLASS_UNLOCK[e.cls] && CLASS_UNLOCK
 const STANCES = [
   { id: 'guarded', name: 'Guarded', out: 0.9, taken: 0.75, icon: 'shield', text: 'Take 25% less harm and deal 10% less. Your shield covers a wider arc, a raised guard costs no endurance, Shield Bash stuns a second longer and Bulwark lasts three more.' },
   { id: 'balanced', name: 'Balanced', out: 1, taken: 1, icon: 'sword', text: 'No gain and no cost. Momentum fades more slowly and Rallying Cry heals 35%.' },
-  { id: 'fury', name: 'Fury', out: 1.2, taken: 1.15, icon: 'flame', text: 'Deal 20% more harm and take 15% more. You swing faster, Cleave and Whirlwind cut deeper and Rallying Cry adds 25% damage.' },
+  { id: 'fury', name: 'Fury', out: 1.15, taken: 1.12, icon: 'flame', text: 'Deal 15% more harm and take 12% more. You swing faster, Cleave and Whirlwind cut deeper and Rallying Cry adds 25% damage.' },
 ];
 const MOM_MAX = 5, FIN_MIN = 3, PARRY_WIN = 0.3, PARRY_REARM = 0.5;
 const ELEMENTS = ['fire', 'frost', 'storm'];
@@ -218,7 +218,7 @@ function classHarm(src, dst, amount, opts) {
   }
   // the target's state: sundered armour, a stagger
   const sun = buffMax(dst, 'sunder');
-  if (sun) m *= 1 + 0.06 * sun;
+  if (sun) m *= 1 + 0.05 * sun;
   if (hasBuff(dst, 'stagger')) m *= 1.2;
   if (opts.arrow && src) m *= arrowHarm(src, dst, opts);
   // the elements meet the world and each other
@@ -284,10 +284,12 @@ function elementReact(src, dst, el, opts) {
 function addChill(e, n, src) {
   if (!e.alive || e.kind === 'door' || e.flying) return;
   const cur = chillOf(e) + n;
-  const boss = e.role === 'boss' || e.role === 'dungeonBoss';
+  // a body just thawed cannot be frozen again at once
+  const boss = e.role === 'boss' || e.role === 'dungeonBoss' || GAME.t < (e._thawUntil || 0);
   if (cur >= 3 && !boss && !frozenOf(e)) {
     dropBuffs(e, ['chill']);
-    const dur = e.role === 'player' ? 1.6 : e.elite ? 1.8 : 2.6;
+    const dur = e.role === 'player' ? 1.6 : e.elite ? 1.5 : 2.0;
+    e._thawUntil = GAME.t + dur + 5;
     addBuff(e, 'frozen', 1, dur, 'frozen');
     addBuff(e, 'stun', 1, dur, 'frozen');
     e.casting = null;
@@ -446,7 +448,7 @@ function classOnHit(src, dst, dmg, opts) {
     const fin = cs.fin && t < cs.fin.until ? cs.fin : null;
     if (fin) { cs.fin = null; finisherLands(src, dst, fin, dmg); }
     else {
-      addMom(src, (opts.auto ? 1 : 0.75) + (opts.crit ? 1 : 0));
+      addMom(src, (opts.auto ? 0.8 : 0.5) + (opts.crit ? 0.5 : 0));
       if (cs.stance === 2 && opts.auto) src.swingAt -= src.swing * 0.1;
       styleProc(src, dst, dmg, opts, false);
     }
@@ -461,7 +463,8 @@ function classOnHit(src, dst, dmg, opts) {
 // the weapon's own bite: the sword opens wounds, the axe breaks armour, the mace staggers
 function styleProc(src, dst, dmg, opts, strong) {
   const st = weaponStyle(src);
-  if (st === 'sword') { if (strong || Math.random() < 0.15) addBuff(dst, 'bleed', dmg * (strong ? 0.22 : 0.08), strong ? 6 : 4, src.id); }
+  // (a bleed's value is its harm each second: a finisher's wound bleeds 30% of the blow over 6 s, a cut 12% over 4 s)
+  if (st === 'sword') { if (strong || Math.random() < 0.15) addBuff(dst, 'bleed', dmg * (strong ? 0.3 / 6 : 0.12 / 4), strong ? 6 : 4, src.id); }
   else if (st === 'axe') { const b = dst.buffs.find((q) => q.kind === 'sunder' && q.until > GAME.t); const n = Math.min(3, (b ? b.value : 0) + (strong ? 3 : 1)); addBuff(dst, 'sunder', n, 10, 'sunder'); const bb = dst.buffs.find((q) => q.kind === 'sunder'); if (bb) bb.value = n; if (strong) for (const q of dst.buffs) if (q.kind === 'shield') q.value = 0; }
   else if (st === 'mace') { if (dst.casting && (strong || Math.random() < 0.5)) { dst.casting = null; if (dst === GAME.player) uiLog('The blow breaks your spell.', 'warn'); } if (!strong && Math.random() < 0.12) addBuff(dst, 'snare', 0.3, 2, src.id); }
 }
@@ -502,10 +505,10 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'slash' && clsHas(e, 'momentum') && momOf(e) >= FIN_MIN) {
     const pips = Math.floor(cs.mom), style = weaponStyle(e);
     V = view();
-    V.dmg = 1.6 + 0.5 * pips; V.anim = 8; V.name = 'Finisher';
+    V.dmg = 1.25 + 0.35 * pips; V.anim = 8; V.name = 'Finisher';
     cs.mom = 0; cs.momAt = nowT();
     cs.fin = { pips, style, until: nowT() + 0.8 };
-    if (pips >= 5 && realmFlavour(e) && e.faction === 1) { V.self = true; V.spin = 4.2; V.dmg = (1.6 + 0.5 * pips) * 0.75; cs.fin.until = nowT() + 1.2; } // a champion's feat: the whirling cut
+    if (pips >= 5 && realmFlavour(e) && e.faction === 1) { V.self = true; V.spin = 4.2; V.dmg = (1.25 + 0.35 * pips) * 0.75; cs.fin.until = nowT() + 1.2; } // a champion's feat: the whirling cut
     if (e === GAME.player) uiLog(`Finisher: ${pips} momentum spent.`, 'level');
   }
   if (A.id === 'bash' && st === 0) { view().stun = A.stun + 1; if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
@@ -574,7 +577,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm;
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.75 : 1); // a priest's own wounds mend more slowly than another's
   if (A.hot) view().hot = [A.hot[0] * hm, A.hot[1]];
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
@@ -609,7 +612,7 @@ function frostNova(e, A, t, cast, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
     const r = computeDamage(e, o, A.dmg * rk * 0.7);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost', chill: 1 });
-    if (o.alive) addBuff(o, 'root', 1, A.root + 0.5, e.id);
+    if (o.alive) addBuff(o, 'root', 1, A.root, e.id);
   });
   frostLands(e.x, e.z, R, e);
   sfx('frost'); classSfx('freeze', e.x, e.z);
@@ -1090,9 +1093,9 @@ function stepGrounds(dt) {
 }
 
 /* ------------------------------------------------------------------ */
-/* the class technique (G) and the held action (V)                     */
+/* the class technique (T) and the held action (X)                     */
 /* ------------------------------------------------------------------ */
-// G: the warrior changes stance, the archer lays a snare, the mage turns their focus, the priest consecrates or raises
+// T: the warrior changes stance, the archer lays a snare, the mage turns their focus, the priest consecrates or raises
 function classTechnique(e = GAME.player) {
   if (!e || !e.alive || !e.cls) return 'dead';
   const cs = csOf(e);
@@ -1138,7 +1141,7 @@ function setFocus(e, el) {
   if (e === GAME.player) { uiLog(`Your focus turns to ${el}.`, 'sys'); sfx(el === 'fire' ? 'ignite' : el === 'frost' ? 'frost' : 'zap'); classCue('focus'); }
   return true;
 }
-// V held: the warrior raises the shield, the archer draws, the priest kneels to pray
+// X held: the warrior raises the shield, the archer draws, the priest kneels to pray
 function classHold(on, src = 'key') {
   const P = GAME.player;
   if (!P || !GAME.started) return;
@@ -1149,7 +1152,7 @@ function classHold(on, src = 'key') {
   else if (P.cls === 'priest') { if (on) startPrayer(P); else stopPrayer(P); }
   else if (P.cls === 'mage' && on) { const t = getEnt(P.target); if (t && t.alive && isEnemy(P, t)) uiFloatAt(P.x, P.y + 2.4, P.z, comboHint(P, t) || 'No reaction', 'xp'); }
 }
-// the arrow chosen for the next shots (T): only kinds the archer carries
+// the arrow chosen for the next shots (Y): only kinds the archer carries
 function cycleArrow(e = GAME.player) {
   if (!e || e.cls !== 'archer') return;
   if (!clsHas(e, 'arrows')) { uiError(`Special arrows come at level ${CLASS_UNLOCK.archer.arrows}`); return; }
@@ -1192,6 +1195,7 @@ function classNpc(e, t) {
       if (clsHas(e, 'arrows')) cs.arrow = t.cls === 'warrior' || t.drBase >= 0.1 ? 'bodkin' : t.kind !== 'humanoid' ? 'broadhead' : t.casting || UNDEAD.has(t.mobType) ? 'blunt' : wetOf(t) < 0.3 && rainHere(e) < 0.2 ? 'fire' : 'broadhead';
       const d = dist(e.x, e.z, t.x, t.z);
       if (clsHas(e, 'snare') && d < 7 && !t.rangedKind && !canUse(e, 'snare', null) && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 25)) { useAbility(e, 'snare', null); return true; }
+      if (d < 4.5 && !t.rangedKind && e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null) && e.fixedY === null) { e.yaw = Math.atan2(t.x - e.x, t.z - e.z); useAbility(e, 'tumble', null); return true; }
       if (!cs.npcDraw && d > 8 && d < e.rangedRange + 6 && Math.random() < 0.55 && e.power > 20) { cs.npcDraw = { until: nowT() + 0.6 + Math.random() * 0.8 }; startDraw(e); return true; }
     }
     return false;
@@ -1201,7 +1205,7 @@ function classNpc(e, t) {
     const d = dist(e.x, e.z, t.x, t.z);
     const go = (id, focus) => { if (focus && clsHas(e, 'focus')) cs.focus = focus; if (!canUse(e, id, t)) { useAbility(e, id, t); return true; } return false; };
     // close foes: a nova of the right element
-    if (d < 6 && clsHas(e, 'focus') && near(6, (o) => isEnemy(e, o)) >= 1) { if (go('nova', frozenOf(t) ? 'storm' : chillOf(t) > 0 || burningOf(t) ? 'frost' : clsHas(e, 'storm') && wetOf(t) > 0.3 ? 'storm' : 'frost')) return true; }
+    if (d < 6 && clsHas(e, 'focus') && (near(6, (o) => isEnemy(e, o)) >= 2 || e.hp < e.maxHp * 0.5)) { if (go('nova', frozenOf(t) ? 'storm' : chillOf(t) > 0 || burningOf(t) ? 'frost' : clsHas(e, 'storm') && wetOf(t) > 0.3 ? 'storm' : 'frost')) return true; }
     // the combos: storm on the frozen, the burning and the wet; fire on the chilled; frost on the burning
     if ((frozenOf(t) || burningOf(t) || wetOf(t) > 0.3) && go('chain', 'storm')) return true;
     if ((chillOf(t) > 0 || frozenOf(t)) && go('firebolt', 'fire')) return true;
@@ -1216,7 +1220,10 @@ function classNpc(e, t) {
       const dead = near(8, (o) => isEnemy(e, o) && isUndead(o));
       if (hurt >= 2 || dead >= 2 || (t && t.alive && hurt >= 1 && dist(e.x, e.z, t.x, t.z) < 6)) { useAbility(e, 'consecrate', null); return true; }
     }
-    if (t && t.alive && isUndead(t) && !canUse(e, 'smite', t)) { useAbility(e, 'smite', t); return true; }
+    // with no one to mend, a priest smites; the dead are smitten even then, unless a friend is near death
+    let need = 1;
+    forNear(e.x, e.z, 28, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) need = Math.min(need, o.hp / o.maxHp); });
+    if (t && t.alive && ((isUndead(t) && need > 0.4) || (need > 0.62 && Math.random() < 0.5)) && !canUse(e, 'smite', t)) { useAbility(e, 'smite', t); return true; }
     return false;
   }
   return false;
@@ -1235,10 +1242,10 @@ function npcClassStep(e, dt) {
         if (cs.blockOn || !o.alive || o.target !== e.id || !isEnemy(o, e) || o.rangedKind) return;
         const a = o.anim.act;
         if ((a === 1 || a === 8) && o.anim.actT < 0.1 && cs.guard > 20) {
-          cs.npcReact = t + 0.6;
+          cs.npcReact = t + 0.45;
           // a seasoned soldier reads the swing and parries it; a greener one gets the shield up in time to take it
           const parryP = clamp(0.1 + 0.004 * e.level + (realmFlavour(e) && e.faction === 0 ? 0.06 : 0), 0, 0.35);
-          const blockP = 0.22 + (cs.stance === 0 ? 0.2 : 0);
+          const blockP = 0.25 + (cs.stance === 0 ? 0.3 : 0);
           const r = Math.random();
           if (r < parryP + blockP) {
             setBlock(e, true);
@@ -1379,23 +1386,23 @@ function updateClasses(dt) {
 function classLevelNews(P, from, to) {
   const U0 = CLASS_UNLOCK[P.cls];
   const say = {
-    block: 'Hold V (or the shield button) to raise your shield. Raise it just as a blow comes to parry it.',
+    block: 'Hold X (or the shield button) to raise your shield. Raise it just as a blow comes to parry it.',
     momentum: 'Momentum: your blows build it. At three or more, Slash becomes a finisher that spends it all.',
-    stances: 'Stances: press G (or the stance button) to change between guarded, balanced and fury.',
-    draw: 'Hold V (or the draw button) to draw your bow; let go to loose. The longer the draw, the harder and truer the shot.',
-    arrows: 'Special arrows: press T (or tap the quiver) to choose broadhead, bodkin, fire or blunt arrows.',
+    stances: 'Stances: press T (or the stance button) to change between guarded, balanced and fury.',
+    draw: 'Hold X (or the draw button) to draw your bow; let go to loose. The longer the draw, the harder and truer the shot.',
+    arrows: 'Special arrows: press Y (or tap the quiver) to choose broadhead, bodkin, fire or blunt arrows.',
     hide: 'Hiding: keep still in long grass or among trees and you are hidden. Your first shot from cover strikes harder.',
-    snare: 'Snares: press G (or the snare button) to lay a snare at your feet.',
+    snare: 'Snares: press T (or the snare button) to lay a snare at your feet.',
     track: 'Tracking: Crippling Arrow and full-draw hits mark your quarry. You strike marked foes 10% harder.',
     attune: 'Attunement: every spell charges its element and strengthens the next spells of it.',
-    focus: 'Focus: press G (or the focus button) to turn between fire and frost. Your bolt, Nova, Ward and Blink take its element.',
+    focus: 'Focus: press T (or the focus button) to turn between fire and frost. Your bolt, Nova, Ward and Blink take its element.',
     storm: 'Storm: your focus can now turn to storm.',
     overcast: 'Overcasting: you can cast without enough power, paying for it in health.',
     devotion: 'Devotion: healing, prayer and holy acts build it. It strengthens your healing.',
-    pray: 'Hold V to kneel and pray: devotion and power return.',
-    consecrate: 'Holy ground: press G (or the consecrate button) to hallow the ground at your feet for 35 devotion.',
+    pray: 'Hold X to kneel and pray: devotion and power return.',
+    consecrate: 'Holy ground: press T (or the consecrate button) to hallow the ground at your feet for 35 devotion.',
     bless: 'Blessings: Renewal also blesses its target when you have 20 devotion.',
-    raise: 'Raising the fallen: near a friend who fell a moment ago, press G with 70 devotion to raise them.',
+    raise: 'Raising the fallen: near a friend who fell a moment ago, press T with 70 devotion to raise them.',
     realm: `Your realm's way: ${CLASS_REALM[P.cls][P.faction].name}. ${CLASS_REALM[P.cls][P.faction].text}`,
   };
   for (const k in U0) if (U0[k] > from && U0[k] <= to && say[k]) { uiToast(`New: ${say[k]}`, 'hint'); uiLog(say[k], 'level'); }
