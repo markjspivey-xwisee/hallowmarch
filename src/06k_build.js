@@ -1209,6 +1209,7 @@ function chronBuilding() {
     <li>Wood and thatch burn: a fire spell, the dragon or a burning brand sets them alight, the fire spreads from piece to piece, and what burns through falls in a charred heap. Stone does not burn.</li>
     <li>Repair what is burnt or charred for half its goods, with your hammer. Pull down what you no longer want from the builder (Pull down): half its goods come back.</li>
     <li>Sleep in a bed you built and you wake there when you fall. A chest keeps goods. A campfire warms and dries you.</li></ul>
+    ${depthChronBuilding() /* [depth] hip roofs, lean-tos, leaded glass, wells, townsfolk at your doors (09u_depth.js) */}
     <p class="now">You have built <b>${n}</b> piece${n === 1 ? '' : 's'}.</p>`;
 }
 function buildHelpHTML() {

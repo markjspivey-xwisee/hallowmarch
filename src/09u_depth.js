@@ -231,7 +231,7 @@ function depthOffers(P, offer) {
   // with a brand in hand: set a bush or an apple tree alight
   if (P.brand) {
     const b = dpPlantNear(P, 2.4, (p) => DP_BURN[p.k] && !p.gone && !(p.fire > 0) && (p.char || 0) < 0.6 && !(p.cut && !p.log));
-    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(b.d, 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpIgnite(b.p, 1)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.25);
+    if (b && (b.p.k === 'bush' || b.p.k === 'apple')) offer(Math.min(b.d, 0.05), 2.6, `Set the ${FORAGE_KINDS[b.p.k].name} alight`, () => { if (dpIgnite(b.p, 1)) { setAct(P, 5, 0.6); uiLog(`The ${FORAGE_KINDS[b.p.k].name} catches.`, 'warn'); } else uiError('It is too wet to catch'); }, 0.3);
     return;
   }
   const blade = dpKnife() || dpAxe();
@@ -391,6 +391,7 @@ function dpSplitApple(p) {
   natAddPile(sp.x, sp.z, Math.atan2(F.uz, -F.ux), 'oak');
   natSplitGoods({ kind: 'apple' });
   p.regrowAt = GAME.t + DP_REGROW.apple / (NATURE.speed || 1);
+  p.at = p.regrowAt + FORAGE_KINDS.apple.regrow; // a young tree fruits once it has grown
   FORAGE.dirty = true;
   saveSoon();
 }
@@ -420,7 +421,7 @@ function dpGrubTree(t) {
   saveSoon();
 }
 function dpGrubPlant(p) {
-  p.gone = true; p.cut = true; p.regrowAt = 0; p.ripe = 0;
+  p.gone = true; p.cut = true; p.regrowAt = 0; p.ripe = 0; p.at = GAME.t + 1e7; // never fruits again
   if (p.coll) p.coll.active = false;
   dpDugEarth(p.x, p.z, p.k === 'apple' ? 1.2 : 1.0);
   goodsAdd(p.k === 'apple' ? 'firewood' : 'stick', p.k === 'apple' ? 1 : 2, true);
@@ -809,10 +810,12 @@ function dpDoorsStep(dt) {
       if (P && o.faction <= 2 && o.faction !== P.faction) return; // the enemy finds it shut
       const dx = o.x - pc.x, dz = o.z - pc.z, lx = dx * c - dz * s, lz = dx * s + dz * c;
       if (Math.abs(lx) > hw + 0.9) return;
-      const vx = o.x - (o.prevX ?? o.x), vz = o.z - (o.prevZ ?? o.z), vl = vx * s + vz * c; // its way across the doorway
-      if (Math.abs(lz) < 2.6 && (Math.abs(vl) > 0.002 || Math.abs(lz) < 0.9)) coming = true;
+      // its way across the doorway since the last look (a quarter of a second ago), toward the wall
+      const vx = o.x - (o._dpPX ?? o.x), vz = o.z - (o._dpPZ ?? o.z), vl = vx * s + vz * c;
+      o._dpPX = o.x; o._dpPZ = o.z;
+      if (Math.abs(lz) < 2.6 && (vl * lz < -0.004 || Math.abs(lz) < 0.9)) coming = true;
       // nobody idles in a doorway: a body standing in it steps out to the side it came from
-      if (Math.abs(lz) < 0.55 + o.radius && Math.abs(lx) < hw && Math.hypot(vx, vz) < 0.002) {
+      if (Math.abs(lz) < 0.55 + o.radius && Math.abs(lx) < hw && Math.hypot(vx, vz) < 0.02) {
         o._dpDoorT = (o._dpDoorT || 0) + 0.25;
         if (o._dpDoorT > 1.5) { const sd = lz >= 0 ? 1 : -1; stepTo(o, o.x + s * sd * 1.1, o.z + c * sd * 1.1); o._dpDoorT = 0; }
       } else o._dpDoorT = 0;
@@ -1042,6 +1045,32 @@ function drawDepth(dt) {
 }
 
 /* ------------------------------------------------------------------ */
+/* the Chronicle: what the new things are and how to use them          */
+/* ------------------------------------------------------------------ */
+function depthChronLiving() {
+  return `<h3>Woodcraft</h3>
+    <p><b>Berry bushes</b> and <b>apple trees</b> burn like the grass around them: a grass fire, a fire spell or a burning brand (E beside one) sets them alight, and they stand charred and bare until they put out new shoots. With a <b>knife</b> or an <b>axe</b> you can cut a bush down to its roots for sticks and fibre; it grows back. An apple tree is chopped down like any other tree (an axe takes fewer blows) and falls about its stump; cut it up for firewood and a log.</p>
+    <p>A <b>stump</b> is in the way of a foundation or a garden bed. Grub it out, roots and all, with an <b>axe</b> or a <b>pick</b> (E beside it): the ground is clear for good.</p>
+    <h3>Game birds and feathers</h3>
+    <p><b>Pheasants</b> feed in the long meadows and <b>ducks</b> paddle on the lakes. They sit tight until you come close (closer if you creep, or hide as an archer), then burst up and fly off a long way before they come down. Shot down they give meat and <b>feathers</b> for arrows and cloaks. Hens give feathers too: plucked, or moulted about the paddock for you to gather.</p>
+    <h3>The late game's materials</h3>
+    <p>Gear you make yourself goes past item level 24, but only with what the hardest fights give: <b>grave-iron</b> from the Barrow's dead and the Hollow King's hoard (to item level 36), <b>dragon scales</b> from Cinderwing and <b>champions' trophies</b> from the leaders of the borderland camps (to item level 50), with the new herbs of the gardens, <b>Marshgold</b>, <b>Moonfern</b> and <b>Stonebloom</b>, and farm wool, linen, milk and feathers. Each calling has a named <b>masterwork</b> (crafting skill 85, level 40): always at least fine, and a master's hand can make it legendary. Past skill 50 your work sometimes carries a bonus stat the grade alone would not give: a <i>masterwork</i>.</p>
+    <p>At the alchemy table the new herbs make a <b>Marshgold cure</b> (draws out burns and bleeding and heals), a <b>Moonfern draught</b> (shakes off stuns and snares and restores your power) and a <b>Stonebloom draught</b> (a ward against blows). Milk makes cheese at the bakehouse; eggs fry at any fire; beans go into a stew.</p>`;
+}
+function depthChronBuilding() {
+  return `<h3>More to build</h3><ul>
+    <li>A <b>hip roof</b> slopes down on all four sides, with no gable ends; a <b>lean-to</b> is a single slope of shingles, high on one wall and low on the other (R turns it), good against a wall.</li>
+    <li><b>Windows</b> are glazed with leaded diamond panes (a pane of glass each), with shutters that open and close.</li>
+    <li>A <b>well</b> gives you water to drink and fill your skins (E), keeps the troughs of your paddocks near it full and the garden beds near it from drying out.</li>
+    <li>Townsfolk and your realm's soldiers open the doors and gates you built when their way passes through, and shut them behind them; nobody idles in a doorway. Your realm's own soldiers never set fire to what you built, nor to their own town and keeps: only you, or the enemy, can do that.</li></ul>`;
+}
+function depthChronAnimals() {
+  return `<h3>Chicks, feathers and herding</h3>
+    <p>Keep a <b>cockerel</b> with your hens and the eggs they lay are fertile: leave one lying in the paddock and it hatches into a chick in a few minutes. A hen that pairs lays a whole clutch in the nest box in the shed: take the eggs (E) for the pot, or leave them and they hatch. Hens moult: gather the feathers they leave about the paddock.</p>
+    <p>A <b>hound</b> can herd: open its card and choose <i>Herd the sheep in</i>, and it runs out wide round any of your sheep that are out of their paddock and drives them home through the gate, then comes back to you.</p>`;
+}
+
+/* ------------------------------------------------------------------ */
 /* the step, the start, the save                                       */
 /* ------------------------------------------------------------------ */
 function depthOnStart() {
@@ -1063,7 +1092,7 @@ function updateDepth(dt) {
   dpDoorsStep(dt);
   dpWellStep(dt);
   dpMoult(dt);
-  for (const p of FORAGE.list) if (p.logRotAt && p.log && GAME.t > p.logRotAt && p.fall && p.fall.done) { p.log = false; if (p.logColl) { p.logColl.active = false; p.logColl = null; } p.regrowAt = GAME.t + DP_REGROW.apple / (NATURE.speed || 1); FORAGE.dirty = true; }
+  for (const p of FORAGE.list) if (p.logRotAt && p.log && GAME.t > p.logRotAt && p.fall && p.fall.done) { p.log = false; if (p.logColl) { p.logColl.active = false; p.logColl = null; } p.regrowAt = GAME.t + DP_REGROW.apple / (NATURE.speed || 1); p.at = p.regrowAt + FORAGE_KINDS.apple.regrow; FORAGE.dirty = true; }
   DEPTH.slow -= dt;
   if (DEPTH.slow <= 0) { DEPTH.slow = 1; dpForageSlow(1); dpHatchStep(); }
 }
@@ -1082,6 +1111,8 @@ registerSavePart('world', 'depth', {
   load(d) {
     const o = d && typeof d === 'object' ? d : {};
     DEPTH.pendGrub = Array.isArray(o.g) ? o.g.filter((i) => Number.isInteger(i) && i >= 0 && i < W.trees.length).slice(0, 600) : null;
+    for (const p of DEPTH.burn) { if (p.fobj) p.fobj.until = GAME.t; p.fobj = null; }
+    DEPTH.burn.length = 0; DEPTH.job = null;
     for (const p of FORAGE.list) { p.gone = false; p.cut = false; p.char = 0; delete p.grow; p.regrowAt = 0; p.log = false; p.fall = null; p.fire = 0; if (p.coll) { p.coll.active = true; if (p.k === 'apple') { p.coll.h = 3.5; p.coll.stump = false; } } }
     if (Array.isArray(o.f)) for (const a of o.f.slice(0, 500)) {
       if (!Array.isArray(a)) continue;
@@ -1118,6 +1149,8 @@ queueMicrotask(() => {
   window.__hm.depth = {
     DEPTH, DP_BIRD, DP_RECIPES, dpIgnite, dpFell, dpCutBush, dpSplitApple, dpGrubTree, dpGrubPlant, dpStartJob, dpFlush, dpSpawnBird, depthClutch, depthHerdStart, depthCraftGear, depthCraftLvl,
     depthFireAt, depthOffers, dpStumpNear, dpPlantNear, depthSparesHouse, depthSparesGround, dpHouseRealm,
+    depthOnKill, packItem, sanitizeItem, rollQuality, craftOdds, dpForageSlow,
+    part: () => SAVE_PARTS.world.depth,
     plant(k, near) { let best = null, bd = Infinity; for (const p of FORAGE.list) { if (p.k !== k) continue; const d = near ? dist2(p.x, p.z, near.x, near.z) : p.i; if (d < bd) { bd = d; best = p; } } return best; },
     pstate(p) { return p ? { i: p.i, k: p.k, x: +p.x.toFixed(1), z: +p.z.toFixed(1), fire: +(p.fire || 0).toFixed(2), char: +(p.char || 0).toFixed(2), cut: !!p.cut, gone: !!p.gone, log: !!p.log, grow: p.grow ?? 1, ripe: +p.ripe.toFixed(2), fall: p.fall ? { ang: +p.fall.ang.toFixed(2), stop: +p.fall.stop.toFixed(2), done: p.fall.done } : null, coll: p.coll ? { active: p.coll.active, h: p.coll.h } : null, regrowAt: p.regrowAt || 0 } : null; },
     birds() { return DEPTH.birds.filter((e) => !e.removed).map((e) => ({ id: e.id, kind: e.kind, alive: e.alive, x: +e.x.toFixed(1), y: +e.y.toFixed(2), z: +e.z.toFixed(1), fly: !!e.bird.fly, water: e.bird.water })); },
