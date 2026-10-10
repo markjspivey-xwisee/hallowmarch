@@ -89,6 +89,10 @@ window.HL = {
       for (const el of document.querySelectorAll('#hud button, #hud .slot, #hud [role=button]')) {
         if (!this.vis(el) || el.closest('.tip') || getComputedStyle(el).pointerEvents === 'none') continue;
         const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        // a control scrolled out of its row (the builder's pieces) is reached by scrolling, not measured
+        let clipped = false;
+        for (let q = el.parentElement; q && q !== document.body; q = q.parentElement) { const o = getComputedStyle(q); if (o.overflowX !== 'visible' || o.overflowY !== 'visible') { const qr = q.getBoundingClientRect(); if (cx < qr.left || cx > qr.right || cy < qr.top || cy > qr.bottom) { clipped = true; break; } } }
+        if (clipped) continue;
         let ok = 0, n = 0; const miss = [];
         for (const [dx, dy] of [[0, 0], [-19, 0], [19, 0], [0, -19], [0, 19]]) {
           const x = cx + dx, y = cy + dy;
@@ -139,6 +143,14 @@ async def run_mode(p, mode):
             check(not m['off'], f'{tag}: nothing off the screen or under the notch' + (f": {'; '.join(m['off'])}" if m['off'] else ''))
             if mode == 'touch':
                 check(not m['small'], f'{tag}: every touch target is at least 40 px' + (f": {'; '.join(m['small'][:12])}" if m['small'] else ''))
+            # and without the builder's bar (the everyday screen): what waited for room comes back
+            await page.evaluate("__hm.build.buildToggle(false); __hm.simulate(0.3); 0")
+            await frames(page, 4)
+            m2 = await page.evaluate("HL.measure()")
+            hidden = await page.evaluate("[...document.querySelectorAll('.hl-off')].map((e) => '#' + e.id)")
+            print(f"{tag} without the builder's bar: " + ', '.join(f"{b_['sel']}[{b_['x']},{b_['y']} {b_['w']}x{b_['h']}]" for b_ in m2['boxes']) + f"; waiting: {hidden}", flush=True)
+            check(not m2['ov'] and not m2['off'], f'{tag} without the builder\'s bar: no overlaps, nothing off the screen' + (f": {'; '.join(m2['ov'] + m2['off'])}" if m2['ov'] or m2['off'] else ''))
+            await page.evaluate("__hm.build.buildToggle(true); 0")
             if ci == (si % 4) and SHOTS:
                 await page.evaluate("__hm.frame(1/30); 0")
                 await page.screenshot(path=OUT + f'hud_{w}x{h}.png', timeout=300000)

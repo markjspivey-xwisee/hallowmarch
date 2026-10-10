@@ -183,7 +183,14 @@ async def main():
             ok = await tap(page, '#t-use', 3)
             st = await page.evaluate("({ modal: __hm.UI.modal, grant: __hm.fn.hallCommandGrant ? !!__hm.fn.hallCommandGrant(__hm.GAME.player) : null })")
             check(ok and st['modal'] == 'map', f'war table: a tap on Use opens the map with command ({r["label"]}; {json.dumps(st)})')
-            await page.evaluate("__hm.UI.modal === 'map' && __hm.fn.toggleMap(); 0")
+            await page.evaluate("__hm.UI.modal === 'map' && __hm.fn.toggleMap(); __hm.UI.modal = null; 0")
+            # names do not show through the hall's walls
+            nm = await page.evaluate("""(() => { const H = TF.H, F = H.fn, h = F.halls().find((q) => q.realm === 0); for (let i = 0; i < 4; i++) { H.simulate(0.1); H.frame(1/30); }
+              const shown = [...document.querySelectorAll('#nameplates .np')].filter((el) => el.style.display !== 'none').map((el) => el._txt);
+              const outside = shown.filter((n) => { const e = H.ENT.find((q) => q.name === n && q.alive); return e && F.houseInside(e.x, e.z) !== h; });
+              const near = H.ENT.filter((e) => e.alive && e.kind === 'humanoid' && e !== TF.P() && Math.hypot(e.x - h.x, e.z - h.z) < 30 && F.houseInside(e.x, e.z) !== h).length;
+              return { shown: shown.length, outside, near, inside: F.houseInside(TF.P().x, TF.P().z) === h }; })()""")
+            check(nm['inside'] and not nm['outside'], f'names: inside the hall no name shows through its walls ({json.dumps(nm)})')
 
         await page.screenshot(path=OUT + 'touch_flows.png', timeout=300000)
         errs = await page.evaluate("__hm.errors")

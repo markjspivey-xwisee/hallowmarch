@@ -600,8 +600,8 @@
   body.touch #petbar .pb-cmds button, body.touch #petbar .pb-pet { min-height: 40px; }
   body.touch #farmcard .fc-acts .btn, body.touch #buildbar .bacts .btn, body.touch #tpad .wide .btn, body.touch #prompt { min-height: 40px; }
   body.touch #prompt { padding-top: 4px; padding-bottom: 4px; }
-  body.touch #needs { position: relative; }
-  body.touch #needs::after { content: ''; position: absolute; left: 0; right: 0; top: -13px; bottom: -13px; }
+  body.touch #needs { position: relative; min-height: 30px; align-items: center; }
+  body.touch #needs::after { content: ''; position: absolute; left: 0; right: 0; top: -5px; bottom: -5px; }
   body.touch #buildbar .bacts .btn { min-width: 40px; }
   /* what the layout pass shrinks to its essentials when there is no room, and what waits out of sight */
   #war.hl-compact .cw-rule, #war.hl-compact .tod { display: none; }
@@ -609,8 +609,15 @@
   #petbar.hl-compact .pb-pet small, #petbar.hl-compact .pb-fd { display: none; }
   #lore-path.hl-compact .hint, #lore-path.hl-compact .meter, #lore-path.hl-compact .rw { display: none; }
   .hl-off { display: none !important; }
-  /* a phone on its side: the calling's round buttons stand in a column beside the pad, not on top of it */
+  /* the builder's bar on a phone: as wide as the screen allows (10p_hud.js puts it where it is free) */
+  body.touch #buildbar { left: var(--pad); right: auto; width: min(560px, calc(100vw - 2 * var(--pad))); transform: none; grid-template-columns: minmax(0, 1fr); }
+  /* a phone on its side: the round buttons stand beside the minimap and the calling's beside the pad */
   @media (orientation: landscape) and (max-height: 520px) {
+    body.touch #topright { grid-template-columns: auto 124px; width: auto; align-items: start; justify-items: end; }
+    body.touch #topright > .iconbtns { grid-column: 1; grid-row: 1; grid-template-columns: repeat(2, 40px); width: auto; }
+    body.touch #mmwrap { grid-column: 2; grid-row: 1; }
+    body.touch #war { grid-column: 1 / span 2; }
+    body.touch #buildbar { width: min(420px, calc(100vw - 2 * var(--pad) - 436px)); min-width: 200px; }
     body.touch #tpad .cls-btn, body.touch #tpad .gslot { top: auto; right: auto; left: -64px; }
     body.touch #tpad .cls-btn.tech { bottom: 0; }
     body.touch #tpad .cls-btn.hold { bottom: 62px; }

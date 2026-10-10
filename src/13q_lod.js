@@ -9,6 +9,10 @@ const LOD = { built: false, terrain: [], blocks: [], trees: [], lastQ: '', stats
 // [full detail within, half detail within] metres from the chunk's nearest edge; beyond: quarter detail
 const TERRAIN_LOD_D = { high: [150, 330], medium: [90, 230], low: [44, 150] };
 const TREE_LOD_D = { high: 140, medium: 80, low: 30 };
+// on medium and low the chunks round the camera are split tree by tree: the full model within this reach, the far one
+// beyond (two draws in place of the chunk's one; refreshed as the camera moves or a tree falls). High keeps whole
+// chunks (its near trees draw the closest ones in full).
+const TREE_SPLIT_D = { medium: 60, low: 36 };
 // the triangles of an N-cell square at s-cell steps inside and full detail round its rim, in grid coordinates
 // (front faces up, as the full grid has them)
 function lodTris(N, s, emit) {
@@ -92,8 +96,85 @@ function lodBuild() {
     for (const a of ['iPos', 'iRot']) g1.setAttribute(a, g0.attributes[a]); // the same trees: shared instance data
     g1.instanceCount = g0.instanceCount;
     g1.boundingSphere = g0.boundingSphere;
-    LOD.trees.push({ m, gs: [g0, g1], x: m.userData.center.x, z: m.userData.center.y, lvl: 0 });
+    LOD.trees.push({ m, gs: [g0, g1], far: f, kind: k, x: m.userData.center.x, z: m.userData.center.y, lvl: 0, split: null });
   }
+}
+// a stand-in with no trees for the shadow pass (no draw at all)
+function treeNoCast(T) {
+  if (!T.none) { const g = new THREE.InstancedBufferGeometry(); for (const a of ['position', 'normal', 'aPart', 'aAO', 'iPos', 'iRot']) g.setAttribute(a, T.gs[1].attributes[a]); g.setIndex(T.gs[1].index); g.instanceCount = 0; g.boundingSphere = T.gs[0].boundingSphere; T.none = g; }
+  return T.none;
+}
+// a chunk split tree by tree: two meshes of its own (full and far model) drawn in its place, the chunk itself hidden
+// (it keeps its instance data: the nature module writes felled and regrown trees there, and the split follows)
+function treeSplit(T, on, cx, cz, R) {
+  const m = T.m;
+  if (!on) { if (T.split && T.split.on) { T.split.on = false; T.split.hi.visible = T.split.lo.visible = false; m.visible = true; } return; }
+  let S = T.split;
+  const g0 = T.gs[0], n = g0.attributes.iPos.count;
+  if (!S) {
+    const mk = (src, cast) => {
+      const g = new THREE.InstancedBufferGeometry();
+      for (const a of ['position', 'normal', 'aPart', 'aAO']) g.setAttribute(a, src.attributes[a]);
+      g.setIndex(src.index);
+      g.setAttribute('iPos', new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('iRot', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage));
+      g.instanceCount = 0; g.boundingSphere = g0.boundingSphere;
+      const mesh = new THREE.Mesh(g, m.material);
+      mesh.renderOrder = m.renderOrder; mesh.visible = false;
+      (m.parent || scene).add(mesh);
+      if (cast) shadowCaster(mesh, TREE_DEPTH); // only the near trees fall inside the shadow box
+      return mesh;
+    };
+    S = T.split = { hi: mk(g0, true), lo: mk(T.far, false), x: 1e9, z: 1e9, ver: -1 };
+  }
+  // stand in for the chunk (a chunk this near the camera is always within the trees' draw distance)
+  S.on = true; m.visible = false;
+  const src = g0.attributes.iPos, rot = g0.attributes.iRot;
+  if (Math.hypot(cx - S.x, cz - S.z) > 4 || src.version !== S.ver) {
+    S.x = cx; S.z = cz; S.ver = src.version;
+    const P = src.array, Rr = rot.array, hp = S.hi.geometry.attributes.iPos.array, hr = S.hi.geometry.attributes.iRot.array, lp = S.lo.geometry.attributes.iPos.array, lr = S.lo.geometry.attributes.iRot.array;
+    let nh = 0, nl = 0;
+    const cnt = Math.min(n, g0.instanceCount);
+    for (let i = 0; i < cnt; i++) {
+      const x = P[i * 4], z = P[i * 4 + 2];
+      if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < R * R) { hp[nh * 4] = x; hp[nh * 4 + 1] = P[i * 4 + 1]; hp[nh * 4 + 2] = z; hp[nh * 4 + 3] = P[i * 4 + 3]; hr[nh * 2] = Rr[i * 2]; hr[nh * 2 + 1] = Rr[i * 2 + 1]; nh++; }
+      else { lp[nl * 4] = x; lp[nl * 4 + 1] = P[i * 4 + 1]; lp[nl * 4 + 2] = z; lp[nl * 4 + 3] = P[i * 4 + 3]; lr[nl * 2] = Rr[i * 2]; lr[nl * 2 + 1] = Rr[i * 2 + 1]; nl++; }
+    }
+    for (const [M, k] of [[S.hi, nh], [S.lo, nl]]) { const g = M.geometry; g.instanceCount = k; g.attributes.iPos.needsUpdate = true; g.attributes.iRot.needsUpdate = true; }
+  }
+  S.hi.visible = S.hi.geometry.instanceCount > 0;
+  S.lo.visible = S.lo.geometry.instanceCount > 0;
+}
+// rocks: on medium and low only those within reach are drawn (the instance lists are cut down as the camera moves);
+// the far glass of towns and halls and the furrowed soil of fields far away are not drawn on low and medium
+const ROCK_D = { medium: 220, low: 140 }, GLASS_D = { medium: 160, low: 90 }, SOIL_D = { medium: 320, low: 230 };
+function lodRocks(cx, cz, q) {
+  const R = ROCK_D[q] || 0;
+  if (!LOD.rocks) {
+    LOD.rocks = [];
+    scene.traverse((o) => { if (o.isMesh && o.material === rockMat && o.geometry.attributes.iPos) { const g = o.geometry; LOD.rocks.push({ g, ip: g.attributes.iPos.array.slice(), ir: g.attributes.iRot.array.slice(), n: g.instanceCount }); } });
+  }
+  if (Math.hypot(cx - (LOD.rockX ?? 1e9), cz - (LOD.rockZ ?? 1e9)) < 12 && R === LOD.rockR) return;
+  LOD.rockX = cx; LOD.rockZ = cz; LOD.rockR = R;
+  for (const K of LOD.rocks) {
+    const ip = K.g.attributes.iPos.array, ir = K.g.attributes.iRot.array;
+    let k = 0;
+    for (let i = 0; i < K.n; i++) {
+      const x = K.ip[i * 4], z = K.ip[i * 4 + 2];
+      if (R && (x - cx) * (x - cx) + (z - cz) * (z - cz) > R * R) continue;
+      for (let c = 0; c < 4; c++) { ip[k * 4 + c] = K.ip[i * 4 + c]; ir[k * 4 + c] = K.ir[i * 4 + c]; }
+      k++;
+    }
+    K.g.instanceCount = k; K.g.attributes.iPos.needsUpdate = true; K.g.attributes.iRot.needsUpdate = true;
+  }
+}
+function lodFar(cx, cz, q) {
+  LOD.farT = (LOD.farT || 0) - 1;
+  if (LOD.farT > 0 && LOD.lastQ === q) return;
+  LOD.farT = 20; LOD.lastQ = q;
+  const G = GLASS_D[q], D = SOIL_D[q];
+  for (const S of houseTowns()) { const g = S.houseSet && S.houseSet.mGl; if (g) g.visible = !G || dist2(cx, cz, S.x, S.z) < (S.r + G) ** 2; }
+  if (typeof farmSoilMesh !== 'undefined' && farmSoilMesh) farmSoilMesh.visible = !D || FARM.plots.some((P) => dist2(cx, cz, P.x, P.z) < (D + (P.rad || 10)) ** 2);
 }
 const lodEdge = (cx, cz, x, z, half) => Math.hypot(Math.max(0, Math.abs(x - cx) - half), Math.max(0, Math.abs(z - cz) - half));
 // each frame: pick each chunk's level from the camera
@@ -120,16 +201,20 @@ function updateLod() {
     for (const T of B.kids) T.m.visible = !far;
     if (far) st.blocks++;
   }
+  lodRocks(cx, cz, q); lodFar(cx, cz, q);
+  const SD = TREE_SPLIT_D[q] || 0;
   for (const T of LOD.trees) {
     const d = lodEdge(T.x, T.z, cx, cz, 64);
     const l = d < RD ? 0 : 1;
     if (l !== T.lvl) {
       T.lvl = l; T.m.geometry = T.gs[l];
+      // far chunks lie outside the sun's shadow box (it reaches 38 to 46 m round the view): they cast nothing
       const px = T.m.userData.proxy;
-      if (px) px.geometry = T.gs[l];
+      if (px) px.geometry = l ? treeNoCast(T) : T.gs[0];
     }
     // trees felled or regrown change the chunk's instance count: keep the far model's in step
     if (T.gs[1].instanceCount !== T.gs[0].instanceCount) T.gs[1].instanceCount = T.gs[0].instanceCount;
+    treeSplit(T, l === 0 && SD > 0, cx, cz, SD);
     st.trees[l]++;
   }
 }

@@ -8,15 +8,16 @@
 // take the first free place in the column their screen prefers, scanning down from the top.
 const HUDL = { on: true, t: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 const HUD_PREF = {
-  tall: { '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#buildbar': ['CB', 'C'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'] },
-  wide: { '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#buildbar': ['C', 'CB'], '#petbar': ['C', 'L2', 'R2', 'CB'], '#war': ['R2', 'R', 'C'], '#farmcard': ['C', 'L2', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
+  tall: { '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'] },
+  wide: { '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
   desk: { '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
-// in order of need: the first placed get the best places
-const HUD_ORDER = ['#tf', '#cls', '#buildbar', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners'];
-// what may shrink to its essentials when there is no room, and what may wait out of sight until there is
+// in order of need: the first placed get the best places (the builder's bar is the tool in hand while it is open)
+const HUD_ORDER = ['#buildbar', '#tf', '#cls', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners'];
+// what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
+// is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
 const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
-const HUD_HIDE = new Set(['#farmcard', '#bounty', '#lore-path', '#war', '#banners']);
+const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners']);
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
@@ -42,8 +43,9 @@ function hudSafe() {
   const cs = getComputedStyle(p), f = (v) => parseFloat(v) || 0;
   return { t: f(cs.paddingTop), r: f(cs.paddingRight), b: f(cs.paddingBottom), l: f(cs.paddingLeft) };
 }
-function hudMove(el, x, y) {
+function hudMove(el, x, y, w = 0) {
   if (el.id === 'war' && getComputedStyle(el).position !== 'absolute') el.style.position = 'absolute';
+  if (w) el.style.width = Math.round(w) + 'px'; // a bar sized by its left and right edges keeps its width
   const par = el.offsetParent || $('hud');
   const pr = par.getBoundingClientRect();
   el.style.left = Math.round(x - pr.left) + 'px'; el.style.top = Math.round(y - pr.top) + 'px';
@@ -51,11 +53,12 @@ function hudMove(el, x, y) {
   HUDL.moved.add(el);
 }
 function hudReset() {
-  for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; }
+  for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; if (el.id === 'buildbar') el.style.width = ''; }
   HUDL.moved.clear();
   for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
   const bt = $('bottom'), lg = $('log');
   if (bt) bt.style.bottom = '';
+  for (const id of ['prompt', 'castbar']) { const el = $(id); if (el) el.classList.remove('hl-off'); }
   if (lg) { lg.style.width = ''; lg.style.bottom = ''; }
 }
 function hudKey(W, H, touch) {
@@ -121,7 +124,7 @@ function hudLayout(dt) {
   const measure = (sel, el) => (sel === '#banners' ? hudUnion([...el.children].filter(hudShown).map(hudRect)) || hudRect(el) : hudRect(el));
   const put = (sel, el, r, c) => {
     if (sel === '#banners') { const br = hudRect(el); hudMove(el, c.x + (br.x - r.x), c.y + (br.y - r.y)); }
-    else hudMove(el, c.x, c.y);
+    else hudMove(el, c.x, c.y, sel === '#buildbar' ? r.w : 0);
     placed.push({ ...c, sel });
   };
   for (const sel of HUD_ORDER) {
@@ -151,7 +154,10 @@ function hudLayout(dt) {
     for (let k = 0; u && k < 4; k++) {
       const hit = placed.filter((p) => p.sel !== '#hotbar' && p.sel !== '#log' && hudHit(p, u, 2));
       if (!hit.length) break;
-      const lift = Math.min(...hit.map((p) => p.y));
+      // rise above what is under it, unless that only lands it on something else: then on a touch screen it waits
+      // (the pad's Use does what the prompt says)
+      const lift = Math.min(...hit.map((p) => p.y)), nu = { ...u, y: lift - 8 - u.h };
+      if (touch && (nu.y < top || placed.some((p) => p.sel !== '#hotbar' && p.sel !== '#log' && hudHit(p, nu, 2)))) { for (const c of kids) c.classList.add('hl-off'); break; }
       bt.style.bottom = Math.round(H - lift + 8) + 'px';
       u = hudUnion(kids.map(hudRect));
     }
