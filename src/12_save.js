@@ -22,6 +22,8 @@ function validSave(s) {
   if (!s || typeof s !== 'object' || s.v !== 1) return null;
   const c = s.char;
   if (c && !(typeof c.name === 'string' && c.realm >= 0 && c.realm <= 2 && CLASSES[c.cls] && c.level >= 1 && c.level <= LEVEL_CAP)) s.char = null;
+  if (s.world && s.world.land && (typeof s.world.land !== 'object' || s.world.land.v !== 1)) delete s.world.land; // [worldstate] a land record we cannot read is dropped
+  if (s.char && s.char.gift && typeof s.char.gift !== 'object') delete s.char.gift; // [gifts]
   return s;
 }
 async function loadSave() {
@@ -52,6 +54,8 @@ function buildSave() {
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
     campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
+  const land = landSave(); // [worldstate] felled trees, burnt ground, craters, burnt houses, breached walls (12b_worldstate.js)
+  if (land) world.land = land;
   if (!P || !prog) return { v: 1, char: null, settings, world };
   const b = prog.bounty;
   return {
@@ -64,6 +68,7 @@ function buildSave() {
       gold: Math.round(INV.gold), potions: INV.potions,
       bag: INV.bag.map(packItem), eq: Object.fromEntries(SLOTS.filter((s) => INV.eq[s]).map((s) => [s, packItem(INV.eq[s])])),
       lore: loreSaveData(),
+      gift: giftSaveData(), // [gifts] the realm ultimate's cooldown, when it is running (06c_gifts.js)
     },
     settings, world,
   };
@@ -84,7 +89,9 @@ function packItem(it) {
 // the parts that matter enough to justify a write on their own
 function coreKey(s) {
   const c = s.char;
-  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore], s.settings, s.world]);
+  // [worldstate] the land counts by what changed in it, not by its clocks ticking down; [gifts] the realm ultimate's cooldown is kept but is no reason to write
+  const w = s.world && s.world.land ? { ...s.world, land: landKey(s.world.land) } : s.world;
+  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore], s.settings, w]);
 }
 function saveSoon(delay = 2500) {
   if (SAVE.wiping) return;
@@ -161,6 +168,7 @@ function applyWorldSave(w) {
   }
   updateRelicBonuses();
   applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
+  landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
 }
 function applySettings(st) {
   if (!st) return;
