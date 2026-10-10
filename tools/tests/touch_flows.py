@@ -39,7 +39,7 @@ window.TF = {
 
 async def tap(page, sel, frames=2):
     """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
-    await page.evaluate("__hm.frame(1/30); 0")
+    await page.evaluate("__hm.frame(1/30); __hm.hud.HUDL.k = 0; __hm.hud.hudLayout(0); 0")
     box = await page.evaluate("""((sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return null;
       const x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
       return { x, y, top: !!hit && (hit === el || el.contains(hit)), hit: hit ? (hit.id || String(hit.className).slice(0, 20)) : null }; })""", sel)

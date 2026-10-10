@@ -6,7 +6,8 @@
 // log stay where they are; the panels that come and go (the target frame, the war panel, the bounty, the path tracker,
 // the class panel, the companion bar, the plant card, the toasts) keep their own place when it is free and otherwise
 // take the first free place in the column their screen prefers, scanning down from the top.
-const HUDL = { on: true, t: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
+const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
+addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
   tall: { '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'] },
   wide: { '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
@@ -70,6 +71,10 @@ function hudKey(W, H, touch) {
 function hudLayout(dt) {
   if (!HUDL.on || !GAME.started || !GAME.player) return;
   HUDL.t -= dt;
+  // a look four times a second (reading the panels' sizes makes the browser lay the page out)
+  HUDL.k -= dt;
+  if (HUDL.k > 0) return;
+  HUDL.k = 0.25;
   const W = innerWidth, H = innerHeight, touch = document.body.classList.contains('touch');
   const key = hudKey(W, H, touch);
   if (key === HUDL.key && HUDL.t > 0) return;

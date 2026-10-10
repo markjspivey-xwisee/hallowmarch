@@ -9,6 +9,8 @@ const LOD = { built: false, terrain: [], blocks: [], trees: [], lastQ: '', stats
 // [full detail within, half detail within] metres from the chunk's nearest edge; beyond: quarter detail
 const TERRAIN_LOD_D = { high: [150, 330], medium: [90, 230], low: [44, 150] };
 const TREE_LOD_D = { high: 140, medium: 80, low: 30 };
+// people beyond this are drawn with the farthest model (crowdHumanFar: fewer faces round the body, the head and the limbs)
+const HUMAN_FAR = { high: 90, medium: 60, low: 38 };
 // on medium and low the chunks round the camera are split tree by tree: the full model within this reach, the far one
 // beyond (two draws in place of the chunk's one; refreshed as the camera moves or a tree falls). High keeps whole
 // chunks (its near trees draw the closest ones in full).

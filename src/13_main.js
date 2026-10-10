@@ -186,9 +186,9 @@ const SHADOW_R = { humanoid: 0.62, wolf: 0.75, boar: 0.72, bear: 1.15, wisp: 0.4
 const STAMP_R = { humanoid: 0.55, wolf: 0.6, boar: 0.6, bear: 0.95, deer: 0.6, stag: 0.6, horse: 0.8 };
 
 function drawActors(fx, fz) {
-  crowdHuman.begin(); crowdHumanLo.begin();
+  crowdHuman.begin(); crowdHumanLo.begin(); if (crowdHumanFar) crowdHumanFar.begin(); // [phones]
   for (const k in crowdBeast) { crowdBeast[k][0].begin(); crowdBeast[k][1].begin(); }
-  const lodD2 = (HUMAN_LOD[quality.level] || 22) ** 2;
+  const lodD2 = (HUMAN_LOD[quality.level] || 22) ** 2, farD2 = (HUMAN_FAR[quality.level] || 90) ** 2; // [phones] the farthest crowd (13q_lod.js)
   TRAIL_CAND.length = 0;
   const camX = camera.position.x, camZ = camera.position.z;
   const maxD2 = 175 * 175;
@@ -242,7 +242,7 @@ function drawActors(fx, fz) {
       // seated: on a throne the body takes the rider's pose, hips on the seat
       if (e.seat && e.alive) { _p4[1] = e.seat.y - 0.86 * sc; _a4[0] = 0; _a4[1] = 0; _cb[3] = (L.flags || 0) | 8; }
       wearVisual(e, _we); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
-      (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we);
+      (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : dx * dx + dz * dz > farD2 && crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we); // [phones] far: crowdHumanFar
       // a gem of light on casters' hands while a spell builds
       if (e.casting && e.alive && e.casting.id !== 'summon') {
         const A = ABILITIES[e.casting.id];
@@ -257,7 +257,7 @@ function drawActors(fx, fz) {
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
   }
-  crowdHuman.end(); crowdHumanLo.end();
+  crowdHuman.end(); crowdHumanLo.end(); if (crowdHumanFar) crowdHumanFar.end(); // [phones]
   for (const k in crowdBeast) { crowdBeast[k][0].end(); crowdBeast[k][1].end(); }
   // the nearest movers press the grass (the player first)
   const P = GAME.player;

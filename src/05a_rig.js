@@ -257,7 +257,7 @@ function headNormal(d) { return V3.norm([d[0] / HEAD_R[0], d[1] / HEAD_R[1], d[2
 function buildHumanoid(lod) {
   const K = new SkinKit();
   const hi = lod === 0;
-  const RS = hi ? 16 : 9, LS = hi ? 12 : 7, HU = hi ? 26 : 12, HV = hi ? 18 : 8;
+  const RS = hi ? 16 : lod >= 2 ? 6 : 9, LS = hi ? 12 : lod >= 2 ? 5 : 7, HU = hi ? 26 : lod >= 2 ? 8 : 12, HV = hi ? 18 : lod >= 2 ? 6 : 8; // [phones] lod 2: the farthest crowd
   const B = HB, mat = AM;
   const headBone = (y) => ({ bone: B.head, w: 1 });
 

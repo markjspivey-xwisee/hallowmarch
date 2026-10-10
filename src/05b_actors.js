@@ -40,11 +40,12 @@ class Crowd {
 }
 const BEAST_ATTRS = ['iPos', 'iAnim', 'iColA', 'iColB'];
 const HUMAN_ATTRS = ['iPos', 'iAnim', 'iColA', 'iColB', 'iMisc', 'iStyle', 'iWear']; // iWear: feature/weather (05h_wear.js)
-let crowdHuman, crowdHumanLo;
+let crowdHuman, crowdHumanLo, crowdHumanFar = null; // [phones] crowdHumanFar: the farthest people (13q_lod.js HUMAN_FAR)
 const crowdBeast = {};
 function buildCrowds() {
   crowdHuman = new Crowd(buildHumanoid(0), humanoidMat, 72, HUMAN_ATTRS);
   crowdHumanLo = new Crowd(buildHumanoid(1), humanoidMat, 380, HUMAN_ATTRS);
+  crowdHumanFar = new Crowd(buildHumanoid(2), humanoidMat, 320, HUMAN_ATTRS); // [phones] beyond the sun's shadow box: no shadow caster
   const hd = depthFrom(humanoidMat, DEPTH_FS, humanVS(true));
   shadowCaster(crowdHuman.mesh, hd);
   shadowCaster(crowdHumanLo.mesh, hd);

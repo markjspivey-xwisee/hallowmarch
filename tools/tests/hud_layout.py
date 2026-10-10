@@ -63,6 +63,7 @@ window.HL = {
   // the panels a player reads or touches
   PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#buildbar', '#farmcard', '#castbar', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
   measure() {
+    this.H.hud.HUDL.k = 0; this.H.hud.hudLayout(0); // the layout pass looks four times a second: look now
     const out = [], W = innerWidth, Hh = innerHeight;
     const st = getComputedStyle(document.documentElement);
     const px = (v) => parseFloat(v) || 0;

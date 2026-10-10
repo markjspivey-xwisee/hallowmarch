@@ -40,6 +40,7 @@ function perfLabel(o) {
   if (flowerMeshes.includes(o)) return 'flowers';
   if (o === crowdHuman.mesh) return 'people (near crowd)';
   if (o === crowdHumanLo.mesh) return 'people (far crowd)';
+  if (crowdHumanFar && o === crowdHumanFar.mesh) return 'people (farthest crowd)';
   for (const k in crowdBeast) { const c = crowdBeast[k]; for (let j = 0; j < c.length; j++) if (c[j].mesh === o) return 'beasts ' + k + (j ? ' (far)' : ''); }
   if (treeChunks.includes(o)) return 'trees (far chunks)';
   for (let q = o; q; q = q.parent) if (q.userData && q.userData.perfFrom) return q.userData.perfFrom + (o.name ? ':' + o.name : '');
