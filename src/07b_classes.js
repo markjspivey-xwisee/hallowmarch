@@ -1195,7 +1195,13 @@ function classNpc(e, t) {
       if (clsHas(e, 'arrows')) cs.arrow = t.cls === 'warrior' || t.drBase >= 0.1 ? 'bodkin' : t.kind !== 'humanoid' ? 'broadhead' : t.casting || UNDEAD.has(t.mobType) ? 'blunt' : wetOf(t) < 0.3 && rainHere(e) < 0.2 ? 'fire' : 'broadhead';
       const d = dist(e.x, e.z, t.x, t.z);
       if (clsHas(e, 'snare') && d < 7 && !t.rangedKind && !canUse(e, 'snare', null) && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 25)) { useAbility(e, 'snare', null); return true; }
-      if (d < 4.5 && !t.rangedKind && e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null) && e.fixedY === null) { e.yaw = Math.atan2(t.x - e.x, t.z - e.z); useAbility(e, 'tumble', null); return true; }
+      // a blade at the throat: no long draws or slow shots, but a leap back, a snare or a quick shot
+      const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id);
+      if (pressed) {
+        if (e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null) && e.fixedY === null) { e.yaw = Math.atan2(pressed.x - e.x, pressed.z - e.z); useAbility(e, 'tumble', null); return true; }
+        for (const id of ['cripple', 'quickshot']) if (ABILITIES[id].level <= e.level && !canUse(e, id, t)) { useAbility(e, id, t); return true; }
+        return true;
+      }
       if (!cs.npcDraw && d > 8 && d < e.rangedRange + 6 && Math.random() < 0.55 && e.power > 20) { cs.npcDraw = { until: nowT() + 0.6 + Math.random() * 0.8 }; startDraw(e); return true; }
     }
     return false;
@@ -1203,7 +1209,16 @@ function classNpc(e, t) {
   if (e.cls === 'mage') {
     if (!t || !t.alive) return false;
     const d = dist(e.x, e.z, t.x, t.z);
-    const go = (id, focus) => { if (focus && clsHas(e, 'focus')) cs.focus = focus; if (!canUse(e, id, t)) { useAbility(e, id, t); return true; } return false; };
+    const go = (id, focus) => { if (ABILITIES[id].level > e.level) return false; if (focus && clsHas(e, 'focus')) cs.focus = focus; if (!canUse(e, id, t)) { useAbility(e, id, t); return true; } return false; };
+    // a blade at the throat: no long casts, but a nova, a blink away or an instant lance
+    const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id);
+    if (pressed) {
+      if (go('nova', frozenOf(pressed) ? 'storm' : 'frost')) return true;
+      if (e.level >= ABILITIES.blink.level && e.fixedY === null && !canUse(e, 'blink', null)) { e.yaw = Math.atan2(e.x - pressed.x, e.z - pressed.z); if (clsHas(e, 'focus')) cs.focus = 'frost'; useAbility(e, 'blink', null); return true; }
+      if (e.level >= ABILITIES.ward.level && e.hp < e.maxHp * 0.8 && go('ward', 'frost')) return true;
+      if (go('frost', null)) return true;
+      return true;
+    }
     // close foes: a nova of the right element
     if (d < 6 && clsHas(e, 'focus') && (near(6, (o) => isEnemy(e, o)) >= 2 || e.hp < e.maxHp * 0.5)) { if (go('nova', frozenOf(t) ? 'storm' : chillOf(t) > 0 || burningOf(t) ? 'frost' : clsHas(e, 'storm') && wetOf(t) > 0.3 ? 'storm' : 'frost')) return true; }
     // the combos: storm on the frozen, the burning and the wet; fire on the chilled; frost on the burning

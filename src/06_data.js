@@ -23,12 +23,12 @@ const CLASSES = {
     abilities: ['slash', 'bash', 'cleave', 'charge', 'rally', 'bulwark', 'whirl', 'leap'], icon: 'sword',
   },
   archer: {
-    name: 'Archer', role: 'Ranged damage', hp: 1.1, dmg: 1.0, dr: 0.1, range: 30, swing: 2.2, ranged: 'arrow', // [classes] balance: a little sturdier
+    name: 'Archer', role: 'Ranged damage', hp: 1.18, dmg: 1.0, dr: 0.12, range: 30, swing: 2.2, ranged: 'arrow', // [classes] balance: a little sturdier
     blurb: 'A longbow and light leathers. Picks targets off from the walls and the treeline.',
     abilities: ['quickshot', 'aimed', 'cripple', 'volley', 'tumble', 'pierce', 'firearrow', 'deadeye'], icon: 'bow',
   },
   mage: {
-    name: 'Mage', role: 'Spells and control', hp: 0.86, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane',
+    name: 'Mage', role: 'Spells and control', hp: 0.92, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane', // [classes] balance
     blurb: 'Fire, frost and blink. Fragile, but breaks a charge before it lands.',
     abilities: ['firebolt', 'frost', 'nova', 'blink', 'ward', 'meteor', 'chain', 'blizzard'], icon: 'flame',
   },

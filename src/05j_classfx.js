@@ -179,7 +179,9 @@ function snareMesh(S) {
   if (!SNARE_GEO) SNARE_GEO = snareGeometry();
   const m = new THREE.Mesh(SNARE_GEO, shareMat(snareMat, { uClose: { value: 0 } }));
   m.position.set(S.x, S.y, S.z);
-  m.rotation.y = S.yaw;
+  // lie flat on the slope it was set on (on a floor, level)
+  const onGround = Math.abs(S.y - heightAt(S.x, S.z)) < 0.05, n = onGround ? normalAt(S.x, S.z) : { x: 0, y: 1, z: 0 };
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(n.x, n.y, n.z)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), S.yaw));
   m.scale.setScalar(1.25);
   m.frustumCulled = false;
   scene.add(m);

@@ -172,6 +172,21 @@ def summarize(rows):
         out[lvl] = {c: {'ttk': round(T[c], 1), 'ttk_dev': round(T[c] / tm - 1, 3), 'surv': round(S[c], 1), 'surv_dev': round(S[c] / sm - 1, 3), 'duel': f"{wins[c][0]:g}/{wins[c][1]}"} for c in cl}
     return out
 
+def print_duels(rows):
+    """wins of the row calling against the column calling, all levels together"""
+    cl = ['warrior', 'archer', 'mage', 'priest']
+    W = {(a, b): [0, 0] for a in cl for b in cl}
+    for lvl, data in rows.items():
+        for r in data['p2']:
+            if not r: continue
+            for a, b in ((r['a'], r['b']), (r['b'], r['a'])):
+                W[(a, b)][1] += 1
+                if r['win'] == a: W[(a, b)][0] += 1
+                elif r['win'] is None: W[(a, b)][0] += 0.5
+    if not any(v[1] for v in W.values()): return
+    print('\nduels (row beat column):   ' + '  '.join(f'{c:>8}' for c in cl), flush=True)
+    for a in cl: print(f'  {a:<24}' + '  '.join(f"{W[(a, b)][0]:>4g}/{W[(a, b)][1]:<3}" if a != b else '     -  ' for b in cl), flush=True)
+
 def print_table(summary):
     print('\nlevel  class     TTK(s)  vs mean   survival(s)  vs mean   duels won', flush=True)
     for lvl, row in summary.items():
@@ -204,6 +219,7 @@ async def balance(page):
     await page.evaluate("CB.wipe(); 0")
     s = summarize(rows)
     print_table(s)
+    print_duels(rows)
     if os.environ.get('HM_BAL'):
         pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps({'summary': s, 'raw': rows}, indent=1))
     return s
