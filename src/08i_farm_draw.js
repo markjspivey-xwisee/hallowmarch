@@ -7,7 +7,7 @@
 /* ================================================================== */
 const FARM_DRAW_R = { high: 52, medium: 38, low: 27 };
 // near the camera the full model, further out the low one
-const FARM_HI_R = { high: 15, medium: 11, low: 8 };
+const FARM_HI_R = { high: 18, medium: 14, low: 11 };
 const FARM_CAP = { grain: 1400, flax: 900, cabbage: 900, turnip: 900, beans: 800, weed: 1500, grain_lo: 6500, flax_lo: 2500, cabbage_lo: 2500, turnip_lo: 2500, beans_lo: 2000 };
 const FU = { uFarmFrost: { value: 0 }, uPlotTex: { value: null }, uDrawR: { value: 58 } };
 
@@ -140,13 +140,19 @@ const FARM_MODELS = {
     }
   },
   cabbage(b) {
-    const r = mulberry(31), leaf = (t) => fv.mix(hexc('#4c7a5c'), hexc('#6f9a6e'), t), head = (y) => fv.mix(hexc('#8fb07a'), hexc('#c4d8a4'), (y + 1) / 2);
-    for (let k = 0; k < 7; k++) {
-      const yaw = (k / 7) * TAU + r() * 0.4, len = 0.2 + r() * 0.06;
-      // broad leaves cupped upward at the tip
-      fkRibbon(b, fkArc([0, 0.02, 0], yaw, 0.75, len, -0.55, 3), (t) => 0.06 + 0.12 * Math.sin(Math.PI * (0.2 + 0.7 * t)), fkSide(yaw), [FK.LEAF, k < 3 ? 0.0 : 0.15, k < 3 ? 0.35 : 0.55], [0, 0, 0], leaf, leaf);
+    const r = mulberry(31), outer = (t) => fv.mix(hexc('#2f5a46'), hexc('#5f8a6a'), t), wrap = (t) => fv.mix(hexc('#5a8a52'), hexc('#8fb878'), t);
+    const head = (y) => fv.mix(hexc('#7fa862'), hexc('#a8cc84'), (y + 1) / 2);
+    for (let k = 0; k < 8; k++) {
+      const yaw = (k / 8) * TAU + r() * 0.35, len = 0.21 + r() * 0.07;
+      // broad outer leaves spread low and cup up at the rim
+      fkRibbon(b, fkArc([0, 0.02, 0], yaw, 0.55 + r() * 0.2, len, -0.7, 4), (t) => 0.05 + 0.16 * Math.sin(Math.PI * (0.18 + 0.72 * t)), fkSide(yaw), [FK.LEAF, k < 4 ? 0.0 : 0.12, k < 4 ? 0.32 : 0.5], [0, 0, 0], outer, outer);
     }
-    fkBlob(b, [0, 0.11, 0], [0.12, 0.1, 0.12], 8, 5, [FK.HEAD, 0.42, 0.98], [0, 0.04, 0], head, head, false, (a, y) => 1 + 0.06 * Math.sin(a * 5 + y * 3) * (1 - Math.abs(y)));
+    for (let k = 0; k < 4; k++) {
+      const yaw = (k / 4) * TAU + 0.4;
+      // wrapper leaves curl up round the head
+      fkRibbon(b, fkArc([Math.sin(yaw) * 0.04, 0.04, Math.cos(yaw) * 0.04], yaw, 1.15, 0.17, -1.1, 3), (t) => 0.08 + 0.1 * Math.sin(Math.PI * t), fkSide(yaw), [FK.LEAF, 0.35, 0.7], [0, 0.04, 0], wrap, wrap);
+    }
+    fkBlob(b, [0, 0.12, 0], [0.11, 0.1, 0.11], 9, 6, [FK.HEAD, 0.42, 0.98], [0, 0.05, 0], head, head, false, (a, y) => 1 + 0.07 * Math.sin(a * 4 + y * 5) * (1 - Math.abs(y)));
   },
   turnip(b) {
     const r = mulberry(47), leaf = hexc('#4a7a2a'), leafR = hexc('#5f7a30'), root = (y) => (y > 0.25 ? hexc('#d8d0c8') : hexc('#f0ece0'));
@@ -155,7 +161,8 @@ const FARM_MODELS = {
       // lobed leaves: the width rises and falls along the leaf
       fkRibbon(b, fkArc([0, 0.05, 0], yaw, 1.2, 0.3 + r() * 0.08, 1.2, 5), (t) => (0.035 + 0.035 * Math.sin(Math.PI * t)) * (0.7 + 0.3 * Math.abs(Math.sin(t * 13))), fkSide(yaw), [FK.LEAF, 0.0, 0.4], [0, 0, 0], leaf, leafR);
     }
-    fkBlob(b, [0, 0.03, 0], [0.07, 0.07, 0.07], 7, 4, [FK.HEAD, 0.4, 1.0], [0, -0.02, 0], root, root, false, (a, y) => (y < -0.6 ? 0.6 : 1));
+    // the root's shoulder shows above the soil, the rest is in the ground
+    fkBlob(b, [0, -0.015, 0], [0.072, 0.06, 0.072], 7, 4, [FK.HEAD, 0.4, 1.0], [0, -0.03, 0], root, root, false, (a, y) => (y < -0.6 ? 0.6 : 1));
   },
   beans(b) {
     const r = mulberry(53), stem = hexc('#4f7a3a'), dry = hexc('#5a4a30'), leaf = hexc('#3f6a3a'), flower = hexc('#f0f0ea'), pod = hexc('#6a9a3a'), podR = hexc('#4a3a28');
@@ -164,7 +171,7 @@ const FARM_MODELS = {
       fkTube(b, [[0, 0, 0], fv.mix([0, 0, 0], top, 0.5), top], (t) => 0.011 - 0.004 * t, 3, [FK.STEM, 0.1, 0.65], [0, 0, 0], stem, dry);
       for (let q = 0; q < 3; q++) {
         const at = fv.mix([0, 0, 0], top, 0.3 + q * 0.25);
-        for (const sd of [-1, 1]) { const ya = yaw + sd * 1.4 + q; fkRibbon(b, fkArc(at, ya, 0.5, 0.11, 0.6, 2), (t) => 0.06 * Math.sin(Math.PI * (0.1 + 0.85 * t)), fkSide(ya), [FK.LEAF, 0.05 + q * 0.12, 0.35 + q * 0.12], at, leaf, dry); }
+        for (const sd of [-1, 1]) { const ya = yaw + sd * 1.4 + q; fkRibbon(b, fkArc(at, ya, 0.45, 0.13, 0.6, 2), (t) => 0.08 * Math.sin(Math.PI * (0.1 + 0.85 * t)), fkSide(ya), [FK.LEAF, 0.05 + q * 0.12, 0.35 + q * 0.12], at, leaf, dry); }
         fkStar(b, fv.add(at, [Math.sin(yaw + 1) * 0.03, 0.02, Math.cos(yaw + 1) * 0.03]), [Math.sin(yaw + 1), 0.4, Math.cos(yaw + 1)], 0.018, 4, 0.3, [FK.FLOWER, 0.6, 0.68], at, flower, flower, 0.6);
         if (q < 2) { const pd = fv.add(at, [Math.sin(yaw + 2.6) * 0.04, -0.02, Math.cos(yaw + 2.6) * 0.04]); fkTube(b, [pd, fv.add(pd, [0.01, -0.06, 0.01]), fv.add(pd, [0.02, -0.12, 0.02])], (t) => 0.004 + 0.012 * Math.sin(Math.PI * t), 3, [FK.POD, 0.72, 0.9], pd, pod, podR); }
       }
@@ -196,14 +203,14 @@ const FARM_MODELS = {
     }
   },
   cabbage_lo(b) {
-    const leaf = hexc('#5a8a64'), head = (y) => fv.mix(hexc('#8fb07a'), hexc('#c4d8a4'), (y + 1) / 2);
-    for (let k = 0; k < 5; k++) { const yaw = (k / 5) * TAU; fkRibbon(b, fkArc([0, 0.02, 0], yaw, 0.6, 0.24, -0.3, 1), (t) => 0.1 + 0.08 * t, fkSide(yaw), [FK.LEAF, 0.0, 0.45], [0, 0, 0], leaf, leaf); }
-    fkBlob(b, [0, 0.11, 0], [0.12, 0.1, 0.12], 5, 3, [FK.HEAD, 0.42, 0.98], [0, 0.04, 0], head, head);
+    const leaf = hexc('#3f6a52'), head = (y) => fv.mix(hexc('#7fa862'), hexc('#a8cc84'), (y + 1) / 2);
+    for (let k = 0; k < 6; k++) { const yaw = (k / 6) * TAU; fkRibbon(b, fkArc([0, 0.02, 0], yaw, 0.6, 0.25, -0.6, 2), (t) => 0.08 + 0.12 * Math.sin(Math.PI * (0.2 + 0.7 * t)), fkSide(yaw), [FK.LEAF, 0.0, 0.45], [0, 0, 0], leaf, leaf); }
+    fkBlob(b, [0, 0.12, 0], [0.11, 0.1, 0.11], 6, 3, [FK.HEAD, 0.42, 0.98], [0, 0.05, 0], head, head);
   },
   turnip_lo(b) {
     const leaf = hexc('#4a7a2a'), leafR = hexc('#5f7a30'), root = (y) => (y > 0.25 ? hexc('#d8d0c8') : hexc('#f0ece0'));
     for (let k = 0; k < 4; k++) { const yaw = (k / 4) * TAU + 0.2; fkRibbon(b, fkArc([0, 0.05, 0], yaw, 1.2, 0.32, 1.0, 1), (t) => 0.07 * Math.sin(Math.PI * (0.3 + 0.6 * t)), fkSide(yaw), [FK.LEAF, 0.0, 0.4], [0, 0, 0], leaf, leafR); }
-    fkBlob(b, [0, 0.03, 0], [0.07, 0.07, 0.07], 4, 2, [FK.HEAD, 0.4, 1.0], [0, -0.02, 0], root, root);
+    fkBlob(b, [0, -0.015, 0], [0.072, 0.06, 0.072], 4, 2, [FK.HEAD, 0.4, 1.0], [0, -0.03, 0], root, root);
   },
   beans_lo(b) {
     const stem = hexc('#4f7a3a'), dry = hexc('#5a4a30'), leaf = hexc('#3f6a3a'), pod = hexc('#6a9a3a'), podR = hexc('#4a3a28');
@@ -257,8 +264,8 @@ const FARM_MODELS = {
     }
   },
   herb_moon(b) {
-    const frond = (t) => fv.mix(hexc('#3a6a5a'), hexc('#9ed8c8'), t * 0.7);
-    for (let k = 0; k < 6; k++) { const ya = (k / 6) * TAU + 0.3; fkRibbon(b, fkArc([0, 0, 0], ya, 1.2, 0.42, 1.6, 8), (t) => (0.012 + 0.07 * Math.sin(Math.PI * (0.08 + 0.9 * t))) * (0.25 + 0.75 * Math.abs(Math.sin(t * 22))), fkSide(ya), [k % 2 ? FK.LEAF : FK.GLOW, 0.0, 0.55], [0, 0, 0], frond, frond); }
+    const frond = (t) => fv.mix(hexc('#4a7a64'), hexc('#b4e4d4'), t * 0.75);
+    for (let k = 0; k < 7; k++) { const ya = (k / 7) * TAU + 0.3; fkRibbon(b, fkArc([0, 0, 0], ya, 1.25, 0.55, 1.7, 8), (t) => (0.012 + 0.07 * Math.sin(Math.PI * (0.08 + 0.9 * t))) * (0.25 + 0.75 * Math.abs(Math.sin(t * 22))), fkSide(ya), [k % 2 ? FK.LEAF : FK.GLOW, 0.0, 0.55], [0, 0, 0], frond, frond); }
   },
   herb_stone(b) {
     const moss = (y) => fv.mix(hexc('#4a5a32'), hexc('#7a8a4a'), (y + 1) / 2), fl = hexc('#f0b4c4');
@@ -270,7 +277,7 @@ const FARM_MODELS = {
 const FARM_LOOK = {
   grain: { a: ['#7a9a38', '#7a9238'], b: ['#e2c46a', '#b8642e'], flowerEnd: 0.9 },
   flax: { a: ['#9cc8f4', '#9a7ae0'], b: ['#b08a48', '#9a7040'], flowerEnd: 0.8 },
-  cabbage: { a: ['#a8c88e', '#8a5a9a'], b: ['#c4d8a4', '#7a3a8a'], flowerEnd: 2 },
+  cabbage: { a: ['#8fb46e', '#7a4a8a'], b: ['#a8cc84', '#6a3a7a'], flowerEnd: 2 },
   turnip: { a: ['#f2eee4', '#b06aa8'], b: ['#f2eee4', '#8a3a8a'], flowerEnd: 2 },
   beans: { a: ['#f4f2ea', '#c49ae0'], b: ['#5a4a2e', '#3a2a24'], flowerEnd: 0.76 },
   grain_lo: null, flax_lo: null, cabbage_lo: null, turnip_lo: null, beans_lo: null,
@@ -490,13 +497,8 @@ const FARM_SOIL_FS = /* glsl */`
   uniform float uWet, uSnowCover, uFarmFrost, uDrawR;
   varying vec3 vW, vN;
   varying vec4 vS, vR, vP0, vP1, vP2;
-  vec3 bumpS(vec3 n, vec3 p, float h, float k){
-    vec3 dpx = dFdx(p), dpy = dFdy(p);
-    float dhx = dFdx(h), dhy = dFdy(h);
-    vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
-    float det = dot(dpx, r1);
-    return safeNormalize(abs(det) * n - k * sign(det) * (dhx * r1 + dhy * r2));
-  }
+  // the lumps of the turned earth (two octaves), and their slope by small differences: a bump without screen-space seams
+  float clodH(vec2 p, float fine){ return vnoise(p * 3.6) * 0.62 + vnoise(p * 8.5 + 3.0) * 0.38 * (0.4 + 0.6 * fine); }
   void main(){
     vec3 n = safeNormalize(vN);
     float d = distance(vW, cameraPosition);
@@ -504,15 +506,18 @@ const FARM_SOIL_FS = /* glsl */`
     float ridge = vR.x, tilled = vR.y;
     float moist = vP0.r, manure = vP0.g, charK = vP0.b;
     // lumps of turned earth, a finer crumb on them, a pebble here and there
-    float c1 = vnoise(vW.xz * 3.6 + vec2(vR.w * 7.0)), c2 = vnoise(vW.xz * 8.5 + 3.0);
-    float clod = c1 * 0.62 + c2 * 0.38 * (0.4 + 0.6 * fine);
+    float clod = clodH(vW.xz, fine);
     float crumb = vnoise(vW.xz * 21.0) * fine;
     float stone = smoothstep(0.86, 0.93, vnoise(vW.xz * 10.0 + 7.7)) * fine;
-    n = bumpS(n, vW, clod * 0.3 + crumb * 0.04 + stone * 0.12, 0.3 * fine);
+    if (fine > 0.01) {
+      const float E = 0.04;
+      float gx = (clodH(vW.xz + vec2(E, 0.0), fine) - clod) / E, gz = (clodH(vW.xz + vec2(0.0, E), fine) - clod) / E;
+      n = safeNormalize(n + vec3(-gx, 0.0, -gz) * 0.07 * fine);
+    }
     gSh = shadowAt(vW, n);
     gPL = pointLights(vW, n);
     // freshly turned loam on the ridges, darker and damper down in the furrows
-    vec3 loam = mix(vec3(0.16, 0.11, 0.075), vec3(0.33, 0.245, 0.165), smoothstep(0.15, 0.85, clod));
+    vec3 loam = mix(vec3(0.19, 0.135, 0.09), vec3(0.37, 0.28, 0.19), smoothstep(0.15, 0.85, clod));
     loam *= (0.93 + 0.12 * crumb) * mix(0.8, 1.06, ridge);
     loam = mix(loam, vec3(0.44, 0.42, 0.38), stone * 0.75);
     // settled ground and stubble where it has not been tilled again
@@ -531,7 +536,7 @@ const FARM_SOIL_FS = /* glsl */`
     float canopy = canopyAt(vW.xz);
     float rainWet = uWet * (1.0 - 0.8 * canopy);
     float damp = max(moist * 0.75, rainWet);
-    loam = wetAlbedo(loam, damp, 1.0);
+    loam = wetAlbedo(loam, damp, 0.8);
     // a parched bed pales and cracks
     float parch = (1.0 - smoothstep(0.03, 0.15, moist)) * (1.0 - rainWet);
     float crack = 1.0 - smoothstep(0.02, 0.06, abs(vnoise(vW.xz * 6.0) - 0.5)) ;

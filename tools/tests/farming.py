@@ -329,7 +329,7 @@ async def main():
           out.act = seenWorker != null ? H.fn.getEnt(seenWorker).ai.farmer : null;
           return out; })()""")
         print('town', json.dumps(r))
-        check(r['n'] >= 10 and r['slots'] > 3000, f"the Logres fields are laid out in strips ({r['n']} strips, {r['slots']} plants' room)")
+        check(r['n'] >= 8 and r['slots'] > 3000, f"the Logres fields are laid out in strips ({r['n']} strips, {r['slots']} plants' room)")
         check(r['worker'] is not None and r['act'] and r['worked'] > 10, 'a farmer of the town walks out and works the ripe strip')
         check(r['phase'] == 'stubble' and r['granary'] > 200, f"the strip is harvested into the town's granary (+{r['granary']})")
 
@@ -430,11 +430,11 @@ async def shots(page):
       for (const id of F.farmers()) { const e = H.fn.getEnt(id); if (e && e.ai.fieldHand) { e.ai.plan = null; e.ai.visitUntil = 0; e.ai.nextVisit = H.GAME.t + 999; e.ai.lifeWait = 0; e.ai.farmNext = 0; } }
       let e = null;
       for (let i = 0; i < 90; i++) { H.simulate(1); if (P.stand.worker != null) { e = H.fn.getEnt(P.stand.worker); if (e && Math.hypot(e.x - P.x, e.z - P.z) < P.rad && P.stand.p > 0.34) break; } }
-      return { x: P.x, z: P.z, ex: e ? e.x : P.x, ez: e ? e.z : P.z, eyaw: e ? e.yaw : 0, worker: !!e, p: P.stand.p, y: H.fn.heightAt(P.x, P.z) }; })()""")
+      return { x: P.x, z: P.z, ax: P.ax, az: P.az, ex: e ? e.x : P.x, ez: e ? e.z : P.z, eyaw: e ? e.yaw : 0, worker: !!e, p: P.stand.p, y: H.fn.heightAt(P.x, P.z) }; })()""")
     print('  town harvest', r)
     ex, ez, ey = r['ex'], r['ez'], r['eyaw']
     await shot(page, 'farm_town_harvest.png', [ex + math.sin(ey) * 4.5 + 2, r['y'] + 2.0, ez + math.cos(ey) * 4.5 + 2], [ex, r['y'] + 0.7, ez], tod=0.95)
-    await shot(page, 'farm_ripe_field.png', [r['x'] + 24, r['y'] + 8, r['z'] + 20], [r['x'], r['y'], r['z']], tod=0.95)
+    await shot(page, 'farm_ripe_field.png', [r['x'] + r['ax'] * 14 + 6, r['y'] + 16, r['z'] + r['az'] * 14 + 6], [r['x'] - r['ax'] * 6, r['y'], r['z'] - r['az'] * 6], tod=0.95)
     # a herb patch in shade
     r = await page.evaluate("""(() => { const H = __hm, F = H.farm; const h = F.herbs().find((x) => x.k === 'herb_moon' && x.gone === 0) || F.herbs()[0];
       F.setSeason(0.3); const near = F.herbs().filter((x) => Math.hypot(x.x - h.x, x.z - h.z) < 6).length; H.UI.modal = null; H.teleport(h.x + 2, h.z + 2); H.simulate(0.2); return { x: h.x, z: h.z, y: H.fn.heightAt(h.x, h.z), near, k: h.k }; })()""")

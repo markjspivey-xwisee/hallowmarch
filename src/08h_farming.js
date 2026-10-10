@@ -305,7 +305,8 @@ function farmCoverPlot(P, upload) {
   const c = Math.cos(P.ang), s = Math.sin(P.ang);
   const inside = (px, pz) => {
     const dx = px - P.x, dz = pz - P.z, u = dx * c - dz * s, v = dx * s + dz * c;
-    if (Math.abs(u) > P.hw + 0.25 || Math.abs(v) > P.hd + 0.25) return false;
+    const pad = P.own === 't' ? 0.1 : 0.25;
+    if (Math.abs(u) > P.hw + pad || Math.abs(v) > P.hd + pad) return false;
     if (P.valid) { const sl = plotSlotAt(P, px, pz); return P.valid[sl] === 1; }
     return true;
   };
@@ -537,7 +538,8 @@ function farmBuildTownFields() {
     const half = longX ? F.hw : F.hd, across = longX ? F.hd : F.hw;
     const lx = longX ? { x: c, z: -s } : { x: s, z: c }, lz = longX ? { x: s, z: c } : { x: c, z: -s };
     const ang = Math.atan2(lx.x, lx.z);
-    const stripW = 4.8, gap = 0.6, n = Math.max(1, Math.floor((2 * across - 1) / (stripW + gap)));
+    // strips with grassy balks between them to walk on
+    const stripW = 4.8, gap = 1.7, n = Math.max(1, Math.floor((2 * across - 1) / (stripW + gap)));
     const used = n * (stripW + gap) - gap, rows = Math.floor((2 * half - 3) / FARM_SP), cols = Math.floor(stripW / FARM_SP);
     for (let k = 0; k < n; k++) {
       const off = -used / 2 + k * (stripW + gap) + stripW / 2;
@@ -1236,6 +1238,28 @@ function farmHerbSketch(k, known) {
   };
   return `<svg viewBox="0 0 48 48" aria-hidden="true">${shapes[k]}</svg>`;
 }
+// a grain plant at each stage on its ridge, for the Fields page
+function farmStagesSketch() {
+  const names = ['Sprouting', 'In leaf', 'Heading', 'In flower', 'Ripening', 'Ripe'];
+  let g = '<svg viewBox="0 0 372 112" role="img" aria-label="A grain plant at each stage, from sprouting to ripe"><rect width="372" height="112" rx="6" fill="#171a16"/>';
+  let ridge = 'M0,84';
+  for (let x = 0; x <= 372; x += 31) ridge += ` Q${x + 15.5},${x % 62 ? 90 : 76} ${x + 31},84`;
+  g += `<path d="${ridge} L372,112 L0,112Z" fill="#4b3826"/><path d="${ridge}" fill="none" stroke="#6a5038" stroke-width="2"/>`;
+  [0.14, 0.35, 0.6, 0.78, 0.92, 1].forEach((st, k) => {
+    const x = 31 + k * 62, y = 82, ripe = sstep(0.84, 1, st), H = 6 + 58 * sstep(0, 0.7, st);
+    const leaf = ripe > 0.5 ? '#b89a50' : '#4f8a2c', stalk = ripe > 0.5 ? '#c8a858' : '#5f9a34', ear = ripe > 0.5 ? '#e0bc5c' : '#8fae44';
+    const L = 8 + 16 * sstep(0, 0.4, st);
+    g += `<path d="M${x},${y} q-${L * 0.6},-${L * 0.5} -${L},-${L * 0.2}M${x},${y} q${L * 0.6},-${L * 0.6} ${L},-${L * 0.15}M${x},${y} q-${L * 0.2},-${L * 0.8} -${L * 0.4},-${L}" stroke="${leaf}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+    if (st > 0.45) for (const dx of [-5, 0, 5]) {
+      const tx = x + dx * 1.4, ty = y - H + Math.abs(dx) * 1.5;
+      g += `<path d="M${x},${y} L${tx},${ty}" stroke="${stalk}" stroke-width="1.6"/>`;
+      if (st > 0.55) g += `<ellipse cx="${tx + ripe * dx * 0.3}" cy="${ty - 6 + ripe * 2}" rx="2.6" ry="7" fill="${ear}" transform="rotate(${dx * 2 + ripe * dx * 3} ${tx} ${ty})"/>`;
+      if (st > 0.7 && st < 0.86) g += `<circle cx="${tx + 3}" cy="${ty - 7}" r="1.2" fill="#f4f0d0"/><circle cx="${tx - 3}" cy="${ty - 3}" r="1.2" fill="#f4f0d0"/>`;
+    }
+    g += `<text x="${x}" y="106" text-anchor="middle" font-size="10" fill="#d8cdb4" font-family="Alegreya Sans, sans-serif">${names[k]}</text>`;
+  });
+  return g + '</svg>';
+}
 function chronFields() {
   const P = GAME.player, t = P ? farmTempAt(P.x, P.z) : SEASON.temp;
   const left = Math.round(((1 - SEASON.f) * SEASON.yearSec) / 4 / 60);
@@ -1245,6 +1269,7 @@ function chronFields() {
   const strainRows = kept.slice(0, 14).map((S) => `<tr><td>${esc(S.name)}</td><td>${S.gen}</td>${['y', 'h', 'd', 'sp', 'ht'].map((k) => `<td>${Math.round(S.tr[k] * 100)}</td>`).join('')}<td>${goodsCount(farmStrainGood(S))}</td></tr>`).join('');
   return `<p class="lead">The March turns through its seasons: spring, summer, autumn and winter, two days each. ${SEASON_ADVICE[SEASON.idx]}</p>
     <p class="now">Now: <b>${esc(seasonLabel().toLowerCase())}</b>, about ${Math.round(t)}°C where you stand. ${SEASON_NAMES[(SEASON.idx + 1) % 4]} comes in about ${left} minutes.</p>
+    <figure class="figure fc-fig">${farmStagesSketch()}</figure>
     <h3>Your own beds</h3>
     <p>Buy seed and a hoe from a farmer (one waits in each town; Brackenford's work the fields round the town). Face open meadow and press <b>E</b> to till a bed: four furrows of six plants. Then sow it from the seed you carry, or plant a herb root you dug up. Without a hoe you can turn the soil by hand, slowly.</p>
     <p>A crop grows through its stages: <b>sprouting</b>, <b>in leaf</b>, <b>heading</b>, <b>in flower</b>, <b>ripening</b> and <b>ripe</b>. Rain waters a bed and sun and warmth speed it on; a dry spell parches it and the plants wilt and die. Each crop has the cold it can stand: a hard frost kills tender flax and beans, while turnips and cabbages shrug off a light one, and snow lying on a bed keeps the frost off. Weeds come up in every bed and slow it down; pull them. Harvest a ripe bed with <b>E</b> for the crop and seed to sow again. Left too long, ripe plants shed and rot.</p>
