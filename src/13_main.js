@@ -224,7 +224,7 @@ function drawActors(fx, fz) {
     if (e.kind === 'humanoid') {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
       _cb[0] = L.armor[0]; _cb[1] = L.armor[1]; _cb[2] = L.armor[2]; _cb[3] = L.flags || 0;
-      _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : L.mask; // [survival] a rod is held like a brand _mi[2] = e.anim.flash; _mi[3] = L.hair;
+      _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair; // [survival] a rod is held like a brand
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = L.fem ?? 0; _st[3] = L.bulk ?? 0;
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
