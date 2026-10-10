@@ -952,14 +952,17 @@ function buildHeroTree() {
       ${GLSL_COMMON}
       ${GLSL_ATMOS}
       ${GLSL_SHADOW}
+      ${GLSL_SEASON} // [seasons]
       uniform vec3 uLeaf;
       varying vec2 vUv; varying vec3 vW; varying vec3 vNrm; varying float vAO; varying float vSeed;
       void main(){
         vec2 q = vUv * 2.0 - 1.0;
         if (abs(q.x) > 0.66 * (1.0 - q.y * q.y)) discard;
+        // [seasons] the Lone Tree turns with the year too, though it never quite loses its crown
+        if (fract(vSeed * 5.3) > 0.35 && seasonFallen(fract(vSeed * 13.1), 0.5) > 0.5) discard;
         vec3 n = safeNormalize(vNrm);
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
-        vec3 alb = uLeaf * (0.78 + 0.44 * fract(vSeed * 91.7));
+        vec3 alb = seasonLeaf(uLeaf * (0.78 + 0.44 * fract(vSeed * 91.7)), fract(vSeed * 3.1), 0.0); // [seasons]
         float sh = shadowAt(vW, n);
         vec3 col = alb * (0.32 + 0.45 * vAO * mix(0.65, 1.0, sh) + 0.5 * ndl * vAO * mix(0.25, 1.0, sh));
         vec3 V = safeNormalize(cameraPosition - vW);

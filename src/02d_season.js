@@ -41,12 +41,12 @@ vec3 seasonGrass(vec3 alb, float dry, float lush, float t, vec2 xz){
   float L = dot(alb, vec3(0.3, 0.55, 0.15));
   float n = vnoise(xz * 0.23 + 3.7);
   vec3 spring = alb * mix(vec3(1.0, 1.1, 0.82), vec3(0.96, 1.16, 0.74), lush);
-  vec3 gold = vec3(1.55, 1.2, 0.46) * L;
-  vec3 summer = mix(alb, gold, clamp(uSeasonC.y * (0.18 + 0.82 * dry) * (0.4 + 0.6 * t) * (1.0 - 0.65 * lush), 0.0, 0.95));
-  vec3 tawny = mix(vec3(1.45, 1.02, 0.5), vec3(1.15, 0.82, 0.48), n) * L;
-  vec3 autumn = mix(alb * vec3(1.02, 0.96, 0.82), tawny, clamp((0.42 + 0.38 * t) * (1.0 - 0.4 * lush) + 0.18 * dry, 0.0, 0.9));
-  vec3 straw = mix(vec3(1.18, 1.04, 0.78), vec3(0.98, 0.9, 0.74), n) * L * 0.95;
-  vec3 winter = mix(alb * vec3(0.84, 0.86, 0.84), straw, clamp(0.5 + 0.4 * t - 0.3 * lush, 0.0, 0.9));
+  vec3 gold = vec3(1.62, 1.22, 0.42) * L;
+  vec3 summer = mix(alb, gold, clamp(uSeasonC.y * (0.32 + 0.68 * dry) * (0.5 + 0.5 * t) * (1.0 - 0.5 * lush), 0.0, 0.95));
+  vec3 tawny = mix(vec3(1.62, 1.0, 0.42), vec3(1.25, 0.8, 0.44), n) * L;
+  vec3 autumn = mix(alb * vec3(1.04, 0.94, 0.8), tawny, clamp((0.62 + 0.3 * t) * (1.0 - 0.3 * lush) + 0.15 * dry, 0.0, 0.92));
+  vec3 straw = mix(vec3(1.22, 1.02, 0.74), vec3(1.0, 0.88, 0.72), n) * L * 0.95;
+  vec3 winter = mix(alb * vec3(0.86, 0.84, 0.8), straw, clamp(0.68 + 0.28 * t - 0.25 * lush, 0.0, 0.93));
   return spring * S.x + summer * S.y + autumn * S.z + winter * S.w;
 }
 // how far this tree is through the turning of its leaves: each tree at its own pace (tint: the tree's own 0..1)

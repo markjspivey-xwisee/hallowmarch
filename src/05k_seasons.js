@@ -425,6 +425,11 @@ function seasonHooks() {
     ice: (x, z) => ({ thick: seasonIceAt(x, z), y: seasonIceY(x, z), water: waterAt(x, z) ? +waterAt(x, z).y.toFixed(3) : null }),
     frozen: () => { const out = [0, 0, 0], all = [0, 0, 0]; if (SICE.ks) for (let q = 0; q < SICE.ks.length; q++) { const k = SICE.ks[q], x = -HALF + (k % HN) * HS, z = -HALF + ((k / HN) | 0) * HS, r = realmAt(x, z); all[r]++; if (SICE.thick[q] >= 0.3) out[r]++; } return { walkable: out, texels: all, on: SICE.on }; },
     lakes: () => LAKES.map((L) => ({ x: L.x, z: L.z, r: L.r, realm: L.realm })),
+    treesNear: (x, z, r, kind) => W.trees.map((t, i) => ({ i, kind: t.kind, x: t.x, z: t.z, y: t.y, s: t.s, d: Math.hypot(t.x - x, t.z - z) })).filter((t) => t.d < r && (!kind || t.kind === kind)).sort((a, b) => a.d - b.d),
+    // the town fields and gardens, and any tree standing in one (there should be none)
+    fields: () => (W.fieldRects || []).map((F) => { const c = Math.cos(F.ang), s = Math.sin(F.ang); const inside = W.trees.filter((t) => { const lx = (t.x - F.x) * c - (t.z - F.z) * s, lz = (t.x - F.x) * s + (t.z - F.z) * c; return Math.abs(lx) < F.hw + 0.5 && Math.abs(lz) < F.hd + 0.5; }).length; return { x: F.x, z: F.z, hw: F.hw, hd: F.hd, realm: F.realm || 0, garden: !!F.garden, trees: inside }; }),
+    trees: () => W.trees.length,
+    realmAt: (x, z) => realmAt(x, z),
     step: (sec) => { const n = Math.ceil(sec); for (let i = 0; i < n; i++) { SEAS.acc += 1; seasonLieStep(1); seasonIceStep(1); } seasonIceVisual(true); seasonIceLift(); },
   };
 }

@@ -122,11 +122,13 @@ const natTreeMat = mat({
     ${GLSL_FOLIAGE}
     ${GLSL_CLEARVIEW}
     ${GLSL_PLIGHT}
+    ${GLSL_SEASON} // [seasons] the felled and falling trees keep the season's look (02d_season.js)
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch, uFoliageCut, uNeedle, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying vec2 vUV; varying float vSeed; varying vec4 vSt; varying vec4 vFx;
     void main(){
       if (bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) < viewBlock(vW)) discard;
+      if (vPart > 2.5 && uNeedle < 0.5 && uSeasonB.y > 0.01 && vnoise(vW.xz * 2.7 + vW.y * 2.1 + vTint * 5.0) < uSeasonB.y * 1.1) discard; // [seasons] no heart of leaves in winter
       // leaves that have dropped are gone; the dark heart of the crown thins with them
       if (vPart > 0.5 && vPart < 2.5 && hash12(vec2(vSeed * 97.0, vSeed * 31.0 + 1.7)) > vSt.z) discard;
       if (vPart > 2.5 && bayer4(gl_FragCoord.xy) > vSt.z * 1.15 - 0.1) discard;
@@ -164,12 +166,14 @@ const natTreeMat = mat({
       } else if (vPart > 2.5) {
         float pat = uNeedle > 0.5 ? vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 9.0, vLocal.y * 2.2)) * 0.7 + vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 31.0, vLocal.y * 6.0)) * 0.3 : vnoise(vW.xz * 3.0 + vW.y * 2.0);
         vec3 alb = uLeaf * uKindTint * (0.8 + 0.3 * vTint) * (0.62 + 0.62 * pat);
+        if (uNeedle < 0.5) alb = seasonLeaf(alb, vTint, uBirch); // [seasons]
         alb = mix(alb, mix(vec3(0.3, 0.17, 0.05), vec3(0.04, 0.03, 0.02), smoothstep(0.35, 0.9, charK)), smoothstep(0.0, 0.45, charK));
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.3 + 0.35 * vAO + 0.35 * ndl * vAO * mix(0.3, 1.0, sh));
         glow = vec3(2.2, 0.75, 0.15) * fire * 0.5 * pat;
       } else {
-        float a = vPart < 1.5 ? leafCluster(vUV, vSeed) : needleSpray(vUV);
+        float bare = vPart < 1.5 && uNeedle < 0.5 ? seasonFallen(vSeed, vTint) : 0.0; // [seasons] bare twigs where the leaves have fallen
+        float a = vPart < 1.5 ? (bare > 0.5 ? twigCard(vUV, vSeed) : leafCluster(vUV, vSeed)) : needleSpray(vUV);
         vec3 fn = safeNormalize(cross(dFdx(vW), dFdy(vW)));
         a *= smoothstep(0.08, 0.3, abs(dot(fn, V)));
         alpha = a;
@@ -177,6 +181,7 @@ const natTreeMat = mat({
         float vary = hash12(floor(vUV * 3.6 + vSeed * 17.0) + 3.0);
         vec3 alb = uLeaf * uKindTint * (0.72 + 0.5 * vTint) * (0.78 + 0.4 * vary);
         if (vPart > 1.5) alb *= 0.85;
+        else if (uNeedle < 0.5) alb = bare > 0.5 ? mix(vec3(0.3, 0.25, 0.22), vec3(0.4, 0.28, 0.26), uBirch) * dot(uLeaf, vec3(0.3, 0.55, 0.15)) * 3.0 * (0.8 + 0.4 * vary) : seasonLeaf(alb, vTint, uBirch); // [seasons]
         // scorched leaves go brown, then black, then fall
         alb = mix(alb, mix(vec3(0.45, 0.25, 0.07), vec3(0.05, 0.035, 0.025), smoothstep(0.35, 0.9, charK)) * (0.8 + 0.4 * vary), smoothstep(0.0, 0.4, charK + vary * 0.15));
         float ndl = clamp(dot(n, uLightDir) * 0.55 + 0.45, 0.0, 1.0);
