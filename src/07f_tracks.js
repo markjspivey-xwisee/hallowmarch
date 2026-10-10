@@ -10,6 +10,7 @@
 const TRACKS = { built: false, mesh: null, max: 0, head: 0, n: 0, cells: new Map(), born: null, snowAcc: 0, dryAcc: 0, drifts: [], driftOn: false, laid: 0, cut: 0, ruts: 0, visT: 0, dirty: false, lo: Infinity, hi: -1 };
 const TRK_MAX = { high: 1600, medium: 1000, low: 520 };
 const TRK_KIND = { boot: 0, hoof: 1, paw: 2, bird: 3, rut: 4 };
+const TRK_FILL = 22; // snow fallen (TRACKS.snowAcc: 0.9 a second in a heavy fall) that fills a print: about 25 s of a blizzard, a minute and more of light snow
 // beasts' feet: kind, print size, where the fore and hind feet fall along the body, and how far apart the two sides are
 const TRK_BEAST = {
   wolf: [2, 0.11, 0.46, -0.42, 0.11], hound: [2, 0.1, 0.42, -0.38, 0.1], bear: [2, 0.22, 0.6, -0.55, 0.2], boar: [1, 0.075, 0.38, -0.36, 0.1], pig: [1, 0.065, 0.34, -0.32, 0.1],
@@ -84,7 +85,7 @@ const trkMat = mat({
       vec3 col; float a;
       if (surf == 0) {
         // snow: a blue shadow in the dent, the lit wall and the rim catching the light; new snow fills it in
-        float fill = clamp((uTrk.x - vT.x) / 2.2, 0.0, 1.0);
+        float fill = clamp((uTrk.x - vT.x) / ${TRK_FILL.toFixed(1)}, 0.0, 1.0);
         float lie = smoothstep(0.12, 0.4, uSnowCover * snowHere(vW));
         float sh = clamp(0.55 - side * 0.45, 0.1, 1.0);
         col = mix(vec3(0.42, 0.5, 0.68) * (uAmbient * 0.9 + uLightColor * 0.15), vec3(0.85, 0.9, 1.0) * (uAmbient * 0.6 + uLightColor * 0.6), clamp(-side * 0.6, 0.0, 1.0));
@@ -358,7 +359,7 @@ const TRACKS_DEBUG = {
   TRACKS, lay: trkLay, surface: trkSurface,
   prints: (x, z, r = 3) => { const A = TRACKS.mesh.geometry.attributes, out = []; for (let i = 0; i < TRACKS.n; i++) { const o = i * 4; if (A.iK.array[o + 3] > 0 && Math.hypot(A.iP.array[o] - x, A.iP.array[o + 1] - z) < r) out.push({ i, x: A.iP.array[o], z: A.iP.array[o + 1], kind: A.iK.array[o], surf: A.iK.array[o + 2], snow0: A.iT.array[o], dry0: A.iT.array[o + 1], t: A.iT.array[o + 2] }); } return out; },
   // how much of a print still shows (the shader's own sums, on the CPU)
-  shows: (i) => { const A = TRACKS.mesh.geometry.attributes, o = i * 4, surf = A.iK.array[o + 2]; if (A.iK.array[o + 3] <= 0) return 0; if (surf === 0) return 1 - clamp((TRACKS.snowAcc - A.iT.array[o]) / 2.2, 0, 1); return 1 - clamp((TRACKS.dryAcc - A.iT.array[o + 1]) / (surf === 1 ? 240 : 150), 0, 1) * (surf === 1 ? 0.92 : 1); },
+  shows: (i) => { const A = TRACKS.mesh.geometry.attributes, o = i * 4, surf = A.iK.array[o + 2]; if (A.iK.array[o + 3] <= 0) return 0; if (surf === 0) return 1 - clamp((TRACKS.snowAcc - A.iT.array[o]) / TRK_FILL, 0, 1); return 1 - clamp((TRACKS.dryAcc - A.iT.array[o + 1]) / (surf === 1 ? 240 : 150), 0, 1) * (surf === 1 ? 0.92 : 1); },
   drifts: () => ({ n: TRACKS.drifts.length, tris: TRACKS.drifts.reduce((s, D) => s + D.tris, 0), on: TRACKS.driftOn, visible: TRACKS.drifts.filter((D) => D.m.visible).length }),
 };
 WATER_DEBUG.tracks = TRACKS_DEBUG; // window.__hm.water.tracks

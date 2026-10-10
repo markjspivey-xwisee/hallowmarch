@@ -165,11 +165,13 @@ function diveSteer(P, dt, f, s, mag) {
   // the ceiling: the surface, or winter ice with no hole in it
   const iced = SICE.on && seasonIceAt(P.x, P.z) > 0.12 && !diveHoleAt(P.x, P.z, 0.15);
   const w2 = waterAt(P.x, P.z, _dvW) || w;
-  if (iced) {
-    const top = w2.y - 0.42;
+  const keel = boatKeelOver(P.x, P.z, 0.35); // a hull overhead is a ceiling too (07e_boats.js)
+  if (iced || keel !== null) {
+    const top = Math.min(iced ? w2.y - 0.42 : Infinity, keel !== null ? keel - 0.5 : Infinity);
     if (pivot > top) {
       pivot = top; if (P.dvy > 0) P.dvy = 0;
-      if (GAME.t - DIVE.iceNoted > 6) { DIVE.iceNoted = GAME.t; uiLog('Ice above you. Find the hole you came down through.', 'warn'); diveSfx('bump'); }
+      if (iced && GAME.t - DIVE.iceNoted > 6) { DIVE.iceNoted = GAME.t; uiLog('Ice above you. Find the hole you came down through.', 'warn'); diveSfx('bump'); }
+      else if (!iced && GAME.t - DIVE.iceNoted > 4) { DIVE.iceNoted = GAME.t; diveSfx('bump'); }
     }
   } else if (pivot > w2.y - 0.26) {
     // at the surface: up into the air (unless the dive has only just begun)

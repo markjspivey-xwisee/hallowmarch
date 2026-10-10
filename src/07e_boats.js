@@ -661,6 +661,8 @@ function boatLife(e, dt) {
       const step = J.steps[J.boats.indexOf(B)] || J.end;
       e.x = e.prevX = step.x; e.z = e.prevZ = step.z; e.y = J.deck; e.fixedY = J.deck;
       F.st = 'ashore'; F.t = 0;
+      // the catch goes to the town's stores with the fields' harvest (the farmers' dialog tells what they hold)
+      if (typeof FARM !== 'undefined' && GOODS.fish_raw) { const n = 2 + Math.floor(Math.random() * 5); FARM.granary.fish_raw = (FARM.granary.fish_raw || 0) + n; BOATS.caught = (BOATS.caught || 0) + n; }
     }
     return true;
   }
@@ -686,12 +688,74 @@ function boatLife(e, dt) {
 }
 
 /* ------------------------------------------------------------------ */
+/* a hull is solid: bodies go round it, not through it                  */
+/* ------------------------------------------------------------------ */
+// stepTo (07_entities.js) asks after the colliders: a body moving to p (radius r, feet at by) is pushed out of any hull
+// it would stand in (beached on the shore, alongside a jetty, out on the water), unless it is in that boat, or it swims
+// under the keel, or it stands above the gunwale. The hull's plan is taken as an ellipse round its strakes.
+function boatShove(p, r, by, e) {
+  if (!BOATS.built || (e && (e.boat || e.kind === 'door' || e.flying || e.hover))) return;
+  const top = by + (e && e.kind === 'humanoid' ? 1.7 : 1.0) * ((e && e.scale) || 1);
+  for (const B of BOATS.list) {
+    const dx = p.x - B.x, dz = p.z - B.z;
+    if (dx * dx + dz * dz > (BOAT_L / 2 + r + 0.2) ** 2) continue;
+    const by0 = boatFloatY(B);
+    if (top < by0 - BOAT_DRAFT - 0.12 || by > by0 + boatSheer(0) + 0.15) continue; // under the keel, or over the side
+    boatShoveOut(p, B, r);
+  }
+}
+const _bsv = { x: 0, z: 0 }, _bfW = { y: 0, depth: 0, fx: 0, fz: 0 };
+// where she floats now (her drawn height lags for a boat out of sight)
+function boatFloatY(B) { const w = waterAt(B.x, B.z, _bfW); return w ? w.y : B.y ?? heightAt(B.x, B.z) + BOAT_DRAFT * 0.7; }
+// the keel's depth over (x, z) when a hull floats there (a diver under it comes up against it), else null
+function boatKeelOver(x, z, r = 0) {
+  if (!BOATS.built) return null;
+  let y = null;
+  for (const B of BOATS.list) {
+    const dx = x - B.x, dz = z - B.z;
+    if (dx * dx + dz * dz > (BOAT_L / 2 + r) ** 2) continue;
+    const c = Math.cos(B.yaw), s = Math.sin(B.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, a = BOAT_B / 2 + r, b = BOAT_L / 2 + r;
+    if ((lx * lx) / (a * a) + (lz * lz) / (b * b) >= 1) continue;
+    const k = boatFloatY(B) + boatKeel(clamp(lz / (BOAT_L / 2), -1, 1));
+    y = y === null ? k : Math.min(y, k);
+  }
+  return y;
+}
+function boatShoveOut(p, B, r) {
+  const c = Math.cos(B.yaw), s = Math.sin(B.yaw), dx = p.x - B.x, dz = p.z - B.z;
+  const lx = dx * c - dz * s, lz = dx * s + dz * c, a = BOAT_B / 2 + r, b = BOAT_L / 2 + r;
+  const q = (lx * lx) / (a * a) + (lz * lz) / (b * b);
+  if (q >= 1) return false;
+  let nx, nz;
+  if (q < 1e-6) { nx = a * (lx >= 0 ? 1 : -1); nz = 0; }
+  else { const k = 1 / Math.sqrt(q); nx = lx * k; nz = lz * k; }
+  // out across the beam where the side is near, along the keel at the stem and the stern
+  if (Math.abs(lz) < b * 0.7) { nx = (lx >= 0 ? 1 : -1) * a * Math.sqrt(Math.max(0, 1 - (lz * lz) / (b * b))); nz = lz; }
+  p.x = B.x + nx * c + nz * s; p.z = B.z - nx * s + nz * c;
+  return true;
+}
+// a boat under way shoulders aside the bodies in her path (swimmers, waders, a body on the shore she runs up on)
+function boatShoveBodies(B) {
+  const sp = Math.hypot(B.vx, B.vz) + Math.abs(B.wr) * 2;
+  if (sp < 0.04) return;
+  for (const e of ENT) {
+    if (!e.alive || e.removed || e.boat || e.kind === 'door' || e.kind === 'dragon' || e.flying || e.fixedY !== null || e.dive) continue;
+    const dx = e.x - B.x, dz = e.z - B.z, r = (e.radius || 0.4) * (e.scale || 1) * 0.9;
+    if (dx * dx + dz * dz > (BOAT_L / 2 + r + 0.2) ** 2) continue;
+    _bsv.x = e.x; _bsv.z = e.z;
+    boatShove(_bsv, r, e.y, e);
+    if ((_bsv.x !== e.x || _bsv.z !== e.z) && (e.swimOK ? swimPassable : isWalkable)(_bsv.x, _bsv.z)) { e.x = _bsv.x; e.z = _bsv.z; }
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* every step and every frame                                           */
 /* ------------------------------------------------------------------ */
 function boatsUpdate(dt) {
   if (!BOATS.built) return;
   const P = GAME.player;
   for (const B of BOATS.list) {
+    boatShoveBodies(B);
     if (B.st === 'burning') boatBurnStep(B, dt);
     else if (B.st === 'burnt' && B.rebuildAt && GAME.t > B.rebuildAt && (!P || dist2(P.x, P.z, B.x, B.z) > 30 * 30)) boatRestore(B);
     const rider = B.rider != null ? getEnt(B.rider) : null;

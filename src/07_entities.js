@@ -338,6 +338,7 @@ function stepTo(e, nx, nz) {
   _mv.x = nx; _mv.z = nz;
   const by = e.y - (e.hover || 0); // castles: colliders and raised floors know how high the body stands (04g_castles.js)
   resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, by, e.faction);
+  boatShove(_mv, e.radius * (e.scale || 1) * 0.9, by, e); // [water2] round a boat's hull, not through it (07e_boats.js)
   if (!e.swim && castleStepBlocked(e, _mv.x, _mv.z, by)) return false; // [water] a swimmer floats over the drop of the bed
   const Dg = DRAGON.e;
   if (Dg && Dg !== e && !Dg.removed && !Dg.flying) {
