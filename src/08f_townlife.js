@@ -36,12 +36,12 @@ function houseLife(e, dt) {
     lifePlan(e, houseLeavePlan(e, H));
     return true;
   }
+  if (farmLife(e)) return true; // [farming] farmers go out to work the town fields before anything else (08h_farming.js)
   if (GAME.t > (ai.nextVisit ?? (ai.nextVisit = GAME.t + 30 + Math.random() * 90))) {
     ai.nextVisit = GAME.t + 80 + Math.random() * 120;
     ai.visitUntil = GAME.t + 50;
     return true;
   }
-  if (farmLife(e)) return true; // [farming] farmers go out to work the town fields (08h_farming.js)
   lifeWander(e);
   return true;
 }

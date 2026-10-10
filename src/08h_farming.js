@@ -316,7 +316,10 @@ function farmCoverPlot(P, upload) {
     texSubUpload(COVER.tex, i0, j0, i1 - i0 + 1, j1 - j0 + 1, 1024, gl.RED, gl.UNSIGNED_BYTE, COVER.data, 1);
   }
 }
-function farmCoverAll() { for (const P of FARM.plots) farmCoverPlot(P, false); }
+// low herbs keep a little clearing of their own, so the turf does not swallow them
+const FARM_LOW_HERBS = new Set(['herb_mana', 'herb_fire', 'herb_frost', 'herb_stone']);
+function farmCoverHerbs() { for (const H of FARM.herbs) if (FARM_LOW_HERBS.has(H.k)) coverCircle(H.x, H.z, 0.55 + 0.2 * H.s); }
+function farmCoverAll() { for (const P of FARM.plots) farmCoverPlot(P, false); farmCoverHerbs(); }
 
 /* ------------------------------------------------------------------ */
 /* plants                                                              */
@@ -628,13 +631,17 @@ function farmLife(e) {
   const ai = e.ai;
   if (!ai.farmer || !ai.fieldHand || GAME.t < (ai.farmNext || 0)) return false;
   ai.farmNext = GAME.t + 4 + Math.random() * 3;
+  // a ripe crop first, then the weeding, the sowing and the tilling; the nearest of each
+  const urgency = { harvest: 0, weed: 900, sow: 1600, till: 2500 };
   let best = null, bd = Infinity;
   for (const P of FARM.plots) {
     if (P.own !== 't' || !P.stand.task || P.stand.worker != null) continue;
     const d = dist2(P.x, P.z, e.x, e.z);
-    if (d < bd) { bd = d; best = P; }
+    if (d > 160 * 160) continue;
+    const sc = d + (urgency[P.stand.task] || 0);
+    if (sc < bd) { bd = sc; best = P; }
   }
-  if (!best || bd > 160 * 160) return false;
+  if (!best) return false;
   best.stand.worker = e.id; best.stand.workT = GAME.t;
   lifePlan(e, [lifeStep('farm', { P: best })]);
   return true;
@@ -1122,7 +1129,7 @@ function farmCastBar() {
 /* ------------------------------------------------------------------ */
 /* the farmer: seed, tools and a fair price for produce                */
 /* ------------------------------------------------------------------ */
-const FARM_SHOP = [['seed_grain', 6, 3], ['seed_flax', 6, 3], ['seed_beans', 6, 3], ['seed_cabbage', 6, 4], ['seed_turnip', 6, 3], ['manure', 3, 2], ['tool_hoe', 1, 12], ['tool_knife', 1, 8]];
+const FARM_SHOP = [['seed_grain', 12, 2], ['seed_flax', 12, 2], ['seed_beans', 12, 2], ['seed_cabbage', 12, 3], ['seed_turnip', 12, 2], ['manure', 3, 2], ['tool_hoe', 1, 8], ['tool_knife', 1, 6]];
 const FARM_SELL = { grain: 1, flax: 1, cabbage: 2, turnip: 1, beans: 1, thatch: 1 };
 function openFarmer(e) {
   const PL = GAME.player, R = REALMS[e.farmTown ?? 0];
@@ -1202,9 +1209,11 @@ function farmUpdateCard(dt) {
   if (C.ui > 0) return;
   C.ui = 0.2;
   const PL = GAME.player;
-  FARM.ctx = GAME.started && !UI.modal && !FARM.job ? farmContext(PL) : FARM.job ? FARM.ctx : null;
+  // (cardForce: a test hook that keeps the card up while the world is paused for a picture)
+  const open = GAME.started && (!UI.modal || FARM.cardForce);
+  FARM.ctx = open && !FARM.job ? farmContext(PL) : FARM.job ? FARM.ctx : null;
   const nearOwn = PL && FARM.plots.some((Q) => Q.own === 'p' && dist2(Q.x, Q.z, PL.x, PL.z) < 9 * 9);
-  const show = FARM.ctx && GAME.started && !UI.modal && !(FARM.ctx.type === 'till' && FARM.ctx.T.why && !nearOwn);
+  const show = FARM.ctx && open && !(FARM.ctx.type === 'till' && FARM.ctx.T.why && !nearOwn);
   const html = show ? farmCardHTML(FARM.ctx) : '';
   if (el._h !== html) { el.innerHTML = html; el._h = html; }
   el.classList.toggle('on', !!html);
@@ -1353,6 +1362,8 @@ registerSavePart('char', 'herbal', {
 /* ------------------------------------------------------------------ */
 function buildFarming() {
   farmPlaceHerbs();
+  farmCoverHerbs();
+  COVER.tex.needsUpdate = true;
   farmBuildTownFields();
   farmBuildDraw();
   FARM.built = true;

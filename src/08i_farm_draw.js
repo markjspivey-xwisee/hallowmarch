@@ -113,8 +113,8 @@ const FARM_MODELS = {
       const yaw = (k / 3) * TAU + r() * 0.6;
       fkRibbon(b, fkArc([0, 0, 0], yaw, 1.15, 0.36 + r() * 0.1, 1.7, 2), (t) => 0.028 * (1 - Math.pow(t, 1.6)) + 0.002, fkSide(yaw), [FK.LEAF, 0.0, 0.32], [0, 0, 0], leaf, straw);
     }
-    for (let k = 0; k < 3; k++) {
-      const yaw = (k / 3) * TAU + 0.5 + r() * 0.5, lean = 0.07 + r() * 0.06, H = 0.8 + r() * 0.2;
+    for (let k = 0; k < 5; k++) {
+      const yaw = (k / 5) * TAU + 0.5 + r() * 0.5, lean = 0.1 + r() * 0.12, H = 0.78 + r() * 0.22;
       const top = [Math.sin(yaw) * Math.sin(lean) * H, H, Math.cos(yaw) * Math.sin(lean) * H];
       const pts = [[0, 0, 0], fv.mix([0, 0, 0], top, 0.5), top];
       fkRibbon(b, pts, (t) => 0.013 - 0.005 * t, fkSide(yaw + 1.2), [FK.STEM, 0.22, 0.68], [0, 0, 0], stalk, straw);
@@ -122,21 +122,21 @@ const FARM_MODELS = {
       const at = fv.mix([0, 0, 0], top, 0.42);
       fkRibbon(b, fkArc(at, yaw + 2.2, 0.7, 0.22, 0.9, 1), (t) => 0.02 * (1 - t * t) + 0.002, fkSide(yaw + 2.2), [FK.LEAF, 0.28, 0.6], at, leaf, straw);
       // the ear: a spindle of grain on the top of the stalk, with its awns
-      const dir = fv.nrm(fv.sub(top, at)), eb = top, et = fv.add(top, fv.sc(dir, 0.11));
-      fkTube(b, [eb, fv.add(eb, fv.sc(dir, 0.03)), fv.add(eb, fv.sc(dir, 0.075)), et], (t) => (t < 0.01 || t > 0.99 ? 0.002 : 0.016 * Math.sin(Math.PI * (0.15 + 0.75 * t))), 3, [FK.HEAD, 0.48, 0.7], eb, ear, earR);
+      const dir = fv.nrm(fv.sub(top, at)), eb = top, et = fv.add(top, fv.sc(dir, 0.12));
+      fkTube(b, [eb, fv.add(eb, fv.sc(dir, 0.035)), fv.add(eb, fv.sc(dir, 0.085)), et], (t) => (t < 0.01 || t > 0.99 ? 0.002 : 0.018 * Math.sin(Math.PI * (0.15 + 0.75 * t))), 3, [FK.HEAD, 0.48, 0.7], eb, ear, earR);
       fkRibbon(b, [fv.add(eb, fv.sc(dir, 0.05)), fv.add(et, fv.sc(dir, 0.07))], () => 0.012, fkSide(yaw), [FK.HEAD, 0.55, 0.74], eb, ear, earR);
     }
   },
   flax(b) {
     const r = mulberry(23), stem = hexc('#4f8a3a'), straw = hexc('#b39a5a'), leaf = hexc('#5c9442'), flower = hexc('#7fb0e8'), boll = hexc('#7a9a40'), bollR = hexc('#a07a3a');
     for (let k = 0; k < 2; k++) fkRibbon(b, fkArc([0, 0, 0], k * Math.PI + 0.3, 1.2, 0.09, 0.6, 2), (t) => 0.018 * (1 - t * t) + 0.003, fkSide(k * Math.PI + 0.3), [FK.LEAF, 0.0, 0.25], [0, 0, 0], leaf, straw);
-    for (let k = 0; k < 5; k++) {
-      const yaw = (k / 5) * TAU + r(), lean = 0.04 + r() * 0.08, H = 0.66 + r() * 0.16;
+    for (let k = 0; k < 7; k++) {
+      const yaw = (k / 7) * TAU + r(), lean = 0.05 + r() * 0.12, H = 0.62 + r() * 0.2;
       const top = [Math.sin(yaw) * Math.sin(lean) * H, H, Math.cos(yaw) * Math.sin(lean) * H];
       fkRibbon(b, [[0, 0, 0], fv.mix([0, 0, 0], top, 0.5), top], () => 0.009, fkSide(yaw + 1.3), [FK.STEM, 0.15, 0.62], [0, 0, 0], stem, straw);
-      for (let q = 0; q < 3; q++) { const at = fv.mix([0, 0, 0], top, 0.3 + q * 0.2), ya = yaw + q * 2.1; fkRibbon(b, [at, fv.add(at, [Math.sin(ya) * 0.06, 0.05, Math.cos(ya) * 0.06])], (t) => 0.012 * (1 - t), fkSide(ya), [FK.LEAF, 0.2, 0.5], at, leaf, straw); }
+      for (let q = 0; q < 2; q++) { const at = fv.mix([0, 0, 0], top, 0.3 + q * 0.25), ya = yaw + q * 2.1; fkRibbon(b, [at, fv.add(at, [Math.sin(ya) * 0.06, 0.05, Math.cos(ya) * 0.06])], (t) => 0.012 * (1 - t), fkSide(ya), [FK.LEAF, 0.2, 0.5], at, leaf, straw); }
       fkStar(b, fv.add(top, [0, 0.01, 0]), [Math.sin(yaw) * 0.3, 1, Math.cos(yaw) * 0.3], 0.03, 5, 0.25, [FK.FLOWER, 0.66, 0.73], top, flower, flower, 0.55);
-      fkBlob(b, fv.add(top, [0, 0.012, 0]), [0.011, 0.013, 0.011], 4, 2, [FK.POD, 0.78, 0.9], top, boll, bollR);
+      fkBlob(b, fv.add(top, [0, 0.012, 0]), [0.012, 0.014, 0.012], 3, 2, [FK.POD, 0.78, 0.9], top, boll, bollR);
     }
   },
   cabbage(b) {
@@ -179,8 +179,8 @@ const FARM_MODELS = {
   // far away: the same plants with a handful of faces
   grain_lo(b) {
     const leaf = hexc('#3f6e22'), straw = hexc('#c7a85a'), stalk = hexc('#5a8a2c'), ear = hexc('#7a9a38'), earR = hexc('#d8b45a');
-    for (let k = 0; k < 3; k++) {
-      const yaw = (k / 3) * TAU + 0.4, H = 0.86 + k * 0.06, top = [Math.sin(yaw) * 0.08, H, Math.cos(yaw) * 0.08];
+    for (let k = 0; k < 4; k++) {
+      const yaw = (k / 4) * TAU + 0.4, H = 0.84 + (k % 2) * 0.08, top = [Math.sin(yaw) * 0.12, H, Math.cos(yaw) * 0.12];
       fkRibbon(b, fkArc([0, 0, 0], yaw + 1, 1.1, 0.38, 1.4, 1), (t) => 0.05 * (1 - t), fkSide(yaw + 1), [FK.LEAF, 0.0, 0.32], [0, 0, 0], leaf, straw);
       fkRibbon(b, [[0, 0, 0], top], () => 0.016, fkSide(yaw + 1.2), [FK.STEM, 0.22, 0.68], [0, 0, 0], stalk, straw);
       fkRibbon(b, [top, fv.add(top, [Math.sin(yaw) * 0.02, 0.12, Math.cos(yaw) * 0.02])], (t) => 0.034 * Math.sin(Math.PI * (0.2 + 0.7 * t)), fkSide(yaw + 1.2), [FK.HEAD, 0.48, 0.7], top, ear, earR);
@@ -188,8 +188,8 @@ const FARM_MODELS = {
   },
   flax_lo(b) {
     const stem = hexc('#4f8a3a'), straw = hexc('#b39a5a'), flower = hexc('#7fb0e8'), boll = hexc('#7a9a40'), bollR = hexc('#a07a3a');
-    for (let k = 0; k < 4; k++) {
-      const yaw = (k / 4) * TAU + 0.3, top = [Math.sin(yaw) * 0.07, 0.72 + k * 0.03, Math.cos(yaw) * 0.07];
+    for (let k = 0; k < 6; k++) {
+      const yaw = (k / 6) * TAU + 0.3, top = [Math.sin(yaw) * 0.1, 0.68 + (k % 3) * 0.04, Math.cos(yaw) * 0.1];
       fkRibbon(b, [[0, 0, 0], top], () => 0.014, fkSide(yaw + 1.3), [FK.STEM, 0.0, 0.62], [0, 0, 0], stem, straw);
       fkRibbon(b, [fv.add(top, [0, -0.02, 0]), fv.add(top, [0, 0.035, 0])], () => 0.05, fkSide(yaw + 1.3), [FK.FLOWER, 0.66, 0.73], top, flower, flower);
       fkRibbon(b, [fv.add(top, [0, -0.005, 0]), fv.add(top, [0, 0.025, 0])], () => 0.028, fkSide(yaw - 0.3), [FK.POD, 0.78, 0.9], top, boll, bollR);
@@ -476,7 +476,7 @@ const FARM_SOIL_VS = /* glsl */`
     // ground not yet tilled (a strip ahead of the plough, a bed gone back to rest) lies flatter
     float tilled = step(aR.y, p0.a + 0.001) * p2.r;
     p.y -= aR.x * 0.075 * aS.z * (1.0 - tilled);
-    vW = p; vN = normal; vS = aS; vR = vec4(aR.x, tilled, aR.zw); vP0 = p0; vP1 = p1; vP2 = p2;
+    vW = p; vN = normal; vS = aS; vR = vec4(aR.x, tilled, aR.y, aR.w); vP0 = p0; vP1 = p1; vP2 = p2;
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }`;
 const FARM_SOIL_FS = /* glsl */`
@@ -500,19 +500,21 @@ const FARM_SOIL_FS = /* glsl */`
   void main(){
     vec3 n = safeNormalize(vN);
     float d = distance(vW, cameraPosition);
-    float fine = 1.0 - smoothstep(18.0, 60.0, d);
+    float fine = 1.0 - smoothstep(8.0, 36.0, d);
     float ridge = vR.x, tilled = vR.y;
     float moist = vP0.r, manure = vP0.g, charK = vP0.b;
-    // clods and crumbs, small stones, fine grit
-    float clod = vnoise(vW.xz * 7.0) * 0.55 + vnoise(vW.xz * 19.0 + 3.0) * 0.3 * fine + vnoise(vW.xz * 47.0) * 0.15 * fine;
-    float stone = smoothstep(0.8, 0.9, vnoise(vW.xz * 13.0 + 7.7)) * fine;
-    n = bumpS(n, vW, clod * 0.6 + stone * 0.8, 0.5 * fine);
+    // lumps of turned earth, a finer crumb on them, a pebble here and there
+    float c1 = vnoise(vW.xz * 3.6 + vec2(vR.w * 7.0)), c2 = vnoise(vW.xz * 8.5 + 3.0);
+    float clod = c1 * 0.62 + c2 * 0.38 * (0.4 + 0.6 * fine);
+    float crumb = vnoise(vW.xz * 21.0) * fine;
+    float stone = smoothstep(0.86, 0.93, vnoise(vW.xz * 10.0 + 7.7)) * fine;
+    n = bumpS(n, vW, clod * 0.3 + crumb * 0.04 + stone * 0.12, 0.3 * fine);
     gSh = shadowAt(vW, n);
     gPL = pointLights(vW, n);
     // freshly turned loam on the ridges, darker and damper down in the furrows
-    vec3 loam = mix(vec3(0.2, 0.14, 0.095), vec3(0.4, 0.3, 0.2), 0.35 + 0.65 * clod);
-    loam *= mix(0.82, 1.08, ridge);
-    loam = mix(loam, vec3(0.42, 0.4, 0.36), stone * 0.7);
+    vec3 loam = mix(vec3(0.16, 0.11, 0.075), vec3(0.33, 0.245, 0.165), smoothstep(0.15, 0.85, clod));
+    loam *= (0.93 + 0.12 * crumb) * mix(0.8, 1.06, ridge);
+    loam = mix(loam, vec3(0.44, 0.42, 0.38), stone * 0.75);
     // settled ground and stubble where it has not been tilled again
     vec2 cq = vW.xz * 9.0, cc = floor(cq), cf = fract(cq) - 0.5;
     float ca = hash12(cc) * 6.2831;
@@ -521,6 +523,8 @@ const FARM_SOIL_FS = /* glsl */`
     vec3 settled = mix(vec3(0.3, 0.25, 0.18), vec3(0.36, 0.31, 0.22), clod);
     settled = mix(settled, vec3(0.7, 0.6, 0.34), stroke * vP2.g * fine);
     loam = mix(settled, loam, tilled);
+    // the stubble left behind the harvesters as they work along the strip
+    loam = mix(loam, vec3(0.72, 0.62, 0.36), stroke * step(vR.z, vP2.a) * fine * 0.9);
     // manure: darker, with straw in it
     loam = mix(loam, vec3(0.13, 0.09, 0.06) + stroke * vec3(0.3, 0.24, 0.1) * fine, manure * 0.7);
     // damp from below: darker; rain on it: dark and shining, water standing in the furrows
@@ -534,15 +538,15 @@ const FARM_SOIL_FS = /* glsl */`
     loam = mix(loam, vec3(0.5, 0.42, 0.32) * (1.0 - 0.6 * crack * fine), parch * 0.55);
     // ash after a fire
     loam = mix(loam, vec3(0.05, 0.045, 0.04) + vec3(0.18) * smoothstep(0.6, 0.85, vnoise(vW.xz * 5.0)), charK * 0.85);
-    vec3 col = lightSurface(loam, n, mix(0.62, 1.0, ridge));
+    vec3 col = lightSurface(loam, n, mix(0.55, 1.0, ridge));
     vec3 V = safeNormalize(cameraPosition - vW);
-    float puddle = smoothstep(0.45, 0.95, rainWet) * (1.0 - smoothstep(0.1, 0.45, ridge)) * smoothstep(0.35, 0.6, vnoise(vW.xz * 1.7) + 0.2);
-    col += wetSheen(vW, n, V, rainWet * 0.7, 0.8, gSh);
+    float puddle = smoothstep(0.55, 0.95, rainWet) * (1.0 - smoothstep(0.05, 0.32, ridge)) * smoothstep(0.52, 0.68, vnoise(vW.xz * 1.1 + 2.0));
+    col += wetSheen(vW, n, V, rainWet * 0.55, 0.75, gSh) * 0.8;
     if (puddle > 0.001) {
       vec3 Rr = reflect(-V, vec3(0.0, 1.0, 0.0));
       vec3 sky = skyBase(safeNormalize(vec3(Rr.x, max(Rr.y, 0.03), Rr.z)));
       float fres = 0.04 + 0.96 * spow(1.0 - max(V.y, 0.0), 5.0);
-      col = mix(col, sky * 0.8 + gPL * 0.3, puddle * (0.35 + 0.6 * fres));
+      col = mix(col, sky * 0.6 + gPL * 0.3, puddle * (0.25 + 0.5 * fres));
     }
     // frost on the ridges on a cold night, snow lying in the furrows' lee
     float rime = uFarmFrost * smoothstep(0.35, 0.9, ridge + 0.3 * clod) * (1.0 - canopy * 0.6);
@@ -628,9 +632,10 @@ function farmPlotTexUpdate() {
     if (i >= FARM_TEXW) return;
     const o = i * 4;
     const T = P.stand;
-    let front = 1, ridge = clamp(P.till, 0, 1), stub = 0;
+    let front = 1, ridge = clamp(P.till, 0, 1), stub = 0, cut = 0;
     if (T) {
       if (T.task === 'till') { front = T.p; ridge = 1; }
+      else if (T.task === 'harvest') cut = T.p;
       else if (T.phase === 'stubble' || T.phase === 'fallow') { front = 0; ridge = 1; stub = T.phase === 'stubble' ? 1 : 0.4; }
     }
     D[o] = Math.round(P.moist * 255); D[o + 1] = Math.round(clamp(P.manure, 0, 1) * 255); D[o + 2] = Math.round(clamp(P.char, 0, 1) * 255); D[o + 3] = Math.round(clamp(front, 0, 1) * 255);
@@ -644,7 +649,7 @@ function farmPlotTexUpdate() {
       const C = FARM_CROPS[T.crop]; cov = sstep(0.15, 0.6, T.g) * (T.task === 'harvest' ? 1 - T.p : 1) * 0.85; rgb = fv.mix(C.cover, C.ripeCover, sstep(0.84, 1, T.g));
     }
     D[W4 + o] = Math.round(clamp(rgb[0], 0, 1) * 255); D[W4 + o + 1] = Math.round(clamp(rgb[1], 0, 1) * 255); D[W4 + o + 2] = Math.round(clamp(rgb[2], 0, 1) * 255); D[W4 + o + 3] = Math.round(cov * 255);
-    D[2 * W4 + o] = Math.round(ridge * 255); D[2 * W4 + o + 1] = Math.round(stub * 255); D[2 * W4 + o + 2] = Math.round(P.weeds * 255); D[2 * W4 + o + 3] = 0;
+    D[2 * W4 + o] = Math.round(ridge * 255); D[2 * W4 + o + 1] = Math.round(stub * 255); D[2 * W4 + o + 2] = Math.round(P.weeds * 255); D[2 * W4 + o + 3] = Math.round(clamp(cut, 0, 1) * 255);
   });
   farmPlotTex.needsUpdate = true;
 }

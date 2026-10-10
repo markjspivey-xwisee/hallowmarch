@@ -2,7 +2,7 @@
 sowing, growth through every stage with simulated time and weather; harvest yields; frost damage; drought; weeds;
 crossing two strains and the offspring's traits; seed saving raising yield over generations; the herbal; trampling and
 fire; the town fields worked by the townsfolk; save and load (and old and damaged saves); screenshots.
-usage: python3 tools/tests/farming.py [noshots]"""
+usage: python3 tools/tests/farming.py [noshots | shotsonly]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright
 FAILS = []
 T0 = time.time()
 SHOTS = 'noshots' not in sys.argv
+ONLYSHOTS = 'shotsonly' in sys.argv
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -29,6 +30,13 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         await page.evaluate("__hm.start({ realm: 0, cls: 'warrior', level: 12 })")
         await page.evaluate("__hm.dbg.WEATHER.mode = 'clear'; document.getElementById('hud').hidden = false;0")
+        if ONLYSHOTS:
+            await shots(page)
+            errs = await page.evaluate("__hm.errors")
+            check(not errs, f'no runtime errors after the shots {errs[:2]}')
+            print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
+            await b.close()
+            return
 
         # ---- the seasons ----
         r = await page.evaluate("""(() => { const F = __hm.farm, out = {};
@@ -296,10 +304,15 @@ async def main():
           S.sort((a, b) => Math.hypot(a.x - R.town.x, a.z - R.town.z) - Math.hypot(b.x - R.town.x, b.z - R.town.z));
           const P = S[0], T = P.stand;
           T.phase = 'sown'; T.crop = 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.p = 0; T.worker = null;
-          for (const Q of S.slice(1)) { Q.stand.task = null; Q.stand.phase = 'sown'; Q.stand.g = 0.3; Q.stand.worker = null; Q.weeds = 0; }
+          for (const Q of S.slice(1)) { Q.stand.task = null; Q.stand.phase = 'sown'; Q.stand.g = 0.3; Q.stand.hp = 1; Q.stand.dead = false; Q.stand.worker = null; Q.weeds = 0; }
+          // the farmers free to work (out of doors, nothing else in hand)
+          for (const id of F.farmers()) { const e = H.fn.getEnt(id); if (e && e.ai.fieldHand) { e.ai.plan = null; e.ai.visitUntil = 0; e.ai.nextVisit = H.GAME.t + 999; e.ai.lifeWait = 0; e.ai.farmNext = 0; } }
           F.setSeason(0.45); H.setTod(0.5); H.frame();
           H.teleport(P.x + 8, P.z + 8); H.frame();
-          out.farmers0 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.fieldHand, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z))] : null; });
+          const PL = H.GAME.player;
+          if (!PL.alive) { PL.alive = true; PL.hp = PL.maxHp; H.UI.modal = null; document.getElementById('death').hidden = true; }
+          out.player = [PL.alive, Math.round(PL.x), Math.round(PL.z), Math.round(Math.hypot(PL.x - P.x, PL.z - P.z))];
+          out.farmers0 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.fieldHand, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') + '@' + e.ai.plan.i + ':' + e.ai.plan.t.toFixed(1) : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z)), Math.round(Math.hypot(e.x - PL.x, e.z - PL.z)), e.buffs.map((b) => b.kind).join()] : null; });
           const gran0 = F.FARM.granary.grain || 0;
           out.track = [];
           let worked = 0, seenWorker = null;
@@ -310,7 +323,8 @@ async def main():
             if (T.phase === 'stubble') break;
           }
           out.phase = T.phase; out.worked = worked; out.worker = seenWorker;
-          out.farmers1 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z))] : null; });
+          out.farmers1 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') + '@' + e.ai.plan.i + ':' + e.ai.plan.t.toFixed(1) : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z))] : null; });
+          out.player1 = [PL.alive, Math.round(Math.hypot(PL.x - P.x, PL.z - P.z))];
           out.granary = (F.FARM.granary.grain || 0) - gran0;
           out.act = seenWorker != null ? H.fn.getEnt(seenWorker).ai.farmer : null;
           return out; })()""")
@@ -367,58 +381,64 @@ async def main():
         print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
         await b.close()
 
-async def shot(page, name, cam, look, tod=0.45, w=None):
-    await page.evaluate(f"""(() => {{ const H = __hm; H.setTod({tod}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; document.getElementById('hud').hidden = true;
+async def shot(page, name, cam, look, tod=0.7, hud=False):
+    await page.evaluate(f"""(() => {{ const H = __hm; H.setTod({tod}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; document.getElementById('hud').hidden = {'false' if hud else 'true'};
       const c = H.camera; c.position.set({cam[0]}, {cam[1]}, {cam[2]}); c.lookAt({look[0]}, {look[1]}, {look[2]}); c.updateMatrixWorld();
-      for (let i = 0; i < 3; i++) H.frame(1 / 60); }})()""")
+      H.farm.FARM.drawDirty = true; H.frame(1 / 60); }})()""")
     await page.screenshot(path=OUT + name, timeout=300000)
     print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
 
 async def shots(page):
-    await page.evaluate("__hm.fn.setQuality('medium')")
-    # a bed of each crop at its stages, side by side, after rain
+    await page.evaluate("__hm.fn.setQuality('low')")
+    # a bed of each crop at its stages, side by side, after rain, on fresh ground in the glens of Eriu
     r = await page.evaluate(f"""(() => {{ const H = __hm, F = H.farm, W = H.dbg.WEATHER;
-      const R = H.REALMS[0];
+      const R = H.REALMS[1];
       let spot = null;
-      for (let a = 0; a < 120 && !spot; a++) {{ const x = R.town.x + Math.cos(a * 0.29) * (100 + a * 0.5), z = R.town.z + Math.sin(a * 0.29) * (100 + a * 0.5); let ok = true; for (let u = -1; u <= 18 && ok; u += 2) for (let v = -3; v <= 3 && ok; v += 1.5) if (F.tillWhy(x + u, z + v)) ok = false; if (ok) spot = [x, z]; }}
+      for (let a = 0; a < 160 && !spot; a++) {{ const x = R.town.x + Math.cos(a * 0.29) * (70 + a * 0.6), z = R.town.z + Math.sin(a * 0.29) * (70 + a * 0.6); let ok = true; for (let u = -1; u <= 18 && ok; u += 2) for (let v = -3; v <= 3 && ok; v += 1.5) if (F.tillWhy(x + u, z + v)) ok = false; if (ok) spot = [x, z]; }}
       const [x, z] = spot, ids = [];
       const crops = ['seed_grain', 'seed_flax', 'seed_beans', 'seed_cabbage', 'seed_turnip', 'seed_grain'];
-      const gs = [0.12, 0.35, 0.62, 0.78, 0.9, 1.0];
+      const gs = [0.16, 0.4, 0.66, 0.8, 0.93, 1.0];
+      F.setSeason(0.35);
       for (let k = 0; k < 6; k++) {{ const id = F.till(x + k * 3.0, z, 0); H.fn.goodsAdd(crops[k], 30, true); F.sow(id, crops[k]); for (const q of F.plot(id).plants) q.g = Math.min(1, gs[k] + (Math.random() - 0.5) * 0.04); F.plot(id).weeds = k === 2 ? 0.5 : 0.05; F.plot(id).moist = 0.9; ids.push(id); }}
       W.mode = 'auto'; W.kind = 'clear'; W.wet = 0.85; H.dbg.U.uWet.value = 0.85; W.raining = 0;
-      F.FARM.drawDirty = true;
-      H.teleport(x + 7, z - 6);
+      H.teleport(x + 7, z - 7);
+      window.__farmShot = ids;
       return {{ x, z, y: H.fn.heightAt(x + 7, z) }}; }})()""")
     x, z, y = r['x'], r['z'], r['y']
-    await shot(page, 'farm_stages.png', [x + 7.5, y + 2.6, z - 6.5], [x + 7.5, y + 0.2, z + 0.5])
-    await shot(page, 'farm_wet_bed.png', [x - 1.5, y + 1.7, z - 3.2], [x + 1.0, y + 0.0, z + 0.6])
-    # the plant card on a ripe bed
-    await page.evaluate(f"""(() => {{ const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false;
-      const P = H.farm.FARM.plots.filter((Q) => Q.own === 'p').slice(-1)[0];
-      H.teleport(P.x - P.ax * (P.hd + 0.4), P.z - P.az * (P.hd + 0.4)); H.GAME.player.yaw = P.ang; H.look(P.ang + Math.PI, 0.5, 5); H.dbg.WEATHER.wet = 0; H.dbg.U.uWet.value = 0;
-      for (let i = 0; i < 8; i++) H.frame(1 / 30); }})()""")
-    await page.screenshot(path=OUT + 'farm_card.png', timeout=300000)
-    print('  shot farm_card.png', flush=True)
+    await shot(page, 'farm_stages.png', [x + 7.5, y + 2.4, z - 6.0], [x + 7.5, y + 0.2, z + 0.5])
+    await shot(page, 'farm_wet_bed.png', [x - 1.6, y + 1.5, z - 3.0], [x + 0.9, y + 0.05, z + 0.4])
+    # the plant card over a ripe bed (the world paused, the card kept up for the picture)
+    await page.evaluate(f"""(() => {{ const H = __hm, F = H.farm; H.dbg.WEATHER.wet = 0; H.dbg.U.uWet.value = 0;
+      const P = F.plot(window.__farmShot[5]);
+      H.UI.modal = null; H.CAM.mode = 'play';
+      H.teleport(P.x - P.ax * (P.hd + 0.4), P.z - P.az * (P.hd + 0.4)); H.GAME.player.yaw = P.ang; H.simulate(0.1);
+      F.FARM.clock.ui = 0; H.frame(1 / 30); F.FARM.cardForce = true; }})()""")
+    pp = await page.evaluate("(() => { const H = __hm, P = H.GAME.player; return [P.x, P.y, P.z, P.yaw]; })()")
+    import math
+    await shot(page, 'farm_card.png', [pp[0] - math.sin(pp[3]) * 3.6, pp[1] + 2.6, pp[2] - math.cos(pp[3]) * 3.6], [pp[0] + math.sin(pp[3]) * 2, pp[1] + 0.4, pp[2] + math.cos(pp[3]) * 2], hud=True)
+    await page.evaluate("__hm.farm.FARM.cardForce = false; document.getElementById('hud').hidden = true;0")
     # a ripe town field with a farmer at the harvest
     r = await page.evaluate("""(() => { const H = __hm, F = H.farm;
       const S = F.FARM.plots.filter((P) => P.own === 't');
       const R = H.REALMS[0];
       S.sort((a, b) => Math.hypot(a.x - R.town.x, a.z - R.town.z) - Math.hypot(b.x - R.town.x, b.z - R.town.z));
-      for (const P of S) { const T = P.stand; T.phase = 'sown'; T.crop = 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.worker = null; P.weeds = 0; P.dmg.fill(0); }
+      F.setSeason(0.45);
+      for (const P of S) { const T = P.stand; T.phase = 'sown'; T.crop = P.id % 5 === 0 ? 'flax' : 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.worker = null; P.weeds = 0; P.dmg.fill(0); P.char = 0; }
       const P = S[1]; P.stand.task = 'harvest'; P.stand.p = 0.3; P.stand.workT = H.GAME.t;
-      H.UI.modal = null; H.CAM.mode = 'play';
+      H.UI.modal = null; H.CAM.mode = 'play'; H.setTod(0.95); H.frame();
       H.teleport(P.x + 12, P.z + 12);
-      for (let i = 0; i < 90; i++) { H.simulate(1); if (P.stand.worker != null) { const e = H.fn.getEnt(P.stand.worker); if (e && Math.hypot(e.x - P.x, e.z - P.z) < P.rad) break; } }
-      const e = P.stand.worker != null ? H.fn.getEnt(P.stand.worker) : null;
-      F.FARM.drawDirty = true;
-      return { x: P.x, z: P.z, ex: e ? e.x : P.x, ez: e ? e.z : P.z, y: H.fn.heightAt(P.x, P.z), ax: P.ax, az: P.az }; })()""")
-    ex, ez = r['ex'], r['ez']
-    await shot(page, 'farm_town_harvest.png', [ex + 5.5, r['y'] + 2.4, ez + 4.5], [ex, r['y'] + 0.8, ez], tod=0.95)
-    await shot(page, 'farm_ripe_field.png', [r['x'] + 22, r['y'] + 7, r['z'] + 18], [r['x'], r['y'], r['z']], tod=0.95)
+      for (const id of F.farmers()) { const e = H.fn.getEnt(id); if (e && e.ai.fieldHand) { e.ai.plan = null; e.ai.visitUntil = 0; e.ai.nextVisit = H.GAME.t + 999; e.ai.lifeWait = 0; e.ai.farmNext = 0; } }
+      let e = null;
+      for (let i = 0; i < 90; i++) { H.simulate(1); if (P.stand.worker != null) { e = H.fn.getEnt(P.stand.worker); if (e && Math.hypot(e.x - P.x, e.z - P.z) < P.rad && P.stand.p > 0.34) break; } }
+      return { x: P.x, z: P.z, ex: e ? e.x : P.x, ez: e ? e.z : P.z, eyaw: e ? e.yaw : 0, worker: !!e, p: P.stand.p, y: H.fn.heightAt(P.x, P.z) }; })()""")
+    print('  town harvest', r)
+    ex, ez, ey = r['ex'], r['ez'], r['eyaw']
+    await shot(page, 'farm_town_harvest.png', [ex + math.sin(ey) * 4.5 + 2, r['y'] + 2.0, ez + math.cos(ey) * 4.5 + 2], [ex, r['y'] + 0.7, ez], tod=0.95)
+    await shot(page, 'farm_ripe_field.png', [r['x'] + 24, r['y'] + 8, r['z'] + 20], [r['x'], r['y'], r['z']], tod=0.95)
     # a herb patch in shade
     r = await page.evaluate("""(() => { const H = __hm, F = H.farm; const h = F.herbs().find((x) => x.k === 'herb_moon' && x.gone === 0) || F.herbs()[0];
-      const near = F.herbs().filter((x) => Math.hypot(x.x - h.x, x.z - h.z) < 6).length; H.teleport(h.x + 2, h.z + 2); H.simulate(0.2); return { x: h.x, z: h.z, y: H.fn.heightAt(h.x, h.z), near, k: h.k }; })()""")
+      F.setSeason(0.3); const near = F.herbs().filter((x) => Math.hypot(x.x - h.x, x.z - h.z) < 6).length; H.UI.modal = null; H.teleport(h.x + 2, h.z + 2); H.simulate(0.2); return { x: h.x, z: h.z, y: H.fn.heightAt(h.x, h.z), near, k: h.k }; })()""")
     print('  herb patch', r)
-    await shot(page, 'farm_herbs_shade.png', [r['x'] + 1.6, r['y'] + 1.1, r['z'] + 1.4], [r['x'], r['y'] + 0.15, r['z']], tod=0.6)
+    await shot(page, 'farm_herbs_shade.png', [r['x'] + 1.5, r['y'] + 1.0, r['z'] + 1.3], [r['x'], r['y'] + 0.15, r['z']], tod=0.6)
 
 asyncio.run(main())
