@@ -118,7 +118,7 @@ function pickAt(sx, sy) {
   const P = GAME.player;
   let best = null, bd = Infinity;
   for (const e of ENT) {
-    if (e.removed || e.role === 'critter' || e.flying) continue;
+    if (e.removed || (e.role === 'critter' && !e.game) || e.flying) continue; // [survival] deer can be hunted
     if (!e.alive && e.kind !== 'door') continue;
     if (e.kind === 'door' && !e.alive) continue;
     const d3 = dist(e.x, e.z, camera.position.x, camera.position.z);
@@ -208,6 +208,7 @@ function currentInteraction() {
   waterOffers(P, offer); // [water] drink, fill a waterskin, wash your gear at any water (07b_swim.js)
   hallOffers(P, offer); // [building] a keep hall's war table, armourer, basin, hearth and stores (04k_hall.js)
   buildOffers(P, offer); // [building] work on, repair, open, use or pull down what you built (06k_build.js)
+  survivalOffers(P, offer); // [survival] water, fires, plants, fishing, workstations, rocks (09s_survival.js)
   return best;
 }
 function playerInteract() {
@@ -288,7 +289,8 @@ function updatePlayer(dt) {
     const t = getEnt(P.target);
     if (t && t !== P && (P.casting || (isEnemy(P, t) && dist(P.x, P.z, t.x, t.z) < 40))) turnToward(P, t.x, t.z, dt * 10);
   }
-  if (!sprinting) P.endurance = Math.min(100, P.endurance + dt * (GAME.t > P.combatUntil ? 14 : 7));
+  const nk = needsMult(); // [survival] fed and watered: faster; hungry or thirsty: slower (06s_survival.js)
+  if (!sprinting) P.endurance = Math.min(100, P.endurance + dt * (GAME.t > P.combatUntil ? 14 : 7) * nk.en);
   // jumping
   const gy = waterFloorY(P, floorAt(P.x, P.z, P.y)); // stairs, wall walks and tower tops (04g_castles.js); [water] a swimmer floats (07b_swim.js)
   if (P.onGround && P.y > gy + 0.7) { P.onGround = false; P.vy = 0; } // stepped off an edge: fall
@@ -306,8 +308,8 @@ function updatePlayer(dt) {
   autoAttack(P);
   // regeneration
   const resting = GAME.t > P.combatUntil + 3;
-  P.power = Math.min(P.maxPower, P.power + P.maxPower * dt * (resting ? 0.09 : 0.025));
-  if (resting) P.hp = Math.min(P.maxHp, P.hp + P.maxHp * dt * 0.05);
+  P.power = Math.min(P.maxPower, P.power + P.maxPower * dt * (resting ? 0.09 : 0.025) * nk.pw);
+  if (resting) P.hp = Math.min(P.maxHp, P.hp + P.maxHp * dt * 0.05 * nk.hp);
   // drop a target that is gone
   const t = getEnt(P.target);
   if (P.target != null && (!t || (!t.alive && t.kind !== 'door' && GAME.t - t.deadAt > 3) || dist(P.x, P.z, t.x, t.z) > 120)) P.target = null;

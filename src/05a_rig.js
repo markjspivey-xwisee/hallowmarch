@@ -842,6 +842,13 @@ function humanVS(depth) {
       faL = mix(faL, -1.52, kn); faR = mix(faR, -1.52, kn);
       headX = mix(headX, 0.38, kn); chestX = mix(chestX, 0.14, kn); headY = mix(headY, 0.0, kn);
       capeX = mix(capeX, 0.02, kn);
+    } else if (atype > 12.5 && atype < 13.5) {
+      // [survival] down on the haunches to reach the ground: picking mushrooms and herbs, drinking from a lake (the leap's landing crouch)
+      float kk = smoothstep(0.0, 0.22, at) * (1.0 - smoothstep(0.8, 1.0, at));
+      thL = mix(thL, -0.85, kk); thR = mix(thR, -0.15, kk); shL = mix(shL, 1.3, kk); shR = mix(shR, 1.15, kk);
+      crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk;
+      chestX = mix(chestX, 0.55, kk); headX = mix(headX, 0.12, kk);
+      uaL = mix(uaL, -0.8, kk); faL = mix(faL, -0.3, kk); uaLz = mix(uaLz, -0.15, kk); uaR = mix(uaR, -0.3, kk); faR = mix(faR, -0.55, kk);
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.

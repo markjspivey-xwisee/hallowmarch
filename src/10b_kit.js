@@ -65,6 +65,7 @@ function renderKit() {
     const R = UI.kitShop, st = merchantStock(R), pp = potionPrice();
     left = `<h3>For sale</h3>
       ${wearShopRow()}
+      ${provisionsShopHTML() /* [survival] food, drink, tools and materials; your goods bought (09s_survival.js) */}
       <div class="shoprow potionrow"><span class="ic" style="--qc:#e0605a">${iconSvg('potion', 22)}</span><span class="nm">Healing draught<small>Restores 40% of your health. ${INV.potions} / ${POTION.max} carried.</small></span><span class="pr">${fmtInt(pp)}</span><span class="bb"><button class="btn" type="button" data-buyp="1">Buy</button><button class="btn" type="button" data-buyp="5">Buy 5</button></span></div>
       ${st.items.map((it, i) => `<button type="button" class="shoprow item${UI.kitSel && UI.kitSel.item === it ? ' sel' : ''}" data-shop="${i}" style="--qc:${QUALITY[it.q].col}"><span class="ic">${iconSvg(itemIcon(it), 22)}</span><span class="nm">${esc(it.name)}<small>${itemLine(it)} · level ${it.lvl}</small></span><span class="pr">${fmtInt(buyPrice(it))}</span></button>`).join('') || '<p>Sold out for now.</p>'}
       <p class="fineprint">New stock arrives as you grow stronger.</p>`;
@@ -80,7 +81,7 @@ function renderKit() {
     cells.push(it ? itemButton(it, 'bagslot', `data-bag="${i}"`) : '<span class="bagslot empty"></span>');
   }
   const right = `<h3>Bags <span class="num">${INV.bag.length} / ${BAG_SIZE}</span></h3><div class="bagrid">${cells.join('')}</div>
-    <div class="bagfoot"><span class="pots">${iconSvg('potion', 18)}${INV.potions} healing draught${INV.potions === 1 ? '' : 's'}</span>${shop ? '<button class="btn" type="button" id="kit-junk">Sell grey and trophies</button>' : ''}</div>
+    <div class="bagfoot"><span class="pots">${iconSvg('potion', 18)}${INV.potions} healing draught${INV.potions === 1 ? '' : 's'}</span>${shop ? '<button class="btn" type="button" id="kit-junk">Sell grey and trophies</button>' : ''}${survivalKitButtons() /* [survival] */}</div>
     ${goodsHTML()}`;
   $('kit-left').innerHTML = left;
   $('kit-right').innerHTML = right;

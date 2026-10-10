@@ -63,7 +63,7 @@ function nearestWhere(x, z, r, pred) {
 
 function isEnemy(a, b) {
   if (!a || !b || a === b) return false;
-  if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return false;
+  if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return !!((a.game && b.role === 'player') || (b.game && a.role === 'player')); // [survival] the player hunts deer
   if (a.flying || b.flying) return false;
   return a.faction !== b.faction;
 }
@@ -207,6 +207,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   }
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
+  amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;
   let dmg = amount * (1 - (opts.pierce ? 0 : dst.drBase)) * (1 - buffMax(dst, 'dr'));
   let absorbed = 0;
@@ -897,6 +898,7 @@ function grantKillRewards(e) {
   if (e.kind === 'door') return;
   const ci = conIndex(e.level, prog.level);
   rollLoot(e);
+  huntOnKill(e); // [survival] meat, hides and bone from a hunt (09s_survival.js)
   if (e.role === 'dungeonBoss') {
     addXP(Math.round(20 * e.level * Math.max(0.5, CON[ci].xp) * 10), e);
     addRP(150);
