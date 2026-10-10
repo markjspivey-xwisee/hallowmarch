@@ -517,7 +517,7 @@ function dpSpawnBird(kind, home) {
   if (home.water ? !waterAt(x, z) : !isWalkable(x, z)) { x = home.x; z = home.z; }
   const w = home.water ? waterAt(x, z) : null, y = w ? w.y - 0.13 : heightAt(x, z);
   const e = makeEnt({ kind, faction: FACTION_NEUTRAL, role: 'bird', name: D.name, level: 1, x, z, y, yaw: Math.random() * TAU, radius: 0.28, speed: 3.4, scale: D.scale });
-  e.game = true; e.crowd = crowdBeast[kind] ? kind : 'hen'; e.scale = D.scale; e.visCode = 16 * Math.random();
+  e.game = true; e.crowd = crowdBeast[kind] ? kind : 'hen'; e.scale = D.scale; e.visCode = 16 * Math.floor(Math.random() * 8); // plain coat (pattern 0), a whole-number seed above it
   // cocks and drakes in their colours, hens in mottled browns
   const hen = Math.random() < 0.35, L = hen ? D.hen : D;
   e.look = { colA: L.colA.map((v) => v * (0.9 + Math.random() * 0.2)), colB: L.colB.slice() };
