@@ -205,6 +205,7 @@ function currentInteraction() {
   natureOffers(P, offer); // nature (05h_nature.js): trees to chop, logs to split, firewood to light
   brandOffers(P, offer); // fire in hand (09d_brand.js): take a brand, set something alight, put it out
   siegeOffers(P, offer); // [siege] join the crew of an engine, or take over an abandoned one (04h_siege.js)
+  animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
   return best;
 }
 function playerInteract() {
@@ -273,7 +274,7 @@ function updatePlayer(dt) {
     let mx = fx * f + rx * s, mz = fz * f + rz * s;
     const ml = Math.hypot(mx, mz) || 1;
     mx /= ml; mz /= ml;
-    let sp = effectiveSpeed(P) * (PLAYER_SPEED / P.speed) * mag * (P.mount ? MOUNT_SPEED * (sprinting ? 1.22 : 1) : sprinting ? 1.45 : 1);
+    let sp = effectiveSpeed(P) * (PLAYER_SPEED / P.speed) * mag * (P.mount ? MOUNT_SPEED * animalsMountSpeed(P) * (sprinting ? 1.22 : 1) : sprinting ? 1.45 : 1);
     if (P.casting) { P.casting = null; uiLog('Your casting is interrupted.', 'warn'); sfx('fizzle'); }
     const nx = P.x + mx * sp * dt, nz = P.z + mz * sp * dt;
     const ok = stepTo(P, nx, nz);

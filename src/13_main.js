@@ -84,7 +84,7 @@ async function boot() {
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); });
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); });
-  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
+  await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
   await loadStep(0.78, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
@@ -227,9 +227,9 @@ function drawActors(fx, fz) {
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = L.fem ?? 0; _st[3] = L.bulk ?? 0;
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
-        const MA = e.mountAnim, H = crowdBeast.horse;
+        const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
-        _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1;
+        _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1 + (e.mount.crowd ? e.mount.visCode || 0 : 0);
         _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash); // the horse is as wet as its rider
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
@@ -248,9 +248,9 @@ function drawActors(fx, fz) {
         glowPush(e.x + Math.sin(e.yaw) * 0.42, y + 1.55 * sc, e.z + Math.cos(e.yaw) * 0.42, c[0], c[1], c[2], (A && A.ground ? 0.9 : 0.6) * k);
       }
     } else {
-      _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc;
+      _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc + (e.visCode || 0); // [animals] pattern and seed above the scale
       _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash); // visual pass: its own wet and snow
-      const C = crowdBeast[e.kind];
+      const C = crowdBeast[e.crowd || e.kind]; // [animals] shorn sheep, bulls, tacked horses
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
   }
@@ -348,6 +348,7 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -394,6 +395,7 @@ function tick(dt) {
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
+  drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);

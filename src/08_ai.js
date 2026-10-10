@@ -497,6 +497,7 @@ function npcAbilities(e, t) {
 function thinkMob(e, dt) {
   const M = MOBS[e.mobType];
   const ai = e.ai;
+  if (ai.tameHold > GAME.t) return; // [animals] eating from the player's hand (08h_animals.js)
   if (ai.evade) {
     e.target = null;
     e.hp = Math.min(e.maxHp, e.hp + e.maxHp * dt * 0.5);
@@ -968,6 +969,7 @@ function updateNPCs(dt) {
       else if (e.role === 'guardian') thinkPosted(e, dt, 16);
       else if (e.role === 'muster') thinkPosted(e, dt, 26);
       else if (e.role === 'villager' || e.role === 'herald' || e.role === 'merchant') thinkVillager(e, dt);
+      else if (e.role === 'animal') thinkAnimal(e, dt); // [animals] companions, livestock, wild horses (08h_animals.js)
       autoAttack(e);
     }
     // power regen

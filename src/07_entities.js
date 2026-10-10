@@ -255,6 +255,7 @@ function killEnt(e, killer) {
   e.casting = null;
   e.target = null;
   e.buffs.length = 0;
+  if (e.mount && e.mount.rec) animalsDismounted(e, e.mount); // [animals] your own horse is not lost with you (08h_animals.js)
   e.mount = null;
   if (e.kind !== 'door') e.removeAt = e.role === 'player' ? Infinity : GAME.t + 10;
   if (e.carrying != null) dropRelic(e);

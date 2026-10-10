@@ -1138,11 +1138,11 @@ function deathNote() {
 /* ------------------------------------------------------------------ */
 /* the Chronicle                                                       */
 /* ------------------------------------------------------------------ */
-const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['gifts', 'Realm gifts'], ['war', 'The war'], ['orders', 'Orders'], ['wilds', 'Creatures'], ['dragon', 'Cinderwing'], ['barrow', 'The Barrow'], ['path', 'Your path']]; // [gifts] chronGifts in 06c_gifts.js
+const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['gifts', 'Realm gifts'], ['war', 'The war'], ['orders', 'Orders'], ['wilds', 'Creatures'], ['dragon', 'Cinderwing'], ['barrow', 'The Barrow'], ['animals', 'Animals'], ['path', 'Your path']]; // [animals] chronAnimals in 08h_animals.js // [gifts] chronGifts in 06c_gifts.js
 function renderChronicle(body, fromNav = false) {
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
   const sec = LORE.chronSec;
-  const fn = { march: chronMarch, realms: chronRealms, gifts: chronGifts, war: chronWar, orders: chronOrders, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, path: chronPath }[sec];
+  const fn = { march: chronMarch, realms: chronRealms, gifts: chronGifts, war: chronWar, orders: chronOrders, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, animals: chronAnimals, path: chronPath }[sec]; // [animals]
   body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle">${CHRON_SECTIONS.map(([k, l]) => `<button type="button" data-sec="${k}" aria-current="${k === sec}">${l}</button>`).join('')}</nav><div class="chron-body">${fn()}</div></div>`;
   const sheet = body.closest('.sheet');
   const nav = body.querySelector('.chron-nav'), cur = nav.querySelector('[aria-current="true"]');

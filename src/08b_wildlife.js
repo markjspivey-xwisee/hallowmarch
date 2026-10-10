@@ -39,12 +39,14 @@ function initWildlife() {
 const _herdAlarm = new Map(); // herd id -> { x, z, until }
 function thinkCritter(e, dt) {
   const ai = e.ai, t = GAME.t;
+  if (ai.tameHold > t) return; // [animals] eating from the player's hand (08h_animals.js)
   // anything that is not a deer close by sends the herd running
   if (t > (ai.scanAt || 0)) {
     ai.scanAt = t + 0.25 + Math.random() * 0.2;
     let th = null, bd = 15 * 15;
     forNear(e.x, e.z, 15, (o, d2) => {
       if (o === e || !o.alive || o.role === 'critter' || o.kind === 'door' || o.kind === 'wisp') return;
+      if (o.role === 'animal' && o.faction === FACTION_NEUTRAL || animalsSparesDeer(e, o)) return; // [animals] tame beasts, and a calm player with food (08h_animals.js)
       const lim = o.role === 'player' || o.faction === FACTION_MONSTER ? 15 : 8;
       if (d2 < lim * lim && d2 < bd) { bd = d2; th = o; }
     });
