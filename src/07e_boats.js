@@ -801,7 +801,7 @@ function water2PetWait(e, dt) {
 }
 function boatsDraw(dt) {
   if (!BOATS.built) return;
-  const cam = camera.position, ql = quality.level, far = ql === 'low' ? 110 : ql === 'medium' ? 140 : 160, oarR = ql === 'low' ? 45 : ql === 'medium' ? 70 : 90;
+  const cam = camera.position, ql = quality.level, far = ql === 'low' ? 75 : ql === 'medium' ? 115 : 160, oarR = ql === 'low' ? 45 : ql === 'medium' ? 70 : 90;
   for (const B of BOATS.list) {
     const d2 = dist2(B.x, B.z, cam.x, cam.z), vis = d2 < far * far;
     B.root.visible = vis;
