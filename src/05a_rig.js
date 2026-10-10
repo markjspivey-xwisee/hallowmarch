@@ -710,6 +710,7 @@ function humanVS(depth) {
 
     /* ------------------- animation ------------------- */
     float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 2.2), death = clamp(iAnim.w, 0.0, 1.0);
+    float turnK = clamp(-iAnim.y, 0.0, 1.0); // [motion] stepping round on the spot (07_entities.js updateAnim)
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
     float k = min(amt, 1.0), run = clamp((amt - 1.0) * 2.0, 0.0, 1.0), idle = 1.0 - k;
     float hunched = mod(floor(iColB.w / 4.0), 2.0);
@@ -720,7 +721,7 @@ function humanVS(depth) {
     float runK = smoothstep(2.4, 4.4, vel), gk = smoothstep(0.02, 0.3, amt);
     float duty = mix(0.58, 0.26, runK) - 0.06 * smoothstep(6.5, 9.0, vel);
     float stepS = humanStep(vel);
-    float reach = duty * stepS, liftH = mix(0.1, 0.3, runK) * min(1.0, stepS / 0.42) * smoothstep(0.0, 0.04, amt); // [motion] the planted foot keeps pace at any speed
+    float reach = duty * stepS, liftH = max(mix(0.1, 0.3, runK) * min(1.0, stepS / 0.42) * smoothstep(0.0, 0.04, amt), 0.075 * turnK); // [motion] the planted foot keeps pace at any speed; turning, the feet step
     float uL = fract((ph - 1.5708) * 0.159155);
     float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
     float gaitBob = mix(0.022, -0.03, runK) * gk * cos(12.566 * (uL - duty * 0.5));   // a walker vaults over the planted leg; a runner sinks into it
@@ -915,8 +916,8 @@ function humanVS(depth) {
     float ankK = (1.0 - swimK) * (1.0 - mounted) * (1.0 - d1) * ((atype > 5.5 && atype < 6.5) || (atype > 8.5 && atype < 9.5) ? 0.0 : 1.0);
     float ankKR = ankK * ((atype > 11.5 && atype < 12.5) ? 1.0 - smoothstep(0.0, 0.25, at) : 1.0);
     float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
-    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * gk;
-    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * gk;
+    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
+    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
     float footL = (toeL - thL - shL) * ankK, footR = (toeR - thR - shR) * ankKR;
 
     /* ------------------- skinning ------------------- */

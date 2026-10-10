@@ -565,6 +565,7 @@ function dpBirdStep(dt) {
       if (scare) dpFlush(e, scare.x, scare.z);
     }
     if (B.fly) { dpBirdFly(e, B, dt); continue; }
+    if (B.settle) birdSettle(e, B, dt); // [motion] the wings fold back after landing (09v_birds.js)
     // on the water or in the grass
     const w = B.water ? waterAt(e.x, e.z) : null;
     if (GAME.t > B.until) {
@@ -607,36 +608,8 @@ function dpFlush(e, fx, fz) {
   for (let i = 0; i < 4; i++) fxAlpha.emit(e.x, e.y + 0.4, e.z, (Math.random() - 0.5) * 1.4, 0.5 + Math.random(), (Math.random() - 0.5) * 1.4, 1.6, e.look.colA[0], e.look.colA[1], e.look.colA[2], 0.04, 0.5, 1.2);
   sfx('swing');
 }
-function dpBirdFly(e, B, dt) {
-  const F = B.fly;
-  F.t += dt;
-  // up steeply at first, a long flight out, then a glide down to a new spot near home
-  const g0 = heightAt(e.x, e.z), climb = Math.min(1, F.t / 1.6);
-  F.gone += F.sp * dt;
-  const nx = e.x + F.ux * F.sp * dt, nz = e.z + F.uz * F.sp * dt;
-  e.yaw = Math.atan2(F.ux, F.uz);
-  e.x = nx; e.z = nz;
-  const land = F.gone > F.far;
-  const want = land ? g0 : Math.max(g0, F.y0) + F.top * (0.35 + 0.65 * climb);
-  e.fixedY = lerp(e.fixedY ?? e.y, want, 1 - Math.exp(-dt * (land ? 1.6 : 2.6)));
-  e.y = e.fixedY;
-  e.anim.amt = land ? 1.25 : 1.6;
-  e.anim.phase = 1.885; // in the air the legs stop walking: one hangs, one is drawn up
-  if (land) {
-    // over water a duck comes down on it; a pheasant only on dry walkable ground
-    const w = waterAt(e.x, e.z);
-    const ok = B.water ? w && w.depth > 0.5 : isWalkable(e.x, e.z) && !w;
-    if (!ok && F.gone > F.far + 160) { const h = B.home; F.ux = h.x - e.x; F.uz = h.z - e.z; const d = Math.hypot(F.ux, F.uz) || 1; F.ux /= d; F.uz /= d; F.far = F.gone + d; }
-    if (ok && e.fixedY - (w ? w.y : g0) < 0.25) {
-      B.fly = null; B.mode = 'idle'; B.until = GAME.t + 2;
-      e.fixedY = w ? w.y - 0.13 : g0;
-      if (w) splashAt(e.x, e.z, 0.4);
-      if (dist(e.x, e.z, B.home.x, B.home.z) > 60) B.home = { ...B.home, x: e.x, z: e.z };
-    } else if (!ok && F.gone > F.far + 20) F.far = F.gone + 15;
-  }
-  // past the edge of the world: turn home
-  if (Math.abs(e.x) > HALF - 30 || Math.abs(e.z) > HALF - 30) { F.ux = -F.ux; F.uz = -F.uz; }
-}
+// [motion] the flight itself (take-off, beating and gliding, landing) lives with the birds' bodies in 09v_birds.js
+function dpBirdFly(e, B, dt) { birdFly(e, B, dt); }
 // called when something the player hurt dies (grantKillRewards, 07_entities.js)
 function depthOnKill(e) {
   if (!e || inDungeon(e) && e.role !== 'mob' && e.role !== 'dungeonBoss') return;
@@ -1094,61 +1067,10 @@ function depthChronAnimals() {
 }
 
 /* ------------------------------------------------------------------ */
-/* the game birds' own bodies, on the hen's rig and shader             */
+/* the game birds' own bodies: their own rig and shader (09v_birds.js) */
 /* ------------------------------------------------------------------ */
-// bones as the hen's (05j_farmbeasts.js henVS): 0 body, 2 neck and head, 15 tail, 3 and 6 wings, 9 and 12 legs.
-// Body feathers take the first coat (iColA), the head and neck the second (iColB, the dark-fur material), the
-// pheasant's long tail the barred horn material (buff with dark bars, darker to the tip), bill and legs the beak's
-function dpBuildBird(kind, lod) {
-  const K = new SkinKit(), hi = lod === 0, mat = AM, RS = hi ? 12 : 7;
-  const duck = kind === 'duck';
-  // the body: the pheasant long and slim, carried level; the duck broad and boat-shaped, low in the water
-  const body = duck
-    ? [[-0.2, 0.25, 0.02, 0.02], [-0.16, 0.24, 0.07, 0.055], [-0.08, 0.22, 0.11, 0.075], [0.02, 0.215, 0.118, 0.08], [0.1, 0.225, 0.1, 0.075], [0.15, 0.24, 0.065, 0.06], [0.18, 0.26, 0.03, 0.035]]
-    : [[-0.2, 0.33, 0.025, 0.025], [-0.15, 0.315, 0.07, 0.07], [-0.07, 0.29, 0.095, 0.098], [0.02, 0.28, 0.1, 0.104], [0.09, 0.29, 0.085, 0.09], [0.14, 0.31, 0.055, 0.062], [0.17, 0.335, 0.03, 0.035]];
-  kitTube(K, crResample(body, hi ? 12 : 6).map(([z, y, rx, ry]) => ({ c: [0, y, z], rx, rz: ry })), RS, {
-    front: [0, 1, 0], side: [1, 0, 0], cap0: 'dome', cap1: 'dome',
-    attr: (i, th, p) => ({ bone: 0, w: 1, mat: mat.fur, ao: 0.6 + 0.4 * sstepJ(-0.9, 0.3, Math.cos(th)), u: th / TAU, v: p[2] * 3 }),
-  });
-  // neck and head in the second coat (a mallard's green head, a cock pheasant's dark green neck)
-  const neck = duck ? [{ c: [0, 0.25, 0.13], rx: 0.045, rz: 0.05 }, { c: [0, 0.31, 0.15], rx: 0.033, rz: 0.035 }, { c: [0, 0.35, 0.16], rx: 0.03, rz: 0.032 }]
-    : [{ c: [0, 0.32, 0.12], rx: 0.045, rz: 0.05 }, { c: [0, 0.39, 0.145], rx: 0.032, rz: 0.034 }, { c: [0, 0.45, 0.16], rx: 0.028, rz: 0.03 }];
-  kitTube(K, neck, RS, { front: [0, 0, 1], attr: (i) => ({ bone: 2, w: 0.3 + 0.35 * i, mat: mat.furDark, ao: 0.85 }) });
-  const hy = duck ? 0.37 : 0.47, hz = duck ? 0.17 : 0.165;
-  kitBlob(K, [0, hy, hz], hi ? 12 : 7, hi ? 8 : 5, { r: duck ? [0.033, 0.034, 0.046] : [0.028, 0.03, 0.038], attr: () => ({ bone: 2, w: 1, mat: mat.furDark, ao: 0.95 }) });
-  if (duck) {
-    // the broad flat bill, and a pale ring at the foot of the neck
-    kitBlob(K, [0, hy - 0.012, hz + 0.058], 8, 4, { r: [0.019, 0.008, 0.03], attr: () => ({ bone: 2, w: 1, mat: FMAT.beak, ao: 1 }) });
-    kitTube(K, [{ c: [0, 0.272, 0.138], rx: 0.044, rz: 0.047 }, { c: [0, 0.282, 0.142], rx: 0.042, rz: 0.045 }], RS, { front: [0, 0, 1], attr: () => ({ bone: 2, w: 0.35, mat: mat.ivory, ao: 1 }) });
-  } else {
-    // a short pale bill, the red wattle round the eye and the small ear tufts
-    kitGeo(K, new THREE.ConeGeometry(0.011, 0.034, hi ? 7 : 5), M4([0, hy - 0.005, hz + 0.044], [Math.PI / 2 + 0.2, 0, 0], [1, 1, 0.75]), { bone: 2, mat: FMAT.beak });
-    for (const s of [1, -1]) kitBlob(K, [s * 0.021, hy + 0.003, hz + 0.008], 6, 4, { r: [0.009, 0.016, 0.019], attr: () => ({ bone: 2, w: 1, mat: mat.mouth, ao: 1 }) });
-    if (hi) for (const s of [1, -1]) kitBlob(K, [s * 0.012, hy + 0.03, hz - 0.012], 4, 3, { r: [0.006, 0.012, 0.006], attr: () => ({ bone: 2, w: 1, mat: mat.furDark, ao: 0.9 }) });
-  }
-  if (hi) for (const s of [1, -1]) kitBlob(K, [s * (duck ? 0.03 : 0.026), hy + 0.008, hz + 0.014], 6, 4, { r: [0.0055, 0.006, 0.006], attr: () => ({ bone: 2, w: 1, mat: mat.eye, ao: 1 }) });
-  // the tail: a pheasant's long barred feathers swept back; a duck's short upturned point
-  if (duck) {
-    kitGeo(K, new THREE.SphereGeometry(1, hi ? 8 : 5, hi ? 5 : 3), M4([0, 0.27, -0.2], [-0.5, 0, 0], [0.03, 0.025, 0.05]), { bone: 15, w: 1, mat: mat.furDark, ao: 0.8 });
-  } else {
-    for (const [a, L, up] of [[0, 0.46, 0.18], [0.1, 0.36, 0.14], [-0.1, 0.36, 0.14], [0.2, 0.25, 0.1], [-0.2, 0.25, 0.1]]) {
-      const pts = [];
-      for (let k = 0; k <= 4; k++) { const t = k / 4; pts.push({ c: [Math.sin(a) * L * t, 0.33 + up * t - 0.05 * t * t, -0.16 - Math.cos(a) * L * t], rx: 0.016 * (1 - 0.7 * t) + 0.002, rz: 0.004 }); }
-      kitTube(K, pts, hi ? 5 : 3, { front: [0, 1, 0], cap1: 'dome', attr: (i) => ({ bone: 15, w: 1, mat: FMAT.horn, ao: 0.85, u: 0, v: i / 4 }) });
-    }
-  }
-  // folded wings along the sides
-  for (const s of [1, -1]) kitBlob(K, [s * (duck ? 0.1 : 0.088), duck ? 0.245 : 0.31, -0.03], hi ? 10 : 6, hi ? 6 : 4, { shape: (d) => [d[0] * 0.02, d[1] * (duck ? 0.045 : 0.055) - 0.01 * d[2], d[2] * (duck ? 0.13 : 0.12)], attr: (d) => ({ bone: s > 0 ? 3 : 6, w: 1, mat: mat.fur, ao: 0.7 + 0.3 * Math.max(0, d[1]) }) });
-  // legs: the pheasant's grey shanks; the duck's short orange legs and webbed feet
-  for (const s of [1, -1]) {
-    const b = s > 0 ? 9 : 12, x = s * (duck ? 0.05 : 0.04);
-    const top = duck ? 0.15 : 0.2;
-    kitTube(K, [{ c: [x, top, 0.0], rx: 0.009, rz: 0.009 }, { c: [x, top * 0.5, 0.008], rx: 0.007, rz: 0.007 }, { c: [x, 0.015, 0.01], rx: 0.006, rz: 0.006 }], hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) });
-    if (duck) kitBlob(K, [x, 0.008, 0.04], 6, 3, { r: [0.03, 0.005, 0.034], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
-    else for (const [ta, tl] of [[-0.4, 0.045], [0, 0.05], [0.4, 0.045], [Math.PI, 0.025]]) kitTube(K, [{ c: [x, 0.01, 0.01], rx: 0.0045, rz: 0.0045 }, { c: [x + Math.sin(ta) * tl, 0.004, 0.01 + Math.cos(ta) * tl], rx: 0.0028, rz: 0.0028 }], 4, { cap1: 'dome', front: [0, 1, 0], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
-  }
-  return K.build();
-}
+// [motion] Body feathers take the first coat (iColA), the head and neck the second (iColB, the dark-fur material), the
+// pheasant's long tail the barred horn material, bill and legs the beak's; wings of flight feathers (birdBuild)
 function dpBirdCrowds() {
   if (crowdBeast.pheasant || !crowdBeast.hen) return;
   const fs = farmBeastFS();
@@ -1156,11 +1078,12 @@ function dpBirdCrowds() {
     // the hen's shader with the birds' own settings: no dark saddle and no darkened rump (the second coat is only
     // the head, neck and tail), a pale belly, the eye where each bird's eye is
     const u = beastUniforms('wolf');
-    Object.assign(u, { uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.0, 0.42, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.12, 0.08, 0.05) }, uEyeAt: { value: k === 'duck' ? new THREE.Vector3(0.03, 0.378, 0.184) : new THREE.Vector3(0.026, 0.478, 0.179) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.5 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
+    Object.assign(u, { uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.0, 0.42, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.12, 0.08, 0.05) }, uEyeAt: { value: k === 'duck' ? new THREE.Vector3(0.03, 0.378, 0.184) : new THREE.Vector3(0.026, 0.478, 0.179) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.5 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } }, birdUniforms(k));
+    // [motion] their own rig and shader (09v_birds.js): wings that fold, beat and glide, legs that tuck
     const m = shareMat(beastMat, u);
-    m.vertexShader = henVS(false); m.fragmentShader = fs;
-    const hd = depthFrom(m, DEPTH_FS, henVS(true));
-    crowdBeast[k] = [new Crowd(dpBuildBird(k, 0), m, 24, BEAST_ATTRS), new Crowd(dpBuildBird(k, 1), m, 40, BEAST_ATTRS)];
+    m.vertexShader = birdVS(false); m.fragmentShader = birdFS(fs);
+    const hd = depthFrom(m, DEPTH_FS, birdVS(true));
+    crowdBeast[k] = [new Crowd(birdBuild(k, 0), m, 24, BEAST_ATTRS), new Crowd(birdBuild(k, 1), m, 40, BEAST_ATTRS)];
     for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd);
   }
 }
@@ -1172,8 +1095,8 @@ function depthOnStart() {
   if (!DEPTH.ready) {
     if (typeof SHADOW_R !== 'undefined') { SHADOW_R.pheasant = 0.32; SHADOW_R.duck = 0.3; if (!SHADOW_R.hen) SHADOW_R.hen = 0.26; }
     if (typeof STAMP_R !== 'undefined') { STAMP_R.pheasant = 0.22; STAMP_R.duck = 0.22; if (!STAMP_R.hen) STAMP_R.hen = 0.18; }
-    if (!BEASTS.pheasant) BEASTS.pheasant = { stride: [0.085, 0.2] };
-    if (!BEASTS.duck) BEASTS.duck = { stride: [0.07, 0.15] };
+    if (!BEASTS.pheasant) BEASTS.pheasant = { stride: BIRD_DIM.pheasant.stride, legH: BIRD_DIM.pheasant.legTop }; // [motion] as birdVS walks them
+    if (!BEASTS.duck) BEASTS.duck = { stride: BIRD_DIM.duck.stride, legH: BIRD_DIM.duck.legTop };
     try { dpBirdCrowds(); } catch (e) { reportError(e); }
   }
   DEPTH.ready = true;

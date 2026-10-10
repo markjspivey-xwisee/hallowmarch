@@ -85,13 +85,41 @@ window.MO = {
       const e = this.body(kind, x, z, Math.atan2(Ln.ux, Ln.uz));
       if (opts.setup) opts.setup(e);
       const self = this;
-      return { e, kind: kind === 'human' ? 'human' : 'beast', which: opts.which || ['feet'], drive(e, t, dt) { const s = self.ramp(v, t) * dt; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); } };
+      return { e, kind: kind === 'human' ? 'human' : 'beast', which: opts.which || ['feet'], drive(e, t, dt) { const s = self.ramp(v, t) * dt; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = opts.turn ? Math.atan2(Ln.ux, Ln.uz) + opts.turn * t : Math.atan2(Ln.ux, Ln.uz); } };
     });
     this.over(Ln, Math.max(14, Math.max(...vs) * sec * 0.9));
     const rec = this.M.motionRun(ents, sec, 1 / 60);
     const out = vs.map((v, i) => ({ v, ...this.M.motionMeasure(rec[i], { skip: opts.skip ?? 0.6 }) }));
     this.clear();
     return out;
+  },
+  // the player walked by the keys toward a list of points (site-local or world), measured on the way
+  playerPath(pts, sec, opts = {}) {
+    const H = this.H, P = H.GAME.player;
+    H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); if (opts.sprint) H.INPUT.keys.add('ShiftLeft');
+    let k = 0;
+    const self = this;
+    const E = { e: P, kind: 'human', which: opts.which || ['feet'], drive(e) { while (k < pts.length - 1 && Math.hypot(pts[k].x - e.x, pts[k].z - e.z) < 0.45) k++; H.CAM.yaw = Math.atan2(pts[k].x - e.x, pts[k].z - e.z); } };
+    const ents = [E];
+    if (opts.horse) ents.push({ e: P, kind: 'beast', which: ['feet'] });
+    const rec = this.M.motionRun(ents, sec, 1 / 60, { cam: () => { H.UI.modal = null; self.chase(P); } });
+    H.INPUT.keys.clear();
+    return ents.map((x, i) => ({ ...this.M.motionMeasure(rec[i], { skip: opts.skip ?? 0.8 }), y0: +(rec[i][0].y).toFixed(2), y1: +(rec[i][rec[i].length - 1].y).toFixed(2) }));
+  },
+  chase(P) { const H = this.H; H.CAM.mode = 'fixed'; H.camera.position.set(P.x - Math.sin(P.yaw) * 6, P.y + 4, P.z - Math.cos(P.yaw) * 6); H.camera.lookAt(P.x, P.y + 1, P.z); H.camera.updateMatrixWorld(); },
+  // a still body in a pose (an action held): where its feet and knees are over the floor
+  pose(act, sec = 2) {
+    const P = this.H.GAME.player, Ln = this.lane(this.cx, this.cz, 4, 1);
+    const e = this.body('human', Ln.x, Ln.z, 0);
+    P.x = P.prevX = Ln.x + 8; P.z = P.prevZ = Ln.z + 8;
+    this.over(Ln, 8);
+    this.M.motionRun([{ e, kind: 'human', which: ['feet', 'knees'] }], 0.05, 1 / 60);
+    e.anim.act = act; e.anim.actT = 0; e.anim.actDur = sec + 1;
+    const rec2 = this.M.motionRun([{ e, kind: 'human', which: ['feet', 'knees'] }], sec, 1 / 60);
+    const last = rec2[rec2.length - 1] ? rec2[0][rec2[0].length - 1] : null;
+    const L = last && last.L, g = (p) => p ? +((p[3] - this.M.motionFloor(p[0], p[2], last.y)) * 100).toFixed(1) : null;
+    this.clear();
+    return L ? { feet: L.feet.map(g), knees: (L.knees || []).map(g) } : { err: 'not seen' };
   },
 };
 0;
@@ -127,6 +155,9 @@ async def main():
             vs = [0.4, 1.0, 1.6, 3.2, 5.0, 7.0]
             r = await ev(page, f"MO.straight('human', {vs}, 3)")
             report('person', r, vs); res['human'] = r
+            # turning on the spot (2.5 rad/s): the feet should step round, not pivot on the ground
+            r = await ev(page, "MO.straight('human', [0], 2.5, { setup: (e) => { e._turnMo = true; } , turn: 2.5 })")
+            report('turning', r, [0]); res['turn'] = r
         if 'beast' in ONLY:
             for kind, vs in (('wolf', [0.6, 1.5, 3.2, 7.5]), ('boar', [0.5, 1.4, 3.0, 6.0]), ('bear', [0.6, 1.5, 3.2, 6.5]), ('deer', [0.6, 1.5, 3.6, 8.5]), ('horse', [0.8, 1.8, 4.5, 11.0])):
                 r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6)")
@@ -139,6 +170,24 @@ async def main():
             for kind, vs in (('pheasant', [0.3, 0.9, 2.2]), ('duck', [0.3, 0.9, 1.6])):
                 r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6)")
                 report(kind, r, vs); res[kind] = r
+        if 'player' in ONLY:
+            # the player by the keys: across the muster ground walking and sprinting, up a keep's stair onto the wall walk
+            r = await ev(page, "(() => { const P = __hm.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 14; P.z = P.prevZ = Ln.z - Ln.uz * 14; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); return MO.playerPath([{ x: Ln.x + Ln.ux * 14, z: Ln.z + Ln.uz * 14 }], 3.2); })()")
+            report('player run', r, [0]); res['player_run'] = r
+            r = await ev(page, "(() => { const P = __hm.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 14; P.z = P.prevZ = Ln.z - Ln.uz * 14; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); return MO.playerPath([{ x: Ln.x + Ln.ux * 14, z: Ln.z + Ln.uz * 14 }], 3.0, { sprint: true }); })()")
+            report('sprint', r, [0]); res['player_sprint'] = r
+            r = await ev(page, "(() => { const H = __hm, K = H.WAR.keeps.find((K) => K.orig === 0 && K.site === H.REALMS[0].keepSites[0]), S = K.site, P = H.GAME.player, w = (lx, lz) => H.fn.siteToWorld(S, lx, lz); const a = w(10.6, -7.6); P.x = P.prevX = a.x; P.z = P.prevZ = a.z; P.y = S.y; P.faction = 0; P.onGround = true; P.vy = 0; H.simulate(0.3, 1/60); const pts = [w(13.0, -6.6), w(13.0, 3.4), w(13.0, 4.1)]; const r = MO.playerPath(pts, 4.5, { skip: 0.5 }); return r.map((q) => ({ ...q, rise: +(q.y1 - S.y).toFixed(2) })); })()")
+            report('stairs', r, [0]); res['player_stairs'] = r
+            # riding: the horse's feet under the player at a canter and a gallop
+            r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 40, 1); P.x = P.prevX = Ln.x - Ln.ux * 19; P.z = P.prevZ = Ln.z - Ln.uz * 19; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); MO.F.mountUp(P, true); H.simulate(0.3, 1/60); const r = MO.playerPath([{ x: Ln.x + Ln.ux * 19, z: Ln.z + Ln.uz * 19 }], 3.0, { horse: true, sprint: true }); MO.F.dismount(P); return r; })()")
+            report('ridden', r, [0, 0]); res['player_ride'] = r
+            # swimming: strokes against speed (how far a stroke carries the body)
+            r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, W = H.water; let best = null; for (const L of H.dbg.LAKES) { if (L.x > 900) continue; const w = W.waterAt(L.x, L.z); if (w && w.depth > 2.5 && (!best || L.r > best.r)) best = L; } if (!best) return { err: 'no lake' }; P.x = P.prevX = best.x; P.z = P.prevZ = best.z; P.y = W.waterAt(best.x, best.z).y - 1.2; H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); H.simulate(1.5, 1/60); const ph0 = P.swimPh, x0 = P.x, z0 = P.z; H.simulate(3, 1/60); const d = Math.hypot(P.x - x0, P.z - z0), strokes = (P.swimPh - ph0) / (2 * Math.PI); H.INPUT.keys.clear(); return { v: +(d / 3).toFixed(2), strokesPerS: +(strokes / 3).toFixed(2), perStroke: +(d / Math.max(strokes, 0.01)).toFixed(2), swim: !!P.swim }; })()")
+            print('  swimmer   ', json.dumps(r), flush=True); res['swim'] = r
+        if 'pose' in ONLY:
+            for act, name in ((12, 'kneel'), (13, 'crouch')):
+                r = await ev(page, f"MO.pose({act}, 1.6)")
+                print(f'  {name:10s} feet over the floor (cm) {r.get("feet")}  knees {r.get("knees")}', flush=True); res[name] = r
         pathlib.Path(OUT + f'motion_{TAG}.json').write_text(json.dumps({'rows': ROWS, 'res': res}, indent=1))
         # the worst offenders
         bad = sorted([r for r in ROWS if 'err' not in r], key=lambda r: -score(r))

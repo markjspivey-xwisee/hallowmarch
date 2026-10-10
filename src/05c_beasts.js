@@ -677,6 +677,6 @@ function beastStride(kind, amt, sc = 1) {
   const S = BEASTS[kind];
   if (!S) return 1.5 * sc;
   const base = lerp(S.stride[0], S.stride[1], sstepJ(0.7, 1.4, amt)) * sc;
-  const L = Math.max((S.front ? S.front.top[1] - S.front.foot[1] : 0.2) * Math.max(sc, 0.2), 0.05), v = clamp(amt, 0, 2.2) * 4.3, f = Math.sqrt(1.06 / L);
+  const L = Math.max((S.legH ?? (S.front ? S.front.top[1] - S.front.foot[1] : 0.2)) * Math.max(sc, 0.2), 0.05), v = clamp(amt, 0, 2.2) * 4.3, f = Math.sqrt(1.06 / L);
   return clamp(base, v / (4.0 * f), Math.max(v / (1.6 * f), 0.02 * Math.max(sc, 0.2)));
 }

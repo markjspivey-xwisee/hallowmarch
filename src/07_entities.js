@@ -299,6 +299,13 @@ function updateAnim(e, dt) {
   const sc = e.scale || 1;
   const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
+  // [motion] turning on the spot: a person steps round (the feet lift and come down again) instead of pivoting on frozen feet
+  if (e.kind === 'humanoid') {
+    const yr = Math.abs(angDiff(e._ayaw ?? e.yaw, e.yaw)) / Math.max(dt, 1e-4);
+    e._ayaw = e.yaw;
+    e.anim.turn = lerp(e.anim.turn || 0, sp < 0.6 && !e.mount && !e.seat ? clamp((yr - 0.6) / 3, 0, 1) : 0, 1 - Math.exp(-dt * 8));
+    if (e.anim.turn > 0.02 && sp < 0.6) e.anim.phase = (e.anim.phase + dt * TAU * 0.9 * e.anim.turn) % (TAU * 64);
+  }
   if (e.mount) updateMountAnim(e, dt, sp);
   if (e.anim.actDur > 0) {
     e.anim.actT += dt;

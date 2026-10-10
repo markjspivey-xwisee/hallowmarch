@@ -59,7 +59,7 @@ BEASTS.pig = {
 BEASTS.hound = { ...BEASTS.wolf, fur: { ...BEASTS.wolf.fur, shag: 0.004, ruff: 0.008, saddle: 0.55, belly: 0.5 }, eye: [0.45, 0.28, 0.1], farm: { collar: true } };
 BEASTS.horseWild = { ...BEASTS.horse, tack: false };
 BEASTS.horseTack = { ...BEASTS.horse };
-BEASTS.hen = { stride: [0.075, 0.17] }; // the hen's own rig below; this is only her stride for the walk phase (beastStride)
+BEASTS.hen = { stride: [0.11, 0.26] }; // [motion] a hen's own steps: longer, so she does not scurry // the hen's own rig below; this is only her stride for the walk phase (beastStride)
 
 // join two rig geometries built by SkinKits (same attributes)
 function farmMergeGeo(a, b) {
@@ -375,7 +375,7 @@ function buildFarmCrowds() {
   }
   // hens: their own rig, the same coat and weather shading
   const hu = beastUniforms('wolf');
-  Object.assign(hu, { uGait: { value: new THREE.Vector4(0.075, 0.17, 0.2, 0.2) } /* [motion] her strides and leg length (henVS) */, uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.2, 0.35, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.75, 0.45, 0.1) }, uEyeAt: { value: new THREE.Vector3(0.03, 0.462, 0.172) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.2 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
+  Object.assign(hu, { uGait: { value: new THREE.Vector4(0.11, 0.26, 0.2, 0.2) } /* [motion] her strides and leg length (henVS) */, uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.2, 0.35, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.75, 0.45, 0.1) }, uEyeAt: { value: new THREE.Vector3(0.03, 0.462, 0.172) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.2 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
   const hm = shareMat(beastMat, hu);
   hm.vertexShader = henVS(false);
   hm.fragmentShader = fs;

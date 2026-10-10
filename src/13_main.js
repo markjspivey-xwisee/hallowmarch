@@ -222,7 +222,7 @@ function drawActors(fx, fz) {
       continue;
     }
     _p4[0] = e.x; _p4[1] = y; _p4[2] = e.z; _p4[3] = e.yaw;
-    _a4[0] = e.anim.phase; _a4[1] = e.anim.amt; _a4[2] = animActValue(e); _a4[3] = e.anim.death;
+    _a4[0] = e.anim.phase; _a4[1] = e.anim.turn > 0.05 && e.anim.amt < 0.15 ? -e.anim.turn : e.anim.amt; _a4[2] = animActValue(e); _a4[3] = e.anim.death; // [motion] a negative amount: stepping round on the spot (humanVS)
     waterAnimPack(e, _a4); // [water] strokes, paddling and treading water (07b_swim.js)
     const L = e.look;
     if (e.kind === 'humanoid') {

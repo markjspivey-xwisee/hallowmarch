@@ -133,8 +133,9 @@ function motionParts(crowd, kind) {
   } else if (kind === 'hen' || kind === 'pheasant' || kind === 'duck') {
     P.feet = [lowest((i) => Math.round(bone[i]) === 9, 4, 0.006), lowest((i) => Math.round(bone[i]) === 12, 4, 0.006)];
     // the wing tips: the wing points farthest out (or back, folded)
-    const tip = (b) => { let best = -1, bd = -1; for (let i = 0; i < n; i++) if (Math.round(bone[i]) === b) { const d = Math.abs(pos[i * 3]) * 2 + Math.max(0, -pos[i * 3 + 2]); if (d > bd) { bd = d; best = i; } } return best >= 0 ? [best] : []; };
-    P.wings = [tip(3), tip(6)];
+    // (a game bird's wing tips are on its hands, bones 4 and 7; a hen's folded wings are bones 3 and 6)
+    const tip = (bs) => { let best = -1, bd = -1; for (let i = 0; i < n; i++) if (bs.includes(Math.round(bone[i]))) { const d = Math.abs(pos[i * 3]) * 2 + Math.max(0, -pos[i * 3 + 2]); if (d > bd) { bd = d; best = i; } } return best >= 0 ? [best] : []; };
+    P.wings = kind === 'hen' ? [tip([3]), tip([6])] : [tip([4]), tip([7])];
   } else {
     P.feet = [5, 8, 11, 14].map((b) => lowest((i) => Math.round(bone[i]) === b, 4, 0.01));
   }
