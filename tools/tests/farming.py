@@ -2,7 +2,7 @@
 sowing, growth through every stage with simulated time and weather; harvest yields; frost damage; drought; weeds;
 crossing two strains and the offspring's traits; seed saving raising yield over generations; the herbal; trampling and
 fire; the town fields worked by the townsfolk; save and load (and old and damaged saves); screenshots.
-usage: python3 tools/tests/farming.py [noshots | shotsonly] [phone]"""
+usage: python3 tools/tests/farming.py [noshots | shotsonly] [phone] [final]  (final: 960 x 540 at medium quality)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -11,6 +11,7 @@ FAILS = []
 T0 = time.time()
 SHOTS = 'noshots' not in sys.argv
 ONLYSHOTS = 'shotsonly' in sys.argv
+FINAL = 'final' in sys.argv  # 960 x 540 at medium quality for the final pictures
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -27,7 +28,7 @@ FIND_BED = """(() => { const F = __hm.farm, R = __hm.REALMS[0];
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=640, h=360)
+        b, page, logs = await setup(p, w=960 if FINAL else 640, h=540 if FINAL else 360)
         await page.evaluate("__hm.start({ realm: 0, cls: 'warrior', level: 12 })")
         await page.evaluate("__hm.dbg.WEATHER.mode = 'clear'; document.getElementById('hud').hidden = false;0")
         if ONLYSHOTS:
@@ -389,7 +390,7 @@ async def shot(page, name, cam, look, tod=0.7, hud=False):
     print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
 
 async def shots(page):
-    await page.evaluate("__hm.fn.setQuality('low')")
+    await page.evaluate(f"__hm.fn.setQuality('{'medium' if FINAL else 'low'}')")
     # a bed of each crop at its stages, side by side, after rain, on fresh ground in the glens of Eriu
     r = await page.evaluate(f"""(() => {{ const H = __hm, F = H.farm, W = H.dbg.WEATHER;
       const R = H.REALMS[1];
