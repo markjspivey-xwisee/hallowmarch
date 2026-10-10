@@ -5,7 +5,7 @@ const SPELL = { discs: [], ribbons: [], pillars: [], emitters: [], built: false 
 
 /* ---- marks on the ground: a disc that drapes over the terrain ---- */
 const DISC_RINGS = 10, DISC_SEGS = 48, DISC_N = 1 + DISC_RINGS * DISC_SEGS;
-const DISC_KIND = { frost: 0, holy: 1, renew: 2, shock: 3, crack: 4, scorch: 5, rune: 6, consecrate: 7 }; // [classes] rune, consecrate (07b_classes.js)
+const DISC_KIND = { frost: 0, holy: 1, renew: 2, shock: 3, crack: 4, scorch: 5, rune: 6, consecrate: 7, runecut: 8 }; // [classes] rune, consecrate (07b_classes.js); [balance] runecut: the rune's carved strokes
 const DISC_MAX = 14;
 const discIndex = (() => {
   const idx = [];
@@ -43,6 +43,24 @@ const DISC_FS = (additive) => /* glsl */`
   // cell borders of a jittered grid: bright lines like hoarfrost or cracked earth
   // [classes] distance from p to the segment ab (rune strokes)
   float segD(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }
+  // [classes] [balance] a rune's strokes: two rings, a band of nine carved staves and a turning three-armed sigil;
+  // w is the stroke's half-width in the band's own units (the glow is drawn wider than the carving)
+  float runeGlyph(vec2 l, float r, float ang, float w){
+    float ring = band(r, 0.93, 0.03 * w / 0.06) + band(r, 0.62, 0.024 * w / 0.06) * 0.9 + band(r, 0.3, 0.018 * w / 0.06) * 0.7;
+    float sec = floor((ang / 6.2832 + 0.5) * 9.0);
+    float u = fract((ang / 6.2832 + 0.5) * 9.0), v = (r - 0.66) / 0.24;
+    vec2 q = vec2((u - 0.5) * 1.6, v);
+    float hsh = hash12(vec2(sec, 3.7)), hs2 = hash12(vec2(sec, 9.1));
+    float glyph = segD(q, vec2(0.0, 0.06), vec2(0.0, 0.94));
+    glyph = min(glyph, segD(q, vec2(0.0, 0.25 + 0.4 * hsh), vec2(hs2 > 0.5 ? 0.42 : -0.42, 0.1 + 0.5 * hsh)));
+    glyph = min(glyph, segD(q, vec2(0.0, 0.7 - 0.3 * hs2), vec2(hsh > 0.4 ? -0.36 : 0.36, 0.92 - 0.2 * hs2)));
+    float staves = (1.0 - smoothstep(w, w * 1.7, glyph)) * step(-0.05, v) * step(v, 1.05);
+    vec2 c = l / 0.27;
+    float sig = 1.0;
+    for (int i = 0; i < 3; i++) { float aa = float(i) * 2.0944 + uTime * 0.15; sig = min(sig, segD(c, vec2(0.0), vec2(cos(aa), sin(aa)))); }
+    float sigil = (1.0 - smoothstep(w * 1.4, w * 2.4, sig)) * step(r, 0.3);
+    return clamp(ring + staves + sigil, 0.0, 1.0);
+  }
   float cells(vec2 p){
     vec2 i = floor(p), f = fract(p);
     float d1 = 8.0, d2 = 8.0;
@@ -102,24 +120,17 @@ const DISC_FS = (additive) => /* glsl */`
       a = (crush + (spokes * (1.0 - smoothstep(0.35, 0.95, r)) + web) * 0.75) * (0.75 + 0.25 * vnoise(vW.xz * 5.0));
       col = vec3(0.07, 0.06, 0.05);
     } else if (k == 6) {
-      // [classes] a rune laid on the ground: two rings, a band of carved staves, a three-armed sigil, breathing light
-      float t2 = uTime * 0.6;
-      float ring = band(r, 0.93, 0.022) + band(r, 0.64, 0.016) * 0.9 + band(r, 0.3, 0.012) * 0.6;
-      float sec = floor((ang / 6.2832 + 0.5) * 9.0);
-      float u = fract((ang / 6.2832 + 0.5) * 9.0), v = (r - 0.67) / 0.22;
-      vec2 q = vec2((u - 0.5) * 1.6, v);
-      float hsh = hash12(vec2(sec, 3.7)), hs2 = hash12(vec2(sec, 9.1));
-      float glyph = segD(q, vec2(0.0, 0.08), vec2(0.0, 0.92));
-      glyph = min(glyph, segD(q, vec2(0.0, 0.25 + 0.4 * hsh), vec2(hs2 > 0.5 ? 0.38 : -0.38, 0.1 + 0.5 * hsh)));
-      glyph = min(glyph, segD(q, vec2(0.0, 0.7 - 0.3 * hs2), vec2(hsh > 0.4 ? -0.32 : 0.32, 0.9 - 0.2 * hs2)));
-      float staves = (1.0 - smoothstep(0.035, 0.075, glyph)) * step(0.0, v) * step(v, 1.0);
-      vec2 c = vL / 0.27;
-      float sig = 1.0;
-      for (int i = 0; i < 3; i++) { float aa = float(i) * 2.0944 + t2 * 0.25; sig = min(sig, segD(c, vec2(0.0), vec2(cos(aa), sin(aa)))); }
-      float sigil = (1.0 - smoothstep(0.05, 0.12, sig)) * step(r, 0.3);
-      float pulse = 0.65 + 0.35 * sin(uTime * 2.4 + r * 6.0);
-      a = (ring * 0.9 + staves * 0.95 + sigil) * pulse + (1.0 - smoothstep(0.0, 0.95, r)) * 0.06;
+      // [classes] a rune laid on the ground: its carved strokes glow (wider than the cut, so they read from afar),
+      // breathing, with a faint light in the circle; the dark cut itself is the runecut disc below it
+      float pulse = 0.7 + 0.3 * sin(uTime * 2.4 + r * 6.0);
+      float g = runeGlyph(vL, r, ang, 0.11);
+      float core = runeGlyph(vL, r, ang, 0.05);
+      a = (g * 0.55 + core * 0.9) * pulse + (1.0 - smoothstep(0.0, 0.95, r)) * 0.08;
       col = uCol * a;
+    } else if (k == 8) {
+      // [balance] the rune's strokes cut dark into the ground, so the glyph reads in full daylight
+      a = runeGlyph(vL, r, ang, 0.075) * 0.85;
+      col = vec3(0.045, 0.04, 0.035);
     } else if (k == 7) {
       // [classes] holy ground: a soft hallowed light, a ring of turning sun-marks, waves of light rising outward
       float spin = uTime * 0.18;
@@ -169,7 +180,7 @@ function makeDisc(additive) {
 }
 function spellDisc(x, z, r, kind, dur, col = [1, 1, 1], lift = 0.05) {
   if (!SPELL.built || dist2(x, z, camera.position.x, camera.position.z) > 120 * 120) return null;
-  const additive = kind !== DISC_KIND.crack && kind !== DISC_KIND.scorch;
+  const additive = kind !== DISC_KIND.crack && kind !== DISC_KIND.scorch && kind !== DISC_KIND.runecut; // [balance] runecut
   let d = SPELL.discs.find((o) => !o.on && o.additive === additive);
   if (!d) {
     if (SPELL.discs.length < DISC_MAX) d = makeDisc(additive);
@@ -184,7 +195,7 @@ function spellDisc(x, z, r, kind, dur, col = [1, 1, 1], lift = 0.05) {
   d.mesh.geometry.attributes.position.needsUpdate = true;
   const u = d.mesh.material.uniforms;
   u.uKind.value = kind; u.uAge.value = 0; u.uDur.value = dur; u.uCol.value.set(col[0], col[1], col[2]);
-  d.age = 0; d.dur = dur; d.on = true; d.mesh.visible = true;
+  d.age = 0; d.dur = dur; d.on = true; d.mesh.visible = true; d.owner = null; // [balance] whoever holds it sets the owner again
   return d;
 }
 

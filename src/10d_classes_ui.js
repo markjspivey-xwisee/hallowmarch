@@ -162,6 +162,7 @@ function classHUD(dt) {
     const h = el.querySelector('.cls-holy'); if (h) h.classList.toggle('ready', dv >= 35);
     const pr = el.querySelector('.cls-pray'); if (pr) pr.classList.toggle('on', !!cs.praying);
   }
+  classDrHud(el, P); // [balance] how much a stun, a root or a slow still takes hold of you (07c_balance.js)
   // the cue line: a passing word, or what the target's state means
   const cue = el.querySelector('.cls-cue');
   if (cue) {
@@ -206,8 +207,9 @@ function chronClasses() {
   const card = (cls, title, intro, rows) => `<div class="card${mine === cls ? ' mine' : ''}"><div class="rhead"><span class="em">${iconSvg(CLASSES[cls].icon, 24)}</span><b>${title}</b>${mine === cls ? '<small>Your calling</small>' : ''}</div><p>${intro}</p><dl class="facts">${rows.map(([dt, k, dd]) => `<dt>${dt}</dt><dd>${dd} ${k ? at(cls, k) : ''}</dd>`).join('')}</dl><p class="now"><b>${R.name}:</b> ${CLASS_REALM[cls][realm].name}. ${CLASS_REALM[cls][realm].text} ${at(cls, 'realm')}</p></div>`;
   return `<p class="lead">Every soldier of the March fights with eight abilities on keys 1 to 8, and every calling has a craft beneath them. A recruit can win a fight with the abilities alone; a veteran wins it with the craft. It opens up level by level, and each realm teaches it in its own way.</p>
     <p>Two keys serve every calling: <b>T</b>, the calling's technique, and <b>X</b>, held, the calling's held action. On a phone they are the two round buttons over your abilities. What they do, and what you are building, shows in the panel over your ability bar.</p>
+    <p>Stuns (a freeze is one), roots and slows wear off on the seasoned: a second of the same kind within 15 s lasts half as long, a third a quarter, and then you shake it off entirely for 6 s. The panel over your ability bar shows how much the next one would take. Champions learn the same, and a foe stunned by your parries cannot be held stunned for ever.</p>
     ${card('warrior', 'The warrior', 'A warrior builds <b>momentum</b> with every blow that lands and spends it in a <b>finisher</b>. The shield takes what the blade cannot: raised, it turns most of a blow from the front; raised at the very moment a blow arrives, it <b>parries</b>, and the attacker reels.', [
-      ['Shield', 'block', 'Hold X to raise it: 70% less harm from the front, 40% less from spells, at a cost in endurance. A broken guard staggers you.'],
+      ['Shield', 'block', 'Hold X to raise it: 70% less harm from the front, 40% less from spells, at a cost in endurance. A broken guard staggers you. Even lowered, a shield on the arm turns about one blow in eight.'], // [balance]
       ['Parry', 'block', 'Raise the shield just as a blow lands (a foe\'s weapon glints as its blow comes): no harm, the attacker is stunned and takes 20% more harm for 3 s, and you gain 2 momentum.'],
       ['Momentum', 'momentum', 'Each blow that lands builds it, up to 5. At 3 or more, Slash becomes a finisher: 160% and 50% more for each point.'],
       ['Weapon', '', 'The sword opens bleeding wounds, the axe breaks armour (each blow makes the foe take 6% more harm, up to three times), the mace breaks spells and staggers. A finisher drives the weapon\'s bite home.'],
@@ -217,7 +219,8 @@ function chronClasses() {
       ['The draw', 'draw', 'Hold X to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
       ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose). Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
       ['Hiding', 'hide', 'Keep still in long grass or among trees, out of the fight for three seconds, and you are hidden: foes see you only close by, and your first shot strikes 50% harder.'],
-      ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3 s. Two at a time.'],
+      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on), snares and Tumble keep a pack at bow\'s length.'], // [balance]
+      ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3.5 s, and the cord whips the legs of any foe beside it. Two at a time.'],
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
     ${card('mage', 'The mage', 'A mage works with <b>fire</b>, <b>frost</b> and <b>storm</b>, and with what each does to the world and to the others. Frost chills and then freezes; fire burns; storm leaps from body to body. The art is in the order.', [
@@ -233,7 +236,7 @@ function chronClasses() {
       ['Holy ground', 'consecrate', 'T hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, and the dead are burned and slowed.'],
       ['Smite', '', 'Holy light falls hardest on the dead of the Barrow: twice the harm, and devotion for every blow.'],
       ['Blessings', 'bless', 'With 20 devotion, Renewal also blesses its target in the way of your realm.'],
-      ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion).'],
+      ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion). When you fall, a priest of your realm close by may offer to raise you: accept the prayer on the death screen.'], // [balance]
       ['Temples', '', 'At your realm\'s temple, or near a hallow your realm holds, you are sanctified: devotion comes twice as fast and you heal 15% more.'],
     ])}`;
 }
@@ -248,4 +251,6 @@ LOADING_TIPS.push(
   'Frost freezes lakes and ponds into ice you can cross, for a while. Fire melts it fast.',
   'A priest builds devotion by healing and prayer, and spends it to hallow the ground or raise the fallen.',
   'Priests pray best at their own temple, or near a hallow their realm holds.',
+  'Stuns, roots and slows taken again and again last less and less, then not at all for a few seconds: your class panel shows how much the next would hold you.', // [balance]
+  'Fall near a priest of your realm and they may offer to raise you: accept the prayer on the death screen instead of walking back.',
 );

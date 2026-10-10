@@ -266,7 +266,16 @@ function drawClasses(dt) {
     }
   }
   // runes glow where they wait; holy ground lights the feet of those on it
-  for (const R of CLS.runes) if (near2(R.x, R.z, 90)) { const c = ELEM_COL[R.el], p = 0.6 + 0.4 * Math.sin(renderTime * 3 + R.x); glowPush(R.x, heightAt(R.x, R.z) + 0.25, R.z, c[0] * 0.5 * p, c[1] * 0.5 * p, c[2] * 0.5 * p, 2.6); }
+  for (const R of CLS.runes) if (near2(R.x, R.z, 90)) {
+    const c = ELEM_COL[R.el], p = 0.6 + 0.4 * Math.sin(renderTime * 3 + R.x); glowPush(R.x, heightAt(R.x, R.z) + 0.25, R.z, c[0] * 0.5 * p, c[1] * 0.5 * p, c[2] * 0.5 * p, 2.6);
+    // [balance] a rune laid out of sight (by a far-off mage, or before the camera came) gets its carved glyph when
+    // you come near, so no rune waits unseen; a glyph whose disc went to another spell is laid again
+    const left = R.until - GAME.t;
+    if (left > 0.6) {
+      if (!R.cut || !R.cut.on || R.cut.owner !== R) { R.cut = spellDisc(R.x, R.z, 2.2, DISC_KIND.runecut, left, [1, 1, 1], 0.04); if (R.cut) R.cut.owner = R; }
+      if (!R.disc || !R.disc.on || R.disc.owner !== R) { R.disc = spellDisc(R.x, R.z, 2.2, DISC_KIND.rune, left, c); if (R.disc) R.disc.owner = R; }
+    }
+  }
   for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) { const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1); glowPush(G.x, heightAt(G.x, G.z) + 0.6, G.z, 1.1 * k, 0.95 * k, 0.5 * k, G.r * 1.4); }
   const P = GAME.player;
   // chilled bodies breathe frost

@@ -78,7 +78,8 @@ The harness lives in `tools/`:
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
    - `integration.py`: how the version 8 systems fit together: nothing one system places (workstations, halls, paddocks, beds, plants, herbs, animals) stands in another's way or in the water; ice forms at a pond's own level and carries a body; drinking at a river fills the empty waterskins; recipes give their skins back; nothing is built on a tilled bed; three minutes with everything going.
-   - `classes.py` (the callings: `mech` checks, `balance` table, `shots`) and `classes_phone.py` (the class panel and buttons on a phone).
+   - `classes.py` (the callings: `mech` checks, `balance` table, `shots`) and `classes_phone.py` (the class panel and buttons on a phone). `classes.py balance` plays every calling with the simple and the skilled bot (`simple` or `skilled` alone; `levels=10,30,50`; `reps=N` for the dummy and the pack, `dreps=N` for the duels, `mreps=N` for the mastery duels; `HM_BAL=path` writes the JSON): the time to kill a standard foe (a level-matched garrison warrior), the time survived against an endless pack of three wolves and two outlaws of the level, their health and harm raised with the fighters' ability rank and gear (`rankMult`, and 8% at 20-39, 16% from 40) (capped at 150 s, a survivor scores 1.5 times), duels of every pair of callings (both on the same bot, realms swapped), and mastery duels (each calling's skilled bot against its simple bot). Fighters have a player's own measure (`ROLE_MULT.player`) and fair gear. TTK and survival are medians, so a stray arrow into a log does not swing the table.
+   - `barrow.py` ends by sending each calling at level 28 with fair gear and three healing draughts against the Hollow King, the player played by the skilled bot.
    - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
    - `water.py`: the world check (every river course has water, no dry pond beds, no road through deep water), wading and swimming numbers for the player, a soldier and a wolf, the current, the camera above water, no casting while swimming, a rider sliding off, fire out, drinking and the waterskin; `water.py shots [medium]` adds screenshots (shore, river, swimming, wake, wading).
    - `building.py [noshots] [hall|build]`: each realm's hall door, walking in, the war table's command grant (and an enemy keep's table until it is taken), the armourer, basin, hearth and stores; building: refused places, a foundation rising in stages, snapping and turning, a cottage with a door and a roof that keeps the rain off, a bed as the return point, fire spreading and falling in, repair, pulling down, a fence with a gate, save and load; screenshots of the halls, the war table, the ghost and the cottage.
@@ -104,6 +105,7 @@ The harness lives in `tools/`:
 - `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
 - `farm` (attached by `08h_farming.js`): `FARM`, `SEASON`, `seasonNow`, `setSeason(k)`, `farmTempAt`, `till(x, z, ang)`, `tillWhy(x, z)`, `sow(plotId, goodId)`, `step(dt)` (grow every bed by dt seconds), `harvest`, `saveSeed(plotId, slot)`, `newStrain(crop, traits)`, `plants`, `strips`, `herbs`, `learn`, `gather`, `dig`, `ctx()` (what the plant card shows and offers), `act(action)`, `save`, `load`.
 - `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
+- `bal` (attached by `07c_balance.js`): `BAL`, `botMake`, `botStep`, `fairGear`, `applyFairGear(P, level)`, `ccAdjust`, `ccFactor`, `ccState`, `ccHudState`, `ccChampion`, `raiseOfferStep`, `raiseOfferAccept`, `raisePlayer`, `kingFresh()` (the Hollow King whole on his throne for a new fight). `BAL.log = []` records every press the bots make.
 - `cls` (attached by `07b_classes.js`): the callings' state (`state(e)`, `CLS.stats`), stances, blocks, the draw, elements, devotion and their test hooks.
 - `gifts` (attached by `06c_gifts.js`): `GIFT`, `GIFT_DEF`, `giftHas`, `giftHarmMult`, `giftBuffAdjust`, `giftSpeedMult`, `useRealmGift`, `castGiftUlt`, `state()`. `land` (also attached there): `landSave`, `landApply`, `landKey`, `LAND.restored` (what the last load read back).
 - `surv` (`09s_survival.js`): `SURV`, `FORAGE`, `CRAFT` (`CRAFT.stations`), `RECIPES`, `needsEat`, `needsDrink`, `eatGood`, `drinkAt`, `fishStart`, `survCraftOnce`, `openCraft` and more. `animals` (`08h_animals.js`): `A` (the `ANIMALS` state: `list`, `pens`, `down`), `anTame`, `anCommand`, `anBirth`, `penHas`, `animalsSave` and more. `build` (`06k_build.js`): `BUILD`, `BP`, `buildPlace`, `bValidate`, `bLandWhy`, `buildFenceLine` and more; the halls on `fn.halls()`.
@@ -155,7 +157,8 @@ The harness lives in `tools/`:
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
 | `07b_swim.js` | Bodies in water: wading (slower with depth, splashes and rings each step), swimming from chest depth (`waterFloorY`, `swimDims`, `waterSpeedMult`, `swimAllowed`; companions swim after you, townsfolk and posted guards never), standing on a mage's ice (`onIce`), the current carrying swimmers, no casting or shooting and no horse in deep water, fire put out, gear soaked to the waterline (`waterlinePack`), splashes (`splashAt`), the drink and wash offers at any water (`waterOffers`: drinking itself is survival's `drinkAt`), the empty waterskin (`waterskin_empty`) issued once, the sound of rivers, the Chronicle's water page (`chronWater`), `waterHelp`, test hooks (`__hm.water`) |
 | `07b_classes.js` | The callings (`e.cs`): warrior stances, momentum and finishers, the shield and the parry, weapon styles; the archer's draw (ballistic arrows in `CLS.arrows`), arrow goods, hiding, snares, tracking; the mage's fire, frost and storm (attunement, focus, combos, chill and freeze, steam, ice sheets over water, runes, overcasting); the priest's devotion, prayer, holy ground, blessings, raising the fallen; realm flavours (`CLASS_REALM`), unlock levels (`CLASS_UNLOCK`); NPC use (`classNpc`, `npcClassStep`); save part `char.x.cls`. Hooks: `classHarm`/`classOnHit` in `dealDamage`, `classAbility` (this cast's view of an ability, maybe with a `custom` action) in `executeAbility`, `classSpeedMult`, `classActValue`, `classNoAuto`, `classAutoKind`, `classOnHeal`, `classSeen` (hidden archers, in `pickTarget` and creature aggro), `iceAt` in `isWalkable` |
-| `05j_classfx.js` | The callings' visuals and sounds: ice sheets (drawn at their own water's surface, `uWY`), iron snares, frozen shells, steam, arrows in flight and in the ground, the parry glint, `classSfx`; rune and holy-ground marks are disc kinds in `05g_spells.js`; guard, parry and kneel are actions 10–12 in `05a_rig.js` |
+| `07c_balance.js` | [balance] The balance of the callings. Bots that play a calling (`e.bot`, `botMake(e, 'simple' or 'skilled', home)`): an NPC bot has the role `bot` (no other think runs for it; `updateNPCs` still ticks its buffs, swings, power and footing) and is played by `botStep` from `npcClassStep`; the player with `P.bot` is played from `updateClasses` (the Hollow King check in `barrow.py`). The simple bot presses 1-8 in turn and lets the auto-attack run; the skilled one parries on the glint, spends momentum and changes stance (warrior), keeps range, kites, snares, picks arrows and draws fully (archer), plays the combos, minds attunement and blinks from blades (mage), heals early, keeps a renewal up, shields, hallows the ground, prays when safe and smites (priest). `fairGear(cls, level)`: a full set of the quality a soldier of that level wears (fine below 20, rare to 40, epic above). Diminishing returns on crowd control (`ccAdjust`, asked by `addBuff`): for players, bots and champions (`ccChampion`: camp champions, keep lords, hallow and muster wardens, warband leaders) a stun (a freeze counts as one), root or snare within 15 s of the last of its kind lasts half, then a quarter, then 6 s of immunity; a parry's stun goes through it for anyone (`{ ccAll: true }`); shown on the class panel (`classDrHud`). An allied priest near the fallen player offers to raise them (`raiseOfferStep`; the death screen's `#death-raise` beside the release): accepted, the priest walks over, prays if devotion is short, and raises you (`raisePlayer`). Tracked quarry on the minimap (`drawTrackedMinimap`). Test hooks on `__hm.bal` |
+| `05j_classfx.js` | The callings' visuals and sounds: ice sheets (drawn at their own water's surface, `uWY`), iron snares, frozen shells, steam, arrows in flight and in the ground, the parry glint, `classSfx`; rune and holy-ground marks are disc kinds in `05g_spells.js` (a rune is two discs: `runecut`, its strokes cut dark into the ground, and `rune`, their glow; a rune laid out of the camera's reach gets them when the camera comes near: discs carry an `owner`, cleared when the pool hands a disc to another spell); guard, parry and kneel are actions 10–12 in `05a_rig.js` |
 | `10d_classes_ui.js` | The class panel over the ability bar (a phone shows it under the frames), the technique (T) and hold (X) buttons on the phone pad, keys T / X (held) / Y (arrows), the Chronicle's Callings page, help lines, loading tips |
 | `08_ai.js` | Monsters, garrisons, warbands, realm commanders, relics; `WAR` state |
 | `08b_wildlife.js` | Deer, birds, bats, butterflies |
@@ -260,7 +263,12 @@ The harness lives in `tools/`:
 - Factions: 0–2 are the realms, 3 is `FACTION_MONSTER`, 4 is `FACTION_NEUTRAL`.
 - Roles scale stats through `ROLE_MULT`. Gear is applied in `setupStats`.
 - Standing stat adjustments go in `e.tweak` (`hp`, `dmg`, `rangedRange`, `swing`, `meleeRange`, `speed`). `setupStats` reapplies them, so they survive a level change.
+- `setupStats` applies `e.gear` (the totals of `gearTotals`) for the player and for bots (`e.bot`), never for other NPCs.
 - `e.motion` moves a body by itself: `spin` (whirlwind) or `leap` (a parabola to a landing spot). `updateMotion` runs for the player and for NPCs.
+
+**Crowd control** ([balance], `07c_balance.js`)
+- Every stun, root and snare passes `ccAdjust` in `addBuff` (after the realm gifts' `giftBuffAdjust`). Players, bots and champions (`ccChampion`) have diminishing returns per kind: full, half, a quarter within 15 s of the last, then 6 s immune (`e.ccdr`). A control refreshed by the same source while it still holds does not count again. Pass `{ ccAll: true }` as `addBuff`'s extra to put an ordinary body under the rule (a parry's stun does). A freeze is a stun: `addChill` asks `ccAdjust(e, 'stun', dur, 'frozen', true)` for champions (ordinary bodies keep the five seconds of thaw); the frozen buffs themselves come with the source `'frozen'` and are not counted twice. An immunity (the third control's, or Divine Shield's) holds for anyone.
+- New controls should use these three buff kinds so the rule covers them.
 
 **Animals** (`08h_animals.js`)
 - Kept animals are entities with role `animal` and a record in `e.tame` (`owner` `player`, `town` or `wild`; `k` hound, pig, horse, deer, sheep, cattle, hen; `cmd` follow, stay, guard, attack, pen; traits in `tr`). `updateNPCs` hands them to `thinkAnimal`; hounds fight through `fightTarget` and `autoAttack` like soldiers (faction of the player); the others are `FACTION_NEUTRAL`.
@@ -327,6 +335,105 @@ The harness lives in `tools/`:
 - Keep halls are houses (`H.keepHall`): code that walks `HOUSES` meets them too (fire, lightning, the cover map, the save). Tests that count town houses filter them out (`houses.py`).
 - The human crowd uses 15 of the 16 guaranteed vertex attributes. Pack new per-instance data into spare channels rather than adding attributes.
 
+## Balance of the callings
+
+Measured with `python3 tools/tests/classes.py balance` (see Testing): fighters with a player's own measure and fair gear for the level, played by the simple bot (presses 1-8 in turn) and the skilled bot (07c_balance.js). TTK: the time to kill a standard foe (a garrison warrior of the level). Pack: the time survived against an endless pack of three wolves and two outlaws (a survivor scores 1.5 times the cap). Duels: wins against the other three callings, both sides on the same bot (draws count half). The aim: the skilled bots within about ±15% of each other on every measure at every level, the simple bots within about ±25%, and the skilled bot clearly beating its simple self (mastery duels).
+
+**Before** (version 8 numbers, the same bots and diminishing returns, three repetitions; the pack then had no rank or gear scaling and a 90 s cap):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 9.1 (-4%) | 16 (-6%) | 33% (6/18) |
+| 10 | archer | 10.0 (+6%) | 16 (-6%) | 39% (7/18) |
+| 10 | mage | 7.6 (-20%) | 9 (-47%) | 28% (5/18) |
+| 10 | priest | 11.1 (+17%) | 27 (+59%) | 100% (18/18) |
+| 30 | warrior | 5.0 (+6%) | 36 (-38%) | 72% (13/18) |
+| 30 | archer | 3.7 (-21%) | 34 (-41%) | 44% (8/18) |
+| 30 | mage | 3.4 (-28%) | 25 (-57%) | 14% (2.5/18) |
+| 30 | priest | 6.7 (+43%) | 136 (+136%) | 69% (12.5/18) |
+| 50 | warrior | 3.5 (-5%) | 136 (+51%) | 67% (12/18) |
+| 50 | archer | 2.7 (-25%) | 59 (-35%) | 44% (8/18) |
+| 50 | mage | 2.7 (-25%) | 30 (-67%) | 22% (4/18) |
+| 50 | priest | 5.7 (+56%) | 136 (+51%) | 67% (12/18) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.5 (+6%) | 34 (+33%) | 50% (9/18) |
+| 10 | archer | 7.0 (-1%) | 21 (-18%) | 78% (14/18) |
+| 10 | mage | 5.8 (-19%) | 14 (-45%) | 42% (7.5/18) |
+| 10 | priest | 8.1 (+14%) | 33 (+29%) | 31% (5.5/18) |
+| 30 | warrior | 4.0 (-2%) | 88 (+18%) | 94% (17/18) |
+| 30 | archer | 4.0 (-2%) | 38 (-49%) | 61% (11/18) |
+| 30 | mage | 3.7 (-8%) | 35 (-53%) | 8% (1.5/18) |
+| 30 | priest | 4.6 (+13%) | 136 (+84%) | 36% (6.5/18) |
+| 50 | warrior | 3.0 (-32%) | 136 (+20%) | 94% (17/18) |
+| 50 | archer | 8.5 (+95%) | 48 (-58%) | 67% (12/18) |
+| 50 | mage | 2.9 (-34%) | 135 (+18%) | 28% (5/18) |
+| 50 | priest | 3.1 (-29%) | 136 (+20%) | 11% (2/18) |
+
+**After** (version 9; levels 10 and 30: three repetitions of the dummy and the pack, six of each duel with the realms swapped, four mastery duels per calling; level 50: two, four and two, because a slow machine stalled the first run):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 8.8 (+2%) | 16 (-4%) | 6% (2/36) |
+| 10 | archer | 9.1 (+5%) | 15 (-10%) | 58% (21/36) |
+| 10 | mage | 7.8 (-9%) | 14 (-16%) | 47% (17/36) |
+| 10 | priest | 8.9 (+3%) | 22 (+31%) | 89% (32/36) |
+| 30 | warrior | 4.6 (+6%) | 28 (-12%) | 42% (15/36) |
+| 30 | archer | 3.5 (-19%) | 24 (-25%) | 42% (15/36) |
+| 30 | mage | 3.6 (-17%) | 23 (-28%) | 58% (21/36) |
+| 30 | priest | 5.6 (+29%) | 53 (+66%) | 58% (21/36) |
+| 50 | warrior | 3.8 (+10%) | 21 (-72%) | 46% (11/24) |
+| 50 | archer | 2.6 (-24%) | 29 (-61%) | 46% (11/24) |
+| 50 | mage | 2.5 (-28%) | 26 (-66%) | 52% (12.5/24) |
+| 50 | priest | 4.9 (+41%) | 226 (+200%) | 56% (13.5/24) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.5 (+13%) | 33 (-1%) | 32% (11.5/36) |
+| 10 | archer | 6.3 (-6%) | 54 (+61%) | 83% (30/36) |
+| 10 | mage | 4.9 (-27%) | 23 (-31%) | 69% (25/36) |
+| 10 | priest | 8.0 (+20%) | 24 (-28%) | 15% (5.5/36) |
+| 30 | warrior | 3.7 (+0%) | 65 (-4%) | 69% (25/36) |
+| 30 | archer | 3.4 (-10%) | 43 (-37%) | 61% (22/36) |
+| 30 | mage | 3.5 (-7%) | 70 (+3%) | 33% (12/36) |
+| 30 | priest | 4.4 (+17%) | 94 (+38%) | 36% (13/36) |
+| 50 | warrior | 3.1 (+12%) | 66 (-34%) | 67% (16/24) |
+| 50 | archer | 2.2 (-19%) | 40 (-60%) | 77% (18.5/24) |
+| 50 | mage | 2.7 (-1%) | 69 (-31%) | 23% (5.5/24) |
+| 50 | priest | 3.0 (+8%) | 226 (+125%) | 33% (8/24) |
+
+Mastery duels (the skilled bot's wins against the simple bot of the same calling):
+
+| Level | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|
+| 10 | 4/4 | 3.5/4 | 1/4 | 2/4 |
+| 30 | 4/4 | 4/4 | 0/4 | 3/4 |
+| 50 | 2/2 | 2/2 | 2/2 | 2/2 |
+
+What changed, and why:
+
+- Warrior: health 1.4 to 1.3 (parries and the shield now carry a skilled warrior); a lowered shield turns about one frontal blow in eight (for 55% less), so a warrior played simply is not helpless; Shield Bash stuns 1.6 s (2.5), Leap Strike 1 s (1.5); a parry's stun on an ordinary foe 0.9 s (1.1); Charge every 12 s (16) and it breaks free of slows and snares.
+- Archer: health 1.25 to 1.12 (an archer lives by keeping away); 5% quicker on foot (not while drawing); Volley 95% a wave (80%) and pins what it falls on (40% slow, 3 s); snares hold 3.5 s (3; Thule 4.5), re-arm in 9 s (12), and the cord whips any foe beside the prey (40% slow, 2.5 s); Crippling Arrow every 9 s (12); Tumble every 11 s (15).
+- Mage: health 0.86 to 1.1; Arcane Ward 40% (30%) every 24 s (30); Blink every 11 s (14); Nova every 12 s (16), and a frost nova roots as long as a fire nova; a firebolt's burn 25% (32%).
+- Priest: health 1.05 to 1.1, damage 1.2 to 1.3; Smite 180% (160%), Holy Fire 210% (180%); a priest's own wounds mend at 75% of what others get from Mend, Renewal, Sanctuary and Mass Renewal (`PRIEST_SELF`; Mend on oneself was 85%, the rest 100%), and healing costs more (Mend 22, Renewal 16, Sanctuary 32, Mass Renewal 36), so a long fight drains a healer; Divine Shield also lifts and wards off stuns, roots and slows while it lasts.
+- Everyone: diminishing returns on stuns (a freeze counts), roots and slows for players and champions; a parry's stun under the same rule for anyone.
+
+Still off (for the next pass):
+  - Level 10 duels belong to the ranged callings (the skilled archer and mage win about 70-80%, the warrior about a third and the priest under a fifth; played simply, the warrior loses nearly every duel and the priest wins most). A warrior has no Leap Strike before 30 and a priest no Divine Shield before 14, so neither has much to answer kiting, roots and freezes. Next: a low-level way for a priest to break a root or close the gap, and a look at how the warrior's Charge plays against snares at 10.
+  - Pack survival: priests still lead by far (a third above the mean at 30; at 50 a priest outlasts the 150 s cap while the others fall at 40-70 s: ranks raise healing, and Mass Renewal, Sanctuary and devotion keep a priest whole against a pack); archers trail (a third to three fifths below). Next: a priest's own healing should fall off with rank, or drain power faster in a long fight.
+  - Duels at 50: the skilled archer (77%) and warrior (67%) beat the priest (33%) and mage (23%); the mage has no answer to a Leap Strike followed by a bash, nor to a full draw from range.
+  - Mastery: the skilled mage does not yet beat a simple mage in mirror duels (pressing every spell in turn wins a short damage race); every other calling's skilled bot wins three or four of four.
+  - Duels last 6-12 s at a player's measure, so openers and stuns decide many of them, and duel rates move by about ±8 points between runs of this size; run `dreps=12` or more before tuning on a duel number.
+
 ## Roadmap
 
 | # | Work | Status |
@@ -346,7 +453,7 @@ The harness lives in `tools/`:
 | 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | Done (version 7) |
 | 15 | Water: swimming, wading, rivers with currents, ponds, splashes and ripples, drinking, waterskins | Done (version 8). Left: diving under, boats |
 | 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Done (version 8) |
-| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Done (version 8). Left: balance (time to kill is within ±15%; pack survival and duels are not) |
+| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Done (version 8). Balance under way in version 9 (see Balance of the callings) |
 | 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Done (version 8). Left: bushes and apple trees do not burn or fall; crafted gear stops at item level 24 |
 | 19 | Farming and herb lore, plant breeding: seasons, beds, crops, weeds, soil, strains and crossing, town fields, wild herbs and the herbal | Done (version 8); gardens in Ériu and Thule and the year's colours (version 9). Left: the new herbs' powers in potions |
 | 23 | The seasons across the world: broadleaves turning and bare in winter (pines keep their needles and carry snow), blossom and apples in season, the meadow and its flowers by season, snow lying by temperature, frozen lakes in the northern winter (walk on them, fish through them), leaves drifting in autumn, birds, butterflies and fireflies by season, gardens in every town, no trees in the fields | Done (version 9). Left: snow drifts and footprints in it; the apple trees' shadows stay full in winter; townsfolk walking to a garden can still be held up by a house corner now and then (they go out by way of the plaza, then detour); `farming.py`'s "harvested into the town's granary" came back +0 once on this branch (the test's own grass fire may now reach the nearest strip: check) |
@@ -354,6 +461,7 @@ The harness lives in `tools/`:
 | 21 | Building: placed structures | Done (version 8). Left: NPCs using built doors, more roof shapes (hips, lean-tos) |
 | 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | In progress (version 9 branches) |
 | 23 | Phones and performance: `perf.py` measuring, terrain and tree level of detail, far rocks, glass and soil, grass by quality, stale grass removed, phones start at low, far work at a lower rate, the HUD's layout pass on every screen, 40 px touch targets, names not through walls, `hud_layout.py` and `touch_flows.py` | Done (`feature/phones`). Left: merging built pieces per building (few are built yet); the forest view at low was last measured at 774 k triangles and 174 calls (over budget) before its last tree change; `touch_flows.py`'s building step does not find a place the piece may go, and its companion, taming and war-table steps were last run before the test closed what earlier steps left open |
+| 22a | [balance] Balance and mastery of the callings: simple and skilled bots, the balance run with mastery duels, diminishing returns on stuns, roots and slows (parries cannot stun-lock), Divine Shield wards off control, a priest's offer to raise the fallen player, the steam burst, carved rune glyphs and tracked quarry on the minimap made to read, each calling at level 28 beats the Hollow King | In progress (version 9, feature/balance): the bots, the measures, the rules and three rounds of tuning are in; time to kill is within about ±20%, but pack survival and duels are not yet within the ±15% aim (see Balance of the callings) |
 
 ## History
 

@@ -114,8 +114,10 @@ function setupStats(e, keepRatio = false) {
   if (e.role === 'player') {
     const rr = realmRank(GAME.prog ? GAME.prog.rp : 0);
     e.maxHp *= 1 + 0.015 * (rr - 1);
-    // what the player wears and wields
-    const g = e.gear;
+  }
+  {
+    // what the player wears and wields (and a bot measuring the callings, 07c_balance.js) [balance]
+    const g = e.role === 'player' || e.bot ? e.gear : null;
     if (g) {
       e.maxHp *= 1 + g.hp / 100;
       e.dmgMult *= 1 + g.dmg / 100;
@@ -135,6 +137,7 @@ function setupStats(e, keepRatio = false) {
 function addBuff(e, kind, value, dur, src = null, extra = null) {
   const now = GAME.t;
   if (kind === 'stun' || kind === 'snare' || kind === 'root') { const g = giftBuffAdjust(e, kind, value, dur); value = g.value; dur = g.dur; } // [gifts] Unbroken, Cold-blooded (06c_gifts.js)
+  if ((kind === 'stun' || kind === 'snare' || kind === 'root') && src !== 'frozen') { dur = ccAdjust(e, kind, dur, src, !!(extra && extra.ccAll)); if (!(dur > 0)) return _ccImmune; } // [balance] diminishing returns on control for players and champions (07c_balance.js)
   let b = e.buffs.find((x) => x.kind === kind && x.src === src);
   if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
   else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }

@@ -31,7 +31,7 @@ const CLASS_UNLOCK = {
 };
 const clsHas = (e, key) => !!e && !!e.cls && CLASS_UNLOCK[e.cls] && CLASS_UNLOCK[e.cls][key] !== undefined && e.level >= CLASS_UNLOCK[e.cls][key];
 const STANCES = [
-  { id: 'guarded', name: 'Guarded', out: 0.9, taken: 0.75, icon: 'shield', text: 'Take 25% less harm and deal 10% less. Your shield covers a wider arc, a raised guard costs no endurance, Shield Bash stuns a second longer and Bulwark lasts three more.' },
+  { id: 'guarded', name: 'Guarded', out: 0.9, taken: 0.75, icon: 'shield', text: 'Take 25% less harm and deal 10% less. Your shield covers a wider arc, a raised guard costs no endurance, Shield Bash stuns half a second longer and Bulwark lasts three more.' },
   { id: 'balanced', name: 'Balanced', out: 1, taken: 1, icon: 'sword', text: 'No gain and no cost. Momentum fades more slowly and Rallying Cry heals 35%.' },
   { id: 'fury', name: 'Fury', out: 1.15, taken: 1.12, icon: 'flame', text: 'Deal 15% more harm and take 12% more. You swing faster, shrug off much of any slow, Cleave and Whirlwind cut deeper and Rallying Cry adds 25% damage.' },
 ];
@@ -236,6 +236,11 @@ function classHarm(src, dst, amount, opts) {
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
       m *= k;
       blockHit(dst, src, amount * m);
+    } else if (!cs.blockOn && !opts.dot && src && src !== dst && (opts.kind === 'melee' || opts.kind === 'arrow') && clsHas(dst, 'block') && hasShield(dst) && !isStunned(dst) && blockFaces(dst, src) && Math.random() < 0.12) {
+      // [balance] a shield on the arm turns a blow now and then, raised or not
+      m *= 0.45;
+      CLS.stats.blocks++;
+      if (dst === GAME.player || src === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Blocked', 'miss');
     }
   }
   for (const b of dst.buffs) {
@@ -260,7 +265,7 @@ function elementReact(src, dst, el, opts) {
     if (wet > 0.3) { m *= 0.75; dst.wet = Math.max(0, (dst.wet || 0) - 0.3); if (Math.random() < 0.5) steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 4); }
     m *= 1 - 0.3 * rainHere(dst);
     if (mage && !auto && !opts.dot && opts.kind === 'fire' && dst.alive && wet < 0.6) {
-      const r = computeDamage(src, dst, 0.32 * (attOf(src, 'fire') >= 60 ? 1.5 : 1));
+      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.5 : 1)); // [balance] 0.32
       addBuff(dst, 'burn', r.d / 4, 4, src.id);
     }
   } else if (el === 'frost') {
@@ -286,10 +291,14 @@ function addChill(e, n, src) {
   if (!e.alive || e.kind === 'door' || e.flying) return;
   const cur = chillOf(e) + n;
   // a body just thawed cannot be frozen again at once
-  const boss = e.role === 'boss' || e.role === 'dungeonBoss' || GAME.t < (e._thawUntil || 0);
+  // [balance] players and champions: a freeze is a stun under the diminishing returns (07c_balance.js); others thaw
+  // with five seconds before ice can take them again
+  const champ = ccChampion(e);
+  const boss = e.role === 'boss' || e.role === 'dungeonBoss' || (!champ && GAME.t < (e._thawUntil || 0)) || ccFactor(e, 'stun') === 0;
   if (cur >= 3 && !boss && !frozenOf(e)) {
     dropBuffs(e, ['chill']);
-    const dur = e.role === 'player' ? 1.5 : e.elite ? 1.2 : 1.4;
+    let dur = e.role === 'player' ? 1.5 : e.elite ? 1.2 : 1.4;
+    if (champ) { dur = ccAdjust(e, 'stun', dur, 'frozen', true); if (!(dur > 0)) { addBuff(e, 'chill', 2, 6, 'chill'); return; } }
     e._thawUntil = GAME.t + dur + 5;
     addBuff(e, 'frozen', 1, dur, 'frozen');
     addBuff(e, 'stun', 1, dur, 'frozen');
@@ -362,8 +371,15 @@ function steamAt(x, z, r, src, dur = 5) {
   steamPuff(x, heightAt(x, z) + 0.6, z, 26);
   if (dist2(x, z, camera.position.x, camera.position.z) < 80 * 80) {
     const A = U.uAmbient.value, L = U.uLightColor.value, y = heightAt(x, z);
-    for (let i = 0; i < 34; i++) { const a = Math.random() * TAU, sp = 1.5 + Math.random() * 2.5; fxAlpha.emit(x + Math.cos(a) * 0.5, y + 0.4 + Math.random() * 1.4, z + Math.sin(a) * 0.5, Math.cos(a) * sp, 0.8 + Math.random() * 1.6, Math.sin(a) * sp, 2.4 + Math.random() * 1.2, A.x * 0.55 + L.x * 0.5 + 0.35, A.y * 0.55 + L.y * 0.5 + 0.37, A.z * 0.55 + L.z * 0.5 + 0.4, -(1.6 + Math.random() * 0.8), -0.1, 0.9); }
-    lightFlash(x, y + 1.2, z, 6, [1.4, 1.5, 1.6], 0.25);
+    const wr = A.x * 0.5 + L.x * 0.55 + 0.42, wg = A.y * 0.5 + L.y * 0.55 + 0.44, wb = A.z * 0.5 + L.z * 0.55 + 0.48;
+    for (let i = 0; i < 34; i++) { const a = Math.random() * TAU, sp = 1.5 + Math.random() * 2.5; fxAlpha.emit(x + Math.cos(a) * 0.5, y + 0.4 + Math.random() * 1.4, z + Math.sin(a) * 0.5, Math.cos(a) * sp, 0.8 + Math.random() * 1.6, Math.sin(a) * sp, 2.4 + Math.random() * 1.2, wr - 0.07, wg - 0.07, wb - 0.08, -(1.6 + Math.random() * 0.8), -0.1, 0.9); }
+    // [balance] so it reads: a hissing white ring racing out along the ground, a column of steam shooting up
+    // through the middle, scalding droplets falling back, and a pale flash
+    for (let i = 0; i < 28; i++) { const a = i / 28 * TAU + Math.random() * 0.1, sp = 5.5 + Math.random() * 1.5; fxAlpha.emit(x + Math.cos(a) * 0.6, y + 0.25, z + Math.sin(a) * 0.6, Math.cos(a) * sp, 0.25 + Math.random() * 0.3, Math.sin(a) * sp, 0.9 + Math.random() * 0.4, wr, wg, wb, -(0.9 + Math.random() * 0.5), 0, 2.6); }
+    for (let i = 0; i < 16; i++) fxAlpha.emit(x + (Math.random() - 0.5) * 0.7, y + 0.6 + i * 0.22, z + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.5, 4.5 + Math.random() * 2.5, (Math.random() - 0.5) * 0.5, 1.6 + Math.random() * 0.8, wr, wg, wb, -(1.1 + Math.random() * 0.7), -0.6, 1.1);
+    FX.burst(x, y + 1.4, z, 22, [1.5, 1.7, 1.9], 4.5, 0.7, 0.07, 9);
+    spellDisc(x, z, Math.max(3, r) * 1.15, DISC_KIND.shock, 0.7, [1.3, 1.45, 1.6]);
+    lightFlash(x, y + 1.2, z, 9, [2.0, 2.1, 2.3], 0.32);
   }
   classSfx('steam', x, z);
 }
@@ -395,7 +411,7 @@ function parry(dst, src) {
   cs.blockAt = -9; // one parry per raise
   CLS.stats.parries++;
   const boss = src.role === 'boss' || src.role === 'dungeonBoss' || src.kind === 'door';
-  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' ? 0.7 : 1.1, dst.id); src.casting = null; addBuff(src, 'stagger', 1, 3, dst.id); }
+  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); src.casting = null; addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
   addMom(dst, 2);
   setAct(dst, 11, 0.42);
   const x = (dst.x + src.x) / 2, z = (dst.z + src.z) / 2, y = dst.y + 1.25 * (dst.scale || 1);
@@ -466,6 +482,7 @@ function classOnHit(src, dst, dmg, opts) {
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
+  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.4, 3, src.id); // [balance] a volley pins what it falls on
 }
 // the weapon's own bite: the sword opens wounds, the axe breaks armour, the mace staggers
 function styleProc(src, dst, dmg, opts, strong) {
@@ -518,12 +535,13 @@ function warriorView(e, cs, A, t) {
     if (pips >= 5 && realmFlavour(e) && e.faction === 1) { V.self = true; V.spin = 4.2; V.dmg = (1.25 + 0.35 * pips) * 0.75; cs.fin.until = nowT() + 1.2; } // a champion's feat: the whirling cut
     if (e === GAME.player) uiLog(`Finisher: ${pips} momentum spent.`, 'level');
   }
-  if (A.id === 'bash' && st === 0) { view().stun = A.stun + 1; if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
+  if (A.id === 'bash' && st === 0) { view().stun = A.stun + 0.5; /* [balance] +1 */ if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
   if (A.id === 'bulwark' && st === 0) view().buff = { ...A.buff, dur: A.buff.dur + 3 };
   if ((A.id === 'cleave' || A.id === 'whirl') && st === 2) view().dmg = A.dmg * 1.25;
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
+  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); } // [balance] a charge breaks free of slows and snares
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
@@ -584,12 +602,15 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.85 : 1); // a priest's own wounds mend more slowly than another's
-  if (A.hot) view().hot = [A.hot[0] * hm, A.hot[1]];
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? PRIEST_SELF : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
+  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? PRIEST_SELF : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
   if (A.id === 'smite' && t && isUndead(t)) view().dmg = A.dmg * 1.25;
+  if (A.id === 'sanctuary') view().custom = priestGroupHeal; // [balance] the priest's own share mends more slowly (07c_balance.js)
+  if (A.id === 'massrenew') view().custom = priestGroupHot;
+  if (A.id === 'divine') view().custom = divineShield; // [balance] it also lifts and wards off stuns, roots and slows (07c_balance.js)
   if (A.id === 'renew' && clsHas(e, 'bless') && dv >= 20 && t) {
     cs.dev -= 12;
     const f = t && !isEnemy(e, t) ? t : e;
@@ -619,7 +640,7 @@ function frostNova(e, A, t, cast, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
     const r = computeDamage(e, o, A.dmg * rk * 0.7);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost', chill: 1 });
-    if (o.alive) addBuff(o, 'root', 1, A.root - 0.5 + (eriuGrowth ? 1 : 0), e.id);
+    if (o.alive) addBuff(o, 'root', 1, A.root + (eriuGrowth ? 1 : 0), e.id); // [balance] as long as the fire nova's
     // Eriu: brambles break through the frost and hold the foe a moment longer
     if (eriuGrowth && o.alive && dist2(o.x, o.z, camera.position.x, camera.position.z) < 60 * 60) for (let q = 0; q < 10; q++) { const a = Math.random() * TAU; fxAlpha.emit(o.x + Math.cos(a) * 0.4, o.y + 0.05, o.z + Math.sin(a) * 0.4, Math.cos(a) * 0.3, 1.2 + Math.random(), Math.sin(a) * 0.3, 0.8, 0.16, 0.3, 0.1, 0.07, 3, 1); }
   });
@@ -770,13 +791,15 @@ function layRune(e, x, z, el) {
   const mine = CLS.runes.filter((q) => q.src === e.id);
   if (mine.length >= 3) runeEnd(mine[0]);
   const R = { x, z, el, src: e.id, faction: e.faction, level: e.level, t0: GAME.t, armAt: GAME.t + 0.8, until: GAME.t + 30, disc: null };
+  R.cut = spellDisc(x, z, 2.2, DISC_KIND.runecut, 30, [1, 1, 1], 0.04); // [balance] the dark cut of the strokes, under the glow
   R.disc = spellDisc(x, z, 2.2, DISC_KIND.rune, 30, ELEM_COL[el]);
+  if (R.cut) R.cut.owner = R; if (R.disc) R.disc.owner = R; // [balance] (05j_classfx.js lays them again if they go)
   CLS.runes.push(R);
   CLS.stats.runes++;
   classSfx('rune', x, z);
   return R;
 }
-function runeEnd(R) { R.dead = true; if (R.disc && R.disc.on) R.disc.age = Math.max(R.disc.age, R.disc.dur - 0.4); CLS.runes.splice(CLS.runes.indexOf(R), 1); }
+function runeEnd(R) { R.dead = true; for (const d of [R.disc, R.cut]) if (d && d.on && d.owner === R) d.age = Math.max(d.age, d.dur - 0.4); CLS.runes.splice(CLS.runes.indexOf(R), 1); }
 function runeBurst(R) {
   const src = getEnt(R.src) || { id: R.src, level: R.level, dmgMult: 1, faction: R.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'mage', x: R.x, z: R.z, y: heightAt(R.x, R.z) };
   const y = heightAt(R.x, R.z);
@@ -1021,7 +1044,9 @@ function stepSnares(dt) {
     const src = getEnt(S.owner) || { id: S.owner, level: S.level, dmgMult: 1, faction: S.faction, buffs: [], role: 'none', scale: 1, alive: false };
     const r = computeDamage(src, prey, 0.7);
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
-    addBuff(prey, 'root', 1, S.thule ? 4 : 3, S.owner);
+    addBuff(prey, 'root', 1, S.thule ? 4.5 : 3.5, S.owner); // [balance] 4 and 3
+    // [balance] the cord whips about: whoever runs beside the prey is slowed
+    forNear(S.x, S.z, 4, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.4, 2.5, S.owner); });
     if (S.thule) addChill(prey, 3, src);
     FX.sparks(S.x, S.y + 0.2, S.z);
     classSfx('snare', S.x, S.z);
@@ -1267,6 +1292,7 @@ function classNpc(e, t) {
 function npcClassStep(e, dt) {
   const cs = e.cs;
   if (!cs || !e.alive || e.testDummy) return;
+  if (e.bot) { botStep(e, dt); return; } // [balance] a bot plays its calling (07c_balance.js)
   const t = nowT();
   if (e.cls === 'warrior') {
     if (cs.blockOn && t > cs.npcBlockUntil) setBlock(e, false);
@@ -1332,6 +1358,7 @@ function classSpeedMult(e) {
     if (cs.drawFrom >= 0) s *= 0.55;
     if (cs.praying) s *= 0.2;
   }
+  if (e.cls === 'archer' && !(cs && cs.drawFrom >= 0)) s *= 1.05; // [balance] light leathers: archers are a little quicker on their feet
   return s;
 }
 function classActValue(e) {
@@ -1374,7 +1401,9 @@ function updateClasses(dt) {
     if (cs.spentUntil > nowT()) { if (cs.spentPower === undefined) cs.spentPower = P.power; P.power = Math.min(P.power, cs.spentPower); } else cs.spentPower = undefined;
     // new depth unlocked with a level: say so once
     if (cs.lastLevel !== P.level) { classLevelNews(P, cs.lastLevel, P.level); cs.lastLevel = P.level; }
+    if (P.bot && P.alive) botStep(P, dt); // [balance] the player played by a bot (tests: barrow.py)
   }
+  raiseOfferStep(dt); // [balance] an allied priest offers to raise the fallen player (07c_balance.js)
   // NPCs and their held actions; frozen bodies thaw; the dead may yet be raised
   for (const e of ENT) {
     if (e.role === 'player' || !e.cs || e.removed) continue;
@@ -1449,7 +1478,7 @@ function classLevelNews(P, from, to) {
 /* the hidden techniques (useAbility runs them, like any ability)      */
 /* ------------------------------------------------------------------ */
 Object.assign(ABILITIES, {
-  snare: { id: 'snare', name: 'Snare', icon: 'snare', level: CLASS_UNLOCK.archer.snare, cost: 6, cd: 12, self: true, hidden: true, custom: (e) => laySnare(e), desc: 'Lay a snare at your feet. The first foe to step on it is held for 3 s.' },
+  snare: { id: 'snare', name: 'Snare', icon: 'snare', level: CLASS_UNLOCK.archer.snare, cost: 6, cd: 9, /* [balance] 12 */ self: true, hidden: true, custom: (e) => laySnare(e), desc: 'Lay a snare at your feet. The first foe to step on it is held for 3.5 s.' },
   consecrate: { id: 'consecrate', name: 'Holy Ground', icon: 'circle', level: CLASS_UNLOCK.priest.consecrate, cost: 0, cd: 8, self: true, hidden: true, custom: consecrate, desc: 'Hallow the ground at your feet for 12 s (35 devotion): it heals your allies and burns the dead.' },
   raise: { id: 'raise', name: 'Raise the Fallen', icon: 'sun', level: CLASS_UNLOCK.priest.raise, cost: 0, cd: 20, cast: 2.0, self: true, hidden: true, anim: 3, custom: raiseFallen, desc: 'Raise a friend who fell a moment ago (70 devotion).' },
 });

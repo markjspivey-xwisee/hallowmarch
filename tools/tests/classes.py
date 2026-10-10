@@ -16,6 +16,9 @@ SHOTS = 'shots' in ARGS
 BAL = 'balance' in ARGS
 MECH = 'mech' in ARGS or not (BAL or SHOTS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
+# [balance] duels are short and noisy: they get more repetitions of their own (dreps=N)
+DREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('dreps=')), REPS * 3)
+MREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('mreps=')), DREPS)
 SHOTQ = next((a.split('=')[1] for a in ARGS if a.startswith('q=')), 'medium')
 FAILS = []
 CONSOLE = []
@@ -33,13 +36,15 @@ async def frames(page, n=3):
     for _ in range(n): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
 
 # ------------------------------------------------------------------ balance
-# Arenas on open ground in the homelands, far from camps and towns; every arena of a phase fights at once, since
-# simulate() advances the whole world anyway. Units are garrison posts with a leash so they hold their ground.
+# [balance] Two bots per calling (07c_balance.js): the simple one presses 1-8 in order and lets the auto-attack run,
+# the skilled one plays the calling well. Each fighter is a 'bot' with a player's own measure (ROLE_MULT.player) and
+# fair gear for the level (fairGear: fine below 20, rare to 40, epic above; item level up to 24). Arenas on open
+# ground in the homelands, far from camps and towns; every arena of a phase fights at once, since simulate()
+# advances the whole world anyway.
 BAL_JS = r"""
 window.CB = {
-  H: __hm, F: __hm.fn, CLS: ['warrior', 'archer', 'mage', 'priest'],
-  // arenas within 160 m of one centre (creatures far from the player rest, so the player waits at the centre,
-  // 45 m or more from every arena)
+  H: __hm, F: __hm.fn, B: __hm.bal, CLS: ['warrior', 'archer', 'mage', 'priest'],
+  // arenas within 170 m of one centre (creatures far from the player rest, so the player waits at the centre)
   spots(n) {
     const H = this.H, F = this.F;
     const towns = H.REALMS.map((R) => R.town);
@@ -58,27 +63,32 @@ window.CB = {
     for (let cz = -460; cz <= 460; cz += 40) for (let cx = -460; cx <= 460; cx += 40) {
       const rc = Math.hypot(cx, cz); if (rc < 330 || rc > 460) continue;
       const out = [];
-      for (let gz = cz - 165; gz <= cz + 165 && out.length < 14; gz += 12) for (let gx = cx - 165; gx <= cx + 165 && out.length < 14; gx += 12) {
-        const d = Math.hypot(gx - cx, gz - cz); if (d < 42 || d > 165) continue;
-        if (out.some((s) => Math.hypot(s.x - gx, s.z - gz) < 56)) continue;
+      for (let gz = cz - 170; gz <= cz + 170 && out.length < 18; gz += 10) for (let gx = cx - 170; gx <= cx + 170 && out.length < 18; gx += 10) {
+        const d = Math.hypot(gx - cx, gz - cz); if (d < 40 || d > 170) continue;
+        if (out.some((s) => Math.hypot(s.x - gx, s.z - gz) < 52)) continue;
         if (good(gx, gz)) out.push({ x: gx, z: gz });
       }
       if (out.length > best.length) { best = out; this.centre = { x: cx, z: cz }; }
-      if (best.length >= 14) break;
+      if (best.length >= 18) break;
     }
     this.cached = best;
     if (this.centre) H.teleport(this.centre.x, this.centre.z);
     return best.slice(0, n);
   },
   wipe() { for (const e of this.H.ENT.slice()) if (e.balance) { e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); } },
-  unit(realm, cls, lvl, x, z, leash = 14) {
-    const e = this.F.spawnRealmUnit(realm, cls, lvl, 'guard', x, z);
-    delete e.wlOff; e.ai.post = { x, z, leash }; e.balance = true; e.hp = e.maxHp; e.power = e.maxPower;
+  // a fighter: a bot of the calling, a player's measure, fair gear for the level
+  unit(realm, cls, lvl, x, z, kind, r = 16) {
+    const e = this.F.spawnRealmUnit(realm, cls, lvl, 'bot', x, z);
+    e.tweak = { hp: 1.1, dmg: 1.25 };
+    e.gear = this.B.fairGear(cls, lvl).tot;
+    this.B.botMake(e, kind, { x, z, r });
+    this.F.setupStats(e); e.hp = e.maxHp; e.power = e.maxPower; e.balance = true;
     return e;
   },
   dummy(realm, lvl, x, z) {
-    const e = this.unit(realm, 'warrior', lvl, x, z, 0);
-    e.testDummy = true; e.tweak = { swing: 1e6, hp: 8 }; this.F.setupStats(e); e.ai.nextAbility = 1e12; e.std = e.maxHp / 8;
+    const e = this.F.spawnRealmUnit(realm, 'warrior', lvl, 'guard', x, z);
+    delete e.wlOff; e.ai.post = { x, z, leash: 0 }; e.balance = true;
+    e.testDummy = true; e.tweak = { swing: 1e6, hp: 8 }; this.F.setupStats(e); e.ai.nextAbility = 1e12; e.std = e.maxHp / 8; e.hp = e.maxHp;
     return e;
   },
   pack(lvl, x, z, target, only = null) {
@@ -86,38 +96,56 @@ window.CB = {
     for (const [type, n] of only ? [[only, 1]] : [['wolf', 3], ['bandit', 2]]) for (let i = 0; i < n; i++) {
       const camp = { type, lmin: lvl, lmax: lvl, x, z, r: 2.5, members: new Set() };
       const m = this.F.spawnMob(camp);
+      // the pack keeps pace with what a fighter of the level brings: ability ranks and better gear
+      const rk = this.F.rankMult(lvl), gq = lvl < 20 ? 1 : lvl < 40 ? 1.08 : 1.16;
+      m.tweak = { hp: rk * gq, dmg: rk * gq }; this.F.setupStats(m);
       m.balance = true; m.threat = new Map([[target.id, 5]]); m.target = target.id; m.ai.pulled = true;
       out.push(m);
     }
     return out;
   },
-  // phase 1: each class against a standing dummy (time to kill) and against a pack (survival), all at once
-  setup1(lvl) {
+  // phase 1: each calling against a standing dummy (time to kill) and against an endless pack (survival)
+  setup1(lvl, kinds, rep = 0) {
     this.wipe();
-    // four arenas against the dummy, and as many pack fights as there is room for (two for each calling if possible)
-    const S = this.spots(12); if (S.length < 8) throw new Error('only ' + S.length + ' arenas');
+    const need = kinds.length * 8;
+    const S = this.spots(need); if (S.length < need) throw new Error('only ' + S.length + ' arenas');
     this.A = [];
-    const packs = S.length >= 12 ? 2 : 1;
-    this.CLS.forEach((c, i) => {
-      const s = S[i], u = this.unit(0, c, lvl, s.x, s.z), d = this.dummy(1, lvl, s.x + 11, s.z);
-      u.target = d.id; this.A.push({ kind: 'ttk', cls: c, u, d, t0: this.H.GAME.t });
-      for (let k = 0; k < packs; k++) {
-        const s2 = S[4 + i * packs + k], u2 = this.unit(k, c, lvl, s2.x, s2.z), p = this.pack(lvl, s2.x + 9, s2.z, u2);
-        this.A.push({ kind: 'pack', cls: c, u: u2, p, lvl, t0: this.H.GAME.t, hp0: u2.maxHp });
-      }
+    let i = 0;
+    for (const kind of kinds) this.CLS.forEach((c) => {
+      const R = rep % 3, s = S[i++], u = this.unit(R, c, lvl, s.x - 6, s.z, kind), d = this.dummy((R + 1) % 3, lvl, s.x + 6, s.z);
+      u.target = d.id; this.A.push({ kind: 'ttk', bot: kind, cls: c, u, d, t0: this.H.GAME.t });
+      const s2 = S[i++], u2 = this.unit(R, c, lvl, s2.x, s2.z, kind, 22), p = this.pack(lvl, s2.x + 11, s2.z, u2);
+      this.A.push({ kind: 'pack', bot: kind, cls: c, u: u2, p, lvl, t0: this.H.GAME.t, hp0: u2.maxHp });
     });
     return S.length;
   },
-  // phase 2: duels, every pair of classes, realms as given
-  setup2(lvl, swap) {
+  // phase 2: duels, every pair of callings, both on the same bot, realms as given
+  setup2(lvl, swap, kinds, rep = 0) {
     this.wipe();
     const pairs = []; for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) pairs.push([this.CLS[i], this.CLS[j]]);
-    const S = this.spots(pairs.length); if (S.length < pairs.length) throw new Error('only ' + S.length + ' arenas');
-    this.A = pairs.map(([a, b], i) => {
-      const s = S[i], ra = swap ? 1 : 0, rb = swap ? 0 : 1;
-      const ua = this.unit(ra, a, lvl, s.x - 8, s.z, 16), ub = this.unit(rb, b, lvl, s.x + 8, s.z, 16);
+    const need = pairs.length * kinds.length;
+    const S = this.spots(need); if (S.length < need) throw new Error('only ' + S.length + ' arenas');
+    this.A = [];
+    let i = 0;
+    for (const kind of kinds) for (const [a, b] of pairs) {
+      const r0 = rep % 3, r1 = (rep + 1) % 3, s = S[i++], ra = swap ? r1 : r0, rb = swap ? r0 : r1;
+      const ua = this.unit(ra, a, lvl, s.x - 9, s.z, kind, 18), ub = this.unit(rb, b, lvl, s.x + 9, s.z, kind, 18);
+      ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
       ua.target = ub.id; ub.target = ua.id;
-      return { kind: 'duel', a, b, ua, ub, t0: this.H.GAME.t };
+      this.A.push({ kind: 'duel', bot: kind, a, b, ua, ub, t0: this.H.GAME.t });
+    }
+    return S.length;
+  },
+  // phase 3: mastery, each calling's skilled bot against its own simple bot
+  setup3(lvl, rep = 0) {
+    this.wipe();
+    const S = this.spots(4); if (S.length < 4) throw new Error('only ' + S.length + ' arenas');
+    this.A = this.CLS.map((c, i) => {
+      const s = S[i], ra = rep % 3, rb = (rep + 1) % 3, flip = rep % 2;
+      const ua = this.unit(flip ? rb : ra, c, lvl, s.x + (flip ? 9 : -9), s.z, 'skilled', 18), ub = this.unit(flip ? ra : rb, c, lvl, s.x + (flip ? -9 : 9), s.z, 'simple', 18);
+      ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
+      ua.target = ub.id; ub.target = ua.id;
+      return { kind: 'duel', bot: 'mastery', a: c + ':skilled', b: c + ':simple', ua, ub, t0: this.H.GAME.t };
     });
     return S.length;
   },
@@ -129,7 +157,7 @@ window.CB = {
       const el = t - A.t0;
       if (A.kind === 'ttk') {
         const dealt = A.d.maxHp - Math.max(0, A.d.hp);
-        if (!A.d.alive || el >= cap) A.res = { cls: A.cls, dps: dealt / Math.max(el, 0.1), ttk: A.d.std / Math.max(dealt / Math.max(el, 0.1), 1e-3), died: !A.u.alive };
+        if (!A.d.alive || el >= Math.min(cap, 60)) A.res = { bot: A.bot, cls: A.cls, dps: dealt / Math.max(el, 0.1), ttk: A.d.std / Math.max(dealt / Math.max(el, 0.1), 1e-3), died: !A.u.alive, diag: { d: +Math.hypot(A.u.x - A.d.x, A.u.z - A.d.z).toFixed(1), pw: Math.round(A.u.power), cast: A.u.casting ? A.u.casting.id : '', next: +(A.u.bot.next - t).toFixed(1), tgt: A.u.target === A.d.id, swim: !!A.u.swim, hp: +(A.u.hp / A.u.maxHp).toFixed(2), stun: A.u.buffs.map((b) => b.kind).join(','), el: Math.round(el) } };
       } else if (A.kind === 'pack') {
         // an endless pack: every fallen beast or outlaw is replaced two seconds later, so the time to die measures
         // how long the calling holds out (armour, healing, control and killing all count)
@@ -137,11 +165,11 @@ window.CB = {
           const m = A.p[i];
           if (m.alive) continue;
           if (!m._gone) { m._gone = t; A.killed = (A.killed || 0) + 1; }
-          else if (t - m._gone > 2 && A.u.alive) { const n = this.pack(A.lvl, A.u.x + 9, A.u.z, A.u, m.mobType)[0]; A.p[i] = n; }
+          else if (t - m._gone > 2 && A.u.alive) { const n = this.pack(A.lvl, A.u.bot.home.x + 11, A.u.bot.home.z, A.u, m.mobType)[0]; A.p[i] = n; }
         }
-        if (!A.u.alive || el >= cap) A.res = { cls: A.cls, t: el, killed: A.killed || 0, surv: A.u.alive ? el * 1.5 : el };
+        if (!A.u.alive || el >= cap) A.res = { bot: A.bot, cls: A.cls, t: el, killed: A.killed || 0, surv: A.u.alive ? el * 1.5 : el };
       } else {
-        if (!A.ua.alive || !A.ub.alive || el >= cap) A.res = { a: A.a, b: A.b, win: !A.ua.alive && A.ub.alive ? A.b : !A.ub.alive && A.ua.alive ? A.a : null, t: el, ha: A.ua.alive ? A.ua.hp / A.ua.maxHp : 0, hb: A.ub.alive ? A.ub.hp / A.ub.maxHp : 0 };
+        if (!A.ua.alive || !A.ub.alive || el >= cap) A.res = { bot: A.bot, a: A.a, b: A.b, win: !A.ua.alive && A.ub.alive ? A.b : !A.ub.alive && A.ua.alive ? A.a : null, t: el, ha: A.ua.alive ? A.ua.hp / A.ua.maxHp : 0, hb: A.ub.alive ? A.ub.hp / A.ub.maxHp : 0 };
       }
       if (!A.res) open++;
     }
@@ -152,78 +180,109 @@ window.CB = {
 };
 """
 
-def summarize(rows):
-    """per class: mean TTK of a standard foe, mean survival against the pack, duel win rate"""
+CL4 = ['warrior', 'archer', 'mage', 'priest']
+def summarize(rows, bot):
+    """per calling: median time to kill a standard foe, median survival against the pack, duel win rate (draws count half)"""
     out = {}
     for lvl, data in rows.items():
-        cl = ['warrior', 'archer', 'mage', 'priest']
-        ttk = {c: [] for c in cl}; surv = {c: [] for c in cl}; wins = {c: [0, 0] for c in cl}
+        ttk = {c: [] for c in CL4}; surv = {c: [] for c in CL4}; wins = {c: [0, 0] for c in CL4}
         for r in data['p1']:
-            if r is None: continue
+            if r is None or r.get('bot') != bot: continue
             (ttk if 'ttk' in r else surv)[r['cls']].append(r['ttk'] if 'ttk' in r else r['surv'])
         for r in data['p2']:
-            if r is None: continue
+            if r is None or r.get('bot') != bot: continue
             for c in (r['a'], r['b']):
                 wins[c][1] += 1
                 if r['win'] == c: wins[c][0] += 1
                 elif r['win'] is None: wins[c][0] += 0.5
-        m = lambda v: sum(v) / len(v) if v else float('nan')
-        T = {c: m(ttk[c]) for c in cl}; S = {c: m(surv[c]) for c in cl}
+        m = lambda v: sorted(v)[len(v) // 2] if len(v) % 2 else (sum(sorted(v)[len(v) // 2 - 1:len(v) // 2 + 1]) / 2 if v else float('nan'))
+        T = {c: m(ttk[c]) for c in CL4}; S = {c: m(surv[c]) for c in CL4}
         tm = sum(T.values()) / 4; sm = sum(S.values()) / 4
-        out[lvl] = {c: {'ttk': round(T[c], 1), 'ttk_dev': round(T[c] / tm - 1, 3), 'surv': round(S[c], 1), 'surv_dev': round(S[c] / sm - 1, 3), 'duel': f"{wins[c][0]:g}/{wins[c][1]}"} for c in cl}
+        out[lvl] = {c: {'ttk': round(T[c], 1), 'ttk_dev': round(T[c] / tm - 1, 3), 'surv': round(S[c], 1), 'surv_dev': round(S[c] / sm - 1, 3),
+                        'duel': f"{wins[c][0]:g}/{wins[c][1]}", 'win': round(wins[c][0] / max(1, wins[c][1]), 3), 'n': len(ttk[c])} for c in CL4}
     return out
 
-def print_duels(rows):
+def print_duels(rows, bot):
     """wins of the row calling against the column calling, all levels together"""
-    cl = ['warrior', 'archer', 'mage', 'priest']
-    W = {(a, b): [0, 0] for a in cl for b in cl}
+    W = {(a, b): [0, 0] for a in CL4 for b in CL4}
     for lvl, data in rows.items():
         for r in data['p2']:
-            if not r: continue
+            if not r or r.get('bot') != bot: continue
             for a, b in ((r['a'], r['b']), (r['b'], r['a'])):
                 W[(a, b)][1] += 1
                 if r['win'] == a: W[(a, b)][0] += 1
                 elif r['win'] is None: W[(a, b)][0] += 0.5
     if not any(v[1] for v in W.values()): return
-    print('\nduels (row beat column):   ' + '  '.join(f'{c:>8}' for c in cl), flush=True)
-    for a in cl: print(f'  {a:<24}' + '  '.join(f"{W[(a, b)][0]:>4g}/{W[(a, b)][1]:<3}" if a != b else '     -  ' for b in cl), flush=True)
+    print(f'\n{bot} duels (row beat column):   ' + '  '.join(f'{c:>8}' for c in CL4), flush=True)
+    for a in CL4: print(f'  {a:<24}' + '  '.join(f"{W[(a, b)][0]:>4g}/{W[(a, b)][1]:<3}" if a != b else '     -  ' for b in CL4), flush=True)
 
-def print_table(summary):
-    print('\nlevel  class     TTK(s)  vs mean   survival(s)  vs mean   duels won', flush=True)
+def print_table(summary, bot):
+    print(f'\n{bot} bot\nlevel  class     TTK(s)  vs mean   survival(s)  vs mean   duels won  (win rate)', flush=True)
     for lvl, row in summary.items():
         for c, v in row.items():
-            print(f"{lvl:>5}  {c:<8} {v['ttk']:>7}  {v['ttk_dev']*100:>+6.1f}%  {v['surv']:>11}  {v['surv_dev']*100:>+6.1f}%   {v['duel']}", flush=True)
+            print(f"{lvl:>5}  {c:<8} {v['ttk']:>7}  {v['ttk_dev']*100:>+6.1f}%  {v['surv']:>11}  {v['surv_dev']*100:>+6.1f}%   {v['duel']:>9}  ({v['win']*100:.0f}%)", flush=True)
 
+KINDS = [k for k in ('simple', 'skilled') if k in ARGS] or ['simple', 'skilled']
+LEVELS = next(([int(x) for x in a.split('=')[1].split(',')] for a in ARGS if a.startswith('levels=')), [10, 30, 50])
 async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
     rows = {}
-    for lvl in (10, 30, 50):
-        await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; return 0; }})()")
+    for lvl in LEVELS:
+        await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; return 0; }})()")
         p1, p2 = [], []
-        for rep in range(REPS):
-            t0 = time.time()
-            await page.evaluate(f"CB.setup1({lvl}); 0")
-            while True:
-                r = await page.evaluate("CB.run(10, 90)")
-                if not r['open']: break
-            p1 += await page.evaluate("CB.results()")
-            print(f'  level {lvl} rep {rep + 1}: ttk and pack done in {time.time() - t0:.0f}s', flush=True)
-            for swap in ((False, True) if 'fast' not in ARGS else ()):
+        for rep in range(max(REPS, DREPS)):
+          for kind in KINDS:
+            kinds = f"['{kind}']"
+            if 'nopack' not in ARGS and rep < REPS:
                 t0 = time.time()
-                await page.evaluate(f"CB.setup2({lvl}, {'true' if swap else 'false'}); 0")
+                await page.evaluate(f"CB.setup1({lvl}, {kinds}, {rep}); 0")
+                while True:
+                    r = await page.evaluate("CB.run(10, 150)")
+                    if not r['open']: break
+                p1 += await page.evaluate("CB.results()")
+                print(f'  level {lvl} rep {rep + 1} {kind}: ttk and pack done in {time.time() - t0:.0f}s', flush=True)
+            for swap in ((False, True) if 'noduel' not in ARGS and rep < DREPS else ()):
+                t0 = time.time()
+                await page.evaluate(f"CB.setup2({lvl}, {'true' if swap else 'false'}, {kinds}, {rep}); 0")
                 while True:
                     r = await page.evaluate("CB.run(10, 60)")
                     if not r['open']: break
                 p2 += await page.evaluate("CB.results()")
-                print(f'  level {lvl} rep {rep + 1}: duels{" (realms swapped)" if swap else ""} done in {time.time() - t0:.0f}s', flush=True)
-        rows[lvl] = {'p1': p1, 'p2': p2}
+                print(f'  level {lvl} rep {rep + 1} {kind}: duels{" (realms swapped)" if swap else ""} done in {time.time() - t0:.0f}s', flush=True)
+        p3 = []
+        for rep in range(MREPS if len(KINDS) == 2 else 0):
+            await page.evaluate(f"CB.setup3({lvl}, {rep}); 0")
+            while True:
+                r = await page.evaluate("CB.run(10, 60)")
+                if not r['open']: break
+            p3 += await page.evaluate("CB.results()")
+        if p3: print(f'  level {lvl}: mastery duels done', flush=True)
+        rows[lvl] = {'p1': p1, 'p2': p2, 'p3': p3}
+        if os.environ.get('HM_BAL'):
+            pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps({'raw': rows}, indent=1))
     await page.evaluate("CB.wipe(); 0")
-    s = summarize(rows)
-    print_table(s)
-    print_duels(rows)
+    out = {}
+    for bot in KINDS:
+        s = summarize(rows, bot)
+        print_table(s, bot)
+        print_duels(rows, bot)
+        out[bot] = s
+    # mastery pays: the skilled bot against the simple one of the same calling
+    if any(rows[l].get('p3') for l in rows):
+        print('\nmastery: skilled against simple, the same calling (wins of the skilled bot)', flush=True)
+        for lvl in rows:
+            M = {c: [0, 0] for c in CL4}
+            for r in rows[lvl].get('p3', []):
+                if not r: continue
+                c = r['a'].split(':')[0]; M[c][1] += 1
+                M[c][0] += 1 if r['win'] == r['a'] else 0.5 if r['win'] is None else 0
+            print(f'  {lvl:>3}  ' + '  '.join(f"{c} {M[c][0]:g}/{M[c][1]}" for c in CL4), flush=True)
+            for c in CL4: out.setdefault('mastery', {}).setdefault(lvl, {})[c] = M[c]
+    st = await page.evaluate("JSON.stringify(__hm.bal.BAL.stats)")
+    print('bot stats', st, flush=True)
     if os.environ.get('HM_BAL'):
-        pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps({'summary': s, 'raw': rows}, indent=1))
-    return s
+        pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps({'summary': out, 'raw': rows}, indent=1))
+    return out
 
 # ------------------------------------------------------------------ mechanics
 MECH_JS = r"""
@@ -275,9 +334,10 @@ async def mechanics(page):
     r = await ev(page, 'stances', """(() => { const P = T.fresh('warrior', 35, 1); const C = T.H.cls, F = T.F;
       const a = T.ahead(P, 2.2); const f = T.foe(2, a.x, a.z, 35); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
       const out = {};
-      for (const s of [0, 1, 2]) { C.setStance(P, s); C.csOf(P).stanceAt = -9; C.csOf(f).stance = 1; out['dealt' + s] = Math.round(C.classHarm(P, f, 100, { kind: 'melee' })); }
+      // [balance] a shield on the arm turns a blow now and then: the most of a few blows is the stance's own measure
+      for (const s of [0, 1, 2]) { C.setStance(P, s); C.csOf(P).stanceAt = -9; C.csOf(f).stance = 1; out['dealt' + s] = Math.max(...Array.from({ length: 12 }, () => Math.round(C.classHarm(P, f, 100, { kind: 'melee' })))); }
       C.setStance(P, 1);
-      for (const s of [0, 1, 2]) { C.csOf(P).stance = s; out['taken' + s] = Math.round(C.classHarm(f, P, 100, { kind: 'arrow' })); }
+      for (const s of [0, 1, 2]) { C.csOf(P).stance = s; out['taken' + s] = Math.max(...Array.from({ length: 12 }, () => Math.round(C.classHarm(f, P, 100, { kind: 'arrow' })))); }
       C.csOf(P).stance = 1; out.S = C.STANCES.map((x) => ({ out: x.out, taken: x.taken })); return out; })()""")
     S = r['S']
     check(r['dealt2'] == round(100 * S[2]['out']) > 100 and r['dealt0'] == round(100 * S[0]['out']) < 100 and r['dealt1'] == 100, f"fury deals more ({r['dealt2']}), guarded less ({r['dealt0']})")
@@ -309,7 +369,7 @@ async def mechanics(page):
       C.classHold(false); H.simulate(0.1); C.classHold(true);
       const flick = F.dealDamage(f, P, 100, { kind: 'melee' });
       C.classHold(false);
-      const open = F.dealDamage(f, P, 100, { kind: 'melee' });
+      const open = Math.max(F.dealDamage(f, P, 100, { kind: 'melee' }), F.dealDamage(f, P, 100, { kind: 'melee' }), F.dealDamage(f, P, 100, { kind: 'melee' })); P.hp = P.maxHp; // [balance] the most of three: a lowered shield turns a blow now and then
       P.yaw += Math.PI; C.classHold(true); H.simulate(0.6); const behind = F.dealDamage(f, P, 100, { kind: 'melee' }); C.classHold(false); P.yaw -= Math.PI;
       return { parried, stunned, stagger, parries: C.CLS.stats.parries - p0, blocked: Math.round(blocked), flick: Math.round(flick), open: Math.round(open), behind: Math.round(behind), win: C.parryWindow(P) }; })()""")
     check(r['parried'] == 0 and r['parries'] == 1, 'a shield raised just as the blow comes parries it')
@@ -498,6 +558,57 @@ async def mechanics(page):
     check(not CONSOLE, f"no shader or console errors {CONSOLE[:2]}")
     await page.evaluate("__hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
 
+    # ---- [balance] diminishing returns on control, the parry's stun, the freeze, the raise offer, tracked quarry ----
+    r = await ev(page, 'dr', """(() => { const P = T.fresh('warrior', 30, 0); const H = T.H, F = T.F, B = H.bal, C = H.cls;
+      const a = T.ahead(P, 3); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
+      const dur = (e, kind, src, d = 2) => { e.buffs = e.buffs.filter((b) => b.kind !== kind); F.addBuff(e, kind, 1, d, src); const b = e.buffs.find((q) => q.kind === kind && q.src === src); return b ? +(b.until - H.GAME.t).toFixed(2) : 0; };
+      const out = {};
+      out.stuns = [dur(P, 'stun', 101), dur(P, 'stun', 102), dur(P, 'stun', 103), dur(P, 'stun', 104)];
+      out.hud = B.ccHudState(P).map((q) => q.cat + ':' + q.k + (q.immune ? 'i' : ''));
+      F.addBuff(P, 'root', 1, 2, 201); const r1 = P.buffs.find((q) => q.kind === 'root').until; F.addBuff(P, 'root', 1, 2, 201); out.refreshSame = B.ccState(P, 'root').n;
+      P.buffs.length = 0; H.simulate(7); out.afterImmune = dur(P, 'stun', 105);
+      P.buffs.length = 0; H.simulate(16); out.afterWindow = dur(P, 'stun', 106);
+      out.npc = [dur(f, 'stun', 301), dur(f, 'stun', 302), dur(f, 'stun', 303), dur(f, 'stun', 304)];
+      // a parry's stun shrinks on anyone, so parries cannot stun-lock
+      f.buffs.length = 0; const ps = [];
+      for (let i = 0; i < 4; i++) { P.buffs.length = 0; P.yaw = Math.atan2(f.x - P.x, f.z - P.z); C.csOf(P).blockDown = -9; C.setBlock(P, false); C.csOf(P).blockDown = -9; C.classHold(true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' }); const b = f.buffs.find((q) => q.kind === 'stun'); ps.push(b ? +(b.until - H.GAME.t).toFixed(2) : 0); C.classHold(false); f.buffs.length = 0; H.simulate(0.6); }
+      out.parry = ps;
+      // a freeze is a stun under the same rule for players
+      P.buffs.length = 0; P.ccdr = null; const fz = [];
+      for (let i = 0; i < 4; i++) { P.buffs = P.buffs.filter((b) => b.kind !== 'frozen' && b.kind !== 'stun' && b.kind !== 'chill'); C.addChill(P, 3, f); const b = P.buffs.find((q) => q.kind === 'frozen'); fz.push(b ? +(b.until - H.GAME.t).toFixed(2) : 0); }
+      out.freeze = fz; P.buffs.length = 0;
+      return out; })()""")
+    st = r['stuns']
+    check(abs(st[0] - 2) < 0.06 and abs(st[1] - 1) < 0.06 and abs(st[2] - 0.5) < 0.06 and st[3] == 0, f"repeated stuns on a player last full, half, a quarter, then not at all ({st})")
+    check(any(h.startswith('stun:0') and h.endswith('i') for h in r['hud']), f"the class panel's state shows the immunity ({r['hud']})")
+    check(r['refreshSame'] == 1, 'a control refreshed by the same source does not count again')
+    check(abs(r['afterImmune'] - 2) < 0.06 and abs(r['afterWindow'] - 2) < 0.06, f"after the immunity the stun takes full hold again ({r['afterImmune']}, {r['afterWindow']})")
+    check(all(abs(x - 2) < 0.06 for x in r['npc']), f"an ordinary soldier has no diminishing returns ({r['npc']})")
+    pa = r['parry']
+    check(pa[0] > 0.8 and 0 < pa[1] < pa[0] * 0.6 and pa[3] == 0, f"repeated parries stun less and less, then not at all ({pa})")
+    fz = r['freeze']
+    check(fz[0] > 1.4 and 0.6 < fz[1] < 0.9 and fz[3] == 0, f"a player frozen again and again thaws sooner, then cannot be frozen ({fz})")
+
+    r = await ev(page, 'raise-offer', """(() => { const P = T.fresh('archer', 24, 1); const H = T.H, F = T.F, B = H.bal;
+      const pr = T.foe(1, P.x + 9, P.z + 3, 22, 'priest', 18); pr.ai.nextAbility = 1e9; pr.combatUntil = -99;
+      F.killEnt(P, null); H.simulate(1.5);
+      const offer = !!B.BAL.offer, shown = !document.getElementById('death-raise').hidden, who = document.getElementById('death-raise-who').textContent;
+      document.getElementById('btn-raise').click();
+      let t = 0; for (; t < 20 && !P.alive; t += 0.5) H.simulate(0.5);
+      return { offer, shown, who, alive: P.alive, hp: +(P.hp / P.maxHp).toFixed(2), t, modal: H.UI.modal, deathHidden: document.getElementById('death').hidden, near: +Math.hypot(pr.x - P.x, pr.z - P.z).toFixed(1) }; })()""")
+    check(r['offer'] and r['shown'] and 'priest' in r['who'], f"an allied priest close by offers to raise the fallen player ({r['who']})")
+    check(r['alive'] and 0.3 < r['hp'] < 0.6 and r['deathHidden'], f"accepted, the priest comes over and raises the player ({r['t']} s, {r['hp']*100:.0f}% health, priest {r['near']} m away)")
+
+    r = await ev(page, 'tracked', """(() => { const P = T.fresh('archer', 20, 0); const H = T.H, F = T.F, C = H.cls;
+      const a = T.ahead(P, 16); const f = T.foe(2, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f);
+      P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'cripple', f); H.simulate(1.2);
+      const tracked = f.buffs.some((b) => b.kind === 'tracked' && b.src === P.id);
+      H.frame(0.016); const n0 = H.errors.length;
+      const R = C.layRune(P, P.x + 2, P.z + 2, 'fire');
+      return { tracked, errors: H.errors.length - n0, cut: !!R.cut, glow: !!R.disc }; })()""")
+    check(r['tracked'] and r['errors'] == 0, 'a crippled foe is tracked and marked on the minimap')
+    check(r['cut'] and r['glow'], 'a rune is laid as a dark cut with a glow over it')
+
     # ---- NPCs of every calling use their craft ----
     r = await ev(page, 'npcs', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 30, 0); const s0 = JSON.parse(JSON.stringify(C.CLS.stats));
       const S = T.spot(P); const units = [];
@@ -554,10 +665,13 @@ async def shots(page):
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
     await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
+      // [balance] the camera first: a burst's particles are only thrown near the camera
+      CS(P, f, 7.5, 2.4, 0.8, 1.0); H.frame(0.016);
       C.addChill(f, 2, P); P.power = P.maxPower; F.useAbility(P, 'firebolt', f); H.simulate(1.5);
       for (let i = 0; i < 30 && !C.CLS.steam.length; i++) H.simulate(0.05);
-      H.simulate(0.35); CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
-    await snap(page, 'steam', 1)
+      for (let i = 0; i < 6; i++) { H.simulate(0.05); H.frame(0.05); }
+      CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
+    await snap(page, 'steam', 2)
     # storm through wet foes in the rain
     await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
@@ -592,7 +706,7 @@ async def shots(page):
       P.power = P.maxPower; C.classTechnique(P); H.simulate(0.2); P.yaw += 1.4; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.classTechnique(P);
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
-      H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
+      H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, 2.6, 5.2, 0.6, -0.4); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })() // [balance] framed wider: the runes' carved glyphs and the snares together""")
     await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
     await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
