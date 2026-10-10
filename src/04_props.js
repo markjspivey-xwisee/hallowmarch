@@ -566,7 +566,7 @@ function relicMesh(kind) {
 /* ------------------------------------------------------------------ */
 /* Trees and rocks (instanced, chunked)                                */
 /* ------------------------------------------------------------------ */
-function treeGeometry(kind) {
+function treeGeometry(kind, lo = 0) { // [phones] lo: the far model, the same shapes with fewer faces (13q_lod.js)
   const P = [], N = [], PART = [], AO = [], idx = [];
   const v = new THREE.Vector3(), nv = new THREE.Vector3();
   const add = (geo, m4, part, aoFn, centre = null, radialMix = 0) => {
@@ -588,7 +588,7 @@ function treeGeometry(kind) {
   const M = (x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
   const trunkAO = (p) => clamp(0.55 + p.y * 0.12, 0.55, 1);
   const lobeGeo = (seed) => {
-    const g = new THREE.IcosahedronGeometry(1, 1);
+    const g = new THREE.IcosahedronGeometry(1, lo ? 0 : 1); // [phones] far: 20 faces a lobe
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
@@ -599,26 +599,26 @@ function treeGeometry(kind) {
     return g;
   };
   if (kind === 'oak') {
-    const t = new THREE.CylinderGeometry(0.2, 0.36, 3.4, 7);
+    const t = new THREE.CylinderGeometry(0.2, 0.36, 3.4, lo ? 5 : 7);
     add(t, M(0, 1.6, 0, 1, 1, 1), 0, trunkAO);
-    const br = new THREE.CylinderGeometry(0.06, 0.13, 2.0, 5);
+    const br = new THREE.CylinderGeometry(0.06, 0.13, 2.0, lo ? 3 : 5);
     add(br, M(0.6, 3.2, 0.1, 1, 1, 1, 0.1, 0, -0.9), 0, trunkAO);
     add(br, M(-0.55, 3.3, -0.2, 1, 1, 1, -0.2, 0, 0.85), 0, trunkAO);
     const centre = new THREE.Vector3(0, 4.4, 0);
     const lobes = [[0, 4.7, 0, 2.2], [1.5, 4.1, 0.4, 1.6], [-1.4, 4.2, -0.3, 1.65], [0.3, 5.6, -0.7, 1.45], [-0.5, 3.8, 1.3, 1.45], [0.9, 3.9, -1.3, 1.35]];
     lobes.forEach(([x, y, z, r], i) => add(lobeGeo(i * 3.7), M(x, y, z, r, r * 0.86, r), 1, (p) => clamp(0.35 + 0.65 * ((p.y - 2.4) / 4.2) + 0.25 * (Math.hypot(p.x - centre.x, p.z - centre.z) / 3.2), 0.3, 1), centre, 0.55));
   } else if (kind === 'birch') {
-    const t = new THREE.CylinderGeometry(0.11, 0.19, 4.6, 6);
+    const t = new THREE.CylinderGeometry(0.11, 0.19, 4.6, lo ? 4 : 6);
     add(t, M(0, 2.2, 0, 1, 1, 1), 0, trunkAO);
     const centre = new THREE.Vector3(0, 5.0, 0);
     const lobes = [[0, 5.3, 0, 1.35], [0.6, 4.4, 0.3, 1.0], [-0.55, 4.6, -0.3, 1.05], [0.1, 6.2, 0.1, 0.95]];
     lobes.forEach(([x, y, z, r], i) => add(lobeGeo(i * 5.1 + 2), M(x, y, z, r, r * 1.35, r), 1, (p) => clamp(0.4 + 0.6 * ((p.y - 3.4) / 3.6), 0.35, 1), centre, 0.5));
   } else {
-    const t = new THREE.CylinderGeometry(0.14, 0.26, 2.2, 6);
+    const t = new THREE.CylinderGeometry(0.14, 0.26, 2.2, lo ? 4 : 6);
     add(t, M(0, 1.0, 0, 1, 1, 1), 0, trunkAO);
     const tiers = [[1.4, 2.3, 3.2], [2.75, 1.85, 2.9], [4.0, 1.4, 2.5], [5.15, 0.85, 2.1]];
     tiers.forEach(([y, r, h], i) => {
-      const g = new THREE.ConeGeometry(1, 1, 10, 1, false);
+      const g = new THREE.ConeGeometry(1, 1, lo ? 7 : 10, 1, lo ? true : false); // [phones] far: fewer sides, no underside
       const p = g.attributes.position;
       for (let k = 0; k < p.count; k++) {
         v.fromBufferAttribute(p, k);
@@ -754,10 +754,11 @@ function buildTrees() {
     const K = TREE_KINDS[B.kind];
     const m = new THREE.Mesh(g, shareMat(treeMat, { uKindTint: { value: new THREE.Vector3(...K.tint) }, uBarkTint: { value: new THREE.Vector3(...K.bark) }, uBirch: { value: K.birch } }));
     m.userData.center = new THREE.Vector2(cx, cz);
+    m.userData.kind = B.kind; // [phones] for the far model (13q_lod.js)
     m.renderOrder = 2;
     scene.add(m);
     treeChunks.push(m);
-    shadowCaster(m, TREE_DEPTH);
+    m.userData.proxy = shadowCaster(m, TREE_DEPTH); // [phones] the far model swaps in the shadow pass too
   }
 }
 function updateTreeVisibility(camX, camZ) {

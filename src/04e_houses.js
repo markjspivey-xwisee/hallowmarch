@@ -1100,7 +1100,7 @@ function drawHouses(dt) {
   const pin = P ? houseInside(P.x, P.z) : null, cin = houseInside(cx, cz);
   for (const S of houseTowns()) {
     const set = S.houseSet, T = set.TU;
-    const near = dist2(cx, cz, S.x, S.z) < (S.r + 75) ** 2;
+    const near = dist2(cx, cz, S.x, S.z) < (S.r + (quality.level === 'low' ? 35 : quality.level === 'medium' ? 55 : 75)) ** 2; // [phones] rooms seen through windows: nearer on low and medium
     set.mIn.visible = near;
     for (const L of S.houseLeaves) T.uLeaf.value[L.i >> 2].setComponent(L.i & 3, smooth(L.open));
     for (const H of set.recs) {

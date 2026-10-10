@@ -587,6 +587,35 @@
     #petbar.tall .pb-pets { grid-auto-columns: minmax(0, 1fr); }
     #petbar.tall .pb-pet small { display: none; }
   }
+  /* phones: the HUD on every screen. 10p_hud.js places the panels that come and go; these rules size what a finger
+     touches (40 px at least), keep names under the panels and everything inside the notch's safe area */
+  :root { --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px); }
+  #hud { left: var(--safe-l); right: var(--safe-r); }
+  #nameplates, #floaters { z-index: -1; left: calc(0px - var(--safe-l)); right: calc(0px - var(--safe-r)); }
+  body.touch .iconbtn { width: 40px; height: 40px; }
+  body.touch #topright > .iconbtns { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; margin-left: 0; width: 124px; justify-content: end; }
+  body.touch #lore-path .tog { position: relative; width: 32px; height: 28px; }
+  body.touch #lore-path .tog::after, body.touch .cls-quiver::after, body.touch #tpad .slot::after { content: ''; position: absolute; inset: -6px; }
+  body.touch #lore-path .step { min-height: 40px; }
+  body.touch #petbar .pb-cmds button, body.touch #petbar .pb-pet { min-height: 40px; }
+  body.touch #farmcard .fc-acts .btn, body.touch #buildbar .bacts .btn, body.touch #tpad .wide .btn, body.touch #prompt { min-height: 40px; }
+  body.touch #prompt { padding-top: 4px; padding-bottom: 4px; }
+  body.touch #needs { position: relative; }
+  body.touch #needs::after { content: ''; position: absolute; left: 0; right: 0; top: -13px; bottom: -13px; }
+  body.touch #buildbar .bacts .btn { min-width: 40px; }
+  /* what the layout pass shrinks to its essentials when there is no room, and what waits out of sight */
+  #war.hl-compact .cw-rule, #war.hl-compact .tod { display: none; }
+  #farmcard.hl-compact .fc-tr, #farmcard.hl-compact p { display: none; }
+  #petbar.hl-compact .pb-pet small, #petbar.hl-compact .pb-fd { display: none; }
+  #lore-path.hl-compact .hint, #lore-path.hl-compact .meter, #lore-path.hl-compact .rw { display: none; }
+  .hl-off { display: none !important; }
+  /* a phone on its side: the calling's round buttons stand in a column beside the pad, not on top of it */
+  @media (orientation: landscape) and (max-height: 520px) {
+    body.touch #tpad .cls-btn, body.touch #tpad .gslot { top: auto; right: auto; left: -64px; }
+    body.touch #tpad .cls-btn.tech { bottom: 0; }
+    body.touch #tpad .cls-btn.hold { bottom: 62px; }
+    body.touch #tpad .gslot { bottom: 124px; }
+  }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

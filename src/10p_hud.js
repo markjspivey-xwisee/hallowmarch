@@ -1,0 +1,182 @@
+/* ================================================================== */
+/* [phones] the HUD on every screen                                    */
+/* ================================================================== */
+// A layout pass (a few times a second, and only when something changed) keeps the panels apart on every screen: the
+// frames, the minimap and its buttons, the phone pad with the calling's round buttons, the stick, the hotbar and the
+// log stay where they are; the panels that come and go (the target frame, the war panel, the bounty, the path tracker,
+// the class panel, the companion bar, the plant card, the toasts) keep their own place when it is free and otherwise
+// take the first free place in the column their screen prefers, scanning down from the top.
+const HUDL = { on: true, t: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
+const HUD_PREF = {
+  tall: { '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#buildbar': ['CB', 'C'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'] },
+  wide: { '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#buildbar': ['C', 'CB'], '#petbar': ['C', 'L2', 'R2', 'CB'], '#war': ['R2', 'R', 'C'], '#farmcard': ['C', 'L2', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
+  desk: { '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
+};
+// in order of need: the first placed get the best places
+const HUD_ORDER = ['#tf', '#cls', '#buildbar', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners'];
+// what may shrink to its essentials when there is no room, and what may wait out of sight until there is
+const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
+const HUD_HIDE = new Set(['#farmcard', '#bounty', '#lore-path', '#war', '#banners']);
+function hudShown(el) {
+  if (!el || el.hidden || !el.isConnected) return false;
+  if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+  const cs = getComputedStyle(el);
+  return cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetWidth > 2 && el.offsetHeight > 2;
+}
+const hudRect = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+const hudHit = (a, b, m = 4) => a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m;
+function hudUnion(rs) {
+  if (!rs.length) return null;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const r of rs) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+// the screen's safe box (the notch, the home bar): read once a pass from a probe
+function hudSafe() {
+  let p = HUDL.probe;
+  if (!p) {
+    p = HUDL.probe = document.createElement('div');
+    p.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--safe-t,0px) var(--safe-r,0px) var(--safe-b,0px) var(--safe-l,0px)';
+    document.body.appendChild(p);
+  }
+  const cs = getComputedStyle(p), f = (v) => parseFloat(v) || 0;
+  return { t: f(cs.paddingTop), r: f(cs.paddingRight), b: f(cs.paddingBottom), l: f(cs.paddingLeft) };
+}
+function hudMove(el, x, y) {
+  if (el.id === 'war' && getComputedStyle(el).position !== 'absolute') el.style.position = 'absolute';
+  const par = el.offsetParent || $('hud');
+  const pr = par.getBoundingClientRect();
+  el.style.left = Math.round(x - pr.left) + 'px'; el.style.top = Math.round(y - pr.top) + 'px';
+  el.style.right = 'auto'; el.style.bottom = 'auto'; el.style.transform = 'none';
+  HUDL.moved.add(el);
+}
+function hudReset() {
+  for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; }
+  HUDL.moved.clear();
+  for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
+  const bt = $('bottom'), lg = $('log');
+  if (bt) bt.style.bottom = '';
+  if (lg) { lg.style.width = ''; lg.style.bottom = ''; }
+}
+function hudKey(W, H, touch) {
+  const ids = HUD_ORDER.map((s) => { const el = document.querySelector(s); return el && hudShown(el) ? el.offsetWidth + 'x' + el.offsetHeight + (s === '#banners' ? '/' + el.childElementCount : '') : el && el.classList.contains('hl-off') ? 'off' : '-'; }).join();
+  const pad = $('tpad'), pf = $('pf'), on = (id) => ($(id) && hudShown($(id)) ? $(id).offsetWidth : 0);
+  return `${W}x${H}:${touch}:${ids}:${pf ? pf.offsetHeight : 0}:${pad ? pad.offsetHeight + '/' + pad.childElementCount : 0}:${on('prompt')}:${on('castbar')}:${on('log')}:${on('hotbar')}`;
+}
+function hudLayout(dt) {
+  if (!HUDL.on || !GAME.started || !GAME.player) return;
+  HUDL.t -= dt;
+  const W = innerWidth, H = innerHeight, touch = document.body.classList.contains('touch');
+  const key = hudKey(W, H, touch);
+  if (key === HUDL.key && HUDL.t > 0) return;
+  HUDL.t = 1;
+  const t0 = performance.now();
+  hudReset();
+  const S = hudSafe(), top = (W <= 760 || touch ? 12 : 16) + S.t;
+  const tall = (touch || W <= 760) && H >= W, mode = !(touch || W <= 760) ? 'desk' : tall ? 'tall' : 'wide';
+  const pref = HUD_PREF[mode];
+  // what stays put
+  const placed = [];
+  const fixed = (sel) => { const el = document.querySelector(sel); if (el && hudShown(el)) placed.push({ ...hudRect(el), sel }); };
+  ['#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#log'].forEach(fixed);
+  if (!touch) fixed('#buildbar');
+  if (touch) {
+    // the pad, its round buttons, and the stick's corner
+    const tp = $('tpad');
+    if (tp && hudShown(tp)) { const rs = [hudRect(tp)]; for (const c of tp.children) if (hudShown(c)) rs.push(hudRect(c)); placed.push({ ...hudUnion(rs), sel: '#tpad' }); }
+    const jh = $('joyhint');
+    if (jh && hudShown(jh)) { const r = hudRect(jh); placed.push({ x: S.l, y: r.y - 8, w: r.x + r.w + 10 - S.l, h: H - (r.y - 8), sel: '#joyhint' }); }
+  }
+  // the log on a desk stops short of the hotbar (or rises over it when there is no room beside it)
+  const lg = $('log'), hb = $('hotbar');
+  if (!touch && lg && hb && hudShown(lg) && hudShown(hb)) {
+    const a = hudRect(lg), b = hudRect(hb);
+    if (hudHit(a, b, 2)) {
+      const w = Math.floor(b.x - 12 - a.x);
+      if (w >= 230) lg.style.width = w + 'px';
+      else lg.style.bottom = Math.round(H - b.y + 8) + 'px';
+      const i = placed.findIndex((p) => p.sel === '#log');
+      if (i >= 0) placed[i] = { ...hudRect(lg), sel: '#log' };
+    }
+  }
+  const pfR = $('pf') && hudShown($('pf')) ? hudRect($('pf')) : { x: S.l + 12, y: top, w: 0, h: 0 };
+  const rightCol = hudUnion(['#mmwrap', '#topright > .iconbtns'].map((s) => document.querySelector(s)).filter((e) => e && hudShown(e)).map(hudRect)) || { x: W - S.r - 12, y: top, w: 0, h: 0 };
+  const inside = (r) => r.x >= S.l + 2 && r.y >= S.t + 2 && r.x + r.w <= W - S.r - 2 && r.y + r.h <= H - S.b - 2;
+  const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r));
+  const xs = { L: () => S.l + 12, L2: () => pfR.x + pfR.w + 8, R: (w) => W - S.r - 12 - w, R2: (w) => rightCol.x - 8 - w, C: (w) => (W - w) / 2 };
+  const seek = (sel, r) => {
+    for (const a of pref[sel] || ['L']) {
+      const up = a.length > 1 && a.endsWith('B'), x = xs[up ? a.slice(0, -1) : a](r.w);
+      if (!(x >= S.l)) continue;
+      const y0 = top, y1 = H - S.b - 2 - r.h;
+      for (let i = 0; ; i++) {
+        const y = up ? y1 - i * 6 : y0 + i * 6;
+        if (y < y0 || y > y1) break;
+        const c = { x, y, w: r.w, h: r.h };
+        if (free(c)) return c;
+      }
+    }
+    return null;
+  };
+  const measure = (sel, el) => (sel === '#banners' ? hudUnion([...el.children].filter(hudShown).map(hudRect)) || hudRect(el) : hudRect(el));
+  const put = (sel, el, r, c) => {
+    if (sel === '#banners') { const br = hudRect(el); hudMove(el, c.x + (br.x - r.x), c.y + (br.y - r.y)); }
+    else hudMove(el, c.x, c.y);
+    placed.push({ ...c, sel });
+  };
+  for (const sel of HUD_ORDER) {
+    const el = document.querySelector(sel);
+    if (!el || !hudShown(el)) continue;
+    if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow
+    if (sel === '#buildbar' && !touch) continue;
+    if (sel === '#banners' && !el.children.length) continue;
+    let r = measure(sel, el);
+    if (free(r)) { placed.push({ ...r, sel }); continue; }
+    let c = seek(sel, r);
+    if (!c && HUD_COMPACT.has(sel)) {
+      el.classList.add('hl-compact');
+      r = measure(sel, el);
+      if (free(r)) { placed.push({ ...r, sel }); continue; }
+      c = seek(sel, r);
+    }
+    if (c) { put(sel, el, r, c); continue; }
+    if (HUD_HIDE.has(sel) && touch) { el.classList.add('hl-off'); continue; } // it waits until there is room
+    placed.push({ ...r, sel }); // nowhere free: it keeps its own place
+  }
+  // the prompt and the cast bar rise above whatever they would cover (the pad, the builder's bar)
+  const bt = $('bottom');
+  if (bt) {
+    const kids = [...bt.children].filter((c) => hudShown(c) && c.id !== 'hotbar' && c.id !== 'cls');
+    let u = hudUnion(kids.map(hudRect));
+    for (let k = 0; u && k < 4; k++) {
+      const hit = placed.filter((p) => p.sel !== '#hotbar' && p.sel !== '#log' && hudHit(p, u, 2));
+      if (!hit.length) break;
+      const lift = Math.min(...hit.map((p) => p.y));
+      bt.style.bottom = Math.round(H - lift + 8) + 'px';
+      u = hudUnion(kids.map(hudRect));
+    }
+  }
+  HUDL.placed = placed;
+  HUDL.key = hudKey(W, H, touch);
+  HUDL.n++; HUDL.ms = performance.now() - t0;
+}
+// [phones] a name shows only where its body could be seen: not through the walls of a house, a hall or a keep
+const _npCn = [];
+function npSeen(e, d) {
+  if (e._losT > renderTime) return e._los;
+  e._losT = renderTime + 0.25 + Math.random() * 0.1;
+  const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+  if (INDOOR.on) return (e._los = d < 30 && segmentClear(GAME.player.x, GAME.player.z, e.x, e.z, 0.1)); // under the barrow: solid rock
+  const hy = e.y + 1.6 * (e.scale || 1);
+  const len = Math.hypot(e.x - cx, e.z - cz), steps = Math.max(1, Math.ceil(len / 0.9));
+  for (let s = 1; s < steps; s++) {
+    const t = s / steps, x = cx + (e.x - cx) * t, z = cz + (e.z - cz) * t, y = cy + (hy - cy) * t;
+    collidersNear(x, z, 3, _npCn);
+    for (const c of _npCn) {
+      if (!c.active || c.type !== 'box' || (c.tag !== 'wall' && c.tag !== 'hdoor' && c.tag !== 'stone')) continue;
+      const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+      if (Math.abs(lx) < c.hx && Math.abs(lz) < c.hz && (c.baseY ?? heightAt(c.x, c.z)) + (c.h || 8) > y + 0.15) return (e._los = false);
+    }
+  }
+  return (e._los = true);
+}

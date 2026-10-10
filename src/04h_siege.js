@@ -267,7 +267,7 @@ function siegeRemove(E) {
   for (const id of E.crew) { const c = getEnt(id); if (c) c.siegeCrew = null; }
   E.crew = [];
   if (E.coll) E.coll.active = false;
-  scene.remove(E.root);
+  E.root.removeFromParent(); // [phones] it sits in the outdoor group after its first frame: scene.remove left wrecks drawn
   for (const q of E.casters) { if (!q) continue; SHADOW.scene.remove(q); const i = SHADOW.proxies.indexOf(q); if (i >= 0) SHADOW.proxies.splice(i, 1); }
   E.mat.dispose();
   if (E.ent && !E.ent.removed) removeEnt(E.ent);

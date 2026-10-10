@@ -272,7 +272,7 @@ function penBuild(pen) {
 }
 function penRemove(pen) {
   for (const c of pen.colliders || []) { c.active = false; }
-  for (const m of [pen.mesh, pen.gateMesh]) if (m) { scene.remove(m); m.geometry.dispose(); }
+  for (const m of [pen.mesh, pen.gateMesh]) if (m) { m.removeFromParent(); m.geometry.dispose(); } // [phones] out of the outdoor group too
   ANIMALS.pens.splice(ANIMALS.pens.indexOf(pen), 1);
 }
 function penMake(o) {
@@ -1278,7 +1278,7 @@ function anUpdateUI(dt) {
   const tall = innerWidth <= 760 && innerHeight > innerWidth;
   bar.classList.toggle('tall', tall);
   const cls = $('cls'), clsLeft = cls && cls.offsetParent && IS_TOUCH && !cls.hidden && cls.childElementCount > 0;
-  if (tall) {
+  if (tall && !HUDL.on) { // [phones] the HUD's layout pass (10p_hud.js) stacks the column now
     let top = $('pf').getBoundingClientRect().bottom;
     const lp = $('lore-path');
     if (lp && !lp.hidden && lp.offsetParent) top = Math.max(top, lp.getBoundingClientRect().bottom);
@@ -1290,7 +1290,7 @@ function anUpdateUI(dt) {
     }
     const want = Math.round(top + 6) + 'px';
     if (bar.style.top !== want) bar.style.top = want;
-  } else {
+  } else if (!HUDL.on) {
     if (bar.style.top) bar.style.top = '';
     if (cls && cls.style.top) cls.style.top = '';
   }

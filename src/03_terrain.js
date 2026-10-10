@@ -752,16 +752,21 @@ const GRASS_LAYERS = [
 // visual pass: lower detail spends its vertices on more, simpler blades (fewer bends each) rather than on fewer
 // curvier ones, so medium and low read as a lawn instead of a few tall dark sticks
 const GRASS_SEGS = { high: [5, 3, 2], medium: [4, 3, 2], low: [3, 2, 2] };
+// [phones] per quality: how dense each layer is ([0..2]) and how far the far layer reaches ([3]: its tile, fades and
+// lead shrink together and its count with the area). The near sward keeps its look; low thins the distance most.
+const GRASS_LOD = { high: [1, 1, 1, 1], medium: [1, 1, 1, 1], low: [0.85, 0.78, 0.85, 0.8] };
 const grassMeshes = [];
 function buildGrass() {
   if (!COVER.built) buildCoverMask();
-  for (const m of grassMeshes) { scene.remove(m); m.geometry.dispose(); }
+  for (const m of grassMeshes) { m.removeFromParent(); m.geometry.dispose(); } // [phones] the old layers sit in the outdoor group (regroupOutdoors), not the scene: scene.remove left them drawn after every quality change
   grassMeshes.length = 0;
   const rr = mulberry(4242);
   const segsQ = GRASS_SEGS[quality.level] || GRASS_SEGS.high;
-  GRASS_LAYERS.forEach((L, li) => {
+  const LQ = GRASS_LOD[quality.level] || GRASS_LOD.high; // [phones]
+  GRASS_LAYERS.forEach((L0, li) => {
+    const k = li === 2 ? LQ[3] : 1, L = k === 1 ? L0 : { ...L0, tile: L0.tile * k, fadeNear: L0.fadeNear * k, fadeFar: L0.fadeFar * k, ahead: L0.ahead * k }; // [phones]
     const segs = Math.min(L.segs, segsQ[li] || L.segs);
-    const n = Math.max(1000, Math.round(L.count * quality.grass * (2 * L.segs + 1) / (2 * segs + 1)));
+    const n = Math.max(1000, Math.round(L.count * quality.grass * (2 * L.segs + 1) / (2 * segs + 1) * LQ[li] * k * k)); // [phones] density and reach by quality
     const g = bladeGeometry(segs);
     const off = new Float32Array(n * 2), rnd = new Float32Array(n * 4);
     // stratified jitter keeps the density even
@@ -891,7 +896,7 @@ const flowerMat = mat({
     }`,
 });
 function buildFlowers() {
-  for (const m of flowerMeshes) { scene.remove(m); m.geometry.dispose(); }
+  for (const m of flowerMeshes) { m.removeFromParent(); m.geometry.dispose(); } // [phones] out of the outdoor group, not just the scene
   flowerMeshes.length = 0;
   const n = Math.round(11000 * quality.flowers);
   const rr = mulberry(99);

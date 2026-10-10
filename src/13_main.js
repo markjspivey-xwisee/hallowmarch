@@ -422,6 +422,7 @@ function tick(dt) {
   if (--treeTick <= 0) { treeTick = 15; updateTreeVisibility(camera.position.x, camera.position.z); }
   updateNearTrees(dt, camera.position.x, camera.position.z);
   updateFireflies(camera.position.x, camera.position.z);
+  updateLod(); // [phones] terrain and far trees by distance (13q_lod.js)
   gatherLights(camera.position.x, camera.position.y, camera.position.z);
   fxAdd.flush(); fxAlpha.flush();
   arrowFlush(); glowFlush();
@@ -445,6 +446,7 @@ function tick(dt) {
   if (GAME.started && GAME.player) updateHUD(dt);
   if (GAME.started && GAME.player) updateLore(dt);
   if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
+  hudLayout(dt); // [phones] keep the panels apart on every screen (10p_hud.js)
   updateAudio(dt);
   adaptQuality(dt);
 }
