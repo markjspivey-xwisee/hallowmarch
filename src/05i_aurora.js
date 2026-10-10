@@ -94,7 +94,8 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
       vec3 col = vec3(0.0);
       float up = smoothstep(0.0, 0.07, d.y);
       if (uAur > 0.0005 && up > 0.0) {
-        float side = smoothstep(3.6, 2.0, abs(d.x) / max(abs(d.z), 1e-3));
+        // far round to the east and west the sheets run edge-on to the horizon: fade them there (not overhead)
+        float side = mix(1.0 - smoothstep(2.0, 3.6, abs(d.x) / max(abs(d.z), 1e-3)), 1.0, smoothstep(0.45, 0.85, d.y));
         vec3 a = vec3(0.0);
         float z1 = mix(-7.5, -0.45, uLat), z2 = mix(-11.0, -2.1, uLat), z3 = mix(-15.0, 0.8, uLat);
         if (uQ > 1.5) {
@@ -110,7 +111,8 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
         a *= side;
         // the faint glow of the whole oval behind the curtains
         float el = asin(clamp(d.y, -1.0, 1.0));
-        a += vec3(0.08, 0.5, 0.26) * exp(-pow((el - mix(0.12, 0.62, uLat)) / 0.24, 2.0)) * smoothstep(0.15, -0.6, d.z) * 0.2;
+        float ge = (el - mix(0.12, 0.62, uLat)) / 0.24;
+        a += vec3(0.08, 0.5, 0.26) * exp(-ge * ge) * (1.0 - smoothstep(-0.6, 0.15, d.z)) * 0.2;
         // thick air near the horizon, and the sky's clouds in front
         a *= 0.35 + 0.65 * smoothstep(0.03, 0.35, d.y);
         float cloud = uQ > 0.5 ? aurCloud(d) : 0.0;
@@ -155,7 +157,8 @@ AURORA.star = new THREE.Mesh(aurStarGeo, mat({
       float along = vC.x, across = vC.y;
       float core = exp(-across * across * 5.0), halo = exp(-across * across * 1.5) * 0.3;
       float trail = pow(clamp(along, 0.0, 1.0), 2.4) * (1.0 - smoothstep(1.0, 1.08, along));
-      float head = exp(-pow((along - 1.0) * 11.0, 2.0)) * exp(-across * across * 2.0);
+      float hd = (along - 1.0) * 11.0;
+      float head = exp(-hd * hd) * exp(-across * across * 2.0);
       float k = (trail * (core + halo) + head * 1.5) * uAlpha * (1.0 - aurCloud(safeNormalize(vDir)));
       gl_FragColor = vec4(safeColor(uCol * k), 0.0);
     }`,

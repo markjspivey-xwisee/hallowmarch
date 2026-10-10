@@ -15,7 +15,7 @@
 // settings in 12_save.js and campaignVictory in 08g_campaign.js.
 
 const MUSIC_LEVELS = [['off', 'Off', 0], ['low', 'Low', 0.3], ['medium', 'Medium', 0.55], ['high', 'High', 0.9]];
-const MUSIC_BASE = 0.62; // the music bus at volume 1 (quiet by default: Medium sits well under the effects)
+const MUSIC_BASE = 1.1; // the music bus at volume 1 (calibrated offline: Medium sits about 12 dB under the effects' peaks)
 const MUSIC = {
   vol: 0.55, E: null, bus: null, duck: null, an: null, anBuf: null, duckDb: 0,
   mood: '', moodKey: '', want: '', wantT: 0, heat: 0, heatRaw: 0, heatAt: 0, night: false, flavour: -1,
@@ -625,7 +625,7 @@ const MUS_G_MINOR = {
 };
 const MUS_MOODS = {
   title: {
-    key: 2, mode: 'aeolian', bpm: 60, beats: 4, wet: 0.55, gain: 1.0, ...MUS_G_MINOR,
+    key: 2, mode: 'aeolian', bpm: 60, beats: 4, wet: 0.55, gain: 0.9, ...MUS_G_MINOR,
     mel: { lo: 62, hi: 81, center: 70, rhythms: MUS_RH44, cad: MUS_CAD44, rest: 0.08 },
     tex: [{ pad: 1, bass: 1 }, { pad: 1, bass: 1, harp: 1 }, { pad: 1, bass: 1, harp: 1, mel: 1 }, { choir: 1, bass: 1, mel: 1, timp: 1 }, { choir: 1, pad: 1, harp: 1 }],
     bar(E, p, t, c) {
@@ -640,7 +640,7 @@ const MUS_MOODS = {
   },
   // Logres: stately, bowed strings and brass, timpani
   logres: {
-    key: 2, mode: 'major', bpm: 74, beats: 4, wet: 0.42, gain: 1.0, home: 'I',
+    key: 2, mode: 'major', bpm: 74, beats: 4, wet: 0.42, gain: 1.35, home: 'I',
     graph: { I: [['IV', 3], ['vi', 2], ['V', 2], ['ii', 1], ['bVII', 1], ['iii', 0.5]], ii: [['V', 3], ['IV', 1], ['vi', 0.5]], iii: [['vi', 2], ['IV', 2]], IV: [['I', 2], ['V', 2.5], ['ii', 1.5], ['vi', 1]], V: [['I', 3], ['vi', 2], ['IV', 0.7]], vi: [['IV', 2.5], ['ii', 2], ['V', 1], ['iii', 0.6]], bVII: [['IV', 2], ['I', 2]] },
     cad: [['V', 'I'], ['IV', 'I'], ['bVII', 'I'], ['Vsus', 'I']], half: [['ii', 'V'], ['IV', 'V'], ['vi', 'V']],
     mel: { lo: 62, hi: 79, center: 69, rhythms: MUS_RH44, cad: MUS_CAD44, rest: 0.06 },
@@ -657,7 +657,7 @@ const MUS_MOODS = {
   },
   // Ériu: lilting six-eight, harp, pipes with cuts, a reedy drone and the frame drum
   eriu: {
-    key: 9, mode: 'dorian', beatSec: 0.21, beats: 6, wet: 0.4, gain: 1.0, home: 'i',
+    key: 9, mode: 'dorian', beatSec: 0.21, beats: 6, wet: 0.4, gain: 1.05, home: 'i',
     graph: { i: [['VII', 3], ['IV', 3], ['III', 1.5], ['v', 1]], VII: [['i', 2], ['IV', 2], ['III', 1.5]], IV: [['i', 3], ['VII', 2], ['v', 1]], III: [['VII', 2], ['IV', 2], ['i', 1]], v: [['i', 2], ['IV', 1.5], ['VII', 1]] },
     cad: [['VII', 'i'], ['IV', 'i'], ['v', 'i']], half: [['i', 'VII'], ['IV', 'v'], ['III', 'VII']],
     mel: { lo: 69, hi: 88, center: 78, rhythms: MUS_RH68, cad: MUS_CAD68, strong: 3, cuts: 0.45, legato: 0.9, rest: 0.05 },
@@ -702,7 +702,7 @@ const MUS_MOODS = {
   },
   // the frontier: uneasy, open fifths, low strings pulsing, horn calls from far off
   frontier: {
-    key: 0, mode: 'dorian', bpm: 84, beats: 4, wet: 0.45, gain: 1.0, home: 'i',
+    key: 0, mode: 'dorian', bpm: 84, beats: 4, wet: 0.45, gain: 1.8, home: 'i',
     graph: { i: [['VII', 2.5], ['IV', 1.5], ['VI', 2], ['v', 1], ['III', 1]], VII: [['i', 2], ['VI', 1.5], ['IV', 1.5]], VI: [['VII', 2.5], ['iv', 1.5], ['i', 1]], IV: [['i', 2], ['VII', 2]], iv: [['i', 2], ['v', 1], ['VII', 1]], v: [['VI', 2], ['i', 1.5]], III: [['VII', 2], ['VI', 1.5]] },
     cad: [['VII', 'i'], ['iv', 'i'], ['v', 'i']], half: [['VI', 'VII'], ['iv', 'v'], ['i', 'VII']],
     mel: { lo: 50, hi: 67, center: 57, rhythms: MUS_RH44, cad: MUS_CAD44, rest: 0.12 },
@@ -756,13 +756,13 @@ const MUS_MOODS = {
   },
   // the Barrow: dark drones, bells tolling far off, ghostly voices, drips of glass
   barrow: {
-    key: 1, mode: 'phrygian', bpm: 54, beats: 4, wet: 0.78, gain: 1.0, home: 'i', layers: ['still', 'fight'],
+    key: 1, mode: 'phrygian', bpm: 54, beats: 4, wet: 0.78, gain: 0.7, home: 'i', layers: ['still', 'fight'],
     graph: { i: [['bII', 3], ['i', 1], ['iv', 1.5], ['VI', 1]], bII: [['i', 3], ['VII', 1]], iv: [['i', 2], ['bII', 1.5]], VI: [['bII', 2], ['i', 1]], VII: [['i', 2]] },
     cad: [['bII', 'i'], ['iv', 'i']], half: [['i', 'bII'], ['VI', 'bII']],
     tex: [{ drone: 1, bells: 1 }, { drone: 1, choir: 1 }, { drone: 1, bells: 1, drips: 1 }, { drone: 1, choir: 1, bells: 1 }, { drone: 1, drips: 1 }],
     bar(E, p, t, c) {
       const T = c.tex, b = c.beat, L = p.layer, k0 = p.key;
-      if (T.drone && c.i % 2 === 0) { MUS_INS.drone(E, L.still, t, k0 + 24, c.bar * 2 + 2, 0.8 * c.v, { cut: 260 }); MUS_INS.drone(E, L.still, t + 0.3, k0 + 31, c.bar * 2 + 2, 0.45 * c.v, { cut: 300 }); MUS_INS.drone(E, L.still, t + 0.6, k0 + 37, c.bar * 2 + 1.7, 0.18 * c.v, { cut: 420 }); }
+      if (T.drone && c.i % 2 === 0) { MUS_INS.drone(E, L.still, t, k0 + 36, c.bar * 2 + 2, 0.7 * c.v, { cut: 300 }); MUS_INS.drone(E, L.still, t + 0.3, k0 + 43, c.bar * 2 + 2, 0.4 * c.v, { cut: 340 }); MUS_INS.drone(E, L.still, t + 0.6, k0 + 49, c.bar * 2 + 1.7, 0.16 * c.v, { cut: 480 }); }
       if (T.bells && E.rnd() < 0.6) MUS_INS.bell(E, L.still, t + b * Math.floor(E.rnd() * 4), k0 + pick(E.rnd, [36, 43, 39, 42, 31]), 7, 0.6 * c.v, {});
       if (T.choir && c.i % 2 === 0) musPad(E, p, 'ch', t, c, 'choir', 49, 64, 3, 0.4 * c.v, { a: 2.6, r: 2.6, vib: p.vib, vowel: 'oo', dur: c.bar * 1.6 }, L.still);
       if (T.drips) { const n = Math.floor(E.rnd() * 3); const sc = musLadder(musScale(k0, 'phrygian', c.ch), 73, 92); for (let k = 0; k < n; k++) MUS_INS.celesta(E, L.still, t + E.rnd() * c.bar, pick(E.rnd, sc), 2.6, 0.35 * c.v, {}); }
@@ -775,7 +775,7 @@ const MUS_MOODS = {
   },
   // night: sparse and quiet; the instruments follow the land you stand in
   night: {
-    key: 2, mode: 'major', bpm: 50, beats: 4, wet: 0.62, gain: 0.85, home: 'I',
+    key: 2, mode: 'major', bpm: 50, beats: 4, wet: 0.62, gain: 0.72, home: 'I',
     graph: { I: [['IV', 3], ['vi', 2], ['ii', 1], ['Iadd', 1]], Iadd: [['IV', 2], ['vi', 2]], IV: [['I', 3], ['ii', 1], ['vi', 1]], vi: [['IV', 3], ['ii', 1], ['I', 1]], ii: [['IV', 2], ['I', 1]] },
     cad: [['IV', 'I'], ['ii', 'I'], ['vi', 'I']], half: [['I', 'IV'], ['vi', 'IV']],
     tex: [{ pad: 1 }, { pad: 1, notes: 1 }, { notes: 1 }, { pad: 1, notes: 1, low: 1 }, {}, { notes: 1, low: 1 }],
@@ -1155,6 +1155,12 @@ async function musicSoak(secs = 240, chunk = 2, o = {}) {
   const samples = [];
   let mi = 0, si = 0, cur = null;
   const step = (t) => {
+    if (t >= secs - 16) { // the end: everything fades out and every voice has time to finish
+      for (const p of E.pieces) if (p.target !== 0) musPieceFade(E, p, 0, 3);
+      musPump(E, 0);
+      samples.push([Math.round(t), E.live, E.nodes, E.pieces.length]);
+      return;
+    }
     if (t % 20 < chunk) { // a new mood every twenty seconds, crossfaded
       for (const p of E.pieces) if (p.target !== 0) musPieceFade(E, p, 0, 4);
       cur = musPieceStart(E, moods[mi % moods.length], t, mi % 3); mi++;
@@ -1177,7 +1183,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.music = {
     M: MUSIC, MOODS: Object.keys(MUS_MOODS), setMusicVolume, musicStinger, musicSetMood, musicWantMood, musicHeat, updateMusic, musicLevelKey,
-    render: musicRenderOffline, soak: musicSoak,
+    render: musicRenderOffline, soak: musicSoak, applySettings, buildSave,
     force(m) { MUSIC.forced = m || null; },
     forceHeat(h) { MUSIC.forcedHeat = h == null ? undefined : h; },
     state() {
