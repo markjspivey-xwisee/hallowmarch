@@ -275,6 +275,7 @@ function strikeNear(x, z, rMin = 6, rMax = 55) {
     }
   }
   for (const H of HOUSES) if (H.state === 'whole' && inRing(H.x, H.z)) cands.push({ kind: 'house', H, x: H.x, z: H.z, y: H.y + H.top, gy: H.y, w: H.top * H.top * 1.3 });
+  for (const pc of BUILD.roofs) if (pc.st === 'built' && inRing(pc.x, pc.z)) cands.push({ kind: 'build', pc, x: pc.x, z: pc.z, y: pc.y + 1.6, gy: pc.y - B_WH, w: (B_WH + 1.6) ** 2 }); // [building] roofs the player built draw the bolt too
   const BA = bannerGeo.attributes.aB0.array;
   for (const B of BANNERS) {
     const bx = BA[B.k * 4], by = BA[B.k * 4 + 1], bz = BA[B.k * 4 + 2];
@@ -321,7 +322,7 @@ function strikeAt(c) {
   const P = GAME.player;
   if (P && dist2(P.x, P.z, c.x, c.z) < 40 * 40) cameraShake(0.32, c.x, c.z);
   // where it went into the earth: a burnt star of grass, sparks and smoke
-  if (c.kind !== 'house') {
+  if (c.kind !== 'house' && c.kind !== 'build') { // [building] a built roof takes the bolt, not the ground
     spellDisc(c.x, c.z, c.kind === 'ground' ? 2.6 : 1.9, DISC_KIND.scorch, 45);
     FX.burst(c.x, c.gy + 0.3, c.z, 30, [2.6, 2.4, 3.2], 5, 0.5, 0.12, 6);
     FX.dust(c.x, c.gy, c.z, 12, [0.2, 0.18, 0.16]);
@@ -332,7 +333,7 @@ function strikeAt(c) {
     const d2 = dist2(e.x, e.z, c.x, c.z);
     if (d2 > 6.5 * 6.5 || !e.alive || e.kind === 'door' || e.flying || inDungeon(e)) continue;
     if (Math.min(Math.abs(e.y - c.gy), Math.abs(e.y + 1 - c.y)) > 4) continue; // on the ground below it, or up on the tower it hit
-    if (c.kind === 'house' && houseInside(e.x, e.z)) continue;
+    if ((c.kind === 'house' && houseInside(e.x, e.z)) || (c.kind === 'build' && buildRoofOver(e.x, e.z))) continue; // [building] under a built roof too
     const k = 1 - Math.sqrt(d2) / 6.5;
     dealDamage(SKY_SRC, e, e.maxHp * (0.08 + 0.3 * k), { kind: 'shock', pierce: true });
     if (e.alive && e.role !== 'boss' && e.role !== 'dungeonBoss') { addBuff(e, 'stun', 1, 0.8 + 1.6 * k, null); e.casting = null; }
@@ -341,6 +342,7 @@ function strikeAt(c) {
   // and what it struck catches fire
   let lit = false;
   if (c.kind === 'house') lit = igniteHouse(c.H, c.x, c.z);
+  else if (c.kind === 'build') lit = buildIgnite(c.pc); // [building]
   else if (c.kind === 'tree') {
     // igniteTree comes with the nature work (falling and burning trees); until it lands, a fire burns in the crown
     // eslint-disable-next-line no-undef

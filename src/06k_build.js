@@ -38,7 +38,7 @@ const BP = {
   chest: { name: 'Chest', kind: 'free', cost: [['plank', 4], ['iron', 1]], time: 3, burn: 1, hx: 0.45, hz: 0.28, desc: 'Keeps goods safe.' },
 };
 const BP_ORDER = ['found', 'wall', 'door', 'window', 'wallStone', 'roofThatch', 'roofShingle', 'floor', 'stairs', 'fence', 'gate', 'campfire', 'workbench', 'bed', 'chest', 'pull'];
-const BUILD = { pieces: [], next: 1, mode: null, work: null, ghost: null, ghostKey: '', mx: -1, my: -1, mouseT: -99, bed: 0, roofsDirty: true, coverDirty: false, ui: null, fireT: 0 };
+const BUILD = { pieces: [], roofs: [], next: 1, mode: null, work: null, ghost: null, ghostKey: '', mx: -1, my: -1, mouseT: -99, bed: 0, roofsDirty: true, ui: null };
 const buildPieces = () => BUILD.pieces.filter((pc) => pc.st === 'built');
 const bpCost = (t) => BP[t] ? BP[t].cost : [];
 const bpCostText = (cost) => cost.map(([id, n]) => `${n} ${goodName(id, n).toLowerCase()}`).join(', ');
@@ -168,7 +168,7 @@ const B_MODEL = {
     if (thatch) b.add(G.cyl8, lm(B_ID, 0, rise + 0.16, 0, 0, 0.2, B_C + 0.5, 0.17, 0, Math.PI / 2), m, darker(col, 0.82), 0, 3);
     else bBox(b, 0, rise + 0.08, 0, B_C + 0.36, 0.12, 0.22, MAT.wood, B_COL.dark);
     // the gable ends, closed with boards, and a tie beam across
-    for (const s of [-1, 1]) b.add(G.prism, lm(B_ID, s * (B_C / 2 - 0.05), 0, 0, Math.PI / 2, 0.08, rise, B_C - 0.1), MAT.wood, B_COL.wood, 0, 3);
+    for (const s of [-1, 1]) b.add(G.prism, lm(B_ID, s * (B_C / 2 - 0.05), 0, 0, 0, 0.08, rise, B_C - 0.1), MAT.wood, B_COL.wood, 0, 3);
     bBox(b, 0, 0.06, 0, 0.16, 0.14, B_C, MAT.wood, B_COL.dark);
   },
   roofThatch(b, pc) { B_MODEL.roof(b, pc, true); },
@@ -288,13 +288,19 @@ function bSnap(t, x, z, rot, P) {
     const ix = Math.round(l.u / B_C), jx = Math.round((l.v - B_C / 2) / B_C), dX = Math.hypot(l.u - ix * B_C, l.v - (jx * B_C + B_C / 2));
     const iz = Math.round((l.u - B_C / 2) / B_C), jz = Math.round(l.v / B_C), dZ = Math.hypot(l.u - (iz * B_C + B_C / 2), l.v - jz * B_C);
     const flip = (rot % 2 + 2) % 2 === 1 ? Math.PI : 0;
-    if (dX <= dZ) { out.e = 'x'; out.i = ix; out.j = jx; const w = bW(f, ix * B_C, jx * B_C + B_C / 2); out.x = w.x; out.z = w.z; out.yaw = f.fyaw + flip; }
-    else { out.e = 'z'; out.i = iz; out.j = jz; const w = bW(f, iz * B_C + B_C / 2, jz * B_C); out.x = w.x; out.z = w.z; out.yaw = f.fyaw + Math.PI / 2 + flip; }
-    // a door or a gate opens away from whoever puts it up: their side is "outside"
-    if (P && (t === 'door' || t === 'gate' || t === 'window') && !flip) {
+    if (dX <= dZ) { out.e = 'x'; out.i = ix; out.j = jx; const w = bW(f, ix * B_C, jx * B_C + B_C / 2); out.x = w.x; out.z = w.z; out.yaw = f.fyaw; }
+    else { out.e = 'z'; out.i = iz; out.j = jz; const w = bW(f, iz * B_C + B_C / 2, jz * B_C); out.x = w.x; out.z = w.z; out.yaw = f.fyaw + Math.PI / 2; }
+    // which side is outside (+z): the side with no floor, if only one side has one; else, for a door or a gate, the
+    // builder's side, so it opens away from them. R turns it about.
+    const plus = out.e === 'x' ? [out.i, out.j + 1] : [out.i + 1, out.j], minus = [out.i, out.j];
+    const floored = ([i, j]) => BUILD.pieces.some((pc) => pc.frame === f.frame && pc.e === 'c' && pc.i === i && pc.j === j && (pc.t === 'found' || pc.t === 'floor') && pc.st !== 'gone');
+    const fp = floored(plus), fm = floored(minus);
+    if (fp !== fm) { if (fp) out.yaw += Math.PI; }
+    else if (P && (t === 'door' || t === 'gate' || t === 'window')) {
       const side = (P.x - out.x) * Math.sin(out.yaw) + (P.z - out.z) * Math.cos(out.yaw);
       if (side < 0) out.yaw += Math.PI;
     }
+    out.yaw += flip;
   }
   // heights
   const [hx, hz] = bFoot(t), g = bGround(out.x, out.z, hx, hz, out.yaw);
@@ -376,7 +382,7 @@ function bValidate(sn, P) {
     if (D.roof || t === 'floor') { if (!cl.build) { const top = (cl.y0 != null ? cl.y0 : cl.baseY) + cl.h; if (top < sn.y + 0.1) continue; } else continue; }
     for (let a = -ix; a <= ix; a++) for (let d = -iz; d <= iz; d++) {
       const lx = (a / ix) * (hx - 0.12), lz = (d / iz) * (hz - 0.08);
-      if (collCovers(cl, sn.x + lx * c + lz * s, sn.z - lx * s + lz * c, cl.tag === 'tree' ? 0.25 : 0.06)) return fail(cl.tag === 'tree' ? 'A tree is in the way: fell it first' : cl.build ? 'Something you built is in the way' : 'Something is in the way');
+      if (collCovers(cl, sn.x + lx * c + lz * s, sn.z - lx * s + lz * c, cl.tag === 'tree' ? 0.25 : 0.06)) return fail(cl.tag === 'tree' ? (cl.stump ? 'A stump is in the way' : 'A tree is in the way: fell it first') : cl.build ? 'Something you built is in the way' : 'Something is in the way');
     }
   }
   if (houseAt(sn.x, sn.z, 1)) return fail('A house is in the way');
@@ -490,8 +496,7 @@ function bMakeSolid(pc) {
   // nothing grows up through what is built: the 1 m cover map under its footprint, sent again this frame
   if (!BP[t].roof && t !== 'floor' && pc.foot < heightAt(pc.x, pc.z) + 1.2) {
     const [hx, hz] = bFoot(t);
-    coverBox(pc.x, pc.z, hx, hz, Math.cos(pc.yaw), Math.sin(pc.yaw), 0.3);
-    BUILD.coverDirty = true;
+    coverMarkBox(pc.x, pc.z, hx, hz, pc.yaw, 0.3);
   }
   BUILD.roofsDirty = true;
 }
@@ -661,6 +666,17 @@ function buildFireCone(x, z, dx, dz, range, half) {
   }
   return n;
 }
+// a burning brand held up to wood the player built (09d_brand.js asks)
+function buildBrandTarget(P, ax, az) {
+  let best = null, bd = 2.2;
+  for (const pc of BUILD.pieces) {
+    if (pc.st !== 'built' || !BP[pc.t].burn || Math.abs(P.y - pc.y) > 3.2) continue;
+    const [hx, hz] = bFoot(pc.t), dx = ax - pc.x, dz = az - pc.z, c = Math.cos(pc.yaw), s = Math.sin(pc.yaw);
+    const lx = Math.abs(dx * c - dz * s) - hx, lz = Math.abs(dx * s + dz * c) - hz, d = Math.hypot(Math.max(0, lx), Math.max(0, lz));
+    if (d < bd) { bd = d; best = pc; }
+  }
+  return best ? { kind: 'build', pc: best, x: best.x, z: best.z, label: `Set the ${BP[best.t].name.toLowerCase()} alight`, d: bd } : null;
+}
 function bBurnStep(pc, dt) {
   const rain = Math.max(0, WEATHER.raining - WEATHER.snowing);
   pc.burnT += dt * (1 - 0.45 * rain * (1 - pc.shelter));
@@ -684,15 +700,13 @@ function bBurnStep(pc, dt) {
 /* shelter: which pieces stand under a roof (no rain, no snow on them) */
 /* ------------------------------------------------------------------ */
 function buildRoofOver(x, z) {
-  for (const pc of BUILD.pieces) {
-    if (!BP[pc.t].roof || (pc.st !== 'built' && pc.st !== 'burning')) continue;
-    if (dist2(x, z, pc.x, pc.z) > 9) continue;
-    if (bInside(pc, x, z, 0.3)) return true;
-  }
+  // asked for every splash of rain: only the standing roofs are looked at (kept in BUILD.roofs)
+  for (const pc of BUILD.roofs) if (dist2(x, z, pc.x, pc.z) < 9 && bInside(pc, x, z, 0.3)) return true;
   return false;
 }
 const buildHasRoof = buildRoofOver;
 function bShelterAll() {
+  BUILD.roofs = BUILD.pieces.filter((pc) => BP[pc.t].roof && (pc.st === 'built' || pc.st === 'burning'));
   for (const pc of BUILD.pieces) {
     const s = !BP[pc.t].roof && buildRoofOver(pc.x, pc.z) && !(BP[pc.t].kind === 'edge') ? 1 : 0;
     if (s !== pc.shelter) { pc.shelter = s; bUniforms(pc); }
@@ -1049,7 +1063,6 @@ function updateBuild(dt) {
 function drawBuild(dt) {
   void dt;
   bGhost();
-  if (BUILD.coverDirty) { BUILD.coverDirty = false; COVER.tex.needsUpdate = true; }
 }
 function buildOnStart(save) {
   void save;

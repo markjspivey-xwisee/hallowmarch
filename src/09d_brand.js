@@ -68,6 +68,8 @@ function brandTargetFrom(P) {
     const hit = H.round ? Math.hypot(l.x, l.z) < H.Rr + pad : Math.abs(l.x) < H.w / 2 + H.ohSide + pad && Math.abs(l.z) < H.d / 2 + H.ohGable + pad;
     if (hit) return { kind: 'house', H, x: ax, z: az, label: H.round ? 'Set the thatch alight' : 'Set the roof alight', d: 0.6 };
   }
+  const bt = buildBrandTarget(P, ax, az); // [building] what the player built burns too (06k_build.js)
+  if (bt) return bt;
   if (typeof NATURE !== 'undefined' && NATURE.built) {
     const t = nearestTree(P.x, P.z, 2.6, (o) => natStanding(o) && !o.fall && o.fire < 0.05 && o.char < 0.9);
     if (t) return { kind: 'tree', t, x: t.x, z: t.z, label: `Set the ${t.kind} alight`, d: dist(P.x, P.z, t.x, t.z) - TREE_DIM[t.kind].r * natS(t) };
@@ -82,6 +84,8 @@ function brandLight(P, T) {
   setAct(P, 5, 0.5);
   if (T.kind === 'house') {
     if (!igniteHouse(T.H, T.x, T.z)) { uiError('It will not catch'); return; }
+  } else if (T.kind === 'build') { // [building]
+    if (!buildIgnite(T.pc)) { uiError('It will not catch'); return; }
   } else if (T.kind === 'tree') {
     if (natDry() < 0.2) { uiError('It is too wet to burn'); return; }
     if (!igniteTree(T.t, 0.85)) { uiError('It will not catch'); return; }

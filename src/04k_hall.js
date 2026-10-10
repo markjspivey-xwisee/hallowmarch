@@ -239,8 +239,8 @@ Object.assign(ROOM_ITEMS, {
     for (const s of [-1, 1]) f.add(G.ico, lm(T, s * (w / 2 + 0.13), top + 0.04, 0.07, 0, 0.04, 0.04, 0.04), MAT.gold, [0.75, 0.6, 0.3]);
     f.add(G.box, lm(T, 0, top - len / 2, 0.055, 0, w, len, 0.015), MAT.cloth, darker(c, 0.95));
     for (const s of [-1, 1]) f.add(G.box, lm(T, s * (w / 2 - 0.06), top - len / 2, 0.064, 0, 0.05, len - 0.08, 0.004), MAT.cloth, light);
-    f.add(G.box, lm(T, 0, top - len * 0.42, 0.064, Math.PI / 4, w * 0.36, w * 0.36, 0.004), MAT.cloth, light);
-    f.add(G.box, lm(T, 0, top - len * 0.42, 0.067, Math.PI / 4, w * 0.2, w * 0.2, 0.004), MAT.cloth, darker(c, 0.8));
+    f.add(G.box, lm(T, 0, top - len * 0.42, 0.064, 0, w * 0.36, w * 0.36, 0.004, 0, Math.PI / 4), MAT.cloth, light);
+    f.add(G.box, lm(T, 0, top - len * 0.42, 0.067, 0, w * 0.2, w * 0.2, 0.004, 0, Math.PI / 4), MAT.cloth, darker(c, 0.8));
     // a swallowtail point
     for (const s of [-1, 1]) f.add(G.box, lm(T, s * w * 0.25, top - len - 0.12, 0.055, s * 0.5, w * 0.36, 0.3, 0.012), MAT.cloth, darker(c, 0.9));
   },

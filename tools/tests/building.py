@@ -340,6 +340,13 @@ async def build_tests(page):
       return { same: before === after, size, empty, solid, broken, nb, n: BU.pieces.length, bed: BU.bed === bed }; })()""" % B)
     check(r['same'] and r['solid'] and r['bed'], 'saved and loaded, every piece comes back as it was (%d bytes for %d pieces)' % (r['size'], r['n']))
     check(r['empty'] == 0 and r['broken'] == 'ok' and r['nb'] == 0, 'an old save (none) and a broken record load cleanly')
+    # the piece shader and the ghost compile (a frame looking at the cottage, with the builder open)
+    r = await ev(page, 'programs', """(() => { const B = T.H.build, f = B.BUILD.pieces[0], P = T.H.GAME.player;
+      T.H.teleport(f.x - 4 * Math.sin(f.fyaw), f.z - 4 * Math.cos(f.fyaw)); P.yaw = f.fyaw + Math.PI; B.buildToggle(true);
+      T.camW(f.x + 6, f.y + 4, f.z + 6, f.x, f.y + 1, f.z); T.H.UI.modal = null; T.H.frame(); T.H.frame(); B.buildToggle(false);
+      return T.H.dbg.renderer.info.programs.filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name).slice(0, 5); })()""")
+    check(not r, 'the piece and ghost shaders compile')
+    await page.evaluate("T.play(); 0")
     if SHOTS:
         await page.evaluate("T.H.setTod(0.42); T.H.dbg.WEATHER.raining = 0; 0")
         await shot(page, 'build_cottage', """(() => { const f = T.H.build.BUILD.pieces[0], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
@@ -351,8 +358,20 @@ async def build_tests(page):
           T.H.camera.position.set(P.x + 5 * Math.cos(P.yaw) - 5 * Math.sin(P.yaw), P.y + 5, P.z - 5 * Math.sin(P.yaw) - 5 * Math.cos(P.yaw)); T.H.camera.lookAt(g.x, P.y + 0.5, g.z);
           T.H.frame(); return 0; })()""")
         await shot(page, 'build_ghost_bad', """(() => { const B = T.H.build, P = T.H.GAME.player, f = B.BUILD.pieces[0];
-          B.buildPick('wall'); P.yaw = Math.atan2(f.x - P.x, f.z - P.z); T.H.frame(); return 0; })()""")
-        await page.evaluate("T.H.build.buildToggle(false); T.play(); 0")
+          // a foundation over the cottage's own floor: refused, so the ghost shows red
+          B.buildPick('found'); T.H.teleport(f.x - 2.2 * Math.sin(f.fyaw), f.z - 2.2 * Math.cos(f.fyaw)); P.yaw = Math.atan2(f.x - P.x, f.z - P.z);
+          const c = B.buildCursor(); T.H.camera.position.set(c.x + 5 * Math.cos(f.fyaw) - 6 * Math.sin(f.fyaw), P.y + 5.5, c.z - 5 * Math.sin(f.fyaw) - 6 * Math.cos(f.fyaw)); T.H.camera.lookAt(c.x, P.y + 1, c.z);
+          T.H.frame(); return 0; })()""")
+        r = await ev(page, 'ghost state', "(() => { const M = T.H.build.BUILD.mode; return M && M.sn ? { ok: M.sn.ok, why: M.sn.why } : null; })()")
+        check(r is not None and not r['ok'], 'the ghost turns red where a piece cannot go: ' + str(r and r['why']))
+        # the builder's bar as a player sees it
+        try:
+            await page.evaluate("document.getElementById('hud').hidden = false; T.H.UI.modal = null; T.H.frame(); 0")
+            await page.screenshot(path=OUT + 'build_ui.png', timeout=120000)
+            print('  shot build_ui', flush=True)
+        except Exception as e:
+            print('  (no page screenshot of the bar:', str(e)[:80], ')')
+        await page.evaluate("document.getElementById('hud').hidden = true; T.H.build.buildToggle(false); T.play(); 0")
 
 async def main():
     async with async_playwright() as p:
@@ -362,6 +381,9 @@ async def main():
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         await page.evaluate("() => { const W = __hm.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; W.storm = 0; W.raining = 0; W.overcast = 0; W.nextBolt = 1e9; T.H.setTod(0.42); return 0; }")
         await page.evaluate("document.getElementById('hud').hidden = true")
+        # the page's own animation loop stops: frames are drawn only when a screenshot asks (on a busy machine under
+        # SwiftShader a loop of frames queued behind each other can hold a screenshot for many minutes)
+        await page.evaluate("window.requestAnimationFrame = () => 0; 0")
         if ONLY in (None, 'hall'): await hall_tests(page)
         if ONLY in (None, 'build'): await build_tests(page)
         errs = await page.evaluate("__hm.errors.slice(0, 8)")

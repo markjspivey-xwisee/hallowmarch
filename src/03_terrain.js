@@ -76,6 +76,8 @@ function coverBox(x, z, hx, hz, c, s, pad) {
   coverMark(x, z, Math.hypot(ax, az), (px, pz) => { const dx = px - x, dz = pz - z; return Math.abs(dx * c - dz * s) <= ax && Math.abs(dx * s + dz * c) <= az; });
 }
 function coverCircle(x, z, r) { coverMark(x, z, r, (px, pz) => (px - x) * (px - x) + (pz - z) * (pz - z) <= r * r); }
+// [building] mark a footprint at runtime (a placed structure, a pen, a plot): the map goes to the GPU again on the next frame
+function coverMarkBox(x, z, hx, hz, yaw, pad = 0.3) { coverBox(x, z, hx, hz, Math.cos(yaw), Math.sin(yaw), pad); COVER.tex.needsUpdate = true; }
 function buildCoverMask() {
   COVER.data.fill(0);
   const pad = 0.3;
