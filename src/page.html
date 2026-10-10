@@ -365,7 +365,9 @@
     .fc-herbs { grid-template-columns: 1fr; }
   }
   @media (max-width: 520px) {
-    #farmcard { left: 50%; transform: translateX(-50%); top: calc(var(--safe-t) + 176px); width: min(330px, 92vw); max-height: 34vh; }
+    /* upright phones: under the player frame and the path, left of the war panel */
+    #farmcard { left: var(--pad); top: calc(var(--safe-t) + 200px); width: min(236px, calc(100vw - 150px)); max-height: 30vh; }
+    #farmcard .fc-tr { grid-template-columns: auto 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     .banner, .slot.flash { animation-duration: 0.01s !important; }

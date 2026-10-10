@@ -560,7 +560,8 @@ const FARM_SOIL_FS = /* glsl */`
     float sn = snowAmount(vW, vec3(0.0, 1.0, 0.0), uSnowCover * (1.0 - 0.7 * canopy) * (0.75 + 0.5 * ridge), gPL);
     col = mix(col, lightSurface(snowAlbedo(vW), vec3(0.0, 1.0, 0.0), 1.0), sn);
     // seen from afar, a sown bed takes the colour of its crop
-    float far = smoothstep(uDrawR * 0.6, uDrawR, d) * vP1.a;
+    // (near by, a little of it too: leaves and straw over the soil between the plants)
+    float far = max(smoothstep(uDrawR * 0.6, uDrawR, d), 0.22 * tilled) * vP1.a;
     col = mix(col, lightSurface(vP1.rgb, vec3(0.0, 1.0, 0.0), 1.0) * (0.85 + 0.25 * vnoise(vW.xz * 0.9)), far);
     // the edge of the bed sinks into the turf
     col *= mix(0.72, 1.0, smoothstep(0.0, 0.6, vS.z));
