@@ -5,7 +5,7 @@ const SPELL = { discs: [], ribbons: [], pillars: [], emitters: [], built: false 
 
 /* ---- marks on the ground: a disc that drapes over the terrain ---- */
 const DISC_RINGS = 10, DISC_SEGS = 48, DISC_N = 1 + DISC_RINGS * DISC_SEGS;
-const DISC_KIND = { frost: 0, holy: 1, renew: 2, shock: 3, crack: 4, scorch: 5 };
+const DISC_KIND = { frost: 0, holy: 1, renew: 2, shock: 3, crack: 4, scorch: 5, rune: 6, consecrate: 7 }; // [classes] rune, consecrate (07b_classes.js)
 const DISC_MAX = 14;
 const discIndex = (() => {
   const idx = [];
@@ -41,6 +41,8 @@ const DISC_FS = (additive) => /* glsl */`
   varying vec2 vL; varying vec3 vW; varying float vFog;
   float band(float x, float c, float w){ return 1.0 - smoothstep(0.0, w, abs(x - c)); }
   // cell borders of a jittered grid: bright lines like hoarfrost or cracked earth
+  // [classes] distance from p to the segment ab (rune strokes)
+  float segD(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }
   float cells(vec2 p){
     vec2 i = floor(p), f = fract(p);
     float d1 = 8.0, d2 = 8.0;
@@ -99,6 +101,36 @@ const DISC_FS = (additive) => /* glsl */`
       float crush = (1.0 - smoothstep(0.0, 0.5, r)) * 0.45;
       a = (crush + (spokes * (1.0 - smoothstep(0.35, 0.95, r)) + web) * 0.75) * (0.75 + 0.25 * vnoise(vW.xz * 5.0));
       col = vec3(0.07, 0.06, 0.05);
+    } else if (k == 6) {
+      // [classes] a rune laid on the ground: two rings, a band of carved staves, a three-armed sigil, breathing light
+      float t2 = uTime * 0.6;
+      float ring = band(r, 0.93, 0.022) + band(r, 0.64, 0.016) * 0.9 + band(r, 0.3, 0.012) * 0.6;
+      float sec = floor((ang / 6.2832 + 0.5) * 9.0);
+      float u = fract((ang / 6.2832 + 0.5) * 9.0), v = (r - 0.67) / 0.22;
+      vec2 q = vec2((u - 0.5) * 1.6, v);
+      float hsh = hash12(vec2(sec, 3.7)), hs2 = hash12(vec2(sec, 9.1));
+      float glyph = segD(q, vec2(0.0, 0.08), vec2(0.0, 0.92));
+      glyph = min(glyph, segD(q, vec2(0.0, 0.25 + 0.4 * hsh), vec2(hs2 > 0.5 ? 0.38 : -0.38, 0.1 + 0.5 * hsh)));
+      glyph = min(glyph, segD(q, vec2(0.0, 0.7 - 0.3 * hs2), vec2(hsh > 0.4 ? -0.32 : 0.32, 0.9 - 0.2 * hs2)));
+      float staves = (1.0 - smoothstep(0.035, 0.075, glyph)) * step(0.0, v) * step(v, 1.0);
+      vec2 c = vL / 0.27;
+      float sig = 1.0;
+      for (int i = 0; i < 3; i++) { float aa = float(i) * 2.0944 + t2 * 0.25; sig = min(sig, segD(c, vec2(0.0), vec2(cos(aa), sin(aa)))); }
+      float sigil = (1.0 - smoothstep(0.05, 0.12, sig)) * step(r, 0.3);
+      float pulse = 0.65 + 0.35 * sin(uTime * 2.4 + r * 6.0);
+      a = (ring * 0.9 + staves * 0.95 + sigil) * pulse + (1.0 - smoothstep(0.0, 0.95, r)) * 0.06;
+      col = uCol * a;
+    } else if (k == 7) {
+      // [classes] holy ground: a soft hallowed light, a ring of turning sun-marks, waves of light rising outward
+      float spin = uTime * 0.18;
+      float fill = (1.0 - smoothstep(0.1, 1.0, r)) * 0.22 + (0.5 + 0.5 * sin(uTime * 1.3)) * 0.05;
+      float ring = band(r, 0.95, 0.025) + band(r, 0.83, 0.012) * 0.8;
+      float ticks = step(0.6, fract((ang / 6.2832) * 24.0 + spin)) * band(r, 0.89, 0.035);
+      float wave = band(r, fract(uTime * 0.35), 0.05) * (1.0 - fract(uTime * 0.35)) * 0.6;
+      float star = spow(0.5 + 0.5 * cos(ang * 8.0 - uTime * 0.5), 16.0) * (1.0 - smoothstep(0.05, 0.55, r)) * 0.9;
+      float core = (1.0 - smoothstep(0.0, 0.12, r)) * 0.6;
+      a = fill + ring + ticks * 0.7 + wave + star + core;
+      col = uCol * a;
     } else {
       // scorched ground: soot with a few embers that cool
       float soot = (1.0 - smoothstep(0.2, 1.0, r)) * (0.6 + 0.4 * vnoise(vW.xz * 1.8));

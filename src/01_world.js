@@ -387,6 +387,7 @@ function isWalkable(x, z) {
   if (x > DUN_X0) return dunWalkable(x, z);
   if (Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4) return false;
   const i = Math.round((x + HALF) / HS), j = Math.round((z + HALF) / HS);
+  if (CLS.ice.length && W.walk[j * HN + i] !== 0 && iceAt(x, z)) return true; // [classes] a mage's ice over deep water (07b_classes.js)
   return W.walk[j * HN + i] === 0;
 }
 function realmWeightsAt(x, z) {

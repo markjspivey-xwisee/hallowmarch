@@ -348,6 +348,7 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateClasses(dt); // [classes] the callings: blocks and parries, the draw and arrows in flight, snares, runes, steam, ice, holy ground (07b_classes.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -394,6 +395,7 @@ function tick(dt) {
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
+  drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
@@ -427,6 +429,7 @@ function tick(dt) {
   // interface
   if (GAME.started && GAME.player) updateHUD(dt);
   if (GAME.started && GAME.player) updateLore(dt);
+  if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
   updateAudio(dt);
   adaptQuality(dt);
 }
