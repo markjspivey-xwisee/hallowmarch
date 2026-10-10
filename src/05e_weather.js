@@ -184,7 +184,7 @@ function updateWeather(dt) {
       W2.splash -= 1;
       const a = Math.random() * TAU, r = 1.5 + Math.random() * 11;
       const x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r, y = heightAt(x, z) + 0.03;
-      if (houseRoofOver(x, z)) continue; // no splashes on a floor
+      if (houseRoofOver(x, z) || towerRoofOver(x, z)) continue; // no splashes on a floor ([land] nor in a tower's rooms)
       const A = U.uAmbient.value;
       fxAlpha.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.6, (Math.random() - 0.5) * 0.6, 0.22, A.x * 0.9 + 0.1, A.y * 0.9 + 0.1, A.z * 0.9 + 0.12, 0.05, 9, 0);
     }

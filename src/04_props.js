@@ -235,10 +235,12 @@ const buildingMat = mat({
 function keepStone(b, S, st, R) {
   const M = siteMatrix(S), hs = KEEP_HS, t = KEEP_T, H = WALL_H, by = S.y;
   const wall = (x, z, sx, sz) => b.add(G.box, lm(M, x, H / 2 - 0.7, z, 0, sx, H + 1.4, sz), MAT.stone, st.stone, by, 4);
-  wall(0, -hs + t / 2, 2 * hs, t);
-  wall(-hs + t / 2, 0, t, 2 * hs);
-  wall(hs - t / 2, 0, t, 2 * hs);
-  const seg = (hs - GATE_HW) / 2;
+  // [land] the curtains end inside the corner towers, which are hollow (KEEP_WALL_END; the drums: 04l_towers.js)
+  const we = KEEP_WALL_END;
+  wall(0, -hs + t / 2, 2 * we, t);
+  wall(-hs + t / 2, 0, t, 2 * we);
+  wall(hs - t / 2, 0, t, 2 * we);
+  const seg = (we - GATE_HW) / 2;
   wall(-(GATE_HW + seg), hs - t / 2, 2 * seg, t);
   wall(GATE_HW + seg, hs - t / 2, 2 * seg, t);
   b.add(G.box, lm(M, 0, H - 1.0, hs - t / 2, 0, 2 * GATE_HW + 0.6, 2.2, t + 0.5), MAT.stone, darker(st.stone, 0.92), by, 4);
@@ -246,7 +248,7 @@ function keepStone(b, S, st, R) {
   const banners = [];
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const x = sx * (hs - 1.2), z = sz * (hs - 1.2);
-    b.add(G.cyl12, lm(M, x, 10.5 / 2 - 0.7, z, 0, 3.4, 10.5 + 1.4, 3.4), MAT.stone, st.stone, by, 5);
+    // [land] the drum is a hollow ring of masonry with rooms inside, built with the castle (towerStone, 04l_towers.js)
     b.add(G.cyl8, lm(M, x, 10.5 + 2.1, z, 0, 0.08, 4.2, 0.08), MAT.wood, st.wood);
     banners.push({ local: [x, 14.5, z], yaw: 0, w: 1.6, h: 0.9, kind: 1 });
   }

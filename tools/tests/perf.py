@@ -1,6 +1,6 @@
 """Performance: draw calls, triangles, programs and JS time in fixed views at high, medium and low.
 Views: the Logres town with its fields and common, a keep courtyard, inside its great hall, a river, a frontier battle
-with the war running, a forest, the Barrow. For each view and quality: calls and triangles (main pass, shadow pass),
+with the war running, a forest, the Barrow, the mountains from the Logres orchard ([land]). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
 usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16]
@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 QUALS = [a for a in ARGS if a in ('high', 'medium', 'low')] or ['low', 'medium', 'high']
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
-VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow').split(',')
+VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow,mountain').split(',')
 TAG = OPT.get('tag', 'run')
 ROWS = int(OPT.get('rows', 8))
 W, H = int(OPT.get('w', 640)), int(OPT.get('h', 360))
@@ -65,6 +65,9 @@ window.PV = {
         if (v > bv) { bv = v; best = { x, z }; }
       }
       this.stand(best.x, best.z, 0.7);
+    } else if (name === 'mountain') {
+      // [land] from the Logres orchard, under the ring's mountains (crags, scree, the reshaped faces)
+      const o = H.surv.FORAGE.orchard; this.stand(o.x, o.z, Math.atan2(95 - o.x, 234 - o.z), 0.05, 6);
     } else if (name === 'barrow') {
       const p = H.DUN.spots.arrive;
       P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = F.dunFloorAt(p.x, p.z); P.yaw = Math.PI / 2;

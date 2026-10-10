@@ -1,0 +1,19 @@
+{
+ "walkSum": 317071028,
+ "walkHeights": 680601617,
+ "nWalk": 202093,
+ "nDeep": 1156,
+ "nReach": 183545,
+ "nProt": 247433,
+ "roads": 90,
+ "roadSum": 489367491,
+ "coll": {
+  "boxes": 850,
+  "circles": 1322,
+  "sum": 280371092
+ },
+ "trees": 2953,
+ "treeSum": -974395901,
+ "rocks": 900,
+ "camps": 60
+}

@@ -2,7 +2,7 @@
 plant card, the builder's bar, the companion bar, the crafting book) or a drag of the stick; window.__hm only sets the
 scene (where to stand, what is in the bags) and lets time pass. Flows: drink at a river, fish (cast and strike),
 swim out with the stick, till and sow, craft from the book at a workbench, place and turn a building piece, order a
-companion, tame a wolf, use a keep hall's war table.
+companion, tame a wolf, use a keep hall's war table, go into a keep's corner tower and climb it hatch by hatch ([land]).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -215,6 +215,27 @@ async def main():
               const near = H.ENT.filter((e) => e.alive && e.kind === 'humanoid' && e !== TF.P() && Math.hypot(e.x - h.x, e.z - h.z) < 30 && F.houseInside(e.x, e.z) !== h).length;
               return { shown: shown.length, outside, near, inside: F.houseInside(TF.P().x, TF.P().z) === h }; })()""")
             check(nm['inside'] and not nm['outside'], f'names: inside the hall no name shows through its walls ({json.dumps(nm)})')
+
+        if want('tower'):
+            # [land] a stone keep's corner tower by touch: the stick walks you in at its door (it swings open), taps on
+            # Use push each hatch open and climb each ladder, from the store room to the guard room to the top
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, S = H.REALMS[0].keepSites[0], T = H.towers.TOWER.list.find((q) => q.S === S && q.sx === 1 && q.sz === 1);
+              const o = F.siteToWorld(S, T.cx + Math.sin(T.aIn) * 6, T.cz + Math.cos(T.aIn) * 6), c = F.siteToWorld(S, T.cx, T.cz); TF.stand(o.x, o.z, c.x, c.z); window.__tft = T; return { d0: +Math.hypot(o.x - c.x, o.z - c.z).toFixed(1) }; })()""")
+            st = await drag_stick(page, cdp, 0, -45, 0.8)
+            inn = await page.evaluate("""(() => { const T = window.__tft, P = TF.P(), c = TF.H.fn.siteToWorld(T.S, T.cx, T.cz); return { d: +Math.hypot(P.x - c.x, P.z - c.z).toFixed(2), y: +(P.y - T.S.y).toFixed(2), yG: +T.yG.toFixed(2), door: +T.doors[0].k.toFixed(2) }; })()""")
+            # inside the drum on the store room's floor: the door swung open to let you by (shut, it blocks)
+            check(inn['d'] < 2.45 and abs(inn['y'] - inn['yG']) < 0.2, f'tower: the stick walks you in at the courtyard door, which swings open ({json.dumps(inn)})')
+            ys = []
+            for L in (0, 1):
+                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); const P = TF.P(); H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; P.anim.act = 0; TF.stand(p.x, p.z, L.lx, L.lz); P.y = L.wyb; H.simulate(0.2); return TF.label(); }})()""")
+                ok1 = await tap(page, '#t-use')
+                await page.evaluate("__hm.simulate(1.2); 0")
+                lab2 = await page.evaluate("TF.label()")
+                ok2 = await tap(page, '#t-use')
+                y = await page.evaluate("""(() => { const H = TF.H, P = TF.P(); for (let i = 0; i < 40 && (P.motion || i < 2); i++) H.simulate(0.25); return +(P.y - window.__tft.S.y).toFixed(2); })()""")
+                ys.append([lab, lab2, y])
+            check(ys[0][0] == 'Push the hatch open' and ys[0][1] == 'Climb the ladder' and abs(ys[0][2] - 7) < 0.1, f'tower: Use pushes the hatch open and climbs to the guard room ({json.dumps(ys[0])})')
+            check(ys[1][0] == 'Push the hatch open' and ys[1][1] == 'Climb the ladder' and abs(ys[1][2] - 10.5) < 0.1, f'tower: and on through the next hatch onto the top ({json.dumps(ys[1])})')
 
         await page.screenshot(path=OUT + 'touch_flows.png', timeout=300000)
         errs = await page.evaluate("__hm.errors")

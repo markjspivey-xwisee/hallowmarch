@@ -377,6 +377,7 @@ function groundY(e) { return e.fixedY !== null ? e.fixedY : waterFloorY(e, floor
 function updateMotion(e, dt) {
   const m = e.motion;
   if (!m) return false;
+  if (m.kind === 'ladder') return towerLadderStep(e, m, dt); // [land] up or down a tower's ladder (04l_towers.js)
   m.t += dt;
   const k = clamp(m.t / m.dur, 0, 1);
   if (m.kind === 'spin') {

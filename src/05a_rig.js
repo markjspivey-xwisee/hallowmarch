@@ -867,6 +867,22 @@ function humanVS(depth) {
       crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk;
       chestX = mix(chestX, 0.55, kk); headX = mix(headX, 0.12, kk);
       uaL = mix(uaL, -0.8, kk); faL = mix(faL, -0.3, kk); uaLz = mix(uaLz, -0.15, kk); uaR = mix(uaR, -0.3, kk); faR = mix(faR, -0.55, kk);
+    } else if (atype > 13.5 && atype < 14.5) {
+      // [land] climbing a ladder (04l_towers.js): hand over hand and foot over foot, locked to the height climbed, so
+      // the hands grip a rung while the body rises past it (a rung every 0.3 m, each hand reaching every 0.6 m)
+      float kk = smoothstep(0.0, 0.06, at) * (1.0 - smoothstep(0.94, 1.0, at));
+      float cy = iPos.y * 10.472, cl = sin(cy), cr = sin(cy + 3.1416);
+      float rL = 0.5 + 0.5 * cl, rR = 0.5 + 0.5 * cr; // how far up each hand has reached
+      uaL = mix(uaL, -2.05 - 0.55 * rL, kk); uaR = mix(uaR, -2.05 - 0.55 * rR, kk);
+      faL = mix(faL, -0.95 + 0.6 * rL, kk); faR = mix(faR, -0.95 + 0.6 * rR, kk);
+      uaLz = mix(uaLz, -0.2, kk); uaRz = mix(uaRz, 0.2, kk);
+      // the leg on the side of the lower hand is drawn up to the next rung
+      thL = mix(thL, -0.15 - 0.95 * rR, kk); shL = mix(shL, 0.25 + 1.2 * rR, kk);
+      thR = mix(thR, -0.15 - 0.95 * rL, kk); shR = mix(shR, 0.25 + 1.2 * rL, kk);
+      chestX = mix(chestX, 0.1, kk); chestY = mix(chestY, 0.06 * cl, kk);
+      headX = mix(headX, -0.22, kk); headY = mix(headY, 0.0, kk);
+      pelvisY = mix(pelvisY, 0.05 * cl, kk); bob *= 1.0 - kk; swayX *= 1.0 - kk; stepZ = mix(stepZ, 0.0, kk); crouch = mix(crouch, 0.04, kk);
+      capeX = mix(capeX, 0.05, kk);
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.

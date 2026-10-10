@@ -215,6 +215,7 @@ function currentInteraction() {
   farmOffers(P, offer); // [farming] till, sow, weed, harvest, keep seed; herbs; the farmer (08h_farming.js)
   animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
   depthOffers(P, offer); // [depth] cut bushes, fell apple trees, grub out stumps, set plants alight, nests, your well (09u_depth.js)
+  towerOffers(P, offer); // [land] climb a tower's ladder, open or shut its hatch (04l_towers.js)
   return best;
 }
 function playerInteract() {
@@ -337,6 +338,7 @@ const _look = new THREE.Vector3();
 const _camColl = [];
 function cameraRoom(px, py, pz, cp, sp, dist) {
   const sx = -Math.sin(CAM.yaw) * cp, sz = -Math.cos(CAM.yaw) * cp;
+  dist = mtnCamRoom(px, py, pz, sx, sp, sz, dist); // [land] crags pull the camera in as walls do (03c_land.js)
   collidersNear(px + sx * dist * 0.5, pz + sz * dist * 0.5, dist * 0.5 + 6, _camColl);
   if (!_camColl.length) return dist;
   for (let t = 0.8; t <= dist; t += 0.4) {

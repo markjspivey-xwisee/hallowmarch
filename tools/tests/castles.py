@@ -112,9 +112,10 @@ async def main():
 
         # 2. the player climbs: courtyard stair -> wall walk -> tower stair -> tower top, then drops off an edge
         if not ONLY or ONLY == 'climb':
-            r = await ev(page, 'climb stone', "(() => { const S = T.keep(0, 0).site; T.put(S, 10.6, -7.6); const out = []; out.push(T.walkTo(S, 13.0, -6.6)); out.push(T.walkTo(S, 13.0, 3.4)); out.push(T.walkTo(S, 13.0, 4.1)); out.push(T.walkTo(S, 14.65, 4.1)); out.push(T.walkTo(S, 14.65, 0)); out.push(T.walkTo(S, 14.65, 5.6)); out.push(T.walkTo(S, 14.65, 12.3)); out.push(T.walkTo(S, 14.2, 14.6)); return out; })()")
+            r = await ev(page, 'climb stone', "(() => { const S = T.keep(0, 0).site; T.put(S, 10.6, -7.6); const out = []; out.push(T.walkTo(S, 13.0, -6.6)); out.push(T.walkTo(S, 13.0, 3.4)); out.push(T.walkTo(S, 13.0, 4.1)); out.push(T.walkTo(S, 14.65, 4.1)); out.push(T.walkTo(S, 14.65, 0)); out.push(T.walkTo(S, 14.65, 5.6)); out.push(T.walkTo(S, 14.65, 12.6)); const Tw = __hm.towers.TOWER.list.find((q) => q.S === S && q.sx === 1 && q.sz === 1), L = Tw.ladders[1], P = __hm.GAME.player; T.walkTo(S, L.foot.x, L.foot.z); __hm.INPUT.keys.add('KeyW'); __hm.CAM.yaw = Math.atan2(L.lx - P.x, L.lz - P.z); __hm.simulate(0.3, 0.02); __hm.INPUT.keys.delete('KeyW'); let t = 0; while (P.motion && t < 12) { __hm.simulate(0.25, 0.02); t += 0.25; } out.push(T.walkTo(S, 14.2, 14.6)); return out; })()")
             check(abs(r[2]['y'] - 7) < 0.3 and abs(r[4]['y'] - 7) < 0.3, 'the player climbs the courtyard stair onto the wall walk (y = 7)')
-            check(abs(r[7]['y'] - 10.5) < 0.3, 'and on up the tower stair onto the tower top (y = 10.5)')
+            # [land] the corner towers are hollow: in at the guard room's door off the walk, up its ladder through the hatch
+            check(abs(r[6]['y'] - 7) < 0.3 and abs(r[7]['y'] - 10.5) < 0.3, 'and on into the tower\'s guard room and up its ladder onto the tower top (y = 10.5)')
             r = await ev(page, 'parapet holds', "(() => { const S = T.keep(0, 0).site; T.put(S, 14.65, 0, 7); const a = T.walkTo(S, 18, 0, 3); return a; })()")
             check(r['lx'] < 15.6 and abs(r['y'] - 7) < 0.3, 'the parapet keeps the player on the walk')
             r = await ev(page, 'drop off', "(() => { const S = T.keep(0, 0).site; T.put(S, 14.65, 0, 7); const a = T.walkTo(S, 10, 0, 3); __hm.simulate(1.5, 0.02); return T.where(S); })()")
