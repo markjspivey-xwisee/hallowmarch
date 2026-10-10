@@ -13,7 +13,7 @@ function initWildlife() {
       const x = Math.sin(a) * d, z = -Math.cos(a) * d;
       if (Math.hypot(x, z) > 455 || !isWalkable(x, z)) continue;
       const h = heightAt(x, z);
-      if (h < WATER_Y + 1 || h > 20) continue;
+      if (h < WATER_Y + 1 || h > 20 || nearRiver(x, z, 3)) continue;
       if (sampleGrid(W.grass, x, z) < 0.6 || sampleGrid(W.road, x, z) > 0.05) continue;
       if (CAMPS.some((c) => dist2(c.x, c.z, x, z) < 50 * 50)) continue;
       if (SITES.some((S) => dist2(S.x, S.z, x, z) < (S.r + 34) ** 2)) continue;

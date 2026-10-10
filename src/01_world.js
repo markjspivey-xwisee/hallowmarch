@@ -425,6 +425,8 @@ function buildWorld(seed = 7) {
       H[k] = lerp(H[k], Math.min(H[k], WATER_Y - 3.2), w);
     });
   }
+  // rivers run down into the lakes (01b_water.js)
+  carveRivers(H, forTexels);
   // flatten sites
   for (const S of SITES) {
     let t = 0;
@@ -550,6 +552,11 @@ function buildWorld(seed = 7) {
   }
   Object.assign(W, { walk, grass, flower, rock, realmW, field });
   clearBarrowGround(W, forTexels);
+  // no grass or flowers on a river bed (01b_water.js)
+  for (const Rv of RIVERS) forTexels((Rv.box[0] + Rv.box[2]) / 2, (Rv.box[1] + Rv.box[3]) / 2, Math.max(Rv.box[2] - Rv.box[0], Rv.box[3] - Rv.box[1]) / 2, (k, x, z) => {
+    const n = riverNearest(Rv, x, z);
+    if (n && n.d < n.hw + 0.9) { W.grass[k] = 0; W.flower[k] = 0; }
+  });
 
   // structure colliders
   for (const R of REALMS) {
@@ -568,6 +575,7 @@ function buildWorld(seed = 7) {
     for (const S of SITES) if (dist2(x, z, S.x, S.z) < (S.r + pad) * (S.r + pad)) return true;
     for (const L of LAKES) if (dist2(x, z, L.x, L.z) < (L.r * 1.1 + pad) ** 2) return true;
     if (dist2(x, z, 0, 0) < (24 + pad) * (24 + pad)) return true;
+    if (nearRiver(x, z, Math.max(1.5, pad * 0.5))) return true;
     return false;
   };
   const nearRoad = (x, z, pad) => sampleGrid(road, x, z) > 0.02 || ROADS.some((S) => segDist2(x, z, S.ax, S.az, S.bx, S.bz) < pad * pad);
@@ -661,7 +669,7 @@ function buildWorld(seed = 7) {
         if (Math.abs(angDiff(bearingOf(x, z), R.bearing)) > 52 * DEG) continue;
         if (!isWalkable(x, z)) continue;
         const h = heightAt(x, z);
-        if (h < WATER_Y + 1 || h > 22) continue;
+        if (h < WATER_Y + 1 || h > 22 || nearRiver(x, z, 8)) continue;
         if (blocked(x, z, 12) || nearRoad(x, z, 12)) continue;
         if (camps.some((c) => dist2(c.x, c.z, x, z) < 48 * 48)) continue;
         let ok = true;
@@ -695,7 +703,7 @@ function buildWorld(seed = 7) {
         if (Math.abs(angDiff(bearingOf(x, z), R.bearing)) > 58 * DEG) continue;
         if (!isWalkable(x, z)) continue;
         const h = heightAt(x, z);
-        if (h < WATER_Y + 1 || h > 27) continue;
+        if (h < WATER_Y + 1 || h > 27 || nearRiver(x, z, 8)) continue;
         if (blocked(x, z, 12) || nearRoad(x, z, 12)) continue;
         if (camps.some((c) => dist2(c.x, c.z, x, z) < 44 * 44)) continue;
         if (SITES.some((S) => dist2(S.x, S.z, x, z) < (S.r + 30) ** 2)) continue;
@@ -710,6 +718,7 @@ function buildWorld(seed = 7) {
     }
   }
   W.camps = camps;
+  buildWaterGrid(); // where the water stands and how it flows (01b_water.js)
   W.ready = true;
   return W;
 }
