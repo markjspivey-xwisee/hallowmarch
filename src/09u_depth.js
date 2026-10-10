@@ -1031,9 +1031,16 @@ const DP_EGG_FS = /* glsl */`
   }`;
 function dpBuildNestFX() {
   const VS = /* glsl */`
-    attribute vec3 instanceColor;
     varying vec3 vW; varying vec3 vN; varying vec3 vC; varying vec3 vO;
-    void main(){ vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix * instanceMatrix) * normal; vC = instanceColor; vO = position; gl_Position = projectionMatrix * viewMatrix * w; }`;
+    void main(){
+      // three.js declares instanceMatrix and instanceColor for an instanced mesh with colours
+      vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix * instanceMatrix) * normal; vO = position;
+      #ifdef USE_INSTANCING_COLOR
+      vC = instanceColor;
+      #else
+      vC = vec3(0.8, 0.7, 0.55);
+      #endif
+      gl_Position = projectionMatrix * viewMatrix * w; }`;
   const m = mat({ vertexShader: VS, fragmentShader: DP_EGG_FS });
   const egg = new THREE.SphereGeometry(1, 10, 7); egg.scale(0.022, 0.03, 0.022);
   const ring = new THREE.TorusGeometry(0.16, 0.055, 5, 12); ring.rotateX(Math.PI / 2);
