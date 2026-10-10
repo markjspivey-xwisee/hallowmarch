@@ -689,7 +689,7 @@ function anPenThink(e, dt) {
     return;
   }
   // shelter from snow and hard rain
-  const storm = WEATHER.snowing > 0.3 || WEATHER.raining > 0.65 || (typeof SEASON !== 'undefined' && SEASON && SEASON.name === 'winter' && U.uNight.value > 0.5);
+  const storm = WEATHER.snowing > 0.3 || WEATHER.raining > 0.65 || (typeof SEASON !== 'undefined' && SEASON && /winter/i.test(SEASON.name || '') && U.uNight.value > 0.5);
   if (storm && rec.k !== 'hen' || storm && WEATHER.raining > 0.3 && rec.k === 'hen') {
     const S = pen.shedL, sp = penWorld(pen, S.x + ((rec.aid % 3) - 1) * 1.1, S.z + ((rec.aid % 2) - 0.5) * 0.9);
     if (dist(e.x, e.z, sp.x, sp.z) > 1.2) { ai.mode = 'shelter'; anGoTo(e, sp.x, sp.z, dt, 0.5, 0.6, false); ai.until = 0; return; }
@@ -723,7 +723,7 @@ function anPenGrass(pen) {
   if (pen._gT && GAME.t - pen._gT < 5) return pen._g;
   let g = sampleGrid(W.grass, pen.x, pen.z);
   if (WEATHER.snowing > 0.2 || U.uSnowCover && U.uSnowCover.value > 0.35) g *= 0.1;
-  if (typeof SEASON !== 'undefined' && SEASON && SEASON.name === 'winter') g *= 0.15;
+  if (typeof SEASON !== 'undefined' && SEASON && /winter/i.test(SEASON.name || '')) g *= 0.15;
   pen._gT = GAME.t; pen._g = clamp(g, 0, 1);
   return pen._g;
 }
