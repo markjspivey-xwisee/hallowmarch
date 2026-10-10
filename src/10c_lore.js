@@ -1163,6 +1163,8 @@ function renderChronicle(body, fromNav = false) {
     if (d < 0) sheet.scrollTop += d;
   }
   if (cur && row.scrollWidth > row.clientWidth) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
+  const grow = nav.querySelector('.chron-grps'), gcur = grow.querySelector('[aria-current="true"]');
+  if (gcur && grow.scrollWidth > grow.clientWidth) grow.scrollLeft = gcur.offsetLeft - grow.clientWidth / 2 + gcur.offsetWidth / 2;
 }
 // the Chronicle's four parts; a page no part names falls under the first
 const CHRON_GROUPS = [
