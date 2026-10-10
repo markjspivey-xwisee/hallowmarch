@@ -661,9 +661,21 @@ function farmLifeStep(e, st, plan, dt, next) {
   const fr = farmFront(P, T.p, side);
   const d = dist(e.x, e.z, fr.x, fr.z);
   if (d > 1.4) {
-    if (moveToward(e, fr.x, fr.z, dt, d > 6 ? 1.0 : 0.6, 0.4)) st.walkT = 0;
+    // on the way out of town: a house or a fence in the way is walked round
+    const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t });
+    if (plan.t - tr.t > 2.5) {
+      const moved = dist(e.x, e.z, tr.x, tr.z);
+      st.track = { x: e.x, z: e.z, t: plan.t };
+      if (moved > 1) T.workT = GAME.t; // still getting there
+      else if (!st.detour) {
+        const dx = fr.x - e.x, dz = fr.z - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (Math.random() < 0.5 ? 1 : -1)));
+        st.detour = { x: e.x + (-dz / l) * sd * (4 + Math.random() * 3) - (dx / l) * 1.2, z: e.z + (dx / l) * sd * (4 + Math.random() * 3) - (dz / l) * 1.2, until: plan.t + 4 };
+      }
+    }
+    if (st.detour) { if (moveToward(e, st.detour.x, st.detour.z, dt, 1.0, 0.5) || plan.t > st.detour.until) st.detour = null; return true; }
+    moveToward(e, fr.x, fr.z, dt, d > 6 ? 1.0 : 0.6, 0.4);
     st.walkT = (st.walkT || 0) + dt;
-    if (st.walkT > 150) { T.worker = null; next(); }
+    if (st.walkT > 200) { T.worker = null; next(); }
     return true;
   }
   T.workT = GAME.t;
@@ -1111,7 +1123,7 @@ function farmOffers(PL, offer) {
   if (!FARM.built) return;
   for (const id of FARM.farmers) {
     const e = getEnt(id);
-    if (e && e.alive && e.ai.seedSeller) offer(dist(PL.x, PL.z, e.x, e.z), 3.2, `Speak with ${e.name}, the farmer`, () => openFarmer(e), 0.2);
+    if (e && e.alive && e.ai.seedSeller) offer(dist(PL.x, PL.z, e.x, e.z), 3.2, `Buy seed and tools from ${e.name} the farmer`, () => openFarmer(e), 0.2);
   }
   if (FARM.job) return;
   const ctx = FARM.ctx, A = farmActions(ctx);
