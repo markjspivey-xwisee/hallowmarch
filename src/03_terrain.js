@@ -11,6 +11,19 @@ vec3 lightSurface(vec3 albedo, vec3 n, float ao){
 }
 `;
 
+/* the meadow's look, shared by the ground, the blades and the flowers so they always agree (visual pass):
+   patches of dry straw (x), lush dark clover (y) and tall stands (z), and how high the turf grows */
+const GLSL_MEADOW = /* glsl */`
+// baked once into the meadow map (rgb; its alpha is the canopy, see CANOPY below): one fetch instead of six noises
+vec3 meadowPatch(vec2 xz){ return texture(uCanopy, (xz + 512.0) / 1024.0).rgb; }
+// turf height in metres before each blade's own share: a short sward, taller stands, long in the fields, trimmed by the roads
+float meadowHeight(vec4 A, vec4 B, vec3 mp){
+  float h = mix(0.3, 0.64, mp.z) * (1.0 + 0.55 * B.a) * (1.0 - 0.35 * B.b);
+  h *= mix(1.0, 0.62, smoothstep(0.04, 0.4, A.r));
+  return h * mix(0.42, 1.0, smoothstep(0.1, 0.62, A.g));
+}
+`;
+
 function uploadWorldTextures() {
   const hTex = new THREE.DataTexture(W.H, HN, HN, THREE.RedFormat, THREE.FloatType);
   hTex.internalFormat = 'R32F';
@@ -113,12 +126,20 @@ const terrainMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
     ${GLSL_NATURE}
+    ${GLSL_MEADOW}
     uniform sampler2D uTrail;
     uniform vec4 uTrailBounds;
     uniform vec3 uGrassBase, uGrassTip, uGlowColor;
     uniform float uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN;
     float ridged(vec2 p){ return 1.0 - abs(vnoise(p) * 2.0 - 1.0); }
+    // visual pass: rock takes the light more directly than turf (less wrap), with sky above and shade below, so
+    // ridges, gullies and faces read on the mountains instead of one flat grey
+    vec3 lightRock(vec3 alb, vec3 n, float ao){
+      float dif = clamp(dot(n, uLightDir) * 0.85 + 0.15, 0.0, 1.0);
+      vec3 amb = uAmbient * (0.42 + 0.3 * clamp(n.y * 0.5 + 0.5, 0.0, 1.0)) * ao;
+      return alb * (amb + uLightColor * 0.82 * dif * mix(0.2, 1.0, gSh) * mix(0.6, 1.0, ao) + gPL * mix(0.6, 1.0, ao));
+    }
     // rock relief on one projection plane: broad slabs, cracks, grit (fine terms fade with distance)
     float rockRelief(vec2 p, float fine){
       float h = ridged(p * 0.32) * 0.46 + vnoise(p * 0.9 + 3.1) * 0.22;
@@ -148,6 +169,12 @@ const terrainMat = mat({
       float wrap = clamp(dot(n, uLightDir) * 0.6 + 0.4, 0.0, 1.0);
       float nz = vnoise(vW.xz * 0.35);
       vec3 gCol = mix(uGrassBase, uGrassTip, 0.5 + 0.12 * smoothstep(25.0, 90.0, d)) * tint;
+      // visual pass: the same dry, lush and tall patches as the blades, so the far meadow keeps their pattern
+      vec3 mp = meadowPatch(vW.xz);
+      gCol = mix(gCol, gCol * vec3(1.32, 1.08, 0.5), mp.x * 0.7);
+      gCol = mix(gCol, gCol * vec3(0.74, 0.93, 0.84), mp.y * 0.45);
+      gCol *= 1.0 - 0.1 * mp.z * smoothstep(20.0, 60.0, d);
+      gCol *= 1.0 - 0.12 * A.g * smoothstep(40.0, 110.0, d); // a deep sward reads a little darker from afar
       gCol *= (0.82 + 0.3 * nz) * (0.78 + 0.32 * wrap) * mix(0.58, 1.0, gSh);
       gCol = mix(gCol, mix(uGrassBase, uGrassTip, 0.22) * tint, A.g * (1.0 - smoothstep(25.0, 60.0, d)) * 0.55);
       gCol += vec3(0.15, 0.27, 0.07) * tint * gPL * 0.9;
@@ -166,7 +193,11 @@ const terrainMat = mat({
       col = mix(col, earth, (1.0 - A.g) * (1.0 - A.r) * (1.0 - A.a) * 0.75);
       float rut = vnoise(vW.xz * vec2(2.4, 0.7)) * 0.25;
       vec3 dirt = lightSurface(vec3(0.46, 0.37, 0.26) * (0.8 + 0.3 * grit - rut) + peb * vec3(0.1, 0.09, 0.08), ne, 1.0);
-      col = mix(col, dirt, smoothstep(0.05, 0.6, A.r));
+      // visual pass: a ragged road edge, and a trodden verge where the turf thins into the road
+      float edgeN = (vnoise(vW.xz * 1.6) - 0.5) * 0.3 + (vnoise(vW.xz * 5.3) - 0.5) * 0.12 * fine;
+      float verge = smoothstep(0.02, 0.2, A.r) * (1.0 - smoothstep(0.25, 0.55, A.r + edgeN));
+      col = mix(col, col * vec3(0.84, 0.8, 0.7) + dirt * 0.12, verge * 0.6);
+      col = mix(col, dirt, smoothstep(0.12, 0.55, A.r + edgeN));
       // rock: projected on the axes the face looks along, with strata on steep faces and cracks
       float rk = smoothstep(0.15, 0.6, A.a);
       if (rk > 0.001) {
@@ -181,6 +212,7 @@ const terrainMat = mat({
         vec3 nr = bumpN(n, vW, hR, 0.55 * (0.35 + 0.65 * fine));
         vec3 rc = mix(vec3(0.38, 0.37, 0.35), vec3(0.56, 0.54, 0.5), mix(0.5, smoothstep(0.2, 0.75, hR), 0.45 + 0.55 * fine));
         rc *= tint * vec3(1.02, 1.0, 0.97) * (0.86 + 0.24 * fbm3(vW.xz * 0.05 + vW.y * 0.03));
+        rc *= mix(vec3(1.07, 1.0, 0.9), vec3(0.93, 0.98, 1.05), vnoise(vW.xz * 0.012 + 3.3)); // warm and cool stone across a range
         float crack = 1.0 - smoothstep(0.08, 0.3, hR);
         rc *= 1.0 - 0.45 * crack * (0.25 + 0.75 * fine);
         // moss on ledges facing the sky, lichen freckles
@@ -188,7 +220,7 @@ const terrainMat = mat({
         rc = mix(rc, vec3(0.22, 0.3, 0.12) * tint, moss * (0.4 + 0.35 * fine));
         float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w.x + vnoise(vW.xz * 3.1) * w.y + vnoise(vW.xy * 3.1) * w.z) * fine * (1.0 - moss);
         rc = mix(rc, mix(vec3(0.62, 0.58, 0.36), vec3(0.62, 0.42, 0.22), B.r), lich * 0.5);
-        vec3 rockCol = lightSurface(rc, nr, mix(0.55, 1.0, smoothstep(0.05, 0.4, hR)));
+        vec3 rockCol = lightRock(rc, nr, mix(0.55, 1.0, smoothstep(0.05, 0.4, hR)));
         // cool sky light on faces turned up, a warm bounce from below
         rockCol += rc * uAmbient * 0.12 * nr.y;
         col = mix(col, rockCol, rk);
@@ -205,19 +237,24 @@ const terrainMat = mat({
       }
       float shore = 1.0 - smoothstep(-3.25, -2.6, vW.y);
       col = mix(col, lightSurface(vec3(0.56, 0.5, 0.38) * (0.85 + 0.3 * grit), ne, 1.0), shore * 0.8);
+      // visual pass: the ground under tree crowns lies in soft shade, stays drier in rain and gathers less snow
+      float canopy = canopyAt(vW.xz);
+      col *= 1.0 - 0.22 * canopy * (0.6 + 0.4 * gSh);
+      col *= 1.0 - 0.42 * groundAO(vW.xz); // and in contact shade at the foot of walls and houses
+      float wetG = uWet * (1.0 - 0.8 * canopy);
       // weather: rain darkens and glosses the ground and pools on paths; snow settles on open ground
-      if (uWet > 0.01) {
+      if (wetG > 0.01) {
         vec3 V = safeNormalize(cameraPosition - vW);
         float flatK = smoothstep(0.7, 0.96, n.y);
-        float puddle = smoothstep(0.58, 0.72, vnoise(vW.xz * 0.33) * 0.7 + vnoise(vW.xz * 1.4) * 0.3) * smoothstep(0.15, 0.55, A.r + (1.0 - A.g) * 0.35) * flatK * uWet;
-        col *= 1.0 - 0.28 * uWet;
+        float puddle = smoothstep(0.58, 0.72, vnoise(vW.xz * 0.33) * 0.7 + vnoise(vW.xz * 1.4) * 0.3) * smoothstep(0.15, 0.55, A.r + (1.0 - A.g) * 0.35) * flatK * wetG;
+        col *= 1.0 - 0.28 * wetG;
         float fres = 0.02 + 0.98 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
         vec3 Rv = reflect(-V, n);
         vec3 sk = skyBase(safeNormalize(vec3(Rv.x, max(Rv.y, 0.03), Rv.z)));
-        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * uWet * flatK + puddle * 0.8, 0.0, 1.0));
+        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * 0.8, 0.0, 1.0));
       }
       if (uSnowCover > 0.01) {
-        float sn = uSnowCover * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + uSnowCover * 0.5 - A.r * 0.45);
+        float sn = uSnowCover * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + uSnowCover * 0.5 - A.r * 0.45);
         sn *= 1.0 - smoothstep(0.1, 0.5, dot(gPL, vec3(0.33))); // feature/weather: melted round fires and torches
         col = mix(col, lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0), clamp(sn, 0.0, 1.0));
       }
@@ -299,9 +336,117 @@ function buildTerrain() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Canopy map (visual pass): how much tree crown covers the ground,    */
+/* one texel per 2 m. Rain and snow reach less of the ground and grass */
+/* under the crowns, and the soil there lies in soft shade. Kept up to */
+/* date as trees are felled, burn, lose their leaves and grow back.    */
+/* ------------------------------------------------------------------ */
+const CANOPY = { res: 512, acc: null, cache: null, rad: null, bytes: null, tex: null, next: 0, ao: null };
+// the meadow's patches (dry straw, lush clover, tall stands) baked into the same map's rgb, 2 m texels
+function bakeMeadow(b) {
+  const R = CANOPY.res, cell = WSIZE / R;
+  const ss = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+  for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
+    const x = -HALF + (i + 0.5) * cell, z = -HALF + (j + 0.5) * cell, q = (j * R + i) * 4;
+    const a = vnoise(x * 0.019 + 3.1, z * 0.019 + 7.7) * 0.65 + vnoise(x * 0.071 + 1.3, z * 0.071 + 2.9) * 0.35;
+    const bb = vnoise(x * 0.043 + 9.2, z * 0.043 + 4.4) * 0.7 + vnoise(x * 0.15 + 6.1, z * 0.15 + 6.1) * 0.3;
+    const c = vnoise(x * 0.027 + 5.5, z * 0.027 + 0.7) * 0.6 + vnoise(x * 0.09 + 2, z * 0.09 + 2) * 0.4;
+    b[q] = Math.round(ss(0.56, 0.8, a) * 255); b[q + 1] = Math.round(ss(0.5, 0.74, bb) * 255); b[q + 2] = Math.round(ss(0.45, 0.72, c) * 255);
+  }
+}
+function canopyOf(t) {
+  if (t.felled || t.gone || t.fallen) return 0;
+  return clamp(t.grow ?? 1, 0, 1) * clamp(t.leaf ?? 1, 0, 1) * (1 - 0.7 * clamp(t.char || 0, 0, 1));
+}
+function stampCanopy(i0, t, k) {
+  const R = CANOPY.res, cell = WSIZE / R, acc = CANOPY.acc, b = CANOPY.bytes;
+  // each tree keeps the reach it was first stamped with, so taking a stamp away cancels it exactly
+  if (!CANOPY.rad[i0]) CANOPY.rad[i0] = (t.kind === 'pine' ? 1.9 : t.kind === 'birch' ? 1.8 : 2.4) * (t.s0 || t.s || 1) + 0.7;
+  const r = CANOPY.rad[i0];
+  const ci = (t.x + HALF) / cell, cj = (t.z + HALF) / cell, rc = r / cell + 1;
+  for (let j = Math.max(0, Math.floor(cj - rc)); j <= Math.min(R - 1, Math.ceil(cj + rc)); j++) {
+    for (let i = Math.max(0, Math.floor(ci - rc)); i <= Math.min(R - 1, Math.ceil(ci + rc)); i++) {
+      const d = Math.hypot(i + 0.5 - ci, j + 0.5 - cj) * cell;
+      if (d >= r) continue;
+      const q = j * R + i;
+      acc[q] += clamp((r - d) / (r * 0.6), 0, 1) * k; // full under the heart of the crown, thinning to the drip line
+      b[q * 4 + 3] = Math.round(clamp(acc[q], 0, 1) * 255);
+    }
+  }
+}
+// baked contact shade on the ground round the foot of walls, houses, gates, fences and posts (1 m texels)
+function buildGroundAO() {
+  const R = 1024, cell = WSIZE / R, b = new Uint8Array(R * R);
+  const put = (x0, z0, rr, fn) => {
+    const i0 = Math.max(0, Math.floor((x0 - rr + HALF) / cell)), i1 = Math.min(R - 1, Math.ceil((x0 + rr + HALF) / cell));
+    const j0 = Math.max(0, Math.floor((z0 - rr + HALF) / cell)), j1 = Math.min(R - 1, Math.ceil((z0 + rr + HALF) / cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const v = fn(-HALF + (i + 0.5) * cell, -HALF + (j + 0.5) * cell);
+      if (v > 0) { const q = j * R + i; b[q] = Math.max(b[q], Math.round(clamp(v, 0, 1) * 255)); }
+    }
+  };
+  for (const c of COLL.boxes) {
+    if (!['wall', 'house', 'gate', 'stone', 'fence', 'prop'].includes(c.tag)) continue;
+    const reach = clamp((c.h || 3) * 0.32, 0.7, 2.6), k = clamp((c.h || 3) / 3, 0.35, 1);
+    put(c.x, c.z, Math.hypot(c.hx, c.hz) + reach, (x, z) => {
+      const dx = x - c.x, dz = z - c.z;
+      const lx = Math.abs(dx * c.cos - dz * c.sin) - c.hx, lz = Math.abs(dx * c.sin + dz * c.cos) - c.hz;
+      const d = Math.hypot(Math.max(lx, 0), Math.max(lz, 0));
+      const f = 1 - d / reach;
+      return f > 0 ? k * f * f : 0;
+    });
+  }
+  for (const c of COLL.circles) {
+    if (c.tag === 'tree') continue;
+    const reach = clamp((c.h || 2) * 0.3, 0.5, 1.6), k = clamp((c.h || 2) / 3, 0.3, 0.8);
+    put(c.x, c.z, c.r + reach, (x, z) => { const f = 1 - Math.max(0, Math.hypot(x - c.x, z - c.z) - c.r) / reach; return f > 0 ? k * f * f : 0; });
+  }
+  const tex = new THREE.DataTexture(b, R, R, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  U.uGroundAO.value = tex;
+  CANOPY.ao = b;
+}
+function updateCanopy() {
+  if (!W.trees || !U.uCanopy) return;
+  if (!CANOPY.tex) {
+    buildGroundAO();
+    const R = CANOPY.res;
+    CANOPY.acc = new Float32Array(R * R); CANOPY.bytes = new Uint8Array(R * R * 4);
+    bakeMeadow(CANOPY.bytes);
+    CANOPY.cache = new Float32Array(W.trees.length); CANOPY.rad = new Float32Array(W.trees.length);
+    W.trees.forEach((t, i) => { const k = canopyOf(t); CANOPY.cache[i] = k; if (k > 0) stampCanopy(i, t, k); });
+    const tex = new THREE.DataTexture(CANOPY.bytes, R, R, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    CANOPY.tex = tex; U.uCanopy.value = tex;
+    CANOPY.next = renderTime + 1.5;
+    // test hooks: what the maps hold at a point (canopy 0..1, ground shade 0..1, meadow patches)
+    if (window.__hm) window.__hm.visual = {
+      canopy: (x, z) => { const R = CANOPY.res, i = clamp(Math.floor((x + HALF) / (WSIZE / R)), 0, R - 1), j = clamp(Math.floor((z + HALF) / (WSIZE / R)), 0, R - 1); return CANOPY.bytes[(j * R + i) * 4 + 3] / 255; },
+      meadow: (x, z) => { const R = CANOPY.res, i = clamp(Math.floor((x + HALF) / (WSIZE / R)), 0, R - 1), j = clamp(Math.floor((z + HALF) / (WSIZE / R)), 0, R - 1), q = (j * R + i) * 4; return [CANOPY.bytes[q] / 255, CANOPY.bytes[q + 1] / 255, CANOPY.bytes[q + 2] / 255]; },
+      groundAO: (x, z) => { const i = clamp(Math.floor(x + HALF), 0, 1023), j = clamp(Math.floor(z + HALF), 0, 1023); return CANOPY.ao ? CANOPY.ao[j * 1024 + i] / 255 : 0; },
+      refresh: () => { CANOPY.next = 0; updateCanopy(); },
+    };
+    return;
+  }
+  if (renderTime < CANOPY.next) return;
+  CANOPY.next = renderTime + 1.5;
+  const T = W.trees, C = CANOPY.cache;
+  let changed = false;
+  for (let i = 0; i < T.length && i < C.length; i++) {
+    const k = canopyOf(T[i]);
+    if (Math.abs(k - C[i]) < 0.04) continue;
+    stampCanopy(i, T[i], k - C[i]); C[i] = k; changed = true;
+  }
+  if (changed) CANOPY.tex.needsUpdate = true;
+}
+
+/* ------------------------------------------------------------------ */
 /* Water                                                               */
 /* ------------------------------------------------------------------ */
 const waterMat = mat({
+  uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uCloudCover: skyU.uCloudCover }, // visual pass: clouds in the mirror
   vertexShader: /* glsl */`varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
@@ -311,6 +456,8 @@ const waterMat = mat({
     ${GLSL_PLIGHT}
     uniform vec3 uLeaf;
     uniform float uRain; // feature/weather
+    uniform vec3 uCloudLit, uCloudShade;
+    uniform float uCloudCover;
     varying vec3 vW;
     vec2 waveGrad(vec2 q, float t){
       vec2 g = vec2(vnoise(q + vec2(t * 0.3, t * 0.2)) - 0.5, vnoise(q * 1.7 - vec2(t * 0.25, -t * 0.31)) - 0.5);
@@ -346,13 +493,32 @@ const waterMat = mat({
       float fres = 0.03 + 0.97 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
       vec3 R = reflect(-V, n);
       vec3 refl = skyBase(safeNormalize(vec3(R.x, max(R.y, 0.02), R.z)));
-      // low reflections catch the wooded shore rather than the sky
+      // visual pass: the clouds drift across the mirror too
+      if (R.y > 0.0) {
+        vec2 cp = R.xz / (R.y + 0.09) * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
+        float cn = fbm(cp * 1.15 + 0.4);
+        float ccov = smoothstep(uCloudCover, uCloudCover + 0.22, cn);
+        refl = mix(refl, mix(uCloudLit, uCloudShade, smoothstep(uCloudCover + 0.05, uCloudCover + 0.36, cn) * 0.9), ccov * smoothstep(0.0, 0.1, R.y) * 0.85);
+      }
+      // low reflections catch the wooded shore rather than the sky: a ragged line of crowns, not a flat band
+      float az = satan(R.z, R.x);
+      float crowns = 0.07 + 0.13 * fbm3(vec2(az * 7.0, 1.7)) + 0.04 * vnoise(vec2(az * 31.0, 4.2));
       vec3 land = mix(uLeaf * 0.42, uHorizon * 0.5, 0.35) * (uAmbient * 0.7 + uLightColor * 0.3);
-      refl = mix(refl, land, (1.0 - smoothstep(0.03, 0.2, R.y)) * 0.85);
+      land *= 0.8 + 0.3 * vnoise(vec2(az * 23.0, R.y * 30.0));
+      refl = mix(refl, land, (1.0 - smoothstep(crowns - 0.035, crowns + 0.015, R.y)) * 0.88);
       vec3 lit = uAmbient * 0.6 + uLightColor * 0.5 * mix(0.45, 1.0, sh);
-      vec3 deep = vec3(0.02, 0.085, 0.1) * lit;
-      vec3 shallow = vec3(0.17, 0.25, 0.19) * lit;
+      vec3 deep = vec3(0.015, 0.07, 0.085) * lit;
+      vec3 shallow = vec3(0.15, 0.24, 0.18) * lit;
       vec3 body = mix(shallow, deep, smoothstep(0.0, 2.4, depth));
+      // visual pass: the bed shows through the shallows, rippled with moving light
+      if (depth < 1.2) {
+        vec2 cq = vW.xz * 1.3 + g * 2.0;
+        float ca = 1.0 - abs(vnoise(cq + vec2(t * 0.35, t * 0.21)) * 2.0 - 1.0);
+        float cb = 1.0 - abs(vnoise(cq * 1.7 - vec2(t * 0.28, -t * 0.33)) * 2.0 - 1.0);
+        float caus = spow(ca * cb, 3.0) * sh;
+        vec3 bed = vec3(0.42, 0.37, 0.26) * lit * (1.0 + 1.3 * caus);
+        body = mix(bed, body, smoothstep(0.05, 1.1, depth));
+      }
       vec3 col = mix(body, refl, clamp(fres * 0.9, 0.0, 1.0));
       // the sun's glitter path and a broad sheen
       vec3 H = safeNormalize(uLightDir + V);
@@ -361,8 +527,12 @@ const waterMat = mat({
       // foam along the shore
       float shore = 1.0 - smoothstep(0.0, 0.35, depth);
       float foam = shore * smoothstep(0.45, 0.75, vnoise(vW.xz * 2.2 + vec2(t * 0.35, -t * 0.27)) + 0.35 * sin(depth * 18.0 - t * 1.6));
-      col = mix(col, shallow * 1.3, shore * 0.45);
-      col = mix(col, vec3(0.85, 0.88, 0.86) * (uAmbient * 0.7 + uLightColor * 0.5), clamp(foam, 0.0, 1.0) * 0.6);
+      col = mix(col, shallow * 1.3, shore * 0.3);
+      // visual pass: a thin line of foam lapping at the water's edge
+      float lap = 0.07 + 0.05 * sin(t * 1.3 + vnoise(vW.xz * 0.35) * 7.0);
+      float edgeFoam = (1.0 - smoothstep(0.0, 0.06, abs(depth - lap))) * smoothstep(0.3, 0.6, vnoise(vW.xz * 3.3 + vec2(t * 0.2, -t * 0.16)));
+      foam = max(foam * 0.8, edgeFoam);
+      col = mix(col, vec3(0.88, 0.9, 0.88) * (uAmbient * 0.7 + uLightColor * 0.5 * mix(0.5, 1.0, sh)), clamp(foam, 0.0, 1.0) * 0.65);
       col += (body * 1.5 + 0.06) * pointLights(vW, n) + pointLights(vW + vec3(0.0, 0.6, 0.0), reflect(-V, n)) * fres * 0.6;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
@@ -569,14 +739,17 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_SHADOW_V}
   ${GLSL_NATURE}
   ${GLSL_COVER}
+  ${GLSL_MEADOW}
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
+  varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
+  varying float vCanopy; // visual pass: tree crown overhead (drier in rain, less snow, a little shade)
   uniform float uTile, uFadeNear, uFadeFar, uInner, uWidthMul, uBladeWidth;
   uniform vec2 uCenter, uCam2;
   attribute vec2 aOff;
   attribute vec4 aRnd;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   void main(){
-    vSh = 1.0; vNat = vec4(0.0);
+    vSh = 1.0; vNat = vec4(0.0); vPatch = vec4(0.0); vCanopy = 0.0;
     vWorld = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vAcross = vec3(1.0, 0.0, 0.0); vInfo = vec4(0.0); vLook = vec4(0.0); vDecal = vec4(0.0);
     vec2 base = aOff + uTile * floor((uCenter - aOff) / uTile + 0.5);
     float dcam = length(base - uCam2);
@@ -590,10 +763,11 @@ const GRASS_VERT = /* glsl */`
     float keep = fract(aRnd.w * 17.31 + aRnd.x * 3.7);
     if (aRnd.x > A.g * 1.02 - 0.02 || keep > fade || coverAt(base) > 0.3) fade = 0.0; // nothing grows through floors and walls
     else fade = mix(0.82, 1.0, smoothstep(keep, keep + 0.25, fade));
-    float H = mix(0.4, 0.92, aRnd.y) * (1.0 + 0.45 * B.a) * (1.0 - 0.45 * B.b) * fade;
-    H *= 0.85 + 0.3 * vnoise(base * 0.3 + 7.0);
+    // visual pass: a varied sward (short turf, tall stands, long in the fields) instead of one even shag of tall blades
+    vec3 mp = meadowPatch(base);
+    float H = meadowHeight(A, B, mp) * mix(0.6, 1.3, aRnd.y * aRnd.y) * fade;
+    H *= 0.86 + 0.28 * vnoise(base * 0.3 + 7.0);
     float sparse = smoothstep(0.1, 0.62, A.g);
-    H *= mix(0.38, 1.0, sparse); // sparse grass grows short
     /* nature (05h_nature.js): cut to stubble, licked down by flames, burnt to stubs */
     vec4 nat = natureAt(base);
     float flick = 0.55 + 0.45 * sin(uTime * (9.0 + aRnd.z * 7.0) + aRnd.w * 40.0);
@@ -615,12 +789,16 @@ const GRASS_VERT = /* glsl */`
     vec3 off = bladeBend(lean, H, t, tang);
     vec3 across = vec3(-face.y, 0.0, face.x);
     float W0 = (0.05 + 0.04 * fract(aRnd.w * 7.3)) * uWidthMul * (1.0 + dcam * 0.028) * mix(1.0, uBladeWidth, 0.6) * (uWidthMul > 1.5 ? mix(0.35, 1.0, sparse) : 1.0);
+    W0 *= 0.74 + 0.26 * clamp(H / 0.55, 0.0, 1.0); // visual pass: short turf has finer blades, so it stays slender
     vec3 world = b3 + off + across * (position.x * W0);
     vWorld = world;
     vN = safeNormalize(cross(across, tang));
     vAcross = across;
-    float bright = 0.55 + 0.6 * fract(aRnd.w * 3.7) + 0.1 * vnoise(base * 0.55);
+    float bright = 0.74 + 0.4 * fract(aRnd.w * 3.7) + 0.1 * vnoise(base * 0.55);
     vInfo = vec4(t, position.z, bright, tr.a);
+    vPatch = vec4(mp.xy, fract(aRnd.w * 5.93 + aRnd.y * 2.1), gGust * gGust * uWind);
+    vCanopy = canopyAt(base);
+    vInfo.z *= 1.0 - 0.38 * groundAO(base);
     vLook = vec4(realmTint(B.rgb), clamp(B.a + smoothstep(0.55, 0.85, vnoise(base * 0.07 + 3.0)) * 0.35 * B.r, 0.0, 1.0));
     vDecal = sampleDecal(base);
     vSh = dcam < uFadeFar + 4.0 ? shadowAtV(world, vec2(aRnd.z, aRnd.y) * 2.0 - 1.0) : 1.0;
@@ -631,11 +809,14 @@ const GRASS_FRAG = /* glsl */`
   ${GLSL_ATMOS}
   ${GLSL_PLIGHT}
   uniform vec3 uGrassBase, uGrassTip, uGrassTrans, uGlowColor, uTargetColor, uAoeColor;
-  uniform float uWet, uSnowCover;
+  uniform float uWet, uSnowCover, uGrassLow;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
+  varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
+  varying float vCanopy;
   void main(){
     float t = clamp(vInfo.x, 0.0, 1.0);
+    float wetB = uWet * (1.0 - 0.8 * vCanopy), snowB = uSnowCover * (1.0 - 0.7 * vCanopy);
     float sh = clamp(vSh, 0.0, 1.0);
     vec3 V = safeNormalize(cameraPosition - vWorld);
     vec3 n = safeNormalize(vN);
@@ -643,17 +824,27 @@ const GRASS_FRAG = /* glsl */`
     n = safeNormalize(n + vAcross * clamp(vInfo.y, -1.5, 1.5) * 0.45);
     float camDist = distance(cameraPosition, vWorld);
     vec3 alb = mix(uGrassBase, uGrassTip, smoothstep(0.02, 0.8, t)) * vLook.rgb;
+    // visual pass: the meadow's patches (dry straw, lush dark clover), each blade's own hue, sun-bleached tips
+    alb = mix(alb, alb * vec3(1.32, 1.08, 0.5), vPatch.x * (0.35 + 0.65 * t) * 0.8);
+    alb = mix(alb, alb * vec3(0.74, 0.93, 0.84), vPatch.y * 0.5);
+    alb *= mix(vec3(1.07, 1.02, 0.82), vec3(0.93, 1.0, 1.1), vPatch.z);
+    alb = mix(alb, alb * vec3(1.2, 1.14, 0.78), smoothstep(0.72, 1.0, t) * 0.65);
     alb = mix(alb, alb * vec3(1.18, 0.82, 0.42) + vec3(0.2, 0.09, 0.01), vLook.a * smoothstep(0.15, 1.0, t));
     alb *= vInfo.z;
-    alb = mix(alb * (1.0 - 0.18 * uWet), vec3(0.82, 0.85, 0.9), uSnowCover * 0.65 * smoothstep(0.3, 1.0, t));
-    float ao = mix(0.08, 1.0, spow(smoothstep(0.0, 0.97, t), 1.3));
-    float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
+    alb = mix(alb * (1.0 - 0.18 * wetB), vec3(0.82, 0.85, 0.9), snowB * 0.65 * smoothstep(0.3, 1.0, t));
+    // dark only right at the roots (sparser low-detail grass lets more light down)
+    float ao = mix(0.12 + 0.16 * uGrassLow, 1.0, spow(smoothstep(0.0, 0.85, t), 1.15)) * (1.0 - 0.18 * vCanopy);
+    // lit as part of the sward as well as a blade: the normal leans toward the sky, so a sunlit meadow is as bright
+    // as the turf beyond the blades instead of a band of dark green
+    float ndl = clamp(dot(safeNormalize(n + vec3(0.0, 0.7, 0.0)), uLightDir) * 0.5 + 0.5, 0.0, 1.0);
     float bd = clamp(dot(-V, uLightDir), 0.0, 1.0);
     float back = spow(bd, 7.0) * mix(1.0, 0.35, smoothstep(3.5, 12.0, camDist));
-    vec3 col = alb * (0.28 + (0.4 * ndl + 0.8 * back + 0.14 * bd * bd) * mix(0.32, 1.0, sh)) * ao;
-    col += uGrassTrans * back * t * t * t * 0.5 * clamp(vInfo.z, 0.0, 1.5) * vLook.rgb * sh;
+    vec3 col = alb * (0.3 + (0.5 * ndl + 0.8 * back + 0.14 * bd * bd) * mix(0.32, 1.0, sh)) * ao;
+    col += uGrassTrans * back * t * t * t * 0.55 * clamp(vInfo.z, 0.0, 1.5) * vLook.rgb * sh;
+    // a gust bending a swathe of blades shows their paler sides: waves running over the meadow
+    col *= 1.0 + 0.24 * vPatch.w * t * (0.5 + 0.5 * sh);
     vec3 H = safeNormalize(uLightDir + V);
-    col += uLightColor * spow(dot(n, H), 48.0) * (0.1 + 0.5 * uWet) * t * sh;
+    col += uLightColor * spow(dot(n, H), 48.0) * (0.1 + 0.5 * wetB) * t * sh;
     col += vec3(0.17, 0.3, 0.08) * vLook.rgb * vInfo.z * pointLights(vWorld, n) * (0.35 + 0.65 * t) * ao;
     col *= 1.0 - 0.5 * vDecal.r * (1.0 - t * 0.5);
     /* nature (05h_nature.js): pale cut ends, black singed stubs, blades glowing in the fire */
@@ -677,15 +868,20 @@ const GRASS_LAYERS = [
   { tile: 72, count: 62000, segs: 3, fadeNear: 29, fadeFar: 37, inner: 14, widthMul: 2.7, ahead: 20 },
   { tile: 150, count: 60000, segs: 2, fadeNear: 56, fadeFar: 72, inner: 32, widthMul: 7.5, ahead: 42 },
 ];
+// visual pass: lower detail spends its vertices on more, simpler blades (fewer bends each) rather than on fewer
+// curvier ones, so medium and low read as a lawn instead of a few tall dark sticks
+const GRASS_SEGS = { high: [5, 3, 2], medium: [4, 3, 2], low: [3, 2, 2] };
 const grassMeshes = [];
 function buildGrass() {
   if (!COVER.built) buildCoverMask();
   for (const m of grassMeshes) { scene.remove(m); m.geometry.dispose(); }
   grassMeshes.length = 0;
   const rr = mulberry(4242);
-  for (const L of GRASS_LAYERS) {
-    const n = Math.max(1000, Math.round(L.count * quality.grass));
-    const g = bladeGeometry(L.segs);
+  const segsQ = GRASS_SEGS[quality.level] || GRASS_SEGS.high;
+  GRASS_LAYERS.forEach((L, li) => {
+    const segs = Math.min(L.segs, segsQ[li] || L.segs);
+    const n = Math.max(1000, Math.round(L.count * quality.grass * (2 * L.segs + 1) / (2 * segs + 1)));
+    const g = bladeGeometry(segs);
     const off = new Float32Array(n * 2), rnd = new Float32Array(n * 4);
     // stratified jitter keeps the density even
     const side = Math.ceil(Math.sqrt(n));
@@ -703,6 +899,7 @@ function buildGrass() {
       uniforms: {
         uTile: { value: L.tile }, uFadeNear: { value: L.fadeNear }, uFadeFar: { value: L.fadeFar }, uInner: { value: L.inner },
         uWidthMul: { value: L.widthMul }, uCenter: { value: new THREE.Vector2() }, uCam2: { value: new THREE.Vector2() },
+        uGrassLow: { value: quality.level === 'low' ? 1 : quality.level === 'medium' ? 0.5 : 0 },
       },
     }));
     m.frustumCulled = false;
@@ -710,9 +907,10 @@ function buildGrass() {
     m.userData.layer = L;
     scene.add(m);
     grassMeshes.push(m);
-  }
+  });
 }
 function updateGrassCenters(camX, camZ, fwdX, fwdZ) {
+  updateCanopy(); // visual pass: built on the first frame, then refreshed as trees fall and regrow
   const l = Math.hypot(fwdX, fwdZ) || 1;
   fwdX /= l; fwdZ /= l;
   for (const m of grassMeshes) {
@@ -752,6 +950,7 @@ const flowerMat = mat({
     ${GLSL_SHADOW_V}
     ${GLSL_NATURE}
     ${GLSL_COVER}
+    ${GLSL_MEADOW}
     uniform vec3 uPalL[6], uPalE[6], uPalT[6];
     uniform float uTile, uPetals;
     uniform vec2 uCenter, uCam2;
@@ -773,7 +972,8 @@ const flowerMat = mat({
       vec3 c = u < B.r ? uPalL[ci] : (u < B.r + B.g ? uPalE[ci] : uPalT[ci]);
       vCol = c;
       vec3 b3 = vec3(base.x, terrainHeight(base) - 0.03, base.y);
-      float stemH = (0.5 + 0.35 * fract(aRnd.w * 5.1)) * (1.0 + 0.4 * B.a);
+      // heads ride just above the turf they grow in (visual pass: the sward's height varies now)
+      float stemH = meadowHeight(A, B, meadowPatch(base)) * (0.92 + 0.32 * fract(aRnd.w * 5.1)) + 0.05;
       vec2 face = vec2(cos(aRnd.w * 6.28), sin(aRnd.w * 6.28));
       vec4 tr = sampleTrail(base);
       vec2 lean = bladeLean(b3, face, aRnd.w, 0.75, tr);

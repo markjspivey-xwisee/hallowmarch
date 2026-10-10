@@ -36,6 +36,9 @@ const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 900);
 camera.rotation.order = 'YXZ';
 const scene = new THREE.Scene();
 
+// a black texel for world maps that are not built yet (visual pass: meadow, canopy and ground shade)
+const ZERO_TEX = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat);
+ZERO_TEX.needsUpdate = true;
 /* Shared uniforms (live objects; materials reference them directly) */
 const U = {
   uTime: { value: 0 },
@@ -61,6 +64,8 @@ const U = {
   uHeightTex: { value: null },
   uWorldA: { value: null },
   uWorldB: { value: null },
+  uCanopy: { value: ZERO_TEX }, // visual pass: meadow patches (rgb) and tree crown cover (a), one texel per 2 m (03_terrain.js)
+  uGroundAO: { value: ZERO_TEX }, // visual pass: contact shade round the foot of walls and houses, 1 m texels (03_terrain.js)
   uTrail: { value: null },
   uTrailBounds: { value: new THREE.Vector4(-32, -32, 64, 64) },
   uDecal: { value: null },
@@ -119,13 +124,21 @@ vec3 skyBase(vec3 dir){
   vec3 c = mix(uHorizon, uZenith, spow(k, 0.8));
   float g = max(0.0, dot(dir, uGlowDir));
   c += uSunGlow * (spow(g, 8.0) * 0.07 + spow(g, 900.0) * 0.22);
+  // visual pass: a broad warm band along the horizon on the sun's side (the glow colour is near black at midday)
+  c += uSunGlow * spow(g, 3.0) * 0.16 * (1.0 - 0.8 * k);
   return c;
 }
 vec3 fogColor(vec3 dir){ return skyBase(safeNormalize(vec3(dir.x, 0.012 + max(dir.y, 0.0) * 0.5, dir.z))); }
+// visual pass: the haze thins with height (exponential height fog integrated along the view ray), so valleys and the
+// foot of a slope sink into it while ridges and peaks stand out; at the camera's own height it is as thick as before
 vec3 applyFog(vec3 col, vec3 wpos){
   vec3 v = wpos - cameraPosition;
   float d = length(v);
-  float f = 1.0 - exp(-d * uFogDensity);
+  const float FK = 0.02;
+  float c0 = exp(-FK * clamp(cameraPosition.y - 2.0, -6.0, 400.0));
+  float dy = v.y * FK;
+  float hk = abs(dy) > 1e-3 ? (1.0 - exp(-dy)) / dy : 1.0 - 0.5 * dy;
+  float f = 1.0 - exp(-d * uFogDensity * clamp(c0 * hk, 0.0, 2.5));
   return mix(col, fogColor(v / max(d, 1e-4)), clamp(f, 0.0, 1.0));
 }
 `;
@@ -322,7 +335,11 @@ float viewBlock(vec3 wp){
 const GLSL_WORLD = /* glsl */`
 uniform highp sampler2D uHeightTex;
 uniform sampler2D uWorldA, uWorldB;
+uniform sampler2D uCanopy, uGroundAO;
 vec2 worldUV(vec2 xz){ return ((xz + 512.0) * 0.5 + 0.5) / 513.0; }
+// how much tree crown is overhead (visual pass: the canopy map in 03_terrain.js; 0 before it is built)
+float canopyAt(vec2 xz){ return texture(uCanopy, (xz + 512.0) / 1024.0).a; }
+float groundAO(vec2 xz){ return texture(uGroundAO, (xz + 512.0) / 1024.0).r; }
 float terrainHeight(vec2 xz){
   vec2 g = clamp((xz + 512.0) * 0.5, vec2(0.0), vec2(511.999));
   ivec2 i = ivec2(floor(g)); vec2 f = g - vec2(i);
@@ -366,9 +383,11 @@ vec4 sampleTrail(vec2 xz){
   t.rg = t.rg * 2.0 - 1.0;
   return t;
 }
+float gGust = 0.0; // the last gust bladeLean met (visual pass: the grass shows the waves running over it)
 vec2 bladeLean(vec3 base, vec2 face, float seed, float stiff, vec4 tr){
   vec2 across = vec2(-face.y, face.x);
   float gust = vnoise(base.xz * 0.05 - uWindDir * uTime * 0.42);
+  gGust = gust;
   float gust2 = vnoise(base.xz * 0.21 + vec2(5.2, 1.3) - uWindDir * uTime * 1.2);
   float w = uWind * (0.05 + 0.42 * gust * gust + 0.14 * gust2 * gust2);
   float flutter = sin(uTime * (1.5 + seed * 1.6) + seed * 31.0 + base.x * 0.45) * 0.05;
@@ -411,30 +430,34 @@ function shareMat(base, extra = {}) {
 /* sun/moon/ldir are compass [azimuth, elevation] in degrees           */
 /* ------------------------------------------------------------------ */
 const TOD_KEYS = [
-  { p: 0, zen: '#98bbe6', hor: '#e0e9ef', glow: '#16120c', cLit: '#ffffff', cShade: '#d6dee9', cover: 0.46,
+  { p: 0, zen: '#86afe2', hor: '#d5e2ec', glow: '#16120c', cLit: '#ffffff', cShade: '#d6dee9', cover: 0.46,
     light: '#fff4e0', amb: '#a3b5c2', gBase: '#14380a', gTip: '#88d43e', gTrans: '#3c6a12', leaf: '#5d7a32', trunk: '#4a4036',
-    fog: 0.0042, stars: 0, night: 0, petals: 0.55, width: 0.85, ldir: [118, 34], sun: [118, 30], sunVis: 1, moon: [235, -10], moonVis: 0, bloom: 0.25 },
+    fog: 0.0042, stars: 0, night: 0, petals: 0.55, width: 0.85, ldir: [118, 34], sun: [118, 30], sunVis: 1, moon: [235, -10], moonVis: 0, bloom: 0.25,
+    gSat: 1.12, gCon: 1.07, gWarm: 0.0 },
   { p: 0.5, petals: 0.95 },
   { p: 1, zen: '#bb9ea8', hor: '#efcfaa', glow: '#b8743a', cLit: '#f1dcc4', cShade: '#bea0a4', cover: 0.52,
     light: '#ffd58f', amb: '#b9a58e', gBase: '#1e3206', gTip: '#bce42c', gTrans: '#d8f23a', leaf: '#5d6224', trunk: '#3e2a1c',
-    fog: 0.0030, stars: 0, night: 0, petals: 1, width: 1, ldir: [255, 10], sun: [255, 5], sunVis: 1, moon: [95, -8], moonVis: 0, bloom: 0.32 },
+    fog: 0.0030, stars: 0, night: 0, petals: 1, width: 1, ldir: [255, 10], sun: [255, 5], sunVis: 1, moon: [95, -8], moonVis: 0, bloom: 0.32,
+    gSat: 1.14, gCon: 1.08, gWarm: 0.045 },
   { p: 1.13, sun: [255, 3.2] },
   { p: 1.22, sun: [255, 1.8] },
   { p: 1.3, zen: '#c4969c', hor: '#ebb49d', glow: '#bb6436', cLit: '#e9b8a4', cShade: '#a98086', light: '#ffb27c', amb: '#a8848a',
     gBase: '#2a2c06', gTip: '#879a1e', gTrans: '#c09030', leaf: '#6c4e1e', sun: [255, -0.4], sunVis: 1, moonVis: 0 },
   { p: 1.4, sun: [255, -3], sunVis: 0 },
-  { p: 1.55, zen: '#b6617a', hor: '#e5807f', glow: '#9a3826', cLit: '#d6847a', cShade: '#93506a', light: '#ff7a48', amb: '#8a5462',
-    gBase: '#1e1604', gTip: '#6a5c10', gTrans: '#8a4a14', leaf: '#7a3e12', trunk: '#3a1e14', fog: 0.0036, night: 0.22, bloom: 0.4, moonVis: 1, ldir: [250, 6], sun: [262, -6] },
+  { p: 1.55, zen: '#865d8c', hor: '#ea8872', glow: '#9a3826', cLit: '#d6847a', cShade: '#93506a', light: '#ff7a48', amb: '#8a5462',
+    gBase: '#1e1604', gTip: '#6a5c10', gTrans: '#8a4a14', leaf: '#7a3e12', trunk: '#3a1e14', fog: 0.0036, night: 0.22, bloom: 0.4, moonVis: 1, ldir: [250, 6], sun: [262, -6],
+    gSat: 1.1, gCon: 1.06, gWarm: 0.03 },
   { p: 1.65, moon: [95, -2.2] },
   { p: 1.7, moon: [97, 1.0] },
-  { p: 1.75, zen: '#963f62', hor: '#bc5f74', glow: '#4e1a2a', cLit: '#ad6a72', cShade: '#682b55', light: '#c0607a', amb: '#5e3352',
+  { p: 1.75, zen: '#5e4274', hor: '#c2626c', glow: '#4e1a2a', cLit: '#ad6a72', cShade: '#682b55', light: '#c0607a', amb: '#5e3352',
     gBase: '#0c1606', gTip: '#3c4612', gTrans: '#3a2410', leaf: '#5a2a1c', trunk: '#2a1418', night: 0.5, moon: [100, 4] },
   { p: 1.84, moon: [108, 11] },
   { p: 1.9, zen: '#432d65', hor: '#5a4179', glow: '#120a18', cLit: '#54466e', cShade: '#2a1b4c', light: '#6c5ea2', amb: '#2e2a52',
     gBase: '#02120c', gTip: '#0e3a24', gTrans: '#0c2a28', leaf: '#1e1a2e', trunk: '#120e22', stars: 0.4, night: 0.85, moon: [118, 20], ldir: [150, 30], sun: [280, -14] },
   { p: 2, zen: '#163165', hor: '#22396a', glow: '#000000', cLit: '#34487a', cShade: '#253a6c', cover: 0.56,
     light: '#7b93cf', amb: '#24395a', gBase: '#01140f', gTip: '#0f4c35', gTrans: '#0c3236', leaf: '#08202c', trunk: '#0a1428',
-    fog: 0.0042, stars: 1, night: 1, petals: 1, width: 1, ldir: [160, 36], sun: [300, -24], sunVis: 0, moon: [160, 32], moonVis: 1, bloom: 0.55 },
+    fog: 0.0042, stars: 1, night: 1, petals: 1, width: 1, ldir: [160, 36], sun: [300, -24], sunVis: 0, moon: [160, 32], moonVis: 1, bloom: 0.55,
+    gSat: 0.9, gCon: 1.05, gWarm: -0.05 },
   { p: 2.25, zen: '#564467', hor: '#7f6387', glow: '#140c18', cLit: '#6c5878', cShade: '#3a2850', light: '#7a6a9e', amb: '#36304f',
     gBase: '#03140c', gTip: '#11402a', gTrans: '#102a24', leaf: '#3a2430', trunk: '#1e1420', stars: 0.5, night: 0.9, moon: [205, 20] },
   { p: 2.3, petals: 1 },
@@ -447,13 +470,14 @@ const TOD_KEYS = [
   { p: 2.56, moon: [232, -3], moonVis: 1 },
   { p: 2.6, moonVis: 0 },
   { p: 2.7, zen: '#a67788', hor: '#e8a498', glow: '#6a3e2c', cLit: '#d49c8e', cShade: '#9a7090', light: '#ffc6a2', amb: '#7e6a78',
-    gBase: '#101e04', gTip: '#465c18', gTrans: '#6a6a1a', leaf: '#7c5a38', trunk: '#3a2a22', stars: 0, night: 0.28, sun: [434, 0.5], sunVis: 1 },
+    gBase: '#101e04', gTip: '#465c18', gTrans: '#6a6a1a', leaf: '#7c5a38', trunk: '#3a2a22', stars: 0, night: 0.28, sun: [434, 0.5], sunVis: 1,
+    gSat: 1.08, gCon: 1.05, gWarm: 0.035 },
   { p: 2.87, zen: '#bab0ba', hor: '#ead2cc', glow: '#2a2016', cLit: '#f1e5e0', cShade: '#c6bac4', light: '#fde6d6', amb: '#9a98a2',
     gBase: '#0e2604', gTip: '#4f8224', gTrans: '#3a4a10', leaf: '#6e6c4c', trunk: '#4a4036', night: 0.06, sun: [445, 9], ldir: [90, 14] },
 ];
 TOD_KEYS.push({ ...TOD_KEYS[0], p: 3, sun: [478, 30] });
 const TOD_COLOR = ['zen', 'hor', 'glow', 'cLit', 'cShade', 'light', 'amb', 'gBase', 'gTip', 'gTrans', 'leaf', 'trunk'];
-const TOD_SCALAR = ['cover', 'fog', 'stars', 'night', 'sunVis', 'moonVis', 'bloom', 'petals', 'width'];
+const TOD_SCALAR = ['cover', 'fog', 'stars', 'night', 'sunVis', 'moonVis', 'bloom', 'petals', 'width', 'gSat', 'gCon', 'gWarm'];
 const TOD_ANGLE = ['ldir', 'sun', 'moon'];
 const todTracks = {};
 for (const f of [...TOD_COLOR, ...TOD_SCALAR, ...TOD_ANGLE]) {
@@ -535,6 +559,15 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
         float tex = 0.9 + 0.1 * fbm(mp * 2.2 + 3.0) - 0.07 * smoothstep(0.1, 0.9, length(mp - vec2(0.25, -0.3)));
         col = mix(col, vec3(1.9, 1.86, 1.75) * tex, mdisk * uMoonVis);
       }
+      // visual pass: a faint band of the galaxy across the night sky, dust lanes and all
+      if (uStars > 0.001 && dir.y > -0.02) {
+        vec3 bandN = normalize(vec3(0.42, 0.55, -0.72));
+        float bd = dot(dir, bandN);
+        float band = exp(-bd * bd / 0.022);
+        vec2 bp = vec2(satan(dir.z, dir.x) * 3.0, bd * 9.0);
+        float dust = fbm3(bp * 1.7 + 4.0);
+        col += vec3(0.5, 0.52, 0.66) * band * (0.35 + 0.65 * smoothstep(0.35, 0.75, dust)) * (1.0 - 0.6 * smoothstep(0.55, 0.8, fbm3(bp * 3.1 - 2.0))) * uStars * 0.075 * smoothstep(-0.02, 0.2, dir.y);
+      }
       float sc = dot(dir, uSunDir);
       float sr = 0.0225;
       float sdisk = (1.0 - smoothstep(sr - aw, sr + aw, length(cross(dir, uSunDir)))) * step(0.0, sc);
@@ -551,6 +584,11 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
         float thick = smoothstep(cc0 + 0.05, cc0 + 0.36, n);
         vec3 cc = mix(uCloudLit, uCloudShade, thick * 0.9);
         cc += uSunGlow * spow(dot(dir, uGlowDir), 7.0) * 0.12;
+        // visual pass: thin edges near the sun light up (a silver lining), thick hearts darken underneath
+        float gl = spow(max(dot(dir, uGlowDir), 0.0), 5.0);
+        float rim = cov * (1.0 - thick);
+        cc += (uSunGlow * 0.9 + uCloudLit * 0.25) * rim * gl * 0.9 * uSunVis;
+        cc *= 1.0 - 0.14 * thick * smoothstep(0.1, 0.6, n - cc0);
         col = mix(col, cc, cov * hz * 0.92);
       }
       gl_FragColor = vec4(safeColor(col), 0.0);
@@ -623,10 +661,11 @@ const composite = new THREE.ShaderMaterial({
     tScene: { value: null }, tBloom: { value: null }, uRes: { value: new THREE.Vector2(1, 1) },
     uBloom: { value: 0.35 }, uTime: { value: 0 }, uVignette: { value: 0.34 }, uFlash: { value: new THREE.Vector4(0, 0, 0, 0) },
     tRays: { value: null }, uRays: { value: 0 },
+    uGrade: { value: new THREE.Vector4(1, 1, 0, 0) }, // visual pass: vibrance, contrast, warm (+) or cool (-) by time of day
   },
   vertexShader: FS_VERT,
   fragmentShader: /* glsl */`
-    uniform sampler2D tScene, tBloom, tRays; uniform vec2 uRes; uniform float uBloom, uTime, uVignette, uRays; uniform vec4 uFlash;
+    uniform sampler2D tScene, tBloom, tRays; uniform vec2 uRes; uniform float uBloom, uTime, uVignette, uRays; uniform vec4 uFlash, uGrade;
     varying vec2 vUv;
     ${FIN3}
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -634,6 +673,14 @@ const composite = new THREE.ShaderMaterial({
       vec3 col = clamp(finite3(texture2D(tScene, vUv).rgb), 0.0, 8.0);
       col += clamp(finite3(texture2D(tBloom, vUv).rgb), 0.0, 8.0) * uBloom;
       if (uRays > 0.5) col += clamp(finite3(texture2D(tRays, vUv).rgb), 0.0, 4.0);
+      // visual pass: a grade that follows the time of day: vibrance (lifts dull colours more than vivid ones),
+      // a contrast curve pivoting on the mid tones (blacks stay put) and a warm or cool balance
+      float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      float mxc = max(col.r, max(col.g, col.b)), mnc = min(col.r, min(col.g, col.b));
+      float satNow = (mxc - mnc) / max(mxc, 1e-4);
+      col = max(mix(vec3(luma), col, 1.0 + (uGrade.x - 1.0) * (1.0 - satNow)), 0.0);
+      col *= vec3(1.0 + uGrade.z, 1.0 + uGrade.z * 0.2, 1.0 - uGrade.z);
+      col = 0.42 * pow(col / 0.42, vec3(uGrade.y));
       vec2 q = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
       float vig = 1.0 - uVignette * smoothstep(0.35, 1.05, length(q * vec2(0.9, 1.0)));
       col *= vig;
@@ -768,6 +815,7 @@ function applyTimeOfDay(p) {
   skyU.uSunVis.value = todSample('sunVis', p)[0];
   skyU.uMoonVis.value = todSample('moonVis', p)[0];
   composite.uniforms.uBloom.value = todSample('bloom', p)[0];
+  composite.uniforms.uGrade.value.set(todSample('gSat', p)[0], todSample('gCon', p)[0], todSample('gWarm', p)[0], 0);
   const ld = todSample('ldir', p), sd = todSample('sun', p), md = todSample('moon', p);
   compassDir(ld[0], Math.max(ld[1], 4), U.uLightDir.value);
   compassDir(sd[0], sd[1], skyU.uSunDir.value);

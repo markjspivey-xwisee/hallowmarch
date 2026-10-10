@@ -229,7 +229,7 @@ function drawActors(fx, fz) {
         const MA = e.mountAnim, H = crowdBeast.horse;
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1;
-        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = e.anim.flash;
+        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash); // the horse is as wet as its rider
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
         _a4[0] = MA.phase; _a4[1] = MA.amt;
@@ -248,7 +248,7 @@ function drawActors(fx, fz) {
       }
     } else {
       _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc;
-      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = e.anim.flash;
+      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash); // visual pass: its own wet and snow
       const C = crowdBeast[e.kind];
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }

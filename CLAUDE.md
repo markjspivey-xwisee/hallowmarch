@@ -154,7 +154,14 @@ The harness lives in `tools/`:
 **Materials**
 - Every material is a `THREE.ShaderMaterial` made with `mat()`. All of them share the live uniforms in `U`: time, sun, fog, wetness, snow, night and so on.
 - Weather and time of day therefore reach every shader through `U`. New shaders should read the same uniforms.
-- Weather on a surface goes through the `GLSL_WEATHER` chunk in `02_render.js` (`wetAlbedo`, `wetSheen`, `rivulets`, `snowAmount`, `snowAlbedo`, `snowSparkle`), called with `uWet` and `uSnowCover` scaled by how sheltered the surface is; pass `gPL` as the heat so snow melts by fires. `uRain` is the rain falling right now (rings on the water). Characters take their own amounts from the `iWear` attribute.
+- Weather on a surface goes through the `GLSL_WEATHER` chunk in `02_render.js` (`wetAlbedo`, `wetSheen`, `rivulets`, `snowAmount`, `snowAlbedo`, `snowSparkle`), called with `uWet` and `uSnowCover` scaled by how sheltered the surface is; pass `gPL` as the heat so snow melts by fires. `uRain` is the rain falling right now (rings on the water). Characters take their own amounts from the `iWear` attribute; beasts from `iColB.w` (the hit flash in the fraction, wet and snow in whole sixteenths above it: `beastWx` in `05h_wear.js`, which now soaks and dries beasts as well).
+- World maps every shader can read through `GLSL_WORLD` (built on the first frame by `updateCanopy` in `03_terrain.js`, 2 m texels unless noted):
+  - `uCanopy`: rgb are the meadow's patches (`meadowPatch`: dry straw, lush clover, tall stands; ground, blades and flowers all use them), alpha is the tree-crown cover (`canopyAt`). The cover follows felled, burning, leafless and regrowing trees every 1.5 s. Ground and grass under crowns stay drier in rain, gather less snow and lie in a little shade.
+  - `uGroundAO` (1 m): contact shade on the ground at the foot of walls, houses, gates, fences, props and posts, baked from `COLL` (`groundAO`).
+  - Test hooks: `__hm.visual.canopy(x, z)`, `.meadow(x, z)`, `.groundAO(x, z)`, `.refresh()`.
+- `meadowHeight` sets the turf height (short sward, taller stands, long in fields, trimmed by roads); flower heads ride on it. `GRASS_SEGS` gives each quality its bends per blade layer: medium and low spend their vertices on more, simpler blades.
+- Fog is exponential height fog (`applyFog`): as thick as before at the camera's height, thinner up the slopes.
+- The final composite grades by time of day: the `gSat` (vibrance), `gCon` (contrast about the mid tones) and `gWarm` keys in `TOD_KEYS`.
 
 **Buildings**
 - Buildings are merged geometry with a per-vertex material id (`MAT` in `04_props.js`: stone 0 … rock 15, drystone 16).

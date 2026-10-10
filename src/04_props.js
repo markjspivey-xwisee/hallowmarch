@@ -110,6 +110,7 @@ const buildingMat = mat({
         vec2 cell = vec2(floor(x), row);
         vec2 f = vec2(fract(x), fract(uv.y / s.y));
         float id = hash12(cell);
+        alb *= mix(vec3(1.05, 1.0, 0.93), vec3(0.94, 0.98, 1.04), hash12(cell + 7.3)); // visual pass: warm and cool stones
         float edge = min(min(f.x, 1.0 - f.x) * s.x, min(f.y, 1.0 - f.y) * s.y);
         alb *= (0.8 + 0.28 * id) * mix(0.58, 1.0, smoothstep(0.015, 0.06, edge)) * (0.88 + 0.22 * vnoise(vW.xz * 1.7 + vW.y));
         alb = mix(alb, alb * vec3(0.72, 0.88, 0.62), smoothstep(0.55, 0.9, vnoise(vW.xz * 0.4 + vW.y * 0.3)) * 0.5 * (1.0 - smoothstep(1.5, 4.0, vAO * 4.0)));
@@ -706,9 +707,14 @@ const treeMat = mat({
         float det = dot(dpx, r1);
         n = safeNormalize(abs(det) * n - 0.9 * sign(det) * (dhx * r1 + dhy * r2));
         vec3 alb = uLeaf * uKindTint * (0.78 + 0.5 * vTint) * (0.72 + 0.55 * leafy) * (0.72 + 0.45 * clump);
-        float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
+        // visual pass: each tree its own hue, a crown lit and shaded as one mass (sky above, shade beneath),
+        // and light through the thin edges of the crown when the sun is behind it
+        alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31));
+        float wrapL = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
+        float skyL = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
         float back = spow(clamp(dot(-V, uLightDir), 0.0, 1.0), 4.0);
-        col = alb * (0.3 + 0.55 * vAO * mix(0.62, 1.0, sh) + 0.55 * ndl * vAO * mix(0.25, 1.0, sh)) + alb * back * 0.45 * vAO * sh;
+        col = alb * (0.2 + 0.36 * vAO * (0.55 + 0.45 * skyL) * mix(0.75, 1.0, sh) + 0.78 * wrapL * wrapL * vAO * mix(0.22, 1.0, sh));
+        col += alb * vec3(1.1, 1.22, 0.55) * back * (0.3 + 0.7 * edge) * 0.62 * vAO * sh;
       }
       /* ---- weather (feature/weather): wet bark darkens, wet leaves shine ---- */
       if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.38 : 0.14); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.3), vPart < 0.5 ? 0.8 : 0.7, sh) * vAO; }
