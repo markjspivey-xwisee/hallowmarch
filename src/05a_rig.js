@@ -624,6 +624,21 @@ const ACTOR_COMMON = /* glsl */`
   mat3 rotY(float a){ float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c); }
   mat3 rotZ(float a){ float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
 `;
+// [polish] the saddle under a rider moves as the horse's back does (horseSeat: set by 05c_beasts.js from the horse's own
+// gait and vault, which then rebuilds this shader; a stub until then)
+let HORSE_SEAT_GLSL = 'vec3 horseSeat(float ph, float amtRaw, bool air){ return vec3(0.0); }';
+// [polish] where each planted foot really is: a row of four feet per body drawn this frame, (along, across) in metres in
+// the body's own frame against where the gait would put it (13r_motion.js: footLockStep keeps each planted foot's place
+// on the ground; drawActors fills the rows). A row is found by the body's slot: people carry it above the bit for
+// 'female' in iStyle.z, beasts above their weather in iColB.w
+const FOOT_LOCK = { W: 4, H: 256, n: 0 };
+FOOT_LOCK.data = new Float32Array(FOOT_LOCK.W * FOOT_LOCK.H * 4);
+FOOT_LOCK.tex = new THREE.DataTexture(FOOT_LOCK.data, FOOT_LOCK.W, FOOT_LOCK.H, THREE.RGBAFormat, THREE.FloatType);
+FOOT_LOCK.tex.needsUpdate = true;
+const FOOT_LOCK_GLSL = /* glsl */`
+  uniform sampler2D uFootLock;
+  vec2 footLock(float slot, int f){ return slot < 0.5 ? vec2(0.0) : texelFetch(uFootLock, ivec2(f, int(slot - 0.5)), 0).xy; }
+`;
 const HSK = { // skeleton constants for GLSL
   SPINE: glv(SK.spine), NECK: glv(SK.neck), SHL: glv(SK.shoulder), SHR: glv([-SK.shoulder[0], SK.shoulder[1], SK.shoulder[2]]),
   ELL: glv(SK.elbow), ELR: glv([-SK.elbow[0], SK.elbow[1], SK.elbow[2]]), HIL: glv(SK.hip), HIR: glv([-SK.hip[0], SK.hip[1], SK.hip[2]]),
@@ -679,6 +694,8 @@ function humanVS(depth) {
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit; varying vec4 vWear;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
+  ${HORSE_SEAT_GLSL}
+  ${FOOT_LOCK_GLSL}
   void main(){
     ${depth ? '' : 'vW = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vO = vec3(0.0); vUV = aUV; vMat = aMat; vAO = aAO; vTab = iColA.rgb; vArm = iColB.rgb; vMisc = iMisc; vStyle = iStyle; vFlags = iColB.w; vBit = aBit; vWear = iWear;'}
     if (aBit > -0.5) {
@@ -689,7 +706,7 @@ function humanVS(depth) {
     P = position; Nn = normal;
     int bone = int(aBone + 0.5);
     int m = int(aMat + 0.5);
-    float fem = iStyle.z, bulk = iStyle.w;
+    float fem = mod(iStyle.z, 2.0), bulk = iStyle.w; // [polish] (above the bit: the motion's direction and bend, below)
     bool gear = m == 5 || m == 6 || m == 9 || m == 15 || m == 18 || m == 19 || m == 24 || m == 14;
     bool torso = bone <= 1 || bone == 11;
     bool arm = bone >= 3 && bone <= 6;
@@ -729,6 +746,13 @@ function humanVS(depth) {
     float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
     float gaitBob = mix(0.022, -0.03, runK) * gk * cos(12.566 * (uL - duty * 0.5));   // a walker vaults over the planted leg; a runner sinks into it
     vec2 fL = footPath(uL, duty, reach, liftH, runK), fR = footPath(fract(uL + 0.5), duty, reach, liftH, runK);
+    // [polish] a planted foot stays where it came down however the body moves over it (shoved aside, sliding along a wall,
+    // turning sharply at speed): the lock moves each foot's target by what the gait alone gets wrong (footLockStep,
+    // 13r_motion.js), along the leg and across it (the leg swings out about the hip; the feet do not cross)
+    float flSlot = floor(iStyle.z * 0.5 + 0.01), rsc0 = max(iColA.w, 0.3);
+    vec2 lkL = footLock(flSlot, 0) / rsc0, lkR = footLock(flSlot, 1) / rsc0;
+    fL.x += lkL.y; fR.x += lkR.y;
+    float abL = atan(clamp(lkL.x, -0.12, 0.45) / 0.86), abR = atan(clamp(lkR.x, -0.45, 0.12) / 0.86);
     // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
     // comes down on it, and the hips sink a little so the lower foot reaches
     float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
@@ -736,7 +760,7 @@ function humanVS(depth) {
     float slopeDrop = min(0.1, abs(slopeK) * 0.14);
     gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
-    vec2 ikL = legIK(fL.x, fL.y + slopeK * fL.x - 0.845 + gaitDrop - gaitBob), ikR = legIK(fR.x, fR.y + slopeK * fR.x - 0.845 + gaitDrop - gaitBob);
+    vec2 ikL = legIK(fL.x, (fL.y + slopeK * fL.x - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + slopeK * fR.x - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running
     float uaL = s1 * (0.42 + 0.25 * run) * k, uaR = -s1 * (0.42 + 0.25 * run) * k;
@@ -751,7 +775,7 @@ function humanVS(depth) {
     float swayX = 0.012 * sin(t * 0.45) * idle + 0.012 * s1 * k * (1.0 - run);
     float stepZ = 0.0;
     float capeX = 0.07 + 0.3 * k + 0.32 * run;
-    float spreadL = 0.0, spreadR = 0.0, crouch = gaitDrop; // (with the slope's drop)
+    float spreadL = abL, spreadR = abR, crouch = gaitDrop; // (with the slope's drop; [polish] the legs swung out along the motion)
     // a burning brand (09d_brand.js: BRAND.pose) is held up and forward in the left hand
     bool brand = ((int(iMisc.y + 0.5) >> 20) & 1) == 1;
     if (brand) { uaL = -1.05 + 0.03 * sin(t * 1.7); uaLz = -0.1; faL = -0.78; }
@@ -941,15 +965,19 @@ function humanVS(depth) {
       }
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
-    float mounted = mod(floor(iColB.w / 8.0), 2.0);
+    float mounted = mod(floor(iColB.w / 8.0), 2.0), seatTurn = 0.0;
     if (mounted > 0.5) {
       float hk = clamp(amt * 2.2, 0.0, 1.0), trot = smoothstep(0.55, 0.95, amt), gal = smoothstep(1.05, 1.4, amt);
       thL = -1.28; thR = -1.28; shL = 1.22; shR = 1.22; spreadL = 0.5; spreadR = -0.5;
       if (atype < 0.5 || atype > 5.5) { uaL = -0.45; uaR = -0.45; faL = -1.0; faR = -1.0; uaLz = -0.16; uaRz = 0.16; }
       chestX = 0.06 + 0.18 * gal + 0.03 * sin(ph * 2.0) * trot; chestY *= 0.3; pelvisY = 0.0;
       headX = -0.08 * gal + 0.02 * sin(t * 0.33); headY *= 0.5;
-      bob = (abs(sin(ph)) * (0.012 + 0.03 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.05 * gal) * hk;
-      swayX = 0.0; stepZ = 0.0; crouch = 0.0;
+      // [polish] the saddle rides with the horse's back (its flex, pitch, bob and vault: horseSeat), the rider with it,
+      // rising a little out of it at the trot
+      vec3 hs = horseSeat(ph, iAnim.y, atype > 5.5 && atype < 6.5);
+      float rsc = max(iColA.w, 0.3);
+      bob = hs.y / rsc + abs(sin(ph)) * 0.014 * trot * (1.0 - gal) * hk;
+      swayX = 0.0; stepZ = hs.x / rsc; crouch = 0.0; seatTurn = hs.z * 0.6;
       if (brand && (atype < 0.5 || atype > 5.5)) { uaL = -1.05; uaLz = -0.1; faL = -0.78; }
       capeX = 0.12 + 0.35 * hk + 0.5 * gal;
       if (atype > 15.5 && atype < 16.5) {
@@ -997,7 +1025,7 @@ function humanVS(depth) {
     if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; rotP(rotZ(uaLz * w) * rotX(uaL * w), ${HSK.SHL}); }
     if (bone == 2) rotP(rotY(headY * aW) * rotX(headX * aW), ${HSK.NECK});
     if ((bone >= 1 && bone <= 6) || bone == 11) { float w = bone == 1 ? aW : 1.0; rotP(rotY(chestY * w) * rotX(chestX * w), ${HSK.SPINE}); }
-    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); rotP(rotX((bone == 8 ? footL : footR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
+    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); rotP(rotZ(-(bone == 8 ? spreadL : spreadR) * ankK * fk) * rotX((bone == 8 ? footL : footR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
     if (bone == 8) rotP(rotX(shL * aW), ${HSK.KNL});
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
@@ -1007,6 +1035,7 @@ function humanVS(depth) {
     float legW = (bone == 7 || bone == 9) ? 1.0 - aW : (bone == 8 || bone == 10) ? 0.0 : 1.0;
     rotP(rotY(pelvisY * legW), vec3(0.0, 0.95, 0.0));
     P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX * legW; P.z += stepZ;
+    if (seatTurn != 0.0) rotP(rotX(seatTurn), vec3(0.0, 0.86 + bob, stepZ)); // [polish] the rider tips with the saddle (about the seat)
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
     if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }

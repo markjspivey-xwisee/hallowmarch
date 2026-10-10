@@ -320,6 +320,7 @@ function updateAnim(e, dt) {
   }
   e.anim.flash = Math.max(0, e.anim.flash - dt * 5);
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
+  footLockStep(e, dt); // [polish] each planted foot keeps its place on the ground (13s_footlock.js)
 }
 function animActValue(e) {
   const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
