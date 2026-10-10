@@ -195,7 +195,7 @@ function spellDisc(x, z, r, kind, dur, col = [1, 1, 1], lift = 0.05) {
   d.mesh.geometry.attributes.position.needsUpdate = true;
   const u = d.mesh.material.uniforms;
   u.uKind.value = kind; u.uAge.value = 0; u.uDur.value = dur; u.uCol.value.set(col[0], col[1], col[2]);
-  d.age = 0; d.dur = dur; d.on = true; d.mesh.visible = true;
+  d.age = 0; d.dur = dur; d.on = true; d.mesh.visible = true; d.owner = null; // [balance] whoever holds it sets the owner again
   return d;
 }
 

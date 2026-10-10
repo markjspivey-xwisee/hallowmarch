@@ -793,12 +793,13 @@ function layRune(e, x, z, el) {
   const R = { x, z, el, src: e.id, faction: e.faction, level: e.level, t0: GAME.t, armAt: GAME.t + 0.8, until: GAME.t + 30, disc: null };
   R.cut = spellDisc(x, z, 2.2, DISC_KIND.runecut, 30, [1, 1, 1], 0.04); // [balance] the dark cut of the strokes, under the glow
   R.disc = spellDisc(x, z, 2.2, DISC_KIND.rune, 30, ELEM_COL[el]);
+  if (R.cut) R.cut.owner = R; if (R.disc) R.disc.owner = R; // [balance] (05j_classfx.js lays them again if they go)
   CLS.runes.push(R);
   CLS.stats.runes++;
   classSfx('rune', x, z);
   return R;
 }
-function runeEnd(R) { R.dead = true; for (const d of [R.disc, R.cut]) if (d && d.on) d.age = Math.max(d.age, d.dur - 0.4); CLS.runes.splice(CLS.runes.indexOf(R), 1); }
+function runeEnd(R) { R.dead = true; for (const d of [R.disc, R.cut]) if (d && d.on && d.owner === R) d.age = Math.max(d.age, d.dur - 0.4); CLS.runes.splice(CLS.runes.indexOf(R), 1); }
 function runeBurst(R) {
   const src = getEnt(R.src) || { id: R.src, level: R.level, dmgMult: 1, faction: R.faction, buffs: [], role: 'none', scale: 1, alive: false, cls: 'mage', x: R.x, z: R.z, y: heightAt(R.x, R.z) };
   const y = heightAt(R.x, R.z);
