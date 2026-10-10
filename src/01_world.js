@@ -201,6 +201,7 @@ function clearCoverBox(x, z, hx, hz, yaw, pad = COVER_PAD) {
 }
 
 const KEEP_HS = 16, KEEP_T = 2.2, GATE_HW = 2.7, WALL_H = 7;
+const KEEP_WALL_END = KEEP_HS - 1.2 - 2.6; // [land] where a stone keep's curtain ends, inside the masonry of its corner tower
 // the temple dais: the tops of its outer and inner step above the site floor, and their radii (04_props.js, 04g_castles.js)
 const TEMPLE_DAIS = [0.38, 0.76], TEMPLE_DAIS_R = [7.6, 6.4];
 function buildKeepColliders(S, style) {
@@ -218,10 +219,12 @@ function buildKeepColliders(S, style) {
     for (const [lx, lz] of [[-3.9, R0 - 0.6], [3.9, R0 - 0.6]]) S.colliders.push(circleAt(S, lx, lz, 2.6, 'tower', 11));
     // [building] the hall is a real building with a door and rooms now: planKeepHalls (04k_hall.js)
   } else {
-    S.colliders.push(boxAt(S, 0, -hs + t / 2, hs, t / 2, 'wall', WALL_H));
-    S.colliders.push(boxAt(S, -hs + t / 2, 0, t / 2, hs, 'wall', WALL_H));
-    S.colliders.push(boxAt(S, hs - t / 2, 0, t / 2, hs, 'wall', WALL_H));
-    const seg = (hs - GATE_HW) / 2;
+    // [land] a stone keep's curtains end inside its corner towers (hollow: 04l_towers.js); the drums cover the ends
+    const we = style === 'stone' ? KEEP_WALL_END : hs;
+    S.colliders.push(boxAt(S, 0, -hs + t / 2, we, t / 2, 'wall', WALL_H));
+    S.colliders.push(boxAt(S, -hs + t / 2, 0, t / 2, we, 'wall', WALL_H));
+    S.colliders.push(boxAt(S, hs - t / 2, 0, t / 2, we, 'wall', WALL_H));
+    const seg = (we - GATE_HW) / 2;
     S.colliders.push(boxAt(S, -(GATE_HW + seg), hs - t / 2, seg, t / 2, 'wall', WALL_H));
     S.colliders.push(boxAt(S, GATE_HW + seg, hs - t / 2, seg, t / 2, 'wall', WALL_H));
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) S.colliders.push(circleAt(S, sx * (hs - 1.2), sz * (hs - 1.2), 3.4, 'tower', 12));

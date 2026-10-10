@@ -192,15 +192,16 @@ function castleArcFlight(C, r, a0, a1, y0, y1, w, pieces, o = {}) {
 function castleRouteWorld(C, pts) {
   const out = [];
   let y = C.S.y, px = null, pz = null;
-  for (const [lx, lz] of pts) {
+  for (const [lx, lz, ly, lad] of pts) {
     const p = siteToWorld(C.S, lx, lz);
-    if (px === null) y = floorAt(p.x, p.z, y);
+    if (ly != null) y = C.S.y + ly; // [land] a point given its height: the ends of a ladder (04l_towers.js)
+    else if (px === null) y = floorAt(p.x, p.z, y);
     else {
       const n = Math.max(1, Math.ceil(dist(px, pz, p.x, p.z) / 0.2));
       for (let k = 1; k <= n; k++) y = floorAt(lerp(px, p.x, k / n), lerp(pz, p.z, k / n), y);
     }
     px = p.x; pz = p.z;
-    out.push({ x: p.x, z: p.z, y });
+    out.push(lad ? { x: p.x, z: p.z, y, ladder: lad } : { x: p.x, z: p.z, y });
   }
   return out;
 }
@@ -211,45 +212,29 @@ function castleRouteWorld(C, pts) {
 function castleStone(C) {
   const hs = KEEP_HS, t = KEEP_T, H = WALL_H, { b, M, st, S } = C;
   const wIn = hs - t, wOut = hs - 0.5, wc = (wIn + wOut) / 2; // the walk: from the inner face to the parapet
-  const TT = 10.5, TR = 3.4, TC = hs - 1.2; // corner tower tops
-  // the tops of the curtain walls are walks
-  C.floor(0, -(hs - t / 2), hs, t / 2, 0, H);
+  const TT = 10.5, TC = hs - 1.2; // corner tower tops ([land] their drums are TW.RO = 3.4 across the middle)
+  // the tops of the curtain walls are walks; [land] they run on into the corner towers' doors (04l_towers.js)
+  const we = TC - TW.RI; // where a walk meets the inner face of a corner tower
+  C.floor(0, -(hs - t / 2), we, t / 2, 0, H);
   // the side walks come in three pieces: the middle one stands on a stretch of wall that can be breached
   for (const sx of [-1, 1]) {
-    for (const [z0, z1] of [[-hs, -11.1], [-11.1, -5.9], [-5.9, hs]]) C.floor(sx * (hs - t / 2), (z0 + z1) / 2, t / 2, (z1 - z0) / 2, 0, H);
+    for (const [z0, z1] of [[-we, -11.1], [-11.1, -5.9], [-5.9, we]]) C.floor(sx * (hs - t / 2), (z0 + z1) / 2, t / 2, (z1 - z0) / 2, 0, H);
     C.sections.push({ lx: sx * (hs - t / 2), lz: -8.5, ax: 0, az: 1, axis: 'z', half: 2.2, across: t / 2 + 0.35, top: H, rubble: 1.1, kind: 'stone' });
   }
-  const seg = (hs - GATE_HW) / 2;
+  const seg = (we - GATE_HW) / 2;
   for (const sx of [-1, 1]) C.floor(sx * (GATE_HW + seg), hs - t / 2, seg, t / 2, 0, H);
-  // crenellated parapets on the outer edges between the tower stairs (which carry their own stepped parapets)
-  const pl = hs - 0.25;
-  castleParapet(C, -5.62, -pl, 5.62, -pl, H);
-  for (const sx of [-1, 1]) castleParapet(C, sx * pl, -5.62, sx * pl, 5.62, H);
+  // crenellated parapets on the outer edges of the walks, from tower to tower ([land] no stairs climb the walks now)
+  const pl = hs - 0.25, pe = TC - 2.9;
+  castleParapet(C, -pe, -pl, pe, -pl, H);
+  for (const sx of [-1, 1]) castleParapet(C, sx * pl, -pe, sx * pl, pe, H);
+  for (const sx of [-1, 1]) castleParapet(C, sx * 6.95, pl, sx * pe, pl, H);
   // the gatehouse over the gate: a raised block that takes the portcullis when it is up
   b.add(G.box, lm(M, 0, H + 1.4, hs - t / 2 + 0.75, 0, 2 * GATE_HW - 0.2, 2.8, 1.2), MAT.stone, darker(st.stone, 0.95), S.y + H, 3);
   castleParapet(C, -2.4, hs + 0.05, 2.4, hs + 0.05, H + 2.8, { coll: false, step: 1.2 });
-  // corner towers: open fighting tops with a corbelled ring, crenels, a flagpole; stairs up from both walks
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const x = sx * TC, z = sz * TC;
-    b.add(G.cyl12, lm(M, x, TT - 0.25, z, 0, TR + 0.22, 0.5, TR + 0.22), MAT.stone, darker(st.stone, 0.9));
-    b.add(G.cyl12, lm(M, x, TT + 0.02, z, 0, TR - 0.05, 0.06, TR - 0.05), MAT.stone, darker(st.stone, 1.05));
-    C.disc(x, z, TR, TT);
-    C.post(x, z, 0.16, TT, 4.2);
-    // the ring of crenels, open where the two stairs arrive
-    const gapA = Math.atan2(-sx, 0), gapB = Math.atan2(0, -sz); // toward the side walls' run and the front/back run
-    const n = 14;
-    for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU, am = (a0 + a1) / 2;
-      if (Math.abs(angDiff(am, gapA)) < 0.33 || Math.abs(angDiff(am, gapB)) < 0.33) continue;
-      const rr = TR + 0.02;
-      castleParapet(C, x + Math.sin(a0) * rr, z + Math.cos(a0) * rr, x + Math.sin(a1) * rr, z + Math.cos(a1) * rr, TT, { th: 0.45, bh: 0.95, step: 1.6, slits: i % 2 === 0 });
-    }
-    // stairs up to the top, one along each adjoining walk, climbing over the walk with a parapet on the outer side
-    const end = TC - Math.sqrt(TR * TR - (wc - TC) ** 2) + 0.75;
-    const startX = sz === 1 ? 6.95 : 5.6;
-    castleFlight(C, sx * startX, sz * wc, H, sx * end, sz * wc, TT, 1.62, { base: H, par: sz * (sx === 1 ? -1 : 1) });
-    castleFlight(C, sx * wc, sz * 5.6, H, sx * wc, sz * end, TT, 1.62, { base: H, par: sx * (sz === 1 ? 1 : -1) });
-  }
+  // corner towers: [land] hollow, with a door from the courtyard, a guard room with a door onto each walk, ladders
+  // and hatches up to the open fighting top with its corbelled ring, crenels and flagpole (04l_towers.js)
+  const TWR = {};
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) TWR[sx + ',' + sz] = towerStone(C, sx, sz, H, TT, TC);
   // two stairs from the courtyard up the inside of the side walls, each with a landing pier at the top
   for (const sx of [-1, 1]) {
     const x = sx * (wIn - 0.8);
@@ -257,11 +242,12 @@ function castleStone(C) {
     b.add(G.box, lm(M, x, (H - 0.6) / 2, 4.05, 0, 1.6, H + 0.6, 1.3), MAT.stone, darker(st.stone, 0.97), S.y, 4);
     C.floor(x, 4.05, 0.86, 0.7, 0, H);
   }
-  // posts for the archers: the tops of the two front towers, and the right-hand walk; how they walk up
+  // posts for the archers: the tops of the two front towers, and the right-hand walk; how they walk up ([land] along
+  // the side walk, in at the tower's door, up the guard room's ladder through the hatch onto the top)
   const foot = (sx) => [[sx * 10.6, -7.6], [sx * (wIn - 0.8), -6.6], [sx * (wIn - 0.8), 3.4], [sx * (wIn - 0.8), 4.1], [sx * wc, 4.1]];
   C.posts = [
-    { pos: [-TC + 0.6, TT, TC + 0.4], route: [...foot(-1), [-wc, 5.6], [-wc, 12.3], [-TC + 0.6, TC + 0.4]] },
-    { pos: [TC - 0.6, TT, TC + 0.4], route: [...foot(1), [wc, 5.6], [wc, 12.3], [TC - 0.6, TC + 0.4]] },
+    { pos: [-TC + 0.6, TT, TC + 0.4], route: [...foot(-1), ...towerWayUp(TWR['-1,1'], wc), [-TC + 0.6, TC + 0.4]] },
+    { pos: [TC - 0.6, TT, TC + 0.4], route: [...foot(1), ...towerWayUp(TWR['1,1'], wc), [TC - 0.6, TC + 0.4]] },
     { pos: [wc, H, 0.2], route: [...foot(1), [wc, 0.2]] },
   ];
 }
@@ -589,6 +575,7 @@ function buildCastles() {
     else clearCoverBox(f.x, f.z, f.hx, f.hz, Math.atan2(f.sin, f.cos));
   }
   refreshGroundCover();
+  buildTowers(); // [land] the towers' doors and hatch lids, one moving mesh a keep (04l_towers.js)
   if (window.__hm) Object.assign(window.__hm.fn, { castleOf, floorAt, floorSolidAt, castleRoute, castleWaypoint, elevatedEnt, setGatePose, fillGarrison, siteWorld, siteToWorld, stepTo, castleSiegeHit, castleBreach, castleRepairDone, updateBreaches, CASTLE_PATCHED });
   // behind a function, so a test that hands __hm back to Playwright does not try to serialise every castle
   if (window.__hm) window.__hm.fn.castles = () => CASTLES;
@@ -607,6 +594,7 @@ function castlePostSlots(K) {
 }
 function updateCastles(dt) {
   for (const C of CASTLES) { if (C.gate) updateGate(C.gate, dt); updateBreaches(C, dt); }
+  updateTowers(dt); // [land] tower doors, hatches, the player at a ladder (04l_towers.js)
   updateSiege(dt); // [siege] engines, stones, sallies (04h_siege.js)
 }
 
@@ -621,6 +609,8 @@ function castleFollow(e, dt, speed = 0.85) {
   while (i < Rt.length && dist(e.x, e.z, Rt[i].x, Rt[i].z) < 0.42 && Math.abs(e.y - Rt[i].y) < 1.2) i++;
   e.ai.ri = i;
   if (i >= Rt.length) { e.ai.route = null; e.ai.ri = 0; return false; }
+  // [land] the next point is up or down a ladder: at its foot (or beside its hatch) the body climbs (04l_towers.js)
+  if (Rt[i].ladder && towerLadderStart(e, Rt[i].ladder, Rt[i].y > e.y + 1 ? 1 : Rt[i].y < e.y - 1 ? -1 : 0)) return true;
   const px = e.x, pz = e.z;
   moveToward(e, Rt[i].x, Rt[i].z, dt, speed, 0.05);
   // a body pushed off its line steps back toward the waypoint before
@@ -677,6 +667,7 @@ function castleClimbToward(e, t, dt) {
   if (e.rangedKind || t.kind === 'door') return false;
   const wp = castleWaypoint(e, t);
   if (!wp) return false;
+  if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true; // [land]
   moveToward(e, wp.x, wp.z, dt, 1, 0.05);
   return true;
 }

@@ -24,10 +24,14 @@ float landStrata(vec3 wp){
 // the faces broken into slabs and blocks that hold up at middle distance: a Voronoi on the face's own frame (along the
 // contour, and up), cells about 8 m across and flatter than wide like bedding; each slab leans its own way (a tilt
 // to add to the normal) and has its own tone, with a crack between slabs. Constant over a slab, so it never shimmers.
+// A coordinate along the face (across the fall line) that never swings with the normal: world x or z, whichever runs
+// more nearly along the contour, switched on a ragged line where the face looks along a diagonal (a fault). (The
+// position projected on the contour's own direction turned with every bend of a face and striped it with moire.)
+float landAlong(vec3 wp, vec3 n){ return abs(n.x) - abs(n.z) + (vnoise(wp.xz * 0.08) - 0.5) * 0.3 > 0.0 ? wp.z : wp.x; }
 vec3 landFacets(vec3 wp, vec3 n, out float edge, out float tone){
   float steep = 1.0 - smoothstep(0.62, 0.95, n.y);
   vec2 ax = safeNormalize2(vec2(-n.z, n.x) + vec2(1e-4));
-  vec2 q = vec2(dot(wp.xz, ax) * 0.1, wp.y * 0.21) + vec2(vnoise(wp.xz * 0.05) * 0.8, vnoise(wp.xz * 0.07 + 3.0) * 0.5);
+  vec2 q = vec2(landAlong(wp, n) * 0.1, wp.y * 0.21) + vec2(vnoise(wp.xz * 0.05) * 0.8, vnoise(wp.xz * 0.07 + 3.0) * 0.5);
   // where a slab would be only a few pixels on the screen (far off, or seen edge on) it fades to the smooth face
   float aa = 1.0 - smoothstep(0.06, 0.22, length(fwidth(q)));
   vec2 ip = floor(q), fp = fract(q);
@@ -44,10 +48,9 @@ vec3 landFacets(vec3 wp, vec3 n, out float edge, out float tone){
   return (vec3(ax.x, 0.0, ax.y) * h.x * 0.75 + vec3(0.0, h.y * 0.6, 0.0)) * steep * aa;
 }
 // streaks where water runs down a face: dark stains, long and thin, across the face's own horizontal
+float landStreak1(float u, float y){ return vnoise(vec2(u * 0.55, y * 0.035)) * 0.65 + vnoise(vec2(u * 1.7, y * 0.09 + 3.0)) * 0.35; }
 float landStreaks(vec3 wp, vec3 n){
-  vec2 ax = safeNormalize2(vec2(-n.z, n.x) + vec2(1e-4));
-  float u = dot(wp.xz, ax);
-  float s = vnoise(vec2(u * 0.55, wp.y * 0.035)) * 0.65 + vnoise(vec2(u * 1.7, wp.y * 0.09 + 3.0)) * 0.35;
+  float s = mix(landStreak1(wp.x, wp.y), landStreak1(wp.z, wp.y), smoothstep(-0.25, 0.25, abs(n.x) - abs(n.z)));
   return smoothstep(0.58, 0.85, s);
 }
 // the high snow: Thule's peaks are white the year round, the southern ones only in winter. uSeasonC.z is how far the

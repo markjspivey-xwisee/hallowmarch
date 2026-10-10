@@ -164,8 +164,10 @@ function mtnShape(H, walk) {
     }
     if (!bad) break;
   }
-  // a last pass: a hollow left on the reshaped ground after the take-backs is filled
+  // a last pass: a hollow left on the reshaped ground after the take-backs is filled; and if any spill height off it
+  // still moved, the reshaping is given up altogether (the land stays as it was)
   { const F = mtnFlood(H); for (let k = 0; k < N2; k++) if (ok[k] && F[k] - H[k] > 0.004) { H[k] = F[k]; filled++; } }
+  { const F = mtnFlood(H); for (let k = 0; k < N2; k++) if (!ok[k] && Math.abs(F[k] - F0[k]) > 0.004) { H.set(H0); gully.fill(0); MTN.gaveUp = true; break; } }
   let n = 0;
   const shaped = new Uint8Array(N2);
   for (let k = 0; k < N2; k++) if (H[k] !== H0[k]) { shaped[k] = 1; n++; }
@@ -196,11 +198,26 @@ function mtnPlaceCrags() {
     }
     return false;
   };
-  const step = 6.5;
+  const step = 4.5;
+  // does a crag of reach r at (x, z) stay clear of everything walkable (no walkable texel's square, 1.42 m from its
+  // centre, within r + 1) and of the water; and where is the lowest ground under its foot
+  const fits = (x, z, r) => {
+    const k = mtnK(x, z);
+    if (D[k] < r + 1) return null;
+    const rr = r + 4, i0 = Math.max(0, Math.floor((x - rr + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((x + rr + HALF) / HS)), j0 = Math.max(0, Math.floor((z - rr + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((z + rr + HALF) / HS));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const q = j * HN + i; if ((MTN.free[q] || W.walk[q] !== 1) && dist2(-HALF + i * HS, -HALF + j * HS, x, z) < (r + 2.42) ** 2) return null; }
+    let lo = Infinity;
+    for (let a = 0; a < 24; a++) for (const f of [0.35, 0.7, 1]) {
+      const px = x + Math.sin(a * 0.2618) * r * f, pz = z + Math.cos(a * 0.2618) * r * f;
+      if (waterAt(px, pz)) return null;
+      lo = Math.min(lo, heightAt(px, pz));
+    }
+    return nearRiver(x, z, r + 6) ? null : lo;
+  };
   for (let gz = -HALF + 4; gz < HALF - 4; gz += step) for (let gx = -HALF + 4; gx < HALF - 4; gx += step) {
     const x = gx + (rnd() - 0.5) * step * 0.9, z = gz + (rnd() - 0.5) * step * 0.9, u1 = rnd(), u2 = rnd(), u3 = rnd(), u4 = rnd();
     const k = mtnK(x, z);
-    if (M[k] < 0.18 || D[k] < 7.5) continue;
+    if (M[k] < 0.18 || D[k] < 4.5) continue;
     const h0 = heightAt(x, z);
     if (h0 < WATER_Y + 4) continue;
     const hx = (heightAt(x + 3, z) - heightAt(x - 3, z)) / 6, hz = (heightAt(x, z + 3) - heightAt(x, z - 3)) / 6, sl = Math.hypot(hx, hz);
@@ -208,13 +225,14 @@ function mtnPlaceCrags() {
     for (let a = 0; a < 8; a++) ring = Math.max(ring, heightAt(x + Math.sin(a * 0.785) * 7, z + Math.cos(a * 0.785) * 7));
     const crest = h0 > ring - 0.6 && h0 > 14;
     const out = vnoise(x * 0.031 + 5.1, z * 0.031 - 2.7);
-    let p = sstep(0.45, 1.3, sl) * 0.72 + (crest ? 0.75 : 0);
-    p *= (0.3 + 0.95 * sstep(0.32, 0.68, out)) * sstep(0.18, 0.5, M[k]);
+    let p = sstep(0.45, 1.3, sl) * 0.85 + (crest ? 0.8 : 0);
+    p *= (0.45 + 0.8 * sstep(0.32, 0.68, out)) * sstep(0.18, 0.5, M[k]);
     if (u1 > p) continue;
-    // 0 a cliff band, 1 a buttress, 2 a pinnacle on a crest, 3 a tor of stacked blocks
+    // 0 a cliff band, 1 a buttress, 2 a pinnacle on a crest or a sharp ridge, 3 a tor of stacked blocks
     let kind, wd, dp, above;
-    if (crest && sl < 1.1) { kind = u2 < 0.62 ? 2 : 3; }
-    else if (sl > 1.2) kind = u2 < 0.55 ? 1 : 0;
+    if (crest && sl < 1.1) kind = u2 < 0.62 ? 2 : 3;
+    else if (sl > 1.6 && h0 > 24 && u2 < 0.25) kind = 2;
+    else if (sl > 1.2) kind = u2 < 0.6 ? 1 : 0;
     else kind = u2 < 0.2 ? 3 : 0;
     const sc = 0.75 + 0.35 * sstep(0.3, 0.9, M[k]);
     if (kind === 0) { wd = 9 + u3 * 9; dp = 4.5 + u4 * 3; above = 2.6 + u3 * 3.2; }
@@ -222,24 +240,17 @@ function mtnPlaceCrags() {
     else if (kind === 2) { wd = 3.2 + u3 * 3; dp = 3 + u4 * 2.6; above = 5 + u3 * 7; }
     else { wd = 5 + u3 * 4; dp = 5 + u4 * 3.5; above = 2.6 + u4 * 3; }
     wd *= sc; dp *= sc; above *= sc;
-    // its reach: the widest the shader can make it (lobes, ledges, facets: 1.4 of the half-width) and its lean
-    const r = Math.max(wd, dp) * 0.5 * 1.4 + (kind === 1 ? 0.14 : 0.07) * (above + 8);
-    // clear of anything walkable by a metre: no walkable texel's square (1.42 m from its centre) within r + 1
-    if (D[k] < r + 1) continue;
-    let near = false;
-    { const rr = r + 4, i0 = Math.max(0, Math.floor((x - rr + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((x + rr + HALF) / HS)), j0 = Math.max(0, Math.floor((z - rr + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((z + rr + HALF) / HS));
-      for (let j = j0; j <= j1 && !near; j++) for (let i = i0; i <= i1; i++) { const q = j * HN + i; if ((MTN.free[q] || W.walk[q] !== 1) && dist2(-HALF + i * HS, -HALF + j * HS, x, z) < (r + 2.42) ** 2) { near = true; break; } } }
-    if (near) continue;
-    if (Math.hypot(x, z) < 72 || SITES.some((S) => dist2(x, z, S.x, S.z) < (S.r + S.f + 14 + r) ** 2)) continue;
-    if (nearCrag(x, z, r) || nearTree(x, z, r)) continue;
-    // never in the water, and buried below the lowest ground under its foot
-    let lo = h0, wet = false;
-    for (let a = 0; a < 24 && !wet; a++) for (const f of [0.35, 0.7, 1]) {
-      const px = x + Math.sin(a * 0.2618) * r * f, pz = z + Math.cos(a * 0.2618) * r * f;
-      if (waterAt(px, pz)) { wet = true; break; }
-      lo = Math.min(lo, heightAt(px, pz));
+    // the widest the shader can make it (lobes, ledges, facets: 1.4 of the half-width) and its lean; where it will not
+    // fit, a smaller one (the faces between the walkable ledges are narrow)
+    let r = 0, lo = null;
+    for (let tries = 0; tries < 3 && lo === null; tries++) {
+      if (tries) { wd *= 0.72; dp *= 0.72; above *= 0.8; }
+      r = Math.max(wd, dp) * 0.5 * 1.4 + (kind === 1 ? 0.14 : 0.07) * (above + 8);
+      if (wd < 2.4 || nearCrag(x, z, r) || nearTree(x, z, r)) break;
+      if (Math.hypot(x, z) < 72 || SITES.some((S) => dist2(x, z, S.x, S.z) < (S.r + S.f + 14 + r) ** 2)) break;
+      lo = fits(x, z, r);
     }
-    if (wet || nearRiver(x, z, r + 6)) continue;
+    if (lo === null) continue;
     const y0 = lo - 1.5, top = (crest ? Math.max(h0, ring) : h0) + above;
     const yaw = sl > 0.05 ? Math.atan2(-hx, -hz) : rnd() * TAU; // local +z faces down the slope
     const c = { x, z, y0, h: top - y0, w: wd, d: dp, yaw, sl: Math.min(2.4, sl), kind, seed: Math.min(0.999, u4 * 0.5 + rnd() * 0.5), r };
@@ -252,15 +263,10 @@ function mtnPlaceCrags() {
     const c0 = crags[n], want = rnd() < 0.7 ? 1 + (rnd() < 0.4 ? 1 : 0) : 0;
     for (let b = 0, tries = 0; b < want && tries < 8; tries++) {
       const a = c0.yaw + (rnd() - 0.5) * 1.8, dd = c0.r * (0.75 + rnd() * 0.8), x = c0.x + Math.sin(a) * dd, z = c0.z + Math.cos(a) * dd;
-      const wd = 1.3 + rnd() * 1.6, dp = 1.1 + rnd() * 1.3, r = Math.max(wd, dp) * 0.7 + 0.25, k = mtnK(x, z);
-      if (D[k] < r + 1 || nearTree(x, z, r)) continue;
-      let near = false;
-      { const rr = r + 4, i0 = Math.max(0, Math.floor((x - rr + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((x + rr + HALF) / HS)), j0 = Math.max(0, Math.floor((z - rr + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((z + rr + HALF) / HS));
-        for (let j = j0; j <= j1 && !near; j++) for (let i = i0; i <= i1; i++) { const q = j * HN + i; if ((MTN.free[q] || W.walk[q] !== 1) && dist2(-HALF + i * HS, -HALF + j * HS, x, z) < (r + 2.42) ** 2) { near = true; break; } } }
-      if (near) continue;
-      let lo = Infinity, wet = false;
-      for (let q = 0; q < 12; q++) for (const f of [0.5, 1]) { const px = x + Math.sin(q * 0.5236) * r * f, pz = z + Math.cos(q * 0.5236) * r * f; if (waterAt(px, pz)) wet = true; lo = Math.min(lo, heightAt(px, pz)); }
-      if (wet) continue;
+      const wd = 1.3 + rnd() * 1.6, dp = 1.1 + rnd() * 1.3, r = Math.max(wd, dp) * 0.7 + 0.25;
+      if (nearTree(x, z, r)) continue;
+      const lo = fits(x, z, r);
+      if (lo === null) continue;
       const h0 = heightAt(x, z), hx = (heightAt(x + 2, z) - heightAt(x - 2, z)) / 4, hz = (heightAt(x, z + 2) - heightAt(x, z - 2)) / 4;
       const y0 = lo - 0.6, c = { x, z, y0, h: h0 + 0.5 + rnd() * 1.1 - y0, w: wd, d: dp, yaw: rnd() * TAU, sl: Math.min(2.4, Math.hypot(hx, hz)) * 0.5, kind: 4, seed: Math.min(0.999, rnd()), r };
       crags.push(c); b++;
@@ -529,7 +535,7 @@ function mtnCragMat(S, L, far) {
 // the near and the far model, each with room for every crag; the near one's nearest crags also cast shadows
 function buildCrags() {
   const n = MTN.crags.length;
-  window.__hm.mtn = { MTN, MTN_D, mtnMountAt, mtnTopAt, mtnCamRoom, mtnCheck, updateMountains, check: mtnCheck, cragAt: (i) => MTN.crags[i] };
+  window.__hm.mtn = { MTN, MTN_D, mtnMountAt, mtnTopAt, mtnCamRoom, mtnCheck, mtnSettle, updateMountains, check: mtnCheck, cragAt: (i) => MTN.crags[i] };
     mtnUploadMap();
   if (!n) return;
   const mk = (S, L, far) => {
@@ -585,6 +591,23 @@ function updateMountains() {
   for (const g of [N.geometry, F.geometry]) { g.attributes.iA.needsUpdate = true; g.attributes.iB.needsUpdate = true; }
   N.visible = nn > 0; F.visible = nf > 0;
   MTN.stats.near = nn; MTN.stats.far = nf; MTN.stats.shadow = ns;
+}
+
+// a crater (natureImpact: a meteor, a leap, the dragon landing; or the saved land put back) can open the ground under a
+// crag's foot: the crag reaches down into it, its top where it was, so it never stands on air
+function mtnSettle(i0, j0, i1, j1) {
+  const x0 = -HALF + i0 * HS, x1 = -HALF + i1 * HS, z0 = -HALF + j0 * HS, z1 = -HALF + j1 * HS;
+  for (const c of MTN.crags) {
+    if (c.x + c.r < x0 || c.x - c.r > x1 || c.z + c.r < z0 || c.z - c.r > z1) continue;
+    let lo = Infinity;
+    for (let a = 0; a < 24; a++) for (const f of [0.35, 0.7, 1]) lo = Math.min(lo, heightAt(c.x + Math.sin(a * 0.2618) * c.r * f, c.z + Math.cos(a * 0.2618) * c.r * f));
+    const y = lo - (c.kind === 4 ? 0.6 : 1.5);
+    if (y < c.y0) { c.h += c.y0 - y; c.y0 = y; MTN.lastQ = ''; }
+  }
+}
+{
+  const ntu = natTerrainUpdate;
+  natTerrainUpdate = (i0, j0, i1, j1) => { ntu(i0, j0, i1, j1); mtnSettle(i0, j0, i1, j1); };
 }
 
 /* ------------------------------------------------------------------ */

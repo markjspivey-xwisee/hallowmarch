@@ -1176,6 +1176,7 @@ function houseRoofsForRain(cx, cz) {
   _roofList.length = 0;
   for (const H of HOUSES) { if (!houseIntact(H)) continue; const d = dist2(cx, cz, H.x, H.z); if (d < 60 * 60) _roofList.push([d, H]); }
   buildRoofsForRain(_roofList, cx, cz); // [building] placed roofs keep the rain out too (06k_build.js)
+  towerRoofsForRain(_roofList, cx, cz); // [land] and the rooms of the keeps' towers (04l_towers.js)
   _roofList.sort((a, b) => a[0] - b[0]);
   const A = U.uRoofA.value, B = U.uRoofB.value, C = U.uRoofC.value;
   for (let i = 0; i < 8; i++) {

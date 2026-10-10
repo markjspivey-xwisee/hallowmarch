@@ -141,6 +141,7 @@ function underCrown(x, z) {
 function skyOver(e) {
   if (inDungeon(e) || (e === GAME.player && INDOOR.on)) return 0;
   if (houseRoofOver(e.x, e.z)) return 0;
+  if (towerRoofOver(e.x, e.z, e.y)) return 0; // [land] in a tower's rooms (04l_towers.js)
   return underCrown(e.x, e.z) ? 0.3 : 1;
 }
 function heatAt(x, y, z) {
