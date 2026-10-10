@@ -779,7 +779,7 @@ function buildWorld(seed = 7) {
   }
   W.camps = camps;
   buildWaterGrid(); // where the water stands and how it flows (01b_water.js)
-  mtnPlaceCrags(); // [land] cliff bands, buttresses, pinnacles and tors on the mountains (03c_land.js)
+  // [heights] the crags are placed once the whole mountain is shaped, after everything else (mtnHeights, 03d_heights.js)
   W.ready = true;
   return W;
 }
