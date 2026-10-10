@@ -128,6 +128,7 @@ function buffsHTML(e) {
   return e.buffs.filter((b) => b.until > GAME.t && !seen.has(b.kind) && seen.add(b.kind)).map((b) => { const [ic, c] = BUFF_ICON[b.kind] || ['circle', '#ccc']; return `<span class="buff" style="--bc:${c}" title="${b.kind}">${iconSvg(ic, 14)}</span>`; }).join('');
 }
 function unitSub(e, viewer) {
+  if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
@@ -567,7 +568,7 @@ function onDamageFeedback(src, dst, dmg, absorbed, opts) {
   const n = Math.round(dmg);
   if (src === P) {
     uiFloatAt(dst.x, dst.y + (dst.kind === 'door' ? 4 : 2.1 * (dst.scale || 1)), dst.z, (opts.crit ? 'Crit ' : '') + (n > 0 ? n : 'Absorbed'), opts.crit ? 'crit' : '');
-    if (!opts.dot) uiLog(`You hit ${dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg');
+    if (!opts.dot) uiLog(`You hit ${dst.siegeEngine ? `the ${dst.name}` : dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg'); // [siege] engines by name
   } else if (dst === P) {
     uiFloatAt(P.x, P.y + 2.0, P.z, n > 0 ? `-${n}` : 'Absorbed', 'hurt');
     if (!opts.dot) uiLog(`${src && src.name ? capFirst(theName(src)) : 'Something'} hits you for ${n} damage.`, 'hurt');

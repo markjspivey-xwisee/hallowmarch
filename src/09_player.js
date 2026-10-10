@@ -204,6 +204,7 @@ function currentInteraction() {
   wearOffers(P, offer); // feature/weather: wash muddy, bloody gear at a town well or trough
   natureOffers(P, offer); // nature (05h_nature.js): trees to chop, logs to split, firewood to light
   brandOffers(P, offer); // fire in hand (09d_brand.js): take a brand, set something alight, put it out
+  siegeOffers(P, offer); // [siege] join the crew of an engine, or take over an abandoned one (04h_siege.js)
   return best;
 }
 function playerInteract() {
