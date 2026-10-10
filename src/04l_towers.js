@@ -309,6 +309,7 @@ function towerFurnish(T) {
     b.add(G.cyl8, lm(F, 0, -0.16, 0.16, 0, 0.035, 0.42, 0.035, -0.25), MAT.wood, [0.3, 0.2, 0.12]);
     const w = siteToWorld(S, p.x, p.z);
     addFire(w.x, S.y + y + 0.06, w.z, 0.28, false, Infinity, { r: 7, k: 1.15 });
+    FIRES[FIRES.length - 1].wall = true; // [v10] a torch on the wall: a brand may be lit from it, nothing cooked over it
     T.fires.push({ x: w.x, y: S.y + y, z: w.z });
   }
 }

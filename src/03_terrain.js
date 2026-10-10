@@ -156,6 +156,28 @@ const terrainMat = mat({
       h += vnoise(p * 8.0) * 0.12 * fine;
       return h;
     }
+    // [v10] one size of talus: stones in the cells of a Voronoi, only a share of the cells holding one, and each stone
+    // smaller than its cell by its own margin, so grit shows between any two (no shared edges: never paving). Each is
+    // a low pyramid (angular, as broken stone is, not a rounded cobble) lying at its own tilt, catching the light its
+    // own way; the grit round its foot lies in its shade. x: height (cell units), y: how much of a stone is here,
+    // z: its tone, w: the shade; tilt: how it lies (to lean the normal by where the relief is too fine to see)
+    vec4 talusAt(vec2 q, float cover, out vec2 tilt){
+      vec2 ip = floor(q), fp = fract(q);
+      float d1 = 9.0, d2 = 9.0; vec2 sid = vec2(0.0), sid2 = vec2(0.0), r1 = vec2(0.0);
+      for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+        vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) * 0.8 + 0.1 - fp; float dd = dot(r, r);
+        if (dd < d1) { d2 = d1; sid2 = sid; d1 = dd; sid = ip + g; r1 = r; } else if (dd < d2) { d2 = dd; sid2 = ip + g; }
+      }
+      float e = sqrt(d2) - sqrt(d1), h = hash12(sid + 2.0), here = step(1.0 - cover, h), here2 = step(1.0 - cover, hash12(sid2 + 2.0));
+      float m = 0.06 + 0.14 * hash12(sid + 4.4); // the stone's margin in its cell
+      vec2 tl = (hash22(sid + 5.5) - 0.5) * 0.8;
+      float ein = e - m, mask = here * smoothstep(0.0, 0.035, ein);
+      float ht = mask * max(0.0, min(ein, 0.24 + 0.16 * hash12(sid + 9.1)) * (0.7 + 0.6 * h) - dot(r1, tl) * 0.45 + 0.08);
+      // the shade at a stone's foot: on the grit of its own margin, and on the grit of an empty cell beside one
+      float ao = 1.0 - 0.42 * here * (1.0 - mask) * smoothstep(0.0, m, e) - 0.38 * (1.0 - here) * here2 * (1.0 - smoothstep(0.0, 0.14, e));
+      tilt = tl * mask;
+      return vec4(ht, mask, hash12(sid + 1.0), ao);
+    }
     // perturb a normal by the screen-space slope of a height field
     vec3 bumpN(vec3 n, vec3 p, float h, float k){
       vec3 dpx = dFdx(p), dpy = dFdy(p);
@@ -261,24 +283,36 @@ const terrainMat = mat({
         // packed in grit (a Voronoi of stones, each its own tone and height; plain grit far off)
         float scr = LM.g * (1.0 - A.r) * smoothstep(0.3, 0.62, LM.g + (vnoise(vW.xz * 0.37) - 0.5) * 0.5);
         if (scr > 0.002) {
-          // (the stones' size varies by a warp of the grid, never by scaling the world position: that striped the
-          // ground with moire a long way from the origin)
-          vec2 sq = vW.xz * 2.3 + vec2(vnoise(vW.xz * 0.21), vnoise(vW.xz * 0.21 + 7.3)) * 3.0, ip = floor(sq), fp = fract(sq);
-          float d1 = 9.0, d2 = 9.0; vec2 sid = vec2(0.0);
-          for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) - fp; float dd = dot(r, r); if (dd < d1) { d2 = d1; d1 = dd; sid = ip + g; } else if (dd < d2) d2 = dd; }
-          float e = sqrt(d2) - sqrt(d1), big = hash12(sid + 2.0);
-          float stone = smoothstep(0.05, 0.16 + 0.24 * big, e) * step(0.42 - 0.2 * LM.g, big) * (1.0 - smoothstep(0.04, 0.12, px));
-          float gh = stone * (0.4 + 0.6 * big) + vnoise(vW.xz * 7.0) * 0.25 * gritF;
-          vec3 ns = bumpN(n, vW, gh, 0.4 * (1.0 - smoothstep(12.0, 30.0, d)));
-          vec3 grit = mix(vec3(0.36, 0.34, 0.31), vec3(0.46, 0.44, 0.4), vnoise(vW.xz * 0.6));
-          vec3 sc3 = mix(grit, mix(vec3(0.42, 0.41, 0.39), vec3(0.62, 0.6, 0.56), hash12(sid + 1.0)), stone) * tint * (0.8 + 0.3 * gh);
-          col = mix(col, lightRock(sc3, ns, mix(0.6, 1.0, gh)), scr * 0.9);
+          // [v10] talus: angular stones of two sizes (about 0.8 m and 0.3 m) lying among grit and each other, the big
+          // ones fewer, each its own grey; low relief, so they read as loose broken stone and never as paving. (The
+          // stones' size varies by a warp of the grid, never by scaling the world position: that striped the ground
+          // with moire a long way from the origin.)
+          vec2 sq = vW.xz + vec2(vnoise(vW.xz * 0.21), vnoise(vW.xz * 0.21 + 7.3)) * 1.3;
+          float bigF = 1.0 - smoothstep(0.09, 0.22, px), smallF = 1.0 - smoothstep(0.035, 0.09, px);
+          vec2 tiA = vec2(0.0), tiB = vec2(0.0);
+          vec4 tA = vec4(0.0, 0.0, 0.5, 1.0), tB = tA; // (each size only where it is still bigger than a pixel)
+          if (bigF > 0.0) tA = talusAt(sq * 1.25, 0.24 + 0.22 * LM.g, tiA);
+          if (smallF > 0.0) tB = talusAt(sq * 3.4 + 17.0, 0.42 + 0.22 * LM.g, tiB);
+          tA.yw = mix(vec2(0.0, 1.0), tA.yw, bigF); tB.yw = mix(vec2(0.0, 1.0), tB.yw, smallF * (1.0 - tA.y));
+          // the crevices round the stones only while they are wider than a pixel (no dotted outlines further off)
+          tA.w = mix(1.0, tA.w, 1.0 - smoothstep(0.05, 0.12, px)); tB.w = mix(1.0, tB.w, 1.0 - smoothstep(0.02, 0.05, px));
+          float stone = max(tA.y, tB.y);
+          float gh = tA.x * 1.5 * bigF + tB.x * 0.55 * smallF * (1.0 - tA.y) + vnoise(vW.xz * 7.0) * 0.12 * gritF;
+          vec3 ns = bumpN(n, vW, gh, 0.3 * (1.0 - smoothstep(10.0, 28.0, d)));
+          vec2 til = tiA * tA.y + tiB * tB.y;
+          ns = safeNormalize(ns + vec3(til.x, 0.0, til.y) * 0.6); // each stone lies its own way, near or far
+          vec3 grit = mix(vec3(0.33, 0.32, 0.29), vec3(0.42, 0.4, 0.37), vnoise(vW.xz * 0.6) * 0.6 + vnoise(vW.xz * 3.1) * 0.4 * gritF);
+          float st = mix(tB.z, tA.z, step(0.5, tA.y));
+          vec3 sc3 = mix(grit, mix(vec3(0.4, 0.39, 0.37), vec3(0.62, 0.6, 0.565), st), stone * 0.9) * tint * (0.9 + 0.18 * gh) * tA.w * tB.w;
+          col = mix(col, lightRock(sc3, ns, mix(0.72, 1.0, smoothstep(0.0, 0.2, gh))), scr * 0.9);
         }
         // the faces: each slab its own tone with a dark crack round it, stains where water runs, damp gullies
         if (rk > 0.001) {
           float stk = landStreaks(vW, n) * steepL;
-          float crk = (1.0 - smoothstep(0.0, 0.12 + 0.002 * d, lEdge)) * (1.0 - smoothstep(0.75, 0.95, n.y)) * (1.0 - smoothstep(40.0, 140.0, d));
-          vec3 tone = col * (0.88 + 0.22 * lTone * (1.0 - smoothstep(0.7, 0.95, n.y))) * (1.0 - 0.2 * stk) * (1.0 - 0.32 * crk);
+          // [v10] a crack is at least a pixel or so wide, and gone once it would be thinner (no dashed lines far off)
+          float pxw = length(fwidth(vW));
+          float crk = (1.0 - smoothstep(0.0, 0.07 + 0.9 * pxw, lEdge)) * (1.0 - smoothstep(0.75, 0.95, n.y)) * (1.0 - smoothstep(0.1, 0.32, pxw));
+          vec3 tone = col * (0.9 + 0.2 * lTone * (1.0 - smoothstep(0.7, 0.95, n.y))) * (1.0 - 0.2 * stk) * (1.0 - 0.3 * crk);
           tone = mix(tone, tone * vec3(0.7, 0.72, 0.68), LM.b * 0.65);
           col = mix(col, tone, rk);
         }

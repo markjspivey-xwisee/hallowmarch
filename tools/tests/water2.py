@@ -212,7 +212,8 @@ async def main():
               const hit = Bt.hit(i); const offers = W2.offers();
               const ashore = W2.offer('Step ashore'); const after = { boat: !!P.boat, swim: !!P.swim, x: P.x, z: P.z, walk: H.fn.isWalkable(P.x, P.z) };
               return { best, s2, ground: s2.grounded, landAhead: !land, hit, offers, ashore, after, centreWater: !!Wt.waterAt(s2.x, s2.z), errors: H.errors.slice(0, 3) }; })(%d)""" % bi)
-            check(r['ground'] > 0.5 and r['centreWater'], 'rowed at the shore she runs aground and stays afloat (grounded %.1f)' % r['ground'])
+            # (rowed into the shore at a slant she rubs along it: grounded is 1 at each touch and fades between them)
+            check(r['ground'] > 0.3 and r['landAhead'] and r['centreWater'], 'rowed at the shore she runs aground and stays afloat (grounded %.2f)' % r['ground'])
             check(r['ashore'] and not r['after']['boat'] and not r['after']['swim'], 'the rower steps ashore (%s)' % r['offers'])
             r = await ev(page, 'nocross', """((i) => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player;
               // no boat crosses land: try to move her through the shore by brute force

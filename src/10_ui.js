@@ -535,6 +535,7 @@ function updateNameplates() {
     el.style.transform = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) translate(-50%, -100%)`;
     const txt = e.kind === 'door' ? e.name : `${e.name}`;
     if (el._txt !== txt) { el._n.textContent = txt; el._txt = txt; }
+    el._eid = e.id; // (which body this name is over: two may share a name)
     el.style.setProperty('--nc', nameColor(e, P));
     campaignPlate(el, e); // [campaign] a band's order over its captain (08g_campaign.js)
     const sel = P.target === e.id;

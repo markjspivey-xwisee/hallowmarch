@@ -156,7 +156,8 @@ GROUND = r"""(() => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, walk = W.walk
   const C = __hm.build.COLL, keeps = __hm.REALMS[0].keepSites, inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
   let cs = 0, nb = 0, nc = 0;
   for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
-  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c)) continue; nc++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.r * 11) * 10)) % 1000000007; }
+  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty) continue; // [v10] not the jetties' posts (07e_boats.js)
+    nc++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.r * 11) * 10)) % 1000000007; }
   const coll = { boxes: nb, circles: nc, sum: cs };
   let ts = 0; const T = W.trees; for (let i = 0; i < T.length; i++) ts = (ts * 131 + Math.round((T[i].x * 3 + T[i].z * 7) * 10)) % 1000000007;
   return { walkSum: hw, walkHeights: hh, nWalk, nDeep, nReach, nProt, roads: W.roads.length, roadSum: hr, coll, trees: W.trees.length, treeSum: ts, rocks: W.rocks.length, camps: W.camps.length }; })()"""

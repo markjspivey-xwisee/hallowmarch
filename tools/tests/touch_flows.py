@@ -253,11 +253,11 @@ async def main():
             check(ok and st['modal'] == 'map', f'war table: a tap on Use opens the map with command ({r["label"]}; {json.dumps(st)})')
             await page.evaluate("__hm.UI.modal === 'map' && __hm.fn.toggleMap(); __hm.UI.modal = null; 0")
             # names do not show through the hall's walls
-            nm = await page.evaluate("""(() => { const H = TF.H, F = H.fn, h = F.halls().find((q) => q.realm === 0); if (F.setHouseDoor) F.setHouseDoor(h, false); for (let i = 0; i < 6; i++) { H.simulate(0.1); H.frame(1/30); }
-              const shown = [...document.querySelectorAll('#nameplates .np')].filter((el) => el.style.display !== 'none').map((el) => el._txt);
-              const outside = shown.filter((n) => { const e = H.ENT.find((q) => q.name === n && q.alive); return e && F.houseInside(e.x, e.z) !== h; });
+            nm = await page.evaluate("""(() => { const H = TF.H, F = H.fn, h = F.halls().find((q) => q.realm === 0); if (F.setHouseDoor) F.setHouseDoor(h, false); for (let i = 0; i < 16; i++) { H.simulate(0.1); H.frame(1/30); } /* the door swings shut, and each name's sight line is looked at again (every 0.25-0.35 s of drawing) */
+              const shownEl = [...document.querySelectorAll('#nameplates .np')].filter((el) => el.style.display !== 'none'), shown = shownEl.map((el) => el._txt), byEl = (el) => H.ENT.find((q) => q.id === el._eid); /* (by the body's id: two bodies may share a name) */
+              const D = h.door && h.door.c, outside = shownEl.filter((el) => { const e = byEl(el); return e && F.houseInside(e.x, e.z) !== h && !(D && Math.hypot(e.x - D.x, e.z - D.z) < 3); }).map((el) => el._txt); /* (a body at the doorway is seen through it, not through a wall: a companion waiting there opens it) */
               const near = H.ENT.filter((e) => e.alive && e.kind === 'humanoid' && e !== TF.P() && Math.hypot(e.x - h.x, e.z - h.z) < 30 && F.houseInside(e.x, e.z) !== h).length;
-              return { shown: shown.length, outside, near, inside: F.houseInside(TF.P().x, TF.P().z) === h }; })()""")
+              const atDoor = shownEl.map((el) => { const e = byEl(el), n = el._txt; return e && D ? [n, +Math.hypot(e.x - D.x, e.z - D.z).toFixed(1), F.houseInside(e.x, e.z) === h, e.tame ? e.tame.k : e.role] : [n]; }); return { shown: shown.length, outside, near, inside: F.houseInside(TF.P().x, TF.P().z) === h, atDoor }; })()""")
             check(nm['inside'] and not nm['outside'], f'names: inside the hall no name shows through its walls ({json.dumps(nm)})')
 
         if want('tower'):

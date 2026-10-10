@@ -335,7 +335,7 @@ function drawRelicsAndPortals() {
 /* ------------------------------------------------------------------ */
 /* the frame                                                           */
 /* ------------------------------------------------------------------ */
-let lastNow = 0, renderTime = 0, treeTick = 0;
+let lastNow = 0, renderTime = 0, treeTick = 0, treeCamX = 0, treeCamZ = 0;
 function simStep(dt) {
   GAME.t += dt;
   GAME.dt = dt;
@@ -428,7 +428,9 @@ function tick(dt) {
   stepTrail(dt, fx, fz);
   camera.getWorldDirection(_fwd);
   updateGrassCenters(camera.position.x, camera.position.z, _fwd.x, _fwd.z);
-  if (--treeTick <= 0) { treeTick = 15; updateTreeVisibility(camera.position.x, camera.position.z); }
+  // (at once when the camera has jumped: a release, a journey, a fixed view; else every 15 frames)
+  if (dist2(camera.position.x, camera.position.z, treeCamX, treeCamZ) > 20 * 20) treeTick = 0;
+  if (--treeTick <= 0) { treeTick = 15; treeCamX = camera.position.x; treeCamZ = camera.position.z; updateTreeVisibility(camera.position.x, camera.position.z); }
   updateNearTrees(dt, camera.position.x, camera.position.z);
   updateFireflies(camera.position.x, camera.position.z);
   updateLod(); // [phones] terrain and far trees by distance (13q_lod.js)

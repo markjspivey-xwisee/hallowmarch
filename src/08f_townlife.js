@@ -48,6 +48,76 @@ function houseLife(e, dt) {
   lifeWander(e);
   return true;
 }
+// [v10] the way round what stands between a body and where it is going, out of doors: A* on a 1 m grid over the
+// colliders (houses, fences, workstations, furniture, trees; doors open for townsfolk, so they are no wall), smoothed to
+// a few waypoints by sight lines over the same grid. Null when there is no way within the box (or the ends are far).
+const _lpC = [];
+function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76) {
+  const x0 = Math.floor(Math.min(ax, bx) - 10), z0 = Math.floor(Math.min(az, bz) - 10);
+  const W = Math.ceil(Math.max(ax, bx) + 10) - x0, Hh = Math.ceil(Math.max(az, bz) + 10) - z0;
+  if (W > maxSpan || Hh > maxSpan || W < 2 || Hh < 2) return null;
+  const N = W * Hh, blocked = new Uint8Array(N);
+  for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + i + 0.5, z0 + j + 0.5)) blocked[j * W + i] = 1;
+  collidersNear(x0 + W / 2, z0 + Hh / 2, Math.hypot(W, Hh) / 2 + 2, _lpC);
+  for (const c of _lpC) {
+    if (!c.active || c.tag === 'door' || c.tag === 'hdoor' || c.vert) continue;
+    const r = (c.type === 'circle' ? c.r : Math.hypot(c.hx, c.hz)) + pad;
+    const i0 = Math.max(0, Math.floor(c.x - r - x0)), i1 = Math.min(W - 1, Math.floor(c.x + r - x0)), j0 = Math.max(0, Math.floor(c.z - r - z0)), j1 = Math.min(Hh - 1, Math.floor(c.z + r - z0));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const dx = x0 + i + 0.5 - c.x, dz = z0 + j + 0.5 - c.z;
+      if (c.type === 'circle') { if (dx * dx + dz * dz < r * r) blocked[j * W + i] = 1; continue; }
+      const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+      if (Math.abs(lx) < c.hx + pad && Math.abs(lz) < c.hz + pad) blocked[j * W + i] = 1;
+    }
+  }
+  const cellOf = (x, z) => clamp(Math.floor(z - z0), 0, Hh - 1) * W + clamp(Math.floor(x - x0), 0, W - 1);
+  const s = cellOf(ax, az), g = cellOf(bx, bz);
+  blocked[s] = 0; blocked[g] = 0;
+  // A* with a binary heap of [f, cell] pairs; 8 neighbours, no corner cutting
+  const gs = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), shut = new Uint8Array(N), heap = [];
+  const hOf = (k) => Math.hypot((k % W) - (g % W), ((k / W) | 0) - ((g / W) | 0));
+  const push = (fv, k) => { const it = [fv, k]; heap.push(it); let q = heap.length - 1; while (q > 0) { const pq = (q - 1) >> 1; if (heap[pq][0] <= fv) break; heap[q] = heap[pq]; q = pq; } heap[q] = it; };
+  const pop = () => {
+    const top = heap[0], last = heap.pop(), n = heap.length;
+    if (n) { let q = 0; for (;;) { const l = 2 * q + 1, r2 = l + 1; let m = q, mv = last[0]; if (l < n && heap[l][0] < mv) { m = l; mv = heap[l][0]; } if (r2 < n && heap[r2][0] < mv) m = r2; if (m === q) break; heap[q] = heap[m]; q = m; } heap[q] = last; }
+    return top[1];
+  };
+  gs[s] = 0; push(hOf(s), s);
+  let found = false, guard = 0;
+  while (heap.length && guard++ < N * 8) {
+    const k = pop();
+    if (shut[k]) continue;
+    if (k === g) { found = true; break; }
+    shut[k] = 1;
+    const ki = k % W, kj = (k / W) | 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const ni = ki + di, nj = kj + dj;
+      if (ni < 0 || nj < 0 || ni >= W || nj >= Hh) continue;
+      const n2 = nj * W + ni;
+      if (blocked[n2] || shut[n2]) continue;
+      if (di && dj && (blocked[kj * W + ni] || blocked[nj * W + ki])) continue;
+      const ng = gs[k] + (di && dj ? 1.4142 : 1);
+      if (ng < gs[n2]) { gs[n2] = ng; from[n2] = k; push(ng + hOf(n2), n2); }
+    }
+  }
+  if (!found) return null;
+  const cells = [];
+  for (let k = g; k !== -1; k = from[k]) cells.push(k);
+  cells.reverse();
+  // smoothed: from each waypoint, on to the farthest cell in clear sight (sampled every half metre over the grid)
+  const clear = (a, b) => { const ax2 = (a % W) + 0.5, az2 = ((a / W) | 0) + 0.5, bx2 = (b % W) + 0.5, bz2 = ((b / W) | 0) + 0.5, n = Math.ceil(Math.hypot(bx2 - ax2, bz2 - az2) * 2); for (let q = 1; q < n; q++) { const t = q / n, i = Math.floor(ax2 + (bx2 - ax2) * t), j = Math.floor(az2 + (bz2 - az2) * t); if (blocked[j * W + i]) return false; } return true; };
+  const out = [];
+  let a = 0;
+  while (a < cells.length - 1) {
+    let b = cells.length - 1;
+    while (b > a + 1 && !clear(cells[a], cells[b])) b--;
+    out.push({ x: x0 + (cells[b] % W) + 0.5, z: z0 + ((cells[b] / W) | 0) + 0.5 });
+    a = b;
+  }
+  if (out.length) { out[out.length - 1].x = bx; out[out.length - 1].z = bz; }
+  return out;
+}
 // each house gets its people in turn, from the town's villagers
 function houseAssign(e) {
   const ai = e.ai;

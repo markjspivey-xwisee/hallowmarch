@@ -305,6 +305,7 @@ async def main():
           S.sort((a, b) => Math.hypot(a.x - R.town.x, a.z - R.town.z) - Math.hypot(b.x - R.town.x, b.z - R.town.z));
           const P = S[0], T = P.stand;
           T.phase = 'sown'; T.crop = 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.p = 0; T.worker = null;
+          out.burnt0 = P.dmg.filter((v) => v >= 2).length; P.dmg.fill(0); P.weeds = 0; P.char = 0; // (the grass fire earlier in this test may have reached this strip: it is about the harvest, not the fire)
           for (const Q of S.slice(1)) { Q.stand.task = null; Q.stand.phase = 'sown'; Q.stand.g = 0.3; Q.stand.hp = 1; Q.stand.dead = false; Q.stand.worker = null; Q.weeds = 0; }
           // the farmers free to work (out of doors, nothing else in hand)
           for (const id of F.farmers()) { const e = H.fn.getEnt(id); if (e && e.ai.fieldHand) { e.ai.plan = null; e.ai.visitUntil = 0; e.ai.nextVisit = H.GAME.t + 999; e.ai.lifeWait = 0; e.ai.farmNext = 0; } }
@@ -326,7 +327,7 @@ async def main():
           out.phase = T.phase; out.worked = worked; out.worker = seenWorker;
           out.farmers1 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') + '@' + e.ai.plan.i + ':' + e.ai.plan.t.toFixed(1) : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z))] : null; });
           out.player1 = [PL.alive, Math.round(Math.hypot(PL.x - P.x, PL.z - P.z))];
-          out.granary = (F.FARM.granary.grain || 0) - gran0;
+          out.granary = (F.FARM.granary.grain || 0) - gran0; out.gran = [gran0, F.FARM.granary.grain || 0, T.hp, T.dead, T.crop];
           out.act = seenWorker != null ? H.fn.getEnt(seenWorker).ai.farmer : null;
           return out; })()""")
         print('town', json.dumps(r))

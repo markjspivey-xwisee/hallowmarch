@@ -149,7 +149,7 @@ function jettyMake(R, x0, z0, dx, dz, len, wy) {
   for (let t = 1.8; t <= len + 0.01; t += 2.2) for (const s of [-1, 1]) {
     const px = x0 + dx * t + -dz * s * (hw - 0.1), pz = z0 + dz * t + dx * s * (hw - 0.1), bed = heightAt(px, pz), h = deck + 0.25 - bed + 0.3;
     Bt.add(G.cyl8, M0.clone().multiply(lm(I, s * (hw - 0.1), bed - 0.3 + h / 2, t, 0, 0.11, h, 0.11)), MAT.wood, wood.map((v) => v * 0.6));
-    addCircle(px, pz, 0.16, 'post', deck + 0.3 - bed);
+    addCircle(px, pz, 0.16, 'post', deck + 0.3 - bed).jetty = 1; // [v10] (the land's checks tell the jetties' posts from the world's own)
   }
   // a mooring bollard at the outer corners, and a short rope
   for (const s of [-1, 1]) Bt.add(G.cyl8, M0.clone().multiply(lm(I, s * (hw - 0.25), deck + 0.2, len - 0.3, 0, 0.09, 0.4, 0.09)), MAT.wood, wood.map((v) => v * 0.55));

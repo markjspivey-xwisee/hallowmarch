@@ -213,7 +213,7 @@ async def checks(page):
 
         # ---- cooking at a fire ----
         r = await ev(page, 'cook', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};
-          const f = T.H.dbg.FIRES.filter((q) => !q.station && !q.ghost && !q.indoor && q.until === Infinity && q.size < 0.7).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+          const f = T.H.dbg.FIRES.filter((q) => !q.station && !q.ghost && !q.indoor && !q.wall && q.until === Infinity && q.size < 0.7).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
           T.stand(f.x + Math.sin(0.3) * 1.6, f.z + Math.cos(0.3) * 1.6, f.x, f.z);
           let fire = S.fireNear(P); if (!fire) { for (let a = 0; a < 6.3 && !fire; a += 0.4) { T.stand(f.x + Math.sin(a) * 1.7, f.z + Math.cos(a) * 1.7, f.x, f.z); fire = S.fireNear(P); } }
           out.fire = !!fire;

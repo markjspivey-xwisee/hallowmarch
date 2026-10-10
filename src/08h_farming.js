@@ -678,15 +678,26 @@ function farmLifeStep(e, st, plan, dt, next) {
     }
     // on the way out of town: a house or a fence in the way is walked round
     const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t, d });
-    if (plan.t - tr.t > 2.5) {
+    if (plan.t - tr.t > 2.5 && d > 2.5) { // (the last steps up to the work need no headway check)
       // headway is how much nearer the work is now, not how far the feet went: sliding along a wall is no headway
       const gained = (tr.d ?? d) - d;
       st.track = { x: e.x, z: e.z, t: plan.t, d };
       if (gained > 0.8) T.workT = GAME.t; // still getting there
-      else if (!st.detour) {
-        const dx = fr.x - e.x, dz = fr.z - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (Math.random() < 0.5 ? 1 : -1)));
-        st.detour = { x: e.x + (-dz / l) * sd * (4 + Math.random() * 3) - (dx / l) * 1.2, z: e.z + (dx / l) * sd * (4 + Math.random() * 3) - (dz / l) * 1.2, until: plan.t + 4 };
+      else if (!st.detour && !st.path) {
+        // [v10] the way round whatever is in the way (a house, a fence: 08f_townlife.js localPath), else a sidestep
+        const way = localPath(e.x, e.z, fr.x, fr.z);
+        if (way && way.length) { st.path = way; st.pathUntil = plan.t + 40; }
+        else {
+          const dx = fr.x - e.x, dz = fr.z - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (Math.random() < 0.5 ? 1 : -1)));
+          st.detour = { x: e.x + (-dz / l) * sd * (4 + Math.random() * 3) - (dx / l) * 1.2, z: e.z + (dx / l) * sd * (4 + Math.random() * 3) - (dz / l) * 1.2, until: plan.t + 4 };
+        }
       }
+    }
+    if (st.path) { // [v10]
+      const w = st.path[0];
+      if (!w || plan.t > st.pathUntil) st.path = null;
+      else if (dist(e.x, e.z, w.x, w.z) < 0.8 || moveToward(e, w.x, w.z, dt, 1.0, 0.5)) { st.path.shift(); if (!st.path.length) st.path = null; }
+      if (st.path) return true;
     }
     if (st.detour) { if (moveToward(e, st.detour.x, st.detour.z, dt, 1.0, 0.5) || plan.t > st.detour.until) st.detour = null; return true; }
     moveToward(e, fr.x, fr.z, dt, d > 6 ? 1.0 : 0.6, 0.4);
@@ -695,6 +706,7 @@ function farmLifeStep(e, st, plan, dt, next) {
     return true;
   }
   T.workT = GAME.t;
+  st.track = null; st.detour = null; st.path = null; // [v10] at the work: the headway is measured afresh when the work moves on
   // face along the furrow, the work just in front and a little toward the middle of the strip
   const ah = plotWorld(P, side * (P.hw * 0.2), -P.hd + clamp(T.p, 0, 1) * 2 * P.hd + 0.7);
   turnToward(e, ah.x, ah.z, dt * 4);

@@ -661,7 +661,7 @@ function stepHerds(dt) {
 function fireNear(P, reach = 2.7) {
   let best = null, bd = reach;
   for (const f of FIRES) {
-    if (f.ghost || f.until < GAME.t || Math.abs(f.y - P.y) > 2.4) continue;
+    if (f.ghost || f.wall || f.until < GAME.t || Math.abs(f.y - P.y) > 2.4) continue; // [v10] not over a wall torch
     const d = dist(P.x, P.z, f.x, f.z) - 0.3 * f.size;
     if (d < bd) { bd = d; best = f; }
   }

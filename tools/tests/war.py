@@ -107,7 +107,8 @@ async def main(p):
     await shot(page, 'war_map')
 
     # ---- a player order: attack a keep, and the band goes there ----
-    tgt = await ev(page, "(() => { const wb = __hm.WAR.warbands.find((w) => w.id === __hm.CW.CWUI.sel); const L = __hm.fn.wbLeader(wb); const ks = __hm.WAR.keeps.filter((K) => K.realm !== 0).sort((a, b) => Math.hypot(b.site.x - L.x, b.site.z - L.z) - Math.hypot(a.site.x - L.x, a.site.z - L.z)); return ks[ks.length - 1].id; })()")
+    # (the nearest enemy keep the band is not already at: a band guarding its engine before a keep sits on that keep's mark)
+    tgt = await ev(page, "(() => { const wb = __hm.WAR.warbands.find((w) => w.id === __hm.CW.CWUI.sel); const L = __hm.fn.wbLeader(wb); const cur = wb.order && wb.order.keep; const ks = __hm.WAR.keeps.filter((K) => K.realm !== 0 && K !== cur).sort((a, b) => Math.hypot(b.site.x - L.x, b.site.z - L.z) - Math.hypot(a.site.x - L.x, a.site.z - L.z)); return ks[ks.length - 1].id; })()")
     # click the keep on the map canvas, as a player would
     pt = await ev(page, f"(() => {{ const K = __hm.WAR.keeps[{tgt}]; const cv = document.getElementById('mapcanvas'), r = cv.getBoundingClientRect(); return [r.left + ((K.site.x + 400) / 800) * r.width, r.top + ((K.site.z + 400) / 800) * r.height]; }})()")
     await page.mouse.click(pt[0], pt[1])

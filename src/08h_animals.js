@@ -496,6 +496,23 @@ function anSlot(e, i) {
   }
   return { x: P.x - Math.sin(P.yaw) * 2, z: P.z - Math.cos(P.yaw) * 2 };
 }
+// [v10] where a companion that cannot find its way comes back in: on your trail a few metres behind you, or, when the
+// trail is far behind (after a ride, a fall or a jump), at its waiting spot beside you
+function anCatchUpSpot(e) {
+  const P = GAME.player, T = ANIMALS.trail;
+  for (let i = T.length - 1; i >= 0; i--) {
+    const p = T[i], dd = dist(p.x, p.z, P.x, P.z);
+    if (dd > 12) break;
+    if (dd >= 2.5 && isWalkable(p.x, p.z) && segmentClear(P.x, P.z, p.x, p.z, 0.3)) return p;
+  }
+  return anSlot(e, Math.max(0, anCompanions().indexOf(e)));
+}
+// whether a body is on the screen now (and near enough to be made out)
+function anOnScreen(e) {
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) > 80 * 80) return false;
+  const s = screenOf(e.x, e.y + 0.6, e.z);
+  return !!s && s.x > -30 && s.x < view.w + 30 && s.y > -30 && s.y < view.h + 30;
+}
 // a straight way that crosses no paddock fence (except through a gate) and no wall: segmentClear samples every
 // metre and a half and can step over a thin fence, so the pens are clipped exactly (Liang-Barsky in each pen's frame)
 function anClip(A, B, hw, hd) {
@@ -508,7 +525,7 @@ function anClip(A, B, hw, hd) {
   }
   return [t0, t1];
 }
-function anSegClear(ax, az, bx, bz) {
+function anSegClear(ax, az, bx, bz, swim) {
   ANIMALS.blockPen = null;
   for (const pn of ANIMALS.pens) {
     const r = Math.hypot(pn.hw, pn.hd) + 1;
@@ -527,6 +544,10 @@ function anSegClear(ax, az, bx, bz) {
     // both outside: not across it (a little short of each corner, so the way round a corner counts as clear)
     if (anClip(A, B, pn.hw, pn.hd)) { ANIMALS.blockPen = pn; return false; }
   }
+  // [v10] and over no ground a body cannot walk on (a steep bank, the foot of a crag; deep water, unless it swims):
+  // a companion pressing straight at you across one never got anywhere
+  const L = dist(ax, az, bx, bz), n = Math.ceil(L / 0.9), ok = swim ? swimPassable : isWalkable;
+  for (let i = 1; i < n; i++) { const t = i / n; if (!ok(ax + (bx - ax) * t, az + (bz - az) * t)) return false; }
   return segmentClear(ax, az, bx, bz, 0.3, false);
 }
 // walk toward (tx, tz): straight when the way is clear, otherwise along the player's trail
@@ -536,15 +557,20 @@ function anGoTo(e, tx, tz, dt, mul, stop, useTrail) {
   if (GAME.t > (ai.wpT || 0) && !(ai.wp && ai.wp.side && GAME.t < ai.wp.until)) {
     ai.wpT = GAME.t + 0.35 + Math.random() * 0.2;
     ai.wp = null;
-    if (!anSegClear(e.x, e.z, tx, tz)) {
+    if (!anSegClear(e.x, e.z, tx, tz, e.swimOK)) {
       const block = ANIMALS.blockPen;
       if (useTrail) {
         const T = ANIMALS.trail;
         for (let i = T.length - 1; i >= Math.max(0, T.length - 60); i--) {
           const p = T[i];
           if (dist2(p.x, p.z, e.x, e.z) > 40 * 40) continue;
-          if (anSegClear(e.x, e.z, p.x, p.z)) { ai.wp = p; break; }
+          if (anSegClear(e.x, e.z, p.x, p.z, e.swimOK)) { ai.wp = p; break; }
         }
+      }
+      // [v10] a companion finds its way round houses, walls and fences on a small grid (08f_townlife.js localPath)
+      if (!ai.wp && useTrail && !block) {
+        const way = localPath(e.x, e.z, tx, tz, 0.45);
+        if (way && way.length > 1) { const w0 = way[0]; ai.wp = { x: w0.x, z: w0.z, side: true, until: GAME.t + 2 + dist(e.x, e.z, w0.x, w0.z) / Math.max(1, effectiveSpeed(e) * mul) }; ai.lastWp = w0; }
       }
       if (!ai.wp) {
         // round the obstacle: steps to either side, and the corners of any paddock in the way; the reachable one that
@@ -556,7 +582,7 @@ function anGoTo(e, tx, tz, dt, mul, stop, useTrail) {
         let best = null, bs = Infinity;
         for (const c of cands) {
           const sc = dist(e.x, e.z, c.x, c.z) + dist(c.x, c.z, tx, tz) + (ai.lastWp && dist2(c.x, c.z, ai.lastWp.x, ai.lastWp.z) < 1 ? 6 : 0);
-          if (sc >= bs || !isWalkable(c.x, c.z) || !useTrail && ANIMALS.pens.some((pn) => penHas(pn, c.x, c.z, -0.6) && !penHas(pn, tx, tz, -0.6)) || !anSegClear(e.x, e.z, c.x, c.z)) continue;
+          if (sc >= bs || !isWalkable(c.x, c.z) || !useTrail && ANIMALS.pens.some((pn) => penHas(pn, c.x, c.z, -0.6) && !penHas(pn, tx, tz, -0.6)) || !anSegClear(e.x, e.z, c.x, c.z, e.swimOK)) continue;
           bs = sc; best = c;
         }
         if (!best && block) {
@@ -777,7 +803,7 @@ function anPetThink(e, dt) {
   if (inDungeon(P)) { if (GAME.t > (ai.until || 0)) { const dur = 8; setAct(e, 9, dur); ai.until = GAME.t + dur; } return true; }
   // follow: run to catch up, walk when close, wait in a free spot by the player
   const pets = anCompanions(), idx = Math.max(0, pets.indexOf(e));
-  if (d > 70) { const p = ANIMALS.trail[Math.max(0, ANIMALS.trail.length - 6)] || P; anPlace(e, p.x + (Math.random() - 0.5) * 2, p.z + (Math.random() - 0.5) * 2); return true; }
+  if (d > 70) { const p = anCatchUpSpot(e); anPlace(e, p.x, p.z); return true; }
   const slot = anSlot(e, idx);
   const ds = dist(e.x, e.z, slot.x, slot.z);
   const inPen = ANIMALS.pens.find((p) => penHas(p, e.x, e.z, -0.2));
@@ -786,7 +812,14 @@ function anPetThink(e, dt) {
     const mul = d > 14 ? 1.35 : d > 6 ? 1.05 : 0.6;
     if (e.anim.act === 9 || e.anim.act === 7) { e.anim.act = 0; e.anim.actDur = 0; }
     anGoTo(e, slot.x, slot.z, dt, P.mount ? Math.max(mul, 1.5) : mul, 0.5, true);
-    if (ai.stuck > 5 && d > 10) { const p = ANIMALS.trail[Math.max(0, ANIMALS.trail.length - 4)] || P; anPlace(e, p.x, p.z); ai.stuck = 0; }
+    if (ai.stuck > 5 && d > 10) { const p = anCatchUpSpot(e); anPlace(e, p.x, p.z); ai.stuck = 0; ai.fol = null; }
+    // [v10] headway, not only motion: a companion that runs about (along a wall, up and down a bank) without getting
+    // any nearer comes on by your trail: soon when you cannot see it, after a while when you can
+    let fol = ai.fol;
+    if (!fol || GAME.t - fol.at > 1) fol = ai.fol = { d, t: GAME.t, at: GAME.t };
+    fol.at = GAME.t;
+    if (d < 12 || fol.d - d >= 1.5) { fol.d = d; fol.t = GAME.t; }
+    else if (GAME.t - fol.t > (anOnScreen(e) ? 8 : 3.5)) { const p = anCatchUpSpot(e); anPlace(e, p.x, p.z); ai.fol = null; }
     ai.until = GAME.t + 1.5 + Math.random();
   } else {
     turnToward(e, P.x, P.z, dt * 2);
