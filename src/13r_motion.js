@@ -205,9 +205,13 @@ function motionMeasure(samples, opt = {}) {
   // shoves them aside: a body pushed sideways by a wall drags its planted foot with it)
   if (opt.steady && S.length > 8) {
     const dtS = S[1].t - S[0].t, v = S.map((s, i) => (i ? Math.hypot(s.x - S[i - 1].x, s.z - S[i - 1].z) / dtS : 0)), m = v.slice(1).sort((a, b) => a - b)[Math.floor((v.length - 1) / 2)];
-    const dir = S.map((s, i) => (i ? Math.atan2(s.x - S[i - 1].x, s.z - S[i - 1].z) : 0)), d0 = dir[Math.min(4, dir.length - 1)];
-    const cut = v.findIndex((x, i) => i > 3 && (x < 0.85 * m || Math.abs(Math.atan2(Math.sin(dir[i] - d0), Math.cos(dir[i] - d0))) > 0.12));
-    if (cut > 8) S = S.slice(0, cut);
+    // (the stretch round the middle of the run: it can start or end against something)
+    const dir = S.map((s, i) => (i ? Math.atan2(s.x - S[i - 1].x, s.z - S[i - 1].z) : 0)), mid = Math.floor(S.length / 2), d0 = dir[mid];
+    const ok = (i) => i > 0 && v[i] >= 0.85 * m && Math.abs(Math.atan2(Math.sin(dir[i] - d0), Math.cos(dir[i] - d0))) <= 0.12;
+    let a = mid, b = mid;
+    while (a > 1 && ok(a - 1)) a--;
+    while (b < S.length - 1 && ok(b + 1)) b++;
+    if (b - a > 8) S = S.slice(a - 1, b + 1);
   }
   if (S.length < 4) return { err: 'not seen', n: S.length };
   const nf = S[0].L.feet.length, dt = S.length > 1 ? S[1].t - S[0].t : 1 / 60;
