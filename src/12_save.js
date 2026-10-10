@@ -85,6 +85,7 @@ function packItem(it) {
   if (it.tint) o.tint = it.tint.map((v) => Math.round(v * 1000) / 1000);
   if (it.glow) o.glow = it.glow;
   if (it.n > 1) o.n = it.n;
+  if (it.mw) o.mw = 1; // [depth] a masterwork
   // feature/weather: wear travels with the item
   if (Number.isFinite(it.dur) && it.dur < 100) o.dur = Math.round(it.dur * 10) / 10;
   if (it.dirt > 0.005) o.dirt = Math.round(it.dirt * 1000) / 1000;

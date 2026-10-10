@@ -326,7 +326,7 @@ function overload(src, dst) {
   FX.ring(x, y - 0.8, z, 4, [1.6, 1.4, 2.6], 40, 7);
   spellDisc(x, z, 4.5, DISC_KIND.shock, 0.6, [1.8, 1.5, 2.6]);
   lightFlash(x, y, z, 14, [2.6, 2.2, 3.4], 0.4);
-  fireLandsAt(x, y, z, 2);
+  fireLandsAt(x, y, z, 2, src); // [depth] the caster
   later(0.05, () => forNear(x, z, 4.5, (o) => {
     if (o === dst || !o.alive || !isEnemy(src, o) || !isActor(o)) return;
     const r = computeDamage(src, o, 0.8 * rankMult(src.level));
@@ -670,7 +670,7 @@ function elementBlink(e, A, t, cast, rk) {
   FX.burst(e.x, e.y + 1, e.z, 20, ELEM_COL[el], 2, 0.5, 0.2, 0);
   // what the mage leaves behind where they stood
   const hit = (mult, opts) => forNear(ox, oz, 3.5, (o) => { if (!o.alive || !isEnemy(e, o) || !isActor(o)) return; const r = computeDamage(e, o, mult * rk); dealDamage(e, o, r.d, opts); });
-  if (el === 'fire') { fireLandsAt(ox, heightAt(ox, oz), oz, 2.2); FX.burst(ox, heightAt(ox, oz) + 0.5, oz, 30, ELEM_COL.fire, 3, 0.7, 0.2, -1); hit(0.5, { kind: 'fire' }); }
+  if (el === 'fire') { fireLandsAt(ox, heightAt(ox, oz), oz, 2.2, e); /* [depth] the caster */ FX.burst(ox, heightAt(ox, oz) + 0.5, oz, 30, ELEM_COL.fire, 3, 0.7, 0.2, -1); hit(0.5, { kind: 'fire' }); }
   else if (el === 'frost') { spellDisc(ox, oz, 3.5, DISC_KIND.frost, 3, [0.55, 0.8, 1.2]); hit(0.35, { kind: 'frost' }); frostLands(ox, oz, 3.5, e); }
   else { spellDisc(ox, oz, 3.8, DISC_KIND.shock, 0.5, [1.2, 1.5, 2.8]); hit(0.45, { kind: 'shock' }); lightFlash(ox, heightAt(ox, oz) + 1.5, oz, 10, [1.6, 2.0, 3.4], 0.25); }
   if (realmFlavour(e) && e.faction === 2) layRune(e, ox, oz, el);
@@ -789,7 +789,7 @@ function runeBurst(R) {
     dealDamage(src, o, r.d, { crit: r.crit, kind: R.el === 'fire' ? 'fire' : R.el === 'frost' ? 'frost' : 'shock', chill: R.el === 'frost' ? 1 : 0 });
     if (o.alive && R.el === 'frost') addBuff(o, 'root', 1, 2, R.src);
   });
-  if (R.el === 'fire') fireLandsAt(R.x, y, R.z, 2.5);
+  if (R.el === 'fire') fireLandsAt(R.x, y, R.z, 2.5, src); // [depth] the caster
   if (R.el === 'frost') frostLands(R.x, R.z, 5, src);
   classSfx('runeburst', R.x, R.z);
   runeEnd(R);
@@ -881,7 +881,7 @@ function stepArrows(dt) {
     let hit = null, best = 9;
     const mx = (A.x + A.px) / 2, mz = (A.z + A.pz) / 2, seg = Math.hypot(A.x - A.px, A.z - A.pz);
     forNear(mx, mz, seg / 2 + 2.5, (o) => {
-      if (!o.alive || o.kind === 'door' || o.flying || o.faction === A.faction || o.faction === FACTION_NEUTRAL || o.id === A.src) return;
+      if (!o.alive || o.kind === 'door' || o.flying || o.faction === A.faction || (o.faction === FACTION_NEUTRAL && !(o.game && GAME.player && A.src === GAME.player.id)) || o.id === A.src) return; // [depth] the player's arrows strike game: deer and birds
       const r = o.radius * (o.scale || 1) + 0.22, top = o.y + 1.9 * (o.scale || 1);
       // closest approach of this step's segment to the body's upright axis
       const sx = A.x - A.px, sz = A.z - A.pz, L2 = sx * sx + sz * sz || 1e-6;
@@ -902,7 +902,7 @@ function stepArrows(dt) {
       CLS.arrows.splice(i, 1);
       const x = blocked ? A.px : A.x, z = blocked ? A.pz : A.z, y = blocked ? A.py : gy;
       const inWater = !blocked && (A.y <= surf || isWaterAt(x, z)), wy = surf > -Infinity ? surf : WATER_Y;
-      if (A.type === 'fire') { if (!inWater) fireLandsAt(x, y, z, 1); else steamPuff(x, wy + 0.1, z, 3); }
+      if (A.type === 'fire') { if (!inWater) fireLandsAt(x, y, z, 1, A.src); else steamPuff(x, wy + 0.1, z, 3); } // [depth] the archer
       if (inWater) { splashAt(x, z, 0.3, { up: 1.2 }); continue; }
       FX.dust(x, y, z, 2);
       // it stays where it fell, and a special arrow can be picked up again
@@ -934,7 +934,7 @@ function arrowHits(A, o, src0) {
   if (A.k >= 0.98 && src0 && clsHas(src0, 'track')) addBuff(o, 'tracked', 1, 30, A.src);
   if (A.k >= 0.98 && src0 === GAME.player) uiFloatAt(o.x, o.y + 2.5 * (o.scale || 1), o.z, 'Full draw', 'crit');
   FX.sparks(A.x, A.y, A.z);
-  if (A.type === 'fire') fireLandsAt(A.x, A.y, A.z, 0.8);
+  if (A.type === 'fire') fireLandsAt(A.x, A.y, A.z, 0.8, src); // [depth] the archer
   if (src0 === GAME.player) sfx('hit');
 }
 // the special heads do their own work once an arrow (drawn or from an ability) strikes

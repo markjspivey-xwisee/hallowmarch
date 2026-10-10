@@ -339,6 +339,7 @@ function craftBlock(rec, ctx = {}) {
   if (!P || !P.alive) return 'You cannot do that now';
   if (!recipeFor(rec, P)) return `Only ${rec.cls.map((c) => CLASSES[c].name.toLowerCase() + 's').join(' and ')} make that`;
   if ((rec.min || 0) > (SURV.skill.craft || 0)) return `Needs crafting skill ${rec.min}`;
+  const dw = depthCraftBlock(rec); if (dw) return dw; // [depth] the late recipes want a seasoned hand (09u_depth.js)
   if (rec.st === 'fire' && !ctx.fire) return 'Cook this at a fire';
   if (rec.st !== 'fire' && rec.st !== 'hand' && !(ctx.station && ctx.station.kind === rec.st)) return `Make this at a ${STATION_DEF[rec.st].name}`;
   if (rec.pot && !goodsHave('tool_pot') && !fireHasPot(ctx.fire)) return 'You need a cooking pot, or a hearth with one';
@@ -353,10 +354,11 @@ function craftBlock(rec, ctx = {}) {
 function craftGear(rec) {
   const P = GAME.player, sk = SURV.skill.craft || 0;
   const q = rollQuality(craftOdds(sk));
-  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: GAME.prog.level, q, slot: rec.gear.slot });
+  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: depthCraftLvl(rec), lvlCap: 50, q, slot: rec.gear.slot }); // [depth] item level by the recipe's tier, to 50
   const base = typeof rec.gear.base === 'string' ? rec.gear.base : rec.gear.base && rec.gear.base[P.cls];
   if (base && base !== it.base) { if (it.name.includes(it.base)) it.name = it.name.split(it.base).join(base); it.base = base; }
   if (rec.gear.vis) it.vis = rec.gear.vis;
+  depthCraftGear(rec, it, sk); // [depth] masterworks and the master's bonus stat (09u_depth.js)
   if (!bagAdd(it)) dropItem(it, P.x, P.z, P.y + 1);
   if (q >= 3) { sfx('lootRare'); FX.burst(P.x, P.y + 1.2, P.z, 16, QUALITY[q].rgb.map((v) => v * 1.6), 1.4, 0.6, 0.1, -0.5); }
   return it;
@@ -559,7 +561,7 @@ function renderCraft() {
   let card = '';
   if (rec) {
     const ctx = craftCtx(rec), why = craftBlock(rec, ctx);
-    const out = rec.make ? `${rec.make[1]} ${esc(goodName(rec.make[0], rec.make[1]).toLowerCase())}` : rec.gear ? `a piece of ${SLOT_NAME[rec.gear.slot].toLowerCase()} gear for a ${CLASSES[P.cls].name.toLowerCase()}, item level ${Math.min(24, GAME.prog.level)}` : rec.act === 'draught' ? 'a healing draught' : '';
+    const out = rec.make ? `${rec.make[1]} ${esc(goodName(rec.make[0], rec.make[1]).toLowerCase())}` : rec.gear ? `a piece of ${SLOT_NAME[rec.gear.slot].toLowerCase()} gear for a ${CLASSES[P.cls].name.toLowerCase()}, item level ${depthCraftLvl(rec)}` : rec.act === 'draught' ? 'a healing draught' : '';
     card += `<b class="cn">${esc(rec.name)}</b><span class="sub">${esc(STATIONS[rec.st].name)}${rec.min ? ` · needs crafting ${rec.min}` : ''}${rec.pot ? ' · needs a pot or a hearth' : ''}</span><p>${esc(rec.desc || '')}</p>`;
     card += `<div class="needs-list">${needLine(rec)}</div>`;
     if (out) card += `<span class="out">Makes ${out}</span>`;

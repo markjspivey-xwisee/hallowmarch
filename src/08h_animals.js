@@ -582,6 +582,7 @@ function anGoTo(e, tx, tz, dt, mul, stop, useTrail) {
 function thinkAnimal(e, dt) {
   const rec = e.tame;
   if (!rec) return;
+  if (rec.cmd === 'herd' && depthHerdThink(e, dt)) return; // [depth] a hound herding the sheep home (09u_depth.js)
   const P = GAME.player;
   const far = P ? dist2(e.x, e.z, P.x, P.z) : 0;
   // the young keep close to their mothers until they are grown
@@ -880,6 +881,7 @@ function anClock(e, dt) {
 function anBirth(e) {
   const rec = e.tame, K = AKIND[rec.k], S = rec.preg.sire;
   rec.preg = null;
+  if (rec.k === 'hen') { depthClutch(e, S); return; } // [depth] a hen lays a clutch in the nest, and it hatches if left (09u_depth.js)
   const n = K.litter[0] + Math.floor(Math.random() * (K.litter[1] - K.litter[0] + 1));
   const names = [];
   for (let i = 0; i < n; i++) {
@@ -903,7 +905,7 @@ function anLay(e) {
   const near = LOOT.filter((L) => L.item && L.item.goods === 'egg' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
   if (near >= 8) return;
   ANIMALS.eggsLaid = (ANIMALS.eggsLaid || 0) + n;
-  dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3);
+  depthLaid(e, dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3)); // [depth] with a cockerel in the flock, an egg left lying hatches (09u_depth.js)
 }
 function anHearts(e, n) {
   if (!e || dist2(e.x, e.z, camera.position.x, camera.position.z) > 70 * 70) return;
@@ -1075,6 +1077,7 @@ function openAnimalCard(e) {
     if (rec.cmd !== 'follow') acts.push(['Follow me', () => { anCommand(e, 'follow'); anCloseDialog(); }]);
     if (rec.cmd !== 'stay') acts.push(['Stay here', () => { anCommand(e, 'stay'); anCloseDialog(); }]);
     if (K.fights && rec.cmd !== 'guard') acts.push(['Guard here', () => { anCommand(e, 'guard'); anCloseDialog(); }]);
+    if (rec.k === 'hound' && rec.cmd !== 'herd' && depthHerdable(e)) acts.push(['Herd the sheep in', () => { depthHerdStart(e); anCloseDialog(); }]); // [depth] (09u_depth.js)
     const pen = anNearestPen(e);
     if (pen && (rec.cmd !== 'pen' || rec.pen !== pen.id)) acts.push([`Into ${pen.owner === 'town' ? 'the common' : 'the paddock'}`, () => { anCommand(e, 'pen', pen); anCloseDialog(); }]);
     acts.push([K.live ? 'Slaughter' : 'Set free', () => anConfirmPart(e)]);
@@ -1176,7 +1179,7 @@ function openPen(pen) {
   const acts = [];
   const feedIds = ['feed', 'grain', 'turnip', 'cabbage', 'apple'].filter((id) => goodsHave(id));
   if (feedIds.length) acts.push([`Fill the rack (${goodName(feedIds[0], 2).toLowerCase()})`, () => { const id = feedIds[0], n = Math.min(goodsCount(id), id === 'feed' ? 3 : 5); goodsTake(id, n); pen.feed = Math.min(30, pen.feed + n * (id === 'feed' ? 8 : 2.5)); openPen(pen); }, 'primary']);
-  if (goodsHave('water')) acts.push(['Fill the trough', () => { const n = Math.min(goodsCount('water'), 4); goodsTake('water', n); pen.water = Math.min(30, pen.water + n * 3); openPen(pen); }]);
+  if (goodsHave('water')) acts.push(['Fill the trough', () => { const n = Math.min(goodsCount('water'), 4); goodsTake('water', n); goodsAdd('waterskin_empty', n, true); pen.water = Math.min(30, pen.water + n * 3); openPen(pen); }]); // [depth] the skins come back empty
   if (pen.manure >= 1) acts.push([`Muck out (+${Math.floor(pen.manure)} manure)`, () => { const n = Math.floor(pen.manure); if (goodsAdd('manure', n)) pen.manure -= n; openPen(pen); }]);
   acts.push(['Close', anCloseDialog]);
   anDialog(pen.name, body, acts);

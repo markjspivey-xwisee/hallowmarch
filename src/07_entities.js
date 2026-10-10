@@ -499,7 +499,7 @@ function executeAbility(e, A, t, cast = null) {
       FX.burst(e.x, e.y + 0.8, e.z, 40, [2.0, 0.8, 0.25], 6, 0.6, 0.3, 1);
       spellDisc(e.x, e.z, A.pbaoe, DISC_KIND.shock, 0.55, [2.2, 0.9, 0.3]);
       spellDisc(e.x, e.z, A.pbaoe * 0.8, DISC_KIND.scorch, 7, [1, 1, 1]);
-      fireLandsAt(e.x, e.y, e.z, A.pbaoe);
+      fireLandsAt(e.x, e.y, e.z, A.pbaoe, e); // [depth] the caster
       forNear(e.x, e.z, A.pbaoe, (o) => {
         if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
         const r = computeDamage(e, o, A.dmg * rk);
@@ -589,7 +589,7 @@ function executeAbility(e, A, t, cast = null) {
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
         natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, { kind: 'fire' }); // [classes] the meteor's fire meets frost, wet and ice
-        fireLandsAt(gx, gy, gz, A.radius);
+        fireLandsAt(gx, gy, gz, A.radius, e); // [depth] the caster
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
         sfx('boom');
         cameraShake(0.4, gx, gz);
@@ -855,7 +855,7 @@ function updateProjectiles(dt) {
       const c = PROJ_COL[p.kind];
       if (c && p.kind !== 'meteor') spellImpact(p.kind, tx, ty, tz);
       if (p.kind === 'fire' || p.kind === 'firearrow') {
-        fireLandsAt(tx, ty, tz, 1);
+        fireLandsAt(tx, ty, tz, 1, getEnt(p.src) || { faction: p.srcFaction }); // [depth] the caster
         // aimed at a tree or a patch of grass (09d_brand.js natureFireAim): what was aimed at catches for certain
         if (p.point && p.point.tree) igniteTree(p.point.tree, 0.9);
         if (p.point && p.point.grass) igniteGrass(p.point.x, p.point.z, 1.0, 4, 1);
@@ -900,6 +900,7 @@ function grantKillRewards(e) {
   const ci = conIndex(e.level, prog.level);
   rollLoot(e);
   huntOnKill(e); // [survival] meat, hides and bone from a hunt (09s_survival.js)
+  depthOnKill(e); // [depth] feathers and game birds, grave-iron, dragon scales and champions' trophies (09u_depth.js)
   if (e.role === 'dungeonBoss') {
     addXP(Math.round(20 * e.level * Math.max(0.5, CON[ci].xp) * 10), e);
     addRP(150);

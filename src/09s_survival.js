@@ -375,7 +375,7 @@ const FG_FS = /* glsl */`
   }`;
 function buildForageMeshes() {
   const geos = forageGeometries();
-  FORAGE.mat = mat({ vertexShader: FG_VS, fragmentShader: FG_FS });
+  FORAGE.mat = mat({ vertexShader: depthForageVS(FG_VS), fragmentShader: depthForageFS(FG_FS) }); // [depth] charred, cut, felled (09u_depth.js)
   const depth = depthFrom(FORAGE.mat);
   const caps = { bush: 0, ring: 0, herb: 0, nettle: 0, apple: 0 };
   for (const p of FORAGE.list) caps[forageModel(p.k)]++;
@@ -402,6 +402,7 @@ function drawForage(dt) {
   FORAGE.clock -= dt;
   if (FORAGE.clock > 0 && !FORAGE.dirty) return;
   FORAGE.clock = 0.4; FORAGE.dirty = false;
+  dpForageAttrs(); // [depth] the burn and fall state of every plant, room for felled apple trees (09u_depth.js)
   const camX = camera.position.x, camZ = camera.position.z, R = FORAGE_DRAW[quality.level] || 130, R2 = R * R;
   const fill = {};
   for (const k in FORAGE.meshes) fill[k] = 0;
@@ -414,8 +415,10 @@ function drawForage(dt) {
     const g = M.mesh.geometry;
     g.attributes.iPos.array.set([p.x, p.y, p.z, p.yaw], n * 4);
     g.attributes.iDat.array.set([p.s, FORAGE_KINDS[p.k].id, forageShown(p), p.seed], n * 4);
+    depthForageInst(p, g, n); // [depth]
     fill[key] = n + 1;
   }
+  depthForageExtra(fill); // [depth] the fallen halves of felled apple trees
   for (const k in FORAGE.meshes) {
     const g = FORAGE.meshes[k].mesh.geometry;
     g.instanceCount = fill[k];

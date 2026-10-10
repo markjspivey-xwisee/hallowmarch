@@ -971,9 +971,12 @@ function siegeBandAfter(wb, L, O) {
   const E = O.siegeE ? siegeById(O.siegeE) : null;
   if (E && !siegeActive(E)) { O.siegeE = null; if (O.phase === 'bombard') { O.phase = 'travel'; wbPlan(wb, K ? K.nav.gate : T.nav.tg); } return; }
   if (!E) return;
-  // a small band stands guard by its catapult while it batters the wall; a strong one goes on to the gate as
-  // well, leaving the crew to their work (the engine adds to the assault, it does not hold it up)
-  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault' && O.phase !== 'siege' && wbMembers(wb).length - E.crew.length < 4) {
+  // [depth] a band of the usual size stands guard by its catapult while it batters the wall, so no sally takes it
+  // and the whole band is there to storm the breach when the wall falls; only a big band (eight or more besides
+  // the crew) goes on to the gate as well, leaving the crew to their work. A wall that will not fall in four
+  // minutes is given up on, and the band goes to the gate.
+  if (E.state === 'work' && O.bombSince === undefined) O.bombSince = GAME.t;
+  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault' && O.phase !== 'siege' && wbMembers(wb).length - E.crew.length < 8 && !(GAME.t - (O.bombSince ?? GAME.t) > 240)) {
     if (O.phase !== 'bombard') O.phase = 'bombard';
     wb.leaderGoal = { x: lerp(E.work.x, E.target.C.S.x, 0.16), z: lerp(E.work.z, E.target.C.S.z, 0.16) };
   } else if (O.phase === 'bombard') { O.phase = 'travel'; wbPlan(wb, K ? K.nav.gate : T.nav.tg); }
