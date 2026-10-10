@@ -592,7 +592,7 @@ async def shots(page):
       P.power = P.maxPower; C.classTechnique(P); H.simulate(0.2); P.yaw += 1.4; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.classTechnique(P);
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
-      H.simulate(1.2); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
+      H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
     await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
     await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);

@@ -28,7 +28,7 @@ const CLASSES = {
     abilities: ['quickshot', 'aimed', 'cripple', 'volley', 'tumble', 'pierce', 'firearrow', 'deadeye'], icon: 'bow',
   },
   mage: {
-    name: 'Mage', role: 'Spells and control', hp: 0.86, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane', // [classes] balance
+    name: 'Mage', role: 'Spells and control', hp: 0.86, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane',
     blurb: 'Fire, frost and storm, and what each does to the others. Fragile, but freezes a charge before it lands.', // [classes]
     abilities: ['firebolt', 'frost', 'nova', 'blink', 'ward', 'meteor', 'chain', 'blizzard'], icon: 'flame',
   },
