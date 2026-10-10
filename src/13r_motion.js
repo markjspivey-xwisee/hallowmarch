@@ -130,7 +130,7 @@ function motionParts(crowd, kind) {
     // the top of the head and the pelvis, for leaning
     let top = -1, ty = -1;
     for (let i = 0; i < n; i++) if (Math.round(bone[i]) === 2 && vis(i) && pos[i * 3 + 1] > ty) { ty = pos[i * 3 + 1]; top = i; }
-    P.head = top >= 0 ? [top] : [];
+    P.head = top >= 0 ? [[top]] : []; // (a group, as the feet and knees)
   } else if (kind === 'hen' || kind === 'pheasant' || kind === 'duck') {
     P.feet = [lowest((i) => Math.round(bone[i]) === 9, 4, 0.006), lowest((i) => Math.round(bone[i]) === 12, 4, 0.006)];
     // the wing tips: the wing points farthest out (or back, folded)
@@ -244,11 +244,12 @@ function motionMeasure(samples, opt = {}) {
   };
 }
 // [motion] the slope of the floor along a person (stairs, ramps, hillsides), for the walk shader, which sets each foot
-// on it: whole turns added to the yaw (the shader takes only its sine and cosine), one turn for each 0.05 of rise per
-// metre. Only for people near the camera, standing on their feet (not riding, sitting, swimming, in the air or dead);
-// eased, so a step onto a stair does not jerk the legs.
+// on it, and how far the body leans into a turn (e.anim.lean, updateAnim): whole turns added to the yaw (the shader
+// takes only its sine and cosine): n = slope steps (0.05 of rise per metre, -20..20) + 41 x lean steps (0.04 rad).
+// The slope only for people near the camera, standing on their feet (not riding, sitting, swimming, in the air or
+// dead); eased, so a step onto a stair does not jerk the legs.
 function humanSlopeYaw(e, y, near) {
-  const yaw = Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw));
+  const yaw = clamp(Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw)), -3.1414, 3.1414); // (never half a turn: the shader rounds the turns)
   let s = 0;
   if (near && e.alive && !e.mount && !e.seat && e.onGround !== false && !(e.swimK > 0.05) && !inDungeon(e)) {
     const sc = e.scale || 1, r = 0.35 * sc, fx = Math.sin(yaw) * r, fz = Math.cos(yaw) * r;
@@ -257,7 +258,7 @@ function humanSlopeYaw(e, y, near) {
     s = clamp((at(e.x + fx, e.z + fz) - at(e.x - fx, e.z - fz)) / (2 * r), -1, 1);
   }
   e._slope = (e._slope ?? s) + (s - (e._slope ?? s)) * 0.3;
-  const k = Math.round(e._slope * 20);
+  const k = clamp(Math.round(e._slope * 20), -20, 20) + 41 * clamp(Math.round((e.alive ? e.anim.lean || 0 : 0) / 0.04), -7, 7);
   return k ? yaw + TAU * k : yaw;
 }
 // Cinderwing through a stretch of its flight (it is skinned on the CPU: its bones are read directly). how: 'fly' (on its

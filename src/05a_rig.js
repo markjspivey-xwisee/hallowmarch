@@ -731,7 +731,8 @@ function humanVS(depth) {
     vec2 fL = footPath(uL, duty, reach, liftH, runK), fR = footPath(fract(uL + 0.5), duty, reach, liftH, runK);
     // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
     // comes down on it, and the hips sink a little so the lower foot reaches
-    float slopeK = clamp(floor(iPos.w * 0.159155 + 0.5) * 0.05, -1.0, 1.0);
+    float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
+    float slopeK = clamp((slopeN - 41.0 * leanN) * 0.05, -1.0, 1.0), lean = leanN * 0.04;
     float slopeDrop = min(0.1, abs(slopeK) * 0.14);
     gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
@@ -743,6 +744,7 @@ function humanVS(depth) {
     float uaLz = 0.05 + 0.03 * run + 0.02 * idle * sin(t * 0.9), uaRz = -0.05 - 0.03 * run - 0.02 * idle * sin(t * 0.9 + 1.0);
     float chestX = 0.05 * k + 0.2 * run + hunched * 0.38 + 0.012 * sin(t * 1.7) * idle;
     float chestY = -0.11 * s1 * k;
+    chestX += 0.3 * slopeK * k; // [motion] leaning into the climb, back against the descent
     float headX = -hunched * 0.3 + 0.05 * sin(t * 0.33) * idle - 0.06 * run, headY = 0.28 * sin(t * 0.21) * idle + 0.09 * s1 * k;
     float pelvisY = 0.1 * s1 * k;
     float bob = gaitBob;
@@ -953,14 +955,19 @@ function humanVS(depth) {
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
-    rotP(rotY(pelvisY), vec3(0.0, 0.95, 0.0));
-    P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX; P.z += stepZ;
+    // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
+    // the planted feet from side to side, a few centimetres each stride
+    float legW = (bone == 7 || bone == 9) ? 1.0 - aW : (bone == 8 || bone == 10) ? 0.0 : 1.0;
+    rotP(rotY(pelvisY * legW), vec3(0.0, 0.95, 0.0));
+    P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX * legW; P.z += stepZ;
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
+    if (lean != 0.0) rotP(rotZ(lean), vec3(0.0)); // [motion] leaning into a turn, from the feet
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 
     float sc = iColA.w;
     P *= sc;
-    float c = cos(iPos.w), s = sin(iPos.w);
+    float yawR = iPos.w - 6.2831853 * slopeN; // [motion] the yaw itself, the slope's and lean's whole turns taken off (precise sin and cos)
+    float c = cos(yawR), s = sin(yawR);
     vec3 w = iPos.xyz + vec3(P.x * c + P.z * s, P.y, -P.x * s + P.z * c);
     ${depth ? '' : 'vW = w; vN = vec3(Nn.x * c + Nn.z * s, Nn.y, -Nn.x * s + Nn.z * c);'}
     gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);

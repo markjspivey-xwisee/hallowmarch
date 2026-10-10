@@ -200,10 +200,15 @@ async def main():
             # the player by the keys: across the muster ground walking and sprinting, up a keep's stair onto the wall walk
             r = await ev(page, "(() => { const P = __hm.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 14; P.z = P.prevZ = Ln.z - Ln.uz * 14; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); return MO.playerPath([{ x: Ln.x + Ln.ux * 14, z: Ln.z + Ln.uz * 14 }], 3.2); })()")
             report('player run', r, [0]); res['player_run'] = r
-            r = await ev(page, "(() => { const P = __hm.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 14; P.z = P.prevZ = Ln.z - Ln.uz * 14; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); return MO.playerPath([{ x: Ln.x + Ln.ux * 14, z: Ln.z + Ln.uz * 14 }], 3.0, { sprint: true }); })()")
+            # (a sprint covers 10 m a second: the lane is long enough that the runner never reaches its end and turns)
+            r = await ev(page, "(() => { const P = __hm.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 40, 1); P.x = P.prevX = Ln.x - Ln.ux * 19; P.z = P.prevZ = Ln.z - Ln.uz * 19; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); P.endurance = 100; return MO.playerPath([{ x: Ln.x + Ln.ux * 19, z: Ln.z + Ln.uz * 19 }], 2.8, { sprint: true }); })()")
             report('sprint', r, [0]); res['player_sprint'] = r
             r = await ev(page, "(() => { const H = __hm, K = H.WAR.keeps.find((K) => K.orig === 0 && K.site === H.REALMS[0].keepSites[0]), S = K.site, P = H.GAME.player, w = (lx, lz) => H.fn.siteToWorld(S, lx, lz); const a = w(10.6, -7.6); P.x = P.prevX = a.x; P.z = P.prevZ = a.z; P.y = S.y; P.faction = 0; P.onGround = true; P.vy = 0; H.simulate(0.3, 1/60); const pts = [w(13.0, -6.6), w(13.0, 3.4), w(13.0, 4.1)]; const r = MO.playerPath(pts, 4.5, { skip: 0.5 }); return r.map((q) => ({ ...q, rise: +(q.y1 - S.y).toFixed(2) })); })()")
             report('stairs', r, [0]); res['player_stairs'] = r
+            # running round a bend: the body leans into the turn (the head toward the inside), the feet stay planted
+            r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 6; P.z = P.prevZ = Ln.z - Ln.uz * 6; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); let yaw0 = P.yaw; const E = { e: P, kind: 'human', which: ['feet', 'head'], drive(e, t) { H.CAM.yaw = yaw0 + 0.9 * t; } }; const rec = MO.M.motionRun([E], 2.4, 1 / 60, { cam: () => { H.UI.modal = null; MO.chase(P); } }); H.INPUT.keys.clear(); const S = rec[0].filter((q) => q.t > 1.0 && q.L && q.L.head && q.L.head[0]); const side = S.map((q) => { const h = q.L.head[0], rx = Math.cos(q.yaw), rz = -Math.sin(q.yaw); return ((h[0] - q.x) * rx + (h[2] - q.z) * rz) / Math.max(0.5, h[1] - q.y); }); const m = side.reduce((a, b) => a + b, 0) / Math.max(1, side.length); return { ...MO.M.motionMeasure(rec[0], { skip: 1.0 }), leanDeg: +(Math.atan(m) * 180 / Math.PI).toFixed(1), animLean: +((P.anim.lean || 0) * 180 / Math.PI).toFixed(1) }; })()")
+            print(f"  bend       {fmt(r)}  lean {r.get('leanDeg')} deg (anim {r.get('animLean')})", flush=True); res['player_bend'] = r
+            check(abs(r.get('leanDeg', 0)) > 4, f"a runner leans into a bend ({r.get('leanDeg')} degrees)")
             # riding: the horse's feet under the player at a canter and a gallop
             r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 40, 1); P.x = P.prevX = Ln.x - Ln.ux * 19; P.z = P.prevZ = Ln.z - Ln.uz * 19; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); MO.F.mountUp(P, true); H.simulate(0.3, 1/60); const r = MO.playerPath([{ x: Ln.x + Ln.ux * 19, z: Ln.z + Ln.uz * 19 }], 3.0, { horse: true, sprint: true }); MO.F.dismount(P); return r; })()")
             report('ridden', r, [0, 0]); res['player_ride'] = r
@@ -235,12 +240,12 @@ async def main():
             await ev(page, SHOTJS)
             await ev(page, "(() => { __hm.setTod(0.42); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.snowing = 0; W.snow = 0; W.overcast = 0; W.target = 0; MO.calm(); return 0; })()")
             # a cock pheasant bursting up, then on set wings
-            await shot(page, 'motion_pheasant_rise', "(() => { const e = MS.bird('pheasant'); MS.ph = e.id; MS.flush(e, 0.32); MS.side(e, 2.6, 0.4, 0.3, 0.5); return 0; })()")
-            await shot(page, 'motion_pheasant_beat', "(() => { const e = MS.F.getEnt(MS.ph); MS.more(0.55); MS.side(e, 3.2, 0.2, 0.0, 0.4); return 0; })()")
-            await shot(page, 'motion_pheasant_glide', "(() => { const e = MS.F.getEnt(MS.ph); for (let k = 0; k < 400 && !(e.bird.fly && e.bird.fly.mode === 'glide' && e.bird.fly.mt > 0.4); k++) MS.more(1 / 60); MS.side(e, 3.2, 0.3, 0.0, 0.2); return 0; })()")
+            await shot(page, 'motion_pheasant_rise', "(() => { const e = MS.bird('pheasant'); MS.ph = e.id; MS.flush(e, 0.45); MS.side(e, 2.4, 1.2, 0.2, 1.2); return 0; })()")
+            await shot(page, 'motion_pheasant_beat', "(() => { const e = MS.F.getEnt(MS.ph); MS.more(0.4); MS.side(e, 1.8, 1.9, 0.0, 2.2); return 0; })()")
+            await shot(page, 'motion_pheasant_glide', "(() => { const e = MS.F.getEnt(MS.ph); for (let k = 0; k < 400 && !(e.bird.fly && e.bird.fly.mode === 'glide' && e.bird.fly.mt > 0.4); k++) MS.more(1 / 60); MS.side(e, 1.6, 2.0, 0.0, 2.4); return 0; })()")
             # a mallard running across the water to take off
-            await shot(page, 'motion_duck_run', "(() => { const e = MS.bird('duck'); if (!e) return 0; MS.dk = e.id; MS.flush(e, 0.3); MS.side(e, 2.4, 0.5, 0.15, 0.3); return 0; })()")
-            await shot(page, 'motion_duck_beat', "(() => { const e = MS.F.getEnt(MS.dk); if (!e) return 0; MS.more(0.9); MS.side(e, 3.0, 0.2, 0.0, 0.3); return 0; })()")
+            await shot(page, 'motion_duck_run', "(() => { const e = MS.bird('duck'); if (!e) return 0; MS.dk = e.id; MS.flush(e, 0.3); MS.side(e, 2.0, 1.4, 0.1, 1.6); return 0; })()")
+            await shot(page, 'motion_duck_beat', "(() => { const e = MS.F.getEnt(MS.dk); if (!e) return 0; MS.more(0.9); MS.side(e, 1.8, 1.9, 0.0, 2.2); return 0; })()")
             # Cinderwing rearing to take off, springing on the first downstroke, flying, legs reaching to land
             await shot(page, 'motion_dragon_rear', "(() => { const e = MS.dragon('takeoff', 0.4); MS.side(e, 17, 3.5, 3.0, 4); return 0; })()")
             await shot(page, 'motion_dragon_spring', "(() => { const D = __hm.dbg.DRAGON; const e = MS.dragonUntil((D) => D.stateT > 0.85, 3); MS.side(e, 19, 3.5, 3.5, 5); return 0; })()")

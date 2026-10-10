@@ -302,8 +302,10 @@ function updateAnim(e, dt) {
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
   // [motion] turning on the spot: a person steps round (the feet lift and come down again) instead of pivoting on frozen feet
   if (e.kind === 'humanoid') {
-    const yr = Math.abs(angDiff(e._ayaw ?? e.yaw, e.yaw)) / Math.max(dt, 1e-4);
+    const yrs = angDiff(e._ayaw ?? e.yaw, e.yaw) / Math.max(dt, 1e-4), yr = Math.abs(yrs);
     e._ayaw = e.yaw;
+    // [motion] a runner leans into a turn (as far as the turn's pull asks, up to about 14 degrees; 13r_motion.js packs it)
+    e.anim.lean = lerp(e.anim.lean || 0, sp > 1.5 && !e.mount && !e.seat ? clamp(-yrs * sp / 9.8 * 0.7, -0.25, 0.25) : 0, 1 - Math.exp(-dt * 5));
     e.anim.turn = lerp(e.anim.turn || 0, sp < 0.6 && !e.mount && !e.seat ? clamp((yr - 0.6) / 3, 0, 1) : 0, 1 - Math.exp(-dt * 8));
     if (e.anim.turn > 0.02 && sp < 0.6) e.anim.phase = (e.anim.phase + dt * TAU * 0.9 * e.anim.turn) % (TAU * 64);
   }

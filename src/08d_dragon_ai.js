@@ -76,6 +76,13 @@ function dragonBurn(e, x, z, dx, dz, range, half, mult) {
     if (o === GAME.player) flashScreen([0.9, 0.35, 0.05], 0.25);
   }
 }
+// [motion] the ground under its four feet, on average (it stands in its own landing's crater)
+function dragonFeetY(e) {
+  const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw), rx = fz, rz = -fx;
+  let y = 0;
+  for (const [a, b] of [[1.24, 1.15], [1.24, -1.15], [-1.25, 1.25], [-1.25, -1.25]]) y += heightAt(e.x + fx * a + rx * b, e.z + fz * a + rz * b);
+  return y / 4;
+}
 // [motion] its airspeed eases toward what a state asks (no jump from hovering to full flight): 5 m/s each second
 function dragonSpeed(want, dt) {
   const D = DRAGON;
@@ -211,6 +218,7 @@ function thinkDragon(e, dt) {
   if (D.state === 'dead') return;
   /* ---- on the ground ---- */
   if (D.state !== 'perch') return;
+  e.y = dragonFeetY(e); // [motion] it stands on its four feet in the crater its landing made (it floated 36 cm over the rim)
   const foes = dragonFoes(e, 30);
   let tgt = getEnt(e.target);
   if (tgt && (!tgt.alive || dist(tgt.x, tgt.z, D.perch.x, D.perch.z) > 34)) tgt = null;
@@ -287,7 +295,7 @@ function thinkDragon(e, dt) {
   if (d > 6.5 && dist(e.x + fwdX, e.z + fwdZ, D.perch.x, D.perch.z) < 26) {
     const sp = 3.2;
     const nx = e.x + fwdX * sp * dt, nz = e.z + fwdZ * sp * dt;
-    if (isWalkable(nx, nz)) { e.x = nx; e.z = nz; e.y = heightAt(nx, nz); D.walking = 1; }
+    if (isWalkable(nx, nz)) { e.x = nx; e.z = nz; e.y = dragonFeetY(e); D.walking = 1; } // [motion]
   }
 }
 function onDragonDeath(e) {

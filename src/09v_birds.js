@@ -270,7 +270,8 @@ function birdFly(e, B, dt) {
     // a mallard's run: wings beating, feet slapping the water, the body tipped up
     want = 6; wantPitch = 0.42; wantLegs = 1; F.patter = true; vyWant = 0;
     if (Math.random() < dt * 14) { splashAt(e.x - Math.sin(F.hd) * 0.2, e.z - Math.cos(F.hd) * 0.2, 0.22, { up: 0.6 }); rippleDrop(e.x, e.z, 0.3, 0.2); }
-    if (F.mt > 0.65) { F.mode = 'up'; F.mt = 0; }
+    // (only over open water: with the shore ahead it springs straight up, never patters onto the land)
+    if (F.mt > 0.65 || !waterAt(e.x + Math.sin(F.hd) * 1.2, e.z + Math.cos(F.hd) * 1.2)) { F.mode = 'up'; F.mt = 0; }
   } else if (F.mode === 'up') {
     // straight up off the ground at first, levelling out as it climbs
     want = F.cruise * Math.min(1, 0.35 + F.mt * 0.9); wantPitch = duck ? 0.35 : 0.85 - 0.5 * Math.min(1, F.mt / 0.8);

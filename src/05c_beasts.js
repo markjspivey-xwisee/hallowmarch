@@ -514,7 +514,7 @@ function beastVS(depth) {
       float c = ph + o;
       float u = fract((c - 1.5708) * 0.159155), fx, lift;
       if (u < duty) { fx = reachB * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty); fx = reachB * (2.0 * (wv * wv * (3.0 - 2.0 * wv) - 0.5 * (1.0 - duty) / max(duty, 0.05) * wv * (2.0 * wv - 1.0) * (wv - 1.0)) - 1.0); lift = sin(3.14159 * wv); } // [motion] the foot meets the ground moving back under the body (footPath, 05a_rig.js)
+      else { float wv = (u - duty) / (1.0 - duty); fx = reachB * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
       lift *= fold;
       // [motion] the leg reaches its foot by IK, so a planted foot stays on the ground all through the stance; in the air
       // the foot rises and the hoof or paw tucks up
