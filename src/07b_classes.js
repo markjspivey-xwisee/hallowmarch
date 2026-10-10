@@ -236,6 +236,11 @@ function classHarm(src, dst, amount, opts) {
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
       m *= k;
       blockHit(dst, src, amount * m);
+    } else if (!cs.blockOn && !opts.dot && src && src !== dst && (opts.kind === 'melee' || opts.kind === 'arrow') && clsHas(dst, 'block') && hasShield(dst) && !isStunned(dst) && blockFaces(dst, src) && Math.random() < 0.12) {
+      // [balance] a shield on the arm turns a blow now and then, raised or not
+      m *= 0.45;
+      CLS.stats.blocks++;
+      if (dst === GAME.player || src === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Blocked', 'miss');
     }
   }
   for (const b of dst.buffs) {
@@ -477,7 +482,7 @@ function classOnHit(src, dst, dmg, opts) {
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
-  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.3, 2, src.id); // [balance] a volley pins what it falls on
+  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.4, 3, src.id); // [balance] a volley pins what it falls on
 }
 // the weapon's own bite: the sword opens wounds, the axe breaks armour, the mace staggers
 function styleProc(src, dst, dmg, opts, strong) {
@@ -596,8 +601,8 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.7 : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
-  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? 0.8 : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.55 : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
+  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? 0.7 : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
@@ -1346,7 +1351,7 @@ function classSpeedMult(e) {
     if (cs.drawFrom >= 0) s *= 0.55;
     if (cs.praying) s *= 0.2;
   }
-  if (e.cls === 'archer' && !(cs && cs.drawFrom >= 0)) s *= 1.06; // [balance] light leathers: archers are a little quicker on their feet
+  if (e.cls === 'archer' && !(cs && cs.drawFrom >= 0)) s *= 1.1; // [balance] light leathers: archers are quicker on their feet
   return s;
 }
 function classActValue(e) {

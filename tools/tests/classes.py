@@ -18,6 +18,7 @@ MECH = 'mech' in ARGS or not (BAL or SHOTS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
 # [balance] duels are short and noisy: they get more repetitions of their own (dreps=N)
 DREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('dreps=')), REPS * 3)
+MREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('mreps=')), DREPS)
 SHOTQ = next((a.split('=')[1] for a in ARGS if a.startswith('q=')), 'medium')
 FAILS = []
 CONSOLE = []
@@ -110,7 +111,7 @@ window.CB = {
     for (const kind of kinds) this.CLS.forEach((c) => {
       const R = rep % 3, s = S[i++], u = this.unit(R, c, lvl, s.x - 6, s.z, kind), d = this.dummy((R + 1) % 3, lvl, s.x + 6, s.z);
       u.target = d.id; this.A.push({ kind: 'ttk', bot: kind, cls: c, u, d, t0: this.H.GAME.t });
-      const s2 = S[i++], u2 = this.unit(R, c, lvl, s2.x, s2.z, kind), p = this.pack(lvl, s2.x + 11, s2.z, u2);
+      const s2 = S[i++], u2 = this.unit(R, c, lvl, s2.x, s2.z, kind, 22), p = this.pack(lvl, s2.x + 11, s2.z, u2);
       this.A.push({ kind: 'pack', bot: kind, cls: c, u: u2, p, lvl, t0: this.H.GAME.t, hp0: u2.maxHp });
     });
     return S.length;
@@ -132,6 +133,19 @@ window.CB = {
     }
     return S.length;
   },
+  // phase 3: mastery, each calling's skilled bot against its own simple bot
+  setup3(lvl, rep = 0) {
+    this.wipe();
+    const S = this.spots(4); if (S.length < 4) throw new Error('only ' + S.length + ' arenas');
+    this.A = this.CLS.map((c, i) => {
+      const s = S[i], ra = rep % 3, rb = (rep + 1) % 3, flip = rep % 2;
+      const ua = this.unit(flip ? rb : ra, c, lvl, s.x + (flip ? 9 : -9), s.z, 'skilled', 18), ub = this.unit(flip ? ra : rb, c, lvl, s.x + (flip ? -9 : 9), s.z, 'simple', 18);
+      ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
+      ua.target = ub.id; ub.target = ua.id;
+      return { kind: 'duel', bot: 'mastery', a: c + ':skilled', b: c + ':simple', ua, ub, t0: this.H.GAME.t };
+    });
+    return S.length;
+  },
   status(cap) {
     const t = this.H.GAME.t;
     let open = 0;
@@ -140,7 +154,7 @@ window.CB = {
       const el = t - A.t0;
       if (A.kind === 'ttk') {
         const dealt = A.d.maxHp - Math.max(0, A.d.hp);
-        if (!A.d.alive || el >= Math.min(cap, 60)) A.res = { bot: A.bot, cls: A.cls, dps: dealt / Math.max(el, 0.1), ttk: A.d.std / Math.max(dealt / Math.max(el, 0.1), 1e-3), died: !A.u.alive };
+        if (!A.d.alive || el >= Math.min(cap, 60)) A.res = { bot: A.bot, cls: A.cls, dps: dealt / Math.max(el, 0.1), ttk: A.d.std / Math.max(dealt / Math.max(el, 0.1), 1e-3), died: !A.u.alive, diag: { d: +Math.hypot(A.u.x - A.d.x, A.u.z - A.d.z).toFixed(1), pw: Math.round(A.u.power), cast: A.u.casting ? A.u.casting.id : '', next: +(A.u.bot.next - t).toFixed(1), tgt: A.u.target === A.d.id, swim: !!A.u.swim, hp: +(A.u.hp / A.u.maxHp).toFixed(2), stun: A.u.buffs.map((b) => b.kind).join(','), el: Math.round(el) } };
       } else if (A.kind === 'pack') {
         // an endless pack: every fallen beast or outlaw is replaced two seconds later, so the time to die measures
         // how long the calling holds out (armour, healing, control and killing all count)
@@ -232,7 +246,15 @@ async def balance(page):
                     if not r['open']: break
                 p2 += await page.evaluate("CB.results()")
                 print(f'  level {lvl} rep {rep + 1} {kind}: duels{" (realms swapped)" if swap else ""} done in {time.time() - t0:.0f}s', flush=True)
-        rows[lvl] = {'p1': p1, 'p2': p2}
+        p3 = []
+        for rep in range(MREPS if len(KINDS) == 2 else 0):
+            await page.evaluate(f"CB.setup3({lvl}, {rep}); 0")
+            while True:
+                r = await page.evaluate("CB.run(10, 60)")
+                if not r['open']: break
+            p3 += await page.evaluate("CB.results()")
+        if p3: print(f'  level {lvl}: mastery duels done', flush=True)
+        rows[lvl] = {'p1': p1, 'p2': p2, 'p3': p3}
         if os.environ.get('HM_BAL'):
             pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps({'raw': rows}, indent=1))
     await page.evaluate("CB.wipe(); 0")
@@ -242,6 +264,17 @@ async def balance(page):
         print_table(s, bot)
         print_duels(rows, bot)
         out[bot] = s
+    # mastery pays: the skilled bot against the simple one of the same calling
+    if any(rows[l].get('p3') for l in rows):
+        print('\nmastery: skilled against simple, the same calling (wins of the skilled bot)', flush=True)
+        for lvl in rows:
+            M = {c: [0, 0] for c in CL4}
+            for r in rows[lvl].get('p3', []):
+                if not r: continue
+                c = r['a'].split(':')[0]; M[c][1] += 1
+                M[c][0] += 1 if r['win'] == r['a'] else 0.5 if r['win'] is None else 0
+            print(f'  {lvl:>3}  ' + '  '.join(f"{c} {M[c][0]:g}/{M[c][1]}" for c in CL4), flush=True)
+            for c in CL4: out.setdefault('mastery', {}).setdefault(lvl, {})[c] = M[c]
     st = await page.evaluate("JSON.stringify(__hm.bal.BAL.stats)")
     print('bot stats', st, flush=True)
     if os.environ.get('HM_BAL'):
@@ -520,6 +553,57 @@ async def mechanics(page):
     check(not r['bad'], f"the new shaders compile {r['bad'][:2]}")
     check(not CONSOLE, f"no shader or console errors {CONSOLE[:2]}")
     await page.evaluate("__hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
+
+    # ---- [balance] diminishing returns on control, the parry's stun, the freeze, the raise offer, tracked quarry ----
+    r = await ev(page, 'dr', """(() => { const P = T.fresh('warrior', 30, 0); const H = T.H, F = T.F, B = H.bal, C = H.cls;
+      const a = T.ahead(P, 3); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
+      const dur = (e, kind, src, d = 2) => { e.buffs = e.buffs.filter((b) => b.kind !== kind); F.addBuff(e, kind, 1, d, src); const b = e.buffs.find((q) => q.kind === kind && q.src === src); return b ? +(b.until - H.GAME.t).toFixed(2) : 0; };
+      const out = {};
+      out.stuns = [dur(P, 'stun', 101), dur(P, 'stun', 102), dur(P, 'stun', 103), dur(P, 'stun', 104)];
+      out.hud = B.ccHudState(P).map((q) => q.cat + ':' + q.k + (q.immune ? 'i' : ''));
+      F.addBuff(P, 'root', 1, 2, 201); const r1 = P.buffs.find((q) => q.kind === 'root').until; F.addBuff(P, 'root', 1, 2, 201); out.refreshSame = B.ccState(P, 'root').n;
+      P.buffs.length = 0; H.simulate(7); out.afterImmune = dur(P, 'stun', 105);
+      P.buffs.length = 0; H.simulate(16); out.afterWindow = dur(P, 'stun', 106);
+      out.npc = [dur(f, 'stun', 301), dur(f, 'stun', 302), dur(f, 'stun', 303), dur(f, 'stun', 304)];
+      // a parry's stun shrinks on anyone, so parries cannot stun-lock
+      f.buffs.length = 0; const ps = [];
+      for (let i = 0; i < 4; i++) { P.buffs.length = 0; P.yaw = Math.atan2(f.x - P.x, f.z - P.z); C.csOf(P).blockDown = -9; C.setBlock(P, false); C.csOf(P).blockDown = -9; C.classHold(true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' }); const b = f.buffs.find((q) => q.kind === 'stun'); ps.push(b ? +(b.until - H.GAME.t).toFixed(2) : 0); C.classHold(false); f.buffs.length = 0; H.simulate(0.6); }
+      out.parry = ps;
+      // a freeze is a stun under the same rule for players
+      P.buffs.length = 0; P.ccdr = null; const fz = [];
+      for (let i = 0; i < 4; i++) { P.buffs = P.buffs.filter((b) => b.kind !== 'frozen' && b.kind !== 'stun' && b.kind !== 'chill'); C.addChill(P, 3, f); const b = P.buffs.find((q) => q.kind === 'frozen'); fz.push(b ? +(b.until - H.GAME.t).toFixed(2) : 0); }
+      out.freeze = fz; P.buffs.length = 0;
+      return out; })()""")
+    st = r['stuns']
+    check(abs(st[0] - 2) < 0.06 and abs(st[1] - 1) < 0.06 and abs(st[2] - 0.5) < 0.06 and st[3] == 0, f"repeated stuns on a player last full, half, a quarter, then not at all ({st})")
+    check(any(h.startswith('stun:0') and h.endswith('i') for h in r['hud']), f"the class panel's state shows the immunity ({r['hud']})")
+    check(r['refreshSame'] == 1, 'a control refreshed by the same source does not count again')
+    check(abs(r['afterImmune'] - 2) < 0.06 and abs(r['afterWindow'] - 2) < 0.06, f"after the immunity the stun takes full hold again ({r['afterImmune']}, {r['afterWindow']})")
+    check(all(abs(x - 2) < 0.06 for x in r['npc']), f"an ordinary soldier has no diminishing returns ({r['npc']})")
+    pa = r['parry']
+    check(pa[0] > 0.8 and 0 < pa[1] < pa[0] * 0.6 and pa[3] == 0, f"repeated parries stun less and less, then not at all ({pa})")
+    fz = r['freeze']
+    check(fz[0] > 1.4 and 0.6 < fz[1] < 0.9 and fz[3] == 0, f"a player frozen again and again thaws sooner, then cannot be frozen ({fz})")
+
+    r = await ev(page, 'raise-offer', """(() => { const P = T.fresh('archer', 24, 1); const H = T.H, F = T.F, B = H.bal;
+      const pr = T.foe(1, P.x + 9, P.z + 3, 22, 'priest', 18); pr.ai.nextAbility = 1e9; pr.combatUntil = -99;
+      F.killEnt(P, null); H.simulate(1.5);
+      const offer = !!B.BAL.offer, shown = !document.getElementById('death-raise').hidden, who = document.getElementById('death-raise-who').textContent;
+      document.getElementById('btn-raise').click();
+      let t = 0; for (; t < 20 && !P.alive; t += 0.5) H.simulate(0.5);
+      return { offer, shown, who, alive: P.alive, hp: +(P.hp / P.maxHp).toFixed(2), t, modal: H.UI.modal, deathHidden: document.getElementById('death').hidden, near: +Math.hypot(pr.x - P.x, pr.z - P.z).toFixed(1) }; })()""")
+    check(r['offer'] and r['shown'] and 'priest' in r['who'], f"an allied priest close by offers to raise the fallen player ({r['who']})")
+    check(r['alive'] and 0.3 < r['hp'] < 0.6 and r['deathHidden'], f"accepted, the priest comes over and raises the player ({r['t']} s, {r['hp']*100:.0f}% health, priest {r['near']} m away)")
+
+    r = await ev(page, 'tracked', """(() => { const P = T.fresh('archer', 20, 0); const H = T.H, F = T.F, C = H.cls;
+      const a = T.ahead(P, 16); const f = T.foe(2, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f);
+      P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'cripple', f); H.simulate(1.2);
+      const tracked = f.buffs.some((b) => b.kind === 'tracked' && b.src === P.id);
+      H.frame(0.016); const n0 = H.errors.length;
+      const R = C.layRune(P, P.x + 2, P.z + 2, 'fire');
+      return { tracked, errors: H.errors.length - n0, cut: !!R.cut, glow: !!R.disc }; })()""")
+    check(r['tracked'] and r['errors'] == 0, 'a crippled foe is tracked and marked on the minimap')
+    check(r['cut'] and r['glow'], 'a rune is laid as a dark cut with a glow over it')
 
     # ---- NPCs of every calling use their craft ----
     r = await ev(page, 'npcs', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 30, 0); const s0 = JSON.parse(JSON.stringify(C.CLS.stats));

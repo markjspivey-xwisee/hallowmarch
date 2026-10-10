@@ -23,7 +23,7 @@ const CLASSES = {
     abilities: ['slash', 'bash', 'cleave', 'charge', 'rally', 'bulwark', 'whirl', 'leap'], icon: 'sword',
   },
   archer: {
-    name: 'Archer', role: 'Ranged damage', hp: 1.25, dmg: 1.0, dr: 0.12, range: 30, swing: 2.2, ranged: 'arrow', // [classes] balance: a little sturdier
+    name: 'Archer', role: 'Ranged damage', hp: 1.12, dmg: 1.0, dr: 0.12, range: 30, swing: 2.2, ranged: 'arrow', // [balance] 1.25: archers live by keeping away, not by taking blows
     blurb: 'A longbow and light leathers. Draws from the long grass and the treeline, and snares what comes close.', // [classes]
     abilities: ['quickshot', 'aimed', 'cripple', 'volley', 'tumble', 'pierce', 'firearrow', 'deadeye'], icon: 'bow',
   },
@@ -33,7 +33,7 @@ const CLASSES = {
     abilities: ['firebolt', 'frost', 'nova', 'blink', 'ward', 'meteor', 'chain', 'blizzard'], icon: 'flame',
   },
   priest: {
-    name: 'Priest', role: 'Healer and support', hp: 1.05, dmg: 1.2, dr: 0.08, range: 2.7, swing: 2.5, ranged: false, // [classes] balance: holy light strikes harder
+    name: 'Priest', role: 'Healer and support', hp: 1.05, dmg: 1.3, dr: 0.08, range: 2.7, swing: 2.5, ranged: false, // [balance] 1.2
     blurb: 'Mends wounds, hallows the ground and raises the fallen. Every warband wants one.', // [classes]
     abilities: ['smite', 'mend', 'renew', 'holyfire', 'sanctuary', 'divine', 'massrenew', 'pillar'], icon: 'sun',
   },
@@ -48,20 +48,20 @@ const ABILITIES = {
 
   quickshot: { name: 'Quick Shot', icon: 'arrow', level: 1, cost: 6, cd: 3, range: 32, proj: 'arrow', dmg: 1.15, anim: 2, desc: 'An instant shot. 115% damage.' },
   aimed: { name: 'Aimed Shot', icon: 'target', level: 2, cost: 12, cd: 7, range: 40, cast: 1.6, proj: 'arrow', dmg: 2.5, anim: 2, desc: 'A slow, careful shot. 250% damage, 40 m.' },
-  cripple: { name: 'Crippling Arrow', icon: 'chain', level: 4, cost: 10, cd: 12, range: 32, proj: 'arrow', dmg: 0.8, snare: [0.5, 5], anim: 2, desc: 'Slows the target by 50% for 5 seconds.' },
+  cripple: { name: 'Crippling Arrow', icon: 'chain', level: 4, cost: 10, cd: 9, range: 32, proj: 'arrow', dmg: 0.8, snare: [0.6, 5], anim: 2, desc: 'Slows the target by 60% for 5 seconds.' }, // [balance] 50%, 12 s
   volley: { name: 'Volley', icon: 'rain', level: 7, cost: 22, cd: 16, range: 36, ground: true, radius: 5, waves: 3, dmg: 0.8, anim: 2, desc: 'Three waves of arrows around the target.' },
   tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 11, /* [balance] 15 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows.' },
   pierce: { name: 'Piercing Shot', icon: 'pierce', level: 15, cost: 24, cd: 20, range: 40, cast: 1.2, line: true, dmg: 2.0, anim: 2, desc: 'An arrow that passes through every enemy in a line.' },
 
   firebolt: { name: 'Firebolt', icon: 'flame', level: 1, cost: 10, cd: 0, range: 34, cast: 1.5, proj: 'fire', dmg: 2.0, anim: 3, desc: 'Hurls fire. 200% damage.' },
   frost: { name: 'Frost Lance', icon: 'snow', level: 2, cost: 9, cd: 6, range: 32, proj: 'frost', dmg: 1.0, snare: [0.4, 4], anim: 3, desc: 'Instant. Slows the target by 40% for 4 seconds.' },
-  nova: { name: 'Flame Nova', icon: 'burst', level: 4, cost: 18, cd: 16, self: true, pbaoe: 7, dmg: 1.3, root: 2.5, anim: 3, desc: 'Burns and roots every enemy within 7 m.' },
+  nova: { name: 'Flame Nova', icon: 'burst', level: 4, cost: 18, cd: 12, /* [balance] 16 */ self: true, pbaoe: 7, dmg: 1.3, root: 2.5, anim: 3, desc: 'Burns and roots every enemy within 7 m.' },
   blink: { name: 'Blink', icon: 'spark', level: 7, cost: 12, cd: 11, /* [balance] 14 */ self: true, blink: 12, desc: 'Teleport 12 m in the direction you face.' },
   ward: { name: 'Arcane Ward', icon: 'ward', level: 11, cost: 20, cd: 24, self: true, shieldPct: 0.4, dur: 12, desc: 'Absorbs damage equal to 40% of your health.' }, // [balance] 30%, 30 s
   meteor: { name: 'Meteor', icon: 'meteor', level: 15, cost: 30, cd: 28, range: 36, ground: true, cast: 2.4, radius: 6, dmg: 3.0, anim: 3, desc: 'Calls down a meteor. 300% damage in 6 m.' },
 
   smite: { name: 'Smite', icon: 'sun', level: 1, cost: 8, cd: 0, range: 30, cast: 1.3, proj: 'holy', dmg: 1.8, anim: 3, desc: 'Holy light. 180% damage.' }, // [balance] 160%
-  mend: { name: 'Mend', icon: 'heart', level: 1, cost: 14, cd: 0, range: 30, cast: 1.5, heal: 0.36, friendly: true, anim: 3, desc: 'Heals a friend (or you) for 36% of health.' },
+  mend: { name: 'Mend', icon: 'heart', level: 1, cost: 18, /* [balance] 14 */ cd: 0, range: 30, cast: 1.5, heal: 0.36, friendly: true, anim: 3, desc: 'Heals a friend (or you) for 36% of health.' },
   renew: { name: 'Renewal', icon: 'leaf', level: 3, cost: 12, cd: 6, range: 30, hot: [0.32, 9], friendly: true, anim: 3, desc: 'Heals 32% over 9 seconds.' },
   holyfire: { name: 'Holy Fire', icon: 'candle', level: 5, cost: 12, cd: 8, range: 30, dot: [2.1, 8], anim: 3, desc: 'Burns an enemy for 210% over 8 seconds.' }, // [balance] 180%
   sanctuary: { name: 'Sanctuary', icon: 'circle', level: 9, cost: 26, cd: 20, self: true, groupHeal: 0.25, radius: 14, anim: 3, desc: 'Heals you and all allies within 14 m for 25%.' },

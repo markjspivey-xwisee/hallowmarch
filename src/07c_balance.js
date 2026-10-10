@@ -425,23 +425,24 @@ function botMage(e, t) {
   return botUse(e, 'firebolt', t) || botUse(e, 'frost', t);
 }
 function botPriest(e, t) {
-  const cs = csOf(e), B = e.bot, P = e === GAME.player, hpF = e.hp / e.maxHp;
-  const foesNear = botFoes(e, 6);
-  if (hpF < 0.45 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
-  if (hpF < 0.5 && botUse(e, 'sanctuary', e)) return true;
-  if (hpF < 0.7 && !e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 2) && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
-  if (hpF < 0.55 && botUse(e, 'mend', e)) return true;
+  const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp;
+  const foesNear = botFoes(e, 6), fight = !!t || botFoes(e, 16) > 0;
+  const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
+  // a priest who knows the work heals early and keeps a renewal running, shields before the blow, and smites between
+  if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
+  if (hpF < 0.65 && botUse(e, 'sanctuary', e)) return true;
+  if (fight && hpF < 0.97 && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
+  if (hpF < 0.72 && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
-  if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.9 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
+  if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
     // nothing to fight: kneel and pray
     if (!cs.praying && devOf(e) < 70 && botFoes(e, 16) === 0) { if (P) classHold(true); else startPrayer(e); BAL.stats.prayers++; return true; }
     return false;
   }
-  if (hpF < 0.85 && !e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t) && botUse(e, 'renew', e)) return true;
-  if (botUse(e, 'pillar', t)) return true;
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
-  if (hpF < 0.8 && botUse(e, 'mend', e)) return true;
+  if (botUse(e, 'pillar', t)) return true;
+  if (hpF < 0.85 && botUse(e, 'mend', e)) return true;
   return botUse(e, 'smite', t);
 }
 
