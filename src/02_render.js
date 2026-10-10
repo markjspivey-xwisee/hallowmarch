@@ -138,9 +138,12 @@ vec3 fogColor(vec3 dir){ return skyBase(safeNormalize(vec3(dir.x, 0.012 + max(di
 // [water2] under the water (07d_dive.js): the water between the eye and what it sees takes the red first, then everything,
 // toward its own colour; what stands above the surface is seen through it (the surface from below carries that part)
 vec3 underFog(vec3 col, vec3 wpos){
-  float d = length(wpos - cameraPosition);
+  vec3 v = wpos - cameraPosition;
+  float d = length(v), up = v.y / max(d, 1e-3);
   vec3 ab = exp(-d * uUnder.z * vec3(2.4, 0.95, 0.8));
-  return mix(col * ab, uUnderCol, 1.0 - exp(-d * uUnder.z * 1.3));
+  // the water's own glow is brighter looking up toward the light, darker looking down into the deep
+  vec3 fc = uUnderCol * (0.62 + 0.75 * smoothstep(-0.7, 0.85, up));
+  return mix(col * ab, fc, 1.0 - exp(-d * uUnder.z * 1.3));
 }
 vec3 applyFog(vec3 col, vec3 wpos){
   if (uUnder.x > 0.5 && wpos.y < uUnder.y + 0.05) return underFog(col, wpos); // [water2]

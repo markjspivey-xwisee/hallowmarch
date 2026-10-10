@@ -383,7 +383,8 @@ function boatSeat(e, B, where) {
 function boatSteer(P, dt, f, s, mag) {
   const B = P.boat;
   if (!B || B.st === 'burnt' || B.st === 'burning') { boatLeave(P, null, B && B.st === 'burning' ? 'The boat is alight! You throw yourself into the water.' : null); return; }
-  if (P.casting && P.casting.id !== 'summon') P.casting = null;
+  if (P.casting) P.casting = null; // no casting at the oars (and no horse in a boat)
+  if (P.mount) dismount(P);
   const fishing = typeof SURV !== 'undefined' && SURV.fish;
   let thrust = 0, turn = 0;
   if (!UI.modal && !isStunned(P) && !isRooted(P) && !fishing) { thrust = clamp(f, -1, 1); turn = clamp(-s, -1, 1); }
@@ -840,7 +841,7 @@ registerSavePart('world', 'boats', {
       boatPose(B, 0);
     }
   },
-  key: (d) => (d && d.b ? d.b.map((r) => `${r[0]}:${r[4]}:${Math.round(r[1])}:${Math.round(r[2])}`).join() : ''),
+  key: (d) => (d && d.b ? d.b.map((r) => `${r[0]}:${r[4]}:${Math.round(r[1] / 8)}:${Math.round(r[2] / 8)}`).join() : ''), // a boat rowed about is not written every metre
 });
 
 // one line under the path tracker's step (10c_lore.js) while the water is at hand: how to dive, row, step in
@@ -862,7 +863,7 @@ const BOATS_DEBUG = {
   phys: (i, dt, thrust, turn) => { const B = BOATS.list[i]; const h = boatPhys(B, dt, thrust, turn); boatPose(B, dt); return h ? h.why : null; },
   state: (i) => { const B = BOATS.list[i]; if (!B) return null; return { id: B.id, realm: B.realm, x: B.x, z: B.z, y: B.y, yaw: B.yaw, vx: B.vx, vz: B.vz, sp: Math.hypot(B.vx, B.vz), st: B.st, char: B.char, rider: B.rider, pass: B.pass, grounded: B.grounded, ph: B.ph, eff: B.eff, home: B.home }; },
   list: () => BOATS.list.map((B, i) => ({ i, id: B.id, realm: B.realm, x: B.x, z: B.z, st: B.st, home: !!B.home })),
-  jetties: () => BOATS.jetties.map((J) => ({ realm: J.realm, x0: J.x0, z0: J.z0, dx: J.dx, dz: J.dz, len: J.len, deck: J.deck, end: J.end, land: J.land, berths: J.berths, fisher: J.fisher })),
+  jetties: () => BOATS.jetties.map((J) => ({ realm: J.realm, x0: J.x0, z0: J.z0, dx: J.dx, dz: J.dz, len: J.len, deck: J.deck, end: J.end, land: J.land, berths: J.berths, steps: J.steps, fisher: J.fisher })),
   landing: (i) => boatLanding(BOATS.list[i]), offers: () => { const L = []; boatOffers(GAME.player, (d, r, label) => { if (d < r) L.push(label); }); return L; },
   life: boatLife, fisherMorning,
 };

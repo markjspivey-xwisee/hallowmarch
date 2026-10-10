@@ -116,6 +116,8 @@ function diveToggle() {
   const P = GAME.player;
   if (!P || !P.alive || UI.modal) return;
   if (P.dive) { P.dive.up = !P.dive.up; return; }
+  // in a boat: over the side, and under if it is deep enough (07e_boats.js)
+  if (P.boat) { boatLeave(P, null); updateWater(0.001); if (!diveWhyNot(P)) diveStart(P); return; }
   diveStart(P);
 }
 
@@ -588,7 +590,7 @@ function dvFishStep(dt) {
 // shafts of sunlight slanting down through the water near the eye
 const SHAFT_MAX = 22;
 const shaftMat = mat({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   uniforms: { uShaftDir: { value: new THREE.Vector3(0, -1, 0) }, uShaftCol: { value: new THREE.Vector3() } },
   vertexShader: /* glsl */`
     attribute vec4 iS; attribute vec4 iL;
@@ -642,7 +644,7 @@ function shaftsFrame(on, surfY) {
   _shD.set(-L.x / 1.33, -Math.sqrt(Math.max(0.05, 1 - (L.x * L.x + L.z * L.z) / (1.33 * 1.33))), -L.z / 1.33).normalize();
   shaftMat.uniforms.uShaftDir.value.copy(_shD);
   const lc = U.uLightColor.value, cov = 1 - 0.8 * (WEATHER.overcast || 0);
-  shaftMat.uniforms.uShaftCol.value.set(lc.x * 0.07, lc.y * 0.1, lc.z * 0.1).multiplyScalar(sunUp * cov);
+  shaftMat.uniforms.uShaftCol.value.set(lc.x * 0.16, lc.y * 0.22, lc.z * 0.21).multiplyScalar(sunUp * cov);
   const iS = M.geometry.attributes.iS.array, iL = M.geometry.attributes.iL.array, cam = camera.position;
   const cell = 2.6, ci = Math.floor(cam.x / cell), cj = Math.floor(cam.z / cell), list = [];
   for (let j = -6; j <= 6; j++) for (let i = -6; i <= 6; i++) {
@@ -691,9 +693,11 @@ function diveFrame(dt) {
     const lit = Math.exp(-D.d * 0.09);
     const iced = SICE.on && seasonIceAt(cam.x, cam.z) > 0.12 ? 0.45 : 1;
     const base = pond ? [0.05, 0.085, 0.06] : realm === 2 ? [0.03, 0.08, 0.1] : [0.035, 0.09, 0.085];
-    U.uUnderCol.value.set(base[0] * (A.x * 0.9 + L.x * 0.7 * day), base[1] * (A.y * 0.9 + L.y * 0.7 * day), base[2] * (A.z * 0.9 + L.z * 0.7 * day)).multiplyScalar(lit * iced * 1.6);
+    U.uUnderCol.value.set(base[0] * (A.x * 0.9 + L.x * 0.7 * day), base[1] * (A.y * 0.9 + L.y * 0.7 * day), base[2] * (A.z * 0.9 + L.z * 0.7 * day)).multiplyScalar(lit * iced * 2.3);
     U4.set(1, w.y, murk, D.d);
   } else U4.set(0, -1000, U4.z, 0);
+  // the holes' own rims are drawn for the eye above the ice; from under it the open water shows the sky
+  if (under) { for (const h of DIVE.holes) if (h.mesh) h.mesh.visible = false; if (typeof SEAS !== 'undefined' && SEAS.hole) SEAS.hole.visible = false; }
   composite.uniforms.uUnderW.value = D.k * (REDUCE_MOTION ? 0.3 : 1);
   composite.uniforms.uVignette.value = 0.34 + 0.28 * D.k;
   shaftsFrame(under, under ? w.y : 0);
@@ -797,7 +801,7 @@ function diveHUD() {
   }
   const tb = $('t-jump');
   if (tb) {
-    const lab = P.dive ? (P.dive.up ? 'Rise…' : 'Up') : P.swim && !P.boat && !diveWhyNot(P) ? 'Dive' : 'Jump';
+    const lab = P.dive ? (P.dive.up ? 'Rise…' : 'Up') : P.boat ? 'Dive in' : P.swim && !diveWhyNot(P) ? 'Dive' : 'Jump';
     if (lab !== DIVE.pad) { DIVE.pad = lab; tb.textContent = lab; tb.classList.toggle('w2-dive', lab !== 'Jump'); }
   }
 }
@@ -810,7 +814,7 @@ function diveBindPad() {
     if (!b || b.id !== 't-jump') return;
     const P = GAME.player;
     if (!P || UI.modal || !P.alive) return;
-    if (P.dive || (P.swim && !P.boat)) { e.stopImmediatePropagation(); e.preventDefault(); diveToggle(); }
+    if (P.dive || P.swim || P.boat) { e.stopImmediatePropagation(); e.preventDefault(); diveToggle(); }
   }, true);
 }
 window.addEventListener('keydown', (e) => {

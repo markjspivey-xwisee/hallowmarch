@@ -1,7 +1,7 @@
 """Touch flows on a phone (390x780, touch only): every step is a tap on the screen's own buttons (the pad's Use, the
 plant card, the builder's bar, the companion bar, the crafting book) or a drag of the stick; window.__hm only sets the
 scene (where to stand, what is in the bags) and lets time pass. Flows: drink at a river, fish (cast and strike),
-swim out with the stick, dive and come up again, row a boat away from a jetty and step out, till and sow, craft from
+swim out with the stick, dive and come up again, row a boat away from a jetty and go over the side, till and sow, craft from
 the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table.
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
@@ -147,12 +147,14 @@ async def main():
             st = await drag_stick(page, cdp, 0, -45, 5)
             b2 = await page.evaluate("__hm.water.boats.state(%d)" % (r['i'] if r else 0))
             moved = ((b2['x'] - r['x']) ** 2 + (b2['z'] - r['z']) ** 2) ** 0.5 if r else 0
-            lab = await page.evaluate("__hm.surv.ci()")
-            ok2 = await tap(page, '#t-use')
-            out = await page.evaluate("(() => { __hm.simulate(0.3); const P = __hm.GAME.player; return { boat: !!P.boat, swim: !!P.swim }; })()")
+            await page.evaluate("__hm.frame(1/30); 0")
+            lab = await page.evaluate("document.getElementById('t-jump').textContent")
+            ok2 = await tap(page, '#t-jump')
+            out = await page.evaluate("(() => { __hm.simulate(0.3); const P = __hm.GAME.player; return { boat: !!P.boat, swim: !!P.swim, dive: !!P.dive }; })()")
+            await page.evaluate("(() => { const W = __hm.water; if (__hm.GAME.player.dive) W.dive.end(); return 0; })()")
             check(r is not None and ok and inb, f'row: a tap on Use steps into the boat ({r and r["label"]})')
             check(moved > 3, f'row: the stick rows her away from the jetty ({moved:.1f} m)')
-            check(ok2 and not out['boat'], f'row: Use steps out again ({lab}, {json.dumps(out)})')
+            check(lab == 'Dive in' and ok2 and not out['boat'] and (out['swim'] or out['dive']), f'row: the pad\'s Dive in goes over the side ({lab}, {json.dumps(out)})')
             await page.evaluate("(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()")
 
         if want('farm'):

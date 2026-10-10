@@ -903,7 +903,7 @@ function humanVS(depth) {
         spreadL = mix(spreadL, 0.12 + 0.45 * drawU + 0.25 * kickU, swimK); spreadR = -spreadL;
         swimPitch = (1.57 + lean) * swimK;
         headX = mix(headX, -0.8 + 0.25 * hang, swimK); bob = 0.0;
-        capeX = mix(capeX, 1.45, swimK);
+        capeX = mix(capeX, 0.22 + 0.12 * sin(t * 1.7) + 0.3 * hang, swimK); // the cape streams along the back
       }
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse

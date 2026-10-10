@@ -354,7 +354,7 @@ function chronWater() {
 }
 function waterHelp() {
   return `<h3>Water</h3><p>Wade into lakes, ponds and rivers; past chest height you swim, slowly, and cannot cast or shoot. Rivers carry you downstream. Water puts out fire, soaks your gear and washes it. At the water's edge ${IS_TOUCH ? 'tap Use' : 'press E'} to drink, fill a waterskin or wash your gear.</p>
-    <p>${IS_TOUCH ? 'Tap Dive' : 'U'} goes under while you swim (${IS_TOUCH ? 'Up' : 'Space'} rises; mind your breath). ${IS_TOUCH ? 'Use' : 'E'} by a boat steps in; ${IS_TOUCH ? 'the stick rows' : 'W and S row, A and D turn'}.</p>`; // [water2]
+    <p>${IS_TOUCH ? 'Tap Dive' : 'U'} goes under while you swim (from a boat: over the side and down) (${IS_TOUCH ? 'Up' : 'Space'} rises; mind your breath). ${IS_TOUCH ? 'Use' : 'E'} by a boat steps in; ${IS_TOUCH ? 'the stick rows' : 'W and S row, A and D turn'}.</p>`; // [water2]
 }
 
 /* test hooks (window.__hm.water) */

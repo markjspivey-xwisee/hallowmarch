@@ -380,6 +380,21 @@ async def shots(page):
       W2.cam([s.x - 2.5, H.fn.heightAt(s.x, s.z) + 3.4, s.z - 3.5], [s.x + 1.5, H.fn.heightAt(s.x, s.z), s.z + 3.5]); H.frame(1 / 30);
       return { s, n: T.prints(s.x, s.z, 15).length }; })()""")
     await snap(page, 'water2_tracks_snow.png')
+    # 4b. a drift against the windward wall of a house in Thule's town, in deep winter
+    await ev(page, 'shot-drift', """(() => { const H = __hm, Wt = H.water, T = Wt.tracks, P = H.GAME.player; W2.play(); W2.safe();
+      H.farm.setSeason(0.875); H.seasons.seasonSettle(); H.dbg.WEATHER.snow = 0;
+      const R = H.REALMS[2], wd = H.dbg.U.uWindDir.value; let best = null;
+      // a house wall facing into the wind, near the town's middle, with snow lying
+      for (const D of T.TRACKS.drifts) { if (Math.hypot(D.x - R.town.x, D.z - R.town.z) > 90) continue; if (!best || Math.hypot(D.x - R.town.x, D.z - R.town.z) < best.d) best = { x: D.x, z: D.z, d: Math.hypot(D.x - R.town.x, D.z - R.town.z) }; }
+      if (!best) return null;
+      // the drift's own vertices: the one nearest its middle, and which way it faces
+      const D = T.TRACKS.drifts.find((q) => q.x === best.x && q.z === best.z), pos = D.m.geometry.attributes.position.array, ad = D.m.geometry.attributes.aD.array;
+      let k = 0, bd = 1e9; for (let i = 0; i < pos.length / 3; i++) { if (ad[i * 4 + 1] !== 0) continue; const dd = Math.hypot(pos[i * 3] - best.x, pos[i * 3 + 2] - best.z); if (dd < bd) { bd = dd; k = i; } }
+      const fx = pos[k * 3], fz = pos[k * 3 + 2], nx = ad[k * 4 + 2], nz = ad[k * 4 + 3], g = H.fn.heightAt(fx, fz);
+      H.teleport(fx + nx * 9, fz + nz * 9); H.simulate(0.3);
+      W2.cam([fx + nx * 6.5 - nz * 2.5, g + 2.4, fz + nz * 6.5 + nx * 2.5], [fx, g + 0.4, fz]); for (let i = 0; i < 20; i++) H.frame(1 / 30);
+      return { fx, fz, nx, nz, drifts: T.drifts(), lie: H.seasons.lie(fx, fz) }; })()""")
+    await snap(page, 'water2_drift.png')
     # 5. under the winter ice, looking up at the hole
     await ev(page, 'shot-ice', """(() => { const H = __hm, Wt = H.water, D = Wt.dive, P = H.GAME.player; W2.play(); W2.safe();
       const L = H.dbg.LAKES.find((l) => l.realm === 2);

@@ -17,7 +17,7 @@ const TRK_BEAST = {
   sheep: [1, 0.065, 0.36, -0.33, 0.09], hen: [3, 0.075, 0.02, 0.02, 0.04], bird: [3, 0.08, 0.02, 0.02, 0.05],
 };
 const trkMat = mat({
-  transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, side: THREE.DoubleSide, // (the quad's x-y frame lies mirrored on the ground)
   uniforms: { uTrk: { value: new THREE.Vector4() } }, // snow fallen so far, dryness so far, game time, far fade
   vertexShader: /* glsl */`
     ${GLSL_COMMON}

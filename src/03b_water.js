@@ -66,8 +66,9 @@ const waterMat = mat({
         float iceU = smoothstep(0.05, 0.14, vF.w) * (1.0 - iceHole(vW.xz));
         float thick = smoothstep(0.1, 0.6, vF.w);
         float dayU = 1.0 - uNight * 0.85;
-        // the mirror of the depths, a little lighter where the sun is on the surface above
-        vec3 mirror = uUnderCol * (0.55 + 0.35 * vnoise(vW.xz * 0.8 + tU * 0.2));
+        // the mirror of the depths: silvery, lit by the light scattered in the water, rippled with brighter crests
+        float crest = smoothstep(0.25, 0.9, length(gU) * 1.6) * 0.6 + vnoise(vW.xz * 0.8 + tU * 0.2) * 0.4;
+        vec3 mirror = uUnderCol * (1.3 + 0.9 * crest) + uLightColor * 0.045 * crest * dayU;
         vec3 glare = uLightColor * (spow(max(dot(T, uLightDir), 0.0), 90.0) * 3.0 + spow(max(dot(T, uLightDir), 0.0), 8.0) * 0.25) * dayU * inWin;
         vec3 rim = uLightColor * 0.12 * smoothstep(0.82, 1.0, 1.0 - cosT) * inWin * dayU;
         vec3 iceC = vec3(0.5, 0.64, 0.74) * (uAmbient * 0.5 + uLightColor * 0.32 * dayU) * mix(0.85, 0.32, thick) * (0.8 + 0.4 * vnoise(vW.xz * 0.7));
@@ -77,7 +78,7 @@ const waterMat = mat({
         vec3 surfC = mix(mirror * (1.0 - tr) + rim, iceC, iceU) + glare * (1.0 - iceU);
         float dU = length(cameraPosition - vW);
         float fU = 1.0 - exp(-dU * uUnder.z * 1.3);
-        vec3 premul = surfC * (1.0 - fU) + uUnderCol * fU;
+        vec3 premul = surfC * (1.0 - fU) + uUnderCol * 1.25 * fU;
         float aU = 1.0 - trE * (1.0 - fU);
         gl_FragColor = vec4(safeColor(premul), clamp(aU, 0.0, 1.0));
         return;
