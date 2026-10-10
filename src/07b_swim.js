@@ -124,6 +124,7 @@ function waterInit() {
     // [water2] diving and boats (07d_dive.js, 07e_boats.js)
     FIELD_NOTES.dive = { t: 'Under the water', x: () => `Look where you want to go and swim: down, along the bed, up again. ${IS_TOUCH ? 'Tap Up' : 'Space'} rises; stop swimming and you drift up. Watch your breath: when it is gone the water takes your health. Lost things lie on the beds of the lakes and the deep pools: ${IS_TOUCH ? 'tap Use' : 'press E'} beside them.` };
     FIELD_NOTES.divechest = { t: 'A sunken chest', x: () => 'Chests go down with boats and careless carters now and then, mostly in the deep middles of the lakes. Others will wash in, in time.' };
+    FIELD_NOTES.tracks = { t: 'Tracks', x: () => 'Feet leave prints in lying snow, in the mud after rain and on the wet sand at the water\'s edge: boots, hooves, paws, the arrows of birds\' feet. Fresh snow fills them and fine weather dries them away, so a clear track is a fresh one.' };
     FIELD_NOTES.boat = { t: 'At the oars', x: () => `${IS_TOUCH ? 'Push the stick forward' : 'W'} to pull on the oars, ${IS_TOUCH ? 'back' : 'S'} to back water, ${IS_TOUCH ? 'left and right' : 'A and D'} to turn. The current takes a boat as it takes a swimmer, and a boat cannot cross land or ice: run it up on a shore to step out, or tie it up at a jetty. You can fish from it, and step out into deep water to dive.` };
   }
 }

@@ -186,7 +186,7 @@ function tracksUpdate(dt) {
   for (const e of ENT) {
     if (e.removed || !e.alive) continue;
     const dx = e.x - cam.x, dz = e.z - cam.z;
-    if (dx * dx + dz * dz > 42 * 42) { e._tkS = undefined; continue; }
+    if (dx * dx + dz * dz > 42 * 42 && (!P || dist2(e.x, e.z, P.x, P.z) > 30 * 30)) { e._tkS = undefined; continue; }
     if (e.siegeEngine) { trkRuts(e); continue; }
     if (e.kind === 'door' || e.kind === 'wisp' || e.kind === 'dragon' || e.fixedY !== null || e.flying || e.swim || e.dive || e.boat || e.seat || e.motion) { e._tkS = undefined; continue; }
     const sc = e.scale || 1;
@@ -347,8 +347,9 @@ function tracksDraw(dt) {
     T.visT = 0.5;
     const any = !INDOOR.on && (U.uSnowCover.value > 0.015);
     T.driftOn = any;
-    const cam = camera.position, r = quality.level === 'low' ? 70 : quality.level === 'medium' ? 110 : 150;
-    for (const D of T.drifts) D.m.visible = any && dist2(D.x, D.z, cam.x, cam.z) < (r + 32) * (r + 32);
+    const cam = camera.position, r = quality.level === 'low' ? 70 : quality.level === 'medium' ? 110 : 150, fall = WEATHER.snow || 0;
+    // drawn only near the camera and where snow lies round them (the season's map, or the snow falling here)
+    for (const D of T.drifts) D.m.visible = any && dist2(D.x, D.z, cam.x, cam.z) < (r + 32) * (r + 32) && Math.max(typeof seasonSnowLieAt === 'function' ? seasonSnowLieAt(D.x, D.z) : 0, dist2(D.x, D.z, cam.x, cam.z) < 90 * 90 ? fall : 0) > 0.06;
   }
 }
 

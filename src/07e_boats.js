@@ -843,6 +843,18 @@ registerSavePart('world', 'boats', {
   key: (d) => (d && d.b ? d.b.map((r) => `${r[0]}:${r[4]}:${Math.round(r[1])}:${Math.round(r[2])}`).join() : ''),
 });
 
+// one line under the path tracker's step (10c_lore.js) while the water is at hand: how to dive, row, step in
+function water2PathLine() {
+  const P = GAME.player;
+  if (!P || !P.alive) return '';
+  const t = IS_TOUCH;
+  let s = '';
+  if (P.boat) s = `At the oars: ${t ? 'the stick rows and turns her' : 'W and S row, A and D turn'}; ${t ? 'Use' : 'E'} to step out or tie up.`;
+  else if (P.dive) s = `Under the water: ${t ? 'Up' : 'Space'} rises; mind your breath. ${t ? 'Use' : 'E'} takes what lies on the bed.`;
+  else if (P.swim && !diveWhyNot(P)) s = `Deep water: ${t ? 'Dive' : 'U'} to go under. Lost things lie on the lake beds.`;
+  else if (BOATS.built && BOATS.list.some((B) => B.st !== 'burnt' && !B.rider && dist2(B.x, B.z, P.x, P.z) < 36)) s = `A boat: ${t ? 'Use' : 'E'} beside her to step in and row.`;
+  return s ? `<span class="w2-path">${s}</span>` : '';
+}
 /* test hooks (window.__hm.water.boats) */
 const BOATS_DEBUG = {
   BOATS, board: (i) => boatBoard(BOATS.list[i], GAME.player), leave: (spot) => boatLeave(GAME.player, spot || null), moor: (i, j) => boatMoor(BOATS.list[i], BOATS.jetties[j ?? 0]), ignite: (i) => boatIgnite(BOATS.list[i], GAME.player), restore: (i) => boatRestore(BOATS.list[i]),

@@ -1010,7 +1010,7 @@ function renderPathHud() {
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
       + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
-      + `<span class="rw">${iconSvg(rw.ic, 14)}Reward: ${rw.t}</span></button>`;
+      + `<span class="rw">${iconSvg(rw.ic, 14)}Reward: ${rw.t}</span></button>` + water2PathLine(); // [water2] diving and boats, when they are at hand (07e_boats.js)
   }
   if (html !== LORE.hudKey) { el.innerHTML = html; LORE.hudKey = html; }
   el.classList.toggle('min', !!LORE.min);
