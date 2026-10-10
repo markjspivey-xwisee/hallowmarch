@@ -553,8 +553,25 @@ function buildWorld(seed = 7) {
       });
     }
   }
+  Object.assign(W, { walk, grass, flower, rock, realmW, field });
+  clearBarrowGround(W, forTexels);
+  // no grass or flowers on a river bed (01b_water.js)
+  for (const Rv of RIVERS) forTexels((Rv.box[0] + Rv.box[2]) / 2, (Rv.box[1] + Rv.box[3]) / 2, Math.max(Rv.box[2] - Rv.box[0], Rv.box[3] - Rv.box[1]) / 2, (k, x, z) => {
+    const n = riverNearest(Rv, x, z);
+    if (n && n.d < n.hw + 0.9) { W.grass[k] = 0; W.flower[k] = 0; }
+  });
+
+  // structure colliders
+  for (const R of REALMS) {
+    for (const S of R.keepSites) buildKeepColliders(S, R.style);
+    buildTempleColliders(R.templeSite);
+    buildMusterColliders(R.musterSite);
+    buildTown(R.town, R, rnd);
+  }
+  planKeepHalls(); // [building] each keep's great hall, numbered after every town house (04k_hall.js)
   // [seasons] gardens by the other towns, worked through the year like Brackenford's strips (08h_farming.js): Ériu's
-  // herb and vegetable gardens and Thule's turnip and cabbage beds, off the road and clear of the common's sides
+  // herb and vegetable gardens and Thule's turnip and cabbage beds, off the road, clear of the houses and their yards
+  // (so after the towns are built), before the trees are planted (none grows in them)
   for (const R of [REALMS[1], REALMS[2]]) {
     const fr = mulberry(310 + R.id * 41), want = R.id === 1 ? 3 : 2, mine = [];
     for (let tries = 0; tries < 90 && mine.length < want; tries++) {
@@ -572,6 +589,9 @@ function buildWorld(seed = 7) {
         lo = Math.min(lo, h); hi = Math.max(hi, h);
       }
       if (!ok || hi - lo > 2.2) continue;
+      // nothing built on it, and a clear walk out to it from the plaza for the townsfolk who tend it
+      const ex = cx - Math.sin(a + R.yaw) * hd, ez = cz - Math.cos(a + R.yaw) * hd, px = R.town.x + Math.sin(a + R.yaw) * 9, pz = R.town.z + Math.cos(a + R.yaw) * 9;
+      if (!segmentClear(px, pz, ex, ez, 0.9) || !segmentClear(cx - c * hw, cz + s * hw, cx + c * hw, cz - s * hw, 1.2) || !segmentClear(cx - s * hd, cz - c * hd, cx + s * hd, cz + c * hd, 1.2)) continue;
       const F = { x: cx, z: cz, hw, hd, ang: Math.atan2(s, c), realm: R.id, garden: true, stripW: 3.2, gap: 1.2 };
       mine.push(F); W.fieldRects.push(F);
       forTexels(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
@@ -580,22 +600,6 @@ function buildWorld(seed = 7) {
       });
     }
   }
-  Object.assign(W, { walk, grass, flower, rock, realmW, field });
-  clearBarrowGround(W, forTexels);
-  // no grass or flowers on a river bed (01b_water.js)
-  for (const Rv of RIVERS) forTexels((Rv.box[0] + Rv.box[2]) / 2, (Rv.box[1] + Rv.box[3]) / 2, Math.max(Rv.box[2] - Rv.box[0], Rv.box[3] - Rv.box[1]) / 2, (k, x, z) => {
-    const n = riverNearest(Rv, x, z);
-    if (n && n.d < n.hw + 0.9) { W.grass[k] = 0; W.flower[k] = 0; }
-  });
-
-  // structure colliders
-  for (const R of REALMS) {
-    for (const S of R.keepSites) buildKeepColliders(S, R.style);
-    buildTempleColliders(R.templeSite);
-    buildMusterColliders(R.musterSite);
-    buildTown(R.town, R, rnd);
-  }
-  planKeepHalls(); // [building] each keep's great hall, numbered after every town house (04k_hall.js)
   // the lone tree on the hill
   W.heroTree = { x: 0.6, z: -0.4, y: 0 };
   W.heroTree.y = heightAt(W.heroTree.x, W.heroTree.z);
@@ -616,11 +620,14 @@ function buildWorld(seed = 7) {
   // [seasons] farmland is cleared land: a tree that would stand in a town field or garden grows off its edge instead
   // (it keeps its place in the list, so the saved land's tree numbers stay the same)
   const inField = (x, z, pad) => (W.fieldRects || []).some((F) => { const c = Math.cos(F.ang), s = Math.sin(F.ang), lx = (x - F.x) * c - (z - F.z) * s, lz = (x - F.x) * s + (z - F.z) * c; return Math.abs(lx) < F.hw + pad && Math.abs(lz) < F.hd + pad; });
+  // it goes back into the woods beyond the farmland (the fields, gardens, orchard and common lie within about 100 m
+  // of a town), else just off the field's edge
+  const farmland = (x, z) => REALMS.some((R) => dist2(x, z, R.town.x, R.town.z) < 106 * 106);
   const offField = (x0, z0, seed) => {
     const r0 = mulberry(seed);
-    for (let n = 0; n < 120; n++) {
-      const a = r0() * TAU, d = 5 + n * 0.5 + r0() * 4, x = x0 + Math.cos(a) * d, z = z0 + Math.sin(a) * d;
-      if (inField(x, z, 3.5) || Math.hypot(x, z) > 468) continue;
+    for (let n = 0; n < 240; n++) {
+      const far = n < 160, a = r0() * TAU, d = far ? 12 + n * 0.45 + r0() * 6 : 5 + (n - 160) * 0.5 + r0() * 4, x = x0 + Math.cos(a) * d, z = z0 + Math.sin(a) * d;
+      if (inField(x, z, far ? 8 : 3.5) || (far && farmland(x, z)) || Math.hypot(x, z) > 468) continue;
       const h = heightAt(x, z), k = hIndex(Math.round((x + HALF) / HS), Math.round((z + HALF) / HS));
       if (h < WATER_Y + 0.6 || W.rock[k] > 0.55 || W.walk[k] || blocked(x, z, 10) || nearRoad(x, z, 6)) continue;
       if (trees.some((t) => dist2(t.x, t.z, x, z) < 3.2 * 3.2)) continue;

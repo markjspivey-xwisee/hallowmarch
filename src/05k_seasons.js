@@ -31,7 +31,7 @@ function seasonCurves(k) {
     k,
     A: raw.map((v) => v / sum), // spring, summer, autumn, winter
     turn: sstep(0.52, 0.66, k) * (1 - sstep(0.93, 0.98, k)), // the broadleaves' leaves turn gold, rust and red
-    fall: k < 0.3 ? 1 - sstep(0.0, 0.1, k) : sstep(0.62, 0.78, k), // and fall; they come back in early spring
+    fall: k < 0.3 ? 0.65 * (1 - sstep(0.0, 0.05, k)) : k > 0.95 ? 1 - 0.35 * sstep(0.95, 1.0, k) : sstep(0.62, 0.78, k), // and fall; the buds break at the turn of the year
     blossom: sstep(0.02, 0.07, k) * (1 - sstep(0.12, 0.18, k)), // the fruit trees flower in spring
     fresh: k < 0.3 ? sstep(0.02, 0.08, k) * (1 - sstep(0.16, 0.26, k)) : 0, // the pale new green of spring
     flowers: sstep(0.02, 0.1, k) * (1 - sstep(0.55, 0.72, k)) * (0.7 + 0.3 * sstep(0.15, 0.3, k)),
@@ -210,13 +210,13 @@ function seasonIceY(x, z) {
   const w = waterAt(x, z, _siW);
   return w ? w.y + 0.05 : null;
 }
-// whoever swims where the water freezes is lifted onto the ice
+// whoever swims or wades where the water freezes is lifted onto the ice: nobody stays under it
 function seasonIceLift() {
   if (!SICE.on) return;
   for (const e of ENT) {
-    if (!e.swim || !e.alive || e.fixedY !== null) continue;
+    if (!e.alive || e.fixedY !== null || e.hover || e.kind === 'door' || e.x < SICE.minX || e.x > SICE.maxX || e.z < SICE.minZ || e.z > SICE.maxZ) continue;
     const y = seasonIceY(e.x, e.z);
-    if (y !== null) { e.y = y; e.swim = false; e.vy = 0; e.swimK = 0; }
+    if (y !== null && e.y < y - 0.04 && e.y > y - 4) { e.y = y; e.swim = false; e.vy = 0; e.swimK = 0; }
   }
 }
 
@@ -318,7 +318,7 @@ function buildSeasonFx() {
 /* each step and each frame                                             */
 /* ------------------------------------------------------------------ */
 function seasonsInit() {
-  if (SEAS.inited || !W.H || !WATERGRID.surf) return;
+  if (SEAS.inited || !W.H || !WATERGRID.surf || typeof WATER_MESHES === 'undefined' || !WATER_MESHES.length) return;
   SEAS.inited = true;
   seasonMapBuild();
   seasonIceBuild();
@@ -362,6 +362,7 @@ function updateSeasons(dt) {
 }
 // the frame (13_main.js tick, right after the weather): the uniforms, the snow cover, leaves, fireflies, notes
 function seasonsFrame(dt) {
+  seasonsInit();
   if (!SEAS.inited) return;
   const C = SEAS.cur = seasonCurves(SEASON.k);
   U.uSeasonA.value.set(C.A[0], C.A[1], C.A[2], C.A[3]);
@@ -423,7 +424,8 @@ function seasonHooks() {
     temps: (x, z) => ({ map: seasonAirNow() + seasonMapSample(SEAS.warm, x, z), farm: farmTempAt(x, z) }),
     lie: (x, z) => seasonSnowLieAt(x, z),
     ice: (x, z) => ({ thick: seasonIceAt(x, z), y: seasonIceY(x, z), water: waterAt(x, z) ? +waterAt(x, z).y.toFixed(3) : null }),
-    frozen: () => { const out = [0, 0, 0], all = [0, 0, 0]; if (SICE.ks) for (let q = 0; q < SICE.ks.length; q++) { const k = SICE.ks[q], x = -HALF + (k % HN) * HS, z = -HALF + ((k / HN) | 0) * HS, r = realmAt(x, z); all[r]++; if (SICE.thick[q] >= 0.3) out[r]++; } return { walkable: out, texels: all, on: SICE.on }; },
+    // walkable ice texels by realm; lake: on the realm lakes (at WATER_Y), tarns: the frozen ponds' surfaces (m)
+    frozen: () => { const out = [0, 0, 0], all = [0, 0, 0], lake = [0, 0, 0], tarns = []; if (SICE.ks) for (let q = 0; q < SICE.ks.length; q++) { const k = SICE.ks[q], x = -HALF + (k % HN) * HS, z = -HALF + ((k / HN) | 0) * HS, r = realmAt(x, z), sy = WATERGRID.surf[k]; all[r]++; if (SICE.thick[q] >= 0.3) { out[r]++; if (sy < WATER_Y + 0.05) lake[r]++; else if (!tarns.some((t) => t[0] === r && t[1] === Math.round(sy))) tarns.push([r, Math.round(sy)]); } } return { walkable: out, texels: all, lake, tarns, on: SICE.on }; },
     lakes: () => LAKES.map((L) => ({ x: L.x, z: L.z, r: L.r, realm: L.realm })),
     treesNear: (x, z, r, kind) => W.trees.map((t, i) => ({ i, kind: t.kind, x: t.x, z: t.z, y: t.y, s: t.s, d: Math.hypot(t.x - x, t.z - z) })).filter((t) => t.d < r && (!kind || t.kind === kind)).sort((a, b) => a.d - b.d),
     // the town fields and gardens, and any tree standing in one (there should be none)

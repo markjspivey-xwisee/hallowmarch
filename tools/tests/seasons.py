@@ -169,7 +169,9 @@ async def main():
               out.riverIce = riverIce; out.riverPts = rn;
               return out; })()""")
             L = r['lake']
-            check(r['frozen']['walkable'][2] > 80 and r['frozen']['walkable'][0] == 0 and r['frozen']['walkable'][1] == 0, f"Thule's lake freezes in winter, the southern lakes do not ({r['frozen']})")
+            fz = r['frozen']
+            check(fz['lake'][2] > 80 and fz['lake'][0] == 0 and fz['lake'][1] == 0, f"Thule's lake freezes in winter, the southern lakes do not ({fz})")
+            check(all(t[1] > 8 for t in fz['tarns'] if t[0] != 2), f"in the south only the high tarns freeze ({fz['tarns']})")
             check(r['centre']['thick'] > 0.6 and r['centre']['y'] is not None and abs(r['centre']['y'] - r['centre']['water'] - 0.05) < 0.02, f"thick ice at the lake's middle, a floor at the water's surface ({r['centre']})")
             check(r['riverPts'] > 3 and r['riverIce'] < 0.05, f"the rivers keep flowing ({r['riverIce']:.2f} over {r['riverPts']} points)")
             # walk straight across the frozen lake
@@ -228,7 +230,7 @@ async def main():
         if want('gardens'):
             # ---- the gardens of Eriu and Thule, worked by their townsfolk; no trees in any field ----
             r = await ev(page, 'gardens', """(() => { const H = __hm, F = H.farm, S = H.seasons, out = {};
-              out.fields = S.fields();
+              out.fields = S.fields(); out.orchard = !!H.surv.FORAGE.orchard; out.trees = S.trees();
               const strips = F.FARM.plots.filter((P) => P.own === 't');
               out.strips = [0, 1, 2].map((r) => strips.filter((P) => P.stand.town === r).length);
               out.rot = [1, 2].map((r) => { const P = strips.find((q) => q.stand.town === r); return P ? (P.rotList || []).join(',') : null; });
@@ -237,6 +239,7 @@ async def main():
             check(r['strips'][1] >= 2 and r['strips'][2] >= 2, f"gardens in Eriu and Thule ({r['strips']} strips)")
             check('herb_heal' in (r['rot'][0] or '') and set((r['rot'][1] or '').split(',')) <= {'turnip', 'cabbage'}, f"herbs and vegetables in Eriu, turnips and cabbages in Thule ({r['rot']})")
             check(all(f['trees'] == 0 for f in r['fields']), f"no tree stands in a field or garden ({[f['trees'] for f in r['fields']]})")
+            check(r['orchard'] and r['trees'] > 2000, f"the trees moved off the fields went back into the woods: the Logres orchard still has its place ({r['orchard']}, {r['trees']} trees)")
             check(any(f[0] == 1 and f[1] for f in r['farmers']) and any(f[0] == 2 and f[1] for f in r['farmers']), f"gardeners in Eriu and Thule ({r['farmers']})")
             for realm in (1, 2):
                 r = await ev(page, f'gardener {realm}', f"""(() => {{ const H = __hm, F = H.farm, R = H.REALMS[{realm}];
@@ -248,7 +251,8 @@ async def main():
                   let worker = null, dmin = 1e9;
                   for (let i = 0; i < 90 && !(T.phase === 'tilled'); i++) {{ H.simulate(1); if (T.worker != null) {{ worker = T.worker; const e = H.fn.getEnt(T.worker); if (e) dmin = Math.min(dmin, Math.hypot(e.x - P.x, e.z - P.z)); }} }}
                   const e = worker != null ? H.fn.getEnt(worker) : null;
-                  return {{ phase: T.phase, task: T.task, p: +T.p.toFixed(2), worker, town: e ? e.farmTown : null, dmin: +dmin.toFixed(1) }}; }})()""")
+                  const pens = (H.animals && H.animals.A ? H.animals.A.pens : []).filter((q) => Math.hypot(q.x - R.town.x, q.z - R.town.z) < 120).map((q) => [Math.round(q.x), Math.round(q.z), Math.round(q.hw), Math.round(q.hd)]);
+                  return {{ phase: T.phase, task: T.task, p: +T.p.toFixed(2), worker, town: e ? e.farmTown : null, dmin: +dmin.toFixed(1), at: e ? [+e.x.toFixed(1), +e.z.toFixed(1)] : null, plot: [+P.x.toFixed(1), +P.z.toFixed(1), +P.ang.toFixed(2), P.hw, P.hd], town0: [R.town.x, R.town.z], pens }}; }})()""")
                 check(r['worker'] is not None and r['town'] == realm and r['dmin'] < 6, f"a townsfolk of {['', 'Eriu', 'Thule'][realm]} walks out to work the garden ({r})")
 
         if want('life'):
@@ -287,7 +291,7 @@ async def shots(page, oak):
     q = 'medium' if FINAL else 'low'
     await page.evaluate(f"__hm.fn.setQuality('{q}'); 0")
     # the Logres orchard and the meadow before it, the same view in every season
-    r = await page.evaluate("""(() => { const H = __hm, O = H.surv.FORAGE.orchard, R = H.REALMS[0];
+    r = await page.evaluate("""(() => { const H = __hm, R = H.REALMS[0], O = H.surv.FORAGE.orchard || { x: R.town.x + 70, z: R.town.z };
       const dx = R.town.x - O.x, dz = R.town.z - O.z, d = Math.hypot(dx, dz) || 1;
       const cx = O.x - (dx / d) * 22 + (dz / d) * 6, cz = O.z - (dz / d) * 22 - (dx / d) * 6;
       return { O, cam: [cx, H.fn.heightAt(cx, cz) + 3.2, cz], look: [O.x, H.fn.heightAt(O.x, O.z) + 2.0, O.z] }; })()""")
