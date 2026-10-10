@@ -81,7 +81,7 @@ function setupStats(e, keepRatio = false) {
   if (e.cls && CLASSES[e.cls]) {
     const C = CLASSES[e.cls];
     e.maxHp = baseHp(e.level) * C.hp * hm;
-    e.maxPower = basePower(e.level);
+    e.maxPower = gearPowerBase(e); // [balance2] past 20 a body in gear draws its power from gear, not level (06e_gearcurve.js)
     e.dmgMult = C.dmg * dm;
     e.drBase = C.dr;
     e.swing = C.swing;
@@ -209,6 +209,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     amount *= opts.siege ? 1 : 0.5;
   }
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
+  amount *= gearLateHarm(src, dst); // [balance2] a late foe is as tough as the gear of its level (06e_gearcurve.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
   amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;
@@ -245,6 +246,7 @@ function dealDamage(src, dst, amount, opts = {}) {
 function healEnt(src, dst, amount, quiet = false) {
   if (!dst || !dst.alive || dst.kind === 'door') return 0;
   const before = dst.hp;
+  amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
   classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)

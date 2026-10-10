@@ -59,6 +59,8 @@ function ccAdjust(e, kind, dur, src, force) {
   if (!cat || !(dur > 0) || !e.alive) return dur;
   // an immunity (the third control's, or a priest's Divine Shield) holds for anyone
   if (e.ccdr && e.ccdr[cat] && GAME.t < e.ccdr[cat].immune) return 0;
+  // [balance2] a mage's Arcane Ward takes a stun in the mage's place (a freeze still holds)
+  if (kind === 'stun' && src !== 'frozen' && wardTakesStun(e)) return 0;
   if (!force && !ccChampion(e)) return dur;
   const s = ccState(e, cat), t = GAME.t;
   if (t < s.immune) return 0;
@@ -142,12 +144,15 @@ function drawTrackedMinimap(ctx, toM, S, dpr) {
 /* ------------------------------------------------------------------ */
 /* fair gear for a level: a full set of the quality a soldier of that  */
 /* level usually wears (fine below 20, rare to 40, epic above)          */
+/* [balance2] at item level = the level, to 50, each piece with the    */
+/*   stats its slot, grade and level give on average, so every calling */
+/*   measured wears the same totals (no lucky rolls)                    */
 /* ------------------------------------------------------------------ */
 function fairGear(cls, lvl, q) {
   const r = mulberry(7919 + lvl * 31);
-  const qq = q ?? (lvl < 20 ? 2 : lvl < 40 ? 3 : 4);
+  const qq = q ?? fairGrade(lvl);
   const eq = {};
-  for (const s of SLOTS) eq[s] = makeItem({ slot: s, cls, q: qq, lvl: Math.min(lvl, 24), rnd: r, realm: 0 });
+  for (const s of SLOTS) { eq[s] = makeItem({ slot: s, cls, q: qq, lvl, rnd: r, realm: 0 }); eq[s].st = gearSlotExpect(s, eq[s].lvl, qq); }
   return { eq, tot: gearTotals(eq) };
 }
 
@@ -200,6 +205,9 @@ function botPresser(e, r) { return nearestWhere(e.x, e.z, r, (o) => botEnemy(e, 
 function botStep(e, dt) {
   const B = e.bot;
   if (!B || !e.alive) return;
+  // [balance2] a cast broken before its end (a blunt arrow, a storm, a mace, a stun): a skilled hand remembers it
+  if (B.cast && !e.casting) { if (GAME.t < B.cast.end - 0.08) B.cutAt = GAME.t; B.cast = null; }
+  if (e.casting && !B.cast) B.cast = { end: GAME.t + Math.max(0, e.casting.total - e.casting.t) };
   const t = botTarget(e);
   const skilled = B.kind === 'skilled';
   if (e.cs) {
@@ -267,8 +275,9 @@ function botMove(e, t, dt) {
   else if (e.cls === 'mage') want = skilled ? 24 : e.rangedRange - 2;
   // a skilled priest does not swing a mace into a raised shield: holy light from a few strides off
   else if (e.cls === 'priest' && skilled && t.cls === 'warrior' && hasShield(t) && clsHas(t, 'block')) want = 12;
-  // nor chase a bow or a staff that keeps away: a casting duel at range
-  else if (e.cls === 'priest' && skilled && t.rangedKind) want = 22;
+  // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
+  // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = 22;
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -294,6 +303,15 @@ function botReflex(e, t, dt) {
         // a skilled hand catches most of them; a few come up a moment too soon and only block
         if (Math.random() < 0.75) { hold(true); if (!P) faceToward(e, swing.x, swing.z); B.blockUntil = now + 0.34; }
       }
+      // [balance2] an arrow or a bolt about to strike: the shield up to take it (a third of an arrow's harm gets
+      // through, three fifths of a spell's), and down again as soon as it has landed
+      if (!swing && !cs.blockOn) {
+        const shot = botIncoming(e, 0.42);
+        // a skilled hand gets the shield up in time for most shots, not all (one roll for each shot)
+        const seen = B.shots || (B.shots = new WeakSet());
+        const caught = shot && shot.p && !seen.has(shot.p) ? (seen.add(shot.p), Math.random() < 0.7) : false;
+        if (shot && caught && shot.src && botFoes(e, 3.2) === 0) { hold(true); if (!P) faceToward(e, shot.src.x, shot.src.z); B.blockUntil = now + shot.eta + 0.12; BAL.stats.shieldShots = (BAL.stats.shieldShots || 0) + 1; }
+      }
     }
     return;
   }
@@ -318,6 +336,21 @@ function botReflex(e, t, dt) {
   }
 }
 
+// [balance2] the nearest blow in flight at e that lands within `within` seconds: { src, eta }
+function botIncoming(e, within) {
+  let best = null;
+  for (const p of PROJ) {
+    if (p.visualOnly || p.tgt !== e.id || p.srcFaction === e.faction || p.kind === 'holy') continue; // holy light is not turned by a shield
+    const d = Math.hypot(e.x - p.x, e.y + 1.1 - p.y, e.z - p.z), eta = d / (p.speed || 24);
+    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(p.src), eta, p };
+  }
+  for (const A of CLS.arrows) {
+    if (A.dead || A.tgt !== e.id || A.faction === e.faction) continue;
+    const d = Math.hypot(e.x - A.x, e.z - A.z), v = Math.hypot(A.vx || 0, A.vz || 0) || 40, eta = d / v;
+    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(A.src), eta, p: A };
+  }
+  return best;
+}
 /* ---- the skilled bot's choices, calling by calling ---- */
 function botSkilled(e, t) {
   if (e.cls === 'warrior') return botWarrior(e, t);
@@ -356,6 +389,8 @@ function botArcherArrow(e, t) {
   if (!clsHas(e, 'arrows') || !t) return 'plain';
   if (t.casting) return 'blunt';
   if (t.cls === 'warrior' || t.drBase >= 0.1) return 'bodkin';
+  // [balance2] a healer: a broadhead's wound mends slowly
+  if (t.cls === 'priest') return 'broadhead';
   if (wetOf(t) < 0.3 && rainHere(e) < 0.2 && !burningOf(t)) return 'fire';
   return 'broadhead';
 }
@@ -418,8 +453,17 @@ function botAwayYaw(e, p, reach) {
 function botMage(e, t) {
   const cs = csOf(e), hpF = e.hp / e.maxHp;
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
+  // [balance2] a chill about to become a freeze: a blink sheds it (sideways, staying in the fight)
+  if (t && chillOf(e) >= 2 && !frozenOf(e) && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null) && !botPresser(e, 5)) {
+    const a = Math.atan2(t.x - e.x, t.z - e.z) + (Math.random() < 0.5 ? 1.2 : -1.2), H = e.bot.home;
+    e.yaw = H && dist(e.x + Math.sin(a) * 12, e.z + Math.cos(a) * 12, H.x, H.z) > H.r ? a + Math.PI * 0.8 : a;
+    if (botUse(e, 'blink', e)) return true;
+  }
   if (hpF < 0.7 && botUse(e, 'ward', e)) return true;
   if (!t) return false;
+  // [balance2] a foe's spell or drawn bow: one more frost freezes it (and breaks it)
+  const att = clsHas(e, 'attune') && attOf(e, 'frost') >= 60 ? 1 : 0;
+  if ((t.casting || (t.cs && t.cs.drawFrom >= 0)) && !frozenOf(t) && chillOf(t) + 1 + att >= 3 && (ccChampion(t) ? ccFactor(t, 'stun') > 0 : GAME.t >= (t._thawUntil || 0)) && botUse(e, 'frost', t)) return true;
   // a ward up before the blades arrive
   if (t.target === e.id && !hasBuff(e, 'shield') && botUse(e, 'ward', e)) return true;
   // a blade at the throat: a frost nova to hold it, then away; Blink when the nova is spent
@@ -450,18 +494,39 @@ function botMage(e, t) {
   if (ch > 0 && botUse(e, 'firebolt', t)) return true;
   if (botUse(e, 'chain', t)) return true;
   if (botUse(e, 'blizzard', t)) return true;
-  focus(ch > 0 ? 'frost' : 'fire');
+  // [balance2] fire into a wet foe is damped: a frost focus chills it with every bolt, and the next firebolt makes steam
+  const wet = wetOf(t) > 0.3;
+  focus(ch > 0 || wet ? 'frost' : 'fire');
+  if (wet && ch <= 0) return botUse(e, 'frost', t) || (e.swingAt - GAME.t > 1.2 && botUse(e, 'firebolt', t));
   return botUse(e, 'firebolt', t) || botUse(e, 'frost', t);
 }
 function botPriest(e, t) {
-  const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp;
+  const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp, B = e.bot;
   const foesNear = botFoes(e, 6), fight = !!t || botFoes(e, 16) > 0;
   const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
-  // a priest who knows the work heals early and keeps a renewal running, shields before the blow, and smites between
+  // [balance2] a priest who knows the work keeps a reserve of power for mending, and does not stand casting into a
+  // foe who has just broken a spell (blunt arrows, a storm, a mace): instants then, and long casts only when the foe
+  // is busy or held, or the need is dire
+  const pw = e.power / Math.max(1, e.maxPower);
+  const broke = GAME.t - (B.cutAt || -99) < 3;
+  const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
+  const steady = hasBuff(e, 'steadfast');
+  // a blade in reach breaks spells (a mace above all) and sets them back: with power to spare, steady yourself before
+  // you cast; short of it (below 20 power runs short in a long fight), cast between its blows and renew only once a
+  // spell has been cut
+  const rich = pw > 0.5;
+  const blade = rich && !!t && !t.rangedKind && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  const castOk = steady || busy || (!broke && !blade);
+  // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
+  if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
-  if (fight && hpF < 0.97 && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
-  if (hpF < 0.8 && botUse(e, 'mend', e)) return true;
+  const many = botFoes(e, 20) >= 2;
+  if (fight && hpF < (many ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
+  // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
+  // that follow
+  if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
+  if (hpF < (castOk ? (many ? 0.72 : rich ? 0.65 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -469,24 +534,81 @@ function botPriest(e, t) {
     if (!cs.praying && devOf(e) < 70 && botFoes(e, 16) === 0) { if (P) classHold(true); else startPrayer(e); BAL.stats.prayers++; return true; }
     return false;
   }
+  // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
-  if (botUse(e, 'pillar', t)) return true;
-  if (hpF < 0.85 && botUse(e, 'mend', e)) return true;
-  return botUse(e, 'smite', t);
+  if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
+  if (castOk && hpF < (many ? 0.82 : rich ? 0.72 : 0.66) && botUse(e, 'mend', e)) return true;
+  // smite with power to spare, or to finish; in reach the mace does the rest for nothing
+  const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
+  // a reserve for mending only in a long fight (more than one foe on you); one foe is a race
+  const pressed = (hpF < 0.9 || GAME.t - (e.lastHitAt || -99) < 6) && many;
+  if (castOk && (!pressed || pw > (reach ? 0.6 : 0.4) || t.hp < t.maxHp * 0.2) && botUse(e, 'smite', t)) return true;
+  return false;
 }
 
 /* ---- a priest's Sanctuary and Mass Renewal: everyone close by is healed in full, the priest's own wounds
    mend more slowly (PRIEST_SELF), as with Mend and Renewal ---- */
 const PRIEST_SELF = 0.75;
+// [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
+// outlast any foe alone
+const priestSelf = (e) => PRIEST_SELF / Math.pow(rankMult(e.level), 2);
+// [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
+// blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
+function priestSteadfast(e) {
+  e.buffs = e.buffs.filter((b) => !(b.kind === 'root' && b.src !== 'frozen'));
+  addBuff(e, 'steadfast', 1, 4, 'steadfast');
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
+}
+// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by half for 3 s, so a pack does not
+// land on the archer the moment it lands
+function tumbleSlow(e) {
+  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.5, 3, e.id); });
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 14);
+}
+// [balance2] a warrior's Charge: no root or slow takes hold for a moment after it (the warrior's answer to being kited)
+function chargeFree(e, dur) {
+  for (const cat of ['root', 'snare']) { const s = ccState(e, cat); s.immune = Math.max(s.immune, GAME.t + dur); s.until = Math.max(s.until, s.immune); }
+}
+// [balance2] a broadhead's wound (the 'wound' buff, 6 s): healing on it takes 40% less (healEnt asks), so an archer can
+// wear down a priest who would otherwise mend as fast as the arrows land
+const WOUND_HEAL = 0.4;
+function healWound(dst) { const v = buffMax(dst, 'wound'); return v > 0 ? 1 - v : 1; }
+// [balance2] a mage's Arcane Ward (elementWard, marked 'eward' while it lasts): a stun that strikes the mage breaks on
+// it instead, and the ward loses half of what it has left. The mage's answer to a leap and a bash: the ward is spent,
+// not the mage
+function wardTakesStun(e) {
+  if (e.cls !== 'mage' || !hasBuff(e, 'eward')) return false;
+  const b = e.buffs.find((q) => q.kind === 'shield' && q.src === e.id && q.until > GAME.t && q.value > 1);
+  if (!b) return false;
+  b.value *= 0.5;
+  BAL.stats.wardStuns = (BAL.stats.wardStuns || 0) + 1;
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) { FX.ring(e.x, e.y + 1, e.z, 1.3, [0.7, 1.0, 1.9], 26, 1.7); sfx('blink'); }
+  if (e === GAME.player || (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 30 * 30)) uiFloatAt(e.x, e.y + 2.3 * (e.scale || 1), e.z, 'Warded', 'immune');
+  return true;
+}
+// [balance2] a blow landing in the middle of a spell sets it back 0.35 s, twice at most for one cast (not a steadfast
+// priest's): a caster pressed in melee casts slower, so blades and beasts matter to a healer or a mage
+function castPushback(e) {
+  const c = e.casting;
+  if (!c || c.custom || hasBuff(e, 'steadfast') || (c.pushed || 0) >= 2) return;
+  c.pushed = (c.pushed || 0) + 1;
+  c.t = Math.max(0, c.t - 0.35);
+}
+// a spell broken by a blow or an arrow, unless the caster stands steadfast; true when it broke
+function breakCast(e) {
+  if (!e || !e.casting || hasBuff(e, 'steadfast')) return false;
+  e.casting = null;
+  return true;
+}
 function priestGroupHeal(e, A, t, cast, rk) {
-  forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? PRIEST_SELF : 1)); FX.heal(o.x, o.y, o.z); } });
+  forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? priestSelf(e) : 1)); FX.heal(o.x, o.y, o.z); } });
   FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
   sfx('heal');
 }
 function priestGroupHot(e, A, t, cast, rk) {
   forNear(e.x, e.z, A.radius, (o) => {
     if (!o.alive || o.faction !== e.faction || !isActor(o)) return;
-    addBuff(o, 'hot', (o.maxHp * A.groupHot[0] * rk * (o === e ? PRIEST_SELF : 1)) / A.groupHot[1], A.groupHot[1], e.id);
+    addBuff(o, 'hot', (o.maxHp * A.groupHot[0] * rk * (o === e ? priestSelf(e) : 1)) / A.groupHot[1], A.groupHot[1], e.id);
     FX.heal(o.x, o.y, o.z);
   });
   spellDisc(e.x, e.z, A.radius, DISC_KIND.renew, 1.8, [0.8, 1.55, 0.55]);
@@ -593,6 +715,8 @@ setTimeout(() => {
   if (b) b.onclick = () => raiseOfferAccept();
 }, 0);
 
+// [balance2] the steadfast mark among the buffs over a frame
+setTimeout(() => { if (typeof BUFF_ICON !== 'undefined') { BUFF_ICON.steadfast = ['sun', '#ffe8b0']; BUFF_ICON.wound = ['heart', '#e0605a']; } }, 0); // [balance2] and the slow-mending wound
 /* ---- debug and test hooks ---- */
 setTimeout(() => {
   if (!window.__hm) return;
@@ -600,5 +724,5 @@ setTimeout(() => {
     // the Hollow King back on his throne, whole, for a fresh fight (tests)
     kingFresh() { for (const id of BARROW_STATE.adds) { const o = getEnt(id); if (o) removeEnt(o); } BARROW_STATE.adds.clear(); if (BARROW_STATE.kingDead || !getEnt(BARROW_STATE.king)) spawnKing(); else resetKing(getEnt(BARROW_STATE.king)); return BARROW_STATE.king; },
     canUse, segmentClear, PROJ, // [v9] for the king probes
-    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
+    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, WOUND_HEAL, healWound, wardTakesStun, priestSelf, priestSteadfast, breakCast, castPushback, tumbleSlow, chargeFree, botIncoming, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
 }, 0);

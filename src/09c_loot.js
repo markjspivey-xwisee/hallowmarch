@@ -23,7 +23,7 @@ function resetInventory(c) {
 }
 function sanitizeJunk(o) {
   if (typeof o.name !== 'string') return null;
-  return { id: typeof o.id === 'string' ? o.id.slice(0, 40) : `j${(ITEM_SEQ++).toString(36)}`, slot: 'junk', name: o.name.slice(0, 40), base: 'Trophy', q: 0, lvl: clamp(Math.round(+o.lvl || 1), 1, 24), n: clamp(Math.round(+o.n || 1), 1, 20), st: {} };
+  return { id: typeof o.id === 'string' ? o.id.slice(0, 40) : `j${(ITEM_SEQ++).toString(36)}`, slot: 'junk', name: o.name.slice(0, 40), base: 'Trophy', q: 0, lvl: clamp(Math.round(+o.lvl || 1), 1, LEVEL_CAP + 10) /* [balance2] */, n: clamp(Math.round(+o.n || 1), 1, 20), st: {} };
 }
 function junkValue(it) { return Math.max(1, Math.round((1.5 + it.lvl * 0.9))); }
 function sellValue(it) { return it.slot === 'junk' ? junkValue(it) * (it.n || 1) : itemValue(it); }
@@ -103,7 +103,7 @@ function rollLoot(e) {
   const ci = conIndex(e.level, prog.level);
   const grey = ci === 0;
   const items = [];
-  const gearFor = (weights, lvl = e.level) => makeItem({ cls: P.cls, realm: P.faction, lvl: clamp(lvl + Math.round((Math.random() - 0.5) * 2), 1, 22), q: grey ? Math.min(1, rollQuality(weights)) : rollQuality(weights) });
+  const gearFor = (weights, lvl = e.level) => makeItem({ cls: P.cls, realm: P.faction, lvl: dropIlvl(lvl), q: grey ? Math.min(1, rollQuality(weights)) : rollQuality(weights) }); // [balance2] item levels follow the foe to 50 (06e_gearcurve.js)
   let gold = 0;
   if (e.kind === 'dragon') {
     for (let i = 0; i < 3; i++) items.push(gearFor(DROP_WEIGHTS.dragon, Math.max(e.level - 2, prog.level)));
@@ -116,7 +116,7 @@ function rollLoot(e) {
     const M = MOBS[e.mobType] || {};
     const beast = M.kind && M.kind !== 'humanoid' && M.kind !== 'wisp';
     const elite = e.role === 'elite' || !!e.elite;
-    if (elite) for (let i = 0; i < 2; i++) items.push(gearFor(DROP_WEIGHTS.elite));
+    if (elite) for (let i = 0; i < 2; i++) items.push(gearFor(DROP_WEIGHTS.elite, e.level + 1)); // [balance2] a champion's spoils a level above it
     else if (Math.random() < (grey ? 0.03 : beast ? 0.11 : 0.21)) items.push(gearFor(DROP_WEIGHTS.mob));
     const junkKind = e.mobType === 'skeleton' || e.mobType === 'draugr' || e.mobType === 'troll' || e.mobType === 'wisp' || beast ? (e.mobType || e.kind) : null;
     if (junkKind && Math.random() < (beast ? 0.55 : 0.35)) { const j = makeJunk(junkKind, e.level); if (j) items.push(j); }

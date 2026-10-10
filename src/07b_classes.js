@@ -42,7 +42,7 @@ const ELEM_OF = { firebolt: 'fire', meteor: 'fire', frost: 'frost', blizzard: 'f
 const ARROW_TYPES = ['plain', 'broadhead', 'bodkin', 'fire', 'blunt'];
 const ARROW_DEF = {
   plain: { name: 'Plain arrows', short: 'Plain', good: null, col: '#d8cdb4', text: 'Ordinary shafts. You never run out.' },
-  broadhead: { name: 'Broadhead arrows', short: 'Broadhead', good: 'arrows_broadhead', col: '#e07a5a', text: 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound.' },
+  broadhead: { name: 'Broadhead arrows', short: 'Broadhead', good: 'arrows_broadhead', col: '#e07a5a', text: 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 40% less for 6 s.' }, // [balance2]
   bodkin: { name: 'Bodkin arrows', short: 'Bodkin', good: 'arrows_bodkin', col: '#b9c4d6', text: 'Needle points that go through mail: armour does not stop them, and they strike warriors harder.' },
   fire: { name: 'Fire arrows', short: 'Fire', good: 'arrows_fire', col: '#ff9a3a', text: 'Pitch-soaked heads, lit as they are loosed: the foe burns and dry grass catches. Rain and wet foes damp them.' },
   blunt: { name: 'Blunt arrows', short: 'Blunt', good: 'arrows_blunt', col: '#c8b48a', text: 'Heavy blunt heads: less harm, but they knock a foe back, break its spell and shatter bone and ice.' },
@@ -230,7 +230,7 @@ function classHarm(src, dst, amount, opts) {
   if (dst.cs && dst.cls === 'warrior') {
     const cs = dst.cs;
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
-    if (cs.blockOn && !opts.dot && src && src !== dst && blockFaces(dst, src)) {
+    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && src && src !== dst && blockFaces(dst, src)) {
       const melee = opts.kind === 'melee';
       if (melee && t - cs.blockAt <= parryWindow(dst)) { parry(dst, src); return 0; }
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
@@ -260,12 +260,12 @@ function elementReact(src, dst, el, opts) {
   const res = mage && scs.prev && scs.prev !== el && nowT() - (scs.switchAt || -9) < 4 ? 1 + 0.5 * (scs.prevAtt || 0) / 100 : 1;
   if (el === 'fire') {
     if (frozenOf(dst) || chillOf(dst) > 0) {
-      if (!auto) { m *= (frozenOf(dst) ? 1.8 : 1.45) * res; combo(src, dst, 'steam'); dropBuffs(dst, ['chill', 'frozen']); unfreeze(dst); steamAt(dst.x, dst.z, 4, src); dst.wet = Math.max(dst.wet || 0, 0.7); return m; }
+      if (!auto) { m *= (frozenOf(dst) ? 1.7 : 1.35) * res; /* [balance2] 1.8 and 1.45 */ combo(src, dst, 'steam'); dropBuffs(dst, ['chill', 'frozen']); unfreeze(dst); steamAt(dst.x, dst.z, 4, src); dst.wet = Math.max(dst.wet || 0, 0.7); return m; }
     }
     if (wet > 0.3) { m *= 0.75; dst.wet = Math.max(0, (dst.wet || 0) - 0.3); if (Math.random() < 0.5) steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 4); }
     m *= 1 - 0.3 * rainHere(dst);
     if (mage && !auto && !opts.dot && opts.kind === 'fire' && dst.alive && wet < 0.6) {
-      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.5 : 1)); // [balance] 0.32
+      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.25 : 1)); // [balance] 0.32 [balance2] attuned 1.25 (1.5)
       addBuff(dst, 'burn', r.d / 4, 4, src.id);
     }
   } else if (el === 'frost') {
@@ -283,7 +283,7 @@ function elementReact(src, dst, el, opts) {
     if (wet > 0.3) { m *= 1.35; if (!auto) CLS.stats.combos.conduct = (CLS.stats.combos.conduct || 0) + 1; }
     if (stormNow() > 0.5 && !inDungeon(dst)) m *= 1.25;
     else if (realmFlavour(src) && src.faction === 1 && rainHere(src) > 0.2) m *= 1.25;
-    if (dst.casting && Math.random() < 0.6 && dst.role !== 'boss') { dst.casting = null; }
+    if (dst.casting && Math.random() < 0.6 && dst.role !== 'boss') breakCast(dst); // [balance2] a steadfast priest's spell holds (07c_balance.js)
   }
   return m;
 }
@@ -460,6 +460,7 @@ function classOnHit(src, dst, dmg, opts) {
   const t = nowT();
   if (dst.cs && dst.cs.hidden && !opts.dot) breakHiding(dst, 3);
   if (dst.cs && dst.cs.praying && !opts.dot) stopPrayer(dst);
+  if (dst.casting && opts.kind === 'melee' && !opts.dot) castPushback(dst); // [balance2] a blow in the middle of a spell sets it back (07c_balance.js)
   if (!src.cls) return;
   const cs = csOf(src);
   // an archer finds arrows worth keeping on the fallen
@@ -482,7 +483,7 @@ function classOnHit(src, dst, dmg, opts) {
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
-  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.4, 3, src.id); // [balance] a volley pins what it falls on
+  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.5, 4, src.id); // [balance] a volley pins what it falls on [balance2] 40% for 3 s
 }
 // the weapon's own bite: the sword opens wounds, the axe breaks armour, the mace staggers
 function styleProc(src, dst, dmg, opts, strong) {
@@ -490,13 +491,13 @@ function styleProc(src, dst, dmg, opts, strong) {
   // (a bleed's value is its harm each second: a finisher's wound bleeds 30% of the blow over 6 s, a cut 12% over 4 s)
   if (st === 'sword') { if (strong || Math.random() < 0.15) addBuff(dst, 'bleed', dmg * (strong ? 0.3 / 6 : 0.12 / 4), strong ? 6 : 4, src.id); }
   else if (st === 'axe') { const b = dst.buffs.find((q) => q.kind === 'sunder' && q.until > GAME.t); const n = Math.min(3, (b ? b.value : 0) + (strong ? 3 : 1)); addBuff(dst, 'sunder', n, 10, 'sunder'); const bb = dst.buffs.find((q) => q.kind === 'sunder'); if (bb) bb.value = n; if (strong) for (const q of dst.buffs) if (q.kind === 'shield') q.value = 0; }
-  else if (st === 'mace') { if (dst.casting && (strong || Math.random() < 0.5)) { dst.casting = null; if (dst === GAME.player) uiLog('The blow breaks your spell.', 'warn'); } if (!strong && Math.random() < 0.12) addBuff(dst, 'snare', 0.3, 2, src.id); }
+  else if (st === 'mace') { if (dst.casting && (strong || Math.random() < 0.5) && breakCast(dst)) { if (dst === GAME.player) uiLog('The blow breaks your spell.', 'warn'); } if (!strong && Math.random() < 0.12) addBuff(dst, 'snare', 0.3, 2, src.id); } // [balance2] breakCast
 }
 function finisherLands(src, dst, fin, dmg) {
   CLS.stats.finishers++;
   styleProc(src, dst, dmg, {}, true);
   if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); dst.casting = null; }
-  if (realmFlavour(src) && src.faction === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips);
+  if (realmFlavour(src) && src.faction === 2 && csOf(src).stance === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips); // [balance2] in fury only, as the Chronicle says (a Thule warrior in a guarded stance outlasted every pack)
   const y = dst.y + 1.2 * (dst.scale || 1);
   FX.burst(dst.x, y, dst.z, 30, fin.style === 'sword' ? [2.2, 0.5, 0.35] : fin.style === 'axe' ? [2.0, 1.6, 1.1] : [2.4, 2.0, 1.2], 6, 0.45, 0.13, 7);
   cameraShake(0.22, dst.x, dst.z);
@@ -536,16 +537,17 @@ function warriorView(e, cs, A, t) {
     if (e === GAME.player) uiLog(`Finisher: ${pips} momentum spent.`, 'level');
   }
   if (A.id === 'bash' && st === 0) { view().stun = A.stun + 0.5; /* [balance] +1 */ if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
-  if (A.id === 'bulwark' && st === 0) view().buff = { ...A.buff, dur: A.buff.dur + 3 };
+  if (A.id === 'bulwark') view().buff = { ...A.buff, dur: A.buff.dur + (st === 0 ? 3 : 0) + 1.5 * (abilityRank(e.level) - 1) }; // [balance2] longer with rank
   if ((A.id === 'cleave' || A.id === 'whirl') && st === 2) view().dmg = A.dmg * 1.25;
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); } // [balance] a charge breaks free of slows and snares
+  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
 function archerView(e, cs, A, t) {
+  if (A.id === 'tumble') tumbleSlow(e); // [balance2] the foes you leap from are slowed (07c_balance.js)
   if (!A.proj) return A;
   let V = A;
   const type = takeArrow(e, 1);
@@ -584,7 +586,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.22 * att / 100;
+  const emp = 1 + 0.18 * att / 100; // [balance2] 0.22
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }
@@ -602,8 +604,9 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? PRIEST_SELF : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
-  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? PRIEST_SELF : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank
+  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.id === 'renew' && (t === e || !t)) priestSteadfast(e); // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
@@ -661,7 +664,7 @@ function thunderclap(e, A, t, cast, rk) {
     if (o.alive && o.role !== 'boss' && o.role !== 'dungeonBoss' && o.fixedY === null) {
       const d = Math.max(0.5, dist(e.x, e.z, o.x, o.z)), push = 4 * (1 - d / (R + 1));
       for (let s = push; s > 0.2; s -= 0.5) if (stepTo(o, o.x + (o.x - e.x) / d * s, o.z + (o.z - e.z) / d * s)) break;
-      o.casting = null;
+      breakCast(o); // [balance2]
       addBuff(o, 'snare', 0.4, 2, e.id);
     }
   });
@@ -963,10 +966,10 @@ function arrowHits(A, o, src0) {
 }
 // the special heads do their own work once an arrow (drawn or from an ability) strikes
 function arrowEffect(src, dst, dmg, type, opts) {
-  if (type === 'broadhead') addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id);
+  if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', WOUND_HEAL, 6, 'wound'); } // [balance2] and the wound mends slowly (healWound)
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
-    dst.casting = null;
+    breakCast(dst); // [balance2] not a steadfast priest's
     addBuff(dst, 'snare', 0.35, 2, src.id);
     if (dst.fixedY === null && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { const d = Math.max(0.3, dist(src.x, src.z, dst.x, dst.z)); stepTo(dst, dst.x + (dst.x - src.x) / d * 1.5, dst.z + (dst.z - src.z) / d * 1.5); }
   }
@@ -1047,7 +1050,7 @@ function stepSnares(dt) {
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
     addBuff(prey, 'root', 1, S.thule ? 4.5 : 3.5, S.owner); // [balance] 4 and 3
     // [balance] the cord whips about: whoever runs beside the prey is slowed
-    forNear(S.x, S.z, 4, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.4, 2.5, S.owner); });
+    forNear(S.x, S.z, 5, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.5, 3.5, S.owner); }); // [balance2] 4 m, 40% for 2.5 s: a snare buys time against a pack
     if (S.thule) addChill(prey, 3, src);
     FX.sparks(S.x, S.y + 0.2, S.z);
     classSfx('snare', S.x, S.z);

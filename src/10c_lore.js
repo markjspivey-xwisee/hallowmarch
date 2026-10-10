@@ -356,7 +356,7 @@ function pathPay(S) {
     const draughts = `${n} healing draught${n === 1 ? '' : 's'}`;
     return { ic: 'potion', t: !spare ? draughts : n ? `${draughts} and ${fmtInt(spare * potionPrice())} gold` : `${fmtInt(spare * potionPrice())} gold, as your draughts are full` };
   }
-  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: clamp(L, 1, 24), q: Rw.item.q, slot: Rw.item.slot });
+  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: clamp(L, 1, LEVEL_CAP), q: Rw.item.q, slot: Rw.item.slot }); // [balance2] at your level, to 50
   if (!bagAdd(it)) { dropItem(it, P.x, P.z, P.y + 1.2); uiLog('Your bags are full: your reward lies at your feet.', 'warn'); }
   else if (!INV.eq[it.slot] && !canEquip(it)) equipItem(it);
   if (UI.modal === 'kit') renderKit();
@@ -394,7 +394,7 @@ const FIELD_NOTES = {
   frontier: { t: 'The frontier', x: (R) => `Here the three realms fight. Friendly names show in blue. Warbands of ${R.name} march out from the muster, and its portal stones take you home.` },
   keep: { t: 'An enemy keep', x: () => 'Break its gate, then slay the lord inside and the keep is your realm\'s. Archers on the walls shoot at anyone close, so come with a warband.' },
   mount: { t: 'On horseback', x: () => `Your horse carries you nearly twice as fast. Any blow throws you from the saddle, and you cannot call it in the heat of battle or while you carry a hallow. ${capFirst(LK().ride)} to step down.` },
-  loot: { t: 'Loot', x: () => `Foes drop gear in six grades, from worn grey to legendary orange; the brighter the beam, the better the find. ${capFirst(LK().kit)} to look it over and put it on, and sell what you do not need to a merchant.` },
+  loot: { t: 'Loot', x: () => `Foes drop gear in six grades, from worn grey to legendary orange; the brighter the beam, the better the find, and of about the foe's own level, all the way to 50: champions, Cinderwing and the Hollow King's hoard a little above. ${capFirst(LK().kit)} to look it over and put it on, and sell what you do not need to a merchant.` }, // [balance2]
   barrow: { t: 'The Hollow Barrow', x: () => 'The dead here wake together, so take one pack at a time. The Burning Gallery breathes fire in bursts: cross between them. The gate of the Well of Souls opens only when its warden falls. The stair by the mouth leads back up.' },
   rain: { t: 'Rain', x: () => 'Rain sweeps across the March and soaks the land, and storms bring thunder and lightning. The weather turns every few minutes.' },
   snow: { t: 'Snow', x: () => 'In Thule and up on the passes the rain falls as snow. It settles on the ground and the roofs, and melts when the weather turns.' },
