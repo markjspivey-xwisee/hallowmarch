@@ -148,6 +148,7 @@ async def checks(page):
 
         # ---- foraging and regrowth ----
         r = await ev(page, 'forage', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};
+          const year = T.H.farm.SEASON.t; T.H.farm.setSeason(0.62); // [seasons] apples hang on the trees from late summer through autumn
           const near = (k) => S.FORAGE.list.filter((p) => p.k === k).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
           for (const k of ['bush', 'mush', 'apple', 'heal']) {
             const p = near(k), K = S.FORAGE_KINDS[k];
@@ -158,6 +159,7 @@ async def checks(page):
             p.at = T.H.GAME.t + 6; T.sim(4); out[k].mid = Math.round(p.ripe * 100) / 100; T.sim(4); out[k].back = p.ripe;
           }
           out.skill = S.SURV.skill.forage;
+          T.H.farm.setSeason(year / T.H.farm.SEASON.yearSec); // [seasons] back to the year as it was
           return out; })()""")
         for k, verb in [('bush', 'Pick berries'), ('mush', 'Gather the mushrooms'), ('apple', 'Pick apples'), ('heal', 'Pick woundwort')]:
             q = r[k]

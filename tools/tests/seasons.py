@@ -308,8 +308,14 @@ async def shots(page, oak):
       const t = S.treesNear(R.town.x, R.town.z, 220).filter((q) => q.kind !== 'pine' && q.d > 60);
       let best = t[0], bn = 0;
       for (const q of t.slice(0, 80)) { const n = t.filter((o) => Math.hypot(o.x - q.x, o.z - q.z) < 18).length; if (n > bn) { bn = n; best = q; } }
-      ST.season(0.67); H.setTod(0.7); H.teleport(best.x + 30, best.z + 30); H.visual.refresh();
-      const cx = best.x - 16, cz = best.z - 12; ST.cam([cx, H.fn.heightAt(cx, cz) + 2.2, cz], [best.x, best.y + 3, best.z]);
+      ST.season(0.67); H.setTod(0.7); H.visual.refresh();
+      // a viewpoint with a clear line to the crowns: lower ground, nothing of the hill in between
+      let cam = null;
+      for (let a = 0; a < 16 && !cam; a++) { const ang = a / 16 * 6.283, cx = best.x + Math.cos(ang) * 17, cz = best.z + Math.sin(ang) * 17, cy = H.fn.heightAt(cx, cz) + 2.4;
+        let ok = cy < best.y + 3.5; for (let k = 1; k < 10 && ok; k++) { const f = k / 10, x = cx + (best.x - cx) * f, z = cz + (best.z - cz) * f; if (H.fn.heightAt(x, z) > cy + (best.y + 3 - cy) * f - 0.3) ok = false; } if (ok) cam = [cx, cy, cz]; }
+      cam = cam || [best.x - 16, H.fn.heightAt(best.x - 16, best.z - 12) + 2.4, best.z - 12];
+      H.teleport(cam[0] + (cam[0] - best.x) * 0.4, cam[2] + (cam[2] - best.z) * 0.4); ST.safe(); for (const e of H.ENT) if (e.alive && e.role !== 'player' && e.kind !== 'door' && Math.hypot(e.x - best.x, e.z - best.z) < 60 && (e.faction === H.FACTION_MONSTER)) { e.alive = false; e.removeAt = H.GAME.t; }
+      ST.cam(cam, [best.x, best.y + 3, best.z]);
       for (let i = 0; i < 2; i++) H.frame(1 / 30); })()""")
     # the frozen lake of Thule in winter, the player walking on it
     await canvas_shot(page, 'seasons_thule_ice.png', """(() => { const H = __hm, S = H.seasons, P = H.GAME.player;
@@ -317,6 +323,12 @@ async def shots(page, oak):
       ST.season(0.9); H.setTod(0.45); ST.play(); H.teleport(L.x - 4, L.z - 3); ST.safe(); H.simulate(1.2);
       H.INPUT.keys.add('KeyW'); P.yaw = 0.6; H.simulate(0.6); H.INPUT.keys.delete('KeyW');
       ST.cam([L.x - 16, P.y + 4.5, L.z - 14], [P.x, P.y + 0.8, P.z]); for (let i = 0; i < 2; i++) H.frame(1 / 30); })()""")
+    # Brackenford's fields in summer: strips, grassy balks and margins (no flat ochre ground, no trees in the strips)
+    await canvas_shot(page, 'seasons_logres_fields.png', """(() => { const H = __hm, S = H.seasons, R = H.REALMS[0];
+      const F = S.fields().filter((f) => !f.garden).sort((a, b) => Math.hypot(a.x - R.town.x, a.z - R.town.z) - Math.hypot(b.x - R.town.x, b.z - R.town.z))[0];
+      ST.season(0.42); H.setTod(0.6); H.teleport(F.x + 30, F.z + 30); H.farm.FARM.drawDirty = true;
+      const cx = F.x + (F.x - R.town.x) * 0.5, cz = F.z + (F.z - R.town.z) * 0.5;
+      ST.cam([cx, H.fn.heightAt(cx, cz) + 9, cz], [F.x, H.fn.heightAt(F.x, F.z), F.z]); for (let i = 0; i < 2; i++) H.frame(1 / 30); })()""")
     # the gardens: Eriu's herbs and greens, Thule's turnips and cabbages, in summer
     for realm, name in [(1, 'eriu'), (2, 'thule')]:
         await canvas_shot(page, f'seasons_garden_{name}.png', f"""(() => {{ const H = __hm, F = H.farm, R = H.REALMS[{realm}];

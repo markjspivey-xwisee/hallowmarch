@@ -226,7 +226,7 @@ const terrainMat = mat({
         rc *= 1.0 - 0.45 * crack * (0.25 + 0.75 * fine);
         // moss on ledges facing the sky, lichen freckles
         float moss = smoothstep(0.5, 0.9, nr.y) * smoothstep(0.35, 0.7, vnoise(vW.xz * 0.45 + 2.0)) * (0.55 + 0.45 * B.g);
-        rc = mix(rc, vec3(0.22, 0.3, 0.12) * tint, moss * (0.4 + 0.35 * fine));
+        rc = mix(rc, mix(vec3(0.22, 0.3, 0.12) * tint, seasonGrass(vec3(0.22, 0.3, 0.12) * tint, 0.5, 0.3, 0.3, vW.xz), 0.6), moss * (0.4 + 0.35 * fine)); // [seasons] the turf on the ledges turns too
         float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w.x + vnoise(vW.xz * 3.1) * w.y + vnoise(vW.xy * 3.1) * w.z) * fine * (1.0 - moss);
         rc = mix(rc, mix(vec3(0.62, 0.58, 0.36), vec3(0.62, 0.42, 0.22), B.r), lich * 0.5);
         vec3 rockCol = lightRock(rc, nr, mix(0.55, 1.0, smoothstep(0.05, 0.4, hR)));
@@ -735,8 +735,10 @@ const GRASS_FRAG = /* glsl */`
     alb = mix(alb, vec3(0.8, 0.84, 0.88) * dot(uAmbient + uLightColor, vec3(0.33)) * 0.55, vSzn.y * smoothstep(0.35, 1.0, t) * 0.55); // [seasons] rime on the tips
     alb *= vInfo.z;
     alb = mix(alb * (1.0 - 0.18 * wetB), vec3(0.82, 0.85, 0.9), snowB * 0.65 * smoothstep(0.3, 1.0, t));
+    alb = mix(alb, vec3(0.8, 0.83, 0.88), clamp(snowB, 0.0, 1.0) * (1.0 - smoothstep(0.0, 0.55, t)) * 0.85); // [seasons] the snow lies round the stems
     // dark only right at the roots (sparser low-detail grass lets more light down)
     float ao = mix(0.12 + 0.16 * uGrassLow, 1.0, spow(smoothstep(0.0, 0.85, t), 1.15)) * (1.0 - 0.18 * vCanopy);
+    ao = mix(ao, 1.0, clamp(snowB, 0.0, 1.0) * 0.75); // [seasons] snow lights the roots from below
     // lit as part of the sward as well as a blade: the normal leans toward the sky, so a sunlit meadow is as bright
     // as the turf beyond the blades instead of a band of dark green
     float ndl = clamp(dot(safeNormalize(n + vec3(0.0, 0.7, 0.0)), uLightDir) * 0.5 + 0.5, 0.0, 1.0);

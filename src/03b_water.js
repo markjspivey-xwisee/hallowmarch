@@ -151,10 +151,12 @@ const waterMat = mat({
         float edgeD = sqrt(d2) - sqrt(d1);
         float fineC = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(vW.xz * 1.7) - 0.5)) ;
         float crack = (1.0 - smoothstep(0.015, 0.06, edgeD)) * (0.6 + 0.4 * thick) + fineC * 0.35 * (1.0 - far);
-        vec3 iceA = mix(vec3(0.07, 0.11, 0.13), vec3(0.6, 0.7, 0.76), thick) * (0.88 + 0.2 * vnoise(vW.xz * 0.6));
+        vec3 iceA = mix(vec3(0.07, 0.11, 0.13), vec3(0.42, 0.55, 0.62), thick) * (0.86 + 0.24 * vnoise(vW.xz * 0.6));
         iceA = mix(iceA, vec3(0.78, 0.84, 0.88), smoothstep(0.55, 0.8, vnoise(vW.xz * 2.2 + 4.0)) * 0.35 * thick); // white streaks of trapped air
-        iceA *= 1.0 - 0.45 * clamp(crack, 0.0, 1.0);
-        float snI = clamp(uSnowCover * snowHere(vW), 0.0, 1.0) * smoothstep(0.25, 0.75, vnoise(vW.xz * 0.5) * 0.6 + vnoise(vW.xz * 3.0) * 0.4 + clamp(uSnowCover * snowHere(vW), 0.0, 1.0) * 0.5 - 0.15) * thick;
+        iceA *= 1.0 - 0.55 * clamp(crack, 0.0, 1.0);
+        // the wind sweeps the ice: snow lies on it in drifts, with bare ice between
+        float sCovI = clamp(uSnowCover * snowHere(vW), 0.0, 1.0);
+        float snI = sCovI * smoothstep(0.48, 0.8, vnoise(vW.xz * vec2(0.35, 0.8)) * 0.6 + vnoise(vW.xz * 2.6) * 0.4 + sCovI * 0.18) * thick;
         iceA = mix(iceA, snowAlbedo(vW), snI);
         vec3 nI = safeNormalize(vec3((vnoise(vW.xz * 0.9) - 0.5) * 0.06, 1.0, (vnoise(vW.xz * 0.9 + 7.0) - 0.5) * 0.06));
         vec3 RI = reflect(-V, nI);
