@@ -69,7 +69,7 @@ function depthForageFS(src) {
     .replace('vec3 col = lightSurface(alb, n, ao);', /* glsl */`
     // [depth] charred bark and twigs, embers in the cracks while it burns, fresh pale wood where it was cut
     float dpN = vnoise(vW.xz * 7.0 + vW.y * 5.0) * 0.6 + vnoise(vW.xz * 19.0 - vW.y * 13.0) * 0.4;
-    float dpFire = fract(vSt.w) / 0.45;
+    float dpFire = clamp((vSt.w - floor(vSt.w + 0.01)) / 0.45, 0.0, 1.0); // (not fract: a whole flag interpolates to a hair under itself)
     alb = mix(alb, vec3(0.045, 0.038, 0.032) * (0.7 + 0.6 * dpN), clamp(vSt.x * (0.75 + 0.5 * dpN), 0.0, 1.0));
     if (vSt.w > 0.5 && vSt.w < 1.5 && vPart < 0.5 && n.y > 0.7 && vSt.x < 0.5) alb = mix(alb, vec3(0.72, 0.6, 0.42) * (0.8 + 0.3 * vnoise(vW.xz * 40.0)), 0.85);
     emit += vec3(2.6, 0.78, 0.16) * dpFire * smoothstep(0.55, 0.85, dpN) * (0.65 + 0.35 * sin(uTime * 9.0 + vW.x * 4.0 + vW.y * 3.0));
