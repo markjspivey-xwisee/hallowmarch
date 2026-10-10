@@ -650,12 +650,7 @@ function depthOnKill(e) {
     DEPTH.stats.birdsShot++;
     return;
   }
-  if (e.kind === 'hen' && e.tame) {
-    // plucked: feathers, and a little meat
-    dropGood('feather', 3 + Math.floor(Math.random() * 3) + (knife ? 1 : 0), e.x, e.z, e.y + 0.3);
-    dropGood('meat_raw', 1, e.x, e.z, e.y + 0.3);
-    return;
-  }
+  // (a hen killed is plucked by the animals' own carcass drops: anCarcass, 08h_animals.js)
   // the rare materials of the late game
   if (e.role === 'dungeonBoss') { dropGood('grave_iron', 4 + Math.floor(Math.random() * 3), e.x, e.z, e.y + 1); return; }
   if (e.kind === 'dragon') { dropGood('dragon_scale', 4 + Math.floor(Math.random() * 3), e.x, e.z, e.y + 1.5); return; }

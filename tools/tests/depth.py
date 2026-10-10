@@ -186,9 +186,9 @@ async def bird_tests(page):
     r = await ev(page, 'hens: feathers', """(() => { T.dry(); const P = T.P(), A = T.A; const R = T.H.REALMS[0];
       const pen = A.A.pens.find((p) => p.owner === 'town' && p.realm === 0) || A.A.pens[0];
       const rec = A.anRecord('hen', { owner: 'player', sex: 'f', cmd: 'follow' }); const h = A.anSpawn(rec, pen.x + 12, pen.z + 12);
-      T.stand(h.x + 2, h.z, h.x, h.z); const f0 = T.lootNear('feather', h.x, h.z, 6);
+      T.stand(h.x + 2, h.z, h.x, h.z); const f0 = T.lootNear('feather', h.x, h.z, 6) + T.F.goodsCount('feather');
       T.F.dealDamage(P, h, 9999, { kind: 'melee' }); T.sim(0.5);
-      return { dead: !h.alive, feathers: T.lootNear('feather', h.x, h.z, 6) - f0 }; })()""")
+      return { dead: !h.alive, feathers: T.lootNear('feather', h.x, h.z, 6) + T.F.goodsCount('feather') - f0 }; })()""")
     check(r['dead'] and r['feathers'] >= 3, f"a hen killed is plucked: {r['feathers']} feathers")
 
 async def craft_tests(page):
