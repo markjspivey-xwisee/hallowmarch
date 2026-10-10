@@ -219,7 +219,8 @@ async def main():
           const houses = S.houses.map((x) => x.rec);
           return { vill: vill.length, home: home.length, doorsBy: ev.filter((x) => x.what.startsWith('door')).length, shutBy: ev.filter((x) => x.what === 'shutters close').length,
             closed: houses.every((h) => h.state !== 'whole' || h.wins.every((w) => w.target === 0)), doorsShut: houses.filter((h) => h.door.leaf.target === 0).length, n: houses.length,
-            seated: vill.filter((e) => e.seat).length }; })()""")
+            seated: vill.filter((e) => e.seat).length,
+            away: vill.filter((e) => !(e.ai.house && T.F.houseHas(e.ai.house, e.x, e.z, -0.2))).map((e) => ({ id: e.id, hand: !!e.ai.fieldHand, house: e.ai.house ? e.ai.house.state : null, door: e.ai.house ? +Math.hypot(e.x - e.ai.house.door.out2.x, e.z - e.ai.house.door.out2.z).toFixed(1) : null, step: e.ai.plan && e.ai.plan.steps ? (e.ai.plan.steps[e.ai.plan.i] || {}).k : null, amt: +e.anim.amt.toFixed(2) })) }; })()""")
         check(r['home'] >= max(1, r['vill'] - 2), 'at night the townsfolk are at home')
         check(r['doorsBy'] >= 2, 'they open and close their doors as they go in')
         check(r['shutBy'] >= 1 and r['closed'], 'they close the shutters for the night')

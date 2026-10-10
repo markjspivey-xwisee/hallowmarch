@@ -136,9 +136,27 @@ function lifeRun(e, dt) {
         while (st.path.length > 1 && dist2(e.x, e.z, st.path[0].x, st.path[0].z) < 0.3 * 0.3) st.path.shift();
         tx = st.path[0].x; tz = st.path[0].z; last = st.path.length === 1;
       }
+      // outdoors the way is a straight line, and it can meet a workstation, a well, a fence or a cart: when no headway
+      // is made, step round whatever is in the way, first one side and then the other
+      if (!st.room && dist2(e.x, e.z, tx, tz) > 1.4 * 1.4) {
+        const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t });
+        if (plan.t - tr.t > 1.5) {
+          const moved = dist(e.x, e.z, tr.x, tr.z);
+          st.track = { x: e.x, z: e.z, t: plan.t };
+          if (moved < 0.5 && !st.detour) {
+            const dx = tx - e.x, dz = tz - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (e.id % 2 ? 1 : -1))), w = 2.4 + (st.tries = (st.tries || 0) + 1) * 0.9;
+            st.detour = { x: e.x + (-dz / l) * sd * w - (dx / l) * 0.8, z: e.z + (dx / l) * sd * w - (dz / l) * 0.8, until: plan.t + 2.8 };
+          }
+        }
+        if (st.detour) {
+          if (moveToward(e, st.detour.x, st.detour.z, dt, st.run ? 1.65 : 0.9, 0.4) || plan.t > st.detour.until) st.detour = null;
+          if (plan.t > 28) giveUp();
+          return true;
+        }
+      }
       const done = moveToward(e, tx, tz, dt, st.run ? 1.65 : 0.9, last ? (st.loose ? 0.6 : st.exact ? 0.1 : 0.28) : 0.22) && last;
       if (done) next();
-      else if (plan.t > 16) giveUp();
+      else if (plan.t > (st.tries ? 28 : 16)) giveUp();
       return true;
     }
     case 'door': {

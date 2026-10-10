@@ -25,7 +25,11 @@ async def ev(page, label, js):
 HELPERS = r"""
 window.T = {
   H: __hm, F: __hm.fn,
-  put(x, z, yaw) { const H = this.H, P = H.GAME.player; P.x = P.prevX = x; P.z = P.prevZ = z; P.y = this.F.heightAt(x, z); P.onGround = true; P.vy = 0; if (yaw !== undefined) P.yaw = yaw; H.UI.modal = null; H.simulate(0.1); },
+  put(x, z, yaw) { const H = this.H, P = H.GAME.player; P.x = P.prevX = x; P.z = P.prevZ = z; P.y = this.F.heightAt(x, z); P.onGround = true; P.vy = 0; if (yaw !== undefined) P.yaw = yaw; H.UI.modal = null;
+    // the March fights back now (snaring archers, freezing mages): keep the player whole and the foes away while testing fire
+    if (!P.alive) { P.alive = true; document.getElementById('death').hidden = true; } P.hp = P.maxHp; P.buffs.length = 0;
+    for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && this.F.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < 50) { e.alive = false; e.removeAt = H.GAME.t; }
+    H.simulate(0.1); },
   offer() { const o = this.F.currentInteraction(); return o ? o.label : null; },
   act() { const o = this.F.currentInteraction(); if (o) o.act(); this.H.simulate(0.2); return o ? o.label : null; },
   cover(x, z) { const C = this.H.dbg.COVER, i = Math.floor(x + 512), j = Math.floor(z + 512); return C.data[j * C.res + i] / 255; },
@@ -102,8 +106,10 @@ async def main():
           let best = null; for (const t of W.trees) { if (t.felled || t.gone || (t.fire || 0) > 0 || t.char > 0.5) continue; const x = t.x - 12, z = t.z; if (!F.isWalkable(x, z) || F.houseAt(x, z, 2)) continue; let clear = true; for (const o of W.trees) if (o !== t && Math.abs(o.z - t.z) < 3 && o.x < t.x && o.x > t.x - 12) { clear = false; break; } if (clear) { best = t; break; } }
           if (!best) return { none: true };
           T.put(best.x - 12, best.z, Math.PI / 2); P.target = null; H.CAM.yaw = Math.PI / 2; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0;
-          F.playerUseSlot(0); const casting = !!P.casting; H.simulate(3.5);
-          return { casting, fire: +(best.fire || 0).toFixed(2) }; })()""")
+          const pre = { casting: P.casting ? P.casting.id : null, brand: !!P.brand, act: P.anim.act, motion: P.motion ? P.motion.kind : null, carrying: P.carrying, alive: P.alive, houseAim: !!F.houseFireAim(P, 'firebolt'), job: H.surv && H.surv.SURV.job ? H.surv.SURV.job.kind : null, gcd: P.gcdUntil - H.GAME.t, cd: P.cds.firebolt, stun: (P.buffs || []).map((b) => b.kind) };
+          document.getElementById('error').textContent = '';
+          F.playerUseSlot(0); const casting = !!P.casting; const err = document.getElementById('error').textContent, tgt = P.target, aim = pre; H.simulate(3.5);
+          return { casting, fire: +(best.fire || 0).toFixed(2), err, tgt, aim, pos: [P.x, P.z], tree: [best.x, best.z], swim: !!P.swim, mount: !!P.mount, power: P.power, buffs: P.buffs.map((b) => b.kind) }; })()""")
         check(r.get('fire', 0) > 0, 'a firebolt with nothing targeted is aimed at the tree in front and sets it alight')
         if SHOTS:
             # a woodpile by its house: the logs lie along the wall

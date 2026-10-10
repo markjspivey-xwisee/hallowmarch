@@ -183,6 +183,7 @@ async def checks(page):
         # ---- fishing ----
         r = await ev(page, 'fish', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};
           const sh = window.__shore; T.stand(sh.x, sh.z); const sp0 = S.fishSpot(P); if (sp0) P.yaw = Math.atan2(sp0.x - P.x, sp0.z - P.z);
+          T.F.washGear(null); S.SURV.thirst = 1; // [water] bloody gear is washed first at the water's edge, and a thirsty player drinks first
           out.noRod = __hmCI();
           F.goodsAdd('tool_rod', 1, true); out.label = __hmCI();
           F.playerInteract(); out.cast = S.SURV.fish && S.SURV.fish.phase; out.pose = !!P.fishing;

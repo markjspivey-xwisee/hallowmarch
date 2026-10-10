@@ -1061,6 +1061,7 @@ function castAtHouse(P, id, aim) {
   else if (P.carrying != null) why = 'carrying';
   else if (isStunned(P)) why = 'stunned';
   else if (P.casting || (P.motion && P.motion.kind === 'leap')) why = 'busy';
+  else if (P.swim) why = 'swimming'; // [water] no casting while swimming
   else if (GAME.prog && A.level > GAME.prog.level) why = 'level';
   else if ((P.cds[id] || 0) > GAME.t || P.gcdUntil > GAME.t) why = 'cooldown';
   else if (P.power < A.cost) why = 'power';
