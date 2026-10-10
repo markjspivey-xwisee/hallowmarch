@@ -275,8 +275,9 @@ function botMove(e, t, dt) {
   else if (e.cls === 'mage') want = skilled ? 24 : e.rangedRange - 2;
   // a skilled priest does not swing a mace into a raised shield: holy light from a few strides off
   else if (e.cls === 'priest' && skilled && t.cls === 'warrior' && hasShield(t) && clsHas(t, 'block')) want = 12;
-  // [balance2] but a bow or a staff is closed on: a pressed archer cannot draw, a pressed mage casts into a mace,
-  // and holy light is cast on the way in (botPriest)
+  // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
+  // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = 22;
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -522,7 +523,7 @@ function botPriest(e, t) {
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
-  if (hpF < (castOk ? (many ? 0.72 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
+  if (hpF < (castOk ? (many ? 0.72 : 0.65) : 0.35) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -533,7 +534,7 @@ function botPriest(e, t) {
   // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < (many ? 0.82 : 0.66) && botUse(e, 'mend', e)) return true;
+  if (castOk && hpF < (many ? 0.82 : 0.72) && botUse(e, 'mend', e)) return true;
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race

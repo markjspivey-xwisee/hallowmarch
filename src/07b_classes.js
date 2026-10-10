@@ -497,7 +497,7 @@ function finisherLands(src, dst, fin, dmg) {
   CLS.stats.finishers++;
   styleProc(src, dst, dmg, {}, true);
   if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); dst.casting = null; }
-  if (realmFlavour(src) && src.faction === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips);
+  if (realmFlavour(src) && src.faction === 2 && csOf(src).stance === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips); // [balance2] in fury only, as the Chronicle says (a Thule warrior in a guarded stance outlasted every pack)
   const y = dst.y + 1.2 * (dst.scale || 1);
   FX.burst(dst.x, y, dst.z, 30, fin.style === 'sword' ? [2.2, 0.5, 0.35] : fin.style === 'axe' ? [2.0, 1.6, 1.1] : [2.4, 2.0, 1.2], 6, 0.45, 0.13, 7);
   cameraShake(0.22, dst.x, dst.z);

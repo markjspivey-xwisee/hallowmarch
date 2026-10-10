@@ -42,7 +42,7 @@ const ABILITIES = {
   slash: { name: 'Slash', icon: 'sword', level: 1, cost: 8, cd: 4, range: 'melee', dmg: 1.75, anim: 1, desc: 'A fast, heavy cut. 175% weapon damage.' }, // [balance2] 1.6
   bash: { name: 'Shield Bash', icon: 'shield', level: 2, cost: 12, cd: 14, range: 'melee', dmg: 0.7, stun: 1.6, anim: 1, desc: 'Stuns the target for 1.6 seconds.' }, // [balance] 2.5 s
   cleave: { name: 'Cleave', icon: 'arc', level: 4, cost: 15, cd: 8, range: 'melee', arc: 4.5, dmg: 1.35, anim: 8, desc: 'Strikes every enemy in front of you. 135% weapon damage.' }, // [balance2] 1.2
-  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 12, range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root; for 2 s none takes hold of you.' }, // [balance] 16 s [balance2] and a moment free of them
+  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 10, /* [balance2] 12: the warrior's answer to kiting below 30 */ range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root; for 2 s none takes hold of you.' }, // [balance] 16 s [balance2] and a moment free of them
   rally: { name: 'Rallying Cry', icon: 'horn', level: 11, cost: 20, cd: 40, self: true, healPct: 0.25, buff: { kind: 'dmg', value: 0.15, dur: 10 }, desc: 'Heal 25% and deal 15% more damage for 10 s.' },
   bulwark: { name: 'Bulwark', icon: 'tower', level: 15, cost: 15, cd: 40, self: true, buff: { kind: 'dr', value: 0.6, dur: 6 }, anim: 5, desc: 'Take 60% less damage for 6 seconds, and 1.5 s longer for each rank past the first.' }, // [balance2] cd 45; longer with rank (07c_balance.js)
 
@@ -69,7 +69,7 @@ const ABILITIES = {
 
   // learned at 20 and 30
   whirl: { name: 'Whirlwind', icon: 'whirl', level: 20, cost: 22, cd: 12, self: true, spin: 4.4, dmg: 1.4, desc: 'Spin with your weapon out. 140% damage to every enemy within 4 m.' },
-  leap: { name: 'Leap Strike', icon: 'leapdown', level: 30, cost: 20, cd: 18, range: 24, minRange: 6, leap: true, radius: 4, dmg: 1.6, stun: 1.0, desc: 'Leap onto a foe 6–24 m away. 160% damage and a 1 s stun to all within 4 m.' }, // [balance] 1.5 s
+  leap: { name: 'Leap Strike', icon: 'leapdown', level: 30, cost: 20, cd: 20, range: 24, minRange: 6, leap: true, radius: 4, dmg: 1.6, stun: 0.6, desc: 'Leap onto a foe 6–24 m away. 160% damage and a 0.6 s stun to all within 4 m.' }, // [balance] 1.5 s [balance2] 1 s, cd 18: a leap and a bash held a priest or a mage for most of a duel
   firearrow: { name: 'Fire Arrow', icon: 'firearrow', level: 20, cost: 14, cd: 8, range: 34, proj: 'firearrow', dmg: 1.6, burn: [0.9, 6], anim: 2, desc: 'A burning arrow. 160% damage, and 90% more as fire over 6 s.' },
   deadeye: { name: 'Deadeye', icon: 'eye', level: 30, cost: 26, cd: 24, range: 50, cast: 2.4, proj: 'deadeye', dmg: 4.2, anim: 2, desc: 'A long, steady shot. 420% damage at up to 50 m; armour does not stop it.' },
   chain: { name: 'Chain Lightning', icon: 'bolt', level: 20, cost: 20, cd: 9, range: 32, cast: 1.2, chain: 3, dmg: 1.6, anim: 3, desc: 'Lightning that leaps on to 3 more foes. 160%, a fifth less at each leap.' },

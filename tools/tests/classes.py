@@ -170,7 +170,12 @@ window.CB = {
         // how long the calling holds out (armour, healing, control and killing all count)
         for (let i = 0; i < A.p.length; i++) {
           const m = A.p[i];
-          if (m.alive) continue;
+          if (m.alive) {
+            // [balance2] the pack keeps its quarry: hidden out of its sight (an Eriu archer hides while it walks), the
+            // fighter was simply forgotten and "survived" for ever
+            if (A.u.alive && m.target !== A.u.id) { m.target = A.u.id; if (m.threat) m.threat.set(A.u.id, 5); m.ai.pulled = true; }
+            continue;
+          }
           if (!m._gone) { m._gone = t; A.killed = (A.killed || 0) + 1; }
           else if (t - m._gone > 2 && A.u.alive) { const n = this.pack(A.lvl, A.u.bot.home.x + 11, A.u.bot.home.z, A.u, m.mobType, el)[0]; A.p[i] = n; }
         }
