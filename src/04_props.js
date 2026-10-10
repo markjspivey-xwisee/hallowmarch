@@ -266,6 +266,7 @@ function keepRound(b, S, st, R) {
     let a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU;
     if (Math.abs(angDiff((a0 + a1) / 2, 0)) < 0.2) continue;
     if (i === 1) a0 = RATH_GATE_A; if (i === segs - 2) a1 = TAU - RATH_GATE_A; // [keeps] into the gate towers' masonry
+    if (i === 4 || i === 14) a1 -= RATH_LOOK_A; if (i === 5 || i === 15) a0 += RATH_LOOK_A; // [keeps] and the lookouts' (towerLookout)
     const am = (a0 + a1) / 2, len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
     b.add(G.box, lm(M, Math.sin(am) * R0, H / 2 - 0.7, Math.cos(am) * R0, am, len, H + 1.4, KEEP_T), MAT.stone, st.stone, by, 4);
     b.add(G.box, lm(M, Math.sin(am) * (R0 + 0.15), H + 0.25, Math.cos(am) * (R0 + 0.15), am, len, 0.5, KEEP_T + 0.5), MAT.darkstone, st.stone);

@@ -266,6 +266,7 @@ function castleStone(C) {
 /* ------------------------------------------------------------------ */
 const RATH_R = 16.5, RATH_WALK = 6.7;
 const RATH_GATE_A = 0.377; // [keeps] where the rath's wall meets the middle of a gate tower's masonry (keepRound, 04_props.js)
+const RATH_LOOK_A = 2 * Math.asin(1.95 / (2 * RATH_R)); // [keeps] and of a side lookout's (towerLookout, 04l_towers.js)
 function castleRound(C) {
   const { b, M, st, S } = C, R0 = RATH_R, segs = 20, WT = RATH_WALK;
   for (let i = 0; i < segs; i++) {
@@ -273,6 +274,7 @@ function castleRound(C) {
     if (Math.abs(angDiff((a0 + a1) / 2, 0)) < 0.2) continue;
     // [keeps] beside the gate the walk runs into the gate tower's platform (towerGateRath, 04l_towers.js)
     if (i === 1) a0 = RATH_GATE_A; if (i === segs - 2) a1 = TAU - RATH_GATE_A;
+    if (i === 4 || i === 14) a1 -= RATH_LOOK_A; if (i === 5 || i === 15) a0 += RATH_LOOK_A; // [keeps] onto the lookouts' platforms
     const am = (a0 + a1) / 2, len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.5;
     C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, (KEEP_T + 0.5) / 2 + 0.3, am, WT); // wide enough to cover the curve at the ends
     // stone crenels where there is no timber hoarding (the hoarding is the parapet on the others), and none
@@ -289,25 +291,9 @@ function castleRound(C) {
     const am = sx * 7.5 / segs * TAU;
     C.sections.push({ lx: Math.sin(am) * R0, lz: Math.cos(am) * R0, ax: Math.cos(am), az: -Math.sin(am), axis: 'x', half: 2.2, across: KEEP_T / 2 + 0.4, top: WT, rubble: 1.0, kind: 'stone' });
   }
-  // the side lookouts: the drum rises flush with the walk, which runs on through under a thatched roof on posts
-  for (const sx of [-1, 1]) {
-    const x = sx * R0;
-    b.add(G.cyl12, lm(M, x, (WT - 1.4) / 2, 0, 0, 2.3, WT + 1.4, 2.3), MAT.stone, st.stone, S.y, 5);
-    b.add(G.cyl12, lm(M, x, WT - 0.15, 0, 0, 2.5, 0.3, 2.5), MAT.darkstone, st.stone);
-    C.disc(x, 0, 2.45, WT);
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * TAU + TAU / 8, px = x + Math.sin(a) * 2.05, pz = Math.cos(a) * 2.05;
-      b.add(G.cyl8, lm(M, px, WT + 1.15, pz, 0, 0.13, 2.3, 0.13), MAT.logH, st.logs);
-      C.post(px, pz, 0.18, WT, 2.4);
-    }
-    // a low breastwork on the outer half, open where the walk comes through
-    for (let k = 0; k < 6; k++) {
-      const a0 = sx * (Math.PI / 2) - 0.96 + k * 0.32, a1 = a0 + 0.32, rr = 2.3;
-      castleParapet(C, x + Math.sin(a0) * rr, Math.cos(a0) * rr, x + Math.sin(a1) * rr, Math.cos(a1) * rr, WT, { th: 0.36, bh: 0.95, mh: 0.0001, slits: false });
-    }
-    b.add(G.cone12, lm(M, x, WT + 2.3 + 1.4, 0, 0, 2.95, 2.8, 2.95), MAT.thatch, st.thatch);
-    b.add(G.cyl12, lm(M, x, WT + 2.32, 0, 0, 2.5, 0.12, 2.5), MAT.wood, st.wood);
-  }
+  // the side lookouts: [keeps] hollow drums, a store below and a ladder up through a hatch onto the platform, flush
+  // with the walk, which runs on through under a thatched roof on posts (towerLookout, 04l_towers.js)
+  for (const sx of [-1, 1]) towerLookout(C, sx, WT);
   // two curved stairs up the inside of the wall
   for (const sx of [-1, 1]) castleArcFlight(C, 14.5, sx * 0.62, sx * 1.36, 0, WT, 1.7, 6, { base: 0 });
   for (const sx of [-1, 1]) {
@@ -641,6 +627,7 @@ function castleFollow(e, dt, speed = 0.85) {
   e.ai.ri = i;
   if (i >= Rt.length) { e.ai.route = null; e.ai.ri = 0; return false; }
   // [land] the next point is up or down a ladder: at its foot (or beside its hatch) the body climbs (04l_towers.js)
+  if (Rt[i].ladder && Rt[i].ladder.gone) { e.ai.route = null; e.ai.ri = 0; return false; } // [keeps] burnt and fallen in (04n_towerfire.js)
   if (Rt[i].ladder && towerLadderStart(e, Rt[i].ladder, Rt[i].y > e.y + 1 ? 1 : Rt[i].y < e.y - 1 ? -1 : 0)) return true;
   if (Rt[i].ladder && Math.abs(Rt[i].y - e.y) > 1) { const L = Rt[i].ladder, up = Rt[i].y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, speed, 0.05); return true; } // [keeps] not yet at its start: go there
   const px = e.x, pz = e.z;
@@ -701,6 +688,7 @@ function castleClimbToward(e, t, dt) {
   if (e.rangedKind || t.kind === 'door') return false;
   const wp = castleWaypoint(e, t);
   if (!wp) return false;
+  if (wp.ladder && wp.ladder.gone) return false; // [keeps] burnt and fallen in
   if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true; // [land]
   if (wp.ladder && Math.abs(wp.y - e.y) > 1) { const L = wp.ladder, up = wp.y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, 1, 0.05); return true; } // [keeps] go to its start
   moveToward(e, wp.x, wp.z, dt, 1, 0.05);
@@ -723,6 +711,7 @@ function castleCanReach(e, t) {
 // by course, and the new stone stays pale for a time. The cut and the cracks are drawn by the castle shader (the
 // building shader with a breach test patched in), the rubble, the broken ends and the scaffold are their own meshes.
 const CUT_MAX = 4, BREACH_QUIET = 20, BREACH_REPAIR = 150, BREACH_FRESH = 140;
+const TW_FIRE_MAX = 6; // [keeps] the timber towers a castle's shader knows (04n_towerfire.js)
 const CASTLE_PATCHED = [];
 function castlePatch(src, anchor, fn) {
   if (!src.includes(anchor)) return src; // the building shader changed: castles lose their cracks, nothing else
@@ -751,13 +740,31 @@ const CASTLE_CUT_GLSL = /* glsl */`
       }
       return cut;
     }
+    // [keeps] a timber tower's fire (04n_towerfire.js): A = (x, z, half-size, char), B = (cut height, embers, footing, fresh)
+    uniform vec4 uTA[${TW_FIRE_MAX}]; uniform vec4 uTB[${TW_FIRE_MAX}]; uniform vec2 uTR;
+    float tChar = 0.0, tGlow = 0.0, tFresh = 0.0;
+    bool towerCut(vec3 p){
+      bool cut = false;
+      for (int i = 0; i < ${TW_FIRE_MAX}; i++) {
+        vec4 A = uTA[i], B = uTB[i];
+        if (A.z <= 0.0) continue;
+        vec2 d = p.xz - A.xy, l = vec2(d.x * uTR.x - d.y * uTR.y, d.x * uTR.y + d.y * uTR.x);
+        if (abs(l.x) > A.z || abs(l.y) > A.z) continue;
+        float up = smoothstep(B.z - 0.4, B.z + 0.5, p.y);
+        tChar = max(tChar, A.w * up * (0.7 + 0.3 * vnoise(p.xz * 2.3 + p.y * 1.7)));
+        tGlow = max(tGlow, B.y * up);
+        tFresh = max(tFresh, B.w * up);
+        if (p.y > B.x) cut = true;
+      }
+      return cut;
+    }
 `;
 const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
     ${a}
-    if (castleCut(vW)) discard;
+    if (castleCut(vW) || towerCut(vW)) discard;
   `);
   fs = castlePatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', (a) => /* glsl */`
     if (cWear > 0.002) {
@@ -769,7 +776,10 @@ const CASTLE_FS = (() => {
       alb = mix(alb, alb * vec3(0.74, 0.7, 0.66), smoothstep(0.2, 1.0, cWear) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
     }
     if (cFresh > 0.002) alb = mix(alb, alb * vec3(1.18, 1.15, 1.08) + vec3(0.04, 0.035, 0.03), cFresh * 0.85);
+    if (tChar > 0.002) alb = mix(alb, vec3(0.05, 0.043, 0.037) * (0.65 + 0.7 * vnoise(vW.xz * 7.0 + vW.y * 5.0)), tChar * 0.93); // [keeps] charred logs
+    if (tFresh > 0.002) alb = mix(alb, alb * vec3(1.25, 1.16, 1.0) + vec3(0.05, 0.04, 0.02), tFresh * 0.65); // [keeps] new timber
     ${a}
+    if (tGlow > 0.002) col += vec3(1.7, 0.55, 0.12) * tGlow * smoothstep(0.58, 0.86, vnoise(vW.xz * 3.1 + vW.y * 4.3 + uTime * 0.6)) * (0.6 + 0.4 * sin(uTime * 7.0 + vW.y * 3.0)); // [keeps] embers
   `);
   return fs;
 })();
@@ -777,11 +787,12 @@ const CASTLE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   varying vec3 vW;
   ${CASTLE_CUT_GLSL}
-  void main(){ if (castleCut(vW)) discard; gl_FragColor = vec4(1.0); }`;
-const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] } } });
+  void main(){ if (castleCut(vW) || towerCut(vW)) discard; gl_FragColor = vec4(1.0); }`;
+const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) } } });
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
-  return { uCA: v(), uCB: v(), uCC: v() };
+  const t = (y) => ({ value: Array.from({ length: TW_FIRE_MAX }, () => new THREE.Vector4(y, 0, 0, 0)) }); // [keeps] the timber towers (04n_towerfire.js)
+  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) } };
 }
 // split a box collider along one of its local axes: the ends stay, the middle (returned) can fall
 function castleSplitColl(c, axis, u0, u1) {
@@ -847,6 +858,7 @@ function castleSections(C) {
   const { S } = C;
   if (!C.sections || !C.sections.length) return;
   C.cutU = castleCutUniforms();
+  C.towerU = C.cutU; // [keeps] (04n_towerfire.js)
   const m = shareMat(castleMat, { uFlash: buildingMat.uniforms.uFlash, ...C.cutU });
   C.mesh.material = m;
   const km = CASTLE_KEEP_MESH.get(S);

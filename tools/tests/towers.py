@@ -25,7 +25,7 @@ steps onto a shut hatch while foes climb beneath it; an enemy who breaks into a 
 fights at the hatch; nobody is seen or struck through a floor or a shut hatch. Screenshots of each new tower from the
 courtyard and inside each room, by day and at night, at high and low quality (tower_<kind>_*.png), and a fight on a
 ladder.
-usage: python3 tools/tests/towers.py [noshots] [quality] [only=v10,floors,tour,posts,fight,shots]"""
+usage: python3 tools/tests/towers.py [noshots] [quality] [only=v10,floors,tour,posts,fight,fire,shots]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -96,7 +96,7 @@ window.TT = {
   cam(S, T, a, r, y, ta, tr, ty) { const H = this.H, p = this.tp(T, a, r), q = this.tp(T, ta, tr); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(p.x, S.y + y, p.z); H.camera.lookAt(q.x, S.y + ty, q.z); H.camera.updateMatrixWorld(); },
   quiet() { for (const w of __hm.WAR.warbands) w.dead = true; __hm.WAR.commanders.forEach((C) => { C.nextThink = 1e9; C.nextSpawn = 1e9; }); },
   // [keeps] one tower of each new kind
-  kinds() { const L = __hm.towers.TOWER.list, f = (q) => L.find(q); return { lg: f((T) => T.look === 'stone' && T.role === 'gate' && T.sx === 1), eg: f((T) => T.look === 'rath' && T.sx === 1), egl: f((T) => T.look === 'rath' && T.sx === -1), tc: f((T) => T.look === 'timber' && T.role === 'corner' && T.sx === 1 && T.sz === 1), tb: f((T) => T.look === 'timber' && T.role === 'corner' && T.sx === -1 && T.sz === -1), tg: f((T) => T.look === 'timber' && T.role === 'gate' && T.sx === -1) }; },
+  kinds() { const L = __hm.towers.TOWER.list, f = (q) => L.find(q); return { lg: f((T) => T.look === 'stone' && T.role === 'gate' && T.sx === 1), eg: f((T) => T.look === 'rath' && T.role === 'gate' && T.sx === 1), egl: f((T) => T.look === 'rath' && T.role === 'gate' && T.sx === -1), el: f((T) => T.role === 'lookout' && T.sx === 1), tc: f((T) => T.look === 'timber' && T.role === 'corner' && T.sx === 1 && T.sz === 1), tb: f((T) => T.look === 'timber' && T.role === 'corner' && T.sx === -1 && T.sz === -1), tg: f((T) => T.look === 'timber' && T.role === 'gate' && T.sx === -1) }; },
   tl(T, a, r, off = 0) { return { x: T.cx + Math.sin(a) * r + Math.cos(a) * off, z: T.cz + Math.cos(a) * r - Math.sin(a) * off }; },
   loc(S, x, z) { const c = Math.cos(S.yaw), s = Math.sin(S.yaw), dx = x - S.x, dz = z - S.z; return { x: dx * c - dz * s, z: dx * s + dz * c }; },
   inRoom(T, x, z, pad = 0) { const l = this.loc(T.S, x, z), dx = l.x - T.cx, dz = l.z - T.cz; return T.kind === 'drum' ? Math.hypot(dx, dz) < T.RI + pad : Math.abs(dx) < T.HI + pad && Math.abs(dz) < T.HI + pad; },
@@ -121,6 +121,7 @@ async def main():
         if want('tour'): await tours(page)
         if want('posts'): await posts(page)
         if want('fight'): await fights(page)
+        if want('fire'): await fire(page)
         if want('shots') and SHOTS: await kshots(page)
 
         r = await ev(page, 'errors', "(() => __hm.errors.slice(0, 6))()")
@@ -133,7 +134,7 @@ async def v10(page):
           for (const T of tw.list.filter((q) => q.look === 'stone' && q.role === 'corner')) { if (T.doors.length !== 3 || T.ladders.length !== 2 || T.hatches.length !== 2) out.ok = false; out.rings += T.colls.length; }
           for (const S of __hm.REALMS[0].keepSites) for (const c of S.colliders) if (c.tag === 'tower' && c.r > 3) out.drums += c.active ? 1 : 0;
           out.realms = [...new Set(tw.list.map((T) => T.S.realm))]; return out; })()""")
-        check(r['n'] == 28 and r['ok'] and sorted(r['realms']) == [0, 1, 2], 'every tower of every keep is hollow (28); every corner tower of the stone keeps has 3 doors, 2 ladders, 2 hatches')
+        check(r['n'] == 32 and r['ok'] and sorted(r['realms']) == [0, 1, 2], 'every tower of every keep is hollow (32); every corner tower of the stone keeps has 3 doors, 2 ladders, 2 hatches')
         check(r['drums'] == 0 and r['rings'] >= 8 * 16, 'the old solid drums stand down; rings of masonry take their place')
 
         r = await ev(page, 'floors', """(() => { const S = TT.keep(0, 0).site, T = TT.tower(S, 1, 1), F = __hm.fn, out = { at: [], cracks: 0 };
@@ -288,7 +289,7 @@ async def floors(page):
         for (const L of T.ladders) { const Hh = L.hatch; if (!Hh) continue; Hh.floor.active = false; const y = F.floorAt(Hh.cx, Hh.cz, S.y + L.yt + 0.05) - S.y; Hh.floor.active = Hh.k < 0.25; if (y > L.yt - 1.0) out.holes++; }
       }
       return out; })()""")
-    check(r['towers'] == 28 and r['n'].get('stone-gate') == 4 and r['n'].get('rath-gate') == 4 and r['n'].get('timber-corner') == 8 and r['n'].get('timber-gate') == 4, 'every tower is listed: 8 + 4 stone (corner, gate), 4 rath gate drums, 8 + 4 timber shafts')
+    check(r['towers'] == 32 and r['n'].get('stone-gate') == 4 and r['n'].get('rath-gate') == 4 and r['n'].get('rath-lookout') == 4 and r['n'].get('timber-corner') == 8 and r['n'].get('timber-gate') == 4, 'every tower is listed: 8 + 4 stone (corner, gate), 4 + 4 rath drums (gate, lookout), 8 + 4 timber shafts')
     check(not r['cracks'], 'every floor of every tower carries a body with no crack between its boards, flags or slabs')
     check(r['stood'] == 0 and r['cut'] == 0, 'the old solid towers stand down, and no curtain collider runs through a room')
     check(not r['props'], 'the furniture stands clear of the ladders\' feet and tops, the hatches and the doors')
@@ -305,7 +306,9 @@ TOUR = r"""((key) => {
     TT.walkTo(S, L.foot.x, L.foot.z, 3);
     let lab = P.motion ? 'walked in' : TT.offer();
     if (lab === 'Push the hatch open') { TT.use(); H.simulate(1.0, 0.02); lab = TT.offer(); }
-    const m = P.motion ? P.motion.kind : TT.push(L.lx, L.lz, 0.35) || (TT.use() && P.motion ? P.motion.kind : null);
+    // (from the foot, walking along the ladder's line into it)
+    if (!P.motion) { P.x = P.prevX = L.fx; P.z = P.prevZ = L.fz; H.simulate(0.05, 0.02); }
+    const m = P.motion ? P.motion.kind : TT.push(L.lx + (L.lx - L.fx) * 4, L.lz + (L.lz - L.fz) * 4, 0.35) || (TT.use() && P.motion ? P.motion.kind : null);
     const secs = TT.until(16);
     out.steps.push(['climb', +L.yb.toFixed(2), +L.yt.toFixed(2), m, lab, +(P.y - S.y).toFixed(2), secs]);
   }
@@ -320,7 +323,7 @@ TOUR = r"""((key) => {
 
 async def tours(page):
     await page.evaluate("(() => { const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; TT.quiet(); return 0; })()")
-    for key, name in (('lg', 'a Logres gate tower'), ('eg', 'an Eriu gate tower'), ('tc', 'a Thule front corner tower'), ('tb', 'a Thule back corner tower'), ('tg', 'a Thule gate tower')):
+    for key, name in (('lg', 'a Logres gate tower'), ('eg', 'an Eriu gate tower'), ('el', 'an Eriu lookout'), ('tc', 'a Thule front corner tower'), ('tb', 'a Thule back corner tower'), ('tg', 'a Thule gate tower')):
         r = await ev(page, 'tour ' + key, "(" + TOUR + ")('" + key + "')")
         st = r['steps']
         inn = st[0]; climbs = [q for q in st if q[0] == 'climb']; outs = [q for q in st if q[0] == 'out']
@@ -468,6 +471,42 @@ async def fights(page):
       F.removeEnt(e); F.removeEnt(a); return out; })()""")
     check(r['inTower'] and r['ladders'] == 2 and r['maxY'] > 8.5 and (r['blows'] > 0 or r['maxY'] > 10.4), f'an enemy who breaks into a gate tower climbs both ladders after the archer on its top and fights at the hatch ({r})')
 
+async def fire(page):
+    r = await ev(page, 'tower fire', """(() => { const H = TT.H, F = TT.F, TF = __hm.towerfire, T = TT.kinds().tc, S = T.S, K = S.keepRef, out = {}, W = __hm.dbg.WEATHER;
+      TT.empty(S); W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; TT.put(S, 0, 60, 0);
+      // the garrison's own fire spares its towers; a foe's lights them
+      const own = F.spawnRealmUnit(K.realm, 'mage', 30, 'guard', T.wx + 9, T.wz, {}), foe = F.spawnRealmUnit((K.realm + 1) % 3, 'mage', 30, 'guard', T.wx + 9, T.wz + 2, {});
+      F.fireLandsAt(T.wx, S.y + 4, T.wz, 1.2, own); out.ownLit = !!T.burn;
+      F.fireLandsAt(T.wx, S.y + 4, T.wz, 1.2, foe); out.lit = !!T.burn; F.removeEnt(own); F.removeEnt(foe);
+      // someone in its store room is burnt; the fire climbs, the logs char
+      const st = TT.tl(T, T.aIn, 0.3), e = TT.body(S, K.realm, 'warrior', st.x, st.z, T.yG); e.hp = e.maxHp = 1e4; e.ai.post.leash = 0;
+      const tr = []; let maxFires = 0;
+      for (let t = 0; t < 30; t += 1) { H.simulate(1, 0.05); maxFires = Math.max(maxFires, T.burn ? T.burn.fires.filter((f) => f.until > H.GAME.t).length : 0); if (t % 6 === 0) tr.push([t, T.burn ? +T.burn.heat.toFixed(2) : null, +(T.char || 0).toFixed(2)]); }
+      out.tr = tr; out.maxFires = maxFires; out.hurt = +(1 - e.hp / e.maxHp).toFixed(3); F.removeEnt(e);
+      const C = T.C, U3 = C.towerU, i = TF.list().filter((q) => q.C === C).indexOf(T); out.uni = [+U3.uTA.value[i].w.toFixed(2), +U3.uTB.value[i].y.toFixed(2)];
+      // it falls in: the gallery and its ladder stand down, the heap shows, whoever stood up there falls
+      // (someone stands in the gallery just before it goes: up there all the while, the fire would have killed them)
+      if (T.burn) T.burn.t = Math.max(T.burn.t, TF.TFIRE.burn - 1.5);
+      const gp = TT.tl(T, T.aIn + Math.PI, 0.9), g = TT.body(S, K.realm, 'archer', gp.x, gp.z, T.TT); g.hp = g.maxHp = 1e4; g.ai.post.leash = 0;
+      for (let t = 0; t < 50 && !T.fallen; t += 0.25) H.simulate(0.25, 0.05);
+      const top = T.ladders.find((L) => Math.abs(L.yt - T.TT) < 0.01);
+      out.fallen = !!T.fallen; out.floors = T.topFloors.filter((f) => f.active).length; out.colls = T.topColls.filter((c) => c.active).length; out.gone = !!top.gone; out.heap = T.heap.visible; out.cut = +(U3.uTB.value[i].x - S.y).toFixed(2);
+      H.simulate(2, 0.05); out.fell = +(g.y - S.y).toFixed(2); F.removeEnt(g);
+      // the keep quiet, it is built again
+      K.lastEnemyNear = -999; for (let t = 0; t < 200 && T.fallen; t += 2) { K.lastEnemyNear = -999; H.simulate(2, 0.1); }
+      out.rebuilt = !T.fallen && !top.gone && T.topFloors.every((f) => f.active) && !T.heap.visible; out.char = +(T.char || 0).toFixed(2); out.stats = { ...TF.TFIRE.stats };
+      // rain puts out a young fire
+      W.kind = 'rain'; W.raining = 1; W.wet = 1; __hm.dbg.U.uWet.value = 1; const T2 = TT.kinds().tg; TF.towerIgnite(T2, 3);
+      for (let t = 0; t < 30 && T2.burn; t += 1) { __hm.dbg.U.uWet.value = 1; W.raining = 1; H.simulate(1, 0.05); }
+      out.rainOut = !T2.burn && !T2.fallen; W.kind = 'clear'; W.raining = 0; W.wet = 0;
+      return out; })()""")
+    check(not r['ownLit'] and r['lit'], f"a timber tower is not set alight by its own garrison's fire, and is by a foe's ({r['ownLit']}, {r['lit']})")
+    check(r['maxFires'] >= 4 and r['tr'][-1][2] > 0.3 and r['hurt'] > 0.05 and r['uni'][0] > 0.3, f"it burns: flames climb it, its logs char and whoever is inside is burnt ({r['tr']}, flames {r['maxFires']}, hurt {r['hurt']}, char {r['uni']})")
+    check(r['fallen'] and r['floors'] == 0 and r['colls'] == 0 and r['gone'] and r['heap'] and abs(r['cut'] - 8.8) < 0.3, f"after the fire its gallery and roof fall in: their floor, breastwork and ladder stand down and the charred timbers lie below ({r})")
+    check(5.3 < r['fell'] < 5.7, f"whoever stood in the gallery falls into the room below ({r['fell']})")
+    check(r['rebuilt'] and r['char'] < 0.05, f"the keep quiet, the tower is built again ({r['rebuilt']}, char {r['char']}, {r['stats']})")
+    check(r['rainOut'], 'rain puts out a young fire in a timber tower')
+
 async def kshots(page):
     # each new tower from the courtyard, inside its rooms by day and at night, at high and low quality
     await page.evaluate("(() => { TT.quiet(); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; __hm.setTod(0.42); __hm.simulate(0.3, 0.05); TT.put(TT.kinds().lg.S, 0, 90, 0); return 0; })()")
@@ -476,6 +515,7 @@ async def kshots(page):
         'eg': [('outside', "Math.PI", 12, 3.0, "Math.PI", 0, 5.5), ('store', "Math.PI", 0.9, T_Y + "1.65", "0.5", 1.0, T_Y + "1.0"), ('top', "-1.2", 0.4, "T.TT + 1.7", "1.84", 2.0, "T.TT + 0.8")],
         'tc': [('outside', "T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0), ('store', "T.aIn", 1.3, T_Y + "1.65", "T.aIn + Math.PI", 1.3, T_Y + "1.0"), ('room', "T.aIn", 1.3, "T.H + 1.65", "T.aIn + Math.PI", 1.4, "T.H + 0.9"), ('top', "T.aIn", 1.6, "T.TT + 1.75", "T.aIn + Math.PI", 2.0, "T.TT + 0.9")],
         'tg': [('outside', "Math.PI", 11, 3.0, "Math.PI", 0, 6.0)],
+        'el': [('outside', "T.aIn", 11, 3.0, "T.aIn", 0, 5.0), ('store', "T.aIn", 0.8, T_Y + "1.65", "T.aIn + Math.PI", 1.0, T_Y + "1.0")],
     }
     for key, vs in views.items():
         for (nm, a, r, y, ta, tr, ty) in vs:
@@ -489,6 +529,10 @@ async def kshots(page):
         await shot(page, f'tower_{key}_low', f"(() => {{ const T = TT.kinds()['{key}'], S = T.S; TT.cam(S, T, {a}, {r}, {y}, {ta}, {tr}, {ty}); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; }})()")
     await shot(page, 'tower_tc_room_low', "(() => { const T = TT.kinds().tc, S = T.S; TT.cam(S, T, T.aIn, 1.3, T.H + 1.65, T.aIn + Math.PI, 1.4, T.H + 0.9); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
+    # a timber tower on fire, and fallen in
+    await shot(page, 'tower_tc_fire', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S, W = __hm.dbg.WEATHER; W.kind = 'clear'; W.raining = 0; W.wet = 0; __hm.setTod(0.85); __hm.towerfire.towerIgnite(T, 2); H.simulate(18, 0.1); TT.cam(S, T, T.aIn - 0.6, 15, 4.0, T.aIn, 0, 7.0); for (let i = 0; i < 3; i++) H.frame(0.05); return T.burn ? +T.burn.heat.toFixed(2) : null; })()""")
+    await shot(page, 'tower_tc_fallen', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S; __hm.setTod(0.42); if (T.burn) T.burn.t = 1e3; H.simulate(3, 0.1); TT.cam(S, T, T.aIn - 0.6, 15, 6.0, T.aIn, 0, 6.0); for (let i = 0; i < 3; i++) H.frame(0.05); return !!T.fallen; })()""")
+    await page.evaluate("(() => { const T = TT.kinds().tc; if (T.fallen) __hm.towerfire.towerRebuilt(T); return 0; })()")
     # a fight on a ladder: a climber holding below the hatch, striking at a warrior beside it
     await shot(page, 'tower_ladder_fight', """(() => { const H = TT.H, F = TT.F, T = TT.kinds().lg, S = T.S, L = T.ladders[1], Hh = L.hatch;
       TT.empty(S); Hh.held = true; H.simulate(1.0, 0.02);

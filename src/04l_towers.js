@@ -642,6 +642,28 @@ function towerGateRath(C, sx, WT) {
   return towerFinish(T, T.eave);
 }
 
+// [keeps] Eriu: a side lookout of the rath, a drum in the ring wall under a thatched cone, the walk running on through
+// its platform. A door from the courtyard into a store room; a ladder up through a hatch onto the platform
+function towerLookout(C, sx, WT) {
+  const T = towerNew(C, { kind: 'drum', look: 'rath', role: 'lookout', sx, sz: 0, cx: sx * RATH_R, cz: 0, H: WT, TT: WT, RO: 2.3, RI: 1.6, NS: 10 });
+  T.aIn = -sx * (Math.PI / 2); // toward the courtyard's middle
+  towerEntry(T, T.aIn, T.yG, 2.2, 1);
+  const out = sx * (Math.PI / 2);
+  towerShellDrum(T, { top: WT - 0.3, slits: [out, out + TAU / 10, out - TAU / 10].map((a) => [a, [[T.yG + 1.0, T.yG + 2.0], [T.yG + 3.6, T.yG + 4.6]]]) });
+  const L0 = towerLadder(T, out, T.yG, WT); // the outer side
+  towerFloor(T, T.yG, T.RI + 0.06, null, 'flags');
+  towerFloor(T, WT, T.RO - 0.55, L0, 'top');
+  towerHatch(T, L0);
+  const yG = T.yG;
+  towerFurnish(T, [
+    { t: 'barrel', a: out + 1.25, r: 1.0, y: yG, s: 0.85, rot: 0.4 }, { t: 'barrel', a: out - 1.3, r: 1.0, y: yG, s: 0.8, rot: 2.2 },
+    { t: 'crate', a: T.aIn + 1.0, r: 1.0, y: yG, s: 0.8 }, { t: 'torch', a: T.aIn - 1.0, y: yG + 1.95 },
+  ]);
+  // the walk comes through along the wall, and the side toward the courtyard is open; the breastwork on the outer half
+  towerTopThatch(T, { open: [[0, 0.62], [Math.PI, 0.62], [T.aIn, 1.0]], posts: [TAU / 8, (3 * TAU) / 8, (5 * TAU) / 8, (7 * TAU) / 8] });
+  return towerFinish(T, T.eave);
+}
+
 // [keeps] Thule: a tower of the burh, a square shaft of logs on a stone footing. A door from the courtyard into a store
 // room; a ladder up through a hatch into a room at the walks' height, with a door onto each walk that meets it; a
 // ladder up through a hatch into the fighting gallery under the shingle roof. role: 'corner' (sx, sz) or 'gate' (sx)
@@ -674,7 +696,9 @@ function towerTimber(C, role, sx, sz, WT, TT) {
   const L0 = towerLadder(T, a0, T.yG, WT), L1 = towerLadder(T, a1, WT, TT);
   towerFloor(T, T.yG, HI + 0.06, null, 'boards');
   towerFloor(T, WT, HI + 0.06, L0, 'boards');
+  const f0 = C.floors.length;
   towerFloor(T, TT, HO, L1, 'gallery');
+  T.topFloors = C.floors.slice(f0); // [keeps] what falls in when it burns (04n_towerfire.js)
   towerJoists(T, WT, L0);
   for (const L of T.ladders) towerHatch(T, L);
   // furniture against the walls (a: the wall, off: along it, r: out from the middle), clear of the doors, the
@@ -692,7 +716,9 @@ function towerTimber(C, role, sx, sz, WT, TT) {
     { t: 'bench', a: T.aFB, off: ox(T.aFB, cx, cz + 0.8), r: HI - 0.48, y: WT, w: 0.8 }, { t: 'arrows', a: a1, off: ox(a1, cx, cz + 1.0), r: HI - 0.43, y: WT, s: 0.75 },
     { t: 'torch', a: a1, off: ox(a1, cx, cz + 0.6), y: yG + 1.95 }, { t: 'torch', a: a0, off: ox(a0, cx - sx * 1.0, cz), y: WT + 1.9 },
   ]);
+  const c0 = C.colls.length;
   towerTopGallery(T, corner ? { eave: 2.3, rh: 3.6 } : { eave: 2.2, rh: 3.0 });
+  T.topColls = C.colls.slice(c0);
   return towerFinish(T, T.eave);
 }
 
@@ -764,7 +790,7 @@ function towerParts(C) {
   towerPose(K);
   geo.computeBoundingSphere();
   geo.boundingSphere.radius += 3;
-  const m = new THREE.Mesh(geo, buildingMat);
+  const m = new THREE.Mesh(geo, C.mesh ? C.mesh.material : buildingMat); // [keeps] the castle's material: a burnt tower's char and cut (04n_towerfire.js)
   m.renderOrder = 1;
   scene.add(m);
   shadowCaster(m, BUILDING_DEPTH);
@@ -794,13 +820,15 @@ function buildTowers() {
   for (const C of CASTLES) towerParts(C);
   for (const C of CASTLES) {
     if (!C.bi) continue;
-    const m = new THREE.Mesh(C.bi.build(), buildingMat);
+    const m = new THREE.Mesh(C.bi.build(), C.mesh ? C.mesh.material : buildingMat); // [keeps] (as the moving parts)
     C.bi = null;
     m.renderOrder = 1;
     m.visible = false;
     scene.add(m);
     TOWER.inner.push({ m, x: C.S.x, z: C.S.z });
   }
+  towerHeaps(); // [keeps] the charred timbers of a fallen gallery, hidden (04n_towerfire.js)
+  for (const C of CASTLES) castleTowerUpload(C);
   if (window.__hm) window.__hm.towers = { TOWER, TW, GATE_TW, towerClimb, towerLadderStart, towerOffers, updateTowers, towerRoomOf, twDims, list: () => TOWER.list, ladder: (i) => TOWER.ladders[i], seen: (e) => { e._losT = -1; return npSeen(e, dist(camera.position.x, camera.position.z, e.x, e.z)); } };
 }
 
@@ -823,7 +851,7 @@ function towerClimb(e, L, dir) {
 }
 // a body at the start of a ladder (its foot to go up, the step beside its hatch to go down) begins to climb
 function towerLadderStart(e, L, dir) {
-  if (!dir || e.motion) return false;
+  if (!dir || e.motion || L.gone) return false;
   const up = dir > 0, sx = up ? L.fx : L.ox, sz = up ? L.fz : L.oz, sy = up ? L.wyb : L.wyt;
   if (Math.abs(e.y - sy) > 0.9 || dist(e.x, e.z, sx, sz) > 0.85) return false;
   return towerClimb(e, L, dir);
@@ -877,6 +905,7 @@ function towerLadderNear(e, reach) {
   for (const T of TOWER.list) {
     if (Math.abs(e.x - T.S.x) > 40 || Math.abs(e.z - T.S.z) > 40) continue;
     for (const L of T.ladders) {
+      if (L.gone) continue;
       if (Math.abs(e.y - L.wyb) < 0.7) { const d = dist(e.x, e.z, L.fx, L.fz); if (d < bd) { bd = d; best = { L, dir: 1, d }; } }
       if (Math.abs(e.y - L.wyt) < 0.7) { const d = dist(e.x, e.z, L.ox, L.oz); if (d < bd) { bd = d; best = { L, dir: -1, d }; } }
     }
@@ -937,6 +966,7 @@ function updateTowers(dt) {
   }
   if (P) { TOWER.px = P.x; TOWER.pz = P.z; }
   updateLadders(dt); // [keeps] the fights on the ladders and at the hatches (04m_ladders.js)
+  updateTowerFires(dt); // [keeps] a timber tower burning, fallen in or built again (04n_towerfire.js)
   for (const K of TOWER.keeps) if (K.dirty) towerPose(K);
 }
 
@@ -944,9 +974,11 @@ function updateTowers(dt) {
 function towerOffers(P, offer) {
   if (!TOWER.list.length) return;
   if (P.motion) { ladderOffers(P, offer); return; } // [keeps] on a ladder: climb on, climb down (04m_ladders.js)
+  towerFireOffers(P, offer); // [keeps] a brand held to a timber tower's logs (04n_towerfire.js)
   for (const T of TOWER.list) {
     if (Math.abs(P.x - T.S.x) > 30 || Math.abs(P.z - T.S.z) > 30) continue;
     for (const L of T.ladders) {
+      if (L.gone) continue;
       const Hh = L.hatch, open = !Hh || Hh.k > 0.6;
       if (Math.abs(P.y - L.wyb) < 0.7) {
         const d = dist(P.x, P.z, L.fx, L.fz);
