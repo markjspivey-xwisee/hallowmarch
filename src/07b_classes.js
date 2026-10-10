@@ -283,7 +283,7 @@ function elementReact(src, dst, el, opts) {
     if (wet > 0.3) { m *= 1.35; if (!auto) CLS.stats.combos.conduct = (CLS.stats.combos.conduct || 0) + 1; }
     if (stormNow() > 0.5 && !inDungeon(dst)) m *= 1.25;
     else if (realmFlavour(src) && src.faction === 1 && rainHere(src) > 0.2) m *= 1.25;
-    if (dst.casting && Math.random() < 0.6 && dst.role !== 'boss') { dst.casting = null; }
+    if (dst.casting && Math.random() < 0.6 && dst.role !== 'boss') breakCast(dst); // [balance2] a steadfast priest's spell holds (07c_balance.js)
   }
   return m;
 }
@@ -490,7 +490,7 @@ function styleProc(src, dst, dmg, opts, strong) {
   // (a bleed's value is its harm each second: a finisher's wound bleeds 30% of the blow over 6 s, a cut 12% over 4 s)
   if (st === 'sword') { if (strong || Math.random() < 0.15) addBuff(dst, 'bleed', dmg * (strong ? 0.3 / 6 : 0.12 / 4), strong ? 6 : 4, src.id); }
   else if (st === 'axe') { const b = dst.buffs.find((q) => q.kind === 'sunder' && q.until > GAME.t); const n = Math.min(3, (b ? b.value : 0) + (strong ? 3 : 1)); addBuff(dst, 'sunder', n, 10, 'sunder'); const bb = dst.buffs.find((q) => q.kind === 'sunder'); if (bb) bb.value = n; if (strong) for (const q of dst.buffs) if (q.kind === 'shield') q.value = 0; }
-  else if (st === 'mace') { if (dst.casting && (strong || Math.random() < 0.5)) { dst.casting = null; if (dst === GAME.player) uiLog('The blow breaks your spell.', 'warn'); } if (!strong && Math.random() < 0.12) addBuff(dst, 'snare', 0.3, 2, src.id); }
+  else if (st === 'mace') { if (dst.casting && (strong || Math.random() < 0.5) && breakCast(dst)) { if (dst === GAME.player) uiLog('The blow breaks your spell.', 'warn'); } if (!strong && Math.random() < 0.12) addBuff(dst, 'snare', 0.3, 2, src.id); } // [balance2] breakCast
 }
 function finisherLands(src, dst, fin, dmg) {
   CLS.stats.finishers++;
@@ -602,8 +602,9 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? PRIEST_SELF : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
-  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? PRIEST_SELF : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank
+  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.id === 'renew' && (t === e || !t)) priestSteadfast(e); // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
@@ -661,7 +662,7 @@ function thunderclap(e, A, t, cast, rk) {
     if (o.alive && o.role !== 'boss' && o.role !== 'dungeonBoss' && o.fixedY === null) {
       const d = Math.max(0.5, dist(e.x, e.z, o.x, o.z)), push = 4 * (1 - d / (R + 1));
       for (let s = push; s > 0.2; s -= 0.5) if (stepTo(o, o.x + (o.x - e.x) / d * s, o.z + (o.z - e.z) / d * s)) break;
-      o.casting = null;
+      breakCast(o); // [balance2]
       addBuff(o, 'snare', 0.4, 2, e.id);
     }
   });
@@ -966,7 +967,7 @@ function arrowEffect(src, dst, dmg, type, opts) {
   if (type === 'broadhead') addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id);
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
-    dst.casting = null;
+    breakCast(dst); // [balance2] not a steadfast priest's
     addBuff(dst, 'snare', 0.35, 2, src.id);
     if (dst.fixedY === null && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { const d = Math.max(0.3, dist(src.x, src.z, dst.x, dst.z)); stepTo(dst, dst.x + (dst.x - src.x) / d * 1.5, dst.z + (dst.z - src.z) / d * 1.5); }
   }

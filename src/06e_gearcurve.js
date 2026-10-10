@@ -64,11 +64,16 @@ function gearLateHarm(src, dst) {
   // someone in gear strikes a foe: it stands up to the damage the gear of its level adds
   return 1 / gearK(dst.level).d;
 }
+// [balance2] the power of a body in gear: past level 20 it grows with what is worn (the power stat), not with the
+// level, so a long fight drains it as it does at 20 (abilities cost the same at every level). Without this a healer
+// past 30 could mend for ever, and power meant nothing to anyone at 50. The armies keep theirs (their own cadence).
+const GEAR_POWER_LVL = 20;
+const gearPowerBase = (e) => basePower(gearedBody(e) ? Math.min(e.level, GEAR_POWER_LVL) : e.level);
 // the item level of a piece that falls from a foe of this level: about its level, to 50
 const dropIlvl = (lvl) => clamp(Math.round(lvl) + Math.round((Math.random() - 0.5) * 2), 1, LEVEL_CAP);
 
 /* ---- test hooks ---- */
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.gear = { GEAR_K, GEAR_LATE, GEAR_OLD_CAP, gearK, gearExpect, gearSlotExpect, gearLateHarm, gearedBody, fairGrade, dropIlvl, itemScale, itemScore, itemReq, sanitizeItem, sanitizeJunk, makeItem, rollLoot, openChest, merchantStock, computeDamage, startGame, LOOT, INV, DROP_WEIGHTS, QUALITY };
+  window.__hm.gear = { GEAR_K, GEAR_LATE, GEAR_OLD_CAP, GEAR_POWER_LVL, gearPowerBase, gearK, gearExpect, gearSlotExpect, gearLateHarm, gearedBody, fairGrade, dropIlvl, itemScale, itemScore, itemReq, sanitizeItem, sanitizeJunk, makeItem, rollLoot, openChest, merchantStock, computeDamage, startGame, LOOT, INV, DROP_WEIGHTS, QUALITY };
 }, 0);

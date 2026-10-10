@@ -81,7 +81,7 @@ function setupStats(e, keepRatio = false) {
   if (e.cls && CLASSES[e.cls]) {
     const C = CLASSES[e.cls];
     e.maxHp = baseHp(e.level) * C.hp * hm;
-    e.maxPower = basePower(e.level);
+    e.maxPower = gearPowerBase(e); // [balance2] past 20 a body in gear draws its power from gear, not level (06e_gearcurve.js)
     e.dmgMult = C.dmg * dm;
     e.drBase = C.dr;
     e.swing = C.swing;
