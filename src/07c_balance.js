@@ -160,7 +160,6 @@ function botMake(e, kind, home) {
   csOf(e);
   return e;
 }
-const botAbl = (e, id) => ABILITIES[id] && ABILITIES[id].level <= e.level && CLASSES[e.cls].abilities.includes(id) || id === 'snare' || id === 'consecrate' || id === 'raise';
 // press one ability, as a player would (a global cooldown after it)
 function botUse(e, id, t) {
   const A = ABILITIES[id];
@@ -399,7 +398,7 @@ function botArcher(e, t) {
   return botUse(e, 'quickshot', t);
 }
 function botMage(e, t) {
-  const cs = csOf(e), B = e.bot, hpF = e.hp / e.maxHp;
+  const cs = csOf(e), hpF = e.hp / e.maxHp;
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
   if (hpF < 0.7 && botUse(e, 'ward', e)) return true;
   if (!t) return false;
