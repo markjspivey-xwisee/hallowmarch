@@ -105,6 +105,7 @@ async def checks(page):
 
         # ---- eating and drinking ----
         r = await ev(page, 'eat', """(() => { const S = T.S, F = T.F; const out = {};
+          out.pack = [F.goodsCount('bread'), F.goodsCount('apple'), F.goodsCount('water')]; T.H.INV.goods = {}; // a new character's pack for the road; then empty packs
           F.goodsAdd('bread', 2, true); F.goodsAdd('water', 2, true); F.goodsAdd('meat_raw', 1, true);
           S.SURV.hunger = 0.3; S.SURV.thirst = 0.6;
           out.eat = S.eatGood('bread'); out.h = S.SURV.hunger; out.bread = F.goodsCount('bread');
@@ -116,6 +117,7 @@ async def checks(page):
           // V eats too
           S.SURV.hunger = 0.4; F.goodsAdd('apple', 1, true); window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyV' })); out.viaV = S.SURV.hunger;
           return out; })()""")
+        check(r['pack'] == [2, 2, 3], f'a new character sets out with bread, apples and water {r["pack"]}')
         check(r['eat'] and abs(r['h'] - 0.7) < 0.01 and r['bread'] == 1, 'eating a loaf fills 40% of hunger and uses it up')
         check(r['quick'] and r['t'] > 0.6 and r['water'] == 1, 'the quick key drinks when thirst is the bigger need')
         check(r['full'] is False, 'nothing is eaten when full')
@@ -345,16 +347,16 @@ async def shots(page):
             await page.evaluate(SLOW_RAF)
             # the needs on the HUD, in play
             await page.evaluate("""(() => { const S = T.S, H = T.H, P = T.P(); const t = H.REALMS[0].town; T.stand(t.x + 18, t.z + 22); H.UI.modal = null; H.CAM.mode = 'play'; H.look(P.yaw + 2.6, 0.32, 7); S.SURV.hunger = 0.62; S.SURV.thirst = 0.21; })()""")
-            for _ in range(1): await page.evaluate('__hm.frame(0.1);0')
+            for _ in range(3): await page.evaluate('__hm.frame(0.1);0') # the path tracker settles under the taller player frame
             await page.screenshot(path=OUT + 'survival_hud.png', timeout=300000); print('saved hud', flush=True)
             # a berry bush and a mushroom ring
             await shot(page, 'bush', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'bush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 2.2, p.y + 1.3, p.z + 1.6, p.x, p.y + 0.45, p.z); })()""")
             await shot(page, 'mushrooms', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'mush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 1.7, p.y + 1.0, p.z + 1.2, p.x, p.y + 0.05, p.z); })()""")
             # fishing at the lake
-            await shot(page, 'fishing', """(() => { const S = T.S, F = T.F, P = T.P(), sh = window.__shore; T.stand(sh.x, sh.z); const sp = S.fishSpot(P); S.fishStart(sp); T.sim(1.0); S.SURV.fish.phase = 'wait'; S.SURV.fish.wait = 1e9; const yaw = P.yaw; T.cam(P.x - Math.sin(yaw) * 1.5 + Math.cos(yaw) * 4.5, P.y + 2.4, P.z - Math.cos(yaw) * 1.5 - Math.sin(yaw) * 4.5, P.x + Math.sin(yaw) * 3, P.y + 1.0, P.z + Math.cos(yaw) * 3); })()""", 1)
+            await shot(page, 'fishing', """(() => { const S = T.S, F = T.F, P = T.P(), sh = window.__shore; T.stand(sh.x, sh.z); const sp = S.fishSpot(P); P.combatUntil = -99; S.fishStart(sp); S.SURV.fish.phase = 'wait'; S.SURV.fish.t = 0; S.SURV.fish.wait = 1e9; const yaw = P.yaw; T.cam(P.x - Math.sin(yaw) * 1.5 + Math.cos(yaw) * 4.5, P.y + 2.4, P.z - Math.cos(yaw) * 1.5 - Math.sin(yaw) * 4.5, P.x + Math.sin(yaw) * 3, P.y + 1.0, P.z + Math.cos(yaw) * 3); })()""", 1)
             await page.evaluate("T.S.fishStop(null);0")
             # the forge in Logres
-            await shot(page, 'forge', """(() => { const S = T.S, H = T.H; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx + Math.cos(st.yaw) * 0.6, st.fz - Math.sin(st.yaw) * 0.6, st.x, st.z); const a = st.yaw + 0.55; T.cam(st.x + Math.sin(a) * 4.6, st.y + 2.3, st.z + Math.cos(a) * 4.6, st.x, st.y + 0.9, st.z); })()""")
+            await shot(page, 'forge', """(() => { const S = T.S, H = T.H; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; const sx = Math.cos(st.yaw), sz = -Math.sin(st.yaw), fx = Math.sin(st.yaw), fz = Math.cos(st.yaw); T.stand(st.x + sx * 1.0 + fx * 1.25, st.z + sz * 1.0 + fz * 1.25, st.x + sx * 0.72 + fx * 0.22, st.z + sz * 0.72 + fz * 0.22); T.P().yaw = Math.atan2(-fx, -fz); const a = st.yaw - 0.5; T.cam(st.x + Math.sin(a) * 5.0, st.y + 2.2, st.z + Math.cos(a) * 5.0, st.x, st.y + 1.0, st.z); })()""")
             # the crafting book
             await page.evaluate("""(() => { const S = T.S, H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); const F = T.F; F.goodsAdd('iron', 4, true); F.goodsAdd('stick', 3, true); F.goodsAdd('iron_ore', 3, true); S.openCraft('forge', st); S.CRAFT.ui.sel = 'tool_pick'; S.renderCraft(); })();0""")
             for _ in range(1): await page.evaluate('__hm.frame(0.1);0')

@@ -133,7 +133,7 @@ function stOven(b, M, st, y0, fires) {
   b.add(G.cyl12, lm(M, 1.18, 0.38, -0.5, 0, 0.38, 0.76, 0.38), MAT.wood, [0.42, 0.3, 0.18], y0, 0.8);
   for (const y of [0.15, 0.62]) b.add(G.cyl12, lm(M, 1.18, y, -0.5, 0, 0.395, 0.05, 0.395), MAT.metal, [0.22, 0.21, 0.2]);
   b.add(G.cyl12, lm(M, 1.18, 0.74, -0.5, 0, 0.34, 0.02, 0.34), MAT.water, [0.3, 0.2, 0.08]);
-  fires.push({ lx: -0.6, ly: 0.62, lz: 0.42, size: 0.3, light: { r: 5, k: 0.9 }, station: 'oven' });
+  fires.push({ lx: -0.6, ly: 0.6, lz: 0.66, size: 0.26, light: { r: 5, k: 0.9 }, station: 'oven' }); // in the mouth, where its flames show
 }
 function stAlchemy(b, M, st, y0, fires) {
   const wood = [0.3, 0.2, 0.13];
