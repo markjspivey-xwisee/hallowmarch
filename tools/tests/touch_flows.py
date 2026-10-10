@@ -1,8 +1,8 @@
 """Touch flows on a phone (390x780, touch only): every step is a tap on the screen's own buttons (the pad's Use, the
 plant card, the builder's bar, the companion bar, the crafting book) or a drag of the stick; window.__hm only sets the
 scene (where to stand, what is in the bags) and lets time pass. Flows: drink at a river, fish (cast and strike),
-swim out with the stick, till and sow, craft from the book at a workbench, place and turn a building piece, order a
-companion, tame a wolf, use a keep hall's war table.
+swim out with the stick, dive and come up again, row a boat away from a jetty and step out, till and sow, craft from
+the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table.
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -112,6 +112,47 @@ async def main():
             await page.evaluate("""(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()""")
             st = await drag_stick(page, cdp, 0, -45, 6)
             check(st['swim'] or st['wd'] > 0.5, f'swim: the stick walks you into the river until you swim ({json.dumps(st)})')
+            await page.evaluate("(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()")
+
+        if want('dive'):
+            # [water2] swim out over deep water: the pad's Jump reads Dive; the stick takes you down; Up brings you back
+            r = await page.evaluate("""(() => { const H = TF.H, Wt = H.water, P = TF.P(), L = H.dbg.LAKES[0];
+              let s = null; for (let r = 0; r < 30 && !s; r += 0.5) for (let a = 0; a < 12 && !s; a++) { const x = L.x + Math.cos(a * 0.52) * r, z = L.z + Math.sin(a * 0.52) * r, w = Wt.waterAt(x, z); if (w && w.depth > 3 && Math.hypot(w.fx, w.fz) < 0.05) s = { x, z, y: w.y }; }
+              TF.stand(s.x, s.z, s.x + 1, s.z); P.y = s.y - 1.3; H.simulate(0.4); P.breath = 1; H.frame(1 / 30);
+              return { swim: !!P.swim }; })()""")
+            lab = await page.evaluate("document.getElementById('t-jump').textContent")
+            ok = await tap(page, '#t-jump')
+            d1 = await page.evaluate("(() => { const s = __hm.water.dive.state(); return { dive: s.dive, pivot: s.pivot }; })()")
+            await page.evaluate("__hm.CAM.pitch = 1.2; 0")
+            st = await drag_stick(page, cdp, 0, -45, 2)
+            d2 = await page.evaluate("(() => { const s = __hm.water.dive.state(); return { dive: s.dive, pivot: s.pivot, bed: s.bed }; })()")
+            await page.evaluate("__hm.frame(1/30); __hm.CAM.pitch = 0.36; 0")
+            lab2 = await page.evaluate("document.getElementById('t-jump').textContent")
+            ok2 = await tap(page, '#t-jump')
+            d3 = await page.evaluate("(() => { for (let i = 0; i < 80 && __hm.GAME.player.dive; i++) __hm.simulate(0.1); const s = __hm.water.dive.state(); return { dive: s.dive, swim: s.swim }; })()")
+            check(r['swim'] and lab == 'Dive' and ok and d1['dive'], f'dive: swimming in deep water the pad shows Dive, and a tap goes under ({lab}, {json.dumps(d1)})')
+            check(d2['dive'] and d2['pivot'] < d1['pivot'] - 0.8, f'dive: the stick swims you down the way you look ({d1["pivot"]:.2f} -> {d2["pivot"]:.2f})')
+            check(lab2 == 'Up' and ok2 and not d3['dive'] and d3['swim'], f'dive: Up takes you back to the surface ({lab2}, {json.dumps(d3)})')
+
+        if want('row'):
+            # [water2] step into a moored boat from the jetty with Use, row with the stick, step out with Use
+            r = await page.evaluate("""(() => { const H = TF.H, Wt = H.water, Bt = Wt.boats, P = TF.P(); if (P.dive) Wt.dive.end();
+              const J = Bt.jetties()[0], bi = J.berths.findIndex((b) => b.side === 1), b = J.berths[bi], st = J.steps[bi];
+              const i = Bt.list().findIndex((q) => Math.hypot(q.x - b.x, q.z - b.z) < 1); if (i < 0) return null; Bt.restore(i);
+              TF.stand(st.x, st.z, b.x, b.z); P.y = J.deck; H.simulate(0.3); H.frame(1 / 30);
+              return { i, label: H.surv.ci(), x: Bt.state(i).x, z: Bt.state(i).z }; })()""")
+            ok = await tap(page, '#t-use')
+            inb = await page.evaluate("!!__hm.GAME.player.boat")
+            await page.evaluate("__hm.CAM.yaw = __hm.water.boats.state(%d).yaw; 0" % (r['i'] if r else 0))
+            st = await drag_stick(page, cdp, 0, -45, 5)
+            b2 = await page.evaluate("__hm.water.boats.state(%d)" % (r['i'] if r else 0))
+            moved = ((b2['x'] - r['x']) ** 2 + (b2['z'] - r['z']) ** 2) ** 0.5 if r else 0
+            lab = await page.evaluate("__hm.surv.ci()")
+            ok2 = await tap(page, '#t-use')
+            out = await page.evaluate("(() => { __hm.simulate(0.3); const P = __hm.GAME.player; return { boat: !!P.boat, swim: !!P.swim }; })()")
+            check(r is not None and ok and inb, f'row: a tap on Use steps into the boat ({r and r["label"]})')
+            check(moved > 3, f'row: the stick rows her away from the jetty ({moved:.1f} m)')
+            check(ok2 and not out['boat'], f'row: Use steps out again ({lab}, {json.dumps(out)})')
             await page.evaluate("(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()")
 
         if want('farm'):

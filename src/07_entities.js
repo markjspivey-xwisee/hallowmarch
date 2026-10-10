@@ -307,6 +307,7 @@ function updateAnim(e, dt) {
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
 }
 function animActValue(e) {
+  const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
   const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
   if (e.casting) {
     if (e.casting.id === 'summon') return 0;

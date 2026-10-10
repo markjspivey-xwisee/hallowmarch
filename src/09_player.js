@@ -276,6 +276,7 @@ function updatePlayer(dt) {
     if (INPUT.joy) { f += -INPUT.joy.dy; s += INPUT.joy.dx; }
   }
   const mag = Math.min(1, Math.hypot(f, s));
+  if (water2Steer(P, dt, f, s, mag)) { GAME.prog.played += dt; return; } // [water2] at the oars or under the water (07d_dive.js, 07e_boats.js)
   const fx = Math.sin(CAM.yaw), fz = Math.cos(CAM.yaw);
   const rx = -Math.cos(CAM.yaw), rz = Math.sin(CAM.yaw);
   const sprinting = (keyDown('ShiftLeft', 'ShiftRight') || (INPUT.joy && Math.hypot(INPUT.joy.dx, INPUT.joy.dy) > 0.97)) && P.endurance > 1 && mag > 0.1;

@@ -45,6 +45,7 @@ window.HL = {
     if (t) F.setPlayerTarget(t);
     // hungry enough for the needs bars to matter
     if (H.surv && H.surv.SURV) { H.surv.SURV.hunger = 0.45; H.surv.SURV.thirst = 0.55; }
+    P.breath = 0.15; // [water2] the breath bar, coming back after a dive (07d_dive.js)
     // the builder's bar
     if (H.build && !H.build.BUILD.mode) { F.goodsAdd && F.goodsAdd('tool_hammer', 1); try { H.build.buildToggle(true); } catch (e) {} }
     H.UI.modal = null; H.CAM.mode = 'play';
@@ -61,7 +62,7 @@ window.HL = {
     return r.width > 2 && r.height > 2;
   },
   // the panels a player reads or touches
-  PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#buildbar', '#farmcard', '#castbar', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
+  PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#buildbar', '#farmcard', '#castbar', '#breath', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
   measure() {
     this.H.hud.HUDL.k = 0; this.H.hud.hudLayout(0); // the layout pass looks four times a second: look now
     const out = [], W = innerWidth, Hh = innerHeight;

@@ -885,6 +885,26 @@ function humanVS(depth) {
       pelvisY *= 1.0 - swimK; swayX *= 1.0 - swimK; stepZ *= 1.0 - swimK; crouch *= 1.0 - swimK;
       bob = mix(bob, 0.03 * sin(tt * 0.9) * (1.0 - sw) + (0.05 * pull - 0.02) * sw, swimK);
       capeX = mix(capeX, mix(1.3, 0.5, sw), swimK); // the cape floats out on the surface behind (the body's own pitch adds to it)
+      if (atype > 14.5 && atype < 15.5) {
+        // [water2] under the water (action 15, 07d_dive.js): the body lies along the way it swims (the action's fraction
+        // is its lean, -1.2 rising .. 1.2 head down; hanging still it rights itself), a long pull of both arms from
+        // overhead to the thighs, a glide, the hands back up the chest and forward, and a frog kick as they go
+        float lean = at * 2.4 - 1.2;
+        float pullU = smoothstep(0.06, 0.4, u), backU = smoothstep(0.58, 0.82, u), outU = sin(3.1416 * clamp((u - 0.06) / 0.34, 0.0, 1.0));
+        float drawU = smoothstep(0.55, 0.72, u) * (1.0 - smoothstep(0.78, 0.9, u)), kickU = smoothstep(0.78, 0.9, u) * (1.0 - smoothstep(0.92, 1.0, u));
+        float ua = mix(mix(-2.95, 0.15, pullU), -2.95, backU), fa = -0.08 - 1.9 * drawU - 0.5 * outU;
+        float uz = 0.1 + 1.25 * outU + 0.35 * drawU;
+        float hang = 1.0 - sw, sc2 = sin(tt * 0.8);
+        uaL = mix(mix(ua, -0.55 + 0.25 * sc2, hang), uaL, 1.0 - swimK); uaR = mix(mix(ua, -0.55 + 0.25 * sc2, hang), uaR, 1.0 - swimK);
+        uaLz = mix(mix(uz, 1.15, hang), uaLz, 1.0 - swimK); uaRz = mix(mix(-uz, -1.15, hang), uaRz, 1.0 - swimK);
+        faL = mix(mix(fa, -0.6, hang), faL, 1.0 - swimK); faR = mix(mix(fa, -0.6, hang), faR, 1.0 - swimK);
+        float kTh = mix(-0.08 - 1.0 * drawU + 0.15 * kickU, -0.35 + 0.3 * sin(tt * 1.3), hang), kSh = mix(0.12 + 1.8 * drawU, 0.6 + 0.35 * sin(tt * 1.3 + 1.0), hang);
+        thL = mix(thL, kTh, swimK); thR = mix(thR, kTh, swimK); shL = mix(shL, kSh, swimK); shR = mix(shR, kSh, swimK);
+        spreadL = mix(spreadL, 0.12 + 0.45 * drawU + 0.25 * kickU, swimK); spreadR = -spreadL;
+        swimPitch = (1.57 + lean) * swimK;
+        headX = mix(headX, -0.8 + 0.25 * hang, swimK); bob = 0.0;
+        capeX = mix(capeX, 1.45, swimK);
+      }
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
     float mounted = mod(floor(iColB.w / 8.0), 2.0);
@@ -898,6 +918,17 @@ function humanVS(depth) {
       swayX = 0.0; stepZ = 0.0; crouch = 0.0;
       if (brand && (atype < 0.5 || atype > 5.5)) { uaL = -1.05; uaLz = -0.1; faL = -0.78; }
       capeX = 0.12 + 0.35 * hk + 0.5 * gal;
+      if (atype > 15.5 && atype < 16.5) {
+        // [water2] at the oars (action 16, 07e_boats.js; the fraction is the stroke): reach forward to the catch, drive
+        // back with the legs and the back, draw the handles in to the chest, then the hands away and the body forward
+        float drv = smoothstep(0.02, 0.45, at), rcv = smoothstep(0.55, 0.98, at), pull = drv * (1.0 - rcv);
+        float elb = smoothstep(0.22, 0.48, at) * (1.0 - smoothstep(0.55, 0.75, at));
+        chestX = mix(0.5, -0.32, pull); headX = -chestX * 0.55 + 0.04; chestY = 0.0; headY = 0.0;
+        uaL = mix(-1.5, -0.62, pull); uaR = uaL; faL = -0.1 - 1.65 * elb; faR = faL;
+        uaLz = -0.2 - 0.4 * elb; uaRz = -uaLz;
+        thL = -1.55 + 0.42 * pull; thR = thL; shL = 1.75 - 0.75 * pull; shR = shL; spreadL = 0.16; spreadR = -0.16;
+        bob = 0.0; capeX = 0.08;
+      }
     }
     // dying: the knees go, then the body falls back
     float d1 = smoothstep(0.0, 0.45, death), d2 = smoothstep(0.2, 1.0, death);

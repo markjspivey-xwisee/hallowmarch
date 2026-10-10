@@ -206,6 +206,7 @@ const _siW = { y: 0, depth: 0, fx: 0, fz: 0 };
 // the top of ice that carries a body at (x, z), or null (floorAt, onIce and isWalkable ask)
 function seasonIceY(x, z) {
   if (!SICE.on || x < SICE.minX || x > SICE.maxX || z < SICE.minZ || z > SICE.maxZ) return null;
+  if (DIVE.holes.length && diveHoleAt(x, z)) return null; // [water2] a hole cut in the ice (07d_dive.js)
   if (seasonIceAt(x, z) < 0.3) return null;
   const w = waterAt(x, z, _siW);
   return w ? w.y + 0.05 : null;
@@ -214,7 +215,7 @@ function seasonIceY(x, z) {
 function seasonIceLift() {
   if (!SICE.on) return;
   for (const e of ENT) {
-    if (!e.alive || e.fixedY !== null || e.hover || e.kind === 'door' || e.x < SICE.minX || e.x > SICE.maxX || e.z < SICE.minZ || e.z > SICE.maxZ) continue;
+    if (!e.alive || e.fixedY !== null || e.hover || e.kind === 'door' || e.dive || e.x < SICE.minX || e.x > SICE.maxX || e.z < SICE.minZ || e.z > SICE.maxZ) continue; // [water2] a diver under the ice stays under it
     const y = seasonIceY(e.x, e.z);
     if (y !== null && e.y < y - 0.04 && e.y > y - 4) { e.y = y; e.swim = false; e.vy = 0; e.swimK = 0; }
   }

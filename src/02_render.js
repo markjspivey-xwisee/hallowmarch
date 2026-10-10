@@ -89,6 +89,9 @@ const U = {
   uSnowCover: { value: 0 },
   uRain: { value: 0 }, // feature/weather: how hard it is raining right now (rings on the water)
   uFlashLight: { value: 0 },
+  // [water2] under the water (07d_dive.js): x the eye is under, y the surface over it, z the water's murk per metre, w its depth; and the water's own colour
+  uUnder: { value: new THREE.Vector4(0, -1000, 0.1, 0) },
+  uUnderCol: { value: new THREE.Vector3(0.04, 0.1, 0.1) },
 };
 const PL_MAX = 12;
 
@@ -118,6 +121,7 @@ uniform float uTime;
 uniform vec3 uLightDir, uLightColor, uAmbient;
 uniform vec3 uZenith, uHorizon, uSunGlow, uGlowDir;
 uniform float uFogDensity, uNight;
+uniform vec4 uUnder; uniform vec3 uUnderCol; // [water2] (07d_dive.js)
 vec3 skyBase(vec3 dir){
   float e = clamp(dir.y, -0.2, 1.0);
   float k = smoothstep(-0.03, 0.52, e);
@@ -131,7 +135,15 @@ vec3 skyBase(vec3 dir){
 vec3 fogColor(vec3 dir){ return skyBase(safeNormalize(vec3(dir.x, 0.012 + max(dir.y, 0.0) * 0.5, dir.z))); }
 // visual pass: the haze thins with height (exponential height fog integrated along the view ray), so valleys and the
 // foot of a slope sink into it while ridges and peaks stand out; at the camera's own height it is as thick as before
+// [water2] under the water (07d_dive.js): the water between the eye and what it sees takes the red first, then everything,
+// toward its own colour; what stands above the surface is seen through it (the surface from below carries that part)
+vec3 underFog(vec3 col, vec3 wpos){
+  float d = length(wpos - cameraPosition);
+  vec3 ab = exp(-d * uUnder.z * vec3(2.4, 0.95, 0.8));
+  return mix(col * ab, uUnderCol, 1.0 - exp(-d * uUnder.z * 1.3));
+}
 vec3 applyFog(vec3 col, vec3 wpos){
+  if (uUnder.x > 0.5 && wpos.y < uUnder.y + 0.05) return underFog(col, wpos); // [water2]
   vec3 v = wpos - cameraPosition;
   float d = length(v);
   const float FK = 0.02;
