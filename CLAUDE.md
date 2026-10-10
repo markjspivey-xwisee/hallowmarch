@@ -243,6 +243,8 @@ The harness lives in `tools/`:
   - the houses patch, which throws at boot if an anchor is missing;
   - the castles patch at `void main(){` and `vec3 col = lightSurface(alb, n, vAO);`, which silently loses its cracks instead;
   - `alb *= 1.0 - 0.22 * uWet;`.
+  - the building pieces' shader (`06k_build.js`, throws at boot if an anchor is missing): `attribute vec3 aCol;` and `vec4 w = modelMatrix * vec4(position, 1.0);` in the vertex shader, `uniform float uFlash, uWet, uSnowCover;`, `void main(){` and `vec3 col = lightSurface(alb, n, vAO);` in the fragment shader.
+- Keep halls are houses (`H.keepHall`): code that walks `HOUSES` meets them too (fire, lightning, the cover map, the save). Tests that count town houses filter them out (`houses.py`).
 - The human crowd uses 15 of the 16 guaranteed vertex attributes. Pack new per-instance data into spare channels rather than adding attributes.
 
 ## Roadmap

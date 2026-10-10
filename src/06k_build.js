@@ -93,6 +93,23 @@ const B_GHOST = mat({
     }`,
 });
 
+// the plan of a piece still being built: faint chalk lines of the whole of it above what stands so far
+const B_PLAN = mat({
+  transparent: true, depthWrite: false,
+  uniforms: { uRiseP: { value: 0 } },
+  vertexShader: /* glsl */`varying vec3 vN; varying vec3 vW; varying float vY; void main(){ vY = position.y; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = mat3(modelMatrix) * normal; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    uniform float uRiseP, uTime;
+    varying vec3 vN; varying vec3 vW; varying float vY;
+    void main(){
+      if (vY < uRiseP - 0.02) discard;
+      vec3 n = normalize(vN), V = normalize(cameraPosition - vW);
+      float rim = pow(1.0 - abs(dot(n, V)), 3.0);
+      float lines = smoothstep(0.9, 1.0, fract(vW.y * 3.0)) * 0.6;
+      gl_FragColor = vec4(vec3(0.92, 0.88, 0.78) * (0.6 + 0.6 * rim), 0.05 + 0.3 * rim + 0.12 * lines);
+    }`,
+});
+
 /* ------------------------------------------------------------------ */
 /* the models, in each piece's own frame: y = 0 is its base (a floor's */
 /* top, a wall's foot), x along an edge piece, z across it ("outside" */
@@ -423,6 +440,11 @@ function bShow(pc) {
   pc.minY = geo.boundingBox.min.y; pc.maxY = Math.max(geo.boundingBox.max.y, ...leaves.map((L) => { L.geo.computeBoundingBox(); return L.geo.boundingBox.max.y; }));
   const dm = depthFrom(m);
   pc.mesh = mesh; pc.mat = m; pc.proxies = [shadowCaster(mesh, dm)];
+  pc.planMat = shareMat(B_PLAN, { uRiseP: { value: 0 } });
+  pc.plan = new THREE.Mesh(geo, pc.planMat);
+  pc.plan.renderOrder = 6;
+  pc.plan.visible = false;
+  mesh.add(pc.plan);
   for (const L of leaves) {
     const pivot = new THREE.Object3D();
     pivot.position.set(L.hx, 0, L.hz);
@@ -442,7 +464,8 @@ function bHide(pc) {
   pc.mesh.geometry.dispose();
   for (const L of pc.leaves) L.pivot.children[0].geometry.dispose();
   pc.mat.dispose();
-  pc.mesh = null; pc.leaves = []; pc.proxies = [];
+  if (pc.planMat) pc.planMat.dispose();
+  pc.mesh = null; pc.plan = null; pc.leaves = []; pc.proxies = [];
 }
 // colliders and floors come and go with a piece's state
 function bCollRemove(c) {
@@ -524,6 +547,7 @@ function bUniforms(pc) {
   if (pc.st === 'build') rise = pc.minY + span * (0.04 + 0.96 * pc.p);
   else if (pc.st === 'ruin') rise = pc.t === 'found' ? -0.02 : pc.minY + Math.max(0.3, span * 0.22);
   pc.mat.uniforms.uRise.value = rise;
+  if (pc.plan) { pc.plan.visible = pc.st === 'build'; pc.planMat.uniforms.uRiseP.value = rise; }
   pc.mat.uniforms.uPc.value.set(0, pc.st === 'ruin' ? (BP[pc.t].burn ? 1 : 0.6) : pc.char, pc.st === 'burning' ? 0.4 + pc.char : pc.st === 'ruin' ? Math.max(0, 0.6 - (pc.cool || 0) / 40) : 0, pc.shelter);
 }
 function bCampfire(pc, on) {

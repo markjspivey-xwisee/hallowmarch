@@ -143,6 +143,13 @@ async def hall_tests(page):
       const label = T.label(); T.interact(); T.H.simulate(6);
       return { label, wet: +P.wet.toFixed(2), snow: +P.snow.toFixed(2), hp: +(P.hp / P.maxHp).toFixed(2) }; })()""")
     check(r['label'] and 'hearth' in r['label'] and r['wet'] < 0.1 and r['snow'] == 0 and r['hp'] > 0.8, 'resting by the hearth dries, warms and heals')
+    r = await ev(page, 'high seat', """(() => { const h = T.hall(0), P = T.H.GAME.player, sp = h.hallSpots.seat;
+      const q = T.near(h, sp, 1.0); T.stand(q.x, q.z, sp.x, sp.z);
+      const label = T.label(); T.interact(); T.H.simulate(1);
+      const sat = !!P.seat && Math.hypot(P.x - sp.x, P.z - sp.z) < 0.05;
+      T.H.INPUT.keys.add('KeyW'); T.H.simulate(0.3); T.H.INPUT.keys.delete('KeyW');
+      return { label, sat, up: !P.seat }; })()""")
+    check(r['label'] and 'high seat' in r['label'] and r['sat'] and r['up'], 'the lord\'s high seat can be sat in, and a step gets you up')
     r = await ev(page, 'stores', """(() => { const h = T.hall(0), P = T.H.GAME.player, sp = h.hallSpots.stores;
       const q = T.near(h, sp, 1.0); T.stand(q.x, q.z, sp.x, sp.z);
       const label = T.label(); T.interact(); const open = !document.getElementById('dialog').hidden;
