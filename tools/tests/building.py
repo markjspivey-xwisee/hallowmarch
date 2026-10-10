@@ -365,7 +365,8 @@ async def build_tests(page):
       const out = { bar: box('buildbar'), hot: box('hotbar'), pf: box('pf'), tr: box('topright'), btn: !!document.getElementById('btn-build'), n: document.querySelectorAll('#buildbar .bpiece').length, vw: innerWidth, vh: innerHeight };
       B.buildToggle(false); document.getElementById('hud').hidden = true; return out; })()""")
     sep = lambda a, b: a is None or b is None or a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1]
-    check(r['btn'] and r['n'] == 16 and r['bar'][0] >= 0 and r['bar'][2] <= r['vw'] and sep(r['bar'], r['hot']) and sep(r['bar'], r['pf']) and sep(r['bar'], r['tr']), 'the builder\'s bar is on screen, clear of the hotbar and the frames ' + json.dumps(r))
+    # [depth] 19 pieces with the hip roof, the lean-to and the well (09u_depth.js)
+    check(r['btn'] and r['n'] >= 19 and r['bar'][0] >= 0 and r['bar'][2] <= r['vw'] and sep(r['bar'], r['hot']) and sep(r['bar'], r['pf']) and sep(r['bar'], r['tr']), 'the builder\'s bar is on screen, clear of the hotbar and the frames ' + json.dumps(r))
     # the piece shader and the ghost compile (a frame looking at the cottage, with the builder open)
     r = await ev(page, 'programs', """(() => { const B = T.H.build, f = B.BUILD.pieces[0], P = T.H.GAME.player;
       T.H.teleport(f.x - 4 * Math.sin(f.fyaw), f.z - 4 * Math.cos(f.fyaw)); P.yaw = f.fyaw + Math.PI; B.buildToggle(true);

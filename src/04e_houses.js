@@ -836,14 +836,17 @@ function igniteHouse(H, x, z) {
   return true;
 }
 // a fire spell lands at (x, y, z) with reach r: any house it falls on or beside catches
-function fireLandsAt(x, y, z, r = 1) {
-  natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
+function fireLandsAt(x, y, z, r = 1, by = null) {
+  const own = depthSparesGround(x, z, by); // [depth] by: who cast it; the garrison's own fire never lights its own town or keep (09u_depth.js)
+  if (!own) natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
+  if (!own) depthFireAt(x, y, z, r); // [depth] berry bushes and apple trees catch (09u_depth.js)
   siegeFireAt(x, y, z, r); // [siege] siege engines catch (04h_siege.js)
-  let n = buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js)
+  let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
     if (y > H.y + H.top + 1.5) continue;
+    if (by != null && depthSparesHouse(H, by)) continue; // [depth] only the player sets their own realm's roofs alight
     const l = houseL(H, x, z), pad = Math.max(0.9, r * 0.6);
     const hit = H.round ? Math.hypot(l.x, l.z) < H.Rr + pad : Math.abs(l.x) < H.w / 2 + H.ohSide + pad && Math.abs(l.z) < H.d / 2 + H.ohGable + pad;
     if (hit && igniteHouse(H, x, z)) n++;
@@ -853,6 +856,7 @@ function fireLandsAt(x, y, z, r = 1) {
 // a cone of fire (a dragon's breath) from (x, z) along (dx, dz)
 function fireConeAt(x, z, dx, dz, range, half) {
   natureFireCone(x, z, dx, dz, range, half); // nature (05h_nature.js): the breath sets the grass and trees alight
+  depthFireCone(x, z, dx, dz, range, half); // [depth] and the bushes and apple trees (09u_depth.js)
   siegeFireCone(x, z, dx, dz, range, half); // [siege] and siege engines (04h_siege.js)
   let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
   for (const H of HOUSES) {

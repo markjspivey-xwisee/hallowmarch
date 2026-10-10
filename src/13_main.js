@@ -155,6 +155,7 @@ function startGame(save) {
   giftsOnStart(save); // [gifts] the realm ultimate's cooldown carries over (06c_gifts.js)
   buildOnStart(save); // [building] the build button and the bed (06k_build.js)
   survivalOnStart(save); // [survival] the needs on the HUD, food in the bags, deer as game (09s_survival.js)
+  depthOnStart(); // [depth] game birds (09u_depth.js)
 }
 function newCharacter() {
   wipeSave();
@@ -359,6 +360,7 @@ function simStep(dt) {
   updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
   updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
   updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
+  updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -412,6 +414,7 @@ function tick(dt) {
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
+  drawDepth(dt); // [depth] nests and their eggs (09u_depth.js)
   updateAmbientLife(dt);
   drawSurvival(dt); // [survival] plants, the rod and line, the spit, the needs on the HUD (after the fish: 09s_survival.js)
   drawProjectiles();

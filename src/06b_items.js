@@ -117,7 +117,7 @@ function makeItem(o) {
   const r = o.rnd || Math.random;
   const cls = o.cls || 'warrior', realm = o.realm ?? 0;
   const slot = o.slot || pick(r, ['weapon', 'weapon', 'head', 'chest', 'chest', 'hands', 'legs', 'cloak', 'ring', 'charm']);
-  const q = clamp(o.q ?? 1, 0, 5), lvl = clamp(Math.round(o.lvl || 1), 1, 24);
+  const q = clamp(o.q ?? 1, 0, 5), lvl = clamp(Math.round(o.lvl || 1), 1, o.lvlCap || 24); // [depth] crafted gear reaches 50 (lvlCap)
   const D = SLOT_DEF[slot];
   const bases = ITEM_BASES[slot][cls] || ITEM_BASES[slot].all;
   const [base, vis] = pick(r, bases);
@@ -197,12 +197,13 @@ function gearLook(base, eq, cls) {
 }
 function sanitizeItem(o) {
   if (!o || typeof o !== 'object' || !SLOT_DEF[o.slot] || typeof o.name !== 'string' || typeof o.base !== 'string') return null;
-  const q = clamp(Math.round(+o.q || 0), 0, 5), lvl = clamp(Math.round(+o.lvl || 1), 1, 24);
+  const q = clamp(Math.round(+o.q || 0), 0, 5), lvl = clamp(Math.round(+o.lvl || 1), 1, 50); // [depth] crafted gear to item level 50
   const st = {};
   if (o.st && typeof o.st === 'object') for (const k of STAT_ORDER) { const v = +o.st[k]; if (Number.isFinite(v) && v > 0) st[k] = Math.min(v, 200); }
   const it = { id: typeof o.id === 'string' ? o.id.slice(0, 40) : `i${(ITEM_SEQ++).toString(36)}r`, slot: o.slot, base: o.base.slice(0, 40), vis: typeof o.vis === 'string' ? o.vis : '', q, lvl, st, cls: CLASSES[o.cls] ? o.cls : null, name: o.name.slice(0, 60) };
   if (Array.isArray(o.tint) && o.tint.length === 3 && o.tint.every((v) => Number.isFinite(+v))) it.tint = o.tint.map((v) => clamp(+v, 0, 1));
   if (o.glow >= 1 && o.glow <= 6) it.glow = Math.round(o.glow);
+  if (o.mw) it.mw = 1; // [depth] a masterwork's bonus stat
   // feature/weather: wear (old saves have none, so their gear is whole and clean)
   if (Number.isFinite(+o.dur) && o.dur !== null && o.dur !== '') it.dur = clamp(+o.dur, 0, 100);
   if (+o.dirt > 0) it.dirt = clamp(+o.dirt, 0, 1);

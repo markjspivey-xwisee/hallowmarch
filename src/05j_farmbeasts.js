@@ -241,6 +241,10 @@ function farmBeastFS() {
   s = farmPatch(s, 'varying vec2 vWx;', 'varying vec2 vPat; uniform float uWoolLen;\n    ', true);
   s = farmPatch(s, 'else if (m == 13) {', FARM_FS_MATS, true);
   s = farmPatch(s, '/* ---- weather (feature/weather)', FARM_FS_PATTERN + '      ', true);
+  // [depth] where the face meets the fleece (or the coat) one triangle carries two material ids, and the id between
+  // them read as horn, bare skin, eyes or gold: a reddish zigzag round a sheep's neck. A blended id goes to the
+  // nearer of the two it lies between; whole ids (horn, udder) are untouched.
+  s = farmPatch(s, 'int m = int(vMat + 0.5);', '\n      { float fm = abs(vMat - floor(vMat + 0.5)); if (fm > 0.01 && vMat > 11.0) m = vMat > 31.5 ? 33 : vMat > 29.5 ? 30 : vMat > 22.0 ? 33 : 11; }', false);
   return s;
 }
 // the hen's rig: bones 0 body, 2 neck and head, 15 tail, 3 and 6 wings, 9 and 12 legs
@@ -320,7 +324,7 @@ function henVS(depth) {
     flap = max(flap, (sin(t * 30.0) * 0.4 + 0.5) * smoothstep(1.0, 1.4, amt));
     if (death > 0.0) { float d1 = smoothstep(0.0, 0.5, death); headX = mix(headX, 0.9, d1); flap = 0.0; sway = 0.0; bob = 0.0; }
     bool isLeg = b == 9 || b == 12;
-    if (b == 2) { P.z += (headZ + 0.03 * peck) * w; P.y -= 0.06 * peck * w; rotP(rotY(headY * w) * rotX(headX * w), ${v(HEN.neck)}); b = 0; }
+    if (b == 2) { P.z += (headZ + 0.03 * peck) * w; P.y -= 0.06 * peck * w; rotP(rotY(headY * w) * rotX(headX * w), ${v(HEN.neck)}); P.y -= 0.1 * peck * w; P.z += 0.04 * peck * w; b = 0; } // [depth] the neck stretches down so the beak meets the ground
     if (b == 15) { rotP(rotX(tailX), ${v(HEN.tail)}); b = 0; }
     if (b == 3) { rotP(rotZ(flap * 1.4), ${v(HEN.wingL)}); b = 0; }
     if (b == 6) { rotP(rotZ(-flap * 1.4), ${v(HEN.wingR)}); b = 0; }

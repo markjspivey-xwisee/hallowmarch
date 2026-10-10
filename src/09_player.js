@@ -214,6 +214,7 @@ function currentInteraction() {
   survivalOffers(P, offer); // [survival] water, fires, plants, fishing, workstations, rocks (09s_survival.js)
   farmOffers(P, offer); // [farming] till, sow, weed, harvest, keep seed; herbs; the farmer (08h_farming.js)
   animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
+  depthOffers(P, offer); // [depth] cut bushes, fell apple trees, grub out stumps, set plants alight, nests, your well (09u_depth.js)
   return best;
 }
 function playerInteract() {

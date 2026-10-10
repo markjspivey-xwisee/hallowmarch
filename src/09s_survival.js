@@ -393,7 +393,7 @@ const FG_FS = /* glsl */`
   }`;
 function buildForageMeshes() {
   const geos = forageGeometries();
-  FORAGE.mat = mat({ vertexShader: FG_VS, fragmentShader: FG_FS });
+  FORAGE.mat = mat({ vertexShader: depthForageVS(FG_VS), fragmentShader: depthForageFS(FG_FS) }); // [depth] charred, cut, felled (09u_depth.js)
   const depth = depthFrom(FORAGE.mat);
   const caps = { bush: 0, ring: 0, herb: 0, nettle: 0, apple: 0 };
   for (const p of FORAGE.list) caps[forageModel(p.k)]++;
@@ -420,6 +420,7 @@ function drawForage(dt) {
   FORAGE.clock -= dt;
   if (FORAGE.clock > 0 && !FORAGE.dirty) return;
   FORAGE.clock = 0.4; FORAGE.dirty = false;
+  dpForageAttrs(); // [depth] the burn and fall state of every plant, room for felled apple trees (09u_depth.js)
   const camX = camera.position.x, camZ = camera.position.z, R = FORAGE_DRAW[quality.level] || 130, R2 = R * R;
   const fill = {};
   for (const k in FORAGE.meshes) fill[k] = 0;
@@ -432,8 +433,10 @@ function drawForage(dt) {
     const g = M.mesh.geometry;
     g.attributes.iPos.array.set([p.x, p.y, p.z, p.yaw], n * 4);
     g.attributes.iDat.array.set([p.s, FORAGE_KINDS[p.k].id, forageShown(p), p.seed], n * 4);
+    depthForageInst(p, g, n); // [depth]
     fill[key] = n + 1;
   }
+  depthForageExtra(fill); // [depth] the fallen halves of felled apple trees
   for (const k in FORAGE.meshes) {
     const g = FORAGE.meshes[k].mesh.geometry;
     g.instanceCount = fill[k];
@@ -1274,6 +1277,7 @@ function chronLiving() {
     <p>Every town has a <b>forge and anvil</b> (smelt ore into iron; tools, blades, mail and the mending of worn gear), a <b>workbench</b> (planks, sticks, rods, bows, staves, arrows), a <b>tanning rack</b> (leather and leather armour), a <b>loom</b> (cloth, cloaks, robes, hoods), a <b>bakehouse</b> and an <b>alchemy table</b> (healing draughts, the starflower tonic, wards against fire and frost, vigour). Every keep has a forge and a workbench.</p>
     <p>Materials come from the land: logs and firewood from felled trees, stone from rocks (a <b>pick</b> also breaks out flint and iron ore, most in the rocky hills), hides and bone from the hunt, fibre from nettles. Tools help: an <b>axe</b> fells and splits in fewer blows, a <b>pick</b> finds ore, a <b>knife</b> takes more from every kill and plant, a <b>hammer</b> mends gear good as new, a <b>pot</b> cooks stews anywhere, a <b>rod</b> fishes.</p>
     <p>Each thing you make teaches you. A practised hand works faster, wastes less and turns out better gear: a novice's blade is usually common, a master's often rare and now and then epic. Some recipes wait for skill.</p>
+    ${depthChronLiving() /* [depth] woodcraft, game birds, rare materials and masterworks (09u_depth.js) */}
     <p class="now">Now: <b>${S.label.toLowerCase()}</b> (food ${pct(SURV.hunger)}%, water ${pct(SURV.thirst)}%).</p>
     <ul class="skills">${Object.keys(SKILL_NAMES).map(row).join('')}</ul>`;
 }
