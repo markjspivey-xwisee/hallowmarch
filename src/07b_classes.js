@@ -42,7 +42,7 @@ const ELEM_OF = { firebolt: 'fire', meteor: 'fire', frost: 'frost', blizzard: 'f
 const ARROW_TYPES = ['plain', 'broadhead', 'bodkin', 'fire', 'blunt'];
 const ARROW_DEF = {
   plain: { name: 'Plain arrows', short: 'Plain', good: null, col: '#d8cdb4', text: 'Ordinary shafts. You never run out.' },
-  broadhead: { name: 'Broadhead arrows', short: 'Broadhead', good: 'arrows_broadhead', col: '#e07a5a', text: 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound.' },
+  broadhead: { name: 'Broadhead arrows', short: 'Broadhead', good: 'arrows_broadhead', col: '#e07a5a', text: 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 40% less for 6 s.' }, // [balance2]
   bodkin: { name: 'Bodkin arrows', short: 'Bodkin', good: 'arrows_bodkin', col: '#b9c4d6', text: 'Needle points that go through mail: armour does not stop them, and they strike warriors harder.' },
   fire: { name: 'Fire arrows', short: 'Fire', good: 'arrows_fire', col: '#ff9a3a', text: 'Pitch-soaked heads, lit as they are loosed: the foe burns and dry grass catches. Rain and wet foes damp them.' },
   blunt: { name: 'Blunt arrows', short: 'Blunt', good: 'arrows_blunt', col: '#c8b48a', text: 'Heavy blunt heads: less harm, but they knock a foe back, break its spell and shatter bone and ice.' },
@@ -230,7 +230,7 @@ function classHarm(src, dst, amount, opts) {
   if (dst.cs && dst.cls === 'warrior') {
     const cs = dst.cs;
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
-    if (cs.blockOn && !opts.dot && src && src !== dst && blockFaces(dst, src)) {
+    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && src && src !== dst && blockFaces(dst, src)) {
       const melee = opts.kind === 'melee';
       if (melee && t - cs.blockAt <= parryWindow(dst)) { parry(dst, src); return 0; }
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
@@ -966,7 +966,7 @@ function arrowHits(A, o, src0) {
 }
 // the special heads do their own work once an arrow (drawn or from an ability) strikes
 function arrowEffect(src, dst, dmg, type, opts) {
-  if (type === 'broadhead') addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id);
+  if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', WOUND_HEAL, 6, 'wound'); } // [balance2] and the wound mends slowly (healWound)
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
     breakCast(dst); // [balance2] not a steadfast priest's

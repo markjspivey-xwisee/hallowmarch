@@ -246,6 +246,7 @@ function dealDamage(src, dst, amount, opts = {}) {
 function healEnt(src, dst, amount, quiet = false) {
   if (!dst || !dst.alive || dst.kind === 'door') return 0;
   const before = dst.hp;
+  amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
   classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)

@@ -91,14 +91,18 @@ window.CB = {
     e.testDummy = true; e.tweak = { swing: 1e6, hp: 8 }; this.F.setupStats(e); e.ai.nextAbility = 1e12; e.std = e.maxHp / 8; e.hp = e.maxHp;
     return e;
   },
-  pack(lvl, x, z, target, only = null) {
+  // [balance2] grow: the seconds the fight has lasted; each newcomer is 1% stronger for each (health and harm), so a
+  // fighter who kills as fast as the pack comes back still falls in the end (an endless pack of the same strength gave
+  // a fighter either about 30 s or the whole 150 s, and the median of three swung between them)
+  pack(lvl, x, z, target, only = null, grow = 0) {
     const out = [];
     for (const [type, n] of only ? [[only, 1]] : [['wolf', 3], ['bandit', 2]]) for (let i = 0; i < n; i++) {
       const camp = { type, lmin: lvl, lmax: lvl, x, z, r: 2.5, members: new Set() };
       const m = this.F.spawnMob(camp);
       // the pack keeps pace with what a fighter of the level brings: ability ranks and better gear
       const rk = this.F.rankMult(lvl), gq = lvl < 20 ? 1 : lvl < 40 ? 1.08 : 1.16;
-      m.tweak = { hp: rk * gq, dmg: rk * gq }; this.F.setupStats(m);
+      const g = 1 + 0.01 * grow;
+      m.tweak = { hp: rk * gq * g, dmg: rk * gq * g }; this.F.setupStats(m);
       m.balance = true; m.threat = new Map([[target.id, 5]]); m.target = target.id; m.ai.pulled = true;
       // [balance2] the pack's home is the arena, so it does not give up the chase (a mob 42 m from home goes back) when
       // the fighter tumbles or kites to the arena's far side: it measured leashing, not survival, for archers
@@ -168,7 +172,7 @@ window.CB = {
           const m = A.p[i];
           if (m.alive) continue;
           if (!m._gone) { m._gone = t; A.killed = (A.killed || 0) + 1; }
-          else if (t - m._gone > 2 && A.u.alive) { const n = this.pack(A.lvl, A.u.bot.home.x + 11, A.u.bot.home.z, A.u, m.mobType)[0]; A.p[i] = n; }
+          else if (t - m._gone > 2 && A.u.alive) { const n = this.pack(A.lvl, A.u.bot.home.x + 11, A.u.bot.home.z, A.u, m.mobType, el)[0]; A.p[i] = n; }
         }
         if (!A.u.alive || el >= cap) A.res = { bot: A.bot, cls: A.cls, t: el, killed: A.killed || 0, surv: A.u.alive ? el * 1.5 : el };
       } else {

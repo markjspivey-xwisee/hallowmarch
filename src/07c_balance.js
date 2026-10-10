@@ -59,6 +59,8 @@ function ccAdjust(e, kind, dur, src, force) {
   if (!cat || !(dur > 0) || !e.alive) return dur;
   // an immunity (the third control's, or a priest's Divine Shield) holds for anyone
   if (e.ccdr && e.ccdr[cat] && GAME.t < e.ccdr[cat].immune) return 0;
+  // [balance2] a mage's Arcane Ward takes a stun in the mage's place (a freeze still holds)
+  if (kind === 'stun' && src !== 'frozen' && wardTakesStun(e)) return 0;
   if (!force && !ccChampion(e)) return dur;
   const s = ccState(e, cat), t = GAME.t;
   if (t < s.immune) return 0;
@@ -337,7 +339,7 @@ function botReflex(e, t, dt) {
 function botIncoming(e, within) {
   let best = null;
   for (const p of PROJ) {
-    if (p.visualOnly || p.tgt !== e.id || p.srcFaction === e.faction) continue;
+    if (p.visualOnly || p.tgt !== e.id || p.srcFaction === e.faction || p.kind === 'holy') continue; // holy light is not turned by a shield
     const d = Math.hypot(e.x - p.x, e.y + 1.1 - p.y, e.z - p.z), eta = d / (p.speed || 24);
     if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(p.src), eta, p };
   }
@@ -386,6 +388,8 @@ function botArcherArrow(e, t) {
   if (!clsHas(e, 'arrows') || !t) return 'plain';
   if (t.casting) return 'blunt';
   if (t.cls === 'warrior' || t.drBase >= 0.1) return 'bodkin';
+  // [balance2] a healer: a broadhead's wound mends slowly
+  if (t.cls === 'priest') return 'broadhead';
   if (wetOf(t) < 0.3 && rainHere(e) < 0.2 && !burningOf(t)) return 'fire';
   return 'broadhead';
 }
@@ -506,14 +510,18 @@ function botPriest(e, t) {
   const broke = GAME.t - (B.cutAt || -99) < 3;
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
-  const castOk = !broke || busy || steady;
-  // shields and instants first
+  // a blade in reach breaks spells (a mace above all) and sets them back: steady yourself before you cast
+  const blade = !!t && !t.rangedKind && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  const castOk = steady || busy || (!broke && !blade);
+  // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
+  if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
   if (fight && hpF < (many ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
-  // [balance2] cut off or held: a Renewal on yourself loosens the bonds and steadies the next spell
-  if (fight && (broke || isRooted(e) || hasBuff(e, 'snare')) && !steady && hpF < 0.97 && botUse(e, 'renew', e)) return true;
+  // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
+  // that follow
+  if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
   if (hpF < (castOk ? (many ? 0.72 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
@@ -547,15 +555,32 @@ function priestSteadfast(e) {
   addBuff(e, 'steadfast', 1, 4, 'steadfast');
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
 }
-// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by 40% for 2.5 s, so a pack does not
+// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by half for 3 s, so a pack does not
 // land on the archer the moment it lands
 function tumbleSlow(e) {
-  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.4, 2.5, e.id); });
+  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.5, 3, e.id); });
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 14);
 }
 // [balance2] a warrior's Charge: no root or slow takes hold for a moment after it (the warrior's answer to being kited)
 function chargeFree(e, dur) {
   for (const cat of ['root', 'snare']) { const s = ccState(e, cat); s.immune = Math.max(s.immune, GAME.t + dur); s.until = Math.max(s.until, s.immune); }
+}
+// [balance2] a broadhead's wound (the 'wound' buff, 6 s): healing on it takes 40% less (healEnt asks), so an archer can
+// wear down a priest who would otherwise mend as fast as the arrows land
+const WOUND_HEAL = 0.4;
+function healWound(dst) { const v = buffMax(dst, 'wound'); return v > 0 ? 1 - v : 1; }
+// [balance2] a mage's Arcane Ward (elementWard, marked 'eward' while it lasts): a stun that strikes the mage breaks on
+// it instead, and the ward loses half of what it has left. The mage's answer to a leap and a bash: the ward is spent,
+// not the mage
+function wardTakesStun(e) {
+  if (e.cls !== 'mage' || !hasBuff(e, 'eward')) return false;
+  const b = e.buffs.find((q) => q.kind === 'shield' && q.src === e.id && q.until > GAME.t && q.value > 1);
+  if (!b) return false;
+  b.value *= 0.5;
+  BAL.stats.wardStuns = (BAL.stats.wardStuns || 0) + 1;
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) { FX.ring(e.x, e.y + 1, e.z, 1.3, [0.7, 1.0, 1.9], 26, 1.7); sfx('blink'); }
+  if (e === GAME.player || (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 30 * 30)) uiFloatAt(e.x, e.y + 2.3 * (e.scale || 1), e.z, 'Warded', 'immune');
+  return true;
 }
 // [balance2] a blow landing in the middle of a spell sets it back 0.35 s, twice at most for one cast (not a steadfast
 // priest's): a caster pressed in melee casts slower, so blades and beasts matter to a healer or a mage
@@ -687,7 +712,7 @@ setTimeout(() => {
 }, 0);
 
 // [balance2] the steadfast mark among the buffs over a frame
-setTimeout(() => { if (typeof BUFF_ICON !== 'undefined') BUFF_ICON.steadfast = ['sun', '#ffe8b0']; }, 0);
+setTimeout(() => { if (typeof BUFF_ICON !== 'undefined') { BUFF_ICON.steadfast = ['sun', '#ffe8b0']; BUFF_ICON.wound = ['heart', '#e0605a']; } }, 0); // [balance2] and the slow-mending wound
 /* ---- debug and test hooks ---- */
 setTimeout(() => {
   if (!window.__hm) return;
@@ -695,5 +720,5 @@ setTimeout(() => {
     // the Hollow King back on his throne, whole, for a fresh fight (tests)
     kingFresh() { for (const id of BARROW_STATE.adds) { const o = getEnt(id); if (o) removeEnt(o); } BARROW_STATE.adds.clear(); if (BARROW_STATE.kingDead || !getEnt(BARROW_STATE.king)) spawnKing(); else resetKing(getEnt(BARROW_STATE.king)); return BARROW_STATE.king; },
     canUse, segmentClear, PROJ, // [v9] for the king probes
-    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, priestSelf, priestSteadfast, breakCast, castPushback, tumbleSlow, chargeFree, botIncoming, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
+    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, WOUND_HEAL, healWound, wardTakesStun, priestSelf, priestSteadfast, breakCast, castPushback, tumbleSlow, chargeFree, botIncoming, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
 }, 0);

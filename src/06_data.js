@@ -50,14 +50,14 @@ const ABILITIES = {
   aimed: { name: 'Aimed Shot', icon: 'target', level: 2, cost: 12, cd: 7, range: 40, cast: 1.6, proj: 'arrow', dmg: 2.5, anim: 2, desc: 'A slow, careful shot. 250% damage, 40 m.' },
   cripple: { name: 'Crippling Arrow', icon: 'chain', level: 4, cost: 10, cd: 9, range: 32, proj: 'arrow', dmg: 0.8, snare: [0.5, 5], anim: 2, desc: 'Slows the target by 50% for 5 seconds.' }, // [balance] 12 s
   volley: { name: 'Volley', icon: 'rain', level: 7, cost: 22, cd: 16, range: 36, ground: true, radius: 5, waves: 3, dmg: 0.95, anim: 2, desc: 'Three waves of arrows around the target: 95% each, and every foe they fall on is slowed by 50% for 4 s.' }, // [balance] 80%, and it pins [balance2] 40% for 3 s
-  tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 9, /* [balance] 15 [balance2] 11 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows; the foes you leap from are slowed by 40% for 2.5 s.' }, // [balance2] the slow (07c_balance.js)
+  tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 9, /* [balance] 15 [balance2] 11 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows; the foes you leap from are slowed by half for 3 s.' }, // [balance2] the slow (07c_balance.js)
   pierce: { name: 'Piercing Shot', icon: 'pierce', level: 15, cost: 24, cd: 20, range: 40, cast: 1.2, line: true, dmg: 2.0, anim: 2, desc: 'An arrow that passes through every enemy in a line.' },
 
   firebolt: { name: 'Firebolt', icon: 'flame', level: 1, cost: 10, cd: 0, range: 34, cast: 1.5, proj: 'fire', dmg: 1.8, anim: 3, desc: 'Hurls fire. 180% damage.' }, // [balance2] 2.0
   frost: { name: 'Frost Lance', icon: 'snow', level: 2, cost: 9, cd: 6, range: 32, proj: 'frost', dmg: 1.0, snare: [0.4, 4], anim: 3, desc: 'Instant. Slows the target by 40% for 4 seconds.' },
   nova: { name: 'Flame Nova', icon: 'burst', level: 4, cost: 18, cd: 12, /* [balance] 16 */ self: true, pbaoe: 7, dmg: 1.3, root: 2.5, anim: 3, desc: 'Burns and roots every enemy within 7 m.' },
   blink: { name: 'Blink', icon: 'spark', level: 7, cost: 12, cd: 11, /* [balance] 14 */ self: true, blink: 12, desc: 'Teleport 12 m in the direction you face.' },
-  ward: { name: 'Arcane Ward', icon: 'ward', level: 11, cost: 20, cd: 24, self: true, shieldPct: 0.35, dur: 12, desc: 'Absorbs damage equal to 35% of your health.' }, // [balance] 30%, 30 s [balance2] 40%
+  ward: { name: 'Arcane Ward', icon: 'ward', level: 11, cost: 20, cd: 24, self: true, shieldPct: 0.35, dur: 12, desc: 'Absorbs damage equal to 35% of your health. A stun that strikes you while it holds breaks on it instead, at half its strength.' }, // [balance] 30%, 30 s [balance2] 40%; it takes stuns (07c_balance.js)
   meteor: { name: 'Meteor', icon: 'meteor', level: 15, cost: 30, cd: 28, range: 36, ground: true, cast: 2.4, radius: 6, dmg: 3.0, anim: 3, desc: 'Calls down a meteor. 300% damage in 6 m.' },
 
   smite: { name: 'Smite', icon: 'sun', level: 1, cost: 8, cd: 0, range: 30, cast: 1.3, proj: 'holy', dmg: 1.9, anim: 3, desc: 'Holy light. 190% damage.' }, // [balance] 160% [balance2] 180%
