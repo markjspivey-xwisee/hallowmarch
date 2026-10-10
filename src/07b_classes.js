@@ -361,7 +361,13 @@ function steamAt(x, z, r, src, dur = 5) {
   if (CLS.steam.length >= 8) CLS.steam.shift();
   CLS.steam.push({ x, z, r, until: GAME.t + dur, t0: GAME.t, src: src ? src.id : null, faction: src ? src.faction : 4, tick: 0 });
   CLS.stats.steam++;
-  steamPuff(x, heightAt(x, z) + 0.6, z, 22);
+  // the burst itself: a white bloom of steam rolling up and out
+  steamPuff(x, heightAt(x, z) + 0.6, z, 26);
+  if (dist2(x, z, camera.position.x, camera.position.z) < 80 * 80) {
+    const A = U.uAmbient.value, L = U.uLightColor.value, y = heightAt(x, z);
+    for (let i = 0; i < 34; i++) { const a = Math.random() * TAU, sp = 1.5 + Math.random() * 2.5; fxAlpha.emit(x + Math.cos(a) * 0.5, y + 0.4 + Math.random() * 1.4, z + Math.sin(a) * 0.5, Math.cos(a) * sp, 0.8 + Math.random() * 1.6, Math.sin(a) * sp, 2.4 + Math.random() * 1.2, A.x * 0.55 + L.x * 0.5 + 0.35, A.y * 0.55 + L.y * 0.5 + 0.37, A.z * 0.55 + L.z * 0.5 + 0.4, -(1.6 + Math.random() * 0.8), -0.1, 0.9); }
+    lightFlash(x, y + 1.2, z, 6, [1.4, 1.5, 1.6], 0.25);
+  }
   classSfx('steam', x, z);
 }
 
@@ -1518,6 +1524,7 @@ setTimeout(() => {
     startDraw, releaseDraw, looseArrow, drawK, laySnare, consecrate: (e) => useAbility(e, 'consecrate', null), raiseFallen, fallenNear, startPrayer, stopPrayer,
     classTechnique, classHold, cycleArrow, chillOf, frozenOf, burningOf, wetOf, addChill, freezeWater, iceAt, isWaterAt, steamAt, layRune, coverAt, updateHiding,
     sanctified, isUndead, weaponStyle, comboHint, classNpc, classHarm,
+    treesNear: (x, z, r) => { let n = 0; if (typeof natTreesNear === 'function' && NATURE.built) natTreesNear(x, z, r, (t) => { if (!t.felled) n++; }); return n; },
     state: (e = GAME.player) => { if (!e) return null; const cs = csOf(e); return { stance: STANCES[cs.stance].id, mom: +momOf(e).toFixed(2), block: cs.blockOn, focus: cs.focus, att: { fire: Math.round(attOf(e, 'fire')), frost: Math.round(attOf(e, 'frost')), storm: Math.round(attOf(e, 'storm')) }, dev: Math.round(devOf(e)), praying: cs.praying, draw: +drawK(e).toFixed(2), arrow: cs.arrow, hidden: cs.hidden, cover: +cs.cover.toFixed(2) }; },
   };
 }, 0);

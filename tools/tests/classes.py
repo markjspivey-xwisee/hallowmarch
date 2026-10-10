@@ -238,6 +238,8 @@ window.T = {
       for (let k = 0; k < 12 && ok; k++) { const b = k / 12 * Math.PI * 2; for (const r of [5, 12, 20, 26]) { const xx = x + Math.sin(b) * r, zz = z + Math.cos(b) * r; if (!F.isWalkable(xx, zz) || Math.abs(F.heightAt(xx, zz) - F.heightAt(x, z)) > 2.2 || F.heightAt(xx, zz) < -2.4) ok = false; } }
       if (!ok) continue;
       if (H.ENT.some((e) => e.alive && e !== P && !e.testFoe && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < 32)) continue;
+      // for pictures: open ground with no trees or tall grass in the way
+      if (this.open && H.cls && H.cls.treesNear(x, z, 16) > 0) continue;
       return { x, z };
     }
     throw new Error('no open ground found');
@@ -532,7 +534,7 @@ async def snap(page, name, n=3, hud=False):
         print(f'  shot cls_{name} failed: {str(err)[:120]}', flush=True)
 
 async def shots(page):
-    await page.evaluate("() => {" + MECH_JS + CAMJS + "; return 0; }")
+    await page.evaluate("() => {" + MECH_JS + CAMJS + "; T.open = true; return 0; }")
     await page.evaluate(f"__hm.fn.setQuality('{SHOTQ}'); __hm.setTod(0.55); 0")
     # a mage's ice on a pond: the mage stands out on it, a foe frozen beside
     r = await ev(page, 'ice-shot', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
@@ -566,8 +568,8 @@ async def shots(page):
     # a warrior's parry
     await ev(page, 'parry-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 2.0); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.testDummy = true; f.yaw = Math.atan2(P.x - f.x, P.z - f.z); P.target = null;
-      H.simulate(0.8); C.setBlock(P, true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' }); F.fn ? 0 : 0;
-      f.anim.act = 1; f.anim.actT = 0.3; f.anim.actDur = 0.6; H.simulate(0.12);
+      H.simulate(0.8); C.classHold(true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' });
+      f.anim.act = 1; f.anim.actT = 0.3; f.anim.actDur = 0.6; H.simulate(0.1);
       const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 3.6 + s * 1.0, P.y + 1.7, P.z - s * 3.6 + c * 1.0, (P.x + f.x) / 2, P.y + 1.2, (P.z + f.z) / 2); return { act: P.anim.act, parries: C.CLS.stats.parries }; })()""")
     await snap(page, 'parry', 1)
     # an archer at full draw
