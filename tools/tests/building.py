@@ -265,6 +265,18 @@ async def build_tests(page):
     check(r['skyIn'] == 0 and r['roofIn'] and r['wetIn'] < 0.02, 'under the roof the rain does not reach you')
     check(r['skyOut'] == 1 and r['wetOut'] > 0.1, 'outside it soaks you')
     check(r['l1'] == 'Close the door' and r['closed'], 'the door shuts again')
+    # inside, the camera stays in the room: under the roof and within the walls
+    r = await ev(page, 'camera', """(() => { %s const f = BU.pieces[0], f2 = BU.pieces[1], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
+      const mx = (f.x + f2.x) / 2, mz = (f.z + f2.z) / 2; T.stand(mx, mz, mx + s, mz + c); T.play();
+      const out = [];
+      for (const [yaw, pitch, dist] of [[f.fyaw, 0.4, 8.5], [f.fyaw + Math.PI, 0.6, 8.5], [f.fyaw + 1.6, 1.1, 12]]) {
+        T.H.look(yaw, pitch, dist); for (let i = 0; i < 4; i++) T.H.frame(1 / 30);
+        const cp = T.H.camera.position, dx = cp.x - mx, dz = cp.z - mz, lu = dx * c - dz * s, lv = dx * s + dz * c;
+        out.push({ inU: Math.abs(lu) < 3.0, inV: Math.abs(lv) < 1.5, below: cp.y < f.y + B.BUILD.pieces.find((q) => q.t === 'roofThatch').y - f.y + 1.2, y: +(cp.y - f.y).toFixed(2) });
+      }
+      T.H.look(f.fyaw, 0.36, 8.5);
+      return out; })()""" % B)
+    check(all(o['inU'] and o['inV'] and o['below'] for o in r), 'standing inside, the camera stays in the room under the roof')
     # bed, chest, campfire inside and out
     r = await ev(page, 'furniture', """(() => { %s const f = BU.pieces[0], f2 = BU.pieces[1];
       T.stand(f2.x, f2.z, f.x, f.z);

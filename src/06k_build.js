@@ -579,7 +579,7 @@ function bNearestUnfinished(x, z, r) {
   return best;
 }
 // pull a piece down: half its goods come back (all of them if it was never finished)
-function buildDemolish(pc, refund = true) {
+function buildDemolish(pc, refund = true, quiet = false) {
   if (!pc || pc.st === 'gone') return false;
   if (refund) {
     const k = pc.st === 'build' && pc.p < 0.05 ? 1 : pc.st === 'ruin' ? 0.25 : 0.5;
@@ -594,6 +594,8 @@ function buildDemolish(pc, refund = true) {
   BUILD.pieces.splice(BUILD.pieces.indexOf(pc), 1);
   if (BUILD.work && BUILD.work.pc === pc) BUILD.work = null;
   if (BUILD.bed === pc.id) BUILD.bed = 0;
+  BUILD.roofsDirty = true;
+  if (quiet) return true;
   FX.burst(pc.x, pc.y + 0.8, pc.z, 22, [0.5, 0.45, 0.38], 3, 0.8, 0.3, 1);
   houseSfx('collapse', pc.x, pc.y + 1, pc.z);
   bSupport();
@@ -711,6 +713,31 @@ function bShelterAll() {
     const s = !BP[pc.t].roof && buildRoofOver(pc.x, pc.z) && !(BP[pc.t].kind === 'edge') ? 1 : 0;
     if (s !== pc.shelter) { pc.shelter = s; bUniforms(pc); }
   }
+}
+// the camera (houseCamera): built walls and roofs are solid to it, so it stays in the room the player stands in
+const B_CAM = [];
+function buildCamNear(fx, fz, L) {
+  B_CAM.length = 0;
+  for (const pc of BUILD.pieces) {
+    if ((pc.st !== 'built' && pc.st !== 'burning') || !(BP[pc.t].roof || ['wall', 'door', 'window', 'wallStone'].includes(pc.t))) continue;
+    if (dist2(fx, fz, pc.x, pc.z) < (L + 3) ** 2) B_CAM.push(pc);
+  }
+  return B_CAM.length > 0;
+}
+function buildCamSolid(x, y, z) {
+  for (const pc of B_CAM) {
+    const dx = x - pc.x, dz = z - pc.z, c = Math.cos(pc.yaw), s = Math.sin(pc.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (BP[pc.t].roof) {
+      if (Math.abs(lx) > B_C / 2 + 0.4 || Math.abs(lz) > B_C / 2 + 0.4) continue;
+      const ys = pc.y + 1.55 * (1 - Math.min(1, Math.abs(lz) / (B_C / 2)));
+      if (y > ys - 0.45 && y < ys + 0.4) return true;
+    } else {
+      if (Math.abs(lx) > B_C / 2 + 0.05 || Math.abs(lz) > 0.42 || y < pc.y - 0.3 || y > pc.y + B_WH + 0.3) continue;
+      if (pc.t === 'door' && Math.abs(lx) < 0.45 && y < pc.y + 1.95) continue; // the doorway joins in and out
+      return true;
+    }
+  }
+  return false;
 }
 // the rain shader skips drops under the nearest roofs (houseRoofsForRain): ours join that list
 function buildRoofsForRain(list, cx, cz) {
@@ -1096,7 +1123,9 @@ function buildSaveData() {
   };
 }
 function buildLoadData(d) {
-  for (const pc of BUILD.pieces.slice()) buildDemolish(pc, false);
+  const had = BUILD.pieces.length;
+  for (const pc of BUILD.pieces.slice()) buildDemolish(pc, false, true);
+  if (had) buildCoverMask();
   BUILD.bed = 0;
   if (!d || typeof d !== 'object' || d.v !== 1 || !Array.isArray(d.p)) return;
   const num = (v, lo, hi, def) => (Number.isFinite(+v) ? clamp(+v, lo, hi) : def);

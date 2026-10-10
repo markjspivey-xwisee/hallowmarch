@@ -1013,13 +1013,14 @@ function houseCamera(fx, fy, fz, cx, cy, cz, dt = 1 / 60) {
   if (L < 1e-3) return null;
   const near = [];
   for (const H of HOUSES) if (dist2(fx, fz, H.x, H.z) < (L + H.foot + 2) ** 2) near.push(H);
-  if (!near.length) { HCAM.d = Infinity; return null; }
+  const bnear = buildCamNear(fx, fz, L); // [building] walls and roofs the player built hold the camera too (06k_build.js)
+  if (!near.length && !bnear) { HCAM.d = Infinity; return null; }
   const step = 0.08;
   let t = 0, last = 0;
   // start from where the head is clear (it may be in a doorway)
   for (t = step; t <= L; t += step) {
     const x = fx + dx * t / L, y = fy + dy * t / L, z = fz + dz * t / L;
-    if (near.some((H) => houseSolid(H, x, y, z))) break;
+    if (near.some((H) => houseSolid(H, x, y, z)) || (bnear && buildCamSolid(x, y, z))) break;
     last = t;
   }
   if (t > L) last = L;
