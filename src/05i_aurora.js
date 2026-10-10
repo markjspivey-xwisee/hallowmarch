@@ -37,8 +37,10 @@ const aurU = {
 };
 // additive light; the destination alpha (the open-sky mark) is kept
 const AUR_BLEND = { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor };
+// the curtains: light added, and the sky behind them deepened by the source alpha; the destination alpha is kept
+const AUR_BLEND_CURTAIN = { ...AUR_BLEND, blendDst: THREE.OneMinusSrcAlphaFactor };
 AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
-  uniforms: aurU, depthWrite: false, depthTest: false, transparent: false, ...AUR_BLEND,
+  uniforms: aurU, depthWrite: false, depthTest: false, transparent: false, ...AUR_BLEND_CURTAIN,
   vertexShader: /* glsl */`
     uniform mat4 uInvVP;
     varying vec3 vDir;
@@ -65,26 +67,30 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
       float s0 = zc / dz;
       float s1 = (zc + aurLine(d.x * s0, s)) / dz;
       float sh = (zc + aurLine(d.x * s1, s)) / dz;
-      float xh = d.x * sh, hy = (d.y * sh - 1.0) / 1.7;
+      float xh = d.x * sh;
+      // the foot ripples: it is not a ruled line
+      float foot = 1.0 + 0.1 * sin(xh * 1.3 + uTime * 0.09 + s) + 0.12 * (vnoise(vec2(xh * 0.8 - uTime * 0.05, s + 2.0)) - 0.5);
+      float hy = (d.y * sh - foot) / 1.7;
       float inside = step(0.0, sh) * step(-0.05, hy) * step(hy, 1.05);
       // vertical rays, filtered where a pixel spans many of them, and brightness rolling along the curtain
-      float foot = px * max(sh, 0.0);
-      float r1 = mix(vnoise(vec2(xh * 5.0 + uTime * 0.11, s * 7.0)), 0.5, clamp(foot * 3.5, 0.0, 1.0));
-      float r2 = mix(vnoise(vec2(xh * 17.0 - uTime * 0.23, s * 3.0 + 9.0)), 0.5, clamp(foot * 12.0, 0.0, 1.0));
-      float rays = 0.22 + 0.78 * r1 * (0.5 + r2);
+      float span = px * max(sh, 0.0);
+      float r1 = mix(vnoise(vec2(xh * 5.0 + uTime * 0.11, s * 7.0)), 0.5, clamp(span * 3.5, 0.0, 1.0));
+      float r2 = mix(vnoise(vec2(xh * 17.0 - uTime * 0.23, s * 3.0 + 9.0)), 0.5, clamp(span * 12.0, 0.0, 1.0));
+      float rays = 0.12 + 0.88 * r1 * r1 * (0.45 + 1.1 * r2);
       float roll = 0.5 + 0.5 * sin(xh * 0.9 - uTime * 0.32 + s * 2.0);
       roll = 0.3 + 0.7 * roll * roll;
       // a sharp bright foot; rays fade upward, each reaching its own height
       float top = 0.45 + 0.55 * vnoise(vec2(xh * 1.7 + s, 3.0));
-      float prof = smoothstep(0.0, 0.035, hy) * (0.3 + 0.7 * exp(-hy * 3.0)) * (1.0 - smoothstep(top - 0.35, top, hy));
+      float prof = smoothstep(0.0, 0.025, hy) * (0.22 + 0.5 * exp(-hy * 3.2) + 0.55 * exp(-hy * 22.0)) * (1.0 - smoothstep(top - 0.35, top, hy));
       // brighter where the sheet turns toward the eye and the ray runs along it
       float slope = (aurLine(xh + 0.06, s) - aurLine(xh - 0.06, s)) / 0.12;
       vec2 nrm = safeNormalize2(vec2(-slope, 1.0));
       float edge = clamp(0.32 / max(abs(nrm.x * d.x + nrm.y * d.z), 0.07), 0.4, 3.2);
       // green below, violet in the tall rays, a pink fringe at the foot when the display flares
       float shift = 0.5 + 0.5 * sin(uTime * 0.031 + xh * 0.21 + s);
-      vec3 violet = mix(vec3(0.42, 0.26, 1.0), vec3(0.75, 0.22, 0.85), shift);
-      vec3 col = mix(vec3(0.14, 1.0, 0.42), violet, smoothstep(0.22 - 0.12 * shift, 0.8 - 0.15 * shift, hy));
+      vec3 violet = mix(vec3(0.5, 0.2, 1.0), vec3(0.85, 0.2, 0.8), shift);
+      float tall = smoothstep(0.26 - 0.12 * shift, 0.85 - 0.15 * shift, hy);
+      vec3 col = mix(vec3(0.1, 1.0, 0.3), violet * (1.0 + 1.2 * tall), tall); // the thin violet tops glow brighter than their light falls off
       col = mix(col, vec3(1.0, 0.3, 0.6), (1.0 - smoothstep(0.0, 0.07, hy)) * 0.45 * uActivity);
       return col * rays * roll * prof * edge * w * inside;
     }
@@ -97,7 +103,7 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
         // far round to the east and west the sheets run edge-on to the horizon: fade them there (not overhead)
         float side = mix(1.0 - smoothstep(2.0, 3.6, abs(d.x) / max(abs(d.z), 1e-3)), 1.0, smoothstep(0.45, 0.85, d.y));
         vec3 a = vec3(0.0);
-        float z1 = mix(-7.5, -0.45, uLat), z2 = mix(-11.0, -2.1, uLat), z3 = mix(-15.0, 0.8, uLat);
+        float z1 = mix(-6.0, -0.45, uLat), z2 = mix(-9.0, -2.1, uLat), z3 = mix(-13.0, 0.8, uLat);
         if (uQ > 1.5) {
           // high: each curtain has depth (two sheets a little apart)
           a += 0.55 * (aurCurtain(d, z1 - 0.1, 0.0, 1.0, px) + aurCurtain(d, z1 + 0.1, 0.0, 1.0, px));
@@ -118,7 +124,10 @@ AURORA.mesh = new THREE.Mesh(fsTriGeo, mat({
         float cloud = uQ > 0.5 ? aurCloud(d) : 0.0;
         col = a * uAur * up * (1.0 - cloud);
       }
-      gl_FragColor = vec4(safeColor(col), 0.0);
+      // the sky behind a curtain is deepened a little so the green reads as green (the blend uses this alpha as the
+      // factor on the sky; the scene's alpha channel is left as it was)
+      float deepen = clamp(dot(col, vec3(0.3, 0.55, 0.15)) * 0.9, 0.0, 0.32);
+      gl_FragColor = vec4(min(safeColor(col), vec3(1.8)), deepen);
     }`,
 }));
 AURORA.mesh.frustumCulled = false;
@@ -190,12 +199,12 @@ function updateNightSky(dt) {
   const thule = inDungeonX(cx) ? 0 : realmWeightsAt(cx, cz)[2];
   const F = AURORA.force || {};
   const lat = F.lat ?? sstep(0.3, 0.88, thule);
-  const target = (F.str ?? lerp(0.22, 1.0, lat)) * (F.clear ?? clear) * (F.dark ?? dark) * (out ? 1 : 0);
+  const target = (F.str ?? lerp(0.34, 1.0, lat)) * (F.clear ?? clear) * (F.dark ?? dark) * (out ? 1 : 0);
   const k = 1 - Math.exp(-dt / (F.str !== undefined ? 0.01 : 2.5));
   AURORA.str += (target - AURORA.str) * k;
   AURORA.lat += (lat - AURORA.lat) * (F.lat !== undefined ? 1 : 1 - Math.exp(-dt / 2.5));
   AURORA.clear = clear;
-  aurU.uAur.value = AURORA.str * 0.34;
+  aurU.uAur.value = AURORA.str * 1.05;
   aurU.uLat.value = AURORA.lat;
   aurU.uQ.value = quality.level === 'high' ? 2 : quality.level === 'medium' ? 1 : 0;
   aurU.uActivity.value = 0.6 + 0.4 * Math.sin(U.uTime.value * 0.013) * Math.sin(U.uTime.value * 0.0071 + 1);

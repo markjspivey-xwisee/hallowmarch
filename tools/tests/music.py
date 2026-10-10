@@ -238,9 +238,12 @@ async def main():
             # a clear view of the sky: no menu, prologue, victory screen or HUD over it
             await ev("""(() => { const H = __hm; document.getElementById('menu').hidden = true; if (H.LORE && H.UI.modal === 'prologue') H.LORE.closePrologue();
               if (H.CW) { H.CW.CAMPAIGN.pendingVictory = null; H.CW.closeVictory(); } const hud = document.getElementById('hud'); if (hud) hud.hidden = true; H.UI.modal = 'menu'; return 0; })()""")
-            async def shot(name, js, frames=2):
+            async def shot(name, js, frames=1, settle=True):
                 await ev(js)
+                # the lights ease toward where the camera is: let them settle before the frame
+                if settle: await ev("(() => { for (let i = 0; i < 24; i++) __hm.aurora.updateNightSky(0.5); return 0; })()")
                 for _ in range(frames): await ev("__hm.frame(1/30)")
+                await ev("""(() => { let el = document.getElementById('scene'); while (el && el.parentElement) { for (const sib of el.parentElement.children) if (sib !== el && sib.tagName !== 'SCRIPT') sib.style.visibility = 'hidden'; if (el.parentElement === document.body) break; el = el.parentElement; } return 0; })()""")
                 await page.screenshot(path=str(OUT) + f'/{name}.png', timeout=300000)
                 a = await ev("__hm.aurora.state()")
                 log('shot', name, a)
@@ -251,7 +254,7 @@ async def main():
               H.camera.position.set(x, F.heightAt(x, z) + %s, z); H.camera.lookAt(x + %s, F.heightAt(x, z) + %s, z - 100); %s return 0; })()"""
             for q in ['high', 'medium']:
                 await ev(f"__hm.fn.setQuality('{q}'); 0")
-                a = await shot(f'aurora_thule_{q}', north % ('3', '10', '58', "__hm.aurora.force({ str: 1 });"), 2)
+                a = await shot(f'aurora_thule_{q}', north % ('3', '10', '58', "__hm.aurora.force({ str: 1 });"), 2 if q == 'high' else 1)
                 check(a['on'] and a['str'] > 0.9 and a['lat'] > 0.9, f'aurora over Thule at night ({q}): {a}')
             await ev("__hm.aurora.force(null); 0")
             # its natural strength, unforced, after a few seconds of clear night in Thule
@@ -279,11 +282,11 @@ async def main():
             # from Logres: faint, low in the north
             await ev("__hm.setTod(2.1); 0")
             await ev("""(() => { const H = __hm, F = H.fn, R = H.REALMS[0]; const x = R.dx * 300, z = R.dz * 300; H.teleport(x, z);
-              H.camera.position.set(x, F.heightAt(x, z) + 4, z); H.camera.lookAt(x, F.heightAt(x, z) + 30, z - 100); return 0; })()""")
+              H.camera.position.set(x, F.heightAt(x, z) + 45, z); H.camera.lookAt(x, F.heightAt(x, z) + 66, z - 100); return 0; })()""")
             await ev("__hm.frame(0.5)")
             await ev("(() => { for (let i = 0; i < 40; i++) __hm.aurora.updateNightSky(0.5); return 0; })()")
             a = await shot('aurora_logres_north', "0", 1)
-            check(a['on'] and 0.1 < a['str'] < 0.4 and a['lat'] < 0.1, f'from Logres the lights are faint and low in the north {a}')
+            check(a['on'] and 0.2 < a['str'] < 0.5 and a['lat'] < 0.1, f'from Logres the lights are faint and low in the north {a}')
             # a shooting star across the view
             await ev("__hm.fn.setQuality('high'); 0")
             a = await shot('shooting_star', north % ('3', '-60', '40', "__hm.aurora.force({ str: 0.35, lat: 1 }); __hm.aurora.shootStar({ az: 305, el: 32, daz: 14, del: 12, dur: 1, hold: 0.62, bright: 1.6 });"), 1)
