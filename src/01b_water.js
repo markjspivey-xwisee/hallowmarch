@@ -213,7 +213,7 @@ function pondPass(H, surf, allowPonds) {
       }
     }
     // a hollow deeper than a hand with nothing built in it is filled in: no dry pond beds
-    if (C.max > 0.12 && hard[c] === Infinity) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * Math.random()); filled++; }
+    if (C.max > 0.12 && hard[c] === Infinity) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * hash2(k, 4111)); filled++; } // [land] a fixed dither: the same land on every boot
     else if (C.max > 0.3 && C.ks.length >= 4) PONDS.left.push({ x: Math.round(C.x), z: Math.round(C.z), max: +C.max.toFixed(2), n: C.ks.length, why: why[c] || 'soft' });
   }
   return filled;

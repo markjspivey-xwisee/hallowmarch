@@ -337,6 +337,7 @@ const _look = new THREE.Vector3();
 const _camColl = [];
 function cameraRoom(px, py, pz, cp, sp, dist) {
   const sx = -Math.sin(CAM.yaw) * cp, sz = -Math.cos(CAM.yaw) * cp;
+  dist = mtnCamRoom(px, py, pz, sx, sp, sz, dist); // [land] crags pull the camera in as walls do (03c_land.js)
   collidersNear(px + sx * dist * 0.5, pz + sz * dist * 0.5, dist * 0.5 + 6, _camColl);
   if (!_camColl.length) return dist;
   for (let t = 0.8; t <= dist; t += 0.4) {

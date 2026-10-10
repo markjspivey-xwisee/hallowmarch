@@ -80,7 +80,7 @@ async function boot() {
   const savePromise = loadSave().catch(() => null);
   await loadStep(0.03, 'Raising the hills', () => buildWorld(7));
   await loadStep(0.2, 'Shaping the land', () => { uploadWorldTextures(); buildTerrain(); buildWater(); });
-  await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); });
+  await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); buildCrags(); }); // [land] buildCrags (03c_land.js)
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); }); // [survival] plants, workstations (before the grass reads the cover map)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
@@ -429,6 +429,7 @@ function tick(dt) {
   updateNearTrees(dt, camera.position.x, camera.position.z);
   updateFireflies(camera.position.x, camera.position.z);
   updateLod(); // [phones] terrain and far trees by distance (13q_lod.js)
+  updateMountains(); // [land] the crags each model draws (03c_land.js)
   gatherLights(camera.position.x, camera.position.y, camera.position.z);
   fxAdd.flush(); fxAlpha.flush();
   arrowFlush(); glowFlush();

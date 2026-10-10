@@ -561,6 +561,7 @@ function buildWorld(seed = 7) {
     if (n && n.d < n.hw + 0.9) { W.grass[k] = 0; W.flower[k] = 0; }
   });
 
+  mtnShape(H, walk); // [land] the mountain faces no one can reach: crests, gullies, ledges (03c_land.js)
   // structure colliders
   for (const R of REALMS) {
     for (const S of R.keepSites) buildKeepColliders(S, R.style);
@@ -775,6 +776,7 @@ function buildWorld(seed = 7) {
   }
   W.camps = camps;
   buildWaterGrid(); // where the water stands and how it flows (01b_water.js)
+  mtnPlaceCrags(); // [land] cliff bands, buttresses, pinnacles and tors on the mountains (03c_land.js)
   W.ready = true;
   return W;
 }

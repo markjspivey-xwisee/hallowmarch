@@ -101,6 +101,7 @@ function buildCoverMask() {
     else coverBox(f.x, f.z, f.hx, f.hz, f.cos, f.sin, pad);
   }
   farmCoverAll(); // [farming] tilled beds and the town strips: no grass through the soil (08h_farming.js)
+  mtnCoverAll(); // [land] nor up through a crag (03c_land.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }
@@ -133,6 +134,7 @@ const terrainMat = mat({
     ${GLSL_WATER_MAP}
     ${GLSL_WATER_GROUND}
     ${GLSL_SEASON} // [seasons] 02d_season.js
+    ${GLSL_LAND} // [land] 02e_land.js
     uniform sampler2D uTrail;
     uniform vec4 uTrailBounds;
     uniform vec3 uGrassBase, uGrassTip, uGlowColor;
@@ -169,6 +171,9 @@ const terrainMat = mat({
       vec2 uv = worldUV(vW.xz);
       vec4 A = texture(uWorldA, uv);
       vec4 B = texture(uWorldB, uv);
+      vec4 LM = landMapAt(vW.xz); // [land] rock round the crags, scree, gullies, heather (02e_land.js)
+      vec3 nL = n; // [land] the rock's big relief, for the snow on its ledges
+      float lEdge = 9.0, lTone = 0.5; // [land] the slab the rock face is broken into here: how far to its crack, its tone
       float d = distance(vW, cameraPosition);
       float fine = 1.0 - smoothstep(35.0, 110.0, d);
       vec3 tint = realmTint(B.rgb);
@@ -208,7 +213,7 @@ const terrainMat = mat({
       col = mix(col, col * vec3(0.84, 0.8, 0.7) + dirt * 0.12, verge * 0.6);
       col = mix(col, dirt, smoothstep(0.12, 0.55, A.r + edgeN));
       // rock: projected on the axes the face looks along, with strata on steep faces and cracks
-      float rk = smoothstep(0.15, 0.6, A.a);
+      float rk = smoothstep(0.15, 0.6, max(A.a, LM.r)); // [land] and the rock showing round the crags
       if (rk > 0.001) {
         vec3 w = n * n; w *= w; w /= (w.x + w.y + w.z);
         float hR = rockRelief(vW.zy, fine) * w.x + rockRelief(vW.xz, fine) * w.y + rockRelief(vW.xy, fine) * w.z;
@@ -219,6 +224,7 @@ const terrainMat = mat({
         strata *= 0.55 + 0.45 * vnoise(vec2(vW.x + vW.z, vW.y * 0.5) * 0.21);
         hR = mix(hR, hR * 0.72 + strata * 0.28, steep * (0.25 + 0.75 * fine));
         vec3 nr = bumpN(n, vW, hR, 0.55 * (0.35 + 0.65 * fine));
+        vec3 lTilt = landFacets(vW, n, lEdge, lTone); nr = safeNormalize(nr + lTilt); nL = safeNormalize(n + lTilt); // [land] slabs and blocks at the mountain's own scale (02e_land.js)
         vec3 rc = mix(vec3(0.38, 0.37, 0.35), vec3(0.56, 0.54, 0.5), mix(0.5, smoothstep(0.2, 0.75, hR), 0.45 + 0.55 * fine));
         rc *= tint * vec3(1.02, 1.0, 0.97) * (0.86 + 0.24 * fbm3(vW.xz * 0.05 + vW.y * 0.03));
         rc *= mix(vec3(1.07, 1.0, 0.9), vec3(0.93, 0.98, 1.05), vnoise(vW.xz * 0.012 + 3.3)); // warm and cool stone across a range
@@ -234,8 +240,49 @@ const terrainMat = mat({
         rockCol += rc * uAmbient * 0.12 * nr.y;
         col = mix(col, rockCol, rk);
       }
+      /* [land] the mountains up close and at middle distance (02e_land.js, 03c_land.js): heather on the lower slopes,
+         scree fans at the foot of the faces, and on the faces cliff bands, water streaks and gullies that hold up
+         where the fine relief has faded */
+      if (LM.g + LM.a + rk > 0.004) {
+        float steepL = 1.0 - smoothstep(0.45, 0.8, n.y);
+        // heather: dark woody tufts, purple in flower from high summer into autumn, rusting, dull through winter
+        float hth = LM.a * (1.0 - rk) * smoothstep(0.5, 0.8, n.y) * (1.0 - A.r) * smoothstep(0.32, 0.6, vnoise(vW.xz * 0.21 + 9.0) * 0.6 + vnoise(vW.xz * 1.3) * 0.4);
+        if (hth > 0.002) {
+          float tuft = vnoise(vW.xz * 5.5) * 0.6 * pebF + vnoise(vW.xz * 1.7) * 0.25 + vnoise(vW.xz * 17.0) * 0.3 * gritF * pebF;
+          vec3 hb = mix(vec3(0.19, 0.16, 0.09), vec3(0.25, 0.24, 0.11), vnoise(vW.xz * 2.7)) * tint;
+          vec3 bloomC = mix(vec3(0.45, 0.2, 0.42), vec3(0.6, 0.31, 0.52), vnoise(vW.xz * 3.3 + 1.0));
+          vec3 hc = mix(hb, bloomC, (uSeasonA.y * 0.8 + uSeasonA.z * 0.4) * smoothstep(0.3, 0.7, vnoise(vW.xz * 4.1 + 2.0)));
+          hc = mix(hc, vec3(0.33, 0.19, 0.1), uSeasonA.z * 0.35);
+          hc = mix(hc, hc * vec3(0.84, 0.8, 0.86), uSeasonA.w);
+          col = mix(col, lightSurface(hc * (0.72 + 0.5 * tuft), bumpN(n, vW, tuft, 0.35 * pebF), mix(0.75, 1.0, tuft)), hth * 0.88);
+        }
+        // scree: broken stone shed from the faces, lying where the slope eases off below them: stones of every size
+        // packed in grit (a Voronoi of stones, each its own tone and height; plain grit far off)
+        float scr = LM.g * (1.0 - A.r) * smoothstep(0.3, 0.62, LM.g + (vnoise(vW.xz * 0.37) - 0.5) * 0.5);
+        if (scr > 0.002) {
+          vec2 sq = vW.xz * (0.9 + 0.6 * vnoise(vW.xz * 0.21)), ip = floor(sq), fp = fract(sq);
+          float d1 = 9.0, d2 = 9.0; vec2 sid = vec2(0.0);
+          for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) - fp; float dd = dot(r, r); if (dd < d1) { d2 = d1; d1 = dd; sid = ip + g; } else if (dd < d2) d2 = dd; }
+          float e = sqrt(d2) - sqrt(d1), big = hash12(sid + 2.0);
+          float stone = smoothstep(0.04, 0.22 + 0.2 * big, e) * step(0.22, big) * (1.0 - smoothstep(0.04, 0.12, px));
+          float gh = stone * (0.4 + 0.6 * big) + vnoise(vW.xz * 7.0) * 0.25 * gritF;
+          vec3 ns = bumpN(n, vW, gh, 0.4 * (1.0 - smoothstep(12.0, 30.0, d)));
+          vec3 grit = mix(vec3(0.36, 0.34, 0.31), vec3(0.46, 0.44, 0.4), vnoise(vW.xz * 0.6));
+          vec3 sc3 = mix(grit, mix(vec3(0.42, 0.41, 0.39), vec3(0.62, 0.6, 0.56), hash12(sid + 1.0)), stone) * tint * (0.8 + 0.3 * gh);
+          col = mix(col, lightRock(sc3, ns, mix(0.6, 1.0, gh)), scr * 0.9);
+        }
+        // the faces: each slab its own tone with a dark crack round it, stains where water runs, damp gullies
+        if (rk > 0.001) {
+          float stk = landStreaks(vW, n) * steepL;
+          float crk = (1.0 - smoothstep(0.0, 0.12 + 0.002 * d, lEdge)) * (1.0 - smoothstep(0.75, 0.95, n.y)) * (1.0 - smoothstep(40.0, 140.0, d));
+          vec3 tone = col * (0.88 + 0.22 * lTone * (1.0 - smoothstep(0.7, 0.95, n.y))) * (1.0 - 0.2 * stk) * (1.0 - 0.32 * crk);
+          tone = mix(tone, tone * vec3(0.7, 0.72, 0.68), LM.b * 0.65);
+          col = mix(col, tone, rk);
+        }
+      }
+      /* [land] end */
       // snow, shore
-      float snow = smoothstep(26.0, 34.0, vW.y + nz * 4.0 + uSeasonC.z) * smoothstep(0.55, 0.8, n.y) * (0.35 + 0.65 * B.b); // [seasons] the snow line comes down in winter
+      float snow = landSnowLine(vW, B.b, nz) * landSnowHold(nL, vW) * (1.0 + 0.6 * LM.b); // [land] Thule's peaks white all year, the south's only in winter; snow lies longest in the gullies (02e_land.js)
       if (snow > 0.001) {
         float sh2 = vnoise(vW.xz * 1.7) * 0.5 + vnoise(vW.xz * 6.0) * 0.5 * fine;
         vec3 ns = bumpN(n, vW, sh2, 0.15 * fine);
