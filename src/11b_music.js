@@ -239,13 +239,13 @@ const MUS_INS = {
       end = Math.max(end, t + dec + 0.05);
     };
     switch (kind) {
-      case 'deep': body(70, 41, 0.45, 1.3, 0.55); body(112, 66, 0.3, 0.5, 0.12); skin('lowpass', 320, 0.7, 0.14, 0.35); break;
+      case 'deep': body(74, 46, 0.45, 1.2, 0.5); body(118, 70, 0.3, 0.5, 0.16); skin('lowpass', 360, 0.7, 0.14, 0.35); break;
       case 'frame': body(158, 96, 0.1, 0.32, 0.32); skin('bandpass', 1050, 0.8, 0.07, 0.16); break;
       case 'tip': body(230, 170, 0.05, 0.12, 0.14); skin('bandpass', 2400, 1.2, 0.04, 0.1); break;
       case 'timp': { const f = mtof(o.m ?? 38); body(f * 1.015, f, 0.25, 1.9, 0.42); body(f * 1.52, f * 1.5, 0.2, 0.9, 0.13); skin('lowpass', 700, 0.6, 0.06, 0.18); } break;
       case 'tom': body(126, 74, 0.22, 0.5, 0.42); skin('bandpass', 520, 0.9, 0.09, 0.2); break;
-      case 'snare': body(205, 180, 0.05, 0.09, 0.12, 'triangle'); skin('highpass', 1300, 0.7, 0.17, 0.3); skin('bandpass', 3200, 0.9, 0.1, 0.12); break;
-      case 'hat': skin('highpass', 7200, 0.7, 0.045, 0.1); break;
+      case 'snare': body(205, 180, 0.05, 0.09, 0.14, 'triangle'); skin('bandpass', 1900, 0.55, 0.16, 0.34); skin('bandpass', 3600, 1.2, 0.08, 0.08); break;
+      case 'hat': skin('bandpass', 8000, 1.1, 0.04, 0.06); break;
       default: break;
     }
     musTrack(E, src, nodes);
@@ -259,8 +259,8 @@ const MUS_INS = {
     os.type = 'sawtooth'; os.frequency.value = f;
     sub.type = 'sawtooth'; sub.frequency.value = f / 2;
     const body = ctx.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 560; body.Q.value = 2.2;
-    const subLp = ctx.createBiquadFilter(); subLp.type = 'lowpass'; subLp.frequency.value = 170;
-    const sg = ctx.createGain(); sg.gain.value = o.growl ?? 0.4;
+    const subLp = ctx.createBiquadFilter(); subLp.type = 'lowpass'; subLp.frequency.value = 150;
+    const sg = ctx.createGain(); sg.gain.value = o.growl ?? 0.3;
     const ot = ctx.createBiquadFilter(); ot.type = 'bandpass'; ot.Q.value = 24;
     const og = ctx.createGain(); og.gain.value = o.whistle ?? 3.4;
     const g = ctx.createGain();
@@ -395,6 +395,7 @@ const MUS_INS = {
   // filtered noise rising (a cymbal swell or a gust)
   swell(E, dst, t, dur, v, f0, f1, q = 0.8, type = 'bandpass') {
     const ctx = E.ctx, ns = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+    t = Math.max(t, ctx.currentTime);
     ns.buffer = E.noise; ns.loop = true;
     fl.type = type; fl.Q.value = q;
     fl.frequency.setValueAtTime(f0, t);
@@ -566,7 +567,7 @@ function musMelodyBar(E, p, t, c, ins, v, o = {}) {
     const oo = { ...o };
     if (M.cuts && d >= 1.5 && rnd() < M.cuts) { const up = L[Math.min(L.length - 1, L.indexOf(m) + 1)]; if (up > m) oo.cut = up; }
     const acc = b === 0 ? 1 : b % 2 === 0 ? 0.9 : 0.8;
-    MUS_INS[ins](E, p.dst || p.in, t + b * c.beat + (k ? (rnd() - 0.5) * 0.012 : 0), m, d * c.beat * (M.legato || 0.95), v * acc * (0.92 + rnd() * 0.08), oo);
+    MUS_INS[ins](E, musSeat(E, p, p.dst || p.in, 0.16), t + b * c.beat + (k ? (rnd() - 0.5) * 0.012 : 0), m, d * c.beat * (M.legato || 0.95), v * acc * (0.92 + rnd() * 0.08), oo);
     p.melLast = m;
   }
 }
@@ -574,9 +575,20 @@ function musMelodyBar(E, p, t, c, ins, v, o = {}) {
 /* ------------------------------------------------------------------ */
 /* shared parts                                                         */
 /* ------------------------------------------------------------------ */
+// a seat on the stage: a panner (made once per piece and destination) in front of the destination
+function musSeat(E, p, dst, pan) {
+  if (!E.ctx.createStereoPanner || Math.abs(pan) < 0.01) return dst;
+  if (!p.pans) p.pans = new Map();
+  let m = p.pans.get(dst);
+  if (!m) { m = {}; p.pans.set(dst, m); }
+  const k = pan.toFixed(2);
+  if (!m[k]) { const sp = E.ctx.createStereoPanner(); sp.pan.value = pan; sp.connect(dst); m[k] = sp; }
+  return m[k];
+}
+// a chord held by a section; the voices spread across the stage, high ones to the left as in an orchestra
 function musPad(E, p, key, t, c, ins, lo, hi, n, v, o = {}, dst = p.in) {
   const vo = (p.vo[key] = musVoice(p.vo[key], c.ch, lo, hi, n, E.rnd));
-  for (const m of vo) MUS_INS[ins](E, dst, t + E.rnd() * 0.02, m, o.dur ?? c.bar + 0.05, v, o);
+  vo.forEach((m, i) => MUS_INS[ins](E, musSeat(E, p, dst, vo.length > 1 ? 0.36 - (0.72 * i) / (vo.length - 1) : 0), t + E.rnd() * 0.02, m, o.dur ?? c.bar + 0.05, v, o));
   return vo;
 }
 function musRoot(p, c, lo, hi, key = 'bass') {
@@ -590,7 +602,7 @@ function musArp(E, p, t, c, pat, lo, hi, v, o = {}, dst = p.in) {
   const L = [];
   for (let m = lo; m <= hi; m++) if (c.ch.pcs.includes(musPc(m))) L.push(m);
   if (!L.length) return;
-  pat.forEach(([b, idx, ring], k) => MUS_INS.pluck(E, dst, t + b * c.beat + (k ? (E.rnd() - 0.5) * 0.01 : 0), L[Math.min(L.length - 1, idx)], ring ?? 2.4, v * (k === 0 ? 1 : 0.78 + E.rnd() * 0.2), o));
+  pat.forEach(([b, idx, ring], k) => { const i = Math.min(L.length - 1, idx); MUS_INS.pluck(E, musSeat(E, p, dst, i < 3 ? -0.18 : i < 6 ? -0.3 : -0.42), t + b * c.beat + (k ? (E.rnd() - 0.5) * 0.01 : 0), L[i], ring ?? 2.4, v * (k === 0 ? 1 : 0.78 + E.rnd() * 0.2), o); });
 }
 function musDrums(E, p, t, c, pat, v, dst = p.in) {
   for (const [b, kind, vel, m] of pat) if (vel > 0) MUS_INS.drum(E, dst, t + b * c.beat + (b ? (E.rnd() - 0.5) * 0.01 : 0), kind, vel * v * (0.88 + E.rnd() * 0.2), { m });
@@ -604,7 +616,7 @@ function musCall(E, p, t, c, lo, hi, v, o, dst = p.in) {
   const n = 2 + Math.floor(E.rnd() * 3), rh = pick(E.rnd, [[0, 0.75, 1.5, 2.25], [0, 0.5, 1, 2], [0, 1, 1.5, 2]]);
   for (let k = 0; k < n; k++) {
     const last = k === n - 1;
-    MUS_INS.brass(E, dst, t + rh[k] * c.beat, L[i], last ? c.beat * 2.2 : c.beat * 0.6, v * (last ? 0.9 : 0.75), o);
+    MUS_INS.brass(E, musSeat(E, p, dst, -0.22), t + rh[k] * c.beat, L[i], last ? c.beat * 2.2 : c.beat * 0.6, v * (last ? 0.9 : 0.75), o);
     i = clamp(i + pick(E.rnd, [1, 1, 2, -1]), 0, L.length - 1);
   }
 }
@@ -733,7 +745,7 @@ const MUS_MOODS = {
       const r = musRoot(p, c, 36, 47), vo = (p.vo.str = musVoice(p.vo.str, c.ch, 55, 70, 3, E.rnd));
       const sixteen = (p.heat || 0) > 0.55;
       const n = sixteen ? 16 : 8, step = 4 / n;
-      for (let k = 0; k < n; k++) MUS_INS.strings(E, L.base, t + k * b * step, vo[[0, 1, 2, 1][k % 4]], b * step * 0.62, (k % 4 === 0 ? 0.5 : 0.34) * c.v, { a: 0.012, r: 0.08, bright: 1.1 });
+      for (let k = 0; k < n; k++) MUS_INS.strings(E, L.base, t + k * b * step, vo[[0, 1, 2, 1][k % 4]], b * step * 0.62, (k % 4 === 0 ? 0.5 : 0.34) * c.v, { a: 0.012, r: 0.08, bright: 0.8 });
       for (let k = 0; k < 8; k++) if (k !== 3 && k !== 7) MUS_INS.bass(E, L.base, t + k * b * 0.5, r, b * 0.4, (k === 0 ? 0.75 : 0.5) * c.v, { a: 0.01, r: 0.08, sus: 0.6 });
       if (on('drums')) {
         const fill = c.i === c.n - 1;
@@ -846,7 +858,9 @@ function musPieceFade(E, p, to, sec) {
 function musPieceStop(E, p) {
   p.done = true;
   try { p.lfo.stop(); } catch (e) { /* already stopped */ }
-  for (const nd of [p.lfo, p.vib, p.in, p.fade, p.send, ...Object.values(p.layer)]) { try { nd.disconnect(); } catch (e) { /* gone */ } }
+  const pans = [];
+  if (p.pans) for (const m of p.pans.values()) pans.push(...Object.values(m));
+  for (const nd of [p.lfo, p.vib, p.in, p.fade, p.send, ...Object.values(p.layer), ...pans]) { try { nd.disconnect(); } catch (e) { /* gone */ } }
   const i = E.pieces.indexOf(p);
   if (i >= 0) E.pieces.splice(i, 1);
 }
@@ -965,13 +979,14 @@ function musicHeat() {
   const P = GAME.player;
   if (!P || !P.alive) return 0;
   const t = GAME.t, R2 = 44 * 44;
-  let h = P.combatUntil > t ? 0.38 : 0, n = 0;
+  let h = P.combatUntil > t ? 0.34 : 0, n = 0;
   for (const e of ENT) {
     if (e === P || !e.alive || e.kind === 'door' || e.combatUntil <= t) continue;
     if (dist2(e.x, e.z, P.x, P.z) > R2) continue;
-    n += isEnemy(e, P) ? 1 : 0.5;
+    // soldiers of an enemy realm count most, creatures less, friends fighting beside you least
+    n += isEnemy(e, P) ? (e.faction <= 2 ? 1 : 0.6) : 0.45;
   }
-  h += Math.min(0.62, n * 0.045);
+  h += Math.min(0.66, n * 0.05);
   return clamp(h, 0, 1);
 }
 function musicWantMood() {
@@ -1062,7 +1077,7 @@ function updateMusic(dt) {
     if (!p.S.layers) continue;
     const h = MUSIC.forcedHeat ?? MUSIC.heat;
     const lv = p.name === 'battle'
-      ? { base: 0.75 + 0.25 * h, drums: sstep(0.12, 0.4, h), brass: sstep(0.32, 0.62, h), top: sstep(0.55, 0.85, h) }
+      ? { base: 0.75 + 0.25 * h, drums: sstep(0.12, 0.4, h), brass: sstep(0.38, 0.68, h), top: sstep(0.62, 0.9, h) }
       : { still: 1 - 0.35 * sstep(0.2, 0.6, h), fight: sstep(0.18, 0.45, h) };
     for (const key in lv) { p.layerOn[key] = lv[key]; p.layer[key].gain.setTargetAtTime(lv[key], now, 0.5); }
   }
@@ -1191,7 +1206,7 @@ queueMicrotask(() => {
       return {
         ctx: AUDIO.ctx ? AUDIO.ctx.state : 'none', on: AUDIO.on, vol: MUSIC.vol, level: musicLevelKey(), mood: MUSIC.mood, want: MUSIC.want,
         heat: Math.round(MUSIC.heat * 100) / 100, duckDb: Math.round(MUSIC.duckDb * 10) / 10, night: MUSIC.night, flavour: MUSIC.flavour,
-        pieces: E ? E.pieces.map((p) => ({ name: p.name, target: p.target, gain: Math.round(p.fade.gain.value * 100) / 100, fading: AUDIO.ctx.currentTime < p.fadeEnd, bar: p.bar, sec: p.sec, layers: Object.fromEntries(Object.entries(p.layerOn).map(([k, v]) => [k, Math.round(v * 100) / 100])) })) : [],
+        pieces: E ? E.pieces.map((p) => ({ name: p.name, flavour: p.flavour, target: p.target, gain: Math.round(p.fade.gain.value * 100) / 100, fading: AUDIO.ctx.currentTime < p.fadeEnd, bar: p.bar, sec: p.sec, layers: Object.fromEntries(Object.entries(p.layerOn).map(([k, v]) => [k, Math.round(v * 100) / 100])) })) : [],
         live: E ? E.live : 0, nodes: E ? E.nodes : 0, made: E ? E.made : 0, peak: E ? E.peak : 0, log: MUSIC.log.slice(-12), stingers: MUSIC.stingers.slice(-10),
       };
     },

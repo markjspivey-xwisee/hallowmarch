@@ -37,7 +37,7 @@ async def main():
 
         if AUDIO_T:
             # a real click (a trusted gesture) unlocks the audio, like the existing effects
-            await page.mouse.click(400, 300)
+            await page.mouse.click(8, 8)  # a corner of the title screen, away from its buttons
             await page.wait_for_timeout(1500)
             s = await st()
             if s['ctx'] == 'suspended':
@@ -59,7 +59,7 @@ async def main():
                 while time.time() - t < limit:
                     s = await st()
                     last = s
-                    cur = [x for x in s['pieces'] if x['name'] == mood and x['target'] == 1]
+                    cur = [x for x in s['pieces'] if x['name'] == mood and x['target'] == 1 and (flavour is None or x['flavour'] == flavour)]
                     if s['mood'] == mood and cur and cur[0]['gain'] > 0.97 and not cur[0]['fading'] and len(s['pieces']) == 1 and (flavour is None or s['flavour'] == flavour):
                         return time.time() - t, s
                     await page.wait_for_timeout(700)
@@ -173,13 +173,13 @@ async def main():
             check(mx > 1.5, f'the score ducks under loud effects (max {mx} dB)')
 
             # -------- the volume setting: the menu, the bus, the save --------
-            await ev("__hm.fn.openMenu('settings'); 0")
+            await ev("(() => { const H = __hm; if (H.LORE && H.UI.modal === 'prologue') H.LORE.closePrologue(); H.UI.modal = 'menu'; H.fn.openMenu('settings'); return 0; })()")
             await page.wait_for_timeout(300)
             seg = await ev("[...document.querySelectorAll('#set-m button')].map((b) => b.dataset.v + ':' + b.getAttribute('aria-checked')).join(' ')")
             check('medium:true' in seg, f'music row in the settings menu, Medium by default ({seg})')
             if SHOTS:
                 await page.screenshot(path=str(OUT) + '/music_settings.png', timeout=300000)
-            await page.click('#set-m button[data-v="low"]')
+            await ev("document.querySelector('#set-m button[data-v=\"low\"]').click(); 0")
             await page.wait_for_timeout(400)
             r = await ev("""(() => { const H = __hm, M = H.music; const s = M.buildSave(); H.fn.saveNow(); return { vol: M.M.vol, bus: +M.M.bus.gain.value.toFixed(3), saved: s.settings.music,
               checked: [...document.querySelectorAll('#set-m button')].filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.dataset.v) }; })()""")
@@ -235,6 +235,9 @@ async def main():
         if SHOTS:
             # -------- the aurora over Thule at night --------
             await ev("clearInterval(window.__mt); 0")
+            # a clear view of the sky: no menu, prologue, victory screen or HUD over it
+            await ev("""(() => { const H = __hm; document.getElementById('menu').hidden = true; if (H.LORE && H.UI.modal === 'prologue') H.LORE.closePrologue();
+              if (H.CW) { H.CW.CAMPAIGN.pendingVictory = null; H.CW.closeVictory(); } const hud = document.getElementById('hud'); if (hud) hud.hidden = true; H.UI.modal = 'menu'; return 0; })()""")
             async def shot(name, js, frames=2):
                 await ev(js)
                 for _ in range(frames): await ev("__hm.frame(1/30)")
