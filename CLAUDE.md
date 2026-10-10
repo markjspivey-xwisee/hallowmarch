@@ -472,6 +472,8 @@ Mastery duels (the skilled bot's wins against the simple bot of the same calling
 |---|---|---|---|---|
 | 10 | 8/8 | 6.5/8 | 7/8 | 6/8 |
 
+With the last change, the mastery duels at 30 and 50 again (eight per calling): 30: warrior 8/8, archer 8/8, mage 4.5/8, priest 4/8; 50: warrior 8/8, archer 8/8, mage 8/8, priest 7/8.
+
 What changed in version 10 ([balance2]), and why:
 
 - Gear (06e_gearcurve.js): fair gear at the level (item level = level, to 50), each piece with the stats its slot, grade and level give on average, so every calling measured wears the same totals (version 9's fixed seeds gave the warrior and archer at 50 a third more damage from their rolls than the mage and priest). Foes past level 24 meet a body in gear with the toughness the gear of their level adds (`gearLateHarm`), so the late game is as hard as it was with gear capped at 24 (`loot.py`: within ±7% per blow).
@@ -487,14 +489,14 @@ Where it stands against the aim (skilled bots within about ±15%, simple within 
   - Skilled time to kill: within ±15% everywhere but the warrior at 50 (+20%; +15% at 30), the slowest killer of a standing foe once the others have their late spells, and the mage at 10 (-18%).
   - Skilled pack survival: within ±20% everywhere but the mage at 50 (+23%); the pack measure is steady now (five runs of a calling usually within a fifth of each other), though a mage at 10 still either falls at once or kites the pack for a minute and more (the last run's +44%).
   - Skilled duels: 36-61% for every calling at every level but two: the warrior wins only a quarter at 10 and 69% at 30.
-  - Mastery: the skilled warrior and archer win 7.5 or 8 of 8 against their simple selves, the mage 5 to 7; the priest 6.5 of 8 at 30, and at 10 6 of 8 after the last change (1 of 8 before it); at 50 the priest won 3 of 8 before the last change and has not been measured since.
+  - Mastery: the skilled warrior and archer win 6.5 to 8 of 8 against their simple selves at every level. With the last change the mage wins 7, 4.5 and 8 of 8 at 10, 30 and 50, and the priest 6, 4 and 7 (before it: 1, 6.5 and 3): both beat their simple selves, but not yet clearly at 30, where a mirror duel between two healers or two casters is a short race that pressing everything in turn can win.
   - Simple bots: time to kill within ±25%; pack survival and duels are not (the simple priest heals with every other press: it wins 61-88% of simple duels and outlasts the pack by 37-47% at 10 and 50; a simple archer kites a pack for a long time at 10 and 30, +44% to +64%; the simple mage falls first at 10, -29% to -47%; the simple warrior wins a quarter to a third of its duels at 10 and 50).
 
 Still off (for the next pass):
   - Level 10 duels: the skilled warrior wins about a quarter (one or two of twelve against an archer or a mage). Below Leap Strike (30) a warrior has only Charge (every 10 s now, and 2 s free of roots and slows after it) to reach a foe who kites, freezes and snares. Next: an answer to kiting below 30 that does not also make Leap Strike stronger later (a second Charge below 30, or a raised shield that turns arrows while it charges).
   - Hard counters at 30 and 50: the skilled warrior beats the priest nearly every time (10-12 of 12: parries on the mace, stuns through the casts) and the priest beats the archer most of the time (9-10 of 12: its own healing and Divine Shield outlast the arrows, even with broadheads' wounds and at range). The overall rates sit inside the band, but these two pairs are lopsided.
   - The warrior's time to kill at 30 and 50 (+15-20%): its late abilities (Whirlwind, Leap Strike) are for crowds and gaps, not a standing foe.
-  - The priest's mastery at 50 and the whole table at 30 and 50 should be measured again with the last change (the machine's memory cut those runs short: `classes.py balance levels=30,50 reps=5 dreps=12 mreps=8`).
+  - The table at 30 and 50 should be measured again with the last change (only its mastery duels were; the machine's memory cut the full runs short): `classes.py balance levels=30,50 reps=5 dreps=12 mreps=8`. The mage's and the priest's mastery at 30 (about half) wants a closer look at their mirror duels.
   - Realm flavours in the measures: a Thule warrior's Berserk heals by finishers only in fury now (in a guarded stance it outlasted every pack); an Ériu archer who hides loses a pack in play (the run's pack never loses its quarry, so the measure does not show it).
   - Runs of this size still move duel rates by about ±8 points and mastery by one or two of eight; tune on a number only after `dreps=12`.
 
