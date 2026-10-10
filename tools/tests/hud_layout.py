@@ -3,7 +3,7 @@ panel, the companion bar with two companions, the builder's bar, the plant card,
 and a field note), measured for overlaps, boxes off the screen or under the notch (safe areas emulated), and touch
 targets under 40 px, at 390x780, 360x640, 844x390 and 667x375 with touch and at 1280x720, 960x540 and 1920x1080 on a
 desk. Each calling's class panel is tried at each size. One screenshot per size (tools/out/hud_<w>x<h>.png).
-usage: python3 tools/tests/hud_layout.py [touch|desk] [noshots] [sizes=390x780,...] [notch] [all]
+usage: python3 tools/tests/hud_layout.py [touch|desk] [noshots] [sizes=390x780,...] [notch] [all] [cls=warrior,...]
 (all: every calling at every size; by default every calling at the first size of each kind, one at the others)"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -124,7 +124,7 @@ async def run_mode(p, mode):
     await page.evaluate(HELP)
     if 'notch' in ARGS and mode == 'touch':
         await page.evaluate("document.documentElement.style.setProperty('--safe-t', '24px'); document.documentElement.style.setProperty('--safe-b', '20px'); 0")
-    clsl = ['warrior', 'archer', 'mage', 'priest']
+    clsl = OPT['cls'].split(',') if 'cls' in OPT else ['warrior', 'archer', 'mage', 'priest']
     for si, (w, h) in enumerate(sizes):
         await page.set_viewport_size({'width': w, 'height': h})
         if 'notch' in ARGS and mode == 'touch':
@@ -135,7 +135,7 @@ async def run_mode(p, mode):
         worst = None
         # every calling's class panel at the first size of each kind of screen, one calling (in turn) at the others
         for ci, cls in enumerate(clsl):
-            if si > 0 and ci != si % 4 and 'all' not in ARGS: continue
+            if si > 0 and ci != si % len(clsl) and 'all' not in ARGS: continue
             await page.evaluate(f"HL.setup('{cls}'); __hm.simulate(0.6); 0")
             await frames(page, 4)
             await page.evaluate("HL.notes(); 0")
