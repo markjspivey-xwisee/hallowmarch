@@ -218,6 +218,7 @@ const nearTreeMat = mat({
         // the shaded heart of the crown: clumps for broadleaves, combed needles for pines
         float pat = uNeedle > 0.5 ? vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 9.0, vLocal.y * 2.2)) * 0.7 + vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 31.0, vLocal.y * 6.0)) * 0.3 : vnoise(vW.xz * 3.0 + vW.y * 2.0);
         vec3 alb = uLeaf * uKindTint * (0.8 + 0.3 * vTint) * (0.62 + 0.62 * pat);
+        alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31)); // visual pass: the same hue as its far self
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.3 + 0.35 * vAO + 0.35 * ndl * vAO * mix(0.3, 1.0, sh));
       } else {
@@ -229,7 +230,8 @@ const nearTreeMat = mat({
         if (a < uFoliageCut * 0.5) discard;
         float vary = hash12(floor(vUV * 3.6 + vSeed * 17.0) + 3.0);
         vec3 alb = uLeaf * uKindTint * (0.72 + 0.5 * vTint) * (0.78 + 0.4 * vary);
-        if (vPart > 1.5) alb *= 0.85;
+        alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31)); // visual pass: the same hue as its far self
+        if (vPart > 1.5) alb *= 0.85 * mix(0.8, 1.24, smoothstep(0.15, 1.0, vUV.x)); // fresh pale growth at the bough tips
         float ndl = clamp(dot(n, uLightDir) * 0.55 + 0.45, 0.0, 1.0);
         float back = spow(clamp(dot(-V, uLightDir), 0.0, 1.0), 3.0);
         col = alb * (0.26 + 0.42 * vAO + 0.6 * ndl * vAO * mix(0.22, 1.0, sh));

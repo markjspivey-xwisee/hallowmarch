@@ -834,6 +834,10 @@ const GLSL_ACTOR_LIGHT = /* glsl */`
     float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
     col += env * ao * (metal * mix(F0, vec3(1.0), fres) * (0.3 + 0.7 * gloss) + (1.0 - metal) * 0.05 * fres * gloss);
     col += (uLightColor * 0.16 * sh + uAmbient * 0.22) * pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.3 * ao;
+    // visual pass: light bleeding red through skin along the shadow line, and a kicker on the silhouette when the
+    // sun is behind the body, so figures stand clear of the ground behind them
+    col += alb * vec3(0.34, 0.09, 0.04) * sss * smoothstep(-0.35, 0.1, ndl) * (1.0 - smoothstep(0.1, 0.6, ndl)) * uLightColor * sh;
+    col += uLightColor * spow(1.0 - max(dot(n, V), 0.0), 4.0) * spow(max(dot(-V, L), 0.0), 2.0) * 0.32 * sh * ao;
     return col;
   }
   // fade a fine procedural pattern to its average once it gets smaller than a pixel

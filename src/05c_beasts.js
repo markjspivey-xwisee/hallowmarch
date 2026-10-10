@@ -407,11 +407,11 @@ function beastVS(depth) {
   uniform vec4 uBeastK; // x rears up to strike, y hooks with tusks, z lift when lying dead, w unused
   attribute float aBone; attribute float aW; attribute float aMat; attribute vec2 aUV; attribute float aAO;
   attribute vec4 iPos; attribute vec4 iAnim; attribute vec4 iColA; attribute vec4 iColB;
-  ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;'}
+  ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
   void main(){
-    ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = iColB.w; vUV = aUV; vAO = aAO; vO = position;'}
+    ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), floor((iColB.w + 1e-3) / 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position;'}
     P = position; Nn = normal;
     int b = int(aBone + 0.5);
     float w = aW;
@@ -526,7 +526,9 @@ const beastMat = mat({
     uniform float uWet, uSnowCover; // feature/weather
     ${GLSL_WEATHER}
     varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;
+    varying vec2 vWx; // visual pass: this beast's own wetness and snow (05h_wear.js), packed with the hit flash
     void main(){
+      float bWet = clamp(vWx.x, 0.0, 1.0), bSnow = clamp(vWx.y, 0.0, 1.0);
       vec3 n = safeNormalize(vN);
       vec3 no = safeNormalize(vNo);
       vec3 V = safeNormalize(cameraPosition - vW);
@@ -579,15 +581,20 @@ const beastMat = mat({
       else if (m == 6) { alb = vec3(0.62, 0.63, 0.66); rough = 0.3; metal = 0.85; sss = 0.0; }
       else alb = vFur;
       /* ---- weather (feature/weather): a soaked coat darkens and shines, snow settles along the back and the head ---- */
-      if (uWet > 0.01) { float por = (m == 6 || m == 15) ? 0.1 : 1.0; alb *= 1.0 - uWet * 0.34 * por; rough = mix(rough, min(rough, 0.38), uWet * 0.8); }
-      if (uSnowCover > 0.01) {
-        float sk = smoothstep(0.4, 0.85, n.y + (vnoise(vO.xz * 30.0 + vO.y * 11.0) - 0.5) * 0.4) * smoothstep(0.05, 0.6, uSnowCover);
+      if (bWet > 0.01) {
+        // a soaked coat clumps into dark wet locks
+        float por = (m == 6 || m == 15) ? 0.1 : 1.0;
+        float lock = (m == 11 || m == 12) ? 0.8 + 0.4 * vnoise(vO.xz * 24.0 + vO.y * 17.0) : 1.0;
+        alb *= 1.0 - bWet * 0.36 * por * lock; rough = mix(rough, min(rough, 0.38), bWet * 0.8);
+      }
+      if (bSnow > 0.01) {
+        float sk = smoothstep(0.4, 0.85, n.y + (vnoise(vO.xz * 30.0 + vO.y * 11.0) - 0.5) * 0.4) * smoothstep(0.05, 0.6, bSnow);
         alb = mix(alb, vec3(0.88, 0.9, 0.95), sk); rough = mix(rough, 0.85, sk); metal *= 1.0 - sk;
       }
       float sh = shadowAt(vW, n);
       vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
-      col += wetSheen(vW, n, V, uWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat
+      col += wetSheen(vW, n, V, bWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat (its own, visual pass)
       // soft back-lit fringe along the silhouette
       float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
       col += (uLightColor * 0.22 * sh * max(0.0, dot(-V, uLightDir) * 0.5 + 0.5) + uAmbient * 0.1) * rim * (m == 11 || m == 12 ? 1.0 : 0.0) * alb * 2.0;
