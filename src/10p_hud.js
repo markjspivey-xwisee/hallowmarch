@@ -98,10 +98,13 @@ function hudLayout(dt) {
     if (jh && hudShown(jh)) { const r = hudRect(jh); placed.push({ x: S.l, y: r.y - 8, w: r.x + r.w + 10 - S.l, h: H - (r.y - 8), sel: '#joyhint' }); }
   }
   // the log on a desk stops short of the hotbar (or rises over it when there is no room beside it)
-  const lg = $('log'), hb = $('hotbar');
+  const lg = $('log'), hb = $('hotbar'), bb = $('buildbar');
   if (!touch && lg && hb && hudShown(lg) && hudShown(hb)) {
-    const a = hudRect(lg), b = hudRect(hb);
-    if (hudHit(a, b, 2)) {
+    const a = hudRect(lg);
+    // the hotbar, and the builder's bar over it while it is open
+    const bs = [hudRect(hb), ...(bb && hudShown(bb) ? [hudRect(bb)] : [])].filter((r) => hudHit(a, r, 2));
+    const b = bs.length ? bs.reduce((m, r) => (r.x < m.x ? r : m)) : null;
+    if (b) {
       const w = Math.floor(b.x - 12 - a.x);
       if (w >= 230) lg.style.width = w + 'px';
       else lg.style.bottom = Math.round(H - b.y + 8) + 'px';
@@ -157,7 +160,7 @@ function hudLayout(dt) {
   }
   // the prompt and the cast bar rise above whatever they would cover (the pad, the builder's bar)
   const bt = $('bottom');
-  if (bt) {
+  if (bt && touch) { // on a desk the prompt and the cast bar keep their place over the hotbar
     const kids = [...bt.children].filter((c) => hudShown(c) && c.id !== 'hotbar' && c.id !== 'cls');
     let u = hudUnion(kids.map(hudRect));
     for (let k = 0; u && k < 4; k++) {
