@@ -86,6 +86,9 @@ The harness lives in `tools/`:
    - `farming.py`: the season cycle and its weather; tilling, sowing and growth through every stage; harvest yields; frost, drought, weeds; crossing two strains and the offspring's traits; seed saving raising the yield over generations; the herbal; trampling and fire; the townsfolk working the fields; save and load (old and damaged saves); screenshots of beds at each stage after rain, the plant card, a townsfolk harvest, a ripe field and a herb patch in shade. `noshots` skips the screenshots, `shotsonly` takes only them, `phone` adds the plant card on an upright phone with touch.
    - `animals.py`: taming a wolf step by step, commands and a hound fighting, taming and riding a wild horse, livestock producing, two generations of breeding, save and load; `animals.py shots` adds screenshots (hound, flock, cattle, hens, mare and foal, the animal card).
    - `gifts.py`: each realm's passive gifts by their numbers, each realm ultimate (effects, cooldown, key 9, HUD, a champion using it), the Chronicle page, the phone pad; screenshots of each ultimate.
+   - `perf.py [low|medium|high] [views=...] [tag=...] [js|render] [profile]`: draw calls, triangles (main and shadow pass) and programs in fixed views (the Logres town with its fields, a keep courtyard, inside its hall, a river, the biggest fight of a running war, a forest, the Barrow) at each quality, the top meshes by triangles (instances x triangles each, named by the function that made them), the JS cost of a step and a frame and the top systems by JS time (every update and draw function timed), the boot's steps and the heap; `profile` adds a sampling profile of the simulation. Writes `tools/out/perf_<tag>.json`. Run it before and after anything that draws or thinks more.
+   - `hud_layout.py [touch|desk] [noshots] [sizes=WxH,...] [notch]`: every panel up at once (needs and gift marks, each calling's class panel, the companion bar with two companions, the builder's bar, the plant card, a target, the path tracker, a toast and a field note) at 390x780, 360x640, 844x390 and 667x375 with touch and 1280x720, 960x540 and 1920x1080 on a desk: no two panels overlap, nothing is off the screen or under the notch (`notch` emulates safe areas), every touch control takes a 40 px cross of taps; one screenshot per size.
+   - `touch_flows.py [only=...]`: a phone with touch alone drinks at a river, fishes (cast and strike), swims out with the stick, tills and sows from the plant card, crafts from the book at a workbench, picks, turns and places a building piece, orders a companion, tames a wolf and uses a keep hall's war table; no name shows through the hall's walls.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
 **Debug API (`window.__hm`, defined at the end of `13_main.js`):**
@@ -170,6 +173,9 @@ The harness lives in `tools/`:
 | `12_save.js` | Saves: `claude.use('db')` document `data/users/<uid>/save`, falling back to localStorage `hallowmarch.save.v1`; `validSave()` sanitises |
 | `12b_worldstate.js` | The world remembers: `landSave()` writes `world.land` (felled trees, logs, stumps and saplings with their clocks; the nature map as 4-bit run-length tiles; burning grass; craters as height deltas in cm; burning, ruined and rebuilding houses; worn, breached and repairing walls; firewood piles) and `landApply()` restores it at boot. Also: loot settles when the ground moves under it, and the woodcutter's axe is in hand while chopping (`updateLand`) |
 | `13_main.js` | Boot, `startGame`, `simStep(dt)` (fixed step), `tick(dt)` (frame), quality switching, `__hm` |
+| `10p_hud.js` | The HUD on every screen. `hudLayout` (from `tick`, only when a panel shows, hides or changes size): the frames, the minimap and its buttons, the phone pad with its round buttons, the stick, the hotbar and the log stay put; the builder's bar, the target frame, the class panel, the companion bar, the war panel, the plant card, the path tracker, the bounty and the toasts keep their own place when it is free, else take the first free place in the column their screen prefers (`HUD_PREF`: an upright phone, a phone on its side, a desk), shrink to their essentials (`hl-compact`) or, on a touch screen, wait out of sight (`hl-off`) until there is room; the prompt and the cast bar rise above what they would cover. On a desk the log stops short of the hotbar. `npSeen`: a name shows only when no wall, closed door or stone stands between the camera and the body (the Barrow keeps its own rule). Test hooks `__hm.hud` |
+| `13p_perf.js` | Measuring. Under a test driver every mesh remembers the function that added it to the scene (`userData.perfFrom`); `__hm.perf.frame()` renders one frame counting draw calls and triangles by what drew them and by pass; `perf.timers()` wraps every update and draw function for JS time (`perf.times()`); `perf.boot()` gives the boot's steps and the heap |
+| `13q_lod.js` | Level of detail. Terrain chunks at full, half and quarter detail by distance, always with full-detail rims (neighbours never crack; craters show at every level); far chunks drawn four at a time (`terrainBlockGeo`, rebuilt after a crater). Far tree chunks swap to the far model (`treeGeometry(kind, 1)`) and, farther, to the crown's big lobes only (`treeGeometry(kind, 2)`); on medium and low the chunks round the camera are split tree by tree (full model within 60 / 36 m, `treeSplit`); far chunks cast no shadow (they lie outside the shadow box). Rocks beyond reach, the far glass of towns and halls and the furrowed soil of far fields are not drawn on medium and low. People beyond `HUMAN_FAR` (90 / 60 / 38 m) go in a third crowd with the farthest model (`buildHumanoid(2)`, `crowdHumanFar`, no shadow). `updateLod` from `tick`. The phone's quality (`phoneQualityPick`: a phone starts at low, a big tablet at medium; a saved setting left on auto keeps the pick). Test hooks `__hm.lod` |
 
 ### Conventions worth knowing
 
@@ -207,7 +213,7 @@ The harness lives in `tools/`:
 **Body actions** (`setAct(e, id, seconds)`; the humanoid shader's `atype`): 1 one-handed strike, 2 bow draw, 3 spellcasting, 4 a flinch, 5 using something (reach, pick, drink from a skin), 6 in the air, 7 whirlwind, 8 overhead smash, 9 leap strike, 10 guard, 11 parry, 12 kneel (07b_classes.js), 13 down on the haunches to reach the ground (picking, drinking at a lake; 09s_survival.js). Actions 7 and up own the whole body. Take the next free number for a new one.
 
 **Characters**
-- Characters are instanced crowds. The per-instance attributes are in `HUMAN_ATTRS`: `iPos`, `iAnim`, `iColA`, `iColB`, `iMisc`, `iStyle`.
+- Characters are instanced crowds. The per-instance attributes are in `HUMAN_ATTRS`: `iPos`, `iAnim`, `iColA`, `iColB`, `iMisc`, `iStyle`. People are drawn by three crowds by distance: `crowdHuman` (near, `HUMAN_LOD`), `crowdHumanLo` and `crowdHumanFar` (beyond `HUMAN_FAR`, 13q_lod.js).
 - `iColB.a` packs flags:
 
   | Bits | Meaning |
@@ -280,6 +286,26 @@ The harness lives in `tools/`:
 - `coreKey` counts the land by what changed in it (`landKey`: felled trees, logs, craters, tiles, piles, house and wall states), never by its clocks, so regrowth alone does not cause writes. `char.gift` holds the realm ultimate's cooldown and is no reason to write either.
 - A busy land (four trees down, a grass fire, five craters, three houses and three walls changed) adds about 10 KB; an untouched world adds 7 bytes.
 
+**Phones and performance** (version 9)
+- Budgets: low about 700k triangles and 160 draw calls at most in every view of `perf.py`, medium about 1.6 million; high may spend more but nothing wasteful. Measure with `perf.py` before and after.
+- A mesh taken out at runtime uses `removeFromParent()`: after its first frame it lives in the outdoor group (`regroupOutdoors`), so `scene.remove` misses it (grass rebuilt on a quality change was drawn twice over until version 9).
+- Anything instanced gets a draw radius per quality and, if it is many, a far model; low has no shadow map at all.
+- Far work: bodies more than 40 m from the camera are weathered every third step (`updateWear`); townsfolk and the town's and the wild's beasts more than 90 m from the player think every other step with two steps' time (`updateNPCs`). New per-body systems follow the same pattern (`let dt = dt0` per body).
+- Where things stood and stand (`perf.py`, 640x360, SwiftShader; triangles / draw calls per frame, main and shadow pass; "before" is version 8, whose grass rebuilt on a quality change stayed drawn: the stale share is in brackets):
+
+  | View | Low before | Low after | Medium before | Medium after |
+  |---|---|---|---|---|
+  | Logres town, fields and common | 1.91 M (0.90 M) / 108 | 696 k / 107 | 2.81 M (1.19 M) / 126 | 1.51 M / 162 |
+  | Keep courtyard | 2.06 M (0.90 M) / 157 | 679 k / 129 | 2.71 M (1.19 M) / 147 | 1.19 M / 154 |
+  | Inside the keep's hall | 1.99 M (0.90 M) / 145 | 669 k / 122 | 2.98 M (1.19 M) / 196 | 1.17 M / 150 |
+  | River | 2.14 M (0.90 M) / 149 | 657 k / 130 | 3.33 M (1.19 M) / 223 | 1.23 M / 174 |
+  | Frontier battle | 1.83 M (0.90 M) / 106 | 590 k / 111 | 2.86 M (1.19 M) / 178 | 1.13 M / 143 |
+  | Forest | 2.31 M (0.90 M) / 207 | 774 k / 174 | 3.43 M (1.19 M) / 275 | 1.49 M / 220 |
+  | The Barrow | 128 k / 30 | 120 k / 31 | 128 k / 32 | 123 k / 33 |
+
+  (The "before" call counts are low for trees: that run did not bring the trees' visibility up to each view. The forest at low was measured before the last tree change: only the chunk under the camera now keeps near trees in full.) A simulation step in the town costs about 8 ms of JS here (15 ms before: far bodies weathered every third step, townsfolk and beasts far off at half rate). Under SwiftShader a frame's JS time is mostly first-use shader compiles (`getProgramInfoLog` in a profile), not steady work. Boot: about 23 s to ready here (the shader compile in "Lighting the sky" is the biggest step, then "Raising the keeps"); the JS heap after boot is about 180-190 MB.
+- The HUD: a new panel joins `HUD_ORDER` and `HUD_PREF` in `10p_hud.js` (and `HUD_COMPACT` / `HUD_HIDE` with a `.hl-compact` rule if it can shrink or wait). Touch controls are 40 px at least. Safe areas: `--safe-t`, `--safe-b`, `--safe-l`, `--safe-r` (the HUD sits inside the left and right ones).
+
 ### Gotchas
 
 - Grass and flowers are rebuilt when quality changes. Anything rebuilt at runtime must go back into the right group; see `regroupOutdoors`.
@@ -317,7 +343,8 @@ The harness lives in `tools/`:
 | 19 | Farming and herb lore, plant breeding: seasons, beds, crops, weeds, soil, strains and crossing, town fields, wild herbs and the herbal | Done (version 8). Left: gardens in Ériu and Thule; the new herbs' powers in potions; seasonal colours of trees and grass |
 | 20 | Animals: taming, pets, livestock, breeding | Done (version 8) |
 | 21 | Building: placed structures | Done (version 8). Left: NPCs using built doors, more roof shapes (hips, lean-tos) |
-| 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | Next |
+| 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | In progress (version 9 branches) |
+| 23 | Phones and performance: `perf.py` measuring, terrain and tree level of detail, far rocks, glass and soil, grass by quality, stale grass removed, phones start at low, far work at a lower rate, the HUD's layout pass on every screen, 40 px touch targets, names not through walls, `hud_layout.py` and `touch_flows.py` | Done (`feature/phones`). Left: merging built pieces per building (few are built yet); the forest view at low was last measured at 774 k triangles and 174 calls (over budget) before its last tree change; `touch_flows.py`'s building step does not find a place the piece may go, and its companion, taming and war-table steps were last run before the test closed what earlier steps left open |
 
 ## History
 

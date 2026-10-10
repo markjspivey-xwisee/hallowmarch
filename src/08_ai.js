@@ -938,11 +938,12 @@ function news(text, realm, kind = 'normal') {
 /* ------------------------------------------------------------------ */
 /* simulation step for every NPC                                       */
 /* ------------------------------------------------------------------ */
-function updateNPCs(dt) {
+function updateNPCs(dt0) {
   const P = GAME.player;
   for (let i = ENT.length - 1; i >= 0; i--) {
     const e = ENT[i];
     if (e.removed) continue;
+    let dt = dt0; // [phones] townsfolk and kept beasts far from the player live at half rate (below)
     if (!e.alive) {
       if (GAME.t > e.removeAt && e.kind !== 'door') removeEnt(e);
       updateAnim(e, dt);
@@ -952,6 +953,8 @@ function updateNPCs(dt) {
     // home-zone creatures far from the player rest
     const far = P ? dist2(e.x, e.z, P.x, P.z) : 0;
     if ((e.role === 'mob' || e.role === 'villager' || e.role === 'critter') && far > 170 * 170) { e.prevX = e.x; e.prevZ = e.z; continue; }
+    // [phones] 90 m off, townsfolk and the town's and the wild's beasts think every other step, with two steps' time
+    if (far > 90 * 90 && e.alive && (e.role === 'villager' || (e.role === 'animal' && e.tame && e.tame.owner !== 'player'))) { e._half = !e._half; if (e._half) continue; dt = dt0 * 2; }
     if (e.role === 'critter') { thinkCritter(e, dt); e.y = heightAt(e.x, e.z); updateAnim(e, dt); continue; }
     if (e.role === 'boss') { tickBuffs(e, dt); if (e.alive) thinkDragon(e, dt); updateAnim(e, dt); continue; }
     tickBuffs(e, dt);

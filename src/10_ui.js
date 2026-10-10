@@ -516,10 +516,8 @@ function updateNameplates() {
     if (d > (P.target === e.id ? 70 : e.kind === 'dragon' ? 110 : 36)) continue;
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
-    if (INDOOR.on && P.target !== e.id) {
-      if (!(e._losT > renderTime)) { e._losT = renderTime + 0.25; e._los = d < 30 && segmentClear(P.x, P.z, e.x, e.z, 0.1); }
-      if (!e._los) continue;
-    }
+    // [phones] and above ground, not through the walls of a house, a hall or a keep (npSeen, 10p_hud.js)
+    if (P.target !== e.id && !npSeen(e, d)) continue;
     list.push([d, e]);
   }
   list.sort((a, b) => a[0] - b[0]);

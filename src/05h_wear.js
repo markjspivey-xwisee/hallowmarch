@@ -160,7 +160,9 @@ function weatherDryRate() { return 1 + 2.6 * sunStrength() + 0.8 * clamp((U.uWin
 function weatherMeltRate(cold) { return (0.35 + 2.8 * sunStrength()) * (1 - 0.75 * cold) + 2.5 * Math.max(0, WEATHER.raining - WEATHER.snowing); }
 
 /* ---- the simulation step: soak, settle, dry, melt, wash, mud and dust, and lightning near the player ---- */
-function updateWear(dt) {
+function updateWear(dt0) {
+  const dt = dt0; // [phones] far bodies take their own (longer) step below
+  WEAR.n = (WEAR.n || 0) + 1;
   hookWear();
   const W2 = WEATHER, P = GAME.player;
   const rain = Math.max(0, W2.raining - W2.snowing), snowing = W2.snowing;
@@ -170,6 +172,9 @@ function updateWear(dt) {
   for (const e of ENT) {
     if ((e.kind !== 'humanoid' && !crowdBeast[e.kind]) || e.removed) continue; // visual pass: beasts soak and dry too
     if (e !== P && dist2(e.x, e.z, camX, camZ) > 150 * 150) continue;
+    // [phones] bodies more than 40 m from the camera are weathered every third step, with three steps' time
+    let dt = dt0;
+    if (e !== P && dist2(e.x, e.z, camX, camZ) > 40 * 40) { if ((WEAR.n + e.id) % 3) continue; dt = dt0 * 3; }
     // shelter and the warmth of fires are looked up about once a second for each body
     if (e._wxT === undefined || GAME.t >= e._wxT) { e._wxT = GAME.t + 0.8 + Math.random() * 0.4; e._sky = skyOver(e); e._heat = heatAt(e.x, e.y, e.z); }
     // [water] in any water (07b_swim.js): the gear soaks up to the waterline (e.wl); swimming or chest-deep soaks it all
