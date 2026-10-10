@@ -653,7 +653,7 @@ const HUMAN_GAIT = /* glsl */`
     float d2 = fz * fz + fy * fy;
     if (d2 > dm * dm) { fy = -sqrt(dm * dm - fz * fz); d2 = dm * dm; }
     float d = sqrt(d2);
-    float a0 = atan(-fz, -fy);
+    float a0 = atan(-fz / max(-fy, 1e-4)); // [motion] one-argument: atan(-0.0, y) came back as pi on some drivers and a planted leg pointed at the sky
     float ca = clamp((l1 * l1 + d2 - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0);
     float cb = clamp((d2 - l1 * l1 - l2 * l2) / (2.0 * l1 * l2), -1.0, 1.0);
     return vec2(a0 - acos(ca) - rest1, acos(cb) - rest2);
