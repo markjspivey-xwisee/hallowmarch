@@ -813,6 +813,13 @@ function humanVS(depth) {
       uaR = a; uaL = a; faR = -0.35; faL = -0.35; uaLz = -0.22; uaRz = 0.22;
       chestX += 0.4 * strike * (1.0 - rec) - 0.25 * wind * (1.0 - strike);
       stepZ = 0.12 * strike * (1.0 - rec); thL = mix(thL, -0.4, strike * (1.0 - rec)); shL = mix(shL, 0.4, strike * (1.0 - rec));
+    } else if (atype > 9.5 && atype < 10.5) {
+      // [survival] down on the haunches to reach the ground: picking mushrooms and herbs, drinking from a lake (the leap's landing crouch)
+      float kk = smoothstep(0.0, 0.22, at) * (1.0 - smoothstep(0.8, 1.0, at));
+      thL = mix(thL, -0.85, kk); thR = mix(thR, -0.15, kk); shL = mix(shL, 1.3, kk); shR = mix(shR, 1.15, kk);
+      crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk;
+      chestX = mix(chestX, 0.55, kk); headX = mix(headX, 0.12, kk);
+      uaL = mix(uaL, -0.8, kk); faL = mix(faL, -0.3, kk); uaLz = mix(uaLz, -0.15, kk); uaR = mix(uaR, -0.3, kk); faR = mix(faR, -0.55, kk);
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
     float mounted = mod(floor(iColB.w / 8.0), 2.0);

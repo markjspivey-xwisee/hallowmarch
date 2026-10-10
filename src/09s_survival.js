@@ -10,16 +10,17 @@
 const FORAGE = { list: [], meshes: {}, mat: null, at: 0, dirty: true, clock: 0, herds: [], herdT: 0, ready: false };
 const FORAGE_KINDS = {
   bush: { id: 0, good: 'berries', n: [2, 4], regrow: 420, verb: 'Pick berries', name: 'berry bush', r: 0.75, act: 5, fruit: true },
-  mush: { id: 1, good: 'mushrooms', n: [3, 5], regrow: 540, verb: 'Gather the mushrooms', name: 'mushroom ring', r: 1.2, act: 6, autumn: true },
-  ember: { id: 2, good: 'herb_fire', n: [2, 3], regrow: 660, verb: 'Gather the embercap', name: 'ring of embercap', r: 1.0, act: 6, autumn: true },
-  heal: { id: 3, good: 'herb_heal', n: [2, 3], regrow: 480, verb: 'Pick woundwort', name: 'woundwort', r: 0.5, act: 6, knife: true, flower: true },
-  mana: { id: 4, good: 'herb_mana', n: [1, 3], regrow: 540, verb: 'Pick starflower', name: 'starflower', r: 0.5, act: 6, knife: true, flower: true },
-  frost: { id: 5, good: 'herb_frost', n: [1, 3], regrow: 540, verb: 'Pick rimeleaf', name: 'rimeleaf', r: 0.5, act: 6, knife: true },
-  storm: { id: 6, good: 'herb_storm', n: [1, 2], regrow: 600, verb: 'Cut thunder thistle', name: 'thunder thistle', r: 0.55, act: 6, knife: true, flower: true },
-  nettle: { id: 7, good: 'fibre', n: [2, 4], regrow: 360, verb: 'Cut nettles for fibre', name: 'nettle patch', r: 0.7, act: 6, knife: true },
+  mush: { id: 1, good: 'mushrooms', n: [3, 5], regrow: 540, verb: 'Gather the mushrooms', name: 'mushroom ring', r: 1.2, act: 10, autumn: true },
+  ember: { id: 2, good: 'herb_fire', n: [2, 3], regrow: 660, verb: 'Gather the embercap', name: 'ring of embercap', r: 1.0, act: 10, autumn: true },
+  heal: { id: 3, good: 'herb_heal', n: [2, 3], regrow: 480, verb: 'Pick woundwort', name: 'woundwort', r: 0.5, act: 10, knife: true, flower: true },
+  mana: { id: 4, good: 'herb_mana', n: [1, 3], regrow: 540, verb: 'Pick starflower', name: 'starflower', r: 0.5, act: 10, knife: true, flower: true },
+  frost: { id: 5, good: 'herb_frost', n: [1, 3], regrow: 540, verb: 'Pick rimeleaf', name: 'rimeleaf', r: 0.5, act: 10, knife: true },
+  storm: { id: 6, good: 'herb_storm', n: [1, 2], regrow: 600, verb: 'Cut thunder thistle', name: 'thunder thistle', r: 0.55, act: 10, knife: true, flower: true },
+  nettle: { id: 7, good: 'fibre', n: [2, 4], regrow: 360, verb: 'Cut nettles for fibre', name: 'nettle patch', r: 0.7, act: 10, knife: true },
   apple: { id: 8, good: 'apple', n: [3, 5], regrow: 600, verb: 'Pick apples', name: 'apple tree', r: 1.1, act: 5, fruit: true },
 };
 const FORAGE_DRAW = { high: 170, medium: 130, low: 90 };
+const FORAGE_REACH = { apple: 1.8, bush: 0.8, nettle: 0.4, mush: 0.3, ember: 0.35, heal: 0.25, mana: 0.25, frost: 0.25, storm: 0.25 }; // squared share of the draw distance: small plants only near
 
 /* ---- the water branch's rivers and the farming branch's seasons, when they are merged in ---- */
 let _survWaterFn, _survSeasonObj;
@@ -170,7 +171,7 @@ function fgGeo(parts) {
 const fgM = (x, y, z, sx = 1, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new THREE.Vector3(sx, sy, sz));
 // a lumpy ball of leaves
 function fgBlob(seed, detail = 1) {
-  const g = new THREE.SphereGeometry(1, detail ? 9 : 7, detail ? 7 : 5);
+  const g = new THREE.SphereGeometry(1, detail ? 8 : 6, detail ? 6 : 4);
   const p = g.attributes.position, v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
@@ -189,7 +190,7 @@ function vnoiseJS(x, y) {
 }
 function forageGeometries() {
   const r = mulberry(4242);
-  const ball = new THREE.SphereGeometry(1, 6, 4), stalk = new THREE.CylinderGeometry(0.5, 1, 1, 5, 1), leafG = new THREE.SphereGeometry(1, 6, 3);
+  const ball = new THREE.SphereGeometry(1, 5, 3), stalk = new THREE.CylinderGeometry(0.5, 1, 1, 4, 1), leafG = new THREE.SphereGeometry(1, 5, 2);
   stalk.translate(0, 0.5, 0);
   const out = {};
   // a bramble bush: lumps of leaves on woody stems, berries tucked over the outside
@@ -203,19 +204,19 @@ function forageGeometries() {
       blobs.push([c, s]);
       parts.push([fgBlob(k + 1), fgM(c[0], c[1], c[2], s, s * 0.85, s), 1, c]);
     }
-    for (let k = 0; k < 34; k++) {
+    for (let k = 0; k < 26; k++) {
       const [c, s] = blobs[k % blobs.length], th = r() * TAU, ph = 0.15 + r() * 1.1;
       const d = [Math.sin(ph) * Math.cos(th), Math.cos(ph) * 0.85, Math.sin(ph) * Math.sin(th)];
       const at = [c[0] + d[0] * s * 0.92, c[1] + d[1] * s * 0.92, c[2] + d[2] * s * 0.92];
-      for (let q = 0; q < 3; q++) { const o = [at[0] + (r() - 0.5) * 0.035, at[1] + (r() - 0.5) * 0.035, at[2] + (r() - 0.5) * 0.035]; parts.push([ball, fgM(o[0], o[1], o[2], 0.019 + r() * 0.006), 2, at]); }
+      for (let q = 0; q < 2; q++) { const o = [at[0] + (r() - 0.5) * 0.035, at[1] + (r() - 0.5) * 0.035, at[2] + (r() - 0.5) * 0.035]; parts.push([ball, fgM(o[0], o[1], o[2], 0.021 + r() * 0.006), 2, at]); }
     }
     out.bush = fgGeo(parts);
   }
   // a fairy ring of mushrooms: stems and domed caps in a broken circle
   {
     const parts = [];
-    const cap = new THREE.LatheGeometry([[0, 0.5], [0.45, 0.45], [0.8, 0.28], [1, 0.05], [0.9, -0.02], [0.3, -0.04], [0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 10);
-    const stem = new THREE.CylinderGeometry(0.85, 1, 1, 7, 1); stem.translate(0, 0.5, 0);
+    const cap = new THREE.LatheGeometry([[0, 0.5], [0.5, 0.42], [0.85, 0.24], [1, 0.04], [0.55, -0.03], [0, -0.03]].map(([x, y]) => new THREE.Vector2(x, y)), 8);
+    const stem = new THREE.CylinderGeometry(0.85, 1, 1, 5, 1); stem.translate(0, 0.5, 0);
     for (let k = 0; k < 11; k++) {
       const a = (k / 11) * TAU + (r() - 0.5) * 0.3, rr = 0.85 + (r() - 0.5) * 0.25, x = Math.sin(a) * rr, z = Math.cos(a) * rr;
       const big = 0.6 + r() * 0.7, h = 0.07 * big + 0.03, cr = 0.06 * big + 0.02, tilt = (r() - 0.5) * 0.3;
@@ -234,18 +235,18 @@ function forageGeometries() {
       const tx = Math.sin(a) * Math.sin(lean) * h, tz = Math.cos(a) * Math.sin(lean) * h, ty = Math.cos(lean) * h;
       parts.push([stalk, fgM(0, 0, 0, 0.008, h, 0.008, a, lean), 0]);
       parts.push([leafG, fgM(tx * 0.5, ty * 0.5, tz * 0.5, 0.06, 0.012, 0.025, a + 1.2, 0, 0.6), 1, [0, 0, 0]]);
-      for (let q = 0; q < 5; q++) parts.push([ball, fgM(tx + (r() - 0.5) * 0.04, ty + q * 0.022, tz + (r() - 0.5) * 0.04, 0.022 - q * 0.002), 4, [tx, ty, tz]]);
+      for (let q = 0; q < 3; q++) parts.push([ball, fgM(tx + (r() - 0.5) * 0.04, ty + q * 0.03, tz + (r() - 0.5) * 0.04, 0.026 - q * 0.004, 0.026 - q * 0.003, 0.026 - q * 0.004), 4, [tx, ty, tz]]);
     }
     out.herb = fgGeo(parts);
   }
   // a stand of nettles: tall stalks with pairs of toothed leaves
   {
     const parts = [];
-    for (let k = 0; k < 9; k++) {
+    for (let k = 0; k < 7; k++) {
       const a = r() * TAU, rr = r() * 0.4, x = Math.sin(a) * rr, z = Math.cos(a) * rr, h = 0.65 + r() * 0.45, lean = (r() - 0.5) * 0.2;
       parts.push([stalk, fgM(x, 0, z, 0.012, h, 0.012, a, lean), 0]);
-      for (let q = 1; q <= 4; q++) {
-        const y = h * (0.25 + q * 0.17), L = 0.09 * (1.15 - q * 0.15), ang = a + q * 1.57;
+      for (let q = 1; q <= 3; q++) {
+        const y = h * (0.3 + q * 0.2), L = 0.1 * (1.15 - q * 0.17), ang = a + q * 1.57;
         for (const sd of [-1, 1]) parts.push([leafG, fgM(x + Math.sin(ang) * sd * L, y, z + Math.cos(ang) * sd * L, L, 0.012, L * 0.5, ang + Math.PI / 2, 0, sd * 0.4), 1, [x, y, z]]);
       }
     }
@@ -261,7 +262,7 @@ function forageGeometries() {
     const blobs = [[0, 2.85, 0, 1.05]];
     for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU + r() * 0.5, rr = 0.85 + r() * 0.35; blobs.push([Math.sin(a) * rr, 2.25 + r() * 0.75, Math.cos(a) * rr, 0.62 + r() * 0.2]); }
     blobs.forEach(([x, y, z, s], k) => parts.push([fgBlob(k + 11), fgM(x, y, z, s, s * 0.82, s), 1, [x, y, z]]));
-    for (let k = 0; k < 30; k++) {
+    for (let k = 0; k < 26; k++) {
       const [x, y, z, s] = blobs[1 + (k % 8)], th = r() * TAU, ph = 0.6 + r() * 1.3;
       const d = [Math.sin(ph) * Math.cos(th), Math.cos(ph) * 0.82, Math.sin(ph) * Math.sin(th)];
       const at = [x + d[0] * s * 0.95, y + d[1] * s * 0.95, z + d[2] * s * 0.95];
@@ -402,7 +403,7 @@ function drawForage(dt) {
   for (const k in FORAGE.meshes) fill[k] = 0;
   const vis = INDOOR.on ? 0 : 1;
   for (const p of FORAGE.list) {
-    if (!vis || dist2(p.x, p.z, camX, camZ) > (p.k === 'apple' ? R2 * 1.6 : R2)) continue;
+    if (!vis || dist2(p.x, p.z, camX, camZ) > R2 * (FORAGE_REACH[p.k] || 1)) continue;
     const key = forageModel(p.k), M = FORAGE.meshes[key];
     const n = fill[key];
     if (n >= M.cap) continue;
@@ -440,8 +441,8 @@ function forageStart(p) {
   if (!P || !P.alive) return;
   if (P.mount) dismount(P);
   const yaw = Math.atan2(p.x - P.x, p.z - P.z);
-  setAct(P, K.act, K.act === 6 ? 1.3 : 1.0);
-  survStartJob({ kind: 'pick', label: K.verb.replace(/^(\w)/, (m) => m), dur: K.act === 6 ? 1.3 : 1.0, yaw, plant: p, done: () => { forageTake(p); return false; } });
+  setAct(P, K.act, K.act === 10 ? 1.3 : 1.0);
+  survStartJob({ kind: 'pick', label: K.verb.replace(/^(\w)/, (m) => m), dur: K.act === 10 ? 1.3 : 1.0, yaw, plant: p, done: () => { forageTake(p); return false; } });
 }
 function forageTake(p) {
   const K = FORAGE_KINDS[p.k];
@@ -462,7 +463,7 @@ function forageTake(p) {
   sfx('loot');
   const P = GAME.player;
   // leaves and bits fly as it is picked
-  for (let i = 0; i < 8; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 0.6 * p.s, p.y + (K.act === 6 ? 0.15 : 0.6 * p.s), p.z + (Math.random() - 0.5) * 0.6 * p.s, (Math.random() - 0.5) * 0.8, 0.4 + Math.random() * 0.6, (Math.random() - 0.5) * 0.8, 0.8, 0.22, 0.32, 0.12, 0.04, 6, 0.6);
+  for (let i = 0; i < 8; i++) fxAlpha.emit(p.x + (Math.random() - 0.5) * 0.6 * p.s, p.y + (K.act === 10 ? 0.15 : 0.6 * p.s), p.z + (Math.random() - 0.5) * 0.6 * p.s, (Math.random() - 0.5) * 0.8, 0.4 + Math.random() * 0.6, (Math.random() - 0.5) * 0.8, 0.8, 0.22, 0.32, 0.12, 0.04, 6, 0.6);
   saveSoon();
   return got;
 }
@@ -503,7 +504,7 @@ function drinkAt(spot, kind) {
   if (P.mount) dismount(P);
   const lake = kind === 'lake';
   const yaw = Math.atan2(spot.x - P.x, spot.z - P.z);
-  setAct(P, lake ? 6 : 5, lake ? 1.6 : 1.1);
+  setAct(P, lake ? 10 : 5, lake ? 1.6 : 1.1);
   survStartJob({ kind: 'drink', label: lake ? 'Drinking' : 'Drawing water', dur: lake ? 1.6 : 1.2, yaw, done: () => {
     const before = SURV.thirst;
     needsDrink(1);

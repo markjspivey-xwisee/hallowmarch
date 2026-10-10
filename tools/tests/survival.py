@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 FAILS = []
 T0 = time.time()
 SHOTS = 'noshots' not in sys.argv
+ONLY_SHOTS = 'shotsonly' in sys.argv
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -35,7 +36,9 @@ async def ev(page, name, js):
     print(f'[{name} {time.time() - t:.1f}s]', json.dumps(r)[:1500], flush=True)
     return r
 
-async def shot(page, name, js, frames=3):
+# the page's own frame loop is slowed while pictures are taken (SwiftShader on a busy machine): frames are drawn here
+SLOW_RAF = "window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 6000);0"
+async def shot(page, name, js, frames=2):
     await page.evaluate(js + ';0')
     for _ in range(frames): await page.evaluate('__hm.frame(0.1);0')
     path = OUT + f'survival_{name}.png'
@@ -50,7 +53,21 @@ async def main():
         # currentInteraction is not exported: read the prompt the HUD shows (updateHUD runs in frame())
         await page.evaluate("window.__hmCI = () => __hm.surv.ci();0")
 
+        if ONLY_SHOTS:
+            await page.evaluate("""(() => { const P = T.P(), F = T.F; let shore = null;
+              for (const L of T.H.dbg.LAKES || []) { for (let a = 0; a < 6.28 && !shore; a += 0.2) for (let r = L.r * 0.6; r < L.r * 1.6; r += 0.5) { const x = L.x + Math.sin(a) * r, z = L.z + Math.cos(a) * r; if (F.heightAt(x, z) > -3.0 && F.heightAt(x, z) < -1.5 && F.isWalkable(x, z)) { T.stand(x, z); if (T.S.shoreNear(P)) { shore = { x, z }; break; } } } if (shore) break; }
+              window.__shore = shore; F.goodsAdd('tool_rod', 1, true); })();0""")
         # ---- the world: plants and stations ----
+        if not ONLY_SHOTS:
+          await checks(page)
+        if SHOTS:
+          await shots(page)
+        await b.close()
+        if SHOTS:
+          await phone(p)
+        print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
+
+async def checks(page):
         r = await ev(page, 'world', """(() => { const S = T.S;
           const kinds = {}; for (const p of S.FORAGE.list) kinds[p.k] = (kinds[p.k] || 0) + 1;
           const st = {}; for (const s of S.CRAFT.stations) st[s.kind] = (st[s.kind] || 0) + 1;
@@ -322,11 +339,13 @@ async def main():
         errs = await page.evaluate("__hm.errors")
         check(not errs, f'no runtime errors {errs[:2]}')
 
-        if SHOTS:
-            await page.evaluate("__hm.fn.setQuality('medium'); __hm.setTod(0.55); __hm.dbg.WEATHER.mode = 'clear';0")
+async def shots(page):
+        if True:
+            await page.evaluate("__hm.fn.setQuality('low'); __hm.setTod(0.55); __hm.dbg.WEATHER.mode = 'clear';0")
+            await page.evaluate(SLOW_RAF)
             # the needs on the HUD, in play
             await page.evaluate("""(() => { const S = T.S, H = T.H, P = T.P(); const t = H.REALMS[0].town; T.stand(t.x + 18, t.z + 22); H.UI.modal = null; H.CAM.mode = 'play'; H.look(P.yaw + 2.6, 0.32, 7); S.SURV.hunger = 0.62; S.SURV.thirst = 0.21; })()""")
-            for _ in range(4): await page.evaluate('__hm.frame(0.1);0')
+            for _ in range(2): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_hud.png', timeout=300000); print('saved hud', flush=True)
             # a berry bush and a mushroom ring
             await shot(page, 'bush', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'bush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 2.2, p.y + 1.3, p.z + 1.6, p.x, p.y + 0.45, p.z); })()""")
@@ -340,11 +359,12 @@ async def main():
             await page.evaluate("""(() => { const S = T.S, H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); const F = T.F; F.goodsAdd('iron', 4, true); F.goodsAdd('stick', 3, true); F.goodsAdd('iron_ore', 3, true); S.openCraft('forge', st); S.CRAFT.ui.sel = 'tool_pick'; S.renderCraft(); })();0""")
             for _ in range(2): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_craft.png', timeout=300000); print('saved craft', flush=True)
-        await b.close()
 
-        if SHOTS:
+async def phone(p):
+        if True:
             # the crafting book and the needs on a phone
             b, page, logs = await setup(p, touch=True, w=390, h=844)
+            await page.evaluate(SLOW_RAF)
             await page.evaluate("__hm.start({ realm: 1, cls: 'mage', level: 14 }); __hm.UI.modal = null; 0")
             await page.evaluate(HELPERS)
             await page.evaluate("""(() => { const S = T.S, H = T.H; const t = H.REALMS[1].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'loom').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); S.SURV.hunger = 0.7; S.SURV.thirst = 0.18; T.F.goodsAdd('fibre', 9, true); T.F.goodsAdd('linen', 2, true); H.fn.setQuality('low'); })();0""")
@@ -356,5 +376,4 @@ async def main():
             errs = await page.evaluate("__hm.errors")
             check(not errs, f'no runtime errors on the phone {errs[:2]}')
             await b.close()
-        print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
 asyncio.run(main())
