@@ -5,8 +5,8 @@ Read this before changing anything. It covers what the game is, the owner's stan
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)
 - **Repository:** https://github.com/markjspivey-xwisee/hallowmarch (private). Work on `main`, commit often, and push at each milestone.
 - **Live build:** Claude artifact https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T, which is private to the owner. It is published from the built `hallowmarch.html` with capabilities `{db:{}, user:{}}`. When you republish to that URL, omit `capabilities` so the stored set is kept.
-- **Published:** Version 5 (loot, merchants, the Barrow and the Hollow King).
-- **In progress:** Version 6 (see Roadmap).
+- **Published:** Version 6 (level 50, lore, working castles and houses, the reactive land, weather on everything, gear wear, the readable and winnable war).
+- **Next:** a visual pass, then music, the aurora and siege engines (see Roadmap).
 
 ## The owner's standing requirements
 
@@ -63,6 +63,11 @@ The harness lives in `tools/`:
    For abilities, scaling and camps, run `python3 tools/tests/level50.py shots`.
 6. Check the phone layout with `python3 tools/tests/phone.py`.
 7. For lore and onboarding (prologue, Chronicle, path, notes), run `python3 tools/tests/lore.py`.
+8. Each big system has its own test. Run the ones your change touches:
+   - `castles.py`, `houses.py` and `nature.py`
+   - `weather.py`, `war.py` and `level50.py`
+   - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
+9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
 **Debug API (`window.__hm`, defined at the end of `13_main.js`):**
 
@@ -74,6 +79,8 @@ The harness lives in `tools/`:
 - `GAME`, `WAR`, `ENT`, `UI`, `CAM`, `DUN`, `INDOOR`, `BARROW`, `BARROW_STATE`, `INV`, `LOOT`.
 - `dbg.*` exposes renderer internals; `fn.*` exposes most game functions.
 - `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
+- `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
+- Castles add `fn.castles()`, `fn.floorAt`, `fn.castleRoute`, `fn.castleSiegeHit` and `fn.CASTLE_PATCHED` (the building-shader anchors the castle patch found).
 
 ## Architecture
 
@@ -82,11 +89,15 @@ The harness lives in `tools/`:
 | `00_util.js` | Maths, noise and random helpers |
 | `01_world.js` | World layout (realms, sites, lakes, navigation graph), heightfield, masks, colliders (`COLL`, `addBox`), `heightAt` / `isWalkable` / `zoneAt` |
 | `02_render.js` | Renderer, `QUALITY_PRESETS`, shared uniforms `U`, `mat()` / `shareMat()`, GLSL chunks, sky, post-processing (bloom, light shafts) |
+| `02b_nature_map.js` | The nature map: one texel per metre over the whole land for cut, burnt, burning and dug-up ground, uploaded to the GPU only where it changed |
 | `03_terrain.js` | Terrain, water, grass, flowers, trails, decals |
 | `04_props.js` | Building materials (`MAT` ids and the building shader), keeps, temples, doors, banners, relics, rocks, hero tree |
 | `04b_town.js` | Towns: framed houses, roofs, chimneys, yards |
 | `04c_trees.js` | Near-camera trees: bark, branches, leaf cards |
 | `04d_barrow.js` | The Barrow: the surface mound and the dungeon grid and geometry; indoor mode (`INDOOR`, `setIndoor`, `travel`) |
+| `04e_houses.js` | Working houses: two-layer walls with real openings, hinged doors and shutters, glazing, the house shader (patched from the building shader at anchors; it throws if one is missing), interactions, camera inside, fire (`igniteHouse`, `houseAt`, `fireLandsAt`), collapse to a ruin and rebuilding on a scaffold |
+| `04f_rooms.js` | Furnished rooms: hearths and stoves with real fires, tables, benches, beds, shelves, barrels, rugs, lamps; furniture colliders; ruins and scaffolds |
+| `04g_castles.js` | Working castles: floors (`floorAt`, `floorSolidAt`), stairs, wall walks with crenellated parapets, open tower tops, gates with hinged leaves and portcullises (open for their own side, shut against enemies), garrison posts and walking routes (`castleRoute`), breachable and repairable wall sections (`castleSiegeHit`), crack and breach shader patches |
 | `05a_rig.js` | Characters built in code: skinned humanoids and beasts |
 | `05b_actors.js` | Instanced, vertex-animated crowds; particles; glows |
 | `05c_beasts.js` | Wolves, boars and bears on a three-joint leg rig |
@@ -94,6 +105,7 @@ The harness lives in `tools/`:
 | `05e_weather.js` | Rain, storms and lightning, northern snow, mist |
 | `05f_juice.js` | Slash trails, impact flashes, hit-stop |
 | `05g_spells.js` | Spell visuals: terrain-draped ground marks (`spellDisc`: frost, holy circle, renewal, shockwave, cracks, scorch), lightning and tracer ribbons (`spellRibbon`), columns of light (`spellPillar`), spell weather (`spellEmitter`) |
+| `05h_nature.js` | The reactive landscape: chopping and felling trees with real falls, stumps, logs, firewood and campfires; regrowth from saplings; burning trees (`igniteTree`); cut grass; grass fire that spreads with the wind and stops at roads and water (`igniteGrass`); craters that reshape the heightfield (`natureImpact`); lightning hook (`natureStrike`) |
 | `05h_wear.js` | Weather on bodies (`e.wet`, `e.snow`, `e.dirt`, `e.blood`, `e.batter`; shelter from roofs and tree crowns, heat from fires); gear wear (`it.dur` 0–100, `it.dirt`, `it.blood`; `wearOnHit`, `repairAll`, `washGear` at wells, troughs and lakes); lightning on tall things near the player (`strikeNear`, `strikeAt`); drying and melting rates; `wearVisual` packs the actor shader's `iWear` |
 | `06_data.js` | Classes, abilities, monsters, names, progression (`LEVEL_CAP`), realm ranks |
 | `06b_items.js` | Item quality, slots, generation, stats, how gear looks |
@@ -102,6 +114,8 @@ The harness lives in `tools/`:
 | `08b_wildlife.js` | Deer, birds, bats, butterflies |
 | `08c_dragon.js`, `08d_dragon_ai.js` | Cinderwing: the model and its behaviour |
 | `08e_barrow.js` | The Barrow's dead: packs, flow-field pathing, the burning gallery, chests, the Hollow King fight |
+| `08f_townlife.js` | Townsfolk's days: home at night, out by day, doors and shutters used for real, routes round the furniture, fleeing fires, rebuilding |
+| `08g_campaign.js` | The campaign: commanders' plans with announced reasons (`planWar`, `announceOrder`), routes and order badges on the maps and nameplates, player orders to warbands from the map, claims (4 of 6 keeps for 5 min, or both enemy hallows for 4 min), renown, the long-war rules, victory, peace and reset, campaign history in the world save |
 | `09_player.js` | Input, camera, movement, targeting, interaction |
 | `09b_mount.js` | Horses |
 | `09c_loot.js` | Inventory, drops, merchants, potions |
@@ -149,6 +163,17 @@ The harness lives in `tools/`:
 
 **Collision**
 - `COLL` holds boxes and circles in a spatial grid. The Barrow also uses it for line of sight.
+- Colliders marked `vert` block only at their own height range (walls below their top, parapets only up on the walk). `stepTo` passes the body's height to `resolveCollisions` and asks `castleStepBlocked` about stair sides and raised edges.
+
+**Floors**
+- `groundY(e)` and the player use `floorAt(x, z, y)`: the highest walkable surface at or one step (0.62 m) above `y`, else the ground. Floors are boxes, discs or ramps (wall walks, tower tops, stair treads, timber decks).
+- NPCs never walk off a raised edge; the player can, and falls.
+
+**Fire and the reactive world**
+- Fire spells and the dragon's breath call `fireLandsAt` / `fireConeAt` (in `04e_houses.js`), which light roofs, trees and grass.
+- Lightning calls `natureStrike(x, z)`. Use `igniteHouse(houseAt(x, z))`, `igniteTree(i)` and `igniteGrass(x, z, r)` to set things alight.
+- Meteors, the leap strike and the dragon landing call `natureImpact`, which leaves craters. Meteors also call `castleSiegeHit`.
+- The nature state (felled trees, craters, burnt ground) is not saved yet.
 
 **Indoors**
 - `setIndoor(true)` hides the outdoor group, swaps the lighting and turns off shadows and light shafts.
@@ -169,7 +194,7 @@ The harness lives in `tools/`:
 - Ability potency rises by rank: `rankMult(level)` adds 12% for every ten levels past 20.
 
 **War AI**
-- Each realm commander issues orders: `attack`, `defend`, `raid`, `carry`, `retrieve`, `patrol`.
+- Each realm commander issues orders: `attack`, `defend`, `raid`, `carry`, `retrieve`, `patrol`, and `rally` (a band following the player). `commanderThink` hands planning to `planWar` in `08g_campaign.js`. Orders the player gave hold until done (`retask` skips them).
 - A warband works through the phases `travel`, `siege`, `assault`, `hold`.
 - Keep doors are entities that let their owners pass. Relics are called "hallows" in game.
 
@@ -182,24 +207,26 @@ The harness lives in `tools/`:
 - Grass and flowers are rebuilt when quality changes. Anything rebuilt at runtime must go back into the right group; see `regroupOutdoors`.
 - Do not shadow common globals inside functions; a stray `P` in `gatherLights` once broke the build.
 - Under SwiftShader, screenshots need a long timeout (300 s), and in-page timers lag behind wall time.
+- The building shader in `04_props.js` is patched by other modules at anchor strings. Keep these lines intact, or update the patches with them:
+  - the houses patch, which throws at boot if an anchor is missing;
+  - the castles patch at `void main(){` and `vec3 col = lightSurface(alb, n, vAO);`, which silently loses its cracks instead;
+  - `alb *= 1.0 - 0.22 * uWet;`.
+- The human crowd uses 15 of the 16 guaranteed vertex attributes. Pack new per-instance data into spare channels rather than adding attributes.
 
 ## Roadmap
 
 | # | Work | Status |
 |---|---|---|
-| 1 | Level cap 50. Frontier, Barrow and dragon scale with the player past 20. Borderland camps for 20–40 with named champions. Two new abilities per class (20, 30). Ability ranks every 10 levels. 8-slot hotbar | Built; being tested |
-| 2 | Lore and onboarding: prologue, Chronicle tab, milestone path with rewards, loading tips | Planned, version 6 |
-| 3 | Working castles: gates swing open for their own side; stairs and ramps to wall walks and towers; walkable wall tops with parapets; guards walk to their posts and attackers climb | Planned, version 6 |
-| 4 | Working houses: doors and shutters open and close; furnished interiors you can see through the windows and walk into | Planned, version 6 |
-| 5 | Banner cloth that never clips into walls or vanishes | Planned, version 6 |
-| 6 | Reactive world: felling and chopping trees, cutting and burning grass, craters, breakable and repairable walls, gates and houses; houses that burn and get rebuilt | Planned, version 7 |
-| 7 | Gear wear: dirt, blood, wet, damage, durability, cleaning and repair | Planned, version 7 |
-| 8 | Weather on everything: wet surfaces, settling snow, lightning strikes, sun drying and melting | Planned, version 7 |
-| 9 | Visual pass on existing models and shaders | Planned, version 7 |
-| 10 | Dominion: campaign victories and a reset | Planned, version 8 |
-| 11 | Army orders shown and steerable (rally, attack or defend from the map) | Planned, version 8 |
-| 12 | Realm gifts (passives and a realm ultimate) | Planned |
-| 13 | Music, aurora, siege engines | Planned |
+| 1 | Level 50: scaling, borderland camps and champions, 8 new abilities, ranks, 8-slot hotbar | Done (version 6) |
+| 2 | Lore and onboarding: prologue, Chronicle, path with rewards, field notes, tips | Done (version 6) |
+| 3 | Working castles: gates, stairs, wall walks, parapets, garrison routes, breaches and repairs, banners | Done (version 6). Left: tower interiors and hatches, AI using breaches, defenders sallying out |
+| 4 | Working houses: doors, shutters, glazing, furnished rooms, townsfolk's days, burning and rebuilding | Done (version 6). Left: one flaky morning check in `houses.py` |
+| 5 | Reactive land: felling and regrowing trees, cut grass, grass and tree fire, craters | Done (version 6). Left: save the nature state, an axe model, loot following craters |
+| 6 | Weather on everything and gear wear: wet, snow, drying, lightning strikes, durability, blood, mud, repair, washing | Done (version 6). Left: ground under tree crowns gets wet, beasts' own wetness |
+| 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: tune so more campaigns end by claims than by renown; hallow raids rarely succeed |
+| 8 | Visual pass on existing models and shaders | Next |
+| 9 | Realm gifts (passives and a realm ultimate) | Planned |
+| 10 | Music, aurora, siege engines (and the war AI using breaches) | Planned |
 
 ## History
 
@@ -211,3 +238,11 @@ The harness lives in `tools/`:
 - **Version 5:**
   - Loot in six grades that changes how you look, plus merchants and potions.
   - The Barrow: a dungeon with packs of the dead, a fire gallery, the warden's gate, and the Hollow King with his tomb-raising fight and hoard.
+- **Version 6:**
+  - Level 50: the frontier, the Barrow and the dragon scale with the player; borderland camps with named champions; eight new abilities with real motion and effects; ability ranks.
+  - Lore and onboarding: the prologue, the Chronicle, the path with rewards, field notes and tips.
+  - Working castles: hinged gates, stairs, wall walks, parapets, garrison routes, breaches and repairs, banners that stay clear of walls.
+  - Working houses: doors, shutters, glazing, furnished rooms, townsfolk's days, houses that burn and are rebuilt.
+  - The reactive land: trees that are felled and regrow, cut grass, grass and tree fires, craters.
+  - Weather on everything: wet, snow, drying and melting, lightning on tall things. Gear wear: durability, blood, mud, repair and washing.
+  - The war: announced orders with reasons, routes on the maps, player command of warbands, campaigns that are won and reset.

@@ -556,7 +556,7 @@ function campaignHudHTML() {
     body = top.length ? top.map((c) => {
       const R = REALMS[c.r];
       return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on ? fmtClock(c.left) : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`;
-    }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60}</div>`;
+    }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60} min</div>`;
   }
   return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}</div>`;
 }
