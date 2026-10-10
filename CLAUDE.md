@@ -344,7 +344,7 @@ The harness lives in `tools/`:
 | 20 | Animals: taming, pets, livestock, breeding | Done (version 8) |
 | 21 | Building: placed structures | Done (version 8). Left: NPCs using built doors, more roof shapes (hips, lean-tos) |
 | 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | In progress (version 9 branches) |
-| 23 | Phones and performance: `perf.py` measuring, terrain and tree level of detail, far rocks, glass and soil, grass by quality, stale grass removed, phones start at low, far work at a lower rate, the HUD's layout pass on every screen, 40 px touch targets, names not through walls, `hud_layout.py` and `touch_flows.py` | Done (`feature/phones`). Left: a third, cheaper human model for big battles far off; merging built pieces per building (few are built yet) |
+| 23 | Phones and performance: `perf.py` measuring, terrain and tree level of detail, far rocks, glass and soil, grass by quality, stale grass removed, phones start at low, far work at a lower rate, the HUD's layout pass on every screen, 40 px touch targets, names not through walls, `hud_layout.py` and `touch_flows.py` | Done (`feature/phones`). Left: merging built pieces per building (few are built yet); the forest view at low was last measured at 774 k triangles and 174 calls (over budget) before its last tree change; `touch_flows.py`'s building step does not find a place the piece may go, and its companion, taming and war-table steps were last run before the test closed what earlier steps left open |
 
 ## History
 
