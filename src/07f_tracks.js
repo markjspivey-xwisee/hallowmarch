@@ -263,17 +263,17 @@ const driftMat = mat({
     ${GLSL_ATMOS}
     ${GLSL_SHADOW}
     ${GLSL_WEATHER}
+    ${GLSL_LIGHT}
     varying vec3 vW; varying vec3 vN; varying float vU; varying float vK;
     void main(){
       if (vK < 0.03) discard;
       if (vU > 0.72 && bayer4(gl_FragCoord.xy) > (1.0 - vU) / 0.28) discard; // the toe feathers into the snow on the ground
       vec3 n = safeNormalize(vN + vec3(vnoise(vW.xz * 3.0) - 0.5, 0.0, vnoise(vW.xz * 3.0 + 7.0) - 0.5) * 0.25);
-      float sh = shadowAt(vW, n);
+      gSh = shadowAt(vW, n);
       vec3 V = safeNormalize(cameraPosition - vW);
-      vec3 alb = snowAlbedo(vW);
-      float ndl = clamp(dot(n, uLightDir) * 0.6 + 0.4, 0.0, 1.0);
-      vec3 col = alb * (uAmbient * vec3(0.78, 0.84, 1.0) * 0.85 + uLightColor * 0.75 * ndl * mix(0.3, 1.0, sh));
-      col += snowSparkle(vW, V, sh) * uLightColor;
+      // lit as the snow on the ground is (03_terrain.js), so the drift and the snow it rises from are one
+      vec3 col = lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0);
+      col += snowSparkle(vW, V, gSh) * uLightColor * 0.5;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
 });
