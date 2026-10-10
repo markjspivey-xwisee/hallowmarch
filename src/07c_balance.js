@@ -511,8 +511,11 @@ function botPriest(e, t) {
   const broke = GAME.t - (B.cutAt || -99) < 3;
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
-  // a blade in reach breaks spells (a mace above all) and sets them back: steady yourself before you cast
-  const blade = !!t && !t.rangedKind && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  // a blade in reach breaks spells (a mace above all) and sets them back: with power to spare, steady yourself before
+  // you cast; short of it (below 20 power runs short in a long fight), cast between its blows and renew only once a
+  // spell has been cut
+  const rich = pw > 0.5;
+  const blade = rich && !!t && !t.rangedKind && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
   const castOk = steady || busy || (!broke && !blade);
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
@@ -523,7 +526,7 @@ function botPriest(e, t) {
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
-  if (hpF < (castOk ? (many ? 0.72 : 0.65) : 0.35) && botUse(e, 'mend', e)) return true;
+  if (hpF < (castOk ? (many ? 0.72 : rich ? 0.65 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -534,7 +537,7 @@ function botPriest(e, t) {
   // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < (many ? 0.82 : 0.72) && botUse(e, 'mend', e)) return true;
+  if (castOk && hpF < (many ? 0.82 : rich ? 0.72 : 0.66) && botUse(e, 'mend', e)) return true;
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race
