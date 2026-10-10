@@ -171,19 +171,19 @@ async def main():
             const S = A.anMarkSpot(); o.markOk = !A.penSiteOk(S.x, S.z, S.yaw, S.hw, S.hd);
             const own = A.anMarkConfirm(); o.built = !!own && own.owner === 'player';
             if (own) {
-              A.anCommand(ewe, 'pen', own); for (let i = 0; i < 16 && !A.penHas(own, ewe.x, ewe.z); i++) H.simulate(5); o.eweIn = A.penHas(own, ewe.x, ewe.z);
+              A.anCommand(ewe, 'pen', own); o.eweFrom = Math.round(Math.hypot(ewe.x - own.x, ewe.z - own.z)); let i = 0; for (; i < 24 && !A.penHas(own, ewe.x, ewe.z); i++) H.simulate(5); o.eweT = i * 5; o.eweAt = Math.round(Math.hypot(ewe.x - own.x, ewe.z - own.z)); o.eweIn = A.penHas(own, ewe.x, ewe.z);
               o.colliders = own.colliders.length;
             }
           }
           return o; })()""")
         print('livestock', json.dumps(r))
-        check(r['gold'] == 500 - 25 - 45 - 12 and r['n'] == 4, 'stock is bought at the herder\\'s board')
+        check(r['gold'] == 500 - 25 - 45 - 12 and r['n'] == 4, "stock is bought at the herder's board")
         check(r['inPen'] == r['n'], 'the bought stock stays in the common')
         check(r['wool'] >= 1 and r['milk'] >= 1 and r['eggs'] >= 2, f'over time: a full fleece, milk, eggs ({r["eggs"]})')
         check(r['gotWool'] >= 2 and r['gotMilk'] >= 1 and r['shorn'] == 'sheepShorn', 'shearing gives wool (and a shorn sheep), milking gives milk')
         check(r['manure'] > 1, 'manure builds up in the pen')
         check(r.get('built') and r.get('colliders', 0) >= 8, 'a paddock of your own, fenced, with a trough, rack and shed')
-        check(r.get('eweIn'), 'sent to the paddock, the ewe walks in through the gate')
+        check(r.get('eweIn'), f'sent to the paddock, the ewe walks in through the gate ({r.get("eweFrom")} m in {r.get("eweT")} s)')
 
         # ---- breeding over two generations ----
         r = await page.evaluate("""(() => { const { H, A, F } = __an; const o = {}; const P = __an.P();

@@ -11,13 +11,13 @@
 // and content, have young that grow up, with traits (coat, pattern, size, temperament, yield, speed, strength)
 // inherited with variation; an animal card shows them and the parentage. Everything is saved with the character.
 const AKIND = {
-  hound: { label: 'hound', young: 'pup', m: 'dog', f: 'bitch', likes: ['meat_raw', 'meat_cooked', 'fish_raw'], grow: 600, gest: 300, litter: [2, 3], scale: 0.95, radius: 0.5, speed: 7.6, crowd: 'hound', mob: 'wolf', fights: true, pet: true, need: 4, from: 'wolf', hp: 1, food: 0.004, voice: 'bark' },
-  pig: { label: 'pig', young: 'piglet', m: 'boar', f: 'sow', likes: ['apple', 'grain', 'turnip', 'cabbage', 'berries', 'mushrooms'], grow: 480, gest: 300, litter: [2, 4], scale: 1.0, radius: 0.55, speed: 5.4, crowd: 'pig', pet: true, need: 3, from: 'boar', food: 0.004, voice: 'grunt' },
-  horse: { label: 'horse', young: 'foal', m: 'stallion', f: 'mare', likes: ['apple', 'grain', 'turnip'], grow: 900, gest: 480, litter: [1, 1], scale: 1.0, radius: 0.8, speed: 8.5, crowd: 'horseTack', wildCrowd: 'horseWild', pet: true, mount: true, need: 4, from: 'horse', food: 0.003, voice: 'whinny' },
-  deer: { label: 'deer', young: 'fawn', m: 'stag', f: 'hind', likes: ['apple', 'berries', 'grain'], grow: 600, gest: 420, litter: [1, 1], scale: 0.9, radius: 0.4, speed: 8.5, crowd: 'deer', pet: true, need: 3, from: 'deer', food: 0.003, voice: null },
-  sheep: { label: 'sheep', young: 'lamb', m: 'ram', f: 'ewe', likes: ['grain', 'apple', 'turnip', 'cabbage'], grow: 600, gest: 360, litter: [1, 2], scale: 1.0, radius: 0.45, speed: 4.6, crowd: 'sheep', live: true, product: 'wool', price: [30, 25], food: 0.003, voice: 'bleat' },
-  cattle: { label: 'cattle', young: 'calf', m: 'bull', f: 'cow', likes: ['grain', 'turnip', 'cabbage', 'apple'], grow: 900, gest: 480, litter: [1, 1], scale: 1.0, radius: 0.75, speed: 4.2, crowd: 'cattle', live: true, product: 'milk', price: [55, 45], food: 0.003, voice: 'moo' },
-  hen: { label: 'hen', young: 'chick', m: 'cockerel', f: 'hen', likes: ['grain', 'berries', 'seed_grain'], grow: 360, gest: 240, litter: [2, 4], scale: 1.0, radius: 0.2, speed: 3.4, crowd: 'hen', live: true, product: 'egg', price: [8, 6], food: 0.004, voice: 'cluck' },
+  hound: { label: 'hound', young: 'pup', m: 'dog', f: 'bitch', likes: ['meat_raw', 'meat_cooked', 'fish_raw'], grow: 600, gest: 300, litter: [2, 3], scale: 0.95, radius: 0.5, speed: 7.6, crowd: 'hound', mob: 'wolf', fights: true, pet: true, need: 4, from: 'wolf', hp: 1, food: 0.0011, voice: 'bark' },
+  pig: { label: 'pig', young: 'piglet', m: 'boar', f: 'sow', likes: ['apple', 'grain', 'turnip', 'cabbage', 'berries', 'mushrooms'], grow: 480, gest: 300, litter: [2, 4], scale: 1.0, radius: 0.55, speed: 5.4, crowd: 'pig', pet: true, need: 3, from: 'boar', food: 0.0012, voice: 'grunt' },
+  horse: { label: 'horse', young: 'foal', m: 'stallion', f: 'mare', likes: ['apple', 'grain', 'turnip'], grow: 900, gest: 480, litter: [1, 1], scale: 1.0, radius: 0.8, speed: 8.5, crowd: 'horseTack', wildCrowd: 'horseWild', pet: true, mount: true, need: 4, from: 'horse', food: 0.001, voice: 'whinny' },
+  deer: { label: 'deer', young: 'fawn', m: 'stag', f: 'hind', likes: ['apple', 'berries', 'grain'], grow: 600, gest: 420, litter: [1, 1], scale: 0.9, radius: 0.4, speed: 8.5, crowd: 'deer', pet: true, need: 3, from: 'deer', food: 0.001, voice: null },
+  sheep: { label: 'sheep', young: 'lamb', m: 'ram', f: 'ewe', likes: ['grain', 'apple', 'turnip', 'cabbage'], grow: 600, gest: 360, litter: [1, 2], scale: 1.0, radius: 0.45, speed: 4.6, crowd: 'sheep', live: true, product: 'wool', price: [30, 25], food: 0.0016, voice: 'bleat' },
+  cattle: { label: 'cattle', young: 'calf', m: 'bull', f: 'cow', likes: ['grain', 'turnip', 'cabbage', 'apple'], grow: 900, gest: 480, litter: [1, 1], scale: 1.0, radius: 0.75, speed: 4.2, crowd: 'cattle', live: true, product: 'milk', price: [55, 45], food: 0.0016, voice: 'moo' },
+  hen: { label: 'hen', young: 'chick', m: 'cockerel', f: 'hen', likes: ['grain', 'berries', 'seed_grain'], grow: 360, gest: 240, litter: [2, 4], scale: 1.0, radius: 0.2, speed: 3.4, crowd: 'hen', live: true, product: 'egg', price: [8, 6], food: 0.002, voice: 'cluck' },
 };
 const ACOATS = {
   sheep: [[[0.9, 0.88, 0.82], [0.13, 0.11, 0.1]], [[0.86, 0.8, 0.68], [0.86, 0.82, 0.74]], [[0.58, 0.56, 0.53], [0.15, 0.13, 0.12]], [[0.16, 0.14, 0.13], [0.2, 0.17, 0.15]], [[0.47, 0.35, 0.25], [0.3, 0.22, 0.16]]],
@@ -130,7 +130,8 @@ function anStats(e) {
   const g = anGrowth(rec);
   if (e.mobType) {
     e.level = clamp((P ? P.level : 1) - 2 + Math.min(4, Math.floor((rec.lvl - 1) / 2)), 1, LEVEL_CAP);
-    e.tweak = { hp: (0.85 + 0.06 * (rec.lvl - 1)) * rec.tr.size * (0.4 + 0.6 * g), dmg: (0.8 + 0.05 * (rec.lvl - 1)) * rec.tr.strength * (0.3 + 0.7 * g) };
+    // a hungry hound fights weaker
+    e.tweak = { hp: (0.85 + 0.06 * (rec.lvl - 1)) * rec.tr.size * (0.4 + 0.6 * g), dmg: (0.8 + 0.05 * (rec.lvl - 1)) * rec.tr.strength * (0.3 + 0.7 * g) * (rec.hunger < 0.15 ? 0.7 : 1) };
     setupStats(e, true);
   } else {
     const hp = { pig: 220, horse: 400, deer: 160, sheep: 140, cattle: 380, hen: 30 }[rec.k] || 150;
@@ -485,25 +486,75 @@ function anSlot(e, i) {
   }
   return { x: P.x - Math.sin(P.yaw) * 2, z: P.z - Math.cos(P.yaw) * 2 };
 }
+// a straight way that crosses no paddock fence (except through a gate) and no wall: segmentClear samples every
+// metre and a half and can step over a thin fence, so the pens are clipped exactly (Liang-Barsky in each pen's frame)
+function anClip(A, B, hw, hd) {
+  const dx = B.x - A.x, dz = B.z - A.z;
+  let t0 = 0, t1 = 1;
+  for (const [pp, q] of [[-dx, A.x + hw], [dx, hw - A.x], [-dz, A.z + hd], [dz, hd - A.z]]) {
+    if (Math.abs(pp) < 1e-9) { if (q < 0) return null; continue; }
+    const t = q / pp;
+    if (pp < 0) { if (t > t1) return null; if (t > t0) t0 = t; } else { if (t < t0) return null; if (t < t1) t1 = t; }
+  }
+  return [t0, t1];
+}
+function anSegClear(ax, az, bx, bz) {
+  ANIMALS.blockPen = null;
+  for (const pn of ANIMALS.pens) {
+    const r = Math.hypot(pn.hw, pn.hd) + 1;
+    if (Math.min(ax, bx) > pn.x + r || Math.max(ax, bx) < pn.x - r || Math.min(az, bz) > pn.z + r || Math.max(az, bz) < pn.z - r) continue;
+    const A = penLocal(pn, ax, az), B = penLocal(pn, bx, bz);
+    const iA = Math.abs(A.x) < pn.hw && Math.abs(A.z) < pn.hd, iB = Math.abs(B.x) < pn.hw && Math.abs(B.z) < pn.hd;
+    if (iA && iB) continue; // within the one pen
+    if (iA !== iB) {
+      // in or out once: only through the gate, in the middle of the front side
+      const c = anClip(A, B, pn.hw, pn.hd);
+      if (!c) continue;
+      const t = iA ? c[1] : c[0], cx = A.x + (B.x - A.x) * t, cz = A.z + (B.z - A.z) * t;
+      if (!(Math.abs(cx) < 1.0 && cz > pn.hd - 0.05)) { ANIMALS.blockPen = pn; return false; }
+      continue;
+    }
+    // both outside: not across it (a little short of each corner, so the way round a corner counts as clear)
+    if (anClip(A, B, pn.hw, pn.hd)) { ANIMALS.blockPen = pn; return false; }
+  }
+  return segmentClear(ax, az, bx, bz, 0.3, false);
+}
 // walk toward (tx, tz): straight when the way is clear, otherwise along the player's trail
 function anGoTo(e, tx, tz, dt, mul, stop, useTrail) {
   const ai = e.ai;
-  if (GAME.t > (ai.wpT || 0)) {
+  // a detour once chosen is kept until it is reached (or a few seconds pass), so the way round does not flicker
+  if (GAME.t > (ai.wpT || 0) && !(ai.wp && ai.wp.side && GAME.t < ai.wp.until)) {
     ai.wpT = GAME.t + 0.35 + Math.random() * 0.2;
     ai.wp = null;
-    if (!segmentClear(e.x, e.z, tx, tz, 0.3, false)) {
+    if (!anSegClear(e.x, e.z, tx, tz)) {
+      const block = ANIMALS.blockPen;
       if (useTrail) {
         const T = ANIMALS.trail;
         for (let i = T.length - 1; i >= Math.max(0, T.length - 60); i--) {
           const p = T[i];
           if (dist2(p.x, p.z, e.x, e.z) > 40 * 40) continue;
-          if (segmentClear(e.x, e.z, p.x, p.z, 0.3, false)) { ai.wp = p; break; }
+          if (anSegClear(e.x, e.z, p.x, p.z)) { ai.wp = p; break; }
         }
       }
       if (!ai.wp) {
-        // try round the obstacle: a step to either side
-        const a = Math.atan2(tx - e.x, tz - e.z);
-        for (const da of [0.9, -0.9, 1.6, -1.6]) { const x = e.x + Math.sin(a + da) * 3, z = e.z + Math.cos(a + da) * 3; if (isWalkable(x, z) && segmentClear(e.x, e.z, x, z, 0.3, false)) { ai.wp = { x, z, side: true }; break; } }
+        // round the obstacle: steps to either side, and the corners of any paddock in the way; the reachable one that
+        // leaves the shortest way on wins
+        const a = Math.atan2(tx - e.x, tz - e.z), cands = [];
+        // a paddock in the way: round it by its corners; anything else: a step to either side
+        if (block) { for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const c = penWorld(block, sx * (block.hw + 1.6), sz * (block.hd + 1.6)); if (dist2(c.x, c.z, e.x, e.z) > 1.2) cands.push(c); } }
+        else for (const da of [0.6, -0.6, 1.2, -1.2, 1.9, -1.9]) for (const r of [3, 7]) cands.push({ x: e.x + Math.sin(a + da) * r, z: e.z + Math.cos(a + da) * r });
+        let best = null, bs = Infinity;
+        for (const c of cands) {
+          const sc = dist(e.x, e.z, c.x, c.z) + dist(c.x, c.z, tx, tz) + (ai.lastWp && dist2(c.x, c.z, ai.lastWp.x, ai.lastWp.z) < 1 ? 6 : 0);
+          if (sc >= bs || !isWalkable(c.x, c.z) || !useTrail && ANIMALS.pens.some((pn) => penHas(pn, c.x, c.z, -0.6) && !penHas(pn, tx, tz, -0.6)) || !anSegClear(e.x, e.z, c.x, c.z)) continue;
+          bs = sc; best = c;
+        }
+        if (!best && block) {
+          // pressed against the paddock: first a step straight out from its nearest side
+          const l = penLocal(block, e.x, e.z), byX = Math.abs(l.x) / block.hw > Math.abs(l.z) / block.hd;
+          best = penWorld(block, byX ? l.x + Math.sign(l.x) * 2 : l.x, byX ? l.z : l.z + Math.sign(l.z) * 2);
+        }
+        if (best) { ai.wp = { x: best.x, z: best.z, side: true, until: GAME.t + 3 + dist(e.x, e.z, best.x, best.z) / Math.max(1, effectiveSpeed(e) * mul) }; ai.lastWp = best; }
       }
     }
   }
@@ -593,11 +644,14 @@ function anGrazeAbout(e, dt, hx, hz, hr, pen) {
 }
 // an animal inside a pen it should leave (sent elsewhere, or following you) goes out by the gate, which opens for it
 function anLeavePen(e, dt, mul, keep = null) {
-  const pen = ANIMALS.pens.find((p) => p !== keep && penHas(p, e.x, e.z, -0.2));
-  if (!pen) return false;
+  const ai = e.ai;
+  // still on the way out until clear of the gate
+  const pen = ANIMALS.pens.find((p) => p !== keep && (penHas(p, e.x, e.z, -0.2) || ai.leaving === p.id && penHas(p, e.x, e.z, -1.4)));
+  if (!pen) { ai.leaving = null; return false; }
+  ai.leaving = pen.id;
   const l = penLocal(pen, e.x, e.z);
   pen.gateWant = GAME.t + 2.5;
-  if (Math.abs(l.x) < 1.2 && l.z > pen.hd - 2.2) moveToward(e, pen.gateOut.x, pen.gateOut.z, dt, mul, 0.3);
+  if (Math.abs(l.x) < 1.2 && l.z > pen.hd - 2.2) { if (moveToward(e, pen.gateOut.x, pen.gateOut.z, dt, mul, 0.35)) { ai.leaving = null; return false; } }
   else anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, mul, 0.5, false);
   return true;
 }
@@ -762,6 +816,12 @@ function anClock(e, dt) {
     if (!K.fights && rec.k !== 'hound' && sampleGrid(W.grass, e.x, e.z) > 0.4) rec.hunger = Math.min(1, rec.hunger + dt * 0.004);
   }
   if (rec.owner === 'town') { rec.hunger = Math.max(rec.hunger, 0.55); rec.thirst = Math.max(rec.thirst, 0.55); }
+  const hungry = rec.hunger < 0.15;
+  if (hungry !== !!rec._hungry) {
+    rec._hungry = hungry;
+    if (K.fights) anStats(e);
+    if (hungry && rec.owner === 'player' && !K.live) uiLog(`${rec.name} is hungry. Feed it from its card (E beside it).`, 'warn');
+  }
   // contentment: fed, watered, dry and warm, healthy, not crowded
   const pen = penById(rec.pen);
   let crowd = 0;
