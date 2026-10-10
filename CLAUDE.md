@@ -123,6 +123,7 @@ The harness lives in `tools/`:
 | `05h_wear.js` | Weather on bodies (`e.wet`, `e.snow`, `e.dirt`, `e.blood`, `e.batter`; shelter from roofs and tree crowns, heat from fires); gear wear (`it.dur` 0–100, `it.dirt`, `it.blood`; `wearOnHit`, `repairAll`, `washGear` at wells, troughs and lakes); lightning on tall things near the player (`strikeNear`, `strikeAt`); drying and melting rates; `wearVisual` packs the actor shader's `iWear` |
 | `06_data.js` | Classes, abilities, monsters, names, progression (`LEVEL_CAP`), realm ranks |
 | `06b_items.js` | Item quality, slots, generation, stats, how gear looks |
+| `06d_goods.js` | Goods: everything carried that is not gear (materials, food, drink, seeds, herbs, tools, building parts), kept by count in `INV.goods`, listed in the bags, dropped and picked up like loot, saved with the character. The shared catalogue of ids every system uses (`log`, `plank`, `stone`, `iron`, `hide`, `wool`, `meat_raw`, `bread`, `water`, `herb_*`, `seed_*`, `tool_*` …). Save parts: `registerSavePart('char' or 'world', key, { save, load, key })` |
 | `06c_gifts.js` | Realm gifts: two passives per realm unlocked by realm rank (Logres Steadfast Lines and Unbroken, Ériu Wood-wise and Rain-blest, Thule Cold-blooded and Wound-fury) and a realm ultimate at realm rank 5 or level 30 (the Raised Standard, the Grey Hunt, the Iron Winter) on key 9, the round gift button and the phone pad; champions (keep lords, warband leaders) call it in big fights; the Chronicle's gifts page. Hooks: `dealDamage` asks `giftHarmMult`, `addBuff` asks `giftBuffAdjust`, `effectiveSpeed` asks `giftSpeedMult`; `buildHotbar` calls `giftHotbar`, `simStep` `updateGifts`, `tick` `drawGifts`, `startGame` `giftsOnStart` |
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
 | `08_ai.js` | Monsters, garrisons, warbands, realm commanders, relics; `WAR` state |
@@ -133,7 +134,8 @@ The harness lives in `tools/`:
 | `08g_campaign.js` | The campaign: commanders' plans with announced reasons (`planWar`, `announceOrder`), routes and order badges on the maps and nameplates, player orders to warbands from the map, claims (4 of 6 keeps for 5 min, or both enemy hallows for 4 min), renown, the long-war rules, victory, peace and reset, campaign history in the world save |
 | `09_player.js` | Input, camera, movement, targeting, interaction |
 | `09b_mount.js` | Horses |
-| `09c_loot.js` | Inventory, drops, merchants, potions |
+| `09c_loot.js` | Inventory, drops, merchants, potions; dropped goods go into the packs by count |
+| `09d_brand.js` | Fire for everyone: take a burning brand from any fire (E), it is held up in the left hand (the torch bit, `WB.torch`), lights the way, sets roofs, trees and long grass alight (E), sets struck foes alight; water and rain put it out. `natureFireAim`: fire spells with nothing targeted aim at the tree or grass in front |
 | `10_ui.js` | Title, HUD, maps, menus, nameplates, log, help |
 | `10b_kit.js` | Equipment, bags and shop screen |
 | `10c_lore.js` | Lore and onboarding: the prologue, the Chronicle menu tab, the path tracker and its rewards, field notes, loading tips. It makes its own styles and markup; `startGame` calls `loreOnStart`, `tick` calls `updateLore`, saves carry `char.lore` |
@@ -225,6 +227,7 @@ The harness lives in `tools/`:
 **Saves**
 - Old saves must always keep loading.
 - When you add fields, default them in `startGame` / `validSave` and include them in `coreKey`.
+- New systems keep their state in save parts (`registerSavePart`, 06d_goods.js): `s.char.x[key]` with the character, `s.world.x[key]` with the world; `load` gets `undefined` for an older save and must sanitise whatever it reads; `key` says what counts as a change worth writing.
 - `coreKey` counts the land by what changed in it (`landKey`: felled trees, logs, craters, tiles, piles, house and wall states), never by its clocks, so regrowth alone does not cause writes. `char.gift` holds the realm ultimate's cooldown and is no reason to write either.
 - A busy land (four trees down, a grass fire, five craters, three houses and three walls changed) adds about 10 KB; an untouched world adds 7 bytes.
 

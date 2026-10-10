@@ -329,6 +329,12 @@
   @media (prefers-reduced-motion: reduce) {
     .banner, .slot.flash { animation-duration: 0.01s !important; }
   }
+  /* goods (06d_goods.js) */
+  .goodslist { display: grid; gap: 10px; margin-top: 4px; }
+  .goodsgrp h4 { margin: 0 0 4px; font: 400 11px/1 var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bronze-hi); opacity: 0.85; }
+  .goodrow { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
+  .goodrow .nm { font-size: 13px; line-height: 1.2; } .goodrow .nm small { display: block; opacity: 0.6; font-size: 11px; }
+  .goodrow .ct { font: 600 13px/1 var(--ui); opacity: 0.9; } .goodrow .btn { padding: 4px 8px; font-size: 12px; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
