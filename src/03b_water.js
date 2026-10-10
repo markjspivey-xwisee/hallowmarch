@@ -51,7 +51,7 @@ const waterMat = mat({
          (the light bends up through it, and the sun blazes in it); outside it the surface is a silver mirror of the
          depths; ripples break both up; winter ice is a dim, milky ceiling with light only at the holes ---- */
       if (!gl_FrontFacing) {
-        if (uUnder.x < 0.5) discard;
+        if (uUnder.x < 0.5 || depth < 0.08) discard; // (at the waterline the bank is there: no flicker against it)
         float tU = uTime;
         vec2 gU = waveGrad(vW.xz * 0.45, tU) * 1.3;
         if (length(vF.xy) > 0.04) gU += waveGrad(vW.xz * 0.62 - vF.xy * tU * 0.5, tU * 0.45) * 0.8;

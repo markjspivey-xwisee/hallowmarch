@@ -236,7 +236,7 @@ function trkRuts(e) {
 /* ------------------------------------------------------------------ */
 /* drifts against walls, houses and fences                              */
 /* ------------------------------------------------------------------ */
-const DRIFT_TAGS = new Set(['wall', 'house', 'hdoor', 'fence', 'stone', 'gate']);
+const DRIFT_TAGS = new Set(['wall', 'house', 'fence', 'stone']); // not doors or gates: they swing through where a drift would lie
 const driftMat = mat({
   vertexShader: /* glsl */`
     ${GLSL_COMMON}
