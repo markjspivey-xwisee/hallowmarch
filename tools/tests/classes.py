@@ -100,6 +100,9 @@ window.CB = {
       const rk = this.F.rankMult(lvl), gq = lvl < 20 ? 1 : lvl < 40 ? 1.08 : 1.16;
       m.tweak = { hp: rk * gq, dmg: rk * gq }; this.F.setupStats(m);
       m.balance = true; m.threat = new Map([[target.id, 5]]); m.target = target.id; m.ai.pulled = true;
+      // [balance2] the pack's home is the arena, so it does not give up the chase (a mob 42 m from home goes back) when
+      // the fighter tumbles or kites to the arena's far side: it measured leashing, not survival, for archers
+      if (target.bot && target.bot.home) m.home = { x: target.bot.home.x, z: target.bot.home.z, r: 2.5 };
       out.push(m);
     }
     return out;

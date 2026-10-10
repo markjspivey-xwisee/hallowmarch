@@ -460,6 +460,7 @@ function classOnHit(src, dst, dmg, opts) {
   const t = nowT();
   if (dst.cs && dst.cs.hidden && !opts.dot) breakHiding(dst, 3);
   if (dst.cs && dst.cs.praying && !opts.dot) stopPrayer(dst);
+  if (dst.casting && opts.kind === 'melee' && !opts.dot) castPushback(dst); // [balance2] a blow in the middle of a spell sets it back (07c_balance.js)
   if (!src.cls) return;
   const cs = csOf(src);
   // an archer finds arrows worth keeping on the fallen
@@ -541,7 +542,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2.5, 'charge'); chargeFree(e, 2.5); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2.5 s (07c_balance.js)
+  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
@@ -585,7 +586,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.15 * att / 100; // [balance2] 0.22
+  const emp = 1 + 0.18 * att / 100; // [balance2] 0.22
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }

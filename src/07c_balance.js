@@ -304,7 +304,10 @@ function botReflex(e, t, dt) {
       // through, three fifths of a spell's), and down again as soon as it has landed
       if (!swing && !cs.blockOn) {
         const shot = botIncoming(e, 0.42);
-        if (shot && shot.src && botFoes(e, 3.2) === 0) { hold(true); if (!P) faceToward(e, shot.src.x, shot.src.z); B.blockUntil = now + shot.eta + 0.12; BAL.stats.shieldShots = (BAL.stats.shieldShots || 0) + 1; }
+        // a skilled hand gets the shield up in time for most shots, not all (one roll for each shot)
+        const seen = B.shots || (B.shots = new WeakSet());
+        const caught = shot && shot.p && !seen.has(shot.p) ? (seen.add(shot.p), Math.random() < 0.7) : false;
+        if (shot && caught && shot.src && botFoes(e, 3.2) === 0) { hold(true); if (!P) faceToward(e, shot.src.x, shot.src.z); B.blockUntil = now + shot.eta + 0.12; BAL.stats.shieldShots = (BAL.stats.shieldShots || 0) + 1; }
       }
     }
     return;
@@ -336,12 +339,12 @@ function botIncoming(e, within) {
   for (const p of PROJ) {
     if (p.visualOnly || p.tgt !== e.id || p.srcFaction === e.faction) continue;
     const d = Math.hypot(e.x - p.x, e.y + 1.1 - p.y, e.z - p.z), eta = d / (p.speed || 24);
-    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(p.src), eta };
+    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(p.src), eta, p };
   }
   for (const A of CLS.arrows) {
     if (A.dead || A.tgt !== e.id || A.faction === e.faction) continue;
     const d = Math.hypot(e.x - A.x, e.z - A.z), v = Math.hypot(A.vx || 0, A.vz || 0) || 40, eta = d / v;
-    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(A.src), eta };
+    if (eta < within && (!best || eta < best.eta)) best = { src: getEnt(A.src), eta, p: A };
   }
   return best;
 }
@@ -500,12 +503,10 @@ function botPriest(e, t) {
   // foe who has just broken a spell (blunt arrows, a storm, a mace): instants then, and long casts only when the foe
   // is busy or held, or the need is dire
   const pw = e.power / Math.max(1, e.maxPower);
-  const broke = GAME.t - (B.cutAt || -99) < 5;
+  const broke = GAME.t - (B.cutAt || -99) < 3;
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
-  // a mace breaks spells: cast between its blows (the next swing comes after the cast lands), or steadfast
-  const maceNear = !!t && !t.rangedKind && weaponStyle(t) === 'mace' && dist(e.x, e.z, t.x, t.z) < t.meleeRange + e.radius + 1.2 && t.swingAt - GAME.t < 1.45;
-  const castOk = (!broke || busy || steady) && (!maceNear || steady);
+  const castOk = !broke || busy || steady;
   // shields and instants first
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
@@ -546,15 +547,23 @@ function priestSteadfast(e) {
   addBuff(e, 'steadfast', 1, 4, 'steadfast');
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
 }
-// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by half for 3 s, so a pack does not
+// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by 40% for 2.5 s, so a pack does not
 // land on the archer the moment it lands
 function tumbleSlow(e) {
-  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.5, 3, e.id); });
+  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.4, 2.5, e.id); });
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 14);
 }
 // [balance2] a warrior's Charge: no root or slow takes hold for a moment after it (the warrior's answer to being kited)
 function chargeFree(e, dur) {
   for (const cat of ['root', 'snare']) { const s = ccState(e, cat); s.immune = Math.max(s.immune, GAME.t + dur); s.until = Math.max(s.until, s.immune); }
+}
+// [balance2] a blow landing in the middle of a spell sets it back 0.35 s, twice at most for one cast (not a steadfast
+// priest's): a caster pressed in melee casts slower, so blades and beasts matter to a healer or a mage
+function castPushback(e) {
+  const c = e.casting;
+  if (!c || c.custom || hasBuff(e, 'steadfast') || (c.pushed || 0) >= 2) return;
+  c.pushed = (c.pushed || 0) + 1;
+  c.t = Math.max(0, c.t - 0.35);
 }
 // a spell broken by a blow or an arrow, unless the caster stands steadfast; true when it broke
 function breakCast(e) {
@@ -686,5 +695,5 @@ setTimeout(() => {
     // the Hollow King back on his throne, whole, for a fresh fight (tests)
     kingFresh() { for (const id of BARROW_STATE.adds) { const o = getEnt(id); if (o) removeEnt(o); } BARROW_STATE.adds.clear(); if (BARROW_STATE.kingDead || !getEnt(BARROW_STATE.king)) spawnKing(); else resetKing(getEnt(BARROW_STATE.king)); return BARROW_STATE.king; },
     canUse, segmentClear, PROJ, // [v9] for the king probes
-    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, priestSelf, priestSteadfast, breakCast, botIncoming, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
+    BAL, CC_STEPS, CC_WIN, CC_IMMUNE, priestSelf, priestSteadfast, breakCast, castPushback, tumbleSlow, chargeFree, botIncoming, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
 }, 0);

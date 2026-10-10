@@ -42,7 +42,7 @@ const ABILITIES = {
   slash: { name: 'Slash', icon: 'sword', level: 1, cost: 8, cd: 4, range: 'melee', dmg: 1.75, anim: 1, desc: 'A fast, heavy cut. 175% weapon damage.' }, // [balance2] 1.6
   bash: { name: 'Shield Bash', icon: 'shield', level: 2, cost: 12, cd: 14, range: 'melee', dmg: 0.7, stun: 1.6, anim: 1, desc: 'Stuns the target for 1.6 seconds.' }, // [balance] 2.5 s
   cleave: { name: 'Cleave', icon: 'arc', level: 4, cost: 15, cd: 8, range: 'melee', arc: 4.5, dmg: 1.35, anim: 8, desc: 'Strikes every enemy in front of you. 135% weapon damage.' }, // [balance2] 1.2
-  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 12, range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root; for 2.5 s none takes hold of you.' }, // [balance] 16 s [balance2] and a moment free of them
+  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 12, range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root; for 2 s none takes hold of you.' }, // [balance] 16 s [balance2] and a moment free of them
   rally: { name: 'Rallying Cry', icon: 'horn', level: 11, cost: 20, cd: 40, self: true, healPct: 0.25, buff: { kind: 'dmg', value: 0.15, dur: 10 }, desc: 'Heal 25% and deal 15% more damage for 10 s.' },
   bulwark: { name: 'Bulwark', icon: 'tower', level: 15, cost: 15, cd: 40, self: true, buff: { kind: 'dr', value: 0.6, dur: 6 }, anim: 5, desc: 'Take 60% less damage for 6 seconds, and 1.5 s longer for each rank past the first.' }, // [balance2] cd 45; longer with rank (07c_balance.js)
 
@@ -50,7 +50,7 @@ const ABILITIES = {
   aimed: { name: 'Aimed Shot', icon: 'target', level: 2, cost: 12, cd: 7, range: 40, cast: 1.6, proj: 'arrow', dmg: 2.5, anim: 2, desc: 'A slow, careful shot. 250% damage, 40 m.' },
   cripple: { name: 'Crippling Arrow', icon: 'chain', level: 4, cost: 10, cd: 9, range: 32, proj: 'arrow', dmg: 0.8, snare: [0.5, 5], anim: 2, desc: 'Slows the target by 50% for 5 seconds.' }, // [balance] 12 s
   volley: { name: 'Volley', icon: 'rain', level: 7, cost: 22, cd: 16, range: 36, ground: true, radius: 5, waves: 3, dmg: 0.95, anim: 2, desc: 'Three waves of arrows around the target: 95% each, and every foe they fall on is slowed by 50% for 4 s.' }, // [balance] 80%, and it pins [balance2] 40% for 3 s
-  tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 9, /* [balance] 15 [balance2] 11 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows; the foes you leap from are slowed by 50% for 3 s.' }, // [balance2] the slow (07c_balance.js)
+  tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 9, /* [balance] 15 [balance2] 11 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows; the foes you leap from are slowed by 40% for 2.5 s.' }, // [balance2] the slow (07c_balance.js)
   pierce: { name: 'Piercing Shot', icon: 'pierce', level: 15, cost: 24, cd: 20, range: 40, cast: 1.2, line: true, dmg: 2.0, anim: 2, desc: 'An arrow that passes through every enemy in a line.' },
 
   firebolt: { name: 'Firebolt', icon: 'flame', level: 1, cost: 10, cd: 0, range: 34, cast: 1.5, proj: 'fire', dmg: 1.8, anim: 3, desc: 'Hurls fire. 180% damage.' }, // [balance2] 2.0
