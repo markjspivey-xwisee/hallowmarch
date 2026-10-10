@@ -22,7 +22,7 @@ window.TF = {
   H: window.__hm,
   P() { return this.H.GAME.player; },
   calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; },
-  stand(x, z, fx, fz) { const H = this.H, P = this.P(); H.teleport(x, z); P.yaw = Math.atan2(fx - x, fz - z); H.CAM.yaw = P.yaw; H.UI.modal = null; H.CAM.mode = 'play'; this.calm(); H.simulate(0.1); return 0; },
+  stand(x, z, fx, fz) { const H = this.H, P = this.P(); if (H.fn.closeDialog && !document.getElementById('dialog').hidden) H.fn.closeDialog(); for (const id of ['craft', 'mapov']) { const el = document.getElementById(id); if (el && !el.hidden && id === 'craft') H.surv.closeCraft(); } H.teleport(x, z); P.yaw = Math.atan2(fx - x, fz - z); H.CAM.yaw = P.yaw; H.UI.modal = null; H.CAM.mode = 'play'; this.calm(); H.simulate(0.1); return 0; },
   // a dry spot on the Logres river's bank, facing the water
   bank() {
     const W = this.H.water, Rv = W.RIVERS.find((r) => r.realm === 0) || W.RIVERS[0];
@@ -159,7 +159,7 @@ async def main():
             await tap(page, '#buildbar [data-b="done"]', 2)
 
         if want('companion'):
-            r = await page.evaluate("""(() => { const H = TF.H, A = H.animals, P = TF.P(); TF.calm(); if (!A.anCompanions().length) A.anSpawn(A.anRecord('hound', { owner: 'player', cmd: 'follow' }), P.x + 1.5, P.z + 1); return A.anCompanions().map((e) => e.tame.cmd); })()""")
+            r = await page.evaluate("""(() => { const H = TF.H, A = H.animals, P = TF.P(); TF.stand(P.x, P.z, P.x + 1, P.z); TF.calm(); if (!A.anCompanions().length) A.anSpawn(A.anRecord('hound', { owner: 'player', cmd: 'follow' }), P.x + 1.5, P.z + 1); return A.anCompanions().map((e) => e.tame.cmd); })()""")
             ok = await tap(page, '#petbar [data-cmd="stay"]', 3)
             c1 = await page.evaluate("__hm.animals.anCompanions().map((e) => e.tame.cmd)")
             ok2 = await tap(page, '#petbar [data-cmd="follow"]', 3)
@@ -191,7 +191,7 @@ async def main():
             check(ok and st['modal'] == 'map', f'war table: a tap on Use opens the map with command ({r["label"]}; {json.dumps(st)})')
             await page.evaluate("__hm.UI.modal === 'map' && __hm.fn.toggleMap(); __hm.UI.modal = null; 0")
             # names do not show through the hall's walls
-            nm = await page.evaluate("""(() => { const H = TF.H, F = H.fn, h = F.halls().find((q) => q.realm === 0); for (let i = 0; i < 4; i++) { H.simulate(0.1); H.frame(1/30); }
+            nm = await page.evaluate("""(() => { const H = TF.H, F = H.fn, h = F.halls().find((q) => q.realm === 0); if (F.setHouseDoor) F.setHouseDoor(h, false); for (let i = 0; i < 6; i++) { H.simulate(0.1); H.frame(1/30); }
               const shown = [...document.querySelectorAll('#nameplates .np')].filter((el) => el.style.display !== 'none').map((el) => el._txt);
               const outside = shown.filter((n) => { const e = H.ENT.find((q) => q.name === n && q.alive); return e && F.houseInside(e.x, e.z) !== h; });
               const near = H.ENT.filter((e) => e.alive && e.kind === 'humanoid' && e !== TF.P() && Math.hypot(e.x - h.x, e.z - h.z) < 30 && F.houseInside(e.x, e.z) !== h).length;
