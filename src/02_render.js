@@ -28,7 +28,7 @@ const MAX_POINT = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64;
 const QUALITY_PRESETS = {
   high: { dpr: 1.6, msaa: 4, grass: 1.0, flowers: 1.0, treeDist: 380, nearTrees: 42, bloom: 5, label: 'High' },
   medium: { dpr: 1.25, msaa: 2, grass: 0.62, flowers: 0.7, treeDist: 300, nearTrees: 28, bloom: 5, label: 'Medium' },
-  low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 230, nearTrees: 0, bloom: 4, label: 'Low' },
+  low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 200, nearTrees: 0, bloom: 4, label: 'Low' }, // [motion] treeDist 230 -> 200: the farthest chunks are lost in the fog at low
 };
 const quality = { level: IS_TOUCH ? 'medium' : 'high', ...QUALITY_PRESETS[IS_TOUCH ? 'medium' : 'high'] };
 

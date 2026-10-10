@@ -76,13 +76,20 @@ function dragonBurn(e, x, z, dx, dz, range, half, mult) {
     if (o === GAME.player) flashScreen([0.9, 0.35, 0.05], 0.25);
   }
 }
+// [motion] its airspeed eases toward what a state asks (no jump from hovering to full flight): 5 m/s each second
+function dragonSpeed(want, dt) {
+  const D = DRAGON;
+  if (!(D.spd >= 0)) D.spd = want;
+  D.spd += clamp(want - D.spd, -5 * dt, 5 * dt);
+  return D.spd;
+}
 // the dragon's think: called from the NPC loop
 function thinkDragon(e, dt) {
   const D = DRAGON, t = GAME.t;
   D.stateT += dt;
   const fwdX = Math.sin(e.yaw), fwdZ = Math.cos(e.yaw);
   if (D.state === 'fly') {
-    const C = D.circ, sp = 15;
+    const C = D.circ, sp = dragonSpeed(15, dt); // [motion]
     C.ang += C.dir * dt * sp / C.r;
     const nx = Math.sin(C.ang) * C.r, nz = Math.cos(C.ang) * C.r;
     e.yaw = Math.atan2(nx - e.x, nz - e.z);
@@ -97,7 +104,7 @@ function thinkDragon(e, dt) {
     const P = D.perch;
     const dx = P.x - e.x, dz = P.z - e.z, d = Math.hypot(dx, dz) || 1;
     e.yaw += clamp(angDiff(e.yaw, Math.atan2(dx, dz)), -dt * 0.8, dt * 0.8);
-    const sp = 17;
+    const sp = dragonSpeed(d < 70 ? clamp(d * 0.3, 7, 17) : 17, dt); // [motion] it slows as it comes in to land
     e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
     const want = P.y + (d > 60 ? 38 : 16 + d * 0.35);
     D.alt += (want - D.alt) * (1 - Math.exp(-dt * 0.6));
@@ -107,13 +114,16 @@ function thinkDragon(e, dt) {
   }
   if (D.state === 'descend') {
     const P = D.perch, k = clamp(D.stateT / 3.6, 0, 1);
-    e.x += (P.x - e.x) * (1 - Math.exp(-dt * 1.5)); e.z += (P.z - e.z) * (1 - Math.exp(-dt * 1.5));
+    // [motion] on over the perch at the speed it came in with, slowing as it nears (it stalls in over its feet)
+    const ddx = P.x - e.x, ddz = P.z - e.z, dd = Math.hypot(ddx, ddz);
+    if (dd > 1e-3) { const v = Math.min(dragonSpeed(0, dt * 0.7), dd * 1.5); D.spd = v; const st = Math.min(dd, v * dt); e.x += ddx / dd * st; e.z += ddz / dd * st; }
     const g = heightAt(e.x, e.z);
     e.y = e.fixedY = lerp(D.descendFrom, g, smooth(k));
     const Pl = GAME.player;
     if (Pl) e.yaw += clamp(angDiff(e.yaw, Math.atan2(Pl.x - e.x, Pl.z - e.z)), -dt * 0.6, dt * 0.6);
     if (k >= 1) {
       setDragonState('perch');
+      D.spd = 0; // [motion]
       D.act = { kind: 'roar', t: 0, dur: DRAGON_ACT.roar };
       D.lastFoe = t;
       FX.ring(e.x, e.y + 0.3, e.z, 2, [0.5, 0.45, 0.38], 50, 9);
@@ -126,8 +136,20 @@ function thinkDragon(e, dt) {
     return;
   }
   if (D.state === 'takeoff') {
-    const k = clamp(D.stateT / 2.6, 0, 1);
-    e.y = e.fixedY = D.liftFrom + smooth(k) * 26;
+    // [motion] a crouch (0.5 s), a spring into the air on the first great downstroke, then a climb away forward, the
+    // airspeed building with each beat; it turns toward where it is going once it is clear of the ground
+    const T = D.stateT, k = clamp((T - 0.5) / 2.9, 0, 1);
+    const sp = T < 0.5 ? 0 : dragonSpeed(14, dt);
+    if (T < 0.5) D.spd = 0;
+    const ra = Math.atan2(e.x, e.z);
+    const go = D.strafeNext ? (() => { const P = D.perch, foe = getEnt(D.lastTarget); return foe ? Math.atan2(P.x - foe.x, P.z - foe.z) : e.yaw; })() : Math.atan2(Math.sin(ra) * D.circ.r - e.x, Math.cos(ra) * D.circ.r - e.z);
+    // the first great downstroke comes with the spring (the beat's clock is set while it crouches)
+    if (T < 0.5 && D.fl) { D.fl.cyc = Math.floor(D.fl.cyc) + 1 - (0.5 - T) * 1.15; D.fl.mode = 'flap'; }
+    if (T > 1.1) e.yaw += clamp(angDiff(e.yaw, go), -dt * 0.5, dt * 0.5);
+    e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
+    const hop = 1 - Math.pow(1 - clamp((T - 0.5) / 0.55, 0, 1), 2); // the spring: 3 m up in half a second
+    const g = Math.max(heightAt(e.x, e.z), WATER_Y);
+    e.y = e.fixedY = Math.max(g, D.liftFrom + 3 * hop + smooth(k) * 23);
     if (k >= 1) {
       D.alt = e.y;
       if (D.strafeNext) {
@@ -149,7 +171,8 @@ function thinkDragon(e, dt) {
     const C = D.circ, tx = Math.sin(C.ang) * C.r, tz = Math.cos(C.ang) * C.r;
     const dx = tx - e.x, dz = tz - e.z, d = Math.hypot(dx, dz);
     e.yaw += clamp(angDiff(e.yaw, Math.atan2(dx, dz)), -dt * 0.7, dt * 0.7);
-    e.x += Math.sin(e.yaw) * 15 * dt; e.z += Math.cos(e.yaw) * 15 * dt;
+    const sp = dragonSpeed(15, dt); // [motion]
+    e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
     D.alt += (Math.max(heightAt(e.x, e.z), WATER_Y) + 44 - D.alt) * (1 - Math.exp(-dt * 0.4));
     e.y = e.fixedY = D.alt;
     if (d < 12) setDragonState('fly');
@@ -159,7 +182,8 @@ function thinkDragon(e, dt) {
     // swing round to the start of the run
     const S = D.strafe, dx = S.ax - e.x, dz = S.az - e.z, d = Math.hypot(dx, dz);
     e.yaw += clamp(angDiff(e.yaw, Math.atan2(dx, dz)), -dt * 0.9, dt * 0.9);
-    e.x += Math.sin(e.yaw) * 18 * dt; e.z += Math.cos(e.yaw) * 18 * dt;
+    const sp = dragonSpeed(18, dt); // [motion]
+    e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
     D.alt += (D.perch.y + 22 - D.alt) * (1 - Math.exp(-dt * 0.5));
     e.y = e.fixedY = D.alt;
     if (d < 14 || D.stateT > 14) { setDragonState('strafe'); sfx('roar'); }
@@ -169,7 +193,8 @@ function thinkDragon(e, dt) {
     // a low run over the field, breathing fire straight down the line
     const S = D.strafe, dx = S.bx - e.x, dz = S.bz - e.z, d = Math.hypot(dx, dz);
     e.yaw += clamp(angDiff(e.yaw, Math.atan2(dx, dz)), -dt * 0.5, dt * 0.5);
-    e.x += Math.sin(e.yaw) * 20 * dt; e.z += Math.cos(e.yaw) * 20 * dt;
+    const sp = dragonSpeed(20, dt); // [motion]
+    e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
     D.alt += (Math.max(heightAt(e.x, e.z), WATER_Y) + 13 - D.alt) * (1 - Math.exp(-dt * 1.2));
     e.y = e.fixedY = D.alt;
     const near = dist(e.x, e.z, D.perch.x, D.perch.z) < 55;
@@ -335,6 +360,22 @@ function dragonTargetPose(dt) {
     if (hover) {
       P.bodyPitch = -0.5 + 0.06 * sd; P.fl = [-0.35, 0.25, 0.2]; P.fr = [-0.35, 0.25, 0.2]; P.bl = [-0.15 + 0.08 * su, 0.35, -0.15]; P.br = [-0.15 + 0.08 * su, 0.35, -0.15];
       P.neck = [-0.05 - 0.08 * sd, 0.15, 0.2]; P.head = 0.12 + 0.1 * sd; P.tail = [0.22 + 0.06 * Math.sin(TAU * c), 0.12, 0.08, 0.05];
+      // [motion] taking off: it rears up on its hind legs with the wings raised (the hind legs turned back so the feet
+      // stay planted), then springs on the first downstroke
+      if (st === 'takeoff' && D.stateT < 0.6) {
+        const rk = smooth(clamp(D.stateT / 0.35, 0, 1)) * (1 - smooth(clamp((D.stateT - 0.5) / 0.1, 0, 1)));
+        P.bodyPitch = lerp(P.bodyPitch, -0.3, rk); P.bodyY = lerp(P.bodyY, 0.28, rk);
+        P.bl = P.bl.map((v, i) => lerp(v, i === 0 ? 0.3 : 0, rk)); P.br = P.br.map((v, i) => lerp(v, i === 0 ? 0.3 : 0, rk));
+        P.fl = P.fl.map((v, i) => lerp(v, [-0.2, 0.5, 0.3][i], rk)); P.fr = P.fr.map((v, i) => lerp(v, [-0.2, 0.5, 0.3][i], rk));
+        P.neck = P.neck.map((v, i) => lerp(v, [-0.25, 0.05, 0.25][i], rk)); P.head = lerp(P.head, 0.3, rk);
+      }
+      // landing: it levels out and its legs reach down straight for the ground over the last metres
+      if (st === 'descend') {
+        const lk = smooth(clamp((D.stateT / 3.6 - 0.55) / 0.4, 0, 1));
+        P.bodyPitch = lerp(P.bodyPitch, -0.04, lk);
+        for (const L of ['fl', 'fr', 'bl', 'br']) P[L] = P[L].map((v) => v * (1 - lk));
+        P.tail = P.tail.map((v, i) => lerp(v, [-0.04, -0.08, -0.06, -0.03][i], lk));
+      }
     } else {
       P.bodyPitch = (stoop ? 0.16 : 0.04) + climbPitch + 0.03 * sd * fl;
       P.bodyRoll = clamp(-F.turn * F.speed / 9.8 * 1.25, -0.75, 0.75);

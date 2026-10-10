@@ -244,6 +244,7 @@ function drawActors(fx, fz) {
       // seated: on a throne the body takes the rider's pose, hips on the seat
       if (e.seat && e.alive) { _p4[1] = e.seat.y - 0.86 * sc; _a4[0] = 0; _a4[1] = 0; _cb[3] = (L.flags || 0) | 8; }
       wearVisual(e, _we); // feature/weather: wet, snow, dirt, blood and damage for the actor shader (05h_wear.js)
+      _p4[3] = humanSlopeYaw(e, y, dx * dx + dz * dz < lodD2 * 2.5); // [motion] the floor's slope rides on the yaw (13r_motion.js)
       (dx * dx + dz * dz < lodD2 && crowdHuman.n < crowdHuman.max ? crowdHuman : dx * dx + dz * dz > farD2 && crowdHumanFar && crowdHumanFar.n < crowdHumanFar.max ? crowdHumanFar : crowdHumanLo).push(_p4, _a4, _ca, _cb, _mi, _st, _we); // [phones] far: crowdHumanFar
       // a gem of light on casters' hands while a spell builds
       if (e.casting && e.alive && e.casting.id !== 'summon') {

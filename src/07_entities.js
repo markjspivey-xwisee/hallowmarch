@@ -294,7 +294,8 @@ function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
   e.prevX = e.x; e.prevZ = e.z;
   const want = clamp(sp / 4.3, 0, 2.2);
-  e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * 10));
+  // [motion] stopping, the gait settles twice as fast: a raised foot comes down instead of hanging in the air
+  e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * (sp < 0.05 && e.anim.amt > want ? 20 : 10)));
   // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
   const sc = e.scale || 1;
   const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace

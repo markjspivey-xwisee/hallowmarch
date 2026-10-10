@@ -5,7 +5,8 @@
 // Every body is animated in its vertex shader, so the probe draws the crowd once more as points with the same vertex
 // shader (its main() renamed and wrapped) under a camera whose view and projection are the identity: what the shader
 // writes to gl_Position is then the world position itself. Each chosen vertex of each chosen instance lands on its own
-// texel of a small float target, which is read back. Test hooks only (window.__hm.motion); nothing here runs in play.
+// texel of a small float target, which is read back. Test hooks (window.__hm.motion); only humanSlopeYaw (the floor's
+// slope for the walk shader, from drawActors) runs in play.
 const MPROBE = { rt: null, cam: null, scene: null, mats: new Map(), geos: new Map(), W: 64, H: 8, buf: null };
 function mprobeMat(src) {
   let m = MPROBE.mats.get(src);
@@ -242,4 +243,76 @@ function motionMeasure(samples, opt = {}) {
     steps: Math.round(starts / T * 100) / 100, // feet coming down per second
   };
 }
-window.__hm.motion = { MPROBE, mprobeRun, motionFind, motionParts, motionDraw, motionLook, motionRun, motionMeasure, motionFloor };
+// [motion] the slope of the floor along a person (stairs, ramps, hillsides), for the walk shader, which sets each foot
+// on it: whole turns added to the yaw (the shader takes only its sine and cosine), one turn for each 0.05 of rise per
+// metre. Only for people near the camera, standing on their feet (not riding, sitting, swimming, in the air or dead);
+// eased, so a step onto a stair does not jerk the legs.
+function humanSlopeYaw(e, y, near) {
+  const yaw = Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw));
+  let s = 0;
+  if (near && e.alive && !e.mount && !e.seat && e.onGround !== false && !(e.swimK > 0.05) && !inDungeon(e)) {
+    const sc = e.scale || 1, r = 0.35 * sc, fx = Math.sin(yaw) * r, fz = Math.cos(yaw) * r;
+    // (a drop beyond a step, off the edge of a wall walk or a deck, is no slope: the foot stays on what it stands on)
+    const at = (x, z) => { const h = floorAt(x, z, y + 0.05); return Math.abs(h - y) > 0.65 ? y : h; };
+    s = clamp((at(e.x + fx, e.z + fz) - at(e.x - fx, e.z - fz)) / (2 * r), -1, 1);
+  }
+  e._slope = (e._slope ?? s) + (s - (e._slope ?? s)) * 0.3;
+  const k = Math.round(e._slope * 20);
+  return k ? yaw + TAU * k : yaw;
+}
+// Cinderwing through a stretch of its flight (it is skinned on the CPU: its bones are read directly). how: 'fly' (on its
+// circuit), 'takeoff' (from a perch, then away), 'land' (coming in to a perch from 60 m out). Gives the wingbeats a
+// second, how far a wing tip travels up and down in a beat (m), the share of the time it glides, its greatest bank
+// (degrees), how far its head and tail tip move about the body (m), its airspeed and the hardest change of it (m/s
+// each second: a jump from hovering to full flight shows here), and its feet over the ground while it stands.
+const _moRoot = new THREE.Matrix4(), _moRy = new THREE.Matrix4();
+function motionDragon(how, sec, dt = 1 / 30) {
+  const D = DRAGON;
+  if (!D.e || D.e.removed || !D.e.alive) spawnDragon();
+  const e = D.e;
+  if (!D.perches.length) D.perches = findPerches();
+  const P0 = D.perches[0];
+  if (how === 'takeoff') {
+    e.x = P0.x; e.z = P0.z; e.y = heightAt(e.x, e.z); D.perch = P0; setDragonState('perch'); D.act = null;
+    for (let i = 0; i < 20; i++) { dragonAnimate(dt); }
+    D.halfDone = false; D.strafeNext = false; D.liftFrom = e.y; setDragonState('takeoff');
+  } else if (how === 'land') {
+    D.perch = P0; e.x = P0.x - 60; e.z = P0.z; e.yaw = Math.PI / 2; D.alt = e.y = e.fixedY = P0.y + 30; D.spd = 17; setDragonState('approach');
+  } else { setDragonState('fly'); D.spd = 15; }
+  const n = Math.round(sec / dt), S = [];
+  let prevSpd = null, maxAcc = 0, beats = 0, cyc0 = null;
+  for (let i = 0; i < n; i++) {
+    const x0 = e.x, z0 = e.z;
+    D.lastFoe = GAME.t; // nothing breaks off the test
+    try { simStep(dt); } catch (err) { reportError(err); }
+    dragonAnimate(dt);
+    _moRoot.makeTranslation(e.x, e.y + D.pose.bodyY, e.z); _moRy.makeRotationY(e.yaw); _moRoot.multiply(_moRy);
+    poseDragonBones(_moRoot);
+    const spd = Math.hypot(e.x - x0, e.z - z0) / dt;
+    if (prevSpd !== null && i > 2) maxAcc = Math.max(maxAcc, Math.abs(spd - prevSpd) / dt);
+    prevSpd = spd;
+    if (D.fl) { if (cyc0 === null) cyc0 = D.fl.cyc; beats = D.fl.cyc - cyc0; }
+    const inv = new THREE.Matrix4().copy(_moRoot).invert();
+    const loc = (b, p) => dragonPoint(b, p).clone().applyMatrix4(inv);
+    const tl = loc(DBI.wlF1, DRAGON_FINGERS[0]), tr = loc(DBI.wrF1, [-DRAGON_FINGERS[0][0], DRAGON_FINGERS[0][1], DRAGON_FINGERS[0][2]]);
+    const hd = loc(DBI.head, [0, 4.6, 4.6]), tt = loc(DBI.tail4, [0, 1.2, -8.2]);
+    const feet = [[DBI.flFt, [1.15, 0.02, 1.23]], [DBI.frFt, [-1.15, 0.02, 1.23]], [DBI.blFt, [1.25, -0.04, -1.25]], [DBI.brFt, [-1.25, -0.04, -1.25]]].map(([b, p]) => { const w = dragonPoint(b, p); return +(w.y - heightAt(w.x, w.z)).toFixed(3); });
+    S.push({ t: i * dt, st: D.state, y: e.y, spd, cyc: D.fl ? D.fl.cyc : 0, glide: D.glide, roll: D.pose.bodyRoll, tl: tl.y, tr: tr.y, hd: [hd.x, hd.y, hd.z], tt: [tt.x, tt.y, tt.z], feet, fly: e.flying });
+  }
+  // a beat's travel: the range of the left wing tip within each whole beat while it beats
+  const per = new Map();
+  for (const q of S) { if (q.glide > 0.5) continue; const k = Math.floor(q.cyc); const r = per.get(k) || [1e9, -1e9]; r[0] = Math.min(r[0], q.tl); r[1] = Math.max(r[1], q.tl); per.set(k, r); }
+  const ranges = [...per.values()].map((r) => r[1] - r[0]).sort((a, b) => a - b);
+  const rng = (f) => { let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const q of S) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], f(q)[k]); hi[k] = Math.max(hi[k], f(q)[k]); } return +Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]).toFixed(2); };
+  const stand = S.filter((q) => q.st === 'perch');
+  const feetLow = stand.length ? Math.min(...stand.flatMap((q) => q.feet)) : null, feetHigh = stand.length ? Math.max(...stand.map((q) => Math.min(...q.feet))) : null;
+  const T = sec;
+  return {
+    how, states: [...new Set(S.map((q) => q.st))], beatsPerS: +(beats / T).toFixed(2), tipTravel: ranges.length ? +ranges[Math.floor(ranges.length / 2)].toFixed(2) : 0,
+    glide: +(S.reduce((a, q) => a + q.glide, 0) / S.length).toFixed(2), bankDeg: +(Math.max(...S.map((q) => Math.abs(q.roll))) * 180 / Math.PI).toFixed(1),
+    head: rng((q) => q.hd), tail: rng((q) => q.tt), speed: [+Math.min(...S.map((q) => q.spd)).toFixed(1), +Math.max(...S.map((q) => q.spd)).toFixed(1)], maxAcc: +maxAcc.toFixed(1),
+    rise: +(S[S.length - 1].y - S[0].y).toFixed(1), feetLow, feetHigh,
+    trace: S.filter((q, i) => i % Math.round(0.25 / dt) === 0).map((q) => [+q.t.toFixed(2), q.st, +q.y.toFixed(1), +q.spd.toFixed(1), +q.tl.toFixed(2)]),
+  };
+}
+window.__hm.motion = { MPROBE, mprobeRun, motionFind, motionParts, motionDraw, motionLook, motionRun, motionMeasure, motionFloor, motionDragon, humanSlopeYaw };

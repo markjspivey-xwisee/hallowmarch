@@ -3,7 +3,9 @@ the crowds drawn once more as points with their own vertex shaders under an iden
 target). For each body and each common motion: how far a planted foot slides while it bears weight (cm), how fast it
 slips as a share of the body's speed (slipK: 0 planted, 1 gliding on ice), where the lowest foot is over the floor
 (median and lowest: + floats, - sinks), how many feet come down a second, and for birds how the wings move.
-usage: python3 tools/tests/motion.py [tag=before] [only=human,beast,farm,bird,player,pose] [shots] [q=low]
+usage: python3 tools/tests/motion.py [tag=before] [only=human,beast,farm,bird,player,pose,dragon,shots] [q=low]
+(shots: pictures of a pheasant and a mallard taking off and flying, Cinderwing rearing, springing, flying and landing,
+a runner and a kneeling priest, at 960x540 in tools/out/motion_*.png)
 Writes tools/out/motion_<tag>.json and prints a table; checks the limits at the end (a planted foot slides < 4 cm,
 slipK < 0.15, the lowest foot within 4 cm of the floor) and lists the worst offenders."""
 import json, asyncio, sys, pathlib, time
@@ -14,7 +16,8 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
 TAG = OPT.get('tag', 'run')
-ONLY = OPT.get('only', 'human,beast,farm,bird,player,pose').split(',')
+ONLY = OPT.get('only', 'human,beast,farm,bird,player,pose,dragon').split(',')
+if 'shots' in ARGS and 'shots' not in ONLY: ONLY.append('shots')
 SHOTS = 'shots' in ARGS
 FAILS = []
 T0 = time.time()
@@ -125,6 +128,29 @@ window.MO = {
 0;
 """
 
+SHOTJS = r"""
+window.MS = {
+  H: __hm, F: __hm.fn,
+  cam(x, y, z, tx, ty, tz) { const H = this.H; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const hud = document.getElementById('hud'); if (hud) hud.style.visibility = 'hidden'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); },
+  // the camera beside a body, d metres off its flank, looking at its middle
+  side(e, d, up, h = 0.3, back = 0) { const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw); this.cam(e.x + fz * d - fx * back, e.y + up, e.z - fx * d - fz * back, e.x, e.y + h, e.z); },
+  bird(kind) { const D = __hm.depth; return D.DEPTH.birds.find((q) => q.kind === kind && q.alive && !q.removed && !q.bird.fly && (kind !== 'duck' || q.bird.water)); },
+  flush(e, t) { const P = this.H.GAME.player; this.H.teleport(e.x + 40, e.z + 40); MO.calm(); __hm.depth.dpFlush(e, e.x - 2, e.z - 1); for (let k = 0; k < Math.round(t * 60); k++) this.H.simulate(1 / 60, 1 / 60); return e; },
+  more(t) { for (let k = 0; k < Math.round(t * 60); k++) this.H.simulate(1 / 60, 1 / 60); },
+  dragon(how, t) { const D = __hm.dbg.DRAGON; __hm.motion.motionDragon(how, t); return D.e; },
+  dragonUntil(cond, max) { const D = __hm.dbg.DRAGON; for (let k = 0; k < max * 30 && !cond(D); k++) { MO.H.simulate(1 / 30, 1 / 30); __hm.fn.dragonAnimate(1 / 30); D.lastFoe = __hm.GAME.t; } return D.e; },
+};
+0;
+"""
+
+async def shot(page, name, js):
+    await page.evaluate(js)
+    await page.evaluate("__hm.frame(0.033); 0")
+    data = await page.evaluate("(() => { __hm.frame(0.033); return document.querySelector('canvas').toDataURL('image/png'); })()")
+    import base64
+    pathlib.Path(OUT + name + '.png').write_bytes(base64.b64decode(data.split(',')[1]))
+    print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
+
 def fmt(r):
     if 'err' in r: return f"{r.get('err')} (n={r.get('n')})"
     return (f"v {r['v']:5.2f}  slide {r['slideMax']:5.1f} cm (mean {r['slideMean']:4.1f})  slipK {r['slipK'] if r['slipK'] is not None else '-':>5}  "
@@ -188,6 +214,42 @@ async def main():
             for act, name in ((12, 'kneel'), (13, 'crouch')):
                 r = await ev(page, f"MO.pose({act}, 1.6)")
                 print(f'  {name:10s} feet over the floor (cm) {r.get("feet")}  knees {r.get("knees")}', flush=True); res[name] = r
+        if 'dragon' in ONLY:
+            # Cinderwing: on its circuit, taking off from a perch, coming in to land (its bones read directly)
+            for how, sec in (('fly', 14), ('takeoff', 7), ('land', 13)):
+                r = await ev(page, f"(() => {{ const r = __hm.motion.motionDragon('{how}', {sec}); return r; }})()")
+                tr = r.pop('trace', [])
+                print(f'  dragon {how:8s}', json.dumps(r), flush=True)
+                print('     trace (t, state, y, speed, left tip y):', json.dumps(tr[::2])[:900], flush=True)
+                res['dragon_' + how] = {**r, 'trace': tr}
+            d = res['dragon_fly']
+            check(d['beatsPerS'] > 0.2 and d['tipTravel'] > 1.5, f"Cinderwing beats its wings in flight ({d['beatsPerS']} beats/s, a tip travels {d['tipTravel']} m)")
+            check(d['head'] > 0.3 and d['tail'] > 0.3, f"its head and tail move as it flies (head {d['head']} m, tail tip {d['tail']} m)")
+            for how in ('takeoff', 'land'):
+                d = res['dragon_' + how]
+                check(d['maxAcc'] < 12, f"{how}: no jump in its airspeed (hardest change {d['maxAcc']} m/s each second)")
+            d = res['dragon_land']
+            check(d['feetLow'] is not None and d['feetLow'] > -0.15 and d['feetHigh'] < 0.25, f"landed, its feet stand on the ground (lowest {d['feetLow']} m, highest of the lowest {d['feetHigh']} m)")
+        if 'shots' in ONLY:
+            await page.set_viewport_size({'width': 960, 'height': 540})
+            await ev(page, SHOTJS)
+            await ev(page, "(() => { __hm.setTod(0.42); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.snowing = 0; W.snow = 0; W.overcast = 0; W.target = 0; MO.calm(); return 0; })()")
+            # a cock pheasant bursting up, then on set wings
+            await shot(page, 'motion_pheasant_rise', "(() => { const e = MS.bird('pheasant'); MS.ph = e.id; MS.flush(e, 0.32); MS.side(e, 2.6, 0.4, 0.3, 0.5); return 0; })()")
+            await shot(page, 'motion_pheasant_beat', "(() => { const e = MS.F.getEnt(MS.ph); MS.more(0.55); MS.side(e, 3.2, 0.2, 0.0, 0.4); return 0; })()")
+            await shot(page, 'motion_pheasant_glide', "(() => { const e = MS.F.getEnt(MS.ph); for (let k = 0; k < 400 && !(e.bird.fly && e.bird.fly.mode === 'glide' && e.bird.fly.mt > 0.4); k++) MS.more(1 / 60); MS.side(e, 3.2, 0.3, 0.0, 0.2); return 0; })()")
+            # a mallard running across the water to take off
+            await shot(page, 'motion_duck_run', "(() => { const e = MS.bird('duck'); if (!e) return 0; MS.dk = e.id; MS.flush(e, 0.3); MS.side(e, 2.4, 0.5, 0.15, 0.3); return 0; })()")
+            await shot(page, 'motion_duck_beat', "(() => { const e = MS.F.getEnt(MS.dk); if (!e) return 0; MS.more(0.9); MS.side(e, 3.0, 0.2, 0.0, 0.3); return 0; })()")
+            # Cinderwing rearing to take off, springing on the first downstroke, flying, legs reaching to land
+            await shot(page, 'motion_dragon_rear', "(() => { const e = MS.dragon('takeoff', 0.4); MS.side(e, 17, 3.5, 3.0, 4); return 0; })()")
+            await shot(page, 'motion_dragon_spring', "(() => { const D = __hm.dbg.DRAGON; const e = MS.dragonUntil((D) => D.stateT > 0.85, 3); MS.side(e, 19, 3.5, 3.5, 5); return 0; })()")
+            await shot(page, 'motion_dragon_fly', "(() => { const e = MS.dragon('fly', 3.2); MS.side(e, 24, 2, 2.5, 6); return 0; })()")
+            await shot(page, 'motion_dragon_land', "(() => { MS.dragon('land', 0.1); const e = MS.dragonUntil((D) => D.state === 'descend' && D.stateT > 3.0, 30); MS.side(e, 19, 2.5, 3.0, 4); return 0; })()")
+            # a runner mid-stride and a kneeling priest
+            await shot(page, 'motion_runner', "(() => { const Ln = MO.lane(MO.cx, MO.cz, 20, 1); const e = MO.body('human', Ln.x - Ln.ux * 8, Ln.z - Ln.uz * 8, Math.atan2(Ln.ux, Ln.uz)); MO.M.motionRun([{ e, kind: 'human', drive(e, t, dt) { e.x += Ln.ux * 5 * dt; e.z += Ln.uz * 5 * dt; } }], 1.1, 1 / 60); MS.side(e, 3.0, 0.9, 0.8, 0.2); MS.run = e.id; return 0; })()")
+            await shot(page, 'motion_kneel', "(() => { MO.clear(); const Ln = MO.lane(MO.cx, MO.cz, 4, 1); const e = MO.body('human', Ln.x, Ln.z, 0.6); e.anim.act = 12; e.anim.actT = 0.6; e.anim.actDur = 3; MO.M.motionRun([{ e, kind: 'human' }], 0.4, 1 / 60); MS.side(e, 2.6, 0.7, 0.5, -0.6); return 0; })()")
+            await ev(page, "MO.clear(); 0")
         pathlib.Path(OUT + f'motion_{TAG}.json').write_text(json.dumps({'rows': ROWS, 'res': res}, indent=1))
         # the worst offenders
         bad = sorted([r for r in ROWS if 'err' not in r], key=lambda r: -score(r))
