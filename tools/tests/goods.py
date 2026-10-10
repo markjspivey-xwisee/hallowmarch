@@ -17,6 +17,7 @@ async def main():
         await page.evaluate("__hm.start({ realm: 1, cls: 'archer', level: 12 })")
         r = await page.evaluate("""(() => { const H = __hm, F = H.fn, out = {};
           out.cat = Object.keys(F.GOODS || {}).length;
+          H.INV.goods = {}; // [survival] a new character starts with bread, apples and water: begin from empty packs
           F.goodsAdd('plank', 5, true); F.goodsAdd('stone', 3, true); out.has = [F.goodsCount('plank'), F.goodsHave('stone', 3), F.goodsHave('stone', 4)];
           out.take = F.goodsTake('plank', 2); out.after = F.goodsCount('plank');
           out.all = F.goodsTakeAll([['plank', 1], ['stone', 9]]); out.after2 = [F.goodsCount('plank'), F.goodsCount('stone')];
