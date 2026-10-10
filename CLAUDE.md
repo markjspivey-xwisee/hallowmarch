@@ -354,45 +354,9 @@ The harness lives in `tools/`:
 
 ## Balance of the callings
 
-Measured with `python3 tools/tests/classes.py balance` (see Testing): fighters with a player's own measure and fair gear for the level, played by the simple bot (presses 1-8 in turn) and the skilled bot (07c_balance.js). TTK: the time to kill a standard foe (a garrison warrior of the level). Pack: the time survived against an endless pack of three wolves and two outlaws (a survivor scores 1.5 times the cap). Duels: wins against the other three callings, both sides on the same bot (draws count half). The aim: the skilled bots within about ±15% of each other on every measure at every level, the simple bots within about ±25%, and the skilled bot clearly beating its simple self (mastery duels).
+Measured with `python3 tools/tests/classes.py balance` (see Testing): fighters with a player's own measure and fair gear for the level, played by the simple bot (presses 1-8 in turn) and the skilled bot (07c_balance.js). TTK: the time to kill a standard foe (a garrison warrior of the level). Pack: the time survived against an endless pack of three wolves and two outlaws that never loses its quarry, every newcomer 1% stronger for each second the fight has lasted (a survivor of the 150 s cap scores 1.5 times). Duels: wins against the other three callings, both sides on the same bot (draws count half). The aim: the skilled bots within about ±15% of each other on every measure at every level, the simple bots within about ±25%, and the skilled bot clearly beating its simple self (mastery duels).
 
-**Before** (version 8 numbers, the same bots and diminishing returns, three repetitions; the pack then had no rank or gear scaling and a 90 s cap):
-
-Simple bot:
-
-| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
-|---|---|---|---|---|
-| 10 | warrior | 9.1 (-4%) | 16 (-6%) | 33% (6/18) |
-| 10 | archer | 10.0 (+6%) | 16 (-6%) | 39% (7/18) |
-| 10 | mage | 7.6 (-20%) | 9 (-47%) | 28% (5/18) |
-| 10 | priest | 11.1 (+17%) | 27 (+59%) | 100% (18/18) |
-| 30 | warrior | 5.0 (+6%) | 36 (-38%) | 72% (13/18) |
-| 30 | archer | 3.7 (-21%) | 34 (-41%) | 44% (8/18) |
-| 30 | mage | 3.4 (-28%) | 25 (-57%) | 14% (2.5/18) |
-| 30 | priest | 6.7 (+43%) | 136 (+136%) | 69% (12.5/18) |
-| 50 | warrior | 3.5 (-5%) | 136 (+51%) | 67% (12/18) |
-| 50 | archer | 2.7 (-25%) | 59 (-35%) | 44% (8/18) |
-| 50 | mage | 2.7 (-25%) | 30 (-67%) | 22% (4/18) |
-| 50 | priest | 5.7 (+56%) | 136 (+51%) | 67% (12/18) |
-
-Skilled bot:
-
-| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
-|---|---|---|---|---|
-| 10 | warrior | 7.5 (+6%) | 34 (+33%) | 50% (9/18) |
-| 10 | archer | 7.0 (-1%) | 21 (-18%) | 78% (14/18) |
-| 10 | mage | 5.8 (-19%) | 14 (-45%) | 42% (7.5/18) |
-| 10 | priest | 8.1 (+14%) | 33 (+29%) | 31% (5.5/18) |
-| 30 | warrior | 4.0 (-2%) | 88 (+18%) | 94% (17/18) |
-| 30 | archer | 4.0 (-2%) | 38 (-49%) | 61% (11/18) |
-| 30 | mage | 3.7 (-8%) | 35 (-53%) | 8% (1.5/18) |
-| 30 | priest | 4.6 (+13%) | 136 (+84%) | 36% (6.5/18) |
-| 50 | warrior | 3.0 (-32%) | 136 (+20%) | 94% (17/18) |
-| 50 | archer | 8.5 (+95%) | 48 (-58%) | 67% (12/18) |
-| 50 | mage | 2.9 (-34%) | 135 (+18%) | 28% (5/18) |
-| 50 | priest | 3.1 (-29%) | 136 (+20%) | 11% (2/18) |
-
-**After** (version 9; levels 10 and 30: three repetitions of the dummy and the pack, six of each duel with the realms swapped, four mastery duels per calling; level 50: two, four and two, because a slow machine stalled the first run):
+**Before** (version 9, as measured then: fair gear to item level 24 from fixed seeds, an endless pack of one strength that gave up the chase 42 m from its spawn; levels 10 and 30: three repetitions of the dummy and the pack, six of each duel with the realms swapped, four mastery duels per calling; level 50: two, four and two, because a slow machine stalled the first run):
 
 Simple bot:
 
@@ -436,20 +400,111 @@ Mastery duels (the skilled bot's wins against the simple bot of the same calling
 | 30 | 4/4 | 4/4 | 0/4 | 3/4 |
 | 50 | 2/2 | 2/2 | 2/2 | 2/2 |
 
-What changed, and why:
+Version 9's callings in version 10's fair gear, before any tuning (a shorter run with version 9's pack: two repetitions of the dummy and the pack, four of each duel, four mastery duels): at 10 the skilled archer won 96% of its duels and outlasted the pack (132 s, +148%) while the priest won 15% and the warrior 21%; at 50 the priest outlasted every pack (226 s, +97%) and won 71% of its duels, the mage held the pack 158 s (+38%), the warrior and the archer fell at 44 and 31 s (-62%, -73%); the skilled mage won 2 of 4 mirror duels at 30 and 50, the priest 2 of 4 at 50.
+
+**After** (version 10, [balance2]: fair gear at item level = the level, every piece at its average stats; the pack growing and never losing its quarry; five repetitions of the dummy and the pack, six of each duel with the realms swapped, eight mastery duels per calling; measured at commit 37aa15b, before the last change to the skilled priest):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 8.5 (+2%) | 16 (-12%) | 33% (12/36) |
+| 10 | archer | 8.9 (+6%) | 19 (+4%) | 42% (15/36) |
+| 10 | mage | 7.7 (-9%) | 13 (-29%) | 38% (13.5/36) |
+| 10 | priest | 8.5 (+1%) | 25 (+37%) | 88% (31.5/36) |
+| 30 | warrior | 5.4 (+15%) | 23 (-32%) | 56% (20/36) |
+| 30 | archer | 4.0 (-14%) | 49 (+44%) | 25% (9/36) |
+| 30 | mage | 4.1 (-11%) | 28 (-18%) | 57% (20.5/36) |
+| 30 | priest | 5.1 (+10%) | 36 (+6%) | 62% (22.5/36) |
+| 50 | warrior | 4.0 (+20%) | 20 (-27%) | 36% (13/36) |
+| 50 | archer | 2.8 (-18%) | 26 (-5%) | 33% (12/36) |
+| 50 | mage | 2.5 (-25%) | 23 (-16%) | 69% (25/36) |
+| 50 | priest | 4.1 (+23%) | 40 (+47%) | 61% (22/36) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.5 (+15%) | 26 (-5%) | 25% (9/36) |
+| 10 | archer | 5.9 (-10%) | 27 (-2%) | 61% (22/36) |
+| 10 | mage | 5.4 (-18%) | 32 (+16%) | 54% (19.5/36) |
+| 10 | priest | 7.4 (+13%) | 25 (-9%) | 60% (21.5/36) |
+| 30 | warrior | 4.5 (+15%) | 47 (-5%) | 69% (25/36) |
+| 30 | archer | 3.5 (-10%) | 41 (-17%) | 44% (16/36) |
+| 30 | mage | 3.7 (-4%) | 56 (+14%) | 40% (14.5/36) |
+| 30 | priest | 3.9 (-1%) | 53 (+8%) | 46% (16.5/36) |
+| 50 | warrior | 3.5 (+20%) | 42 (-16%) | 56% (20/36) |
+| 50 | archer | 2.8 (-5%) | 40 (-20%) | 57% (20.5/36) |
+| 50 | mage | 2.6 (-10%) | 61 (+23%) | 51% (18.5/36) |
+| 50 | priest | 2.8 (-5%) | 56 (+13%) | 36% (13/36) |
+
+Mastery duels (the skilled bot's wins against the simple bot of the same calling):
+
+| Level | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|
+| 10 | 8/8 | 7.5/8 | 5/8 | 1/8 |
+| 30 | 8/8 | 8/8 | 7/8 | 6.5/8 |
+| 50 | 8/8 | 8/8 | 6/8 | 3/8 |
+
+The last change (a skilled priest steadies itself and heals sooner in a duel only with power to spare, otherwise it casts between the blows: commit 7a54a18) measured again at level 10 (four repetitions of the dummy and the pack, six of each duel, eight mastery duels; the runs at 30 and 50 were cut short by the machine's memory):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 8.4 (+4%) | 16 (-31%) | 25% (9/36) |
+| 10 | archer | 9.0 (+10%) | 37 (+64%) | 50% (18/36) |
+| 10 | mage | 6.6 (-18%) | 12 (-47%) | 47% (17/36) |
+| 10 | priest | 8.5 (+5%) | 26 (+15%) | 78% (28/36) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.2 (+12%) | 28 (-17%) | 25% (9/36) |
+| 10 | archer | 5.8 (-10%) | 34 (+0%) | 57% (20.5/36) |
+| 10 | mage | 5.4 (-17%) | 49 (+44%) | 67% (24/36) |
+| 10 | priest | 7.4 (+14%) | 25 (-27%) | 51% (18.5/36) |
+
+Mastery duels (the skilled bot's wins against the simple bot of the same calling):
+
+| Level | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|
+| 10 | 8/8 | 6.5/8 | 7/8 | 6/8 |
+
+What changed in version 10 ([balance2]), and why:
+
+- Gear (06e_gearcurve.js): fair gear at the level (item level = level, to 50), each piece with the stats its slot, grade and level give on average, so every calling measured wears the same totals (version 9's fixed seeds gave the warrior and archer at 50 a third more damage from their rolls than the mage and priest). Foes past level 24 meet a body in gear with the toughness the gear of their level adds (`gearLateHarm`), so the late game is as hard as it was with gear capped at 24 (`loot.py`: within ±7% per blow).
+- Power: past level 20 a body in gear draws its power from the power stat, not from its level (`gearPowerBase`): at 50 a priest's power never fell below nine tenths in a pack, and power meant nothing to anyone; now a long fight drains it at 50 as it does at 20.
+- Everyone: a melee blow landing in the middle of a spell sets it back 0.35 s, twice at most for one cast (`castPushback`): a caster pressed by blades or beasts casts slower.
+- Warrior: Slash 175% (160%), Cleave 135% (120%); Charge every 10 s (12), and after it no root or slow takes hold for 2 s (`chargeFree`, shown as immune on the class panel); Leap Strike stuns 0.6 s (1 s) every 20 s (18): a leap and a bash held a priest or a mage for most of a duel; Bulwark every 40 s (45), 1.5 s longer for each rank past the first (its share of harm does not grow with rank as heals and wards do). The skilled bot raises the shield against an arrow or a bolt about to land (70% of them, one roll a shot) and lowers it as soon as it has landed (`botIncoming`). A raised shield no longer turns holy light (Smite). Thule's Berserk heals by finishers in fury only, as its text says (a Thule warrior in a guarded stance outlasted every pack).
+- Archer: Volley pins what it falls on at 50% for 4 s (40% for 3 s); a sprung snare's cord whips every foe within 5 m for 50% for 3.5 s (4 m, 40%, 2.5 s); Tumble every 9 s (11), and the foes it leaps from are slowed by half for 3 s (`tumbleSlow`); a broadhead's wound mends slowly: healing on it takes 40% less for 6 s (`healWound`), the archer's answer to a healer (the skilled bot looses broadheads at priests).
+- Mage: Firebolt 180% (200%); attunement strengthens an element's spells by up to 18% (22%; the Chronicle said 30%), the attuned firebolt's burn 1.25 times (1.5); steam 1.35 times on a chilled foe and 1.7 on a frozen one (1.45, 1.8); Arcane Ward 35% (40%), and a stun that strikes the mage while it holds breaks on it instead, at half the ward's strength (`wardTakesStun`; a freeze still holds): the mage's answer to a leap and a bash. The skilled bot blinks out of a chill about to freeze it, freezes a foe's spell or drawn bow when one more frost would, and keeps a frost focus on a wet foe instead of casting fire into it.
+- Priest: Smite 190% (180%), and a raised shield does not turn it; Holy Fire 240% over 8 s (210%). Renewal on yourself loosens roots and makes you steadfast for 4 s: nothing but a stun breaks your spells and blows do not set them back (`priestSteadfast`, `breakCast`). A priest's own wounds mend at 75% divided by the square of the rank multiplier (`priestSelf`: 75% to 29, 60% at 30-39, 49% at 40-49, 41% at 50), so its own healing does not outgrow a pack. The skilled bot keeps a reserve of power with more than one foe on it, duels an archer at range and closes on a staff, renews after a spell is cut and (with power to spare) before it casts with a blade in reach, otherwise casts between the blows, meets a warrior with the Divine Shield before the leap and the bash, and heals sooner in a duel when its power allows (below 20 a priest's power runs short in a long fight: renewing for steadiness at every chance cost it its mirror duels at 10).
+- The balance run: the pack's home is the arena (it gave up the chase 42 m from its spawn, so an archer who tumbled to the arena's far side "survived": version 9's archer pack numbers include some of that), every newcomer to the pack is 1% stronger for each second the fight has lasted (an endless pack of one strength left a fighter either about 30 s or the whole 150 s), and the pack never loses its quarry (an Ériu archer hidden out of its sight was forgotten and "survived").
+
+Where it stands against the aim (skilled bots within about ±15%, simple within about ±25%):
+  - Skilled time to kill: within ±15% everywhere but the warrior at 50 (+20%; +15% at 30), the slowest killer of a standing foe once the others have their late spells, and the mage at 10 (-18%).
+  - Skilled pack survival: within ±20% everywhere but the mage at 50 (+23%); the pack measure is steady now (five runs of a calling usually within a fifth of each other), though a mage at 10 still either falls at once or kites the pack for a minute and more (the last run's +44%).
+  - Skilled duels: 36-61% for every calling at every level but two: the warrior wins only a quarter at 10 and 69% at 30.
+  - Mastery: the skilled warrior and archer win 7.5 or 8 of 8 against their simple selves, the mage 5 to 7; the priest 6.5 of 8 at 30, and at 10 6 of 8 after the last change (1 of 8 before it); at 50 the priest won 3 of 8 before the last change and has not been measured since.
+  - Simple bots: time to kill within ±25%; pack survival and duels are not (the simple priest heals with every other press: it wins 61-88% of simple duels and outlasts the pack by 37-47% at 10 and 50; a simple archer kites a pack for a long time at 10 and 30, +44% to +64%; the simple mage falls first at 10, -29% to -47%; the simple warrior wins a quarter to a third of its duels at 10 and 50).
+
+Still off (for the next pass):
+  - Level 10 duels: the skilled warrior wins about a quarter (one or two of twelve against an archer or a mage). Below Leap Strike (30) a warrior has only Charge (every 10 s now, and 2 s free of roots and slows after it) to reach a foe who kites, freezes and snares. Next: an answer to kiting below 30 that does not also make Leap Strike stronger later (a second Charge below 30, or a raised shield that turns arrows while it charges).
+  - Hard counters at 30 and 50: the skilled warrior beats the priest nearly every time (10-12 of 12: parries on the mace, stuns through the casts) and the priest beats the archer most of the time (9-10 of 12: its own healing and Divine Shield outlast the arrows, even with broadheads' wounds and at range). The overall rates sit inside the band, but these two pairs are lopsided.
+  - The warrior's time to kill at 30 and 50 (+15-20%): its late abilities (Whirlwind, Leap Strike) are for crowds and gaps, not a standing foe.
+  - The priest's mastery at 50 and the whole table at 30 and 50 should be measured again with the last change (the machine's memory cut those runs short: `classes.py balance levels=30,50 reps=5 dreps=12 mreps=8`).
+  - Realm flavours in the measures: a Thule warrior's Berserk heals by finishers only in fury now (in a guarded stance it outlasted every pack); an Ériu archer who hides loses a pack in play (the run's pack never loses its quarry, so the measure does not show it).
+  - Runs of this size still move duel rates by about ±8 points and mastery by one or two of eight; tune on a number only after `dreps=12`.
+
+What changed in version 9, and why:
 
 - Warrior: health 1.4 to 1.3 (parries and the shield now carry a skilled warrior); a lowered shield turns about one frontal blow in eight (for 55% less), so a warrior played simply is not helpless; Shield Bash stuns 1.6 s (2.5), Leap Strike 1 s (1.5); a parry's stun on an ordinary foe 0.9 s (1.1); Charge every 12 s (16) and it breaks free of slows and snares.
 - Archer: health 1.25 to 1.12 (an archer lives by keeping away); 5% quicker on foot (not while drawing); Volley 95% a wave (80%) and pins what it falls on (40% slow, 3 s); snares hold 3.5 s (3; Thule 4.5), re-arm in 9 s (12), and the cord whips any foe beside the prey (40% slow, 2.5 s); Crippling Arrow every 9 s (12); Tumble every 11 s (15).
 - Mage: health 0.86 to 1.1; Arcane Ward 40% (30%) every 24 s (30); Blink every 11 s (14); Nova every 12 s (16), and a frost nova roots as long as a fire nova; a firebolt's burn 25% (32%).
 - Priest: health 1.05 to 1.1, damage 1.2 to 1.3; Smite 180% (160%), Holy Fire 210% (180%); a priest's own wounds mend at 75% of what others get from Mend, Renewal, Sanctuary and Mass Renewal (`PRIEST_SELF`; Mend on oneself was 85%, the rest 100%), and healing costs more (Mend 22, Renewal 16, Sanctuary 32, Mass Renewal 36), so a long fight drains a healer; Divine Shield also lifts and wards off stuns, roots and slows while it lasts.
 - Everyone: diminishing returns on stuns (a freeze counts), roots and slows for players and champions; a parry's stun under the same rule for anyone.
-
-Still off (for the next pass):
-  - Level 10 duels belong to the ranged callings (the skilled archer and mage win about 70-80%, the warrior about a third and the priest under a fifth; played simply, the warrior loses nearly every duel and the priest wins most). A warrior has no Leap Strike before 30 and a priest no Divine Shield before 14, so neither has much to answer kiting, roots and freezes. Next: a low-level way for a priest to break a root or close the gap, and a look at how the warrior's Charge plays against snares at 10.
-  - Pack survival: priests still lead by far (a third above the mean at 30; at 50 a priest outlasts the 150 s cap while the others fall at 40-70 s: ranks raise healing, and Mass Renewal, Sanctuary and devotion keep a priest whole against a pack); archers trail (a third to three fifths below). Next: a priest's own healing should fall off with rank, or drain power faster in a long fight.
-  - Duels at 50: the skilled archer (77%) and warrior (67%) beat the priest (33%) and mage (23%); the mage has no answer to a Leap Strike followed by a bash, nor to a full draw from range.
-  - Mastery: the skilled mage does not yet beat a simple mage in mirror duels (pressing every spell in turn wins a short damage race); every other calling's skilled bot wins three or four of four.
-  - Duels last 6-12 s at a player's measure, so openers and stuns decide many of them, and duel rates move by about ±8 points between runs of this size; run `dreps=12` or more before tuning on a duel number.
 
 ## Roadmap
 
