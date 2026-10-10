@@ -219,8 +219,8 @@ function chronClasses() {
       ['The draw', 'draw', 'Hold X to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
       ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose). Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
       ['Hiding', 'hide', 'Keep still in long grass or among trees, out of the fight for three seconds, and you are hidden: foes see you only close by, and your first shot strikes 50% harder.'],
-      ['Light feet', '', 'An archer moves a tenth quicker than anyone in armour and slips one blade in five. Crippling Arrow, Volley (it pins what it falls on), snares and Tumble keep a pack at bow\'s length.'], // [balance]
-      ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3.5 s. Two at a time.'],
+      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on), snares and Tumble keep a pack at bow\'s length.'], // [balance]
+      ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3.5 s, and the cord whips the legs of any foe beside it. Two at a time.'],
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
     ${card('mage', 'The mage', 'A mage works with <b>fire</b>, <b>frost</b> and <b>storm</b>, and with what each does to the world and to the others. Frost chills and then freezes; fire burns; storm leaps from body to body. The art is in the order.', [

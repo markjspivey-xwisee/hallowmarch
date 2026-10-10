@@ -96,6 +96,9 @@ window.CB = {
     for (const [type, n] of only ? [[only, 1]] : [['wolf', 3], ['bandit', 2]]) for (let i = 0; i < n; i++) {
       const camp = { type, lmin: lvl, lmax: lvl, x, z, r: 2.5, members: new Set() };
       const m = this.F.spawnMob(camp);
+      // the pack keeps pace with what a fighter of the level brings: ability ranks and better gear
+      const rk = this.F.rankMult(lvl), gq = lvl < 20 ? 1 : lvl < 40 ? 1.08 : 1.16;
+      m.tweak = { hp: rk * gq, dmg: rk * gq }; this.F.setupStats(m);
       m.balance = true; m.threat = new Map([[target.id, 5]]); m.target = target.id; m.ai.pulled = true;
       out.push(m);
     }
@@ -234,7 +237,7 @@ async def balance(page):
                 t0 = time.time()
                 await page.evaluate(f"CB.setup1({lvl}, {kinds}, {rep}); 0")
                 while True:
-                    r = await page.evaluate("CB.run(10, 90)")
+                    r = await page.evaluate("CB.run(10, 150)")
                     if not r['open']: break
                 p1 += await page.evaluate("CB.results()")
                 print(f'  level {lvl} rep {rep + 1} {kind}: ttk and pack done in {time.time() - t0:.0f}s', flush=True)
@@ -331,9 +334,10 @@ async def mechanics(page):
     r = await ev(page, 'stances', """(() => { const P = T.fresh('warrior', 35, 1); const C = T.H.cls, F = T.F;
       const a = T.ahead(P, 2.2); const f = T.foe(2, a.x, a.z, 35); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6 }; F.setupStats(f);
       const out = {};
-      for (const s of [0, 1, 2]) { C.setStance(P, s); C.csOf(P).stanceAt = -9; C.csOf(f).stance = 1; out['dealt' + s] = Math.round(C.classHarm(P, f, 100, { kind: 'melee' })); }
+      // [balance] a shield on the arm turns a blow now and then: the most of a few blows is the stance's own measure
+      for (const s of [0, 1, 2]) { C.setStance(P, s); C.csOf(P).stanceAt = -9; C.csOf(f).stance = 1; out['dealt' + s] = Math.max(...Array.from({ length: 12 }, () => Math.round(C.classHarm(P, f, 100, { kind: 'melee' })))); }
       C.setStance(P, 1);
-      for (const s of [0, 1, 2]) { C.csOf(P).stance = s; out['taken' + s] = Math.round(C.classHarm(f, P, 100, { kind: 'arrow' })); }
+      for (const s of [0, 1, 2]) { C.csOf(P).stance = s; out['taken' + s] = Math.max(...Array.from({ length: 12 }, () => Math.round(C.classHarm(f, P, 100, { kind: 'arrow' })))); }
       C.csOf(P).stance = 1; out.S = C.STANCES.map((x) => ({ out: x.out, taken: x.taken })); return out; })()""")
     S = r['S']
     check(r['dealt2'] == round(100 * S[2]['out']) > 100 and r['dealt0'] == round(100 * S[0]['out']) < 100 and r['dealt1'] == 100, f"fury deals more ({r['dealt2']}), guarded less ({r['dealt0']})")
@@ -365,7 +369,7 @@ async def mechanics(page):
       C.classHold(false); H.simulate(0.1); C.classHold(true);
       const flick = F.dealDamage(f, P, 100, { kind: 'melee' });
       C.classHold(false);
-      const open = F.dealDamage(f, P, 100, { kind: 'melee' });
+      const open = Math.max(F.dealDamage(f, P, 100, { kind: 'melee' }), F.dealDamage(f, P, 100, { kind: 'melee' }), F.dealDamage(f, P, 100, { kind: 'melee' })); P.hp = P.maxHp; // [balance] the most of three: a lowered shield turns a blow now and then
       P.yaw += Math.PI; C.classHold(true); H.simulate(0.6); const behind = F.dealDamage(f, P, 100, { kind: 'melee' }); C.classHold(false); P.yaw -= Math.PI;
       return { parried, stunned, stagger, parries: C.CLS.stats.parries - p0, blocked: Math.round(blocked), flick: Math.round(flick), open: Math.round(open), behind: Math.round(behind), win: C.parryWindow(P) }; })()""")
     check(r['parried'] == 0 and r['parries'] == 1, 'a shield raised just as the blow comes parries it')

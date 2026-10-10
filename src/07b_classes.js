@@ -223,7 +223,7 @@ function classHarm(src, dst, amount, opts) {
   if (el && src && !opts.noReact) m *= elementReact(src, dst, el, opts);
   else if (src && !opts.dot && !opts.auto && frozenOf(dst) && (opts.kind === 'melee' || opts.kind === 'arrow')) m *= shatter(src, dst, 1.6, opts);
   // the defender's calling: an archer's light feet, a warrior's stance and shield, wards
-  if (dst.cls === 'archer' && opts.kind === 'melee' && !opts.dot && src && src !== dst && !isStunned(dst) && Math.random() < 0.2) { // [balance] 15%
+  if (dst.cls === 'archer' && opts.kind === 'melee' && !opts.dot && src && src !== dst && !isStunned(dst) && Math.random() < 0.15) {
     if (dst === GAME.player || src === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Dodged', 'miss');
     return 0;
   }
@@ -265,7 +265,7 @@ function elementReact(src, dst, el, opts) {
     if (wet > 0.3) { m *= 0.75; dst.wet = Math.max(0, (dst.wet || 0) - 0.3); if (Math.random() < 0.5) steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 4); }
     m *= 1 - 0.3 * rainHere(dst);
     if (mage && !auto && !opts.dot && opts.kind === 'fire' && dst.alive && wet < 0.6) {
-      const r = computeDamage(src, dst, 0.32 * (attOf(src, 'fire') >= 60 ? 1.5 : 1));
+      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.5 : 1)); // [balance] 0.32
       addBuff(dst, 'burn', r.d / 4, 4, src.id);
     }
   } else if (el === 'frost') {
@@ -294,7 +294,7 @@ function addChill(e, n, src) {
   // [balance] players and champions: a freeze is a stun under the diminishing returns (07c_balance.js); others thaw
   // with five seconds before ice can take them again
   const champ = ccChampion(e);
-  const boss = e.role === 'boss' || e.role === 'dungeonBoss' || (!champ && GAME.t < (e._thawUntil || 0)) || (champ && ccFactor(e, 'stun') === 0);
+  const boss = e.role === 'boss' || e.role === 'dungeonBoss' || (!champ && GAME.t < (e._thawUntil || 0)) || ccFactor(e, 'stun') === 0;
   if (cur >= 3 && !boss && !frozenOf(e)) {
     dropBuffs(e, ['chill']);
     let dur = e.role === 'player' ? 1.5 : e.elite ? 1.2 : 1.4;
@@ -541,6 +541,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
+  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); } // [balance] a charge breaks free of slows and snares
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
@@ -601,12 +602,15 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.55 : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
-  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? 0.7 : 1), A.hot[1]]; // [balance] and their own renewal
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? PRIEST_SELF : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85)
+  if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? PRIEST_SELF : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
   if (A.id === 'smite' && t && isUndead(t)) view().dmg = A.dmg * 1.25;
+  if (A.id === 'sanctuary') view().custom = priestGroupHeal; // [balance] the priest's own share mends more slowly (07c_balance.js)
+  if (A.id === 'massrenew') view().custom = priestGroupHot;
+  if (A.id === 'divine') view().custom = divineShield; // [balance] it also lifts and wards off stuns, roots and slows (07c_balance.js)
   if (A.id === 'renew' && clsHas(e, 'bless') && dv >= 20 && t) {
     cs.dev -= 12;
     const f = t && !isEnemy(e, t) ? t : e;
@@ -1040,6 +1044,8 @@ function stepSnares(dt) {
     const r = computeDamage(src, prey, 0.7);
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
     addBuff(prey, 'root', 1, S.thule ? 4.5 : 3.5, S.owner); // [balance] 4 and 3
+    // [balance] the cord whips about: whoever runs beside the prey is slowed
+    forNear(S.x, S.z, 4, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.4, 2.5, S.owner); });
     if (S.thule) addChill(prey, 3, src);
     FX.sparks(S.x, S.y + 0.2, S.z);
     classSfx('snare', S.x, S.z);
@@ -1351,7 +1357,7 @@ function classSpeedMult(e) {
     if (cs.drawFrom >= 0) s *= 0.55;
     if (cs.praying) s *= 0.2;
   }
-  if (e.cls === 'archer' && !(cs && cs.drawFrom >= 0)) s *= 1.1; // [balance] light leathers: archers are quicker on their feet
+  if (e.cls === 'archer' && !(cs && cs.drawFrom >= 0)) s *= 1.05; // [balance] light leathers: archers are a little quicker on their feet
   return s;
 }
 function classActValue(e) {

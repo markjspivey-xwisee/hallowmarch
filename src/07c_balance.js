@@ -57,6 +57,8 @@ function ccFactor(e, cat) {
 function ccAdjust(e, kind, dur, src, force) {
   const cat = CC_CAT[kind];
   if (!cat || !(dur > 0) || !e.alive) return dur;
+  // an immunity (the third control's, or a priest's Divine Shield) holds for anyone
+  if (e.ccdr && e.ccdr[cat] && GAME.t < e.ccdr[cat].immune) return 0;
   if (!force && !ccChampion(e)) return dur;
   const s = ccState(e, cat), t = GAME.t;
   if (t < s.immune) return 0;
@@ -264,6 +266,10 @@ function botMove(e, t, dt) {
   let want;
   if (e.cls === 'archer') want = skilled ? Math.min(26, e.rangedRange - 3) : e.rangedRange - 2;
   else if (e.cls === 'mage') want = skilled ? 24 : e.rangedRange - 2;
+  // a skilled priest does not swing a mace into a raised shield: holy light from a few strides off
+  else if (e.cls === 'priest' && skilled && t.cls === 'warrior' && hasShield(t) && clsHas(t, 'block')) want = 12;
+  // nor chase a bow or a staff that keeps away: a casting duel at range
+  else if (e.cls === 'priest' && skilled && t.rangedKind) want = 22;
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -369,6 +375,8 @@ function botArcher(e, t) {
     // a snare between you and it
     if (dp < 6 && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 16) && !canUse(e, 'snare', null)) { faceToward(e, p.x, p.z); if (botUse(e, 'snare', null)) return true; }
     if (!hasBuff(p, 'snare') && botUse(e, 'cripple', p)) return true;
+    // a pack at your heels: pin them all
+    if (botFoes(e, 9) >= 2 && botUse(e, 'volley', p)) return true;
     if (botUse(e, 'quickshot', p)) return true;
     if (botUse(e, 'firearrow', p)) return true;
     return false;
@@ -381,6 +389,8 @@ function botArcher(e, t) {
   if (safe && d > 10 && botUse(e, 'deadeye', t)) return true;
   if (safe && botUse(e, 'pierce', t)) return true;
   if (safe && botUse(e, 'aimed', t)) return true;
+  // a quick shot between draws costs a draw nothing
+  if (botUse(e, 'quickshot', t)) return true;
   // the drawn bow: hold to full and loose
   if (clsHas(e, 'draw') && d < e.rangedRange + 4 && e.power > 6) {
     if (P) classHold(true); else startDraw(e);
@@ -393,6 +403,8 @@ function botMage(e, t) {
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
   if (hpF < 0.7 && botUse(e, 'ward', e)) return true;
   if (!t) return false;
+  // a ward up before the blades arrive
+  if (t.target === e.id && !hasBuff(e, 'shield') && botUse(e, 'ward', e)) return true;
   // a blade at the throat: a frost nova to hold it, then away; Blink when the nova is spent
   const p = botPresser(e, 5);
   if (p) {
@@ -430,9 +442,9 @@ function botPriest(e, t) {
   const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
   // a priest who knows the work heals early and keeps a renewal running, shields before the blow, and smites between
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
-  if (hpF < 0.65 && botUse(e, 'sanctuary', e)) return true;
+  if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   if (fight && hpF < 0.97 && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
-  if (hpF < 0.72 && botUse(e, 'mend', e)) return true;
+  if (hpF < 0.8 && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -444,6 +456,42 @@ function botPriest(e, t) {
   if (botUse(e, 'pillar', t)) return true;
   if (hpF < 0.85 && botUse(e, 'mend', e)) return true;
   return botUse(e, 'smite', t);
+}
+
+/* ---- a priest's Sanctuary and Mass Renewal: everyone close by is healed in full, the priest's own wounds
+   mend more slowly (PRIEST_SELF), as with Mend and Renewal ---- */
+const PRIEST_SELF = 0.75;
+function priestGroupHeal(e, A, t, cast, rk) {
+  forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? PRIEST_SELF : 1)); FX.heal(o.x, o.y, o.z); } });
+  FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
+  sfx('heal');
+}
+function priestGroupHot(e, A, t, cast, rk) {
+  forNear(e.x, e.z, A.radius, (o) => {
+    if (!o.alive || o.faction !== e.faction || !isActor(o)) return;
+    addBuff(o, 'hot', (o.maxHp * A.groupHot[0] * rk * (o === e ? PRIEST_SELF : 1)) / A.groupHot[1], A.groupHot[1], e.id);
+    FX.heal(o.x, o.y, o.z);
+  });
+  spellDisc(e.x, e.z, A.radius, DISC_KIND.renew, 1.8, [0.8, 1.55, 0.55]);
+  for (let i = 0; i < 46; i++) {
+    const a = Math.random() * TAU, r = Math.sqrt(Math.random()) * A.radius;
+    const x = e.x + Math.cos(a) * r, z = e.z + Math.sin(a) * r;
+    fxAdd.emit(x, heightAt(x, z) + 0.1, z, (Math.random() - 0.5) * 0.3, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 0.3, 1.4 + Math.random(), 0.9, 1.6, 0.55, 0.14, -0.2, 0.4);
+  }
+  sfx('renew');
+}
+
+/* ---- a priest's Divine Shield: the shield and the ward, and no stun, root or slow holds while it lasts ---- */
+function divineShield(e, A, t, cast, rk) {
+  const f = t || e;
+  addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id);
+  addBuff(f, 'dr', 0.3, A.dur, e.id);
+  f.buffs = f.buffs.filter((b) => b.kind !== 'stun' && b.kind !== 'root' && b.kind !== 'snare' || b.src === 'frozen');
+  if (frozenOf(f)) unfreeze(f);
+  for (const cat of ['stun', 'root', 'snare']) { const s = ccState(f, cat); s.immune = Math.max(s.immune, GAME.t + A.dur); s.until = Math.max(s.until, s.immune); }
+  FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2);
+  spellPillar(f.x, f.y, f.z, 0.8, 1.2, 0.8, [1.9, 1.7, 1.0]);
+  sfx('heal');
 }
 
 /* ------------------------------------------------------------------ */
@@ -479,19 +527,24 @@ function raiseOfferAccept() {
   if (!O || !P || P.alive) return;
   O.accepted = true; O.at = GAME.t;
   const pr = getEnt(O.id);
-  if (pr && pr.ai) pr.ai.raiseP = true;
+  if (pr && pr.ai) {
+    pr.ai.raiseP = true;
+    // a garrison priest's post moves to the fallen for a while, so their own round does not pull them back
+    if (pr.ai.post) { O.post = { ...pr.ai.post }; pr.ai.post = { ...pr.ai.post, x: P.x, z: P.z, leash: Math.max(pr.ai.post.leash || 0, 6) }; }
+  }
   raiseOfferShow();
 }
 // the priest walks over, prays if devotion is short, and raises the player
 function raiseOfferWalk(O, dt) {
   const P = GAME.player, pr = getEnt(O.id);
-  if (!pr || !pr.alive || GAME.t - O.at > 40) { BAL.offer = null; raiseOfferShow(); return; }
+  if (!pr || !pr.alive || GAME.t - O.at > 40) { raiseOfferEnd(); return; }
   const d = dist(pr.x, pr.z, P.x, P.z);
   if (d > 3) { moveToward(pr, P.x, P.z, dt, 1, 2.6); pr.target = null; return; }
   faceToward(pr, P.x, P.z);
   const cs = csOf(pr);
   if (pr.casting) return;
-  if (devOf(pr) < 70) { if (!cs.praying) startPrayer(pr); prayStep(pr, dt); addDev(pr, dt * 10); return; }
+  // short of devotion: a moment's prayer over the fallen (a priest answering a call prays hard)
+  if (devOf(pr) < 70) { if (!cs.praying) startPrayer(pr); if (cs.praying) prayStep(pr, dt); addDev(pr, dt * 30); return; }
   if (cs.praying) stopPrayer(pr);
   if (!O.cast) { O.cast = GAME.t; setAct(pr, 3, 2.0); spellPillar(P.x, P.y, P.z, 1.0, 2.4, 0.9, [2.0, 1.7, 1.0]); sfx('cast'); return; }
   if (GAME.t - O.cast < 2) return;
@@ -510,14 +563,14 @@ function raisePlayer(by) {
   sfx('raise');
   CLS.stats.raised++;
   BAL.raised++;
-  if (by && by.ai) by.ai.raiseP = false;
+  if (by && by.ai) { by.ai.raiseP = false; const O = BAL.offer; if (O && O.post && O.id === by.id) by.ai.post = O.post; }
   $('death').hidden = true;
   if (UI.modal === 'death') UI.modal = null;
   uiLog(by ? `${by.name} raises you from the field.` : 'You rise from the field.', 'level');
   BAL.offer = null;
   raiseOfferShow();
 }
-function raiseOfferEnd() { const O = BAL.offer; if (O) { const pr = getEnt(O.id); if (pr && pr.ai) pr.ai.raiseP = false; } BAL.offer = null; raiseOfferShow(); }
+function raiseOfferEnd() { const O = BAL.offer; if (O) { const pr = getEnt(O.id); if (pr && pr.ai) { pr.ai.raiseP = false; if (O.post) pr.ai.post = O.post; } } BAL.offer = null; raiseOfferShow(); }
 setTimeout(() => {
   const b = $('btn-raise');
   if (b) b.onclick = () => raiseOfferAccept();
