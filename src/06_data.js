@@ -28,12 +28,12 @@ const CLASSES = {
     abilities: ['quickshot', 'aimed', 'cripple', 'volley', 'tumble', 'pierce', 'firearrow', 'deadeye'], icon: 'bow',
   },
   mage: {
-    name: 'Mage', role: 'Spells and control', hp: 0.92, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane', // [classes] balance
+    name: 'Mage', role: 'Spells and control', hp: 0.86, dmg: 1.0, dr: 0.0, range: 28, swing: 2.6, ranged: 'arcane', // [classes] balance
     blurb: 'Fire, frost and storm, and what each does to the others. Fragile, but freezes a charge before it lands.', // [classes]
     abilities: ['firebolt', 'frost', 'nova', 'blink', 'ward', 'meteor', 'chain', 'blizzard'], icon: 'flame',
   },
   priest: {
-    name: 'Priest', role: 'Healer and support', hp: 0.98, dmg: 1.2, dr: 0.08, range: 2.7, swing: 2.5, ranged: false, // [classes] balance: holy light strikes harder
+    name: 'Priest', role: 'Healer and support', hp: 1.05, dmg: 1.2, dr: 0.08, range: 2.7, swing: 2.5, ranged: false, // [classes] balance: holy light strikes harder
     blurb: 'Mends wounds, hallows the ground and raises the fallen. Every warband wants one.', // [classes]
     abilities: ['smite', 'mend', 'renew', 'holyfire', 'sanctuary', 'divine', 'massrenew', 'pillar'], icon: 'sun',
   },

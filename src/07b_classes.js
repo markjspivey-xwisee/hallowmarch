@@ -292,7 +292,7 @@ function addChill(e, n, src) {
   const boss = e.role === 'boss' || e.role === 'dungeonBoss' || GAME.t < (e._thawUntil || 0);
   if (cur >= 3 && !boss && !frozenOf(e)) {
     dropBuffs(e, ['chill']);
-    const dur = e.role === 'player' ? 1.5 : e.elite ? 1.4 : 1.7;
+    const dur = e.role === 'player' ? 1.5 : e.elite ? 1.2 : 1.4;
     e._thawUntil = GAME.t + dur + 5;
     addBuff(e, 'frozen', 1, dur, 'frozen');
     addBuff(e, 'stun', 1, dur, 'frozen');
@@ -587,7 +587,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.6 : 1); // a priest's own wounds mend more slowly than another's
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.85 : 1); // a priest's own wounds mend more slowly than another's
   if (A.hot) view().hot = [A.hot[0] * hm, A.hot[1]];
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];

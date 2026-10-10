@@ -286,7 +286,7 @@ async def mechanics(page):
     r = await ev(page, 'momentum', """(() => { const P = T.H.GAME.player, C = T.H.cls, F = T.F, H = T.H;
       const f = H.ENT.find((e) => e.testFoe && e.alive); f.testDummy = true; f.maxHp *= 20; f.hp = f.maxHp; P.target = f.id; P.yaw = Math.atan2(f.x - P.x, f.z - P.z);
       C.csOf(P).mom = 0; H.simulate(8); const mom = C.momOf(P);
-      const hp0 = f.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.csOf(P).mom = 5; C.csOf(P).momAt = H.GAME.t;
+      const hp0 = f.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.csOf(P).mom = 4; C.csOf(P).momAt = H.GAME.t; // 4: below an Eriu champion's whirling feat
       const fin0 = C.CLS.stats.finishers; P.swingAt = H.GAME.t + 9;
       const why = F.useAbility(P, 'slash', f); const momSpent = C.csOf(P).mom; H.simulate(1.0);
       const finHit = Math.round(hp0 - f.hp);
@@ -374,7 +374,7 @@ async def mechanics(page):
       const f = T.foe(1, S.x + 3, S.z, 12, 'warrior', 0); f.ai.nextAbility = 1e9;
       for (let i = 0; i < 30 && !S.sprung; i++) { f.x += (S.x - f.x) * 0.25; f.z += (S.z - f.z) * 0.25; H.simulate(0.1); }
       return { why, sprung: !!S.sprung, root: f.buffs.some((b) => b.kind === 'root'), frozen: C.frozenOf(f), mesh: !!S.mesh }; })()""")
-    check(r['why'] is True and r['mesh'], 'G lays a snare with its own model')
+    check(r['why'] is True and r['mesh'], 'T lays a snare with its own model')
     check(r['sprung'] and (r['root'] or r['frozen']), 'a foe that steps on the snare is held fast')
     check(r['frozen'], 'a Thule snare freezes what it catches')
 
@@ -385,6 +385,7 @@ async def mechanics(page):
       const out = {};
       const storm = (t) => { const hp0 = t.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.csOf(P).att = { fire: 0, frost: 0, storm: 0 }; C.csOf(P).prev = null; F.useAbility(P, 'chain', t); H.simulate(1.6); return hp0 - t.hp; };
       let dry = 0, wet = 0; for (let i = 0; i < 3; i++) { f.wet = 0; dry += storm(f); f.wet = 1; wet += storm(f); } f.wet = 0; out.dry = Math.round(dry); out.wet = Math.round(wet);
+      f.buffs.length = 0; f.wet = 0; out.hDry = Math.round(C.classHarm(P, f, 100, { kind: 'shock' })); f.wet = 1; out.hWet = Math.round(C.classHarm(P, f, 100, { kind: 'shock' })); f.wet = 0;
       f.buffs.length = 0; C.addChill(f, 3, P); out.frozen = C.frozenOf(f); const sh0 = C.CLS.stats.combos.shatter || 0; storm(f); out.shatter = (C.CLS.stats.combos.shatter || 0) - sh0; out.unfrozen = !C.frozenOf(f);
       f.buffs.length = 0; C.addChill(f, 1, P); const st0 = C.CLS.stats.combos.steam || 0;
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'firebolt', f); H.simulate(2.4);
@@ -400,7 +401,7 @@ async def mechanics(page):
       const hits = (wetv) => { for (const g of [f, g1, g2]) { g.wet = wetv; g.hp = g.maxHp; g.buffs.length = 0; } storm(f); return [f, g1, g2].filter((g) => g.hp < g.maxHp - 1).length; };
       out.chainDry = hits(0); out.chainWet = hits(1);
       return out; })()""")
-    check(r['wet'] > r['dry'] * 1.2, f"storm strikes harder through the wet ({r['wet']} vs {r['dry']})")
+    check(r['hWet'] >= r['hDry'] * 1.3 and r['wet'] > r['dry'], f"storm strikes harder through the wet ({r['hWet']} vs {r['hDry']}; chains {r['wet']} vs {r['dry']})")
     check(r['frozen'] and r['shatter'] == 1 and r['unfrozen'], 'three chills freeze; storm shatters the frozen')
     check(r['steam'] == 1 and r['cloud'] and r['wetAfter'] > 0.5, 'fire on the chilled bursts into steam that soaks')
     check(r['overload'] == 1, 'storm overloads the burning')
@@ -456,7 +457,7 @@ async def mechanics(page):
       return { devHeal: +devHeal.toFixed(1), dSk: Math.round(dSk), dBd: Math.round(dBd), hSk: Math.round(hSk), hBd: Math.round(hBd), why, ground, devAfter: devSpent, healed: Math.round(ally.hp - a0), burned: Math.round(s0 - sk.hp), slowed: sk.buffs.some((b) => b.kind === 'snare') }; })()""")
     check(r['devHeal'] > 3, f"healing builds devotion ({r['devHeal']})")
     check(r['hSk'] >= r['hBd'] * 1.5 and r['dSk'] > r['dBd'], f"holy light falls hardest on the dead ({r['hSk']} vs {r['hBd']}; smites {r['dSk']} vs {r['dBd']})")
-    check(r['why'] is True and r['ground'] >= 1 and r['devAfter'] <= 40, 'G hallows the ground for 35 devotion')
+    check(r['why'] is True and r['ground'] >= 1 and r['devAfter'] <= 40, 'T hallows the ground for 35 devotion')
     check(r['healed'] > 0 and r['burned'] > 0 and r['slowed'], 'holy ground heals allies and burns and slows the dead')
 
     r = await ev(page, 'raise', """(() => { const P = T.fresh('priest', 20, 0); const C = T.H.cls, F = T.F, H = T.H;
@@ -465,7 +466,7 @@ async def mechanics(page):
       const cs = C.csOf(P); cs.dev = 90; cs.devAt = H.GAME.t;
       const why = C.classTechnique(P); const casting = !!P.casting; H.simulate(2.4);
       return { why, casting, alive: ally.alive, hp: +(ally.hp / ally.maxHp).toFixed(2), dev: Math.round(C.devOf(P)), raised: C.CLS.stats.raised }; })()""")
-    check(r['why'] is True and r['casting'], 'G near a fallen friend begins to raise them')
+    check(r['why'] is True and r['casting'], 'T near a fallen friend begins to raise them')
     check(r['alive'] and r['hp'] > 0.3, 'the fallen rise again')
 
     r = await ev(page, 'pray', """(() => { const P = T.fresh('priest', 10, 2); const C = T.H.cls, H = T.H;
@@ -582,7 +583,8 @@ async def shots(page):
     await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
       for (const [d, s] of [[2.5, 2.5], [3.5, -2.2], [-1.5, 3.2]]) { const a = T.ahead(P, d, s); const u = T.foe(0, a.x, a.z, 30, 'warrior', 0); u.ai.nextAbility = 1e9; u.yaw = P.yaw + 0.4; u.hp = u.maxHp * 0.5; }
       const cs = C.csOf(P); cs.dev = 80; cs.devAt = H.GAME.t; P.gcdUntil = 0; C.classTechnique(P); H.simulate(1.0); C.startPrayer(P); H.simulate(1.2);
-      H.setTod(1.75); CB2(P, 7.5, 4.2, 3, 0.4); return { grounds: C.CLS.grounds.length }; })()""")
+      for (const p of H.SPELL.pillars) p.age = p.dur; for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016);
+      H.setTod(1.3); CB2(P, 6.5, 3.4, 4, 0.4); return { grounds: C.CLS.grounds.length }; })()""")
     await snap(page, 'holy', 1)
     await page.evaluate("__hm.setTod(0.55); 0")
     # a Thule mage's rune and an archer's snares, open and sprung
