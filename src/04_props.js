@@ -254,12 +254,9 @@ function keepStone(b, S, st, R) {
     b.add(G.cyl12, lm(M, x, 4.5 - 0.7, z, 0, 2.3, 9 + 1.4, 2.3), MAT.stone, st.stone, by, 5);
     b.add(G.cone12, lm(M, x, 8.3 + 1.7, z, 0, 2.75, 3.4, 2.75), st.roofMat, st.roof);
   }
-  b.add(G.box, lm(M, 0, 6.5 - 0.7, -hs + t + 5.2, 0, 12.4, 13 + 1.4, 10.4), MAT.stone, darker(st.stone, 0.95), by, 5);
-  b.add(G.prism, lm(M, 0, 12.3, -hs + t + 5.2, 0, 13.2, 4.6, 11.2), st.roofMat, st.roof);
-  b.add(G.box, lm(M, 0, 2.2, -hs + t + 10.45, 0, 2.4, 3.6, 0.3), MAT.wood, st.wood);
+  // [building] the great hall is a house of the keep now (planKeepHalls and keepHallPoles in 04k_hall.js)
   // hung clear of the masonry, above the gate rather than across it
   banners.push({ local: [0, H + 0.05, hs - t / 2 + (t + 0.5) / 2 + 0.14], yaw: 0, w: 2.2, h: 2.0, kind: 0 });
-  banners.push({ local: [0, 12.2, -hs + t + 10.4 + 0.14], yaw: 0, w: 2.2, h: 4.0, kind: 0 });
   return banners;
 }
 function keepRound(b, S, st, R) {
@@ -283,12 +280,8 @@ function keepRound(b, S, st, R) {
     banners.push({ local: [x, 13.6, z], yaw: 0, w: 1.5, h: 0.85, kind: 1 });
   }
   // castles: the two side towers are open lookouts the wall walk runs through (04g_castles.js)
-  b.add(G.cyl16, lm(M, 0, 2.1 - 0.5, -6.5, 0, 6.2, 4.2 + 1.0, 6.2), MAT.stone, st.stone, by, 4);
-  b.add(G.cone16, lm(M, 0, 3.6 + 3.25, -6.5, 0, 7.4, 6.5, 7.4), MAT.thatch, st.thatch);
-  b.add(G.box, lm(M, 0, 1.4, -0.35, 0, 1.6, 2.6, 0.3), MAT.wood, st.wood);
+  // [building] the great hall is a house of the keep now (planKeepHalls and keepHallPoles in 04k_hall.js)
   banners.push({ local: [0, H + 0.25, R0 + (KEEP_T + 0.5) / 2 + 0.14], yaw: 0, w: 2.2, h: 1.6, kind: 0 });
-  b.add(G.cyl8, lm(M, 0, 10.4 + 1.4, -6.5, 0, 0.08, 2.8, 0.08), MAT.wood, st.wood);
-  banners.push({ local: [0, 13.0, -6.5], yaw: 0, w: 2.0, h: 1.1, kind: 1 });
   return banners;
 }
 function palisadeWall(b, M, x0, z0, x1, z1, H, st, by) {
@@ -323,15 +316,8 @@ function keepTimber(b, S, st, R) {
     b.add(G.box, lm(M, x, 4.3 - 0.7, z, 0, 3.8, 8.6 + 1.4, 3.8), MAT.wood, st.wood, by, 5);
     b.add(G.pyr, lm(M, x, 7.9 + 1.7, z, 0, 3.2, 3.4, 3.2), MAT.shingle, st.roof);
   }
-  // longhouse
-  const lz = -hs + t + 5.2;
-  b.add(G.box, lm(M, 0, 2.6 - 0.6, lz, 0, 12.4, 5.2 + 1.2, 10.4), MAT.wood, st.wood, by, 4);
-  b.add(G.prism, lm(M, 0, 4.8, lz, 0, 13.4, 6.2, 11.6), MAT.shingle, st.roof);
-  b.add(G.box, lm(M, 0, 1.6, lz + 5.25, 0, 2.2, 3.2, 0.3), MAT.wood, darker(st.wood, 0.7));
-  for (const sx of [-1, 1]) b.add(G.box, lm(M, sx * 6.9, 11.2, lz, sx * 0.4, 0.3, 1.6, 0.3), MAT.wood, st.wood);
+  // [building] the longhouse is a house of the keep now (planKeepHalls and keepHallPoles in 04k_hall.js)
   banners.push({ local: [0, H - 0.1, hs - t / 2 + 0.7 + 0.14], yaw: 0, w: 2.2, h: 1.25, kind: 0 });
-  b.add(G.cyl8, lm(M, 0, 11.2 + 1.4, lz, 0, 0.08, 2.8, 0.08), MAT.wood, st.wood);
-  banners.push({ local: [0, 13.8, lz], yaw: 0, w: 2.0, h: 1.1, kind: 1 });
   return banners;
 }
 function templeModel(b, S, st, R) {
@@ -986,6 +972,7 @@ function buildStructures() {
     for (const S of R.keepSites) {
       const b = new Batch();
       const banners = R.style === 'round' ? keepRound(b, S, st, R) : R.style === 'timber' ? keepTimber(b, S, st, R) : keepStone(b, S, st, R);
+      if (S.houses) { buildHouses(S, st, R); keepHallPoles(b, S, st, R, banners); } // [building] the great hall and its banner poles (04k_hall.js)
       const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); CASTLE_KEEP_MESH.set(S, m); // castles: breaches cut this mesh (04g_castles.js)
       for (const sp of banners) addBanner(S, sp, R.id);
     }

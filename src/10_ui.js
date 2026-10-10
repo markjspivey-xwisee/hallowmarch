@@ -748,7 +748,7 @@ function uiDeath(by) {
   $('death-by').textContent = `Slain by ${by}.`;
   const P = GAME.player;
   const inFrontier = Math.hypot(P.x, P.z) < R_RING;
-  $('btn-release').textContent = inDungeon(P) ? 'Release to the barrow mouth' : `Release to ${inFrontier ? REALMS[P.faction].name + ' Muster' : REALMS[P.faction].townName}`;
+  $('btn-release').textContent = inDungeon(P) ? 'Release to the barrow mouth' : buildBedSpot(inFrontier) ? 'Release to your bed' : `Release to ${inFrontier ? REALMS[P.faction].name + ' Muster' : REALMS[P.faction].townName}`; // [building]
 }
 $('btn-release').onclick = () => { $('death').hidden = true; UI.modal = null; releasePlayer(); };
 

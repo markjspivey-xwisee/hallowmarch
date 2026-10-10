@@ -153,6 +153,7 @@ function startGame(save) {
   sfx('portal');
   loreOnStart(save);
   giftsOnStart(save); // [gifts] the realm ultimate's cooldown carries over (06c_gifts.js)
+  buildOnStart(save); // [building] the build button and the bed (06k_build.js)
 }
 function newCharacter() {
   wipeSave();
@@ -348,6 +349,8 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateHall(dt); // [building] the war table's grant, resting by a hall's hearth (04k_hall.js)
+  updateBuild(dt); // [building] building work, fire and repair of placed structures (06k_build.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -394,6 +397,8 @@ function tick(dt) {
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
+  drawHall(dt); // [building] the torches of the keeps' halls (04k_hall.js)
+  drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);

@@ -66,13 +66,13 @@ function repairItem(it) {
   if (wasBroken || SLOTS.some((s) => INV.eq[s] === it)) applyGear();
   return c;
 }
-function repairAll() {
+function repairAll(who = 'The merchant') { // [building] the armourer of a keep's hall mends too
   const total = repairAllCost();
   if (total <= 0) { uiError('Nothing needs mending'); return false; }
   if (INV.gold < total) { uiError('You cannot afford to mend everything'); return false; }
   for (const it of kitItems()) repairItem(it);
   sfx('grind'); sfx('coins');
-  uiLog(`The merchant mends your gear for ${fmtInt(total)} gold.`, 'loot');
+  uiLog(`${who} mends your gear for ${fmtInt(total)} gold.`, 'loot');
   saveSoon();
   return true;
 }
