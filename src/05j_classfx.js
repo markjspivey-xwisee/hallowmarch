@@ -23,10 +23,9 @@ const iceSheetMat = mat({
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
     ${GLSL_SHADOW}
-    ${GLSL_PLIGHT}
     ${GLSL_WORLD}
     ${GLSL_WEATHER}
-    uniform float uK, uAge, uSeed, uR, uWet, uSnowCover, uRain;
+    uniform float uK, uAge, uSeed, uR, uWet, uSnowCover;
     varying vec3 vW; varying vec2 vL;
     float cellsI(vec2 p){
       vec2 i = floor(p), f = fract(p);
@@ -50,7 +49,8 @@ const iceSheetMat = mat({
       float rim = smoothstep(edge - 0.16, edge, r);
       // clear dark ice over deep water, white rime in drifts and along the edge, cracks through it all
       float rime = clamp(smoothstep(0.42, 0.85, fbm3(vW.xz * 0.7 + uSeed * 1.7)) * 0.75 + rim * 0.85, 0.0, 1.0);
-      float crack = cellsI(vW.xz * 0.55 + uSeed) * 0.75 + cellsI(vW.xz * 1.9 - uSeed) * 0.35;
+      // the big cracks between plates, and fine hair-cracks where the noise crosses its middle
+      float crack = cellsI(vW.xz * 0.55 + uSeed) * 0.75 + (1.0 - smoothstep(0.0, 0.035, abs(vnoise(vW.xz * 1.7 + uSeed) - 0.5))) * 0.3;
       vec3 deep = mix(vec3(0.3, 0.52, 0.6), vec3(0.08, 0.2, 0.3), depth);
       vec3 alb = mix(deep, vec3(0.82, 0.9, 0.97), rime);
       alb = mix(alb, vec3(0.92, 0.97, 1.0), crack * (0.55 - 0.3 * rime));
@@ -63,7 +63,6 @@ const iceSheetMat = mat({
       alb = mix(alb, snowAlbedo(vW), snow);
       float wet = clamp(max(uWet, melt) * (1.0 - snow), 0.0, 1.0);
       vec3 col = alb * (uAmbient * 0.95 + uLightColor * max(dot(n, uLightDir), 0.0) * sh * 0.85);
-      col += alb * pointLights(vW, n) * 0.7;
       float fres = 0.04 + 0.96 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
       vec3 R = reflect(-V, n);
       col = mix(col, skyBase(safeNormalize(vec3(R.x, max(R.y, 0.03), R.z))) * 0.95, fres * (0.75 - 0.6 * rime) * (1.0 - snow));

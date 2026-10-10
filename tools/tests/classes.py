@@ -513,13 +513,23 @@ async def mechanics(page):
 
 # ------------------------------------------------------------------ screenshots
 CAMJS = r"""window.CC = (x, y, z, tx, ty, tz) => { const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); };
+// a side view of two bodies: from beside the line between them, looking at the point k of the way from a to b
+window.CS = (a, b, off, up, k = 0.5, ly = 1.0) => { const mx = a.x + (b.x - a.x) * k, mz = a.z + (b.z - a.z) * k, dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1; CC(mx - dz / L * off, Math.max(a.y, b.y) + up, mz + dx / L * off, mx, Math.max(a.y, b.y) + ly, mz); };
 window.CB2 = (P, back, up, side, ly = 1.1) => { const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x - s * back + c * side, P.y + up, P.z - c * back - s * side, P.x + s * 2, P.y + ly, P.z + c * 2); };"""
 
-async def snap(page, name, n=3):
+ONLY = next((a.split('=')[1].split(',') for a in ARGS if a.startswith('only=')), None)
+def want(name): return ONLY is None or name in ONLY
+
+async def snap(page, name, n=3, hud=False):
+    if not want(name): return
+    await page.evaluate(f"document.getElementById('hud').style.visibility = '{'visible' if hud else 'hidden'}'; 0")
     await frames(page, n)
     t0 = time.time()
-    await page.screenshot(path=OUT + 'cls_' + name + '.png', timeout=300000)
-    print(f'  shot cls_{name} ({time.time() - t0:.0f}s)', flush=True)
+    try:
+        await page.screenshot(path=OUT + 'cls_' + name + '.png', timeout=420000)
+        print(f'  shot cls_{name} ({time.time() - t0:.0f}s)', flush=True)
+    except Exception as err:
+        print(f'  shot cls_{name} failed: {str(err)[:120]}', flush=True)
 
 async def shots(page):
     await page.evaluate("() => {" + MECH_JS + CAMJS + "; return 0; }")
@@ -537,21 +547,21 @@ async def shots(page):
       H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
       CC(best.sx + (best.sx - best.x) * 0.25, F.heightAt(best.sx, best.sz) + 3.2, best.sz + (best.sz - best.z) * 0.25, best.x, -2.4, best.z);
       return { ok: true }; })()""")
-    if r.get('ok'): await snap(page, 'ice', 2)
+    if r.get('ok'): await snap(page, 'ice', 1)
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
     await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
       C.addChill(f, 2, P); P.power = P.maxPower; F.useAbility(P, 'firebolt', f); H.simulate(1.5);
       for (let i = 0; i < 30 && !C.CLS.steam.length; i++) H.simulate(0.05);
-      H.simulate(0.25); CB2(P, 3.5, 2.2, 4.5, 1.2); return { steam: C.CLS.steam.length }; })()""")
-    await snap(page, 'steam', 2)
+      H.simulate(0.35); CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
+    await snap(page, 'steam', 1)
     # storm through wet foes in the rain
     await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
       const fs = [[10, -3], [13, 3], [16, -1], [19, 4]].map(([d, s]) => { const a = T.ahead(P, d, s); const f = T.foe(2, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); f.wet = 1; return f; });
       P.target = fs[0].id; P.swingAt = 1e9; P.power = P.maxPower; F.useAbility(P, 'chain', fs[0]); H.simulate(1.35);
-      CB2(P, 4, 2.6, -3.5, 1.4); return { n: fs.length }; })()""")
-    await snap(page, 'storm', 2)
+      CS(P, fs[1], 9, 3.2, 0.45, 1.2); return { n: fs.length }; })()""")
+    await snap(page, 'storm', 1)
     await page.evaluate("(() => { const W = __hm.dbg.WEATHER; W.kind = 'clear'; if (__hm.fn.weatherAdvance) __hm.fn.weatherAdvance(60); return 0; })()")
     # a warrior's parry
     await ev(page, 'parry-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
@@ -559,19 +569,19 @@ async def shots(page):
       H.simulate(0.8); C.setBlock(P, true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' }); F.fn ? 0 : 0;
       f.anim.act = 1; f.anim.actT = 0.3; f.anim.actDur = 0.6; H.simulate(0.12);
       const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 3.6 + s * 1.0, P.y + 1.7, P.z - s * 3.6 + c * 1.0, (P.x + f.x) / 2, P.y + 1.2, (P.z + f.z) / 2); return { act: P.anim.act, parries: C.CLS.stats.parries }; })()""")
-    await snap(page, 'parry', 2)
+    await snap(page, 'parry', 1)
     # an archer at full draw
     await ev(page, 'draw-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 30, 1);
       const a = T.ahead(P, 24); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; P.swingAt = 1e9;
       C.startDraw(P); H.simulate(1.4); const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 2.6 + s * 1.2, P.y + 1.6, P.z - s * 2.6 + c * 1.2, P.x + s * 0.3, P.y + 1.35, P.z + c * 0.3); return { k: C.drawK(P) }; })()""")
-    await snap(page, 'draw', 2)
+    await snap(page, 'draw', 1)
     await page.evaluate("(() => { const C = __hm.cls; C.CLS.hold = false; __hm.GAME.player.cs.drawFrom = -1; return 0; })()")
     # a priest's holy ground, kneeling at prayer within it
     await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
       for (const [d, s] of [[2.5, 2.5], [3.5, -2.2], [-1.5, 3.2]]) { const a = T.ahead(P, d, s); const u = T.foe(0, a.x, a.z, 30, 'warrior', 0); u.ai.nextAbility = 1e9; u.yaw = P.yaw + 0.4; u.hp = u.maxHp * 0.5; }
       const cs = C.csOf(P); cs.dev = 80; cs.devAt = H.GAME.t; P.gcdUntil = 0; C.classTechnique(P); H.simulate(1.0); C.startPrayer(P); H.simulate(1.2);
       H.setTod(1.75); CB2(P, 7.5, 4.2, 3, 0.4); return { grounds: C.CLS.grounds.length }; })()""")
-    await snap(page, 'holy', 2)
+    await snap(page, 'holy', 1)
     await page.evaluate("__hm.setTod(0.55); 0")
     # a Thule mage's rune and an archer's snares, open and sprung
     await ev(page, 'rune-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 20, 2);
@@ -579,18 +589,18 @@ async def shots(page):
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
       H.simulate(1.2); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
-    await snap(page, 'rune_snare', 2)
+    await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
     await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 6); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.setStance(P, 2); C.addMom(P, 4); return 0; })()""")
-    await snap(page, 'hud_warrior', 2)
+    await snap(page, 'hud_warrior', 1, True)
     await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.attune(P, 'frost', 70); C.addChill(f, 3, P); return 0; })()""")
-    await snap(page, 'hud_mage', 2)
+    await snap(page, 'hud_mage', 1, True)
 
 async def main():
     async with async_playwright() as p:
-        w, h = (960, 540) if SHOTS else (640, 360)
+        w, h = (960, 540) if SHOTS and 'big' in ARGS else (640, 360)
         b, page, logs = await setup(p, w=w, h=h)
         page.on('console', lambda m: CONSOLE.append(m.text[:300]) if m.type == 'error' else None)
         if BAL:

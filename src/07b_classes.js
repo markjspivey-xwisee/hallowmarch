@@ -33,7 +33,7 @@ const clsHas = (e, key) => !!e && !!e.cls && CLASS_UNLOCK[e.cls] && CLASS_UNLOCK
 const STANCES = [
   { id: 'guarded', name: 'Guarded', out: 0.9, taken: 0.75, icon: 'shield', text: 'Take 25% less harm and deal 10% less. Your shield covers a wider arc, a raised guard costs no endurance, Shield Bash stuns a second longer and Bulwark lasts three more.' },
   { id: 'balanced', name: 'Balanced', out: 1, taken: 1, icon: 'sword', text: 'No gain and no cost. Momentum fades more slowly and Rallying Cry heals 35%.' },
-  { id: 'fury', name: 'Fury', out: 1.15, taken: 1.12, icon: 'flame', text: 'Deal 15% more harm and take 12% more. You swing faster, Cleave and Whirlwind cut deeper and Rallying Cry adds 25% damage.' },
+  { id: 'fury', name: 'Fury', out: 1.15, taken: 1.12, icon: 'flame', text: 'Deal 15% more harm and take 12% more. You swing faster, shrug off much of any slow, Cleave and Whirlwind cut deeper and Rallying Cry adds 25% damage.' },
 ];
 const MOM_MAX = 5, FIN_MIN = 3, PARRY_WIN = 0.3, PARRY_REARM = 0.5;
 const ELEMENTS = ['fire', 'frost', 'storm'];
@@ -1194,6 +1194,12 @@ function classNpc(e, t) {
       if (want !== cs.stance) setStance(e, want);
     }
     if (t && t.alive && clsHas(e, 'momentum') && momOf(e) >= FIN_MIN + (Math.random() < 0.5 ? 1 : 0) && !canUse(e, 'slash', t)) { useAbility(e, 'slash', t); return true; }
+    // a foe holding off at range: close the gap
+    if (t && t.alive && e.fixedY === null && (!e.ai.post || e.ai.post.leash > 6)) {
+      const d = dist(e.x, e.z, t.x, t.z);
+      if (d > 7 && d < 24 && ABILITIES.leap.level <= e.level && !canUse(e, 'leap', t)) { useAbility(e, 'leap', t); return true; }
+      if (d > 6 && d < 28 && ABILITIES.charge.level <= e.level && !canUse(e, 'charge', t)) { useAbility(e, 'charge', t); return true; }
+    }
     return false;
   }
   if (e.cls === 'archer') {
@@ -1244,7 +1250,7 @@ function classNpc(e, t) {
     // with no one to mend, a priest smites; the dead are smitten even then, unless a friend is near death
     let need = 1;
     forNear(e.x, e.z, 28, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) need = Math.min(need, o.hp / o.maxHp); });
-    if (t && t.alive && ((isUndead(t) && need > 0.4) || (need > 0.62 && Math.random() < 0.5)) && !canUse(e, 'smite', t)) { useAbility(e, 'smite', t); return true; }
+    if (t && t.alive && ((isUndead(t) && need > 0.4) || (need > 0.62 && Math.random() < (dist(e.x, e.z, t.x, t.z) > 6 ? 0.85 : 0.5))) && !canUse(e, 'smite', t)) { useAbility(e, 'smite', t); return true; }
     return false;
   }
   return false;
@@ -1312,6 +1318,8 @@ function classSpeedMult(e) {
   if (ch) s *= 1 - 0.13 * Math.floor(ch + 1e-6);
   const cs = e.cs;
   if (cs) {
+    // in fury a warrior shrugs off much of a slow
+    if (cs.stance === 2 && e.cls === 'warrior') { const sn = buffMax(e, 'snare'); if (sn > 0 && !hasBuff(e, 'free')) s *= (1 - 0.6 * sn) / (1 - sn); }
     if (cs.blockOn) s *= 0.55;
     if (cs.drawFrom >= 0) s *= 0.55;
     if (cs.praying) s *= 0.2;
