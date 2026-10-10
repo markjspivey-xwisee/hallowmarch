@@ -21,7 +21,7 @@ const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lo
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
 const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
-const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast']); // the plant card is what you are using: it never waits
+const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;

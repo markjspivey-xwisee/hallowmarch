@@ -89,6 +89,7 @@ function diveStart(P) {
   if (why) { if (why !== 'dead') uiError(why); return false; }
   if (P.dive) return true;
   P.dive = { t: 0, up: false, drown: 0, pitch: 0.9, low: P.y, noted: false };
+  if (BUILD.mode) buildToggle(false); // no building under the water (and the breath bar has the top of the screen)
   P.dvy = -1.6;
   P.casting = null;
   if (P.fishing && typeof fishStop === 'function') fishStop(null);
