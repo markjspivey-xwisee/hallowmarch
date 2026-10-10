@@ -160,7 +160,16 @@ const B_MODEL = {
     for (const z of [-1, 0, 1]) bBox(b, 0, -0.2, z * 1.2, B_C, 0.2, 0.14, MAT.wood, B_COL.dark);
   },
   wall(b, pc) { bTimberWall(b, pc, []); },
-  door(b, pc) { bTimberWall(b, pc, [[-0.56, 0.56, 0, 2.12]]); },
+  door(b, pc) {
+    bTimberWall(b, pc, [[-0.56, 0.56, 0, 2.12]]);
+    // [integration] a doorway standing high above the ground outside gets stone steps up to its sill
+    const st = bDoorSteps(pc);
+    if (st) for (let k = 0; k < st.n; k++) {
+      const d = st.L / st.n, lz = st.s * (0.12 + (k + 0.5) * d), g = bPW(pc, 0, lz);
+      const top = -st.rise * (k + 0.5) / st.n, bot = Math.min(top - 0.2, heightAt(g.x, g.z) - pc.y - 0.15);
+      bBox(b, 0, (top + bot) / 2, lz, 1.25, top - bot, d + 0.02, MAT.drystone, B_COL.stone);
+    }
+  },
   window(b, pc) {
     bTimberWall(b, pc, [[-0.46, 0.46, 0.95, 1.85]]);
     bBox(b, 0, 1.4, 0, 0.9, 0.9, 0.02, MAT.water, [0.1, 0.14, 0.16]);
@@ -487,6 +496,24 @@ function bFloorRemove(f) {
     if (l) { const q = l.indexOf(f); if (q >= 0) l.splice(q, 1); }
   }
 }
+// [integration] a doorway on a raised floor: on the side of the edge with no foundation under it, if the ground there
+// lies more than a step below the sill, stone steps go down to it ({ s: which side, rise, L: how far they reach, n })
+function bDoorSteps(pc) {
+  let best = null;
+  for (const s of [1, -1]) {
+    const p = bPW(pc, 0, s * 1.15);
+    if (BUILD.pieces.some((q) => q.t === 'found' && q.st !== 'gone' && q !== pc && bInside(q, p.x, p.z, 0.05))) continue;
+    const rise = pc.y - heightAt(p.x, p.z);
+    if (rise > 0.3 && (!best || rise > best.rise)) best = { s, rise };
+  }
+  if (!best) return null;
+  // the steps reach out until they meet the ground (which may fall away further from the wall)
+  let L = clamp(best.rise * 1.5, 0.9, 4.2);
+  for (let k = 0; k < 4; k++) { const e = bPW(pc, 0, best.s * (0.12 + L)); best.rise = Math.max(0.3, pc.y - heightAt(e.x, e.z)); L = clamp(best.rise * 1.5, 0.9, 4.2); }
+  best.L = L;
+  best.n = Math.max(2, Math.round(best.rise / 0.2));
+  return best;
+}
 // a point in a piece's frame -> world
 function bPW(pc, lx, lz) { const c = Math.cos(pc.yaw), s = Math.sin(pc.yaw); return { x: pc.x + lx * c + lz * s, z: pc.z - lx * s + lz * c }; }
 function bAddColl(pc, lx, lz, hx, hz, h, tag = 'build', y0 = null) {
@@ -505,6 +532,8 @@ function bMakeSolid(pc) {
   else if (t === 'wall' || t === 'window') bAddColl(pc, 0, 0, B_C / 2, 0.12, B_WH, 'build', y);
   else if (t === 'wallStone') bAddColl(pc, 0, 0, B_C / 2 + 0.02, 0.22, B_WH + 0.1, 'build', y);
   else if (t === 'door') {
+    const st = bDoorSteps(pc); // [integration] the steps up to a high sill are a ramp you walk (and NPCs too)
+    if (st) { const c = bPW(pc, 0, st.s * (0.12 + st.L / 2 - 0.1)), hz = st.L / 2 + 0.1; pc.floors.push(addFloorBox(c.x, c.z, 0.62, hz, pc.yaw, st.s > 0 ? y : y - st.rise, st.s > 0 ? y - st.rise : y, y - st.rise - 0.2, 0.3, 'build')); } // it reaches back under the sill, so no gap is left between the steps and the floor
     for (const s of [-1, 1]) bAddColl(pc, s * 1.03, 0, 0.47, 0.12, B_WH, 'build', y);
     bAddColl(pc, 0, 0, 0.58, 0.12, 0.72, 'build', y + 2.12); // the lintel and wall above the doorway
     pc.leafColl = bAddColl(pc, 0, 0, 0.56, 0.1, 2.15, 'build', y);
@@ -576,6 +605,8 @@ function buildPlace(t, x, z, rot = 0, opts = {}) {
   return { ok: true, pc };
 }
 // raise a piece: work with the hammer (dt seconds); returns true when it stands finished
+// how far above or below you a piece can be worked on: a roof is raised from the floor under it, on its walls
+const bReachY = (pc) => (BP[pc.t] && BP[pc.t].roof ? 4.8 : 3.5);
 function bWork(pc, dt) {
   const P = GAME.player;
   const time = BP[pc.t].time * (pc.repair ? 0.6 : 1);
@@ -1079,7 +1110,7 @@ function updateBuild(dt) {
   const W2 = BUILD.work;
   if (W2 && P) {
     const pc = W2.pc;
-    const near = pc.st === 'build' && dist2(P.x, P.z, pc.x, pc.z) < 4.2 * 4.2 && Math.abs(P.y - pc.y) < 3.5;
+    const near = pc.st === 'build' && dist2(P.x, P.z, pc.x, pc.z) < 4.2 * 4.2 && Math.abs(P.y - pc.y) < bReachY(pc);
     const still = dist2(P.x, P.z, W2.x, W2.z) < (W2.auto ? 4 : 0.8) ** 2;
     if (!P.alive || !near || !still || !bHasHammer() || P.casting) {
       if (pc.st === 'build' && P.alive && !W2.auto) uiLog('You put down your hammer.', 'sys');
@@ -1093,7 +1124,7 @@ function updateBuild(dt) {
   if (P && P.alive && !BUILD.work) {
     const moved = BUILD.lastP ? dist2(P.x, P.z, BUILD.lastP.x, BUILD.lastP.z) : 1;
     BUILD.idleT = moved < 0.0025 ? (BUILD.idleT || 0) + dt : 0;
-    if (BUILD.idleT > 0.7 && bHasHammer() && !P.casting) { const pc = bNearestUnfinished(P.x, P.z, 3.6); if (pc && Math.abs(P.y - pc.y) < 3) BUILD.work = { pc, x: P.x, z: P.z, t: 0 }; }
+    if (BUILD.idleT > 0.7 && bHasHammer() && !P.casting) { const pc = bNearestUnfinished(P.x, P.z, 3.6); if (pc && Math.abs(P.y - pc.y) < bReachY(pc) - 0.5) BUILD.work = { pc, x: P.x, z: P.z, t: 0 }; }
   }
   if (P) BUILD.lastP = { x: P.x, z: P.z };
   // fire, ruins cooling, leaves swinging

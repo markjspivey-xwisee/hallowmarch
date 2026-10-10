@@ -139,11 +139,12 @@ function lifeRun(e, dt) {
       // outdoors the way is a straight line, and it can meet a workstation, a well, a fence or a cart: when no headway
       // is made, step round whatever is in the way, first one side and then the other
       if (!st.room && dist2(e.x, e.z, tx, tz) > 1.4 * 1.4) {
-        const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t });
+        const dNow = Math.hypot(tx - e.x, tz - e.z);
+        const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t, d: dNow });
         if (plan.t - tr.t > 1.5) {
-          const moved = dist(e.x, e.z, tr.x, tr.z);
-          st.track = { x: e.x, z: e.z, t: plan.t };
-          if (moved < 0.5 && !st.detour) {
+          const gained = (tr.d ?? dNow) - dNow; // nearer the goal, not just moving: sliding along a wall is no headway
+          st.track = { x: e.x, z: e.z, t: plan.t, d: dNow };
+          if (gained < 0.5 && !st.detour) {
             const dx = tx - e.x, dz = tz - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (e.id % 2 ? 1 : -1))), w = 2.4 + (st.tries = (st.tries || 0) + 1) * 0.9;
             st.detour = { x: e.x + (-dz / l) * sd * w - (dx / l) * 0.8, z: e.z + (dx / l) * sd * w - (dz / l) * 0.8, until: plan.t + 2.8 };
           }

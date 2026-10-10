@@ -304,7 +304,7 @@ async def build_tests(page):
       const openMid = d.open; const t = T.until(() => !d.open, 8, 0.25); const closedAfter = !d.open;
       // one standing in the doorway does not stay there
       e.x = e.prevX = d.x; e.z = e.prevZ = d.z; T.sim(3, 0.25); const lz2 = (e.x - d.x) * s + (e.z - d.z) * c;
-      const out = { opened, through, closedAfter, t, lz2: +lz2.toFixed(2), npcDoors: T.D.stats().npcDoors };
+      const out = { opened, through, closedAfter, t, lz2: +lz2.toFixed(2), npcDoors: T.D.stats().npcDoors, sill: +(d.y - T.F.heightAt(d.x + s * 2, d.z + c * 2)).toFixed(2) };
       T.F.removeEnt(e); return out; })()""" % B)
     check(r['opened'] > 0 and r['through'], f"a townsman walking through a built doorway opens the door and passes ({r['npcDoors']} openings)")
     check(r['closedAfter'], f"and it swings shut behind him ({r['t']} s)")

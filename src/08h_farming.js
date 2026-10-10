@@ -677,11 +677,12 @@ function farmLifeStep(e, st, plan, dt, next) {
       else { if (moveToward(e, st.via.x, st.via.z, dt, 1.0, 0.6) || dist(e.x, e.z, st.via.x, st.via.z) < 1.3 || plan.t > st.via.until) { st.via = null; st.viaDone = true; } return true; }
     }
     // on the way out of town: a house or a fence in the way is walked round
-    const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t });
+    const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t, d });
     if (plan.t - tr.t > 2.5) {
-      const moved = dist(e.x, e.z, tr.x, tr.z);
-      st.track = { x: e.x, z: e.z, t: plan.t };
-      if (moved > 1) T.workT = GAME.t; // still getting there
+      // headway is how much nearer the work is now, not how far the feet went: sliding along a wall is no headway
+      const gained = (tr.d ?? d) - d;
+      st.track = { x: e.x, z: e.z, t: plan.t, d };
+      if (gained > 0.8) T.workT = GAME.t; // still getting there
       else if (!st.detour) {
         const dx = fr.x - e.x, dz = fr.z - e.z, l = Math.hypot(dx, dz) || 1, sd = (st.turn = -(st.turn || (Math.random() < 0.5 ? 1 : -1)));
         st.detour = { x: e.x + (-dz / l) * sd * (4 + Math.random() * 3) - (dx / l) * 1.2, z: e.z + (dx / l) * sd * (4 + Math.random() * 3) - (dz / l) * 1.2, until: plan.t + 4 };
