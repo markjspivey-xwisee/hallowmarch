@@ -38,13 +38,14 @@ window.TF = {
 """
 
 async def tap(page, sel, frames=2):
+    """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
     await page.evaluate("__hm.frame(1/30); 0")
-    el = await page.query_selector(sel)
-    if not el: return False
-    try:
-        await el.tap(timeout=20000)
-    except Exception as e:
-        print('  tap failed', sel, str(e)[:160]); return False
+    box = await page.evaluate("""((sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return null;
+      const x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
+      return { x, y, top: !!hit && (hit === el || el.contains(hit)), hit: hit ? (hit.id || String(hit.className).slice(0, 20)) : null }; })""", sel)
+    if not box or not box['top']:
+        print('  cannot tap', sel, json.dumps(box)); return False
+    await page.touchscreen.tap(box['x'], box['y'])
     for _ in range(frames): await page.evaluate("__hm.frame(1/30); 0")
     return True
 
@@ -55,8 +56,10 @@ async def drag_stick(page, cdp, dx, dy, secs):
     await page.evaluate("__hm.frame(1/30); 0")
     for k in range(1, 5):
         await cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x0 + dx * k / 4, 'y': y0 + dy * k / 4, 'id': 1}]})
-    await page.evaluate(f"__hm.frame(1/30); __hm.simulate({secs}); __hm.frame(1/30); 0")
-    st = await page.evaluate("(() => { const P = __hm.GAME.player; return { x: P.x, z: P.z, swim: !!P.swim, wd: P.wd || 0 }; })()")
+    # the world runs while the finger holds the stick: note whether the body ever swam on the way
+    st = await page.evaluate(f"""(() => {{ const H = __hm, P = H.GAME.player, x0 = P.x, z0 = P.z; let swim = false, wd = 0;
+      for (let i = 0; i < {secs} * 10; i++) {{ H.simulate(0.1); swim = swim || !!P.swim; wd = Math.max(wd, P.wd || 0); }}
+      return {{ moved: Math.round(Math.hypot(P.x - x0, P.z - z0) * 10) / 10, swim, wd: Math.round(wd * 100) / 100, joy: H.INPUT.joy ? 1 : 0 }}; }})()""")
     await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
     await page.evaluate("__hm.frame(1/30); 0")
     return st
@@ -93,7 +96,7 @@ async def main():
 
         if want('swim'):
             await page.evaluate("""(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()""")
-            st = await drag_stick(page, cdp, 0, -70, 5)
+            st = await drag_stick(page, cdp, 0, -45, 6)
             check(st['swim'] or st['wd'] > 0.5, f'swim: the stick walks you into the river until you swim ({json.dumps(st)})')
             await page.evaluate("(() => { const b = TF.bank(); TF.stand(b.x, b.z, b.wx, b.wz); return 0; })()")
 
@@ -111,7 +114,7 @@ async def main():
             ok = await tap(page, '#farmcard .fc-acts .btn.primary')
             await page.evaluate("__hm.simulate(6); for (let i = 0; i < 4; i++) __hm.frame(1/10); 0")
             n1 = await page.evaluate("__hm.farm.FARM.plots.length")
-            check(r and ok and n1 > r['plots'], f'farm: the plant card\\'s first button tills a bed ({r and r["plots"]} -> {n1})')
+            check(r and ok and n1 > r['plots'], f"farm: the plant card's first button tills a bed ({r and r["plots"]} -> {n1})")
             lab = await page.evaluate("(() => { const b = document.querySelector('#farmcard .fc-acts .btn.primary'); return b ? b.textContent : null; })()")
             ok2 = await tap(page, '#farmcard .fc-acts .btn.primary')
             await page.evaluate("__hm.simulate(4); 0")
@@ -134,11 +137,11 @@ async def main():
             check(bool(ok2) and goods1 != goods0, f'craft: a tap on a recipe makes it ("{btn}")')
 
         if want('build'):
-            r = await page.evaluate("""(() => { const H = TF.H, B = H.build, fn = H.fn;
+            r = await page.evaluate("""(() => { const H = TF.H, B = H.build, fn = H.fn, P = TF.P();
               fn.goodsAdd('tool_hammer', 1, true); fn.goodsAdd('stone', 20, true); fn.goodsAdd('plank', 20, true); fn.goodsAdd('log', 20, true); fn.goodsAdd('nail', 20, true);
               const town = H.perf.SITES.find((s) => s.kind === 'town' && s.realm === 0);
               let spot = null;
-              for (let r = 90; r < 220 && !spot; r += 8) for (let a = 0; a < 6.28 && !spot; a += 0.3) { const x = town.x + Math.cos(a) * r, z = town.z + Math.sin(a) * r; if (fn.isWalkable(x, z) && !B.bLandWhy(x, z)) spot = { x, z }; }
+              for (let r = 90; r < 220 && !spot; r += 8) for (let a = 0; a < 6.28 && !spot; a += 0.3) { const x = town.x + Math.cos(a) * r, z = town.z + Math.sin(a) * r; if (fn.isWalkable(x, z) && !B.bLandWhy(x, z, P)) spot = { x, z }; }
               if (!spot) return null;
               TF.stand(spot.x, spot.z, spot.x + 1, spot.z + 3); return { n: B.buildPieces().length }; })()""")
             ok = await tap(page, '#btn-build', 3)

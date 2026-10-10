@@ -12,12 +12,13 @@ const HUD_PREF = {
   wide: { '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
   desk: { '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
-// in order of need: the first placed get the best places (the builder's bar is the tool in hand while it is open)
-const HUD_ORDER = ['#buildbar', '#tf', '#cls', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners'];
+// in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
+// using while they are open)
+const HUD_ORDER = ['#buildbar', '#tf', '#cls', '#farmcard', '#petbar', '#war', '#lore-path', '#bounty', '#banners'];
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
 const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
-const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#farmcard', '#lore-path', '#bounty', '#banners']);
+const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners']); // the plant card is what you are using: it never waits
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;

@@ -4,7 +4,7 @@ with the war running, a forest, the Barrow. For each view and quality: calls and
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
 usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render]
-(js: only the JS costs; render: only the draw counts)
+(js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view)
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -99,6 +99,9 @@ async def main():
                 await ev(page, f"PV.view('{v}'); __hm.simulate(0.3); __hm.frame(); 0")
                 r = await ev(page, "(() => { const f = __hm.perf.frame(); return f; })()")
                 r['frameMs'] = r['ms']
+                if 'shots' in ARGS and q in OPT.get('shotq', 'low').split(','):
+                    await ev(page, "__hm.frame(); 0")
+                    await page.screenshot(path=OUT + f'perf_{TAG}_{q}_{v}.png', timeout=300000)
                 r['rows'] = r['rows'][:ROWS * 2]
                 res['views'].setdefault(v, {})[q] = r
                 print(f"{q:6s} {v:7s} calls {r['calls']:4d} (main {r['main']['calls']:4d} shadow {r['shadow']['calls']:3d})  tris {fmt_m(r['tris']):>7s} (main {fmt_m(r['main']['tris'])}, shadow {fmt_m(r['shadow']['tris'])})  programs {r['programs']}  frame JS {r['frameMs']} ms", flush=True)

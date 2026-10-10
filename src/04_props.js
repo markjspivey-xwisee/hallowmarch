@@ -602,23 +602,22 @@ function treeGeometry(kind, lo = 0) { // [phones] lo: the far model, the same sh
     const t = new THREE.CylinderGeometry(0.2, 0.36, 3.4, lo ? 5 : 7);
     add(t, M(0, 1.6, 0, 1, 1, 1), 0, trunkAO);
     const br = new THREE.CylinderGeometry(0.06, 0.13, 2.0, lo ? 3 : 5);
-    add(br, M(0.6, 3.2, 0.1, 1, 1, 1, 0.1, 0, -0.9), 0, trunkAO);
-    add(br, M(-0.55, 3.3, -0.2, 1, 1, 1, -0.2, 0, 0.85), 0, trunkAO);
+    if (lo < 2) { add(br, M(0.6, 3.2, 0.1, 1, 1, 1, 0.1, 0, -0.9), 0, trunkAO); add(br, M(-0.55, 3.3, -0.2, 1, 1, 1, -0.2, 0, 0.85), 0, trunkAO); } // [phones] lo 2: the farthest model, the crown's big lobes only
     const centre = new THREE.Vector3(0, 4.4, 0);
     const lobes = [[0, 4.7, 0, 2.2], [1.5, 4.1, 0.4, 1.6], [-1.4, 4.2, -0.3, 1.65], [0.3, 5.6, -0.7, 1.45], [-0.5, 3.8, 1.3, 1.45], [0.9, 3.9, -1.3, 1.35]];
-    lobes.forEach(([x, y, z, r], i) => add(lobeGeo(i * 3.7), M(x, y, z, r, r * 0.86, r), 1, (p) => clamp(0.35 + 0.65 * ((p.y - 2.4) / 4.2) + 0.25 * (Math.hypot(p.x - centre.x, p.z - centre.z) / 3.2), 0.3, 1), centre, 0.55));
+    (lo >= 2 ? lobes.slice(0, 3) : lobes).forEach(([x, y, z, r], i) => add(lobeGeo(i * 3.7), M(x, y, z, r * (lo >= 2 ? 1.12 : 1), r * 0.86 * (lo >= 2 ? 1.12 : 1), r * (lo >= 2 ? 1.12 : 1)), 1, (p) => clamp(0.35 + 0.65 * ((p.y - 2.4) / 4.2) + 0.25 * (Math.hypot(p.x - centre.x, p.z - centre.z) / 3.2), 0.3, 1), centre, 0.55));
   } else if (kind === 'birch') {
     const t = new THREE.CylinderGeometry(0.11, 0.19, 4.6, lo ? 4 : 6);
     add(t, M(0, 2.2, 0, 1, 1, 1), 0, trunkAO);
     const centre = new THREE.Vector3(0, 5.0, 0);
     const lobes = [[0, 5.3, 0, 1.35], [0.6, 4.4, 0.3, 1.0], [-0.55, 4.6, -0.3, 1.05], [0.1, 6.2, 0.1, 0.95]];
-    lobes.forEach(([x, y, z, r], i) => add(lobeGeo(i * 5.1 + 2), M(x, y, z, r, r * 1.35, r), 1, (p) => clamp(0.4 + 0.6 * ((p.y - 3.4) / 3.6), 0.35, 1), centre, 0.5));
+    (lo >= 2 ? lobes.slice(0, 2) : lobes).forEach(([x, y, z, r], i) => add(lobeGeo(i * 5.1 + 2), M(x, y, z, r * (lo >= 2 ? 1.1 : 1), r * 1.35 * (lo >= 2 ? 1.1 : 1), r * (lo >= 2 ? 1.1 : 1)), 1, (p) => clamp(0.4 + 0.6 * ((p.y - 3.4) / 3.6), 0.35, 1), centre, 0.5));
   } else {
     const t = new THREE.CylinderGeometry(0.14, 0.26, 2.2, lo ? 4 : 6);
     add(t, M(0, 1.0, 0, 1, 1, 1), 0, trunkAO);
     const tiers = [[1.4, 2.3, 3.2], [2.75, 1.85, 2.9], [4.0, 1.4, 2.5], [5.15, 0.85, 2.1]];
     tiers.forEach(([y, r, h], i) => {
-      const g = new THREE.ConeGeometry(1, 1, lo ? 7 : 10, 1, lo ? true : false); // [phones] far: fewer sides, no underside
+      const g = new THREE.ConeGeometry(1, 1, lo >= 2 ? 5 : lo ? 7 : 10, 1, lo ? true : false); // [phones] far: fewer sides, no underside
       const p = g.attributes.position;
       for (let k = 0; k < p.count; k++) {
         v.fromBufferAttribute(p, k);

@@ -5,7 +5,7 @@
 // rim is always kept at full detail and zipped to the coarse inside, so neighbouring chunks meet whatever their level
 // (no cracks), and craters (natTerrainUpdate writes the shared vertices) show at every level.
 // Trees: the far chunks swap to the same trees with fewer faces (treeGeometry(kind, 1)), in the shadow pass too.
-const LOD = { built: false, terrain: [], blocks: [], trees: [], lastQ: '', stats: { terrain: [0, 0, 0], blocks: 0, trees: [0, 0] } };
+const LOD = { built: false, terrain: [], blocks: [], trees: [], lastQ: '', stats: { terrain: [0, 0, 0], blocks: 0, trees: [0, 0, 0] } };
 // [full detail within, half detail within] metres from the chunk's nearest edge; beyond: quarter detail
 const TERRAIN_LOD_D = { high: [150, 330], medium: [90, 230], low: [44, 150] };
 const TREE_LOD_D = { high: 140, medium: 80, low: 30 };
@@ -13,6 +13,8 @@ const TREE_LOD_D = { high: 140, medium: 80, low: 30 };
 // beyond (two draws in place of the chunk's one; refreshed as the camera moves or a tree falls). High keeps whole
 // chunks (its near trees draw the closest ones in full).
 const TREE_SPLIT_D = { medium: 60, low: 36 };
+// and beyond this (from the chunk's nearest edge) the farthest model: the crown's big lobes only
+const TREE_FAR2_D = { medium: 200, low: 100 };
 // the triangles of an N-cell square at s-cell steps inside and full detail round its rim, in grid coordinates
 // (front faces up, as the full grid has them)
 function lodTris(N, s, emit) {
@@ -85,18 +87,23 @@ function lodBuild() {
     const kids = [0, 1, 2, 3].map((k) => LOD.terrain[(bj * 2 + (k >> 1)) * 8 + bi * 2 + (k & 1)]);
     LOD.blocks.push({ m, bi, bj, kids, dirty: false });
   }
-  const far = {};
+  const far = {}, far2 = {};
   for (const m of treeChunks) {
     const k = m.userData.kind;
     if (!k) continue;
-    if (!far[k]) far[k] = treeGeometry(k, 1);
-    const g0 = m.geometry, f = far[k], g1 = new THREE.InstancedBufferGeometry();
-    for (const a of ['position', 'normal', 'aPart', 'aAO']) g1.setAttribute(a, f.attributes[a]);
-    g1.setIndex(f.index);
-    for (const a of ['iPos', 'iRot']) g1.setAttribute(a, g0.attributes[a]); // the same trees: shared instance data
-    g1.instanceCount = g0.instanceCount;
-    g1.boundingSphere = g0.boundingSphere;
-    LOD.trees.push({ m, gs: [g0, g1], far: f, kind: k, x: m.userData.center.x, z: m.userData.center.y, lvl: 0, split: null });
+    if (!far[k]) { far[k] = treeGeometry(k, 1); far2[k] = treeGeometry(k, 2); }
+    const g0 = m.geometry, f = far[k];
+    const inst = (src) => {
+      const g1 = new THREE.InstancedBufferGeometry();
+      for (const a of ['position', 'normal', 'aPart', 'aAO']) g1.setAttribute(a, src.attributes[a]);
+      g1.setIndex(src.index);
+      for (const a of ['iPos', 'iRot']) g1.setAttribute(a, g0.attributes[a]); // the same trees: shared instance data
+      g1.instanceCount = g0.instanceCount;
+      g1.boundingSphere = g0.boundingSphere;
+      return g1;
+    };
+    const g1 = inst(f), g2 = inst(far2[k]);
+    LOD.trees.push({ m, gs: [g0, g1, g2], far: f, kind: k, x: m.userData.center.x, z: m.userData.center.y, lvl: 0, split: null });
   }
 }
 // a stand-in with no trees for the shadow pass (no draw at all)
@@ -182,9 +189,9 @@ function updateLod() {
   if (!GAME.built) return;
   if (!LOD.built) lodBuild();
   const q = quality.level, cx = camera.position.x, cz = camera.position.z;
-  const TD = TERRAIN_LOD_D[q] || TERRAIN_LOD_D.high, RD = TREE_LOD_D[q] || TREE_LOD_D.high;
+  const TD = TERRAIN_LOD_D[q] || TERRAIN_LOD_D.high, RD = TREE_LOD_D[q] || TREE_LOD_D.high, RD2 = TREE_FAR2_D[q] || 1e9;
   const st = LOD.stats;
-  st.terrain[0] = st.terrain[1] = st.terrain[2] = 0; st.trees[0] = st.trees[1] = 0;
+  st.terrain[0] = st.terrain[1] = st.terrain[2] = 0; st.trees[0] = st.trees[1] = st.trees[2] = 0;
   for (const T of LOD.terrain) {
     // the land is never coarse right under the camera (a crater's walls, a cliff by the player)
     const d = lodEdge(T.x, T.z, cx, cz, 64);
@@ -205,7 +212,7 @@ function updateLod() {
   const SD = TREE_SPLIT_D[q] || 0;
   for (const T of LOD.trees) {
     const d = lodEdge(T.x, T.z, cx, cz, 64);
-    const l = d < RD ? 0 : 1;
+    const l = d < RD ? 0 : d < RD2 ? 1 : 2;
     if (l !== T.lvl) {
       T.lvl = l; T.m.geometry = T.gs[l];
       // far chunks lie outside the sun's shadow box (it reaches 38 to 46 m round the view): they cast nothing
@@ -213,7 +220,7 @@ function updateLod() {
       if (px) px.geometry = l ? treeNoCast(T) : T.gs[0];
     }
     // trees felled or regrown change the chunk's instance count: keep the far model's in step
-    if (T.gs[1].instanceCount !== T.gs[0].instanceCount) T.gs[1].instanceCount = T.gs[0].instanceCount;
+    if (T.gs[1].instanceCount !== T.gs[0].instanceCount) T.gs[1].instanceCount = T.gs[2].instanceCount = T.gs[0].instanceCount;
     treeSplit(T, l === 0 && SD > 0, cx, cz, SD);
     st.trees[l]++;
   }
