@@ -4,7 +4,7 @@ Read this before changing anything. It covers what the game is, the owner's stan
 
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)
 - **Repository:** https://github.com/markjspivey-xwisee/hallowmarch (private). Work on `main`, commit often, and push at each milestone.
-- **Live build:** Claude artifact https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T, which is private to the owner. It is published from the built `hallowmarch.html` with capabilities `{db:{}, user:{}}`. When you republish to that URL, omit `capabilities` so the stored set is kept.
+- **Live build:** Claude artifact https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T, shared with anyone who has the link. It is published from the built `hallowmarch.html` with capabilities `{db:{}, user:{}}`. When you republish to that URL, omit `capabilities` so the stored set is kept.
 - **Published:** Version 6 (level 50, lore, working castles and houses, the reactive land, weather on everything, gear wear, the readable and winnable war).
 - **Next:** a visual pass, then music, the aurora and siege engines (see Roadmap).
 
