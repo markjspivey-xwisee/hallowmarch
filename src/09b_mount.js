@@ -6,6 +6,8 @@ ABILITIES.summon = { id: 'summon', name: 'Summon horse', icon: 'leap', level: 1,
 const MOUNT_SPEED = 1.85;
 
 function horseLook(e) {
+  const own = animalsRideLook(e); // [animals] the horse you tamed is the one you ride (08h_animals.js)
+  if (own) return own;
   // the same rider always gets the same horse
   let h = 7;
   for (const ch of String(e.name || 'rider')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -22,7 +24,9 @@ function mountUp(e, quiet = false) {
 }
 function dismount(e, why = null) {
   if (!e || !e.mount) return;
+  const M = e.mount; // [animals]
   e.mount = null;
+  animalsDismounted(e, M); // [animals] your horse stands beside you (08h_animals.js)
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 12, [0.45, 0.4, 0.32]);
   if (e === GAME.player) { if (why) uiLog(why, 'warn'); sfx('thud'); }
 }
@@ -35,6 +39,7 @@ function toggleMount() {
   if (inDungeon(P)) { uiError('There is no room for a horse down here'); return; }
   if (GAME.t < P.combatUntil) { uiError('You cannot call your horse in the heat of battle'); return; }
   if (isRooted(P)) { uiError('You cannot move'); return; }
+  if (animalsQuickMount(P)) return; // [animals] your own horse close by: up you go (08h_animals.js)
   P.casting = { id: 'summon', t: 0, total: ABILITIES.summon.cast, targetId: null, gx: P.x, gz: P.z };
   sfx('whistle');
 }

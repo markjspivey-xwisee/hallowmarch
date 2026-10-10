@@ -530,6 +530,58 @@
     #craft .craftsheet { padding: 14px; }
     #craft .kithead { flex-wrap: wrap; row-gap: 4px; } #craft .skilltag { order: 3; width: 100%; }
     .craftcard { min-height: 0; }
+
+  /* animals */
+  #petbar { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--pad) + var(--safe-t)); width: max-content; max-width: calc(100vw - 2 * var(--pad) - 500px); padding: 6px; display: grid; grid-auto-flow: column; align-items: start; gap: 6px; box-sizing: border-box; }
+  #petbar .pb-pets { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(96px, 124px); gap: 4px; }
+  #petbar .pb-pet { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "n s" "h h" "f f"; gap: 2px 6px; padding: 5px 7px; border-radius: 4px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.28); color: var(--ink); text-align: left; cursor: pointer; font: inherit; min-width: 0; }
+  #petbar .pb-pet.on { border-color: var(--bronze-hi); box-shadow: inset 0 0 0 1px var(--bronze-hi); }
+  #petbar .pb-pet b { grid-area: n; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #petbar .pb-pet small { grid-area: s; font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
+  #petbar .pb-pet i { display: block; height: 5px; border-radius: 2px; background: rgba(0, 0, 0, 0.5); overflow: hidden; }
+  #petbar .pb-pet i s { display: block; height: 100%; text-decoration: none; }
+  #petbar .pb-hp { grid-area: h; } #petbar .pb-hp s { background: var(--hp); }
+  #petbar .pb-fd { grid-area: f; } #petbar .pb-fd s { background: #c9a35a; }
+  #petbar .pb-cmds { display: grid; grid-template-columns: repeat(3, minmax(52px, auto)); gap: 4px; }
+  #petbar .pb-cmds[hidden] { display: none; }
+  #petbar .pb-cmds button, #petbar .pb-fence { min-height: 30px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.05); color: var(--ink); font: 600 12px/1 var(--ui); cursor: pointer; }
+  #petbar .pb-cmds button:hover, #petbar .pb-fence:hover { background: rgba(223, 193, 136, 0.14); }
+  #petbar .pb-fence { width: 100%; border-color: var(--bronze-hi); }
+  #petbar .pb-mark { display: grid; grid-template-columns: 2fr 1fr; gap: 4px; }
+  #petbar .pb-stop { border-color: var(--line-strong); }
+  .an-card h4 { margin: 10px 0 4px; font-family: var(--caps); font-size: 12px; letter-spacing: 0.08em; color: var(--ink-dim); text-transform: uppercase; }
+  .an-sub { margin: 0 0 4px; color: var(--ink-dim); font-size: 13px; }
+  .an-tr { display: grid; grid-template-columns: 76px 1fr 104px; align-items: center; gap: 8px; font-size: 13px; margin: 3px 0; }
+  .an-tr em { font-style: normal; color: var(--ink-dim); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .an-bar { display: block; height: 8px; border-radius: 3px; background: rgba(0, 0, 0, 0.45); overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4); }
+  .an-bar b { display: block; height: 100%; background: #8fb36a; }
+  .an-bar.gold b { background: #d8b45a; } .an-bar.red b { background: var(--hp); } .an-bar.blue b { background: #5f9ccf; }
+  .an-coat { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 2px 0 6px; }
+  .an-coat i { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
+  .an-coat small { color: var(--ink-dim); }
+  .an-note { margin: 8px 0 0; font-size: 13px; color: var(--bronze-hi); }
+  .an-name label { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; }
+  .an-name input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.35); color: var(--ink); font: inherit; }
+  .an-list { display: grid; gap: 5px; margin: 6px 0 10px; }
+  .an-item { display: grid; grid-template-columns: 16px auto 1fr 60px; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink); text-align: left; font: inherit; cursor: pointer; min-width: 0; }
+  .an-item i { width: 14px; height: 14px; border-radius: 50%; }
+  .an-item span { color: var(--ink-dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .an-item em { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--hp) var(--v), rgba(0, 0, 0, 0.45) var(--v)); }
+  .an-item.down { opacity: 0.6; cursor: default; }
+  .an-shop .an-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .an-shop .an-row em { font-style: normal; color: var(--bronze-hi); }
+    #petbar { top: calc(var(--pad) + var(--safe-t)); left: calc(var(--pad) + 206px); transform: none; width: auto; max-width: calc(100vw - 2 * var(--pad) - 346px); min-width: 150px; padding: 5px; gap: 4px; grid-auto-flow: row; }
+    #petbar .pb-pets { grid-auto-flow: column; grid-auto-columns: minmax(92px, 1fr); }
+    #petbar .pb-cmds { grid-template-columns: repeat(3, 1fr); }
+    #petbar .pb-cmds button { min-height: 30px; padding: 3px 4px; font-size: 11px; }
+    .an-tr { grid-template-columns: 62px 1fr 86px; }
+    #petbar.tall { left: var(--pad); width: 196px; max-width: 196px; min-width: 0; }
+    #btn-animals { display: none; }
+    #petbar.solo { padding: 3px; }
+    #petbar.solo .pb-cmds { grid-template-columns: auto; }
+    #petbar.solo .pb-cmds button:not([data-cmd="list"]) { display: none; }
+    #petbar.tall .pb-pets { grid-auto-columns: minmax(0, 1fr); }
+    #petbar.tall .pb-pet small { display: none; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

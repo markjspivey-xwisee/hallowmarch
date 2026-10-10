@@ -210,6 +210,7 @@ function currentInteraction() {
   buildOffers(P, offer); // [building] work on, repair, open, use or pull down what you built (06k_build.js)
   survivalOffers(P, offer); // [survival] water, fires, plants, fishing, workstations, rocks (09s_survival.js)
   farmOffers(P, offer); // [farming] till, sow, weed, harvest, keep seed; herbs; the farmer (08h_farming.js)
+  animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
   return best;
 }
 function playerInteract() {
@@ -278,7 +279,7 @@ function updatePlayer(dt) {
     let mx = fx * f + rx * s, mz = fz * f + rz * s;
     const ml = Math.hypot(mx, mz) || 1;
     mx /= ml; mz /= ml;
-    let sp = effectiveSpeed(P) * (PLAYER_SPEED / P.speed) * mag * (P.mount ? MOUNT_SPEED * (sprinting ? 1.22 : 1) : sprinting ? 1.45 : 1);
+    let sp = effectiveSpeed(P) * (PLAYER_SPEED / P.speed) * mag * (P.mount ? MOUNT_SPEED * animalsMountSpeed(P) * (sprinting ? 1.22 : 1) : sprinting ? 1.45 : 1);
     if (P.casting) { P.casting = null; uiLog('Your casting is interrupted.', 'warn'); sfx('fizzle'); }
     const nx = P.x + mx * sp * dt, nz = P.z + mz * sp * dt;
     const ok = stepTo(P, nx, nz);
