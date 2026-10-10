@@ -221,13 +221,13 @@ async def main():
             # Use push each hatch open and climb each ladder, from the store room to the guard room to the top
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, S = H.REALMS[0].keepSites[0], T = H.towers.TOWER.list.find((q) => q.S === S && q.sx === 1 && q.sz === 1);
               const o = F.siteToWorld(S, T.cx + Math.sin(T.aIn) * 6, T.cz + Math.cos(T.aIn) * 6), c = F.siteToWorld(S, T.cx, T.cz); TF.stand(o.x, o.z, c.x, c.z); window.__tft = T; return { d0: +Math.hypot(o.x - c.x, o.z - c.z).toFixed(1) }; })()""")
-            st = await drag_stick(page, cdp, 0, -45, 1.2)
+            st = await drag_stick(page, cdp, 0, -45, 0.8)
             inn = await page.evaluate("""(() => { const T = window.__tft, P = TF.P(), c = TF.H.fn.siteToWorld(T.S, T.cx, T.cz); return { d: +Math.hypot(P.x - c.x, P.z - c.z).toFixed(2), y: +(P.y - T.S.y).toFixed(2), yG: +T.yG.toFixed(2), door: +T.doors[0].k.toFixed(2) }; })()""")
             # inside the drum on the store room's floor: the door swung open to let you by (shut, it blocks)
             check(inn['d'] < 2.45 and abs(inn['y'] - inn['yG']) < 0.2, f'tower: the stick walks you in at the courtyard door, which swings open ({json.dumps(inn)})')
             ys = []
             for L in (0, 1):
-                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); TF.stand(p.x, p.z, L.lx, L.lz); const P = TF.P(); P.y = L.wyb; H.simulate(0.2); return TF.label(); }})()""")
+                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); const P = TF.P(); H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; P.anim.act = 0; TF.stand(p.x, p.z, L.lx, L.lz); P.y = L.wyb; H.simulate(0.2); return TF.label(); }})()""")
                 ok1 = await tap(page, '#t-use')
                 await page.evaluate("__hm.simulate(1.2); 0")
                 lab2 = await page.evaluate("TF.label()")

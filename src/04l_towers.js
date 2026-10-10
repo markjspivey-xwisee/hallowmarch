@@ -10,7 +10,7 @@
 // Everything is built in the site frame of its keep (castleStone in 04g_castles.js calls towerStone for each
 // corner); the doors and hatch lids of a keep are one mesh whose vertices are moved when one of them swings.
 
-const TOWER = { list: [], ladders: [], hatches: [], doors: [], keeps: [], px: null, pz: null, stats: { rebuilt: 0 } };
+const TOWER = { list: [], ladders: [], hatches: [], doors: [], keeps: [], inner: [], px: null, pz: null, stats: { rebuilt: 0 } };
 const TW = { RO: 3.4, RI: 2.5, NS: 16, R0: 1.25, R1: 2.3, HW: 0.5, CLIMB: 1.25, FOOT: 1.85, LINE: 1.6, OFF: 0.7 };
 
 // one sector of a tower's drum, unit high: from TW.RI to TW.RO, a sixteenth of the circle centred on angle 0 (a point
@@ -47,6 +47,7 @@ const twIdx = (a) => ((Math.round(a / (TAU / TW.NS)) % TW.NS) + TW.NS) % TW.NS;
 // sx, sz: which corner; H the walk's height, TT the fighting top's (above the site)
 function towerStone(C, sx, sz, H, TT, TC) {
   const { S, b, M, st } = C, { RO, RI, NS } = TW, RM = (RO + RI) / 2, TH = RO - RI;
+  const bi = C.bi || (C.bi = new Batch()); // what is only seen from inside: drawn only near the keep (buildTowers)
   const T = { C, S, sx, sz, cx: sx * TC, cz: sz * TC, H, TT, doors: [], ladders: [], hatches: [], gaps: {}, fires: [] };
   T.aIn = Math.atan2(-sx, -sz); // toward the courtyard
   T.aSide = Math.atan2(0, -sz); // onto the walk along the side wall
@@ -91,8 +92,8 @@ function towerStone(C, sx, sz, H, TT, TC) {
         const ym = (y0 + y1) / 2, h = y1 - y0;
         const qo = twP(T, a, RO + 0.004), qi = twP(T, a, RI - 0.004);
         b.add(G.box, lm(M, qo.x, ym, qo.z, a, 0.09, h, 0.012), MAT.water, ARROW_SLIT);
-        b.add(G.box, lm(M, qi.x, ym, qi.z, a, 0.42, h + 0.2, 0.012), MAT.darkstone, darker(st.stone, 0.42));
-        b.add(G.box, lm(M, qi.x, ym, qi.z, a, 0.09, h, 0.016), MAT.water, ARROW_SLIT);
+        bi.add(G.box, lm(M, qi.x, ym, qi.z, a, 0.42, h + 0.2, 0.012), MAT.darkstone, darker(st.stone, 0.42));
+        bi.add(G.box, lm(M, qi.x, ym, qi.z, a, 0.09, h, 0.016), MAT.water, ARROW_SLIT);
       }
     }
   }
@@ -117,7 +118,7 @@ function towerStone(C, sx, sz, H, TT, TC) {
   // joists under the guard room's boards, clear of its hatch
   for (const off of [-1.2, 1.2]) {
     const ua = T.aIn + Math.PI / 2, pc = twP(T, ua, off), L = 2 * Math.sqrt(RI * RI - off * off);
-    b.add(G.box, lm(M, pc.x, H - 0.3, pc.z, ua + Math.PI / 2, 0.22, 0.24, L + 0.3), MAT.wood, darker(st.wood, 0.7));
+    bi.add(G.box, lm(M, pc.x, H - 0.3, pc.z, ua + Math.PI / 2, 0.22, 0.24, L + 0.3), MAT.wood, darker(st.wood, 0.7));
   }
   for (const L of T.ladders) towerHatch(T, L);
   // doors: the courtyard's, and one onto each walk
@@ -153,7 +154,7 @@ function towerWayUp(T, wc) {
 // a floor across the tower at height y out to radius rf, in strips across the line of its ladder's hatch (left open):
 // boards on joists, flags on the ground, stone slabs on the top; each strip is also a floor people stand on
 function towerFloor(T, y, rf, L, look) {
-  const { C, S } = T, { b, M, st } = C;
+  const { C, S } = T, { M, st } = C, b = look === 'top' ? C.b : C.bi;
   const a = L ? L.a : T.aIn, ux = Math.cos(a), uz = -Math.sin(a), vx = Math.sin(a), vz = Math.cos(a);
   const bounds = [-rf];
   for (let u = Math.ceil((-rf + 0.15) / 0.5) * 0.5; u < rf - 0.15; u += 0.5) bounds.push(u);
@@ -191,7 +192,7 @@ function towerFloor(T, y, rf, L, look) {
 // a ladder at angle a from the floor at yb to the floor at yt: its rails stand at the inner edge of the hatch above,
 // the climber between them and the wall, facing in; at the top they step off forward onto the floor
 function towerLadder(T, a, yb, yt) {
-  const { C } = T, { b, M, st } = C;
+  const { C } = T, { M, st } = C, b = C.bi;
   const L = { T, a, yb, yt, yaw: a + Math.PI, hatch: null };
   const u = { x: Math.cos(a), z: -Math.sin(a) };
   const rail = twP(T, a, TW.R0 + 0.04), h = yt - yb;
@@ -264,7 +265,7 @@ function towerDoor(T, a, y, h, hand) {
 
 // a store below and a guard room above, each with a torch on the wall
 function towerFurnish(T) {
-  const { C, S, yG, H } = T, { b, M, st } = C, wood = st.wood;
+  const { C, S, yG, H } = T, { M, st } = C, b = C.bi, wood = st.wood;
   const at = (a, r) => { const p = twP(T, a, r); return p; };
   const frame = (a, r, y) => { const p = at(a, r); return lm(M, p.x, y, p.z, a + Math.PI); }; // +z faces into the room
   const prop = (a, r, rr, y, h) => { const p = at(a, r); const c = circleAt(S, p.x, p.z, rr, 'prop', h); c.vert = true; c.y0 = S.y + y; };
@@ -391,6 +392,15 @@ function towerPose(K) {
 }
 function buildTowers() {
   for (const C of CASTLES) towerParts(C);
+  for (const C of CASTLES) {
+    if (!C.bi) continue;
+    const m = new THREE.Mesh(C.bi.build(), buildingMat);
+    C.bi = null;
+    m.renderOrder = 1;
+    m.visible = false;
+    scene.add(m);
+    TOWER.inner.push({ m, x: C.S.x, z: C.S.z });
+  }
   if (window.__hm) window.__hm.towers = { TOWER, TW, towerClimb, towerLadderStart, towerOffers, updateTowers, list: () => TOWER.list, ladder: (i) => TOWER.ladders[i], seen: (e) => { e._losT = -1; return npSeen(e, dist(camera.position.x, camera.position.z, e.x, e.z)); } };
 }
 
@@ -467,6 +477,11 @@ function towerLadderNear(e, reach) {
     }
   }
   return best;
+}
+
+// each frame (updateMountains calls it): a keep's tower rooms are drawn only when the camera is within 70 m
+function towerInnerVis() {
+  for (const I of TOWER.inner) I.m.visible = !INDOOR.on && dist2(camera.position.x, camera.position.z, I.x, I.z) < 70 * 70;
 }
 
 /* ------------------------------------------------------------------ */

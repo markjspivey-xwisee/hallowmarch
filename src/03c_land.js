@@ -564,6 +564,7 @@ function buildCrags() {
 }
 // each frame: which crags each model draws (refreshed when the camera has moved 3 m or the quality changed)
 function updateMountains() {
+  towerInnerVis(); // [land] the keeps' tower rooms near the camera only (04l_towers.js)
   if (!MTN.meshN || INDOOR.on) return;
   const q = quality.level, D = MTN_D[q] || MTN_D.high, cx = camera.position.x, cz = camera.position.z;
   MTN.eye.value.copy(camera.position);
