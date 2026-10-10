@@ -87,9 +87,9 @@ const trkMat = mat({
         // snow: a blue shadow in the dent, the lit wall and the rim catching the light; new snow fills it in
         float fill = clamp((uTrk.x - vT.x) / ${TRK_FILL.toFixed(1)}, 0.0, 1.0);
         float lie = smoothstep(0.12, 0.4, uSnowCover * snowHere(vW));
-        float sh = clamp(0.55 - side * 0.45, 0.1, 1.0);
-        col = mix(vec3(0.42, 0.5, 0.68) * (uAmbient * 0.9 + uLightColor * 0.15), vec3(0.85, 0.9, 1.0) * (uAmbient * 0.6 + uLightColor * 0.6), clamp(-side * 0.6, 0.0, 1.0));
-        a = (d * 0.55 * sh + rim * 0.2) * (1.0 - fill) * lie;
+        float sh = clamp(0.62 - side * 0.4, 0.25, 1.0);
+        col = mix(vec3(0.4, 0.48, 0.66) * (uAmbient * 0.85 + uLightColor * 0.14), vec3(0.85, 0.9, 1.0) * (uAmbient * 0.6 + uLightColor * 0.6), clamp(-side * 0.6, 0.0, 1.0));
+        a = (d * 0.85 * sh + rim * 0.25) * (1.0 - fill) * lie;
         col = mix(col, vec3(0.95, 0.97, 1.0) * (uAmbient * 0.6 + uLightColor * 0.7), rim / max(d * sh + rim, 1e-3) * 0.6);
       } else if (surf == 1) {
         // mud: dark, wet, a film of water in the deepest part catching the sky; it dries out of the ground
@@ -204,7 +204,7 @@ function tracksUpdate(dt) {
     if (e.kind === 'humanoid' && !e.mount) {
       const x = e.x + fx * 0.08 * sc + rx * side * 0.11 * sc, z = e.z + fz * 0.08 * sc + rz * side * 0.11 * sc;
       const surf = trkSurface(x, z);
-      if (surf >= 0) trkLay(x, z, e.yaw - side * 0.07, TRK_KIND.boot, 0.29 * sc, side, surf, 0.42);
+      if (surf >= 0) trkLay(x, z, e.yaw - side * 0.07, TRK_KIND.boot, 0.29 * sc * (surf === 0 ? 1.3 : 1), side, surf, 0.42); // (in snow the print breaks wider than the boot)
     } else {
       const K = e.mount ? TRK_BEAST.horse : B, s2 = e.mount ? 1 : sc;
       for (const [along, k2] of [[K[2], 0], [K[3], 1]]) {
@@ -212,7 +212,7 @@ function tracksUpdate(dt) {
         const sd = k2 ? -side : side;
         const x = e.x + fx * along * s2 + rx * sd * K[4] * s2, z = e.z + fz * along * s2 + rz * sd * K[4] * s2;
         const surf = trkSurface(x, z);
-        if (surf >= 0) trkLay(x, z, e.yaw, K[0], K[1] * s2 * (K[0] === TRK_KIND.hoof ? 1.15 : 1.2), sd, surf, K[0] === TRK_KIND.hoof ? 0.85 : 0.8);
+        if (surf >= 0) trkLay(x, z, e.yaw, K[0], K[1] * s2 * (K[0] === TRK_KIND.hoof ? 1.15 : 1.2) * (surf === 0 ? 1.25 : 1), sd, surf, K[0] === TRK_KIND.hoof ? 0.85 : 0.8);
       }
     }
   }

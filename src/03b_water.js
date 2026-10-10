@@ -79,8 +79,10 @@ const waterMat = mat({
         vec3 surfC = mix(mirror * (1.0 - tr) + rim, iceC, iceU) + glare * (1.0 - iceU);
         float dU = length(cameraPosition - vW);
         float fU = 1.0 - exp(-dU * uUnder.z * 1.3);
-        vec3 premul = surfC * (1.0 - fU) + uUnderCol * 1.25 * fU;
-        float aU = 1.0 - trE * (1.0 - fU);
+        // what shows through the window is fogged by this same water already (applyFog's path above the surface, and the
+        // sky's): the surface fogs only its own light, and lets the rest through
+        vec3 premul = surfC * (1.0 - fU) + uUnderCol * 1.25 * fU * (1.0 - trE);
+        float aU = 1.0 - trE;
         gl_FragColor = vec4(safeColor(premul), clamp(aU, 0.0, 1.0));
         return;
       }

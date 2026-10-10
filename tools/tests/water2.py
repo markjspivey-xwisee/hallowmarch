@@ -435,7 +435,7 @@ async def shots(page):
           let k = 0, bd = 1e9; for (let i = 0; i < pos.length / 3; i++) { if (ad[i * 4 + 1] !== 0) continue; const dd = Math.hypot(pos[i * 3] - best.x, pos[i * 3 + 2] - best.z); if (dd < bd) { bd = dd; k = i; } }
           const fx = pos[k * 3], fz = pos[k * 3 + 2], nx = ad[k * 4 + 2], nz = ad[k * 4 + 3], g = H.fn.heightAt(fx, fz);
           H.teleport(fx + nx * 9, fz + nz * 9); H.simulate(0.3);
-          W2.cam([fx + nx * 6.5 - nz * 2.5, g + 2.4, fz + nz * 6.5 + nx * 2.5], [fx, g + 0.4, fz]); for (let i = 0; i < 20; i++) H.frame(1 / 30);
+          W2.cam([fx + nx * 6.5 - nz * 2.5, g + 2.4, fz + nz * 6.5 + nx * 2.5], [fx, g + 0.4, fz]); for (let i = 0; i < 4; i++) H.frame(1 / 30);
           return { fx, fz, nx, nz, drifts: T.drifts(), lie: H.seasons.lie(fx, fz) }; })()""")
         await snap(page, 'water2_drift.png')
     if want_shot('ice'):
