@@ -1277,13 +1277,23 @@ function anUpdateUI(dt) {
   // a phone held upright has no room beside the health frame: the bar goes under it (and under the path tracker)
   const tall = innerWidth <= 760 && innerHeight > innerWidth;
   bar.classList.toggle('tall', tall);
+  const cls = $('cls'), clsLeft = cls && cls.offsetParent && IS_TOUCH && !cls.hidden && cls.childElementCount > 0;
   if (tall) {
     let top = $('pf').getBoundingClientRect().bottom;
     const lp = $('lore-path');
     if (lp && !lp.hidden && lp.offsetParent) top = Math.max(top, lp.getBoundingClientRect().bottom);
+    // the calling's panel (10d_classes_ui.js) shares the column under the frames: it comes first, the companions under it
+    if (clsLeft) {
+      const cw = Math.round(top + 6) + 'px';
+      if (cls.style.top !== cw) cls.style.top = cw;
+      top = cls.getBoundingClientRect().bottom;
+    }
     const want = Math.round(top + 6) + 'px';
     if (bar.style.top !== want) bar.style.top = want;
-  } else if (bar.style.top) bar.style.top = '';
+  } else {
+    if (bar.style.top) bar.style.top = '';
+    if (cls && cls.style.top) cls.style.top = '';
+  }
   const host = $('pb-pets');
   const key = pets.map((e) => `${e.id}:${e.tame.name}:${e.tame.cmd}:${Math.round(e.hp / e.maxHp * 20)}:${Math.round(e.tame.hunger * 10)}:${e.tame.lvl}:${ANIMALS.pick === e.id}`).join('|') + marking + solo;
   if (key === ANIMALS.uiKey) return;
