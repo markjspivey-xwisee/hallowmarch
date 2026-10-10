@@ -377,6 +377,9 @@ function castleTimber(C) {
 /* ------------------------------------------------------------------ */
 function castleTemple(C) {
   const { b, M, st, S, R } = C, R0 = 16, segs = 18, WT = 3.0, timber = R.style === 'timber';
+  // the dais is two broad steps of stone that the wardens and pilgrims stand on (they used to sink into it)
+  C.disc(0, 0, TEMPLE_DAIS_R[0], TEMPLE_DAIS[0], 'dais');
+  C.disc(0, 0, TEMPLE_DAIS_R[1], TEMPLE_DAIS[1], 'dais');
   for (let i = 0; i < segs; i++) {
     const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
     if (Math.abs(angDiff(am, 0)) < 0.2) continue;
@@ -575,6 +578,15 @@ function buildCastles() {
       CASTLES.push(C);
     }
   }
+  // the rune circles of the towns and musters are a hand of stone above the ground: people stand on them
+  for (const R of REALMS) for (const S of [R.town, R.musterSite]) addFloorDisc(S.x, S.z, 2.6, S.y + 0.25, S.y - 1.2, 'dais');
+  // stair treads and the temple dais come down to the ground: no blades grow up through them
+  for (const C of CASTLES) for (const f of C.floors) {
+    if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2) continue; // walks, landings, tower tops and decks stand clear
+    if (f.type === 'disc') clearCoverDisc(f.x, f.z, f.r);
+    else clearCoverBox(f.x, f.z, f.hx, f.hz, Math.atan2(f.sin, f.cos));
+  }
+  refreshGroundCover();
   if (window.__hm) Object.assign(window.__hm.fn, { castleOf, floorAt, floorSolidAt, castleRoute, castleWaypoint, elevatedEnt, setGatePose, fillGarrison, siteWorld, siteToWorld, stepTo, castleSiegeHit, castleBreach, castleRepairDone, updateBreaches, CASTLE_PATCHED });
   // behind a function, so a test that hands __hm back to Playwright does not try to serialise every castle
   if (window.__hm) window.__hm.fn.castles = () => CASTLES;

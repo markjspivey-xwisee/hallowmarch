@@ -32,6 +32,14 @@ function uploadWorldTextures() {
   U.uWorldA.value = mk(A);
   U.uWorldB.value = mk(B);
 }
+// the grass and flower masks changed after the land went up (castle stairs, the temple dais): send them again
+function refreshGroundCover() {
+  const T = U.uWorldA.value;
+  if (!T) return;
+  const A = T.image.data, N2 = HN * HN;
+  for (let k = 0; k < N2; k++) { A[k * 4 + 1] = W.grass[k] * 255; A[k * 4 + 2] = W.flower[k] * 255; }
+  T.needsUpdate = true;
+}
 
 /* ------------------------------------------------------------------ */
 /* Terrain                                                             */

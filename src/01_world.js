@@ -178,8 +178,31 @@ function boxAt(S, lx, lz, hx, hz, tag, h, yawOff = 0) {
   return addBox(p.x, p.z, hx, hz, S.yaw + yawOff, tag, h);
 }
 function circleAt(S, lx, lz, r, tag, h) { const p = siteToWorld(S, lx, lz); return addCircle(p.x, p.z, r, tag, h); }
+const siteLocal = (S, x, z) => { const dx = x - S.x, dz = z - S.z, c = Math.cos(S.yaw), s = Math.sin(S.yaw); return { x: dx * c - dz * s, z: dx * s + dz * c }; };
+
+/* no grass or flowers grow on paving, a dais or stair treads: clear the cover masks wherever inside(x, z) holds.
+   The masks are 2 m texels read with bilinear filtering, so shapes on raised stone are padded by COVER_PAD
+   (a blade samples the four texels around it); a courtyard inside its walls needs no pad. */
+const COVER_PAD = 2.9;
+function clearGroundCover(cx, cz, rad, inside) {
+  const i0 = Math.max(0, Math.floor((cx - rad + HALF) / HS)), i1 = Math.min(HN - 1, Math.ceil((cx + rad + HALF) / HS));
+  const j0 = Math.max(0, Math.floor((cz - rad + HALF) / HS)), j1 = Math.min(HN - 1, Math.ceil((cz + rad + HALF) / HS));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    if (!inside(-HALF + i * HS, -HALF + j * HS)) continue;
+    const k = j * HN + i;
+    W.grass[k] = 0; W.flower[k] = 0;
+  }
+}
+function clearCoverDisc(x, z, r, pad = COVER_PAD) { const R = r + pad; clearGroundCover(x, z, R, (tx, tz) => dist2(tx, tz, x, z) <= R * R); }
+// an oriented box, local x and z as the colliders and floors have them
+function clearCoverBox(x, z, hx, hz, yaw, pad = COVER_PAD) {
+  const c = Math.cos(yaw), s = Math.sin(yaw), ax = hx + pad, az = hz + pad;
+  clearGroundCover(x, z, Math.hypot(ax, az), (tx, tz) => { const dx = tx - x, dz = tz - z; return Math.abs(dx * c - dz * s) <= ax && Math.abs(dx * s + dz * c) <= az; });
+}
 
 const KEEP_HS = 16, KEEP_T = 2.2, GATE_HW = 2.7, WALL_H = 7;
+// the temple dais: the tops of its outer and inner step above the site floor, and their radii (04_props.js, 04g_castles.js)
+const TEMPLE_DAIS = [0.38, 0.76], TEMPLE_DAIS_R = [7.6, 6.4];
 function buildKeepColliders(S, style) {
   const hs = KEEP_HS, t = KEEP_T;
   S.colliders = [];
@@ -209,6 +232,9 @@ function buildKeepColliders(S, style) {
   const dz = style === 'round' ? 16.5 : hs - t / 2;
   S.door = boxAt(S, 0, dz, GATE_HW + 0.2, 0.6, 'door', 6);
   S.gateLocal = { x: 0, z: dz };
+  // the courtyard is paved and trodden: no blades come up through it (the walls hide its edge)
+  if (style === 'round') clearCoverDisc(S.x, S.z, 16.5, 0);
+  else clearGroundCover(S.x, S.z, hs * 1.5, (x, z) => { const l = siteLocal(S, x, z); return Math.abs(l.x) <= hs - 0.4 && Math.abs(l.z) <= hs - 0.4; });
 }
 function buildTempleColliders(S) {
   S.colliders = [];
@@ -224,7 +250,10 @@ function buildTempleColliders(S) {
     S.colliders.push(circleAt(S, Math.sin(a) * 10.5, Math.cos(a) * 10.5, 0.75, 'pillar', 7));
   }
   S.colliders.push(circleAt(S, 0, -1, 1.3, 'altar', 1.2));
+  for (const sx of [-1, 1]) S.colliders.push(circleAt(S, sx * 4.5, -1, 0.62, 'pillar', 2)); // the drums that hold won hallows
   for (const sx of [-1, 1]) S.colliders.push(circleAt(S, sx * 4.25, R0, 1.45, 'pillar', 5));
+  // no blades come up through the dais (its two steps are floors: 04g_castles.js)
+  clearCoverDisc(S.x, S.z, TEMPLE_DAIS_R[0]);
   S.door = boxAt(S, 0, R0, 2.9, 0.6, 'door', 4);
   S.gateLocal = { x: 0, z: R0 };
 }
@@ -242,6 +271,9 @@ function buildMusterColliders(S) {
     S.colliders.push(circleAt(S, Math.sin(a) * 5.4, Math.cos(a) * 5.4, 0.7, 'stone', 3));
   }
   for (const [lx, lz] of [[-11, -4], [11, -4], [-10, 8], [10, 8]]) S.colliders.push(circleAt(S, lx, lz, 2.4, 'tent', 3));
+  // the trodden muster ground and its rune circle grow no blades
+  clearCoverDisc(S.x, S.z, 11, 0);
+  clearCoverDisc(S.x, S.z, 2.6);
 }
 // Towns: houses around a plaza with a portal circle; layout stored for rendering too
 function buildTown(S, R, rnd) {
@@ -265,6 +297,9 @@ function buildTown(S, R, rnd) {
     const a = (i / 6) * TAU + TAU / 12;
     S.colliders.push(circleAt(S, Math.sin(a) * 5.6, Math.cos(a) * 5.6, 0.7, 'stone', 3));
   }
+  // the plaza is trodden earth and its rune circle stone: no blades come up through them
+  clearCoverDisc(S.x, S.z, 11, 0);
+  clearCoverDisc(S.x, S.z, 2.6);
   buildTownProps(S, R);
 }
 const roundHouseR = (h) => (h.kind === 'hall' ? 6.2 : Math.min(h.w, h.d) * 0.62);

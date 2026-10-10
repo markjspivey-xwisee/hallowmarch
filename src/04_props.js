@@ -346,8 +346,10 @@ function templeModel(b, S, st, R) {
     b.add(G.cyl12, lm(M, sx * 4.25, 2.3 - 0.5, R0, 0, 1.45, 4.6 + 1.0, 1.45), MAT.stone, st.stone, by, 3);
     b.add(G.box, lm(M, sx * 4.25, 4.7, R0, 0, 2.4, 0.5, 2.4), MAT.darkstone, st.stone);
   }
-  b.add(G.cyl16, lm(M, 0, 0.25, 0, 0, 7.6, 0.8, 7.6), MAT.stone, darker(st.stone, 1.08), by, 1);
-  b.add(G.cyl16, lm(M, 0, 0.55, 0, 0, 6.4, 0.5, 6.4), MAT.stone, darker(st.stone, 1.12));
+  // the dais: two steps of TEMPLE_DAIS, each low enough to walk up (castleTemple makes them floors)
+  const [d0, d1] = TEMPLE_DAIS_R;
+  b.add(G.cyl16, lm(M, 0, (TEMPLE_DAIS[0] - 0.3) / 2, 0, 0, d0, TEMPLE_DAIS[0] + 0.3, d0), MAT.stone, darker(st.stone, 1.08), by, 1);
+  b.add(G.cyl16, lm(M, 0, (TEMPLE_DAIS[1] + 0.2) / 2, 0, 0, d1, TEMPLE_DAIS[1] - 0.2, d1), MAT.stone, darker(st.stone, 1.12));
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * TAU + TAU / 16;
     const x = Math.sin(a) * 10.5, z = Math.cos(a) * 10.5;

@@ -14,7 +14,8 @@ function spawnRealmUnit(realm, cls, level, role, x, z, extra = {}) {
   const name = randomName(realm);
   const look = classLook(cls, realm, Math.random, name);
   if (role === 'lord') { look.outfit = OUTFIT.lord; look.mask = (look.mask & ~(WB.helmet | WB.hairShort | WB.hairLong)) | WB.circlet | WB.cape | WB.hairShort; }
-  const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: heightAt(x, z), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
+  // on a low platform (the temple dais, a rune circle, a stair foot) a body stands on top of it, not inside it
+  const e = makeEnt({ kind: 'humanoid', faction: realm, role, cls, level, name, x, z, y: floorAt(x, z, heightAt(x, z) + 0.9), yaw: Math.random() * TAU, look, radius: 0.45, scale: look.scale, ...extra });
   if (role in WAR_LEVEL_OFF) e.wlOff = level - warLevel();
   setupStats(e);
   return e;
