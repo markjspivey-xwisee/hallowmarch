@@ -11,9 +11,9 @@
 const waterMat = mat({
   uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uCloudCover: skyU.uCloudCover }, // visual pass: clouds in the mirror
   vertexShader: /* glsl */`
-    attribute vec4 aW; // flow x, flow z (m/s), white water, -
+    attribute vec4 aW; // flow x, flow z (m/s), white water, [seasons] lake ice (0 open water .. 1 thick; 05k_seasons.js)
     varying vec3 vW; varying vec4 vF;
-    void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vF = aW; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    void main(){ vec4 w = modelMatrix * vec4(position, 1.0); w.y += smoothstep(0.1, 0.4, aW.w) * 0.05; vW = w.xyz; vF = aW; gl_Position = projectionMatrix * viewMatrix * w; }`,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
@@ -21,6 +21,9 @@ const waterMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_WATER_MAP}
+    ${GLSL_WEATHER}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
+    uniform float uSnowCover;
     uniform vec3 uLeaf;
     uniform float uRain; // feature/weather
     uniform vec3 uCloudLit, uCloudShade;
@@ -53,6 +56,7 @@ const waterMat = mat({
         g = mix(g, gr, smoothstep(0.04, 0.35, fl));
       }
       g *= mix(1.0, 0.4, far);
+      float iceK = smoothstep(0.05, 0.14, vF.w + (vnoise(vW.xz * 1.3) - 0.5) * 0.06); // [seasons] the ice stills the water under it
       /* ---- weather (feature/weather): rain rings spreading over the water from the drops ---- */
       if (uRain > 0.02 && dist < 70.0) {
         vec2 rg = vec2(0.0);
@@ -76,6 +80,7 @@ const waterMat = mat({
         rs = vec2(rippleAt(vW.xz + vec2(e, 0.0)) - rippleAt(vW.xz - vec2(e, 0.0)), rippleAt(vW.xz + vec2(0.0, e)) - rippleAt(vW.xz - vec2(0.0, e))) / (2.0 * e);
         g -= rs / 0.17 * 0.9;
       }
+      g *= 1.0 - iceK; rs *= 1.0 - iceK; // [seasons]
       vec3 n = safeNormalize(vec3(g.x * 0.17, 1.0, g.y * 0.17));
       float sh = shadowAt(vW, vec3(0.0, 1.0, 0.0));
       float fres = 0.025 + 0.975 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
@@ -128,8 +133,42 @@ const waterMat = mat({
       float wake = smoothstep(0.3, 0.7, length(rs)) * 0.3;
       float foam = clamp(max(max(edgeFoam, shoreFoam * 0.75), max(whiteFoam, wake)), 0.0, 1.0);
       vec3 foamC = vec3(0.86, 0.9, 0.9) * (uAmbient * 0.7 + uLightColor * 0.55 * mix(0.5, 1.0, sh));
+      foam *= 1.0 - iceK; // [seasons]
       pm = mix(pm, foamC, foam * 0.85);
       a = mix(a, 1.0, foam * 0.85);
+      /* ---- [seasons] lake ice (05k_seasons.js): dark and clear where it is thin, white where thick, cracked into
+         plates with fine cracks between, dusted with snow; it thaws from the shallows ---- */
+      if (iceK > 0.001) {
+        float thick = smoothstep(0.1, 0.5, vF.w);
+        // plates: the distance to the nearest edge of a cell pattern a few metres across, and a finer one
+        vec2 q = vW.xz * 0.32, ci = floor(q), cf = fract(q);
+        float d1 = 8.0, d2 = 8.0;
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+          vec2 o = vec2(float(i), float(j)), r = o + hash22(ci + o) - cf;
+          float dd = dot(r, r);
+          if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd;
+        }
+        float edgeD = sqrt(d2) - sqrt(d1);
+        float fineC = 1.0 - smoothstep(0.0, 0.05, abs(vnoise(vW.xz * 1.7) - 0.5)) ;
+        float crack = (1.0 - smoothstep(0.015, 0.06, edgeD)) * (0.6 + 0.4 * thick) + fineC * 0.35 * (1.0 - far);
+        vec3 iceA = mix(vec3(0.07, 0.11, 0.13), vec3(0.42, 0.55, 0.62), thick) * (0.86 + 0.24 * vnoise(vW.xz * 0.6));
+        iceA = mix(iceA, vec3(0.78, 0.84, 0.88), smoothstep(0.55, 0.8, vnoise(vW.xz * 2.2 + 4.0)) * 0.35 * thick); // white streaks of trapped air
+        iceA *= 1.0 - 0.55 * clamp(crack, 0.0, 1.0);
+        // the wind sweeps the ice: snow lies on it in drifts, with bare ice between
+        float sCovI = clamp(uSnowCover * snowHere(vW), 0.0, 1.0);
+        float snI = sCovI * smoothstep(0.48, 0.8, vnoise(vW.xz * vec2(0.35, 0.8)) * 0.6 + vnoise(vW.xz * 2.6) * 0.4 + sCovI * 0.18) * thick;
+        iceA = mix(iceA, snowAlbedo(vW), snI);
+        vec3 nI = safeNormalize(vec3((vnoise(vW.xz * 0.9) - 0.5) * 0.06, 1.0, (vnoise(vW.xz * 0.9 + 7.0) - 0.5) * 0.06));
+        vec3 RI = reflect(-V, nI);
+        float fresI = 0.03 + 0.97 * spow(1.0 - max(dot(nI, V), 0.0), 5.0);
+        vec3 iceC = iceA * (uAmbient * 0.72 + uLightColor * 0.7 * mix(0.35, 1.0, sh) * clamp(dot(nI, uLightDir) * 0.5 + 0.5, 0.0, 1.0));
+        iceC += skyBase(safeNormalize(vec3(RI.x, max(RI.y, 0.03), RI.z))) * fresI * 0.5 * (1.0 - snI);
+        iceC += uLightColor * spow(max(dot(nI, safeNormalize(uLightDir + V)), 0.0), 90.0) * 0.6 * sh * (1.0 - snI);
+        iceC += snowSparkle(vW, V, sh) * snI;
+        float iceAl = mix(0.62, 1.0, thick);
+        pm = mix(pm, iceC * iceAl + pm * (1.0 - iceAl), iceK);
+        a = mix(a, a + (1.0 - a) * iceAl, iceK);
+      }
       a = clamp(a, 0.0, 1.0);
       vec3 c = pm / max(a, 1e-3);
       gl_FragColor = vec4(safeColor(applyFog(c, vW)) * a, a);
@@ -174,6 +213,7 @@ function buildWater() {
     const m = new THREE.Mesh(g, waterMat);
     m.renderOrder = 3;
     m.userData.water = true;
+    m.userData.ks = Int32Array.from(vid.keys()); // [seasons] each vertex's texel, for the lake ice (05k_seasons.js)
     scene.add(m);
     WATER_MESHES.push(m);
   }

@@ -297,6 +297,7 @@ const FG_FS = /* glsl */`
   ${GLSL_PLIGHT}
   ${GLSL_LIGHT}
   ${GLSL_WEATHER}
+  ${GLSL_SEASON} // [seasons] the apple trees' year (02d_season.js)
   uniform float uWet, uSnowCover;
   varying vec3 vW; varying vec3 vN; varying vec3 vO; varying float vPart; varying vec4 vDat; varying vec3 vAnc;
   void main(){
@@ -329,6 +330,23 @@ const FG_FS = /* glsl */`
         vec3 r3 = vW * 16.0;
         n = safeNormalize(n + 0.6 * (vec3(vnoise(r3.zy + 1.3), vnoise(r3.xz + 7.1), vnoise(r3.xy + 4.7)) - 0.5));
         alb = mix(alb, alb * vec3(1.25, 1.2, 0.8), smoothstep(0.6, 0.9, fine) * 0.5); // the odd yellowing leaf
+      }
+      if (kind > 7.5) {
+        // [seasons] the apple tree's year: white and pink blossom in spring, gold and russet in autumn, bare twigs in winter
+        float tint = fract(seed * 3.7);
+        if (seasonFallen(hash12(floor(vO.xz * 7.0 + vO.y * 5.0) + seed * 3.0), tint) > 0.5) {
+          float tw = 1.0 - abs(vnoise(vO.xz * 9.0 + vO.y * 6.0) * 2.0 - 1.0);
+          if (tw < 0.82) discard;
+          alb = vec3(0.24, 0.19, 0.15) * (0.8 + 0.4 * fine);
+        } else {
+          alb = seasonLeaf(alb, tint, 0.0);
+          // clusters of blossom over the crown (sampled on three planes by the facing, like the leaves: no stripes)
+          vec3 qb = vW * 9.0 + seed * 3.0;
+          float bn = tw.x * vnoise(qb.zy) + tw.y * vnoise(qb.xz + 2.3) + tw.z * vnoise(qb.xy + 5.1);
+          float fb = tw.x * vnoise(qb.zy * 4.3) + tw.y * vnoise(qb.xz * 4.3 + 1.7) + tw.z * vnoise(qb.xy * 4.3 + 3.9);
+          float bl = uSeasonB.z * smoothstep(0.42, 0.62, bn * 0.7 + fb * 0.3);
+          alb = mix(alb, mix(vec3(0.95, 0.9, 0.9), vec3(0.94, 0.7, 0.78), smoothstep(0.35, 0.75, fb)) * (0.85 + 0.2 * fine), bl * 0.9);
+        }
       }
       if (kind > 4.5 && kind < 5.5) alb += vec3(0.1, 0.12, 0.14) * step(0.7, fine); // rime on rimeleaf
       vec3 up = safeNormalize(vO - vAnc + vec3(0.0, 0.001, 0.0));
@@ -426,6 +444,7 @@ function drawForage(dt) {
 function forageShown(p) {
   const K = FORAGE_KINDS[p.k];
   if ((K.fruit || K.flower) && survSeason() === 'winter') return Math.min(p.ripe, 0.02);
+  if (p.k === 'apple') return Math.min(p.ripe, Math.max(0.02, seasonCur().apples)); // [seasons] apples from late summer through autumn (05k_seasons.js)
   return p.ripe;
 }
 
@@ -701,7 +720,9 @@ function fishRoll(x, z) {
 }
 // where the line can go: deep water 4 to 9 m out, roughly the way the player faces
 function fishSpot(P) {
-  if (inDungeon(P) || survWaterHere(P.x, P.z, 0.5)) return null;
+  if (inDungeon(P)) return null;
+  if (SICE.on && seasonIceY(P.x, P.z) !== null) { const x = P.x + Math.sin(P.yaw) * 1.6, z = P.z + Math.cos(P.yaw) * 1.6; return survWaterHere(x, z, 0.6) ? { x, z, hole: true } : null; } // [seasons] fish through a hole in the ice (05k_seasons.js)
+  if (survWaterHere(P.x, P.z, 0.5)) return null;
   let best = null, bs = -Infinity;
   for (let k = 0; k < 16; k++) {
     const a = P.yaw + ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * TAU) / 16;

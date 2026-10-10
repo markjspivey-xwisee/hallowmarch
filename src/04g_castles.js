@@ -44,6 +44,7 @@ function floorTopOf(f, x, z) {
 function floorAt(x, z, y) {
   let g = heightAt(x, z);
   if (y == null || x > DUN_X0) return g;
+  if (SICE.on) { const iy = seasonIceY(x, z); if (iy !== null && iy > g && iy <= y + FLOOR_STEP) g = iy; } // [seasons] a frozen lake carries you (05k_seasons.js)
   const list = FLOOR.grid.get(collKey(Math.floor(x / FLOOR.cell), Math.floor(z / FLOOR.cell)));
   if (!list) return g;
   for (const f of list) {

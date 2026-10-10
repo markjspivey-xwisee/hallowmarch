@@ -140,7 +140,7 @@ function buildWeather() {
 /* ---- the state of the sky, advanced every frame ---- */
 function updateWeather(dt) {
   const W2 = WEATHER;
-  const camX = camera.position.x, camZ = camera.position.z, camY = camera.position.y;
+  const camX = camera.position.x, camZ = camera.position.z;
   if (W2.mode === 'clear') W2.kind = 'clear';
   else {
     W2.next -= dt;
@@ -157,9 +157,9 @@ function updateWeather(dt) {
   W2.raining += (look[2] - W2.raining) * k;
   W2.storm += (look[3] - W2.storm) * k;
   W2.mist = (W2.mist || 0) + (look[4] - (W2.mist || 0)) * k;
-  // rain falls as snow in the north and up high
-  const cold = clamp(realmWeightsAt(camX, camZ)[2] * 1.3 - 0.15, 0, 1) * 0.85 + clamp((camY - 16) / 10, 0, 1) * 0.6;
-  const coldK = clamp(cold + seasonCold(), 0, 1); // [farming] winter brings the snow south (08h_farming.js)
+  // rain falls as snow where it is cold. [seasons] The season and the weather agree: snow where the air is near or
+  // below freezing by farmTempAt (Thule in winter, the heights, the south on cold winter nights), rain in a Thule summer
+  const coldK = clamp((1.5 - farmTempAt(camX, camZ)) / 3.5, 0, 1);
   const precip = W2.raining;
   W2.snowing = precip * coldK;
   const rain = precip * (1 - coldK);

@@ -277,7 +277,7 @@ const FARM_MODELS = {
 const FARM_LOOK = {
   grain: { a: ['#7a9a38', '#7a9238'], b: ['#e2c46a', '#b8642e'], flowerEnd: 0.9 },
   flax: { a: ['#9cc8f4', '#9a7ae0'], b: ['#b08a48', '#9a7040'], flowerEnd: 0.8 },
-  cabbage: { a: ['#8fb46e', '#7a4a8a'], b: ['#a8cc84', '#6a3a7a'], flowerEnd: 2 },
+  cabbage: { a: ['#5e8a4e', '#6a3e7e'], b: ['#6c9c74', '#5c3270'], flowerEnd: 2 }, // [seasons] a deeper, bluer green: they were pale
   turnip: { a: ['#f2eee4', '#b06aa8'], b: ['#f2eee4', '#8a3a8a'], flowerEnd: 2 },
   beans: { a: ['#f4f2ea', '#c49ae0'], b: ['#5a4a2e', '#3a2a24'], flowerEnd: 0.76 },
   grain_lo: null, flax_lo: null, cabbage_lo: null, turnip_lo: null, beans_lo: null,

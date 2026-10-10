@@ -344,8 +344,10 @@ function buildFireflies() {
 // fireflies need a y per position: we lift them above the terrain on the CPU once per frame for the visible box
 function updateFireflies(cx, cz) {
   fireflyMat.uniforms.uCenter.value.set(cx, 0, cz);
-  if (U.uNight.value < 0.3 || INDOOR.on) { fireflies.visible = false; return; }
+  const fk = U.uSeasonD.value.z; // [seasons] fireflies on summer nights only (05k_seasons.js)
+  if (U.uNight.value < 0.3 || INDOOR.on || fk < 0.03) { fireflies.visible = false; return; }
   fireflies.visible = true;
+  fireflies.geometry.setDrawRange(0, Math.ceil(fireflies.geometry.attributes.position.count * clamp(fk * 1.25, 0, 1)));
   const p = fireflies.geometry.attributes.position, s = fireflies.geometry.attributes.aSeed;
   for (let i = 0; i < p.count; i++) {
     const relx = ((p.array[i * 3] - cx + 45) % 90 + 90) % 90 - 45, relz = ((p.array[i * 3 + 2] - cz + 45) % 90 + 90) % 90 - 45;
