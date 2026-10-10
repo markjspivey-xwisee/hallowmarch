@@ -1151,10 +1151,16 @@ function dpBuildBird(kind, lod) {
 }
 function dpBirdCrowds() {
   if (crowdBeast.pheasant || !crowdBeast.hen) return;
-  const hm = crowdBeast.hen[0].mesh.material;
-  const hd = depthFrom(hm, DEPTH_FS, henVS(true));
+  const fs = farmBeastFS();
   for (const k of ['pheasant', 'duck']) {
-    crowdBeast[k] = [new Crowd(dpBuildBird(k, 0), hm, 24, BEAST_ATTRS), new Crowd(dpBuildBird(k, 1), hm, 40, BEAST_ATTRS)];
+    // the hen's shader with the birds' own settings: no dark saddle and no darkened rump (the second coat is only
+    // the head, neck and tail), a pale belly, the eye where each bird's eye is
+    const u = beastUniforms('wolf');
+    Object.assign(u, { uWoolLen: { value: 0 }, uFurK: { value: new THREE.Vector4(0.0, 0.42, 0.0, 2.6) }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3(0.12, 0.08, 0.05) }, uEyeAt: { value: k === 'duck' ? new THREE.Vector3(0.03, 0.378, 0.184) : new THREE.Vector3(0.026, 0.478, 0.179) }, uLegH: { value: 0.16 }, uTailZ: { value: -0.5 }, uBeastK: { value: new THREE.Vector4(0, 0, 0.05, 0) } });
+    const m = shareMat(beastMat, u);
+    m.vertexShader = henVS(false); m.fragmentShader = fs;
+    const hd = depthFrom(m, DEPTH_FS, henVS(true));
+    crowdBeast[k] = [new Crowd(dpBuildBird(k, 0), m, 24, BEAST_ATTRS), new Crowd(dpBuildBird(k, 1), m, 40, BEAST_ATTRS)];
     for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd);
   }
 }
