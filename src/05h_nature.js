@@ -1060,7 +1060,7 @@ function natureStartJob(kind, t) {
     tx = t.x + t.fall.ux * along; tz = t.z + t.fall.uz * along;
   }
   const yaw = Math.atan2(tx - P.x, tz - P.z);
-  const need = kind === 'chop' ? 3 + Math.round(natS(t) * 2 + (t.kind === 'oak' ? 1 : 0)) : 3;
+  const need = Math.max(2, (kind === 'chop' ? 3 + Math.round(natS(t) * 2 + (t.kind === 'oak' ? 1 : 0)) : 3) - (goodsHave('tool_axe') ? (kind === 'chop' ? 2 : 1) : 0)); // [survival] the woodsman's axe
   NATURE.job = { kind, tree: t, px: P.x, pz: P.z, yaw, t: 0, next: 0.15, hitAt: 0, swings: 0, need, tx, tz };
   P.yaw = yaw; P.target = null;
   if (kind === 'chop') { natTake(t); t.notchYaw = yaw + Math.PI; }
@@ -1116,6 +1116,7 @@ function stepJob(dt) {
         const sp = natClearSpot(px, pz, t.x, t.z, 0.7);
         natAddPile(sp.x, sp.z, Math.atan2(t.fall.uz, -t.fall.ux), t.kind);
         natureStopJob('You split the log into firewood.');
+        natSplitGoods(t); // [survival] firewood, a length of log and sticks to carry (09s_survival.js)
       }
     }
   }

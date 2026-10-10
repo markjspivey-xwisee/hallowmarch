@@ -335,6 +335,61 @@
   .goodrow { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
   .goodrow .nm { font-size: 13px; line-height: 1.2; } .goodrow .nm small { display: block; opacity: 0.6; font-size: 11px; }
   .goodrow .ct { font: 600 13px/1 var(--ui); opacity: 0.9; } .goodrow .btn { padding: 4px 8px; font-size: 12px; }
+  /* survival: food and water on the player frame, provisions at the stall, the crafting book (09s_survival.js, 09t_craft.js) */
+  .needs { display: grid; grid-template-columns: 1fr 1fr auto; gap: 7px; align-items: center; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--ink); min-width: 0; }
+  .needs .nd { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .needs .nd .ic { display: grid; place-items: center; width: 14px; height: 14px; flex: none; font-style: normal; }
+  .needs .nd.food .ic { color: #e2a65a; } .needs .nd.water .ic { color: #7cc0ee; }
+  .needs .nd b { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.5); overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4); }
+  .needs .nd b i { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width 0.4s linear; }
+  .needs .nd.food b i { background: linear-gradient(#e7b067, #b9773a); } .needs .nd.water b i { background: linear-gradient(#8fd0f5, #3d8fc8); }
+  .needs .nds { font: 500 11px/1 var(--caps); letter-spacing: 0.04em; color: var(--ink-dim); white-space: nowrap; }
+  .needs[data-k="fed"] .nds { color: #a9dc8e; }
+  .needs[data-k="low"] .nds { color: #ffc27a; } .needs[data-k="empty"] .nds { color: var(--warn); }
+  .needs.lowh .nd.food b, .needs.lowt .nd.water b { animation: needpulse 1.6s ease-in-out infinite; }
+  @keyframes needpulse { 50% { box-shadow: inset 0 0 0 1px rgba(255, 140, 90, 0.9), 0 0 6px rgba(255, 120, 70, 0.6); } }
+  .provs { display: grid; gap: 4px; margin-bottom: 8px; }
+  .provs .shoprow { margin: 0; cursor: default; padding: 4px 6px 4px 4px; }
+  .provs .shoprow .ic { width: 32px; height: 32px; }
+  .provs .shoprow .nm { color: var(--ink); }
+  .bagfoot #kit-eat, .bagfoot #kit-craft { padding: 6px 10px; font-size: 13px; }
+  #craft .craftsheet { width: min(860px, 100%); gap: 10px; }
+  #craft .skilltag { color: var(--ink-dim); font-size: 13px; white-space: nowrap; } #craft .skilltag b { color: var(--bronze-hi); }
+  #craft .craftblurb { font-size: 13.5px; }
+  .craftbody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .craftlist { display: grid; gap: 5px; max-height: min(56vh, 520px); overflow-y: auto; padding-right: 2px; }
+  .craftlist h4 { margin: 6px 0 0; font: 400 11px/1 var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bronze-hi); }
+  .crow { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 5px; border-radius: 5px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); color: var(--ink-faint); cursor: pointer; text-align: left; min-width: 0; }
+  .crow:hover { background: rgba(223, 193, 136, 0.1); }
+  .crow.can { color: var(--ink); } .crow.can .ic { color: var(--bronze-hi); }
+  .crow.sel { box-shadow: inset 0 0 0 2px var(--bronze-hi); }
+  .crow .ic { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 4px; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); }
+  .crow .nm { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crow .nm small { display: block; font-size: 11.5px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; }
+  .crow .ct { font: 700 12px var(--ui); color: var(--good); }
+  .craftcard { padding: 10px 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line); display: grid; gap: 6px; align-content: start; min-height: 160px; }
+  .craftcard .cn { font-size: 17px; color: var(--bronze-hi); }
+  .craftcard .sub { color: var(--ink-dim); font-size: 12.5px; } .craftcard p { margin: 0; font-size: 13.5px; }
+  .craftcard .needs-list { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .craftcard .needs-list span { padding: 3px 7px; border-radius: 4px; font-size: 12.5px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); }
+  .craftcard .needs-list span i { font-style: normal; opacity: 0.7; margin-left: 3px; } .craftcard .needs-list span i::before { content: '· '; }
+  .craftcard .needs-list .ok { color: var(--good); } .craftcard .needs-list .short { color: var(--warn); border-color: rgba(255, 155, 122, 0.4); }
+  .craftcard .out { font-size: 13px; color: var(--ink); }
+  .craftcard .odds { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(0, 0, 0, 0.4); }
+  .craftcard .odds i { width: var(--w); background: var(--qc); }
+  .craftcard .acts { display: flex; gap: 8px; flex-wrap: wrap; } .craftcard .acts .btn.primary { font-size: 14px; padding: 8px 16px; }
+  .craftcard .why { color: var(--warn); font-size: 12.5px; }
+  .craftcard .cprog { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-dim); }
+  .survhelp kbd { font: 700 12px var(--ui); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.4); }
+  .chron .skills { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13.5px; color: var(--ink-dim); } .chron .skills b { color: var(--ink); font-weight: 500; }
+  @media (max-width: 760px), (pointer: coarse) {
+    .needs { gap: 5px; } .needs .nds { font-size: 10px; }
+    .craftbody { grid-template-columns: 1fr; gap: 10px; }
+    .craftlist { max-height: 34vh; }
+    #craft .craftsheet { padding: 14px; }
+    #craft .kithead { flex-wrap: wrap; row-gap: 4px; } #craft .skilltag { order: 3; width: 100%; }
+    .craftcard { min-height: 0; }
+  }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

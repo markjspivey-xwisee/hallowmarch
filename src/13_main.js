@@ -81,7 +81,7 @@ async function boot() {
   await loadStep(0.03, 'Raising the hills', () => buildWorld(7));
   await loadStep(0.2, 'Shaping the land', () => { uploadWorldTextures(); buildTerrain(); buildWater(); });
   await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); });
-  await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); });
+  await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); }); // [survival] plants, workstations (before the grass reads the cover map)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); });
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
@@ -153,6 +153,7 @@ function startGame(save) {
   sfx('portal');
   loreOnStart(save);
   giftsOnStart(save); // [gifts] the realm ultimate's cooldown carries over (06c_gifts.js)
+  survivalOnStart(save); // [survival] the needs on the HUD, food in the bags, deer as game (09s_survival.js)
 }
 function newCharacter() {
   wipeSave();
@@ -223,7 +224,7 @@ function drawActors(fx, fz) {
     if (e.kind === 'humanoid') {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
       _cb[0] = L.armor[0]; _cb[1] = L.armor[1]; _cb[2] = L.armor[2]; _cb[3] = L.flags || 0;
-      _mi[0] = L.skin; _mi[1] = e.brand && e.alive ? (L.mask | WB.torch) & ~WB.bow : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair;
+      _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : L.mask; // [survival] a rod is held like a brand _mi[2] = e.anim.flash; _mi[3] = L.hair;
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = L.fem ?? 0; _st[3] = L.bulk ?? 0;
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
@@ -348,6 +349,7 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateSurvival(dt); // [survival] hunger and thirst, work, fishing, regrowth (09s_survival.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -395,6 +397,7 @@ function tick(dt) {
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
   updateAmbientLife(dt);
+  drawSurvival(dt); // [survival] plants, the rod and line, the spit, the needs on the HUD (after the fish: 09s_survival.js)
   drawProjectiles();
   updateSpellFX(dt);
   drawLoot();
