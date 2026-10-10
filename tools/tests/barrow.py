@@ -68,6 +68,27 @@ async def main():
           const q = F.dunPoint(-5.8, 0); H.teleport(q.x, q.z); H.simulate(0.2); return { ys, travelling: H.UI.travelling }; })()""")
         await page.wait_for_timeout(900)
         await ev(page, "(() => { const H = __hm, P = H.GAME.player; return { indoor: H.INDOOR.on, pos: [P.x.toFixed(1), P.z.toFixed(1)], zone: H.fn.zoneAt(P.x, P.z).name, errors: H.errors }; })()")
+        # 8. [balance] each calling at level 28 with fair gear (and three healing draughts) beats the Hollow King,
+        # the player played by the skilled bot (07c_balance.js)
+        fails = []
+        for cls in ['warrior', 'archer', 'mage', 'priest']:
+            await page.evaluate(f"""(() => {{ const H = __hm, F = H.fn; F.newCharacter(); H.start({{ realm: 1, cls: '{cls}', level: 28 }});
+              const P = H.GAME.player; H.bal.applyFairGear(P, 28); H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; F.enterBarrow(); return 0; }})()""")
+            for _ in range(40):
+                await page.wait_for_timeout(250)
+                if await page.evaluate("__hm.INDOOR.on && !__hm.UI.travelling"): break
+            r = await ev(page, """(() => { const H = __hm, F = H.fn, P = H.GAME.player; const id = H.bal.kingFresh(); const K = F.getEnt(id);
+              for (const e of H.ENT) if (e.alive && e.faction === H.FACTION_MONSTER && e.x > 1000 && e !== K && F.heightAt && Math.hypot(e.x - K.x, e.z - K.z) < 40) { e.damagers = null; F.killEnt(e, null); }
+              const a = F.dunPoint(182, 0); H.teleport(a.x, a.z); P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0;
+              H.bal.botMake(P, 'skilled', null); P.target = K.id; H.simulate(0.5);
+              const out = { lvl: K.level, hp: Math.round(K.maxHp), php: Math.round(P.maxHp), awake: K.ai.awake };
+              let t = 0; for (; t < 300 && K.alive && P.alive; t += 1) H.simulate(1);
+              out.t = t; out.kingDead = !K.alive; out.alive = P.alive; out.left = +(P.hp / P.maxHp).toFixed(2); out.kingLeft = +(Math.max(0, K.hp) / K.maxHp).toFixed(2); out.potions = H.INV.potions; out.errors = H.errors.length;
+              P.bot = null; return out; })()""")
+            ok = r['kingDead'] and r['alive']
+            print(('  ok   ' if ok else '  FAIL ') + f"a level 28 {cls} beats the Hollow King (in {r['t']} s, {r['left']*100:.0f}% health left, king at {r['kingLeft']*100:.0f}%)", flush=True)
+            if not ok: fails.append(cls)
         print('logs', logs[:5])
+        print('FAILED: the Hollow King beat ' + ', '.join(fails) if fails else 'all callings beat the Hollow King', flush=True)
         await b.close()
 asyncio.run(main())

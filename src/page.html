@@ -289,6 +289,16 @@
 
   #death .sheet { text-align: center; justify-items: center; width: min(420px, 100%); }
   #death h2 { font-size: 38px; }
+  /* balance */
+  #death-raise { display: grid; justify-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 226, 150, 0.06); }
+  #death-raise[hidden] { display: none; }
+  #death-raise p { margin: 0; max-width: 34ch; color: var(--ink); font-size: 15px; line-height: 1.4; }
+  #cls .cls-dr { display: inline-flex; gap: 4px; margin-left: 6px; align-items: center; }
+  #cls .cls-dr:empty { display: none; }
+  #cls .cls-dr span { display: inline-flex; align-items: center; gap: 2px; padding: 1px 5px; border-radius: 6px; border: 1px solid var(--line); font: 600 11px/1.3 var(--ui); color: var(--ink); background: rgba(0, 0, 0, 0.35); }
+  #cls .cls-dr span.imm { color: #ffe3a0; border-color: rgba(255, 210, 120, 0.6); }
+  #cls .cls-dr svg { width: 12px; height: 12px; }
+  /* /balance */
   #fade { position: fixed; inset: 0; z-index: 40; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.45s ease; }
   #fade.on { opacity: 1; pointer-events: auto; }
   #nogl { position: fixed; left: 50%; bottom: calc(24px + var(--safe-b)); transform: translateX(-50%); width: min(440px, calc(100% - 32px)); padding: 12px 16px; border-radius: 10px; background: rgba(30, 24, 20, 0.92); color: var(--ink); text-align: center; z-index: 60; box-sizing: border-box; }
@@ -712,6 +722,7 @@
   <div class="sheet panel" role="dialog" aria-labelledby="death-title">
     <h2 id="death-title">You have fallen</h2>
     <p id="death-by"></p>
+    <div id="death-raise" hidden><p id="death-raise-who"></p><button class="btn" id="btn-raise" type="button">Accept the prayer</button></div><!-- [balance] an allied priest offers to raise you (07c_balance.js) -->
     <button class="btn primary" id="btn-release" type="button">Release</button>
   </div>
 </div>

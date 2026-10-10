@@ -372,6 +372,7 @@ function drawMinimap() {
     ctx.beginPath(); ctx.arc(x, y, (e.faction <= 2 && e.faction !== P.faction ? 2.4 : 1.8) * dpr, 0, TAU); ctx.fill();
   });
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = toM(p.x, p.z); ctx.fillStyle = '#ffe28a'; ctx.beginPath(); ctx.arc(x, y, 3.2 * dpr, 0, TAU); ctx.fill(); }
+  drawTrackedMinimap(ctx, toM, S, dpr); // [balance] the archer's tracked quarry (07c_balance.js)
   if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   const t = getEnt(P.target);

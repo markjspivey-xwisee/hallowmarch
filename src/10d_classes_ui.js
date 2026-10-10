@@ -162,6 +162,7 @@ function classHUD(dt) {
     const h = el.querySelector('.cls-holy'); if (h) h.classList.toggle('ready', dv >= 35);
     const pr = el.querySelector('.cls-pray'); if (pr) pr.classList.toggle('on', !!cs.praying);
   }
+  classDrHud(el, P); // [balance] how much a stun, a root or a slow still takes hold of you (07c_balance.js)
   // the cue line: a passing word, or what the target's state means
   const cue = el.querySelector('.cls-cue');
   if (cue) {
