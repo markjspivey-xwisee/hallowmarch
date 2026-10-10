@@ -356,7 +356,7 @@ function pathPay(S) {
     const draughts = `${n} healing draught${n === 1 ? '' : 's'}`;
     return { ic: 'potion', t: !spare ? draughts : n ? `${draughts} and ${fmtInt(spare * potionPrice())} gold` : `${fmtInt(spare * potionPrice())} gold, as your draughts are full` };
   }
-  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: clamp(L, 1, 24), q: Rw.item.q, slot: Rw.item.slot });
+  const it = makeItem({ cls: P.cls, realm: P.faction, lvl: clamp(L, 1, LEVEL_CAP), q: Rw.item.q, slot: Rw.item.slot }); // [balance2] at your level, to 50
   if (!bagAdd(it)) { dropItem(it, P.x, P.z, P.y + 1.2); uiLog('Your bags are full: your reward lies at your feet.', 'warn'); }
   else if (!INV.eq[it.slot] && !canEquip(it)) equipItem(it);
   if (UI.modal === 'kit') renderKit();

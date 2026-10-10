@@ -1001,7 +1001,7 @@ function depthCraftGear(rec, it, sk) {
     const D = SLOT_DEF[it.slot], have = Object.keys(it.st);
     const pool = D.sec.filter((k) => !have.includes(k));
     const k = pool.length ? pick(Math.random, pool) : pick(Math.random, D.sec);
-    const v = itemScale(it.lvl) * QUALITY[it.q].mult * 0.22 * STAT_SCALE[k];
+    const v = itemScale(it.lvl) * QUALITY[it.q].mult * (rec.mw ? 0.32 : 0.22) * STAT_SCALE[k]; // [balance2] a named masterwork about 15% above a drop of its grade and level
     it.st[k] = (it.st[k] || 0) + (k === 'crit' ? Math.max(0.5, Math.round(v * 2) / 2) : Math.max(1, Math.round(v)));
     it.mw = 1;
     if (!rec.mw && !/masterwork/i.test(it.name)) it.name = `${it.name} (masterwork)`;

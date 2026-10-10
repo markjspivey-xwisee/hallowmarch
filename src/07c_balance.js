@@ -142,12 +142,15 @@ function drawTrackedMinimap(ctx, toM, S, dpr) {
 /* ------------------------------------------------------------------ */
 /* fair gear for a level: a full set of the quality a soldier of that  */
 /* level usually wears (fine below 20, rare to 40, epic above)          */
+/* [balance2] at item level = the level, to 50, each piece with the    */
+/*   stats its slot, grade and level give on average, so every calling */
+/*   measured wears the same totals (no lucky rolls)                    */
 /* ------------------------------------------------------------------ */
 function fairGear(cls, lvl, q) {
   const r = mulberry(7919 + lvl * 31);
-  const qq = q ?? (lvl < 20 ? 2 : lvl < 40 ? 3 : 4);
+  const qq = q ?? fairGrade(lvl);
   const eq = {};
-  for (const s of SLOTS) eq[s] = makeItem({ slot: s, cls, q: qq, lvl: Math.min(lvl, 24), rnd: r, realm: 0 });
+  for (const s of SLOTS) { eq[s] = makeItem({ slot: s, cls, q: qq, lvl, rnd: r, realm: 0 }); eq[s].st = gearSlotExpect(s, eq[s].lvl, qq); }
   return { eq, tot: gearTotals(eq) };
 }
 

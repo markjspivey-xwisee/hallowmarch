@@ -209,6 +209,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     amount *= opts.siege ? 1 : 0.5;
   }
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
+  amount *= gearLateHarm(src, dst); // [balance2] a late foe is as tough as the gear of its level (06e_gearcurve.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
   amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;

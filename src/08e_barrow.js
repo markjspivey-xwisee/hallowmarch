@@ -265,7 +265,7 @@ function openChest(ch) {
   ch.opened = true;
   ch.refillAt = GAME.t + (ch.id === 'vault' ? KING_RESPAWN : BARROW_RESPAWN * 2);
   sfx('chestOpen');
-  const lvl = clamp(GAME.prog.level + (ch.id === 'vault' ? 1 : 0), 15, 21 + barrowBoost());
+  const lvl = clamp(GAME.prog.level + (ch.id === 'vault' ? 2 : 0), 15, 22 + barrowBoost()); // [balance2] the hoard a little above you, to item level 50
   later(0.45, () => {
     const n = ch.id === 'vault' ? 3 : 1 + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < n; i++) {

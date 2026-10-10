@@ -99,7 +99,7 @@ const LEGEND = {
 };
 
 let ITEM_SEQ = 1;
-const itemScale = (ilvl) => 1 + 0.4 * ilvl;
+const itemScale = (ilvl) => 1 + 0.4 * Math.min(ilvl, 24) + 0.25 * Math.max(0, ilvl - 24); // [balance2] gentler past 24, as drops now follow the level to 50 (06e_gearcurve.js)
 function itemValue(it) { return Math.max(1, Math.round((4 + it.lvl * 2.5) * QUALITY[it.q].sell * SLOT_DEF[it.slot].vMult)); }
 function itemReq(it) { return Math.max(1, it.lvl - 3); }
 
@@ -117,7 +117,7 @@ function makeItem(o) {
   const r = o.rnd || Math.random;
   const cls = o.cls || 'warrior', realm = o.realm ?? 0;
   const slot = o.slot || pick(r, ['weapon', 'weapon', 'head', 'chest', 'chest', 'hands', 'legs', 'cloak', 'ring', 'charm']);
-  const q = clamp(o.q ?? 1, 0, 5), lvl = clamp(Math.round(o.lvl || 1), 1, o.lvlCap || 24); // [depth] crafted gear reaches 50 (lvlCap)
+  const q = clamp(o.q ?? 1, 0, 5), lvl = clamp(Math.round(o.lvl || 1), 1, o.lvlCap || LEVEL_CAP); // [depth] crafted gear reaches 50 (lvlCap) [balance2] and everything else now too
   const D = SLOT_DEF[slot];
   const bases = ITEM_BASES[slot][cls] || ITEM_BASES[slot].all;
   const [base, vis] = pick(r, bases);
