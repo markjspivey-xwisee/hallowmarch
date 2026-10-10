@@ -521,6 +521,7 @@ function updateGate(G0, dt) {
     });
     G0.want = friend && !foe ? 1 : 0;
   }
+  if (G0.sallyUntil > GAME.t && G0.sallyOpen) G0.want = 1; // [siege] the gate opens for a sally, foes or no (04h_siege.js)
   const was = G0.open;
   G0.open = clamp(G0.open + (G0.want ? 1 : -1) * dt / (G0.want ? 1.9 : 1.3), 0, 1);
   if (was !== G0.open) {
@@ -593,6 +594,7 @@ function castlePostSlots(K) {
 }
 function updateCastles(dt) {
   for (const C of CASTLES) { if (C.gate) updateGate(C.gate, dt); updateBreaches(C, dt); }
+  updateSiege(dt); // [siege] engines, stones, sallies (04h_siege.js)
 }
 
 /* ------------------------------------------------------------------ */
@@ -879,6 +881,7 @@ function castleBreach(W) {
   const K = S.keepRef;
   if (K) news(`The wall of ${S.name} has been breached!`, K.realm, K.realm === (P && P.faction) ? 'alarm' : 'normal');
   castleCutUpload(C);
+  siegeOnBreach(W); // [siege] the garrison runs to hold the gap (04h_siege.js)
 }
 function castleRepairDone(W) {
   W.state = 'whole'; W.t = 1; W.fresh = 1; W.hp = W.maxHp = sectionMaxHp(); W.wear = 0;
@@ -886,6 +889,7 @@ function castleRepairDone(W) {
   for (const q of W.colls) q.active = true;
   if (W.coll) { W.coll.active = true; W.coll.h = W.coll.fullH || W.coll.h; }
   W.scaffold.visible = false;
+  siegeOnRepair(W); // [siege] (04h_siege.js)
   const K = W.C.S.keepRef;
   if (K) news(`${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal');
 }

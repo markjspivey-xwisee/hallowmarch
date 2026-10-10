@@ -357,6 +357,7 @@ function captureKeep(K, realm, killer) {
 /* entity death hooks                                                  */
 /* ------------------------------------------------------------------ */
 function onEntityKilled(e, killer) {
+  if (e.siegeEngine) { siegeEngineKilled(e, killer); return; } // [siege] an engine hacked apart or burnt (04h_siege.js)
   if (e.role === 'boss') { onDragonDeath(e); return; }
   if (e.role === 'dungeonBoss') { onKingDeath(e, killer); return; }
   if (e.dunPack != null) { onBarrowMobDeath(e); return; }
@@ -563,6 +564,7 @@ function thinkPosted(e, dt, aggroR) {
   // garrison troops: hold a post, fight what comes near, never wander off
   const post = e.ai.post;
   if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
+  if ((e.ai.plug || e.ai.sally) && siegePostedThink(e, dt)) return; // [siege] holding a breach, or out on a sally (04h_siege.js)
   let t = getEnt(e.target);
   if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, post.x, post.z) > aggroR + 8 || !canReach(e, t))) { t = null; e.target = null; }
   if (!t && GAME.t > (e.ai.nextScan || 0)) {
@@ -763,6 +765,7 @@ function updateWarband(wb, dt) {
   wb.leaderGoal = { x: tx, z: tz };
   wb.engaged = engaged;
   wb.L = L;
+  siegeBandAfter(wb, L, O); // [siege] engines, breaches, and where the leader stands while they work (04h_siege.js)
 }
 function thinkSoldier(e, dt) {
   const wb = e.warband;
@@ -775,6 +778,7 @@ function thinkSoldier(e, dt) {
     if (wb.leaderGoal) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 1, 0.5);
     return;
   }
+  if (e.siegeCrew && siegeCrewThink(e, dt)) return; // [siege] working a siege engine (04h_siege.js)
   // [campaign] a band called to the player's side: its leader breaks off any fight and goes, and the
   // rest follow once their foes are left behind (08g_campaign.js)
   if (O && O.type === 'rally' && e === L && wb.leaderGoal && O.point && dist(e.x, e.z, O.point.x, O.point.z) > 12) {
@@ -784,13 +788,15 @@ function thinkSoldier(e, dt) {
   }
   let t = getEnt(e.target);
   const anchor = L || e;
-  if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, anchor.x, anchor.z) > 40 || !canReach(e, t))) { t = null; e.target = null; }
+  const leash = O && O.type === 'carry' ? 14 : 40; // [siege] tuning: a hallow's escort stays by its bearer instead of giving chase
+  if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, anchor.x, anchor.z) > leash || !canReach(e, t))) { t = null; e.target = null; }
   if (GAME.t > (e.ai.nextScan || 0)) {
     e.ai.nextScan = GAME.t + 0.35 + Math.random() * 0.3;
     let cand = topThreat(e);
-    if (cand && (!canReach(e, cand) || dist(cand.x, cand.z, anchor.x, anchor.z) > 36 || !inSight(e, cand))) cand = null;
+    if (cand && (!canReach(e, cand) || dist(cand.x, cand.z, anchor.x, anchor.z) > Math.min(36, leash) || !inSight(e, cand))) cand = null;
     if (!cand) cand = pickTarget(e, e.rangedKind ? 30 : 22);
-    if (cand && dist(cand.x, cand.z, anchor.x, anchor.z) < 36) t = cand;
+    if (cand && dist(cand.x, cand.z, anchor.x, anchor.z) < Math.min(36, leash)) t = cand;
+    else if ((!t || t.kind === 'door') && O && O.type === 'defend' && (t = siegeFoeEngine(e, O))) { /* [siege] defenders go for the engines before their walls (04h_siege.js) */ }
     // sieges: with nothing better to hit, strike the gate
     else if ((!t || t.kind === 'door') && O && O.phase === 'siege') {
       const door = O.keep ? O.keep.door : O.temple ? O.temple.door : null;
@@ -801,9 +807,10 @@ function thinkSoldier(e, dt) {
   if (t) { if (e.mount) { dismount(e); e.ai.remountAt = GAME.t + 12; } fightTarget(e, t, dt); return; }
   e.target = null;
   if (!L) return;
-  if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && (!O || O.phase !== 'siege')) mountUp(e, true);
-  if (e === L && e.mount && (wb.engaged || (O && (O.phase === 'siege' || O.phase === 'assault')))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
-  if (e === L) { if (wb.leaderGoal && (!wb.engaged || (O && (O.phase === 'siege' || O.phase === 'assault')))) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 0.92, 0.8); return; }
+  // [siege] siegeLikePhase: the gate, the court, a breach, or standing by the engines (04h_siege.js)
+  if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && !siegeLikePhase(O)) mountUp(e, true);
+  if (e === L && e.mount && (wb.engaged || siegeLikePhase(O))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
+  if (e === L) { if (wb.leaderGoal && (!wb.engaged || siegeLikePhase(O))) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 0.92, 0.8); return; }
   // formation behind the leader
   const k = wb.members.indexOf(e.id);
   const row = Math.floor(k / 3) + 1, col = (k % 3) - 1;
