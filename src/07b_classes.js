@@ -260,7 +260,7 @@ function elementReact(src, dst, el, opts) {
   const res = mage && scs.prev && scs.prev !== el && nowT() - (scs.switchAt || -9) < 4 ? 1 + 0.5 * (scs.prevAtt || 0) / 100 : 1;
   if (el === 'fire') {
     if (frozenOf(dst) || chillOf(dst) > 0) {
-      if (!auto) { m *= (frozenOf(dst) ? 1.8 : 1.45) * res; combo(src, dst, 'steam'); dropBuffs(dst, ['chill', 'frozen']); unfreeze(dst); steamAt(dst.x, dst.z, 4, src); dst.wet = Math.max(dst.wet || 0, 0.7); return m; }
+      if (!auto) { m *= (frozenOf(dst) ? 1.7 : 1.35) * res; /* [balance2] 1.8 and 1.45 */ combo(src, dst, 'steam'); dropBuffs(dst, ['chill', 'frozen']); unfreeze(dst); steamAt(dst.x, dst.z, 4, src); dst.wet = Math.max(dst.wet || 0, 0.7); return m; }
     }
     if (wet > 0.3) { m *= 0.75; dst.wet = Math.max(0, (dst.wet || 0) - 0.3); if (Math.random() < 0.5) steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 4); }
     m *= 1 - 0.3 * rainHere(dst);
@@ -482,7 +482,7 @@ function classOnHit(src, dst, dmg, opts) {
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
-  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.4, 3, src.id); // [balance] a volley pins what it falls on
+  if (src.cls === 'archer' && opts.kind === 'aoe' && !opts.dot && dst.alive) addBuff(dst, 'snare', 0.5, 4, src.id); // [balance] a volley pins what it falls on [balance2] 40% for 3 s
 }
 // the weapon's own bite: the sword opens wounds, the axe breaks armour, the mace staggers
 function styleProc(src, dst, dmg, opts, strong) {
@@ -541,7 +541,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); } // [balance] a charge breaks free of slows and snares
+  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2.5, 'charge'); chargeFree(e, 2.5); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2.5 s (07c_balance.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
@@ -1048,7 +1048,7 @@ function stepSnares(dt) {
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
     addBuff(prey, 'root', 1, S.thule ? 4.5 : 3.5, S.owner); // [balance] 4 and 3
     // [balance] the cord whips about: whoever runs beside the prey is slowed
-    forNear(S.x, S.z, 4, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.4, 2.5, S.owner); });
+    forNear(S.x, S.z, 5, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.5, 3.5, S.owner); }); // [balance2] 4 m, 40% for 2.5 s: a snare buys time against a pack
     if (S.thule) addChill(prey, 3, src);
     FX.sparks(S.x, S.y + 0.2, S.z);
     classSfx('snare', S.x, S.z);

@@ -507,10 +507,11 @@ function botPriest(e, t) {
   // shields and instants first
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
-  if (fight && hpF < 0.97 && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
+  const many = botFoes(e, 20) >= 2;
+  if (fight && hpF < (many ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
   // [balance2] cut off or held: a Renewal on yourself loosens the bonds and steadies the next spell
   if (fight && (broke || isRooted(e) || hasBuff(e, 'snare')) && !steady && hpF < 0.97 && botUse(e, 'renew', e)) return true;
-  if (hpF < (castOk ? 0.72 : 0.35) && botUse(e, 'mend', e)) return true;
+  if (hpF < (castOk ? (many ? 0.72 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -521,11 +522,11 @@ function botPriest(e, t) {
   // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < 0.82 && botUse(e, 'mend', e)) return true;
+  if (castOk && hpF < (many ? 0.82 : 0.66) && botUse(e, 'mend', e)) return true;
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race
-  const pressed = (hpF < 0.9 || GAME.t - (e.lastHitAt || -99) < 6) && botFoes(e, 20) >= 2;
+  const pressed = (hpF < 0.9 || GAME.t - (e.lastHitAt || -99) < 6) && many;
   if (castOk && (!pressed || pw > (reach ? 0.6 : 0.4) || t.hp < t.maxHp * 0.2) && botUse(e, 'smite', t)) return true;
   return false;
 }
@@ -535,13 +536,17 @@ function botPriest(e, t) {
 const PRIEST_SELF = 0.75;
 // [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
 // outlast any foe alone
-const priestSelf = (e) => PRIEST_SELF / rankMult(e.level);
+const priestSelf = (e) => PRIEST_SELF / Math.pow(rankMult(e.level), 1.5);
 // [balance2] Renewal on yourself: roots and slows loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
   e.buffs = e.buffs.filter((b) => !((b.kind === 'snare' || b.kind === 'root') && b.src !== 'frozen'));
   addBuff(e, 'steadfast', 1, 4, 'steadfast');
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
+}
+// [balance2] a warrior's Charge: no root or slow takes hold for a moment after it (the warrior's answer to being kited)
+function chargeFree(e, dur) {
+  for (const cat of ['root', 'snare']) { const s = ccState(e, cat); s.immune = Math.max(s.immune, GAME.t + dur); s.until = Math.max(s.until, s.immune); }
 }
 // a spell broken by a blow or an arrow, unless the caster stands steadfast; true when it broke
 function breakCast(e) {
@@ -664,6 +669,8 @@ setTimeout(() => {
   if (b) b.onclick = () => raiseOfferAccept();
 }, 0);
 
+// [balance2] the steadfast mark among the buffs over a frame
+setTimeout(() => { if (typeof BUFF_ICON !== 'undefined') BUFF_ICON.steadfast = ['sun', '#ffe8b0']; }, 0);
 /* ---- debug and test hooks ---- */
 setTimeout(() => {
   if (!window.__hm) return;

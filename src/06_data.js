@@ -41,15 +41,15 @@ const CLASSES = {
 const ABILITIES = {
   slash: { name: 'Slash', icon: 'sword', level: 1, cost: 8, cd: 4, range: 'melee', dmg: 1.75, anim: 1, desc: 'A fast, heavy cut. 175% weapon damage.' }, // [balance2] 1.6
   bash: { name: 'Shield Bash', icon: 'shield', level: 2, cost: 12, cd: 14, range: 'melee', dmg: 0.7, stun: 1.6, anim: 1, desc: 'Stuns the target for 1.6 seconds.' }, // [balance] 2.5 s
-  cleave: { name: 'Cleave', icon: 'arc', level: 4, cost: 15, cd: 8, range: 'melee', arc: 4.5, dmg: 1.2, anim: 8, desc: 'Strikes every enemy in front of you.' },
-  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 12, range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or snare.' }, // [balance] 16 s
+  cleave: { name: 'Cleave', icon: 'arc', level: 4, cost: 15, cd: 8, range: 'melee', arc: 4.5, dmg: 1.35, anim: 8, desc: 'Strikes every enemy in front of you. 135% weapon damage.' }, // [balance2] 1.2
+  charge: { name: 'Charge', icon: 'chevrons', level: 7, cost: 10, cd: 12, range: 28, minRange: 5, dash: true, dmg: 0.8, snare: [0.45, 3], anim: 1, desc: 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root; for 2.5 s none takes hold of you.' }, // [balance] 16 s [balance2] and a moment free of them
   rally: { name: 'Rallying Cry', icon: 'horn', level: 11, cost: 20, cd: 40, self: true, healPct: 0.25, buff: { kind: 'dmg', value: 0.15, dur: 10 }, desc: 'Heal 25% and deal 15% more damage for 10 s.' },
   bulwark: { name: 'Bulwark', icon: 'tower', level: 15, cost: 15, cd: 45, self: true, buff: { kind: 'dr', value: 0.6, dur: 6 }, anim: 5, desc: 'Take 60% less damage for 6 seconds.' },
 
   quickshot: { name: 'Quick Shot', icon: 'arrow', level: 1, cost: 6, cd: 3, range: 32, proj: 'arrow', dmg: 1.15, anim: 2, desc: 'An instant shot. 115% damage.' },
   aimed: { name: 'Aimed Shot', icon: 'target', level: 2, cost: 12, cd: 7, range: 40, cast: 1.6, proj: 'arrow', dmg: 2.5, anim: 2, desc: 'A slow, careful shot. 250% damage, 40 m.' },
   cripple: { name: 'Crippling Arrow', icon: 'chain', level: 4, cost: 10, cd: 9, range: 32, proj: 'arrow', dmg: 0.8, snare: [0.5, 5], anim: 2, desc: 'Slows the target by 50% for 5 seconds.' }, // [balance] 12 s
-  volley: { name: 'Volley', icon: 'rain', level: 7, cost: 22, cd: 16, range: 36, ground: true, radius: 5, waves: 3, dmg: 0.95, anim: 2, desc: 'Three waves of arrows around the target: 95% each, and every foe they fall on is slowed by 40% for 3 s.' }, // [balance] 80%, and it pins
+  volley: { name: 'Volley', icon: 'rain', level: 7, cost: 22, cd: 16, range: 36, ground: true, radius: 5, waves: 3, dmg: 0.95, anim: 2, desc: 'Three waves of arrows around the target: 95% each, and every foe they fall on is slowed by 50% for 4 s.' }, // [balance] 80%, and it pins [balance2] 40% for 3 s
   tumble: { name: 'Tumble', icon: 'leap', level: 11, cost: 10, cd: 11, /* [balance] 15 */ self: true, dashBack: 10, buff: { kind: 'free', value: 1, dur: 2 }, desc: 'Leap 10 m back and shake off slows.' },
   pierce: { name: 'Piercing Shot', icon: 'pierce', level: 15, cost: 24, cd: 20, range: 40, cast: 1.2, line: true, dmg: 2.0, anim: 2, desc: 'An arrow that passes through every enemy in a line.' },
 
@@ -57,13 +57,13 @@ const ABILITIES = {
   frost: { name: 'Frost Lance', icon: 'snow', level: 2, cost: 9, cd: 6, range: 32, proj: 'frost', dmg: 1.0, snare: [0.4, 4], anim: 3, desc: 'Instant. Slows the target by 40% for 4 seconds.' },
   nova: { name: 'Flame Nova', icon: 'burst', level: 4, cost: 18, cd: 12, /* [balance] 16 */ self: true, pbaoe: 7, dmg: 1.3, root: 2.5, anim: 3, desc: 'Burns and roots every enemy within 7 m.' },
   blink: { name: 'Blink', icon: 'spark', level: 7, cost: 12, cd: 11, /* [balance] 14 */ self: true, blink: 12, desc: 'Teleport 12 m in the direction you face.' },
-  ward: { name: 'Arcane Ward', icon: 'ward', level: 11, cost: 20, cd: 24, self: true, shieldPct: 0.4, dur: 12, desc: 'Absorbs damage equal to 40% of your health.' }, // [balance] 30%, 30 s
+  ward: { name: 'Arcane Ward', icon: 'ward', level: 11, cost: 20, cd: 24, self: true, shieldPct: 0.35, dur: 12, desc: 'Absorbs damage equal to 35% of your health.' }, // [balance] 30%, 30 s [balance2] 40%
   meteor: { name: 'Meteor', icon: 'meteor', level: 15, cost: 30, cd: 28, range: 36, ground: true, cast: 2.4, radius: 6, dmg: 3.0, anim: 3, desc: 'Calls down a meteor. 300% damage in 6 m.' },
 
   smite: { name: 'Smite', icon: 'sun', level: 1, cost: 8, cd: 0, range: 30, cast: 1.3, proj: 'holy', dmg: 1.8, anim: 3, desc: 'Holy light. 180% damage.' }, // [balance] 160%
   mend: { name: 'Mend', icon: 'heart', level: 1, cost: 22, /* [balance] 14: a long fight drains a healer */ cd: 0, range: 30, cast: 1.5, heal: 0.36, friendly: true, anim: 3, desc: 'Heals a friend for 36% of health, or you for 27%.' },
   renew: { name: 'Renewal', icon: 'leaf', level: 3, cost: 16, /* [balance] 12 */ cd: 6, range: 30, hot: [0.32, 9], friendly: true, anim: 3, desc: 'Heals 32% over 9 seconds. On yourself it also loosens roots and slows, and for 4 s nothing but a stun breaks your spells.' }, // [balance2] steadfast (07c_balance.js)
-  holyfire: { name: 'Holy Fire', icon: 'candle', level: 5, cost: 12, cd: 8, range: 30, dot: [2.1, 8], anim: 3, desc: 'Burns an enemy for 210% over 8 seconds.' }, // [balance] 180%
+  holyfire: { name: 'Holy Fire', icon: 'candle', level: 5, cost: 12, cd: 8, range: 30, dot: [2.4, 8], anim: 3, desc: 'Burns an enemy for 240% over 8 seconds.' }, // [balance] 180% [balance2] 210%
   sanctuary: { name: 'Sanctuary', icon: 'circle', level: 9, cost: 32, /* [balance] 26 */ cd: 20, self: true, groupHeal: 0.25, radius: 14, anim: 3, desc: 'Heals all allies within 14 m for 25%, and you for 19%.' }, // [balance] a priest's own wounds mend more slowly
   divine: { name: 'Divine Shield', icon: 'ward', level: 14, cost: 20, cd: 40, range: 30, friendly: true, shieldPct: 0.35, dur: 8, anim: 3, desc: 'Shields a friend for 35% of their health, and no stun, root or slow holds them while it lasts.' }, // [balance] the ward against control
 
