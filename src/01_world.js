@@ -553,6 +553,33 @@ function buildWorld(seed = 7) {
       });
     }
   }
+  // [seasons] gardens by the other towns, worked through the year like Brackenford's strips (08h_farming.js): Ériu's
+  // herb and vegetable gardens and Thule's turnip and cabbage beds, off the road and clear of the common's sides
+  for (const R of [REALMS[1], REALMS[2]]) {
+    const fr = mulberry(310 + R.id * 41), want = R.id === 1 ? 3 : 2, mine = [];
+    for (let tries = 0; tries < 90 && mine.length < want; tries++) {
+      const a = (tries % 2 ? 1 : -1) * (0.5 + fr() * 0.32) + (fr() < 0.5 ? 0 : Math.PI), d = 44 + fr() * 6;
+      const cx = R.town.x + Math.sin(a + R.yaw) * d, cz = R.town.z + Math.cos(a + R.yaw) * d;
+      const hw = R.id === 1 ? 7 + fr() * 2.5 : 6 + fr() * 2, hd = R.id === 1 ? 4.6 + fr() * 1.4 : 4.4 + fr() * 1.2, ang = a + R.yaw + (fr() - 0.5) * 0.3;
+      const c = Math.cos(ang), s = Math.sin(ang);
+      if ((W.fieldRects || []).some((F) => dist(F.x, F.z, cx, cz) < Math.hypot(F.hw, F.hd) + Math.hypot(hw, hd) + 3)) continue;
+      if (LAKES.some((L) => dist(cx, cz, L.x, L.z) < L.r + 12 + hw) || nearRiver(cx, cz, Math.hypot(hw, hd) + 4)) continue;
+      let ok = true, lo = Infinity, hi = -Infinity;
+      for (let i = -1; i <= 1 && ok; i += 0.25) for (let j = -1; j <= 1 && ok; j += 0.25) {
+        const lx = i * (hw + 1.5), lz = j * (hd + 1.5), x = cx + lx * c + lz * s, z = cz - lx * s + lz * c;
+        const k = hIndex(Math.round((x + HALF) / HS), Math.round((z + HALF) / HS)), h = H[k];
+        if (road[k] > 0.03 || walk[k] || h < WATER_Y + 0.8) ok = false;
+        lo = Math.min(lo, h); hi = Math.max(hi, h);
+      }
+      if (!ok || hi - lo > 2.2) continue;
+      const F = { x: cx, z: cz, hw, hd, ang: Math.atan2(s, c), realm: R.id, garden: true, stripW: 3.2, gap: 1.2 };
+      mine.push(F); W.fieldRects.push(F);
+      forTexels(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
+        const lx = (x - cx) * c - (z - cz) * s, lz = (x - cx) * s + (z - cz) * c;
+        field[k] = Math.max(field[k], sstep(2, -1, Math.max(Math.abs(lx) - hw, Math.abs(lz) - hd)) * (1 - road[k]));
+      });
+    }
+  }
   Object.assign(W, { walk, grass, flower, rock, realmW, field });
   clearBarrowGround(W, forTexels);
   // no grass or flowers on a river bed (01b_water.js)
@@ -586,6 +613,21 @@ function buildWorld(seed = 7) {
 
   // trees
   const trees = [];
+  // [seasons] farmland is cleared land: a tree that would stand in a town field or garden grows off its edge instead
+  // (it keeps its place in the list, so the saved land's tree numbers stay the same)
+  const inField = (x, z, pad) => (W.fieldRects || []).some((F) => { const c = Math.cos(F.ang), s = Math.sin(F.ang), lx = (x - F.x) * c - (z - F.z) * s, lz = (x - F.x) * s + (z - F.z) * c; return Math.abs(lx) < F.hw + pad && Math.abs(lz) < F.hd + pad; });
+  const offField = (x0, z0, seed) => {
+    const r0 = mulberry(seed);
+    for (let n = 0; n < 120; n++) {
+      const a = r0() * TAU, d = 5 + n * 0.5 + r0() * 4, x = x0 + Math.cos(a) * d, z = z0 + Math.sin(a) * d;
+      if (inField(x, z, 3.5) || Math.hypot(x, z) > 468) continue;
+      const h = heightAt(x, z), k = hIndex(Math.round((x + HALF) / HS), Math.round((z + HALF) / HS));
+      if (h < WATER_Y + 0.6 || W.rock[k] > 0.55 || W.walk[k] || blocked(x, z, 10) || nearRoad(x, z, 6)) continue;
+      if (trees.some((t) => dist2(t.x, t.z, x, z) < 3.2 * 3.2)) continue;
+      return [x, z];
+    }
+    return null;
+  };
   for (let gz = -HALF + 4; gz < HALF - 4; gz += 5.5) {
     for (let gx = -HALF + 4; gx < HALF - 4; gx += 5.5) {
       const x = gx + (hash2(gx * 7 | 0, gz * 3 | 0) - 0.5) * 5, z = gz + (hash2(gx * 5 | 0, gz * 11 | 0) - 0.5) * 5;
@@ -613,8 +655,10 @@ function buildWorld(seed = 7) {
       else kind = u < 0.7 ? 'oak' : u < 0.9 ? 'birch' : 'pine';
       if (h > 16) kind = 'pine';
       const s = 0.8 + 0.5 * hash2(gx * 41 | 0, gz * 43 | 0);
-      trees.push({ kind, x, z, y: h, s, rot: hash2(gx * 3 | 0, gz * 61 | 0) * TAU, tint: hash2(gx * 71 | 0, gz * 73 | 0) });
-      addCircle(x, z, 0.45 * s + 0.15, 'tree', 8);
+      let tx = x, tz = z, ty = h;
+      if (inField(x, z, 2.5)) { const q = offField(x, z, (gx * 131 + gz * 17) | 0); if (q) { [tx, tz] = q; ty = heightAt(tx, tz); } } // [seasons]
+      trees.push({ kind, x: tx, z: tz, y: ty, s, rot: hash2(gx * 3 | 0, gz * 61 | 0) * TAU, tint: hash2(gx * 71 | 0, gz * 73 | 0) });
+      addCircle(tx, tz, 0.45 * s + 0.15, 'tree', 8);
     }
   }
   W.trees = trees;
@@ -675,6 +719,7 @@ function buildWorld(seed = 7) {
         const h = heightAt(x, z);
         if (h < WATER_Y + 1 || h > 22 || nearRiver(x, z, 8)) continue;
         if (blocked(x, z, 12) || nearRoad(x, z, 12)) continue;
+        if (W.fieldRects.some((F) => F.garden && dist2(F.x, F.z, x, z) < 30 * 30)) continue; // [seasons] not in the gardens
         if (camps.some((c) => dist2(c.x, c.z, x, z) < 48 * 48)) continue;
         let ok = true;
         for (let s = 0; s < 8 && ok; s++) { const aa = (s / 8) * TAU; if (!isWalkable(x + Math.sin(aa) * 10, z + Math.cos(aa) * 10)) ok = false; }

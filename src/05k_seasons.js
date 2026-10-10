@@ -13,8 +13,8 @@
 // Lake ice: every lake and pond texel (not the running rivers) freezes by its own temperature through the year and
 // thaws from the shallows in spring; ice 0.3 thick or more is a floor (floorAt, onIce, isWalkable ask seasonIceY).
 const SEAS = {
-  res: 128, cell: 8, warm: null, lie: null, bytes: null, tex: null, acc: 0, lastT: null, dirty: false, lieView: 0, view: [0, 0],
-  cur: null, inited: false, leaves: null, flies: null, hole: null, frozenN: 0, noted: { snow: -1, ice: -1 }, ice: null,
+  res: 128, cell: 8, warm: null, lie: null, bytes: null, tex: null, acc: 0, lastT: null, dirty: false, lieView: 0,
+  cur: null, inited: false, leaves: null, hole: null, frozenN: 0, noted: { snow: -1, ice: -1 }, ice: null,
 };
 // the ice on the lakes and ponds: per water texel (2 m) that can freeze
 const SICE = { on: false, ks: null, t0: null, shallow: null, thick: null, grid: null, vis: null, shore: null, meshes: [], next: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
@@ -235,7 +235,7 @@ function seasonParticleGeo(max, seed) {
   g.instanceCount = 0;
   return g;
 }
-const SEASON_LEAVES_MAX = 900, SEASON_FLIES_MAX = 320;
+const SEASON_LEAVES_MAX = 900;
 function buildSeasonFx() {
   // leaves: each one tumbles as it falls, drifts with the wind and sways; they fall only under the crowns
   SEAS.leaves = new THREE.Mesh(seasonParticleGeo(SEASON_LEAVES_MAX, 91), mat({
@@ -291,45 +291,6 @@ function buildSeasonFx() {
   }));
   SEAS.leaves.frustumCulled = false; SEAS.leaves.renderOrder = 5;
   scene.add(SEAS.leaves);
-  // fireflies: little green-gold lights over the grass and the woods' edges that glow and fade
-  SEAS.flies = new THREE.Mesh(seasonParticleGeo(SEASON_FLIES_MAX, 57), mat({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uBox: { value: new THREE.Vector3(44, 6, 44) }, uAmount: { value: 0 } },
-    vertexShader: /* glsl */`
-      ${GLSL_COMMON}
-      ${GLSL_WORLD}
-      uniform float uTime, uAmount;
-      uniform vec3 uBox;
-      attribute vec4 aSeed;
-      varying vec2 vUv; varying float vA;
-      void main(){
-        vUv = uv; vA = 0.0;
-        float s = aSeed.w * 50.0;
-        vec2 xz = cameraPosition.xz + mod(aSeed.xy * uBox.xz - cameraPosition.xz + uBox.xz * 0.5, uBox.xz) - uBox.xz * 0.5;
-        xz += vec2(sin(uTime * 0.31 + s) + 0.5 * sin(uTime * 0.77 + s * 1.3), cos(uTime * 0.27 + s * 0.8) + 0.5 * cos(uTime * 0.69 + s * 2.1)) * 1.4;
-        vec4 A = texture(uWorldA, worldUV(xz));
-        float place = smoothstep(0.2, 0.6, A.g) * (1.0 - smoothstep(0.1, 0.5, A.r)) * (0.45 + 0.55 * smoothstep(0.05, 0.4, canopyAt(xz + vec2(6.0, 0.0)) + canopyAt(xz - vec2(6.0, 0.0))));
-        float d = length(xz - cameraPosition.xz);
-        float blink = smoothstep(0.55, 0.95, sin(uTime * (0.9 + aSeed.z * 1.4) + s * 3.0) * 0.5 + 0.5);
-        float k = uAmount * place * (1.0 - smoothstep(uBox.x * 0.3, uBox.x * 0.5, d)) * step(fract(aSeed.z * 13.1), uAmount * 1.2);
-        if (k * blink < 0.02) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
-        vec3 c = vec3(xz.x, terrainHeight(xz) + 0.35 + aSeed.z * 1.6 + 0.25 * sin(uTime * 0.9 + s), xz.y);
-        vec4 mv = viewMatrix * vec4(c, 1.0);
-        mv.xy += (position.xy) * (0.16 + 0.004 * length(mv.xyz));
-        vA = k * blink;
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: /* glsl */`
-      varying vec2 vUv; varying float vA;
-      void main(){
-        float r = length(vUv * 2.0 - 1.0);
-        float g = (1.0 - smoothstep(0.0, 1.0, r)) * 0.35 + (1.0 - smoothstep(0.0, 0.22, r)) * 1.4;
-        if (g * vA < 0.003) discard;
-        gl_FragColor = vec4(vec3(0.75, 1.0, 0.32) * g * vA * 1.6, 1.0);
-      }`,
-  }));
-  SEAS.flies.frustumCulled = false; SEAS.flies.renderOrder = 8;
-  scene.add(SEAS.flies);
   // a hole cut in the ice to fish through: dark water in a ring of broken ice
   const hg = new THREE.RingGeometry(0.02, 0.55, 20, 2);
   hg.rotateX(-Math.PI / 2);
@@ -421,10 +382,6 @@ function seasonsFrame(dt) {
     SEAS.leaves.material.uniforms.uAmount.value = drift;
     SEAS.leaves.geometry.instanceCount = drift > 0.02 ? Math.round(SEASON_LEAVES_MAX * q) : 0;
   }
-  if (SEAS.flies) {
-    SEAS.flies.material.uniforms.uAmount.value = flies;
-    SEAS.flies.geometry.instanceCount = flies > 0.02 ? Math.round(SEASON_FLIES_MAX * q) : 0;
-  }
   // fishing through the ice: a hole where the float lies
   const F = typeof SURV !== 'undefined' ? SURV.fish : null;
   if (SEAS.hole) {
@@ -452,7 +409,7 @@ function seasonsChronicleHTML() {
     : C.A[2] > 0.5 ? 'Now the broadleaves are turning gold and red, and their leaves are coming down.'
       : C.A[1] > 0.5 ? 'Now the meadows are high and the dry turf is burning gold; on warm nights the fireflies come out.'
         : 'Now the woods are in fresh leaf, the orchards in blossom and the meadows full of flowers.';
-  return `<h4>The year on the land</h4>
+  return `<h3>The year on the land</h3>
     <p>The whole March turns with the year. In spring the broadleaves come into pale new leaf, the apple trees of the Logres orchards flower and the meadows fill with white, yellow and blue. Summer deepens the green and burns the dry turf gold; butterflies are about by day, fireflies on warm nights, and the apples set. In autumn the oaks and birches turn gold, rust and red and drop their leaves, the grass goes tawny and the last flowers fade. Winter strips the broadleaves bare (the pines keep their needles and carry the snow), lays the meadows down brown and frosted, and brings the snow: all winter in Thule and on the high ground, on cold nights in the south.</p>
     <p>In deep winter the lakes and ponds of Thule and the high tarns freeze over, though the rivers keep running. Thick ice carries people and beasts; nobody swims under it, and you can fish through a hole in it. It thaws from the shallow edges in spring, going dark and thin first. ${now}</p>
     <p>Every town keeps its gardens through the year: grain, beans and roots in the strips of Brackenford, herbs, beans and greens in the gardens of Ériu, hardy turnips and cabbages in the beds of Thule.</p>`;

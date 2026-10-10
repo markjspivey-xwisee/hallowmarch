@@ -215,7 +215,7 @@ const nearTreeMat = mat({
         alb *= mix(0.55, 1.0, smoothstep(0.3, 0.6, fis));
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.4 + 0.75 * ndl * mix(0.3, 1.0, sh)) * vAO;
-"      } else if (vPart > 2.5) {
+      } else if (vPart > 2.5) {
         // [seasons] a bare broadleaf has no heart of leaves: only a few twigs show through where it was
         if (uNeedle < 0.5 && uSeasonB.y > 0.01 && vnoise(vW.xz * 2.7 + vW.y * 2.1 + vTint * 5.0) < uSeasonB.y * 1.1) discard;
         // the shaded heart of the crown: clumps for broadleaves, combed needles for pines

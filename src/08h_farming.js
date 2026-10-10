@@ -525,8 +525,12 @@ function farmStrainsTidy() {
 /* the town fields: strips sown, weeded and harvested by the townsfolk */
 /* ------------------------------------------------------------------ */
 // sowing windows (k through the year) for the townsfolk's own planning; the player can sow whenever they dare
-const FARM_SOW = { grain: [[0.0, 0.2], [0.52, 0.66]], flax: [[0.02, 0.2]], beans: [[0.03, 0.24]], turnip: [[0.0, 0.45]], cabbage: [[0.0, 0.3], [0.5, 0.58]] };
+const FARM_SOW = { grain: [[0.0, 0.2], [0.52, 0.66]], flax: [[0.02, 0.2]], beans: [[0.03, 0.24]], turnip: [[0.0, 0.45]], cabbage: [[0.0, 0.3], [0.5, 0.58]], herb_heal: [[0.02, 0.3]], herb_mana: [[0.0, 0.28]], herb_marsh: [[0.04, 0.32]] }; // [seasons] the gardens' herbs
 const FARM_ROT = ['grain', 'beans', 'grain', 'turnip', 'flax', 'grain', 'cabbage'];
+// [seasons] the gardens of the other towns (01_world.js W.fieldRects with a realm): Ériu grows herbs, beans and greens,
+// Thule hardy turnips and cabbages
+const FARM_GARDEN_ROT = { 1: ['beans', 'herb_heal', 'cabbage', 'herb_mana', 'turnip', 'herb_marsh'], 2: ['turnip', 'cabbage', 'turnip', 'cabbage'] };
+const farmRotOf = (P) => P.rotList || FARM_ROT;
 const farmInWindow = (crop, k = SEASON.k) => (FARM_SOW[crop] || []).some(([a, b]) => k >= a && k <= b);
 const FARM_TASK_ACT = { till: 8, sow: 5, weed: 5, harvest: 1 };
 function farmBuildTownFields() {
@@ -539,7 +543,7 @@ function farmBuildTownFields() {
     const lx = longX ? { x: c, z: -s } : { x: s, z: c }, lz = longX ? { x: s, z: c } : { x: c, z: -s };
     const ang = Math.atan2(lx.x, lx.z);
     // strips with grassy balks between them to walk on
-    const stripW = 4.8, gap = 1.7, n = Math.max(1, Math.floor((2 * across - 1) / (stripW + gap)));
+    const stripW = F.stripW || 4.8, gap = F.gap || 1.7, n = Math.max(1, Math.floor((2 * across - 1) / (stripW + gap))); // [seasons] narrower beds in the gardens
     const used = n * (stripW + gap) - gap, rows = Math.floor((2 * half - 3) / FARM_SP), cols = Math.floor(stripW / FARM_SP);
     for (let k = 0; k < n; k++) {
       const off = -used / 2 + k * (stripW + gap) + stripW / 2;
@@ -555,11 +559,12 @@ function farmBuildTownFields() {
         if (ok) good++;
       }
       if (good < valid.length * 0.4) continue;
-      const P = farmAddPlot({ own: 't', x, z, ang, cols, rows, valid, rot: fi * 2 + k, town: 0, fert: 0.85 });
+      const P = farmAddPlot({ own: 't', x, z, ang, cols, rows, valid, rot: fi * 2 + k, town: F.realm || 0, fert: 0.85 }); // [seasons] the town it belongs to
       P.field = fi;
+      if (F.realm) { P.rotList = FARM_GARDEN_ROT[F.realm]; P.garden = true; } // [seasons]
       // the year starts with the fields part sown already
       const T = P.stand;
-      const crop = FARM_ROT[T.rot % FARM_ROT.length];
+      const crop = farmRotOf(P)[T.rot % farmRotOf(P).length];
       if (farmInWindow(crop) && Math.random() < 0.7) { T.crop = crop; T.phase = 'sown'; T.g = 0.05 + Math.random() * 0.25; }
       else { T.phase = 'fallow'; }
     }
@@ -576,7 +581,8 @@ function farmStripWants(P) {
 }
 function farmNextTownCrop(P) {
   const T = P.stand;
-  for (let k = 0; k < FARM_ROT.length; k++) { const c = FARM_ROT[(T.rot + k) % FARM_ROT.length]; if (farmInWindow(c)) return c; }
+  const rot = farmRotOf(P); // [seasons]
+  for (let k = 0; k < rot.length; k++) { const c = rot[(T.rot + k) % rot.length]; if (farmInWindow(c)) return c; }
   return null;
 }
 function farmTaskSwings(P) { return Math.max(12, Math.round((P.cols * P.rows) / 45)); }
@@ -585,7 +591,7 @@ function farmTownDone(P) {
   const T = P.stand, task = T.task;
   T.task = null; T.p = 0; T.worker = null;
   if (task === 'till') { T.phase = 'tilled'; P.till = 1; P.weeds = 0; P.char = 0; P.dmg.fill(0); }
-  else if (task === 'sow') { const c = farmNextTownCrop(P) || 'grain'; T.crop = c; T.phase = 'sown'; T.g = 0; T.hp = 1; T.ripeT = 0; T.dead = false; T.rot = (FARM_ROT.indexOf(c) + 1) % FARM_ROT.length; P.dmg.fill(0); }
+  else if (task === 'sow') { const c = farmNextTownCrop(P) || 'grain'; T.crop = c; T.phase = 'sown'; T.g = 0; T.hp = 1; T.ripeT = 0; T.dead = false; T.rot = (farmRotOf(P).indexOf(c) + 1) % farmRotOf(P).length; P.dmg.fill(0); } // [seasons] each town its own rotation
   else if (task === 'weed') { P.weeds = 0; }
   else if (task === 'harvest') {
     const C = FARM_CROPS[T.crop];
@@ -625,7 +631,8 @@ function farmAssignFarmers() {
   FARM.farmers = [];
   for (const R of REALMS) {
     const vs = ENT.filter((e) => e.role === 'villager' && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
-    vs.slice(0, R.id === 0 ? 2 : 1).forEach((e, i) => { e.ai.farmer = true; e.ai.fieldHand = R.id === 0; e.farmTown = R.id; if (i === 0) e.ai.seedSeller = true; FARM.farmers.push(e.id); });
+    const tends = R.id === 0 || FARM.plots.some((P) => P.own === 't' && P.stand.town === R.id); // [seasons] the gardens of Ériu and Thule are tended too
+    vs.slice(0, tends ? 2 : 1).forEach((e, i) => { e.ai.farmer = true; e.ai.fieldHand = tends; e.farmTown = R.id; if (i === 0) e.ai.seedSeller = true; FARM.farmers.push(e.id); });
   }
 }
 // called by houseLife for a villager out by day: a farmer with a job to do goes to it
@@ -1282,6 +1289,7 @@ function chronFields() {
   return `<p class="lead">The March turns through its seasons: spring, summer, autumn and winter, two days each. ${SEASON_ADVICE[SEASON.idx]}</p>
     <p class="now">Now: <b>${esc(seasonLabel().toLowerCase())}</b>, about ${Math.round(t)}°C where you stand. ${SEASON_NAMES[(SEASON.idx + 1) % 4]} comes in about ${left} minutes.</p>
     <figure class="figure fc-fig">${farmStagesSketch()}</figure>
+    ${seasonsChronicleHTML() /* [seasons] the year on the land (05k_seasons.js) */}
     <h3>Your own beds</h3>
     <p>Buy seed and a hoe from a farmer (one waits in each town; Brackenford's work the fields round the town). Face open meadow and press <b>E</b> to till a bed: four furrows of six plants. Then sow it from the seed you carry, or plant a herb root you dug up. Without a hoe you can turn the soil by hand, slowly.</p>
     <p>A crop grows through its stages: <b>sprouting</b>, <b>in leaf</b>, <b>heading</b>, <b>in flower</b>, <b>ripening</b> and <b>ripe</b>. Rain waters a bed and sun and warmth speed it on; a dry spell parches it and the plants wilt and die. Each crop has the cold it can stand: a hard frost kills tender flax and beans, while turnips and cabbages shrug off a light one, and snow lying on a bed keeps the frost off. Weeds come up in every bed and slow it down; pull them. Harvest a ripe bed with <b>E</b> for the crop and seed to sow again. Left too long, ripe plants shed and rot.</p>
