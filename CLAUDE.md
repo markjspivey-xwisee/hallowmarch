@@ -78,6 +78,7 @@ The harness lives in `tools/`:
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
    - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
+   - `animals.py`: taming a wolf step by step, commands and a hound fighting, taming and riding a wild horse, livestock producing, two generations of breeding, save and load; `animals.py shots` adds screenshots (hound, flock, cattle, hens, mare and foal, the animal card).
    - `gifts.py`: each realm's passive gifts by their numbers, each realm ultimate (effects, cooldown, key 9, HUD, a champion using it), the Chronicle page, the phone pad; screenshots of each ultimate.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
@@ -121,6 +122,7 @@ The harness lives in `tools/`:
 | `05g_spells.js` | Spell visuals: terrain-draped ground marks (`spellDisc`: frost, holy circle, renewal, shockwave, cracks, scorch), lightning and tracer ribbons (`spellRibbon`), columns of light (`spellPillar`), spell weather (`spellEmitter`) |
 | `05h_nature.js` | The reactive landscape: chopping and felling trees with real falls, stumps, logs, firewood and campfires; regrowth from saplings; burning trees (`igniteTree`); cut grass; grass fire that spreads with the wind and stops at roads and water (`igniteGrass`); craters that reshape the heightfield (`natureImpact`); lightning hook (`natureStrike`) |
 | `05h_wear.js` | Weather on bodies (`e.wet`, `e.snow`, `e.dirt`, `e.blood`, `e.batter`; shelter from roofs and tree crowns, heat from fires); gear wear (`it.dur` 0–100, `it.dirt`, `it.blood`; `wearOnHit`, `repairAll`, `washGear` at wells, troughs and lakes); lightning on tall things near the player (`strikeNear`, `strikeAt`); drying and melting rates; `wearVisual` packs the actor shader's `iWear` |
+| `05j_farmbeasts.js` | Farm beasts on the beast rig: sheep (fleece curls, shorn), cattle and bulls (horns, udder), pigs (snout), hounds (collar), wild and saddled horses; a second kit merged onto `buildBeast`; the beast shader patched at anchors (fleece 30, horn 31, udder 32, face 33, beak 29; coat patterns; a lying-down rest pose, act 9); the hen's own rig (planted legs, flapping wings, a bobbing, pecking head). Looks travel in `iColA.w` = scale + 4 × pattern + 16 × seed (`e.visCode`), the crowd in `e.crowd` |
 | `06_data.js` | Classes, abilities, monsters, names, progression (`LEVEL_CAP`), realm ranks |
 | `06b_items.js` | Item quality, slots, generation, stats, how gear looks |
 | `06d_goods.js` | Goods: everything carried that is not gear (materials, food, drink, seeds, herbs, tools, building parts), kept by count in `INV.goods`, listed in the bags, dropped and picked up like loot, saved with the character. The shared catalogue of ids every system uses (`log`, `plank`, `stone`, `iron`, `hide`, `wool`, `meat_raw`, `bread`, `water`, `herb_*`, `seed_*`, `tool_*` …). Save parts: `registerSavePart('char' or 'world', key, { save, load, key })` |
@@ -132,6 +134,7 @@ The harness lives in `tools/`:
 | `08e_barrow.js` | The Barrow's dead: packs, flow-field pathing, the burning gallery, chests, the Hollow King fight |
 | `08f_townlife.js` | Townsfolk's days: home at night, out by day, doors and shutters used for real, routes round the furniture, fleeing fires, rebuilding |
 | `08g_campaign.js` | The campaign: commanders' plans with announced reasons (`planWar`, `announceOrder`), routes and order badges on the maps and nameplates, player orders to warbands from the map, claims (4 of 6 keeps for 5 min, or both enemy hallows for 4 min), renown, the long-war rules, victory, peace and reset, campaign history in the world save |
+| `08h_animals.js` | Animals: taming (calm approach, liked food, trust per feeding, lost by rushing or striking), companions (role `animal`, `e.tame` records; follow along the player's trail, stay, guard, attack, call; bond levels; hurt ones come back), your own horse (`animalsRideLook`, `animalsQuickMount`, `animalsDismounted`), livestock in the town commons and paddocks you fence (gates, trough, rack, shed; grazing, feed, water, shelter; wool, milk, eggs, manure), breeding with inherited traits (coat, pattern alleles, size, temper, yield, speed, strength) over generations, the animal card and list (K), the companion bar, the herder's board, the Chronicle's Animals page, save part `char.x.animals`. Test hooks on `__hm.animals` |
 | `09_player.js` | Input, camera, movement, targeting, interaction |
 | `09b_mount.js` | Horses |
 | `09c_loot.js` | Inventory, drops, merchants, potions; dropped goods go into the packs by count |
@@ -264,7 +267,7 @@ The harness lives in `tools/`:
 | 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Planned |
 | 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Planned |
 | 19 | Farming and herb lore, plant breeding | Planned |
-| 20 | Animals: taming, pets, livestock, breeding | Planned |
+| 20 | Animals: taming, pets, livestock, breeding | Done on `feature/animals`. Left: swimming (needs `waterAt` from feature/water), pens from the building branch's fences |
 | 21 | Building: placed structures | Planned |
 
 ## History

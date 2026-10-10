@@ -509,6 +509,7 @@ function updateNameplates() {
     else if (!e.alive && P.target !== e.id) continue;
     const d = dist(e.x, e.z, camX, camZ);
     if (d > (P.target === e.id ? 70 : e.kind === 'dragon' ? 110 : 36)) continue;
+    if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
     if (INDOOR.on && P.target !== e.id) {
       if (!(e._losT > renderTime)) { e._losT = renderTime + 0.25; e._los = d < 30 && segmentClear(P.x, P.z, e.x, e.z, 0.1); }

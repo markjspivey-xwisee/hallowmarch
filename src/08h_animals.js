@@ -42,7 +42,8 @@ const anGauss = (r = Math.random) => { const u = Math.max(1e-6, r()), v = r(); r
 function anExpress(al) { if (al.includes(3)) return 3; if (al.includes(1)) return 1; if (al[0] === 2 && al[1] === 2) return 2; return 0; }
 function anWildTraits(k, r = Math.random, base = null) {
   const coats = ACOATS[k] || ACOATS.sheep, c = base ? [base.colA, base.colB] : coats[Math.floor(r() * coats.length)];
-  const al = [r() < 0.18 ? 1 + Math.floor(r() * 3) : 0, r() < 0.18 ? 1 + Math.floor(r() * 3) : 0];
+  const pp = { cattle: 0.45, hen: 0.4, pig: 0.3, horse: 0.25 }[k] ?? 0.12;
+  const al = [r() < pp ? 1 + Math.floor(r() * 3) : 0, r() < pp ? 1 + Math.floor(r() * 3) : 0];
   if (k === 'deer' || k === 'hound') al[0] = al[1] = 0;
   return {
     coat: c[0].map((v) => clamp(v * (0.92 + r() * 0.16), 0, 1)), coat2: c[1].map((v) => clamp(v * (0.92 + r() * 0.16), 0, 1)),
@@ -245,7 +246,7 @@ function penBuild(pen) {
     const yh = gy(-gateHW, pen.hd), yr = gy(gateHW, pen.hd);
     for (const ry of [0.35, 0.72, 1.08]) gb.add(G.box, lm(G0, gateHW, ry + (yr - yh) / 2, 0, 0, gateHW * 2 - 0.1, 0.1, 0.06), MAT.wood, darker(wood, 0.9));
     for (const x of [0.12, gateHW, gateHW * 2 - 0.12]) gb.add(G.box, lm(G0, x, 0.72, 0, 0, 0.09, 0.9, 0.07), MAT.wood, dark);
-    gb.add(G.box, lm(G0, gateHW, 0.72, 0.01, 0, 0.07, 0.07, Math.hypot(gateHW * 2, 0.75), 0, -Math.atan2(0.75, gateHW * 2) * 0, Math.atan2(0.72, gateHW * 2 - 0.24)), MAT.wood, darker(wood, 0.8));
+    gb.add(G.box, lm(G0, gateHW, 0.72, 0.035, 0, Math.hypot(gateHW * 2 - 0.24, 0.72), 0.07, 0.05, 0, Math.atan2(0.72, gateHW * 2 - 0.24)), MAT.wood, darker(wood, 0.8));
     const gm = new THREE.Mesh(gb.build(), buildingMat);
     const hp = penWorld(pen, -gateHW, pen.hd);
     gm.position.set(hp.x, yh, hp.z); gm.rotation.y = pen.yaw; gm.renderOrder = 1;
@@ -381,9 +382,10 @@ function anTrust(e) {
 function anTamingStep(dt) {
   const P = GAME.player;
   if (!P || !P.alive) return;
-  const sp = Math.hypot(P.x - (P._anX ?? P.x), P.z - (P._anZ ?? P.z)) / Math.max(dt, 1e-3);
+  const step = Math.hypot(P.x - (P._anX ?? P.x), P.z - (P._anZ ?? P.z));
   P._anX = P.x; P._anZ = P.z;
-  P._anSp = lerp(P._anSp || 0, sp, 1 - Math.exp(-dt * 6));
+  // a portal or a teleport is not a sprint
+  if (step < 3) P._anSp = lerp(P._anSp || 0, step / Math.max(dt, 1e-3), 1 - Math.exp(-dt * 6));
   const rushing = P.mount || P._anSp > 7.6;
   forNear(P.x, P.z, 16, (e, d2) => {
     const k = anWildKind(e);
@@ -398,7 +400,11 @@ function anTamingStep(dt) {
       }
       T.settle = 0;
       if (e.role === 'animal') anStartle(e, P.x, P.z);
-    } else if (d2 < 9 * 9 && anPlayerCalm(P)) T.settle = Math.min(1, T.settle + dt / (P._anSp < 1.5 ? 2.2 : 5));
+    } else if (d2 < 9 * 9 && anPlayerCalm(P)) {
+      T.settle = Math.min(1, T.settle + dt / (P._anSp < 1.5 ? 2.2 : 5));
+      // it stops to watch you come
+      if (!(e.ai.flee && GAME.t < e.ai.flee.until) && GAME.t > P.combatUntil && !e.target) { e.ai.tameHold = Math.max(e.ai.tameHold || 0, GAME.t + 0.6); turnToward(e, P.x, P.z, dt * 2.5); if (T.settle > 0.6 && !e.anim.act && Math.random() < dt * 0.3) setAct(e, 5, 1.5); }
+    }
     else T.settle = Math.max(0, T.settle - dt / 8);
   });
 }
@@ -407,6 +413,7 @@ function anOffer(e) {
   const P = GAME.player, k = anWildKind(e);
   if (!P || !k) return;
   const T = anTrust(e), food = anFoodFor(k);
+  if (dist(P.x, P.z, e.x, e.z) > 5.5) { uiError('Get closer'); return; }
   if (!anPlayerCalm(P)) { uiError('Calm down first: on foot, out of the fight, walking'); return; }
   if (!food) { uiError(`It wants ${AKIND[k].likes.slice(0, 2).map((id) => goodName(id, 2).toLowerCase()).join(' or ')}`); return; }
   if (T.settle < 1) { uiError('It is still wary of you. Stand still a moment.'); return; }
@@ -580,9 +587,19 @@ function anGrazeAbout(e, dt, hx, hz, hr, pen) {
     }
   }
   if (ai.mode === 'walk' && ai.goal) {
-    if (pen ? anGoTo(e, ai.goal.x, ai.goal.z, dt, e.tame && e.tame.k === 'hen' ? 0.35 : 0.22, 0.5, false) : moveToward(e, ai.goal.x, ai.goal.z, dt, 0.16, 0.6)) ai.until = 0;
+    if (pen ? anGoTo(e, ai.goal.x, ai.goal.z, dt, e.tame && e.tame.k === 'hen' ? 0.17 : 0.22, 0.5, false) : moveToward(e, ai.goal.x, ai.goal.z, dt, 0.16, 0.6)) ai.until = 0;
     if (ai.stuck > 2.5) { ai.stuck = 0; ai.until = 0; }
   }
+}
+// an animal inside a pen it should leave (sent elsewhere, or following you) goes out by the gate, which opens for it
+function anLeavePen(e, dt, mul, keep = null) {
+  const pen = ANIMALS.pens.find((p) => p !== keep && penHas(p, e.x, e.z, -0.2));
+  if (!pen) return false;
+  const l = penLocal(pen, e.x, e.z);
+  pen.gateWant = GAME.t + 2.5;
+  if (Math.abs(l.x) < 1.2 && l.z > pen.hd - 2.2) moveToward(e, pen.gateOut.x, pen.gateOut.z, dt, mul, 0.3);
+  else anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, mul, 0.5, false);
+  return true;
 }
 // livestock in a pen: food and water at the trough and the rack, shelter in the shed when it storms or snows
 function anPenThink(e, dt) {
@@ -592,6 +609,7 @@ function anPenThink(e, dt) {
   const mom = anMother(e);
   // outside the pen (just bought, led in, or pushed out): back in through the gate
   if (!penHas(pen, e.x, e.z, 0.3)) {
+    if (anLeavePen(e, dt, 0.6, pen)) return;
     ai.mode = 'home';
     const l = penLocal(pen, e.x, e.z);
     if (l.z > pen.hd - 0.5 && Math.abs(l.x) < 1.4) { anGoTo(e, pen.gateIn.x, pen.gateIn.z, dt, 0.6, 0.4, false); pen.gateWant = GAME.t + 2; }
@@ -673,6 +691,7 @@ function anPetThink(e, dt) {
       }
       if (t) e.target = t.id;
     }
+    if (!t && e.lastHitBy != null && GAME.t - e.lastHitAt < 3) { const a = getEnt(e.lastHitBy); if (a && a.alive && isEnemy(e, a)) { t = a; e.target = a.id; } }
     if (t) {
       const leash = rec.cmd === 'stay' || rec.cmd === 'guard' ? 22 : 40;
       const home = (rec.cmd === 'stay' || rec.cmd === 'guard') && rec.stay ? rec.stay : P;
@@ -693,6 +712,8 @@ function anPetThink(e, dt) {
   if (d > 70) { const p = ANIMALS.trail[Math.max(0, ANIMALS.trail.length - 6)] || P; anPlace(e, p.x + (Math.random() - 0.5) * 2, p.z + (Math.random() - 0.5) * 2); return true; }
   const slot = anSlot(e, idx);
   const ds = dist(e.x, e.z, slot.x, slot.z);
+  const inPen = ANIMALS.pens.find((p) => penHas(p, e.x, e.z, -0.2));
+  if (inPen && !penHas(inPen, P.x, P.z, -0.5) && anLeavePen(e, dt, 0.8)) return true;
   if (ds > 1.0) {
     const mul = d > 14 ? 1.35 : d > 6 ? 1.05 : 0.6;
     if (e.anim.act === 9 || e.anim.act === 7) { e.anim.act = 0; e.anim.actDur = 0; }
@@ -803,6 +824,7 @@ function anLay(e) {
   const n = 1 + (Math.random() < (e.tame.tr.yield - 0.9) ? 1 : 0);
   const near = LOOT.filter((L) => L.item && L.item.goods === 'egg' && dist2(L.x, L.z, e.x, e.z) < 12 * 12).length;
   if (near >= 8) return;
+  ANIMALS.eggsLaid = (ANIMALS.eggsLaid || 0) + n;
   dropGood('egg', n, e.x + (Math.random() - 0.5) * 0.3, e.z + (Math.random() - 0.5) * 0.3);
 }
 function anHearts(e, n) {
@@ -828,6 +850,7 @@ function updateAnimals(dt) {
     e._anClk = (e._anClk ?? Math.random()) + dt;
     if (e._anClk >= 1) { anClock(e, e._anClk); e._anClk = 0; }
   }
+  if ((ANIMALS.trustT = (ANIMALS.trustT || 0) + dt) > 10) { ANIMALS.trustT = 0; for (const id of [...ANIMALS.trust.keys()]) { const e = getEnt(id); if (!e || !e.alive || !anWildKind(e)) ANIMALS.trust.delete(id); } }
   // pets that were hurt come back after a while
   for (let i = ANIMALS.down.length - 1; i >= 0; i--) {
     const rec = ANIMALS.down[i];
@@ -1184,7 +1207,6 @@ function drawAnimals(dt) {
   for (const pen of ANIMALS.pens) {
     const want = GAME.t < pen.gateWant ? 1 : 0;
     pen.gateOpen = clamp(pen.gateOpen + (want ? dt : -dt) * 1.6, 0, 1);
-    if (pen.gateMesh) pen.gateMesh.rotation.y = pen.yaw - Math.PI / 2 * 0.95 * smooth(pen.gateOpen) * -1 * -1;
     if (pen.gateMesh) pen.gateMesh.rotation.y = pen.yaw + 1.45 * smooth(pen.gateOpen);
     // hay in the rack while there is feed: a few golden tufts
     if (pen.feed > 0.5 && dist2(pen.rack.x, pen.rack.z, camera.position.x, camera.position.z) < 50 * 50 && Math.random() < 0.02) fxAlpha.emit(pen.rack.x + (Math.random() - 0.5) * 0.4, heightAt(pen.rack.x, pen.rack.z) + 0.9, pen.rack.z + (Math.random() - 0.5) * 0.4, 0, -0.2, 0, 1.2, 0.62, 0.52, 0.28, 0.05, 2, 0.5);

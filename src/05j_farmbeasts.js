@@ -169,6 +169,10 @@ function farmBeastVS(depth) {
   let s = beastVS(depth);
   if (!s.includes('P *= iColA.w;')) FARM_VIS.missing.push('P *= iColA.w;');
   s = s.replace('P *= iColA.w;', 'P *= mod(iColA.w, 4.0);');
+  // lying down to rest (act 9): the legs fold under the body and it settles onto them, head low, tail still
+  s = farmPatch(s, 'float frontReach = 0.0, hindPush = 0.0, lungeZ = 0.0, rear = 0.0, tuck = 0.0;', '\n    float rest = (atype > 8.5 && atype < 9.5) ? smoothstep(0.0, 0.18, at) * (1.0 - smoothstep(0.86, 1.0, at)) : 0.0;\n    headX += 0.22 * rest; headY *= 1.0 - 0.6 * rest; tailY *= 1.0 - 0.8 * rest; tailX += 0.15 * rest;', false);
+  s = farmPatch(s, 'if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1);', 'if (rest > 0.0) { if (fr) { sw -= 0.25 * rest; midA += 1.35 * rest; lowA += 1.55 * rest; } else { sw += 0.65 * rest; midA += 1.85 * rest; lowA -= 2.15 * rest; } }\n      ', true);
+  s = farmPatch(s, 'P.y += bob; P.z += lungeZ;', '\n    P.y -= rest * uGait.z * 0.64;', false);
   if (!depth) {
     if (!s.includes('void main(){')) FARM_VIS.missing.push('void main(){');
     s = s.replace('void main(){', 'varying vec2 vPat;\n  void main(){\n    vPat = vec2(mod(floor(iColA.w / 4.0 + 1e-3), 4.0), floor(iColA.w / 16.0 + 1e-3));');
