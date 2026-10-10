@@ -151,7 +151,7 @@ async def checks(page):
           const year = T.H.farm.SEASON.t / T.H.farm.SEASON.yearSec; // [seasons] apples hang on the trees from late summer through autumn: picked then
           const near = (k) => S.FORAGE.list.filter((p) => p.k === k).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
           for (const k of ['bush', 'mush', 'apple', 'heal']) {
-            T.H.farm.setSeason(k === 'apple' ? 0.62 : year); // [seasons]
+            T.H.farm.setSeason(k === 'apple' ? 0.62 : year); if (k === 'apple') T.sim(2); // [seasons] the apples come in over a moment
             const p = near(k), K = S.FORAGE_KINDS[k];
             T.stand(p.x + K.r * p.s + 0.6, p.z, p.x, p.z);
             const before = F.goodsCount(K.good), label = __hmCI();

@@ -1344,7 +1344,7 @@ function farmSaveData() {
   const tw = FARM.plots.filter((P) => P.own === 't').map((P) => { const T = P.stand; return [FARM_PHASES.indexOf(T.phase), FARM_CROP_IDS.indexOf(T.crop), Math.round(T.g * 1000), Math.round(T.hp * 100), FARM_TASKS.indexOf(T.task), Math.round(T.p * 100), Math.round(P.weeds * 100), Math.round(P.fert * 100), T.rot, T.dead ? 1 : 0]; });
   const hb = [];
   for (const H of FARM.herbs) if (H.gone > 0 || H.regrow > 0) hb.push([H.i, Math.round(H.gone), Math.round(H.regrow)]);
-  return { v: 1, t: Math.round(SEASON.t), n: FARM.nextStrain, st, pl, tw, hb, gr: { ...FARM.granary } };
+  return { v: 1, t: Math.round(SEASON.t * 10) / 10, n: FARM.nextStrain, st, pl, tw, hb, gr: { ...FARM.granary } };
 }
 function farmLoadData(d) {
   if (!d || typeof d !== 'object' || d.v !== 1) return;
@@ -1382,7 +1382,7 @@ function farmLoadData(d) {
     const P = strips[i], T = P.stand;
     T.phase = FARM_PHASES[Math.round(farmNum(a[0], 0, 3, 0))] || 'fallow';
     T.crop = FARM_CROP_IDS[Math.round(farmNum(a[1], 0, FARM_CROP_IDS.length - 1, 0))] || 'grain';
-    if (FARM_CROPS[T.crop].herb) T.crop = 'grain';
+    if (FARM_CROPS[T.crop].herb && !farmRotOf(P).includes(T.crop)) T.crop = 'grain'; // [seasons] a garden's herbs stay herbs
     T.g = farmNum(a[2], 0, 1000, 0) / 1000; T.hp = farmNum(a[3], 0, 100, 100) / 100;
     T.task = FARM_TASKS[Math.round(farmNum(a[4], 0, 4, 0))] || null; T.p = farmNum(a[5], 0, 100, 0) / 100; T.worker = null; T.workT = GAME.t;
     P.weeds = farmNum(a[6], 0, 100, 0) / 100; P.fert = farmNum(a[7], 0, 100, 80) / 100; T.rot = Math.round(farmNum(a[8], 0, 99, 0)); T.dead = a[9] === 1;

@@ -565,8 +565,9 @@ function thinkVillager(e, dt) {
   moveToward(e, ai.wander.x, ai.wander.z, dt, 1, 0.6);
 }
 function thinkPosted(e, dt, aggroR) {
-  // garrison troops: hold a post, fight what comes near, never wander off
-  const post = e.ai.post;
+  // garrison troops: hold a post, fight what comes near, never wander off. A soldier whose band is gone (one raised by
+  // a priest after the rest fell, say) holds where it stands.
+  const post = e.ai.post || (e.ai.post = { x: e.x, z: e.z, leash: 14 });
   if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
   if ((e.ai.plug || e.ai.sally) && siegePostedThink(e, dt)) return; // [siege] holding a breach, or out on a sally (04h_siege.js)
   let t = getEnt(e.target);
