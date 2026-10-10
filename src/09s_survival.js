@@ -340,8 +340,12 @@ const FG_FS = /* glsl */`
           alb = vec3(0.24, 0.19, 0.15) * (0.8 + 0.4 * fine);
         } else {
           alb = seasonLeaf(alb, tint, 0.0);
-          float bl = uSeasonB.z * smoothstep(0.5, 0.72, vnoise(vO.xz * 24.0 + vO.y * 17.0 + seed * 3.0));
-          alb = mix(alb, mix(vec3(0.97, 0.93, 0.92), vec3(0.95, 0.66, 0.76), smoothstep(0.4, 0.8, vnoise(vO.xz * 61.0 + vO.y * 47.0))), bl);
+          // clusters of blossom over the crown (sampled on three planes by the facing, like the leaves: no stripes)
+          vec3 qb = vW * 9.0 + seed * 3.0;
+          float bn = tw.x * vnoise(qb.zy) + tw.y * vnoise(qb.xz + 2.3) + tw.z * vnoise(qb.xy + 5.1);
+          float fb = tw.x * vnoise(qb.zy * 4.3) + tw.y * vnoise(qb.xz * 4.3 + 1.7) + tw.z * vnoise(qb.xy * 4.3 + 3.9);
+          float bl = uSeasonB.z * smoothstep(0.42, 0.62, bn * 0.7 + fb * 0.3);
+          alb = mix(alb, mix(vec3(0.95, 0.9, 0.9), vec3(0.94, 0.7, 0.78), smoothstep(0.35, 0.75, fb)) * (0.85 + 0.2 * fine), bl * 0.9);
         }
       }
       if (kind > 4.5 && kind < 5.5) alb += vec3(0.1, 0.12, 0.14) * step(0.7, fine); // rime on rimeleaf

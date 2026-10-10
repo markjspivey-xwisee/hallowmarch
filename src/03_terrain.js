@@ -179,11 +179,11 @@ const terrainMat = mat({
       vec3 mp = meadowPatch(vW.xz);
       gCol = mix(gCol, gCol * vec3(1.32, 1.08, 0.5), mp.x * 0.7);
       gCol = mix(gCol, gCol * vec3(0.74, 0.93, 0.84), mp.y * 0.45);
-      gCol = seasonGrass(gCol, mp.x, mp.y, 0.5, vW.xz); // [seasons] the turf through the year (02d_season.js)
       gCol *= 1.0 - 0.1 * mp.z * smoothstep(20.0, 60.0, d);
       gCol *= 1.0 - 0.12 * A.g * smoothstep(40.0, 110.0, d); // a deep sward reads a little darker from afar
       gCol *= (0.82 + 0.3 * nz) * (0.78 + 0.32 * wrap) * mix(0.58, 1.0, gSh);
       gCol = mix(gCol, mix(uGrassBase, uGrassTip, 0.22) * tint, A.g * (1.0 - smoothstep(25.0, 60.0, d)) * 0.55);
+      gCol = seasonGrass(gCol, mp.x, mp.y, 0.45, vW.xz); // [seasons] the turf through the year (02d_season.js)
       gCol += vec3(0.15, 0.27, 0.07) * tint * gPL * 0.9;
       vec3 col = gCol;
       // [seasons] the town fields' balks and margins: trodden turf and soil through the year, not a flat ochre
@@ -265,9 +265,10 @@ const terrainMat = mat({
         col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * 0.8, 0.0, 1.0));
       }
       // [seasons] hoar frost on the turf on cold nights and mornings
-      float frost = frostAt(vW.xz) * smoothstep(0.5, 0.85, n.y) * (1.0 - 0.6 * canopy) * (1.0 - A.r) * (0.55 + 0.45 * vnoise(vW.xz * 2.3));
+      vec4 szm = seasonMapAt(vW.xz); // one fetch for the frost and the snow
+      float frost = clamp((0.5 - (uSeasonC.w + szm.g * 40.0 - 30.0)) / 4.0, 0.0, 1.0) * smoothstep(0.5, 0.85, n.y) * (1.0 - 0.6 * canopy) * (1.0 - A.r) * (0.55 + 0.45 * vnoise(vW.xz * 2.3));
       col = mix(col, lightSurface(vec3(0.74, 0.78, 0.82), n, 1.0), frost * 0.5);
-      float sCov = uSnowCover * snowHere(vW); // [seasons] the snow that lies here (02d_season.js)
+      float sCov = uSnowCover * clamp(max(uSnowK.x, szm.r) * uSnowK.y, 0.0, 100.0); // [seasons] the snow that lies here (snowHere, 02d_season.js)
       if (sCov > 0.01) {
         float sn = sCov * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + sCov * 0.5 - A.r * 0.45);
         sn *= 1.0 - smoothstep(0.1, 0.5, dot(gPL, vec3(0.33))); // feature/weather: melted round fires and torches
@@ -742,7 +743,7 @@ const GRASS_FRAG = /* glsl */`
     float bd = clamp(dot(-V, uLightDir), 0.0, 1.0);
     float back = spow(bd, 7.0) * mix(1.0, 0.35, smoothstep(3.5, 12.0, camDist));
     vec3 col = alb * (0.3 + (0.5 * ndl + 0.8 * back + 0.14 * bd * bd) * mix(0.32, 1.0, sh)) * ao;
-    col += uGrassTrans * back * t * t * t * 0.55 * clamp(vInfo.z, 0.0, 1.5) * vLook.rgb * sh;
+    col += seasonGrass(uGrassTrans, vPatch.x, vPatch.y, t, vWorld.xz) * back * t * t * t * 0.55 * clamp(vInfo.z, 0.0, 1.5) * vLook.rgb * sh; // [seasons] the light through the blades takes their colour
     // a gust bending a swathe of blades shows their paler sides: waves running over the meadow
     col *= 1.0 + 0.24 * vPatch.w * t * (0.5 + 0.5 * sh);
     vec3 H = safeNormalize(uLightDir + V);

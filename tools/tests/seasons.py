@@ -52,10 +52,11 @@ window.ST = {
 0;
 """
 
+PICK = next((a[6:].split(',') for a in sys.argv if a.startswith('shots=')), None)  # shots=thule_ice,garden_eriu: just those pictures
 async def canvas_shot(page, name, js):
-    if not SHOTS: return
+    if not SHOTS or (PICK and not any(k in name for k in PICK)): return
     await page.evaluate(js)
-    url = await page.evaluate("(() => { __hm.frame(1 / 60); __hm.frame(1 / 60); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
+    url = await page.evaluate("(() => { __hm.frame(1 / 60); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
     pathlib.Path(OUT + name).write_bytes(base64.b64decode(url.split(',', 1)[1]))
     print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
 
@@ -298,10 +299,10 @@ async def shots(page, oak):
     for name, k in [('spring', 0.1), ('summer', 0.44), ('autumn', 0.66), ('winter', 0.88)]:
         await canvas_shot(page, f'seasons_orchard_{name}.png', f"""(() => {{ const H = __hm; ST.season({k}); H.setTod({0.62 if name != 'winter' else 0.5});
           H.teleport({r['O']['x']} + 40, {r['O']['z']} + 40); H.visual.refresh(); H.dbg.WEATHER.snow = 0;
-          ST.cam({json.dumps(r['cam'])}, {json.dumps(r['look'])}); for (let i = 0; i < 3; i++) H.frame(1 / 30); }})()""")
+          ST.cam({json.dumps(r['cam'])}, {json.dumps(r['look'])}); for (let i = 0; i < 2; i++) H.frame(1 / 30); }})()""")
     # winter dawn in the south after a cold night: the meadow white with frost and a little snow
     await canvas_shot(page, 'seasons_orchard_winter_dawn.png', f"""(() => {{ const H = __hm; ST.season(0.88); H.setTod(2.05); H.frame(); H.seasons.step(300); H.setTod(2.85);
-      ST.cam({json.dumps(r['cam'])}, {json.dumps(r['look'])}); for (let i = 0; i < 3; i++) H.frame(1 / 30); }})()""")
+      ST.cam({json.dumps(r['cam'])}, {json.dumps(r['look'])}); for (let i = 0; i < 2; i++) H.frame(1 / 30); }})()""")
     # an Eriu glen in autumn: broadleaves turning, leaves drifting
     await canvas_shot(page, 'seasons_eriu_autumn.png', """(() => { const H = __hm, S = H.seasons, R = H.REALMS[1];
       const t = S.treesNear(R.town.x, R.town.z, 220).filter((q) => q.kind !== 'pine' && q.d > 60);
@@ -309,13 +310,13 @@ async def shots(page, oak):
       for (const q of t.slice(0, 80)) { const n = t.filter((o) => Math.hypot(o.x - q.x, o.z - q.z) < 18).length; if (n > bn) { bn = n; best = q; } }
       ST.season(0.67); H.setTod(0.7); H.teleport(best.x + 30, best.z + 30); H.visual.refresh();
       const cx = best.x - 16, cz = best.z - 12; ST.cam([cx, H.fn.heightAt(cx, cz) + 2.2, cz], [best.x, best.y + 3, best.z]);
-      for (let i = 0; i < 4; i++) H.frame(1 / 30); })()""")
+      for (let i = 0; i < 2; i++) H.frame(1 / 30); })()""")
     # the frozen lake of Thule in winter, the player walking on it
     await canvas_shot(page, 'seasons_thule_ice.png', """(() => { const H = __hm, S = H.seasons, P = H.GAME.player;
       const L = S.lakes().find((q) => q.realm === 2);
       ST.season(0.9); H.setTod(0.45); ST.play(); H.teleport(L.x - 4, L.z - 3); ST.safe(); H.simulate(1.2);
       H.INPUT.keys.add('KeyW'); P.yaw = 0.6; H.simulate(0.6); H.INPUT.keys.delete('KeyW');
-      ST.cam([L.x - 16, P.y + 4.5, L.z - 14], [P.x, P.y + 0.8, P.z]); for (let i = 0; i < 3; i++) H.frame(1 / 30); })()""")
+      ST.cam([L.x - 16, P.y + 4.5, L.z - 14], [P.x, P.y + 0.8, P.z]); for (let i = 0; i < 2; i++) H.frame(1 / 30); })()""")
     # the gardens: Eriu's herbs and greens, Thule's turnips and cabbages, in summer
     for realm, name in [(1, 'eriu'), (2, 'thule')]:
         await canvas_shot(page, f'seasons_garden_{name}.png', f"""(() => {{ const H = __hm, F = H.farm, R = H.REALMS[{realm}];
@@ -326,6 +327,6 @@ async def shots(page, oak):
           F.FARM.drawDirty = true;
           const P = S[0]; H.teleport(P.x + 14, P.z + 14);
           const cx = P.x - P.ax * 9 + P.bx * 6, cz = P.z - P.az * 9 + P.bz * 6;
-          ST.cam([cx, H.fn.heightAt(cx, cz) + 4.5, cz], [P.x, P.y + 0.3, P.z]); for (let i = 0; i < 3; i++) H.frame(1 / 30); }})()""")
+          ST.cam([cx, H.fn.heightAt(cx, cz) + 4.5, cz], [P.x, P.y + 0.3, P.z]); for (let i = 0; i < 2; i++) H.frame(1 / 30); }})()""")
 
 asyncio.run(main())

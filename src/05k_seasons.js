@@ -372,6 +372,12 @@ function seasonsFrame(dt) {
   const flies = C.summer * sstep(0.45, 0.8, night) * (1 - clamp((WEATHER.raining || 0) * 1.5, 0, 1)) * (outdoors ? 1 : 0);
   const drift = C.drift * (outdoors ? 1 : 0);
   U.uSeasonD.value.set(C.apples, drift, flies, 0);
+  // the light of the year: a pale, cool winter sun, a warm summer and a mellow autumn; colours fuller in autumn,
+  // quieter in winter (on top of the time of day, which applyTimeOfDay set this frame)
+  const A = C.A, Lc = U.uLightColor.value, Am = U.uAmbient.value, G = composite.uniforms.uGrade.value;
+  Lc.set(Lc.x * (1 + 0.03 * A[1] + 0.03 * A[2] - 0.07 * A[3]), Lc.y * (1 - 0.01 * A[2] - 0.04 * A[3]), Lc.z * (1 - 0.04 * A[1] - 0.08 * A[2] + 0.03 * A[3]));
+  Am.set(Am.x * (1 - 0.04 * A[3]), Am.y * (1 - 0.01 * A[3]), Am.z * (1 + 0.05 * A[3]));
+  G.x *= 1 + 0.06 * A[2] - 0.12 * A[3];
   // the snow: the weather's own round the camera, and the winter's lying snow (02d_season.js explains the pair)
   const Wsnow = WEATHER.snow || 0, here = seasonSnowLieAt(camera.position.x, camera.position.z);
   const cover = INDOOR.on ? 0 : Math.max(Wsnow, here, SEAS.lieView > 0.03 ? 0.02 : 0);
