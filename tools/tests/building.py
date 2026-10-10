@@ -32,10 +32,13 @@ async def frames(page, n=1):
     for _ in range(n): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
 
 async def shot(page, name, js):
+    # one frame rendered and read straight off the canvas (the page screenshot waits on the compositor, which on a
+    # busy machine under SwiftShader can take longer than any timeout)
     if not SHOTS: return
+    import base64
     await page.evaluate(js)
-    await frames(page, 1)
-    await page.screenshot(path=OUT + name + '.png', timeout=300000)
+    url = await page.evaluate("(() => { __hm.frame(1 / 60); __hm.frame(1 / 60); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
+    pathlib.Path(OUT + name + '.png').write_bytes(base64.b64decode(url.split(',', 1)[1]))
     print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
 
 HELPERS = r"""
@@ -161,7 +164,195 @@ async def hall_tests(page):
         await page.evaluate("T.play(); 0")
 
 async def build_tests(page):
-    pass
+    B = "const B = T.H.build, BU = B.BUILD, P = T.H.GAME.player;"
+    # goods and a hammer; a quiet, flat, open spot in Logres's homeland
+    r = await ev(page, 'site', """(() => { %s
+      for (const [id, n] of [['plank', 400], ['stone', 300], ['thatch', 120], ['nails', 400], ['glass', 20], ['iron', 30], ['tool_hammer', 1], ['log', 4]]) T.F.goodsAdd(id, n, true);
+      const R = T.H.REALMS[0]; let best = null;
+      for (let along = 290; along <= 440 && !best; along += 9) for (const lat of [40, -40, 55, -55, 70, -70, 30, -30, 85, -85]) {
+        const p = { x: R.dx * along + R.px * lat, z: R.dz * along + R.pz * lat };
+        T.H.teleport(p.x, p.z);
+        let ok = true;
+        for (const [a, b] of [[0, 0], [6, 0], [-3, 0], [0, 6], [6, 6], [-3, -3], [9, 3]]) { const sn = B.bValidate(B.bSnap('found', p.x + a, p.z + b, 0, P), P); if (!sn.ok) { ok = false; break; } }
+        if (ok) { best = p; break; }
+      }
+      if (best) { T.H.teleport(best.x - 2, best.z - 1.5); T.calm(); T.H.CAM.yaw = 0; P.yaw = 0; }
+      return { best, zone: best && T.F.zoneAt(best.x, best.z).name }; })()""" % B)
+    check(r['best'] is not None, 'a place to build in the homeland: ' + str(r.get('zone')))
+    if not r['best']: return
+    bx, bz = r['best']['x'], r['best']['z']
+    # refused places
+    r = await ev(page, 'refused', """(() => { %s const R = T.H.REALMS;
+      const why = (x, z) => { T.H.teleport(x + 3, z + 3); const sn = B.bValidate(B.bSnap('found', x, z, 0, P), P); return sn.ok ? 'ok' : sn.why; };
+      const town = R[0].town, road = { x: R[0].dx * 300, z: R[0].dz * 300 }, enemy = { x: R[1].dx * 330 + R[1].px * 50, z: R[1].dz * 330 + R[1].pz * 50 };
+      const lake = T.H.dbg.LAKES.find((L) => T.F.zoneAt(L.x, L.z).realm === 0) || T.H.dbg.LAKES[0];
+      const keep = R[0].keepSites[0];
+      const steep = (() => { for (let k = 0; k < 4000; k++) { const a = k * 2.399, rr = 260 + (k %% 60) * 3.2, x = Math.sin(a) * rr, z = Math.cos(a) * rr; if (T.F.zoneAt(x, z).realm !== 0 || T.F.zoneAt(x, z).kind !== 'home') continue; const g = [T.F.heightAt(x - 1.5, z - 1.5), T.F.heightAt(x + 1.5, z + 1.5), T.F.heightAt(x + 1.5, z - 1.5), T.F.heightAt(x - 1.5, z + 1.5)]; if (Math.max(...g) - Math.min(...g) > 3.2) return { x, z }; } return null; })();
+      const out = { town: why(town.x + 4, town.z + 4), road: why(road.x, road.z), enemy: why(enemy.x, enemy.z), keep: why(keep.x, keep.z), lake: lake ? why(lake.x, lake.z) : 'none', steep: steep ? why(steep.x, steep.z) : 'none' };
+      T.H.teleport(%f, %f); T.calm(); return out; })()""" % (B, bx - 2, bz - 1.5))
+    check('Too near' in r['town'] or 'cannot build' in r['town'], 'no building in a town: ' + r['town'])
+    check('road' in r['road'] or 'Too near' in r['road'], 'no building on the road: ' + r['road'])
+    check('lands' in r['enemy'], "no building on another realm's lands: " + r['enemy'])
+    check('Too near' in r['keep'] or 'cannot build' in r['keep'], 'no building in a keep: ' + r['keep'])
+    check(r['lake'] == 'none' or 'water' in r['lake'] or 'lands' in r['lake'] or 'Too near' in r['lake'], 'no building on water: ' + r['lake'])
+    check(r['steep'] == 'none' or 'steep' in r['steep'] or 'Too near' in r['steep'] or 'way' in r['steep'], 'no building on a steep slope: ' + r['steep'])
+    # the first foundation: set down, it rises in stages as the hammer works it
+    r = await ev(page, 'foundation', """(() => { %s
+      T.calm(); const g0 = T.F.goodsCount('stone'), r = B.buildPlace('found', %f, %f, 0);
+      if (!r.ok) return { ok: false, why: r.why };
+      const pc = r.pc, took = g0 - T.F.goodsCount('stone'), rises = [];
+      for (let k = 0; k < 4; k++) { rises.push([pc.st, +pc.p.toFixed(2), +pc.mat.uniforms.uRise.value.toFixed(2)]); T.H.simulate(1.6); }
+      T.H.simulate(2);
+      const fl = T.F.floorAt(pc.x, pc.z, pc.y + 0.3);
+      return { ok: true, took, rises, st: pc.st, y: +pc.y.toFixed(2), floor: +fl.toFixed(2), ground: +T.F.heightAt(pc.x, pc.z).toFixed(2), frame: [pc.fx, pc.fz, pc.fyaw], id: pc.id }; })()""" % (B, bx, bz))
+    check(r['ok'], 'a foundation is set down: ' + str(r.get('why')))
+    if not r['ok']: return
+    check(r['took'] == 6, 'it takes its goods (6 stone)')
+    ps = [x[1] for x in r['rises']]
+    check(r['rises'][0][0] == 'build' and all(ps[i] < ps[i + 1] for i in range(len(ps) - 1)) and r['rises'][1][2] < r['rises'][3][2], 'it rises in stages as the hammer works it ' + str(r['rises']))
+    check(r['st'] == 'built' and abs(r['floor'] - r['y']) < 0.01 and r['y'] > r['ground'], 'the finished foundation is a floor you stand on, above the ground')
+    # snapping and rotation: a second foundation next to the first lands exactly one cell along, at the same height
+    r = await ev(page, 'snap', """(() => { %s const a = BU.pieces[0], c = Math.cos(a.fyaw), s = Math.sin(a.fyaw);
+      const x = a.x + 3.3 * c + 0.4 * s, z = a.z - 3.3 * s + 0.4 * c;
+      const sn = B.bValidate(B.bSnap('found', x, z, 0, P), P);
+      const d = Math.hypot(sn.x - a.x, sn.z - a.z);
+      const w0 = B.bSnap('wall', a.x + 1.4 * s, a.z + 1.4 * c, 0, P), w1 = B.bSnap('wall', a.x + 1.4 * s, a.z + 1.4 * c, 1, P);
+      const r2 = B.buildPlace('found', x, z, 0); if (r2.ok) { T.H.teleport(r2.pc.x - 1.8, r2.pc.z - 1.8); BU.work = { pc: r2.pc, x: P.x, z: P.z, t: 0 }; } T.H.simulate(7);
+      return { d: +d.toFixed(3), dy: +(sn.y - a.y).toFixed(3), i: sn.i, j: sn.j, yaw: +(sn.yaw - a.fyaw).toFixed(3), ok: r2.ok, st: r2.pc && r2.pc.st,
+        wall: [w0.e, w0.i, w0.j, +(w1.yaw - w0.yaw).toFixed(3), +w0.y.toFixed(2)], ay: +a.y.toFixed(2) }; })()""" % B)
+    check(abs(r['d'] - 3.0) < 0.01 and abs(r['dy']) < 0.01 and r['i'] == 1 and r['j'] == 0, 'a second foundation snaps one cell along, level with the first')
+    check(r['ok'] and r['st'] == 'built', 'and is built')
+    check(r['wall'][0] == 'x' and abs(abs(r['wall'][3]) - 3.1416) < 0.01 and abs(r['wall'][4] - r['ay']) < 0.01, 'a wall snaps to the cell edge, on the floor, and R turns it about')
+    # the cottage: walls, a door and a window, two thatch roofs
+    r = await ev(page, 'cottage', """(() => { %s const a = BU.pieces[0];
+      const at = (u, v) => ({ x: a.fx + u * Math.cos(a.fyaw) + v * Math.sin(a.fyaw), z: a.fz - u * Math.sin(a.fyaw) + v * Math.cos(a.fyaw) });
+      const C = 3, put = (t, u, v, rot = 0) => { const p = at(u, v); const r = B.buildPlace(t, p.x, p.z, rot); if (r.ok) { T.H.simulate(BU.pieces.length ? 10 : 0); } return r.ok ? r.pc.st : r.why; };
+      // stand inside the cottage while it goes up
+      const mid = at(C / 2, 0); T.H.teleport(mid.x, mid.z); T.calm();
+      const res = {};
+      res.back0 = put('wall', 0, -C / 2); res.back1 = put('wall', C, -C / 2);
+      res.left = put('wallStone', -C / 2, 0); res.right = put('wall', C + C / 2, 0);
+      // the front from outside, so the door opens away from the builder
+      const out = at(C / 2, C * 1.6); T.H.teleport(out.x, out.z); T.calm();
+      res.door = put('door', 0, C / 2); res.win = put('window', C, C / 2);
+      T.H.teleport(mid.x, mid.z); T.calm();
+      res.roof0 = put('roofThatch', 0, 0); res.roof1 = put('roofShingle', C, 0);
+      res.floating = (() => { const p = at(C * 4, C * 4); const sn = B.bValidate(B.bSnap('roofThatch', p.x, p.z, 0, P), P); return sn.ok ? 'ok' : sn.why; })();
+      res.n = BU.pieces.length; res.built = BU.pieces.filter((pc) => pc.st === 'built').length;
+      return res; })()""" % B)
+    check(all(r[k] == 'built' for k in ['back0', 'back1', 'left', 'right', 'door', 'win', 'roof0', 'roof1']), 'a cottage goes up: walls, a stone wall, a door, a window, thatch and shingle roofs ' + json.dumps(r))
+    check(r['floating'] != 'ok', 'a roof will not float: it needs walls under it (' + str(r['floating']) + ')')
+    # the door works; you walk in; the roof keeps the rain off
+    r = await ev(page, 'door', """(() => { %s const d = BU.pieces.find((pc) => pc.t === 'door'), f = BU.pieces[0];
+      const c = Math.cos(d.yaw), s = Math.sin(d.yaw), out = { x: d.x + 1.6 * s, z: d.z + 1.6 * c };
+      T.stand(out.x, out.z, d.x, d.z);
+      const l0 = T.label(), c0 = d.leafColl.active; T.interact(); T.H.simulate(1.0);
+      const c1 = d.leafColl.active, open = d.leaves[0].open;
+      const p = T.walk(out.x, out.z, T.yawTo(out.x, out.z, d.x - 1.5 * s, d.z - 1.5 * c), 1.0);
+      const inside = BU.pieces.some((q) => q.t === 'found' && Math.hypot(P.x - q.x, P.z - q.z) < 2.1) && Math.abs(P.y - f.y) < 0.05;
+      // rain: under the roof a body stays dry, outside it soaks
+      const W = T.H.dbg.WEATHER; W.raining = 1; W.overcast = 1;
+      P.wet = 0; P._wxT = 0; T.H.simulate(8);
+      const wetIn = P.wet, skyIn = T.F.skyOver(P), roofIn = T.F.houseRoofOver(P.x, P.z);
+      T.stand(out.x + 3 * s, out.z + 3 * c, d.x, d.z); P.wet = 0; P._wxT = 0; T.H.simulate(8);
+      const wetOut = P.wet, skyOut = T.F.skyOver(P);
+      W.raining = 0; W.overcast = 0;
+      // shut it again from outside
+      T.stand(out.x, out.z, d.x, d.z); const l1 = T.label(); T.interact(); T.H.simulate(1.0);
+      return { l0, c0, c1, open, p, inside, y: +(P.y).toFixed(2), fy: +f.y.toFixed(2), wetIn: +wetIn.toFixed(3), skyIn, roofIn, wetOut: +wetOut.toFixed(3), skyOut, l1, closed: d.leafColl.active }; })()""" % B)
+    check(r['l0'] == 'Open the door' and r['c0'] and not r['c1'] and r['open'] == 1, 'the cottage door opens with E and lets you through')
+    check(r['inside'], 'you walk in through the doorway onto the floor')
+    check(r['skyIn'] == 0 and r['roofIn'] and r['wetIn'] < 0.02, 'under the roof the rain does not reach you')
+    check(r['skyOut'] == 1 and r['wetOut'] > 0.1, 'outside it soaks you')
+    check(r['l1'] == 'Close the door' and r['closed'], 'the door shuts again')
+    # bed, chest, campfire inside and out
+    r = await ev(page, 'furniture', """(() => { %s const f = BU.pieces[0], f2 = BU.pieces[1];
+      T.stand(f2.x, f2.z, f.x, f.z);
+      const rb = B.buildPlace('bed', f2.x + 0.2, f2.z + 0.2, 0); T.H.simulate(6);
+      const fire = B.buildPlace('campfire', f.x + 6 * Math.cos(f.fyaw) + 5 * Math.sin(f.fyaw), f.z - 6 * Math.sin(f.fyaw) + 5 * Math.cos(f.fyaw), 0);
+      return { bed: rb.ok ? rb.pc.st : rb.why, bedY: rb.ok ? +(rb.pc.y - f2.y).toFixed(2) : null, fire: fire.ok ? 'ok' : fire.why }; })()""" % B)
+    check(r['bed'] == 'built' and r['bedY'] == 0, 'a bed is built on the floor inside')
+    r = await ev(page, 'bed', """(() => { %s const bed = BU.pieces.find((pc) => pc.t === 'bed');
+      T.stand(bed.x + 1.2 * Math.cos(bed.yaw), bed.z - 1.2 * Math.sin(bed.yaw), bed.x, bed.z);
+      const l = T.label(); B.buildSleep(bed); const spot = B.buildBedSpot();
+      T.H.teleport(T.H.REALMS[0].town.x + 30, T.H.REALMS[0].town.z); P.hp = 0; P.alive = false;
+      T.F.releasePlayer();
+      return { l, bed: BU.bed === bed.id, spot: !!spot, d: spot ? +Math.hypot(P.x - bed.x, P.z - bed.z).toFixed(2) : null }; })()""" % B)
+    check(r['bed'] and r['spot'], 'sleeping in the bed makes it your return point')
+    check(r['d'] is not None and r['d'] < 2.5, 'when you fall you wake by your bed (%s m)' % r['d'])
+    # fire: a roof set alight burns, spreads, falls; then it is repaired
+    r = await ev(page, 'fire', """(() => { %s P.alive = true; P.hp = P.maxHp; const f = BU.pieces[0];
+      T.stand(f.x + 9 * Math.sin(f.fyaw), f.z + 9 * Math.cos(f.fyaw), f.x, f.z);
+      const roof = BU.pieces.find((pc) => pc.t === 'roofThatch');
+      const lit = B.buildFireAt(roof.x, roof.y + 1, roof.z, 1);
+      const seen = [];
+      for (let k = 0; k < 10; k++) { T.H.simulate(3); seen.push(roof.st + ':' + roof.char.toFixed(2)); }
+      const burnt = BU.pieces.filter((pc) => pc.st === 'ruin').map((pc) => pc.t), burning = BU.pieces.filter((pc) => pc.st === 'burning').map((pc) => pc.t);
+      const stoneOk = BU.pieces.filter((pc) => pc.t === 'wallStone' || pc.t === 'found').every((pc) => pc.st !== 'ruin' || pc.t === 'found');
+      return { lit, seen, burnt, burning, stoneOk, rise: +roof.mat.uniforms.uRise.value.toFixed(2), char: roof.mat.uniforms.uPc.value.y, meshY: +(roof.mesh.position.y - roof.y).toFixed(2) }; })()""" % B)
+    check(r['lit'] >= 1 and 'roofThatch' in r['burnt'], 'a thatch roof set alight burns and falls in ' + str(r['seen'][-3:]))
+    check(r['meshY'] < -1.5 and r['char'] == 1, 'the fallen roof lies charred on the floor below')
+    check(len(r['burnt']) + len(r['burning']) >= 2, 'the fire spreads to what touches it ' + str(r['burnt'] + r['burning']))
+    check(r['stoneOk'], 'stone does not burn down')
+    r = await ev(page, 'repair', """(() => { %s const W = T.H.dbg.WEATHER; W.raining = 0;
+      T.H.simulate(60);
+      const roof = BU.pieces.find((pc) => pc.t === 'roofThatch');
+      // put out what still burns, by letting it burn down; then repair everything burnt
+      const before = BU.pieces.filter((pc) => pc.st === 'ruin').length;
+      const g0 = T.F.goodsCount('thatch');
+      T.stand(roof.x + 0.5, roof.z + 0.5, roof.x, roof.z);
+      const order = BU.pieces.filter((pc) => pc.st === 'ruin' && !T.H.build.BP[pc.t].roof).concat(BU.pieces.filter((pc) => pc.st === 'ruin' && T.H.build.BP[pc.t].roof));
+      for (const pc of order) { B.buildRepair(pc); BU.work = { pc, x: P.x, z: P.z, t: 0, auto: true }; T.H.simulate(12); }
+      const after = BU.pieces.filter((pc) => pc.st === 'ruin').length;
+      return { before, after, roof: roof.st, char: roof.char, paid: g0 - T.F.goodsCount('thatch'), meshY: +(roof.mesh.position.y - roof.y).toFixed(2), coll: BU.pieces.filter((pc) => pc.st === 'built' && ['wall', 'door', 'window'].includes(pc.t)).every((pc) => pc.coll.length > 0) }; })()""" % B)
+    check(r['before'] >= 1 and r['after'] == 0 and r['roof'] == 'built' and r['char'] == 0 and r['meshY'] == 0, 'everything burnt is repaired with the hammer and stands again')
+    check(r['paid'] >= 4 and r['coll'], 'a repair costs half the goods; repaired walls block again')
+    # pulling down: half the goods back, the colliders go
+    r = await ev(page, 'demolish', """(() => { %s const w = BU.pieces.find((pc) => pc.t === 'window');
+      const n0 = BU.pieces.length, g0 = T.F.goodsCount('plank'), coll = w.coll.slice();
+      B.buildDemolish(w);
+      return { n: BU.pieces.length - n0, back: T.F.goodsCount('plank') - g0, had: coll.length, inColl: coll.some((c) => B.COLL.boxes.includes(c)) }; })()""" % B)
+    check(r['n'] == -1 and r['back'] == 3, 'pulling down a window gives back half its planks')
+    check(r['had'] > 0 and not r['inColl'], 'and its wall no longer blocks')
+    # a fence line with a gate (the helper other systems can use for pens)
+    r = await ev(page, 'fence', """(() => { %s const f = BU.pieces[0], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
+      const a = { x: f.x - 6 * c + 9 * s, z: f.z + 6 * s + 9 * c }, b2 = { x: f.x + 6 * c + 9 * s, z: f.z - 6 * s + 9 * c };
+      const L = B.buildFenceLine(a.x, a.z, b2.x, b2.z, { gateAt: 0.5 });
+      const g = L.find((pc) => pc.t === 'gate');
+      T.stand(g.x + 1.5 * Math.sin(g.yaw), g.z + 1.5 * Math.cos(g.yaw), g.x, g.z);
+      const l0 = T.label(); T.interact(); T.H.simulate(1);
+      return { n: L.length, gate: !!g, l0, open: g.leaves[0].open, coll: g.leafColl.active }; })()""" % B)
+    check(r['n'] >= 3 and r['gate'] and r['l0'] == 'Open the gate' and r['open'] == 1 and not r['coll'], 'a fence line with a gate that opens')
+    # save and load: everything comes back as it was; an old save and a broken one load cleanly
+    r = await ev(page, 'save', """(() => { %s
+      const before = BU.pieces.map((pc) => [pc.t, pc.st, +pc.x.toFixed(2), +pc.z.toFixed(2), +pc.y.toFixed(2), pc.open]).sort().join(';');
+      const data = JSON.parse(JSON.stringify(T.F.savePartsData('world'))), bed = BU.bed;
+      const size = JSON.stringify(data.build).length;
+      T.F.savePartsLoad('world', undefined);
+      const empty = BU.pieces.length;
+      T.F.savePartsLoad('world', data);
+      const after = BU.pieces.map((pc) => [pc.t, pc.st, +pc.x.toFixed(2), +pc.z.toFixed(2), +pc.y.toFixed(2), pc.open]).sort().join(';');
+      const solid = BU.pieces.filter((pc) => pc.st === 'built' && pc.t === 'found').every((pc) => pc.floors.length === 1);
+      let broken = 'ok';
+      try { T.F.savePartsLoad('world', { build: { v: 1, p: [['x'], [1, 'wall', 'a'], null, [5, 'roofThatch', 1e9, 0, 0]], bed: 'q' } }); } catch (e) { broken = String(e); }
+      const nb = BU.pieces.length;
+      T.F.savePartsLoad('world', data);
+      return { same: before === after, size, empty, solid, broken, nb, n: BU.pieces.length, bed: BU.bed === bed }; })()""" % B)
+    check(r['same'] and r['solid'] and r['bed'], 'saved and loaded, every piece comes back as it was (%d bytes for %d pieces)' % (r['size'], r['n']))
+    check(r['empty'] == 0 and r['broken'] == 'ok' and r['nb'] == 0, 'an old save (none) and a broken record load cleanly')
+    if SHOTS:
+        await page.evaluate("T.H.setTod(0.42); T.H.dbg.WEATHER.raining = 0; 0")
+        await shot(page, 'build_cottage', """(() => { const f = T.H.build.BUILD.pieces[0], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
+          const mx = f.x + 1.5 * c, mz = f.z - 1.5 * s;
+          T.camW(mx + 7 * s + 4.5 * c, f.y + 3.4, mz + 7 * c - 4.5 * s, mx, f.y + 1.5, mz); T.H.UI.modal = 'menu'; return 0; })()""")
+        await shot(page, 'build_ghost_ok', """(() => { const B = T.H.build, P = T.H.GAME.player, f = B.BUILD.pieces[0], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
+          T.H.UI.modal = null; T.H.teleport(f.x - 4 * c - 4 * s, f.z + 4 * s - 4 * c); P.yaw = f.fyaw + Math.PI; B.buildToggle(true); B.buildPick('found');
+          T.H.CAM.mode = 'fixed'; const g = { x: P.x + Math.sin(P.yaw) * 3.6, z: P.z + Math.cos(P.yaw) * 3.6 };
+          T.H.camera.position.set(P.x + 5 * Math.cos(P.yaw) - 5 * Math.sin(P.yaw), P.y + 5, P.z - 5 * Math.sin(P.yaw) - 5 * Math.cos(P.yaw)); T.H.camera.lookAt(g.x, P.y + 0.5, g.z);
+          T.H.frame(); return 0; })()""")
+        await shot(page, 'build_ghost_bad', """(() => { const B = T.H.build, P = T.H.GAME.player, f = B.BUILD.pieces[0];
+          B.buildPick('wall'); P.yaw = Math.atan2(f.x - P.x, f.z - P.z); T.H.frame(); return 0; })()""")
+        await page.evaluate("T.H.build.buildToggle(false); T.play(); 0")
 
 async def main():
     async with async_playwright() as p:

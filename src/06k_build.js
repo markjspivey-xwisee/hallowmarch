@@ -1023,6 +1023,13 @@ function updateBuild(dt) {
       BUILD.work = nx ? { pc: nx, x: P.x, z: P.z, t: 0, auto: W2.auto } : null;
     }
   }
+  // stand still by an unfinished piece with a hammer in your pack and you take up the work
+  if (P && P.alive && !BUILD.work) {
+    const moved = BUILD.lastP ? dist2(P.x, P.z, BUILD.lastP.x, BUILD.lastP.z) : 1;
+    BUILD.idleT = moved < 0.0025 ? (BUILD.idleT || 0) + dt : 0;
+    if (BUILD.idleT > 0.7 && bHasHammer() && !P.casting) { const pc = bNearestUnfinished(P.x, P.z, 3.6); if (pc && Math.abs(P.y - pc.y) < 3) BUILD.work = { pc, x: P.x, z: P.z, t: 0 }; }
+  }
+  if (P) BUILD.lastP = { x: P.x, z: P.z };
   // fire, ruins cooling, leaves swinging
   for (const pc of BUILD.pieces) {
     if (pc.st === 'burning') bBurnStep(pc, dt);
@@ -1047,6 +1054,8 @@ function drawBuild(dt) {
 function buildOnStart(save) {
   void save;
   if (window.__hm) window.__hm.build = { BUILD, BP, buildPlace, buildDemolish, buildIgnite, buildRepair, buildSetOpen, buildToggle, buildPick, buildRotate, buildConfirm, buildCursor, bSnap, bValidate, buildRoofOver, buildFenceLine, buildBedSpot, buildSleep, buildSaveData, buildLoadData, buildStartWork, bLandWhy, buildPieces, buildFireAt, bSupport, buildHasRoof, buildWorkbenchNear };
+  if (window.__hm) Object.assign(window.__hm.fn, { releasePlayer, collidersNear });
+  if (window.__hm) window.__hm.build.COLL = COLL;
   // the hammer button among the round buttons at the top right
   if (!$('btn-build')) {
     const b = document.createElement('button');
@@ -1078,9 +1087,10 @@ function buildLoadData(d) {
   BUILD.bed = 0;
   if (!d || typeof d !== 'object' || d.v !== 1 || !Array.isArray(d.p)) return;
   const num = (v, lo, hi, def) => (Number.isFinite(+v) ? clamp(+v, lo, hi) : def);
+  const within = (v, lo, hi) => (Number.isFinite(+v) && +v >= lo && +v <= hi ? +v : null);
   for (const a of d.p.slice(0, B_MAX)) {
     if (!Array.isArray(a) || !BP[a[1]]) continue;
-    const x = num(a[2], -HALF, HALF, null), z = num(a[3], -HALF, HALF, null), y = num(a[4], -50, 200, null);
+    const x = within(a[2], -HALF, HALF), z = within(a[3], -HALF, HALF), y = within(a[4], -50, 200);
     if (x === null || z === null || y === null) continue;
     const store = {};
     if (a[19] && typeof a[19] === 'object') for (const id in a[19]) { const n = Math.round(+a[19][id]); if (GOODS[id] && n > 0) store[id] = Math.min(9999, n); }
@@ -1100,3 +1110,44 @@ function buildLoadData(d) {
 // what counts as a change worth writing: the pieces and their states, not the fire's clock
 function buildSaveKey(d) { return d && d.p ? d.p.map((a) => a.slice(0, 2).concat(a.slice(14, 15), a.slice(17, 20))).concat([d.bed]) : null; }
 registerSavePart('world', 'build', { save: buildSaveData, load: buildLoadData, key: buildSaveKey });
+
+/* ------------------------------------------------------------------ */
+/* the Chronicle and the help                                          */
+/* ------------------------------------------------------------------ */
+function chronHalls() {
+  const P = GAME.player;
+  const rows = WAR.keeps.map((K) => `<li><b>${esc(K.site.name)}</b>: ${esc(REALMS[K.realm].name)} holds it${K.realm === P.faction ? ', so its war table answers to you' : ''}.</li>`).join('');
+  return `<p class="lead">Every keep has its great hall at the back of the courtyard, behind the lord who holds it. Logres builds a tall hall of stone under slate, Ériu a great roundhouse under thatch, Thule a longhall of logs under shingles with a long hearth down the middle.</p>
+    <h3>What is inside</h3>
+    <ul class="plain"><li><b>The war table.</b> A map of the March on a hide, with the keeps and the warbands marked. Anyone of the realm that holds the keep can command its warbands from here, whatever their rank: choose a band on the map, then a keep to attack or defend, a temple to raid, or call it to rally to you.</li>
+    <li><b>The armourer's bench.</b> Mends worn and broken gear for gold, and cleans off mud and blood and beats out the dents for nothing.</li>
+    <li><b>The basin.</b> Wash yourself and your gear. You come away damp.</li>
+    <li><b>The hearth.</b> Sit by it to dry off, thaw out and get your strength back, when no enemy is near.</li>
+    <li><b>The stores.</b> The steward sells planks, stone, thatch, nails, glass, iron and hammers to the realm's builders.</li></ul>
+    <p>The hall's door opens with E like any door. A hall can burn like any house: its roof falls in, and the realm rebuilds it in a few minutes.</p>
+    <h3>Who holds the halls</h3><ul class="plain">${rows}</ul>`;
+}
+function chronBuilding() {
+  const n = BUILD.pieces.filter((pc) => pc.st === 'built').length;
+  const key = IS_TOUCH ? 'the hammer button' : 'G (or the hammer button)';
+  return `<p class="lead">You may build on your own realm's lands, at home or in your realm's march: not in or beside towns, keeps, temples, musters, camps or the Barrow, not on roads or in water, and not on slopes too steep to stand a wall on.</p>
+    <h3>How to build</h3>
+    <p>Open the builder with ${key}. Pick a piece from the bar; a ghost of it follows ${IS_TOUCH ? 'the spot ahead of you' : 'your mouse'}, green where it can go and red where it cannot, with the reason. ${IS_TOUCH ? 'Turn it with Turn and set it down with Place.' : 'R turns it, Z and X pick the piece before or after, a click or Enter sets it down.'} Pieces snap to a three-pace grid shared by everything already built nearby, so walls meet and roofs line up.</p>
+    <p>Setting a piece down takes its goods; then it rises as you work it with your <b>hammer</b>. Stand by it and keep still. You can set down several and they go up one after another. Buy goods and a hammer from the stores in your keeps' great halls; a workbench you build saws logs into planks and beats iron into nails.</p>
+    <h3>The pieces</h3>
+    <ul class="plain">${BP_ORDER.filter((t) => BP[t]).map((t) => `<li><b>${esc(BP[t].name)}</b> (${esc(bpCostText(BP[t].cost))}): ${esc(BP[t].desc)}</li>`).join('')}</ul>
+    <h3>Living with it</h3>
+    <ul class="plain"><li>Foundations, floors and stairs are floors you walk on; walls, doors and fences stop you; doors, gates and shutters open with E.</li>
+    <li>A roof keeps the rain and snow off you and what is under it. Roofs and floors rest on walls: take the walls away and they fall.</li>
+    <li>Wood and thatch burn: a fire spell, the dragon or a burning brand sets them alight, the fire spreads from piece to piece, and what burns through falls in a charred heap. Stone does not burn.</li>
+    <li>Repair what is burnt or charred for half its goods, with your hammer. Pull down what you no longer want from the builder (Pull down): half its goods come back.</li>
+    <li>Sleep in a bed you built and you wake there when you fall. A chest keeps goods. A campfire warms and dries you.</li></ul>
+    <p class="now">You have built <b>${n}</b> piece${n === 1 ? '' : 's'}.</p>`;
+}
+function buildHelpHTML() {
+  return IS_TOUCH
+    ? `<div class="keys"><kbd>Hammer button</kbd><span>Build: pick a piece, Turn, Place, Done. Work an unfinished piece by standing by it with a hammer.</span></div>
+      <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`
+    : `<div class="keys"><kbd>G</kbd><span>Build: a ghost follows the mouse. R turns it, Z · X change piece, click or Enter sets it down, Esc or G stops.</span></div>
+      <h3>Keep halls and building</h3><p>Every keep has a great hall: its war table lets anyone of the realm holding the keep command the warbands, the armourer mends and cleans gear, the hearth dries you, and the stores sell building goods. With a hammer and goods you can build on your own realm's lands: foundations, walls, doors, windows, roofs, stairs, fences, a bed that becomes your return point, chests and campfires. See the Chronicle.</p>`;
+}

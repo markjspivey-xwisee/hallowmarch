@@ -94,7 +94,7 @@ function keepHallLayout(H, put, spots) {
     // torches between the windows down both long walls; shields above the benches
     const tz = stone ? [0, -3.2] : [-2.2, 2.2];
     for (const s of [-1, 1]) for (const z of tz) torch(s * (iw - 0.03), z, -s * Math.PI / 2, stone ? 2.6 : 2.2);
-    for (const s of [-1, 1]) for (const z of stone ? [1.15, -1.15] : [-0.6, 0.9]) put('shield', s * iw, z, -s * Math.PI / 2, { y: stone ? 2.75 : 2.4 });
+    for (const s of [-1, 1]) for (const z of stone ? [1.15, -1.15] : [-1.2, 1.2]) put('shield', s * iw, z, -s * Math.PI / 2, { y: stone ? 2.75 : 2.4 });
     H.lamp = { lx: 0, lz: stone ? id * 0.48 : -id * 0.48, y: H.wallH - (stone ? 1.5 : 0.8) };
     L.armourer = [-(iw - 0.42), id - 1.3]; L.basin = [iw - 0.48, -id + 0.55]; L.stores = [-(iw - 0.68), -id + 0.62];
     spots.mid = { x: 0.4, z: id - 1.4 };
