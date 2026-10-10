@@ -1059,7 +1059,7 @@ function updateNeedsHUD() {
 /* ------------------------------------------------------------------ */
 const PROVISIONS = ['bread', 'cheese', 'meat_cooked', 'apple', 'water', 'ale', 'flour', 'grain', 'feather', 'fibre', 'leather', 'iron', 'herb_heal', 'tool_knife', 'tool_rod', 'tool_axe', 'tool_pick', 'tool_hammer', 'tool_pot', 'tool_hoe', 'tool_shears'];
 const goodBuyPrice = (id) => Math.max(1, Math.round((GOODS[id] ? GOODS[id].value : 1) * 2.5));
-const goodSellPrice = (id) => Math.max(1, Math.round((GOODS[id] ? GOODS[id].value : 1) * 0.8));
+const goodSellPrice = (id) => Math.max(1, Math.floor((GOODS[id] ? GOODS[id].value : 1) * (GOODS[id] && GOODS[id].kind === 'tool' ? 0.6 : 0.5)));
 function provisionsShopHTML() {
   const rows = PROVISIONS.filter((id) => GOODS[id]).map((id) => {
     const G = GOODS[id], p = goodBuyPrice(id), have = goodsCount(id);
@@ -1132,12 +1132,17 @@ function buildSurvival() {
   SURV.built = true;
   if (window.__hm) window.__hm.surv = survTestHooks();
 }
-function survivalOnStart() {
+function survivalOnStart(save) {
   survivalFoodUses();
   survivalHUD();
   survivalGame();
   SURV.lx = null; SURV.job = null;
   if (SURV.fish) fishStop(null);
+  if (save && save.fresh) {
+    // a pack for the road: bread, apples and water, and a word on what the bars are for
+    goodsAdd('bread', 2, true); goodsAdd('apple', 2, true); goodsAdd('water', 3, true);
+    later(9, () => uiLog(`Your pack holds bread, apples and water. The two bars under your health are food and water: ${IS_TOUCH ? 'tap them' : 'press V'} to eat or drink when they run low.`, 'sys'));
+  }
 }
 function updateSurvival(dt) {
   if (!SURV.built) return;
@@ -1240,4 +1245,5 @@ const survTestHooks = () => ({
   needsEat, needsDrink, needsState, needsMult, eatGood, quickEatDrink, forageTake, forageStart, forageNearest, drinkAt, wellSpots: () => wellSpots(), shoreNear,
   huntOnKill, fishStart, fishStrike, fishStop, fishSpot, fishRoll, cookAll, fireNear, survCraftOnce, craftStart, craftBlock, craftGear, openCraft, closeCraft, renderCraft,
   stationNear, rockNear, mineStart, mineYield, survivalOffers, survSeason, skillGain, craftOdds, natSplitGoods, chronLiving,
+  ci: () => { const it = currentInteraction(); return it ? it.label : null; }, // what E would do now, without drawing a frame
 });

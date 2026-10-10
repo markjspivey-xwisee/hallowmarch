@@ -48,7 +48,7 @@ async def main():
         await page.evaluate("__hm.start({ realm: 0, cls: 'archer', level: 12 }); __hm.UI.modal = null; 0")
         await page.evaluate(HELPERS)
         # currentInteraction is not exported: read the prompt the HUD shows (updateHUD runs in frame())
-        await page.evaluate("window.__hmCI = () => { __hm.frame(0.016); const pr = document.getElementById('prompt'); return pr.classList.contains('on') ? document.getElementById('prompt-t').textContent : null; };0")
+        await page.evaluate("window.__hmCI = () => __hm.surv.ci();0")
 
         # ---- the world: plants and stations ----
         r = await ev(page, 'world', """(() => { const S = T.S;
@@ -71,7 +71,7 @@ async def main():
           out.rest = run([], 12); out.walk = run(['KeyW'], 12); out.sprint = run(['KeyW', 'ShiftLeft'], 12);
           N.speed = 1;
           // what the needs do: health back while resting, fed against starving
-          const regen = (h, t) => { S.SURV.hunger = h; S.SURV.thirst = t; P.hp = P.maxHp * 0.3; P.combatUntil = -99; const a = P.hp; T.sim(3); return (P.hp - a) / P.maxHp; };
+          const regen = (h, t) => { T.stand(sx, sz); S.SURV.hunger = h; S.SURV.thirst = t; P.hp = P.maxHp * 0.55; P.combatUntil = -99; const a = P.hp; T.sim(3); return (P.hp - a) / P.maxHp; };
           out.fed = regen(0.9, 0.9); out.ok = regen(0.4, 0.4); out.low = regen(0.15, 0.6); out.empty = regen(0.0, 0.0);
           out.mult = [S.needsMult().hp, S.needsState().key, S.needsState().label];
           // never death: empty needs for a long while
@@ -183,7 +183,7 @@ async def main():
 
         # ---- cooking at a fire ----
         r = await ev(page, 'cook', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};
-          const f = T.H.dbg.FIRES.find((q) => q.station === 'forge');
+          const f = T.H.dbg.FIRES.filter((q) => !q.station && !q.ghost && !q.indoor && q.until === Infinity && q.size < 0.7).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
           T.stand(f.x + Math.sin(0.3) * 1.6, f.z + Math.cos(0.3) * 1.6, f.x, f.z);
           let fire = S.fireNear(P); if (!fire) { for (let a = 0; a < 6.3 && !fire; a += 0.4) { T.stand(f.x + Math.sin(a) * 1.7, f.z + Math.cos(a) * 1.7, f.x, f.z); fire = S.fireNear(P); } }
           out.fire = !!fire;
@@ -198,7 +198,7 @@ async def main():
           F.goodsAdd('tool_pot', 1, true); out.stew = S.survCraftOnce(S.RECIPE_BY_ID.stew_hunter, { fire: camp }); out.stews = F.goodsCount('stew');
           out.cook = S.SURV.skill.cook;
           return out; })()""")
-        check(r['fire'] and r['label'] and r['label'].startswith('Cook your raw meat'), f'at the forge fire: "{r["label"]}"')
+        check(r['fire'] and r['label'] and r['label'].startswith('Cook your raw meat'), f'at a brazier: "{r["label"]}"')
         check(r['job'] == 'cook' and r['cooked'] >= 3 and r['raw'] == 0, 'cooking turns every piece of raw meat into roast meat')
         check(r['noPot'] and 'pot' in r['noPot'] and r['stew'] and r['stews'] >= 2, 'a stew needs a pot or a hearth; with a pot it is made')
         check(r['cook'] > 0, 'cooking is a skill that grows')
@@ -215,7 +215,8 @@ async def main():
             F.playerInteract(); const open = H.UI.modal === 'craft' && document.getElementById('craft-list').innerHTML.includes('data-rec="' + rid + '"');
             const rec = S.RECIPE_BY_ID[rid];
             const potions = H.INV.potions, bag = H.INV.bag.length, have = rec.make ? F.goodsCount(rec.make[0]) : 0;
-            document.querySelector('#craft [data-make="' + rid + '"]').click();
+            const row = document.querySelector('#craft [data-rec="' + rid + '"]'); if (row) row.click();
+            const mk = document.querySelector('#craft [data-make="' + rid + '"]'); if (mk) mk.click();
             const started = S.SURV.job && S.SURV.job.kind === 'craft';
             S.closeCraft();
             T.sim(rec.time * n + 1.5);
@@ -252,11 +253,15 @@ async def main():
         r = await ev(page, 'tools', """(() => { const S = T.S, F = T.F, P = T.P(), H = T.H; const out = {};
           const town = H.REALMS[0].town;
           const rocks = F.W.rocks.map((q, i) => [q, i]).filter(([q]) => q.s >= 0.8 && F.isWalkable(q.x + q.s + 0.9, q.z)).sort((a, b) => Math.hypot(a[0].x - town.x, a[0].z - town.z) - Math.hypot(b[0].x - town.x, b[0].z - town.z));
-          const [rk] = rocks[0];
-          T.stand(rk.x + rk.s * 0.8 + 0.7, rk.z, rk.x, rk.z);
-          out.has = F.goodsHave('tool_pick'); out.label = __hmCI();
           const before = ['stone', 'flint', 'iron_ore'].map((id) => F.goodsCount(id));
-          F.playerInteract(); out.tool = (P.look.mask & F.WB.axe) > 0; T.sim(3.5);
+          out.has = F.goodsHave('tool_pick'); out.tool = false;
+          // two rocks, three times each: then they are worked out
+          for (const [rk] of rocks.slice(0, 2)) {
+            T.stand(rk.x + rk.s * 0.8 + 0.7, rk.z, rk.x, rk.z);
+            out.label = out.label || __hmCI();
+            for (let k = 0; k < 3; k++) { F.playerInteract(); T.sim(0.1); out.tool = out.tool || (P.look.mask & F.WB.axe) > 0; T.sim(3.4); }
+            out.worked = (out.worked || []).concat(__hmCI());
+          }
           out.got = ['stone', 'flint', 'iron_ore'].map((id, i) => F.goodsCount(id) - before[i]);
           out.weaponBack = (P.look.mask & F.WB.bow) > 0 && !(P.look.mask & F.WB.axe);
           // the axe: a tree takes fewer blows
@@ -270,7 +275,8 @@ async def main():
           out.blows = [n0, n1];
           return out; })()""")
         check(r['has'] and r['label'] == 'Mine the rock', f'with a pick at a rock: "{r["label"]}"')
-        check(r['tool'] and r['got'][0] >= 2, f'mining with the pick in hand breaks out stone, flint and ore {r["got"]}')
+        check(r['tool'] and r['got'][0] >= 6 and r['got'][1] + r['got'][2] >= 1, f'mining with the pick in hand breaks out stone, flint and ore {r["got"]}')
+        check(all(w != 'Mine the rock' for w in r['worked']), f'a rock is worked out after three goes {r["worked"]}')
         check(r['weaponBack'], "the archer's bow is back in hand after the work")
         check(r['blows'][0] and r['blows'][1] and r['blows'][1] < r['blows'][0], f'a woodsman\'s axe fells a tree in fewer blows {r["blows"]}')
 

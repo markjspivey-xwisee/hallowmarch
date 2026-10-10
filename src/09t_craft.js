@@ -210,6 +210,10 @@ function buildStations() {
     const T = R.town;
     const order = ['forge', 'workbench', 'tanning', 'loom', 'oven', 'alchemy'];
     const done = new Set();
+    // the townsfolk's ways: from each house door to the plaza, and the merchant's stall
+    const ways = (T.houses || []).map((h) => { const d = (h.kind === 'hall' ? 6.5 : Math.max(h.w, h.d) * 0.62) + 0.8; return [{ x: h.x + Math.sin(h.yaw) * d, z: h.z + Math.cos(h.yaw) * d }, { x: T.x, z: T.z }]; });
+    for (const q of T.props || []) if (q.type === 'stall' || q.type === 'well' || q.type === 'trough') ways.push([{ x: q.x, z: q.z }, { x: T.x, z: T.z }]);
+    const onWay = (x, z, r) => ways.some(([A, B]) => segDist2(x, z, A.x, A.z, B.x, B.z) < r * r);
     for (const rr of [15, 17, 19.5, 13.5, 21]) for (let k = 0; k < 36 && done.size < order.length; k++) {
       const a = (k / 36) * TAU + 0.09;
       if (Math.abs(angDiff(a, 0)) < 0.5 || Math.abs(angDiff(a, Math.PI)) < 0.5) continue;
@@ -218,6 +222,7 @@ function buildStations() {
       const p = siteToWorld(T, Math.sin(a) * rr, Math.cos(a) * rr);
       const yaw = T.yaw + a + Math.PI;
       if (CRAFT.stations.some((S) => dist(S.x, S.z, p.x, p.z) < 4.6)) continue;
+      if (onWay(p.x, p.z, Math.hypot(D.hx, D.hz) + 1.3)) continue;
       if (!stationClear(p.x, p.z, D.hx, D.hz, yaw)) continue;
       // room to stand at the front
       const fx = p.x + Math.sin(yaw) * (D.hz + 0.9), fz = p.z + Math.cos(yaw) * (D.hz + 0.9);
@@ -517,6 +522,7 @@ function recipesFor(tab) {
   const mine = RECIPES.filter((r) => recipeFor(r, P));
   if (tab === 'here') return mine.filter((r) => r.st === st);
   if (tab === 'hand') return mine.filter((r) => r.st === 'hand');
+  if (tab === 'fire') return mine.filter((r) => r.st === 'fire');
   return mine;
 }
 const needLine = (rec, k = 1) => rec.need.map(([id, n]) => { const have = goodsCount(id); return `<span class="${have >= n * k ? 'ok' : 'short'}">${n * k} ${esc(goodName(id, n * k).toLowerCase())} <i>${have}</i></span>`; }).join('');
@@ -530,9 +536,10 @@ function renderCraft() {
   $('craft-skill').innerHTML = `${SKILL_NAMES[key]} <b>${Math.floor(sv)}</b> · ${skillRank(sv)}`;
   const tabs = [];
   if (st) tabs.push(['here', STATIONS[st].short]);
+  if (st && st !== 'fire' && fireNear(P, 3.2)) tabs.push(['fire', 'Cooking']); // the forge, the oven and the still have fires
   tabs.push(['hand', 'By hand'], ['all', 'All recipes']);
   $('craft-tabs').innerHTML = tabs.map(([k, l]) => `<button type="button" data-tab="${k}" aria-checked="${U2.tab === k}">${l}</button>`).join('');
-  $('craft-blurb').textContent = U2.tab === 'here' && st ? STATIONS[st].blurb : U2.tab === 'hand' ? STATIONS.hand.blurb : 'Every recipe for your calling, and where it is made. Workstations stand in every town; keeps have a forge and a workbench.';
+  $('craft-blurb').textContent = U2.tab === 'here' && st ? STATIONS[st].blurb : U2.tab === 'fire' ? STATIONS.fire.blurb : U2.tab === 'hand' ? STATIONS.hand.blurb : 'Every recipe for your calling, and where it is made. Workstations stand in every town; keeps have a forge and a workbench.';
   const list = recipesFor(U2.tab);
   if (!U2.sel || !list.some((r) => r.id === U2.sel)) { const can = list.find((r) => !craftBlock(r, craftCtx(r))); U2.sel = (can || list[0] || {}).id || null; }
   let html = '';
