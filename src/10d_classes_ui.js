@@ -22,6 +22,7 @@ function classCue(kind) {
     parry: 'Parried!', finisher: 'Finisher ready: press 1', stance: `${STANCES[csOf(P).stance].name} stance`,
     focus: `Focus: ${ELEM_NAME[csOf(P).focus]}`, hidden: 'Hidden', combo: { steam: 'Steam!', shatter: 'Shatter!', overload: 'Overload!', quench: 'Quenched' }[arg],
     attuned: `Attuned to ${(arg || '').toLowerCase()}`,
+    pursuit: 'Charge ready', // [balance3] arrows brought it back (07c_balance3.js)
   }[k];
   if (!text) return;
   CLS_UI.cue = { text, k, t: GAME.t };

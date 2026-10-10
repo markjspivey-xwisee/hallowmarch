@@ -75,7 +75,17 @@ window.CB = {
     if (this.centre) H.teleport(this.centre.x, this.centre.z);
     return best.slice(0, n);
   },
-  wipe() { for (const e of this.H.ENT.slice()) if (e.balance) { e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); } },
+  wipe() {
+    const gone = new Set();
+    for (const e of this.H.ENT.slice()) if (e.balance) { gone.add(e.id); e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); }
+    // [balance3] and what they left in the arenas: armed snares (90 s), runes (30 s), holy ground, steam, ice and arrows
+    // and bolts still in flight would strike the next fighters there
+    const C = this.H.cls.CLS, t = this.H.GAME.t;
+    for (const L of [C.snares, C.runes, C.grounds, C.steam]) for (const q of L) if (gone.has(q.owner) || gone.has(q.src)) q.until = Math.min(q.until, t - 1);
+    for (const q of C.ice) if (q.until > t) q.until = t - 1;
+    for (let i = C.arrows.length - 1; i >= 0; i--) if (gone.has(C.arrows[i].src)) C.arrows.splice(i, 1);
+    const P = this.B.PROJ; for (let i = P.length - 1; i >= 0; i--) if (gone.has(P[i].src)) P.splice(i, 1);
+  },
   // a fighter: a bot of the calling, a player's measure, fair gear for the level
   unit(realm, cls, lvl, x, z, kind, r = 16) {
     const e = this.F.spawnRealmUnit(realm, cls, lvl, 'bot', x, z);
@@ -240,7 +250,7 @@ async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
     rows = {}
     for lvl in LEVELS:
-        await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; return 0; }})()")
+        await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
         p1, p2 = [], []
         for rep in range(max(REPS, DREPS)):
           for kind in KINDS:
@@ -747,4 +757,5 @@ async def main():
     print('\nFAILED: ' + '; '.join(FAILS) if FAILS else '\nall checks passed', flush=True)
     sys.exit(1 if FAILS else 0)
 
-asyncio.run(main())
+if __name__ == '__main__':  # [balance3] tools/tests/duels.py borrows the arenas
+    asyncio.run(main())

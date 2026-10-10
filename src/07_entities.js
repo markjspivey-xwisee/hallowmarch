@@ -213,7 +213,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
   amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;
-  let dmg = amount * (1 - (opts.pierce ? 0 : dst.drBase)) * (1 - buffMax(dst, 'dr'));
+  let dmg = amount * (1 - (opts.pierce === true ? 0 : dst.drBase * (1 - (+opts.pierce || 0)))) * (1 - buffMax(dst, 'dr')); // [balance3] a number pierces that share of the armour (bodkins: half)
   let absorbed = 0;
   for (const b of dst.buffs) {
     if (b.kind === 'shield' && b.value > 0 && dmg > 0) { const a = Math.min(b.value, dmg); b.value -= a; dmg -= a; absorbed += a; }
@@ -236,6 +236,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     if (!opts.dot && Math.random() < 0.3 && !dst.casting && dst.alive && dst.anim.act === 0) setAct(dst, 4, 0.35);
   }
   onDamageFeedback(src, dst, dmg, absorbed, opts);
+  if (BAL.tap) BAL.tap(src, dst, dmg, absorbed, opts); // [balance3] tests read every blow (07c_balance.js)
   onImpact(src, dst, dmg, opts);
   wearOnHit(src, dst, dmg, opts); // feature/weather: blood, battle damage and gear durability (05h_wear.js)
   brandOnHit(src, dst, opts); // a blow struck with a burning brand can set the foe alight (09d_brand.js)
@@ -249,6 +250,7 @@ function healEnt(src, dst, amount, quiet = false) {
   amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
+  if (BAL.tap && h > 0) BAL.tap(src, dst, -h, 0, null); // [balance3] and every heal
   classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)
   if (h > 0.5) {
     onHealFeedback(src, dst, h, quiet);
@@ -434,6 +436,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.carrying != null) return 'carrying';
   if (isStunned(e)) return 'stunned';
   if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
+  { const cw = classCanUse(e, A); if (cw) return cw; } // [balance3] a body held by frost cannot Charge or Leap out of it (07b_classes.js)
   if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
@@ -627,7 +630,7 @@ function executeAbility(e, A, t, cast = null) {
             if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
             const r = computeDamage(e, o, A.dmg * rk);
             dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost' });
-            addBuff(o, 'snare', A.snare[0], A.snare[1], e.id);
+            addBuff(o, 'snare', A.snare[0], A.snare[1], e.id, { blizzard: true }); // [balance3] no Charge or Leap out of a blizzard (07c_balance3.js)
           });
         });
       }
@@ -868,7 +871,7 @@ function updateProjectiles(dt) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
         const pl = p.payload || {};
         const r = computeDamage(src, t, pl.mult || 1);
-        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: !!pl.pierce || pl.arrow === 'bodkin', arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
+        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }
       }

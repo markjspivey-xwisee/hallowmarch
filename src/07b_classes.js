@@ -191,6 +191,7 @@ function classHarm(src, dst, amount, opts) {
   const t = nowT();
   // a steam-blinded attacker swings at shadows
   if (src && !opts.dot && hasBuff(src, 'blind') && Math.random() < 0.3) { if (src === GAME.player || dst === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Miss', 'miss'); return 0; }
+  if (dazzleMiss(src, dst, opts)) return 0; // [balance3] a foe dazzled by holy light misses one weapon blow in four (07c_balance3.js)
   // the attacker's calling
   if (src && src !== dst && src.cs) {
     const cs = src.cs;
@@ -232,7 +233,7 @@ function classHarm(src, dst, amount, opts) {
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
     if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && src && src !== dst && blockFaces(dst, src)) {
       const melee = opts.kind === 'melee';
-      if (melee && t - cs.blockAt <= parryWindow(dst)) { parry(dst, src); return 0; }
+      if (melee && t - cs.blockAt <= parryWindow(dst) && !dazzled(dst)) { parry(dst, src); return 0; } // [balance3] not while dazzled by holy light
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
       m *= k;
       blockHit(dst, src, amount * m);
@@ -410,6 +411,7 @@ function parry(dst, src) {
   const cs = dst.cs;
   cs.blockAt = -9; // one parry per raise
   CLS.stats.parries++;
+  if (BAL.tap) BAL.tap(src, dst, 0, 0, { parry: true }); // [balance3] tests count parries (07c_balance.js)
   const boss = src.role === 'boss' || src.role === 'dungeonBoss' || src.kind === 'door';
   if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); src.casting = null; addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
   addMom(dst, 2);
@@ -461,7 +463,9 @@ function classOnHit(src, dst, dmg, opts) {
   if (dst.cs && dst.cs.hidden && !opts.dot) breakHiding(dst, 3);
   if (dst.cs && dst.cs.praying && !opts.dot) stopPrayer(dst);
   if (dst.casting && opts.kind === 'melee' && !opts.dot) castPushback(dst); // [balance2] a blow in the middle of a spell sets it back (07c_balance.js)
+  pursuitOnHit(src, dst, dmg, opts); // [balance3] an arrow on a warrior brings Charge sooner (07c_balance3.js)
   if (!src.cls) return;
+  dazzleOnHit(src, dst, dmg, opts); // [balance3] holy light dazzles
   const cs = csOf(src);
   // an archer finds arrows worth keeping on the fallen
   if (src === GAME.player && src.cls === 'archer' && dst.hp <= 0 && (dst.cls === 'archer' || dst.mobType === 'bandit') && clsHas(src, 'arrows') && Math.random() < 0.4) {
@@ -516,6 +520,7 @@ function classOnHeal(src, dst, h) {
 // all shape the cast. Returns the ability itself or a copy with this cast's numbers (and maybe a custom action).
 function classAbility(e, A, t, cast) {
   if (!e.cls || e.testDummy) return A;
+  if (BAL.tap) e._ab = A.id; // [balance3] tests put the harm that follows down to this ability (tools/tests/duels.py)
   const cs = csOf(e);
   if (e.cls === 'warrior') return warriorView(e, cs, A, t);
   if (e.cls === 'archer') return archerView(e, cs, A, t);
@@ -542,7 +547,8 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { dropBuffs(e, ['snare', 'root']); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js)
+  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
+  rushShare(e, A); // [balance3] Charge and Leap Strike are one rush (07c_balance3.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
 }
@@ -643,7 +649,7 @@ function frostNova(e, A, t, cast, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
     const r = computeDamage(e, o, A.dmg * rk * 0.7);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost', chill: 1 });
-    if (o.alive) addBuff(o, 'root', 1, A.root + (eriuGrowth ? 1 : 0), e.id); // [balance] as long as the fire nova's
+    if (o.alive) addBuff(o, 'root', 1, A.root + (eriuGrowth ? 1 : 0), e.id, frostRootExtra(e)); // [balance] as long as the fire nova's [balance3] frost holds: no Leap out of it (nor a Charge, from rank II)
     // Eriu: brambles break through the frost and hold the foe a moment longer
     if (eriuGrowth && o.alive && dist2(o.x, o.z, camera.position.x, camera.position.z) < 60 * 60) for (let q = 0; q < 10; q++) { const a = Math.random() * TAU; fxAlpha.emit(o.x + Math.cos(a) * 0.4, o.y + 0.05, o.z + Math.sin(a) * 0.4, Math.cos(a) * 0.3, 1.2 + Math.random(), Math.sin(a) * 0.3, 0.8, 0.16, 0.3, 0.1, 0.07, 3, 1); }
   });
@@ -813,7 +819,7 @@ function runeBurst(R) {
     if (!o.alive || !isActor(o) || !(o.faction !== R.faction && o.faction !== FACTION_NEUTRAL) || o.flying) return;
     const r = computeDamage(src, o, 1.3 * rankMult(R.level));
     dealDamage(src, o, r.d, { crit: r.crit, kind: R.el === 'fire' ? 'fire' : R.el === 'frost' ? 'frost' : 'shock', chill: R.el === 'frost' ? 1 : 0 });
-    if (o.alive && R.el === 'frost') addBuff(o, 'root', 1, 2, R.src);
+    if (o.alive && R.el === 'frost') addBuff(o, 'root', 1, 2, R.src, frostRootExtra(src)); // [balance3] frost holds
   });
   if (R.el === 'fire') fireLandsAt(R.x, y, R.z, 2.5, src); // [depth] the caster
   if (R.el === 'frost') frostLands(R.x, R.z, 5, src);
@@ -955,7 +961,7 @@ function arrowHits(A, o, src0) {
   const r = computeDamage(src, o, A.mult);
   let d = r.d, crit = r.crit;
   if (!crit && Math.random() < A.crit) { d *= 1.5; crit = true; }
-  const opts = { crit, kind: 'arrow', arrow: A.type, pierce: A.type === 'bodkin', drawn: A.k };
+  const opts = { crit, kind: 'arrow', arrow: A.type, pierce: A.type === 'bodkin' ? BODKIN_PIERCE : false, drawn: A.k }; // [balance3] bodkins pierce half the armour
   if (A.type === 'fire') opts.elem = 'fire';
   dealDamage(src, o, d, opts);
   if (A.k >= 0.98 && src0 && clsHas(src0, 'track')) addBuff(o, 'tracked', 1, 30, A.src);
@@ -966,7 +972,7 @@ function arrowHits(A, o, src0) {
 }
 // the special heads do their own work once an arrow (drawn or from an ability) strikes
 function arrowEffect(src, dst, dmg, type, opts) {
-  if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', WOUND_HEAL, 6, 'wound'); } // [balance2] and the wound mends slowly (healWound)
+  if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', woundOf(src), 6, 'wound'); } // [balance2] and the wound mends slowly (healWound) [balance3] deeper from rank II
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
     breakCast(dst); // [balance2] not a steadfast priest's
@@ -1358,7 +1364,7 @@ function classSpeedMult(e) {
   if (cs) {
     // in fury a warrior shrugs off much of a slow
     if (cs.stance === 2 && e.cls === 'warrior') { const sn = buffMax(e, 'snare'); if (sn > 0 && !hasBuff(e, 'free')) s *= (1 - 0.6 * sn) / (1 - sn); }
-    if (cs.blockOn) s *= 0.55;
+    if (cs.blockOn) s *= cs.stance === 0 && e.cls === 'warrior' ? SHIELD_WALL_PACE : 0.55; // [balance3] guarded, a warrior walks on behind the raised shield (07c_balance3.js)
     if (cs.drawFrom >= 0) s *= 0.55;
     if (cs.praying) s *= 0.2;
   }
