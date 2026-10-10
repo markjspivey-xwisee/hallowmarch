@@ -159,6 +159,7 @@ function sfx(name) {
       case 'renew': [392, 494, 587, 784].forEach((f, i) => tone('sine', f, f, t + i * 0.09, 1.1, 0.04, 0.05)); noiseBurst(t, 1.0, 0.05, 'highpass', 5000, 7000, 0.7, 0.3); break;
       case 'deadeye': tone('triangle', 240, 120, t, 0.2, 0.22); noiseBurst(t, 0.16, 0.18, 'highpass', 2800, 1600, 0.7, 0.002); tone('sine', 1900, 1500, t + 0.02, 0.35, 0.03, 0.002); break;
       case 'ignite': noiseBurst(t, 0.45, 0.12, 'bandpass', 900, 2600, 1, 0.02); break;
+      case 'hiss': noiseBurst(t, 0.85, 0.09, 'highpass', 3200, 5600, 0.7, 0.02); noiseBurst(t, 0.3, 0.05, 'bandpass', 1800, 900, 1.5); break;
       case 'drip': { const f = 1500 + Math.random() * 900; tone('sine', f, f * 0.55, t, 0.07, 0.03, 0.002); tone('sine', f * 0.9, f * 0.5, t + 0.16, 0.08, 0.012, 0.002); } break;
       default: break;
     }

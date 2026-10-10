@@ -22,7 +22,7 @@ const BEASTS = {
     haunch: [0.068, 0.645, -0.37, 0.07, 0.13, 0.12],
     tail: { pts: [[-0.52, 0.715], [-0.6, 0.67], [-0.69, 0.585], [-0.77, 0.47], [-0.82, 0.37], [-0.84, 0.32]], r: [0.04, 0.058, 0.066, 0.06, 0.042, 0.012] },
     fur: { shag: 0.007, ruff: 0.018, saddle: 0.78, belly: 0.62, sock: 0.08, strand: 1.0 },
-    paw: 'paw', eye: [0.82, 0.55, 0.12], stride: [0.62, 1.35], deadLift: 0.06, fangs: true,
+    paw: 'paw', eye: [0.82, 0.55, 0.12], stride: [0.5, 1.35], deadLift: 0.06, fangs: true,
   },
   boar: {
     body: [[-0.49, 0.57, 0.43, 0.06], [-0.44, 0.665, 0.335, 0.145], [-0.32, 0.72, 0.302, 0.18], [-0.14, 0.748, 0.29, 0.19], [0.04, 0.785, 0.29, 0.198], [0.18, 0.815, 0.31, 0.192], [0.3, 0.808, 0.345, 0.17], [0.39, 0.76, 0.39, 0.135], [0.44, 0.7, 0.44, 0.09]],
@@ -40,7 +40,7 @@ const BEASTS = {
     haunch: [0.08, 0.52, -0.33, 0.07, 0.13, 0.115],
     tail: { pts: [[-0.48, 0.55], [-0.52, 0.5], [-0.545, 0.43], [-0.553, 0.37], [-0.555, 0.33]], r: [0.018, 0.015, 0.012, 0.016, 0.006] },
     fur: { shag: 0.006, ruff: 0.0, saddle: 0.45, belly: 0.18, sock: 0.55, strand: 1.4 },
-    paw: 'hoof', tusks: true, crest: true, eye: [0.12, 0.07, 0.04], stride: [0.42, 1.0], deadLift: 0.1,
+    paw: 'hoof', tusks: true, crest: true, eye: [0.12, 0.07, 0.04], stride: [0.36, 1.0], deadLift: 0.1,
   },
   bear: {
     body: [[-0.77, 0.99, 0.75, 0.11], [-0.7, 1.12, 0.63, 0.24], [-0.52, 1.215, 0.58, 0.295], [-0.28, 1.225, 0.585, 0.29], [-0.04, 1.27, 0.575, 0.3], [0.18, 1.355, 0.6, 0.318], [0.36, 1.37, 0.66, 0.29], [0.5, 1.3, 0.735, 0.225], [0.58, 1.2, 0.81, 0.15]],
@@ -58,7 +58,7 @@ const BEASTS = {
     haunch: [0.14, 0.95, -0.5, 0.1, 0.21, 0.18],
     tail: { pts: [[-0.76, 0.9], [-0.81, 0.87], [-0.845, 0.82]], r: [0.05, 0.048, 0.02] },
     fur: { shag: 0.014, ruff: 0.016, saddle: 0.18, belly: 0.12, sock: 0.5, strand: 0.75 },
-    paw: 'bear', eye: [0.08, 0.05, 0.03], stride: [0.85, 1.7], rears: true, deadLift: 0.2, fangs: true,
+    paw: 'bear', eye: [0.08, 0.05, 0.03], stride: [0.68, 1.7], rears: true, deadLift: 0.2, fangs: true,
   },
   deer: {
     body: [[-0.55, 0.99, 0.85, 0.05], [-0.5, 1.04, 0.77, 0.1], [-0.4, 1.06, 0.72, 0.12], [-0.25, 1.04, 0.74, 0.112], [-0.08, 1.04, 0.71, 0.117], [0.08, 1.06, 0.68, 0.126], [0.22, 1.09, 0.69, 0.126], [0.33, 1.1, 0.75, 0.11], [0.4, 1.08, 0.84, 0.085]],
@@ -76,7 +76,7 @@ const BEASTS = {
     haunch: [0.058, 0.93, -0.4, 0.062, 0.12, 0.1],
     tail: { pts: [[-0.54, 0.98], [-0.6, 0.95], [-0.63, 0.89]], r: [0.03, 0.036, 0.014] },
     fur: { shag: 0.0, ruff: 0, saddle: 0.4, belly: 0.8, sock: 0.2, strand: 1.6 },
-    paw: 'hoof', eye: [0.06, 0.04, 0.03], stride: [0.8, 2.0], deadLift: 0.08, grazes: true,
+    paw: 'hoof', eye: [0.06, 0.04, 0.03], stride: [0.72, 2.0], deadLift: 0.08, grazes: true,
   },
 };
 BEASTS.stag = { ...BEASTS.deer, antlers: true };
@@ -96,7 +96,7 @@ BEASTS.horse = {
   haunch: [0.13, 1.3, -0.68, 0.13, 0.3, 0.22],
   tail: { pts: [[-0.95, 1.43], [-1.04, 1.36], [-1.12, 1.15], [-1.16, 0.9], [-1.17, 0.66]], r: [0.06, 0.085, 0.1, 0.085, 0.035] },
   fur: { shag: 0, ruff: 0, saddle: 0.08, belly: 0.08, sock: 0.85, strand: 2.4 },
-  paw: 'horse', eye: [0.05, 0.035, 0.025], stride: [1.15, 2.7], deadLift: 0.3, mane: true, hairTail: true, tack: true, darkCoat: true,
+  paw: 'horse', eye: [0.05, 0.035, 0.025], stride: [0.85, 2.7], deadLift: 0.3, mane: true, hairTail: true, tack: true, darkCoat: true,
 };
 const HORSE_SEAT = 1.62; // saddle height (m) the rider sits on
 
@@ -405,6 +405,7 @@ function beastVS(depth) {
   uniform float uTime;
   uniform vec3 uFT, uFM, uFL, uBT, uBM, uBL, uNeck, uJaw, uTail, uSpine;
   uniform vec4 uBeastK; // x rears up to strike, y hooks with tusks, z lift when lying dead, w unused
+  uniform vec4 uGait;   // half-cycle stride walking and galloping (beastStride), front and hind leg length
   attribute float aBone; attribute float aW; attribute float aMat; attribute vec2 aUV; attribute float aAO;
   attribute vec4 iPos; attribute vec4 iAnim; attribute vec4 iColA; attribute vec4 iColB;
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;'}
@@ -422,7 +423,10 @@ function beastVS(depth) {
     float trot = smoothstep(0.55, 0.95, amt), gal = smoothstep(1.05, 1.4, amt);
     // when each leg swings: walk (lateral sequence), trot (diagonal pairs), gallop (rotary)
     vec4 off = mix(mix(vec4(1.5708, 4.7124, 0.0, 3.1416), vec4(0.0, 3.1416, 3.1416, 0.0), trot), vec4(3.5, 4.1, 0.0, 0.6), gal);
-    float amp = (mix(0.3, 0.4, trot) + 0.32 * gal) * k;
+    // each foot is planted while it is down (it goes back under the body at the ground's pace) and swings through in the
+    // air: the share of the cycle a foot is down falls from a walk to a trot to a gallop
+    float duty = mix(mix(0.64, 0.46, trot), 0.26, gal);
+    float reachB = duty * mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amt));
     float fold = (mix(0.55, 0.8, trot) + 0.4 * gal) * k;
     float spine = 0.1 * sin(ph + 0.9) * gal;
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
@@ -478,8 +482,11 @@ function beastVS(depth) {
       bool fr = leg < 2;
       float o = leg == 0 ? off.x : (leg == 1 ? off.y : (leg == 2 ? off.z : off.w));
       float c = ph + o;
-      float sw = sin(c) * amp + (fr ? frontReach : hindPush);
-      float lift = max(0.0, cos(c)) * fold;
+      float u = fract((c - 1.5708) * 0.159155), fx, lift;
+      if (u < duty) { fx = reachB * (1.0 - 2.0 * u / duty); lift = 0.0; }
+      else { float wv = (u - duty) / (1.0 - duty); fx = reachB * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
+      float sw = asin(clamp(fx / (fr ? uGait.z : uGait.w), -0.95, 0.95)) * k + (fr ? frontReach : hindPush);
+      lift *= fold;
       float midA = fr ? -0.25 * lift : 0.55 * lift;
       float lowA = fr ? 1.05 * lift : -0.95 * lift;
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
@@ -510,6 +517,7 @@ const beastMat = mat({
     uBT: { value: new THREE.Vector3() }, uBM: { value: new THREE.Vector3() }, uBL: { value: new THREE.Vector3() },
     uNeck: { value: new THREE.Vector3() }, uJaw: { value: new THREE.Vector3() }, uTail: { value: new THREE.Vector3() }, uSpine: { value: new THREE.Vector3() },
     uBeastK: { value: new THREE.Vector4() }, uFurK: { value: new THREE.Vector4() }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3() }, uEyeAt: { value: new THREE.Vector3() }, uLegH: { value: 0.5 }, uTailZ: { value: -0.5 },
+    uGait: { value: new THREE.Vector4(1, 2, 1, 1) },
   },
   vertexShader: beastVS(false),
   fragmentShader: /* glsl */`
@@ -608,6 +616,7 @@ function beastUniforms(kind) {
     uBeastK: { value: new THREE.Vector4(S.rears ? 1 : 0, S.tusks ? 1 : 0, S.deadLift, 0) },
     uFurK: { value: new THREE.Vector4(S.fur.saddle, S.fur.belly, S.fur.sock, S.fur.strand) }, uDarkCoat: { value: S.darkCoat ? 1 : 0 },
     uEye: { value: v(S.eye) }, uEyeAt: { value: v(S.eyes.at) }, uLegH: { value: legH }, uTailZ: { value: S.tail.pts[S.tail.pts.length - 1][0] },
+    uGait: { value: new THREE.Vector4(S.stride[0], S.stride[1], S.front.top[1] - S.front.foot[1], S.back.top[1] - S.back.foot[1]) },
   };
 }
 // how far the animal travels per half gait cycle (walk, gallop), used for the phase rate

@@ -221,7 +221,7 @@ function drawActors(fx, fz) {
     if (e.kind === 'humanoid') {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
       _cb[0] = L.armor[0]; _cb[1] = L.armor[1]; _cb[2] = L.armor[2]; _cb[3] = L.flags || 0;
-      _mi[0] = L.skin; _mi[1] = L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair;
+      _mi[0] = L.skin; _mi[1] = e.brand && e.alive ? (L.mask | WB.torch) & ~WB.bow : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair;
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = L.fem ?? 0; _st[3] = L.bulk ?? 0;
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
@@ -343,6 +343,7 @@ function simStep(dt) {
   updateHouses(dt);
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
   updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
+  updateBrand(dt); // a burning brand in hand (09d_brand.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -380,6 +381,7 @@ function tick(dt) {
   // world-space helpers
   drawActors(fx, fz);
   drawDragon(dt);
+  drawBrand(dt);
   drawTargetAndMarks();
   drawRelicsAndPortals();
   drawTownLife(dt);
@@ -453,7 +455,7 @@ function warSummary() {
 window.__hm = {
   ready: false, GAME, WAR, ENT, CAMPS, REALMS, CAM, INPUT, UI, tod, quality, SAVE, errors: HM_ERRORS, camera, MOBS, FACTION_MONSTER, FACTION_NEUTRAL,
   DUN, INDOOR, BARROW, BARROW_STATE,
-  dbg: { grassMeshes, scene, SHADOW, U, renderer, DBG, LAKES, skyU, FIRES, CAMPS, WEATHER, strikeLightning, spawnSlash, slashGeo, slashMesh, DRAGON, setDragonState },
+  dbg: { grassMeshes, scene, SHADOW, U, renderer, DBG, LAKES, skyU, FIRES, CAMPS, WEATHER, strikeLightning, spawnSlash, slashGeo, slashMesh, DRAGON, setDragonState, COVER, addFire, BRAND },
   start(o = {}) {
     const realm = o.realm ?? 0, cls = o.cls ?? 'warrior';
     startGame({ v: 1, name: o.name || randomName(realm), realm, cls, level: o.level || 1, xp: 0, rp: o.rp || 0, fresh: true });
@@ -484,7 +486,7 @@ window.__hm = {
   frame(dt = 1 / 60) { tick(dt); },
   INV, LOOT, QUALITY, ABILITIES, CLASSES, SPELL,
   nature: NATURE_DEBUG, // nature (05h_nature.js)
-  fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
+  fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, humanStep, beastStride, dragonAnimate, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
 };
 
 boot().catch((err) => {

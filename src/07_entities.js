@@ -226,6 +226,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   onDamageFeedback(src, dst, dmg, absorbed, opts);
   onImpact(src, dst, dmg, opts);
   wearOnHit(src, dst, dmg, opts); // feature/weather: blood, battle damage and gear durability (05h_wear.js)
+  brandOnHit(src, dst, opts); // a blow struck with a burning brand can set the foe alight (09d_brand.js)
   if (dst.hp <= 0) killEnt(dst, src);
   return dmg;
 }
@@ -272,12 +273,16 @@ function turnToward(e, x, z, rate) {
   const d = angDiff(e.yaw, want);
   e.yaw += clamp(d, -rate, rate);
 }
+// one step (half a gait cycle) of a person moving at v m/s in their own size: the walk shader's humanStep (05a_rig.js)
+const humanStep = (v) => Math.min(0.40 + 0.20 * v + 0.006 * v * v, 2.2);
 function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
   e.prevX = e.x; e.prevZ = e.z;
-  const want = clamp(sp / 4.3, 0, 1.5);
+  const want = clamp(sp / 4.3, 0, 2.2);
   e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * 10));
-  const stride = (e.kind === 'humanoid' ? 1.75 : beastStride(e.kind, e.anim.amt)) * (e.scale || 1);
+  // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
+  const sc = e.scale || 1;
+  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt) * sc;
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
   if (e.mount) updateMountAnim(e, dt, sp);
   if (e.anim.actDur > 0) {
@@ -831,7 +836,12 @@ function updateProjectiles(dt) {
       if (p.kind === 'deadeye') spellRibbon([p.ox, p.oy, p.oz], [tx, ty, tz], 'tracer', [1.8, 1.6, 1.1], 0.16, 0.45);
       const c = PROJ_COL[p.kind];
       if (c && p.kind !== 'meteor') spellImpact(p.kind, tx, ty, tz);
-      if (p.kind === 'fire' || p.kind === 'firearrow') fireLandsAt(tx, ty, tz, 1);
+      if (p.kind === 'fire' || p.kind === 'firearrow') {
+        fireLandsAt(tx, ty, tz, 1);
+        // aimed at a tree or a patch of grass (09d_brand.js natureFireAim): what was aimed at catches for certain
+        if (p.point && p.point.tree) igniteTree(p.point.tree, 0.9);
+        if (p.point && p.point.grass) igniteGrass(p.point.x, p.point.z, 1.0, 4, 1);
+      }
       else if (c) FX.burst(tx, ty, tz, 4, c, 3, 0.4, 0.16, 2);
       else if (!p.visualOnly && t) FX.sparks(tx, ty, tz);
       continue;

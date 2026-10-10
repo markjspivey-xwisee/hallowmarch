@@ -32,6 +32,62 @@ function uploadWorldTextures() {
   U.uWorldA.value = mk(A);
   U.uWorldB.value = mk(B);
 }
+/* ------------------------------------------------------------------ */
+/* Cover: where something solid stands on the ground, at 1 m           */
+/* ------------------------------------------------------------------ */
+// Nothing grows up through a floor, a wall, a stair, paving or a woodpile. The 2 m grass mask is too coarse to keep
+// blades out of a room or off a stair tread, so every solid footprint in the world (the colliders of walls, houses,
+// furniture, props, tents and stones, the rooms of the houses, and the floors near the ground: stairs, the temple
+// dais, the rune circles) is drawn into a 1 m map the grass and flowers read: a blade whose root is covered is not drawn.
+const COVER = { res: 1024, data: new Uint8Array(1024 * 1024), tex: null, built: false };
+COVER.tex = new THREE.DataTexture(COVER.data, COVER.res, COVER.res, THREE.RedFormat, THREE.UnsignedByteType);
+COVER.tex.minFilter = THREE.LinearFilter; COVER.tex.magFilter = THREE.LinearFilter; COVER.tex.generateMipmaps = false;
+U.uCover = { value: COVER.tex };
+const GLSL_COVER = /* glsl */`
+uniform sampler2D uCover;
+float coverAt(vec2 xz){
+  vec2 uv = (xz + 512.0) / 1024.0;
+  if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return 0.0;
+  return texture(uCover, uv).r;
+}
+`;
+const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']);
+// mark the texels whose centres lie inside a shape (grown by pad); shape(x, z) says whether a point is inside
+function coverMark(cx, cz, rad, inside) {
+  const R = COVER.res, i0 = Math.max(0, Math.floor(cx - rad + 512)), i1 = Math.min(R - 1, Math.ceil(cx + rad + 512));
+  const j0 = Math.max(0, Math.floor(cz - rad + 512)), j1 = Math.min(R - 1, Math.ceil(cz + rad + 512));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (inside(i - 512 + 0.5, j - 512 + 0.5)) COVER.data[j * R + i] = 255;
+}
+function coverBox(x, z, hx, hz, c, s, pad) {
+  const ax = hx + pad, az = hz + pad;
+  coverMark(x, z, Math.hypot(ax, az), (px, pz) => { const dx = px - x, dz = pz - z; return Math.abs(dx * c - dz * s) <= ax && Math.abs(dx * s + dz * c) <= az; });
+}
+function coverCircle(x, z, r) { coverMark(x, z, r, (px, pz) => (px - x) * (px - x) + (pz - z) * (pz - z) <= r * r); }
+function buildCoverMask() {
+  COVER.data.fill(0);
+  const pad = 0.3;
+  for (const c of COLL.boxes) {
+    if (c.x > DUN_X0 || COVER_SKIP.has(c.tag) || (c.vert && c.y0 != null && c.y0 > c.baseY + 0.6)) continue;
+    coverBox(c.x, c.z, c.hx, c.hz, c.cos, c.sin, pad);
+  }
+  for (const c of COLL.circles) {
+    if (c.x > DUN_X0 || COVER_SKIP.has(c.tag) || (c.vert && c.y0 != null && c.y0 > c.baseY + 0.6)) continue;
+    coverCircle(c.x, c.z, c.r + pad);
+  }
+  // the rooms of the houses: the whole floor, not only the walls
+  for (const H of HOUSES) {
+    if (H.round) coverCircle(H.x, H.z, H.r + pad);
+    else coverBox(H.x, H.z, H.w / 2, H.d / 2, H.c, H.s, pad); // houseL's frame: local x = dx c - dz s
+  }
+  // floors that come down to the ground: stair flights, the dais, the rune circles
+  for (const f of FLOOR.list) {
+    if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2) continue;
+    if (f.type === 'disc') coverCircle(f.x, f.z, f.r + pad);
+    else coverBox(f.x, f.z, f.hx, f.hz, f.cos, f.sin, pad);
+  }
+  COVER.tex.needsUpdate = true;
+  COVER.built = true;
+}
 // the grass and flower masks changed after the land went up (castle stairs, the temple dais): send them again
 function refreshGroundCover() {
   const T = U.uWorldA.value;
@@ -512,6 +568,7 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_DECAL}
   ${GLSL_SHADOW_V}
   ${GLSL_NATURE}
+  ${GLSL_COVER}
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   uniform float uTile, uFadeNear, uFadeFar, uInner, uWidthMul, uBladeWidth;
   uniform vec2 uCenter, uCam2;
@@ -531,7 +588,7 @@ const GRASS_VERT = /* glsl */`
     vec4 A = texture(uWorldA, uv);
     vec4 B = texture(uWorldB, uv);
     float keep = fract(aRnd.w * 17.31 + aRnd.x * 3.7);
-    if (aRnd.x > A.g * 1.02 - 0.02 || keep > fade) fade = 0.0;
+    if (aRnd.x > A.g * 1.02 - 0.02 || keep > fade || coverAt(base) > 0.3) fade = 0.0; // nothing grows through floors and walls
     else fade = mix(0.82, 1.0, smoothstep(keep, keep + 0.25, fade));
     float H = mix(0.4, 0.92, aRnd.y) * (1.0 + 0.45 * B.a) * (1.0 - 0.45 * B.b) * fade;
     H *= 0.85 + 0.3 * vnoise(base * 0.3 + 7.0);
@@ -622,6 +679,7 @@ const GRASS_LAYERS = [
 ];
 const grassMeshes = [];
 function buildGrass() {
+  if (!COVER.built) buildCoverMask();
   for (const m of grassMeshes) { scene.remove(m); m.geometry.dispose(); }
   grassMeshes.length = 0;
   const rr = mulberry(4242);
@@ -693,6 +751,7 @@ const flowerMat = mat({
     ${GLSL_BEND}
     ${GLSL_SHADOW_V}
     ${GLSL_NATURE}
+    ${GLSL_COVER}
     uniform vec3 uPalL[6], uPalE[6], uPalT[6];
     uniform float uTile, uPetals;
     uniform vec2 uCenter, uCam2;
@@ -706,7 +765,7 @@ const flowerMat = mat({
       float fade = (1.0 - smoothstep(26.0, 33.0, dcam)) * (1.0 - smoothstep(0.86, 0.99, max(rel.x, rel.y)));
       vec4 A = texture(uWorldA, worldUV(base));
       vec4 B = texture(uWorldB, worldUV(base));
-      if (aRnd.x > A.b) fade = 0.0;
+      if (aRnd.x > A.b || coverAt(base) > 0.3) fade = 0.0;
       { vec4 nat = natureAt(base); if (max(nat.r, max(nat.g, nat.b)) > 0.25 + 0.5 * aRnd.y) fade = 0.0; } // nature: cut or burnt
       if (fade < 0.02) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
       int ci = int(aRnd.y * 5.99);

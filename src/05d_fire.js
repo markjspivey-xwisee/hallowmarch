@@ -64,6 +64,11 @@ function gatherLights(camX, camY, camZ) {
   }
   // under the barrow: the well's cold glow, daylight down the stair, and a little light of the player's own
   const Pl = GAME.player;
+  // a brand in the player's hand (09d_brand.js)
+  if (Pl && Pl.alive && Pl.brand) {
+    const fl = 0.8 + 0.12 * Math.sin(t * 15.3) + 0.08 * Math.sin(t * 8.9), k = (0.55 + 0.9 * night) * fl;
+    add(Pl.brand.x, Pl.brand.y + 0.12, Pl.brand.z, 8 + 2 * night, 2.3 * k, 1.0 * k, 0.3 * k);
+  }
   if (INDOOR.on) {
     for (const L of DUN.lights) {
       const k = L.pulse ? 0.82 + 0.18 * Math.sin(t * 1.3) * Math.sin(t * 0.71 + 1.0) : 1;

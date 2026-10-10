@@ -165,7 +165,7 @@ function playerUseSlot(i) {
     t = getEnt(P.target);
   }
   // with no foe to aim at, a fire spell can be aimed at the house in front of you
-  const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive) ? houseFireAim(P, id) : null;
+  const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
     const msg = { cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];
@@ -203,6 +203,7 @@ function currentInteraction() {
   houseOffers(P, offer); // doors and shutters
   wearOffers(P, offer); // feature/weather: wash muddy, bloody gear at a town well or trough
   natureOffers(P, offer); // nature (05h_nature.js): trees to chop, logs to split, firewood to light
+  brandOffers(P, offer); // fire in hand (09d_brand.js): take a brand, set something alight, put it out
   return best;
 }
 function playerInteract() {

@@ -443,6 +443,16 @@ function natureBlowArea(x, z, r, power, fromX = x, fromZ = z) {
   });
 }
 // can a tree fall along (ux, uz) without its trunk passing through another trunk, a wall or a house?
+// how many solid things a trunk falling along (ux, uz) would pass through
+function natFallHits(t, ux, uz, L) {
+  let n = 0;
+  collidersNear(t.x + ux * L * 0.5, t.z + uz * L * 0.5, L * 0.5 + 3, _natC);
+  for (const c of _natC) {
+    if (!c.active || c === t.coll || c.tag === 'tree') continue;
+    for (let s = 1; s < L * 0.9; s += 0.8) if (collCovers(c, t.x + ux * s, t.z + uz * s, 0.4)) { n++; break; }
+  }
+  return n;
+}
 function natFallClear(t, ux, uz, L) {
   collidersNear(t.x + ux * L * 0.5, t.z + uz * L * 0.5, L * 0.5 + 3, _natC);
   for (const c of _natC) {
@@ -467,9 +477,14 @@ function fellTree(t, dx, dz, power = 60, chopped = false) {
   const D = TREE_DIM[t.kind], s = natS(t), L = D.top * s;
   // fall away from the blow, or into the nearest gap beside that line
   const base = Math.atan2(dx, dz) + (Math.random() - 0.5) * 0.2;
-  let ang = base;
-  for (const off of [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.25, -1.25, 1.6, -1.6]) {
+  let ang = null;
+  for (const off of [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.25, -1.25, 1.6, -1.6, 2.0, -2.0, 2.4, -2.4, 2.8, -2.8, Math.PI]) {
     if (natFallClear(t, Math.sin(base + off), Math.cos(base + off), L)) { ang = base + off; break; }
+  }
+  // hemmed in on every side: the way with the least in it (a tree never falls through a wall if it can help it)
+  if (ang === null) {
+    let best = Infinity;
+    for (let k = 0; k < 24; k++) { const a = base + (k / 24) * TAU, n = natFallHits(t, Math.sin(a), Math.cos(a), L); if (n < best) { best = n; ang = a; } }
   }
   const ux = Math.sin(ang), uz = Math.cos(ang);
   const pivotY = t.y - 0.15 + D.cut * s;
@@ -1098,11 +1113,28 @@ function stepJob(dt) {
         const px = t.x + t.fall.ux * Math.min(len * 0.5 + 0.6, 2.4), pz = t.z + t.fall.uz * Math.min(len * 0.5 + 0.6, 2.4);
         natRemoveLog(t);
         t.leaf = 0;
-        natAddPile(px, pz, Math.atan2(t.fall.uz, -t.fall.ux), t.kind);
+        const sp = natClearSpot(px, pz, t.x, t.z, 0.7);
+        natAddPile(sp.x, sp.z, Math.atan2(t.fall.uz, -t.fall.ux), t.kind);
         natureStopJob('You split the log into firewood.');
       }
     }
   }
+}
+// the nearest free ground to (x, z), looking out round (cx, cz): no collider, no house floor, walkable
+function natClearSpot(x, z, cx, cz, r) {
+  const free = (px, pz) => {
+    if (!isWalkable(px, pz) || houseAt(px, pz, r)) return false;
+    collidersNear(px, pz, r + 2, _natC);
+    for (const c of _natC) if (c.active && c.tag !== 'tree' && collCovers(c, px, pz, r)) return false;
+    return true;
+  };
+  if (free(x, z)) return { x, z };
+  const a0 = Math.atan2(x - cx, z - cz);
+  for (let rad = 1.2; rad <= 6; rad += 0.8) for (let k = 0; k < 12; k++) {
+    const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 6), px = cx + Math.sin(a) * rad, pz = cz + Math.cos(a) * rad;
+    if (free(px, pz)) return { x: px, z: pz };
+  }
+  return { x, z };
 }
 function natAddPile(x, z, yaw, kind) {
   if (NATURE.piles.length >= NAT_CAP.piles) { const old = NATURE.piles.shift(); if (old.coll) old.coll.active = false; }

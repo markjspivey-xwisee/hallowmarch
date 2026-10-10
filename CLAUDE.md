@@ -31,6 +31,16 @@ These apply to every change, not only to the feature that prompted them.
    - Army orders must be visible and steerable.
    - Campaigns must be winnable.
 9. **Phones too.** Every feature works with touch, and at all three quality levels (high, medium, low).
+10. **Nothing clips.** No grass, flower, prop, log or body pokes through a floor, wall, roof, stair or paving, anywhere in the world. People stand on what they stand on (floors, steps, platforms), never sunk into it. Check new content for this in general, not case by case (the 1 m cover map, `natClearSpot`, `natFallHits`).
+11. **Bodies move like living things.** Feet stay planted while on the ground (the gait is foot-locked IK, `HUMAN_GAIT`; beasts plant by stride and leg length), limbs never move in slow motion against the ground speed, and creatures keep moving when they idle or fly (Cinderwing beats, glides with trims, banks, looks about).
+12. **Real water.** Water is physical: you can wade and swim (people and animals), ponds and rivers work (rivers flow and carry you), it splashes and ripples, puts out fire, soaks gear, and can be drunk.
+13. **Deep systems, easy to play, hard to master, balanced, wired into the realms.** The owner has asked for all of these; they are on the roadmap:
+    - class systems with real depth: an elemental magic system that reacts to the world, and systems as deep for warriors, archers and priests, each with realm flavours;
+    - animals: taming, pets, livestock, breeding with inherited traits;
+    - survival: food and water, hunger and thirst (gentle);
+    - farming and herb lore (botany), with plant breeding;
+    - crafting (materials, workstations, recipes) and building (placed structures that burn, weather and are repaired);
+    - fire for everyone: a burning brand from any fire sets roofs, trees and grass alight.
 
 ## Build and run
 
@@ -226,7 +236,18 @@ The harness lives in `tools/`:
 | 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: tune so more campaigns end by claims than by renown; hallow raids rarely succeed |
 | 8 | Visual pass on existing models and shaders | Next |
 | 9 | Realm gifts (passives and a realm ultimate) | Planned |
-| 10 | Music, aurora, siege engines (and the war AI using breaches) | Planned |
+| 10 | Music, aurora, siege engines (and the war AI using breaches) | Built on branches `feature/music`, `feature/siege`; merging |
+| 11 | Persistence of the reactive world, realm gifts | Built on `feature/gifts`; merging |
+| 12 | Animation: foot-locked gaits for people and beasts, Cinderwing's flight | In progress (version 7) |
+| 13 | No clipping: cover map, props and logs clear of walls, temple dais floors | In progress (version 7) |
+| 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | In progress (version 7) |
+| 15 | Water: swimming, wading, rivers with currents, splashes and ripples, drinking | Next |
+| 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Planned |
+| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Planned |
+| 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Planned |
+| 19 | Farming and herb lore, plant breeding | Planned |
+| 20 | Animals: taming, pets, livestock, breeding | Planned |
+| 21 | Building: placed structures | Planned |
 
 ## History
 

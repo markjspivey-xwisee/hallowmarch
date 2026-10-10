@@ -285,30 +285,74 @@ function dragonTargetPose(dt) {
   const flying = st === 'fly' || st === 'approach' || st === 'rejoin' || st === 'strafeOut' || st === 'strafe' || st === 'strafeIn';
   const hover = st === 'descend' || st === 'takeoff' || (st === 'approach' && D.e && dist(e.x, e.z, D.perch.x, D.perch.z) < 30);
   if (flying || hover) {
-    const glideT = st === 'fly' ? (Math.sin(t * 0.11 + 1.3) > 0.25 ? 1 : 0) : 0;
-    D.glide += (glideT - D.glide) * (1 - Math.exp(-dt * 1.2));
-    const gl = hover ? 0 : D.glide;
-    const rate = hover ? 0.95 : 0.55;
-    D.flap += dt * TAU * rate * (1 - 0.85 * gl);
-    const a = Math.sin(D.flap), c = Math.cos(D.flap);
-    const wing = [0.16 + (hover ? 0.75 : 0.62) * a * (1 - gl) + 0.06 * gl, (hover ? -0.35 : -0.12) * c * (1 - gl), 0.15 * c * (1 - gl), 0.42 * Math.sin(D.flap - 0.7) * (1 - gl) + 0.04 * gl, 0.08 + 0.22 * Math.max(0, -c) * (1 - gl), 0];
-    P.wl = wing; P.wr = wing.slice();
-    P.bodyY = -0.3 * a * (1 - gl);
-    if (hover) {
-      P.bodyPitch = -0.5; P.fl = [-0.35, 0.25, 0.2]; P.fr = [-0.35, 0.25, 0.2]; P.bl = [-0.15, 0.35, -0.15]; P.br = [-0.15, 0.35, -0.15];
-      P.neck = [-0.05, 0.15, 0.2]; P.head = 0.12; P.tail = [0.22, 0.12, 0.08, 0.05];
-    } else {
-      P.bodyPitch = st === 'strafe' ? 0.12 : 0.04;
-      P.bodyRoll = st === 'fly' ? -D.circ.dir * 0.32 : 0;
-      P.fl = [0.95, -1.55, 0.6]; P.fr = [0.95, -1.55, 0.6]; P.bl = [1.15, 0.45, 0.4]; P.br = [1.15, 0.45, 0.4];
-      P.neck = [0.3, 0.2, 0.14]; P.head = st === 'strafe' ? 0.35 : -0.36;
-      P.tail = [-0.1, -0.05, 0.0, 0.05];
-      P.neckYaw = [0, 0, 0].map(() => (st === 'fly' ? D.circ.dir * 0.06 : 0));
+    // the flight it is really making: how fast it turns and climbs (bank and pitch follow them)
+    const F = D.fl || (D.fl = { yaw: e.yaw, y: e.y, x: e.x, z: e.z, turn: 0, climb: 0, speed: 15, mode: 'flap', left: 4, cyc: 0, trim: Math.random() * 10 });
+    if (dt > 0) {
+      const turn = angDiff(F.yaw, e.yaw) / dt, climb = (e.y - F.y) / dt, speed = Math.hypot(e.x - F.x, e.z - F.z) / dt;
+      const k = 1 - Math.exp(-dt * 2.5);
+      if (isFinite(turn) && Math.abs(turn) < 6) F.turn += (turn - F.turn) * k;
+      if (isFinite(climb) && Math.abs(climb) < 60) F.climb += (climb - F.climb) * k;
+      if (isFinite(speed) && speed < 80) F.speed += (speed - F.speed) * k;
     }
-    for (let k = 0; k < 4; k++) P.tailYaw[k] = 0.09 * Math.sin(t * 1.5 - k * 0.9);
-    P.jaw = D.breathing ? 0.7 : 0.04;
-    // a downstroke whoosh when close
-    if (Math.sin(D.flap - 0.4) > 0.9 && D.wingSnd < t && dist2(e.x, e.z, camera.position.x, camera.position.z) < 90 * 90) { D.wingSnd = t + 0.6; sfx('wingbeat'); }
+    F.yaw = e.yaw; F.y = e.y; F.x = e.x; F.z = e.z;
+    // bouts of wingbeats and glides: it beats while it climbs, hovers or swings round to a run, and glides on the circuit
+    // or in the stoop of a strafing run, setting off on a new bout of beats now and then
+    const stoop = st === 'strafe' || st === 'strafeIn';
+    const mustBeat = hover || F.climb > 1.2 || st === 'strafeOut' || st === 'rejoin';
+    const rate = hover ? 1.15 : mustBeat ? 0.95 : 0.8;     // wingbeats a second
+    const prevCyc = F.cyc;
+    if (F.mode === 'flap' || mustBeat) {
+      F.cyc += dt * rate;
+      if (Math.floor(F.cyc) > Math.floor(prevCyc)) { F.left--; if (F.left <= 0 && !mustBeat) { F.mode = 'glide'; F.left = (stoop ? 4 : 3) + Math.random() * (stoop ? 6 : 5); F.cyc = Math.floor(F.cyc); } }
+    } else {
+      F.left -= dt;
+      if (F.left <= 0) { F.mode = 'flap'; F.left = 3 + Math.floor(Math.random() * 5); }
+    }
+    if (mustBeat && F.mode === 'glide') { F.mode = 'flap'; F.left = 3; }
+    D.glide += ((F.mode === 'glide' ? 1 : 0) - D.glide) * (1 - Math.exp(-dt * 2.2));
+    const gl = hover ? 0 : D.glide, fl = 1 - gl;
+    // one wingbeat: a quick, hard downstroke with the wing spread wide and its leading edge down, then a slower upstroke
+    // with the hand swept back and the fingers half folded to slip through the air
+    const c = F.cyc - Math.floor(F.cyc), DOWN = 0.42;
+    const dn = c < DOWN ? c / DOWN : 0, up = c < DOWN ? 0 : (c - DOWN) / (1 - DOWN);
+    const ez = (x) => x * x * (3 - 2 * x);
+    const top = hover ? 1.15 : 1.0, bot = hover ? -0.85 : -0.68;
+    const elev = c < DOWN ? lerp(top, bot, ez(dn)) : lerp(bot, top, ez(up));
+    const sd = Math.sin(Math.PI * dn), su = Math.sin(Math.PI * up);
+    F.clock = (F.clock || 0) + dt; // its own clock, so the trims run whenever the pose is stepped
+    const tr = F.clock + F.trim;
+    // gliding: wings held out in a shallow V, trimmed all the time, the tips flexing in the air
+    const bankW = clamp(-F.turn * 1.6, -0.5, 0.5);
+    const glideW = (side) => [0.3 + 0.05 * Math.sin(tr * 0.9 + side) + 0.12 * bankW * side, 0.04 * Math.sin(tr * 0.5 + side * 2), 0.06 * Math.sin(tr * 0.7 + side) - 0.04, -0.14 + 0.05 * Math.sin(tr * 5.3 + side * 1.7) + 0.03 * Math.sin(tr * 8.1), 0.06 + 0.04 * Math.sin(tr * 0.6), stoop ? 0.42 : 0.05];
+    const beatW = [elev, -0.2 * sd + 0.24 * su, 0.2 * sd - 0.12 * su, -0.62 * Math.sin(TAU * (c - 0.14)), 0.05 + 0.5 * su, 0.52 * su];
+    const mixW = (side) => { const g = glideW(side); return beatW.map((v, i) => v * fl + g[i] * gl); };
+    P.wl = mixW(1); P.wr = mixW(-1);
+    // the body lifts on each downstroke and settles on the upstroke; the neck gives against it so the head rides level
+    const lift = (0.42 * sd - 0.28 * su) * fl;
+    P.bodyY = lift + 0.12 * Math.sin(tr * 0.8) * gl;
+    P.chest = 0.05 * sd * fl - 0.03 * su * fl;
+    const climbPitch = clamp(-F.climb / Math.max(8, F.speed) * 0.9, -0.4, 0.4);
+    if (hover) {
+      P.bodyPitch = -0.5 + 0.06 * sd; P.fl = [-0.35, 0.25, 0.2]; P.fr = [-0.35, 0.25, 0.2]; P.bl = [-0.15 + 0.08 * su, 0.35, -0.15]; P.br = [-0.15 + 0.08 * su, 0.35, -0.15];
+      P.neck = [-0.05 - 0.08 * sd, 0.15, 0.2]; P.head = 0.12 + 0.1 * sd; P.tail = [0.22 + 0.06 * Math.sin(TAU * c), 0.12, 0.08, 0.05];
+    } else {
+      P.bodyPitch = (stoop ? 0.16 : 0.04) + climbPitch + 0.03 * sd * fl;
+      P.bodyRoll = clamp(-F.turn * F.speed / 9.8 * 1.25, -0.75, 0.75);
+      // legs tucked up under the belly, trailing a little behind each beat
+      P.fl = [0.95 + 0.06 * su * fl, -1.55, 0.6]; P.fr = [0.95 + 0.06 * su * fl, -1.55, 0.6];
+      P.bl = [1.15 + 0.05 * sd * fl, 0.45, 0.4]; P.br = [1.15 + 0.05 * sd * fl, 0.45, 0.4];
+      // it looks about as it flies, down at the land and toward the way it is turning
+      const look = 0.32 * Math.sin(tr * 0.23) * Math.sin(tr * 0.11 + 1) + clamp(F.turn * 1.2, -0.3, 0.3);
+      P.neck = [0.3 - 0.07 * sd * fl, 0.2 - 0.04 * sd * fl, 0.14 + 0.05 * gl]; P.head = (st === 'strafe' ? 0.35 : -0.36) + 0.12 * sd * fl + 0.1 * gl;
+      P.neckYaw = [look * 0.25, look * 0.3, look * 0.25]; P.headYaw = look * 0.35;
+      P.tail = [-0.1 + 0.07 * Math.sin(TAU * c - 0.9) * fl, -0.05 + 0.06 * Math.sin(TAU * c - 1.7) * fl, 0.04 * Math.sin(TAU * c - 2.5) * fl, 0.05];
+    }
+    // the tail is a rudder: it sways, and swings toward the turn
+    for (let k = 0; k < 4; k++) P.tailYaw[k] = 0.11 * Math.sin(tr * 1.3 - k * 0.8) + clamp(F.turn * (0.6 + 0.2 * k), -0.35, 0.35);
+    P.jaw = D.breathing ? 0.7 : 0.04 + 0.03 * Math.max(0, Math.sin(tr * 0.4));
+    // the whoosh of a downstroke when it is close
+    if (fl > 0.5 && prevCyc - Math.floor(prevCyc) < 0.08 && c >= 0.08 && D.wingSnd < t && dist2(e.x, e.z, camera.position.x, camera.position.z) < 90 * 90) { D.wingSnd = t + 0.5; sfx('wingbeat'); }
+    D.wingEase = 18;
     return P;
   }
   if (st === 'dead') {
@@ -334,10 +378,13 @@ function dragonTargetPose(dt) {
     const look = 0.5 * Math.sin(t * 0.21) * Math.sin(t * 0.13 + 1);
     P.neckYaw = [look * 0.25, look * 0.3, look * 0.3]; P.headYaw = look * 0.2;
   }
-  // stepping when it walks or turns
+  // stepping when it walks or turns: half a stride cycle per 1.5 m covered, so the feet keep pace with the ground
+  const G = D.gw || (D.gw = { x: e.x, z: e.z });
+  const moved = Math.hypot(e.x - G.x, e.z - G.z);
+  G.x = e.x; G.z = e.z;
   if (D.walking > 0.01) {
-    D.walkPh += dt * 3.2;
-    const sw = (o) => Math.sin(D.walkPh + o) * 0.32, lift = (o) => Math.max(0, Math.cos(D.walkPh + o)) * 0.55;
+    D.walkPh += (moved < 2 ? moved * Math.PI / 1.5 : 0) + (moved < 1e-3 ? dt * 2.2 : 0);
+    const sw = (o) => Math.sin(D.walkPh + o) * 0.42, lift = (o) => Math.max(0, Math.cos(D.walkPh + o)) * 0.55;
     P.fl = [-sw(1.57), lift(1.57), 0]; P.fr = [-sw(4.71), lift(4.71), 0]; P.bl = [-sw(0), -lift(0) * 0.6, 0]; P.br = [-sw(3.14), -lift(3.14) * 0.6, 0];
     P.bodyY = 0.05 * Math.abs(Math.sin(D.walkPh));
   }
@@ -374,6 +421,17 @@ function easePose(P, T, k) {
     else P[key] += (v - P[key]) * k;
   }
 }
+// ease toward the pose the state asks for (faster during sharp moves); in flight the wings follow the beat closely
+// (the beat itself is smooth) while the body still eases
+function dragonAnimate(dt) {
+  const D = DRAGON;
+  D.wingEase = 0;
+  const T = dragonTargetPose(dt);
+  const kw = D.wingEase ? 1 - Math.exp(-dt * D.wingEase) : 0;
+  const wl = D.pose.wl.slice(), wr = D.pose.wr.slice();
+  easePose(D.pose, T, 1 - Math.exp(-dt * (D.act ? 10 : 4.5)));
+  if (kw) for (let i = 0; i < 6; i++) { D.pose.wl[i] = wl[i] + (T.wl[i] - wl[i]) * kw; D.pose.wr[i] = wr[i] + (T.wr[i] - wr[i]) * kw; }
+}
 function drawDragon(dt) {
   const D = DRAGON, e = D.e;
   if (!D.mesh) return;
@@ -389,9 +447,7 @@ function drawDragon(dt) {
     if (e.fixedY <= g + 0.01) { e.fixedY = null; e.y = g; FX.dust(e.x, g, e.z, 40, [0.45, 0.4, 0.32]); cameraShake(0.6, e.x, e.z); sfx('crash'); }
   }
   if (D.state === 'dead') D.stateT += dt;
-  // ease toward the pose the state asks for (faster during sharp moves)
-  const T = dragonTargetPose(dt);
-  easePose(D.pose, T, 1 - Math.exp(-dt * (D.act ? 10 : 4.5)));
+  dragonAnimate(dt);
   if (!vis) { D.mesh.visible = false; return; }
   D.mesh.visible = true;
   _dRoot.makeTranslation(e.x, e.y + D.pose.bodyY, e.z);

@@ -14,6 +14,7 @@ const WB = {
   sword: 1 << 0, mace: 1 << 1, staff: 1 << 2, axe: 1 << 3, cape: 1 << 4, shield: 1 << 5, bow: 1 << 6, quiver: 1 << 7,
   helmet: 1 << 8, hood: 1 << 9, pauldron: 1 << 10, robe: 1 << 11, tabard: 1 << 12, hairShort: 1 << 13, hairLong: 1 << 14,
   beard: 1 << 15, shieldRound: 1 << 16, skirt: 1 << 17, belt: 1 << 18, circlet: 1 << 19,
+  torch: 1 << 20, // a burning brand held in the left hand (09d_brand.js)
 };
 const WBIT = {};
 for (const k in WB) WBIT[k] = Math.round(Math.log2(WB[k]));
@@ -591,6 +592,14 @@ function buildHumanoid(lod) {
     L(disc, M4([0.08, 0.13, 0.02], [0, 0, Math.PI / 2]), { matFn: (p, n) => (n[0] > 0.6 ? mat.shieldFace : n[0] < -0.6 ? mat.wood : mat.steel), bit: WBIT.shieldRound });
     L(new THREE.SphereGeometry(0.068, hi ? 14 : 7, hi ? 8 : 4, 0, TAU, 0, Math.PI / 2), M4([0.092, 0.13, 0.02], [0, 0, -Math.PI / 2]), { mat: mat.steel, bit: WBIT.shieldRound });
     L(new THREE.TorusGeometry(0.3, 0.012, hi ? 6 : 3, hi ? 40 : 14), M4([0.082, 0.13, 0.02], [0, Math.PI / 2, 0]), { mat: mat.steel, bit: WBIT.shieldRound });
+    // a burning brand in the left fist (09d_brand.js puts the flame on its head): an ash haft, rag wrapping, a charred crown
+    {
+      const Tb = (geo, mm, o) => kitGeo(K, geo, inHand(gripL, 1.82, mm), { bone: B.farmL, w: 1, bit: WBIT.torch, ...o });
+      Tb(new THREE.CylinderGeometry(0.016, 0.019, 0.56, hi ? 8 : 5), M4([0, 0.15, 0]), { mat: mat.wood });
+      Tb(new THREE.CylinderGeometry(0.036, 0.03, 0.13, hi ? 9 : 5), M4([0, 0.405, 0]), { mat: mat.leather });
+      for (const y of [0.36, 0.42]) Tb(new THREE.TorusGeometry(0.034, 0.007, 4, hi ? 10 : 6), M4([0, y, 0], [Math.PI / 2, 0, 0]), { mat: mat.leather });
+      Tb(new THREE.SphereGeometry(0.036, hi ? 8 : 5, hi ? 5 : 3, 0, TAU, 0, Math.PI / 2), M4([0, 0.468, 0]), { mat: mat.leather });
+    }
     // bow: a recurved stave with a wrapped grip, and its string
     const arc = [];
     for (let i = 0; i <= (hi ? 16 : 6); i++) {
@@ -620,10 +629,41 @@ const HSK = { // skeleton constants for GLSL
   ELL: glv(SK.elbow), ELR: glv([-SK.elbow[0], SK.elbow[1], SK.elbow[2]]), HIL: glv(SK.hip), HIR: glv([-SK.hip[0], SK.hip[1], SK.hip[2]]),
   KNL: glv(SK.knee), KNR: glv([-SK.knee[0], SK.knee[1], SK.knee[2]]), CAPE: glv(SK.capeTop),
 };
+// The walking and running gait. Each foot is planted while it is on the ground: it moves back under the body exactly
+// as fast as the body goes forward, then swings through in the air, and the hip and knee angles come from two-bone
+// IK on that path, so nobody glides over the ground. Step length grows with speed (07_entities.js humanStep must
+// agree: the walk cycle's phase advances by half a turn per step), and so does the time each foot spends in the air.
+const HUMAN_GAIT = /* glsl */`
+  // one step (half a gait cycle) of a person moving at v m/s, in their own size
+  float humanStep(float v){ return min(0.40 + 0.20 * v + 0.006 * v * v, 2.2); }
+  // a foot at u of its cycle (0: it comes down ahead of the hip): how far ahead of the hip it is, and how high it is
+  vec2 footPath(float u, float duty, float reach, float liftH, float runK){
+    if (u < duty) return vec2(reach * (1.0 - 2.0 * u / duty), 0.0);
+    float w = (u - duty) / (1.0 - duty);
+    float e = w * w * (3.0 - 2.0 * w);
+    float wl = pow(w, mix(1.0, 0.62, runK)); // a runner's heel kicks up early in the swing
+    return vec2(reach * (2.0 * e - 1.0), liftH * pow(sin(3.14159 * wl), 0.85));
+  }
+  // the ankle at fz ahead of and fy above the hip -> rotations of the thigh and the knee about x from the rest pose
+  // (+ swings the thigh back, + folds the knee back); out of reach, the foot rises (the heel lifts) instead of sliding
+  vec2 legIK(float fz, float fy){
+    const float l1 = 0.4205, l2 = 0.4265, rest1 = -0.038, rest2 = 0.118;
+    float dm = (l1 + l2) * 0.998;
+    fz = clamp(fz, -dm * 0.97, dm * 0.97);
+    float d2 = fz * fz + fy * fy;
+    if (d2 > dm * dm) { fy = -sqrt(dm * dm - fz * fz); d2 = dm * dm; }
+    float d = sqrt(d2);
+    float a0 = atan(-fz, -fy);
+    float ca = clamp((l1 * l1 + d2 - l2 * l2) / (2.0 * l1 * d), -1.0, 1.0);
+    float cb = clamp((d2 - l1 * l1 - l2 * l2) / (2.0 * l1 * l2), -1.0, 1.0);
+    return vec2(a0 - acos(ca) - rest1, acos(cb) - rest2);
+  }
+`;
 function humanVS(depth) {
   return /* glsl */`
   ${GLSL_COMMON}
   ${ACTOR_COMMON}
+  ${HUMAN_GAIT}
   uniform float uTime;
   attribute float aBone; attribute float aW; attribute float aMat; attribute float aBit; attribute vec2 aUV; attribute float aAO;
   attribute vec4 iPos;   // x y z yaw
@@ -669,17 +709,24 @@ function humanVS(depth) {
     ${depth ? '' : 'vO = P;'}
 
     /* ------------------- animation ------------------- */
-    float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 1.5), death = clamp(iAnim.w, 0.0, 1.0);
+    float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 2.2), death = clamp(iAnim.w, 0.0, 1.0);
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
     float k = min(amt, 1.0), run = clamp((amt - 1.0) * 2.0, 0.0, 1.0), idle = 1.0 - k;
     float hunched = mod(floor(iColB.w / 4.0), 2.0);
     float t = uTime + iPos.x * 0.37 + iPos.z * 0.21;
     float s1 = sin(ph), c1 = cos(ph);
-    // legs: swing, and knees that fold as each leg passes through
-    float stride = (0.48 + 0.24 * run) * k;
-    float thL = -s1 * stride, thR = s1 * stride;
-    float shL = 0.05 + ((0.62 + 0.6 * run) * pow(max(0.0, c1), 1.6) + 0.14 * max(0.0, -s1)) * k;
-    float shR = 0.05 + ((0.62 + 0.6 * run) * pow(max(0.0, -c1), 1.6) + 0.14 * max(0.0, s1)) * k;
+    // legs: planted feet and swinging ones (HUMAN_GAIT); amt is the ground speed / 4.3, smoothed
+    float vel = amt * 4.3 / max(iColA.w, 0.3);
+    float runK = smoothstep(2.4, 4.4, vel), gk = smoothstep(0.02, 0.3, amt);
+    float duty = mix(0.58, 0.26, runK) - 0.06 * smoothstep(6.5, 9.0, vel);
+    float reach = duty * humanStep(vel) * gk, liftH = mix(0.1, 0.3, runK) * gk;
+    float uL = fract((ph - 1.5708) * 0.159155);
+    float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
+    float gaitBob = mix(0.022, -0.03, runK) * gk * cos(12.566 * (uL - duty * 0.5));   // a walker vaults over the planted leg; a runner sinks into it
+    vec2 fL = footPath(uL, duty, reach, liftH, runK), fR = footPath(fract(uL + 0.5), duty, reach, liftH, runK);
+    // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
+    vec2 ikL = legIK(fL.x, fL.y - 0.845 + gaitDrop - gaitBob), ikR = legIK(fR.x, fR.y - 0.845 + gaitDrop - gaitBob);
+    float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running
     float uaL = s1 * (0.42 + 0.25 * run) * k, uaR = -s1 * (0.42 + 0.25 * run) * k;
     float faL = -0.16 - 0.18 * k - 1.05 * run - 0.12 * max(0.0, -uaL), faR = -0.16 - 0.18 * k - 1.05 * run - 0.12 * max(0.0, -uaR);
@@ -688,11 +735,14 @@ function humanVS(depth) {
     float chestY = -0.11 * s1 * k;
     float headX = -hunched * 0.3 + 0.05 * sin(t * 0.33) * idle - 0.06 * run, headY = 0.28 * sin(t * 0.21) * idle + 0.09 * s1 * k;
     float pelvisY = 0.1 * s1 * k;
-    float bob = (0.03 + 0.03 * run) * (0.55 - abs(s1)) * k;
+    float bob = gaitBob;
     float swayX = 0.012 * sin(t * 0.45) * idle + 0.012 * s1 * k * (1.0 - run);
     float stepZ = 0.0;
     float capeX = 0.07 + 0.3 * k + 0.32 * run;
-    float spreadL = 0.0, spreadR = 0.0, crouch = 0.0;
+    float spreadL = 0.0, spreadR = 0.0, crouch = gaitDrop;
+    // a burning brand (09d_brand.js: BRAND.pose) is held up and forward in the left hand
+    bool brand = ((int(iMisc.y + 0.5) >> 20) & 1) == 1;
+    if (brand) { uaL = -1.05 + 0.03 * sin(t * 1.7); uaLz = -0.1; faL = -0.78; }
     if (atype > 0.5 && atype < 1.5) {
       // one-handed strike: wind up, cut across, recover
       float wind = smoothstep(0.0, 0.35, at), strike = smoothstep(0.35, 0.55, at), rec = smoothstep(0.62, 1.0, at);
@@ -773,7 +823,8 @@ function humanVS(depth) {
       chestX = 0.06 + 0.18 * gal + 0.03 * sin(ph * 2.0) * trot; chestY *= 0.3; pelvisY = 0.0;
       headX = -0.08 * gal + 0.02 * sin(t * 0.33); headY *= 0.5;
       bob = (abs(sin(ph)) * (0.012 + 0.03 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.05 * gal) * hk;
-      swayX = 0.0; stepZ = 0.0;
+      swayX = 0.0; stepZ = 0.0; crouch = 0.0;
+      if (brand && (atype < 0.5 || atype > 5.5)) { uaL = -1.05; uaLz = -0.1; faL = -0.78; }
       capeX = 0.12 + 0.35 * hk + 0.5 * gal;
     }
     // dying: the knees go, then the body falls back

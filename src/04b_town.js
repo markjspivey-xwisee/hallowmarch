@@ -538,7 +538,8 @@ function propModel(b, p, st, R) {
         const n = 5 - row;
         for (let i = 0; i < n; i++) {
           const x = (i - (n - 1) / 2) * 0.19, y = 0.2 + row * 0.165;
-          b.add(G.cyl8, lm(M, x, y, (rnd() - 0.5) * 0.1, rnd() * 3, 0.09, len * (0.94 + rnd() * 0.06), 0.09, Math.PI / 2), MAT.logH, darker(st.logs, 0.85 + rnd() * 0.3), by, 1.2);
+          // every log lies along the pile (a random yaw here once turned some of them through the house wall)
+          b.add(G.cyl8, lm(M, x, y, (rnd() - 0.5) * 0.1, (rnd() - 0.5) * 0.05, 0.09, len * (0.94 + rnd() * 0.06), 0.09, Math.PI / 2), MAT.logH, darker(st.logs, 0.85 + rnd() * 0.3), by, 1.2);
           for (const e of [1, -1]) b.add(G.cyl8, lm(M, x, y, e * len * 0.47, 0, 0.08, 0.02, 0.08, Math.PI / 2), MAT.wood, [0.66, 0.53, 0.36]);
         }
       }

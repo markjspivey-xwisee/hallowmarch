@@ -1074,12 +1074,12 @@ function houseCastFinish(e, A, c) {
   const aim = c.aim;
   faceToward(e, aim.x, aim.z);
   // a meteor falls on the house itself; bolts and arrows fly to the roof
-  if (A.id === 'meteor') { executeAbility(e, A, null, { gx: aim.H.x, gz: aim.H.z }); return; }
+  if (A.id === 'meteor') { executeAbility(e, A, null, aim.H ? { gx: aim.H.x, gz: aim.H.z } : { gx: aim.x, gz: aim.z }); return; }
   e.power -= A.cost;
   e.cds[A.id] = GAME.t + A.cd;
   if (e.role === 'player') e.gcdUntil = GAME.t + 0.6;
   if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : 0.5);
-  spawnProjectile(e, null, HOUSE_FIRE_SPELLS[A.id], null, { x: aim.x, y: aim.y, z: aim.z });
+  spawnProjectile(e, null, HOUSE_FIRE_SPELLS[A.id], null, { x: aim.x, y: aim.y, z: aim.z, tree: aim.tree || null, grass: !!aim.grass });
   sfx(A.proj === 'firearrow' ? 'bow' : 'fire');
   if (A.proj === 'firearrow') sfx('ignite');
 }
