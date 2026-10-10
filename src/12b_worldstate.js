@@ -157,7 +157,7 @@ function landKey(L) {
 function landApply(L) {
   LAND.restored = null;
   if (!L || typeof L !== 'object' || L.v !== 1 || !NATURE.built) return;
-  const got = { craters: 0, felled: 0, grow: 0, dyn: 0, piles: 0, tiles: 0, fire: 0, houses: 0, walls: 0 };
+  const got = { t: GAME.t, craters: 0, felled: 0, grow: 0, dyn: 0, piles: 0, tiles: 0, fire: 0, houses: 0, walls: 0 };
   const part = (name, fn) => { try { fn(); } catch (e) { reportError(e); } };
   part('craters', () => landCraters(L.cr, got));
   part('map', () => landMap(L.map, L.fire, got));
@@ -190,7 +190,9 @@ function landCraters(list, got) {
 }
 function landMap(map, fire, got) {
   if (map && Array.isArray(map.t) && typeof map.d === 'string') {
-    const bytes = landUnB64(map.d), q = new Uint8Array(3072), D = NAT.data;
+    let bytes;
+    try { bytes = landUnB64(map.d); } catch (e) { bytes = new Uint8Array(0); } // a damaged map is ignored
+    const q = new Uint8Array(3072), D = NAT.data;
     let p = 0;
     for (const key of map.t.slice(0, LAND_CAP.tiles)) {
       if (!(key >= 0 && key < 1024) || p >= bytes.length) break;

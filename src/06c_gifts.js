@@ -297,8 +297,19 @@ function giftPlantSpot(x, z) {
 function giftStandard(e, k) {
   if (!GIFT_BANNER_GEO) GIFT_BANNER_GEO = giftBannerGeometry();
   const D = GIFT_DEF[0].ult, R = REALMS[e.faction];
-  const at = giftPlantSpot(e.x + Math.sin(e.yaw) * 1.2, e.z + Math.cos(e.yaw) * 1.2);
-  const y = heightAt(at.x, at.z);
+  let at, y;
+  if (e.y > heightAt(e.x, e.z) + 1.2) {
+    // up on a wall walk or a tower top: on the same floor, a step to one side
+    at = { x: e.x, z: e.z };
+    for (const a of [Math.PI / 2, -Math.PI / 2, 0, Math.PI]) {
+      const px = e.x + Math.sin(e.yaw + a) * 0.9, pz = e.z + Math.cos(e.yaw + a) * 0.9;
+      if (Math.abs(floorAt(px, pz, e.y) - e.y) < 0.3) { at = { x: px, z: pz }; break; }
+    }
+    y = floorAt(at.x, at.z, e.y);
+  } else {
+    at = giftPlantSpot(e.x + Math.sin(e.yaw) * 1.2, e.z + Math.cos(e.yaw) * 1.2);
+    y = heightAt(at.x, at.z);
+  }
   if (GIFT.standards.length >= 4) giftStandardEnd(GIFT.standards[0], true);
   const m = new THREE.Mesh(GIFT_BANNER_GEO, shareMat(giftBannerMat, { uUnfurl: { value: 0 }, uSeed: { value: Math.random() * 30 }, uTop: { value: 7 }, uField: { value: new THREE.Vector3(...hex3(R.dark).map((v, i) => v * 0.6 + hex3(R.color)[i] * 0.55)) }, uGold: { value: new THREE.Vector3(...hex3(R.light)) }, uGlow: { value: 0 } }));
   m.position.set(at.x, y + 7, at.z);
@@ -338,7 +349,8 @@ function stepStandard(S, dt) {
       for (let i = o.buffs.length - 1; i >= 0; i--) if (o.buffs[i].kind === 'stun' || o.buffs[i].kind === 'snare' || o.buffs[i].kind === 'root') o.buffs.splice(i, 1);
     });
   }
-  if (!S.landed || S.end) return;
+  if (S.end) { if (GAME.t - S.end > 2.2) giftStandardEnd(S, true); return; }
+  if (!S.landed) return;
   if (GAME.t >= S.until) { giftStandardEnd(S); return; }
   // every second: the rally and the ward
   S.tick -= dt;
@@ -366,7 +378,6 @@ function drawStandard(S, dt) {
     y = S.y + lift * 0.8;
     glow = lift * 1.2;
     if (e > 1.0 && Math.random() < dt * 40) FX.trail(S.x + (Math.random() - 0.5) * 0.4, S.y + Math.random() * 7, S.z + (Math.random() - 0.5) * 0.4, [2.2, 1.7, 0.7], 0.14, 0.8);
-    if (e > 2.2) { giftStandardEnd(S, true); return; }
     m.visible = lift < 0.98;
   }
   m.position.y = y;
@@ -410,16 +421,22 @@ function stepHound(h, dt) {
   const H = h.hunt, owner = getEnt(H.owner);
   if (!h.alive || h.removed) return false;
   if (GAME.t > H.until || !owner || !owner.alive || inDungeon(h)) { giftHoundFade(h); return false; }
-  // the quarry: the owner's foe if it is close, else the nearest foe within 24 m of the owner
+  // the quarry, looked at again every second: foes near the owner, the owner's own foe first, and the pack
+  // spreads itself over them rather than all on one
   let t = getEnt(h.target);
-  if (!t || !t.alive || !isEnemy(h, t) || dist2(t.x, t.z, owner.x, owner.z) > 34 * 34) {
-    t = null;
-    const ot = getEnt(owner.target);
-    if (ot && ot.alive && isEnemy(h, ot) && ot.kind !== 'door' && dist2(ot.x, ot.z, owner.x, owner.z) < 34 * 34) t = ot;
-    else {
-      let bd = 24 * 24;
-      forNear(owner.x, owner.z, 24, (o, d2) => { if (o.alive && isEnemy(h, o) && isActor(o) && !o.flying && o.kind !== 'dragon' && d2 < bd) { bd = d2; t = o; } });
-    }
+  if (!t || !t.alive || !isEnemy(h, t) || dist2(t.x, t.z, owner.x, owner.z) > 34 * 34 || GAME.t >= (H.pickAt || 0)) {
+    H.pickAt = GAME.t + 0.8 + Math.random() * 0.4;
+    const on = new Map();
+    for (const o of GIFT.hounds) if (o !== h && !o.removed && o.target != null) on.set(o.target, (on.get(o.target) || 0) + 1);
+    const ot = owner.target;
+    let best = null, bs = Infinity;
+    forNear(owner.x, owner.z, 26, (o) => {
+      if (!o.alive || !isEnemy(h, o) || !isActor(o) || o.flying || o.kind === 'dragon' || o.kind === 'door') return;
+      const n = on.get(o.id) || 0;
+      const sc = dist2(o.x, o.z, h.x, h.z) + 160 * n * n - (o.id === ot ? 220 : 0) - (o.id === h.target ? 60 : 0);
+      if (sc < bs) { bs = sc; best = o; }
+    });
+    t = best;
     h.target = t ? t.id : null;
   }
   if (t) {
