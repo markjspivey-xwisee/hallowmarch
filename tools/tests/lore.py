@@ -126,7 +126,7 @@ async def desktop(p):
     await ev(page, "__hm.fn.openMenu('char')")
     await page.click('#menu-tabs [data-tab="chronicle"]')
     r = await ev(page, "({ tab: __hm.UI.menuTab, secs: document.querySelectorAll('.chron-nav [data-sec]').length, map: !!document.querySelector('.chron .figure svg') })")
-    check(r['tab'] == 'chronicle' and r['secs'] == 8 and r['map'], f'the Chronicle tab opens with its sections and the map ({r})')
+    check(r['tab'] == 'chronicle' and r['secs'] >= 8 and r['map'], f'the Chronicle tab opens with its sections and the map ({r})')
     await shot(page, 'lore_chronicle_march')
     for sec, sel, n in [('war', '.dg-wide svg rect', 6), ('orders', '.chron .order', 7), ('realms', '.chron .rcard', 3), ('path', '.chron .steps li', 15)]:
         await page.click(f'.chron-nav [data-sec="{sec}"]')

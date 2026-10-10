@@ -248,6 +248,15 @@ async def main():
         r = await page.evaluate("""(() => { const b = document.getElementById('dlg-body').innerHTML; document.getElementById('dialog').hidden = true; __hm.UI.modal = null; __hm.animals.A.dlg = false; return { list: (b.match(/an-item/g) || []).length }; })()""")
         check(r['list'] >= 6, f'the animals list (K) shows your animals ({r["list"]})')
 
+        # ---- the Chronicle's page and the help ----
+        r = await page.evaluate("""(() => { const H = __hm; H.fn.openMenu('chronicle'); document.querySelector('#menu-tabs [data-tab="chronicle"]').click();
+          const b = document.querySelector('.chron-nav [data-sec="animals"]'); if (b) b.click();
+          const body = (document.querySelector('.chron-body') || {}).innerHTML || '';
+          H.fn.openMenu('help'); document.querySelector('#menu-tabs [data-tab="help"]').click(); const help = document.getElementById('menu-body').innerHTML;
+          document.getElementById('menu').hidden = true; H.UI.modal = null;
+          return { nav: !!b, taming: body.includes('Taming') && body.includes('Breeding') && body.includes('Livestock'), help: help.includes('Animals') }; })()""")
+        check(r['nav'] and r['taming'] and r['help'], 'the Chronicle has an Animals page, and the help mentions them')
+
         # ---- save and load ----
         r = await page.evaluate("""(() => { const { H, A, F } = __an; const o = {};
           const before = A.anMine().map((e) => __an.sum(e)).sort((a, b) => a.aid - b.aid);
