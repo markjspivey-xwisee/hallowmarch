@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* loot: drops on the ground, bags, equipping, merchants, potions       */
 /* ================================================================== */
-const INV = { bag: [], eq: {}, gold: 0, potions: 0, potionAt: -99, fullWarnAt: -99 };
+const INV = { bag: [], eq: {}, gold: 0, potions: 0, potionAt: -99, fullWarnAt: -99, goods: {} }; // goods: counts of materials, food, seeds (06d_goods.js)
 const LOOT = []; // { item, x, z, y, vy, ground, t0, until, seed, landed }
 const LOOT_MAX = 40;
 const JUNK = {
@@ -13,6 +13,7 @@ const JUNK = {
 function resetInventory(c) {
   INV.bag.length = 0;
   INV.eq = {};
+  INV.goods = {};
   INV.gold = 0; INV.potions = 0; INV.potionAt = -99;
   if (!c) return;
   INV.gold = Math.max(0, Math.min(1e7, Math.round(+c.gold || 0)));
@@ -160,7 +161,12 @@ function updateLoot(dt) {
     if (!P || !P.alive || GAME.t - L.t0 < 0.45) continue;
     const d2 = dist2(P.x, P.z, L.x, L.z);
     if (d2 < 1.7 * 1.7 && Math.abs(P.y - L.y) < 2.5) {
-      if (bagAdd(L.item)) {
+      if (L.item.goods) {
+        // goods (06d_goods.js) go into the packs by count
+        const took = goodsAdd(L.item.goods, L.item.n || 1, true);
+        if (took) { L.item.n = (L.item.n || 1) - took; if (L.item.n <= 0) LOOT.splice(i, 1); uiLog(`You pick up ${took} ${goodName(L.item.goods, took).toLowerCase()}.`, 'sys'); sfx('loot'); }
+        else if (GAME.t - INV.fullWarnAt > 4) { INV.fullWarnAt = GAME.t; uiError('You cannot carry any more of that'); }
+      } else if (bagAdd(L.item)) {
         LOOT.splice(i, 1);
         onPickup(L.item, L);
       } else if (GAME.t - INV.fullWarnAt > 4) { INV.fullWarnAt = GAME.t; uiError('Your bags are full'); }

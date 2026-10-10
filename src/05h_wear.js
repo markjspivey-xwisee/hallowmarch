@@ -168,7 +168,7 @@ function updateWear(dt) {
   const camX = camera.position.x, camZ = camera.position.z;
   const A = U.uAmbient.value, Lc = U.uLightColor.value;
   for (const e of ENT) {
-    if (e.kind !== 'humanoid' || e.removed) continue;
+    if ((e.kind !== 'humanoid' && !crowdBeast[e.kind]) || e.removed) continue; // visual pass: beasts soak and dry too
     if (e !== P && dist2(e.x, e.z, camX, camZ) > 150 * 150) continue;
     // shelter and the warmth of fires are looked up about once a second for each body
     if (e._wxT === undefined || GAME.t >= e._wxT) { e._wxT = GAME.t + 0.8 + Math.random() * 0.4; e._sky = skyOver(e); e._heat = heatAt(e.x, e.y, e.z); }
@@ -236,6 +236,10 @@ function updateWear(dt) {
   }
   WEAR.warnT -= dt;
   if (WEAR.warnT <= 0) { WEAR.warnT = 0.5; updateGearWarn(); }
+}
+// a beast's hit flash (0..1) with its own wet and snow in whole sixteenths above it (visual pass; 05c_beasts.js unpacks)
+function beastWx(e, flash) {
+  return Math.min(Math.max(flash || 0, 0), 0.99) + Math.round(clamp(e.wet || 0, 0, 1) * 15) + 16 * Math.round(clamp(e.snow || 0, 0, 1) * 15);
 }
 // what the actor shader gets for a body: wet, snow, dirt, blood + whole steps of damage (0..15)
 function wearVisual(e, out) {

@@ -117,6 +117,7 @@ async function boot() {
 function startGame(save) {
   $('title').hidden = true;
   const P = createPlayer(save);
+  savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
   rescaleWar();
   buildHUD();
   GAME.started = true;
@@ -151,6 +152,7 @@ function startGame(save) {
   }
   sfx('portal');
   loreOnStart(save);
+  giftsOnStart(save); // [gifts] the realm ultimate's cooldown carries over (06c_gifts.js)
 }
 function newCharacter() {
   wipeSave();
@@ -228,7 +230,7 @@ function drawActors(fx, fz) {
         const MA = e.mountAnim, H = crowdBeast.horse;
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1;
-        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = e.anim.flash;
+        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash); // the horse is as wet as its rider
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
         _a4[0] = MA.phase; _a4[1] = MA.amt;
@@ -247,7 +249,7 @@ function drawActors(fx, fz) {
       }
     } else {
       _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc;
-      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = e.anim.flash;
+      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash); // visual pass: its own wet and snow
       const C = crowdBeast[e.kind];
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
@@ -344,6 +346,8 @@ function simStep(dt) {
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
   updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
+  updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
+  updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -361,6 +365,7 @@ function tick(dt) {
   updateWeather(dt);
   applyWeather();
   applyIndoor();
+  updateNightSky(dt); // [aurora] the northern lights and shooting stars (05i_aurora.js)
   // simulation (the menu and the prologue pause the world)
   if (UI.modal !== 'menu' && UI.modal !== 'prologue') {
     // up to two steps so a slow frame rate does not slow the world down
@@ -388,6 +393,7 @@ function tick(dt) {
   drawHouses(dt);
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
+  drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
@@ -486,7 +492,7 @@ window.__hm = {
   frame(dt = 1 / 60) { tick(dt); },
   INV, LOOT, QUALITY, ABILITIES, CLASSES, SPELL,
   nature: NATURE_DEBUG, // nature (05h_nature.js)
-  fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, humanStep, beastStride, dragonAnimate, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
+  fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, humanStep, beastStride, dragonAnimate, GOODS, goodsAdd, goodsTake, goodsTakeAll, goodsHave, goodsCount, dropGood, registerGood, registerSavePart, savePartsLoad, savePartsData, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
 };
 
 boot().catch((err) => {

@@ -74,9 +74,11 @@ The harness lives in `tools/`:
 6. Check the phone layout with `python3 tools/tests/phone.py`.
 7. For lore and onboarding (prologue, Chronicle, path, notes), run `python3 tools/tests/lore.py`.
 8. Each big system has its own test. Run the ones your change touches:
-   - `castles.py`, `houses.py` and `nature.py`
+   - `castles.py`, `houses.py`, `nature.py` and `siege.py` (engines, breaches, sallies, the player's crew)
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
+   - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
+   - `gifts.py`: each realm's passive gifts by their numbers, each realm ultimate (effects, cooldown, key 9, HUD, a champion using it), the Chronicle page, the phone pad; screenshots of each ultimate.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
 **Debug API (`window.__hm`, defined at the end of `13_main.js`):**
@@ -90,6 +92,7 @@ The harness lives in `tools/`:
 - `dbg.*` exposes renderer internals; `fn.*` exposes most game functions.
 - `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
 - `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
+- `gifts` (attached by `06c_gifts.js`): `GIFT`, `GIFT_DEF`, `giftHas`, `giftHarmMult`, `giftBuffAdjust`, `giftSpeedMult`, `useRealmGift`, `castGiftUlt`, `state()`. `land` (also attached there): `landSave`, `landApply`, `landKey`, `LAND.restored` (what the last load read back).
 - Castles add `fn.castles()`, `fn.floorAt`, `fn.castleRoute`, `fn.castleSiegeHit` and `fn.CASTLE_PATCHED` (the building-shader anchors the castle patch found).
 
 ## Architecture
@@ -107,6 +110,7 @@ The harness lives in `tools/`:
 | `04d_barrow.js` | The Barrow: the surface mound and the dungeon grid and geometry; indoor mode (`INDOOR`, `setIndoor`, `travel`) |
 | `04e_houses.js` | Working houses: two-layer walls with real openings, hinged doors and shutters, glazing, the house shader (patched from the building shader at anchors; it throws if one is missing), interactions, camera inside, fire (`igniteHouse`, `houseAt`, `fireLandsAt`), collapse to a ruin and rebuilding on a scaffold |
 | `04f_rooms.js` | Furnished rooms: hearths and stoves with real fires, tables, benches, beds, shelves, barrels, rugs, lamps; furniture colliders; ruins and scaffolds |
+| `04h_siege.js` | Siege engines: battering rams, mangonels and trebuchets built in code (their own charring shader patched from the building shader), built and crewed by warbands, pushed into range, worked (windlass, slings, counterweight), stones on real arcs that crack wall sections (`castleSiegeHit`) and batter gates; engines hacked apart or set alight (`siegeFireAt`); the commanders' choice of gate or breach, bands storming a breach, the garrison holding it (`ai.plug`) and sallying out of its gate (`ai.sally`); the player joining a crew or taking over an abandoned engine. Test hooks on `__hm.SIEGE` |
 | `04g_castles.js` | Working castles: floors (`floorAt`, `floorSolidAt`), stairs, wall walks with crenellated parapets, open tower tops, gates with hinged leaves and portcullises (open for their own side, shut against enemies), garrison posts and walking routes (`castleRoute`), breachable and repairable wall sections (`castleSiegeHit`), crack and breach shader patches |
 | `05a_rig.js` | Characters built in code: skinned humanoids and beasts |
 | `05b_actors.js` | Instanced, vertex-animated crowds; particles; glows |
@@ -119,6 +123,8 @@ The harness lives in `tools/`:
 | `05h_wear.js` | Weather on bodies (`e.wet`, `e.snow`, `e.dirt`, `e.blood`, `e.batter`; shelter from roofs and tree crowns, heat from fires); gear wear (`it.dur` 0–100, `it.dirt`, `it.blood`; `wearOnHit`, `repairAll`, `washGear` at wells, troughs and lakes); lightning on tall things near the player (`strikeNear`, `strikeAt`); drying and melting rates; `wearVisual` packs the actor shader's `iWear` |
 | `06_data.js` | Classes, abilities, monsters, names, progression (`LEVEL_CAP`), realm ranks |
 | `06b_items.js` | Item quality, slots, generation, stats, how gear looks |
+| `06d_goods.js` | Goods: everything carried that is not gear (materials, food, drink, seeds, herbs, tools, building parts), kept by count in `INV.goods`, listed in the bags, dropped and picked up like loot, saved with the character. The shared catalogue of ids every system uses (`log`, `plank`, `stone`, `iron`, `hide`, `wool`, `meat_raw`, `bread`, `water`, `herb_*`, `seed_*`, `tool_*` …). Save parts: `registerSavePart('char' or 'world', key, { save, load, key })` |
+| `06c_gifts.js` | Realm gifts: two passives per realm unlocked by realm rank (Logres Steadfast Lines and Unbroken, Ériu Wood-wise and Rain-blest, Thule Cold-blooded and Wound-fury) and a realm ultimate at realm rank 5 or level 30 (the Raised Standard, the Grey Hunt, the Iron Winter) on key 9, the round gift button and the phone pad; champions (keep lords, warband leaders) call it in big fights; the Chronicle's gifts page. Hooks: `dealDamage` asks `giftHarmMult`, `addBuff` asks `giftBuffAdjust`, `effectiveSpeed` asks `giftSpeedMult`; `buildHotbar` calls `giftHotbar`, `simStep` `updateGifts`, `tick` `drawGifts`, `startGame` `giftsOnStart` |
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
 | `08_ai.js` | Monsters, garrisons, warbands, realm commanders, relics; `WAR` state |
 | `08b_wildlife.js` | Deer, birds, bats, butterflies |
@@ -128,12 +134,14 @@ The harness lives in `tools/`:
 | `08g_campaign.js` | The campaign: commanders' plans with announced reasons (`planWar`, `announceOrder`), routes and order badges on the maps and nameplates, player orders to warbands from the map, claims (4 of 6 keeps for 5 min, or both enemy hallows for 4 min), renown, the long-war rules, victory, peace and reset, campaign history in the world save |
 | `09_player.js` | Input, camera, movement, targeting, interaction |
 | `09b_mount.js` | Horses |
-| `09c_loot.js` | Inventory, drops, merchants, potions |
+| `09c_loot.js` | Inventory, drops, merchants, potions; dropped goods go into the packs by count |
+| `09d_brand.js` | Fire for everyone: take a burning brand from any fire (E), it is held up in the left hand (the torch bit, `WB.torch`), lights the way, sets roofs, trees and long grass alight (E), sets struck foes alight; water and rain put it out. `natureFireAim`: fire spells with nothing targeted aim at the tree or grass in front |
 | `10_ui.js` | Title, HUD, maps, menus, nameplates, log, help |
 | `10b_kit.js` | Equipment, bags and shop screen |
 | `10c_lore.js` | Lore and onboarding: the prologue, the Chronicle menu tab, the path tracker and its rewards, field notes, loading tips. It makes its own styles and markup; `startGame` calls `loreOnStart`, `tick` calls `updateLore`, saves carry `char.lore` |
 | `11_audio.js` | Synthesised sound effects and ambience (Web Audio) |
 | `12_save.js` | Saves: `claude.use('db')` document `data/users/<uid>/save`, falling back to localStorage `hallowmarch.save.v1`; `validSave()` sanitises |
+| `12b_worldstate.js` | The world remembers: `landSave()` writes `world.land` (felled trees, logs, stumps and saplings with their clocks; the nature map as 4-bit run-length tiles; burning grass; craters as height deltas in cm; burning, ruined and rebuilding houses; worn, breached and repairing walls; firewood piles) and `landApply()` restores it at boot. Also: loot settles when the ground moves under it, and the woodcutter's axe is in hand while chopping (`updateLand`) |
 | `13_main.js` | Boot, `startGame`, `simStep(dt)` (fixed step), `tick(dt)` (frame), quality switching, `__hm` |
 
 ### Conventions worth knowing
@@ -148,7 +156,14 @@ The harness lives in `tools/`:
 **Materials**
 - Every material is a `THREE.ShaderMaterial` made with `mat()`. All of them share the live uniforms in `U`: time, sun, fog, wetness, snow, night and so on.
 - Weather and time of day therefore reach every shader through `U`. New shaders should read the same uniforms.
-- Weather on a surface goes through the `GLSL_WEATHER` chunk in `02_render.js` (`wetAlbedo`, `wetSheen`, `rivulets`, `snowAmount`, `snowAlbedo`, `snowSparkle`), called with `uWet` and `uSnowCover` scaled by how sheltered the surface is; pass `gPL` as the heat so snow melts by fires. `uRain` is the rain falling right now (rings on the water). Characters take their own amounts from the `iWear` attribute.
+- Weather on a surface goes through the `GLSL_WEATHER` chunk in `02_render.js` (`wetAlbedo`, `wetSheen`, `rivulets`, `snowAmount`, `snowAlbedo`, `snowSparkle`), called with `uWet` and `uSnowCover` scaled by how sheltered the surface is; pass `gPL` as the heat so snow melts by fires. `uRain` is the rain falling right now (rings on the water). Characters take their own amounts from the `iWear` attribute; beasts from `iColB.w` (the hit flash in the fraction, wet and snow in whole sixteenths above it: `beastWx` in `05h_wear.js`, which now soaks and dries beasts as well).
+- World maps every shader can read through `GLSL_WORLD` (built on the first frame by `updateCanopy` in `03_terrain.js`, 2 m texels unless noted):
+  - `uCanopy`: rgb are the meadow's patches (`meadowPatch`: dry straw, lush clover, tall stands; ground, blades and flowers all use them), alpha is the tree-crown cover (`canopyAt`). The cover follows felled, burning, leafless and regrowing trees every 1.5 s. Ground and grass under crowns stay drier in rain, gather less snow and lie in a little shade.
+  - `uGroundAO` (1 m): contact shade on the ground at the foot of walls, houses, gates, fences, props and posts, baked from `COLL` (`groundAO`).
+  - Test hooks: `__hm.visual.canopy(x, z)`, `.meadow(x, z)`, `.groundAO(x, z)`, `.refresh()`.
+- `meadowHeight` sets the turf height (short sward, taller stands, long in fields, trimmed by roads); flower heads ride on it. `GRASS_SEGS` gives each quality its bends per blade layer: medium and low spend their vertices on more, simpler blades.
+- Fog is exponential height fog (`applyFog`): as thick as before at the camera's height, thinner up the slopes.
+- The final composite grades by time of day: the `gSat` (vibrance), `gCon` (contrast about the mid tones) and `gWarm` keys in `TOD_KEYS`.
 
 **Buildings**
 - Buildings are merged geometry with a per-vertex material id (`MAT` in `04_props.js`: stone 0 … rock 15, drystone 16).
@@ -173,6 +188,7 @@ The harness lives in `tools/`:
 
 **Collision**
 - `COLL` holds boxes and circles in a spatial grid. The Barrow also uses it for line of sight.
+- Siege engines are entities of kind `door` with `siegeEngine` set (not actors, so nothing auto-targets them; defenders and sallies go for them on purpose). `python3 tools/campaign_soak.py 60 low` runs an AI-only campaign and reports how each one ended.
 - Colliders marked `vert` block only at their own height range (walls below their top, parapets only up on the walk). `stepTo` passes the body's height to `resolveCollisions` and asks `castleStepBlocked` about stair sides and raised edges.
 
 **Floors**
@@ -183,7 +199,7 @@ The harness lives in `tools/`:
 - Fire spells and the dragon's breath call `fireLandsAt` / `fireConeAt` (in `04e_houses.js`), which light roofs, trees and grass.
 - Lightning calls `natureStrike(x, z)`. Use `igniteHouse(houseAt(x, z))`, `igniteTree(i)` and `igniteGrass(x, z, r)` to set things alight.
 - Meteors, the leap strike and the dragon landing call `natureImpact`, which leaves craters. Meteors also call `castleSiegeHit`.
-- The nature state (felled trees, craters, burnt ground) is not saved yet.
+- The land is saved with the world (`world.land`, see `12b_worldstate.js`). Anything new that changes the land for longer than a minute should be added to `landSave` / `landApply`, with times saved as seconds left and every list capped.
 
 **Indoors**
 - `setIndoor(true)` hides the outdoor group, swaps the lighting and turns off shadows and light shafts.
@@ -211,6 +227,9 @@ The harness lives in `tools/`:
 **Saves**
 - Old saves must always keep loading.
 - When you add fields, default them in `startGame` / `validSave` and include them in `coreKey`.
+- New systems keep their state in save parts (`registerSavePart`, 06d_goods.js): `s.char.x[key]` with the character, `s.world.x[key]` with the world; `load` gets `undefined` for an older save and must sanitise whatever it reads; `key` says what counts as a change worth writing.
+- `coreKey` counts the land by what changed in it (`landKey`: felled trees, logs, craters, tiles, piles, house and wall states), never by its clocks, so regrowth alone does not cause writes. `char.gift` holds the realm ultimate's cooldown and is no reason to write either.
+- A busy land (four trees down, a grass fire, five craters, three houses and three walls changed) adds about 10 KB; an untouched world adds 7 bytes.
 
 ### Gotchas
 
@@ -235,9 +254,8 @@ The harness lives in `tools/`:
 | 6 | Weather on everything and gear wear: wet, snow, drying, lightning strikes, durability, blood, mud, repair, washing | Done (version 6). Left: ground under tree crowns gets wet, beasts' own wetness |
 | 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: tune so more campaigns end by claims than by renown; hallow raids rarely succeed |
 | 8 | Visual pass on existing models and shaders | Next |
-| 9 | Realm gifts (passives and a realm ultimate) | Planned |
-| 10 | Music, aurora, siege engines (and the war AI using breaches) | Built on branches `feature/music`, `feature/siege`; merging |
-| 11 | Persistence of the reactive world, realm gifts | Built on `feature/gifts`; merging |
+| 9 | Realm gifts (passives and a realm ultimate); the land saved with the world, loot settling into craters, the woodcutter's axe | Merged (version 7) |
+| 10 | Music, aurora, siege engines, the war AI using breaches and sallies, campaign tuning (claims over renown) | Merged (version 7). Left: tower interiors and hatches |
 | 12 | Animation: foot-locked gaits for people and beasts, Cinderwing's flight | In progress (version 7) |
 | 13 | No clipping: cover map, props and logs clear of walls, temple dais floors | In progress (version 7) |
 | 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | In progress (version 7) |

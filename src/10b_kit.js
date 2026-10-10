@@ -80,7 +80,8 @@ function renderKit() {
     cells.push(it ? itemButton(it, 'bagslot', `data-bag="${i}"`) : '<span class="bagslot empty"></span>');
   }
   const right = `<h3>Bags <span class="num">${INV.bag.length} / ${BAG_SIZE}</span></h3><div class="bagrid">${cells.join('')}</div>
-    <div class="bagfoot"><span class="pots">${iconSvg('potion', 18)}${INV.potions} healing draught${INV.potions === 1 ? '' : 's'}</span>${shop ? '<button class="btn" type="button" id="kit-junk">Sell grey and trophies</button>' : ''}</div>`;
+    <div class="bagfoot"><span class="pots">${iconSvg('potion', 18)}${INV.potions} healing draught${INV.potions === 1 ? '' : 's'}</span>${shop ? '<button class="btn" type="button" id="kit-junk">Sell grey and trophies</button>' : ''}</div>
+    ${goodsHTML()}`;
   $('kit-left').innerHTML = left;
   $('kit-right').innerHTML = right;
   renderKitCard();
@@ -161,6 +162,7 @@ function bindKit() {
     if (b.id === 'kit-junk') { sellJunk(); renderKit(); return; }
     if (b.id === 'kit-repair') { repairAll(); renderKit(); return; } // feature/weather
     if (b.dataset.buyp) { buyPotions(+b.dataset.buyp); renderKit(); return; }
+    if (b.dataset.gooduse) { goodsUse(b.dataset.gooduse); renderKit(); return; } // goods (06d_goods.js)
     if (b.dataset.act) { kitAction(b.dataset.act); return; }
     const s = kitItemFrom(b);
     if (s) { UI.kitSel = s; UI.kitConfirm = null; UI.kitHover = null; renderKit(); sfx('click'); }

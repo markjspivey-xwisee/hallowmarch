@@ -78,13 +78,14 @@ class Particles {
       vertexShader: /* glsl */`
         uniform float uTime, uFocal, uMaxPoint, uFogDensity;
         attribute vec4 aP; attribute vec4 aV; attribute vec4 aC; attribute vec2 aG;
-        varying vec4 vC; varying float vFade;
+        varying vec4 vC; varying float vFade; varying vec2 vAge; // visual pass: age (0..1) and a seed for the puff shape
         void main(){
           float t = uTime - aP.w;
-          vC = aC; vFade = 0.0;
+          vC = aC; vFade = 0.0; vAge = vec2(0.0);
           bool smoke = aC.w < 0.0;
           if (aV.w <= 0.0 || t < 0.0 || t > aV.w) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); gl_PointSize = 0.0; return; }
           float k = t / aV.w;
+          vAge = vec2(k, fract(aP.w * 7.13 + aP.x * 0.37 + aP.z * 0.61));
           float drag = exp(-aG.y * t);
           vec3 p = aP.xyz + aV.xyz * (aG.y > 0.0 ? (1.0 - drag) / aG.y : t) + vec3(0.0, -0.5 * aG.x * t * t, 0.0);
           vec4 mv = viewMatrix * vec4(p, 1.0);
@@ -96,12 +97,22 @@ class Particles {
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */`
-        varying vec4 vC; varying float vFade;
+        varying vec4 vC; varying float vFade; varying vec2 vAge;
         void main(){
-          float r = length(gl_PointCoord - 0.5) * 2.0;
+          // visual pass: ragged puffs rather than perfect discs, each turned its own way
+          vec2 pc = gl_PointCoord - 0.5;
+          float ang = atan(pc.y, pc.x) + vAge.y * 6.2831;
+          float lobe = 0.12 * sin(ang * 3.0 + vAge.y * 9.0) + 0.07 * sin(ang * 5.0 - vAge.y * 13.0);
+          float r = length(pc) * 2.0 * (1.0 + lobe * (${additive ? '0.6' : '1.0'}));
           float a = (1.0 - smoothstep(0.2, 1.0, r)) * vFade;
           if (a <= 0.001) discard;
-          gl_FragColor = vec4(clamp(vC.rgb, 0.0, 6.0) * ${additive ? 'a' : '1.0'}, ${additive ? '1.0' : 'a'});
+          vec3 c = clamp(vC.rgb, 0.0, 6.0);
+          ${additive ? `// flames burn white-yellow at the heart and cool to orange and red as they rise (warm colours only)
+          float warm = clamp((c.r - c.b) / max(c.r, 1e-3) - 0.25, 0.0, 1.0);
+          c *= mix(vec3(1.0), mix(vec3(1.2, 1.12, 1.0), vec3(1.0, 0.5, 0.28), smoothstep(0.1, 0.9, vAge.x)), warm);
+          c *= 1.0 + 0.5 * warm * (1.0 - smoothstep(0.0, 0.5, r));` : `// smoke: lighter on its upper side, a little thicker in the middle
+          c *= 0.9 + 0.22 * clamp(-pc.y * 2.0 + 0.5, 0.0, 1.0);`}
+          gl_FragColor = vec4(c * ${additive ? 'a' : '1.0'}, ${additive ? '1.0' : 'a'});
         }`,
     }));
     this.mesh.frustumCulled = false;

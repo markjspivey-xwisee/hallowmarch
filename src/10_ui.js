@@ -113,6 +113,7 @@ function buildHotbar() {
   $('tpad').innerHTML = abil.map((k, i) => slotHTML(k, i, '')).join('') + `<div class="wide"><button class="btn" type="button" id="t-target">Target</button><button class="btn" type="button" id="t-use">Use</button><button class="btn" type="button" id="t-jump">Jump</button><button class="btn" type="button" id="t-ride">Ride</button><button class="btn" type="button" id="t-potion">Potion</button><button class="btn" type="button" id="t-kit">Kit</button></div>`;
   UI.slots = [...document.querySelectorAll('#hotbar .slot:not(.potion)'), ...document.querySelectorAll('#tpad .slot:not(.potion)')];
   updatePotionSlot();
+  giftHotbar(); // [gifts] the realm gift on key 9 and on the phone pad, the passive marks (06c_gifts.js)
 }
 function flashSlot(i) { for (const s of UI.slots || []) if (+s.dataset.slot === i) { s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash'); } }
 function toggleLog() { const l = $('log'); if (IS_TOUCH) l.classList.toggle('show'); else l.classList.toggle('hidden'); }
@@ -128,6 +129,7 @@ function buffsHTML(e) {
   return e.buffs.filter((b) => b.until > GAME.t && !seen.has(b.kind) && seen.add(b.kind)).map((b) => { const [ic, c] = BUFF_ICON[b.kind] || ['circle', '#ccc']; return `<span class="buff" style="--bc:${c}" title="${b.kind}">${iconSvg(ic, 14)}</span>`; }).join('');
 }
 function unitSub(e, viewer) {
+  if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
@@ -567,7 +569,7 @@ function onDamageFeedback(src, dst, dmg, absorbed, opts) {
   const n = Math.round(dmg);
   if (src === P) {
     uiFloatAt(dst.x, dst.y + (dst.kind === 'door' ? 4 : 2.1 * (dst.scale || 1)), dst.z, (opts.crit ? 'Crit ' : '') + (n > 0 ? n : 'Absorbed'), opts.crit ? 'crit' : '');
-    if (!opts.dot) uiLog(`You hit ${dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg');
+    if (!opts.dot) uiLog(`You hit ${dst.siegeEngine ? `the ${dst.name}` : dst.kind === 'door' ? 'the gate' : theName(dst)} for ${n} damage${opts.crit ? ' (critical)' : ''}.`, 'dmg'); // [siege] engines by name
   } else if (dst === P) {
     uiFloatAt(P.x, P.y + 2.0, P.z, n > 0 ? `-${n}` : 'Absorbed', 'hurt');
     if (!opts.dot) uiLog(`${src && src.name ? capFirst(theName(src)) : 'Something'} hits you for ${n} damage.`, 'hurt');
@@ -700,11 +702,13 @@ function renderMenu(tab) {
       <div class="setrow"><span>Time of day</span><div class="seg" id="set-t">${[['cycle', 'Cycle'], ['morning', 'Morning'], ['golden', 'Golden'], ['night', 'Night']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${m === k}">${l}</button>`).join('')}</div></div>
       <div class="setrow"><span>Weather</span><div class="seg" id="set-w">${[['auto', 'Changing'], ['clear', 'Always clear']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${WEATHER.mode === k}">${l}</button>`).join('')}</div></div>
       <div class="setrow"><span>Sound</span><div class="seg" id="set-s">${[['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${(AUDIO.on ? 'on' : 'off') === k}">${l}</button>`).join('')}</div></div>
+      <div class="setrow"><span>Music</span><div class="seg" id="set-m">${MUSIC_LEVELS.map(([k, l]) => `<button type="button" data-v="${k}" aria-checked="${musicLevelKey() === k}">${l}</button>`).join('')}</div></div>
       <p>${IS_TOUCH ? 'Lower graphics settings help on older phones.' : 'If the frame rate drops, the game lowers its own detail first.'}</p>`;
     $('set-q').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setQuality(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-t').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setTimeMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-w').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setWeatherMode(b.dataset.v); renderMenu('settings'); saveSoon(); };
     $('set-s').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setSound(b.dataset.v === 'on'); renderMenu('settings'); saveSoon(); };
+    $('set-m').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const L = MUSIC_LEVELS.find((x) => x[0] === b.dataset.v); if (L) setMusicVolume(L[2]); renderMenu('settings'); saveSoon(); }; // [music] the score's volume (11b_music.js)
   } else if (tab === 'chronicle') {
     renderChronicle(body);
   } else {

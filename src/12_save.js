@@ -22,6 +22,10 @@ function validSave(s) {
   if (!s || typeof s !== 'object' || s.v !== 1) return null;
   const c = s.char;
   if (c && !(typeof c.name === 'string' && c.realm >= 0 && c.realm <= 2 && CLASSES[c.cls] && c.level >= 1 && c.level <= LEVEL_CAP)) s.char = null;
+  if (s.world && s.world.land && (typeof s.world.land !== 'object' || s.world.land.v !== 1)) delete s.world.land; // [worldstate] a land record we cannot read is dropped
+  if (s.char && s.char.gift && typeof s.char.gift !== 'object') delete s.char.gift; // [gifts]
+  if (s.char && s.char.x && (typeof s.char.x !== 'object' || Array.isArray(s.char.x))) delete s.char.x; // save parts (06d_goods.js)
+  if (s.world && s.world.x && (typeof s.world.x !== 'object' || Array.isArray(s.world.x))) delete s.world.x;
   return s;
 }
 async function loadSave() {
@@ -46,11 +50,16 @@ async function loadSave() {
 function buildSave() {
   const P = GAME.player, prog = GAME.prog;
   const settings = { quality: quality.level, auto: quality.auto !== false, tod: tod.mode, sound: AUDIO.on, weather: WEATHER.mode };
+  settings.music = MUSIC.vol; // [music] the score's volume, 0 to 1 (11b_music.js)
   const world = {
     keeps: WAR.keeps.map((K) => K.realm),
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
     campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
+  const land = landSave(); // [worldstate] felled trees, burnt ground, craters, burnt houses, breached walls (12b_worldstate.js)
+  if (land) world.land = land;
+  const wx = savePartsData('world'); // other systems' records of the world (06d_goods.js)
+  if (wx) world.x = wx;
   if (!P || !prog) return { v: 1, char: null, settings, world };
   const b = prog.bounty;
   return {
@@ -63,6 +72,8 @@ function buildSave() {
       gold: Math.round(INV.gold), potions: INV.potions,
       bag: INV.bag.map(packItem), eq: Object.fromEntries(SLOTS.filter((s) => INV.eq[s]).map((s) => [s, packItem(INV.eq[s])])),
       lore: loreSaveData(),
+      gift: giftSaveData(), // [gifts] the realm ultimate's cooldown, when it is running (06c_gifts.js)
+      x: savePartsData('char'), // goods and every other system's records for the character (06d_goods.js)
     },
     settings, world,
   };
@@ -83,7 +94,10 @@ function packItem(it) {
 // the parts that matter enough to justify a write on their own
 function coreKey(s) {
   const c = s.char;
-  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore], s.settings, s.world]);
+  // [worldstate] the land counts by what changed in it, not by its clocks ticking down; [gifts] the realm ultimate's cooldown is kept but is no reason to write
+  let w = s.world && s.world.land ? { ...s.world, land: landKey(s.world.land) } : s.world;
+  if (w && w.x) w = { ...w, x: savePartsKey(w.x, 'world') };
+  return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore, savePartsKey(c.x, 'char')], s.settings, w]);
 }
 function saveSoon(delay = 2500) {
   if (SAVE.wiping) return;
@@ -160,6 +174,8 @@ function applyWorldSave(w) {
   }
   updateRelicBonuses();
   applyCampaignSave(w.campaign); // [campaign] older saves have none: the first campaign starts fresh
+  landApply(w.land); // [worldstate] older saves have none: the land starts untouched (12b_worldstate.js)
+  savePartsLoad('world', w.x); // other systems' records of the world (06d_goods.js)
 }
 function applySettings(st) {
   if (!st) return;
@@ -167,5 +183,6 @@ function applySettings(st) {
   else quality.auto = st.auto !== false;
   if (['cycle', 'morning', 'golden', 'night'].includes(st.tod)) setTimeMode(st.tod);
   if (typeof st.sound === 'boolean') AUDIO.on = st.sound;
+  if (Number.isFinite(st.music)) setMusicVolume(st.music); // [music] older saves have none: the default stays
   if (st.weather === 'clear' || st.weather === 'auto') setWeatherMode(st.weather);
 }
