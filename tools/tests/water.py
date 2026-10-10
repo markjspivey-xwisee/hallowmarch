@@ -56,9 +56,27 @@ WORLD = """(() => { const H = __hm, Wt = H.water, F = H.fn, W = F.W, HN = 513, G
   out.roadDeep = roadDeep; out.ponds = H.water.PONDS ? H.water.PONDS.map((p) => [Math.round(p.x), Math.round(p.z), +p.y.toFixed(2), p.n, +p.depth.toFixed(2)]) : null; out.filled = H.water.PONDS ? H.water.PONDS.filled : null;
   let navDeep = 0; return out; })()"""
 
+async def river_shots(page):
+    # the middle of a river's course looking downstream, and the white water where it falls into its lake
+    for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
+    await page.evaluate("(() => { window.requestAnimationFrame = () => 0; __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed'; })()")
+    for name, frac, back, up in (('course', 0.45, 7, 2.6), ('falls', 0.88, 9, 3.4)):
+        await page.evaluate("""((frac, back, up) => { const H = __hm, F = H.fn, Wt = H.water, Rv = Wt.RIVERS[0], i = Math.floor(Rv.pts.length * frac), p = Rv.pts[i], q = Rv.pts[Math.min(Rv.pts.length - 1, i + 4)];
+          const sx = -p.uz, sz = p.ux; const cx = p.x - p.ux * back + sx * (p.hw + 1.5), cz = p.z - p.uz * back + sz * (p.hw + 1.5);
+          H.teleport(cx + sx * 4, cz + sz * 4);
+          H.camera.position.set(cx, Math.max(F.heightAt(cx, cz), p.surf) + up, cz); H.camera.lookAt(q.x, q.surf, q.z); return 0; })(%f, %f, %f)""" % (frac, back, up))
+        await run_frames(page, 8)
+        await snap(page, 'water_river_%s.png' % name)
+
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
+        if 'river' in sys.argv[1:]:
+            await page.evaluate("(() => { __hm.fn.setQuality('high'); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return 0; })()")
+            await river_shots(page)
+            print('errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 3)")))
+            await b.close()
+            return
         r = await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return { errors: __hm.errors.slice(0, 3), programs: __hm.renderInfo().programs }; })()")
         print('boot', json.dumps(r))
         check(not r['errors'], 'boots without errors')
