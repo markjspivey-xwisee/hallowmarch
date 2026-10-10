@@ -289,7 +289,7 @@ async def main():
         await b.close()
 
 async def shots(page, oak):
-    q = 'medium' if FINAL else 'low'
+    q = 'medium' if FINAL and 'lowq' not in sys.argv else 'low'
     await page.evaluate(f"__hm.fn.setQuality('{q}'); 0")
     # the Logres orchard and the meadow before it, the same view in every season
     r = await page.evaluate("""(() => { const H = __hm, R = H.REALMS[0], O = H.surv.FORAGE.orchard || { x: R.town.x + 70, z: R.town.z };

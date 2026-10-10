@@ -221,7 +221,7 @@ function seasonIceLift() {
 }
 
 /* ------------------------------------------------------------------ */
-/* leaves drifting down in autumn, fireflies on summer nights           */
+/* leaves drifting down in autumn (the fireflies are 05b_actors.js's)   */
 /* ------------------------------------------------------------------ */
 function seasonParticleGeo(max, seed) {
   const g = new THREE.InstancedBufferGeometry();
@@ -267,7 +267,7 @@ function buildSeasonFx() {
         float a1 = uTime * (1.6 + aSeed.y * 2.0) + s, a2 = uTime * (1.1 + aSeed.z * 1.5) + s * 0.7;
         vec3 ax = vec3(cos(a1), sin(a1) * 0.6, sin(a1) * 0.8);
         vec3 ay = safeNormalize(cross(ax, vec3(sin(a2), cos(a2), 0.3)));
-        float sz = (0.07 + 0.05 * aSeed.y) * smoothstep(0.0, 0.3, k);
+        float sz = (0.09 + 0.06 * aSeed.y) * smoothstep(0.0, 0.3, k);
         vec3 p = wp + (ax * (position.x * 1.25) + ay * position.y) * sz;
         vW = p; vN = safeNormalize(cross(ax, ay));
         float h = fract(aSeed.z * 7.13);

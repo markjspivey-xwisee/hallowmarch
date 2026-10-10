@@ -668,6 +668,14 @@ function farmLifeStep(e, st, plan, dt, next) {
   const fr = farmFront(P, T.p, side);
   const d = dist(e.x, e.z, fr.x, fr.z);
   if (d > 1.4) {
+    // [seasons] out of town by way of the plaza when the way straight out is blocked (the houses face the plaza; the
+    // gardens of Ériu and Thule lie close behind them)
+    if (!st.viaDone) {
+      const TT = REALMS[T.town || 0] && REALMS[T.town || 0].town;
+      if (!st.via && TT && dist(e.x, e.z, TT.x, TT.z) < 36 && !segmentClear(e.x, e.z, fr.x, fr.z, 0.5)) { const a = Math.atan2(fr.x - TT.x, fr.z - TT.z); st.via = { x: TT.x + Math.sin(a) * 9, z: TT.z + Math.cos(a) * 9, until: plan.t + 40 }; }
+      if (!st.via) st.viaDone = true;
+      else { if (moveToward(e, st.via.x, st.via.z, dt, 1.0, 0.6) || dist(e.x, e.z, st.via.x, st.via.z) < 1.3 || plan.t > st.via.until) { st.via = null; st.viaDone = true; } return true; }
+    }
     // on the way out of town: a house or a fence in the way is walked round
     const tr = st.track || (st.track = { x: e.x, z: e.z, t: plan.t });
     if (plan.t - tr.t > 2.5) {
