@@ -848,7 +848,7 @@ function humanVS(depth) {
       headX = mix(headX, -pitchFull * 0.95 + 0.04 * sin(t * 0.7), swimK); headY *= 1.0 - 0.6 * swimK;
       pelvisY *= 1.0 - swimK; swayX *= 1.0 - swimK; stepZ *= 1.0 - swimK; crouch *= 1.0 - swimK;
       bob = mix(bob, 0.03 * sin(tt * 0.9) * (1.0 - sw) + (0.05 * pull - 0.02) * sw, swimK);
-      capeX = mix(capeX, mix(0.5, 1.25, sw), swimK);
+      capeX = mix(capeX, mix(1.3, 0.5, sw), swimK); // the cape floats out on the surface behind (the body's own pitch adds to it)
     }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
     float mounted = mod(floor(iColB.w / 8.0), 2.0);

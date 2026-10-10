@@ -78,6 +78,7 @@ The harness lives in `tools/`:
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
    - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
+   - `water.py`: the world check (every river course has water, no dry pond beds, no road through deep water), wading and swimming numbers for the player, a soldier and a wolf, the current, the camera above water, no casting while swimming, a rider sliding off, fire out, drinking and the waterskin; `water.py shots [medium]` adds screenshots (shore, river, swimming, wake, wading).
    - `gifts.py`: each realm's passive gifts by their numbers, each realm ultimate (effects, cooldown, key 9, HUD, a champion using it), the Chronicle page, the phone pad; screenshots of each ultimate.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
 
@@ -93,6 +94,7 @@ The harness lives in `tools/`:
 - `LORE` (attached by `10c_lore.js`): `openPrologue`, `openChronicle(section)`, `complete(stepId)`, `check()` (one look at the world for steps and notes), `progress()`.
 - `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
 - `gifts` (attached by `06c_gifts.js`): `GIFT`, `GIFT_DEF`, `giftHas`, `giftHarmMult`, `giftBuffAdjust`, `giftSpeedMult`, `useRealmGift`, `castGiftUlt`, `state()`. `land` (also attached there): `landSave`, `landApply`, `landKey`, `LAND.restored` (what the last load read back).
+- `water` (`07b_swim.js`): `waterAt`, `state(id)` (depth, wading, swimming, soaked height, speed), `swimDims(id)`, `rivers()`, `ripple()`, `meshes()`, `tickWater(dt)` (the ripples without drawing the world), `splashAt`, `rippleDrop`, `swimAllowed`, `waterNear`, `RIVERS`, `PONDS`, `WATERGRID`.
 - Castles add `fn.castles()`, `fn.floorAt`, `fn.castleRoute`, `fn.castleSiegeHit` and `fn.CASTLE_PATCHED` (the building-shader anchors the castle patch found).
 
 ## Architecture
@@ -101,6 +103,9 @@ The harness lives in `tools/`:
 |---|---|
 | `00_util.js` | Maths, noise and random helpers |
 | `01_world.js` | World layout (realms, sites, lakes, navigation graph), heightfield, masks, colliders (`COLL`, `addBox`), `heightAt` / `isWalkable` / `zoneAt` |
+| `01b_water.js` | Where the water stands: a river per realm carved down its valley into its lake (`RIVERS`), ponds in the closed hollows (a priority flood; other hollows are filled, so there are no dry pond beds; `PONDS`), `WATERGRID` (surface, flow and white water per 2 m texel), `waterAt(x, z)`, deep water in `W.walk` (2), `swimPassable`, `deepWaterAt`, `riverAt` |
+| `02c_water_map.js` | The water map every shader can read (`GLSL_WATER_MAP`: `waterMapAt`, `rippleAt`, `causticNet`); the ground under and beside the water (`GLSL_WATER_GROUND`, called by the terrain shader: bed of sand, silt or gravel with a wobble, caustics, beach, the wet band the waves lap); the ripple simulation round the player (`stepRipples`, `rippleDrop`: high 256², medium 128², low off) |
+| `03b_water.js` | The water surface: one mesh over every lake, pond and river at its own heights (no overlaps), see-through with absorption by depth, flow-mapped waves downstream, white water where rivers fall, shore foam, sky, clouds and far shore mirrored, rain rings and the ripple field |
 | `02_render.js` | Renderer, `QUALITY_PRESETS`, shared uniforms `U`, `mat()` / `shareMat()`, GLSL chunks, sky, post-processing (bloom, light shafts) |
 | `02b_nature_map.js` | The nature map: one texel per metre over the whole land for cut, burnt, burning and dug-up ground, uploaded to the GPU only where it changed |
 | `03_terrain.js` | Terrain, water, grass, flowers, trails, decals |
@@ -126,6 +131,7 @@ The harness lives in `tools/`:
 | `06d_goods.js` | Goods: everything carried that is not gear (materials, food, drink, seeds, herbs, tools, building parts), kept by count in `INV.goods`, listed in the bags, dropped and picked up like loot, saved with the character. The shared catalogue of ids every system uses (`log`, `plank`, `stone`, `iron`, `hide`, `wool`, `meat_raw`, `bread`, `water`, `herb_*`, `seed_*`, `tool_*` …). Save parts: `registerSavePart('char' or 'world', key, { save, load, key })` |
 | `06c_gifts.js` | Realm gifts: two passives per realm unlocked by realm rank (Logres Steadfast Lines and Unbroken, Ériu Wood-wise and Rain-blest, Thule Cold-blooded and Wound-fury) and a realm ultimate at realm rank 5 or level 30 (the Raised Standard, the Grey Hunt, the Iron Winter) on key 9, the round gift button and the phone pad; champions (keep lords, warband leaders) call it in big fights; the Chronicle's gifts page. Hooks: `dealDamage` asks `giftHarmMult`, `addBuff` asks `giftBuffAdjust`, `effectiveSpeed` asks `giftSpeedMult`; `buildHotbar` calls `giftHotbar`, `simStep` `updateGifts`, `tick` `drawGifts`, `startGame` `giftsOnStart` |
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
+| `07b_swim.js` | Bodies in water: wading (slower with depth, splashes and rings each step), swimming from chest depth (`waterFloorY`, `swimDims`, `waterSpeedMult`, `swimAllowed`), the current carrying swimmers, no casting or shooting and no horse in deep water, fire put out, gear soaked to the waterline (`waterlinePack`), splashes (`splashAt`), drinking, filling a waterskin and washing at any water (`waterOffers`), the sound of rivers, the Chronicle's water page (`chronWater`), `waterHelp`, test hooks (`__hm.water`) |
 | `08_ai.js` | Monsters, garrisons, warbands, realm commanders, relics; `WAR` state |
 | `08b_wildlife.js` | Deer, birds, bats, butterflies |
 | `08c_dragon.js`, `08d_dragon_ai.js` | Cinderwing: the model and its behaviour |
@@ -164,6 +170,12 @@ The harness lives in `tools/`:
 - `meadowHeight` sets the turf height (short sward, taller stands, long in fields, trimmed by roads); flower heads ride on it. `GRASS_SEGS` gives each quality its bends per blade layer: medium and low spend their vertices on more, simpler blades.
 - Fog is exponential height fog (`applyFog`): as thick as before at the camera's height, thinner up the slopes.
 - The final composite grades by time of day: the `gSat` (vibrance), `gCon` (contrast about the mid tones) and `gWarm` keys in `TOD_KEYS`.
+
+**Water**
+- `waterAt(x, z)` gives `{ y, depth, fx, fz }` (surface, depth over the ground, flow in m/s) or null. Lakes stand at `WATER_Y`; rivers fall along their course; ponds stand in their hollows at their own heights. Use it, never `WATER_Y`, to ask about water.
+- `W.walk` is 0 walkable, 1 blocked, 2 deep water. `isWalkable` stays `=== 0`; `stepTo` uses `swimPassable` for a body with `e.swimOK` (the player always; people and beasts chasing something or getting out; never townsfolk or posted guards).
+- A body in water has `e.wd` (depth), `e.wadeK`, `e.swim`, `e.swimK` (0..1, for the shaders), `e.wl` (how high it is soaked). `groundY` and the player float swimmers through `waterFloorY`. The actor shaders get swimming as a negative `iAnim.w` (death stays positive) and the soaked height in whole 5 cm steps of `iWear.x` (the fraction is the wetness).
+- Anything that should ring the water calls `rippleDrop(x, z, r, depth)` or `splashAt(x, z, size)`; spells that leave an AoE mark on water splash by themselves.
 
 **Buildings**
 - Buildings are merged geometry with a per-vertex material id (`MAT` in `04_props.js`: stone 0 … rock 15, drystone 16).
@@ -259,7 +271,7 @@ The harness lives in `tools/`:
 | 12 | Animation: foot-locked gaits for people and beasts, Cinderwing's flight | In progress (version 7) |
 | 13 | No clipping: cover map, props and logs clear of walls, temple dais floors | In progress (version 7) |
 | 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | In progress (version 7) |
-| 15 | Water: swimming, wading, rivers with currents, splashes and ripples, drinking | Next |
+| 15 | Water: swimming, wading, rivers with currents, ponds, splashes and ripples, drinking, waterskins | Done (feature/water). Left: diving under, frozen lakes in Thule, boats |
 | 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Planned |
 | 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Planned |
 | 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Planned |

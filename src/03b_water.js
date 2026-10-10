@@ -100,7 +100,7 @@ const waterMat = mat({
       float path = max(depth, 0.0) / max(V.y, 0.07);
       float murk = mix(0.62, 0.42, run);           // still water is darker and greener than running water
       float T = exp(-path * murk);                   // how much of the bed shows
-      vec3 deep = mix(vec3(0.012, 0.055, 0.06), vec3(0.03, 0.085, 0.085), run) * lit;
+      vec3 deep = mix(vec3(0.03, 0.09, 0.1), vec3(0.05, 0.12, 0.12), run) * lit;
       vec3 shallowTint = vec3(0.1, 0.19, 0.15) * lit;
       vec3 body = mix(shallowTint, deep, smoothstep(0.0, 2.2, path));
       // light scattered up from just under a sunlit surface, a little green-gold in the shallows

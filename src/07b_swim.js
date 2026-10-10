@@ -89,14 +89,14 @@ function splashAt(x, z, size = 1, opts = {}) {
   const c = [A.x * 0.85 + L.x * 0.45, A.y * 0.85 + L.y * 0.45, A.z * 0.85 + L.z * 0.5];
   const near = dist2(x, z, camera.position.x, camera.position.z) < 70 * 70;
   if (near) {
-    const n = Math.round(4 + 12 * size);
+    const n = Math.round(6 + 14 * size);
     for (let i = 0; i < n; i++) {
       const a = Math.random() * TAU, s = (0.3 + Math.random() * 0.9) * (0.5 + 0.5 * size);
-      fxAlpha.emit(x + Math.cos(a) * 0.15 * size, y, z + Math.sin(a) * 0.15 * size, Math.cos(a) * s * 0.7 + (opts.vx || 0), (0.8 + Math.random() * 1.6) * Math.sqrt(size + 0.2) * (opts.up || 1), Math.sin(a) * s * 0.7 + (opts.vz || 0), 0.45 + 0.25 * size, c[0], c[1], c[2], 0.04 + 0.03 * size, 9, 0);
+      fxAlpha.emit(x + Math.cos(a) * 0.15 * size, y, z + Math.sin(a) * 0.15 * size, Math.cos(a) * s * 0.7 + (opts.vx || 0), (0.8 + Math.random() * 1.6) * Math.sqrt(size + 0.2) * (opts.up || 1), Math.sin(a) * s * 0.7 + (opts.vz || 0), 0.45 + 0.25 * size, c[0], c[1], c[2], 0.07 + 0.05 * size, 9, 0);
     }
-    if (size >= 0.6) FX.ring(x, y + 0.03, z, 0.12 * size, [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45], Math.round(10 + 10 * size), 0.7 + 0.5 * size);
+    if (size >= 0.3) FX.ring(x, y + 0.03, z, 0.12 * size, [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45], Math.round(8 + 12 * size), 0.5 + 0.7 * size);
   }
-  rippleDrop(x, z, 0.35 + 0.45 * size, 0.012 * size + 0.004);
+  rippleDrop(x, z, 0.35 + 0.45 * size, 0.02 * size + 0.006);
   return true;
 }
 // steam where fire meets water
@@ -142,6 +142,8 @@ function updateWater(dt) {
     e.swim = e.alive && (w.depth > D.start || (was && w.depth > D.stop));
     e.wadeK = e.swim ? 1 : clamp((Math.min(w.depth, bodyDepth + 0.05) - 0.18 * sc) / (D.wade - 0.18 * sc), 0, 1);
     e.wl = Math.max(Math.max(0, (e.wl || 0) - dt * 0.006), Math.min(bodyDepth, 2 * sc));
+    // wading splashes the rest of the body a little
+    if (!e.swim && e.wadeK > 0 && e.anim) e.wet = Math.max(e.wet || 0, Math.min(0.45, (e.wet || 0) + dt * 0.03 * e.wadeK * Math.min(1, e.anim.amt)));
     e.swimK = clamp((e.swimK || 0) + (e.swim ? dt * 2.5 : -dt * 3), 0, 1);
     e.swimOK = e.alive ? swimAllowed(e) : false;
     if (!e.alive) continue;
@@ -194,7 +196,7 @@ function updateWater(dt) {
           if (e === P) sfx('swim');
         }
         e._wakeT = (e._wakeT || 0) - dt;
-        if (e._wakeT <= 0) { e._wakeT = 0.12; rippleDrop(e.x, e.z, 0.55 * sc, 0.002 + 0.01 * Math.min(1, rel / 2.5)); }
+        if (e._wakeT <= 0) { e._wakeT = 0.12; rippleDrop(e.x, e.z, 0.55 * sc, 0.005 + 0.018 * Math.min(1, rel / 2.5)); }
       } else if (w.depth > 0.08 && e.wadeK >= 0 && e.y < w.y) {
         const step = Math.floor(e.anim.phase / Math.PI);
         if (e._wStep !== undefined && step !== e._wStep && e.anim.amt > 0.08) {
@@ -203,7 +205,7 @@ function updateWater(dt) {
           if (e === P) sfx('wade');
         }
         e._wStep = step;
-        if (e.anim.amt > 0.05) { e._wakeT = (e._wakeT || 0) - dt; if (e._wakeT <= 0) { e._wakeT = 0.16; rippleDrop(e.x, e.z, 0.4 * sc, 0.003 + 0.006 * Math.min(1, w.depth)); } }
+        if (e.anim.amt > 0.05) { e._wakeT = (e._wakeT || 0) - dt; if (e._wakeT <= 0) { e._wakeT = 0.16; rippleDrop(e.x, e.z, 0.4 * sc, 0.006 + 0.012 * Math.min(1, w.depth)); } }
       }
     }
     if (!e.swim && was && e === P) SWIM.leftAt = GAME.t;

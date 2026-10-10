@@ -189,7 +189,7 @@ function findPonds(H, surf) {
   for (const t of W.trees) mark(t.x, t.z, 1.5, 2);
   for (const r of W.rocks) mark(r.x, r.z, 0.8 + r.s, 2);
   for (const s of W.stones || []) mark(s.x, s.z, 1.5, 2);
-  for (const c of W.camps || []) mark(c.x, c.z, 18, 1);
+  for (const c of W.camps || []) mark(c.x, c.z, 18, 2); // camps are pitched later, on whatever ground there is
   for (const S of SITES) mark(S.x, S.z, S.r + S.f + (S.kind === 'town' ? 34 : 8), 1);
   for (const c of COLL.boxes) if (c.tag !== 'tree' && c.tag !== 'rock' && c.tag !== 'stone') mark(c.x, c.z, Math.max(c.hx, c.hz) + 2, 1);
   mark(0, 0, 60, 1); // the Lone Tree's hill and the barrow
