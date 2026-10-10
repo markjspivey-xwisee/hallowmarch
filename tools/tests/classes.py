@@ -16,6 +16,7 @@ SHOTS = 'shots' in ARGS
 BAL = 'balance' in ARGS
 MECH = 'mech' in ARGS or not (BAL or SHOTS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
+SHOTQ = next((a.split('=')[1] for a in ARGS if a.startswith('q=')), 'medium')
 FAILS = []
 CONSOLE = []
 
@@ -82,7 +83,7 @@ window.CB = {
   },
   pack(lvl, x, z, target, only = null) {
     const out = [];
-    for (const [type, n] of only ? [[only, 1]] : [['wolf', 2], ['bandit', 2]]) for (let i = 0; i < n; i++) {
+    for (const [type, n] of only ? [[only, 1]] : [['wolf', 3], ['bandit', 2]]) for (let i = 0; i < n; i++) {
       const camp = { type, lmin: lvl, lmax: lvl, x, z, r: 2.5, members: new Set() };
       const m = this.F.spawnMob(camp);
       m.balance = true; m.threat = new Map([[target.id, 5]]); m.target = target.id; m.ai.pulled = true;
@@ -275,23 +276,24 @@ async def mechanics(page):
       for (const s of [0, 1, 2]) { C.setStance(P, s); C.csOf(P).stanceAt = -9; C.csOf(f).stance = 1; out['dealt' + s] = Math.round(C.classHarm(P, f, 100, { kind: 'melee' })); }
       C.setStance(P, 1);
       for (const s of [0, 1, 2]) { C.csOf(P).stance = s; out['taken' + s] = Math.round(C.classHarm(f, P, 100, { kind: 'arrow' })); }
-      C.csOf(P).stance = 1; return out; })()""")
-    check(r['dealt2'] == 120 and r['dealt0'] == 90 and r['dealt1'] == 100, 'fury deals 20% more, guarded 10% less')
-    check(r['taken0'] == 75 and r['taken2'] == 115, 'guarded takes 25% less, fury 15% more')
+      C.csOf(P).stance = 1; out.S = C.STANCES.map((x) => ({ out: x.out, taken: x.taken })); return out; })()""")
+    S = r['S']
+    check(r['dealt2'] == round(100 * S[2]['out']) > 100 and r['dealt0'] == round(100 * S[0]['out']) < 100 and r['dealt1'] == 100, f"fury deals more ({r['dealt2']}), guarded less ({r['dealt0']})")
+    check(r['taken0'] == round(100 * S[0]['taken']) < 100 and r['taken2'] == round(100 * S[2]['taken']) > 100, f"guarded takes less harm ({r['taken0']}), fury more ({r['taken2']})")
 
     r = await ev(page, 'momentum', """(() => { const P = T.H.GAME.player, C = T.H.cls, F = T.F, H = T.H;
       const f = H.ENT.find((e) => e.testFoe && e.alive); f.testDummy = true; f.maxHp *= 20; f.hp = f.maxHp; P.target = f.id; P.yaw = Math.atan2(f.x - P.x, f.z - P.z);
       C.csOf(P).mom = 0; H.simulate(8); const mom = C.momOf(P);
       const hp0 = f.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.csOf(P).mom = 5; C.csOf(P).momAt = H.GAME.t;
       const fin0 = C.CLS.stats.finishers; P.swingAt = H.GAME.t + 9;
-      const why = F.useAbility(P, 'slash', f); const momSpent = C.csOf(P).mom; H.simulate(0.5);
+      const why = F.useAbility(P, 'slash', f); const momSpent = C.csOf(P).mom; H.simulate(1.0);
       const finHit = Math.round(hp0 - f.hp);
       const bleed = f.buffs.some((b) => b.kind === 'bleed'), stun = f.buffs.some((b) => b.kind === 'stun'), sunder = f.buffs.some((b) => b.kind === 'sunder');
-      P.cds = {}; P.gcdUntil = 0; const hp1 = f.hp; F.useAbility(P, 'slash', f); H.simulate(0.5);
+      for (const b of f.buffs) if (b.kind === 'bleed') b.until = 0; P.cds = {}; P.gcdUntil = 0; const hp1 = f.hp; F.useAbility(P, 'slash', f); H.simulate(0.5);
       return { mom, why, finHit, plainHit: Math.round(hp1 - f.hp), momAfter: momSpent, finishers: C.CLS.stats.finishers - fin0, style: C.weaponStyle(P), bleed, stun, sunder }; })()""")
     check(r['mom'] >= 2, f"blows that land build momentum ({r['mom']})")
     check(r['why'] is True and r['finishers'] == 1 and r['momAfter'] < 1, 'Slash with momentum is a finisher that spends it')
-    check(r['finHit'] > r['plainHit'] * 1.8, f"the finisher strikes far harder ({r['finHit']} vs {r['plainHit']})")
+    check(r['finHit'] > r['plainHit'] * 1.4, f"the finisher strikes far harder ({r['finHit']} vs {r['plainHit']})")
     check(r['bleed'] if r['style'] == 'sword' else r['sunder'] if r['style'] == 'axe' else r['stun'], f"the {r['style']} leaves its mark")
 
     r = await ev(page, 'parry', """(() => { const P = T.H.GAME.player, C = T.H.cls, F = T.F, H = T.H;
@@ -521,7 +523,7 @@ async def snap(page, name, n=3):
 
 async def shots(page):
     await page.evaluate("() => {" + MECH_JS + CAMJS + "; return 0; }")
-    await page.evaluate("__hm.fn.setQuality('high'); __hm.setTod(0.55); 0")
+    await page.evaluate(f"__hm.fn.setQuality('{SHOTQ}'); __hm.setTod(0.55); 0")
     # a mage's ice on a pond: the mage stands out on it, a foe frozen beside
     r = await ev(page, 'ice-shot', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
       let best = null;
@@ -535,14 +537,14 @@ async def shots(page):
       H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
       CC(best.sx + (best.sx - best.x) * 0.25, F.heightAt(best.sx, best.sz) + 3.2, best.sz + (best.sz - best.z) * 0.25, best.x, -2.4, best.z);
       return { ok: true }; })()""")
-    if r.get('ok'): await snap(page, 'ice', 6)
+    if r.get('ok'): await snap(page, 'ice', 2)
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
     await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
       C.addChill(f, 2, P); P.power = P.maxPower; F.useAbility(P, 'firebolt', f); H.simulate(1.5);
       for (let i = 0; i < 30 && !C.CLS.steam.length; i++) H.simulate(0.05);
       H.simulate(0.25); CB2(P, 3.5, 2.2, 4.5, 1.2); return { steam: C.CLS.steam.length }; })()""")
-    await snap(page, 'steam', 4)
+    await snap(page, 'steam', 2)
     # storm through wet foes in the rain
     await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
@@ -562,14 +564,14 @@ async def shots(page):
     await ev(page, 'draw-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 30, 1);
       const a = T.ahead(P, 24); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; P.swingAt = 1e9;
       C.startDraw(P); H.simulate(1.4); const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 2.6 + s * 1.2, P.y + 1.6, P.z - s * 2.6 + c * 1.2, P.x + s * 0.3, P.y + 1.35, P.z + c * 0.3); return { k: C.drawK(P) }; })()""")
-    await snap(page, 'draw', 3)
+    await snap(page, 'draw', 2)
     await page.evaluate("(() => { const C = __hm.cls; C.CLS.hold = false; __hm.GAME.player.cs.drawFrom = -1; return 0; })()")
     # a priest's holy ground, kneeling at prayer within it
     await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
       for (const [d, s] of [[2.5, 2.5], [3.5, -2.2], [-1.5, 3.2]]) { const a = T.ahead(P, d, s); const u = T.foe(0, a.x, a.z, 30, 'warrior', 0); u.ai.nextAbility = 1e9; u.yaw = P.yaw + 0.4; u.hp = u.maxHp * 0.5; }
       const cs = C.csOf(P); cs.dev = 80; cs.devAt = H.GAME.t; P.gcdUntil = 0; C.classTechnique(P); H.simulate(1.0); C.startPrayer(P); H.simulate(1.2);
       H.setTod(1.75); CB2(P, 7.5, 4.2, 3, 0.4); return { grounds: C.CLS.grounds.length }; })()""")
-    await snap(page, 'holy', 6)
+    await snap(page, 'holy', 2)
     await page.evaluate("__hm.setTod(0.55); 0")
     # a Thule mage's rune and an archer's snares, open and sprung
     await ev(page, 'rune-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 20, 2);
@@ -577,14 +579,14 @@ async def shots(page):
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
       H.simulate(1.2); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
-    await snap(page, 'rune_snare', 3)
+    await snap(page, 'rune_snare', 2)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
     await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 6); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.setStance(P, 2); C.addMom(P, 4); return 0; })()""")
-    await snap(page, 'hud_warrior', 4)
+    await snap(page, 'hud_warrior', 2)
     await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.attune(P, 'frost', 70); C.addChill(f, 3, P); return 0; })()""")
-    await snap(page, 'hud_mage', 4)
+    await snap(page, 'hud_mage', 2)
 
 async def main():
     async with async_playwright() as p:

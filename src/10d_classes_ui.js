@@ -117,6 +117,7 @@ function classHUD(dt) {
   }
   const t = getEnt(P.target);
   const foe = t && t.alive && isEnemy(P, t) ? t : null;
+  if (P.cls !== 'archer' && document.body.classList.contains('cls-hidden')) document.body.classList.remove('cls-hidden');
   if (P.cls === 'warrior') {
     const m = momOf(P);
     el.querySelectorAll('.cls-mom i').forEach((i, n) => { i.classList.toggle('on', m >= n + 1); i.classList.toggle('part', m > n && m < n + 1); });

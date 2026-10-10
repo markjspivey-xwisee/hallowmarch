@@ -61,7 +61,7 @@ const CLASS_REALM = {
   ],
   mage: [
     { name: 'Court wardcraft', text: 'Your wards are a quarter stronger and also shield every ally within 8 m for half as much.' },
-    { name: 'Weather-calling', text: 'In rain or storm your storm spells strike 25% harder and Chain Lightning calls a real bolt down on its first foe. Frost chills wet foes twice over.' },
+    { name: 'Weather-calling', text: 'In rain or storm your storm spells strike 25% harder and Chain Lightning calls a real bolt down on its first foe. Frost chills wet foes twice over, and brambles break through your frost nova to hold foes a second longer.' },
     { name: 'Rune magic', text: 'Every Blink lays a rune of your focus where you stood, and Blizzard leaves a frost rune behind: runes burst when a foe steps on them.' },
   ],
   priest: [
@@ -225,7 +225,11 @@ function classHarm(src, dst, amount, opts) {
   const el = opts.elem || (opts.kind === 'fire' || opts.kind === 'ember' ? 'fire' : opts.kind === 'frost' || opts.kind === 'ice' || opts.kind === 'rime' ? 'frost' : opts.kind === 'shock' || opts.kind === 'spark' ? 'storm' : null);
   if (el && src && !opts.noReact) m *= elementReact(src, dst, el, opts);
   else if (src && !opts.dot && !opts.auto && frozenOf(dst) && (opts.kind === 'melee' || opts.kind === 'arrow')) m *= shatter(src, dst, 1.6, opts);
-  // the defender's calling: stance, wards, the shield
+  // the defender's calling: an archer's light feet, a warrior's stance and shield, wards
+  if (dst.cls === 'archer' && opts.kind === 'melee' && !opts.dot && src && src !== dst && !isStunned(dst) && Math.random() < 0.15) {
+    if (dst === GAME.player || src === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Dodged', 'miss');
+    return 0;
+  }
   if (dst.cs && dst.cls === 'warrior') {
     const cs = dst.cs;
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
@@ -288,7 +292,7 @@ function addChill(e, n, src) {
   const boss = e.role === 'boss' || e.role === 'dungeonBoss' || GAME.t < (e._thawUntil || 0);
   if (cur >= 3 && !boss && !frozenOf(e)) {
     dropBuffs(e, ['chill']);
-    const dur = e.role === 'player' ? 1.6 : e.elite ? 1.5 : 2.0;
+    const dur = e.role === 'player' ? 1.5 : e.elite ? 1.4 : 1.7;
     e._thawUntil = GAME.t + dur + 5;
     addBuff(e, 'frozen', 1, dur, 'frozen');
     addBuff(e, 'stun', 1, dur, 'frozen');
@@ -559,7 +563,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.3 * att / 100;
+  const emp = 1 + 0.22 * att / 100;
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }
@@ -577,7 +581,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.75 : 1); // a priest's own wounds mend more slowly than another's
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? 0.6 : 1); // a priest's own wounds mend more slowly than another's
   if (A.hot) view().hot = [A.hot[0] * hm, A.hot[1]];
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
@@ -603,7 +607,7 @@ function blessing(e, f) {
 
 /* ---- custom casts: the frost nova, the thunderclap, element wards and blinks, the storm chain ---- */
 function frostNova(e, A, t, cast, rk) {
-  const R = A.pbaoe;
+  const R = A.pbaoe, eriuGrowth = realmFlavour(e) && e.faction === 1;
   FX.ring(e.x, e.y + 0.4, e.z, R, [0.9, 1.4, 2.4], 64, R * 1.3);
   iceBurst(e.x, e.y + 0.6, e.z, 1.4);
   spellDisc(e.x, e.z, R, DISC_KIND.frost, 4, [0.55, 0.8, 1.2]);
@@ -612,7 +616,9 @@ function frostNova(e, A, t, cast, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
     const r = computeDamage(e, o, A.dmg * rk * 0.7);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'frost', chill: 1 });
-    if (o.alive) addBuff(o, 'root', 1, A.root, e.id);
+    if (o.alive) addBuff(o, 'root', 1, A.root - 0.5 + (eriuGrowth ? 1 : 0), e.id);
+    // Eriu: brambles break through the frost and hold the foe a moment longer
+    if (eriuGrowth && o.alive && dist2(o.x, o.z, camera.position.x, camera.position.z) < 60 * 60) for (let q = 0; q < 10; q++) { const a = Math.random() * TAU; fxAlpha.emit(o.x + Math.cos(a) * 0.4, o.y + 0.05, o.z + Math.sin(a) * 0.4, Math.cos(a) * 0.3, 1.2 + Math.random(), Math.sin(a) * 0.3, 0.8, 0.16, 0.3, 0.1, 0.07, 3, 1); }
   });
   frostLands(e.x, e.z, R, e);
   sfx('frost'); classSfx('freeze', e.x, e.z);
@@ -1194,7 +1200,7 @@ function classNpc(e, t) {
     if (t && t.alive) {
       if (clsHas(e, 'arrows')) cs.arrow = t.cls === 'warrior' || t.drBase >= 0.1 ? 'bodkin' : t.kind !== 'humanoid' ? 'broadhead' : t.casting || UNDEAD.has(t.mobType) ? 'blunt' : wetOf(t) < 0.3 && rainHere(e) < 0.2 ? 'fire' : 'broadhead';
       const d = dist(e.x, e.z, t.x, t.z);
-      if (clsHas(e, 'snare') && d < 7 && !t.rangedKind && !canUse(e, 'snare', null) && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 25)) { useAbility(e, 'snare', null); return true; }
+      if (clsHas(e, 'snare') && d < 11 && !t.rangedKind && t.target === e.id && !canUse(e, 'snare', null) && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 25)) { e.yaw = Math.atan2(t.x - e.x, t.z - e.z); useAbility(e, 'snare', null); return true; }
       // a blade at the throat: no long draws or slow shots, but a leap back, a snare or a quick shot
       const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id);
       if (pressed) {
