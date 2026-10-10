@@ -34,6 +34,7 @@ const REALM_BREEDS = [{ sheep: [1, 1, 0], cattle: [0, 0, 3] }, { sheep: [0, 0, 3
 const PET_NAMES = ['Brindle', 'Ash', 'Moss', 'Fennick', 'Sorrel', 'Tansy', 'Bracken', 'Wren', 'Hollin', 'Rook', 'Thistle', 'Burdock', 'Nettle', 'Clover', 'Sloe', 'Juniper', 'Fern', 'Hazel', 'Rowan', 'Pip', 'Dun', 'Blossom', 'Corrie', 'Tarn', 'Gorse', 'Heather', 'Oatcake', 'Bramble', 'Dapple', 'Smudge', 'Kestrel', 'Merry', 'Biddy', 'Tuppence', 'Grizzle', 'Hob'];
 const PAT_NAMES = ['plain', 'patched', 'dappled', 'belted'];
 registerGood('manure', { name: 'Basket of manure', plural: 'Baskets of manure', kind: 'material', icon: 'seed', value: 1, desc: 'Mucked out of a paddock. It feeds the fields.' });
+registerGood('feed', { name: 'Sack of feed', plural: 'Sacks of feed', kind: 'material', icon: 'grain', value: 3, desc: 'Oats, beans and chopped hay for stock. Fills a paddock\'s rack for days.' });
 registerGood('fence_kit', { name: 'Fence kit', kind: 'part', icon: 'hammer', value: 30, desc: 'Posts, rails, a gate, a trough and boards for a shed: everything for one paddock.' });
 const ANIMALS = { list: [], pens: [], trust: new Map(), trail: [], nextAid: 1, nextPen: 1, marking: null, sel: null, uiT: 0, lastSave: '', down: [], hearts: [], lastFeedMsg: 0, inited: false, doors: [] };
 
@@ -601,6 +602,8 @@ function anStartle(e, x, z) {
   if (GAME.t < (ai.calmAt || 0)) return;
   const a = Math.atan2(e.x - x, e.z - z) + (Math.random() - 0.5) * 0.8;
   ai.flee = { x: e.x + Math.sin(a) * 14, z: e.z + Math.cos(a) * 14, until: GAME.t + 2.5 + Math.random() * 1.5 };
+  const pen = e.tame && e.tame.cmd === 'pen' && penById(e.tame.pen);
+  if (pen) { const l = penLocal(pen, ai.flee.x, ai.flee.z), q = penWorld(pen, clamp(l.x, -pen.hw + 1.2, pen.hw - 1.2), clamp(l.z, -pen.hd + 1.2, pen.hd - 1.2)); ai.flee.x = q.x; ai.flee.z = q.z; }
   ai.calmAt = GAME.t + 1.2;
   setAct(e, 5, 1.0);
   if (e.tame && Math.random() < 0.5) anVoice(e.tame.k, e);
@@ -664,7 +667,7 @@ function anLeavePen(e, dt, mul, keep = null) {
 // livestock in a pen: food and water at the trough and the rack, shelter in the shed when it storms or snows
 function anPenThink(e, dt) {
   const rec = e.tame, ai = e.ai, pen = penById(rec.pen);
-  if (ai.flee && GAME.t < ai.flee.until) { if (pen && !penHas(pen, ai.flee.x, ai.flee.z, 1)) ai.flee = null; else { moveToward(e, ai.flee.x, ai.flee.z, dt, 0.7, 0.5); return; } }
+  if (ai.flee && GAME.t < ai.flee.until) { if (pen && !penHas(pen, ai.flee.x, ai.flee.z, 0.5)) ai.flee = null; else { moveToward(e, ai.flee.x, ai.flee.z, dt, 0.7, 0.5); return; } }
   if (!pen) { rec.cmd = 'stay'; rec.stay = { x: e.x, z: e.z }; return; }
   const mom = anMother(e);
   // outside the pen (just bought, led in, or pushed out): back in through the gate
@@ -849,6 +852,12 @@ function anClock(e, dt) {
       rec.prod.egg += dt * k / 240;
       if (rec.prod.egg >= 1) { rec.prod.egg = 0; if (rec.owner === 'player') anLay(e); }
     }
+  }
+  // a pig at your heels roots out mushrooms under the trees
+  if (rec.k === 'pig' && rec.owner === 'player' && rec.cmd === 'follow' && anAdult(rec) && window.__hm.visual && window.__hm.visual.canopy && Math.random() < dt * 0.006 * rec.tr.yield && window.__hm.visual.canopy(e.x, e.z) > 0.3) {
+    dropGood('mushrooms', 1 + (Math.random() < 0.3 ? 1 : 0), e.x, e.z);
+    setAct(e, 7, 2.5);
+    if (Math.random() < 0.5) uiLog(`${rec.name} roots out mushrooms.`, 'loot');
   }
   // manure in the pen
   if (pen && rec.cmd === 'pen' && penHas(pen, e.x, e.z)) pen.manure = Math.min(20, pen.manure + dt * (rec.k === 'cattle' ? 1 / 150 : rec.k === 'hen' ? 1 / 900 : 1 / 300));
@@ -1137,11 +1146,11 @@ function openHerder(pen) {
     body += `<div class="an-row"><span>A grown ${AKIND[k][sex]}</span><em>${price} gold</em></div>`;
     acts.push([`Buy a ${AKIND[k][sex]} (${price})`, () => { if (anBuy(k, sex, pen, price)) openHerder(pen); }]);
   }
-  for (const [id, n, price] of [['tool_shears', 1, 8], ['grain', 5, 5], ['fence_kit', 1, 30]]) {
+  for (const [id, n, price] of [['tool_shears', 1, 8], ['feed', 3, 6], ['fence_kit', 1, 30]]) {
     body += `<div class="an-row"><span>${n > 1 ? n + ' ' : ''}${goodName(id, n)}</span><em>${price} gold</em></div>`;
     acts.push([`Buy ${goodName(id, n).toLowerCase()} (${price})`, () => { if (spendGold(price)) { goodsAdd(id, n); openHerder(pen); } else uiError('Not enough gold'); }]);
   }
-  body += `</div><p class="fineprint">You have ${fmtInt(INV.gold)} gold. Grain feeds stock in winter; shears take the fleece; a fence kit builds a paddock anywhere you like.</p>`;
+  body += `</div><p class="fineprint">You have ${fmtInt(INV.gold)} gold. Feed fills a paddock's rack when there is no grazing; shears take the fleece; a fence kit builds a paddock anywhere you like.</p>`;
   acts.push(['Close', anCloseDialog]);
   anDialog('The herder\'s board', body, acts);
 }
@@ -1164,8 +1173,8 @@ function openPen(pen) {
   body += anBar('Feed', pen.feed, 12, `${Math.round(pen.feed)}`) + anBar('Water', pen.water, 12, `${Math.round(pen.water)}`, 'blue') + anBar('Manure', pen.manure, 20, `${Math.floor(pen.manure)}`);
   body += `<p class="fineprint">${anPenGrass(pen) > 0.3 ? 'There is grazing here.' : 'There is little grazing: fill the rack.'} ${pen._wNear ? 'Water comes from the pond nearby.' : 'Rain and your waterskins fill the trough.'} The shed at the back gives shelter from snow and storm.</p>`;
   const acts = [];
-  const feedIds = ['grain', 'turnip', 'cabbage', 'apple'].filter((id) => goodsHave(id));
-  if (feedIds.length) acts.push([`Fill the rack (${goodName(feedIds[0], 2).toLowerCase()})`, () => { const n = Math.min(goodsCount(feedIds[0]), 5); goodsTake(feedIds[0], n); pen.feed = Math.min(30, pen.feed + n * 2.5); openPen(pen); }, 'primary']);
+  const feedIds = ['feed', 'grain', 'turnip', 'cabbage', 'apple'].filter((id) => goodsHave(id));
+  if (feedIds.length) acts.push([`Fill the rack (${goodName(feedIds[0], 2).toLowerCase()})`, () => { const id = feedIds[0], n = Math.min(goodsCount(id), id === 'feed' ? 3 : 5); goodsTake(id, n); pen.feed = Math.min(30, pen.feed + n * (id === 'feed' ? 8 : 2.5)); openPen(pen); }, 'primary']);
   if (goodsHave('water')) acts.push(['Fill the trough', () => { const n = Math.min(goodsCount('water'), 4); goodsTake('water', n); pen.water = Math.min(30, pen.water + n * 3); openPen(pen); }]);
   if (pen.manure >= 1) acts.push([`Muck out (+${Math.floor(pen.manure)} manure)`, () => { const n = Math.floor(pen.manure); if (goodsAdd('manure', n)) pen.manure -= n; openPen(pen); }]);
   acts.push(['Close', anCloseDialog]);
@@ -1294,6 +1303,17 @@ function drawAnimals(dt) {
       const p = penWorld(pen, lx, lz);
       glowPush(p.x, heightAt(p.x, p.z) + 0.5, p.z, col[0], col[1], col[2], 0.35);
     }
+  }
+  if (WEATHER.flash > 0.9 && !ANIMALS.flashSeen) {
+    ANIMALS.flashSeen = true;
+    const cx = camera.position.x, cz = camera.position.z;
+    for (const e of ANIMALS.list) if (e.alive && e.tame && e.tame.k !== 'hound' && dist2(e.x, e.z, cx, cz) < 70 * 70 && Math.random() < 0.8 - 0.5 * e.tame.tr.calm) later(Math.random() * 0.8, () => { if (e.alive) anStartle(e, e.x + (Math.random() - 0.5) * 6, e.z + (Math.random() - 0.5) * 6); });
+  } else if (WEATHER.flash < 0.5) ANIMALS.flashSeen = false;
+  ANIMALS.voiceT = (ANIMALS.voiceT ?? 3) - dt;
+  if (ANIMALS.voiceT < 0 && GAME.started) {
+    ANIMALS.voiceT = 3 + Math.random() * 7;
+    const cx = camera.position.x, cz = camera.position.z, near = ANIMALS.list.filter((e) => e.alive && e.tame && dist2(e.x, e.z, cx, cz) < 30 * 30);
+    if (near.length) { const e = near[Math.floor(Math.random() * near.length)]; if (e.tame.k !== 'horse' || Math.random() < 0.2) anVoice(e.tame.k, e); }
   }
   anUpdateUI(dt);
 }
@@ -1431,9 +1451,9 @@ function chronAnimals() {
   const mine = GAME.player ? anMine() : [];
   return `<p class="lead">The wild things of the March can be won over, and the folk of every town keep sheep, cattle and hens on the common.</p>
     <h3>Taming</h3><p>Walk up to a wolf, a boar, a wild horse or a deer calmly, on foot and out of any fight, and stand still a moment until it settles. Then offer it the food it likes with E: <b>meat</b> for wolves; <b>grain, apples or roots</b> for boars, horses and deer. Each feeding builds its trust; a wolf needs four, a boar three, a horse four (more if it is wild-hearted). Sprint or ride at it and it takes fright and trusts you less; strike it and its trust is gone.</p>
-    <p>A tamed wolf becomes a <b>hound</b> that fights beside you and grows bolder (its bond level) with every foe it brings down. A boar becomes a <b>pig</b>, a deer a gentle companion, and a wild horse <b>your own mount</b>: R swings you up when it is near, or whistles it to you, and it keeps its own coat and pace.</p>
+    <p>A tamed wolf becomes a <b>hound</b> that fights beside you and grows bolder (its bond level) with every foe it brings down. A boar becomes a <b>pig</b> that roots out mushrooms when you walk it through the woods, a deer a gentle companion, and a wild horse <b>your own mount</b>: R swings you up when it is near, or whistles it to you, and it keeps its own coat and pace.</p>
     <h3>Companions</h3><p>The bar under your health shows who follows you. <b>Follow</b>, <b>Stay</b>, <b>Guard</b> (fight anything that comes near the spot), <b>Attack</b> (your target) and <b>Call</b> (come at once) go to all of them, or to the one you tap. They find their way round walls and through doors along the path you took, and wait beside you, never in a doorway. They get hungry: open a companion's card (E beside it, or K for the list) to feed it, rename it, or send it to a paddock. A companion that falls limps away and finds you again later.</p>
-    <h3>Livestock</h3><p>Buy sheep, cattle and hens at the herder's board by your town's common, or breed your own. They graze when there is grass, eat from the rack and drink from the trough, and crowd into the shed when it snows or storms. Content animals give: <b>wool</b> (shear a full fleece with shears), <b>milk</b>, <b>eggs</b> (walk over them to pick them up) and <b>manure</b> for the fields (muck out the paddock). In winter or under snow there is no grazing: fill the rack with grain or roots.</p>
+    <h3>Livestock</h3><p>Buy sheep, cattle and hens at the herder's board by your town's common, or breed your own. They graze when there is grass, eat from the rack and drink from the trough, and crowd into the shed when it snows or storms. Content animals give: <b>wool</b> (shear a full fleece with shears), <b>milk</b>, <b>eggs</b> (walk over them to pick them up) and <b>manure</b> for the fields (muck out the paddock). In winter or under snow there is no grazing: fill the rack with feed (the herder sells it), grain or roots. Thunder frightens them; a placid animal minds it less.</p>
     <p>To keep your own, mark out a <b>paddock</b> from the animals list (a fence kit, or eight logs or planks) on clear, fairly flat ground. Its gate opens as you walk up to it.</p>
     <h3>Breeding</h3><p>A grown male and female of a kind, fed and content and close together, will pair; the young are born some minutes later (hens sit on their eggs) and grow up over the next ten minutes or so. Each of the young takes after both parents: coat colour, size, temper, yield (wool, milk, eggs), speed in horses and strength in hounds, each a little better or worse than the parents' middle. Coat patterns pass on as hidden traits too: patched and belted show if either parent gives them, dappled only from both. Keep the best of each generation and breed them, and over the generations your stock grows better. Every animal's card shows its traits and its dam and sire.</p>
     ${mine.length ? `<p class="now">You keep ${mine.length} animal${mine.length > 1 ? 's' : ''}.</p>` : ''}`;
