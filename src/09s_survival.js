@@ -171,11 +171,11 @@ function fgGeo(parts) {
 const fgM = (x, y, z, sx = 1, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new THREE.Vector3(sx, sy, sz));
 // a lumpy ball of leaves
 function fgBlob(seed, detail = 1) {
-  const g = new THREE.SphereGeometry(1, detail ? 8 : 6, detail ? 6 : 4);
+  const g = new THREE.SphereGeometry(1, detail ? 10 : 7, detail ? 8 : 5);
   const p = g.attributes.position, v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
-    const d = 0.82 + 0.3 * vnoiseJS(v.x * 1.9 + seed * 7.1, v.y * 1.9 + v.z * 1.6 + seed * 3.3);
+    const d = 0.74 + 0.3 * vnoiseJS(v.x * 2.4 + seed * 7.1, v.y * 2.4 + v.z * 2.1 + seed * 3.3) + 0.14 * vnoiseJS(v.x * 6.1 - seed, v.z * 6.3 + v.y * 5.2);
     p.setXYZ(i, v.x * d, v.y * d * 0.9, v.z * d);
   }
   g.computeVertexNormals();
@@ -208,7 +208,7 @@ function forageGeometries() {
       const [c, s] = blobs[k % blobs.length], th = r() * TAU, ph = 0.15 + r() * 1.1;
       const d = [Math.sin(ph) * Math.cos(th), Math.cos(ph) * 0.85, Math.sin(ph) * Math.sin(th)];
       const at = [c[0] + d[0] * s * 0.92, c[1] + d[1] * s * 0.92, c[2] + d[2] * s * 0.92];
-      for (let q = 0; q < 2; q++) { const o = [at[0] + (r() - 0.5) * 0.035, at[1] + (r() - 0.5) * 0.035, at[2] + (r() - 0.5) * 0.035]; parts.push([ball, fgM(o[0], o[1], o[2], 0.021 + r() * 0.006), 2, at]); }
+      for (let q = 0; q < 3; q++) { const o = [at[0] + (r() - 0.5) * 0.03, at[1] + (r() - 0.5) * 0.03, at[2] + (r() - 0.5) * 0.03]; parts.push([ball, fgM(o[0], o[1], o[2], 0.014 + r() * 0.005), 2, at]); }
     }
     out.bush = fgGeo(parts);
   }
@@ -219,7 +219,7 @@ function forageGeometries() {
     const stem = new THREE.CylinderGeometry(0.85, 1, 1, 5, 1); stem.translate(0, 0.5, 0);
     for (let k = 0; k < 11; k++) {
       const a = (k / 11) * TAU + (r() - 0.5) * 0.3, rr = 0.85 + (r() - 0.5) * 0.25, x = Math.sin(a) * rr, z = Math.cos(a) * rr;
-      const big = 0.6 + r() * 0.7, h = 0.07 * big + 0.03, cr = 0.06 * big + 0.02, tilt = (r() - 0.5) * 0.3;
+      const big = 0.6 + r() * 0.7, h = 0.1 * big + 0.04, cr = 0.085 * big + 0.03, tilt = (r() - 0.5) * 0.3;
       parts.push([stem, fgM(x, 0, z, cr * 0.32, h, cr * 0.32, 0, tilt, tilt * 0.5), 5, [x, 0, z]]);
       parts.push([cap, fgM(x + Math.sin(tilt) * h * 0.2, h, z, cr, cr * 0.75, cr, r() * TAU, tilt, tilt * 0.5), 3, [x, 0, z]]);
       if (r() < 0.45) { const x2 = x + (r() - 0.5) * 0.18, z2 = z + (r() - 0.5) * 0.18, s2 = 0.45; parts.push([stem, fgM(x2, 0, z2, cr * s2 * 0.32, h * s2, cr * s2 * 0.32), 5, [x2, 0, z2]]); parts.push([cap, fgM(x2, h * s2, z2, cr * s2, cr * s2 * 0.8, cr * s2), 3, [x2, 0, z2]]); }
@@ -322,10 +322,16 @@ const FG_FS = /* glsl */`
       por = 0.7;
     } else if (vPart < 1.5) {
       // leaves: each kind its own green, clusters picked out by noise, the underside of a lump in shade
-      vec3 g = kind < 0.5 ? vec3(0.13, 0.25, 0.08) : kind < 3.5 ? vec3(0.19, 0.33, 0.12) : kind < 4.5 ? vec3(0.17, 0.31, 0.15)
-        : kind < 5.5 ? vec3(0.42, 0.52, 0.55) : kind < 6.5 ? vec3(0.28, 0.36, 0.25) : kind < 7.5 ? vec3(0.15, 0.3, 0.09) : vec3(0.17, 0.3, 0.09);
+      vec3 g = kind < 0.5 ? vec3(0.19, 0.33, 0.1) : kind < 3.5 ? vec3(0.21, 0.36, 0.13) : kind < 4.5 ? vec3(0.19, 0.34, 0.16)
+        : kind < 5.5 ? vec3(0.44, 0.54, 0.57) : kind < 6.5 ? vec3(0.3, 0.38, 0.26) : kind < 7.5 ? vec3(0.17, 0.33, 0.1) : vec3(0.22, 0.36, 0.11);
       float cl = vnoise(vO.xz * 13.0 + vO.y * 9.0 + seed * 7.0), fine = vnoise(vO.xz * 41.0 + vO.y * 33.0);
-      alb = g * (0.68 + 0.5 * cl) * (0.85 + 0.25 * fine) * (0.9 + 0.2 * hs);
+      // many small leaves: light and dark patches, each lump's surface bumped so it does not read as one smooth ball
+      float leafy = smoothstep(0.28, 0.72, vnoise(vec2(vO.x * 27.0 + vO.y * 13.0, vO.z * 27.0 - vO.y * 11.0) + seed * 3.0));
+      alb = g * (0.5 + 0.55 * cl) * (0.6 + 0.65 * leafy) * (0.88 + 0.22 * fine) * (0.9 + 0.2 * hs);
+      if (kind < 0.5 || kind > 7.5) {
+        n = safeNormalize(n + 0.55 * vec3(vnoise(vO.xy * 24.0 + 1.3) - 0.5, (vnoise(vO.xz * 24.0 + 7.1) - 0.5) * 0.6, vnoise(vO.zy * 24.0 + 4.7) - 0.5));
+        alb = mix(alb, alb * vec3(1.25, 1.2, 0.8), smoothstep(0.6, 0.9, fine) * 0.5); // the odd yellowing leaf
+      }
       if (kind > 4.5 && kind < 5.5) alb += vec3(0.1, 0.12, 0.14) * step(0.7, fine); // rime on rimeleaf
       vec3 up = safeNormalize(vO - vAnc + vec3(0.0, 0.001, 0.0));
       ao = clamp(0.5 + 0.6 * (up.y * 0.5 + 0.5), 0.45, 1.0);
@@ -362,8 +368,8 @@ const FG_FS = /* glsl */`
     float sn = snowAmount(vW, n, uSnowCover, gPL) * (vPart > 0.5 ? 0.85 : 0.4);
     alb = mix(alb, snowAlbedo(vW), sn);
     vec3 col = lightSurface(alb, n, ao);
-    // sunlight through the leaves
-    if (vPart > 0.5 && vPart < 1.5) col += alb * uLightColor * 0.45 * spow(max(dot(-n, uLightDir), 0.0), 1.5) * gSh * (1.0 - sn);
+    // sunlight through the leaves, and the sky's light filling the shaded side of a bush
+    if (vPart > 0.5 && vPart < 1.5) col += alb * uLightColor * 0.45 * spow(max(dot(-n, uLightDir), 0.0), 1.5) * gSh * (1.0 - sn) + alb * uAmbient * 0.22 * (1.0 - sn);
     col += wetSheen(vW, n, V, max(uWet, vPart > 1.5 && vPart < 2.5 ? 0.35 : 0.0), por, gSh);
     col += snowSparkle(vW, V, gSh) * sn;
     col += emit;
@@ -984,10 +990,12 @@ function drawSurvivalFX(dt) {
     _rodDir.subVectors(_rt, _rb).normalize();
     // the rod rises from the fist past the end of the grip; it bends down a little when a fish is on
     const bend = F.phase === 'reel' ? 0.35 : F.phase === 'bite' ? 0.2 : F.dip ? F.dip * 0.2 : 0;
-    _rodDir.y -= bend; _rodDir.normalize();
+    // held out over the water: between the line of the raised haft and the way the angler faces, about forty degrees up
+    const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    _rodDir.set(_rodDir.x * 0.3 + fx * 0.95, _rodDir.y * 0.3 + 0.62 - bend, _rodDir.z * 0.3 + fz * 0.95).normalize();
     _rodQ.setFromUnitVectors(_rodUp, _rodDir);
     SURV_FX.rod.position.copy(_rb); SURV_FX.rod.quaternion.copy(_rodQ);
-    const tip = _rt.copy(_rb).addScaledVector(_rodDir, 2.62);
+    const tip = _rt.copy(_rb).addScaledVector(_rodDir, 2.55);
     // the float: flies out on the cast, bobs, dips at a nibble, goes under at the bite, comes in with the fish
     let bx = F.bx, bz = F.bz, by = WATER_Y + 0.0;
     if (F.phase === 'cast') { const k = clamp(F.t / 0.7, 0, 1); bx = lerp(tip.x, F.bx, k); bz = lerp(tip.z, F.bz, k); by = lerp(tip.y, WATER_Y, k) + Math.sin(k * Math.PI) * 1.6; }
@@ -1044,9 +1052,16 @@ function survivalHUD() {
   }
   el.setAttribute('aria-label', `Food and water. ${IS_TOUCH ? 'Tap' : 'Click or press V'} to eat or drink.`);
 }
+const PHONE_MQ = matchMedia('(max-width: 760px), (pointer: coarse)');
 function updateNeedsHUD() {
   const el = $('needs');
   if (!el) return;
+  // on a phone the target frame sits under the player frame, which the needs row has made taller
+  if ((UI.frame || 0) % 15 === 0) {
+    const tf = $('tf');
+    if (PHONE_MQ.matches) { const b = Math.round($('pf').getBoundingClientRect().bottom + 6); if (b > 40 && tf._top !== b) { tf.style.top = b + 'px'; tf._top = b; } }
+    else if (tf._top) { tf.style.top = ''; tf._top = 0; }
+  }
   setW($('nd-h'), SURV.hunger); setW($('nd-t'), SURV.thirst);
   const S = needsState();
   setT($('nd-s'), S.label);

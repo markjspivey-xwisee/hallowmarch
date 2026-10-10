@@ -37,8 +37,8 @@ async def ev(page, name, js):
     return r
 
 # the page's own frame loop is slowed while pictures are taken (SwiftShader on a busy machine): frames are drawn here
-SLOW_RAF = "window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 6000);0"
-async def shot(page, name, js, frames=2):
+SLOW_RAF = "window.requestAnimationFrame = () => 0;0" # the loop stops; each picture is one frame drawn here
+async def shot(page, name, js, frames=1):
     await page.evaluate(js + ';0')
     for _ in range(frames): await page.evaluate('__hm.frame(0.1);0')
     path = OUT + f'survival_{name}.png'
@@ -345,19 +345,19 @@ async def shots(page):
             await page.evaluate(SLOW_RAF)
             # the needs on the HUD, in play
             await page.evaluate("""(() => { const S = T.S, H = T.H, P = T.P(); const t = H.REALMS[0].town; T.stand(t.x + 18, t.z + 22); H.UI.modal = null; H.CAM.mode = 'play'; H.look(P.yaw + 2.6, 0.32, 7); S.SURV.hunger = 0.62; S.SURV.thirst = 0.21; })()""")
-            for _ in range(2): await page.evaluate('__hm.frame(0.1);0')
+            for _ in range(1): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_hud.png', timeout=300000); print('saved hud', flush=True)
             # a berry bush and a mushroom ring
             await shot(page, 'bush', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'bush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 2.2, p.y + 1.3, p.z + 1.6, p.x, p.y + 0.45, p.z); })()""")
             await shot(page, 'mushrooms', """(() => { const S = T.S, P = T.P(); const p = S.FORAGE.list.filter((q) => q.k === 'mush').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; p.ripe = 1; S.FORAGE.dirty = true; T.stand(p.x + 40, p.z + 40); T.cam(p.x + 1.7, p.y + 1.0, p.z + 1.2, p.x, p.y + 0.05, p.z); })()""")
             # fishing at the lake
-            await shot(page, 'fishing', """(() => { const S = T.S, F = T.F, P = T.P(), sh = window.__shore; T.stand(sh.x, sh.z); const sp = S.fishSpot(P); S.fishStart(sp); T.sim(1.0); S.SURV.fish.phase = 'wait'; S.SURV.fish.wait = 1e9; const yaw = P.yaw; T.cam(P.x - Math.sin(yaw) * 1.5 + Math.cos(yaw) * 4.5, P.y + 2.4, P.z - Math.cos(yaw) * 1.5 - Math.sin(yaw) * 4.5, P.x + Math.sin(yaw) * 3, P.y + 1.0, P.z + Math.cos(yaw) * 3); })()""", 4)
+            await shot(page, 'fishing', """(() => { const S = T.S, F = T.F, P = T.P(), sh = window.__shore; T.stand(sh.x, sh.z); const sp = S.fishSpot(P); S.fishStart(sp); T.sim(1.0); S.SURV.fish.phase = 'wait'; S.SURV.fish.wait = 1e9; const yaw = P.yaw; T.cam(P.x - Math.sin(yaw) * 1.5 + Math.cos(yaw) * 4.5, P.y + 2.4, P.z - Math.cos(yaw) * 1.5 - Math.sin(yaw) * 4.5, P.x + Math.sin(yaw) * 3, P.y + 1.0, P.z + Math.cos(yaw) * 3); })()""", 1)
             await page.evaluate("T.S.fishStop(null);0")
             # the forge in Logres
             await shot(page, 'forge', """(() => { const S = T.S, H = T.H; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx + Math.cos(st.yaw) * 0.6, st.fz - Math.sin(st.yaw) * 0.6, st.x, st.z); const a = st.yaw + 0.55; T.cam(st.x + Math.sin(a) * 4.6, st.y + 2.3, st.z + Math.cos(a) * 4.6, st.x, st.y + 0.9, st.z); })()""")
             # the crafting book
             await page.evaluate("""(() => { const S = T.S, H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; const t = H.REALMS[0].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'forge').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); const F = T.F; F.goodsAdd('iron', 4, true); F.goodsAdd('stick', 3, true); F.goodsAdd('iron_ore', 3, true); S.openCraft('forge', st); S.CRAFT.ui.sel = 'tool_pick'; S.renderCraft(); })();0""")
-            for _ in range(2): await page.evaluate('__hm.frame(0.1);0')
+            for _ in range(1): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_craft.png', timeout=300000); print('saved craft', flush=True)
 
 async def phone(p):
@@ -368,8 +368,10 @@ async def phone(p):
             await page.evaluate("__hm.start({ realm: 1, cls: 'mage', level: 14 }); __hm.UI.modal = null; 0")
             await page.evaluate(HELPERS)
             await page.evaluate("""(() => { const S = T.S, H = T.H; const t = H.REALMS[1].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'loom').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); S.SURV.hunger = 0.7; S.SURV.thirst = 0.18; T.F.goodsAdd('fibre', 9, true); T.F.goodsAdd('linen', 2, true); H.fn.setQuality('low'); })();0""")
-            for _ in range(3): await page.evaluate('__hm.frame(0.1);0')
+            for _ in range(1): await page.evaluate('__hm.frame(0.1);0')
             await page.screenshot(path=OUT + 'survival_phone_hud.png', timeout=300000); print('saved phone hud', flush=True)
+            r = await ev(page, 'phonehud', """(() => { const H = T.H, P = T.P(); const foe = H.ENT.find((e) => e.alive && e.faction === H.FACTION_MONSTER); P.target = foe ? foe.id : null; H.UI.frame = 30; H.frame(0.05); const pf = document.getElementById('pf').getBoundingClientRect(), tf = document.getElementById('tf').getBoundingClientRect(), nd = document.getElementById('needs').getBoundingClientRect(); P.target = null; return { pfBottom: pf.bottom, tfTop: tf.top, needs: [nd.width, nd.height], inside: nd.bottom <= pf.bottom + 1 }; })()""")
+            check(r['tfTop'] >= r['pfBottom'] - 1 and r['inside'] and r['needs'][0] > 120, f'on a phone the needs row fits in the player frame and the target frame sits below it {r}')
             r = await ev(page, 'phone', """(() => { const S = T.S; const pr = document.getElementById('prompt-t').textContent; document.getElementById('t-use').click(); const open = T.H.UI.modal === 'craft'; const card = document.getElementById('craft-card').getBoundingClientRect(), list = document.getElementById('craft-list').getBoundingClientRect(); const sheet = document.querySelector('#craft .sheet').getBoundingClientRect(); return { pr, open, fits: sheet.width <= 390 && list.width > 300, stacked: card.top >= list.bottom - 1 }; })()""")
             check(r['open'] and r['fits'] and r['stacked'], f'on a phone the Use button opens the loom\'s book, one column that fits ({r["pr"]})')
             await page.screenshot(path=OUT + 'survival_phone_craft.png', timeout=300000); print('saved phone craft', flush=True)
