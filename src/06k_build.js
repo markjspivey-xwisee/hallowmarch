@@ -459,7 +459,7 @@ function bShow(pc) {
 }
 function bHide(pc) {
   if (!pc.mesh) return;
-  scene.remove(pc.mesh);
+  pc.mesh.removeFromParent(); // it may sit in the outdoor group by now (regroupOutdoors), not in the scene itself
   for (const px of pc.proxies || []) { if (!px) continue; SHADOW.scene.remove(px); const k = SHADOW.proxies.indexOf(px); if (k >= 0) SHADOW.proxies.splice(k, 1); }
   pc.mesh.geometry.dispose();
   for (const L of pc.leaves) L.pivot.children[0].geometry.dispose();
@@ -985,7 +985,7 @@ function bGhost() {
   }
   M.sn = sn;
   if (BUILD.ghostKey !== geoKey) {
-    if (BUILD.ghost) { scene.remove(BUILD.ghost); BUILD.ghost.geometry.dispose(); }
+    if (BUILD.ghost) { BUILD.ghost.removeFromParent(); BUILD.ghost.geometry.dispose(); }
     const pc = { t: M.t === 'pull' ? sn.t : M.t, y: sn.y, foot: sn.foot };
     const { geo, leaves } = bGeometry(pc);
     const g = new THREE.Mesh(geo, B_GHOST);

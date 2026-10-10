@@ -328,11 +328,12 @@ async def build_tests(page):
     check(r['paid'] >= 4 and r['coll'], 'a repair costs half the goods; repaired walls block again')
     # pulling down: half the goods back, the colliders go
     r = await ev(page, 'demolish', """(() => { %s const w = BU.pieces.find((pc) => pc.t === 'window');
-      const n0 = BU.pieces.length, g0 = T.F.goodsCount('plank'), coll = w.coll.slice();
+      const n0 = BU.pieces.length, g0 = T.F.goodsCount('plank'), coll = w.coll.slice(), mesh = w.mesh;
+      T.H.frame(1 / 30); // a frame first: the outdoor group takes the piece's mesh in (regroupOutdoors)
       B.buildDemolish(w);
-      return { n: BU.pieces.length - n0, back: T.F.goodsCount('plank') - g0, had: coll.length, inColl: coll.some((c) => B.COLL.boxes.includes(c)) }; })()""" % B)
+      return { n: BU.pieces.length - n0, back: T.F.goodsCount('plank') - g0, had: coll.length, inColl: coll.some((c) => B.COLL.boxes.includes(c)), shown: !!mesh.parent }; })()""" % B)
     check(r['n'] == -1 and r['back'] == 3, 'pulling down a window gives back half its planks')
-    check(r['had'] > 0 and not r['inColl'], 'and its wall no longer blocks')
+    check(r['had'] > 0 and not r['inColl'] and not r['shown'], 'and its wall no longer blocks, nor shows')
     # a fence line with a gate (the helper other systems can use for pens)
     r = await ev(page, 'fence', """(() => { %s const f = BU.pieces[0], c = Math.cos(f.fyaw), s = Math.sin(f.fyaw);
       const a = { x: f.x - 6 * c + 9 * s, z: f.z + 6 * s + 9 * c }, b2 = { x: f.x + 6 * c + 9 * s, z: f.z - 6 * s + 9 * c };
@@ -359,6 +360,12 @@ async def build_tests(page):
       return { same: before === after, size, empty, solid, broken, nb, n: BU.pieces.length, bed: BU.bed === bed }; })()""" % B)
     check(r['same'] and r['solid'] and r['bed'], 'saved and loaded, every piece comes back as it was (%d bytes for %d pieces)' % (r['size'], r['n']))
     check(r['empty'] == 0 and r['broken'] == 'ok' and r['nb'] == 0, 'an old save (none) and a broken record load cleanly')
+    r = await ev(page, 'bar', """(() => { const B = T.H.build; document.getElementById('hud').hidden = false; B.buildToggle(true);
+      const box = (id) => { const e = document.getElementById(id); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(Math.round); };
+      const out = { bar: box('buildbar'), hot: box('hotbar'), pf: box('pf'), tr: box('topright'), btn: !!document.getElementById('btn-build'), n: document.querySelectorAll('#buildbar .bpiece').length, vw: innerWidth, vh: innerHeight };
+      B.buildToggle(false); document.getElementById('hud').hidden = true; return out; })()""")
+    sep = lambda a, b: a is None or b is None or a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1]
+    check(r['btn'] and r['n'] == 16 and r['bar'][0] >= 0 and r['bar'][2] <= r['vw'] and sep(r['bar'], r['hot']) and sep(r['bar'], r['pf']) and sep(r['bar'], r['tr']), 'the builder\'s bar is on screen, clear of the hotbar and the frames ' + json.dumps(r))
     # the piece shader and the ghost compile (a frame looking at the cottage, with the builder open)
     r = await ev(page, 'programs', """(() => { const B = T.H.build, f = B.BUILD.pieces[0], P = T.H.GAME.player;
       T.H.teleport(f.x - 4 * Math.sin(f.fyaw), f.z - 4 * Math.cos(f.fyaw)); P.yaw = f.fyaw + Math.PI; B.buildToggle(true);
@@ -377,20 +384,17 @@ async def build_tests(page):
           T.H.camera.position.set(P.x + 5 * Math.cos(P.yaw) - 5 * Math.sin(P.yaw), P.y + 5, P.z - 5 * Math.sin(P.yaw) - 5 * Math.cos(P.yaw)); T.H.camera.lookAt(g.x, P.y + 0.5, g.z);
           T.H.frame(); return 0; })()""")
         await shot(page, 'build_ghost_bad', """(() => { const B = T.H.build, P = T.H.GAME.player, f = B.BUILD.pieces[0];
-          // a foundation over the cottage's own floor: refused, so the ghost shows red
-          B.buildPick('found'); T.H.teleport(f.x - 2.2 * Math.sin(f.fyaw), f.z - 2.2 * Math.cos(f.fyaw)); P.yaw = Math.atan2(f.x - P.x, f.z - P.z);
-          const c = B.buildCursor(); T.H.camera.position.set(c.x + 5 * Math.cos(f.fyaw) - 6 * Math.sin(f.fyaw), P.y + 5.5, c.z - 5 * Math.sin(f.fyaw) - 6 * Math.cos(f.fyaw)); T.H.camera.lookAt(c.x, P.y + 1, c.z);
+          // a foundation on a slope too steep, or into a tree or a rock: refused, so the ghost shows red, in plain view
+          B.buildPick('found'); let spot = null;
+          for (let k = 0; k < 500 && !spot; k++) { const a = k * 0.7, rr = 8 + (k % 25) * 1.4, px = f.x + Math.sin(a) * rr, pz = f.z + Math.cos(a) * rr;
+            for (let q = 0; q < 8 && !spot; q++) { T.H.teleport(px, pz); P.yaw = q * Math.PI / 4; const c = B.buildCursor(); const sn = B.bValidate(B.bSnap('found', c.x, c.z, 0, P), P);
+              if (!sn.ok && /steep|tree|way/.test(sn.why) && !/built/.test(sn.why)) spot = { px, pz, yaw: P.yaw, c }; } }
+          if (spot) { T.H.teleport(spot.px, spot.pz); P.yaw = spot.yaw; const c = spot.c, s = Math.sin(P.yaw), co = Math.cos(P.yaw);
+            T.H.camera.position.set(c.x - 6 * s + 4 * co, P.y + 4.5, c.z - 6 * co - 4 * s); T.H.camera.lookAt(c.x, P.y + 0.6, c.z); }
           T.H.frame(); return 0; })()""")
         r = await ev(page, 'ghost state', "(() => { const M = T.H.build.BUILD.mode; return M && M.sn ? { ok: M.sn.ok, why: M.sn.why } : null; })()")
         check(r is not None and not r['ok'], 'the ghost turns red where a piece cannot go: ' + str(r and r['why']))
-        # the builder's bar as a player sees it
-        try:
-            await page.evaluate("document.getElementById('hud').hidden = false; T.H.UI.modal = null; T.H.frame(); 0")
-            await page.screenshot(path=OUT + 'build_ui.png', timeout=120000)
-            print('  shot build_ui', flush=True)
-        except Exception as e:
-            print('  (no page screenshot of the bar:', str(e)[:80], ')')
-        await page.evaluate("document.getElementById('hud').hidden = true; T.H.build.buildToggle(false); T.play(); 0")
+        await page.evaluate("T.H.build.buildToggle(false); T.play(); 0")
 
 async def main():
     async with async_playwright() as p:
