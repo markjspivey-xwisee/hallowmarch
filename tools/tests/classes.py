@@ -665,10 +665,13 @@ async def shots(page):
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
     await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
+      // [balance] the camera first: a burst's particles are only thrown near the camera
+      CS(P, f, 7.5, 2.4, 0.8, 1.0); H.frame(0.016);
       C.addChill(f, 2, P); P.power = P.maxPower; F.useAbility(P, 'firebolt', f); H.simulate(1.5);
       for (let i = 0; i < 30 && !C.CLS.steam.length; i++) H.simulate(0.05);
-      H.simulate(0.35); CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
-    await snap(page, 'steam', 1)
+      for (let i = 0; i < 6; i++) { H.simulate(0.05); H.frame(0.05); }
+      CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
+    await snap(page, 'steam', 2)
     # storm through wet foes in the rain
     await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
@@ -703,7 +706,7 @@ async def shots(page):
       P.power = P.maxPower; C.classTechnique(P); H.simulate(0.2); P.yaw += 1.4; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.classTechnique(P);
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
-      H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, -0.5, 2.8, 2.2, -0.2); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })()""")
+      H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, 2.6, 5.2, 0.6, -0.4); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })() // [balance] framed wider: the runes' carved glyphs and the snares together""")
     await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
     await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);

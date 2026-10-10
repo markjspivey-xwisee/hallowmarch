@@ -301,6 +301,105 @@ The harness lives in `tools/`:
 - Keep halls are houses (`H.keepHall`): code that walks `HOUSES` meets them too (fire, lightning, the cover map, the save). Tests that count town houses filter them out (`houses.py`).
 - The human crowd uses 15 of the 16 guaranteed vertex attributes. Pack new per-instance data into spare channels rather than adding attributes.
 
+## Balance of the callings
+
+Measured with `python3 tools/tests/classes.py balance` (see Testing): fighters with a player's own measure and fair gear for the level, played by the simple bot (presses 1-8 in turn) and the skilled bot (07c_balance.js). TTK: the time to kill a standard foe (a garrison warrior of the level). Pack: the time survived against an endless pack of three wolves and two outlaws (a survivor scores 1.5 times the cap). Duels: wins against the other three callings, both sides on the same bot (draws count half). The aim: the skilled bots within about ±15% of each other on every measure at every level, the simple bots within about ±25%, and the skilled bot clearly beating its simple self (mastery duels).
+
+**Before** (version 8 numbers, the same bots and diminishing returns, three repetitions; the pack then had no rank or gear scaling and a 90 s cap):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 9.1 (-4%) | 16 (-6%) | 33% (6/18) |
+| 10 | archer | 10.0 (+6%) | 16 (-6%) | 39% (7/18) |
+| 10 | mage | 7.6 (-20%) | 9 (-47%) | 28% (5/18) |
+| 10 | priest | 11.1 (+17%) | 27 (+59%) | 100% (18/18) |
+| 30 | warrior | 5.0 (+6%) | 36 (-38%) | 72% (13/18) |
+| 30 | archer | 3.7 (-21%) | 34 (-41%) | 44% (8/18) |
+| 30 | mage | 3.4 (-28%) | 25 (-57%) | 14% (2.5/18) |
+| 30 | priest | 6.7 (+43%) | 136 (+136%) | 69% (12.5/18) |
+| 50 | warrior | 3.5 (-5%) | 136 (+51%) | 67% (12/18) |
+| 50 | archer | 2.7 (-25%) | 59 (-35%) | 44% (8/18) |
+| 50 | mage | 2.7 (-25%) | 30 (-67%) | 22% (4/18) |
+| 50 | priest | 5.7 (+56%) | 136 (+51%) | 67% (12/18) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.5 (+6%) | 34 (+33%) | 50% (9/18) |
+| 10 | archer | 7.0 (-1%) | 21 (-18%) | 78% (14/18) |
+| 10 | mage | 5.8 (-19%) | 14 (-45%) | 42% (7.5/18) |
+| 10 | priest | 8.1 (+14%) | 33 (+29%) | 31% (5.5/18) |
+| 30 | warrior | 4.0 (-2%) | 88 (+18%) | 94% (17/18) |
+| 30 | archer | 4.0 (-2%) | 38 (-49%) | 61% (11/18) |
+| 30 | mage | 3.7 (-8%) | 35 (-53%) | 8% (1.5/18) |
+| 30 | priest | 4.6 (+13%) | 136 (+84%) | 36% (6.5/18) |
+| 50 | warrior | 3.0 (-32%) | 136 (+20%) | 94% (17/18) |
+| 50 | archer | 8.5 (+95%) | 48 (-58%) | 67% (12/18) |
+| 50 | mage | 2.9 (-34%) | 135 (+18%) | 28% (5/18) |
+| 50 | priest | 3.1 (-29%) | 136 (+20%) | 11% (2/18) |
+
+**After** (version 9; levels 10 and 30: three repetitions of the dummy and the pack, six of each duel with the realms swapped, four mastery duels per calling; level 50: two, four and two, because a slow machine stalled the first run):
+
+Simple bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 8.8 (+2%) | 16 (-4%) | 6% (2/36) |
+| 10 | archer | 9.1 (+5%) | 15 (-10%) | 58% (21/36) |
+| 10 | mage | 7.8 (-9%) | 14 (-16%) | 47% (17/36) |
+| 10 | priest | 8.9 (+3%) | 22 (+31%) | 89% (32/36) |
+| 30 | warrior | 4.6 (+6%) | 28 (-12%) | 42% (15/36) |
+| 30 | archer | 3.5 (-19%) | 24 (-25%) | 42% (15/36) |
+| 30 | mage | 3.6 (-17%) | 23 (-28%) | 58% (21/36) |
+| 30 | priest | 5.6 (+29%) | 53 (+66%) | 58% (21/36) |
+| 50 | warrior | 3.8 (+10%) | 21 (-72%) | 46% (11/24) |
+| 50 | archer | 2.6 (-24%) | 29 (-61%) | 46% (11/24) |
+| 50 | mage | 2.5 (-28%) | 26 (-66%) | 52% (12.5/24) |
+| 50 | priest | 4.9 (+41%) | 226 (+200%) | 56% (13.5/24) |
+
+Skilled bot:
+
+| Level | Calling | TTK s (vs mean) | Pack s (vs mean) | Duels won |
+|---|---|---|---|---|
+| 10 | warrior | 7.5 (+13%) | 33 (-1%) | 32% (11.5/36) |
+| 10 | archer | 6.3 (-6%) | 54 (+61%) | 83% (30/36) |
+| 10 | mage | 4.9 (-27%) | 23 (-31%) | 69% (25/36) |
+| 10 | priest | 8.0 (+20%) | 24 (-28%) | 15% (5.5/36) |
+| 30 | warrior | 3.7 (+0%) | 65 (-4%) | 69% (25/36) |
+| 30 | archer | 3.4 (-10%) | 43 (-37%) | 61% (22/36) |
+| 30 | mage | 3.5 (-7%) | 70 (+3%) | 33% (12/36) |
+| 30 | priest | 4.4 (+17%) | 94 (+38%) | 36% (13/36) |
+| 50 | warrior | 3.1 (+12%) | 66 (-34%) | 67% (16/24) |
+| 50 | archer | 2.2 (-19%) | 40 (-60%) | 77% (18.5/24) |
+| 50 | mage | 2.7 (-1%) | 69 (-31%) | 23% (5.5/24) |
+| 50 | priest | 3.0 (+8%) | 226 (+125%) | 33% (8/24) |
+
+Mastery duels (the skilled bot's wins against the simple bot of the same calling):
+
+| Level | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|
+| 10 | 4/4 | 3.5/4 | 1/4 | 2/4 |
+| 30 | 4/4 | 4/4 | 0/4 | 3/4 |
+| 50 | 2/2 | 2/2 | 2/2 | 2/2 |
+
+What changed, and why:
+
+- Warrior: health 1.4 to 1.3 (parries and the shield now carry a skilled warrior); a lowered shield turns about one frontal blow in eight (for 55% less), so a warrior played simply is not helpless; Shield Bash stuns 1.6 s (2.5), Leap Strike 1 s (1.5); a parry's stun on an ordinary foe 0.9 s (1.1); Charge every 12 s (16) and it breaks free of slows and snares.
+- Archer: health 1.25 to 1.12 (an archer lives by keeping away); 5% quicker on foot (not while drawing); Volley 95% a wave (80%) and pins what it falls on (40% slow, 3 s); snares hold 3.5 s (3; Thule 4.5), re-arm in 9 s (12), and the cord whips any foe beside the prey (40% slow, 2.5 s); Crippling Arrow every 9 s (12); Tumble every 11 s (15).
+- Mage: health 0.86 to 1.1; Arcane Ward 40% (30%) every 24 s (30); Blink every 11 s (14); Nova every 12 s (16), and a frost nova roots as long as a fire nova; a firebolt's burn 25% (32%).
+- Priest: health 1.05 to 1.1, damage 1.2 to 1.3; Smite 180% (160%), Holy Fire 210% (180%); a priest's own wounds mend at 75% of what others get from Mend, Renewal, Sanctuary and Mass Renewal (`PRIEST_SELF`; Mend on oneself was 85%, the rest 100%), and healing costs more (Mend 22, Renewal 16, Sanctuary 32, Mass Renewal 36), so a long fight drains a healer; Divine Shield also lifts and wards off stuns, roots and slows while it lasts.
+- Everyone: diminishing returns on stuns (a freeze counts), roots and slows for players and champions; a parry's stun under the same rule for anyone.
+
+Still off (for the next pass):
+  - Level 10 duels belong to the ranged callings (the skilled archer and mage win about 70-80%, the warrior about a third and the priest under a fifth; played simply, the warrior loses nearly every duel and the priest wins most). A warrior has no Leap Strike before 30 and a priest no Divine Shield before 14, so neither has much to answer kiting, roots and freezes. Next: a low-level way for a priest to break a root or close the gap, and a look at how the warrior's Charge plays against snares at 10.
+  - Pack survival: priests still lead by far (a third above the mean at 30; at 50 a priest outlasts the 150 s cap while the others fall at 40-70 s: ranks raise healing, and Mass Renewal, Sanctuary and devotion keep a priest whole against a pack); archers trail (a third to three fifths below). Next: a priest's own healing should fall off with rank, or drain power faster in a long fight.
+  - Duels at 50: the skilled archer (77%) and warrior (67%) beat the priest (33%) and mage (23%); the mage has no answer to a Leap Strike followed by a bash, nor to a full draw from range.
+  - Mastery: the skilled mage does not yet beat a simple mage in mirror duels (pressing every spell in turn wins a short damage race); every other calling's skilled bot wins three or four of four.
+  - Duels last 6-12 s at a player's measure, so openers and stuns decide many of them, and duel rates move by about ±8 points between runs of this size; run `dreps=12` or more before tuning on a duel number.
+
 ## Roadmap
 
 | # | Work | Status |
@@ -320,13 +419,13 @@ The harness lives in `tools/`:
 | 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | Done (version 7) |
 | 15 | Water: swimming, wading, rivers with currents, ponds, splashes and ripples, drinking, waterskins | Done (version 8). Left: diving under, boats |
 | 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Done (version 8) |
-| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Done (version 8). Balanced in version 9 (see Balance of the callings) |
+| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Done (version 8). Balance under way in version 9 (see Balance of the callings) |
 | 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Done (version 8). Left: bushes and apple trees do not burn or fall; crafted gear stops at item level 24 |
 | 19 | Farming and herb lore, plant breeding: seasons, beds, crops, weeds, soil, strains and crossing, town fields, wild herbs and the herbal | Done (version 8). Left: gardens in Ériu and Thule; the new herbs' powers in potions; seasonal colours of trees and grass |
 | 20 | Animals: taming, pets, livestock, breeding | Done (version 8) |
 | 21 | Building: placed structures | Done (version 8). Left: NPCs using built doors, more roof shapes (hips, lean-tos) |
 | 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | Next |
-| 22a | [balance] Balance and mastery of the callings: simple and skilled bots, the balance run with mastery duels, diminishing returns on stuns, roots and slows (parries cannot stun-lock), Divine Shield wards off control, a priest's offer to raise the fallen player, the steam burst, carved rune glyphs and tracked quarry on the minimap made to read, each calling at level 28 beats the Hollow King | Done (version 9, feature/balance). Left: see Balance of the callings |
+| 22a | [balance] Balance and mastery of the callings: simple and skilled bots, the balance run with mastery duels, diminishing returns on stuns, roots and slows (parries cannot stun-lock), Divine Shield wards off control, a priest's offer to raise the fallen player, the steam burst, carved rune glyphs and tracked quarry on the minimap made to read, each calling at level 28 beats the Hollow King | In progress (version 9, feature/balance): the bots, the measures, the rules and three rounds of tuning are in; time to kill is within about ±20%, but pack survival and duels are not yet within the ±15% aim (see Balance of the callings) |
 
 ## History
 
