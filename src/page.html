@@ -607,6 +607,11 @@
   #war.hl-compact .cw-rule, #war.hl-compact .tod { display: none; }
   #farmcard.hl-compact .fc-tr, #farmcard.hl-compact p { display: none; }
   #petbar.hl-compact .pb-pet small, #petbar.hl-compact .pb-fd { display: none; }
+  /* a phone short of room: the companion bar keeps only its orders, in a narrow block beside the pad */
+  body.touch #petbar.hl-compact { width: 130px; max-width: 130px; min-width: 0; padding: 3px; }
+  body.touch #petbar.hl-compact .pb-pets { display: none; }
+  body.touch #petbar.hl-compact .pb-cmds { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; }
+  body.touch #petbar.hl-compact .pb-cmds button { width: 40px; padding: 0; font-size: 9.5px; letter-spacing: 0; overflow: hidden; }
   #lore-path.hl-compact .hint, #lore-path.hl-compact .meter, #lore-path.hl-compact .rw { display: none; }
   .hl-off { display: none !important; }
   /* the builder's bar on a phone: as wide as the screen allows (10p_hud.js puts it where it is free) */
