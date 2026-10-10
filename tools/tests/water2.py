@@ -5,7 +5,7 @@ turned, carried by a river, run aground (it cannot cross land), moored again, fi
 riding in it, the towns' fishers rowing out in the morning; tracks laid and fading in snow, mud and wet sand, cut by
 later ones, ruts, drifts. Then screenshots: under the water, under the ice, a boat on a lake and on a river, tracks
 in snow (water2_*.png).
-usage: python3 tools/tests/water2.py [noshots] [shotsonly] [only=dive,ice,finds,boats,fisher,tracks] [medium]"""
+usage: python3 tools/tests/water2.py [noshots] [shotsonly] [only=dive,ice,finds,boats,fisher,tracks] [shots=under,boat,river,tracks,drift,ice] [medium] [small]"""
 import json, asyncio, sys, pathlib, time, math
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -16,6 +16,8 @@ SHOTS = 'noshots' not in sys.argv
 SHOTSONLY = 'shotsonly' in sys.argv
 ONLY = [a[5:] for a in sys.argv if a.startswith('only=')]
 def want(name): return not SHOTSONLY and (not ONLY or name in ONLY[0].split(','))
+SHOTSEL = [a[6:] for a in sys.argv if a.startswith('shots=')]
+def want_shot(name): return not SHOTSEL or name in SHOTSEL[0].split(',')
 
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
@@ -52,7 +54,7 @@ window.W2 = {
 
 async def main():
     async with async_playwright() as p:
-        W, Hh = (960, 540) if SHOTS else (640, 360)
+        W, Hh = (960, 540) if SHOTS and 'small' not in sys.argv else (640, 360)
         b, page, logs = await setup(p, w=W, h=Hh)
         await page.evaluate(HELPERS)
         r = await ev(page, 'boot', """(() => { const H = __hm; H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
@@ -380,65 +382,71 @@ async def shots(page):
     q = 'medium' if 'medium' in sys.argv else 'high'
     await page.evaluate("__hm.fn.setQuality('%s')" % q)
     await page.evaluate("(() => { __hm.farm.setSeason(0.42); __hm.seasons.seasonSettle(); return 0; })()")
-    # 1. under the water: the diver from behind and below, the surface overhead
-    await ev(page, 'shot-under', """(() => { const H = __hm, Wt = H.water, D = Wt.dive, P = H.GAME.player; W2.safe(); W2.play();
-      const s = W2.lakeSpot(0, 3.1); W2.swimAt(s.x, s.z); P.breath = 1; D.start(); H.CAM.yaw = 0.8; H.CAM.pitch = 0.9; W2.keys(['KeyW'], 1.4); H.CAM.pitch = 0.32; W2.keys(['KeyW'], 1.0);
-      H.CAM.pitch = -0.2; H.CAM.dist = H.CAM.targetDist = 4.2; W2.fishInView(); for (let i = 0; i < 6; i++) H.frame(1 / 30);
-      return { st: D.state(), under: D.under() }; })()""")
-    await snap(page, 'water2_under.png')
-    await ev(page, 'shot-under2', """(() => { const H = __hm, P = H.GAME.player; H.CAM.pitch = 0.75; H.CAM.yaw += 2.2; W2.fishInView(); for (let i = 0; i < 4; i++) H.frame(1 / 30); return __hm.water.dive.under(); })()""")
-    await snap(page, 'water2_under_bed.png')
-    # 2. a boat on the lake, rowed
-    await ev(page, 'shot-boat', """(() => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player; Wt.dive.end(); W2.safe();
-      const J = Bt.jetties()[0]; const i = Bt.list().findIndex((q) => q.home && q.realm === J.realm); Bt.restore(i);
-      W2.swimAt(Bt.state(i).x + 1.5, Bt.state(i).z); Bt.board(i); const B = Wt.boats.BOATS.list[i]; H.CAM.yaw = B.yaw;
-      W2.keys(['KeyS'], 3); W2.keys(['KeyA'], 2.5); W2.keys(['KeyW'], 5); for (let k = 0; k < 12; k++) { W2.keys(['KeyW'], 0.05); Wt.tickWater(1 / 30); }
-      const s = Bt.state(i), fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
-      W2.cam([s.x + fz * 5.5 + fx * 3, s.y + 2.6, s.z - fx * 5.5 + fz * 3], [s.x, s.y + 0.4, s.z]); H.frame(1 / 30);
-      return s; })()""")
-    await snap(page, 'water2_boat_lake.png')
-    # 3. a boat on a river, carried down
-    await ev(page, 'shot-river', """(() => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player; W2.play(); Bt.leave(); W2.safe();
-      let best = null; for (const Rv of Wt.RIVERS) for (const q of Rv.pts) { const w = Wt.waterAt(q.x, q.z); if (w && w.depth > 1.4 && Math.hypot(w.fx, w.fz) > 0.5 && (!best || w.depth > best.d)) best = { x: q.x, z: q.z, d: w.depth, fx: w.fx, fz: w.fz, hw: q.hw }; }
-      const i = Bt.list().findIndex((q) => !q.home); const B = Wt.boats.BOATS.list[i]; B.x = best.x; B.z = best.z; B.yaw = Math.atan2(best.fx, best.fz); B.st = 'free'; B.grounded = 0;
-      W2.swimAt(B.x + 1.4, B.z); Bt.board(i);
-      for (let k = 0; k < 40; k++) { W2.keys(['KeyW'], 0.05); Wt.tickWater(1 / 30); }
-      const s = Bt.state(i), fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
-      W2.cam([s.x - fx * 6 + fz * 4, s.y + 3.2, s.z - fz * 6 - fx * 4], [s.x + fx * 1.5, s.y + 0.3, s.z + fz * 1.5]); H.frame(1 / 30);
-      return s; })()""")
-    await snap(page, 'water2_boat_river.png')
-    # 4. tracks in the snow: a wolf's and the player's
-    await ev(page, 'shot-tracks', """(() => { const H = __hm, Wt = H.water, T = Wt.tracks, P = H.GAME.player; W2.play(); Wt.boats.leave(); W2.safe();
-      H.farm.setSeason(0.875); H.seasons.seasonSettle();
-      const R = H.REALMS[2]; let s = null; for (let k = 0; k < 60 && !s; k++) { const x = R.town.x + 46 + k * 2, z = R.town.z - 24; if (T.surface(x, z) === 0 && H.fn.isWalkable(x, z)) s = { x, z }; }
-      H.teleport(s.x, s.z); H.simulate(0.2); H.CAM.yaw = 0.4; for (let k = 0; k < 50; k++) { W2.keys(['KeyW'], 0.06); if (k === 20) H.CAM.yaw = -0.3; }
-      const fx = Math.sin(0.4), fz = Math.cos(0.4), g0 = H.fn.heightAt(s.x, s.z);
-      W2.cam([s.x - fx * 2.2 + fz * 0.6, g0 + 1.9, s.z - fz * 2.2 - fx * 0.6], [s.x + fx * 3.2, H.fn.heightAt(s.x + fx * 3.2, s.z + fz * 3.2), s.z + fz * 3.2]); H.frame(1 / 30);
-      return { s, n: T.prints(s.x, s.z, 15).length }; })()""")
-    await snap(page, 'water2_tracks_snow.png')
-    # 4b. a drift against the windward wall of a house in Thule's town, in deep winter
-    await ev(page, 'shot-drift', """(() => { const H = __hm, Wt = H.water, T = Wt.tracks, P = H.GAME.player; W2.play(); W2.safe();
-      H.farm.setSeason(0.875); H.seasons.seasonSettle(); H.dbg.WEATHER.snow = 0;
-      const R = H.REALMS[2], wd = H.dbg.U.uWindDir.value; let best = null;
-      // a house wall facing into the wind, near the town's middle, with snow lying
-      for (const D of T.TRACKS.drifts) { if (Math.hypot(D.x - R.town.x, D.z - R.town.z) > 90) continue; if (!best || Math.hypot(D.x - R.town.x, D.z - R.town.z) < best.d) best = { x: D.x, z: D.z, d: Math.hypot(D.x - R.town.x, D.z - R.town.z) }; }
-      if (!best) return null;
-      // the drift's own vertices: the one nearest its middle, and which way it faces
-      const D = T.TRACKS.drifts.find((q) => q.x === best.x && q.z === best.z), pos = D.m.geometry.attributes.position.array, ad = D.m.geometry.attributes.aD.array;
-      let k = 0, bd = 1e9; for (let i = 0; i < pos.length / 3; i++) { if (ad[i * 4 + 1] !== 0) continue; const dd = Math.hypot(pos[i * 3] - best.x, pos[i * 3 + 2] - best.z); if (dd < bd) { bd = dd; k = i; } }
-      const fx = pos[k * 3], fz = pos[k * 3 + 2], nx = ad[k * 4 + 2], nz = ad[k * 4 + 3], g = H.fn.heightAt(fx, fz);
-      H.teleport(fx + nx * 9, fz + nz * 9); H.simulate(0.3);
-      W2.cam([fx + nx * 6.5 - nz * 2.5, g + 2.4, fz + nz * 6.5 + nx * 2.5], [fx, g + 0.4, fz]); for (let i = 0; i < 20; i++) H.frame(1 / 30);
-      return { fx, fz, nx, nz, drifts: T.drifts(), lie: H.seasons.lie(fx, fz) }; })()""")
-    await snap(page, 'water2_drift.png')
-    # 5. under the winter ice, looking up at the hole
-    await ev(page, 'shot-ice', """(() => { const H = __hm, Wt = H.water, D = Wt.dive, P = H.GAME.player; W2.play(); W2.safe();
-      const L = H.dbg.LAKES.find((l) => l.realm === 2);
-      let s = null; for (let r = 0; r < 25 && !s; r += 0.5) for (let a = 0; a < 12 && !s; a++) { const x = L.x + Math.cos(a) * r, z = L.z + Math.sin(a) * r, w = Wt.waterAt(x, z); if (w && w.depth > 3.2 && H.seasons.ice(x, z).thick > 0.5) s = { x, z }; }
-      if (!s) return null; D.cutHole(s.x, s.z); H.teleport(s.x, s.z); H.simulate(1.0); P.breath = 1; D.start(); H.CAM.pitch = 1.2; W2.keys(['KeyW'], 1.4);
-      H.CAM.pitch = 0.32; H.CAM.yaw = 1.1; W2.keys(['KeyW'], 1.2); H.CAM.pitch = -0.25; H.CAM.yaw += 3.1; H.CAM.dist = H.CAM.targetDist = 3.5; for (let i = 0; i < 6; i++) H.frame(1 / 30);
-      return D.state(); })()""")
-    await snap(page, 'water2_under_ice.png')
+    if want_shot('under'):
+        # 1. under the water: the diver from behind and below, the surface overhead
+        await ev(page, 'shot-under', """(() => { const H = __hm, Wt = H.water, D = Wt.dive, P = H.GAME.player; W2.safe(); W2.play();
+          const s = W2.lakeSpot(0, 3.1); W2.swimAt(s.x, s.z); P.breath = 1; D.start(); H.CAM.yaw = 0.8; H.CAM.pitch = 0.9; W2.keys(['KeyW'], 1.4); H.CAM.pitch = 0.32; W2.keys(['KeyW'], 1.0);
+          H.CAM.pitch = -0.2; H.CAM.dist = H.CAM.targetDist = 4.2; W2.fishInView(); for (let i = 0; i < 6; i++) H.frame(1 / 30);
+          return { st: D.state(), under: D.under() }; })()""")
+        await snap(page, 'water2_under.png')
+        await ev(page, 'shot-under2', """(() => { const H = __hm, P = H.GAME.player; H.CAM.pitch = 0.75; H.CAM.yaw += 2.2; W2.fishInView(); for (let i = 0; i < 4; i++) H.frame(1 / 30); return __hm.water.dive.under(); })()""")
+        await snap(page, 'water2_under_bed.png')
+    if want_shot('boat'):
+        # 2. a boat on the lake, rowed
+        await ev(page, 'shot-boat', """(() => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player; Wt.dive.end(); W2.safe();
+          const J = Bt.jetties()[0]; const i = Bt.list().findIndex((q) => q.home && q.realm === J.realm); Bt.restore(i);
+          W2.swimAt(Bt.state(i).x + 1.5, Bt.state(i).z); Bt.board(i); const B = Wt.boats.BOATS.list[i]; H.CAM.yaw = B.yaw;
+          W2.keys(['KeyS'], 3); W2.keys(['KeyA'], 2.5); W2.keys(['KeyW'], 5); for (let k = 0; k < 12; k++) { W2.keys(['KeyW'], 0.05); Wt.tickWater(1 / 30); }
+          const s = Bt.state(i), fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
+          W2.cam([s.x + fz * 5.5 + fx * 3, s.y + 2.6, s.z - fx * 5.5 + fz * 3], [s.x, s.y + 0.4, s.z]); H.frame(1 / 30);
+          return s; })()""")
+        await snap(page, 'water2_boat_lake.png')
+    if want_shot('river'):
+        # 3. a boat on a river, carried down
+        await ev(page, 'shot-river', """(() => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player; W2.play(); Bt.leave(); W2.safe();
+          let best = null; for (const Rv of Wt.RIVERS) for (const q of Rv.pts) { const w = Wt.waterAt(q.x, q.z); if (w && w.depth > 1.4 && Math.hypot(w.fx, w.fz) > 0.5 && (!best || w.depth > best.d)) best = { x: q.x, z: q.z, d: w.depth, fx: w.fx, fz: w.fz, hw: q.hw }; }
+          const i = Bt.list().findIndex((q) => !q.home); const B = Wt.boats.BOATS.list[i]; B.x = best.x; B.z = best.z; B.yaw = Math.atan2(best.fx, best.fz); B.st = 'free'; B.grounded = 0;
+          W2.swimAt(B.x + 1.4, B.z); Bt.board(i);
+          for (let k = 0; k < 40; k++) { W2.keys(['KeyW'], 0.05); Wt.tickWater(1 / 30); }
+          const s = Bt.state(i), fx = Math.sin(s.yaw), fz = Math.cos(s.yaw);
+          W2.cam([s.x - fx * 6 + fz * 4, s.y + 3.2, s.z - fz * 6 - fx * 4], [s.x + fx * 1.5, s.y + 0.3, s.z + fz * 1.5]); H.frame(1 / 30);
+          return s; })()""")
+        await snap(page, 'water2_boat_river.png')
+    if want_shot('tracks'):
+        # 4. tracks in the snow: a wolf's and the player's
+        await ev(page, 'shot-tracks', """(() => { const H = __hm, Wt = H.water, T = Wt.tracks, P = H.GAME.player; W2.play(); Wt.boats.leave(); W2.safe();
+          H.farm.setSeason(0.875); H.seasons.seasonSettle();
+          const R = H.REALMS[2]; let s = null; for (let k = 0; k < 60 && !s; k++) { const x = R.town.x + 46 + k * 2, z = R.town.z - 24; if (T.surface(x, z) === 0 && H.fn.isWalkable(x, z)) s = { x, z }; }
+          H.teleport(s.x, s.z); H.simulate(0.2); H.CAM.yaw = 0.4; for (let k = 0; k < 50; k++) { W2.keys(['KeyW'], 0.06); if (k === 20) H.CAM.yaw = -0.3; }
+          const fx = Math.sin(0.4), fz = Math.cos(0.4), g0 = H.fn.heightAt(s.x, s.z);
+          W2.cam([s.x - fx * 2.2 + fz * 0.6, g0 + 1.9, s.z - fz * 2.2 - fx * 0.6], [s.x + fx * 3.2, H.fn.heightAt(s.x + fx * 3.2, s.z + fz * 3.2), s.z + fz * 3.2]); H.frame(1 / 30);
+          return { s, n: T.prints(s.x, s.z, 15).length }; })()""")
+        await snap(page, 'water2_tracks_snow.png')
+    if want_shot('drift'):
+        # 4b. a drift against the windward wall of a house in Thule's town, in deep winter
+        await ev(page, 'shot-drift', """(() => { const H = __hm, Wt = H.water, T = Wt.tracks, P = H.GAME.player; W2.play(); W2.safe();
+          H.farm.setSeason(0.875); H.seasons.seasonSettle(); H.dbg.WEATHER.snow = 0;
+          const R = H.REALMS[2], wd = H.dbg.U.uWindDir.value; let best = null;
+          // a house wall facing into the wind, near the town's middle, with snow lying
+          for (const D of T.TRACKS.drifts) { if (Math.hypot(D.x - R.town.x, D.z - R.town.z) > 90) continue; if (!best || Math.hypot(D.x - R.town.x, D.z - R.town.z) < best.d) best = { x: D.x, z: D.z, d: Math.hypot(D.x - R.town.x, D.z - R.town.z) }; }
+          if (!best) return null;
+          // the drift's own vertices: the one nearest its middle, and which way it faces
+          const D = T.TRACKS.drifts.find((q) => q.x === best.x && q.z === best.z), pos = D.m.geometry.attributes.position.array, ad = D.m.geometry.attributes.aD.array;
+          let k = 0, bd = 1e9; for (let i = 0; i < pos.length / 3; i++) { if (ad[i * 4 + 1] !== 0) continue; const dd = Math.hypot(pos[i * 3] - best.x, pos[i * 3 + 2] - best.z); if (dd < bd) { bd = dd; k = i; } }
+          const fx = pos[k * 3], fz = pos[k * 3 + 2], nx = ad[k * 4 + 2], nz = ad[k * 4 + 3], g = H.fn.heightAt(fx, fz);
+          H.teleport(fx + nx * 9, fz + nz * 9); H.simulate(0.3);
+          W2.cam([fx + nx * 6.5 - nz * 2.5, g + 2.4, fz + nz * 6.5 + nx * 2.5], [fx, g + 0.4, fz]); for (let i = 0; i < 20; i++) H.frame(1 / 30);
+          return { fx, fz, nx, nz, drifts: T.drifts(), lie: H.seasons.lie(fx, fz) }; })()""")
+        await snap(page, 'water2_drift.png')
+    if want_shot('ice'):
+        # 5. under the winter ice, looking up at the hole
+        await ev(page, 'shot-ice', """(() => { const H = __hm, Wt = H.water, D = Wt.dive, P = H.GAME.player; W2.play(); W2.safe();
+          const L = H.dbg.LAKES.find((l) => l.realm === 2);
+          let s = null; for (let r = 0; r < 25 && !s; r += 0.5) for (let a = 0; a < 12 && !s; a++) { const x = L.x + Math.cos(a) * r, z = L.z + Math.sin(a) * r, w = Wt.waterAt(x, z); if (w && w.depth > 3.2 && H.seasons.ice(x, z).thick > 0.5) s = { x, z }; }
+          if (!s) return null; D.cutHole(s.x, s.z); H.teleport(s.x, s.z); H.simulate(1.0); P.breath = 1; D.start(); H.CAM.pitch = 1.2; W2.keys(['KeyW'], 1.4);
+          H.CAM.pitch = 0.32; H.CAM.yaw = 1.1; W2.keys(['KeyW'], 1.2); H.CAM.pitch = -0.25; H.CAM.yaw += 3.1; H.CAM.dist = H.CAM.targetDist = 3.5; for (let i = 0; i < 6; i++) H.frame(1 / 30);
+          return D.state(); })()""")
+        await snap(page, 'water2_under_ice.png')
     print('shot errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 3)")))
 
 asyncio.run(main())

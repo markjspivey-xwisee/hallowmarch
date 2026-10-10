@@ -619,7 +619,7 @@ const shaftMat = mat({
       a *= 0.7 + 0.3 * vnoise(vec2(vUv.x * 3.0 + vL.y, vUv.y * 6.0 - uTime * 0.3));
       float d = length(vW - cameraPosition);
       a *= smoothstep(0.8, 3.0, d) * exp(-d * uUnder.z * 1.4) * vL.z;
-      gl_FragColor = vec4(uShaftCol * a, a);
+      gl_FragColor = vec4(uShaftCol, a); // (additive: the blend weighs the colour by a once)
     }`,
 });
 function buildShafts() {
@@ -646,7 +646,7 @@ function shaftsFrame(on, surfY) {
   _shD.set(-L.x / 1.33, -Math.sqrt(Math.max(0.05, 1 - (L.x * L.x + L.z * L.z) / (1.33 * 1.33))), -L.z / 1.33).normalize();
   shaftMat.uniforms.uShaftDir.value.copy(_shD);
   const lc = U.uLightColor.value, cov = 1 - 0.8 * (WEATHER.overcast || 0);
-  shaftMat.uniforms.uShaftCol.value.set(lc.x * 0.16, lc.y * 0.22, lc.z * 0.21).multiplyScalar(sunUp * cov);
+  shaftMat.uniforms.uShaftCol.value.set(lc.x * 0.3, lc.y * 0.42, lc.z * 0.4).multiplyScalar(sunUp * cov);
   const iS = M.geometry.attributes.iS.array, iL = M.geometry.attributes.iL.array, cam = camera.position;
   const cell = 2.6, ci = Math.floor(cam.x / cell), cj = Math.floor(cam.z / cell), list = [];
   for (let j = -6; j <= 6; j++) for (let i = -6; i <= 6; i++) {
@@ -695,7 +695,7 @@ function diveFrame(dt) {
     const lit = Math.exp(-D.d * 0.09);
     const iced = SICE.on && seasonIceAt(cam.x, cam.z) > 0.12 ? 0.45 : 1;
     const base = pond ? [0.05, 0.085, 0.06] : realm === 2 ? [0.03, 0.08, 0.1] : [0.035, 0.09, 0.085];
-    U.uUnderCol.value.set(base[0] * (A.x * 0.9 + L.x * 0.7 * day), base[1] * (A.y * 0.9 + L.y * 0.7 * day), base[2] * (A.z * 0.9 + L.z * 0.7 * day)).multiplyScalar(lit * iced * 2.3);
+    U.uUnderCol.value.set(base[0] * (A.x * 0.9 + L.x * 0.7 * day), base[1] * (A.y * 0.9 + L.y * 0.7 * day), base[2] * (A.z * 0.9 + L.z * 0.7 * day)).multiplyScalar(lit * iced * 3.0);
     U4.set(1, w.y, murk, D.d);
   } else U4.set(0, -1000, U4.z, 0);
   // the holes' own rims are drawn for the eye above the ice; from under it the open water shows the sky
@@ -846,8 +846,8 @@ function diveDraw(dt) {
   // the finds show near the camera only
   if ((DIVE.visT = (DIVE.visT || 0) - dt) < 0) {
     DIVE.visT = 0.4;
-    const cam = camera.position;
-    for (const F of DIVE.finds) if (F.mesh) F.mesh.visible = !F.taken && dist2(F.x, F.z, cam.x, cam.z) < 70 * 70;
+    const cam = camera.position, r = quality.level === 'low' ? 40 : quality.level === 'medium' ? 55 : 70;
+    for (const F of DIVE.finds) if (F.mesh) F.mesh.visible = !F.taken && dist2(F.x, F.z, cam.x, cam.z) < r * r;
   }
   if (GAME.started && GAME.player) diveHUD();
 }

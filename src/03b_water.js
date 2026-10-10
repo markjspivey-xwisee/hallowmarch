@@ -51,7 +51,7 @@ const waterMat = mat({
          (the light bends up through it, and the sun blazes in it); outside it the surface is a silver mirror of the
          depths; ripples break both up; winter ice is a dim, milky ceiling with light only at the holes ---- */
       if (!gl_FrontFacing) {
-        if (uUnder.x < 0.5 || depth < 0.08) discard; // (at the waterline the bank is there: no flicker against it)
+        if (uUnder.x < 0.5) discard;
         float tU = uTime;
         vec2 gU = waveGrad(vW.xz * 0.45, tU) * 1.3;
         if (length(vF.xy) > 0.04) gU += waveGrad(vW.xz * 0.62 - vF.xy * tU * 0.5, tU * 0.45) * 0.8;
@@ -62,7 +62,8 @@ const waterMat = mat({
         float inWin = dot(T, T) > 0.01 ? 1.0 : 0.0;
         float cosT = abs(T.y);
         float R = inWin > 0.5 ? 0.02 + 0.98 * spow(1.0 - cosT, 5.0) : 1.0;
-        float tr = (1.0 - R) * inWin;
+        // at the waterline the surface closes on the bank: no window there, so nothing above the water shows through the seam
+        float tr = (1.0 - R) * inWin * smoothstep(0.03, 0.18, depth);
         float iceU = smoothstep(0.05, 0.14, vF.w) * (1.0 - iceHole(vW.xz));
         float thick = smoothstep(0.1, 0.6, vF.w);
         float dayU = 1.0 - uNight * 0.85;

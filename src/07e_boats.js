@@ -782,9 +782,9 @@ function water2PetWait(e, dt) {
 }
 function boatsDraw(dt) {
   if (!BOATS.built) return;
-  const cam = camera.position;
+  const cam = camera.position, ql = quality.level, far = ql === 'low' ? 110 : ql === 'medium' ? 140 : 160, oarR = ql === 'low' ? 45 : ql === 'medium' ? 70 : 90;
   for (const B of BOATS.list) {
-    const d2 = dist2(B.x, B.z, cam.x, cam.z), vis = d2 < 160 * 160;
+    const d2 = dist2(B.x, B.z, cam.x, cam.z), vis = d2 < far * far;
     B.root.visible = vis;
     if (!vis) continue;
     if (!B.rider) boatPose(B, dt);
@@ -800,7 +800,7 @@ function boatsDraw(dt) {
       o.rotation.order = 'YZX';
       o.rotation.y = lerp(sd * 1.5, -sd * sweep, k);
       o.rotation.z = lerp(0.05, -dip, k) * sd;
-      o.visible = d2 < 90 * 90;
+      o.visible = d2 < oarR * oarR;
     }
     // char and the glow of the fire, and no snow or rain on the inside of a hull that is rowed
     B.mat.uniforms.uPc.value.set(0, B.char, B.st === 'burning' ? 0.4 + B.char * 0.6 : 0, 0);
