@@ -470,6 +470,13 @@ function beastVS(depth) {
     } else if (atype > 3.5 && atype < 4.5) {
       float kk = sin(at * 3.1416); pitch -= 0.08 * kk; headX -= 0.28 * kk; jaw = max(jaw, 0.3 * kk); lungeZ = -0.07 * kk;
     }
+    // [water] swimming (iAnim.w < 0, 07b_swim.js): nose up, back awash, tail trailing, the legs paddling in turn
+    float swimK = clamp(-iAnim.w, 0.0, 1.0);
+    if (swimK > 0.001) {
+      pitch = mix(pitch, -0.12, swimK); headX = mix(headX, -0.32 + 0.04 * sin(t * 1.3), swimK); headY *= 1.0 - 0.7 * swimK;
+      tailX = mix(tailX, -0.42, swimK); tailY = mix(tailY, 0.22 * sin(t * 2.2), swimK); spine *= 1.0 - swimK;
+      bob = mix(bob, 0.025 * sin(ph * 2.0), swimK); lungeZ *= 1.0 - swimK; jaw = mix(jaw, 0.06, swimK);
+    }
     float d1 = smoothstep(0.0, 0.5, death), d2 = smoothstep(0.15, 1.0, death);
     if (death > 0.0) { headX = mix(headX, 0.3, d1); headY *= 1.0 - d1; jaw = mix(jaw, 0.25, d1); tailX = mix(tailX, 0.35, d1); tailY *= 1.0 - d1; spine *= 1.0 - d1; bob *= 1.0 - d1; }
     // child joints first, then their parents
@@ -492,6 +499,14 @@ function beastVS(depth) {
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
       if (fr) { midA -= 0.25 * tuck; sw += 0.5 * tuck; } else { lowA -= 0.3 * tuck; sw -= 0.55 * tuck; }
       if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1); midA *= 1.0 - d1; lowA = mix(lowA, fr ? 0.25 : -0.15, d1); }
+      if (swimK > 0.001) {
+        // [water] a paddle: each leg reaches forward folded and sweeps back straight, diagonal pairs together
+        float pc = ph + ((leg == 0 || leg == 3) ? 0.0 : 3.1416);
+        float pw = sin(pc), rec = max(0.0, cos(pc));
+        sw = mix(sw, fr ? 0.2 + 0.62 * pw : -0.15 + 0.5 * pw, swimK);
+        midA = mix(midA, fr ? -0.3 * rec : 0.45 * rec, swimK);
+        lowA = mix(lowA, fr ? 1.25 * rec : -0.85 * rec, swimK);
+      }
       vec3 T = fr ? uFT : uBT, M = fr ? uFM : uBM, L = fr ? uFL : uBL;
       if (rel == 2) rotP(rotX(lowA * w), L);
       if (rel >= 1) rotP(rotX(midA * (rel == 1 ? w : 1.0)), M);

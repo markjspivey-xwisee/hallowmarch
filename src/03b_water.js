@@ -1,0 +1,178 @@
+/* ================================================================== */
+/* water: the surface of the lakes, ponds and rivers                    */
+/* ================================================================== */
+// One mesh over every texel the water stands on (01b_water.js WATERGRID), with each vertex at the water's own height,
+// so a river falls down its valley and runs into its lake as one surface (nothing overlaps, nothing flickers). The
+// shore is cut per pixel where the ground rises out of the water. The water is see-through: the eye looks down
+// through it to the bed (drawn by the ground shader with its caustics and wobble), the light it takes on the way
+// (more the deeper it is and the flatter one looks) tints and hides the bed, and the sky, the clouds and the far shore
+// are mirrored on top. Rivers carry their ripples downstream (two flow-mapped layers cross-faded), run white where they
+// fall steeply, and the ripple simulation (02c_water_map.js) adds the rings bodies, fish, rain and spells make.
+const waterMat = mat({
+  uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uCloudCover: skyU.uCloudCover }, // visual pass: clouds in the mirror
+  vertexShader: /* glsl */`
+    attribute vec4 aW; // flow x, flow z (m/s), white water, -
+    varying vec3 vW; varying vec4 vF;
+    void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vF = aW; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    ${GLSL_ATMOS}
+    ${GLSL_WORLD}
+    ${GLSL_SHADOW}
+    ${GLSL_PLIGHT}
+    ${GLSL_WATER_MAP}
+    uniform vec3 uLeaf;
+    uniform float uRain; // feature/weather
+    uniform vec3 uCloudLit, uCloudShade;
+    uniform float uCloudCover;
+    varying vec3 vW; varying vec4 vF;
+    vec2 waveGrad(vec2 q, float t){
+      vec2 g = vec2(vnoise(q + vec2(t * 0.3, t * 0.2)) - 0.5, vnoise(q * 1.7 - vec2(t * 0.25, -t * 0.31)) - 0.5);
+      g += vec2(vnoise(q * 4.1 + t * 0.6) - 0.5, vnoise(q * 3.7 - t * 0.5) - 0.5) * 0.45;
+      g += vec2(vnoise(q * 11.0 - t * 0.9) - 0.5, vnoise(q * 9.3 + t * 1.1) - 0.5) * 0.18;
+      return g;
+    }
+    void main(){
+      float bedY = terrainHeight(vW.xz);
+      float depth = vW.y - bedY;
+      if (depth < -0.02) discard; // the shore cuts the water
+      vec3 V = safeNormalize(cameraPosition - vW);
+      float dist = length(cameraPosition - vW);
+      float t = uTime;
+      vec2 flow = vF.xy;
+      float fl = length(flow), white = vF.z;
+      float far = smoothstep(30.0, 140.0, dist);
+      // waves: still water has its own; running water carries two layers downstream and cross-fades them
+      vec2 g = waveGrad(vW.xz * 0.45, t);
+      if (fl > 0.04) {
+        float p0 = fract(t * 0.32), p1 = fract(t * 0.32 + 0.5);
+        float wgt = abs(p0 - 0.5) * 2.0;
+        vec2 q = vW.xz * 0.62;
+        vec2 g0 = waveGrad(q - flow * p0 * 1.5, t * 0.45), g1 = waveGrad(q - flow * p1 * 1.5 + 0.37, t * 0.45 + 3.0);
+        vec2 gr = mix(g0, g1, wgt) * (1.0 + 0.45 * fl);
+        g = mix(g, gr, smoothstep(0.04, 0.35, fl));
+      }
+      g *= mix(1.0, 0.4, far);
+      /* ---- weather (feature/weather): rain rings spreading over the water from the drops ---- */
+      if (uRain > 0.02 && dist < 70.0) {
+        vec2 rg = vec2(0.0);
+        for (int k = 0; k < 2; k++) {
+          vec2 q = vW.xz * (k == 0 ? 1.6 : 2.7) + float(k) * 7.3;
+          vec2 cell = floor(q), f = fract(q) - 0.5;
+          vec2 h2 = hash22(cell + float(k) * 13.0);
+          float rate = 0.8 + 0.5 * h2.x, cyc = t * rate + h2.y;
+          float ph = fract(cyc), r = ph * 0.48;
+          vec2 d = f - (h2 - 0.5) * 0.5;
+          float l = length(d);
+          float live = step(hash12(cell * 1.7 + floor(cyc) * 3.1 + float(k)), uRain);
+          rg += (l > 1e-4 ? d / l : vec2(0.0)) * sin((l - r) * 42.0) * exp(-abs(l - r) * 20.0) * (1.0 - ph) * live;
+        }
+        g += rg * 0.8 * uRain * (1.0 - smoothstep(30.0, 70.0, dist));
+      }
+      // the rings and wakes of the ripple simulation round the player
+      vec2 rs = vec2(0.0);
+      if (uRippleB.w > 0.5 && dist < 40.0) {
+        float e = uRippleB.z / 256.0;
+        rs = vec2(rippleAt(vW.xz + vec2(e, 0.0)) - rippleAt(vW.xz - vec2(e, 0.0)), rippleAt(vW.xz + vec2(0.0, e)) - rippleAt(vW.xz - vec2(0.0, e))) / (2.0 * e);
+        g -= rs / 0.17 * 0.9;
+      }
+      vec3 n = safeNormalize(vec3(g.x * 0.17, 1.0, g.y * 0.17));
+      float sh = shadowAt(vW, vec3(0.0, 1.0, 0.0));
+      float fres = 0.025 + 0.975 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
+      vec3 R = reflect(-V, n);
+      vec3 refl = skyBase(safeNormalize(vec3(R.x, max(R.y, 0.02), R.z)));
+      // visual pass: the clouds drift across the mirror too
+      if (R.y > 0.0) {
+        vec2 cp = R.xz / (R.y + 0.09) * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
+        float cn = fbm(cp * 1.15 + 0.4);
+        float ccov = smoothstep(uCloudCover, uCloudCover + 0.22, cn);
+        refl = mix(refl, mix(uCloudLit, uCloudShade, smoothstep(uCloudCover + 0.05, uCloudCover + 0.36, cn) * 0.9), ccov * smoothstep(0.0, 0.1, R.y) * 0.85);
+      }
+      // low reflections catch the wooded shore rather than the sky: a ragged line of crowns, not a flat band
+      float az = satan(R.z, R.x);
+      float crowns = 0.07 + 0.13 * fbm3(vec2(az * 7.0, 1.7)) + 0.04 * vnoise(vec2(az * 31.0, 4.2));
+      vec3 land = mix(uLeaf * 0.42, uHorizon * 0.5, 0.35) * (uAmbient * 0.7 + uLightColor * 0.3);
+      land *= 0.8 + 0.3 * vnoise(vec2(az * 23.0, R.y * 30.0));
+      refl = mix(refl, land, (1.0 - smoothstep(crowns - 0.035, crowns + 0.015, R.y)) * 0.88);
+      // looking down through the water: the light it takes on the way (red goes first) tints and then hides the bed
+      vec3 lit = uAmbient * 0.6 + uLightColor * 0.5 * mix(0.45, 1.0, sh);
+      float run = smoothstep(0.2, 1.2, fl);
+      float path = max(depth, 0.0) / max(V.y, 0.07);
+      float murk = mix(0.62, 0.42, run);           // still water is darker and greener than running water
+      float T = exp(-path * murk);                   // how much of the bed shows
+      vec3 deep = mix(vec3(0.012, 0.055, 0.06), vec3(0.03, 0.085, 0.085), run) * lit;
+      vec3 shallowTint = vec3(0.1, 0.19, 0.15) * lit;
+      vec3 body = mix(shallowTint, deep, smoothstep(0.0, 2.2, path));
+      // light scattered up from just under a sunlit surface, a little green-gold in the shallows
+      body += uLightColor * vec3(0.03, 0.05, 0.035) * sh * smoothstep(3.0, 0.3, depth) * (1.0 - uNight);
+      vec3 pm = refl * fres + (1.0 - fres) * (1.0 - T) * body;
+      float a = 1.0 - (1.0 - fres) * T;
+      // the sun's glitter path and a broad sheen
+      vec3 Hh = safeNormalize(uLightDir + V);
+      float nh = max(dot(n, Hh), 0.0);
+      pm += uLightColor * (spow(nh, 420.0) * 2.2 + spow(nh, 60.0) * 0.18) * sh;
+      // fires and torches on and in the water
+      pm += ((body * 1.5 + 0.06) * pointLights(vW, n) * (1.0 - T * 0.7) + pointLights(vW + vec3(0.0, 0.6, 0.0), R) * fres * 0.6);
+      // foam: a line lapping at the shore, streaks where the river runs white, froth in the wakes
+      float swash = (0.05 * sin(t * 0.9 + vnoise(vW.xz * 0.25) * 6.3) + 0.025 * sin(t * 2.1 + vW.x * 0.6 + vW.z * 0.4)) * (1.0 - smoothstep(0.4, 1.6, fl));
+      float lapD = 0.05 + max(-swash, 0.0) * 1.4;
+      float edgeFoam = (1.0 - smoothstep(0.0, 0.07, abs(depth - lapD))) * smoothstep(0.3, 0.62, vnoise(vW.xz * 3.3 + vec2(t * 0.2, -t * 0.16)));
+      float shoreFoam = (1.0 - smoothstep(0.0, 0.3, depth)) * smoothstep(0.5, 0.8, vnoise(vW.xz * 2.2 + vec2(t * 0.35, -t * 0.27)) + 0.3 * sin(depth * 18.0 - t * 1.6));
+      vec2 fd = fl > 1e-3 ? flow / fl : vec2(1.0, 0.0);
+      vec2 fq = vec2(dot(vW.xz, fd), dot(vW.xz, vec2(-fd.y, fd.x)));
+      float streak = smoothstep(0.42, 0.78, vnoise(vec2(fq.x * 0.55 - t * fl * 0.9, fq.y * 2.6)) * 0.65 + vnoise(vec2(fq.x * 1.7 - t * fl * 1.3, fq.y * 5.0)) * 0.35);
+      float whiteFoam = white * (0.35 + 0.65 * streak) * (1.0 - far * 0.4);
+      float wake = smoothstep(0.12, 0.45, length(rs)) * 0.55;
+      float foam = clamp(max(max(edgeFoam, shoreFoam * 0.75), max(whiteFoam, wake)), 0.0, 1.0);
+      vec3 foamC = vec3(0.86, 0.9, 0.9) * (uAmbient * 0.7 + uLightColor * 0.55 * mix(0.5, 1.0, sh));
+      pm = mix(pm, foamC, foam * 0.85);
+      a = mix(a, 1.0, foam * 0.85);
+      a = clamp(a, 0.0, 1.0);
+      vec3 c = pm / max(a, 1e-3);
+      gl_FragColor = vec4(safeColor(applyFog(c, vW)) * a, a);
+    }`,
+  transparent: true, depthWrite: true,
+  blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+});
+const WATER_MESHES = [];
+function buildWater() {
+  uploadWaterMap();
+  const G = WATERGRID, ext = G.ext, S = G.surf;
+  const CH = 8, CELLS = 64;
+  for (let cj = 0; cj < CH; cj++) for (let ci = 0; ci < CH; ci++) {
+    const vid = new Map(), pos = [], aw = [], idx = [];
+    let minY = Infinity, maxY = -Infinity;
+    const vert = (gi, gj) => {
+      const k = gj * HN + gi;
+      let v = vid.get(k);
+      if (v !== undefined) return v;
+      v = pos.length / 3;
+      const y = ext[k];
+      pos.push(-HALF + gi * HS, y, -HALF + gj * HS);
+      aw.push(G.fx[k], G.fz[k], G.white[k], 0);
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      vid.set(k, v);
+      return v;
+    };
+    for (let j = 0; j < CELLS; j++) for (let i = 0; i < CELLS; i++) {
+      const gi = ci * CELLS + i, gj = cj * CELLS + j;
+      if (gi >= HN - 1 || gj >= HN - 1) continue;
+      const k = gj * HN + gi, ks = [k, k + 1, k + HN, k + HN + 1];
+      if (!ks.some((q) => !isNaN(S[q])) || ks.some((q) => isNaN(ext[q]))) continue;
+      const a = vert(gi, gj), b = vert(gi + 1, gj), c = vert(gi, gj + 1), d = vert(gi + 1, gj + 1);
+      if ((i + j) & 1) idx.push(a, c, b, b, c, d); else idx.push(a, c, d, a, d, b);
+    }
+    if (!idx.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aW', new THREE.Float32BufferAttribute(aw, 4));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, waterMat);
+    m.renderOrder = 3;
+    m.userData.water = true;
+    scene.add(m);
+    WATER_MESHES.push(m);
+  }
+  WATERGRID.cells = WATER_MESHES.reduce((s, m) => s + m.geometry.index.count / 6, 0);
+}

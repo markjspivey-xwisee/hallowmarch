@@ -324,7 +324,8 @@ function buildFish() {
   scene.add(FISH.mesh);
 }
 function waterSplash(x, z, big = 1) {
-  const y = WATER_Y + 0.02, A = U.uAmbient.value, L = U.uLightColor.value;
+  const y = (waterAt(x, z) || { y: WATER_Y }).y + 0.02, A = U.uAmbient.value, L = U.uLightColor.value; // [water] lakes, ponds and rivers
+  rippleDrop(x, z, 0.4 * big, 0.03 * big); // [water] the ring it leaves (02c_water_map.js)
   const c = [A.x * 0.8 + L.x * 0.4, A.y * 0.8 + L.y * 0.4, A.z * 0.8 + L.z * 0.45];
   for (let i = 0; i < 10 * big; i++) {
     const a = Math.random() * TAU, s = 0.5 + Math.random() * 0.9;
@@ -341,10 +342,11 @@ function updateFish(dt) {
     for (let tries = 0; tries < 12; tries++) {
       const a = Math.random() * TAU, d = 6 + Math.random() * 38;
       const x = P.x + Math.cos(a) * d, z = P.z + Math.sin(a) * d;
-      if (heightAt(x, z) > WATER_Y - 0.7) continue;
-      const h = Math.random() * TAU, L = 0.9 + Math.random() * 0.8;
-      if (heightAt(x + Math.cos(h) * L, z + Math.sin(h) * L) > WATER_Y - 0.4) continue;
-      FISH.list.push({ x, z, dx: Math.cos(h), dz: Math.sin(h), L, H: 0.45 + Math.random() * 0.45, t: 0, dur: 0.7 + Math.random() * 0.3, s: 0.8 + Math.random() * 0.7 });
+      const wa = waterAt(x, z); // [water] fish leap in the rivers too (01b_water.js)
+      if (!wa || wa.depth < 0.7) continue;
+      const wy = wa.y, h = Math.random() * TAU, L = 0.9 + Math.random() * 0.8, wb = waterAt(x + Math.cos(h) * L, z + Math.sin(h) * L);
+      if (!wb || wb.depth < 0.4) continue;
+      FISH.list.push({ wy, x, z, dx: Math.cos(h), dz: Math.sin(h), L, H: 0.45 + Math.random() * 0.45, t: 0, dur: 0.7 + Math.random() * 0.3, s: 0.8 + Math.random() * 0.7 });
       waterSplash(x, z, 0.7);
       break;
     }
@@ -356,7 +358,7 @@ function updateFish(dt) {
     f.t += dt;
     const k = f.t / f.dur;
     if (k >= 1) { waterSplash(f.x + f.dx * f.L, f.z + f.dz * f.L, 1); FISH.list.splice(i, 1); continue; }
-    const x = f.x + f.dx * f.L * k, z = f.z + f.dz * f.L * k, y = WATER_Y + f.H * 4 * k * (1 - k) - 0.05;
+    const x = f.x + f.dx * f.L * k, z = f.z + f.dz * f.L * k, y = (f.wy ?? WATER_Y) + f.H * 4 * k * (1 - k) - 0.05; // [water]
     const vy = f.H * 4 * (1 - 2 * k) / f.dur, vh = f.L / f.dur;
     iA.set([x, y, z, renderTime], n * 4);
     iB.set([f.dx * vh, vy, f.dz * vh, f.s], n * 4);

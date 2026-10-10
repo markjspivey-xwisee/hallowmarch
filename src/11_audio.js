@@ -92,7 +92,7 @@ function brass(t, freqs, step, len, vol) {
   });
 }
 
-const SFX_GAP = { error: 0.25, click: 0.04, hit: 0.05, swing: 0.06, bow: 0.06, thud: 0.08, hoof: 0.06, hoofFast: 0.05 };
+const SFX_GAP = { error: 0.25, click: 0.04, hit: 0.05, swing: 0.06, bow: 0.06, thud: 0.08, hoof: 0.06, hoofFast: 0.05, wade: 0.12, swim: 0.3, splashBig: 0.4 }; // [water] wade, swim, splashBig
 function sfx(name) {
   if (!AUDIO.ctx || !AUDIO.on || AUDIO.ctx.state !== 'running') return;
   const ctx = AUDIO.ctx, t = ctx.currentTime + 0.005;
@@ -162,6 +162,12 @@ function sfx(name) {
       case 'ignite': noiseBurst(t, 0.45, 0.12, 'bandpass', 900, 2600, 1, 0.02); break;
       case 'hiss': noiseBurst(t, 0.85, 0.09, 'highpass', 3200, 5600, 0.7, 0.02); noiseBurst(t, 0.3, 0.05, 'bandpass', 1800, 900, 1.5); break;
       case 'drip': { const f = 1500 + Math.random() * 900; tone('sine', f, f * 0.55, t, 0.07, 0.03, 0.002); tone('sine', f * 0.9, f * 0.5, t + 0.16, 0.08, 0.012, 0.002); } break;
+      // [water] (07b_swim.js): a foot in the water, a stroke, a body going in, a mouthful
+      case 'wade': noiseBurst(t, 0.16, 0.07, 'bandpass', 900 + Math.random() * 500, 420, 1.3, 0.008); tone('sine', 300 + Math.random() * 120, 140, t, 0.07, 0.03, 0.004); break;
+      case 'swim': noiseBurst(t, 0.34, 0.06, 'bandpass', 700, 1500, 0.9, 0.05); noiseBurst(t + 0.05, 0.22, 0.035, 'highpass', 2600, 3400, 0.7, 0.03); break;
+      case 'splash': noiseBurst(t, 0.45, 0.16, 'lowpass', 2400, 500, 0.8, 0.005); { const f = 500 + Math.random() * 300; tone('sine', f, f * 0.4, t, 0.12, 0.05, 0.003); } break;
+      case 'splashBig': noiseBurst(t, 0.9, 0.32, 'lowpass', 3000, 300, 0.7, 0.004); tone('sine', 160, 55, t, 0.35, 0.22, 0.004); noiseBurst(t + 0.15, 0.8, 0.1, 'highpass', 2500, 4200, 0.6, 0.05); for (let i = 0; i < 4; i++) { const f = 900 + Math.random() * 1200; tone('sine', f, f * 0.5, t + 0.35 + i * 0.11 + Math.random() * 0.05, 0.06, 0.02, 0.002); } break;
+      case 'gulp': for (let i = 0; i < 3; i++) { tone('sine', 260 - i * 15, 150, t + i * 0.22, 0.09, 0.08, 0.01); noiseBurst(t + i * 0.22, 0.08, 0.03, 'lowpass', 600, 300, 1, 0.01); } break;
       default: break;
     }
   } catch (e) { if (AUDIO.debug) throw e; }

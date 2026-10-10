@@ -814,6 +814,42 @@ function humanVS(depth) {
       chestX += 0.4 * strike * (1.0 - rec) - 0.25 * wind * (1.0 - strike);
       stepZ = 0.12 * strike * (1.0 - rec); thL = mix(thL, -0.4, strike * (1.0 - rec)); shL = mix(shL, 0.4, strike * (1.0 - rec));
     }
+    // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
+    // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
+    float swimK = clamp(-iAnim.w, 0.0, 1.0), swimPitch = 0.0;
+    if (swimK > 0.001) {
+      float sw = smoothstep(0.08, 0.5, amt);
+      float u = fract(ph * 0.159155);
+      // arms sweep out and back, the elbows fold the hands in under the chin, then they shoot forward and glide;
+      // the knees draw up as the arms recover, and the legs whip round and together as the arms reach forward
+      float pull = smoothstep(0.0, 0.34, u) * (1.0 - smoothstep(0.34, 0.5, u));
+      float bendE = smoothstep(0.22, 0.38, u) * (1.0 - smoothstep(0.42, 0.54, u));
+      float draw = smoothstep(0.28, 0.46, u) * (1.0 - smoothstep(0.48, 0.62, u));
+      float kick = smoothstep(0.46, 0.56, u) * (1.0 - smoothstep(0.56, 0.7, u));
+      float sUa = mix(-2.45, -1.15, pull), sUz = mix(0.14, 1.05, pull), sFa = -0.08 - 1.55 * bendE;
+      float sTh = mix(0.06, -1.05, draw), sSh = mix(0.1, 1.95, draw), sSp = 0.1 + 0.3 * draw + 0.28 * kick;
+      // treading: the legs cycle under the body, the hands scull at the surface
+      float tt = t * 2.6;
+      float tUaL = -0.25 + 0.32 * sin(tt), tUaR = -0.25 + 0.32 * sin(tt + 0.4), tUz = 1.0 + 0.1 * sin(tt * 2.0), tFa = -0.5 - 0.25 * sin(tt + 0.8);
+      float tThL = -0.7 + 0.32 * sin(tt * 1.1), tThR = -0.7 + 0.32 * sin(tt * 1.1 + 3.1);
+      float tShL = 1.2 + 0.4 * sin(tt * 1.1 + 1.3), tShR = 1.2 + 0.4 * sin(tt * 1.1 + 4.4);
+      float armK = swimK * ((atype > 0.5 && atype < 9.5) ? 0.2 : 1.0); // a blow struck while swimming still shows
+      float az = mix(tUz, sUz, sw), fa = mix(tFa, sFa, sw);
+      uaL = mix(uaL, mix(tUaL, sUa, sw), armK); uaR = mix(uaR, mix(tUaR, sUa, sw), armK);
+      uaLz = mix(uaLz, az, armK); uaRz = mix(uaRz, -az, armK);
+      faL = mix(faL, fa, armK); faR = mix(faR, fa, armK);
+      thL = mix(thL, mix(tThL, sTh, sw), swimK); thR = mix(thR, mix(tThR, sTh, sw), swimK);
+      shL = mix(shL, mix(tShL, sSh, sw), swimK); shR = mix(shR, mix(tShR, sSh, sw), swimK);
+      float spr = mix(0.28, sSp, sw);
+      spreadL = mix(spreadL, spr, swimK); spreadR = mix(spreadR, -spr, swimK);
+      float pitchFull = mix(0.12 + 0.03 * sin(tt * 0.5), 0.92 - 0.14 * pull, sw);
+      swimPitch = pitchFull * swimK;
+      chestX = mix(chestX, 0.0, swimK); chestY = mix(chestY, 0.0, swimK);
+      headX = mix(headX, -pitchFull * 0.95 + 0.04 * sin(t * 0.7), swimK); headY *= 1.0 - 0.6 * swimK;
+      pelvisY *= 1.0 - swimK; swayX *= 1.0 - swimK; stepZ *= 1.0 - swimK; crouch *= 1.0 - swimK;
+      bob = mix(bob, 0.03 * sin(tt * 0.9) * (1.0 - sw) + (0.05 * pull - 0.02) * sw, swimK);
+      capeX = mix(capeX, mix(0.5, 1.25, sw), swimK);
+    }
     // in the saddle: thighs forward and apart, shins down, hands on the reins, moving with the horse
     float mounted = mod(floor(iColB.w / 8.0), 2.0);
     if (mounted > 0.5) {
@@ -855,6 +891,7 @@ function humanVS(depth) {
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
     rotP(rotY(pelvisY), vec3(0.0, 0.95, 0.0));
     P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX; P.z += stepZ;
+    if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 
     float sc = iColA.w;
@@ -1060,7 +1097,8 @@ const humanoidMat = mat({
       /* ---- weather and wear (feature/weather, 05h_wear.js): mud climbing from the boots, battle damage, blood, rain, snow ---- */
       float wFilm = 0.0, wFilmPor = 0.5;
       {
-        float wWet = clamp(vWear.x, 0.0, 1.0), wSnow = clamp(vWear.y, 0.0, 1.0), wDirt = clamp(vWear.z, 0.0, 1.0);
+        float wWet = fract(vWear.x), wLine = floor(vWear.x + 1e-3) * 0.05, wSnow = clamp(vWear.y, 0.0, 1.0), wDirt = clamp(vWear.z, 0.0, 1.0);
+        wWet = max(wWet, (1.0 - smoothstep(wLine - 0.06, wLine + 0.02, vO.y)) * step(0.01, wLine)); // [water] soaked up to the waterline (07b_swim.js)
         float wBlood = fract(vWear.w), wDmg = clamp(floor(vWear.w + 1e-3) / 15.0, 0.0, 1.0);
         bool cloth = m == 1 || m == 8 || m == 10 || m == 16 || m == 7;
         bool hide = m == 3 || m == 4 || m == 5 || m == 18 || m == 19;

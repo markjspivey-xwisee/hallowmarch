@@ -60,8 +60,10 @@ function riverProfile(pts) {
   for (const p of pts) {
     const f = p.s / len;
     if (p.s > s75) p.surf = Math.max(WATER_Y, Math.min(p.surf, lerp(at75, WATER_Y, (p.s - s75) / (len - s75))));
-    p.hw = lerp(2.2, 4.3, sstep(0, 1, f));
-    p.depth = lerp(0.75, 2.0, sstep(0.1, 0.85, f));
+    // the spring: a narrow, shallow runnel that widens into the river over its first stretch
+    const spring = sstep(0, 22, p.s);
+    p.hw = lerp(2.2, 4.3, sstep(0, 1, f)) * lerp(0.78, 1, spring); // never narrower than the 2 m grid can hold
+    p.depth = lerp(0.75, 2.0, sstep(0.1, 0.85, f)) * lerp(0.55, 1, spring);
   }
   // direction and pace at each point (faster where it falls steeply)
   for (let i = 0; i < pts.length; i++) {
@@ -128,8 +130,93 @@ function nearRiver(x, z, pad = 0) {
   return false;
 }
 // once the land is final: the height of the water over every texel, and its flow
+// Deep water (over a grown man's chest) is marked 2 in W.walk: still unwalkable for anything that does not swim
+// (isWalkable is walk === 0), passable for a swimmer (swimPassable). Slopes under water do not stop a swimmer either.
+const WATER_DEEP = 1.15;
+const PONDS = [];
+// Closed hollows in the land fill with rain: a priority flood from the edge of the map and from the lakes and rivers
+// finds every hollow and the height it would spill over at. A hollow deep and wide enough, with nothing standing in it
+// (a tree, a rock, a road, a camp, a house), becomes a pond with its surface a little under the spill; any other
+// hollow deeper than a hand is filled in, so there are no dry pond beds anywhere.
+function findPonds(H, surf) {
+  const N = HN, N2 = N * N, F = new Float32Array(N2), done = new Uint8Array(N2);
+  const heap = new Int32Array(N2); let hn = 0;
+  const less = (a, b) => F[heap[a]] < F[heap[b]];
+  const push = (k) => { let i = hn++; heap[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (!less(i, p)) break; const t = heap[i]; heap[i] = heap[p]; heap[p] = t; i = p; } };
+  const pop = () => { const top = heap[0]; heap[0] = heap[--hn]; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < hn && less(l, m)) m = l; if (r < hn && less(r, m)) m = r; if (m === i) break; const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m; } return top; };
+  for (let k = 0; k < N2; k++) {
+    const i = k % N, j = (k / N) | 0;
+    F[k] = H[k];
+    if (i === 0 || j === 0 || i === N - 1 || j === N - 1 || !isNaN(surf[k])) { done[k] = 1; push(k); }
+  }
+  while (hn) {
+    const k = pop(), i = k % N, j = (k / N) | 0;
+    for (let q = 0; q < 4; q++) {
+      const ii = i + (q === 0 ? 1 : q === 1 ? -1 : 0), jj = j + (q === 2 ? 1 : q === 3 ? -1 : 0);
+      if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+      const n = jj * N + ii;
+      if (done[n]) continue;
+      done[n] = 1; F[n] = Math.max(H[n], F[k]); push(n);
+    }
+  }
+  // the hollows, each with its texels, depth and spill height
+  const lab = new Int32Array(N2).fill(-1), comps = [];
+  for (let k = 0; k < N2; k++) {
+    if (lab[k] >= 0 || F[k] - H[k] < 0.02) continue;
+    const C = { ks: [], spill: F[k], max: 0, x: 0, z: 0 }, st = [k];
+    lab[k] = comps.length;
+    while (st.length) {
+      const q = st.pop(), i = q % N, j = (q / N) | 0;
+      C.ks.push(q); C.max = Math.max(C.max, F[q] - H[q]); C.spill = Math.max(C.spill, F[q]);
+      C.x += -HALF + i * HS; C.z += -HALF + j * HS;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ii = i + di, jj = j + dj;
+        if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+        const n = jj * N + ii;
+        if (lab[n] < 0 && F[n] - H[n] >= 0.02) { lab[n] = comps.length; st.push(n); }
+      }
+    }
+    C.x /= C.ks.length; C.z /= C.ks.length;
+    comps.push(C);
+  }
+  // what stands in each hollow
+  const taken = new Uint8Array(comps.length);
+  const mark = (x, z, pad) => {
+    const i0 = Math.max(0, Math.floor((x - pad + HALF) / HS)), i1 = Math.min(N - 1, Math.ceil((x + pad + HALF) / HS));
+    const j0 = Math.max(0, Math.floor((z - pad + HALF) / HS)), j1 = Math.min(N - 1, Math.ceil((z + pad + HALF) / HS));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const c = lab[j * N + i]; if (c >= 0) taken[c] = 1; }
+  };
+  for (const t of W.trees) mark(t.x, t.z, 1.5);
+  for (const r of W.rocks) mark(r.x, r.z, 0.8 + r.s);
+  for (const s of W.stones || []) mark(s.x, s.z, 1.5);
+  for (const c of W.camps || []) mark(c.x, c.z, 16);
+  for (const S of SITES) mark(S.x, S.z, S.r + S.f + 4);
+  mark(0, 0, 60); // the Lone Tree's hill and the barrow
+  let filled = 0;
+  for (let c = 0; c < comps.length; c++) {
+    const C = comps[c];
+    let road = 0;
+    for (const k of C.ks) road = Math.max(road, W.road[k]);
+    const r = Math.hypot(C.x, C.z);
+    if (!taken[c] && road < 0.05 && C.max > 0.55 && C.ks.length >= 6 && r < 462) {
+      // a pond
+      const y = C.spill - 0.14;
+      let n = 0;
+      for (const k of C.ks) if (y > H[k] + 0.02) { surf[k] = y; n++; }
+      if (n >= 4) { PONDS.push({ x: C.x, z: C.z, y, n, depth: C.max - 0.14 }); continue; }
+    }
+    // anything else deeper than a hand is filled in: no dry pond beds
+    if (C.max > 0.12) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * Math.random()); filled++; }
+  }
+  // trees and rocks stay on the ground that was filled under them
+  if (filled) {
+    for (const t of W.trees) t.y = heightAt(t.x, t.z);
+    for (const r of W.rocks) r.y = heightAt(r.x, r.z);
+  }
+  PONDS.filled = filled;
+}
 function buildWaterGrid() {
-  const N2 = HN * HN, surf = new Float32Array(N2).fill(NaN), fx = new Float32Array(N2), fz = new Float32Array(N2);
+  const N2 = HN * HN, surf = new Float32Array(N2).fill(NaN), fx = new Float32Array(N2), fz = new Float32Array(N2), white = new Float32Array(N2);
   const H = W.H;
   for (let k = 0; k < N2; k++) if (H[k] < WATER_Y) surf[k] = WATER_Y;
   for (const Rv of RIVERS) {
@@ -144,9 +231,61 @@ function buildWaterGrid() {
       surf[k] = isNaN(surf[k]) ? n.surf : Math.max(surf[k], n.surf);
       const edge = 1 - sstep(n.hw * 0.6, n.hw + 1, n.d);
       fx[k] = n.ux * n.speed * edge; fz[k] = n.uz * n.speed * edge;
+      // white water where the river falls steeply (it runs fastest there)
+      white[k] = Math.max(white[k], sstep(1.25, 2.6, n.speed) * (1 - sstep(n.hw * 0.7, n.hw + 1.4, n.d)));
     }
   }
-  WATERGRID.surf = surf; WATERGRID.fx = fx; WATERGRID.fz = fz;
+  // ponds in the closed hollows, and no dry pond beds
+  findPonds(H, surf);
+  for (let k = 0; k < N2; k++) if (!isNaN(surf[k]) && surf[k] > H[k] - 0.15) { W.grass[k] = 0; W.flower[k] = 0; }
+  // the walk mask learns about deep water
+  const walk = W.walk;
+  for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) {
+    const k = j * HN + i, x = -HALF + i * HS, z = -HALF + j * HS;
+    if (Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6 || isNaN(surf[k])) continue;
+    const d = surf[k] - H[k];
+    if (d > WATER_DEEP) walk[k] = 2;
+    else if (walk[k] === 1 && d > 0.4) walk[k] = 2; // a steep bank under the water: a swimmer gets past it
+    else if (walk[k] === 1 && H[k] < WATER_Y - 1.0 && d > 0) walk[k] = 2;
+  }
+  // the surface carried a little way onto the shore (the water mesh is drawn over it and cut at the ground per pixel)
+  const ext = new Float32Array(N2).fill(NaN);
+  for (let k = 0; k < N2; k++) ext[k] = surf[k];
+  for (let pass = 0; pass < 2; pass++) {
+    const src = ext.slice();
+    for (let j = 1; j < HN - 1; j++) for (let i = 1; i < HN - 1; i++) {
+      const k = j * HN + i;
+      if (!isNaN(src[k])) continue;
+      let m = -Infinity;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const s = src[k + dj * HN + di]; if (!isNaN(s) && s > m) m = s; }
+      if (m > -Infinity) ext[k] = m;
+    }
+  }
+  WATERGRID.surf = surf; WATERGRID.fx = fx; WATERGRID.fz = fz; WATERGRID.white = white; WATERGRID.ext = ext;
+}
+// can a swimmer pass here (deep water, or anything walkable)
+function swimPassable(x, z) {
+  if (x > DUN_X0) return dunWalkable(x, z);
+  if (Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4) return false;
+  const i = Math.round((x + HALF) / HS), j = Math.round((z + HALF) / HS);
+  return W.walk[j * HN + i] !== 1;
+}
+// is there deep (swimming) water here, by the walk mask
+function deepWaterAt(x, z) {
+  if (x > DUN_X0 || Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4) return false;
+  const i = Math.round((x + HALF) / HS), j = Math.round((z + HALF) / HS);
+  return W.walk[j * HN + i] === 2;
+}
+// the nearest river to a point (for its sound, the fish and the tests): { Rv, n } or null
+function riverAt(x, z, pad = 6) {
+  let best = null;
+  for (const Rv of RIVERS) {
+    const b = Rv.box;
+    if (x < b[0] - pad || x > b[2] + pad || z < b[1] - pad || z > b[3] + pad) continue;
+    const n = riverNearest(Rv, x, z);
+    if (n && n.d < n.hw + pad && (!best || n.d < best.n.d)) best = { Rv, n };
+  }
+  return best;
 }
 // the water at (x, z): its surface height, how deep it is over the ground, and how it flows; null where it is dry
 const _wa = { y: 0, depth: 0, fx: 0, fz: 0 };

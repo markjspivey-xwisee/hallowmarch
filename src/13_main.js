@@ -219,6 +219,7 @@ function drawActors(fx, fz) {
     }
     _p4[0] = e.x; _p4[1] = y; _p4[2] = e.z; _p4[3] = e.yaw;
     _a4[0] = e.anim.phase; _a4[1] = e.anim.amt; _a4[2] = animActValue(e); _a4[3] = e.anim.death;
+    waterAnimPack(e, _a4); // [water] strokes, paddling and treading water (07b_swim.js)
     const L = e.look;
     if (e.kind === 'humanoid') {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
@@ -348,6 +349,7 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateWater(dt); // [water] wading, swimming, the current, fire out, splashes (07b_swim.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -394,6 +396,7 @@ function tick(dt) {
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
+  drawWater(dt); // [water] the ripple simulation, rain and spells on the water, the sound of rivers (07b_swim.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
@@ -494,6 +497,8 @@ window.__hm = {
   nature: NATURE_DEBUG, // nature (05h_nature.js)
   fn: { warLevel, abilityRank, rankMult, rescaleWar, buildHotbar, updateMotion, spellDisc, spellRibbon, spellPillar, spawnProjectile, addBuff, hasBuff, enterBarrow, leaveBarrow, setIndoor, setGate, dunPoint, dunFloorAt, dunRoomAt, makeItem, dropItem, equipItem, unequip, rollLoot, openKit, closeKit, renderKit, usePotion, applyGear, merchantStock, sellJunk, gearTotals, spawnRealmUnit, spawnMob, makeEnt, setupStats, classLook, villagerLook, removeEnt, OUTFIT, WB, W, sampleGrid, realmWeightsAt, sfx, audioUnlock, updateAudio, AUDIO, screenOf, setQuality, setTimeMode, playerUseSlot, setPlayerTarget, cycleTarget, playerInteract, getEnt, zoneAt, heightAt, isWalkable, useAbility, teleportPlayer, toggleMount, mountUp, dismount, humanStep, beastStride, dragonAnimate, GOODS, goodsAdd, goodsTake, goodsTakeAll, goodsHave, goodsCount, dropGood, registerGood, registerSavePart, savePartsLoad, savePartsData, openMenu, toggleMap, newCharacter, saveNow, buildSave, applyTimeOfDay, nearestWhere, isEnemy, addXP, addRP, killEnt, dealDamage, captureKeep, pickUpRelic, relicPosition, wbMembers, wbLeader },
 };
+
+window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
 boot().catch((err) => {
   reportError(err);
