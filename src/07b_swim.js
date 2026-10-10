@@ -21,6 +21,11 @@ const BEAST_BACK = {};
 // how deep water must be for this body to swim, and how far below the surface its feet then hang
 function swimDims(e) {
   const sc = e.scale || 1;
+  if (e._sd !== undefined && e._sdS === sc) return e._sd;
+  e._sdS = sc;
+  return (e._sd = swimDimsOf(e, sc));
+}
+function swimDimsOf(e, sc) {
   if (e.kind === 'humanoid') return { start: SWIM_HUMAN.start * sc, stop: SWIM_HUMAN.stop * sc, float: SWIM_HUMAN.float * sc, wade: SWIM_HUMAN.start * sc };
   if (crowdBeast[e.kind] || BEASTS[e.kind === 'stag' ? 'deer' : e.kind]) {
     const b = BEAST_BACK[e.kind] ?? (BEAST_BACK[e.kind] = beastBackH(e.kind));
@@ -91,7 +96,7 @@ function splashAt(x, z, size = 1, opts = {}) {
     }
     if (size >= 0.6) FX.ring(x, y + 0.03, z, 0.12 * size, [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45], Math.round(10 + 10 * size), 0.7 + 0.5 * size);
   }
-  rippleDrop(x, z, 0.35 + 0.45 * size, 0.035 * size + 0.01);
+  rippleDrop(x, z, 0.35 + 0.45 * size, 0.012 * size + 0.004);
   return true;
 }
 // steam where fire meets water
@@ -189,7 +194,7 @@ function updateWater(dt) {
           if (e === P) sfx('swim');
         }
         e._wakeT = (e._wakeT || 0) - dt;
-        if (e._wakeT <= 0) { e._wakeT = 0.12; rippleDrop(e.x, e.z, 0.55 * sc, 0.012 + 0.03 * Math.min(1, rel / 2.5)); }
+        if (e._wakeT <= 0) { e._wakeT = 0.12; rippleDrop(e.x, e.z, 0.55 * sc, 0.002 + 0.01 * Math.min(1, rel / 2.5)); }
       } else if (w.depth > 0.08 && e.wadeK >= 0 && e.y < w.y) {
         const step = Math.floor(e.anim.phase / Math.PI);
         if (e._wStep !== undefined && step !== e._wStep && e.anim.amt > 0.08) {
@@ -198,7 +203,7 @@ function updateWater(dt) {
           if (e === P) sfx('wade');
         }
         e._wStep = step;
-        if (e.anim.amt > 0.05) { e._wakeT = (e._wakeT || 0) - dt; if (e._wakeT <= 0) { e._wakeT = 0.16; rippleDrop(e.x, e.z, 0.4 * sc, 0.008 + 0.015 * Math.min(1, w.depth)); } }
+        if (e.anim.amt > 0.05) { e._wakeT = (e._wakeT || 0) - dt; if (e._wakeT <= 0) { e._wakeT = 0.16; rippleDrop(e.x, e.z, 0.4 * sc, 0.003 + 0.006 * Math.min(1, w.depth)); } }
       }
     }
     if (!e.swim && was && e === P) SWIM.leftAt = GAME.t;
@@ -338,6 +343,7 @@ const WATER_DEBUG = {
   state: (id) => { const e = getEnt(id); return e ? { x: e.x, y: e.y, z: e.z, swim: !!e.swim, wd: e.wd || 0, wadeK: e.wadeK || 0, swimK: e.swimK || 0, swimAmt: e.swimAmt || 0, wl: e.wl || 0, wet: e.wet || 0, swimOK: !!e.swimOK, speed: effectiveSpeed(e), burning: e.buffs.some((b) => b.kind === 'burn') } : null; },
   rivers: () => RIVERS.map((Rv) => ({ realm: Rv.realm, len: Rv.len, pts: Rv.pts.length, src: [Rv.pts[0].x, Rv.pts[0].z], mouth: [Rv.pts[Rv.pts.length - 1].x, Rv.pts[Rv.pts.length - 1].z], course: Rv.pts.filter((p, i) => i % 4 === 0).map((p) => [Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, Math.round(p.surf * 100) / 100, Math.round(p.hw * 10) / 10, Math.round(p.speed * 100) / 100]) })),
   ripple: () => ({ on: RIPPLE.on, res: RIPPLE.res, steps: RIPPLE.steps, drops: RIPPLE.drops.length, B: U.uRippleB.value.toArray() }),
+  tickWater: (dt) => drawWater(dt), // the ripple window without drawing the world (tests)
   splashAt, rippleDrop, swimAllowed, waterNear, waterOffers, deepWaterAt, swimPassable, riverAt, chronWater,
   meshes: () => ({ n: WATER_MESHES.length, cells: WATERGRID.cells }),
   SWIM, RIVERS, WATERGRID, RIPPLE, PONDS,

@@ -325,7 +325,7 @@ function buildFish() {
 }
 function waterSplash(x, z, big = 1) {
   const y = (waterAt(x, z) || { y: WATER_Y }).y + 0.02, A = U.uAmbient.value, L = U.uLightColor.value; // [water] lakes, ponds and rivers
-  rippleDrop(x, z, 0.4 * big, 0.03 * big); // [water] the ring it leaves (02c_water_map.js)
+  rippleDrop(x, z, 0.4 * big, 0.012 * big); // [water] the ring it leaves (02c_water_map.js)
   const c = [A.x * 0.8 + L.x * 0.4, A.y * 0.8 + L.y * 0.4, A.z * 0.8 + L.z * 0.45];
   for (let i = 0; i < 10 * big; i++) {
     const a = Math.random() * TAU, s = 0.5 + Math.random() * 0.9;

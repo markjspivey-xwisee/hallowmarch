@@ -99,7 +99,7 @@ vec3 waterGround(vec3 col, vec3 wp, vec3 n, float sh){
   if (under > 0.0 && uNight < 0.95) {
     float c = causticNet(q * 1.35 - flow * t * 0.6, t * (1.0 + 0.6 * fl));
     float depthK = smoothstep(0.0, 0.25, d) * exp(-max(d - 0.25, 0.0) * 0.75);
-    col += uLightColor * bedA * c * sh * depthK * under * 0.95 * (1.0 - uNight);
+    col += uLightColor * bedA * c * sh * depthK * under * 0.55 * (1.0 - uNight);
   }
   return col;
 }
@@ -178,7 +178,7 @@ const rippleSimMat = new THREE.ShaderMaterial({
       // the shore: no water, no wave (a wave meeting the bank is thrown back)
       float s = surf(wp);
       if (s < -500.0 || s - hgt(wp) < 0.03) h = 0.0;
-      h = clamp(h, -0.6, 0.6);
+      h = clamp(h, -0.2, 0.2);
       gl_FragColor = vec4(h, c.x, 0.0, 1.0);
     }`,
   depthTest: false, depthWrite: false,

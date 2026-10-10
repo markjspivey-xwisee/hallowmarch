@@ -49,7 +49,7 @@ WORLD = """(() => { const H = __hm, Wt = H.water, F = H.fn, W = F.W, HN = 513, G
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=640, h=360)
+        b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
         r = await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return { errors: __hm.errors.slice(0, 3), programs: __hm.renderInfo().programs }; })()")
         print('boot', json.dumps(r))
         check(not r['errors'], 'boots without errors')
@@ -114,6 +114,14 @@ async def main():
         print('current', json.dumps(r))
         check(not r.get('none') and r['along'] > 1.5, 'a river carries a swimmer downstream (%.1f m in 3 s)' % r.get('along', 0))
 
+        # ---- a rider's horse will not go deep ----
+        r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, P = H.GAME.player, L = H.dbg.LAKES[0];
+          H.teleport(L.x + 70, L.z + 70); H.simulate(0.3); F.mountUp(P, true); const before = !!P.mount;
+          H.teleport(L.x, L.z); H.simulate(0.5); const st = Wt.state(P.id);
+          return { before, after: !!P.mount, swim: st.swim, errors: H.errors.slice(0, 3) }; })()""")
+        print('mount', json.dumps(r))
+        check(r['before'] and not r['after'] and r['swim'], 'a rider slides off the horse in deep water and swims')
+
         # ---- fire goes out in water; a burning brand too ----
         r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, P = H.GAME.player, L = H.dbg.LAKES[0];
           H.teleport(L.x + 60, L.z + 60); H.simulate(0.5);
@@ -172,7 +180,81 @@ async def main():
         await b.close()
     print('FAILS', FAILS)
 
+SPOTS = """(() => { const H = __hm, Wt = H.water, F = H.fn;
+  const L = H.dbg.LAKES[0], out = {};
+  // a shore of the first lake: walk out from its middle until the ground comes out of the water
+  let best = null;
+  for (let a = 0; a < 24; a++) { const ang = a / 24 * Math.PI * 2, dx = Math.cos(ang), dz = Math.sin(ang);
+    let shore = null; for (let r = 4; r < 70; r += 0.25) { const x = L.x + dx * r, z = L.z + dz * r; if (!Wt.waterAt(x, z)) { shore = r; break; } }
+    if (!shore) continue; const x = L.x + dx * (shore + 5), z = L.z + dz * (shore + 5); const slope = Math.abs(F.heightAt(x, z) - F.heightAt(L.x + dx * shore, L.z + dz * shore));
+    if (shore > 40 || Wt.riverAt(L.x + dx * shore, L.z + dz * shore, 10)) continue;
+    if (!best || slope < best.slope) best = { ang, shore, slope, dx, dz }; }
+  out.lake = { x: L.x, z: L.z, ...best };
+  // the fastest, whitest stretch of a river
+  let rv = null;
+  for (const Rv of Wt.RIVERS) for (let i = 2; i < Rv.pts.length - 2; i++) { const p = Rv.pts[i]; if (!rv || p.speed > rv.speed) rv = { x: p.x, z: p.z, ux: p.ux, uz: p.uz, speed: p.speed, hw: p.hw, surf: p.surf, realm: Rv.realm }; }
+  out.river = rv; return out; })()"""
+
+async def snap(page, name):
+    # one frame drawn by hand (the page's own loop is held for the shots, so the screenshot does not wait on more)
+    await page.evaluate("(() => { __hm.frame(1/30); })()")
+    await page.wait_for_timeout(1000)
+    await page.screenshot(path=OUT + name, timeout=300000)
+    print('  shot', OUT + name, flush=True)
+
+async def run_frames(page, n, dt=1/30, keys=None):
+    # the simulation and the ripples advance together without drawing the world each step (the menu pauses the frame's own simulation)
+    # (the menu also blocks the keys, so it is lifted while the player moves)
+    await page.evaluate("""((n, dt, keys) => { const H = __hm, m = H.UI.modal; H.UI.modal = null; for (let i = 0; i < n; i++) { if (keys) for (const k of keys) H.INPUT.keys.add(k); H.simulate(dt, dt); H.water.tickWater(dt); } if (keys) for (const k of keys) H.INPUT.keys.delete(k); H.UI.modal = m; })(%d, %f, %s)""" % (n, dt, json.dumps(keys)))
+
 async def shots(page):
-    pass
+    await page.evaluate("(() => { window.requestAnimationFrame = () => 0; })()")
+    S = await page.evaluate(SPOTS)
+    print('spots', json.dumps(S))
+    # clear the lake of the foes from the checks above
+    await page.evaluate("""(() => { const H = __hm, P = H.GAME.player, L = H.dbg.LAKES[0]; for (const e of H.ENT.slice()) if (e !== P && e.kind !== 'door' && Math.hypot(e.x - L.x, e.z - L.z) < 90) H.fn.removeEnt(e); P.target = null; })()""")
+    for q in (['high', 'medium'] if 'medium' in sys.argv[1:] else ['high']):
+        await page.evaluate("__hm.fn.setQuality('%s')" % q)
+        await page.evaluate("__hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'")
+        lk = S['lake']
+        # 1. a lake shore: looking down through the shallows at the bed
+        await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player; H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+          H.teleport(lk.x + lk.dx * (lk.shore + 14), lk.z + lk.dz * (lk.shore + 14));
+          const cx = lk.x + lk.dx * (lk.shore + 3.5), cz = lk.z + lk.dz * (lk.shore + 3.5);
+          H.camera.position.set(cx, F.heightAt(cx, cz) + 2.6, cz); H.camera.lookAt(lk.x + lk.dx * (lk.shore - 7), -3.6, lk.z + lk.dz * (lk.shore - 7)); })(%s)""" % json.dumps(lk))
+        await run_frames(page, 20)
+        await snap(page, 'water_%s_shore.png' % q)
+        # 2. the river: flow and white water, from its bank
+        rv = S['river']
+        await page.evaluate("""((rv) => { const H = __hm, F = H.fn; const sx = -rv.uz, sz = rv.ux;
+          const cx = rv.x + sx * (rv.hw + 7) - rv.ux * 6, cz = rv.z + sz * (rv.hw + 7) - rv.uz * 6;
+          H.teleport(cx + sx * 6, cz + sz * 6);
+          H.camera.position.set(cx, Math.max(F.heightAt(cx, cz), rv.surf) + 3.2, cz); H.camera.lookAt(rv.x + rv.ux * 4, rv.surf, rv.z + rv.uz * 4); })(%s)""" % json.dumps(rv))
+        await run_frames(page, 20)
+        await snap(page, 'water_%s_river.png' % q)
+        # 3. the player swimming in the lake, seen from behind and above
+        await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player; const x = lk.x + lk.dx * (lk.shore - 10), z = lk.z + lk.dz * (lk.shore - 10);
+          H.teleport(x, z); P.yaw = Math.atan2(-lk.dx, -lk.dz); H.CAM.yaw = P.yaw; H.simulate(0.4); })(%s)""" % json.dumps(lk))
+        await run_frames(page, 24, keys=['KeyW'])
+        await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+          H.camera.position.set(P.x - fx * 4.2 + fz * 1.5, P.y + 2.9, P.z - fz * 4.2 - fx * 1.5); H.camera.lookAt(P.x + fx * 0.6, P.y + 1.15, P.z + fz * 0.6); })()""")
+        await run_frames(page, 3, keys=['KeyW'])
+        await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+          H.camera.position.set(P.x - fx * 2.2 + fz * 3.6, P.y + 2.2, P.z - fz * 2.2 - fx * 3.6); H.camera.lookAt(P.x + fx * 0.5, P.y + 1.1, P.z + fz * 0.5); })()""")
+        await snap(page, 'water_%s_swim.png' % q)
+        # 4. the wake behind the swimmer, from higher up
+        await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+          H.camera.position.set(P.x - fx * 9 + fz * 4, P.y + 9, P.z - fz * 9 - fx * 4); H.camera.lookAt(P.x - fx * 2, P.y + 1.2, P.z - fz * 2); H.frame(1/30); })()""")
+        await snap(page, 'water_%s_wake.png' % q)
+        # 5. wading in the shallows, with splashes
+        await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player, Wt = H.water;
+          let r = lk.shore; for (; r > 0; r -= 0.25) { const w = Wt.waterAt(lk.x + lk.dx * r, lk.z + lk.dz * r); if (w && w.depth > 0.55) break; }
+          const ang = lk.ang + Math.PI / 2, tx = Math.cos(ang), tz = Math.sin(ang);
+          const x = lk.x + lk.dx * r - tx * 4, z = lk.z + lk.dz * r - tz * 4; H.teleport(x, z); P.yaw = Math.atan2(tx, tz); H.CAM.yaw = P.yaw; H.simulate(0.3); })(%s)""" % json.dumps(lk))
+        await run_frames(page, 18, keys=['KeyW'])
+        await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+          H.camera.position.set(P.x + fz * 4.5 + fx * 2.5, P.y + 1.9, P.z - fx * 4.5 + fz * 2.5); H.camera.lookAt(P.x + fx * 0.8, P.y + 0.7, P.z + fz * 0.8); H.frame(1/30); })()""")
+        await snap(page, 'water_%s_wade.png' % q)
+    print('shot errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 3)")))
 
 asyncio.run(main())
