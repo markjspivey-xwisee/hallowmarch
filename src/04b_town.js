@@ -396,8 +396,8 @@ function shellThule(ctx) {
   }
   const shutter = darker([0.32, 0.38, 0.46], 0.9);
   for (const win of H.wins) houseWindow(ctx, faces[win.face], win, { shutterCol: shutter, frame: darker(st.wood, 0.55) });
-  // the stove's stack comes up through the roof
-  const sx = -w * 0.2, sz = -d * 0.18;
+  // the stove's stack comes up through the roof (a keep's longhall lets the smoke of its long hearth out at the ridge)
+  const sx = H.keepHall ? 0 : -w * 0.2, sz = H.keepHall ? H.hearth.lz : -d * 0.18; // [building]
   houseStack(ctx, sx, sz, Hh + H.rh - Math.abs(sx) * H.tn - 0.8, Hh + H.rh + 0.5, 0.74, 0.66);
   b.kind = HPART.EXT;
 }

@@ -275,7 +275,7 @@ function planWar(C) {
 /* ------------------------------------------------------------------ */
 function cwCanCommand() {
   const prog = GAME.prog;
-  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20);
+  return !!prog && (realmRank(prog.rp) >= 3 || prog.level >= 20 || hallCommandGrant()); // [building] or at the war table of a keep your realm holds (04k_hall.js)
 }
 // what the player may order a band to do, as [cmd, target, label]
 function cwChoices(wb) {

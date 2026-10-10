@@ -99,7 +99,7 @@ function endPointer(e) {
   const p = INPUT.pointers.get(e.pointerId);
   INPUT.pointers.delete(e.pointerId);
   if (!p) return;
-  if (p.moved < 8 && performance.now() - p.t < 450 && GAME.started && !UI.modal && e.type === 'pointerup') pickAt(e.clientX, e.clientY);
+  if (p.moved < 8 && performance.now() - p.t < 450 && GAME.started && !UI.modal && e.type === 'pointerup' && !buildTap(e.clientX, e.clientY, p.type)) pickAt(e.clientX, e.clientY); // [building] a tap places the piece while building (06k_build.js)
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
@@ -206,6 +206,8 @@ function currentInteraction() {
   brandOffers(P, offer); // fire in hand (09d_brand.js): take a brand, set something alight, put it out
   siegeOffers(P, offer); // [siege] join the crew of an engine, or take over an abandoned one (04h_siege.js)
   waterOffers(P, offer); // [water] drink, fill a waterskin, wash your gear at any water (07b_swim.js)
+  hallOffers(P, offer); // [building] a keep hall's war table, armourer, basin, hearth and stores (04k_hall.js)
+  buildOffers(P, offer); // [building] work on, repair, open, use or pull down what you built (06k_build.js)
   return best;
 }
 function playerInteract() {
@@ -415,6 +417,8 @@ function releasePlayer() {
   const S = inFrontier ? R.musterSite : R.town;
   const p = siteWorld(S, (Math.random() - 0.5) * 4, 0, 9);
   P.x = p.x; P.z = p.z; P.prevX = p.x; P.prevZ = p.z; P.y = heightAt(p.x, p.z);
+  const bed = buildBedSpot(inFrontier); // [building] a bed you built is where you wake (06k_build.js)
+  if (bed) { P.x = P.prevX = bed.x; P.z = P.prevZ = bed.z; P.y = bed.y; }
   P.alive = true; P.hp = P.maxHp; P.power = P.maxPower; P.endurance = 100;
   P.buffs.length = 0; P.casting = null; P.threat = null; P.damagers = null; P.mount = null;
   P.removeAt = 0;

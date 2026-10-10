@@ -44,7 +44,7 @@ function planHouse(S, R, h, ti) {
   const rnd = mulberry(Math.floor(h.seed * 1e6) + 7717);
   const by = heightAt(h.x, h.z);
   const H = {
-    num: HOUSES.length, ti, S, realm: R.id, style, round, big, kind: h.kind, src: h, seed: h.seed,
+    num: HOUSES.length, ti, S, realm: R.id, style, round, big, kind: h.kind, src: h, seed: h.seed, keepHall: !!h.keep, // [building] a keep's great hall (04k_hall.js)
     x: h.x, z: h.z, y: by, yaw: h.yaw, c: Math.cos(h.yaw), s: Math.sin(h.yaw),
     state: 'whole', stT: 0, char: 0, ember: 0, fall: 0, burn: null, residents: [], items: [], coll: [], furnColl: [],
   };
@@ -70,7 +70,7 @@ function planHouse(S, R, h, ti) {
     H.w = h.w; H.d = h.d; H.wallH = h.h;
     H.t = style === 'timber' ? 0.34 : 0.26;
     H.iw = H.w / 2 - H.t; H.id = H.d / 2 - H.t;
-    H.pitch = style === 'timber' ? (big ? 0.92 : 0.95) : (big ? 0.82 : 0.86);
+    H.pitch = h.pitch || (style === 'timber' ? (big ? 0.92 : 0.95) : (big ? 0.82 : 0.86)); // [building] a keep hall sets its own
     H.tn = Math.tan(H.pitch); H.cs = Math.cos(H.pitch); H.sn = Math.sin(H.pitch);
     H.rh = (H.w / 2) * H.tn;
     H.roofTh = style === 'timber' ? 0.2 : big ? 0.22 : 0.38;
@@ -150,7 +150,8 @@ function houseLayout(H, rnd) {
   const put = (type, x, z, yaw = 0, o = {}) => { const it = { type, x, z, yaw, ...o }; L.push(it); return it; };
   const hs = H.door.hs, cs = -hs;  // cs: the front corner the door does not swing into
   const spots = H.spots = {};
-  if (H.round) {
+  if (H.keepHall) keepHallLayout(H, put, spots); // [building] the great hall's own furnishing (04k_hall.js)
+  else if (H.round) {
     const ri = H.ri, big = H.big;
     const polar = (a, rad) => ({ x: Math.sin(a) * rad, z: Math.cos(a) * rad });
     const at = (type, a, rad, yaw, o) => { const p = polar(a, rad); return put(type, p.x, p.z, yaw, o); };
@@ -302,6 +303,7 @@ function houseColliders(H) {
     H.furnColl.push(col);
     out.push(col);
   }
+  if (H.keepHall) keepHallColliders(H, out); // [building] the porch posts of a keep's hall (04k_hall.js)
 }
 
 // does a collider take in a circle of radius r at (x, z)
@@ -667,7 +669,7 @@ function houseUniformsFor(H) {
   T.uHL.value[i].set(H.hearth.x, H.hearth.wy + 0.4, H.hearth.z, 0);
   T.uHM.value[i].set(H.lamp.x, H.lamp.wy, H.lamp.z, 0);
 }
-const houseTowns = () => REALMS.map((R) => R.town).filter((S) => S.houseSet);
+const houseTowns = () => REALMS.flatMap((R) => [R.town, ...R.keepSites]).filter((S) => S.houseSet); // [building] the keeps' great halls too
 
 /* ------------------------------------------------------------------ */
 /* fires of a house's own: the hearth, the burning roof, the smoulder  */
@@ -750,7 +752,7 @@ function houseOffers(P, offer) {
   for (const H of HOUSES) {
     if (dist2(P.x, P.z, H.x, H.z) > (H.foot + 3) ** 2 || !houseIntact(H) || H.state === 'burning') continue;
     const D = H.door;
-    offer(dist(P.x, P.z, D.c.x, D.c.z), 2.1, houseDoorOpen(H) ? 'Close the door' : 'Open the door', () => {
+    offer(dist(P.x, P.z, D.c.x, D.c.z), 2.1, H.keepHall ? keepHallDoorLabel(H, P) : houseDoorOpen(H) ? 'Close the door' : 'Open the door', () => { // [building] a keep hall says what is inside
       if (!setHouseDoor(H, !houseDoorOpen(H), P)) uiError('Someone is in the way');
       else setAct(P, 5, 0.55);
     }, 0.05);
@@ -830,14 +832,14 @@ function igniteHouse(H, x, z) {
   H.burn = { x: best.x, z: best.z, R: 0.4, maxR: maxR + 0.6, dur, speed: (maxR + 0.6) / dur, fallAt: 0, smoulder: [], pts: pts.map((p) => ({ x: p.x, y: p.y, z: p.z, fire: null, t0: 0, max: 0.85 + Math.random() * 0.5 })) };
   houseSfx('ignite', best.x, best.y, best.z);
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, H.x, H.z) < 90 * 90) uiLog(`A house in ${H.S.name} has caught fire!`, 'warn');
+  if (P && dist2(P.x, P.z, H.x, H.z) < 90 * 90) uiLog(H.keepHall ? `The great hall of ${H.S.name} has caught fire!` : `A house in ${H.S.name} has caught fire!`, 'warn'); // [building]
   return true;
 }
 // a fire spell lands at (x, y, z) with reach r: any house it falls on or beside catches
 function fireLandsAt(x, y, z, r = 1) {
   natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
   siegeFireAt(x, y, z, r); // [siege] siege engines catch (04h_siege.js)
-  let n = 0;
+  let n = buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
@@ -852,7 +854,7 @@ function fireLandsAt(x, y, z, r = 1) {
 function fireConeAt(x, z, dx, dz, range, half) {
   natureFireCone(x, z, dx, dz, range, half); // nature (05h_nature.js): the breath sets the grass and trees alight
   siegeFireCone(x, z, dx, dz, range, half); // [siege] and siege engines (04h_siege.js)
-  let n = 0;
+  let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;
     for (const p of H.roofPts) {
@@ -1011,13 +1013,14 @@ function houseCamera(fx, fy, fz, cx, cy, cz, dt = 1 / 60) {
   if (L < 1e-3) return null;
   const near = [];
   for (const H of HOUSES) if (dist2(fx, fz, H.x, H.z) < (L + H.foot + 2) ** 2) near.push(H);
-  if (!near.length) { HCAM.d = Infinity; return null; }
+  const bnear = buildCamNear(fx, fz, L); // [building] walls and roofs the player built hold the camera too (06k_build.js)
+  if (!near.length && !bnear) { HCAM.d = Infinity; return null; }
   const step = 0.08;
   let t = 0, last = 0;
   // start from where the head is clear (it may be in a doorway)
   for (t = step; t <= L; t += step) {
     const x = fx + dx * t / L, y = fy + dy * t / L, z = fz + dz * t / L;
-    if (near.some((H) => houseSolid(H, x, y, z))) break;
+    if (near.some((H) => houseSolid(H, x, y, z)) || (bnear && buildCamSolid(x, y, z))) break;
     last = t;
   }
   if (t > L) last = L;
@@ -1107,7 +1110,7 @@ function drawHouses(dt) {
       let fire = whole ? 0.6 + 0.9 * night : 0;
       if (H.state === 'burning') fire += H.char * 2.4;
       T.uHL.value[i].w = fire;
-      const lamp = whole ? 1.25 * smooth(clamp((night - 0.3) / 0.35, 0, 1)) : 0;
+      const lamp = whole ? (H.keepHall ? 0.75 + 0.6 * night : 1.25 * smooth(clamp((night - 0.3) / 0.35, 0, 1))) : 0; // [building] a great hall's torches burn all day
       T.uHM.value[i].w = lamp;
       // the hearth's real light falls on people only while they (or the camera) are in the room
       const f = H.hearth.fire;
@@ -1167,6 +1170,7 @@ const _roofList = [];
 function houseRoofsForRain(cx, cz) {
   _roofList.length = 0;
   for (const H of HOUSES) { if (!houseIntact(H)) continue; const d = dist2(cx, cz, H.x, H.z); if (d < 60 * 60) _roofList.push([d, H]); }
+  buildRoofsForRain(_roofList, cx, cz); // [building] placed roofs keep the rain out too (06k_build.js)
   _roofList.sort((a, b) => a[0] - b[0]);
   const A = U.uRoofA.value, B = U.uRoofB.value, C = U.uRoofC.value;
   for (let i = 0; i < 8; i++) {
@@ -1184,7 +1188,7 @@ function houseRoofsForRain(cx, cz) {
 // is (x, z) under a standing roof (rain does not splash there)
 function houseRoofOver(x, z) {
   const H = houseAt(x, z, 0.6);
-  return !!H && houseIntact(H);
+  return (!!H && houseIntact(H)) || buildRoofOver(x, z); // [building] or a roof the player built (06k_build.js)
 }
 
 /* ------------------------------------------------------------------ */

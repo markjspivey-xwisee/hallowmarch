@@ -335,6 +335,27 @@
   .goodrow { display: grid; grid-template-columns: 24px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
   .goodrow .nm { font-size: 13px; line-height: 1.2; } .goodrow .nm small { display: block; opacity: 0.6; font-size: 11px; }
   .goodrow .ct { font: 600 13px/1 var(--ui); opacity: 0.9; } .goodrow .btn { padding: 4px 8px; font-size: 12px; }
+  /* building (04k_hall.js, 06k_build.js): the builder's bar, the hammer button, the hall's stores */
+  #btn-build[aria-pressed="true"] { border-color: #e6c88f; color: #f3d9a4; box-shadow: 0 0 0 1px #e6c88f inset, 0 6px 22px rgba(0, 0, 0, 0.35); }
+  #buildbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--pad) + var(--safe-b) + 112px); width: min(760px, calc(100vw - 2 * var(--pad) - 400px)); padding: 7px; display: grid; gap: 6px; pointer-events: auto; }
+  #buildbar .bpieces { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+  #buildbar .bpiece { flex: 0 0 auto; display: grid; justify-items: center; gap: 3px; width: 66px; padding: 6px 3px 5px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); color: var(--ink); cursor: pointer; font: 500 11px/1.15 var(--ui); text-align: center; }
+  #buildbar .bpiece svg { width: 22px; height: 22px; }
+  #buildbar .bpiece[aria-pressed="true"] { border-color: #e6c88f; background: rgba(223, 193, 136, 0.18); color: #f6e2b8; }
+  #buildbar .bpiece.short { opacity: 0.55; }
+  #buildbar .brow { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  #buildbar .binfo { font-size: 13px; color: var(--ink-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #buildbar .binfo b { color: var(--ink); margin-right: 4px; }
+  #buildbar .bwhy { color: #ff9a8a; margin-left: 6px; }
+  #buildbar .bacts { display: flex; gap: 6px; flex: 0 0 auto; }
+  #buildbar .bacts .btn { padding: 6px 10px; font-size: 13px; gap: 5px; }
+  #buildbar .bacts .btn.primary { padding: 6px 12px; font-size: 14px; }
+  #buildbar .bacts svg { width: 16px; height: 16px; }
+  .hall-stores { margin: 6px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.5; } .hall-stores small { color: var(--ink-faint); }
+  body.touch #buildbar { bottom: auto; top: calc(var(--pad) + var(--safe-t)); left: calc(var(--pad) + 208px); right: calc(var(--pad) + 136px); width: auto; transform: none; }
+  @media (max-width: 760px) { #buildbar { bottom: auto; top: calc(var(--pad) + var(--safe-t)); left: calc(var(--pad) + 208px); right: calc(var(--pad) + 136px); width: auto; transform: none; padding: 5px; gap: 4px; } #buildbar .bacts .btn span { display: none; } #buildbar .bpiece { width: 54px; padding: 3px 2px 3px; font-size: 10px; } #buildbar .bpiece svg { width: 18px; height: 18px; } #buildbar .bacts .btn { padding: 4px 8px; } }
+  body.touch #buildbar .bpiece { width: 58px; }
+  @media (max-width: 600px) { body.touch #buildbar { left: var(--pad); right: var(--pad); top: auto; bottom: calc(var(--pad) + var(--safe-b) + 250px); } }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

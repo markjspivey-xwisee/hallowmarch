@@ -216,7 +216,7 @@ function buildKeepColliders(S, style) {
       S.colliders.push(boxAt(S, mx * R0, mz * R0, len / 2, t / 2, 'wall', WALL_H, am));
     }
     for (const [lx, lz] of [[-3.9, R0 - 0.6], [3.9, R0 - 0.6]]) S.colliders.push(circleAt(S, lx, lz, 2.6, 'tower', 11));
-    S.colliders.push(circleAt(S, 0, -6.5, 6.2, 'hall', 9));
+    // [building] the hall is a real building with a door and rooms now: planKeepHalls (04k_hall.js)
   } else {
     S.colliders.push(boxAt(S, 0, -hs + t / 2, hs, t / 2, 'wall', WALL_H));
     S.colliders.push(boxAt(S, -hs + t / 2, 0, t / 2, hs, 'wall', WALL_H));
@@ -226,7 +226,7 @@ function buildKeepColliders(S, style) {
     S.colliders.push(boxAt(S, GATE_HW + seg, hs - t / 2, seg, t / 2, 'wall', WALL_H));
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) S.colliders.push(circleAt(S, sx * (hs - 1.2), sz * (hs - 1.2), 3.4, 'tower', 12));
     for (const sx of [-1, 1]) S.colliders.push(circleAt(S, sx * (GATE_HW + 1.9), hs - 0.8, 2.3, 'tower', 10));
-    S.colliders.push(boxAt(S, 0, -hs + t + 5.2, 6.2, 5.2, 'hall', 13));
+    // [building] the hall is a real building with a door and rooms now: planKeepHalls (04k_hall.js)
   }
   // the door spans the gate gap
   const dz = style === 'round' ? 16.5 : hs - t / 2;
@@ -565,6 +565,7 @@ function buildWorld(seed = 7) {
     buildMusterColliders(R.musterSite);
     buildTown(R.town, R, rnd);
   }
+  planKeepHalls(); // [building] each keep's great hall, numbered after every town house (04k_hall.js)
   // the lone tree on the hill
   W.heroTree = { x: 0.6, z: -0.4, y: 0 };
   W.heroTree.y = heightAt(W.heroTree.x, W.heroTree.z);

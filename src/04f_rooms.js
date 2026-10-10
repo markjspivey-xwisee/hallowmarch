@@ -9,7 +9,7 @@ const ROOM = {
   wool: [[0.52, 0.14, 0.12], [0.22, 0.3, 0.48], [0.3, 0.42, 0.22], [0.58, 0.44, 0.2], [0.42, 0.24, 0.36]],
   linen: [0.82, 0.77, 0.64], straw: [0.78, 0.66, 0.42], iron: [0.17, 0.17, 0.18], clay: [0.62, 0.38, 0.26], pewter: [0.5, 0.52, 0.55],
 };
-function roomFrame(ctx, it) { return lm(ctx.M, it.x, 0, it.z, it.yaw); }
+function roomFrame(ctx, it) { const s = it.s || 1; return lm(ctx.M, it.x, 0, it.z, it.yaw, s, s, s); } // [building] a great hall's fireplace is built larger (it.s)
 function roomWood(ctx, k = 1) { return darker(ctx.st.wood, k); }
 
 function houseRooms(ctx) {
@@ -63,7 +63,7 @@ const ROOM_ITEMS = {
     for (const s of [-1, 1]) b.add(G.box, lm(T, s * 0.63, 0.6, 0.31, 0, 0.34, 1.2, 0.62), MAT.stone, stone, H.y, 1.4);
     b.add(G.box, lm(T, 0, 0.6, 0.06, 0, 0.94, 1.2, 0.12), MAT.darkstone, soot, H.y, 1.4);
     b.add(G.box, lm(T, 0, 0.05, 0.32, 0, 0.94, 0.06, 0.52), MAT.darkstone, soot);
-    const ceil = H.ceilLocal(0) + 0.2;
+    const ceil = (H.ceilLocal(0) + 0.2) / (it.s || 1); // [building] in the frame's own scale
     b.add(G.box, lm(T, 0, (1.42 + ceil) / 2, 0.26, 0, 1.6, ceil - 1.42, 0.5), MAT.stone, darker(stone, 0.97), H.y, 3);
     b.add(G.box, lm(T, 0, 1.36, 0.27, 0, 1.7, 0.12, 0.52), MAT.darkstone, [0.2, 0.18, 0.16]);
     b.kind = HPART.EXT;

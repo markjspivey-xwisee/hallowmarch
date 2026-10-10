@@ -72,7 +72,7 @@ async def main():
         await page.evaluate("document.getElementById('hud').hidden = true")
 
         # ---- every town has its houses, each with a hinged door and shuttered windows ----
-        r = await ev(page, 'houses', """(() => { const L = __hm.HOUSES;
+        r = await ev(page, 'houses', """(() => { const L = __hm.HOUSES.filter((h) => !h.keepHall); // [building] the keeps' great halls are houses too (building.py tests them)
           return { n: L.length, towns: __hm.REALMS.map((R) => R.town.houses.length), styles: [...new Set(L.map((h) => h.style))],
             doors: L.every((h) => h.door && h.door.leaf && h.door.coll), shut: L.every((h) => h.wins.length >= 2 && h.wins.every((w) => w.leaves.length === 2)),
             hearths: L.filter((h) => h.hearth.fire).length, items: L.map((h) => h.items.length) }; })()""")
