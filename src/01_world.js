@@ -388,6 +388,7 @@ function isWalkable(x, z) {
   if (Math.abs(x) > HALF - 4 || Math.abs(z) > HALF - 4) return false;
   const i = Math.round((x + HALF) / HS), j = Math.round((z + HALF) / HS);
   if (CLS.ice.length && W.walk[j * HN + i] !== 0 && iceAt(x, z)) return true; // [classes] a mage's ice over deep water (07b_classes.js)
+  if (SICE.on && W.walk[j * HN + i] === 2 && seasonIceY(x, z) !== null) return true; // [seasons] a frozen lake (05k_seasons.js)
   return W.walk[j * HN + i] === 0;
 }
 function realmWeightsAt(x, z) {

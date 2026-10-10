@@ -358,6 +358,7 @@ function simStep(dt) {
   updateSurvival(dt); // [survival] hunger and thirst, work, fishing, regrowth (09s_survival.js)
   updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
   updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
+  updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -373,6 +374,7 @@ function tick(dt) {
   }
   applyTimeOfDay(tod.p);
   updateWeather(dt);
+  seasonsFrame(dt); // [seasons] the year's colours, the snow cover, leaves and fireflies (05k_seasons.js)
   applyWeather();
   applyIndoor();
   updateNightSky(dt); // [aurora] the northern lights and shooting stars (05i_aurora.js)

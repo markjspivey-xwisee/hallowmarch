@@ -93,6 +93,7 @@ const buildingMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
     uniform float uFlash, uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying float vMat; varying float vAO;
     vec2 planarUV(vec3 p, vec3 n){ vec3 a = abs(n); if (a.y > 0.7) return p.xz; return a.x > a.z ? vec2(p.z, p.y) : vec2(p.x, p.y); }
@@ -197,7 +198,7 @@ const buildingMat = mat({
       float wWet = uWet * mix(0.12, 1.0, smoothstep(-0.7, 0.05, n.y)) * mix(0.65, 1.0, smoothstep(-0.1, 0.6, n.y));
       float wPor = (m == 6 || m == 12 || m == 11 || m == 14) ? 0.0 : (m == 4 || m == 8) ? 1.0 : (m == 3 || m == 10 || m == 7) ? 0.3 : 0.6;
       alb *= 1.0 - wWet * wPor * 0.3;
-      float wSnow = snowAmount(vW, n, uSnowCover, gPL) * (m == 14 ? 0.0 : 1.0);
+      float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0); // [seasons] the snow lying here
       alb = mix(alb, snowAlbedo(vW), wSnow);
       /* ---- end weather ---- */
       vec3 col = lightSurface(alb, n, vAO);
@@ -637,7 +638,7 @@ function treeGeometry(kind) {
   return g;
 }
 const treeMat = mat({
-  uniforms: { uKindTint: { value: new THREE.Vector3(1, 1, 1) }, uBarkTint: { value: new THREE.Vector3(1, 1, 1) }, uBirch: { value: 0 } },
+  uniforms: { uKindTint: { value: new THREE.Vector3(1, 1, 1) }, uBarkTint: { value: new THREE.Vector3(1, 1, 1) }, uBirch: { value: 0 }, uDecid: { value: 1 } }, // [seasons] uDecid: a broadleaf (turns and drops its leaves)
   vertexShader: /* glsl */`
     uniform float uTime, uWind;
     uniform vec3 uNearTree;
@@ -665,9 +666,10 @@ const treeMat = mat({
     ${GLSL_CLEARVIEW}
     ${GLSL_PLIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
     uniform float uSnowCover, uWet;
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
-    uniform float uBirch;
+    uniform float uBirch, uDecid;
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying float vFadeFar;
     void main(){
       if (bayer4(gl_FragCoord.xy) < 1.0 - vFadeFar) discard;
@@ -685,6 +687,14 @@ const treeMat = mat({
         float leafy = fbm3(vW.xz * 1.6 + vW.y * 1.1);
         float edge = spow(1.0 - abs(dot(n, V)), 1.6);
         if (leafy < edge * 0.85 - 0.18) discard;
+        // [seasons] a broadleaf thins as its leaves fall; where they have gone a haze of fine twigs is left
+        float twig = 0.0;
+        float bareK = uDecid * clamp(uSeasonB.y * 1.15 - fract(vTint * 7.9) * 0.15, 0.0, 1.0);
+        if (bareK > 0.001 && vnoise(vW.xz * 2.3 + vW.y * 1.7 + vTint * 9.0) * 0.6 + vnoise(vW.xz * 6.1 - vW.y * 4.3) * 0.4 < bareK * 1.08) {
+          float tw = 1.0 - abs(vnoise(vec2(vLocal.x * 7.0 + vLocal.y * 2.0, vLocal.z * 7.0 - vLocal.y * 1.5)) * 2.0 - 1.0);
+          if (tw < 0.8) discard;
+          twig = 1.0;
+        }
         // leaf clumps: relief from a little noise so the crowns are not smooth balls
         float clump = vnoise(vLocal.xz * 2.6 + vLocal.y * 1.9) * 0.6 + vnoise(vLocal.xz * 6.1 - vLocal.y * 3.3) * 0.4;
         vec3 dpx = dFdx(vW), dpy = dFdy(vW);
@@ -696,6 +706,8 @@ const treeMat = mat({
         // visual pass: each tree its own hue, a crown lit and shaded as one mass (sky above, shade beneath),
         // and light through the thin edges of the crown when the sun is behind it
         alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31));
+        if (uDecid > 0.5) alb = seasonLeaf(alb, vTint, uBirch); // [seasons] fresh, deep green, then gold, rust and red
+        if (twig > 0.5) alb = mix(vec3(0.3, 0.25, 0.22), vec3(0.36, 0.26, 0.24), uBirch) * (0.8 + 0.4 * clump) * dot(uLeaf, vec3(0.3, 0.55, 0.15)) * 3.2;
         float wrapL = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         float skyL = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
         float back = spow(clamp(dot(-V, uLightDir), 0.0, 1.0), 4.0);
@@ -705,7 +717,7 @@ const treeMat = mat({
       /* ---- weather (feature/weather): wet bark darkens, wet leaves shine ---- */
       if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.38 : 0.14); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.3), vPart < 0.5 ? 0.8 : 0.7, sh) * vAO; }
       // snow on the crowns in clumps, thickest on what faces up (feature/weather)
-      float sF = uSnowCover * smoothstep(-0.2, 0.6, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 1.3 + vW.y * 0.9))) * step(0.5, vPart);
+      float sF = uSnowCover * snowHere(vW) * smoothstep(-0.2, 0.6, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 1.3 + vW.y * 0.9))) * step(0.5, vPart); // [seasons] the snow lying here
       col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), clamp(sF, 0.0, 0.85));
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO;
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
@@ -718,14 +730,17 @@ const TREE_KINDS = {
 };
 const treeChunks = [];
 // canopies cast dappled shade: the depth pass punches holes where the foliage noise is thin
-const TREE_DEPTH = depthFrom(treeMat, /* glsl */`
+const TREE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
-  varying vec3 vW; varying float vPart; varying float vFadeFar;
+  uniform vec4 uSeasonB; uniform float uDecid; // [seasons] bare broadleaves cast a thin shade
+  varying vec3 vW; varying float vPart; varying float vFadeFar; varying float vTint;
   void main(){
     if (bayer4(gl_FragCoord.xy) < 1.0 - vFadeFar) discard;
-    if (vPart > 0.5 && fbm3(vW.xz * 1.6 + vW.y * 1.1) < 0.34) discard;
+    if (vPart > 0.5 && fbm3(vW.xz * 1.6 + vW.y * 1.1) < 0.34 + uDecid * clamp(uSeasonB.y * 1.15 - fract(vTint * 7.9) * 0.15, 0.0, 1.0) * 0.55) discard;
     gl_FragColor = vec4(1.0);
-  }`);
+  }`;
+const TREE_DEPTH = depthFrom({ uniforms: { ...treeMat.uniforms, uDecid: { value: 0 } }, vertexShader: treeMat.vertexShader }, TREE_DEPTH_FS);
+const TREE_DEPTH_DECID = depthFrom({ uniforms: { ...treeMat.uniforms, uDecid: { value: 1 } }, vertexShader: treeMat.vertexShader }, TREE_DEPTH_FS); // [seasons]
 function buildTrees() {
   const CH = 8, size = WSIZE / CH;
   const bases = {};
@@ -752,12 +767,12 @@ function buildTrees() {
     const cx = -HALF + (B.ci + 0.5) * size, cz = -HALF + (B.cj + 0.5) * size;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, (minY + maxY) / 2 + 4, cz), size * 0.75 + 10);
     const K = TREE_KINDS[B.kind];
-    const m = new THREE.Mesh(g, shareMat(treeMat, { uKindTint: { value: new THREE.Vector3(...K.tint) }, uBarkTint: { value: new THREE.Vector3(...K.bark) }, uBirch: { value: K.birch } }));
+    const m = new THREE.Mesh(g, shareMat(treeMat, { uKindTint: { value: new THREE.Vector3(...K.tint) }, uBarkTint: { value: new THREE.Vector3(...K.bark) }, uBirch: { value: K.birch }, uDecid: { value: B.kind === 'pine' ? 0 : 1 } })); // [seasons] uDecid
     m.userData.center = new THREE.Vector2(cx, cz);
     m.renderOrder = 2;
     scene.add(m);
     treeChunks.push(m);
-    shadowCaster(m, TREE_DEPTH);
+    shadowCaster(m, B.kind === 'pine' ? TREE_DEPTH : TREE_DEPTH_DECID); // [seasons]
   }
 }
 function updateTreeVisibility(camX, camZ) {
@@ -784,6 +799,7 @@ const rockMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_LIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_SEASON} // [seasons]
     uniform float uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying float vSeed;
     void main(){
@@ -796,7 +812,7 @@ const rockMat = mat({
       /* ---- weather (feature/weather): rain darkens and glosses the stone, snow caps it ---- */
       float wWet = uWet * mix(0.2, 1.0, smoothstep(-0.6, 0.2, n.y));
       alb = wetAlbedo(alb, wWet, 0.55 + 0.4 * moss);
-      float wSnow = snowAmount(vW, n, uSnowCover, gPL);
+      float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL); // [seasons]
       alb = mix(alb, snowAlbedo(vW), wSnow);
       vec3 col = lightSurface(alb, n, 0.85 + 0.15 * n.y);
       col += wetSheen(vW, n, safeNormalize(cameraPosition - vW), wWet * (1.0 - wSnow), 0.45, gSh);

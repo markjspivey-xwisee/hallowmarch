@@ -183,7 +183,7 @@ function updateBirds(dt) {
   const camX = camera.position.x, camZ = camera.position.z;
   const night = U.uNight.value, bat = smooth(clamp((night - 0.55) / 0.3, 0, 1));
   const U4 = birdState.mesh.material.uniforms.uFlock.value;
-  const active = Math.round(lerp(FLOCKS, 3, bat) * (1 - 0.7 * WEATHER.raining));
+  const active = Math.round(lerp(FLOCKS, 3, bat) * (1 - 0.7 * WEATHER.raining) * seasonBirdK()); // [seasons] fewer birds in winter (05k_seasons.js)
   birdState.flocks.forEach((F, i) => {
     const d = Math.hypot(F.x - camX, F.z - camZ);
     if (!F.placed || d > 260) {
@@ -227,6 +227,7 @@ function buildButterflies() {
       ${GLSL_COMMON}
       ${GLSL_WORLD}
       uniform float uTime, uNight, uWet;
+      uniform vec4 uSeasonC, uSeasonA; // [seasons] butterflies in spring and summer only (02d_season.js)
       attribute vec4 aSeed;
       varying vec2 vUv; varying vec3 vCol; varying vec3 vW; varying float vA;
       void main(){
@@ -238,6 +239,7 @@ function buildButterflies() {
         vec2 xz = base + wander;
         vec4 A = texture(uWorldA, worldUV(xz));
         float bloom = smoothstep(0.15, 0.5, A.b) * (1.0 - smoothstep(0.35, 0.8, uNight)) * (1.0 - smoothstep(0.2, 0.6, uWet));
+        bloom *= smoothstep(0.3, 0.7, uSeasonC.x) * (1.0 - uSeasonA.z * 0.8) * step(fract(aSeed.w * 9.1), uSeasonC.x + 0.05); // [seasons]
         float d = length(xz - cameraPosition.xz);
         bloom *= 1.0 - smoothstep(box * 0.32, box * 0.5, d);
         if (bloom < 0.05) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
@@ -345,7 +347,7 @@ function updateFish(dt) {
       const a = Math.random() * TAU, d = 6 + Math.random() * 38;
       const x = P.x + Math.cos(a) * d, z = P.z + Math.sin(a) * d;
       const wa = waterAt(x, z); // [water] fish leap in the rivers too (01b_water.js)
-      if (!wa || wa.depth < 0.7) continue;
+      if (!wa || wa.depth < 0.7 || seasonIceAt(x, z) > 0.05) continue; // [seasons] nothing leaps through the ice
       const wy = wa.y, h = Math.random() * TAU, L = 0.9 + Math.random() * 0.8, wb = waterAt(x + Math.cos(h) * L, z + Math.sin(h) * L);
       if (!wb || wb.depth < 0.4) continue;
       FISH.list.push({ wy, x, z, dx: Math.cos(h), dz: Math.sin(h), L, H: 0.45 + Math.random() * 0.45, t: 0, dur: 0.7 + Math.random() * 0.3, s: 0.8 + Math.random() * 0.7 });

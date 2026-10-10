@@ -47,7 +47,7 @@ function waterFloorY(e, g) {
   return g;
 }
 // standing on a mage's ice over the water (07b_classes.js): the ice is a floor, and nobody on it wades or swims
-function onIce(e, w) { return CLS.ice.length > 0 && e.y > w.y - 0.25 && !!iceAt(e.x, e.z); }
+function onIce(e, w) { return e.y > w.y - 0.25 && ((CLS.ice.length > 0 && !!iceAt(e.x, e.z)) || (SICE.on && seasonIceY(e.x, e.z) !== null)); } // [seasons] and a frozen lake (05k_seasons.js)
 // walking speed in water: knee-deep slows a little, waist-deep a lot; swimming is slow and sprinting it costs breath
 function waterSpeedMult(e) {
   if (e.swim) return e.kind === 'humanoid' ? 0.42 : 0.5;
@@ -88,6 +88,7 @@ function waterlinePack(e) {
 function splashAt(x, z, size = 1, opts = {}) {
   const w = waterAt(x, z);
   if (!w) return false;
+  if (SICE.on && seasonIceAt(x, z) > 0.15) return false; // [seasons] no splash on the ice (05k_seasons.js)
   const y = w.y + 0.02, A = U.uAmbient.value, L = U.uLightColor.value;
   const c = [A.x * 0.85 + L.x * 0.45, A.y * 0.85 + L.y * 0.45, A.z * 0.85 + L.z * 0.5];
   const near = dist2(x, z, camera.position.x, camera.position.z) < 70 * 70;

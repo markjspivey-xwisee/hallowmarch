@@ -189,6 +189,7 @@ const nearTreeMat = mat({
     ${GLSL_CLEARVIEW}
     ${GLSL_PLIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch, uFoliageCut, uNeedle, uSnowCover;
     uniform float uWet; // feature/weather
@@ -214,15 +215,20 @@ const nearTreeMat = mat({
         alb *= mix(0.55, 1.0, smoothstep(0.3, 0.6, fis));
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.4 + 0.75 * ndl * mix(0.3, 1.0, sh)) * vAO;
-      } else if (vPart > 2.5) {
+"      } else if (vPart > 2.5) {
+        // [seasons] a bare broadleaf has no heart of leaves: only a few twigs show through where it was
+        if (uNeedle < 0.5 && uSeasonB.y > 0.01 && vnoise(vW.xz * 2.7 + vW.y * 2.1 + vTint * 5.0) < uSeasonB.y * 1.1) discard;
         // the shaded heart of the crown: clumps for broadleaves, combed needles for pines
         float pat = uNeedle > 0.5 ? vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 9.0, vLocal.y * 2.2)) * 0.7 + vnoise(vec2(atan(vLocal.z, vLocal.x + 1e-4) * 31.0, vLocal.y * 6.0)) * 0.3 : vnoise(vW.xz * 3.0 + vW.y * 2.0);
         vec3 alb = uLeaf * uKindTint * (0.8 + 0.3 * vTint) * (0.62 + 0.62 * pat);
         alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31)); // visual pass: the same hue as its far self
+        if (uNeedle < 0.5) alb = seasonLeaf(alb, vTint, uBirch); // [seasons]
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.3 + 0.35 * vAO + 0.35 * ndl * vAO * mix(0.3, 1.0, sh));
       } else {
-        float a = vPart < 1.5 ? leafCluster(vUV, vSeed) : needleSpray(vUV);
+        // [seasons] a leaf card whose leaves have fallen shows the bare twigs they grew on
+        float bare = vPart < 1.5 && uNeedle < 0.5 ? seasonFallen(vSeed, vTint) : 0.0;
+        float a = vPart < 1.5 ? (bare > 0.5 ? twigCard(vUV, vSeed) : leafCluster(vUV, vSeed)) : needleSpray(vUV);
         // cards seen edge-on thin out instead of streaking
         vec3 fn = safeNormalize(cross(dFdx(vW), dFdy(vW)));
         a *= smoothstep(0.08, 0.3, abs(dot(fn, V)));
@@ -232,6 +238,7 @@ const nearTreeMat = mat({
         vec3 alb = uLeaf * uKindTint * (0.72 + 0.5 * vTint) * (0.78 + 0.4 * vary);
         alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31)); // visual pass: the same hue as its far self
         if (vPart > 1.5) alb *= 0.85 * mix(0.8, 1.24, smoothstep(0.15, 1.0, vUV.x)); // fresh pale growth at the bough tips
+        else if (uNeedle < 0.5) alb = bare > 0.5 ? mix(vec3(0.3, 0.25, 0.22), vec3(0.4, 0.28, 0.26), uBirch) * dot(uLeaf, vec3(0.3, 0.55, 0.15)) * 3.0 * (0.8 + 0.4 * vary) : seasonLeaf(alb, vTint, uBirch); // [seasons]
         float ndl = clamp(dot(n, uLightDir) * 0.55 + 0.45, 0.0, 1.0);
         float back = spow(clamp(dot(-V, uLightDir), 0.0, 1.0), 3.0);
         col = alb * (0.26 + 0.42 * vAO + 0.6 * ndl * vAO * mix(0.22, 1.0, sh));
@@ -241,9 +248,10 @@ const nearTreeMat = mat({
       }
       /* ---- weather (feature/weather): wet bark darkens, wet leaves shine, snow lies along the boughs too ---- */
       if (uWet > 0.01) { col *= 1.0 - uWet * (vPart < 0.5 ? 0.4 : 0.15); col += wetSheen(vW, n, V, uWet * (vPart < 0.5 ? 0.45 : 0.35), vPart < 0.5 ? 0.8 : 0.65, sh) * vAO; }
-      if (vPart < 0.5) col = mix(col, snowAlbedo(vW) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), snowAmount(vW, n, uSnowCover, vec3(0.0)) * 0.9);
+      float sHere = uSnowCover * snowHere(vW); // [seasons] the snow lying here
+      if (vPart < 0.5) col = mix(col, snowAlbedo(vW) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), snowAmount(vW, n, sHere, vec3(0.0)) * 0.9);
       // snow lies on the boughs in clumps, thickest on what faces up (feature/weather: was only on faces turned straight up)
-      float sF = uSnowCover * smoothstep(-0.25, 0.55, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 2.1 + vW.y * 1.3))) * step(0.5, vPart);
+      float sF = sHere * smoothstep(-0.25, 0.55, n.y) * (0.45 + 0.55 * smoothstep(0.3, 0.7, vnoise(vW.xz * 2.1 + vW.y * 1.3))) * step(0.5, vPart);
       col = mix(col, vec3(0.8, 0.83, 0.88) * (uAmbient * 0.75 + uLightColor * 0.45 * sh), clamp(sF, 0.0, 0.85));
       /* ---- end weather ---- */
       col += (vPart < 0.5 ? vec3(0.3, 0.22, 0.15) * uBarkTint : vec3(0.2, 0.3, 0.1) * uKindTint) * pointLights(vW, n) * vAO;
@@ -254,10 +262,14 @@ const nearTreeMat = mat({
 const NEAR_TREE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   ${GLSL_FOLIAGE}
-  varying float vPart; varying vec2 vUV; varying float vSeed; varying float vFade;
+  ${GLSL_SEASON} // [seasons] bare broadleaves: twigs, no heart of leaves
+  uniform float uNeedle;
+  varying float vPart; varying vec2 vUV; varying float vSeed; varying float vFade; varying float vTint; varying vec3 vW;
   void main(){
     if (bayer4(gl_FragCoord.xy) > vFade) discard;
-    if (vPart > 0.5 && vPart < 2.5 && (vPart < 1.5 ? leafCluster(vUV, vSeed) : needleSpray(vUV)) < 0.5) discard;
+    float bare = vPart > 0.5 && vPart < 1.5 && uNeedle < 0.5 ? seasonFallen(vSeed, vTint) : 0.0;
+    if (vPart > 0.5 && vPart < 2.5 && (vPart < 1.5 ? (bare > 0.5 ? twigCard(vUV, vSeed) : leafCluster(vUV, vSeed)) : needleSpray(vUV)) < 0.5) discard;
+    if (vPart > 2.5 && uNeedle < 0.5 && uSeasonB.y > 0.01 && vnoise(vW.xz * 2.7 + vW.y * 2.1 + vTint * 5.0) < uSeasonB.y * 1.1) discard;
     gl_FragColor = vec4(1.0);
   }`;
 const NEAR_TREES = { kinds: {}, grid: null, cell: 24, lastX: 1e9, lastZ: 1e9, t: 0, cap: 260 };

@@ -132,6 +132,7 @@ const terrainMat = mat({
     ${GLSL_MEADOW}
     ${GLSL_WATER_MAP}
     ${GLSL_WATER_GROUND}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
     uniform sampler2D uTrail;
     uniform vec4 uTrailBounds;
     uniform vec3 uGrassBase, uGrassTip, uGlowColor;
@@ -178,15 +179,18 @@ const terrainMat = mat({
       vec3 mp = meadowPatch(vW.xz);
       gCol = mix(gCol, gCol * vec3(1.32, 1.08, 0.5), mp.x * 0.7);
       gCol = mix(gCol, gCol * vec3(0.74, 0.93, 0.84), mp.y * 0.45);
+      gCol = seasonGrass(gCol, mp.x, mp.y, 0.5, vW.xz); // [seasons] the turf through the year (02d_season.js)
       gCol *= 1.0 - 0.1 * mp.z * smoothstep(20.0, 60.0, d);
       gCol *= 1.0 - 0.12 * A.g * smoothstep(40.0, 110.0, d); // a deep sward reads a little darker from afar
       gCol *= (0.82 + 0.3 * nz) * (0.78 + 0.32 * wrap) * mix(0.58, 1.0, gSh);
       gCol = mix(gCol, mix(uGrassBase, uGrassTip, 0.22) * tint, A.g * (1.0 - smoothstep(25.0, 60.0, d)) * 0.55);
       gCol += vec3(0.15, 0.27, 0.07) * tint * gPL * 0.9;
       vec3 col = gCol;
-      // wheat
-      vec3 wheat = lightSurface(vec3(0.78, 0.62, 0.27) * (0.85 + 0.3 * nz), n, 1.0);
-      col = mix(col, wheat, B.a * 0.85);
+      // [seasons] the town fields' balks and margins: trodden turf and soil through the year, not a flat ochre
+      // (the strips themselves are the farm's soil mesh, 08i_farm_draw.js)
+      vec3 fieldG = mix(vec3(0.36, 0.3, 0.2), vec3(0.3, 0.25, 0.17), vnoise(vW.xz * 0.9)) * (0.85 + 0.3 * nz);
+      fieldG = mix(fieldG, vec3(0.62, 0.52, 0.3) * (0.85 + 0.3 * nz), uSeasonA.y * 0.6 + uSeasonA.z * 0.35); // straw and stubble after the harvest
+      col = mix(col, lightSurface(fieldG, n, 1.0), B.a * 0.32 * (1.0 - 0.5 * A.g));
       // bare earth and roads: pebbles and ruts with a little relief
       // fine detail fades out before it is smaller than a pixel
       float px = length(fwidth(vW.xz));
@@ -231,7 +235,7 @@ const terrainMat = mat({
         col = mix(col, rockCol, rk);
       }
       // snow, shore
-      float snow = smoothstep(26.0, 34.0, vW.y + nz * 4.0) * smoothstep(0.55, 0.8, n.y) * (0.35 + 0.65 * B.b);
+      float snow = smoothstep(26.0, 34.0, vW.y + nz * 4.0 + uSeasonC.z) * smoothstep(0.55, 0.8, n.y) * (0.35 + 0.65 * B.b); // [seasons] the snow line comes down in winter
       if (snow > 0.001) {
         float sh2 = vnoise(vW.xz * 1.7) * 0.5 + vnoise(vW.xz * 6.0) * 0.5 * fine;
         vec3 ns = bumpN(n, vW, sh2, 0.15 * fine);
@@ -243,6 +247,9 @@ const terrainMat = mat({
       col = waterGround(col, vW, n, gSh); // [water] the bed under lakes, ponds and rivers, caustics, the wet band the waves lap (02c_water_map.js)
       // visual pass: the ground under tree crowns lies in soft shade, stays drier in rain and gathers less snow
       float canopy = canopyAt(vW.xz);
+      // [seasons] fallen leaves under the broadleaves in autumn, rust and gold, rotting brown into winter
+      float litter = canopy * smoothstep(0.25, 0.9, uSeasonB.x) * (1.0 - 0.6 * uSeasonA.x) * smoothstep(0.35, 0.65, vnoise(vW.xz * 1.7) * 0.6 + vnoise(vW.xz * 6.0) * 0.4) * (1.0 - A.r) * (1.0 - rk);
+      col = mix(col, lightSurface(mix(vec3(0.5, 0.26, 0.08), vec3(0.62, 0.45, 0.14), vnoise(vW.xz * 3.1)) * mix(1.0, 0.55, uSeasonA.w), n, 1.0), clamp(litter * 1.3, 0.0, 0.8));
       col *= 1.0 - 0.22 * canopy * (0.6 + 0.4 * gSh);
       col *= 1.0 - 0.42 * groundAO(vW.xz); // and in contact shade at the foot of walls and houses
       float wetG = uWet * (1.0 - 0.8 * canopy);
@@ -257,8 +264,12 @@ const terrainMat = mat({
         vec3 sk = skyBase(safeNormalize(vec3(Rv.x, max(Rv.y, 0.03), Rv.z)));
         col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * 0.8, 0.0, 1.0));
       }
-      if (uSnowCover > 0.01) {
-        float sn = uSnowCover * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + uSnowCover * 0.5 - A.r * 0.45);
+      // [seasons] hoar frost on the turf on cold nights and mornings
+      float frost = frostAt(vW.xz) * smoothstep(0.5, 0.85, n.y) * (1.0 - 0.6 * canopy) * (1.0 - A.r) * (0.55 + 0.45 * vnoise(vW.xz * 2.3));
+      col = mix(col, lightSurface(vec3(0.74, 0.78, 0.82), n, 1.0), frost * 0.5);
+      float sCov = uSnowCover * snowHere(vW); // [seasons] the snow that lies here (02d_season.js)
+      if (sCov > 0.01) {
+        float sn = sCov * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + sCov * 0.5 - A.r * 0.45);
         sn *= 1.0 - smoothstep(0.1, 0.5, dot(gPL, vec3(0.33))); // feature/weather: melted round fires and torches
         col = mix(col, lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0), clamp(sn, 0.0, 1.0));
       }
@@ -360,7 +371,7 @@ function bakeMeadow(b) {
 }
 function canopyOf(t) {
   if (t.felled || t.gone || t.fallen) return 0;
-  return clamp(t.grow ?? 1, 0, 1) * clamp(t.leaf ?? 1, 0, 1) * (1 - 0.7 * clamp(t.char || 0, 0, 1));
+  return clamp(t.grow ?? 1, 0, 1) * clamp(t.leaf ?? 1, 0, 1) * (1 - 0.7 * clamp(t.char || 0, 0, 1)) * seasonCrownK(t); // [seasons] bare winter crowns (05k_seasons.js)
 }
 function stampCanopy(i0, t, k) {
   const R = CANOPY.res, cell = WSIZE / R, acc = CANOPY.acc, b = CANOPY.bytes;
@@ -621,6 +632,8 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_NATURE}
   ${GLSL_COVER}
   ${GLSL_MEADOW}
+  ${GLSL_SEASON} // [seasons] 02d_season.js
+  varying vec2 vSzn; // [seasons] the snow lying here (times uSnowCover), hoar frost
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
   varying float vCanopy; // visual pass: tree crown overhead (drier in rain, less snow, a little shade)
@@ -630,7 +643,7 @@ const GRASS_VERT = /* glsl */`
   attribute vec4 aRnd;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   void main(){
-    vSh = 1.0; vNat = vec4(0.0); vPatch = vec4(0.0); vCanopy = 0.0;
+    vSh = 1.0; vNat = vec4(0.0); vPatch = vec4(0.0); vCanopy = 0.0; vSzn = vec2(0.0);
     vWorld = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vAcross = vec3(1.0, 0.0, 0.0); vInfo = vec4(0.0); vLook = vec4(0.0); vDecal = vec4(0.0);
     vec2 base = aOff + uTile * floor((uCenter - aOff) / uTile + 0.5);
     float dcam = length(base - uCam2);
@@ -648,6 +661,9 @@ const GRASS_VERT = /* glsl */`
     vec3 mp = meadowPatch(base);
     float H = meadowHeight(A, B, mp) * mix(0.6, 1.3, aRnd.y * aRnd.y) * fade;
     H *= 0.86 + 0.28 * vnoise(base * 0.3 + 7.0);
+    // [seasons] the sward lies down over winter and is buried where the snow lies deep
+    vec4 szn = seasonMapAt(base);
+    H *= mix(1.0, 0.72, uSeasonA.w) * (1.0 - 0.85 * smoothstep(0.35, 0.95, szn.r));
     float sparse = smoothstep(0.1, 0.62, A.g);
     /* nature (05h_nature.js): cut to stubble, licked down by flames, burnt to stubs */
     vec4 nat = natureAt(base);
@@ -679,6 +695,7 @@ const GRASS_VERT = /* glsl */`
     vInfo = vec4(t, position.z, bright, tr.a);
     vPatch = vec4(mp.xy, fract(aRnd.w * 5.93 + aRnd.y * 2.1), gGust * gGust * uWind);
     vCanopy = canopyAt(base);
+    vSzn = vec2(clamp(max(uSnowK.x, szn.r) * uSnowK.y, 0.0, 100.0), clamp((0.5 - (uSeasonC.w + szn.g * 40.0 - 30.0)) / 4.0, 0.0, 1.0)); // [seasons]
     vInfo.z *= 1.0 - 0.38 * groundAO(base);
     vLook = vec4(realmTint(B.rgb), clamp(B.a + smoothstep(0.55, 0.85, vnoise(base * 0.07 + 3.0)) * 0.35 * B.r, 0.0, 1.0));
     vDecal = sampleDecal(base);
@@ -691,13 +708,15 @@ const GRASS_FRAG = /* glsl */`
   ${GLSL_PLIGHT}
   uniform vec3 uGrassBase, uGrassTip, uGrassTrans, uGlowColor, uTargetColor, uAoeColor;
   uniform float uWet, uSnowCover, uGrassLow;
+  ${GLSL_SEASON} // [seasons] 02d_season.js
+  varying vec2 vSzn;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
   varying float vCanopy;
   void main(){
     float t = clamp(vInfo.x, 0.0, 1.0);
-    float wetB = uWet * (1.0 - 0.8 * vCanopy), snowB = uSnowCover * (1.0 - 0.7 * vCanopy);
+    float wetB = uWet * (1.0 - 0.8 * vCanopy), snowB = uSnowCover * vSzn.x * (1.0 - 0.7 * vCanopy); // [seasons] the snow lying here
     float sh = clamp(vSh, 0.0, 1.0);
     vec3 V = safeNormalize(cameraPosition - vWorld);
     vec3 n = safeNormalize(vN);
@@ -711,6 +730,8 @@ const GRASS_FRAG = /* glsl */`
     alb *= mix(vec3(1.07, 1.02, 0.82), vec3(0.93, 1.0, 1.1), vPatch.z);
     alb = mix(alb, alb * vec3(1.2, 1.14, 0.78), smoothstep(0.72, 1.0, t) * 0.65);
     alb = mix(alb, alb * vec3(1.18, 0.82, 0.42) + vec3(0.2, 0.09, 0.01), vLook.a * smoothstep(0.15, 1.0, t));
+    alb = seasonGrass(alb, vPatch.x, vPatch.y, t, vWorld.xz); // [seasons] lush, gold, tawny, dormant
+    alb = mix(alb, vec3(0.8, 0.84, 0.88) * dot(uAmbient + uLightColor, vec3(0.33)) * 0.55, vSzn.y * smoothstep(0.35, 1.0, t) * 0.55); // [seasons] rime on the tips
     alb *= vInfo.z;
     alb = mix(alb * (1.0 - 0.18 * wetB), vec3(0.82, 0.85, 0.9), snowB * 0.65 * smoothstep(0.3, 1.0, t));
     // dark only right at the roots (sparser low-detail grass lets more light down)
@@ -832,6 +853,7 @@ const flowerMat = mat({
     ${GLSL_NATURE}
     ${GLSL_COVER}
     ${GLSL_MEADOW}
+    ${GLSL_SEASON} // [seasons] 02d_season.js
     uniform vec3 uPalL[6], uPalE[6], uPalT[6];
     uniform float uTile, uPetals;
     uniform vec2 uCenter, uCam2;
@@ -847,10 +869,15 @@ const flowerMat = mat({
       vec4 B = texture(uWorldB, worldUV(base));
       if (aRnd.x > A.b || coverAt(base) > 0.3) fade = 0.0;
       { vec4 nat = natureAt(base); if (max(nat.r, max(nat.g, nat.b)) > 0.25 + 0.5 * aRnd.y) fade = 0.0; } // nature: cut or burnt
+      if (fract(aRnd.w * 7.77 + aRnd.x * 3.1) > uSeasonC.x || seasonMapAt(base).r > 0.3) fade = 0.0; // [seasons] flowers by season, none in winter or under snow
       if (fade < 0.02) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
       int ci = int(aRnd.y * 5.99);
       float u = aRnd.z;
       vec3 c = u < B.r ? uPalL[ci] : (u < B.r + B.g ? uPalE[ci] : uPalT[ci]);
+      // [seasons] spring's whites, yellows and blues; summer's full colour; the last purples and golds of autumn
+      float fk = fract(aRnd.y * 31.7);
+      c = mix(c, fk < 0.45 ? vec3(0.97, 0.95, 0.86) : fk < 0.75 ? vec3(0.98, 0.86, 0.3) : vec3(0.55, 0.62, 0.95), uSeasonA.x * 0.55);
+      c = mix(c, fk < 0.55 ? vec3(0.62, 0.42, 0.85) : vec3(0.95, 0.72, 0.2), uSeasonA.z * 0.7);
       vCol = c;
       vec3 b3 = vec3(base.x, terrainHeight(base) - 0.03, base.y);
       // heads ride just above the turf they grow in (visual pass: the sward's height varies now)
