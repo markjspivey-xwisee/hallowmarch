@@ -361,6 +361,7 @@ function tick(dt) {
   updateWeather(dt);
   applyWeather();
   applyIndoor();
+  updateNightSky(dt); // [aurora] the northern lights and shooting stars (05i_aurora.js)
   // simulation (the menu and the prologue pause the world)
   if (UI.modal !== 'menu' && UI.modal !== 'prologue') {
     // up to two steps so a slow frame rate does not slow the world down

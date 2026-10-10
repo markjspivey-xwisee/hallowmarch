@@ -46,6 +46,7 @@ async function loadSave() {
 function buildSave() {
   const P = GAME.player, prog = GAME.prog;
   const settings = { quality: quality.level, auto: quality.auto !== false, tod: tod.mode, sound: AUDIO.on, weather: WEATHER.mode };
+  settings.music = MUSIC.vol; // [music] the score's volume, 0 to 1 (11b_music.js)
   const world = {
     keeps: WAR.keeps.map((K) => K.realm),
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
@@ -167,5 +168,6 @@ function applySettings(st) {
   else quality.auto = st.auto !== false;
   if (['cycle', 'morning', 'golden', 'night'].includes(st.tod)) setTimeMode(st.tod);
   if (typeof st.sound === 'boolean') AUDIO.on = st.sound;
+  if (Number.isFinite(st.music)) setMusicVolume(st.music); // [music] older saves have none: the default stays
   if (st.weather === 'clear' || st.weather === 'auto') setWeatherMode(st.weather);
 }

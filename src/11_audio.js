@@ -99,6 +99,7 @@ function sfx(name) {
   const gap = SFX_GAP[name] ?? 0.05;
   if (t - (AUDIO.last[name] || -1) < gap) return;
   AUDIO.last[name] = t;
+  if (name === 'levelup') musicStinger('levelup'); // [music] a level or realm rank gained
   try {
     switch (name) {
       case 'click': tone('sine', 1250, 820, t, 0.05, 0.08); break;
@@ -209,6 +210,7 @@ function chirp(t) {
   for (let i = 0; i < n; i++) tone('sine', base * (1 + Math.random() * 0.15), base * (0.8 + Math.random() * 0.5), t + i * 0.11, 0.07, 0.025, 0.01, dest);
 }
 function updateAudio(dt) {
+  updateMusic(dt); // [music] the score: moods, battle layers, stingers, ducking (11b_music.js)
   if (!AUDIO.ctx || !AUDIO.amb || AUDIO.ctx.state !== 'running') return;
   const t = AUDIO.ctx.currentTime;
   const night = U.uNight.value;

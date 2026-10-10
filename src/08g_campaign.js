@@ -445,6 +445,7 @@ function campaignVictory(r, how) {
   const col = R.rgb.map((v) => v * 2 + 0.5);
   for (let i = 0; i < 14; i++) later(i * 0.45, () => { const Sx = spots[i % spots.length]; FX.burst(Sx.x + (Math.random() - 0.5) * 18, Sx.y + 12 + Math.random() * 8, Sx.z + (Math.random() - 0.5) * 18, 40, i % 3 ? col : [2.4, 2.0, 1.1], 8, 1.3, 0.28, 2.5); });
   cwFanfare(P ? P.faction === r : true);
+  musicStinger(P && P.faction !== r ? 'defeat' : 'victory'); // [music] the score answers the fanfare (11b_music.js)
   CAMPAIGN.pendingVictory = P ? rec : null; // shown once no window is open
   saveSoon(800);
 }
