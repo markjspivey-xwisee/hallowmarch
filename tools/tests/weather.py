@@ -256,9 +256,10 @@ async def main():
           for (let r = L.r * 1.2; r > 2 && !spot; r -= 0.5) for (let a = 0; a < 6.283 && !spot; a += 0.2) { const x = L.x + Math.cos(a) * r, z = L.z + Math.sin(a) * r; if (F.heightAt(x, z) < -3.7 && F.isWalkable(x, z)) spot = { x, z }; }
           if (!spot) return { spot: null };
           __hm.teleport(spot.x, spot.z); __hm.simulate(6);
-          return { spot, depth: -3.2 - F.heightAt(spot.x, spot.z), dirt: F.kitDirt(), wet: P.wet };
+          return { spot, depth: -3.2 - F.heightAt(spot.x, spot.z), dirt: F.kitDirt(), wet: P.wet, wl: P.wl || 0 };
         })()""")
-        check(r.get('spot') is not None and r['dirt'] < 0.05 and r['wet'] > 0.9, 'wading in a lake washes the gear and soaks the wearer')
+        # [water] wading soaks the wearer up to the waterline (P.wl); only swimming or chest-deep water soaks them through
+        check(r.get('spot') is not None and r['dirt'] < 0.05 and (r['wet'] > 0.9 or r['wl'] >= min(r['depth'], 1.0) * 0.8), 'wading in a lake washes the gear and soaks the wearer up to the waterline')
 
         # ---------------- other qualities compile and run ----------------
         for q in ['high', 'low']:

@@ -151,6 +151,7 @@ function effectiveSpeed(e) {
   if (!hasBuff(e, 'free')) s *= 1 - buffMax(e, 'snare');
   if (e.carrying) s *= 0.72;
   s *= giftSpeedMult(e); // [gifts] Wood-wise (06c_gifts.js)
+  s *= waterSpeedMult(e); // [water] wading and swimming are slow (07b_swim.js)
   return s;
 }
 function tickBuffs(e, dt) {
@@ -316,21 +317,22 @@ function animActValue(e) {
 const _mv = { x: 0, z: 0 };
 function stepTo(e, nx, nz) {
   if (!isFiniteNum(nx) || !isFiniteNum(nz)) return false;
-  if (!isWalkable(nx, nz)) {
-    if (isWalkable(nx, e.z)) nz = e.z;
-    else if (isWalkable(e.x, nz)) nx = e.x;
+  const ok = e.swimOK ? swimPassable : isWalkable; // [water] a swimmer may go into deep water (07b_swim.js)
+  if (!ok(nx, nz)) {
+    if (ok(nx, e.z)) nz = e.z;
+    else if (ok(e.x, nz)) nx = e.x;
     else return false;
   }
   _mv.x = nx; _mv.z = nz;
   const by = e.y - (e.hover || 0); // castles: colliders and raised floors know how high the body stands (04g_castles.js)
   resolveCollisions(_mv, e.radius * (e.scale || 1) * 0.9, by, e.faction);
-  if (castleStepBlocked(e, _mv.x, _mv.z, by)) return false;
+  if (!e.swim && castleStepBlocked(e, _mv.x, _mv.z, by)) return false; // [water] a swimmer floats over the drop of the bed
   const Dg = DRAGON.e;
   if (Dg && Dg !== e && !Dg.removed && !Dg.flying) {
     const ddx = _mv.x - Dg.x, ddz = _mv.z - Dg.z, dd = Math.hypot(ddx, ddz), rr = 2.7 + e.radius;
     if (dd < rr && dd > 1e-4) { _mv.x = Dg.x + ddx / dd * rr; _mv.z = Dg.z + ddz / dd * rr; }
   }
-  if (!isWalkable(_mv.x, _mv.z)) return false;
+  if (!ok(_mv.x, _mv.z)) return false;
   e.x = _mv.x; e.z = _mv.z;
   return true;
 }
@@ -344,7 +346,7 @@ function moveToward(e, tx, tz, dt, speedMul = 1, stopDist = 0.3) {
   turnToward(e, tx, tz, dt * 9);
   return false;
 }
-function groundY(e) { return e.fixedY !== null ? e.fixedY : floorAt(e.x, e.z, e.y - (e.hover || 0)); } // floorAt: stairs and wall walks (04g_castles.js)
+function groundY(e) { return e.fixedY !== null ? e.fixedY : waterFloorY(e, floorAt(e.x, e.z, e.y - (e.hover || 0))); } // floorAt: stairs and wall walks (04g_castles.js); [water] a swimmer floats (07b_swim.js)
 // returns true while the body is in flight and nothing else should move it
 function updateMotion(e, dt) {
   const m = e.motion;
@@ -403,6 +405,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.carrying != null) return 'carrying';
   if (isStunned(e)) return 'stunned';
   if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
+  if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
   if (e.power < A.cost) return 'power';
@@ -767,6 +770,7 @@ function aoeMarker(x, z, r, dur) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur
 /* ------------------------------------------------------------------ */
 function autoAttack(e) {
   if (e.target == null || e.casting || e.carrying != null || e.mount || isStunned(e)) return;
+  if (e.rangedKind && e.swim) return; // [water] no shooting while swimming
   const t = getEnt(e.target);
   if (!t || !t.alive || !isEnemy(e, t)) return;
   const now = GAME.t;

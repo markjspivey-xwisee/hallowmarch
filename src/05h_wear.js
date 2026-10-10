@@ -172,10 +172,12 @@ function updateWear(dt) {
     if (e !== P && dist2(e.x, e.z, camX, camZ) > 150 * 150) continue;
     // shelter and the warmth of fires are looked up about once a second for each body
     if (e._wxT === undefined || GAME.t >= e._wxT) { e._wxT = GAME.t + 0.8 + Math.random() * 0.4; e._sky = skyOver(e); e._heat = heatAt(e.x, e.y, e.z); }
-    const water = !inDungeon(e) && heightAt(e.x, e.z) < WATER_Y - 0.2 && e.y < WATER_Y + 0.3;
+    // [water] in any water (07b_swim.js): the gear soaks up to the waterline (e.wl); swimming or chest-deep soaks it all
+    const wdep = inDungeon(e) ? 0 : Math.max(0, (e.wsurf ?? -1e3) - e.y) * ((e.wd || 0) > 0 ? 1 : 0) / (e.scale || 1);
+    const water = wdep > 0.3;
     const sky = e._sky || 0, heat = e._heat || 0;
     let wet = e.wet || 0, snow = e.snow || 0;
-    if (water) { wet = 1; snow = 0; }
+    if (e.swim || wdep > 1.0) { wet = 1; snow = 0; }
     else {
       if (rain > 0.05 && sky > 0) wet = Math.min(1, wet + (dt * rain * sky) / 22);
       else wet = Math.max(0, wet - (dt * (1 + 3 * sun + 1.2 * wind + 7 * heat + (sky === 0 ? 0.6 : 0))) / 170);
@@ -215,7 +217,7 @@ function updateWear(dt) {
   }
   if (!P) return;
   // the player's kit: rain slowly rinses it, wading through a lake or a pond washes it clean
-  const pWater = !inDungeon(P) && heightAt(P.x, P.z) < WATER_Y - 0.2;
+  const pWater = !inDungeon(P) && (P.wd || 0) > 0.3; // [water] wading in any water (07b_swim.js)
   const wash = pWater ? 0.4 : rain * (P._sky || 0) * 0.0025, bloodK = pWater ? 1.5 : 5;
   if (wash > 0) {
     const before = kitDirt();
@@ -253,7 +255,7 @@ function wearVisual(e, out) {
     for (const s of ['weapon', ...ARMOUR_SLOTS]) { const it = eq[s]; if (!it) continue; const d = itemDur(it); sum += d; n++; if (d <= 0) broken = true; }
     dmg = n ? Math.max(1 - sum / n / DUR_MAX, broken ? 0.8 : 0) : 0;
   }
-  out[0] = clamp(e.wet || 0, 0, 1); out[1] = clamp(e.snow || 0, 0, 1); out[2] = clamp(dirt, 0, 1);
+  out[0] = waterlinePack(e); out[1] = clamp(e.snow || 0, 0, 1); out[2] = clamp(dirt, 0, 1); // [water] wetness + the soaked waterline (07b_swim.js)
   out[3] = Math.floor(clamp(dmg, 0, 1) * 15) + clamp(blood, 0, 0.99);
   return out;
 }

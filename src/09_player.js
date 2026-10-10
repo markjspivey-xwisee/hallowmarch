@@ -168,7 +168,7 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];
+    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];
     if (msg) uiError(msg);
   } else flashSlot(i);
 }
@@ -205,6 +205,7 @@ function currentInteraction() {
   natureOffers(P, offer); // nature (05h_nature.js): trees to chop, logs to split, firewood to light
   brandOffers(P, offer); // fire in hand (09d_brand.js): take a brand, set something alight, put it out
   siegeOffers(P, offer); // [siege] join the crew of an engine, or take over an abandoned one (04h_siege.js)
+  waterOffers(P, offer); // [water] drink, fill a waterskin, wash your gear at any water (07b_swim.js)
   return best;
 }
 function playerInteract() {
@@ -287,9 +288,9 @@ function updatePlayer(dt) {
   }
   if (!sprinting) P.endurance = Math.min(100, P.endurance + dt * (GAME.t > P.combatUntil ? 14 : 7));
   // jumping
-  const gy = floorAt(P.x, P.z, P.y); // stairs, wall walks and tower tops (04g_castles.js)
+  const gy = waterFloorY(P, floorAt(P.x, P.z, P.y)); // stairs, wall walks and tower tops (04g_castles.js); [water] a swimmer floats (07b_swim.js)
   if (P.onGround && P.y > gy + 0.7) { P.onGround = false; P.vy = 0; } // stepped off an edge: fall
-  if (keyDown('Space') && P.onGround && !UI.modal && !isRooted(P)) { P.vy = P.mount ? 7.0 : 6.2; P.onGround = false; }
+  if (keyDown('Space') && P.onGround && !UI.modal && !isRooted(P) && !P.swim) { P.vy = P.mount ? 7.0 : 6.2; P.onGround = false; }
   if (!P.onGround) {
     P.vy -= 18 * dt;
     P.y += P.vy * dt;
@@ -369,6 +370,7 @@ function updateCamera(dt) {
   let cy = fy + sp * dd;
   const minY = heightAt(cx, cz) + 0.9;
   if (cy < minY) cy = minY;
+  cy = waterCamY(cx, cz, cy); // [water] the camera never dips under the surface (07b_swim.js)
   // under the barrow's roof the camera keeps below the stones
   if (INDOOR.on) {
     const roof = Math.min(dunCeilAt(cx, cz), dunCeilAt(P.x, P.z), dunCeilAt((cx + P.x) / 2, (cz + P.z) / 2)) - 0.5;
