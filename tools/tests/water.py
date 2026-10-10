@@ -206,6 +206,15 @@ async def main():
         check(r['label'] and r['label'].startswith('Drink'), "at the water's edge E offers a drink (%s)" % r['label'])
         check(r['skins0'] >= 1 and r['water1'] == r['water0'] + 1, 'the issued waterskin is filled with water')
 
+        # ---- the Chronicle's water page and the help ----
+        r = await page.evaluate("""(() => { const H = __hm; H.LORE.openChronicle('water'); const b = document.querySelector('.chron-body'); const txt = b ? b.textContent : '';
+          const nav = [...document.querySelectorAll('.chron-nav [data-sec]')].map((x) => x.dataset.sec);
+          H.fn.openMenu('help'); const help = document.getElementById('menu-body').textContent; H.UI.modal = null; document.getElementById('menu').hidden = true;
+          return { nav, swim: txt.includes('Wading and swimming'), drink: txt.includes('drink'), help: help.includes('Water') && help.includes('swim') }; })()""")
+        print('chronicle', json.dumps(r))
+        check('water' in r['nav'] and r['swim'] and r['drink'], 'the Chronicle has a page on water')
+        check(r['help'], 'the help explains water')
+
         print('errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 5)")))
         check(not await page.evaluate("__hm.errors.length"), 'no runtime errors')
         if SHOTS:
@@ -291,7 +300,15 @@ async def shots(page):
           const L = H.dbg.LAKES[0], ox = L.x - P.x, oz = L.z - P.z, ol = Math.hypot(ox, oz) || 1;
           H.camera.position.set(P.x + ox / ol * 4.2 + fx * 2.2, P.y + 2.0, P.z + oz / ol * 4.2 + fz * 2.2); H.camera.lookAt(P.x + fx * 0.5, P.y + 0.6, P.z + fz * 0.5); })()""")
         await snap(page, 'water_%s_wade.png' % q)
-        # 6. a wolf paddling after the player across deep water
+        # 6. the largest pond, from its bank
+        await page.evaluate("""(() => { const H = __hm, F = H.fn, Wt = H.water, Pn = Wt.PONDS.slice().sort((a, b) => b.n - a.n)[0]; if (!Pn) return 0;
+          let best = null; for (let a = 0; a < 16; a++) { const dx = Math.cos(a / 16 * Math.PI * 2), dz = Math.sin(a / 16 * Math.PI * 2); for (let r = 1; r < 60; r += 0.5) { if (!Wt.waterAt(Pn.x + dx * r, Pn.z + dz * r)) { if (!best || r < best.r) best = { r, dx, dz }; break; } } }
+          if (!best) return 0; const cx = Pn.x + best.dx * (best.r + 5), cz = Pn.z + best.dz * (best.r + 5);
+          H.teleport(cx + best.dx * 3, cz + best.dz * 3);
+          H.camera.position.set(cx, F.heightAt(cx, cz) + 2.3, cz); H.camera.lookAt(Pn.x - best.dx * 4, Pn.y, Pn.z - best.dz * 4); return 0; })()""")
+        await run_frames(page, 10)
+        await snap(page, 'water_%s_pond.png' % q)
+        # 7. a wolf paddling after the player across deep water
         await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player, Wt = H.water;
           const x = lk.x + lk.dx * (lk.shore - 12), z = lk.z + lk.dz * (lk.shore - 12); H.teleport(x, z); H.simulate(0.3);
           const tx = -lk.dz, tz = lk.dx;
