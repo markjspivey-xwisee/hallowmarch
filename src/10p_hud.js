@@ -16,6 +16,8 @@ const HUD_PREF = {
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
 const HUD_ORDER = ['#buildbar', '#farmcard', '#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast'];
+// [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
+const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast'];
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
 const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
@@ -61,8 +63,8 @@ function hudReset() {
   const zt = $('zonetoast'); if (zt && !HUDL.moved.has(zt)) zt.style.left = zt.style.top = zt.style.transform = '';
   const bt = $('bottom'), lg = $('log');
   if (bt) bt.style.bottom = '';
-  for (const id of ['prompt', 'castbar']) { const el = $(id); if (el) el.classList.remove('hl-off'); }
-  if (lg) { lg.style.width = ''; lg.style.bottom = ''; }
+  for (const id of ['prompt', 'castbar']) { const el = $(id); if (el) { el.classList.remove('hl-off'); el.style.transform = ''; } }
+  if (lg) { lg.style.width = ''; lg.style.bottom = ''; lg.style.height = ''; lg.classList.remove('hl-off'); }
 }
 function hudKey(W, H, touch) {
   const ids = HUD_ORDER.map((s) => { const el = document.querySelector(s); return el && hudShown(el) ? el.offsetWidth + 'x' + el.offsetHeight + (s === '#banners' ? '/' + el.childElementCount : '') : el && el.classList.contains('hl-off') ? 'off' : '-'; }).join();
@@ -88,8 +90,20 @@ function hudLayout(dt) {
   // what stays put
   const placed = [];
   const fixed = (sel) => { const el = document.querySelector(sel); if (el && hudShown(el)) placed.push({ ...hudRect(el), sel }); };
-  ['#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#log'].forEach(fixed);
-  if (!touch) fixed('#buildbar');
+  ['#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar'].forEach(fixed);
+  const lg = $('log'), hb = $('hotbar'), bb = $('buildbar'), cl = $('cls');
+  if (!touch) {
+    // [v9] on a desk the class panel sits over the hotbar, the builder's bar over both, and the prompt and the cast bar
+    // (which sit over the class panel) rise over the builder's bar while it is open
+    fixed('#cls');
+    const base = hudUnion([hb, cl].filter((e) => e && hudShown(e)).map(hudRect));
+    if (bb && hudShown(bb) && base && mode === 'desk') { bb.style.bottom = Math.round(H - base.y + 8) + 'px'; HUDL.moved.add(bb); } // (a narrow window keeps it at the top)
+    fixed('#buildbar');
+    const kids = ['prompt', 'castbar'].map((id) => $(id)).filter((e) => e && hudShown(e));
+    const u = hudUnion(kids.map(hudRect));
+    if (u && bb && hudShown(bb)) { const br = hudRect(bb); if (hudHit(u, br, 2)) { const dy = Math.round(u.y + u.h - br.y + 8); for (const k of kids) k.style.transform = `translateY(${-dy}px)`; } }
+    for (const k of kids) placed.push({ ...hudRect(k), sel: '#' + k.id });
+  }
   if (touch) {
     // the pad, its round buttons, and the stick's corner
     const tp = $('tpad');
@@ -97,25 +111,36 @@ function hudLayout(dt) {
     const jh = $('joyhint');
     if (jh && hudShown(jh)) { const r = hudRect(jh); placed.push({ x: S.l, y: r.y - 8, w: r.x + r.w + 10 - S.l, h: H - (r.y - 8), sel: '#joyhint' }); }
   }
-  // the log on a desk stops short of the hotbar (or rises over it when there is no room beside it)
-  const lg = $('log'), hb = $('hotbar'), bb = $('buildbar');
-  if (!touch && lg && hb && hudShown(lg) && hudShown(hb)) {
-    const a = hudRect(lg);
-    // the hotbar, and the builder's bar over it while it is open
-    const bs = [hudRect(hb), ...(bb && hudShown(bb) ? [hudRect(bb)] : [])].filter((r) => hudHit(a, r, 2));
-    const b = bs.length ? bs.reduce((m, r) => (r.x < m.x ? r : m)) : null;
-    if (b) {
-      const w = Math.floor(b.x - 12 - a.x);
-      if (w >= 230) lg.style.width = w + 'px';
-      else lg.style.bottom = Math.round(H - b.y + 8) + 'px';
-      const i = placed.findIndex((p) => p.sel === '#log');
-      if (i >= 0) placed[i] = { ...hudRect(lg), sel: '#log' };
-    }
-  }
   const pfR = $('pf') && hudShown($('pf')) ? hudRect($('pf')) : { x: S.l + 12, y: top, w: 0, h: 0 };
   const rightCol = hudUnion(['#mmwrap', '#topright > .iconbtns'].map((s) => document.querySelector(s)).filter((e) => e && hudShown(e)).map(hudRect)) || { x: W - S.r - 12, y: top, w: 0, h: 0 };
   const inside = (r) => r.x >= S.l + 2 && r.y >= S.t + 2 && r.x + r.w <= W - S.r - 2 && r.y + r.h <= H - S.b - 2;
   const free = (r) => inside(r) && !placed.some((p) => hudHit(p, r));
+  // the log on a desk keeps its corner, else stops short of what it would cover (the hotbar, the class panel, the
+  // builder's bar), else rises over them (shorter: there is less room up there); with no room at all it waits
+  // [v9] the class panel and the builder's bar are in the way too
+  if (!touch && lg && hudShown(lg)) {
+    const avoid = placed.filter((p) => p.sel !== '#log');
+    const at = (bottom, w, h) => { lg.style.bottom = bottom == null ? '' : Math.round(bottom) + 'px'; lg.style.width = w ? Math.floor(w) + 'px' : ''; lg.style.height = h ? h + 'px' : ''; return hudRect(lg); };
+    const okR = (r) => inside(r) && !avoid.some((q) => hudHit(r, q, 2));
+    const lifts = [null, ...[...new Set([hb, cl, bb].filter((e) => e && hudShown(e)).map((e) => Math.round(hudRect(e).y)))].sort((a, b) => b - a).map((y) => H - y + 8)];
+    let got = null;
+    for (const minW of [230, 170]) {
+      for (const lift of lifts) {
+        const h = lift == null ? 0 : 112;
+        let r = at(lift, 0, h);
+        if (okR(r)) { got = r; break; }
+        const hits = avoid.filter((q) => hudHit(r, q, 2));
+        if (!hits.length || hits.some((q) => q.x <= r.x + 8)) continue;
+        const w = Math.min(...hits.map((q) => q.x)) - 12 - r.x;
+        if (w < minW) continue;
+        r = at(lift, w, h);
+        if (okR(r)) { got = r; break; }
+      }
+      if (got) break;
+    }
+    if (got) placed.push({ ...got, sel: '#log' });
+    else { at(null, 0, 0); lg.classList.add('hl-off'); }
+  }
   const xs = { L: () => S.l + 12, L2: () => pfR.x + pfR.w + 8, R: (w) => W - S.r - 12 - w, R2: (w) => rightCol.x - 8 - w, C: (w) => (W - w) / 2 };
   const seek = (sel, r) => {
     for (const a of pref[sel] || ['L']) {
@@ -137,13 +162,14 @@ function hudLayout(dt) {
     else hudMove(el, c.x, c.y, sel === '#buildbar' ? r.w : 0);
     placed.push({ ...c, sel });
   };
-  for (const sel of HUD_ORDER) {
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : HUD_ORDER) {
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
-    if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow
+    if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)
     if (sel === '#buildbar' && !touch) continue;
     if (sel === '#banners' && !el.children.length) continue;
-    if (sel === '#zonetoast' && !el.classList.contains('on')) continue; // the zone's name, only while it shows
+    // the zone's name, only while it shows ([v9] and while it fades: it keeps the place it had)
+    if (sel === '#zonetoast' && !el.classList.contains('on') && +getComputedStyle(el).opacity < 0.05) continue;
     let r = measure(sel, el);
     if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
@@ -155,7 +181,8 @@ function hudLayout(dt) {
     }
     if (c) { put(sel, el, r, c); continue; }
     // it waits until there is room (the plant card only while the builder's bar is open: E places pieces then)
-    if (touch && (HUD_HIDE.has(sel) || (sel === '#farmcard' && BUILD.mode))) { el.classList.add('hl-off'); continue; }
+    // [v9] on a desk too: a small window with every panel up has no room for all of them
+    if (HUD_HIDE.has(sel) || (sel === '#farmcard' && BUILD.mode)) { el.classList.add('hl-off'); continue; }
     placed.push({ ...r, sel }); // nowhere free: it keeps its own place
   }
   // the prompt and the cast bar rise above whatever they would cover (the pad, the builder's bar)
@@ -191,7 +218,7 @@ function npSeen(e, d) {
     const t = s / steps, x = cx + (e.x - cx) * t, z = cz + (e.z - cz) * t, y = cy + (hy - cy) * t;
     collidersNear(x, z, 3, _npCn);
     for (const c of _npCn) {
-      if (!c.active || c.type !== 'box' || (c.tag !== 'wall' && c.tag !== 'hdoor' && c.tag !== 'stone')) continue;
+      if (!c.active || c.type !== 'box' || (c.tag !== 'wall' && c.tag !== 'hdoor' && c.tag !== 'stone' && c.tag !== 'house')) continue; // [v9] a house's or hall's own walls too
       const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
       if (Math.abs(lx) < c.hx && Math.abs(lz) < c.hz && (c.baseY ?? heightAt(c.x, c.z)) + (c.h || 8) > y + 0.15) return (e._los = false);
     }

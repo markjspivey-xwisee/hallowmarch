@@ -24,6 +24,8 @@ function houseLife(e, dt) {
   const shut = houseWantsShut(), day = !shut;
   const windowsToDo = H.wins.filter((w) => w.leaves.length && w.target !== (day ? 1 : 0));
   if (!day || GAME.t < (ai.visitUntil || 0)) {
+    // [v9] a night (or a storm) at home: the day's first call home comes a while after going out again, not at once
+    if (!day) ai.nextVisit = null;
     // home: in through the door, shutters closed for the night or the storm, then rest
     if (!inside) { lifePlan(e, houseEnterPlan(e, H)); return true; }
     if (windowsToDo.length) { lifePlan(e, houseShutterPlan(e, H, windowsToDo, day)); return true; }

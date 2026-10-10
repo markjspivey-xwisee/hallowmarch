@@ -33,6 +33,18 @@ window.TF = {
     return null;
   },
   label() { const it = this.H.fn.currentInteraction && this.H.fn.currentInteraction(); return it ? it.label : null; },
+  // turn (and if need be walk on) until the building piece may go where you look, as a player would
+  faceBuild() {
+    const H = this.H, B = H.build, P = this.P(), town = H.perf.SITES.find((s) => s.kind === 'town' && s.realm === 0);
+    const good = () => { H.simulate(0.1); H.frame(1/30); const M = B.BUILD.mode; return M && M.sn && M.sn.ok; };
+    if (good()) return 0;
+    for (let r = 90; r < 260; r += 8) for (let a = 0; a < 6.28; a += 0.3) {
+      const x = town.x + Math.cos(a) * r, z = town.z + Math.sin(a) * r;
+      if (r > 90 || a > 0) { if (!H.fn.isWalkable(x, z) || B.bLandWhy(x, z, P)) continue; H.teleport(x, z); this.calm(); }
+      for (let q = 0; q < 8; q++) { P.yaw = q / 8 * 6.283; H.CAM.yaw = P.yaw; if (good()) return 1; }
+    }
+    return -1;
+  },
 };
 0;
 """
@@ -72,6 +84,8 @@ async def main():
         cdp = await page.context.new_cdp_session(page)
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
         await page.evaluate(HELP)
+        # the loading veil fades on the wall clock: the first tap waits for it
+        await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
         touch = await page.evaluate("document.body.classList.contains('touch')")
         check(touch, 'the phone plays by touch (the pad shows)')
 
@@ -146,20 +160,24 @@ async def main():
               let spot = null;
               for (let r = 90; r < 220 && !spot; r += 8) for (let a = 0; a < 6.28 && !spot; a += 0.3) { const x = town.x + Math.cos(a) * r, z = town.z + Math.sin(a) * r; if (fn.isWalkable(x, z) && !B.bLandWhy(x, z, P)) spot = { x, z }; }
               if (!spot) return null;
-              TF.stand(spot.x, spot.z, spot.x + 1, spot.z + 3); return { n: B.buildPieces().length }; })()""")
+              TF.stand(spot.x, spot.z, spot.x + 1, spot.z + 3); return { n: B.BUILD.pieces.length }; })()""")
             ok = await tap(page, '#btn-build', 3)
             ok1 = await tap(page, '#buildbar [data-piece="found"]', 2)
+            # the piece goes where you look: turn (and if need be walk on) until it may go there, as a player would
+            await page.evaluate("TF.faceBuild()")
             rot0 = await page.evaluate("__hm.build.BUILD.mode ? __hm.build.BUILD.mode.rot : -1")
             ok2 = await tap(page, '#buildbar [data-b="rot"]', 2)
             rot1 = await page.evaluate("__hm.build.BUILD.mode ? __hm.build.BUILD.mode.rot : -1")
+            await page.evaluate("TF.faceBuild()") # the turned piece may meet a tree where the first did not
             ok3 = await tap(page, '#buildbar [data-b="place"]', 3)
-            n1 = await page.evaluate("__hm.build.buildPieces().length")
+            n1 = await page.evaluate("__hm.build.BUILD.pieces.length") # a piece set down stands as a plan until it is built
             check(r and ok and ok1 and ok2 and rot1 != rot0, f'build: the hammer button opens the bar, a piece is picked and Turn turns it ({rot0} -> {rot1})')
             check(ok3 and r and n1 > r['n'], f'build: Place sets it down ({r and r["n"]} -> {n1} pieces)')
             await tap(page, '#buildbar [data-b="done"]', 2)
 
         if want('companion'):
             r = await page.evaluate("""(() => { const H = TF.H, A = H.animals, P = TF.P(); TF.stand(P.x, P.z, P.x + 1, P.z); TF.calm(); if (!A.anCompanions().length) A.anSpawn(A.anRecord('hound', { owner: 'player', cmd: 'follow' }), P.x + 1.5, P.z + 1); return A.anCompanions().map((e) => e.tame.cmd); })()""")
+            await page.evaluate("for (let i = 0; i < 10; i++) __hm.frame(1/30); 0")
             ok = await tap(page, '#petbar [data-cmd="stay"]', 3)
             c1 = await page.evaluate("__hm.animals.anCompanions().map((e) => e.tame.cmd)")
             ok2 = await tap(page, '#petbar [data-cmd="follow"]', 3)

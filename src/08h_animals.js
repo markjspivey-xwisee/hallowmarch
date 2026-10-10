@@ -126,6 +126,7 @@ function anSpawn(rec, x, z, yaw = Math.random() * TAU) {
   anStats(e);
   e.ai.mode = 'idle'; e.ai.until = GAME.t + Math.random() * 3;
   ANIMALS.list.push(e);
+  if (rec.owner === 'player') ANIMALS.uiDirty = true; // [v9] a new companion shows on the bar at once
   return e;
 }
 function anStats(e) {
@@ -490,6 +491,7 @@ function anSlot(e, i) {
     const sc = 1 + (e.tame.k === 'horse' ? 0.6 : 0);
     const x = P.x + (ox * c + oz * s) * sc, z = P.z + (-ox * s + oz * c) * sc;
     if (!isWalkable(x, z) || anDoorNear(x, z) || houseAt(x, z, 0.4) && !houseAt(P.x, P.z)) continue;
+    if (!segmentClear(P.x, P.z, x, z, 0.3)) continue; // [v9] never on the far side of a wall from you
     return { x, z };
   }
   return { x: P.x - Math.sin(P.yaw) * 2, z: P.z - Math.cos(P.yaw) * 2 };
@@ -994,16 +996,18 @@ function animalOffers(P, offer) {
   forNear(P.x, P.z, 5, (e, d2) => {
     const d = Math.sqrt(d2);
     const k = anWildKind(e);
+    // [v9] the beast you face comes first: a companion at your heel does not stand in for the wolf in front of you
+    const face = d > 0.3 ? Math.abs(angDiff(P.yaw, Math.atan2(e.x - P.x, e.z - P.z))) / Math.PI * 0.5 : 0;
     if (k) {
       const T = anTrust(e), food = anFoodFor(k);
       const what = food ? goodName(food).toLowerCase() : AKIND[k].likes[0].replace('_', ' ');
-      offer(d, 4.2, `Offer ${what} to the ${anWildName(e)} (trust ${T.n}/${T.need}${T.settle < 1 ? ', wary' : ''})`, () => anOffer(e), 0.1);
+      offer(d, 4.2, `Offer ${what} to the ${anWildName(e)} (trust ${T.n}/${T.need}${T.settle < 1 ? ', wary' : ''})`, () => anOffer(e), 0.1 - face);
       return;
     }
     if (e.tame && e.alive && (e.tame.owner === 'player' || e.tame.owner === 'town')) {
       const rec = e.tame;
       const lab = rec.owner === 'town' ? `Look at the ${anStage(rec)} (${rec.name})` : `${rec.name} the ${anStage(rec)}`;
-      offer(d, 3.0 + e.radius, lab, () => openAnimalCard(e), 0.05);
+      offer(d, 3.0 + e.radius, lab, () => openAnimalCard(e), 0.05 - face);
     }
   });
   for (const pen of ANIMALS.pens) {

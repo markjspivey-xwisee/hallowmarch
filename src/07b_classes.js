@@ -921,7 +921,8 @@ function stepArrows(dt) {
     const gy = heightAt(A.x, A.z);
     const wq = inDungeon(A) ? null : waterAt(A.x, A.z), surf = wq ? wq.y : -Infinity; // [water] an arrow stops at the water's surface
     const blocked = !segmentClear(A.px, A.pz, A.x, A.z, 0.05, false) && A.y < gy + 6;
-    if (A.y <= gy || A.y <= surf || blocked || A.age > 4 || A.y < WATER_Y - 2) {
+    // [v9] (the Barrow's floors lie far below the lakes: an arrow there is not under water)
+    if (A.y <= gy || A.y <= surf || blocked || A.age > 4 || (!inDungeon(A) && A.y < WATER_Y - 2)) {
       CLS.arrows.splice(i, 1);
       const x = blocked ? A.px : A.x, z = blocked ? A.pz : A.z, y = blocked ? A.py : gy;
       const inWater = !blocked && (A.y <= surf || isWaterAt(x, z)), wy = surf > -Infinity ? surf : WATER_Y;

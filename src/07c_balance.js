@@ -397,6 +397,24 @@ function botArcher(e, t) {
   }
   return botUse(e, 'quickshot', t);
 }
+// [v9] the way out from a blade, kept inside the arena: a skilled player knows where the walls are and that a lord
+// who loses his quarry out of his hall goes back to his seat whole (the Hollow King)
+function botAwayYaw(e, p, reach) {
+  const H = e.bot && e.bot.home;
+  let ax = e.x - p.x, az = e.z - p.z;
+  const L = Math.hypot(ax, az) || 1; ax /= L; az /= L;
+  if (H) {
+    let best = null, bs = -Infinity;
+    for (const da of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4]) {
+      const c = Math.cos(da), s = Math.sin(da), dx = ax * c - az * s, dz = ax * s + az * c;
+      const lx = e.x + dx * reach, lz = e.z + dz * reach;
+      const sc = (dist(lx, lz, H.x, H.z) < H.r ? 100 : 0) + dist(lx, lz, p.x, p.z) - Math.abs(da) * 2;
+      if (sc > bs) { bs = sc; best = [dx, dz]; }
+    }
+    ax = best[0]; az = best[1];
+  }
+  return Math.atan2(ax, az);
+}
 function botMage(e, t) {
   const cs = csOf(e), hpF = e.hp / e.maxHp;
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
@@ -409,7 +427,7 @@ function botMage(e, t) {
   if (p) {
     focus(frozenOf(p) ? 'storm' : 'frost');
     if (botUse(e, 'nova', e)) return true;
-    if (e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null)) { focus('frost'); e.yaw = Math.atan2(e.x - p.x, e.z - p.z); if (botUse(e, 'blink', e)) return true; }
+    if (e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null)) { focus('frost'); e.yaw = botAwayYaw(e, p, ABILITIES.blink.blink || 12); if (botUse(e, 'blink', e)) return true; }
     if (frozenOf(p) && botUse(e, 'chain', p)) return true;
     if (botUse(e, 'frost', p)) return true;
   }
@@ -581,5 +599,6 @@ setTimeout(() => {
   window.__hm.bal = {
     // the Hollow King back on his throne, whole, for a fresh fight (tests)
     kingFresh() { for (const id of BARROW_STATE.adds) { const o = getEnt(id); if (o) removeEnt(o); } BARROW_STATE.adds.clear(); if (BARROW_STATE.kingDead || !getEnt(BARROW_STATE.king)) spawnKing(); else resetKing(getEnt(BARROW_STATE.king)); return BARROW_STATE.king; },
+    canUse, segmentClear, PROJ, // [v9] for the king probes
     BAL, CC_STEPS, CC_WIN, CC_IMMUNE, ccAdjust, ccFactor, ccState, ccChampion, ccHudState, fairGear, botMake, botStep, botTarget, raiseOfferStep, raiseOfferAccept, raisePlayer, applyFairGear: (P, lvl, q) => { const g = fairGear(P.cls, lvl, q); INV.eq = g.eq; applyGear(); return g.tot; } };
 }, 0);

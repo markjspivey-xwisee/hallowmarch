@@ -80,7 +80,8 @@ async def steps(page):
 async def king(page):
     if True:
         # 8. [balance] each calling at level 28 with fair gear (and three healing draughts) beats the Hollow King,
-        # the player played by the skilled bot (07c_balance.js)
+        # the player played by the skilled bot (07c_balance.js), who keeps to the king's hall (a king whose quarry
+        # leaves his hall goes back to his throne whole)
         fails = []
         for cls in ['warrior', 'archer', 'mage', 'priest']:
             await page.evaluate(f"""(() => {{ const H = __hm, F = H.fn; F.newCharacter(); H.start({{ realm: 1, cls: '{cls}', level: 28 }});
@@ -93,7 +94,7 @@ async def king(page):
             r = await ev(page, """(() => { const H = __hm, F = H.fn, P = H.GAME.player; const id = H.bal.kingFresh(); const K = F.getEnt(id);
               for (const e of H.ENT) if (e.alive && e.faction === H.FACTION_MONSTER && e.x > 1000 && e !== K && F.heightAt && Math.hypot(e.x - K.x, e.z - K.z) < 40) { e.damagers = null; F.killEnt(e, null); }
               const a = F.dunPoint(182, 0); H.teleport(a.x, a.z); P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0;
-              H.bal.botMake(P, 'skilled', null); P.target = K.id; H.simulate(0.5);
+              H.bal.botMake(P, 'skilled', { x: H.DUN.spots.hall.x, z: H.DUN.spots.hall.z, r: 12 }); P.target = K.id; H.simulate(0.5);
               const out = { lvl: K.level, hp: Math.round(K.maxHp), php: Math.round(P.maxHp), awake: K.ai.awake };
               let t = 0; for (; t < 300 && K.alive && P.alive; t += 1) H.simulate(1);
               out.t = t; out.kingDead = !K.alive; out.alive = P.alive; out.left = +(P.hp / P.maxHp).toFixed(2); out.kingLeft = +(Math.max(0, K.hp) / K.maxHp).toFixed(2); out.potions = H.INV.potions; out.errors = H.errors.length;

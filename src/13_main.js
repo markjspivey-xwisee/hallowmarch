@@ -106,6 +106,7 @@ async function boot() {
   setupTitle(save);
   const L = $('loading');
   L.style.opacity = 0;
+  L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
   setTimeout(() => { L.hidden = true; }, 850);
   lastNow = performance.now();
   requestAnimationFrame(frame);
