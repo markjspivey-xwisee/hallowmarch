@@ -490,8 +490,8 @@ function depthSparesBuilt(by) {
 /* feathers and game birds                                             */
 /* ------------------------------------------------------------------ */
 const DP_BIRD = {
-  pheasant: { name: 'pheasant', colA: [0.6, 0.27, 0.09], colB: [0.08, 0.2, 0.13], scale: 1.22, hp: 26, flushR: 9, meat: [1, 1], feathers: [3, 5] },
-  duck: { name: 'mallard', colA: [0.46, 0.38, 0.28], colB: [0.06, 0.26, 0.14], scale: 1.08, hp: 22, flushR: 11, meat: [1, 1], feathers: [2, 4] },
+  pheasant: { name: 'pheasant', henName: 'hen pheasant', colA: [0.62, 0.28, 0.09], colB: [0.05, 0.19, 0.12], hen: { colA: [0.52, 0.4, 0.25], colB: [0.38, 0.29, 0.18] }, scale: 1.18, hp: 26, flushR: 9, meat: [1, 1], feathers: [3, 5] },
+  duck: { name: 'mallard', henName: 'mallard duck', colA: [0.52, 0.5, 0.46], colB: [0.03, 0.22, 0.09], hen: { colA: [0.5, 0.38, 0.25], colB: [0.4, 0.3, 0.19] }, scale: 1.0, hp: 22, flushR: 11, meat: [1, 1], feathers: [2, 4] },
 };
 function dpBirdHome(kind, R, rnd) {
   for (let tries = 0; tries < 400; tries++) {
@@ -517,8 +517,11 @@ function dpSpawnBird(kind, home) {
   if (home.water ? !waterAt(x, z) : !isWalkable(x, z)) { x = home.x; z = home.z; }
   const w = home.water ? waterAt(x, z) : null, y = w ? w.y - 0.13 : heightAt(x, z);
   const e = makeEnt({ kind, faction: FACTION_NEUTRAL, role: 'bird', name: D.name, level: 1, x, z, y, yaw: Math.random() * TAU, radius: 0.28, speed: 3.4, scale: D.scale });
-  e.game = true; e.crowd = 'hen'; e.scale = D.scale; e.visCode = 16 * Math.random();
-  e.look = { colA: D.colA.map((v) => v * (0.9 + Math.random() * 0.2)), colB: D.colB.slice() };
+  e.game = true; e.crowd = crowdBeast[kind] ? kind : 'hen'; e.scale = D.scale; e.visCode = 16 * Math.random();
+  // cocks and drakes in their colours, hens in mottled browns
+  const hen = Math.random() < 0.35, L = hen ? D.hen : D;
+  e.look = { colA: L.colA.map((v) => v * (0.9 + Math.random() * 0.2)), colB: L.colB.slice() };
+  if (hen) e.name = D.henName;
   e.maxHp = e.hp = D.hp;
   e.fixedY = y;
   e.bird = { home, mode: 'idle', until: GAME.t + Math.random() * 4, fly: null, vy: 0, water: !!home.water };
@@ -566,7 +569,7 @@ function dpBirdStep(dt) {
     const w = B.water ? waterAt(e.x, e.z) : null;
     if (GAME.t > B.until) {
       const r = Math.random();
-      if (r < 0.45) { B.mode = 'peck'; B.until = GAME.t + 2 + Math.random() * 3; setAct(e, B.water ? 5 : 7, B.until - GAME.t); if (B.water && Math.random() < 0.5) rippleDrop(e.x, e.z, 0.25, 0.2); }
+      if (r < 0.45) { B.mode = 'peck'; B.until = GAME.t + 2 + Math.random() * 3; setAct(e, 7, B.until - GAME.t); if (B.water && Math.random() < 0.5) rippleDrop(e.x, e.z, 0.25, 0.2); }
       else { const a = Math.random() * TAU, d = 1.5 + Math.random() * 4; B.goal = { x: e.x + Math.sin(a) * d, z: e.z + Math.cos(a) * d }; if (dist(B.goal.x, B.goal.z, B.home.x, B.home.z) > B.home.r) B.goal = { x: B.home.x + (Math.random() - 0.5) * 4, z: B.home.z + (Math.random() - 0.5) * 4 }; B.mode = 'walk'; B.until = GAME.t + 3 + Math.random() * 3; }
     }
     if (B.mode === 'walk' && B.goal) {
@@ -617,7 +620,8 @@ function dpBirdFly(e, B, dt) {
   const want = land ? g0 : Math.max(g0, F.y0) + F.top * (0.35 + 0.65 * climb);
   e.fixedY = lerp(e.fixedY ?? e.y, want, 1 - Math.exp(-dt * (land ? 1.6 : 2.6)));
   e.y = e.fixedY;
-  e.anim.amt = land ? 0.9 : 1.6;
+  e.anim.amt = land ? 1.25 : 1.6;
+  e.anim.phase = 1.885; // in the air the legs stop walking: one hangs, one is drawn up
   if (land) {
     // over water a duck comes down on it; a pheasant only on dry walkable ground
     const w = waterAt(e.x, e.z);
@@ -772,23 +776,34 @@ function depthHerdThink(e, dt) {
   if (!H || H.hound !== e.id) { dpHerdEnd(e); return false; }
   const pen = penById(H.pen);
   if (!pen || GAME.t > H.until) { dpHerdEnd(e, `${e.tame.name} gives up and comes back to you.`); return false; }
-  const strays = dpStraySheep(pen).filter((o) => !(o.tame.cmd === 'pen' && o.tame.pen === pen.id));
-  if (!strays.length) { const inN = H.n; dpHerdEnd(e, `${e.tame.name} has the sheep in the paddock${inN ? ` (${inN} brought in)` : ''}.`); return false; }
+  const strays = dpStraySheep(pen);
+  if (!strays.length) { dpHerdEnd(e, `${e.tame.name} has the sheep in the paddock${H.n ? ` (${H.n} brought in)` : ''}.`); return false; }
+  // the one it is working: the stray farthest from the gate, kept until it is through
   let S = strays.find((o) => o.id === H.cur);
-  if (!S) { S = strays.reduce((a, o) => (dist2(o.x, o.z, pen.gateOut.x, pen.gateOut.z) > dist2(a.x, a.z, pen.gateOut.x, pen.gateOut.z) ? o : a), strays[0]); H.cur = S.id; }
+  if (!S || GAME.t > (H.curUntil || 0)) {
+    S = strays.filter((o) => o.id !== H.cur || strays.length === 1).reduce((a, o) => (dist2(o.x, o.z, pen.gateOut.x, pen.gateOut.z) > dist2(a.x, a.z, pen.gateOut.x, pen.gateOut.z) ? o : a), strays[0]);
+    H.cur = S.id; H.curUntil = GAME.t + 25; H.sent = false;
+  }
   const gx = pen.gateOut.x, gz = pen.gateOut.z, dx = S.x - gx, dz = S.z - gz, d = Math.hypot(dx, dz) || 1;
-  // a point behind the sheep, on the far side from the gate
-  const bx = S.x + (dx / d) * 4.2, bz = S.z + (dz / d) * 4.2;
+  // out wide and round behind it, on the far side from the gate, then in close behind, pressing it on
+  const back = H.sent ? 2.8 : 4.2;
+  const bx = S.x + (dx / d) * back, bz = S.z + (dz / d) * back;
   const db = dist(e.x, e.z, bx, bz);
-  if (db > 1.6) { anGoTo(e, bx, bz, dt, db > 8 ? 1.5 : 1.0, 0.8, false); return true; }
-  // in behind it: the sheep breaks for home and the hound presses it on
-  faceToward(e, S.x, S.z);
-  anCommand(S, 'pen', pen);
-  S.ai.flee = null;
-  H.n++; H.cur = null;
-  DEPTH.stats.herded++;
-  if (Math.random() < 0.5) anVoice('hound', e);
-  setAct(e, 5, 0.5);
+  if (!H.sent) {
+    if (db > 1.6) { anGoTo(e, bx, bz, dt, db > 8 ? 1.5 : 1.0, 0.8, false); return true; }
+    // in behind it: the sheep breaks for home
+    anCommand(S, 'pen', pen);
+    S.ai.flee = null;
+    H.sent = true; H.n++;
+    DEPTH.stats.herded++;
+    anVoice('hound', e);
+    setAct(e, 5, 0.5);
+    return true;
+  }
+  // pressing: keep behind it, low and steady, until it is through the gate
+  if (db > 0.8) anGoTo(e, bx, bz, dt, db > 5 ? 1.2 : 0.62, 0.5, false);
+  else { faceToward(e, S.x, S.z); if (GAME.t > (e.ai.until || 0)) { setAct(e, 9, 0.8); e.ai.until = GAME.t + 1.2; } }
+  if (Math.random() < dt * 0.25) anVoice('hound', e);
   return true;
 }
 
@@ -838,8 +853,10 @@ BP.well = { name: 'Well', kind: 'free', cost: [['stone', 12], ['plank', 3], ['ir
 B_MODEL.roofHip = (b, pc) => {
   // four slopes up to a short ridge; thick thatch with a rolled ridge and a boarded soffit under the eaves
   const rise = 1.55, ov = 0.42, W2 = B_C / 2 + ov, th = 0.3;
-  b.add(G.pyr, lm(B_ID, 0, -0.06, 0, 0, W2 * Math.SQRT2, rise + 0.2, W2 * Math.SQRT2), MAT.thatch, B_COL.thatch, 0, 3);
-  b.add(G.pyr, lm(B_ID, 0, -0.06 - th, 0, 0, (W2 - 0.1) * Math.SQRT2, rise + 0.2 - th * 0.6, (W2 - 0.1) * Math.SQRT2), MAT.wood, B_COL.fresh, 0, 3);
+  // (the pyramid is centred on its height: its foot sits a little below the wall plate, the eaves past the walls)
+  const H1 = rise + 0.2, H2 = rise + 0.2 - th * 0.6;
+  b.add(G.pyr, lm(B_ID, 0, -0.06 + H1 / 2, 0, 0, W2 * Math.SQRT2, H1, W2 * Math.SQRT2), MAT.thatch, B_COL.thatch, 0, 3);
+  b.add(G.pyr, lm(B_ID, 0, -0.06 - th * 0.4 + H2 / 2, 0, 0, (W2 - 0.12) * Math.SQRT2, H2, (W2 - 0.12) * Math.SQRT2), MAT.wood, B_COL.fresh, 0, 3);
   b.add(G.ico, lm(B_ID, 0, rise + 0.1, 0, 0, 0.22, 0.16, 0.22), MAT.thatch, darker(B_COL.thatch, 0.78), 0, 3);
   // the hip rafters show at the corners under the eaves
   for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) beam(b, B_ID, [sx * (B_C / 2 + 0.25), -0.1, sz * (B_C / 2 + 0.25)], [sx * 0.3, rise - 0.5, sz * 0.3], 0.06, MAT.wood, B_COL.dark);
@@ -885,9 +902,9 @@ B_MODEL.well = (b) => {
   bBox(b, 0.15, 1.2, 0, 0.015, 0.68, 0.015, MAT.cloth, [0.55, 0.48, 0.34]);
   b.add(G.frustum16, lm(B_ID, 0.15, 0.95, 0, 0, 0.13, 0.2, 0.13), MAT.wood, B_COL.wood, 0, 3);
 };
-B_ICON.roofHip = B_ICON.roofThatch || 'home';
-B_ICON.roofLean = B_ICON.roofShingle || 'home';
-B_ICON.well = 'drop';
+B_ICON.roofHip = '<path d="M2 15l6-7h8l6 7 M5 15v4 M19 15v4 M8 8l-1.5 7 M16 8l1.5 7"/>';
+B_ICON.roofLean = '<path d="M3 8l18 6 M5 8.7V19 M19 13.4V19 M8 10.3l-1 2 M12 11.7l-1 2 M16 13l-1 2"/>';
+B_ICON.well = '<path d="M5 13h14v7H5z M7 13V8 M17 13V8 M4 8l8-4 8 4 M12 8v3 M10.5 11h3v2h-3z"/>';
 {
   const at = BP_ORDER.indexOf('floor');
   BP_ORDER.splice(at < 0 ? BP_ORDER.length - 1 : at, 0, 'roofHip', 'roofLean');
@@ -962,6 +979,10 @@ const DP_RECIPES = [
   { id: 'mw_archer', st: 'workbench', name: 'Masterwork: Moonstring', mw: 'Moonstring', gear: { slot: 'weapon', base: 'Longbow', vis: 'bow' }, need: [['dragon_scale', 3], ['plank', 3], ['trophy', 3], ['herb_moon', 3], ['feather', 10]], time: 14, diff: 8, cls: ['archer'], min: 85, lvl: 40, ilvl: 50, desc: 'A longbow strung with moonfern-soaked linen; its arrows fly true by night. A named masterwork, item level 50.' },
   { id: 'mw_mage', st: 'workbench', name: 'Masterwork: Stormwrack', mw: 'Stormwrack', gear: { slot: 'weapon', base: { mage: 'Staff' }, vis: 'staff' }, need: [['dragon_scale', 4], ['log', 2], ['trophy', 3], ['herb_storm', 3]], time: 14, diff: 8, cls: ['mage'], min: 85, lvl: 40, ilvl: 50, desc: 'A staff of lightning-struck ash crowned with a dragon\'s scale. A named masterwork, item level 50.' },
   { id: 'mw_priest', st: 'forge', name: 'Masterwork: Dawnward', mw: 'Dawnward', gear: { slot: 'weapon', base: { priest: 'Mace' }, vis: 'mace' }, need: [['dragon_scale', 3], ['grave_iron', 4], ['trophy', 3], ['herb_marsh', 3]], time: 14, diff: 8, cls: ['priest'], min: 85, lvl: 40, ilvl: 50, desc: 'A mace of grave-iron washed in marshgold until it shines like morning. A named masterwork, item level 50.' },
+  { id: 'mw_warrior2', st: 'forge', name: 'Masterwork: the Unbowed', mw: 'The Unbowed', gear: { slot: 'chest', base: { warrior: 'Hauberk' } }, need: [['dragon_scale', 4], ['grave_iron', 6], ['trophy', 2], ['leather', 3]], time: 14, diff: 8, cls: ['warrior'], min: 90, lvl: 42, ilvl: 50, desc: 'Grave-iron rings with dragon scales riveted over the heart. A named masterwork, item level 50.' },
+  { id: 'mw_archer2', st: 'tanning', name: 'Masterwork: Wyrmhide Jerkin', mw: 'Wyrmhide Jerkin', gear: { slot: 'chest', base: { archer: 'Leather Coat' } }, need: [['dragon_scale', 3], ['leather', 5], ['trophy', 2], ['herb_stone', 3]], time: 14, diff: 8, cls: ['archer'], min: 90, lvl: 42, ilvl: 50, desc: 'Leather tanned in stonebloom and faced with dragon scale. A named masterwork, item level 50.' },
+  { id: 'mw_mage2', st: 'loom', name: 'Masterwork: Robe of the Long Night', mw: 'Robe of the Long Night', gear: { slot: 'chest', base: { mage: 'Long Robe' } }, need: [['dragon_scale', 2], ['linen', 5], ['trophy', 2], ['herb_moon', 4]], time: 14, diff: 8, cls: ['mage'], min: 90, lvl: 42, ilvl: 50, desc: 'Linen dyed with moonfern until it holds the night sky. A named masterwork, item level 50.' },
+  { id: 'mw_priest2', st: 'loom', name: 'Masterwork: Dawnmantle', mw: 'Dawnmantle', gear: { slot: 'chest', base: { priest: 'Vestments' } }, need: [['dragon_scale', 2], ['linen', 4], ['woollen', 2], ['trophy', 2], ['herb_marsh', 4]], time: 14, diff: 8, cls: ['priest'], min: 90, lvl: 42, ilvl: 50, desc: 'Vestments of marshgold-dyed linen, worked with scale. A named masterwork, item level 50.' },
   { id: 'mw_cloak', st: 'loom', name: 'Masterwork: Mantle of the March', mw: 'Mantle of the March', gear: { slot: 'cloak', base: 'Mantle', vis: 'cape' }, need: [['dragon_scale', 2], ['woollen', 4], ['trophy', 2], ['feather', 16]], time: 14, diff: 8, min: 85, lvl: 40, ilvl: 50, desc: 'Wool, feathers and dragon scale in your realm\'s colours. A named masterwork for any calling, item level 50.' },
 ];
 for (const r of DP_RECIPES) { if (!RECIPE_BY_ID[r.id]) { RECIPES.push(r); RECIPE_BY_ID[r.id] = r; } }
@@ -1054,7 +1075,7 @@ function depthChronLiving() {
     <h3>Game birds and feathers</h3>
     <p><b>Pheasants</b> feed in the long meadows and <b>ducks</b> paddle on the lakes. They sit tight until you come close (closer if you creep, or hide as an archer), then burst up and fly off a long way before they come down. Shot down they give meat and <b>feathers</b> for arrows and cloaks. Hens give feathers too: plucked, or moulted about the paddock for you to gather.</p>
     <h3>The late game's materials</h3>
-    <p>Gear you make yourself goes past item level 24, but only with what the hardest fights give: <b>grave-iron</b> from the Barrow's dead and the Hollow King's hoard (to item level 36), <b>dragon scales</b> from Cinderwing and <b>champions' trophies</b> from the leaders of the borderland camps (to item level 50), with the new herbs of the gardens, <b>Marshgold</b>, <b>Moonfern</b> and <b>Stonebloom</b>, and farm wool, linen, milk and feathers. Each calling has a named <b>masterwork</b> (crafting skill 85, level 40): always at least fine, and a master's hand can make it legendary. Past skill 50 your work sometimes carries a bonus stat the grade alone would not give: a <i>masterwork</i>.</p>
+    <p>Gear you make yourself goes past item level 24, but only with what the hardest fights give: <b>grave-iron</b> from the Barrow's dead and the Hollow King's hoard (to item level 36), <b>dragon scales</b> from Cinderwing and <b>champions' trophies</b> from the leaders of the borderland camps (to item level 50), with the new herbs of the gardens, <b>Marshgold</b>, <b>Moonfern</b> and <b>Stonebloom</b>, and farm wool, linen, milk and feathers. Each calling has two named <b>masterworks</b>, a weapon and a coat (crafting skill 85 and 90, level 40 and 42), and any calling can weave the Mantle of the March: always at least fine, and a master's hand can make them legendary. Past skill 50 your work sometimes carries a bonus stat the grade alone would not give: a <i>masterwork</i>.</p>
     <p>At the alchemy table the new herbs make a <b>Marshgold cure</b> (draws out burns and bleeding and heals), a <b>Moonfern draught</b> (shakes off stuns and snares and restores your power) and a <b>Stonebloom draught</b> (a ward against blows). Milk makes cheese at the bakehouse; eggs fry at any fire; beans go into a stew.</p>`;
 }
 function depthChronBuilding() {
@@ -1071,6 +1092,72 @@ function depthChronAnimals() {
 }
 
 /* ------------------------------------------------------------------ */
+/* the game birds' own bodies, on the hen's rig and shader             */
+/* ------------------------------------------------------------------ */
+// bones as the hen's (05j_farmbeasts.js henVS): 0 body, 2 neck and head, 15 tail, 3 and 6 wings, 9 and 12 legs.
+// Body feathers take the first coat (iColA), the head and neck the second (iColB, the dark-fur material), the
+// pheasant's long tail the barred horn material (buff with dark bars, darker to the tip), bill and legs the beak's
+function dpBuildBird(kind, lod) {
+  const K = new SkinKit(), hi = lod === 0, mat = AM, RS = hi ? 12 : 7;
+  const duck = kind === 'duck';
+  // the body: the pheasant long and slim, carried level; the duck broad and boat-shaped, low in the water
+  const body = duck
+    ? [[-0.2, 0.25, 0.02, 0.02], [-0.16, 0.24, 0.07, 0.055], [-0.08, 0.22, 0.11, 0.075], [0.02, 0.215, 0.118, 0.08], [0.1, 0.225, 0.1, 0.075], [0.15, 0.24, 0.065, 0.06], [0.18, 0.26, 0.03, 0.035]]
+    : [[-0.2, 0.33, 0.025, 0.025], [-0.15, 0.315, 0.07, 0.07], [-0.07, 0.29, 0.095, 0.098], [0.02, 0.28, 0.1, 0.104], [0.09, 0.29, 0.085, 0.09], [0.14, 0.31, 0.055, 0.062], [0.17, 0.335, 0.03, 0.035]];
+  kitTube(K, crResample(body, hi ? 12 : 6).map(([z, y, rx, ry]) => ({ c: [0, y, z], rx, rz: ry })), RS, {
+    front: [0, 1, 0], side: [1, 0, 0], cap0: 'dome', cap1: 'dome',
+    attr: (i, th, p) => ({ bone: 0, w: 1, mat: mat.fur, ao: 0.6 + 0.4 * sstepJ(-0.9, 0.3, Math.cos(th)), u: th / TAU, v: p[2] * 3 }),
+  });
+  // neck and head in the second coat (a mallard's green head, a cock pheasant's dark green neck)
+  const neck = duck ? [{ c: [0, 0.25, 0.13], rx: 0.045, rz: 0.05 }, { c: [0, 0.31, 0.15], rx: 0.033, rz: 0.035 }, { c: [0, 0.35, 0.16], rx: 0.03, rz: 0.032 }]
+    : [{ c: [0, 0.32, 0.12], rx: 0.045, rz: 0.05 }, { c: [0, 0.39, 0.145], rx: 0.032, rz: 0.034 }, { c: [0, 0.45, 0.16], rx: 0.028, rz: 0.03 }];
+  kitTube(K, neck, RS, { front: [0, 0, 1], attr: (i) => ({ bone: 2, w: 0.3 + 0.35 * i, mat: mat.furDark, ao: 0.85 }) });
+  const hy = duck ? 0.37 : 0.47, hz = duck ? 0.17 : 0.165;
+  kitBlob(K, [0, hy, hz], hi ? 12 : 7, hi ? 8 : 5, { r: duck ? [0.033, 0.034, 0.046] : [0.028, 0.03, 0.038], attr: () => ({ bone: 2, w: 1, mat: mat.furDark, ao: 0.95 }) });
+  if (duck) {
+    // the broad flat bill, and a pale ring at the foot of the neck
+    kitBlob(K, [0, hy - 0.012, hz + 0.058], 8, 4, { r: [0.019, 0.008, 0.03], attr: () => ({ bone: 2, w: 1, mat: FMAT.beak, ao: 1 }) });
+    kitTube(K, [{ c: [0, 0.272, 0.138], rx: 0.044, rz: 0.047 }, { c: [0, 0.282, 0.142], rx: 0.042, rz: 0.045 }], RS, { front: [0, 0, 1], attr: () => ({ bone: 2, w: 0.35, mat: mat.ivory, ao: 1 }) });
+  } else {
+    // a short pale bill, the red wattle round the eye and the small ear tufts
+    kitGeo(K, new THREE.ConeGeometry(0.011, 0.034, hi ? 7 : 5), M4([0, hy - 0.005, hz + 0.044], [Math.PI / 2 + 0.2, 0, 0], [1, 1, 0.75]), { bone: 2, mat: FMAT.beak });
+    for (const s of [1, -1]) kitBlob(K, [s * 0.021, hy + 0.003, hz + 0.008], 6, 4, { r: [0.009, 0.016, 0.019], attr: () => ({ bone: 2, w: 1, mat: mat.mouth, ao: 1 }) });
+    if (hi) for (const s of [1, -1]) kitBlob(K, [s * 0.012, hy + 0.03, hz - 0.012], 4, 3, { r: [0.006, 0.012, 0.006], attr: () => ({ bone: 2, w: 1, mat: mat.furDark, ao: 0.9 }) });
+  }
+  if (hi) for (const s of [1, -1]) kitBlob(K, [s * (duck ? 0.03 : 0.026), hy + 0.008, hz + 0.014], 6, 4, { r: [0.0055, 0.006, 0.006], attr: () => ({ bone: 2, w: 1, mat: mat.eye, ao: 1 }) });
+  // the tail: a pheasant's long barred feathers swept back; a duck's short upturned point
+  if (duck) {
+    kitGeo(K, new THREE.SphereGeometry(1, hi ? 8 : 5, hi ? 5 : 3), M4([0, 0.27, -0.2], [-0.5, 0, 0], [0.03, 0.025, 0.05]), { bone: 15, w: 1, mat: mat.furDark, ao: 0.8 });
+  } else {
+    for (const [a, L, up] of [[0, 0.46, 0.18], [0.1, 0.36, 0.14], [-0.1, 0.36, 0.14], [0.2, 0.25, 0.1], [-0.2, 0.25, 0.1]]) {
+      const pts = [];
+      for (let k = 0; k <= 4; k++) { const t = k / 4; pts.push({ c: [Math.sin(a) * L * t, 0.33 + up * t - 0.05 * t * t, -0.16 - Math.cos(a) * L * t], rx: 0.016 * (1 - 0.7 * t) + 0.002, rz: 0.004 }); }
+      kitTube(K, pts, hi ? 5 : 3, { front: [0, 1, 0], cap1: 'dome', attr: (i) => ({ bone: 15, w: 1, mat: FMAT.horn, ao: 0.85, u: 0, v: i / 4 }) });
+    }
+  }
+  // folded wings along the sides
+  for (const s of [1, -1]) kitBlob(K, [s * (duck ? 0.1 : 0.088), duck ? 0.245 : 0.31, -0.03], hi ? 10 : 6, hi ? 6 : 4, { shape: (d) => [d[0] * 0.02, d[1] * (duck ? 0.045 : 0.055) - 0.01 * d[2], d[2] * (duck ? 0.13 : 0.12)], attr: (d) => ({ bone: s > 0 ? 3 : 6, w: 1, mat: mat.fur, ao: 0.7 + 0.3 * Math.max(0, d[1]) }) });
+  // legs: the pheasant's grey shanks; the duck's short orange legs and webbed feet
+  for (const s of [1, -1]) {
+    const b = s > 0 ? 9 : 12, x = s * (duck ? 0.05 : 0.04);
+    const top = duck ? 0.15 : 0.2;
+    kitTube(K, [{ c: [x, top, 0.0], rx: 0.009, rz: 0.009 }, { c: [x, top * 0.5, 0.008], rx: 0.007, rz: 0.007 }, { c: [x, 0.015, 0.01], rx: 0.006, rz: 0.006 }], hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) });
+    if (duck) kitBlob(K, [x, 0.008, 0.04], 6, 3, { r: [0.03, 0.005, 0.034], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
+    else for (const [ta, tl] of [[-0.4, 0.045], [0, 0.05], [0.4, 0.045], [Math.PI, 0.025]]) kitTube(K, [{ c: [x, 0.01, 0.01], rx: 0.0045, rz: 0.0045 }, { c: [x + Math.sin(ta) * tl, 0.004, 0.01 + Math.cos(ta) * tl], rx: 0.0028, rz: 0.0028 }], 4, { cap1: 'dome', front: [0, 1, 0], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
+  }
+  return K.build();
+}
+function dpBirdCrowds() {
+  if (crowdBeast.pheasant || !crowdBeast.hen) return;
+  const hm = crowdBeast.hen[0].mesh.material;
+  const hd = depthFrom(hm, DEPTH_FS, henVS(true));
+  for (const k of ['pheasant', 'duck']) {
+    crowdBeast[k] = [new Crowd(dpBuildBird(k, 0), hm, 24, BEAST_ATTRS), new Crowd(dpBuildBird(k, 1), hm, 40, BEAST_ATTRS)];
+    for (const c of crowdBeast[k]) shadowCaster(c.mesh, hd);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* the step, the start, the save                                       */
 /* ------------------------------------------------------------------ */
 function depthOnStart() {
@@ -1078,6 +1165,8 @@ function depthOnStart() {
     if (typeof SHADOW_R !== 'undefined') { SHADOW_R.pheasant = 0.32; SHADOW_R.duck = 0.3; if (!SHADOW_R.hen) SHADOW_R.hen = 0.26; }
     if (typeof STAMP_R !== 'undefined') { STAMP_R.pheasant = 0.22; STAMP_R.duck = 0.22; if (!STAMP_R.hen) STAMP_R.hen = 0.18; }
     if (!BEASTS.pheasant) BEASTS.pheasant = { stride: [0.085, 0.2] };
+    if (!BEASTS.duck) BEASTS.duck = { stride: [0.07, 0.15] };
+    try { dpBirdCrowds(); } catch (e) { reportError(e); }
   }
   DEPTH.ready = true;
   if (!DEPTH.birds.some((e) => !e.removed)) dpSpawnBirds();

@@ -844,9 +844,9 @@ function fireLandsAt(x, y, z, r = 1, by = null) {
   let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
-    if (by != null && depthSparesHouse(H, by)) continue; // [depth] only the player sets their own realm's roofs alight
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
     if (y > H.y + H.top + 1.5) continue;
+    if (by != null && depthSparesHouse(H, by)) continue; // [depth] only the player sets their own realm's roofs alight
     const l = houseL(H, x, z), pad = Math.max(0.9, r * 0.6);
     const hit = H.round ? Math.hypot(l.x, l.z) < H.Rr + pad : Math.abs(l.x) < H.w / 2 + H.ohSide + pad && Math.abs(l.z) < H.d / 2 + H.ohGable + pad;
     if (hit && igniteHouse(H, x, z)) n++;

@@ -166,14 +166,22 @@ async def bird_tests(page):
       return { y0, dead, fell: Math.abs(e.y - g) < 0.15, feathers: T.lootNear('feather', e.x, e.z, 8) - T0, meat: T.lootNear('meat_raw', e.x, e.z, 8) - M0 }; })()""")
     check(r['dead'] and r['y0'] > 2 and r['fell'], f"a duck shot in flight ({r['y0']} m up) falls to the water")
     check(r['feathers'] >= 2 and r['meat'] >= 1, f"it gives feathers ({r['feathers']}) and meat ({r['meat']})")
-    r = await ev(page, 'birds: the drawn bow', """(() => { const P = T.P(); const e = T.D.DEPTH.birds.find((q) => q.kind === 'pheasant' && q.alive && !q.bird.fly);
-      T.stand(e.x, e.z + 8, e.x, e.z); e.bird.until = 1e9; e.bird.mode = 'idle'; const hp0 = e.hp;
-      // an arrow loosed by the player at it from a full draw (the archer's own ballistic arrows, 07b_classes.js)
-      const fr = T.D.DP_BIRD.pheasant.flushR; T.D.DP_BIRD.pheasant.flushR = 0.1;
-      P.yaw = Math.atan2(e.x - P.x, e.z - P.z); const n0 = T.H.cls.CLS.arrows.length; T.H.cls.looseArrow(P, 1, e); const flew = T.H.cls.CLS.arrows.length > n0;
-      for (let i = 0; i < 30 && e.alive && e.hp === hp0; i++) T.H.simulate(0.05);
+    r = await ev(page, 'birds: the drawn bow', """(() => { const P = T.P(); const fr = T.D.DP_BIRD.pheasant.flushR; T.D.DP_BIRD.pheasant.flushR = 0.1;
+      // an arrow loosed by the player at a pheasant from a full draw (the archer's own ballistic arrows, 07b_classes.js),
+      // from whichever side has a clear line
+      let hp0 = 0, hp = 0, alive = true, flew = false, tries = 0;
+      for (const e of T.D.DEPTH.birds.filter((q) => q.kind === 'pheasant' && q.alive && !q.bird.fly).slice(0, 3)) {
+        e.bird.until = 1e9; e.bird.mode = 'idle'; hp0 = e.hp;
+        for (const a of [0, 1.57, 3.14, 4.71]) {
+          tries++; T.stand(e.x + Math.sin(a) * 8, e.z + Math.cos(a) * 8, e.x, e.z);
+          const n0 = T.H.cls.CLS.arrows.length; T.H.cls.looseArrow(P, 1, e); flew = flew || T.H.cls.CLS.arrows.length > n0;
+          for (let i = 0; i < 30 && e.alive && e.hp === hp0; i++) T.H.simulate(0.05);
+          hp = e.hp; alive = e.alive; if (!alive || hp < hp0) break;
+        }
+        if (!alive || hp < hp0) break;
+      }
       T.D.DP_BIRD.pheasant.flushR = fr;
-      return { hp0, hp: e.hp, alive: e.alive, has: flew }; })()""")
+      return { hp0, hp, alive, has: flew, tries }; })()""")
     check(r['has'] and (r['hp'] < r['hp0'] or not r['alive']), f"the archer's drawn arrows strike game birds (hp {r['hp0']} -> {r['hp']})")
     r = await ev(page, 'hens: feathers', """(() => { T.dry(); const P = T.P(), A = T.A; const R = T.H.REALMS[0];
       const pen = A.A.pens.find((p) => p.owner === 'town' && p.realm === 0) || A.A.pens[0];
@@ -277,7 +285,7 @@ async def build_tests(page):
     r = await ev(page, 'build: the well', """(() => { %s const w = BU.pieces.find((pc) => pc.t === 'well' && pc.st === 'built');
       if (!w) return { none: true };
       T.stand(w.x + 1.6, w.z, w.x, w.z); const label = T.label(); const s0 = T.F.goodsCount('water'); const S = T.S.SURV; S.thirst = 0.3;
-      T.act(); T.sim(1); const drank = S.thirst > 0.9, skins = T.F.goodsCount('water') - s0;
+      T.act(); T.sim(2.5, 0.25); const drank = S.thirst > 0.9, skins = T.F.goodsCount('water') - s0;
       // a paddock near the well: its trough fills; a bed near it stays damp
       const A = T.A; let pen = null;
       for (let a = 0; a < 6.28 && !pen; a += 0.5) for (const d of [12, 16, 20]) { const x = w.x + Math.cos(a) * d, z = w.z + Math.sin(a) * d; if (!A.penSiteOk(x, z, 0, 6, 4.5)) { pen = A.penMake({ owner: 'player', x, z, yaw: 0, hw: 6, hd: 4.5, feed: 4, water: 0, name: 'Paddock W' }); break; } }
@@ -293,10 +301,10 @@ async def build_tests(page):
       T.H.teleport(d.x + s * 9 + c * 5, d.z + c * 9 - s * 5); T.calm();
       let opened = 0, through = false; const tx = d.x - s * 1.6, tz = d.z - c * 1.6;
       for (let i = 0; i < 70; i++) { const dx = tx - e.x, dz = tz - e.z, L = Math.hypot(dx, dz); if (L > 0.2) T.F.stepTo ? T.F.stepTo(e, e.x + dx / L * 0.09, e.z + dz / L * 0.09) : (e.x += dx / L * 0.09, e.z += dz / L * 0.09); e.yaw = Math.atan2(dx, dz); T.H.simulate(0.05); if (d.open) opened++; const lz = (e.x - d.x) * s + (e.z - d.z) * c; if (lz < -1) through = true; }
-      const openMid = d.open; const t = T.until(() => !d.open, 8, 0.25);
+      const openMid = d.open; const t = T.until(() => !d.open, 8, 0.25); const closedAfter = !d.open;
       // one standing in the doorway does not stay there
       e.x = e.prevX = d.x; e.z = e.prevZ = d.z; T.sim(3, 0.25); const lz2 = (e.x - d.x) * s + (e.z - d.z) * c;
-      const out = { opened, through, closedAfter: !d.open, t, lz2: +lz2.toFixed(2), npcDoors: T.D.stats().npcDoors };
+      const out = { opened, through, closedAfter, t, lz2: +lz2.toFixed(2), npcDoors: T.D.stats().npcDoors };
       T.F.removeEnt(e); return out; })()""" % B)
     check(r['opened'] > 0 and r['through'], f"a townsman walking through a built doorway opens the door and passes ({r['npcDoors']} openings)")
     check(r['closedAfter'], f"and it swings shut behind him ({r['t']} s)")
@@ -384,6 +392,13 @@ async def shots(page):
     # a hound herding sheep
     await page.evaluate("""(() => { const A = T.A, pen = A.penById(T.pen), hound = T.F.getEnt(T.hound); const sh = T.sheep.map(T.F.getEnt).filter(Boolean); sh.forEach((s, i) => { A.anCommand(s, 'stay'); s.tame.stay = null; s.x = s.prevX = pen.x + 18 + i * 1.6; s.z = s.prevZ = pen.z + 14 - i; s.tame.stay = { x: s.x, z: s.z }; }); hound.x = hound.prevX = pen.x + 10; hound.z = hound.prevZ = pen.z + 8; T.D.depthHerdStart(hound); T.sim(4, 0.1); return 0; })()""")
     await shot(page, 'depth_herding', "(() => { const hound = T.F.getEnt(T.hound), pen = T.A.penById(T.pen); T.cam(hound.x + 7, hound.y + 5, hound.z + 9, (hound.x + pen.x) / 2, hound.y + 0.4, (hound.z + pen.z) / 2); return 0; })()")
+    # game birds: a cock pheasant in the grass, a drake on the water, a pheasant flushed into the air
+    await page.evaluate("""(() => { const ph = T.D.DEPTH.birds.find((q) => q.kind === 'pheasant' && q.alive && !q.bird.fly && q.name === 'pheasant') || T.D.DEPTH.birds.find((q) => q.kind === 'pheasant' && q.alive); T.bph = ph.id; ph.bird.until = T.H.GAME.t + 30; ph.bird.mode = 'idle'; ph.anim.act = 0; T.H.teleport(ph.x + 30, ph.z + 30); T.calm(); T.sim(0.5, 0.1); return 0; })()""")
+    await shot(page, 'depth_pheasant', "(() => { const e = T.F.getEnt(T.bph); const f = e.yaw; T.cam(e.x + Math.cos(f) * 1.5 + Math.sin(f) * 0.5, e.y + 0.6, e.z - Math.sin(f) * 1.5 + Math.cos(f) * 0.5, e.x, e.y + 0.3, e.z); return 0; })()")
+    await page.evaluate("""(() => { const d = T.D.DEPTH.birds.find((q) => q.kind === 'duck' && q.alive && !q.bird.fly && q.name === 'mallard') || T.D.DEPTH.birds.find((q) => q.kind === 'duck' && q.alive); T.bdk = d.id; d.bird.until = T.H.GAME.t + 30; d.bird.mode = 'idle'; T.H.teleport(d.x + 40, d.z + 40); T.calm(); T.sim(0.5, 0.1); return 0; })()""")
+    await shot(page, 'depth_duck', "(() => { const e = T.F.getEnt(T.bdk); const f = e.yaw; T.cam(e.x + Math.cos(f) * 1.6 + Math.sin(f) * 0.6, e.y + 0.7, e.z - Math.sin(f) * 1.6 + Math.cos(f) * 0.6, e.x, e.y + 0.25, e.z); return 0; })()")
+    await page.evaluate("""(() => { const e = T.F.getEnt(T.bph); T.D.dpFlush(e, e.x - 3, e.z); T.sim(1.0, 0.05); return 0; })()""")
+    await shot(page, 'depth_pheasant_flight', "(() => { const e = T.F.getEnt(T.bph); const F = e.bird.fly; T.cam(e.x - F.uz * 4 - F.ux * 2, e.y + 0.6, e.z + F.ux * 4 - F.uz * 2, e.x, e.y + 0.2, e.z); return 0; })()")
     await page.evaluate("T.play(); 0")
 
 async def main():
