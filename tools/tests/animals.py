@@ -240,6 +240,8 @@ async def main():
         check(r.get('card'), 'the animal card shows traits, generation, dam and sire')
 
         if SHOTS:
+            # the page's own frame loop stops here (see SHOT_SETUP); one frame behind the card
+            await page.evaluate("(() => { if (!window.__rafOrig) { window.__rafOrig = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; } __hm.frame(1 / 30); return 0; })()")
             await page.screenshot(path=OUT + 'animals_card.png', timeout=300000)
             print('shot animals_card.png', flush=True)
         await page.evaluate("__an.A.openAnimals(); 0")
@@ -297,7 +299,7 @@ async def shots(page):
     await page.screenshot(path=OUT + 'animals_hound.png', timeout=300000)
     print('shot animals_hound.png', flush=True)
     # the flock grazing in the common, cattle and hens
-    for name, kind, d, h, th in [('animals_flock', 'sheep', 7.5, 2.4, 0.4), ('animals_cattle', 'cattle', 6.5, 2.2, 0.9), ('animals_hens', 'hen', 1.8, 0.7, 0.2)]:
+    for name, kind, d, h, th in [('animals_flock', 'sheep', 7.5, 2.4, 0.4), ('animals_cattle', 'cattle', 10, 2.8, 0.9), ('animals_hens', 'hen', 1.4, 0.55, 0.2)]:
         await page.evaluate("""(([kind, d, h, th]) => { const { H, A, F } = __an; const pen = A.A.pens.find((p) => p.owner === 'town' && p.realm === 0);
           __live(4);
           const list = A.A.list.filter((e) => e.tame.pen === pen.id && e.tame.k === kind && e.alive);

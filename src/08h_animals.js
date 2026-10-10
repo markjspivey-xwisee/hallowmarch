@@ -11,7 +11,7 @@
 // and content, have young that grow up, with traits (coat, pattern, size, temperament, yield, speed, strength)
 // inherited with variation; an animal card shows them and the parentage. Everything is saved with the character.
 const AKIND = {
-  hound: { label: 'hound', young: 'pup', m: 'dog', f: 'bitch', likes: ['meat_raw', 'meat_cooked', 'fish_raw'], grow: 600, gest: 300, litter: [2, 3], scale: 0.95, radius: 0.5, speed: 7.6, crowd: 'hound', mob: 'wolf', fights: true, pet: true, need: 4, from: 'wolf', hp: 1, food: 0.0011, voice: 'bark' },
+  hound: { label: 'hound', young: 'pup', m: 'hound', f: 'hound', likes: ['meat_raw', 'meat_cooked', 'fish_raw'], grow: 600, gest: 300, litter: [2, 3], scale: 0.95, radius: 0.5, speed: 7.6, crowd: 'hound', mob: 'wolf', fights: true, pet: true, need: 4, from: 'wolf', hp: 1, food: 0.0011, voice: 'bark' },
   pig: { label: 'pig', young: 'piglet', m: 'boar', f: 'sow', likes: ['apple', 'grain', 'turnip', 'cabbage', 'berries', 'mushrooms'], grow: 480, gest: 300, litter: [2, 4], scale: 1.0, radius: 0.55, speed: 5.4, crowd: 'pig', pet: true, need: 3, from: 'boar', food: 0.0012, voice: 'grunt' },
   horse: { label: 'horse', young: 'foal', m: 'stallion', f: 'mare', likes: ['apple', 'grain', 'turnip'], grow: 900, gest: 480, litter: [1, 1], scale: 1.0, radius: 0.8, speed: 8.5, crowd: 'horseTack', wildCrowd: 'horseWild', pet: true, mount: true, need: 4, from: 'horse', food: 0.001, voice: 'whinny' },
   deer: { label: 'deer', young: 'fawn', m: 'stag', f: 'hind', likes: ['apple', 'berries', 'grain'], grow: 600, gest: 420, litter: [1, 1], scale: 0.9, radius: 0.4, speed: 8.5, crowd: 'deer', pet: true, need: 3, from: 'deer', food: 0.001, voice: null },
@@ -1268,17 +1268,30 @@ function anUpdateUI(dt) {
   ANIMALS.uiT = 0.25; ANIMALS.uiDirty = false;
   const pets = anCompanions();
   const marking = !!ANIMALS.marking;
-  bar.hidden = !pets.length && !marking;
+  // on a phone the bar always shows, at least its Animals button (the icon row has no room for another)
+  const phone = IS_TOUCH || innerWidth <= 760, solo = !pets.length && !marking;
+  bar.hidden = solo && !phone;
+  bar.classList.toggle('solo', solo);
   if (bar.hidden) return;
+  // a phone held upright has no room beside the health frame: the bar goes under it (and under the path tracker)
+  const tall = innerWidth <= 760 && innerHeight > innerWidth;
+  bar.classList.toggle('tall', tall);
+  if (tall) {
+    let top = $('pf').getBoundingClientRect().bottom;
+    const lp = $('lore-path');
+    if (lp && !lp.hidden && lp.offsetParent) top = Math.max(top, lp.getBoundingClientRect().bottom);
+    const want = Math.round(top + 6) + 'px';
+    if (bar.style.top !== want) bar.style.top = want;
+  } else if (bar.style.top) bar.style.top = '';
   const host = $('pb-pets');
-  const key = pets.map((e) => `${e.id}:${e.tame.name}:${e.tame.cmd}:${Math.round(e.hp / e.maxHp * 20)}:${Math.round(e.tame.hunger * 10)}:${e.tame.lvl}:${ANIMALS.pick === e.id}`).join('|') + marking;
+  const key = pets.map((e) => `${e.id}:${e.tame.name}:${e.tame.cmd}:${Math.round(e.hp / e.maxHp * 20)}:${Math.round(e.tame.hunger * 10)}:${e.tame.lvl}:${ANIMALS.pick === e.id}`).join('|') + marking + solo;
   if (key === ANIMALS.uiKey) return;
   ANIMALS.uiKey = key;
   host.innerHTML = pets.slice(0, 4).map((e) => {
     const r = e.tame;
     return `<button type="button" class="pb-pet${ANIMALS.pick === e.id ? ' on' : ''}" data-aid="${e.id}" title="${esc(r.name)}: ${r.cmd}"><b>${esc(r.name)}</b><small>${anStage(r)}${AKIND[r.k].fights ? ' ' + r.lvl : ''} · ${r.cmd}</small><i class="pb-hp"><s style="width:${anPct(e.hp / e.maxHp)}"></s></i><i class="pb-fd"><s style="width:${anPct(r.hunger)}"></s></i></button>`;
   }).join('') + (marking ? '<div class="pb-mark"><button type="button" class="pb-fence" data-cmd="fence">Fence here</button><button type="button" class="pb-fence pb-stop" data-cmd="stopmark">Stop</button></div>' : '');
-  bar.querySelector('.pb-cmds').hidden = !pets.length;
+  bar.querySelector('.pb-cmds').hidden = !pets.length && !solo;
 }
 function drawAnimals(dt) {
   if (!ANIMALS.inited) return;

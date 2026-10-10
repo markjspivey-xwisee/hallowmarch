@@ -381,6 +381,13 @@
     #petbar .pb-cmds { grid-template-columns: repeat(3, 1fr); }
     #petbar .pb-cmds button { min-height: 30px; padding: 3px 4px; font-size: 11px; }
     .an-tr { grid-template-columns: 62px 1fr 86px; }
+    #petbar.tall { left: var(--pad); width: 196px; max-width: 196px; min-width: 0; }
+    #btn-animals { display: none; }
+    #petbar.solo { padding: 3px; }
+    #petbar.solo .pb-cmds { grid-template-columns: auto; }
+    #petbar.solo .pb-cmds button:not([data-cmd="list"]) { display: none; }
+    #petbar.tall .pb-pets { grid-auto-columns: minmax(0, 1fr); }
+    #petbar.tall .pb-pet small { display: none; }
   }
 </style>
 

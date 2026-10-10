@@ -88,15 +88,18 @@ function farmExtras(kind, hi) {
   const ringAt = (z) => rows.reduce((a, q) => (Math.abs(q[0] - z) < Math.abs(a[0] - z) ? q : a), rows[0]);
   if (F.wool && hi) {
     // the fleece: locks set over the back, the flanks and the rump, thicker along the top line
-    const R = mulberry(kind === 'sheep' ? 31 : 37), n = F.wool > 0.5 ? 110 : 40;
+    const R = mulberry(kind === 'sheep' ? 31 : 37), n = F.wool > 0.5 ? 190 : 40;
     for (let i = 0; i < n; i++) {
       const z = lerp(S.body[0][0] + 0.06, S.body[S.body.length - 1][0] - 0.04, R());
       const th = (R() - 0.5) * Math.PI * 1.55; // round the barrel from flank to flank over the top
       const q = ringAt(z), cy = (q[1] + q[2]) / 2, ry = (q[1] - q[2]) / 2, rx = q[3];
       const sn = Math.sin(th), cs = Math.cos(th);
-      const p = [sn * rx * 0.97, cy + cs * ry * 0.97, z];
-      const r = (0.04 + 0.03 * R()) * F.wool * (0.8 + 0.4 * Math.max(0, cs));
-      kitBlob(K, p, 7, 4, { r: [r * 1.15, r * 0.8, r * 1.1], attr: (d) => ({ ...bodyBone(z), mat: FMAT.wool, ao: 0.62 + 0.38 * Math.max(0, d[1] * cs + d[0] * sn), u: d[0] * 3, v: d[2] * 3 + i }) });
+      // locks sit half sunk in the fleece, so the coat reads as one crimped mass rather than loose pebbles
+      const r = (0.032 + 0.022 * R()) * F.wool * (0.8 + 0.4 * Math.max(0, cs));
+      const p = [sn * (rx + r * 0.05), cy + cs * (ry + r * 0.05), z];
+      // flattened along the surface: the lock's short axis points out of the body
+      const nx = sn, ny = cs, w = r * 1.25, h = r * 0.55;
+      kitBlob(K, p, 6, 4, { shape: (d) => { const out = d[0] * nx + d[1] * ny; const ox = d[0] - out * nx, oy = d[1] - out * ny; return [ox * w + out * nx * h, oy * w + out * ny * h, d[2] * w]; }, attr: (d) => ({ ...bodyBone(z), mat: FMAT.wool, ao: 0.66 + 0.34 * Math.max(0, d[1] * cs + d[0] * sn), u: d[0] * 3, v: d[2] * 3 + i }) });
     }
     // a woolly cap on the poll and the top of the neck
     for (let i = 0; i < 9; i++) {
