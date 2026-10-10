@@ -265,7 +265,7 @@ function elementReact(src, dst, el, opts) {
     if (wet > 0.3) { m *= 0.75; dst.wet = Math.max(0, (dst.wet || 0) - 0.3); if (Math.random() < 0.5) steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 4); }
     m *= 1 - 0.3 * rainHere(dst);
     if (mage && !auto && !opts.dot && opts.kind === 'fire' && dst.alive && wet < 0.6) {
-      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.5 : 1)); // [balance] 0.32
+      const r = computeDamage(src, dst, 0.25 * (attOf(src, 'fire') >= 60 ? 1.25 : 1)); // [balance] 0.32 [balance2] attuned 1.25 (1.5)
       addBuff(dst, 'burn', r.d / 4, 4, src.id);
     }
   } else if (el === 'frost') {
@@ -536,7 +536,7 @@ function warriorView(e, cs, A, t) {
     if (e === GAME.player) uiLog(`Finisher: ${pips} momentum spent.`, 'level');
   }
   if (A.id === 'bash' && st === 0) { view().stun = A.stun + 0.5; /* [balance] +1 */ if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
-  if (A.id === 'bulwark' && st === 0) view().buff = { ...A.buff, dur: A.buff.dur + 3 };
+  if (A.id === 'bulwark') view().buff = { ...A.buff, dur: A.buff.dur + (st === 0 ? 3 : 0) + 1.5 * (abilityRank(e.level) - 1) }; // [balance2] longer with rank
   if ((A.id === 'cleave' || A.id === 'whirl') && st === 2) view().dmg = A.dmg * 1.25;
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
@@ -546,6 +546,7 @@ function warriorView(e, cs, A, t) {
   return V || A;
 }
 function archerView(e, cs, A, t) {
+  if (A.id === 'tumble') tumbleSlow(e); // [balance2] the foes you leap from are slowed (07c_balance.js)
   if (!A.proj) return A;
   let V = A;
   const type = takeArrow(e, 1);
@@ -584,7 +585,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.22 * att / 100;
+  const emp = 1 + 0.15 * att / 100; // [balance2] 0.22
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }

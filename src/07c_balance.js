@@ -503,7 +503,9 @@ function botPriest(e, t) {
   const broke = GAME.t - (B.cutAt || -99) < 5;
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
-  const castOk = !broke || busy || steady;
+  // a mace breaks spells: cast between its blows (the next swing comes after the cast lands), or steadfast
+  const maceNear = !!t && !t.rangedKind && weaponStyle(t) === 'mace' && dist(e.x, e.z, t.x, t.z) < t.meleeRange + e.radius + 1.2 && t.swingAt - GAME.t < 1.45;
+  const castOk = (!broke || busy || steady) && (!maceNear || steady);
   // shields and instants first
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
@@ -536,13 +538,19 @@ function botPriest(e, t) {
 const PRIEST_SELF = 0.75;
 // [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
 // outlast any foe alone
-const priestSelf = (e) => PRIEST_SELF / Math.pow(rankMult(e.level), 1.5);
-// [balance2] Renewal on yourself: roots and slows loosen, and for 4 s nothing but a stun breaks your spells (not a
+const priestSelf = (e) => PRIEST_SELF / Math.pow(rankMult(e.level), 2);
+// [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
-  e.buffs = e.buffs.filter((b) => !((b.kind === 'snare' || b.kind === 'root') && b.src !== 'frozen'));
+  e.buffs = e.buffs.filter((b) => !(b.kind === 'root' && b.src !== 'frozen'));
   addBuff(e, 'steadfast', 1, 4, 'steadfast');
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
+}
+// [balance2] an archer's Tumble: the foes it leaps from (within 5 m) are slowed by half for 3 s, so a pack does not
+// land on the archer the moment it lands
+function tumbleSlow(e) {
+  forNear(e.x, e.z, 5, (o) => { if (o.alive && isActor(o) && isEnemy(e, o) && !o.flying) addBuff(o, 'snare', 0.5, 3, e.id); });
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 14);
 }
 // [balance2] a warrior's Charge: no root or slow takes hold for a moment after it (the warrior's answer to being kited)
 function chargeFree(e, dur) {

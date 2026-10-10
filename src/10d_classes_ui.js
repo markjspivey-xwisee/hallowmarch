@@ -225,7 +225,7 @@ function chronClasses() {
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
     ${card('mage', 'The mage', 'A mage works with <b>fire</b>, <b>frost</b> and <b>storm</b>, and with what each does to the world and to the others. Frost chills and then freezes; fire burns; storm leaps from body to body. The art is in the order.', [
-      ['Attunement', 'attune', 'Each spell charges its element (the three gauges) and strengthens the next spells of it by up to 30%; the others fade.'],
+      ['Attunement', 'attune', 'Each spell charges its element (the three gauges) and strengthens the next spells of it by up to 15%; the others fade.'], // [balance2] the text said 30%, the spells gave 22%
       ['Combos', '', 'Storm <b>shatters</b> a frozen foe (a heavy blow of any kind does too). Fire bursts the chilled and frozen into <b>steam</b> that blinds and soaks. Storm <b>overloads</b> the burning in an explosion. Frost <b>quenches</b> fire. Turning from a well-charged element makes the combo stronger.'],
       ['The world', '', 'Frost freezes water into ice you can walk on, and puts out fires. Fire is damped by rain and wet foes. Storm arcs further and harder through the wet, and a thunderstorm feeds it.'],
       ['Focus', 'focus', 'T turns your focus. Your own bolt, Nova, Ward and Blink take its element: a frost nova roots and freezes, a storm nova throws foes back, a ward bites back, a blink leaves fire, frost or lightning behind.'],
@@ -236,7 +236,7 @@ function chronClasses() {
       ['Prayer', 'pray', 'Hold X to kneel and pray: devotion and power return.'],
       ['Holy ground', 'consecrate', 'T hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, and the dead are burned and slowed.'],
       ['Smite', '', 'Holy light falls hardest on the dead of the Barrow: twice the harm, and devotion for every blow.'],
-      ['Steadfast', '', 'Renewal on yourself loosens roots and slows, and for 4 s nothing but a stun breaks your spells: no blunt arrow, storm, mace or thunderclap. Renew before a long cast when a foe keeps cutting you off. Your own wounds mend at three quarters of what others get, and do not mend faster as your ranks grow.'], // [balance2]
+      ['Steadfast', '', 'Renewal on yourself loosens roots, and for 4 s nothing but a stun breaks your spells: no blunt arrow, storm, mace or thunderclap. Renew before a long cast when a foe keeps cutting you off. Your own wounds mend at three quarters of what others get, and do not mend faster as your ranks grow.'], // [balance2]
       ['Blessings', 'bless', 'With 20 devotion, Renewal also blesses its target in the way of your realm.'],
       ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion). When you fall, a priest of your realm close by may offer to raise you: accept the prayer on the death screen.'], // [balance]
       ['Temples', '', 'At your realm\'s temple, or near a hallow your realm holds, you are sanctified: devotion comes twice as fast and you heal 15% more.'],
