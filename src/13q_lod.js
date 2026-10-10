@@ -8,7 +8,7 @@
 const LOD = { built: false, terrain: [], blocks: [], trees: [], lastQ: '', stats: { terrain: [0, 0, 0], blocks: 0, trees: [0, 0, 0] } };
 // [full detail within, half detail within] metres from the chunk's nearest edge; beyond: quarter detail
 const TERRAIN_LOD_D = { high: [150, 330], medium: [90, 230], low: [44, 150] };
-const TREE_LOD_D = { high: 140, medium: 80, low: 30 };
+const TREE_LOD_D = { high: 140, medium: 80, low: 0 }; // low: only the chunks the camera stands in keep near trees in full
 // people beyond this are drawn with the farthest model (crowdHumanFar: fewer faces round the body, the head and the limbs)
 const HUMAN_FAR = { high: 90, medium: 60, low: 38 };
 // on medium and low the chunks round the camera are split tree by tree: the full model within this reach, the far one
@@ -156,7 +156,7 @@ function treeSplit(T, on, cx, cz, R) {
 }
 // rocks: on medium and low only those within reach are drawn (the instance lists are cut down as the camera moves);
 // the far glass of towns and halls and the furrowed soil of fields far away are not drawn on low and medium
-const ROCK_D = { medium: 220, low: 140 }, GLASS_D = { medium: 160, low: 90 }, SOIL_D = { medium: 320, low: 230 };
+const ROCK_D = { medium: 220, low: 140 }, GLASS_D = { medium: 160, low: 90 }, SOIL_D = { medium: 320, low: 170 };
 function lodRocks(cx, cz, q) {
   const R = ROCK_D[q] || 0;
   if (!LOD.rocks) {
@@ -214,7 +214,7 @@ function updateLod() {
   const SD = TREE_SPLIT_D[q] || 0;
   for (const T of LOD.trees) {
     const d = lodEdge(T.x, T.z, cx, cz, 64);
-    const l = d < RD ? 0 : d < RD2 ? 1 : 2;
+    const l = d <= RD ? 0 : d < RD2 ? 1 : 2;
     if (l !== T.lvl) {
       T.lvl = l; T.m.geometry = T.gs[l];
       // far chunks lie outside the sun's shadow box (it reaches 38 to 46 m round the view): they cast nothing

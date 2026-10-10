@@ -291,6 +291,19 @@ The harness lives in `tools/`:
 - A mesh taken out at runtime uses `removeFromParent()`: after its first frame it lives in the outdoor group (`regroupOutdoors`), so `scene.remove` misses it (grass rebuilt on a quality change was drawn twice over until version 9).
 - Anything instanced gets a draw radius per quality and, if it is many, a far model; low has no shadow map at all.
 - Far work: bodies more than 40 m from the camera are weathered every third step (`updateWear`); townsfolk and the town's and the wild's beasts more than 90 m from the player think every other step with two steps' time (`updateNPCs`). New per-body systems follow the same pattern (`let dt = dt0` per body).
+- Where things stood and stand (`perf.py`, 640x360, SwiftShader; triangles / draw calls per frame, main and shadow pass; "before" is version 8, whose grass rebuilt on a quality change stayed drawn: the stale share is in brackets):
+
+  | View | Low before | Low after | Medium before | Medium after |
+  |---|---|---|---|---|
+  | Logres town, fields and common | 1.91 M (0.90 M) / 108 | 696 k / 107 | 2.81 M (1.19 M) / 126 | 1.51 M / 162 |
+  | Keep courtyard | 2.06 M (0.90 M) / 157 | 679 k / 129 | 2.71 M (1.19 M) / 147 | 1.19 M / 154 |
+  | Inside the keep's hall | 1.99 M (0.90 M) / 145 | 669 k / 122 | 2.98 M (1.19 M) / 196 | 1.17 M / 150 |
+  | River | 2.14 M (0.90 M) / 149 | 657 k / 130 | 3.33 M (1.19 M) / 223 | 1.23 M / 174 |
+  | Frontier battle | 1.83 M (0.90 M) / 106 | 590 k / 111 | 2.86 M (1.19 M) / 178 | 1.13 M / 143 |
+  | Forest | 2.31 M (0.90 M) / 207 | 774 k / 174 | 3.43 M (1.19 M) / 275 | 1.49 M / 220 |
+  | The Barrow | 128 k / 30 | 120 k / 31 | 128 k / 32 | 123 k / 33 |
+
+  (The "before" call counts are low for trees: that run did not bring the trees' visibility up to each view. The forest at low was measured before the last tree change: only the chunk under the camera now keeps near trees in full.) A simulation step in the town costs about 8 ms of JS here (15 ms before: far bodies weathered every third step, townsfolk and beasts far off at half rate). Under SwiftShader a frame's JS time is mostly first-use shader compiles (`getProgramInfoLog` in a profile), not steady work. Boot: about 23 s to ready here (the shader compile in "Lighting the sky" is the biggest step, then "Raising the keeps"); the JS heap after boot is about 180-190 MB.
 - The HUD: a new panel joins `HUD_ORDER` and `HUD_PREF` in `10p_hud.js` (and `HUD_COMPACT` / `HUD_HIDE` with a `.hl-compact` rule if it can shrink or wait). Touch controls are 40 px at least. Safe areas: `--safe-t`, `--safe-b`, `--safe-l`, `--safe-r` (the HUD sits inside the left and right ones).
 
 ### Gotchas
