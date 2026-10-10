@@ -102,7 +102,7 @@ async def realm_case(page, realm):
           out.alone = T.taken('melee');
           const fs = [0, 1].map((k) => { const f = T.friend(0, P.x + 2 + k, P.z + 1); f.tmp = true; return f; }); T.H.simulate(0.6); out.two = T.taken('melee'); out.allies2 = T.G.GIFT.allies; out.on2 = T.G.GIFT.on.steadfast;
           for (let k = 0; k < 2; k++) { const f = T.friend(0, P.x - 2 - k, P.z - 1); f.tmp = true; } T.H.simulate(0.6); out.four = T.taken('melee'); out.allies4 = T.G.GIFT.allies;
-          T.clear(); T.H.simulate(0.6); out.after = T.taken('melee'); out.hud = T.hud();
+          T.clear(); T.H.simulate(0.6); out.after = T.taken('melee'); for (let i = 0; i < 10; i++) T.H.frame(1 / 30); out.hud = T.hud(); // the marks are redrawn every tenth frame
           // unbroken: a 2 s stun lasts 1.4 s
           P.buffs.length = 0; const b = T.F.addBuff(P, 'stun', 1, 2, 'test'); out.stun = +(b.until - T.H.GAME.t).toFixed(4); P.buffs.length = 0;
           const s = T.F.addBuff(P, 'snare', 0.5, 2, 'test'); out.snare = [s.value, +(s.until - T.H.GAME.t).toFixed(4)]; P.buffs.length = 0;
@@ -143,7 +143,7 @@ async def realm_case(page, realm):
         check(r['hud']['marks'] == 2, 'Thule: two passive marks under the player frame')
 
     # ---- the realm ultimate ----
-    r = await ev(page, 'hud', "(() => { T.H.GAME.prog.level = 29; T.F.buildHotbar(); T.H.frame(1/30); const a = T.hud(); T.H.GAME.prog.level = 35; T.F.buildHotbar(); T.H.frame(1/30); return { locked: a, open: T.hud(), res: T.G.useRealmGift() }; })()")
+    r = await ev(page, 'hud', "(() => { T.H.GAME.prog.level = 29; T.F.buildHotbar(); T.H.frame(1/30); const a = T.hud(); T.H.GAME.prog.level = 35; T.F.buildHotbar(); T.H.frame(1/30); T.H.GAME.player.buffs.length = 0; /* [classes] the frost tests above chill and may freeze the player */ return { locked: a, open: T.hud(), res: T.G.useRealmGift() }; })()")
     # (useRealmGift above ran with the gift open: it is the first cast)
     hud = r['open']
     check(r['locked']['locked'] and not hud['locked'], f'{name}: the gift button is locked below level 30 and realm rank 5, open at level 35')

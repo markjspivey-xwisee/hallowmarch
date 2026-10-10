@@ -29,8 +29,11 @@ async def main():
           H.INV.goods = {}; F.savePartsLoad('char', JSON.parse(JSON.stringify(s.char.x)));
           out.back = [F.goodsCount('plank'), F.goodsCount('stone'), window.__gotPart && window.__gotPart.n];
           // an old save with no goods, and a malformed one
-          F.savePartsLoad('char', undefined); out.old = Object.keys(H.INV.goods).length;
-          F.savePartsLoad('char', { goods: { plank: 'x', nope: 4, stone: -3, flint: 2.6 } }); out.bad = JSON.stringify(H.INV.goods);
+          // (other systems may issue a new or older character something on loading: a waterskin, an archer's arrows)
+          const issued = new Set(['waterskin_empty', 'water', 'arrows_broadhead', 'bread', 'apple']);
+          const own = () => Object.fromEntries(Object.entries(H.INV.goods).filter(([k]) => !issued.has(k)));
+          F.savePartsLoad('char', undefined); out.old = Object.keys(own()).length;
+          F.savePartsLoad('char', { goods: { plank: 'x', nope: 4, stone: -3, flint: 2.6 } }); out.bad = JSON.stringify(own());
           // goods on the ground are picked up by walking over them
           const P = H.GAME.player; H.INV.goods = {}; const L = F.dropGood('berries', 4, P.x + 6, P.z); H.simulate(2); P.x = P.prevX = L.x; P.z = P.prevZ = L.z; H.simulate(0.5); out.picked = F.goodsCount('berries');
           return out; })()""")

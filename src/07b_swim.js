@@ -306,7 +306,7 @@ function waterOffers(P, offer) {
   if (dirty) offer(s.d * 0.5 + (SURV.thirst < 0.5 ? 0.6 : 0), 2.6, `Wash your gear in the ${s.kind}`, () => { washGear(null); splashAt(s.x, s.z, 0.6); }, 0.05);
   if (SURV.job) return;
   const label = thirsty && fill ? `Drink from the ${s.kind} and fill your waterskins` : thirsty ? `Drink from the ${s.kind}` : fill ? `Fill your waterskins at the ${s.kind}` : `Drink from the ${s.kind}`;
-  offer(s.d * 0.5 + (thirsty || fill ? 0.3 : 0.9), 2.6, label, () => {
+  offer(s.d * 0.5 + (thirsty ? 0.3 : 0.9), 2.6, label, () => { // not thirsty, a rod in hand fishes first (09s_survival.js)
     if (GAME.t - SWIM.drinkAt < 1.2) return;
     SWIM.drinkAt = GAME.t;
     drinkAt({ x: s.x, z: s.z }, s.kind);

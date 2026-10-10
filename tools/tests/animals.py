@@ -268,7 +268,8 @@ async def main():
           o.n = [before.length, after.length];
           o.same = before.every((b, i) => after[i] && after[i].name === b.name && after[i].k === b.k && after[i].sex === b.sex && after[i].gen === b.gen && Math.abs(after[i].tr.yield - b.tr.yield) < 0.002 && JSON.stringify(after[i].tr.coat) === JSON.stringify(b.tr.coat) && (after[i].ma || {}).name === (b.ma || {}).name);
           o.pens = A.A.pens.filter((p) => p.owner === 'player').length;
-          o.hound = !!A.anMine().find((e) => e.tame.k === 'hound');
+          o.hound = !!A.anMine().find((e) => e.tame.k === 'hound') || A.A.down.some((rec) => rec.k === 'hound'); // a hurt companion is kept too, limping back
+          o.down = A.A.down.map((rec) => rec.k + ':' + Math.round(rec.down));
           // a damaged save
           A.animalsLoad({ v: 1, list: [{ k: 'sheep', n: '<b>x</b>', s: 'q', tr: { coat: ['a', 2, 3], size: 99 }, c: 'dance', x: 'nan' }, { k: 'dragon' }, null, 7], pens: [{ x: 'no' }, { x: 3, z: 4, hw: 999 }] });
           const bad = A.anMine().map((e) => __an.sum(e)); o.bad = bad.length; o.badName = bad[0] && bad[0].name; o.badSize = bad[0] && bad[0].tr.size;

@@ -129,7 +129,7 @@ async def desktop(p):
     check(r['tab'] == 'chronicle' and r['secs'] >= 8 and r['map'], f'the Chronicle tab opens with its sections and the map ({r})')  # [water] other systems add their own pages
     await shot(page, 'lore_chronicle_march')
     for sec, sel, n in [('war', '.dg-wide svg rect', 6), ('orders', '.chron .order', 7), ('realms', '.chron .rcard', 3), ('path', '.chron .steps li', 15)]:
-        await page.click(f'.chron-nav [data-sec="{sec}"]')
+        await ev(page, f"document.querySelector('.chron-nav [data-sec=\"{sec}\"]').click()")
         k = await ev(page, f"document.querySelectorAll('{sel}').length")
         check(k >= n, f'the Chronicle section "{sec}" shows its {n} parts ({k})')
         if sec in ('war', 'path'): await shot(page, f'lore_chronicle_{sec}')
@@ -247,7 +247,7 @@ async def phone(p):
     r = await ev(page, "({ modal: __hm.UI.modal, tab: __hm.UI.menuTab, sec: __hm.LORE.state.chronSec })")
     check(r == {'modal': 'menu', 'tab': 'chronicle', 'sec': 'path'}, f'tapping the step opens your path in the Chronicle ({r})')
     await shot(page, 'lore_phone_chronicle_path')
-    await page.click('.chron-nav [data-sec="war"]')
+    await page.click('.chron-nav [data-grp="war"]')
     r = await ev(page, "(() => { const t = document.querySelector('.dg-tall'), w = document.querySelector('.dg-wide'); return { tall: getComputedStyle(t).display, wide: getComputedStyle(w).display, sw: document.querySelector('#menu .sheet').scrollWidth, cw: document.querySelector('#menu .sheet').clientWidth }; })()")
     check(r['tall'] == 'block' and r['wide'] == 'none' and r['sw'] <= r['cw'] + 1, f'the war diagram stands tall on a phone and nothing overflows ({r})')
     await ev(page, "document.querySelector('.chron .figure').scrollIntoView()")

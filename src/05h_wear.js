@@ -98,7 +98,7 @@ function wellSpots() {
 // the interaction list (09_player.js): wash at a town well or trough while the kit is dirty
 function wearOffers(P, offer) {
   if (inDungeon(P) || kitDirt() < 0.02) return;
-  for (const w of wellSpots()) offer(dist(P.x, P.z, w.x, w.z), w.kind === 'well' ? 2.9 : 2.6, `Wash your gear in the ${w.kind}`, () => washGear(w));
+  for (const w of wellSpots()) offer(dist(P.x, P.z, w.x, w.z), w.kind === 'well' ? 2.9 : 2.6, `Wash your gear in the ${w.kind}`, () => washGear(w), 0.05); // [survival] dirty gear before a sip, unless you are really thirsty
 }
 
 /* ---- combat wears gear down and spatters it ---- */

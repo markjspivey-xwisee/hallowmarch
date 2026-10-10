@@ -72,6 +72,8 @@ async def main():
         print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'[{time.time() - T0:.0f}s]')
 
 async def checks(page):
+        # [farming] a summer's day: fruit regrows as it should (in winter it waits for spring)
+        await page.evaluate("(() => { if (T.H.farm) T.H.farm.setSeason(0.3); })();0")
         r = await ev(page, 'world', """(() => { const S = T.S;
           const kinds = {}; for (const p of S.FORAGE.list) kinds[p.k] = (kinds[p.k] || 0) + 1;
           const st = {}; for (const s of S.CRAFT.stations) st[s.kind] = (st[s.kind] || 0) + 1;
@@ -131,17 +133,18 @@ async def checks(page):
         # ---- water: a well and a lake ----
         r = await ev(page, 'water', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};
           const w = S.wellSpots().find((q) => q.kind === 'well' && Math.hypot(q.x - T.H.REALMS[0].town.x, q.z - T.H.REALMS[0].town.z) < 60);
-          T.stand(w.x + 1.6, w.z, w.x, w.z); S.SURV.thirst = 0.3; F.goodsTake('water', F.goodsCount('water'));
-          out.label = __hmCI(); F.playerInteract(); T.sim(1.6); out.t = S.SURV.thirst; out.skins = F.goodsCount('water');
+          // [water] three empty waterskins in the pack: drinking fills them
+          T.stand(w.x + 1.6, w.z, w.x, w.z); S.SURV.thirst = 0.3; F.goodsTake('water', F.goodsCount('water')); F.goodsTake('waterskin_empty', F.goodsCount('waterskin_empty')); F.goodsAdd('waterskin_empty', 3, true);
+          out.label = __hmCI(); F.playerInteract(); T.sim(1.6); out.t = S.SURV.thirst; out.skins = F.goodsCount('water'); out.empty = F.goodsCount('waterskin_empty');
           // a lake: walk the edge of the nearest one
           let shore = null;
           for (const L of T.H.dbg.LAKES || []) { for (let a = 0; a < 6.28 && !shore; a += 0.2) for (let r = L.r * 0.6; r < L.r * 1.6; r += 0.5) { const x = L.x + Math.sin(a) * r, z = L.z + Math.cos(a) * r; if (F.heightAt(x, z) > -3.0 && F.heightAt(x, z) < -1.5 && F.isWalkable(x, z)) { T.stand(x, z); if (S.shoreNear(P)) { shore = { x, z }; break; } } } if (shore) break; }
           out.shore = !!shore;
-          if (shore) { S.SURV.thirst = 0.4; F.goodsTake('water', F.goodsCount('water')); out.lakeLabel = __hmCI(); F.playerInteract(); T.sim(2); out.lakeT = S.SURV.thirst; out.lakeSkins = F.goodsCount('water'); window.__shore = shore; }
+          if (shore) { S.SURV.thirst = 0.4; F.goodsTake('water', F.goodsCount('water')); F.goodsAdd('waterskin_empty', 2, true); out.lakeLabel = __hmCI(); F.playerInteract(); T.sim(2.2); out.lakeT = S.SURV.thirst; out.lakeSkins = F.goodsCount('water'); window.__shore = shore; }
           return out; })()""")
         check(r['label'] and 'Drink from the well' in r['label'], f'at the well: "{r["label"]}"')
-        check(r['t'] > 0.99 and r['skins'] == 8, 'drinking at the well slakes thirst and fills eight waterskins')
-        check(r['shore'] and r.get('lakeLabel') and 'lake' in r['lakeLabel'] and r['lakeT'] > 0.99 and r['lakeSkins'] == 8, f'at a lake shore: "{r.get("lakeLabel")}", drink and fill')
+        check(r['t'] > 0.99 and r['skins'] == 3 and r['empty'] == 0, f'drinking at the well slakes thirst and fills the empty waterskins ({r["skins"]} full, {r["empty"]} empty)')
+        check(r['shore'] and r.get('lakeLabel') and 'lake' in r['lakeLabel'] and r['lakeT'] > 0.99 and r['lakeSkins'] == 2, f'at a lake shore: "{r.get("lakeLabel")}", drink and fill')
 
         # ---- foraging and regrowth ----
         r = await ev(page, 'forage', """(() => { const S = T.S, F = T.F, P = T.P(); const out = {};

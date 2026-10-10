@@ -5,8 +5,8 @@ Read this before changing anything. It covers what the game is, the owner's stan
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)
 - **Repository:** https://github.com/markjspivey-xwisee/hallowmarch (private). Work on `main`, commit often, and push at each milestone.
 - **Live build:** Claude artifact https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T, shared with anyone who has the link. It is published from the built `hallowmarch.html` with capabilities `{db:{}, user:{}}`. When you republish to that URL, omit `capabilities` so the stored set is kept.
-- **Published:** Version 6 (level 50, lore, working castles and houses, the reactive land, weather on everything, gear wear, the readable and winnable war).
-- **Next:** a visual pass, then music, the aurora and siege engines (see Roadmap).
+- **Published:** Version 8: real water (rivers, ponds, wading and swimming), the callings (stances and parries, the drawn bow, elemental magic, devotion), survival and crafting, farming and herb lore with plant breeding, animals (taming, companions, livestock, breeding), keep halls and building. It includes version 7: the visual pass, realm gifts, siege engines, music and the aurora, the saved land, foot-locked gaits and Cinderwing's flight, the cover map against clipping, and burning brands.
+- **Next:** Version 9 (see Roadmap).
 
 ## The owner's standing requirements
 
@@ -34,7 +34,7 @@ These apply to every change, not only to the feature that prompted them.
 10. **Nothing clips.** No grass, flower, prop, log or body pokes through a floor, wall, roof, stair or paving, anywhere in the world. People stand on what they stand on (floors, steps, platforms), never sunk into it. Check new content for this in general, not case by case (the 1 m cover map, `natClearSpot`, `natFallHits`).
 11. **Bodies move like living things.** Feet stay planted while on the ground (the gait is foot-locked IK, `HUMAN_GAIT`; beasts plant by stride and leg length), limbs never move in slow motion against the ground speed, and creatures keep moving when they idle or fly (Cinderwing beats, glides with trims, banks, looks about).
 12. **Real water.** Water is physical: you can wade and swim (people and animals), ponds and rivers work (rivers flow and carry you), it splashes and ripples, puts out fire, soaks gear, and can be drunk.
-13. **Deep systems, easy to play, hard to master, balanced, wired into the realms.** The owner has asked for all of these; they are on the roadmap:
+13. **Deep systems, easy to play, hard to master, balanced, wired into the realms.** All of these are built (version 8); keep them deep, balanced and wired into each other:
     - class systems with real depth: an elemental magic system that reacts to the world, and systems as deep for warriors, archers and priests, each with realm flavours;
     - animals: taming, pets, livestock, breeding with inherited traits;
     - survival: food and water, hunger and thirst (gentle);
@@ -77,6 +77,7 @@ The harness lives in `tools/`:
    - `castles.py`, `houses.py`, `nature.py` and `siege.py` (engines, breaches, sallies, the player's crew)
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
+   - `integration.py`: how the version 8 systems fit together: nothing one system places (workstations, halls, paddocks, beds, plants, herbs, animals) stands in another's way or in the water; ice forms at a pond's own level and carries a body; drinking at a river fills the empty waterskins; recipes give their skins back; nothing is built on a tilled bed; three minutes with everything going.
    - `classes.py` (the callings: `mech` checks, `balance` table, `shots`) and `classes_phone.py` (the class panel and buttons on a phone).
    - `worldstate.py`: a busy land (felled, split and regrowing trees, cut and burning grass, a crater with loot in it, burning, ruined and rebuilding houses, breached, rebuilding and worn walls) is saved, the page reloaded with the same storage, and everything checked; then an old save and a damaged one. Prints the save sizes.
    - `water.py`: the world check (every river course has water, no dry pond beds, no road through deep water), wading and swimming numbers for the player, a soldier and a wolf, the current, the camera above water, no casting while swimming, a rider sliding off, fire out, drinking and the waterskin; `water.py shots [medium]` adds screenshots (shore, river, swimming, wake, wading).
@@ -101,6 +102,7 @@ The harness lives in `tools/`:
 - `CW` (attached by `08g_campaign.js`): campaign state and test hooks. `nature` (attached by `05h_nature.js`): tree, grass and crater hooks.
 - `cls` (attached by `07b_classes.js`): the callings' state (`state(e)`, `CLS.stats`), stances, blocks, the draw, elements, devotion and their test hooks.
 - `gifts` (attached by `06c_gifts.js`): `GIFT`, `GIFT_DEF`, `giftHas`, `giftHarmMult`, `giftBuffAdjust`, `giftSpeedMult`, `useRealmGift`, `castGiftUlt`, `state()`. `land` (also attached there): `landSave`, `landApply`, `landKey`, `LAND.restored` (what the last load read back).
+- `surv` (`09s_survival.js`): `SURV`, `FORAGE`, `CRAFT` (`CRAFT.stations`), `RECIPES`, `needsEat`, `needsDrink`, `eatGood`, `drinkAt`, `fishStart`, `survCraftOnce`, `openCraft` and more. `animals` (`08h_animals.js`): `A` (the `ANIMALS` state: `list`, `pens`, `down`), `anTame`, `anCommand`, `anBirth`, `penHas`, `animalsSave` and more. `build` (`06k_build.js`): `BUILD`, `BP`, `buildPlace`, `bValidate`, `bLandWhy`, `buildFenceLine` and more; the halls on `fn.halls()`.
 - `water` (`07b_swim.js`): `waterAt`, `state(id)` (depth, wading, swimming, soaked height, speed), `swimDims(id)`, `rivers()`, `ripple()`, `meshes()`, `tickWater(dt)` (the ripples without drawing the world), `splashAt`, `rippleDrop`, `swimAllowed`, `waterNear`, `RIVERS`, `PONDS`, `WATERGRID`.
 - Castles add `fn.castles()`, `fn.floorAt`, `fn.castleRoute`, `fn.castleSiegeHit` and `fn.CASTLE_PATCHED` (the building-shader anchors the castle patch found).
 
@@ -140,13 +142,13 @@ The harness lives in `tools/`:
 | `06d_goods.js` | Goods: everything carried that is not gear (materials, food, drink, seeds, herbs, tools, building parts), kept by count in `INV.goods`, listed in the bags, dropped and picked up like loot, saved with the character. The shared catalogue of ids every system uses (`log`, `plank`, `stone`, `iron`, `hide`, `wool`, `meat_raw`, `bread`, `water`, `herb_*`, `seed_*`, `tool_*` …). Save parts: `registerSavePart('char' or 'world', key, { save, load, key })` |
 | `06k_build.js` | Building: placed structures (`BP`: foundation, plank/stone walls, doorway, window, thatch and shingle roofs, upper floor, stair, fence, gate, campfire, workbench, bed, chest) on a 3 m grid shared by a building (`bSnap`: frame of the nearest piece, cells and edges, heights from foundations and wall tops), refused off your realm's lands, near sites, camps, roads, water and on steep ground (`bValidate`, `bLandWhy`). Goods taken on placing, then raised with a hammer (`BUILD.work`, the piece's `uRise`); the piece shader is the building shader with rise, char/glow and shelter (`uPc.w` keeps rain and snow off what is under a roof). Real colliders (tag `build`, `c.build`) and floors (`addFloorBox`), doors/gates/shutters on pivots, roofs in `houseRoofOver` and the rain shader's roof list, fire (`buildFireAt`/`buildFireCone` from `fireLandsAt`/`fireConeAt`), spreading, falling to charred heaps (`bFall`), `bSupport` (nothing floats), repair at half cost, `buildDemolish` (half back), the cover map marked at runtime (`coverBox` + `COVER.tex.needsUpdate`). Bed = return point (`buildBedSpot` in `releasePlayer`). Save part `world.x.build`. For other systems: `buildFenceLine(x0, z0, x1, z1, { gateAt })`, `buildWorkbenchNear`, `buildHasRoof`, `buildPieces()`. Builder UI: G or the hammer button, `#buildbar`; test hooks `__hm.build` |
 | `06s_survival.js` | Survival data: hunger and thirst (`SURV`, `NEEDS`; `needsEat(h)`, `needsDrink(t)` add 0..1 of a full need; `needsMult()` scales health, power and endurance regeneration in `updatePlayer`: well fed faster, hungry or thirsty slower, never death), skills that grow with use (`SURV.skill` craft, cook, fish, forage; `skillGain`), ward draughts (`survivalHarmMult` in `dealDamage`), the new goods (pasties, roast mushrooms, the cooking pot, potions, the four arrow goods if absent), the stations (`STATIONS`) and the book of recipes (`RECIPES`: `make`, `gear`, `act`; `cls`, `min`, `waste`, `pot`), gear odds by skill (`craftOdds`). Save part `char.x.surv` |
-| `09s_survival.js` | Survival in the world: forage plants (`FORAGE`: berry bushes, mushroom and embercap rings, five herbs, nettles, the Logres orchard; one instanced foliage shader with wind, rain, snow, shadows; picked with E, regrowing, seasonal through the farming branch's `SEASON` if present), water (wells, troughs, lakes; `waterAt` from the water branch if present), eating (`eatGood`, `quickEatDrink` on V and on the HUD bars), the hunt (`huntOnKill` from `grantKillRewards`; deer are `game` for the player in `isEnemy`; herds come back), cooking at any fire (`fireNear`, `cookAll`), fishing (`fishStart`, float, nibble, bite, strike; fish by realm and hour), the jobs on the cast bar (`SURV.job`), the needs on the HUD, merchants' provisions (`provisionsShopHTML`), the help and the Chronicle page (`chronLiving`). Hooks: `buildSurvival` at boot (before the grass), `survivalOnStart`, `updateSurvival`, `drawSurvival`, `survivalOffers`. Save part `world.x.forage` (picked plants and worked rocks, seconds left). Test hooks on `__hm.surv` |
+| `09s_survival.js` | Survival in the world: forage plants (`FORAGE`: berry bushes, mushroom and embercap rings, five herbs, nettles, the Logres orchard; one instanced foliage shader with wind, rain, snow, shadows; picked with E, regrowing, seasonal through `SEASON`, kept out of ponds and rivers), water (wells and troughs; `drinkAt` for any water: drink your fill, fill the empty waterskins), eating (`eatGood`, `quickEatDrink` on V and on the HUD bars), the hunt (`huntOnKill` from `grantKillRewards`; deer are `game` for the player in `isEnemy`; herds come back), cooking at any fire (`fireNear`, `cookAll`), fishing (`fishStart`, float, nibble, bite, strike; fish by realm and hour), the jobs on the cast bar (`SURV.job`), the needs on the HUD, merchants' provisions (`provisionsShopHTML`), the help and the Chronicle page (`chronLiving`). Hooks: `buildSurvival` at boot (before the grass), `survivalOnStart`, `updateSurvival`, `drawSurvival`, `survivalOffers`. Save part `world.x.forage` (picked plants and worked rocks, seconds left). Test hooks on `__hm.surv` |
 | `09t_craft.js` | Crafting: workstations built in code with the building shader (forge and anvil, workbench, tanning rack, loom, bakehouse, alchemy table in each town; forge and workbench in each keep), placed by search clear of colliders, houses, floors, the townsfolk's ways and the garrison routes; their fires are real (`FIRES` with `station`); mining rocks (`rockNear`, `mineStart`); `survCraftOnce`, `craftStart` (timed, with the tool in hand: `craftHand`); the crafting book overlay (`openCraft`, key C; one column on phones) |
 | `06c_gifts.js` | Realm gifts: two passives per realm unlocked by realm rank (Logres Steadfast Lines and Unbroken, Ériu Wood-wise and Rain-blest, Thule Cold-blooded and Wound-fury) and a realm ultimate at realm rank 5 or level 30 (the Raised Standard, the Grey Hunt, the Iron Winter) on key 9, the round gift button and the phone pad; champions (keep lords, warband leaders) call it in big fights; the Chronicle's gifts page. Hooks: `dealDamage` asks `giftHarmMult`, `addBuff` asks `giftBuffAdjust`, `effectiveSpeed` asks `giftSpeedMult`; `buildHotbar` calls `giftHotbar`, `simStep` `updateGifts`, `tick` `drawGifts`, `startGame` `giftsOnStart` |
 | `07_entities.js` | Entities (`makeEnt`, `ENT`), stats (`setupStats`), combat (`dealDamage`, `killEnt`), abilities, projectiles |
-| `07b_swim.js` | Bodies in water: wading (slower with depth, splashes and rings each step), swimming from chest depth (`waterFloorY`, `swimDims`, `waterSpeedMult`, `swimAllowed`), the current carrying swimmers, no casting or shooting and no horse in deep water, fire put out, gear soaked to the waterline (`waterlinePack`), splashes (`splashAt`), drinking, filling a waterskin and washing at any water (`waterOffers`), the sound of rivers, the Chronicle's water page (`chronWater`), `waterHelp`, test hooks (`__hm.water`) |
+| `07b_swim.js` | Bodies in water: wading (slower with depth, splashes and rings each step), swimming from chest depth (`waterFloorY`, `swimDims`, `waterSpeedMult`, `swimAllowed`; companions swim after you, townsfolk and posted guards never), standing on a mage's ice (`onIce`), the current carrying swimmers, no casting or shooting and no horse in deep water, fire put out, gear soaked to the waterline (`waterlinePack`), splashes (`splashAt`), the drink and wash offers at any water (`waterOffers`: drinking itself is survival's `drinkAt`), the empty waterskin (`waterskin_empty`) issued once, the sound of rivers, the Chronicle's water page (`chronWater`), `waterHelp`, test hooks (`__hm.water`) |
 | `07b_classes.js` | The callings (`e.cs`): warrior stances, momentum and finishers, the shield and the parry, weapon styles; the archer's draw (ballistic arrows in `CLS.arrows`), arrow goods, hiding, snares, tracking; the mage's fire, frost and storm (attunement, focus, combos, chill and freeze, steam, ice sheets over water, runes, overcasting); the priest's devotion, prayer, holy ground, blessings, raising the fallen; realm flavours (`CLASS_REALM`), unlock levels (`CLASS_UNLOCK`); NPC use (`classNpc`, `npcClassStep`); save part `char.x.cls`. Hooks: `classHarm`/`classOnHit` in `dealDamage`, `classAbility` (this cast's view of an ability, maybe with a `custom` action) in `executeAbility`, `classSpeedMult`, `classActValue`, `classNoAuto`, `classAutoKind`, `classOnHeal`, `classSeen` (hidden archers, in `pickTarget` and creature aggro), `iceAt` in `isWalkable` |
-| `05j_classfx.js` | The callings' visuals and sounds: ice sheets, iron snares, frozen shells, steam, arrows in flight and in the ground, the parry glint, `classSfx`; rune and holy-ground marks are disc kinds in `05g_spells.js`; guard, parry and kneel are actions 10–12 in `05a_rig.js` |
+| `05j_classfx.js` | The callings' visuals and sounds: ice sheets (drawn at their own water's surface, `uWY`), iron snares, frozen shells, steam, arrows in flight and in the ground, the parry glint, `classSfx`; rune and holy-ground marks are disc kinds in `05g_spells.js`; guard, parry and kneel are actions 10–12 in `05a_rig.js` |
 | `10d_classes_ui.js` | The class panel over the ability bar (a phone shows it under the frames), the technique (T) and hold (X) buttons on the phone pad, keys T / X (held) / Y (arrows), the Chronicle's Callings page, help lines, loading tips |
 | `08_ai.js` | Monsters, garrisons, warbands, realm commanders, relics; `WAR` state |
 | `08b_wildlife.js` | Deer, birds, bats, butterflies |
@@ -163,7 +165,7 @@ The harness lives in `tools/`:
 | `09d_brand.js` | Fire for everyone: take a burning brand from any fire (E), it is held up in the left hand (the torch bit, `WB.torch`), lights the way, sets roofs, trees and long grass alight (E), sets struck foes alight; water and rain put it out. `natureFireAim`: fire spells with nothing targeted aim at the tree or grass in front |
 | `10_ui.js` | Title, HUD, maps, menus, nameplates, log, help |
 | `10b_kit.js` | Equipment, bags and shop screen |
-| `10c_lore.js` | Lore and onboarding: the prologue, the Chronicle menu tab, the path tracker and its rewards, field notes, loading tips. It makes its own styles and markup; `startGame` calls `loreOnStart`, `tick` calls `updateLore`, saves carry `char.lore` |
+| `10c_lore.js` | Lore and onboarding: the prologue, the Chronicle menu tab (`CHRON_SECTIONS`, grouped into four parts by `CHRON_GROUPS`: The March, Your path, The war, Living; a page no part names goes under the first), the path tracker and its rewards, field notes, loading tips. It makes its own styles and markup; `startGame` calls `loreOnStart`, `tick` calls `updateLore`, saves carry `char.lore` |
 | `11_audio.js` | Synthesised sound effects and ambience (Web Audio) |
 | `12_save.js` | Saves: `claude.use('db')` document `data/users/<uid>/save`, falling back to localStorage `hallowmarch.save.v1`; `validSave()` sanitises |
 | `12b_worldstate.js` | The world remembers: `landSave()` writes `world.land` (felled trees, logs, stumps and saplings with their clocks; the nature map as 4-bit run-length tiles; burning grass; craters as height deltas in cm; burning, ruined and rebuilding houses; worn, breached and repairing walls; firewood piles) and `landApply()` restores it at boot. Also: loot settles when the ground moves under it, and the woodcutter's axe is in hand while chopping (`updateLand`) |
@@ -195,10 +197,14 @@ The harness lives in `tools/`:
 - `W.walk` is 0 walkable, 1 blocked, 2 deep water. `isWalkable` stays `=== 0`; `stepTo` uses `swimPassable` for a body with `e.swimOK` (the player always; people and beasts chasing something or getting out; never townsfolk or posted guards).
 - A body in water has `e.wd` (depth), `e.wadeK`, `e.swim`, `e.swimK` (0..1, for the shaders), `e.wl` (how high it is soaked). `groundY` and the player float swimmers through `waterFloorY`. The actor shaders get swimming as a negative `iAnim.w` (death stays positive) and the soaked height in whole 5 cm steps of `iWear.x` (the fraction is the wetness).
 - Anything that should ring the water calls `rippleDrop(x, z, r, depth)` or `splashAt(x, z, size)`; spells that leave an AoE mark on water splash by themselves.
+- Drinking: at any lake, pond or river the water module offers the drink and survival's `drinkAt(spot, kind)` does it (you drink your fill and every `waterskin_empty` becomes a `water`). Drinking a `water` from the bags, or using one in a recipe, gives back a `waterskin_empty`. Dirty gear is washed first unless you are really thirsty; with a rod and no thirst, fishing comes first.
+- A mage's ice (`freezeWater`, 07b_classes.js) lies at its water's own surface (`s.wy`) as a floor; `onIce` keeps bodies on it out of the water, and swimmers caught where it forms are lifted onto it.
 
 **Buildings**
 - Buildings are merged geometry with a per-vertex material id (`MAT` in `04_props.js`: stone 0 … rock 15, drystone 16).
 - The building shader branches on that id. To add a surface type, add an id and a shader branch.
+
+**Body actions** (`setAct(e, id, seconds)`; the humanoid shader's `atype`): 1 one-handed strike, 2 bow draw, 3 spellcasting, 4 a flinch, 5 using something (reach, pick, drink from a skin), 6 in the air, 7 whirlwind, 8 overhead smash, 9 leap strike, 10 guard, 11 parry, 12 kneel (07b_classes.js), 13 down on the haunches to reach the ground (picking, drinking at a lake; 09s_survival.js). Actions 7 and up own the whole body. Take the next free number for a new one.
 
 **Characters**
 - Characters are instanced crowds. The per-instance attributes are in `HUMAN_ATTRS`: `iPos`, `iAnim`, `iColA`, `iColB`, `iMisc`, `iStyle`.
@@ -266,7 +272,6 @@ The harness lives in `tools/`:
 - A bed's slots are 0.6 m apart; `slotPos(P, s)` is where a plant stands; `plotAt(x, z)`, `plotLocal`/`plotWorld` convert to the bed's furrows (u across, v along).
 - Beds and strips go into the cover map (`farmCoverAll` at the end of `buildCoverMask`), so no grass grows through the soil; removing a bed rebuilds the cover map.
 - Growth is stepped every half second in `updateFarming` (`FARM.speed` speeds it for tests); drawing refills the instances twice a second, when the camera moves 3 m or when `FARM.drawDirty` is set.
-- After merging with the water branch, set `FARM.waterAt = waterAt` so beds keep off rivers.
 
 **Saves**
 - Old saves must always keep loading.
@@ -293,25 +298,26 @@ The harness lives in `tools/`:
 | # | Work | Status |
 |---|---|---|
 | 1 | Level 50: scaling, borderland camps and champions, 8 new abilities, ranks, 8-slot hotbar | Done (version 6) |
-| 2 | Lore and onboarding: prologue, Chronicle, path with rewards, field notes, tips | Done (version 6) |
-| 3 | Working castles: gates, stairs, wall walks, parapets, garrison routes, breaches and repairs, banners | Done (version 6). Left: tower interiors and hatches, AI using breaches, defenders sallying out |
-| 4 | Working houses: doors, shutters, glazing, furnished rooms, townsfolk's days, burning and rebuilding | Done (version 6). Left: one flaky morning check in `houses.py` |
-| 5 | Reactive land: felling and regrowing trees, cut grass, grass and tree fire, craters | Done (version 6). Left: save the nature state, an axe model, loot following craters |
-| 6 | Weather on everything and gear wear: wet, snow, drying, lightning strikes, durability, blood, mud, repair, washing | Done (version 6). Left: ground under tree crowns gets wet, beasts' own wetness |
-| 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: tune so more campaigns end by claims than by renown; hallow raids rarely succeed |
-| 8 | Visual pass on existing models and shaders | Next |
-| 9 | Realm gifts (passives and a realm ultimate); the land saved with the world, loot settling into craters, the woodcutter's axe | Merged (version 7) |
-| 10 | Music, aurora, siege engines, the war AI using breaches and sallies, campaign tuning (claims over renown) | Merged (version 7). Left: tower interiors and hatches |
-| 12 | Animation: foot-locked gaits for people and beasts, Cinderwing's flight | In progress (version 7) |
-| 13 | No clipping: cover map, props and logs clear of walls, temple dais floors | In progress (version 7) |
-| 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | In progress (version 7) |
-| 15 | Water: swimming, wading, rivers with currents, ponds, splashes and ripples, drinking, waterskins | Done (feature/water). Left: diving under, frozen lakes in Thule, boats |
-| 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Done (feature/building, `tools/tests/building.py`) |
-| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Planned |
-| 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Done on `feature/survival`. Left: apple trees and bushes do not burn or fall |
-| 19 | Farming and herb lore, plant breeding: seasons, beds, crops with stages and weather, weeds, soil, strains and crossing, town fields worked by the townsfolk, wild herbs and the herbal | Done on `feature/farming`. Left: crops in Ériu and Thule gardens; herbs' powers in potions (survival/crafting) |
-| 20 | Animals: taming, pets, livestock, breeding | Done on `feature/animals`. Left: pens from the building branch's fences |
-| 21 | Building: placed structures | Done on `feature/building` (`tools/tests/building.py`). Left: lightning on built pieces, NPCs using built doors, more roof shapes (hips, lean-tos) |
+| 2 | Lore and onboarding: prologue, Chronicle, path with rewards, field notes, tips | Done (version 6). The Chronicle's 17 pages are grouped in four parts (version 8) |
+| 3 | Working castles: gates, stairs, wall walks, parapets, garrison routes, breaches and repairs, banners | Done (version 6). Left: tower interiors and hatches |
+| 4 | Working houses: doors, shutters, glazing, furnished rooms, townsfolk's days, burning and rebuilding | Done (version 6). Left: the night and morning checks in `houses.py` are flaky after a long run |
+| 5 | Reactive land: felling and regrowing trees, cut grass, grass and tree fire, craters | Done (versions 6 and 7) |
+| 6 | Weather on everything and gear wear: wet, snow, drying, lightning strikes, durability, blood, mud, repair, washing | Done (versions 6 and 7) |
+| 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: `siege.py`'s "the band stands guard by its engine" and breach checks fail now and then (they did before version 8 too) |
+| 8 | Visual pass on existing models and shaders | Done (version 7) |
+| 9 | Realm gifts (passives and a realm ultimate); the land saved with the world, loot settling into craters, the woodcutter's axe | Done (version 7) |
+| 10 | Music, aurora, siege engines, the war AI using breaches and sallies, campaign tuning (claims over renown) | Done (version 7). Left: tower interiors and hatches |
+| 12 | Animation: foot-locked gaits for people and beasts, Cinderwing's flight | Done (version 7) |
+| 13 | No clipping: cover map, props and logs clear of walls, temple dais floors | Done (version 7); every version 8 system marks its footprints |
+| 14 | Fire for everyone: burning brands; fire spells aimed at trees and grass | Done (version 7) |
+| 15 | Water: swimming, wading, rivers with currents, ponds, splashes and ripples, drinking, waterskins | Done (version 8). Left: diving under, boats |
+| 16 | The keep's great hall: a working door into a hall with a war table, armourer's bench, basin and hearth | Done (version 8) |
+| 17 | Class systems: elemental magic reacting to the world; warrior stances and momentum; archer draw and arrows; priest devotion and holy ground; realm flavours | Done (version 8). Left: balance (time to kill is within ±15%; pack survival and duels are not) |
+| 18 | Survival and crafting: hunger and thirst, foraging, hunting, fishing, cooking; materials, workstations, recipes | Done (version 8). Left: bushes and apple trees do not burn or fall; crafted gear stops at item level 24 |
+| 19 | Farming and herb lore, plant breeding: seasons, beds, crops, weeds, soil, strains and crossing, town fields, wild herbs and the herbal | Done (version 8). Left: gardens in Ériu and Thule; the new herbs' powers in potions; seasonal colours of trees and grass |
+| 20 | Animals: taming, pets, livestock, breeding | Done (version 8) |
+| 21 | Building: placed structures | Done (version 8). Left: NPCs using built doors, more roof shapes (hips, lean-tos) |
+| 22 | Version 9: balance of the callings; phones and performance (low quality draws over two million triangles in a town); seasons across the world (frozen lakes in Thule winters, autumn leaves); depth and polish of the new systems | Next |
 
 ## History
 
@@ -331,3 +337,18 @@ The harness lives in `tools/`:
   - The reactive land: trees that are felled and regrow, cut grass, grass and tree fires, craters.
   - Weather on everything: wet, snow, drying and melting, lightning on tall things. Gear wear: durability, blood, mud, repair and washing.
   - The war: announced orders with reasons, routes on the maps, player command of warbands, campaigns that are won and reset.
+- **Version 7:**
+  - A visual pass: meadow, canopy and ground-shade maps, height fog, graded composite, better water, sky, trees and beasts.
+  - Realm gifts and ultimates; the land saved with the world; loot settling into craters; the woodcutter's axe.
+  - Siege engines (rams, mangonels, trebuchets), breaches stormed, plugged and sallied against; campaign tuning.
+  - A procedural score, the northern lights and shooting stars.
+  - Foot-locked gaits for people and beasts; Cinderwing flies, glides and banks.
+  - The 1 m cover map: no grass, flower or log through floors, walls or paving; the temple dais fixed.
+  - Burning brands from any fire; fire spells aimed at the tree or grass in front.
+- **Version 8:**
+  - Real water: a river per realm down its valley, ponds in the hollows, see-through water with ripples; wading and swimming for people and beasts; drinking and waterskins.
+  - The callings: warrior stances, momentum, finishers, shield and parry; the archer's draw, arrow goods, hiding and snares; the mage's fire, frost and storm with attunement and combos, ice over water, runes; the priest's devotion, holy ground, blessings and raising the fallen; realm flavours; NPCs use all of it.
+  - Survival and crafting: gentle hunger and thirst, foraging, hunting, fishing, cooking, workstations in every town and keep, a crafting book of about 55 recipes, skills that grow.
+  - Farming and herb lore: seasons, tilled beds and crops through their stages, weeds and soil, plant breeding with strains, town fields worked by the townsfolk, wild herbs and the herbal.
+  - Animals: taming wolves, boars, deer and wild horses; companions with orders; livestock in commons and paddocks; breeding with inherited traits.
+  - Keep halls with war tables, armourers and hearths; building from goods: walls, doors, roofs, stairs, fences, beds and chests that burn and are repaired.

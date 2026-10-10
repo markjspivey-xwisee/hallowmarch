@@ -158,14 +158,17 @@ function playerUseSlot(i) {
   const id = CLASSES[P.cls].abilities[i];
   if (!id) return;
   if (P.mount) dismount(P);
-  let t = getEnt(P.target);
+  let t = getEnt(P.target), auto = false;
   const A = ABILITIES[id];
   if (!A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive)) {
     cycleTarget();
     t = getEnt(P.target);
+    auto = true;
   }
-  // with no foe to aim at, a fire spell can be aimed at the house in front of you
-  const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
+  // with no foe to aim at (or only one picked out of reach just now), a fire spell can be aimed at the house, tree or
+  // long grass in front of you
+  const far = auto && t && A.range && dist(P.x, P.z, t.x, t.z) > A.range + 0.5;
+  const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
     const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', dead: '' }[r];

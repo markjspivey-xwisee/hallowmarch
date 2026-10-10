@@ -840,7 +840,7 @@ function survivalOffers(P, offer) {
   const thirsty = SURV.thirst < 0.97, fill = goodsHave('waterskin_empty');
   const waterLabel = (what) => (thirsty && fill ? `Drink from ${what} and fill your waterskins` : thirsty ? `Drink from ${what}` : `Fill your waterskins at ${what}`);
   if (thirsty || fill) {
-    for (const w of wellSpots()) offer(dist(P.x, P.z, w.x, w.z), w.kind === 'well' ? 2.9 : 2.6, waterLabel(`the ${w.kind}`), () => drinkAt(w, w.kind), thirsty ? 0.08 : 0.03);
+    for (const w of wellSpots()) offer(dist(P.x, P.z, w.x, w.z), w.kind === 'well' ? 2.9 : 2.6, waterLabel(`the ${w.kind}`), () => drinkAt(w, w.kind), SURV.thirst < 0.6 ? 0.08 : thirsty ? 0.04 : 0.03); // washing dirty gear (0.05) comes first unless you are really thirsty
     // lakes, ponds and rivers: the water module offers the drink (waterOffers in 07b_swim.js calls drinkAt)
   }
   // a fire: cook what is raw (stews and the rest in the crafting book, C)

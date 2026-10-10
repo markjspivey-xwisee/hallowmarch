@@ -219,10 +219,11 @@ async def main():
           const skins0 = F.goodsCount('waterskin_empty'), water0 = F.goodsCount('water');
           const it = (() => { const near = Wt.waterNear(P); let best = null; Wt.waterOffers(P, (d, range, label, act) => { if (d < range) best = { label, act }; }); return { near, best }; })();
           const label = it.best ? it.best.label : null; if (it.best) it.best.act();
+          H.simulate(2.2); // [survival] drinking takes a moment, down on the haunches at the edge
           return { label, near: it.near, skins0, water0, skins1: F.goodsCount('waterskin_empty'), water1: F.goodsCount('water'), errors: H.errors.slice(0, 3) }; })()""")
         print('drink', json.dumps(r))
         check(r['label'] and r['label'].startswith('Drink'), "at the water's edge E offers a drink (%s)" % r['label'])
-        check(r['skins0'] >= 1 and r['water1'] == r['water0'] + 1, 'the issued waterskin is filled with water')
+        check(r['skins0'] >= 1 and r['water1'] == r['water0'] + r['skins0'] and r['skins1'] == 0, 'the empty waterskins are filled with water')
 
         # ---- the Chronicle's water page and the help ----
         r = await page.evaluate("""(() => { const H = __hm; H.LORE.openChronicle('water'); const b = document.querySelector('.chron-body'); const txt = b ? b.textContent : '';

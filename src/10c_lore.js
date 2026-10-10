@@ -130,10 +130,16 @@ const LORE_CSS = `
 /* the Chronicle tab of the menu */
 #menu .sheet:has(.chron) { width: min(840px, 100%); }
 .chron { display: grid; gap: 14px; }
-.chron-nav { position: sticky; top: -20px; z-index: 3; display: flex; flex-wrap: wrap; gap: 6px; margin: -4px -22px 0; padding: 8px 22px 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
+.chron-nav { position: sticky; top: -20px; z-index: 3; display: grid; gap: 7px; margin: -4px -22px 0; padding: 6px 22px 10px; background: #1a1c21; border-bottom: 1px solid var(--line); }
+.chron-grps, .chron-secs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chron-grps { gap: 2px 14px; border-bottom: 1px solid var(--line); }
 .chron-nav button { flex: none; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--ink-dim); border-radius: 999px; padding: 5px 11px; font: 500 13.5px var(--ui); cursor: pointer; white-space: nowrap; }
 .chron-nav button:hover { color: var(--ink); border-color: var(--line-strong); }
 .chron-nav button[aria-current="true"] { background: var(--bronze-hi); border-color: var(--bronze-hi); color: #1b140b; }
+.chron-nav button[hidden] { display: none; }
+.chron-grps button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 2px 5px; margin-bottom: -1px; font: 500 12px/1.2 var(--caps); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
+.chron-grps button:hover { color: var(--ink); }
+.chron-grps button[aria-current="true"] { background: none; color: var(--bronze-hi); border-bottom-color: var(--bronze-hi); }
 .chron-body { display: grid; gap: 12px; animation: lore-in 0.35s ease both; }
 .chron-body > p, .chron .card p { margin: 0; line-height: 1.55; }
 .chron-body p b, .chron .card p b { color: var(--ink); font-weight: 700; }
@@ -211,8 +217,8 @@ const LORE_CSS = `
   .chron .dg-wide { display: none; }
   .chron .dg-tall { display: block; }
   .chron .grid2, .chron ul.champs { grid-template-columns: minmax(0, 1fr); }
-  .chron-nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .chron-nav::-webkit-scrollbar { display: none; }
+  .chron-grps, .chron-secs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chron-grps::-webkit-scrollbar, .chron-secs::-webkit-scrollbar { display: none; }
   .chron .tide { grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 10px; font-size: 13px; }
   .chron .tide .w { grid-column: 1 / -1; margin-top: -4px; padding-left: 18px; }
   .chron .tide .h.w { display: none; }
@@ -1143,19 +1149,35 @@ function renderChronicle(body, fromNav = false) {
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
   const sec = LORE.chronSec;
   const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath }[sec];
-  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle">${CHRON_SECTIONS.map(([k, l]) => `<button type="button" data-sec="${k}" aria-current="${k === sec}">${l}</button>`).join('')}</nav><div class="chron-body">${fn()}</div></div>`;
+  const G = chronGroupOf(sec), label = Object.fromEntries(CHRON_SECTIONS);
+  // two rows: the four parts of the Chronicle, then the pages of the part you are in (every page is in the row; the
+  // other parts' pages are hidden until you turn to them)
+  const grps = CHRON_GROUPS.map(([gk, gl]) => `<button type="button" data-grp="${gk}" aria-current="${gk === G[0]}">${gl}</button>`).join('');
+  const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
+  body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
   const sheet = body.closest('.sheet');
-  const nav = body.querySelector('.chron-nav'), cur = nav.querySelector('[aria-current="true"]');
+  const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
   if (sheet && !fromNav) sheet.scrollTop = 0;
   else if (sheet) {
     const d = body.querySelector('.chron-body').getBoundingClientRect().top - sheet.getBoundingClientRect().top - nav.offsetHeight - 6;
     if (d < 0) sheet.scrollTop += d;
   }
-  if (cur && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = cur.offsetLeft - nav.clientWidth / 2 + cur.offsetWidth / 2;
+  if (cur && row.scrollWidth > row.clientWidth) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
 }
+// the Chronicle's four parts; a page no part names falls under the first
+const CHRON_GROUPS = [
+  ['land', 'The March', ['march', 'realms', 'water', 'wilds', 'dragon', 'barrow']],
+  ['you', 'Your path', ['path', 'callings']],
+  ['war', 'The war', ['war', 'orders', 'halls', 'gifts']],
+  ['life', 'Living', ['living', 'fields', 'herbal', 'animals', 'building']],
+];
+for (const [k] of CHRON_SECTIONS) if (!CHRON_GROUPS.some((g) => g[2].includes(k))) CHRON_GROUPS[0][2].push(k);
+const chronGroupOf = (k) => CHRON_GROUPS.find((g) => g[2].includes(k)) || CHRON_GROUPS[0];
 $('menu-body').addEventListener('click', (e) => {
   const s = e.target.closest('.chron-nav [data-sec]');
   if (s) { LORE.chronSec = s.dataset.sec; renderChronicle($('menu-body'), true); sfx('click'); return; }
+  const g = e.target.closest('.chron-nav [data-grp]');
+  if (g) { const G = CHRON_GROUPS.find((q) => q[0] === g.dataset.grp); if (G && chronGroupOf(LORE.chronSec) !== G) { LORE.chronSec = G[2][0]; renderChronicle($('menu-body'), true); sfx('click'); } return; }
   const a = e.target.closest('.chron [data-lore]');
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
 });
