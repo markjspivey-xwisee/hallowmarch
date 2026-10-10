@@ -779,6 +779,7 @@ function thinkSoldier(e, dt) {
     return;
   }
   if (e.siegeCrew && siegeCrewThink(e, dt)) return; // [siege] working a siege engine (04h_siege.js)
+  if (e.hallowRun && siegeHallowRun(e, dt)) return; // [siege] campaign tuning: a raider runs for the hallow (04h_siege.js)
   // [campaign] a band called to the player's side: its leader breaks off any fight and goes, and the
   // rest follow once their foes are left behind (08g_campaign.js)
   if (O && O.type === 'rally' && e === L && wb.leaderGoal && O.point && dist(e.x, e.z, O.point.x, O.point.z) > 12) {

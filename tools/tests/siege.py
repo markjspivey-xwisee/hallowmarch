@@ -4,7 +4,9 @@ work it; the ram damages the gate; stones fly on their arcs and hit; wall sectio
 band storms through the breach; the garrison holds the gap and sallies out of its gate at a lightly guarded engine
 (the gate opens and shuts behind them); an engine is hacked apart, another set alight and burnt; the player joins a
 crew and takes over an abandoned engine. Screenshots of every engine at work, a burning engine and a breach.
-usage: python3 tools/tests/siege.py [noshots] [final] [quality] [only=ram|mangonel|trebuchet|sally|destroy|player|shots]"""
+usage: python3 tools/tests/siege.py noshots [quality] [only=ram|mangonel|trebuchet|sally|destroy|player]   the checks
+       python3 tools/tests/siege.py [final] [quality]            staged screenshots of every engine (tools/out/siege_*)
+       python3 tools/tests/siege.py scenario [final] [quality]   the checks, with screenshots taken along the way (slow)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -12,6 +14,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
+SCEN = SHOTS and 'scenario' in ARGS  # screenshots along the way of the checks (slow); otherwise staged shots at the end
 QUALITY = next((a for a in ARGS if a in ('high', 'medium', 'low')), 'medium')
 ONLY = next((a.split('=')[1] for a in ARGS if a.startswith('only=')), None)
 FAILS = []
@@ -33,17 +36,17 @@ async def shot(page, name, js):
     if not SHOTS: return
     await page.evaluate(js)
     await frames(page, 2)
-    await page.screenshot(path=OUT + name + '.png', timeout=300000)
+    await page.screenshot(path=OUT + name + ".png", timeout=900000)
     print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
 
-def on(name): return not ONLY or ONLY == name
+def on(name): return (not ONLY and not (SHOTS and not SCEN)) or ONLY == name
 
 HELPERS = r"""
 window.T = {
   H: __hm, F: __hm.fn, S: __hm.SIEGE,
   keep(realm, k) { return __hm.WAR.keeps.find((K) => K.orig === realm && K.site === __hm.REALMS[realm].keepSites[k]); },
   w(S, lx, lz) { return this.F.siteToWorld(S, lx, lz); },
-  cam(x, y, z, tx, ty, tz) { const H = this.H; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); },
+  cam(x, y, z, tx, ty, tz) { const H = this.H; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const hud = document.getElementById('hud'); if (hud) hud.style.visibility = 'hidden'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); },
   // a camera beside an engine, in its own frame: (lx, ly, lz) from it, looking at (tx, ty, tz) in its frame
   camE(E, lx, ly, lz, tx, ty, tz) { const c = Math.cos(E.yaw), s = Math.sin(E.yaw), P = (x, z) => [E.x + x * c + z * s, E.z - x * s + z * c]; const [ax, az] = P(lx, lz), [bx, bz] = P(tx, tz); this.cam(ax, E.y + ly, az, bx, E.y + ty, bz); },
   play() { this.H.UI.modal = null; this.H.CAM.mode = 'play'; },
@@ -79,14 +82,16 @@ async def main():
         if on('ram'):
             r = await ev(page, 'ram: band', "(() => { T.quiet(); T.S.SIEGE.force = 'ram'; const K = T.keep(0, 0); const id = T.S.band(1, K.id, 95, 10); T.ram = id; const t = T.until(() => T.S.wb(id).siegeE, 40); const wb = T.S.wb(id); T.ramE = wb.siegeE; return { t, wb, eng: T.eng(wb.siegeE) }; })()")
             check(r['eng'] and r['eng']['kind'] == 'ram' and r['eng']['crew'] >= 3, 'a warband marching on a keep builds a battering ram, with a crew')
-            r = await ev(page, 'ram: built and pushed', "(() => { const id = T.ramE; const t1 = T.until(() => T.eng(id).state !== 'build', 40); const a = T.eng(id); const t2 = T.until(() => T.eng(id).state === 'work', 60); return { t1, t2, a, b: T.eng(id), d: (() => { const E = T.E(id), K = T.keep(0, 0), g = T.S.siegeGatePoint(K.site); return +Math.hypot(E.x - g.x, E.z - g.z).toFixed(2); })() }; })()")
+            r = await ev(page, 'ram: built', "(() => { const id = T.ramE; const t1 = T.until(() => T.eng(id).state !== 'build', 40); __hm.simulate(3); return { t1, a: T.eng(id) }; })()")
+            if SCEN:
+                await shot(page, 'siege_ram_push', "(() => { const E = T.E(T.ramE); T.camE(E, 6.5, 3.4, -7.5, 0, 1.6, 0.5); })()")
+            r2 = await ev(page, 'ram: pushed', "(() => { const id = T.ramE; const t2 = T.until(() => T.eng(id).state === 'work', 60); return { t2, b: T.eng(id), d: (() => { const E = T.E(id), K = T.keep(0, 0), g = T.S.siegeGatePoint(K.site); return +Math.hypot(E.x - g.x, E.z - g.z).toFixed(2); })() }; })()")
+            r.update(r2)
             check(r['a']['state'] == 'move' and r['b']['state'] == 'work' and abs(r['d'] - 3.98) < 0.3, 'its crew push it up to the gate on its wheels')
-            if SHOTS:
-                await shot(page, 'siege_ram_push', "(() => { const E = T.E(T.ramE); T.camE(E, 9, 4.5, 9, 0, 1.5, 1); })()")
             r = await ev(page, 'ram: hits', "(() => { const K = T.keep(0, 0), D = K.door, hp0 = D.hp, h0 = T.S.stats().ramHits; const psi = []; for (let i = 0; i < 24; i++) { __hm.simulate(0.25); psi.push(T.E(T.ramE).psi.toFixed(2)); } return { hp0: Math.round(hp0), hp: Math.round(D.hp), hits: T.S.stats().ramHits - h0, psi: psi.join(' ') }; })()")
             check(r['hits'] >= 1 and r['hp'] < r['hp0'], f"the ram swings on its slings and batters the gate ({r['hits']} blows, gate {r['hp0']} -> {r['hp']})")
-            if SHOTS:
-                await shot(page, 'siege_ram_gate', "(() => { const E = T.E(T.ramE); T.until(() => E.ph === 'swing' && E.psi > 0.05, 6, 0.05); T.camE(E, 7.5, 3.4, 1.2, 0, 1.4, 3.5); })()")
+            if SCEN:
+                await shot(page, 'siege_ram_gate', "(() => { const E = T.E(T.ramE); T.until(() => E.ph === 'swing' && E.psi > 0.05, 6, 0.05); T.camE(E, 6.8, 3.0, -3.2, 0, 1.6, 3.2); })()")
             r = await ev(page, 'ram: gate breaks', "(() => { const K = T.keep(0, 0); const t = T.until(() => !K.door.alive, 240); const wb = T.S.wb(T.ram); return { t, alive: K.door.alive, wb, eng: T.eng(T.ramE) }; })()")
             check(not r['alive'], f"the gate breaks under the ram and the band ({r['t']:.0f} s)")
             check(r['wb'] is None or r['wb']['phase'] in ('assault', 'hold') or r['wb']['dead'], 'and the band storms the court')
@@ -102,7 +107,7 @@ async def main():
             r = await ev(page, f'{kind}: shots', f"(() => {{ const id = T.catE, E = T.E(id), W = E.target.W; const s0 = T.S.stats(); const arms = []; let flying = 0; for (let i = 0; i < 160; i++) {{ __hm.simulate(0.25); if (i % 8 === 0) arms.push(E.arm.toFixed(2)); flying = Math.max(flying, T.S.SIEGE.stones.length); }} const s = T.S.stats(); return {{ shots: s.shots - s0.shots, hits: s.wallHits - s0.wallHits, flying, wear: +W.wear.toFixed(2), state: W.state, arms: arms.join(' ') }}; }})()")
             check(r['shots'] >= 2 and r['flying'] >= 1, f"the {kind} throws stones that fly on their arcs ({r['shots']} in 40 s)")
             check(r['hits'] >= 1 and (r['wear'] > 0 or r['state'] != 'whole'), f"stones strike the wall section and crack it (wear {r['wear']})")
-            if SHOTS:
+            if SCEN:
                 if kind == 'mangonel':
                     await shot(page, 'siege_mangonel_wind', f"(() => {{ const E = T.E(T.catE); T.until(() => E.ph === 'load', 20, 0.1); T.camE(E, 6.5, 3.2, -6, 0, 1.4, 0); }})()")
                     await shot(page, 'siege_mangonel_throw', f"(() => {{ const E = T.E(T.catE); T.until(() => E.ph === 'throw', 20, 0.05); T.until(() => !E.loaded, 2, 0.02); __hm.simulate(0.04); T.camE(E, 7, 3.5, 3, 0, 2.4, 4); }})()")
@@ -112,13 +117,13 @@ async def main():
                     await shot(page, 'siege_trebuchet_stone', f"(() => {{ const E = T.E(T.catE), W = E.target.W, f = T.S.siegeFace(W); T.until(() => T.S.SIEGE.stones.length > 0, 25, 0.05); __hm.simulate(0.9, 0.05); const mx = (E.x + f.x) / 2, mz = (E.z + f.z) / 2; const nx = (f.x - E.x), nz = (f.z - E.z), d = Math.hypot(nx, nz); T.cam(mx - nz / d * 38, E.y + 14, mz + nx / d * 38, mx, E.y + 8, mz); }})()")
             r = await ev(page, f'{kind}: breach', f"(() => {{ const E = T.E(T.catE), W = E.target.W; const t = T.until(() => W.state === 'breach', 420, 1); return {{ t, state: W.state, wear: +W.wear.toFixed(2), stats: T.S.stats(), wb: T.S.wb(T.cat) }}; }})()")
             check(r['state'] == 'breach', f"the section falls into a breach ({r['t']:.0f} s more)")
-            if SHOTS and kind == 'mangonel':
+            if SCEN and kind == 'mangonel':
                 await shot(page, 'siege_breach', f"(() => {{ const E = T.E(T.catE), W = T.keep({keep[0]}, {keep[1]}) && T.F.castleOf(T.keep({keep[0]}, {keep[1]}).site).sections.find((q) => q.state === 'breach'), f = T.S.siegeFace(W); T.cam(W.wx + f.nx * 16 + W.wax * 8, W.C.S.y + 7, W.wz + f.nz * 16 + W.waz * 8, W.wx, W.C.S.y + 2.5, W.wz); }})()")
             r = await ev(page, f'{kind}: through the breach', f"(() => {{ const K = T.keep({keep[0]}, {keep[1]}), C = T.F.castleOf(K.site); let inside = 0, phases = new Set(); const t = T.until(() => {{ const wb = T.H.WAR.warbands.find((w) => w.id === T.cat); if (!wb || wb.dead) return true; if (wb.order) phases.add(wb.order.phase); inside = T.F.wbMembers(wb).filter((e) => {{ const dx = e.x - K.site.x, dz = e.z - K.site.z, c = Math.cos(K.site.yaw), s = Math.sin(K.site.yaw); const lx = dx * c - dz * s, lz = dx * s + dz * c; return Math.abs(lx) < 13.5 && Math.abs(lz) < 13.5; }}).length; return inside >= 2 || K.realm !== {keep[0]}; }}, 120, 0.5); return {{ t, inside, phases: [...phases], door: K.door.alive, realm: K.realm, plug: __hm.SIEGE.stats().plugs }}; }})()")
             check('breach' in r['phases'], 'the commander sends the band through the breach')
             check(r['inside'] >= 2 or r['realm'] != keep[0], f"attackers climb the rubble into the court ({r['inside']} inside, gate standing: {r['door']})")
             check(r['plug'] >= 1, 'the garrison runs to hold the breach')
-            if SHOTS and kind == 'trebuchet':
+            if SCEN and kind == 'trebuchet':
                 await shot(page, 'siege_breach_storm', f"(() => {{ const W = T.F.castleOf(T.keep({keep[0]}, {keep[1]}).site).sections.find((q) => q.state === 'breach'), f = T.S.siegeFace(W); T.cam(W.wx + f.nx * 14 - W.wax * 9, W.C.S.y + 8, W.wz + f.nz * 14 - W.waz * 9, W.wx, W.C.S.y + 1.5, W.wz); }})()")
 
         # ---- 3. a sally: the garrison opens its own gate at a lightly guarded engine, and shuts it behind them ----
@@ -136,11 +141,11 @@ async def main():
             r = await ev(page, 'destroy: fire', "(() => { const K = T.keep(1, 1), C = T.F.castleOf(K.site), g = T.S.siegeGatePoint(K.site); const E = T.S.siegeCreate('mangonel', 2, g.x + g.nx * 50, g.z + g.nz * 50, Math.atan2(-g.nx, -g.nz), { C, gate: true }); E.build = 1; E.state = 'idle'; T.burnE = E.id; T.F.fireLandsAt(E.x, E.y + 1, E.z, 3); const a = { state: E.state, burn: E.burn }; __hm.simulate(10); const b = { state: E.state, burn: +E.burn.toFixed(2), char: +E.mat.uniforms.uChar.value.toFixed(2), hp: Math.round(E.ent.hp) }; return { a, b }; })()")
             check(r['a']['state'] == 'burning', 'a fire spell landing on a mangonel sets it alight')
             check(r['b']['char'] > 0.3, f"the fire chars its timbers as it burns (char {r['b']['char']})")
-            if SHOTS:
+            if SCEN:
                 await shot(page, 'siege_burning', "(() => { const E = T.E(T.burnE); __hm.setTod(1.75); T.camE(E, 7, 3.5, 5, 0, 1.4, 0); })()")
             r = await ev(page, 'destroy: burnt', "(() => { const E = T.E(T.burnE); const t = T.until(() => E.state === 'wreck', 60, 0.5); __hm.simulate(3); return { t, state: E.state, alive: E.ent.alive, burnt: T.S.stats().burnt }; })()")
             check(r['state'] == 'wreck' and not r['alive'] and r['burnt'] >= 1, 'it burns down and falls in')
-            if SHOTS:
+            if SCEN:
                 await shot(page, 'siege_burnt', "(() => { const E = T.E(T.burnE); T.camE(E, 6, 3, 5, 0, 0.8, 0); })()")
             await page.evaluate("__hm.setTod(0.55)")
 
@@ -152,9 +157,40 @@ async def main():
             check(not r['player'], 'walking away leaves the crew')
             r = await ev(page, 'player: take over', "(() => { const K = T.keep(0, 1), C = T.F.castleOf(K.site), W = C.sections[1], f = T.S.siegeFace(W); const x = f.x + f.nx * 44, z = f.z + f.nz * 44; const E = T.S.siegeCreate('mangonel', 2, x, z, Math.atan2(-f.nx, -f.nz), { C: T.F.castleOf(T.keep(1, 0).site), gate: true }); E.build = 1; E.state = 'idle'; const P = __hm.GAME.player; P.faction = 1; P.x = P.prevX = E.x + 2.5; P.z = P.prevZ = E.z; P.y = T.F.heightAt(P.x, P.z); const it = { label: T.S.interaction() }; __hm.fn.playerInteract(); const s0 = E.shots; T.until(() => E.shots > s0, 40, 0.25); const r = { label: it ? it.label : null, realm: E.realm, target: E.target ? E.target.C.S.name : null, state: E.state, shots: E.shots - s0 }; P.faction = 0; return r; })()")
             check(r['realm'] == 1 and r['shots'] >= 1, f"the player takes over an abandoned enemy engine and turns it on the enemy ({r['label']}, at {r['target']})")
-            if SHOTS:
+            if SCEN:
                 await shot(page, 'siege_player_crew', "(() => { const E = T.E(T.pE), P = __hm.GAME.player; P.faction = 0; T.S.siegeJoin(E); T.until(() => E.ph === 'wind' && E.arm < 1.2, 12, 0.1); T.camE(E, 5, 2.8, -6.5, 0.5, 1.3, -1.5); })()")
 
+
+        # ---- 6. staged screenshots: each engine at work, a stone in flight, a burning engine, a breach stormed ----
+        if SHOTS and not SCEN and (not ONLY or ONLY == 'shots'):
+            await ev(page, 'shots: setup', "(() => { T.quiet(); T.away(); __hm.setTod(0.62); T.S.SIEGE.force = null; return 0; })()")
+            # a warband's engine, its build skipped: rolled straight to where it works, its crew walked to their places
+            STAGE = """(kind, realm, keep, k) => { T.S.SIEGE.force = kind; const K = T.keep(keep[0], keep[1]); const id = T.S.band(realm, K.id, 70, 10); __hm.simulate(1.0); const wb = T.S.wb(id); const E = T.E(wb.siegeE); E.build = 1; E.x = E.work.x; E.z = E.work.z; E.state = 'work'; E.ph = kind === 'ram' ? 'pull' : 'wind'; E.arm = kind === 'mangonel' ? 2.2 : kind === 'trebuchet' ? Math.PI / 2 : 0; T.S.SIEGE.force = null; const B = __hm.WAR.warbands.find((w) => w.id === id); for (const m of T.F.wbMembers(B)) if (!m.siegeCrew) { m.x = m.prevX = E.x + (Math.random() - 0.5) * 8 - Math.sin(E.yaw) * 6; m.z = m.prevZ = E.z + (Math.random() - 0.5) * 8 - Math.cos(E.yaw) * 6; } for (const cid of E.crew) { const c = T.F.getEnt(cid); c.x = c.prevX = E.x + (Math.random() - 0.5); c.z = c.prevZ = E.z + (Math.random() - 0.5); } T[k] = E.id; T[k + 'wb'] = id; return E.id; }"""
+            await ev(page, 'stage ram', f"(() => {{ const st = {STAGE}; st('ram', 1, [0, 0], 'sr'); const E = T.E(T.sr); __hm.simulate(3); T.until(() => E.ph === 'swing' && E.psi > 0.08, 8, 0.05); return T.eng(T.sr); }})()")
+            await shot(page, 'siege_ram_gate', "(() => { const E = T.E(T.sr); T.camE(E, 7.2, 4.6, -5.2, 0, 1.5, 1.8); })()")
+            await ev(page, 'stage mangonel', f"(() => {{ T.quiet(); const st = {STAGE}; st('mangonel', 1, [0, 1], 'sm'); const E = T.E(T.sm); __hm.simulate(2); T.until(() => E.ph === 'wind' && E.arm < 1.0, 12, 0.1); return T.eng(T.sm); }})()")
+            await shot(page, 'siege_mangonel_wind', "(() => { const E = T.E(T.sm); T.camE(E, 6.0, 2.8, -6.2, 0, 1.3, -0.8); })()")
+            await ev(page, 'mangonel throw', "(() => { const E = T.E(T.sm); T.until(() => E.ph === 'throw', 14, 0.1); T.until(() => !E.loaded, 2, 0.01); __hm.simulate(0.12, 0.02); return T.eng(T.sm); })()")
+            await shot(page, 'siege_mangonel_throw', "(() => { const E = T.E(T.sm); T.camE(E, 7.5, 3.6, -1.5, 0, 2.6, 4); })()")
+            await ev(page, 'stage trebuchet', f"(() => {{ T.quiet(); const st = {STAGE}; st('trebuchet', 2, [1, 0], 'st'); const E = T.E(T.st); __hm.simulate(2); T.until(() => E.ph === 'load' && E.loaded, 30, 0.1); return T.eng(T.st); }})()")
+            await shot(page, 'siege_trebuchet_cocked', "(() => { const E = T.E(T.st); T.camE(E, 12.5, 4.6, -6, 0, 2.4, -0.8); })()")
+            await ev(page, 'trebuchet throw', "(() => { const E = T.E(T.st); T.until(() => E.ph === 'throw', 6, 0.05); __hm.simulate(0.5, 0.025); return T.eng(T.st); })()")
+            await shot(page, 'siege_trebuchet_throw', "(() => { const E = T.E(T.st); T.camE(E, 14, 5.0, 1, 0, 4.2, 0); })()")
+            await ev(page, 'trebuchet stone', "(() => { const E = T.E(T.st); T.until(() => T.S.SIEGE.stones.length > 0, 3, 0.02); __hm.simulate(1.2, 0.05); return T.S.SIEGE.stones.length; })()")
+            await shot(page, 'siege_trebuchet_stone', "(() => { const E = T.E(T.st), s = T.S.SIEGE.stones[0] || { x: E.x, y: E.y + 10, z: E.z }; const fx = Math.sin(E.yaw), fz = Math.cos(E.yaw); T.cam(E.x + fz * 30 - fx * 6, E.y + 9, E.z - fx * 30 - fz * 6, s.x, s.y - 2, s.z); })()")
+            await ev(page, 'breach', "(() => { const W = T.E(T.st).target.W; T.until(() => W.state === 'breach', 300, 1); return W.state; })()")
+            await shot(page, 'siege_breach', "(() => { const W = T.E(T.st).target.W, f = T.S.siegeFace(W); T.cam(W.wx + f.nx * 15 + W.wax * 7, W.C.S.y + 6.5, W.wz + f.nz * 15 + W.waz * 7, W.wx, W.C.S.y + 2.2, W.wz); })()")
+            await ev(page, 'burn', "(() => { const E = T.E(T.sm); if (E) T.F.fireLandsAt(E.x, E.y + 1, E.z, 3); __hm.simulate(9); __hm.setTod(1.72); return T.eng(T.sm); })()")
+            await shot(page, 'siege_burning', "(() => { const E = T.E(T.sm); T.camE(E, 7, 3.2, 4.5, 0, 1.4, 0); })()")
+        if SHOTS and not SCEN and (not ONLY or ONLY == 'shots'):
+            # the engines' shader (the building shader with char and embers) at every quality, by day and by night
+            for q in ('high', 'low', 'medium'):
+                await page.evaluate(f"__hm.fn.setQuality('{q}')")
+                await frames(page, 2)
+            await page.evaluate("__hm.setTod(0.5)")
+            await frames(page, 2)
+            bad = await ev(page, 'programs', "__hm.dbg.renderer.info.programs.filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name + ': ' + (p.diagnostics.fragmentShader.log || '').slice(0, 200))")
+            check(len(bad) == 0, 'the siege shader compiles at high, medium and low, by day and by night')
         r = await ev(page, 'errors', "__hm.errors.slice(0, 5)")
         check(len(r) == 0, '__hm.errors is empty')
         print('logs', logs[:5])

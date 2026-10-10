@@ -64,7 +64,7 @@ The harness lives in `tools/`:
 6. Check the phone layout with `python3 tools/tests/phone.py`.
 7. For lore and onboarding (prologue, Chronicle, path, notes), run `python3 tools/tests/lore.py`.
 8. Each big system has its own test. Run the ones your change touches:
-   - `castles.py`, `houses.py` and `nature.py`
+   - `castles.py`, `houses.py`, `nature.py` and `siege.py` (engines, breaches, sallies, the player's crew)
    - `weather.py`, `war.py` and `level50.py`
    - `merged.py`: a quick smoke test of the whole game after merging branches. It checks that every system comes up, runs a stormy war for a few minutes, and takes two screenshots.
 9. In test scripts, a `page.evaluate` must never return `window.__hm` or a helper object that holds it. Playwright tries to serialise the whole game and stalls. End helper scripts with `;0`.
@@ -97,6 +97,7 @@ The harness lives in `tools/`:
 | `04d_barrow.js` | The Barrow: the surface mound and the dungeon grid and geometry; indoor mode (`INDOOR`, `setIndoor`, `travel`) |
 | `04e_houses.js` | Working houses: two-layer walls with real openings, hinged doors and shutters, glazing, the house shader (patched from the building shader at anchors; it throws if one is missing), interactions, camera inside, fire (`igniteHouse`, `houseAt`, `fireLandsAt`), collapse to a ruin and rebuilding on a scaffold |
 | `04f_rooms.js` | Furnished rooms: hearths and stoves with real fires, tables, benches, beds, shelves, barrels, rugs, lamps; furniture colliders; ruins and scaffolds |
+| `04h_siege.js` | Siege engines: battering rams, mangonels and trebuchets built in code (their own charring shader patched from the building shader), built and crewed by warbands, pushed into range, worked (windlass, slings, counterweight), stones on real arcs that crack wall sections (`castleSiegeHit`) and batter gates; engines hacked apart or set alight (`siegeFireAt`); the commanders' choice of gate or breach, bands storming a breach, the garrison holding it (`ai.plug`) and sallying out of its gate (`ai.sally`); the player joining a crew or taking over an abandoned engine. Test hooks on `__hm.SIEGE` |
 | `04g_castles.js` | Working castles: floors (`floorAt`, `floorSolidAt`), stairs, wall walks with crenellated parapets, open tower tops, gates with hinged leaves and portcullises (open for their own side, shut against enemies), garrison posts and walking routes (`castleRoute`), breachable and repairable wall sections (`castleSiegeHit`), crack and breach shader patches |
 | `05a_rig.js` | Characters built in code: skinned humanoids and beasts |
 | `05b_actors.js` | Instanced, vertex-animated crowds; particles; glows |
@@ -163,6 +164,7 @@ The harness lives in `tools/`:
 
 **Collision**
 - `COLL` holds boxes and circles in a spatial grid. The Barrow also uses it for line of sight.
+- Siege engines are entities of kind `door` with `siegeEngine` set (not actors, so nothing auto-targets them; defenders and sallies go for them on purpose). `python3 tools/campaign_soak.py 60 low` runs an AI-only campaign and reports how each one ended.
 - Colliders marked `vert` block only at their own height range (walls below their top, parapets only up on the walk). `stepTo` passes the body's height to `resolveCollisions` and asks `castleStepBlocked` about stair sides and raised edges.
 
 **Floors**
@@ -226,7 +228,8 @@ The harness lives in `tools/`:
 | 7 | The war: readable, steerable orders and winnable campaigns | Done (version 6). Left: tune so more campaigns end by claims than by renown; hallow raids rarely succeed |
 | 8 | Visual pass on existing models and shaders | Next |
 | 9 | Realm gifts (passives and a realm ultimate) | Planned |
-| 10 | Music, aurora, siege engines (and the war AI using breaches) | Planned |
+| 10 | Music, aurora | Planned |
+| 11 | Siege engines, the war AI using breaches, sallies; campaign tuning (claims over renown) | Built on `feature/siege`. Left: tower interiors and hatches |
 
 ## History
 

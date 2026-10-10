@@ -20,7 +20,7 @@ const SIEGE = { engines: [], stones: [], nextId: 1, parts: new Map(), pool: [], 
   stats: { built: 0, rams: 0, mangonels: 0, trebuchets: 0, shots: 0, wallHits: 0, gateHits: 0, ramHits: 0, breaches: 0, burnt: 0, broken: 0, sallies: 0, plugs: 0, breachAssaults: 0, playerCrew: 0 } };
 // hp: share of a keep gate's; range: metres from the wall face; reload: seconds with a full crew; mult: wall damage per stone
 const SIEGE_SPEC = {
-  ram: { label: 'battering ram', crew: 4, speed: 1.35, hp: 0.34, radius: 2.4, build: 16, wheels: true },
+  ram: { label: 'battering ram', crew: 4, speed: 1.35, hp: 0.34, radius: 2.4, build: 11, wheels: true },
   mangonel: { label: 'mangonel', crew: 3, speed: 1.1, hp: 0.26, radius: 2.4, build: 20, range: 44, reload: 7.5, mult: 2.6, stone: 0.3, wheels: true, box: [1.0, 2.5, 0] },
   trebuchet: { label: 'trebuchet', crew: 4, speed: 0, hp: 0.42, radius: 3.4, build: 28, range: 70, reload: 11, mult: 4.4, stone: 0.42, wheels: false, box: [1.35, 3.75, -0.3] },
 };
@@ -170,6 +170,8 @@ function siegeParts(kind, realm) {
     for (const sx of [-1, 1]) base.add(G.box, lm(SG_I, sx * 2.05, 0.17, 0, 0, 0.34, 0.32, 1.3), MAT.wood, dark);
     // the trough the sling lies in
     base.add(G.box, lm(SG_I, 0, 0.3, -1.85, 0, 0.66, 0.06, 4.3), MAT.wood, darker(wood, 0.85));
+    // a heap of shaped stones by the rear sill, ready for the sling
+    for (let i = 0; i < 9; i++) { const a = i * 2.4, rr = 0.2 + 0.45 * hash1(i * 5.3), k = 0.36 + 0.1 * hash1(i * 9.1); base.add(SIEGE_STONE_GEO, lm(SG_I, 2.3 + Math.cos(a) * rr, k * 0.7 + (i > 6 ? 0.45 : 0), -3.0 + Math.sin(a) * rr, a, k, k * 0.9, k), MAT.stone, darker([0.6, 0.58, 0.54], 0.82 + 0.16 * hash1(i * 3.1))); }
     for (const sx of [-1, 1]) base.add(G.box, lm(SG_I, sx * 0.33, 0.39, -1.85, 0, 0.07, 0.2, 4.3), MAT.wood, dark);
     for (const sx of [-1, 1]) {
       for (const z of [-1.9, 1.9]) sgBeam(upper, sx * 1.15, 0.36, z, sx * 1.15, TREB_AXLE + 0.05, 0, 0.3, 0.3, MAT.wood, wood);
@@ -380,7 +382,7 @@ function siegeCrewThink(e, dt) {
   const s = siegeSlot(E, e.siegeSlot), d = dist(e.x, e.z, s.x, s.z);
   e.target = null;
   // under the ram's hide roof the crew are sheltered from the arrows of the walls
-  if (E.kind === 'ram' && d < 0.8 && E.build >= 1) addBuff(e, 'dr', 0.6, 0.6, 'ramshed');
+  if (E.kind === 'ram' && d < 0.8) addBuff(e, 'dr', 0.6, 0.6, 'ramshed');
   if (d > 0.3) moveToward(e, s.x, s.z, dt, d > 3 ? 1.1 : 0.75, 0.1);
   else {
     // face the work: the ram's crew face forward, the others face the windlass or the frame
@@ -414,7 +416,9 @@ function siegeFace(W) {
   return { nx, nz, x: W.wx + nx * (W.across + 0.05), z: W.wz + nz * (W.across + 0.05) };
 }
 function siegeGatePoint(S) {
-  const p = siteToWorld(S, 0, S.gateLocal.z + 0.12), q = siteToWorld(S, 0, S.gateLocal.z + 10);
+  // the face a ram strikes: the leaves, or the portcullis in front of them where there is one
+  const C = castleOf(S), front = C && C.gate && C.gate.port ? 0.72 : 0.12;
+  const p = siteToWorld(S, 0, S.gateLocal.z + front), q = siteToWorld(S, 0, S.gateLocal.z + 10);
   const d = Math.hypot(q.x - p.x, q.z - p.z);
   return { x: p.x, z: p.z, nx: (q.x - p.x) / d, nz: (q.z - p.z) / d };
 }
@@ -870,7 +874,7 @@ function siegePlanFor(wb, O) {
   if (kind === 'ram') {
     const g = siegeGatePoint(S);
     work = { x: g.x + g.nx * RAM_REACH, z: g.z + g.nz * RAM_REACH };
-    for (const k of [34, 26, 18, 10]) {
+    for (const k of [22, 17, 12]) {
       const x = g.x + g.nx * k, z = g.z + g.nz * k;
       if (isWalkable(x, z) && segmentClear(x, z, work.x, work.z, 1.2, true)) { spot = { x, z }; break; }
     }
@@ -916,8 +920,28 @@ function siegeOpenBreach(C, x, z) {
   for (const W of C.sections || []) { if (W.state !== 'breach') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } }
   return best;
 }
+// [campaign tuning] a raid that has broken into a temple: its boldest fighter runs for the hallow and takes it,
+// instead of the whole band brawling round the altar until the wardens and the defenders wear it down
+function siegeRaidGrab(wb, O) {
+  const rel = O.relic;
+  if (!rel || rel.state !== 'temple') return;
+  const rp = relicPosition(rel);
+  const m = wbMembers(wb).filter((e) => e.cls !== 'priest' && e.carrying == null && !e.siegeCrew).sort((a, b) => dist2(a.x, a.z, rp.x, rp.z) - dist2(b.x, b.z, rp.x, rp.z))[0];
+  if (m && dist(m.x, m.z, rp.x, rp.z) < 26) { m.hallowRun = { rel, until: GAME.t + 1.5 }; }
+}
+// a soldier running for a hallow (from thinkSoldier): true while it does
+function siegeHallowRun(e, dt) {
+  const h = e.hallowRun;
+  if (!h || GAME.t > h.until || h.rel.state !== 'temple' || e.carrying != null) { e.hallowRun = null; return false; }
+  const rp = relicPosition(h.rel);
+  e.target = null; e.casting = null;
+  if (e.mount) dismount(e);
+  moveToward(e, rp.x, rp.z, dt, 1.15, 1.2);
+  return true;
+}
 // called at the end of updateWarband: engines, breaches, and where the leader goes while they work
 function siegeBandAfter(wb, L, O) {
+  if (O && O.type === 'raid' && O.phase === 'assault') siegeRaidGrab(wb, O);
   if (!O || !L || (O.type !== 'attack' && O.type !== 'raid')) return;
   const K = O.keep || null, T = O.temple || null;
   if (K && K.realm === wb.realm) return;
@@ -947,16 +971,12 @@ function siegeBandAfter(wb, L, O) {
   const E = O.siegeE ? siegeById(O.siegeE) : null;
   if (E && !siegeActive(E)) { O.siegeE = null; if (O.phase === 'bombard') { O.phase = 'travel'; wbPlan(wb, K ? K.nav.gate : T.nav.tg); } return; }
   if (!E) return;
-  // a catapult battering a wall: the band stands guard by it, between the engine and the castle
-  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault') {
+  // a small band stands guard by its catapult while it batters the wall; a strong one goes on to the gate as
+  // well, leaving the crew to their work (the engine adds to the assault, it does not hold it up)
+  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault' && O.phase !== 'siege' && wbMembers(wb).length - E.crew.length < 4) {
     if (O.phase !== 'bombard') O.phase = 'bombard';
-    const g = { x: lerp(E.work.x, E.target.C.S.x, 0.16), z: lerp(E.work.z, E.target.C.S.z, 0.16) };
-    wb.leaderGoal = g;
-  } else if (E.kind === 'ram' && E.state !== 'work' && (O.phase === 'siege' || O.phase === 'travel')) {
-    // the band escorts its ram up to the gate, walking beside it
-    const p = siegeLocal(E, 2.8, 0, 2.5);
-    wb.leaderGoal = { x: p.x, z: p.z };
-  }
+    wb.leaderGoal = { x: lerp(E.work.x, E.target.C.S.x, 0.16), z: lerp(E.work.z, E.target.C.S.z, 0.16) };
+  } else if (O.phase === 'bombard') { O.phase = 'travel'; wbPlan(wb, K ? K.nav.gate : T.nav.tg); }
 }
 // a band defending a keep, with nobody better to fight: the enemy's engines before its walls
 function siegeFoeEngine(e, O) {
@@ -1077,11 +1097,15 @@ function siegeSallies(dt) {
       forNear(Q.x, Q.z, 16, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm) n++; });
       if (n < guards.length) { E = Q; break; }
     }
-    // or a handful of attackers at the gate, too few to hold it if the garrison comes out at them
-    const few = !E && atGate > 0 && atGate <= 2 && guards.length >= 2;
+    // or the last of a besieging warband at the gate, too few to hold it if the garrison comes out at them
+    // (a lone wanderer or a single raider at the gate does not draw the garrison out: the gate stays shut)
+    let band = 0;
+    if (!E && now < K.underSiegeUntil) forNear(gp.x, gp.z, 26, (o) => { if (o.alive && o.role === 'soldier' && o.warband && o.faction !== K.realm && !castleInside(C, o.x, o.z)) band++; });
+    const few = !E && band > 0 && band === atGate && atGate <= 2 && guards.length >= atGate + 2;
     if (!E && !few) continue;
     for (const g of guards) g.ai.sally = { K, E: E ? E.id : null, phase: 'out', until: now + (E ? 50 : 30), through: false };
     SIEGE.stats.sallies++;
+    SIEGE.sallyNext.set(K, now + 75 + Math.random() * 30); // a garrison does not throw its gate open every minute
     news(`The gate of ${S.name} opens: its garrison sallies out ${E ? `against the ${REALMS[E.realm].name} ${E.spec.label}` : 'at the attackers'}!`, K.realm, 'normal');
   }
 }
