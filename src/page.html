@@ -603,6 +603,7 @@
   body.touch #needs { position: relative; min-height: 30px; align-items: center; }
   body.touch #needs::after { content: ''; position: absolute; left: 0; right: 0; top: -5px; bottom: -5px; }
   body.touch #buildbar .bacts .btn { min-width: 40px; }
+  @media (max-width: 380px) { body.touch #joyhint { left: calc(var(--pad) + 4px); width: 84px; height: 84px; } } /* clear of the pad on a narrow phone */
   /* what the layout pass shrinks to its essentials when there is no room, and what waits out of sight */
   #war.hl-compact .cw-rule, #war.hl-compact .tod { display: none; }
   #farmcard.hl-compact .fc-tr, #farmcard.hl-compact p { display: none; }

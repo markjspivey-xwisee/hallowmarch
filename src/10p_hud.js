@@ -9,17 +9,17 @@
 const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
-  tall: { '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'] },
-  wide: { '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'] },
+  tall: { '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'], '#zonetoast': ['C', 'CB'] },
+  wide: { '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] },
   desk: { '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
-const HUD_ORDER = ['#buildbar', '#tf', '#cls', '#farmcard', '#petbar', '#war', '#lore-path', '#bounty', '#banners'];
+const HUD_ORDER = ['#buildbar', '#farmcard', '#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast'];
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
 const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
-const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners']); // the plant card is what you are using: it never waits
+const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast']); // the plant card is what you are using: it never waits
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
   if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
@@ -58,6 +58,7 @@ function hudReset() {
   for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; if (el.id === 'buildbar') el.style.width = ''; }
   HUDL.moved.clear();
   for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
+  const zt = $('zonetoast'); if (zt && !HUDL.moved.has(zt)) zt.style.left = zt.style.top = zt.style.transform = '';
   const bt = $('bottom'), lg = $('log');
   if (bt) bt.style.bottom = '';
   for (const id of ['prompt', 'castbar']) { const el = $(id); if (el) el.classList.remove('hl-off'); }
@@ -66,7 +67,7 @@ function hudReset() {
 function hudKey(W, H, touch) {
   const ids = HUD_ORDER.map((s) => { const el = document.querySelector(s); return el && hudShown(el) ? el.offsetWidth + 'x' + el.offsetHeight + (s === '#banners' ? '/' + el.childElementCount : '') : el && el.classList.contains('hl-off') ? 'off' : '-'; }).join();
   const pad = $('tpad'), pf = $('pf'), on = (id) => ($(id) && hudShown($(id)) ? $(id).offsetWidth : 0);
-  return `${W}x${H}:${touch}:${ids}:${pf ? pf.offsetHeight : 0}:${pad ? pad.offsetHeight + '/' + pad.childElementCount : 0}:${on('prompt')}:${on('castbar')}:${on('log')}:${on('hotbar')}`;
+  return `${W}x${H}:${touch}:${ids}:${$('zonetoast') && $('zonetoast').classList.contains('on') ? 'z' : ''}:${pf ? pf.offsetHeight : 0}:${pad ? pad.offsetHeight + '/' + pad.childElementCount : 0}:${on('prompt')}:${on('castbar')}:${on('log')}:${on('hotbar')}`;
 }
 function hudLayout(dt) {
   if (!HUDL.on || !GAME.started || !GAME.player) return;
@@ -139,6 +140,7 @@ function hudLayout(dt) {
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow
     if (sel === '#buildbar' && !touch) continue;
     if (sel === '#banners' && !el.children.length) continue;
+    if (sel === '#zonetoast' && !el.classList.contains('on')) continue; // the zone's name, only while it shows
     let r = measure(sel, el);
     if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
