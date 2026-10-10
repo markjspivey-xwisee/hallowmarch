@@ -134,11 +134,12 @@ function nearRiver(x, z, pad = 0) {
 // (isWalkable is walk === 0), passable for a swimmer (swimPassable). Slopes under water do not stop a swimmer either.
 const WATER_DEEP = 1.15;
 const PONDS = [];
+PONDS.left = []; // hollows left dry because something is built in them (and why), for the tests
 // Closed hollows in the land fill with rain: a priority flood from the edge of the map and from the lakes and rivers
 // finds every hollow and the height it would spill over at. A hollow deep and wide enough, with nothing standing in it
 // (a tree, a rock, a road, a camp, a house), becomes a pond with its surface a little under the spill; any other
 // hollow deeper than a hand is filled in, so there are no dry pond beds anywhere.
-function findPonds(H, surf) {
+function pondPass(H, surf, allowPonds) {
   const N = HN, N2 = N * N, F = new Float32Array(N2), done = new Uint8Array(N2);
   const heap = new Int32Array(N2); let hn = 0;
   const less = (a, b) => F[heap[a]] < F[heap[b]];
@@ -179,37 +180,50 @@ function findPonds(H, surf) {
     C.x /= C.ks.length; C.z /= C.ks.length;
     comps.push(C);
   }
-  // what stands in each hollow: trees and rocks keep a pond out (2), anything built keeps the ground as it is (1|2)
-  const taken = new Uint8Array(comps.length);
-  const mark = (x, z, pad, bit) => {
+  // what stands in each hollow keeps the water below it: a pond only rises to a little under the lowest tree, rock or
+  // camp in it (soft) and well under anything built or a road (hard); a hollow with nothing built in it that cannot
+  // hold a pond is filled in, and one with something built in it is left as the builders found it
+  const hard = new Float32Array(comps.length).fill(Infinity), soft = new Float32Array(comps.length).fill(Infinity), why = [];
+  const mark = (x, z, pad, y, arr, tag) => {
     const i0 = Math.max(0, Math.floor((x - pad + HALF) / HS)), i1 = Math.min(N - 1, Math.ceil((x + pad + HALF) / HS));
     const j0 = Math.max(0, Math.floor((z - pad + HALF) / HS)), j1 = Math.min(N - 1, Math.ceil((z + pad + HALF) / HS));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const c = lab[j * N + i]; if (c >= 0) taken[c] |= bit; }
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const c = lab[j * N + i]; if (c >= 0 && y < arr[c]) { arr[c] = y; if (tag) why[c] = tag; } }
   };
-  for (const t of W.trees) mark(t.x, t.z, 1.5, 2);
-  for (const r of W.rocks) mark(r.x, r.z, 0.8 + r.s, 2);
-  for (const s of W.stones || []) mark(s.x, s.z, 1.5, 2);
-  for (const c of W.camps || []) mark(c.x, c.z, 18, 2); // camps are pitched later, on whatever ground there is
-  for (const S of SITES) mark(S.x, S.z, S.r + S.f + (S.kind === 'town' ? 34 : 8), 1);
-  for (const c of COLL.boxes) if (c.tag !== 'tree' && c.tag !== 'rock' && c.tag !== 'stone') mark(c.x, c.z, Math.max(c.hx, c.hz) + 2, 1);
-  mark(0, 0, 60, 1); // the Lone Tree's hill and the barrow
+  for (const t of W.trees) mark(t.x, t.z, 1.5, heightAt(t.x, t.z) - 0.15, soft);
+  for (const r of W.rocks) mark(r.x, r.z, 0.8 + r.s, heightAt(r.x, r.z) - 0.1, soft);
+  for (const st of W.stones || []) mark(st.x, st.z, 1.5, heightAt(st.x, st.z) - 0.15, soft);
+  for (const c of W.camps || []) mark(c.x, c.z, 18, heightAt(c.x, c.z) - 0.4, soft); // camps are pitched later, on whatever ground there is
+  for (const S of SITES) mark(S.x, S.z, S.r + S.f + (S.kind === 'town' ? 34 : 8), S.y - 0.4, hard, S.kind);
+  for (const c of COLL.boxes) if (c.tag !== 'tree' && c.tag !== 'rock' && c.tag !== 'stone') mark(c.x, c.z, Math.max(c.hx, c.hz) + 2, heightAt(c.x, c.z) - 0.4, hard, 'coll:' + c.tag);
+  mark(0, 0, 60, -Infinity, hard, 'centre'); // the Lone Tree's hill and the barrow
   let filled = 0;
   for (let c = 0; c < comps.length; c++) {
     const C = comps[c];
-    let road = 0;
-    for (const k of C.ks) road = Math.max(road, W.road[k]);
-    if (road > 0.05) taken[c] |= 1;
+    for (const k of C.ks) if (W.road[k] > 0.05 && H[k] - 0.3 < hard[c]) { hard[c] = H[k] - 0.3; why[c] = 'road'; }
     const r = Math.hypot(C.x, C.z);
-    if (!taken[c] && C.max > 0.55 && C.ks.length >= 6 && r < 462) {
-      // a pond
-      const y = C.spill - 0.14;
-      let n = 0;
-      for (const k of C.ks) if (y > H[k] + 0.02) { surf[k] = y; n++; }
-      if (n >= 4) { PONDS.push({ x: C.x, z: C.z, y, n, depth: C.max - 0.14 }); continue; }
+    const y = Math.min(C.spill - 0.14, hard[c], soft[c]);
+    if (allowPonds && r < 462 && C.ks.length >= 6) {
+      // a pond in the bottom of the hollow, as high as it can stand
+      let n = 0, lo = Infinity;
+      for (const k of C.ks) if (y > H[k] + 0.02) { n++; lo = Math.min(lo, H[k]); }
+      if (n >= 4 && y - lo > 0.45) {
+        for (const k of C.ks) if (y > H[k] + 0.02) surf[k] = y;
+        PONDS.push({ x: C.x, z: C.z, y, n, depth: y - lo });
+        continue;
+      }
     }
-    // anything else deeper than a hand is filled in (but never under what is built): no dry pond beds
-    if (C.max > 0.12 && !(taken[c] & 1)) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * Math.random()); filled++; }
+    // a hollow deeper than a hand with nothing built in it is filled in: no dry pond beds
+    if (C.max > 0.12 && hard[c] === Infinity) { for (const k of C.ks) H[k] = Math.max(H[k], F[k] - 0.03 - 0.02 * Math.random()); filled++; }
+    else if (C.max > 0.3 && C.ks.length >= 4) PONDS.left.push({ x: Math.round(C.x), z: Math.round(C.z), max: +C.max.toFixed(2), n: C.ks.length, why: why[c] || 'soft' });
   }
+  return filled;
+}
+// two passes: the first makes the ponds; the second, flooding from them too, fills the pockets left dry above a pond
+// that could not rise to its hollow's brim (something stands on the brim)
+function findPonds(H, surf) {
+  let filled = pondPass(H, surf, true);
+  PONDS.left.length = 0;
+  filled += pondPass(H, surf, false);
   // trees and rocks stay on the ground that was filled under them
   if (filled) {
     for (const t of W.trees) t.y = heightAt(t.x, t.z);
@@ -234,7 +248,7 @@ function buildWaterGrid() {
       const edge = 1 - sstep(n.hw * 0.6, n.hw + 1, n.d);
       fx[k] = n.ux * n.speed * edge; fz[k] = n.uz * n.speed * edge;
       // white water where the river falls steeply (it runs fastest there)
-      white[k] = Math.max(white[k], sstep(1.8, 3.1, n.speed) * (1 - sstep(n.hw * 0.55, n.hw + 1.0, n.d)));
+      white[k] = Math.max(white[k], sstep(1.6, 3.0, n.speed) * (1 - sstep(n.hw * 0.55, n.hw + 1.0, n.d)));
     }
   }
   // ponds in the closed hollows, and no dry pond beds

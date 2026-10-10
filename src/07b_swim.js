@@ -29,7 +29,7 @@ function swimDimsOf(e, sc) {
   if (e.kind === 'humanoid') return { start: SWIM_HUMAN.start * sc, stop: SWIM_HUMAN.stop * sc, float: SWIM_HUMAN.float * sc, wade: SWIM_HUMAN.start * sc };
   if (crowdBeast[e.kind] || BEASTS[e.kind === 'stag' ? 'deer' : e.kind]) {
     const b = BEAST_BACK[e.kind] ?? (BEAST_BACK[e.kind] = beastBackH(e.kind));
-    return { start: b * 0.82 * sc, stop: b * 0.7 * sc, float: b * 0.9 * sc, wade: b * 0.82 * sc };
+    return { start: b * 0.82 * sc, stop: b * 0.7 * sc, float: b * 0.95 * sc, wade: b * 0.82 * sc };
   }
   return null; // wisps hover, doors and the dragon do not swim
 }
@@ -324,7 +324,7 @@ function waterOffers(P, offer) {
 /* ------------------------------------------------------------------ */
 function chronWater() {
   const names = RIVERS.map((Rv) => `<li><b style="color:${REALMS[Rv.realm].light}">${REALMS[Rv.realm].name}</b>: a river runs down from the mountains behind ${REALMS[Rv.realm].townName} into the realm's lake.</li>`).join('');
-  return `<p class="lead">Water in the March is real water. Each realm has a lake below its town and a river running down into it from the mountains, and rain leaves the low ground full of ponds.</p>
+  return `<p class="lead">Water in the March is real water. Each realm has a lake near its town, fed by a river that runs down from the mountains, and rain has filled the hollows of the land with ponds, from reedy pools in the meadows to cold tarns high among the rocks.</p>
     <ul>${names}</ul>
     <h3>Wading and swimming</h3>
     <p>Water slows you as it deepens: a little at the knee, a lot at the waist. Once it reaches your chest you swim, with your head and shoulders out. Swimming is slow, and running in the water tires you. You cannot cast spells or shoot while you swim, and no horse will carry you into deep water.</p>

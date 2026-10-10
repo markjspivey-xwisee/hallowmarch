@@ -32,16 +32,25 @@ WORLD = """(() => { const H = __hm, Wt = H.water, F = H.fn, W = F.W, HN = 513, G
     sizes.push(sz);
   }
   out.water = water; out.deep = deep; out.bodies = sizes.length; out.bodySizes = sizes.slice().sort((a, b) => b - a).slice(0, 12);
-  // dry pond beds: closed hollows in the ground deeper than 0.6 m with no water in them
-  let hollows = 0; const hol = [];
-  for (let j = 4; j < HN - 4; j += 2) for (let i = 4; i < HN - 4; i += 2) {
-    const k = j * HN + i, h = W.H[k], x = -512 + i * 2, z = -512 + j * 2;
-    if (!isNaN(G.surf[k]) || Math.hypot(x, z) > 470 || x > 500) continue;
-    let rim = Infinity;
-    for (let a = 0; a < 12; a++) { const aa = a / 12 * Math.PI * 2; let m = -Infinity; for (let r = 2; r <= 10; r += 2) m = Math.max(m, F.heightAt(x + Math.cos(aa) * r, z + Math.sin(aa) * r)); rim = Math.min(rim, m); }
-    if (rim - h > 0.6) { hollows++; if (hol.length < 8) hol.push([x, z, +(rim - h).toFixed(2)]); }
+  // dry pond beds: an independent flood from the map's edge and the water finds every closed hollow; any deeper than
+  // 0.3 m and wider than a few texels must hold water, unless something is built in it (left as it was)
+  const N = HN, N2 = N * N, Fh = new Float32Array(N2), done = new Uint8Array(N2), heap = []; let hn = 0;
+  const hpush = (k) => { let i = hn++; heap[i] = k; while (i > 0) { const q = (i - 1) >> 1; if (Fh[heap[i]] >= Fh[heap[q]]) break; [heap[i], heap[q]] = [heap[q], heap[i]]; i = q; } };
+  const hpop = () => { const t = heap[0]; heap[0] = heap[--hn]; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < hn && Fh[heap[l]] < Fh[heap[m]]) m = l; if (r < hn && Fh[heap[r]] < Fh[heap[m]]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } return t; };
+  for (let k = 0; k < N2; k++) { const i = k % N, j = (k / N) | 0; Fh[k] = W.H[k]; if (!i || !j || i === N - 1 || j === N - 1 || !isNaN(G.surf[k])) { done[k] = 1; hpush(k); } }
+  while (hn) { const k = hpop(), i = k % N, j = (k / N) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue; const n = jj * N + ii; if (done[n]) continue; done[n] = 1; Fh[n] = Math.max(W.H[n], Fh[k]); hpush(n); } }
+  const built = (x, z) => H.REALMS.some(() => false) || [].concat(...H.REALMS.map((R) => [R.town, R.musterSite, R.templeSite, ...R.keepSites])).some((S) => Math.hypot(S.x - x, S.z - z) < S.r + S.f + (S.kind === 'town' ? 34 : 8)) || Math.hypot(x, z) < 60 || F.sampleGrid(W.road, x, z) > 0.05;
+  const seen = new Uint8Array(N2); let hollows = 0; const hol = [];
+  for (let k = 0; k < N2; k++) {
+    if (seen[k] || Fh[k] - W.H[k] < 0.02) continue;
+    let max = 0, n = 0, cx = 0, cz = 0, bl = false; const st = [k]; seen[k] = 1;
+    while (st.length) { const q = st.pop(), i = q % N, j = (q / N) | 0; n++; max = Math.max(max, Fh[q] - W.H[q]); const x = -512 + i * 2, z = -512 + j * 2; cx += x; cz += z; if (!bl && built(x, z)) bl = true;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue; const r = jj * N + ii; if (!seen[r] && Fh[r] - W.H[r] >= 0.02) { seen[r] = 1; st.push(r); } } }
+    // a hollow the builders left dry because something stands in it (a wall, a fence, a road) is not a pond bed
+    const left = (H.water.PONDS.left || []).find((L) => Math.hypot(L.x - cx / n, L.z - cz / n) < 12 + Math.sqrt(n) * 2);
+    if (max > 0.3 && n >= 4 && !bl && !left) { hollows++; if (hol.length < 8) hol.push([Math.round(cx / n), Math.round(cz / n), +max.toFixed(2), n]); }
   }
-  out.dryHollows = hollows; out.hollowAt = hol;
+  out.dryHollows = hollows; out.hollowAt = hol; out.leftDry = (H.water.PONDS.left || []).slice(0, 12).map((L) => [L.x, L.z, L.max, L.n, L.why]);
   // roads that would make a soldier swim, and sites standing in water
   let roadDeep = 0; for (const S of W.roads) for (let t = 0; t <= 1; t += 0.02) { const x = S.ax + (S.bx - S.ax) * t, z = S.az + (S.bz - S.az) * t; if (Wt.deepWaterAt(x, z)) roadDeep++; }
   out.roadDeep = roadDeep; out.ponds = H.water.PONDS ? H.water.PONDS.map((p) => [Math.round(p.x), Math.round(p.z), +p.y.toFixed(2), p.n, +p.depth.toFixed(2)]) : null; out.filled = H.water.PONDS ? H.water.PONDS.filled : null;
@@ -154,6 +163,30 @@ async def main():
         check(r['foe']['swim'] and abs(r['foeFloat'] - 1.3) < 0.1, 'the soldier floats at its swimming depth (%.2f)' % r['foeFloat'])
         check(r['wolf']['swim'] and 0.4 < r['wolfFloat'] < 1.0, 'the wolf swims with its back awash (%.2f)' % r['wolfFloat'])
 
+        # ---- wading numbers for the soldier and the wolf: slower as it deepens, then swimming ----
+        r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, L = H.dbg.LAKES[0];
+          const foe = H.ENT.find((e) => e.role === 'soldier' && e.faction === 1 && Math.hypot(e.x - L.x, e.z - L.z) < 80);
+          const wolf = H.ENT.find((e) => e.kind === 'wolf' && Math.hypot(e.x - L.x, e.z - L.z) < 80);
+          const out = {};
+          for (const [name, e] of [['soldier', foe], ['wolf', wolf]]) {
+            if (!e) { out[name] = null; continue; }
+            const D = Wt.swimDims(e.id), rows = [];
+            for (const want of [0, D.start * 0.35, D.start * 0.75, D.start * 1.6]) {
+              let spot = null; for (let r = 0; r < 70 && !spot; r += 0.2) { const x = L.x + r, w = Wt.waterAt(x, L.z); const d = w ? w.depth : 0; if (want === 0 ? !w : Math.abs(d - want) < 0.06) spot = [x, L.z]; }
+              if (!spot) { rows.push(null); continue; }
+              e.target = null; e.threat = null; e.x = e.prevX = spot[0]; e.z = e.prevZ = spot[1]; e.y = F.heightAt(spot[0], spot[1]); e.swim = false;
+              H.simulate(0.3); e.x = spot[0]; e.z = spot[1]; H.simulate(0.05);
+              const st = Wt.state(e.id); rows.push([+want.toFixed(2), +st.wd.toFixed(2), +st.speed.toFixed(2), st.swim]);
+            }
+            out[name] = rows;
+          }
+          return out; })()""")
+        print('npc wading', json.dumps(r))
+        for name in ('soldier', 'wolf'):
+            rows = r.get(name)
+            ok = bool(rows) and all(rows) and rows[0][2] > rows[1][2] > rows[2][2] and not rows[2][3] and rows[3][3] and rows[3][2] < rows[2][2]
+            check(ok, 'a %s wades slower as the water deepens and swims when it is deep: %s' % (name, rows))
+
         # ---- townsfolk keep out of deep water ----
         r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn; const v = H.ENT.find((e) => e.role === 'villager');
           return { ok: v ? !Wt.swimAllowed(v) : null }; })()""")
@@ -220,8 +253,9 @@ async def shots(page):
         # 1. a lake shore: looking down through the shallows at the bed
         await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player; H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
           H.teleport(lk.x + lk.dx * (lk.shore + 14), lk.z + lk.dz * (lk.shore + 14));
-          const cx = lk.x + lk.dx * (lk.shore + 3.5), cz = lk.z + lk.dz * (lk.shore + 3.5);
-          H.camera.position.set(cx, F.heightAt(cx, cz) + 2.6, cz); H.camera.lookAt(lk.x + lk.dx * (lk.shore - 7), -3.6, lk.z + lk.dz * (lk.shore - 7)); })(%s)""" % json.dumps(lk))
+          // on the bank, looking along the shore and down into the shallows: the waterline, the wet band and the bed
+          const tx = -lk.dz, tz = lk.dx, cx = lk.x + lk.dx * (lk.shore + 3) - tx * 5, cz = lk.z + lk.dz * (lk.shore + 3) - tz * 5;
+          H.camera.position.set(cx, F.heightAt(cx, cz) + 2.4, cz); H.camera.lookAt(lk.x + lk.dx * (lk.shore - 2.5) + tx * 4, -3.5, lk.z + lk.dz * (lk.shore - 2.5) + tz * 4); })(%s)""" % json.dumps(lk))
         await run_frames(page, 20)
         await snap(page, 'water_%s_shore.png' % q)
         # 2. the river: flow and white water, from its bank
@@ -244,7 +278,7 @@ async def shots(page):
         await snap(page, 'water_%s_swim.png' % q)
         # 4. the wake behind the swimmer, from higher up
         await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-          H.camera.position.set(P.x - fx * 9 + fz * 4, P.y + 9, P.z - fz * 9 - fx * 4); H.camera.lookAt(P.x - fx * 2, P.y + 1.2, P.z - fz * 2); H.frame(1/30); })()""")
+          H.camera.position.set(P.x - fx * 8 + fz * 5, P.y + 5.2, P.z - fz * 8 - fx * 5); H.camera.lookAt(P.x - fx * 2.5, P.y + 1.2, P.z - fz * 2.5); })()""")
         await snap(page, 'water_%s_wake.png' % q)
         # 5. wading in the shallows, with splashes
         await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player, Wt = H.water;
@@ -253,8 +287,21 @@ async def shots(page):
           const x = lk.x + lk.dx * r - tx * 4, z = lk.z + lk.dz * r - tz * 4; H.teleport(x, z); P.yaw = Math.atan2(tx, tz); H.CAM.yaw = P.yaw; H.simulate(0.3); })(%s)""" % json.dumps(lk))
         await run_frames(page, 18, keys=['KeyW'])
         await page.evaluate("""(() => { const H = __hm, P = H.GAME.player; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-          H.camera.position.set(P.x + fz * 4.5 + fx * 2.5, P.y + 1.9, P.z - fx * 4.5 + fz * 2.5); H.camera.lookAt(P.x + fx * 0.8, P.y + 0.7, P.z + fz * 0.8); H.frame(1/30); })()""")
+          // from out over the water, looking back at the wader and the bank
+          const L = H.dbg.LAKES[0], ox = L.x - P.x, oz = L.z - P.z, ol = Math.hypot(ox, oz) || 1;
+          H.camera.position.set(P.x + ox / ol * 4.2 + fx * 2.2, P.y + 2.0, P.z + oz / ol * 4.2 + fz * 2.2); H.camera.lookAt(P.x + fx * 0.5, P.y + 0.6, P.z + fz * 0.5); })()""")
         await snap(page, 'water_%s_wade.png' % q)
+        # 6. a wolf paddling after the player across deep water
+        await page.evaluate("""((lk) => { const H = __hm, F = H.fn, P = H.GAME.player, Wt = H.water;
+          const x = lk.x + lk.dx * (lk.shore - 12), z = lk.z + lk.dz * (lk.shore - 12); H.teleport(x, z); H.simulate(0.3);
+          const tx = -lk.dz, tz = lk.dx;
+          const wolf = F.makeEnt({ kind: 'wolf', faction: H.FACTION_MONSTER, role: 'mob', mobType: 'wolf', name: 'wolf', level: 20, x: x + tx * 6, z: z + tz * 6, y: F.heightAt(x + tx * 6, z + tz * 6), look: { colA: [0.42, 0.4, 0.37], colB: [0.3, 0.28, 0.26] }, home: { x: x + tx * 6, z: z + tz * 6, r: 30 } });
+          F.setupStats(wolf); wolf.target = P.id; wolf.threat = new Map([[P.id, 100]]); window.__wolf = wolf.id; return 0; })(%s)""" % json.dumps(lk))
+        await run_frames(page, 20)
+        await page.evaluate("""(() => { const H = __hm, F = H.fn, wolf = F.getEnt(window.__wolf); if (!wolf) return 0; const fx = Math.sin(wolf.yaw), fz = Math.cos(wolf.yaw);
+          H.camera.position.set(wolf.x + fz * 2.6 + fx * 1.2, wolf.y + 1.8, wolf.z - fx * 2.6 + fz * 1.2); H.camera.lookAt(wolf.x, wolf.y + 0.6, wolf.z); return 0; })()""")
+        await snap(page, 'water_%s_wolf.png' % q)
+        await page.evaluate("(() => { const e = __hm.fn.getEnt(window.__wolf); if (e) __hm.fn.removeEnt(e); return 0; })()")
     print('shot errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 3)")))
 
 asyncio.run(main())

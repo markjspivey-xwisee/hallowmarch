@@ -73,7 +73,7 @@ function brandTargetFrom(P) {
     if (t) return { kind: 'tree', t, x: t.x, z: t.z, label: `Set the ${t.kind} alight`, d: dist(P.x, P.z, t.x, t.z) - TREE_DIM[t.kind].r * natS(t) };
     const g = sampleGrid(W.grass, ax, az) + sampleGrid(W.field, ax, az) * 0.6, nat = NAT.data, ni = (Math.floor(az + 512) * NAT.res + Math.floor(ax + 512)) * 4;
     const spent = ni >= 0 && ni < nat.length ? Math.max(nat[ni], nat[ni + 1], nat[ni + 2]) / 255 : 1;
-    if (g > 0.35 && spent < 0.3 && !waterAt(ax, az)) return { kind: 'grass', x: ax, z: az, label: 'Set the grass alight', d: 0.9 };
+    if (g > 0.35 && spent < 0.3 && !waterAt(ax, az)) return { kind: 'grass', x: ax, z: az, label: 'Set the grass alight', d: 0.9 }; // [water] not on any water
   }
   return null;
 }
@@ -170,7 +170,7 @@ function natureFireAim(P, id) {
   // the grass a few strides ahead, if there is grass there to burn
   for (const d of [9, 6, 13, 4]) {
     const x = P.x + Math.sin(yaw) * d, z = P.z + Math.cos(yaw) * d;
-    if (sampleGrid(W.grass, x, z) + sampleGrid(W.field, x, z) * 0.6 > 0.35 && !waterAt(x, z) && !houseAt(x, z, 1)) return { H: null, grass: true, x, y: heightAt(x, z) + 0.3, z };
+    if (sampleGrid(W.grass, x, z) + sampleGrid(W.field, x, z) * 0.6 > 0.35 && !waterAt(x, z) && !houseAt(x, z, 1)) return { H: null, grass: true, x, y: heightAt(x, z) + 0.3, z }; // [water] not on any water
   }
   return null;
 }

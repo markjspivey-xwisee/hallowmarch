@@ -100,7 +100,7 @@ const waterMat = mat({
       float path = max(depth, 0.0) / max(V.y, 0.07);
       float murk = mix(0.62, 0.42, run);           // still water is darker and greener than running water
       float T = exp(-path * murk);                   // how much of the bed shows
-      vec3 deep = mix(vec3(0.03, 0.09, 0.1), vec3(0.05, 0.12, 0.12), run) * lit;
+      vec3 deep = mix(vec3(0.04, 0.11, 0.12), vec3(0.055, 0.13, 0.13), run) * lit + uZenith * 0.05;
       vec3 shallowTint = vec3(0.1, 0.19, 0.15) * lit;
       vec3 body = mix(shallowTint, deep, smoothstep(0.0, 2.2, path));
       // light scattered up from just under a sunlit surface, a little green-gold in the shallows
@@ -121,7 +121,10 @@ const waterMat = mat({
       vec2 fd = fl > 1e-3 ? flow / fl : vec2(1.0, 0.0);
       vec2 fq = vec2(dot(vW.xz, fd), dot(vW.xz, vec2(-fd.y, fd.x)));
       float streak = smoothstep(0.42, 0.78, vnoise(vec2(fq.x * 0.55 - t * fl * 0.9, fq.y * 2.6)) * 0.65 + vnoise(vec2(fq.x * 1.7 - t * fl * 1.3, fq.y * 5.0)) * 0.35);
-      float whiteFoam = white * smoothstep(0.25, 0.8, streak * 0.75 + white * 0.3) * (1.0 - far * 0.4);
+      float whiteFoam = white * smoothstep(0.22, 0.72, streak * 0.8 + white * 0.38) * (1.0 - far * 0.4);
+      // thin lines of froth drawn out along running water, so the eye reads which way it goes
+      float lines = smoothstep(0.64, 0.82, vnoise(vec2(fq.x * 0.33 - t * fl * 0.75, fq.y * 3.6))) * smoothstep(0.5, 1.6, fl) * 0.4 * (1.0 - far);
+      whiteFoam = max(whiteFoam, lines);
       float wake = smoothstep(0.3, 0.7, length(rs)) * 0.3;
       float foam = clamp(max(max(edgeFoam, shoreFoam * 0.75), max(whiteFoam, wake)), 0.0, 1.0);
       vec3 foamC = vec3(0.86, 0.9, 0.9) * (uAmbient * 0.7 + uLightColor * 0.55 * mix(0.5, 1.0, sh));
