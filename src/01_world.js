@@ -541,6 +541,7 @@ function buildWorld(seed = 7) {
       const cx = R.town.x + Math.sin(a + R.yaw) * 62, cz = R.town.z + Math.cos(a + R.yaw) * 62;
       const hw = 14 + fr() * 8, hd = 9 + fr() * 6, ang = fr() * Math.PI;
       const c = Math.cos(ang), s = Math.sin(ang);
+      (W.fieldRects = W.fieldRects || []).push({ x: cx, z: cz, hw, hd, ang }); // [farming] the town fields' strips (08h_farming.js)
       forTexels(cx, cz, Math.max(hw, hd) + 4, (k, x, z) => {
         const lx = (x - cx) * c - (z - cz) * s, lz = (x - cx) * s + (z - cz) * c;
         const v = sstep(2, -1, Math.max(Math.abs(lx) - hw, Math.abs(lz) - hd));

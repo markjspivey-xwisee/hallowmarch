@@ -98,6 +98,7 @@ function buildCoverMask() {
     if (f.type === 'disc') coverCircle(f.x, f.z, f.r + pad);
     else coverBox(f.x, f.z, f.hx, f.hz, f.cos, f.sin, pad);
   }
+  farmCoverAll(); // [farming] tilled beds and the town strips: no grass through the soil (08h_farming.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }

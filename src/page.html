@@ -326,6 +326,40 @@
     #mapcanvas { width: min(92vw, 62vh); height: min(92vw, 62vh); }
     #mapside { max-height: 26vh; }
   }
+
+  /* farming: the plant card, the map panel's season line, the Chronicle's fields and herbal (08h_farming.js) */
+  #farmcard { position: absolute; right: var(--pad); bottom: calc(var(--pad) + var(--safe-b)); width: 272px; padding: 9px 11px 10px; display: none; gap: 7px; font-size: 13px; line-height: 1.32; pointer-events: auto; }
+  #farmcard.on { display: grid; }
+  #farmcard .fc-t { display: block; font: 500 15px/1.2 var(--caps); letter-spacing: 0.04em; color: var(--bronze-hi); border-left: 3px solid var(--hc, var(--bronze)); padding-left: 7px; margin-bottom: 3px; }
+  #farmcard p { margin: 2px 0 0; }
+  #farmcard .fc-dim, .fc-herb .fc-dim { color: var(--ink-dim); font-size: 12px; }
+  #farmcard .fc-tr { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin-top: 5px; font-size: 12px; color: var(--ink-dim); align-items: center; }
+  #farmcard .pips { color: #e8c46a; letter-spacing: 1px; font-size: 10px; }
+  #farmcard .pips i { font-style: normal; color: rgba(239, 230, 211, 0.18); }
+  #farmcard .fc-hue { color: var(--ink); }
+  #farmcard .fc-acts { display: flex; flex-wrap: wrap; gap: 5px; }
+  #farmcard .fc-acts .btn { padding: 5px 9px; font-size: 12.5px; min-height: 0; }
+  #farmcard .fc-acts .btn kbd { font: 700 10.5px var(--ui); padding: 0 4px; margin-right: 5px; border-radius: 3px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.35); }
+  #farmcard .fc-acts .btn[disabled] { opacity: 0.55; cursor: default; }
+  #mapside .farmside { margin: 0 0 8px; color: var(--ink-dim); font-size: 13px; }
+  #mapside .farmside b { color: var(--ink); font-weight: 500; }
+  .fc-strains { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+  .fc-strains th, .fc-strains td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  .fc-strains th:first-child, .fc-strains td:first-child { text-align: left; }
+  .fc-strains th { font: 500 11.5px var(--caps); letter-spacing: 0.05em; color: var(--bronze-hi); }
+  .fc-herbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 10px; }
+  .fc-herb { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: rgba(0, 0, 0, 0.18); }
+  .fc-herb svg { width: 56px; height: 56px; background: radial-gradient(circle at 50% 60%, rgba(223, 193, 136, 0.12), transparent 70%); border-radius: 4px; }
+  .fc-herb b { font: 500 14px var(--caps); letter-spacing: 0.04em; color: var(--bronze-hi); }
+  .fc-herb p { margin: 3px 0 0; font-size: 12.5px; }
+  .fc-herb.unknown b { color: var(--ink-faint); }
+  @media (max-width: 760px), (pointer: coarse) {
+    #farmcard { right: auto; left: 50%; transform: translateX(-50%); top: calc(var(--safe-t) + 8px); bottom: auto; width: min(300px, 46vw); padding: 6px 8px 7px; gap: 4px; font-size: 12px; max-height: 44vh; overflow: auto; }
+    #farmcard .fc-t { font-size: 13.5px; }
+    #farmcard .fc-tr { grid-template-columns: auto 1fr auto 1fr; font-size: 11px; }
+    #farmcard .fc-acts .btn { padding: 7px 9px; font-size: 12px; }
+    .fc-herbs { grid-template-columns: 1fr; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .banner, .slot.flash { animation-duration: 0.01s !important; }
   }

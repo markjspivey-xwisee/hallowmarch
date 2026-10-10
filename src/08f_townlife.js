@@ -41,6 +41,7 @@ function houseLife(e, dt) {
     ai.visitUntil = GAME.t + 50;
     return true;
   }
+  if (farmLife(e)) return true; // [farming] farmers go out to work the town fields (08h_farming.js)
   lifeWander(e);
   return true;
 }
@@ -193,6 +194,7 @@ function lifeRun(e, dt) {
       if (plan.t > st.dur) next();
       return true;
     }
+    case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
     default: next(); return true;
   }
 }

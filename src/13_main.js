@@ -83,7 +83,7 @@ async function boot() {
   await loadStep(0.34, 'Planting the forests', () => { buildTrees(); buildNearTrees(); buildRocks(); buildHeroTree(); });
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); });
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
-  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); });
+  await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
@@ -348,6 +348,7 @@ function simStep(dt) {
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
+  updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -394,6 +395,7 @@ function tick(dt) {
   drawFires(dt);
   drawNature(dt); // nature (05h_nature.js): tree and wood instances, flames, the nature map upload
   drawGifts(dt); // [gifts] the standard, the hunt, the winter storm and the gift button (06c_gifts.js)
+  drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   updateAmbientLife(dt);
   drawProjectiles();
   updateSpellFX(dt);
