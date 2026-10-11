@@ -547,7 +547,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; view().healPct = (st === 1 ? 0.35 : A.healPct) / rankMult(e.level); } // [balance4] a warrior's own heal does not grow with rank (a priest's own healing does not either): at 50 it healed 48%
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, CHARGE_FREE, 'charge'); chargeFree(e, CHARGE_FREE); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
+  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); if (CHARGE_FREE > 0) { addBuff(e, 'free', 1, CHARGE_FREE, 'charge'); chargeFree(e, CHARGE_FREE); } } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
   rushShare(e, A); // [balance3] Charge and Leap Strike are one rush (07c_balance3.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;

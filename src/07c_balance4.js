@@ -6,9 +6,13 @@
 /*     moved the warrior (it spent its power and cooldown, freed the    */
 /*     warrior of slows and gave momentum, and nothing else: no rush,   */
 /*     no blow, no slow). Now it is a real rush along the ground, the   */
-/*     shield forward, homing on the foe, stopped by walls, water and   */
-/*     drops, and a blow and a slow where it lands (chargeRush,         */
-/*     chargeRushStep from updateMotion).                               */
+/*     shield forward, homing on the foe, stopped by walls, water,      */
+/*     drops and a root in its path, and a blow where it lands          */
+/*     (chargeRush, chargeRushStep from updateMotion, chargeLands).     */
+/*   Mend weighs the wound (mendWound); a seasoned mage's spells grow   */
+/*     with rank (mageRankK); the bots' view of the rush (rushComing,   */
+/*     snareOnLine); the rules version 11 set in place of the rush are  */
+/*     set aside in their own modules (pursuit, the charge's freedom).  */
 /* ================================================================== */
 // what the tests hear of a heal that ticks (a renewal, holy ground) rather than lands at once (BAL.tap, healEnt)
 const TAP_TICK = { tick: true };
@@ -18,6 +22,9 @@ const TAP_TICK = { tick: true };
 /* ------------------------------------------------------------------ */
 // speed in m/s, the longest a rush lasts, and how close it comes (a little inside a blade's reach)
 const RUSH = { speed: 18, maxT: 1.9, slow: false, stats: { rushes: 0, arrived: 0, blocked: 0, lost: 0 } };
+// until Leap Strike is learned (level 30) Charge is the warrior's only rush, and its landing blow slows the foe a little
+// (a bow or a staff walked away from every landing: the warrior won a tenth of its duels with them at 10)
+const RUSH_SLOW_EARLY = [0.3, 2];
 // [balance4] after a Charge no root or slow took hold for 2 s (chargeFree, 07c_balance.js): the answer to kiting while the
 // rush never moved the warrior; a real rush is that answer, and a frost nova may meet the warrior where it lands
 const CHARGE_FREE = 0;
@@ -31,9 +38,9 @@ function rushWhy(e, A, t) {
   if (t && t.alive && Math.abs(t.y - e.y) > 1.6 && (elevatedEnt(e) || elevatedEnt(t))) return 'range';
   return null;
 }
-// executeAbility hands a Charge here: the warrior sets off at the foe, shield forward
 // Charge comes round every 16 s; before Leap Strike is learned (level 30) it is the warrior's only rush, and comes every 12 s
 const RUSH_CD_EARLY = 12;
+// executeAbility hands a Charge here: the warrior sets off at the foe, shield forward
 function chargeRush(e, A, t, rk) {
   if (!t || !t.alive) return;
   if (e.level < ABILITIES.leap.level) e.cds.charge = Math.min(e.cds.charge || 0, GAME.t + RUSH_CD_EARLY);
@@ -90,7 +97,8 @@ function chargeRushStep(e, m, dt) {
 const RUSH_BASH = 3;
 // and it leaves the warrior a moment to find its feet: its abilities wait this long after it lands (the foe may answer)
 const RUSH_FOOTING = 0.3;
-// the rush lands: the blade comes round and the foe is slowed (the blow it always promised)
+// the rush lands: the blade comes round (the blow it always promised; its slow, RUSH.slow, made a rush, a slow and a bash
+// a lock no mage or priest could answer, and stays off)
 function chargeLands(e, A, t, rk) {
   faceToward(e, t.x, t.z);
   e.gcdUntil = Math.max(e.gcdUntil || 0, GAME.t + RUSH_FOOTING);
@@ -103,6 +111,7 @@ function chargeLands(e, A, t, rk) {
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
     FX.sparks(t.x, t.y + 1.2 * (t.scale || 1), t.z);
     if (A.snare && RUSH.slow) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
+    else if (e.level < ABILITIES.leap.level) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id);
     if (e === GAME.player || t === GAME.player) sfx('hit');
   });
 }
@@ -148,7 +157,7 @@ function snareOnLine(e, t) {
 }
 
 /* ---- what a player reads: the tooltips say what these rules do ---- */
-ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush; until you learn Leap Strike, Charge comes round every ${RUSH_CD_EARLY} s.`;
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush; until you learn Leap Strike, Charge comes round every ${RUSH_CD_EARLY} s and its blow slows the foe by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s.`;
 ABILITIES.mend.desc = 'Heals a friend for 36% of health, or you for 27%. The deeper the wound, the more it mends: all of it from half health down, a third of it on a scratch.';
 ABILITIES.rally.desc += ' Its heal is your own: it does not grow with your rank.';
 ABILITIES.volley.desc += ' The arrows fall from above: a raised shield does not turn them.';
@@ -156,5 +165,5 @@ ABILITIES.pillar.desc += ' Standing in it yourself, your own wounds mend as they
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal4 = { RUSH, RUSH_BASH, RUSH_FOOTING, RUSH_CD_EARLY, rushReach, rushWhy, chargeRush, rushComing, snareOnLine, MEND_WOUND, mendWound, CHARGE_FREE, MAGE_RANK_K, mageRankK };
+  window.__hm.bal4 = { RUSH, RUSH_BASH, RUSH_FOOTING, RUSH_CD_EARLY, rushReach, rushWhy, chargeRush, rushComing, snareOnLine, MEND_WOUND, mendWound, CHARGE_FREE, MAGE_RANK_K, mageRankK, RUSH_SLOW_EARLY };
 }, 0);

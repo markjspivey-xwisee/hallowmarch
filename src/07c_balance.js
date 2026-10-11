@@ -502,7 +502,7 @@ function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root
 // breaks it (Shield Bash once the warrior is in reach, Leap Strike's landing), and a ward that holds takes one stun
 function castFits(e, cast) {
   if (!(cast > 0)) return true;
-  // a mace or a beast is cast into, and so is a warrior who has not learned Leap Strike (one stun, no leap, no whirl)
+  // a mace or a beast is cast into: only a warrior breaks a spell outright (its Shield Bash, its Leap Strike's landing)
   const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.charge.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat) [balance4] from Charge's level: it rushes now
   if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > e.maxHp * 0.15 && b.until > GAME.t) && hasBuff(e, 'eward')) return true; // [balance4] a ward worn thin is spent by the bash's own blow before its stun
   const t = GAME.t, held = holdLeft(o), d = dist(o.x, o.z, e.x, e.z), reach = (o.meleeRange || 2.7) * (o.scale || 1) + e.radius + 0.3;
