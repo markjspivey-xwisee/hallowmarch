@@ -860,7 +860,7 @@ async def balance5(page):
       // one beyond the flare's reach keeps its spell
       const a3 = T.ahead(P, 16, -5); const m3 = T.foe(2, a3.x, a3.z, 20, 'mage', 0); m3.ai.nextAbility = 1e9; m3.swingAt = 1e9; H.simulate(0.1);
       m3.cds = {}; m3.gcdUntil = 0; m3.power = m3.maxPower; F.useAbility(m3, 'firebolt', P); H.simulate(0.3); P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'holyfire', m3); out.far = !!m3.casting; m3.casting = null;
-      // a priest steadfast from a fresh Renewal keeps its spell
+      // a priest steadfast from its own Renewal keeps its spell
       const a2 = T.ahead(P, 6, 3); const q = T.foe(2, a2.x, a2.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
       q.cds = {}; q.gcdUntil = 0; q.power = q.maxPower; q.hp = q.maxHp * 0.6; F.useAbility(q, 'renew', q); out.steady = H.fn.hasBuff(q, 'steadfast');
       q.gcdUntil = 0; F.useAbility(q, 'mend', q); H.simulate(0.2); P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'holyfire', q); out.kept = !!q.casting;
@@ -871,7 +871,7 @@ async def balance5(page):
       out.stats = H.bal5.BAL5.stats; return out; })()""")
     check(r['casting'] and r['r'] is True and r['broken'], f"Holy Fire flares a mage's firebolt away ({r})")
     check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
-    check(r['steady'] and r['kept'], f"a priest steadfast from a fresh Renewal keeps its Mend through the flare ({r})")
+    check(r['steady'] and r['kept'], f"a priest steadfast from its own Renewal keeps its Mend through the flare ({r})")
     check(not r['q2'] and r['stale'] and r['fresh'], f"every Renewal on yourself steadies for 4 s (the fresh Renewal's rule was tried and set aside) ({r})")
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);
       const a = T.ahead(P, 14); const q = T.foe(2, a.x, a.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
