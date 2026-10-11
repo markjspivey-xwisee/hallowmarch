@@ -12,7 +12,7 @@
 //                  npcAbilities -> wallsHeld
 
 const LINE = { on: true, stats: { held: 0, switched: 0, searches: 0, found: 0, arrived: 0, waits: 0 } };
-const LINE_HOLD = 1.4; // seconds a held shooter waits on that foe without looking again (unless it finds a line)
+const LINE_HOLD = 1.0; // seconds a held shooter waits on that foe without looking again (unless it moves or finds a line)
 
 // the shot from a given eye point (x, y, z) to t: as wallsShotClear, from somewhere the shooter might stand
 function wallsShotClearFrom(sx0, sy, sz0, e, t, arc) {
@@ -32,7 +32,11 @@ function wallsShotClearFrom(sx0, sy, sz0, e, t, arc) {
 // is e holding its fire at t a moment (a held shot, no line found yet)? Then it does not look again
 function wallsHeld(e, t) {
   const ai = e.ai;
-  return !!(LINE.on && ai && t && ai.heldFoe === t.id && GAME.t < ai.heldUntil);
+  if (!LINE.on || !ai || !t || ai.heldFoe !== t.id || GAME.t >= ai.heldUntil) return false;
+  // moved since (walking back from the wall, round a corner): the line may be open now, so it looks again
+  if (ai.heldAt && dist2(e.x, e.z, ai.heldAt.x, ai.heldAt.z) > 0.6 * 0.6) { ai.heldUntil = 0; return false; }
+  if (dist2(t.x, t.z, ai.heldAt ? ai.heldAt.tx : t.x, ai.heldAt ? ai.heldAt.tz : t.z) > 0.8 * 0.8) { ai.heldUntil = 0; return false; } // nor if the foe has moved
+  return true;
 }
 // a shot at t was held (autoAttack): another foe it can strike from here, else hold on t a moment. True if it switched
 function wallsHeldShot(e, t) {
@@ -45,7 +49,7 @@ function wallsHeldShot(e, t) {
     const o = wallsOtherFoe(e, t);
     if (o) { e.target = o.id; ai.heldFoe = null; ai.lineSpot = null; LINE.stats.switched++; return true; }
   }
-  ai.heldFoe = t.id; ai.heldUntil = GAME.t + LINE_HOLD;
+  ai.heldFoe = t.id; ai.heldUntil = GAME.t + LINE_HOLD; ai.heldAt = { x: e.x, z: e.z, tx: t.x, tz: t.z };
   return false;
 }
 const _lcand = [];

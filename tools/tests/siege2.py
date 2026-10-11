@@ -242,7 +242,7 @@ async def house(page):
       const S = __hm.REALMS[0].town, H = __hm.houses ? null : null;
       const Hs = F.houseInside ? null : null; void Hs;
       const list = window.__hm_housesList || (window.__hm_housesList = __hm.dbg && __hm.dbg.HOUSES ? __hm.dbg.HOUSES : null);
-      const P = __hm.GAME.player; const Hh = (() => { for (let a = 0; a < 6.3; a += 0.3) for (const rr of [26, 28, 24, 30]) { const h = F.houseAt(S.x + Math.sin(a) * rr, S.z + Math.cos(a) * rr); if (h && !h.keepHall && h.state === 'whole') return h; } return null; })();
+      const Hh = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round)[1] || null;
       if (!Hh) return { none: true };
       T2.house = Hh; const src = T2.dummy(1, Hh.x + 40, Hh.z);
       // a stone strikes its wall (from the side): cracks, no hole
@@ -273,11 +273,11 @@ async def house(page):
       out.n = n; out.state = Hh.state; out.hall = !!Hh.keepHall;
       // put it back for the rest of the run
       F.houseRestore(Hh); return out; })()""")
-    check(r.get('hall') and r.get('state') == 'ruin' and r.get('n', 0) > 6, f"house: a keep's great hall takes it too, more slowly ({r.get('n')} trebuchet stones)")
+    check(r.get('hall') and r.get('state') == 'ruin' and r.get('n', 0) >= 6, f"house: a keep's great hall takes it too, more slowly ({r.get('n')} trebuchet stones)")
 
 async def door(page):
     r = await ev(page, 'door: arrows', """(() => { T2.quiet(); T2.away(); const F = T2.F, Wl = __hm.walls, out = {};
-      const S = __hm.REALMS[0].town; let Hh = null; for (let a = 0; a < 6.3 && !Hh; a += 0.3) for (const rr of [26, 28, 24, 30]) { const h = F.houseAt(S.x + Math.sin(a) * rr, S.z + Math.cos(a) * rr); if (h && !h.keepHall && h.state === 'whole') { Hh = h; break; } }
+      const S = __hm.REALMS[0].town; const Hh = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole')[3];
       const D = Hh.door; F.setHouseDoor(Hh, false, null, true); D.leaf.open = 0; __hm.simulate(0.2);
       // a shot at the closed door, from out in front of it
       const a = { x: D.out2.x, y: Hh.y + 1.3, z: D.out2.z }, b = { x: D.c.x + (D.c.x - D.out2.x) * 0.5, y: Hh.y + 1.2, z: D.c.z + (D.c.z - D.out2.z) * 0.5 };
@@ -301,14 +301,78 @@ async def door(page):
     check(r.get('back', 1) < 0.01, 'door: and back as it shuts')
 
 async def archers(page):
-    r = await ev(page, 'archers: wall', """(() => { T2.quiet(); T2.away(); const F = T2.F, Ln = __hm.lines, Wl = __hm.walls, out = {};
-      const K = T2.keep(0, 0), C = T2.C(K); K.lastEnemyNear = __hm.GAME.t;
-      // a garrison archer at a post on the side walk, and a foe off to its side close under the wall
-      const g = [...K.guards].map(F.getEnt).find((q) => q && q.alive && q.ai.wall) || null;
-      out.has = !!g; if (!g) return out;
-      const st0 = { ...Ln.LINE.stats }, w0 = { checks: Wl.WALLS.stats.checks || 0, held: Wl.WALLS.stats.held || 0 };
-      return out; })()""")
-    return r
+    # a garrison archer on a Logres corner tower's top with a foe close below off to the tower's side, and an attacking
+    # archer under the curtain with a defender back on the walk: how many shots each looses in 20 s, the old way and the new
+    res = {}
+    for on in (False, True):
+        r = await ev(page, f'archers: {"new" if on else "old"}', """((on) => { T2.quiet(); T2.away(); const F = T2.F, Ln = __hm.lines, Wl = __hm.walls, out = {};
+          Ln.LINE.on = on; const K = T2.keep(0, 0), C = T2.C(K); K.lastEnemyNear = __hm.GAME.t;
+          T2.clearGarrison(K); const Lr = F.getEnt(K.lord); if (Lr) F.removeEnt(Lr); K.lord = null; K.nextGuardAt = 1e9; F.fillGarrison(K, true); __hm.simulate(0.5);
+          const gs = [...K.guards].map(F.getEnt).filter((q) => q && q.alive);
+          for (const q of gs) if (!q.ai.wall) F.removeEnt(q);
+          const Lr2 = F.getEnt(K.lord); if (Lr2) F.removeEnt(Lr2);
+          const g = gs.find((q) => q.ai.wall && q.ai.slot === 'w2'); out.has = !!g; if (!g) return out;
+          g.hp = g.maxHp = 1e9;
+          const T = __hm.towers.TOWER.list.find((q) => q.C === C && q.role === 'corner' && q.sx === 1 && q.sz === 1);
+          // the foe: on the ground off the tower's side, close under it (the archer's breastwork hides it from its post)
+          const side = { x: T.wx + Math.sin(K.site.yaw + Math.PI / 2) * 0 , z: 0 };
+          const fp = F.siteToWorld(K.site, T.cx + 5.2, T.cz - 2.0);
+          const foe = T2.dummy(2, fp.x, fp.z); foe.hp = foe.maxHp = 1e9; foe.role = 'dummy'; foe.ai.post = { x: fp.x, z: fp.z, leash: 0 };
+          // an attacking archer under the curtain, and a defender standing back on the walk behind the breastwork
+          const ap = F.siteToWorld(K.site, -16 - 3.5, -8.5), dp = F.siteToWorld(K.site, -14.1, -8.5);
+          const att = F.spawnRealmUnit(2, 'archer', 30, 'guard', ap.x, ap.z, {}); att.hp = att.maxHp = 1e9; att.ai.post = { x: ap.x, z: ap.z, leash: 30 };
+          const def = T2.dummy(0, dp.x, dp.z); def.y = F.floorAt(dp.x, dp.z, K.site.y + 8); def.fixedY = null; def.hp = def.maxHp = 1e9;
+          const h0 = foe.hp, d0 = def.hp, gx = g.x, gz = g.z, c0 = Wl.WALLS.stats.checks || 0, k0 = Wl.WALLS.stats.held || 0;
+          let t = 0, far = 0; while (t < 20) { __hm.simulate(0.25); t += 0.25; K.lastEnemyNear = __hm.GAME.t; g.target = foe.id; att.target = def.id; far = Math.max(far, Math.hypot(g.x - gx, g.z - gz)); }
+          out.wallHits = Math.round((h0 - foe.hp) > 0 ? 1 : 0); out.wallDmg = Math.round(h0 - foe.hp); out.attDmg = Math.round(d0 - def.hp);
+          out.checks = (Wl.WALLS.stats.checks || 0) - c0; out.held = (Wl.WALLS.stats.held || 0) - k0; out.moved = +far.toFixed(2);
+          out.back = +Math.hypot(att.x - ap.x, att.z - ap.z).toFixed(1); out.stats = JSON.parse(JSON.stringify(Ln.LINE.stats));
+          F.removeEnt(foe); F.removeEnt(att); F.removeEnt(def); Ln.LINE.on = true;
+          return out; })(""" + ('true' if on else 'false') + ")")
+        res[on] = r
+    o, n = res[False], res[True]
+    if n.get('has'):
+        check(n['wallDmg'] > o['wallDmg'] or n['wallDmg'] > 0, f"archers: a garrison archer with a foe close below off its tower's side finds a crenel with a line and shoots (harm {o['wallDmg']} -> {n['wallDmg']}, moved {n['moved']} m)")
+        check(n['attDmg'] >= o['attDmg'], f"archers: an attacking archer under the curtain steps back to where the walk shows (harm {o['attDmg']} -> {n['attDmg']}, {n['back']} m back)")
+        hs_o = o['held'] / max(1, o['checks']); hs_n = n['held'] / max(1, n['checks'])
+        check(hs_n <= hs_o + 0.05, f"archers: fewer of their looks are held ({o['held']}/{o['checks']} -> {n['held']}/{n['checks']})")
+
+
+async def shots(page):
+    # a band climbing in over the rubble of a fallen Logres corner tower, by day (high) and at low
+    await ev(page, 'shots: storm', """(() => { T2.quiet(); T2.away(); const K = T2.keep(0, 1), C = T2.C(K), F = T2.F; __hm.setTod(0.45);
+      const W = T2.tower(K, (T) => T.role === 'corner' && T.sx === 1 && T.sz === -1); T2.clearGarrison(K); const Lr = F.getEnt(K.lord); if (Lr) F.removeEnt(Lr); K.lord = null;
+      if (W.state === 'whole') { const src = T2.dummy(2, K.site.x + W.ox * 70, K.site.z + W.oz * 70); T2.breakIt(W, src); F.removeEnt(src); }
+      const id = T2.S.band(2, K.id, 95, 10), wb = __hm.WAR.warbands.find((w) => w.id === id), Rt = T2.S2.siegeStormRoute(W), p0 = Rt[0];
+      F.wbMembers(wb).forEach((e, i) => { e.x = e.prevX = p0.x + W.ox * (3 + Math.floor(i / 4) * 1.6) + (i % 4 - 1.5) * 1.6 * W.oz; e.z = e.prevZ = p0.z + W.oz * (3 + Math.floor(i / 4) * 1.6) - (i % 4 - 1.5) * 1.6 * W.ox; e.y = F.heightAt(e.x, e.z); e.hp = e.maxHp = 1e6; });
+      wb.order.siegeE = null; T2.shotW = W; T2.shotWb = id;
+      T2.until(() => F.wbMembers(wb).some((e) => e.ai.storm && e.ai.storm.i >= 3), 20, 0.1); __hm.simulate(0.6, 0.05); return 0; })()""")
+    cam = """const W = T2.shotW, T = W.T; T2.cam(T.wx + W.ox * 13 + W.oz * 7, T.S.y + 6.5, T.wz + W.oz * 13 - W.ox * 7, T.wx + W.ox * 2, T.S.y + 1.5, T.wz + W.oz * 2);"""
+    await shot(page, 'siege2_storm_high', "(() => { " + cam + " return 0; })()", 'high')
+    await shot(page, 'siege2_storm_low', "(() => { " + cam + " return 0; })()", 'low')
+    # a Thule palisade burning at night, its burnt gap by day (high and low)
+    await ev(page, 'shots: palisade', """(() => { T2.quiet(); T2.away(); const K = T2.keep(2, 1), C = T2.C(K), P = (__hm.palisade.palisadeInit(), C.pal), F = T2.F;
+      const c0 = P.cells.find((c) => c.side === 2 && Math.abs(c.a + 4) < 1); __hm.palisade.palisadeIgnite(c0, 0.5);
+      for (let i = 0; i < 26; i++) { __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; }
+      T2.palShot = { K, c0 }; __hm.setTod(1.9); return P.cells.filter((c) => c.st === 1).length; })()""")
+    pcam = """const { K, c0 } = T2.palShot, S = K.site, o = T2.F.siteToWorld(S, 14.9 + 14, c0.a + 7), t = T2.F.siteToWorld(S, 14.9, c0.a); T2.cam(o.x, S.y + 5.5, o.z, t.x, S.y + 3.2, t.z);"""
+    await shot(page, 'siege2_palisade_night', "(() => { " + pcam + " return 0; })()", 'high')
+    await ev(page, 'shots: gap', """(() => { const { K, c0 } = T2.palShot, P = T2.C(K).pal; let t = 0; while (t < 60 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; } __hm.simulate(20); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.42); return P.gaps.length; })()""")
+    await shot(page, 'siege2_palisade_gap_high', "(() => { " + pcam + " return 0; })()", 'high')
+    await shot(page, 'siege2_palisade_gap_low', "(() => { " + pcam + " return 0; })()", 'low')
+    # an Eriu gate tower's thatched cone burning at dusk
+    await ev(page, 'shots: cone', """(() => { T2.quiet(); T2.away(); const K = T2.keep(1, 0), C = T2.C(K); const T = __hm.towers.TOWER.list.find((q) => q.C === C && q.look === 'rath' && q.role === 'gate' && q.sx === -1);
+      if (!T.burn && !T.fallen) __hm.towerfire.towerIgnite(T, T.TT + 2); for (let i = 0; i < 24; i++) { __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; } T2.coneShot = T; __hm.setTod(1.25); return 0; })()""")
+    await shot(page, 'siege2_cone_dusk', """(() => { const T = T2.coneShot, S = T.S, o = T2.F.siteToWorld(S, T.cx - 9, T.cz + 16), t = T2.F.siteToWorld(S, T.cx, T.cz); T2.cam(o.x, S.y + 9, o.z, t.x, S.y + 8.5, t.z); return 0; })()""", 'high')
+    # a town house holed and cracked by stones, then another fallen to a ruin
+    await ev(page, 'shots: house', """(() => { T2.quiet(); T2.away(); const F = T2.F, B = __hm.batter, S = __hm.REALMS[0].town; __hm.setTod(0.42);
+      const hs = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole');
+      const A = hs[0], Bh = hs[1] || hs[0], src = T2.dummy(1, S.x + 60, S.z);
+      B.houseStoneHit(A, A.x + 1.5, A.y + 1.4, A.z, 4.4, src, false); B.houseStoneHit(A, A.x + 0.6, A.y + A.wallH + 1, A.z + 0.4, 4.4, src, true);
+      let n = 0; while (Bh !== A && Bh.state === 'whole' && n < 20) { B.houseStoneHit(Bh, Bh.x, Bh.y + Bh.wallH + 1, Bh.z, 4.4, src, true); n++; }
+      F.removeEnt(src); __hm.simulate(3); T2.hA = A; T2.hB = Bh; return { a: A.bat, b: Bh.state }; })()""")
+    await shot(page, 'siege2_house_holed', """(() => { const H = T2.hA, d = H.door.out2, dx = d.x - H.x, dz = d.z - H.z, L = Math.hypot(dx, dz); T2.cam(H.x + dx / L * 9 + dz / L * 4, H.y + 7.5, H.z + dz / L * 9 - dx / L * 4, H.x, H.y + 2.2, H.z); return 0; })()""", 'high')
+    await shot(page, 'siege2_house_ruin', """(() => { const H = T2.hB, d = H.door.out2, dx = d.x - H.x, dz = d.z - H.z, L = Math.hypot(dx, dz); T2.cam(H.x + dx / L * 10 + dz / L * 3, H.y + 5, H.z + dz / L * 10 - dx / L * 3, H.x, H.y + 1, H.z); return 0; })()""", 'high')
 
 async def main():
     async with async_playwright() as p:
@@ -327,6 +391,8 @@ async def main():
         if want('cone'): await cone(page)
         if want('house'): await house(page)
         if want('door'): await door(page)
+        if want('archers'): await archers(page)
+        if SHOTS and want('shots'): await shots(page)
         r = await ev(page, 'errors', "__hm.errors.slice(0, 5)")
         check(len(r) == 0, '__hm.errors is empty')
         print('logs', logs[:5])

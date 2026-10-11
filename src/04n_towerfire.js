@@ -60,8 +60,8 @@ function towerFireSpots(T) {
   if (T.fireSpots) return T.fireSpots;
   const out = [];
   if (T.look === 'rath') { // [siege2] the posts under the cone, then the thatch in rings up to its point
-    for (let k = 0; k < 4; k++) { const p = twW(T, (k + 0.5) * Math.PI / 2, T.RO - 0.3); out.push({ x: p.x, z: p.z, y: T.TT + 1.3, s: 0.6 }); }
-    for (const [h, n] of [[0.5, 6], [1.5, 5], [2.5, 3]]) for (let k = 0; k < n; k++) { const rr = (T.RO + 0.55) * (1 - h / 3.6) + 0.05, p = twW(T, (k / n) * TAU + h, rr); out.push({ x: p.x, z: p.z, y: T.eave + h, s: 0.8 + 0.2 * (h < 1) }); }
+    for (let k = 0; k < 2; k++) { const p = twW(T, (k + 0.5) * Math.PI, T.RO - 0.3); out.push({ x: p.x, z: p.z, y: T.TT + 1.3, s: 0.6 }); }
+    for (const [h, n] of [[0.5, 4], [1.5, 3], [2.5, 2]]) for (let k = 0; k < n; k++) { const rr = (T.RO + 0.55) * (1 - h / 3.6) + 0.05, p = twW(T, (k / n) * TAU + h, rr); out.push({ x: p.x, z: p.z, y: T.eave + h, s: 0.8 + 0.2 * (h < 1) }); }
     out.push({ x: T.wx, z: T.wz, y: T.apex - 0.3, s: 1.1, roof: true });
     T.fireSpots = out;
     return out;

@@ -5,7 +5,7 @@ swim out with the stick, dive and come up again, row a boat away from a jetty an
 the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table,
 go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
 fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]);
-shove a beached boat into the water and push her about ([polish]).
+shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -136,6 +136,16 @@ async def main():
             check(r['swim'] and lab == 'Dive' and ok and d1['dive'], f'dive: swimming in deep water the pad shows Dive, and a tap goes under ({lab}, {json.dumps(d1)})')
             check(d2['dive'] and d2['pivot'] < d1['pivot'] - 0.8, f'dive: the stick swims you down the way you look ({d1["pivot"]:.2f} -> {d2["pivot"]:.2f})')
             check(lab2 == 'Up' and ok2 and not d3['dive'] and d3['swim'], f'dive: Up takes you back to the surface ({lab2}, {json.dumps(d3)})')
+
+        if want('palisade'):
+            # [siege2] a burning brand held to an enemy burh's palisade: the pad's Use sets it alight (04g_burn.js)
+            r = await page.evaluate("""(() => { const H = TF.H, PL = H.palisade; PL.palisadeInit(); const P = TF.P(), C = H.fn.castleOf(H.REALMS[2].keepSites[0]), Pal = C.pal;
+              const c = Pal.cells.find((q) => q.side === 0 && Math.abs(q.a) < 1 && q.st === 0); const S = C.S, o = H.fn.siteToWorld(S, c.a, -14.9 - 1.3);
+              TF.stand(o.x, o.z, c.x, c.z); P.brand = { until: H.GAME.t + 120, wet: 0, x: P.x, y: P.y + 1.4, z: P.z, emitAcc: 0 }; H.simulate(0.1); H.frame(1/30);
+              TF.palC = Pal.cells.indexOf(c); TF.palCast = C; return { label: TF.label() }; })()""")
+            ok = await tap(page, '#t-use')
+            st = await page.evaluate("(() => { __hm.simulate(0.5); const c = TF.palCast.pal.cells[TF.palC]; const out = { st: c.st }; c.st = 0; c.heat = 0; for (const f of c.fires) f.until = 0; c.fires = []; TF.P().brand = null; return out; })()")
+            check(r['label'] == 'Set the palisade alight' and ok and st['st'] == 1, f"palisade: with a brand by an enemy burh's palisade, a tap on Use sets it alight ({r['label']}, {json.dumps(st)})")
 
         if want('row'):
             # [water2] step into a moored boat from the jetty with Use, row with the stick, step out with Use

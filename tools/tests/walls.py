@@ -395,14 +395,14 @@ async def breach(page):
       while (t < 40 && i < path.length) { const p = path[i]; if (Math.hypot(p.x - P.x, p.z - P.z) < 0.6) { i++; continue; } H.CAM.yaw = Math.atan2(p.x - P.x, p.z - P.z); H.simulate(0.1, 0.02); t += 0.1; if (Math.round(t * 10) % 5 === 0) ys.push(+(P.y - S.y).toFixed(1)); }
       H.INPUT.keys.delete('KeyW'); H.simulate(0.2);
       out.reached = i; out.t = +t.toFixed(1); out.inCourt = F.castleInside ? null : null; out.end = WT.F.castles ? +Math.hypot(P.x - goal.x, P.z - goal.z).toFixed(2) : null; out.ys = ys.slice(0, 30);
-      // the commanders count the danger it puts the keep in, but send their bands to the gate or a curtain's breach,
-      // not in through its store room's door (too narrow a way for a band)
+      // the commanders count the danger it puts the keep in, and ([siege2]) send their bands in through it, one or two
+      // at a time through its store room's door (04i_siege2.js)
       out.open = C.sections.filter((q) => q.state === 'breach').map((q) => q.kind);
       out.danger = +__hm.SIEGE.siegeDanger(S.keepRef).toFixed(2); out.bandWay = __hm.SIEGE.siegeOpenBreach(C, a.x, a.z) ? 'breach' : null;
       P.faction = 0;
       return out; })()""")
     check(r['reached'] == 5, f"the player climbs in over the rubble, through the store room and out into the courtyard the way the bands storm it ({r['t']} s)")
-    check('tower' in r['open'] and r['danger'] >= 0.9 and r['bandWay'] is None, f"the commanders count the danger of the fallen tower ({r['danger']}) but send no band in by its store room's narrow door")
+    check('tower' in r['open'] and r['danger'] >= 0.9 and r['bandWay'] == 'breach', f"the commanders count the danger of the fallen tower ({r['danger']}) and send their bands in over its rubble, one or two at a time through its store room ([siege2] siegeStormBand)")
     r = await ev(page, 'mend', """(() => { const out = {}, { S, C, W, T } = BT.pick(), F = WT.F, H = WT.H, K = S.keepRef;
       WT.put(S.x + 80, S.z + 80); WT.clearNear(S.x, S.z, 60); K.lastEnemyNear = -1e9;
       const st = []; for (let i = 0; i < 24; i++) { H.simulate(8); K.lastEnemyNear = -1e9; st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); }
