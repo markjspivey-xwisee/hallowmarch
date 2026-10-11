@@ -207,7 +207,7 @@ function footLockSlot(e, horse) {
     // floor it will land on
     const hy = o.down ? o.h + (o.hop > 0 ? FL_HOP_H * Math.sqrt(Math.sin(Math.PI * o.hop)) : 0) : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9); // [motion3] (a quick step raised)
     // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
-    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse && (o.down ? o.tread : o.treadT) ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP on a stair's tread)
+    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP: flFloor finds nothing higher than 0.6 but a stair's tread)
     if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;
