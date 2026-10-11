@@ -436,7 +436,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.carrying != null) return 'carrying';
   if (isStunned(e)) return 'stunned';
   if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
-  { const cw = classCanUse(e, A); if (cw) return cw; } // [balance3] a body held by frost cannot Charge or Leap out of it (07b_classes.js)
+  { const cw = classCanUse(e, A); if (cw) return cw; } // [balance3] a body held by frost cannot Charge or Leap out of it (07c_balance3.js)
   if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';

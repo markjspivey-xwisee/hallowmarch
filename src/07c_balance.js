@@ -557,7 +557,9 @@ function botPriest(e, t) {
   // you cast; short of it (below 20 power runs short in a long fight), cast between its blows and renew only once a
   // spell has been cut
   const rich = pw > 0.5;
-  const blade = rich && !!t && !t.rangedKind && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  // [balance3] a warrior's blade (a bash, a parry, a finisher): a mace, a beast or an outlaw's axe only sets a spell
+  // back or breaks it now and then, and a priest who waits on every blow loses the race to one who casts through them
+  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
   const castOk = steady || busy || (!broke && !blade);
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;

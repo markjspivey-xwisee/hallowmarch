@@ -23,6 +23,7 @@ LEVELS = [int(x) for x in arg('levels', '10,30,50').split(',')]
 REPS = int(arg('reps', '12'))
 KIND = arg('kind', 'skilled')
 CAP = int(arg('cap', '60'))
+ONLY = [c for c in arg('only', '').split(',') if c]  # kind=mastery: only these callings
 TAP = 'tap' in ARGS or any(a.startswith('trace=') for a in ARGS)
 TRACE = int(arg('trace', '0'))
 CL4 = ['warrior', 'archer', 'mage', 'priest']
@@ -98,7 +99,7 @@ def spec_list(kind, reps):
     """[clsA, kindA, clsB, kindB, realmA, realmB, flip] for every duel of the run"""
     out = []
     if kind == 'mastery':
-        for c in CL4:
+        for c in [c for c in CL4 if not ONLY or c in ONLY]:
             for i in range(reps):
                 ra, rb, flip = i % 3, (i + 1) % 3, i % 2
                 out.append([c, 'skilled', c, 'simple', ra, rb, flip])
