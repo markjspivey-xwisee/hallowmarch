@@ -251,9 +251,9 @@ async def main():
         await shot(page, 'land_after', VIEW_LAND)
         await shot(page, 'town_after', VIEW_TOWN)
         await shot(page, 'wall_after', VIEW_WALL)
-        await page.evaluate("T.play()")
-        # the character continues from the save
-        r = await ev(page, 'continue', "(() => { document.getElementById('btn-continue').click(); return { started: __hm.GAME.started, lvl: __hm.GAME.prog && __hm.GAME.prog.level, errors: __hm.errors.slice(0, 3) }; })()")
+        # the character continues from the save ([heights] the camera is set to play in the same call as the click: a frame
+        # drawn between two calls found the camera playing and no player yet, and updateCamera threw)
+        r = await ev(page, 'continue', "(() => { T.play(); document.getElementById('btn-continue').click(); return { started: __hm.GAME.started, lvl: __hm.GAME.prog && __hm.GAME.prog.level, errors: __hm.errors.slice(0, 3) }; })()")
         check(r['started'] and r['lvl'] == 35 and not r['errors'], 'the character continues in the remembered world')
         r = await ev(page, 'runs on', "(() => { const s = T.sim(20); return { errors: s.errors, nonFinite: s.nonFinite }; })()")
         check(not r['errors'] and r['nonFinite'] == 0, 'twenty seconds on: no errors, nothing non-finite')
