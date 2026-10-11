@@ -1006,6 +1006,17 @@ async def shots(page):
       for (let i = 0; i < 12 && w.motion; i++) { H.simulate(0.05); H.frame(0.05); }
       CS(P, w, 7.5, 1.6, 0.5, 1.1); return { r, d: +Math.hypot(w.x - P.x, w.z - P.z).toFixed(1), act: w.anim.act, rush: !!(w.motion && w.motion.rush) }; })()""")
     await snap(page, 'rush', 1)
+    # [balance5] holy ground dazzles the foes on it: a warrior standing on a priest's hallowed ground, motes of light about
+    # its head, the ground's glow under both
+    if want('hallow'): await ev(page, 'hallow-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+      const a = T.ahead(P, 3.2); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; P.target = w.id; P.swingAt = 1e9;
+      const hold = () => { w.x = a.x; w.z = a.z; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); w.swingAt = 1e9; };
+      hold(); CS(P, w, 4.6, 1.5, 0.55, 1.3); H.frame(0.016);
+      C.csOf(P).dev = 60; P.cds = {}; P.gcdUntil = 0; const r = C.consecrate(P);
+      for (let i = 0; i < 30 && !w.buffs.some((b) => b.kind === 'dazzle' && b.src === 'hallow'); i++) { H.simulate(0.1); hold(); }
+      for (let i = 0; i < 8; i++) { H.simulate(0.04); hold(); H.frame(0.04); }
+      CS(P, w, 4.6, 1.5, 0.55, 1.3); return { r, dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => b.src + ':' + b.value.toFixed(2)), grounds: C.CLS.grounds.length }; })()""")
+    await snap(page, 'hallow', 1)
 
 async def main():
     async with async_playwright() as p:

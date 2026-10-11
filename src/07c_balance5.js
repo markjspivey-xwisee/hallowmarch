@@ -79,7 +79,7 @@ function botDodge(e, t, dt) {
   for (const p of PROJ) {
     if (p.kind !== 'meteor' || p.srcFaction === e.faction || !p.point) continue;
     const R = ABILITIES.meteor.radius + e.radius * (e.scale || 1) + 0.3, d = dist(e.x, e.z, p.point.x, p.point.z);
-    if (d < R) { best = { x: p.point.x, z: p.point.z, now: true }; break; }
+    if (d < R) { best = { x: p.point.x, z: p.point.z, now: true, out: R - d }; break; }
   }
   // burning grass under its feet (2% of health a second): out of it
   if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45) {
@@ -97,13 +97,15 @@ function botDodge(e, t, dt) {
   if (L < 0.3) { const a = t ? Math.atan2(t.x - e.x, t.z - e.z) + Math.PI / 2 : Math.random() * TAU; ax = Math.sin(a); az = Math.cos(a); } else { ax /= L; az /= L; }
   BAL5.stats.dodges = (BAL5.stats.dodges || 0) + 1;
   if (best.now) {
-    if (e.casting) e.casting = null; // the spell let go: it would not outlast the fall
-    if (e.cls === 'mage' && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null)) { e.yaw = Math.atan2(ax, az); if (botUseAny(e, 'blink', e)) return true; }
-    if (e.cls === 'archer' && e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null)) { e.yaw = Math.atan2(-ax, -az); if (botUseAny(e, 'tumble', e)) return true; }
-  } else if (e.casting) {
-    if (best.fire || e.casting.total - e.casting.t < 0.8) return false; // nearly cast (or a grass fire, a slow harm): finish it, then walk out
-    e.casting = null;
-  }
+    // a blink or a tumble carries a mage or an archer clear (the spell let go: it would not outlast the fall); on foot a
+    // body gets clear only from near the edge in the time the meteor takes to fall, else it finishes its spell
+    const ready = (id) => e.level >= ABILITIES[id].level && (e.cds[id] || 0) <= GAME.t && e.power >= ABILITIES[id].cost;
+    const leap = (e.cls === 'mage' && ready('blink')) || (e.cls === 'archer' && ready('tumble'));
+    if (!leap && best.out > effectiveSpeed(e) * 0.7) return false;
+    if (e.casting) e.casting = null;
+    if (e.cls === 'mage' && leap) { e.yaw = Math.atan2(ax, az); if (botUseAny(e, 'blink', e)) return true; }
+    if (e.cls === 'archer' && leap) { e.yaw = Math.atan2(-ax, -az); if (botUseAny(e, 'tumble', e)) return true; }
+  } else if (e.casting) return false; // a blizzard or burning grass, a slow harm: the spell finished first, then out
   moveToward(e, e.x + ax * 4, e.z + az * 4, dt, 1, 0);
   return true;
 }
