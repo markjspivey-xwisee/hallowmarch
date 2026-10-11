@@ -987,7 +987,7 @@ function castleRepairDone(W) {
   siegeOnRepair(W); // [siege] (04h_siege.js)
   if (W.kind === 'tower') { castleCutUpload(W.C); towerBreachMended(W); } // [walls] the rooms, ladders and the archer's post again (04g_breach.js)
   const K = W.C.S.keepRef;
-  if (K) news(W.kind === 'tower' ? `${W.C.S.name} has rebuilt a tower.` : `${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal');
+  if (K) news(W.kind === 'tower' ? `${W.C.S.name} has rebuilt a tower.` : `${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal'); // [walls]
 }
 // a heavy blow lands at (x, z): walls of other realms' castles within reach take it
 function castleSiegeHit(src, x, z, r, mult) {

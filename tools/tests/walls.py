@@ -1,4 +1,4 @@
-"""[walls] What flies stops at what it hits, and stone towers that breach and are mended (07g_walls.js, 04o_breach.js).
+"""[walls] What flies stops at what it hits, and stone towers that breach and are mended (07g_walls.js, 04g_breach.js).
 Checks: the swept test (shotHit) against a keep's curtain (stone, a shot over it goes on), a Thule palisade (logs), a
 town house's wall (daub or plaster) and its window (through it with the shutters open, stopped by them shut), a
 roundhouse's thatch, a tower's drum (stone) and its arrow slit and open door, a crenellated parapet (a merlon stops a
@@ -44,7 +44,14 @@ async def shot(page, name, js):
     if not SHOTS: return
     if 'shots' in OPT and name.replace('walls_', '') not in OPT['shots'].split(','): return
     info = await page.evaluate(js)
-    url = await page.evaluate("(() => { __hm.frame(1/30); __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
+    # __hm.simulate runs the particles' clock (uTime) on ahead of the frames' (tick sets it back to renderTime), so what
+    # was emitted while simulating is born in the frames' future and pops up later where it was emitted, frozen in a
+    # column or a scatter of puffs: after a frame has set the clock, those are let go before the picture
+    url = await page.evaluate("""(() => { __hm.frame(1/30); const now = __hm.dbg.U.uTime.value;
+      for (const P of [__hm.walls.fx.fxAlpha, __hm.walls.fx.fxAdd]) { const a0 = P.a0.array, a1 = P.a1.array; let k = 0;
+        for (let i = 0; i < P.max; i++) if (a0[i * 4 + 3] > now + 1e-3 && a1[i * 4 + 3] > 0) { a1[i * 4 + 3] = -1; k++; }
+        if (k) { P.dirty0 = 0; P.dirty1 = P.max - 1; } }
+      __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()""")
     data = base64.b64decode(url.split(',', 1)[1])
     if Image: Image.open(io.BytesIO(data)).convert('RGB').resize((960, 540), Image.LANCZOS).save(OUT + name + '.png')
     else: pathlib.Path(OUT + name + '.png').write_bytes(data)
@@ -192,15 +199,19 @@ async def arrows(page):
       // at a Logres curtain: they glance off and fall, and a body behind it is not struck
       const S = WT.site(0, 0), b = WT.sp(S, 2, -26, 0); WT.clearNear(S.x, S.z, 50); WT.put(b.x, b.z);
       const behind = WT.sp(S, 2, -12, 0), foe = WT.body(1, 'warrior', behind.x, behind.z);
-      const hp0 = foe.hp, g0 = W.stats.glanced;
+      const hp0 = foe.hp, g0 = W.stats.glanced, n1 = W.stuck.length;
       P.yaw = Math.atan2(behind.x - P.x, behind.z - P.z); H.CAM.yaw = P.yaw;
       for (let i = 0; i < 3; i++) { __hm.cls.looseArrow(P, 1, foe, 0); H.simulate(0.6); }
       H.simulate(2.5);
       out.glanced = W.stats.glanced - g0; out.foeHurt = foe.hp < hp0; out.fallLeft = W.fall.length;
+      // where they came to lie: out from the wall's face (its back wall's outer face is at about -16 along the keep's axis)
+      const cs = Math.cos(S.yaw), sn = Math.sin(S.yaw);
+      out.lieZ = W.stuck.slice(n1).map((s) => +((s.x - S.x) * sn + (s.z - S.z) * cs).toFixed(2));
       F.removeEnt(foe);
       return out; })()""")
     check(r['stuck'] >= 3 and r['inWall'] >= 3, 'drawn arrows stick in a Thule palisade and stay in the wall')
     check(r['glanced'] >= 3 and not r['foeHurt'], 'drawn arrows glance off a Logres curtain; the foe behind it is not struck')
+    check(len(r['lieZ']) >= 3 and all(-24 < z < -15 for z in r['lieZ']), f'and they come to lie near the foot of the wall ({r["lieZ"]})')
 
 async def proj(page):
     r = await ev(page, 'npc archer', """(() => { const out = {}, F = WT.F, H = WT.H, W = WT.W;
@@ -419,10 +430,11 @@ async def shots(page):
       H.setTod(0.4); WT.put(a.x + 20, a.z + 20);
       const c = at(Hs.w / 2 + 2.6, 3.4, 1.75), t = at(Hs.w / 2, -0.2, 1.5); cam(c.x, c.y, c.z, t.x, t.y, t.z); return __hm.walls.WALLS.stuck.length; })()""")
     await shot(page, 'walls_glance', """(() => { const cam = """ + cam + """; const F = WT.F, H = WT.H, P = H.GAME.player, S = WT.site(0, 1);
-      WT.clearNear(S.x, S.z, 50); const a = WT.sp(S, -4, -3, 0); WT.put(a.x, a.z); H.UI.modal = null;
-      for (let i = 0; i < 10; i++) { const tg = WT.sp(S, -6 + (i % 5) * 1.1, -13.8, 0); P.yaw = Math.atan2(tg.x - P.x, tg.z - P.z); H.CAM.yaw = P.yaw; H.CAM.pitch = 0.2; __hm.cls.looseArrow(P, 1, null, 0); H.simulate(0.3); }
-      H.simulate(2); H.setTod(0.4); WT.put(a.x + 30, a.z + 30);
-      const c = WT.sp(S, -0.5, -9.5, 1.9), t = WT.sp(S, -4.5, -12.8, 0.1); cam(c.x, c.y, c.z, t.x, t.y, t.z); return __hm.walls.WALLS.stats.glanced; })()""")
+      // from outside the back wall (the keep's hall stands inside it) at its stone face
+      WT.clearNear(S.x, S.z, 50); const a = WT.sp(S, -3, -24, 0); WT.put(a.x, a.z); H.UI.modal = null;
+      for (let i = 0; i < 10; i++) { const tg = WT.sp(S, -6 + (i % 5) * 1.1, -14.4, 0); P.yaw = Math.atan2(tg.x - P.x, tg.z - P.z); H.CAM.yaw = P.yaw; H.CAM.pitch = 0.2; __hm.cls.looseArrow(P, 1, null, 0); H.simulate(0.3); }
+      H.simulate(2); H.setTod(0.4); WT.put(a.x + 30, a.z - 30);
+      const c = WT.sp(S, 1.8, -22.6, 2.1), t = WT.sp(S, -3.6, -16.6, 0.6); cam(c.x, c.y, c.z, t.x, t.y, t.z); return [__hm.walls.WALLS.stats.glanced, __hm.walls.WALLS.stuck.length]; })()""")
     # the breached tower (the Logres keep's other corner) by day and night, high and low
     for q, tod, name in (('high', 0.42, 'walls_breach_day'), ('high', 2.05, 'walls_breach_night'), ('low', 0.42, 'walls_breach_low')):
         await page.evaluate(f"__hm.fn.setQuality('{q}')")

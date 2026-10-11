@@ -887,7 +887,7 @@ function looseArrow(e, k, target, wobble = 0) {
   th += thJ;
   const hx = dx / dh, hz = dz / dh, c = Math.cos(yawJ), s = Math.sin(yawJ);
   const ux = hx * c - hz * s, uz = hx * s + hz * c;
-  const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx:ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null,
+  const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null, // [walls] ox, oy, oz: where it was loosed (07g_walls.js)
     mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * (realmFlavour(e) && e.faction === 0 && elevatedEnt(e) ? 1.2 : 1), crit: k >= 0.98 ? 0.2 : 0, noWind: realmFlavour(e) && e.faction === 2 };
   CLS.arrows.push(A);
   CLS.stats.drawn++;

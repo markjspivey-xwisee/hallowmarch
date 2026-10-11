@@ -218,7 +218,7 @@ function towerBreachFall(W) {
   });
   // the climbers on its ladders fall too
   for (const e of LADDER_CLIMBERS) if (e.motion && e.motion.L && e.motion.L.T === T && e.motion.st !== 3) ladderKnockOff(e, null);
-  for (let i = 0; i < 8; i++) later(i * 0.1, () => FX.dust(T.wx + W.ox * T.RO * (0.5 + Math.random()), S.y + W.rubble + Math.random() * (T.TT - W.rubble), T.wz + W.oz * T.RO * (0.5 + Math.random()), 18, [0.44, 0.41, 0.37]));
+  for (let i = 0; i < 8; i++) later(i * 0.1, () => FX.dust(T.wx + W.ox * T.RO * (0.5 + Math.random()), S.y + W.rubble + Math.random() * (T.TT - W.rubble), T.wz + W.oz * T.RO * (0.5 + Math.random()), 18, wallLit([0.44, 0.41, 0.37])));
   const P = GAME.player;
   if (P && dist2(P.x, P.z, T.wx, T.wz) < 90 * 90) { wallSfx('stone', T.wx, T.wz); uiLog(`A tower of ${S.name} falls in!`, 'warn'); }
 }

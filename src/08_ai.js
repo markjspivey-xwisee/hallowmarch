@@ -408,7 +408,7 @@ function inSight(e, o) {
   return segmentClear(e.x, e.z, o.x, o.z, 0.15, false);
 }
 const _cands = [];
-function pickTarget(e, radius) {
+function pickTarget(e, radius, clearOnly = false) { // [walls] clearOnly: only a foe a bow or a staff can strike (07g_walls.js)
   _cands.length = 0;
   forNear(e.x, e.z, radius, (o, d2) => {
     if (!o.alive || !isEnemy(e, o) || o === e) return;
@@ -423,8 +423,16 @@ function pickTarget(e, radius) {
   });
   if (!_cands.length) return null;
   _cands.sort((a, b) => a[0] - b[0]);
-  for (let i = 0; i < Math.min(3, _cands.length); i++) if (inSight(e, _cands[i][1])) return _cands[i][1];
-  return null;
+  // [walls] a bow, a wand or a staff takes the first of them it can strike, not one behind a wall or a breastwork
+  // (07g_walls.js); with none clear, the first in sight as before
+  let first = null;
+  for (let i = 0; i < Math.min(3, _cands.length); i++) {
+    const o = _cands[i][1];
+    if (!inSight(e, o)) continue;
+    if (!e.rangedKind || wallsShotClear(e, o, e.rangedKind === 'arrow', false)) return o;
+    if (!first) first = o;
+  }
+  return clearOnly ? null : first;
 }
 function topThreat(e) {
   if (!e.threat) return null;
@@ -581,6 +589,7 @@ function thinkPosted(e, dt, aggroR) {
     e.ai.nextScan = GAME.t + 0.4 + Math.random() * 0.3;
     t = topThreat(e);
     if (t && dist(t.x, t.z, post.x, post.z) > aggroR + 8) t = null;
+    if (t && e.rangedKind && !wallsShotClear(e, t, e.rangedKind === 'arrow', false)) t = pickTarget(e, aggroR, true) || t; // [walls] one it can strike first (07g_walls.js)
     if (!t) t = pickTarget(e, aggroR);
   }
   if (e.cls === 'priest' || (t && t.alive)) npcAbilities(e, t);
@@ -805,6 +814,7 @@ function thinkSoldier(e, dt) {
     e.ai.nextScan = GAME.t + 0.35 + Math.random() * 0.3;
     let cand = topThreat(e);
     if (cand && (!canReach(e, cand) || dist(cand.x, cand.z, anchor.x, anchor.z) > Math.min(36, leash) || !inSight(e, cand))) cand = null;
+    if (cand && e.rangedKind && !wallsShotClear(e, cand, e.rangedKind === 'arrow', false)) cand = pickTarget(e, 30, true) || cand; // [walls] one it can strike first (07g_walls.js)
     if (!cand) cand = pickTarget(e, e.rangedKind ? 30 : 22);
     if (cand && dist(cand.x, cand.z, anchor.x, anchor.z) < Math.min(36, leash)) t = cand;
     else if ((!t || t.kind === 'door') && O && O.type === 'defend' && (t = siegeFoeEngine(e, O))) { /* [siege] defenders go for the engines before their walls (04h_siege.js) */ }

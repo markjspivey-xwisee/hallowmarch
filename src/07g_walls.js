@@ -423,9 +423,11 @@ function wallsAimY(t, fromY) {
   return t.y + 1.15 * sc;
 }
 // would a shot from e reach t, or strike something in between? (arrows fly a little arc: tested in three pieces)
-function wallsShotClear(e, t, arc = true) {
+// count: a shot about to be loosed (autoAttack, npcAbilities); false: a foe weighed as a target (pickTarget)
+function wallsShotClear(e, t, arc = true, count = true) {
   if (!WALLS.on || !t) return true;
-  WALLS.stats.checks = (WALLS.stats.checks || 0) + 1;
+  if (count) WALLS.stats.checks = (WALLS.stats.checks || 0) + 1;
+  else WALLS.stats.picks = (WALLS.stats.picks || 0) + 1;
   const yaw = Math.atan2(t.x - e.x, t.z - e.z), sc = e.scale || 1;
   const sx = e.x + Math.sin(yaw) * 0.4, sz = e.z + Math.cos(yaw) * 0.4, sy = e.y + 1.45 * sc;
   const tx = t.x, tz = t.z, ty = wallsAimY(t, sy);
@@ -434,7 +436,7 @@ function wallsShotClear(e, t, arc = true) {
   let px = sx, py = sy, pz = sz;
   for (let k = 1; k <= n; k++) {
     const u = k / n, x = lerp(sx, tx, u), z = lerp(sz, tz, u), y = lerp(sy, ty, u) + (arc ? Math.sin(u * Math.PI) * tot * 0.06 : 0);
-    if (shotHit(px, py, pz, x, y, z, o)) { WALLS.stats.held++; return false; }
+    if (shotHit(px, py, pz, x, y, z, o)) { if (count) WALLS.stats.held++; else WALLS.stats.picksWalled = (WALLS.stats.picksWalled || 0) + 1; return false; }
     px = x; py = y; pz = z;
   }
   return true;
@@ -483,7 +485,7 @@ function wallStrike(kind, R, dx, dy, dz, src, speed = 40, head = null) {
     spellImpact(kind, bx, by, bz);
     const c = PROJ_COL[kind];
     if (c) FX.burst(bx, by, bz, 14, c, 3.2, 0.45, 0.16, 2);
-    if (R.what !== 'ground') FX.dust(bx, by - 0.3, bz, 5, WALL_GLANCE[R.mat] ? [0.5, 0.48, 0.44] : [0.42, 0.34, 0.24]);
+    if (R.what !== 'ground') FX.dust(bx, by - 0.3, bz, 5, wallLit(WALL_GLANCE[R.mat] ? [0.5, 0.48, 0.44] : [0.42, 0.34, 0.24]));
   }
   if (kind === 'fire') wallFire(bx, by, bz, R, src);
   else if (kind === 'frost' || kind === 'ice') { if (near) FX.burst(bx, by, bz, 10, [0.8, 1.2, 1.6], 2, 0.7, 0.12, 1); }
@@ -502,15 +504,16 @@ function wallFire(x, y, z, R, src) {
 function wallArrow(R, dx, dy, dz, speed, type, src) {
   const near = dist2(R.x, R.z, camera.position.x, camera.position.z) < 70 * 70;
   if (WALL_GLANCE[R.mat]) {
-    // off stone it glances: sparks and grit, and it flies on, slower, the way the face turns it
+    // off stone it glances: sparks and grit; it keeps some of its pace along the face and springs back off it only
+    // weakly, so a shot straight at a wall drops near its foot and a glancing one skids on along the face
     WALLS.stats.glanced++;
-    const dn = dx * R.nx + dy * R.ny + dz * R.nz, k = 0.26 + Math.random() * 0.12, j = 0.35;
-    let vx = (dx - 2 * dn * R.nx) * speed * k + (Math.random() - 0.5) * j * speed * k;
-    let vy = (dy - 2 * dn * R.ny) * speed * k + Math.random() * 0.25 * speed * k;
-    let vz = (dz - 2 * dn * R.nz) * speed * k + (Math.random() - 0.5) * j * speed * k;
+    const dn = dx * R.nx + dy * R.ny + dz * R.nz, kt = (0.3 + Math.random() * 0.15) * speed, kn = (0.06 + Math.random() * 0.08) * speed;
+    const vx = (dx - dn * R.nx) * kt - dn * R.nx * kn + (Math.random() - 0.5) * 2.4;
+    const vy = (dy - dn * R.ny) * kt - dn * R.ny * kn + Math.random() * 1.5;
+    const vz = (dz - dn * R.nz) * kt - dn * R.nz * kn + (Math.random() - 0.5) * 2.4;
     if (WALLS.fall.length > 40) WALLS.fall.shift();
     WALLS.fall.push({ x: R.x + R.nx * 0.06, y: R.y + R.ny * 0.06, z: R.z + R.nz * 0.06, vx, vy, vz, t: 0, type, spin: (Math.random() - 0.5) * 20, src: src ? src.id : null });
-    if (near) { FX.sparks(R.x, R.y, R.z); FX.dust(R.x, R.y - 0.2, R.z, 3, [0.55, 0.52, 0.48]); wallSfx('glance', R.x, R.z); }
+    if (near) { FX.sparks(R.x, R.y, R.z); FX.dust(R.x, R.y - 0.2, R.z, 3, wallLit([0.55, 0.52, 0.48])); wallSfx('glance', R.x, R.z); }
     return;
   }
   // into wood, thatch, daub or earth it sticks, the head buried, the shaft standing out along its flight
@@ -521,7 +524,7 @@ function wallArrow(R, dx, dy, dz, speed, type, src) {
   const depth = R.mat === 'earth' ? 0.16 : R.mat === 'thatch' ? 0.2 : 0.09 + Math.random() * 0.05;
   wallStick(R.x + sx * depth, R.y + sy * depth, R.z + sz * depth, sx, sy, sz, type, R, src);
   if (near) {
-    const col = R.mat === 'thatch' ? [0.62, 0.52, 0.3] : R.mat === 'daub' || R.mat === 'plaster' ? [0.62, 0.58, 0.5] : R.mat === 'earth' ? [0.4, 0.34, 0.26] : [0.42, 0.31, 0.19];
+    const col = wallLit(R.mat === 'thatch' ? [0.62, 0.52, 0.3] : R.mat === 'daub' || R.mat === 'plaster' ? [0.62, 0.58, 0.5] : R.mat === 'earth' ? [0.4, 0.34, 0.26] : [0.42, 0.31, 0.19]);
     FX.dust(R.x, R.y - 0.15, R.z, 3, col);
     for (let i = 0; i < 5; i++) fxAlpha.emit(R.x, R.y, R.z, R.nx * 1.4 + (Math.random() - 0.5) * 1.6, R.ny * 1.4 + Math.random() * 1.2, R.nz * 1.4 + (Math.random() - 0.5) * 1.6, 0.7, col[0], col[1], col[2], 0.06, 9, 0.4);
     wallSfx(R.mat === 'earth' || R.mat === 'thatch' ? 'thunkSoft' : 'thunk', R.x, R.z);
@@ -531,6 +534,12 @@ function wallArrow(R, dx, dy, dz, speed, type, src) {
 function wallStick(x, y, z, dx, dy, dz, type, R, src) {
   if (WALLS.stuck.length >= WALL_STUCK_MAX) WALLS.stuck.shift();
   WALLS.stuck.push({ x, y, z, dx, dy, dz, type, until: GAME.t + WALL_STUCK_LIFE, c: R ? R.c : null, f: R ? R.f : null, H: R ? R.H : null, pc: R ? R.pc : null, roof: !!(R && R.what === 'roof'), fire: type === 'fire' ? GAME.t + 9 : 0, src: src ? src.id : null });
+}
+// grit and dust in the light there is now (a particle keeps the colour it is given: pale puffs at night otherwise);
+// by day about as given
+function wallLit(c) {
+  const A = U.uAmbient.value, Lc = U.uLightColor.value;
+  return [c[0] * clamp(A.x * 1.05 + Lc.x * 0.3, 0.12, 1.1), c[1] * clamp(A.y * 1.05 + Lc.y * 0.3, 0.12, 1.1), c[2] * clamp(A.z * 1.05 + Lc.z * 0.3, 0.12, 1.1)];
 }
 // the sounds: a thunk into timber, a dull one into thatch and earth, a ringing glance off stone
 function wallSfx(kind, x, z) {
@@ -617,4 +626,4 @@ function wallsStoneStep(s, px, py, pz) {
   return true;
 }
 
-queueMicrotask(() => { if (window.__hm) window.__hm.walls = { WALLS, shotHit, wallsShotClear, wallsAimY, wallsProj, wallStrike, wallArrow, wallsStoneStep, wallMatOf, wallHouseOf, wallInRoof, updateWalls }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.walls = { WALLS, shotHit, wallsShotClear, wallsAimY, wallsProj, wallStrike, wallArrow, wallsStoneStep, wallMatOf, wallHouseOf, wallInRoof, updateWalls, fx: { FX, get fxAlpha() { return fxAlpha; }, get fxAdd() { return fxAdd; } } }; });
