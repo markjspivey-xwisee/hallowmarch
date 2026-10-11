@@ -1423,6 +1423,7 @@ function updateClasses(dt) {
     if (e.alive) npcClassStep(e, dt);
   }
   for (const id of CLS.frozen) { const e = getEnt(id); if (!e || !e.alive || !frozenOf(e)) { CLS.frozen.delete(id); if (e && e.alive) iceBurst(e.x, e.y + 1, e.z, 0.5); } }
+  stepDazzle(); // [balance3] the dazzled who are no longer (07c_balance3.js)
   stepArrows(dt);
   stepSnares(dt);
   stepGrounds(dt);

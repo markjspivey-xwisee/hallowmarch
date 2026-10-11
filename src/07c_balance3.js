@@ -1,20 +1,26 @@
 /* ================================================================== */
 /* [balance3] the callings within the aim at every level, by skill     */
-/*   Pursuit: an arrow that strikes a warrior takes a second off its    */
-/*     Charge (pursuitOnHit, from classOnHit): the warrior's answer to  */
-/*     a bow that keeps away, at every level, and nothing for Leap      */
-/*     Strike; Charge itself comes every 12 s again.                    */
-/*   Frost holds: a body held by a mage's frost (a frost nova's root,   */
-/*     a frost rune's) cannot Charge or Leap Strike out of it           */
-/*     (classCanUse, asked by canUse): the mage's answer to a blade     */
-/*     that closes twice.                                               */
+/*   Pursuit: an arrow, bolt or spell from afar that strikes a warrior  */
+/*     takes a second off its Charge (pursuitOnHit, from classOnHit):   */
+/*     the warrior's answer to a bow or a staff that keeps away, at     */
+/*     every level, and nothing for Leap Strike.                        */
+/*   One rush: from Leap Strike's level, using Charge or Leap Strike    */
+/*     holds the other back 10 s (rushShare).                           */
+/*   The shield wall: guarded, a warrior walks at full pace behind a    */
+/*     raised shield (SHIELD_WALL_PACE, in classSpeedMult); bots and    */
+/*     NPCs raise it against a bow out of reach.                        */
+/*   Frost holds: a frost nova's or rune's root holds against Leap      */
+/*     Strike, a seasoned mage's (rank II) against Charge too, and a    */
+/*     blizzard against both (classCanUse, asked by canUse).            */
 /*   Bodkins pierce half the armour, not all of it (BODKIN_PIERCE, in   */
-/*     dealDamage): in full gear at 50 armour stops two fifths of a     */
-/*     blow, and a needle point that ignored it all struck nearly twice */
-/*     as hard as anything else.                                        */
+/*     dealDamage).                                                     */
 /*   Holy light dazzles: Smite and the Pillar of Dawn leave the foe     */
-/*     missing one weapon blow in four for 2 s (dazzleOnHit, classHarm  */
-/*     asks dazzleMiss): the priest's answer to a blade at the throat.  */
+/*     missing a share of its weapon blows for 3 s, more with the       */
+/*     priest's rank, and from rank II a dazzled warrior cannot parry   */
+/*     (dazzleOnHit, classHarm asks dazzleMiss): the priest's answer to */
+/*     a blade at the throat.                                           */
+/*   (A priest's own healing from rank II and a broadhead's wound by    */
+/*     rank are in 07c_balance.js: priestSelf, woundOf.)                */
 /* ================================================================== */
 const BODKIN_PIERCE = 0.5; // the share of the armour a bodkin (or Deadeye) goes through
 const PURSUIT_CD = 1; // seconds off Charge for each arrow, bolt or spell that strikes a warrior
@@ -67,7 +73,32 @@ function dazzleOnHit(src, dst, dmg, opts) {
   if (src.cls !== 'priest' || opts.kind !== 'holy' || opts.holy || opts.dot || !dst.alive || dst.kind === 'door' || dst.role === 'boss') return;
   const fresh = !hasBuff(dst, 'dazzle');
   addBuff(dst, 'dazzle', dazzleMissOf(src.level), DAZZLE.dur, 'dazzle');
-  if (fresh && dist2(dst.x, dst.z, camera.position.x, camera.position.z) < 50 * 50) FX.burst(dst.x, dst.y + 1.7 * (dst.scale || 1), dst.z, 10, [2.2, 2.0, 1.2], 1.6, 0.35, 0.08, 0);
+  BAL3.dazzledIds.add(dst.id);
+  if (fresh && dist2(dst.x, dst.z, camera.position.x, camera.position.z) < 50 * 50) FX.burst(dst.x, dst.y + 1.7 * (dst.scale || 1), dst.z, 14, [2.4, 2.2, 1.4], 1.8, 0.4, 0.09, 0);
+}
+// the dazzled who are no longer (each step, from updateClasses)
+function stepDazzle() {
+  for (const id of BAL3.dazzledIds) { const e = getEnt(id); if (!e || !e.alive || !hasBuff(e, 'dazzle')) BAL3.dazzledIds.delete(id); }
+}
+// each frame (drawClasses): three motes of light circle a dazzled head while it lasts, brighter with the priest's rank
+// and fading as it wears off, so a player sees whose blows will go wide
+function drawDazzle() {
+  if (!BAL3.dazzledIds.size) return;
+  const cx = camera.position.x, cz = camera.position.z, t = U.uTime.value;
+  let n = 0;
+  for (const id of BAL3.dazzledIds) {
+    const e = getEnt(id);
+    if (!e || !e.alive || dist2(e.x, e.z, cx, cz) > 45 * 45) continue;
+    const b = e.buffs.find((q) => q.kind === 'dazzle');
+    if (!b) continue;
+    const sc = e.scale || 1, y = e.y + (e.kind === 'humanoid' ? 1.74 + (e.mount ? 0.8 : 0) : e.kind === 'bear' ? 1.3 : 0.85) * sc;
+    const k = clamp((b.until - GAME.t) / 0.6, 0, 1) * (0.7 + b.value * 1.2), r = 0.3 * sc;
+    for (let i = 0; i < 3; i++) {
+      const a = t * 4.2 + i * 2.094 + id, tw = 0.75 + 0.25 * Math.sin(t * 13 + i * 1.7 + id);
+      glowPush(e.x + Math.cos(a) * r, y + Math.sin(a * 2 + i) * 0.05 * sc, e.z + Math.sin(a) * r, 2.3 * k, 2.1 * k, 1.3 * k, 0.11 * sc * tw);
+    }
+    if (++n >= 8) break;
+  }
 }
 // a warrior dazzled by a priest of rank II or more does not see the glint of a blow coming: no parry (the raised shield
 // still blocks)
@@ -84,7 +115,7 @@ function dazzleMiss(src, dst, opts) {
 }
 
 
-const BAL3 = { stats: { pursuit: 0, dazzled: 0, held: 0 } };
+const BAL3 = { stats: { pursuit: 0, dazzled: 0, held: 0 }, dazzledIds: new Set() };
 
 setTimeout(() => {
   if (typeof BUFF_ICON !== 'undefined') BUFF_ICON.dazzle = ['sun', '#fff0b8'];

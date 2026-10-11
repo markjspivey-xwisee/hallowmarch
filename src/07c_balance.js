@@ -280,7 +280,7 @@ function botMove(e, t, dt) {
   else if (e.cls === 'priest' && skilled && t.cls === 'warrior' && hasShield(t) && clsHas(t, 'block')) want = 12;
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
-  // [balance3] unless the bow cannot leap away (no Tumble learned, or just spent): then the priest presses it
+  // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
   else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22;
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
@@ -292,8 +292,8 @@ function botReflex(e, t, dt) {
   const cs = e.cs, B = e.bot, P = e === GAME.player, now = GAME.t;
   if (e.cls === 'warrior') {
     const hold = (on) => { if (P) { if (CLS.hold !== on) classHold(on); } else setBlock(e, on); };
-    // [balance3] a shield wall: guarded, against a foe who strikes from afar, the shield stays up on the way in (it costs
-    // no endurance and little pace in that stance) and comes down in reach
+    // [balance3] a shield wall: guarded, against a bow out of reach, the shield stays up on the way in (in that stance it
+    // costs no endurance and no pace) and comes down in reach
     if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; }
     else if (B.wall) { B.wall = false; if (cs.blockOn) hold(false); }
     if (cs.blockOn && now > B.blockUntil) hold(false);
@@ -395,12 +395,12 @@ function botWarrior(e, t) {
   if (hpF < 0.75 && botUse(e, 'rally', e)) return true;
   return false;
 }
-// [balance3] a foe worth a shield wall: one that shoots or casts from out of reach (a bow, a staff, a priest's holy
-// light) while the warrior has no rush ready to close
+// [balance3] a foe worth a shield wall: a bow out of reach while the warrior has no rush ready to close (a spell comes
+// three fifths through a shield, an arrow a third or less)
 function shieldWallWanted(e, t) {
   if (!t || !t.alive || !clsHas(e, 'stances') || !hasShield(e)) return false;
   const d = dist(e.x, e.z, t.x, t.z), reach = e.meleeRange + t.radius * (t.scale || 1) + 1.2;
-  if (d <= reach || t.rangedKind !== 'arrow') return false; // a wall against arrows (spells come three fifths through a shield)
+  if (d <= reach || t.rangedKind !== 'arrow') return false;
   const rush = (id) => e.level >= ABILITIES[id].level && !canUse(e, id, t);
   return !rush('charge') && !rush('leap');
 }
@@ -597,9 +597,9 @@ function botPriest(e, t) {
 const PRIEST_SELF = 0.75;
 // [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
 // outlast any foe alone
-// [balance3] from rank II they mend at a steady 55% of what the rank's heals give others (0.55 / rankMult): the step
-// from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30 outlasted
-// every bow and staff while one of 50 did not
+// [balance3] from rank II they mend at 55% of a heal's rank I measure whatever the rank (0.55 / rankMult of what others
+// get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
+// outlasted every bow and staff while one of 50 did not
 const PRIEST_SELF_LATE = 0.55;
 const priestSelf = (e) => (abilityRank(e.level) <= 1 ? PRIEST_SELF : PRIEST_SELF_LATE / rankMult(e.level));
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a

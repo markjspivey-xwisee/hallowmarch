@@ -778,7 +778,8 @@ async def shots(page):
     await page.evaluate("() => {" + MECH_JS + CAMJS + "; T.open = true; return 0; }")
     await page.evaluate(f"__hm.fn.setQuality('{SHOTQ}'); __hm.setTod(0.55); 0")
     # a mage's ice on a pond: the mage stands out on it, a foe frozen beside
-    r = await ev(page, 'ice-shot', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
+    r = {'ok': False}
+    if want('ice'): r = await ev(page, 'ice-shot', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('mage', 35, 2);
       let best = null;
       for (let i = 0; i < 8000 && !best; i++) { const x = (Math.random() - 0.5) * 900, z = (Math.random() - 0.5) * 900; if (F.heightAt(x, z) > -3.9 || F.heightAt(x, z) < -5.5) continue; for (const a of [0, 1.57, 3.14, 4.71]) { const sx = x + Math.sin(a) * 9, sz = z + Math.cos(a) * 9; if (F.isWalkable(sx, sz) && F.heightAt(sx, sz) > -2.4) { best = { x, z, sx, sz }; break; } } }
       if (!best) return { ok: false };
@@ -792,7 +793,7 @@ async def shots(page):
       return { ok: true }; })()""")
     if r.get('ok'): await snap(page, 'ice', 1)
     # frost meets fire: a chilled foe struck by a firebolt bursts into steam
-    await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
+    if want('steam'): await ev(page, 'steam-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 0);
       const a = T.ahead(P, 9); const f = T.foe(1, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); P.target = f.id; P.swingAt = 1e9;
       // [balance] the camera first: a burst's particles are only thrown near the camera
       CS(P, f, 7.5, 2.4, 0.8, 1.0); H.frame(0.016);
@@ -802,7 +803,7 @@ async def shots(page):
       CS(P, f, 7.5, 2.4, 0.8, 1.0); return { steam: C.CLS.steam.length }; })()""")
     await snap(page, 'steam', 2)
     # storm through wet foes in the rain
-    await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
+    if want('storm'): await ev(page, 'storm-shot', """(() => { const H = T.H, F = T.F, C = H.cls, W = H.dbg.WEATHER; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 35, 1);
       W.mode = 'auto'; W.kind = 'storm'; W.next = 1e9; F.weatherAdvance ? F.weatherAdvance(40) : 0;
       const fs = [[10, -3], [13, 3], [16, -1], [19, 4]].map(([d, s]) => { const a = T.ahead(P, d, s); const f = T.foe(2, a.x, a.z, 33, 'warrior', 0); f.ai.nextAbility = 1e9; f.tweak = { swing: 1e6, hp: 20 }; F.setupStats(f); f.wet = 1; return f; });
       P.target = fs[0].id; P.swingAt = 1e9; P.power = P.maxPower; F.useAbility(P, 'chain', fs[0]); H.simulate(1.35);
@@ -810,20 +811,20 @@ async def shots(page):
     await snap(page, 'storm', 1)
     await page.evaluate("(() => { const W = __hm.dbg.WEATHER; W.kind = 'clear'; if (__hm.fn.weatherAdvance) __hm.fn.weatherAdvance(60); return 0; })()")
     # a warrior's parry
-    await ev(page, 'parry-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('parry'): await ev(page, 'parry-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 2.0); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.testDummy = true; f.yaw = Math.atan2(P.x - f.x, P.z - f.z); P.target = null;
       H.simulate(0.8); C.classHold(true); H.simulate(0.05); F.dealDamage(f, P, 50, { kind: 'melee' });
       f.anim.act = 1; f.anim.actT = 0.3; f.anim.actDur = 0.6; H.simulate(0.1);
       const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 3.6 + s * 1.0, P.y + 1.7, P.z - s * 3.6 + c * 1.0, (P.x + f.x) / 2, P.y + 1.2, (P.z + f.z) / 2); return { act: P.anim.act, parries: C.CLS.stats.parries }; })()""")
     await snap(page, 'parry', 1)
     # an archer at full draw
-    await ev(page, 'draw-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 30, 1);
+    if want('draw'): await ev(page, 'draw-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 30, 1);
       const a = T.ahead(P, 24); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; P.swingAt = 1e9;
       C.startDraw(P); H.simulate(1.4); const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 2.6 + s * 1.2, P.y + 1.6, P.z - s * 2.6 + c * 1.2, P.x + s * 0.3, P.y + 1.35, P.z + c * 0.3); return { k: C.drawK(P) }; })()""")
     await snap(page, 'draw', 1)
-    await page.evaluate("(() => { const C = __hm.cls; C.CLS.hold = false; __hm.GAME.player.cs.drawFrom = -1; return 0; })()")
+    await page.evaluate("(() => { const C = __hm.cls; C.CLS.hold = false; if (__hm.GAME.player && __hm.GAME.player.cs) __hm.GAME.player.cs.drawFrom = -1; return 0; })()")
     # a priest's holy ground, kneeling at prayer within it
-    await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+    if want('holy'): await ev(page, 'holy-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
       for (const [d, s] of [[2.5, 2.5], [3.5, -2.2], [-1.5, 3.2]]) { const a = T.ahead(P, d, s); const u = T.foe(0, a.x, a.z, 30, 'warrior', 0); u.ai.nextAbility = 1e9; u.yaw = P.yaw + 0.4; u.hp = u.maxHp * 0.5; }
       const cs = C.csOf(P); cs.dev = 80; cs.devAt = H.GAME.t; P.gcdUntil = 0; C.classTechnique(P); H.simulate(1.0); C.startPrayer(P); H.simulate(1.2);
       for (const p of H.SPELL.pillars) p.age = p.dur; for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016);
@@ -831,21 +832,21 @@ async def shots(page):
     await snap(page, 'holy', 1)
     await page.evaluate("__hm.setTod(0.55); 0")
     # a Thule mage's rune and an archer's snares, open and sprung
-    await ev(page, 'rune-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 20, 2);
+    if want('rune_snare'): await ev(page, 'rune-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('archer', 20, 2);
       P.power = P.maxPower; C.classTechnique(P); H.simulate(0.2); P.yaw += 1.4; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; C.classTechnique(P);
       const S = C.CLS.snares[C.CLS.snares.length - 1]; S.sprung = H.GAME.t; S.close = 1;
       const a = T.ahead(P, 4, -2.5); C.layRune(P, a.x, a.z, 'frost'); const b = T.ahead(P, 4.5, 2.5); C.layRune(P, b.x, b.z, 'fire');
       H.simulate(1.2); for (const d of H.SPELL.discs) if (d.on) d.age = Math.min(d.age + 1.5, d.dur - 0.5); H.frame(0.016); CB2(P, 2.6, 5.2, 0.6, -0.4); return { snares: C.CLS.snares.length, runes: C.CLS.runes.length }; })() // [balance] framed wider: the runes' carved glyphs and the snares together""")
     await snap(page, 'rune_snare', 1)
     # the class panels on the HUD: a warrior with a finisher ready, a mage reading a frozen foe
-    await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('hud_warrior'): await ev(page, 'hud-w', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 6); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.setStance(P, 2); C.addMom(P, 4); return 0; })()""")
     await snap(page, 'hud_warrior', 1, True)
-    await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
+    if want('hud_mage'): await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.attune(P, 'frost', 70); C.addChill(f, 3, P); return 0; })()""")
     await snap(page, 'hud_mage', 1, True)
     # [balance3] a shield wall: a guarded warrior walking on behind a raised shield toward an archer, arrows coming in
-    await ev(page, 'wall-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+    if want('shieldwall'): await ev(page, 'wall-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
       const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z); P.target = ar.id;
       C.setStance(P, 0); C.csOf(P).stanceAt = -9; P.cds.charge = H.GAME.t + 30; P.cds.leap = H.GAME.t + 30; C.classHold(true);
       for (let i = 0; i < 12; i++) { const d = Math.hypot(ar.x - P.x, ar.z - P.z); P.yaw = Math.atan2(ar.x - P.x, ar.z - P.z); P.x += (ar.x - P.x) / d * 0.35; P.z += (ar.z - P.z) / d * 0.35; H.simulate(0.05); }
@@ -856,12 +857,13 @@ async def shots(page):
     await snap(page, 'shieldwall', 1)
     await page.evaluate("(() => { __hm.cls.classHold(false); return 0; })()")
     # [balance3] holy light dazzles: a priest's smite lands on a warrior, a burst of light about its head
-    await ev(page, 'dazzle-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
-      const a = T.ahead(P, 9); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); P.target = w.id; P.swingAt = 1e9;
-      CS(P, w, 6.5, 2.0, 0.75, 1.3); H.frame(0.016);
-      P.power = P.maxPower; F.useAbility(P, 'smite', w); for (let i = 0; i < 40 && !w.buffs.some((b) => b.kind === 'dazzle'); i++) H.simulate(0.05);
-      for (let i = 0; i < 3; i++) { H.simulate(0.03); H.frame(0.03); }
-      CS(P, w, 6.5, 2.0, 0.75, 1.3); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)) }; })()""")
+    if want('dazzle'): await ev(page, 'dazzle-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+      const a = T.ahead(P, 6.5); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; P.target = w.id; P.swingAt = 1e9;
+      const hold = () => { w.x = a.x; w.z = a.z; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); w.swingAt = 1e9; }; // the warrior held where it stands, facing the priest
+      hold(); CS(P, w, 4.4, 1.3, 0.6, 1.45); H.frame(0.016);
+      P.power = P.maxPower; F.useAbility(P, 'smite', w); for (let i = 0; i < 60 && !w.buffs.some((b) => b.kind === 'dazzle'); i++) { H.simulate(0.05); hold(); }
+      for (let i = 0; i < 8; i++) { H.simulate(0.04); hold(); H.frame(0.04); }
+      CS(P, w, 4.4, 1.3, 0.6, 1.45); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)), motes: H.bal3.BAL3.dazzledIds.size }; })()""")
     await snap(page, 'dazzle', 1)
 
 async def main():
