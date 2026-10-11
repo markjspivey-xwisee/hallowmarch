@@ -70,8 +70,8 @@ const wallRoofMat = (H) => (H.style === 'timber' ? 'wood' : H.style === 'round' 
 const _wcs = [], _wfs = new Set(), _whs = new Set();
 const WHIT = { t: 2, x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, mat: 'earth', c: null, H: null, f: null, what: '' };
 const _wDef = {};
-function wallSet(R, t, nx, ny, nz, mat, c, H, f, what) {
-  R.t = t; R.nx = nx; R.ny = ny; R.nz = nz; R.mat = mat; R.c = c; R.H = H; R.f = f; R.what = what;
+function wallSet(R, t, nx, ny, nz, mat, c, H, f, what, pc = null) {
+  R.t = t; R.nx = nx; R.ny = ny; R.nz = nz; R.mat = mat; R.c = c; R.H = H; R.f = f; R.what = what; R.pc = pc || (c && c.build) || null;
 }
 // The first thing the segment a -> b strikes, or null. o: ox, oy, oz (where the shot was loosed: the shooter's own
 // crenel, slit or window lets it out), tgt (the body aimed at: it shows itself at its crenel; a gate or an engine aimed
@@ -97,6 +97,7 @@ function shotHit(ax, ay, az, bx, by, bz, o = _wDef) {
     wallColl(c, ax, ay, az, dx, dy, dz, R, ox, oy, oz, tgt, pad);
   }
   wallFloors(ax, ay, az, dx, dy, dz, R, ox, oy, oz);
+  if (BUILD.roofs.length) wallBuiltRoofs(ax, ay, az, dx, dy, dz, R);
   if (o.ground !== false) wallGround(ax, ay, az, dx, dy, dz, R);
   if (R.t > 1) return null;
   R.x = ax + dx * R.t; R.y = ay + dy * R.t; R.z = az + dz * R.t;
@@ -302,6 +303,34 @@ function wallInRoof(H, x, y, z) {
   const top = H.wallH + H.rh - ax * H.tn + 0.1;
   return ly <= top && ly >= top - H.roofTh / H.cs - 0.16;
 }
+// the roofs of what has been built (06k_build.js: a piece's roof rises from its eaves at pc.y to its ridge along its
+// local x, as buildCamSolid has it): thatch or shingles
+function wallBuiltRoofs(ax, ay, az, dx, dy, dz, R) {
+  const mx = ax + dx / 2, mz = az + dz / 2, reach = Math.hypot(dx, dz) / 2 + B_C;
+  for (const pc of BUILD.roofs) {
+    if (dist2(mx, mz, pc.x, pc.z) > reach * reach) continue;
+    if (Math.min(ay, ay + dy) > pc.y + 1.8 || Math.max(ay, ay + dy) < pc.y - 0.4) continue;
+    const c = Math.cos(pc.yaw), sn = Math.sin(pc.yaw);
+    const inside = (t) => {
+      const x = ax + dx * t - pc.x, z = az + dz * t - pc.z, lx = x * c - z * sn, lz = x * sn + z * c;
+      if (Math.abs(lx) > B_C / 2 + 0.4 || Math.abs(lz) > B_C / 2 + 0.4) return false;
+      const ys = pc.y + 1.55 * (1 - Math.min(1, Math.abs(lz) / (B_C / 2))), y = ay + dy * t;
+      return y > ys - 0.3 && y < ys + 0.15;
+    };
+    if (inside(0)) continue;
+    const n = Math.min(60, Math.max(2, Math.ceil(Math.hypot(dx, dy, dz) / 0.12)));
+    let prev = 0;
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      if (t >= R.t + 1 / n) break;
+      if (!inside(t)) { prev = t; continue; }
+      let lo = prev, hi = t;
+      for (let q = 0; q < 6; q++) { const m = (lo + hi) / 2; if (inside(m)) hi = m; else lo = m; }
+      if (hi < R.t) { wallSet(R, hi, 0, 1, 0, pc.t === 'roofThatch' || pc.t === 'roofHip' ? 'thatch' : 'wood', null, null, null, 'roof', pc); WALLS.stats.roofs++; }
+      break;
+    }
+  }
+}
 // the floors: walks, stairs, the rooms and tops of the towers, a shut hatch, a jetty's deck
 function wallFloors(ax, ay, az, dx, dy, dz, R, ox, oy, oz) {
   if (!FLOOR.list.length) return;
@@ -501,7 +530,7 @@ function wallArrow(R, dx, dy, dz, speed, type, src) {
 // x, y, z: where the head is (the arrow drawn back along its flight from there)
 function wallStick(x, y, z, dx, dy, dz, type, R, src) {
   if (WALLS.stuck.length >= WALL_STUCK_MAX) WALLS.stuck.shift();
-  WALLS.stuck.push({ x, y, z, dx, dy, dz, type, until: GAME.t + WALL_STUCK_LIFE, c: R ? R.c : null, f: R ? R.f : null, H: R ? R.H : null, roof: !!(R && R.what === 'roof'), fire: type === 'fire' ? GAME.t + 9 : 0, src: src ? src.id : null });
+  WALLS.stuck.push({ x, y, z, dx, dy, dz, type, until: GAME.t + WALL_STUCK_LIFE, c: R ? R.c : null, f: R ? R.f : null, H: R ? R.H : null, pc: R ? R.pc : null, roof: !!(R && R.what === 'roof'), fire: type === 'fire' ? GAME.t + 9 : 0, src: src ? src.id : null });
 }
 // the sounds: a thunk into timber, a dull one into thatch and earth, a ringing glance off stone
 function wallSfx(kind, x, z) {
@@ -548,6 +577,7 @@ function updateWalls(dt) {
     if (!gone && S.c && !S.c.active && S.c.tag !== 'hdoor') gone = true; // (a door's swings with it: hidden while it stands open)
     if (!gone && S.c && S.y - S.dy * 0.1 > (S.c.y0 != null ? S.c.y0 : S.c.baseY) + S.c.h + 0.15) gone = true; // what held it was cut down below it (a breached tower)
     if (!gone && S.f && !S.f.active) gone = true;
+    if (!gone && S.pc && S.pc.st !== 'built' && S.pc.st !== 'burning') gone = true; // a built piece burnt down or pulled down
     if (!gone && S.H && (S.roof ? !houseIntact(S.H) : S.H.state === 'ruin' && S.H.char >= 1 && S.H.stT > 3)) gone = true;
     if (!gone) continue;
     WALLS.stuck.splice(i, 1);
@@ -581,8 +611,9 @@ function wallsStoneStep(s, px, py, pz) {
   if (dist2(R.x, R.z, a.x, a.z) < 1.6 * 1.6 && Math.abs(R.y - a.y) < 2.5) return false;
   WALLS.stats.stones++;
   // struck early: crack what it met there (a stretch of wall, a tower), else a burst of earth or splinters
-  const kind = R.what === 'ground' ? 'ground' : R.c && (R.c.tag === 'wall' || R.c.tag === 'parapet' || R.c.tower) || R.f ? 'wall' : 'struck';
-  s.aim = { kind, x: R.x, y: R.y, z: R.z, mat: R.mat, H: R.H };
+  let kind = R.what === 'ground' ? 'ground' : R.c && (R.c.tag === 'wall' || R.c.tag === 'parapet' || R.c.tower) || R.f ? 'wall' : 'struck', D = null;
+  if (R.c && R.c.tag === 'door') { const C = wallCastleNear(R.x, R.z); D = C ? siegeDoorOf(C.S) : null; if (D) kind = 'gate'; } // a castle's gate in the way: battered
+  s.aim = { kind, x: R.x, y: R.y, z: R.z, mat: R.mat, H: R.H, D };
   return true;
 }
 

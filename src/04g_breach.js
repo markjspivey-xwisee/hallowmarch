@@ -176,7 +176,9 @@ function towerBreachUpload(C) {
     U3.uKB.value[i].set(W.ox, W.oz, foot, W.vHalf);
     U3.uKC.value[i].set(T.RI - 0.08, heap, W.state === 'whole' ? W.wear : W.state === 'breach' ? 1 : 1 - t, W.fresh || 0);
     towerBreachSync(W, down);
-    // rebuilding: the masonry stands again as high as the work has come (the V's foot, the stump's line)
+    // rebuilding: the rubble is cleared away first, then the scaffold goes up (its poles never stand in the heap)
+    if (W.scaffold && W.wreck) { W.scaffold.visible = W.state === 'repair' && t >= 0.12; W.wreck.visible = W.state === 'breach' || (W.state === 'repair' && t < 0.12); }
+    // and the masonry stands again as high as the work has come (the V's foot, the stump's line)
     if (W.state === 'repair') {
       for (const q of W.ring) q.c.active = (q.gap ? foot : cut) > Math.max(q.c.y0, S.y + T.yG) + 1.0;
       for (const q of W.lower) q.c.h = Math.min(q.h, Math.max(0.3, cut - q.c.y0));

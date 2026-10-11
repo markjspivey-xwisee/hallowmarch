@@ -105,12 +105,17 @@ async def geo(page):
       out.over = WT.hit(WT.sp(S, 2, -26, 14), WT.sp(S, 2, -10, 14));
       // a Thule palisade
       const T = WT.site(2, 0); out.pal = WT.hit(WT.sp(T, 3, -28, 1.6), WT.sp(T, 3, -8, 1.6));
-      // a rock in the open (an outcrop or a boulder)
-      const rk = __hm.dbg.SHADOW ? null : null;
+      // a built thatch roof (a piece set up for the test in the field outside the keep)
+      const B = __hm.build.BUILD, gx = S.x + 60, gz = S.z + 60, gy = WT.F.heightAt(gx, gz), pc = { t: 'roofThatch', st: 'built', x: gx, z: gz, y: gy + 2.8, yaw: 0.3 };
+      B.roofs.push(pc);
+      out.builtRoof = WT.hit({ x: gx + 0.4, y: pc.y + 5, z: gz + 0.2 }, { x: gx + 0.4, y: pc.y - 1.5, z: gz + 0.2 });
+      out.underRoof = WT.hit({ x: gx - 6, y: pc.y - 1.0, z: gz }, { x: gx + 6, y: pc.y - 1.0, z: gz });
+      B.roofs.pop();
       return out; })()""")
     check(r['wall'] and r['wall']['mat'] == 'stone' and r['wall']['n'][2] != 0, 'a shot at a Logres curtain from outside strikes its stone face')
     check(r['over'] is None, 'a shot well over the wall goes on')
     check(r['pal'] and r['pal']['mat'] in ('logs', 'wood'), 'a Thule palisade stops a shot (logs)')
+    check(r['builtRoof'] and r['builtRoof']['what'] == 'roof' and r['builtRoof']['mat'] == 'thatch' and (r['underRoof'] is None or r['underRoof']['what'] != 'roof'), 'a built thatch roof stops a shot from above, and one under it goes on')
     r = await ev(page, 'house', """(() => { const out = {};
       const Hs = __hm.walls.WALLS.houseOf ? null : __hm.walls.wallHouseOf({}); // builds the map
       const all = []; for (const [c, H] of __hm.walls.WALLS.houseOf) if (!all.includes(H)) all.push(H);
