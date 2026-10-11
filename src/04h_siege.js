@@ -955,7 +955,9 @@ function siegeBandAfter(wb, L, O) {
     // the gate broke while the engines worked: storm the court the usual way
     if ((O.phase === 'bombard' || O.phase === 'breach') && !K.door.alive) { O.phase = 'assault'; wbPlan(wb, K.nav.court); return; }
     // a breach: the commander sends the band through it while the gate still stands
-    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < 110) {
+    // ([v12] once the band is near the walls, not from 110 m off: the way to a breach is walked straight, and from far
+    // off it ran into hills, water and the curtain itself; and not again for two minutes after one it could not reach)
+    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < 60 && GAME.t > (O.breachBan || 0)) {
       const W = siegeOpenBreach(C, L.x, L.z);
       if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms the breach in the wall of ${S.name}!`, wb.realm, 'order'); }
     }
@@ -966,6 +968,10 @@ function siegeBandAfter(wb, L, O) {
       if (O.bi < Rt.length && dist(L.x, L.z, Rt[O.bi].x, Rt[O.bi].z) < 2.4) O.bi++;
       const q = O.bi < Rt.length ? Rt[O.bi] : K.nav.court;
       wb.leaderGoal = { x: q.x, z: q.z };
+      // [v12] no nearer to the next point of the way in for 20 s: give the breach up for the gate
+      const dq = dist(L.x, L.z, q.x, q.z), bp = O.bprog || (O.bprog = { d: dq, t: GAME.t, i: O.bi });
+      if (bp.i !== O.bi || bp.d - dq > 1.5) { O.bprog = { d: dq, t: GAME.t, i: O.bi }; }
+      else if (GAME.t - bp.t > 20 && !wb.engaged) { O.phase = 'siege'; O.breach = null; O.bprog = null; O.breachBan = GAME.t + 120; wbPlan(wb, K.nav.gate); SIEGE.stats.breachGiveUps = (SIEGE.stats.breachGiveUps || 0) + 1; }
       return;
     }
   }
@@ -979,7 +985,11 @@ function siegeBandAfter(wb, L, O) {
   // the crew) goes on to the gate as well, leaving the crew to their work. A wall that will not fall in four
   // minutes is given up on, and the band goes to the gate.
   if (E.state === 'work' && O.bombSince === undefined) O.bombSince = GAME.t;
-  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault' && O.phase !== 'siege' && wbMembers(wb).length - E.crew.length < 8 && !(GAME.t - (O.bombSince ?? GAME.t) > 240)) {
+  // [v12] and an engine that has not begun to work two and a half minutes after it was planned (stuck on its way to
+  // its place, or never built) is given up too: the band waited by it for the rest of the war
+  if (O.bombFirst === undefined) O.bombFirst = GAME.t;
+  const idleEngine = E.state !== 'work' && O.bombSince === undefined && GAME.t - O.bombFirst > 150;
+  if (E.kind !== 'ram' && E.target.W && O.phase !== 'assault' && O.phase !== 'siege' && wbMembers(wb).length - E.crew.length < 8 && !(GAME.t - (O.bombSince ?? GAME.t) > 240) && !idleEngine) {
     if (O.phase !== 'bombard') O.phase = 'bombard';
     wb.leaderGoal = { x: lerp(E.work.x, E.target.C.S.x, 0.16), z: lerp(E.work.z, E.target.C.S.z, 0.16) };
   } else if (O.phase === 'bombard') { O.phase = 'travel'; wbPlan(wb, K ? K.nav.gate : T.nav.tg); }

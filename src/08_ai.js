@@ -396,6 +396,10 @@ function onEntityKilled(e, killer) {
 /* targeting                                                           */
 /* ------------------------------------------------------------------ */
 function canReach(e, t) {
+  // [v12] a foe this body chased and could not get any nearer to (behind a wall, in a tower room, over water) is left
+  // alone a while, so it does not stand at the wall with its sword up for the rest of the war
+  const ur = e.ai && e.ai.unreach;
+  if (ur && GAME.t < ur.get(t.id)) return false;
   // melee units cannot reach archers standing on walls
   if (!e.rangedKind && t.fixedY !== null && t.fixedY > groundY(e) + 2) return false;
   if (!castleCanReach(e, t)) return false; // castles: melee climbs the stairs, or cannot reach (04g_castles.js)
@@ -466,8 +470,24 @@ function fightTarget(e, t, dt, opts = {}) {
   } else {
     if (castleClimbToward(e, t, dt)) return; // castles: up the stairs after a foe on the walls (04g_castles.js)
     const reach = (e.rangedKind ? e.rangedRange : e.meleeRange * (e.scale || 1)) + tr - 0.4;
-    if (d > reach && !e.casting) moveToward(e, t.x, t.z, dt, 1, reach * 0.9);
-    else turnToward(e, t.x, t.z, dt * 10);
+    if (d > reach && !e.casting) { moveToward(e, t.x, t.z, dt, 1, reach * 0.9); fightChase(e, t, d); }
+    else { turnToward(e, t.x, t.z, dt * 10); if (e.ai) e.ai.chase = null; }
+  }
+}
+// [v12] a chase that gets no nearer in six seconds is given up, and that foe left alone for twenty (canReach)
+function fightChase(e, t, d) {
+  if (!e.ai || e.role === 'player') return;
+  const c = e.ai.chase;
+  if (!c || c.id !== t.id) { e.ai.chase = { id: t.id, d, t: GAME.t }; return; }
+  if (c.d - d > 1) { c.d = d; c.t = GAME.t; return; }
+  if (GAME.t - c.t > 6) {
+    if (!e.ai.unreach) e.ai.unreach = new Map();
+    const ur = e.ai.unreach;
+    for (const [id, u] of ur) if (u < GAME.t) ur.delete(id);
+    ur.set(t.id, GAME.t + 20);
+    e.ai.chase = null; e.target = null;
+    if (e.threat) e.threat.delete(t.id);
+    WAR.stats.chasesDropped = (WAR.stats.chasesDropped || 0) + 1;
   }
 }
 function npcAbilities(e, t) {
@@ -686,7 +706,7 @@ function updateWarband(wb, dt) {
   const O = wb.order;
   if (!O) return;
   // keep a record of progress so a stuck band can be nudged
-  if (dist(L.x, L.z, wb.progX, wb.progZ) > 6) { wb.progX = L.x; wb.progZ = L.z; wb.lastProgress = GAME.t; }
+  if (dist(L.x, L.z, wb.progX, wb.progZ) > 6) { wb.progX = L.x; wb.progZ = L.z; wb.lastProgress = GAME.t; wb.realProgress = GAME.t; }
   // footsteps for the rest of the band to follow
   if (!wb.trail) { wb.trail = [{ x: L.x, z: L.z }]; wb.trailBase = 0; }
   const lastStep = wb.trail[wb.trail.length - 1];
@@ -772,7 +792,21 @@ function updateWarband(wb, dt) {
   }
   if (goal && wb.goal !== goal.id) wbPlan(wb, goal);
   // stuck for a long time: replan from wherever the leader is
-  if (GAME.t - wb.lastProgress > 25 && !engaged) { if (goal) wbPlan(wb, goal); wb.lastProgress = GAME.t; }
+  if (GAME.t - wb.lastProgress > 25 && !engaged) { if (goal) wbPlan(wb, goal); wb.lastProgress = GAME.t; wb.replans = (wb.replans || 0) + 1; }
+  // [v12] and a band that has got nowhere for two and a half minutes, replans or no (held by foes it cannot reach, at a
+  // breach it cannot climb, before a wall), gives the order back for a new one: the war never stands still. Waiting
+  // is no stall: holding a keep it took, by its engine while it works, or defending its own keep.
+  if (GAME.t - (wb.hitAt ?? -1e9) < 20) wb.realProgress = GAME.t; // (blows that land are progress too: a gate being battered)
+  if (GAME.t - (wb.realProgress ?? (wb.realProgress = GAME.t)) > 150) {
+    const waiting = O.phase === 'hold' || O.type === 'defend' || O.type === 'patrol' || (O.phase === 'bombard' && O.bombSince !== undefined);
+    wb.realProgress = GAME.t;
+    if (!waiting) {
+      WAR.stats.bandStalls = (WAR.stats.bandStalls || 0) + 1;
+      for (const m of members) { m.target = null; if (m.ai) m.ai.chase = null; }
+      wb.order = null; wb.replans = 0;
+      return;
+    }
+  }
 
   // leader movement
   let tx = L.x, tz = L.z;

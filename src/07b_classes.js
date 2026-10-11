@@ -692,10 +692,7 @@ function elementBlink(e, A, t, cast, rk) {
   // frost freezes the water ahead first, so a mage of frost can blink out onto a lake
   if (el === 'frost') for (let s = A.blink; s > 2; s -= 3) { const x = ox + dx * s, z = oz + dz * s; if (isWaterAt(x, z)) { freezeWater(x, z, 4.5, e); break; } }
   FX.burst(e.x, e.y + 1, e.z, 20, ELEM_COL[el], 2, 0.5, 0.2, 0);
-  for (let s = A.blink; s > 0; s -= 1) {
-    const nx = ox + dx * s, nz = oz + dz * s;
-    if (isWalkable(nx, nz) && segmentClear(ox, oz, nx, nz, 0.3)) { e.x = nx; e.z = nz; e.prevX = nx; e.prevZ = nz; e.y = floorAt(nx, nz, e.y + 0.5); break; }
-  }
+  { const R = dashReach(e, ox, oz, dx, dz, A.blink); if (R.d > 0.3) { e.x = e.prevX = R.x; e.z = e.prevZ = R.z; e.y = R.y; } } // [v12] along the floor it stands on, never over a wall or off a walk (07_entities.js)
   e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root' && b.kind !== 'chill');
   FX.burst(e.x, e.y + 1, e.z, 20, ELEM_COL[el], 2, 0.5, 0.2, 0);
   // what the mage leaves behind where they stood
@@ -1255,7 +1252,7 @@ function classNpc(e, t) {
       const d = dist(e.x, e.z, t.x, t.z);
       if (clsHas(e, 'snare') && d < 11 && !t.rangedKind && t.target === e.id && !canUse(e, 'snare', null) && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 25)) { e.yaw = Math.atan2(t.x - e.x, t.z - e.z); useAbility(e, 'snare', null); return true; }
       // a blade at the throat: no long draws or slow shots, but a leap back, a snare or a quick shot
-      const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id);
+      const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id && Math.abs(o.y - e.y) < 2.2); // [v12] at about its height: a foe on the ladder below a tower's top presses nobody
       if (pressed) {
         if (e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null) && e.fixedY === null) { e.yaw = Math.atan2(pressed.x - e.x, pressed.z - e.z); useAbility(e, 'tumble', null); return true; }
         for (const id of ['cripple', 'quickshot']) if (ABILITIES[id].level <= e.level && !canUse(e, id, t)) { useAbility(e, id, t); return true; }
@@ -1270,7 +1267,7 @@ function classNpc(e, t) {
     const d = dist(e.x, e.z, t.x, t.z);
     const go = (id, focus) => { if (ABILITIES[id].level > e.level) return false; if (focus && clsHas(e, 'focus')) cs.focus = focus; if (!canUse(e, id, t)) { useAbility(e, id, t); return true; } return false; };
     // a blade at the throat: no long casts, but a nova, a blink away or an instant lance
-    const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id);
+    const pressed = nearestWhere(e.x, e.z, 4.5, (o) => o.alive && isEnemy(e, o) && isActor(o) && !o.rangedKind && o.target === e.id && Math.abs(o.y - e.y) < 2.2); // [v12] at about its height: a foe on the ladder below a tower's top presses nobody
     if (pressed) {
       if (go('nova', frozenOf(pressed) ? 'storm' : 'frost')) return true;
       if (e.level >= ABILITIES.blink.level && e.fixedY === null && !canUse(e, 'blink', null)) { e.yaw = Math.atan2(e.x - pressed.x, e.z - pressed.z); if (clsHas(e, 'focus')) cs.focus = 'frost'; useAbility(e, 'blink', null); return true; }

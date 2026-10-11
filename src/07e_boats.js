@@ -677,6 +677,12 @@ function boatRestore(B) {
 /* the towns' fishers: out in the mornings, back by midday              */
 /* ------------------------------------------------------------------ */
 function fisherMorning() { const p = tod.p; return (p > 2.62 || p < 0.42) && (WEATHER.storm || 0) < 0.3; }
+// [v12] to the jetty's foot: out of the house by its door first, then the walk with the time it takes
+function boatWalkPlan(e, J) {
+  const H = e.ai.house, inside = H && houseIntact(H) && houseHas(H, e.x, e.z, -0.1);
+  const far = Math.hypot(J.land.x - e.x, J.land.z - e.z);
+  return [...(inside ? houseLeavePlan(e, H) : []), houseGo(J.land.x, J.land.z, { T: 16 + far / 1.2 })];
+}
 // 08f_townlife.js asks for every villager before its own day: true while the boat has it
 function boatLife(e, dt) {
   const ai = e.ai;
@@ -684,13 +690,15 @@ function boatLife(e, dt) {
   if (!F) {
     if (!BOATS.built || !fisherMorning() || e.role !== 'villager' || (ai.fishWait || 0) > GAME.t) return false;
     ai.fishWait = GAME.t + 4 + Math.random() * 4;
-    const J = BOATS.jetties.find((j) => dist2(j.cx, j.cz, e.x, e.z) < 170 * 170 && realmAt(j.cx, j.cz) === realmAt(e.x, e.z));
+    // [v12] a villager within a walk of the jetty's foot (one across the town gave up on the way), out of the house by
+    // its door first (straight from the room the walk met the wall), with the time the walk takes
+    const J = BOATS.jetties.find((j) => dist2(j.land.x, j.land.z, e.x, e.z) < 110 * 110 && realmAt(j.cx, j.cz) === realmAt(e.x, e.z));
     if (!J || J.fisher != null || Math.random() > 0.35) return false;
     const B = J.boats.find((b) => b.st === 'moored' && !b.rider);
     if (!B) return false;
     J.fisher = e.id;
     F = ai.fisher = { st: 'walk', J, B, t: 0, until: GAME.t + 200 + Math.random() * 120 };
-    lifePlan(e, [houseGo(J.land.x, J.land.z)]);
+    lifePlan(e, boatWalkPlan(e, J));
     return true;
   }
   const J = F.J, B = F.B;
@@ -706,7 +714,7 @@ function boatLife(e, dt) {
     if (!jettyAt(e.x, e.z, 0.5) && dist2(e.x, e.z, J.land.x, J.land.z) > 5 * 5) {
       F.tries = (F.tries || 0) + 1;
       if (F.tries > 3) { done(); return false; }
-      lifePlan(e, [houseGo(J.land.x, J.land.z)]);
+      lifePlan(e, boatWalkPlan(e, J));
       return true;
     }
     const step = J.steps[J.boats.indexOf(B)] || J.end;

@@ -225,7 +225,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   if (dst.mount && dmg > 0 && !opts.dot) dismount(dst, 'You are thrown from the saddle!');
   const now = GAME.t;
   dst.combatUntil = now + 6;
-  if (src) src.combatUntil = now + 6;
+  if (src) { src.combatUntil = now + 6; if (src.warband && dmg > 0) src.warband.hitAt = now; } // [v12] a band that strikes home is getting somewhere (08_ai.js)
   if (src && src !== dst) {
     if (!dst.threat) dst.threat = new Map();
     dst.threat.set(src.id, (dst.threat.get(src.id) || 0) + dmg + absorbed + 1);
@@ -388,7 +388,31 @@ function moveToward(e, tx, tz, dt, speedMul = 1, stopDist = 0.3) {
   turnToward(e, tx, tz, dt * 9);
   return false;
 }
-function groundY(e) { return e.fixedY !== null ? e.fixedY : waterFloorY(e, floorAt(e.x, e.z, e.y - (e.hover || 0))); } // floorAt: stairs and wall walks (04g_castles.js); [water] a swimmer floats (07b_swim.js)
+function groundY(e) { return e.fixedY !== null ? e.fixedY : waterFloorY(e, floorAt(e.x, e.z, e.y - (e.hover || 0))); }
+// [v12] how far a body can tumble, dash or blink from (ox, oz) along (dx, dz) (a unit), up to maxS metres: over the
+// ground or the floor it stands on in quarter-metre steps, stopping before a wall, a parapet, a house or a tree at its
+// own height, water it cannot walk and a drop of more than a step (a wall walk's or a tower top's edge). It used to take
+// the whole length when the straight line looked clear at samples 1.5 m apart, height or no height: an archer tumbling
+// away from a foe on the ladder beneath it went over its gate tower's parapet and stood on the ground ten metres down.
+const _dr = { x: 0, z: 0 };
+function dashReach(e, ox, oz, dx, dz, maxS) {
+  const r = e.radius * (e.scale || 1) * 0.9, n = Math.max(1, Math.ceil(maxS / 0.25));
+  let x = ox, z = oz, y = floorAt(ox, oz, e.y - (e.hover || 0));
+  { const w = waterAt(ox, oz); if (w && e.y > w.y - 0.3 && w.y > y) y = w.y; } // on ice: its top
+  for (let i = 1; i <= n; i++) {
+    const s = (maxS * i) / n, nx = ox + dx * s, nz = oz + dz * s;
+    if (!isWalkable(nx, nz)) break;
+    let ny = floorAt(nx, nz, y);
+    const w = waterAt(nx, nz);
+    if (w && w.y > ny && ((CLS.ice.length && iceAt(nx, nz)) || (SICE.on && seasonIceY(nx, nz) !== null))) ny = w.y; // ice carries it
+    if (y - ny > 0.62) break; // an edge: a dash takes a step down, no more
+    _dr.x = nx; _dr.z = nz; resolveCollisions(_dr, r, ny, e.faction);
+    if (Math.abs(_dr.x - nx) > 0.02 || Math.abs(_dr.z - nz) > 0.02) break; // something stands in the way at this height
+    if (castleStepBlocked(e, nx, nz, ny)) break;
+    x = nx; z = nz; y = ny;
+  }
+  return { x, z, y, d: Math.hypot(x - ox, z - oz) };
+} // floorAt: stairs and wall walks (04g_castles.js); [water] a swimmer floats (07b_swim.js)
 // returns true while the body is in flight and nothing else should move it
 function updateMotion(e, dt) {
   const m = e.motion;
@@ -517,20 +541,15 @@ function executeAbility(e, A, t, cast = null) {
     if (A.blink) {
       const dx = Math.sin(e.yaw), dz = Math.cos(e.yaw);
       FX.burst(e.x, e.y + 1, e.z, 20, [0.8, 0.6, 2.0], 2, 0.5, 0.2, 0);
-      for (let s = A.blink; s > 0; s -= 1) {
-        const nx = e.x + dx * s, nz = e.z + dz * s;
-        if (isWalkable(nx, nz) && segmentClear(e.x, e.z, nx, nz, 0.3)) { e.x = nx; e.z = nz; e.prevX = nx; e.prevZ = nz; break; }
-      }
+      const R = dashReach(e, e.x, e.z, dx, dz, A.blink); // [v12] along the floor it stands on, never over a wall or off an edge
+      if (R.d > 0.3) { e.x = e.prevX = R.x; e.z = e.prevZ = R.z; e.y = Math.max(e.y, R.y); }
       e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root');
       FX.burst(e.x, e.y + 1, e.z, 20, [0.8, 0.6, 2.0], 2, 0.5, 0.2, 0);
       sfx('blink');
     }
     if (A.dashBack) {
-      const dx = -Math.sin(e.yaw), dz = -Math.cos(e.yaw);
-      for (let s = A.dashBack; s > 0; s -= 1) {
-        const nx = e.x + dx * s, nz = e.z + dz * s;
-        if (isWalkable(nx, nz) && segmentClear(e.x, e.z, nx, nz, 0.3)) { e.x = nx; e.z = nz; break; }
-      }
+      const R = dashReach(e, e.x, e.z, -Math.sin(e.yaw), -Math.cos(e.yaw), A.dashBack); // [v12] along the floor it stands on, never over a parapet or off a tower
+      if (R.d > 0.3) { e.x = R.x; e.z = R.z; }
       e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root');
       FX.dust(e.x, e.y, e.z, 10);
     }

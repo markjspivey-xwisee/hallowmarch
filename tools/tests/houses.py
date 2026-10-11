@@ -225,9 +225,11 @@ async def main():
         check(r['home'] >= max(1, r['vill'] - 2), 'at night the townsfolk are at home')
         check(r['doorsBy'] >= 2, 'they open and close their doors as they go in')
         check(r['shutBy'] >= 1 and r['closed'], 'they close the shutters for the night')
-        r = await ev(page, 'morning', """(() => { const S = T.H.REALMS[0].town; T.H.setTod(0.3); T.H.simulate(80);
+        r = await ev(page, 'morning', """(() => { const S = T.H.REALMS[0].town; T.H.setTod(0.3);
           const houses = S.houses.map((x) => x.rec);
           const vill = T.H.ENT.filter((e) => e.role === 'villager' && Math.hypot(e.x - S.x, e.z - S.z) < 60);
+          // (they rise each at their own time: up to three minutes of morning, until the shutters are open and the town is out)
+          for (let k = 0; k < 9; k++) { T.H.simulate(20); if (k >= 3 && houses.filter((h) => h.wins.every((w) => w.target === 1)).length >= houses.length - 1 && vill.filter((e) => !T.F.houseInside(e.x, e.z)).length >= vill.length - 2) break; }
           const ev = T.H.HOUSE_EVENTS.slice(-60).filter((x) => x.by.startsWith('villager'));
           return { opened: houses.filter((h) => h.wins.every((w) => w.target === 1)).length, n: houses.length,
             out: vill.filter((e) => !T.F.houseInside(e.x, e.z)).length, vill: vill.length, openBy: ev.filter((x) => x.what === 'shutters open').length }; })()""")

@@ -191,9 +191,11 @@ async def realm_case(page, realm):
     else:
         r = await ev(page, 'winter', """(() => { const hp0 = T.foes.map((e) => e.hp); const fr0 = T.friends.map((e) => e.hp); T.H.simulate(3.2); const S = T.G.GIFT.storms[0];
           return { n: T.G.GIFT.storms.length, at: S && Math.hypot(S.x - T.foes[1].x, S.z - T.foes[1].z), hurt: T.foes.filter((e, i) => e.hp < hp0[i] || !e.alive).length, snared: T.foes.filter((e) => e.buffs.some((b) => b.kind === 'snare' && Math.abs(b.value - 0.45) < 1e-6)).length,
-            friendsHurt: T.friends.filter((e, i) => e.hp < fr0[i]).length }; })()""")
+            friendsHurt: T.friends.filter((e, i) => e.hp < fr0[i]).length, held: T.foes.filter((e) => e.buffs.some((b) => (b.kind === 'snare' && b.value >= 0.45 - 1e-6) || b.kind === 'frozen')).length,
+            buffs: T.foes.map((e) => e.alive ? e.buffs.filter((b) => b.src !== 'test').map((b) => b.kind + ':' + (+b.value).toFixed(2) + ':' + b.src + ':' + (b.until - T.H.GAME.t).toFixed(1)).join(',') : 'dead') }; })()""")
         check(r['n'] == 1 and r['at'] is not None and r['at'] < 4, f"Thule: the Iron Winter comes down on the foe ({r['at']:.1f} m off)")
-        check(r['hurt'] == 3 and r['snared'] == 3 and r['friendsHurt'] == 0, 'Thule: foes inside take frost and are slowed 45%; friends are spared')
+        # (a foe the frost has frozen is held fast; [v12] the buffs are printed so a miss tells why)
+        check(r['hurt'] == 3 and r['snared'] >= 2 and r['held'] == 3 and r['friendsHurt'] == 0, f"Thule: foes inside take frost and are slowed 45% or frozen; friends are spared ({r['snared']} slowed, {r['held']} held: {r['buffs']})")
         await shot(page, 'winter', """(() => { const S = T.G.GIFT.storms[0]; T.cam(S.x + 21, S.y + 9, S.z - 17, S.x, S.y + 5, S.z); })()""", 10)
         await page.evaluate("T.play()")
         r = await ev(page, 'winter ends', "(() => { T.H.simulate(15); return { n: T.G.GIFT.storms.length }; })()")

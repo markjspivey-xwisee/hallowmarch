@@ -360,6 +360,7 @@ async def animal_tests(page):
       const herdable = T.D.depthHerdable ? null : null;
       A.openAnimalCard(hound); const btns = [...document.querySelectorAll('#dlg-actions button')].map((b) => b.textContent); const btn = [...document.querySelectorAll('#dlg-actions button')].find((b) => b.textContent === 'Herd the sheep in'); if (btn) btn.click(); else T.D.depthHerdStart(hound);
       const t = T.until(() => sheep.every((s) => A.penHas(pen, s.x, s.z)), 120, 1);
+      T.sim(4, 1); // (the hound sees the last one in and turns back to heel a moment later)
       return { btns, t, inside: sheep.filter((s) => A.penHas(pen, s.x, s.z)).length, cmd: hound.tame.cmd, herded: T.D.stats().herded }; })()""")
     check('Herd the sheep in' in r['btns'], "a hound's card offers to herd the sheep in")
     check(r['inside'] == 3 and r['cmd'] != 'herd', f"the hound gets round them and drives all {r['inside']} into the paddock ({r['t']} s), then comes back to heel")

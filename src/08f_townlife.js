@@ -224,13 +224,13 @@ function lifeRun(e, dt) {
         }
         if (st.detour) {
           if (moveToward(e, st.detour.x, st.detour.z, dt, st.run ? 1.65 : 0.9, 0.4) || plan.t > st.detour.until) st.detour = null;
-          if (plan.t > 28) giveUp();
+          if (plan.t > Math.max(28, st.T || 0)) giveUp(); // [v12] a long walk (st.T) has its own time
           return true;
         }
       }
       const done = moveToward(e, tx, tz, dt, st.run ? 1.65 : 0.9, last ? (st.loose ? 0.6 : st.exact ? 0.1 : 0.28) : 0.22) && last;
       if (done) next();
-      else if (plan.t > (st.tries ? 28 : 16)) giveUp();
+      else if (plan.t > (st.T || (st.tries ? 28 : 16))) giveUp(); // [v12] a long walk (st.T: a fisher to the jetty) has the time it needs
       return true;
     }
     case 'door': {
