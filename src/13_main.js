@@ -191,6 +191,7 @@ const STAMP_R = { humanoid: 0.55, wolf: 0.6, boar: 0.6, bear: 0.95, deer: 0.6, s
 function drawActors(fx, fz) {
   crowdHuman.begin(); crowdHumanLo.begin(); if (crowdHumanFar) crowdHumanFar.begin(); // [phones]
   for (const k in crowdBeast) { crowdBeast[k][0].begin(); crowdBeast[k][1].begin(); }
+  footLockBegin(); // [polish] the rows of planted feet (13s_footlock.js)
   const lodD2 = (HUMAN_LOD[quality.level] || 22) ** 2, farD2 = (HUMAN_FAR[quality.level] || 90) ** 2; // [phones] the farthest crowd (13q_lod.js)
   TRAIL_CAND.length = 0;
   const camX = camera.position.x, camZ = camera.position.z;
@@ -229,14 +230,14 @@ function drawActors(fx, fz) {
     if (e.kind === 'humanoid') {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
       _cb[0] = L.armor[0]; _cb[1] = L.armor[1]; _cb[2] = L.armor[2]; _cb[3] = L.flags || 0;
-      _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : e.boat ? L.mask & ~(WEAPON_BITS | WB.shield | WB.shieldRound) : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair; // [survival] a rod is held like a brand; [water2] at the oars the hands are on them (the weapon and shield laid in the boat)
-      _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = L.fem ?? 0; _st[3] = L.bulk ?? 0;
+      _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : e.boat || (e.anim.act === 19 && e.anim.actDur > 0) ? L.mask & ~(WEAPON_BITS | WB.shield | WB.shieldRound) : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair; // [survival] a rod is held like a brand; [water2] at the oars the hands are on them (the weapon and shield laid in the boat); [polish] and both hands on the boat you shove off (action 19)
+      _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1 + (e.mount.crowd ? e.mount.visCode || 0 : 0);
-        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash); // the horse is as wet as its rider
+        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, true); // the horse is as wet as its rider; [polish] its planted hooves (13s_footlock.js)
         _p4[3] = beastLeanYaw(e); // [motion] the horse leans into the turn with its rider (13r_motion.js)
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
@@ -257,13 +258,14 @@ function drawActors(fx, fz) {
       }
     } else {
       _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc + (e.visCode || 0); // [animals] pattern and seed above the scale
-      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash); // visual pass: its own wet and snow
+      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, false); // visual pass: its own wet and snow; [polish] its planted feet (13s_footlock.js)
       const C = crowdBeast[e.crowd || e.kind]; // [animals] shorn sheep, bulls, tacked horses
       if (C && e.role !== 'bird' && e.kind !== 'hen') _p4[3] = beastLeanYaw(e); // [motion] a beast leans into its turns (beastVS)
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
   }
   crowdHuman.end(); crowdHumanLo.end(); if (crowdHumanFar) crowdHumanFar.end(); // [phones]
+  footLockEnd(); // [polish]
   for (const k in crowdBeast) { crowdBeast[k][0].end(); crowdBeast[k][1].end(); }
   // the nearest movers press the grass (the player first)
   const P = GAME.player;

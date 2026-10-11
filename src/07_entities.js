@@ -298,6 +298,9 @@ function turnToward(e, x, z, rate) {
 const humanStep = (v) => clamp(Math.min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2);
 function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
+  // [polish] going sideways against the facing (shoved, sliding along a wall), the steps come quicker and shorter, so a
+  // planted foot is lifted before the body has moved too far over it (13s_footlock.js holds it till then)
+  const side = sp > 0.05 ? Math.abs((e.x - e.prevX) * Math.cos(e.yaw) - (e.z - e.prevZ) * Math.sin(e.yaw)) / Math.max(sp * dt, 1e-6) : 0;
   e.prevX = e.x; e.prevZ = e.z;
   const want = clamp(sp / 4.3, 0, 2.2);
   // [motion] stopping, the gait settles twice as fast: a raised foot comes down instead of hanging in the air
@@ -305,7 +308,7 @@ function updateAnim(e, dt) {
   // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
   const sc = e.scale || 1;
   const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
-  e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / stride) % (TAU * 64);
+  e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / (stride * (1 - 0.5 * clamp(side, 0, 1)))) % (TAU * 64);
   // [motion] a body leans into a turn as far as the turn's pull asks (a person up to about 14 degrees, a beast or a horse
   // with its rider 11; 13r_motion.js packs it for the shaders)
   const yrs = angDiff(e._ayaw ?? e.yaw, e.yaw) / Math.max(dt, 1e-4), yr = Math.abs(yrs);
@@ -324,6 +327,7 @@ function updateAnim(e, dt) {
   }
   e.anim.flash = Math.max(0, e.anim.flash - dt * 5);
   e.anim.death = e.alive ? 0 : clamp((GAME.t - e.deadAt) / 0.7, 0, 1);
+  footLockStep(e, dt); // [polish] each planted foot keeps its place on the ground (13s_footlock.js)
 }
 function animActValue(e) {
   const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)

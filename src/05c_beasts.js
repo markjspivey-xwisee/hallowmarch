@@ -397,6 +397,76 @@ function buildBeast(kind, lod) {
   return K.build();
 }
 
+// [polish] The gait and the body over its legs, shared by the beast shader and (for the horse under a rider) the
+// humanoid shader, so the saddle rides exactly as the horse's back moves. K holds GLSL expressions for the rig's joints
+// (FT FM FL front top, middle and low joint; BT BM BL the hind ones; SP the spine's pivot: vec3s) and the gait (G: walk
+// and gallop strides, front and hind leg length). The legs reach their low joints by IK with the hoof or paw kept level
+// (beastVS); before that the body comes down as far as its planted legs need to reach their places on the ground (the
+// vault: the forequarters over the front legs, the hindquarters over the hind ones), and every turn of the body (the
+// back's flex, the pitch, the bob, the vault, the lean) is undone along the leg, so a planted foot stays put however the
+// body moves above it (they rode up and down and slid with them: 8 cm a stride at a gallop, 23 cm at a bear's trot).
+function beastBodyGLSL(K) {
+  return /* glsl */`
+  vec2 bbRot(vec2 p, vec2 c, float a){ vec2 d = p - c; float cs = cos(a), sn = sin(a); return c + vec2(d.x * cs + d.y * sn, d.y * cs - d.x * sn); } // (z, y) as rotX(a) turns them
+  // the gait at this amount and scale: when each leg swings, the share of the cycle a foot is down, how far it reaches
+  // ahead of its rest place (beastStride's stride), how far a swing folds the leg
+  void bbGait(float amtRaw, float bsc, out vec4 off, out float duty, out float reachB, out float fold, out float trot, out float gal){
+    float amt = clamp(amtRaw, 0.0, 1.6), k = clamp(amt * 2.2, 0.0, 1.0);
+    trot = smoothstep(0.55, 0.95, amt); gal = smoothstep(1.05, 1.4, amt);
+    off = mix(mix(vec4(1.5708, 4.7124, 0.0, 3.1416), vec4(0.0, 3.1416, 3.1416, 0.0), trot), vec4(3.5, 4.1, 0.0, 0.6), gal);
+    duty = mix(mix(0.64, 0.46, trot), 0.26, gal);
+    float amtS = clamp(amtRaw, 0.0, 2.2), vSpd = amtS * 4.3, fC = sqrt(1.06 / max(${K.G}.z * bsc, 0.05));
+    float strideM = clamp(mix(${K.G}.x, ${K.G}.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
+    duty = min(duty, 0.42 * min(${K.G}.z, ${K.G}.w) / strideM); // a long stride: the feet stay down only as long as the legs reach
+    reachB = duty * strideM;
+    fold = (mix(0.55, 0.8, trot) + 0.4 * gal) * k;
+  }
+  // a foot at its leg's phase c: how far ahead of its rest place (x), and its swing (y: 0 while it is down). The foot
+  // leaves the ground and meets it again still going back under the body at the stance's own pace (the retraction kept
+  // to the ends of the swing), and it lifts off and comes down steeply: a smoothstep alone brought it down moving with
+  // the body, so it skated in to land and skated off (13 to 24 cm a stride once the vault let the feet reach the ground)
+  vec2 bbFoot(float c, float duty, float reachB){
+    float u = fract((c - 1.5708) * 0.159155);
+    if (u < duty) return vec2(reachB * (1.0 - 2.0 * u / duty), 0.0);
+    float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv;
+    float e = wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / max(duty, 0.05) * (wv * pow(q, 4.0) - q * pow(wv, 4.0)); // [polish] (q^7: the retraction died away within a frame at a canter, 3 cm of skating at each end)
+    return vec2(reachB * (2.0 * e - 1.0), pow(sin(3.14159 * wv), 0.5));
+  }
+  // the hoof's or paw's turn in the air (0 while it is down: it stands level)
+  float bbTuck(bool fr, vec2 f, float fold){ return (fr ? 0.8 : -0.7) * f.y * fold; }
+  // where the low joint goes for a foot at f: the foot's rest place moved on (a swing raised), and the low joint above it
+  // as the hoof or paw hangs (level on the ground, tucked in the air)
+  vec2 bbTarget(bool fr, vec2 f, float fold, float trot){
+    float legL = fr ? ${K.G}.z : ${K.G}.w;
+    vec2 Fo = (fr ? ${K.FF} : ${K.BF}).zy, Lo = (fr ? ${K.FL} : ${K.BL}).zy;
+    return Fo + vec2(f.x, f.y * fold * legL * (0.16 + 0.06 * trot)) - bbRot(Fo - Lo, vec2(0.0), bbTuck(fr, f, fold));
+  }
+  // the body's own turns before the vault: the back's flex about the spine, then the pitch
+  vec2 bbBodyFwd(vec2 p, bool fr, float spine, float pitch){ return bbRot(bbRot(p, ${K.SP}.zy, fr ? spine : -spine), vec2(${K.SP}.z, ${K.FT}.y), pitch); }
+  // how far a leg's top must come down for its low joint to reach tgt with the leg a little short of straight (over what
+  // standing needs, so a beast at rest stands as it was built)
+  float bbNeed(vec3 T, vec3 M, vec3 L, vec2 tgt, bool fr, float spine, float pitch, float bob, float lungeZ){
+    float R = (length(M.zy - T.zy) + length(L.zy - M.zy)) * 0.985;
+    vec2 d = tgt - vec2(lungeZ, bob) - bbBodyFwd(T.zy, fr, spine, pitch);
+    float rest = max(0.0, (T.y - L.y) - sqrt(max(R * R - (L.z - T.z) * (L.z - T.z), 0.0)));
+    return max(0.0, -d.y - sqrt(max(R * R - d.x * d.x, 0.0)) - rest);
+  }
+  // the vault: how far the forequarters (x) and the hindquarters (y) come down, the most either of their legs needs.
+  // [polish] A swinging leg asks what its foot would need on the ground below it, not raised: a raised foot asked less,
+  // so the body rose as a leg lifted and the straight leg swung its foot forward along the ground (4 to 6 cm at a trot)
+  vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ, vec4 dh){ // (dh: the floor under each foot over the body's own)
+    const vec2 GR = vec2(1.0, 0.0);
+    float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.x), true, spine, pitch, bob, lungeZ);
+    float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.y), true, spine, pitch, bob, lungeZ);
+    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.z), false, spine, pitch, bob, lungeZ);
+    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.w), false, spine, pitch, bob, lungeZ);
+    return min(vec2(max(n0, n1), max(n2, n3)), vec2(0.3 * min(${K.G}.z, ${K.G}.w)));
+  }
+  // the vault as a turn about the hindquarters' top (forequarters down x, hindquarters y) and a drop: its angle and pivot
+  float bbVaultA(vec2 s){ return atan((s.x - s.y) / (${K.FT}.z - ${K.BT}.z)); }
+  vec2 bbVaultPiv(){ return vec2(${K.BT}.z, 0.5 * (${K.FT}.y + ${K.BT}.y)); }
+  `;
+}
 /* the rig in the vertex shader (depth = true for the shadow pass) */
 function beastVS(depth) {
   return /* glsl */`
@@ -412,6 +482,9 @@ function beastVS(depth) {
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
+  ${beastBodyGLSL({ FT: 'uFT', FM: 'uFM', FL: 'uFL', FF: 'uFF', BT: 'uBT', BM: 'uBM', BL: 'uBL', BF: 'uBF', SP: 'uSpine', G: 'uGait' })}
+  ${FOOT_LOCK_GLSL}
+  uniform vec4 uBbDbg;
   // [motion] two-bone IK in the leg's side plane (z forward, y up): from the top joint T through the middle joint M to
   // the foot F, the foot moved fx forward and ly up. Returns the turns about x of the upper bone and of the lower one
   // relative to it (as rotX takes them), bending the middle joint the way it bends at rest
@@ -429,7 +502,7 @@ function beastVS(depth) {
     return vec2(du, -(dl - du));
   }
   void main(){
-    ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), floor((iColB.w + 1e-3) / 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position;'}
+    ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), mod(floor((iColB.w + 1e-3) / 16.0), 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position;'}
     P = position; Nn = normal;
     int b = int(aBone + 0.5);
     float w = aW;
@@ -437,20 +510,12 @@ function beastVS(depth) {
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
     float t = uTime + iPos.x * 0.31 + iPos.z * 0.17;
     float k = clamp(amt * 2.2, 0.0, 1.0), idle = 1.0 - k;
-    float trot = smoothstep(0.55, 0.95, amt), gal = smoothstep(1.05, 1.4, amt);
-    // when each leg swings: walk (lateral sequence), trot (diagonal pairs), gallop (rotary)
-    vec4 off = mix(mix(vec4(1.5708, 4.7124, 0.0, 3.1416), vec4(0.0, 3.1416, 3.1416, 0.0), trot), vec4(3.5, 4.1, 0.0, 0.6), gal);
-    // each foot is planted while it is down (it goes back under the body at the ground's pace) and swings through in the
-    // air: the share of the cycle a foot is down falls from a walk to a trot to a gallop
-    float duty = mix(mix(0.64, 0.46, trot), 0.26, gal);
-    // [motion] the stride (beastStride, 05c_beasts.js): its walk and gallop lengths, the pace held between the slowest
-    // and quickest steps a leg of its length takes (no slow-motion legs at a crawl, no frantic ones at a trot)
-    float amtS = clamp(iAnim.y, 0.0, 2.2), bsc = max(mod(iColA.w, 4.0), 0.2), vSpd = amtS * 4.3;
-    float fC = sqrt(1.06 / max(uGait.z * bsc, 0.05));
-    float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
-    duty = min(duty, 0.48 * min(uGait.z, uGait.w) / strideM); // a long gallop stride: the feet stay down only as long as the legs reach
-    float reachB = duty * strideM;
-    float fold = (mix(0.55, 0.8, trot) + 0.4 * gal) * k;
+    // when each leg swings: walk (lateral sequence), trot (diagonal pairs), gallop (rotary); each foot is planted while it
+    // is down (it goes back under the body at the ground's pace) and swings through in the air; [motion] the stride
+    // (beastStride): its walk and gallop lengths, the pace held between the slowest and quickest steps a leg of its
+    // length takes (no slow-motion legs at a crawl, no frantic ones at a trot); [polish] in bbGait (beastBodyGLSL)
+    float bsc = max(mod(iColA.w, 4.0), 0.2), trot, gal, duty, reachB, fold; vec4 off;
+    bbGait(iAnim.y, bsc, off, duty, reachB, fold, trot, gal);
     float spine = 0.1 * sin(ph + 0.9) * gal;
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
     float pitch = 0.05 * sin(ph + 1.4) * gal;
@@ -502,6 +567,16 @@ function beastVS(depth) {
     }
     float d1 = smoothstep(0.0, 0.5, death), d2 = smoothstep(0.15, 1.0, death);
     if (death > 0.0) { headX = mix(headX, 0.3, d1); headY *= 1.0 - d1; jaw = mix(jaw, 0.25, d1); tailX = mix(tailX, 0.35, d1); tailY *= 1.0 - d1; spine *= 1.0 - d1; bob *= 1.0 - d1; }
+    // [polish] the vault: the body comes down as far as its planted legs need to reach the ground (beastBodyGLSL); not
+    // in the water, in the air or dying
+    // [motion] the lean into a turn as whole turns on the yaw (beastLeanYaw, 13r_motion.js); [polish] the body's row of
+    // planted feet (footLockStep) above its weather in iColB.w
+    float kT = floor(iPos.w * 0.159155 + 0.5), slopeS = floor((kT + 5.0) / 11.0 + 1e-3), leanN = kT - 11.0 * slopeS, leanA = leanN * 0.04, flSlot = floor(iColB.w / 256.0 + 1e-3);
+    float bSlope = slopeS * 0.05; // [polish] the ground's rise along the body (beastLeanYaw): the beast stands tilted with it
+    float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck) * (1.0 - uBbDbg.x);
+    vec4 dh4 = flSlot > 0.5 ? vec4(footLock4(flSlot, 0).z, footLock4(flSlot, 1).z, footLock4(flSlot, 2).z, footLock4(flSlot, 3).z) / bsc * (1.0 - uBbDbg.y) : vec4(0.0); // [polish] the floor under each foot
+    vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ, dh4) * vaultK : vec2(0.0);
+    float thV = bbVaultA(sink); vec2 vPiv = bbVaultPiv();
     // child joints first, then their parents
     if (b == 16) { rotP(rotX(jaw * w), uJaw); b = 2; w = 1.0; }
     if (b == 2) { rotP(rotY(headY * w) * rotX(headX * w), uNeck); b = 1; w = 1.0; }
@@ -511,18 +586,32 @@ function beastVS(depth) {
       int rel = b - 3 - leg * 3;
       bool fr = leg < 2;
       float o = leg == 0 ? off.x : (leg == 1 ? off.y : (leg == 2 ? off.z : off.w));
-      float c = ph + o;
-      float u = fract((c - 1.5708) * 0.159155), fx, lift;
-      if (u < duty) { fx = reachB * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty); fx = reachB * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
-      lift *= fold;
-      // [motion] the leg reaches its foot by IK, so a planted foot stays on the ground all through the stance; in the air
-      // the foot rises and the hoof or paw tucks up
-      float legL = fr ? uGait.z : uGait.w;
-      vec2 ik = beastLegIK(fr ? uFT.zy : uBT.zy, fr ? uFM.zy : uBM.zy, fr ? uFF.zy : uBF.zy, fx, lift * legL * (0.16 + 0.06 * trot));
+      vec2 fp = bbFoot(ph + o, duty, reachB);
+      float lift = fp.y * fold;
+      // [polish] a planted foot stays where it came down however the body moves over it (shoved, sliding by a wall, turning)
+      vec4 lk4 = footLock4(flSlot, leg) * (1.0 - uBbDbg.y); vec2 lk = lk4.xy / bsc; fp.x += lk.y; float dxM = lk.x;
+      // [motion] the leg reaches by IK, so a planted foot stays on the ground all through the stance; in the air the foot
+      // rises and the hoof or paw tucks up. [polish] The IK reaches the low joint with the hoof or paw level under it,
+      // and its target is where the ground place lies in the leg's own frame: every turn and drop of the body above
+      // (the lean, the bob and lunge, the vault, the pitch, the back's flex) undone along the leg
+      vec2 tg = bbTarget(fr, fp, fold, trot);
+      tg.y += lk4.z / bsc; // [polish] the floor under this foot (a bump, a tread), over what the slope's tilt gives
+      float legX = (leg == 0 || leg == 2 ? 1.0 : -1.0) * (fr ? uFF.x : uBF.x);
+      tg.y = (tg.y - legX * sin(leanA)) / cos(leanA);
+      tg -= vec2(lungeZ, bob);
+      tg.y += sink.y; tg = bbRot(tg, vPiv, -thV);
+      tg = bbRot(tg, vec2(uSpine.z, uFT.y), -pitch);
+      tg = bbRot(tg, uSpine.zy, fr ? -spine : spine);
+      vec3 Lr = fr ? uFL : uBL, Tr = fr ? uFT : uBT;
+      // [polish] a foot to the side of the leg's plane: the leg swings out about its top (the feet do not cross), reaching
+      // as far down, and the hoof or paw rolls back level
+      float abd = atan(clamp(dxM, legX > 0.0 ? -0.06 : -0.45, legX > 0.0 ? 0.45 : 0.06) / max(Tr.y, 0.1));
+      tg.y = Tr.y + (tg.y - Tr.y) / cos(abd);
+      vec2 ik = beastLegIK(Tr.zy, fr ? uFM.zy : uBM.zy, Lr.zy, tg.x - Lr.z, tg.y - Lr.y);
       float sw = ik.x + (fr ? frontReach : hindPush);
       float midA = ik.y + (fr ? -0.1 : 0.2) * lift;
-      float lowA = fr ? 0.8 * lift : -0.7 * lift;
+      // [polish] the hoof or paw stays level (its rest angle) whatever the leg and the body above it do, then tucks in the air
+      float lowA = (sw - midA - ((fr ? spine : -spine) + pitch + thV)) * (1.0 - uBbDbg.z) + bbTuck(fr, fp, fold);
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
       if (fr) { midA -= 0.25 * tuck; sw += 0.5 * tuck; } else { lowA -= 0.3 * tuck; sw -= 0.55 * tuck; }
       if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1); midA *= 1.0 - d1; lowA = mix(lowA, fr ? 0.25 : -0.15, d1); }
@@ -535,22 +624,23 @@ function beastVS(depth) {
         lowA = mix(lowA, fr ? 1.25 * rec : -0.85 * rec, swimK);
       }
       vec3 T = fr ? uFT : uBT, M = fr ? uFM : uBM, L = fr ? uFL : uBL;
-      if (rel == 2) rotP(rotX(lowA * w), L);
+      if (rel == 2) rotP(rotX(lowA * w) * rotZ(-abd * w), L);
       if (rel >= 1) rotP(rotX(midA * (rel == 1 ? w : 1.0)), M);
-      rotP(rotX(-sw * (rel == 0 ? w : 1.0)), T);
+      rotP(rotZ(abd * (rel == 0 ? w : 1.0)) * rotX(-sw * (rel == 0 ? w : 1.0)), T);
       b = fr ? 1 : 0; w = 1.0;
     }
     rotP(rotX((b == 1 ? spine : -spine) * w), uSpine);
     if (rear > 0.0) rotP(rotX(-0.62 * rear), uBT);
     rotP(rotX(pitch), vec3(0.0, uFT.y, uSpine.z));
+    if (sink.x + sink.y > 0.0) { rotP(rotX(thV), vec3(0.0, vPiv.y, vPiv.x)); P.y -= sink.y; } // [polish] the vault
     P.y += bob; P.z += lungeZ;
     ${depth ? '' : 'vNo = Nn;'}
     if (death > 0.0) { rotP(rotZ(1.45 * d2), vec3(0.0)); P.y += uBeastK.z * d2; }
+    if (bSlope != 0.0 && death < 0.5) rotP(rotX(-atan(bSlope)), vec3(0.0)); // [polish] on a slope, its feet on the ground under them
     // [motion] leaning into a turn, about the feet (whole turns on the yaw: beastLeanYaw, 13r_motion.js)
-    float leanN = floor(iPos.w * 0.159155 + 0.5);
-    if (leanN != 0.0) rotP(rotZ(leanN * 0.04), vec3(0.0));
+    if (leanN != 0.0) rotP(rotZ(leanA), vec3(0.0));
     P *= iColA.w;
-    float yawR = iPos.w - 6.2831853 * leanN;
+    float yawR = iPos.w - 6.2831853 * kT;
     float c = cos(yawR), s = sin(yawR);
     vec3 wp = iPos.xyz + vec3(P.x * c + P.z * s, P.y, -P.x * s + P.z * c);
     ${depth ? '' : 'vW = wp; vN = vec3(Nn.x * c + Nn.z * s, Nn.y, -Nn.x * s + Nn.z * c);'}
@@ -565,6 +655,8 @@ const beastMat = mat({
     uNeck: { value: new THREE.Vector3() }, uJaw: { value: new THREE.Vector3() }, uTail: { value: new THREE.Vector3() }, uSpine: { value: new THREE.Vector3() },
     uBeastK: { value: new THREE.Vector4() }, uFurK: { value: new THREE.Vector4() }, uDarkCoat: { value: 0 }, uEye: { value: new THREE.Vector3() }, uEyeAt: { value: new THREE.Vector3() }, uLegH: { value: 0.5 }, uTailZ: { value: -0.5 },
     uGait: { value: new THREE.Vector4(1, 2, 1, 1) },
+    uFootLock: { value: FOOT_LOCK.tex }, // [polish]
+    uBbDbg: { value: new THREE.Vector4() }, // [polish] tests: x leaves out the vault, y the lock, z the level hoof
   },
   vertexShader: beastVS(false),
   fragmentShader: /* glsl */`
@@ -684,3 +776,27 @@ function beastStride(kind, amt, sc = 1) {
   const L = Math.max((S.legH ?? (S.front ? S.front.top[1] - S.front.foot[1] : 0.2)) * Math.max(sc, 0.2), 0.05), v = clamp(amt, 0, 2.2) * 4.3, f = Math.sqrt(1.06 / L);
   return clamp(base, v / (4.0 * f), Math.max(v / (1.6 * f), 0.02 * Math.max(sc, 0.2)));
 }
+// [polish] the horse's back under a rider (humanVS, 05a_rig.js): the horse's own gait, body and vault as its shader moves
+// them (beastBodyGLSL with the horse's joints), so the saddle and the rider in it rise, fall and tip together; then the
+// humanoid shader is built again with it (nothing has compiled it yet)
+HORSE_SEAT_GLSL = (() => {
+  const S = BEASTS.horse, f = (x) => x.toFixed(4), v = (p) => `vec3(${p.map(f).join(', ')})`;
+  const K = { FT: v(S.front.top), FM: v(S.front.mid), FL: v(S.front.low), FF: v(S.front.foot), BT: v(S.back.top), BM: v(S.back.mid), BL: v(S.back.low), BF: v(S.back.foot), SP: v([0, (S.body[4][1] + S.body[4][2]) / 2, S.spineZ]), G: `vec4(${[S.stride[0], S.stride[1], S.front.top[1] - S.front.foot[1], S.back.top[1] - S.back.foot[1]].map(f).join(', ')})` };
+  return beastBodyGLSL(K) + /* glsl */`
+  // the saddle under a rider: how far it has moved from its rest place (x along, y up) and its turn (z), as beastVS
+  // moves the horse's forequarters at this phase and amount (the gait's flex, pitch and bob, and the vault)
+  vec3 horseSeat(float ph, float amtRaw, bool air){
+    vec4 off; float duty, reachB, fold, trot, gal;
+    bbGait(amtRaw, 1.0, off, duty, reachB, fold, trot, gal);
+    float amt = clamp(amtRaw, 0.0, 1.6), k = clamp(amt * 2.2, 0.0, 1.0);
+    float spine = 0.1 * sin(ph + 0.9) * gal, pitch = 0.05 * sin(ph + 1.4) * gal - (air ? 0.12 : 0.0);
+    float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
+    vec2 sink = air ? vec2(0.0) : bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, 0.0, vec4(0.0));
+    float thV = bbVaultA(sink);
+    vec2 s0 = vec2(${f(0.04)}, ${f(HORSE_SEAT - 0.06)}), s = bbRot(bbBodyFwd(s0, true, spine, pitch), bbVaultPiv(), thV);
+    s.y += bob - sink.y;
+    return vec3(s - s0, spine + pitch + thV);
+  }`;
+})();
+humanoidMat.vertexShader = humanVS(false);
+humanoidMat.uniforms.uFootLock = { value: FOOT_LOCK.tex }; // [polish] planted feet (13s_footlock.js)

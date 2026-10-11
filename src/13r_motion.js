@@ -171,7 +171,7 @@ function motionLook(e, which = ['feet'], opt = {}) {
   return out;
 }
 // the floor under a point (stairs, wall walks, decks, the ground; a lake's ice)
-const motionFloor = (x, z, y) => (typeof floorAt === 'function' ? floorAt(x, z, y + 0.25) : heightAt(x, z));
+const motionFloor = (x, z, y) => (typeof floorTreadAt === 'function' ? floorTreadAt(x, z, y + 0.25) : typeof floorAt === 'function' ? floorAt(x, z, y + 0.25) : heightAt(x, z)); // [polish] (a flight's treads, not its ramp)
 
 /* ---- a run: drive bodies, step the world, look at them every step ---- */
 // ents: [{ e, drive(e, t, dt), which, yHint(e) }]; returns per entity a list of samples
@@ -270,14 +270,28 @@ function humanSlopeYaw(e, y, near) {
     s = clamp((at(e.x + fx, e.z + fz) - at(e.x - fx, e.z - fz)) / (2 * r), -1, 1);
   }
   e._slope = (e._slope ?? s) + (s - (e._slope ?? s)) * 0.3;
+  if (e.mount && e.alive) e._slope = e._bslope ?? 0; // [polish] a rider tilts with the horse on a slope (beastLeanYaw, called first)
   const k = clamp(Math.round(e._slope * 20), -20, 20) + 41 * clamp(Math.round((e.alive ? e.anim.lean || 0 : 0) / 0.04), -7, 7);
   return k ? yaw + TAU * k : yaw;
 }
 // [motion] a beast's lean into a turn (or a ridden horse's, from its rider) as whole turns on its yaw: n lean steps of
 // 0.04 rad (beastVS takes them off before its sine and cosine)
+// [polish] and the slope of the ground along its body, from its hind feet to its fore feet: it stands tilted with the
+// slope (beastVS), its feet on the ground under them, not sunk into the rise ahead or hanging over the fall behind:
+// n = lean steps + 11 x slope steps (0.05 of rise per metre, -20..20). A horse under a rider: e is the rider (its
+// e._bslope also tilts the rider with the horse: humanSlopeYaw)
 function beastLeanYaw(e) {
-  const yaw = clamp(Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw)), -3.1414, 3.1414);
-  const k = e.alive ? clamp(Math.round((e.anim.lean || 0) / 0.04), -5, 5) : 0;
+  const yaw = clamp(Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw)), -3.141, 3.141); // (never near half a turn: the shader rounds the turns)
+  if (!e.alive) return yaw;
+  const S = BEASTS[e.mount ? 'horse' : e.crowd || e.kind];
+  let sl = 0;
+  if (S && S.front && e.onGround !== false && !e.swim && !(e.swimK > 0.05) && !e.boat && !e.flying && !e.seat && dist2(e.x, e.z, camera.position.x, camera.position.z) < 70 * 70) {
+    const sc = e.mount ? 1 : e.scale || 1, half = Math.max(0.1, (S.front.foot[2] - S.back.foot[2]) / 2 * sc), fx = Math.sin(yaw) * half, fz = Math.cos(yaw) * half, y = e.y;
+    const at = (x, z) => { const h = floorAt(x, z, y + 0.3); return Math.abs(h - y) > 1.2 ? y : h; };
+    sl = clamp((at(e.x + fx, e.z + fz) - at(e.x - fx, e.z - fz)) / (2 * half), -1, 1);
+  }
+  e._bslope = (e._bslope ?? sl) + (sl - (e._bslope ?? sl)) * 0.3;
+  const k = clamp(Math.round((e.anim.lean || 0) / 0.04), -5, 5) + 11 * clamp(Math.round(e._bslope * 20), -20, 20);
   return k ? yaw + TAU * k : yaw;
 }
 // Cinderwing through a stretch of its flight (it is skinned on the CPU: its bones are read directly). how: 'fly' (on its

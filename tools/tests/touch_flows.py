@@ -4,7 +4,8 @@ scene (where to stand, what is in the bags) and lets time pass. Flows: drink at 
 swim out with the stick, dive and come up again, row a boat away from a jetty and go over the side, till and sow, craft from
 the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table,
 go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
-fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]).
+fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]);
+shove a beached boat into the water and push her about ([polish]).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -244,6 +245,28 @@ async def main():
                 n = await page.evaluate("__hm.animals.anCompanions().length")
                 if r and n > r['n0']: tamed = True; break
             check(r and tamed, f'tame: taps on Use offering meat win a wolf over ({taps} taps)')
+
+        if want('shove'):
+            # [polish] at the shore end of a boat drawn up on the beach, a tap on Use shoves her off into the water; then
+            # wading into her side with the stick pushes her away (07e_boats.js)
+            r = await page.evaluate("""(() => { const H = TF.H, Wt = H.water, Bt = Wt.boats, P = TF.P(); if (P.dive) Wt.dive.end(); if (P.boat) Bt.leave();
+              const i = Bt.list().findIndex((q) => q.st === 'beached'); if (i < 0) return null; const s = Bt.state(i), E = Bt.shoveEnd(i);
+              TF.stand(E.x, E.z, s.x, s.z); H.simulate(0.2); H.frame(1 / 30); return { i, label: H.surv.ci(), x: s.x, z: s.z }; })()""")
+            ok = await tap(page, '#t-use') if r else False
+            fl = await page.evaluate("""((i) => { const H = TF.H, Bt = H.water.boats, P = TF.P(); const act = P.anim.act; for (let k = 0; k < 60 && (Bt.state(i).launch || Bt.state(i).grounded > 0.5); k++) H.simulate(0.1); H.simulate(1); const s = Bt.state(i); return { act, st: s.st, grounded: s.grounded, afloat: !Bt.hit(i), x: s.x, z: s.z }; })""", r['i'] if r else 0)
+            moved = ((fl['x'] - r['x']) ** 2 + (fl['z'] - r['z']) ** 2) ** 0.5 if r else 0
+            check(r is not None and r['label'] == 'Shove the boat into the water' and ok and fl['act'] == 19 and fl['afloat'] and fl['grounded'] < 0.5 and moved > 1, f'shove: a tap on Use shoves a beached boat into the water ({r and r["label"]}; {json.dumps(fl)}, {moved:.1f} m)')
+            # wade or swim into her side with the stick: she gives
+            r2 = await page.evaluate("""((i) => { const H = TF.H, Wt = H.water, Bt = Wt.boats, B = Bt.BOATS.list[i], P = TF.P(); B.vx = B.vz = B.wr = 0; B.still = false;
+              const c = Math.cos(B.yaw), s = Math.sin(B.yaw); let p = null; for (const sd of [1, -1]) { const x = B.x + sd * 1.7 * c, z = B.z - sd * 1.7 * s; if (Wt.waterAt(x, z)) { p = { x, z }; break; } }
+              if (!p) return null; TF.stand(p.x, p.z, B.x, B.z); const w = Wt.waterAt(p.x, p.z); if (w && w.depth > 1.2) P.y = w.y - 1.3; H.simulate(0.2); return { x: B.x, z: B.z }; })""", r['i'] if r else 0)
+            if r2:
+                await drag_stick(page, cdp, 0, -45, 2.5)
+                b2 = await page.evaluate("__hm.water.boats.state(%d)" % r['i'])
+                pm = ((b2['x'] - r2['x']) ** 2 + (b2['z'] - r2['z']) ** 2) ** 0.5
+                check(pm > 0.25, f'shove: the stick walks you into her side and she gives ({pm:.2f} m)')
+            else:
+                check(False, 'shove: no water beside the boat to push her from')
 
         if want('wartable'):
             r = await page.evaluate("""(() => { const H = TF.H, h = H.fn.halls().find((q) => q.realm === 0 && q.state !== 'ruin'), sp = h.hallSpots.table; const dx = h.x - sp.x, dz = h.z - sp.z, d = Math.hypot(dx, dz) || 1; const x = sp.x + dx / d * 1.1, z = sp.z + dz / d * 1.1;
