@@ -579,13 +579,16 @@ function executeAbility(e, A, t, cast = null) {
       setAct(e, 7, dur);
       const cut = (part) => {
         if (!e.alive) return;
+        let struck = 0; // [balance5]
         forNear(e.x, e.z, A.spin + 1.5, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           if (dist(e.x, e.z, o.x, o.z) > A.spin + o.radius * (o.scale || 1)) return;
           const r = computeDamage(e, o, A.dmg * rk * part);
           dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
           FX.sparks(o.x, chest(o), o.z);
+          struck++;
         });
+        if (A.id === 'whirl') whirlHeal(e, struck); // [balance5] the press of foes heals a warrior (07c_balance5.js)
         natureSwing(e, A.spin + 0.4, Math.PI, 30); // nature: the blade cuts the grass round about and bites into trees
         sfx('hit');
       };
@@ -915,6 +918,7 @@ function updateProjectiles(dt) {
         const r = computeDamage(src, t, pl.mult || 1);
         dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
+        if (pl.ability === 'cripple' && t.alive) crippleWound(src, t, pl.snare); // [balance5] a crippling arrow's wound mends slowly (07c_balance5.js)
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }
       }
       if (p.kind === 'deadeye') spellRibbon([p.ox, p.oy, p.oz], [tx, ty, tz], 'tracer', [1.8, 1.6, 1.1], 0.16, 0.45);

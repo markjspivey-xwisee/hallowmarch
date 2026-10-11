@@ -217,12 +217,13 @@ function chronClasses() {
       ['Momentum', 'momentum', 'Each blow that lands builds it, up to 5. At 3 or more, Slash becomes a finisher: 160% and 50% more for each point.'],
       ['Weapon', '', 'The sword opens bleeding wounds, the axe breaks armour (each blow makes the foe take 6% more harm, up to three times), the mace breaks spells and staggers. A finisher drives the weapon\'s bite home.'],
       ['Stances', 'stances', 'T changes stance. Guarded: 25% less harm taken, 10% less dealt, a wider shield. Balanced: steady. Fury: 15% more harm dealt, 12% more taken, faster blows. Each changes what Bash, Bulwark, Cleave, Whirlwind and Rallying Cry do.'], // [balance4] fury's numbers as STANCES has them (it said 20% and 15%)
+      ['The press', '', `A warrior thrives where the foes are thickest: Whirlwind gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health for each foe its blade cuts, twice a spin.`], // [balance5]
     ])}
     ${card('archer', 'The archer', 'An archer\'s strength is the <b>draw</b>. A snap shot is quick and wild; a full draw flies true and hard, and every arrow loosed from the string falls in a real arc and drifts on the wind.', [
       ['The draw', 'draw', 'Hold X to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
-      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose); a broadhead\'s wound bleeds and mends slowly (healing on it takes 30% less, 45% from rank II), the answer to a healer, and a bodkin goes through half of any armour. Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
+      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose); a broadhead\'s wound bleeds and mends slowly (healing on it takes 30% less), the answer to a healer, and a bodkin goes through half of any armour. Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
       ['Hiding', 'hide', 'Keep still in long grass or among trees, out of the fight for three seconds, and you are hidden: foes see you only close by, and your first shot strikes 50% harder.'],
-      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on, and it falls over a raised shield), snares and Tumble keep a pack at bow\'s length, and a snare laid in a charging warrior\'s path holds it there.'], // [balance] [balance4]
+      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on, and it falls over a raised shield), snares and Tumble keep a pack at bow\'s length, and a snare laid in a charging warrior\'s path holds it there. Crippling Arrow\'s wound mends slowly, as a broadhead\'s does, for as long as it slows: the answer to a healer that needs no special arrows.'], // [balance] [balance4] [balance5]
       ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3.5 s, and the cord whips the legs of any foe beside it. Two at a time.'],
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
@@ -239,10 +240,11 @@ function chronClasses() {
     ${card('priest', 'The priest', 'A priest gathers <b>devotion</b> by healing, by prayer and by holy acts, and spends it on greater works. Devotion also strengthens every heal.', [
       ['Devotion', 'devotion', 'Healing others, smiting the dead and praying build it; it fades when you rest on it. Every point makes your healing stronger, up to 25%.'],
       ['Prayer', 'pray', 'Hold X to kneel and pray: devotion and power return.'],
-      ['Holy ground', 'consecrate', 'T hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, and the dead are burned and slowed.'],
+      ['Holy ground', 'consecrate', 'T hallows the ground at your feet for 12 s (35 devotion): allies on it are healed every second, the dead are burned and slowed, and every foe on it is dazzled: its weapon blows go wide and a warrior cannot parry.'], // [balance5]
+      ['Holy Fire', '', `Cast at a foe within ${FLARE_REACH} m in the middle of a spell, Holy Fire flares in its face and the spell is lost, unless it stands steadfast. Keep it for the heal that would turn the fight.`], // [balance5]
       ['Smite', '', 'Holy light falls hardest on the dead of the Barrow: twice the harm, and devotion for every blow. It falls from above: a raised shield does not turn it, and its light dazzles: for 3 s the foe misses some of its weapon blows (more as your ranks grow), and a dazzled warrior cannot parry.'], // [balance2] [balance3] [balance4]
       ['Mend', '', 'Mend closes wounds: the deeper the wound, the more it mends, all of it from half health down and a third of it on a scratch. Mend at need, and let Renewal carry you between.'], // [balance4]
-      ['Steadfast', '', 'Renewal on yourself loosens roots, and for 4 s nothing but a stun breaks your spells: no blunt arrow, storm, mace or thunderclap. Renew before a long cast when a foe keeps cutting you off. Your own wounds mend at three quarters of a heal\'s measure, and from rank II at a little over half of it, however your ranks grow.'], // [balance2] [balance3]
+      ['Steadfast', '', 'Renewal on yourself loosens roots, and for 4 s nothing but a stun breaks your spells: no blunt arrow, storm, mace, thunderclap or flare of holy fire. Renew before a long cast when a foe keeps cutting you off, and when a priest\'s Holy Fire is ready to flare it away. Your own wounds mend at 70% of a heal\'s measure, and from rank II at a little over half of it, however your ranks grow.'], // [balance2] [balance3] [balance5] the flare, 70%
       ['Blessings', 'bless', 'With 20 devotion, Renewal also blesses its target in the way of your realm.'],
       ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion). When you fall, a priest of your realm close by may offer to raise you: accept the prayer on the death screen.'], // [balance]
       ['Temples', '', 'At your realm\'s temple, or near a hallow your realm holds, you are sanctified: devotion comes twice as fast and you heal 15% more.'],
@@ -266,4 +268,6 @@ LOADING_TIPS.push(
   'A priest\'s holy light dazzles: the foe\'s weapon blows go wide, and a dazzled warrior cannot parry.',
   'Guarded, a warrior walks on behind a raised shield: a shield wall against arrows, though a volley falls over it.', // [balance4]
   'Mend does most for a deep wound: mend at need, and let Renewal carry you between.', // [balance4]
+  'A priest\'s Holy Fire, cast close by at a foe in the middle of a spell, flares the spell away; a priest\'s own Renewal keeps its spells steady.', // [balance5]
+  'A warrior\'s Whirlwind heals it a little for every foe the blade cuts: the thicker the press, the more it heals.', // [balance5]
 );

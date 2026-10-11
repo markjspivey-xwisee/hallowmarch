@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 SHOTS = 'shots' in ARGS
 BAL = 'balance' in ARGS
-MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS or 'b4' in ARGS)
+MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS or 'b4' in ARGS or 'b5' in ARGS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
 # [balance] duels are short and noisy: they get more repetitions of their own (dreps=N)
 DREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('dreps=')), REPS * 3)
@@ -80,6 +80,10 @@ window.CB = {
   wipe() {
     const gone = new Set();
     for (const e of this.H.ENT.slice()) if (e.balance) { gone.add(e.id); e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); }
+    // [balance5] and the ground made whole: a meteor's bowl or a leap's dent from the last fighters, its rim in the line of
+    // fire, decided the next duels there (a skilled archer won 23 of 24 against a priest at 50 in a fresh arena, none late
+    // in the full table)
+    if (this.H.bal5 && this.H.bal5.flattenCraters) this.craters = (this.craters || 0) + this.H.bal5.flattenCraters();
     // [balance3] and what they left in the arenas: armed snares (90 s), runes (30 s), holy ground, steam, ice and arrows
     // and bolts still in flight would strike the next fighters there
     const C = this.H.cls.CLS, t = this.H.GAME.t;
@@ -199,7 +203,7 @@ window.CB = {
     }
     return open;
   },
-  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { H.simulate(1); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; },
+  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { if (this.flat && H.bal5) H.bal5.flattenCraters(); H.simulate(1); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; }, // [balance5] flat: every crater undone each second (the mage's own meteor's bowl shields its foe from its bolts)
   results() { return this.A.map((A) => A.res); },
 };
 """
@@ -250,6 +254,7 @@ KINDS = [k for k in ('simple', 'skilled') if k in ARGS] or ['simple', 'skilled']
 LEVELS = next(([int(x) for x in a.split('=')[1].split(',')] for a in ARGS if a.startswith('levels=')), [10, 30, 50])
 async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
+    if 'flat' in ARGS: await page.evaluate("CB.flat = true; 0")  # [balance5] no crater lasts a second (a probe of what the craters cost)
     rows = {}
     for lvl in LEVELS:
         await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
@@ -665,6 +670,7 @@ async def mechanics(page):
 # ------------------------------------------------------------------ [balance3] the rules of version 11
 B3 = ('b3' in ARGS) or MECH
 B4 = ('b4' in ARGS) or MECH  # [balance4]
+B5 = ('b5' in ARGS) or MECH  # [balance5]
 async def balance3(page):
     """pursuit, frost holds, one rush, half-piercing bodkins and Deadeye, the dazzle, the shield wall, the wound and a
     priest's own healing by rank, and NPC warriors walling against a bow"""
@@ -752,8 +758,8 @@ async def balance3(page):
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};
       for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
       return out; })()""")
-    check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.45 and r['50']['wound'] == 0.45, f"a broadhead's wound: 30%, 45% from rank II ({r})")
-    check(abs(r['20']['self'] - 0.75) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: three quarters, then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
+    check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.3 and r['50']['wound'] == 0.3, f"a broadhead's wound: 30% at every rank ([balance5]: 45% from rank II before) ({r})")
+    check(abs(r['20']['self'] - 0.7) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 70% ([balance5] 75%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
 
@@ -840,6 +846,53 @@ async def balance4(page):
     check(r['berserk'] > r['plain'] * 1.05, f"a measure can set the realm's way aside: a Thule warrior's Berserk against the plain calling ({r})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance4] checks {errs[:2]}')
+
+
+async def balance5(page):
+    """[balance5] Holy Fire flares a caster's spell away (not a steadfast one) within 10 m; every Renewal on yourself
+    steadies; Whirlwind heals in the press; the realm's ways evened out"""
+    await page.evaluate("() => {" + MECH_JS + "; return 0; }")
+    r = await ev(page, 'flare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 0);
+      const a = T.ahead(P, 8); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
+      const out = {};
+      // a mage in the middle of a firebolt close by: Holy Fire breaks it
+      m.cds = {}; m.gcdUntil = 0; m.power = m.maxPower; F.useAbility(m, 'firebolt', P); H.simulate(0.3); out.casting = !!m.casting;
+      P.target = m.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; out.r = F.useAbility(P, 'holyfire', m); out.broken = !m.casting;
+      // one beyond the flare's reach keeps its spell
+      const a3 = T.ahead(P, 16, -5); const m3 = T.foe(2, a3.x, a3.z, 20, 'mage', 0); m3.ai.nextAbility = 1e9; m3.swingAt = 1e9; H.simulate(0.1);
+      m3.cds = {}; m3.gcdUntil = 0; m3.power = m3.maxPower; F.useAbility(m3, 'firebolt', P); H.simulate(0.3); P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'holyfire', m3); out.far = !!m3.casting; m3.casting = null;
+      // a priest steadfast from its own Renewal keeps its spell
+      const a2 = T.ahead(P, 6, 3); const q = T.foe(2, a2.x, a2.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
+      q.cds = {}; q.gcdUntil = 0; q.power = q.maxPower; q.hp = q.maxHp * 0.6; F.useAbility(q, 'renew', q); out.steady = H.fn.hasBuff(q, 'steadfast');
+      q.gcdUntil = 0; F.useAbility(q, 'mend', q); H.simulate(0.2); P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'holyfire', q); out.kept = !!q.casting;
+      // a second Renewal while the first still mends does not steady
+      H.simulate(4.5); const q2 = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t); q.cds = {}; q.gcdUntil = 0; q.casting = null; F.useAbility(q, 'renew', q); out.stale = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t); out.q2 = q2;
+      // and one cast after the last has run its course does
+      H.simulate(9); q.cds = {}; q.gcdUntil = 0; F.useAbility(q, 'renew', q); out.fresh = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t);
+      out.stats = H.bal5.BAL5.stats; return out; })()""")
+    check(r['casting'] and r['r'] is True and r['broken'], f"Holy Fire flares a mage's firebolt away ({r})")
+    check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
+    check(r['steady'] and r['kept'], f"a priest steadfast from its own Renewal keeps its Mend through the flare ({r})")
+    check(not r['q2'] and r['stale'] and r['fresh'], f"every Renewal on yourself steadies for 4 s (the fresh Renewal's rule was tried and set aside) ({r})")
+    r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);
+      const a = T.ahead(P, 14); const q = T.foe(2, a.x, a.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
+      P.target = q.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; H.cls.csOf(P).arrow = 'plain'; F.useAbility(P, 'cripple', q); H.simulate(1.2);
+      const w = q.buffs.find((b) => b.kind === 'wound' && b.until > H.GAME.t); q.hp = q.maxHp * 0.5; const h0 = q.hp; H.bal5.healEnt(q, q, 100);
+      return { wound: w ? +w.value.toFixed(2) : 0, left: w ? +(w.until - H.GAME.t).toFixed(1) : 0, healed: Math.round(q.hp - h0) }; })()""")
+    check(abs(r['wound'] - 0.3) < 0.01 and r['left'] > 3 and abs(r['healed'] - 70) <= 1, f"a crippling arrow's wound (a plain arrow): healing on it takes 30% less while it slows ({r})")
+    r = await ev(page, 'whirl', """(() => { const H = T.H, F = T.F; const out = {};
+      for (const n of [1, 4]) { const P = T.fresh('warrior', 30, 0); H.simulate(0.1);
+        for (let i = 0; i < n; i++) { const a = T.ahead(P, 2.2, (i - (n - 1) / 2) * 1.4); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f); }
+        H.simulate(0.1); P.hp = P.maxHp * 0.4; const h0 = P.hp; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'whirl', P); H.simulate(1.0);
+        out[n] = +((P.hp - h0) / P.maxHp).toFixed(3); }
+      return out; })()""")
+    check(r['1'] >= 0.035 and abs(r['4'] - r['1'] - 0.12) < 0.03, f"Whirlwind gives back 2% for each foe each of its two cuts strikes (one foe, four: {r}; the rest is the body's own mending over the second)")
+    r = await ev(page, 'realms', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const R of [0, 1, 2]) { const P = T.fresh('archer', 20, R); C.csOf(P).drawFrom = H.GAME.t; H.simulate(0.6); out['draw' + R] = +C.drawK(P).toFixed(2); C.csOf(P).drawFrom = -1; }
+      out.A = H.bal5.ARCHER_REALM; out.text = C.CLASS_REALM.archer.map((q) => q.text.slice(0, 40)); return out; })()""")
+    check(r['draw0'] > r['draw1'] * 1.1 and r['draw0'] < r['draw1'] * 1.25 and abs(r['draw1'] - r['draw2']) < 0.02, f"a Logres archer draws 15% sooner ({r['draw0']}, {r['draw1']}, {r['draw2']})")
+    errs = await page.evaluate("__hm.errors.slice(0, 3)")
+    check(not errs, f'no runtime errors in the [balance5] checks {errs[:2]}')
 
 # ------------------------------------------------------------------ screenshots
 CAMJS = r"""window.CC = (x, y, z, tx, ty, tz) => { const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); };
@@ -960,6 +1013,19 @@ async def shots(page):
       for (let i = 0; i < 12 && w.motion; i++) { H.simulate(0.05); H.frame(0.05); }
       CS(P, w, 7.5, 1.6, 0.5, 1.1); return { r, d: +Math.hypot(w.x - P.x, w.z - P.z).toFixed(1), act: w.anim.act, rush: !!(w.motion && w.motion.rush) }; })()""")
     await snap(page, 'rush', 1)
+    # [balance5] holy ground dazzles the foes on it: a warrior standing on a priest's hallowed ground, motes of light about
+    # its head, the ground's glow under both
+    if want('hallow'): await ev(page, 'hallow-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+      const a = T.ahead(P, 3.2); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; P.target = w.id; P.swingAt = 1e9;
+      const hold = () => { w.x = a.x; w.z = a.z; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); w.swingAt = 1e9; };
+      hold(); CS(P, w, 4.6, 1.5, 0.55, 1.3); H.frame(0.016);
+      C.csOf(P).dev = 60; P.cds = {}; P.gcdUntil = 0; const r = C.consecrate(P);
+      for (let i = 0; i < 60 && !w.buffs.some((b) => b.kind === 'dazzle' && b.src === 'hallow'); i++) { H.simulate(0.05); hold(); H.frame(0.05); }
+      // the frames keep pace with the world (a simulated stretch leaves the frames' clock behind: the column of light laid
+      // with the ground stood at its brightest over the priest), and the column's second is let pass
+      for (let i = 0; i < 30; i++) { H.simulate(0.05); hold(); H.frame(0.05); }
+      CS(P, w, 4.6, 1.5, 0.55, 1.3); return { r, dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => b.src + ':' + b.value.toFixed(2)), grounds: C.CLS.grounds.length }; })()""")
+    await snap(page, 'hallow', 1)
 
 async def main():
     async with async_playwright() as p:
@@ -976,6 +1042,8 @@ async def main():
             await balance3(page)  # [balance3]
         if B4:
             await balance4(page)  # [balance4]
+        if B5:
+            await balance5(page)  # [balance5]
         if SHOTS:
             await shots(page)
         errs = await page.evaluate("__hm.errors.slice(0, 5)")
