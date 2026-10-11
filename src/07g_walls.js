@@ -431,14 +431,18 @@ function wallsShotClear(e, t, arc = true, count = true) {
   const yaw = Math.atan2(t.x - e.x, t.z - e.z), sc = e.scale || 1;
   const sx = e.x + Math.sin(yaw) * 0.4, sz = e.z + Math.cos(yaw) * 0.4, sy = e.y + 1.45 * sc;
   const tx = t.x, tz = t.z, ty = wallsAimY(t, sy);
-  const tot = Math.hypot(tx - sx, tz - sz) || 1, o = { ox: sx, oy: sy, oz: sz, tgt: t };
+  const tot = Math.hypot(tx - sx, tz - sz) || 1, o = { ox: sx, oy: sy, oz: sz, tgt: t, ground: false }; // [v13] the ground below
   const n = arc ? 3 : 1;
   let px = sx, py = sy, pz = sz;
+  const held = () => { if (count) WALLS.stats.held++; else WALLS.stats.picksWalled = (WALLS.stats.picksWalled || 0) + 1; return false; };
   for (let k = 1; k <= n; k++) {
     const u = k / n, x = lerp(sx, tx, u), z = lerp(sz, tz, u), y = lerp(sy, ty, u) + (arc ? Math.sin(u * Math.PI) * tot * 0.06 : 0);
-    if (shotHit(px, py, pz, x, y, z, o)) { if (count) WALLS.stats.held++; else WALLS.stats.picksWalled = (WALLS.stats.picksWalled || 0) + 1; return false; }
+    if (shotHit(px, py, pz, x, y, z, o)) return held();
     px = x; py = y; pz = z;
   }
+  // [v13] the ground: a shot goes over a rise or a crater's rim of a few metres (wallsGroundVia), not over a hill
+  const V = wallsGroundVia(sx, sy, sz, tx, ty, tz);
+  if (V && V.need >= WALL_VIA_MAX) return held();
   return true;
 }
 
@@ -469,9 +473,26 @@ function wallsStepToCrenel(e, t, post, dt) {
 /* ------------------------------------------------------------------ */
 // asked by updateProjectiles each step, before it moves p toward (tx, ty, tz): does this step's flight strike
 // something? Then the shot stops there (true: the caller drops it)
+// [v13] A homing shot whose straight way to its mark runs into the ground (a body down in a crater's bowl, or beyond a
+// low rise) goes over: the point 0.6 m over the highest ground in the way, if that is no more than 5 m above the line.
+// A mage's own meteor left a bowl 2 m deep under its mark, and every bolt after it struck the rim (balance5 measured
+// a mage killing in 8-15 s at 30 and 50 where the others took 3-5).
+const WALL_VIA_MAX = 5;
+function wallsGroundVia(ax, ay, az, bx, by, bz) {
+  const L = Math.hypot(bx - ax, bz - az), n = Math.max(2, Math.ceil(L / 0.5));
+  let need = 0, best = null;
+  for (let k = 1; k < n; k++) {
+    const u = k / n, x = ax + (bx - ax) * u, z = az + (bz - az) * u, g = heightAt(x, z), over = g + 0.45 - (ay + (by - ay) * u);
+    if (over > need) { need = over; best = { x, y: g + 0.6, z, need: 0, u }; }
+  }
+  if (best) best.need = need;
+  return best;
+}
 function wallsProj(p, tx, ty, tz, d, step) {
   if (!WALLS.on || WALL_PROJ_SKIP[p.kind]) return false;
-  const arrive = d <= step + 0.3 || p.age > p.life;
+  // [v13] on its way over a rise: the stretch looked at runs toward that point, not straight at the mark
+  if (p.via) { tx = p.via.x; ty = p.via.y; tz = p.via.z; d = Math.max(Math.hypot(tx - p.x, ty - p.y, tz - p.z), step + 0.31); }
+  const arrive = !p.via && (d <= step + 0.3 || p.age > p.life);
   // one look covers two steps of the flight: found clear, the next step needs none (half the tests for a shot in the
   // open; a homing shot's next step lies within a few centimetres of the stretch looked at)
   if (!arrive && p.wallClear !== undefined && GAME.t < p.wallClear) return false;
@@ -488,6 +509,11 @@ function wallsProj(p, tx, ty, tz, d, step) {
   if (!arrive && R.t * k > 1.001) return false; // it strikes in the second step: then, when it gets there
   // a shot aimed at a point on the ground (a volley's arrows) that lands on the ground there has got where it went
   if (R.what === 'ground' && p.point && dist2(R.x, R.z, p.point.x, p.point.z) < 1.2 * 1.2) return false;
+  // [v13] the ground in the way of a homing shot at a body: over it (updateProjectiles steers by p.via)
+  if (R.what === 'ground' && !p.point && !p.via && t && t.alive && t.kind !== 'door' && !arrive) {
+    const V = wallsGroundVia(p.x, p.y + (p.vis || 0), p.z, t.x, wallsAimY(t, p.oy), t.z);
+    if (V && V.need < WALL_VIA_MAX) { p.via = V; WALLS.stats.over = (WALLS.stats.over || 0) + 1; return false; }
+  }
   const src = getEnt(p.src) || { faction: p.srcFaction, id: p.src };
   const L = Math.hypot(nx - p.x, ny + vis - p.y - (p.vis || 0), nz - p.z) || 1;
   wallStrike(p.kind, R, (nx - p.x) / L, (ny + vis - p.y - (p.vis || 0)) / L, (nz - p.z) / L, src, p.speed, p.payload && p.payload.arrow);

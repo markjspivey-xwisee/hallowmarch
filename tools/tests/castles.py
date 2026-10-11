@@ -95,7 +95,7 @@ async def main():
         if not ONLY or ONLY == 'gate':
             r = await ev(page, 'gate: owner arrives', "(() => { const K = T.keep(0, 0), S = K.site; T.put(S, 0, S.gateLocal.z + 6, 0, 0); __hm.simulate(3); return T.gate(S); })()")
             check(r['open'] > 0.95 and not r['active'], 'a keep gate swings open for its own side and its collider stands down')
-            r = await ev(page, 'gate: enemy comes', "(() => { const K = T.keep(0, 0), S = K.site; T.foe(S, 1, 2, S.gateLocal.z + 14); __hm.simulate(2.5); return T.gate(S); })()")
+            r = await ev(page, 'gate: enemy comes', "(() => { const K = T.keep(0, 0), S = K.site; const e = T.foe(S, 1, 2, S.gateLocal.z + 14); e.hp = e.maxHp = 1e6; /* [v13] the garrison's archers on the walls shoot it: it must live to keep the gate shut */ __hm.simulate(2.5); return T.gate(S); })()")
             check(r['open'] < 0.05 and r['active'] and r['owner'] == -1, 'the gate shuts when an enemy comes near, and blocks everyone')
             r = await ev(page, 'gate: enemy pushes', "(() => { const K = T.keep(0, 0), S = K.site; T.clearFoes(); T.put(S, 0, S.gateLocal.z + 30); const e = T.foe(S, 1, 0, S.gateLocal.z + 1.6); for (let i = 0; i < 60; i++) { const p = T.w(S, 0, S.gateLocal.z - 3); __hm.fn.stepTo(e, e.x + (p.x - e.x) * 0.05, e.z + (p.z - e.z) * 0.05); __hm.simulate(0.05); } const c = Math.cos(S.yaw), s = Math.sin(S.yaw); const lz = (e.x - S.x) * s + (e.z - S.z) * c; T.clearFoes(); return { lz: +lz.toFixed(2), gz: S.gateLocal.z, gate: T.gate(S) }; })()")
             check(r['lz'] > r['gz'] + 0.4, 'an enemy cannot push through the shut gate')

@@ -410,8 +410,8 @@ async def fights(page):
       c.x = L.fx; c.z = L.fz; c.y = L.wyb; c.motion = null; c.buffs.length = 0; c.ccdr = null; H.towers.towerClimb(c, L, 1);
       for (let i = 0; i < 30 && !(c.motion && c.motion.st === 1 && c.y > L.wyt - 1.8); i++) { w.swingAt = 1e9; w.ai.nextAbility = 1e9; H.simulate(0.1, 0.02); }
       // [keeps] (a climber the war's own business turned about is set on the rungs below the open hatch, as it would be)
-      if (!(c.motion && c.motion.st === 1 && c.y > L.wyt - 1.8)) { c.motion = null; c.buffs.length = 0; H.towers.towerClimb(c, L, 1); c.motion.st = 1; c.motion.t = 0; c.motion.y = L.wyt - 1.75; c.x = L.lx; c.z = L.lz; c.y = c.motion.y; Hh.held = true; w.swingAt = 1e9; w.ai.nextAbility = 1e9; H.simulate(0.1, 0.02); }
-      w.yaw = Math.atan2(c.x - w.x, c.z - w.z); if (w.cs) { w.cs.blockOn = false; w.cs.blockAt = -9; } __hm.cls.setBlock(w, true); out.blockOn = !!(w.cs && w.cs.blockOn); out.cy = +(c.y - S.y).toFixed(2);
+      if (!(c.motion && c.motion.st === 1 && c.y > L.wyt - 1.8)) { c.motion = null; c.buffs.length = 0; H.towers.towerClimb(c, L, 1); c.motion.st = 1; c.motion.t = 0; c.motion.y = L.wyt - 1.75; c.x = L.lx; c.z = L.lz; c.y = c.motion.y; Hh.held = true; Hh.k = 1; /* [v13] open now: the warrior set down beside it may have stood on its lid and held it shut */ w.swingAt = 1e9; w.ai.nextAbility = 1e9; H.simulate(0.1, 0.02); }
+      w.yaw = Math.atan2(c.x - w.x, c.z - w.z); if (w.cs) { w.cs.blockOn = false; w.cs.blockAt = -9; w.cs.blockDown = -99; /* [v13] a fresh raise, whatever its own guard did a moment ago */ } __hm.cls.setBlock(w, true); out.blockOn = !!(w.cs && w.cs.blockOn); out.cy = +(c.y - S.y).toFixed(2);
       F.dealDamage(c, w, 50, { kind: 'melee' }); out.parry = c.motion ? c.motion.st : null; __hm.cls.setBlock(w, false); H.simulate(1.5, 0.02);
       F.removeEnt(c); F.removeEnt(w); Hh.held = false; return out; })()""")
     check(r['held'] > 10 and r['blows'] >= 2 and 18 in r['acts'], f'a climber held by a foe at the hatch strikes it from the rungs (body action 18) ({r})')

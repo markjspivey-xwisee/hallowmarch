@@ -935,6 +935,12 @@ function updateProjectiles(dt) {
       continue;
     }
     p.dx = dx / d; p.dy = dy / d; p.dz = dz / d;
+    // [v13] over the rise or the crater's rim in its way first (wallsProj sets p.via, 07g_walls.js), then on to the mark
+    if (p.via) {
+      const vx = p.via.x - p.x, vy = p.via.y - p.y, vz = p.via.z - p.z, vd = Math.hypot(vx, vy, vz);
+      if (vd < step + 0.2 || vx * dx + vz * dz <= 0) p.via = null;
+      else { p.dx = vx / vd; p.dy = vy / vd; p.dz = vz / vd; }
+    }
     p.x += p.dx * step; p.y += p.dy * step; p.z += p.dz * step;
     // a gentle arc for arrows (the deadeye shot flies flat)
     if (p.kind === 'arrow' || p.kind === 'firearrow') {
