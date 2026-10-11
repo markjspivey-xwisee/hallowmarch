@@ -165,8 +165,9 @@ function updateTowerFires(dt) {
           if (lit >= want) break;
           if (s.y > top + 0.5 || s.lit > GAME.t) continue;
           s.lit = GAME.t + 4;
+          const n0 = FIRES.length; // [siege2] a fire addFire did not add (its cap) is no fire of this tower's
           addFire(s.x, T.S.y + s.y, s.z, s.s * (0.7 + 0.5 * B.heat), false, GAME.t + 4.2, { r: 9, k: 1.3 });
-          B.fires.push(FIRES[FIRES.length - 1]);
+          if (FIRES.length > n0) B.fires.push(FIRES[FIRES.length - 1]);
           lit++;
         }
         // whoever is in its rooms or its gallery is burnt

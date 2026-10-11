@@ -297,12 +297,16 @@ function palisadeBurnStep(c, dt, wet) {
     c.fires = c.fires.filter((f) => f.until > GAME.t);
     const spots = palisadeSpots(c), want = Math.round(1 + c.heat * (spots.length - 1)), top = 1 + c.heat * (WALL_H + 0.5);
     let lit = c.fires.length;
+    // (the burnt-out fires are let go first: drawFires does it each frame, but a long simulate (tests) piles them up
+    // against addFire's cap of timed fires; and a fire addFire did not add is no fire of this cell's)
+    if (FIRES.length > 30) for (let i = FIRES.length - 1; i >= 0; i--) if (FIRES[i].until < GAME.t) FIRES.splice(i, 1);
     for (const s of spots) {
       if (lit >= want) break;
       if (s.y > top || s.lit > GAME.t) continue;
       s.lit = GAME.t + 4;
+      const n0 = FIRES.length;
       addFire(s.x, S.y + s.y, s.z, s.s * (0.7 + 0.5 * c.heat), false, GAME.t + 4.2, c.fires.length ? null : { r: 8, k: 1.2 });
-      c.fires.push(FIRES[FIRES.length - 1]);
+      if (FIRES.length > n0) c.fires.push(FIRES[FIRES.length - 1]);
       lit++;
     }
     // it spreads along the wall to the logs either side
