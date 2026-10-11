@@ -1,9 +1,6 @@
 /* ================================================================== */
 /* [balance5] the callings within the aim at every level, for skilled  */
 /*   and simple play alike, and mastery that pays (version 13)          */
-/*   The priest's shield comes sooner: Divine Shield is learned at 9    */
-/*     and Sanctuary at 14 (they changed places): a priest of 10 had no  */
-/*     answer to a warrior's rush, its bash and its parries.             */
 /*   Holy Fire flares in a caster's face: struck in the middle of a     */
 /*     spell, the foe loses it (not a steadfast priest): the priest's    */
 /*     interrupt, so a healer who times it punishes a careless one, and  */
@@ -15,22 +12,16 @@
 const BAL5 = { stats: { flares: 0, flareTries: 0, whirlHeal: 0 } };
 
 /* ------------------------------------------------------------------ */
-/* the priest: Divine Shield sooner, Sanctuary later                   */
-/* ------------------------------------------------------------------ */
-// a priest of 10 lost 20 of 24 duels to a warrior of 10: the rush, the bash and the parries cut half its spells and it
-// had nothing to meet them with until 14. Divine Shield (a shield, a ward against harm and against every stun, root and
-// slow for 8 s) is the answer to that, so it comes at 9; Sanctuary, a heal for a group, comes at 14
-ABILITIES.divine.level = 9;
-ABILITIES.sanctuary.level = 14;
-CLASSES.priest.abilities = ['smite', 'mend', 'renew', 'holyfire', 'divine', 'sanctuary', 'massrenew', 'pillar']; // the hotbar in the order they are learned
-
-/* ------------------------------------------------------------------ */
 /* Holy Fire flares in a caster's face                                 */
 /* ------------------------------------------------------------------ */
 // priestView asks as Holy Fire is cast: a foe in the middle of a spell loses it, unless it stands steadfast (a priest's
 // own Renewal) or is a lord of the dead (bosses keep their spells)
+// [balance5] only a foe close by: the flare is a flash in the face, not a bolt across the field (from casting range it
+// broke every mage's firebolt, and a priest of 10 won 16 of 24 duels against a mage)
+const FLARE_REACH = 10;
 function holyFlare(e, t) {
   if (!t || !t.alive || !t.casting || t === e || t.kind === 'door' || t.role === 'boss' || t.role === 'dungeonBoss') return false;
+  if (dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1)) return false;
   BAL5.stats.flareTries++;
   if (!breakCast(t)) return false;
   BAL5.stats.flares++;
@@ -44,15 +35,25 @@ function holyFlare(e, t) {
 const castBreakable = (t, left = 0.3) => !!t && !!t.casting && t.casting.total - t.casting.t > left && !hasBuff(t, 'steadfast') && t.role !== 'boss' && t.role !== 'dungeonBoss';
 // a foe who could flare e's next spell: a priest of Holy Fire's level with it ready, in its reach
 function flareThreat(e) {
-  return !!nearestWhere(e.x, e.z, 32, (o) => o.alive && o.cls === 'priest' && isEnemy(o, e) && o.level >= ABILITIES.holyfire.level && (o.cds.holyfire || 0) <= GAME.t + 0.3 && o.target === e.id);
+  return !!nearestWhere(e.x, e.z, FLARE_REACH + 1, (o) => o.alive && o.cls === 'priest' && isEnemy(o, e) && o.level >= ABILITIES.holyfire.level && (o.cds.holyfire || 0) <= GAME.t + 0.3 && o.target === e.id);
 }
 
 // [balance5] what a skilled hand flares: a priest's heal (a smite is worth less than the Holy Fire's own burn), or any
 // long spell of a mage or a bow (a meteor, a firebolt, an aimed shot)
-function flareWorth(t) {
-  if (!castBreakable(t, 0.3)) return false;
+function flareWorth(t, e) {
+  if (!castBreakable(t, 0.3) || (e && dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1))) return false;
   if (t.cls === 'priest') return t.casting.id === 'mend' || t.casting.id === 'pillar' || t.casting.id === 'raise';
   return true;
+}
+
+// [balance5] holy ground dazzles the foes who stand on it (stepGrounds asks every second): a blade fighting a priest on
+// its hallowed ground misses some of its blows and cannot parry (a priest's own craft, which pressing 1-8 never uses)
+function hallowDazzle(G, o) {
+  if (!o.alive || o.kind === 'door' || o.role === 'boss' || o.role === 'dungeonBoss') return;
+  const fresh = !hasBuff(o, 'dazzle');
+  addBuff(o, 'dazzle', dazzleMissOf(G.level || 1), 1.3, 'hallow');
+  BAL3.dazzledIds.add(o.id);
+  if (fresh && dist2(o.x, o.z, camera.position.x, camera.position.z) < 50 * 50) FX.burst(o.x, o.y + 1.7 * (o.scale || 1), o.z, 10, [2.4, 2.2, 1.4], 1.6, 0.4, 0.09, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -89,13 +90,30 @@ function whirlHeal(e, n) {
   BAL5.stats.whirlHeal += h;
 }
 
+/* ------------------------------------------------------------------ */
+/* the realm's ways, evened out                                        */
+/* ------------------------------------------------------------------ */
+// every realm's way of the archer beat the plain archer in 75-96% of their duels (duels.py kind=flavour, version 12): a
+// mirror is a race, and a quicker draw, an opening shot from hiding at 80% more, or arrows the wind never moves (a plain
+// archer's drawn arrows drift off a body at range) each decided it. Each keeps its character at a smaller measure
+const ARCHER_REALM = { logresDraw: 0.85, eriuAmbush: 1.65, thuleWind: 0.5, thuleSnare: 4, thuleChill: 1.1 }; // version 12: 0.75, 1.8, 0, 4.5, 1.15
+CLASS_REALM.archer[0].text = `You reach full draw ${Math.round((1 - ARCHER_REALM.logresDraw) * 100)}% sooner, and drawn shots from a wall or a tower strike 20% harder.`;
+CLASS_REALM.archer[1].text = `You hide in half the time and stay hidden while you walk; a shot from hiding strikes ${Math.round((ARCHER_REALM.eriuAmbush - 1) * 100)}% harder instead of 50%.`;
+CLASS_REALM.archer[2].text = `The wind moves your arrows only half as much, your snares freeze what they catch and hold it ${ARCHER_REALM.thuleSnare} s, and you strike chilled and frozen foes ${Math.round((ARCHER_REALM.thuleChill - 1) * 100)}% harder.`;
+// the priests: the Shield of Logres still led (it won 9, 6 and 10 of 12 against a priest of no realm's way at 10, 30 and
+// 50; the Well of Ériu 3, 5 and 7, the Hearth of Thule 5, 6 and 7)
+Object.assign(PRIEST_REALM, { logresBless: 0.94, logresGround: 0.94, eriuHot: 0.025, thuleBless: 1.17 }); // version 12: 0.92, 0.92, 0.02, 1.15
+CLASS_REALM.priest[0].text = `Your blessing makes allies take ${Math.round((1 - PRIEST_REALM.logresBless) * 100)}% less harm, and allies on your holy ground take ${Math.round((1 - PRIEST_REALM.logresGround) * 100)}% less.`;
+CLASS_REALM.priest[1].text = `Your blessing heals ${+(PRIEST_REALM.eriuHot * 100).toFixed(1)}% a second and frees allies from snares and roots; your holy ground heals half again as much.`;
+CLASS_REALM.priest[2].text = `Your blessing makes allies strike ${Math.round((PRIEST_REALM.thuleBless - 1) * 100)}% harder, and your holy ground burns every foe on it, not only the dead.`;
+
 /* ---- what a player reads ---- */
-ABILITIES.holyfire.desc = 'Burns an enemy for 240% over 8 seconds. It flares in the face of a foe in the middle of a spell: the spell is lost, unless the caster stands steadfast.';
+ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast.`;
 ABILITIES.whirl.desc = `Spin with your weapon out. 140% damage to every enemy within 4 m, and each foe your blade cuts gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health.`;
 ABILITIES.renew.desc = 'Heals 32% over 9 seconds. On yourself it also loosens roots, and a fresh one (none of your Renewals still mending you) steadies you for 4 s: nothing but a stun breaks your spells. With 20 devotion it also blesses the target.';
 ABILITIES.cripple.desc = 'Slows the target by 50% for 5 seconds, and its wound mends slowly: healing on it takes 30% less while it lasts (45% from rank II). From level 12 it marks the foe: you strike it 10% harder for 30 s.';
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal5 = { BAL5, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
+  window.__hm.bal5 = { BAL5, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
 }, 0);

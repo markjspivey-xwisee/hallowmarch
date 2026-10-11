@@ -170,6 +170,7 @@ def scope(rows):
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
+        page.on('crash', lambda *_: (print('PAGE CRASHED (out of memory?)', flush=True), os._exit(3)))  # [balance5] a page killed for memory left the run waiting for ever
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the

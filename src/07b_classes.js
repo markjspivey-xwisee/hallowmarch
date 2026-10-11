@@ -201,13 +201,13 @@ function classHarm(src, dst, amount, opts) {
     }
     if (src.cls === 'archer') {
       if (cs.hidden && !opts.dot) {
-        m *= realmFlavour(src) && src.faction === 1 ? 1.8 : 1.5;
+        m *= realmFlavour(src) && src.faction === 1 ? ARCHER_REALM.eriuAmbush : 1.5; // [balance5] 1.8 (07c_balance5.js)
         opts.crit = true;
         breakHiding(src, 4);
         CLS.stats.ambush++;
         if (src === GAME.player) uiFloatAt(dst.x, dst.y + 2.5 * (dst.scale || 1), dst.z, 'Ambush!', 'crit');
       }
-      if (realmFlavour(src) && src.faction === 2 && (chillOf(dst) > 0 || frozenOf(dst))) m *= 1.15;
+      if (realmFlavour(src) && src.faction === 2 && (chillOf(dst) > 0 || frozenOf(dst))) m *= ARCHER_REALM.thuleChill; // [balance5] 1.15
       if (dst.buffs.some((b) => b.kind === 'tracked' && b.src === src.id && b.until > t)) m *= 1.1;
     }
     if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= 1.6;
@@ -829,7 +829,7 @@ function runeBurst(R) {
 /* the archer's draw, arrows in flight, hiding, snares                 */
 /* ------------------------------------------------------------------ */
 const DRAW_FULL = 1.2;
-const drawFull = (e) => DRAW_FULL * (realmFlavour(e) && e.faction === 0 ? 0.75 : 1);
+const drawFull = (e) => DRAW_FULL * (realmFlavour(e) && e.faction === 0 ? ARCHER_REALM.logresDraw : 1); // [balance5] 0.75 (07c_balance5.js)
 function drawK(e) {
   const cs = csOf(e);
   if (cs.drawFrom < 0) return 0;
@@ -886,7 +886,7 @@ function looseArrow(e, k, target, wobble = 0) {
   const hx = dx / dh, hz = dz / dh, c = Math.cos(yawJ), s = Math.sin(yawJ);
   const ux = hx * c - hz * s, uz = hx * s + hz * c;
   const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null, // [walls] ox, oy, oz: where it was loosed (07g_walls.js)
-    mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * (realmFlavour(e) && e.faction === 0 && elevatedEnt(e) ? 1.2 : 1), crit: k >= 0.98 ? 0.2 : 0, noWind: realmFlavour(e) && e.faction === 2 };
+    mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * (realmFlavour(e) && e.faction === 0 && elevatedEnt(e) ? 1.2 : 1), crit: k >= 0.98 ? 0.2 : 0, wind: realmFlavour(e) && e.faction === 2 ? ARCHER_REALM.thuleWind : 1 }; // [balance5] noWind: the wind moved a Thule arrow not at all
   CLS.arrows.push(A);
   CLS.stats.drawn++;
   setAct(e, 2, 0.55, 0.8);
@@ -903,7 +903,7 @@ function stepArrows(dt) {
     A.age += dt;
     A.px = A.x; A.py = A.y; A.pz = A.z;
     A.vy -= 9.8 * dt;
-    if (!A.noWind) { A.vx += wx * dt; A.vz += wz * dt; }
+    { const wk = A.wind ?? 1; A.vx += wx * dt * wk; A.vz += wz * dt * wk; } // [balance5] a Thule arrow half as much (07c_balance5.js)
     A.x += A.vx * dt; A.y += A.vy * dt; A.z += A.vz * dt;
     if (A.type === 'fire' && Math.random() < 0.6) FX.trail(A.x, A.y, A.z, [2.4, 1.05, 0.3], 0.18, 0.28);
     // what it strikes on the way: a body, a wall, the ground
@@ -1055,7 +1055,7 @@ function stepSnares(dt) {
     const src = getEnt(S.owner) || { id: S.owner, level: S.level, dmgMult: 1, faction: S.faction, buffs: [], role: 'none', scale: 1, alive: false };
     const r = computeDamage(src, prey, 0.7);
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
-    addBuff(prey, 'root', 1, S.thule ? 4.5 : 3.5, S.owner); // [balance] 4 and 3
+    addBuff(prey, 'root', 1, S.thule ? ARCHER_REALM.thuleSnare : 3.5, S.owner); // [balance] 4 and 3 [balance5] Thule 4.5 (07c_balance5.js)
     // [balance] the cord whips about: whoever runs beside the prey is slowed
     forNear(S.x, S.z, 5, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.5, 3.5, S.owner); }); // [balance2] 4 m, 40% for 2.5 s: a snare buys time against a pack
     if (S.thule) addChill(prey, 3, src);
@@ -1132,10 +1132,13 @@ function stepGrounds(dt) {
       if (o.faction === G.faction) {
         healEnt(src, o, o.maxHp * 0.03 * (G.realm === 1 ? 1.5 : 1) * (G.sanct ? 1.15 : 1), true);
         if (G.realm === 0) addBuff(o, 'hallowed', 1, 1.2, 'hallowed');
-      } else if (o.faction !== FACTION_NEUTRAL && (isUndead(o) || G.realm === 2)) {
-        const r = computeDamage(src, o, (isUndead(o) ? 0.55 : 0.3) * G.rk);
-        dealDamage(src, o, r.d, { crit: r.crit, kind: 'holy', holy: true });
-        if (isUndead(o) && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
+      } else if (o.faction !== FACTION_NEUTRAL) {
+        hallowDazzle(G, o); // [balance5] holy ground dazzles the foes on it (07c_balance5.js)
+        if (isUndead(o) || G.realm === 2) {
+          const r = computeDamage(src, o, (isUndead(o) ? 0.55 : 0.3) * G.rk);
+          dealDamage(src, o, r.d, { crit: r.crit, kind: 'holy', holy: true });
+          if (isUndead(o) && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
+        }
       }
     });
     if (dist2(G.x, G.z, camera.position.x, camera.position.z) < 80 * 80) for (let k = 0; k < 12; k++) { const a = Math.random() * TAU, rr = Math.sqrt(Math.random()) * G.r, x = G.x + Math.cos(a) * rr, z = G.z + Math.sin(a) * rr; fxAdd.emit(x, heightAt(x, z) + 0.1, z, 0, 0.7 + Math.random() * 0.8, 0, 1.4 + Math.random(), 1.9, 1.6, 0.8, 0.1, -0.25, 0.3); }

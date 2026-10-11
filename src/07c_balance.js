@@ -382,9 +382,6 @@ function botWarrior(e, t) {
   // [balance3] guarded too behind a shield wall, closing on a foe who strikes from afar
   // [balance4] slowed while a foe keeps away: fury, which shrugs off much of a slow, carries the chase better than a wall
   const chase = !!t && buffMax(e, 'snare') >= 0.3 && !isRooted(e) && dist(e.x, e.z, t.x, t.z) > e.meleeRange + 1.5 && hpF > 0.35 && !(B.side && GAME.t < B.side.until); // [balance5] (not while walking round a snare: behind the shield)
-  // [balance5] the rush first: a foe in its reach and its way clear is rushed before the stance is changed (a warrior who
-  // set its stance first gave a bow the moment to lay a snare in its path)
-  if (t && dist(e.x, e.z, t.x, t.z) > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8) && (botUse(e, 'leap', t) || (!snareOnLine(e, t) && botUse(e, 'charge', t)))) return true;
   if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && (chase ? cs.stance !== 2 : shieldWallWanted(e, t) !== (cs.stance === 0)) ? 1 : 3)) {
     const want = chase ? 2 : hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
     if (want !== cs.stance && GAME.t - cs.stanceAt > 0.8) { setStance(e, want); B.stanceAt = GAME.t; B.next = GAME.t + 0.3; return true; }
@@ -614,7 +611,7 @@ function botPriest(e, t) {
   if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   // [balance5] Holy Fire flares a spell away (07c_balance5.js): a heal or a long spell being cast is broken at once
-  if (t && flareWorth(t) && botUse(e, 'holyfire', t)) return true;
+  if (t && flareWorth(t, e) && botUse(e, 'holyfire', t)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
   // [balance3] against another healer the fight is long: a good hand keeps its renewals rolling from the first blow
@@ -636,7 +633,7 @@ function botPriest(e, t) {
   }
   // holy fire is instant and cheap for what it does: keep it burning
   // [balance5] but against a caster it is kept for the spell it can break (above)
-  if (!(t.cls === 'priest' || t.cls === 'mage') && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
+  if (!((t.cls === 'priest' || t.cls === 'mage') && !hasBuff(t, 'steadfast') && dist(e.x, e.z, t.x, t.z) < FLARE_REACH + 2) && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true; // (a steadfast caster cannot be flared: burn it)
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
   if (castOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66)
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
@@ -649,7 +646,7 @@ function botPriest(e, t) {
 
 /* ---- a priest's Sanctuary and Mass Renewal: everyone close by is healed in full, the priest's own wounds
    mend more slowly (PRIEST_SELF), as with Mend and Renewal ---- */
-const PRIEST_SELF = 0.75;
+const PRIEST_SELF = 0.7; // [balance5] 0.75: a priest pressing its abilities in turn won 87% of its duels at 10
 // [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
 // outlast any foe alone
 // [balance3] from rank II they mend at 55% of a heal's rank I measure whatever the rank (0.55 / rankMult of what others
