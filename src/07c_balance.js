@@ -579,9 +579,11 @@ function botMage(e, t) {
 }
 function botPriest(e, t) {
   const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp, B = e.bot;
-  // [balance4] a skilled hand does not swing its mace into a warrior's guard: a shield it can raise in time parries the
-  // blow and stuns the priest, breaking whatever it was casting (unless the light has dazzled it: classNoAuto asks)
-  B.holdMace = B.kind === 'skilled' && !!t && t.cls === 'warrior' && clsHas(t, 'block') && hasShield(t) && !dazzled(t) && !isStunned(t);
+  // [balance4] a skilled hand of rank I does not swing its mace into a warrior's guard: a shield it can raise in time
+  // parries the blow and stuns the priest, breaking whatever it was casting (17 times in 24 duels at 10, for a mace that
+  // struck 4 a second), unless the light has dazzled it (classNoAuto asks). From rank II the mace strikes hard and the
+  // priest smites and dazzles in reach: held, it lost a sixth of its harm at 30 and saved four parries
+  B.holdMace = B.kind === 'skilled' && abilityRank(e.level) <= 1 && !!t && t.cls === 'warrior' && clsHas(t, 'block') && hasShield(t) && !dazzled(t) && !isStunned(t);
   const foesNear = botFoes(e, 6), fight = !!t || botFoes(e, 16) > 0;
   const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
   // [balance2] a priest who knows the work keeps a reserve of power for mending, and does not stand casting into a
