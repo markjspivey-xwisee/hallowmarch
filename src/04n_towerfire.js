@@ -161,6 +161,7 @@ function updateTowerFires(dt) {
         B.tick = GAME.t + 1.0;
         B.fires = B.fires.filter((f) => f.until > GAME.t);
         let lit = B.fires.length;
+        fireLetGo(); // [siege2] room for its flames (04g_burn.js)
         for (const s of spots) {
           if (lit >= want) break;
           if (s.y > top + 0.5 || s.lit > GAME.t) continue;

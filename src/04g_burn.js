@@ -236,6 +236,11 @@ function palisadeGapClose(P, W) {
   PAL.stats.rebuilt++;
 }
 
+// burnt-out fires let go before new ones are added (drawFires does it each frame, but a long simulate piles them up
+// against addFire's cap of 40 timed fires): the palisades' and the towers' flames (04n_towerfire.js)
+function fireLetGo() {
+  if (FIRES.length > 30) for (let i = FIRES.length - 1; i >= 0; i--) if (FIRES[i].until < GAME.t) FIRES.splice(i, 1);
+}
 // each step (updateSiege asks)
 function updatePalisades(dt) {
   if (!PAL.ready) { palisadeInit(); if (!PAL.ready) return; }
@@ -299,7 +304,7 @@ function palisadeBurnStep(c, dt, wet) {
     let lit = c.fires.length;
     // (the burnt-out fires are let go first: drawFires does it each frame, but a long simulate (tests) piles them up
     // against addFire's cap of timed fires; and a fire addFire did not add is no fire of this cell's)
-    if (FIRES.length > 30) for (let i = FIRES.length - 1; i >= 0; i--) if (FIRES[i].until < GAME.t) FIRES.splice(i, 1);
+    fireLetGo();
     for (const s of spots) {
       if (lit >= want) break;
       if (s.y > top || s.lit > GAME.t) continue;
