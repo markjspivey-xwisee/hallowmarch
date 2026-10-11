@@ -22,9 +22,10 @@ const TAP_TICK = { tick: true };
 /* ------------------------------------------------------------------ */
 // speed in m/s, the longest a rush lasts, and how close it comes (a little inside a blade's reach)
 const RUSH = { speed: 18, maxT: 1.9, slow: false, stats: { rushes: 0, arrived: 0, blocked: 0, lost: 0 } };
-// until Leap Strike is learned (level 30) Charge is the warrior's only rush, and its landing blow slows the foe a little
-// (a bow or a staff walked away from every landing: the warrior won a tenth of its duels with them at 10)
-const RUSH_SLOW_EARLY = [0.3, 2];
+// until Leap Strike is learned (level 30) Charge is the warrior's only rush, and its landing blow slows the foe as Charge
+// always promised (45% for 3 s): a bow walked away from every landing at 10 (the warrior won 3 of 24 against it with
+// 30% for 2 s), and a priest or a mage held by it still has the 3 s before Shield Bash to answer
+const RUSH_SLOW_EARLY = [0.45, 3];
 // [balance4] after a Charge no root or slow took hold for 2 s (chargeFree, 07c_balance.js): the answer to kiting while the
 // rush never moved the warrior; a real rush is that answer, and a frost nova may meet the warrior where it lands
 const CHARGE_FREE = 0;
@@ -84,6 +85,9 @@ function chargeRushStep(e, m, dt) {
   if (Math.abs(gy - y0) > 0.9) { e.x = ox; e.z = oz; return end(d < reach + 1.2 ? 'arrived' : 'blocked'); }
   e.y = gy;
   e.yaw = Math.atan2(dx, dz);
+  // there: a foe walking away is reached on this step, not the next (it had walked on by then, and the rush ran at its
+  // heels at reach until it ran out: 1.9 s of a warrior busy and shot at against every bow and staff that kites)
+  if (dist(e.x, e.z, t.x, t.z) <= reach + 0.05) return end('arrived');
   // a wall or a tree in the way: the rush stops against it
   const moved = Math.hypot(e.x - ox, e.z - oz);
   m.stuck = moved < step * 0.35 ? m.stuck + dt : 0;
@@ -149,13 +153,13 @@ const rushing = (o) => !!(o && o.motion && o.motion.rush);
 // an armed snare of e's foes lying on the rush's way from e to t: the rush stops at reach, short of the foe, and a snare
 // springs on a body within 0.55 m of its edge (stepSnares), so a snare laid at a bow's feet does not lie on a rush's way
 // until the bow has walked on past it (it did, as a snare anywhere near the line: the warrior strafed and never rushed)
-// A snare still arming is one too if it will be armed by the time the rush passes it (a bow walks away from a rush, so
-// it comes slower than its pace: a snare laid as the warrior pressed Charge armed under it on the way)
+// A snare still arming is one too if it will be armed by the time the rush passes it (a snare laid as the warrior pressed
+// Charge armed under it on the way)
 function snareOnLine(e, t) {
   const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1;
   const stop = Math.max(0, L - rushReach(e, t)) / L, r = 0.55 + e.radius * (e.scale || 1) + 0.45;
   for (const S of CLS.snares) {
-    if (S.sprung || S.faction === e.faction || GAME.t + 1.6 * dist(e.x, e.z, S.x, S.z) / RUSH.speed + 0.3 < S.armAt) continue;
+    if (S.sprung || S.faction === e.faction || GAME.t + 1.15 * dist(e.x, e.z, S.x, S.z) / RUSH.speed + 0.2 < S.armAt) continue;
     const u = ((S.x - e.x) * lx + (S.z - e.z) * lz) / (L * L);
     if (u <= 0.02) continue;
     const v = Math.min(u, stop);
@@ -163,6 +167,18 @@ function snareOnLine(e, t) {
   }
   return null;
 }
+
+/* ------------------------------------------------------------------ */
+/* the priests' realm ways, evened out                                 */
+/* ------------------------------------------------------------------ */
+// measured against a priest of no realm's way (duels.py kind=flavour, 12 duels a realm at 10, 30 and 50): the Shield of
+// Logres won 8, 10 and 9, the Well of Ériu 7, 6 and 5, the Hearth of Thule 6.5, 7 and 5. Less harm on yourself is worth
+// more in a duel than a heal over time or harder blows, so Logres gives a little less and the other two a little more
+// (version 11: 12% and 10% less harm, 1.5% a second, 12% harder)
+const PRIEST_REALM = { logresBless: 0.92, logresGround: 0.92, eriuHot: 0.02, thuleBless: 1.15 };
+CLASS_REALM.priest[0].text = `Your blessing makes allies take ${Math.round((1 - PRIEST_REALM.logresBless) * 100)}% less harm, and allies on your holy ground take ${Math.round((1 - PRIEST_REALM.logresGround) * 100)}% less.`;
+CLASS_REALM.priest[1].text = `Your blessing heals ${+(PRIEST_REALM.eriuHot * 100).toFixed(1)}% a second and frees allies from snares and roots; your holy ground heals half again as much.`;
+CLASS_REALM.priest[2].text = `Your blessing makes allies strike ${Math.round((PRIEST_REALM.thuleBless - 1) * 100)}% harder, and your holy ground burns every foe on it, not only the dead.`;
 
 /* ---- what a player reads: the tooltips say what these rules do ---- */
 ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush; until you learn Leap Strike, Charge comes round every ${RUSH_CD_EARLY} s and its blow slows the foe by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s.`;
@@ -173,5 +189,5 @@ ABILITIES.pillar.desc += ' Standing in it yourself, your own wounds mend as they
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal4 = { RUSH, RUSH_BASH, RUSH_FOOTING, RUSH_CD_EARLY, rushReach, rushWhy, chargeRush, rushComing, snareOnLine, MEND_WOUND, mendWound, CHARGE_FREE, MAGE_RANK_K, mageRankK, RUSH_SLOW_EARLY };
+  window.__hm.bal4 = { RUSH, RUSH_BASH, RUSH_FOOTING, RUSH_CD_EARLY, rushReach, rushWhy, chargeRush, rushComing, snareOnLine, MEND_WOUND, mendWound, CHARGE_FREE, MAGE_RANK_K, mageRankK, RUSH_SLOW_EARLY, PRIEST_REALM };
 }, 0);

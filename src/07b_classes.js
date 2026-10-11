@@ -212,7 +212,7 @@ function classHarm(src, dst, amount, opts) {
     }
     if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= 1.6;
     // blessings
-    for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= 1.12; break; }
+    for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= PRIEST_REALM.thuleBless; break; } // [balance4] 1.12 (07c_balance4.js)
   }
   // the target's state: sundered armour, a stagger
   const sun = buffMax(dst, 'sunder');
@@ -246,8 +246,8 @@ function classHarm(src, dst, amount, opts) {
   }
   for (const b of dst.buffs) {
     if (b.until <= t) continue;
-    if (b.kind === 'bless' && b.value === 0) m *= 0.88;
-    if (b.kind === 'hallowed') m *= 0.9;
+    if (b.kind === 'bless' && b.value === 0) m *= PRIEST_REALM.logresBless; // [balance4] 0.88 (07c_balance4.js)
+    if (b.kind === 'hallowed') m *= PRIEST_REALM.logresGround; // [balance4] 0.9
     if (b.kind === 'eward' && src && src !== dst && opts.kind === 'melee' && !opts.dot && !opts.reflect) wardBite(dst, src, b);
   }
   return amount * m;
@@ -632,7 +632,7 @@ function blessing(e, f) {
   const realm = realmFlavour(e) ? e.faction : e.plainCalling ? -1 : 0; // [balance4] a plain priest measured in tests blesses with no realm's way
   addBuff(f, 'bless', realm, 15, 'bless');
   const b = f.buffs.find((q) => q.kind === 'bless' && q.src === 'bless'); if (b) b.value = realm;
-  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * 0.015, 15, e.id); }
+  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * PRIEST_REALM.eriuHot, 15, e.id); } // [balance4] 0.015 (07c_balance4.js)
   const c = realm === 0 ? [1.8, 1.6, 1.0] : realm === 1 ? [0.9, 1.9, 1.2] : [2.3, 1.3, 0.6];
   FX.ring(f.x, f.y + 0.2, f.z, 1.4, c, 26, 1.6);
   for (let i = 0; i < 16; i++) { const a = Math.random() * TAU; fxAdd.emit(f.x + Math.cos(a) * 0.5, f.y + 0.3 + Math.random() * 1.6, f.z + Math.sin(a) * 0.5, 0, 0.8, 0, 1.2, c[0], c[1], c[2], 0.12, -0.3, 0.4); }
@@ -1383,7 +1383,7 @@ function classActValue(e) {
   if (cs.praying) return 12 + 0.5;
   return 0;
 }
-function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying); }
+function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || !!(e.bot && e.bot.holdMace)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js)
 // a mage's own bolt takes the colour of the focus
 function classAutoKind(e) {
   if (e.cls !== 'mage' || !e.cs || !clsHas(e, 'focus')) return e.rangedKind;

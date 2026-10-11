@@ -579,6 +579,9 @@ function botMage(e, t) {
 }
 function botPriest(e, t) {
   const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp, B = e.bot;
+  // [balance4] a skilled hand does not swing its mace into a warrior's guard: a shield it can raise in time parries the
+  // blow and stuns the priest, breaking whatever it was casting (unless the light has dazzled it: classNoAuto asks)
+  B.holdMace = B.kind === 'skilled' && !!t && t.cls === 'warrior' && clsHas(t, 'block') && hasShield(t) && !dazzled(t) && !isStunned(t);
   const foesNear = botFoes(e, 6), fight = !!t || botFoes(e, 16) > 0;
   const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
   // [balance2] a priest who knows the work keeps a reserve of power for mending, and does not stand casting into a
