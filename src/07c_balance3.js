@@ -24,7 +24,7 @@
 /* ================================================================== */
 const BODKIN_PIERCE = 0.5; // the share of the armour a bodkin (or Deadeye) goes through
 const PURSUIT_CD = 0; // seconds off Charge for each arrow, bolt or spell that strikes a warrior [balance4] 1, set for a Charge that never rushed (07c_balance4.js)
-const SHIELD_WALL_PACE = 0.75; // guarded, a warrior walks on behind a raised shield (0.55 otherwise) [balance4] 1, while Charge never rushed
+const SHIELD_WALL_PACE = 1; // guarded, a warrior walks at full pace behind a raised shield (0.55 otherwise) [balance4] (0.75 left the wall behind a bow that kites; a volley falls over it now)
 const RUSH_SHARE = 10; // Charge and Leap Strike share one rush: using either holds the other back this long
 // the share of weapon blows a dazzled foe misses, by the priest's rank: a twentieth at rank I, one in six at rank II,
 // a little over one in three at rank IV (the priest's own healing falls with rank while every blade's harm grows with it)
@@ -44,6 +44,7 @@ function pursuitOnHit(src, dst, dmg, opts) {
 // Charge and Leap Strike are one rush: a warrior who has learned both cannot use the one a moment after the other (the
 // mage's escapes and a bow's distance are not undone twice in a breath)
 function rushShare(e, A) {
+  if (A.id === 'leap') e.cds.bash = Math.max(e.cds.bash || 0, GAME.t + RUSH_BASH + 0.8); // [balance4] a rush spends the shield arm: Shield Bash waits after a Leap Strike as after a Charge (07c_balance4.js)
   if (A.id !== 'charge' && A.id !== 'leap' || e.level < ABILITIES.leap.level) return;
   const other = A.id === 'charge' ? 'leap' : 'charge', t = GAME.t;
   e.cds[other] = Math.max(e.cds[other] || 0, t + RUSH_SHARE);
@@ -124,16 +125,16 @@ setTimeout(() => {
 }, 0);
 
 /* ---- what a player reads: the tooltips and the stances say what these rules do ---- */
-ABILITIES.charge.desc = 'Rush to a target 5–28 m away and slow it, breaking free of any slow or root but a seasoned mage\'s frost; for 2 s none takes hold of you. Every arrow, bolt or spell that strikes you takes a second off its cooldown.';
-ABILITIES.leap.desc = 'Leap onto a foe 6–24 m away. 160% damage and a 0.6 s stun to all within 4 m. Not out of a mage\'s frost or blizzard, and Charge and Leap Strike are one rush: using either holds the other back 10 s.';
+// [balance4] Charge's own text is in 07c_balance4.js (it rushes now; pursuit and the moment free of slows are set aside)
+ABILITIES.leap.desc = 'Leap onto a foe 6–24 m away. 160% damage and a 0.6 s stun to all within 4 m. Not out of a mage\'s frost or blizzard, and Charge and Leap Strike are one rush: using either holds the other back 10 s, and Shield Bash 3 s.'; // [balance4] the shield arm
 ABILITIES.deadeye.desc = 'A long, steady shot. 420% damage at up to 50 m; armour stops only half of it.';
 ABILITIES.blizzard.desc = 'Ice falls for 6 s in a 7 m circle: 50% damage a second and a 40% slow, and a foe in it cannot Charge or Leap Strike out.';
 ABILITIES.pillar.desc = 'A column of light: 220% damage to enemies inside it, 30% healing to allies. Its light dazzles the foes it strikes.';
-ABILITIES.smite.desc += ' Its light dazzles: for 3 s the foe misses some of its weapon blows (one in twenty at rank I, one in six at rank II, a little over one in three at rank IV), and a warrior dazzled by a priest of rank II or more cannot parry.';
+ABILITIES.smite.desc += ` Its light dazzles: for 3 s the foe misses some of its weapon blows (${Math.round(DAZZLE.miss[1] * 100)}% at rank I, ${Math.round(DAZZLE.miss[4] * 100)}% at rank IV), and a dazzled warrior cannot parry.`; // [balance4] the numbers from DAZZLE; no parry at every rank
 ABILITIES.nova.desc = 'Your focus bursts out to 7 m. Fire: burns and roots. Frost: chills and roots (no Leap Strike out of it, and from rank II no Charge either) and freezes water. Storm: a thunderclap that throws foes back.';
 ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health, and bites back at anyone who strikes you in your focus: burning, chilling or shocking them. A stun that strikes you while it holds breaks on it instead, at half its strength.';
 ARROW_DEF.bodkin.text = 'Needle points that go through mail: armour stops only half of them, and they strike warriors harder.';
 ARROW_DEF.broadhead.text = 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 30% less for 6 s (45% from rank II).';
-STANCES[0].text += ' A raised shield costs you no pace: a shield wall against arrows.';
+STANCES[0].text += ` A raised shield costs you only ${SHIELD_WALL_PACE >= 0.99 ? 'none' : 'a quarter'} of your pace: a shield wall against arrows.`; // [balance4] three quarters of the pace
 if (GOODS.arrows_bodkin) GOODS.arrows_bodkin.desc = ARROW_DEF.bodkin.text;
 if (GOODS.arrows_broadhead) GOODS.arrows_broadhead.desc = ARROW_DEF.broadhead.text;

@@ -86,7 +86,7 @@ function chargeRushStep(e, m, dt) {
 // the stun's shadow killed a mage before it could answer at all)
 const RUSH_BASH = 3;
 // and it leaves the warrior a moment to find its feet: its abilities wait this long after it lands (the foe may answer)
-const RUSH_FOOTING = 0.6;
+const RUSH_FOOTING = 0.3;
 // the rush lands: the blade comes round and the foe is slowed (the blow it always promised)
 function chargeLands(e, A, t, rk) {
   faceToward(e, t.x, t.z);
@@ -124,6 +124,23 @@ function rushComing(e, o) {
   return o.level >= ABILITIES.charge.level && (o.cds.charge || 0) <= GAME.t + 0.5 && !deepFrostHeld(o) && dist(e.x, e.z, o.x, o.z) > 5 && dist(e.x, e.z, o.x, o.z) < 29;
 }
 const rushing = (o) => !!(o && o.motion && o.motion.rush);
+// an armed snare of e's foes lying within a stride of the line from e to t (a rush along it would be caught)
+function snareOnLine(e, t) {
+  const lx = t.x - e.x, lz = t.z - e.z, L2 = lx * lx + lz * lz || 1;
+  for (const S of CLS.snares) {
+    if (S.sprung || S.faction === e.faction || GAME.t < S.armAt - 0.5) continue;
+    const u = clamp(((S.x - e.x) * lx + (S.z - e.z) * lz) / L2, 0, 1);
+    if (u > 0.02 && Math.hypot(e.x + lx * u - S.x, e.z + lz * u - S.z) < 1.3 + e.radius) return S;
+  }
+  return null;
+}
+
+/* ---- what a player reads: the tooltips say what these rules do ---- */
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush.`;
+ABILITIES.mend.desc = 'Heals a friend for 36% of health, or you for 27%. The deeper the wound, the more it mends: all of it from half health down, a third of it on a scratch.';
+ABILITIES.rally.desc += ' Its heal is your own: it does not grow with your rank.';
+ABILITIES.volley.desc += ' The arrows fall from above: a raised shield does not turn them.';
+ABILITIES.pillar.desc += ' Standing in it yourself, your own wounds mend as they do from your other heals.';
 
 setTimeout(() => {
   if (!window.__hm) return;

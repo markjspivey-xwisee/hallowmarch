@@ -273,6 +273,13 @@ function botMove(e, t, dt) {
     }
   }
   if (H && dist(t.x, t.z, H.x, H.z) > H.r + 6 && dist(e.x, e.z, H.x, H.z) > H.r) { go(H.x, H.z, 1, 1); return; }
+  // [balance4] a warrior steps off the line a snare lies on before it charges
+  if (skilled && e.cls === 'warrior' && B.side && GAME.t < B.side.until) {
+    const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1, px = -lz / L, pz = lx / L;
+    const sgn = (B.side.sx - e.x) * px + (B.side.sz - e.z) * pz > 0 ? -1 : 1; // away from the snare's side of the line
+    go(e.x + px * sgn * 3 + lx / L, e.z + pz * sgn * 3 + lz / L, 1, 0);
+    return;
+  }
   let want;
   if (e.cls === 'archer') want = skilled ? Math.min(26, e.rangedRange - 3) : e.rangedRange - 2;
   else if (e.cls === 'mage') want = skilled ? 24 : e.rangedRange - 2;
@@ -381,7 +388,14 @@ function botWarrior(e, t) {
   if (!t) return false;
   const d = dist(e.x, e.z, t.x, t.z);
   // [balance3] out of reach is far enough to charge (from 5 m): a bow that kept just past 6.5 m was never caught
-  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8) && (botUse(e, 'leap', t) || botUse(e, 'charge', t))) return true;
+  // [balance4] a Charge rushes now, and a snare lying in its line catches it: a skilled hand steps off the line first (a
+  // Leap Strike goes over a snare)
+  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8)) {
+    if (botUse(e, 'leap', t)) return true;
+    const sn = snareOnLine(e, t);
+    if (sn && !canUse(e, 'charge', t)) { if (!B.side || GAME.t > B.side.until) B.side = { until: GAME.t + 0.7, sx: sn.x, sz: sn.z }; }
+    else if (botUse(e, 'charge', t)) return true;
+  }
   // momentum: spend it on a finisher
   if (clsHas(e, 'momentum') && momOf(e) >= FIN_MIN && botUse(e, 'slash', t)) return true;
   // a spell coming: the shield in the face
@@ -577,7 +591,7 @@ function botPriest(e, t) {
   const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
-  if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
+  if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
@@ -691,7 +705,7 @@ function priestGroupHot(e, A, t, cast, rk) {
 /* ---- a priest's Divine Shield: the shield and the ward, and no stun, root or slow holds while it lasts ---- */
 function divineShield(e, A, t, cast, rk) {
   const f = t || e;
-  addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id);
+  addBuff(f, 'shield', f.maxHp * A.shieldPct * (f === e ? 1 : rk), A.dur, e.id); // [balance4] on yourself it does not grow with rank (a priest's own healing does not either): at 50 it held half a priest's health
   addBuff(f, 'dr', 0.3, A.dur, e.id);
   f.buffs = f.buffs.filter((b) => b.kind !== 'stun' && b.kind !== 'root' && b.kind !== 'snare' || b.src === 'frozen');
   if (frozenOf(f)) unfreeze(f);

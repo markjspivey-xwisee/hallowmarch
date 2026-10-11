@@ -65,7 +65,7 @@ const ABILITIES = {
   renew: { name: 'Renewal', icon: 'leaf', level: 3, cost: 16, /* [balance] 12 */ cd: 6, range: 30, hot: [0.32, 9], friendly: true, anim: 3, desc: 'Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells.' }, // [balance2] steadfast (07c_balance.js)
   holyfire: { name: 'Holy Fire', icon: 'candle', level: 5, cost: 12, cd: 8, range: 30, dot: [2.4, 8], anim: 3, desc: 'Burns an enemy for 240% over 8 seconds.' }, // [balance] 180% [balance2] 210%
   sanctuary: { name: 'Sanctuary', icon: 'circle', level: 9, cost: 32, /* [balance] 26 */ cd: 20, self: true, groupHeal: 0.25, radius: 14, anim: 3, desc: 'Heals all allies within 14 m for 25%, and you for 19%.' }, // [balance] a priest's own wounds mend more slowly
-  divine: { name: 'Divine Shield', icon: 'ward', level: 14, cost: 20, cd: 40, range: 30, friendly: true, shieldPct: 0.35, dur: 8, anim: 3, desc: 'Shields a friend for 35% of their health, and no stun, root or slow holds them while it lasts.' }, // [balance] the ward against control
+  divine: { name: 'Divine Shield', icon: 'ward', level: 14, cost: 20, cd: 40, range: 30, friendly: true, shieldPct: 0.35, dur: 8, anim: 3, desc: 'Shields a friend for 35% of their health, and no stun, root or slow holds them while it lasts. On yourself the shield does not grow with your rank.' } /* [balance4] */, // [balance] the ward against control
 
   // learned at 20 and 30
   whirl: { name: 'Whirlwind', icon: 'whirl', level: 20, cost: 22, cd: 12, self: true, spin: 4.4, dmg: 1.4, desc: 'Spin with your weapon out. 140% damage to every enemy within 4 m.' },
