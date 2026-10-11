@@ -273,11 +273,12 @@ function botMove(e, t, dt) {
     }
   }
   if (H && dist(t.x, t.z, H.x, H.z) > H.r + 6 && dist(e.x, e.z, H.x, H.z) > H.r) { go(H.x, H.z, 1, 1); return; }
-  // [balance4] a warrior steps off the line a snare lies on before it charges
+  // [balance4] a warrior walks round a snare lying on its rush's way: to a point beside it, away from its side of the line
+  // (a strafe off the line never cleared a snare lying near the bow, and the warrior never rushed)
   if (skilled && e.cls === 'warrior' && B.side && GAME.t < B.side.until) {
     const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1, px = -lz / L, pz = lx / L;
-    const sgn = (B.side.sx - e.x) * px + (B.side.sz - e.z) * pz > 0 ? -1 : 1; // away from the snare's side of the line
-    go(e.x + px * sgn * 3 + lx / L, e.z + pz * sgn * 3 + lz / L, 1, 0);
+    const sgn = (B.side.sx - e.x) * px + (B.side.sz - e.z) * pz > 0 ? -1 : 1;
+    go(B.side.sx + px * sgn * 2.6, B.side.sz + pz * sgn * 2.6, 1, 0);
     return;
   }
   let want;
@@ -288,7 +289,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = 22; // [balance4] (it pressed a bow that could not tumble: a snare, a crippling arrow and the bow's light feet kept it chasing, not casting)
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -712,7 +713,7 @@ function priestGroupHot(e, A, t, cast, rk) {
 /* ---- a priest's Divine Shield: the shield and the ward, and no stun, root or slow holds while it lasts ---- */
 function divineShield(e, A, t, cast, rk) {
   const f = t || e;
-  addBuff(f, 'shield', f.maxHp * A.shieldPct * (f === e ? 1 : rk), A.dur, e.id); // [balance4] on yourself it does not grow with rank (a priest's own healing does not either): at 50 it held half a priest's health
+  addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id);
   addBuff(f, 'dr', 0.3, A.dur, e.id);
   f.buffs = f.buffs.filter((b) => b.kind !== 'stun' && b.kind !== 'root' && b.kind !== 'snare' || b.src === 'frozen');
   if (frozenOf(f)) unfreeze(f);

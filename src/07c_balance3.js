@@ -135,6 +135,6 @@ ABILITIES.nova.desc = 'Your focus bursts out to 7 m. Fire: burns and roots. Fros
 ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health, and bites back at anyone who strikes you in your focus: burning, chilling or shocking them. A stun that strikes you while it holds breaks on it instead, at half its strength.';
 ARROW_DEF.bodkin.text = 'Needle points that go through mail: armour stops only half of them, and they strike warriors harder.';
 ARROW_DEF.broadhead.text = 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 30% less for 6 s (45% from rank II).';
-STANCES[0].text += ` A raised shield costs you only ${SHIELD_WALL_PACE >= 0.99 ? 'none' : 'a quarter'} of your pace: a shield wall against arrows.`; // [balance4] three quarters of the pace
+STANCES[0].text += ` ${SHIELD_WALL_PACE >= 0.99 ? 'You walk at your full pace behind a raised shield' : 'A raised shield costs you only a quarter of your pace'}: a shield wall against arrows, though a volley falls over it.`; // [balance4] the pace from SHIELD_WALL_PACE
 if (GOODS.arrows_bodkin) GOODS.arrows_bodkin.desc = ARROW_DEF.bodkin.text;
 if (GOODS.arrows_broadhead) GOODS.arrows_broadhead.desc = ARROW_DEF.broadhead.text;

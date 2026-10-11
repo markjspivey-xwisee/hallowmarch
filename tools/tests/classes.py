@@ -733,7 +733,7 @@ async def balance3(page):
         P.hp = P.maxHp;
       }
       return out; })()""")
-    for lv, want in ((10, 0.12), (30, 0.17), (50, 0.35)):  # [balance4] rank I 0.12 (0.05)
+    for lv, want in ((10, 0.15), (30, 0.18), (50, 0.24)):  # [balance4] 0.15 to 0.24 (version 11: 0.05, 0.17, 0.35)
         q = r[str(lv)]
         check(abs(q['v'] - want) < 0.01 and q['dur'] >= 2.9, f"holy light dazzles a level {lv} foe ({q['v']} for {q['dur']} s)")
         check(abs(q['miss'] - want) < 0.07, f"a dazzled warrior misses about {want:.0%} of its blows at level {lv} ({q['miss']})")
@@ -746,7 +746,7 @@ async def balance3(page):
       w.target = ar.id; C.csOf(w).stance = 0; w.cds.charge = H.GAME.t + 30; w.cds.leap = H.GAME.t + 30; P.x += 60; H.simulate(0.4);
       out.npcWall = C.csOf(w).blockOn; out.wantNear = H.bal3.npcWallWanted(w, ar);
       return out; })()""")
-    check(abs(r['s0'] - 0.75) < 0.03 and abs(r['s1'] - 0.55) < 0.03, f"guarded, a raised shield costs a quarter of the pace ([balance4]; balanced {r['s1']}, guarded {r['s0']})")
+    check(r['s0'] >= 0.99 and abs(r['s1'] - 0.55) < 0.03, f"guarded, a warrior walks at full pace behind a raised shield ([balance4]; balanced {r['s1']}, guarded {r['s0']})")
     check(r['npcWall'], f"an NPC warrior raises a shield wall against a bow out of reach ({r})")
 
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};

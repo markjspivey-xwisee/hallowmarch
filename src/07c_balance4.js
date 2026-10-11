@@ -145,13 +145,18 @@ function rushComing(e, o) {
   return o.level >= ABILITIES.charge.level && (o.cds.charge || 0) <= GAME.t + 0.5 && !deepFrostHeld(o) && dist(e.x, e.z, o.x, o.z) > 5 && dist(e.x, e.z, o.x, o.z) < 29;
 }
 const rushing = (o) => !!(o && o.motion && o.motion.rush);
-// an armed snare of e's foes lying within a stride of the line from e to t (a rush along it would be caught)
+// an armed snare of e's foes lying on the rush's way from e to t: the rush stops at reach, short of the foe, and a snare
+// springs on a body within 0.55 m of its edge (stepSnares), so a snare laid at a bow's feet does not lie on a rush's way
+// until the bow has walked on past it (it did, as a snare anywhere near the line: the warrior strafed and never rushed)
 function snareOnLine(e, t) {
-  const lx = t.x - e.x, lz = t.z - e.z, L2 = lx * lx + lz * lz || 1;
+  const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1;
+  const stop = Math.max(0, L - rushReach(e, t)) / L, r = 0.55 + e.radius * (e.scale || 1) + 0.45;
   for (const S of CLS.snares) {
     if (S.sprung || S.faction === e.faction || GAME.t < S.armAt - 0.5) continue;
-    const u = clamp(((S.x - e.x) * lx + (S.z - e.z) * lz) / L2, 0, 1);
-    if (u > 0.02 && Math.hypot(e.x + lx * u - S.x, e.z + lz * u - S.z) < 1.3 + e.radius) return S;
+    const u = ((S.x - e.x) * lx + (S.z - e.z) * lz) / (L * L);
+    if (u <= 0.02) continue;
+    const v = Math.min(u, stop);
+    if (Math.hypot(e.x + lx * v - S.x, e.z + lz * v - S.z) < r) return S;
   }
   return null;
 }
