@@ -652,7 +652,7 @@ const PRIEST_SELF = 0.7; // [balance5] 0.75: a priest pressing its abilities in 
 // [balance3] from rank II they mend at 55% of a heal's rank I measure whatever the rank (0.55 / rankMult of what others
 // get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
 // outlasted every bow and staff while one of 50 did not
-const PRIEST_SELF_LATE = 0.55;
+const PRIEST_SELF_LATE = 0.65; // [balance5] 0.55, set on ground pocked by meteors where a bow's and a staff's shots struck the rims: on clean ground a priest of 30 and 50 won a third of its duels and none against a bow (07c_balance5.js)
 const priestSelf = (e) => (abilityRank(e.level) <= 1 ? PRIEST_SELF : PRIEST_SELF_LATE / rankMult(e.level));
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off

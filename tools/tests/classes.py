@@ -758,7 +758,7 @@ async def balance3(page):
       for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
       return out; })()""")
     check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.3 and r['50']['wound'] == 0.3, f"a broadhead's wound: 30% at every rank ([balance5]: 45% from rank II before) ({r})")
-    check(abs(r['20']['self'] - 0.7) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 70% ([balance5] 75%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
+    check(abs(r['20']['self'] - 0.7) < 0.01 and abs(r['30']['self'] * 1.12 - 0.65) < 0.01 and abs(r['50']['self'] * 1.36 - 0.65) < 0.01, f"a priest's own healing: 70% ([balance5] 75%), then a steady 65% ([balance5] 55%) of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
 
