@@ -968,7 +968,7 @@ function castleBreach(W) {
   if (W.coll) W.coll.active = false;
   for (const f of W.rubbleFloors) f.active = true;
   W.wreck.visible = true;
-  for (let i = 0; i < 6; i++) later(i * 0.12, () => FX.dust(W.wx + W.wax * (Math.random() - 0.5) * W.half * 2, S.y + W.rubble + Math.random() * W.top, W.wz + W.waz * (Math.random() - 0.5) * W.half * 2, 18, [0.42, 0.39, 0.35]));
+  for (let i = 0; i < 6; i++) later(i * 0.12, () => FX.dust(W.wx + W.wax * (Math.random() - 0.5) * W.half * 2, S.y + W.rubble + Math.random() * W.top, W.wz + W.waz * (Math.random() - 0.5) * W.half * 2, 18, wallLit([0.42, 0.39, 0.35]))); // [walls] lit as the light is (07g_walls.js)
   sfx('crash');
   const P = GAME.player;
   if (P) cameraShake(0.5, W.wx, W.wz);
@@ -1006,7 +1006,7 @@ function castleSiegeHit(src, x, z, r, mult) {
       const dmg = baseDmg(src ? src.level : warLevel()) * (src ? src.dmgMult || 1 : 1) * mult * (W.kind === 'timber' ? 1.25 : 0.85) * (1 - 0.5 * clamp(d / (r + W.across), 0, 1));
       W.hp -= dmg; W.lastHit = GAME.t;
       W.wear = clamp(1 - W.hp / W.maxHp, 0, 1);
-      FX.dust(W.wx + W.wax * al, C.S.y + 1 + Math.random() * W.top * 0.6, W.wz + W.waz * al, 10, [0.45, 0.42, 0.38]);
+      FX.dust(W.wx + W.wax * al, C.S.y + 1 + Math.random() * W.top * 0.6, W.wz + W.waz * al, 10, wallLit([0.45, 0.42, 0.38])); // [walls] lit as the light is (07g_walls.js)
       if (W.hp <= 0) castleBreach(W);
       castleCutUpload(C);
     }
