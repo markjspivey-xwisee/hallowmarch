@@ -39,7 +39,9 @@ async def chunk(page, sec):
     """simulate and report what the commanders did"""
     return await ev(page, f"""(() => {{
       const n0 = __hm.WAR.news.length, t0 = __hm.GAME.t;
-      const s = __hm.simulate({sec});
+      // in steps of 10 s, stopping as the peace begins (it lasts 90 s: a whole chunk could pass over it)
+      const s = {{ t: 0, nonFinite: 0, errors: [] }};
+      for (let k = 0; k < {sec}; k += 10) {{ const r = __hm.simulate(Math.min(10, {sec} - k)); s.t = r.t; s.nonFinite += r.nonFinite || 0; s.errors = r.errors || s.errors; if (__hm.CW.state().state === 'peace') break; }}
       const c = __hm.CW.state();
       const news = __hm.WAR.news.filter((n) => n.t > t0).map((n) => Math.round(n.t) + ' ' + n.text);
       // three realms gathered at one keep (each with a band within 45 m of it)

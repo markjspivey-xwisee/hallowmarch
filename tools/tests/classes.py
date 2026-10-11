@@ -386,8 +386,9 @@ async def mechanics(page):
       const why = F.useAbility(P, 'slash', f); const momSpent = C.csOf(P).mom; H.simulate(1.0);
       const finHit = Math.round(hp0 - f.hp);
       const bleed = f.buffs.some((b) => b.kind === 'bleed'), stun = f.buffs.some((b) => b.kind === 'stun'), sunder = f.buffs.some((b) => b.kind === 'sunder');
-      for (const b of f.buffs) if (b.kind === 'bleed') b.until = 0; P.cds = {}; P.gcdUntil = 0; const hp1 = f.hp; F.useAbility(P, 'slash', f); H.simulate(0.5);
-      return { mom, why, finHit, plainHit: Math.round(hp1 - f.hp), momAfter: momSpent, finishers: C.CLS.stats.finishers - fin0, style: C.weaponStyle(P), bleed, stun, sunder }; })()""")
+      // (the plain blow: the least of three, so a critical strike among them does not stand for a plain one)
+      let plain = Infinity; for (let k = 0; k < 3; k++) { for (const b of f.buffs) if (b.kind === 'bleed') b.until = 0; C.csOf(P).mom = 0; P.cds = {}; P.gcdUntil = 0; const hp1 = f.hp; F.useAbility(P, 'slash', f); H.simulate(0.5); plain = Math.min(plain, hp1 - f.hp); }
+      return { mom, why, finHit, plainHit: Math.round(plain), momAfter: momSpent, finishers: C.CLS.stats.finishers - fin0, style: C.weaponStyle(P), bleed, stun, sunder }; })()""")
     check(r['mom'] >= 2, f"blows that land build momentum ({r['mom']})")
     check(r['why'] is True and r['finishers'] == 1 and r['momAfter'] < 1, 'Slash with momentum is a finisher that spends it')
     check(r['finHit'] > r['plainHit'] * 1.4, f"the finisher strikes far harder ({r['finHit']} vs {r['plainHit']})")

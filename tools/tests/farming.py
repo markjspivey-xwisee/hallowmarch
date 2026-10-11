@@ -146,7 +146,7 @@ async def main():
           return out; })()""")
         print('frost', json.dumps(r))
         check(r['temp'] < -3, f"a winter night is a frost ({r['temp']:.1f}°C)")
-        check(r['flax'] == 0 and r['turnip'] >= 18, f"the frost kills the tender flax ({r['flax']} left) and the hardy turnips live ({r['turnip']} of 24)")
+        check(r['flax'] <= 2 and r['turnip'] >= 18, f"the frost kills the tender flax ({r['flax']} left: a hardy one may live, as breeding for hardiness needs) and the hardy turnips live ({r['turnip']} of 24)")
 
         # ---- drought: a dry bed in a hot summer wilts and dies; a dryland strain lasts longer ----
         r = await page.evaluate(f"""(() => {{ const H = __hm, F = H.farm, W = H.dbg.WEATHER, out = {{}};
@@ -304,7 +304,7 @@ async def main():
           const R = H.REALMS[0];
           S.sort((a, b) => Math.hypot(a.x - R.town.x, a.z - R.town.z) - Math.hypot(b.x - R.town.x, b.z - R.town.z));
           const P = S[0], T = P.stand;
-          T.phase = 'sown'; T.crop = 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.p = 0; T.worker = null;
+          T.phase = 'sown'; T.crop = 'grain'; T.g = 1; T.hp = 1; T.dead = false; T.task = null; T.p = 0; T.worker = null; T.ripeT = 0; // (ripe since now: a stand left ripe 1800 s rots, and the seasons set earlier in this test may have left it ripe that long)
           out.burnt0 = P.dmg.filter((v) => v >= 2).length; P.dmg.fill(0); P.weeds = 0; P.char = 0; // (the grass fire earlier in this test may have reached this strip: it is about the harvest, not the fire)
           for (const Q of S.slice(1)) { Q.stand.task = null; Q.stand.phase = 'sown'; Q.stand.g = 0.3; Q.stand.hp = 1; Q.stand.dead = false; Q.stand.worker = null; Q.weeds = 0; }
           // the farmers free to work (out of doors, nothing else in hand)
@@ -315,19 +315,19 @@ async def main():
           if (!PL.alive) { PL.alive = true; PL.hp = PL.maxHp; H.UI.modal = null; document.getElementById('death').hidden = true; }
           out.player = [PL.alive, Math.round(PL.x), Math.round(PL.z), Math.round(Math.hypot(PL.x - P.x, PL.z - P.z))];
           out.farmers0 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.fieldHand, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') + '@' + e.ai.plan.i + ':' + e.ai.plan.t.toFixed(1) : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z)), Math.round(Math.hypot(e.x - PL.x, e.z - PL.z)), e.buffs.map((b) => b.kind).join()] : null; });
-          const gran0 = F.FARM.granary.grain || 0;
+          const gran0 = F.FARM.granary.grain || 0; out.granAll0 = JSON.stringify(F.FARM.granary);
           out.track = [];
           let worked = 0, seenWorker = null;
           for (let i = 0; i < 140; i++) {
             H.simulate(1); if (i % 10 === 0) H.frame();
             if (T.worker != null) { seenWorker = T.worker; const e = H.fn.getEnt(T.worker); if (e && Math.hypot(e.x - P.x, e.z - P.z) < P.rad + 2) worked++; }
-            if (i % 20 === 0) out.track.push([i, T.task, +T.p.toFixed(2), T.worker != null]);
+            if (i % 20 === 0) out.track.push([i, T.task, +T.p.toFixed(2), T.worker != null, P.valid.reduce((a, v, q) => a + (v && P.dmg[q] < 2 ? 1 : 0), 0), +P.fert.toFixed(2), +P.weeds.toFixed(2), T.hp]); // (and how many of its plants still stand to be brought in)
             if (T.phase === 'stubble') break;
           }
           out.phase = T.phase; out.worked = worked; out.worker = seenWorker;
           out.farmers1 = F.farmers().map((id) => { const e = H.fn.getEnt(id); return e ? [e.name, e.alive, e.ai.plan ? e.ai.plan.steps.map((s) => s.k).join(',') + '@' + e.ai.plan.i + ':' + e.ai.plan.t.toFixed(1) : null, Math.round(Math.hypot(e.x - P.x, e.z - P.z))] : null; });
           out.player1 = [PL.alive, Math.round(Math.hypot(PL.x - P.x, PL.z - P.z))];
-          out.granary = (F.FARM.granary.grain || 0) - gran0; out.gran = [gran0, F.FARM.granary.grain || 0, T.hp, T.dead, T.crop];
+          out.granary = (F.FARM.granary.grain || 0) - gran0; out.gran = [gran0, F.FARM.granary.grain || 0, T.hp, T.dead, T.crop]; out.granAll1 = JSON.stringify(F.FARM.granary); out.fertNow = [P.fert, P.weeds, P.valid.reduce((a, v, q) => a + (v && P.dmg[q] < 2 ? 1 : 0), 0)];
           out.act = seenWorker != null ? H.fn.getEnt(seenWorker).ai.farmer : null;
           return out; })()""")
         print('town', json.dumps(r))

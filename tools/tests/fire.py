@@ -106,6 +106,9 @@ async def main():
           let best = null; for (const t of W.trees) { if (t.felled || t.gone || (t.fire || 0) > 0 || t.char > 0.5) continue; const x = t.x - 12, z = t.z; if (!F.isWalkable(x, z) || F.houseAt(x, z, 2)) continue; let clear = true; for (const o of W.trees) if (o !== t && Math.abs(o.z - t.z) < 3 && o.x < t.x && o.x > t.x - 12) { clear = false; break; } if (clear) { best = t; break; } }
           if (!best) return { none: true };
           T.put(best.x - 12, best.z, Math.PI / 2); P.target = null; H.CAM.yaw = Math.PI / 2; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0;
+          // (no foe near to strike the cast back, chill or snare the caster: the spell is what is tested)
+          for (const e of H.ENT.slice()) if (e.alive && e !== P && e.kind !== 'door' && F.isEnemy(e, P) && Math.hypot(e.x - P.x, e.z - P.z) < 50) F.removeEnt(e);
+          P.buffs.length = 0; P.casting = null;
           const pre = { casting: P.casting ? P.casting.id : null, brand: !!P.brand, act: P.anim.act, motion: P.motion ? P.motion.kind : null, carrying: P.carrying, alive: P.alive, houseAim: !!F.houseFireAim(P, 'firebolt'), job: H.surv && H.surv.SURV.job ? H.surv.SURV.job.kind : null, gcd: P.gcdUntil - H.GAME.t, cd: P.cds.firebolt, stun: (P.buffs || []).map((b) => b.kind) };
           document.getElementById('error').textContent = '';
           F.playerUseSlot(0); const casting = !!P.casting; const err = document.getElementById('error').textContent, tgt = P.target, aim = pre; H.simulate(3.5);

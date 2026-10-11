@@ -462,10 +462,10 @@ const cragMatBase = {
     varying vec3 vW; varying vec2 vFade; varying vec4 vInfo;
     float cragRidged(vec2 p){ return 1.0 - abs(vnoise(p) * 2.0 - 1.0); }
     // the terrain's rock relief (03_terrain.js rockRelief): broad slabs, cracks, grit
-    float cragRelief(vec2 p, float fine){
+    float cragRelief(vec2 p, float fineM, float fineF){ // [v11] the finer terms fade by the pixel's size too (rockRelief)
       float h = cragRidged(p * 0.32) * 0.46 + vnoise(p * 0.9 + 3.1) * 0.22;
-      h += cragRidged(p * 2.3 + 7.7) * 0.2 * fine;
-      h += vnoise(p * 8.0) * 0.12 * fine;
+      h += cragRidged(p * 2.3 + 7.7) * 0.12 * fineM;
+      h += vnoise(p * 8.0) * 0.12 * fineF;
       return h;
     }
     vec3 cragBump(vec3 n, vec3 p, float h, float k){
@@ -492,7 +492,8 @@ const cragMatBase = {
       float d = distance(vW, cameraPosition);
       float fine = 1.0 - smoothstep(30.0, 100.0, d);
       vec3 w3 = n * n; w3 *= w3; w3 /= (w3.x + w3.y + w3.z);
-      float hR = cragRelief(vW.zy, fine) * w3.x + cragRelief(vW.xz, fine) * w3.y + cragRelief(vW.xy, fine) * w3.z;
+      float pxr = length(fwidth(vW)), fineM = fine * (1.0 - smoothstep(0.07, 0.16, pxr)), fineF = fine * (1.0 - smoothstep(0.02, 0.045, pxr));
+      float hR = cragRelief(vW.zy, fineM, fineF) * w3.x + cragRelief(vW.xz, fineM, fineF) * w3.y + cragRelief(vW.xy, fineM, fineF) * w3.z;
       float steep = 1.0 - smoothstep(0.55, 0.85, n.y);
       hR = mix(hR, hR * 0.68 + landStrata(vW) * 0.32, steep * (0.35 + 0.65 * fine));
       vec3 nr = cragBump(n, vW, hR, 0.6 * (0.35 + 0.65 * fine));
@@ -512,7 +513,7 @@ const cragMatBase = {
       // moss and turf on the ledges, through the year; lichen freckles
       float moss = smoothstep(0.55, 0.9, nr.y) * smoothstep(0.35, 0.7, vnoise(vW.xz * 0.45 + 2.0)) * (0.5 + 0.5 * B.g) * (1.0 - smoothstep(28.0, 44.0, vW.y));
       rc = mix(rc, seasonGrass(vec3(0.22, 0.3, 0.12) * tint, 0.5, 0.3, 0.3, vW.xz), moss * (0.45 + 0.35 * fine));
-      float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w3.x + vnoise(vW.xz * 3.1) * w3.y + vnoise(vW.xy * 3.1) * w3.z) * fine * (1.0 - moss);
+      float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w3.x + vnoise(vW.xz * 3.1) * w3.y + vnoise(vW.xy * 3.1) * w3.z) * fine * (1.0 - smoothstep(0.05, 0.12, pxr)) * (1.0 - moss);
       rc = mix(rc, mix(vec3(0.62, 0.58, 0.36), vec3(0.62, 0.42, 0.22), B.r), lich * 0.5);
       // rain darkens the stone and runs down the faces; snow on the ledges: the high snow by altitude and realm, and
       // the season's snow lying here

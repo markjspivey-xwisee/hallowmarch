@@ -155,11 +155,13 @@ const terrainMat = mat({
       vec3 amb = uAmbient * (0.42 + 0.3 * clamp(n.y * 0.5 + 0.5, 0.0, 1.0)) * ao;
       return alb * (amb + uLightColor * 0.82 * dif * mix(0.2, 1.0, gSh) * mix(0.6, 1.0, ao) + gPL * mix(0.6, 1.0, ao));
     }
-    // rock relief on one projection plane: broad slabs, cracks, grit (fine terms fade with distance)
-    float rockRelief(vec2 p, float fine){
+    // rock relief on one projection plane: broad slabs, cracks, grit (fine terms fade with distance; [v11] and each by
+    // the pixel's size, fineM for the cracks, fineF for the grit: a relief finer than a few pixels, bumped through the
+    // screen's derivatives, broke into a mosaic of 2x2 blocks)
+    float rockRelief(vec2 p, float fineM, float fineF){
       float h = ridged(p * 0.32) * 0.46 + vnoise(p * 0.9 + 3.1) * 0.22;
-      h += ridged(p * 2.3 + 7.7) * 0.2 * fine;
-      h += vnoise(p * 8.0) * 0.12 * fine;
+      h += ridged(p * 2.3 + 7.7) * 0.12 * fineM; // [v11] gentler: at full it read as a maze carved in the face
+      h += vnoise(p * 8.0) * 0.12 * fineF;
       return h;
     }
     // [v10] one size of talus: stones in the cells of a Voronoi, only a share of the cells holding one, and each stone
@@ -245,7 +247,8 @@ const terrainMat = mat({
       float rk = smoothstep(0.15, 0.6, max(A.a, LM.r)); // [land] and the rock showing round the crags
       if (rk > 0.001) {
         vec3 w = n * n; w *= w; w /= (w.x + w.y + w.z);
-        float hR = rockRelief(vW.zy, fine) * w.x + rockRelief(vW.xz, fine) * w.y + rockRelief(vW.xy, fine) * w.z;
+        float pxr = length(fwidth(vW)), fineM = fine * (1.0 - smoothstep(0.07, 0.16, pxr)), fineF = fine * (1.0 - smoothstep(0.02, 0.045, pxr));
+        float hR = rockRelief(vW.zy, fineM, fineF) * w.x + rockRelief(vW.xz, fineM, fineF) * w.y + rockRelief(vW.xy, fineM, fineF) * w.z;
         float steep = 1.0 - smoothstep(0.55, 0.85, n.y);
         // bedding planes: warped, broken up, and quieter with distance so far slopes do not stripe
         float warp = vnoise(vW.xz * 0.045) * 9.0 + vnoise(vW.xz * 0.17 + 4.0) * 2.5;
@@ -262,7 +265,7 @@ const terrainMat = mat({
         // moss on ledges facing the sky, lichen freckles
         float moss = smoothstep(0.5, 0.9, nr.y) * smoothstep(0.35, 0.7, vnoise(vW.xz * 0.45 + 2.0)) * (0.55 + 0.45 * B.g);
         rc = mix(rc, mix(vec3(0.22, 0.3, 0.12) * tint, seasonGrass(vec3(0.22, 0.3, 0.12) * tint, 0.5, 0.3, 0.3, vW.xz), 0.6), moss * (0.4 + 0.35 * fine)); // [seasons] the turf on the ledges turns too
-        float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w.x + vnoise(vW.xz * 3.1) * w.y + vnoise(vW.xy * 3.1) * w.z) * fine * (1.0 - moss);
+        float lich = smoothstep(0.7, 0.78, vnoise(vW.zy * 3.1) * w.x + vnoise(vW.xz * 3.1) * w.y + vnoise(vW.xy * 3.1) * w.z) * fine * (1.0 - smoothstep(0.05, 0.12, pxr)) * (1.0 - moss);
         rc = mix(rc, mix(vec3(0.62, 0.58, 0.36), vec3(0.62, 0.42, 0.22), B.r), lich * 0.5);
         vec3 rockCol = lightRock(rc, nr, mix(0.55, 1.0, smoothstep(0.05, 0.4, hR)));
         // cool sky light on faces turned up, a warm bounce from below
@@ -288,6 +291,7 @@ const terrainMat = mat({
         // scree: broken stone shed from the faces, lying where the slope eases off below them: stones of every size
         // packed in grit (a Voronoi of stones, each its own tone and height; plain grit far off)
         float scr = LM.g * (1.0 - A.r) * smoothstep(0.3, 0.62, LM.g + (vnoise(vW.xz * 0.37) - 0.5) * 0.5);
+        scr *= smoothstep(0.6, 0.78, n.y); // [v11] loose stone lies only where the slope lets it (about 40 degrees at most): never up a face
         if (scr > 0.002) {
           // [v10] talus: angular stones of two sizes (about 0.8 m and 0.3 m) lying among grit and each other, the big
           // ones fewer, each its own grey; low relief, so they read as loose broken stone and never as paving. (The

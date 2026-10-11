@@ -169,7 +169,8 @@ GROUND = r"""((pre) => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, Ht = __hm.
     if (near(k)) { nProt++; hh = (hh * 131 + Math.round(H[k] * 100) + 7) % 1000000007; } }
   let hr = 0; for (const S of W.roads) hr = (hr * 131 + Math.round((S.ax + S.az * 3 + S.bx * 7 + S.bz * 11) * 10)) % 1000000007;
   // (not those of the stone keeps: their corner towers are hollow since version 10, [land] 04l_towers.js)
-  const C = __hm.build.COLL, keeps = __hm.REALMS[0].keepSites, inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
+  // ([keeps] not those of any keep either: every keep's towers are hollow since version 11, 04l_towers.js)
+  const C = __hm.build.COLL, keeps = __hm.REALMS.flatMap((R) => R.keepSites), inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
   let cs = 0, nb = 0, nc = 0;
   for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
   for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
