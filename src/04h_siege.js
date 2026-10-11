@@ -914,6 +914,7 @@ function siegeCrewUp(E, wb, members, L) {
 }
 // the band's breach route: up to the gap, over the rubble, into the court
 function siegeBreachRoute(W) {
+  if (W.kind === 'tower') return towerBreachRoute(W); // [walls] in over the rubble, out at the store room's door (04g_breach.js)
   const f = siegeFace(W), C = W.C;
   return [{ x: f.x + f.nx * 7, z: f.z + f.nz * 7 }, { x: W.wx + f.nx * 1.2, z: W.wz + f.nz * 1.2 }, { x: W.wx - f.nx * 3, z: W.wz - f.nz * 3 }, { x: lerp(W.wx - f.nx * 6, C.S.x, 0.3), z: lerp(W.wz - f.nz * 6, C.S.z, 0.3) }];
 }
@@ -1017,7 +1018,7 @@ function siegeOnBreach(W) {
   for (const id of K.guards) {
     const g = getEnt(id);
     if (!g || !g.alive || g.ai.wall) continue;
-    g.ai.plug = { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 };
+    g.ai.plug = W.kind === 'tower' ? { W, ...towerPlugAt(W, n) } : { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 }; // [walls] a tower's: before its courtyard door (04g_breach.js)
     g.ai.sally = null;
     n++;
   }

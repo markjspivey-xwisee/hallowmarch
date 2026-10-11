@@ -182,7 +182,8 @@ function updateTowerFires(dt) {
         const was = Fl.ember;
         Fl.ember = Math.max(0, Fl.ember - dt / 130 * (1 + 2 * clamp(WEATHER.raining || 0, 0, 1)));
         if (Math.floor(was * 40) !== Math.floor(Fl.ember * 40)) TFIRE.dirty.add(T.C);
-        if (fxAlpha && Math.random() < dt * 6 * Fl.ember && dist2(T.wx, T.wz, camera.position.x, camera.position.z) < 120 * 120) {
+        if (fxAlpha && T.smokeAt !== renderTime && Math.random() < 0.15 * Fl.ember && dist2(T.wx, T.wz, camera.position.x, camera.position.z) < 120 * 120) { // at most a puff a frame drawn (the puffs age with the frames)
+          T.smokeAt = renderTime;
           const g = 0.16 + Math.random() * 0.1;
           fxAlpha.emit(T.wx + (Math.random() - 0.5) * T.HO * 1.6, T.S.y + T.TT - 0.8, T.wz + (Math.random() - 0.5) * T.HO * 1.6, (Math.random() - 0.5) * 0.4, 1.2 + Math.random(), (Math.random() - 0.5) * 0.4, 4 + Math.random() * 3, g, g * 0.95, g * 0.9, -(0.9 + Math.random() * 0.8), -0.15, 0.5);
         }

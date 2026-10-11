@@ -83,10 +83,14 @@ function shotHit(ax, ay, az, bx, by, bz, o = _wDef) {
   const R = WHIT;
   R.t = 2;
   const ox = o.ox ?? ax, oy = o.oy ?? ay, oz = o.oz ?? az, tgt = o.tgt || null, pad = o.r || 0;
-  collidersNear((ax + bx) / 2, (az + bz) / 2, L / 2 + 0.8 + pad, _wcs);
+  const mx = (ax + bx) / 2, mz = (az + bz) / 2, reach = L / 2 + pad + 0.05;
+  collidersNear(mx, mz, L / 2 + 0.8 + pad, _wcs);
   _whs.clear();
   for (const c of _wcs) {
     if (!c.active || WALL_SOFT[c.tag]) continue;
+    // a quick look first: is it near the step at all? (most of a keep's colliders in the cell are not)
+    const cr = c.type === 'circle' ? c.r : (c.br || (c.br = Math.hypot(c.hx, c.hz))), qx = c.x - mx, qz = c.z - mz;
+    if (qx * qx + qz * qz > (cr + reach) * (cr + reach) && c.tag !== 'house') continue;
     if (c.tag === 'house') { const H = wallHouseOf(c); if (H && !_whs.has(H)) { _whs.add(H); wallHouse(H, ax, ay, az, dx, dy, dz, R, ox, oy, oz); } continue; }
     if (tgt && tgt.kind === 'door' && dist2(c.x, c.z, tgt.x, tgt.z) < (tgt.radius + 2.6) ** 2) continue; // the gate or engine aimed at
     if (o.skip && o.skip(c)) continue;
@@ -220,6 +224,7 @@ function wallBuiltWindow(pc, px, py, pz) {
 // a house: its walls to the eaves (the gable ends to the roof's line), its windows, its roof as a shell
 function wallHouse(H, ax, ay, az, dx, dy, dz, R, ox, oy, oz) {
   if (ay > H.y + H.top + 1 && ay + dy > H.y + H.top + 1) return;
+  { const qx = H.x - (ax + dx / 2), qz = H.z - (az + dz / 2), rr = H.foot + Math.hypot(dx, dz) / 2 + 0.2; if (qx * qx + qz * qz > rr * rr) return; }
   const yb = H.y - 1;
   for (const c of H.coll) {
     if (c.tag !== 'house' || !c.active) continue;
@@ -308,6 +313,9 @@ function wallFloors(ax, ay, az, dx, dy, dz, R, ox, oy, oz) {
     for (const f of list) {
       if (!f.active || _wfs.has(f)) continue;
       _wfs.add(f);
+      const fr = f.type === 'disc' ? f.r : (f.br || (f.br = Math.hypot(f.hx, f.hz))), qx = f.x - (ax + dx / 2), qz = f.z - (az + dz / 2), rr = fr + Math.hypot(dx, dz) / 2 + 0.05;
+      if (qx * qx + qz * qz > rr * rr) continue;
+      if (Math.min(ay, ay + dy) > Math.max(f.ya, f.yb) + 0.05) continue; // the whole step above its top
       wallFloor(f, ax, ay, az, dx, dy, dz, R, ox, oy, oz);
     }
   }
@@ -534,7 +542,7 @@ function updateWalls(dt) {
   for (let i = WALLS.stuck.length - 1; i >= 0; i--) {
     const S = WALLS.stuck[i];
     let gone = GAME.t > S.until;
-    if (!gone && S.c && !S.c.active) gone = true;
+    if (!gone && S.c && !S.c.active && S.c.tag !== 'hdoor') gone = true; // (a door's swings with it: hidden while it stands open)
     if (!gone && S.f && !S.f.active) gone = true;
     if (!gone && S.H && (S.roof ? !houseIntact(S.H) : S.H.state === 'ruin' && S.H.char >= 1 && S.H.stT > 3)) gone = true;
     if (!gone) continue;
@@ -545,7 +553,7 @@ function updateWalls(dt) {
 function drawWalls() {
   const cx = camera.position.x, cz = camera.position.z;
   for (const S of WALLS.stuck) {
-    if (dist2(S.x, S.z, cx, cz) > 65 * 65) continue;
+    if (dist2(S.x, S.z, cx, cz) > 65 * 65 || (S.c && !S.c.active)) continue;
     arrowPush(S.x - S.dx * 0.43, S.y - S.dy * 0.43, S.z - S.dz * 0.43, S.dx, S.dy, S.dz);
     if (S.fire > GAME.t) glowPush(S.x - S.dx * 0.1, S.y - S.dy * 0.1, S.z - S.dz * 0.1, 1.6, 0.6, 0.15, 0.32 * clamp((S.fire - GAME.t) / 3, 0.2, 1));
   }

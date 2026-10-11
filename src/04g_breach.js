@@ -75,10 +75,11 @@ function towerBreachInit() {
       // the ring of masonry: open in the V, no higher than the stump elsewhere; the top's crenels and pole; the furniture
       W.colls = [];
       W.lower = [];
+      W.ring = []; // the ring's pieces that fall: in the V (gap) or above the stump; walled up again as the work rises
       for (const c of T.colls) {
         const l = siteLocal(S, c.x, c.z), a = Math.atan2(l.x - T.cx, l.z - T.cz), top = c.y0 + c.h;
-        if (Math.abs(angDiff(a, aOut)) < gapA + sec * 0.55 && top > S.y + W.rubble) W.colls.push(c);
-        else if (c.y0 >= S.y + cutY - 0.05) W.colls.push(c);
+        if (Math.abs(angDiff(a, aOut)) < gapA + sec * 0.55 && top > S.y + W.rubble) { W.colls.push(c); W.ring.push({ c, gap: true }); }
+        else if (c.y0 >= S.y + cutY - 0.05) { W.colls.push(c); W.ring.push({ c, gap: false }); }
         else if (top > S.y + cutY) W.lower.push({ c, h: c.h });
       }
       for (const c of C.colls) if (c.y0 != null && c.y0 >= S.y + cutY - 0.3 && near(c.x, c.z, 0.6) && !T.colls.includes(c)) W.colls.push(c);
@@ -175,6 +176,11 @@ function towerBreachUpload(C) {
     U3.uKB.value[i].set(W.ox, W.oz, foot, W.vHalf);
     U3.uKC.value[i].set(T.RI - 0.08, heap, W.state === 'whole' ? W.wear : W.state === 'breach' ? 1 : 1 - t, W.fresh || 0);
     towerBreachSync(W, down);
+    // rebuilding: the masonry stands again as high as the work has come (the V's foot, the stump's line)
+    if (W.state === 'repair') {
+      for (const q of W.ring) q.c.active = (q.gap ? foot : cut) > Math.max(q.c.y0, S.y + T.yG) + 1.0;
+      for (const q of W.lower) q.c.h = Math.min(q.h, Math.max(0.3, cut - q.c.y0));
+    }
   }
 }
 // the tower's own state follows its section's: rooms, ladders, doors, hatches, torches and banners
@@ -230,5 +236,19 @@ function towerBreachMended(W) {
     g.ai.route = Rt; g.ai.ri = 0;
   }
 }
+// the way a band storms a fallen tower (siegeBreachRoute): up the rubble from the field, across the store room, out
+// at its courtyard door (it swings open for anyone) and on into the court
+function towerBreachRoute(W) {
+  const T = W.T, S = T.S, D = T.doors.find((d) => d.y < T.yG + 0.6), a1 = D ? D.a : T.aIn;
+  const at = (r, a) => siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r);
+  const court = siteToWorld(S, T.cx * 0.45, T.cz * 0.45);
+  return [at(T.RO + 7, W.aOut), at(T.RO + 0.8, W.aOut), at(0.4, W.aOut), at(T.RI - 0.45, a1), at(T.RO + 1.6, a1), court];
+}
+// where the garrison stands to hold it: a ring before its courtyard door (siegeOnBreach)
+function towerPlugAt(W, n) {
+  const T = W.T, D = T.doors.find((d) => d.y < T.yG + 0.6), a1 = D ? D.a : T.aIn, a = a1 + (n - 1) * 0.5, r = T.RO + 1.4 + (n > 2 ? 1.2 : 0);
+  const p = siteToWorld(T.S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r);
+  return { x: p.x, z: p.z };
+}
 // hits from castleSiegeHit on a tower are counted (the shared damage is the section's)
-queueMicrotask(() => { if (window.__hm) window.__hm.breach = { TBREACH, list: () => TBREACH.list, sync: towerBreachSync, upload: towerBreachUpload }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.breach = { TBREACH, list: () => TBREACH.list, sync: towerBreachSync, upload: towerBreachUpload, route: towerBreachRoute, plugAt: towerPlugAt }; });
