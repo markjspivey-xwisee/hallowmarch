@@ -147,7 +147,14 @@ function wallsSeekLine(e, t, post, dt) {
   if (!LINE.on || !ai || !e.rangedKind || e.fixedY !== null || e.motion || !t || t.kind === 'door') return false;
   const L = ai.lineSpot;
   if (L && L.id === t.id && GAME.t < L.until) {
-    if (dist2(e.x, e.z, L.x, L.z) < 0.25 * 0.25) { if (!L.at) { L.at = true; LINE.stats.arrived++; ai.heldUntil = 0; } turnToward(e, t.x, t.z, dt * 10); return false; }
+    if (dist2(e.x, e.z, L.x, L.z) < 0.25 * 0.25) {
+      if (!L.at) { L.at = true; LINE.stats.arrived++; ai.heldUntil = 0; }
+      // there: it keeps the place and shoots from it (nothing else moves it off, a wall archer's step to its crenel
+      // neither) until the line is lost again, when it looks anew
+      if (wallsHeld(e, t)) { ai.lineSpot = null; return false; }
+      turnToward(e, t.x, t.z, dt * 10);
+      return true;
+    }
     moveToward(e, L.x, L.z, dt, 0.85, 0.12);
     return true;
   }
