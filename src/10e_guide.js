@@ -241,7 +241,7 @@ const GUIDE_WATCH = {
   needs: () => SURV.built && (SURV.hunger < 0.42 || SURV.thirst < 0.42),
   stones: (P, ctx) => /^Step through the stones to .* Muster/.test(ctx.prompt),
   station: (P, ctx) => /^(Work at the|Weave at the|Use the bakehouse|Use the alchemy)/.test(ctx.prompt),
-  ladder: (P, ctx) => onLadder(P) || /ladder/i.test(ctx.prompt),
+  ladder: (P, ctx) => onLadder(P) || /ladder|hatch/i.test(ctx.prompt),
   tower: (P) => !!towerRoomOf(P),
   breach: (P) => CASTLES.some((C) => C.sections && C.sections.some((W) => W.state === 'breach') && dist2(P.x, P.z, C.S.x, C.S.z) < 80 * 80),
   engine: (P) => GUIDE.near.engine,
@@ -322,7 +322,7 @@ function guideKeysHTML() {
     <kbd>Potion · Kit</kbd><span>Drink a healing draught · your gear, bags, crafting by hand and goods.</span>
     <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best thing you carry.</span>
     <kbd>Your path</kbd><span>Under your frame: the next step, how far and which way (the gold gem on the minimap). Tap it to unfold it, and its title for the whole path.</span>
-    <kbd>Map · hammer · menu</kbd><span>The buttons under the minimap: the map (orders for your warbands), building, and the menu with the Chronicle.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
+    <kbd>Buttons under the minimap</kbd><span>The map (and orders for your warbands), your kit and bags, the log, building (the hammer), and the menu with the Chronicle and this page.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
     <kbd>Gift</kbd><span>The round gift button calls your realm's great gift, from realm rank 5 or level 30.</span></div>`;
   return `<div class="keys">
     <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
@@ -392,7 +392,7 @@ function chronGoals() {
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
     <div class="gd-tier"><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
       <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you.</li>
-      <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays every soldier of the realm, and the Chronicle keeps the record.</li></ul></div>
+      <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
 }
 function chronGear() {
@@ -468,7 +468,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.guide = {
     GUIDE, GUIDE_WATCH, GUIDE_HELP, CHRON_EXTRA, guideMarkOf, guideWhere, guideAims, guideHelpHTML, guideNoteIndex, guideScan, guideMade,
-    chronGoals, chronGear, chronSieges, dragon: () => DRAGON.e, makeItem, bagAdd, CAMPAIGN, TOWER, drawMinimap, guideQuiet,
+    chronGoals, chronGear, chronSieges, dragon: () => DRAGON.e, makeItem, bagAdd, CAMPAIGN, TOWER, drawMinimap, guideQuiet, pluralName,
     mark() { guideUpdateMark(1); const m = GUIDE.mark; return m ? { x: Math.round(m.x), z: Math.round(m.z), what: m.what, where: guideWhere(m) } : null; },
   };
 });

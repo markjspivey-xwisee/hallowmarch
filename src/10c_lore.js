@@ -883,7 +883,7 @@ function prologuePages() {
     ] },
     { k: 'III · The War', t: 'Keeps and Gates', art: 'war', p: [
       'Each realm guards its side of the March with two keeps and the temple that holds its hallow. Warbands gather at the muster by the portal stones and march wherever their commander sends them.',
-      'To take a keep, break its gate and slay its lord. A temple cannot be harmed while its realm holds both of its keeps, but once one falls the temple lies open: break its gate, take the hallow and carry it home. Every foreign hallow in your temple makes each soldier of your realm strike a tenth harder.',
+      'To take a keep, break its gate (or bring its walls down with siege engines and storm the breach) and slay its lord. A temple cannot be harmed while its realm holds both of its keeps, but once one falls the temple lies open: break its gate, take the hallow and carry it home. Every foreign hallow in your temple makes each soldier of your realm strike a tenth harder.',
       'Gates are rebuilt and keeps are taken back, and a dropped hallow finds its way home. The war is a tide, and every soldier moves it.',
     ] },
     { k: 'IV · The Wilds', t: 'Older Than the War', art: 'wilds', p: [
@@ -1265,7 +1265,8 @@ function chronMarch() {
     <p>Outside the mountains, each realm's <b>homeland</b> is safe from the war but not from its wild creatures. You grow strong there before you go to the front.</p>
     <h3>Weather</h3>
     <p>The weather turns every few minutes: clear skies, overcast, rain, storms and mist. Logres sees the most fair days and Ériu the most mist and storms. Thule has the most rain, and there, and up on the passes, it falls as snow. Rain soaks the land, snow settles on the ground and the roofs and melts when the weather turns, and mist shortens how far you can see.</p>
-    <p class="now">Now: <b>${WEATHER.label.toLowerCase()}</b> over ${here}.</p>
+    <p>The year turns as well, two days a season: blossom, harvest, bare boughs and snow lying where the air is cold. The <b>Fields</b> page tells how the seasons work on the land and the crops.</p>
+    <p class="now">Now: <b>${WEATHER.label.toLowerCase()}</b> over ${here}, in ${SEASON.name.toLowerCase()}.</p>
     <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`;
 }
 function chronGlyph(kind, col = '#d8cdb4') {
@@ -1490,7 +1491,7 @@ function chronWilds() {
     <div class="cons">${cons}</div>
     <h3>Creatures of the homelands</h3>
     <dl class="facts">${realms}</dl>
-    <p class="now">The numbers are levels. Your bounty from the herald is circled on your map.</p>
+    <p class="now">The numbers are levels. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
     <h3>Champions of the borderlands</h3>
     <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40.</p>
     ${champs}
