@@ -472,15 +472,20 @@ function wallsStepToCrenel(e, t, post, dt) {
 function wallsProj(p, tx, ty, tz, d, step) {
   if (!WALLS.on || WALL_PROJ_SKIP[p.kind]) return false;
   const arrive = d <= step + 0.3 || p.age > p.life;
-  let nx, ny, nz, vis = 0;
+  // one look covers two steps of the flight: found clear, the next step needs none (half the tests for a shot in the
+  // open; a homing shot's next step lies within a few centimetres of the stretch looked at)
+  if (!arrive && p.wallClear !== undefined && GAME.t < p.wallClear) return false;
+  let nx, ny, nz, vis = 0, k = 1;
   if (arrive) { nx = tx; ny = ty; nz = tz; }
   else {
-    nx = p.x + ((tx - p.x) / d) * step; ny = p.y + ((ty - p.y) / d) * step; nz = p.z + ((tz - p.z) / d) * step;
+    const s2 = Math.min(step * 2, d); k = s2 / step;
+    nx = p.x + ((tx - p.x) / d) * s2; ny = p.y + ((ty - p.y) / d) * s2; nz = p.z + ((tz - p.z) / d) * s2;
     if (p.kind === 'arrow' || p.kind === 'firearrow') { const tot = Math.hypot(tx - p.ox, tz - p.oz) || 1, done = Math.hypot(nx - p.ox, nz - p.oz); vis = Math.sin(clamp(done / tot, 0, 1) * Math.PI) * tot * 0.06; }
   }
   const t = getEnt(p.tgt);
   const R = shotHit(p.x, p.y + (p.vis || 0), p.z, nx, ny + vis, nz, { ox: p.ox, oy: p.oy, oz: p.oz, tgt: t });
-  if (!R) return false;
+  if (!R) { if (!arrive) p.wallClear = GAME.t + (1.5 * step) / Math.max(p.speed, 1e-3); return false; }
+  if (!arrive && R.t * k > 1.001) return false; // it strikes in the second step: then, when it gets there
   // a shot aimed at a point on the ground (a volley's arrows) that lands on the ground there has got where it went
   if (R.what === 'ground' && p.point && dist2(R.x, R.z, p.point.x, p.point.z) < 1.2 * 1.2) return false;
   const src = getEnt(p.src) || { faction: p.srcFaction, id: p.src };
