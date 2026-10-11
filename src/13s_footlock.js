@@ -26,12 +26,15 @@ function flHumanGait(e, f) {
 // a beast's (bbGait, 05c_beasts.js): the four legs front left, front right, hind left, hind right
 function flBeastGait(S, ph, amtRaw, sc, f) {
   const amt = clamp(amtRaw, 0, 1.6), trot = _flSS(0.55, 0.95, amt), gal = _flSS(1.05, 1.4, amt);
-  const W = [1.5708, 4.7124, 0, 3.1416], T = [0, 3.1416, 3.1416, 0], G = [3.5, 4.1, 0, 0.6];
-  const off = lerp(lerp(W[f], T[f], trot), G[f], gal);
   const gz = S.front.top[1] - S.front.foot[1], gw = S.back.top[1] - S.back.foot[1];
   const amtS = clamp(amtRaw, 0, 2.2), vSpd = amtS * 4.3, bsc = Math.max(sc, 0.2), fC = Math.sqrt(1.06 / Math.max(gz * bsc, 0.05));
   const strideM = clamp(lerp(S.stride[0], S.stride[1], _flSS(0.7, 1.4, amtS)), vSpd / (4 * fC * bsc), Math.max(vSpd / (1.6 * fC * bsc), 0.02));
-  const duty = Math.min(lerp(lerp(0.64, 0.46, trot), 0.26, gal), 0.42 * Math.min(gz, gw) / strideM);
+  const reachL = Math.min(gz, gw) / strideM;
+  const duty = Math.min(lerp(lerp(0.64, 0.46, trot), 0.26, gal), lerp(0.42, 0.46, gal) * reachL);
+  // [motion3] the walk's lateral sequence, the trot's diagonal pairs, the gallop spread by its own duty (bbGait)
+  const dG = Math.min(0.26, 0.46 * reachL), gp = 0.12, gq = clamp(0.8 * dG, 0.1, 0.22);
+  const W = [0, 3.1416, 1.5708, 4.7124], T = [0, 3.1416, 3.1416, 6.2832], G = [0.5 - gp - gq, 0.5 - gq, 0.5, 0.5 + gp];
+  const off = lerp(lerp(W[f], T[f], trot), G[f] * 6.28318, gal);
   const u = ((((ph + off - Math.PI / 2) / TAU) % 1) + 1) % 1, F = f < 2 ? S.front.foot : S.back.foot;
   return [u, duty, duty * strideM * bsc, (f % 2 ? -1 : 1) * F[0] * bsc, F[2] * bsc];
 }
