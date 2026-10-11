@@ -9,18 +9,24 @@
 const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
-  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'], '#zonetoast': ['C', 'CB'] },
+  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone
   wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] },
   desk: { '#breath': ['C', 'CB'], '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
 const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is
+// [guide] while a field note shows, it comes before the panels that stay, which make room for it a few seconds: after them
+// there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
+// most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
+// do not jump at every toast
+const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#lore-path', '#petbar', '#war', '#bounty', '#zonetoast']; // an upright phone: the class panel and the path keep their places (the war panel moved over the path's)
+const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames, the path in its place
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
-const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
+const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path', '#banners']); // [guide] a field note shrinks to its title (tap to read it in the Chronicle)
 const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
@@ -60,6 +66,7 @@ function hudReset() {
   for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; if (el.id === 'buildbar') el.style.width = ''; }
   HUDL.moved.clear();
   for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
+  { const bn = $('banners'); if (bn) for (const k of bn.children) k.classList.remove('hl-old'); } // [guide]
   const zt = $('zonetoast'); if (zt && !HUDL.moved.has(zt)) zt.style.left = zt.style.top = zt.style.transform = '';
   const bt = $('bottom'), lg = $('log');
   if (bt) bt.style.bottom = '';
@@ -162,7 +169,8 @@ function hudLayout(dt) {
     else hudMove(el, c.x, c.y, sel === '#buildbar' ? r.w : 0);
     placed.push({ ...c, sel });
   };
-  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : HUD_ORDER) {
+  const noteUp = mode !== 'desk' && !!document.querySelector('#banners > .lore-note:not(.hl-old)'); // [guide]
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? (mode === 'wide' ? HUD_ORDER_NOTE_WIDE : HUD_ORDER_NOTE) : HUD_ORDER) {
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)
@@ -173,6 +181,12 @@ function hudLayout(dt) {
     let r = measure(sel, el);
     if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
+    if (!c && sel === '#banners' && el.children.length > 1) { // [guide] a toast and a note together do not fit an upright phone: the newest shows, the older wait
+      for (const k of [...el.children].slice(0, -1)) k.classList.add('hl-old');
+      r = measure(sel, el);
+      if (free(r)) { placed.push({ ...r, sel }); continue; }
+      c = seek(sel, r);
+    }
     if (!c && HUD_COMPACT.has(sel)) {
       el.classList.add('hl-compact');
       r = measure(sel, el);

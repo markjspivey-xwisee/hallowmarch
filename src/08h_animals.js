@@ -460,7 +460,7 @@ function anTame(e, k) {
   }
   FX.levelUp(e.x, e.y, e.z);
   sfx('fanfare');
-  uiToast(`${rec.name} the ${anStage(rec)} is yours. Press K for your animals.`, 'quest');
+  uiToast(`${rec.name} the ${anStage(rec)} is yours. ${IS_TOUCH ? 'Tap Animals to see them all' : 'Press K for your animals'}.`, 'quest'); // [guide] a phone has no K
   uiLog(`You have tamed a ${AKIND[k].label}. You name it ${rec.name}; rename it on its card.`, 'loot');
   ANIMALS.tamedCount = (ANIMALS.tamedCount || 0) + 1;
   loreNote('pets');

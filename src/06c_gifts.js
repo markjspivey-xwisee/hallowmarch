@@ -765,7 +765,7 @@ function giftHUD() {
   if (GIFT.hudKey && key !== GIFT.hudKey) {
     const got = D.passives.find((p) => rr >= p.rr && !GIFT.hudKey.includes(p.id));
     if (got) uiToast(`Realm gift: ${got.name}. ${got.text(giftK(got.rr))}`, 'rank');
-    else if (unlocked && !GIFT.hudKey.includes('+ult')) { uiToast(`Realm gift: ${D.ult.name}. Press 9 to call it.`, 'rank'); buildHotbar(); }
+    else if (unlocked && !GIFT.hudKey.includes('+ult')) { uiToast(`Realm gift: ${D.ult.name}. ${IS_TOUCH ? 'Tap the gift button over your abilities' : 'Press 9'} to call it.`, 'rank'); buildHotbar(); } // [guide] a phone has no 9
   }
   GIFT.hudKey = key;
 }

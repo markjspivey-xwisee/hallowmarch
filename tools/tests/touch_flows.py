@@ -5,7 +5,9 @@ swim out with the stick, dive and come up again, row a boat away from a jetty an
 the book at a workbench, place and turn a building piece, order a companion, tame a wolf, use a keep hall's war table,
 go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
 fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]);
-shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]).
+shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]);
+[guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
+plays a new player's first steps by touch).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -24,7 +26,7 @@ HELP = r"""
 window.TF = {
   H: window.__hm,
   P() { return this.H.GAME.player; },
-  calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; },
+  calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; H.LORE.state.noteUntil = performance.now() + 120000; }, // [guide] no field note pops up under a finger mid-flow (guide.py and the guide flow show theirs)
   stand(x, z, fx, fz) { const H = this.H, P = this.P(); if (H.fn.closeDialog && !document.getElementById('dialog').hidden) H.fn.closeDialog(); for (const id of ['craft', 'mapov']) { const el = document.getElementById(id); if (el && !el.hidden && id === 'craft') H.surv.closeCraft(); } H.teleport(x, z); P.yaw = Math.atan2(fx - x, fz - z); H.CAM.yaw = P.yaw; H.UI.modal = null; H.CAM.mode = 'play'; this.calm(); H.simulate(0.1); return 0; },
   // a dry spot on the Logres river's bank, facing the water
   bank() {
@@ -338,6 +340,21 @@ async def main():
                 yt = await page.evaluate("+window.__tfl.yt.toFixed(2)")
                 ys.append([lab, lab2, y, yt])
             check(all(q[1] == 'Climb the ladder' and abs(q[2] - q[3]) < 0.1 for q in ys), f'{key}: Use pushes each hatch open and climbs each ladder to the top ({json.dumps(ys)})')
+        if want('guide'):
+            # [guide] the path tracker: a tap on the step opens your path in the Chronicle, a tap on Aims the late game's
+            # goals; a field note is tapped away
+            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()")
+            ok = await tap(page, '#lore-path [data-act="open"]')
+            r = await page.evaluate("({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
+            ok2 = await tap(page, '.chron-nav [data-sec="goals"]')
+            t = await page.evaluate("(document.querySelector('.chron-body') || {}).textContent || ''")
+            check(ok and r['modal'] == 'menu' and r['sec'] in ('path', 'goals') and ok2 and 'Level 30' in t, f'guide: a tap on the path opens it in the Chronicle, and a tap its Aims ({r})')
+            await tap(page, '#btn-resume')
+            await page.evaluate("(() => { const L = __hm.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'ladder'); __hm.LORE.state.noteUntil = 0; __hm.hud.note('ladder'); return 0; })()")
+            n0 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
+            ok = await tap(page, '#banners .lore-note:not(.hl-old):last-child')
+            n1 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
+            check(ok and n1 < n0, f'guide: a tap takes a field note away ({n0} then {n1})')  # (an older one may fade by itself meanwhile)
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);
