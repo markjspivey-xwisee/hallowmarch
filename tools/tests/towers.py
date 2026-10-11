@@ -409,6 +409,8 @@ async def fights(page):
       TT.put(S, 30, 0, 0); const w = TT.body(S, 0, 'warrior', dp.x, dp.z, L.yt); w.hp = w.maxHp = 1e5; w.ai.post.leash = 0;
       c.x = L.fx; c.z = L.fz; c.y = L.wyb; c.motion = null; c.buffs.length = 0; c.ccdr = null; H.towers.towerClimb(c, L, 1);
       for (let i = 0; i < 30 && !(c.motion && c.motion.st === 1 && c.y > L.wyt - 1.8); i++) { w.swingAt = 1e9; w.ai.nextAbility = 1e9; H.simulate(0.1, 0.02); }
+      // [keeps] (a climber the war's own business turned about is set on the rungs below the open hatch, as it would be)
+      if (!(c.motion && c.motion.st === 1 && c.y > L.wyt - 1.8)) { c.motion = null; c.buffs.length = 0; H.towers.towerClimb(c, L, 1); c.motion.st = 1; c.motion.t = 0; c.motion.y = L.wyt - 1.75; c.x = L.lx; c.z = L.lz; c.y = c.motion.y; Hh.held = true; w.swingAt = 1e9; w.ai.nextAbility = 1e9; H.simulate(0.1, 0.02); }
       w.yaw = Math.atan2(c.x - w.x, c.z - w.z); if (w.cs) { w.cs.blockOn = false; w.cs.blockAt = -9; } __hm.cls.setBlock(w, true); out.blockOn = !!(w.cs && w.cs.blockOn); out.cy = +(c.y - S.y).toFixed(2);
       F.dealDamage(c, w, 50, { kind: 'melee' }); out.parry = c.motion ? c.motion.st : null; __hm.cls.setBlock(w, false); H.simulate(1.5, 0.02);
       F.removeEnt(c); F.removeEnt(w); Hh.held = false; return out; })()""")

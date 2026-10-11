@@ -779,7 +779,7 @@ const CASTLE_FS = (() => {
     if (castleCut(vW) || towerCut(vW)) discard;
   `);
   fs = castlePatch(fs, 'float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0);', (a) => /* glsl */`${a}
-    wSnow *= 1.0 - towerShelterK(vW); // [keeps] no snow on the floors inside a tower (before it whitens the albedo)`);
+    float tShel = towerShelterK(vW); wSnow *= 1.0 - tShel; wWet *= 1.0 - tShel; // [keeps] no snow on the floors inside a tower (before it whitens the albedo), nor a wet film`);
   fs = castlePatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', (a) => /* glsl */`
     if (cWear > 0.002) {
       // cracks: long jagged lines that branch as the wall weakens, dust and scorch from the strikes
