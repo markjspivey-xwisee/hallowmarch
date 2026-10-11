@@ -298,7 +298,9 @@ function towerFloor(T, y, rf, L, look) {
       if (v1 - v0 < 0.05) continue;
       const vc = (v0 + v1) / 2, lx = T.cx + ux * uc + vx * vc, lz = T.cz + uz * uc + vz * vc;
       const shade = 0.86 + 0.2 * hash1(k * 3.7 + v0 + y);
-      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, w - 0.025, 0.12, v1 - v0), MAT.wood, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
+      // [keeps] boards in the plaster branch, tinted as wood: the wood branch draws its planks along world x on a floor,
+      // which crossed these strips wherever a keep is turned
+      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, w - 0.025, 0.12, v1 - v0), MAT.plaster, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
       else {
         // stone: the strip laid as flags about 0.8 m long, staggered from the strips beside it, each its own shade
         // and a hair lower or higher (no gap to see through)

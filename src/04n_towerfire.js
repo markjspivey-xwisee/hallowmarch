@@ -88,7 +88,7 @@ function castleTowerUpload(C) {
     for (let i = 0; i < TW_FIRE_MAX; i++) {
       const T = All[i];
       if (!T) U3.uTS.value[i].set(0, 0, 0, 0);
-      else U3.uTS.value[i].set(T.wx, T.wz, T.kind === 'drum' ? T.RI : -T.HI, T.S.y + T.shelterY - 0.05);
+      else U3.uTS.value[i].set(T.wx, T.wz, T.kind === 'drum' ? T.RO : -T.HO, T.S.y + T.shelterY - 0.05); // to the outer face: a gallery's floor runs over the walls
     }
   }
 }
