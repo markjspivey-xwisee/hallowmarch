@@ -361,6 +361,7 @@ vec2 worldUV(vec2 xz){ return ((xz + 512.0) * 0.5 + 0.5) / 513.0; }
 // how much tree crown is overhead (visual pass: the canopy map in 03_terrain.js; 0 before it is built)
 float canopyAt(vec2 xz){ return texture(uCanopy, (xz + 512.0) / 1024.0).a; }
 float groundAO(vec2 xz){ return texture(uGroundAO, (xz + 512.0) / 1024.0).r; }
+float groundPath(vec2 xz){ return texture(uGroundAO, (xz + 512.0) / 1024.0).g; } // [look2] the towns' footpaths, 1 m (13u_look2.js)
 float terrainHeight(vec2 xz){
   vec2 g = clamp((xz + 512.0) * 0.5, vec2(0.0), vec2(511.999));
   ivec2 i = ivec2(floor(g)); vec2 f = g - vec2(i);

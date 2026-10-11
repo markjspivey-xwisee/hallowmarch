@@ -394,7 +394,7 @@ const FG_FS = /* glsl */`
 function buildForageMeshes() {
   const geos = forageGeometries();
   FORAGE.mat = mat({ vertexShader: depthForageVS(FG_VS), fragmentShader: depthForageFS(FG_FS) }); // [depth] charred, cut, felled (09u_depth.js)
-  const depth = depthFrom(FORAGE.mat);
+  const depth = depthFrom(FORAGE.mat, LOOK2_FORAGE_DEPTH_FS); // [look2] a bare apple tree casts a thin shade (13u_look2.js)
   const caps = { bush: 0, ring: 0, herb: 0, nettle: 0, apple: 0 };
   for (const p of FORAGE.list) caps[forageModel(p.k)]++;
   for (const key of Object.keys(geos)) {

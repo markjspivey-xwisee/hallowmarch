@@ -203,6 +203,9 @@ const terrainMat = mat({
       vec2 uv = worldUV(vW.xz);
       vec4 A = texture(uWorldA, uv);
       vec4 B = texture(uWorldB, uv);
+      // [look2] the towns' footpaths at 1 m (13u_look2.js), bare earth with a ragged edge, read as road by all below
+      float lkPath = groundPath(vW.xz);
+      if (lkPath > 0.01) A.r = max(A.r, 0.72 * smoothstep(0.34, 0.66, lkPath + (vnoise(vW.xz * 2.9) - 0.5) * 0.3));
       vec4 LM = landMapAt(vW.xz); // [land] rock round the crags, scree, gullies, heather (02e_land.js)
       vec3 nL = n; // [land] the rock's big relief, for the snow on its ledges
       float lEdge = 9.0, lTone = 0.5; // [land] the slab the rock face is broken into here: how far to its crack, its tone
@@ -231,14 +234,20 @@ const terrainMat = mat({
       // bare earth and roads: pebbles and ruts with a little relief
       // fine detail fades out before it is smaller than a pixel
       float px = length(fwidth(vW.xz));
-      float pebF = 1.0 - smoothstep(0.03, 0.09, px), gritF = 1.0 - smoothstep(0.05, 0.14, px);
-      float peb = smoothstep(0.62, 0.8, vnoise(vW.xz * 6.5)) * pebF;
-      float grit = vnoise(vW.xz * 2.2) * 0.6 + mix(0.2, vnoise(vW.xz * 9.0) * 0.4, gritF);
+      // [look2] a pebble (5 to 8 cm) or a grain of grit bumped through the screen's derivatives is shaded in 2 x 2 blocks:
+      // until it is five pixels or more its outline broke into a network of dark angular cracks, and the roads read as
+      // crazy paving (at 0.03 to 0.09 m a pixel: a phone's or a small window's view of the near road). The relief fades
+      // that soon; their colour (no derivatives) keeps to a pixel as before
+      float pebF = 1.0 - smoothstep(0.012, 0.035, px), gritF = 1.0 - smoothstep(0.02, 0.06, px);
+      float pebN = smoothstep(0.62, 0.8, vnoise(vW.xz * 6.5)), gritN = vnoise(vW.xz * 9.0), gritL = vnoise(vW.xz * 2.2) * 0.6;
+      float peb = pebN * pebF;
+      float grit = gritL + mix(0.2, gritN * 0.4, gritF);
+      float pebC = pebN * (1.0 - smoothstep(0.03, 0.09, px)), gritC = gritL + mix(0.2, gritN * 0.4, 1.0 - smoothstep(0.05, 0.14, px));
       vec3 ne = bumpN(n, vW, grit * 0.5 + peb * 0.6, 0.35 * fine);
-      vec3 earth = lightSurface(vec3(0.33, 0.27, 0.19) * (0.78 + 0.4 * grit) + peb * vec3(0.12, 0.11, 0.1), ne, 1.0);
+      vec3 earth = lightSurface(vec3(0.33, 0.27, 0.19) * (0.78 + 0.4 * gritC) + pebC * vec3(0.12, 0.11, 0.1), ne, 1.0);
       col = mix(col, earth, (1.0 - A.g) * (1.0 - A.r) * (1.0 - A.a) * 0.75);
       float rut = vnoise(vW.xz * vec2(2.4, 0.7)) * 0.25;
-      vec3 dirt = lightSurface(vec3(0.46, 0.37, 0.26) * (0.8 + 0.3 * grit - rut) + peb * vec3(0.1, 0.09, 0.08), ne, 1.0);
+      vec3 dirt = lightSurface(vec3(0.46, 0.37, 0.26) * (0.8 + 0.3 * gritC - rut) + pebC * vec3(0.1, 0.09, 0.08), ne, 1.0);
       // visual pass: a ragged road edge, and a trodden verge where the turf thins into the road
       float edgeN = (vnoise(vW.xz * 1.6) - 0.5) * 0.3 + (vnoise(vW.xz * 5.3) - 0.5) * 0.12 * fine;
       float verge = smoothstep(0.02, 0.2, A.r) * (1.0 - smoothstep(0.25, 0.55, A.r + edgeN));
@@ -369,9 +378,16 @@ const terrainMat = mat({
       col = mix(col, lightSurface(vec3(0.74, 0.78, 0.82), n, 1.0), frost * 0.5);
       float sCov = uSnowCover * clamp(max(uSnowK.x, szm.r) * uSnowK.y, 0.0, 100.0); // [seasons] the snow that lies here (snowHere, 02d_season.js)
       if (sCov > 0.01) {
-        float sn = sCov * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + sCov * 0.5 - A.r * 0.45);
+        // [look2] trodden ground under snow (the roads, the plazas, the paths: the road channel) is packed grey slush with
+        // darker tracks along it, and wet grey earth where it shows: the snow lay thinner there (A.r took 0.45 off it)
+        // and the dirt showed through in dark blotches that read as mud
+        float rdS = smoothstep(0.08, 0.5, A.r);
+        col = mix(col, lightSurface(vec3(0.3, 0.29, 0.28) * (0.85 + 0.3 * vnoise(vW.xz * 1.7)), n, 1.0), rdS * smoothstep(0.0, 0.5, sCov) * 0.6);
+        float sn = sCov * (1.0 - 0.7 * canopy) * smoothstep(0.5, 0.85, n.y) * smoothstep(0.3, 0.6, vnoise(vW.xz * 0.6) * 0.55 + 0.25 + sCov * 0.5 - A.r * 0.45 * (1.0 - 0.8 * rdS));
         sn *= 1.0 - smoothstep(0.1, 0.5, dot(gPL, vec3(0.33))); // feature/weather: melted round fires and torches
-        col = mix(col, lightSurface(vec3(0.88, 0.9, 0.95), n, 1.0), clamp(sn, 0.0, 1.0));
+        float trk = smoothstep(0.35, 0.8, vnoise(vW.xz * vec2(2.4, 0.7)) * 0.7 + vnoise(vW.xz * vec2(0.6, 2.2)) * 0.3);
+        vec3 snowC = mix(vec3(0.88, 0.9, 0.95), mix(vec3(0.66, 0.66, 0.67), vec3(0.47, 0.46, 0.45), trk), rdS * 0.85);
+        col = mix(col, lightSurface(snowC, n, 1.0), clamp(sn, 0.0, 1.0));
       }
       /* nature (05h_nature.js): clippings on cut turf, thrown earth round craters, ash and embers where fire passed */
       vec4 nat = natureAt(vW.xz);
@@ -516,7 +532,11 @@ function buildGroundAO() {
     const reach = clamp((c.h || 2) * 0.3, 0.5, 1.6), k = clamp((c.h || 2) / 3, 0.3, 0.8);
     put(c.x, c.z, c.r + reach, (x, z) => { const f = 1 - Math.max(0, Math.hypot(x - c.x, z - c.z) - c.r) / reach; return f > 0 ? k * f * f : 0; });
   }
-  const tex = new THREE.DataTexture(b, R, R, THREE.RedFormat, THREE.UnsignedByteType);
+  // [look2] and in its second channel the towns' footpaths at 1 m (13u_look2.js: groundPath, 02_render.js)
+  const rg = new Uint8Array(R * R * 2);
+  for (let q = 0; q < R * R; q++) rg[q * 2] = b[q];
+  look2PathMap(rg, R);
+  const tex = new THREE.DataTexture(rg, R, R, THREE.RGFormat, THREE.UnsignedByteType);
   tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   tex.needsUpdate = true;
   U.uGroundAO.value = tex;
