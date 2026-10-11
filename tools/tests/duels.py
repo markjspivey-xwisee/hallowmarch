@@ -38,7 +38,7 @@ window.DS = {
     const B = this.B.BAL, me = this;
     B.tap = (src, dst, dmg, abs, opts) => {
       if (opts && opts.parry) { if (dst && dst.balance) me.rec(dst).parries++; if (src && src.balance) me.rec(src).parried++; return; }
-      if (dmg < 0) { if (dst && dst.balance) { me.rec(dst).healIn -= dmg; if (src === dst) me.rec(dst).heal -= dmg; } return; }
+      if (dmg < 0) { if (dst && dst.balance) { const R = me.rec(dst); R.healIn -= dmg; if (src === dst) { R.heal -= dmg; const k = opts && opts.tick ? 'tick' : (src._ab || 'other'); R.healBy = R.healBy || {}; R.healBy[k] = (R.healBy[k] || 0) - dmg; } } return; } // [balance4] the healing by what gave it
       if (dst && dst.balance) me.rec(dst).absorbed += abs;
       // a blow from outside the duel (a passing soldier, a beast): it should not happen in a fair arena
       if (dst && dst.balance && dst._duel && src !== dst._duel.ua && src !== dst._duel.ub && src !== dst) { const R = me.rec(dst); R.foreign = (R.foreign || 0) + dmg + abs; R.foreignBy = (src && (src.role + ':' + (src.mobType || src.cls || src.kind))) || 'none'; }
@@ -71,25 +71,27 @@ window.DS = {
   tapOff() { this.B.BAL.tap = null; this.B.BAL.track = null; return 0; },
   // a timeline of the first n duels of a phase: every press, blow and a look each second
   ev(e, s) { const L = this.trace[e.id]; if (L && L.length < 400) L.push(`${(this.H.GAME.t - this.t0).toFixed(1)} ${e.cls}${e.bot ? e.bot.kind[1] : ''}${e.id} ${s}`); },
-  traceOn(n) { this.trace = {}; this.traceIds = new Set(); this.t0 = this.H.GAME.t; for (const A of CB.A.slice(0, n)) for (const u of [A.ua, A.ub]) { this.trace[u.id] = []; this.traceIds.add(u.id); } return 0; },
+  traceOn(n) { this.trace = {}; this.traceIds = new Set(); this.t0 = this.H.GAME.t; const R = this.H.bal4 && this.H.bal4.RUSH; if (R) R.onEvent = (e, s) => { if (this.traceIds && this.traceIds.has(e.id)) this.ev(e, s); }; /* [balance4] a Charge's rush, where it ended and why */ for (const A of CB.A.slice(0, n)) for (const u of [A.ua, A.ub]) { this.trace[u.id] = []; this.traceIds.add(u.id); } return 0; },
   traceOut() { if (!this.trace) return []; const out = []; for (const A of CB.A) { if (!this.trace[A.ua.id]) continue; out.push({ a: A.a, b: A.b, win: A.res && A.res.win, ev: [...this.trace[A.ua.id], ...this.trace[A.ub.id]].sort((x, y) => parseFloat(x) - parseFloat(y)) }); } this.trace = null; this.traceIds = null; return out; },
   // duels: [[clsA, kindA, clsB, kindB, realmA, realmB, flip]] in as many arenas as there are
   setup(lvl, list) {
     CB.wipe();
     const S = CB.spots(list.length); if (S.length < list.length) throw new Error('only ' + S.length + ' arenas');
-    CB.A = list.map(([a, ka, b, kb, ra, rb, flip], i) => {
+    CB.A = list.map(([a, ka, b, kb, ra, rb, flip, plain], i) => {
       const s = S[i], f = flip ? -1 : 1;
       const ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18), ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18);
       ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
       ua.target = ub.id; ub.target = ua.id;
-      const D = { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
+      if (plain === 'b') ub.plainCalling = true; // [balance4] the realm's way against the plain calling
+      const RN = ['Logres', 'Eriu', 'Thule'];
+      const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + RN[ra], b: b + ':plain', ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
       ua._duel = ub._duel = D;
       return D;
     });
     return CB.A.length;
   },
   results() {
-    const pick = (R) => R ? { ...R, dealt: Object.fromEntries(Object.entries(R.dealt).map(([k, v]) => [k, Math.round(v)])), heal: Math.round(R.heal), healIn: Math.round(R.healIn), absorbed: Math.round(R.absorbed) } : null;
+    const pick = (R) => R ? { ...R, dealt: Object.fromEntries(Object.entries(R.dealt).map(([k, v]) => [k, Math.round(v)])), healBy: Object.fromEntries(Object.entries(R.healBy || {}).map(([k, v]) => [k, Math.round(v)])), heal: Math.round(R.heal), healIn: Math.round(R.healIn), absorbed: Math.round(R.absorbed) } : null;
     return CB.A.map((A) => ({ ...A.res, ra: A.ra, rb: A.rb, arena: A.arena, hpA: Math.round(A.ua.maxHp), hpB: Math.round(A.ub.maxHp), ta: A.ua.bot.kind, tb: A.ub.bot.kind, A: pick(A.ua._rec), B: pick(A.ub._rec) }));
   },
 };
@@ -98,6 +100,13 @@ window.DS = {
 def spec_list(kind, reps):
     """[clsA, kindA, clsB, kindB, realmA, realmB, flip] for every duel of the run"""
     out = []
+    if kind == 'flavour':  # [balance4] each realm's way of each calling against the same calling played plain (no realm's way)
+        fb = arg('fbot', 'skilled')
+        for c in [c for c in CL4 if not ONLY or c in ONLY]:
+            for R in range(3):
+                for i in range(reps):
+                    out.append([c, fb, c, fb, R, (R + 1 + i % 2) % 3, i % 2, 'b'])
+        return out
     if kind == 'mastery':
         for c in [c for c in CL4 if not ONLY or c in ONLY]:
             for i in range(reps):
@@ -150,7 +159,11 @@ def scope(rows):
             hpm = sum(r[hp] for r in L) / len(L)
             parts = ', '.join(f'{k} {v / T:.0f}' for k, v in sorted(dealt.items(), key=lambda kv: -kv[1]) if v / T >= 1)
             fo = sum(r[side].get('foreign', 0) for r in L)
-            print(f'    {who:<14} hp {hpm:.0f}  dps {tot / T:.0f} ({parts})  selfheal/s {S("heal") / T:.0f}  absorbed/s {S("absorbed") / T:.0f}  parries {S("parries")} parried {S("parried")}' + (f'  FOREIGN harm {fo:.0f} ({sum(1 for r in L if r[side].get("foreign"))} duels, by {[r[side].get("foreignBy") for r in L if r[side].get("foreign")][:3]})' if fo else ''), flush=True)
+            hb = {}
+            for r in L:
+                for k, v in (r[side].get('healBy') or {}).items(): hb[k] = hb.get(k, 0) + v
+            hparts = ', '.join(f'{k} {v / T:.0f}' for k, v in sorted(hb.items(), key=lambda kv: -kv[1]) if v / T >= 1)  # [balance4]
+            print(f'    {who:<14} hp {hpm:.0f}  dps {tot / T:.0f} ({parts})  selfheal/s {S("heal") / T:.0f}' + (f' ({hparts})' if hparts else '') + f'  absorbed/s {S("absorbed") / T:.0f}  parries {S("parries")} parried {S("parried")}' + (f'  FOREIGN harm {fo:.0f} ({sum(1 for r in L if r[side].get("foreign"))} duels, by {[r[side].get("foreignBy") for r in L if r[side].get("foreign")][:3]})' if fo else ''), flush=True)
             st = {k: S(k) / T for k in ('stun', 'root', 'snare', 'cast', 'block', 'draw', 'reach', 'pray')}
             print(f'    {"":<14} stunned {st["stun"]:.0%} rooted {st["root"]:.0%} slowed {st["snare"]:.0%} casting {st["cast"]:.0%} shield {st["block"]:.0%} drawing {st["draw"]:.0%} praying {st["pray"]:.0%} in reach {st["reach"]:.0%}  casts {S("casts")} cut {S("cut")}', flush=True)
 
@@ -159,6 +172,9 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
+        # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
+        # machine a software renderer drawing every frame (keep it with `loop`)
+        if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
         allrows = {}
         for lvl in LEVELS:
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels

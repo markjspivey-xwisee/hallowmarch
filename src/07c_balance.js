@@ -258,7 +258,7 @@ function botMove(e, t, dt) {
   // kiting: the archer and the mage step away from a blade that is free to follow
   if (skilled && ranged) {
     // [balance3] a mage also steps off from a blade its frost holds when the hold is about to give
-    const p = botPresser(e, e.cls === 'archer' ? 9 : 7.5) || (e.cls === 'mage' ? nearestWhere(e.x, e.z, 6.5, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.leap.level && o.target === e.id && (holdLeft(o) < 1.0 || dist(e.x, e.z, o.x, o.z) < 5.6)) : null); // out of a whirlwind's reach
+    const p = botPresser(e, e.cls === 'archer' ? 9 : 7.5) || (e.cls === 'mage' ? heldBladeNear(e) : null); // out of a whirlwind's reach [balance4] and out of a held blade's reach at any level (a rooted warrior still strikes and bashes what stands by it)
     if (p && (e.cs && e.cs.drawFrom < 0 || dist(e.x, e.z, p.x, p.z) < 3.2)) {
       let ax = e.x - p.x, az = e.z - p.z;
       const L = Math.hypot(ax, az) || 1; ax /= L; az /= L;
@@ -273,6 +273,14 @@ function botMove(e, t, dt) {
     }
   }
   if (H && dist(t.x, t.z, H.x, H.z) > H.r + 6 && dist(e.x, e.z, H.x, H.z) > H.r) { go(H.x, H.z, 1, 1); return; }
+  // [balance4] a warrior walks round a snare lying on its rush's way: to a point beside it, away from its side of the line
+  // (a strafe off the line never cleared a snare lying near the bow, and the warrior never rushed)
+  if (skilled && e.cls === 'warrior' && B.side && GAME.t < B.side.until) {
+    const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1, px = -lz / L, pz = lx / L;
+    const sgn = (B.side.sx - e.x) * px + (B.side.sz - e.z) * pz > 0 ? -1 : 1;
+    go(B.side.sx + px * sgn * 2.6, B.side.sz + pz * sgn * 2.6, 1, 0);
+    return;
+  }
   let want;
   if (e.cls === 'archer') want = skilled ? Math.min(26, e.rangedRange - 3) : e.rangedRange - 2;
   else if (e.cls === 'mage') want = skilled ? 24 : e.rangedRange - 2;
@@ -281,7 +289,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22;
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -294,7 +302,7 @@ function botReflex(e, t, dt) {
     const hold = (on) => { if (P) { if (CLS.hold !== on) classHold(on); } else setBlock(e, on); };
     // [balance3] a shield wall: guarded, against a bow out of reach, the shield stays up on the way in (in that stance it
     // costs no endurance and no pace) and comes down in reach
-    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; }
+    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting && !(buffMax(e, 'snare') >= 0.3)) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; } // [balance4] (slowed, it chases in fury instead)
     else if (B.wall) { B.wall = false; if (cs.blockOn) hold(false); }
     if (cs.blockOn && now > B.blockUntil) hold(false);
     if (!cs.blockOn && canBlock(e) && now - cs.blockDown >= PARRY_REARM && !e.casting) {
@@ -372,8 +380,10 @@ function botWarrior(e, t) {
   const foes = botFoes(e, 6);
   // the stance: guarded when hard pressed, fury to finish or while whole, balanced between
   // [balance3] guarded too behind a shield wall, closing on a foe who strikes from afar
-  if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && shieldWallWanted(e, t) !== (cs.stance === 0) ? 1 : 3)) {
-    const want = hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
+  // [balance4] slowed while a foe keeps away: fury, which shrugs off much of a slow, carries the chase better than a wall
+  const chase = !!t && buffMax(e, 'snare') >= 0.3 && !isRooted(e) && dist(e.x, e.z, t.x, t.z) > e.meleeRange + 1.5 && hpF > 0.35;
+  if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && (chase ? cs.stance !== 2 : shieldWallWanted(e, t) !== (cs.stance === 0)) ? 1 : 3)) {
+    const want = chase ? 2 : hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
     if (want !== cs.stance && GAME.t - cs.stanceAt > 0.8) { setStance(e, want); B.stanceAt = GAME.t; B.next = GAME.t + 0.3; return true; }
   }
   if (hpF < 0.4 && botUse(e, 'bulwark', e)) return true;
@@ -381,7 +391,14 @@ function botWarrior(e, t) {
   if (!t) return false;
   const d = dist(e.x, e.z, t.x, t.z);
   // [balance3] out of reach is far enough to charge (from 5 m): a bow that kept just past 6.5 m was never caught
-  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8) && (botUse(e, 'leap', t) || botUse(e, 'charge', t))) return true;
+  // [balance4] a Charge rushes now, and a snare lying on its way catches it: a skilled hand walks round it first (a
+  // Leap Strike goes over a snare)
+  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8)) {
+    if (botUse(e, 'leap', t)) return true;
+    const sn = snareOnLine(e, t);
+    if (sn && !canUse(e, 'charge', t)) { if (!B.side || GAME.t > B.side.until) B.side = { until: GAME.t + 0.7, sx: sn.x, sz: sn.z }; }
+    else if (botUse(e, 'charge', t)) return true;
+  }
   // momentum: spend it on a finisher
   if (clsHas(e, 'momentum') && momOf(e) >= FIN_MIN && botUse(e, 'slash', t)) return true;
   // a spell coming: the shield in the face
@@ -437,7 +454,10 @@ function botArcher(e, t) {
     if (botUse(e, 'firearrow', p)) return true;
     return false;
   }
+  // [balance4] a warrior whose Charge is ready: a snare laid in the rush's path holds it where it catches it
+  if (rushComing(e, t) && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 9) && !canUse(e, 'snare', null)) { faceToward(e, t.x, t.z); if (botUse(e, 'snare', null)) return true; }
   if (botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 5) >= 2 && botUse(e, 'volley', t)) return true;
+  if (t.cs && t.cs.blockOn && botUse(e, 'volley', t)) return true; // [balance4] a volley falls from above: a raised shield does not turn it
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
@@ -472,19 +492,29 @@ function botAwayYaw(e, p, reach) {
   }
   return Math.atan2(ax, az);
 }
+// [balance4] a warrior after the mage, close and about to be free of its frost (or close enough to strike anyway): the
+// mage steps away from it, at every level now that Charge rushes (at 30 and up: out of a whirlwind's reach)
+function heldBladeNear(e) {
+  return nearestWhere(e.x, e.z, 6.5, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.charge.level && o.target === e.id && (holdLeft(o) < 1.0 || dist(e.x, e.z, o.x, o.z) < 5.6));
+}
 // [balance3] how long a body stays where it stands (rooted or stunned), in seconds
 function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root' || b.kind === 'stun') && b.until > GAME.t) v = Math.max(v, b.until - GAME.t); return v; }
 // [balance3] a spell of this cast time can finish before a warrior can break it: a blow only sets a spell back, a stun
 // breaks it (Shield Bash once the warrior is in reach, Leap Strike's landing), and a ward that holds takes one stun
 function castFits(e, cast) {
   if (!(cast > 0)) return true;
-  // a mace or a beast is cast into, and so is a warrior who has not learned Leap Strike (one stun, no leap, no whirl)
-  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.leap.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat)
-  if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > 1 && b.until > GAME.t) && hasBuff(e, 'eward')) return true;
+  // a mace or a beast is cast into: only a warrior breaks a spell outright (its Shield Bash, its Leap Strike's landing)
+  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.charge.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat) [balance4] from Charge's level: it rushes now
+  if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > e.maxHp * 0.15 && b.until > GAME.t) && hasBuff(e, 'eward')) return true; // [balance4] a ward worn thin is spent by the bash's own blow before its stun
   const t = GAME.t, held = holdLeft(o), d = dist(o.x, o.z, e.x, e.z), reach = (o.meleeRange || 2.7) * (o.scale || 1) + e.radius + 0.3;
   const walk = Math.max(0, d - reach) / Math.max(1, (o.speed || 6.6) * (1 - buffMax(o, 'snare')));
-  const charge = d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held ? 0.35 : walk; // a charge is on you at once (not out of deep frost)
-  const bashAt = Math.max(held + Math.min(walk, charge), (o.cds.bash || 0) - t) + 0.3;
+  // [balance4] a Charge rushes in at once (not out of deep frost) but Shield Bash waits RUSH_BASH after it (a rush on its
+  // way has already set the bash back): walking, the warrior bashes as soon as it is in reach and the bash is ready
+  const bashCd = (o.cds.bash || 0) - t;
+  const rushReady = o.level >= ABILITIES.charge.level && d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held;
+  const bashAt = (rushing(o) ? Math.max(bashCd, d / RUSH.speed) : rushReady ? Math.min(Math.max(held + walk, bashCd), held + d / RUSH.speed + RUSH_BASH) : Math.max(held + walk, bashCd)) + 0.3;
+  // and a blade in reach sets the spell back (twice at most)
+  if (held + Math.min(walk, rushReady || rushing(o) ? d / RUSH.speed : walk) < cast) cast += 0.7;
   const leapAt = o.level >= ABILITIES.leap.level && d >= 6 && !frostHeld(o) ? Math.max(held, (o.cds.leap || 0) - t) + 0.6 : Infinity;
   return Math.min(bashAt, leapAt) > cast + 0.15;
 }
@@ -508,6 +538,8 @@ function botMage(e, t) {
   if ((t.casting || (t.cs && t.cs.drawFrom >= 0)) && !frozenOf(t) && chillOf(t) + 1 + att >= 3 && (ccChampion(t) ? ccFactor(t, 'stun') > 0 : GAME.t >= (t._thawUntil || 0)) && botUse(e, 'frost', t)) return true;
   // a ward up before the blades arrive
   if (t.target === e.id && !hasBuff(e, 'shield') && wardNow()) return true;
+  // [balance4] a warrior's rush on its way: chill it first, so the nova that meets it freezes it where it lands
+  if (rushComing(e, t) && !frozenOf(t)) { focus('frost'); if (botUse(e, 'frost', t)) return true; }
   // a blade at the throat: a frost nova to hold it, then away; Blink when the nova is spent
   const p = botPresser(e, 5);
   if (p) {
@@ -518,6 +550,9 @@ function botMage(e, t) {
     if (botUse(e, 'frost', p)) return true;
   }
   const foes = botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 6);
+  // [balance4] a caster's long spell (a priest's mend, a mage's meteor, an archer's aimed shot): storm breaks it, unless
+  // the caster stands steadfast
+  if (t.casting && t.casting.total - t.casting.t > 0.6 && !hasBuff(t, 'steadfast') && botUse(e, 'chain', t)) return true;
   // the combos: storm shatters the frozen and overloads the burning, fire bursts the chilled into steam,
   // frost quenches the burning; storm runs through the wet
   if (frozenOf(t)) { focus('storm'); if (botUse(e, 'chain', t)) return true; focus('fire'); if (botUse(e, 'firebolt', t)) return true; }
@@ -544,6 +579,11 @@ function botMage(e, t) {
 }
 function botPriest(e, t) {
   const cs = csOf(e), P = e === GAME.player, hpF = e.hp / e.maxHp, B = e.bot;
+  // [balance4] a skilled hand of rank I does not swing its mace into a warrior's guard: a shield it can raise in time
+  // parries the blow and stuns the priest, breaking whatever it was casting (17 times in 24 duels at 10, for a mace that
+  // struck 4 a second), unless the light has dazzled it (classNoAuto asks). From rank II the mace strikes hard and the
+  // priest smites and dazzles in reach: held, it lost a sixth of its harm at 30 and saved four parries
+  B.holdMace = B.kind === 'skilled' && abilityRank(e.level) <= 1 && !!t && t.cls === 'warrior' && clsHas(t, 'block') && hasShield(t) && !dazzled(t) && !isStunned(t);
   const foesNear = botFoes(e, 6), fight = !!t || botFoes(e, 16) > 0;
   const hot = e.buffs.some((b) => b.kind === 'hot' && b.until > GAME.t + 1);
   // [balance2] a priest who knows the work keeps a reserve of power for mending, and does not stand casting into a
@@ -559,10 +599,12 @@ function botPriest(e, t) {
   const rich = pw > 0.5;
   // [balance3] a warrior's blade (a bash, a parry, a finisher): a mace, a beast or an outlaw's axe only sets a spell
   // back or breaks it now and then, and a priest who waits on every blow loses the race to one who casts through them
-  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  // [balance4] and of a warrior's, only its Shield Bash breaks a spell (a blow sets it back; a parry needs a swing, and a
+  // dazzled warrior parries nothing): while the bash is spent a priest casts through the blade (it stood idle by it)
+  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
-  if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
+  if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
@@ -572,7 +614,8 @@ function botPriest(e, t) {
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
-  if (hpF < (castOk ? (many ? 0.72 : rich ? 0.65 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
+  // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
+  if (hpF < (castOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -583,7 +626,7 @@ function botPriest(e, t) {
   // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < (many ? 0.82 : rich ? 0.72 : 0.66) && botUse(e, 'mend', e)) return true;
+  if (castOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66)
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race

@@ -101,7 +101,7 @@ function weaponStyle(e) {
   return m & WB.axe ? 'axe' : m & WB.mace ? 'mace' : 'sword';
 }
 const hasShield = (e) => !!e.look && !!(e.look.mask & (WB.shield | WB.shieldRound));
-const realmFlavour = (e) => clsHas(e, 'realm') && e.faction <= 2;
+const realmFlavour = (e) => clsHas(e, 'realm') && e.faction <= 2 && !e.plainCalling; // [balance4] tests measure a realm's way against the plain calling (duels.py kind=flavour)
 // lakes, ponds and rivers: the water module (01b_water.js)
 const waterFn = () => waterAt;
 // the height of the water's surface at (x, z), or the lakes' level where there is none
@@ -212,7 +212,7 @@ function classHarm(src, dst, amount, opts) {
     }
     if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= 1.6;
     // blessings
-    for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= 1.12; break; }
+    for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= PRIEST_REALM.thuleBless; break; } // [balance4] 1.12 (07c_balance4.js)
   }
   // the target's state: sundered armour, a stagger
   const sun = buffMax(dst, 'sunder');
@@ -231,7 +231,7 @@ function classHarm(src, dst, amount, opts) {
   if (dst.cs && dst.cls === 'warrior') {
     const cs = dst.cs;
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
-    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && src && src !== dst && blockFaces(dst, src)) {
+    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && !(opts.kind === 'aoe' && src && src.cls === 'archer') /* [balance4] nor does a volley */ && src && src !== dst && blockFaces(dst, src)) {
       const melee = opts.kind === 'melee';
       if (melee && t - cs.blockAt <= parryWindow(dst) && !dazzled(dst)) { parry(dst, src); return 0; } // [balance3] not while dazzled by holy light
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
@@ -246,8 +246,8 @@ function classHarm(src, dst, amount, opts) {
   }
   for (const b of dst.buffs) {
     if (b.until <= t) continue;
-    if (b.kind === 'bless' && b.value === 0) m *= 0.88;
-    if (b.kind === 'hallowed') m *= 0.9;
+    if (b.kind === 'bless' && b.value === 0) m *= PRIEST_REALM.logresBless; // [balance4] 0.88 (07c_balance4.js)
+    if (b.kind === 'hallowed') m *= PRIEST_REALM.logresGround; // [balance4] 0.9
     if (b.kind === 'eward' && src && src !== dst && opts.kind === 'melee' && !opts.dot && !opts.reflect) wardBite(dst, src, b);
   }
   return amount * m;
@@ -544,10 +544,10 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'bash' && st === 0) { view().stun = A.stun + 0.5; /* [balance] +1 */ if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
   if (A.id === 'bulwark') view().buff = { ...A.buff, dur: A.buff.dur + (st === 0 ? 3 : 0) + 1.5 * (abilityRank(e.level) - 1) }; // [balance2] longer with rank
   if ((A.id === 'cleave' || A.id === 'whirl') && st === 2) view().dmg = A.dmg * 1.25;
-  if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
+  if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; view().healPct = (st === 1 ? 0.35 : A.healPct) / rankMult(e.level); } // [balance4] a warrior's own heal does not grow with rank (a priest's own healing does not either): at 50 it healed 48%
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
+  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); if (CHARGE_FREE > 0) { addBuff(e, 'free', 1, CHARGE_FREE, 'charge'); chargeFree(e, CHARGE_FREE); } } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
   rushShare(e, A); // [balance3] Charge and Leap Strike are one rush (07c_balance3.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
@@ -592,7 +592,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.18 * att / 100; // [balance2] 0.22
+  const emp = (1 + 0.18 * att / 100) * mageRankK(e); // [balance2] 0.22 [balance4] and more for a seasoned mage (07c_balance4.js)
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }
@@ -610,7 +610,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1) * mendWound(t || e); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank [balance4] the deeper the wound, the more Mend mends (07c_balance4.js)
   if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.id === 'renew' && (t === e || !t)) priestSteadfast(e); // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
@@ -629,10 +629,10 @@ function priestView(e, cs, A, t) {
   return V || A;
 }
 function blessing(e, f) {
-  const realm = realmFlavour(e) ? e.faction : 0;
+  const realm = realmFlavour(e) ? e.faction : e.plainCalling ? -1 : 0; // [balance4] a plain priest measured in tests blesses with no realm's way
   addBuff(f, 'bless', realm, 15, 'bless');
   const b = f.buffs.find((q) => q.kind === 'bless' && q.src === 'bless'); if (b) b.value = realm;
-  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * 0.015, 15, e.id); }
+  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * PRIEST_REALM.eriuHot, 15, e.id); } // [balance4] 0.015 (07c_balance4.js)
   const c = realm === 0 ? [1.8, 1.6, 1.0] : realm === 1 ? [0.9, 1.9, 1.2] : [2.3, 1.3, 0.6];
   FX.ring(f.x, f.y + 0.2, f.z, 1.4, c, 26, 1.6);
   for (let i = 0; i < 16; i++) { const a = Math.random() * TAU; fxAdd.emit(f.x + Math.cos(a) * 0.5, f.y + 0.3 + Math.random() * 1.6, f.z + Math.sin(a) * 0.5, 0, 0.8, 0, 1.2, c[0], c[1], c[2], 0.12, -0.3, 0.4); }
@@ -1386,7 +1386,7 @@ function classActValue(e) {
   if (cs.praying) return 12 + 0.5;
   return 0;
 }
-function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying); }
+function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || !!(e.bot && e.bot.holdMace)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js)
 // a mage's own bolt takes the colour of the focus
 function classAutoKind(e) {
   if (e.cls !== 'mage' || !e.cs || !clsHas(e, 'focus')) return e.rangedKind;

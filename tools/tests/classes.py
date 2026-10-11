@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 SHOTS = 'shots' in ARGS
 BAL = 'balance' in ARGS
-MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS)
+MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS or 'b4' in ARGS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
 # [balance] duels are short and noisy: they get more repetitions of their own (dreps=N)
 DREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('dreps=')), REPS * 3)
@@ -664,6 +664,7 @@ async def mechanics(page):
 
 # ------------------------------------------------------------------ [balance3] the rules of version 11
 B3 = ('b3' in ARGS) or MECH
+B4 = ('b4' in ARGS) or MECH  # [balance4]
 async def balance3(page):
     """pursuit, frost holds, one rush, half-piercing bodkins and Deadeye, the dazzle, the shield wall, the wound and a
     priest's own healing by rank, and NPC warriors walling against a bow"""
@@ -676,8 +677,9 @@ async def balance3(page):
       F.dealDamage(f, P, 10, { kind: 'melee' }); const c3 = P.cds.charge - H.GAME.t;
       F.dealDamage(f, P, 10, { dot: true }); const c4 = P.cds.charge - H.GAME.t;
       P.hp = P.maxHp; return { c0: +c0.toFixed(2), c1: +c1.toFixed(2), c2: +c2.toFixed(2), c3: +c3.toFixed(2), c4: +c4.toFixed(2), desc: H.fn.ABILITIES ? '' : '' }; })()""")
-    check(abs(r['c0'] - r['c1'] - 1) < 0.05 and abs(r['c1'] - r['c2'] - 1) < 0.05, f"an arrow and a bolt each take a second off Charge ({r['c0']} -> {r['c1']} -> {r['c2']})")
-    check(abs(r['c2'] - r['c3']) < 0.05 and abs(r['c3'] - r['c4']) < 0.05, 'a blade or a burning wound does not')
+    # [balance4] pursuit is set aside (PURSUIT_CD 0): it stood in for a Charge that never rushed
+    check(abs(r['c0'] - r['c1']) < 0.05 and abs(r['c1'] - r['c2']) < 0.05, f"arrows and bolts no longer bring Charge sooner: it rushes now ({r['c0']} -> {r['c1']} -> {r['c2']})")
+    check(abs(r['c2'] - r['c3']) < 0.05 and abs(r['c3'] - r['c4']) < 0.05, 'nor a blade or a burning wound')
 
     r = await ev(page, 'frost-holds', """(() => { const H = T.H, F = T.F, B3 = H.bal3; const out = {};
       for (const ml of [20, 30]) {
@@ -731,11 +733,11 @@ async def balance3(page):
         P.hp = P.maxHp;
       }
       return out; })()""")
-    for lv, want in ((10, 0.05), (30, 0.17), (50, 0.35)):
+    for lv, want in ((10, 0.15), (30, 0.18), (50, 0.24)):  # [balance4] 0.15 to 0.24 (version 11: 0.05, 0.17, 0.35)
         q = r[str(lv)]
         check(abs(q['v'] - want) < 0.01 and q['dur'] >= 2.9, f"holy light dazzles a level {lv} foe ({q['v']} for {q['dur']} s)")
         check(abs(q['miss'] - want) < 0.07, f"a dazzled warrior misses about {want:.0%} of its blows at level {lv} ({q['miss']})")
-    check(r['10']['parried'] == 1 and r['30']['parried'] == 0 and r['50']['parried'] == 0, f"a warrior dazzled by a priest of rank II or more cannot parry ({r['10']['parried']}, {r['30']['parried']}, {r['50']['parried']})")
+    check(r['10']['parried'] == 0 and r['30']['parried'] == 0 and r['50']['parried'] == 0, f"a dazzled warrior cannot parry, at every rank now ([balance4]: {r['10']['parried']}, {r['30']['parried']}, {r['50']['parried']})")
 
     r = await ev(page, 'wall', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 0); const out = {};
       for (const st of [0, 1]) { C.setStance(P, st); C.csOf(P).stanceAt = -9; P.buffs.length = 0; C.classHold(true); H.simulate(0.1); out['s' + st] = +(H.bal3.effectiveSpeed(P) / P.speed).toFixed(2); C.classHold(false); H.simulate(0.6); }
@@ -744,7 +746,7 @@ async def balance3(page):
       w.target = ar.id; C.csOf(w).stance = 0; w.cds.charge = H.GAME.t + 30; w.cds.leap = H.GAME.t + 30; P.x += 60; H.simulate(0.4);
       out.npcWall = C.csOf(w).blockOn; out.wantNear = H.bal3.npcWallWanted(w, ar);
       return out; })()""")
-    check(r['s0'] >= 0.99 and abs(r['s1'] - 0.55) < 0.03, f"guarded, a raised shield costs no pace (balanced {r['s1']}, guarded {r['s0']})")
+    check(r['s0'] >= 0.99 and abs(r['s1'] - 0.55) < 0.03, f"guarded, a warrior walks at full pace behind a raised shield ([balance4]; balanced {r['s1']}, guarded {r['s0']})")
     check(r['npcWall'], f"an NPC warrior raises a shield wall against a bow out of reach ({r})")
 
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};
@@ -754,6 +756,90 @@ async def balance3(page):
     check(abs(r['20']['self'] - 0.75) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: three quarters, then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
+
+async def balance4(page):
+    """[balance4] Charge rushes (and stops at a snare in its path, waits for its footing, holds Shield Bash back), not on a
+    horse or in the water; Mend weighs the wound; a priest in its own column mends as its own wounds do; Rallying Cry's
+    heal does not grow with rank; a volley falls over a raised shield; a dazzled warrior cannot parry at rank I; the
+    realm's way can be set aside for a measure (plainCalling)"""
+    await page.evaluate("() => {" + MECH_JS + "; return 0; }")
+    r = await ev(page, 'rush', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 20, 0);
+      const a = T.ahead(P, 18); const f = T.foe(2, a.x, a.z, 20, 'mage', 0); /* (not a bow: an archer slips one blade in seven) */ f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f);
+      H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const d0 = Math.hypot(f.x - P.x, f.z - P.z), hp0 = f.hp;
+      const r = F.useAbility(P, 'charge', f); const trail = [];
+      for (let i = 0; i < 6; i++) { H.simulate(0.2); trail.push(+Math.hypot(f.x - P.x, f.z - P.z).toFixed(1)); }
+      const landed = H.bal4.RUSH.stats.arrived; const harm = Math.round(hp0 - f.hp);
+      // the footing and the shield arm: right after the rush, abilities wait and Shield Bash waits longer
+      const P2 = T.fresh('warrior', 20, 0); const b = T.ahead(P2, 14); const f2 = T.foe(2, b.x, b.z, 20, 'warrior', 0); f2.ai.nextAbility = 1e9; f2.swingAt = 1e9; f2.tweak = { hp: 20 }; F.setupStats(f2);
+      H.simulate(0.1); P2.cds = {}; P2.gcdUntil = 0; P2.power = P2.maxPower; F.useAbility(P2, 'charge', f2);
+      let t = 0; while (P2.motion && t < 3) { H.simulate(0.05); t += 0.05; }
+      const footing = F.useAbility ? H.bal.canUse(P2, 'slash', f2) : null; H.simulate(1.05); const after = H.bal.canUse(P2, 'slash', f2), bash = H.bal.canUse(P2, 'bash', f2);
+      return { r, d0: +d0.toFixed(1), trail, harm, footing, after, bash, rushT: +t.toFixed(2) }; })()""")
+    check(r['r'] is True and r['trail'][-1] < 3.2 and r['trail'][0] < r['d0'] - 2, f"Charge rushes the warrior to the foe ({r['d0']} m -> {r['trail']})")
+    check(r['harm'] > 0, f"and strikes it as it lands ({r['harm']} harm)")
+    check(r['footing'] == 'cooldown' and r['after'] is None and r['bash'] == 'cooldown', f"its abilities wait for its footing, Shield Bash longer ({r['footing']}, then {r['after']}; bash {r['bash']})")
+    r = await ev(page, 'rush-snare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 0);
+      const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 20, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z);
+      H.simulate(0.1); C.laySnare(ar); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1];
+      // on the rush's way: half way between them (a snare at the bow's feet lies inside the rush's reach, where it stops)
+      S.x = (P.x + ar.x) / 2; S.z = (P.z + ar.z) / 2; S.y = F.floorAt ? F.floorAt(S.x, S.z, P.y + 0.3) : S.y; if (S.mesh) S.mesh.position.set(S.x, S.y, S.z);
+      P.target = ar.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'charge', ar);
+      for (let i = 0; i < 30 && P.motion; i++) H.simulate(0.05);
+      return { sprung: !!S.sprung, caught: S.caught === P.id, rooted: P.buffs.some((b) => b.kind === 'root' && b.until > H.GAME.t), d: +Math.hypot(ar.x - P.x, ar.z - P.z).toFixed(1), toSnare: +Math.hypot(S.x - P.x, S.z - P.z).toFixed(1) }; })()""")
+    check(r['caught'] and r['rooted'] and r['d'] > 2.0, f"a snare in the rush's path catches the warrior and holds it there ({r})")
+    # [balance4] a foe walking away is reached on the step that closes on it (the rush ran at its heels for 1.9 s), and
+    # until Leap Strike the blow slows it by 45% for 3 s; from Leap Strike's level it does not slow
+    r = await ev(page, 'rush-flee', """(() => { const H = T.H, F = T.F; const out = {};
+      for (const lv of [20, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 14); const f = T.foe(2, a.x, a.z, lv, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20, speed: 0.01 }; F.setupStats(f);
+        H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; f.buffs.length = 0;
+        const L = Math.hypot(f.x - P.x, f.z - P.z), ux = (f.x - P.x) / L, uz = (f.z - P.z) / L; let t = 0;
+        F.useAbility(P, 'charge', f);
+        while (P.motion && t < 2.5) { f.x += ux * 0.3; f.z += uz * 0.3; H.simulate(0.05); t += 0.05; }
+        H.simulate(0.25); const sl = f.buffs.find((b) => b.kind === 'snare' && b.until > H.GAME.t);
+        out[lv] = { t: +t.toFixed(2), d: +Math.hypot(f.x - P.x, f.z - P.z).toFixed(1), slow: sl ? +sl.value.toFixed(2) : 0, slowFor: sl ? +(sl.until - H.GAME.t).toFixed(1) : 0 }; }
+      return out; })()""")
+    check(r['20']['t'] < 1.3 and r['20']['d'] < 3.6, f"a rush reaches a foe walking away from it at 6 m/s ({r['20']})")
+    check(abs(r['20']['slow'] - 0.45) < 0.01 and r['20']['slowFor'] > 2.4, f"until Leap Strike the rush's blow slows by 45% for 3 s ({r['20']})")
+    check(r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow does not slow ({r['30']})")
+    # [balance4] a skilled priest of rank I holds its mace from a warrior's guard; from rank II it swings
+    r = await ev(page, 'hold-mace', """(() => { const H = T.H; const out = {};
+      for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.F.spawnRealmUnit(2, 'priest', lv, 'bot', a.x, a.z); pr.testFoe = true; H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
+      return out; })()""")
+    check(r['10'] is True and r['30'] is False, f"a skilled priest of rank I holds its mace from a warrior's guard, not from rank II ({r})")
+    r = await ev(page, 'rush-why', """(() => { const H = T.H; const P = T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
+      const out = { foot: H.bal4.rushWhy(P, A, null) }; P.mount = {}; out.mounted = H.bal4.rushWhy(P, A, null); P.mount = null; P.swim = true; out.swim = H.bal4.rushWhy(P, A, null); P.swim = false;
+      // a posted guard rushes only at a foe within its leash of its post
+      const a = T.ahead(P, 16); const g = T.foe(2, a.x, a.z, 20, 'warrior', 4); out.post = H.bal4.rushWhy(g, A, P); g.ai.post.leash = 20; out.near = H.bal4.rushWhy(g, A, P); return out; })()""")
+    check(r['foot'] is None and r['mounted'] == 'mounted' and r['swim'] == 'swimming', f"no rush on a horse or in the water ({r})")
+    check(r['post'] == 'post' and r['near'] is None, f"a guard at its post rushes only at a foe within its leash ({r})")
+    r = await ev(page, 'mend', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const k of [0.95, 0.75, 0.4]) { const P = T.fresh('priest', 20, 0); C.csOf(P).dev = 0; P.hp = P.maxHp * k; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; const h0 = P.hp;
+        F.useAbility(P, 'mend', P); H.simulate(1.7); out[k] = +((P.hp - h0) / P.maxHp).toFixed(3); }
+      out.wound = [0.95, 0.75, 0.4].map((k) => +H.bal4.mendWound({ hp: k, maxHp: 1 }).toFixed(2)); return out; })()""")
+    check(r['0.4'] > 0.25 and r['0.75'] < r['0.4'] * 0.8 and r['0.95'] <= 0.05 + 1e-3, f"Mend weighs the wound: a deep one mends in full, a light one less, a scratch little ({r})")
+    r = await ev(page, 'pillar-self', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 30, 0); C.csOf(P).dev = 0;
+      const a = T.ahead(P, 2.5); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9;
+      H.simulate(0.1); P.hp = P.maxHp * 0.3; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'pillar', f);
+      // the column's heal lands at once; the rest of the climb is the body's own mending (measure the one step it lands in)
+      let jump = 0; for (let i = 0; i < 50; i++) { const h = P.hp; H.simulate(0.05); jump = Math.max(jump, P.hp - h); }
+      return { healed: +(jump / P.maxHp).toFixed(3), want: +(0.3 * H.fn.rankMult(30) * H.bal.priestSelf(P)).toFixed(3) }; })()""")
+    check(abs(r['healed'] - r['want']) < 0.03, f"a priest in its own Pillar of Dawn mends as its own wounds do ({r})")
+    r = await ev(page, 'rally', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
+      for (const lv of [20, 30, 50]) { const P = T.fresh('warrior', lv, 0); C.setStance(P, 1); P.hp = P.maxHp * 0.3; const h0 = P.hp; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'rally', P); out[lv] = +((P.hp - h0) / P.maxHp).toFixed(3); }
+      return out; })()""")
+    check(all(abs(v - 0.35) < 0.01 for v in r.values()), f"Rallying Cry heals 35% (balanced) at every rank ({r})")
+    r = await ev(page, 'volley-shield', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 30, 0);
+      const a = T.ahead(P, 15); const ar = T.foe(2, a.x, a.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9; P.yaw = Math.atan2(ar.x - P.x, ar.z - P.z);
+      C.setStance(P, 0); C.csOf(P).stanceAt = -9; C.classHold(true); H.simulate(0.1); C.csOf(P).blockAt = -9;
+      const arrow = C.classHarm(ar, P, 100, { kind: 'arrow' }), volley = C.classHarm(ar, P, 100, { kind: 'aoe' }); C.classHold(false);
+      return { arrow: Math.round(arrow), volley: Math.round(volley) }; })()""")
+    check(r['arrow'] < 30 and r['volley'] > 60, f"a raised shield turns an arrow but not a volley falling from above ({r})")
+    r = await ev(page, 'plain', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 2); const a = T.ahead(P, 2); const f = T.foe(1, a.x, a.z, 20, 'warrior', 0); f.ai.nextAbility = 1e9;
+      C.setStance(P, 2); P.hp = P.maxHp * 0.25; let s0 = 0, s1 = 0; for (let i = 0; i < 200; i++) s0 += C.classHarm(P, f, 100, { kind: 'melee', dot: true }); P.plainCalling = true; for (let i = 0; i < 200; i++) s1 += C.classHarm(P, f, 100, { kind: 'melee', dot: true }); P.plainCalling = false; P.hp = P.maxHp;
+      return { berserk: +(s0 / 200).toFixed(1), plain: +(s1 / 200).toFixed(1) }; })()""")
+    check(r['berserk'] > r['plain'] * 1.05, f"a measure can set the realm's way aside: a Thule warrior's Berserk against the plain calling ({r})")
+    errs = await page.evaluate("__hm.errors.slice(0, 3)")
+    check(not errs, f'no runtime errors in the [balance4] checks {errs[:2]}')
 
 # ------------------------------------------------------------------ screenshots
 CAMJS = r"""window.CC = (x, y, z, tx, ty, tz) => { const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); };
@@ -866,6 +952,14 @@ async def shots(page):
       for (let i = 0; i < 8; i++) { H.simulate(0.04); hold(); H.frame(0.04); }
       CS(P, w, 4.4, 1.3, 0.6, 1.45); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)), motes: H.bal3.BAL3.dazzledIds.size }; })()""")
     await snap(page, 'dazzle', 1)
+    # [balance4] Charge rushes: a warrior halfway along its rush at a mage, shield raised across its body, dust behind
+    if want('rush'): await ev(page, 'rush-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 0);
+      const a = T.ahead(P, 20); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
+      H.simulate(0.2); CS(P, w, 7.5, 1.6, 0.5, 1.1); H.frame(0.016);
+      w.cds = {}; w.gcdUntil = 0; w.power = w.maxPower; w.target = P.id; const r = F.useAbility(w, 'charge', P);
+      for (let i = 0; i < 12 && w.motion; i++) { H.simulate(0.05); H.frame(0.05); }
+      CS(P, w, 7.5, 1.6, 0.5, 1.1); return { r, d: +Math.hypot(w.x - P.x, w.z - P.z).toFixed(1), act: w.anim.act, rush: !!(w.motion && w.motion.rush) }; })()""")
+    await snap(page, 'rush', 1)
 
 async def main():
     async with async_playwright() as p:
@@ -874,11 +968,14 @@ async def main():
         page.on('console', lambda m: CONSOLE.append(m.text[:300]) if m.type == 'error' else None)
         if BAL:
             await page.set_viewport_size({'width': 320, 'height': 180})
+            if not (MECH or B3 or SHOTS) and 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")  # [balance4] nothing is drawn: the frame loop stops
             await balance(page)
         if MECH:
             await mechanics(page)
         if B3:
             await balance3(page)  # [balance3]
+        if B4:
+            await balance4(page)  # [balance4]
         if SHOTS:
             await shots(page)
         errs = await page.evaluate("__hm.errors.slice(0, 5)")
