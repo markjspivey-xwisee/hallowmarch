@@ -612,11 +612,12 @@ function priestView(e, cs, A, t) {
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
   if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1) * mendWound(t || e); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank [balance4] the deeper the wound, the more Mend mends (07c_balance4.js)
   if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
-  if (A.id === 'renew' && (t === e || !t)) priestSteadfast(e); // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js)
+  if (A.id === 'renew' && (t === e || !t)) { priestSteadfast(e); renewMark(e); } // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js) [balance5] a fresh one (07c_balance5.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
   if (A.id === 'smite' && t && isUndead(t)) view().dmg = A.dmg * 1.25;
+  if (A.id === 'holyfire' && t) holyFlare(e, t); // [balance5] Holy Fire flares in a caster's face: its spell is lost (07c_balance5.js)
   if (A.id === 'sanctuary') view().custom = priestGroupHeal; // [balance] the priest's own share mends more slowly (07c_balance.js)
   if (A.id === 'massrenew') view().custom = priestGroupHot;
   if (A.id === 'divine') view().custom = divineShield; // [balance] it also lifts and wards off stuns, roots and slows (07c_balance.js)

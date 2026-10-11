@@ -302,7 +302,7 @@ function botReflex(e, t, dt) {
     const hold = (on) => { if (P) { if (CLS.hold !== on) classHold(on); } else setBlock(e, on); };
     // [balance3] a shield wall: guarded, against a bow out of reach, the shield stays up on the way in (in that stance it
     // costs no endurance and no pace) and comes down in reach
-    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting && !(buffMax(e, 'snare') >= 0.3)) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; } // [balance4] (slowed, it chases in fury instead)
+    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting && (!(buffMax(e, 'snare') >= 0.3) || (B.side && now < B.side.until))) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; } // [balance4] (slowed, it chases in fury instead) [balance5] but walks round a snare behind the shield
     else if (B.wall) { B.wall = false; if (cs.blockOn) hold(false); }
     if (cs.blockOn && now > B.blockUntil) hold(false);
     if (!cs.blockOn && canBlock(e) && now - cs.blockDown >= PARRY_REARM && !e.casting) {
@@ -381,7 +381,10 @@ function botWarrior(e, t) {
   // the stance: guarded when hard pressed, fury to finish or while whole, balanced between
   // [balance3] guarded too behind a shield wall, closing on a foe who strikes from afar
   // [balance4] slowed while a foe keeps away: fury, which shrugs off much of a slow, carries the chase better than a wall
-  const chase = !!t && buffMax(e, 'snare') >= 0.3 && !isRooted(e) && dist(e.x, e.z, t.x, t.z) > e.meleeRange + 1.5 && hpF > 0.35;
+  const chase = !!t && buffMax(e, 'snare') >= 0.3 && !isRooted(e) && dist(e.x, e.z, t.x, t.z) > e.meleeRange + 1.5 && hpF > 0.35 && !(B.side && GAME.t < B.side.until); // [balance5] (not while walking round a snare: behind the shield)
+  // [balance5] the rush first: a foe in its reach and its way clear is rushed before the stance is changed (a warrior who
+  // set its stance first gave a bow the moment to lay a snare in its path)
+  if (t && dist(e.x, e.z, t.x, t.z) > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8) && (botUse(e, 'leap', t) || (!snareOnLine(e, t) && botUse(e, 'charge', t)))) return true;
   if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && (chase ? cs.stance !== 2 : shieldWallWanted(e, t) !== (cs.stance === 0)) ? 1 : 3)) {
     const want = chase ? 2 : hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
     if (want !== cs.stance && GAME.t - cs.stanceAt > 0.8) { setStance(e, want); B.stanceAt = GAME.t; B.next = GAME.t + 0.3; return true; }
@@ -418,6 +421,7 @@ function shieldWallWanted(e, t) {
   if (!t || !t.alive || !clsHas(e, 'stances') || !hasShield(e)) return false;
   const d = dist(e.x, e.z, t.x, t.z), reach = e.meleeRange + t.radius * (t.scale || 1) + 1.2;
   if (d <= reach || t.rangedKind !== 'arrow') return false;
+  if (e.bot && e.bot.side && GAME.t < e.bot.side.until) return true; // [balance5] a rush held back by a snare on its way: round it behind the shield
   const rush = (id) => e.level >= ABILITIES[id].level && !canUse(e, id, t);
   return !rush('charge') && !rush('leap');
 }
@@ -573,7 +577,10 @@ function botMage(e, t) {
   if (botUse(e, 'blizzard', t)) return true;
   // [balance2] fire into a wet foe is damped: a frost focus chills it with every bolt, and the next firebolt makes steam
   const wet = wetOf(t) > 0.3;
-  focus(ch > 0 || wet ? 'frost' : 'fire');
+  // [balance5] a caster soaked by the steam while the lance comes round: a storm focus, so the bolts between spells run
+  // through the wet and break its spells (a storm blow breaks three spells in five)
+  const stormy = clsHas(e, 'storm') && wet && ch <= 0 && (t.cls === 'mage' || t.cls === 'priest') && !!canUse(e, 'frost', t);
+  focus(stormy ? 'storm' : ch > 0 || wet ? 'frost' : 'fire');
   if (wet && ch <= 0) return botUse(e, 'frost', t) || (e.swingAt - GAME.t > 1.2 && botUse(e, 'firebolt', t));
   return botUse(e, 'firebolt', t) || botUse(e, 'frost', t);
 }
@@ -606,6 +613,8 @@ function botPriest(e, t) {
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
+  // [balance5] Holy Fire flares a spell away (07c_balance5.js): a heal or a long spell being cast is broken at once
+  if (t && flareWorth(t) && botUse(e, 'holyfire', t)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
   // [balance3] against another healer the fight is long: a good hand keeps its renewals rolling from the first blow
@@ -613,7 +622,9 @@ function botPriest(e, t) {
   if (fight && hpF < (long ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
-  if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
+  if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance5] a fresh one, or it does not steady
+  // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
+  if (fight && !steady && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true;
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
   if (hpF < (castOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
@@ -624,7 +635,8 @@ function botPriest(e, t) {
     return false;
   }
   // holy fire is instant and cheap for what it does: keep it burning
-  if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
+  // [balance5] but against a caster it is kept for the spell it can break (above)
+  if (!(t.cls === 'priest' || t.cls === 'mage') && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
   if (castOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66)
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
@@ -649,6 +661,7 @@ const priestSelf = (e) => (abilityRank(e.level) <= 1 ? PRIEST_SELF : PRIEST_SELF
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
   e.buffs = e.buffs.filter((b) => !(b.kind === 'root' && b.src !== 'frozen'));
+  if (!renewFresh(e)) return; // [balance5] only a fresh Renewal steadies the priest (07c_balance5.js)
   addBuff(e, 'steadfast', 1, 4, 'steadfast');
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.ring(e.x, e.y + 0.15, e.z, 0.9, [1.9, 1.7, 1.0], 18, 1.4);
 }
