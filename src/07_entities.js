@@ -650,6 +650,7 @@ function executeAbility(e, A, t, cast = null) {
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, { kind: 'fire' }); // [classes] the meteor's fire meets frost, wet and ice
         fireLandsAt(gx, gy, gz, A.radius, e); // [depth] the caster
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
+        houseBlowAt(e, gx, gz, A.radius, A.dmg * rk); // [siege2] and houses (04j_batter.js)
         sfx('boom');
         cameraShake(0.4, gx, gz);
       });
@@ -852,7 +853,8 @@ function autoAttack(e) {
   if (!e.rangedKind && t.kind !== 'door' && Math.abs(t.y - e.y) > 2.6 && (elevatedEnt(e) || elevatedEnt(t))) return; // [keeps] no blow from the foot of a wall to its walk
   if (towerSightBlocked(e, t)) return; // [keeps] nor through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   if (e.role === 'player' && Math.abs(angDiff(e.yaw, Math.atan2(t.x - e.x, t.z - e.z))) > 1.4 && d > 2.5) return;
-  if (e.rangedKind && e.role !== 'player' && !wallsShotClear(e, t, e.rangedKind === 'arrow')) { e.swingAt = now + 0.45; if (e.ai) e.ai.wallShot = now; return; } // [walls] no shot into a wall: close in instead (07g_walls.js)
+  if (e.rangedKind && e.role !== 'player' && wallsHeld(e, t)) { e.swingAt = now + 0.3; if (e.ai) e.ai.wallShot = now; return; } // [siege2] holding its fire at a foe it cannot strike, without looking again, while it seeks a line (07h_lines.js)
+  if (e.rangedKind && e.role !== 'player' && !wallsShotClear(e, t, e.rangedKind === 'arrow')) { e.swingAt = now + 0.45; if (e.ai) e.ai.wallShot = now; if (wallsHeldShot(e, t)) e.swingAt = now + 0.05; return; } // [walls] no shot into a wall: close in instead (07g_walls.js); [siege2] or another foe it can strike (07h_lines.js)
   e.swingAt = now + e.swing * (0.95 + Math.random() * 0.1);
   faceToward(e, t.x, t.z);
   if (e.rangedKind) {

@@ -460,6 +460,7 @@ const HOUSE_FS = (() => {
   // weather stays outside: rooms are neither wet nor snowed on
   fs = houseShaderPatch(fs, 'uniform float uFlash, uWet, uSnowCover;', (a) => a + /* glsl */`
     uniform vec4 uHA[${HOUSE_MAXH}]; uniform vec4 uHB[${HOUSE_MAXH}]; uniform vec4 uHL[${HOUSE_MAXH}]; uniform vec4 uHM[${HOUSE_MAXH}]; uniform vec4 uHC[${HOUSE_MAXH}]; uniform vec4 uHY[${HOUSE_MAXH}];
+    uniform vec4 uHD[${HOUSE_MAXH}]; // [siege2] battered by stones: the roof's hole (x, z, radius), how battered (+2: fell to stones) (04j_batter.js)
     varying vec2 vHP;
     float houseWetU(){ return uWet; }
     float houseSnowU(){ return uSnowCover; }
@@ -535,7 +536,8 @@ const HOUSE_FS = (() => {
     vec3 hGlow = vec3(0.0);
     void houseFire(inout vec3 alb, int hi, int kind, int m){
       vec4 A = uHA[hi], B = uHB[hi], C = uHC[hi];
-      bool ruin = A.y > 1.5 && A.y < 2.5;
+      bool ruin = A.y > 1.5 && A.y < 2.5 && uHD[hi].w < 1.5; // [siege2] a house brought down by stones is rubble, not soot (04j_batter.js)
+      if (kind == 5 && uHD[hi].w > 1.5) { alb = alb * 3.0 + vec3(0.1, 0.07, 0.04); return; } // [siege2] its fallen timbers and stones as they were
       if (A.x < 0.001 && !ruin && kind != 5) return;
       float nz = vnoise(vW.xz * 1.9 + vW.y * 2.3) * 0.6 + vnoise(vW.xz * 5.3 - vW.y * 4.1 + 7.0) * 0.4;
       // charred wood splits into a crazing of thin cracks that glow while it is hot
@@ -568,6 +570,25 @@ const HOUSE_FS = (() => {
       alb = mix(alb, vec3(0.05, 0.043, 0.037) * (0.75 + 0.5 * nz), clamp(burnt, 0.0, 1.0));
       hGlow = vec3(2.6, 0.72, 0.15) * glow;
     }
+    // [siege2] battered by stones (04j_batter.js): long jagged cracks over the walls that branch as it weakens, grit and
+    // dust ground into it; round the hole in the roof the broken ends of the covering and its timbers
+    void houseBatter(inout vec3 alb, int hi, int kind, int m){
+      vec4 D = uHD[hi];
+      float k = D.w > 1.5 ? 1.0 : D.w;
+      if (k < 0.002 || kind == 3 || kind == 4 || kind == 6) return;
+      if (kind != 1 && kind != 7) {
+        float c1 = 1.0 - smoothstep(0.0, 0.07, abs(vnoise(vW.xz * 0.9 + vec2(vW.y * 1.3, -vW.y * 0.7)) - 0.5) * (0.6 + 1.6 * vnoise(vW.xz * 3.7 - vW.y)));
+        float c2 = 1.0 - smoothstep(0.0, 0.045, abs(vnoise(vec2(vW.x + vW.z, vW.y) * 2.6 + 5.0) - 0.5));
+        float cr = clamp(c1 * smoothstep(0.08, 0.45, k) + c2 * smoothstep(0.4, 0.85, k), 0.0, 1.0) * (1.0 - smoothstep(0.006, 0.03, length(fwidth(vW))) * 0.5);
+        alb *= 1.0 - 0.78 * cr;
+        alb = mix(alb, alb * vec3(0.8, 0.76, 0.7), smoothstep(0.15, 1.0, k) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
+        // plaster and daub knocked off in patches, the laths and wattle under them showing; stone faces chipped dark
+        float sp = smoothstep(0.66 - 0.2 * k, 0.7 - 0.2 * k, vnoise(vW.xz * 0.85 + vec2(vW.y * 1.1, -vW.y * 0.6) + 3.7)) * step(0.12, k) * step(abs(vN.y), 0.6);
+        if (m == 2) alb = mix(alb, vec3(0.34, 0.26, 0.17) * (0.7 + 0.55 * vnoise(vec2(dot(vW.xz, vec2(0.7, 0.7)) * 9.0, vW.y * 30.0))), sp);
+        else alb *= 1.0 - 0.5 * sp;
+      }
+      if ((kind == 1 || kind == 7) && D.z > 0.01) { float d = distance(vW.xz, D.xy) - D.z; alb *= 0.35 + 0.65 * smoothstep(0.05, 0.55, d); }
+    }
     ${a}
     int hHi = -1, hKind = 0; float hIn = 0.0;
     if (vHP.x > -0.5) {
@@ -575,12 +596,16 @@ const HOUSE_FS = (() => {
       // nothing of a house may fill the lens: whatever the camera is about to touch fades out
       if (bayer4(gl_FragCoord.xy) < 1.0 - smoothstep(0.12, 0.4, distance(vW, cameraPosition))) discard;
       hIn = ((hKind == 2 || hKind == 3 || hKind == 7) && uHA[hHi].y < 1.5) ? 1.0 : 0.0;
+      // [siege2] a hole a stone knocked in the roof: the covering gone round it, ragged (04j_batter.js)
+      if ((hKind == 1 || hKind == 7) && uHD[hHi].z > 0.01 && uHA[hHi].y < 1.5 && distance(vW.xz, uHD[hHi].xy) < uHD[hHi].z * (0.82 + 0.36 * vnoise(vW.xz * 3.1 + float(hHi) * 1.7))) discard;
     }
     hWet = houseWetU() * (1.0 - hIn); hSnow = houseSnowU() * (1.0 - hIn);
+    if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, houseWetU() * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
   `);
   fs = houseShaderPatch(fs, 'alb *= 1.0 - 0.22 * uWet;', (x) => 'if (hHi >= 0 && m >= 40) alb = houseAlbedo(m, n, hHi, alb);\n    ' + x);
   fs = houseShaderPatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', () => /* glsl */`
     if (hHi >= 0) houseFire(alb, hHi, hKind, m);
+    if (hHi >= 0) houseBatter(alb, hHi, hKind, m); // [siege2] (04j_batter.js)
     vec3 col = hIn > 0.5 ? houseIndoor(alb, n, vAO, hHi) : lightSurface(alb, n, vAO);
     col += hGlow;
   `);
@@ -588,7 +613,7 @@ const HOUSE_FS = (() => {
 })();
 function houseTownUniforms() {
   const v = (n) => ({ value: Array.from({ length: n }, () => new THREE.Vector4()) });
-  return { uHA: v(HOUSE_MAXH), uHB: v(HOUSE_MAXH), uHL: v(HOUSE_MAXH), uHM: v(HOUSE_MAXH), uHC: v(HOUSE_MAXH), uHY: v(HOUSE_MAXH), uLeaf: v(HOUSE_MAXLEAF / 4) };
+  return { uHA: v(HOUSE_MAXH), uHB: v(HOUSE_MAXH), uHL: v(HOUSE_MAXH), uHM: v(HOUSE_MAXH), uHC: v(HOUSE_MAXH), uHY: v(HOUSE_MAXH), uHD: v(HOUSE_MAXH), uLeaf: v(HOUSE_MAXLEAF / 4) }; // [siege2] uHD (04j_batter.js)
 }
 const houseMat = mat({ vertexShader: HOUSE_VS, fragmentShader: HOUSE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, ...houseTownUniforms() } });
 // window glass: thin and old, a little uneven; it mirrors the sky and glints in the sun, and glows with the fire at night
@@ -844,6 +869,7 @@ function fireLandsAt(x, y, z, r = 1, by = null) {
   boatFireAt(x, y, z, r, by); // [water2] boats catch (07e_boats.js)
   let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
   n += towerFireAt(x, y, z, r, by); // [keeps] the timber towers of the burhs catch (04n_towerfire.js)
+  n += palisadeFireAt(x, y, z, r, by); // [siege2] and the burhs' palisades (04g_burn.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
@@ -863,6 +889,7 @@ function fireConeAt(x, z, dx, dz, range, half) {
   boatFireCone(x, z, dx, dz, range, half); // [water2] and boats (07e_boats.js)
   let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
   n += towerFireCone(x, z, dx, dz, range, half); // [keeps] and the timber towers (04n_towerfire.js)
+  n += palisadeFireCone(x, z, dx, dz, range, half); // [siege2] and the burhs' palisades (04g_burn.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;
     for (const p of H.roofPts) {
@@ -939,13 +966,14 @@ function houseRuinStep(H, dt) {
 function houseScaffoldStep(H, dt) {
   H.stT += dt;
   // the charred walls are cleaned and made good as the work goes on
-  H.char = 1 - smooth(clamp(H.stT / (HOUSE_TIME.scaffold * 0.8), 0, 1));
+  H.char = (H.bat && H.bat.fell ? 0.1 : 1) * (1 - smooth(clamp(H.stT / (HOUSE_TIME.scaffold * 0.8), 0, 1))); // [siege2] a house brought down by stones was never burnt (04j_batter.js)
   if (H.stT >= HOUSE_TIME.scaffold) houseRestore(H);
 }
 // whole again: a new roof, the door hung, the hearth lit
 function houseRestore(H) {
   if (H.burn) { for (const p of H.burn.pts) houseFireOut(p.fire); for (const s of H.burn.smoulder) houseFireOut(s.f); }
   H.state = 'whole'; H.stT = 0; H.char = 0; H.ember = 0; H.fall = 0; H.burn = null;
+  H.bat = null; // [siege2] built back sound: no cracks, no hole (04j_batter.js)
   for (const L of houseLeavesOf(H)) { L.open = 0; L.target = 0; }
   for (const win of H.wins) win.target = 0;
   houseHearthOn(H);
@@ -1115,6 +1143,7 @@ function drawHouses(dt) {
       const i = H.slot, B = H.burn, whole = houseIntact(H);
       T.uHA.value[i].set(H.char, houseStageNum(H), H.fall, H.ember);
       T.uHB.value[i].set(B ? B.x : 0, B ? B.z : 0, B ? B.R : 0, H.state === 'burning' ? 1 : 0);
+      houseBatterUniform(H, T.uHD.value[i]); // [siege2] cracks and a hole in the roof (04j_batter.js)
       // a cooking fire by day, banked up at night; a house afire is lit red within
       let fire = whole ? 0.6 + 0.9 * night : 0;
       if (H.state === 'burning') fire += H.char * 2.4;
@@ -1160,12 +1189,14 @@ function houseSmoke(dt, cx, cz) {
 U.uRoofA = { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }; // centre x, z; cos, sin of the yaw
 U.uRoofB = { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 1, 0)) }; // half extents (or radius, -1); ground y; top y (below ground: unused)
 U.uRoofC = { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }; // height of the roof at its outer edge; its slope
+U.uRoofD = { value: Array.from({ length: 8 }, () => new THREE.Vector4()) }; // [siege2] a hole in it: x, z, radius (04j_batter.js)
 const GLSL_ROOFS = /* glsl */`
-  uniform vec4 uRoofA[8]; uniform vec4 uRoofB[8]; uniform vec4 uRoofC[8];
+  uniform vec4 uRoofA[8]; uniform vec4 uRoofB[8]; uniform vec4 uRoofC[8]; uniform vec4 uRoofD[8];
   bool underRoof(vec3 p){
     for (int i = 0; i < 8; i++) {
       vec4 A = uRoofA[i], B = uRoofB[i], C = uRoofC[i];
       if (B.w < B.z || p.y > B.w || p.y < B.z - 1.0) continue;
+      if (uRoofD[i].z > 0.0 && distance(p.xz, uRoofD[i].xy) < uRoofD[i].z) continue; // [siege2] the hole a stone knocked in it (04j_batter.js)
       vec2 d = p.xz - A.xy;
       vec2 l = vec2(d.x * A.z - d.y * A.w, d.x * A.w + d.y * A.z);
       float ext, at;
@@ -1182,11 +1213,12 @@ function houseRoofsForRain(cx, cz) {
   buildRoofsForRain(_roofList, cx, cz); // [building] placed roofs keep the rain out too (06k_build.js)
   towerRoofsForRain(_roofList, cx, cz); // [land] and the rooms of the keeps' towers (04l_towers.js)
   _roofList.sort((a, b) => a[0] - b[0]);
-  const A = U.uRoofA.value, B = U.uRoofB.value, C = U.uRoofC.value;
+  const A = U.uRoofA.value, B = U.uRoofB.value, C = U.uRoofC.value, D = U.uRoofD.value;
   for (let i = 0; i < 8; i++) {
     const H = _roofList[i] && _roofList[i][1];
-    if (!H) { B[i].set(0, 0, 1, 0); continue; }
+    if (!H) { B[i].set(0, 0, 1, 0); D[i].set(0, 0, 0, 0); continue; }
     A[i].set(H.x, H.z, H.c, H.s);
+    D[i].set(H.bat ? H.bat.hx : 0, H.bat ? H.bat.hz : 0, H.bat && houseIntact(H) ? H.bat.hr : 0, 0); // [siege2] a hole in its roof lets the rain in (04j_batter.js)
     if (H.round) { B[i].set(H.Rr, -1, H.y, H.y + H.y0 + H.hc); C[i].set(H.y + H.y0, H.hc / H.Rr, 0, 0); }
     else {
       const hw = H.w / 2 + H.ohSide;
@@ -1198,7 +1230,7 @@ function houseRoofsForRain(cx, cz) {
 // is (x, z) under a standing roof (rain does not splash there)
 function houseRoofOver(x, z) {
   const H = houseAt(x, z, 0.6);
-  return (!!H && houseIntact(H)) || buildRoofOver(x, z); // [building] or a roof the player built (06k_build.js)
+  return (!!H && houseIntact(H) && !houseHoled(H, x, z)) || buildRoofOver(x, z); // [building] or a roof the player built (06k_build.js); [siege2] not under a hole a stone knocked in it (04j_batter.js)
 }
 
 /* ------------------------------------------------------------------ */

@@ -446,12 +446,8 @@ function siegeAim(E) {
 function siegeRetarget(E) {
   const C = E.target.C, D = siegeDoorOf(C.S), range = (E.spec.range || 0) + 10;
   if (E.kind === 'ram') return !!(D && D.alive);
-  let best = null, bd = Infinity;
-  for (const W of C.sections || []) {
-    if (W.state !== 'whole' || W.kind === 'tower') continue; // [walls] the engines keep to the curtains (04g_breach.js)
-    const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z);
-    if (d < range && d < bd) { bd = d; best = W; }
-  }
+  let best = null;
+  for (const W of siegeMarks(C, E.x, E.z, 0)) { const f = siegeFace(W); if (dist(E.x, E.z, f.x, f.z) < range) { best = W; break; } } // [siege2] the weakest way in within reach, a tower too (04i_siege2.js)
   if (best) { E.target = { C, W: best }; return true; }
   if (D && D.alive && doorVulnerable(D)) { const g = siegeGatePoint(C.S); if (dist(E.x, E.z, g.x, g.z) < range) { E.target = { C, gate: true }; return true; } }
   return false;
@@ -532,6 +528,9 @@ function siegeImpact(s) {
     if (a.D && a.D.alive && doorVulnerable(a.D)) dealDamage(src, a.D, baseDmg(src.level) * mult * 2.4, { siege: true });
     SIEGE.stats.gateHits++; E.hitsOn++;
     FX.splinters(a.x, a.y - 1, a.z);
+    siegeSplash(src, a.x, a.z, 2.4, 0.9);
+  } else if (a.H) {
+    houseStoneHit(a.H, a.x, a.y, a.z, mult, src); // [siege2] a house in its way: its walls crack, its roof is holed, it falls in (04j_batter.js)
     siegeSplash(src, a.x, a.z, 2.4, 0.9);
   } else {
     FX.dust(a.x, a.y + 0.2, a.z, 22, [0.44, 0.39, 0.31]);
@@ -886,10 +885,10 @@ function siegePlanFor(wb, O) {
     return siegeCrewUp(E, wb, members, L);
   }
   // a wall section on the side the band comes from, or the gate when the walls are down
-  const secs = (C.sections || []).filter((W) => W.state === 'whole' && W.kind !== 'tower'); // [walls] a tower is no mark: a band could not storm it (04g_breach.js)
   const range = SIEGE_SPEC[kind].range;
-  const cands = secs.map((W) => ({ W, f: siegeFace(W) })).sort((a, b) => dist2(a.f.x, a.f.z, L.x, L.z) - dist2(b.f.x, b.f.z, L.x, L.z));
+  const cands = siegeMarks(C, L.x, L.z).map((W) => ({ W, f: siegeFace(W) })); // [siege2] the weakest way in first: a cracked or nearer tower too (04i_siege2.js)
   for (const { W, f } of cands) { spot = siegeFindSpot(f.x, f.z, f.nx, f.nz, range, C); if (spot) { target = { C, W }; work = spot; break; } }
+  if (target) SIEGE2.stats[target.W.kind === 'tower' ? 'towerMarks' : 'curtainMarks']++; // [siege2]
   if (!spot) {
     const g = siegeGatePoint(S);
     spot = siegeFindSpot(g.x, g.z, g.nx, g.nz, range, C);
@@ -909,7 +908,7 @@ function siegeCrewUp(E, wb, members, L) {
   pool.slice(0, E.spec.crew).forEach((m, i) => siegeAddCrew(E, m, i));
   siegeGround(E);
   const S = E.target.C.S;
-  news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} builds a ${E.spec.label} before ${S.name} ${E.kind === 'ram' ? 'to break its gate' : E.target.W ? 'to breach its wall' : 'to batter its gate'}.`, wb.realm, 'order');
+  news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} builds a ${E.spec.label} before ${S.name} ${E.kind === 'ram' ? 'to break its gate' : E.target.W ? (E.target.W.kind === 'tower' ? 'to bring down a tower' : 'to breach its wall') : 'to batter its gate'}.`, wb.realm, 'order'); // [siege2] a tower
   return E.id;
 }
 // the band's breach route: up to the gap, over the rubble, into the court
@@ -920,7 +919,7 @@ function siegeBreachRoute(W) {
 }
 function siegeOpenBreach(C, x, z) {
   let best = null, bd = Infinity;
-  for (const W of C.sections || []) { if (W.state !== 'breach' || W.kind === 'tower') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } } // [walls] not a fallen tower: its way in (the store room and its courtyard door) is too narrow for a band (04g_breach.js)
+  for (const W of [...(C.sections || []), ...palisadeGaps(C)]) { if (W.state !== 'breach' || (W.kind === 'tower' && !siegeTowerWayOk(W))) continue; const d = dist2(W.wx, W.wz, x, z) * (W.kind === 'tower' ? 1.5 : 1); if (d < bd) { bd = d; best = W; } } // [siege2] a fallen tower too: the band goes through it one or two at a time (siegeStormBand, 04i_siege2.js)
   return best;
 }
 // [campaign tuning] a raid that has broken into a temple: its boldest fighter runs for the hallow and takes it,
@@ -957,13 +956,14 @@ function siegeBandAfter(wb, L, O) {
     // a breach: the commander sends the band through it while the gate still stands
     // ([v12] once the band is near the walls, not from 110 m off: the way to a breach is walked straight, and from far
     // off it ran into hills, water and the curtain itself; and not again for two minutes after one it could not reach)
-    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < 60 && GAME.t > (O.breachBan || 0)) {
+    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < (O.phase === 'bombard' ? 95 : 60) && GAME.t > (O.breachBan || 0)) { // [siege2] a band guarding its engine goes for the breach it made (the engine batters on at the next weakest way in, often the next tower)
       const W = siegeOpenBreach(C, L.x, L.z);
-      if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms the breach in the wall of ${S.name}!`, wb.realm, 'order'); }
+      if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2]
     }
     if (O.phase === 'breach') {
       const W = O.breach;
       if (!W || W.state !== 'breach') { O.phase = 'siege'; O.breach = null; wbPlan(wb, K.nav.gate); return; }
+      if (W.kind === 'tower') siegeStormBand(wb, L, O, W); // [siege2] each member walks the way in, one or two at a time through the store room (04i_siege2.js)
       const Rt = siegeBreachRoute(W);
       if (O.bi < Rt.length && dist(L.x, L.z, Rt[O.bi].x, Rt[O.bi].z) < 2.4) O.bi++;
       const q = O.bi < Rt.length ? Rt[O.bi] : K.nav.court;
@@ -1012,6 +1012,7 @@ function siegeDanger(K) {
   const C = castleOf(K.site);
   let d = 0;
   if (C && C.sections) for (const W of C.sections) d = Math.max(d, W.state === 'breach' ? 0.9 : W.wear * 0.6);
+  for (const W of palisadeGaps(C)) if (W.state === 'breach') d = Math.max(d, 0.9); // [siege2] a palisade burnt through (04g_burn.js)
   for (const E of SIEGE.engines) if (siegeActive(E) && E.realm !== K.realm && E.target && E.target.C === C) d = Math.max(d, E.state === 'work' ? 0.7 : 0.5);
   return d;
 }
@@ -1028,13 +1029,14 @@ function siegeOnBreach(W) {
   for (const id of K.guards) {
     const g = getEnt(id);
     if (!g || !g.alive || g.ai.wall) continue;
+    if (W.kind === 'burnt' && g.ai.plug && g.ai.plug.W !== W && g.ai.plug.W.state === 'breach') continue; // [siege2] a palisade's burnt gap takes those not already holding another (04g_burn.js)
     g.ai.plug = W.kind === 'tower' ? { W, ...towerPlugAt(W, n) } : { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 }; // [walls] a tower's: before its courtyard door (04g_breach.js)
     g.ai.sally = null;
     n++;
   }
   const Lr = getEnt(K.lord);
   if (Lr && Lr.alive) Lr.ai.plug = { W, x: W.wx - f.nx * 6, z: W.wz - f.nz * 6 };
-  if (n) { SIEGE.stats.plugs++; news(`The garrison of ${W.C.S.name} runs to hold the breach.`, K.realm, 'normal'); }
+  if (n) { SIEGE.stats.plugs++; if (GAME.t > (W.C.plugNewsAt || 0)) { W.C.plugNewsAt = GAME.t + 30; news(`The garrison of ${W.C.S.name} runs to hold the breach.`, K.realm, 'normal'); } } // [siege2] told once in a while (a palisade burns through stretch by stretch)
 }
 function siegeOnRepair(W) {
   const K = W.C.S.keepRef;
@@ -1227,6 +1229,7 @@ function updateSiege(dt) {
   for (const E of SIEGE.engines.slice()) if (!E.gone) siegeEngineStep(E, dt);
   for (let i = SIEGE.engines.length - 1; i >= 0; i--) if (SIEGE.engines[i].gone) SIEGE.engines.splice(i, 1);
   siegeStonesStep(dt);
+  updatePalisades(dt); // [siege2] the burhs' palisades burn, burn through and are built back (04g_burn.js)
   siegeSallies(dt);
   siegePlayerStep();
 }

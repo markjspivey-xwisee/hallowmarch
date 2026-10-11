@@ -752,9 +752,9 @@ const CASTLE_CUT_GLSL = /* glsl */`
       bool cut = false;
       for (int i = 0; i < ${TW_FIRE_MAX}; i++) {
         vec4 A = uTA[i], B = uTB[i];
-        if (A.z <= 0.0) continue;
+        if (A.z == 0.0) continue; // [siege2] an empty zone (A.z < 0: a cone, below)
         vec2 d = p.xz - A.xy, l = vec2(d.x * uTR.x - d.y * uTR.y, d.x * uTR.y + d.y * uTR.x);
-        if (abs(l.x) > A.z || abs(l.y) > A.z) continue;
+        if (A.z > 0.0 ? (abs(l.x) > A.z || abs(l.y) > A.z) : dot(d, d) > A.z * A.z) continue; // [siege2] A.z < 0: a drum's circle (an Eriu tower's cone, 04n_towerfire.js)
         float up = smoothstep(B.z - 0.4, B.z + 0.5, p.y);
         tChar = max(tChar, A.w * up * (0.7 + 0.3 * vnoise(p.xz * 2.3 + p.y * 1.7)));
         tGlow = max(tGlow, B.y * up);
@@ -776,13 +776,14 @@ const CASTLE_CUT_GLSL = /* glsl */`
       return 0.0;
     }
     ${TBREACH_GLSL /* [walls] a breached stone tower (04g_breach.js) */}
+    ${PAL_GLSL /* [siege2] a burh's palisade burning (04g_burn.js) */}
 `;
 const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
     ${a}
-    if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW)) discard; // [walls] (04g_breach.js)
+    if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat)) discard; // [walls] (04g_breach.js); [siege2] (04g_burn.js)
   `);
   fs = castlePatch(fs, 'float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0);', (a) => /* glsl */`${a}
     float tShel = towerShelterK(vW); wSnow *= 1.0 - tShel; wWet *= 1.0 - tShel; // [keeps] no snow on the floors inside a tower (before it whitens the albedo), nor a wet film`);
@@ -801,6 +802,7 @@ const CASTLE_FS = (() => {
     float tCk = 1.0;
     if (tChar > 0.002 || tGlow > 0.002) {
       vec2 cq = vec2(dot(vW.xz, vec2(0.83, 0.56)) * 2.4 + vW.y * 0.3, vW.y * 3.6 + dot(vW.xz, vec2(-0.56, 0.83)) * 0.9);
+      if (pOn > 0.5) cq = vec2(pAl * 2.9 + vnoise(vec2(vW.y * 1.7, pAl)) * 0.8, vW.y * 5.2 + floor(pAl / 0.48) * 1.7); // [siege2] a palisade's upright logs check across their grain (04g_burn.js)
       tCk = abs(vnoise(cq) - 0.5) + 0.55 * abs(vnoise(cq * 2.3 + 7.1) - 0.5);
     }
     if (tChar > 0.002) {
@@ -825,15 +827,16 @@ const CASTLE_FS = (() => {
 })();
 const CASTLE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
-  varying vec3 vW;
+  varying vec3 vW; varying float vMat;
   ${CASTLE_CUT_GLSL}
-  void main(){ if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW)) discard; gl_FragColor = vec4(1.0); }`; // [walls]
-const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] }, uKA: { value: [] }, uKB: { value: [] }, uKC: { value: [] } } }); // [walls] uK*: the breached towers (04g_breach.js)
+  void main(){ if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat)) discard; gl_FragColor = vec4(1.0); }`; // [walls]; [siege2] vMat: the palisade's logs (04g_burn.js)
+const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] }, uKA: { value: [] }, uKB: { value: [] }, uKC: { value: [] }, uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: { value: [] }, uPB: { value: [] } } }); // [walls] uK*: the breached towers (04g_breach.js); [siege2] uP*: a burning palisade (04g_burn.js)
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
   const t = (y) => ({ value: Array.from({ length: TW_FIRE_MAX }, () => new THREE.Vector4(y, 0, 0, 0)) }); // [keeps] the timber towers (04n_towerfire.js)
   const k = (y) => ({ value: Array.from({ length: TB_MAX }, () => new THREE.Vector4(0, y, 1e5, 0)) }); // [walls] the breached towers (04g_breach.js)
-  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0), uKA: k(0), uKB: k(1), uKC: k(0) }; // [keeps] uTS: the towers' rooms
+  const pz = (y) => ({ value: Array.from({ length: PZ_MAX }, () => new THREE.Vector4(0, y, 0, 0)) }); // [siege2] the palisade's zones (04g_burn.js)
+  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0), uKA: k(0), uKB: k(1), uKC: k(0), uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: pz(0), uPB: pz(1e5) }; // [keeps] uTS: the towers' rooms; [siege2] uP*
 }
 // split a box collider along one of its local axes: the ends stay, the middle (returned) can fall
 function castleSplitColl(c, axis, u0, u1) {

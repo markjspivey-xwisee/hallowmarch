@@ -458,6 +458,7 @@ function fightTarget(e, t, dt, opts = {}) {
   // healers look after their side first
   if (C === 'priest' && e.ai.healCheck !== undefined) { /* handled in priestThink */ }
   if (e.rangedKind && t.kind !== 'door') {
+    if (wallsSeekLine(e, t, null, dt)) return; // [siege2] its shot held: to a place with a line to its foe, back from the wall or aside (07h_lines.js)
     const want = Math.min(e.rangedRange - 4, 24);
     const walled = e.fixedY === null && e.ai && GAME.t - (e.ai.wallShot ?? -9) < 2.5 && d > 2.5; // [walls] its last shot struck a wall: close in (07g_walls.js)
     const under = walled && elevatedEnt(t) && !elevatedEnt(e); // [walls] a foe up behind a breastwork: stand off where its crenel shows, not under the wall
@@ -522,7 +523,7 @@ function npcAbilities(e, t) {
     if (k === 'leap' && (e.fixedY !== null || e.ai.post)) continue;
     if (A.friendly) continue;
     if (!canUse(e, k, t)) {
-      if (A.proj && !wallsShotClear(e, t, false)) { e.ai.wallShot = GAME.t; continue; } // [walls] not into a wall (07g_walls.js)
+      if (A.proj && (wallsHeld(e, t) || !wallsShotClear(e, t, false))) { e.ai.wallShot = GAME.t; continue; } // [walls] not into a wall (07g_walls.js); [siege2] nor looked at again while held (07h_lines.js)
       useAbility(e, k, t); return;
     }
   }
@@ -618,7 +619,7 @@ function thinkPosted(e, dt, aggroR) {
   if (t) {
     if (e.fixedY !== null || post.leash === 0) {
       e.target = t.id; turnToward(e, t.x, t.z, dt * 10);
-      if (e.ai.wall && e.fixedY === null && GAME.t - (e.ai.wallShot ?? -9) < 2) wallsStepToCrenel(e, t, post, dt); // [walls] up to the crenel facing its foe (07g_walls.js)
+      if (e.ai.wall && e.fixedY === null && GAME.t - (e.ai.wallShot ?? -9) < 2) { if (!wallsSeekLine(e, t, post, dt)) wallsStepToCrenel(e, t, post, dt); } // [walls] up to the crenel facing its foe (07g_walls.js); [siege2] or the crenel, slit or edge with a line to it (07h_lines.js)
       return;
     }
     const far = dist(e.x, e.z, post.x, post.z) > post.leash;
@@ -839,6 +840,7 @@ function thinkSoldier(e, dt) {
   }
   if (e.siegeCrew && siegeCrewThink(e, dt)) return; // [siege] working a siege engine (04h_siege.js)
   if (e.hallowRun && siegeHallowRun(e, dt)) return; // [siege] campaign tuning: a raider runs for the hallow (04h_siege.js)
+  if (e.ai.storm && siegeStormStep(e, dt)) return; // [siege2] storming a fallen tower: its own way in, one or two at a time (04i_siege2.js)
   // [campaign] a band called to the player's side: its leader breaks off any fight and goes, and the
   // rest follow once their foes are left behind (08g_campaign.js)
   if (O && O.type === 'rally' && e === L && wb.leaderGoal && O.point && dist(e.x, e.z, O.point.x, O.point.z) > 12) {
