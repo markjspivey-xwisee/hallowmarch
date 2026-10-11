@@ -216,7 +216,7 @@ function botStep(e, dt) {
     if (skilled) botReflex(e, t, dt);
     else botLetGo(e);
   }
-  if (!isStunned(e) && !(e.motion && e.motion.kind)) botMove(e, t, dt);
+  if (!isStunned(e) && !(e.motion && e.motion.kind) && !(skilled && botDodge(e, t, dt))) botMove(e, t, dt); // [balance5] out from under a meteor, out of a blizzard (07c_balance5.js)
   // a player in trouble drinks a healing draught
   if (e === GAME.player && e.hp < e.maxHp * (skilled ? 0.38 : 0.25) && INV.potions > 0 && GAME.t >= (INV.potionAt || -99) + POTION.cd) usePotion();
   if (GAME.t >= B.next && !e.casting && !isStunned(e) && !(e.motion && e.motion.kind === 'leap') && e.carrying == null) {

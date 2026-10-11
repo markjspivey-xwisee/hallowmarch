@@ -79,6 +79,41 @@ function crippleWound(src, t, sn) {
 }
 
 /* ------------------------------------------------------------------ */
+/* the skilled bots: out from under a meteor, out of a blizzard        */
+/* ------------------------------------------------------------------ */
+// a skilled hand does not stand where a foe's meteor is about to land or in its blizzard: a mage blinks and an archer
+// tumbles from under a falling meteor (letting its own spell go), anyone walks out of the ice. A mirror of mages at 30
+// and 50 was won by whose meteor landed first; the simple bot stands where it is
+function botDodge(e, t, dt) {
+  if (e.motion || isRooted(e) || e.fixedY != null || e.swim || e.boat) return false;
+  let best = null;
+  for (const p of PROJ) {
+    if (p.kind !== 'meteor' || p.srcFaction === e.faction || !p.point) continue;
+    const R = ABILITIES.meteor.radius + e.radius * (e.scale || 1) + 0.3, d = dist(e.x, e.z, p.point.x, p.point.z);
+    if (d < R) { best = { x: p.point.x, z: p.point.z, now: true }; break; }
+  }
+  if (!best && typeof SPELL !== 'undefined') for (const S of SPELL.emitters) {
+    if (S.kind !== 'blizzard' || !S.src || S.src.faction === e.faction || S.until < GAME.t + 0.8) continue;
+    if (dist(e.x, e.z, S.x, S.z) < S.r + e.radius * (e.scale || 1) + 0.4) { best = { x: S.x, z: S.z, now: false }; break; }
+  }
+  if (!best) return false;
+  let ax = e.x - best.x, az = e.z - best.z;
+  const L = Math.hypot(ax, az);
+  if (L < 0.3) { const a = t ? Math.atan2(t.x - e.x, t.z - e.z) + Math.PI / 2 : Math.random() * TAU; ax = Math.sin(a); az = Math.cos(a); } else { ax /= L; az /= L; }
+  BAL5.stats.dodges = (BAL5.stats.dodges || 0) + 1;
+  if (best.now) {
+    if (e.casting) e.casting = null; // the spell let go: it would not outlast the fall
+    if (e.cls === 'mage' && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null)) { e.yaw = Math.atan2(ax, az); if (botUseAny(e, 'blink', e)) return true; }
+    if (e.cls === 'archer' && e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null)) { e.yaw = Math.atan2(-ax, -az); if (botUseAny(e, 'tumble', e)) return true; }
+  } else if (e.casting) {
+    if (e.casting.total - e.casting.t < 0.8) return false; // nearly cast: finish it, then walk out
+    e.casting = null;
+  }
+  moveToward(e, e.x + ax * 4, e.z + az * 4, dt, 1, 0);
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
 /* the press of foes: Whirlwind                                        */
 /* ------------------------------------------------------------------ */
 // each foe a Whirlwind's cut strikes gives the warrior back this share of its health (two cuts a spin): in a pack of five
@@ -115,5 +150,5 @@ ABILITIES.cripple.desc = 'Slows the target by 50% for 5 seconds, and its wound m
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal5 = { BAL5, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
+  window.__hm.bal5 = { BAL5, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
 }, 0);
