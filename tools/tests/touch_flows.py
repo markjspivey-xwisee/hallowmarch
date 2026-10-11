@@ -296,7 +296,7 @@ async def main():
             check(inn['inside'] and abs(inn['y'] - inn['yG']) < 0.2, f'{key}: the stick walks you in at the courtyard door, which swings open ({json.dumps(inn)})')
             ys = []
             for L in (0, 1):
-                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders.slice().sort((a, b) => a.yb - b.yb)[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); const P = TF.P(); H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; P.anim.act = 0; TF.stand(p.x, p.z, L.lx, L.lz); P.faction = {realm}; P.y = L.wyb; H.simulate(0.2); window.__tfl = L; return TF.label(); }})()""")
+                lab = await page.evaluate(f"""(() => {{ const H = TF.H, T = window.__tft, L = T.ladders.slice().sort((a, b) => a.yb - b.yb)[{L}], p = H.fn.siteToWorld(T.S, L.foot.x, L.foot.z); const P = TF.P(); H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; P.anim.act = 0; TF.stand(p.x, p.z, L.lx, L.lz); P.faction = {realm}; P.y = L.wyb; H.simulate(0.2); window.__tfl = L; const lb = TF.label(); if (lb === 'Push the hatch open' || lb === 'Climb the ladder') return lb; const f = H.dbg.FIRES.filter((q) => !q.ghost && q.until > H.GAME.t && Math.hypot(q.x - P.x, q.z - P.z) < 2.5).map((q) => [+Math.hypot(q.x - P.x, q.z - P.z).toFixed(2), +(q.y - P.y).toFixed(2), q.size, !!q.wall]); return lb + ' ' + JSON.stringify({{ d: +Math.hypot(P.x - L.fx, P.z - L.fz).toFixed(2), dy: +(P.y - L.wyb).toFixed(2), m: P.motion && P.motion.kind, gone: !!L.gone, f }}); }})()""")
                 if lab == 'Push the hatch open':
                     await tap(page, '#t-use'); await page.evaluate("__hm.simulate(1.2); 0")
                 lab2 = await page.evaluate("TF.label()")

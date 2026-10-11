@@ -25,7 +25,7 @@ steps onto a shut hatch while foes climb beneath it; an enemy who breaks into a 
 fights at the hatch; nobody is seen or struck through a floor or a shut hatch. Screenshots of each new tower from the
 courtyard and inside each room, by day and at night, at high and low quality (tower_<kind>_*.png), and a fight on a
 ladder.
-usage: python3 tools/tests/towers.py [noshots] [quality] [only=v10,floors,tour,posts,fight,fire,shots]"""
+usage: python3 tools/tests/towers.py [noshots] [quality] [only=v10,floors,tour,posts,fight,fire,shots] [small] [shots=tc_outside,lg_night,...]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -58,6 +58,7 @@ async def shot(page, name, js):
     # the frame is drawn here and read off the canvas (a page screenshot waits on the page's own frames, slow under
     # SwiftShader on a busy machine)
     if not SHOTS: return
+    if 'shots' in OPT and name.replace('tower_', '') not in OPT['shots'].split(','): return # [keeps] shots=tc_outside,...: only these
     info = await page.evaluate(js)
     url = await page.evaluate("(() => { __hm.frame(1/30); __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()")
     data = base64.b64decode(url.split(',', 1)[1])
@@ -515,7 +516,7 @@ async def kshots(page):
         'lg': [('outside', "T.aIn", 13, 3.2, "T.aIn", 0, 6.5), ('store', "T.aIn", 0.7, T_Y + "1.65", "0", 1.0, T_Y + "1.2"), ('room', "Math.PI + 0.4", 0.9, "T.H + 1.7", "0.3", 1.0, "T.H + 0.9"), ('top', "Math.PI", 0.6, "T.TT + 2.4", "0", 1.4, "T.TT + 0.3")],
         'eg': [('outside', "Math.PI", 12, 3.0, "Math.PI", 0, 5.5), ('top', "-1.2", 0.4, "T.TT + 1.7", "1.84", 2.0, "T.TT + 0.8")],
         'el': [('outside', "T.aIn", 11, 3.0, "T.aIn", 0, 5.0)],
-        'tc': [('outside', "T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0), ('store', "T.aIn", 1.3, T_Y + "1.65", "T.aIn + Math.PI", 1.3, T_Y + "1.0"), ('room', "T.aIn", 1.3, "T.H + 1.65", "T.aIn + Math.PI", 1.4, "T.H + 0.9"), ('top', "T.aIn", 1.6, "T.TT + 1.75", "T.aIn + Math.PI", 2.0, "T.TT + 0.9")],
+        'tc': [('outside', "T.aIn + 0.6 * T.sx", 13, 4.0, "T.aIn", 0, 6.0), ('store', "T.aIn", 1.3, T_Y + "1.65", "T.aIn + Math.PI", 1.3, T_Y + "1.0"), ('room', "T.aIn", 1.3, "T.H + 1.65", "T.aIn + Math.PI", 1.4, "T.H + 0.9"), ('top', "T.aIn", 1.6, "T.TT + 1.75", "T.aIn + Math.PI", 2.0, "T.TT + 0.9")],
         'tg': [('outside', "Math.PI", 11, 3.0, "Math.PI", 0, 6.0)],
     }
     for key, vs in views.items():
@@ -525,13 +526,13 @@ async def kshots(page):
     await shot(page, 'tower_tc_night', "(() => { __hm.setTod(0.97); __hm.simulate(0.2, 0.05); const T = TT.kinds().tc, S = T.S; TT.cam(S, T, T.aIn, 1.3, T.yG + 1.65, T.aIn + Math.PI, 1.3, T.yG + 1.0); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await shot(page, 'tower_lg_night', "(() => { const T = TT.kinds().lg, S = T.S; TT.cam(S, T, Math.PI + 0.4, 0.9, T.H + 1.7, 0.3, 1.0, T.H + 0.9); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await page.evaluate("(() => { __hm.setTod(0.42); __hm.fn.setQuality('low'); __hm.simulate(0.2, 0.05); return 0; })()")
-    for key, (a, r, y, ta, tr, ty) in {'lg': ("T.aIn", 13, 3.2, "T.aIn", 0, 6.5), 'tc': ("T.aIn - 0.6", 13, 4.0, "T.aIn", 0, 6.0)}.items():
+    for key, (a, r, y, ta, tr, ty) in {'lg': ("T.aIn", 13, 3.2, "T.aIn", 0, 6.5), 'tc': ("T.aIn + 0.6 * T.sx", 13, 4.0, "T.aIn", 0, 6.0)}.items():
         await shot(page, f'tower_{key}_low', f"(() => {{ const T = TT.kinds()['{key}'], S = T.S; TT.cam(S, T, {a}, {r}, {y}, {ta}, {tr}, {ty}); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; }})()")
     await shot(page, 'tower_tc_room_low', "(() => { const T = TT.kinds().tc, S = T.S; TT.cam(S, T, T.aIn, 1.3, T.H + 1.65, T.aIn + Math.PI, 1.4, T.H + 0.9); for (let i = 0; i < 3; i++) __hm.frame(0.05); return 0; })()")
     await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
     # a timber tower on fire, and fallen in
-    await shot(page, 'tower_tc_fire', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S, W = __hm.dbg.WEATHER; W.kind = 'clear'; W.raining = 0; W.wet = 0; __hm.setTod(0.85); __hm.towerfire.towerIgnite(T, 2); H.simulate(18, 0.1); TT.cam(S, T, T.aIn - 0.6, 15, 4.0, T.aIn, 0, 7.0); for (let i = 0; i < 3; i++) H.frame(0.05); return T.burn ? +T.burn.heat.toFixed(2) : null; })()""")
-    await shot(page, 'tower_tc_fallen', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S; __hm.setTod(0.42); if (T.burn) T.burn.t = 1e3; H.simulate(3, 0.1); TT.cam(S, T, T.aIn - 0.6, 15, 6.0, T.aIn, 0, 6.0); for (let i = 0; i < 3; i++) H.frame(0.05); return !!T.fallen; })()""")
+    await shot(page, 'tower_tc_fire', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S, W = __hm.dbg.WEATHER; W.kind = 'clear'; W.raining = 0; W.wet = 0; __hm.setTod(0.85); __hm.towerfire.towerIgnite(T, 2); H.simulate(18, 0.1); TT.cam(S, T, T.aIn + 0.6 * T.sx, 15, 4.0, T.aIn, 0, 7.0); for (let i = 0; i < 3; i++) H.frame(0.05); return T.burn ? +T.burn.heat.toFixed(2) : null; })()""")
+    await shot(page, 'tower_tc_fallen', """(() => { const H = TT.H, T = TT.kinds().tc, S = T.S; __hm.setTod(0.42); if (T.burn) T.burn.t = 1e3; H.simulate(3, 0.1); TT.cam(S, T, T.aIn + 0.6 * T.sx, 15, 6.0, T.aIn, 0, 6.0); for (let i = 0; i < 3; i++) H.frame(0.05); return !!T.fallen; })()""")
     await page.evaluate("(() => { const T = TT.kinds().tc; if (T.fallen) __hm.towerfire.towerRebuilt(T); return 0; })()")
     # a fight on a ladder: a climber holding below the hatch, striking at a warrior beside it
     await shot(page, 'tower_ladder_fight', """(() => { const H = TT.H, F = TT.F, T = TT.kinds().lg, S = T.S, L = T.ladders[1], Hh = L.hatch;
