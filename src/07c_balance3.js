@@ -21,8 +21,8 @@ const PURSUIT_CD = 1; // seconds off Charge for each arrow, bolt or spell that s
 const SHIELD_WALL_PACE = 1; // guarded, a warrior walks at full pace behind a raised shield (0.55 otherwise)
 const RUSH_SHARE = 10; // Charge and Leap Strike share one rush: using either holds the other back this long
 // the share of weapon blows a dazzled foe misses, by the priest's rank: a twentieth at rank I, one in six at rank II,
-// nearly one in three at rank IV (the priest's own healing falls with rank while every blade's harm grows with it)
-const DAZZLE = { miss: [0, 0.05, 0.17, 0.23, 0.29, 0.29], dur: 3 };
+// a little over one in three at rank IV (the priest's own healing falls with rank while every blade's harm grows with it)
+const DAZZLE = { miss: [0, 0.05, 0.17, 0.26, 0.35, 0.35], dur: 3 };
 const dazzleMissOf = (lvl) => DAZZLE.miss[clamp(abilityRank(lvl), 1, DAZZLE.miss.length - 1)];
 
 // an arrow, a bolt or a spell from afar lands on a warrior: Charge comes a second sooner
@@ -41,6 +41,13 @@ function rushShare(e, A) {
   if (A.id !== 'charge' && A.id !== 'leap' || e.level < ABILITIES.leap.level) return;
   const other = A.id === 'charge' ? 'leap' : 'charge', t = GAME.t;
   e.cds[other] = Math.max(e.cds[other] || 0, t + RUSH_SHARE);
+}
+// [balance3] an NPC warrior's shield wall: a bow shooting from out of reach, and no rush ready to close on it
+function npcWallWanted(e, t) {
+  if (!t || !t.alive || t.rangedKind !== 'arrow' || !clsHas(e, 'stances') || !hasShield(e) || !isEnemy(e, t)) return false;
+  const d = dist(e.x, e.z, t.x, t.z);
+  if (d <= e.meleeRange + t.radius * (t.scale || 1) + 1.2 || d > 40) return false;
+  return !(e.level >= ABILITIES.charge.level && (e.cds.charge || 0) <= GAME.t) && !(e.level >= ABILITIES.leap.level && (e.cds.leap || 0) <= GAME.t);
 }
 // held by frost: a frost nova's root or a frost rune's (no Leap Strike out of it); a seasoned mage's frost (rank II, level
 // 30) holds against a Charge too, which tears free of any other root
@@ -82,7 +89,7 @@ const BAL3 = { stats: { pursuit: 0, dazzled: 0, held: 0 } };
 setTimeout(() => {
   if (typeof BUFF_ICON !== 'undefined') BUFF_ICON.dazzle = ['sun', '#fff0b8'];
   if (!window.__hm) return;
-  window.__hm.bal3 = { BAL3, BODKIN_PIERCE, PURSUIT_CD, RUSH_SHARE, rushShare, DAZZLE, dazzleMissOf, frostHeld, deepFrostHeld, blizzardHeld, classCanUse, dazzled, pursuitOnHit, dazzleOnHit, dazzleMiss };
+  window.__hm.bal3 = { BAL3, BODKIN_PIERCE, PURSUIT_CD, RUSH_SHARE, rushShare, DAZZLE, dazzleMissOf, frostHeld, deepFrostHeld, blizzardHeld, classCanUse, dazzled, npcWallWanted, canUse, effectiveSpeed, pursuitOnHit, dazzleOnHit, dazzleMiss };
 }, 0);
 
 /* ---- what a player reads: the tooltips and the stances say what these rules do ---- */
@@ -91,7 +98,7 @@ ABILITIES.leap.desc = 'Leap onto a foe 6–24 m away. 160% damage and a 0.6 s st
 ABILITIES.deadeye.desc = 'A long, steady shot. 420% damage at up to 50 m; armour stops only half of it.';
 ABILITIES.blizzard.desc = 'Ice falls for 6 s in a 7 m circle: 50% damage a second and a 40% slow, and a foe in it cannot Charge or Leap Strike out.';
 ABILITIES.pillar.desc = 'A column of light: 220% damage to enemies inside it, 30% healing to allies. Its light dazzles the foes it strikes.';
-ABILITIES.smite.desc += ' Its light dazzles: for 3 s the foe misses some of its weapon blows (one in twenty at rank I, one in six at rank II, nearly one in three at rank IV), and a warrior dazzled by a priest of rank II or more cannot parry.';
+ABILITIES.smite.desc += ' Its light dazzles: for 3 s the foe misses some of its weapon blows (one in twenty at rank I, one in six at rank II, a little over one in three at rank IV), and a warrior dazzled by a priest of rank II or more cannot parry.';
 ABILITIES.nova.desc = 'Your focus bursts out to 7 m. Fire: burns and roots. Frost: chills and roots (no Leap Strike out of it, and from rank II no Charge either) and freezes water. Storm: a thunderclap that throws foes back.';
 ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health, and bites back at anyone who strikes you in your focus: burning, chilling or shocking them. A stun that strikes you while it holds breaks on it instead, at half its strength.';
 ARROW_DEF.bodkin.text = 'Needle points that go through mail: armour stops only half of them, and they strike warriors harder.';

@@ -1233,7 +1233,8 @@ function classNpc(e, t) {
   if (e.cls === 'warrior') {
     if (clsHas(e, 'stances') && nowT() - cs.stanceAt > 6) {
       const foes = near(6, (o) => isEnemy(e, o));
-      const want = e.hp < e.maxHp * 0.35 || foes >= 3 ? 0 : t && t.alive && (t.hp < t.maxHp * 0.4 || e.hp > e.maxHp * 0.7) ? 2 : 1;
+      // [balance3] guarded against a bow out of reach: the shield wall (npcClassStep raises it)
+      const want = e.hp < e.maxHp * 0.35 || foes >= 3 || npcWallWanted(e, t) ? 0 : t && t.alive && (t.hp < t.maxHp * 0.4 || e.hp > e.maxHp * 0.7) ? 2 : 1;
       if (want !== cs.stance) setStance(e, want);
     }
     if (t && t.alive && clsHas(e, 'momentum') && momOf(e) >= FIN_MIN + (Math.random() < 0.5 ? 1 : 0) && !canUse(e, 'slash', t)) { useAbility(e, 'slash', t); return true; }
@@ -1305,6 +1306,8 @@ function npcClassStep(e, dt) {
   if (e.bot) { botStep(e, dt); return; } // [balance] a bot plays its calling (07c_balance.js)
   const t = nowT();
   if (e.cls === 'warrior') {
+    // [balance3] a shield wall against a bow: guarded, the shield stays up on the way in and comes down in reach
+    if (cs.stance === 0 && canBlock(e) && !e.casting && npcWallWanted(e, getEnt(e.target))) { if (!cs.blockOn) { setBlock(e, true); cs.blockAt = -9; } cs.npcBlockUntil = t + 0.3; }
     if (cs.blockOn && t > cs.npcBlockUntil) setBlock(e, false);
     if (!cs.blockOn) cs.guard = Math.min(100, cs.guard + dt * 12);
     if (!cs.blockOn && canBlock(e) && clsHas(e, 'block') && e.target != null && t > (cs.npcReact || 0)) {
