@@ -534,13 +534,18 @@ The runs on the way (each with the rules of its build; they show how far one run
 
 The time to kill and the pack: (being measured).
 
-The realm's ways: (being measured).
+The realm's ways (`duels.py kind=flavour only=archer,priest`, skilled: each realm's way against the same calling played plain, wins of 12; before: version 12's runs, the archers' from its first table, the priests' after their evening out):
+
+| Level | archer: Logres / Ériu / Thule | before | priest: Logres / Ériu / Thule | before |
+|---|---|---|---|---|
+| 10 | 10 / 8.5 / 9.5 of 12 | 11 / 10.5 / 10 | 6 / 3 / 6.5 of 12 | 9 / 3 / 5 |
+| 50 | 10 / 8 / 7.5 of 12 | 10 / 9 / 11 | 7 / 8 / 5 of 12 | 10 / 7 / 7 |
 
 What changed in version 13 ([balance5]: 07c_balance5.js, the bots in 07c_balance.js, small marked edits to 07_entities.js, 07b_classes.js, 07c_balance3.js and 10d_classes_ui.js; the measures in classes.py and duels.py), and why:
 
 - **The measures' ground** (`balFlattenCraters`, from `CB.wipe`): every crater undone and every grass fire put out before each phase (above). Not a rule of the game, but it moved the tables more than any rule did.
 - **Holy Fire flares** (`holyFlare`, asked by `priestView`): cast at a foe within 10 m (`FLARE_REACH`) in the middle of a spell, the spell is lost (`breakCast`: a steadfast priest keeps its spell; a boss is not flared). The priest's interrupt, and where its craft shows: the skilled priest keeps it for a heal or a long spell (`flareWorth`: at a priest only Mend, the Pillar of Dawn or a raising; at anyone else a spell with 0.3 s or more to go), keeps Holy Fire's burn off a caster in its reach that is not steadfast (the flare is worth more), and before a long cast of its own renews itself when a foe's flare is ready (`flareThreat`); the simple priest casts Holy Fire when its turn comes. Over all of casting range (30 m, its first form) it broke a mage's spells as fast as they began; within 10 m a mage that keeps its distance is safe from it.
-- **Holy ground dazzles** the foes standing on it (`hallowDazzle`, from `stepGrounds`: the `dazzle` of the priest's rank for 1.3 s at a time, renewed while they stand there, the motes too): a blade fighting a priest on its hallowed ground misses some of its blows and cannot parry. The priest's answer at 10, where it has no Divine Shield (14), to a warrior's rush, bash and parries, and the simple priest seldom hallows where the fight is. Warrior–priest at 10: 20 of 24 before; 15, 21 and 15 of 24 in three runs since.
+- **Holy ground dazzles** the foes standing on it (`hallowDazzle`, from `stepGrounds`: the `dazzle` of the priest's rank for 1.3 s at a time, renewed while they stand there, the motes too): a blade fighting a priest on its hallowed ground misses some of its blows and cannot parry. The priest's answer at 10, where it has no Divine Shield (14), to a warrior's rush, bash and parries, and a craft of the skilled priest's: the simple one, pressing 1-8 in turn, never hallows the ground. Warrior–priest at 10: 20 of 24 before; 15, 21 and 15 of 24 in three runs since.
 - **A priest's own healing at rank I** 70% of a heal's measure (75%): the simple priest, which heals with every other press, won 88% of its duels at 10; 74%, 83% and 74% in three runs since.
 - **A broadhead's wound** takes 30% off healing at every rank (45% from rank II was set on the pocked ground): on clean ground a skilled bow won 24 of 24 against a priest at 30 and 50.
 - **Crippling Arrow wounds** for as long as it slows (`crippleWound`, from `updateProjectiles` after its snare: the `wound` buff at the archer's measure, 30%): the simple archer shoots plain arrows and had no answer to a healer (archer–priest 0, 8 and 5.5 of 24 at 10, 30 and 50 before; 1 and 1.5 at 10 and 50 in a run of these rules without the wound); 4.5, 17 and 12 of 24 now. A skilled archer's broadheads keep the wound open anyway.
@@ -566,7 +571,8 @@ Where it stands against the aim (skilled within about ±15%, for duels a calling
 
 - Skilled duels: every calling between 35% and 65% at every level in the runs of the final rules (10: warrior 53%, archer 52%, mage 49%, priest 45%; 30: 65%, 51%, 38%, 46%; 50: 58%, 51%, 35%, 56%), the warrior at 30 and the mage at 50 at the edges. Before, on the same ground: the archer 72% and 68% and the priest 31% and 35% at 30 and 50.
 - Simple duels: every calling between 25% and 75% (10: 64%, 35%, 27%, 74%; 30: 71%, 44%, 38%, 47%; 50: 64%, 28%, 50%, 58%). Before: the simple priest 88% at 10, the simple archer 24% and 19% at 10 and 50.
-- Mastery: the warrior 12, 12 and 11 of 12 at 10, 30 and 50, the archer 8, 12 and 11, the mage 8.5, 9 and 11, the priest 8, 8 and 7 (before: the mage 3.5 and 6.5 of 8 at 10 and 30 and 5 at 50, the priest 4, 3.5 and 6 of 8). In the priests' mirror two flares in three met a steadfast spell (31 of 99 broke: the simple priest renews itself on every turn of its rotation, so it stands steadfast most of the time); with the fresh Renewal's rule (set aside, above) the skilled priest won 11, 10 and 11 of 12.
+- Mastery: the warrior 12, 12 and 11 of 12 at 10, 30 and 50, the archer 8, 12 and 11, the mage 8.5, 9 and 11, the priest 8, 8 and 7 (before: the mage 3.5 and 6.5 of 8 at 10 and 30 and 5 at 50, the priest 4, 3.5 and 6 of 8). In the priests' mirror two flares in three met a steadfast spell (31 of 99 broke: the simple priest renews itself on every turn of its rotation, so it stands steadfast most of the time); with the fresh Renewal's rule (set aside, above) the skilled priest won 11, 10 and 11 of 12 (build f, on pocked ground).
+- The realm's ways: the archer's still beat the plain archer (62-83%, from 75-96%), Logres's quicker draw most (10 of 12 at both levels); the Shield of Logres no longer leads the priests (6 and 7 of 12, from 9 and 10), and the Well of Ériu is the weakest at 10 (3 of 12, as before).
 
 
 
@@ -575,6 +581,7 @@ Still off (for the next pass):
 - Pairs still lopsided in the final runs: the warrior against the mage at 30 (20 of 24), the archer against the mage at 50 (20.5 of 24) and the priest against the archer at 50 (the archer 5 of 24); the simple warrior beats the simple archer 22-24 of 24 at every level, and the simple archer and the simple mage win 4.5 and 5.5 of 24 against the simple priest at 10. Each was one run of 24 (pairs move 3 to 6 wins between runs: the warrior against the priest at 10 was 15, 21 and 15 of 24 in three runs of rules that differ only away from it).
 - The priest's mastery (8, 8 and 7 of 12): the simple priest is steadfast most of the time and its flares are as good as the skilled one's against a steadfast foe. A rule that weighs on renewing by rote without taking steadiness from a careful priest (the fresh Renewal's rule cost the careful priest its duels against a storm) is the next thing to try.
 - The mage at 30 and 50 sits at the low edge of the band (35-38%): the warrior's rush at 30 (20 of 24) and the archer at 50 (20.5 of 24).
+- The archer's realm ways: a mirror is still a race that a quicker draw (Logres, 10 of 12) or an opening shot from hiding wins; the Well of Ériu's blessing at 10 (3 of 12) heals too slowly to matter in a priest's mirror of 12-15 s. Twelve duels a realm are few (a cell moved 4 wins between runs in version 12).
 - Neighbouring arenas: a meteor from the next arena struck a duel in 5 to 8 pairings a run (`FOREIGN` in `tap`); the arenas would want to stand farther apart.
 - The noise: one run at 30 and 50 of the final build; the machine was shared all day (load 10 to 28 on 2 CPUs). The integrator's quiet-machine table: the commands above, a level at a time, twice.
 

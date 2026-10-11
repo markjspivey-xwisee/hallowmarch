@@ -9,7 +9,7 @@
 /*     health for each foe its blade cuts (a warrior thrives where the  */
 /*     foes are thickest; one foe gives little).                         */
 /* ================================================================== */
-const BAL5 = { stats: { flares: 0, flareTries: 0, whirlHeal: 0 } };
+const BAL5 = { stats: { flares: 0, flareTries: 0, whirlHeal: 0, dodges: 0 } };
 
 /* ------------------------------------------------------------------ */
 /* Holy Fire flares in a caster's face                                 */
@@ -72,7 +72,8 @@ function renewMark(e) { if (e.cs) e.cs.renewUntil = GAME.t + ABILITIES.renew.hot
 /* ------------------------------------------------------------------ */
 // Crippling Arrow opens a wound that mends slowly for as long as it slows: healing on it takes 30% less, as a broadhead's
 // does. A bow's answer to a healer that needs no special arrows: an archer pressing its abilities in turn shoots plain
-// arrows, and won 1 of 24 duels against a priest at 10 and at 50 (a skilled archer's broadheads keep the wound open anyway)
+// arrows, and won 1 and 1.5 of 24 duels against a priest at 10 and 50 (a skilled archer's broadheads keep the wound open
+// anyway)
 function crippleWound(src, t, sn) {
   if (!src || src.cls !== 'archer' || !t.alive || t.kind === 'door') return;
   addBuff(t, 'wound', woundOf(src), sn ? sn[1] : 5, 'wound');
@@ -82,8 +83,8 @@ function crippleWound(src, t, sn) {
 /* the skilled bots: out from under a meteor, out of a blizzard        */
 /* ------------------------------------------------------------------ */
 // a skilled hand does not stand where a foe's meteor is about to land, in its blizzard or in burning grass: a mage blinks
-// and an archer tumbles from under a falling meteor (letting its own spell go), anyone walks out of the ice and the fire. A mirror of mages at 30
-// and 50 was won by whose meteor landed first; the simple bot stands where it is
+// and an archer tumbles from under a falling meteor (letting its own spell go), anyone walks out of the ice and the
+// fire. A mirror of mages at 30 and 50 was won by whose meteor landed first; the simple bot stands where it is
 function botDodge(e, t, dt) {
   if (e.motion || isRooted(e) || e.fixedY != null || e.swim || e.boat) return false;
   let best = null;
@@ -106,7 +107,7 @@ function botDodge(e, t, dt) {
   let ax = e.x - best.x, az = e.z - best.z;
   const L = Math.hypot(ax, az);
   if (L < 0.3) { const a = t ? Math.atan2(t.x - e.x, t.z - e.z) + Math.PI / 2 : Math.random() * TAU; ax = Math.sin(a); az = Math.cos(a); } else { ax /= L; az /= L; }
-  BAL5.stats.dodges = (BAL5.stats.dodges || 0) + 1;
+  BAL5.stats.dodges++; // (steps spent getting clear, not dodges)
   if (best.now) {
     // a blink or a tumble carries a mage or an archer clear (the spell let go: it would not outlast the fall); on foot a
     // body gets clear only from near the edge in the time the meteor takes to fall, else it finishes its spell
