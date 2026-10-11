@@ -95,7 +95,7 @@ function drawDazzle() {
     const k = clamp((b.until - GAME.t) / 0.6, 0, 1) * (0.7 + b.value * 1.2), r = 0.3 * sc;
     for (let i = 0; i < 3; i++) {
       const a = t * 4.2 + i * 2.094 + id, tw = 0.75 + 0.25 * Math.sin(t * 13 + i * 1.7 + id);
-      glowPush(e.x + Math.cos(a) * r, y + Math.sin(a * 2 + i) * 0.05 * sc, e.z + Math.sin(a) * r, 2.3 * k, 2.1 * k, 1.3 * k, 0.11 * sc * tw);
+      glowPush(e.x + Math.cos(a) * r, y + Math.sin(a * 2 + i) * 0.05 * sc, e.z + Math.sin(a) * r, 2.8 * k, 2.5 * k, 1.5 * k, 0.16 * sc * tw);
     }
     if (++n >= 8) break;
   }
