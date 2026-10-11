@@ -79,7 +79,7 @@ window.L2 = {
     // WB bits (05a_rig.js): sword 0, mace 1, staff 2, axe 3, shield 5, bow 6, shieldRound 16
     const far = (b, ref) => { let best = -1, bd = -1; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === b) { const d = Math.hypot(pos[i * 3] - ref[0], pos[i * 3 + 1] - ref[1], pos[i * 3 + 2] - ref[2]); if (d > bd) { bd = d; best = i; } } return best; };
     const near = (b, ref) => { let best = -1, bd = 1e9; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === b) { const d = Math.hypot(pos[i * 3] - ref[0], pos[i * 3 + 1] - ref[1], pos[i * 3 + 2] - ref[2]); if (d < bd) { bd = d; best = i; } } return best; };
-    const ids = { sword: far(0, [-0.244, 0.868, 0.004]), mace: far(1, [-0.244, 0.868, 0.004]), shield: near(5, [0.32, 1.0, 0.02]), round: near(16, [0.33, 1.0, 0.02]), bow: near(6, [0.25, 0.868, 0.004]), staff: far(2, [-0.244, 0.868, 0.004]) };
+    const ids = { sword: far(0, [-0.244, 0.868, 0.004]), mace: far(1, [-0.244, 0.868, 0.004]), axe: far(3, [-0.244, 0.868, 0.004]), shield: near(5, [0.32, 1.0, 0.02]), round: near(16, [0.33, 1.0, 0.02]), bow: near(6, [0.25, 0.868, 0.004]), staff: far(2, [-0.244, 0.868, 0.004]) };
     const keys = Object.keys(ids).filter((k) => ids[k] >= 0), vids = keys.map((k) => ids[k]);
     const out = M.mprobeRun(f.crowd, vids, [f.idx])[0];
     const c = Math.cos(P.yaw), s = Math.sin(P.yaw), r = {};
@@ -118,14 +118,15 @@ async def main():
             r0 = await ev(page, 'standing', """(() => { const H = __hm, P = H.GAME.player; LK.set('k0_court', 'day'); P.anim.act = 0; P.anim.actT = 0; P.anim.actDur = 0; return L2.parts(); })()""")
             r1 = await ev(page, 'climbing', """(() => { LK.set('climb', 'day'); return L2.parts(); })()""")
             r2 = await ev(page, 'a blow from the rungs', """(() => { const H = __hm, P = H.GAME.player; LK.set('climb', 'day'); P.anim.act = 18; P.anim.actDur = 1.0; P.anim.actT = 0.5; return L2.parts(); })()""")
-            w0 = r0.get('sword') or r0.get('mace'); w1 = r1.get('sword') or r1.get('mace'); w2 = r2.get('sword') or r2.get('mace')
+            wp = lambda r: r.get('sword') or r.get('axe') or r.get('mace')
+            w0, w1, w2 = wp(r0), wp(r1), wp(r2)
             s0 = r0.get('shield') or r0.get('round'); s1 = r1.get('shield') or r1.get('round'); s2 = r2.get('shield') or r2.get('round')
-            check(w0 is not None and s0 is not None, f'the warrior carries a blade and a shield ({w0}, {s0})')
-            check(w0 is not None and w0[2] > 0.15, f'standing, the blade points forward from the hand (its tip {w0})')
+            check(w0 is not None and s0 is not None, f'the warrior carries a weapon (blade, axe or mace) and a shield ({w0}, {s0})')
+            check(w0 is not None and w0[2] > 0.15, f'standing, the weapon points forward from the hand (its far end {w0})')
             check(s0 is not None and s0[0] > 0.2, f'standing, the shield hangs on the left forearm ({s0})')
-            check(w1 is not None and -0.5 < w1[2] < -0.12 and 0.4 < w1[1] < 1.7, f'on the ladder the blade hangs on the back (its tip {w1})')
-            check(s1 is not None and -0.5 < s1[2] < -0.15 and abs(s1[0]) < 0.12 and 0.8 < s1[1] < 1.5, f'and the shield on the back, over the cloak ({s1})')
-            check(w2 is not None and w2[2] > -0.1, f'in a blow from the rungs the blade is in the hand again ({w2})')
+            check(w1 is not None and -0.5 < w1[2] < -0.12 and 0.4 < w1[1] < 1.7, f'on the ladder the weapon hangs on the back (its far end {w1})')
+            check(s1 is not None and -0.5 < s1[2] < -0.15 and abs(s1[0]) < 0.32 and 0.7 < s1[1] < 1.5, f'and the shield on the back, over the cloak ({s1}: an edge of it, the back is 0.3 m either side)')
+            check(w2 is not None and w2[2] > -0.1, f'in a blow from the rungs the weapon is in the hand again ({w2})')
             check(s2 is not None and s2[2] < -0.15, f'and the shield stays on the back ({s2})')
         if want('hound'):
             await page.evaluate("__hm.fn.setQuality('high'); 0")

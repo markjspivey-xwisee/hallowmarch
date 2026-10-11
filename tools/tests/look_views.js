@@ -583,7 +583,23 @@ window.LK = {
   const set1 = LK.set;
   LK.set = function (name, variant) {
     if (this.fov0 != null) { this.H.camera.fov = this.fov0; this.H.camera.updateProjectionMatrix(); this.fov0 = null; }
-    return set1.call(this, name, variant);
+    const r = set1.call(this, name, variant);
+    this.unborn();
+    return r;
+  };
+  // __hm.simulate runs the particles' clock (uTime) on ahead of the frames' (see CLAUDE.md, Gotchas): what a view's
+  // simulation emitted (the dust of a siege stone, smoke) would show later, frozen in the air. Let it go, as walls.py does
+  LK.unborn = function () {
+    const H = this.H; H.frame(1 / 30);
+    const now = H.dbg.U.uTime.value, fx = H.walls && H.walls.fx;
+    if (!fx) return 0;
+    for (const P of [fx.fxAlpha, fx.fxAdd]) {
+      if (!P || !P.a0) continue;
+      const a0 = P.a0.array, a1 = P.a1.array; let k = 0;
+      for (let i = 0; i < P.max; i++) if (a0[i * 4 + 3] > now + 1e-3 && a1[i * 4 + 3] > 0) { a1[i * 4 + 3] = -1; k++; }
+      if (k) { P.dirty0 = 0; P.dirty1 = P.max - 1; }
+    }
+    return 0;
   };
   // the player stands at (x, z) out of the way, a frame drawn so what is drawn by distance knows the camera
   LK.away = function (x, z) { const P = this.H.GAME.player; P.x = P.prevX = x; P.z = P.prevZ = z; P.y = this.F.heightAt(x, z); P.motion = null; P.hp = P.maxHp; };
@@ -630,13 +646,13 @@ window.LK = {
     L.hush(a.x, a.z, 20); L.away(a.x + 40, a.z + 40);
     return { ...L.cam(c.x, L.F.heightAt(c.x, c.z) + 5.2, c.z, a.x - 1.0, L.F.heightAt(a.x, a.z) + 0.6, a.z + 1.5), tree: [+a.x.toFixed(1), +a.z.toFixed(1)] };
   });
-  // the climber seen from the room behind him: what he carried hangs on his back while his hands are on the rungs
+  // the climber from the side: he climbs between the ladder and the wall, facing the room, so what he carried hangs on
+  // his back between him and the wall (0.8 to 0.9 m of room there), seen in profile from the side
   D('look2', 'climb_back', (L) => {
     const r = L.views.climb.call(L, L); if (r && r.skip) return r;
-    // a fixed camera across the drum from the ladder, at the climber's shoulders, looking at his back
     const H = L.H, P = H.GAME.player, S = L.keepSite(0, 0), T = H.towers.list().find((t) => t.S === S && t.role === 'corner');
-    const dx = T.wx - P.x, dz = T.wz - P.z, d = Math.hypot(dx, dz) || 1, k = Math.min(2.2, d + (T.RI || 2) * 0.6) / d;
-    return { ...r, ...L.cam(P.x + dx * k + dz / d * 0.35, P.y + 1.75, P.z + dz * k - dx / d * 0.35, P.x, P.y + 1.15, P.z) };
+    const dx = T.wx - P.x, dz = T.wz - P.z, d = Math.hypot(dx, dz) || 1, ux = dx / d, uz = dz / d;
+    return { ...r, ...L.cam(P.x + uz * 1.45 + ux * 0.55, P.y + 1.45, P.z - ux * 1.45 + uz * 0.55, P.x - ux * 0.15, P.y + 1.1, P.z - uz * 0.15) };
   });
   // the town from far off: the footpaths from the doors to the plaza
   for (const r of [0, 1, 2]) {
@@ -707,7 +723,16 @@ window.LK = {
     return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: B.W.state };
   });
   D('look2', 'breach_in', (L) => {
-    const B = breached(L), c = B.tp(B.W.aOut + Math.PI + 0.35, B.T.RO + 7, 2.2), t = B.tp(B.W.aOut, 0.5, 1.6);
+    // from the courtyard: the first open spot on the way from the tower to the keep's middle, out of the hall
+    const B = breached(L), F = L.F, S = B.S, T = B.T;
+    let c = null;
+    for (let d = T.RO + 5; d < T.RO + 16 && !c; d += 0.5) for (const da of [0, 0.25, -0.25, 0.5, -0.5]) {
+      const a = Math.atan2(S.x - T.wx, S.z - T.wz) + da, x = T.wx + Math.sin(a) * d, z = T.wz + Math.cos(a) * d;
+      if (F.houseAt(x, z, 0.8) || !F.isWalkable(x, z) || Math.abs(F.floorAt(x, z, F.heightAt(x, z) + 0.3) - F.heightAt(x, z)) > 0.2) continue;
+      c = { x, y: F.heightAt(x, z) + 2.0, z }; break;
+    }
+    if (!c) return { skip: 'no open court' };
+    const t = B.tp(B.W.aOut, 0.5, 1.6);
     L.away(c.x + 40, c.z + 40);
     return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: B.W.state };
   });
@@ -724,10 +749,12 @@ window.LK = {
     const H = L.H, TF = H.towerfire, T = TF.list().find((q) => q.role === 'corner' && q.sx === 1 && q.sz === 1) || TF.list()[0];
     if (!T) return { skip: 'no log tower' };
     const S = T.S;
-    if (!T.fallen) { L.hush(S.x, S.z, 45); TF.towerIgnite(T, 3); H.UI.modal = null; H.simulate(TF.TFIRE.burn + 1); H.simulate(4); H.UI.modal = 'menu'; }
-    S.keepRef.lastEnemyNear = H.GAME.t + 1e6;
+    S.keepRef.lastEnemyNear = H.GAME.t + 1e6; // (not built again while the views look at it)
+    if (!T.fallen) { L.hush(S.x, S.z, 45); TF.towerIgnite(T, 3); H.UI.modal = null; H.simulate(TF.TFIRE.burn + 1); S.keepRef.lastEnemyNear = H.GAME.t + 1e6; H.simulate(4); H.UI.modal = 'menu'; }
     const tp = (a, r, y) => { const q = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: q.x, y: S.y + y, z: q.z }; };
-    const c = tp(T.aIn, T.RO + 9, 6.0), t = tp(T.aIn, 0, 7.5);
+    // from the field outside the corner (inside the court the camera stood under the palisade's sharpened tips, and their
+    // undersides read as a twisted column rising out of the shaft)
+    const aO = Math.atan2(T.cx, T.cz), c = tp(aO + 0.45, T.RO + 14, 3.6), t = tp(aO, 0, 6.5);
     L.away(S.x + 60, S.z + 60);
     return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), fallen: !!T.fallen, ember: T.fallen ? +T.fallen.ember.toFixed(2) : null };
   });

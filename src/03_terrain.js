@@ -236,15 +236,18 @@ const terrainMat = mat({
       float px = length(fwidth(vW.xz));
       // [look2] a pebble (5 to 8 cm) or a grain of grit bumped through the screen's derivatives is shaded in 2 x 2 blocks:
       // until it is five pixels or more its outline broke into a network of dark angular cracks, and the roads read as
-      // crazy paving (at 0.03 to 0.09 m a pixel: a phone's or a small window's view of the near road)
+      // crazy paving (at 0.03 to 0.09 m a pixel: a phone's or a small window's view of the near road). The relief fades
+      // that soon; their colour (no derivatives) keeps to a pixel as before
       float pebF = 1.0 - smoothstep(0.012, 0.035, px), gritF = 1.0 - smoothstep(0.02, 0.06, px);
-      float peb = smoothstep(0.62, 0.8, vnoise(vW.xz * 6.5)) * pebF;
-      float grit = vnoise(vW.xz * 2.2) * 0.6 + mix(0.2, vnoise(vW.xz * 9.0) * 0.4, gritF);
+      float pebN = smoothstep(0.62, 0.8, vnoise(vW.xz * 6.5)), gritN = vnoise(vW.xz * 9.0), gritL = vnoise(vW.xz * 2.2) * 0.6;
+      float peb = pebN * pebF;
+      float grit = gritL + mix(0.2, gritN * 0.4, gritF);
+      float pebC = pebN * (1.0 - smoothstep(0.03, 0.09, px)), gritC = gritL + mix(0.2, gritN * 0.4, 1.0 - smoothstep(0.05, 0.14, px));
       vec3 ne = bumpN(n, vW, grit * 0.5 + peb * 0.6, 0.35 * fine);
-      vec3 earth = lightSurface(vec3(0.33, 0.27, 0.19) * (0.78 + 0.4 * grit) + peb * vec3(0.12, 0.11, 0.1), ne, 1.0);
+      vec3 earth = lightSurface(vec3(0.33, 0.27, 0.19) * (0.78 + 0.4 * gritC) + pebC * vec3(0.12, 0.11, 0.1), ne, 1.0);
       col = mix(col, earth, (1.0 - A.g) * (1.0 - A.r) * (1.0 - A.a) * 0.75);
       float rut = vnoise(vW.xz * vec2(2.4, 0.7)) * 0.25;
-      vec3 dirt = lightSurface(vec3(0.46, 0.37, 0.26) * (0.8 + 0.3 * grit - rut) + peb * vec3(0.1, 0.09, 0.08), ne, 1.0);
+      vec3 dirt = lightSurface(vec3(0.46, 0.37, 0.26) * (0.8 + 0.3 * gritC - rut) + pebC * vec3(0.1, 0.09, 0.08), ne, 1.0);
       // visual pass: a ragged road edge, and a trodden verge where the turf thins into the road
       float edgeN = (vnoise(vW.xz * 1.6) - 0.5) * 0.3 + (vnoise(vW.xz * 5.3) - 0.5) * 0.12 * fine;
       float verge = smoothstep(0.02, 0.2, A.r) * (1.0 - smoothstep(0.25, 0.55, A.r + edgeN));
