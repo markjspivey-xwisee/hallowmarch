@@ -41,6 +41,24 @@ function lookCoverAll() {
   // so the bushes leave it only once the herbs stand: the first cover map after that is drawn again without them
   if (!COVER_SKIP.has('bush') && typeof FARM !== 'undefined' && FARM.herbs && FARM.herbs.length) { COVER_SKIP.add('bush'); buildCoverMask(); return; }
   const R = COVER.res, data = COVER.data;
+  // No blade or flower stands in the water: the grass mask is cleared where the water stands (01b_water.js) at 2 m, and
+  // read bilinearly it still grew meadow a metre and more out into a pond, its tips through the surface. Every 1 m texel
+  // whose middle is under the water (5 cm or more) is covered. Only once the herbs stand (the marsh herbs were placed
+  // off the cover map as it was: the saved land names them by number)
+  if (COVER_SKIP.has('bush') && WATERGRID.surf) {
+    const WS = WATERGRID.surf;
+    for (let j = 1; j < HN - 1; j++) for (let i = 1; i < HN - 1; i++) {
+      const k = j * HN + i;
+      if (isNaN(WS[k]) && isNaN(WS[k - 1]) && isNaN(WS[k + 1]) && isNaN(WS[k - HN]) && isNaN(WS[k + HN])) continue;
+      for (let q = 0; q < 4; q++) {
+        const x = -HALF + i * HS - 0.5 + (q & 1), z = -HALF + j * HS - 0.5 + (q >> 1);
+        const w = waterAt(x, z);
+        if (!w || w.y < heightAt(x, z) + 0.05) continue;
+        const ci = Math.floor(x + 512), cj = Math.floor(z + 512);
+        if (ci >= 0 && cj >= 0 && ci < R && cj < R && data[cj * R + ci] < 200) data[cj * R + ci] = 200;
+      }
+    }
+  }
   for (const T of lookTownPlan()) {
     const S = T.S, rad = T.r1 + 2;
     const i0 = Math.max(0, Math.floor(S.x - rad + 512)), i1 = Math.min(R - 1, Math.ceil(S.x + rad + 512));

@@ -183,6 +183,22 @@ window.LK = {
       for (const [x, z] of pts) { nf++; if (F.sampleGrid(W.grass, x, z) > 0.05 && covAt(x, z) < 0.3) { add('grass through a floor', { x: r1(x), z: r1(z), y: r1(y) }); break; } }
     }
     out.n.floorPts = nf;
+    // grass in the water: a point a body would see under 5 cm of water or more, where the grass mask (bilinear) still
+    // grows blades and the cover map does not stop them
+    const WG = H.water.WATERGRID.surf, HN = 513;
+    let nw = 0;
+    for (let j = 1; j < HN - 1; j++) for (let i = 1; i < HN - 1; i++) {
+      const k = j * HN + i;
+      if (isNaN(WG[k])) continue;
+      for (let q = 0; q < 4; q++) {
+        const x = -512 + i * 2 - 0.5 + (q & 1), z = -512 + j * 2 - 0.5 + (q >> 1), w = H.water.waterAt(x, z);
+        if (!w || w.y < F.heightAt(x, z) + 0.05) continue;
+        nw++;
+        if (F.sampleGrid(W.grass, x, z) > 0.05 && covAt(x, z) < 0.3) add('grass in the water', { x: r1(x), z: r1(z), depth: r1(w.y - F.heightAt(x, z)), grass: r1(F.sampleGrid(W.grass, x, z)) });
+      }
+    }
+    out.n.waterPts = nw;
+    zero('grass in the water');
     // people where they stand: on their floor, not sunk into it and not floating over it
     let np = 0;
     for (const e of H.ENT) {
