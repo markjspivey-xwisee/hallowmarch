@@ -339,7 +339,7 @@ function henVS(depth) {
       float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
       float u = fract(c * 0.159155), duty = 0.6, reach = strideM * duty, fx, lift;
       if (u < duty) { fx = reach * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv; fx = reach * (2.0 * (wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / duty * (wv * q * q * q * q - q * wv * wv * wv * wv)) - 1.0); lift = sin(3.14159 * wv); } // [motion3] (the foot leaves and meets the ground still going back under the body at the stance's pace: it moved with the body at both ends of the swing)
+      else { float wv = (u - duty) / (1.0 - duty); fx = reach * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
       float sw = asin(clamp(fx / 0.19, -0.95, 0.95)); // [motion] the planted foot keeps pace at any speed
       vec3 hip = b == 9 ? ${v(HEN.hipL)} : ${v(HEN.hipR)};
       // the shank folds as the foot lifts

@@ -179,7 +179,7 @@ function birdVS(depth) {
       float u = fract(c * 0.159155), duty = 0.6, reach = strideM * duty, fx, lift;
       if (patter > 0.5) reach = 0.07;
       if (u < duty) { fx = reach * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv; fx = reach * (2.0 * (wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / duty * (wv * q * q * q * q - q * wv * wv * wv * wv)) - 1.0); lift = sin(3.14159 * wv); } // [motion3] (the foot leaves and meets the ground still going back under the body at the stance's pace: it moved with the body at both ends of the swing)
+      else { float wv = (u - duty) / (1.0 - duty); fx = reach * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
       float sw = asin(clamp(fx / uGait.z, -0.95, 0.95));
       float liftK = smoothstep(0.0, 0.03, amtS) + patter;
       if (fly && patter < 0.5) {
