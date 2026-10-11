@@ -80,6 +80,10 @@ window.CB = {
   wipe() {
     const gone = new Set();
     for (const e of this.H.ENT.slice()) if (e.balance) { gone.add(e.id); e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); }
+    // [balance5] and the ground made whole: a meteor's bowl or a leap's dent from the last fighters, its rim in the line of
+    // fire, decided the next duels there (a skilled archer won 23 of 24 against a priest at 50 in a fresh arena, none late
+    // in the full table)
+    if (this.H.bal5 && this.H.bal5.flattenCraters) this.craters = (this.craters || 0) + this.H.bal5.flattenCraters();
     // [balance3] and what they left in the arenas: armed snares (90 s), runes (30 s), holy ground, steam, ice and arrows
     // and bolts still in flight would strike the next fighters there
     const C = this.H.cls.CLS, t = this.H.GAME.t;
@@ -848,13 +852,16 @@ async def balance5(page):
     only a fresh Renewal steadies; a crippling arrow's wound; Whirlwind heals in the press; the realm's ways evened out"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
     r = await ev(page, 'flare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 0);
-      const a = T.ahead(P, 12); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
+      const a = T.ahead(P, 8); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
       const out = {};
-      // a mage in the middle of a firebolt: Holy Fire breaks it
+      // a mage in the middle of a firebolt close by: Holy Fire breaks it
       m.cds = {}; m.gcdUntil = 0; m.power = m.maxPower; F.useAbility(m, 'firebolt', P); H.simulate(0.3); out.casting = !!m.casting;
       P.target = m.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; out.r = F.useAbility(P, 'holyfire', m); out.broken = !m.casting;
+      // one beyond the flare's reach keeps its spell
+      const a3 = T.ahead(P, 16, -5); const m3 = T.foe(2, a3.x, a3.z, 20, 'mage', 0); m3.ai.nextAbility = 1e9; m3.swingAt = 1e9; H.simulate(0.1);
+      m3.cds = {}; m3.gcdUntil = 0; m3.power = m3.maxPower; F.useAbility(m3, 'firebolt', P); H.simulate(0.3); P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'holyfire', m3); out.far = !!m3.casting; m3.casting = null;
       // a priest steadfast from a fresh Renewal keeps its spell
-      const a2 = T.ahead(P, 10, 4); const q = T.foe(2, a2.x, a2.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
+      const a2 = T.ahead(P, 6, 3); const q = T.foe(2, a2.x, a2.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
       q.cds = {}; q.gcdUntil = 0; q.power = q.maxPower; q.hp = q.maxHp * 0.6; F.useAbility(q, 'renew', q); out.steady = H.fn.hasBuff(q, 'steadfast');
       q.gcdUntil = 0; F.useAbility(q, 'mend', q); H.simulate(0.2); P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'holyfire', q); out.kept = !!q.casting;
       // a second Renewal while the first still mends does not steady
@@ -863,6 +870,7 @@ async def balance5(page):
       H.simulate(9); q.cds = {}; q.gcdUntil = 0; F.useAbility(q, 'renew', q); out.fresh = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t);
       out.stats = H.bal5.BAL5.stats; return out; })()""")
     check(r['casting'] and r['r'] is True and r['broken'], f"Holy Fire flares a mage's firebolt away ({r})")
+    check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
     check(r['steady'] and r['kept'], f"a priest steadfast from a fresh Renewal keeps its Mend through the flare ({r})")
     check(not r['q2'] and not r['stale'] and r['fresh'], f"a Renewal while the last still mends does not steady; one after it has run its course does ({r})")
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);

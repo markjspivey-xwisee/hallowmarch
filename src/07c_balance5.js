@@ -142,6 +142,25 @@ CLASS_REALM.priest[0].text = `Your blessing makes allies take ${Math.round((1 - 
 CLASS_REALM.priest[1].text = `Your blessing heals ${+(PRIEST_REALM.eriuHot * 100).toFixed(1)}% a second and frees allies from snares and roots; your holy ground heals half again as much.`;
 CLASS_REALM.priest[2].text = `Your blessing makes allies strike ${Math.round((PRIEST_REALM.thuleBless - 1) * 100)}% harder, and your holy ground burns every foe on it, not only the dead.`;
 
+/* ------------------------------------------------------------------ */
+/* the measures: the arenas' ground made whole between phases          */
+/* ------------------------------------------------------------------ */
+// tests (tools/tests/classes.py CB.wipe, duels.py): every crater undone. A meteor leaves a bowl 2 m deep with a rim of
+// thrown earth, a Leap Strike a dent: a run's later duels were fought in pocked arenas where a bow or a staff in a bowl
+// shot into its rim, while holy fire (no flight) did not care (a skilled archer won 23 of 24 duels against a priest at 50
+// in a fresh arena and none in the full table)
+function balFlattenCraters() {
+  if (typeof NATURE === 'undefined' || !NATURE.craters) return 0;
+  let n = 0;
+  for (const K of NATURE.craters) {
+    for (let j = K.j0; j <= K.j1; j++) for (let i = K.i0; i <= K.i1; i++) { const v = K.d[(j - K.j0) * K.w + (i - K.i0)]; if (v) W.H[j * HN + i] -= v * K.k; }
+    natTerrainUpdate(K.i0, K.j0, K.i1, K.j1);
+    n++;
+  }
+  NATURE.craters.length = 0;
+  return n;
+}
+
 /* ---- what a player reads ---- */
 ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast.`;
 ABILITIES.whirl.desc = `Spin with your weapon out. 140% damage to every enemy within 4 m, and each foe your blade cuts gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health.`;
@@ -150,5 +169,5 @@ ABILITIES.cripple.desc = 'Slows the target by 50% for 5 seconds, and its wound m
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal5 = { BAL5, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
+  window.__hm.bal5 = { BAL5, flattenCraters: balFlattenCraters, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
 }, 0);

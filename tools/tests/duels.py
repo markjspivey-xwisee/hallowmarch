@@ -205,7 +205,7 @@ async def main():
             if os.environ.get('HM_BAL'): pathlib.Path(os.environ['HM_BAL']).write_text(json.dumps(allrows, indent=0))
         errs = await page.evaluate("__hm.errors.slice(0, 5)")
         print('errors', errs, flush=True)
-        print('rules', await page.evaluate("JSON.stringify({ bal5: __hm.bal5 ? __hm.bal5.BAL5.stats : null, rush: __hm.bal4 ? __hm.bal4.RUSH.stats : null, bal3: __hm.bal3 ? __hm.bal3.BAL3.stats : null })"), flush=True)  # [balance5] how often each rule came into play
+        print('rules', await page.evaluate("JSON.stringify({ bal5: __hm.bal5 && __hm.bal5.BAL5 ? __hm.bal5.BAL5.stats : null, rush: __hm.bal4 ? __hm.bal4.RUSH.stats : null, bal3: __hm.bal3 ? __hm.bal3.BAL3.stats : null })"), flush=True)  # [balance5] how often each rule came into play
         for l in logs[:5]: print(l)
         await b.close()
 
