@@ -468,7 +468,7 @@ async def look_shots(page):
       const c = LKT.body(S, 1, 'warrior', L.fx, L.fz, S.y + L.yb, 'soldier'); c.ai.post = null;
       H.towers.towerClimb(c, L, 1); for (let i = 0; i < 90; i++) { H.simulate(0.1, 0.02); if (c.anim.act === 18 && c.anim.actT > 0.25) break; }
       d.target = c.id; H.setTod(0.45);
-      LKT.cam(T, L.a - 0.95, 6.2, T.TT + 3.9, L.a, 1.55, T.TT + 0.4); return { act: c.anim.act, y: +(c.y - S.y).toFixed(2), d: d.anim.act }; })()""")
+      LKT.cam(T, L.a - 0.95, 5.6, T.TT + 5.2, L.a, 1.45, T.TT + 0.5); return { act: c.anim.act, y: +(c.y - S.y).toFixed(2), d: d.anim.act }; })()""")
     await shot(page, 'walls_ladder_fight_below', """(() => { const H = __hm, T = LKT.kinds().lc, L = T.ladders[1]; H.simulate(0.2, 0.02); LKT.cam(T, L.a + Math.PI - 0.4, 1.7, T.H + 1.0, L.a, 1.7, T.TT - 0.4); return 0; })()""")
     await page.evaluate("__hm.fn.setQuality('low')")
 

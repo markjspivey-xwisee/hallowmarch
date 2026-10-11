@@ -29,7 +29,7 @@ const TBREACH_GLSL = /* glsl */`
       bool cut = false;
       for (int i = 0; i < ${TB_MAX}; i++) {
         vec4 A = uKA[i], B = uKB[i], Q = uKC[i];
-        if (A.z <= 0.0) continue;
+        if (A.z <= 0.0) break; // (packed from the first: a castle's towers, then none)
         vec2 d = p.xz - A.xy;
         float r = length(d);
         if (r > A.z) continue;

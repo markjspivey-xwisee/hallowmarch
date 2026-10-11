@@ -229,7 +229,9 @@ function towerTopGallery(T, o = {}) {
     b.add(G.box, lm(M, q.x, TT + 0.55, q.z, a, L, 1.1, 0.1), MAT.wood, darker(wood, 0.92 + 0.08 * hash1(k * 3 + T.sx)));
     b.add(G.box, lm(M, q.x, TT + 1.12, q.z, a, L + 0.06, 0.08, 0.18), MAT.wood, darker(wood, 0.75));
     for (let i = 0; i < 6; i++) { const r = twP(T, a, HO - 0.02, -HO + 0.35 + i * ((2 * HO - 0.7) / 5)); b.add(G.box, lm(M, r.x, TT + 1.0, r.z, a, 0.05, 0.12, 0.02), MAT.water, ARROW_SLIT); }
-    C.coll(q.x, q.z, HO, 0.12, a, TT - 0.1, 1.3);
+    const gc = C.coll(q.x, q.z, HO, 0.12, a, TT - 0.1, 1.3);
+    // [walls] a shot clears it above the rail, and an archer at it shows over it (07g_walls.js)
+    gc.cren = { x0: gc.x - gc.cos * HO, z0: gc.z + gc.sin * HO, ux: gc.cos, uz: -gc.sin, len: 2 * HO, n: 1, mw: 1e3, mh: 0, sill: S.y + TT + 1.12 };
     // the eaves' plate
     const e = twP(T, a, HO - 0.07);
     b.add(G.box, lm(M, e.x, eave - 0.08, e.z, a, 2 * HO + 0.1, 0.16, 0.16), MAT.wood, darker(wood, 0.7));
@@ -303,7 +305,7 @@ function towerFloor(T, y, rf, L, look) {
       // [walls] the gallery's boards butt up against each other (no gap): out in the sun, the sides of boards with a gap
       // between them caught light the roof's shadow could not reach (thin lines of sun across the floor at medium and
       // high); each board still reads by its own shade
-      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, look === 'gallery' ? w + 0.002 : w - 0.025, 0.12, v1 - v0), MAT.plaster, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
+      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, look === 'gallery' ? w : w - 0.025, 0.12, v1 - v0), MAT.plaster, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
       else {
         // stone: the strip laid as flags about 0.8 m long, staggered from the strips beside it, each its own shade
         // and a hair lower or higher (no gap to see through)

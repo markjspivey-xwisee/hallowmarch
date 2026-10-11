@@ -106,7 +106,9 @@ function shotHit(ax, ay, az, bx, by, bz, o = _wDef) {
 // a collider: an upright box or circle between its heights
 function wallColl(c, ax, ay, az, dx, dy, dz, R, ox, oy, oz, tgt, pad) {
   const b0 = c.y0 != null ? c.y0 : c.baseY;
-  const y0 = c.vert ? b0 : c.baseY - 2.5, y1 = b0 + c.h;
+  // a prop's or a piece of furniture's collider is a box round all of it: a shot is stopped by its body, not by the air
+  // over a workbench's corner where a forge's chimney stands at the other end
+  const y0 = c.vert ? b0 : c.baseY - 2.5, y1 = b0 + ((c.tag === 'prop' || c.tag === 'furn') && !c.vert ? Math.min(c.h, 1.25) : c.h);
   let t0 = 0, t1 = Math.min(1, R.t), ax0 = 0, sgn = 0;
   if (c.type === 'circle') {
     const fx = ax - c.x, fz = az - c.z, A = dx * dx + dz * dz, rr = c.r + pad, C = fx * fx + fz * fz - rr * rr;
@@ -394,6 +396,7 @@ function wallsAimY(t, fromY) {
 // would a shot from e reach t, or strike something in between? (arrows fly a little arc: tested in three pieces)
 function wallsShotClear(e, t, arc = true) {
   if (!WALLS.on || !t) return true;
+  WALLS.stats.checks = (WALLS.stats.checks || 0) + 1;
   const yaw = Math.atan2(t.x - e.x, t.z - e.z), sc = e.scale || 1;
   const sx = e.x + Math.sin(yaw) * 0.4, sz = e.z + Math.cos(yaw) * 0.4, sy = e.y + 1.45 * sc;
   const tx = t.x, tz = t.z, ty = wallsAimY(t, sy);
@@ -402,7 +405,7 @@ function wallsShotClear(e, t, arc = true) {
   let px = sx, py = sy, pz = sz;
   for (let k = 1; k <= n; k++) {
     const u = k / n, x = lerp(sx, tx, u), z = lerp(sz, tz, u), y = lerp(sy, ty, u) + (arc ? Math.sin(u * Math.PI) * tot * 0.06 : 0);
-    if (shotHit(px, py, pz, x, y, z, o)) return false;
+    if (shotHit(px, py, pz, x, y, z, o)) { WALLS.stats.held++; return false; }
     px = x; py = y; pz = z;
   }
   return true;
@@ -543,6 +546,7 @@ function updateWalls(dt) {
     const S = WALLS.stuck[i];
     let gone = GAME.t > S.until;
     if (!gone && S.c && !S.c.active && S.c.tag !== 'hdoor') gone = true; // (a door's swings with it: hidden while it stands open)
+    if (!gone && S.c && S.y - S.dy * 0.1 > (S.c.y0 != null ? S.c.y0 : S.c.baseY) + S.c.h + 0.15) gone = true; // what held it was cut down below it (a breached tower)
     if (!gone && S.f && !S.f.active) gone = true;
     if (!gone && S.H && (S.roof ? !houseIntact(S.H) : S.H.state === 'ruin' && S.H.char >= 1 && S.H.stT > 3)) gone = true;
     if (!gone) continue;
