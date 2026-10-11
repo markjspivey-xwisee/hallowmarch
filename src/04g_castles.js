@@ -752,7 +752,7 @@ const CASTLE_CUT_GLSL = /* glsl */`
       bool cut = false;
       for (int i = 0; i < ${TW_FIRE_MAX}; i++) {
         vec4 A = uTA[i], B = uTB[i];
-        if (A.z == 0.0) continue;
+        if (A.z == 0.0) continue; // [siege2] an empty zone (A.z < 0: a cone, below)
         vec2 d = p.xz - A.xy, l = vec2(d.x * uTR.x - d.y * uTR.y, d.x * uTR.y + d.y * uTR.x);
         if (A.z > 0.0 ? (abs(l.x) > A.z || abs(l.y) > A.z) : dot(d, d) > A.z * A.z) continue; // [siege2] A.z < 0: a drum's circle (an Eriu tower's cone, 04n_towerfire.js)
         float up = smoothstep(B.z - 0.4, B.z + 0.5, p.y);
