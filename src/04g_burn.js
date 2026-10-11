@@ -105,6 +105,8 @@ function palisadeFireAt(x, y, z, r, by) {
   const c = palisadeCellAt(x, y, z, Math.max(0.6, r * 0.6));
   if (!c) return 0;
   if (palisadeSpared(c.P, by)) { PAL.stats.spared++; return 0; }
+  // a spark (embers from the wall, a tower or the grass: no caster) does not take again in logs already burnt and put out
+  if (!by && c.st === 2) return 0;
   // thick logs, often wet with the dew: a soldier's bolt or burning arrow takes hold only now and then (the player's,
   // a brand's and the dragon's always do)
   if (by && by.faction !== undefined && by !== GAME.player && by.role !== 'player' && Math.random() > PAL_T.npcCatch) return 0;
@@ -259,9 +261,10 @@ function updatePalisades(dt) {
     }
     for (const W of P.gaps) if (W.wmat) { const em = Math.max(...W.cells.map((c) => c.ember)); W.wmat.uniforms.uEmber.value = em * 0.8; W.wmat.uniforms.uSnowCover.value = U.uSnowCover.value * clamp(1 - em * 1.6, 0, 1); }
     // in peace its owners build it back: gaps behind scaffolding, charred logs replaced
-    const K = P.S.keepRef, quiet = !busy && K && GAME.t - K.lastEnemyNear > PAL_T.quiet;
+    const K = P.S.keepRef, calm = !!K && GAME.t - K.lastEnemyNear > PAL_T.quiet, quiet = !busy && calm;
     for (const W of P.gaps.slice()) {
-      if (!quiet) { W.quiet = 0; continue; }
+      // a gap is built back while no foe is near and no fire burns along its wall within a few strides of it
+      if (!calm || (busy && P.cells.some((c) => c.st === 1 && c.side === W.side && c.a1 > W.a0 - 6 && c.a0 < W.a1 + 6))) { W.quiet = 0; continue; }
       W.quiet += dt;
       if (W.state === 'breach' && W.quiet > 2) { W.state = 'repair'; W.t = 0; W.scaffold = new THREE.Mesh(palisadeScaffoldGeo(W), buildingMat); W.scaffold.renderOrder = 1; scene.add(W.scaffold); shadowCaster(W.scaffold, BUILDING_DEPTH); siegeOnRepair(W); }
       if (W.state === 'repair') {

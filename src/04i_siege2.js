@@ -105,7 +105,7 @@ function siegeStormTurn(e, s, Rt) {
     if (!q || q.W !== s.W || q.done) continue;
     // in the narrow part: on its way onto the rubble, on it, in the store room or in the doorway (one already out in the
     // court before the door, fighting there, is no longer in the way)
-    if ((q.i === 1 && q.go) || (q.i >= 2 && q.i <= 4 && dist2(o.x, o.z, s.W.T.wx, s.W.T.wz) < (s.W.T.RO + 0.4) ** 2)) {
+    if ((q.i === 1 && q.go) || q.i === 2 || q.i === 3 || (q.i === 4 && dist2(o.x, o.z, s.W.T.wx, s.W.T.wz) < (s.W.T.RO + 0.4) ** 2)) {
       inside++;
       if (dist2(o.x, o.z, p1.x, p1.z) < STORM_GAP * STORM_GAP) close = true;
     } else if (q.i <= 1 && !q.go) {
