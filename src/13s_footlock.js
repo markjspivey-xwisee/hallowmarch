@@ -18,6 +18,7 @@ const FL_MAX = 0.42; // beyond this a planted foot gives way and is dragged (a b
 // 05a_rig.js: 1024); farther off the gait alone draws them (a centimetre there is under a pixel), and their feet are
 // not followed at all, which saves the work in a big battle
 const FL_NEAR = 75;
+const FL_UP = 0.8; // [motion3] how far over the body a person's foot may stand (a high step up a flight)
 const FL_GIVE = 0.03, FL_HOP_T = 0.16, FL_HOP_H = 0.07; // [motion3] a quick step: past the leg's reach by FL_GIVE m, the foot is lifted FL_HOP_H m and set down again in FL_HOP_T s
 const flNear = (e, r) => { const dx = e.x - camera.position.x, dz = e.z - camera.position.z; return dx * dx + dz * dz < r * r; };
 const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -25,7 +26,7 @@ const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t 
 function flHumanGait(e, f) {
   const sc = e.scale || 1, amt = e.anim.turn > 0.05 && e.anim.amt < 0.15 ? 0 : clamp(e.anim.amt, 0, 2.2), vel = amt * 4.3 / Math.max(sc, 0.3); // (as drawActors sends it: stepping round, no walk)
   const runK = _flSS(2.4, 4.4, vel), duty = lerp(0.58, 0.26, runK) - 0.06 * _flSS(6.5, 9.0, vel);
-  const reach = duty * humanStep(vel) * sc;
+  const reach = duty * Math.min(humanStep(vel), humanStepCap(humanSlopeQ(e))) * sc; // [motion3] (short steps on a flight)
   const uL = ((((e.anim.phase - Math.PI / 2) / TAU) % 1) + 1) % 1, u = f ? (uL + 0.5) % 1 : uL;
   return [u, duty, reach, (f ? -1 : 1) * SK.ankle[0] * sc, 0];
 }
@@ -51,6 +52,7 @@ function footLockStep(e, dt) {
   const onFeet = e.alive && !e.seat && !e.boat && !e.swim && !e.dive && e.fixedY == null && e.onGround !== false && !e.flying && !(e.motion && e.motion.kind === 'leap');
   // the body's own motion this step, in its frame (across, along)
   const c = Math.cos(e.yaw), s = Math.sin(e.yaw), mx = e.x - (e._flX ?? e.x), mz = e.z - (e._flZ ?? e.z), idt = 1 / Math.max(dt, 1e-4);
+  e._flVy = lerp(e._flVy || 0, (e.y - (e._flY ?? e.y)) * idt, 0.5); e._flY = e.y; // [motion3] how fast it climbs (a foot lands on the floor it will be on)
   e._flX = e.x; e._flZ = e.z;
   const vx = (mx * c - mz * s) * idt, vz = (mx * s + mz * c) * idt;
   if (human && e.mount && onFeet) footLockFeet(e, e._flH || (e._flH = []), 4, (f) => flBeastGait(BEASTS.horse, e.mountAnim.phase, e.mountAnim.amt, 1, f), e.mountAnim.amt < 0.02, dt, vx, vz);
@@ -62,8 +64,8 @@ function footLockStep(e, dt) {
 // the floor under a foot at (x, z): a stair's tread, a deck, the ground (a drop beyond a step, off a wall walk's edge or a
 // jetty's, is no floor for it: then the body's own)
 let _flTread = false; // (the last floor flFloor found was a stair's tread: the foot stands level on it)
-function flFloor(e, x, z) {
-  const y = e.y;
+function flFloor(e, x, z, yRef) {
+  const y = yRef ?? e.y; // [motion3] (or where the body will be: the floor a swinging foot will land on)
   if (e.kind !== 'humanoid') { const h = floorTreadAt(x, z, y + 0.5); if (Math.abs(h - y) > 0.6) { _flTread = false; return y; } return h; }
   // a person's sole, heel to toe along the facing, stands on the highest floor under it: a foot by a stair's riser stands
   // on the next tread with its heel out over the edge, never with its toes in the stone (a third of the steps did)
@@ -71,7 +73,7 @@ function flFloor(e, x, z) {
   let best = -Infinity, tread = false;
   for (const k of FL_SOLE) {
     const h = floorTreadAt(x + fx * k, z + fz * k, y + 0.5);
-    if (Math.abs(h - y) > 0.6) continue;
+    if (y - h > 0.6 || h - y > FL_UP) continue; // [motion3] (a tread up to FL_UP over the body: climbing a steep flight a foot lands 0.5 to 0.75 m over it, and the tread past 0.6 was passed over: the foot stood 27 cm into the riser)
     if (h > best) { best = h; tread = _flTread; }
   }
   _flTread = best > -Infinity && tread;
@@ -164,11 +166,13 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       o.cx = lerp(o.lx, o.tx, k); o.cz = lerp(o.lz, o.tz, k);
       // the floor where it will come down (a tread, a bump, a slope's rise), and the floor under it now: it passes over a
       // stair's nosing or a hump on the way, not through it
-      const lx = x0 + o.tx, lz = z0 + reach + o.tz;
-      o.hT = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c); o.treadT = _flTread;
+      // [motion3] where it will come down is where the body will be by then (it was looked for where the body is now: up a
+      // flight at a run that was a tread short, and the foot came up into the next riser)
+      const tl = du > 0.05 ? clamp((1 - u) / du, 0, 0.5) : 0;
       const q = 1 - w, ee = w * w * (3 - 2 * w) - (1 - duty) / Math.max(duty, 0.05) * (o.human ? 0.5 * w * q ** 4 - q * w ** 4 : w * q ** 4 - q * w ** 4); // [motion3] (a person's footPath: half the pace leaving, the whole pace landing)
-      const nx = x0 + o.cx, nz = z0 + reach * (2 * ee - 1) + o.cz;
-      o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
+      // (in the body's frame; footLockSlot looks for the floors there where the body is drawn: the player moves after
+      // its gait steps, and up a flight at a run a step behind was a tread short, the foot coming up into the next riser)
+      o.lT = [x0 + o.tx + vx * tl, z0 + reach + o.tz + vz * tl, clamp(e._flVy || 0, -6, 6) * tl]; o.lN = [x0 + o.cx, z0 + reach * (2 * ee - 1) + o.cz];
       o.w = w;
     }
     o.down = down;
@@ -191,11 +195,19 @@ function footLockSlot(e, horse) {
       o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
     }
     if (o.down && o.h == null) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; }
+    if (!o.down && o.lT) {
+      // [motion3] in the air: the floor where it will come down (where the body will be by then), and the floor under it
+      // now and a little ahead on its way (it comes forward faster than a tread is deep), all from where the body is drawn
+      const [tx, tz, ty] = o.lT, [nx, nz] = o.lN;
+      o.hT = flFloor(e, e.x + tx * c + tz * s, e.z - tx * s + tz * c, e.y + ty); o.treadT = _flTread; // (by the floor the body will be on by then: up a flight it climbs as fast as it runs)
+      o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
+      if (o.human && (o.w ?? 1) < 0.97) for (const k of [0.12, 0.24]) { const az = nz + k * (e.scale || 1); o.hN = Math.max(o.hN, flFloor(e, e.x + nx * c + az * s, e.z - nx * s + az * c)); }
+    }
     // how high its floor stands over the body's own: planted, its own place's; in the air, from the floor it left to the
     // floor it will land on
     const hy = o.down ? o.h + (o.hop > 0 ? FL_HOP_H * Math.sqrt(Math.sin(Math.PI * o.hop)) : 0) : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9); // [motion3] (a quick step raised)
     // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
-    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, 0.45);
+    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP)
     if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;

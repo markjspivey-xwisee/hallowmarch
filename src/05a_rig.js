@@ -652,6 +652,9 @@ const HSK = { // skeleton constants for GLSL
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
+  // [motion3] up or down a steep flight the steps are no longer than a few treads (07_entities.js humanStepCap): a runner's
+  // two-metre stride had each foot reaching for a tread at hip height and coming up into the risers
+  float humanStepCap(float sl){ return mix(2.2, 0.9, smoothstep(0.25, 0.55, abs(sl))); }
   // a foot at u of its cycle (0: it comes down ahead of the hip): how far ahead of the hip it is, and how high it is
   vec2 footPath(float u, float duty, float reach, float liftH, float runK){
     if (u < duty) return vec2(reach * (1.0 - 2.0 * u / duty), 0.0);
@@ -745,7 +748,11 @@ function humanVS(depth) {
     float vel = amt * 4.3 / max(iColA.w, 0.3);
     float runK = smoothstep(2.4, 4.4, vel), gk = smoothstep(0.02, 0.3, amt);
     float duty = mix(0.58, 0.26, runK) - 0.06 * smoothstep(6.5, 9.0, vel);
-    float stepS = humanStep(vel);
+    // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
+    // comes down on it, and the hips sink a little so the lower foot reaches; [motion3] read before the step's length
+    float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
+    float slopeK = clamp((slopeN - 41.0 * leanN) * 0.05, -1.0, 1.0), lean = leanN * 0.04;
+    float stepS = min(humanStep(vel), humanStepCap(slopeK));
     float reach = duty * stepS, liftH = max(mix(0.1, 0.3, runK) * min(1.0, stepS / 0.42) * smoothstep(0.0, 0.04, amt), 0.075 * turnK); // [motion] the planted foot keeps pace at any speed; turning, the feet step
     float uL = fract((ph - 1.5708) * 0.159155);
     float gaitDrop = (0.015 + 0.075 * runK) * gk;                                      // a runner carries the hips lower
@@ -758,10 +765,6 @@ function humanVS(depth) {
     vec4 lk4L = footLock4(flSlot, 0) / rsc0, lk4R = footLock4(flSlot, 1) / rsc0;
     vec2 lkL = lk4L.xy, lkR = lk4R.xy;
     fL.x += lkL.y; fR.x += lkR.y;
-    // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
-    // comes down on it, and the hips sink a little so the lower foot reaches
-    float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
-    float slopeK = clamp((slopeN - 41.0 * leanN) * 0.05, -1.0, 1.0), lean = leanN * 0.04;
     float slopeDrop = min(0.1, abs(slopeK) * 0.14);
     gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
