@@ -82,6 +82,15 @@ function castleTowerUpload(C) {
     U3.uTB.value[i].set(cut, B ? clamp(B.heat, 0, 1) : 0, T.S.y + 1.8, Fl ? clamp(Fl.fresh || 0, 0, 1) : clamp(T.fresh || 0, 0, 1));
   }
   U3.uTR.value.set(Math.cos(C.S.yaw), Math.sin(C.S.yaw));
+  // every tower of the castle (any look): its rooms keep the snow off their floors (the castle shader's uTS)
+  if (U3.uTS) {
+    const All = TOWER.list.filter((T) => T.C === C);
+    for (let i = 0; i < TW_FIRE_MAX; i++) {
+      const T = All[i];
+      if (!T) U3.uTS.value[i].set(0, 0, 0, 0);
+      else U3.uTS.value[i].set(T.wx, T.wz, T.kind === 'drum' ? T.RI : -T.HI, T.S.y + T.shelterY - 0.05);
+    }
+  }
 }
 
 // the gallery and the roof fall in

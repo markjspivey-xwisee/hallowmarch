@@ -758,6 +758,18 @@ const CASTLE_CUT_GLSL = /* glsl */`
       }
       return cut;
     }
+    // [keeps] the rooms of a castle's towers keep the snow off their floors (04l_towers.js): S = (x, z, inner radius,
+    // or minus the inner half of a square tower, the shelter's height)
+    uniform vec4 uTS[${TW_FIRE_MAX}];
+    float towerShelterK(vec3 p){
+      for (int i = 0; i < ${TW_FIRE_MAX}; i++) {
+        vec4 S = uTS[i];
+        if (S.z == 0.0 || p.y > S.w) continue;
+        vec2 d = p.xz - S.xy, l = vec2(d.x * uTR.x - d.y * uTR.y, d.x * uTR.y + d.y * uTR.x);
+        if (S.z > 0.0 ? dot(l, l) < S.z * S.z : max(abs(l.x), abs(l.y)) < -S.z) return 1.0;
+      }
+      return 0.0;
+    }
 `;
 const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
@@ -766,6 +778,8 @@ const CASTLE_FS = (() => {
     ${a}
     if (castleCut(vW) || towerCut(vW)) discard;
   `);
+  fs = castlePatch(fs, 'float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0);', (a) => /* glsl */`${a}
+    wSnow *= 1.0 - towerShelterK(vW); // [keeps] no snow on the floors inside a tower (before it whitens the albedo)`);
   fs = castlePatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', (a) => /* glsl */`
     if (cWear > 0.002) {
       // cracks: long jagged lines that branch as the wall weakens, dust and scorch from the strikes
@@ -788,11 +802,11 @@ const CASTLE_DEPTH_FS = /* glsl */`
   varying vec3 vW;
   ${CASTLE_CUT_GLSL}
   void main(){ if (castleCut(vW) || towerCut(vW)) discard; gl_FragColor = vec4(1.0); }`;
-const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) } } });
+const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] } } });
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
   const t = (y) => ({ value: Array.from({ length: TW_FIRE_MAX }, () => new THREE.Vector4(y, 0, 0, 0)) }); // [keeps] the timber towers (04n_towerfire.js)
-  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) } };
+  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0) }; // [keeps] uTS: the towers' rooms
 }
 // split a box collider along one of its local axes: the ends stay, the middle (returned) can fall
 function castleSplitColl(c, axis, u0, u1) {

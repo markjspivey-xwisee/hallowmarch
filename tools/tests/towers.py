@@ -539,7 +539,7 @@ async def kshots(page):
       TT.empty(S); Hh.held = true; H.simulate(1.0, 0.02);
       const d = TT.body(S, 0, 'warrior', TT.tl(T, L.a + 0.95, 1.0).x, TT.tl(T, L.a + 0.95, 1.0).z, L.yt); d.hp = d.maxHp = 1e5;
       const c = TT.body(S, 1, 'warrior', L.foot.x, L.foot.z, L.yb, 'soldier'); c.hp = c.maxHp = 1e5; c.ai.post = null;
-      H.towers.towerClimb(c, L, 1); for (let i = 0; i < 30; i++) { H.simulate(0.1, 0.02); if (c.anim.act === 18 && c.anim.actT > 0.2) break; }
-      TT.cam(S, T, L.a + 1.6, 1.15, T.TT + 1.9, L.a, 0.9, T.TT - 1.0); return { act: c.anim.act, y: +(c.y - S.y).toFixed(2) }; })()""")
+      H.towers.towerClimb(c, L, 1); for (let i = 0; i < 90; i++) { H.simulate(0.1, 0.02); if (c.anim.act === 18 && c.anim.actT > 0.2) break; }
+      TT.cam(S, T, L.a - 1.5, 1.25, T.TT + 2.1, L.a, 0.85, T.TT - 0.7); return { act: c.anim.act, y: +(c.y - S.y).toFixed(2) }; })()""")
 
 asyncio.run(main())
