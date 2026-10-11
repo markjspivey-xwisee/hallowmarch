@@ -61,7 +61,7 @@ const ABILITIES = {
   meteor: { name: 'Meteor', icon: 'meteor', level: 15, cost: 30, cd: 28, range: 36, ground: true, cast: 2.4, radius: 6, dmg: 3.0, anim: 3, desc: 'Calls down a meteor. 300% damage in 6 m.' },
 
   smite: { name: 'Smite', icon: 'sun', level: 1, cost: 8, cd: 0, range: 30, cast: 1.3, proj: 'holy', dmg: 1.9, anim: 3, desc: 'Holy light. 190% damage.' }, // [balance] 160% [balance2] 180%
-  mend: { name: 'Mend', icon: 'heart', level: 1, cost: 28, /* [balance] 14: a long fight drains a healer [balance4] 22: a priest mending with every other press out-lasted every foe played as simply */ cd: 0, range: 30, cast: 1.5, heal: 0.36, friendly: true, anim: 3, desc: 'Heals a friend for 36% of health, or you for 27%.' },
+  mend: { name: 'Mend', icon: 'heart', level: 1, cost: 22, /* [balance] 14: a long fight drains a healer */ cd: 0, range: 30, cast: 1.5, heal: 0.36, friendly: true, anim: 3, desc: 'Heals a friend for 36% of health, or you for 27%.' },
   renew: { name: 'Renewal', icon: 'leaf', level: 3, cost: 16, /* [balance] 12 */ cd: 6, range: 30, hot: [0.32, 9], friendly: true, anim: 3, desc: 'Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells.' }, // [balance2] steadfast (07c_balance.js)
   holyfire: { name: 'Holy Fire', icon: 'candle', level: 5, cost: 12, cd: 8, range: 30, dot: [2.4, 8], anim: 3, desc: 'Burns an enemy for 240% over 8 seconds.' }, // [balance] 180% [balance2] 210%
   sanctuary: { name: 'Sanctuary', icon: 'circle', level: 9, cost: 32, /* [balance] 26 */ cd: 20, self: true, groupHeal: 0.25, radius: 14, anim: 3, desc: 'Heals all allies within 14 m for 25%, and you for 19%.' }, // [balance] a priest's own wounds mend more slowly

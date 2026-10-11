@@ -288,7 +288,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22;
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = 22; // [balance4] (it pressed a bow that could not tumble: a snare, a crippling arrow and the bow's light feet kept it chasing, not casting)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
