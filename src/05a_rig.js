@@ -631,7 +631,7 @@ let HORSE_SEAT_GLSL = 'vec3 horseSeat(float ph, float amtRaw, bool air){ return 
 // the body's own frame against where the gait would put it (13r_motion.js: footLockStep keeps each planted foot's place
 // on the ground; drawActors fills the rows). A row is found by the body's slot: people carry it above the bit for
 // 'female' in iStyle.z, beasts above their weather in iColB.w
-const FOOT_LOCK = { W: 4, H: 256, n: 0 };
+const FOOT_LOCK = { W: 4, H: 1024, n: 0 }; // [motion3] a row for every body near the camera (13s_footlock.js FL_NEAR; 256 rows left the rest of a crowd unlocked)
 FOOT_LOCK.data = new Float32Array(FOOT_LOCK.W * FOOT_LOCK.H * 4);
 FOOT_LOCK.tex = new THREE.DataTexture(FOOT_LOCK.data, FOOT_LOCK.W, FOOT_LOCK.H, THREE.RGBAFormat, THREE.FloatType);
 FOOT_LOCK.tex.needsUpdate = true;
@@ -657,11 +657,15 @@ const HUMAN_GAIT = /* glsl */`
     if (u < duty) return vec2(reach * (1.0 - 2.0 * u / duty), 0.0);
     float w = (u - duty) / (1.0 - duty);
     float e = w * w * (3.0 - 2.0 * w);
-    // [motion] the foot leaves the ground and meets it again moving back under the body at half the pace of the stance
-    // (a smoothstep alone brought it down moving with the body, so it skated in to land, most of all at a run)
-    e -= 0.5 * (1.0 - duty) / max(duty, 0.05) * w * (2.0 * w - 1.0) * (w - 1.0);
+    // [motion] the foot leaves the ground moving back under the body at half the pace of the stance (a smoothstep alone
+    // brought it down moving with the body, so it skated in to land, most of all at a run); [motion3] and meets it again
+    // at the stance's own pace, standing still over the ground (the retraction kept to the end of the swing), coming down
+    // the last few centimetres steeply: at half the pace a runner's foot still came in at a third of the body's speed,
+    // 3 to 5 cm over the ground in the last frame
+    float q = 1.0 - w;
+    e -= (1.0 - duty) / max(duty, 0.05) * (0.5 * w * q * q * q * q - q * w * w * w * w);
     float wl = pow(w, mix(1.0, 0.62, runK)); // a runner's heel kicks up early in the swing
-    return vec2(reach * (2.0 * e - 1.0), liftH * pow(sin(3.14159 * wl), 0.85));
+    return vec2(reach * (2.0 * e - 1.0), liftH * pow(sin(3.14159 * wl), mix(0.85, 0.5, smoothstep(0.5, 1.0, w))));
   }
   // the ankle at fz ahead of and fy above the hip -> rotations of the thigh and the knee about x from the rest pose
   // (+ swings the thigh back, + folds the knee back); out of reach, the foot rises (the heel lifts) instead of sliding
@@ -754,7 +758,6 @@ function humanVS(depth) {
     vec4 lk4L = footLock4(flSlot, 0) / rsc0, lk4R = footLock4(flSlot, 1) / rsc0;
     vec2 lkL = lk4L.xy, lkR = lk4R.xy;
     fL.x += lkL.y; fR.x += lkR.y;
-    float abL = atan(clamp(lkL.x, -0.12, 0.45) / 0.86), abR = atan(clamp(lkR.x, -0.45, 0.12) / 0.86);
     // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
     // comes down on it, and the hips sink a little so the lower foot reaches
     float slopeN = floor(iPos.w * 0.159155 + 0.5), leanN = floor((slopeN + 20.0) / 41.0 + 1e-3); // (humanSlopeYaw, 13r_motion.js)
@@ -764,6 +767,9 @@ function humanVS(depth) {
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
     // [polish] each foot on the floor under it (a tread, a bump: the lock knows where it stands), else on the slope's line
     float hL = flSlot > 0.5 ? lk4L.z : slopeK * fL.x, hR = flSlot > 0.5 ? lk4R.z : slopeK * fR.x;
+    // [motion3] the turn that sets the ankle where the lock asks across: over the hip's own height above it (a fixed
+    // 0.86 m set it 3 to 20 percent short, and a walker shoved aside slid as far)
+    float abL = atan(clamp(lkL.x, -0.12, 0.45) / max(0.845 - gaitDrop + gaitBob - hL - fL.y, 0.3)), abR = atan(clamp(lkR.x, -0.45, 0.12) / max(0.845 - gaitDrop + gaitBob - hR - fR.y, 0.3));
     vec2 ikL = legIK(fL.x, (fL.y + hL - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + hR - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running

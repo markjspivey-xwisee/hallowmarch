@@ -620,8 +620,11 @@ function beastVS(depth) {
       tg = bbRot(tg, uSpine.zy, fr ? -spine : spine);
       vec3 Lr = fr ? uFL : uBL, Tr = fr ? uFT : uBT;
       // [polish] a foot to the side of the leg's plane: the leg swings out about its top (the feet do not cross), reaching
-      // as far down, and the hoof or paw rolls back level
-      float abd = atan(clamp(dxM, legX > 0.0 ? -0.06 : -0.45, legX > 0.0 ? 0.45 : 0.06) / max(Tr.y, 0.1));
+      // as far down, and the hoof or paw rolls back level. [motion3] The turn is the one that sets the low joint (the
+      // hock, the fetlock) over the foot's place, since all below it hangs straight (worked out from the top, the hind
+      // feet went half as far as the lock asked and the fore four fifths: a horse shoved at a trot slid 15 cm); and a
+      // foot may step in under the body, short of the middle (8.5 tenths of the way: 6 cm before)
+      float abd = atan(clamp(dxM, legX > 0.0 ? -0.85 * legX : -0.45, legX > 0.0 ? 0.45 : -0.85 * legX) / max(Tr.y - tg.y, 0.1));
       tg.y = Tr.y + (tg.y - Tr.y) / cos(abd);
       vec2 ik = beastLegIK(Tr.zy, fr ? uFM.zy : uBM.zy, Lr.zy, tg.x - Lr.z, tg.y - Lr.y);
       float sw = ik.x + (fr ? frontReach : hindPush);

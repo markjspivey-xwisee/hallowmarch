@@ -14,6 +14,12 @@
 // way), and the foot passes over the floor under it on the way (a stair's nosing, a hump). Rows of a float texture
 // (FOOT_LOCK, 05a_rig.js), one per body drawn near the camera with a foot held.
 const FL_MAX = 0.42; // beyond this a planted foot gives way and is dragged (a body shoved a long way)
+// [motion3] the lock's reach: bodies within FL_NEAR m of the camera have their feet followed and get a row (FOOT_LOCK.H,
+// 05a_rig.js: 1024); farther off the gait alone draws them (a centimetre there is under a pixel), and their feet are
+// not followed at all, which saves the work in a big battle
+const FL_NEAR = 75;
+const FL_GIVE = 0.03, FL_HOP_T = 0.16, FL_HOP_H = 0.07; // [motion3] a quick step: past the leg's reach by FL_GIVE m, the foot is lifted FL_HOP_H m and set down again in FL_HOP_T s
+const flNear = (e, r) => { const dx = e.x - camera.position.x, dz = e.z - camera.position.z; return dx * dx + dz * dz < r * r; };
 const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 // a person's feet: [u (0..1 round its cycle), duty, reach (m), x (its side, m)] for the left (0) and the right (1)
 function flHumanGait(e, f) {
@@ -40,6 +46,7 @@ function flBeastGait(S, ph, amtRaw, sc, f) {
 }
 // one step of the lock for a body (from updateAnim, after its phase moved on); the horse under a rider has its own
 function footLockStep(e, dt) {
+  if (!flNear(e, FL_NEAR * 1.15)) { e._fl = e._flH = null; e._flX = e.x; e._flZ = e.z; return; } // [motion3] far off: not followed (planted afresh when it comes near)
   const human = e.kind === 'humanoid', S = !human ? BEASTS[e.crowd || e.kind] : null;
   const onFeet = e.alive && !e.seat && !e.boat && !e.swim && !e.dive && e.fixedY == null && e.onGround !== false && !e.flying && !(e.motion && e.motion.kind === 'leap');
   // the body's own motion this step, in its frame (across, along)
@@ -106,37 +113,60 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
     // need nothing)
     const du = ((u - o.u) % 1 + 1) % 1 / Math.max(dt, 1e-4);
     o.u = u;
+    // [motion3] across, how far the leg reaches: in under the body no farther than the shaders let it (people 0.12 m past
+    // their own line, beasts 0.85 of the way to the middle), out to 0.45 m
+    const sc = e.scale || 1, inL = o.human ? 0.12 * sc : 0.85 * Math.abs(x0), outL = 0.45 * sc;
+    const lo = x0 > 0 ? -inL : -outL, hi = x0 > 0 ? outL : inL;
     if (du > 0.05 && du < 8) {
       const Tst = duty / du, k = 1 - Math.exp(-dt * 8);
-      o.tx = lerp(o.tx, clamp(vx * Tst / 2, -0.25, 0.25), k);
+      // [motion3] the whole stance kept within that reach: a foot that will travel in under the body comes down farther
+      // out, one that travels out comes down as far in as it may (a stance centred on the gait's place ran into the inner
+      // limit and was dragged: a walker shoved aside 10 cm)
+      const d = -vx * Tst, a = lo - Math.min(0, d), b = hi - Math.max(0, d);
+      o.tx = lerp(o.tx, a <= b ? clamp(-d / 2, a, b) : (lo + hi - d) / 2, k);
       o.tz = lerp(o.tz, clamp((vz - 2 * reach / Math.max(duty, 0.05) * du) * Tst / 2, -0.25, 0.25), k);
     } else { o.tx *= 0.9; o.tz *= 0.9; }
     if (down) {
       // it comes down where the gait puts it with what the swing brought it to (o.cx, o.cz); its place on the ground is
       // taken where the body is drawn next (footLockSlot: the player moves after its gait steps, so a place taken here
       // would be a step behind)
-      if (!o.down) o.fresh = true;
-      if (!o.fresh) {
+      if (!o.down) { o.fresh = true; o.hop = 0; }
+      if (o.hop > 0) {
+        // [motion3] a quick step: lifted off a place the leg could no longer hold, carried to where the rest of the stance
+        // can be spent, and set down again (FL_HOP_T s, FL_HOP_H m high: footLockSlot raises it)
+        o.hop = Math.min(1, o.hop + dt / FL_HOP_T);
+        const k = _flSS(0.15, 0.85, o.hop);
+        o.cx = lerp(o.hx, o.tx, k); o.cz = lerp(o.hz, o.tz, k);
+        if (o.hop >= 1) { o.hop = 0; o.fresh = true; }
+      } else if (!o.fresh) {
         // the planted place in the body's frame, against the gait's
         const dx = o.wx - e.x, dz = o.wz - e.z;
         let cx = dx * c - dz * s - x0, cz = dx * s + dz * c - along;
         const m = Math.hypot(cx, cz);
         if (m > FL_MAX * 1.6) { cx = o.tx; cz = o.tz; at(o, x0, along, cx, cz); } // a jump (set down somewhere new): planted afresh
-        else if (m > FL_MAX) { const k = FL_MAX / m; cx *= k; cz *= k; at(o, x0, along, cx, cz); } // dragged too far: the foot gives way and slides after the body
+        else if ((m > FL_MAX || cx < lo - FL_GIVE || cx > hi + FL_GIVE) && !still) {
+          // [motion3] beyond what the leg can hold (in under the body past its limit, or too far off): it steps (a cut at a
+          // sprint or a hard shove dragged the foot along the ground 10 cm and more)
+          const k = m > FL_MAX ? FL_MAX / m : 1;
+          o.hop = 1e-4; o.hx = clamp(cx * k, lo, hi); o.hz = cz * k; cx = o.hx; cz = o.hz;
+        }
         o.cx = cx; o.cz = cz;
       }
       o.lx = o.cx; o.lz = o.cz;
     } else {
-      if (o.down) o.hL = o.h ?? null; // (the floor it lifts off)
-      o.fresh = false;
+      if (o.down) o.hL = o.h == null ? null : o.h + (o.hop > 0 ? FL_HOP_H * Math.sqrt(Math.sin(Math.PI * o.hop)) : 0); // (the floor it lifts off; [motion3] or the height of a quick step it was taking)
+      o.fresh = false; o.hop = 0;
       // in the air: from where it lifted off to where it will come down, over the swing
-      const w = clamp((u - duty) / Math.max(1 - duty, 0.05), 0, 1), k = w * w * (3 - 2 * w);
+      // [motion3] a person's foot is near the ground at both ends of its swing: it moves across only once it has risen and
+      // is there before it comes down (it came down still moving aside, a centimetre a frame); a beast's swing is all up
+      // in the air (it rises and comes down in place in the stance's ends, bbFoot)
+      const w = clamp((u - duty) / Math.max(1 - duty, 0.05), 0, 1), k = o.human ? _flSS(0.12, 0.75, w) : w * w * (3 - 2 * w);
       o.cx = lerp(o.lx, o.tx, k); o.cz = lerp(o.lz, o.tz, k);
       // the floor where it will come down (a tread, a bump, a slope's rise), and the floor under it now: it passes over a
       // stair's nosing or a hump on the way, not through it
       const lx = x0 + o.tx, lz = z0 + reach + o.tz;
       o.hT = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c); o.treadT = _flTread;
-      const q = 1 - w, ee = w * w * (3 - 2 * w) - (o.human ? 0.5 * (1 - duty) / Math.max(duty, 0.05) * w * (2 * w - 1) * (w - 1) : (1 - duty) / Math.max(duty, 0.05) * (w * q ** 4 - q * w ** 4));
+      const q = 1 - w, ee = w * w * (3 - 2 * w) - (1 - duty) / Math.max(duty, 0.05) * (o.human ? 0.5 * w * q ** 4 - q * w ** 4 : w * q ** 4 - q * w ** 4); // [motion3] (a person's footPath: half the pace leaving, the whole pace landing)
       const nx = x0 + o.cx, nz = z0 + reach * (2 * ee - 1) + o.cz;
       o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
       o.w = w;
@@ -149,7 +179,7 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
 // (updatePlayer), and a foot read a step late moved with the body for that step (18 cm in a sharp cut at a sprint)
 function footLockSlot(e, horse) {
   const L = horse ? e._flH : e._fl;
-  if (!L || FOOT_LOCK.n >= FOOT_LOCK.H) return 0;
+  if (!L || FOOT_LOCK.n >= FOOT_LOCK.H || !flNear(e, FL_NEAR)) return 0; // [motion3] only near the camera
   const c = Math.cos(e.yaw), s = Math.sin(e.yaw);
   let any = false;
   for (const o of L) {
@@ -163,10 +193,10 @@ function footLockSlot(e, horse) {
     if (o.down && o.h == null) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; }
     // how high its floor stands over the body's own: planted, its own place's; in the air, from the floor it left to the
     // floor it will land on
-    const hy = o.down ? o.h : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9);
+    const hy = o.down ? o.h + (o.hop > 0 ? FL_HOP_H * Math.sqrt(Math.sin(Math.PI * o.hop)) : 0) : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9); // [motion3] (a quick step raised)
     // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
     o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, 0.45);
-    if (o.down && o.g) {
+    if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;
       const m = Math.hypot(cx, cz);

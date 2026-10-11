@@ -146,6 +146,7 @@ async def main():
         if want('lock'):
             # a soldier walking while shoved sideways keeps its planted feet (the full table: motion.py)
             r = await ev(page, 'lock', """(() => { const H = PL.H, F = H.fn, P = H.GAME.player; const R = H.REALMS[2], S = R.musterSite; const e = F.spawnRealmUnit(2, 'warrior', 10, 'test', S.x + 8, S.z + 8); e.role = 'test';
+              H.camera.position.set(e.x + 6, e.y + 4, e.z + 6); // [motion3] the lock follows bodies near the camera (FL_NEAR)
               const L = []; for (let k = 0; k < 120; k++) { e.x += 0.8 / 60; e.z += 1.2 / 60; e.yaw = Math.atan2(0, 1); H.simulate(1 / 60, 1 / 60); if (e._fl) L.push(e._fl.map((o) => o.down ? 1 : 0).join('')); }
               const ok = !!e._fl && e._fl.some((o) => Math.abs(o.cx) > 0.02); F.removeEnt(e); return { tracked: L.length, held: ok }; })()""")
             check(r['tracked'] > 60 and r['held'], f"a shoved body's planted feet are held where they came down ({json.dumps(r)})")
