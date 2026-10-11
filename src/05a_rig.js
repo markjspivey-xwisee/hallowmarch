@@ -1109,6 +1109,7 @@ function humanVS(depth) {
 }
 /* shading shared by people and beasts */
 const GLSL_ACTOR_LIGHT = /* glsl */`
+  float gRoom = 0.0; // [look] 1 inside a house (under its roof): the sky neither lights nor shines on the body
   vec3 actorLight(vec3 alb, vec3 n, vec3 V, float rough, float metal, float ao, float sh, float sss){
     vec3 L = uLightDir;
     float ndl = dot(n, L);
@@ -1123,7 +1124,7 @@ const GLSL_ACTOR_LIGHT = /* glsl */`
     vec3 col = alb * (1.0 - metal * 0.85) * (uLightColor * diffW * sh * 0.9 + amb * ao * 0.78);
     col += uLightColor * spec * F * sh * clamp(ndl * 3.0, 0.0, 1.0);
     vec3 R = reflect(-V, n);
-    vec3 env = mix(uAmbient * vec3(0.5, 0.47, 0.4), mix(uHorizon, uZenith, clamp(R.y, 0.0, 1.0)) * 0.95, smoothstep(-0.25, 0.3, R.y));
+    vec3 env = mix(uAmbient * vec3(0.5, 0.47, 0.4), mix(uHorizon, uZenith, clamp(R.y, 0.0, 1.0)) * 0.95, smoothstep(-0.25, 0.3, R.y) * (1.0 - gRoom)); // [look] no sky shines in steel in a room
     float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
     col += env * ao * (metal * mix(F0, vec3(1.0), fres) * (0.3 + 0.7 * gloss) + (1.0 - metal) * 0.05 * fres * gloss);
     col += (uLightColor * 0.16 * sh + uAmbient * 0.22) * pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.3 * ao;
@@ -1145,6 +1146,8 @@ const humanoidMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_ROOFS} // [look] underRoof: a body in a room is lit by the room
+
     varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit;
     varying vec4 vWear; // feature/weather
     float sdBox2(vec2 p, vec2 b){ vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
@@ -1356,7 +1359,13 @@ const humanoidMat = mat({
       }
       /* ---- end weather and wear ---- */
       float sh = shadowAt(vW, n);
-      vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
+      // [look] a body in a room (under a house's roof, GLSL_ROOFS) is lit by the room: no sun or moon through the roof
+      // (low has no shadow map), less of the sky's ambient and none of the sky in its steel. At night it was lit blue
+      // by the moonlit sky in a room the hearth lights warm; the hearth and the lamp reach it as point lights (gPL)
+      gRoom = underRoof(vW) ? 1.0 : 0.0;
+      sh *= 1.0 - gRoom;
+      vec3 col = actorLight(alb, n, V, rough, metal, ao * (1.0 - 0.4 * gRoom), sh, sss);
+      col += alb * vec3(0.2, 0.12, 0.055) * gRoom * (0.45 + 0.55 * uNight) * ao; // the room's own warm light (its hearth and lamp: houseIndoor)
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
       col += alb * emit;
       col += wetSheen(vW, n, V, wFilm, wFilmPor, sh) * ao; // feature/weather: the sky and the sun in a film of rain
