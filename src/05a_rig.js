@@ -1067,6 +1067,26 @@ function humanVS(depth) {
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
+    // [look] cloth over the legs (a robe, a short skirt, a tabard's flaps) is pushed out ahead of a leg that has come
+    // forward and behind one that has gone back: the middle of a robe follows neither thigh (they share it), so a
+    // striding or guarding leg came through it from the hip to the boot, and a knee through a tabard
+    if (aBit > 10.5 && !arm && P.y < ${(SK.hip[1] - 0.02).toFixed(3)}) {
+      int cb = int(aBit + 0.5);
+      if (cb == ${WBIT.robe} || cb == ${WBIT.tabard} || cb == ${WBIT.skirt}) {
+        for (int sd = 0; sd < 2; sd++) {
+          float th = sd == 0 ? thL : thR, sh = sd == 0 ? shL : shR, lx = sd == 0 ? ${SK.hip[0].toFixed(4)} : ${(-SK.hip[0]).toFixed(4)};
+          float kx = 1.0 - smoothstep(0.07, 0.19, abs(P.x - lx));
+          if (kx <= 0.0) continue;
+          float hy = ${SK.hip[1].toFixed(4)}, L1 = ${Math.hypot(SK.hip[1] - SK.knee[1], SK.knee[2] - SK.hip[2]).toFixed(4)}, ky = hy - L1 * cos(th), kz = -L1 * sin(th);
+          // the leg's line at this height: the thigh above the knee, the shin below it
+          float zl = P.y > ky ? -(hy - P.y) * tan(clamp(th, -1.3, 1.3)) : kz - (ky - P.y) * tan(clamp(th + sh, -1.3, 1.3));
+          // its front and back surfaces there, with a little room (a tabard a little more, so it stays over the robe)
+          float room = cb == ${WBIT.tabard} ? 0.125 : 0.1;
+          if (position.z > 0.0) { float need = zl + room; if (P.z < need) P.z = mix(P.z, need, kx); }
+          else { float need = zl - room; if (P.z > need) P.z = mix(P.z, need, kx); }
+        }
+      }
+    }
     // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
     // the planted feet from side to side, a few centimetres each stride
     float legW = (bone == 7 || bone == 9) ? 1.0 - aW : (bone == 8 || bone == 10) ? 0.0 : 1.0;

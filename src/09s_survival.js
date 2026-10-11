@@ -418,8 +418,12 @@ const forageModel = (k) => (k === 'bush' ? 'bush' : k === 'mush' || k === 'ember
 function drawForage(dt) {
   if (!FORAGE.ready) return;
   FORAGE.clock -= dt;
-  if (FORAGE.clock > 0 && !FORAGE.dirty) return;
+  // [look] at once when the camera has jumped (a journey, a release, a portal, a fixed view): the plants of the old
+  // place were drawn for up to 0.4 s and the orchard round the new one was missing
+  const jumped = dist2(camera.position.x, camera.position.z, FORAGE.camX ?? 1e9, FORAGE.camZ ?? 1e9) > 20 * 20;
+  if (FORAGE.clock > 0 && !FORAGE.dirty && !jumped) return;
   FORAGE.clock = 0.4; FORAGE.dirty = false;
+  FORAGE.camX = camera.position.x; FORAGE.camZ = camera.position.z;
   dpForageAttrs(); // [depth] the burn and fall state of every plant, room for felled apple trees (09u_depth.js)
   const camX = camera.position.x, camZ = camera.position.z, R = FORAGE_DRAW[quality.level] || 130, R2 = R * R;
   const fill = {};

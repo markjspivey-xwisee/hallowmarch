@@ -70,7 +70,7 @@ const DRIFT_MAP = { res: 1024, data: new Uint8Array(1024 * 1024), tex: null };
 DRIFT_MAP.tex = new THREE.DataTexture(DRIFT_MAP.data, DRIFT_MAP.res, DRIFT_MAP.res, THREE.RedFormat, THREE.UnsignedByteType);
 DRIFT_MAP.tex.minFilter = THREE.LinearFilter; DRIFT_MAP.tex.magFilter = THREE.LinearFilter; DRIFT_MAP.tex.generateMipmaps = false;
 U.uDriftMap = { value: DRIFT_MAP.tex };
-const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']);
+const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']); // ([look] and 'bush' once the herbs are placed: 13t_look.js)
 // mark the texels whose centres lie inside a shape (grown by pad); shape(x, z) says whether a point is inside
 function coverMark(cx, cz, rad, inside) {
   const R = COVER.res, i0 = Math.max(0, Math.floor(cx - rad + 512)), i1 = Math.min(R - 1, Math.ceil(cx + rad + 512));

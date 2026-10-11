@@ -35,6 +35,11 @@ function lookTownPlan() {
 const lookSegD = (x, z, P) => Math.sqrt(segDist2(x, z, P.ax, P.az, P.bx, P.bz));
 // the cover map's share (buildCoverMask calls this last; it only ever raises a texel, so walls and floors stay solid)
 function lookCoverAll() {
+  // The meadow grows round a bush as round a trunk: its collider cleared a bald disc of turf wider than the bush, a
+  // flat pale patch in the grass (and with the bush itself missing for a moment after a jump, a patch of nothing). The
+  // wild herbs were placed off the cover map with the bushes in it (08h_farming.js farmPlaceHerbs, saved by number),
+  // so the bushes leave it only once the herbs stand: the first cover map after that is drawn again without them
+  if (!COVER_SKIP.has('bush') && typeof FARM !== 'undefined' && FARM.herbs && FARM.herbs.length) { COVER_SKIP.add('bush'); buildCoverMask(); return; }
   const R = COVER.res, data = COVER.data;
   for (const T of lookTownPlan()) {
     const S = T.S, rad = T.r1 + 2;
@@ -61,6 +66,12 @@ function lookCoverAll() {
       if (v > data[k]) data[k] = Math.round(v);
     }
   }
+  // the gardens fenced behind some houses: their beds of soil are a thin box on the ground with no collider, and the
+  // meadow grew up through them (and through the rows of greens)
+  for (const R of REALMS) for (const p of R.town.props || []) {
+    if (p.type !== 'garden') continue;
+    coverBox(p.x, p.z, p.w / 2, p.d / 2, Math.cos(p.yaw), Math.sin(p.yaw), 0.15);
+  }
   // the road channel of the world texture: dirt along the paths (2 m texels; only ever raised)
   const A = U.uWorldA.value && U.uWorldA.value.image && U.uWorldA.value.image.data;
   if (A && !LOOK.painted) {
@@ -77,6 +88,22 @@ function lookCoverAll() {
     }
     U.uWorldA.value.needsUpdate = true;
   }
+}
+// The camera under a tower's roof. On the fighting gallery of a Thule tower (shingles) or an Ériu platform (thatch),
+// the play camera rose out past the eaves and looked down on the roof: the player and the fight were hidden under it.
+// While the player stands on a roofed top, the camera keeps under its eaves (returns the height to keep it below, or
+// null), as the Barrow's roof keeps it under the stones (asked by updateCamera, 09_player.js)
+function lookTowerCamCap(P) {
+  if (typeof TOWER === 'undefined' || !TOWER.list.length || !P || P.x > DUN_X0) return null;
+  for (const T of TOWER.list) {
+    if (T.eave == null || Math.abs(P.x - T.wx) > T.RO + 1 || Math.abs(P.z - T.wz) > T.RO + 1) continue;
+    const l = twLocal(T, P.x, P.z);
+    if (!twInside(T, l.x, l.z, (T.RO - (T.RI || T.HI || 0)) + 0.4)) continue;
+    const y = P.y - T.S.y;
+    if (y < T.TT - 0.5 || y > T.eave) continue;
+    return T.S.y + T.eave - 0.35;
+  }
+  return null;
 }
 // test hooks (tools/tests/look.py)
 queueMicrotask(() => { if (window.__hm) window.__hm.lookx = { LOOK, lookTownPlan, lookCoverAll, cover: (x, z) => { const i = Math.floor(x + 512), j = Math.floor(z + 512); return COVER.data[j * COVER.res + i] / 255; } }; });

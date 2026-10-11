@@ -95,8 +95,14 @@ function gableTimber(b, F, fw, H, rh, st) {
 // a wall panel along frame F from u0 to u1, y0 to y1 and n0 to n1 through the wall (n out); holes are left open
 function holedWall(b, F, u0, u1, y0, y1, n0, n1, holes, matId, col, by, aoH = 3) {
   const nc = (n0 + n1) / 2, th = n1 - n0;
-  const piece = (a, c, ya, yc) => { if (c - a > 0.004 && yc - ya > 0.004) b.add(G.box, lm(F, (a + c) / 2, (ya + yc) / 2, nc, 0, c - a, yc - ya, th), matId, col, by, aoH); };
   const hs = holes.filter((o) => o.u1 > u0 && o.u0 < u1 && o.y1 > y0 && o.y0 < y1).sort((p, q) => p.u0 - q.u0);
+  // [look] every piece is cut at the heights of the holes' sills and heads, so the pieces beside, over and under a hole
+  // meet edge to edge: a piece over a door ended on the middle of the tall piece's edge beside it (a T-junction), and
+  // its vertex shade (aAO, linear between a piece's own corners) did not match the tall piece's at the same height:
+  // a thin light line rose from each side of every door and window to the eaves
+  const ys = [...new Set([y0, y1, ...hs.flatMap((o) => [o.y0, o.y1]).filter((y) => y > y0 + 0.004 && y < y1 - 0.004)])].sort((p, q) => p - q);
+  const band = (a, c, ya, yc) => { if (c - a > 0.004 && yc - ya > 0.004) b.add(G.box, lm(F, (a + c) / 2, (ya + yc) / 2, nc, 0, c - a, yc - ya, th), matId, col, by, aoH); };
+  const piece = (a, c, ya, yc) => { let y = ya; for (const k of ys) { if (k <= y + 0.004 || k >= yc - 0.004) continue; band(a, c, y, k); y = k; } band(a, c, y, yc); };
   let u = u0;
   for (const o of hs) {
     const a = Math.max(o.u0, u0), c = Math.min(o.u1, u1);

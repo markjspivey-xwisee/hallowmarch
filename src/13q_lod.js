@@ -216,8 +216,9 @@ function lodRocks(cx, cz, q) {
 }
 function lodFar(cx, cz, q) {
   LOD.farT = (LOD.farT || 0) - 1;
-  if (LOD.farT > 0 && LOD.lastQ === q) return;
-  LOD.farT = 20; LOD.lastQ = q;
+  const jumped = dist2(cx, cz, LOD.farX ?? 1e9, LOD.farZ ?? 1e9) > 20 * 20; // [look] at once after a jump: a town's glass and its fields' soil were missing for 20 frames
+  if (LOD.farT > 0 && LOD.lastQ === q && !jumped) return;
+  LOD.farT = 20; LOD.lastQ = q; LOD.farX = cx; LOD.farZ = cz;
   const G = GLASS_D[q], D = SOIL_D[q];
   for (const S of houseTowns()) { const g = S.houseSet && S.houseSet.mGl; if (g) g.visible = !G || dist2(cx, cz, S.x, S.z) < (S.r + G) ** 2; }
   if (typeof farmSoilMesh !== 'undefined' && farmSoilMesh) farmSoilMesh.visible = !D || FARM.plots.some((P) => dist2(cx, cz, P.x, P.z) < (D + (P.rad || 10)) ** 2);

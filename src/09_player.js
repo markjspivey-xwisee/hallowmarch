@@ -389,6 +389,7 @@ function updateCamera(dt) {
     const roof = Math.min(dunCeilAt(cx, cz), dunCeilAt(P.x, P.z), dunCeilAt((cx + P.x) / 2, (cz + P.z) / 2)) - 0.5;
     if (cy > roof) cy = Math.max(roof, fy - 0.4);
   }
+  { const tcap = lookTowerCamCap(P); if (tcap != null && cy > tcap) cy = Math.max(tcap, fy - 0.4); } // [look] under a tower top's roof (13t_look.js)
   // houses: the camera stays in the room the player is in, or outside if the player is
   const hc = houseCamera(P.x, fy, P.z, cx, cy, cz, dt);
   if (hc) { cx = hc.x; cy = hc.y; cz = hc.z; }

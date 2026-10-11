@@ -193,6 +193,18 @@ window.LK = {
       else if (e.y > fl + 0.12 && !(e.vy > 0.01)) add('a body floating', { role: e.role, x: r1(e.x), z: r1(e.z), y: r1(e.y), floor: r1(fl) });
     }
     out.n.people = np;
+    // bodies inside something solid (a wall, a prop, a stone): the colliders push the living out, so one inside was
+    // put there (a spawn, a post) or slipped through
+    let nb = 0;
+    for (const e of H.ENT) {
+      if (!e.alive || e.kind === 'door' || e.kind === 'dragon' || e.kind === 'wisp' || e.role === 'bird' || e.fixedY || e.boat || e.motion || e.testLook || Math.abs(e.x) > 512) continue;
+      if (e.y - F.heightAt(e.x, e.z) > 1.5) continue; // up on a wall or a tower: the colliders there are a level below
+      nb++;
+      const s = solid(e.x, e.z, Math.min(0.25, (e.radius || 0.4) * 0.5), null, (c) => built(c) && c.tag !== 'door' && !c.vert && c.tag !== 'fire');
+      if (s && s.by > 0.15) add('a body inside something solid', { kind: e.kind, role: e.role, x: r1(e.x), z: r1(e.z), ...s });
+    }
+    out.n.bodies = nb;
+    zero('a body inside something solid');
     zero('tree trunk in something built', 'tree on a road', 'tree in deep water', 'tree crown in a house', 'rock in something built', 'rock on a road', 'plant in something built',
       'herb in something built', 'workstation in something built', 'town prop in a house', 'grass through a floor', 'a body sunk into its floor', 'a body floating');
     return out;
@@ -288,7 +300,7 @@ window.LK = {
     const sp = L.open(L.H.REALMS[0].musterSite.x + 30, L.H.REALMS[0].musterSite.z - 12, 4, 80);
     if (!sp) return { skip: 'no room' };
     L.hush(sp.x, sp.z, 14);
-    L.lineUp([[0, 'priest'], [1, 'archer']], sp.x, sp.z, 0.3, 0.9);
+    L.lineUp([[0, 'priest'], [0, 'archer']], sp.x, sp.z, 0.3, 0.9);
     L.settle(0.6); for (const e of L.made) e.yaw = 0.3;
     const c = L.ahead(sp.x, sp.z, 0.3, 2.3);
     return L.eye(c.x, c.z, sp.x, L.F.heightAt(sp.x, sp.z) + 1.45, sp.z, 1.6);
@@ -482,7 +494,7 @@ window.LK = {
     return L.eye(c.x, c.z, sp.x, L.F.heightAt(sp.x, sp.z) + 0.8, sp.z, 1.7);
   });
   D('bodies', 'farmbeasts', (L) => {
-    const sp = L.open(L.H.REALMS[0].musterSite.x + 34, L.H.REALMS[0].musterSite.z, 8, 90);
+    const T0 = L.H.REALMS[0].town, sp = L.open(T0.x - 30, T0.z - 50, 8, 90);
     if (!sp) return { skip: 'no room' };
     L.hush(sp.x, sp.z, 24);
     const face = 0.3, lx = Math.cos(face), lz = -Math.sin(face);
@@ -494,8 +506,8 @@ window.LK = {
   D('bodies', 'mounted', (L) => {
     const H = L.H, P = H.GAME.player, sp = L.open(L.rp(0, 194, -40).x, L.rp(0, 194, -40).z, 5, 60);
     const r = L.play(sp.x, sp.z, 1.0, 0.18, 7);
-    try { L.F.mountUp ? L.F.mountUp() : L.F.toggleMount(); } catch (e) { return { skip: 'no mount ' + e }; }
-    P.x = P.prevX = sp.x; P.z = P.prevZ = sp.z; L.settle(0.3); H.look(1.0, 0.18, 7);
+    L.F.mountUp(P, true);
+    P.x = P.prevX = sp.x; P.z = P.prevZ = sp.z; L.settle(0.3); H.UI.modal = 'menu'; H.CAM.mode = 'play'; H.look(1.0, 0.18, 7);
     return { ...r, mounted: !!P.mount };
   });
   D('bodies', 'fight', (L) => {
