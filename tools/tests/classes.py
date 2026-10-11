@@ -781,6 +781,8 @@ async def balance4(page):
     r = await ev(page, 'rush-snare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('warrior', 20, 0);
       const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 20, 'archer', 0); ar.ai.nextAbility = 1e9; ar.swingAt = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z);
       H.simulate(0.1); C.laySnare(ar); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1];
+      // on the rush's way: half way between them (a snare at the bow's feet lies inside the rush's reach, where it stops)
+      S.x = (P.x + ar.x) / 2; S.z = (P.z + ar.z) / 2; S.y = F.floorAt ? F.floorAt(S.x, S.z, P.y + 0.3) : S.y; if (S.mesh) S.mesh.position.set(S.x, S.y, S.z);
       P.target = ar.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'charge', ar);
       for (let i = 0; i < 30 && P.motion; i++) H.simulate(0.05);
       return { sprung: !!S.sprung, caught: S.caught === P.id, rooted: P.buffs.some((b) => b.kind === 'root' && b.until > H.GAME.t), d: +Math.hypot(ar.x - P.x, ar.z - P.z).toFixed(1), toSnare: +Math.hypot(S.x - P.x, S.z - P.z).toFixed(1) }; })()""")
@@ -801,7 +803,7 @@ async def balance4(page):
     check(r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow does not slow ({r['30']})")
     # [balance4] a skilled priest of rank I holds its mace from a warrior's guard; from rank II it swings
     r = await ev(page, 'hold-mace', """(() => { const H = T.H; const out = {};
-      for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.foe(2, a.x, a.z, lv, 'priest', 0); H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
+      for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.F.spawnRealmUnit(2, 'priest', lv, 'bot', a.x, a.z); pr.testFoe = true; H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
       return out; })()""")
     check(r['10'] is True and r['30'] is False, f"a skilled priest of rank I holds its mace from a warrior's guard, not from rank II ({r})")
     r = await ev(page, 'rush-why', """(() => { const H = T.H; const P = T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
@@ -814,8 +816,10 @@ async def balance4(page):
     check(r['0.4'] > 0.25 and r['0.75'] < r['0.4'] * 0.8 and r['0.95'] <= 0.05 + 1e-3, f"Mend weighs the wound: a deep one mends in full, a light one less, a scratch little ({r})")
     r = await ev(page, 'pillar-self', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 30, 0); C.csOf(P).dev = 0;
       const a = T.ahead(P, 2.5); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9;
-      H.simulate(0.1); P.hp = P.maxHp * 0.3; const h0 = P.hp; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'pillar', f); H.simulate(2.0);
-      return { healed: +((P.hp - h0) / P.maxHp).toFixed(3), want: +(0.3 * H.fn.rankMult(30) * H.bal.priestSelf(P)).toFixed(3) }; })()""")
+      H.simulate(0.1); P.hp = P.maxHp * 0.3; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'pillar', f);
+      // the column's heal lands at once; the rest of the climb is the body's own mending (measure the one step it lands in)
+      let jump = 0; for (let i = 0; i < 50; i++) { const h = P.hp; H.simulate(0.05); jump = Math.max(jump, P.hp - h); }
+      return { healed: +(jump / P.maxHp).toFixed(3), want: +(0.3 * H.fn.rankMult(30) * H.bal.priestSelf(P)).toFixed(3) }; })()""")
     check(abs(r['healed'] - r['want']) < 0.03, f"a priest in its own Pillar of Dawn mends as its own wounds do ({r})")
     r = await ev(page, 'rally', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
       for (const lv of [20, 30, 50]) { const P = T.fresh('warrior', lv, 0); C.setStance(P, 1); P.hp = P.maxHp * 0.3; const h0 = P.hp; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'rally', P); out[lv] = +((P.hp - h0) / P.maxHp).toFixed(3); }
