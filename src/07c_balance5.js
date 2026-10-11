@@ -68,6 +68,17 @@ const renewFresh = (e) => !RENEW_FRESH_ON || !e.cs || !(GAME.t < (e.cs.renewUnti
 function renewMark(e) { if (e.cs) e.cs.renewUntil = GAME.t + ABILITIES.renew.hot[1]; }
 
 /* ------------------------------------------------------------------ */
+/* the archer: a crippling arrow's wound                               */
+/* ------------------------------------------------------------------ */
+// Crippling Arrow opens a wound that mends slowly for as long as it slows: healing on it takes 30% less, as a broadhead's
+// does. A bow's answer to a healer that needs no special arrows: an archer pressing its abilities in turn shoots plain
+// arrows, and won 1 of 24 duels against a priest at 10 and at 50 (a skilled archer's broadheads keep the wound open anyway)
+function crippleWound(src, t, sn) {
+  if (!src || src.cls !== 'archer' || !t.alive || t.kind === 'door') return;
+  addBuff(t, 'wound', woundOf(src), sn ? sn[1] : 5, 'wound');
+}
+
+/* ------------------------------------------------------------------ */
 /* the skilled bots: out from under a meteor, out of a blizzard        */
 /* ------------------------------------------------------------------ */
 // a skilled hand does not stand where a foe's meteor is about to land, in its blizzard or in burning grass: a mage blinks
@@ -164,7 +175,9 @@ function balFlattenCraters() {
 ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast (a priest's own Renewal).`;
 ABILITIES.whirl.desc = `Spin with your weapon out. 140% damage to every enemy within 4 m, and each foe your blade cuts gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health.`;
 
+ABILITIES.cripple.desc = 'Slows the target by 50% for 5 seconds, and its wound mends slowly: healing on it takes 30% less while it lasts. From level 12 it marks the foe: you strike it 10% harder for 30 s.';
+
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal5 = { BAL5, flattenCraters: balFlattenCraters, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH };
+  window.__hm.bal5 = { BAL5, flattenCraters: balFlattenCraters, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
 }, 0);

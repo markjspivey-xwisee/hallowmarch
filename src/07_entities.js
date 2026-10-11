@@ -916,6 +916,7 @@ function updateProjectiles(dt) {
         const r = computeDamage(src, t, pl.mult || 1);
         dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
+        if (pl.ability === 'cripple' && t.alive) crippleWound(src, t, pl.snare); // [balance5] a crippling arrow's wound mends slowly (07c_balance5.js)
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }
       }
       if (p.kind === 'deadeye') spellRibbon([p.ox, p.oy, p.oz], [tx, ty, tz], 'tracer', [1.8, 1.6, 1.1], 0.16, 0.45);
