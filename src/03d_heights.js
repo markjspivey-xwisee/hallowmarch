@@ -109,7 +109,7 @@ function htsField(H) {
     const gain = clamp(SL[k] / 1.1, 1, 2.6);
     // beyond the outer wall's crest, in the map's corners, the high ground is a maze of ridges round shallow cells: the
     // shaping fades out there, or the cells would close into basins and be filled flat
-    const corner = sstep(545, 500, Math.hypot(x, z));
+    const corner = sstep(522, 498, Math.hypot(x, z));
     D[k] = corner * ((sd / sw) * sstep(0.02, 0.16, wmax) + gain * (sr / sw) * sstep(0.02, 0.16, wmax) + Math.min(gain, 1.7) * htsKnobs(x, z, wmax)) + gain * rough * sstep(0.12, 0.5, wmax) * corner;
     G[k] = sg / sw; E[k] = wmax;
   }
@@ -149,7 +149,7 @@ function htsApply(ctx) {
   // water's work on the shaped faces (htsErode): the ground kept as it was is the base level they drain to
   if (ctx.erode !== 0) {
     const Hw = new Float32Array(N2), Ae = new Float32Array(N2);
-    for (let k = 0; k < N2; k++) { Hw[k] = D[k] ? htsCap(H0[k] + D[k], k) : H0[k]; Ae[k] = D[k] ? (1 - keep[k]) * sstep(545, 500, Math.hypot(-HALF + (k % N) * HS, -HALF + ((k / N) | 0) * HS)) : 0; }
+    for (let k = 0; k < N2; k++) { Hw[k] = D[k] ? htsCap(H0[k] + D[k], k) : H0[k]; Ae[k] = D[k] ? (1 - keep[k]) * sstep(522, 498, Math.hypot(-HALF + (k % N) * HS, -HALF + ((k / N) | 0) * HS)) : 0; }
     const pre = Hw.slice();
     htsErode(Hw, Ae, E, ctx.erode || 16);
     for (let k = 0; k < N2; k++) if (D[k]) { const cut = pre[k] - Hw[k]; D[k] = Hw[k] - H0[k]; G[k] = Math.max(G[k], clamp(cut / 4, 0, 1)); }
@@ -245,8 +245,8 @@ function htsApply(ctx) {
       // (the take-backs after the whole map is looked at: a stale flood must not start a cascade of them)
       for (const k of trig) {
         if (ctx.trigAt) { const x = -HALF + (k % N) * HS, z = -HALF + ((k / N) | 0) * HS, r = Math.hypot(x, z), key = (r < 300 ? 'ring' : r < 500 ? 'mid' : 'corner') + (hol[k] ? 'H' : ''); ctx.trigAt[key] = (ctx.trigAt[key] || 0) + 1; }
-        const i = k % N, j = (k / N) | 0;
-        for (let dj = -8; dj <= 8; dj++) for (let di = -8; di <= 8; di++) {
+        const i = k % N, j = (k / N) | 0, R = Math.hypot(-HALF + i * HS, -HALF + j * HS) > 495 ? 14 : 8; // (wider by the map's corners, where the outer wall's crest dams the shallow cells behind it)
+        for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {
           const ii = i + di, jj = j + dj;
           if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
           const q = jj * N + ii;
@@ -302,7 +302,24 @@ function htsKeep(o) {
   for (const c of o.camps) { disc(c.x, c.z, c.r + 4, c.r + 8); disc(c.x, c.z, c.r + 8, c.r + 19, sampleGrid(H, c.x, c.z)); }
   for (const C of o.rivers) for (let n = 0; n + 1 < C.length; n++) seg(C[n][0], C[n][1], C[n + 1][0], C[n + 1][1], C[n][3] + 7, C[n][3] + 16, true);
   // water and the hollows that hold it, and their brims
-  for (let k = 0; k < N2; k++) if (o.wet[k] || o.hollow[k]) { const i = k % N, j = (k / N) | 0; disc(-HALF + i * HS, -HALF + j * HS, 4, 11); }
+  { // (a distance from every texel to the nearest wet or hollow one, in two sweeps, rather than a disc round each)
+    const Dw = new Float32Array(N2), d1 = HS, d2 = HS * Math.SQRT2;
+    for (let k = 0; k < N2; k++) Dw[k] = o.wet[k] || o.hollow[k] ? 0 : 1e4;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const k = j * N + i; let v = Dw[k];
+      if (i > 0) v = Math.min(v, Dw[k - 1] + d1);
+      if (j > 0) { v = Math.min(v, Dw[k - N] + d1); if (i > 0) v = Math.min(v, Dw[k - N - 1] + d2); if (i < N - 1) v = Math.min(v, Dw[k - N + 1] + d2); }
+      Dw[k] = v;
+    }
+    for (let j = N - 1; j >= 0; j--) for (let i = N - 1; i >= 0; i--) {
+      const k = j * N + i; let v = Dw[k];
+      if (i < N - 1) v = Math.min(v, Dw[k + 1] + d1);
+      if (j < N - 1) { v = Math.min(v, Dw[k + N] + d1); if (i < N - 1) v = Math.min(v, Dw[k + N + 1] + d2); if (i > 0) v = Math.min(v, Dw[k + N - 1] + d2); }
+      Dw[k] = v;
+      const w = 1 - sstep(4, 11, v);
+      if (w > K[k]) K[k] = w;
+    }
+  }
   for (const s of o.stones) disc(s[0], s[1], 2.5, 6);
   for (const c of o.circles) disc(c[0], c[1], c[2] + 1.5, c[2] + 5);
   for (const b of o.boxes) { const r = Math.hypot(b[2], b[3]); disc(b[0], b[1], r + 1.5, r + 5); }
@@ -376,6 +393,8 @@ function mtnHeights() {
     for (const c of COLL.boxes) if (c.x < DUN_X0 && c.tag !== 'tree') boxes.push([c.x, c.z, c.hx, c.hz]);
     if (BARROW && BARROW.door) spots.push([BARROW.door.x, BARROW.door.z, 30, 46]);
     for (const J of BOATS.jetties || []) spots.push([J.x0 + J.dx * J.len * 0.5, J.z0 + J.dz * J.len * 0.5, J.len * 0.5 + 6, J.len * 0.5 + 14]);
+    const TT = HTS.TT = {}, tt = (n) => { const t = performance.now(); TT[n] = Math.round(t - (TT._ || t0)); TT._ = t; };
+    tt('reach');
     const keep = htsKeep({ H, sites: SITES, roads: W.roads, camps: W.camps, rivers: RIVERS.map((Rv) => Rv.pts.map((p) => [p.x, p.z, p.surf, p.hw])), wet, hollow,
       stones: (W.stones || []).map((t) => [t.x, t.z]), circles, boxes, plots: (FARM.plots || []).map((P) => [P.x, P.z, P.rad || 10]), spots });
     // trees, rocks, plants and herbs: the ground round each moves with it, and it settles
@@ -384,7 +403,9 @@ function mtnHeights() {
     for (const r of W.rocks) objs.push([r.x, r.z, 0.8 * r.s + 0.6, 0.8 * r.s + 3.6]);
     for (const p of FORAGE.list || []) objs.push([p.x, p.z, 1.6, 5]);
     for (const h of FARM.herbs || []) objs.push([h.x, h.z, 1.6, 5]);
+    tt('keep');
     const ctx = htsApply({ H, walk: walk0, reach, keep, objs, wet, hollow });
+    tt('apply');
     const H0 = ctx.H0;
     HTS.H0 = H0; HTS.walk0 = walk0; HTS.reach = reach; HTS.keep = keep;
     HTS.limited = ctx.limited; HTS.filled = ctx.filled; HTS.reverted = ctx.reverted; HTS.T = ctx.T;
@@ -444,8 +465,11 @@ function mtnHeights() {
     // the gullies the water cut, for the land map (damp, and the snow lies longest in them)
     for (let k = 0; k < N2; k++) if (changed[k]) MTN.gully[k] = Math.max(MTN.gully[k] || 0, clamp(ctx.G[k] * Math.max(0, ctx.A[k]), 0, 1)), MTN.shaped[k] = 1;
     MTN.nShaped = MTN.shaped.reduce((a, v) => a + v, 0);
+    tt('settle');
     htsTrees(); // hardy trees on the lower slopes, after every tree there was
+    tt('trees');
     htsRefresh(changed);
+    tt('refresh');
   } catch (err) {
     reportError(err);
   }
@@ -456,12 +480,13 @@ function mtnHeights() {
   buildCrags();
   buildCoverMask();
   HTS.ms = Math.round(performance.now() - t0);
+  if (HTS.TT) HTS.TT.crags = Math.round(performance.now() - HTS.TT._);
   if (window.__hm) window.__hm.heights = htsHooks();
 }
 // test hooks (__hm.heights): the numbers, and the ground as it was at a texel
 function htsHooks() {
   return {
-    HTS, stats: () => ({ ms: HTS.ms, changed: HTS.nChanged, limited: HTS.limited, filled: HTS.filled, reverted: HTS.reverted, walkLost: HTS.walkLost, reachSteep: HTS.reachSteep, reachKept: HTS.reachKept, T: HTS.T, settled: HTS.settled, trees0: HTS.trees0, hardy: HTS.hardy, outcrops: HTS.outcrops, treeMeshes: HTS.treeMeshes, treeWhy: HTS.treeWhy, crags: MTN.crags.length }),
+    HTS, stats: () => ({ ms: HTS.ms, changed: HTS.nChanged, limited: HTS.limited, filled: HTS.filled, reverted: HTS.reverted, walkLost: HTS.walkLost, reachSteep: HTS.reachSteep, reachKept: HTS.reachKept, T: HTS.T, TT: HTS.TT, settled: HTS.settled, trees0: HTS.trees0, hardy: HTS.hardy, outcrops: HTS.outcrops, treeMeshes: HTS.treeMeshes, treeWhy: HTS.treeWhy, crags: MTN.crags.length }),
     was: (x, z) => (HTS.H0 ? sampleGrid(HTS.H0, x, z) : null),
     changedAt: (x, z) => (HTS.changed ? HTS.changed[mtnK(x, z)] : 0),
   };
@@ -656,14 +681,14 @@ function htsOutcrops() {
   for (let gz = -HALF + 8; gz < HALF - 8; gz += 6) for (let gx = -HALF + 8; gx < HALF - 8; gx += 6) {
     const x = gx + (rnd() - 0.5) * 5, z = gz + (rnd() - 0.5) * 5, u = rnd(), u2 = rnd(), u3 = rnd(), u4 = rnd();
     const k = mtnK(x, z), e = MTN.mount[k];
-    if (e < 0.1 || e > 0.75 || W.walk[k] !== 0 || Math.hypot(x, z) > 500) continue;
+    if (e < 0.08 || e > 0.8 || W.walk[k] !== 0 || Math.hypot(x, z) > 500) continue;
     const h = heightAt(x, z), hx = (heightAt(x + 2, z) - heightAt(x - 2, z)) / 4, hz = (heightAt(x, z + 2) - heightAt(x, z - 2)) / 4, sl = Math.hypot(hx, hz);
-    if (sl < 0.25 || sl > 0.9 || h < WATER_Y + 2) continue;
+    if (sl < 0.2 || sl > 0.92 || h < WATER_Y + 2) continue;
     // on a spur: the ground here stands over the mean round it
     let ring = 0;
     for (let a = 0; a < 8; a++) ring += heightAt(x + Math.sin(a * 0.785) * 7, z + Math.cos(a * 0.785) * 7);
     const convex = h - ring / 8, belt = vnoise(x * 0.03 + 8.3, z * 0.03 - 2.6);
-    const p = 0.55 * sstep(0.2, 1.4, convex) * sstep(0.4, 0.7, belt) * sstep(0.1, 0.25, e);
+    const p = 0.5 * (0.3 + 0.7 * sstep(0, 1.1, convex)) * sstep(0.3, 0.6, belt) * sstep(0.08, 0.2, e);
     if (u > p) continue;
     const kind = u2 < 0.55 ? 3 : 4;
     const wd = kind === 3 ? 3 + u3 * 2.6 : 1.7 + u3 * 1.5, dp = kind === 3 ? 2.8 + u4 * 2.2 : 1.5 + u4 * 1.2, above = kind === 3 ? 1.5 + u4 * 1.8 : 0.8 + u3 * 0.9;
@@ -680,7 +705,7 @@ function htsOutcrops() {
     out.push(c); add(x, z, r);
   }
   for (const c of out) {
-    c.coll = addCircle(c.x, c.z, Math.max(c.w, c.d) * 0.48, 'rock', c.h);
+    c.coll = addCircle(c.x, c.z, Math.max(c.w, c.d) * 0.48, 'rock', c.h); c.coll.outcrop = true;
     MTN.crags.push(c);
     // the camera keeps out of them (as of every crag: mtnPlaceCrags)
     const rr = c.r + 1.5, i0 = Math.max(0, Math.floor((c.x - rr + HALF) / HS)), i1 = Math.min(N - 1, Math.ceil((c.x + rr + HALF) / HS));

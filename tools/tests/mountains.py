@@ -3,7 +3,7 @@ usage: python3 tools/tests/mountains.py [tag] [views=a,b,...] [q=high|medium|low
   tag (default 'now') names the screenshots: tools/out/mtn_<tag>_<view>.png.
   Views: orchard, orchard_dusk, orchard_winter, orchard_low, pass0, pass1, pass2, road, wall, wall_low, foot, foot_low,
   thule_winter, far, crag, crag_low, and ([heights]) keep_far, keep_far_low, keep_far_dusk (the range across the frontier
-  from a Logres keep, 350-450 m), town0, town2, town2_winter (the towns looking at the mountains), trees, trees_low (the
+  from before a Logres keep's gate, 350-450 m), town0, town2, town2_winter (the towns looking at the mountains), trees, trees_low (the
   hardy trees) (each from a fixed camera in clear weather; *_low at low quality, the rest at q, default high).
   Checks (unless nochecks): the walk mask, the heights of every walkable texel, the navigation graph, the roads and the
   colliders are what they were before the mountains were reshaped (checksums below, taken on version 9); no new closed
@@ -107,7 +107,7 @@ window.M = {
     far(M) { const S = M.H.REALMS[1].town; M.H.setTod(0.4); const R = M.H.REALMS[1]; return M.look(S.x, S.z, 14, R.bearing + Math.PI, 0.7, 0.3, 120); },
     // [heights] the range from afar: from a Logres keep's wall walk across the frontier to the far side of the ring
     // (350-450 m), and from the towns (each looking at the nearest mountains)
-    keep_far(M) { const S = M.H.REALMS[0].keepSites[0]; M.H.setTod(0.42); const y = S.y + 9, t = M.rp(2, 250, -60); M.cam(S.x, y, S.z, t.x, 24, t.z); return { cam: [S.x, y, S.z], at: [t.x, t.z], d: Math.hypot(t.x - S.x, t.z - S.z) }; },
+    keep_far(M) { const p = M.rp(0, 88, 64), y = M.F.heightAt(p.x, p.z) + 3.5; M.H.setTod(0.42); const t = M.rp(2, 250, -60); M.cam(p.x, y, p.z, t.x, 22, t.z); return { cam: [p.x, y, p.z], at: [t.x, t.z], d: Math.hypot(t.x - p.x, t.z - p.z) }; },
     keep_far_low(M) { return M.views.keep_far(M); },
     keep_far_dusk(M) { const r = M.views.keep_far(M); M.H.setTod(1.62); M.F.applyTimeOfDay(1.62); return r; },
     town0(M) { const S = M.H.REALMS[0].town; M.H.setTod(0.45); const R = M.H.REALMS[0]; return M.look(S.x, S.z, 3, R.bearing + Math.PI + 0.35, 0.5, 0.4, 70); },
@@ -172,7 +172,7 @@ GROUND = r"""((pre) => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, Ht = __hm.
   const C = __hm.build.COLL, keeps = __hm.REALMS[0].keepSites, inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
   let cs = 0, nb = 0, nc = 0;
   for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
-  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty) continue; // [v10] not the jetties' posts (07e_boats.js)
+  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
     nc++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.r * 11) * 10)) % 1000000007; }
   const coll = { boxes: nb, circles: nc, sum: cs };
   // (the trees there were before the hardy ones were added after them: [heights])

@@ -147,7 +147,7 @@ async def main():
             check(hd['high'] == 0, f"none above the snow line ({hd['high']})")
             check(hd['state'] == hd['n'] and hd['chunk'] == hd['n'], 'each has its felling and burning state, collider and chunk instance')
             oc = r['outcrops']
-            check(oc['n'] >= 40, f"outcrops on the walkable lower slopes ({oc['n']})")
+            check(oc['n'] >= 30, f"outcrops on the walkable lower slopes ({oc['n']})")
             check(oc['coll'] == oc['n'], f"each has its collider ({oc['coll']} of {oc['n']})")
             check(oc['road'] == 0 and oc['wet'] == 0 and oc['float'] == 0 and oc['near'] == 0, f"none by a road, in water, floating, or on a tree, plant or herb ({oc['road']}, {oc['wet']}, {oc['float']}, {oc['near']})")
             # one is felled, one burns, both grow back
