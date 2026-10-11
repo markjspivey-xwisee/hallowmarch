@@ -47,7 +47,7 @@ function flBeastGait(S, ph, amtRaw, sc, f) {
 }
 // one step of the lock for a body (from updateAnim, after its phase moved on); the horse under a rider has its own
 function footLockStep(e, dt) {
-  if (!flNear(e, FL_NEAR * 1.15)) { e._fl = e._flH = null; e._flX = e.x; e._flZ = e.z; return; } // [motion3] far off: not followed (planted afresh when it comes near)
+  if (!flNear(e, FL_NEAR * 1.15)) { e._fl = e._flH = null; e._flX = e.x; e._flZ = e.z; e._flY = e.y; e._flVy = 0; return; } // [motion3] far off: not followed (planted afresh when it comes near)
   const human = e.kind === 'humanoid', S = !human ? BEASTS[e.crowd || e.kind] : null;
   const onFeet = e.alive && !e.seat && !e.boat && !e.swim && !e.dive && e.fixedY == null && e.onGround !== false && !e.flying && !(e.motion && e.motion.kind === 'leap');
   // the body's own motion this step, in its frame (across, along)
@@ -73,7 +73,7 @@ function flFloor(e, x, z, yRef) {
   let best = -Infinity, tread = false;
   for (const k of FL_SOLE) {
     const h = floorTreadAt(x + fx * k, z + fz * k, y + 0.5);
-    if (y - h > 0.6 || h - y > FL_UP) continue; // [motion3] (a tread up to FL_UP over the body: climbing a steep flight a foot lands 0.5 to 0.75 m over it, and the tread past 0.6 was passed over: the foot stood 27 cm into the riser)
+    if (y - h > 0.6 || h - y > (_flTread ? FL_UP : 0.6)) continue; // [motion3] (a stair's tread up to FL_UP over the body: climbing a steep flight a foot lands 0.5 to 0.75 m over it, and the tread past 0.6 was passed over: the foot stood 27 cm into the riser)
     if (h > best) { best = h; tread = _flTread; }
   }
   _flTread = best > -Infinity && tread;
@@ -207,7 +207,7 @@ function footLockSlot(e, horse) {
     // floor it will land on
     const hy = o.down ? o.h + (o.hop > 0 ? FL_HOP_H * Math.sqrt(Math.sin(Math.PI * o.hop)) : 0) : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9); // [motion3] (a quick step raised)
     // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
-    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP)
+    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse && (o.down ? o.tread : o.treadT) ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP on a stair's tread)
     if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;
