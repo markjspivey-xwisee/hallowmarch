@@ -874,6 +874,7 @@ async def main():
         page.on('console', lambda m: CONSOLE.append(m.text[:300]) if m.type == 'error' else None)
         if BAL:
             await page.set_viewport_size({'width': 320, 'height': 180})
+            if not (MECH or B3 or SHOTS) and 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")  # [balance4] nothing is drawn: the frame loop stops
             await balance(page)
         if MECH:
             await mechanics(page)

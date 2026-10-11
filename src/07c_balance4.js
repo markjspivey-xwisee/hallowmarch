@@ -17,7 +17,10 @@ const TAP_TICK = { tick: true };
 /* Charge: a real rush                                                 */
 /* ------------------------------------------------------------------ */
 // speed in m/s, the longest a rush lasts, and how close it comes (a little inside a blade's reach)
-const RUSH = { speed: 18, maxT: 1.9, stats: { rushes: 0, arrived: 0, blocked: 0, lost: 0 } };
+const RUSH = { speed: 18, maxT: 1.9, slow: false, stats: { rushes: 0, arrived: 0, blocked: 0, lost: 0 } };
+// [balance4] after a Charge no root or slow took hold for 2 s (chargeFree, 07c_balance.js): the answer to kiting while the
+// rush never moved the warrior; a real rush is that answer, and a frost nova may meet the warrior where it lands
+const CHARGE_FREE = 0;
 const rushReach = (e, t) => e.meleeRange * 0.75 * (e.scale || 1) + t.radius * (t.scale || 1);
 // canUse asks (07c_balance3.js classCanUse): no rush on a horse, in the water, in a boat, or at a foe on another floor
 function rushWhy(e, A, t) {
@@ -32,6 +35,7 @@ function rushWhy(e, A, t) {
 function chargeRush(e, A, t, rk) {
   if (!t || !t.alive) return;
   faceToward(e, t.x, t.z);
+  e.cds.bash = Math.max(e.cds.bash || 0, GAME.t + RUSH_BASH + Math.min(RUSH.maxT, dist(e.x, e.z, t.x, t.z) / RUSH.speed));
   e.motion = { kind: 'leap', rush: true, t: 0, dur: RUSH.maxT, tid: t.id, A, rk, stuck: 0, dust: 0, yaw: e.yaw };
   e.onGround = false; // (the foot lock leaves a rushing body's feet to the run)
   setAct(e, 10, RUSH.maxT); // the shield raised across the body, the legs running (05a_rig.js: the guard over the gait)
@@ -53,6 +57,7 @@ function chargeRushStep(e, m, dt) {
   };
   if (!e.alive) { e.motion = null; e.onGround = true; return false; }
   if (!t || !t.alive || t.removed || isStunned(e)) return end('lost');
+  if (isRooted(e)) return end('blocked'); // a snare in its path, a frost nova as it comes in: the rush is held where it is
   const reach = rushReach(e, t);
   const dx = t.x - e.x, dz = t.z - e.z, d = Math.hypot(dx, dz);
   if (d <= reach + 0.05) return end('arrived');
@@ -77,6 +82,9 @@ function chargeRushStep(e, m, dt) {
   if (m.dust <= 0) { m.dust = 0.09; if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) FX.dust(e.x, e.y, e.z, 3); }
   return true;
 }
+// the rush spends the shield arm's weight: Shield Bash waits a moment after a Charge (a rush, a bash and the blows in
+// the stun's shadow killed a mage before it could answer at all)
+const RUSH_BASH = 3;
 // the rush lands: the blade comes round and the foe is slowed (the blow it always promised)
 function chargeLands(e, A, t, rk) {
   faceToward(e, t.x, t.z);
@@ -88,12 +96,33 @@ function chargeLands(e, A, t, rk) {
     const r = computeDamage(e, t, (A.dmg || 0.8) * rk);
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
     FX.sparks(t.x, t.y + 1.2 * (t.scale || 1), t.z);
-    if (A.snare) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
+    if (A.snare && RUSH.slow) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
     if (e === GAME.player || t === GAME.player) sfx('hit');
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Mend closes wounds                                                  */
+/* ------------------------------------------------------------------ */
+// the deeper the wound, the more Mend mends: all of its measure from half health down, under half of it on a scratch.
+// A heal cast at need does its full work; one cast by habit, every other breath, does little (a priest pressing every
+// key in turn healed as much as one who mends at need, and out-lasted every foe who did not break its spells)
+const MEND_WOUND = { floor: 0.3, full: 0.5 };
+function mendWound(f) {
+  if (!f || !(f.maxHp > 0)) return 1;
+  const miss = clamp(1 - f.hp / f.maxHp, 0, 1);
+  return clamp(MEND_WOUND.floor + (1 - MEND_WOUND.floor) * miss / MEND_WOUND.full, MEND_WOUND.floor, 1);
+}
+
+// [balance4] the bots: a warrior's rush is on its way to e (its Charge ready, e its foe, in the rush's reach)
+function rushComing(e, o) {
+  if (!o || !o.alive || o.cls !== 'warrior' || o.target !== e.id) return false;
+  if (rushing(o)) return true;
+  return o.level >= ABILITIES.charge.level && (o.cds.charge || 0) <= GAME.t + 0.5 && !deepFrostHeld(o) && dist(e.x, e.z, o.x, o.z) > 5 && dist(e.x, e.z, o.x, o.z) < 29;
+}
+const rushing = (o) => !!(o && o.motion && o.motion.rush);
+
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal4 = { RUSH, rushReach, rushWhy, chargeRush };
+  window.__hm.bal4 = { RUSH, rushReach, rushWhy, chargeRush, MEND_WOUND, mendWound, CHARGE_FREE };
 }, 0);

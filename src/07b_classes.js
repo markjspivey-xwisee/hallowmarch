@@ -547,7 +547,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
-  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, 2, 'charge'); chargeFree(e, 2); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
+  if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, CHARGE_FREE, 'charge'); chargeFree(e, CHARGE_FREE); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds
   rushShare(e, A); // [balance3] Charge and Leap Strike are one rush (07c_balance3.js)
   if (cs.blockOn) setBlock(e, false);
   return V || A;
@@ -610,7 +610,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
-  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank
+  if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1) * mendWound(t || e); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank [balance4] the deeper the wound, the more Mend mends (07c_balance4.js)
   if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.id === 'renew' && (t === e || !t)) priestSteadfast(e); // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;

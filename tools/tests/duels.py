@@ -172,6 +172,9 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
+        # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
+        # machine a software renderer drawing every frame (keep it with `loop`)
+        if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
         allrows = {}
         for lvl in LEVELS:
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels

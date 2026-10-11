@@ -23,8 +23,8 @@
 /*     rank are in 07c_balance.js: priestSelf, woundOf.)                */
 /* ================================================================== */
 const BODKIN_PIERCE = 0.5; // the share of the armour a bodkin (or Deadeye) goes through
-const PURSUIT_CD = 1; // seconds off Charge for each arrow, bolt or spell that strikes a warrior
-const SHIELD_WALL_PACE = 1; // guarded, a warrior walks at full pace behind a raised shield (0.55 otherwise)
+const PURSUIT_CD = 0; // seconds off Charge for each arrow, bolt or spell that strikes a warrior [balance4] 1, set for a Charge that never rushed (07c_balance4.js)
+const SHIELD_WALL_PACE = 0.75; // guarded, a warrior walks on behind a raised shield (0.55 otherwise) [balance4] 1, while Charge never rushed
 const RUSH_SHARE = 10; // Charge and Leap Strike share one rush: using either holds the other back this long
 // the share of weapon blows a dazzled foe misses, by the priest's rank: a twentieth at rank I, one in six at rank II,
 // a little over one in three at rank IV (the priest's own healing falls with rank while every blade's harm grows with it)
@@ -33,7 +33,7 @@ const dazzleMissOf = (lvl) => DAZZLE.miss[clamp(abilityRank(lvl), 1, DAZZLE.miss
 
 // an arrow, a bolt or a spell from afar lands on a warrior: Charge comes a second sooner
 function pursuitOnHit(src, dst, dmg, opts) {
-  if (dst.cls !== 'warrior' || opts.dot || opts.reflect || opts.kind === 'melee' || dst.level < ABILITIES.charge.level) return;
+  if (!(PURSUIT_CD > 0) || dst.cls !== 'warrior' || opts.dot || opts.reflect || opts.kind === 'melee' || dst.level < ABILITIES.charge.level) return;
   const t = GAME.t, cd = dst.cds && dst.cds.charge;
   if (!(cd > t)) return;
   dst.cds.charge = Math.max(t, cd - PURSUIT_CD);
@@ -102,7 +102,7 @@ function drawDazzle() {
 }
 // a warrior dazzled by a priest of rank II or more does not see the glint of a blow coming: no parry (the raised shield
 // still blocks)
-const DAZZLE_NOPARRY = 0.15;
+const DAZZLE_NOPARRY = 0.01; // [balance4] 0.15 (rank II): a warrior's rush now reaches a priest at every level, and its parries cut every spell
 const dazzled = (e) => !!e && e.buffs.length > 0 && buffMax(e, 'dazzle') >= DAZZLE_NOPARRY;
 // a dazzled body's weapon blow goes wide (classHarm asks before anything else)
 function dazzleMiss(src, dst, opts) {

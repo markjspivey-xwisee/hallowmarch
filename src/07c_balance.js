@@ -258,7 +258,7 @@ function botMove(e, t, dt) {
   // kiting: the archer and the mage step away from a blade that is free to follow
   if (skilled && ranged) {
     // [balance3] a mage also steps off from a blade its frost holds when the hold is about to give
-    const p = botPresser(e, e.cls === 'archer' ? 9 : 7.5) || (e.cls === 'mage' ? nearestWhere(e.x, e.z, 6.5, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.leap.level && o.target === e.id && (holdLeft(o) < 1.0 || dist(e.x, e.z, o.x, o.z) < 5.6)) : null); // out of a whirlwind's reach
+    const p = botPresser(e, e.cls === 'archer' ? 9 : 7.5) || (e.cls === 'mage' ? heldBladeNear(e) : null); // out of a whirlwind's reach [balance4] and out of a held blade's reach at any level (a rooted warrior still strikes and bashes what stands by it)
     if (p && (e.cs && e.cs.drawFrom < 0 || dist(e.x, e.z, p.x, p.z) < 3.2)) {
       let ax = e.x - p.x, az = e.z - p.z;
       const L = Math.hypot(ax, az) || 1; ax /= L; az /= L;
@@ -437,6 +437,8 @@ function botArcher(e, t) {
     if (botUse(e, 'firearrow', p)) return true;
     return false;
   }
+  // [balance4] a warrior whose Charge is ready: a snare laid in the rush's path holds it where it catches it
+  if (rushComing(e, t) && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 9) && !canUse(e, 'snare', null)) { faceToward(e, t.x, t.z); if (botUse(e, 'snare', null)) return true; }
   if (botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 5) >= 2 && botUse(e, 'volley', t)) return true;
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
@@ -472,6 +474,11 @@ function botAwayYaw(e, p, reach) {
   }
   return Math.atan2(ax, az);
 }
+// [balance4] a warrior after the mage, close and held by its frost or a stun (or about to be free and very close): the
+// mage walks away while it is held (it stood casting by it, and the bash met the spell as the root gave)
+function heldBladeNear(e) {
+  return nearestWhere(e.x, e.z, 12, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.charge.level && o.target === e.id && (holdLeft(o) > 0 || dist(e.x, e.z, o.x, o.z) < 5.6));
+}
 // [balance3] how long a body stays where it stands (rooted or stunned), in seconds
 function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root' || b.kind === 'stun') && b.until > GAME.t) v = Math.max(v, b.until - GAME.t); return v; }
 // [balance3] a spell of this cast time can finish before a warrior can break it: a blow only sets a spell back, a stun
@@ -479,11 +486,11 @@ function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root
 function castFits(e, cast) {
   if (!(cast > 0)) return true;
   // a mace or a beast is cast into, and so is a warrior who has not learned Leap Strike (one stun, no leap, no whirl)
-  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.leap.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat)
-  if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > 1 && b.until > GAME.t) && hasBuff(e, 'eward')) return true;
+  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.charge.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat) [balance4] from Charge's level: it rushes now
+  if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > e.maxHp * 0.15 && b.until > GAME.t) && hasBuff(e, 'eward')) return true; // [balance4] a ward worn thin is spent by the bash's own blow before its stun
   const t = GAME.t, held = holdLeft(o), d = dist(o.x, o.z, e.x, e.z), reach = (o.meleeRange || 2.7) * (o.scale || 1) + e.radius + 0.3;
   const walk = Math.max(0, d - reach) / Math.max(1, (o.speed || 6.6) * (1 - buffMax(o, 'snare')));
-  const charge = d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held ? 0.35 : walk; // a charge is on you at once (not out of deep frost)
+  const charge = rushing(o) ? d / RUSH.speed : d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held ? d / RUSH.speed + 0.15 : walk; // a charge is on you at once (not out of deep frost) [balance4] the rush's time, and a rush on its way
   const bashAt = Math.max(held + Math.min(walk, charge), (o.cds.bash || 0) - t) + 0.3;
   const leapAt = o.level >= ABILITIES.leap.level && d >= 6 && !frostHeld(o) ? Math.max(held, (o.cds.leap || 0) - t) + 0.6 : Infinity;
   return Math.min(bashAt, leapAt) > cast + 0.15;
@@ -491,7 +498,9 @@ function castFits(e, cast) {
 function botMage(e, t) {
   const cs = csOf(e), hpF = e.hp / e.maxHp;
   // [balance3] a long cast only when it can finish before a blade is on the caster (instants otherwise)
-  const botUse = (q, id, tt) => (ABILITIES[id].cast > 0 && !castFits(q, ABILITIES[id].cast) ? false : botUseAny(q, id, tt));
+  // [balance4] and none while a held warrior is close: that is the moment to walk away (botMove), not to stand and cast
+  const held = heldBladeNear(e);
+  const botUse = (q, id, tt) => (ABILITIES[id].cast > 0 && (held || !castFits(q, ABILITIES[id].cast)) ? false : botUseAny(q, id, tt));
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
   // [balance2] a chill about to become a freeze: a blink sheds it (sideways, staying in the fight)
   if (t && chillOf(e) >= 2 && !frozenOf(e) && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null) && !botPresser(e, 5)) {
@@ -508,6 +517,8 @@ function botMage(e, t) {
   if ((t.casting || (t.cs && t.cs.drawFrom >= 0)) && !frozenOf(t) && chillOf(t) + 1 + att >= 3 && (ccChampion(t) ? ccFactor(t, 'stun') > 0 : GAME.t >= (t._thawUntil || 0)) && botUse(e, 'frost', t)) return true;
   // a ward up before the blades arrive
   if (t.target === e.id && !hasBuff(e, 'shield') && wardNow()) return true;
+  // [balance4] a warrior's rush on its way: chill it first, so the nova that meets it freezes it where it lands
+  if (rushComing(e, t) && !frozenOf(t)) { focus('frost'); if (botUse(e, 'frost', t)) return true; }
   // a blade at the throat: a frost nova to hold it, then away; Blink when the nova is spent
   const p = botPresser(e, 5);
   if (p) {
@@ -559,7 +570,9 @@ function botPriest(e, t) {
   const rich = pw > 0.5;
   // [balance3] a warrior's blade (a bash, a parry, a finisher): a mace, a beast or an outlaw's axe only sets a spell
   // back or breaks it now and then, and a priest who waits on every blow loses the race to one who casts through them
-  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6;
+  // [balance4] and of a warrior's, only its Shield Bash breaks a spell (a blow sets it back; a parry needs a swing, and a
+  // dazzled warrior parries nothing): while the bash is spent a priest casts through the blade (it stood idle by it)
+  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < 9 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
@@ -572,7 +585,8 @@ function botPriest(e, t) {
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
-  if (hpF < (castOk ? (many ? 0.72 : rich ? 0.65 : 0.6) : 0.35) && botUse(e, 'mend', e)) return true;
+  // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
+  if (hpF < (castOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true;
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -583,7 +597,7 @@ function botPriest(e, t) {
   // holy fire is instant and cheap for what it does: keep it burning
   if (!t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true;
   if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < (many ? 0.82 : rich ? 0.72 : 0.66) && botUse(e, 'mend', e)) return true;
+  if (castOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66)
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race

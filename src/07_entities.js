@@ -660,7 +660,7 @@ function executeAbility(e, A, t, cast = null) {
           if (isEnemy(e, o)) {
             const r = computeDamage(e, o, A.dmg * rk);
             dealDamage(e, o, r.d, { crit: r.crit, kind: 'holy' });
-          } else if (o.faction === e.faction) { healEnt(e, o, o.maxHp * A.healPct * rk); FX.heal(o.x, o.y, o.z); }
+          } else if (o.faction === e.faction) { healEnt(e, o, o.maxHp * A.healPct * rk * (o === e && e.cls === 'priest' ? priestSelf(e) : 1)); FX.heal(o.x, o.y, o.z); } // [balance4] a priest in its own column mends as its own wounds do (it mended in full)
         });
       });
       sfx('pillar');
