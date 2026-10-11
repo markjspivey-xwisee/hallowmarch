@@ -201,7 +201,8 @@ function footLockSlot(e, horse) {
       const [tx, tz, ty] = o.lT, [nx, nz] = o.lN;
       o.hT = flFloor(e, e.x + tx * c + tz * s, e.z - tx * s + tz * c, e.y + ty); o.treadT = _flTread; // (by the floor the body will be on by then: up a flight it climbs as fast as it runs)
       o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
-      if (o.human && (o.w ?? 1) < 0.97) for (const k of [0.12, 0.24]) { const az = nz + k * (e.scale || 1); o.hN = Math.max(o.hN, flFloor(e, e.x + nx * c + az * s, e.z - nx * s + az * c)); }
+      // (on a flight or a steep slope only: on the level it finds nothing new)
+      if (o.human && (o.w ?? 1) < 0.97 && Math.abs(e._slope || 0) > 0.15) for (const k of [0.12, 0.24]) { const az = nz + k * (e.scale || 1); o.hN = Math.max(o.hN, flFloor(e, e.x + nx * c + az * s, e.z - nx * s + az * c)); }
     }
     // how high its floor stands over the body's own: planted, its own place's; in the air, from the floor it left to the
     // floor it will land on
