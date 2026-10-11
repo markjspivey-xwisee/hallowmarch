@@ -57,14 +57,14 @@ function hallowDazzle(G, o) {
 }
 
 /* ------------------------------------------------------------------ */
-/* a fresh Renewal steadies the priest                                 */
+/* a fresh Renewal steadies the priest (tried, and set aside)          */
 /* ------------------------------------------------------------------ */
-// Renewal on yourself loosens roots, and a fresh one (none of your own Renewals still mending you) steadies you for 4 s:
-// nothing but a stun breaks your spells. A priest renewing on every breath stood steadfast all the time, so nothing a
-// bow, a storm or a mace did broke its spells; one who lets a Renewal run its course and renews again is steadfast when
-// it chose to be
+// tried: Renewal on yourself steadying you only when none of your own Renewals still mended you (a priest renewing on
+// every breath stood steadfast all the time). It cost the skilled priest more than the careless one: a seasoned mage's
+// storm and a bow's blunt heads broke its spells four times as often, and it won a third of its duels at 30
 const RENEW_FRESH = 1; // a Renewal with less than this left is spent
-const renewFresh = (e) => !e.cs || !(GAME.t < (e.cs.renewUntil || -99) - RENEW_FRESH);
+const RENEW_FRESH_ON = false; // [balance5] measured and set aside: the priest stood steadfast so seldom that a mage's storm broke 150 of its spells in 48 duels at 30 (37 without), and it won a third of its duels
+const renewFresh = (e) => !RENEW_FRESH_ON || !e.cs || !(GAME.t < (e.cs.renewUntil || -99) - RENEW_FRESH);
 function renewMark(e) { if (e.cs) e.cs.renewUntil = GAME.t + ABILITIES.renew.hot[1]; }
 
 /* ------------------------------------------------------------------ */
@@ -159,9 +159,8 @@ function balFlattenCraters() {
 }
 
 /* ---- what a player reads ---- */
-ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast.`;
+ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast (a priest's own Renewal).`;
 ABILITIES.whirl.desc = `Spin with your weapon out. 140% damage to every enemy within 4 m, and each foe your blade cuts gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health.`;
-ABILITIES.renew.desc = 'Heals 32% over 9 seconds. On yourself it also loosens roots, and a fresh one (none of your Renewals still mending you) steadies you for 4 s: nothing but a stun breaks your spells. With 20 devotion it also blesses the target.';
 
 setTimeout(() => {
   if (!window.__hm) return;

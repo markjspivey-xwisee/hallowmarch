@@ -244,7 +244,7 @@ function chronClasses() {
       ['Holy Fire', '', `Cast at a foe within ${FLARE_REACH} m in the middle of a spell, Holy Fire flares in its face and the spell is lost, unless it stands steadfast. Keep it for the heal that would turn the fight.`], // [balance5]
       ['Smite', '', 'Holy light falls hardest on the dead of the Barrow: twice the harm, and devotion for every blow. It falls from above: a raised shield does not turn it, and its light dazzles: for 3 s the foe misses some of its weapon blows (more as your ranks grow), and a dazzled warrior cannot parry.'], // [balance2] [balance3] [balance4]
       ['Mend', '', 'Mend closes wounds: the deeper the wound, the more it mends, all of it from half health down and a third of it on a scratch. Mend at need, and let Renewal carry you between.'], // [balance4]
-      ['Steadfast', '', 'Renewal on yourself loosens roots, and a fresh one (none of your Renewals still mending you) steadies you for 4 s: nothing but a stun breaks your spells, no blunt arrow, storm, mace, thunderclap or flare of holy fire. Let a Renewal run its course, then renew before a long cast when a foe keeps cutting you off. Your own wounds mend at 70% of a heal\'s measure, and from rank II at about two thirds of it, however your ranks grow.'], // [balance2] [balance3] [balance5] fresh, 70%, 65%
+      ['Steadfast', '', 'Renewal on yourself loosens roots, and for 4 s nothing but a stun breaks your spells: no blunt arrow, storm, mace, thunderclap or flare of holy fire. Renew before a long cast when a foe keeps cutting you off, and when a priest\'s Holy Fire is ready to flare it away. Your own wounds mend at 70% of a heal\'s measure, and from rank II at about two thirds of it, however your ranks grow.'], // [balance2] [balance3] [balance5] the flare, 70%, 65%
       ['Blessings', 'bless', 'With 20 devotion, Renewal also blesses its target in the way of your realm.'],
       ['Raising', 'raise', 'Near a friend who fell a moment ago, T raises them (70 devotion). When you fall, a priest of your realm close by may offer to raise you: accept the prayer on the death screen.'], // [balance]
       ['Temples', '', 'At your realm\'s temple, or near a hallow your realm holds, you are sanctified: devotion comes twice as fast and you heal 15% more.'],
@@ -268,6 +268,6 @@ LOADING_TIPS.push(
   'A priest\'s holy light dazzles: the foe\'s weapon blows go wide, and a dazzled warrior cannot parry.',
   'Guarded, a warrior walks on behind a raised shield: a shield wall against arrows, though a volley falls over it.', // [balance4]
   'Mend does most for a deep wound: mend at need, and let Renewal carry you between.', // [balance4]
-  'A priest\'s Holy Fire, cast close by at a foe in the middle of a spell, flares the spell away; a fresh Renewal keeps a priest\'s own spells steady.', // [balance5]
+  'A priest\'s Holy Fire, cast close by at a foe in the middle of a spell, flares the spell away; a priest\'s own Renewal keeps its spells steady.', // [balance5]
   'A warrior\'s Whirlwind heals it a little for every foe the blade cuts: the thicker the press, the more it heals.', // [balance5]
 );

@@ -848,8 +848,8 @@ async def balance4(page):
 
 
 async def balance5(page):
-    """[balance5] Holy Fire flares a caster's spell away (not a steadfast one);
-    only a fresh Renewal steadies; Whirlwind heals in the press; the realm's ways evened out"""
+    """[balance5] Holy Fire flares a caster's spell away (not a steadfast one) within 10 m; every Renewal on yourself
+    steadies; Whirlwind heals in the press; the realm's ways evened out"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
     r = await ev(page, 'flare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 0);
       const a = T.ahead(P, 8); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
@@ -872,7 +872,7 @@ async def balance5(page):
     check(r['casting'] and r['r'] is True and r['broken'], f"Holy Fire flares a mage's firebolt away ({r})")
     check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
     check(r['steady'] and r['kept'], f"a priest steadfast from a fresh Renewal keeps its Mend through the flare ({r})")
-    check(not r['q2'] and not r['stale'] and r['fresh'], f"a Renewal while the last still mends does not steady; one after it has run its course does ({r})")
+    check(not r['q2'] and r['stale'] and r['fresh'], f"every Renewal on yourself steadies for 4 s (the fresh Renewal's rule was tried and set aside) ({r})")
     r = await ev(page, 'whirl', """(() => { const H = T.H, F = T.F; const out = {};
       for (const n of [1, 4]) { const P = T.fresh('warrior', 30, 0); H.simulate(0.1);
         for (let i = 0; i < n; i++) { const a = T.ahead(P, 2.2, (i - (n - 1) / 2) * 1.4); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f); }

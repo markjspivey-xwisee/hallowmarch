@@ -289,7 +289,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 22; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed)
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = e.meleeRange + tr - 0.4; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 it won 24 of 24 from casting range: pressed at every level, its holy fire flaring the long shots close by
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
