@@ -30,13 +30,18 @@ const RUSH_SLOW_EARLY = [0.45, 3];
 // rush never moved the warrior; a real rush is that answer, and a frost nova may meet the warrior where it lands
 const CHARGE_FREE = 0;
 const rushReach = (e, t) => e.meleeRange * 0.75 * (e.scale || 1) + t.radius * (t.scale || 1);
-// canUse asks (07c_balance3.js classCanUse): no rush on a horse, in the water, in a boat, or at a foe on another floor
+// canUse asks (07c_balance3.js classCanUse): no rush on a horse, in the water, in a boat, at a foe on another floor, or (for
+// a posted guard) at a foe beyond its post's leash
 function rushWhy(e, A, t) {
   if (!A.dash) return null;
   if (e.mount) return 'mounted';
   if (e.swim || e.boat || e.dive) return 'swimming';
   if (e.fixedY != null) return 'busy'; // (a body held at its post's height: an archer on a fixed perch)
   if (t && t.alive && Math.abs(t.y - e.y) > 1.6 && (elevatedEnt(e) || elevatedEnt(t))) return 'range';
+  // a guard at its post rushes only at a foe within its leash of it: garrison troops hold their posts (a gate's guards
+  // rushed 28 m out after anyone who came into sight, once Charge rushed at all)
+  const post = e.role !== 'player' && !e.bot && e.ai && e.ai.post;
+  if (post && t && dist(t.x, t.z, post.x, post.z) > (post.leash || 0) + 3) return 'post';
   return null;
 }
 // Charge comes round every 16 s; before Leap Strike is learned (level 30) it is the warrior's only rush, and comes every 12 s

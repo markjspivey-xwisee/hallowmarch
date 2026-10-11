@@ -807,8 +807,11 @@ async def balance4(page):
       return out; })()""")
     check(r['10'] is True and r['30'] is False, f"a skilled priest of rank I holds its mace from a warrior's guard, not from rank II ({r})")
     r = await ev(page, 'rush-why', """(() => { const H = T.H; const P = T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
-      const out = { foot: H.bal4.rushWhy(P, A, null) }; P.mount = {}; out.mounted = H.bal4.rushWhy(P, A, null); P.mount = null; P.swim = true; out.swim = H.bal4.rushWhy(P, A, null); P.swim = false; return out; })()""")
+      const out = { foot: H.bal4.rushWhy(P, A, null) }; P.mount = {}; out.mounted = H.bal4.rushWhy(P, A, null); P.mount = null; P.swim = true; out.swim = H.bal4.rushWhy(P, A, null); P.swim = false;
+      // a posted guard rushes only at a foe within its leash of its post
+      const a = T.ahead(P, 16); const g = T.foe(2, a.x, a.z, 20, 'warrior', 4); out.post = H.bal4.rushWhy(g, A, P); g.ai.post.leash = 20; out.near = H.bal4.rushWhy(g, A, P); return out; })()""")
     check(r['foot'] is None and r['mounted'] == 'mounted' and r['swim'] == 'swimming', f"no rush on a horse or in the water ({r})")
+    check(r['post'] == 'post' and r['near'] is None, f"a guard at its post rushes only at a foe within its leash ({r})")
     r = await ev(page, 'mend', """(() => { const H = T.H, F = T.F, C = H.cls; const out = {};
       for (const k of [0.95, 0.75, 0.4]) { const P = T.fresh('priest', 20, 0); C.csOf(P).dev = 0; P.hp = P.maxHp * k; P.power = P.maxPower; P.cds = {}; P.gcdUntil = 0; const h0 = P.hp;
         F.useAbility(P, 'mend', P); H.simulate(1.7); out[k] = +((P.hp - h0) / P.maxHp).toFixed(3); }

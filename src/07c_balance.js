@@ -391,7 +391,7 @@ function botWarrior(e, t) {
   if (!t) return false;
   const d = dist(e.x, e.z, t.x, t.z);
   // [balance3] out of reach is far enough to charge (from 5 m): a bow that kept just past 6.5 m was never caught
-  // [balance4] a Charge rushes now, and a snare lying in its line catches it: a skilled hand steps off the line first (a
+  // [balance4] a Charge rushes now, and a snare lying on its way catches it: a skilled hand walks round it first (a
   // Leap Strike goes over a snare)
   if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8)) {
     if (botUse(e, 'leap', t)) return true;
