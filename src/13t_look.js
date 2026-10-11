@@ -110,7 +110,9 @@ function lookCoverAll() {
       for (let j = Math.max(0, Math.floor((z0 + HALF) / HS)); j <= Math.min(HN - 1, Math.ceil((z1 + HALF) / HS)); j++) {
         for (let i = Math.max(0, Math.floor((x0 + HALF) / HS)); i <= Math.min(HN - 1, Math.ceil((x1 + HALF) / HS)); i++) {
           const x = -HALF + i * HS, z = -HALF + j * HS, k = j * HN + i, pd = lookSegD(x, z, P);
-          const v = Math.round(255 * 0.5 * sstep(P.w / 2 + 1.3, P.w / 2 - 0.2, pd));
+          // [look2] only a trodden verge now: the path itself is drawn at 1 m (13u_look2.js); at 0.5 its 2 m texels
+          // smeared a halo of dirt three or four metres wide round it
+          const v = Math.round(255 * 0.2 * sstep(P.w / 2 + 1.6, P.w / 2 - 0.2, pd));
           if (v > A[k * 4]) A[k * 4] = v;
         }
       }

@@ -640,6 +640,46 @@ function treeGeometry(kind, lo = 0) { // [phones] lo: the far model, the same sh
   g.setIndex(idx);
   return g;
 }
+// [look2] the hand-over between the far trees (these chunks) and the near ones (04c_trees.js) across the 3.5 m band at
+// the near trees' reach (42 m at high, 28 at medium) goes by whole leaf and needle cards, by clumps of the crown (one
+// field in the world for the far crown and the near tree's heart, so the two stay complementary) and by the trunk at the
+// band's middle. Both sets were drawn there through complementary 4 x 4 screen doors: a crown standing in the band
+// showed dotted edges, medium most. And leaves on a crown near the camera drawn as lobes (every crown within 30 m at
+// low, which has no near trees): treeLeafAt
+const GLSL_TREE_HAND = /* glsl */`
+  float treeClumpK(vec3 w, float tint){ return smoothstep(0.2, 0.8, vnoise(w.xz * 1.15 + vec2(w.y * 0.83, -w.y * 0.61) + tint * 17.0) * 0.7 + vnoise(w.zy * 2.3 + tint * 5.0) * 0.3); }
+  // (the cards come in ahead of the share, sqrt, and the far crown goes behind it, squared: where neither stood the
+  // crown thinned in the band's middle)
+  bool treeNearHidden(float part, float seed, vec3 w, float tint, float fade){
+    if (fade >= 0.999) return false;
+    if (part < 0.5) return fade < 0.5;                               // the trunk and boughs: at the band's middle
+    if (part < 2.5) return fract(seed * 7.31 + 0.37) >= sqrt(fade);  // a leaf or needle card: whole
+    return treeClumpK(w, tint) >= fade;                               // the heart: by clumps
+  }
+  bool treeFarHidden(float part, vec3 w, float tint, float fadeFar){
+    if (fadeFar >= 0.999) return false;
+    if (part < 0.5) return fadeFar <= 0.5;
+    float f = 1.0 - fadeFar;
+    return treeClumpK(w, tint) < f * f;
+  }
+  // a leaf of a crown seen near: x how far into a leaf (0 the gap between leaves), y its own tone, zw its tilt. Cells of
+  // a jittered grid on the plane the face looks along, each an elongated leaf turned its own way
+  vec4 treeLeafAt(vec3 w, vec3 n, float tint){
+    vec3 a = abs(n);
+    vec2 q = (a.x > a.y && a.x > a.z ? w.zy : a.y > a.z ? w.xz : w.xy) * 6.5 + tint * 31.0;
+    vec2 ip = floor(q), o = step(0.5, fract(q)) - 1.0, id = ip;
+    float best = 9.0;
+    for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
+      vec2 c = ip + o + vec2(float(i), float(j)), h = hash22(c);
+      vec2 r = c + 0.15 + 0.7 * h - q;
+      float an = h.x * 6.2831, ca = cos(an), sa = sin(an);
+      vec2 rr = vec2(r.x * ca + r.y * sa, (r.y * ca - r.x * sa) * 1.9);
+      float e = dot(rr, rr);
+      if (e < best) { best = e; id = c; }
+    }
+    return vec4(1.0 - smoothstep(0.26, 0.72, best), hash12(id + 3.1), hash22(id + 7.7) - 0.5);
+  }
+`;
 const treeMat = mat({
   uniforms: { uKindTint: { value: new THREE.Vector3(1, 1, 1) }, uBarkTint: { value: new THREE.Vector3(1, 1, 1) }, uBirch: { value: 0 }, uDecid: { value: 1 } }, // [seasons] uDecid: a broadleaf (turns and drops its leaves)
   vertexShader: /* glsl */`
@@ -670,12 +710,13 @@ const treeMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_WEATHER}
     ${GLSL_SEASON} // [seasons] 02d_season.js
+    ${GLSL_TREE_HAND} // [look2]
     uniform float uSnowCover, uWet;
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch, uDecid;
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying float vFadeFar;
     void main(){
-      if (bayer4(gl_FragCoord.xy) < 1.0 - vFadeFar) discard;
+      if (treeFarHidden(vPart, vW, vTint, vFadeFar)) discard; // [look2] the hand-over by clumps, not a screen door
       float vb = viewBlock(vW); // [look] the crown parts in clumps (in the world), not through a screen door of dots
       if (vb > 0.0 && (vPart < 0.5 ? bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) : vnoise(vW.xz * 2.3 + vW.y * 1.7 + vTint * 3.0)) < vb) discard;
       vec3 n = safeNormalize(vN);
@@ -688,6 +729,7 @@ const treeMat = mat({
         float ndl = clamp(dot(n, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
         col = alb * (0.45 + 0.75 * ndl * mix(0.35, 1.0, sh)) * vAO;
       } else {
+        float pxT = length(fwidth(vW)); // [look2] (before any discard: the leaves below fade by the pixel's size)
         float leafy = fbm3(vW.xz * 1.6 + vW.y * 1.1);
         float edge = spow(1.0 - abs(dot(n, V)), 1.6);
         if (leafy < edge * 0.85 - 0.18) discard;
@@ -699,14 +741,25 @@ const treeMat = mat({
           if (tw < 0.8) discard;
           twig = 1.0;
         }
+        // [look2] near the camera, leaf by leaf (treeLeafAt, GLSL_TREE_HAND): dark gaps between the leaves, each its own
+        // tilt and shade, the outline broken leaf by leaf (the lobes and their coarse noise read as plastic up close)
+        float lfK = (1.0 - smoothstep(16.0, 30.0, distance(vW, cameraPosition))) * (1.0 - smoothstep(0.022, 0.055, pxT)) * (1.0 - twig);
+        vec4 lf = vec4(1.0, 0.5, 0.0, 0.0);
+        if (lfK > 0.0) {
+          lf = treeLeafAt(vW, n, vTint);
+          if (lf.x < (edge - 0.42) * 2.2 * lfK) discard; // (the gaps between leaves open only toward the outline)
+          n = safeNormalize(n + vec3(lf.z, 0.2, lf.w) * 0.9 * lfK);
+        }
         // leaf clumps: relief from a little noise so the crowns are not smooth balls
-        float clump = vnoise(vLocal.xz * 2.6 + vLocal.y * 1.9) * 0.6 + vnoise(vLocal.xz * 6.1 - vLocal.y * 3.3) * 0.4;
+        // ([look2] its two terms on crossed planes: one plane's noise of (x + y, z + y) streaked every lobe diagonally)
+        float clump = vnoise(vLocal.xz * 2.6 + vec2(vLocal.y * 1.9, -vLocal.y * 1.3)) * 0.6 + vnoise(vLocal.zy * 6.1 + vLocal.x * 0.7) * 0.4;
         vec3 dpx = dFdx(vW), dpy = dFdy(vW);
         float dhx = dFdx(clump), dhy = dFdy(clump);
         vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
         float det = dot(dpx, r1);
         n = safeNormalize(abs(det) * n - 0.9 * sign(det) * (dhx * r1 + dhy * r2));
         vec3 alb = uLeaf * uKindTint * (0.78 + 0.5 * vTint) * (0.72 + 0.55 * leafy) * (0.72 + 0.45 * clump);
+        alb *= mix(1.0, (0.66 + 0.56 * lf.y) * mix(0.5, 1.0, lf.x), lfK); // [look2] each leaf its own shade, dark between
         // visual pass: each tree its own hue, a crown lit and shaded as one mass (sky above, shade beneath),
         // and light through the thin edges of the crown when the sun is behind it
         alb *= mix(vec3(1.08, 1.04, 0.8), vec3(0.9, 1.0, 1.1), fract(vTint * 7.31));
@@ -736,10 +789,11 @@ const treeChunks = [];
 // canopies cast dappled shade: the depth pass punches holes where the foliage noise is thin
 const TREE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
+  ${GLSL_TREE_HAND} // [look2]
   uniform vec4 uSeasonB; uniform float uDecid; // [seasons] bare broadleaves cast a thin shade
   varying vec3 vW; varying float vPart; varying float vFadeFar; varying float vTint;
   void main(){
-    if (bayer4(gl_FragCoord.xy) < 1.0 - vFadeFar) discard;
+    if (treeFarHidden(vPart, vW, vTint, vFadeFar)) discard; // [look2]
     if (vPart > 0.5 && fbm3(vW.xz * 1.6 + vW.y * 1.1) < 0.34 + uDecid * clamp(uSeasonB.y * 1.15 - fract(vTint * 7.9) * 0.15, 0.0, 1.0) * 0.55) discard;
     gl_FragColor = vec4(1.0);
   }`;

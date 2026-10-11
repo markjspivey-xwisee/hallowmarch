@@ -1087,6 +1087,41 @@ function humanVS(depth) {
     float lvL = step(1.5, tfL), lvR = step(1.5, tfR), yoL = (wL - 10.0 * tfL) * 2.0, yoR = (wR - 10.0 * tfR) * 2.0;
     float footL = (toeL - thL - shL - slopeA * (1.0 - lvL)) * ankK, footR = (toeR - thR - shR - slopeA * (1.0 - lvR)) * ankKR;
 
+    // [look2] on a ladder (action 14) both hands are on the rungs: what they carried hangs on the back (the shield over the
+    // cloak, a blade, a mace or an axe across it from the right shoulder, a staff across it, a bow over the quiver).
+    // They were held up off the rungs: the blade out to the side, the shield on the raised arm. In a blow from the rungs
+    // (18) the right hand has its weapon again; the shield and the bow stay on the back
+    if (aBit > -0.5 && ((atype > 13.5 && atype < 14.5) || (atype > 17.5 && atype < 18.5))) {
+      int sb = int(aBit + 0.5);
+      bool sS = sb == ${WBIT.shield} || sb == ${WBIT.shieldRound};
+      bool sR = sb == ${WBIT.sword} || sb == ${WBIT.mace} || sb == ${WBIT.axe} || sb == ${WBIT.staff};
+      if (sS || sb == ${WBIT.bow} || (sR && atype < 14.5)) {
+        int sm = int(iMisc.y + 0.5);
+        bool slCape = ((sm >> ${WBIT.cape}) & 1) == 1, slQuiv = ((sm >> ${WBIT.quiver}) & 1) == 1;
+        bool slShield = ((sm >> ${WBIT.shield}) & 1) == 1 || ((sm >> ${WBIT.shieldRound}) & 1) == 1;
+        float zb = slCape ? -0.27 : slQuiv ? -0.225 : -0.185; // the back's surface: over the cloak, over the quiver
+        if (sS) {
+          // the shield's face (out from the arm, +x in the hand) turned out from the back
+          vec3 q = position - (sb == ${WBIT.shield} ? ${glv([SK.fist[0] + 0.075, SK.fist[1] + 0.14, SK.fist[2] + 0.015])} : ${glv([SK.fist[0] + 0.08, SK.fist[1] + 0.13, SK.fist[2] + 0.02])});
+          P = vec3(0.0, 1.1, zb - 0.03) + vec3(q.z, q.y, -q.x); Nn = vec3(normal.z, normal.y, -normal.x);
+        } else if (sb == ${WBIT.bow}) {
+          // the bow flat across the back, from the left shoulder down to the right hip, over the quiver
+          vec3 q = position - ${glv([SK.fist[0] + 0.005, SK.fist[1], SK.fist[2]])}, ay = vec3(0.41, 0.912, 0.0), az = vec3(0.912, -0.41, 0.0);
+          P = vec3(0.0, 1.12, zb - 0.025) + vec3(0.0, 0.0, -q.x) + ay * q.y + az * q.z; Nn = vec3(0.0, 0.0, -normal.x) + ay * normal.y + az * normal.z;
+        } else {
+          // out of the fist (its grip's tilt undone): a blade's hilt by the right shoulder, the point at the left hip;
+          // a staff's head over the right shoulder, its foot by the left calf
+          bool stf = sb == ${WBIT.staff};
+          mat3 un = rotX(stf ? -0.22 : -1.85);
+          vec3 g = un * (position - ${glv([-SK.fist[0], SK.fist[1], SK.fist[2]])}), gn = un * normal;
+          vec3 ay = stf ? vec3(-0.355, 0.935, 0.0) : vec3(0.3872, -0.922, 0.0), az = vec3(ay.y, -ay.x, 0.0);
+          float zw = slShield ? zb - 0.075 : zb - 0.02;
+          vec3 o = stf ? vec3(0.0, 1.1, zw) - ay * 0.28 : vec3(-0.15, 1.47, zw);
+          P = o + vec3(0.0, 0.0, -g.x) + ay * g.y + az * g.z; Nn = vec3(0.0, 0.0, -gn.x) + ay * gn.y + az * gn.z;
+        }
+        bone = 1; // carried by the chest
+      }
+    }
     /* ------------------- skinning ------------------- */
     if (bone == 11) {
       // the cape hangs from the shoulders and trails with speed and wind

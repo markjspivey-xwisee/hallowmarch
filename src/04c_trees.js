@@ -190,12 +190,13 @@ const nearTreeMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_WEATHER}
     ${GLSL_SEASON} // [seasons] 02d_season.js
+    ${GLSL_TREE_HAND} // [look2] the hand-over from the far trees (04_props.js)
     uniform vec3 uLeaf, uBark, uKindTint, uBarkTint;
     uniform float uBirch, uFoliageCut, uNeedle, uSnowCover;
     uniform float uWet; // feature/weather
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying vec2 vUV; varying float vSeed; varying float vFade;
     void main(){
-      if (bayer4(gl_FragCoord.xy) > vFade) discard;
+      if (treeNearHidden(vPart, vSeed, vW, vTint, vFade)) discard; // [look2] by whole cards, clumps and the trunk, not a screen door
       // [look] foliage near the camera or between it and the player parts by whole leaf cards and by clumps of the
       // crown's heart (in the world), not through a 4 x 4 screen door of dots (dithered green blobs against the sky)
       float vb = viewBlock(vW);
@@ -266,10 +267,11 @@ const NEAR_TREE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   ${GLSL_FOLIAGE}
   ${GLSL_SEASON} // [seasons] bare broadleaves: twigs, no heart of leaves
+  ${GLSL_TREE_HAND} // [look2]
   uniform float uNeedle;
   varying float vPart; varying vec2 vUV; varying float vSeed; varying float vFade; varying float vTint; varying vec3 vW;
   void main(){
-    if (bayer4(gl_FragCoord.xy) > vFade) discard;
+    if (treeNearHidden(vPart, vSeed, vW, vTint, vFade)) discard; // [look2]
     float bare = vPart > 0.5 && vPart < 1.5 && uNeedle < 0.5 ? seasonFallen(vSeed, vTint) : 0.0;
     if (vPart > 0.5 && vPart < 2.5 && (vPart < 1.5 ? (bare > 0.5 ? twigCard(vUV, vSeed) : leafCluster(vUV, vSeed)) : needleSpray(vUV)) < 0.5) discard;
     if (vPart > 2.5 && uNeedle < 0.5 && uSeasonB.y > 0.01 && vnoise(vW.xz * 2.7 + vW.y * 2.1 + vTint * 5.0) < uSeasonB.y * 1.1) discard;

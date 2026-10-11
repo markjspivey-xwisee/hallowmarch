@@ -683,6 +683,7 @@ const beastMat = mat({
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
+    ${GLSL_ROOFS} // [look2] underRoof: a beast in a room is lit by the room, as a person is
     uniform vec4 uFurK;   // saddle, belly, socks, strand scale
     uniform float uDarkCoat;
     uniform vec3 uEye, uEyeAt;
@@ -757,7 +758,12 @@ const beastMat = mat({
         alb = mix(alb, vec3(0.88, 0.9, 0.95), sk); rough = mix(rough, 0.85, sk); metal *= 1.0 - sk;
       }
       float sh = shadowAt(vW, n);
-      vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
+      // [look2] a beast in a room (a hound by the hearth, a hen in a shed) is lit by the room as a person is (05a_rig.js):
+      // no sun or moon through the roof, less of the sky, a warm fill; it was lit as out of doors, blue by the moon
+      gRoom = underRoof(vW) ? 1.0 : 0.0;
+      sh *= 1.0 - gRoom;
+      vec3 col = actorLight(alb, n, V, rough, metal, ao * (1.0 - 0.4 * gRoom), sh, sss);
+      col += alb * vec3(0.2, 0.12, 0.055) * gRoom * (0.45 + 0.55 * uNight) * ao;
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
       col += wetSheen(vW, n, V, bWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat (its own, visual pass)
       // soft back-lit fringe along the silhouette

@@ -574,3 +574,189 @@ window.LK = {
     return set0.call(this, name, variant);
   };
 })();
+// [look2] (version 13) what version 12's look left, and what version 12 added (arrows in the walls, breached and mended
+// towers, the burnt log tower, the Charge's rush), each from a fixed camera
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  // a narrower lens for a view that looks at one thing far off (put back before the next view)
+  LK.fov = function (deg) { const c = this.H.camera; if (this.fov0 == null) this.fov0 = c.fov; c.fov = deg; c.updateProjectionMatrix(); };
+  const set1 = LK.set;
+  LK.set = function (name, variant) {
+    if (this.fov0 != null) { this.H.camera.fov = this.fov0; this.H.camera.updateProjectionMatrix(); this.fov0 = null; }
+    return set1.call(this, name, variant);
+  };
+  // the player stands at (x, z) out of the way, a frame drawn so what is drawn by distance knows the camera
+  LK.away = function (x, z) { const P = this.H.GAME.player; P.x = P.prevX = x; P.z = P.prevZ = z; P.y = this.F.heightAt(x, z); P.motion = null; P.hp = P.maxHp; };
+  // a hound and a priest by the hearth inside a Logres house: beasts lit by the room as people are
+  D('look2', 'hound_in', (L) => {
+    const H = L.H, F = L.F, h = L.house(0, 1, false), D0 = h.door;
+    F.setHouseDoor && F.setHouseDoor(h, true);
+    const dx = h.x - D0.out.x, dz = h.z - D0.out.z, dl = Math.hypot(dx, dz) || 1, ux = dx / dl, uz = dz / dl;
+    const p = { x: D0.in.x + ux * 1.7, z: D0.in.z + uz * 1.7 }, y = F.floorAt(p.x, p.z, h.y + 0.6);
+    L.hush(h.x, h.z, 9);
+    const hd = L.beast('hound', p.x + uz * 0.55, p.z - ux * 0.55, Math.atan2(-uz, ux));
+    const pr = F.spawnRealmUnit(0, 'priest', 30, 'guard', p.x - uz * 0.55, p.z + ux * 0.55, { yaw: Math.atan2(-ux, -uz) });
+    pr.ai.post = { x: pr.x, z: pr.z, leash: 0.3 }; pr.testLook = true; L.made.push(pr);
+    L.settle(0.4);
+    for (const e of [hd, pr]) { e.y = F.floorAt(e.x, e.z, y + 0.3); e.prevY = e.y; }
+    pr.yaw = Math.atan2(-ux, -uz);
+    const c = { x: D0.in.x - ux * 0.2, z: D0.in.z - uz * 0.2 };
+    L.away(h.x + 30, h.z + 30);
+    return { ...L.cam(c.x, y + 1.55, c.z, p.x, y + 0.55, p.z), house: h.num };
+  });
+  // a lone oak whose crown stands in the band where the near trees take over from the far ones (42 m at high, 28 at
+  // medium): the hand-over
+  D('look2', 'handover', (L) => {
+    const H = L.H, F = L.F, R = H.quality.nearTrees || 28, T = F.W.trees;
+    for (const t of T) {
+      if (t.kind !== 'oak' || t.gone || t.felled || (t.s || 1) < 1.0 || Math.hypot(t.x, t.z) > 330) continue;
+      if (T.some((u) => u !== t && Math.abs(u.x - t.x) < 10 && Math.abs(u.z - t.z) < 10)) continue;
+      for (let a = 0; a < 6.28; a += 0.4) {
+        const d = R - 1.7, x = t.x + Math.sin(a) * d, z = t.z + Math.cos(a) * d;
+        if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue;
+        if (T.some((u) => u !== t && Math.hypot(u.x - (x + t.x) / 2, u.z - (z + t.z) / 2) < d * 0.55)) continue;
+        L.fov(24); L.away(x + Math.sin(a) * 40, z + Math.cos(a) * 40);
+        return { ...L.eye(x, z, t.x, t.y + 4.4 * (t.s || 1), t.z, 1.7), tree: [+t.x.toFixed(1), +t.z.toFixed(1)], R };
+      }
+    }
+    return { skip: 'no lone oak' };
+  });
+  // the apple trees of the Logres orchard and their shade on the grass (bare in winter: a thin shade)
+  D('look2', 'apples', (L) => {
+    const H = L.H, o = H.surv.FORAGE.orchard, ap = H.surv.FORAGE.list.filter((q) => q.k === 'apple' && !q.gone && !q.cut);
+    if (!ap.length) return { skip: 'no apple trees' };
+    ap.sort((a, b) => Math.hypot(a.x - o.x, a.z - o.z) - Math.hypot(b.x - o.x, b.z - o.z));
+    const a = ap[0], c = { x: a.x + 6.5, z: a.z - 5.0 };
+    L.hush(a.x, a.z, 20); L.away(a.x + 40, a.z + 40);
+    return { ...L.cam(c.x, L.F.heightAt(c.x, c.z) + 5.2, c.z, a.x - 1.0, L.F.heightAt(a.x, a.z) + 0.6, a.z + 1.5), tree: [+a.x.toFixed(1), +a.z.toFixed(1)] };
+  });
+  // the climber seen from the room behind him: what he carried hangs on his back while his hands are on the rungs
+  D('look2', 'climb_back', (L) => {
+    const r = L.views.climb.call(L, L); if (r && r.skip) return r;
+    // a fixed camera across the drum from the ladder, at the climber's shoulders, looking at his back
+    const H = L.H, P = H.GAME.player, S = L.keepSite(0, 0), T = H.towers.list().find((t) => t.S === S && t.role === 'corner');
+    const dx = T.wx - P.x, dz = T.wz - P.z, d = Math.hypot(dx, dz) || 1, k = Math.min(2.2, d + (T.RI || 2) * 0.6) / d;
+    return { ...r, ...L.cam(P.x + dx * k + dz / d * 0.35, P.y + 1.75, P.z + dz * k - dx / d * 0.35, P.x, P.y + 1.15, P.z) };
+  });
+  // the town from far off: the footpaths from the doors to the plaza
+  for (const r of [0, 1, 2]) {
+    D('look2', `t${r}_paths`, (L) => {
+      const S = L.H.REALMS[r].town, R = L.H.REALMS[r], p = { x: S.x - R.dx * 70 - R.px * 36, z: S.z - R.dz * 70 - R.pz * 36 };
+      L.away(S.x + R.dx * 80, S.z + R.dz * 80);
+      return L.cam(p.x, L.F.heightAt(p.x, p.z) + 24, p.z, S.x, L.F.heightAt(S.x, S.z), S.z);
+    });
+  }
+  /* ---- what version 12 added ---- */
+  const arrowsAt = (L, at, n, spread, from) => {
+    const H = L.H, P = H.GAME.player;
+    L.away(from.x, from.z); H.UI.modal = null;
+    for (let i = 0; i < n; i++) {
+      const tg = at(i);
+      P.yaw = Math.atan2(tg.x - P.x, tg.z - P.z); H.CAM.yaw = P.yaw;
+      H.CAM.pitch = 0.3 - Math.atan2(tg.y - (P.y + 1.5), Math.hypot(tg.x - P.x, tg.z - P.z));
+      H.cls.looseArrow(P, 1, null, 0); H.simulate(0.3);
+    }
+    H.simulate(1.5); H.UI.modal = 'menu';
+  };
+  // arrows stuck in a Logres house's plaster and timbers
+  D('look2', 'stuck_house', (L) => {
+    const H = L.H, all = H.HOUSES.filter((q) => !q.keepHall && q.style === 'stone' && q.state === 'whole' && !q.round);
+    const Hs = all.find((q) => q.d > 6.5) || all[0];
+    if (!Hs) return { skip: 'no house' };
+    const at = (lx, lz, ly) => ({ x: Hs.x + lx * Hs.c + lz * Hs.s, y: Hs.y + ly, z: Hs.z - lx * Hs.s + lz * Hs.c });
+    if (!L.stuckHouse) {
+      L.hush(Hs.x, Hs.z, 25);
+      arrowsAt(L, (i) => at(Hs.w / 2, -1.6 + (i % 4) * 1.05 + Math.sin(i * 2.3) * 0.25, 0.9 + (i / 4 | 0) * 0.55 + Math.cos(i * 1.7) * 0.15), 12, 0, at(Hs.w / 2 + 9, 0, 0));
+      L.stuckHouse = true;
+    }
+    L.away(Hs.x + 30, Hs.z + 30);
+    const c = at(Hs.w / 2 + 2.8, 3.2, 1.7), t = at(Hs.w / 2, -0.2, 1.4);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), stuck: H.walls.WALLS.stuck.length };
+  });
+  // arrows in a Thule keep's palisade of logs, and those that glanced off a Logres curtain lying at its foot
+  D('look2', 'stuck_logs', (L) => {
+    const H = L.H, S = L.keepSite(2, 0), a = L.sw(S, 4, 30), wl = (lx, ly) => { const p = L.sw(S, lx, 14.2); return { x: p.x, y: S.y + ly, z: p.z }; };
+    if (!L.stuckLogs) { L.hush(S.x, S.z, 45); arrowsAt(L, (i) => wl(-3 + (i % 5) * 1.3, 1.2 + (i / 5 | 0) * 0.7), 10, 0, a); L.stuckLogs = true; }
+    L.away(S.x + 60, S.z + 60);
+    const c = L.sw(S, 3.5, 19.5), t = wl(0, 1.5);
+    return { ...L.cam(c.x, S.y + 2.1, c.z, t.x, t.y, t.z), stuck: H.walls.WALLS.stuck.length };
+  });
+  D('look2', 'glance', (L) => {
+    const H = L.H, S = L.keepSite(0, 1), a = L.sp ? null : null, sp = (lx, lz, ly) => { const p = L.sw(S, lx, lz); return { x: p.x, y: S.y + ly, z: p.z }; };
+    if (!L.glanced) { L.hush(S.x, S.z, 50); arrowsAt(L, (i) => sp(-6 + (i % 5) * 1.1, -14.4, 1.2 + (i / 5 | 0) * 0.6), 10, 0, sp(-3, -24, 0)); H.simulate(2); L.glanced = true; }
+    L.away(S.x + 60, S.z - 60);
+    const c = sp(1.8, -21.0, 1.6), t = sp(-3.6, -15.6, 0.2);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), glanced: H.walls.WALLS.stats.glanced };
+  });
+  // a Logres corner tower brought down into a breach by the stones, from the field and from the courtyard
+  const breached = (L) => {
+    const H = L.H, F = L.F, S = L.keepSite(0, 0), C = F.castles().find((q) => q.S === S);
+    const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1), T = W.T;
+    S.keepRef.lastEnemyNear = H.GAME.t + 1e6;
+    if (W.state === 'whole') {
+      const src = F.spawnRealmUnit(2, 'warrior', S.x + W.ox * 60, S.z + W.oz * 60, {}); src.hp = src.maxHp = 1e9;
+      const p = { x: T.wx + W.ox * (T.RO + 0.2), z: T.wz + W.oz * (T.RO + 0.2) };
+      for (let n = 0; W.state === 'whole' && n < 80; n++) F.castleSiegeHit(src, p.x, p.z, 2.0, 4.4);
+      F.removeEnt(src); L.settle(3);
+    }
+    return { S, C, W, T, tp: (a, r, y) => { const q = F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: q.x, y: S.y + y, z: q.z }; } };
+  };
+  D('look2', 'breach', (L) => {
+    const B = breached(L), c = B.tp(B.W.aOut + 0.55, B.T.RO + 15, 5.2), t = B.tp(B.W.aOut, 0, 4.0);
+    L.away(c.x + 40, c.z + 40);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: B.W.state };
+  });
+  D('look2', 'breach_in', (L) => {
+    const B = breached(L), c = B.tp(B.W.aOut + Math.PI + 0.35, B.T.RO + 7, 2.2), t = B.tp(B.W.aOut, 0.5, 1.6);
+    L.away(c.x + 40, c.z + 40);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: B.W.state };
+  });
+  D('look2', 'mend', (L) => {
+    const H = L.H, B = breached(L), S = B.S, W = B.W;
+    S.keepRef.lastEnemyNear = -1e9;
+    for (let i = 0; i < 12 && W.state !== 'whole' && !(W.state === 'repair' && W.t > 0.45); i++) { L.settle(10); S.keepRef.lastEnemyNear = -1e9; }
+    const c = B.tp(W.aOut - 0.5, B.T.RO + 14, 6.0), t = B.tp(W.aOut, 0, 4.5);
+    L.away(c.x + 40, c.z + 40);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: W.state, t: +(W.t || 0).toFixed(2) };
+  });
+  // the Thule keep's log tower burnt and fallen in, its char smouldering
+  D('look2', 'charred', (L) => {
+    const H = L.H, TF = H.towerfire, T = TF.list().find((q) => q.role === 'corner' && q.sx === 1 && q.sz === 1) || TF.list()[0];
+    if (!T) return { skip: 'no log tower' };
+    const S = T.S;
+    if (!T.fallen) { L.hush(S.x, S.z, 45); TF.towerIgnite(T, 3); H.UI.modal = null; H.simulate(TF.TFIRE.burn + 1); H.simulate(4); H.UI.modal = 'menu'; }
+    S.keepRef.lastEnemyNear = H.GAME.t + 1e6;
+    const tp = (a, r, y) => { const q = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: q.x, y: S.y + y, z: q.z }; };
+    const c = tp(T.aIn, T.RO + 9, 6.0), t = tp(T.aIn, 0, 7.5);
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), fallen: !!T.fallen, ember: T.fallen ? +T.fallen.ember.toFixed(2) : null };
+  });
+  // bodies near the camera on the move (13r_motion.js drives them as motion.py does): a horse at a gallop, a wolf at a
+  // trot, a soldier running, caught mid-stride from abreast
+  D('look2', 'gaits', (L) => {
+    const H = L.H, F = L.F, M = H.motion, sp = L.open(H.REALMS[2].musterSite.x + 34, H.REALMS[2].musterSite.z + 10, 10, 90);
+    if (!sp) return { skip: 'no room' };
+    L.hush(sp.x, sp.z, 45);
+    const hr = L.beast('horse', sp.x - 18, sp.z - 3, Math.PI / 2), wf = L.beast('wolf', sp.x - 10, sp.z + 0.5, Math.PI / 2);
+    const so = F.spawnRealmUnit(2, 'warrior', 30, 'guard', sp.x - 9, sp.z + 3.5, { yaw: Math.PI / 2 }); so.ai.post = null; so.testLook = true; so.role = 'test'; L.made.push(so);
+    const drive = (v) => (e, t, dt) => { e.x += v * Math.min(1, t / 0.4) * dt; e.yaw = Math.PI / 2; };
+    H.UI.modal = null;
+    M.motionRun([{ e: hr, kind: 'beast', drive: drive(11) }, { e: wf, kind: 'beast', drive: drive(3.2) }, { e: so, kind: 'human', drive: drive(5.0) }], 1.45, 1 / 60);
+    H.UI.modal = 'menu';
+    const mx = (hr.x + wf.x + so.x) / 3;
+    L.away(sp.x + 60, sp.z + 60);
+    return { ...L.eye(mx - 1.5, sp.z - 8.5, mx, F.heightAt(mx, sp.z) + 0.8, sp.z, 1.4), at: [+hr.x.toFixed(1), +wf.x.toFixed(1), +so.x.toFixed(1)] };
+  });
+  // a warrior's Charge: the rush across the turf at a mage, shield forward, dust kicked up
+  D('look2', 'rush', (L) => {
+    const H = L.H, F = L.F, sp = L.open(H.REALMS[1].musterSite.x + 30, H.REALMS[1].musterSite.z - 20, 9, 90);
+    if (!sp) return { skip: 'no room' };
+    L.hush(sp.x, sp.z, 40);
+    const w = F.spawnRealmUnit(0, 'warrior', 30, 'guard', sp.x - 8, sp.z, { yaw: Math.PI / 2 }), m = F.spawnRealmUnit(1, 'mage', 30, 'guard', sp.x + 8, sp.z, { yaw: -Math.PI / 2 });
+    for (const e of [w, m]) { e.ai.post = { x: e.x, z: e.z, leash: 0.5 }; e.hp = e.maxHp = 1e6; L.made.push(e); }
+    H.bal4.chargeRush(w, H.ABILITIES.charge, m, 1);
+    H.UI.modal = null; H.simulate(0.35); H.UI.modal = 'menu';
+    L.away(sp.x + 50, sp.z + 50);
+    return { ...L.eye(sp.x - 2, sp.z - 7.5, w.x + 1.0, F.heightAt(w.x, w.z) + 0.9, w.z, 1.6), rushing: !!(w.motion && w.motion.rush), x: +(w.x - sp.x).toFixed(1) };
+  });
+})();
