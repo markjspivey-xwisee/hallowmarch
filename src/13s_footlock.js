@@ -52,7 +52,22 @@ function footLockStep(e, dt) {
 // the floor under a foot at (x, z): a stair's tread, a deck, the ground (a drop beyond a step, off a wall walk's edge or a
 // jetty's, is no floor for it: then the body's own)
 let _flTread = false; // (the last floor flFloor found was a stair's tread: the foot stands level on it)
-function flFloor(e, x, z) { const y = e.y, h = floorTreadAt(x, z, y + 0.5); if (Math.abs(h - y) > 0.6) { _flTread = false; return y; } return h; }
+function flFloor(e, x, z) {
+  const y = e.y;
+  if (e.kind !== 'humanoid') { const h = floorTreadAt(x, z, y + 0.5); if (Math.abs(h - y) > 0.6) { _flTread = false; return y; } return h; }
+  // a person's sole, heel to toe along the facing, stands on the highest floor under it: a foot by a stair's riser stands
+  // on the next tread with its heel out over the edge, never with its toes in the stone (a third of the steps did)
+  const sc = e.scale || 1, fx = Math.sin(e.yaw) * sc, fz = Math.cos(e.yaw) * sc;
+  let best = -Infinity, tread = false;
+  for (const k of FL_SOLE) {
+    const h = floorTreadAt(x + fx * k, z + fz * k, y + 0.5);
+    if (Math.abs(h - y) > 0.6) continue;
+    if (h > best) { best = h; tread = _flTread; }
+  }
+  _flTread = best > -Infinity && tread;
+  return best > -Infinity ? best : y;
+}
+const FL_SOLE = [-0.05, 0.05, 0.15]; // (from the ankle: the heel, the middle of the sole, the toes)
 // floorAt, but on a castle's flight of steps the tread over that point: a flight is one ramp from its foot to its landing
 // (castleFlight, 04g_castles.js), which joins the treads' back edges, so a foot set on the ramp stood up to a riser
 // below the stone it was drawn on (the treads: n of them, each as high as the ramp at its upper end)
