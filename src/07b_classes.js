@@ -392,7 +392,7 @@ function blockFaces(e, src) {
   const arc = cs.stance === 0 ? 1.95 : 1.3;
   return Math.abs(angDiff(e.yaw, Math.atan2(src.x - e.x, src.z - e.z))) < arc;
 }
-function canBlock(e) { return e.cls === 'warrior' && clsHas(e, 'block') && e.alive && hasShield(e) && !e.mount && e.carrying == null && !isStunned(e) && !(e.motion && e.motion.kind === 'leap'); }
+function canBlock(e) { return e.cls === 'warrior' && clsHas(e, 'block') && e.alive && hasShield(e) && !e.mount && e.carrying == null && !isStunned(e) && !(e.motion && (e.motion.kind === 'leap' || e.motion.kind === 'ladder')); } // [keeps] not on a ladder
 function setBlock(e, on) {
   const cs = csOf(e), t = nowT();
   if (on && !canBlock(e)) on = false;

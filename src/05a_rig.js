@@ -883,6 +883,24 @@ function humanVS(depth) {
       headX = mix(headX, -0.22, kk); headY = mix(headY, 0.0, kk);
       pelvisY = mix(pelvisY, 0.05 * cl, kk); bob *= 1.0 - kk; swayX *= 1.0 - kk; stepZ = mix(stepZ, 0.0, kk); crouch = mix(crouch, 0.04, kk);
       capeX = mix(capeX, 0.05, kk);
+    } else if (atype > 17.5 && atype < 18.5) {
+      // [keeps] a blow from a ladder (04m_ladders.js): held on the rungs as in climbing (action 14, whole), the left
+      // hand on its rung, the right drawn back and up off its rung and cutting across at the foe at the hatch, then
+      // back to the rung
+      float cy = iPos.y * 10.472, cl = sin(cy), cr = sin(cy + 3.1416);
+      float rL = 0.5 + 0.5 * cl, rR = 0.5 + 0.5 * cr;
+      uaL = -2.05 - 0.55 * rL; faL = -0.95 + 0.6 * rL; uaLz = -0.2;
+      thL = -0.15 - 0.95 * rR; shL = 0.25 + 1.2 * rR;
+      thR = -0.15 - 0.95 * rL; shR = 0.25 + 1.2 * rL;
+      float wind = smoothstep(0.0, 0.35, at), strike = smoothstep(0.35, 0.55, at), rec = smoothstep(0.62, 1.0, at);
+      float hold = -2.05 - 0.55 * rR, holdF = -0.95 + 0.6 * rR;
+      uaR = mix(mix(hold, -2.75, wind), -1.25, strike); uaR = mix(uaR, hold, rec);
+      uaRz = mix(mix(0.2, -0.8, wind), 0.4, strike); uaRz = mix(uaRz, 0.2, rec);
+      faR = mix(mix(holdF, -1.35, wind), -0.15, strike); faR = mix(faR, holdF, rec);
+      chestX = 0.1; chestY = mix(mix(0.06 * cl, -0.42, wind), 0.45, strike); chestY = mix(chestY, 0.06 * cl, rec);
+      headX = -0.22 - 0.08 * strike * (1.0 - rec); headY = 0.2 * strike * (1.0 - rec);
+      pelvisY = 0.05 * cl; bob = 0.0; swayX = 0.0; stepZ = 0.0; crouch = 0.04;
+      capeX = 0.05;
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.

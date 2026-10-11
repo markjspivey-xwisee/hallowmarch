@@ -220,7 +220,8 @@ function npSeen(e, d) {
     for (const c of _npCn) {
       if (!c.active || c.type !== 'box' || (c.tag !== 'wall' && c.tag !== 'hdoor' && c.tag !== 'stone' && c.tag !== 'house')) continue; // [v9] a house's or hall's own walls too
       const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
-      if (Math.abs(lx) < c.hx && Math.abs(lz) < c.hz && (c.baseY ?? heightAt(c.x, c.z)) + (c.h || 8) > y + 0.15) return (e._los = false);
+      const bot = c.y0 ?? c.baseY ?? heightAt(c.x, c.z); // [keeps] a raised wall piece (a tower's, over a doorway) only at its own height
+      if (Math.abs(lx) < c.hx && Math.abs(lz) < c.hz && bot + (c.h || 8) > y + 0.15 && (c.y0 == null || bot < y + 0.15)) return (e._los = false);
     }
   }
   return (e._los = true);

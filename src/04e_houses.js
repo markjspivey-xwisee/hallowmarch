@@ -843,6 +843,7 @@ function fireLandsAt(x, y, z, r = 1, by = null) {
   siegeFireAt(x, y, z, r); // [siege] siege engines catch (04h_siege.js)
   boatFireAt(x, y, z, r, by); // [water2] boats catch (07e_boats.js)
   let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
+  n += towerFireAt(x, y, z, r, by); // [keeps] the timber towers of the burhs catch (04n_towerfire.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
@@ -861,6 +862,7 @@ function fireConeAt(x, z, dx, dz, range, half) {
   siegeFireCone(x, z, dx, dz, range, half); // [siege] and siege engines (04h_siege.js)
   boatFireCone(x, z, dx, dz, range, half); // [water2] and boats (07e_boats.js)
   let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
+  n += towerFireCone(x, z, dx, dz, range, half); // [keeps] and the timber towers (04n_towerfire.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;
     for (const p of H.roofPts) {

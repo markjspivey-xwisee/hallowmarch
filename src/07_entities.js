@@ -141,6 +141,7 @@ function addBuff(e, kind, value, dur, src = null, extra = null) {
   let b = e.buffs.find((x) => x.kind === kind && x.src === src);
   if (b) { b.value = kind === 'shield' ? value : Math.max(b.value, value); b.until = now + dur; if (extra) Object.assign(b, extra); }
   else { b = { kind, value, until: now + dur, src, tick: now, ...(extra || {}) }; e.buffs.push(b); }
+  if (kind === 'stun') ladderOnStun(e, src); // [keeps] a stun knocks a climber off its ladder (04m_ladders.js)
   return b;
 }
 const hasBuff = (e, kind) => e.buffs.some((b) => b.kind === kind && b.until > GAME.t);
@@ -200,6 +201,7 @@ function computeDamage(src, dst, mult) {
   d *= 1 + buffSum(src, 'dmg');
   const crit = Math.random() < 0.08 + (src.critBonus || 0);
   if (crit) d *= 1.5;
+  if (src.motion) d *= ladderWeak(src); // [keeps] one hand on the rungs: a weaker blow (04m_ladders.js)
   return { d, crit };
 }
 function dealDamage(src, dst, amount, opts = {}) {
@@ -208,6 +210,7 @@ function dealDamage(src, dst, amount, opts = {}) {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
   }
+  if (!opts.dot && src && src !== dst && src.x !== undefined && towerSightBlocked(src, dst)) return 0; // [keeps] no blow through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
   amount *= gearLateHarm(src, dst); // [balance2] a late foe is as tough as the gear of its level (06e_gearcurve.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
@@ -240,6 +243,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   wearOnHit(src, dst, dmg, opts); // feature/weather: blood, battle damage and gear durability (05h_wear.js)
   brandOnHit(src, dst, opts); // a blow struck with a burning brand can set the foe alight (09d_brand.js)
   classOnHit(src, dst, dmg, opts); // [classes] momentum, weapon styles, finishers, devotion, arrow heads (07b_classes.js)
+  if (dst.motion && dst.hp > 0) ladderOnHit(src, dst, dmg, opts); // [keeps] a heavy blow knocks a climber off (04m_ladders.js)
   if (dst.hp <= 0) killEnt(dst, src);
   return dmg;
 }
@@ -436,6 +440,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
   if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
+  if (e.motion && ladderAllows(e, A)) return 'ladder'; // [keeps] one hand on the rungs (04m_ladders.js)
   if (!ignoreCd && ((e.cds[id] || 0) > GAME.t || e.gcdUntil > GAME.t)) return 'cooldown';
   if (e.power < A.cost && !classOvercast(e, A)) return 'power'; // [classes] a mage may overcast (07b_classes.js)
   const t = resolveTarget(e, A, target);
@@ -445,6 +450,8 @@ function canUse(e, id, target, ignoreCd = false) {
   const d = dist(e.x, e.z, t.x, t.z);
   if (d > abilityRange(e, A, t)) return 'range';
   if (A.minRange && d < A.minRange) return 'close';
+  if (A.range === 'melee' && t.kind !== 'door' && Math.abs(t.y - e.y) > 2.6 && (elevatedEnt(e) || elevatedEnt(t))) return 'range'; // [keeps] not from the foot of a wall to its walk
+  if (towerSightBlocked(e, t)) return 'target'; // [keeps] nor through a tower's floor or wall (04m_ladders.js)
   return null;
 }
 function useAbility(e, id, target) {
@@ -810,6 +817,8 @@ function autoAttack(e) {
   const tr = t.radius * (t.scale || 1);
   const reach = e.rangedKind ? e.rangedRange + tr : e.meleeRange * (e.scale || 1) + tr;
   if (d > reach) return;
+  if (!e.rangedKind && t.kind !== 'door' && Math.abs(t.y - e.y) > 2.6 && (elevatedEnt(e) || elevatedEnt(t))) return; // [keeps] no blow from the foot of a wall to its walk
+  if (towerSightBlocked(e, t)) return; // [keeps] nor through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   if (e.role === 'player' && Math.abs(angDiff(e.yaw, Math.atan2(t.x - e.x, t.z - e.z))) > 1.4 && d > 2.5) return;
   e.swingAt = now + e.swing * (0.95 + Math.random() * 0.1);
   faceToward(e, t.x, t.z);

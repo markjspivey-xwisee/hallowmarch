@@ -188,6 +188,7 @@ async def main():
             await page.evaluate("T.play()")
         r = await ev(page, 'collapse', """(() => { const h = T.house(2); let t = 12;
           const seen = {}; while (h.state === 'burning' && t < 60) { T.H.simulate(1); t++; if (h.fall > 0 && !seen.fall) seen.fall = t; }
+          T.H.simulate(0.1); // [keeps] a step after the roof falls: the doorway's state follows on the next step (it read 'shut' when it fell on the last one)
           return { state: h.state, t, fallAt: seen.fall, smoulder: h.burn.smoulder.filter((s) => s.f).length, hearth: !!h.hearth.fire, door: h.door.coll.active, ember: h.ember }; })()""")
         check(r['state'] == 'ruin' and 20 <= r['t'] <= 45, 'the roof falls in after the fire has crossed it (20 to 40 s)')
         check(r['smoulder'] >= 3 and not r['hearth'], 'the ruin smoulders; the hearth is out')
