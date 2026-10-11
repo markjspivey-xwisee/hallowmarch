@@ -58,10 +58,10 @@ function guideMarkOf(S) {
   switch (S.id) {
     case 'herald': return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'bounty':
-      if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${b.name}s` };
+      if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
       return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'lv5': case 'lv20':
-      if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${b.name}s` };
+      if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
       return guideOnFrontier(P) ? null : guideCampFor(P, prog);
     case 'draught': return R.merchant ? guideTown(P, R, R.merchant.x, R.merchant.z, R.merchant.name) : null;
     case 'cook': {
@@ -106,6 +106,13 @@ function guideMarkOf(S) {
     case 'dragon': { const D = DRAGON.e; return D && D.alive && !D.removed ? { x: D.x, z: D.z, what: 'Cinderwing' } : null; }
     default: return null;
   }
+}
+// a creature's name for many of them: wolves, not wolfs; draugr and barrow bones as they are
+function pluralName(n) {
+  n = String(n || '');
+  if (/(bones|draugr)$/.test(n)) return n;
+  if (/wolf$/.test(n)) return n.replace(/wolf$/, 'wolves');
+  return /(s|x|ch|sh)$/.test(n) ? n + 'es' : n + 's';
 }
 const GUIDE_DIRS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 // how far and which way, in words: "40 m to the north-east" (north is up on the map: -z)
@@ -218,6 +225,8 @@ Object.assign(FIELD_NOTES, {
   champion: { t: 'A borderland champion', x: () => 'Named, tough and with friends around it. A champion drops two pieces of good gear and a trophy for the crafters, and comes back five to seven minutes after it falls.' },
   gift: { t: 'Your realm\'s gift', x: () => `${IS_TOUCH ? 'The round gift button over your abilities' : 'Key 9'} calls your realm's great gift: it turns a big fight, then waits a long while. Your realm's two quiet gifts come with realm rank.` },
   ranks: { t: 'Ranks', x: () => 'Every ten levels past 20 all your abilities grow a rank stronger: II at 30, III at 40, IV at 50. Realm rank grows with realm points and adds health and damage.' },
+  fish: { t: 'Fishing', x: () => `Cast, then wait while the float bobs. When it goes right under, ${IS_TOUCH ? 'tap Use' : 'press E'} at once to strike. Perch and roach bite by day, trout at dawn and dusk, eels at night.` },
+  crops: { t: 'Your crops', x: () => 'Frost bites a crop below the cold it can stand, and a hard frost kills it; a dry spell wilts it. Snow lying on a bed keeps the frost off. Keep the seed of the plants that come through: their strain grows hardier.' },
   dark: { t: 'Night', x: () => 'Night falls over the March. Torches and hearths light the towns and keeps; carry a burning brand from any fire to light your way.', ok: () => !inDungeon(GAME.player) },
 });
 // the seasons' notes only where they mean something: lake ice when you are where the lakes freeze
@@ -246,6 +255,8 @@ const GUIDE_WATCH = {
   gift: () => giftUltUnlocked(GAME.player),
   ranks: () => GAME.prog.level >= 30,
   dark: () => U.uNight.value > 0.6 && GAME.prog.level <= 12,
+  fish: (P, ctx) => /^Fish here/.test(ctx.prompt),
+  crops: () => FARM.plots.some((Q) => Q.own === 'p' && Q.plants.some((pl) => pl && !pl.dead && ((pl.bite || 0) > 0.5 || (pl.wilt || 0) > 0.4))),
 };
 // slower looks (once a second): what is near
 function guideScan(P) {
@@ -340,9 +351,15 @@ const GUIDE_HELP = [
   () => animalsHelpHTML(), // [animals] 08h_animals.js
   () => buildHelpHTML(), // [building] 06k_build.js
 ];
+// each block folds under its first heading (a phone reads one at a time; What to do starts open)
+function guideFold(html, open) {
+  const m = /<h3>([^<]*)<\/h3>/.exec(html);
+  if (!m) return html;
+  return `<details class="gd-help"${open ? ' open' : ''}><summary>${m[1]}</summary><div>${html.slice(0, m.index)}${html.slice(m.index + m[0].length)}</div></details>`;
+}
 function guideHelpHTML() {
   let s = guideKeysHTML();
-  for (const f of GUIDE_HELP) { try { s += f(); } catch (e) { reportError(e); } }
+  GUIDE_HELP.forEach((f, i) => { try { s += guideFold(f(), i === 0); } catch (e) { reportError(e); } });
   return s;
 }
 
@@ -451,7 +468,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.guide = {
     GUIDE, GUIDE_WATCH, GUIDE_HELP, CHRON_EXTRA, guideMarkOf, guideWhere, guideAims, guideHelpHTML, guideNoteIndex, guideScan, guideMade,
-    chronGoals, chronGear, chronSieges,
+    chronGoals, chronGear, chronSieges, dragon: () => DRAGON.e, makeItem, bagAdd, CAMPAIGN, TOWER, drawMinimap, guideQuiet,
     mark() { guideUpdateMark(1); const m = GUIDE.mark; return m ? { x: Math.round(m.x), z: Math.round(m.z), what: m.what, where: guideWhere(m) } : null; },
   };
 });

@@ -283,7 +283,7 @@ const PATH_STEPS = [
     hint: (R) => `The ${R.name} Herald stands in the square of ${R.townName}, by the portal stones. Walk up to him and ${LK().use}.`,
     reward: { potions: 2 } },
   { id: 'bounty', lv: 1, old: 8, title: 'Finish a bounty', short: 'A bounty',
-    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${prog.bounty.name}s at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
+    hint: (R, prog) => prog.bounty ? (prog.bounty.done ? `Done. Go back to the ${R.name} Herald for your pay.` : `Slay ${prog.bounty.need} ${pluralName(prog.bounty.name)} at the place circled on your map (${LK().map}), then go back to the herald.`) : `Take a bounty from the ${R.name} Herald in ${R.townName}, slay the creatures he names, then return to him.`,
     meter: (prog) => (prog.bounty && !prog.bounty.done ? [prog.bounty.have / prog.bounty.need, `${prog.bounty.have} / ${prog.bounty.need} slain`] : null),
     reward: { item: { slot: 'weapon', q: 2 } } },
   { id: 'lv5', lv: 5, level: 5, title: 'Reach level 5', short: 'Level 5',
@@ -1116,7 +1116,7 @@ function loreWatch() {
   LORE.keepRealm = kr;
   if (GIFT.lastCast && GIFT.lastCast.by === P.id) ev.gift = true;
   const Dg = DRAGON.e;
-  if (Dg) { if (Dg.alive && !Dg.removed) LORE.dragonHit = !!(Dg.damagers && Dg.damagers.has(P.id)); else if (LORE.dragonHit) { ev.dragon = true; LORE.dragonHit = false; } }
+  if (Dg) { if (Dg.alive && !Dg.removed) LORE.dragonHit = !!(Dg.damagers && Dg.damagers.has(P.id)); else if (LORE.dragonHit) { if (dist2(P.x, P.z, Dg.x, Dg.z) < 200 * 200) ev.dragon = true; LORE.dragonHit = false; } }
   if (!LORE.mwNames) LORE.mwNames = new Set(RECIPES.filter((r) => r.mw).map((r) => r.mw));
   if (!pathDone('master') && kitItems().some((it) => LORE.mwNames.has(it.name))) ev.master = true;
   const H = CAMPAIGN.history, hl = H.length ? H[H.length - 1] : null;
@@ -1172,7 +1172,7 @@ function showNextNote() {
   d.setAttribute('role', 'status');
   d.title = 'Click to dismiss';
   d.innerHTML = `<small>Field note</small><b>${N.t}</b><span>${text}</span>`;
-  d.addEventListener('click', () => d.remove());
+  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact'); d.remove(); if (small && !UI.modal) openChronicle('path'); }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle
   host.appendChild(d);
   setTimeout(() => d.remove(), 11000);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
@@ -1531,7 +1531,8 @@ function chronPath() {
     const rw = rewardLabel(S, prog, !cur);
     return `<li class="${done ? 'done' : cur ? 'cur' : ''}"><span class="mk">${done ? '✓' : i + 1}</span><span><b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
   }).join('');
-  const notes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).map((id) => `<div class="note"><b>${FIELD_NOTES[id].t}</b>${FIELD_NOTES[id].x(R)}</div>`).join('');
+  // [guide] the newest note first
+  const notes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).reverse().map((id) => `<div class="note"><b>${FIELD_NOTES[id].t}</b>${FIELD_NOTES[id].x(R)}</div>`).join('');
   return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each one pays a reward the moment you take it, and the next one always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. You can take them in any order. The Aims page says what opens at 20, 30, 40 and 50.</p>
     <ol class="steps">${rows}</ol>
     ${notes ? `<h3>Field notes</h3>${notes}` : ''}

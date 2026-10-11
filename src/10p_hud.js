@@ -20,7 +20,7 @@ const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
-const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path']);
+const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path', '#banners']); // [guide] a field note shrinks to its title (tap to read it in the Chronicle)
 const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
@@ -60,6 +60,7 @@ function hudReset() {
   for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; if (el.id === 'buildbar') el.style.width = ''; }
   HUDL.moved.clear();
   for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
+  { const bn = $('banners'); if (bn) for (const k of bn.children) k.classList.remove('hl-old'); } // [guide]
   const zt = $('zonetoast'); if (zt && !HUDL.moved.has(zt)) zt.style.left = zt.style.top = zt.style.transform = '';
   const bt = $('bottom'), lg = $('log');
   if (bt) bt.style.bottom = '';
@@ -173,6 +174,12 @@ function hudLayout(dt) {
     let r = measure(sel, el);
     if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
+    if (!c && sel === '#banners' && el.children.length > 1) { // [guide] a toast and a note together do not fit an upright phone: the newest shows, the older wait
+      for (const k of [...el.children].slice(0, -1)) k.classList.add('hl-old');
+      r = measure(sel, el);
+      if (free(r)) { placed.push({ ...r, sel }); continue; }
+      c = seek(sel, r);
+    }
     if (!c && HUD_COMPACT.has(sel)) {
       el.classList.add('hl-compact');
       r = measure(sel, el);

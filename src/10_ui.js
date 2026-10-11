@@ -213,7 +213,7 @@ function updateHUD(dt) {
   else ca.classList.remove('on');
   // bounty
   const bo = $('bounty'), b = prog.bounty;
-  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : `Slay ${b.name}s`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
+  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : `Slay ${pluralName(b.name)}`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
   else bo.classList.remove('on');
   updatePotionSlot();
   // error fade
@@ -757,12 +757,12 @@ function openHerald() {
     acts.push(['Claim reward', () => { addXP(b.reward); addRP(Math.round(b.reward * 0.1)); addGold(10 + prog.level * 5); uiLog(`The herald pays you ${10 + prog.level * 5} gold.`, 'loot'); prog.bounty = null; sfx('fanfare'); closeDialog(); saveSoon(); }]);
   } else if (b) {
     const c = CAMPS[b.camp];
-    body += `<p>Your bounty: slay ${b.need} ${b.name}s near the marked place on your map. ${b.have} done so far.</p>`;
+    body += `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;
     acts.push(['Abandon bounty', () => { prog.bounty = null; closeDialog(); }]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
-    body += `<p>The ${nb.name}s are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
-    acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${nb.name}s`, 'quest'); saveSoon(); }]);
+    body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
+    acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   acts.push(['Farewell', closeDialog]);

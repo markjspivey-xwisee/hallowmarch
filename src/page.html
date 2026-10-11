@@ -666,6 +666,20 @@
   .chron .gd-ok { background: var(--bronze-hi); color: #1b140b; }
   .chron .gd-at { border: 1px solid var(--line-strong); color: var(--ink-dim); }
   #menu-body .keys + h3, #menu-body h3 + p { margin-top: 4px; }
+  #menu-body .keys kbd { align-self: start; justify-self: start; }
+  #menu .sheet > .actions { position: sticky; bottom: -20px; z-index: 4; margin: 0 -22px -20px; padding: 10px 22px 14px; background: var(--slate-2); border-top: 1px solid var(--line); } /* Resume and New character in reach at the end of a long page on a phone */
+  #menu-body details.gd-help { border-top: 1px solid var(--line); padding-top: 4px; }
+  #menu-body details.gd-help > summary { cursor: pointer; padding: 8px 0 6px; font: 500 13px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bronze-hi); list-style-position: inside; }
+  #menu-body details.gd-help[open] > summary { color: var(--ink); }
+  #menu-body details.gd-help > div { display: grid; gap: 10px; padding-bottom: 8px; }
+  @media (max-width: 560px) { #menu-body .keys { grid-template-columns: minmax(0, 1fr); gap: 3px; } #menu-body .keys kbd { margin-top: 7px; white-space: normal; } } /* a phone: each key over its line, not a wide column of keys beside a narrow one of words */
+  #banners > .hl-old { display: none !important; }
+  @media (max-height: 500px) and (max-width: 1000px) { #hud #banners .lore-note { width: min(300px, 46vw); } } /* a phone on its side: a narrow note fits beside the frames */
+  #hud #banners.hl-compact > .banner { width: auto; max-width: min(300px, 72vw); padding: 6px 11px 7px; }
+  #banners.hl-compact .lore-note span { display: none; }
+  #banners.hl-compact .lore-note b { font-size: 16px; }
+  #banners.hl-compact .lore-note small::after { content: ' · tap to read'; }
+  #banners.hl-compact > .banner:not(.lore-note):not(.lore-step) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.3; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
