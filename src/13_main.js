@@ -273,6 +273,7 @@ function drawActors(fx, fz) {
   for (const e of TRAIL_CAND) {
     if (trailSegs.length >= TRAIL.maxSegs) { e._tx = e.x; e._tz = e.z; continue; }
     const r = STAMP_R[e.kind] * (e.scale || 1);
+    if (dist2(e._tx, e._tz, e.x, e.z) > 16) { e._tx = e.x; e._tz = e.z; } // [look] a jump (a journey, a release, a portal) starts a fresh trail: it pressed a straight streak through the grass from where the body was, glowing at night
     trailStamp(e._tx, e._tz, e.x, e.z, e.onGround === false && e.y > heightAt(e.x, e.z) + 0.6 ? 0.01 : r);
     e._tx = e.x; e._tz = e.z;
   }
