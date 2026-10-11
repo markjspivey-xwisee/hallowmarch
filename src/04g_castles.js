@@ -129,7 +129,12 @@ function castleParapet(C, x0, z0, x1, z1, y, o = {}) {
       for (const sd of [-1, 1]) b.add(G.box, lm(M, lerp(x0, x1, t) + ox * sd * (th / 2 + 0.004), y + bh * 0.55, lerp(z0, z1, t) + oz * sd * (th / 2 + 0.004), yaw, 0.012, bh * 0.5, 0.08), MAT.water, ARROW_SLIT);
     }
   }
-  if (o.coll !== false) C.coll((x0 + x1) / 2, (z0 + z1) / 2, th / 2 + 0.05, len / 2, yaw, y - 0.1, bh + mh + 0.2);
+  if (o.coll !== false) {
+    const c = C.coll((x0 + x1) / 2, (z0 + z1) / 2, th / 2 + 0.05, len / 2, yaw, y - 0.1, bh + mh + 0.2);
+    // [walls] where a shot gets through above the breastwork: the crenels between the merlons (07g_walls.js)
+    const p0 = siteToWorld(C.S, x0, z0), p1 = siteToWorld(C.S, x1, z1), lw = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1;
+    c.cren = { x0: p0.x, z0: p0.z, ux: (p1.x - p0.x) / lw, uz: (p1.z - p0.z) / lw, len: lw, n: o.timber ? 1 : Math.max(1, Math.floor(len / (o.step ?? 1.55))), mw: o.timber ? 1e3 : 0.82, mh: o.timber ? 0.35 : mh, sill: C.S.y + y + bh + (o.timber ? 0 : 0.1) };
+  }
 }
 // a straight flight of steps from (x0, z0) at height y0 to (x1, z1) at y1, all in the site frame;
 // base: where the masonry under the steps stands; timber: open wooden treads on stringers

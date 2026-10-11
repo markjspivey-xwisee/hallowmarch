@@ -171,7 +171,7 @@ const FX = {
 };
 
 /* arrows: instanced slim boxes oriented along their flight */
-const ARROW_MAX = 120;
+const ARROW_MAX = 240; // [walls] (and the arrows stuck in walls and roofs: 07g_walls.js)
 const arrowGeo = (() => {
   const K = new SkinKit();
   // shaft, nock, a steel bodkin and three vanes

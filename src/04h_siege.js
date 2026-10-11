@@ -493,7 +493,9 @@ function siegeStonesStep(dt) {
     const s = SIEGE.stones[i];
     s.t += dt;
     const t = Math.min(s.t, s.tf);
+    const qx = s.x, qy = s.y, qz = s.z; // [walls]
     s.x = s.x0 + s.vx * t; s.z = s.z0 + s.vz * t; s.y = s.y0 + s.vy * t - 0.5 * SIEGE_G * t * t;
+    if (s.t < s.tf && wallsStoneStep(s, qx, qy, qz)) { s.x = s.aim.x; s.y = s.aim.y; s.z = s.aim.z; siegeImpact(s); s.mesh.visible = false; SIEGE.pool.push(s.mesh); SIEGE.stones.splice(i, 1); continue; } // [walls] it strikes the first thing in its way (07g_walls.js)
     s.mesh.position.set(s.x, s.y, s.z);
     s.mesh.rotation.x += s.spin * dt; s.mesh.rotation.z += s.spin * 0.7 * dt;
     // a thin trail of dust and grit behind it

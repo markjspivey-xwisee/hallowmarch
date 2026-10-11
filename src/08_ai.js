@@ -447,7 +447,8 @@ function fightTarget(e, t, dt, opts = {}) {
   if (C === 'priest' && e.ai.healCheck !== undefined) { /* handled in priestThink */ }
   if (e.rangedKind && t.kind !== 'door') {
     const want = Math.min(e.rangedRange - 4, 24);
-    if (d > e.rangedRange - 1 && !e.casting) moveToward(e, t.x, t.z, dt, 1, 0);
+    const walled = e.fixedY === null && e.ai && GAME.t - (e.ai.wallShot ?? -9) < 2.5 && d > 2.5; // [walls] its last shot struck a wall: close in (07g_walls.js)
+    if ((d > e.rangedRange - 1 || walled) && !e.casting) moveToward(e, t.x, t.z, dt, 1, 0);
     else if (d < 6 && !e.casting && e.fixedY === null && Math.random() < 0.6) {
       const ax = e.x - (t.x - e.x) / d * 3, az = e.z - (t.z - e.z) / d * 3;
       moveToward(e, ax, az, dt, 0.8, 0.1);
@@ -490,7 +491,10 @@ function npcAbilities(e, t) {
     }
     if (k === 'leap' && (e.fixedY !== null || e.ai.post)) continue;
     if (A.friendly) continue;
-    if (!canUse(e, k, t)) { useAbility(e, k, t); return; }
+    if (!canUse(e, k, t)) {
+      if (A.proj && !wallsShotClear(e, t, false)) { e.ai.wallShot = GAME.t; continue; } // [walls] not into a wall (07g_walls.js)
+      useAbility(e, k, t); return;
+    }
   }
 }
 
