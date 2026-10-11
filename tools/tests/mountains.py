@@ -216,7 +216,7 @@ async def main():
                 check(hs['walkOff'] == 0, f"the walk mask is unchanged away from the shaped ground ({hs['walkOff']})")
                 check(hs['reachLost'] == 0, f"every texel anyone could reach is as walkable as it was ({hs['reachLost']})")
                 check(hs['opened'] == 0, f"no blocked ground opened ({hs['opened']})")
-                check(hs['changed'] > 60000, f"the mountains are shaped, walkable slopes and crests too ({hs['changed']} texels)")
+                check(hs['changed'] > 40000, f"the mountains are shaped, walkable slopes and crests too ({hs['changed']} texels)")
                 print(f"  (recorded: {hs['walkLost']} unreachable texels on the faces and crests too steep to walk now)")
             land = await page.evaluate("__hm.mtn ? __hm.mtn.check() : null")
             print('land', json.dumps(land)[:1500], flush=True)

@@ -598,6 +598,10 @@ function htsTrees() {
     const t = { kind, x, z, y: heightAt(x, z), s, rot: u4 * TAU, tint: rnd(), hardy: true };
     list.push(t); add(x, z, 1.6 * s + 1.2);
   }
+  // a tree only where its chunk already draws pines or birches (else it would cost a draw of its own)
+  { const size = WSIZE / 8, ok = (t) => { const ci = clamp(Math.floor((t.x + HALF) / size), 0, 7), cj = clamp(Math.floor((t.z + HALF) / size), 0, 7), cx = -HALF + (ci + 0.5) * size, cz = -HALF + (cj + 0.5) * size;
+      return treeChunks.some((m) => (m.userData.kind === 'pine' || m.userData.kind === 'birch') && Math.abs(m.userData.center.x - cx) < 1 && Math.abs(m.userData.center.y - cz) < 1); };
+    for (let n = list.length - 1; n >= 0; n--) if (!ok(list[n])) { list.splice(n, 1); why.chunk = (why.chunk || 0) + 1; } }
   if (!list.length) return;
   // into the world as every other tree is
   for (const t of list) {
@@ -609,8 +613,13 @@ function htsTrees() {
   // drawn with the forest: each joins its kind's chunk mesh (128 m a side, as buildTrees makes them) at the end of its
   // instances, so no draw is added; a chunk with none of its kind yet gets a mesh of its own
   const CH = 8, size = WSIZE / CH, buckets = new Map(), bases = {};
+  const has = (kind, ci, cj) => treeChunks.some((m) => m.userData.kind === kind && Math.abs(m.userData.center.x - (-HALF + (ci + 0.5) * size)) < 1 && Math.abs(m.userData.center.y - (-HALF + (cj + 0.5) * size)) < 1);
   for (const t of list) {
-    const ci = clamp(Math.floor((t.x + HALF) / size), 0, CH - 1), cj = clamp(Math.floor((t.z + HALF) / size), 0, CH - 1), key = t.kind + ':' + ci + ':' + cj;
+    const ci = clamp(Math.floor((t.x + HALF) / size), 0, CH - 1), cj = clamp(Math.floor((t.z + HALF) / size), 0, CH - 1);
+    // (a chunk with no mesh of its kind takes the other hardy kind if it has one, so no draw is added; a chunk with
+    // neither grows none: those trees were dropped before they joined the world, below)
+    if (!has(t.kind, ci, cj)) { const other = t.kind === 'pine' ? 'birch' : 'pine'; if (has(other, ci, cj)) { t.kind = other; t.hp = TREE_DIM[other].hp * t.s0; } }
+    const key = t.kind + ':' + ci + ':' + cj;
     if (!buckets.has(key)) buckets.set(key, { kind: t.kind, ci, cj, list: [] });
     buckets.get(key).list.push(t);
   }
@@ -688,7 +697,7 @@ function htsOutcrops() {
     let ring = 0;
     for (let a = 0; a < 8; a++) ring += heightAt(x + Math.sin(a * 0.785) * 7, z + Math.cos(a * 0.785) * 7);
     const convex = h - ring / 8, belt = vnoise(x * 0.03 + 8.3, z * 0.03 - 2.6);
-    const p = 0.5 * (0.3 + 0.7 * sstep(0, 1.1, convex)) * sstep(0.3, 0.6, belt) * sstep(0.08, 0.2, e);
+    const p = 0.8 * (0.3 + 0.7 * sstep(0, 1.1, convex)) * sstep(0.3, 0.6, belt) * sstep(0.08, 0.2, e);
     if (u > p) continue;
     const kind = u2 < 0.55 ? 3 : 4;
     const wd = kind === 3 ? 3 + u3 * 2.6 : 1.7 + u3 * 1.5, dp = kind === 3 ? 2.8 + u4 * 2.2 : 1.5 + u4 * 1.2, above = kind === 3 ? 1.5 + u4 * 1.8 : 0.8 + u3 * 0.9;
