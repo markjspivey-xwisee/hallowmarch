@@ -397,6 +397,33 @@ The harness lives in `tools/`:
 
 Measured with `python3 tools/tests/classes.py balance` (see Testing): fighters with a player's own measure and fair gear for the level, played by the simple bot (presses 1-8 in turn) and the skilled bot (07c_balance.js). TTK: the time to kill a standard foe (a garrison warrior of the level). Pack: the time survived against an endless pack of three wolves and two outlaws that never loses its quarry, every newcomer 1% stronger for each second the fight has lasted (a survivor of the 150 s cap scores 1.5 times). Duels: wins against the other three callings, both sides on the same bot (draws count half). The aim: the skilled bots within about ±15% of each other on every measure at every level, the simple bots within about ±25%, and the skilled bot clearly beating its simple self (mastery duels).
 
+### Version 11 ([balance3])
+
+How it is measured now: the duels with `tools/tests/duels.py` (24 duels a pair at each level, realms rotated and swapped, as many arenas at once as the land offers, up to 18; a calling's rate is over its 72 duels), mastery with `duels.py kind=mastery` (8 a calling), the time to kill and the pack with `classes.py balance together noduel mreps=0` (three repetitions, both bots in one phase). Every measure now runs under clear skies (rain damps fire and soaks foes for storms, and the weather of a run moved its duels) in arenas wiped of what the last fighters left (armed snares, runes, holy ground, steam and ice struck the next fighters there). The commands (each level can run alone with `levels=`):
+
+```
+python3 tools/tests/duels.py levels=10,30,50 reps=24 tap                     # skilled duels, with what happened in each pairing
+python3 tools/tests/duels.py levels=10,30,50 reps=24 kind=simple             # simple duels
+python3 tools/tests/duels.py levels=10,30,50 reps=8 kind=mastery             # skilled against simple, the same calling
+HM_BAL=tools/out/bal.json python3 tools/tests/classes.py balance together noduel mreps=0 reps=3 levels=10,30,50   # time to kill, the pack
+python3 tools/tests/classes.py balance levels=30,50 reps=5 dreps=12 mreps=8  # the whole table the old way (slow: an hour and more a level)
+```
+
+A word on the noise: a pair's 24 duels move by 3 or 4 wins from one run to the next (12 duels by 2 or 3), and by more when other work loads the machine; which arenas a pair is given and what else fights in the same phase move it too (a pair run alone and in the full table once differed by half its duels). A calling's 72 duels move by about ±7 points. Read a number over two runs before tuning on it.
+
+<!-- B3TABLES -->
+
+What changed in version 11 ([balance3], 07c_balance3.js and the bots in 07c_balance.js), and why:
+
+- Warrior, the answer to kiting: every arrow, bolt or spell that strikes a warrior takes a second off Charge (pursuit; Charge stays at 10 s), and in the guarded stance a raised shield costs no pace (a shield wall: the skilled bot and NPC warriors hold it against a bow out of reach while no rush is ready). At 10 the skilled warrior won one duel in twelve against the archer, in reach a third of the fight; a bow that keeps away now brings the warrior's rush back sooner, and its arrows (most of them turned) no longer win the race while the warrior closes. Leap Strike is untouched by it. The skilled warrior now charges from 5 m (Charge's own reach): an archer kiting at 5.5 to 6.5 m was never caught.
+- Warrior, past 30: Charge and Leap Strike are one rush (using either holds the other back 10 s). Two rushes back to back undid every escape a mage had (the skilled warrior won 11 and 12 of 12 against the mage at 30 and 50).
+- Mage, frost holds: no Leap Strike out of a frost root (a frost nova's or a frost rune's), and from rank II (level 30) no Charge either; no Charge or Leap Strike out of a blizzard. A Charge tore free of the nova's root at once and a Leap Strike followed; at 10 a Charge still breaks a frost root (the warrior's only rush there). The skilled mage starts a long spell only when it can finish before a warrior who has learned Leap Strike can stun it (Shield Bash once in reach, the leap's landing; a ward that holds takes one stun), steps out of a whirlwind's reach and off a held blade about to break free, and wards in frost against a blade (every blow on the ward chills the striker): it used to cast a Meteor into a rooted warrior about to break free and fall to the bash and the finisher.
+- Archer: bodkins and Deadeye go through half the armour, not all of it. In full gear at 50 armour stops two fifths of a blow (an epic set's 39% and the calling's own), so a needle point that ignored it all struck 1.6 to 1.9 times as hard as anything else, and the skilled archer killed a mage in four to eight seconds. A broadhead's wound takes 30% off healing (45% from an archer of rank II; it was 40%): the skilled archer now keeps it open on a priest (it used to loose blunt heads at every spell, even a steadfast priest's that a blunt head cannot break, and lost 9 to 10 of 12 to the priest), and at rank I the 40% decided every duel. The skilled archer looses a blunt head only at a spell it can still break, broadheads at a priest and bodkins at the armoured.
+- Priest: holy light dazzles. Smite and the Pillar of Dawn leave the foe missing some of its weapon blows for 3 s (5% at rank I, 17% at II, 26% at III, 35% at IV), and a warrior dazzled by a priest of rank II or more cannot parry. The priest's own healing falls with rank while a blade's harm grows with it, and the skilled warrior won 9 to 11 of 12 against the priest at 30 and 50. A priest's own healing is three quarters of a heal's measure at rank I and a steady 55% of rank I's from rank II (it was 75% over the square of the rank multiplier: 60% at 30, 41% at 50): at 30 the priest outlasted every bow and staff (9 and 10 of 12) and at 50 it did not; now the step comes with rank II and holds. The skilled priest presses an archer who has not learned Tumble, and casts through any blow but a warrior's (it waited on every blow of a mace, and its simple self, casting through them, won half their mirror duels).
+- The measures: clear skies, wiped arenas, `duels.py`, `together`.
+
+<!-- B3STANDS -->
+
 **Before** (version 9, as measured then: fair gear to item level 24 from fixed seeds, an endless pack of one strength that gave up the chase 42 m from its spawn; levels 10 and 30: three repetitions of the dummy and the pack, six of each duel with the realms swapped, four mastery duels per calling; level 50: two, four and two, because a slow machine stalled the first run):
 
 Simple bot:

@@ -844,6 +844,25 @@ async def shots(page):
     await ev(page, 'hud-m', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
       const a = T.ahead(P, 10); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; P.target = f.id; C.attune(P, 'frost', 70); C.addChill(f, 3, P); return 0; })()""")
     await snap(page, 'hud_mage', 1, True)
+    # [balance3] a shield wall: a guarded warrior walking on behind a raised shield toward an archer, arrows coming in
+    await ev(page, 'wall-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('warrior', 30, 0);
+      const a = T.ahead(P, 20); const ar = T.foe(2, a.x, a.z, 30, 'archer', 0); ar.ai.nextAbility = 1e9; ar.yaw = Math.atan2(P.x - ar.x, P.z - ar.z); P.target = ar.id;
+      C.setStance(P, 0); C.csOf(P).stanceAt = -9; P.cds.charge = H.GAME.t + 30; P.cds.leap = H.GAME.t + 30; C.classHold(true);
+      for (let i = 0; i < 12; i++) { const d = Math.hypot(ar.x - P.x, ar.z - P.z); P.yaw = Math.atan2(ar.x - P.x, ar.z - P.z); P.x += (ar.x - P.x) / d * 0.35; P.z += (ar.z - P.z) / d * 0.35; H.simulate(0.05); }
+      if (ar.alive) H.cls.looseArrow(ar, 1, P);
+      H.simulate(0.15);
+      const s = Math.sin(P.yaw), c = Math.cos(P.yaw); CC(P.x + c * 3.4 - s * 1.6, P.y + 1.8, P.z - s * 3.4 - c * 1.6, P.x + s * 3, P.y + 1.2, P.z + c * 3);
+      return { block: C.csOf(P).blockOn, stance: C.csOf(P).stance, pace: +(H.bal3.effectiveSpeed(P) / P.speed).toFixed(2) }; })()""")
+    await snap(page, 'shieldwall', 1)
+    await page.evaluate("(() => { __hm.cls.classHold(false); return 0; })()")
+    # [balance3] holy light dazzles: a priest's smite lands on a warrior, a burst of light about its head
+    await ev(page, 'dazzle-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('priest', 30, 0);
+      const a = T.ahead(P, 9); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; w.yaw = Math.atan2(P.x - w.x, P.z - w.z); P.target = w.id; P.swingAt = 1e9;
+      CS(P, w, 6.5, 2.0, 0.75, 1.3); H.frame(0.016);
+      P.power = P.maxPower; F.useAbility(P, 'smite', w); for (let i = 0; i < 40 && !w.buffs.some((b) => b.kind === 'dazzle'); i++) H.simulate(0.05);
+      for (let i = 0; i < 3; i++) { H.simulate(0.03); H.frame(0.03); }
+      CS(P, w, 6.5, 2.0, 0.75, 1.3); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)) }; })()""")
+    await snap(page, 'dazzle', 1)
 
 async def main():
     async with async_playwright() as p:

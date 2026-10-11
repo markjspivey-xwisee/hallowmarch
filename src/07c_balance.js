@@ -479,7 +479,7 @@ function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root
 function castFits(e, cast) {
   if (!(cast > 0)) return true;
   // a mace or a beast is cast into, and so is a warrior who has not learned Leap Strike (one stun, no leap, no whirl)
-  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.leap.level && q.target === e.id);
+  const o = nearestWhere(e.x, e.z, 30, (q) => botEnemy(e, q) && q.cls === 'warrior' && q.level >= ABILITIES.leap.level && q.target === e.id && !q.testDummy); // (a dummy that never strikes is no threat)
   if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > 1 && b.until > GAME.t) && hasBuff(e, 'eward')) return true;
   const t = GAME.t, held = holdLeft(o), d = dist(o.x, o.z, e.x, e.z), reach = (o.meleeRange || 2.7) * (o.scale || 1) + e.radius + 0.3;
   const walk = Math.max(0, d - reach) / Math.max(1, (o.speed || 6.6) * (1 - buffMax(o, 'snare')));
@@ -566,7 +566,9 @@ function botPriest(e, t) {
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
   if (hpF < 0.7 && botUse(e, 'sanctuary', e)) return true;
   const many = botFoes(e, 20) >= 2;
-  if (fight && hpF < (many ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
+  // [balance3] against another healer the fight is long: a good hand keeps its renewals rolling from the first blow
+  const long = many || (!!t && t.cls === 'priest');
+  if (fight && hpF < (long ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && botUse(e, 'renew', e)) return true;
