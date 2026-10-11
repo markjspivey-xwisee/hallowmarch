@@ -7,6 +7,7 @@ usage: python3 tools/tests/motion.py [tag=before] [only=human,beast,farm,bird,pl
 ([polish] also: people and beasts shoved sideways, and the player cutting at a sprint and a run)
 (shots: pictures of a pheasant and a mallard taking off and flying, Cinderwing rearing, springing, flying and landing,
 a runner and a kneeling priest, at 960x540 in tools/out/motion_*.png)
+([motion3] seq=gallop,trot,bear,cut,stair: which strips; the page's own loop is stopped and the high programs compiled first)
 ([polish] seq: strips of six frames 1/20 s apart: a horse at a gallop and a bear at a trot from the side, the player
 cutting 90 degrees at a sprint: tools/out/motion_seq_*.png; q=high by default for them)
 Writes tools/out/motion_<tag>.json and prints a table; checks the limits at the end (a planted foot slides < 4 cm,
@@ -310,12 +311,21 @@ async def main():
         if 'seq' in ONLY:
             # [polish] frame sequences, one strip each: a horse at a gallop and a bear at a trot seen from the side, the
             # camera keeping pace (a planted hoof or paw should stand still against the ground's marks), and the player
-            # cutting 90 degrees at a sprint seen from a fixed camera (the planted foot as the body swings round over it)
+            # cutting 90 degrees at a sprint seen from a fixed camera (the planted foot as the body swings round over it).
+            # [motion3] Usable at high quality: the page's own frame loop is stopped (it drew whole frames at high between
+            # ours), one frame is drawn first so the high programs are compiled before the strips, the lane is mown so the
+            # legs show over the grass; strips of the horse's trot (the diagonal pairs) and of a person going up a keep's
+            # stair from the side (each foot on its tread); seq=gallop,trot,bear,cut,stair picks them. About a minute a
+            # frame at high under SwiftShader on a busy machine, 9 frames a strip
             from PIL import Image
             await page.set_viewport_size({'width': 640, 'height': 360})
             await ev(page, SHOTJS)
+            await ev(page, "window.requestAnimationFrame = () => 0; 0")
             await ev(page, f"(() => {{ __hm.fn.setQuality('{OPT.get('q', 'high')}'); __hm.setTod(0.42); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.snowing = 0; W.snow = 0; W.overcast = 0; W.target = 0; MO.calm(); return 0; }})()")
+            await ev(page, "(() => { __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed'; __hm.frame(0.016); return 0; })()")
+            SEQ = OPT.get('seq', 'gallop,trot,bear,cut,stair').split(',')
             async def strip(name, setup_js, step_js, n=6):
+                t0 = time.time()
                 await ev(page, setup_js)
                 frames = []
                 for k in range(n):
@@ -327,14 +337,44 @@ async def main():
                 im = Image.new('RGB', (w * 3, h * ((n + 2) // 3)))
                 for k, f in enumerate(frames): im.paste(f, ((k % 3) * w, (k // 3) * h))
                 im.save(OUT + f'motion_seq_{name}.png')
-                print('  strip', name, f'[{time.time() - T0:.0f}s]', flush=True)
-            for kind, v in (('horse', 11.0), ('bear', 3.2)):
-                # (a frame every 1/20 s: three steps of the world between frames, the camera abreast at a fixed offset; the
-                # body moved by hand, as motionRun's drive would, without reading its feet back)
-                await strip(f'{kind}_{v:g}', f"(() => {{ MO.clear(); const H = __hm, Ln = MO.lane(MO.cx, MO.cz, {v} * 3 + 4, 1); const e = MO.body('{kind}', Ln.x - Ln.ux * {v} * 1.5, Ln.z - Ln.uz * {v} * 1.5, Math.atan2(Ln.ux, Ln.uz)); MS.Ln = Ln; MS.sq = e.id; MO.over(Ln, 14); for (let k = 0; k < 72; k++) {{ const s = MO.ramp({v}, k / 60) / 60; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); H.simulate(1 / 60, 1 / 60); }} return 0; }})()",
-                            f"(() => {{ const H = __hm, e = MS.F.getEnt(MS.sq), Ln = MS.Ln; for (let k = 0; k < 3; k++) {{ e.x += Ln.ux * {v} / 60; e.z += Ln.uz * {v} / 60; e.yaw = Math.atan2(Ln.ux, Ln.uz); H.simulate(1 / 60, 1 / 60); }} MS.side(e, {3.6 if kind == 'horse' else 3.0}, 0.5, 0.5, 0); return 0; }})()")
-            await strip('sprint_cut', "(() => { MO.clear(); const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 12; P.z = P.prevZ = Ln.z - Ln.uz * 12; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); P.endurance = 100; H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); H.INPUT.keys.add('ShiftLeft'); MS.y0 = P.yaw; MS.ct = 0; for (let k = 0; k < 66; k++) { H.CAM.yaw = MS.y0; H.simulate(1 / 60, 1 / 60); } MS.cx = P.x + Math.sin(P.yaw) * 3 + Math.cos(P.yaw) * 4; MS.cz = P.z + Math.cos(P.yaw) * 3 - Math.sin(P.yaw) * 4; return 0; })()",
-                        "(() => { const H = __hm, P = H.GAME.player; for (let k = 0; k < 3; k++) { H.CAM.yaw = MS.y0 + 1.57; H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } MS.cam(MS.cx, P.y + 1.6, MS.cz, P.x, P.y + 0.6, P.z); return 0; })()")
+                print('  strip', name, f'({n} frames, {time.time() - t0:.0f}s) [{time.time() - T0:.0f}s]', flush=True)
+            # (the body moved by hand, as motionRun's drive would, the world stepped between frames, the camera abreast at a
+            # fixed offset; the lane mown along the body's way)
+            # [motion3] the camera on whichever side of the lane has no tree or plant near it or between it and the body (a
+            # fern by the camera filled the gallop's frames), and the grass mown along its way too
+            await ev(page, """(() => { MS.pickSide = (Ln, v, d) => {
+              const H = __hm, N = H.nature, FL = (H.surv && H.surv.FORAGE && H.surv.FORAGE.list) || [];
+              let best = 1, bestS = -1;
+              for (const sd of [1, -1]) {
+                let mn = 99;
+                for (let j = -v * 2; j <= v * 2; j += 1) {
+                  const bx = Ln.x + Ln.ux * j, bz = Ln.z + Ln.uz * j, cx = bx + Ln.uz * d * sd, cz = bz - Ln.ux * d * sd;
+                  for (const f of [0.35, 0.7, 1]) {
+                    const px = bx + (cx - bx) * f, pz = bz + (cz - bz) * f, t = N.nearestTree(px, pz, 8);
+                    if (t) mn = Math.min(mn, Math.hypot(t.x - px, t.z - pz));
+                    for (const q of FL) { const dd = Math.hypot(q.x - px, q.z - pz); if (dd < mn) mn = dd; }
+                  }
+                }
+                if (mn > bestS) { bestS = mn; best = sd; }
+              }
+              for (let j = -v * 2 - 4; j <= v * 2 + 4; j += 1) H.nature.natureCut(Ln.x + Ln.ux * j + Ln.uz * d * best * 0.5, Ln.z + Ln.uz * j - Ln.ux * d * best * 0.5, d * 0.6, 1, false);
+              return best;
+            }; return 0; })()""")
+            for key, kind, v, n, steps, d, up in (('gallop', 'horse', 11.0, 9, 3, 4.6, 1.1), ('trot', 'horse', 4.5, 9, 5, 4.2, 1.0), ('bear', 'bear', 3.2, 6, 3, 3.4, 0.8)):
+                if key not in SEQ: continue
+                await strip(f'{kind}_{v:g}', f"(() => {{ MO.clear(); const H = __hm, Ln = MO.lane(MO.cx, MO.cz, {v} * 3 + 4, 1); for (let j = -{v} * 2 - 4; j <= {v} * 2 + 4; j += 1) H.nature.natureCut(Ln.x + Ln.ux * j, Ln.z + Ln.uz * j, 2.2, 1, false); MS.sd = MS.pickSide(Ln, {v}, {d}); const e = MO.body('{kind}', Ln.x - Ln.ux * {v} * 1.5, Ln.z - Ln.uz * {v} * 1.5, Math.atan2(Ln.ux, Ln.uz)); MS.Ln = Ln; MS.sq = e.id; MO.over(Ln, 14); for (let k = 0; k < 72; k++) {{ const s = MO.ramp({v}, k / 60) / 60; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); H.simulate(1 / 60, 1 / 60); }} return 0; }})()",
+                            f"(() => {{ const H = __hm, e = MS.F.getEnt(MS.sq), Ln = MS.Ln; for (let k = 0; k < {steps}; k++) {{ e.x += Ln.ux * {v} / 60; e.z += Ln.uz * {v} / 60; e.yaw = Math.atan2(Ln.ux, Ln.uz); H.simulate(1 / 60, 1 / 60); }} MS.side(e, {d} * MS.sd, {up}, 0.55, 0); return 0; }})()", n)
+            if 'cut' in SEQ:
+                await strip('sprint_cut', "(() => { MO.clear(); const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 12; P.z = P.prevZ = Ln.z - Ln.uz * 12; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); P.endurance = 100; H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); H.INPUT.keys.add('ShiftLeft'); MS.y0 = P.yaw; MS.ct = 0; for (let k = 0; k < 66; k++) { H.CAM.yaw = MS.y0; H.simulate(1 / 60, 1 / 60); } MS.cx = P.x + Math.sin(P.yaw) * 3 + Math.cos(P.yaw) * 4; MS.cz = P.z + Math.cos(P.yaw) * 3 - Math.sin(P.yaw) * 4; return 0; })()",
+                            "(() => { const H = __hm, P = H.GAME.player; for (let k = 0; k < 3; k++) { H.CAM.yaw = MS.y0 + 1.57; H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } MS.cam(MS.cx, P.y + 1.6, MS.cz, P.x, P.y + 0.6, P.z); return 0; })()")
+                await ev(page, "(() => { __hm.INPUT.keys.clear(); return 0; })()")
+            if 'stair' in SEQ:
+                # [motion3] the player walking up a keep's stair onto the wall walk (the stick part way: 2.8 m/s), seen from beside the flight
+                # (the camera behind the player while it steps, as the measures have it: the player walks the way the camera looks;
+                # for the picture, abreast of it over the courtyard and above the flight's side, looking down at its feet)
+                await strip('stair', "(() => { MO.clear(); const H = __hm, K = H.WAR.keeps.find((K) => K.orig === 0 && K.site === H.REALMS[0].keepSites[0]), S = K.site, P = H.GAME.player, w = (lx, lz) => H.fn.siteToWorld(S, lx, lz); const a = w(13.0, -7.4); P.x = P.prevX = a.x; P.z = P.prevZ = a.z; P.y = S.y; P.faction = 0; P.onGround = true; P.vy = 0; H.simulate(0.3, 1 / 60); MS.pts = [w(13.0, -6.6), w(13.0, 3.4)]; MS.S = S; MS.w = w; H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.joy = { dx: 0, dy: -0.4 }; for (let k = 0; k < 40; k++) { const q = MS.pts[Math.hypot(MS.pts[0].x - P.x, MS.pts[0].z - P.z) < 0.45 ? 1 : 0]; H.CAM.yaw = Math.atan2(q.x - P.x, q.z - P.z); MO.chase(P); H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } return 0; })()",
+                            "(() => { const H = __hm, P = H.GAME.player; for (let k = 0; k < 6; k++) { const q = MS.pts[Math.hypot(MS.pts[0].x - P.x, MS.pts[0].z - P.z) < 0.45 ? 1 : 0]; H.CAM.yaw = Math.atan2(q.x - P.x, q.z - P.z); MO.chase(P); H.UI.modal = null; H.INPUT.joy = { dx: 0, dy: -0.4 }; H.simulate(1 / 60, 1 / 60); } const a = MS.pts[0], b = MS.pts[1], L = Math.hypot(b.x - a.x, b.z - a.z), t = ((P.x - a.x) * (b.x - a.x) + (P.z - a.z) * (b.z - a.z)) / (L * L), c = MS.w(10.0, -6.6 + 10 * t); MS.cam(c.x, P.y + 1.9, c.z, P.x, P.y + 0.35, P.z); return 0; })()", 9)
+                await ev(page, "(() => { __hm.INPUT.keys.clear(); __hm.INPUT.joy = null; return 0; })()")
             await ev(page, "(() => { __hm.INPUT.keys.clear(); MO.clear(); return 0; })()")
         pathlib.Path(OUT + f'motion_{TAG}.json').write_text(json.dumps({'rows': ROWS, 'res': res}, indent=1))
         # the worst offenders

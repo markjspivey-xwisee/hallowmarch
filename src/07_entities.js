@@ -298,6 +298,10 @@ function turnToward(e, x, z, rate) {
 // one step (half a gait cycle) of a person moving at v m/s in their own size: the walk shader's humanStep (05a_rig.js)
 // [motion] below about 1 m/s the steps shorten rather than slow (at least 1.6 steps a second): no slow-motion legs
 const humanStep = (v) => clamp(Math.min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2);
+// [motion3] up or down a steep flight no step is longer than a few treads (the shader's humanStepCap, 05a_rig.js), by the
+// slope the shader is given (humanSlopeYaw's steps of 0.05)
+const humanStepCap = (sl) => lerp(2.2, 0.9, sstepJ(0.25, 0.55, Math.abs(sl)));
+const humanSlopeQ = (e) => clamp(Math.round((e._slope || 0) * 20), -20, 20) * 0.05;
 function updateAnim(e, dt) {
   const sp = Math.hypot(e.x - e.prevX, e.z - e.prevZ) / Math.max(dt, 1e-4);
   // [polish] going sideways against the facing (shoved, sliding along a wall), the steps come quicker and shorter, so a
@@ -309,7 +313,7 @@ function updateAnim(e, dt) {
   e.anim.amt = lerp(e.anim.amt, want, 1 - Math.exp(-dt * (sp < 0.05 && e.anim.amt > want ? 20 : 10)));
   // the phase turns half a cycle per step, so a planted foot keeps pace with the ground (the shader plants it)
   const sc = e.scale || 1;
-  const stride = e.kind === 'humanoid' ? humanStep(e.anim.amt * 4.3 / sc) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace
+  const stride = e.kind === 'humanoid' ? Math.min(humanStep(e.anim.amt * 4.3 / sc), humanStepCap(humanSlopeQ(e))) * sc : beastStride(e.kind, e.anim.amt, sc); // [motion] the beast's own scale sets its pace; [motion3] short steps on a flight
   e.anim.phase = (e.anim.phase + dt * sp * (TAU / 2) / (stride * (1 - 0.5 * clamp(side, 0, 1)))) % (TAU * 64);
   // [motion] a body leans into a turn as far as the turn's pull asks (a person up to about 14 degrees, a beast or a horse
   // with its rider 11; 13r_motion.js packs it for the shaders)
