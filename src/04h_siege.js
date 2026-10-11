@@ -448,7 +448,7 @@ function siegeRetarget(E) {
   if (E.kind === 'ram') return !!(D && D.alive);
   let best = null, bd = Infinity;
   for (const W of C.sections || []) {
-    if (W.state !== 'whole' || (W.kind === 'tower' && E.kind !== 'trebuchet')) continue; // [walls]
+    if (W.state !== 'whole' || W.kind === 'tower') continue; // [walls] the engines keep to the curtains (04g_breach.js)
     const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z);
     if (d < range && d < bd) { bd = d; best = W; }
   }
@@ -886,7 +886,7 @@ function siegePlanFor(wb, O) {
     return siegeCrewUp(E, wb, members, L);
   }
   // a wall section on the side the band comes from, or the gate when the walls are down
-  const secs = (C.sections || []).filter((W) => W.state === 'whole' && (W.kind !== 'tower' || kind === 'trebuchet')); // [walls] a trebuchet may take a tower (04g_breach.js)
+  const secs = (C.sections || []).filter((W) => W.state === 'whole' && W.kind !== 'tower'); // [walls] a tower is no mark: a band could not storm it (04g_breach.js)
   const range = SIEGE_SPEC[kind].range;
   const cands = secs.map((W) => ({ W, f: siegeFace(W) })).sort((a, b) => dist2(a.f.x, a.f.z, L.x, L.z) - dist2(b.f.x, b.f.z, L.x, L.z));
   for (const { W, f } of cands) { spot = siegeFindSpot(f.x, f.z, f.nx, f.nz, range, C); if (spot) { target = { C, W }; work = spot; break; } }
@@ -920,7 +920,7 @@ function siegeBreachRoute(W) {
 }
 function siegeOpenBreach(C, x, z) {
   let best = null, bd = Infinity;
-  for (const W of C.sections || []) { if (W.state !== 'breach') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } }
+  for (const W of C.sections || []) { if (W.state !== 'breach' || W.kind === 'tower') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } } // [walls] not a fallen tower: its way in (the store room and its courtyard door) is too narrow for a band (04g_breach.js)
   return best;
 }
 // [campaign tuning] a raid that has broken into a temple: its boldest fighter runs for the hallow and takes it,
@@ -1165,7 +1165,7 @@ function siegePlayerTarget(E) {
       continue;
     }
     const range = E.spec.range + 12;
-    for (const W of C.sections || []) { if (W.state !== 'whole' || (W.kind === 'tower' && E.kind !== 'trebuchet')) continue; const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z); if (d < range && d < bd) { bd = d; best = { C, W }; } } // [walls] towers for trebuchets
+    for (const W of C.sections || []) { if (W.state !== 'whole' || W.kind === 'tower') continue; const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z); if (d < range && d < bd) { bd = d; best = { C, W }; } } // [walls] the engines keep to the curtains (04g_breach.js)
     const D = siegeDoorOf(C.S);
     if (D && D.alive && doorVulnerable(D)) { const g = siegeGatePoint(C.S), d = dist(E.x, E.z, g.x, g.z); if (d < range && d < bd) { bd = d; best = { C, gate: true }; } }
   }

@@ -260,7 +260,7 @@ function castleStone(C) {
   const gp = (sx) => { const T = TWR['g' + sx]; return { pos: [T.cx, TT, T.cz + 0.85], route: [...towerWayIn(T, [sx * 6.6, 9.6]), [T.cx, T.cz + 0.85]] }; };
   C.posts = [
     gp(-1), gp(1),
-    { pos: [TC - 0.6, TT, TC + 0.4], route: [...foot(1), ...towerWayUp(TWR['1,1'], wc), [TC - 0.6, TC + 0.4]] },
+    { pos: [TC, TT, TC + 2.25], route: [...foot(1), ...towerWayUp(TWR['1,1'], wc), [TC, TC + 2.25]] }, // [walls] at the front crenels, to shoot out through them (07g_walls.js)
     { pos: [-TC + 0.6, TT, TC + 0.4], route: [...foot(-1), ...towerWayUp(TWR['-1,1'], wc), [-TC + 0.6, TC + 0.4]] },
     { pos: [wc, H, 0.2], route: [...foot(1), [wc, 0.2]] },
   ];
@@ -316,7 +316,7 @@ function castleRound(C) {
   const gp = (sx) => { const T = GT[sx]; return { pos: [T.cx, WT, T.cz + 1.0], route: [...towerWayIn(T, [sx * 5.6, 10.4]), [T.cx, T.cz + 1.0]] }; };
   C.posts = [
     gp(-1), gp(1),
-    { pos: [16.0, WT, -0.4], route: [...foot(1), ...arc(1, 1.4, 1.6, 16.2), [16.0, -0.4]] },
+    { pos: [17.33, WT, -0.94], route: [...foot(1), ...arc(1, 1.4, 1.6, 16.2), [16.0, -0.4], [17.33, -0.94]] }, // [walls] by the outer breastwork beside the hatch, to shoot out over it (07g_walls.js)
     { pos: [Math.sin(-0.5) * 16.2, WT, Math.cos(-0.5) * 16.2], route: [...foot(-1), ...arc(-1, 1.4, 0.5, 16.2)] },
     { pos: [Math.sin(0.5) * 16.2, WT, Math.cos(0.5) * 16.2], route: [...foot(1), ...arc(1, 1.4, 0.5, 16.2)] },
   ];

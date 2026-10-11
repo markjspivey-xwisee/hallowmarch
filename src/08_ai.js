@@ -456,7 +456,9 @@ function fightTarget(e, t, dt, opts = {}) {
   if (e.rangedKind && t.kind !== 'door') {
     const want = Math.min(e.rangedRange - 4, 24);
     const walled = e.fixedY === null && e.ai && GAME.t - (e.ai.wallShot ?? -9) < 2.5 && d > 2.5; // [walls] its last shot struck a wall: close in (07g_walls.js)
-    if ((d > e.rangedRange - 1 || walled) && !e.casting) moveToward(e, t.x, t.z, dt, 1, 0);
+    const under = walled && elevatedEnt(t) && !elevatedEnt(e); // [walls] a foe up behind a breastwork: stand off where its crenel shows, not under the wall
+    if (under && d < Math.min(e.rangedRange - 4, 20) && !e.casting) moveToward(e, e.x - ((t.x - e.x) / d) * 4, e.z - ((t.z - e.z) / d) * 4, dt, 0.9, 0);
+    else if ((d > e.rangedRange - 1 || (walled && !under)) && !e.casting) moveToward(e, t.x, t.z, dt, 1, 0);
     else if (d < 6 && !e.casting && e.fixedY === null && Math.random() < 0.6) {
       const ax = e.x - (t.x - e.x) / d * 3, az = e.z - (t.z - e.z) / d * 3;
       moveToward(e, ax, az, dt, 0.8, 0.1);
@@ -594,7 +596,11 @@ function thinkPosted(e, dt, aggroR) {
   }
   if (e.cls === 'priest' || (t && t.alive)) npcAbilities(e, t);
   if (t) {
-    if (e.fixedY !== null || post.leash === 0) { e.target = t.id; turnToward(e, t.x, t.z, dt * 10); return; }
+    if (e.fixedY !== null || post.leash === 0) {
+      e.target = t.id; turnToward(e, t.x, t.z, dt * 10);
+      if (e.ai.wall && e.fixedY === null && GAME.t - (e.ai.wallShot ?? -9) < 2) wallsStepToCrenel(e, t, post, dt); // [walls] up to the crenel facing its foe (07g_walls.js)
+      return;
+    }
     const far = dist(e.x, e.z, post.x, post.z) > post.leash;
     if (far && dist(t.x, t.z, post.x, post.z) > post.leash) { e.target = null; moveToward(e, post.x, post.z, dt, 1, 0.5); return; }
     fightTarget(e, t, dt);
@@ -817,7 +823,7 @@ function thinkSoldier(e, dt) {
     if (cand && e.rangedKind && !wallsShotClear(e, cand, e.rangedKind === 'arrow', false)) cand = pickTarget(e, 30, true) || cand; // [walls] one it can strike first (07g_walls.js)
     if (!cand) cand = pickTarget(e, e.rangedKind ? 30 : 22);
     if (cand && dist(cand.x, cand.z, anchor.x, anchor.z) < Math.min(36, leash)) t = cand;
-    else if ((!t || t.kind === 'door') && O && O.type === 'defend' && (t = siegeFoeEngine(e, O))) { /* [siege] defenders go for the engines before their walls (04h_siege.js) */ }
+    else if ((!t || t.kind === 'door') && O && O.type === 'defend' && (t = siegeFoeEngine(e, O))) { /* [siege] defenders go for the engines before their walls (04h_siege.js) */ if (e.rangedKind && !wallsShotClear(e, t, e.rangedKind === 'arrow', false)) t = null; /* [walls] not a bow's or a staff's through their own wall (07g_walls.js) */ }
     // sieges: with nothing better to hit, strike the gate
     else if ((!t || t.kind === 'door') && O && O.phase === 'siege') {
       const door = O.keep ? O.keep.door : O.temple ? O.temple.door : null;

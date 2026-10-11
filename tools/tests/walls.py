@@ -298,6 +298,24 @@ async def crenel(page):
     check(r['down'] and r['foeHurt'], "a garrison archer on a gate tower's top shoots out through its crenel at a foe below")
     check(r['up'] and r['archerHurt'], 'the foe below shoots back at it where it shows')
     check(r['covered'], 'a body standing back on the top is covered from close below')
+    # a wall archer at its post on a corner tower's top, a foe off to the tower's side close below: its shots strike its
+    # own breastwork, so it steps up to the crenel on that side, shoots, and goes back to its post when the foe is gone
+    r = await ev(page, 'crenel step', """(() => { const out = {}, F = WT.F, H = WT.H, S = WT.site(0, 0), C = F.castles().find((q) => q.S === S);
+      const T = WT.tower(S, (q) => q.role === 'corner' && q.sx === 1 && q.sz === 1), pp = C.posts[2].pos, p = F.siteToWorld(S, pp[0], pp[2]);
+      WT.clearNear(S.x, S.z, 60); WT.put(S.x + 60, S.z + 60);
+      const g = F.spawnRealmUnit(0, 'archer', 30, 'guard', p.x, p.z, {}); g.y = S.y + pp[1]; g.tweak = { rangedRange: 36, dmg: 0.55, swing: 3.0 }; F.setupStats(g);
+      g.ai.wall = true; g.ai.post = { x: p.x, z: p.z, leash: 0 }; g.hp = g.maxHp = 1e6;
+      const q = WT.tp(T, Math.PI / 2, T.RO + 6, 0), foe = WT.body(1, 'warrior', q.x, q.z); foe.y = F.heightAt(q.x, q.z); foe.hp = foe.maxHp = 1e6;
+      out.fromPost = WT.W.wallsShotClear(g, foe, true, false);
+      const h0 = foe.hp; let moved = 0;
+      for (let i = 0; i < 16; i++) { H.simulate(0.5); moved = Math.max(moved, Math.hypot(g.x - p.x, g.z - p.z)); }
+      out.moved = +moved.toFixed(2); out.dy = +(g.y - (S.y + pp[1])).toFixed(2); out.hurt = foe.hp < h0; out.clear = WT.W.wallsShotClear(g, foe, true, false);
+      F.removeEnt(foe); H.simulate(6);
+      out.back = +Math.hypot(g.x - p.x, g.z - p.z).toFixed(2); out.dy2 = +(g.y - (S.y + pp[1])).toFixed(2);
+      F.removeEnt(g);
+      return out; })()""")
+    check(not r['fromPost'] and 0.6 < r['moved'] < 2.6 and abs(r['dy']) < 0.2 and r['hurt'] and r['clear'], f"a wall archer whose shots strike its own breastwork steps up to the crenel facing its foe and shoots ({r['moved']} m)")
+    check(r['back'] < 0.6 and abs(r['dy2']) < 0.2, f"and goes back to its post once the foe is gone ({r['back']} m)")
 
 async def stone(page):
     r = await ev(page, 'stone', """(() => { const out = {}, S = WT.site(0, 0), T = WT.tower(S, (q) => q.role === 'corner' && q.sx === 1 && q.sz === -1);
@@ -377,12 +395,14 @@ async def breach(page):
       while (t < 40 && i < path.length) { const p = path[i]; if (Math.hypot(p.x - P.x, p.z - P.z) < 0.6) { i++; continue; } H.CAM.yaw = Math.atan2(p.x - P.x, p.z - P.z); H.simulate(0.1, 0.02); t += 0.1; if (Math.round(t * 10) % 5 === 0) ys.push(+(P.y - S.y).toFixed(1)); }
       H.INPUT.keys.delete('KeyW'); H.simulate(0.2);
       out.reached = i; out.t = +t.toFixed(1); out.inCourt = F.castleInside ? null : null; out.end = WT.F.castles ? +Math.hypot(P.x - goal.x, P.z - goal.z).toFixed(2) : null; out.ys = ys.slice(0, 30);
-      // the siege's commanders see it as a breach to storm
+      // the commanders count the danger it puts the keep in, but send their bands to the gate or a curtain's breach,
+      // not in through its store room's door (too narrow a way for a band)
       out.open = C.sections.filter((q) => q.state === 'breach').map((q) => q.kind);
+      out.danger = +__hm.SIEGE.siegeDanger(S.keepRef).toFixed(2); out.bandWay = __hm.SIEGE.siegeOpenBreach(C, a.x, a.z) ? 'breach' : null;
       P.faction = 0;
       return out; })()""")
     check(r['reached'] == 5, f"the player climbs in over the rubble, through the store room and out into the courtyard the way the bands storm it ({r['t']} s)")
-    check('tower' in r['open'], 'the commanders see the fallen tower as a breach to storm')
+    check('tower' in r['open'] and r['danger'] >= 0.9 and r['bandWay'] is None, f"the commanders count the danger of the fallen tower ({r['danger']}) but send no band in by its store room's narrow door")
     r = await ev(page, 'mend', """(() => { const out = {}, { S, C, W, T } = BT.pick(), F = WT.F, H = WT.H, K = S.keepRef;
       WT.put(S.x + 80, S.z + 80); WT.clearNear(S.x, S.z, 60); K.lastEnemyNear = -1e9;
       const st = []; for (let i = 0; i < 24; i++) { H.simulate(8); K.lastEnemyNear = -1e9; st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); }

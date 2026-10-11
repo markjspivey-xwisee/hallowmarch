@@ -11,12 +11,14 @@
 // above are lost: their floors, the hatches, the doors at the walks' height, the furniture and the torches stand down,
 // the ladders are gone (no body climbs them, no route leads up them), the ring of masonry is open in the V (a body
 // climbs the rubble ramps in from the field) and no higher than the stump elsewhere, and whoever stood up there falls
-// (the fall's harm by its height). The garrison's archer posted on its top falls with it. Bands storm it as a breach
-// (siegeOpenBreach, siegeBreachRoute: in over the rubble, through the store room and out at its courtyard door); the
-// garrison runs to hold it (siegeOnBreach). Once the keep has been quiet a while its owners put up scaffolding and
+// (the fall's harm by its height). The garrison's archer posted on its top falls with it. It can be stormed (towerBreachRoute:
+// in over the rubble, through the store room and out at its courtyard door), and the garrison runs to hold the court
+// before that door (siegeOnBreach, towerPlugAt); the bands keep to the gate and the curtains' breaches (siegeOpenBreach
+// leaves the towers out: a way that narrow held a band of ten up for minutes). Once the keep has been quiet a while its owners put up scaffolding and
 // build it back course by course (updateBreaches), the new stone pale for a time, and the rooms, ladders, doors,
 // hatches, torches, banners and the archer's post come back (castleRepairDone). Saved with the walls (world.land).
-// Engines: trebuchets may take a tower for their mark (siegePlanFor); mangonels keep to the curtains.
+// Engines take no tower for their mark (siegePlanFor): a tower falls to the stones that strike it in passing (wallsStoneStep,
+// castleSiegeHit at that point) and to meteors.
 
 const TB_MAX = 6; // stone towers per castle the shader knows (Logres 6, Eriu 4)
 const TBREACH = { stats: { hits: 0, breached: 0, mended: 0, fell: 0 }, list: [] };
@@ -246,9 +248,10 @@ function towerBreachRoute(W) {
   const court = siteToWorld(S, T.cx * 0.45, T.cz * 0.45);
   return [at(T.RO + 7, W.aOut), at(T.RO + 0.8, W.aOut), at(0.4, W.aOut), at(T.RI - 0.45, a1), at(T.RO + 1.6, a1), court];
 }
-// where the garrison stands to hold it: a ring before its courtyard door (siegeOnBreach)
+// where the garrison stands to hold it (siegeOnBreach): before its courtyard door, either side of the door's line and a
+// few paces out, so the doorway stays open and the fight is in the court
 function towerPlugAt(W, n) {
-  const T = W.T, D = T.doors.find((d) => d.y < T.yG + 0.6), a1 = D ? D.a : T.aIn, a = a1 + (n - 1) * 0.5, r = T.RO + 1.4 + (n > 2 ? 1.2 : 0);
+  const T = W.T, D = T.doors.find((d) => d.y < T.yG + 0.6), a1 = D ? D.a : T.aIn, k = (n >> 1) + 1, a = a1 + (n % 2 ? -1 : 1) * 0.42 * k, r = T.RO + 2.4 + (k > 1 ? 0.9 : 0);
   const p = siteToWorld(T.S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r);
   return { x: p.x, z: p.z };
 }

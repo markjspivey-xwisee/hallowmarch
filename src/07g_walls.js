@@ -442,6 +442,28 @@ function wallsShotClear(e, t, arc = true, count = true) {
   return true;
 }
 
+// a wall archer whose shots strike its own breastwork (its foe is off to the side, or close under the wall) steps up
+// to the crenel facing that foe: along the floor it stands on, no more than 2.4 m from its post, never where that floor
+// ends (a hatch, the walk's edge, a step); back at its post once the fight is over (thinkPosted). True if it moved
+function wallsStepToCrenel(e, t, post, dt) {
+  const dx = t.x - post.x, dz = t.z - post.z, d = Math.hypot(dx, dz);
+  if (d < 1) return false;
+  for (const reach of [2.4, 1.8, 1.2, 0.7]) {
+    let ok = true;
+    for (const f of [0.5, 1]) {
+      const px = post.x + (dx / d) * reach * f, pz = post.z + (dz / d) * reach * f;
+      if (Math.abs(floorAt(px, pz, e.y + 0.3) - e.y) > 0.25) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const gx = post.x + (dx / d) * reach, gz = post.z + (dz / d) * reach;
+    if (dist2(e.x, e.z, gx, gz) < 0.2 * 0.2) return false;
+    moveToward(e, gx, gz, dt, 0.7, 0.15);
+    WALLS.stats.stepped = (WALLS.stats.stepped || 0) + 1;
+    return true;
+  }
+  return false;
+}
+
 /* ------------------------------------------------------------------ */
 /* the projectiles of 07_entities.js (arrows, bolts, spells)           */
 /* ------------------------------------------------------------------ */
@@ -626,4 +648,4 @@ function wallsStoneStep(s, px, py, pz) {
   return true;
 }
 
-queueMicrotask(() => { if (window.__hm) window.__hm.walls = { WALLS, shotHit, wallsShotClear, wallsAimY, wallsProj, wallStrike, wallArrow, wallsStoneStep, wallMatOf, wallHouseOf, wallInRoof, updateWalls, fx: { FX, get fxAlpha() { return fxAlpha; }, get fxAdd() { return fxAdd; } } }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.walls = { WALLS, shotHit, wallsShotClear, wallsAimY, wallsStepToCrenel, wallsProj, wallStrike, wallArrow, wallsStoneStep, wallMatOf, wallHouseOf, wallInRoof, updateWalls, fx: { FX, get fxAlpha() { return fxAlpha; }, get fxAdd() { return fxAdd; } } }; });
