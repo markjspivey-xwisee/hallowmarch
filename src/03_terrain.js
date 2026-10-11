@@ -357,7 +357,11 @@ const terrainMat = mat({
         float fres = 0.02 + 0.98 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
         vec3 Rv = reflect(-V, n);
         vec3 sk = skyBase(safeNormalize(vec3(Rv.x, max(Rv.y, 0.03), Rv.z)));
-        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * 0.8, 0.0, 1.0));
+        // [look] a puddle is dark standing water that mirrors the sky by its Fresnel term: seen from the play camera (a
+        // steep look down at the near ground) it shows mostly its dark bed, far off it shines. It mixed toward the sky at
+        // 0.8 whatever the angle, and in a storm the courtyards and roads lay under pale, matte blotches that read as snow
+        col *= 1.0 - 0.3 * puddle;
+        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * mix(0.22, 0.85, smoothstep(0.02, 0.5, fres)), 0.0, 1.0));
       }
       // [seasons] hoar frost on the turf on cold nights and mornings
       vec4 szm = seasonMapAt(vW.xz); // one fetch for the frost and the snow
