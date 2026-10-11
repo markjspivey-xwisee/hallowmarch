@@ -4,11 +4,15 @@
 // The walk shaders put a foot where the gait says it should be for its phase (HUMAN_GAIT, beastBodyGLSL), which keeps it
 // planted only while the body goes straight ahead along its facing at a steady pace. A body shoved aside (by a crowd, a
 // wall it slides along, a rock), a runner whose facing has not caught up with a sharp cut, one turning on the spot or
-// round a tight bend, all moved their planted feet with them. Here each foot is followed on the CPU: when it comes down
-// its place on the ground is kept, and while it bears weight the shaders are told how far that place lies from where the
-// gait alone would put it (along the body and across it, in metres): the leg reaches for it (along by its IK, across by
-// swinging out at the hip or the shoulder). In the air the difference fades away, so the foot comes down where the gait
-// puts it. Rows of a float texture (FOOT_LOCK, 05a_rig.js), one per body drawn near the camera with a foot held.
+// round a tight bend, all moved their planted feet with them, and the gait set every foot on the slope's line through
+// the body (on a stair, between the treads). Here each foot is followed on the CPU: when it comes down its place on the
+// ground is kept, on the floor there (a tread, a bump), and while it bears weight the shaders are told how far that place
+// lies from where the gait alone would put it (along the body and across it, and how high its floor stands over the
+// body's own, in metres): the leg reaches for it (along by its IK, across by swinging out at the hip or the shoulder,
+// down and up by its IK). In the air the difference eases from where it lifted off to where the coming stance should
+// start (half of what the body's own motion will move the foot over a stance, so a body going sideways steps out that
+// way), and the foot passes over the floor under it on the way (a stair's nosing, a hump). Rows of a float texture
+// (FOOT_LOCK, 05a_rig.js), one per body drawn near the camera with a foot held.
 const FL_MAX = 0.42; // beyond this a planted foot gives way and is dragged (a body shoved a long way)
 const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 // a person's feet: [u (0..1 round its cycle), duty, reach (m), x (its side, m)] for the left (0) and the right (1)
@@ -47,7 +51,28 @@ function footLockStep(e, dt) {
 }
 // the floor under a foot at (x, z): a stair's tread, a deck, the ground (a drop beyond a step, off a wall walk's edge or a
 // jetty's, is no floor for it: then the body's own)
-function flFloor(e, x, z) { const y = e.y, h = floorAt(x, z, y + 0.5); return Math.abs(h - y) > 0.6 ? y : h; }
+let _flTread = false; // (the last floor flFloor found was a stair's tread: the foot stands level on it)
+function flFloor(e, x, z) { const y = e.y, h = floorTreadAt(x, z, y + 0.5); if (Math.abs(h - y) > 0.6) { _flTread = false; return y; } return h; }
+// floorAt, but on a castle's flight of steps the tread over that point: a flight is one ramp from its foot to its landing
+// (castleFlight, 04g_castles.js), which joins the treads' back edges, so a foot set on the ramp stood up to a riser
+// below the stone it was drawn on (the treads: n of them, each as high as the ramp at its upper end)
+function floorTreadAt(x, z, y) {
+  const g = floorAt(x, z, y);
+  _flTread = false;
+  if (y == null || x > DUN_X0) return g;
+  const list = FLOOR.grid.get(collKey(Math.floor(x / FLOOR.cell), Math.floor(z / FLOOR.cell)));
+  if (!list) return g;
+  for (const f of list) {
+    if (!f.active || !f.flight || f.type !== 'box' || f.yb === f.ya) continue;
+    const t = floorTopOf(f, x, z);
+    if (t === null || Math.abs(t - g) > 1e-4) continue; // (the flight is not what stands highest here)
+    const fl = f.flight, n = Math.max(2, Math.round((fl.y1 - fl.y0) / 0.27)), frac = clamp((t - f.ya) / (f.yb - f.ya), 0, 1);
+    _flTread = true;
+    return f.ya + (f.yb - f.ya) * Math.min(n, Math.floor(frac * n + 1e-6) + 1) / n;
+  }
+  _flTread = false;
+  return g;
+}
 function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
   const c = Math.cos(e.yaw), s = Math.sin(e.yaw);
   const at = (o, x0, along, cx, cz) => { const lx = x0 + cx, lz = along + cz; o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; };
@@ -92,8 +117,8 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // the floor where it will come down (a tread, a bump, a slope's rise), and the floor under it now: it passes over a
       // stair's nosing or a hump on the way, not through it
       const lx = x0 + o.tx, lz = z0 + reach + o.tz;
-      o.hT = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c);
-      const q = 1 - w, ee = w * w * (3 - 2 * w) - (o.human ? 0.5 * (1 - duty) / Math.max(duty, 0.05) * w * (2 * w - 1) * (w - 1) : (1 - duty) / Math.max(duty, 0.05) * (w * q ** 7 - q * w ** 7));
+      o.hT = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c); o.treadT = _flTread;
+      const q = 1 - w, ee = w * w * (3 - 2 * w) - (o.human ? 0.5 * (1 - duty) / Math.max(duty, 0.05) * w * (2 * w - 1) * (w - 1) : (1 - duty) / Math.max(duty, 0.05) * (w * q ** 4 - q * w ** 4));
       const nx = x0 + o.cx, nz = z0 + reach * (2 * ee - 1) + o.cz;
       o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
       o.w = w;
@@ -115,9 +140,9 @@ function footLockSlot(e, horse) {
       // planted since the last frame: its place is where it is drawn now, on the floor there
       const lx = o.g[3] + o.cx, lz = o.along + o.cz;
       o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.fresh = false;
-      o.h = flFloor(e, o.wx, o.wz);
+      o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
     }
-    if (o.down && o.h == null) o.h = flFloor(e, o.wx, o.wz);
+    if (o.down && o.h == null) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; }
     // how high its floor stands over the body's own: planted, its own place's; in the air, from the floor it left to the
     // floor it will land on
     const hy = o.down ? o.h : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9);
@@ -137,9 +162,9 @@ function footLockSlot(e, horse) {
   // (a beast stands tilted with the slope along it, beastLeanYaw: its feet's heights are what the tilt leaves)
   const tilt = horse || e.kind !== 'humanoid' ? clamp(Math.round((e._bslope || 0) * 20), -20, 20) * 0.05 : 0;
   const r = FOOT_LOCK.n++, D = FOOT_LOCK.data;
-  for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = o ? o.dy - tilt * (o.along + o.dz) : 0; D[k + 3] = 1; }
+  for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = o ? o.dy - tilt * (o.along + o.dz) : 0; D[k + 3] = o && (o.down ? o.tread : o.treadT) ? 2 : 1; } // (w: 2 on a stair's tread, where a person's foot stands level)
   return r + 1;
 }
 function footLockBegin() { FOOT_LOCK.n = 0; }
 function footLockEnd() { if (FOOT_LOCK.n || FOOT_LOCK.was) FOOT_LOCK.tex.needsUpdate = true; FOOT_LOCK.was = FOOT_LOCK.n; }
-window.__hm.footLock = { FOOT_LOCK, footLockStep, flHumanGait, flBeastGait, footLockSlot };
+window.__hm.footLock = { FOOT_LOCK, footLockStep, flHumanGait, flBeastGait, footLockSlot, floorTreadAt };

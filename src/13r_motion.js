@@ -171,7 +171,7 @@ function motionLook(e, which = ['feet'], opt = {}) {
   return out;
 }
 // the floor under a point (stairs, wall walks, decks, the ground; a lake's ice)
-const motionFloor = (x, z, y) => (typeof floorAt === 'function' ? floorAt(x, z, y + 0.25) : heightAt(x, z));
+const motionFloor = (x, z, y) => (typeof floorTreadAt === 'function' ? floorTreadAt(x, z, y + 0.25) : typeof floorAt === 'function' ? floorAt(x, z, y + 0.25) : heightAt(x, z)); // [polish] (a flight's treads, not its ramp)
 
 /* ---- a run: drive bodies, step the world, look at them every step ---- */
 // ents: [{ e, drive(e, t, dt), which, yHint(e) }]; returns per entity a list of samples

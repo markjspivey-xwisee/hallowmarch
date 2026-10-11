@@ -749,7 +749,7 @@ function humanVS(depth) {
     vec2 fL = footPath(uL, duty, reach, liftH, runK), fR = footPath(fract(uL + 0.5), duty, reach, liftH, runK);
     // [polish] a planted foot stays where it came down however the body moves over it (shoved aside, sliding along a wall,
     // turning sharply at speed): the lock moves each foot's target by what the gait alone gets wrong (footLockStep,
-    // 13r_motion.js), along the leg and across it (the leg swings out about the hip; the feet do not cross)
+    // 13s_footlock.js), along the leg and across it (the leg swings out about the hip; the feet do not cross)
     float flSlot = floor(iStyle.z * 0.5 + 0.01), rsc0 = max(iColA.w, 0.3);
     vec4 lk4L = footLock4(flSlot, 0) / rsc0, lk4R = footLock4(flSlot, 1) / rsc0;
     vec2 lkL = lk4L.xy, lkR = lk4R.xy;
@@ -1027,7 +1027,9 @@ function humanVS(depth) {
     float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
     float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
     float slopeA = 0.6 * atan(slopeK); // [motion] a planted foot follows the slope (part way: on stairs it stands on a level tread)
-    float footL = (toeL - thL - shL - slopeA) * ankK, footR = (toeR - thR - shR - slopeA) * ankKR;
+    // [polish] a foot the lock sets on a stair's tread (w 2) stands level on it
+    float lvL = step(1.5, lk4L.w * rsc0), lvR = step(1.5, lk4R.w * rsc0);
+    float footL = (toeL - thL - shL - slopeA * (1.0 - lvL)) * ankK, footR = (toeR - thR - shR - slopeA * (1.0 - lvR)) * ankKR;
 
     /* ------------------- skinning ------------------- */
     if (bone == 11) {

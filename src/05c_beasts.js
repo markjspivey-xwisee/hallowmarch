@@ -429,8 +429,8 @@ function beastBodyGLSL(K) {
     float u = fract((c - 1.5708) * 0.159155);
     if (u < duty) return vec2(reachB * (1.0 - 2.0 * u / duty), 0.0);
     float wv = (u - duty) / (1.0 - duty), q = 1.0 - wv;
-    float e = wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / max(duty, 0.05) * (wv * pow(q, 7.0) - q * pow(wv, 7.0));
-    return vec2(reachB * (2.0 * e - 1.0), pow(sin(3.14159 * wv), 0.6));
+    float e = wv * wv * (3.0 - 2.0 * wv) - (1.0 - duty) / max(duty, 0.05) * (wv * pow(q, 4.0) - q * pow(wv, 4.0)); // [polish] (q^7: the retraction died away within a frame at a canter, 3 cm of skating at each end)
+    return vec2(reachB * (2.0 * e - 1.0), pow(sin(3.14159 * wv), 0.5));
   }
   // the hoof's or paw's turn in the air (0 while it is down: it stands level)
   float bbTuck(bool fr, vec2 f, float fold){ return (fr ? 0.8 : -0.7) * f.y * fold; }
@@ -451,13 +451,15 @@ function beastBodyGLSL(K) {
     float rest = max(0.0, (T.y - L.y) - sqrt(max(R * R - (L.z - T.z) * (L.z - T.z), 0.0)));
     return max(0.0, -d.y - sqrt(max(R * R - d.x * d.x, 0.0)) - rest);
   }
-  // the vault: how far the forequarters (x) and the hindquarters (y) come down, the most either of their legs needs
-  // (a swinging leg's target is raised, so a leg in the air asks less; a little gives way as it lifts: no jump)
+  // the vault: how far the forequarters (x) and the hindquarters (y) come down, the most either of their legs needs.
+  // [polish] A swinging leg asks what its foot would need on the ground below it, not raised: a raised foot asked less,
+  // so the body rose as a leg lifted and the straight leg swung its foot forward along the ground (4 to 6 cm at a trot)
   vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ, vec4 dh){ // (dh: the floor under each foot over the body's own)
-    float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB), fold, trot) + vec2(0.0, dh.x), true, spine, pitch, bob, lungeZ);
-    float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB), fold, trot) + vec2(0.0, dh.y), true, spine, pitch, bob, lungeZ);
-    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB), fold, trot) + vec2(0.0, dh.z), false, spine, pitch, bob, lungeZ);
-    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB), fold, trot) + vec2(0.0, dh.w), false, spine, pitch, bob, lungeZ);
+    const vec2 GR = vec2(1.0, 0.0);
+    float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.x), true, spine, pitch, bob, lungeZ);
+    float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.y), true, spine, pitch, bob, lungeZ);
+    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.z), false, spine, pitch, bob, lungeZ);
+    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB) * GR, fold, trot) + vec2(0.0, dh.w), false, spine, pitch, bob, lungeZ);
     return min(vec2(max(n0, n1), max(n2, n3)), vec2(0.3 * min(${K.G}.z, ${K.G}.w)));
   }
   // the vault as a turn about the hindquarters' top (forequarters down x, hindquarters y) and a drop: its angle and pivot
@@ -797,4 +799,4 @@ HORSE_SEAT_GLSL = (() => {
   }`;
 })();
 humanoidMat.vertexShader = humanVS(false);
-humanoidMat.uniforms.uFootLock = { value: FOOT_LOCK.tex }; // [polish] planted feet (13r_motion.js)
+humanoidMat.uniforms.uFootLock = { value: FOOT_LOCK.tex }; // [polish] planted feet (13s_footlock.js)

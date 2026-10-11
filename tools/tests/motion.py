@@ -3,10 +3,12 @@ the crowds drawn once more as points with their own vertex shaders under an iden
 target). For each body and each common motion: how far a planted foot slides while it bears weight (cm), how fast it
 slips as a share of the body's speed (slipK: 0 planted, 1 gliding on ice), where the lowest foot is over the floor
 (median and lowest: + floats, - sinks), how many feet come down a second, and for birds how the wings move.
-usage: python3 tools/tests/motion.py [tag=before] [only=human,beast,farm,bird,player,pose,dragon,shots] [q=low]
+usage: python3 tools/tests/motion.py [tag=before] [only=human,beast,farm,bird,player,pose,dragon,shots,seq] [q=low]
 ([polish] also: people and beasts shoved sideways, and the player cutting at a sprint and a run)
 (shots: pictures of a pheasant and a mallard taking off and flying, Cinderwing rearing, springing, flying and landing,
 a runner and a kneeling priest, at 960x540 in tools/out/motion_*.png)
+([polish] seq: strips of six frames 1/20 s apart: a horse at a gallop and a bear at a trot from the side, the player
+cutting 90 degrees at a sprint: tools/out/motion_seq_*.png; q=high by default for them)
 Writes tools/out/motion_<tag>.json and prints a table; checks the limits at the end (a planted foot slides < 4 cm,
 slipK < 0.15, the lowest foot within 4 cm of the floor) and lists the worst offenders."""
 import json, asyncio, sys, pathlib, time
@@ -245,6 +247,12 @@ async def main():
             report('cut', r, [0.8, 1.6, 0.8]); res['cut'] = r
             r = await ev(page, "(() => { const H = __hm, K = H.WAR.keeps.find((K) => K.orig === 0 && K.site === H.REALMS[0].keepSites[0]), S = K.site, P = H.GAME.player, w = (lx, lz) => H.fn.siteToWorld(S, lx, lz); const a = w(10.6, -7.6); P.x = P.prevX = a.x; P.z = P.prevZ = a.z; P.y = S.y; P.faction = 0; P.onGround = true; P.vy = 0; H.simulate(0.3, 1/60); const pts = [w(13.0, -6.6), w(13.0, 3.4), w(13.0, 4.1)]; const r = MO.playerPath(pts, 4.5, { skip: 0.5 }); return r.map((q) => ({ ...q, rise: +(q.y1 - S.y).toFixed(2) })); })()")
             report('stairs', r, [0]); res['player_stairs'] = r
+            # [polish] the same climb, the feet on the treads: wherever a foot stands still (under a fifth of the body's
+            # pace, within 12 cm of the floor under it), how high it is over that floor (on its tread: about 0; set on the
+            # flight's slope line: up to half a riser off, above or below)
+            js = (pathlib.Path(__file__).parent / 'motion_tread.js').read_text()
+            r = await ev(page, js)
+            print(f"  treads     feet standing still over the floor under them (cm): median {r.get('median')}, p10 {r.get('p10')}, p90 {r.get('p90')}, |h| p90 {r.get('absP90')}, share more than 3 cm off {r.get('off3')} (n {r.get('n')}, rise {r.get('rise')} m)", flush=True); res['player_treads'] = r
             # running round a bend: the body leans into the turn (the head toward the inside), the feet stay planted
             r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 6; P.z = P.prevZ = Ln.z - Ln.uz * 6; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); let yaw0 = P.yaw; const E = { e: P, kind: 'human', which: ['feet', 'head'], drive(e, t) { H.CAM.yaw = yaw0 + 0.9 * t; } }; const rec = MO.M.motionRun([E], 2.4, 1 / 60, { cam: () => { H.UI.modal = null; MO.chase(P); } }); H.INPUT.keys.clear(); const S = rec[0].filter((q) => q.t > 1.0 && q.L && q.L.head && q.L.head[0]); const side = S.map((q) => { const h = q.L.head[0], rx = Math.cos(q.yaw), rz = -Math.sin(q.yaw); return ((h[0] - q.x) * rx + (h[2] - q.z) * rz) / Math.max(0.5, h[1] - q.y); }); const m = side.reduce((a, b) => a + b, 0) / Math.max(1, side.length); return { ...MO.M.motionMeasure(rec[0], { skip: 1.0 }), leanDeg: +(Math.atan(m) * 180 / Math.PI).toFixed(1), animLean: +((P.anim.lean || 0) * 180 / Math.PI).toFixed(1) }; })()")
             print(f"  bend       {fmt(r)}  lean {r.get('leanDeg')} deg (anim {r.get('animLean')})", flush=True); res['player_bend'] = r
@@ -299,6 +307,34 @@ async def main():
             await shot(page, 'motion_runner', "(() => { const Ln = MO.lane(MO.cx, MO.cz, 20, 1); const e = MO.body('human', Ln.x - Ln.ux * 8, Ln.z - Ln.uz * 8, Math.atan2(Ln.ux, Ln.uz)); MO.M.motionRun([{ e, kind: 'human', drive(e, t, dt) { e.x += Ln.ux * 5 * dt; e.z += Ln.uz * 5 * dt; } }], 1.1, 1 / 60); MS.side(e, 3.0, 0.9, 0.8, 0.2); MS.run = e.id; return 0; })()")
             await shot(page, 'motion_kneel', "(() => { MO.clear(); const Ln = MO.lane(MO.cx, MO.cz, 4, 1); const e = MO.body('human', Ln.x, Ln.z, 0.6); e.anim.act = 12; e.anim.actT = 0.6; e.anim.actDur = 3; MO.M.motionRun([{ e, kind: 'human' }], 0.4, 1 / 60); MS.side(e, 2.6, 0.7, 0.5, -0.6); return 0; })()")
             await ev(page, "MO.clear(); 0")
+        if 'seq' in ONLY:
+            # [polish] frame sequences, one strip each: a horse at a gallop and a bear at a trot seen from the side, the
+            # camera keeping pace (a planted hoof or paw should stand still against the ground's marks), and the player
+            # cutting 90 degrees at a sprint seen from a fixed camera (the planted foot as the body swings round over it)
+            from PIL import Image
+            await page.set_viewport_size({'width': 640, 'height': 360})
+            await ev(page, SHOTJS)
+            await ev(page, f"(() => {{ __hm.fn.setQuality('{OPT.get('q', 'high')}'); __hm.setTod(0.42); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.snowing = 0; W.snow = 0; W.overcast = 0; W.target = 0; MO.calm(); return 0; }})()")
+            async def strip(name, setup_js, step_js, n=6):
+                await ev(page, setup_js)
+                frames = []
+                for k in range(n):
+                    await ev(page, step_js)
+                    data = await page.evaluate("(() => { __hm.frame(0.016); return document.querySelector('canvas').toDataURL('image/png'); })()")
+                    import base64, io
+                    frames.append(Image.open(io.BytesIO(base64.b64decode(data.split(',')[1]))).convert('RGB'))
+                w, h = frames[0].size
+                im = Image.new('RGB', (w * 3, h * ((n + 2) // 3)))
+                for k, f in enumerate(frames): im.paste(f, ((k % 3) * w, (k // 3) * h))
+                im.save(OUT + f'motion_seq_{name}.png')
+                print('  strip', name, f'[{time.time() - T0:.0f}s]', flush=True)
+            for kind, v in (('horse', 11.0), ('bear', 3.2)):
+                # (a frame every 1/20 s: the drive runs three steps between frames, the camera abreast at a fixed offset)
+                await strip(f'{kind}_{v:g}', f"(() => {{ MO.clear(); const Ln = MO.lane(MO.cx, MO.cz, {v} * 3 + 4, 1); const e = MO.body('{kind}', Ln.x - Ln.ux * {v} * 1.5, Ln.z - Ln.uz * {v} * 1.5, Math.atan2(Ln.ux, Ln.uz)); MS.Ln = Ln; MS.sq = e.id; MS.sqE = {{ e, kind: 'beast', drive(e, t, dt) {{ const s = MO.ramp({v}, t) * dt; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); }} }}; MO.over(Ln, 14); MO.M.motionRun([MS.sqE], 1.2, 1 / 60); return 0; }})()",
+                            f"(() => {{ const e = MS.F.getEnt(MS.sq), Ln = MS.Ln; MO.M.motionRun([{{ e, kind: 'beast', drive(e, t, dt) {{ e.x += Ln.ux * {v} * dt; e.z += Ln.uz * {v} * dt; }} }}], 0.05, 1 / 60); MS.side(e, {3.6 if kind == 'horse' else 3.0}, 0.5, 0.5, 0); return 0; }})()")
+            await strip('sprint_cut', "(() => { MO.clear(); const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 30, 1); P.x = P.prevX = Ln.x - Ln.ux * 12; P.z = P.prevZ = Ln.z - Ln.uz * 12; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); P.endurance = 100; H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); H.INPUT.keys.add('ShiftLeft'); MS.y0 = P.yaw; MS.ct = 0; for (let k = 0; k < 66; k++) { H.CAM.yaw = MS.y0; H.simulate(1 / 60, 1 / 60); } MS.cx = P.x + Math.sin(P.yaw) * 3 + Math.cos(P.yaw) * 4; MS.cz = P.z + Math.cos(P.yaw) * 3 - Math.sin(P.yaw) * 4; return 0; })()",
+                        "(() => { const H = __hm, P = H.GAME.player; for (let k = 0; k < 3; k++) { H.CAM.yaw = MS.y0 + 1.57; H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } MS.cam(MS.cx, P.y + 1.6, MS.cz, P.x, P.y + 0.6, P.z); return 0; })()")
+            await ev(page, "(() => { __hm.INPUT.keys.clear(); MO.clear(); return 0; })()")
         pathlib.Path(OUT + f'motion_{TAG}.json').write_text(json.dumps({'rows': ROWS, 'res': res}, indent=1))
         # the worst offenders
         bad = sorted([r for r in ROWS if 'err' not in r], key=lambda r: -score(r))

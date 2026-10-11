@@ -230,7 +230,7 @@ function drawActors(fx, fz) {
       _ca[0] = L.tabard[0]; _ca[1] = L.tabard[1]; _ca[2] = L.tabard[2]; _ca[3] = sc;
       _cb[0] = L.armor[0]; _cb[1] = L.armor[1]; _cb[2] = L.armor[2]; _cb[3] = L.flags || 0;
       _mi[0] = L.skin; _mi[1] = (e.brand || e.fishing) && e.alive ? (L.mask | WB.torch) & ~WB.bow : e.boat || (e.anim.act === 19 && e.anim.actDur > 0) ? L.mask & ~(WEAPON_BITS | WB.shield | WB.shieldRound) : L.mask; _mi[2] = e.anim.flash; _mi[3] = L.hair; // [survival] a rod is held like a brand; [water2] at the oars the hands are on them (the weapon and shield laid in the boat); [polish] and both hands on the boat you shove off (action 19)
-      _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13r_motion.js)
+      _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat
