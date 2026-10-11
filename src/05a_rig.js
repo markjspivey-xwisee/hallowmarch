@@ -770,9 +770,38 @@ function humanVS(depth) {
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
     // [polish] each foot on the floor under it (a tread, a bump: the lock knows where it stands), else on the slope's line
     float hL = flSlot > 0.5 ? lk4L.z : slopeK * fL.x, hR = flSlot > 0.5 ? lk4R.z : slopeK * fR.x;
-    // [motion3] the turn that sets the ankle where the lock asks across: over the hip's own height above it (a fixed
-    // 0.86 m set it 3 to 20 percent short, and a walker shoved aside slid as far)
-    float abL = atan(clamp(lkL.x, -0.12, 0.45) / max(0.845 - gaitDrop + gaitBob - hL - fL.y, 0.3)), abR = atan(clamp(lkR.x, -0.45, 0.12) / max(0.845 - gaitDrop + gaitBob - hR - fR.y, 0.3));
+    // [motion3] a body leaning into a turn leans from the ground under its middle (the lean comes last of all, below), so
+    // each ankle is first set where the lean will carry it to its place, and the foot is rolled back flat (at the ankle):
+    // a planted foot out to the side rose or sank and slid as the lean came on, 2 to 3 cm in a sharp cut at a sprint
+    float lnK = mod(floor(iColB.w / 8.0), 2.0) > 0.5 ? 0.0 : lean; // (a rider leans with the horse)
+    if (lnK != 0.0) {
+      float cl = cos(lnK), sl = sin(lnK), axL = ${SK.ankle[0].toFixed(4)} + lkL.x, ayL = ${SK.ankle[1].toFixed(4)} + fL.y + hL, axR = -${SK.ankle[0].toFixed(4)} + lkR.x, ayR = ${SK.ankle[1].toFixed(4)} + fR.y + hR;
+      lkL.x = axL * cl + ayL * sl - ${SK.ankle[0].toFixed(4)}; hL += ayL * (cl - 1.0) - axL * sl;
+      lkR.x = axR * cl + ayR * sl + ${SK.ankle[0].toFixed(4)}; hR += ayR * (cl - 1.0) - axR * sl;
+    }
+    // [motion3] the turn that sets the ankle where the lock asks across: over the ankle's real depth under the hip (a fixed
+    // 0.86 m set it 3 to 20 percent short, and a walker shoved aside slid as far); where the leg cannot reach that deep
+    // (the foot far ahead or behind: legIK lifts the ankle, the heel rises), over the depth it does reach, else the foot
+    // was drawn short of its place across as it came down and as it left, a centimetre
+    float vL = 0.845 - gaitDrop + gaitBob - hL - fL.y, vR = 0.845 - gaitDrop + gaitBob - hR - fR.y;
+    float lxL = clamp(lkL.x, -0.12, 0.45), lxR = clamp(lkR.x, -0.45, 0.12), fzL = clamp(fL.x, -0.82, 0.82), fzR = clamp(fR.x, -0.82, 0.82);
+    float rL = sqrt(max(0.7145 - fzL * fzL - lxL * lxL, 0.0144)), rR = sqrt(max(0.7145 - fzR * fzR - lxR * lxR, 0.0144)); // (legIK's reach, 0.8453 m, squared)
+    float upL = max(vL - rL, 0.0), upR = max(vR - rR, 0.0); // (how far the ankle is lifted)
+    // [motion] the toes: a foot lifts off them and reaches out heel first in the air; [motion3] it points them down no
+    // faster than it rises (the toes, 0.13 m ahead of the ankle and 0.09 below it, rise at least three quarters as fast
+    // as the ankle), and the ankle comes forward over them as the foot turns, so they leave the ground from where they
+    // stood (turned about the ankle off a low stance they dipped back into the ground and slid 2 to 4 cm)
+    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
+    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
+    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
+    toeL = min(toeL, max(asin(min((0.09 + 0.25 * (fL.y + upL)) / 0.158, 1.0)) - 0.606, 0.0));
+    toeR = min(toeR, max(asin(min((0.09 + 0.25 * (fR.y + upR)) / 0.158, 1.0)) - 0.606, 0.0));
+    float pvL = max(toeL, 0.0), pvR = max(toeR, 0.0);
+    fL.x += 0.13 * (1.0 - cos(pvL)) + 0.09 * sin(pvL); fR.x += 0.13 * (1.0 - cos(pvR)) + 0.09 * sin(pvR);
+    fzL = clamp(fL.x, -0.82, 0.82); fzR = clamp(fR.x, -0.82, 0.82);
+    rL = sqrt(max(0.7145 - fzL * fzL - lxL * lxL, 0.0144)); rR = sqrt(max(0.7145 - fzR * fzR - lxR * lxR, 0.0144));
+    upL = max(vL - rL, 0.0); upR = max(vR - rR, 0.0);
+    float abL = atan(lxL / max(min(vL, rL), 0.3)), abR = atan(lxR / max(min(vR, rR), 0.3));
     vec2 ikL = legIK(fL.x, (fL.y + hL - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + hR - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running
@@ -1050,12 +1079,12 @@ function humanVS(depth) {
     // saddle, a kneeling back foot keeps its toes tucked under
     float ankK = (1.0 - swimK) * (1.0 - mounted) * (1.0 - d1) * ((atype > 5.5 && atype < 6.5) || (atype > 8.5 && atype < 9.5) ? 0.0 : 1.0);
     float ankKR = ankK * ((atype > 11.5 && atype < 12.5) ? 1.0 - smoothstep(0.0, 0.25, at) : 1.0);
-    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
-    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
-    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
+    // (the toes' pitch, toeL and toeR: with the legs' IK above)
     float slopeA = 0.6 * atan(slopeK); // [motion] a planted foot follows the slope (part way: on stairs it stands on a level tread)
     // [polish] a foot the lock sets on a stair's tread (w 2) stands level on it
-    float lvL = step(1.5, lk4L.w * rsc0), lvR = step(1.5, lk4R.w * rsc0);
+    // [motion3] (w: 10, or 20 on a tread, plus half the turn that keeps a planted foot on its own heading, 13s_footlock.js)
+    float wL = lk4L.w * rsc0, wR = lk4R.w * rsc0, tfL = floor(wL * 0.1 + 0.5), tfR = floor(wR * 0.1 + 0.5);
+    float lvL = step(1.5, tfL), lvR = step(1.5, tfR), yoL = (wL - 10.0 * tfL) * 2.0, yoR = (wR - 10.0 * tfR) * 2.0;
     float footL = (toeL - thL - shL - slopeA * (1.0 - lvL)) * ankK, footR = (toeR - thR - shR - slopeA * (1.0 - lvR)) * ankKR;
 
     /* ------------------- skinning ------------------- */
@@ -1071,7 +1100,12 @@ function humanVS(depth) {
     if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; rotP(rotZ(uaLz * w) * rotX(uaL * w), ${HSK.SHL}); }
     if (bone == 2) rotP(rotY(headY * aW) * rotX(headX * aW), ${HSK.NECK});
     if ((bone >= 1 && bone <= 6) || bone == 11) { float w = bone == 1 ? aW : 1.0; rotP(rotY(chestY * w) * rotX(chestX * w), ${HSK.SPINE}); }
-    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); rotP(rotZ(-(bone == 8 ? spreadL : spreadR) * ankK * fk) * rotX((bone == 8 ? footL : footR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
+    // [motion3] the ankle undoes the leg's turns in the reverse of the order they were made (the thigh's and the knee's pitch,
+    // then the swing out at the hip and the body's lean), and then gives the foot its own heading (the lock's: a planted
+    // foot does not turn with the body) and pitch: undone in the other order,
+    // a leg swung out turned its planted foot a little about the vertical as the leg pitched through the stance, and the
+    // sole slid aside
+    if ((bone == 8 || bone == 10) && position.y < 0.13) { float fk = 1.0 - smoothstep(0.075, 0.125, position.y); bool lf = bone == 8; float kA = (lf ? ankK : ankKR) * fk; rotP(rotX(-(lf ? thL + shL : thR + shR) * kA) * rotZ(-((lf ? spreadL : spreadR) + lnK) * ankK * fk) * rotY((lf ? yoL : yoR) * ankK * fk) * rotX((lf ? footL + (thL + shL) * ankK : footR + (thR + shR) * ankKR) * fk), vec3(bone == 8 ? ${SK.ankle[0].toFixed(4)} : ${(-SK.ankle[0]).toFixed(4)}, ${SK.ankle[1].toFixed(4)}, ${SK.ankle[2].toFixed(4)})); } // [motion] the ankle
     if (bone == 8) rotP(rotX(shL * aW), ${HSK.KNL});
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
