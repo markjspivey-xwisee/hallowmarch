@@ -171,7 +171,7 @@ function playerUseSlot(i) {
   const aim = !A.self && !A.friendly && (!t || !isEnemy(P, t) || !t.alive || far) ? houseFireAim(P, id) || natureFireAim(P, id) : null;
   const r = aim ? castAtHouse(P, id, aim) : useAbility(P, id, t);
   if (r !== true) {
-    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
+    const msg = { swimming: 'You cannot do that while swimming', cooldown: 'That ability is not ready yet', power: 'Not enough power', range: 'Your target is too far away', target: 'You need a hostile target', close: 'Too close to charge', held: 'Frost holds you fast' /* [balance3] */, level: `Learned at level ${A.level}`, stunned: 'You are stunned', busy: 'You are already casting', carrying: 'Your hands are full with the hallow', ladder: 'Not with one hand on the ladder', dead: '' }[r]; // [keeps] ladder
     if (msg) uiError(msg);
   } else flashSlot(i);
 }

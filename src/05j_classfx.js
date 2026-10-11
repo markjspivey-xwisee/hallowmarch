@@ -229,6 +229,7 @@ function drawClasses(dt) {
     if (A.type === 'fire') glowPush(A.x, A.y, A.z, 2.4, 1.1, 0.3, 0.42);
     else if (A.k >= 0.98) glowPush(A.x, A.y, A.z, 1.4, 1.3, 1.0, 0.16);
   }
+  drawDazzle(); // [balance3] motes of light about a dazzled head (07c_balance3.js)
   for (const S of CLS.stuck) if (near2(S.x, S.z, 70)) { arrowPush(S.x - S.dx * 0.25, S.y - S.dy * 0.25, S.z - S.dz * 0.25, S.dx, S.dy, S.dz); if (S.type === 'fire' && GAME.t < S.until - 52) glowPush(S.x, S.y, S.z, 1.6, 0.6, 0.15, 0.3); }
   // ice sheets: grow in, melt away
   for (const s of CLS.ice) if (s.mesh) { const u = s.mesh.material.uniforms; u.uK.value = iceRadiusK(s); u.uAge.value = GAME.t - s.t0; }
