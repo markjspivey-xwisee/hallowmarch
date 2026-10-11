@@ -234,6 +234,7 @@ function chronClasses() {
       ['Overcasting', 'overcast', 'Out of power, you can still cast: the spell takes its due in health, and no power returns for a moment.'],
       ['Ward', '', 'While your Arcane Ward holds, a stun that strikes you breaks on it instead, and the ward loses half its strength: raise it before a warrior leaps in. A freeze still holds.'], // [balance2]
       ['Frost holds', '', 'A foe your frost roots cannot Leap Strike out of it, and from rank II it cannot Charge out either; nor can anyone in your Blizzard. Root the blade, then cast the long spell.'], // [balance3]
+      ['Seasoned', '', 'The elements answer a seasoned mage more strongly: from rank II your spells strike 7% harder for each rank past the first, on top of what every ability gains with rank.'], // [balance4]
     ])}
     ${card('priest', 'The priest', 'A priest gathers <b>devotion</b> by healing, by prayer and by holy acts, and spends it on greater works. Devotion also strengthens every heal.', [
       ['Devotion', 'devotion', 'Healing others, smiting the dead and praying build it; it fades when you rest on it. Every point makes your healing stronger, up to 25%.'],
