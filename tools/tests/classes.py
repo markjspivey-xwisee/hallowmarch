@@ -785,6 +785,25 @@ async def balance4(page):
       for (let i = 0; i < 30 && P.motion; i++) H.simulate(0.05);
       return { sprung: !!S.sprung, caught: S.caught === P.id, rooted: P.buffs.some((b) => b.kind === 'root' && b.until > H.GAME.t), d: +Math.hypot(ar.x - P.x, ar.z - P.z).toFixed(1), toSnare: +Math.hypot(S.x - P.x, S.z - P.z).toFixed(1) }; })()""")
     check(r['caught'] and r['rooted'] and r['d'] > 2.0, f"a snare in the rush's path catches the warrior and holds it there ({r})")
+    # [balance4] a foe walking away is reached on the step that closes on it (the rush ran at its heels for 1.9 s), and
+    # until Leap Strike the blow slows it by 45% for 3 s; from Leap Strike's level it does not slow
+    r = await ev(page, 'rush-flee', """(() => { const H = T.H, F = T.F; const out = {};
+      for (const lv of [20, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 14); const f = T.foe(2, a.x, a.z, lv, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20, speed: 0.01 }; F.setupStats(f);
+        H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; f.buffs.length = 0;
+        const L = Math.hypot(f.x - P.x, f.z - P.z), ux = (f.x - P.x) / L, uz = (f.z - P.z) / L; let t = 0;
+        F.useAbility(P, 'charge', f);
+        while (P.motion && t < 2.5) { f.x += ux * 0.3; f.z += uz * 0.3; H.simulate(0.05); t += 0.05; }
+        H.simulate(0.25); const sl = f.buffs.find((b) => b.kind === 'snare' && b.until > H.GAME.t);
+        out[lv] = { t: +t.toFixed(2), d: +Math.hypot(f.x - P.x, f.z - P.z).toFixed(1), slow: sl ? +sl.value.toFixed(2) : 0, slowFor: sl ? +(sl.until - H.GAME.t).toFixed(1) : 0 }; }
+      return out; })()""")
+    check(r['20']['t'] < 1.3 and r['20']['d'] < 3.6, f"a rush reaches a foe walking away from it at 6 m/s ({r['20']})")
+    check(abs(r['20']['slow'] - 0.45) < 0.01 and r['20']['slowFor'] > 2.4, f"until Leap Strike the rush's blow slows by 45% for 3 s ({r['20']})")
+    check(r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow does not slow ({r['30']})")
+    # [balance4] a skilled priest of rank I holds its mace from a warrior's guard; from rank II it swings
+    r = await ev(page, 'hold-mace', """(() => { const H = T.H; const out = {};
+      for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.foe(2, a.x, a.z, lv, 'priest', 0); H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
+      return out; })()""")
+    check(r['10'] is True and r['30'] is False, f"a skilled priest of rank I holds its mace from a warrior's guard, not from rank II ({r})")
     r = await ev(page, 'rush-why', """(() => { const H = T.H; const P = T.fresh('warrior', 20, 0); const A = { dash: true, id: 'charge' };
       const out = { foot: H.bal4.rushWhy(P, A, null) }; P.mount = {}; out.mounted = H.bal4.rushWhy(P, A, null); P.mount = null; P.swim = true; out.swim = H.bal4.rushWhy(P, A, null); P.swim = false; return out; })()""")
     check(r['foot'] is None and r['mounted'] == 'mounted' and r['swim'] == 'swimming', f"no rush on a horse or in the water ({r})")
