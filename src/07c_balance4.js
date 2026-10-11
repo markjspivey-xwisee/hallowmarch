@@ -51,7 +51,7 @@ function chargeRush(e, A, t, rk) {
   setAct(e, 10, RUSH.maxT); // the shield raised across the body, the legs running (05a_rig.js: the guard over the gait)
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 70 * 70) FX.dust(e.x, e.y, e.z, 10);
   if (e === GAME.player || dist2(e.x, e.z, camera.position.x, camera.position.z) < 40 * 40) sfx('swing');
-  RUSH.stats.rushes++;
+  RUSH.stats.rushes++; if (RUSH.onEvent) RUSH.onEvent(e, `rush from ${dist(e.x, e.z, t.x, t.z).toFixed(1)} m`);
 }
 // each step of a rush (updateMotion): on toward the foe along the ground; true while it carries the body
 function chargeRushStep(e, m, dt) {
@@ -62,6 +62,7 @@ function chargeRushStep(e, m, dt) {
     e.y = groundY(e);
     if (e.anim.act === 10) { e.anim.act = 0; e.anim.actDur = 0; }
     RUSH.stats[why]++;
+    if (RUSH.onEvent) RUSH.onEvent(e, `rush ${why} at ${t ? dist(e.x, e.z, t.x, t.z).toFixed(1) : '-'} m after ${m.t.toFixed(2)} s`); // tests: a duel's trace
     if (why === 'arrived' && t) chargeLands(e, m.A, t, m.rk);
     return true;
   };
@@ -148,11 +149,13 @@ const rushing = (o) => !!(o && o.motion && o.motion.rush);
 // an armed snare of e's foes lying on the rush's way from e to t: the rush stops at reach, short of the foe, and a snare
 // springs on a body within 0.55 m of its edge (stepSnares), so a snare laid at a bow's feet does not lie on a rush's way
 // until the bow has walked on past it (it did, as a snare anywhere near the line: the warrior strafed and never rushed)
+// A snare still arming is one too if it will be armed by the time the rush passes it (a bow walks away from a rush, so
+// it comes slower than its pace: a snare laid as the warrior pressed Charge armed under it on the way)
 function snareOnLine(e, t) {
   const lx = t.x - e.x, lz = t.z - e.z, L = Math.hypot(lx, lz) || 1;
   const stop = Math.max(0, L - rushReach(e, t)) / L, r = 0.55 + e.radius * (e.scale || 1) + 0.45;
   for (const S of CLS.snares) {
-    if (S.sprung || S.faction === e.faction || GAME.t < S.armAt - 0.5) continue;
+    if (S.sprung || S.faction === e.faction || GAME.t + 1.6 * dist(e.x, e.z, S.x, S.z) / RUSH.speed + 0.3 < S.armAt) continue;
     const u = ((S.x - e.x) * lx + (S.z - e.z) * lz) / (L * L);
     if (u <= 0.02) continue;
     const v = Math.min(u, stop);

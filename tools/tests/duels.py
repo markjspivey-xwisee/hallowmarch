@@ -71,7 +71,7 @@ window.DS = {
   tapOff() { this.B.BAL.tap = null; this.B.BAL.track = null; return 0; },
   // a timeline of the first n duels of a phase: every press, blow and a look each second
   ev(e, s) { const L = this.trace[e.id]; if (L && L.length < 400) L.push(`${(this.H.GAME.t - this.t0).toFixed(1)} ${e.cls}${e.bot ? e.bot.kind[1] : ''}${e.id} ${s}`); },
-  traceOn(n) { this.trace = {}; this.traceIds = new Set(); this.t0 = this.H.GAME.t; for (const A of CB.A.slice(0, n)) for (const u of [A.ua, A.ub]) { this.trace[u.id] = []; this.traceIds.add(u.id); } return 0; },
+  traceOn(n) { this.trace = {}; this.traceIds = new Set(); this.t0 = this.H.GAME.t; const R = this.H.bal4 && this.H.bal4.RUSH; if (R) R.onEvent = (e, s) => { if (this.traceIds && this.traceIds.has(e.id)) this.ev(e, s); }; /* [balance4] a Charge's rush, where it ended and why */ for (const A of CB.A.slice(0, n)) for (const u of [A.ua, A.ub]) { this.trace[u.id] = []; this.traceIds.add(u.id); } return 0; },
   traceOut() { if (!this.trace) return []; const out = []; for (const A of CB.A) { if (!this.trace[A.ua.id]) continue; out.push({ a: A.a, b: A.b, win: A.res && A.res.win, ev: [...this.trace[A.ua.id], ...this.trace[A.ub.id]].sort((x, y) => parseFloat(x) - parseFloat(y)) }); } this.trace = null; this.traceIds = null; return out; },
   // duels: [[clsA, kindA, clsB, kindB, realmA, realmB, flip]] in as many arenas as there are
   setup(lvl, list) {
