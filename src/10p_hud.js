@@ -20,7 +20,8 @@ const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar'
 // there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
 // most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
 // do not jump at every toast
-const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast'];
+const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // an upright phone: the class panel stays
+const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
@@ -169,7 +170,7 @@ function hudLayout(dt) {
     placed.push({ ...c, sel });
   };
   const noteUp = mode !== 'desk' && !!document.querySelector('#banners > .lore-note:not(.hl-old)'); // [guide]
-  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? HUD_ORDER_NOTE : HUD_ORDER) {
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? (mode === 'wide' ? HUD_ORDER_NOTE_WIDE : HUD_ORDER_NOTE) : HUD_ORDER) {
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)
