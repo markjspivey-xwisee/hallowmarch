@@ -574,9 +574,9 @@ function botMage(e, t) {
   if (botUse(e, 'blizzard', t)) return true;
   // [balance2] fire into a wet foe is damped: a frost focus chills it with every bolt, and the next firebolt makes steam
   const wet = wetOf(t) > 0.3;
-  // [balance5] a caster soaked by the steam while the lance comes round: a storm focus, so the bolts between spells run
+  // [balance5] a mage soaked by the steam while the lance comes round: a storm focus, so the bolts between spells run
   // through the wet and break its spells (a storm blow breaks three spells in five)
-  const stormy = clsHas(e, 'storm') && wet && ch <= 0 && (t.cls === 'mage' || t.cls === 'priest') && !!canUse(e, 'frost', t);
+  const stormy = clsHas(e, 'storm') && wet && ch <= 0 && t.cls === 'mage' && !!canUse(e, 'frost', t); // (not at a priest: three storm bolts in five broke its spells, and it won 1 of 24 against a mage at 50)
   focus(stormy ? 'storm' : ch > 0 || wet ? 'frost' : 'fire');
   if (wet && ch <= 0) return botUse(e, 'frost', t) || (e.swingAt - GAME.t > 1.2 && botUse(e, 'firebolt', t));
   return botUse(e, 'firebolt', t) || botUse(e, 'frost', t);
@@ -675,7 +675,7 @@ function chargeFree(e, dur) {
 // [balance2] a broadhead's wound (the 'wound' buff, 6 s): healing on it takes 40% less (healEnt asks), so an archer can
 // wear down a priest who would otherwise mend as fast as the arrows land
 const WOUND_HEAL = 0.3; // [balance3] 0.4: a skilled archer now keeps the wound open on a priest (broadheads, not blunt heads into a steadfast spell)
-const WOUND_HEAL_LATE = 0.45; // [balance3] from rank II the head cuts deeper: a priest's healing outgrew the arrows at 30 and 50
+const WOUND_HEAL_LATE = 0.3; // [balance3] 0.45 from rank II: a priest's healing outgrew the arrows at 30 and 50 [balance5] measured in arenas pocked by meteors, where a bow's shots struck the rims; on clean ground a bow won 24 of 24 against a priest at 50 (07c_balance5.js)
 const woundOf = (src) => (src && abilityRank(src.level || 1) >= 2 ? WOUND_HEAL_LATE : WOUND_HEAL);
 function healWound(dst) { const v = buffMax(dst, 'wound'); return v > 0 ? 1 - v : 1; }
 // [balance2] a mage's Arcane Ward (elementWard, marked 'eward' while it lasts): a stun that strikes the mage breaks on

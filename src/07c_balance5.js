@@ -68,21 +68,10 @@ const renewFresh = (e) => !e.cs || !(GAME.t < (e.cs.renewUntil || -99) - RENEW_F
 function renewMark(e) { if (e.cs) e.cs.renewUntil = GAME.t + ABILITIES.renew.hot[1]; }
 
 /* ------------------------------------------------------------------ */
-/* the archer: a crippling arrow's wound                               */
-/* ------------------------------------------------------------------ */
-// Crippling Arrow opens a wound that mends slowly for as long as it slows: healing on it takes 30% less (45% from an
-// archer of rank II), as a broadhead's does. A bow's answer to a healer that needs no special arrows (an archer who
-// pressed its abilities in turn lost all 24 of its duels against a priest at 10 and 50)
-function crippleWound(src, t, sn) {
-  if (!src || src.cls !== 'archer' || !t.alive || t.kind === 'door') return;
-  addBuff(t, 'wound', woundOf(src), sn ? sn[1] : 5, 'wound');
-}
-
-/* ------------------------------------------------------------------ */
 /* the skilled bots: out from under a meteor, out of a blizzard        */
 /* ------------------------------------------------------------------ */
-// a skilled hand does not stand where a foe's meteor is about to land or in its blizzard: a mage blinks and an archer
-// tumbles from under a falling meteor (letting its own spell go), anyone walks out of the ice. A mirror of mages at 30
+// a skilled hand does not stand where a foe's meteor is about to land, in its blizzard or in burning grass: a mage blinks
+// and an archer tumbles from under a falling meteor (letting its own spell go), anyone walks out of the ice and the fire. A mirror of mages at 30
 // and 50 was won by whose meteor landed first; the simple bot stands where it is
 function botDodge(e, t, dt) {
   if (e.motion || isRooted(e) || e.fixedY != null || e.swim || e.boat) return false;
@@ -91,6 +80,12 @@ function botDodge(e, t, dt) {
     if (p.kind !== 'meteor' || p.srcFaction === e.faction || !p.point) continue;
     const R = ABILITIES.meteor.radius + e.radius * (e.scale || 1) + 0.3, d = dist(e.x, e.z, p.point.x, p.point.z);
     if (d < R) { best = { x: p.point.x, z: p.point.z, now: true }; break; }
+  }
+  // burning grass under its feet (2% of health a second): out of it
+  if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45) {
+    let bx = 0, bz = 0, nb = 0;
+    for (let a = 0; a < 8; a++) { const x = e.x + Math.sin(a * 0.785) * 2.5, z = e.z + Math.cos(a * 0.785) * 2.5; if (natGet(x, z, 2) > 0.3) { bx += x; bz += z; nb++; } }
+    if (nb < 8) best = nb ? { x: bx / nb, z: bz / nb, now: false, fire: true } : { x: e.x, z: e.z, now: false, fire: true };
   }
   if (!best && typeof SPELL !== 'undefined') for (const S of SPELL.emitters) {
     if (S.kind !== 'blizzard' || !S.src || S.src.faction === e.faction || S.until < GAME.t + 0.8) continue;
@@ -106,7 +101,7 @@ function botDodge(e, t, dt) {
     if (e.cls === 'mage' && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null)) { e.yaw = Math.atan2(ax, az); if (botUseAny(e, 'blink', e)) return true; }
     if (e.cls === 'archer' && e.level >= ABILITIES.tumble.level && !canUse(e, 'tumble', null)) { e.yaw = Math.atan2(-ax, -az); if (botUseAny(e, 'tumble', e)) return true; }
   } else if (e.casting) {
-    if (e.casting.total - e.casting.t < 0.8) return false; // nearly cast: finish it, then walk out
+    if (best.fire || e.casting.total - e.casting.t < 0.8) return false; // nearly cast (or a grass fire, a slow harm): finish it, then walk out
     e.casting = null;
   }
   moveToward(e, e.x + ax * 4, e.z + az * 4, dt, 1, 0);
@@ -158,6 +153,8 @@ function balFlattenCraters() {
     n++;
   }
   NATURE.craters.length = 0;
+  // and the grass fires out (the last fighters' fire arrows and firebolts lit them, and the next fighters stood in them)
+  if (NATURE.fire && NATURE.fire.size) { for (const [k, c] of NATURE.fire) { NAT.data[k * 4 + 2] = 0; natMark(c.i, c.j, c.i, c.j); } NATURE.fire.clear(); }
   return n;
 }
 
@@ -165,9 +162,8 @@ function balFlattenCraters() {
 ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares in its face: the spell is lost, unless the caster stands steadfast.`;
 ABILITIES.whirl.desc = `Spin with your weapon out. 140% damage to every enemy within 4 m, and each foe your blade cuts gives you back ${Math.round(WHIRL_HEAL * 100)}% of your health.`;
 ABILITIES.renew.desc = 'Heals 32% over 9 seconds. On yourself it also loosens roots, and a fresh one (none of your Renewals still mending you) steadies you for 4 s: nothing but a stun breaks your spells. With 20 devotion it also blesses the target.';
-ABILITIES.cripple.desc = 'Slows the target by 50% for 5 seconds, and its wound mends slowly: healing on it takes 30% less while it lasts (45% from rank II). From level 12 it marks the foe: you strike it 10% harder for 30 s.';
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal5 = { BAL5, flattenCraters: balFlattenCraters, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH, crippleWound };
+  window.__hm.bal5 = { BAL5, flattenCraters: balFlattenCraters, botDodge, FLARE_REACH, hallowDazzle, CLASSES, ABILITIES, healEnt, ARCHER_REALM, PRIEST_REALM, holyFlare, castBreakable, flareThreat, flareWorth, WHIRL_HEAL, whirlHeal, renewFresh, RENEW_FRESH };
 }, 0);

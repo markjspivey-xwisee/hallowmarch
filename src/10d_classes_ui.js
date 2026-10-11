@@ -221,9 +221,9 @@ function chronClasses() {
     ])}
     ${card('archer', 'The archer', 'An archer\'s strength is the <b>draw</b>. A snap shot is quick and wild; a full draw flies true and hard, and every arrow loosed from the string falls in a real arc and drifts on the wind.', [
       ['The draw', 'draw', 'Hold X to draw, let go to loose. Full draw takes 1.2 s: 160% harm and a better chance to strike deep. Hold too long and your arms tire. With no foe targeted you shoot where you look.'],
-      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose); a broadhead\'s wound bleeds and mends slowly (healing on it takes 30% less, 45% from rank II), the answer to a healer, and a bodkin goes through half of any armour. Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
+      ['Arrows', 'arrows', 'Plain arrows never run out. Broadhead, bodkin, fire and blunt arrows are kept in your packs (Y to choose); a broadhead\'s wound bleeds and mends slowly (healing on it takes 30% less), the answer to a healer, and a bodkin goes through half of any armour. Your abilities and drawn shots use the chosen kind. Arrows that miss can be picked up again.'],
       ['Hiding', 'hide', 'Keep still in long grass or among trees, out of the fight for three seconds, and you are hidden: foes see you only close by, and your first shot strikes 50% harder.'],
-      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on, and it falls over a raised shield), snares and Tumble keep a pack at bow\'s length, and a snare laid in a charging warrior\'s path holds it there. Crippling Arrow\'s wound mends slowly, as a broadhead\'s does, for as long as it slows: the answer to a healer that needs no special arrows.'], // [balance] [balance4] [balance5]
+      ['Light feet', '', 'An archer moves a little quicker than anyone in armour and slips one blade in seven. Crippling Arrow, Volley (it pins what it falls on, and it falls over a raised shield), snares and Tumble keep a pack at bow\'s length, and a snare laid in a charging warrior\'s path holds it there.'], // [balance] [balance4]
       ['Snares', 'snare', 'T lays a snare at your feet: the first foe to step on it is held fast for 3.5 s, and the cord whips the legs of any foe beside it. Two at a time.'],
       ['Tracking', 'track', 'Crippling Arrow and full-draw hits mark the quarry for 30 s: you strike it 10% harder.'],
     ])}
@@ -270,5 +270,4 @@ LOADING_TIPS.push(
   'Mend does most for a deep wound: mend at need, and let Renewal carry you between.', // [balance4]
   'A priest\'s Holy Fire, cast close by at a foe in the middle of a spell, flares the spell away; a fresh Renewal keeps a priest\'s own spells steady.', // [balance5]
   'A warrior\'s Whirlwind heals it a little for every foe the blade cuts: the thicker the press, the more it heals.', // [balance5]
-  'Crippling Arrow\'s wound mends slowly while it slows: an archer\'s answer to a healer.', // [balance5]
 );

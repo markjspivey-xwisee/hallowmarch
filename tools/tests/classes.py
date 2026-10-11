@@ -757,7 +757,7 @@ async def balance3(page):
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};
       for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
       return out; })()""")
-    check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.45 and r['50']['wound'] == 0.45, f"a broadhead's wound: 30%, 45% from rank II ({r})")
+    check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.3 and r['50']['wound'] == 0.3, f"a broadhead's wound: 30% at every rank ([balance5]: 45% from rank II before) ({r})")
     check(abs(r['20']['self'] - 0.7) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 70% ([balance5] 75%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
@@ -849,7 +849,7 @@ async def balance4(page):
 
 async def balance5(page):
     """[balance5] Holy Fire flares a caster's spell away (not a steadfast one);
-    only a fresh Renewal steadies; a crippling arrow's wound; Whirlwind heals in the press; the realm's ways evened out"""
+    only a fresh Renewal steadies; Whirlwind heals in the press; the realm's ways evened out"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
     r = await ev(page, 'flare', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 0);
       const a = T.ahead(P, 8); const m = T.foe(2, a.x, a.z, 20, 'mage', 0); m.ai.nextAbility = 1e9; m.swingAt = 1e9; H.simulate(0.1);
@@ -873,12 +873,6 @@ async def balance5(page):
     check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
     check(r['steady'] and r['kept'], f"a priest steadfast from a fresh Renewal keeps its Mend through the flare ({r})")
     check(not r['q2'] and not r['stale'] and r['fresh'], f"a Renewal while the last still mends does not steady; one after it has run its course does ({r})")
-    r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);
-      const a = T.ahead(P, 14); const q = T.foe(2, a.x, a.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
-      P.target = q.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; H.cls.csOf(P).arrow = 'plain'; F.useAbility(P, 'cripple', q); H.simulate(1.2);
-      const w = q.buffs.find((b) => b.kind === 'wound' && b.until > H.GAME.t); q.hp = q.maxHp * 0.5; const h0 = q.hp; H.bal5.healEnt(q, q, 100);
-      return { wound: w ? +w.value.toFixed(2) : 0, left: w ? +(w.until - H.GAME.t).toFixed(1) : 0, healed: Math.round(q.hp - h0) }; })()""")
-    check(abs(r['wound'] - 0.3) < 0.01 and r['left'] > 3 and abs(r['healed'] - 70) <= 1, f"a crippling arrow's wound: healing on it takes 30% less while it slows ({r})")
     r = await ev(page, 'whirl', """(() => { const H = T.H, F = T.F; const out = {};
       for (const n of [1, 4]) { const P = T.fresh('warrior', 30, 0); H.simulate(0.1);
         for (let i = 0; i < n; i++) { const a = T.ahead(P, 2.2, (i - (n - 1) / 2) * 1.4); const f = T.foe(2, a.x, a.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f); }

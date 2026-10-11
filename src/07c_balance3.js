@@ -134,7 +134,7 @@ ABILITIES.smite.desc += ` Its light dazzles: for 3 s the foe misses some of its 
 ABILITIES.nova.desc = 'Your focus bursts out to 7 m. Fire: burns and roots. Frost: chills and roots (no Leap Strike out of it, and from rank II no Charge either) and freezes water. Storm: a thunderclap that throws foes back.';
 ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health, and bites back at anyone who strikes you in your focus: burning, chilling or shocking them. A stun that strikes you while it holds breaks on it instead, at half its strength.';
 ARROW_DEF.bodkin.text = 'Needle points that go through mail: armour stops only half of them, and they strike warriors harder.';
-ARROW_DEF.broadhead.text = 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 30% less for 6 s (45% from rank II).';
+ARROW_DEF.broadhead.text = 'Wide hunting heads: a fifth more harm to beasts and the unarmoured, and they open a bleeding wound that mends slowly: healing on it takes 30% less for 6 s.'; // [balance5] (45% from rank II)
 STANCES[0].text += ` ${SHIELD_WALL_PACE >= 0.99 ? 'You walk at your full pace behind a raised shield' : 'A raised shield costs you only a quarter of your pace'}: a shield wall against arrows, though a volley falls over it.`; // [balance4] the pace from SHIELD_WALL_PACE
 if (GOODS.arrows_bodkin) GOODS.arrows_bodkin.desc = ARROW_DEF.bodkin.text;
 if (GOODS.arrows_broadhead) GOODS.arrows_broadhead.desc = ARROW_DEF.broadhead.text;
