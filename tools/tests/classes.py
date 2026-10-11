@@ -764,7 +764,7 @@ async def balance4(page):
     realm's way can be set aside for a measure (plainCalling)"""
     await page.evaluate("() => {" + MECH_JS + "; return 0; }")
     r = await ev(page, 'rush', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 20, 0);
-      const a = T.ahead(P, 18); const f = T.foe(2, a.x, a.z, 20, 'archer', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f);
+      const a = T.ahead(P, 18); const f = T.foe(2, a.x, a.z, 20, 'mage', 0); /* (not a bow: an archer slips one blade in seven) */ f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 20 }; F.setupStats(f);
       H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const d0 = Math.hypot(f.x - P.x, f.z - P.z), hp0 = f.hp;
       const r = F.useAbility(P, 'charge', f); const trail = [];
       for (let i = 0; i < 6; i++) { H.simulate(0.2); trail.push(+Math.hypot(f.x - P.x, f.z - P.z).toFixed(1)); }
