@@ -15,8 +15,7 @@ const HUD_PREF = {
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
-const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar', '#banners', '#war', '#lore-path', '#bounty', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [guide] a field note or a toast (they last seconds) before the war panel and the path: after them there was never room on an upright phone, and every note waited out of sight (the class panel and the companion bar keep their places: you reach for them)
-const HUD_ORDER_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // [guide] a phone on its side: the note first, beside the frames, or nowhere
+const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [guide] a field note or a toast (they last seconds) before the panels that stay, which make room for it a few seconds: after them there was never room on a phone, and every note waited out of sight (with the class panel and the companion bar placed first, most notes shrank to their titles on an upright phone)
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
@@ -164,7 +163,7 @@ function hudLayout(dt) {
     else hudMove(el, c.x, c.y, sel === '#buildbar' ? r.w : 0);
     placed.push({ ...c, sel });
   };
-  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : mode === 'wide' ? HUD_ORDER_WIDE : HUD_ORDER) { // [guide] HUD_ORDER_WIDE
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : HUD_ORDER) {
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)

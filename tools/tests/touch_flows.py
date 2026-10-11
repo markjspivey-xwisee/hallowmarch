@@ -25,7 +25,7 @@ HELP = r"""
 window.TF = {
   H: window.__hm,
   P() { return this.H.GAME.player; },
-  calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; },
+  calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; H.LORE.state.noteUntil = performance.now() + 120000; }, // [guide] no field note pops up under a finger mid-flow (guide.py and the guide flow show theirs)
   stand(x, z, fx, fz) { const H = this.H, P = this.P(); if (H.fn.closeDialog && !document.getElementById('dialog').hidden) H.fn.closeDialog(); for (const id of ['craft', 'mapov']) { const el = document.getElementById(id); if (el && !el.hidden && id === 'craft') H.surv.closeCraft(); } H.teleport(x, z); P.yaw = Math.atan2(fx - x, fz - z); H.CAM.yaw = P.yaw; H.UI.modal = null; H.CAM.mode = 'play'; this.calm(); H.simulate(0.1); return 0; },
   // a dry spot on the Logres river's bank, facing the water
   bank() {

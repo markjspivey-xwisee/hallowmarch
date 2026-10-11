@@ -144,6 +144,7 @@ async def phone(p):
     check(r['m'] and 'Herald' in r['m']['what'] and r['m']['where'].startswith('70 m west'), f'the next step is marked: the herald, 70 m west ({r["m"]})')
     check(r['gem'] and r['gem']['inside'] and r['gem']['gold'] >= 3, f'a gold gem on the minimap where the herald stands ({r["gem"]})')
     check('70 m' in r['chip'], f'the folded path says how far ({r["chip"]})')
+    await ev(page, "document.getElementById('zonetoast').classList.remove('on'); 0")  # the zone's name dims the folded path for three seconds after a journey
     check(await tap(page, '#lore-path [data-act="max"]'), 'a tap unfolds the path')
     r = await ev(page, "(document.querySelector('#lore-path .gd-where') || {}).textContent || ''")
     check('70 m west' in r, f'the unfolded step says where and which way ({r})')
@@ -185,6 +186,7 @@ async def phone(p):
     n1 = await ev(page, "document.querySelectorAll('#banners .lore-note').length")
     check(n1 < n0, f'a tap dismisses it ({n0} then {n1})')
     # every new note's watch, through the world's own state
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
     r = await ev(page, """(() => { const H = __hm, G = H.guide, P = GD.P(), seen = () => H.LORE.progress().seen, out = {};
       const want = (id, set, unset) => { set(); G.GUIDE.scanT = 0; for (let i = 0; i < 3; i++) { H.LORE.check(); H.LORE.state.noteUntil = 0; H.frame(1/30); } out[id] = seen().includes(id); if (unset) unset(); };
       want('brand', () => { P.brand = { until: H.GAME.t + 30, wet: 0, x: P.x, y: P.y + 1.4, z: P.z, emitAcc: 0 }; }, () => { P.brand = null; });

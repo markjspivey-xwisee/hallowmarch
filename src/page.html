@@ -675,10 +675,10 @@
   @media (max-width: 560px) { #menu-body .keys { grid-template-columns: minmax(0, 1fr); gap: 3px; } #menu-body .keys kbd { margin-top: 7px; white-space: normal; } } /* a phone: each key over its line, not a wide column of keys beside a narrow one of words */
   #banners > .hl-old { display: none !important; }
   @media (max-height: 500px) and (max-width: 1000px) { #hud #banners .lore-note { width: min(300px, 46vw); } } /* a phone on its side: a narrow note fits beside the frames */
-  #hud #banners.hl-compact > .banner { width: auto; max-width: min(300px, 72vw); padding: 6px 11px 7px; }
+  #hud #banners.hl-compact > .banner { width: auto; max-width: min(300px, 54vw); padding: 6px 11px 7px; }
   #banners.hl-compact .lore-note span { display: none; }
   #banners.hl-compact .lore-note b { font-size: 16px; }
-  #banners.hl-compact .lore-note small::after { content: ' · tap to read'; }
+  #banners.hl-compact .lore-note small { font-size: 0; } #banners.hl-compact .lore-note small::after { content: 'Field note · tap'; font-size: 10.5px; }
   #banners.hl-compact > .banner:not(.lore-note):not(.lore-step) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.3; }
 </style>
 
