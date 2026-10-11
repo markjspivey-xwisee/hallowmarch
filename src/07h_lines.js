@@ -65,10 +65,11 @@ function wallsHeldShot(e, t) {
 const _lcand = [];
 function wallsOtherFoe(e, t) {
   _lcand.length = 0;
-  const R = e.rangedRange || 20;
+  const R = Math.max(8, (e.rangedRange || 20) - 3); // well within its reach (one at the edge of it walks out of it)
   forNear(e.x, e.z, R, (o, d2) => {
     if (o === t || !o.alive || o.kind === 'door' || !isActor(o) || !isEnemy(e, o)) return;
     if (o.role === 'villager' || o.role === 'merchant' || o.role === 'herald' || o.role === 'critter' || o.role === 'dummy') return; // a fighter, not the townsfolk (nor a test's straw man)
+    if (o.role === 'mob' && o.target == null) return; // nor a beast of the wild that is fighting nobody
     if (o.flying || o.kind === 'dragon' || o.role === 'boss' || Math.abs(o.y - e.y) > 12) return; // nor the dragon passing over
     if (!canReach(e, o) || !classSeen(e, o, d2)) return;
     if (e.warband && o.fixedY === null && Math.abs(o.y - e.y) > 2.2 && e.ai.storm && !e.ai.storm.done) return; // [siege2] a stormer leaves the walls for later

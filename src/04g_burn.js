@@ -16,7 +16,7 @@
 
 const PAL = { list: [], ready: false, stats: { lit: 0, spread: 0, out: 0, through: 0, rebuilt: 0, spared: 0, harm: 0 }, dirty: new Set() };
 const PAL_CELL = 1.5, PZ_MAX = 6;
-const PAL_T = { climb: 20, burn: 75, spread: 9, quiet: 20, rebuild: 150, ember: 110, cut: 0.6, harm: 0.03, fresh: 140, npcCatch: 0.3, douse: 0.07, news: 45 };
+const PAL_T = { climb: 20, burn: 75, spread: 9, quiet: 20, rebuild: 150, ember: 110, cut: 0.6, harm: 0.03, fresh: 140, npcCatch: 0.3, douse: 0.07, news: 45, reach: 3 };
 const PAL_LINE = KEEP_HS - KEEP_T / 2; // the palisades' middle line in the keep's frame (14.9)
 const PAL_GLSL = /* glsl */`
     // [siege2] a burh's palisade burning (04g_burn.js): S = the keep (x, z, cos, sin of its yaw), Y = (its height),
@@ -105,8 +105,9 @@ function palisadeFireAt(x, y, z, r, by) {
   const c = palisadeCellAt(x, y, z, Math.max(0.6, r * 0.6));
   if (!c) return 0;
   if (palisadeSpared(c.P, by)) { PAL.stats.spared++; return 0; }
-  // a spark (embers from the wall, a tower or the grass: no caster) does not take again in logs already burnt and put out
-  if (!by && c.st === 2) return 0;
+  // a spark (embers from the wall, a tower or the grass: no caster) does not take again in logs already burnt and put out,
+  // and the wall's own sparks do not light the wall (its fire goes along it from stretch to stretch: palisadeBurnStep)
+  if (!by && (c.st === 2 || PAL.sparking)) return 0;
   // thick logs, often wet with the dew: a soldier's bolt or burning arrow takes hold only now and then (the player's,
   // a brand's and the dragon's always do)
   if (by && by.faction !== undefined && by !== GAME.player && by.role !== 'player' && Math.random() > PAL_T.npcCatch) return 0;
@@ -126,9 +127,9 @@ function palisadeFireCone(x, z, dx, dz, range, half) {
   }
   return n;
 }
-function palisadeIgnite(c, heat = 0.12) {
+function palisadeIgnite(c, heat = 0.12, gen = 0) {
   if (c.st === 1 || c.st === 3 || c.st === 4) return false;
-  c.st = 1; c.heat = Math.max(c.heat, heat); c.t = 0; c.tick = 0;
+  c.st = 1; c.heat = Math.max(c.heat, heat); c.t = 0; c.tick = 0; c.gen = gen;
   PAL.stats.lit++;
   PAL.dirty.add(c.P);
   const P = GAME.player;
@@ -305,7 +306,8 @@ function palisadeBurnStep(c, dt, wet) {
       lit++;
     }
     // it spreads along the wall to the logs either side
-    if (c.heat > 0.45) for (const o of c.nb) if (o.st === 0 && Math.random() < (1 / PAL_T.spread) * c.heat * (1 - wet)) { palisadeIgnite(o, 0.1); PAL.stats.spread++; }
+    // (a few stretches either way from where it took hold: further on the logs are wetter, the gaps between them wider)
+    if (c.heat > 0.45 && (c.gen || 0) < PAL_T.reach) for (const o of c.nb) if (o.st === 0 && Math.random() < (1 / PAL_T.spread) * c.heat * (1 - wet)) { palisadeIgnite(o, 0.1, (c.gen || 0) + 1); PAL.stats.spread++; }
     // the keep's own people beat out the flames within reach (their faces to it, buckets and wet hides)
     const K = S.keepRef;
     let dousers = 0;
@@ -320,7 +322,7 @@ function palisadeBurnStep(c, dt, wet) {
       addBuff(o, 'burn', o.maxHp * PAL_T.harm * c.heat, 2, null);
       PAL.stats.harm++;
     });
-    if (Math.random() < 0.3 * c.heat) fireLandsAt(c.x + (Math.random() - 0.5) * 5, S.y + 0.4, c.z + (Math.random() - 0.5) * 5, 1.0, null); // embers set the grass alight
+    if (Math.random() < 0.3 * c.heat) { PAL.sparking = true; fireLandsAt(c.x + (Math.random() - 0.5) * 5, S.y + 0.4, c.z + (Math.random() - 0.5) * 5, 1.0, null); PAL.sparking = false; } // embers set the grass alight
     // at the end of a wall, where its logs meet a tower's, the fire takes the tower too (and a burning tower's embers the wall)
     if (c.heat > 0.6 && c.nb.length < 2 && Math.random() < 0.12 * c.heat) {
       const end = c.nb.length && c.nb[0].a < c.a ? c.a1 + 0.5 : c.a0 - 0.5, l = palisadeLocal(c.side, end, 0), p = siteToWorld(S, l.x, l.z);

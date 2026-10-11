@@ -1029,13 +1029,14 @@ function siegeOnBreach(W) {
   for (const id of K.guards) {
     const g = getEnt(id);
     if (!g || !g.alive || g.ai.wall) continue;
+    if (W.kind === 'burnt' && g.ai.plug && g.ai.plug.W !== W && g.ai.plug.W.state === 'breach') continue; // [siege2] a palisade's burnt gap takes those not already holding another (04g_burn.js)
     g.ai.plug = W.kind === 'tower' ? { W, ...towerPlugAt(W, n) } : { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 }; // [walls] a tower's: before its courtyard door (04g_breach.js)
     g.ai.sally = null;
     n++;
   }
   const Lr = getEnt(K.lord);
   if (Lr && Lr.alive) Lr.ai.plug = { W, x: W.wx - f.nx * 6, z: W.wz - f.nz * 6 };
-  if (n) { SIEGE.stats.plugs++; news(`The garrison of ${W.C.S.name} runs to hold the breach.`, K.realm, 'normal'); }
+  if (n) { SIEGE.stats.plugs++; if (GAME.t > (W.C.plugNewsAt || 0)) { W.C.plugNewsAt = GAME.t + 30; news(`The garrison of ${W.C.S.name} runs to hold the breach.`, K.realm, 'normal'); } } // [siege2] told once in a while (a palisade burns through stretch by stretch)
 }
 function siegeOnRepair(W) {
   const K = W.C.S.keepRef;
