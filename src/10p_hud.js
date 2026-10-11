@@ -20,8 +20,8 @@ const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar'
 // there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
 // most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
 // do not jump at every toast
-const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // an upright phone: the class panel stays
-const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames
+const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#lore-path', '#petbar', '#war', '#bounty', '#zonetoast']; // an upright phone: the class panel and the path keep their places (the war panel moved over the path's)
+const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames, the path in its place
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
