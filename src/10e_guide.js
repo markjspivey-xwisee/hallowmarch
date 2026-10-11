@@ -77,7 +77,10 @@ function guideMarkOf(S) {
       return S2 ? guideTown(P, R, S2.x, S2.z, `the ${STATION_DEF[kind].name}`) : null;
     }
     case 'muster':
-      if (prog.level < 14) return null;
+      if (prog.level < 14) { // until 14: hunt (the bounty's creatures, or a camp of your level)
+        if (b && !b.done && CAMPS[b.camp]) return { x: CAMPS[b.camp].x, z: CAMPS[b.camp].z, what: `the ${pluralName(b.name)}` };
+        return guideOnFrontier(P) ? null : guideCampFor(P, prog);
+      }
       return guideOnFrontier(P) ? { x: R.musterSite.x, z: R.musterSite.z, what: `${R.name} Muster` } : { x: R.town.x, z: R.town.z, what: 'the portal stones' };
     case 'climb': {
       const K = guideNearest(WAR.keeps.filter((q) => q.realm === P.faction), P, (q) => q.site);

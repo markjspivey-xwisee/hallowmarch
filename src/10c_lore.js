@@ -409,6 +409,7 @@ function pathComplete(S, silent = false) {
   host.appendChild(d);
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
+  HUDL.k = 0; // [guide]
   uiLog(`Your path: ${S.title}. Reward: ${got.t.replace(/<[^>]*>/g, '')}.`, 'rp');
   sfx('fanfare');
   const el = $('lore-path');
@@ -1178,6 +1179,7 @@ function showNextNote() {
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
   uiLog(`${N.t}: ${text}`, 'sys');
   LORE.noteUntil = performance.now() + 11500;
+  HUDL.k = 0; // [guide] laid out this frame: it never lies over a panel, even for a moment
   saveSoon();
 }
 // the death sheet carries a word of advice

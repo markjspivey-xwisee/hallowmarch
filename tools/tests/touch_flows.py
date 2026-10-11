@@ -332,8 +332,8 @@ async def main():
         if want('guide'):
             # [guide] the path tracker: a tap on the step opens your path in the Chronicle, a tap on Aims the late game's
             # goals; a field note is tapped away
-            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); const e = document.getElementById('lore-path'); if (e && e.classList.contains('min')) e.querySelector('[data-act=max]').click(); return 0; })()")
-            ok = await tap(page, '#lore-path .step')
+            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()")
+            ok = await tap(page, '#lore-path [data-act="open"]')
             r = await page.evaluate("({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
             ok2 = await tap(page, '.chron-nav [data-sec="goals"]')
             t = await page.evaluate("(document.querySelector('.chron-body') || {}).textContent || ''")

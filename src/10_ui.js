@@ -620,6 +620,7 @@ function uiToast(text, kind = '') {
   d.className = 'banner panel ' + (kind === 'level' ? 'level' : '');
   d.textContent = text;
   host.appendChild(d);
+  try { HUDL.k = 0; } catch (e) { /* the HUD's layout pass is not up yet */ } // [guide] laid out this frame, never over a panel
   setTimeout(() => d.remove(), 6200);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
 }

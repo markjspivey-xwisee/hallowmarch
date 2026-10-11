@@ -9,13 +9,14 @@
 const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
-  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB'], '#zonetoast': ['C', 'CB'] },
+  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone
   wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] },
   desk: { '#breath': ['C', 'CB'], '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
-const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [guide] a field note or a toast (they last seconds) before the panels that stay: on an upright phone there was never room for one after them, and every note waited out of sight
+const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar', '#banners', '#war', '#lore-path', '#bounty', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [guide] a field note or a toast (they last seconds) before the war panel and the path: after them there was never room on an upright phone, and every note waited out of sight (the class panel and the companion bar keep their places: you reach for them)
+const HUD_ORDER_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#zonetoast']; // [guide] a phone on its side: the note first, beside the frames, or nowhere
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
 const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
@@ -163,7 +164,7 @@ function hudLayout(dt) {
     else hudMove(el, c.x, c.y, sel === '#buildbar' ? r.w : 0);
     placed.push({ ...c, sel });
   };
-  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : HUD_ORDER) {
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : mode === 'wide' ? HUD_ORDER_WIDE : HUD_ORDER) { // [guide] HUD_ORDER_WIDE
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)

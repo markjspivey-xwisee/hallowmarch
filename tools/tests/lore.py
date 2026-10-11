@@ -208,7 +208,7 @@ async def desktop(p):
     check(r['level'] == 12 and r['gold'] == 50, 'an old save still loads, and no rewards are paid for what came before')
     check(all(k in r['p']['done'] for k in ('herald', 'bounty', 'lv5', 'draught')) and r['p']['next'] == 'muster', f'an old character starts the path at a fitting step ({r["p"]["next"]})')
     r = await ev(page, "__hm.LORE.fn.loreSanitize({ done: ['herald', 'bogus', 7, 'herald'], seen: 'nope', pro: 'yes' })")
-    check(r == {'done': ['herald'], 'seen': [], 'pro': 1}, f'a damaged path in a save is cleaned up ({r})')
+    check(r == {'done': ['herald'], 'seen': [], 'pro': 1, 'pv': 1}, f'a damaged path in a save is cleaned up ({r})')  # [guide] pv: the path's version, 1 when missing
 
     errs = await ev(page, "__hm.errors")
     check(errs == [], f'no errors ({errs[:2]})')
