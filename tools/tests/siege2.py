@@ -44,7 +44,7 @@ async def shot(page, name, js, q=None):
       for (const P of [__hm.walls.fx.fxAlpha, __hm.walls.fx.fxAdd]) { const a0 = P.a0.array, a1 = P.a1.array; let k = 0;
         for (let i = 0; i < P.max; i++) if (a0[i * 4 + 3] > now + 1e-3 && a1[i * 4 + 3] > 0) { a1[i * 4 + 3] = -1; k++; }
         if (k) { P.dirty0 = 0; P.dirty1 = P.max - 1; } }
-      __hm.frame(1/30); __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()""")
+      for (let i = 0; i < 7; i++) __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); })()""")  # (the flames' particles build up again over a few frames)
     data = base64.b64decode(url.split(',', 1)[1])
     if Image: Image.open(io.BytesIO(data)).convert('RGB').save(OUT + name + '.png')
     else: pathlib.Path(OUT + name + '.png').write_bytes(data)
@@ -175,18 +175,23 @@ async def palisade(page):
       // the garrison's own fire spares its own palisade
       const c0 = P.cells.find((c) => c.side === 0 && Math.abs(c.a) < 1), own = T2.dummy(2, c0.x, c0.z); F.fireLandsAt(c0.x, K.site.y + 3, c0.z, 1.2, own); F.removeEnt(own);
       out.spared = c0.st === 0;
-      // an enemy's fire spell lands on its back wall
-      const foe = T2.dummy(0, c0.x, c0.z); F.fireLandsAt(c0.x, K.site.y + 3, c0.z, 1.2, foe); F.removeEnt(foe);
+      // an enemy soldier's fire spells landing on its logs take hold now and then
+      const foe = T2.dummy(0, c0.x, c0.z), side2 = P.cells.filter((c) => c.side === 2); let caught = 0;
+      for (let i = 0; i < 16; i++) { const c = side2[i % side2.length]; F.fireLandsAt(c.x, K.site.y + 3, c.z, 1.2, foe); if (c.st === 1) { caught++; c.st = 0; c.heat = 0; for (const f of c.fires) f.until = 0; c.fires = []; } }
+      F.removeEnt(foe); out.npcCaught = caught;
+      // the player's fire spell on its back wall always does
+      F.fireLandsAt(c0.x, K.site.y + 3, c0.z, 1.2, __hm.GAME.player);
       out.lit = c0.st; T2.palC = P.cells.indexOf(c0); T2.palK = K;
       const t0 = __hm.GAME.t; let t = 0, maxB = 0; while (t < 30) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; maxB = Math.max(maxB, P.cells.filter((c) => c.st === 1).length); }
       out.heat = +c0.heat.toFixed(2); out.char = +c0.char.toFixed(2); out.burning = maxB; out.fires = c0.fires.length; out.spread = PL.PAL.stats.spread;
       out.zones = C.cutU.uPA.value.filter((v) => v.z > v.y).length;
       return out; })()""")
     check(r['spared'], 'palisade: the garrison\'s own fire spares its own palisade')
-    check(r['lit'] == 1 and r['char'] > 0.3 and r['fires'] >= 1, f"palisade: an enemy's fire spell sets its logs alight, the flames take hold and char them (char {r['char']}, {r['fires']} flames)")
+    check(0 < r['npcCaught'] < 16, f"palisade: an enemy soldier's fire spells take hold on its thick logs now and then ({r['npcCaught']} of 16)")
+    check(r['lit'] == 1 and r['char'] > 0.3 and r['fires'] >= 1, f"palisade: the player's fire spell sets its logs alight, the flames take hold and char them (char {r['char']}, {r['fires']} flames)")
     check(r['burning'] >= 2 and r['zones'] >= 1, f"palisade: the fire spreads along the wall ({r['burning']} stretches burning at once; {r['zones']} zones in the shader)")
     r = await ev(page, 'palisade: through', """(() => { const K = T2.palK, C = T2.C(K), P = C.pal, PL = __hm.palisade, F = T2.F, out = {}, c0 = P.cells[T2.palC];
-      let t = 0; while (t < 60 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; }
+      let t = 0; while (t < 90 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; }
       out.t = t; out.gaps = P.gaps.length; const W = P.gaps[0];
       if (!W) return out;
       out.width = +(W.a1 - W.a0).toFixed(1); out.state = W.state;
@@ -357,7 +362,7 @@ async def shots(page):
       T2.palShot = { K, c0 }; __hm.setTod(1.9); return P.cells.filter((c) => c.st === 1).length; })()""")
     pcam = """const { K, c0 } = T2.palShot, S = K.site, o = T2.F.siteToWorld(S, 14.9 + 14, c0.a + 7), t = T2.F.siteToWorld(S, 14.9, c0.a); T2.cam(o.x, S.y + 5.5, o.z, t.x, S.y + 3.2, t.z);"""
     await shot(page, 'siege2_palisade_night', "(() => { " + pcam + " return 0; })()", 'high')
-    await ev(page, 'shots: gap', """(() => { const { K, c0 } = T2.palShot, P = T2.C(K).pal; let t = 0; while (t < 60 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; } __hm.simulate(20); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.42); return P.gaps.length; })()""")
+    await ev(page, 'shots: gap', """(() => { const { K, c0 } = T2.palShot, P = T2.C(K).pal; let t = 0; while (t < 90 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; } __hm.simulate(20); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.42); return P.gaps.length; })()""")
     await shot(page, 'siege2_palisade_gap_high', "(() => { " + pcam + " return 0; })()", 'high')
     await shot(page, 'siege2_palisade_gap_low', "(() => { " + pcam + " return 0; })()", 'low')
     # an Eriu gate tower's thatched cone burning at dusk
@@ -368,11 +373,77 @@ async def shots(page):
     await ev(page, 'shots: house', """(() => { T2.quiet(); T2.away(); const F = T2.F, B = __hm.batter, S = __hm.REALMS[0].town; __hm.setTod(0.42);
       const hs = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole');
       const A = hs[0], Bh = hs[1] || hs[0], src = T2.dummy(1, S.x + 60, S.z);
-      B.houseStoneHit(A, A.x + 1.5, A.y + 1.4, A.z, 4.4, src, false); B.houseStoneHit(A, A.x + 0.6, A.y + A.wallH + 1, A.z + 0.4, 4.4, src, true);
+      // the hole on the slope of the roof the camera will see
+      const d0 = A.door.out2, dx0 = d0.x - A.x, dz0 = d0.z - A.z, L0 = Math.hypot(dx0, dz0), cxy = { x: A.x + dx0 / L0 * 9 + dz0 / L0 * 4, z: A.z + dz0 / L0 * 9 - dx0 / L0 * 4 }, cl = F.houseL(A, cxy.x, cxy.z);
+      const hp = F.houseW(A, Math.sign(cl.x || 1) * A.w * 0.22, cl.z > 0 ? A.d * 0.15 : -A.d * 0.15);
+      B.houseStoneHit(A, A.x + 1.5, A.y + 1.4, A.z, 4.4, src, false); B.houseStoneHit(A, hp.x, A.y + A.wallH + 1, hp.z, 4.4, src, true);
       let n = 0; while (Bh !== A && Bh.state === 'whole' && n < 20) { B.houseStoneHit(Bh, Bh.x, Bh.y + Bh.wallH + 1, Bh.z, 4.4, src, true); n++; }
       F.removeEnt(src); __hm.simulate(3); T2.hA = A; T2.hB = Bh; return { a: A.bat, b: Bh.state }; })()""")
     await shot(page, 'siege2_house_holed', """(() => { const H = T2.hA, d = H.door.out2, dx = d.x - H.x, dz = d.z - H.z, L = Math.hypot(dx, dz); T2.cam(H.x + dx / L * 9 + dz / L * 4, H.y + 7.5, H.z + dz / L * 9 - dx / L * 4, H.x, H.y + 2.2, H.z); return 0; })()""", 'high')
     await shot(page, 'siege2_house_ruin', """(() => { const H = T2.hB, d = H.door.out2, dx = d.x - H.x, dz = d.z - H.z, L = Math.hypot(dx, dz); T2.cam(H.x + dx / L * 10 + dz / L * 3, H.y + 5, H.z + dz / L * 10 - dx / L * 3, H.x, H.y + 1, H.z); return 0; })()""", 'high')
+    bad = await ev(page, 'programs', "__hm.dbg.renderer.info.programs.filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name + ': ' + (p.diagnostics.fragmentShader.log || p.diagnostics.vertexShader.log || '').slice(0, 300))")
+    check(len(bad) == 0, f'shots: every program drawn compiles (castles, houses, rain, people) ({bad[:2]})')
+
+
+async def save(page):
+    r = await ev(page, 'save: before', """(() => { T2.quiet(); T2.away(); const F = T2.F, PL = __hm.palisade, B = __hm.batter, out = {}; PL.palisadeInit();
+      // a burh with a gap burnt through its palisade and a stretch still burning
+      const K = T2.keep(2, 1), C = T2.C(K), P = C.pal; K.lastEnemyNear = __hm.GAME.t;
+      const c1 = P.cells.find((c) => c.side === 1 && Math.abs(c.a) < 1), c2 = P.cells.find((c) => c.side === 0 && Math.abs(c.a - 6) < 1);
+      PL.palisadeIgnite(c1, 1); c1.t = PL.PAL_T.burn - 0.5; __hm.simulate(1.5); PL.palisadeIgnite(c2, 0.5); __hm.simulate(1);
+      out.gap = P.gaps.length; out.c2 = c2.st; T2.svP = [P.cells.indexOf(c1), P.cells.indexOf(c2)];
+      // a house holed by a stone, another brought down by stones
+      const hs = __hm.REALMS[1].town.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole');
+      const A = hs[0], Bh = hs[1], src = T2.dummy(0, A.x + 50, A.z);
+      B.houseStoneHit(A, A.x, A.y + A.wallH + 1, A.z, 4.4, src, true); let n = 0; while (Bh.state === 'whole' && n < 20) { B.houseStoneHit(Bh, Bh.x, Bh.y + Bh.wallH + 1, Bh.z, 4.4, src, true); n++; } F.removeEnt(src);
+      out.a = [A.state, +A.bat.k.toFixed(2), +A.bat.hr.toFixed(2)]; out.b = [Bh.state, Bh.bat.fell]; T2.svH = [A.num, Bh.num];
+      // an Eriu tower's cone fallen
+      const T = __hm.towers.TOWER.list.find((q) => q.look === 'rath' && q.role === 'lookout'); __hm.towerfire.towerIgnite(T, T.TT + 2); T.burn.t = 69.5; __hm.simulate(1); out.cone = !!T.fallen; T2.svT = __hm.towers.TOWER.list.indexOf(T);
+      __hm.UI.modal = 'menu'; F.saveNow();
+      return out; })()""")
+    check(r['gap'] >= 1 and r['c2'] == 1 and r['a'][2] > 0 and r['b'][0] == 'ruin' and r['cone'], f"save: a burnt gap and a burning stretch of palisade, a holed house, one in ruins and a fallen cone before saving ({json.dumps(r)})")
+    ids = await page.evaluate("JSON.stringify({ P: T2.svP, H: T2.svH, T: T2.svT })")
+    await page.goto('http://hm.test/', wait_until='commit', timeout=300000)
+    await page.wait_for_function("window.__hm && window.__hm.ready && ((window.__hm.UI.modal = 'menu'), true)", timeout=240000, polling=1000)
+    await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
+    await page.evaluate("() => {" + HELPERS + "; return 0; }")
+    r2 = await ev(page, 'save: after', """((ids) => { const out = {}, F = T2.F; const K = T2.keep(2, 1), C = T2.C(K), P = (__hm.palisade.palisadeInit(), C.pal);
+      const c1 = P.cells[ids.P[0]], c2 = P.cells[ids.P[1]]; out.c1 = c1.st; out.c2 = c2.st; out.gaps = P.gaps.length; out.zones = C.cutU.uPA.value.filter((v) => v.z > v.y).length;
+      out.open = P.gaps.length ? P.gaps[0].colls.every((q) => !q.mid.active) : false;
+      const A = __hm.dbg.HOUSES ? null : null; const hs = __hm.REALMS[1].town.houses.map((h) => h.rec).filter(Boolean); const HA = hs.find((h) => h.num === ids.H[0]), HB = hs.find((h) => h.num === ids.H[1]);
+      out.a = HA ? [HA.state, HA.bat ? +HA.bat.hr.toFixed(2) : 0] : null; out.b = HB ? [HB.state, !!(HB.bat && HB.bat.fell), HB.char, HB.burn ? HB.burn.smoulder.length : -1] : null;
+      const T = __hm.towers.TOWER.list[ids.T]; out.cone = !!T.fallen;
+      out.errors = __hm.errors.slice(0, 3);
+      return out; })(""" + ids + ")")
+    check(r2['c1'] == 3 and r2['gaps'] >= 1 and r2['open'] and r2['c2'] == 1, f"save: after loading, the palisade's gap is open again and its stretch still burns ({json.dumps(r2)})")
+    check(r2['a'] and r2['a'][1] > 0 and r2['b'] and r2['b'][0] == 'ruin' and r2['b'][1] and r2['b'][3] == 0, 'save: the house keeps its hole, the other lies a ruin of rubble (no smoulder)')
+    check(r2['cone'] and not r2['errors'], 'save: the cone lies fallen, and no errors on loading')
+
+
+async def stormall(page):
+    # every kind of stone tower stormed by a band of ten (no garrison, no lord): a Logres gate drum, an Eriu gate drum,
+    # an Eriu lookout and a Logres corner drum on the other side
+    kinds = [('0, 0', "(T) => T.role === 'gate' && T.sx === 1", 'logres-gate'), ('1, 0', "(T) => T.role === 'gate' && T.sx === 1", 'eriu-gate'),
+             ('1, 1', "(T) => T.role === 'lookout' && T.sx === -1", 'eriu-lookout'), ('0, 1', "(T) => T.role === 'corner' && T.sx === 1 && T.sz === 1", 'logres-corner')]
+    for keep, pred, name in kinds:
+        r = await ev(page, f'stormall: {name}', """(() => { T2.quiet(); T2.away(); const K = T2.keep(""" + keep + """), C = T2.C(K), F = T2.F, out = {};
+          const W = T2.tower(K, """ + pred + """); T2.clearGarrison(K); const Lr = F.getEnt(K.lord); if (Lr) F.removeEnt(Lr); K.lord = null;
+          if (W.state === 'whole') { const src = T2.dummy(2, K.site.x + W.ox * 70, K.site.z + W.oz * 70); T2.breakIt(W, src); F.removeEnt(src); }
+          const id = T2.S.band(K.realm === 2 ? 1 : 2, K.id, 95, 10), wb = __hm.WAR.warbands.find((w) => w.id === id), Rt = T2.S2.siegeStormRoute(W), p0 = Rt[0];
+          F.wbMembers(wb).forEach((e, i) => { e.x = e.prevX = p0.x + W.ox * (6 + Math.floor(i / 4) * 1.6) + (i % 4 - 1.5) * 1.6 * W.oz; e.z = e.prevZ = p0.z + W.oz * (6 + Math.floor(i / 4) * 1.6) - (i % 4 - 1.5) * 1.6 * W.ox; e.y = F.heightAt(e.x, e.z); e.hp = e.maxHp = 1e6; });
+          wb.order.siegeE = null;
+          const still = new Map(), worst = new Map(), tl = []; let t = 0;
+          while (t < 90) { __hm.simulate(0.25); t += 0.25; if (wb.dead || !wb.order) break; let done = 0, n = 0;
+            for (const e of F.wbMembers(wb)) { n++; if (T2.inCourt(C, e)) done++; const s = e.ai.storm, p = still.get(e.id), moving = !p || Math.hypot(e.x - p.x, e.z - p.z) > 0.25, waiting = s && !s.done && s.i <= 1 && !s.go;
+              if (moving || waiting || T2.inCourt(C, e)) still.set(e.id, { x: e.x, z: e.z, t }); else worst.set(e.id, Math.max(worst.get(e.id) || 0, t - p.t)); }
+            if (Math.round(t * 4) % 20 === 0) tl.push(Math.round(t) + ':' + F.wbMembers(wb).map((e) => { const s = e.ai.storm; return s ? (s.done ? 'D' : s.i + (s.go ? 'g' : '')) : 'x'; }).join(''));
+            if (n && done >= n) break; }
+          const ms = F.wbMembers(wb); out.t = t; out.n = ms.length; out.inCourt = ms.filter((e) => T2.inCourt(C, e)).length; out.worst = +Math.max(0, ...worst.values()).toFixed(1);
+          out.phase = wb.order ? wb.order.phase : null; out.tl = tl.join(' | ');
+          out.where = ms.filter((e) => !T2.inCourt(C, e)).map((e) => { const s = e.ai.storm, l = F.siteToWorld ? null : null; return (s ? s.i + (s.go ? 'g' : '') + (s.done ? 'd' : '') : 'x') + '@' + Math.hypot(e.x - W.T.wx, e.z - W.T.wz).toFixed(1) + '/' + (e.y - K.site.y).toFixed(1); }).join(' ');
+          for (const e of ms) F.removeEnt(e); wb.dead = true;
+          return out; })()""")
+        check(r['inCourt'] >= r['n'] - 1 and r['worst'] < 8, f"stormall: a band storms a fallen {name} tower into the court ({r['inCourt']} of {r['n']} in {r['t']} s, longest stand {r['worst']} s; {r['where']})")
 
 async def main():
     async with async_playwright() as p:
@@ -387,11 +458,13 @@ async def main():
         if want('storm'):
             await storm(page, False)
             await storm(page, True)
+        if want('stormall'): await stormall(page)
         if want('palisade'): await palisade(page)
         if want('cone'): await cone(page)
         if want('house'): await house(page)
         if want('door'): await door(page)
         if want('archers'): await archers(page)
+        if want('save'): await save(page)
         if SHOTS and want('shots'): await shots(page)
         r = await ev(page, 'errors', "__hm.errors.slice(0, 5)")
         check(len(r) == 0, '__hm.errors is empty')

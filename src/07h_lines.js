@@ -43,6 +43,16 @@ function wallsHeldShot(e, t) {
   const ai = e.ai;
   if (!LINE.on || !ai) return false;
   LINE.stats.held++;
+  // what kind of shot it was (for the measures): from a wall or tower at a foe below, from below at a foe up on one,
+  // or both on the ground (a house, a wall or the ground between)
+  const k = elevatedEnt(e) ? (elevatedEnt(t) ? 'heldUpUp' : 'heldDown') : elevatedEnt(t) ? 'heldUp' : 'heldFlat';
+  LINE.stats[k] = (LINE.stats[k] || 0) + 1;
+  if (e.ai.wall || e.role === 'guard') LINE.stats.heldGarrison = (LINE.stats.heldGarrison || 0) + 1;
+  if (LINE.why) { // (tests) what stood in the way, along the straight line
+    const R = shotHit(e.x, e.y + 1.45, e.z, t.x, wallsAimY(t, e.y + 1.45), t.z, { ox: e.x, oy: e.y + 1.45, oz: e.z, tgt: t });
+    const w = (e.role === 'guard' ? 'g:' : e.warband ? 'b:' : 'o:') + k.slice(4) + ':' + (R ? (R.what === 'house' || R.what === 'roof' ? (R.H && R.H.keepHall ? 'hall' : 'house') : R.what) : 'arc');
+    LINE.why[w] = (LINE.why[w] || 0) + 1;
+  }
   // another foe in reach it can strike now (not the one it was told to hold the court before, a plug: any foe)
   if (GAME.t > (ai.altScan || 0)) {
     ai.altScan = GAME.t + 0.8;
@@ -58,6 +68,8 @@ function wallsOtherFoe(e, t) {
   const R = e.rangedRange || 20;
   forNear(e.x, e.z, R, (o, d2) => {
     if (o === t || !o.alive || o.kind === 'door' || !isActor(o) || !isEnemy(e, o)) return;
+    if (o.role === 'villager' || o.role === 'merchant' || o.role === 'herald' || o.role === 'critter' || o.role === 'dummy') return; // a fighter, not the townsfolk (nor a test's straw man)
+    if (o.flying || o.kind === 'dragon' || o.role === 'boss' || Math.abs(o.y - e.y) > 12) return; // nor the dragon passing over
     if (!canReach(e, o) || !classSeen(e, o, d2)) return;
     if (e.warband && o.fixedY === null && Math.abs(o.y - e.y) > 2.2 && e.ai.storm && !e.ai.storm.done) return; // [siege2] a stormer leaves the walls for later
     _lcand.push([d2, o]);

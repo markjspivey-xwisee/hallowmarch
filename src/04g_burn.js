@@ -16,21 +16,22 @@
 
 const PAL = { list: [], ready: false, stats: { lit: 0, spread: 0, out: 0, through: 0, rebuilt: 0, spared: 0, harm: 0 }, dirty: new Set() };
 const PAL_CELL = 1.5, PZ_MAX = 6;
-const PAL_T = { climb: 16, burn: 48, spread: 9, quiet: 20, rebuild: 150, ember: 110, cut: 0.6, harm: 0.03, fresh: 140 };
+const PAL_T = { climb: 20, burn: 75, spread: 9, quiet: 20, rebuild: 150, ember: 110, cut: 0.6, harm: 0.03, fresh: 140, npcCatch: 0.3, douse: 0.07, news: 45 };
 const PAL_LINE = KEEP_HS - KEEP_T / 2; // the palisades' middle line in the keep's frame (14.9)
 const PAL_GLSL = /* glsl */`
     // [siege2] a burh's palisade burning (04g_burn.js): S = the keep (x, z, cos, sin of its yaw), Y = (its height),
     // zones along its walls: A = (wall: 0 back, 1 left, 2 right, 3 front; from; to (metres along it); char),
     // B = (embers, the height it has burnt down to (world), fresh timber, 0)
     uniform vec4 uPS; uniform vec4 uPY; uniform vec4 uPA[${PZ_MAX}]; uniform vec4 uPB[${PZ_MAX}];
-    bool palisadeCut(vec3 p, float mat){
+    float pOn = 0.0, pAl = 0.0; // a fragment of a burning stretch, and how far along its wall (the char's checks run across the logs)
+    bool palisadeCut(vec3 p, float pmat){
       if (uPS.z == 0.0 && uPS.w == 0.0) return false;
       vec2 d = p.xz - uPS.xy, l = vec2(d.x * uPS.z - d.y * uPS.w, d.x * uPS.w + d.y * uPS.z);
       float L = ${PAL_LINE.toFixed(3)}, al = 0.0, sd = -1.0;
       if (abs(l.y + L) < 0.56) { sd = 0.0; al = l.x; } else if (abs(l.y - L) < 0.56) { sd = 3.0; al = l.x; }
       else if (abs(l.x + L) < 0.56) { sd = 1.0; al = l.y; } else if (abs(l.x - L) < 0.56) { sd = 2.0; al = l.y; }
       if (sd < 0.0) return false;
-      int pm = int(mat + 0.5);
+      int pm = int(pmat + 0.5);
       if (!(pm == 5 || pm == 14 || (pm == 1 && p.y > uPY.x + ${(WALL_H - 0.15).toFixed(2)}))) return false; // its logs, their sharpened tops, the loopholes
       bool cut = false;
       for (int i = 0; i < ${PZ_MAX}; i++) {
@@ -40,6 +41,7 @@ const PAL_GLSL = /* glsl */`
         float e0 = A.y + jag * 0.45, e1 = A.z - jag * 0.45;
         if (al < e0 - 0.9 || al > e1 + 0.9) continue;
         float inside = smoothstep(e0 - 0.9, e0 + 0.15, al) * (1.0 - smoothstep(e1 - 0.15, e1 + 0.9, al));
+        if (inside > 0.01) { pOn = 1.0; pAl = al; }
         tChar = max(tChar, A.w * inside * (0.72 + 0.28 * vnoise(p.xz * 2.3 + p.y * 1.7)));
         tGlow = max(tGlow, B.x * inside);
         tFresh = max(tFresh, B.z * inside);
@@ -51,7 +53,7 @@ const PAL_GLSL = /* glsl */`
 
 // the burnable stretches of each burh's palisade, in cells along its walls (clear of the towers' log walls)
 function palisadeInit() {
-  if (PAL.ready) return;
+  if (PAL.ready || !CASTLES.some((C) => C.cutU)) return; // (not before the castles are built)
   PAL.ready = true;
   const ce = KEEP_HS - 1.2 - 2.7 - 0.05, ge = GATE_TW.timber.x + GATE_TW.timber.HO + 0.05;
   for (const C of CASTLES) {
@@ -103,6 +105,9 @@ function palisadeFireAt(x, y, z, r, by) {
   const c = palisadeCellAt(x, y, z, Math.max(0.6, r * 0.6));
   if (!c) return 0;
   if (palisadeSpared(c.P, by)) { PAL.stats.spared++; return 0; }
+  // thick logs, often wet with the dew: a soldier's bolt or burning arrow takes hold only now and then (the player's,
+  // a brand's and the dragon's always do)
+  if (by && by.faction !== undefined && by !== GAME.player && by.role !== 'player' && Math.random() > PAL_T.npcCatch) return 0;
   return palisadeIgnite(c) ? 1 : 0;
 }
 // the dragon's breath along (dx, dz) from (x, z)
@@ -140,7 +145,7 @@ function palisadeSpots(c) {
 }
 // the cells burnt through, gathered into gaps a band can storm: each a breach as a fallen curtain's (siegeOpenBreach)
 function palisadeGaps(C) { return C && C.pal ? C.pal.gaps : []; }
-function palisadeGapOpen(P, cells) {
+function palisadeGapOpen(P, cells, quiet = false) {
   const S = P.S, side = cells[0].side, a0 = Math.min(...cells.map((c) => c.a0)), a1 = Math.max(...cells.map((c) => c.a1)), am = (a0 + a1) / 2;
   const l = palisadeLocal(side, am, 0), w = siteToWorld(S, l.x, l.z);
   const along = side === 0 || side === 3 ? { x: 1, z: 0 } : { x: 0, z: 1 };
@@ -156,14 +161,18 @@ function palisadeGapOpen(P, cells) {
     mid.active = false;
     W.colls.push({ old: c, mid });
   }
-  W.wreck = new THREE.Mesh(palisadeWreckGeo(W), buildingMat); W.wreck.renderOrder = 1; scene.add(W.wreck); shadowCaster(W.wreck, BUILDING_DEPTH);
+  // the burnt logs in the engines' charring shader (04h_siege.js): charcoal with embers glowing in their checks while they
+  // are hot, and no snow on them until they have cooled
+  W.wmat = shareMat(siegeMat, { uFlash: buildingMat.uniforms.uFlash, uChar: { value: 1 }, uEmber: { value: 1 }, uSnowCover: { value: 0 } });
+  W.wreck = new THREE.Mesh(palisadeWreckGeo(W), W.wmat); W.wreck.renderOrder = 1; scene.add(W.wreck); shadowCaster(W.wreck, BUILDING_DEPTH);
   P.gaps.push(W);
   PAL.stats.through++;
+  if (PAL.loading || quiet) { siegeOnBreach(W); return W; } // put back from a save, or an old gap grown wider: no dust, no crash, no news
   for (let i = 0; i < 6; i++) later(i * 0.12, () => FX.dust(W.wx + W.wax * (Math.random() - 0.5) * W.half * 2, S.y + Math.random() * WALL_H, W.wz + W.waz * (Math.random() - 0.5) * W.half * 2, 14, wallLit([0.2, 0.18, 0.16])));
   const Pl = GAME.player;
   if (Pl && dist2(Pl.x, Pl.z, W.wx, W.wz) < 90 * 90) { sfx('crash'); cameraShake(0.3, W.wx, W.wz); }
   const K = S.keepRef;
-  if (K) news(`The palisade of ${S.name} has burnt through!`, K.realm, K.realm === (Pl && Pl.faction) ? 'alarm' : 'normal');
+  if (K && GAME.t > (P.newsAt || -1e9)) { P.newsAt = GAME.t + PAL_T.news; news(`The palisade of ${S.name} has burnt through!`, K.realm, K.realm === (Pl && Pl.faction) ? 'alarm' : 'normal'); }
   siegeOnBreach(W); // the garrison runs to hold the gap (04h_siege.js)
   return W;
 }
@@ -226,7 +235,7 @@ function palisadeGapClose(P, W) {
 
 // each step (updateSiege asks)
 function updatePalisades(dt) {
-  if (!PAL.ready) { if (!CASTLES.length || !CASTLES.some((C) => C.cutU)) return; palisadeInit(); }
+  if (!PAL.ready) { palisadeInit(); if (!PAL.ready) return; }
   const wet = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)) + clamp(U.uSnowCover.value, 0, 1) * 0.3;
   for (const P of PAL.list) {
     let busy = false;
@@ -244,10 +253,11 @@ function updatePalisades(dt) {
       // a gap that already lies next to it takes it in: closed and opened again, wider
       const old = P.gaps.find((W) => W.side === c.side && W.state === 'breach' && run.some((q) => q.nb.some((o) => W.cells.includes(o))));
       if (old) { for (const q of old.cells) q.gap = null; run.push(...old.cells); palisadeGapClose(P, old); PAL.stats.rebuilt--; }
-      const W = palisadeGapOpen(P, run);
+      const W = palisadeGapOpen(P, run, !!old);
       for (const q of run) q.gap = W;
       PAL.dirty.add(P);
     }
+    for (const W of P.gaps) if (W.wmat) { const em = Math.max(...W.cells.map((c) => c.ember)); W.wmat.uniforms.uEmber.value = em * 0.8; W.wmat.uniforms.uSnowCover.value = U.uSnowCover.value * clamp(1 - em * 1.6, 0, 1); }
     // in peace its owners build it back: gaps behind scaffolding, charred logs replaced
     const K = P.S.keepRef, quiet = !busy && K && GAME.t - K.lastEnemyNear > PAL_T.quiet;
     for (const W of P.gaps.slice()) {
@@ -293,6 +303,11 @@ function palisadeBurnStep(c, dt, wet) {
     }
     // it spreads along the wall to the logs either side
     if (c.heat > 0.45) for (const o of c.nb) if (o.st === 0 && Math.random() < (1 / PAL_T.spread) * c.heat * (1 - wet)) { palisadeIgnite(o, 0.1); PAL.stats.spread++; }
+    // the keep's own people beat out the flames within reach (their faces to it, buckets and wet hides)
+    const K = S.keepRef;
+    let dousers = 0;
+    if (K) forNear(c.x, c.z, 3.5, (o) => { if (dousers < 3 && o.alive && o.faction === K.realm && isActor(o) && o.role !== 'player' && !o.flying && o.y < S.y + WALL_H) dousers++; });
+    if (dousers) { c.heat = Math.max(0, c.heat - PAL_T.douse * dousers); PAL.stats.doused = (PAL.stats.doused || 0) + 1; if (c.heat <= 0) { for (const f of c.fires) f.until = GAME.t; c.fires = []; c.st = c.char > 0.15 ? 2 : 0; PAL.stats.out++; PAL.dirty.add(P); return; } }
     // whoever stands against it, or on the walk behind it, is burnt
     forNear(c.x, c.z, 2.2, (o) => {
       if (!o.alive || o.kind === 'door' || o.flying || o.y > S.y + WALL_H + 1) return;
@@ -303,6 +318,11 @@ function palisadeBurnStep(c, dt, wet) {
       PAL.stats.harm++;
     });
     if (Math.random() < 0.3 * c.heat) fireLandsAt(c.x + (Math.random() - 0.5) * 5, S.y + 0.4, c.z + (Math.random() - 0.5) * 5, 1.0, null); // embers set the grass alight
+    // at the end of a wall, where its logs meet a tower's, the fire takes the tower too (and a burning tower's embers the wall)
+    if (c.heat > 0.6 && c.nb.length < 2 && Math.random() < 0.12 * c.heat) {
+      const end = c.nb.length && c.nb[0].a < c.a ? c.a1 + 0.5 : c.a0 - 0.5, l = palisadeLocal(c.side, end, 0), p = siteToWorld(S, l.x, l.z);
+      towerFireAt(p.x, S.y + 3, p.z, 1.0, null);
+    }
     PAL.dirty.add(P);
   }
   if (c.t >= PAL_T.burn) {
@@ -379,7 +399,8 @@ queueMicrotask(() => registerSavePart('world', 'palisade', {
       else { c.st = 3; c.ember = 0; if (st === 4) rep.set(c, clamp(v, 0, 0.99)); }
     }
     // the gaps open again as they were (updatePalisades gathers them), and those being rebuilt go on from where they were
-    updatePalisades(0);
+    PAL.loading = true;
+    try { updatePalisades(0); } finally { PAL.loading = false; }
     for (const [c, t] of rep) if (c.gap && c.gap.state === 'breach') { const W = c.gap; W.state = 'repair'; W.t = t; W.scaffold = new THREE.Mesh(palisadeScaffoldGeo(W), buildingMat); W.scaffold.renderOrder = 1; scene.add(W.scaffold); }
     for (const P of PAL.list) palisadeUpload(P);
   },

@@ -218,7 +218,7 @@ async def proj(page):
       const all = []; WT.W.wallHouseOf({}); for (const [c, Hh] of WT.W.WALLS.houseOf) if (!all.includes(Hh)) all.push(Hh);
       const Hs = all.find((q) => !q.keepHall && !q.round && q.state === 'whole' && q.style === 'stone');
       const at = (lx, lz) => ({ x: Hs.x + lx * Hs.c + lz * Hs.s, z: Hs.z - lx * Hs.s + lz * Hs.c });
-      WT.put(at(0, Hs.d / 2 + 12).x, at(0, Hs.d / 2 + 12).z);
+      WT.put(at(0, Hs.d / 2 + 45).x, at(0, Hs.d / 2 + 45).z); // [siege2] out of the archer's reach: a held archer takes another foe it can strike, the player in the open too (07h_lines.js)
       WT.clearNear(Hs.x, Hs.z, 30);
       const sa = at(Hs.w / 2 + 6, 0), fa = at(-Hs.w / 2 - 4, 0);
       const archer = WT.body(1, 'archer', sa.x, sa.z), foe = WT.body(0, 'warrior', fa.x, fa.z);

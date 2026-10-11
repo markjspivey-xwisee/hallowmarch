@@ -802,6 +802,7 @@ const CASTLE_FS = (() => {
     float tCk = 1.0;
     if (tChar > 0.002 || tGlow > 0.002) {
       vec2 cq = vec2(dot(vW.xz, vec2(0.83, 0.56)) * 2.4 + vW.y * 0.3, vW.y * 3.6 + dot(vW.xz, vec2(-0.56, 0.83)) * 0.9);
+      if (pOn > 0.5) cq = vec2(pAl * 2.9 + vnoise(vec2(vW.y * 1.7, pAl)) * 0.8, vW.y * 5.2 + floor(pAl / 0.48) * 1.7); // [siege2] a palisade's upright logs check across their grain (04g_burn.js)
       tCk = abs(vnoise(cq) - 0.5) + 0.55 * abs(vnoise(cq * 2.3 + 7.1) - 0.5);
     }
     if (tChar > 0.002) {

@@ -956,7 +956,7 @@ function siegeBandAfter(wb, L, O) {
     // a breach: the commander sends the band through it while the gate still stands
     // ([v12] once the band is near the walls, not from 110 m off: the way to a breach is walked straight, and from far
     // off it ran into hills, water and the curtain itself; and not again for two minutes after one it could not reach)
-    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < 60 && GAME.t > (O.breachBan || 0)) {
+    if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < (O.phase === 'bombard' ? 95 : 60) && GAME.t > (O.breachBan || 0)) { // [siege2] a band guarding its engine goes for the breach it made (the engine batters on at the next weakest way in, often the next tower)
       const W = siegeOpenBreach(C, L.x, L.z);
       if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2]
     }

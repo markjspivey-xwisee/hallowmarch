@@ -577,11 +577,15 @@ const HOUSE_FS = (() => {
       float k = D.w > 1.5 ? 1.0 : D.w;
       if (k < 0.002 || kind == 3 || kind == 4 || kind == 6) return;
       if (kind != 1 && kind != 7) {
-        float c1 = 1.0 - smoothstep(0.0, 0.045, abs(vnoise(vW.xz * 0.9 + vec2(vW.y * 1.3, -vW.y * 0.7)) - 0.5) * (0.6 + 1.6 * vnoise(vW.xz * 3.7 - vW.y)));
-        float c2 = 1.0 - smoothstep(0.0, 0.03, abs(vnoise(vec2(vW.x + vW.z, vW.y) * 2.6 + 5.0) - 0.5));
-        float cr = clamp(c1 * smoothstep(0.08, 0.45, k) + c2 * smoothstep(0.4, 0.85, k), 0.0, 1.0) * (1.0 - smoothstep(0.004, 0.02, length(fwidth(vW))) * 0.6);
-        alb *= 1.0 - 0.72 * cr;
+        float c1 = 1.0 - smoothstep(0.0, 0.07, abs(vnoise(vW.xz * 0.9 + vec2(vW.y * 1.3, -vW.y * 0.7)) - 0.5) * (0.6 + 1.6 * vnoise(vW.xz * 3.7 - vW.y)));
+        float c2 = 1.0 - smoothstep(0.0, 0.045, abs(vnoise(vec2(vW.x + vW.z, vW.y) * 2.6 + 5.0) - 0.5));
+        float cr = clamp(c1 * smoothstep(0.08, 0.45, k) + c2 * smoothstep(0.4, 0.85, k), 0.0, 1.0) * (1.0 - smoothstep(0.006, 0.03, length(fwidth(vW))) * 0.5);
+        alb *= 1.0 - 0.78 * cr;
         alb = mix(alb, alb * vec3(0.8, 0.76, 0.7), smoothstep(0.15, 1.0, k) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
+        // plaster and daub knocked off in patches, the laths and wattle under them showing; stone faces chipped dark
+        float sp = smoothstep(0.66 - 0.2 * k, 0.7 - 0.2 * k, vnoise(vW.xz * 0.85 + vec2(vW.y * 1.1, -vW.y * 0.6) + 3.7)) * step(0.12, k) * step(abs(vN.y), 0.6);
+        if (m == 2) alb = mix(alb, vec3(0.34, 0.26, 0.17) * (0.7 + 0.55 * vnoise(vec2(dot(vW.xz, vec2(0.7, 0.7)) * 9.0, vW.y * 30.0))), sp);
+        else alb *= 1.0 - 0.5 * sp;
       }
       if ((kind == 1 || kind == 7) && D.z > 0.01) { float d = distance(vW.xz, D.xy) - D.z; alb *= 0.35 + 0.65 * smoothstep(0.05, 0.55, d); }
     }
