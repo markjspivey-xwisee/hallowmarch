@@ -343,7 +343,7 @@ async def main():
             n0 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
             ok = await tap(page, '#banners .lore-note:not(.hl-old):last-child')
             n1 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
-            check(ok and n1 == n0 - 1, f'guide: a tap takes a field note away ({n0} then {n1})')
+            check(ok and n1 < n0, f'guide: a tap takes a field note away ({n0} then {n1})')  # (an older one may fade by itself meanwhile)
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);

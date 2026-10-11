@@ -369,7 +369,7 @@ function rewardLabel(S, prog, ahead = false) {
   const Rw = S.reward, L = ahead ? Math.max(prog.level, S.lv) : prog.level;
   if (Rw.gold || (Rw.xp && L >= LEVEL_CAP)) return { ic: 'coin', t: `${fmtInt(Rw.gold ? Rw.gold(L) : 15 * L)} gold` };
   if (Rw.xp) { const sh = XP_SHARE.find(([v]) => Math.abs(v - Rw.xp) < 0.01); return { ic: 'spark', t: `${sh ? sh[1] : fmtInt(Rw.xp * 100) + '%'} of a level in experience` }; }
-  if (Rw.potions) return { ic: 'potion', t: `${Rw.potions} healing draughts` };
+  if (Rw.potions) return { ic: 'potion', t: `${Rw.potions} healing draught${Rw.potions === 1 ? '' : 's'}` }; // [guide] one draught
   const Q = QUALITY[Rw.item.q];
   return { ic: SLOT_ICON[Rw.item.slot] || 'sword', t: `${loreAn(Q.name)} ${Q.name.toLowerCase()} ${REWARD_SLOT_WORD[Rw.item.slot] || Rw.item.slot}`, col: Q.col };
 }
@@ -1538,8 +1538,9 @@ function chronPath() {
   const notes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).reverse().map((id) => `<div class="note"><b>${FIELD_NOTES[id].t}</b>${FIELD_NOTES[id].x(R)}</div>`).join('');
   return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each one pays a reward the moment you take it, and the next one always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. You can take them in any order. The Aims page says what opens at 20, 30, 40 and 50.</p>
     <ol class="steps">${rows}</ol>
+    <div class="acts">${chronLink('goals', 'Aims: what opens at 20, 30, 40 and 50')}</div>
     ${notes ? `<h3>Field notes</h3>${notes}` : ''}
-    <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`;
+    <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`; // [guide] the link to Aims
 }
 
 /* ------------------------------------------------------------------ */
@@ -1576,6 +1577,7 @@ function loreOnStart(save) {
   if (save.fresh && fromTitle) openPrologue(false);
   else if (save.fresh) setTimeout(() => { if (GAME.prog === prog) loreNote('start'); }, 1600);
   else if (old) setTimeout(() => { if (GAME.prog === prog) loreNote('news'); }, 2500);
+  else if (kept && pv0 < PATH_VERSION) setTimeout(() => { if (GAME.prog === prog) loreNote('pathnew'); }, 2500); // [guide] what the path gained since the save was made
 }
 // the title screen's "Enter the realm" means a new character: it gets the prologue
 $('btn-begin').addEventListener('click', () => { if (!GAME.started) LORE.begin = performance.now(); }, true);

@@ -272,7 +272,7 @@ async def main():
             r = await ev(page, 'notes', """(() => { const H = __hm, P = H.GAME.player, out = {}, R = H.REALMS;
               ST.season(0.9); H.teleport(R[2].town.x + 6, R[2].town.z + 6); ST.play(); H.setTod(0.5);
               for (let i = 0; i < 6; i++) { H.simulate(0.3); H.frame(1 / 30); }
-              const seen = (H.GAME.prog.lore.seen || []).concat(H.LORE.queue || []);
+              const seen = (H.GAME.prog.lore.seen || []).concat(H.LORE.state.queue || []); // [guide] the queue is LORE.state.queue (a note waits its turn: one every eleven seconds)
               out.snow = seen.includes('snowlies'); out.ice = seen.includes('lakeice');
               H.LORE.openChronicle('fields');
               const el = document.querySelector('.chron-body, #chronicle, .chron') || document.body;

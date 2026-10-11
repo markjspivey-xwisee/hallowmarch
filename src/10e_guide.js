@@ -66,7 +66,7 @@ function guideMarkOf(S) {
     case 'draught': return R.merchant ? guideTown(P, R, R.merchant.x, R.merchant.z, R.merchant.name) : null;
     case 'cook': {
       if (goodsHave('meat_raw') || goodsHave('fish_raw')) {
-        const f = guideNearest(FIRES.filter((q) => !q.ghost && !q.wall && (q.indoor || q.station || q.size >= 0.5)), P);
+        const f = guideNearest(FIRES.filter((q) => !q.ghost && !q.wall && (q.until == null || q.until > GAME.t) && (q.indoor || q.station || q.size >= 0.5)), P);
         return f ? { x: f.x, z: f.z, what: f.indoor ? 'a hearth' : f.station ? `the ${f.station}` : 'a fire' } : null;
       }
       return guideOnFrontier(P) ? null : guideCampFor(P, prog, true);
@@ -93,9 +93,9 @@ function guideMarkOf(S) {
     }
     case 'gate': case 'keep': { const k = guideEnemyKeep(P); return k ? guideFront(P, R, k.x, k.z, k.what) : null; }
     case 'hallow': {
-      const loose = WAR.relics.find((x) => x.state === 'field' && x.realm !== P.faction);
+      const loose = WAR.relics.find((x) => x.state !== 'temple' && x.state !== 'carried'); // lying where its bearer fell
       if (loose) { const p = relicPosition(loose); return guideFront(P, R, p.x, p.z, REALMS[loose.realm].hallowName); }
-      const T = guideNearest(WAR.temples.filter((q) => q.realm !== P.faction && q.door && q.door.alive !== undefined && doorVulnerable(q.door)), P, (q) => q.site);
+      const T = guideNearest(WAR.temples.filter((q) => q.realm !== P.faction && q.door && (!q.door.alive || doorVulnerable(q.door))), P, (q) => q.site);
       if (T) return guideFront(P, R, T.site.x, T.site.z, T.site.name);
       const k = guideEnemyKeep(P);
       return k ? guideFront(P, R, k.x, k.z, k.what) : null;
@@ -230,6 +230,7 @@ Object.assign(FIELD_NOTES, {
   ranks: { t: 'Ranks', x: () => 'Every ten levels past 20 all your abilities grow a rank stronger: II at 30, III at 40, IV at 50. Realm rank grows with realm points and adds health and damage.' },
   fish: { t: 'Fishing', x: () => `Cast, then wait while the float bobs. When it goes right under, ${IS_TOUCH ? 'tap Use' : 'press E'} at once to strike. Perch and roach bite by day, trout at dawn and dusk, eels at night.` },
   crops: { t: 'Your crops', x: () => 'Frost bites a crop below the cold it can stand, and a hard frost kills it; a dry spell wilts it. Snow lying on a bed keeps the frost off. Keep the seed of the plants that come through: their strain grows hardier.' },
+  pathnew: { t: 'New on your path', x: () => `A gold gem on your minimap now marks where your next step is to be done, and your path reaches into the late game: command a warband, take a keep, call your realm's gift, bring down Cinderwing, make a masterwork, win a campaign. The Chronicle's Aims page (${IS_TOUCH ? 'tap your path' : 'J'}) shows what opens at 20, 30, 40 and 50.` },
   dark: { t: 'Night', x: () => 'Night falls over the March. Torches and hearths light the towns and keeps; carry a burning brand from any fire to light your way.', ok: () => !inDungeon(GAME.player) },
 });
 // the seasons' notes only where they mean something: lake ice when you are where the lakes freeze
@@ -275,7 +276,7 @@ function guideScan(P) {
     for (const c of CAMPS) if (c.elite) { const e = getEnt(c.eliteId); if (e && e.alive && dist2(e.x, e.z, P.x, P.z) < 55 * 55) { N.champion = true; break; } }
   }
   // the player's own shot stuck in a wall or glanced off one
-  if (!GUIDE.wallSeen) GUIDE.wallSeen = WALLS.stuck.some((s) => s.src === P.id && (s.c || s.H || s.pc || s.f)) || WALLS.fall.some((f) => f.src === P.id);
+  if (!GUIDE.wallSeen) GUIDE.wallSeen = WALLS.stuck.some((s) => s.src === P.id && (s.c || s.H || s.pc)) || WALLS.fall.some((f) => f.src === P.id);
 }
 function guideWatch(want) {
   const P = GAME.player;
@@ -287,7 +288,8 @@ function guideWatch(want) {
 // something was made at a fire, a station or by hand (09t_craft.js survCraftOnce)
 function guideMade(rec) {
   if (!rec) return;
-  GUIDE.made.push(rec.skill === 'cook' ? 'cook' : 'craft');
+  if (rec.skill === 'cook') GUIDE.made.push('cook');
+  if (STATION_DEF[rec.st]) GUIDE.made.push('craft'); // at a workstation (bread at the bakehouse is both)
 }
 // a new character's first moments belong to the first-steps note: other hints wait for it (08h_farming.js asks)
 function guideQuiet() {
@@ -422,6 +424,19 @@ function chronSieges() {
     ${towersChronHTML() /* [keeps] towers, ladders, hatches, walls and breaches (04m_ladders.js) */}
     ${chronExtra('sieges')}`;
 }
+function chronLand() {
+  const k = IS_TOUCH ? 'Use' : 'E';
+  return `<p class="lead">The March answers to what you do in it. Trees fall, grass burns, the ground breaks, houses burn and are built again, and the land remembers it all until it grows back or is mended.</p>
+    <ul class="plain">
+      <li><b>Trees.</b> ${k} beside a tree chops it down (an axe in fewer blows), and it comes crashing down: stand clear. ${k} on the trunk cuts it into firewood and a log, and a sapling grows where it stood. Two bundles of firewood lay a campfire (crafting by hand), lit with ${k}.</li>
+      <li><b>Fire.</b> Take a burning brand from any fire: a hearth, a brazier, a campfire, anything alight. It lights the way, and ${k} sets thatch, timber, trees and long grass alight; a foe you strike with it catches fire. Grass fire runs with the wind and stops at roads and water. Rain damps it, and deep water puts a brand out.</li>
+      <li><b>Houses.</b> Doors and shutters open with ${k}, and you can walk into any house. A house set alight burns from room to room, its walls char and its roof falls in; its town rebuilds it behind scaffolding. Your own realm's soldiers never fire their own roofs.</li>
+      <li><b>The ground.</b> Meteors, a warrior's leap and the dragon's landing leave craters. Cut and burnt grass grows back.</li>
+      <li><b>Weather.</b> Lightning strikes the tallest thing near it and sets roofs and trees alight. Rain soaks you, your gear and the ground; snow lies where the air is cold and melts by a fire.</li>
+      <li><b>Tracks.</b> Feet leave prints in lying snow, in mud after rain and on wet sand: boots, hooves, paws, birds' feet. Fresh snow fills them and fine weather dries them, so a clear track is a fresh one.</li></ul>
+    <div class="acts">${chronLink('gear', 'Gear: wear and weather')}${chronLink('living', 'Living off the land')}</div>`;
+}
+chronAdd('land', 'Fire and land', 'land', chronLand, 'water');
 chronAdd('goals', 'Aims', 'you', chronGoals, 'path');
 chronAdd('gear', 'Gear', 'you', chronGear, 'callings');
 chronAdd('sieges', 'Sieges', 'war', chronSieges, 'orders');
@@ -471,7 +486,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.guide = {
     GUIDE, GUIDE_WATCH, GUIDE_HELP, CHRON_EXTRA, guideMarkOf, guideWhere, guideAims, guideHelpHTML, guideNoteIndex, guideScan, guideMade,
-    chronGoals, chronGear, chronSieges, dragon: () => DRAGON.e, makeItem, bagAdd, CAMPAIGN, TOWER, drawMinimap, guideQuiet, pluralName,
+    chronGoals, chronGear, chronSieges, chronLand, dragon: () => DRAGON.e, makeItem, bagAdd, CAMPAIGN, TOWER, drawMinimap, guideQuiet, pluralName,
     mark() { guideUpdateMark(1); const m = GUIDE.mark; return m ? { x: Math.round(m.x), z: Math.round(m.z), what: m.what, where: guideWhere(m) } : null; },
   };
 });
