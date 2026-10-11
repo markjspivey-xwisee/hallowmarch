@@ -289,7 +289,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = e.meleeRange + tr - 0.4; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 it won 24 of 24 from casting range: pressed at every level, its holy fire flaring the long shots close by
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 8; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 the bow won 24 of 24 from casting range, the priest 23 of 24 pressing to its mace: from Tumble's level it keeps within its holy fire's flare (8 m)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -652,7 +652,7 @@ const PRIEST_SELF = 0.7; // [balance5] 0.75: a priest pressing its abilities in 
 // [balance3] from rank II they mend at 55% of a heal's rank I measure whatever the rank (0.55 / rankMult of what others
 // get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
 // outlasted every bow and staff while one of 50 did not
-const PRIEST_SELF_LATE = 0.65; // [balance5] 0.55, set on ground pocked by meteors where a bow's and a staff's shots struck the rims: on clean ground a priest of 30 and 50 won a third of its duels and none against a bow (07c_balance5.js)
+const PRIEST_SELF_LATE = 0.55; // [balance5] 0.65 was tried on clean ground: with the skilled priest pressing a bow and no longer throwing its spells away from under a meteor, it won 80% of its duels at 50
 const priestSelf = (e) => (abilityRank(e.level) <= 1 ? PRIEST_SELF : PRIEST_SELF_LATE / rankMult(e.level));
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
