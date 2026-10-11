@@ -93,10 +93,11 @@ function wallsFindLine(e, t, post) {
   const ux = dx / d, uz = dz / d;
   const cands = [];
   if (up) {
-    // along its own floor: toward the foe's side first, then the rest of the round, nearest first
+    // along its own floor: out at the breastwork toward the foe first (where a wall archer's step to its crenel takes it,
+    // wallsStepToCrenel), then nearer or farther and round toward the foe's side
     for (const r of [0.8, 1.6, 2.4, 3.2]) for (const da of [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9]) {
       const a = Math.atan2(ux, uz) + da;
-      cands.push([bx + Math.sin(a) * r, bz + Math.cos(a) * r, r + Math.abs(da) * 0.8]);
+      cands.push([bx + Math.sin(a) * r, bz + Math.cos(a) * r, Math.abs(r - 2.4) + Math.abs(da) * 0.8]);
     }
   } else {
     const R = (e.rangedRange || 20) - 2;
