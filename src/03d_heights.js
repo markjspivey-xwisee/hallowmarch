@@ -407,6 +407,17 @@ function mtnHeights() {
     const ctx = htsApply({ H, walk: walk0, reach, keep, objs, wet, hollow });
     tt('apply');
     const H0 = ctx.H0;
+    // [look] no shaped texel stands up out of all eight round it by more than 0.6 m: one such 2 m spike was a smooth,
+    // sharp-faced pyramid seen from the slopes below (by the Logres muster). Brought down to 0.6 m over the highest of
+    // them it is still the top (no hollow forms) and its slopes only ease (walkable ground stays walkable)
+    HTS.despiked = 0;
+    for (let pass = 0; pass < 2; pass++) for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+      const k = j * N + i;
+      if (H[k] === H0[k]) continue;
+      let mx = -1e9;
+      for (const d of [-1, 1, -N, N, -N - 1, -N + 1, N - 1, N + 1]) if (H[k + d] > mx) mx = H[k + d];
+      if (H[k] - mx > 0.6) { H[k] = mx + 0.6; HTS.despiked++; }
+    }
     HTS.H0 = H0; HTS.walk0 = walk0; HTS.reach = reach; HTS.keep = keep;
     HTS.limited = ctx.limited; HTS.filled = ctx.filled; HTS.reverted = ctx.reverted; HTS.T = ctx.T;
     // the walk mask: ground anyone could reach stays walkable as it was (htsApply held its slope; reachSteep counts the

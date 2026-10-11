@@ -159,28 +159,63 @@ function firePit(b, M, big, st) {
 function buildFireProps() {
   BUILDING_DEPTH = BUILDING_DEPTH || depthFrom(buildingMat);
   const b = new Batch();
+  // [look] a camp's fire pit, tents and stones were laid out round its centre without asking where the trees stood
+  // (they were planted first): a campfire burned against an oak's trunk, tents stood round trunks. The layout's centre
+  // moves to the nearest spot within 4 m where the pit is clear of every trunk (the camp itself, its home and its
+  // beasts, stays where it was), each tent turns about the fire until it is clear, and a standing stone, the log or the
+  // rack that would stand in a trunk is left out. A moved collider keeps where version 11 had it (lookWas) and a stone
+  // left out keeps an inactive collider, so the land's checks (mountains.py) still read the camps as they were.
+  const treeIn = (x, z, r) => W.trees.some((t) => Math.abs(t.x - x) < r + 1.5 && Math.abs(t.z - z) < r + 1.5 && Math.hypot(t.x - x, t.z - z) < r + 0.45 * t.s + 0.15);
+  const was = (cc, M0, lx, lz) => { const w0 = worldOf(M0, lx, 0, lz); cc.lookWas = { x: w0.x, z: w0.z }; return cc; };
   for (const c of W.camps) {
     if (!['bandit', 'skeleton', 'draugr', 'troll'].includes(c.type)) continue;
-    const y = heightAt(c.x, c.z), R = REALMS[c.realm], st = STYLE[R.style];
-    const M = new THREE.Matrix4().compose(new THREE.Vector3(c.x, y, c.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, c.id * 1.7, 0)), new THREE.Vector3(1, 1, 1));
+    const R = REALMS[c.realm], st = STYLE[R.style], pitR = c.type === 'troll' ? 1.7 : c.type === 'bandit' ? 1.35 : 0.8;
+    let cx = c.x, cz = c.z;
+    if (treeIn(cx, cz, pitR)) {
+      for (let k = 1; k < 140; k++) {
+        const a = k * 2.39996, r = 0.4 + Math.sqrt(k) * 0.34, x = c.x + Math.sin(a) * r, z = c.z + Math.cos(a) * r;
+        if (r > 4) break;
+        if (!treeIn(x, z, pitR) && isWalkable(x, z)) { cx = x; cz = z; break; }
+      }
+    }
+    const shifted = cx !== c.x || cz !== c.z, y = heightAt(cx, cz);
+    const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, c.id * 1.7, 0)), one = new THREE.Vector3(1, 1, 1);
+    const M0 = new THREE.Matrix4().compose(new THREE.Vector3(c.x, heightAt(c.x, c.z), c.z), rot, one);
+    const M = new THREE.Matrix4().compose(new THREE.Vector3(cx, y, cz), rot, one);
+    if (shifted) c.fireAt = { x: cx, z: cz };
     if (c.type === 'bandit' || c.type === 'troll') {
       const big = c.type === 'troll';
       firePit(b, M, big, st);
-      addFire(c.x, y + 0.1, c.z, big ? 1.5 : 1.0, false);
-      addCircle(c.x, c.z, big ? 1.3 : 0.9, 'fire', 1.2);
+      addFire(cx, y + 0.1, cz, big ? 1.5 : 1.0, false);
+      const fc = addCircle(cx, cz, big ? 1.3 : 0.9, 'fire', 1.2);
+      if (shifted) was(fc, M0, 0, 0);
       if (c.type === 'bandit') {
         // two lean tents, bedrolls, a log to sit on, a weapon rack
-        for (const [lx, lz, a] of [[4.6, 1.2, -1.3], [-3.6, 3.8, 2.4]]) {
+        const tents = [];
+        for (const [lx0, lz0, a0] of [[4.6, 1.2, -1.3], [-3.6, 3.8, 2.4]]) {
+          let lx = lx0, lz = lz0, a = a0, moved = false;
+          for (let k = 0; k < 15; k++) {
+            const turn = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.42, cs = Math.cos(turn), sn = Math.sin(turn);
+            const tx = lx0 * cs + lz0 * sn, tz = -lx0 * sn + lz0 * cs, q = worldOf(M, tx, 0, tz);
+            if (treeIn(q.x, q.z, 1.5) || !isWalkable(q.x, q.z) || tents.some((o) => Math.hypot(o.x - q.x, o.z - q.z) < 3.2)) continue;
+            lx = tx; lz = tz; a = a0 + turn; moved = k > 0; break;
+          }
           const T = lm(M, lx, 0, lz, a);
           gableRoof(b, T, 2.4, 2.8, 0.0, 0.95, { ohSide: 0, ohGable: 0.1, thick: 0.05, roofMat: MAT.cloth, roofCol: [0.48, 0.4, 0.3], gableMat: MAT.cloth, gableCol: [0.36, 0.3, 0.22], trimCol: [0.3, 0.22, 0.14], ridge: 'round', ridgeR: 0.05, barge: false });
           b.add(G.box, lm(T, 0, 0.05, 0.2, 0, 0.8, 0.1, 1.9), MAT.cloth, [0.42, 0.32, 0.26]);
           const p = worldOf(T, 0, 0, 0);
-          addCircle(p.x, p.z, 1.3, 'tent', 1.6);
+          tents.push(p);
+          const tc = addCircle(p.x, p.z, 1.3, 'tent', 1.6);
+          if (moved || shifted) was(tc, M0, lx0, lz0); // where version 11 had it (mountains.py)
         }
-        beam(b, M, [-1.2, 0.25, -2.4], [1.6, 0.25, -2.1], 0.32, MAT.logH, [0.36, 0.26, 0.16]);
-        b.add(G.box, lm(M, -4.2, 0.9, -2.2, 0.8, 1.6, 0.08, 0.12), MAT.wood, [0.32, 0.22, 0.13]);
-        for (const s2 of [-1, 1]) b.add(G.box, lm(M, -4.2 + Math.cos(0.8) * 0.7 * s2, 0.6, -2.2 - Math.sin(0.8) * 0.7 * s2, 0.8, 0.08, 1.2, 0.08), MAT.wood, [0.32, 0.22, 0.13]);
-        for (let k = 0; k < 3; k++) beam(b, M, [-4.6 + k * 0.35, 0.05, -2.0 + k * 0.1], [-4.4 + k * 0.35, 1.35, -2.55 + k * 0.1], 0.04, MAT.metal, [0.45, 0.45, 0.48]);
+        const lg0 = worldOf(M, -1.2, 0, -2.4), lg1 = worldOf(M, 1.6, 0, -2.1), rk = worldOf(M, -4.2, 0, -2.2);
+        const logClear = !W.trees.some((t) => segDist2(t.x, t.z, lg0.x, lg0.z, lg1.x, lg1.z) < (0.45 * t.s + 0.35) ** 2) && !tents.some((o) => segDist2(o.x, o.z, lg0.x, lg0.z, lg1.x, lg1.z) < 1.6 ** 2);
+        if (logClear) beam(b, M, [-1.2, 0.25, -2.4], [1.6, 0.25, -2.1], 0.32, MAT.logH, [0.36, 0.26, 0.16]);
+        if (!treeIn(rk.x, rk.z, 1.0) && !tents.some((o) => Math.hypot(o.x - rk.x, o.z - rk.z) < 2.3)) {
+          b.add(G.box, lm(M, -4.2, 0.9, -2.2, 0.8, 1.6, 0.08, 0.12), MAT.wood, [0.32, 0.22, 0.13]);
+          for (const s2 of [-1, 1]) b.add(G.box, lm(M, -4.2 + Math.cos(0.8) * 0.7 * s2, 0.6, -2.2 - Math.sin(0.8) * 0.7 * s2, 0.8, 0.08, 1.2, 0.08), MAT.wood, [0.32, 0.22, 0.13]);
+          for (let k = 0; k < 3; k++) beam(b, M, [-4.6 + k * 0.35, 0.05, -2.0 + k * 0.1], [-4.4 + k * 0.35, 1.35, -2.55 + k * 0.1], 0.04, MAT.metal, [0.45, 0.45, 0.48]);
+        }
       } else {
         // a troll's leavings: bones and boulders
         for (let k = 0; k < 7; k++) {
@@ -189,21 +224,27 @@ function buildFireProps() {
         }
         for (let k = 0; k < 4; k++) {
           const a = k * 1.6 + 0.5, r = 6 + k * 0.5;
-          b.add(G.ico, lm(M, Math.sin(a) * r, 0.4, Math.cos(a) * r, k, 1.0, 0.8, 0.9), MAT.stone, [0.46, 0.45, 0.42], y, 2);
           const p = worldOf(M, Math.sin(a) * r, 0, Math.cos(a) * r);
-          addCircle(p.x, p.z, 0.9, 'rock', 1.5);
+          if (treeIn(p.x, p.z, 0.9)) { const gc = addCircle(p.x, p.z, 0.9, 'rock', 1.5); gc.active = false; if (shifted) was(gc, M0, Math.sin(a) * r, Math.cos(a) * r); continue; } // [look] not in a trunk
+          b.add(G.ico, lm(M, Math.sin(a) * r, 0.4, Math.cos(a) * r, k, 1.0, 0.8, 0.9), MAT.stone, [0.46, 0.45, 0.42], y, 2);
+          const rc = addCircle(p.x, p.z, 0.9, 'rock', 1.5);
+          if (shifted) was(rc, M0, Math.sin(a) * r, Math.cos(a) * r);
         }
       }
     } else {
       // barrow wights and draugr keep cold fires in a ring of old stones
       brazierAt(b, M, 0, 0, st, true);
-      addCircle(c.x, c.z, 0.45, 'brazier', 1.4);
+      const bc = addCircle(cx, cz, 0.45, 'brazier', 1.4);
+      if (shifted) was(bc, M0, 0, 0);
       for (let k = 0; k < 6; k++) {
         const a = (k / 6) * TAU + 0.4, r = 6.2;
+        const p = worldOf(M, Math.sin(a) * r, 0, Math.cos(a) * r);
+        // [look] a stone that would stand in a trunk is gone from the ring (its collider kept, inactive)
+        if (treeIn(p.x, p.z, 0.5)) { const gc = addCircle(p.x, p.z, 0.5, 'stone', 2.2); gc.active = false; if (shifted) was(gc, M0, Math.sin(a) * r, Math.cos(a) * r); continue; }
         b.add(G.box, lm(M, Math.sin(a) * r, 0.9, Math.cos(a) * r, a, 0.7, 2.2, 0.45, 0.08 * Math.sin(k * 3), 0.06 * Math.cos(k * 5)), MAT.stone, [0.5, 0.52, 0.5], y, 2.4);
         b.add(G.box, lm(M, Math.sin(a) * (r - 0.24), 1.1, Math.cos(a) * (r - 0.24), a, 0.14, 1.3, 0.02), MAT.rune, [0.2, 0.5, 0.45]);
-        const p = worldOf(M, Math.sin(a) * r, 0, Math.cos(a) * r);
-        addCircle(p.x, p.z, 0.5, 'stone', 2.2);
+        const sc = addCircle(p.x, p.z, 0.5, 'stone', 2.2);
+        if (shifted) was(sc, M0, Math.sin(a) * r, Math.cos(a) * r);
       }
     }
   }

@@ -196,7 +196,10 @@ const nearTreeMat = mat({
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying vec2 vUV; varying float vSeed; varying float vFade;
     void main(){
       if (bayer4(gl_FragCoord.xy) > vFade) discard;
-      if (bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) < viewBlock(vW)) discard;
+      // [look] foliage near the camera or between it and the player parts by whole leaf cards and by clumps of the
+      // crown's heart (in the world), not through a 4 x 4 screen door of dots (dithered green blobs against the sky)
+      float vb = viewBlock(vW);
+      if (vb > 0.0 && (vPart < 0.5 ? bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) : vPart < 2.5 ? fract(vSeed * 13.73 + 0.21) : vnoise(vW.xz * 2.3 + vW.y * 1.7 + vTint * 3.0)) < vb) discard;
       vec3 n = safeNormalize(vN);
       vec3 V = safeNormalize(cameraPosition - vW);
       if (!gl_FrontFacing) n = -n;
