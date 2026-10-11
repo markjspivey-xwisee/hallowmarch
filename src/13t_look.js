@@ -66,6 +66,17 @@ function lookCoverAll() {
       if (v > data[k]) data[k] = Math.round(v);
     }
   }
+  // the bushes left out above: a little shorter turf under them, never bare (and the map not empty there, for whoever
+  // looks for open ground in it: motion.py's lanes)
+  for (const c of COLL.circles) {
+    if (c.tag !== 'bush' || !c.active) continue;
+    for (let j = Math.max(0, Math.floor(c.z - c.r + 512)); j <= Math.min(R - 1, Math.ceil(c.z + c.r + 512)); j++) {
+      for (let i = Math.max(0, Math.floor(c.x - c.r + 512)); i <= Math.min(R - 1, Math.ceil(c.x + c.r + 512)); i++) {
+        const x = i - 512 + 0.5, z = j - 512 + 0.5, k = j * R + i;
+        if ((x - c.x) * (x - c.x) + (z - c.z) * (z - c.z) <= c.r * c.r && data[k] < 40) data[k] = 40;
+      }
+    }
+  }
   // the gardens fenced behind some houses: their beds of soil are a thin box on the ground with no collider, and the
   // meadow grew up through them (and through the rows of greens)
   for (const R of REALMS) for (const p of R.town.props || []) {
