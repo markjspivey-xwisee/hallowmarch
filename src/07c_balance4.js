@@ -108,6 +108,15 @@ function chargeLands(e, A, t, rk) {
 }
 
 /* ------------------------------------------------------------------ */
+/* a seasoned mage                                                     */
+/* ------------------------------------------------------------------ */
+// the elements answer a seasoned mage more strongly: 7% more for each rank past the first (on top of every ability's rank).
+// A mage has no armour, no heal and no rush: past 30 the warrior's Rallying Cry and Bulwark, the priest's Divine Shield
+// and Mass Renewal and the archer's Deadeye left its spells behind (it won about a third of its duels at 30 and 50)
+const MAGE_RANK_K = 0.07;
+const mageRankK = (e) => 1 + MAGE_RANK_K * (abilityRank(e.level) - 1);
+
+/* ------------------------------------------------------------------ */
 /* Mend closes wounds                                                  */
 /* ------------------------------------------------------------------ */
 // the deeper the wound, the more Mend mends: all of its measure from half health down, under half of it on a scratch.
@@ -147,5 +156,5 @@ ABILITIES.pillar.desc += ' Standing in it yourself, your own wounds mend as they
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal4 = { RUSH, rushReach, rushWhy, chargeRush, MEND_WOUND, mendWound, CHARGE_FREE };
+  window.__hm.bal4 = { RUSH, RUSH_BASH, RUSH_FOOTING, RUSH_CD_EARLY, rushReach, rushWhy, chargeRush, rushComing, snareOnLine, MEND_WOUND, mendWound, CHARGE_FREE, MAGE_RANK_K, mageRankK };
 }, 0);

@@ -301,7 +301,7 @@ function botReflex(e, t, dt) {
     const hold = (on) => { if (P) { if (CLS.hold !== on) classHold(on); } else setBlock(e, on); };
     // [balance3] a shield wall: guarded, against a bow out of reach, the shield stays up on the way in (in that stance it
     // costs no endurance and no pace) and comes down in reach
-    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; }
+    if (t && cs.stance === 0 && shieldWallWanted(e, t) && canBlock(e) && !e.casting && !(buffMax(e, 'snare') >= 0.3)) { if (!cs.blockOn) hold(true); B.blockUntil = now + 0.25; B.wall = true; } // [balance4] (slowed, it chases in fury instead)
     else if (B.wall) { B.wall = false; if (cs.blockOn) hold(false); }
     if (cs.blockOn && now > B.blockUntil) hold(false);
     if (!cs.blockOn && canBlock(e) && now - cs.blockDown >= PARRY_REARM && !e.casting) {
@@ -379,8 +379,10 @@ function botWarrior(e, t) {
   const foes = botFoes(e, 6);
   // the stance: guarded when hard pressed, fury to finish or while whole, balanced between
   // [balance3] guarded too behind a shield wall, closing on a foe who strikes from afar
-  if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && shieldWallWanted(e, t) !== (cs.stance === 0) ? 1 : 3)) {
-    const want = hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
+  // [balance4] slowed while a foe keeps away: fury, which shrugs off much of a slow, carries the chase better than a wall
+  const chase = !!t && buffMax(e, 'snare') >= 0.3 && !isRooted(e) && dist(e.x, e.z, t.x, t.z) > e.meleeRange + 1.5 && hpF > 0.35;
+  if (clsHas(e, 'stances') && GAME.t - B.stanceAt > (t && (chase ? cs.stance !== 2 : shieldWallWanted(e, t) !== (cs.stance === 0)) ? 1 : 3)) {
+    const want = chase ? 2 : hpF < 0.35 || foes >= 3 && hpF < 0.7 || (t && shieldWallWanted(e, t)) ? 0 : (t && t.hp < t.maxHp * 0.45) || hpF > 0.6 ? 2 : 1;
     if (want !== cs.stance && GAME.t - cs.stanceAt > 0.8) { setStance(e, want); B.stanceAt = GAME.t; B.next = GAME.t + 0.3; return true; }
   }
   if (hpF < 0.4 && botUse(e, 'bulwark', e)) return true;

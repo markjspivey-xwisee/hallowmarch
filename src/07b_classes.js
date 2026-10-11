@@ -592,7 +592,7 @@ function mageView(e, cs, A, t, cast) {
   if (A.id === 'nova' || A.id === 'ward' || A.id === 'blink') el = focus;
   if (!el) return V || A;
   const att = clsHas(e, 'attune') ? attOf(e, el) : 0;
-  const emp = 1 + 0.18 * att / 100; // [balance2] 0.22
+  const emp = (1 + 0.18 * att / 100) * mageRankK(e); // [balance2] 0.22 [balance4] and more for a seasoned mage (07c_balance4.js)
   if (A.dmg) view().dmg = A.dmg * emp;
   if (A.id === 'nova' && el !== 'fire') view().custom = el === 'frost' ? frostNova : thunderclap;
   if (A.id === 'ward') { view().custom = elementWard; V.elem = el; }
