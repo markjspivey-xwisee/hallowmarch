@@ -505,8 +505,13 @@ function castFits(e, cast) {
   if (!o || e.buffs.some((b) => b.kind === 'shield' && b.src === e.id && b.value > e.maxHp * 0.15 && b.until > GAME.t) && hasBuff(e, 'eward')) return true; // [balance4] a ward worn thin is spent by the bash's own blow before its stun
   const t = GAME.t, held = holdLeft(o), d = dist(o.x, o.z, e.x, e.z), reach = (o.meleeRange || 2.7) * (o.scale || 1) + e.radius + 0.3;
   const walk = Math.max(0, d - reach) / Math.max(1, (o.speed || 6.6) * (1 - buffMax(o, 'snare')));
-  const charge = rushing(o) ? d / RUSH.speed : d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held ? d / RUSH.speed + 0.15 : walk; // a charge is on you at once (not out of deep frost) [balance4] the rush's time, and a rush on its way
-  const bashAt = Math.max(held + Math.min(walk, charge), (o.cds.bash || 0) - t) + 0.3;
+  // [balance4] a Charge rushes in at once (not out of deep frost) but Shield Bash waits RUSH_BASH after it (a rush on its
+  // way has already set the bash back): walking, the warrior bashes as soon as it is in reach and the bash is ready
+  const bashCd = (o.cds.bash || 0) - t;
+  const rushReady = o.level >= ABILITIES.charge.level && d >= 5 && !deepFrostHeld(o) && (o.cds.charge || 0) <= t + held;
+  const bashAt = (rushing(o) ? Math.max(bashCd, d / RUSH.speed) : rushReady ? Math.min(Math.max(held + walk, bashCd), held + d / RUSH.speed + RUSH_BASH) : Math.max(held + walk, bashCd)) + 0.3;
+  // and a blade in reach sets the spell back (twice at most)
+  if (held + Math.min(walk, rushReady || rushing(o) ? d / RUSH.speed : walk) < cast) cast += 0.7;
   const leapAt = o.level >= ABILITIES.leap.level && d >= 6 && !frostHeld(o) ? Math.max(held, (o.cds.leap || 0) - t) + 0.6 : Infinity;
   return Math.min(bashAt, leapAt) > cast + 0.15;
 }

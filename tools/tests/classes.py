@@ -926,6 +926,14 @@ async def shots(page):
       for (let i = 0; i < 8; i++) { H.simulate(0.04); hold(); H.frame(0.04); }
       CS(P, w, 4.4, 1.3, 0.6, 1.45); return { dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => +b.value.toFixed(2)), motes: H.bal3.BAL3.dazzledIds.size }; })()""")
     await snap(page, 'dazzle', 1)
+    # [balance4] Charge rushes: a warrior halfway along its rush at a mage, shield raised across its body, dust behind
+    if want('rush'): await ev(page, 'rush-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 0);
+      const a = T.ahead(P, 20); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
+      H.simulate(0.2); CS(P, w, 7.5, 1.6, 0.5, 1.1); H.frame(0.016);
+      w.cds = {}; w.gcdUntil = 0; w.power = w.maxPower; w.target = P.id; const r = F.useAbility(w, 'charge', P);
+      for (let i = 0; i < 12 && w.motion; i++) { H.simulate(0.05); H.frame(0.05); }
+      CS(P, w, 7.5, 1.6, 0.5, 1.1); return { r, d: +Math.hypot(w.x - P.x, w.z - P.z).toFixed(1), act: w.anim.act, rush: !!(w.motion && w.motion.rush) }; })()""")
+    await snap(page, 'rush', 1)
 
 async def main():
     async with async_playwright() as p:

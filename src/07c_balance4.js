@@ -32,8 +32,11 @@ function rushWhy(e, A, t) {
   return null;
 }
 // executeAbility hands a Charge here: the warrior sets off at the foe, shield forward
+// Charge comes round every 16 s; before Leap Strike is learned (level 30) it is the warrior's only rush, and comes every 12 s
+const RUSH_CD_EARLY = 12;
 function chargeRush(e, A, t, rk) {
   if (!t || !t.alive) return;
+  if (e.level < ABILITIES.leap.level) e.cds.charge = Math.min(e.cds.charge || 0, GAME.t + RUSH_CD_EARLY);
   faceToward(e, t.x, t.z);
   e.cds.bash = Math.max(e.cds.bash || 0, GAME.t + RUSH_BASH + Math.min(RUSH.maxT, dist(e.x, e.z, t.x, t.z) / RUSH.speed));
   e.motion = { kind: 'leap', rush: true, t: 0, dur: RUSH.maxT, tid: t.id, A, rk, stuck: 0, dust: 0, yaw: e.yaw };
@@ -136,7 +139,7 @@ function snareOnLine(e, t) {
 }
 
 /* ---- what a player reads: the tooltips say what these rules do ---- */
-ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush.`;
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there. Landing, you take ${RUSH_FOOTING} s to find your feet before your next ability, and Shield Bash waits ${RUSH_BASH} s. Charge and Leap Strike are one rush; until you learn Leap Strike, Charge comes round every ${RUSH_CD_EARLY} s.`;
 ABILITIES.mend.desc = 'Heals a friend for 36% of health, or you for 27%. The deeper the wound, the more it mends: all of it from half health down, a third of it on a scratch.';
 ABILITIES.rally.desc += ' Its heal is your own: it does not grow with your rank.';
 ABILITIES.volley.desc += ' The arrows fall from above: a raised shield does not turn them.';
