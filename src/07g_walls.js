@@ -560,7 +560,7 @@ function wallArrow(R, dx, dy, dz, speed, type, src) {
 // x, y, z: where the head is (the arrow drawn back along its flight from there)
 function wallStick(x, y, z, dx, dy, dz, type, R, src) {
   if (WALLS.stuck.length >= WALL_STUCK_MAX) WALLS.stuck.shift();
-  WALLS.stuck.push({ x, y, z, dx, dy, dz, type, until: GAME.t + WALL_STUCK_LIFE, c: R ? R.c : null, f: R ? R.f : null, H: R ? R.H : null, pc: R ? R.pc : null, roof: !!(R && R.what === 'roof'), fire: type === 'fire' ? GAME.t + 9 : 0, src: src ? src.id : null });
+  WALLS.stuck.push({ x, y, z, dx, dy, dz, type, until: GAME.t + WALL_STUCK_LIFE, c: R ? R.c : null, f: R ? R.f : null, H: R ? R.H : null, pc: R ? R.pc : null, roof: !!(R && R.what === 'roof'), fire: type === 'fire' ? GAME.t + 9 : 0, src: src ? src.id : null, door: R && R.c ? wallDoorRec(R.c, x, y, z, dx, dy, dz) : null }); // [siege2] door: in a door's leaf, it swings with it (04j_batter.js)
 }
 // grit and dust in the light there is now (a particle keeps the colour it is given: pale puffs at night otherwise);
 // by day about as given
@@ -610,7 +610,8 @@ function updateWalls(dt) {
   for (let i = WALLS.stuck.length - 1; i >= 0; i--) {
     const S = WALLS.stuck[i];
     let gone = GAME.t > S.until;
-    if (!gone && S.c && !S.c.active && S.c.tag !== 'hdoor') gone = true; // (a door's swings with it: hidden while it stands open)
+    if (!gone && S.c && !S.c.active && !S.door && S.c.tag !== 'hdoor') gone = true; // [siege2] a door's swings with it (wallDoorPose)
+    if (!gone && S.door && S.door.gone()) gone = true; // [siege2] its door fell (a breached tower, a ruined house)
     if (!gone && S.c && S.y - S.dy * 0.1 > (S.c.y0 != null ? S.c.y0 : S.c.baseY) + S.c.h + 0.15) gone = true; // what held it was cut down below it (a breached tower)
     if (!gone && S.f && !S.f.active) gone = true;
     if (!gone && S.pc && S.pc.st !== 'built' && S.pc.st !== 'burning') gone = true; // a built piece burnt down or pulled down
@@ -623,7 +624,8 @@ function updateWalls(dt) {
 function drawWalls() {
   const cx = camera.position.x, cz = camera.position.z;
   for (const S of WALLS.stuck) {
-    if (dist2(S.x, S.z, cx, cz) > 65 * 65 || (S.c && !S.c.active)) continue;
+    if (dist2(S.x, S.z, cx, cz) > 65 * 65 || (S.c && !S.c.active && !S.door)) continue;
+    if (S.door) { const q = wallDoorPose(S.door); arrowPush(q.x - q.dx * 0.43, q.y - q.dy * 0.43, q.z - q.dz * 0.43, q.dx, q.dy, q.dz); continue; } // [siege2] swinging with its door
     arrowPush(S.x - S.dx * 0.43, S.y - S.dy * 0.43, S.z - S.dz * 0.43, S.dx, S.dy, S.dz);
     if (S.fire > GAME.t) glowPush(S.x - S.dx * 0.1, S.y - S.dy * 0.1, S.z - S.dz * 0.1, 1.6, 0.6, 0.15, 0.32 * clamp((S.fire - GAME.t) / 3, 0.2, 1));
   }
