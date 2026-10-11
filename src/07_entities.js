@@ -254,7 +254,7 @@ function healEnt(src, dst, amount, quiet = false) {
   amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
-  if (BAL.tap && h > 0) BAL.tap(src, dst, -h, 0, null); // [balance3] and every heal
+  if (BAL.tap && h > 0) BAL.tap(src, dst, -h, 0, quiet ? TAP_TICK : null); // [balance3] and every heal [balance4] a renewal's or holy ground's tick told apart
   classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)
   if (h > 0.5) {
     onHealFeedback(src, dst, h, quiet);
@@ -390,6 +390,7 @@ function updateMotion(e, dt) {
   const m = e.motion;
   if (!m) return false;
   if (m.kind === 'ladder') return towerLadderStep(e, m, dt); // [land] up or down a tower's ladder (04l_towers.js)
+  if (m.rush) return chargeRushStep(e, m, dt); // [balance4] a Charge's rush along the ground (07c_balance4.js)
   m.t += dt;
   const k = clamp(m.t / m.dur, 0, 1);
   if (m.kind === 'spin') {
@@ -444,7 +445,7 @@ function canUse(e, id, target, ignoreCd = false) {
   if (e.carrying != null) return 'carrying';
   if (isStunned(e)) return 'stunned';
   if (e.casting || (e.motion && e.motion.kind === 'leap')) return 'busy';
-  { const cw = classCanUse(e, A); if (cw) return cw; } // [balance3] a body held by frost cannot Charge or Leap out of it (07c_balance3.js)
+  { const cw = classCanUse(e, A, target); if (cw) return cw; } // [balance3] a body held by frost cannot Charge or Leap out of it (07c_balance3.js) [balance4] and the target, for a rush
   if (e.swim && (A.cast > 0 || A.proj || A.anim === 2 || A.ground)) return 'swimming'; // [water] no casting or shooting while swimming
   if (e.role === 'player' && GAME.prog && A.level > GAME.prog.level) return 'level';
   if (e.motion && ladderAllows(e, A)) return 'ladder'; // [keeps] one hand on the rungs (04m_ladders.js)
@@ -703,6 +704,7 @@ function executeAbility(e, A, t, cast = null) {
     });
     return;
   }
+  if (A.dash && A.range !== 'melee') { chargeRush(e, A, t, rk); return; } // [balance4] Charge's reach kept it out of the branch below: it never rushed (07c_balance4.js)
   if (A.range === 'melee') {
     if (A.dash) {
       const d = dist(e.x, e.z, t.x, t.z);

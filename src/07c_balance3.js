@@ -63,9 +63,9 @@ const frostRootExtra = (src) => (src && abilityRank(src.level || 1) >= 2 ? { fro
 // in a mage's blizzard: neither Charge nor Leap Strike out of it, only a walk through the ice
 const blizzardHeld = (e) => e.buffs.some((b) => b.kind === 'snare' && b.blizzard && b.until > GAME.t);
 // canUse asks: what the calling forbids right now (null: nothing)
-function classCanUse(e, A) {
+function classCanUse(e, A, target) {
   if ((A.leap && frostHeld(e)) || (A.dash && deepFrostHeld(e)) || ((A.leap || A.dash) && blizzardHeld(e))) { BAL3.stats.held++; return 'held'; }
-  return null;
+  return rushWhy(e, A, target); // [balance4] no rush on a horse, in the water or at a foe on another floor (07c_balance4.js)
 }
 
 // holy light lands: the foe is dazzled (Smite and the Pillar, not holy ground or Holy Fire's burning)

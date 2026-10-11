@@ -101,7 +101,7 @@ function weaponStyle(e) {
   return m & WB.axe ? 'axe' : m & WB.mace ? 'mace' : 'sword';
 }
 const hasShield = (e) => !!e.look && !!(e.look.mask & (WB.shield | WB.shieldRound));
-const realmFlavour = (e) => clsHas(e, 'realm') && e.faction <= 2;
+const realmFlavour = (e) => clsHas(e, 'realm') && e.faction <= 2 && !e.plainCalling; // [balance4] tests measure a realm's way against the plain calling (duels.py kind=flavour)
 // lakes, ponds and rivers: the water module (01b_water.js)
 const waterFn = () => waterAt;
 // the height of the water's surface at (x, z), or the lakes' level where there is none
@@ -629,7 +629,7 @@ function priestView(e, cs, A, t) {
   return V || A;
 }
 function blessing(e, f) {
-  const realm = realmFlavour(e) ? e.faction : 0;
+  const realm = realmFlavour(e) ? e.faction : e.plainCalling ? -1 : 0; // [balance4] a plain priest measured in tests blesses with no realm's way
   addBuff(f, 'bless', realm, 15, 'bless');
   const b = f.buffs.find((q) => q.kind === 'bless' && q.src === 'bless'); if (b) b.value = realm;
   if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * 0.015, 15, e.id); }
