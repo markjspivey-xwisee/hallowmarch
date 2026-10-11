@@ -381,13 +381,15 @@ function towerSightBlocked(e, o) {
 }
 // the Chronicle's war page: the towers, their ladders and hatches, and fighting in them (chronWar, 10c_lore.js)
 function towersChronHTML() {
-  const k = LK(), touch = IS_TOUCH;
+  const k = LK(), touch = IS_TOUCH; // [walls] and what walls do to what flies, and breached towers (07g_walls.js, 04g_breach.js)
   return `<h3>Towers and ladders</h3>
     <p>Every tower of every keep can be entered. A door from the courtyard opens into a store room; ladders climb through hatches to the rooms above and onto the top: the open fighting tops of Logres, the platforms under thatch over the gates of \u00c9riu, the fighting galleries under the shingles of Thule. The rooms at the walls' height have doors onto the walks. The archers of a keep stand on its gate towers' tops, and walk up to them through the towers.</p>
     <ul class="how">
       <li><b>Climbing.</b> Walk into the foot of a ladder, or ${k.use} beside it. A shut hatch above is pushed open as you come up to it; ${k.use} by a hatch opens or shuts it. On the rungs, ${touch ? 'drag the stick up to climb on, down to go back' : 'W climbs on and S goes back'}.</li>
       <li><b>One hand on the rungs.</b> A climber strikes a foe in reach at about three fifths of a blow, and cannot raise a shield, parry, draw a bow, cast a two-handed spell or leap. A heavy blow, a stun, a parried blow or a blunt arrow knocks a climber off, and the fall hurts by its height.</li>
       <li><b>Holding a hatch.</b> Stand on a shut hatch and a foe below cannot simply push it open: they heave at it, and now and then it throws you aside. When a foe comes up through an open hatch, ${k.use} to slam the lid down on them. The garrison does both.</li>
+      <li><b>Walls stop what flies.</b> Arrows, bolts and spells strike the first thing in their way: an arrow sticks in timber, thatch and daub and glances off stone, and a fire spell sets thatch and timber alight. Shots go out through a crenel, an arrow slit, an open window or door; an archer up on the walls shows at its crenel when it shoots, and can be struck there.</li>
+      <li><b>Breaches.</b> The stone towers crack under siege stones and meteors and at last fall in: their upper rooms, ladders and hatches are lost, and the rubble is a way into the keep through the tower's store room. Once the keep is quiet its owners rebuild them behind scaffolding.</li>
       <li><b>Fire.</b> The log towers of Thule burn. A foe's fire spell, a burning arrow, the dragon's breath or a brand held to the logs (${k.use}) sets one alight; get out of it before its gallery and roof fall in. Rain damps a young fire. A burnt tower is built again once its keep has been quiet for a while.</li>
     </ul>`;
 }

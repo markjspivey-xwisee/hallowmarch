@@ -448,7 +448,7 @@ function siegeRetarget(E) {
   if (E.kind === 'ram') return !!(D && D.alive);
   let best = null, bd = Infinity;
   for (const W of C.sections || []) {
-    if (W.state !== 'whole') continue;
+    if (W.state !== 'whole' || W.kind === 'tower') continue; // [walls] the engines keep to the curtains (04g_breach.js)
     const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z);
     if (d < range && d < bd) { bd = d; best = W; }
   }
@@ -493,7 +493,9 @@ function siegeStonesStep(dt) {
     const s = SIEGE.stones[i];
     s.t += dt;
     const t = Math.min(s.t, s.tf);
+    const qx = s.x, qy = s.y, qz = s.z; // [walls]
     s.x = s.x0 + s.vx * t; s.z = s.z0 + s.vz * t; s.y = s.y0 + s.vy * t - 0.5 * SIEGE_G * t * t;
+    if (s.t < s.tf && wallsStoneStep(s, qx, qy, qz)) { s.x = s.aim.x; s.y = s.aim.y; s.z = s.aim.z; siegeImpact(s); s.mesh.visible = false; SIEGE.pool.push(s.mesh); SIEGE.stones.splice(i, 1); continue; } // [walls] it strikes the first thing in its way (07g_walls.js)
     s.mesh.position.set(s.x, s.y, s.z);
     s.mesh.rotation.x += s.spin * dt; s.mesh.rotation.z += s.spin * 0.7 * dt;
     // a thin trail of dust and grit behind it
@@ -884,7 +886,7 @@ function siegePlanFor(wb, O) {
     return siegeCrewUp(E, wb, members, L);
   }
   // a wall section on the side the band comes from, or the gate when the walls are down
-  const secs = (C.sections || []).filter((W) => W.state === 'whole');
+  const secs = (C.sections || []).filter((W) => W.state === 'whole' && W.kind !== 'tower'); // [walls] a tower is no mark: a band could not storm it (04g_breach.js)
   const range = SIEGE_SPEC[kind].range;
   const cands = secs.map((W) => ({ W, f: siegeFace(W) })).sort((a, b) => dist2(a.f.x, a.f.z, L.x, L.z) - dist2(b.f.x, b.f.z, L.x, L.z));
   for (const { W, f } of cands) { spot = siegeFindSpot(f.x, f.z, f.nx, f.nz, range, C); if (spot) { target = { C, W }; work = spot; break; } }
@@ -912,12 +914,13 @@ function siegeCrewUp(E, wb, members, L) {
 }
 // the band's breach route: up to the gap, over the rubble, into the court
 function siegeBreachRoute(W) {
+  if (W.kind === 'tower') return towerBreachRoute(W); // [walls] in over the rubble, out at the store room's door (04g_breach.js)
   const f = siegeFace(W), C = W.C;
   return [{ x: f.x + f.nx * 7, z: f.z + f.nz * 7 }, { x: W.wx + f.nx * 1.2, z: W.wz + f.nz * 1.2 }, { x: W.wx - f.nx * 3, z: W.wz - f.nz * 3 }, { x: lerp(W.wx - f.nx * 6, C.S.x, 0.3), z: lerp(W.wz - f.nz * 6, C.S.z, 0.3) }];
 }
 function siegeOpenBreach(C, x, z) {
   let best = null, bd = Infinity;
-  for (const W of C.sections || []) { if (W.state !== 'breach') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } }
+  for (const W of C.sections || []) { if (W.state !== 'breach' || W.kind === 'tower') continue; const d = dist2(W.wx, W.wz, x, z); if (d < bd) { bd = d; best = W; } } // [walls] not a fallen tower: its way in (the store room and its courtyard door) is too narrow for a band (04g_breach.js)
   return best;
 }
 // [campaign tuning] a raid that has broken into a temple: its boldest fighter runs for the hallow and takes it,
@@ -1015,7 +1018,7 @@ function siegeOnBreach(W) {
   for (const id of K.guards) {
     const g = getEnt(id);
     if (!g || !g.alive || g.ai.wall) continue;
-    g.ai.plug = { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 };
+    g.ai.plug = W.kind === 'tower' ? { W, ...towerPlugAt(W, n) } : { W, x: W.wx - f.nx * 3.2 + W.wax * (n - 1) * 1.1, z: W.wz - f.nz * 3.2 + W.waz * (n - 1) * 1.1 }; // [walls] a tower's: before its courtyard door (04g_breach.js)
     g.ai.sally = null;
     n++;
   }
@@ -1162,7 +1165,7 @@ function siegePlayerTarget(E) {
       continue;
     }
     const range = E.spec.range + 12;
-    for (const W of C.sections || []) { if (W.state !== 'whole') continue; const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z); if (d < range && d < bd) { bd = d; best = { C, W }; } }
+    for (const W of C.sections || []) { if (W.state !== 'whole' || W.kind === 'tower') continue; const f = siegeFace(W), d = dist(E.x, E.z, f.x, f.z); if (d < range && d < bd) { bd = d; best = { C, W }; } } // [walls] the engines keep to the curtains (04g_breach.js)
     const D = siegeDoorOf(C.S);
     if (D && D.alive && doorVulnerable(D)) { const g = siegeGatePoint(C.S), d = dist(E.x, E.z, g.x, g.z); if (d < range && d < bd) { bd = d; best = { C, gate: true }; } }
   }

@@ -349,6 +349,7 @@ function simStep(dt) {
   updateNPCs(dt);
   updateWar(dt);
   updateProjectiles(dt);
+  updateWalls(dt); // [walls] arrows glancing off stone, stuck ones falling with what held them (07g_walls.js)
   updateDragonWorld(dt);
   updateLoot(dt);
   updateGates(dt);
@@ -426,6 +427,7 @@ function tick(dt) {
   updateAmbientLife(dt);
   drawSurvival(dt); // [survival] plants, the rod and line, the spit, the needs on the HUD (after the fish: 09s_survival.js)
   drawProjectiles();
+  drawWalls(); // [walls] arrows stuck in walls, roofs and doors, and those glancing off stone (07g_walls.js)
   updateSpellFX(dt);
   drawLoot();
   renderDecals(fx, fz);

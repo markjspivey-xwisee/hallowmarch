@@ -887,7 +887,7 @@ function looseArrow(e, k, target, wobble = 0) {
   th += thJ;
   const hx = dx / dh, hz = dz / dh, c = Math.cos(yawJ), s = Math.sin(yawJ);
   const ux = hx * c - hz * s, uz = hx * s + hz * c;
-  const A = { x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null,
+  const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null, // [walls] ox, oy, oz: where it was loosed (07g_walls.js)
     mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * (realmFlavour(e) && e.faction === 0 && elevatedEnt(e) ? 1.2 : 1), crit: k >= 0.98 ? 0.2 : 0, noWind: realmFlavour(e) && e.faction === 2 };
   CLS.arrows.push(A);
   CLS.stats.drawn++;
@@ -910,7 +910,9 @@ function stepArrows(dt) {
     if (A.type === 'fire' && Math.random() < 0.6) FX.trail(A.x, A.y, A.z, [2.4, 1.05, 0.3], 0.18, 0.28);
     // what it strikes on the way: a body, a wall, the ground
     const src = getEnt(A.src);
-    let hit = null, best = 9;
+    // [walls] the first wall, roof, floor or rock in this step's flight (07g_walls.js): a body beyond it is not struck
+    const WH = shotHit(A.px, A.py, A.pz, A.x, A.y, A.z, { ox: A.ox, oy: A.oy, oz: A.oz, ground: false });
+    let hit = null, best = WH ? WH.t : 9;
     const mx = (A.x + A.px) / 2, mz = (A.z + A.pz) / 2, seg = Math.hypot(A.x - A.px, A.z - A.pz);
     forNear(mx, mz, seg / 2 + 2.5, (o) => {
       if (!o.alive || o.kind === 'door' || o.flying || o.faction === A.faction || (o.faction === FACTION_NEUTRAL && !(o.game && GAME.player && A.src === GAME.player.id)) || o.id === A.src) return; // [depth] the player's arrows strike game: deer and birds
@@ -927,9 +929,10 @@ function stepArrows(dt) {
       arrowHits(A, hit, src);
       continue;
     }
+    if (WH) { CLS.arrows.splice(i, 1); const sp = Math.hypot(A.vx, A.vy, A.vz) || 1; wallStrike('arrow', WH, A.vx / sp, A.vy / sp, A.vz / sp, src || { id: A.src, faction: A.faction }, sp, A.type); continue; } // [walls] it sticks or glances
     const gy = heightAt(A.x, A.z);
     const wq = inDungeon(A) ? null : waterAt(A.x, A.z), surf = wq ? wq.y : -Infinity; // [water] an arrow stops at the water's surface
-    const blocked = !segmentClear(A.px, A.pz, A.x, A.z, 0.05, false) && A.y < gy + 6;
+    const blocked = false; // [walls] walls are met above (shotHit)
     // [v9] (the Barrow's floors lie far below the lakes: an arrow there is not under water)
     if (A.y <= gy || A.y <= surf || blocked || A.age > 4 || (!inDungeon(A) && A.y < WATER_Y - 2)) {
       CLS.arrows.splice(i, 1);

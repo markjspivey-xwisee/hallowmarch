@@ -831,6 +831,7 @@ function autoAttack(e) {
   if (!e.rangedKind && t.kind !== 'door' && Math.abs(t.y - e.y) > 2.6 && (elevatedEnt(e) || elevatedEnt(t))) return; // [keeps] no blow from the foot of a wall to its walk
   if (towerSightBlocked(e, t)) return; // [keeps] nor through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   if (e.role === 'player' && Math.abs(angDiff(e.yaw, Math.atan2(t.x - e.x, t.z - e.z))) > 1.4 && d > 2.5) return;
+  if (e.rangedKind && e.role !== 'player' && !wallsShotClear(e, t, e.rangedKind === 'arrow')) { e.swingAt = now + 0.45; if (e.ai) e.ai.wallShot = now; return; } // [walls] no shot into a wall: close in instead (07g_walls.js)
   e.swingAt = now + e.swing * (0.95 + Math.random() * 0.1);
   faceToward(e, t.x, t.z);
   if (e.rangedKind) {
@@ -878,10 +879,11 @@ function updateProjectiles(dt) {
     const t = getEnt(p.tgt);
     let tx, ty, tz;
     if (p.point) { tx = p.point.x; ty = p.point.y; tz = p.point.z; }
-    else if (t) { tx = t.x; ty = t.kind === 'door' ? t.y + 2.5 : t.kind === 'dragon' ? t.y + 2.8 : t.y + 1.15 * (t.scale || 1); tz = t.z; }
+    else if (t) { tx = t.x; ty = wallsAimY(t, p.oy); tz = t.z; } // [walls] a body up behind a parapet is aimed at where it shows (07g_walls.js)
     else { PROJ.splice(i, 1); continue; }
     const dx = tx - p.x, dy = ty - p.y, dz = tz - p.z, d = Math.hypot(dx, dy, dz);
     const step = p.speed * dt;
+    if (wallsProj(p, tx, ty, tz, d, step)) { PROJ.splice(i, 1); continue; } // [walls] it strikes what stands in its way (07g_walls.js)
     if (d <= step + 0.3 || p.age > p.life) {
       PROJ.splice(i, 1);
       if (!p.visualOnly && t && t.alive) {

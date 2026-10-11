@@ -229,7 +229,9 @@ function towerTopGallery(T, o = {}) {
     b.add(G.box, lm(M, q.x, TT + 0.55, q.z, a, L, 1.1, 0.1), MAT.wood, darker(wood, 0.92 + 0.08 * hash1(k * 3 + T.sx)));
     b.add(G.box, lm(M, q.x, TT + 1.12, q.z, a, L + 0.06, 0.08, 0.18), MAT.wood, darker(wood, 0.75));
     for (let i = 0; i < 6; i++) { const r = twP(T, a, HO - 0.02, -HO + 0.35 + i * ((2 * HO - 0.7) / 5)); b.add(G.box, lm(M, r.x, TT + 1.0, r.z, a, 0.05, 0.12, 0.02), MAT.water, ARROW_SLIT); }
-    C.coll(q.x, q.z, HO, 0.12, a, TT - 0.1, 1.3);
+    const gc = C.coll(q.x, q.z, HO, 0.12, a, TT - 0.1, 1.3);
+    // [walls] a shot clears it above the rail, and an archer at it shows over it (07g_walls.js)
+    gc.cren = { x0: gc.x - gc.cos * HO, z0: gc.z + gc.sin * HO, ux: gc.cos, uz: -gc.sin, len: 2 * HO, n: 1, mw: 1e3, mh: 0, sill: S.y + TT + 1.12 };
     // the eaves' plate
     const e = twP(T, a, HO - 0.07);
     b.add(G.box, lm(M, e.x, eave - 0.08, e.z, a, 2 * HO + 0.1, 0.16, 0.16), MAT.wood, darker(wood, 0.7));
@@ -300,7 +302,10 @@ function towerFloor(T, y, rf, L, look) {
       const shade = 0.86 + 0.2 * hash1(k * 3.7 + v0 + y);
       // [keeps] boards in the plaster branch, tinted as wood: the wood branch draws its planks along world x on a floor,
       // which crossed these strips wherever a keep is turned
-      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, w - 0.025, 0.12, v1 - v0), MAT.plaster, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
+      // [walls] the gallery's boards butt up against each other (no gap): out in the sun, the sides of boards with a gap
+      // between them caught light the roof's shadow could not reach (thin lines of sun across the floor at medium and
+      // high); each board still reads by its own shade
+      if (look === 'boards' || look === 'gallery') b.add(G.box, lm(M, lx, y - 0.06, lz, a, look === 'gallery' ? w : w - 0.025, 0.12, v1 - v0), MAT.plaster, darker(st.wood, shade * (look === 'gallery' ? 0.95 : 1)));
       else {
         // stone: the strip laid as flags about 0.8 m long, staggered from the strips beside it, each its own shade
         // and a hair lower or higher (no gap to see through)
@@ -363,8 +368,10 @@ function towerHatch(T, L) {
   Hh.cx = cw.x; Hh.cz = cw.z;
   // the lid in its own frame: hinge along local x, the lid lying toward local -z, its top at y = 0
   const g = new Batch(), I = new THREE.Matrix4(), wood = darker(T.C.st.wood, 0.85), D = R1 - R0 - 0.03, W = 2 * HW, nb = 4, bw = W / nb;
-  for (let i = 0; i < nb; i++) g.add(G.box, lm(I, -W / 2 + bw * (i + 0.5), -0.04, -D / 2, 0, bw - 0.01, 0.08, D), MAT.wood, darker(wood, 0.9 + 0.15 * hash1(i * 3.1 + a)));
-  for (const z of [-0.2, -D + 0.2]) g.add(G.box, lm(I, 0, -0.1, z, 0, W - 0.08, 0.06, 0.12), MAT.wood, darker(wood, 0.7));
+  // [walls] boards in the plaster branch, tinted as wood (as the floors are): the wood branch draws its planks along
+  // world x on a level face, which crossed the lid's own boards as faint seams
+  for (let i = 0; i < nb; i++) g.add(G.box, lm(I, -W / 2 + bw * (i + 0.5), -0.04, -D / 2, 0, bw - 0.01, 0.08, D), MAT.plaster, darker(wood, 0.9 + 0.15 * hash1(i * 3.1 + a)));
+  for (const z of [-0.2, -D + 0.2]) g.add(G.box, lm(I, 0, -0.1, z, 0, W - 0.08, 0.06, 0.12), MAT.plaster, darker(wood, 0.7));
   g.add(G.box, lm(I, 0, 0.005, -D + 0.12, 0, 0.18, 0.02, 0.05), MAT.metal, [0.25, 0.25, 0.27]); // the ring to lift it by
   for (const sd of [-1, 1]) g.add(G.box, lm(I, sd * (HW - 0.18), 0.004, -0.15, 0, 0.06, 0.02, 0.3), MAT.metal, [0.25, 0.25, 0.27]);
   Hh.part = { batch: g, frame: () => lm(siteMatrix(S), hinge.x, L.yt, hinge.z, a, 1, 1, 1, Hh.k * 1.68 + Hh.bump) };
@@ -731,7 +738,7 @@ function towerTimber(C, role, sx, sz, WT, TT) {
 // leave it out for the ground
 function towerRoofOver(x, z, y = -Infinity) {
   for (const T of TOWER.list) {
-    if (Math.abs(x - T.wx) > T.RO || Math.abs(z - T.wz) > T.RO) continue;
+    if (T.breached || Math.abs(x - T.wx) > T.RO || Math.abs(z - T.wz) > T.RO) continue; // [walls] open to the sky
     if (y >= T.S.y + T.shelterY - 0.2) continue;
     const l = twLocal(T, x, z);
     if (twInside(T, l.x, l.z)) return true;
@@ -742,14 +749,14 @@ function towerRoofOver(x, z, y = -Infinity) {
 function towerRoofsForRain(list, cx, cz) {
   for (const T of TOWER.list) {
     const d = dist2(cx, cz, T.wx, T.wz);
-    if (d < 60 * 60) list.push([d, T.rain]);
+    if (d < 60 * 60 && !T.breached) list.push([d, T.rain]); // [walls]
   }
 }
 // [keeps] the tower whose rooms (not its open top) hold a body: { T, lv } with lv the index of its floor, or null
 function towerRoomOf(e) {
   if (!TOWER.list.length || e.x > DUN_X0) return null;
   for (const T of TOWER.list) {
-    if (Math.abs(e.x - T.wx) > T.RO + 0.5 || Math.abs(e.z - T.wz) > T.RO + 0.5) continue;
+    if (T.breached || Math.abs(e.x - T.wx) > T.RO + 0.5 || Math.abs(e.z - T.wz) > T.RO + 0.5) continue; // [walls] a breached tower's rubble is open ground
     const l = twLocal(T, e.x, e.z);
     if (!twInside(T, l.x, l.z, 0.1)) continue;
     const y = e.y - T.S.y;
@@ -831,6 +838,7 @@ function buildTowers() {
   }
   towerHeaps(); // [keeps] the charred timbers of a fallen gallery, hidden (04n_towerfire.js)
   for (const C of CASTLES) castleTowerUpload(C);
+  towerBreachInit(); // [walls] the stone towers breach and are mended (04g_breach.js)
   if (window.__hm) window.__hm.towers = { TOWER, TW, GATE_TW, towerClimb, towerLadderStart, towerOffers, updateTowers, towerRoomOf, twDims, list: () => TOWER.list, ladder: (i) => TOWER.ladders[i], seen: (e) => { e._losT = -1; return npSeen(e, dist(camera.position.x, camera.position.z, e.x, e.z)); } };
 }
 
@@ -939,8 +947,8 @@ function updateTowers(dt) {
       D.part.K.dirty = true;
       if (P && (was === 0 || D.k === 0) && dist2(P.x, P.z, D.x, D.z) < 15 * 15) sfx(D.k === 0 ? 'thud' : 'click');
     }
-    D.coll.active = D.k < 0.55;
-    D.leafColl.active = D.k > 0.85;
+    D.coll.active = !D.gone && D.k < 0.55; // [walls] gone: fallen with a breached tower's upper works (04g_breach.js)
+    D.leafColl.active = !D.gone && D.k > 0.85;
   }
   for (const Hh of TOWER.hatches) {
     const want = Hh.held || GAME.t < Hh.until;
@@ -951,8 +959,8 @@ function updateTowers(dt) {
       Hh.part.K.dirty = true;
       if (P && (Hh.k === 0 && was > 0) && dist2(P.x, P.z, Hh.x, Hh.z) < 15 * 15) sfx('thud');
     }
-    Hh.floor.active = Hh.k < 0.25;
-    Hh.lidColl.active = Hh.k > 0.8;
+    Hh.floor.active = !Hh.gone && Hh.k < 0.25; // [walls] gone: a breached tower's, a burnt-out gallery's (04g_breach.js, 04n_towerfire.js)
+    Hh.lidColl.active = !Hh.gone && Hh.k > 0.8;
   }
   // the player walks into the foot of a ladder, or into the open hatch beside the top of one: they climb
   if (P && P.alive && !P.motion && TOWER.px !== null) {
