@@ -95,11 +95,16 @@ async def main():
             ts = [t for t, f in r['order']]
             gaps = [round(b - a, 3) for a, b in zip(ts, ts[1:])]
             check(gaps and max(gaps) < 1.6 * min(gaps), f"its four beats are even (between footfalls {gaps} s)")
-            # the trot: diagonal pairs come down together
+            # the trot: diagonal pairs come down together (within a frame of each other: a real trot's pairs part by up to
+            # 30 ms, the hind foot a little first)
             r = await ev(page, "GT.falls('horse', 4.5)")
-            byT = {}
-            for t, f in r['order']: byT.setdefault(round(t * 60), []).append(names[f])
-            groups = [sorted(v) for k, v in sorted(byT.items())]
+            groups, last = [], None
+            for t, f in r['order']:
+                fr = round(t * 60)
+                if last is not None and fr - last <= 1 and len(groups[-1]) < 2: groups[-1].append(names[f])
+                else: groups.append([names[f]])
+                last = fr
+            groups = [sorted(g) for g in groups]
             print('  trot footfalls', groups, flush=True)
             check(groups and all(g in (['FL', 'HR'], ['FR', 'HL']) for g in groups), f"a horse's trot comes down in diagonal pairs ({groups})")
             # the gallop: hind right, hind left, fore right, fore left; the fore right down before the hind left lifts;
