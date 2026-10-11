@@ -38,14 +38,20 @@ window.MO = {
     for (const C of H.WAR.commanders || []) { C.nextThink = 1e9; C.nextSpawn = 1e9; }
     const W = H.dbg.WEATHER; if (W) { W.mode = 'clear'; W.kind = 'clear'; W.nextBolt = 1e9; }
   },
-  // an open, nearly flat stretch: n lanes 3 m apart, L long, near (cx, cz)
+  // an open, nearly flat stretch: n lanes 3 m apart, L long, near (cx, cz). [polish] Each body's own line and a metre
+  // either side of it are clear of anything standing (the cover map: walls, props, posts), not only the lines between
+  // them: a body that ran into a rack on its line slid along it, and its feet with it, mid-measure
   lane(cx, cz, L, n) {
-    const F = this.F;
+    const F = this.F, CV = this.H.dbg.COVER, clear = (x, z) => { const i = Math.floor(x + 512), j = Math.floor(z + 512); return !CV || i < 0 || j < 0 || i >= 1024 || j >= 1024 || CV.data[j * 1024 + i] === 0; };
     for (let r = 0; r < 160; r += 6) for (let k = 0; k < 16; k++) {
       const a = k / 16 * Math.PI * 2, x0 = cx + Math.sin(a) * r, z0 = cz + Math.cos(a) * r;
       for (const yaw of [0, 0.8, 1.6, 2.4]) {
         const ux = Math.sin(yaw), uz = Math.cos(yaw), sx = uz, sz = -ux;
         let ok = true, hmin = 1e9, hmax = -1e9;
+        for (let i = 0; i < n && ok; i++) for (const o of [-1, 0, 1]) for (let j = -2; j <= L + 2 && ok; j += 0.75) {
+          const x = x0 + ux * (j - L / 2) + sx * ((i - (n - 1) / 2) * 3 + o), z = z0 + uz * (j - L / 2) + sz * ((i - (n - 1) / 2) * 3 + o);
+          if (!clear(x, z)) ok = false;
+        }
         for (let i = 0; i <= n && ok; i++) for (let j = 0; j <= L; j += 1.5) {
           const x = x0 + ux * (j - L / 2) + sx * (i - n / 2) * 3, z = z0 + uz * (j - L / 2) + sz * (i - n / 2) * 3;
           if (!F.isWalkable(x, z)) { ok = false; break; }
@@ -244,7 +250,7 @@ async def main():
             print(f"  bend       {fmt(r)}  lean {r.get('leanDeg')} deg (anim {r.get('animLean')})", flush=True); res['player_bend'] = r
             check(abs(r.get('leanDeg', 0)) > 4, f"a runner leans into a bend ({r.get('leanDeg')} degrees)")
             # riding round a bend: the horse leans in with its rider (whole turns on the horse's yaw, beastLeanYaw)
-            r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 40, 1); P.x = P.prevX = Ln.x - Ln.ux * 6; P.z = P.prevZ = Ln.z - Ln.uz * 6; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); MO.F.mountUp(P, true); H.simulate(0.3, 1/60); H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); const yaw0 = P.yaw; let best = 0; for (let k = 0; k < 120; k++) { H.CAM.yaw = yaw0 + 0.8 * k / 60; H.simulate(1 / 60, 1 / 60); if (k % 10) continue; MO.chase(P); MO.M.motionDraw(); const hit = MO.M.motionFind(P).find((q) => q.kind !== 'human'); if (hit) { const w = hit.crowd.attrs[0].array[hit.idx * 4 + 3]; best = Math.max(best, Math.abs(Math.round(w / (2 * Math.PI)))); } } H.INPUT.keys.clear(); MO.F.dismount(P); return { horseLeanDeg: +(best * 0.04 * 180 / Math.PI).toFixed(1), riderLeanDeg: +((P.anim.lean || 0) * 180 / Math.PI).toFixed(1) }; })()")
+            r = await ev(page, "(() => { const H = __hm, P = H.GAME.player, Ln = MO.lane(MO.cx, MO.cz, 40, 1); P.x = P.prevX = Ln.x - Ln.ux * 6; P.z = P.prevZ = Ln.z - Ln.uz * 6; P.y = MO.F.heightAt(P.x, P.z); P.yaw = Math.atan2(Ln.ux, Ln.uz); MO.F.mountUp(P, true); H.simulate(0.3, 1/60); H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); const yaw0 = P.yaw; let best = 0; for (let k = 0; k < 120; k++) { H.CAM.yaw = yaw0 + 0.8 * k / 60; H.simulate(1 / 60, 1 / 60); if (k % 10) continue; MO.chase(P); MO.M.motionDraw(); const hit = MO.M.motionFind(P).find((q) => q.kind !== 'human'); if (hit) { const w = hit.crowd.attrs[0].array[hit.idx * 4 + 3], kT = Math.round(w / (2 * Math.PI)), lean = kT - 11 * Math.floor((kT + 5) / 11); best = Math.max(best, Math.abs(lean)); } } H.INPUT.keys.clear(); MO.F.dismount(P); return { horseLeanDeg: +(best * 0.04 * 180 / Math.PI).toFixed(1), riderLeanDeg: +((P.anim.lean || 0) * 180 / Math.PI).toFixed(1) }; })()")
             print('  ride bend ', json.dumps(r), flush=True); res['ride_bend'] = r
             check(r.get('horseLeanDeg', 0) > 3, f"a horse leans into a bend with its rider ({r.get('horseLeanDeg')} degrees)")
             # riding: the horse's feet under the player at a canter and a gallop

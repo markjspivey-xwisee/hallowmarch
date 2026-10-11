@@ -45,12 +45,15 @@ function footLockStep(e, dt) {
   const still = e.anim.amt < 0.02 && !(e.anim.turn > 0.05);
   footLockFeet(e, e._fl || (e._fl = []), human ? 2 : 4, human ? (f) => flHumanGait(e, f) : (f) => flBeastGait(S, e.anim.phase, e.anim.amt, e.scale || 1, f), still, dt, vx, vz);
 }
+// the floor under a foot at (x, z): a stair's tread, a deck, the ground (a drop beyond a step, off a wall walk's edge or a
+// jetty's, is no floor for it: then the body's own)
+function flFloor(e, x, z) { const y = e.y, h = floorAt(x, z, y + 0.5); return Math.abs(h - y) > 0.6 ? y : h; }
 function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
   const c = Math.cos(e.yaw), s = Math.sin(e.yaw);
   const at = (o, x0, along, cx, cz) => { const lx = x0 + cx, lz = along + cz; o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; };
   for (let f = 0; f < n; f++) {
     const [u, duty, reach, x0, z0] = gait(f);
-    const o = L[f] || (L[f] = { down: false, wx: 0, wz: 0, cx: 0, cz: 0, lx: 0, lz: 0, u, tx: 0, tz: 0 });
+    const o = L[f] || (L[f] = { down: false, wx: 0, wz: 0, cx: 0, cz: 0, lx: 0, lz: 0, u, tx: 0, tz: 0, human: n === 2 });
     const down = still || u < duty;
     // where the gait alone puts this foot now (along: its rest place and the stance's way back under the body)
     const along = z0 + (u < duty ? reach * (1 - 2 * u / duty) : 0);
@@ -81,10 +84,19 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       }
       o.lx = o.cx; o.lz = o.cz;
     } else {
+      if (o.down) o.hL = o.h ?? null; // (the floor it lifts off)
       o.fresh = false;
       // in the air: from where it lifted off to where it will come down, over the swing
       const w = clamp((u - duty) / Math.max(1 - duty, 0.05), 0, 1), k = w * w * (3 - 2 * w);
       o.cx = lerp(o.lx, o.tx, k); o.cz = lerp(o.lz, o.tz, k);
+      // the floor where it will come down (a tread, a bump, a slope's rise), and the floor under it now: it passes over a
+      // stair's nosing or a hump on the way, not through it
+      const lx = x0 + o.tx, lz = z0 + reach + o.tz;
+      o.hT = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c);
+      const q = 1 - w, ee = w * w * (3 - 2 * w) - (o.human ? 0.5 * (1 - duty) / Math.max(duty, 0.05) * w * (2 * w - 1) * (w - 1) : (1 - duty) / Math.max(duty, 0.05) * (w * q ** 7 - q * w ** 7));
+      const nx = x0 + o.cx, nz = z0 + reach * (2 * ee - 1) + o.cz;
+      o.hN = flFloor(e, e.x + nx * c + nz * s, e.z - nx * s + nz * c);
+      o.w = w;
     }
     o.down = down;
   }
@@ -100,22 +112,32 @@ function footLockSlot(e, horse) {
   for (const o of L) {
     if (!o) continue;
     if (o.down && o.g && o.fresh) {
-      // planted since the last frame: its place is where it is drawn now
+      // planted since the last frame: its place is where it is drawn now, on the floor there
       const lx = o.g[3] + o.cx, lz = o.along + o.cz;
       o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.fresh = false;
+      o.h = flFloor(e, o.wx, o.wz);
     }
+    if (o.down && o.h == null) o.h = flFloor(e, o.wx, o.wz);
+    // how high its floor stands over the body's own: planted, its own place's; in the air, from the floor it left to the
+    // floor it will land on
+    const hy = o.down ? o.h : Math.max(lerp(o.hL ?? e.y, o.hT ?? e.y, (o.w ?? 0) * (o.w ?? 0) * (3 - 2 * (o.w ?? 0))), o.hN ?? -1e9);
+    // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
+    o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, 0.45);
     if (o.down && o.g) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;
       const m = Math.hypot(cx, cz);
       if (m > FL_MAX) { const k = m > FL_MAX * 1.6 ? 0 : FL_MAX / m; cx *= k; cz *= k; }
       o.dx = cx; o.dz = cz;
+      o.lx = cx; o.lz = cz; // (the swing starts from what was drawn: the player's step reads it a step late, 12 cm at a run)
     } else { o.dx = o.cx; o.dz = o.cz; }
-    if (Math.abs(o.dx) > 0.002 || Math.abs(o.dz) > 0.002) any = true;
+    if (Math.abs(o.dx) > 0.002 || Math.abs(o.dz) > 0.002 || Math.abs(o.dy) > 0.004) any = true;
   }
   if (!any) return 0;
+  // (a beast stands tilted with the slope along it, beastLeanYaw: its feet's heights are what the tilt leaves)
+  const tilt = horse || e.kind !== 'humanoid' ? clamp(Math.round((e._bslope || 0) * 20), -20, 20) * 0.05 : 0;
   const r = FOOT_LOCK.n++, D = FOOT_LOCK.data;
-  for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = 0; D[k + 3] = 0; }
+  for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = o ? o.dy - tilt * (o.along + o.dz) : 0; D[k + 3] = 1; }
   return r + 1;
 }
 function footLockBegin() { FOOT_LOCK.n = 0; }

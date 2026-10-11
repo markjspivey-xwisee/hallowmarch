@@ -56,7 +56,8 @@ async def main():
             # 1. a swimmer pushes a boat lying free on a lake: she moves away from the push and turns a little (pushed off
             # her middle), the swimmer never inside her hull, her hull never over land
             r = await ev(page, 'push', """(() => { const H = PL.H, Bt = PL.Wt.boats, Bs = Bt.BOATS, P = H.GAME.player; PL.safe();
-              const sp = PL.lakeSpot(2, 2.6); const i = Bt.list().findIndex((q) => !q.home); const B = Bs.list[i];
+              H.farm.setSeason(0.42); H.seasons.seasonSettle(); // (summer: no ice on the lakes)
+              const sp = PL.lakeSpot(0, 2.6); const i = Bt.list().findIndex((q) => !q.home); const B = Bs.list[i];
               B.x = sp.x; B.z = sp.z; B.yaw = 0.3; B.st = 'free'; B.grounded = 0; B.vx = B.vz = B.wr = 0; B.still = false;
               const c = Math.cos(B.yaw), s = Math.sin(B.yaw);
               // the swimmer 1.6 m off her port side, a metre ahead of her middle, swimming straight at her
@@ -97,12 +98,15 @@ async def main():
             r = await ev(page, 'rest', """(() => { const H = PL.H, Bt = PL.Wt.boats, Bs = Bt.BOATS; const i = window.__plB, B = Bs.list[i];
               // head her slowly for the nearest shore
               let best = null; for (let a = 0; a < 6.28; a += 0.2) { for (let d = 1; d < 60; d += 1) { if (!PL.Wt.waterAt(B.x + Math.sin(a) * d, B.z + Math.cos(a) * d)) { if (!best || d < best.d) best = { a, d }; break; } } }
-              B.vx = Math.sin(best.a) * 0.5; B.vz = Math.cos(best.a) * 0.5; B.still = false; B.st = 'free'; B.grounded = 0;
+              // (moved in to lie a couple of metres off that shore, bow first)
+              let dd = best.d - 4.4; while (dd > 0 && Bt.hit(i, B.x + Math.sin(best.a) * dd, B.z + Math.cos(best.a) * dd, best.a)) dd -= 0.5;
+              if (dd > 0) { B.x += Math.sin(best.a) * dd; B.z += Math.cos(best.a) * dd; } B.yaw = best.a;
+              B.vx = Math.sin(best.a) * 0.6; B.vz = Math.cos(best.a) * 0.6; B.wr = 0; B.still = false; B.st = 'free'; B.grounded = 0;
               let t = 0; for (; t < 40 && !B.still && B.grounded < 0.5; t += 0.25) H.simulate(0.25, 1 / 60);
               for (let k = 0; k < 60; k++) H.simulate(1 / 60, 1 / 60);
               let dmax = 0, ymax = 0, px = B.x, pz = B.z, py = B.yaw; for (let k = 0; k < 120; k++) { H.simulate(1 / 60, 1 / 60); dmax = Math.max(dmax, Math.hypot(B.x - px, B.z - pz)); ymax = Math.max(ymax, Math.abs(B.yaw - py)); px = B.x; pz = B.z; py = B.yaw; }
-              return { t, d: best.d, still: !!B.still, grounded: B.grounded, stepMax: +(dmax * 1000).toFixed(2), yawMax: +(ymax * 1000).toFixed(2) }; })()""")
-            check(r['stepMax'] < 1.0 and r['yawMax'] < 1.0, f"drifted in, she lies still against the shore (largest step {r['stepMax']} mm, turn {r['yawMax']} mrad; {json.dumps(r)})")
+              return { t, d: best.d, still: !!B.still, grounded: B.grounded, touched: !!Bt.hit(i, B.x + Math.sin(B.yaw) * 0.3, B.z + Math.cos(B.yaw) * 0.3), stepMax: +(dmax * 1000).toFixed(2), yawMax: +(ymax * 1000).toFixed(2) }; })()""")
+            check((r['still'] or r['grounded'] > 0.5) and r['stepMax'] < 1.0 and r['yawMax'] < 1.0, f"drifted in, she lies still against the shore (largest step {r['stepMax']} mm, turn {r['yawMax']} mrad; {json.dumps(r)})")
 
         if want('tracks'):
             # tracks in the snow, saved with the world and laid again from the save; an old save and a damaged one

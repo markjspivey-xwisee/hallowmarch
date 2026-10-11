@@ -638,6 +638,7 @@ FOOT_LOCK.tex.needsUpdate = true;
 const FOOT_LOCK_GLSL = /* glsl */`
   uniform sampler2D uFootLock;
   vec2 footLock(float slot, int f){ return slot < 0.5 ? vec2(0.0) : texelFetch(uFootLock, ivec2(f, int(slot - 0.5)), 0).xy; }
+  vec4 footLock4(float slot, int f){ return slot < 0.5 ? vec4(0.0) : texelFetch(uFootLock, ivec2(f, int(slot - 0.5)), 0); } // (across, along, the floor's height under it, 1)
 `;
 const HSK = { // skeleton constants for GLSL
   SPINE: glv(SK.spine), NECK: glv(SK.neck), SHL: glv(SK.shoulder), SHR: glv([-SK.shoulder[0], SK.shoulder[1], SK.shoulder[2]]),
@@ -750,7 +751,8 @@ function humanVS(depth) {
     // turning sharply at speed): the lock moves each foot's target by what the gait alone gets wrong (footLockStep,
     // 13r_motion.js), along the leg and across it (the leg swings out about the hip; the feet do not cross)
     float flSlot = floor(iStyle.z * 0.5 + 0.01), rsc0 = max(iColA.w, 0.3);
-    vec2 lkL = footLock(flSlot, 0) / rsc0, lkR = footLock(flSlot, 1) / rsc0;
+    vec4 lk4L = footLock4(flSlot, 0) / rsc0, lk4R = footLock4(flSlot, 1) / rsc0;
+    vec2 lkL = lk4L.xy, lkR = lk4R.xy;
     fL.x += lkL.y; fR.x += lkR.y;
     float abL = atan(clamp(lkL.x, -0.12, 0.45) / 0.86), abR = atan(clamp(lkR.x, -0.45, 0.12) / 0.86);
     // [motion] the floor's slope along the body (stairs, ramps, hillsides: whole turns of the yaw, drawActors): each foot
@@ -760,7 +762,9 @@ function humanVS(depth) {
     float slopeDrop = min(0.1, abs(slopeK) * 0.14);
     gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
-    vec2 ikL = legIK(fL.x, (fL.y + slopeK * fL.x - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + slopeK * fR.x - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
+    // [polish] each foot on the floor under it (a tread, a bump: the lock knows where it stands), else on the slope's line
+    float hL = flSlot > 0.5 ? lk4L.z : slopeK * fL.x, hR = flSlot > 0.5 ? lk4R.z : slopeK * fR.x;
+    vec2 ikL = legIK(fL.x, (fL.y + hL - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + hR - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
     // arms swing against the legs; elbows bend more when running
     float uaL = s1 * (0.42 + 0.25 * run) * k, uaR = -s1 * (0.42 + 0.25 * run) * k;
@@ -912,13 +916,14 @@ function humanVS(depth) {
     // back leg driving, both feet flat on the ground
     if (atype > 18.5 && atype < 19.5) {
       float kk = smoothstep(0.0, 0.18, at) * (1.0 - smoothstep(0.85, 1.0, at)), drive = smoothstep(0.2, 0.75, at);
-      uaL = mix(uaL, -1.25 + 0.25 * drive, kk); uaR = mix(uaR, -1.25 + 0.25 * drive, kk);
-      faL = mix(faL, -0.95 + 0.7 * drive, kk); faR = mix(faR, -0.95 + 0.7 * drive, kk);
-      uaLz = mix(uaLz, -0.2, kk); uaRz = mix(uaRz, 0.2, kk);
-      chestX = mix(chestX, 0.62, kk); headX = mix(headX, -0.3, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
-      vec2 pF = legIK(0.3, -0.765), pB = legIK(-0.46, -0.765);
+      // (the stern is at knee height: the body bends low over it, the arms reach down and forward to it and straighten)
+      uaL = mix(uaL, -0.95 + 0.15 * drive, kk); uaR = mix(uaR, -0.95 + 0.15 * drive, kk);
+      faL = mix(faL, -0.75 + 0.6 * drive, kk); faR = mix(faR, -0.75 + 0.6 * drive, kk);
+      uaLz = mix(uaLz, -0.22, kk); uaRz = mix(uaRz, 0.22, kk);
+      chestX = mix(chestX, 0.82, kk); headX = mix(headX, -0.45, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
+      vec2 pF = legIK(0.34, -0.705), pB = legIK(-0.5, -0.705);
       thL = mix(thL, pF.x, kk); shL = mix(shL, pF.y, kk); thR = mix(thR, pB.x, kk); shR = mix(shR, pB.y, kk);
-      crouch = mix(crouch, 0.08, kk); bob *= 1.0 - kk; stepZ = mix(stepZ, 0.06 * drive, kk); capeX = mix(capeX, 0.3, kk);
+      crouch = mix(crouch, 0.14, kk); bob *= 1.0 - kk; stepZ = mix(stepZ, 0.08 * drive, kk); capeX = mix(capeX, 0.35, kk);
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
@@ -1049,6 +1054,7 @@ function humanVS(depth) {
     P.y += bob - 0.2 * d1 * (1.0 - d2) - crouch; P.x += swayX * legW; P.z += stepZ;
     if (seatTurn != 0.0) rotP(rotX(seatTurn), vec3(0.0, 0.86 + bob, stepZ)); // [polish] the rider tips with the saddle (about the seat)
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
+    if (mounted > 0.5 && slopeK != 0.0) rotP(rotX(-atan(slopeK)), vec3(0.0, 0.86 - 1.62 / max(iColA.w, 0.3), 0.0)); // [polish] tilted with the horse on a slope (beastLeanYaw)
     if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
 

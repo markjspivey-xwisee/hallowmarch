@@ -100,9 +100,9 @@ const trkMat = mat({
         // scuff that joins print to print into a trail read from afar (the prints alone were specks past a few metres)
         if (k < 4) {
           vec3 deep = vec3(0.3, 0.37, 0.55) * (uAmbient * 0.9 + uLightColor * 0.1);
-          col = mix(col, deep, smoothstep(0.55, 0.95, d) * 0.55);
-          float r = length(p * vec2(1.05, 0.82)), scuff = (1.0 - smoothstep(0.28, 0.6, r)) * (0.75 + 0.25 * vnoise(vW.xz * 9.0));
-          float sa = scuff * 0.3 * (1.0 - fill) * lie;
+          col = mix(col, deep, smoothstep(0.5, 0.95, d) * 0.65);
+          float r = length(p * vec2(1.05, 0.8)), scuff = (1.0 - smoothstep(0.28, 0.72, r)) * (0.75 + 0.25 * vnoise(vW.xz * 9.0));
+          float sa = scuff * 0.36 * (1.0 - fill) * lie;
           col = mix(vec3(0.62, 0.68, 0.8) * (uAmbient * 0.75 + uLightColor * 0.35), col, a / max(a + sa * (1.0 - a), 1e-3));
           a = a + sa * (1.0 - a);
         }

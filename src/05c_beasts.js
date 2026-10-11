@@ -453,11 +453,11 @@ function beastBodyGLSL(K) {
   }
   // the vault: how far the forequarters (x) and the hindquarters (y) come down, the most either of their legs needs
   // (a swinging leg's target is raised, so a leg in the air asks less; a little gives way as it lifts: no jump)
-  vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ){
-    float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB), fold, trot), true, spine, pitch, bob, lungeZ);
-    float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB), fold, trot), true, spine, pitch, bob, lungeZ);
-    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB), fold, trot), false, spine, pitch, bob, lungeZ);
-    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB), fold, trot), false, spine, pitch, bob, lungeZ);
+  vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ, vec4 dh){ // (dh: the floor under each foot over the body's own)
+    float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB), fold, trot) + vec2(0.0, dh.x), true, spine, pitch, bob, lungeZ);
+    float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB), fold, trot) + vec2(0.0, dh.y), true, spine, pitch, bob, lungeZ);
+    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB), fold, trot) + vec2(0.0, dh.z), false, spine, pitch, bob, lungeZ);
+    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB), fold, trot) + vec2(0.0, dh.w), false, spine, pitch, bob, lungeZ);
     return min(vec2(max(n0, n1), max(n2, n3)), vec2(0.3 * min(${K.G}.z, ${K.G}.w)));
   }
   // the vault as a turn about the hindquarters' top (forequarters down x, hindquarters y) and a drop: its angle and pivot
@@ -569,9 +569,11 @@ function beastVS(depth) {
     // in the water, in the air or dying
     // [motion] the lean into a turn as whole turns on the yaw (beastLeanYaw, 13r_motion.js); [polish] the body's row of
     // planted feet (footLockStep) above its weather in iColB.w
-    float kT = floor(iPos.w * 0.159155 + 0.5), leanN = kT, leanA = leanN * 0.04, flSlot = floor(iColB.w / 256.0 + 1e-3);
+    float kT = floor(iPos.w * 0.159155 + 0.5), slopeS = floor((kT + 5.0) / 11.0 + 1e-3), leanN = kT - 11.0 * slopeS, leanA = leanN * 0.04, flSlot = floor(iColB.w / 256.0 + 1e-3);
+    float bSlope = slopeS * 0.05; // [polish] the ground's rise along the body (beastLeanYaw): the beast stands tilted with it
     float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck) * (1.0 - uBbDbg.x);
-    vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ) * vaultK : vec2(0.0);
+    vec4 dh4 = flSlot > 0.5 ? vec4(footLock4(flSlot, 0).z, footLock4(flSlot, 1).z, footLock4(flSlot, 2).z, footLock4(flSlot, 3).z) / bsc * (1.0 - uBbDbg.y) : vec4(0.0); // [polish] the floor under each foot
+    vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ, dh4) * vaultK : vec2(0.0);
     float thV = bbVaultA(sink); vec2 vPiv = bbVaultPiv();
     // child joints first, then their parents
     if (b == 16) { rotP(rotX(jaw * w), uJaw); b = 2; w = 1.0; }
@@ -585,12 +587,13 @@ function beastVS(depth) {
       vec2 fp = bbFoot(ph + o, duty, reachB);
       float lift = fp.y * fold;
       // [polish] a planted foot stays where it came down however the body moves over it (shoved, sliding by a wall, turning)
-      vec2 lk = footLock(flSlot, leg) / bsc * (1.0 - uBbDbg.y); fp.x += lk.y; float dxM = lk.x;
+      vec4 lk4 = footLock4(flSlot, leg) * (1.0 - uBbDbg.y); vec2 lk = lk4.xy / bsc; fp.x += lk.y; float dxM = lk.x;
       // [motion] the leg reaches by IK, so a planted foot stays on the ground all through the stance; in the air the foot
       // rises and the hoof or paw tucks up. [polish] The IK reaches the low joint with the hoof or paw level under it,
       // and its target is where the ground place lies in the leg's own frame: every turn and drop of the body above
       // (the lean, the bob and lunge, the vault, the pitch, the back's flex) undone along the leg
       vec2 tg = bbTarget(fr, fp, fold, trot);
+      tg.y += lk4.z / bsc; // [polish] the floor under this foot (a bump, a tread), over what the slope's tilt gives
       float legX = (leg == 0 || leg == 2 ? 1.0 : -1.0) * (fr ? uFF.x : uBF.x);
       tg.y = (tg.y - legX * sin(leanA)) / cos(leanA);
       tg -= vec2(lungeZ, bob);
@@ -631,6 +634,7 @@ function beastVS(depth) {
     P.y += bob; P.z += lungeZ;
     ${depth ? '' : 'vNo = Nn;'}
     if (death > 0.0) { rotP(rotZ(1.45 * d2), vec3(0.0)); P.y += uBeastK.z * d2; }
+    if (bSlope != 0.0 && death < 0.5) rotP(rotX(-atan(bSlope)), vec3(0.0)); // [polish] on a slope, its feet on the ground under them
     // [motion] leaning into a turn, about the feet (whole turns on the yaw: beastLeanYaw, 13r_motion.js)
     if (leanN != 0.0) rotP(rotZ(leanA), vec3(0.0));
     P *= iColA.w;
@@ -785,7 +789,7 @@ HORSE_SEAT_GLSL = (() => {
     float amt = clamp(amtRaw, 0.0, 1.6), k = clamp(amt * 2.2, 0.0, 1.0);
     float spine = 0.1 * sin(ph + 0.9) * gal, pitch = 0.05 * sin(ph + 1.4) * gal - (air ? 0.12 : 0.0);
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
-    vec2 sink = air ? vec2(0.0) : bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, 0.0);
+    vec2 sink = air ? vec2(0.0) : bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, 0.0, vec4(0.0));
     float thV = bbVaultA(sink);
     vec2 s0 = vec2(${f(0.04)}, ${f(HORSE_SEAT - 0.06)}), s = bbRot(bbBodyFwd(s0, true, spine, pitch), bbVaultPiv(), thV);
     s.y += bob - sink.y;
