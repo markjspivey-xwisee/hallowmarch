@@ -214,7 +214,7 @@ async def palisade(page):
       out.t = t; out.st = c.st; Wt.kind = 'clear'; Wt.raining = 0; Wt.wet = 0; __hm.dbg.U.uWet.value = 0;
       return out; })()""")
     check(r['st'] != 1, f"palisade: rain puts out a young fire on it ({r['t']} s)")
-    r = await ev(page, 'palisade: rebuilt', """(() => { const K = T2.palK, C = T2.C(K), P = C.pal, out = {}; T2.away(); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; }
+    r = await ev(page, 'palisade: rebuilt', """(() => { const K = T2.palK, C = T2.C(K), P = C.pal, out = {}; T2.away(); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.palisade.PAL.dirty.add(P);
       const W = P.gaps[0], colls = W ? W.colls.map((q) => q.mid) : []; const st = [];
       let t = 0; while (t < 260 && P.gaps.length) { __hm.simulate(4); t += 4; K.lastEnemyNear = -1e9; if (W) st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); }
       out.t = t; out.gaps = P.gaps.length; out.states = st.slice(0, 40).join(' '); out.closed = colls.every((c) => c.active); out.whole = P.cells.filter((c) => c.st !== 0).length; out.fresh = +Math.max(...P.cells.map((c) => c.fresh)).toFixed(2);
@@ -362,7 +362,7 @@ async def shots(page):
       T2.palShot = { K, c0 }; __hm.setTod(1.9); return P.cells.filter((c) => c.st === 1).length; })()""")
     pcam = """const { K, c0 } = T2.palShot, S = K.site, o = T2.F.siteToWorld(S, 14.9 + 14, c0.a + 7), t = T2.F.siteToWorld(S, 14.9, c0.a); T2.cam(o.x, S.y + 5.5, o.z, t.x, S.y + 3.2, t.z);"""
     await shot(page, 'siege2_palisade_night', "(() => { " + pcam + " return 0; })()", 'high')
-    await ev(page, 'shots: gap', """(() => { const { K, c0 } = T2.palShot, P = T2.C(K).pal; let t = 0; while (t < 90 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; } __hm.simulate(20); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.42); return P.gaps.length; })()""")
+    await ev(page, 'shots: gap', """(() => { const { K, c0 } = T2.palShot, P = T2.C(K).pal; let t = 0; while (t < 90 && !P.gaps.length) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; } __hm.simulate(20); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.palisade.PAL.dirty.add(P); __hm.simulate(1); K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.42); return P.gaps.length; })()""")
     await shot(page, 'siege2_palisade_gap_high', "(() => { " + pcam + " return 0; })()", 'high')
     await shot(page, 'siege2_palisade_gap_low', "(() => { " + pcam + " return 0; })()", 'low')
     # an Eriu gate tower's thatched cone burning at dusk
