@@ -2,7 +2,9 @@
 usage: python3 tools/tests/mountains.py [tag] [views=a,b,...] [q=high|medium|low] [noshots] [nochecks] [small]
   tag (default 'now') names the screenshots: tools/out/mtn_<tag>_<view>.png.
   Views: orchard, orchard_dusk, orchard_winter, orchard_low, pass0, pass1, pass2, road, wall, wall_low, foot, foot_low,
-  thule_winter, far (each from a fixed camera in clear weather; *_low at low quality, the rest at q, default high).
+  thule_winter, far, crag, crag_low, and ([heights]) keep_far, keep_far_low, keep_far_dusk (the range across the frontier
+  from before a Logres keep's gate, 350-450 m), town0, town2, town2_winter (the towns looking at the mountains), trees, trees_low (the
+  hardy trees) (each from a fixed camera in clear weather; *_low at low quality, the rest at q, default high).
   Checks (unless nochecks): the walk mask, the heights of every walkable texel, the navigation graph, the roads and the
   colliders are what they were before the mountains were reshaped (checksums below, taken on version 9); no new closed
   hollow on the mountains; the crags stand only on unwalkable mountain ground, clear of walkable ground, and nowhere in
@@ -25,7 +27,7 @@ def opt(name, default=None):
 FLAGS = {a for a in ARGS if '=' not in a}
 TAG = next((a for a in ARGS if '=' not in a and a not in ('noshots', 'nochecks', 'small')), 'now')
 Q = opt('q', 'high')
-ALL_VIEWS = ['orchard', 'orchard_dusk', 'orchard_winter', 'orchard_low', 'pass0', 'pass1', 'pass2', 'road', 'wall', 'wall_low', 'foot', 'foot_low', 'thule_winter', 'far', 'crag', 'crag_low']
+ALL_VIEWS = ['orchard', 'orchard_dusk', 'orchard_winter', 'orchard_low', 'pass0', 'pass1', 'pass2', 'road', 'wall', 'wall_low', 'foot', 'foot_low', 'thule_winter', 'far', 'crag', 'crag_low', 'keep_far', 'keep_far_low', 'keep_far_dusk', 'town0', 'town2', 'town2_winter', 'trees', 'trees_low']
 VIEWS = opt('views', ','.join(ALL_VIEWS)).split(',')
 SMALL = 'small' in FLAGS
 T0 = time.time()
@@ -103,6 +105,20 @@ window.M = {
       M.H.setTod(0.45); const b = best, y = h(b.x, b.z) + 1.7; M.cam(b.x, y, b.z, b.c.x, b.c.y0 + b.c.h * 0.6, b.c.z); return { cam: [b.x, y, b.z], crag: [b.c.x, b.c.z, b.c.kind, +b.c.h.toFixed(1)] }; },
     crag_low(M) { return M.views.crag(M); },
     far(M) { const S = M.H.REALMS[1].town; M.H.setTod(0.4); const R = M.H.REALMS[1]; return M.look(S.x, S.z, 14, R.bearing + Math.PI, 0.7, 0.3, 120); },
+    // [heights] the range from afar: from a Logres keep's wall walk across the frontier to the far side of the ring
+    // (350-450 m), and from the towns (each looking at the nearest mountains)
+    keep_far(M) { const p = M.rp(0, 88, 64), y = M.F.heightAt(p.x, p.z) + 3.5; M.H.setTod(0.42); const t = M.rp(2, 250, -60); M.cam(p.x, y, p.z, t.x, 22, t.z); return { cam: [p.x, y, p.z], at: [t.x, t.z], d: Math.hypot(t.x - p.x, t.z - p.z) }; },
+    keep_far_low(M) { return M.views.keep_far(M); },
+    keep_far_dusk(M) { const r = M.views.keep_far(M); M.H.setTod(1.62); M.F.applyTimeOfDay(1.62); return r; },
+    town0(M) { const S = M.H.REALMS[0].town; M.H.setTod(0.45); const R = M.H.REALMS[0]; return M.look(S.x, S.z, 3, R.bearing + Math.PI + 0.35, 0.5, 0.4, 70); },
+    town2(M) { const S = M.H.REALMS[2].town; M.H.setTod(0.45); const R = M.H.REALMS[2]; return M.look(S.x, S.z, 3, R.bearing + Math.PI - 0.3, 0.5, 0.4, 70); },
+    town2_winter(M) { M.season(0.875); return M.views.town2(M); },
+    // hardy trees on a lower slope: the most of them within 40 m, seen from below
+    trees(M) { const T = M.F.W.trees.filter((t) => t.hardy), h = M.F.heightAt; let best = null, bn = 0;
+      for (const t of T) { const n = T.filter((o) => Math.hypot(o.x - t.x, o.z - t.z) < 30).length; if (n > bn) { bn = n; best = t; } }
+      M.H.setTod(0.45); if (!best) return null; const a = Math.atan2(best.x, best.z), x = best.x - Math.sin(a) * 34, z = best.z - Math.cos(a) * 34, y = h(x, z) + 2;
+      M.cam(x, y, z, best.x, best.y + 4, best.z); return { cam: [x, y, z], at: [best.x, best.z], n: bn }; },
+    trees_low(M) { return M.views.trees(M); },
   },
   set(name) { this.dry(); if (!/winter/.test(name)) this.season(0.375); return this.views[name](this); },
 };
@@ -138,7 +154,7 @@ async def grab(page, path, w, h):
 
 # what people walk on: the walk mask, the heights of every walkable texel and of every texel next to one, the roads,
 # the navigation graph and the colliders (counts and a checksum of their places)
-GROUND = r"""(() => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, walk = W.walk, H = W.H;
+GROUND = r"""((pre) => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, Ht = __hm.heights && __hm.heights.HTS, walk = pre && Ht && Ht.walk0 ? Ht.walk0 : W.walk, H = pre && Ht && Ht.H0 ? Ht.H0 : W.H; // [heights] pre: the land as version 10 left it, before mtnHeights (03d_heights.js)
   // the ground anyone can reach: flooded from the roads over walkable ground and swimmable water (8 neighbours)
   const reach = new Uint8Array(N2), st = [];
   const seed = (x, z) => { const k = Math.round((z + 512) / 2) * HN + Math.round((x + 512) / 2); if (walk[k] !== 1 && !reach[k]) { reach[k] = 1; st.push(k); } };
@@ -156,11 +172,13 @@ GROUND = r"""(() => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, walk = W.walk
   const C = __hm.build.COLL, keeps = __hm.REALMS[0].keepSites, inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
   let cs = 0, nb = 0, nc = 0;
   for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
-  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty) continue; // [v10] not the jetties' posts (07e_boats.js)
+  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
     nc++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.r * 11) * 10)) % 1000000007; }
   const coll = { boxes: nb, circles: nc, sum: cs };
-  let ts = 0; const T = W.trees; for (let i = 0; i < T.length; i++) ts = (ts * 131 + Math.round((T[i].x * 3 + T[i].z * 7) * 10)) % 1000000007;
-  return { walkSum: hw, walkHeights: hh, nWalk, nDeep, nReach, nProt, roads: W.roads.length, roadSum: hr, coll, trees: W.trees.length, treeSum: ts, rocks: W.rocks.length, camps: W.camps.length }; })()"""
+  // (the trees there were before the hardy ones were added after them: [heights])
+  const nT = Ht && Ht.trees0 ? Ht.trees0 : W.trees.length;
+  let ts = 0; const T = W.trees; for (let i = 0; i < nT; i++) ts = (ts * 131 + Math.round((T[i].x * 3 + T[i].z * 7) * 10)) % 1000000007;
+  return { walkSum: hw, walkHeights: hh, nWalk, nDeep, nReach, nProt, roads: W.roads.length, roadSum: hr, coll, trees: nT, treeSum: ts, rocks: W.rocks.length, camps: W.camps.length }; })"""
 
 async def main():
     async with async_playwright() as p:
@@ -174,14 +192,32 @@ async def main():
         await page.evaluate("(() => { const P = __hm.GAME.player, S = __hm.REALMS[0].town; P.x = P.prevX = S.x; P.z = P.prevZ = S.z; P.hp = P.maxHp; return 0; })()")
         print(f'started [{time.time() - T0:.0f}s]', flush=True)
         if 'nochecks' not in FLAGS:
-            g = await page.evaluate(GROUND)
-            print('ground', json.dumps(g), flush=True)
+            # [heights] the land as version 10 left it (before mtnHeights) must be exactly the base; after it, what anyone
+            # can reach, the roads, the camps, the colliders, the trees there were and the rocks stay the same
+            g0 = await page.evaluate(GROUND + '(true)')
+            g = await page.evaluate(GROUND + '(false)')
+            print('ground before the shaping', json.dumps(g0), flush=True)
+            print('ground now', json.dumps(g), flush=True)
             if TAG == 'base':
-                BASE_FILE.write_text(json.dumps(g, indent=1))
+                BASE_FILE.write_text(json.dumps(g0, indent=1))
                 print('wrote', BASE_FILE)
             elif BASE:
                 for k in ('walkSum', 'walkHeights', 'nWalk', 'nDeep', 'nReach', 'nProt', 'roads', 'roadSum', 'camps', 'coll', 'trees', 'treeSum', 'rocks'):
-                    check(g.get(k) == BASE.get(k), f'{k} unchanged ({g.get(k)} vs {BASE.get(k)})')
+                    check(g0.get(k) == BASE.get(k), f'{k} as version 10 left it ({g0.get(k)} vs {BASE.get(k)})')
+                for k in ('nDeep', 'nReach', 'roads', 'roadSum', 'camps', 'coll', 'trees', 'treeSum', 'rocks'):
+                    check(g.get(k) == BASE.get(k), f'{k} unchanged by the shaping ({g.get(k)} vs {BASE.get(k)})')
+            hs = await page.evaluate("(() => { const T = __hm.heights; if (!T) return null; const H = T.HTS, W = __hm.fn.W, N2 = 513 * 513; let off = 0, walkOff = 0, reachLost = 0, opened = 0;"
+                "  for (let k = 0; k < N2; k++) { const i = k % 513, j = (k / 513) | 0, near = (dk) => H.changed[k + dk] === 1; const ch = H.changed[k] || (i > 0 && near(-1)) || (i < 512 && near(1)) || (j > 0 && near(-513)) || (j < 512 && near(513));"
+                "    if (!H.changed[k] && W.H[k] !== H.H0[k]) off++; if (!ch && W.walk[k] !== H.walk0[k]) walkOff++; if (H.reach[k] && W.walk[k] !== H.walk0[k]) reachLost++; if (H.walk0[k] === 1 && W.walk[k] !== 1) opened++; }"
+                "  return { ...T.stats(), off, walkOff, reachLost, opened }; })()")
+            print('heights', json.dumps(hs), flush=True)
+            if hs:
+                check(hs['off'] == 0, f"no height changed outside the shaped ground ({hs['off']})")
+                check(hs['walkOff'] == 0, f"the walk mask is unchanged away from the shaped ground ({hs['walkOff']})")
+                check(hs['reachLost'] == 0, f"every texel anyone could reach is as walkable as it was ({hs['reachLost']})")
+                check(hs['opened'] == 0, f"no blocked ground opened ({hs['opened']})")
+                check(hs['changed'] > 40000, f"the mountains are shaped, walkable slopes and crests too ({hs['changed']} texels)")
+                print(f"  (recorded: {hs['walkLost']} unreachable texels on the faces and crests too steep to walk now)")
             land = await page.evaluate("__hm.mtn ? __hm.mtn.check() : null")
             print('land', json.dumps(land)[:1500], flush=True)
             if land:
@@ -190,7 +226,7 @@ async def main():
                 check(land['cragWet'] == 0, f"no crag in the water ({land['cragWet']})")
                 check(land['cragFloat'] == 0, f"no crag floats over the slope ({land['cragFloat']})")
                 check(land['newHollows'] == 0, f"no closed hollow on the reshaped mountains ({land['newHollows']})")
-                check(land['shaped'] > 1000, f"the unwalkable mountain ground is reshaped ({land['shaped']} texels)")
+                check(land['shaped'] > 1000, f"the mountain ground is reshaped ({land['shaped']} texels)")
                 check(land['camInside'] == 0, f"the camera stays out of the crags ({land['camInside']})")
         if 'noshots' not in FLAGS:
             for v in VIEWS:

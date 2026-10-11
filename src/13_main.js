@@ -84,6 +84,7 @@ async function boot() {
   await loadStep(0.48, 'Raising the keeps', () => { buildStructures(); buildBarrowSurface(); buildSurvival(); buildBoats(); }); // [survival] plants, workstations (before the grass reads the cover map); [water2] jetties and boats (07e_boats.js)
   await loadStep(0.54, 'Digging the barrow', () => buildDungeon());
   await loadStep(0.58, 'Sowing the meadows', () => { buildGrass(); buildFlowers(); buildNature(); buildFarming(); }); // [farming] beds, town strips, wild herbs (08h_farming.js)
+  await loadStep(0.63, 'Raising the mountains', () => mtnHeights()); // [heights] the whole mountain shaped once everything is placed, hardy trees, the crags (03d_heights.js)
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
