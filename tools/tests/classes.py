@@ -203,7 +203,7 @@ window.CB = {
     }
     return open;
   },
-  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { H.simulate(1); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; },
+  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { if (this.flat && H.bal5) H.bal5.flattenCraters(); H.simulate(1); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; }, // [balance5] flat: every crater undone each second (the mage's own meteor's bowl shields its foe from its bolts)
   results() { return this.A.map((A) => A.res); },
 };
 """
@@ -254,6 +254,7 @@ KINDS = [k for k in ('simple', 'skilled') if k in ARGS] or ['simple', 'skilled']
 LEVELS = next(([int(x) for x in a.split('=')[1].split(',')] for a in ARGS if a.startswith('levels=')), [10, 30, 50])
 async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
+    if 'flat' in ARGS: await page.evaluate("CB.flat = true; 0")  # [balance5] no crater lasts a second (a probe of what the craters cost)
     rows = {}
     for lvl in LEVELS:
         await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
