@@ -139,10 +139,17 @@ const buildingMat = mat({
         alb *= (0.8 + 0.25 * hash12(vec2(floor(u), row))) * mix(0.62, 1.0, smoothstep(0.0, 0.18, fy)) * mix(0.75, 1.0, smoothstep(0.0, 0.06, min(fu, 1.0 - fu)));
       } else if (m == 4) {
         // thatch: straw combed down the slope, laid in courses
-        float st = vnoise(vec2(vW.x * 9.0, vW.y * 1.6)) * 0.5 + vnoise(vec2(vW.z * 9.0, vW.y * 1.6 + 17.0)) * 0.5;
-        float fine = vnoise(vec2(vW.x * 31.0 + vW.z * 3.0, vW.y * 4.0)) * 0.5 + vnoise(vec2(vW.z * 31.0 + vW.x * 3.0, vW.y * 4.0 + 5.0)) * 0.5;
+        // [look] the strands run across the axis the slope faces (a face looking along z is combed along x, one looking
+        // along x along z): the two were summed everywhere, a plaid weave on a round house's lining and a crosshatch on
+        // its cone. Weighted by the facing they meet only where a cone turns through the diagonal; the finest strands
+        // fade before they are smaller than a pixel (they shimmered from afar)
+        vec2 thn = n.xz * n.xz;
+        float thw = smoothstep(0.25, 0.75, thn.y / max(thn.x + thn.y, 1e-4)), thp = length(fwidth(vW));
+        float st = mix(vnoise(vec2(vW.z * 9.0, vW.y * 1.6 + 17.0)), vnoise(vec2(vW.x * 9.0, vW.y * 1.6)), thw);
+        float fine = mix(vnoise(vec2(vW.z * 31.0 + vW.x * 3.0, vW.y * 4.0 + 5.0)), vnoise(vec2(vW.x * 31.0 + vW.z * 3.0, vW.y * 4.0)), thw);
+        st = mix(st, 0.5, smoothstep(0.05, 0.12, thp)); fine = mix(fine, 0.5, smoothstep(0.012, 0.035, thp));
         float course = fract(vW.y / 0.42 + vnoise(vW.xz * 1.3) * 0.35);
-        alb *= (0.66 + 0.5 * st) * (0.88 + 0.22 * fine) * mix(0.7, 1.0, smoothstep(0.0, 0.3, course));
+        alb *= (0.74 + 0.36 * st) * (0.9 + 0.17 * fine) * mix(0.7, 1.0, smoothstep(0.0, 0.3, course));
         alb = mix(alb, alb * vec3(0.78, 0.86, 0.66), smoothstep(0.6, 0.85, vnoise(vW.xz * 0.6 + vW.y * 0.4)) * 0.45);
       } else if (m == 5) {
         float u = (abs(n.x) > abs(n.z) ? vW.z : vW.x) / 0.48;
@@ -669,7 +676,8 @@ const treeMat = mat({
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying float vFadeFar;
     void main(){
       if (bayer4(gl_FragCoord.xy) < 1.0 - vFadeFar) discard;
-      if (bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) < viewBlock(vW)) discard;
+      float vb = viewBlock(vW); // [look] the crown parts in clumps (in the world), not through a screen door of dots
+      if (vb > 0.0 && (vPart < 0.5 ? bayer4(gl_FragCoord.xy + vec2(1.0, 2.0)) : vnoise(vW.xz * 2.3 + vW.y * 1.7 + vTint * 3.0)) < vb) discard;
       vec3 n = safeNormalize(vN);
       vec3 V = safeNormalize(cameraPosition - vW);
       vec3 col;

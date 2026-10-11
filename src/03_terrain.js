@@ -70,7 +70,7 @@ const DRIFT_MAP = { res: 1024, data: new Uint8Array(1024 * 1024), tex: null };
 DRIFT_MAP.tex = new THREE.DataTexture(DRIFT_MAP.data, DRIFT_MAP.res, DRIFT_MAP.res, THREE.RedFormat, THREE.UnsignedByteType);
 DRIFT_MAP.tex.minFilter = THREE.LinearFilter; DRIFT_MAP.tex.magFilter = THREE.LinearFilter; DRIFT_MAP.tex.generateMipmaps = false;
 U.uDriftMap = { value: DRIFT_MAP.tex };
-const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']);
+const COVER_SKIP = new Set(['tree', 'parapet', 'rail', 'z']); // ([look] and 'bush' once the herbs are placed: 13t_look.js)
 // mark the texels whose centres lie inside a shape (grown by pad); shape(x, z) says whether a point is inside
 function coverMark(cx, cz, rad, inside) {
   const R = COVER.res, i0 = Math.max(0, Math.floor(cx - rad + 512)), i1 = Math.min(R - 1, Math.ceil(cx + rad + 512));
@@ -109,6 +109,7 @@ function buildCoverMask() {
   farmCoverAll(); // [farming] tilled beds and the town strips: no grass through the soil (08h_farming.js)
   mtnCoverAll(); // [land] nor up through a crag (03c_land.js)
   boatsCover(); // [water2] no grass through the hull of a boat drawn up on the shore (07e_boats.js)
+  lookCoverAll(); // [look] the towns' trodden green, tofts and paths (13t_look.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }
@@ -356,7 +357,11 @@ const terrainMat = mat({
         float fres = 0.02 + 0.98 * spow(1.0 - max(dot(n, V), 0.0), 5.0);
         vec3 Rv = reflect(-V, n);
         vec3 sk = skyBase(safeNormalize(vec3(Rv.x, max(Rv.y, 0.03), Rv.z)));
-        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * 0.8, 0.0, 1.0));
+        // [look] a puddle is dark standing water that mirrors the sky by its Fresnel term: seen from the play camera (a
+        // steep look down at the near ground) it shows mostly its dark bed, far off it shines. It mixed toward the sky at
+        // 0.8 whatever the angle, and in a storm the courtyards and roads lay under pale, matte blotches that read as snow
+        col *= 1.0 - 0.3 * puddle;
+        col = mix(col, sk * 0.85 + gPL * 0.4, clamp(fres * 0.45 * wetG * flatK + puddle * mix(0.22, 0.85, smoothstep(0.02, 0.5, fres)), 0.0, 1.0));
       }
       // [seasons] hoar frost on the turf on cold nights and mornings
       vec4 szm = seasonMapAt(vW.xz); // one fetch for the frost and the snow
@@ -751,12 +756,15 @@ const GRASS_VERT = /* glsl */`
     vec4 A = texture(uWorldA, uv);
     vec4 B = texture(uWorldB, uv);
     float keep = fract(aRnd.w * 17.31 + aRnd.x * 3.7);
-    if (aRnd.x > A.g * 1.02 - 0.02 || keep > fade || coverAt(base) > 0.3) fade = 0.0; // nothing grows through floors and walls
+    float lkCov = coverAt(base); // [look] under the solid threshold: trodden ground (13t_look.js), the foot of a wall
+    if (aRnd.x > A.g * 1.02 - 0.02 || keep > fade || lkCov > 0.3) fade = 0.0; // nothing grows through floors and walls
     else fade = mix(0.82, 1.0, smoothstep(keep, keep + 0.25, fade));
     // visual pass: a varied sward (short turf, tall stands, long in the fields) instead of one even shag of tall blades
     vec3 mp = meadowPatch(base);
     float H = meadowHeight(A, B, mp) * mix(0.6, 1.3, aRnd.y * aRnd.y) * fade;
     H *= 0.86 + 0.28 * vnoise(base * 0.3 + 7.0);
+    H *= 1.0 - 0.72 * smoothstep(0.03, 0.27, lkCov); // [look] a town's green and tofts kept short, a fringe at the foot of a wall
+    H *= 1.0 - smoothstep(0.6, 0.9, A.a); // [look] and no blade stands straight out of a cliff face (they read as dark spikes on the rock)
     // [seasons] the sward lies down over winter and is buried where the snow lies deep
     vec4 szn = seasonMapAt(base);
     H *= mix(1.0, 0.72, uSeasonA.w) * (1.0 - smoothstep(0.35, 0.9, szn.r)); // [water2] under a full cover of snow it is gone from sight (and the prints in the snow show: 07f_tracks.js)
@@ -988,6 +996,7 @@ const flowerMat = mat({
       vec3 b3 = vec3(base.x, terrainHeight(base) - 0.03, base.y);
       // heads ride just above the turf they grow in (visual pass: the sward's height varies now)
       float stemH = meadowHeight(A, B, meadowPatch(base)) * (0.92 + 0.32 * fract(aRnd.w * 5.1)) + 0.05;
+      stemH *= 1.0 - 0.72 * smoothstep(0.03, 0.27, coverAt(base)); // [look] on trodden ground with the turf (13t_look.js)
       vec2 face = vec2(cos(aRnd.w * 6.28), sin(aRnd.w * 6.28));
       vec4 tr = sampleTrail(base);
       vec2 lean = bladeLean(b3, face, aRnd.w, 0.75, tr);

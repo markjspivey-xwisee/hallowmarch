@@ -174,7 +174,8 @@ GROUND = r"""((pre) => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, Ht = __hm.
   let cs = 0, nb = 0, nc = 0;
   for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
   for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
-    nc++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.r * 11) * 10)) % 1000000007; }
+    const p = c.lookWas || c; // [look] a camp's tent turned off a tree counts where it stood (05d_fire.js)
+    nc++; cs = (cs * 131 + Math.round((p.x * 3 + p.z * 7 + c.r * 11) * 10)) % 1000000007; }
   const coll = { boxes: nb, circles: nc, sum: cs };
   // (the trees there were before the hardy ones were added after them: [heights])
   const nT = Ht && Ht.trees0 ? Ht.trees0 : W.trees.length;

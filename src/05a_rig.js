@@ -1110,6 +1110,26 @@ function humanVS(depth) {
     if (bone == 7 || bone == 8) { float w = bone == 7 ? aW : 1.0; rotP(rotZ(spreadL * w) * rotX(thL * w), ${HSK.HIL}); }
     if (bone == 10) rotP(rotX(shR * aW), ${HSK.KNR});
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
+    // [look] cloth over the legs (a robe, a short skirt, a tabard's flaps) is pushed out ahead of a leg that has come
+    // forward and behind one that has gone back: the middle of a robe follows neither thigh (they share it), so a
+    // striding or guarding leg came through it from the hip to the boot, and a knee through a tabard
+    if (aBit > 10.5 && !arm && P.y < ${(SK.hip[1] - 0.02).toFixed(3)}) {
+      int cb = int(aBit + 0.5);
+      if (cb == ${WBIT.robe} || cb == ${WBIT.tabard} || cb == ${WBIT.skirt}) {
+        for (int sd = 0; sd < 2; sd++) {
+          float th = sd == 0 ? thL : thR, sh = sd == 0 ? shL : shR, lx = sd == 0 ? ${SK.hip[0].toFixed(4)} : ${(-SK.hip[0]).toFixed(4)};
+          float kx = 1.0 - smoothstep(0.07, 0.19, abs(P.x - lx));
+          if (kx <= 0.0) continue;
+          float hy = ${SK.hip[1].toFixed(4)}, L1 = ${Math.hypot(SK.hip[1] - SK.knee[1], SK.knee[2] - SK.hip[2]).toFixed(4)}, ky = hy - L1 * cos(th), kz = -L1 * sin(th);
+          // the leg's line at this height: the thigh above the knee, the shin below it
+          float zl = P.y > ky ? -(hy - P.y) * tan(clamp(th, -1.3, 1.3)) : kz - (ky - P.y) * tan(clamp(th + sh, -1.3, 1.3));
+          // its front and back surfaces there, with a little room (a tabard a little more, so it stays over the robe)
+          float room = cb == ${WBIT.tabard} ? 0.125 : 0.1;
+          if (position.z > 0.0) { float need = zl + room; if (P.z < need) P.z = mix(P.z, need, kx); }
+          else { float need = zl - room; if (P.z > need) P.z = mix(P.z, need, kx); }
+        }
+      }
+    }
     // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
     // the planted feet from side to side, a few centimetres each stride
     float legW = (bone == 7 || bone == 9) ? 1.0 - aW : (bone == 8 || bone == 10) ? 0.0 : 1.0;
@@ -1132,6 +1152,7 @@ function humanVS(depth) {
 }
 /* shading shared by people and beasts */
 const GLSL_ACTOR_LIGHT = /* glsl */`
+  float gRoom = 0.0; // [look] 1 inside a house (under its roof): the sky neither lights nor shines on the body
   vec3 actorLight(vec3 alb, vec3 n, vec3 V, float rough, float metal, float ao, float sh, float sss){
     vec3 L = uLightDir;
     float ndl = dot(n, L);
@@ -1146,7 +1167,7 @@ const GLSL_ACTOR_LIGHT = /* glsl */`
     vec3 col = alb * (1.0 - metal * 0.85) * (uLightColor * diffW * sh * 0.9 + amb * ao * 0.78);
     col += uLightColor * spec * F * sh * clamp(ndl * 3.0, 0.0, 1.0);
     vec3 R = reflect(-V, n);
-    vec3 env = mix(uAmbient * vec3(0.5, 0.47, 0.4), mix(uHorizon, uZenith, clamp(R.y, 0.0, 1.0)) * 0.95, smoothstep(-0.25, 0.3, R.y));
+    vec3 env = mix(uAmbient * vec3(0.5, 0.47, 0.4), mix(uHorizon, uZenith, clamp(R.y, 0.0, 1.0)) * 0.95, smoothstep(-0.25, 0.3, R.y) * (1.0 - gRoom)); // [look] no sky shines in steel in a room
     float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
     col += env * ao * (metal * mix(F0, vec3(1.0), fres) * (0.3 + 0.7 * gloss) + (1.0 - metal) * 0.05 * fres * gloss);
     col += (uLightColor * 0.16 * sh + uAmbient * 0.22) * pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.3 * ao;
@@ -1168,6 +1189,8 @@ const humanoidMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
     ${GLSL_WEATHER}
+    ${GLSL_ROOFS} // [look] underRoof: a body in a room is lit by the room
+
     varying vec3 vW; varying vec3 vN; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vTab; varying vec3 vArm; varying vec4 vMisc; varying vec4 vStyle; varying float vFlags; varying float vBit;
     varying vec4 vWear; // feature/weather
     float sdBox2(vec2 p, vec2 b){ vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
@@ -1379,7 +1402,13 @@ const humanoidMat = mat({
       }
       /* ---- end weather and wear ---- */
       float sh = shadowAt(vW, n);
-      vec3 col = actorLight(alb, n, V, rough, metal, ao, sh, sss);
+      // [look] a body in a room (under a house's roof, GLSL_ROOFS) is lit by the room: no sun or moon through the roof
+      // (low has no shadow map), less of the sky's ambient and none of the sky in its steel. At night it was lit blue
+      // by the moonlit sky in a room the hearth lights warm; the hearth and the lamp reach it as point lights (gPL)
+      gRoom = underRoof(vW) ? 1.0 : 0.0;
+      sh *= 1.0 - gRoom;
+      vec3 col = actorLight(alb, n, V, rough, metal, ao * (1.0 - 0.4 * gRoom), sh, sss);
+      col += alb * vec3(0.2, 0.12, 0.055) * gRoom * (0.45 + 0.55 * uNight) * ao; // the room's own warm light (its hearth and lamp: houseIndoor)
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
       col += alb * emit;
       col += wetSheen(vW, n, V, wFilm, wFilmPor, sh) * ao; // feature/weather: the sky and the sun in a film of rain

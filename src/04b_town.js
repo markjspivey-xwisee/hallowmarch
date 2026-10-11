@@ -93,19 +93,41 @@ function gableTimber(b, F, fw, H, rh, st) {
 // Pieces go into ctx.b (the shell), ctx.f (inside, culled when far) and ctx.g (glass), each tagged with its part.
 
 // a wall panel along frame F from u0 to u1, y0 to y1 and n0 to n1 through the wall (n out); holes are left open
+// [look] The wall is one slab on a grid cut at every opening's edges and every sill and head: each solid cell gives its
+// front and back faces, and only the faces that are really there are closed (the reveals of the openings, the wall's own
+// ends, top and foot). It was built of boxes side by side: a piece over a door ended on the middle of the tall piece's
+// edge beside it (a T-junction, and their vertex shades, linear between each box's own corners, disagreed), and the
+// boxes' end faces inside the wall stood flush with the front, winning samples along the seams at high (4x MSAA): a
+// thin light line ran up each side of every door and window to the eaves.
 function holedWall(b, F, u0, u1, y0, y1, n0, n1, holes, matId, col, by, aoH = 3) {
-  const nc = (n0 + n1) / 2, th = n1 - n0;
-  const piece = (a, c, ya, yc) => { if (c - a > 0.004 && yc - ya > 0.004) b.add(G.box, lm(F, (a + c) / 2, (ya + yc) / 2, nc, 0, c - a, yc - ya, th), matId, col, by, aoH); };
-  const hs = holes.filter((o) => o.u1 > u0 && o.u0 < u1 && o.y1 > y0 && o.y0 < y1).sort((p, q) => p.u0 - q.u0);
-  let u = u0;
-  for (const o of hs) {
-    const a = Math.max(o.u0, u0), c = Math.min(o.u1, u1);
-    piece(u, a, y0, y1);
-    piece(a, c, y0, Math.max(y0, o.y0));
-    piece(a, c, Math.min(y1, o.y1), y1);
-    u = Math.max(u, c);
+  const hs = holes.filter((o) => o.u1 > u0 && o.u0 < u1 && o.y1 > y0 && o.y0 < y1);
+  const cuts = (lo, hi, vals) => { const out = [lo]; for (const v of vals.filter((q) => q > lo + 0.004 && q < hi - 0.004).sort((p, q) => p - q)) if (v - out[out.length - 1] > 0.004) out.push(v); if (hi - out[out.length - 1] > 0.004) out.push(hi); else out[out.length - 1] = hi; return out; };
+  const us = cuts(u0, u1, hs.flatMap((o) => [o.u0, o.u1])), ys = cuts(y0, y1, hs.flatMap((o) => [o.y0, o.y1]));
+  const NU = us.length - 1, NY = ys.length - 1;
+  if (NU < 1 || NY < 1) return;
+  const solid = (i, j) => {
+    if (i < 0 || j < 0 || i >= NU || j >= NY) return false;
+    const u = (us[i] + us[i + 1]) / 2, y = (ys[j] + ys[j + 1]) / 2;
+    return !hs.some((o) => u > o.u0 && u < o.u1 && y > o.y0 && y < o.y1);
+  };
+  const P = [], N = [];
+  // a quad given by its four corners in the face's frame (x along the wall, y up, z out), counter-clockwise seen from n
+  const quad = (a, c, d, e, n) => { for (const v of [a, c, d, a, d, e]) { P.push(v[0], v[1], v[2]); N.push(n[0], n[1], n[2]); } };
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NU; i++) {
+    if (!solid(i, j)) continue;
+    const xa = us[i], xb = us[i + 1], ya = ys[j], yb = ys[j + 1];
+    quad([xa, ya, n1], [xb, ya, n1], [xb, yb, n1], [xa, yb, n1], [0, 0, 1]);
+    quad([xb, ya, n0], [xa, ya, n0], [xa, yb, n0], [xb, yb, n0], [0, 0, -1]);
+    if (!solid(i - 1, j)) quad([xa, ya, n0], [xa, ya, n1], [xa, yb, n1], [xa, yb, n0], [-1, 0, 0]);
+    if (!solid(i + 1, j)) quad([xb, ya, n1], [xb, ya, n0], [xb, yb, n0], [xb, yb, n1], [1, 0, 0]);
+    if (!solid(i, j - 1)) quad([xa, ya, n0], [xb, ya, n0], [xb, ya, n1], [xa, ya, n1], [0, -1, 0]);
+    if (!solid(i, j + 1)) quad([xa, yb, n1], [xb, yb, n1], [xb, yb, n0], [xa, yb, n0], [0, 1, 0]);
   }
-  piece(u, u1, y0, y1);
+  if (!P.length) return;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  b.add(g, F, matId, col, by, aoH);
 }
 // the openings in one wall: the door on the front, the windows where the plan put them
 function houseHoles(H, f) {
