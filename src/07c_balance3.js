@@ -28,7 +28,7 @@ const SHIELD_WALL_PACE = 0.75; // guarded, a warrior walks on behind a raised sh
 const RUSH_SHARE = 10; // Charge and Leap Strike share one rush: using either holds the other back this long
 // the share of weapon blows a dazzled foe misses, by the priest's rank: a twentieth at rank I, one in six at rank II,
 // a little over one in three at rank IV (the priest's own healing falls with rank while every blade's harm grows with it)
-const DAZZLE = { miss: [0, 0.05, 0.17, 0.26, 0.35, 0.35], dur: 3 };
+const DAZZLE = { miss: [0, 0.15, 0.18, 0.21, 0.24, 0.24], dur: 3 }; // [balance4] 0.05, 0.17, 0.26, 0.35: a warrior's rush reaches a priest at every level now, and at rank IV a third of its blows went wide
 const dazzleMissOf = (lvl) => DAZZLE.miss[clamp(abilityRank(lvl), 1, DAZZLE.miss.length - 1)];
 
 // an arrow, a bolt or a spell from afar lands on a warrior: Charge comes a second sooner

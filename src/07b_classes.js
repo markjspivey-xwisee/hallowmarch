@@ -231,7 +231,7 @@ function classHarm(src, dst, amount, opts) {
   if (dst.cs && dst.cls === 'warrior') {
     const cs = dst.cs;
     m *= STANCES[cs.stance].taken * (cs.stance === 0 && realmFlavour(dst) && dst.faction === 0 ? 0.93 : 1);
-    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && src && src !== dst && blockFaces(dst, src)) {
+    if (cs.blockOn && !opts.dot && opts.kind !== 'holy' /* [balance2] holy light falls from above: a shield does not turn it */ && !(opts.kind === 'aoe' && src && src.cls === 'archer') /* [balance4] nor does a volley */ && src && src !== dst && blockFaces(dst, src)) {
       const melee = opts.kind === 'melee';
       if (melee && t - cs.blockAt <= parryWindow(dst) && !dazzled(dst)) { parry(dst, src); return 0; } // [balance3] not while dazzled by holy light
       const k = melee || opts.kind === 'arrow' ? (cs.stance === 0 ? 0.2 : 0.3) : 0.6;
@@ -544,7 +544,7 @@ function warriorView(e, cs, A, t) {
   if (A.id === 'bash' && st === 0) { view().stun = A.stun + 0.5; /* [balance] +1 */ if (t) { if (!t.threat) t.threat = new Map(); t.threat.set(e.id, (t.threat.get(e.id) || 0) + e.maxHp); } }
   if (A.id === 'bulwark') view().buff = { ...A.buff, dur: A.buff.dur + (st === 0 ? 3 : 0) + 1.5 * (abilityRank(e.level) - 1) }; // [balance2] longer with rank
   if ((A.id === 'cleave' || A.id === 'whirl') && st === 2) view().dmg = A.dmg * 1.25;
-  if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; if (st === 1) view().healPct = 0.35; }
+  if (A.id === 'rally') { if (st === 2) view().buff = { ...A.buff, value: 0.25 }; view().healPct = (st === 1 ? 0.35 : A.healPct) / rankMult(e.level); } // [balance4] a warrior's own heal does not grow with rank (a priest's own healing does not either): at 50 it healed 48%
   if ((A.id === 'charge' || A.id === 'leap') && realmFlavour(e) && e.faction === 1) later(0.5, () => addMom(e, 2));
   else if (A.id === 'charge' || A.id === 'leap') later(0.5, () => addMom(e, 1));
   if (A.id === 'charge') { e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && !(b.kind === 'root' && !b.deep)); addBuff(e, 'free', 1, CHARGE_FREE, 'charge'); chargeFree(e, CHARGE_FREE); } // [balance] a charge breaks free of slows and snares [balance2] and none takes hold for 2 s (07c_balance.js) [balance3] but a seasoned mage's frost holds

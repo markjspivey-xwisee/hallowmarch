@@ -85,9 +85,12 @@ function chargeRushStep(e, m, dt) {
 // the rush spends the shield arm's weight: Shield Bash waits a moment after a Charge (a rush, a bash and the blows in
 // the stun's shadow killed a mage before it could answer at all)
 const RUSH_BASH = 3;
+// and it leaves the warrior a moment to find its feet: its abilities wait this long after it lands (the foe may answer)
+const RUSH_FOOTING = 0.6;
 // the rush lands: the blade comes round and the foe is slowed (the blow it always promised)
 function chargeLands(e, A, t, rk) {
   faceToward(e, t.x, t.z);
+  e.gcdUntil = Math.max(e.gcdUntil || 0, GAME.t + RUSH_FOOTING);
   setAct(e, 1, 0.5);
   later(0.12, () => {
     if (!e.alive || !t.alive || dist(e.x, e.z, t.x, t.z) > e.meleeRange * (e.scale || 1) + t.radius * (t.scale || 1) + 1.2) return;

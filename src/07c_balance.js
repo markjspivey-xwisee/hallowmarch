@@ -440,6 +440,7 @@ function botArcher(e, t) {
   // [balance4] a warrior whose Charge is ready: a snare laid in the rush's path holds it where it catches it
   if (rushComing(e, t) && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 9) && !canUse(e, 'snare', null)) { faceToward(e, t.x, t.z); if (botUse(e, 'snare', null)) return true; }
   if (botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 5) >= 2 && botUse(e, 'volley', t)) return true;
+  if (t.cs && t.cs.blockOn && botUse(e, 'volley', t)) return true; // [balance4] a volley falls from above: a raised shield does not turn it
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
@@ -474,10 +475,10 @@ function botAwayYaw(e, p, reach) {
   }
   return Math.atan2(ax, az);
 }
-// [balance4] a warrior after the mage, close and held by its frost or a stun (or about to be free and very close): the
-// mage walks away while it is held (it stood casting by it, and the bash met the spell as the root gave)
+// [balance4] a warrior after the mage, close and about to be free of its frost (or close enough to strike anyway): the
+// mage steps away from it, at every level now that Charge rushes (at 30 and up: out of a whirlwind's reach)
 function heldBladeNear(e) {
-  return nearestWhere(e.x, e.z, 12, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.charge.level && o.target === e.id && (holdLeft(o) > 0 || dist(e.x, e.z, o.x, o.z) < 5.6));
+  return nearestWhere(e.x, e.z, 6.5, (o) => botEnemy(e, o) && o.cls === 'warrior' && o.level >= ABILITIES.charge.level && o.target === e.id && (holdLeft(o) < 1.0 || dist(e.x, e.z, o.x, o.z) < 5.6));
 }
 // [balance3] how long a body stays where it stands (rooted or stunned), in seconds
 function holdLeft(o) { let v = 0; for (const b of o.buffs) if ((b.kind === 'root' || b.kind === 'stun') && b.until > GAME.t) v = Math.max(v, b.until - GAME.t); return v; }
@@ -498,9 +499,7 @@ function castFits(e, cast) {
 function botMage(e, t) {
   const cs = csOf(e), hpF = e.hp / e.maxHp;
   // [balance3] a long cast only when it can finish before a blade is on the caster (instants otherwise)
-  // [balance4] and none while a held warrior is close: that is the moment to walk away (botMove), not to stand and cast
-  const held = heldBladeNear(e);
-  const botUse = (q, id, tt) => (ABILITIES[id].cast > 0 && (held || !castFits(q, ABILITIES[id].cast)) ? false : botUseAny(q, id, tt));
+  const botUse = (q, id, tt) => (ABILITIES[id].cast > 0 && !castFits(q, ABILITIES[id].cast) ? false : botUseAny(q, id, tt));
   const focus = (el) => { if (clsHas(e, 'focus') && cs.focus !== el && (el !== 'storm' || clsHas(e, 'storm'))) setFocus(e, el); };
   // [balance2] a chill about to become a freeze: a blink sheds it (sideways, staying in the fight)
   if (t && chillOf(e) >= 2 && !frozenOf(e) && e.level >= ABILITIES.blink.level && !canUse(e, 'blink', null) && !botPresser(e, 5)) {
@@ -529,6 +528,9 @@ function botMage(e, t) {
     if (botUse(e, 'frost', p)) return true;
   }
   const foes = botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 6);
+  // [balance4] a caster's long spell (a priest's mend, a mage's meteor, an archer's aimed shot): storm breaks it, unless
+  // the caster stands steadfast
+  if (t.casting && t.casting.total - t.casting.t > 0.6 && !hasBuff(t, 'steadfast') && botUse(e, 'chain', t)) return true;
   // the combos: storm shatters the frozen and overloads the burning, fire bursts the chilled into steam,
   // frost quenches the burning; storm runs through the wet
   if (frozenOf(t)) { focus('storm'); if (botUse(e, 'chain', t)) return true; focus('fire'); if (botUse(e, 'firebolt', t)) return true; }
