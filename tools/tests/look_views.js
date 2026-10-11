@@ -45,14 +45,14 @@ window.LK = {
   // the player standing at (x, z) facing yaw, seen by the play camera from behind (as a player sees the game)
   play(x, z, yaw, pitch = 0.22, dist = 7, y) {
     const H = this.H, F = this.F, P = H.GAME.player;
-    if (P.mount) { try { F.dismount(); } catch (e) { /* not mounted */ } }
+    if (P.mount) { try { F.dismount(P); } catch (e) { /* not mounted */ } }
     P.x = P.prevX = x; P.z = P.prevZ = z; P.y = y ?? (F.floorAt ? F.floorAt(x, z, F.heightAt(x, z) + 0.3) : F.heightAt(x, z));
-    P.yaw = yaw; P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.vy = 0;
+    P.yaw = yaw; P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.vy = 0; P.motion = null;
     H.CAM.mode = 'play'; H.UI.modal = 'menu'; H.look(yaw, pitch, dist); H.CAM.near = dist;
     return { player: [+x.toFixed(1), +z.toFixed(1)], yaw: +yaw.toFixed(2) };
   },
   // the player waits at home, out of every view
-  park() { const H = this.H, F = this.F, P = H.GAME.player, S = H.REALMS[0].town; if (P.mount) { try { F.dismount(); } catch (e) { /* */ } } P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = F.heightAt(P.x, P.z); P.hp = P.maxHp; },
+  park() { const H = this.H, F = this.F, P = H.GAME.player, S = H.REALMS[0].town; P.motion = null; if (P.mount) { try { F.dismount(P); } catch (e) { /* */ } } P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = F.heightAt(P.x, P.z); P.hp = P.maxHp; },
   hush(x, z, r = 40) { for (const e of this.H.ENT.slice()) if (e.alive && e.kind !== 'door' && e.role !== 'player' && !e.siegeEngine && Math.hypot(e.x - x, e.z - z) < r) this.F.removeEnt(e); },
   clear() { for (const e of this.made) if (e.alive || this.H.ENT.includes(e)) this.F.removeEnt(e); this.made = []; },
   rp(R, along, lat) { const Q = this.H.REALMS[R]; return { x: Q.dx * along + Q.px * lat, z: Q.dz * along + Q.pz * lat }; },
@@ -526,6 +526,17 @@ window.LK = {
     if (!folk.length) return { skip: 'no townsfolk' };
     const e = folk[0], c = L.ahead(e.x, e.z, (e.yaw || 0), 4.5);
     return { ...L.eye(c.x, c.z, e.x, e.y + 1.1, e.z, 1.7), n: folk.length };
+  });
+  // the player half way up a corner tower's ladder (hand over hand, body action 14), the camera inside the drum
+  D('bodies', 'climb', (L) => {
+    const H = L.H, P = H.GAME.player, S = L.keepSite(0, 0), T = H.towers.list().find((t) => t.S === S && t.role === 'corner');
+    const Ld = T && T.ladders[0];
+    if (!Ld) return { skip: 'no ladder' };
+    L.play(Ld.fx, Ld.fz, P.yaw, 0.15, 3.2, Ld.wyb);
+    H.towers.towerClimb(P, Ld, 1);
+    const m = P.motion; H.UI.modal = null; H.simulate(Math.min(1.6, m.dur * 0.5)); H.UI.modal = 'menu';
+    H.CAM.mode = 'play'; H.look(P.yaw + Math.PI * 0.8, 0.1, 3.2);
+    return { climbing: !!P.motion, y: +(P.y - S.y).toFixed(2) };
   });
   /* ---- the barrow and the dragon ---- */
   D('barrow', 'barrow', (L) => {
