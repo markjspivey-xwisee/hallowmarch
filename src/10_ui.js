@@ -375,6 +375,7 @@ function drawMinimap() {
   drawTrackedMinimap(ctx, toM, S, dpr); // [balance] the archer's tracked quarry (07c_balance.js)
   if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
+  guideMinimap(ctx, toM, S, dpr); // [guide] where your path's next step is (10e_guide.js)
   const t = getEnt(P.target);
   if (t) { const [x, y] = toM(t.x, t.z); ctx.strokeStyle = '#ffe28a'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(x, y, 5 * dpr, 0, TAU); ctx.stroke(); }
   // view cone and player arrow
@@ -465,6 +466,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   drawCampaignMap(ctx, S, P); // [campaign] routes, order badges and the claim (08g_campaign.js)
   const b = GAME.prog.bounty;
   if (b && !b.done) { const c = CAMPS[b.camp]; const [x, y] = w2m(c.x, c.z, S); ctx.strokeStyle = '#ffd36a'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(x, y, S * 0.02, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+  guideMapMark(ctx, S); // [guide] your path's next step (10e_guide.js)
   const [px, py] = w2m(P.x, P.z, S);
   ctx.save(); ctx.translate(px, py); ctx.rotate(-P.yaw + Math.PI);
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
@@ -718,27 +720,7 @@ function renderMenu(tab) {
   } else if (tab === 'chronicle') {
     renderChronicle(body);
   } else {
-    body.innerHTML = IS_TOUCH ? `<div class="keys">
-      <kbd>Left thumb</kbd><span>Drag anywhere on the left to move. Push to the edge to run.</span>
-      <kbd>Right thumb</kbd><span>Drag to turn the camera. Tap a creature or soldier to target it.</span>
-      <kbd>Ability buttons</kbd><span>Use the eight abilities of your class. Locked ones open as you level; past 20 they grow a rank stronger every ten levels.</span>
-      <kbd>Target · Use · Jump</kbd><span>Cycle enemies, use a portal stone or take a hallow, and jump.</span>
-      <kbd>Ride</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>
-      <kbd>Potion · Kit</kbd><span>Drink a healing draught · open your gear and bags.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}</div>${waterHelp()}
-      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>The war is fought in campaigns. A realm that holds four of the six keeps for five minutes, or both enemy hallows for four, wins the March; after an hour the realm with the most renown wins. Then the keeps and hallows go home and a new campaign begins. From realm rank 3 or level 20 you can command your realm's warbands from the map.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>${animalsHelpHTML() /* [animals] */}` + farmHelpHTML() /* [farming] (08h_farming.js) */
-      : `<div class="keys">
-      <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
-      <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
-      <kbd>Click</kbd><span>Target a creature, soldier, gate or friend.</span>
-      <kbd>1 – 8</kbd><span>Use your abilities. Casting stops if you move. Past level 20 they grow a rank stronger every ten levels.</span>
-      <kbd>Tab · F</kbd><span>Cycle enemies in front of you · target yourself.</span>
-      <kbd>E</kbd><span>Use a portal stone, speak to the herald, take a hallow.</span>
-      <kbd>R</kbd><span>Whistle for your horse, or step down. A blow throws you from the saddle.</span>
-      <kbd>I · Q</kbd><span>Your gear and bags · drink a healing draught.</span>
-      <kbd>M · L · Esc</kbd><span>Map · log · menu.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}</div>${waterHelp()}
-      <h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder.</p><p>The war is fought in campaigns. A realm that holds four of the six keeps for five minutes, or both enemy hallows for four, wins the March; after an hour the realm with the most renown wins. Then the keeps and hallows go home and a new campaign begins. From realm rank 3 or level 20 you can command your realm's warbands from the map.</p><p>Cinderwing, a great red dragon, circles the March and comes down to rest on high ground. It is a fight for the strong, or for many. Keep out of its fire, and keep away from its tail.</p><h3>Loot</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange; the better the find, the brighter its beam of light. Walk over it to pick it up. Gear changes how you look and fight. The merchant at the stall in your town buys what you do not need and sells draughts and better gear.</p><h3>The Hollow Barrow</h3><p>East of the Lone Tree lies a long grassy mound with a ring of standing stones before it. Walk into its passage and you go down among the dead of the March: a torch-lit warren of tombs, a gallery that breathes fire, and a gate that only opens when the warden of the Well of Souls falls. The Hollow King sits on his throne at the far end. His hoard is the best loot in the land. It is built for strong characters, around level 18 and up. The stair at the entrance takes you back to the daylight.</p>${animalsHelpHTML() /* [animals] */}` + farmHelpHTML() /* [farming] (08h_farming.js) */;
-    body.innerHTML += buildHelpHTML(); // [building] keep halls and building (06k_build.js)
-    body.insertAdjacentHTML('beforeend', survivalHelpHTML()); // [survival] food, water and crafting (09s_survival.js)
+    body.innerHTML = guideHelpHTML(); // [guide] the keys and every system's own lines, in the order a player meets them (10e_guide.js GUIDE_HELP)
   }
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });

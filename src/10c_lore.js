@@ -274,7 +274,7 @@ const fx1 = (v) => String(Math.round(v * 10) / 10);
 function laShade(hex, k) { return '#' + hex3(hex).map((v) => Math.round(clamp(v * k, 0, 1) * 255).toString(16).padStart(2, '0')).join(''); }
 
 /* ------------------------------------------------------------------ */
-/* your path: fifteen steps from recruit to the height of your powers  */
+/* your path: from recruit to the height of your powers ([guide] 24)   */
 /* ------------------------------------------------------------------ */
 // lv: when the step usually comes; level: reached by levelling; old: a character from before
 // the path who is already this strong is taken to have done it (no reward)
@@ -292,10 +292,20 @@ const PATH_STEPS = [
   { id: 'draught', lv: 5, old: 8, title: 'Buy a healing draught', short: 'A draught',
     hint: (R) => `${R.merchant ? R.merchant.name : 'The merchant'} keeps a stall in ${R.townName}: ${LK().use} beside it to trade. In a fight, ${LK().potion} to drink one.`,
     reward: { xp: 0.25 } },
+  // [guide] the living side of the March, between the first bounty and the frontier (pv 2: added in version 13)
+  { id: 'cook', lv: 5, old: 5, pv: 2, title: 'Cook a meal', short: 'Cook a meal',
+    hint: () => (goodsHave('meat_raw') || goodsHave('fish_raw') ? `${LK().use} at any fire (a hearth, a brazier, a campfire) to cook your raw meat and fish. Cooked food fills you four times as well.` : 'Hunt a wolf, a boar or a deer for its meat (or catch a fish), then cook it at any fire: a hearth, a brazier, a campfire.'),
+    reward: { potions: 1 } },
+  { id: 'craft', lv: 8, old: 10, pv: 2, title: 'Make something at a workstation', short: 'Make something',
+    hint: (R) => `${R.townName} has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table: ${LK().use} at one for its recipes. Tan a hide into leather, or steep two woundwort with water into a healing draught.`,
+    reward: { gold: (L) => 30 + L * 4 } },
   { id: 'muster', lv: 14, old: 18, title: 'Go to the muster', short: 'The muster',
     hint: (R, prog) => `${prog.level < 14 ? 'Once you reach level 14, step' : 'Step'} through the portal stones in ${R.townName} to ${R.name} Muster on the frontier.`,
     meter: (prog) => (prog.level < 14 ? [loreLvlFrac(prog, 14), `Level ${prog.level} of 14`] : null),
     reward: { item: { slot: 'cloak', q: 3 } } },
+  { id: 'climb', lv: 14, old: 18, pv: 2, title: 'Climb a tower of your keep', short: 'Climb a tower',
+    hint: () => `Go in at the courtyard door of a tower of one of your realm's keeps and climb to its top: walk into a ladder (or ${LK().use}), and the hatch above opens as you come up to it.`,
+    reward: { xp: 0.25 } },
   { id: 'warband', lv: 14, old: 20, title: "Join a warband's fight", short: 'A warband fight',
     hint: (R) => `Warbands of ${R.name} march out from the muster. Follow one to its fight (your realm's markers on the map) and fight beside it.`,
     reward: { xp: 1 / 3 } },
@@ -317,17 +327,38 @@ const PATH_STEPS = [
   { id: 'champion', lv: 20, title: 'Defeat a borderland champion', short: 'A champion',
     hint: (R) => `Out toward the wild edges of ${homeIn(R)}, named champions lead the borderland camps, from level 20 to 40.`,
     reward: { item: { slot: 'charm', q: 4 } } },
+  // [guide] the late game's deeds (pv 2)
+  { id: 'command', lv: 20, pv: 2, title: 'Command a warband', short: 'Command a band',
+    hint: (R) => `Open the map (${LK().map}), choose one of ${R.name}'s warbands and give it a keep to take or defend, a temple to raid, or call it to rally to you. You may from level 20 or realm rank 3, or at the war table in a keep's great hall.`,
+    reward: { gold: (L) => 50 + L * 5 } },
+  { id: 'keep', lv: 22, pv: 2, title: 'Take an enemy keep', short: 'Take a keep',
+    hint: () => 'Fight with a warband at an enemy keep: break its gate or storm a breach, slay the lord in the courtyard, and its banners turn to your colours.',
+    reward: { item: { slot: 'head', q: 4 } } },
   { id: 'lv30', lv: 30, level: 30, title: 'Reach level 30', short: 'Level 30',
     hint: () => 'At 30 you learn your eighth ability, and every ability you know reaches rank II.',
     reward: { xp: 0.5 } },
+  { id: 'gift', lv: 30, pv: 2, title: 'Call your realm\'s great gift', short: 'The great gift',
+    hint: () => `At realm rank 5 or level 30 your realm's great gift opens: ${IS_TOUCH ? 'the round gift button over your abilities' : 'key 9'} calls it. Save it for a big fight.`,
+    meter: (prog) => (prog.level < 30 && realmRank(prog.rp) < 5 ? [loreLvlFrac(prog, 30), `Level ${prog.level} of 30`] : null),
+    reward: { xp: 0.25 } },
+  { id: 'dragon', lv: 32, pv: 2, title: 'Bring down Cinderwing', short: 'Cinderwing',
+    hint: () => 'The great red dragon rests on high ground between its flights: the gold gem marks it while it is in the sky. A fight for the strong, or for many.',
+    reward: { item: { slot: 'legs', q: 4 } } },
   { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
     hint: () => 'Rank III at 40. The fiercest champions hold the camps for levels 35 to 40.',
     reward: { item: { slot: 'chest', q: 4 } } },
+  { id: 'master', lv: 40, pv: 2, title: 'Make a named masterwork', short: 'A masterwork',
+    hint: () => 'A master crafter (crafting 85 and up) of level 40 makes them at the forge, the workbench, the tanning rack or the loom, from dragon scales, grave-iron from the Barrow\'s dead and champions\' trophies.',
+    reward: { gold: (L) => 200 + L * 10 } },
+  { id: 'campaign', lv: 42, pv: 2, title: 'Win a campaign', short: 'Win a campaign',
+    hint: (R) => `${R.name} wins by holding four of the six keeps for five minutes, or both enemy hallows for four. Lead its warbands and carry the hallows home.`,
+    reward: { item: { slot: 'cloak', q: 5 } } },
   { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
     hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you.',
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
+const PATH_VERSION = 2; // [guide] 2: the steps of version 13 (pv 2 on a step)
 const REWARD_SLOT_WORD = { weapon: 'weapon', cloak: 'cloak', ring: 'ring', charm: 'charm', chest: 'chest piece', head: 'helm', hands: 'pair of gloves', legs: 'pair of leggings' };
 function loreLvlFrac(prog, target) { return clamp((prog.level - 1 + (prog.level >= LEVEL_CAP ? 0 : prog.xp / xpToNext(prog.level))) / Math.max(1, target - 1), 0, 1); }
 function pathDone(id) { const L = GAME.prog && GAME.prog.lore; return !!L && L.done.includes(id); }
@@ -389,10 +420,10 @@ function pathComplete(S, silent = false) {
 /* field notes: first-time context, once per character                 */
 /* ------------------------------------------------------------------ */
 const FIELD_NOTES = {
-  start: { t: 'First steps', x: () => (IS_TOUCH ? 'Drag on the left of the screen to walk and on the right to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, always shows your next step.' : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, always shows your next step.') },
+  start: { t: 'First steps', x: () => (IS_TOUCH ? 'Drag on the left of the screen to walk and on the right to look around. Tap a creature to target it, then tap an ability. Your path, at the top left, shows your next step; the gold gem on the minimap marks where.' : 'WASD to walk, drag to look. Click a creature, then press 1. Your path, at the left of the screen, shows your next step; the gold gem on the minimap marks where. H shows every key.') }, // [guide] the gem
   news: { t: 'New: the Chronicle', x: () => `The story of the March, how the war is won and what the commanders' orders mean are now in the Chronicle (${LK().menu}). Your path, at the left, shows your next step.` },
   frontier: { t: 'The frontier', x: (R) => `Here the three realms fight. Friendly names show in blue. Warbands of ${R.name} march out from the muster, and its portal stones take you home.` },
-  keep: { t: 'An enemy keep', x: () => 'Break its gate, then slay the lord inside and the keep is your realm\'s. Archers on the walls shoot at anyone close, so come with a warband.' },
+  keep: { t: 'An enemy keep', x: () => 'Its gates shut against you. Break the gate (or storm a breach), then slay the lord inside and the keep is your realm\'s. Archers on the walls and towers shoot at anyone close, so come with a warband.' }, // [guide] gates shut, breaches
   mount: { t: 'On horseback', x: () => `Your horse carries you nearly twice as fast. Any blow throws you from the saddle, and you cannot call it in the heat of battle or while you carry a hallow. ${capFirst(LK().ride)} to step down.` },
   loot: { t: 'Loot', x: () => `Foes drop gear in six grades, from worn grey to legendary orange; the brighter the beam, the better the find, and of about the foe's own level, all the way to 50: champions, Cinderwing and the Hollow King's hoard a little above. ${capFirst(LK().kit)} to look it over and put it on, and sell what you do not need to a merchant.` }, // [balance2]
   barrow: { t: 'The Hollow Barrow', x: () => 'The dead here wake together, so take one pack at a time. The Burning Gallery breathes fire in bursts: cross between them. The gate of the Well of Souls opens only when its warden falls. The stair by the mouth leads back up.' },
@@ -863,7 +894,7 @@ function prologuePages() {
     { k: 'V · Your Road', t: 'Your Road', art: 'road', p: [
       `You are <b>${esc(P.name)}</b>, ${loreAn(C.name)} ${C.name.toLowerCase()} of ${R.name}. ${vet ? `You come to ${R.townName} a veteran, ready for the frontier.` : `You begin in ${R.townName} as a recruit.`}`,
       `Speak with the herald in the square for bounties, buy healing draughts from ${R.merchant ? R.merchant.name : 'the merchant'}, and grow strong against the creatures of ${homeIn(R)}. At level 14, step through the portal stones to ${R.name} Muster on the frontier, join a warband, and help carry a hallow home to the ${R.templeName}.`,
-      `<b>Your path</b>, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, shows your next step, and every step pays a reward. The whole story is in the <b>Chronicle</b>, in the menu.`,
+      `Between fights the March feeds those who know it: eat and drink, cook what you hunt, fish, farm, tame beasts, craft at the workstations and build. <b>Your path</b>, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, shows your next step, and the gold gem on your minimap shows where. The whole story, and how everything works, is in the <b>Chronicle</b>${IS_TOUCH ? ', in the menu' : ' (J)'}.`, // [guide]
     ] },
   ];
 }
@@ -975,6 +1006,7 @@ function buildPathHud() {
       if (!b) return;
       const a = b.dataset.act;
       if (a === 'open') { openChronicle('path'); return; }
+      if (a === 'aims') { openChronicle('goals'); return; } // [guide]
       LORE.min = a === 'min';
       try { localStorage.setItem('hallowmarch.lore.min', LORE.min ? '1' : '0'); } catch (err) { /* storage may be blocked */ }
       LORE.hudKey = '';
@@ -999,17 +1031,21 @@ function renderPathHud() {
   const R = REALMS[P.faction], S = pathNext(), n = prog.lore.done.length, N = PATH_STEPS.length;
   let html;
   if (!S) {
+    // [guide] the path walked: what to aim for now (the Chronicle's Aims page has the rest)
+    const A = guideAims()[0];
     html = LORE.min
-      ? `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open">Your path is walked</button><span class="n">${N}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show your path">${iconSvg('lplus', 12)}</button></div>`
-      : `<div class="ph"><span class="lbl">Your path</span><span class="n">${N} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div><button type="button" class="step" data-act="open"><span class="fin">Every step is walked. The March is yours to shape.</span></button>`;
+      ? `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="aims" title="Open your aims in the Chronicle">${A ? esc(A.t) : 'Your path is walked'}</button><span class="n">${N}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show your aims">${iconSvg('lplus', 12)}</button></div>`
+      : `<div class="ph"><span class="lbl">Your aims</span><span class="n">${N} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your aims away">${iconSvg('lminus', 12)}</button></div><button type="button" class="step" data-act="aims"><span class="gem"></span><span class="st">${A ? esc(A.t) : 'Every step is walked'}</span><span class="hint">${A && A.x ? A.x : 'Every step of your path is walked. The March is yours to shape.'}</span>${A && A.m ? `<span class="meter"><i><b style="width:${(clamp(A.m[0], 0, 1) * 100).toFixed(1)}%"></b></i>${A.m[1]}</span>` : ''}</button>`;
   } else if (LORE.min) {
-    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="${S.title}: open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}" aria-label="Next step: ${S.title}">${S.short}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
+    const w = guideShortWhere(); // [guide] how far, at a glance
+    html = `<div class="ph"><span class="gem"></span><button type="button" class="st" data-act="open" title="${S.title}: open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}" aria-label="Next step: ${S.title}${w ? ', ' + w : ''}">${S.short}${w ? `<span class="gd-d">${w}</span>` : ''}</button><span class="n">${n}/${N}</span><button type="button" class="tog" data-act="max" aria-label="Show the next step in full">${iconSvg('lplus', 12)}</button></div>`;
   } else {
     const m = S.level ? [loreLvlFrac(prog, S.level), `Level ${prog.level} of ${S.level}`] : S.meter ? S.meter(prog) : null;
     const rw = rewardLabel(S, prog);
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
       + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
+      + guideWhereLine() /* [guide] how far and which way: the gold gem on the minimap (10e_guide.js) */
       + `<span class="rw">${iconSvg(rw.ic, 14)}Reward: ${rw.t}</span></button>` + water2PathLine(); // [water2] diving and boats, when they are at hand (07e_boats.js)
   }
   if (html !== LORE.hudKey) { el.innerHTML = html; LORE.hudKey = html; }
@@ -1069,6 +1105,23 @@ function loreWatch() {
     if (GAME.t < P.combatUntil && WAR.warbands.some((wb) => wb.realm === P.faction && wbMembers(wb).some((m) => GAME.t < m.combatUntil && dist2(m.x, m.z, P.x, P.z) < 28 * 28))) ev.warband = true;
   }
   for (const S of PATH_STEPS) if (S.level && prog.level >= S.level) ev[S.id] = true;
+  // [guide] the steps of version 13: a meal cooked and a thing made (09t_craft.js tells guideMade), a tower's top, an
+  // order given, a keep taken with you there, the realm's gift called, Cinderwing brought down, a masterwork made, a
+  // campaign won
+  for (const k of GUIDE.made.splice(0)) ev[k] = true;
+  if (P.alive) { const T = towerRoomOf(P); if (T && T.top) ev.climb = true; }
+  if (WAR.warbands.some((wb) => wb.realm === P.faction && !wb.dead && wb.order && wb.order.byPlayer)) ev.command = true;
+  const kr = WAR.keeps.map((K) => K.realm);
+  if (LORE.keepRealm) WAR.keeps.forEach((K, i) => { if (K.realm === P.faction && LORE.keepRealm[i] !== P.faction && dist2(P.x, P.z, K.site.x, K.site.z) < 90 * 90) ev.keep = true; });
+  LORE.keepRealm = kr;
+  if (GIFT.lastCast && GIFT.lastCast.by === P.id) ev.gift = true;
+  const Dg = DRAGON.e;
+  if (Dg) { if (Dg.alive && !Dg.removed) LORE.dragonHit = !!(Dg.damagers && Dg.damagers.has(P.id)); else if (LORE.dragonHit) { ev.dragon = true; LORE.dragonHit = false; } }
+  if (!LORE.mwNames) LORE.mwNames = new Set(RECIPES.filter((r) => r.mw).map((r) => r.mw));
+  if (!pathDone('master') && kitItems().some((it) => LORE.mwNames.has(it.name))) ev.master = true;
+  const H = CAMPAIGN.history, hl = H.length ? H[H.length - 1] : null;
+  if (LORE.campN != null && hl && hl.n !== LORE.campN && hl.w === P.faction && hl.you) ev.campaign = true;
+  LORE.campN = hl ? hl.n : 0;
   // only once no window is open: then one finished step at a time
   if (!UI.modal) {
     const S = PATH_STEPS.find((q) => ev[q.id] && !prog.lore.done.includes(q.id));
@@ -1093,6 +1146,7 @@ function loreWatch() {
     want('command', () => out && cwCanCommand() && Math.hypot(P.x, P.z) < R_RING + 40);
     want('claim', () => CAMPAIGN.claims.some((c) => c.kOn || c.hOn));
     want('campaign', () => CWUI.vicShown && UI.modal !== 'victory');
+    guideWatch(want); // [guide] the notes of every system since (10e_guide.js)
   }
 }
 // a field note in the banner lane; returns whether it was shown
@@ -1104,7 +1158,10 @@ function loreNote(id) {
 }
 function showNextNote() {
   const prog = GAME.prog, P = GAME.player;
-  const id = LORE.queue.shift();
+  const qi = guideNoteIndex(); // [guide] first steps first, not over a fight, only where it means something
+  if (qi < 0) return;
+  const id = LORE.queue.splice(qi, 1)[0];
+  GUIDE.stats.notesShown++;
   const N = FIELD_NOTES[id];
   if (!N || prog.lore.seen.includes(id)) return;
   prog.lore.seen.push(id);
@@ -1148,7 +1205,7 @@ const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['callings
 function renderChronicle(body, fromNav = false) {
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
   const sec = LORE.chronSec;
-  const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath }[sec];
+  const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath, ...CHRON_FN }[sec]; // [guide] CHRON_FN: pages added with chronAdd
   const G = chronGroupOf(sec), label = Object.fromEntries(CHRON_SECTIONS);
   // two rows: the four parts of the Chronicle, then the pages of the part you are in (every page is in the row; the
   // other parts' pages are hidden until you turn to them)
@@ -1174,7 +1231,19 @@ const CHRON_GROUPS = [
   ['life', 'Living', ['living', 'fields', 'herbal', 'animals', 'building']],
 ];
 for (const [k] of CHRON_SECTIONS) if (!CHRON_GROUPS.some((g) => g[2].includes(k))) CHRON_GROUPS[0][2].push(k);
+// [guide] a page from any module: its key, its label, the part it belongs to ('land', 'you', 'war', 'life'), the function
+// that writes it, and the page it follows in that part (10e_guide.js adds Aims, Gear and Sieges)
+const CHRON_FN = {};
+function chronAdd(key, label, group, fn, after = null) {
+  if (CHRON_FN[key] || CHRON_SECTIONS.some(([k]) => k === key)) return;
+  CHRON_FN[key] = fn;
+  CHRON_SECTIONS.push([key, label]);
+  const G = CHRON_GROUPS.find((g) => g[0] === group) || CHRON_GROUPS[0];
+  const i = after ? G[2].indexOf(after) : -1;
+  if (i >= 0) G[2].splice(i + 1, 0, key); else G[2].push(key);
+}
 const chronGroupOf = (k) => CHRON_GROUPS.find((g) => g[2].includes(k)) || CHRON_GROUPS[0];
+const chronLink = (k, label) => `<button type="button" class="btn" data-lore="sec:${k}">${label}</button>`; // [guide]
 $('menu-body').addEventListener('click', (e) => {
   const s = e.target.closest('.chron-nav [data-sec]');
   if (s) { LORE.chronSec = s.dataset.sec; renderChronicle($('menu-body'), true); sfx('click'); return; }
@@ -1182,6 +1251,7 @@ $('menu-body').addEventListener('click', (e) => {
   if (g) { const G = CHRON_GROUPS.find((q) => q[0] === g.dataset.grp); if (G && chronGroupOf(LORE.chronSec) !== G) { LORE.chronSec = G[2][0]; renderChronicle($('menu-body'), true); sfx('click'); } return; }
   const a = e.target.closest('.chron [data-lore]');
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
+  else if (a && a.dataset.lore.startsWith('sec:')) { LORE.chronSec = a.dataset.lore.slice(4); renderChronicle($('menu-body')); sfx('click'); } // [guide] a page's link to another (chronLink)
 });
 
 function chronMarch() {
@@ -1351,7 +1421,7 @@ function chronWar() {
       <li><b>Strike harder.</b> Each foreign hallow in your temple adds a tenth to the damage of every soldier of your realm, you among them. Taking back your own hallow does not make you stronger, but it ends the enemy's gain.</li>
     </ol>
     ${campaignChronHTML() /* [campaign] how a campaign is won, the standing and past campaigns (08g_campaign.js) */}
-    ${towersChronHTML() /* [keeps] the towers, their ladders and hatches, fighting in them (04m_ladders.js) */}
+    <div class="acts">${chronLink('sieges', 'Sieges: gates, engines, breaches, towers')}${chronLink('orders', 'Orders')}</div>${'' /* [guide] towersChronHTML moved to chronSieges (10e_guide.js) */}
     <div class="tide" role="table" aria-label="The war now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Bonus</span><span class="h w" role="columnheader">Its own hallow</span>
       ${tide.map((t) => `<span class="r" style="--rc:${t.R.color}"><i></i>${t.R.name}</span><span class="c">${t.keeps}</span><span class="c">${t.bonus ? '+' + t.bonus + '%' : '·'}</span><span class="w">${t.R.hallowName} ${t.ownAt}</span>`).join('')}</div>
     <p class="now">${lead}</p>`;
@@ -1462,7 +1532,7 @@ function chronPath() {
     return `<li class="${done ? 'done' : cur ? 'cur' : ''}"><span class="mk">${done ? '✓' : i + 1}</span><span><b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
   }).join('');
   const notes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).map((id) => `<div class="note"><b>${FIELD_NOTES[id].t}</b>${FIELD_NOTES[id].x(R)}</div>`).join('');
-  return `<p>Fifteen steps from recruit to the height of your powers. Each one pays a reward the moment you take it, and the next one always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen. You can take them in any order.</p>
+  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each one pays a reward the moment you take it, and the next one always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. You can take them in any order. The Aims page says what opens at 20, 30, 40 and 50.</p>
     <ol class="steps">${rows}</ol>
     ${notes ? `<h3>Field notes</h3>${notes}` : ''}
     <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`;
@@ -1474,23 +1544,27 @@ function chronPath() {
 function loreSanitize(o) {
   const ids = (a, ok) => (Array.isArray(a) ? [...new Set(a.filter((x) => typeof x === 'string' && ok(x)))] : []);
   if (!o || typeof o !== 'object') return null;
-  return { done: ids(o.done, (x) => !!PATH_BY_ID[x]), seen: ids(o.seen, (x) => !!FIELD_NOTES[x]), pro: o.pro ? 1 : 0 };
+  return { done: ids(o.done, (x) => !!PATH_BY_ID[x]), seen: ids(o.seen, (x) => !!FIELD_NOTES[x]), pro: o.pro ? 1 : 0, pv: Number.isInteger(o.pv) && o.pv > 0 && o.pv <= PATH_VERSION ? o.pv : 1 }; // [guide] pv
 }
 function loreSaveData() {
   const L = GAME.prog && GAME.prog.lore;
-  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0 } : null;
+  return L ? { done: L.done.slice(), seen: L.seen.slice(), pro: L.pro ? 1 : 0, pv: L.pv || PATH_VERSION } : null; // [guide] pv
 }
 // called at the end of startGame with what it was started from
 function loreOnStart(save) {
   const prog = GAME.prog;
   const kept = loreSanitize(save.lore);
   const old = !kept && !save.fresh;
-  prog.lore = kept || { done: [], seen: [], pro: 0 };
-  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '' });
+  prog.lore = kept || { done: [], seen: [], pro: 0, pv: PATH_VERSION };
+  const pv0 = prog.lore.pv || 1; // [guide] the path a character's save knew: steps added since are new to it
+  prog.lore.pv = PATH_VERSION;
+  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: false, campN: null }); // [guide]
+  GUIDE.made.length = 0; GUIDE.wallSeen = false; GUIDE.mark = null; GUIDE.markT = 0;
   for (const S of PATH_STEPS) {
     // steps already behind you are marked off quietly: levels you have, and for characters
-    // from before the path, the early steps of a level you are past
-    if ((S.level && prog.level >= S.level) || (old && S.old && prog.level >= S.old)) pathComplete(S, true);
+    // from before the path, the early steps of a level you are past ([guide] and the early steps added since the
+    // character's save was made)
+    if ((S.level && prog.level >= S.level) || (old && S.old && prog.level >= S.old) || (S.pv > pv0 && S.old && prog.level >= S.old)) pathComplete(S, true);
   }
   buildPathHud();
   const fromTitle = performance.now() - LORE.begin < 4000;
@@ -1513,8 +1587,9 @@ function updateLore(dt) {
   // the death sheet
   if (UI.modal === 'death') { if (!LORE.deathShown) { LORE.deathShown = true; deathNote(); } }
   else LORE.deathShown = false;
-  // one field note at a time, never over an open window
+  // one field note at a time, never over an open window ([guide] nor a fight, unless it is about the fight)
   if (LORE.queue.length && !UI.modal && performance.now() > LORE.noteUntil && GAME.player.alive) showNextNote();
+  updateGuide(dt); // [guide] the next step's place (10e_guide.js)
   LORE.hudT -= dt;
   if (LORE.hudT <= 0) { LORE.hudT = 0.3; renderPathHud(); }
   LORE.placeT -= dt;

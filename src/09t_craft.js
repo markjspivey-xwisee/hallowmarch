@@ -398,6 +398,7 @@ function survCraftOnce(rec, ctx = {}) {
     msg = `You bottle a healing draught (${INV.potions} / ${POTION.max}).`;
   }
   skillGain(key, rec.diff || 1);
+  guideMade(rec); // [guide] a meal cooked or a thing made takes its step on your path (10e_guide.js)
   if (msg && !ctx.quiet) uiLog(msg, 'loot');
   GOODS_UI.dirty = true;
   saveSoon();

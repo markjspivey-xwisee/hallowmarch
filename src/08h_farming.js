@@ -961,7 +961,7 @@ function farmSeasonTurns() {
 // a word to the player the first time something matters
 function farmNotices(dt) {
   const P = GAME.player;
-  if (!P || !GAME.started || UI.modal) return;
+  if (!P || !GAME.started || UI.modal || guideQuiet()) return; // [guide] not over a new character's first steps
   const tips = FARM.herbal;
   const tip = (bit, text) => { if (tips.tips & bit) return; tips.tips |= bit; uiToast(text, 'hint'); saveSoon(); };
   if (!(tips.tips & 1)) {
