@@ -79,7 +79,7 @@ function castleTowerUpload(C) {
     // cut: nothing above the walk room's ceiling once fallen; while it is built again the cut rises to the roof's peak
     const cut = Fl ? T.S.y + (Fl.r > 0 ? lerp(T.TT - 0.2, T.apex + 0.3, Fl.r) : T.TT - 0.2) : 1e5;
     U3.uTA.value[i].set(T.wx, T.wz, T.HO + 0.65, clamp(T.char || 0, 0, 1));
-    U3.uTB.value[i].set(cut, B ? clamp(B.heat, 0, 1) : 0, T.S.y + 1.8, Fl ? clamp(Fl.fresh || 0, 0, 1) : clamp(T.fresh || 0, 0, 1));
+    U3.uTB.value[i].set(cut, B ? clamp(B.heat, 0, 1) : Fl ? clamp(Fl.ember || 0, 0, 1) * 0.85 : 0, T.S.y + 1.8, Fl ? clamp(Fl.fresh || 0, 0, 1) : clamp(T.fresh || 0, 0, 1)); // [walls] a fallen tower's embers smoulder on
   }
   U3.uTR.value.set(Math.cos(C.S.yaw), Math.sin(C.S.yaw));
   // every tower of the castle (any look): its rooms keep the snow off their floors (the castle shader's uTS)
@@ -87,7 +87,7 @@ function castleTowerUpload(C) {
     const All = TOWER.list.filter((T) => T.C === C);
     for (let i = 0; i < TW_FIRE_MAX; i++) {
       const T = All[i];
-      if (!T) U3.uTS.value[i].set(0, 0, 0, 0);
+      if (!T || T.breached) U3.uTS.value[i].set(0, 0, 0, 0); // [walls] a breached tower keeps no snow off
       else U3.uTS.value[i].set(T.wx, T.wz, T.kind === 'drum' ? T.RO : -T.HO, T.S.y + T.shelterY - 0.05); // to the outer face: a gallery's floor runs over the walls
     }
   }
@@ -98,13 +98,13 @@ function towerFallIn(T) {
   const B = T.burn;
   T.burn = null;
   for (const f of B.fires) f.until = GAME.t;
-  T.fallen = { t: 0, r: 0, quiet: 0, fresh: 0 };
+  T.fallen = { t: 0, r: 0, quiet: 0, fresh: 0, ember: 1 }; // [walls] ember: the char glows on, fading
   T.char = 1;
   TFIRE.stats.fell++;
   const top = T.ladders.find((L) => Math.abs(L.yt - T.TT) < 0.01);
   for (const f of T.topFloors || []) f.active = false;
   for (const c of T.topColls || []) c.active = false;
-  if (top) { top.gone = true; if (top.hatch) { top.hatch.floor.active = false; top.hatch.held = false; top.hatch.until = 0; top.hatch.lidColl.active = false; } }
+  if (top) { top.gone = true; if (top.hatch) { top.hatch.gone = true; top.hatch.floor.active = false; /* [walls] gone: updateTowers keeps it down */ top.hatch.held = false; top.hatch.until = 0; top.hatch.lidColl.active = false; } }
   if (T.heap) T.heap.visible = true;
   // whoever stood up there falls into the room below
   forNear(T.wx, T.wz, T.HO + 1.5, (o) => {
@@ -125,7 +125,7 @@ function towerRebuilt(T) {
   for (const f of T.topFloors || []) f.active = true;
   for (const c of T.topColls || []) c.active = true;
   const top = T.ladders.find((L) => L.gone);
-  if (top) { top.gone = false; if (top.hatch) top.hatch.floor.active = top.hatch.k < 0.25; }
+  if (top) { top.gone = false; if (top.hatch) { top.hatch.gone = false; top.hatch.floor.active = top.hatch.k < 0.25; } } // [walls]
   if (T.heap) T.heap.visible = false;
   TFIRE.stats.rebuilt++;
   const K = T.S.keepRef;
@@ -177,6 +177,16 @@ function updateTowerFires(dt) {
     const Fl = T.fallen;
     if (Fl) {
       Fl.t += dt;
+      // [walls] the embers in the char fade over a couple of minutes (faster in rain), smoke rising from the shell
+      if (Fl.ember > 0) {
+        const was = Fl.ember;
+        Fl.ember = Math.max(0, Fl.ember - dt / 130 * (1 + 2 * clamp(WEATHER.raining || 0, 0, 1)));
+        if (Math.floor(was * 40) !== Math.floor(Fl.ember * 40)) TFIRE.dirty.add(T.C);
+        if (fxAlpha && Math.random() < dt * 6 * Fl.ember && dist2(T.wx, T.wz, camera.position.x, camera.position.z) < 120 * 120) {
+          const g = 0.16 + Math.random() * 0.1;
+          fxAlpha.emit(T.wx + (Math.random() - 0.5) * T.HO * 1.6, T.S.y + T.TT - 0.8, T.wz + (Math.random() - 0.5) * T.HO * 1.6, (Math.random() - 0.5) * 0.4, 1.2 + Math.random(), (Math.random() - 0.5) * 0.4, 4 + Math.random() * 3, g, g * 0.95, g * 0.9, -(0.9 + Math.random() * 0.8), -0.15, 0.5);
+        }
+      }
       const K = T.S.keepRef;
       if (K && GAME.t - K.lastEnemyNear < TFIRE.quiet) { Fl.quiet = 0; continue; }
       Fl.quiet += dt;
@@ -237,7 +247,7 @@ queueMicrotask(() => registerSavePart('world', 'towerfire', {
       const T = TOWER.list[q[0] | 0], v = +q[2];
       if (!T || T.look !== 'timber' || !isFinite(v)) continue;
       if (q[1] === 1) { towerIgnite(T, 3); T.burn.t = clamp(v, 0, TFIRE.burn - 1); T.burn.heat = clamp(v / TFIRE.climb, 0.1, 1); }
-      else if (q[1] === 2) { T.burn = { t: 0, heat: 0, fires: [] }; towerFallIn(T); T.fallen.r = clamp(v, 0, 0.99); }
+      else if (q[1] === 2) { T.burn = { t: 0, heat: 0, fires: [] }; towerFallIn(T); T.fallen.r = clamp(v, 0, 0.99); T.fallen.ember = 0; } // [walls] gone cold
     }
   },
   key(d) { return d ? d.map((q) => q[0] * 10 + q[1]).join(',') : ''; },

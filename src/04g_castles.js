@@ -759,7 +759,7 @@ const CASTLE_CUT_GLSL = /* glsl */`
         tChar = max(tChar, A.w * up * (0.7 + 0.3 * vnoise(p.xz * 2.3 + p.y * 1.7)));
         tGlow = max(tGlow, B.y * up);
         tFresh = max(tFresh, B.w * up);
-        if (p.y > B.x) cut = true;
+        if (p.y > B.x + (vnoise(p.xz * 1.6 + p.y * 0.2) - 0.5) * 1.1) cut = true; // [walls] a ragged, burnt-out top
       }
       return cut;
     }
@@ -775,13 +775,14 @@ const CASTLE_CUT_GLSL = /* glsl */`
       }
       return 0.0;
     }
+    ${TBREACH_GLSL /* [walls] a breached stone tower (04g_breach.js) */}
 `;
 const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
     ${a}
-    if (castleCut(vW) || towerCut(vW)) discard;
+    if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW)) discard; // [walls] (04g_breach.js)
   `);
   fs = castlePatch(fs, 'float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0);', (a) => /* glsl */`${a}
     float tShel = towerShelterK(vW); wSnow *= 1.0 - tShel; wWet *= 1.0 - tShel; // [keeps] no snow on the floors inside a tower (before it whitens the albedo), nor a wet film`);
@@ -795,10 +796,30 @@ const CASTLE_FS = (() => {
       alb = mix(alb, alb * vec3(0.74, 0.7, 0.66), smoothstep(0.2, 1.0, cWear) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
     }
     if (cFresh > 0.002) alb = mix(alb, alb * vec3(1.18, 1.15, 1.08) + vec3(0.04, 0.035, 0.03), cFresh * 0.85);
-    if (tChar > 0.002) alb = mix(alb, vec3(0.05, 0.043, 0.037) * (0.65 + 0.7 * vnoise(vW.xz * 7.0 + vW.y * 5.0)), tChar * 0.93); // [keeps] charred logs
+    // [walls] charred logs: charcoal near black, broken into the checks burnt timber cracks into, grey ash lying on what
+    // faces up and on the ridges between the checks (04n_towerfire.js); the embers glow in the cracks
+    float tCk = 1.0;
+    if (tChar > 0.002 || tGlow > 0.002) {
+      vec2 cq = vec2(dot(vW.xz, vec2(0.83, 0.56)) * 2.4 + vW.y * 0.3, vW.y * 3.6 + dot(vW.xz, vec2(-0.56, 0.83)) * 0.9);
+      tCk = abs(vnoise(cq) - 0.5) + 0.55 * abs(vnoise(cq * 2.3 + 7.1) - 0.5);
+    }
+    if (tChar > 0.002) {
+      float crk = 1.0 - smoothstep(0.03, 0.09, tCk);
+      vec3 charc = vec3(0.017, 0.016, 0.015) * (0.65 + 0.7 * vnoise(vW.xz * 6.0 + vW.y * 4.0));
+      float ash = smoothstep(0.48, 0.82, vnoise(vW.xz * 2.1 - vW.y * 1.3 + 3.0)) * (0.3 + 0.7 * max(n.y, 0.0)) * smoothstep(0.5, 1.0, tChar);
+      charc = mix(charc, vec3(0.34, 0.33, 0.31) * (0.8 + 0.4 * vnoise(vW.xz * 9.0)), ash * 0.8 * (1.0 - crk));
+      charc *= 1.0 - 0.7 * crk;
+      alb = mix(alb, charc, smoothstep(0.0, 0.8, tChar));
+    }
     if (tFresh > 0.002) alb = mix(alb, alb * vec3(1.25, 1.16, 1.0) + vec3(0.05, 0.04, 0.02), tFresh * 0.65); // [keeps] new timber
     ${a}
-    if (tGlow > 0.002) col += vec3(1.7, 0.55, 0.12) * tGlow * smoothstep(0.58, 0.86, vnoise(vW.xz * 3.1 + vW.y * 4.3 + uTime * 0.6)) * (0.6 + 0.4 * sin(uTime * 7.0 + vW.y * 3.0)); // [keeps] embers
+    if (tGlow > 0.002) {
+      // [keeps] embers, [walls] glowing in the cracks of the char, brighter in the patches still alight, breathing
+      float crack = 1.0 - smoothstep(0.0, 0.05 + 0.05 * tGlow, tCk);
+      float hot = smoothstep(0.3, 0.72, vnoise(vW.xz * 1.2 + vW.y * 0.8 + uTime * 0.04));
+      float pulse = 0.55 + 0.45 * sin(uTime * 2.1 + vnoise(vW.xz * 0.9 + vW.y) * 9.0);
+      col += vec3(2.3, 0.62, 0.12) * tGlow * crack * (0.3 + 0.7 * hot) * pulse + vec3(0.5, 0.1, 0.02) * tGlow * hot * 0.3 * pulse;
+    }
   `);
   return fs;
 })();
@@ -806,12 +827,13 @@ const CASTLE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   varying vec3 vW;
   ${CASTLE_CUT_GLSL}
-  void main(){ if (castleCut(vW) || towerCut(vW)) discard; gl_FragColor = vec4(1.0); }`;
-const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] } } });
+  void main(){ if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW)) discard; gl_FragColor = vec4(1.0); }`; // [walls]
+const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] }, uKA: { value: [] }, uKB: { value: [] }, uKC: { value: [] } } }); // [walls] uK*: the breached towers (04g_breach.js)
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
   const t = (y) => ({ value: Array.from({ length: TW_FIRE_MAX }, () => new THREE.Vector4(y, 0, 0, 0)) }); // [keeps] the timber towers (04n_towerfire.js)
-  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0) }; // [keeps] uTS: the towers' rooms
+  const k = (y) => ({ value: Array.from({ length: TB_MAX }, () => new THREE.Vector4(0, y, 1e5, 0)) }); // [walls] the breached towers (04g_breach.js)
+  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0), uKA: k(0), uKB: k(1), uKC: k(0) }; // [keeps] uTS: the towers' rooms
 }
 // split a box collider along one of its local axes: the ends stay, the middle (returned) can fall
 function castleSplitColl(c, axis, u0, u1) {
@@ -929,11 +951,13 @@ function castleSections(C) {
 function castleCutUpload(C) {
   const U3 = C.cutU, S = C.S;
   C.sections.forEach((W, k) => {
+    if (W.kind === 'tower') return; // [walls] (towerBreachUpload, 04g_breach.js)
     const cutY = W.state === 'breach' ? S.y + W.rubble : W.state === 'repair' ? S.y + W.rubble + (W.top + 3.5 - W.rubble) * W.t : 1e5;
     U3.uCA.value[k].set(W.wx, W.wz, W.wax, W.waz);
     U3.uCB.value[k].set(W.half, cutY, W.state === 'whole' ? W.wear : W.state === 'breach' ? 1 : 1 - W.t, 0);
     U3.uCC.value[k].set(W.across, W.fresh, S.y + W.rubble, 0);
   });
+  towerBreachUpload(C); // [walls] the stone towers (04g_breach.js)
 }
 const sectionMaxHp = () => 16 * baseDmg(warLevel());
 function castleBreach(W) {
@@ -949,19 +973,21 @@ function castleBreach(W) {
   const P = GAME.player;
   if (P) cameraShake(0.5, W.wx, W.wz);
   const K = S.keepRef;
-  if (K) news(`The wall of ${S.name} has been breached!`, K.realm, K.realm === (P && P.faction) ? 'alarm' : 'normal');
+  if (K) news(W.kind === 'tower' ? `A tower of ${S.name} has been breached!` : `The wall of ${S.name} has been breached!`, K.realm, K.realm === (P && P.faction) ? 'alarm' : 'normal'); // [walls]
   castleCutUpload(C);
+  if (W.kind === 'tower') towerBreachFall(W); // [walls] whoever stood up there falls (04g_breach.js)
   siegeOnBreach(W); // [siege] the garrison runs to hold the gap (04h_siege.js)
 }
 function castleRepairDone(W) {
-  W.state = 'whole'; W.t = 1; W.fresh = 1; W.hp = W.maxHp = sectionMaxHp(); W.wear = 0;
+  W.state = 'whole'; W.t = 1; W.fresh = 1; W.hp = W.maxHp = sectionMaxHp() * (W.hpK || 1); W.wear = 0; // [walls] hpK: a tower's
   for (const f of W.floors) f.active = true;
   for (const q of W.colls) q.active = true;
   if (W.coll) { W.coll.active = true; W.coll.h = W.coll.fullH || W.coll.h; }
   W.scaffold.visible = false;
   siegeOnRepair(W); // [siege] (04h_siege.js)
+  if (W.kind === 'tower') { castleCutUpload(W.C); towerBreachMended(W); } // [walls] the rooms, ladders and the archer's post again (04g_breach.js)
   const K = W.C.S.keepRef;
-  if (K) news(`${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal');
+  if (K) news(W.kind === 'tower' ? `${W.C.S.name} has rebuilt a tower.` : `${W.C.S.name} has rebuilt its wall.`, K.realm, 'normal');
 }
 // a heavy blow lands at (x, z): walls of other realms' castles within reach take it
 function castleSiegeHit(src, x, z, r, mult) {
@@ -975,7 +1001,8 @@ function castleSiegeHit(src, x, z, r, mult) {
       const dx = x - W.wx, dz = z - W.wz, al = clamp(dx * W.wax + dz * W.waz, -W.half, W.half);
       const d = Math.hypot(dx - W.wax * al, dz - W.waz * al);
       if (d > r + W.across) continue;
-      if (!W.maxHp) W.hp = W.maxHp = sectionMaxHp();
+      if (!W.maxHp) W.hp = W.maxHp = sectionMaxHp() * (W.hpK || 1); // [walls] a tower stands a little longer than a curtain
+      if (W.kind === 'tower') TBREACH.stats.hits++;
       const dmg = baseDmg(src ? src.level : warLevel()) * (src ? src.dmgMult || 1 : 1) * mult * (W.kind === 'timber' ? 1.25 : 0.85) * (1 - 0.5 * clamp(d / (r + W.across), 0, 1));
       W.hp -= dmg; W.lastHit = GAME.t;
       W.wear = clamp(1 - W.hp / W.maxHp, 0, 1);

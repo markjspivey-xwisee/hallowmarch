@@ -51,6 +51,10 @@ async def shot(page, name, js):
     print('  shot', name, json.dumps(info), f'[{time.time() - T0:.0f}s]', flush=True)
 
 HELPERS = r"""
+// the page's own frames are held (the tests draw the frames they look at): under SwiftShader a frame of the whole
+// world takes seconds, and every evaluate waited behind them
+(() => { if (window.__rafWrapped) { window.__rafHold = true; return; } window.__rafWrapped = true; window.__rafHold = true; const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); })();
 window.WT = {
   H: __hm, F: __hm.fn, W: __hm.walls,
   site(realm, k) { return __hm.REALMS[realm].keepSites[k]; },
@@ -84,6 +88,9 @@ async def main():
         if want('crenel'): await crenel(page)
         if want('stone'): await stone(page)
         if want('perf'): await perf(page)
+        if want('breach'): await breach(page)
+        if want('save'): await save(page)
+        if want('shots') and SHOTS: await shots(page)
         r = await ev(page, 'stats', "(() => { const s = __hm.walls.WALLS.stats; return s; })()")
         r = await ev(page, 'errors', "(() => __hm.errors.slice(0, 6))()")
         check(len(r) == 0, '__hm.errors is empty')
@@ -125,7 +132,11 @@ async def geo(page):
       // a Thule log house
       const L = all.find((q) => !q.keepHall && q.style === 'timber' && q.state === 'whole');
       const lp = (lx, lz, ly) => ({ x: L.x + lx * L.c + lz * L.s, y: L.y + ly, z: L.z - lx * L.s + lz * L.c });
-      out.logs = WT.hit(lp(L.w / 2 + 0.9, 0.3, 1.2), lp(0, 0.3, 1.2));
+      // a side wall with nothing stacked against it outside: the first offset where the way in from 3 m is clear
+      for (const [side, lz] of [[1, 0.3], [1, -0.6], [1, 0.9], [-1, 0.3], [-1, -0.6], [-1, 0.9]]) {
+        if (WT.hit(lp(side * (L.w / 2 + 3), lz, 1.2), lp(side * (L.w / 2 + 0.25), lz, 1.2))) continue;
+        out.logs = WT.hit(lp(side * (L.w / 2 + 3), lz, 1.2), lp(0, lz, 1.2)); break;
+      }
       out.roofShingle = WT.hit(lp(L.w / 4, 0, L.wallH + L.rh + 3), lp(L.w / 4, 0, 0.5));
       out.mats = [H.style, R.style, L.style];
       return out; })()""")
@@ -292,5 +303,122 @@ async def perf(page):
       out.usAtWall = +((performance.now() - t1) * 1000 / n).toFixed(2); out.hits = hits;
       return out; })()""")
     check(r['usAtWall'] < 60, f"a step's test costs little (about {r['usAtWall']} us at a keep's wall under SwiftShader's CPU)")
+
+BR = r"""
+window.BT = {
+  // the Logres keep's right front corner tower (the third archer's post is on its top) and its section
+  pick(realm = 0, k = 0, pred = (T) => T.role === 'corner' && T.sx === 1 && T.sz === 1) {
+    const S = WT.site(realm, k), C = WT.F.castles().find((q) => q.S === S), W = C.sections.find((q) => q.kind === 'tower' && pred(q.T));
+    return { S, C, W, T: W.T };
+  },
+  hitUntil(W, src, max = 80) { const T = W.T; let n = 0; const p = { x: T.wx + W.ox * (T.RO + 0.2), z: T.wz + W.oz * (T.RO + 0.2) };
+    while (W.state === 'whole' && n < max) { WT.F.castleSiegeHit(src, p.x, p.z, 2.0, 4.4); n++; } return n; },
+  floorH(T, a, r, y) { const p = WT.tp(T, a, r, 0); return +(WT.F.floorAt(p.x, p.z, T.S.y + y) - T.S.y).toFixed(2); },
+};
+"""
+
+async def breach(page):
+    await page.evaluate("() => {" + BR + "; return 0; }")
+    r = await ev(page, 'towers', """(() => { const out = {}; const L = __hm.breach.list();
+      out.n = L.length; out.kinds = [...new Set(L.map((W) => W.T.look + ':' + W.T.role))];
+      const c = WT.F.castles(); out.per = c.map((C) => (C.sections || []).filter((W) => W.kind === 'tower').length);
+      return out; })()""")
+    check(r['n'] == 20 and 'stone:corner' in r['kinds'] and 'stone:gate' in r['kinds'] and 'rath:gate' in r['kinds'] and 'rath:lookout' in r['kinds'], 'every stone tower is a breachable section (Logres 6 a keep, Eriu 4)')
+    r = await ev(page, 'strike', """(() => { const out = {}, { S, C, W, T } = BT.pick(), F = WT.F, H = WT.H;
+      WT.clearNear(S.x, S.z, 60); const K = S.keepRef;
+      // the third archer of the garrison on the top, and a body in the guard room
+      const top = WT.tp(T, T.aIn + Math.PI, 1.2, T.TT), room = WT.tp(T, T.aIn + 0.6, 1.4, T.H);
+      const ar = WT.body(0, 'archer', top.x, top.z, top.y), gd = WT.body(0, 'warrior', room.x, room.z, room.y);
+      ar.hp = ar.maxHp = gd.hp = gd.maxHp = 2000;
+      WT.put(S.x + 60, S.z + 60); H.simulate(0.3);
+      out.before = { top: BT.floorH(T, T.aIn + Math.PI, 1.2, T.TT + 0.2), room: BT.floorH(T, T.aIn + 0.6, 1.4, T.H + 0.2), ladders: T.ladders.map((L) => !!L.gone), arY: +(ar.y - S.y).toFixed(2) };
+      const src = WT.body(2, 'warrior', S.x + W.ox * 60, S.z + W.oz * 60); src.hp = 1e9;
+      // a few stones: it cracks
+      for (let i = 0; i < 4; i++) F.castleSiegeHit(src, T.wx + W.ox * (T.RO + 0.2), T.wz + W.oz * (T.RO + 0.2), 2.0, 4.4);
+      out.wear = +W.wear.toFixed(2); out.stateMid = W.state;
+      out.hits = 4 + BT.hitUntil(W, src);
+      out.state = W.state; out.breached = !!T.breached;
+      H.simulate(2.5);
+      out.after = { top: BT.floorH(T, T.aIn + Math.PI, 1.2, T.TT + 0.2), room: BT.floorH(T, T.aIn + 0.6, 1.4, T.H + 0.2), ladders: T.ladders.map((L) => !!L.gone), hatches: T.hatches.map((h) => h.floor.active), doorsUp: T.doors.filter((D) => D.y > 1).map((D) => D.coll.active), arY: +(ar.y - S.y).toFixed(2), gdY: +(gd.y - S.y).toFixed(2), arHurt: ar.hp < 2000, roomOf: !!__hm.towers.towerRoomOf(gd) };
+      // the rubble: a ramp up from the field and down into the store room
+      out.ramp = [T.RO + 2.2, T.RO + 0.6, T.RO - 0.35, 1.2].map((r) => BT.floorH(T, W.aOut, r, 2.5));
+      out.wreck = W.wreck.visible; out.news = H.WAR.news.slice(-3).map((n) => n.text || n);
+      F.removeEnt(src); F.removeEnt(ar); F.removeEnt(gd);
+      return out; })()""")
+    check(r['before']['top'] > r['before']['room'] > 5 and not any(r['before']['ladders']), 'whole: the guard room and the top carry a body, the ladders stand')
+    check(r['wear'] > 0.1 and r['stateMid'] == 'whole', f"a few stones crack it (wear {r['wear']})")
+    check(r['state'] == 'breach' and r['breached'], f"more of them bring its upper works down ({r['hits']} stones of a trebuchet)")
+    check(r['after']['top'] < 3 and r['after']['room'] < 3 and all(r['after']['ladders']) and not any(r['after']['hatches']) and not any(r['after']['doorsUp']), 'the rooms above are lost: floors, ladders, hatches and the doors at the walks stand down')
+    check(r['after']['arY'] < 3 and r['after']['gdY'] < 3 and r['after']['arHurt'], 'the archer on its top and the guard in its room fall into the rubble, hurt by the fall')
+    check(r['ramp'][0] > r['ramp'][3] - 1.5 and r['ramp'][2] > 0.6 and r['wreck'], f"a mound of rubble spills out over the fallen face (heights {r['ramp']})")
+    r = await ev(page, 'storm', """(() => { const out = {}, { S, C, W, T } = BT.pick(), F = WT.F, H = WT.H, P = H.GAME.player;
+      // the player walks in over the rubble from the field, through the store room and out at its courtyard door
+      const a = WT.tp(T, W.aOut, T.RO + 6, 0); WT.put(a.x, a.z); P.faction = 2;
+      const goal = WT.tp(T, T.aIn, T.RO + 3.5, 0), path = [WT.tp(T, W.aOut, T.RO + 1.2, 0), WT.tp(T, W.aOut, 0.6, 0), WT.tp(T, T.aIn, T.RI - 0.6, 0), goal];
+      H.UI.modal = null; H.INPUT.keys.add('KeyW');
+      let t = 0, i = 0; const ys = [];
+      while (t < 30 && i < path.length) { const p = path[i]; if (Math.hypot(p.x - P.x, p.z - P.z) < 0.6) { i++; continue; } H.CAM.yaw = Math.atan2(p.x - P.x, p.z - P.z); H.simulate(0.1, 0.02); t += 0.1; if (Math.round(t * 10) % 5 === 0) ys.push(+(P.y - S.y).toFixed(1)); }
+      H.INPUT.keys.delete('KeyW'); H.simulate(0.2);
+      out.reached = i; out.t = +t.toFixed(1); out.inCourt = F.castleInside ? null : null; out.end = WT.F.castles ? +Math.hypot(P.x - goal.x, P.z - goal.z).toFixed(2) : null; out.ys = ys.slice(0, 30);
+      // the siege's commanders see it as a breach to storm
+      out.open = C.sections.filter((q) => q.state === 'breach').map((q) => q.kind);
+      P.faction = 0;
+      return out; })()""")
+    check(r['reached'] == 4, f"the player climbs in over the rubble, through the store room and out into the courtyard ({r['t']} s)")
+    check('tower' in r['open'], 'the commanders see the fallen tower as a breach to storm')
+    r = await ev(page, 'mend', """(() => { const out = {}, { S, C, W, T } = BT.pick(), F = WT.F, H = WT.H, K = S.keepRef;
+      WT.put(S.x + 80, S.z + 80); WT.clearNear(S.x, S.z, 60); K.lastEnemyNear = -1e9;
+      const st = []; for (let i = 0; i < 24; i++) { H.simulate(8); K.lastEnemyNear = -1e9; st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); }
+      out.states = st.join(' '); out.state = W.state; out.fresh = +(W.fresh || 0).toFixed(2);
+      out.top = BT.floorH(T, T.aIn + Math.PI, 1.2, T.TT + 0.2); out.room = BT.floorH(T, T.aIn + 0.6, 1.4, T.H + 0.2);
+      out.ladders = T.ladders.map((L) => !!L.gone); out.hatches = T.hatches.map((h) => h.floor.active); out.breached = !!T.breached; out.hp = W.hp > 0 && W.hp === W.maxHp;
+      out.colls = T.colls.filter((c) => !c.active).length;
+      return out; })()""")
+    check(r['state'] == 'whole' and not r['breached'] and 'r' in r['states'], f"in peace its owners mend it behind scaffolding ({r['states']})")
+    check(r['top'] > 9 and r['room'] > 5 and not any(r['ladders']) and all(r['hatches']) and r['hp'], 'mended: its rooms, ladders and hatches are back and it stands whole')
+
+async def save(page):
+    r = await ev(page, 'save', """(() => { const out = {}, { S, C, W, T } = BT.pick(0, 1, (T) => T.role === 'gate' && T.sx === -1), F = WT.F, H = WT.H;
+      const src = WT.body(2, 'warrior', S.x + W.ox * 60, S.z + W.oz * 60); src.hp = 1e9;
+      out.hits = BT.hitUntil(W, src); F.removeEnt(src);
+      const B = BT.pick(1, 0, (T) => T.role === 'lookout' && T.sx === 1), src2 = WT.body(2, 'warrior', B.S.x + B.W.ox * 60, B.S.z + B.W.oz * 60);
+      for (let i = 0; i < 5; i++) F.castleSiegeHit(src2, B.T.wx + B.W.ox * (B.T.RO + 0.2), B.T.wz + B.W.oz * (B.T.RO + 0.2), 2.0, 4.4); F.removeEnt(src2);
+      out.a = [W.state, W.k]; out.b = [B.W.state, +B.W.wear.toFixed(2), B.W.k];
+      H.UI.modal = 'menu'; F.saveNow();
+      return out; })()""")
+    check(r['a'][0] == 'breach' and r['b'][0] == 'whole' and r['b'][1] > 0, 'a Logres gate tower breached and an Eriu lookout cracked before saving')
+    await page.goto('http://hm.test/', wait_until='commit', timeout=300000)
+    await page.wait_for_function("window.__hm && window.__hm.ready && ((window.__hm.UI.modal = 'menu'), true)", timeout=240000, polling=1000)
+    await page.evaluate("__hm.fn.setQuality('low')")
+    await page.evaluate("() => {" + HELPERS + BR + "; return 0; }")
+    r2 = await ev(page, 'loaded', """(() => { const out = {}; const { W, T } = BT.pick(0, 1, (T) => T.role === 'gate' && T.sx === -1), B = BT.pick(1, 0, (T) => T.role === 'lookout' && T.sx === 1);
+      out.a = [W.state, W.k, !!T.breached, T.ladders.map((L) => !!L.gone), T.hatches.map((h) => h.floor.active)]; out.b = [B.W.state, +B.W.wear.toFixed(2)];
+      out.walls = __hm.land.LAND.restored ? __hm.land.LAND.restored.walls : null; out.errors = __hm.errors.slice(0, 3);
+      return out; })()""")
+    check(r2['a'][0] == 'breach' and r2['a'][2] and all(r2['a'][3]) and not any(r2['a'][4]), 'after loading, the gate tower lies breached: its ladders and hatches down')
+    check(r2['b'][0] == 'whole' and abs(r2['b'][1] - r['b'][1]) < 0.01, 'and the lookout keeps its cracks')
+    check(not r2['errors'], 'no errors on loading')
+
+async def shots(page):
+    await page.evaluate("() => {" + BR + "; return 0; }")
+    cam = """(x, y, z, tx, ty, tz) => { const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); }"""
+    # arrows stuck in a Thule palisade and a house, arrows glanced off stone
+    await shot(page, 'walls_stuck', """(() => { const cam = """ + cam + """; const F = WT.F, H = WT.H, P = H.GAME.player, T = WT.site(2, 0);
+      const a = WT.sp(T, 3, -21, 0); WT.put(a.x, a.z); H.UI.modal = null;
+      for (let i = 0; i < 9; i++) { const tg = WT.sp(T, 3 + (i % 3) * 0.8 - 0.8, -10, 0); P.yaw = Math.atan2(tg.x - P.x, tg.z - P.z); H.CAM.yaw = P.yaw; H.CAM.pitch = 0.22 + (i / 3 | 0) * 0.05; __hm.cls.looseArrow(P, 1, null, 0); H.simulate(0.35); }
+      H.setTod(0.45); const c = WT.sp(T, 6.0, -20.5, 2.3), t = WT.sp(T, 3, -15.5, 2.0); WT.put(c.x + 30, c.z); cam(c.x, c.y, c.z, t.x, t.y, t.z); return __hm.walls.WALLS.stuck.length; })()""")
+    await shot(page, 'walls_glance', """(() => { const cam = """ + cam + """; const F = WT.F, H = WT.H, P = H.GAME.player, S = WT.site(0, 0);
+      WT.clearNear(S.x, S.z, 50); const a = WT.sp(S, 2, -27, 0); WT.put(a.x, a.z); H.UI.modal = null;
+      for (let i = 0; i < 8; i++) { const tg = WT.sp(S, 2 + (i % 4) - 1.5, -12, 0); P.yaw = Math.atan2(tg.x - P.x, tg.z - P.z); H.CAM.yaw = P.yaw; H.CAM.pitch = 0.25; __hm.cls.looseArrow(P, 1, null, 0); H.simulate(0.3); }
+      H.simulate(1.5); const c = WT.sp(S, 6, -23, 1.8), t = WT.sp(S, 2, -17.5, 0.6); cam(c.x, c.y, c.z, t.x, t.y, t.z); return __hm.walls.WALLS.stats.glanced; })()""")
+    # the breached tower (the Logres keep's other corner) by day and night, high and low
+    for q, tod, name in (('high', 0.45, 'walls_breach_day'), ('high', 0.97, 'walls_breach_night'), ('low', 0.45, 'walls_breach_low')):
+        await page.evaluate(f"__hm.fn.setQuality('{q}')")
+        await shot(page, name, """(() => { const cam = """ + cam + """; const { S, C, W, T } = BT.pick(0, 0, (T) => T.role === 'corner' && T.sx === -1 && T.sz === -1), F = WT.F, H = WT.H;
+          if (W.state === 'whole') { const src = WT.body(2, 'warrior', S.x + W.ox * 60, S.z + W.oz * 60); src.hp = 1e9; BT.hitUntil(W, src); F.removeEnt(src); H.simulate(3); }
+          S.keepRef.lastEnemyNear = H.GAME.t + 1e6; H.setTod(""" + str(tod) + """);
+          const c = WT.tp(T, W.aOut + 0.55, T.RO + 15, 5.2), t = WT.tp(T, W.aOut, 0, 4.0); WT.put(c.x + 40, c.z + 40); cam(c.x, c.y, c.z, t.x, t.y, t.z); return W.state; })()""")
+    await page.evaluate("__hm.fn.setQuality('low')")
+
 
 asyncio.run(main())
