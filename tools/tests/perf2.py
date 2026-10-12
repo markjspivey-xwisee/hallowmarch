@@ -738,8 +738,8 @@ async def mode_geohash():
 
 # ---------------------------------------------------------------------------------------------------------------
 # ab: the old way and the new side by side in one page, turn and turn about (a loaded machine moves each run's time a
-# lot; turns of a few milliseconds each see the same load): collidersNear with a Set against the stamp, and the
-# bodies' separation through forNear's closure against the loop written out
+# lot; turns of a few milliseconds each see the same load): collidersNear with a Set against the stamp (the same lists
+# checked)
 # ---------------------------------------------------------------------------------------------------------------
 AB_JS = r"""(() => {
   const H = __hm, COLL = H.build.COLL, s = COLL.cell, key = (cx, cz) => cx * 4096 + cz, seen = new Set(), out = [];
