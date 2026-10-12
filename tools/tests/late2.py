@@ -271,7 +271,7 @@ async def main():
               const save = F.buildSave().char.x.late; out.save = { sm: save.sm, sp: save.sp };
               out.taken = L.late2StdTake(); out.after = { at: S.std.at, meshY: L.L2STD.mesh.position.y, coll: !!(L.L2STD.coll && L.L2STD.coll.active) };
               F.savePartsLoad('char', { late: save }); out.loaded = { at: S.std.at, meshOk: !!S.std.at && Math.hypot(L.L2STD.mesh.position.x - S.std.at.x, L.L2STD.mesh.position.z - S.std.at.z) < 0.01 };
-              F.savePartsLoad('char', { late: { ...save, sp: [99999, 3] } }); out.badSp = S.std.at;
+              F.savePartsLoad('char', { late: { ...save, sp: [99999, 3] } }); out.badSp = S.std.at; T.stdSave = save;
               for (const e of [near, far, foe]) { e.damagers = null; F.killEnt(e, null); F.removeEnt(e); }
               out.errors = H.errors.slice(0, 3); return out; })()""")
             check(not r['okBefore'] and r['made'] and r['gold'] == 1500 and not r['again'], 'with a name and 1,000 gold the standard is made, once')
@@ -281,7 +281,7 @@ async def main():
             check(r['save']['sm'] == 1 and r['save']['sp'] and r['taken'] and r['after']['at'] is None and r['after']['meshY'] < -900 and not r['after']['coll'], 'saved where it stands; taken up, it is gone from the land')
             check(r['loaded']['at'] and r['loaded']['meshOk'] and r['badSp'] is None, 'loaded, it stands again where it was; a place off the map is dropped')
             if SHOTS:
-                await page.evaluate("""(() => { const H = T.H, F = T.F, L = T.L, P = H.GAME.player, at = L.LATE2.std.at; if (!at) return 0; H.setTod(0.42); document.getElementById('hud').hidden = true;
+                await page.evaluate("""(() => { const H = T.H, F = T.F, L = T.L, P = H.GAME.player; F.savePartsLoad('char', { late: T.stdSave }); const at = L.LATE2.std.at; if (!at) return 0; H.setTod(0.42); document.getElementById('hud').hidden = true;
                   H.teleport(at.x + 2.2, at.z + 1.5); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.simulate(0.5); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
                   H.camera.position.set(at.x + 5.5, F.heightAt(at.x, at.z) + 2.6, at.z + 4.2); H.camera.lookAt(at.x, F.heightAt(at.x, at.z) + 2.2, at.z); return 0; })()""")
                 await frames(page, 3)

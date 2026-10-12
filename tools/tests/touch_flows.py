@@ -461,7 +461,22 @@ async def main():
             ok3 = await tap(page, '#menu-body [data-l2="wear:kingsbane"]')
             r = await page.evaluate("({ worn: __hm.late.LATE2.worn, sec: __hm.LORE.state.chronSec, frame: document.getElementById('pf-name').textContent })")
             check(ok and ok2 and ok3 and r['worn'] == 'kingsbane' and r['sec'] == 'deeds' and box and box[1] >= 40, f"deeds: taps open the Deeds page and wear a name ({r}, button {box})")
-            await tap(page, '#btn-resume')
+            # the standard of your name: a tap has it made and another plants it on open ground; Use beside it takes it up
+            await page.evaluate("""(() => { const H = TF.H, F = H.fn, L = H.late, P = TF.P(), R = H.REALMS[P.faction]; H.GAME.prog.level = 45; H.INV.gold = Math.max(H.INV.gold, 1500);
+              for (let i = 0; i < 400; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
+                if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) break; }
+              TF.calm(); H.LORE.openChronicle('deeds'); return 0; })()""")
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:make\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+            ok4 = await tap(page, '#menu-body [data-l2="std:make"]')
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:plant\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+            ok5 = await tap(page, '#menu-body [data-l2="std:plant"]')
+            st = await page.evaluate("(() => { const L = __hm.late, at = L.LATE2.std.at, P = __hm.GAME.player; return { made: L.LATE2.std.made, at: !!at, modal: __hm.UI.modal, d: at ? +Math.hypot(at.x - P.x, at.z - P.z).toFixed(1) : null }; })()")
+            await page.evaluate("(() => { const H = TF.H, L = H.late, at = L.LATE2.std.at, P = TF.P(); if (at) { H.teleport(at.x + 1.3, at.z + 0.4); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.CAM.yaw = P.yaw; } H.simulate(0.2); return 0; })()")
+            lab = await page.evaluate("TF.label()")
+            ok6 = await tap(page, '#t-use')
+            st2 = await page.evaluate("({ at: !!__hm.late.LATE2.std.at })")
+            check(ok4 and ok5 and st['made'] and st['at'] and st['modal'] is None and lab == 'Take up your standard' and ok6 and not st2['at'], f"deeds: a tap has the standard made, another plants it before you ({st}), and Use beside it takes it up ({lab}, {st2})")
+            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.GAME.prog.level = 24; return 0; })()")
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);
