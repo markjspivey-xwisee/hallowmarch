@@ -168,6 +168,9 @@ chronAdd('notes', 'Field notes', 'you', chronNotes, 'path');
 /* field notes for what came since                                     */
 /* ------------------------------------------------------------------ */
 const g2Use = () => (IS_TOUCH ? 'Use' : 'E');
+// (the callings' numbers read from their own modules where they are, so a note says what the rule does now)
+const g2Times = (k) => ['', 'once', 'twice', 'three times', 'four times'][k] || `${k} times`;
+const g2Share = (k) => ({ 0.25: 'a quarter of', 0.5: 'half', 0.75: 'three quarters of' })[k] || `${Math.round(k * 100)}% of`;
 const G2_NOTES = {
   hall: { t: 'A keep\'s great hall', x: () => `At the war table you command your realm's warbands; at the armourer's bench you mend and clean your gear; wash at the basin, dry off and heal by the hearth; the stores sell building goods. ${g2Use()} beside each.` },
   farmers: { t: 'The farmers', x: () => `They sell seed and hoes. Till a bed of meadow (${IS_TOUCH ? 'Till a bed here, on the plant card' : 'E'}), sow it, keep it weeded, and harvest it ripe: the rain waters it. The Chronicle's Fields page tells more.` },
@@ -176,9 +179,9 @@ const G2_NOTES = {
   scaffold: { t: 'Scaffolds and masons', x: () => `In peace a keep mends its breaches behind scaffolding, and two masons come out of its hall to work. Its boards carry you and its ladders climb: walk into one, or ${g2Use()}.` },
   setwall: { t: 'Timber burns', x: () => `With a brand in hand, ${g2Use()} sets it alight. The keep's people leave their posts to beat the fire out; a stretch that burns through is a breach for your warbands. Rain damps a fire.` },
   battered: { t: 'Stones on houses', x: () => 'A siege stone cracks a house it strikes and holes its roof (the rain comes in), and enough of them bring it down to rubble. Its town builds it back once the fighting moves on.' },
-  renew: { t: 'Renewal on yourself', x: () => `For 4 s nothing but a stun breaks your spells: renew before a long one. Renewing again while the last still has more than ${typeof RENEW_ROTE_LEFT !== 'undefined' ? RENEW_ROTE_LEFT : 2} s to mend costs twice the power: renew at need, not by rote.`, fight: true },
+  renew: { t: 'Renewal on yourself', x: () => `For 4 s nothing but a stun breaks your spells: renew before a long one. Renewing again while the last still has more than ${typeof RENEW_ROTE_LEFT !== 'undefined' ? RENEW_ROTE_LEFT : 2} s to mend costs ${g2Times(typeof RENEW_ROTE_K !== 'undefined' ? RENEW_ROTE_K : 2)} the power: renew at need, not by rote.`, fight: true },
   ward: { t: 'Your Arcane Ward', x: () => 'While it holds, a stun breaks on it, and so does a blow that would break your spell ("Warded"): each costs the ward some of its strength. Raise it before a long spell, or before a warrior leaps in.', fight: true },
-  charge: { t: 'Charge', x: () => 'It rushes you at a foe 5 to 28 m off, shield first, and lands with a blow. A snare, a frost, a wall or water may stop it on its way: then it is ready again in half the time.', fight: true },
+  charge: { t: 'Charge', x: () => `It rushes you at a foe 5 to 28 m off, shield first, and lands with a blow. A snare, a frost, a wall or water may stop it on its way: then it is ready again in ${g2Share(typeof RUSH_HELD_K !== 'undefined' ? RUSH_HELD_K : 0.5)} the time.`, fight: true },
   // why something happened to you in a fight
   dazzle: { t: 'Dazzled', x: () => 'Holy light: for a few seconds some of your weapon blows go wide, and you cannot read a blow coming to parry it. Step off a priest\'s hallowed ground.', fight: true },
   wounded: { t: 'Wounded', x: () => 'A broadhead or a crippling arrow has opened a wound: healing on you takes less until it closes, in a few seconds.', fight: true },
