@@ -105,17 +105,21 @@ function siegeStormTurn(e, s, Rt) {
     if (!q || q.W !== s.W || q.done) continue;
     // in the narrow part: on its way onto the rubble, on it, in the store room or in the doorway (one already out in the
     // court before the door, fighting there, is no longer in the way)
-    if ((q.i === 1 && q.go) || q.i === 2 || q.i === 3 || (q.i === 4 && dist2(o.x, o.z, s.W.T.wx, s.W.T.wz) < (s.W.T.RO + 0.4) ** 2)) {
+    if ((q.i === 1 && q.go && (o.target == null || dist2(o.x, o.z, p1.x, p1.z) < 3.5 * 3.5)) || q.i === 2 || q.i === 3 || (q.i === 4 && dist2(o.x, o.z, s.W.T.wx, s.W.T.wz) < (s.W.T.RO + 0.4) ** 2)) { // [siege3] one let go but fighting out on the field is not in the narrow part (it held the rest back for good)
       inside++;
       if (dist2(o.x, o.z, p1.x, p1.z) < STORM_GAP * STORM_GAP) close = true;
     } else if (q.i <= 1 && !q.go) {
       // waiting too: the leader goes first, then whoever is nearest the rubble's foot
       const od = dist(o.x, o.z, p1.x, p1.z);
-      if (q.lead || (!s.lead && od < myD - 0.05)) ahead++;
+      if ((q.lead && q.i === 1 && o.target == null) || (!s.lead && od < myD - 0.05 && o.target == null)) ahead++; // [siege3] a leader still on its way, or one shooting from the field (a bow, a staff), holds nobody back (04i_siege3.js)
     }
   }
-  if (inside >= STORM_IN || close || (ahead > 0 && !s.lead)) return false;
-  s.go = true;
+  // [siege3] nobody let go for 12 s while this one waits (a body the count still holds inside is dead to the storm: stuck,
+  // or fighting where the count cannot see): the nearest goes anyway (04i_siege3.js)
+  s.waitT = s.waitT || GAME.t;
+  const stale = GAME.t - Math.max(s.W.lastGo || 0, s.waitT) > 12 && !close && !ahead;
+  if (!stale && (inside >= STORM_IN + (s.W.holding > GAME.t ? 1 : 0) || close || (ahead > 0 && !s.lead))) return false; // [siege3] a third while the first gather inside the door (04i_siege3.js)
+  s.go = true; s.W.lastGo = GAME.t; // [siege3]
   return true;
 }
 // where a member waits its turn: on the field before the rubble, in rows of three behind the way in
@@ -193,6 +197,7 @@ function siegeStormStep(e, dt) {
       return true;
     }
   }
+  if (siegeStormHold(e, s, Rt, dt)) return true; // [siege3] inside the door, waiting for the others before going out (04i_siege3.js)
   const p = Rt[s.i], d = dist(e.x, e.z, p.x, p.z);
   if (d < STORM_R[s.i]) {
     s.i++; s.best = Infinity; s.bestT = GAME.t; s.side = 0;

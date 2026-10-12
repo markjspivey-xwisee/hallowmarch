@@ -1068,7 +1068,7 @@ function buildStructures() {
     {
       const S = R.templeSite, b = new Batch();
       const banners = templeModel(b, S, st, R);
-      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m);
+      const m = new THREE.Mesh(b.build(), buildingMat); m.renderOrder = 1; scene.add(m); SITE_MESHES.push(m); TEMPLE_MESH.set(S, m); // [siege3] a timber hallow's ring burns (04g_blaze.js)
       for (const sp of banners) addBanner(S, sp, R.id);
     }
     {
