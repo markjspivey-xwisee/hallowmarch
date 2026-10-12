@@ -8,58 +8,79 @@
 
 // A house brought down by stones (04j_batter.js houseBreak) kept its walls whole to the eaves: a roofless shell, as a
 // burnt house is. Masonry knocked down by stones lies in rubble with the walls broken off at a ragged line: here each wall
-// stands to its own height in steps of LOOK4_SEG along it (a stub between knee and chest height, the corners standing a
-// little higher), the house shader discarding what is above (houseFS, the shadow pass too: HOUSE_DEPTH_FS), the broken
-// tops closed and the rubble heaped by 04j_rubble.js (houseRubbleGeo), the colliders and the shots' walls cut down with
-// them. The same function in GLSL and in JS (look4StubAt), on whole numbers only, so both agree to the fragment.
+// stands to its own height in steps of LOOK4_SEG along it (down from the corners, which stand to about chest height, to
+// knee height where the stones broke it most, ragged at each step), the house shader discarding what is above (houseFS,
+// the shadow pass too: HOUSE_DEPTH_FS), the broken tops closed and the rubble heaped by 04j_rubble.js (houseRubbleGeo),
+// the colliders and the shots' walls cut down with them. The same function in GLSL and in JS (look4StubAt), on whole
+// numbers only, so both agree to the fragment.
 //   q: the place in the house's own frame (x across, z along: houseL); dims: uHY.w (look4Dims: a box house's outer half
 //   width and depth in cm, packed w * 4096 + d; a round house's outer radius in cm, negative); seed: the house's slot.
-// Returns the height over the house's floor the wall stands to there (1e4 where it is not a wall: beyond the footprint).
+// Returns the height over the house's floor the wall stands to there (1e4 where it is not a wall: beyond the footprint,
+// but for the posts of a porch before the door, which come down with the wall they stood by).
 const LOOK4_SEG = 0.5, LOOK4_MARGIN = 0.65;
 const LOOK4_STUB_GLSL = /* glsl */`
   // (whole numbers: x - y * floor((x + 0.5) / y) never meets floor's edge, as mod's x * (1 / y) can)
   float look4Mod(float x, float y){ return x - y * floor((x + 0.5) / y); }
-  float look4StubK(float i, float f, float s){ return look4Mod(i * 3.0 + f * 5.0 + s, 7.0) + look4Mod(i * i + f * 2.0, 5.0); }
+  // a wall's height at its segment i of n: down from its ends to where the stones broke it most (segment b), ragged by a
+  // little at each step (in version 15's first form each step was drawn anew between knee and chest height, every other
+  // one high, and from above the walls read as battlements)
+  float look4Prof(float i, float n, float b, float f, float s){
+    float t = abs(i - b) / max(1.0, max(b, n - 1.0 - b));
+    float j = look4Mod(i * 7.0 + f * 3.0 + s * 5.0 + look4Mod(i * i, 11.0), 9.0) - 4.0;
+    return clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
+  }
   float look4Stub(vec2 q, float dims, float seed){
     float s = look4Mod(seed * 7.0, 11.0);
     if (dims < 0.0) {
       float R = -dims * 0.01;
-      if (length(q) > R + ${LOOK4_MARGIN.toFixed(2)}) return 1e4;
+      if (length(q) > R + ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && q.y < R + 1.35 && abs(q.x) < 1.2)) return 1e4; // (the porch's posts too)
       float u = (atan(q.x + 1e-6, q.y) + 3.14159265) * R;
-      float i = floor(u / ${LOOK4_SEG.toFixed(2)});
-      return 0.3 + 0.115 * look4StubK(i, 0.0, s);
+      float i = floor(u / ${LOOK4_SEG.toFixed(2)}), n = floor(6.2831853 * R / ${LOOK4_SEG.toFixed(2)});
+      // (round: the far side from the breach the highest, the distance taken round the ring)
+      float b = look4Mod(s * 5.0 + 3.0, n), d = abs(i - b), t = min(d, n - d) / max(1.0, n * 0.5);
+      float j = look4Mod(i * 7.0 + s * 5.0 + look4Mod(i * i, 11.0), 9.0) - 4.0;
+      return clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
     }
     float Wc = floor(dims / 4096.0), W2 = Wc * 0.01, D2 = (dims - Wc * 4096.0) * 0.01;
     float ex = abs(q.x) - W2, ez = abs(q.y) - D2;
-    if (ex > ${LOOK4_MARGIN.toFixed(2)} || ez > ${LOOK4_MARGIN.toFixed(2)}) return 1e4;
+    if (ex > ${LOOK4_MARGIN.toFixed(2)} || (ez > ${LOOK4_MARGIN.toFixed(2)} && !(q.y > 0.0 && ez < 1.35 && abs(q.x) < 1.6))) return 1e4;
     float f, u, len;
     if (ez > ex) { f = q.y > 0.0 ? 0.0 : 2.0; u = q.y > 0.0 ? q.x + W2 : W2 - q.x; len = 2.0 * W2; }
     else { f = q.x > 0.0 ? 1.0 : 3.0; u = q.x > 0.0 ? D2 - q.y : q.y + D2; len = 2.0 * D2; }
     float i = floor(clamp(u, 0.0, len - 0.001) / ${LOOK4_SEG.toFixed(2)}), last = floor((len - 0.001) / ${LOOK4_SEG.toFixed(2)});
     if (i < 0.5 || i > last - 0.5) return 1.2 + 0.05 * look4Mod(f * 3.0 + s, 5.0);
-    return 0.3 + 0.115 * look4StubK(i, f, s);
+    float n = last + 1.0, b = 1.0 + look4Mod(f * 5.0 + s * 3.0 + 2.0, max(n - 2.0, 1.0));
+    return look4Prof(i, n, b, f, s);
   }
 `;
 // the same in JS: the house's walls' own numbers (a round house by its outer radius r, a box house by w, d)
 const look4Dims = (H) => (H.round ? -Math.round(H.r * 100) : Math.round((H.w / 2) * 100) * 4096 + Math.round((H.d / 2) * 100));
-const look4StubK = (i, f, s) => (((i * 3 + f * 5 + s) % 7) + 7) % 7 + ((((i * i + f * 2) % 5) + 5) % 5);
+const look4M = (x, y) => x - y * Math.floor((x + 0.5) / y);
+function look4Prof(i, n, b, f, s) {
+  const t = Math.abs(i - b) / Math.max(1, Math.max(b, n - 1 - b));
+  const j = look4M(i * 7 + f * 3 + s * 5 + look4M(i * i, 11), 9) - 4;
+  return clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
+}
 function look4StubAt(H, lx, lz) {
-  const s = (H.slot * 7) % 11;
+  const s = look4M(H.slot * 7, 11);
   if (H.round) {
     const R = Math.round(H.r * 100) * 0.01;
-    if (Math.hypot(lx, lz) > R + LOOK4_MARGIN) return 1e4;
-    const u = (Math.atan2(lx + 1e-6, lz) + Math.PI) * R, i = Math.floor(u / LOOK4_SEG);
-    return 0.3 + 0.115 * look4StubK(i, 0, s);
+    if (Math.hypot(lx, lz) > R + LOOK4_MARGIN && !(lz > 0 && lz < R + 1.35 && Math.abs(lx) < 1.2)) return 1e4; // (the porch's posts too)
+    const u = (Math.atan2(lx + 1e-6, lz) + Math.PI) * R, i = Math.floor(u / LOOK4_SEG), n = Math.floor((2 * Math.PI * R) / LOOK4_SEG);
+    const b = look4M(s * 5 + 3, n), d = Math.abs(i - b), t = Math.min(d, n - d) / Math.max(1, n * 0.5);
+    const j = look4M(i * 7 + s * 5 + look4M(i * i, 11), 9) - 4;
+    return clamp(0.34 + 0.82 * t + 0.04 * j, 0.3, 1.3);
   }
   const W2 = Math.round((H.w / 2) * 100) * 0.01, D2 = Math.round((H.d / 2) * 100) * 0.01;
   const ex = Math.abs(lx) - W2, ez = Math.abs(lz) - D2;
-  if (ex > LOOK4_MARGIN || ez > LOOK4_MARGIN) return 1e4;
+  if (ex > LOOK4_MARGIN || (ez > LOOK4_MARGIN && !(lz > 0 && ez < 1.35 && Math.abs(lx) < 1.6))) return 1e4;
   let f, u, len;
   if (ez > ex) { f = lz > 0 ? 0 : 2; u = lz > 0 ? lx + W2 : W2 - lx; len = 2 * W2; }
   else { f = lx > 0 ? 1 : 3; u = lx > 0 ? D2 - lz : lz + D2; len = 2 * D2; }
   const i = Math.floor(clamp(u, 0, len - 0.001) / LOOK4_SEG), last = Math.floor((len - 0.001) / LOOK4_SEG);
-  if (i < 0.5 || i > last - 0.5) return 1.2 + 0.05 * ((f * 3 + s) % 5);
-  return 0.3 + 0.115 * look4StubK(i, f, s);
+  if (i < 0.5 || i > last - 0.5) return 1.2 + 0.05 * look4M(f * 3 + s, 5);
+  const n = last + 1, b = 1 + look4M(f * 5 + s * 3 + 2, Math.max(n - 2, 1));
+  return look4Prof(i, n, b, f, s);
 }
 // a fallen house's walls: is it one, how high do they stand (the level the masons have built them back to), and the
 // stub there with that level (houseBatterUniform gives the shader the level in uHD.x)
@@ -104,8 +125,9 @@ const LOOK4_CHAR_GLSL = /* glsl */`
 // its lifts (ledgers, putlogs, boards, rails, braces and the ladder up to each) go up one by one as the masonry comes up
 // to them: the first at once, the last by three quarters of the work (W.t). The mesh is made again when a lift goes up
 // (LOOK4.lifts: how many look3Scaffold draws; the floors and ladders are laid out once, LOOK4.geoOnly, and only those of
-// the lifts that are up are on: look3ScafSync).
-const LOOK4 = { lifts: Infinity, geoOnly: false, stats: { liftsUp: 0 } };
+// the lifts that are up are on: look3ScafSync; each run stands where it was laid out, LOOK4.prev: made again, its first
+// form's clear test refused the places under its own boards, and the scaffold showed its standards alone).
+const LOOK4 = { lifts: Infinity, geoOnly: false, prev: null, runI: 0, stats: { liftsUp: 0 } };
 const LOOK4_NOB = { add() {} };
 function look4LiftsWanted(W) {
   // (a tower's scaffold goes up once its rubble is cleared, at 12% of the work: 04g_breach.js)
@@ -119,9 +141,9 @@ function look4LiftStep(C) {
     if (W.l4n === want) return;
     W.l4n = want;
     const info = W.scafInfo;
-    LOOK4.lifts = want; LOOK4.geoOnly = true;
+    LOOK4.lifts = want; LOOK4.geoOnly = true; LOOK4.prev = Array.isArray(info) ? info : [info]; LOOK4.runI = 0;
     let g = null;
-    try { g = geo(); } finally { LOOK4.lifts = Infinity; LOOK4.geoOnly = false; W.scafInfo = info; }
+    try { g = geo(); } finally { LOOK4.lifts = Infinity; LOOK4.geoOnly = false; LOOK4.prev = null; W.scafInfo = info; }
     W.scaffold.geometry.dispose(); W.scaffold.geometry = g;
     for (const q of SHADOW.proxies) if (q.userData.src === W.scaffold) q.geometry = g;
     LOOK4.stats.liftsUp++;

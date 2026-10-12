@@ -182,7 +182,10 @@ async def main():
               const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1);
               if (W.state !== 'repair') return { none: W.state };
               const n = Math.max(...W.l3.ladders.map((q) => q.k + 1)), out = { n, ups: [] }, sim = (s) => { H.UI.modal = null; H.simulate(s); };
-              for (const t of [0.13, 0.35, 0.55, 0.8]) { W.t = t; K.lastEnemyNear = -1e9; sim(0.1); out.ups.push([t, W.l4n, W.l3.floors.filter((f) => f.active).length, W.l3.ladders.filter((q) => !q.gone).length]); }
+              // (and drawn: the mesh's vertices, and those of the first ladder's rails and rungs: made again, the scaffold once showed its standards alone)
+              const V = H.camera.position.constructor, v = new V(), L0 = W.l3.ladders.find((q) => q.k === 0);
+              const ladV = () => { const pos = W.scaffold.geometry.attributes.position; W.scaffold.updateMatrixWorld(true); const M = W.scaffold.matrixWorld; let c = 0; for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(M); if (Math.hypot(v.x - L0.rx, v.z - L0.rz) < 0.35 && v.y > L0.wyb + 0.2 && v.y < L0.wyt) c++; } return c; };
+              for (const t of [0.13, 0.35, 0.55, 0.8]) { W.t = t; K.lastEnemyNear = -1e9; sim(0.1); out.ups.push([t, W.l4n, W.l3.floors.filter((f) => f.active).length, W.l3.ladders.filter((q) => !q.gone).length, W.scaffold.geometry.attributes.position.count, ladV()]); }
               // the masons: back to the start of the work (one lift up), then all of them up while the one above works
               W.t = 0.13; for (const e of L3.MASON.list) if (!e.removed) H.fn.removeEnt(e); W.masonsFor = null; sim(0.1);
               let t = 0; const up = () => L3.MASON.list.find((e) => !e.removed && e.ai.mason.W === W && e.ai.mason.up);
@@ -195,6 +198,7 @@ async def main():
             if r.get('none'): check(False, f"a breached tower being mended ({r})")
             else:
                 ups = r['ups']
+                check(all(ups[i][4] < ups[i + 1][4] for i in range(len(ups) - 1) if ups[i][1] < ups[i + 1][1]) and all(q[5] >= 30 for q in ups), f"each lift is drawn as it goes up, and the first ladder's rails and rungs with it ([work, lifts, floors, ladders, vertices, the ladder's vertices]: {ups})")
                 check(ups[0][1] == 1 and ups[-1][1] == r['n'] and all(ups[i][1] <= ups[i + 1][1] for i in range(len(ups) - 1)) and ups[0][3] == 1 and ups[-1][3] == r['n'], f"a tower's scaffold rises lift by lift with the work ({r['n']} lifts; [work, lifts up, floors on, ladders on]: {ups})")
                 check(r['lad'] and len(r['lad']) >= 2 and r['st'] == 'work', f"the mason above climbs on to the next lift as it goes up (ladders climbed {r['lad']}, {r['st']}, {r['y']} m up, after {r['t2']} s)")
         if 'beater' in ONLY:
@@ -215,7 +219,7 @@ async def main():
                 await ev(page, "(() => { __hm.fn.toggleMap ? __hm.fn.toggleMap(false) : null; document.getElementById('hud').hidden = true; return 0; })()")
             await page.set_viewport_size({'width': 960, 'height': 540})
         if 'noshots' not in FLAGS:
-            shots = OPT.get('shots', 'ruin0:high:day,ruin1:medium:day,ruin2:low:day,house_scaf0:high:day,gate_burn:high:day,tower_roof:high:day,hallow:high:day,beaters:medium:day,scaf_climb:high:day').split(',')
+            shots = OPT.get('shots', 'ruin0:high:day,ruin1:medium:day,ruin2:low:day,house_scaf0:high:day,gate_burn:high:day,tower_roof:high:day,hallow:high:day,beater_close:high:day,scaf_climb:high:day').split(',')
             for s in shots:
                 v, q, var = (s.split(':') + ['high', 'day'])[:3]
                 await ev(page, f"__hm.fn.setQuality('{q}'); 0")

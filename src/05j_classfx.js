@@ -277,14 +277,14 @@ function drawClasses(dt) {
       if (!R.disc || !R.disc.on || R.disc.owner !== R) { R.disc = spellDisc(R.x, R.z, 2.2, DISC_KIND.rune, left, c); if (R.disc) R.disc.owner = R; }
     }
   }
-  // [look4] a soft light low over the hallowed ground: a glow of 1.1 the ground's width and full strength at 0.6 m blew
-  // the frame out to white round the priest (cls_hallow)
-  // and its edge marked over the grass by a ring of slowly turning motes (the disc on the ground hides in a meadow)
+  // [look4] a soft light low over the hallowed ground (a glow of 1.1 times the ground's width at full strength blew the
+  // frame out to white round the priest: cls_hallow), its edge marked over the grass by a ring of slowly turning motes
+  // (the disc on the ground hides in a meadow)
   for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) {
     const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1), gy = heightAt(G.x, G.z);
     glowPush(G.x, gy + 0.3, G.z, 0.3 * k, 0.26 * k, 0.13 * k, G.r * 0.95);
-    const n = near2(G.x, G.z, 60) ? Math.max(8, Math.round(G.r * 3.2)) : 0, t = renderTime * 0.18;
-    for (let i = 0; i < n; i++) { const a = t + (i / n) * TAU, x = G.x + Math.sin(a) * G.r * 0.93, z = G.z + Math.cos(a) * G.r * 0.93; glowPush(x, heightAt(x, z) + 0.42 + 0.06 * Math.sin(renderTime * 1.7 + i), z, 1.0 * k, 0.86 * k, 0.45 * k, 0.17); }
+    const n = near2(G.x, G.z, 60) && glowCount < GLOW_MAX - 80 ? Math.max(10, Math.round(G.r * 5)) : 0, t = renderTime * 0.18; // (leaving the glows room for the rest)
+    for (let i = 0; i < n; i++) { const a = t + (i / n) * TAU, x = G.x + Math.sin(a) * G.r * 0.93, z = G.z + Math.cos(a) * G.r * 0.93; glowPush(x, heightAt(x, z) + 0.58 + 0.06 * Math.sin(renderTime * 1.7 + i), z, 1.0 * k, 0.86 * k, 0.45 * k, 0.19); }
   }
   const P = GAME.player;
   // chilled bodies breathe frost

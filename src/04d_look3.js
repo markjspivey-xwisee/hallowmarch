@@ -144,7 +144,10 @@ function look3Ladder(b, M, foot, top, side, col) {
 }
 function look3Scaffold(b, M, pts, ins, o) {
   const n = pts.length, gy = o.gy || (() => 0), r = mulberry(o.seed ?? 7);
-  const ok = pts.map(([x, z]) => !o.clear || o.clear(x, z));
+  // [look4] made again as its lifts go up (look4LiftStep, 04d_look4.js), it stands where it was laid out: the clear test
+  // would now refuse the places under its own boards (floors) and might take places a breach's rubble held
+  const prev = LOOK4.geoOnly && LOOK4.prev ? LOOK4.prev[LOOK4.runI++] : null;
+  const ok = prev && prev.ok && prev.ok.length === n ? prev.ok.slice() : pts.map(([x, z]) => !o.clear || o.clear(x, z));
   const pole = o.pole, wood = o.wood, lifts = o.lifts, deep = o.deep ?? 0.95;
   const out = { standards: 0, bays: 0, boards: 0, ladders: 0, floors: [], ladderRecs: [] };
   for (let i = 0; i < n; i++) {
@@ -152,6 +155,7 @@ function look3Scaffold(b, M, pts, ins, o) {
     // a standard needs a bay beside it, or it is a lone pole
     if (!((i > 0 && ok[i - 1]) || (i + 1 < n && ok[i + 1]))) { ok[i] = false; continue; }
   }
+  out.ok = ok.slice(); // [look4]
   for (let i = 0; i < n; i++) if (ok[i]) {
     const [x, z] = pts[i], g = gy(x, z) - 0.3;
     look3Pole(b, M, [x, g, z], [x + (r() - 0.5) * 0.06, o.top + r() * 0.3, z + (r() - 0.5) * 0.06], 0.07, darker(pole, 0.88 + 0.22 * r()), MAT.logH, o.baseY);

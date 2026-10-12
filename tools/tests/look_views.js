@@ -986,8 +986,8 @@ window.LK = {
     const cx = A.x + ux * d + uz * side, cz = A.z + uz * d - ux * side;
     return L.cam(cx, L.floor(cx, cz) + up, cz, A.x + ux * 0.5, A.y + look, A.z + uz * 0.5);
   };
-  for (const [r, n] of [[0, 2], [1, 1], [2, 1]]) {
-    D('look4', 'ruin' + r, (L) => { const A = L.felled(r, n); L.hush(A.x, A.z, 16); L.away(A.x + 40, A.z + 40); return { ...front(L, A, A.foot + 6.5, 2.5, 2.1), st: A.state, fell: !!(A.bat && A.bat.fell) }; });
+  for (const [r, n, sd] of [[0, 2, 1], [1, 1, 1], [2, 1, -1]]) { // (sd: the side of the house's door the camera stands: Skarvik's market stall stood in the way of the other)
+    D('look4', 'ruin' + r, (L) => { const A = L.felled(r, n); L.hush(A.x, A.z, 16); L.away(A.x + 40, A.z + 40); return { ...front(L, A, A.foot + 6.5, 2.5 * sd, 2.1), st: A.state, fell: !!(A.bat && A.bat.fell) }; });
     D('look4', 'ruin_top' + r, (L) => { const A = L.felled(r, n); L.hush(A.x, A.z, 16); L.away(A.x + 40, A.z + 40); return { ...front(L, A, A.foot + 3.5, -3.5, 6.5, 0.2), st: A.state }; });
     // built back behind its scaffold, a third of the way through the work
     D('look4', 'house_scaf' + r, (L) => {
@@ -996,7 +996,7 @@ window.LK = {
       if (A.state === 'scaffold') A.stT = Math.max(A.stT, 22);
       sim(L, 0.3);
       L.hush(A.x, A.z, 16); L.away(A.x + 40, A.z + 40);
-      return { ...front(L, A, A.foot + 7.5, 3.5, 2.6, 1.8), st: A.state, t: +A.stT.toFixed(1) };
+      return { ...front(L, A, A.foot + 7.5, 3.5 * sd, 2.6, 1.8), st: A.state, t: +A.stT.toFixed(1) };
     });
   }
   // a burh's gate of planks burning, up close (its embers), and fallen
@@ -1052,6 +1052,17 @@ window.LK = {
     return { ...L.eye(sp.x + 1.0, sp.z - 4.6, sp.x + 1.6, F.heightAt(sp.x, sp.z) + 1.1, sp.z, 1.5), r: !!r, dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => b.src) };
   });
   // the garrison beating out a fire on a burh's palisade (siege3_crew's scene)
+  // a soldier beating out flames on open ground, close: the fire beater in its hands (05a_rig.js WB.beater)
+  D('look4', 'beater_close', (L) => {
+    const H = L.H, F = L.F, m = L.rp(0, 214, 18), p = L.open(m.x, m.z, 3) || m;
+    L.clear(); L.hush(p.x, p.z, 14);
+    const yaw = 0.6, e = F.spawnRealmUnit(0, 'warrior', 30, 'guard', p.x, p.z, { yaw });
+    e.ai.post = { x: p.x, z: p.z, leash: 1 }; e.yaw = yaw; e.testLook = true; L.made.push(e);
+    const act = () => { e.anim.act = 21; e.anim.actT = 0; e.anim.actDur = 30; e.yaw = yaw; };
+    act(); sim(L, 0.4); act(); sim(L, 0.35);
+    const s = Math.sin(yaw), c = Math.cos(yaw), cx = p.x + c * 2.6 + s * 1.2, cz = p.z - s * 2.6 + c * 1.2;
+    return { ...L.eye(cx, cz, p.x + s * 0.6, L.floor(p.x, p.z) + 1.0, p.z + c * 0.6, 1.5), act: e.anim.act, dur: e.anim.actDur };
+  });
   D('look4', 'beaters', (L) => {
     const H = L.H, F = L.F, K = keepOf(2, 0), C = castleOfK(K);
     K.lastEnemyNear = H.GAME.t;
