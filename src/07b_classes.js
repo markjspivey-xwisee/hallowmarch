@@ -612,7 +612,7 @@ function priestView(e, cs, A, t) {
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
   if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1) * mendWound(t || e); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank [balance4] the deeper the wound, the more Mend mends (07c_balance4.js)
   if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
-  if (A.id === 'renew' && (t === e || !t)) { priestSteadfast(e); renewMark(e); } // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js) [balance5] a fresh one (07c_balance5.js)
+  if (A.id === 'renew' && (t === e || !t)) { const c = renewRoteCost(e, A); if (c !== A.cost) view().cost = c; priestSteadfast(e); renewMark(e); } // [balance6] renewing by rote costs power (07c_balance6.js) // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js) [balance5] a fresh one (07c_balance5.js)
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
@@ -633,7 +633,7 @@ function blessing(e, f) {
   const realm = realmFlavour(e) ? e.faction : e.plainCalling ? -1 : 0; // [balance4] a plain priest measured in tests blesses with no realm's way
   addBuff(f, 'bless', realm, 15, 'bless');
   const b = f.buffs.find((q) => q.kind === 'bless' && q.src === 'bless'); if (b) b.value = realm;
-  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * PRIEST_REALM.eriuHot, 15, e.id); } // [balance4] 0.015 (07c_balance4.js)
+  if (realm === 1) { dropBuffs(f, ['snare', 'root']); addBuff(f, 'hot', f.maxHp * PRIEST_REALM.eriuHot, 15, WELL_SRC); } // [balance4] 0.015 (07c_balance4.js) [balance6] its own heal: with the priest's own src it merged into the Renewal it came with (07c_balance6.js)
   const c = realm === 0 ? [1.8, 1.6, 1.0] : realm === 1 ? [0.9, 1.9, 1.2] : [2.3, 1.3, 0.6];
   FX.ring(f.x, f.y + 0.2, f.z, 1.4, c, 26, 1.6);
   for (let i = 0; i < 16; i++) { const a = Math.random() * TAU; fxAdd.emit(f.x + Math.cos(a) * 0.5, f.y + 0.3 + Math.random() * 1.6, f.z + Math.sin(a) * 0.5, 0, 0.8, 0, 1.2, c[0], c[1], c[2], 0.12, -0.3, 0.4); }
@@ -795,6 +795,7 @@ function fireMeetsIce(x, z, r, src) {
 }
 // a rune laid on the ground: it waits for a foe to step on it
 function layRune(e, x, z, el) {
+  if (e.removed) return null; // [balance6] a caster gone from the world lays no rune (a Thule blizzard's rune, laid 6.6 s after it, burst under the next duel's fighters)
   const mine = CLS.runes.filter((q) => q.src === e.id);
   if (mine.length >= 3) runeEnd(mine[0]);
   const R = { x, z, el, src: e.id, faction: e.faction, level: e.level, t0: GAME.t, armAt: GAME.t + 0.8, until: GAME.t + 30, disc: null };

@@ -258,7 +258,7 @@ function botMove(e, t, dt) {
   // kiting: the archer and the mage step away from a blade that is free to follow
   if (skilled && ranged) {
     // [balance3] a mage also steps off from a blade its frost holds when the hold is about to give
-    const p = botPresser(e, e.cls === 'archer' ? 9 : 7.5) || (e.cls === 'mage' ? heldBladeNear(e) : null); // out of a whirlwind's reach [balance4] and out of a held blade's reach at any level (a rooted warrior still strikes and bashes what stands by it)
+    const p = (e.cls === 'archer' ? archerPresser(e, 9) : botPresser(e, 7.5)) || (e.cls === 'mage' ? heldBladeNear(e) : null); // [balance6] a priest presses an archer only at its mace (07c_balance6.js) // out of a whirlwind's reach [balance4] and out of a held blade's reach at any level (a rooted warrior still strikes and bashes what stands by it)
     if (p && (e.cs && e.cs.drawFrom < 0 || dist(e.x, e.z, p.x, p.z) < 3.2)) {
       let ax = e.x - p.x, az = e.z - p.z;
       const L = Math.hypot(ax, az) || 1; ax /= L; az /= L;
@@ -426,7 +426,7 @@ function botArcherArrow(e, t) {
   if (!clsHas(e, 'arrows') || !t) return 'plain';
   // [balance3] a blunt head only for a spell it can still break: time left for the arrow to fly, and a caster who is
   // not steadfast (a priest's own Renewal) — against those it is only a weak arrow
-  if (t.casting && !hasBuff(t, 'steadfast') && t.casting.total - t.casting.t > 0.5) return 'blunt';
+  if (t.casting && !spellGuarded(t) && t.casting.total - t.casting.t > 0.5) return 'blunt'; // [balance6] (nor a warded mage's)
   // [balance2] a healer: a broadhead's wound mends slowly [balance3] before the armour piercer (bodkins go through only
   // half the armour now)
   if (t.cls === 'priest') return 'broadhead';
@@ -441,7 +441,7 @@ function botArcher(e, t) {
   if (want !== cs.arrow) { if (P) { if (want === 'plain' || goodsHave(ARROW_DEF[want].good, 1)) cs.arrow = want; } else cs.arrow = want; }
   if (cs.drawFrom >= 0) return false; // the reflex looses it
   const d = dist(e.x, e.z, t.x, t.z);
-  const p = botPresser(e, 9);
+  const p = archerPresser(e, 9); // [balance6] (07c_balance6.js)
   if (p) {
     const dp = dist(e.x, e.z, p.x, p.z);
     // a blade at arm's length: leap back (facing it, so the tumble carries you away)
@@ -462,7 +462,7 @@ function botArcher(e, t) {
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
-  const safe = !nearestWhere(e.x, e.z, 13, (o) => botEnemy(e, o) && !o.rangedKind && o.target === e.id && !isRooted(o));
+  const safe = !nearestWhere(e.x, e.z, 13, (o) => botEnemy(e, o) && !o.rangedKind && o.target === e.id && !isRooted(o) && !archerCastsBy(e, o)); // [balance6] a priest off its mace with its flare spent (07c_balance6.js)
   if (safe && d > 10 && botUse(e, 'deadeye', t)) return true;
   if (safe && botUse(e, 'pierce', t)) return true;
   if (safe && botUse(e, 'aimed', t)) return true;
@@ -541,6 +541,7 @@ function botMage(e, t) {
   if (t.target === e.id && !hasBuff(e, 'shield') && wardNow()) return true;
   // [balance4] a warrior's rush on its way: chill it first, so the nova that meets it freezes it where it lands
   if (rushComing(e, t) && !frozenOf(t)) { focus('frost'); if (botUse(e, 'frost', t)) return true; }
+  if (botMageElbow(e, t, focus, botUse)) return true; // [balance6] a staff at its elbow: the nova first, then away (07c_balance6.js)
   // a blade at the throat: a frost nova to hold it, then away; Blink when the nova is spent
   const p = botPresser(e, 5);
   if (p) {
@@ -553,7 +554,7 @@ function botMage(e, t) {
   const foes = botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 6);
   // [balance4] a caster's long spell (a priest's mend, a mage's meteor, an archer's aimed shot): storm breaks it, unless
   // the caster stands steadfast
-  if (t.casting && t.casting.total - t.casting.t > 0.6 && !hasBuff(t, 'steadfast') && botUse(e, 'chain', t)) return true;
+  if (t.casting && t.casting.total - t.casting.t > 0.6 && !spellGuarded(t) && botUse(e, 'chain', t)) return true; // [balance6] (nor a warded mage)
   // the combos: storm shatters the frozen and overloads the burning, fire bursts the chilled into steam,
   // frost quenches the burning; storm runs through the wet
   if (frozenOf(t)) { focus('storm'); if (botUse(e, 'chain', t)) return true; focus('fire'); if (botUse(e, 'firebolt', t)) return true; }
@@ -566,12 +567,12 @@ function botMage(e, t) {
   if (!frozenOf(t) && (ccChampion(t) ? ccFactor(t, 'stun') > 0 : GAME.t >= (t._thawUntil || 0))) {
     focus('frost');
     if (botUse(e, 'frost', t)) return true;
-    if (ch >= 2 && botUse(e, 'blizzard', t)) return true;
+    if (ch >= 2 && mageAoeWorth(e, t, 'blizzard') && botUse(e, 'blizzard', t)) return true; // [balance6] not at a foe that steps out of it (07c_balance6.js)
   }
-  if (botUse(e, 'meteor', t)) return true;
+  if (mageAoeWorth(e, t, 'meteor') && botUse(e, 'meteor', t)) return true; // [balance6] (07c_balance6.js)
   if (ch > 0 && botUse(e, 'firebolt', t)) return true;
   if (botUse(e, 'chain', t)) return true;
-  if (botUse(e, 'blizzard', t)) return true;
+  if (mageAoeWorth(e, t, 'blizzard') && botUse(e, 'blizzard', t)) return true; // [balance6]
   // [balance2] fire into a wet foe is damped: a frost focus chills it with every bolt, and the next firebolt makes steam
   const wet = wetOf(t) > 0.3;
   // [balance5] a mage soaked by the steam while the lance comes round: a storm focus, so the bolts between spells run
@@ -607,6 +608,11 @@ function botPriest(e, t) {
   // dazzled warrior parries nothing): while the bash is spent a priest casts through the blade (it stood idle by it)
   const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
+  // [balance6] under the rule tried and set aside (STEADY_NEXT, 07c_balance6.js: a Renewal steadying the next spell only),
+  // a priest's flare ready and no spell steadied against it: the heals and the pillar wait for a Renewal or for the flare
+  // to be spent, a smite is worth the risk (held back too, the priest stood idle beside a foe whose Holy Fire was ready
+  // most of the time). With the rule set aside, healOk is castOk
+  const healOk = castOk && !(STEADY_NEXT && !!t && t.cls === 'priest' && flareThreat(e) && !steadyNext(e));
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
@@ -621,9 +627,10 @@ function botPriest(e, t) {
   // that follow
   if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance5] a fresh one, or it does not steady
   // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
-  if (fight && !steady && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true;
+  if (fight && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance6] (a spent steadiness guards no more spells)
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
-  if (hpF < (castOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true;
+  if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
+  if (steadyNext(e) && hpF < 0.68 && botUse(e, 'mend', e)) return true; // [balance6] the steadied spell spent on the heal, not a smite
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
   if (!t) {
@@ -633,9 +640,16 @@ function botPriest(e, t) {
   }
   // holy fire is instant and cheap for what it does: keep it burning
   // [balance5] but against a caster it is kept for the spell it can break (above)
-  if (!((t.cls === 'priest' || t.cls === 'mage') && !hasBuff(t, 'steadfast') && dist(e.x, e.z, t.x, t.z) < FLARE_REACH + 2) && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true; // (a steadfast caster cannot be flared: burn it)
-  if (castOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true;
-  if (castOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66)
+  // [balance6] kept a little while only: a flare not wanted within HF_HOLD s of Holy Fire's coming ready burns instead (a
+  // priest that waited on a foe's Mend gave up a third of its harm)
+  if ((e.cds.holyfire || 0) > GAME.t) B.hfReady = null; else if (B.hfReady == null) B.hfReady = GAME.t;
+  const hfHeld = B.hfReady != null && GAME.t - B.hfReady < HF_HOLD;
+  if (!(hfHeld && (t.cls === 'priest' || t.cls === 'mage') && !spellGuarded(t) && dist(e.x, e.z, t.x, t.z) < FLARE_REACH + 2) && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true; // (a steadfast caster cannot be flared: burn it)
+  // [balance6] a warrior not yet dazzled: holy light first, so its blows go wide and it cannot parry (the mace strikes
+  // home); a priest that only mended lost three duels in four to a warrior at 10
+  if (castOk && t.cls === 'warrior' && abilityRank(e.level) >= 2 && !dazzled(t) && hpF > 0.42 && botUse(e, 'smite', t)) return true; // (from rank II: at 10 it smote instead of mending and lost more)
+  if (healOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true; // [balance6] healOk
+  if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race
@@ -646,7 +660,7 @@ function botPriest(e, t) {
 
 /* ---- a priest's Sanctuary and Mass Renewal: everyone close by is healed in full, the priest's own wounds
    mend more slowly (PRIEST_SELF), as with Mend and Renewal ---- */
-const PRIEST_SELF = 0.7; // [balance5] 0.75: a priest pressing its abilities in turn won 87% of its duels at 10
+const PRIEST_SELF = 0.76; // [balance5] 0.75: a priest pressing its abilities in turn won 87% of its duels at 10 [balance6] 0.7: the skilled priest of 10 won a third of its duels in arenas far apart while the simple one won three in four; renewing by rote costs power now (07c_balance6.js)
 // [balance2] and they do not mend faster as the priest's ranks grow (others' do): a healer past 30 could otherwise
 // outlast any foe alone
 // [balance3] from rank II they mend at 55% of a heal's rank I measure whatever the rank (0.55 / rankMult of what others
@@ -701,7 +715,8 @@ function castPushback(e) {
 }
 // a spell broken by a blow or an arrow, unless the caster stands steadfast; true when it broke
 function breakCast(e) {
-  if (!e || !e.casting || hasBuff(e, 'steadfast')) return false;
+  if (!e || !e.casting || castSteady(e)) return false; // [balance6] the steadied spell (07c_balance6.js): hasBuff(e, 'steadfast')
+  if (wardTakesBreak(e)) return false; // [balance6] a mage's ward takes the blow that would break its spell (07c_balance6.js)
   e.casting = null;
   return true;
 }

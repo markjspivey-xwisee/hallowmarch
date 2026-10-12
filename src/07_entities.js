@@ -498,6 +498,7 @@ function useAbility(e, id, target) {
   if (t && t !== e) faceToward(e, t.x, t.z);
   if (A.cast > 0) {
     e.casting = { id, t: 0, total: A.cast, targetId: t ? t.id : null, gx: t ? t.x : e.x, gz: t ? t.z : e.z };
+    steadyCast(e); // [balance6] a priest's guard against breaking goes to the spell it begins next, only while STEADY_NEXT is on (tried and set aside: it does nothing now; 07c_balance6.js)
     if (e.role === 'player') sfx('cast');
     return true;
   }
