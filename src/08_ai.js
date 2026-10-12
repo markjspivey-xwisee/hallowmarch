@@ -469,6 +469,7 @@ function fightTarget(e, t, dt, opts = {}) {
       moveToward(e, ax, az, dt, 0.8, 0.1);
     } else turnToward(e, t.x, t.z, dt * 10);
   } else {
+    if (bandGateShotStep(e, t, dt)) return; // [war2] a bow or a staff whose shots at a gate strike the wall beside it: before the gate (08j_war2.js)
     if (castleClimbToward(e, t, dt)) return; // castles: up the stairs after a foe on the walls (04g_castles.js)
     const reach = (e.rangedKind ? e.rangedRange : e.meleeRange * (e.scale || 1)) + tr - 0.4;
     if (d > reach && !e.casting) { moveToward(e, t.x, t.z, dt, 1, reach * 0.9); fightChase(e, t, d); }

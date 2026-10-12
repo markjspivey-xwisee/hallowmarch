@@ -101,8 +101,8 @@ function walledAt(x, z) {
 // member whose leader has gone out) goes out by the gate: to it from inside, then through it, and a gate of its own realm
 // opens for it as for a sally even with foes before it (a leader walked straight for its next point, into the wall, and
 // the gate opened only with no foe within 19 m). A gate of the enemy's, shut, it does not pass: it fights there.
-// the next point out of the walls W for a body at e going to g outside them: its gate (to it from inside, then through it;
-// a gate of its own realm opens for it as for a sally, even with foes before it), or a gap burnt in a hallow's log wall
+// the next point out of the walls W for a body at e going to g outside them: its gate (to it from inside, then through
+// it), or a gap burnt in a hallow's log wall
 // when the gate is the enemy's and whole; null when there is no way out it may take (a whole gate of the enemy's)
 function bandExitPoint(e, W, g) {
   const D = W.ref.door, mine = W.ref.realm === e.faction;
@@ -118,7 +118,8 @@ function bandExitPoint(e, W, g) {
   }
   const S = W.C.S, gi = siteToWorld(S, 0, S.gateLocal.z - 4.5), go = siteToWorld(S, 0, S.gateLocal.z + 6);
   if (!B.past && dist2(e.x, e.z, gi.x, gi.z) < 2.2 * 2.2) B.past = true;
-  if (B.past && D.alive && mine) { W.C.gate.sallyOpen = true; W.C.gate.sallyUntil = GAME.t + 1.5; }
+  // (a gate of its own opens for it as for any of its realm, while no foe stands within 19 m of it: with foes before it
+  // the band waits inside, and fights them from there: forcing it open for a sally held it open to the attackers)
   return B.past ? go : gi;
 }
 // the walls that hold a body on their court's floor, when its way (g) lies outside them
@@ -147,6 +148,7 @@ function bandLeaderExit(wb, L, O) {
   if (!L || !wb.leaderGoal || (O && O.phase === 'breach')) return;
   const W = bandWalledFrom(L, wb.leaderGoal);
   if (W) { const q = bandExitPoint(L, W, wb.leaderGoal); if (q) wb.leaderGoal = { x: q.x, z: q.z }; return; }
+  if (bandLeaderDetour(wb, L, O)) return;
   if (O && O.phase === 'bombard' && wb.path && wb.pathIdx < wb.path.length) {
     const g = wb.leaderGoal, d2 = dist2(L.x, L.z, g.x, g.z);
     if (d2 < 40 * 40) return;
@@ -155,6 +157,46 @@ function bandLeaderExit(wb, L, O) {
     const n = NAV.nodes[wb.path[wb.pathIdx]];
     if (n) wb.leaderGoal = { x: n.x, z: n.z };
   }
+}
+// a leader that gets no nearer its next point for 8 s while nothing holds it (no foe about, no work to wait on: off the
+// roads after a chase, in a fold of the hills, against a lake's shore or a fence) finds its way round on a 1 m grid
+// (localPath, the townsfolk's: over what it can walk, round what stands) toward its next point, at most 60 m on, and
+// follows it; with no way there its band's way is planned again from where it stands. True while it follows one.
+function bandLeaderDetour(wb, L, O) {
+  const g = wb.leaderGoal;
+  const P = wb.w2prog || (wb.w2prog = { x: L.x, z: L.z, d: Infinity, t: GAME.t });
+  const d = dist(L.x, L.z, g.x, g.z);
+  if (d < P.d - 1 || dist2(L.x, L.z, P.x, P.z) > 9) { P.d = d; P.x = L.x; P.z = L.z; P.t = GAME.t; }
+  const D = wb.w2detour;
+  if (D) {
+    while (D.i < D.pts.length && dist2(L.x, L.z, D.pts[D.i].x, D.pts[D.i].z) < 1.6 * 1.6) D.i++;
+    if (GAME.t < D.until && D.i < D.pts.length && !wb.engaged) { wb.leaderGoal = { x: D.pts[D.i].x, z: D.pts[D.i].z }; return true; }
+    wb.w2detour = null;
+  }
+  if (wb.engaged || d < 4 || GAME.t - P.t < 8 || L.fixedY !== null || L.motion || !O) return false;
+  if (O.phase === 'hold' || (O.phase === 'bombard' && O.bombSince !== undefined) || L.siegeCrew) return false;
+  P.t = GAME.t; P.d = d;
+  const k = Math.min(1, 60 / d), tx = L.x + (g.x - L.x) * k, tz = L.z + (g.z - L.z) * k;
+  const pts = localPath(L.x, L.z, tx, tz, 0.6, 76, true);
+  if (pts && pts.length) { wb.w2detour = { pts, i: 0, until: GAME.t + 25 }; wb.leaderGoal = { x: pts[0].x, z: pts[0].z }; WAR2.stats.detours = (WAR2.stats.detours || 0) + 1; return true; }
+  wb.goal = -1; WAR2.stats.detourReplans = (WAR2.stats.detourReplans || 0) + 1; // (planned again from here by updateWarband's next look)
+  return false;
+}
+// a bow, a wand or a staff at a gate whose shots strike the wall or a tower beside it (held: `ai.wallShot`) goes to stand
+// before the gate, on its line, a few paces out (each its own place along it), where nothing stands between: such a band
+// stood at the gate it did not strike for minutes, its shots held (a band at a burh's gate, archers and a priest left of
+// it). From fightTarget; true while it walks there
+function bandGateShotStep(e, t, dt) {
+  if (!e.rangedKind || t.kind !== 'door' || t.siegeEngine || !e.ai || GAME.t - (e.ai.wallShot ?? -9) > 2.5) return false;
+  const S = t.keepRef ? t.keepRef.site : t.templeRef ? t.templeRef.site : null;
+  if (!S || !castleOf(S)) return false;
+  const g = siegeGatePoint(S), k = ((e.id % 5) - 2) * 1.6, r = 8 + (e.id % 3) * 2;
+  const x = g.x + g.nx * r - g.nz * k, z = g.z + g.nz * r + g.nx * k;
+  if (dist2(e.x, e.z, x, z) < 0.8 * 0.8) return false; // there: shoot from here
+  if (!isWalkable(x, z)) return false;
+  moveToward(e, x, z, dt, 1.0, 0.3);
+  WAR2.stats.gateShotSteps = (WAR2.stats.gateShotSteps || 0) + dt;
+  return true;
 }
 // is the band's leader in this keep's court? (on its floor, within its walls)
 function bandInsideKeep(wb, K) {
@@ -229,15 +271,23 @@ function raidGapStep(wb, L, O, T) {
   if (O.phase !== 'siege' && O.phase !== 'gap') return false;
   const c = hallowRingGap(T, L.x, L.z);
   if (!c) { if (O.phase === 'gap') { O.phase = 'siege'; wbPlan(wb, T.nav.tg); } return false; }
-  if (O.phase !== 'gap') {
-    O.phase = 'gap'; O.gi = 0;
-    WAR2.stats.ringRaids = (WAR2.stats.ringRaids || 0) + 1;
-    news(`${wbName(wb)} goes in by the gap burnt in the log wall of the ${T.site.name}!`, wb.realm, 'order');
+  const S = T.site;
+  if (O.phase !== 'gap' || !O.gapPts || O.gapC !== c) {
+    // round the outside of the ring from where the band stands to the gap (6 m out), then out before it, in it over the
+    // stumps and inside it
+    const l = siteLocal(S, c.x, c.z), r = Math.hypot(l.x, l.z) || 1, ux = l.x / r, uz = l.z / r, aG = Math.atan2(l.x, l.z);
+    const lL = siteLocal(S, L.x, L.z), aL = Math.atan2(lL.x, lL.z), da = angDiff(aL, aG), R = r + 6;
+    const pts = [];
+    for (let k = 1, n = Math.ceil(Math.abs(da) / 0.45); k < n; k++) { const a = aL + (da * k) / n; pts.push(siteToWorld(S, Math.sin(a) * R, Math.cos(a) * R)); }
+    pts.push(siteToWorld(S, ux * (r + 4.5), uz * (r + 4.5)), siteToWorld(S, ux * r, uz * r), siteToWorld(S, ux * (r - 4), uz * (r - 4)));
+    if (O.phase !== 'gap') {
+      WAR2.stats.ringRaids = (WAR2.stats.ringRaids || 0) + 1;
+      news(`${wbName(wb)} goes in by the gap burnt in the log wall of the ${T.site.name}!`, wb.realm, 'order');
+    }
+    O.phase = 'gap'; O.gi = 0; O.gapPts = pts; O.gapC = c;
   }
-  // out before the gap, in it over the stumps, inside it, then the hallow's court
-  const S = T.site, l = siteLocal(S, c.x, c.z), r = Math.hypot(l.x, l.z) || 1, ux = l.x / r, uz = l.z / r;
-  const pts = [siteToWorld(S, ux * (r + 5), uz * (r + 5)), siteToWorld(S, ux * r, uz * r), siteToWorld(S, ux * (r - 4), uz * (r - 4))];
-  if (O.gi < pts.length && dist(L.x, L.z, pts[O.gi].x, pts[O.gi].z) < 2.2) O.gi++;
+  const pts = O.gapPts;
+  while (O.gi < pts.length && dist(L.x, L.z, pts[O.gi].x, pts[O.gi].z) < 2.4) O.gi++;
   if (O.gi >= pts.length) { O.phase = 'assault'; wbPlan(wb, T.nav.tc); return false; } // in: the court, as through a broken gate
   wb.leaderGoal = { x: pts[O.gi].x, z: pts[O.gi].z };
   return true;
@@ -289,7 +339,7 @@ function warbandEngineBusy(wb, O) {
 // few minutes. A fire that has taken the whole roof (its fall begun) is past saving: they stand back and watch it come
 // down, then build again as before. Rain helps them. Calls in: 04e_houses.js (houseBurnStep), 08f_townlife.js
 // (houseLife, houseFlee, lifeRun's 'beat' step).
-const HCREW = { max: 5, k: 0.08, call: 45, scan: 1.2, off: false }; // (off: tests that want a house to burn down)
+const HCREW = { max: 5, k: 0.1, call: 45, scan: 1.2, off: false }; // (off: tests that want a house to burn down)
 WAR2.stats.houseCrews = 0; WAR2.stats.houseBeats = 0; WAR2.stats.housesSaved = 0; WAR2.stats.housesLost = 0;
 // a villager near a burning house that wants hands (its crew not full) goes to it: from houseLife, once a while
 function houseCrewCall(e) {
@@ -489,6 +539,16 @@ registerSavePart('world', 'gates', {
   },
   key(d) { return d ? d.map((q) => q.slice(0, 3).join(':')).join(',') : ''; },
 });
+
+/* ------------------------------------------------------------------ */
+/* the long war: a hold on the March counts for more                   */
+/* ------------------------------------------------------------------ */
+// A claim (four keeps, or both enemy hallows) grows a second a second; from the long war's start (15 min) to its height
+// (40 min, cwWeary) it grows up to 1.6 times as fast, so a realm that takes its fourth keep late in a long war need hold it
+// a little over three minutes, not five: the war is decided by keeps and hallows more often than by the elders' call at
+// the hour (updateCampaign, 08g_campaign.js; the news and the countdowns say so)
+const CLAIM_LATE = 0.6;
+const cwClaimRate = () => 1 + CLAIM_LATE * cwWeary();
 
 /* ------------------------------------------------------------------ */
 /* every step                                                          */

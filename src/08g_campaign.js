@@ -393,22 +393,23 @@ function updateCampaign(dt) {
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
-    news('The war drags on. Garrisons thin, broken gates mend slowly, and the musters send out bigger bands of veterans.', -1, 'big');
+    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out bigger bands of veterans, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
   }
   for (let r = 0; r < 3; r++) {
     const c = CAMPAIGN.claims[r], R = REALMS[r];
     const keeps = WAR.keeps.filter((K) => K.realm === r).length, hal = foreignHallows(r);
     CAMPAIGN.renown[r] += (dt / 60) * (keeps + 2 * hal);
     const kOn = keeps >= CW.KEEPS, hOn = hal >= 2;
-    c.k = kOn ? c.k + dt : Math.max(0, c.k - dt * CW.DECAY);
-    c.h = hOn ? c.h + dt : Math.max(0, c.h - dt * CW.DECAY);
-    if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.round((CW.KEEP_HOLD - c.k) / 60)} more minutes and ${R.name} wins the March.`, r, 'big');
+    const rate = cwClaimRate(); // [war2] the long war: a hold counts for more (08j_war2.js)
+    c.k = kOn ? c.k + dt * rate : Math.max(0, c.k - dt * CW.DECAY);
+    c.h = hOn ? c.h + dt * rate : Math.max(0, c.h - dt * CW.DECAY);
+    if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.max(1, Math.round((CW.KEEP_HOLD - c.k) / rate / 60))} more minutes and ${R.name} wins the March.`, r, 'big'); // [war2] / rate
     if (!kOn && c.kOn) news(`${possessive(R.name)} hold on the keeps is broken. Its claim fades slowly.`, r, 'normal');
-    if (hOn && !c.hOn) news(`${R.name} holds both enemy hallows in the ${R.templeName}! Keep them there ${Math.round((CW.HALLOW_HOLD - c.h) / 60)} more minutes to win the March.`, r, 'big');
+    if (hOn && !c.hOn) news(`${R.name} holds both enemy hallows in the ${R.templeName}! Keep them there ${Math.max(1, Math.round((CW.HALLOW_HOLD - c.h) / rate / 60))} more minutes to win the March.`, r, 'big'); // [war2] / rate
     if (!hOn && c.hOn) news(`${R.name} no longer holds both hallows. Its claim fades slowly.`, r, 'normal');
     c.kOn = kOn; c.hOn = hOn;
     // warnings as the end nears
-    const left = Math.min(kOn ? CW.KEEP_HOLD - c.k : 1e9, hOn ? CW.HALLOW_HOLD - c.h : 1e9);
+    const left = Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9); // [war2] in seconds still to hold
     if (left < 180 && c.warned < 1) { c.warned = 1; news(`Three minutes: ${R.name} is close to winning the March.`, r, 'big'); }
     if (left < 60 && c.warned < 2) { c.warned = 2; news(`One minute: ${R.name} will win the March unless its hold is broken!`, r, 'big'); }
     if (left > 240) c.warned = 0;
@@ -545,8 +546,8 @@ function applyCampaignSave(c) {
 function cwTopClaims() {
   const out = [];
   CAMPAIGN.claims.forEach((c, r) => {
-    if (c.k > 0) out.push({ r, kind: 'keeps', left: CW.KEEP_HOLD - c.k, frac: c.k / CW.KEEP_HOLD, on: c.kOn });
-    if (c.h > 0) out.push({ r, kind: 'hallows', left: CW.HALLOW_HOLD - c.h, frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
+    if (c.k > 0) out.push({ r, kind: 'keeps', left: (CW.KEEP_HOLD - c.k) / cwClaimRate(), frac: c.k / CW.KEEP_HOLD, on: c.kOn }); // [war2] (the long war's pace)
+    if (c.h > 0) out.push({ r, kind: 'hallows', left: (CW.HALLOW_HOLD - c.h) / cwClaimRate(), frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
   });
   return out.sort((a, b) => b.frac - a.frac);
 }

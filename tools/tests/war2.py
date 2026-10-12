@@ -199,6 +199,7 @@ async def main(p):
           const ki = WAR.keeps.findIndex((k) => k.realm === 0 && fn.castleOf(k.site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
           const K = WAR.keeps[ki], C = fn.castleOf(K.site);
           const W = C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));
+          fn.fillGarrison(K, true); // the whole garrison and its lord (an earlier scene may have thinned it)
           fn.castleBreach(W);
           const f = SG.siegeFace(W);
           const small = __w2t.band(2, ki, 4, f.x + f.nx * 30, f.z + f.nz * 30);
@@ -206,15 +207,20 @@ async def main(p):
           let t = 0, sPhase = [];
           for (; t < 40; t += 2) { __w2t.quiet(); H.simulate(2); sPhase.push(wbS.order ? wbS.order.phase : '-'); }
           const waited = !sPhase.includes('breach');
-          const big = __w2t.band(2, ki, 9, f.x + f.nx * 32 + 3, f.z + f.nz * 32);
-          const wbB = __w2t.wb(big);
-          let goT = null;
-          for (t = 0; t < 40; t += 2) { __w2t.quiet(); H.simulate(2); if (goT === null && ((wbS.order && wbS.order.phase === 'breach') || (wbB.order && wbB.order.phase === 'breach'))) goT = t + 2; }
-          return { tower: W.T.role, waited, sPhase: sPhase.join(','), goT, stats: H.war2.WAR2.stats.stormWaits };
+          const st1 = W.state;
+          if (W.state !== 'breach') fn.castleBreach(W); // (mended meanwhile in a quiet moment: down again)
+          const big = __w2t.band(2, ki, 12, f.x + f.nx * 32 + 3, f.z + f.nz * 32);
+          const wbB = __w2t.wb(big); wbB.order.siegeE = null; // (no engine of its own to build: every hand for the storm)
+          if (!fn.wbMembers(wbS).length) { const again = __w2t.band(2, ki, 4, f.x + f.nx * 30, f.z + f.nz * 30); __w2t.wb(again).order.siegeE = null; }
+          let goT = null; const bPh = [];
+          for (t = 0; t < 40; t += 2) { __w2t.quiet(); H.simulate(2); bPh.push((wbB.order ? wbB.order.phase : '-') + ':' + fn.wbMembers(wbB).length + ':' + fn.wbMembers(wbS).length); if (goT === null && ((wbS.order && wbS.order.phase === 'breach') || (wbB.order && wbB.order.phase === 'breach'))) goT = t + 2; }
+          let def = 0; for (const id of K.guards) { const g = fn.getEnt(id); if (g && g.alive) def += g.ai.wall ? 0.5 : 1; }
+          const Lb = fn.wbLeader(wbB);
+          return { tower: W.T.role, waited, st1, st2: W.state, sPhase: sPhase.join(','), goT, bPh: bPh.join(','), def, lord: !!(fn.getEnt(K.lord) && fn.getEnt(K.lord).alive), dB: Lb ? Math.round(Math.hypot(Lb.x - K.site.x, Lb.z - K.site.z)) : null, ban: wbB.order && wbB.order.breachBan, stats: H.war2.WAR2.stats.stormWaits };
         })()""")
         print('  ', json.dumps(r), flush=True)
         check(r.get('waited'), f"a band of four does not storm a fallen tower against the whole garrison alone ({r.get('sPhase')})")
-        check(r.get('goT') is not None, f"with a second band beside it they go in ({r.get('goT')} s)")
+        check(r.get('goT') is not None, f"with a second band beside it they go in ({r.get('goT')} s; {r.get('bPh')})")
 
     if want('gap'):
         print('-- gap: a raid goes in by a gap burnt in the timber hallow\'s ring', flush=True)
@@ -225,28 +231,34 @@ async def main(p):
           if (!B || !B.ring) return { err: 'no ring' };
           // Thule has lost a keep (its hallow may be raided); a stretch of its ring burnt through on the side away from its gate
           const K = WAR.keeps.find((k) => k.orig === 2); fn.captureKeep(K, 0, null);
-          const c = B.cells.slice().sort((a, b) => Math.abs(Math.abs(b.am) - Math.PI) - Math.abs(Math.abs(a.am) - Math.PI))[B.cells.length - 1] || B.cells[0];
+          // (on its flank: its back faces Thule's muster, whose wardens would cut the raid down before it got in)
+          const c = B.cells.slice().sort((a, b) => Math.abs(Math.abs(a.am) - Math.PI / 2) - Math.abs(Math.abs(b.am) - Math.PI / 2))[0];
           Z.deckThrough(c, true);
           const S = T.site, g = { x: T.nav.tg.x, z: T.nav.tg.z };
+          // Thule's bands kept away and its hallow-wardens fallen (the way in is the matter here, not the fight)
+          for (const w of WAR.warbands) if (w.realm === 2) for (const e of fn.wbMembers(w)) { e.alive = false; e.hp = 0; e.removeAt = H.GAME.t; }
+          for (const id of T.guardians) { const q = fn.getEnt(id); if (q) { q.alive = false; q.hp = 0; q.removeAt = H.GAME.t; } }
+          T.guardians.clear(); T.nextGuardAt = H.GAME.t + 600; T.lastEnemyNear = H.GAME.t;
           const ek = WAR.keeps.findIndex((k) => k.realm !== 0);
-          const id = __w2t.band(0, ek, 9, g.x, g.z);
+          const id = __w2t.band(0, ek, 12, g.x, g.z);
           const wb = __w2t.wb(id);
           const msg = H.CW.playerOrder(id, 'raid', 2);
           const phases = new Set(); let took = null, inside = null;
           for (let t = 0; t < 120; t += 2) {
             __w2t.quiet(); H.simulate(2);
-            if (wb.order) phases.add(wb.order.type + '/' + wb.order.phase);
+            if (wb.order) phases.add(wb.order.type + '/' + wb.order.phase + (wb.order.gi !== undefined ? wb.order.gi : ''));
             const L = fn.wbLeader(wb);
             if (L && inside === null && Math.hypot(L.x - S.x, L.z - S.z) < 12) inside = t + 2;
             if (took === null && WAR.relics.some((x) => x.state === 'carried' && x.carrierRealm === 0)) took = t + 2;
             if (took !== null && t > took + 10) break;
           }
-          return { msg, gap: !!H.war2.hallowRingGap(T), door: T.door.alive, phases: [...phases].join(','), inside, took, raids: H.war2.WAR2.stats.ringRaids };
+          const L = fn.wbLeader(wb);
+          return { msg, gap: !!H.war2.hallowRingGap(T), door: T.door.alive, phases: [...phases].join(','), inside, took, raids: H.war2.WAR2.stats.ringRaids, n: fn.wbMembers(wb).length, L: L ? [Math.round(L.x - S.x), Math.round(L.z - S.z)] : null, wardens: [...T.guardians].map(fn.getEnt).filter((q) => q && q.alive).length };
         })()""")
         print('  ', json.dumps(r), flush=True)
         check(r.get('door') and r.get('gap'), 'the hallow\'s gate stands; its ring is burnt through')
         check('raid/gap' in (r.get('phases') or ''), f"the raid goes round to the gap ({r.get('phases')})")
-        check(r.get('took') is not None, f"in by the gap, it takes the hallow (in the court at {r.get('inside')} s, taken at {r.get('took')} s)")
+        check(r.get('took') is not None, f"in by the gap, it takes the hallow (its wardens fallen; in the court at {r.get('inside')} s, taken at {r.get('took')} s; {r.get('n')} left)")
 
     if want('houses'):
         print('-- houses: townsfolk beat out a burning house', flush=True)

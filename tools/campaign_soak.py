@@ -90,7 +90,7 @@ WATCH_JS = r"""(() => {
         const nearer = lg && p.x !== undefined ? Math.hypot(lg.x - p.x, lg.z - p.z) - (d.dLG ?? 0) >= 1.0 : false;
         const E = engineOf(O);
         const waiting = O.phase === 'hold' || (O.type === 'defend' && d.dGoal != null && d.dGoal < 45) || (O.type === 'patrol' && d.dGoal != null && d.dGoal < 20)
-          || (E && E.state === 'work') || (O.type === 'rally' && d.dGoal != null && d.dGoal < 12);
+          || (E && (E.state === 'work' || E.state === 'build' || E.state === 'move')) || (O.type === 'rally' && d.dGoal != null && d.dGoal < 12);
         c = fought ? 'fight' : nearer ? 'nearer' : waiting ? 'wait' : 'still';
       } else if (O) c = 'new';
       if (c !== 'peace' && c !== 'new' && c !== 'none') {
