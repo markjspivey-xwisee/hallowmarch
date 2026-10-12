@@ -200,7 +200,7 @@ function updateWater(dt) {
     if (e.swim || w.depth > 0.62 * sc) {
       let burnt = false;
       for (let i = e.buffs.length - 1; i >= 0; i--) if (e.buffs[i].kind === 'burn') { e.buffs.splice(i, 1); burnt = true; }
-      if (burnt) { waterSteam(e.x, w.y, e.z, 14); sfxAt('hiss', e.x, w.y + 0.5, e.z); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); }
+      if (burnt) { waterSteam(e.x, w.y, e.z, 14); sfxAt('hiss', e.x, w.y + 0.5, e.z); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); } // [audio2] placed (11c_sound.js)
     }
     // splashes and ripples: a wader's every footfall, a swimmer's strokes and wake
     const vis = dist2(e.x, e.z, camX, camZ) < 45 * 45 && !e.dive; // [water2] a diver leaves no splashes on the surface

@@ -52,6 +52,6 @@ function updateMountAnim(e, dt, sp) {
   A.phase = (A.phase + dt * sp * (TAU / 2) / beastStride('horse', A.amt)) % (TAU * 64);
   if (A.amt > 0.08) { // [audio2] every rider's horse, placed (11c_sound.js: nothing is asked for far off)
     const q = Math.floor(A.phase / (Math.PI / 2));
-    if (q !== A.q) { A.q = q; if (e === GAME.player) sfx(A.amt > 1.05 ? 'hoofFast' : 'hoof'); else sfxAtE(A.amt > 1.05 ? 'hoofFast' : 'hoof', e, null, 0.05); }
+    if (q !== A.q) { A.q = q; if (e === GAME.player) sfx(A.amt > 1.05 ? 'hoofFast' : 'hoof'); else sfxAtE(A.amt > 1.05 ? 'hoofFast' : 'hoof', e, null, 0.05); } // [audio2] another rider's hooves placed (11c_sound.js)
   }
 }

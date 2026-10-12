@@ -311,8 +311,8 @@ function boatPhys(B, dt, thrust, turn) {
   B.eff = lerp(B.eff, rowing ? Math.max(Math.abs(thrust), Math.abs(turn) * 0.8) : 0, 1 - Math.exp(-dt * 4));
   B.phPrev = B.ph;
   if (rowing) B.ph = (B.ph + dt / BOAT_STROKE * (0.75 + 0.35 * B.eff)) % 1;
-  if (rowing && B.eff > 0.05 && ((B.phPrev < 0.03 && B.ph >= 0.03) || (B.ph < B.phPrev && B.ph >= 0.03))) sfxAt('oar', B.x, B.y ?? null, B.z); // [audio2] each stroke's dip and the thole's creak, placed (11c_sound.js)
   else if (B.ph < 0.5) B.ph = Math.min(0.5, B.ph + dt * 0.8); // the oars come out of the water and rest
+  if (rowing && B.eff > 0.05 && ((B.phPrev < 0.03 && B.ph >= 0.03) || (B.ph < B.phPrev && B.ph >= 0.03))) sfxAt('oar', B.x, B.y ?? null, B.z); // [audio2] each stroke's dip and the thole's creak, placed (11c_sound.js)
   const drive = rowing && B.ph > 0.02 && B.ph < 0.47 ? Math.sin(Math.PI * (B.ph - 0.02) / 0.45) : 0;
   const fx = Math.sin(B.yaw), fz = Math.cos(B.yaw);
   const acc = 3.0 * drive * (thrust >= 0 ? thrust : thrust * 0.65);

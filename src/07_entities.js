@@ -593,7 +593,7 @@ function executeAbility(e, A, t, cast = null) {
         natureSwing(e, A.spin + 0.4, Math.PI, 30); // nature: the blade cuts the grass round about and bites into trees
         sfxAtE('hit', e); // [audio2] placed (11c_sound.js)
       };
-      for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfxAtE('swing', e); FX.dust(e.x, e.y, e.z, 3); } });
+      for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfxAtE('swing', e); FX.dust(e.x, e.y, e.z, 3); } }); // [audio2] placed (11c_sound.js)
       later(0.32, () => cut(0.5));
       later(0.66, () => cut(0.5));
       spellDisc(e.x, e.z, A.spin + 0.8, DISC_KIND.shock, 0.75, [1.25, 1.1, 0.85]);
