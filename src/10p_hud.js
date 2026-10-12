@@ -180,14 +180,8 @@ function hudLayout(dt) {
     // the zone's name, only while it shows ([v9] and while it fades: it keeps the place it had)
     if (sel === '#zonetoast' && !el.classList.contains('on') && +getComputedStyle(el).opacity < 0.05) continue;
     let r = measure(sel, el);
-    if (free(r)) { placed.push({ ...r, sel }); el._g2at = null; continue; }
+    if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
-    // [guide2] a panel moved off its own place keeps where it stood while that is free and the column's first free place is
-    // only a few pixels off: it no longer jumps up and down with every line another panel above it gains or loses (the
-    // companion bar moved 18 px each way every few seconds, and a tap aimed at it landed beside it)
-    const at = el._g2at;
-    if (c && at && sel !== '#banners' && Math.abs(c.x - at.x) < 2 && Math.abs(c.y - at.y) < 30) { const k = { x: at.x, y: at.y, w: r.w, h: r.h }; if (free(k)) c = k; }
-    el._g2at = c && sel !== '#banners' ? { x: c.x, y: c.y } : null;
     if (!c && sel === '#banners' && el.children.length > 1) { // [guide] a toast and a note together do not fit an upright phone: the newest shows, the older wait
       for (const k of [...el.children].slice(0, -1)) k.classList.add('hl-old');
       r = measure(sel, el);

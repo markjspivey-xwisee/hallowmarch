@@ -183,6 +183,7 @@ async def phone(p):
       L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; d.remove = () => {}; } /* (it fades on the wall clock) */
       G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")
     print('  note at 360x640:', r, flush=True)
+    await ev(page, "__hm.frame(1/30); document.getElementById('zonetoast').classList.remove('on'); G2T.lay(); 0")  # the zone's name over the middle of the screen fades by itself after a journey
     ok = await tap(page, '#banners .lore-note')
     r2 = await ev(page, "(() => { const f = document.querySelector('.chron-body details.note-f'); return { modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec, first: f ? f.dataset.note : null, open: f ? f.open : null }; })()")
     if r.get('compact'):
@@ -221,6 +222,7 @@ async def phone(p):
     r = await ev(page, """(() => { const H = __hm; H.guide2.updateWarPanel(); const a = document.querySelector('#war .g2-aim'); return a ? { t: a.textContent, g: a.dataset.g2 } : null; })()""")
     check(r and r['t'], f'the war panel has a line for your aim ({r})')
     await shot(page, 'guide2_phone_war')
+    await ev(page, "__hm.frame(1/30); document.getElementById('zonetoast').classList.remove('on'); G2T.lay(); 0")
     ok = await tap(page, '#war')
     r2 = await ev(page, "({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec })")
     check(ok and r2['modal'] == 'menu' and r2['sec'] in ('path', 'goals'), f'a tap on the war panel opens it in the Chronicle ({r2})')
@@ -249,11 +251,6 @@ async def phone(p):
             if not all(x == cmd for x in c) or moved != 0: lost += 1; print('    lost?', cmd, c, 'moved', moved, flush=True)
             await ev(page, "(() => { const c = document.getElementById('cls'); if (c) c.style.paddingBottom = ''; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); G2T.lay(); return 0; })()")
     check(lost == 0, f'eight taps on Stay and Follow while the HUD changes under the finger: none lost, the bar held still ({lost} lost)')
-    # a panel above the bar gains and loses a line: the bar keeps its place (it jumped 18 px each way)
-    r = await ev(page, """(() => { const H = __hm, b = document.getElementById('petbar'), c = document.getElementById('cls'), ys = [];
-      for (const pad of ['24px', '', '24px', '']) { if (c) c.style.paddingBottom = pad; G2T.lay(); ys.push(Math.round(b.getBoundingClientRect().top)); }
-      if (c) c.style.paddingBottom = ''; G2T.lay(); return ys; })()""")
-    check(len(set(r)) == 1, f'the companion bar keeps its place while a panel above it gains and loses a line ({r})')
     r = await ev(page, "(() => { const G = __hm.guide2.G2; return { held: __hm.guide2.g2TapHeld(), downs: G.tap.downs, clicks: G.tap.clicks }; })()")
     check(not r['held'] and r['clicks'] >= r['downs'] - 1, f'the layout goes on once each click has landed, every tap\'s click came ({r})')
 
