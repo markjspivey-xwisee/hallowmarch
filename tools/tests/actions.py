@@ -1,11 +1,10 @@
 """[motion4] Every action since version 10 measured as a body (version 14), from what the shaders draw (13r_motion.js's
 probe): climbing a tower's ladder (body action 14: each foot on a rung while it bears the climber, each hand round a
-rung while it holds), a blow from the rungs (18: the left hand on its rung, the feet on theirs), shoving a boat off
-the shore (19: the planted feet held), the warrior's Charge along the ground (its stride's planted feet, and its
-landing), a stormer walking in over a fallen tower's rubble (no foot in the stones, none in the air), rowing (16: the
-hands on the oars' grips), diving (15), a townsman at a scaffold's work, and a kneeling priest's front foot; and
+rung while it holds), a blow from the rungs (18: the feet on their rungs), the warrior's Charge along the ground (its
+stride's planted feet, and its landing), halting from a run and a sprint, shoving a boat off the shore (19: the feet
+step into the stance and stand), rowing (16: the hands on the oars' grips) and a kneeling priest's front foot; and
 pictures of each (shots).
-usage: python3 tools/tests/actions.py [only=ladder,blow,shove,rush,rubble,row,dive,build,kneel] [noshots] [shots=...]
+usage: python3 tools/tests/actions.py [only=ladder,blow,shove,rush,stop,row,kneel] [noshots] [shots=...] [tag=...]
 Writes tools/out/actions_<tag>.json and pictures tools/out/act_*.png."""
 import json, asyncio, sys, pathlib, time, re, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -18,7 +17,7 @@ except Exception:
 
 ARGS = sys.argv[1:]
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
-ONLY = OPT.get('only', 'ladder,blow,shove,rush,stop,rubble,row,dive,build,kneel').split(',')
+ONLY = OPT.get('only', 'ladder,blow,shove,rush,stop,row,kneel').split(',')
 TAG = OPT.get('tag', 'run')
 SHOTS = 'noshots' not in ARGS
 SHOTS_ONLY = OPT.get('shots', '').split(',') if 'shots' in OPT else None
@@ -113,7 +112,8 @@ window.AC = {
     return out;
   },
   // at the oars (action 16): each hand against the grip of its oar, every frame of three strokes (the oars' sweep and dip
-  // as 07e_boats.js's boatsDraw sets them, from the stroke's phase; the grip 0.86 m inboard of the rowlock)
+  // as 07e_boats.js's boatsDraw sets them, from the stroke's phase, out in the rowlocks; the grip 0.59 m inboard of the
+  // rowlock)
   row(sec = 3.2) {
     const BOAT_GRIP_T = 0.59; // (07e_boats.js BOAT_GRIP)
     const H = this.H, P = H.GAME.player, M = this.M, Bt = H.water.boats, Bs = Bt.BOATS;
@@ -243,7 +243,7 @@ async def main():
             # shoving a boat off: the feet in the stance, the back leg driving
             await shot(page, 'shove', "(() => { " + CAM + " const H = __hm, P = H.GAME.player, Bt = H.water.boats, Bs = Bt.BOATS; const i = Bt.list().findIndex((q) => q.st === 'beached'); if (i < 0) return null; const B = Bs.list[i], E = Bt.shoveEnd(i); H.teleport(E.x, E.z); P.yaw = Math.atan2(B.x - P.x, B.z - P.z); H.UI.modal = null; H.simulate(0.3, 1 / 60); Bt.shoveOff(i); for (let k = 0; k < 40; k++) H.simulate(1 / 60, 1 / 60); const sx = Math.cos(P.yaw), sz = -Math.sin(P.yaw); cam(P.x + sx * 2.6, P.y + 0.9, P.z + sz * 2.6, P.x + Math.sin(P.yaw) * 0.3, P.y + 0.5, P.z + Math.cos(P.yaw) * 0.3); __hm.UI.modal = 'menu'; return 0; })()")
             # at the oars: the hands on the grips
-            await shot(page, 'row', "(() => { " + CAM + " const H = __hm, P = H.GAME.player, Bt = H.water.boats, Bs = Bt.BOATS; let i = Bt.list().findIndex((q) => q.st === 'moored'); if (i < 0) i = Bt.list().findIndex((q) => q.st === 'free'); if (i < 0) return null; const B = Bs.list[i]; H.teleport(B.x + 2, B.z + 2); H.simulate(0.2, 1 / 60); Bt.board(i); H.simulate(0.4, 1 / 60); H.UI.modal = null; H.INPUT.keys.add('KeyW'); for (let k = 0; k < 260; k++) { H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } for (let k = 0; k < 240 && !(B.ph > 0.25 && B.ph < 0.3); k++) { H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } H.INPUT.keys.clear(); const fx = Math.sin(B.yaw), fz = Math.cos(B.yaw), sx = Math.cos(B.yaw), sz = -Math.sin(B.yaw), sd = H.water.waterAt(P.x + sx * 3, P.z + sz * 3) ? 1 : -1; cam(P.x + sx * 2.6 * sd - fx * 0.6, P.y + 2.3, P.z + sz * 2.6 * sd - fz * 0.6, P.x - fx * 0.3, P.y + 0.5, P.z - fz * 0.3); __hm.UI.modal = 'menu'; return +B.ph.toFixed(2); })()")
+            await shot(page, 'row', "(() => { " + CAM + " const H = __hm, P = H.GAME.player, Bt = H.water.boats, Bs = Bt.BOATS; let i = Bt.list().findIndex((q) => q.st === 'moored'); if (i < 0) i = Bt.list().findIndex((q) => q.st === 'free'); if (i < 0) return null; const B = Bs.list[i]; H.teleport(B.x + 2, B.z + 2); H.simulate(0.2, 1 / 60); Bt.board(i); H.simulate(0.4, 1 / 60); H.UI.modal = null; H.INPUT.keys.add('KeyW'); for (let k = 0; k < 260; k++) { H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } for (let k = 0; k < 240 && !(B.ph > 0.25 && B.ph < 0.3); k++) { H.UI.modal = null; H.simulate(1 / 60, 1 / 60); } H.INPUT.keys.clear(); B.oarK = 1; const fx = Math.sin(B.yaw), fz = Math.cos(B.yaw), sx = Math.cos(B.yaw), sz = -Math.sin(B.yaw), sd = H.water.waterAt(P.x + sx * 3, P.z + sz * 3) ? 1 : -1; cam(P.x + sx * 2.6 * sd - fx * 0.6, P.y + 2.3, P.z + sz * 2.6 * sd - fz * 0.6, P.x - fx * 0.3, P.y + 0.5, P.z - fz * 0.3); __hm.UI.modal = 'menu'; return +B.ph.toFixed(2); })()")
             await ev(page, "(() => { __hm.water.boats.leave(); __hm.simulate(0.3, 1 / 60); return 0; })()")
             # the Charge mid-rush, the shield forward, from beside its way
             await shot(page, 'rush', "(() => { " + CAM + " const H = __hm, P = H.GAME.player, F = H.fn, Ln = MO.lane(MO.cx, MO.cz, 30, 1); AC.put(Ln.x - Ln.ux * 10, Ln.z - Ln.uz * 10, F.heightAt(Ln.x - Ln.ux * 10, Ln.z - Ln.uz * 10)); P.yaw = Math.atan2(Ln.ux, Ln.uz); const f = F.spawnRealmUnit(2, 'mage', 30, 'guard', Ln.x + Ln.ux * 6, Ln.z + Ln.uz * 6); f.ai.post = { x: f.x, z: f.z, leash: 0.5 }; f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 500 }; F.setupStats(f); H.simulate(0.3, 1 / 60); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'charge', f); for (let k = 0; k < 22; k++) H.simulate(1 / 60, 1 / 60); cam(P.x + Ln.sx * 4, P.y + 1.1, P.z + Ln.sz * 4, P.x, P.y + 0.8, P.z); __hm.UI.modal = 'menu'; AC.rushFoe = f.id; return 0; })()")

@@ -655,7 +655,7 @@ const LADDER_AHEAD = 0.33;
 // [motion4] the oars as the rower holds them (07e_boats.js): the grip OAR_GRIP m inboard of its rowlock, the rowlocks
 // 0.698 m out from the keel (boatHB at BOAT_LOCK_Z, + 0.02), 0.33 m over the thwart's top and 0.48 m aft of the rower
 // (BOAT_SEAT_Z + 0.08 - BOAT_LOCK_Z), where the rower sits facing aft
-const OAR_GRIP = 0.59, OAR_LOCK = { y: 0.33, z: 0.48 };
+const OAR_GRIP = 0.59, OAR_LOCK = { x: 0.698, y: 0.33, z: 0.48 };
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -854,6 +854,7 @@ function humanVS(depth) {
     float uaL = s1 * (0.42 + 0.25 * run) * k, uaR = -s1 * (0.42 + 0.25 * run) * k;
     float faL = -0.16 - 0.18 * k - 1.05 * run - 0.12 * max(0.0, -uaL), faR = -0.16 - 0.18 * k - 1.05 * run - 0.12 * max(0.0, -uaR);
     float uaLz = 0.05 + 0.03 * run + 0.02 * idle * sin(t * 0.9), uaRz = -0.05 - 0.03 * run - 0.02 * idle * sin(t * 0.9 + 1.0);
+    float uaLy = 0.0, uaRy = 0.0; // [motion4] each arm swung across the body at the shoulder (at the oars: the grips come in toward the middle)
     float chestX = 0.05 * k + 0.2 * run + hunched * 0.38 + 0.012 * sin(t * 1.7) * idle;
     float chestY = -0.11 * s1 * k;
     chestX += 0.3 * slopeK * k; // [motion] leaning into the climb, back against the descent
@@ -1129,7 +1130,6 @@ function humanVS(depth) {
         // [water2] at the oars (action 16, 07e_boats.js; the fraction is the stroke): reach forward to the catch, drive
         // back with the legs and the back, draw the handles in to the chest, then the hands away and the body forward
         float drv = smoothstep(0.02, 0.45, at), rcv = smoothstep(0.55, 0.98, at), pull = drv * (1.0 - rcv);
-        float elb = smoothstep(0.22, 0.48, at) * (1.0 - smoothstep(0.55, 0.75, at));
         chestX = mix(0.72, -0.32, pull); headX = -chestX * 0.55 + 0.04; chestY = 0.0; headY = 0.0; // [motion4] (0.5: at the catch the grips were out of the arms' reach, 13 cm)
         // [motion4] the hands on the oars' grips: where boatsDraw (07e_boats.js) swings and dips the oars at this point of
         // the stroke, seen from the rower (facing aft), reached by the arms (in the frame before the chest's lean): the
@@ -1137,11 +1137,17 @@ function humanVS(depth) {
         float dv = clamp((at - 0.02) / 0.45, 0.0, 1.0), rv = clamp((at - 0.47) / 0.53, 0.0, 1.0);
         float swp = at < 0.47 ? mix(0.62, -0.5, dv * dv * (3.0 - 2.0 * dv)) : mix(-0.5, 0.62, rv * rv * (3.0 - 2.0 * rv));
         float dip = at < 0.47 ? 0.3 : at < 0.55 ? mix(0.3, 0.12, (at - 0.47) / 0.08) : at > 0.94 ? mix(0.12, 0.3, (at - 0.94) / 0.06) : 0.12;
-        float rsO = max(iColA.w, 0.3), gyO = (${OAR_LOCK.y.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * sin(dip)) / rsO + 0.86, gzO = (${OAR_LOCK.z.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * cos(dip) * sin(swp)) / rsO;
+        float rsO = max(iColA.w, 0.3), gyO = (${OAR_LOCK.y.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * sin(dip)) / rsO + 0.89, gzO = (${OAR_LOCK.z.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * cos(dip) * sin(swp)) / rsO;
         vec2 qO = vec2(gyO - 1.04, gzO + 0.01); float cO = cos(chestX), sO = sin(chestX);
         qO = vec2(qO.x * cO + qO.y * sO, qO.y * cO - qO.x * sO) + vec2(1.04, -0.01);
-        vec2 aO = armIK(qO.x, qO.y);
-        uaL = aO.x; uaR = aO.x; faL = aO.y; faR = aO.y;
+        // [motion4] and across: each grip comes in toward the middle as its oar swings square to the boat (11 cm from the
+        // keel, the shoulders 19 cm out: the hands rowed 13 cm outside the grips), so each arm swings in at the shoulder
+        // (uaLy) and reaches in its own plane; the fist's middle 3 cm over and 3.6 cm beyond its wrist's line (as on a rung)
+        float gxO = (${OAR_LOCK.x.toFixed(3)} - ${OAR_GRIP.toFixed(3)} * cos(dip) * cos(swp)) / rsO;
+        float dxO = gxO - 0.19, dzO = qO.y + 0.02, rO = sqrt(max(dxO * dxO + dzO * dzO - 0.0029, 0.01));
+        float yO = atan(dxO / max(dzO, 0.05)) - atan(0.054 / rO); // (the one-argument form, over a positive denominator)
+        vec2 aO = armIK(qO.x, rO + 0.036 - 0.02);
+        uaL = aO.x; uaR = aO.x; faL = aO.y; faR = aO.y; uaLy = yO; uaRy = -yO;
         uaLz = 0.0; uaRz = 0.0; stepZ = 0.0; seatTurn = 0.0;
         thL = -1.55 + 0.42 * pull; thR = thL; shL = 1.75 - 0.75 * pull; shR = shL; spreadL = 0.16; spreadR = -0.16;
         bob = 0.0; capeX = 0.08;
@@ -1212,9 +1218,9 @@ function humanVS(depth) {
       rotP(rotZ(0.06 * sin(t * 1.1) * dn) * rotX((capeX + wave) * dn * (0.45 + 0.55 * dn)), ${HSK.CAPE});
     }
     if (bone == 6) rotP(rotX(faR * aW), ${HSK.ELR});
-    if (bone == 5 || bone == 6) { float w = bone == 5 ? aW : 1.0; rotP(rotZ(uaRz * w) * rotX(uaR * w), ${HSK.SHR}); }
+    if (bone == 5 || bone == 6) { float w = bone == 5 ? aW : 1.0; mat3 R = rotZ(uaRz * w) * rotX(uaR * w); if (uaRy != 0.0) R = rotY(uaRy * w) * R; rotP(R, ${HSK.SHR}); } // [motion4] (uaRy)
     if (bone == 4) rotP(rotX(faL * aW), ${HSK.ELL});
-    if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; rotP(rotZ(uaLz * w) * rotX(uaL * w), ${HSK.SHL}); }
+    if (bone == 3 || bone == 4) { float w = bone == 3 ? aW : 1.0; mat3 R = rotZ(uaLz * w) * rotX(uaL * w); if (uaLy != 0.0) R = rotY(uaLy * w) * R; rotP(R, ${HSK.SHL}); } // [motion4] (uaLy)
     if (bone == 2) rotP(rotY(headY * aW) * rotX(headX * aW), ${HSK.NECK});
     if ((bone >= 1 && bone <= 6) || bone == 11) { float w = bone == 1 ? aW : 1.0; rotP(rotY(chestY * w) * rotX(chestX * w), ${HSK.SPINE}); }
     // [motion3] the ankle undoes the leg's turns in the reverse of the order they were made (the thigh's and the knee's pitch,

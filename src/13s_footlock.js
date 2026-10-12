@@ -171,7 +171,7 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // taken where the body is drawn next (footLockSlot: the player moves after its gait steps, so a place taken here
       // would be a step behind)
       if (!o.down) {
-        o.latch = false; o.frozen = false; o.frz = null;
+        o.latch = false; o.frozen = false;
         // [motion4] a landing the leg could not reach was taken in the air (footLockSlot: o.air): it goes on as a quick
         // step from there, already off the ground, and comes down where the stance can be spent
         if (o.air && o.lwx != null) {
@@ -226,12 +226,11 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // [motion4] the body halted (its gait no longer turns over: the keys let go, a rush landing, a walker at its place):
       // a person's foot in the air stays where it was last drawn and comes down there as the gait settles (it was carried
       // in toward the body over the ground as the stride shrank, 4 cm as a rush landed and up to 30 cm from a sprint)
-      // (held up for a moment, a step blocked on a stair's side, it goes on as it was going: its swing as it was)
-      if (o.human && du < 0.05 && Math.hypot(vx, vz) < 0.05 && o.useA && o.dx != null && o.gz != null && !o.frozen) {
+      // (when the body goes on, the foot swings on from where it was held)
+      if (o.human && du < 0.05 && o.useA && o.dx != null && o.gz != null && !o.frozen) {
         const px = x0 + o.dx, pz = o.gz + o.dz;
-        o.frz = { ax: o.ax, az: o.az, latch: o.latch, ywL: o.ywL, lwx: o.lwx, lwz: o.lwz };
         o.ax = o.lwx = e.x + px * c + pz * s; o.az = o.lwz = e.z - px * s + pz * c; o.latch = true; o.ywL = e.yaw + (o.yo || 0); o.frozen = true;
-      } else if (du >= 0.05 && o.frozen) { const F = o.frz; o.frozen = false; if (F) { o.ax = F.ax; o.az = F.az; o.latch = F.latch; o.ywL = F.ywL; o.lwx = F.lwx; o.lwz = F.lwz; } o.frz = null; }
+      } else if (du >= 0.05) o.frozen = false;
       let lx = x0 + o.tx + vx * tl, lz = z0 + reach + o.tz + vz * tl;
       // [motion4] from its last frames in the air the place it comes down on is kept in the world: worked out afresh each
       // step it swung round with a body turning 0.2 rad a frame, and the foot came in over the ground
