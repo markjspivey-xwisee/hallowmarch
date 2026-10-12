@@ -195,9 +195,14 @@ async def main():
             out_rain, out_roof = s['air']['rain'], s['air']['roofrain']
             s = await place("""(() => { const H = __hm, F = H.fn, P = H.GAME.player, W = H.dbg.WEATHER; W.raining = 1;
               const Hh = H.HOUSES.filter((q) => !q.keepHall && q.state === 'whole' && q.realm === 0 && F.houseInside(q.x, q.z)).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
-              H.teleport(Hh.x, Hh.z); P.y = F.floorAt(Hh.x, Hh.z, Hh.y + 0.5); return [Hh.style]; })()""")
+              H.teleport(Hh.x, Hh.z); P.y = F.floorAt(Hh.x, Hh.z, Hh.y + 0.5); window.__a2house = Hh;
+              Hh.door.leaf.target = Hh.door.leaf.open = 0; for (const w of Hh.wins) for (const L of w.leaves) L.target = L.open = 0; return [Hh.style]; })()""")
             check(s['place']['roof'] == 1 and s['air']['roofrain'] > 0.1 and s['air']['rain'] < out_rain * 0.5 and out_roof < 0.01, f"in the rain: its hiss on the ground out of doors ({out_rain}), under a house's roof the rain drums on it ({s['air']['roofrain']}) and the hiss falls ({s['air']['rain']}); the room's echo {s['wet']}")
-            await ev("A2.clear(); 0")
+            shut_rain, shut_town = s['air']['rain'], s['air']['town']
+            # the door opened: the street comes in (the rain's hiss, the town's voices)
+            s = await place("(() => { const Hh = window.__a2house; Hh.door.leaf.target = Hh.door.leaf.open = 1; return 0; })()")
+            check(s['place']['open'] > 0.9 and s['air']['rain'] > shut_rain * 1.3 and s['air']['town'] > shut_town * 1.3, f"the house's door opened, the street comes in: the rain's hiss {shut_rain} -> {s['air']['rain']}, the town's voices {shut_town} -> {s['air']['town']}")
+            await ev("(() => { const Hh = window.__a2house; Hh.door.leaf.target = Hh.door.leaf.open = 0; window.__a2house = null; A2.clear(); return 0; })()")
             # a lake's shore by a jetty
             s = await place("""(() => { const H = __hm, F = H.fn, J = H.water.boats.jetties()[0]; H.teleport(J.x0, J.z0); return [J.x0, J.z0]; })()""")
             check(s['place']['shore'] > 0.2 and s['air']['lap'] > 0.002, f"by a lake its water laps at the shore (shore {s['place']['shore']:.2f}, lap {s['air']['lap']})")

@@ -959,7 +959,7 @@ function sndAirInit(ctx) {
   SND.air = air;
 }
 // what is round the listener: sampled a few times a second
-const SND_PLACE = { town: 0, townR: 0, keep: 0, walls: 0, forest: 0, meadow: 0, mountain: 0, shore: 0, river: 0, roof: 0, room: 0, barrow: 0, height: 0 };
+const SND_PLACE = { town: 0, townR: 0, open: 0, keep: 0, walls: 0, forest: 0, meadow: 0, mountain: 0, shore: 0, river: 0, roof: 0, room: 0, barrow: 0, height: 0 };
 const SND_TOWN_RATE = [1, 1.07, 0.92]; // each town's murmur at its own pitch (Logres, Ériu, Thule)
 function sndPlaceAt() {
   const L = SND.L, P = SND_PLACE, x = L.x, z = L.z;
@@ -986,8 +986,16 @@ function sndPlaceAt() {
   const P0 = GAME.player;
   const roofed = (P0 && typeof skyOver === 'function' && CAM.mode === 'play') ? skyOver(P0) === 0 : (typeof houseRoofOver === 'function' && houseRoofOver(x, z));
   P.roof = roofed ? 1 : 0;
-  P.room = roofed && (typeof houseInside === 'function' && houseInside(x, z) || (P0 && typeof towerRoomOf === 'function' && towerRoomOf(P0))) ? 1 : 0;
+  const Hin = roofed && typeof houseInside === 'function' ? houseInside(x, z) : null;
+  P.room = roofed && (Hin || (P0 && typeof towerRoomOf === 'function' && towerRoomOf(P0))) ? 1 : 0;
+  P.open = Hin ? sndHouseOpen(Hin) : 0;
   return P;
+}
+// how open a house is to the street: its door, and its windows (shutters folded back; glass lets little through)
+function sndHouseOpen(H) {
+  let o = H.door && H.door.leaf ? H.door.leaf.open || 0 : 0;
+  for (const w of H.wins || []) o += (w.glazed ? 0.06 : 0.18) * (w.leaves && w.leaves.length ? w.leaves[0].open || 0 : 1);
+  return clamp(o, 0, 1);
 }
 // the standing trees within r of a point: a grid of every tree's place, made once (the trees do not move; a felled,
 // burnt or fallen one is skipped by its own state)
@@ -1020,12 +1028,14 @@ function sndAirStep(now, dt) {
   const rain = Math.max(0, W.raining - W.snowing), storm = W.storm || 0, wind = clamp(((U.uWind && U.uWind.value) || 1) / 2, 0, 1.5);
   const indoorBarrow = P.barrow > 0;
   const out = indoorBarrow ? 0 : 1, roof = lerpK('roof', P.roof, 3), room = lerpK('room', P.room, 3);
+  // a room shut to the street, or open to it: its door and windows (a house's)
+  const shut = lerpK('shut', P.room * (1 - 0.75 * P.open), 3), ajar = Math.max(0, room - shut);
   const t = now;
   // wind: the open and the high, a keep's walls, the mountains; a storm; less under a roof, through the trees
   const exposure = clamp(P.height / 18 + P.mountain * 0.8 + P.walls * 0.6, 0, 1.3);
   const gust = 0.8 + 0.4 * Math.sin(t * 0.13) * Math.sin(t * 0.07 + 1);
   const windG = indoorBarrow ? 0.07 * (0.6 + 0.4 * Math.sin(t * 0.17) * Math.sin(t * 0.05 + 1))
-    : (0.04 + 0.09 * exposure) * (1 - night * 0.3) * (1 + 1.4 * storm + 0.5 * W.overcast) * gust * (1 - 0.55 * roof) * (1 - 0.35 * P.forest);
+    : (0.04 + 0.09 * exposure) * (1 - night * 0.3) * (1 + 1.4 * storm + 0.5 * W.overcast) * gust * (1 - 0.55 * roof + 0.3 * ajar) * (1 - 0.35 * P.forest);
   sndSet(A.wind.gain, lerpK('wind', windG, 2), now, 0.5);
   sndSet(A.lp.frequency, indoorBarrow ? 170 + 50 * Math.sin(t * 0.3) : (360 + 300 * exposure + 120 * Math.sin(t * 0.21)) * (1 - 0.4 * roof), now, 0.8);
   const howl = out * (0.012 * P.mountain + 0.018 * storm + 0.008 * P.walls) * (0.6 + 0.4 * gust) * (1 - 0.7 * roof);
@@ -1044,15 +1054,15 @@ function sndAirStep(now, dt) {
   const cr = out * 0.012 * sstep(0.45, 0.85, night) * warm * (1 - sea[3]) * (1 - rain * 0.8) * (1 - 0.8 * roof) * (0.4 + 0.6 * (P.meadow + P.forest * 0.6));
   sndSet(A.crGain.gain, lerpK('cr', cr), now, 1.5);
   // rain: its hiss on the ground out of doors; drumming on the roof over you
-  const hiss = out * 0.11 * rain * (1 - 0.75 * roof);
+  const hiss = out * 0.11 * rain * (1 - 0.75 * roof + 0.45 * ajar);
   sndSet(A.rain.gain, lerpK('rain', hiss, 2), now, 0.6);
   sndSet(air.roof.g.gain, lerpK('roofrain', out * roof * rain * 0.5, 2), now, 0.6);
   // the lake's lapping at its shore
   sndSet(air.lap.g.gain, lerpK('lap', out * P.shore * (0.25 + 0.4 * wind + 0.4 * storm) * (1 - 0.6 * roof) * 0.35), now, 0.8);
   // a town's voices by day (fewer in the rain, none at night), through the walls when you are inside
-  const town = out * P.town * (0.25 + 0.75 * day) * (1 - 0.6 * rain) * (1 - 0.6 * room) * 0.11 * (1 - sstep(0.6, 0.95, night));
+  const town = out * P.town * (0.25 + 0.75 * day) * (1 - 0.6 * rain) * (1 - 0.6 * shut) * 0.11 * (1 - sstep(0.6, 0.95, night));
   sndSet(air.town.g.gain, lerpK('town', town), now, 0.8);
-  sndSet(air.town.f.frequency, room ? 900 : 2400, now, 0.5);
+  sndSet(air.town.f.frequency, 900 + 1500 * (1 - shut), now, 0.5);
   if (P.town > 0.05) sndSet(air.town.s.playbackRate, SND_TOWN_RATE[P.townR] || 1, now, 1.5); // Brackenford, Glenrua and Skarvik each sound their own
   // flags up on the walls
   const flap = out * P.walls * (0.25 + wind * 0.75 + storm) * 0.03 * (1 - roof);
