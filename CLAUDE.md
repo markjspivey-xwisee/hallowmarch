@@ -420,12 +420,12 @@ The harness lives in `tools/`:
 
   | Tower | main: through, left, defenders after, taken | this branch |
   |---|---|---|
-  | Logres corner drum | 1, 9, 6, no · 1, 7, 5, no (the band held on the field) | 1, 0, 6, no · 6, 9, 0, taken |
-  | Logres gate drum | 10, 10, 0, taken · 1, 9, 6, no | 8, 9, 0, taken · 1, 0, 6, no |
-  | Ériu lookout | 8, 0, 4, no · 2, 0, 7, no | 10, 2, 0, taken · 9, 0, 4, no |
-  | Ériu gate drum | 6, 10, 0, taken · 3, 0, 4, no | 1, 9, 4, no · 7, 10, 1, no |
+  | Logres corner drum | 1, 9, 6, no · 1, 7, 5, no (the band held on the field) | 1, 9, 6, no · 4, 0, 4, no |
+  | Logres gate drum | 10, 10, 0, taken · 1, 9, 6, no | 9, 7, 0, taken · 1, 0, 6, no |
+  | Ériu lookout | 8, 0, 4, no · 2, 0, 7, no | 7, 0, 4, no · 9, 0, 4, no |
+  | Ériu gate drum | 6, 10, 0, taken · 3, 0, 4, no | 2, 5, 0, taken · 6, 5, 0, taken |
 
-  Taken 2 of 8 against 4 of 8, the band through 4.0 against 5.4 on average: costly, not hopeless; runs of two move a row by half the band (measured before the deadlock breaker of `siegeStormTurn`, which a run's 150 s stand at the field of the Ériu gate drum asked for).
+  Taken 2 of 8 against 3 of 8, defenders killed 3.0 against 4.0 a storm on average, and a band held on the field for good on main twice (the Logres corner, the Logres gate) against once: costly, not hopeless; runs of two move a row by half the band. On this branch the Logres corner drum still held one band on the field for its whole 150 s once (one of its members stood at the rubble's foot while the rest waited their turn; siege2's own give-up after 16 s and the 12 s breaker shorten it but did not end it there).
 
 **Townsfolk's ways** (version 10)
 - Out of doors a townsman or farmer who stops getting nearer the work asks `localPath(ax, az, bx, bz)` (08f_townlife.js): A* on a 1 m grid over the colliders within the box round both ends (doors open for townsfolk, so they are no wall), smoothed to a few waypoints; a sidestep is the fallback when there is no way. Indoors `houseRoute` does the same round the furniture.

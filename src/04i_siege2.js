@@ -111,7 +111,7 @@ function siegeStormTurn(e, s, Rt) {
     } else if (q.i <= 1 && !q.go) {
       // waiting too: the leader goes first, then whoever is nearest the rubble's foot
       const od = dist(o.x, o.z, p1.x, p1.z);
-      if ((q.lead && q.i === 1) || (!s.lead && od < myD - 0.05)) ahead++; // [siege3] a leader still on its way (or fighting off the field) holds nobody back (04i_siege3.js)
+      if ((q.lead && q.i === 1 && o.target == null) || (!s.lead && od < myD - 0.05 && o.target == null)) ahead++; // [siege3] a leader still on its way, or one shooting from the field (a bow, a staff), holds nobody back (04i_siege3.js)
     }
   }
   // [siege3] nobody let go for 12 s while this one waits (a body the count still holds inside is dead to the storm: stuck,
