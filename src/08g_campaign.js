@@ -478,7 +478,7 @@ function restoreKeep(K) {
     fillGarrison(K, true);
     const S = K.site, col = REALMS[K.orig].rgb.map((v) => v * 2 + 0.4);
     for (let i = 0; i < 4; i++) later(i * 0.3, () => FX.burst(S.x + (Math.random() - 0.5) * 16, S.y + 10 + Math.random() * 5, S.z + (Math.random() - 0.5) * 16, 24, col, 6, 1.0, 0.24, 3));
-  }
+  } else fillGarrison(K, true); // [war2] a keep that stayed its own begins the new campaign with its garrison whole too (thinned by the last, two fell in its first three minutes: 08j_war2.js)
   K.underSiegeUntil = -99;
   K.lastOwnerChange = GAME.t;
   setDoorState(K.door, true, 1);
