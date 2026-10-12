@@ -12,7 +12,7 @@
 //   13q_lod.js).
 // - every shader of what the boot has made, shown or not (the Barrow's, the crowds' far models, fire, rubble), is asked
 //   for while the loading veil is still up (perf2Compile), not on the frame that first shows it.
-const PERF2 = { released: 0, releasedMB: 0, pending: 0, lazy: 0, made: 0, madeMB: 0, warmed: 0, warmMs: 0 };
+const PERF2 = { released: 0, releasedMB: 0, pending: 0, lazy: 0, made: 0, madeMB: 0, makeMs: 0, makeMax: 0, warmed: 0, warmMs: 0 };
 function perf2Bytes(g) {
   let b = 0;
   const seen = new Set();
@@ -62,7 +62,8 @@ function perf2SetGeo(mesh, g) {
 function perf2Make(mesh, make) {
   const t = performance.now(), g = make();
   perf2SetGeo(mesh, g);
-  PERF2.made++; PERF2.madeMB += perf2Bytes(g) / 1048576; PERF2.makeMs = (PERF2.makeMs || 0) + performance.now() - t;
+  const ms = performance.now() - t; // (what showing it first costs the step that shows it: a breach, a fall)
+  PERF2.made++; PERF2.madeMB += perf2Bytes(g) / 1048576; PERF2.makeMs += ms; PERF2.makeMax = Math.max(PERF2.makeMax, ms);
 }
 // `visible` is an accessor on the class's prototype: defined on each mesh instead (Object.defineProperty over the data
 // property Object3D's constructor makes), it put every such mesh's properties in a dictionary, and the renderer's walk
@@ -98,7 +99,7 @@ window.__hm.perf2 = {
       seen.add(g); geos++;
       if (g.userData.perf2) { const b = perf2Bytes(g); if (b) kept += b; else freed++; }
     });
-    return { geos, released: PERF2.released, freedGeos: freed, keptMB: +(kept / 1048576).toFixed(1), releasedMB: +PERF2.releasedMB.toFixed(1), lazy: PERF2.lazy, made: PERF2.made, madeMB: +PERF2.madeMB.toFixed(2), warmed: PERF2.warmed, warmMs: Math.round(PERF2.warmMs) };
+    return { geos, released: PERF2.released, freedGeos: freed, keptMB: +(kept / 1048576).toFixed(1), releasedMB: +PERF2.releasedMB.toFixed(1), lazy: PERF2.lazy, made: PERF2.made, madeMB: +PERF2.madeMB.toFixed(2), makeMs: +PERF2.makeMs.toFixed(1), makeMax: +PERF2.makeMax.toFixed(1), warmed: PERF2.warmed, warmMs: Math.round(PERF2.warmMs) };
   },
 };
 /* shaders: asked for while the loading veil is still up */
