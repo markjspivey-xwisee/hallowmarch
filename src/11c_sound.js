@@ -225,8 +225,9 @@ function sndMixAt(def, x, y, z, o, out) {
   let pan = 0, back = 0;
   if (hd > 0.05) {
     const s = (dx * L.rx + dz * L.rz) / hd, f = (dx * L.fx + dz * L.fz) / hd;
-    // a sound close by surrounds you; one off to the side is heard on that side, not hard in one ear
-    pan = s * 0.82 * sstep(0.4, Math.max(1.5, ((o && o.ref) || def.ref) * 1.2), hd);
+    // a sound close by surrounds you; one off to the side is heard on that side, not hard in one ear (within a few
+    // metres whatever its reach: a bell 30 m to your right is on your right, and the whistle of a shaft coming from it)
+    pan = s * 0.82 * sstep(0.4, clamp(((o && o.ref) || def.ref) * 1.2, 1.5, 4), hd);
     back = Math.max(0, -f);
   }
   out.pan = clamp(pan, -1, 1);
@@ -604,6 +605,8 @@ Object.assign(SND_SYNTH, {
     noiseBurst(t + 0.18, 0.5, 0.28, 'lowpass', 1100, 200, 0.8, 0.004);
     for (let i = 0; i < 5; i++) { const t0 = t + 0.3 + Math.random() * 0.6; tone('sine', R_(160, 260), 90, t0, 0.08, 0.08, 0.002); }
     noiseBurst(t + 0.25, 0.9, 0.08, 'bandpass', 900, 2600, 0.8, 0.15);
+    // the charred timbers splintering as they come down
+    for (let i = 0; i < 6; i++) { const t0 = t + 0.05 + Math.random() * 0.8; noiseBurst(t0, 0.025, R_(0.03, 0.07), 'bandpass', R_(1600, 3400), 1200, 2.2, 0.001); }
   },
   // a fire beater brought down on the flames: a wet slap, the hiss of what it beat out
   beat(t) {
