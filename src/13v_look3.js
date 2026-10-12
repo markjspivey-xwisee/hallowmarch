@@ -106,6 +106,7 @@ function look3MasonSpawn(C, W, H, L, i) {
   const foot = { x: L.fx + (ux / ul) * 2.2 - inx * 0.6, z: L.fz + (uz / ul) * 2.2 - inz * 0.6 };
   e.ai.mason = { C, W, H, L, up, st: 'out', foot, at: up ? { x: L.fx, z: L.fz } : foot, face: { x: inx, z: inz }, path: null, t: 0, last: { x: e.x, z: e.z, t: GAME.t }, hp: e.hp };
   setHouseDoor(H, true, e, true);
+  for (let k = MASON.list.length - 1; k >= 0; k--) if (MASON.list[k].removed || !MASON.list[k].alive) MASON.list.splice(k, 1);
   MASON.list.push(e); MASON.stats.spawned++;
   return e;
 }
@@ -200,11 +201,15 @@ queueMicrotask(() => {
   window.__hm.look3 = {
     LOOK3, look3HallPlan, MASON, LOOK3S, look3Masons,
     // what each scaffold laid (standards, bays, boards, ladders), by kind
-    scaffolds: () => {
+    scaffolds: (lay) => {
       const out = [];
-      for (const C of CASTLES) for (const W of C.sections || []) if (W.scafInfo) out.push({ kind: W.kind, k: W.k, keep: C.S.name, info: W.scafInfo });
+      for (const C of CASTLES) for (const W of C.sections || []) {
+        if (lay && !W.scafInfo && W.scaffold) look3Lay(C, W); // (laid out now, as when first put up)
+        if (W.scafInfo) out.push({ kind: W.kind, k: W.k, keep: C.S.name, info: W.scafInfo });
+      }
       return out;
     },
+    look3Lay,
     look3Clear,
   };
 });

@@ -95,7 +95,7 @@ function towerBreachInit() {
       const f2 = C.floor(T.cx + ox * (rc + r0) / 2, T.cz + oz * (rc + r0) / 2, 1.05, (r0 - rc) / 2, aOut + Math.PI, W.rubble, T.yG + 0.32, T.yG - 1.2, 0, 'rubble');
       for (const f of [f1, f2]) { f.active = false; W.rubbleFloors.push(f); }
       W.wreck = new THREE.Mesh(towerRubbleGeo(W), buildingMat); W.wreck.visible = false; W.wreck.renderOrder = 1; scene.add(W.wreck);
-      W.scaffold = new THREE.Mesh(towerScaffoldGeo(W), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold);
+      W.scaffold = new THREE.Mesh(look3EmptyGeo(), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold); // [look3] laid out when first put up (look3Lay, 04d_look3.js)
       shadowCaster(W.wreck, BUILDING_DEPTH); shadowCaster(W.scaffold, BUILDING_DEPTH);
       // the banners on its top
       W.banners = [];

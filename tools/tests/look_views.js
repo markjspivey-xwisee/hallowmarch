@@ -935,3 +935,30 @@ window.LK = {
     return { ...L.cam(c.x, c.y, c.z, Ld.lx, Ld.wyb + 1.6, Ld.lz), sts: ms.map((e) => e.ai.mason.st), ys: ms.map((e) => +(e.y - Ld.wyb).toFixed(2)) };
   });
 })();
+// [look3] a curtain built back behind its scaffold (a Logres side wall, a Thule palisade's timber stretch), from the field
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  const mended = (L, r, kind) => {
+    const H = L.H, F = L.F, S = L.keepSite(r, 1), C = F.castles().find((q) => q.S === S), K = S.keepRef, W = C.sections.find((q) => q.kind === kind);
+    if (!W) return null;
+    if (W.state === 'whole') {
+      const src = F.spawnRealmUnit((K.realm + 1) % 3, 'warrior', 30, 'guard', S.x + 90, S.z + 90, {}); src.hp = src.maxHp = 1e9;
+      for (let n = 0; W.state === 'whole' && n < 120; n++) F.castleSiegeHit(src, W.wx, W.wz, 1.0, 4.4);
+      F.removeEnt(src);
+    }
+    H.UI.modal = null; K.lastEnemyNear = -1e9;
+    for (let t = 0; t < 80 && !(W.state === 'repair' && W.t > 0.3); t++) { H.simulate(1); K.lastEnemyNear = -1e9; }
+    if (W.state === 'repair' && W.t > 0.6) W.t = 0.45;
+    K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = 'menu';
+    let ox = -W.waz, oz = W.wax; if ((W.wx + ox - S.x) ** 2 + (W.wz + oz - S.z) ** 2 < (W.wx - S.x) ** 2 + (W.wz - S.z) ** 2) { ox = -ox; oz = -oz; }
+    return { S, W, ox, oz };
+  };
+  for (const [name, r, kind] of [['scaffold_curtain', 0, 'stone'], ['scaffold_timber', 2, 'timber']]) {
+    D('look3', name, (L) => {
+      const m = mended(L, r, kind); if (!m) return { skip: 'no section' };
+      const { S, W, ox, oz } = m, c = { x: W.wx + ox * 11 + W.wax * 6, z: W.wz + oz * 11 + W.waz * 6 };
+      L.away(S.x + 60, S.z + 60);
+      return { ...L.cam(c.x, S.y + 4.0, c.z, W.wx + ox * 1.5, S.y + 3.0, W.wz + oz * 1.5), state: W.state, t: +(W.t || 0).toFixed(2), info: W.scafInfo };
+    });
+  }
+})();

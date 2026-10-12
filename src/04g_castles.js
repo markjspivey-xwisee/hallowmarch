@@ -957,7 +957,7 @@ function castleSections(C) {
       W.rubbleFloors.push(f);
     }
     W.wreck = new THREE.Mesh(breachGeo(C, W), buildingMat); W.wreck.visible = false; W.wreck.renderOrder = 1; scene.add(W.wreck);
-    W.scaffold = new THREE.Mesh(scaffoldGeo(C, W), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold);
+    W.scaffold = new THREE.Mesh(look3EmptyGeo(), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold); // [look3] laid out when first put up (look3Lay, 04d_look3.js)
     shadowCaster(W.wreck, BUILDING_DEPTH); shadowCaster(W.scaffold, BUILDING_DEPTH);
   });
   castleCutUpload(C);

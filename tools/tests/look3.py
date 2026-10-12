@@ -92,13 +92,17 @@ async def main():
         await page.evaluate("__hm.fn.setQuality('low'); 0")
         if want('scaffolds'):
             r = await ev(page, 'scaffolds', """(() => { const L3 = __hm.look3, out = { n: 0, bad: [], kinds: {} };
-              for (const s of L3.scaffolds()) for (const info of [].concat(s.info)) {
-                out.n++; out.kinds[s.kind] = (out.kinds[s.kind] || 0) + 1;
-                if (!(info.standards >= 3 && info.bays >= 2 && info.boards >= info.bays * 2 && info.ladders >= 1)) out.bad.push({ kind: s.kind, keep: s.keep, k: s.k, info });
+              // (a curtain's scaffold stands on both its faces, where there is room: behind a Thule palisade its deck takes
+              // the inner face, so that run has nothing; every section has at least one whole run, and no run is half laid)
+              const whole = (info) => info.standards >= 3 && info.bays >= 2 && info.boards >= info.bays * 2 && info.ladders >= 1;
+              for (const s of L3.scaffolds(true)) {
+                const runs = [].concat(s.info); out.n++; out.kinds[s.kind] = (out.kinds[s.kind] || 0) + 1;
+                if (!runs.some(whole) || runs.some((q) => q.standards > 0 && !whole(q))) out.bad.push({ kind: s.kind, keep: s.keep, k: s.k, runs: runs.map((q) => [q.standards, q.bays, q.boards, q.ladders]) });
+                out.runs = (out.runs || 0) + runs.filter(whole).length;
               }
               return out; })()""")
             check(r['n'] >= 40 and r['kinds'].get('tower', 0) >= 20, f"scaffolds built for the curtains and the stone towers ({r['n']}: {r['kinds']})")
-            check(not r['bad'], f"every one has standards, bays, a floor of boards at each lift and its ladders ({len(r['bad'])} short: {json.dumps(r['bad'][:3])})")
+            check(not r['bad'], f"every one has a whole run of standards, bays, a floor of boards at each lift and its ladders ({r.get('runs')} runs; {len(r['bad'])} short: {json.dumps(r['bad'][:3])})")
             r = await ev(page, 'scaffold: a palisade gap built back', """(() => { const r = LK.set('pal_scaffold', 'day'); return { r, info: r && r.info }; })()""")
             inf = (r.get('info') or {})
             check(r['r'].get('state') == 'repair' and inf.get('standards', 0) >= 3 and inf.get('ladders', 0) >= 2 and inf.get('boards', 0) >= 6, f"a burnt palisade gap is built back behind a scaffold with boards and ladders ({json.dumps(r['r'])[:300]})")
@@ -131,7 +135,7 @@ async def main():
             check(r['worked'] >= 6, f"and they work: hammer blows in 6 s ({r['worked']})")
             check(r['home'] == 2, f"the work done, the one above climbs down and both go home into the hall ({r['home']} in {r['v']} s; {json.dumps(r['stats'])})")
         if want('gates'):
-            r = await ev(page, 'gates: out through each keep's gate', """(() => { const H = __hm, F = H.fn, out = [];
+            r = await ev(page, "gates: out through each keep's gate", """(() => { const H = __hm, F = H.fn, out = [];
               H.UI.modal = null;
               for (const R of H.REALMS) for (const S of R.keepSites) {
                 const C = F.castles().find((q) => q.S === S), K = S.keepRef, round = C.kind === 'round', gz = S.gateLocal.z;

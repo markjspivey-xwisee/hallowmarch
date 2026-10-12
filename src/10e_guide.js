@@ -178,8 +178,12 @@ function guideMapMark(ctx, S) {
   if (S0) {
     ctx.textAlign = 'center';
     const kpx = S / Math.max(1, ($('mapcanvas') && $('mapcanvas').clientWidth) || S);
-    ctx.font = `600 ${Math.max(S * 0.017, 11 * kpx)}px "Alegreya Sans", sans-serif`;
+    const fs = Math.max(S * 0.017, 11 * kpx);
+    ctx.font = `600 ${fs}px "Alegreya Sans", sans-serif`;
     const t = `Your path: ${S0.short}`;
+    // [look3] on a dark pill of its own: it lay over the town's and the realm's names and read as neither
+    const tw = ctx.measureText(t).width, px = x - tw / 2 - fs * 0.45, py = y - S * 0.03 - fs * 0.98, pw = tw + fs * 0.9, ph = fs * 1.36;
+    ctx.fillStyle = 'rgba(20, 14, 6, 0.8)'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(px, py, pw, ph, fs * 0.45); else ctx.rect(px, py, pw, ph); ctx.fill();
     ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillText(t, x + 1, y - S * 0.03 + 1); ctx.fillStyle = '#ffd36a'; ctx.fillText(t, x, y - S * 0.03);
   }
 }

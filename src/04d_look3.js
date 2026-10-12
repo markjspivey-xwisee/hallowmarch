@@ -278,20 +278,29 @@ function look3ScaffoldDrop(W) {
 // each step for each castle (updateCastles): the scaffolds that stand are floors and ladders, the rest are not; and the
 // masons at work on them (look3Masons, 13v_look3.js)
 function look3Scaffolds(C, dt) {
-  // a section's scaffold is laid out at boot, round what stood then (the castle's first colliders; a Thule curtain's
-  // were all taken as standing in a wall): the first time it is put up, it is laid out again round what stands now
-  for (const W of C.sections || []) {
-    if (W.state !== 'repair' || W.l3again || !W.scaffold) continue;
-    W.l3again = true;
-    if (W.l3 && W.l3.ladders.length) continue;
-    look3ScaffoldDrop(W);
-    const g = W.kind === 'tower' ? towerScaffoldGeo(W) : scaffoldGeo(C, W);
-    W.scaffold.geometry.dispose(); W.scaffold.geometry = g;
-    for (const q of SHADOW.proxies) if (q.userData.src === W.scaffold) q.geometry = g; // (its shadow too)
-  }
+  // a section's scaffold is laid out the first time it is put up (look3Lay), round what stands then: laid out at boot,
+  // round the castle's first colliders, a Thule curtain's standards were all taken as standing in a wall, and the 44
+  // scaffolds of the March held some 13 MB that most never show
+  for (const W of C.sections || []) if (W.state === 'repair' && !W.l3again && W.scaffold) look3Lay(C, W);
   for (const W of C.sections || []) if (W.l3) look3ScafSync(W, !!(W.scaffold && W.scaffold.visible && (W.state === 'repair')));
   if (C.pal) for (const W of C.pal.gaps) if (W.l3) look3ScafSync(W, W.state === 'repair' && !!W.scaffold);
   if (typeof look3Masons === 'function') look3Masons(C, dt);
+}
+function look3Lay(C, W) {
+  W.l3again = true;
+  look3ScaffoldDrop(W);
+  const g = W.kind === 'tower' ? towerScaffoldGeo(W) : scaffoldGeo(C, W);
+  W.scaffold.geometry.dispose(); W.scaffold.geometry = g;
+  for (const q of SHADOW.proxies) if (q.userData.src === W.scaffold) q.geometry = g; // (its shadow too)
+  return W.scafInfo;
+}
+// a geometry with nothing in it, for a scaffold not yet laid out
+function look3EmptyGeo() {
+  const g = new THREE.BufferGeometry();
+  for (const [k, n] of [['position', 3], ['normal', 3], ['aCol', 3], ['aMat', 1], ['aAO', 1]]) g.setAttribute(k, new THREE.Float32BufferAttribute([], n));
+  g.setIndex([]);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0.01);
+  return g;
 }
 // the scaffold's ladders for the player's E: climb one, climb down one (and walking into one: towerLadderNear)
 function look3LadderOffers(P, offer) {
