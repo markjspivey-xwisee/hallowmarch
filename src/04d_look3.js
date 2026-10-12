@@ -279,8 +279,7 @@ function look3ScaffoldDrop(W) {
 // masons at work on them (look3Masons, 13v_look3.js)
 function look3Scaffolds(C, dt) {
   // a section's scaffold is laid out the first time it is put up (look3Lay), round what stands then: laid out at boot,
-  // round the castle's first colliders, a Thule curtain's standards were all taken as standing in a wall, and the 44
-  // scaffolds of the March held some 13 MB that most never show
+  // the 44 scaffolds of the March would hold some 13 MB that most never show
   for (const W of C.sections || []) if (W.state === 'repair' && !W.l3again && W.scaffold) look3Lay(C, W);
   for (const W of C.sections || []) if (W.l3) look3ScafSync(W, !!(W.scaffold && W.scaffold.visible && (W.state === 'repair')));
   if (C.pal) for (const W of C.pal.gaps) if (W.l3) look3ScafSync(W, W.state === 'repair' && !!W.scaffold);

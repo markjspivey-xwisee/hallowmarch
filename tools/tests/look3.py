@@ -101,7 +101,7 @@ async def main():
                 out.runs = (out.runs || 0) + runs.filter(whole).length;
               }
               return out; })()""")
-            check(r['n'] >= 40 and r['kinds'].get('tower', 0) >= 20, f"scaffolds built for the curtains and the stone towers ({r['n']}: {r['kinds']})")
+            check(r['n'] >= 32 and r['kinds'].get('tower', 0) >= 20 and r.get('runs', 0) >= 40, f"scaffolds laid out for the curtains and the stone towers ({r['n']} sections, {r.get('runs')} whole runs: {r['kinds']})")
             check(not r['bad'], f"every one has a whole run of standards, bays, a floor of boards at each lift and its ladders ({r.get('runs')} runs; {len(r['bad'])} short: {json.dumps(r['bad'][:3])})")
             r = await ev(page, 'scaffold: a palisade gap built back', """(() => { const r = LK.set('pal_scaffold', 'day'); return { r, info: r && r.info }; })()""")
             inf = (r.get('info') or {})

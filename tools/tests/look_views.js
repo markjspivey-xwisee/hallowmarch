@@ -927,9 +927,7 @@ window.LK = {
     for (let t = 0; t < 140 && !(L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).length >= 2 && L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).every((e) => e.ai.mason.st === 'work')); t++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair' && W.t > 0.6) W.t = 0.4; }
     H.simulate(0.4); K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = 'menu';
     const ms = L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W);
-    const tp = (a, rr, y) => { const q = F.siteToWorld(S, T.cx + Math.sin(a) * rr, T.cz + Math.cos(a) * rr); return { x: q.x, y: S.y + y, z: q.z }; };
-    const Ld = W.l3.ladders.find((q) => q.k === 0), aL = Math.atan2(F.siteLocal ? 0 : 0, 1);
-    void aL;
+    const Ld = W.l3.ladders.find((q) => q.k === 0);
     const c = { x: Ld.fx + (Ld.fx - T.wx) * 1.4 + 2, y: Ld.wyb + 3.2, z: Ld.fz + (Ld.fz - T.wz) * 1.4 + 2 };
     L.away(S.x + 60, S.z + 60);
     return { ...L.cam(c.x, c.y, c.z, Ld.lx, Ld.wyb + 1.6, Ld.lz), sts: ms.map((e) => e.ai.mason.st), ys: ms.map((e) => +(e.y - Ld.wyb).toFixed(2)) };

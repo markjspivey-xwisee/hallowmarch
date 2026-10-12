@@ -590,7 +590,7 @@ const HOUSE_FS = (() => {
         // [look3] smaller patches with broken, jagged edges (a finer noise in the threshold), the step down to the laths
         // shaded just inside the edge and the broken plaster round it pale: they were big soft blots, like stains
         float spn = vnoise(vW.xz * 1.5 + vec2(vW.y * 1.9, -vW.y * 1.1) + 3.7) * 0.78 + vnoise(vW.xz * 7.3 + vec2(vW.y * 6.1, vW.y * 2.3)) * 0.22;
-        float spT = 0.7 - 0.12 * k, spOn = step(0.12, k) * step(abs(vN.y), 0.6);
+        float spT = 0.735 - 0.11 * k, spOn = step(0.12, k) * step(abs(vN.y), 0.6);
         float sp = smoothstep(spT, spT + 0.008, spn) * spOn, spLip = smoothstep(spT - 0.03, spT, spn) * (1.0 - sp) * spOn, spIn = sp * (1.0 - smoothstep(spT + 0.008, spT + 0.04, spn));
         if (m == 2) { alb = mix(alb, vec3(0.34, 0.26, 0.17) * (0.7 + 0.55 * vnoise(vec2(dot(vW.xz, vec2(0.7, 0.7)) * 9.0, vW.y * 30.0))), sp); alb *= (1.0 - 0.45 * spIn) * (1.0 + 0.22 * spLip); }
         else alb *= 1.0 - 0.5 * sp;
