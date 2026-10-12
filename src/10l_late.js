@@ -797,12 +797,14 @@ function chronDeeds() {
     const st = !up ? `<span class="gd-at">from level ${LATE2_RISE_AT}</span>` : e && e.alive ? `<span class="gd-ok">level ${e.level}</span>` : '<span class="gd-at">fallen: back in a few minutes</span>';
     return `<li><b>${esc(capFirst(late2RisenName(c)))}</b> ${st}<small>The ${esc((MOB_PLURAL[c.type] || c.type).toLowerCase())} of the far borderlands of ${esc(REALMS[c.realm].name)}.</small></li>`;
   }).join('');
+  const stdUp = late2StdOk(); // (one you can have made, plant or take up comes up under your names, open: what you can do first)
   return `<p class="lead">The March remembers what you do in it. Deeds earn you names, and the name you wear gives you something of the deed it was earned by; it shows with your own on your frame. Past level 50 your experience raises your veterancy, and every rank is a boon.</p>
     <h3${earned.length <= 4 ? ' data-cf-open' : ''}>Your names</h3>${names}
+    ${stdUp ? `<h3 data-cf-open>The standard of your name</h3>${late2StdHTML()}` : ''}
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
-    <h3>The standard of your name</h3>${late2StdHTML()}
+    ${stdUp ? '' : `<h3>The standard of your name</h3>${late2StdHTML()}`}
     <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(late2T(worn))}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
