@@ -60,7 +60,7 @@ window.CB = {
       if (H.CAMPS.some((c) => Math.hypot(c.x - x, c.z - z) < 56)) return false;
       return true;
     };
-    if (this.cached && this.cached.length >= n) { H.teleport(this.centre.x, this.centre.z); return this.cached.slice(0, n); }
+    if (this.cached && this.cached.length >= n) { H.teleport(this.centre.x, this.centre.z); this.fireBreak = this.cached.slice(0, n); this.breakR = 25; return this.cached.slice(0, n); } // [balance6] a firebreak round these too
     let best = [];
     for (let cz = -460; cz <= 460; cz += 40) for (let cx = -460; cx <= 460; cx += 40) {
       const rc = Math.hypot(cx, cz); if (rc < 330 || rc > 460) continue;
@@ -75,7 +75,49 @@ window.CB = {
     }
     this.cached = best;
     if (this.centre) H.teleport(this.centre.x, this.centre.z);
+    this.fireBreak = best.slice(0, n); this.breakR = 25; // [balance6]
     return best.slice(0, n);
+  },
+  // [balance6] arenas for duels, far apart: a duel is fought by bots alone, and a bot does not rest far from the player
+  // (only mobs, townsfolk and critters do), so its arenas may lie anywhere on the homelands' open ground. 52 m apart
+  // (spots), one arena's meteors, stray arrows and burning grass reached its neighbours: a mage's meteor struck a duel
+  // next door in 5 to 8 pairings a run, and the skilled bots stepped out of their neighbours' fire 688 times in a run of
+  // mastery duels at 30 (none in a mirror run alone), which decided the mirrors. `gap` apart, and a firebreak round each
+  // (fireBreak), nothing from one reaches another
+  spotsWide(n, gap = 90) {
+    const H = this.H, F = this.F;
+    const key = gap + ':' + n;
+    if (this.wideKey === key && this.wide) { H.teleport(this.centre ? this.centre.x : this.wide[0].x, this.centre ? this.centre.z : this.wide[0].z); this.fireBreak = this.wide.slice(0, n); this.breakR = 34; return this.wide.slice(0, n); }
+    const towns = H.REALMS.map((R) => R.town);
+    const good = (x, z) => {
+      const r = Math.hypot(x, z);
+      if (r < 285 || r > 492) return false;
+      if (towns.some((T) => Math.hypot(T.x - x, T.z - z) < 100)) return false;
+      const h0 = F.heightAt(x, z);
+      for (let k = 0; k < 16; k++) { const b = k / 16 * Math.PI * 2; for (const rr of [4, 9, 14, 19]) { const xx = x + Math.sin(b) * rr, zz = z + Math.cos(b) * rr; if (!F.isWalkable(xx, zz) || Math.abs(F.heightAt(xx, zz) - h0) > 3.2 || F.heightAt(xx, zz) < -2.6) return false; } }
+      if (H.ENT.some((e) => e.alive && !e.balance && e.role !== 'player' && e.kind !== 'door' && e.role !== 'critter' && e.faction !== H.FACTION_NEUTRAL && Math.hypot(e.x - x, e.z - z) < 50)) return false;
+      if (H.CAMPS.some((c) => Math.hypot(c.x - x, c.z - z) < 60)) return false;
+      return true;
+    };
+    // candidates on a 10 m grid, taken greedily, each `gap` from those already taken
+    const cand = [];
+    for (let gz = -490; gz <= 490; gz += 10) for (let gx = -490; gx <= 490; gx += 10) if (good(gx, gz)) cand.push({ x: gx, z: gz });
+    const out = [];
+    for (const c of cand) { if (out.length >= Math.max(n, 18)) break; if (!out.some((s) => Math.hypot(s.x - c.x, s.z - c.z) < gap)) out.push(c); }
+    this.wide = out; this.wideKey = key;
+    this.fireBreak = out.slice(0, n); this.breakR = 34;
+    // the player waits at the middle of the old arenas (a far camera spares the renderer nothing, nothing is drawn)
+    if (this.centre) H.teleport(this.centre.x, this.centre.z); else H.teleport(out[0].x, out[0].z);
+    return out.slice(0, n);
+  },
+  // [balance6] the firebreak: grass burning more than `r` from every arena's middle is put out (a fire spread up to 37 m
+  // from where it was lit in still air and twice that downwind, into the next arena)
+  breakFires(r = 34) {
+    const B = this.fireBreak;
+    if (!B || !B.length || !this.H.bal6) return 0;
+    const n = this.H.bal6.breakFires(B, r);
+    this.firesBroken = (this.firesBroken || 0) + n;
+    return n;
   },
   wipe() {
     const gone = new Set();
@@ -147,7 +189,7 @@ window.CB = {
     this.wipe();
     const pairs = []; for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) pairs.push([this.CLS[i], this.CLS[j]]);
     const need = pairs.length * kinds.length;
-    const S = this.spots(need); if (S.length < need) throw new Error('only ' + S.length + ' arenas');
+    const S = this.spotsWide(need); if (S.length < need) throw new Error('only ' + S.length + ' arenas'); // [balance6] duels far apart
     this.A = [];
     let i = 0;
     for (const kind of kinds) for (const [a, b] of pairs) {
@@ -162,7 +204,7 @@ window.CB = {
   // phase 3: mastery, each calling's skilled bot against its own simple bot
   setup3(lvl, rep = 0) {
     this.wipe();
-    const S = this.spots(4); if (S.length < 4) throw new Error('only ' + S.length + ' arenas');
+    const S = this.spotsWide(4); if (S.length < 4) throw new Error('only ' + S.length + ' arenas'); // [balance6] duels far apart
     this.A = this.CLS.map((c, i) => {
       const s = S[i], ra = rep % 3, rb = (rep + 1) % 3, flip = rep % 2;
       const ua = this.unit(flip ? rb : ra, c, lvl, s.x + (flip ? 9 : -9), s.z, 'skilled', 18), ub = this.unit(flip ? ra : rb, c, lvl, s.x + (flip ? -9 : 9), s.z, 'simple', 18);
@@ -203,7 +245,7 @@ window.CB = {
     }
     return open;
   },
-  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { if (this.flat && H.bal5) H.bal5.flattenCraters(); H.simulate(1); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; }, // [balance5] flat: every crater undone each second (the mage's own meteor's bowl shields its foe from its bolts)
+  run(sec, cap) { const H = this.H; let open = 1; for (let s = 0; s < sec && open; s += 1) { if (this.flat && H.bal5) H.bal5.flattenCraters(); H.simulate(1); if (!this.noBreak) this.breakFires(this.breakR || 25); open = this.status(cap); } return { open, t: Math.round(H.GAME.t), errors: H.errors.length }; }, // [balance6] the firebreak each second // [balance5] flat: every crater undone each second (the mage's own meteor's bowl shields its foe from its bolts)
   results() { return this.A.map((A) => A.res); },
 };
 """

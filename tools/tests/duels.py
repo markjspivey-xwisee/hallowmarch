@@ -4,7 +4,9 @@ Every pair of callings (or the pairs named) fights `reps` duels at each level, r
 records, for both sides, the harm dealt by kind, the healing, the shields that absorbed blows, the parries, and the
 share of the fight spent stunned, rooted, slowed, casting, holding a shield or a draw, and in reach of the foe.
 usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|simple|mastery|both]
-                                    [pairs=warrior-priest,archer-priest] [tap] [trace=N] [cap=60]
+                                    [pairs=warrior-priest,archer-priest] [tap] [trace=N] [cap=60] [gap=90] [narrow]
+  gap=M         [balance6] the arenas stand at least M m apart (90) anywhere on the homelands' open ground, a firebreak
+                round each (narrow: version 13's, 52 m apart within 170 m of one centre)
   trace=N       a timeline of the first N duels (presses, blows, and a look at both sides each second)
   kind=mastery  each calling's skilled bot against its simple bot (reps each, sides flipped)
   HM_BAL=path   writes every duel as JSON
@@ -26,6 +28,8 @@ CAP = int(arg('cap', '60'))
 ONLY = [c for c in arg('only', '').split(',') if c]  # kind=mastery: only these callings
 TAP = 'tap' in ARGS or any(a.startswith('trace=') for a in ARGS)
 TRACE = int(arg('trace', '0'))
+NARROW = 'narrow' in ARGS  # [balance6] version 13's arenas (52 m apart round one centre)
+GAP = int(arg('gap', '90'))  # [balance6] how far apart the arenas stand
 CL4 = ['warrior', 'archer', 'mage', 'priest']
 PAIRS = [tuple(p.split('-')) for p in arg('pairs', '').split(',') if p] or [(CL4[i], CL4[j]) for i in range(4) for j in range(i + 1, 4)]
 
@@ -72,11 +76,11 @@ window.DS = {
   // a timeline of the first n duels of a phase: every press, blow and a look each second
   ev(e, s) { const L = this.trace[e.id]; if (L && L.length < 400) L.push(`${(this.H.GAME.t - this.t0).toFixed(1)} ${e.cls}${e.bot ? e.bot.kind[1] : ''}${e.id} ${s}`); },
   traceOn(n) { this.trace = {}; this.traceIds = new Set(); this.t0 = this.H.GAME.t; const R = this.H.bal4 && this.H.bal4.RUSH; if (R) R.onEvent = (e, s) => { if (this.traceIds && this.traceIds.has(e.id)) this.ev(e, s); }; /* [balance4] a Charge's rush, where it ended and why */ for (const A of CB.A.slice(0, n)) for (const u of [A.ua, A.ub]) { this.trace[u.id] = []; this.traceIds.add(u.id); } return 0; },
-  traceOut() { if (!this.trace) return []; const out = []; for (const A of CB.A) { if (!this.trace[A.ua.id]) continue; out.push({ a: A.a, b: A.b, win: A.res && A.res.win, ev: [...this.trace[A.ua.id], ...this.trace[A.ub.id]].sort((x, y) => parseFloat(x) - parseFloat(y)) }); } this.trace = null; this.traceIds = null; return out; },
+  traceOut(rows) { if (!this.trace) return []; const out = []; for (const A of rows || CB.A) { const ia = rows ? A._trA : A.ua.id, ib = rows ? A._trB : A.ub.id; if (!this.trace[ia]) continue; out.push({ a: A.a, b: A.b, win: rows ? A.win : A.res && A.res.win, ev: [...this.trace[ia], ...this.trace[ib]].sort((x, y) => parseFloat(x) - parseFloat(y)) }); } this.trace = null; this.traceIds = null; return out; },
   // duels: [[clsA, kindA, clsB, kindB, realmA, realmB, flip]] in as many arenas as there are
   setup(lvl, list) {
     CB.wipe();
-    const S = CB.spots(list.length); if (S.length < list.length) throw new Error('only ' + S.length + ' arenas');
+    const S = CB.arenas(list.length); if (S.length < list.length) throw new Error('only ' + S.length + ' arenas');
     CB.A = list.map(([a, ka, b, kb, ra, rb, flip, plain], i) => {
       const s = S[i], f = flip ? -1 : 1;
       const ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18), ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18);
@@ -90,6 +94,59 @@ window.DS = {
     });
     return CB.A.length;
   },
+  // [balance6] each arena runs its own queue of duels: one over, the arena is made whole (its fighters gone, what they
+  // left, the craters and burning grass within it) and the next duel begins there at once while the others fight on (a
+  // phase of 18 waited on its slowest duel, up to a minute, while most of its arenas stood empty)
+  queue(lvl, list) {
+    CB.wipe();
+    const S = CB.arenas(Math.min(18, list.length));
+    this.S = S; this.lvl = lvl; this.Q = list.map((x, i) => [x, i]); this.done = []; this.slots = S.map(() => null);
+    CB.A = [];
+    for (let i = 0; i < S.length; i++) this.fill(i);
+    return S.length;
+  },
+  fill(i) {
+    if (!this.Q.length) { this.slots[i] = null; return; }
+    const [spec, idx] = this.Q.shift();
+    const D = this.make(this.lvl, spec, this.S[i], i); D.idx = idx; this.slots[i] = D; CB.A.push(D);
+  },
+  make(lvl, [a, ka, b, kb, ra, rb, flip, plain], s, i) {
+    const f = flip ? -1 : 1;
+    const ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18), ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18);
+    ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
+    ua.target = ub.id; ub.target = ua.id;
+    if (plain === 'b') ub.plainCalling = true;
+    const RN = ['Logres', 'Eriu', 'Thule'];
+    const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + RN[ra], b: b + ':plain', ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
+    ua._duel = ub._duel = D;
+    return D;
+  },
+  // simulate up to sec seconds, one at a time; after each the finished duels are closed and the next begun
+  step(sec, cap) {
+    const H = this.H;
+    for (let k = 0; k < sec; k++) {
+      H.simulate(1); CB.breakFires(CB.breakR || 34);
+      CB.status(cap);
+      let fresh = false;
+      for (let i = 0; i < this.slots.length; i++) {
+        const D = this.slots[i];
+        if (!D || !D.res) continue;
+        this.done.push(this.result(D));
+        const gone = new Set([D.ua.id, D.ub.id]);
+        for (const e of [D.ua, D.ub]) { e.damagers = null; if (e.alive) H.fn.killEnt(e, null); H.fn.removeEnt(e); }
+        this.cleaned = (this.cleaned || 0) + H.bal6.cleanArena(this.S[i].x, this.S[i].z, 36, gone);
+        this.fill(i); fresh = true;
+      }
+      if (fresh) CB.A = CB.A.filter((D) => !D.res);
+      if (!this.slots.some(Boolean)) break;
+    }
+    return { open: this.slots.filter(Boolean).length + this.Q.length, done: this.done.length, errors: H.errors.length };
+  },
+  result(A) {
+    const pick = (R) => R ? { ...R, dealt: Object.fromEntries(Object.entries(R.dealt).map(([k, v]) => [k, Math.round(v)])), healBy: Object.fromEntries(Object.entries(R.healBy || {}).map(([k, v]) => [k, Math.round(v)])), heal: Math.round(R.heal), healIn: Math.round(R.healIn), absorbed: Math.round(R.absorbed) } : null;
+    return { ...A.res, idx: A.idx, ra: A.ra, rb: A.rb, arena: A.arena, hpA: Math.round(A.ua.maxHp), hpB: Math.round(A.ub.maxHp), ta: A.ua.bot.kind, tb: A.ub.bot.kind, A: pick(A.ua._rec), B: pick(A.ub._rec), _trA: A.ua.id, _trB: A.ub.id };
+  },
+  doneOut() { const out = this.done.sort((x, y) => x.idx - y.idx); this.done = []; return out; },
   results() {
     const pick = (R) => R ? { ...R, dealt: Object.fromEntries(Object.entries(R.dealt).map(([k, v]) => [k, Math.round(v)])), healBy: Object.fromEntries(Object.entries(R.healBy || {}).map(([k, v]) => [k, Math.round(v)])), heal: Math.round(R.heal), healIn: Math.round(R.healIn), absorbed: Math.round(R.absorbed) } : null;
     return CB.A.map((A) => ({ ...A.res, ra: A.ra, rb: A.rb, arena: A.arena, hpA: Math.round(A.ua.maxHp), hpB: Math.round(A.ub.maxHp), ta: A.ua.bot.kind, tb: A.ub.bot.kind, A: pick(A.ua._rec), B: pick(A.ub._rec) }));
@@ -173,6 +230,8 @@ async def main():
         page.on('crash', lambda *_: (print('PAGE CRASHED (out of memory?)', flush=True), os._exit(3)))  # [balance5] a page killed for memory left the run waiting for ever
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
+        # [balance6] the arenas far apart (spotsWide), unless `narrow` asks for version 13's (52 m apart round one centre)
+        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP})'}; 0")
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
         # machine a software renderer drawing every frame (keep it with `loop`)
         if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
@@ -181,22 +240,23 @@ async def main():
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
             if TAP: await page.evaluate("DS.tapOn()")
             specs = spec_list(KIND, REPS)
-            n = await page.evaluate("CB.spots(18).length")
             rows = []
             t0 = time.time()
-            for i in range(0, len(specs), n):
-                chunk = specs[i:i + n]
-                await page.evaluate(f"DS.setup({lvl}, {json.dumps(chunk)}); 0")
-                if TRACE and i == 0: await page.evaluate(f"DS.traceOn({TRACE})")
-                while True:
-                    r = await page.evaluate(f"CB.run(10, {CAP})")
-                    if not r['open']: break
-                rows += await page.evaluate("DS.results()")
-                if TRACE and i == 0:
-                    for T in await page.evaluate("DS.traceOut()"):
-                        print(f"\n  trace {T['a']} vs {T['b']} (won by {T['win']})", flush=True)
-                        for line in T['ev']: print('    ' + line, flush=True)
-                print(f'  level {lvl}: {min(i + n, len(specs))}/{len(specs)} duels ({time.time() - t0:.0f}s)', flush=True)
+            # [balance6] a queue a level: each arena begins its next duel as soon as its last one ends
+            n = await page.evaluate(f"DS.queue({lvl}, {json.dumps(specs)})")
+            if lvl == LEVELS[0]: print(f'  {n} arenas' + (' (narrow)' if NARROW else f' at least {GAP} m apart, a firebreak round each'), flush=True)
+            if TRACE: await page.evaluate(f"DS.traceOn({TRACE})")
+            last = 0
+            while True:
+                r = await page.evaluate(f"DS.step(10, {CAP})")
+                if r['done'] - last >= max(18, len(specs) // 8) or not r['open']:
+                    last = r['done']; print(f'  level {lvl}: {r["done"]}/{len(specs)} duels ({time.time() - t0:.0f}s)', flush=True)
+                if not r['open']: break
+            rows = await page.evaluate("DS.doneOut()")
+            if TRACE:
+                for T in await page.evaluate(f"DS.traceOut({json.dumps([{k: r[k] for k in ('a', 'b', 'win', '_trA', '_trB')} for r in rows])})"):
+                    print(f"\n  trace {T['a']} vs {T['b']} (won by {T['win']})", flush=True)
+                    for line in T['ev']: print('    ' + line, flush=True)
             await page.evaluate("CB.wipe(); DS.tapOff()")
             allrows[lvl] = rows
             print(f'\nlevel {lvl}', flush=True)
