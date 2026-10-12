@@ -187,7 +187,12 @@ async def phone(p):
       L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; d.remove = () => {}; } /* (it fades on the wall clock) */
       G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")
     print('  note at 360x640:', r, flush=True)
-    await ev(page, "__hm.frame(1/30); document.getElementById('zonetoast').classList.remove('on'); G2T.lay(); 0")  # the zone's name over the middle of the screen fades by itself after a journey
+    # the zone's name over the middle of the screen fades by itself after a journey, and the plant card goes when you look
+    # away: a few frames until the note has its place (a 360x640 phone has room for it beside nothing else)
+    seen = await ev(page, """(() => { const H = __hm; for (let i = 0; i < 8; i++) { H.frame(1/30); document.getElementById('zonetoast').classList.remove('on'); G2T.lay();
+      const d = document.querySelector('#banners .lore-note'); if (d && d.getBoundingClientRect().height > 2) return { i, placed: H.hud.HUDL.placed.map((p) => p.sel) }; H.simulate(0.25); }
+      return { i: -1, placed: H.hud.HUDL.placed.map((p) => p.sel), off: [...document.querySelectorAll('.hl-off')].map((e) => e.id) }; })()""")
+    print('  note placed after', seen, flush=True)
     ok = await tap(page, '#banners .lore-note')
     r2 = await ev(page, "(() => { const f = document.querySelector('.chron-body details.note-f'); return { modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec, first: f ? f.dataset.note : null, open: f ? f.open : null }; })()")
     if r.get('compact'):
