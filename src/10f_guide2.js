@@ -229,6 +229,8 @@ function g2Scan(P) {
 // where to grow: a champion of your level, else a fight of your realm's warbands, else the keep it fights for
 function g2LevelMark(P, prog) {
   const R = REALMS[P.faction];
+  const rs = late2RisenMark(P); // [late2] past 40 a risen champion first (10l_late.js)
+  if (rs) return rs;
   const ch = guideMarkOf({ id: 'champion' });
   if (ch && prog.level <= 42) return ch;
   return guideMarkOf({ id: 'warband' }) || guideMarkOf({ id: 'keep' }) || (guideOnFrontier(P) ? null : { x: R.town.x, z: R.town.z, what: 'the portal stones to the frontier' });

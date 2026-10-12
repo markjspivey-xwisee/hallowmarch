@@ -371,6 +371,7 @@ function simStep(dt) {
   updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
   updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
   updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
+  updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
 }
 function tick(dt) {
   renderer.info.reset();

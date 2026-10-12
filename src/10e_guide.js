@@ -135,7 +135,8 @@ function guideUpdateMark(dt) {
   if (GUIDE.markT > 0) return;
   GUIDE.markT = 0.5;
   const P = GAME.player;
-  GUIDE.mark = P && P.alive && GAME.prog && GAME.prog.lore ? guideMarkOf(pathNext()) : null;
+  const S = P && P.alive && GAME.prog && GAME.prog.lore ? pathNext() : undefined;
+  GUIDE.mark = S ? guideMarkOf(S) : S === null && !inDungeon(P) ? late2RisenMark(P) : null; // [late2] the path walked: a risen champion past 40 (10l_late.js)
 }
 // the gem on the minimap, or an arrow on its rim pointing the way (10_ui.js drawMinimap calls this)
 function guideMinimap(ctx, toM, S, dpr) {
@@ -207,9 +208,12 @@ function guideAims() {
   const rr = realmRank(prog.rp), next = REALM_RANKS[rr] ?? null, prev = REALM_RANKS[rr - 1] ?? 0;
   const out = [];
   if (prog.level < LEVEL_CAP) out.push({ t: `Reach level ${prog.level + 1}`, m: [prog.xp / xpToNext(prog.level), `${fmtInt(prog.xp)} / ${fmtInt(xpToNext(prog.level))} XP`] });
+  const l2 = late2Aims(), l2n = l2.findIndex((a) => /^Earn a name/.test(a.t)); // [late2] boons, veterancy, the risen, the next name (10l_late.js)
+  out.push(...(l2n >= 0 ? l2.slice(0, l2n) : l2));
   if (next !== null) out.push({ t: `Realm rank ${rr + 1}: ${RANK_TITLES[rr]}`, m: [clamp((prog.rp - prev) / Math.max(1, next - prev), 0, 1), `${fmtInt(prog.rp)} / ${fmtInt(next)} RP`], x: 'Realm points come from enemy soldiers, keeps, gates and hallows.' });
   const won = CAMPAIGN.history.filter((h) => h.w === P.faction && h.you).length;
   out.push({ t: CAMPAIGN.state === 'war' ? `Win campaign ${CAMPAIGN.n} for ${REALMS[P.faction].name}` : 'Peace: the next campaign begins soon', x: `Hold four of the six keeps for five minutes, or both enemy hallows for four. Campaigns won with you there: ${won}.` });
+  if (l2n >= 0) out.push(l2[l2n]); // [late2]
   return out;
 }
 
@@ -294,6 +298,7 @@ function guideWatch(want) {
 // something was made at a fire, a station or by hand (09t_craft.js survCraftOnce)
 function guideMade(rec) {
   if (!rec) return;
+  late2Made(rec); // [late2] a named masterwork is a deed (10l_late.js)
   if (rec.skill === 'cook') GUIDE.made.push('cook');
   if (STATION_DEF[rec.st]) GUIDE.made.push('craft'); // at a workstation (bread at the bakehouse is both)
 }

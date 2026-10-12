@@ -25,6 +25,7 @@ function kitItems() { return SLOTS.map((s) => INV.eq[s]).filter(Boolean).concat(
 const repairAllCost = () => kitItems().reduce((a, it) => a + repairCost(it), 0);
 function wearItem(it, amount) {
   if (!it || !(amount > 0)) return;
+  amount *= late2WearMult(); // [late2] a Masterwright's gear wears slower (10l_late.js)
   const before = itemDur(it);
   if (before <= 0) return;
   it.dur = Math.round(Math.max(0, before - amount) * 100) / 100;

@@ -152,7 +152,7 @@ function updateHUD(dt) {
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
-  setT($('pf-name'), P.name);
+  setT($('pf-name'), late2Named(P)); // [late2] with the name it wears (10l_late.js)
   setT($('pf-lv'), `Lv ${prog.level}`);
   setT($('pf-sub'), `${REALMS[P.faction].name} ${CLASSES[P.cls].name} · RR ${realmRank(prog.rp)} ${RANK_TITLES[realmRank(prog.rp) - 1]}`);
   setW($('pf-hp'), P.hp / P.maxHp); setW($('pf-hpl'), P.hp / P.maxHp);
@@ -160,8 +160,9 @@ function updateHUD(dt) {
   setW($('pf-pw'), P.power / P.maxPower); setT($('pf-pwt'), `${fmtInt(P.power)} / ${fmtInt(P.maxPower)}`);
   setW($('pf-en'), P.endurance / 100);
   const need = xpToNext(prog.level);
-  setW($('pf-xp'), prog.level >= LEVEL_CAP ? 1 : prog.xp / need);
-  setT($('pf-xpt'), prog.level >= LEVEL_CAP ? 'Max level' : `XP ${fmtInt(prog.xp)} / ${fmtInt(need)}`);
+  const vb = prog.level >= LEVEL_CAP ? late2XpBar() : null; // [late2] past the cap, veterancy (10l_late.js)
+  setW($('pf-xp'), vb ? vb[0] : prog.xp / need);
+  setT($('pf-xpt'), vb ? vb[1] : `XP ${fmtInt(prog.xp)} / ${fmtInt(need)}`);
   setT($('pf-rpt'), `${fmtInt(prog.rp)} RP`);
   if (UI.frame % 6 === 0) { const h = buffsHTML(P); if ($('pf-buffs')._h !== h) { $('pf-buffs').innerHTML = h; $('pf-buffs')._h = h; } }
   // target frame

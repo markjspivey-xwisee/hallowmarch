@@ -126,6 +126,7 @@ function setupStats(e, keepRatio = false) {
       e.critBonus = g.crit / 100;
     }
   }
+  late2Stats(e); // [late2] a veteran's boons and the name it wears (10l_late.js)
   e.hp = e.maxHp * ratio;
   e.power = Math.min(e.power, e.maxPower);
   if (!keepRatio) e.power = e.maxPower;
@@ -213,6 +214,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   if (!opts.dot && src && src !== dst && src.x !== undefined && towerSightBlocked(src, dst)) return 0; // [keeps] no blow through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
   amount *= gearLateHarm(src, dst); // [balance2] a late foe is as tough as the gear of its level (06e_gearcurve.js)
+  amount *= late2HarmMult(src, dst, opts); // [late2] the player's name and veteran's boons (10l_late.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
   amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;
@@ -979,6 +981,7 @@ function grantKillRewards(e) {
   rollLoot(e);
   huntOnKill(e); // [survival] meat, hides and bone from a hunt (09s_survival.js)
   depthOnKill(e); // [depth] feathers and game birds, grave-iron, dragon scales and champions' trophies (09u_depth.js)
+  late2OnKill(e); // [late2] deeds, and a risen champion's spoils (10l_late.js)
   if (e.role === 'dungeonBoss') {
     addXP(Math.round(20 * e.level * Math.max(0.5, CON[ci].xp) * 10), e);
     addRP(150);
@@ -1008,7 +1011,7 @@ function grantKillRewards(e) {
 }
 function addXP(n, src = null) {
   const prog = GAME.prog;
-  if (prog.level >= LEVEL_CAP) return;
+  if (prog.level >= LEVEL_CAP) { late2VetXP(n); return; } // [late2] past the cap experience raises veterancy (10l_late.js)
   prog.xp += n;
   uiLog(`You gain ${fmtInt(n)} experience.`, 'xp');
   while (prog.level < LEVEL_CAP && prog.xp >= xpToNext(prog.level)) {
@@ -1021,6 +1024,7 @@ function addXP(n, src = null) {
 function addRP(n) {
   const prog = GAME.prog;
   const before = realmRank(prog.rp);
+  n = Math.round(n * late2RpMult()); // [late2] the Victor's and an old campaigner's share (10l_late.js)
   prog.rp += n;
   uiLog(`You gain ${fmtInt(n)} realm points.`, 'rp');
   const after = realmRank(prog.rp);
