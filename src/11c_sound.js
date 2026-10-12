@@ -619,10 +619,12 @@ Object.assign(SND_SYNTH, {
   },
   // the ground bursting up under a foe (a troll's stamp come through the earth): a deep heave, clods and stones
   quake(t) {
-    tone('sine', R_(48, 58), 28, t, 0.9, 0.42, 0.03);
-    noiseBurst(t, 0.9, 0.34, 'lowpass', 700, 120, 0.8, 0.02);
-    noiseBurst(t + 0.05, 0.08, 0.2, 'bandpass', 1400, 600, 1, 0.002);
-    for (let i = 0; i < 10; i++) { const t0 = t + 0.12 + Math.pow(Math.random(), 1.3) * 0.9, f = R_(140, 420); tone('sine', f * 1.5, f, t0, R_(0.05, 0.1), R_(0.04, 0.1), 0.002); noiseBurst(t0, 0.05, R_(0.03, 0.08), 'bandpass', R_(700, 1900), 500, 1.6, 0.002); }
+    // (the heave is felt in the bass and heard on a phone in the earth's grind above it: the bass alone lost 11.6 dB there)
+    tone('sine', R_(48, 58), 28, t, 0.9, 0.24, 0.03);
+    noiseBurst(t, 0.9, 0.28, 'lowpass', 900, 160, 0.8, 0.02);
+    noiseBurst(t + 0.02, 0.6, 0.18, 'bandpass', 420, 260, 0.9, 0.01);
+    noiseBurst(t + 0.05, 0.08, 0.22, 'bandpass', 1400, 600, 1, 0.002);
+    for (let i = 0; i < 12; i++) { const t0 = t + 0.1 + Math.pow(Math.random(), 1.3) * 0.9, f = R_(160, 440); tone('sine', f * 1.5, f, t0, R_(0.05, 0.1), R_(0.05, 0.12), 0.002); noiseBurst(t0, 0.05, R_(0.04, 0.1), 'bandpass', R_(700, 1900), 500, 1.6, 0.002); }
   },
   // a banner on its pole in the wind (a standard planted): the cloth snapping
   flap(t) {
