@@ -308,15 +308,20 @@ async def main():
               out.saved = (F.buildSave().char.bounty || {}).risen;
               // hailed by name: a soldier of your realm beside you, out of a fight
               prog.realmKills = 30; H.simulate(0.3); L.late2Wear('blooded');
-              const s = F.spawnRealmUnit(0, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
-              H.simulate(0.05); T.clearAround(P.x, P.z, 12, new Set([s.id])); H.simulate(0.05); s.target = null; s.l2hailT = 0; // (a step, so the grid finds the guard where it stands; nobody else beside you to hail you)
+              // out in the homeland's fields, nobody about (townsfolk hailed you a second time), a guard of your realm beside you
+              const R = H.REALMS[P.faction];
+              for (let i = 0; i < 300; i++) { const a = i * 2.399, d = 80 + (i % 12) * 7, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
+                if (!F.isWalkable(x, z) || H.water.waterAt(x, z) || H.ENT.some((e) => e.alive && e !== P && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < 16)) continue; H.teleport(x, z); break; }
+              H.simulate(0.1);
+              const s = F.spawnRealmUnit(P.faction, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
+              H.simulate(0.05); s.target = null; s.threat = null; s.l2hailT = 0; out.near = [+Math.hypot(s.x - P.x, s.z - P.z).toFixed(1), s.alive, s.faction === P.faction, !!L.LATE2.worn]; // (a step, so the grid finds the guard where it stands)
               P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
               L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
               s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
               out.errors = H.errors.slice(0, 3); return out; })()""")
             check(r['offered'] and r['bounty']['risen'] == 1 and r['bounty']['need'] == 1, f"past 40 the herald offers a risen champion's bounty: {r.get('bounty')}")
             check(not r['afterOther'] and r['afterOwn'] and r['saved'] == 1, 'another risen champion does not pay it; its own does, and the bounty is saved as a risen one')
-            check(r['hails'] == 1 and r['again'] == 1, 'a soldier of your realm beside you hails you by your name, once')
+            check(r['hails'] == 1 and r['again'] == 1, f"a soldier of your realm beside you hails you by your name, once ({r.get('hails')}, {r.get('again')}, the guard {r.get('near')})")
 
         # ---- the save ----
         if want('save') or want('reload'):
