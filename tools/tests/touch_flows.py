@@ -10,7 +10,7 @@ beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat o
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
-(`only=housescaf`).
+(`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -448,6 +448,20 @@ async def main():
             # [v15] the note tapped is gone (counting every note failed one run in three: on a loaded machine the next note in
             # the queue came up in the 11.5 s the tap's waits can take)
             check(ok and gone, f'guide: a tap takes a field note away ({n0} then {n1})')
+        if want('deeds'):
+            # [late2] the Chronicle's Deeds page by touch: a tap on your path opens the Chronicle, a tap its Deeds page, and a
+            # tap on a name's button wears it (a character with two names: the Blooded, worn, and Kingsbane)
+            await page.evaluate("""(() => { const H = TF.H, L = H.late; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm();
+              H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); L.late2CheckNames(true); L.late2Deed('king'); L.late2Wear('blooded');
+              const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()""")
+            ok = await tap(page, '#lore-path [data-act="open"], #lore-path [data-act="aims"]')
+            ok2 = await tap(page, '.chron-nav [data-sec="deeds"]')
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+            box = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (!b) return null; const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()")
+            ok3 = await tap(page, '#menu-body [data-l2="wear:kingsbane"]')
+            r = await page.evaluate("({ worn: __hm.late.LATE2.worn, sec: __hm.LORE.state.chronSec, frame: document.getElementById('pf-name').textContent })")
+            check(ok and ok2 and ok3 and r['worn'] == 'kingsbane' and r['sec'] == 'deeds' and box and box[1] >= 40, f"deeds: taps open the Deeds page and wear a name ({r}, button {box})")
+            await tap(page, '#btn-resume')
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);

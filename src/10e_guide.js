@@ -405,10 +405,10 @@ function chronGoals() {
       <li><b>Your realm's great gift</b>${gift ? `, ${esc(gift.ult.name)},` : ''} on ${IS_TOUCH ? 'the gift button' : 'key 9'} (or at realm rank 5): it turns a big fight. You are realm rank ${rr} now.</li>
       <li><b>Cinderwing</b> is a fight for a seasoned band: three pieces of rare gear or better and a dragon scale.</li></ul></div>
     <div class="gd-tier"${tierOpen(40)}><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
-      <li><b>Rank III.</b> The fiercest champions hold the camps for levels 35 to 40.</li>
+      <li><b>Rank III.</b> The risen of the borderlands: the three farthest camps of every homeland rise with you, each led by a risen champion with its own name (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
     <div class="gd-tier"${tierOpen(50)}><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
-      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you.</li>
+      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you. Your experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
       <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
 }

@@ -1,7 +1,7 @@
 """[late2] The late game (version 16): the risen of the borderlands past 40, deeds and the names they earn, veterancy past
 the cap and its boons, the Chronicle's Deeds page, the aims and the tracker's mark, and the save (with the character, an old
 save's deeds taken from its path, a damaged one, and a reload with the same storage).
-usage: python3 tools/tests/late2.py [only=rise,fight,names,vet,page,save,reload,shots] [cls=warrior,mage|all] [q=low|high]
+usage: python3 tools/tests/late2.py [only=rise,fight,names,vet,page,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
        [noshots] [phone]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -13,6 +13,8 @@ FLAGS = set(a for a in sys.argv[1:] if '=' not in a)
 ONLY = set(ARGS['only'].split(',')) if 'only' in ARGS else None
 CLS = ['warrior', 'archer', 'mage', 'priest'] if ARGS.get('cls') == 'all' else ARGS.get('cls', 'warrior,mage').split(',')
 SHOTS = 'noshots' not in FLAGS
+REALM = int(ARGS.get('realm', 0))
+REALM_NAMES = ['Logres', 'Eriu', 'Thule']
 Q = ARGS.get('q', 'low')
 FAILS = []
 T0 = time.time()
@@ -85,13 +87,13 @@ async def main():
         # ---- a fight: each calling at 50 in fair gear, played by the skilled bot, against a risen camp ----
         if want('fight'):
             for cls in CLS:
-                r = await ev(page, f'fight {cls}', """((cls) => { const P = T.fresh(cls, 50), H = T.H, F = T.F, L = T.L.LATE2, prog = H.GAME.prog;
+                r = await ev(page, f'fight {cls} of {REALM_NAMES[REALM]}', """((cls, realm) => { const P = T.fresh(cls, 50, realm), H = T.H, F = T.F, L = T.L.LATE2, prog = H.GAME.prog;
                   const camp = T.risen().filter((c) => c.realm === P.faction).sort((a, b) => T.L.late2RiseK(b) - T.L.late2RiseK(a))[0];
                   let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
                   const keep = new Set(camp.members); T.clearAround(camp.x, camp.z, 60, keep);
                   const a = Math.random() * 6.28; H.teleport(C.x + Math.cos(a) * 16, C.z + Math.sin(a) * 16);
                   H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0;
-                  const s0 = { ...L.stats }, d0 = { ...L.d }, vx0 = L.vxp + T.L.late2VetNeed(0) * L.vet, loot0 = H.LOOT.length, rp0 = prog.rp;
+                  const s0 = { ...L.stats }, d0 = { ...L.d }, vx0 = L.vxp + T.L.late2VetNeed(0) * L.vet, loot0 = H.LOOT.length + H.INV.bag.length, tr0 = F.goodsCount('trophy'), rp0 = prog.rp;
                   H.bal.botMake(P, 'skilled', { x: camp.x, z: camp.z, r: 32 }); P.target = C.id;
                   const foes = new Set(camp.members); let t = 0, champT = null, minHp = 1;
                   for (; t < 180 && P.alive; t += 1) { H.simulate(1); minHp = Math.min(minHp, P.hp / P.maxHp); for (const id of camp.members) foes.add(id);
@@ -101,13 +103,13 @@ async def main():
                   const vx1 = L.vxp + T.L.late2VetNeed(0) * L.vet;
                   return { cls, champ: C.name, clvl: C.level, champHp: Math.round(C.maxHp), php: Math.round(P.maxHp), champT, t, alive: P.alive, minHp: +minHp.toFixed(2), left: +(P.hp / P.maxHp).toFixed(2), potions: H.INV.potions,
                     wrath: L.stats.wrath - s0.wrath, hits: L.stats.wrathHits - s0.wrathHits, rallies: L.stats.rallies - s0.rallies, fell: L.stats.risenFell - s0.risenFell,
-                    high: L.d.high - d0.high, champD: L.d.champ - d0.champ, vetXP: vx1 - vx0, rp: Math.round(prog.rp - rp0), drops: H.LOOT.length - loot0, foes: foes.size, errors: H.errors.length }; })('""" + cls + "')")
+                    high: L.d.high - d0.high, champD: L.d.champ - d0.champ, vetXP: vx1 - vx0, rp: Math.round(prog.rp - rp0), drops: H.LOOT.length + H.INV.bag.length - loot0, trophies: F.goodsCount('trophy') + H.LOOT.filter((q) => q.item && q.item.goods === 'trophy').length - tr0, foes: foes.size, errors: H.errors.length }; })('""" + cls + "', " + str(REALM) + ")")
                 won = r['champT'] is not None and r['alive']
                 check(won, f"a level 50 {cls} (skilled) brings down {r['champ']} ({r['clvl']}) in {r['champT']} s, {r['minHp']*100:.0f}% health at the lowest, {r['potions']} draughts left")
                 check(r['wrath'] >= 1 and r['rallies'] == 1, f"it broke the ground {r['wrath']} times ({r['hits']} struck) and rallied its pack once")
                 if won:
                     check(r['high'] == 1 and r['champD'] == 1 and r['fell'] == 1, 'the deed is told: one risen, one champion')
-                    check(r['vetXP'] > 12000 and r['rp'] >= 250 and r['drops'] >= 3, f"its spoils: {r['vetXP']} experience to veterancy, {r['rp']} realm points, {r['drops']} things on the ground")
+                    check(r['vetXP'] > 12000 and r['rp'] >= 250 and r['drops'] >= 3 and r['trophies'] >= 2, f"its spoils: {r['vetXP']} experience to veterancy, {r['rp']} realm points, {r['drops']} pieces of gear and other things, {r['trophies']} trophies")
                 check(r['errors'] == 0, 'no errors in the fight')
 
         # ---- deeds and names ----

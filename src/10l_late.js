@@ -24,6 +24,7 @@
 
 const LATE2_RISE_AT = 40; // the level at which the borderlands' farthest camps rise with you
 const LATE2_BOON_MAX = 5; // steps of each boon
+const LATE2_RISEN_HP = 20, LATE2_RISEN_DMG = 1.6; // a risen champion's might over a mob of its kind and level (by the square root of its kind's health)
 const LATE2 = {
   d: { champ: 0, high: 0, lord: 0, keep: 0, hallow: 0, camp: 0, dragon: 0, king: 0, mw: 0 }, // the tally of deeds
   names: [], worn: null, // names earned, the one worn
@@ -232,7 +233,7 @@ function late2OnSpawn(e, camp, elite) {
   if (!elite) { e.l2off = e.level - late2Band(camp)[0]; return; }
   e.l2risen = true;
   e.name = late2RisenName(camp);
-  e.tweak = { hp: 4.2, dmg: 1.4 };
+  e.tweak = { hp: LATE2_RISEN_HP / Math.sqrt((MOBS[camp.type] || {}).hp || 1), dmg: LATE2_RISEN_DMG }; // (a champion's is 2.8 and 1.3: a risen one is a fight of half a minute and more)
   e.ai.l2 = null;
   LATE2.stats.risenSpawned++;
 }

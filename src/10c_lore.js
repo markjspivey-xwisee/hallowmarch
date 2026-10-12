@@ -345,7 +345,7 @@ const PATH_STEPS = [
     hint: () => 'The great red dragon rests on high ground between its flights: the gold gem marks it while it is in the sky. A fight for the strong, or for many.',
     reward: { item: { slot: 'legs', q: 4 } } },
   { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
-    hint: () => 'Rank III at 40. The fiercest champions hold the camps for levels 35 to 40.',
+    hint: () => 'Rank III at 40, and the three farthest borderland camps of every homeland rise with you, each led by a risen champion.', // [late2] (10l_late.js)
     reward: { item: { slot: 'chest', q: 4 } } },
   { id: 'master', lv: 40, pv: 2, title: 'Make a named masterwork', short: 'A masterwork',
     hint: () => 'A master crafter (crafting 85 and up) of level 40 makes them at the forge, the workbench, the tanning rack or the loom, from dragon scales, grave-iron from the Barrow\'s dead and champions\' trophies.',
@@ -354,7 +354,7 @@ const PATH_STEPS = [
     hint: (R) => `${R.name} wins by holding four of the six keeps for five minutes, or both enemy hallows for four. Lead its warbands and carry the hallows home.`,
     reward: { item: { slot: 'cloak', q: 5 } } },
   { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
-    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you.',
+    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you. Past 50 your experience raises your veterancy.', // [late2] (10l_late.js)
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
