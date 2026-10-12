@@ -198,6 +198,7 @@ function updateHUD(dt) {
     const total = rem > P.gcdUntil - GAME.t + 0.01 ? A.cd : 0.6;
     s.style.setProperty('--p', rem > 0 ? (rem / Math.max(total, 0.01)).toFixed(3) : 0);
     setT(s.querySelector('.cdt'), rem > 1 ? Math.ceil(rem) : '');
+    setT(s.querySelector('.cost'), A.id === 'renew' && resolveTarget(P, A, t) === P && renewRote(P) ? A.cost * RENEW_ROTE_K : A.cost); // [balance6] renewing yourself by rote costs more: the slot shows that price (07c_balance6.js)
     s.classList.toggle('nopower', !locked && P.power < A.cost);
     let outRange = false;
     if (!locked && !A.self && !A.friendly && t && t.alive && isEnemy(P, t)) outRange = dist(P.x, P.z, t.x, t.z) > abilityRange(P, A, t);
