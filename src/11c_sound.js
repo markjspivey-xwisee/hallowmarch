@@ -959,15 +959,17 @@ function sndAirInit(ctx) {
   SND.air = air;
 }
 // what is round the listener: sampled a few times a second
-const SND_PLACE = { town: 0, keep: 0, walls: 0, forest: 0, meadow: 0, mountain: 0, shore: 0, river: 0, roof: 0, room: 0, barrow: 0, height: 0 };
+const SND_PLACE = { town: 0, townR: 0, keep: 0, walls: 0, forest: 0, meadow: 0, mountain: 0, shore: 0, river: 0, roof: 0, room: 0, barrow: 0, height: 0 };
+const SND_TOWN_RATE = [1, 1.07, 0.92]; // each town's murmur at its own pitch (Logres, Ériu, Thule)
 function sndPlaceAt() {
   const L = SND.L, P = SND_PLACE, x = L.x, z = L.z;
   for (const k in P) P[k] = 0;
   if (INDOOR.on || inDungeonX(x)) { P.barrow = 1; return P; }
   const gy = heightAt(x, z);
   P.height = L.y - gy;
-  // a town: near its plaza and houses
-  for (const R of REALMS) { const S = R.town; if (!S) continue; const d = dist(x, z, S.x, S.z); P.town = Math.max(P.town, 1 - sstep(45, 110, d)); }
+  // a town: near its plaza and houses (and which: each town's voices have their own pitch)
+  let td = 1e9;
+  REALMS.forEach((R, ri) => { const S = R.town; if (!S) return; const d = dist(x, z, S.x, S.z); P.town = Math.max(P.town, 1 - sstep(45, 110, d)); if (d < td) { td = d; P.townR = ri; } });
   // a keep: in its court or up on its walls
   const C = typeof castleAt === 'function' ? castleAt(x, z) : null;
   if (C) { P.keep = 1; P.walls = sstep(2.5, 6, L.y - 1.6 - heightAt(C.S.x, C.S.z)); }
@@ -1051,6 +1053,7 @@ function sndAirStep(now, dt) {
   const town = out * P.town * (0.25 + 0.75 * day) * (1 - 0.6 * rain) * (1 - 0.6 * room) * 0.11 * (1 - sstep(0.6, 0.95, night));
   sndSet(air.town.g.gain, lerpK('town', town), now, 0.8);
   sndSet(air.town.f.frequency, room ? 900 : 2400, now, 0.5);
+  if (P.town > 0.05) sndSet(air.town.s.playbackRate, SND_TOWN_RATE[P.townR] || 1, now, 1.5); // Brackenford, Glenrua and Skarvik each sound their own
   // flags up on the walls
   const flap = out * P.walls * (0.25 + wind * 0.75 + storm) * 0.03 * (1 - roof);
   sndSet(air.flapLfo.gain, lerpK('flap', flap) * 0.6, now, 0.5);
@@ -1447,6 +1450,7 @@ queueMicrotask(() => {
         live: SND.voices.filter((v) => v.end > now).length, voices: SND.voices.length, stats: { ...SND.stats }, played: { ...SND.played }, log: SND.log.slice(-20),
         loops: SND.loops.map((V) => ({ buf: V.buf, on: Math.round(V.on * 1000) / 1000, x: Math.round(V.x), z: Math.round(V.z) })), battle: SND.battle, place: { ...SND_PLACE },
         air: SND.air ? Object.fromEntries(Object.entries(SND.air.k).map(([k, v]) => [k, Math.round(v * 10000) / 10000])) : null, wet: SND.air ? Math.round((SND.air.k.wet || 0) * 1000) / 1000 : 0,
+        townRate: SND.air ? Math.round(SND.air.town.s.playbackRate.value * 1000) / 1000 : 0,
       };
     },
     resetCounts() { SND.count = {}; SND.played = {}; for (const k in SND.stats) SND.stats[k] = 0; SND.log.length = 0; },

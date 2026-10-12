@@ -173,6 +173,13 @@ async def main():
             s = await place("(() => { __hm.setTod(2.1); __hm.fn.applyTimeOfDay(2.1); return 0; })()", 6)
             check(s['air']['town'] < day * 0.5, f"at night the town falls quiet (murmur {s['air']['town']} against {day} by day; crickets {s['air']['cr']})")
             await ev("(() => { __hm.setTod(0.3); __hm.fn.applyTimeOfDay(0.3); return 0; })()")
+            # each town's voices at their own pitch: Glenrua's higher than Brackenford's, Skarvik's lower
+            rates = []
+            for ri in (0, 1, 2):
+                await place(f"(() => {{ const H = __hm, T = H.REALMS[{ri}].town; H.teleport(T.x + 4, T.z + 4); return 0; }})()", 2)
+                await page.wait_for_timeout(3500)  # (the pitch eases on the audio clock)
+                rates.append((await ev("__hm.snd.state()"))['townRate'])
+            check(rates[1] > rates[0] + 0.03 and rates[2] < rates[0] - 0.03, f"each town's people sound their own: the murmur's pitch in Brackenford, Glenrua and Skarvik {rates}")
             # the woods: the densest stand near the Logres homeland
             s = await place("""(() => { const H = __hm, F = H.fn, T = F.W.trees; let best = null, bn = 0;
               for (let k = 0; k < 400; k++) { const t = T[Math.floor(Math.random() * T.length)]; if (!t || t.gone || F.zoneAt(t.x, t.z).realm !== 0) continue; let n = 0; for (const o of T) if (!o.gone && Math.abs(o.x - t.x) < 22 && Math.abs(o.z - t.z) < 22) n++; if (n > bn) { const x = t.x + 2, z = t.z + 2; if (F.isWalkable(x, z)) { bn = n; best = [x, z]; } } }
