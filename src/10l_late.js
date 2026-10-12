@@ -850,8 +850,8 @@ CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><
 /* what players are told                                               */
 /* ------------------------------------------------------------------ */
 for (const [id, note] of Object.entries({
-  l2name: { t: 'A name of your own', x: () => `The March has given you a name for your deeds. It shows with your own on your frame, and the name you wear gives you something of the deed. Choose which to wear on the Chronicle's Deeds page (${IS_TOUCH ? 'tap your path' : 'J'}).` },
-  l2risen: { t: 'The risen of the borderlands', x: () => 'The farthest borderland camps of every homeland are held now by risen champions who keep pace with you. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
+  l2name: { t: 'A name of your own', x: () => `The March has named you for your deeds. The name shows with yours on your frame, and the one you wear gives you something of its deed: choose it on the Chronicle's Deeds page (${IS_TOUCH ? 'tap your path' : 'J'}).` },
+  l2risen: { t: 'The risen of the borderlands', x: () => 'Risen champions who keep pace with you hold the farthest borderland camps now. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
   l2std: { t: 'The standard of your name', x: () => `A veteran with a name may have a standard made (the Chronicle's Deeds page) and plant it where it fights: your realm's soldiers, your companions and you strike harder about it. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up.` },
   l2vet: { t: 'Veterancy', x: () => `Past level 50 your experience raises your veterancy, and every rank is a boon to learn: health, harm, power, a steady eye, thick skin, realm points. ${IS_TOUCH ? 'Tap your path' : 'J'}, then Deeds.` },
 })) if (!FIELD_NOTES[id]) FIELD_NOTES[id] = note;
