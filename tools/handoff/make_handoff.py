@@ -2,13 +2,31 @@
 status header in tools/handoff/status.md. Publish the output with Interego's publish_context (graph_iri
 urn:graph:project:hallowmarch, visibility shared, modal status Asserted, sign_authorship true, if_match set to the
 current head from get_current_head).
-usage: python3 tools/handoff/make_handoff.py OUT.ttl [VERSION] [STATUS_LINE]"""
+usage: python3 tools/handoff/make_handoff.py OUT.ttl [VERSION] [STATUS_LINE] [summary]
+summary: (version 15) the record holds the status, the owner's standing requirements, how to build, the roadmap's
+latest rows and Next, and the history, with the commit whose CLAUDE.md holds the rest (the whole notes passed 500 KB,
+too much to send through a tool call at each milestone)."""
 import pathlib, sys, datetime
 HERE = pathlib.Path(__file__).resolve().parent
 doc = (HERE.parents[1] / 'CLAUDE.md').read_text()
 body = doc.split('\n', 1)[1].lstrip()
 head = (HERE / 'status.md').read_text().strip() + '\n\n---\n\n'
-md = head + body
+if 'summary' in sys.argv[4:]:
+    import re, subprocess
+    def section(title):
+        i = doc.index('\n## ' + title); j = doc.find('\n## ', i + 4)
+        return doc[i + 1:j if j > 0 else len(doc)].rstrip() + '\n'
+    pre = doc[doc.index('- **Owner:**'):doc.index('\n## ')].rstrip() + '\n'
+    road = section('Roadmap').split('\n')
+    rows = [l for l in road if re.match(r'\| \d+ \|', l)]
+    keep = road[:road.index(rows[0])] + rows[-8:]
+    commit = subprocess.run(['git', '-C', str(HERE.parents[1]), 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    md = (head + '# The Hallowmarch: working notes, in summary\n\n' + pre + '\n'
+          + f'The whole working notes (the architecture, every module, the conventions, the tests and every measure) are the repository\'s `CLAUDE.md` (commit {commit} on `main`); this record holds the parts a newcomer needs first.\n\n'
+          + section("The owner's standing requirements") + '\n' + section('Build and run') + '\n'
+          + '\n'.join(keep) + '\n\n' + section('History'))
+else:
+    md = head + body
 assert '"""' not in md and not md.rstrip().endswith('"')
 esc = md.replace('\\', '\\\\')
 version = sys.argv[2] if len(sys.argv) > 2 else '9'

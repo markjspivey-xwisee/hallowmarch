@@ -1,6 +1,6 @@
 # Working notes for The Hallowmarch
 
-Read this before changing anything. It covers what the game is, the owner's standing requirements, how the code fits together, how to test it, and what is planned. The same handoff is also kept in the owner's Interego pod as the graph `urn:graph:project:hallowmarch`, updated at each milestone.
+Read this before changing anything. It covers what the game is, the owner's standing requirements, how the code fits together, how to test it, and what is planned. A summary of this handoff (the status, the owner's requirements, how to build, the roadmap's latest rows and the history, with the commit whose CLAUDE.md holds the rest: `tools/handoff/make_handoff.py ... summary`) is also kept in the owner's Interego pod as the graph `urn:graph:project:hallowmarch`, updated at each milestone.
 
 - **Owner:** Mark (GitHub `markjspivey-xwisee`)
 - **Repository:** https://github.com/markjspivey-xwisee/hallowmarch (private). Work on `main`, commit often, and push at each milestone.
