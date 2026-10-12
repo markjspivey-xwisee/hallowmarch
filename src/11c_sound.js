@@ -26,13 +26,13 @@ const SND = {
   L: { x: 0, y: 0, z: 0, rx: 1, rz: 0, fx: 0, fz: -1, ok: false, under: false },
   occ: new Map(), place: new Map(), bufs: {}, clock: { loops: 0, air: 0, life: 0, battle: 0, occ: 0 },
   stats: { asked: 0, played: 0, far: 0, quiet: 0, stale: 0, capped: 0, stolen: 0, occluded: 0, occTests: 0, cues: 0, flushes: 0, perName: 0, gap: 0 },
-  count: {}, played: {}, log: [], battle: [], duckUntil: 0, alarmAt: {}, newsCueAt: -99, incomingAt: -99, lastLife: {},
+  count: {}, played: {}, log: [], battle: [], prof: { occ: 0, play: 0, n: 0, sort: 0 }, duckUntil: 0, alarmAt: {}, newsCueAt: -99, incomingAt: -99, lastLife: {},
 };
 // each sound's reach: ref (full within), max (nothing beyond), lvl (how loud it is at its source, for the cap), per
 // (at most this many of it in one frame), gap (seconds between two at the same place), cue (heard over the rest), roll
 const SND_DEF = {
   _: { ref: 4, max: 60, lvl: 0.4, per: 3, gap: 0.05 },
-  hit: { ref: 3, max: 55, lvl: 0.6, per: 4 }, swing: { ref: 2.5, max: 32, lvl: 0.35, per: 3 }, thud: { ref: 4, max: 70, lvl: 0.6 },
+  hit: { ref: 3, max: 55, lvl: 0.6, per: 2 }, swing: { ref: 2.5, max: 32, lvl: 0.35, per: 2 }, thud: { ref: 4, max: 70, lvl: 0.6 },
   bow: { ref: 3, max: 50, lvl: 0.35, per: 3 }, zap: { ref: 3, max: 50, lvl: 0.3 }, cast: { ref: 3, max: 40, lvl: 0.22, per: 2 },
   fire: { ref: 4, max: 75, lvl: 0.6 }, frost: { ref: 4, max: 60, lvl: 0.35 }, holy: { ref: 4, max: 60, lvl: 0.3 }, heal: { ref: 4, max: 40, lvl: 0.3 },
   blink: { ref: 3, max: 50, lvl: 0.35 }, boom: { ref: 14, max: 300, lvl: 1, roll: 0.8 }, crash: { ref: 12, max: 240, lvl: 1, roll: 0.8 },
@@ -56,7 +56,7 @@ const SND_DEF = {
   chirp: { ref: 5, max: 70, lvl: 0.15, per: 1 }, bark: { ref: 6, max: 110, lvl: 0.35, per: 1, gap: 1 }, cluck: { ref: 3, max: 40, lvl: 0.18, per: 1, gap: 1 },
   bleat: { ref: 4, max: 70, lvl: 0.25, per: 1, gap: 1 }, moo: { ref: 6, max: 130, lvl: 0.35, per: 1, gap: 1.5 }, howl: { ref: 40, max: 700, lvl: 0.4, per: 1, gap: 3, roll: 0.5 },
   owl: { ref: 12, max: 220, lvl: 0.22, per: 1, gap: 3 }, caw: { ref: 10, max: 220, lvl: 0.3, per: 1, gap: 1 }, woodpecker: { ref: 8, max: 160, lvl: 0.25, per: 1, gap: 3 },
-  anvil: { ref: 6, max: 120, lvl: 0.4, per: 1, gap: 0.25 }, chatter: { ref: 3, max: 30, lvl: 0.14, per: 2, gap: 0.9 }, cartwheel: { ref: 4, max: 60, lvl: 0.2, per: 1, gap: 1.5 },
+  anvil: { ref: 6, max: 120, lvl: 0.4, per: 1, gap: 0.25 }, chatter: { ref: 3, max: 30, lvl: 0.14, per: 2, gap: 0.9 },
   // cues: heard over the rest, never capped
   loose: { ref: 4, max: 90, lvl: 0.5, cue: true, per: 1, gap: 0.25 }, incoming: { ref: 400, max: 4000, lvl: 0.6, cue: true, per: 1, gap: 0.35 },
   flare: { ref: 5, max: 80, lvl: 0.6, cue: true, per: 1 }, wardbreak: { ref: 5, max: 70, lvl: 0.6, cue: true, per: 1 },
@@ -86,8 +86,8 @@ function setSoundLevel(kind, v) {
   AUDIO.lvl[kind] = v;
   if (!AUDIO.ctx) return;
   const now = AUDIO.ctx.currentTime;
-  if (kind === 'sfx' && AUDIO.fx) AUDIO.fx.gain.setTargetAtTime(AUDIO_BASE.sfx * v, now, 0.05);
-  if (kind === 'amb' && AUDIO.amb) AUDIO.amb.bus.gain.setTargetAtTime(AUDIO_BASE.amb * v, now, 0.05);
+  if (kind === 'sfx' && AUDIO.fx) sndSet(AUDIO.fx.gain, AUDIO_BASE.sfx * v, now, 0.05);
+  if (kind === 'amb' && AUDIO.amb) sndSet(AUDIO.amb.bus.gain, AUDIO_BASE.amb * v, now, 0.05);
 }
 const soundVolumeKey = () => (AUDIO.on ? soundLevelKey(AUDIO.lvl.master) : 'off');
 // the settings menu's rows (10_ui.js): Volume (Off is the old Sound Off), Effects, Ambience
@@ -121,12 +121,14 @@ function soundApplySettings(st) {
   if (ok(st.master) && st.master > 0) AUDIO.lvl.master = st.master;
   if (ok(st.effects)) setSoundLevel('sfx', st.effects);
   if (ok(st.ambience)) setSoundLevel('amb', st.ambience);
-  if (AUDIO.master && AUDIO.ctx) AUDIO.master.gain.setTargetAtTime(AUDIO.on ? AUDIO_BASE.master * AUDIO.lvl.master : 0, AUDIO.ctx.currentTime, 0.05);
+  if (AUDIO.master && AUDIO.ctx) sndSet(AUDIO.master.gain, AUDIO.on ? AUDIO_BASE.master * AUDIO.lvl.master : 0, AUDIO.ctx.currentTime, 0.05);
 }
 
 /* ------------------------------------------------------------------ */
 /* the engine                                                          */
 /* ------------------------------------------------------------------ */
+// an AudioParam eased to v (a value that is not finite is let go: an error here would stop the frame)
+function sndSet(p, v, t, tc) { if (Number.isFinite(v) && Number.isFinite(t)) p.setTargetAtTime(v, t, tc); }
 function sndCount(name) { SND.count[name] = (SND.count[name] || 0) + 1; }
 function sndInit(ctx) {
   if (SND.ready) return;
@@ -145,11 +147,9 @@ function sndInit(ctx) {
     // a phone's speaker has no bass: the low thumps are given their harmonics there (the ear hears the fundamental
     // they imply), and nothing below 90 Hz is sent to a speaker that cannot move it
     if (IS_TOUCH) {
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 150;
-      const ws = ctx.createWaveShaper(); ws.curve = sndHarmCurve(); ws.oversample = '2x';
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 330; bp.Q.value = 0.6;
-      const g = ctx.createGain(); g.gain.value = 0.55;
-      AUDIO.fx.connect(lp).connect(ws).connect(bp).connect(g).connect(AUDIO.master);
+      const ex = sndExciter(ctx, AUDIO.fx);
+      ex.out.connect(AUDIO.master);
+      const { lp, ws, bp, g } = ex;
       const cut = ctx.createBiquadFilter(); cut.type = 'highpass'; cut.frequency.value = 90; cut.Q.value = 0.6;
       AUDIO.comp.disconnect(); AUDIO.comp.connect(cut).connect(AUDIO.lim);
       SND.phone = { lp, ws, bp, g, cut };
@@ -159,11 +159,21 @@ function sndInit(ctx) {
     SND.ready = true;
   } catch (e) { SND.ready = false; if (AUDIO.debug) throw e; }
 }
-// the harmonics of a low thump: an even and an odd curve, so both the second and the third partial are heard
+// the harmonics of a low thump: the bass alone, driven into a soft clip (odd and, from the bend, even partials), the
+// partials a phone can play kept (a band from 200 to 700 Hz): the ear hears the fundamental they imply
 function sndHarmCurve() {
-  const n = 1024, c = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(2.6 * x) * 0.7 + 0.45 * x * x - 0.15; }
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(3 * x) * 0.8 + 0.25 * Math.tanh(4 * x * x); }
   return c;
+}
+function sndExciter(ctx, src) {
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.Q.value = 0.7;
+  const pre = ctx.createGain(); pre.gain.value = 9;
+  const ws = ctx.createWaveShaper(); ws.curve = sndHarmCurve(); ws.oversample = '2x';
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 380; bp.Q.value = 0.55;
+  const g = ctx.createGain(); g.gain.value = 0.38;
+  src.connect(lp).connect(pre).connect(ws).connect(bp).connect(g);
+  return { lp, pre, ws, bp, g, out: g };
 }
 function sndImpulse(ctx, sec) {
   const sr = ctx.sampleRate, n = Math.floor(sr * sec), buf = ctx.createBuffer(2, n, sr);
@@ -188,7 +198,7 @@ function sndListener() {
   if (fl > 1e-4) { fx /= fl; fz /= fl; } else { fx = 0; fz = -1; }
   L.fx = fx; L.fz = fz; L.rx = -fz; L.rz = fx;
   const P = GAME.player;
-  if (P && GAME.started && CAM.mode === 'play' && dist2(P.x, P.z, cp.x, cp.z) < 30 * 30) { L.x = P.x; L.y = P.y + 1.6 * (P.scale || 1); L.z = P.z; }
+  if (P && GAME.started && CAM.mode === 'play' && isFiniteNum(P.x + P.y + P.z)) { L.x = P.x; L.y = P.y + 1.6 * (P.scale || 1); L.z = P.z; }
   else { L.x = cp.x; L.y = cp.y; L.z = cp.z; }
   L.under = !!(typeof DIVE !== 'undefined' && DIVE.under && DIVE.under.on);
   L.ok = isFiniteNum(L.x + L.y + L.z);
@@ -294,17 +304,20 @@ function sndFlush() {
     r.g = mix.g * ((r.o && r.o.vol) ?? 1); r.pan = mix.pan; r.fc = mix.fc; r.d = mix.d;
     r.loud = r.def.lvl * r.g * (r.def.cue || (r.o && r.o.cue) ? 6 : 1);
   }
+  const ts = performance.now();
   q.sort((a, b) => b.loud - a.loud);
+  SND.prof.sort += performance.now() - ts;
   for (const k in _sndPer) _sndPer[k] = 0;
-  let live = 0;
+  let live = 0, made = 0;
   for (const v of SND.voices) if (v.end > now) live++;
-  const cap = SND.cap;
+  const cap = SND.cap, perFrame = IS_TOUCH || quality.level === 'low' ? 2 : 3; // (a voice is a dozen nodes: a frame makes a few at most, the loudest)
   for (const r of q) {
     if (r.loud < 0) continue;
     const def = r.def, cue = def.cue || (r.o && r.o.cue);
     if (r.loud < 0.0025) { SND.stats.quiet++; continue; }
     const pn = (_sndPer[r.name] || 0);
     if (pn >= (def.per || 3)) { SND.stats.perName++; continue; }
+    if (made >= perFrame && !cue) { SND.stats.capped++; continue; }
     // two of a sound at one place within its gap: the second is the first's echo
     const pk = r.name + ':' + Math.round(r.x / 4) + ':' + Math.round(r.z / 4), pl = SND.place.get(pk);
     if (pl !== undefined && now - pl < (def.gap ?? 0.05)) { SND.stats.gap++; continue; }
@@ -317,7 +330,7 @@ function sndFlush() {
         if (l < ql) { ql = l; qv = v; }
       }
       if (!qv || r.loud < ql * 1.5) { SND.stats.capped++; continue; }
-      qv.stolen = true; qv.vg.gain.setTargetAtTime(0, now, 0.02); qv.end = now + 0.12;
+      qv.stolen = true; sndSet(qv.vg.gain, 0, now, 0.02); qv.end = now + 0.12;
       SND.stats.stolen++; live--;
     }
     _sndPer[r.name] = pn + 1;
@@ -325,14 +338,18 @@ function sndFlush() {
     // a wall or a hill between; the water
     let g = r.g, fc = r.fc, occ = 0;
     if (r.d > 1.6 && r.d < 110 && !(r.o && r.o.noOcc)) {
+      const tq = performance.now();
       occ = sndOcc(r.x, r.y, r.z);
+      SND.prof.occ += performance.now() - tq;
       if (occ) { g *= 1 - 0.68 * occ; fc = Math.min(fc, 650 + 900 * (1 - occ)); SND.stats.occluded++; }
     }
     if (!SND.L.under && sndUnderWater(r.x, r.y, r.z)) { g *= 0.4; fc = Math.min(fc, 500); }
     // sound is slower than light: a far one is heard a moment after it is seen
     const delay = (r.o && r.o.at || 0) + (r.d > 25 && !(r.o && r.o.now) ? Math.min(0.55, (r.d / 343) * 0.8) : 0);
+    const tp = performance.now();
     sndPlay(r.name, now + 0.006 + delay, g, r.pan, fc, r.loud, cue, r.o);
-    live++;
+    SND.prof.play += performance.now() - tp; SND.prof.n++;
+    live++; made++;
     if (SND.place.size > 300) SND.place.clear();
     SND.played[r.name] = (SND.played[r.name] || 0) + 1;
     SND.log.push([r.name, Math.round(r.d * 10) / 10, Math.round(g * 1000) / 1000, Math.round(r.pan * 100) / 100, Math.round(fc), occ]);
@@ -363,9 +380,9 @@ function sndDuck(now, sec) {
   if (!SND.fxIn) return;
   SND.duckUntil = now + sec;
   SND.fxIn.gain.cancelScheduledValues(now);
-  SND.fxIn.gain.setTargetAtTime(0.55, now, 0.02);
-  SND.fxIn.gain.setTargetAtTime(1, now + sec, 0.25);
-  if (SND.air && SND.air.duck) { SND.air.duck.gain.cancelScheduledValues(now); SND.air.duck.gain.setTargetAtTime(0.6, now, 0.03); SND.air.duck.gain.setTargetAtTime(1, now + sec, 0.4); }
+  sndSet(SND.fxIn.gain, 0.55, now, 0.02);
+  sndSet(SND.fxIn.gain, 1, now + sec, 0.25);
+  if (SND.air && SND.air.duck) { SND.air.duck.gain.cancelScheduledValues(now); sndSet(SND.air.duck.gain, 0.6, now, 0.03); sndSet(SND.air.duck.gain, 1, now + sec, 0.4); }
 }
 // voices that have fallen silent let go of their nodes
 function sndReap(now) {
@@ -385,6 +402,10 @@ function sndCapNow() { return IS_TOUCH ? 12 : quality.level === 'low' ? 14 : qua
 /* ------------------------------------------------------------------ */
 function sndUpdate(dt) {
   if (!SND.ready) return false;
+  try { sndUpdate1(dt); } catch (e) { if (!SND.err) { SND.err = true; reportError(e); } if (AUDIO.debug) throw e; } // a fault in the sound never stops the frame
+  return true;
+}
+function sndUpdate1(dt) {
   const now = AUDIO.ctx.currentTime;
   sndListener();
   SND.cap = sndCapNow();
@@ -396,7 +417,6 @@ function sndUpdate(dt) {
   if (C.air <= 0) { C.air = 0.25; sndAirStep(now, 0.25); }
   if (C.life <= 0) { C.life = 0.5; if (GAME.started && GAME.player) sndLifeStep(now); }
   if (C.battle <= 0) { C.battle = 0.5; sndBattleStep(now); }
-  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -474,13 +494,13 @@ Object.assign(SND_SYNTH, {
   // timber under strain: the wood sticks and slips, a rough rub through its resonances
   creak(t) {
     const d = R_(0.22, 0.5), r0 = R_(16, 30), r1 = r0 * R_(0.7, 1.6);
-    sndToneF('sawtooth', r0, r1, t, d, 0.18, 0.06, ['bandpass', R_(480, 780), R_(520, 900), 9]);
-    sndToneF('sawtooth', r0 * 1.01, r1, t, d, 0.1, 0.06, ['bandpass', R_(1200, 1700), R_(1100, 1800), 8]);
+    sndToneF('sawtooth', r0, r1, t, d, 0.9, 0.06, ['bandpass', R_(480, 780), R_(520, 900), 9]);
+    sndToneF('sawtooth', r0 * 1.01, r1, t, d, 0.5, 0.06, ['bandpass', R_(1200, 1700), R_(1100, 1800), 8]);
   },
   // a hand saw: push and pull
   saw(t) {
     const n = 3 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < n; i++) { const t0 = t + i * 0.36; noiseBurst(t0, 0.2, 0.09, 'bandpass', 2600, 3400, 2.2, 0.05); noiseBurst(t0 + 0.2, 0.14, 0.05, 'bandpass', 1900, 2300, 2, 0.04); }
+    for (let i = 0; i < n; i++) { const t0 = t + i * 0.36; noiseBurst(t0, 0.2, 0.22, 'bandpass', 2600, 3400, 2.2, 0.05); noiseBurst(t0 + 0.2, 0.14, 0.13, 'bandpass', 1900, 2300, 2, 0.04); }
   },
   // masonry cracking: a snap, a dull thump, then crumbs falling
   crack(t) {
@@ -495,8 +515,8 @@ Object.assign(SND_SYNTH, {
     noiseBurst(t, 0.12, 0.2, 'bandpass', 1400, 700, 1, 0.002);
     for (let i = 0; i < 14; i++) {
       const t0 = t + Math.pow(Math.random(), 1.6) * 0.95, f = R_(1300, 3400);
-      tone('triangle', f, f * 0.94, t0, R_(0.025, 0.06), R_(0.02, 0.06), 0.001);
-      noiseBurst(t0, 0.02, 0.04, 'bandpass', f * 0.8, f * 0.6, 2, 0.001);
+      tone('triangle', f, f * 0.94, t0, R_(0.025, 0.06), R_(0.04, 0.12), 0.001);
+      noiseBurst(t0, 0.02, 0.08, 'bandpass', f * 0.8, f * 0.6, 2, 0.001);
     }
   },
   // a house or a wall coming down: a long rumble, stones tumbling, dust settling
@@ -550,12 +570,12 @@ Object.assign(SND_SYNTH, {
   // stones shifting underfoot on a fallen tower's rubble
   rubble(t) {
     const n = 3 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) { const t0 = t + Math.random() * 0.25, f = R_(1100, 2600); tone('triangle', f, f * 0.9, t0, R_(0.02, 0.045), 0.05, 0.001); noiseBurst(t0, 0.03, 0.06, 'bandpass', f * 0.7, f * 0.5, 2, 0.001); }
-    noiseBurst(t, 0.18, 0.05, 'bandpass', 2400, 1600, 1.2, 0.02);
+    for (let i = 0; i < n; i++) { const t0 = t + Math.random() * 0.25, f = R_(1100, 2600); tone('triangle', f, f * 0.9, t0, R_(0.02, 0.045), 0.1, 0.001); noiseBurst(t0, 0.03, 0.12, 'bandpass', f * 0.7, f * 0.5, 2, 0.001); }
+    noiseBurst(t, 0.18, 0.1, 'bandpass', 2400, 1600, 1.2, 0.02);
   },
   // an oar's stroke: the blade dips, the thole pin creaks, the water runs off
   oar(t) {
-    noiseBurst(t, 0.26, 0.12, 'lowpass', 1700, 420, 0.8, 0.01);
+    noiseBurst(t, 0.26, 0.2, 'lowpass', 1700, 420, 0.8, 0.01);
     tone('sine', R_(380, 460), R_(800, 1000), t + 0.02, 0.05, 0.03, 0.002);
     sndToneF('sawtooth', R_(22, 30), R_(30, 40), t + 0.05, 0.2, 0.06, 0.03, ['bandpass', R_(600, 800), 700, 8]);
     for (let i = 0; i < 2; i++) { const f = R_(1400, 2400); tone('sine', f, f * 0.55, t + 0.35 + i * R_(0.08, 0.16), 0.05, 0.015, 0.002); }
@@ -591,14 +611,14 @@ Object.assign(SND_SYNTH, {
   },
   cluck(t) {
     const n = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) { const f = R_(520, 760), t0 = t + i * R_(0.11, 0.2); sndToneF('triangle', f, f * 0.7, t0, 0.05, 0.08, 0.003, ['bandpass', 1200, 900, 2]); noiseBurst(t0, 0.04, 0.03, 'bandpass', 1800, 1200, 2, 0.002); }
+    for (let i = 0; i < n; i++) { const f = R_(520, 760), t0 = t + i * R_(0.11, 0.2); sndToneF('triangle', f, f * 0.7, t0, 0.05, 0.25, 0.003, ['bandpass', 1200, 900, 2]); noiseBurst(t0, 0.04, 0.09, 'bandpass', 1800, 1200, 2, 0.002); }
   },
   bleat(t) { const f = R_(330, 440); sndVoiceSyn(t, f, f * 1.05, f * 0.92, R_(0.5, 0.8), 0.09, 'eh', { vib: [R_(24, 34), 70], q: 4, breath: 0.2, formK: 1.15 }); },
   moo(t) { const f = R_(105, 135); sndVoiceSyn(t, f, f * 1.25, f * 0.85, R_(1.0, 1.4), 0.13, 'oo', { q: 4, peakAt: 0.4, breath: 0.15 }); },
   // a wolf howling far off: rising, held with a waver, falling away; often answered
   howl(t) {
     const n = Math.random() < 0.5 ? 2 : 1;
-    for (let i = 0; i < n; i++) { const f = R_(360, 440), t0 = t + i * R_(0.8, 1.6); sndVoiceSyn(t0, f, f * R_(1.55, 1.75), f * 1.05, R_(2.2, 3.0), 0.07, 'oo', { vib: [5.5, 18], q: 7, peakAt: 0.3, a: 0.25 }); }
+    for (let i = 0; i < n; i++) { const f = R_(360, 440), t0 = t + i * R_(0.8, 1.6); sndVoiceSyn(t0, f, f * R_(1.55, 1.75), f * 1.05, R_(2.2, 3.0), 0.14, 'oo', { vib: [5.5, 18], q: 7, peakAt: 0.3, a: 0.25 }); }
   },
   owl(t) {
     const f = R_(390, 430);
@@ -611,7 +631,7 @@ Object.assign(SND_SYNTH, {
   },
   woodpecker(t) {
     const n = 12 + Math.floor(Math.random() * 8), rate = R_(15, 20), f = R_(650, 900);
-    for (let i = 0; i < n; i++) { const t0 = t + i / rate; tone('sine', f, f * 0.8, t0, 0.018, 0.05 * (1 - i / n * 0.6), 0.001); noiseBurst(t0, 0.012, 0.04, 'bandpass', 1600, 1200, 2, 0.001); }
+    for (let i = 0; i < n; i++) { const t0 = t + i / rate; tone('sine', f, f * 0.8, t0, 0.018, 0.1 * (1 - i / n * 0.6), 0.001); noiseBurst(t0, 0.012, 0.08, 'bandpass', 1600, 1200, 2, 0.001); }
   },
   // a smith's hammer on the anvil: the ring and a lighter rebound
   anvil(t) {
@@ -626,7 +646,11 @@ Object.assign(SND_SYNTH, {
     let t0 = t;
     for (let i = 0; i < n; i++) { const d = R_(0.08, 0.17); sndVoiceSyn(t0, f * R_(0.95, 1.1), f * R_(1.0, 1.2), f * R_(0.85, 1.0), d, 0.05, V[Math.floor(Math.random() * V.length)], { a: 0.015, q: 5, breath: 0.2, formK: f > 180 ? 1.15 : 1 }); t0 += d + R_(0.01, 0.06); }
   },
-  cartwheel(t) { for (let i = 0; i < 3; i++) sndToneF('sawtooth', R_(20, 28), R_(26, 34), t + i * 0.4, 0.3, 0.05, 0.05, ['bandpass', R_(500, 700), 600, 7]); },
+  // lightning's crack (11_audio.js's, its top a little softer: loud and all highs, it was the harshest sound)
+  shock(t) { noiseBurst(t, 0.22, 0.17, 'highpass', 2200, 4600, 0.8, 0.002); noiseBurst(t, 0.18, 0.12, 'bandpass', 1400, 900, 1.2, 0.002); tone('sawtooth', 140, 90, t, 0.18, 0.06, 0.004); noiseBurst(t + 0.04, 0.3, 0.12, 'bandpass', 3800, 1600, 2, 0.01); },
+  // a swimmer's stroke (11_audio.js's, its bright splash through a band rather than a high-pass: the high-pass's
+  // onset clicked 30 dB over the stroke)
+  swim(t) { noiseBurst(t, 0.34, 0.06, 'bandpass', 700, 1500, 0.9, 0.05); noiseBurst(t + 0.05, 0.22, 0.05, 'bandpass', 2800, 3600, 1.2, 0.03); },
   // cues: a bow or a staff loosed at you (where it came from), the whistle of what flies at you
   loose(t, v, o) {
     if (o && o.kind === 'bolt') { tone('sawtooth', 480, 1100, t, 0.1, 0.05); noiseBurst(t, 0.1, 0.1, 'bandpass', 2600, 4200, 3); }
@@ -634,13 +658,14 @@ Object.assign(SND_SYNTH, {
   },
   incoming(t, v, o) {
     const dur = clamp((o && o.dur) || 0.45, 0.2, 1.2);
-    noiseBurst(t, dur, 0.13, 'bandpass', 3200, 1700, 7, dur * 0.85);
-    tone('sine', 2100, 1400, t + dur * 0.5, dur * 0.5, 0.02, dur * 0.4);
+    noiseBurst(t, dur, 0.5, 'bandpass', 3200, 1700, 7, dur * 0.85);
+    tone('sine', 2100, 1400, t + dur * 0.5, dur * 0.5, 0.06, dur * 0.4);
   },
   // a priest's holy fire flaring a spell away: a bright sizzle, the spell cracking
   flare(t) {
-    noiseBurst(t, 0.32, 0.22, 'highpass', 2000, 6500, 0.8, 0.004);
-    tone('sine', 1760, 880, t, 0.25, 0.06, 0.003);
+    noiseBurst(t, 0.32, 0.11, 'highpass', 2000, 5200, 0.8, 0.004);
+    noiseBurst(t, 0.28, 0.12, 'bandpass', 1500, 2600, 1.2, 0.004);
+    tone('sine', 1760, 880, t, 0.25, 0.07, 0.003);
     for (let i = 0; i < 4; i++) { const f = R_(2600, 4800); tone('triangle', f, f * 0.7, t + 0.05 + i * 0.035, 0.05, 0.035, 0.001); }
   },
   // a mage's ward breaking: glass shattering and the air rushing in
@@ -657,8 +682,8 @@ Object.assign(SND_SYNTH, {
 // buffers made once, here, from noise and arithmetic (no samples): seconds of sound that loop without a seam
 function sndBuf(name) {
   if (SND.bufs[name]) return SND.bufs[name];
-  const ctx = AUDIO.ctx, sr = 22050, sec = name === 'murmur' || name === 'battle' ? 6 : 4, n = sr * sec;
-  const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  const sr = 22050, sec = name === 'murmur' || name === 'battle' ? 4.5 : 3.2, n = Math.floor(sr * sec);
+  const d = new Float32Array(n);
   let s = 12345 + name.length * 977;
   const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   const noise = () => rnd() * 2 - 1;
@@ -740,7 +765,7 @@ function sndBuf(name) {
   // no seam: the last fifth of a second fades into the first
   const xf = Math.floor(sr * 0.2);
   for (let j = 0; j < xf; j++) { const a = j / xf; d[j] = d[j] * a + d[n - xf + j] * (1 - a); }
-  const out = ctx.createBuffer(1, n - xf, sr);
+  const out = AUDIO.ctx ? AUDIO.ctx.createBuffer(1, n - xf, sr) : new AudioBuffer({ numberOfChannels: 1, length: n - xf, sampleRate: sr });
   out.getChannelData(0).set(d.subarray(0, n - xf));
   SND.bufs[name] = out;
   return out;
@@ -755,6 +780,7 @@ function sndLoopVoice(ctx, dest) {
   return { g, f, p, src: null, buf: '', key: '', x: 0, y: 0, z: 0, k: 0, want: null, on: 0 };
 }
 function sndLoopsInit(ctx) {
+  sndBuf('crackle'); sndBuf('roar'); // made now, at the first touch on the title, not when the first fire comes near
   SND.loops = [];
   for (let i = 0; i < 5; i++) SND.loops.push(sndLoopVoice(ctx, AUDIO.amb.bus));
 }
@@ -803,7 +829,7 @@ function sndLoopsStep(now) {
   const mix = _sndMix;
   for (let k = 0; k < SND.loops.length; k++) {
     const V = SND.loops[k], w = V.want;
-    if (!w) { if (V.on > 0) { V.g.gain.setTargetAtTime(0, now, 0.25); V.on *= 0.25; if (V.on < 0.02) V.on = 0; } continue; }
+    if (!w) { if (V.on > 0) { sndSet(V.g.gain, 0, now, 0.25); V.on *= 0.25; if (V.on < 0.02) V.on = 0; } continue; }
     // a new source: start it (or move a silent voice onto it)
     if (!V.src || V.buf !== w.buf) {
       try { if (V.src) V.src.stop(); } catch (e) { /* done */ }
@@ -816,9 +842,9 @@ function sndLoopsStep(now) {
     let g = w.g * 0.5, fc = mix.fc;
     const occ = w.d < 90 ? sndOcc(w.x, w.y, w.z) : 0;
     if (occ) { g *= 1 - 0.65 * occ; fc = Math.min(fc, 700); }
-    V.g.gain.setTargetAtTime(g, now, 0.2);
-    V.f.frequency.setTargetAtTime(fc, now, 0.2);
-    if (V.p) V.p.pan.setTargetAtTime(mix.pan, now, 0.2);
+    sndSet(V.g.gain, g, now, 0.2);
+    sndSet(V.f.frequency, fc, now, 0.2);
+    if (V.p) sndSet(V.p.pan, mix.pan, now, 0.2);
     V.on = g;
   }
 }
@@ -892,16 +918,22 @@ function sndPlaceAt() {
   P.room = roofed && (typeof houseInside === 'function' && houseInside(x, z) || (P0 && typeof towerRoomOf === 'function' && towerRoomOf(P0))) ? 1 : 0;
   return P;
 }
-// the standing trees within r of a point (the near trees' grid: 05h_wear.js underCrown reads it the same way)
+// the standing trees within r of a point: a grid of every tree's place, made once (the trees do not move; a felled,
+// burnt or fallen one is skipped by its own state)
 function sndTreesNear(x, z, r) {
-  const G = typeof NEAR_TREES !== 'undefined' ? NEAR_TREES.grid : null;
-  if (!G) return 0;
-  const c = NEAR_TREES.cell, n = Math.ceil(r / c), ci = Math.floor(x / c), cj = Math.floor(z / c);
+  const T = W.trees;
+  if (!T || !T.length) return 0;
+  const c = 24;
+  if (!SND.treeGrid || SND.treeGridN !== T.length) {
+    SND.treeGrid = new Map(); SND.treeGridN = T.length;
+    for (let i = 0; i < T.length; i++) { const t = T[i], k = Math.floor(t.x / c) * 4096 + Math.floor(t.z / c); let l = SND.treeGrid.get(k); if (!l) SND.treeGrid.set(k, (l = [])); l.push(i); }
+  }
+  const n = Math.ceil(r / c), ci = Math.floor(x / c), cj = Math.floor(z / c);
   let k = 0;
   for (let j = cj - n; j <= cj + n; j++) for (let i = ci - n; i <= ci + n; i++) {
-    const l = G.get(i + ',' + j);
+    const l = SND.treeGrid.get(i * 4096 + j);
     if (!l) continue;
-    for (const ti of l) { const t = W.trees[ti]; if (!t || t.gone || t.fallen) continue; if (dist2(x, z, t.x, t.z) < r * r) k++; }
+    for (const ti of l) { const t = T[ti]; if (!t || t.gone || t.fallen || t.felled || (t.fire || 0) > 0.6) continue; if (dist2(x, z, t.x, t.z) < r * r) k++; }
   }
   return k;
 }
@@ -923,41 +955,41 @@ function sndAirStep(now, dt) {
   const gust = 0.8 + 0.4 * Math.sin(t * 0.13) * Math.sin(t * 0.07 + 1);
   const windG = indoorBarrow ? 0.07 * (0.6 + 0.4 * Math.sin(t * 0.17) * Math.sin(t * 0.05 + 1))
     : (0.04 + 0.09 * exposure) * (1 - night * 0.3) * (1 + 1.4 * storm + 0.5 * W.overcast) * gust * (1 - 0.55 * roof) * (1 - 0.35 * P.forest);
-  A.wind.gain.setTargetAtTime(lerpK('wind', windG, 2), now, 0.5);
-  A.lp.frequency.setTargetAtTime(indoorBarrow ? 170 + 50 * Math.sin(t * 0.3) : (360 + 300 * exposure + 120 * Math.sin(t * 0.21)) * (1 - 0.4 * roof), now, 0.8);
+  sndSet(A.wind.gain, lerpK('wind', windG, 2), now, 0.5);
+  sndSet(A.lp.frequency, indoorBarrow ? 170 + 50 * Math.sin(t * 0.3) : (360 + 300 * exposure + 120 * Math.sin(t * 0.21)) * (1 - 0.4 * roof), now, 0.8);
   const howl = out * (0.012 * P.mountain + 0.018 * storm + 0.008 * P.walls) * (0.6 + 0.4 * gust) * (1 - 0.7 * roof);
-  air.howl.g.gain.setTargetAtTime(lerpK('howl', howl), now, 0.6);
-  air.howl.f.frequency.setTargetAtTime(380 + 260 * Math.sin(t * 0.23) + 160 * Math.sin(t * 0.61 + 2) + 200 * exposure, now, 0.4);
+  sndSet(air.howl.g.gain, lerpK('howl', howl), now, 0.6);
+  sndSet(air.howl.f.frequency, 380 + 260 * Math.sin(t * 0.23) + 160 * Math.sin(t * 0.61 + 2) + 200 * exposure, now, 0.4);
   // leaves: the woods in the wind (bare in winter: a dry rattle of twigs, pines hiss)
   const leafy = 1 - 0.65 * sea[3] + 0.15 * sea[2];
   const leaves = out * P.forest * (0.02 + 0.035 * wind + 0.03 * storm) * leafy * (0.55 + 0.45 * gust) * (1 - 0.7 * roof);
-  air.leaves.g.gain.setTargetAtTime(lerpK('leaves', leaves), now, 0.5);
-  air.leaves.f.frequency.setTargetAtTime(2400 + 1600 * sea[2] + 600 * gust, now, 0.5);
+  sndSet(air.leaves.g.gain, lerpK('leaves', leaves), now, 0.5);
+  sndSet(air.leaves.f.frequency, 2400 + 1600 * sea[2] + 600 * gust, now, 0.5);
   // insects: summer days in the meadows (and the woods' edge)
   const ins = out * day * warm * (sea[1] + 0.5 * sea[0] + 0.3 * sea[2]) * (P.meadow * 0.8 + P.forest * 0.3) * (1 - rain) * (1 - 0.8 * roof) * 0.006;
-  air.insects.g.gain.setTargetAtTime(lerpK('ins', ins) * 0.5, now, 0.8);
-  air.insectsLfo.gain.setTargetAtTime(K.ins * 0.5, now, 0.8);
+  sndSet(air.insects.g.gain, lerpK('ins', ins) * 0.5, now, 0.8);
+  sndSet(air.insectsLfo.gain, K.ins * 0.5, now, 0.8);
   // crickets: warm nights out of doors (11_audio.js's)
   const cr = out * 0.012 * sstep(0.45, 0.85, night) * warm * (1 - sea[3]) * (1 - rain * 0.8) * (1 - 0.8 * roof) * (0.4 + 0.6 * (P.meadow + P.forest * 0.6));
-  A.crGain.gain.setTargetAtTime(lerpK('cr', cr), now, 1.5);
+  sndSet(A.crGain.gain, lerpK('cr', cr), now, 1.5);
   // rain: its hiss on the ground out of doors; drumming on the roof over you
   const hiss = out * 0.11 * rain * (1 - 0.75 * roof);
-  A.rain.gain.setTargetAtTime(lerpK('rain', hiss, 2), now, 0.6);
-  air.roof.g.gain.setTargetAtTime(lerpK('roofrain', out * roof * rain * 0.5, 2), now, 0.6);
+  sndSet(A.rain.gain, lerpK('rain', hiss, 2), now, 0.6);
+  sndSet(air.roof.g.gain, lerpK('roofrain', out * roof * rain * 0.5, 2), now, 0.6);
   // the lake's lapping at its shore
-  air.lap.g.gain.setTargetAtTime(lerpK('lap', out * P.shore * (0.25 + 0.4 * wind + 0.4 * storm) * (1 - 0.6 * roof) * 0.35), now, 0.8);
+  sndSet(air.lap.g.gain, lerpK('lap', out * P.shore * (0.25 + 0.4 * wind + 0.4 * storm) * (1 - 0.6 * roof) * 0.35), now, 0.8);
   // a town's voices by day (fewer in the rain, none at night), through the walls when you are inside
   const town = out * P.town * (0.25 + 0.75 * day) * (1 - 0.6 * rain) * (1 - 0.6 * room) * 0.11 * (1 - sstep(0.6, 0.95, night));
-  air.town.g.gain.setTargetAtTime(lerpK('town', town), now, 0.8);
-  air.town.f.frequency.setTargetAtTime(room ? 900 : 2400, now, 0.5);
+  sndSet(air.town.g.gain, lerpK('town', town), now, 0.8);
+  sndSet(air.town.f.frequency, room ? 900 : 2400, now, 0.5);
   // flags up on the walls
   const flap = out * P.walls * (0.25 + wind * 0.75 + storm) * 0.03 * (1 - roof);
-  air.flapLfo.gain.setTargetAtTime(lerpK('flap', flap) * 0.6, now, 0.5);
-  air.flap.g.gain.setTargetAtTime(K.flap * 0.4, now, 0.5);
-  air.flapOsc.frequency.setTargetAtTime(7 + 5 * wind + 4 * storm + 2 * Math.sin(t * 0.7), now, 0.3);
+  sndSet(air.flapLfo.gain, lerpK('flap', flap) * 0.6, now, 0.5);
+  sndSet(air.flap.g.gain, K.flap * 0.4, now, 0.5);
+  sndSet(air.flapOsc.frequency, 7 + 5 * wind + 4 * storm + 2 * Math.sin(t * 0.7), now, 0.3);
   // the echo: the Barrow's halls, a room or a hall, a keep's court between its walls
   const wet = indoorBarrow ? 0.45 : room ? 0.2 : roof ? 0.1 : P.keep * (1 - P.walls) * 0.06;
-  SND.rev.send.gain.setTargetAtTime(lerpK('wet', wet, 2), now, 0.3);
+  sndSet(SND.rev.send.gain, lerpK('wet', wet, 2), now, 0.3);
   // birds by day (fewer in winter and in the rain), placed among the trees round you
   air.chirpAt = (air.chirpAt ?? 3) - dt;
   if (air.chirpAt <= 0) {
@@ -1062,7 +1094,7 @@ function sndBattleStep(now) {
   const L = SND.L, gt = GAME.t, cells = new Map();
   if (L.ok && GAME.started && !INDOOR.on) {
     for (const e of ENT) {
-      if (!e.alive || e.kind === 'door' || !(e.combatUntil > gt) || e.faction > 3) continue;
+      if (!e.alive || e.kind === 'door' || !(e.combatUntil > gt) || e.faction > 3 || !isFiniteNum(e.x + e.y + e.z)) continue;
       const dx = e.x - L.x, dz = e.z - L.z, d2 = dx * dx + dz * dz;
       if (d2 < 30 * 30 || d2 > 470 * 470) continue;
       const key = Math.round(e.x / 50) + ':' + Math.round(e.z / 50);
@@ -1077,13 +1109,13 @@ function sndBattleStep(now) {
   const mix = _sndMix;
   air.battle.forEach((V, i) => {
     const c = _sndBand[i];
-    if (!c || c.w < 0.02) { V.g.gain.setTargetAtTime(0, now, 0.8); V.on = 0; return; }
+    if (!c || c.w < 0.02) { sndSet(V.g.gain, 0, now, 0.8); V.on = 0; return; }
     sndMixAt({ ref: 45, max: 470 }, c.x, c.y + 1.5, c.z, null, mix);
     let g = 0.55 * c.w, fc = Math.min(mix.fc, 3200);
     if (sndOcc(c.x, c.y + 1.5, c.z)) { g *= 0.5; fc = Math.min(fc, 900); }
-    V.g.gain.setTargetAtTime(g, now, 0.6);
-    V.f.frequency.setTargetAtTime(fc, now, 0.5);
-    if (V.p) V.p.pan.setTargetAtTime(mix.pan, now, 0.5);
+    sndSet(V.g.gain, g, now, 0.6);
+    sndSet(V.f.frequency, fc, now, 0.5);
+    if (V.p) sndSet(V.p.pan, mix.pan, now, 0.5);
     V.on = g;
     // now and then a cry or a clash carries clear of the din
     if (Math.random() < 0.18 * c.w) sfxAt(Math.random() < 0.5 ? 'warcry' : 'clash', c.x, c.y + 1.5, c.z, { vol: 0.8 });
@@ -1228,13 +1260,7 @@ async function sndRenderOffline(name, o = {}) {
   if (o.hp) { const f = octx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = o.hp; f.Q.value = 0.707; const f2 = octx.createBiquadFilter(); f2.type = 'highpass'; f2.frequency.value = o.hp; f2.Q.value = 0.707; tail.connect(f).connect(f2); tail = f2; }
   tail.connect(octx.destination);
   const bus = octx.createGain(); bus.connect(top);
-  if (o.phone) { // the phone's harmonics, as sndInit has them
-    const lp = octx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 150;
-    const ws = octx.createWaveShaper(); ws.curve = sndHarmCurve();
-    const bp = octx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 330; bp.Q.value = 0.6;
-    const g = octx.createGain(); g.gain.value = 0.55;
-    bus.connect(lp).connect(ws).connect(bp).connect(g).connect(top);
-  }
+  if (o.phone) sndExciter(octx, bus).out.connect(top); // the phone's harmonics, as sndInit has them
   let res;
   try {
     AUDIO.ctx = octx; AUDIO.noise = nb; Math.random = rnd;
@@ -1277,7 +1303,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.snd = {
     SND, SND_DEF, SND_SYNTH, SND_PLACE, SOUND_LEVELS, sfxAt, sfxAtE, sndFlush, sndMixAt, sndDistGain, sndOcc, sndListener, sndPlaceAt, sndUpdate,
-    setSoundLevel, soundLevelKey, soundVolumeKey, sndOnLoose, sndKeepAlarm, sndNewsCue, sndShieldBroke, render: sndRenderOffline, sndBuf,
+    setSoundLevel, soundLevelKey, soundVolumeKey, sndOnLoose, sndKeepAlarm, sndNewsCue, sndShieldBroke, sndBeat, sndLifeStep, sndAirStep, sndBattleStep, render: sndRenderOffline, sndBuf, syn: { tone, noiseBurst, sndToneF, sndVoiceSyn }, fish: (dt) => updateFish(dt),
     names: () => [...new Set([...Object.keys(SND_SYNTH).filter((k) => !k.includes(':')), ...Object.keys(SND_DEF).filter((k) => k !== '_')])],
     mix(name, x, y, z) { sndListener(); const def = SND_DEF[name] || SND_DEF._, m = sndMixAt(def, x, y, z, null, { g: 0, pan: 0, fc: 0, d: 0 }); return { g: Math.round(m.g * 1e4) / 1e4, pan: Math.round(m.pan * 100) / 100, fc: Math.round(m.fc), d: Math.round(m.d * 10) / 10, occ: sndOcc(x, y, z) }; },
     state() {
@@ -1286,7 +1312,7 @@ queueMicrotask(() => {
         ctx: AUDIO.ctx ? AUDIO.ctx.state : 'none', ready: SND.ready, on: AUDIO.on, lvl: { ...AUDIO.lvl }, cap: SND.cap, queue: SND.q.length,
         live: SND.voices.filter((v) => v.end > now).length, voices: SND.voices.length, stats: { ...SND.stats }, played: { ...SND.played }, log: SND.log.slice(-20),
         loops: SND.loops.map((V) => ({ buf: V.buf, on: Math.round(V.on * 1000) / 1000, x: Math.round(V.x), z: Math.round(V.z) })), battle: SND.battle, place: { ...SND_PLACE },
-        air: SND.air ? Object.fromEntries(Object.entries(SND.air.k).map(([k, v]) => [k, Math.round(v * 10000) / 10000])) : null, wet: SND.rev ? Math.round(SND.rev.send.gain.value * 1000) / 1000 : 0,
+        air: SND.air ? Object.fromEntries(Object.entries(SND.air.k).map(([k, v]) => [k, Math.round(v * 10000) / 10000])) : null, wet: SND.air ? Math.round((SND.air.k.wet || 0) * 1000) / 1000 : 0,
       };
     },
     resetCounts() { SND.count = {}; SND.played = {}; for (const k in SND.stats) SND.stats[k] = 0; SND.log.length = 0; },
