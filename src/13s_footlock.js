@@ -171,7 +171,7 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // taken where the body is drawn next (footLockSlot: the player moves after its gait steps, so a place taken here
       // would be a step behind)
       if (!o.down) {
-        o.latch = false; o.frozen = false;
+        o.latch = false; o.frozen = false; o.frz = null;
         // [motion4] a landing the leg could not reach was taken in the air (footLockSlot: o.air): it goes on as a quick
         // step from there, already off the ground, and comes down where the stance can be spent
         if (o.air && o.lwx != null) {
@@ -226,10 +226,12 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // [motion4] the body halted (its gait no longer turns over: the keys let go, a rush landing, a walker at its place):
       // a person's foot in the air stays where it was last drawn and comes down there as the gait settles (it was carried
       // in toward the body over the ground as the stride shrank, 4 cm as a rush landed and up to 30 cm from a sprint)
-      if (o.human && du < 0.05 && o.useA && o.dx != null && o.gz != null && !o.frozen) {
+      // (held up for a moment, a step blocked on a stair's side, it goes on as it was going: its swing as it was)
+      if (o.human && du < 0.05 && Math.hypot(vx, vz) < 0.05 && o.useA && o.dx != null && o.gz != null && !o.frozen) {
         const px = x0 + o.dx, pz = o.gz + o.dz;
+        o.frz = { ax: o.ax, az: o.az, latch: o.latch, ywL: o.ywL, lwx: o.lwx, lwz: o.lwz };
         o.ax = o.lwx = e.x + px * c + pz * s; o.az = o.lwz = e.z - px * s + pz * c; o.latch = true; o.ywL = e.yaw + (o.yo || 0); o.frozen = true;
-      } else if (du >= 0.05) o.frozen = false;
+      } else if (du >= 0.05 && o.frozen) { const F = o.frz; o.frozen = false; if (F) { o.ax = F.ax; o.az = F.az; o.latch = F.latch; o.ywL = F.ywL; o.lwx = F.lwx; o.lwz = F.lwz; } o.frz = null; }
       let lx = x0 + o.tx + vx * tl, lz = z0 + reach + o.tz + vz * tl;
       // [motion4] from its last frames in the air the place it comes down on is kept in the world: worked out afresh each
       // step it swung round with a body turning 0.2 rad a frame, and the foot came in over the ground
@@ -327,7 +329,7 @@ function footLockSlot(e, horse) {
     if (o.human && o.down && o.g && !horse && e.anim.act === 19 && e.anim.actDur > 0) {
       const at = clamp(e.anim.actT / e.anim.actDur, 0, 1), kk = _flSS(0, 0.18, at) * (1 - _flSS(0.85, 1, at)), front = o.g[3] > 0;
       const kS = front ? _flSS(0, 0.55, kk) : _flSS(0.45, 1, kk), sc = e.scale || 1, a = lerp(o.along + o.dz, (front ? 0.34 : -0.5) * sc, _flSS(0.15, 0.85, kS)), lx = o.g[3] + o.dx;
-      o.dy = clamp(lerp(o.dy, flFloor(e, e.x + lx * c + a * s, e.z - lx * s + a * c) - e.y, kS), -0.2, 0.6);
+      if (kS > 0) o.dy = clamp(flFloor(e, e.x + lx * c + a * s, e.z - lx * s + a * c) - e.y, -0.2, 0.6); // (the floor under it where it is now)
     }
     if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
@@ -341,6 +343,14 @@ function footLockSlot(e, horse) {
       // seen from where the body is drawn (read from the body's frame a step late, the foot jumped as a body turned hard)
       const ax = o.hwx - e.x, az = o.hwz - e.z, k = _flSS(0.15, 0.85, o.hop);
       o.dx = lerp(clamp(ax * c - az * s - o.g[3], o.lo ?? -9, o.hi ?? 9), o.tx, k); o.dz = lerp(ax * s + az * c - o.along, o.tz, k);
+      // [motion4] over the floors on its way: from the floor it left to the floor where it will come down, never under the
+      // floor beneath it now (on a flight it was carried at the height it left, onto the next tread and into its riser)
+      if (o.h != null && !(e.anim.act === 19 && e.anim.actDur > 0)) {
+        const lx = o.g[3] + o.dx, lz = o.along + o.dz, gx = o.g[3] + o.tx, gz = o.along + o.tz;
+        const hC = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c), hG = flFloor(e, e.x + gx * c + gz * s, e.z - gx * s + gz * c);
+        const hum = e.kind === 'humanoid' && !horse;
+        o.dy = clamp(Math.max(lerp(o.h, hG, k), hC) + flHopH(o.hop) - e.y, hum ? -0.2 : -0.45, hum ? FL_UP : 0.45);
+      }
     } else if (!o.down && o.useA && o.g) {
       // [motion3] in the air: between where it lifted off and where it will come down, both on the ground, seen from where
       // the body is drawn (the player moves after its gait steps)

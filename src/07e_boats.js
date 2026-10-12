@@ -10,6 +10,7 @@
 // Boats burn and are rebuilt; the towns' fishers row out in the mornings and back again.
 const BOATS = { list: [], jetties: [], built: false, next: 1, geo: {}, dirty: false };
 const BOAT_L = 4.3, BOAT_B = 1.36, BOAT_DRAFT = 0.24, BOAT_SEAT_Z = 0.22, BOAT_LOCK_Z = -0.18, BOAT_THWART = 0.06;
+const BOAT_GRIP = OAR_GRIP; // [motion4] the oar's grip inboard of its rowlock (05a_rig.js: the rower's hands reach for it)
 const BOAT_STROKE = 1.55; // seconds of a full stroke at the oars
 const _bW = { y: 0, depth: 0, fx: 0, fz: 0 };
 
@@ -72,8 +73,11 @@ function boatHullGeo(cols) {
 function boatOarGeo(col) {
   const B = new Batch(), I = new THREE.Matrix4();
   B.add(G.cyl8, lm(I, 0.48, 0, 0, 0, 0.022, 1.95, 0.022, 0, Math.PI / 2), MAT.wood, col);
-  B.add(G.cyl8, lm(I, -0.42, 0, 0, 0, 0.027, 0.78, 0.027, 0, Math.PI / 2), MAT.wood, col.map((v) => v * 0.9));
-  B.add(G.cyl8, lm(I, -0.86, 0, 0, 0, 0.02, 0.16, 0.02, 0, Math.PI / 2), MAT.wood, col.map((v) => v * 0.6));
+  // [motion4] the loom inboard of the rowlock and the grip: the grip BOAT_GRIP m in, where the rower's hands are at the
+  // width of its shoulders through the whole stroke (humanVS's oars, 05a_rig.js: at 0.86 m the grips met over the boat's
+  // middle at the catch and the hands rowed 25 to 50 cm off them)
+  B.add(G.cyl8, lm(I, -(BOAT_GRIP - 0.08) / 2, 0, 0, 0, 0.027, BOAT_GRIP - 0.08, 0.027, 0, Math.PI / 2), MAT.wood, col.map((v) => v * 0.9));
+  B.add(G.cyl8, lm(I, -BOAT_GRIP, 0, 0, 0, 0.02, 0.16, 0.02, 0, Math.PI / 2), MAT.wood, col.map((v) => v * 0.6));
   B.add(G.box, lm(I, 1.6, 0, 0, 0, 0.62, 0.02, 0.14), MAT.wood, col.map((v) => v * 1.05));
   B.add(G.box, lm(I, 0.02, 0, 0, 0, 0.09, 0.05, 0.05), MAT.cloth, [0.38, 0.32, 0.22]);
   return B.build();

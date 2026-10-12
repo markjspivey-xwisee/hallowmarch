@@ -652,6 +652,10 @@ const HSK = { // skeleton constants for GLSL
 // [motion4] how far ahead of a climber's line a tower ladder's rungs are (04l_towers.js twDims: 0.31 m in the big
 // drums and the corner towers, 0.36 in the small ones): the hands and the feet reach for them (ladderLegs, ladderHands)
 const LADDER_AHEAD = 0.33;
+// [motion4] the oars as the rower holds them (07e_boats.js): the grip OAR_GRIP m inboard of its rowlock, the rowlocks
+// 0.698 m out from the keel (boatHB at BOAT_LOCK_Z, + 0.02), 0.33 m over the thwart's top and 0.48 m aft of the rower
+// (BOAT_SEAT_Z + 0.08 - BOAT_LOCK_Z), where the rower sits facing aft
+const OAR_GRIP = 0.59, OAR_LOCK = { y: 0.33, z: 0.48 };
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -959,7 +963,7 @@ function humanVS(depth) {
       // [classes] kneeling: down on the right knee, the left foot planted ahead, hands together, head bowed
       float kn = smoothstep(0.0, 0.25, at) * (1.0 - smoothstep(0.88, 1.0, at));
       // [motion] the front foot flat on the ground ahead (IK: with set angles it sank 11 cm), the back knee on the ground
-      vec2 kF = legIK(0.5, -0.365);
+      vec2 kF = legIK(0.5, -0.402); // [motion4] (-0.365 left the front foot 3.8 cm over the floor, measured from what is drawn)
       thL = mix(thL, kF.x, kn); shL = mix(shL, kF.y, kn);
       thR = mix(thR, 0.25, kn); shR = mix(shR, 1.5, kn);
       crouch = mix(crouch, 0.48, kn); bob *= 1.0 - kn;
@@ -1040,6 +1044,15 @@ function humanVS(depth) {
         thL = pF.x; shL = pF.y; thR = pB.x; shR = pB.y;
       }
     }
+    // [motion4] a blow, a flinch, a reach, a smash or a parry (actions 1, 4, 5, 8 and 11) shifts the body's weight over
+    // the feet (stepZ: the hips forward, or back for a flinch, and a little down) while each foot stays where the gait and
+    // the lock have it: the lunge was posed by the legs' own angles and stepZ moved the whole body, feet and all, so every
+    // blow slid the planted feet 10 cm over the ground (and the Charge's landing blow 10 cm)
+    if ((atype > 0.5 && atype < 1.5) || (atype > 3.5 && atype < 5.5) || (atype > 7.5 && atype < 8.5) || (atype > 10.5 && atype < 11.5)) {
+      crouch += 0.4 * abs(stepZ);
+      vec2 wL = legIK(fL.x - stepZ, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), wR = legIK(fR.x - stepZ, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
+      thL = wL.x; shL = wL.y; thR = wR.x; shR = wR.y;
+    }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
     float swimK = clamp(-iAnim.w, 0.0, 1.0), swimPitch = 0.0;
@@ -1117,9 +1130,19 @@ function humanVS(depth) {
         // back with the legs and the back, draw the handles in to the chest, then the hands away and the body forward
         float drv = smoothstep(0.02, 0.45, at), rcv = smoothstep(0.55, 0.98, at), pull = drv * (1.0 - rcv);
         float elb = smoothstep(0.22, 0.48, at) * (1.0 - smoothstep(0.55, 0.75, at));
-        chestX = mix(0.5, -0.32, pull); headX = -chestX * 0.55 + 0.04; chestY = 0.0; headY = 0.0;
-        uaL = mix(-1.5, -0.62, pull); uaR = uaL; faL = -0.1 - 1.65 * elb; faR = faL;
-        uaLz = -0.2 - 0.4 * elb; uaRz = -uaLz;
+        chestX = mix(0.72, -0.32, pull); headX = -chestX * 0.55 + 0.04; chestY = 0.0; headY = 0.0; // [motion4] (0.5: at the catch the grips were out of the arms' reach, 13 cm)
+        // [motion4] the hands on the oars' grips: where boatsDraw (07e_boats.js) swings and dips the oars at this point of
+        // the stroke, seen from the rower (facing aft), reached by the arms (in the frame before the chest's lean): the
+        // arms were posed by the stroke alone and rowed 25 to 50 cm off the grips
+        float dv = clamp((at - 0.02) / 0.45, 0.0, 1.0), rv = clamp((at - 0.47) / 0.53, 0.0, 1.0);
+        float swp = at < 0.47 ? mix(0.62, -0.5, dv * dv * (3.0 - 2.0 * dv)) : mix(-0.5, 0.62, rv * rv * (3.0 - 2.0 * rv));
+        float dip = at < 0.47 ? 0.3 : at < 0.55 ? mix(0.3, 0.12, (at - 0.47) / 0.08) : at > 0.94 ? mix(0.12, 0.3, (at - 0.94) / 0.06) : 0.12;
+        float rsO = max(iColA.w, 0.3), gyO = (${OAR_LOCK.y.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * sin(dip)) / rsO + 0.86, gzO = (${OAR_LOCK.z.toFixed(3)} + ${OAR_GRIP.toFixed(3)} * cos(dip) * sin(swp)) / rsO;
+        vec2 qO = vec2(gyO - 1.04, gzO + 0.01); float cO = cos(chestX), sO = sin(chestX);
+        qO = vec2(qO.x * cO + qO.y * sO, qO.y * cO - qO.x * sO) + vec2(1.04, -0.01);
+        vec2 aO = armIK(qO.x, qO.y);
+        uaL = aO.x; uaR = aO.x; faL = aO.y; faR = aO.y;
+        uaLz = 0.0; uaRz = 0.0; stepZ = 0.0; seatTurn = 0.0;
         thL = -1.55 + 0.42 * pull; thR = thL; shL = 1.75 - 0.75 * pull; shR = shL; spreadL = 0.16; spreadR = -0.16;
         bob = 0.0; capeX = 0.08;
       }
