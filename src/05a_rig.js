@@ -1063,9 +1063,12 @@ function humanVS(depth) {
       uaL = mix(uaL, aw, kk); uaR = mix(uaR, aw + 0.1, kk); faL = mix(faL, -0.2 - 0.4 * up, kk); faR = mix(faR, -0.2 - 0.4 * up, kk);
       uaLz = mix(uaLz, -0.2, kk); uaRz = mix(uaRz, 0.2, kk);
       chestX = mix(chestX, 0.5 - 0.32 * up, kk); headX = mix(headX, 0.12 - 0.1 * up, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
-      vec2 bF = legIK(0.26, -0.735), bB = legIK(-0.32, -0.735);
-      thL = mix(thL, bF.x, still); shL = mix(shL, bF.y, still); thR = mix(thR, bB.x, still); shR = mix(shR, bB.y, still);
+      // [v14] braced on bent knees over feet that stay where they stand (the lock holds them), as a blow's weight shift: the
+      // stance it was set into (one foot 0.26 m ahead, the other 0.32 m behind) glided over the ground and back with every
+      // action, set again each 1.1 s while the flames burn: a foot moved 28 cm (actions.py's beat)
       crouch = mix(crouch, 0.11, still); bob *= 1.0 - still; capeX = mix(capeX, 0.3, kk);
+      vec2 bL = legIK(fL.x - stepZ, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), bR = legIK(fR.x - stepZ, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
+      thL = mix(thL, bL.x, still); shL = mix(shL, bL.y, still); thR = mix(thR, bR.x, still); shR = mix(shR, bR.y, still);
     }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
