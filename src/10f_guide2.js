@@ -61,9 +61,25 @@ function g2FoldEl(sec, title, nodes, cls = '') {
   G2.stats.folds++;
   return d;
 }
+// pages a reader of one goes on to: linked at its end where the page does not link them already
+const G2_SEE = {
+  march: ['realms', 'war'], realms: ['gifts', 'war'], water: ['living', 'land'], land: ['gear', 'living'], wilds: ['dragon', 'barrow'], dragon: ['barrow', 'wilds'], barrow: ['dragon', 'gear'],
+  path: [], notes: [], goals: ['path', 'callings', 'gear'], callings: ['gifts', 'gear'], gear: ['callings', 'halls'],
+  war: [], orders: ['war', 'sieges'], sieges: ['war', 'halls'], halls: ['orders', 'building'], gifts: ['callings', 'war'],
+  living: ['fields', 'water'], fields: ['herbal', 'living'], herbal: ['fields'], animals: ['building', 'living'], building: ['halls', 'animals'],
+};
+function chronSee(sec, el) {
+  const label = Object.fromEntries(CHRON_SECTIONS), ks = (G2_SEE[sec] || []).filter((k) => label[k] && k !== sec && !el.querySelector(`[data-lore="sec:${k}"]`));
+  if (!ks.length) return;
+  const d = document.createElement('div');
+  d.className = 'acts g2-see';
+  d.innerHTML = `<span>See also</span>${ks.map((k) => chronLink(k, label[k])).join('')}`;
+  el.appendChild(d);
+}
 function chronFold(sec) {
   const body = $('menu-body'), el = body && body.querySelector('.chron-body');
   if (!el) return;
+  chronSee(sec, el);
   const sheet = body.closest('.sheet'), vh = Math.max(320, (sheet && sheet.clientHeight) || innerHeight);
   const h0 = el.offsetHeight;
   G2.stats.pages[sec] = { h0, h: h0, vh, folds: 0 };
@@ -189,6 +205,15 @@ function g2Scan(P) {
   if (typeof LOOK3S !== 'undefined' && LOOK3S.ladders) for (const L of LOOK3S.ladders) if (L && !L.gone && L.fx != null && dist2(L.fx, L.fz, P.x, P.z) < 30 * 30) { N.scaffold = true; break; } // (a scaffold taken down keeps its ladders, gone)
   if (!N.scaffold && typeof MASON !== 'undefined') for (const e of MASON.list) if (e && e.alive && dist2(e.x, e.z, P.x, P.z) < 30 * 30) { N.scaffold = true; break; }
   for (const H of HOUSES) if (H.bat && (H.bat.k > 0.15 || H.bat.fell) && dist2(H.x, H.z, P.x, P.z) < 45 * 45) { N.battered = true; break; }
+  // what is happening now: a garrison near you leaving its posts to fight a fire (once in a minute and a half)
+  if (GAME.t > (G2.fireToldT || -1e9) + 90) {
+    let crew = null;
+    for (const e of ENT) if (e.alive && e.ai && e.ai.fire && dist2(e.x, e.z, P.x, P.z) < 80 * 80) { crew = e; break; }
+    if (crew) {
+      G2.fireToldT = GAME.t;
+      uiToast(isEnemy(P, crew) ? 'Fire on their walls: the garrison leaves its posts to beat it out.' : `Fire on your walls: the garrison runs to beat it out. ${IS_TOUCH ? 'Use' : 'E'} beside the flames to help.`, 'hint');
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

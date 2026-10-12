@@ -165,6 +165,11 @@ async def phone(p):
     r = await ev(page, """(() => { const H = __hm, P = G2T.P();
       return G2T.watch('battered', () => { const h = H.guide2.nearHouse(P); if (h) { H.teleport(h.x + 9, h.z); H.batter.houseStoneHit(h, h.x, h.y + 1.2, h.z, 3, null, false); } }, null); })()""")
     check(r is True, f'the field note "battered" is given by a house battered near you ({r})')
+    # what is happening now: a garrison near you runs to a fire (a toast)
+    r = await ev(page, """(() => { const H = __hm, P = G2T.P(), F = H.fn; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
+      const e = F.spawnRealmUnit((P.faction + 1) % 3, 'warrior', 20, 'soldier', P.x + 30, P.z); e.ai.fire = { key: 1, kind: 'pal' }; H.guide2.G2.fireToldT = -1e9; H.guide2.g2Scan(P);
+      const t = document.getElementById('banners').textContent; delete e.ai.fire; F.removeEnt(e); for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return t; })()""")
+    check('garrison leaves its posts' in r, f'a garrison running to a fire near you is told as it happens ({r[:80]})')
     # the farmers' word: by a town field (it was a toast)
     r = await ev(page, """(() => { const H = __hm, P = G2T.P(), F = H.farm.FARM; F.herbal.tips = 0; const L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'farmers'); H.LORE.state.queue.length = 0;
       const Q = F.plots.find((q) => q.own === 't'); if (!Q) return 'no field'; H.teleport(Q.x + 6, Q.z + 6); G2T.calm(); H.LORE.state.noteUntil = 0; H.UI.modal = null; for (let i = 0; i < 8; i++) { H.simulate(0.25); H.frame(1/30); }
