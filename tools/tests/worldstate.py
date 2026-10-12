@@ -213,7 +213,7 @@ async def main():
         r = await ev(page, 'restored', "(() => ({ got: __hm.land.LAND.restored, errors: __hm.errors.slice(0, 4), t: __hm.GAME.t }))()")
         got = r['got'] or {}
         check(not r['errors'], 'no errors on loading the busy save')
-        check(got.get('felled', 0) >= 2 and got.get('grow') == 1 and got.get('dyn', 0) >= 1 and got.get('craters', 0) >= 1 and got.get('houses', 0) >= 3 and got.get('walls') == 3 and got.get('piles') == 1 and got.get('fire', 0) > 5, 'every kind of change is read back')
+        check(got.get('felled', 0) >= 2 and got.get('grow') == 1 and got.get('dyn', 0) >= 1 and got.get('craters', 0) >= 1 and got.get('houses', 0) >= 3 and got.get('walls', 0) >= 3 and got.get('piles') == 1 and got.get('fire', 0) > 5, 'every kind of change is read back')  # [war2] walls: three set here, and any the running war wore meanwhile (each compared below)
         dt = r['t'] - got.get('t', 0)
         snap1 = await ev(page, 'snapshot after', "T.snap(T.P)")
         # trees
