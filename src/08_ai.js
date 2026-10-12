@@ -199,7 +199,7 @@ function fillGarrison(K, all) {
       g.tweak = { rangedRange: 36, dmg: 0.55, swing: 3.0 }; setupStats(g); g.ai.wall = true;
       if (!route) { g.fixedY = S.y + n.pos[1]; g.y = g.fixedY; } else if (all) g.y = route[route.length - 1].y; else { g.ai.route = route; g.ai.ri = 0; }
     }
-    g.ai.post = { x: p.x, z: p.z, leash: wall ? 0 : 11 };
+    g.ai.post = { x: p.x, z: p.z, y: p.y, leash: wall ? 0 : 11 }; // [v14] (y: its floor, for the way back down: thinkPosted)
     g.ai.slot = n.slot;
     g.keep = K;
     K.guards.add(g.id);
@@ -630,6 +630,13 @@ function thinkPosted(e, dt, aggroR) {
   }
   e.target = null;
   if (e.hp < e.maxHp && GAME.t > e.combatUntil + 4) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * dt * 0.05);
+  // [v14] a guard of the court left up on a walk or a stair (after a foe it climbed after, or a fire) goes down by the
+  // castle's ways (the firefighters' way back, 04g_blaze.js): straight for its post it climbed back up a stair and stood
+  // at the walk's edge over its post for the rest of the war
+  if (!e.ai.wall && e.fixedY === null && post.y != null && e.y - post.y > 1.1 && !e.ai.fireBack && GAME.t > (e.ai.downAt || 0)) {
+    e.ai.downAt = GAME.t + 3;
+    if (castleAt(e.x, e.z)) { e.ai.fireBack = { y: post.y, until: GAME.t + 60, scan: 0, foe: false }; if (blazeBackStep(e, dt)) return; }
+  }
   if (e.fixedY === null) moveToward(e, post.x, post.z, dt, 0.6, 0.4);
 }
 

@@ -133,9 +133,10 @@ async def deck(page):
     r = await ev(page, 'deck: rebuild', """(() => { const B = T3.B, K = T3.K, C = T3.C(K), out = {};
       T3.until(() => !B.cells.some((c) => c.st === 1), 200, 1);
       out.cut = C.posts.map((P, i) => T3.Z.blazeRouteCut(T3.F.castleRoute(K, i)) ? 1 : 0).join('');
-      const g = B.cells.find((c) => c.st === 3), a = g.nb.find((o) => o.st !== 3 && o.f.active) || g, sameDeck = B.cells.filter((o) => o.di === g.di && o.f.active);
-      const far = sameDeck.sort((p, q) => Math.hypot(q.x - a.x, q.z - a.z) - Math.hypot(p.x - a.x, p.z - a.z))[0];
-      out.across = T3.Z.blazeRouteCut([{ x: a.x, z: a.z, y: a.y }, { x: far.x, z: far.z, y: far.y }]);
+      // ([v14] the fire spreads by chance: a whole deck may have burnt through, leaving no standing cell on it to cross to)
+      const g = B.cells.find((c) => c.st === 3), a = g && (g.nb.find((o) => o.st !== 3 && o.f.active) || g), sameDeck = g ? B.cells.filter((o) => o.di === g.di && o.f.active) : [];
+      const far = a && sameDeck.sort((p, q) => Math.hypot(q.x - a.x, q.z - a.z) - Math.hypot(p.x - a.x, p.z - a.z))[0];
+      out.across = far ? T3.Z.blazeRouteCut([{ x: a.x, z: a.z, y: a.y }, { x: far.x, z: far.z, y: far.y }]) : null;
       T3.peace(K);
       out.gaps0 = T3.Z.BLAZE.gaps;
       const t = T3.until(() => B.cells.every((c) => c.st !== 3), 400, 2);
@@ -213,10 +214,12 @@ async def crew(page):
       const up = () => gs.filter((g) => g.alive && rose.has(g.id) && beaters.has(g.id) && Math.abs(g.y - y0.get(g.id)) > 1.1);
       let tb = 0; while (tb < 45 && up().length) { __hm.simulate(0.5); tb += 0.5; }
       out.rose = [...rose].filter((id) => beaters.has(id)).length; out.stillUp = up().length; out.backT = tb; out.back = T3.Z.BLAZE.stats.back;
+      // ([v14] who is still up, and why: where it stands, its post, its way back, a foe it sees)
+      out.why = up().map((g) => { const th = __hm.ENT.filter((o) => o !== g && o.alive && F.isEnemy(g, o)).sort((a, b) => Math.hypot(a.x - g.x, a.z - g.z) - Math.hypot(b.x - g.x, b.z - g.z))[0], p = g.ai.post; return { y: +(g.y - y0.get(g.id)).toFixed(1), d: p ? +Math.hypot(g.x - p.x, g.z - p.z).toFixed(1) : null, back: g.ai.fireBack ? +(g.ai.fireBack.until - __hm.GAME.t).toFixed(1) : null, fire: !!g.ai.fire, foe: th ? th.role + '@' + Math.hypot(th.x - g.x, th.z - g.z).toFixed(1) + '/' + (th.y - g.y).toFixed(1) : null, tgt: g.target || 0, act: g.anim.act }; });
       return out; })()""")
     check(r['beaters'] >= 1 and (r['arrived'] > 0 or (r['st'] != 1 and r['st'] != 3)), f"crew: they climb up to a fire on the walk's boards (there at {r['arrived']} s)")
     check(r['st'] != 1 and r['st'] != 3, f"crew: and beat it out before it burns through ({r['t']} s, char {r['char']}, {r['beats']} s of beating)")
-    check(r['stillUp'] == 0, f"crew: the fire out, those who climbed onto the walk go back down to their posts' floor ({r['rose']} went up, {r['stillUp']} still up after {r['backT']} s)")
+    check(r['stillUp'] == 0, f"crew: the fire out, those who climbed onto the walk go back down to their posts' floor ({r['rose']} went up, {r['stillUp']} still up after {r['backT']} s{': ' + json.dumps(r.get('why')) if r['stillUp'] else ''})")
     r = await ev(page, 'crew: diversion', """(() => { const { K, C, B } = T3.burh(0), out = {}, F = T3.F;
       // with a foe at the gate the crew still goes to a fire on the far wall: the watch is thinner while it burns
       __hm.palisade.palisadeInit(); const c = C.pal.cells.find((q) => q.side === 0 && q.a > 4 && q.st === 0); __hm.palisade.palisadeIgnite(c, 0.3);

@@ -173,7 +173,7 @@ async def main():
         # ---- priest: pillar of dawn and mass renewal ----
         r = await ev(page, 'priest', """(() => { const P = T.fresh('priest', 35); const H = T.H, F = T.F;
           const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
-          const foe = T.foe(1, P.x + fx * 14, P.z + fz * 14, 33); foe.maxHp *= 4; foe.hp = foe.maxHp;
+          const foe = T.foe(1, P.x + fx * 14, P.z + fz * 14, 33); foe.maxHp *= 4; foe.hp = foe.maxHp; foe.swingAt = 1e9; foe.ai.nextAbility = 1e9; // ([v14] the foe holds its blows: striking the friend beside it, it took more than the column gave back now and then)
           const ally = T.foe(0, P.x + fx * 13 + 1.5, P.z + fz * 13 - 1.0, 33); ally.hp = ally.maxHp * 0.4;
           const near = T.foe(0, P.x + 3, P.z + 2, 33); near.hp = near.maxHp * 0.5;
           P.target = foe.id; const fh0 = foe.hp, ah0 = ally.hp;

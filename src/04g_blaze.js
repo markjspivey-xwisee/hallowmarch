@@ -688,13 +688,23 @@ function blazeCrews(dt) {
           if (d < bd) { bd = d; best = g; }
         }
         if (!best) break;
-        best.ai.fire = { key: f.key, kind: f.kind, best: Infinity, bestT: GAME.t, since: GAME.t, py: best.ai.fireBack ? best.ai.fireBack.y : best.y }; // (py: the floor it goes back to)
+        best.ai.fire = { key: f.key, kind: f.kind, best: Infinity, bestT: GAME.t, since: GAME.t, py: best.ai.fireBack ? best.ai.fireBack.y : blazePostFloor(best) }; // (py: the floor it goes back to)
         best.ai.fireBack = null;
         busy.push(best); have++; n++;
         BLAZE.stats.crews++;
       }
     }
   }
+}
+// [v14] the floor of a body's post to go back to: a wall archer's is where it stands when it is sent; a court guard's is the
+// court's at its post (taken where it stood, a guard sent to the next fire from the stair or the walk of the last went
+// back to the stair or the walk, and stood at the walk's edge over its post: siege3.py's crew)
+function blazePostFloor(e) {
+  const p = e.ai.post;
+  if (!p) return e.y;
+  if (p.y != null) return p.y; // (a keep's garrison knows its post's floor: 08_ai.js)
+  if (e.ai.wall) return e.y;
+  return floorAt(p.x, p.z, heightAt(p.x, p.z) - 0.5);
 }
 // a fire's work over (out, given up, a foe on it): its borrowed way let go, and a way back to the floor of its post
 // (a guard of the court that climbed onto the walk would walk straight for its post and stand at the walk's edge)
@@ -713,9 +723,16 @@ function blazeBackStep(e, dt) {
   if (!post || GAME.t > B.until || e.fixedY !== null) { e.ai.fireBack = null; return false; }
   if (GAME.t > B.scan) { B.scan = GAME.t + 0.5; const t = topThreat(e); B.foe = !!(t && dist2(t.x, t.z, e.x, e.z) < 12 * 12 && Math.abs(t.y - e.y) < 3); }
   if (B.foe) return false;
-  if (Math.abs(e.y - B.y) < 1.1) { e.ai.fireBack = null; BLAZE.stats.back++; return false; }
+  if (Math.abs(e.y - B.y) < 1.1) {
+    // [v14] on the last steps of a stair: on to the way's foot first (castleWaypoint has no way within 1.1 m of the floor,
+    // and straight for its post from the lowest steps a court guard walked back up the stair and stood at the walk's
+    // edge over its post: siege3.py's crew, two of two)
+    if (B.wp && !B.wp.ladder && Math.abs(e.y - B.y) > 0.3 && dist(e.x, e.z, B.wp.x, B.wp.z) > 0.45 && GAME.t < (B.footT ??= GAME.t + 6)) { e.target = null; moveToward(e, B.wp.x, B.wp.z, dt, 0.9, 0.05); return true; }
+    e.ai.fireBack = null; BLAZE.stats.back++; return false;
+  }
   const wp = castleWaypoint(e, { x: post.x, y: B.y, z: post.z });
   if (!wp || (wp.ladder && wp.ladder.gone)) { e.ai.fireBack = null; return false; }
+  B.wp = wp; // [v14] (the latest way point: the way's foot once on the lowest steps)
   e.target = null;
   if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true;
   if (wp.ladder && Math.abs(wp.y - e.y) > 1) { const L = wp.ladder, up = wp.y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, 1.0, 0.05); return true; }
