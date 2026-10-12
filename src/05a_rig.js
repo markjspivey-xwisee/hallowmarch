@@ -16,6 +16,7 @@ const WB = {
   beard: 1 << 15, shieldRound: 1 << 16, skirt: 1 << 17, belt: 1 << 18, circlet: 1 << 19,
   torch: 1 << 20, // a burning brand held in the left hand (09d_brand.js)
   beater: 1 << 21, // [look4] a fire beater (a leather flap on an ash pole) in the right hand while beating out flames (action 21)
+  hammer: 1 << 22, // [motion5] a mallet in the right hand while hammering at a wall (action 23: builders and masons)
 };
 const WBIT = {};
 for (const k in WB) WBIT[k] = Math.round(Math.log2(WB[k]));
@@ -610,6 +611,15 @@ function buildHumanoid(lod) {
       Bt(new THREE.BoxGeometry(0.34, 0.4, 0.016), M4([0, 1.1, 0], [0.06, 0, 0]), { mat: mat.leather });
       if (hi) for (const y of [0.93, 0.99]) Bt(new THREE.TorusGeometry(0.02, 0.005, 3, 6), M4([0, y, 0], [Math.PI / 2, 0, 0]), { mat: mat.leather });
     }
+    // [motion5] a mallet in the right fist, shown only while a builder or a mason works (13_main.js sets its bit): an ash
+    // haft and a round head of hard wood bound with iron, across the haft in the plane of the swing (they hammered with
+    // empty fists, 1.7 m off the wall)
+    {
+      const Hm = (geo, mm, o) => kitGeo(K, geo, inHand(gripR, 1.85, mm), { bone: B.farmR, w: 1, bit: WBIT.hammer, ...o });
+      Hm(new THREE.CylinderGeometry(0.012, 0.015, 0.34, hi ? 7 : 4), M4([0, 0.12, 0]), { mat: mat.wood });
+      Hm(new THREE.CylinderGeometry(0.036, 0.036, 0.13, hi ? 10 : 6), M4([0, 0.3, 0], [Math.PI / 2, 0, 0]), { mat: mat.wood });
+      if (hi) for (const z of [-0.055, 0.055]) Hm(new THREE.TorusGeometry(0.036, 0.004, 3, 10), M4([0, 0.3, z]), { mat: mat.steel });
+    }
     // bow: a recurved stave with a wrapped grip, and its string
     const arc = [];
     for (let i = 0; i <= (hi ? 16 : 6); i++) {
@@ -1080,6 +1090,21 @@ function humanVS(depth) {
       vec2 bL = legIK(fL.x - stepZ, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), bR = legIK(fR.x - stepZ, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
       thL = mix(thL, bL.x, still); shL = mix(shL, bL.y, still); thR = mix(thR, bR.x, still); shR = mix(shR, bR.y, still);
     }
+    // [motion5] hammering at a wall (action 23: the builders at a house's scaffold, 08f_townlife.js, and the masons, 13v_look3.js):
+    // the left hand braced on the wall holding the work, the right raising the mallet over the shoulder and bringing it down
+    // onto the wall before the chest, once an action, the feet standing (they cut across the air with action 1, a sword's
+    // stroke, 1.7 m from the wall, and the stroke's weight shift moved the hips)
+    if (atype > 22.5 && atype < 23.5) {
+      float kk = smoothstep(0.0, 0.1, at) * (1.0 - smoothstep(0.9, 1.0, at)), still = kk * (1.0 - k);
+      float raise = smoothstep(0.04, 0.5, at) * (1.0 - smoothstep(0.56, 0.68, at)), hold = smoothstep(0.68, 0.75, at) * (1.0 - smoothstep(0.82, 0.96, at));
+      float ua = mix(-0.86, -2.35, raise) + 0.08 * hold, fa = mix(-0.55, -1.75, raise);
+      uaR = mix(uaR, ua, kk); faR = mix(faR, fa, kk); uaRz = mix(uaRz, 0.1, kk);
+      uaL = mix(uaL, -1.42, kk); faL = mix(faL, -0.12, kk); uaLz = mix(uaLz, -0.28, kk);
+      chestX = mix(chestX, 0.07, kk); chestY = mix(chestY, 0.08 * raise, kk); headX = mix(headX, 0.18, kk); headY = mix(headY, 0.0, kk);
+      crouch = mix(crouch, 0.03, still); bob *= 1.0 - still; stepZ *= 1.0 - kk;
+      vec2 mL = legIK(fL.x, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), mR = legIK(fR.x, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
+      thL = mix(thL, mL.x, still); shL = mix(shL, mL.y, still); thR = mix(thR, mR.x, still); shR = mix(shR, mR.y, still);
+    }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
     float swimK = clamp(-iAnim.w, 0.0, 1.0), swimPitch = 0.0;
@@ -1205,7 +1230,7 @@ function humanVS(depth) {
     // cloak, a blade, a mace or an axe across it from the right shoulder, a staff across it, a bow over the quiver).
     // They were held up off the rungs: the blade out to the side, the shield on the raised arm. In a blow from the rungs
     // (18) the right hand has its weapon again; the shield and the bow stay on the back
-    if (aBit > -0.5 && ((atype > 13.5 && atype < 14.5) || (atype > 17.5 && atype < 18.5) || (atype > 20.5 && atype < 21.5))) { // [siege3] and beating out flames (21)
+    if (aBit > -0.5 && ((atype > 13.5 && atype < 14.5) || (atype > 17.5 && atype < 18.5) || (atype > 20.5 && atype < 21.5) || (atype > 22.5 && atype < 23.5))) { // [siege3] and beating out flames (21); [motion5] and hammering (23)
       int sb = int(aBit + 0.5);
       bool sS = sb == ${WBIT.shield} || sb == ${WBIT.shieldRound};
       bool sR = sb == ${WBIT.sword} || sb == ${WBIT.mace} || sb == ${WBIT.axe} || sb == ${WBIT.staff};

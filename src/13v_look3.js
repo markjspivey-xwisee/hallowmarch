@@ -162,7 +162,7 @@ function look3MasonThink(e, dt) {
   }
   if (m.st === 'up') {
     // on the boards: a step along from the ladder's top, facing the wall, and to work
-    m.st = 'work';
+    m.st = 'work'; m.wallD = undefined; // [motion5] (in to the wall again from here)
     m.lad = m.lad || [L]; m.workT = m.t; // [look4] the ladders climbed so far, and when the work there began
     return;
   }
@@ -181,11 +181,16 @@ function look3MasonThink(e, dt) {
   }
   if (m.st === 'work') {
     turnToward(e, e.x + m.face.x, e.z + m.face.z, dt * 4);
+    // [motion5] first in to where the mallet meets the wall (HAMMER_REACH, 13y_motion5.js): along the boards or under them,
+    // a step at a time, until the wall is that far or the way in is blocked
+    if (m.wallD === undefined) { const R = shotHit(e.x, e.y + 1.2, e.z, e.x + m.face.x * 3, e.y + 1.2, e.z + m.face.z * 3, { ground: false }); m.wallD = R ? R.t * 3 : -1; }
+    if (m.wallD > HAMMER_REACH + 0.04) { const s0 = Math.min(m.wallD - HAMMER_REACH, dt * 1.2), x0 = e.x, z0 = e.z; stepTo(e, e.x + m.face.x * s0, e.z + m.face.z * s0); const mv = Math.hypot(e.x - x0, e.z - z0); m.wallD = mv > 1e-4 ? m.wallD - mv : -1; return; }
     m.next = m.next ?? m.t + 0.5;
+    e._hamUntil = GAME.t + 0.4; // [motion5] a mallet in the hand, and a hammer's blow onto the wall (action 23, 05a_rig.js)
     if (m.t >= m.next) {
-      m.next = m.t + 1.0 + Math.random() * 0.6; MASON.stats.worked++;
-      setAct(e, 1, 0.6);
-      later(0.3, () => { if (e.alive && !e.removed) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+      m.next = m.t + 1.05 + Math.random() * 0.5; MASON.stats.worked++;
+      setAct(e, 23, 1.05);
+      later(0.68, () => { if (e.alive && !e.removed) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
     }
     return;
   }

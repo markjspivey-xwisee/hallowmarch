@@ -279,7 +279,7 @@ function buildHen(lod) {
   for (const s of [1, -1]) {
     const b = s > 0 ? 9 : 12, x = s * 0.045;
     kitBlob(K, [x, 0.21, 0.0], 7, 5, { r: [0.03, 0.045, 0.04], attr: () => ({ bone: b, w: 0.6, mat: mat.fur, ao: 0.7 }) });
-    kitTube(K, [{ c: [x, 0.18, 0.005], rx: 0.009, rz: 0.009 }, { c: [x, 0.1, 0.01], rx: 0.008, rz: 0.008 }, { c: [x, 0.02, 0.012], rx: 0.0075, rz: 0.0075 }], hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) });
+    kitTube(K, birdLegTubePts(BIRD_LEGS.hen, x, 0.18, 0.0095, 0.0072), hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) }); // [motion5] down to the hock, bent back, and on to the foot (05j_birdlegs.js)
     for (const [ta, tl] of [[-0.45, 0.05], [0, 0.055], [0.45, 0.05], [Math.PI, 0.03]]) {
       kitTube(K, [{ c: [x, 0.012, 0.012], rx: 0.005, rz: 0.005 }, { c: [x + Math.sin(ta) * tl, 0.005, 0.012 + Math.cos(ta) * tl], rx: 0.003, rz: 0.003 }], 4, { cap1: 'dome', front: [0, 1, 0], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
     }
@@ -287,7 +287,7 @@ function buildHen(lod) {
   return K.build();
 }
 function henVS(depth) {
-  const v = (p) => `vec3(${p.map((x) => x.toFixed(4)).join(', ')})`;
+  const v = (p) => `vec3(${p.map((x) => x.toFixed(4)).join(', ')})`, BL = BIRD_LEGS.hen; // [motion5] her legs' joints (05j_birdlegs.js)
   return /* glsl */`
   ${GLSL_COMMON}
   ${ACTOR_COMMON}
@@ -298,6 +298,7 @@ function henVS(depth) {
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx; varying vec2 vPat;'}
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
+  ${BIRD_LEG_GLSL}
   void main(){
     ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), floor((iColB.w + 1e-3) / 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position; vPat = vec2(mod(floor(iColA.w / 4.0 + 1e-3), 4.0), floor(iColA.w / 16.0 + 1e-3));'}
     P = position; Nn = normal;
@@ -307,11 +308,20 @@ function henVS(depth) {
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
     float t = uTime + iPos.x * 0.37 + iPos.z * 0.23;
     float k = clamp(amt * 2.2, 0.0, 1.0), idle = 1.0 - k;
-    // walking: the head holds still in space, then jerks forward with each step; the body sways
-    float stepF = fract(ph / 3.14159);
-    float headZ = (0.03 - 0.06 * smoothstep(0.0, 0.25, stepF)) * k;
+    // [motion5] the gait (05j_birdlegs.js): both feet, and how far the body comes down over its planted legs
+    const vec2 H0 = ${blV2(BL.H)}, K0 = ${blV2(BL.K)}, A0 = ${blV2(BL.A)};
+    float amtS = clamp(iAnim.y, 0.0, 2.2), bsc = max(mod(iColA.w, 4.0), 0.2), duty, reach, lc, lh, strideM, runK, gk;
+    blGait(amtS, bsc, uGait, duty, reach, lc, lh, strideM, runK, gk);
+    float uLf = fract(ph * 0.159155), legL = length(K0 - H0) + length(A0 - K0);
+    vec3 ftL = blFoot(uLf, duty, reach, lc, lh), ftR = blFoot(fract(uLf + 0.5), duty, reach, lc, lh);
+    float drop = max(blNeed(H0, A0, legL, ftL.x), blNeed(H0, A0, legL, ftR.x)) * (1.0 - smoothstep(0.0, 0.3, death));
+    // [motion5] walking, the head holds still in the air while the body walks on under it, then thrusts forward, once a
+    // step: back against the body as far as the body goes while it holds (it jumped forward in one frame and drew back over
+    // a quarter of the step); a running hen holds her head out still
+    float stepF = fract(ph / 3.14159), hold = 0.55, hA = min(hold * strideM, 0.07) * gk * (1.0 - runK);
+    float headZ = stepF < hold ? hA * (0.5 - stepF / hold) : hA * (smoothstep(hold, 1.0, stepF) - 0.5);
     float headX = 0.12 * sin(t * 0.7) * sin(t * 0.31) * idle, headY = 0.5 * sin(t * 0.43) * sin(t * 0.17 + 1.0) * idle;
-    float sway = 0.07 * sin(ph) * k, bob = abs(sin(ph)) * 0.012 * k;
+    float sway = 0.05 * sin(ph) * k, bob = 0.0; // [motion5] (the body rides up and down over its legs: the vault)
     float flap = 0.0, tailX = 0.05 * sin(t * 1.3) * idle - 0.1 * k, pitch = 0.0, peck = 0.0;
     if (atype > 6.5 && atype < 7.5) {
       // pecking at the ground: the body tips forward, the neck reaches down, a few quick stabs, up to look about
@@ -329,26 +339,22 @@ function henVS(depth) {
     if (b == 15) { rotP(rotX(tailX), ${v(HEN.tail)}); b = 0; }
     if (b == 3) { rotP(rotZ(flap * 1.4), ${v(HEN.wingL)}); b = 0; }
     if (b == 6) { rotP(rotZ(-flap * 1.4), ${v(HEN.wingR)}); b = 0; }
-    if (!isLeg) rotP(rotX(pitch), vec3(0.0, 0.2, 0.0));
-    if (isLeg) {
-      // each foot is planted while it is down and swings forward through the air
-      float c = ph + (b == 9 ? 0.0 : 3.1416);
-      // [motion] the stride as beastStride gives it (05c_beasts.js: uGait holds the walk and run strides and the leg length),
-      // the pace kept between the slowest and quickest a leg this long takes
-      float amtS = clamp(iAnim.y, 0.0, 2.2), bsc = max(mod(iColA.w, 4.0), 0.2), vSpd = amtS * 4.3, fC = sqrt(1.06 / max(uGait.z * bsc, 0.05));
-      float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
-      float u = fract(c * 0.159155), duty = 0.6, reach = strideM * duty, fx, lift;
-      if (u < duty) { fx = reach * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty); fx = reach * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
-      float sw = asin(clamp(fx / 0.19, -0.95, 0.95)); // [motion] the planted foot keeps pace at any speed
+    if (!isLeg) {
+      // [motion5] the body over its legs: down as far as the planted legs need (the vault), the waddle a roll of the body
+      // about the hips (the legs stand)
+      rotP(rotX(pitch), vec3(0.0, 0.2, 0.0));
+      P.y -= drop;
+      rotP(rotZ(sway), vec3(0.0, H0.y - drop, 0.0));
+    } else {
+      // [motion5] each leg reaches its foot by IK (05j_birdlegs.js): planted while it bears her, rising and landing in place,
+      // the toes curled in the air (the stiff leg swung about the hip rocked the foot through the stance and the shank's
+      // fold carried it back over the ground as it lifted)
+      vec3 f = b == 9 ? ftL : ftR;
+      blLegPose(H0, K0, A0, vec2(H0.x, H0.y - drop), A0 + f.xy, blToes(f.z, f.y, 0.055), f.z, w, b == 9 ? ${BL.x.toFixed(4)} : -${BL.x.toFixed(4)});
       vec3 hip = b == 9 ? ${v(HEN.hipL)} : ${v(HEN.hipR)};
-      // the shank folds as the foot lifts
-      if (P.y < 0.13) rotP(rotX(0.9 * lift * smoothstep(0.0, 0.03, amtS)), vec3(hip.x, 0.12, 0.0)); // [motion] the shank folds and the foot leaves the ground
-      rotP(rotX(-sw * w), hip);
       if (death > 0.0) rotP(rotX(0.8 * smoothstep(0.0, 0.5, death)), hip);
       b = 0;
     }
-    rotP(rotZ(sway), vec3(0.0, 0.0, 0.0));
     P.y += bob;
     ${depth ? '' : 'vNo = Nn;'}
     if (death > 0.0) { rotP(rotZ(1.45 * smoothstep(0.15, 1.0, death)), vec3(0.0)); P.y += 0.06 * smoothstep(0.15, 1.0, death); }

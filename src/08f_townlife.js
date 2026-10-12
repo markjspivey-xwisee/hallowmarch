@@ -284,10 +284,11 @@ function lifeRun(e, dt) {
       if (W.state !== 'scaffold') { next(); return true; }
       turnToward(e, st.fx, st.fz, dt * 4);
       st.next = st.next ?? plan.t + 0.4;
+      e._hamUntil = GAME.t + 0.4; // [motion5] a mallet in the hand (13_main.js), and the blow is a hammer's onto the wall (action 23, 05a_rig.js)
       if (plan.t >= st.next) {
-        st.next = plan.t + 1.0 + Math.random() * 0.5;
-        setAct(e, 1, 0.6);
-        later(0.3, () => { if (e.alive) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+        st.next = plan.t + 1.05 + Math.random() * 0.4;
+        setAct(e, 23, 1.05);
+        later(0.68, () => { if (e.alive) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
       }
       if (plan.t > st.dur) next();
       return true;

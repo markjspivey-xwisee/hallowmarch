@@ -138,12 +138,24 @@ function motionParts(crowd, kind) {
     for (let i = 0; i < n; i++) { const k = key(i); cnt.set(k, (cnt.get(k) || 0) + 1); }
     const fist = (b, sx) => { const ids = []; for (let i = 0; i < n; i++) if (Math.round(bone[i]) === b && vis(i) && cnt.get(key(i)) === 1 && Math.hypot(pos[i * 3] - sx * SK.fist[0], pos[i * 3 + 1] - SK.fist[1], pos[i * 3 + 2] - SK.fist[2]) < 0.045) ids.push(i); return ids.slice(0, 12); };
     P.hands = [fist(4, 1), fist(6, -1)];
+    // [motion5] a mallet's head (bit 22, WB.hammer): its points one by one (the face that strikes is the farthest)
+    if (bit) {
+      const hb = Math.round(Math.log2(WB.hammer)), ids = [];
+      for (let i = 0; i < n; i++) if (Math.round(bit[i]) === hb && Math.abs(Math.round(bone[i]) - 6) < 0.5) ids.push(i);
+      // (the head: the points farthest from the fist, a mallet's head 0.3 m up its haft)
+      ids.sort((a, b) => Math.hypot(pos[b * 3] + SK.fist[0], pos[b * 3 + 1] - SK.fist[1], pos[b * 3 + 2] - SK.fist[2]) - Math.hypot(pos[a * 3] + SK.fist[0], pos[a * 3 + 1] - SK.fist[1], pos[a * 3 + 2] - SK.fist[2]));
+      P.tool = ids.slice(0, 24).map((i) => [i]);
+    }
   } else if (kind === 'hen' || kind === 'pheasant' || kind === 'duck') {
     P.feet = [lowest((i) => Math.round(bone[i]) === 9, 4, 0.006), lowest((i) => Math.round(bone[i]) === 12, 4, 0.006)];
     // the wing tips: the wing points farthest out (or back, folded)
     // (a game bird's wing tips are on its hands, bones 4 and 7; a hen's folded wings are bones 3 and 6)
     const tip = (bs) => { let best = -1, bd = -1; for (let i = 0; i < n; i++) if (bs.includes(Math.round(bone[i]))) { const d = Math.abs(pos[i * 3]) * 2 + Math.max(0, -pos[i * 3 + 2]); if (d > bd) { bd = d; best = i; } } return best >= 0 ? [best] : []; };
     P.wings = kind === 'hen' ? [tip([3]), tip([6])] : [tip([4]), tip([7])];
+    // [motion5] the head: the tip of the beak (the head-bob: it should hold still in the air between thrusts)
+    let bk = -1, bz = -1e9;
+    for (let i = 0; i < n; i++) if (Math.round(bone[i]) === 2 && pos[i * 3 + 2] > bz) { bz = pos[i * 3 + 2]; bk = i; }
+    P.head = bk >= 0 ? [[bk]] : [];
   } else {
     P.feet = [5, 8, 11, 14].map((b) => lowest((i) => Math.round(bone[i]) === b, 4, 0.01));
   }

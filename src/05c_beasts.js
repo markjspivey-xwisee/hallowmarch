@@ -96,7 +96,7 @@ BEASTS.horse = {
   haunch: [0.13, 1.3, -0.68, 0.13, 0.3, 0.22],
   tail: { pts: [[-0.95, 1.43], [-1.04, 1.36], [-1.12, 1.15], [-1.16, 0.9], [-1.17, 0.66]], r: [0.06, 0.085, 0.1, 0.085, 0.035] },
   fur: { shag: 0, ruff: 0, saddle: 0.08, belly: 0.08, sock: 0.85, strand: 2.4 },
-  paw: 'horse', eye: [0.05, 0.035, 0.025], stride: [0.85, 2.7], deadLift: 0.3, mane: true, hairTail: true, tack: true, darkCoat: true,
+  paw: 'horse', eye: [0.05, 0.035, 0.025], stride: [0.85, 2.5], /* [motion5] (2.7: a gallop of 2.2 strides a second at 11 m/s, as a horse's) */ deadLift: 0.3, mane: true, hairTail: true, tack: true, darkCoat: true,
 };
 const HORSE_SEAT = 1.62; // saddle height (m) the rider sits on
 
@@ -416,24 +416,30 @@ function beastBodyGLSL(K) {
   vec2 bbRot(vec2 p, vec2 c, float a){ vec2 d = p - c; float cs = cos(a), sn = sin(a); return c + vec2(d.x * cs + d.y * sn, d.y * cs - d.x * sn); } // (z, y) as rotX(a) turns them
   // the gait at this amount and scale: when each leg swings, the share of the cycle a foot is down, how far it reaches
   // ahead of its rest place (beastStride's stride), how far a swing folds the leg
-  void bbGait(float amtRaw, float bsc, out vec4 off, out float duty, out float reachB, out float fold, out float trot, out float gal){
+  void bbGait(float amtRaw, float bsc, out vec4 off, out float duty, out float reachB, out float fold, out float trot, out float gal, out float hb){
     float amt = clamp(amtRaw, 0.0, 1.6), k = clamp(amt * 2.2, 0.0, 1.0);
     trot = smoothstep(0.55, 0.95, amt); gal = smoothstep(1.05, 1.4, amt);
     float amtS = clamp(amtRaw, 0.0, 2.2), vSpd = amtS * 4.3, fC = sqrt(1.06 / max(${K.G}.z * bsc, 0.05));
     float strideM = clamp(mix(${K.G}.x, ${K.G}.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
     float reachL = min(${K.G}.z, ${K.G}.w) / strideM;
-    duty = mix(mix(0.64, 0.46, trot), 0.26, gal);
-    duty = min(duty, mix(0.42, 0.46, gal) * reachL); // a long stride: the feet stay down only as long as the legs reach
+    duty = mix(mix(0.64, 0.46, trot), 0.3, gal);
+    duty = min(duty, mix(mix(0.42, 0.5, trot), 0.58, gal) * reachL); // a long stride: the feet stay down only as long as the legs reach
+    // [motion5] at a gallop the legs reach 0.58 of their length either side, at a trot 0.5 (0.46 and 0.42: at 11 m/s each
+    // foot was down a sixth of the stride and the leap took half of it, where a horse's takes about a quarter; a trot at
+    // 4.5 m/s was off the ground three fifths of the time)
     // [motion3] when each leg comes down. The walk in four even beats, each hind foot followed by the fore on its own side
     // (hind left, fore left, hind right, fore right: it was the diagonal sequence); the trot in diagonal pairs; the gallop
     // the hind feet one after the other (right, left), then the fore (right, left), the fore right down before the hind
     // left lifts (no leap with the legs flung fore and aft, as a rocking horse is carved), then all four gathered under
     // the body in the air until the hind right comes down again. Offsets are where each leg is in its cycle when the
     // hind left comes down, each a turn ahead per cycle it came down earlier (the gallop's spread by its own duty)
-    float dG = min(0.26, 0.46 * reachL), gp = 0.12, gq = clamp(0.8 * dG, 0.1, 0.22);
+    float dG = min(0.3, 0.58 * reachL), gp = 0.14, gq = clamp(0.8 * dG, 0.1, 0.24); // [motion5] (0.26, 0.46; 0.12; 0.22)
     off = mix(mix(vec4(0.0, 3.1416, 1.5708, 4.7124), vec4(0.0, 3.1416, 3.1416, 6.2832), trot), vec4(0.5 - gp - gq, 0.5 - gq, 0.5, 0.5 + gp) * 6.28318, gal);
     reachB = duty * strideM;
     fold = (mix(0.55, 0.8, trot) + 0.4 * gal) * k;
+    // [motion5] at a trot and a gallop the hind feet come down further under the body and leave the ground less far behind
+    // it (a hind leg reaches back only about 0.4 of its length): their stance moved on by what the reach asks past that
+    hb = trot * max(0.0, reachB - 0.4 * ${K.G}.w);
   }
   // a foot at its leg's phase c: how far ahead of its rest place (x), its arch over the swing (y: 0 while it is down) and
   // [motion3] its clearance (z, 0..1): the first few centimetres it rises still standing where it stood, in the last of
@@ -473,12 +479,12 @@ function beastBodyGLSL(K) {
   // the vault: how far the forequarters (x) and the hindquarters (y) come down, the most either of their legs needs.
   // [polish] A swinging leg asks what its foot would need on the ground below it, not raised: a raised foot asked less,
   // so the body rose as a leg lifted and the straight leg swung its foot forward along the ground (4 to 6 cm at a trot)
-  vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ, vec4 dh, vec4 dz){ // (dh: the floor under each foot over the body's own; [motion3] dz: how far the foot lock holds each foot along the body from the gait's place, so a foot held back as the body sets off is reached too)
+  vec2 bbVault(float ph, vec4 off, float duty, float reachB, float fold, float trot, float spine, float pitch, float bob, float lungeZ, vec4 dh, vec4 dz, float hb){ // (dh: the floor under each foot over the body's own; [motion3] dz: how far the foot lock holds each foot along the body from the gait's place, so a foot held back as the body sets off is reached too)
     const vec3 GR = vec3(1.0, 0.0, 0.0);
     float n0 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.x, duty, reachB) * GR, fold, trot) + vec2(dz.x, dh.x), true, spine, pitch, bob, lungeZ);
     float n1 = bbNeed(${K.FT}, ${K.FM}, ${K.FL}, bbTarget(true, bbFoot(ph + off.y, duty, reachB) * GR, fold, trot) + vec2(dz.y, dh.y), true, spine, pitch, bob, lungeZ);
-    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB) * GR, fold, trot) + vec2(dz.z, dh.z), false, spine, pitch, bob, lungeZ);
-    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB) * GR, fold, trot) + vec2(dz.w, dh.w), false, spine, pitch, bob, lungeZ);
+    float n2 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.z, duty, reachB) * GR + vec3(hb, 0.0, 0.0), fold, trot) + vec2(dz.z, dh.z), false, spine, pitch, bob, lungeZ);
+    float n3 = bbNeed(${K.BT}, ${K.BM}, ${K.BL}, bbTarget(false, bbFoot(ph + off.w, duty, reachB) * GR + vec3(hb, 0.0, 0.0), fold, trot) + vec2(dz.w, dh.w), false, spine, pitch, bob, lungeZ);
     return min(vec2(max(n0, n1), max(n2, n3)), vec2(0.3 * min(${K.G}.z, ${K.G}.w)));
   }
   // the vault as a turn about the hindquarters' top (forequarters down x, hindquarters y) and a drop: its angle and pivot
@@ -533,7 +539,7 @@ function beastVS(depth) {
     // (beastStride): its walk and gallop lengths, the pace held between the slowest and quickest steps a leg of its
     // length takes (no slow-motion legs at a crawl, no frantic ones at a trot); [polish] in bbGait (beastBodyGLSL)
     float bsc = max(mod(iColA.w, 4.0), 0.2), trot, gal, duty, reachB, fold; vec4 off;
-    bbGait(iAnim.y, bsc, off, duty, reachB, fold, trot, gal);
+    float hb; bbGait(iAnim.y, bsc, off, duty, reachB, fold, trot, gal, hb); // [motion5] (hb: the hind feet's stance moved on at a gallop)
     float spine = 0.1 * sin(ph + 0.9) * gal;
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
     float pitch = 0.05 * sin(ph + 1.4) * gal;
@@ -594,7 +600,7 @@ function beastVS(depth) {
     float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck);
     vec4 lkA = footLock4(flSlot, 0), lkB = footLock4(flSlot, 1), lkC = footLock4(flSlot, 2), lkD = footLock4(flSlot, 3); // [polish] the floor under each foot; [motion3] and where the lock holds it along the body
     vec4 dh4 = vec4(lkA.z, lkB.z, lkC.z, lkD.z) / bsc, dz4 = vec4(lkA.y, lkB.y, lkC.y, lkD.y) / bsc;
-    vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ, dh4, dz4) * vaultK : vec2(0.0);
+    vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ, dh4, dz4, hb) * vaultK : vec2(0.0);
     float thV = bbVaultA(sink); vec2 vPiv = bbVaultPiv();
     // child joints first, then their parents
     if (b == 16) { rotP(rotX(jaw * w), uJaw); b = 2; w = 1.0; }
@@ -606,6 +612,7 @@ function beastVS(depth) {
       bool fr = leg < 2;
       float o = leg == 0 ? off.x : (leg == 1 ? off.y : (leg == 2 ? off.z : off.w));
       vec3 fp = bbFoot(ph + o, duty, reachB);
+      if (!fr) fp.x += hb; // [motion5]
       float lift = fp.y * fold;
       // [polish] a planted foot stays where it came down however the body moves over it (shoved, sliding by a wall, turning)
       vec4 lk4 = footLock4(flSlot, leg); vec2 lk = lk4.xy / bsc; fp.x += lk.y; float dxM = lk.x;
@@ -816,11 +823,11 @@ HORSE_SEAT_GLSL = (() => {
   // moves the horse's forequarters at this phase and amount (the gait's flex, pitch and bob, and the vault)
   vec3 horseSeat(float ph, float amtRaw, bool air){
     vec4 off; float duty, reachB, fold, trot, gal;
-    bbGait(amtRaw, 1.0, off, duty, reachB, fold, trot, gal);
+    float hb; bbGait(amtRaw, 1.0, off, duty, reachB, fold, trot, gal, hb);
     float amt = clamp(amtRaw, 0.0, 1.6), k = clamp(amt * 2.2, 0.0, 1.0);
     float spine = 0.1 * sin(ph + 0.9) * gal, pitch = 0.05 * sin(ph + 1.4) * gal - (air ? 0.12 : 0.0);
     float bob = (abs(sin(ph)) * (0.01 + 0.016 * trot) * (1.0 - gal) + (0.5 + 0.5 * sin(ph + 2.6)) * 0.07 * gal) * k;
-    vec2 sink = air ? vec2(0.0) : bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, 0.0, vec4(0.0), vec4(0.0));
+    vec2 sink = air ? vec2(0.0) : bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, 0.0, vec4(0.0), vec4(0.0), hb);
     float thV = bbVaultA(sink);
     vec2 s0 = vec2(${f(0.04)}, ${f(HORSE_SEAT - 0.06)}), s = bbRot(bbBodyFwd(s0, true, spine, pitch), bbVaultPiv(), thV);
     s.y += bob - sink.y;

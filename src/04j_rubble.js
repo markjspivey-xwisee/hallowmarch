@@ -401,9 +401,10 @@ function houseScafWorkSpot(H, side) {
   }
   for (const c of cands) {
     let l, f;
-    if (H.round) { l = { x: c[0] * (c[2] + 0.5), z: c[1] * (c[2] + 0.5) }; f = { x: c[0] * (c[2] - 0.2), z: c[1] * (c[2] - 0.2) }; }
-    else if (c[0]) { l = { x: c[0] * (c[2] + 0.5), z: c[3] }; f = { x: c[0] * (c[2] - 0.2), z: c[3] }; }
-    else { l = { x: c[3], z: c[1] * (c[2] + 0.5) }; f = { x: c[3], z: c[1] * (c[2] - 0.2) }; }
+    const o = HAMMER_REACH; // [motion5] as far from the wall's face as the mallet reaches (05a_rig.js action 23): at 0.5 m it struck 22 cm into the wall
+    if (H.round) { l = { x: c[0] * (c[2] + o), z: c[1] * (c[2] + o) }; f = { x: c[0] * (c[2] - 0.2), z: c[1] * (c[2] - 0.2) }; }
+    else if (c[0]) { l = { x: c[0] * (c[2] + o), z: c[3] }; f = { x: c[0] * (c[2] - 0.2), z: c[3] }; }
+    else { l = { x: c[3], z: c[1] * (c[2] + o) }; f = { x: c[3], z: c[1] * (c[2] - 0.2) }; }
     const p = houseW(H, l.x, l.z);
     if (!houseSpotClear(p.x, p.z, 0.32, skip)) continue;
     const q = houseW(H, f.x, f.z);

@@ -65,13 +65,14 @@ function flBeastGait(S, ph, amtRaw, sc, f) {
   const amtS = clamp(amtRaw, 0, 2.2), vSpd = amtS * 4.3, bsc = Math.max(sc, 0.2), fC = Math.sqrt(1.06 / Math.max(gz * bsc, 0.05));
   const strideM = clamp(lerp(S.stride[0], S.stride[1], _flSS(0.7, 1.4, amtS)), vSpd / (4 * fC * bsc), Math.max(vSpd / (1.6 * fC * bsc), 0.02));
   const reachL = Math.min(gz, gw) / strideM;
-  const duty = Math.min(lerp(lerp(0.64, 0.46, trot), 0.26, gal), lerp(0.42, 0.46, gal) * reachL);
+  const duty = Math.min(lerp(lerp(0.64, 0.46, trot), 0.3, gal), lerp(lerp(0.42, 0.5, trot), 0.58, gal) * reachL); // [motion5] (0.26, 0.42 and 0.46: bbGait)
   // [motion3] the walk's lateral sequence, the trot's diagonal pairs, the gallop spread by its own duty (bbGait)
-  const dG = Math.min(0.26, 0.46 * reachL), gp = 0.12, gq = clamp(0.8 * dG, 0.1, 0.22);
+  const dG = Math.min(0.3, 0.58 * reachL), gp = 0.14, gq = clamp(0.8 * dG, 0.1, 0.24); // [motion5] (bbGait)
   const W = [0, 3.1416, 1.5708, 4.7124], T = [0, 3.1416, 3.1416, 6.2832], G = [0.5 - gp - gq, 0.5 - gq, 0.5, 0.5 + gp];
   const off = lerp(lerp(W[f], T[f], trot), G[f] * 6.28318, gal);
   const u = ((((ph + off - Math.PI / 2) / TAU) % 1) + 1) % 1, F = f < 2 ? S.front.foot : S.back.foot;
-  return [u, duty, duty * strideM * bsc, (f % 2 ? -1 : 1) * F[0] * bsc, F[2] * bsc];
+  const hb = f < 2 ? 0 : trot * Math.max(0, duty * strideM - 0.4 * gw); // [motion5] the hind feet's stance moved on at a trot and a gallop (bbGait)
+  return [u, duty, duty * strideM * bsc, (f % 2 ? -1 : 1) * F[0] * bsc, (F[2] + hb) * bsc];
 }
 // one step of the lock for a body (from updateAnim, after its phase moved on); the horse under a rider has its own
 function footLockStep(e, dt) {
@@ -114,6 +115,9 @@ const FL_SOLE = [-0.05, 0.05, 0.15]; // (from the ankle: the heel, the middle of
 // (castleFlight, 04g_castles.js), which joins the treads' back edges, so a foot set on the ramp stood up to a riser
 // below the stone it was drawn on (the treads: n of them, each as high as the ramp at its upper end)
 function floorTreadAt(x, z, y) {
+  // [motion5] on a heap of rubble (a fallen tower's, a fallen house's) the stone drawn under the point, not the rubble's
+  // ramp: a stormer's feet stood a stone deep in it here and a hand over it there (13y_motion5.js)
+  if (y != null && RUBHF.maps.size && !RUBHF.off) { const rf = rubbleFootFloor(x, z, y); if (rf !== null) { _flTread = false; return rf; } }
   const g = floorAt(x, z, y);
   _flTread = false;
   if (y == null || x > DUN_X0) return g;
@@ -377,6 +381,6 @@ function footLockSlot(e, horse) {
   for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = o ? o.dy - tilt * (o.along + o.dz) : 0; D[k + 3] = (o && (o.down ? o.tread : o.treadT) ? 20 : 10) + (o ? (o.yo || 0) * 0.5 : 0); } // (w: 20 on a stair's tread, where a person's foot stands level, else 10; [motion3] plus half the turn that keeps a person's planted foot on its heading)
   return r + 1;
 }
-function footLockBegin() { FOOT_LOCK.n = 0; }
+function footLockBegin() { FOOT_LOCK.n = 0; rubHfSync(); } // [motion5] (the heaps' drawn tops for the feet: 13y_motion5.js)
 function footLockEnd() { if (FOOT_LOCK.n || FOOT_LOCK.was) FOOT_LOCK.tex.needsUpdate = true; FOOT_LOCK.was = FOOT_LOCK.n; }
 window.__hm.footLock = { FOOT_LOCK, footLockStep, flHumanGait, flBeastGait, footLockSlot, floorTreadAt };
