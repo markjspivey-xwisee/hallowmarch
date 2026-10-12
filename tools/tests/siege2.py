@@ -438,12 +438,12 @@ async def stormall(page):
           wb.order.siegeE = null;
           const still = new Map(), worst = new Map(), tl = []; let t = 0;
           while (t < 90) { __hm.simulate(0.25); t += 0.25; if (wb.dead || !wb.order) break; let done = 0, n = 0;
-            for (const e of F.wbMembers(wb)) { n++; if (T2.inCourt(C, e)) done++; const s = e.ai.storm, p = still.get(e.id), moving = !p || Math.hypot(e.x - p.x, e.z - p.z) > 0.25, waiting = s && !s.done && s.i <= 1 && !s.go;
-              if (moving || waiting || T2.inCourt(C, e)) still.set(e.id, { x: e.x, z: e.z, t }); else worst.set(e.id, Math.max(worst.get(e.id) || 0, t - p.t)); }
+            for (const e of F.wbMembers(wb)) { n++; if (T2.inCourt(C, e)) done++; const s = e.ai.storm, p = still.get(e.id), moving = !p || Math.hypot(e.x - p.x, e.z - p.z) > 0.25, waiting = s && !s.done && ((s.i <= 1 && !s.go) || (s.holdT && !s.out)), fighting = e.target != null; /* [siege3] holding inside the door for the others, or fighting a foe that came, is not standing stuck (as the storm's own check) */
+              if (moving || waiting || fighting || T2.inCourt(C, e)) still.set(e.id, { x: e.x, z: e.z, t }); else { worst.set(e.id, Math.max(worst.get(e.id) || 0, t - p.t)); if (t - p.t >= (out.wv || 0)) { out.wv = t - p.t; out.who = (s ? s.i + (s.go ? 'g' : '') + (s.holdT && !s.out ? 'h' : '') : 'x') + (e.target != null ? 't' : '') + (e.rangedKind ? 'r' : '') + '@' + Math.hypot(e.x - W.T.wx, e.z - W.T.wz).toFixed(1); } } } /* [siege3] who stood longest, and how (g let go, h holding inside the door, t a target, r ranged) */
             if (Math.round(t * 4) % 20 === 0) tl.push(Math.round(t) + ':' + F.wbMembers(wb).map((e) => { const s = e.ai.storm; return s ? (s.done ? 'D' : s.i + (s.go ? 'g' : '')) : 'x'; }).join(''));
             if (n && done >= n) break; }
           const ms = F.wbMembers(wb); out.t = t; out.n = ms.length; out.inCourt = ms.filter((e) => T2.inCourt(C, e)).length; out.worst = +Math.max(0, ...worst.values()).toFixed(1);
-          out.phase = wb.order ? wb.order.phase : null; out.tl = tl.join(' | ');
+          out.phase = wb.order ? wb.order.phase : null; out.tl = tl.join(' | '); out.wv = out.wv ? +out.wv.toFixed(1) : 0;
           out.where = ms.filter((e) => !T2.inCourt(C, e)).map((e) => { const s = e.ai.storm, l = F.siteToWorld ? null : null; return (s ? s.i + (s.go ? 'g' : '') + (s.done ? 'd' : '') : 'x') + '@' + Math.hypot(e.x - W.T.wx, e.z - W.T.wz).toFixed(1) + '/' + (e.y - K.site.y).toFixed(1); }).join(' ');
           for (const e of ms) F.removeEnt(e); wb.dead = true;
           return out; })()""")
