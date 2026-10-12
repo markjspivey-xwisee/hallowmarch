@@ -556,6 +556,7 @@ function siegeEngineStep(E, dt) {
   if (!E.crew.length && !E.player) { E.idleT += dt; if (E.idleT > 200) { siegeDismantle(E); return; } } else E.idleT = 0;
   if (E.wb && (E.wb.dead || !siegeBandOn(E.wb, E))) { E.wb = null; siegeReleaseCrew(E); }
   const work = Math.min(hands, E.spec.crew) / E.spec.crew;
+  if (siegeEngineGuard(E, dt)) return; // [war2] an engine that cannot get on is settled where it stands or given up (08j_war2.js)
   if (E.state === 'build') {
     if (hands > 0) {
       E.build = Math.min(1, E.build + (dt * (0.35 + 0.65 * work)) / E.spec.build);

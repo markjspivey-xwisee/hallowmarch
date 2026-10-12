@@ -14,6 +14,7 @@ function houseLife(e, dt) {
   // fire first: anyone near a burning house gets out and away
   const F = houseBurningNear(e.x, e.z, 19);
   if (F && !(ai.plan && ai.plan.flee === F)) { houseFlee(e, F); }
+  else if (!F) houseCrewCall(e); // [war2] a neighbour's house afire within call: run and help beat it out (08j_war2.js)
   if (ai.plan) { if (lifeRun(e, dt)) return true; }
   if (boatLife(e, dt)) return true; // [water2] a fisher rows out in the morning (07e_boats.js)
   e.seat = null;
@@ -176,6 +177,7 @@ function houseFlee(e, F) {
     const D = F.door;
     steps.push(houseGo(D.in.x, D.in.z, { run: true, room: F, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: F }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: F }));
   }
+  if (!F.keepHall) { steps.push(lifeStep('beat', { H: F })); lifePlan(e, steps, { flee: F }); ai.lifeWait = 0; return; } // [war2] out, then beat the flames down with the neighbours (08j_war2.js)
   // a spot away from the fire, on the town side
   let dx = e.x - F.x, dz = e.z - F.z;
   const towardTown = { x: F.S.x - F.x, z: F.S.z - F.z };
@@ -287,6 +289,7 @@ function lifeRun(e, dt) {
       return true;
     }
     case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
+    case 'beat': return houseBeatStep(e, st, plan, dt, next); // [war2] beating out a house's fire (08j_war2.js)
     default: next(); return true;
   }
 }

@@ -693,7 +693,7 @@ function doorOpenFor(wb) {
 function wbPlan(wb, goalNode) {
   const L = wbLeader(wb);
   if (!L) return;
-  const start = nearestNavNode(L.x, L.z, null, true);
+  const start = bandStartNode(L) || nearestNavNode(L.x, L.z, null, true); // [war2] inside a keep's or a temple's walls: from its court, out by its gate (08j_war2.js)
   const path = navPath(start.id, goalNode.id, doorOpenFor(wb));
   wb.path = path || [goalNode.id];
   wb.pathIdx = 0;
@@ -806,6 +806,7 @@ function updateWarband(wb, dt) {
   // breach it cannot climb, before a wall), gives the order back for a new one: the war never stands still. Waiting
   // is no stall: holding a keep it took, by its engine while it works, or defending its own keep.
   if (GAME.t - (wb.hitAt ?? -1e9) < 20) wb.realProgress = GAME.t; // (blows that land are progress too: a gate being battered)
+  if (warbandEngineBusy(wb, O)) wb.realProgress = GAME.t; // [war2] and its own engine at work, rolling on or rising (08j_war2.js)
   if (GAME.t - (wb.realProgress ?? (wb.realProgress = GAME.t)) > 150) {
     const waiting = O.phase === 'hold' || O.type === 'defend' || O.type === 'patrol' || (O.phase === 'bombard' && O.bombSince !== undefined);
     wb.realProgress = GAME.t;
@@ -881,6 +882,7 @@ function thinkSoldier(e, dt) {
   if (t) { if (e.mount) { dismount(e); e.ai.remountAt = GAME.t + 12; } fightTarget(e, t, dt); return; }
   e.target = null;
   if (!L) return;
+  if (bandDownStep(e, wb, L, O, dt)) return; // [war2] up on a walk with nothing to fight: down by the castle's ways (08j_war2.js)
   // [siege] siegeLikePhase: the gate, the court, a breach, or standing by the engines (04h_siege.js)
   if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && !siegeLikePhase(O)) mountUp(e, true);
   if (e === L && e.mount && (wb.engaged || siegeLikePhase(O))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
@@ -895,7 +897,7 @@ function thinkSoldier(e, dt) {
   if (d > 6) {
     if (GAME.t > (e.ai.losCheck || 0)) { e.ai.losCheck = GAME.t + 0.6; e.ai.blocked = !segmentClear(e.x, e.z, L.x, L.z, 0.3, false); }
   } else e.ai.blocked = false;
-  if (e.ai.blocked && wb.trail && wb.trail.length > 1 && followTrail(e, wb, dt)) return;
+  if (e.ai.blocked && wb.trail && wb.trail.length > 1 && bandTrailStep(e, wb, dt)) return; // [war2] along the footsteps while it gets on along them (08j_war2.js)
   const sl = bandSlot(e, L, fx, fz); // [siege3] a place nobody can stand in (rubble, a fallen drum) moved toward the leader (04i_siege3.js)
   if (bandUnstick(e, wb, L, sl.x, sl.z, dt)) return; // [siege3] pressed against something: along the leader's footsteps, a step aside
   e.ai.trailAbs = undefined;
@@ -980,6 +982,7 @@ function updateWar(dt) {
     if (now > T.nextGuardAt && now - T.lastEnemyNear > 20) { T.nextGuardAt = now + 30; fillGuardians(T, false); }
   }
   updateRelics(dt);
+  updateWar2(dt); // [war2] (08j_war2.js)
   updateCampaign(dt); // [campaign] claims, victory, the peace and the reset (08g_campaign.js)
   // camps respawn
   for (const c of CAMPS) {
