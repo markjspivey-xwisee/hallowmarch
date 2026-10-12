@@ -319,7 +319,10 @@ function drawMinimap() {
   const cv = $('minimap'), P = GAME.player;
   if (!cv || !UI.mapImg) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const size = cv.clientWidth || 186;
+  // [perf2] the minimap's size from a ResizeObserver: reading clientWidth here, after the frame's writes to the HUD,
+  // made the browser lay the whole page out at once every third frame
+  if (!UI.mmRO && typeof ResizeObserver === 'function') { UI.mmRO = new ResizeObserver(() => { UI.mmSize = cv.clientWidth; }); UI.mmRO.observe(cv); UI.mmSize = cv.clientWidth; }
+  const size = (UI.mmRO ? UI.mmSize : cv.clientWidth) || 186;
   if (cv.width !== Math.round(size * dpr)) { cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr); }
   const ctx = cv.getContext('2d');
   const S = cv.width;
@@ -391,7 +394,15 @@ function drawMinimap() {
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(0, -7 * dpr); ctx.lineTo(5 * dpr, 6 * dpr); ctx.lineTo(0, 3 * dpr); ctx.lineTo(-5 * dpr, 6 * dpr); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
-  ctx.fillStyle = 'rgba(239,230,211,0.8)'; ctx.font = `${10 * dpr}px Alegreya Sans, sans-serif`; ctx.fillText('N', S / 2 - 3 * dpr, 11 * dpr);
+  // [perf2] the N drawn once and set in place (its fillText, the font found again each time, was the minimap's dearest call)
+  const fontsIn = !document.fonts || document.fonts.status === 'loaded';
+  if (!UI.mmN || UI.mmN.dpr !== dpr || (!UI.mmN.fontsIn && fontsIn)) { // (again once the web fonts are in)
+    const c = document.createElement('canvas'), x = c.getContext('2d');
+    c.width = Math.ceil(14 * dpr); c.height = Math.ceil(15 * dpr); c.dpr = dpr; c.fontsIn = fontsIn;
+    x.fillStyle = 'rgba(239,230,211,0.8)'; x.font = `${10 * dpr}px Alegreya Sans, sans-serif`; x.fillText('N', 0, 11 * dpr);
+    UI.mmN = c;
+  }
+  ctx.drawImage(UI.mmN, S / 2 - 3 * dpr, 0);
 }
 function drawBarrowIcon(ctx, x, y, s) {
   ctx.save(); ctx.translate(x, y);

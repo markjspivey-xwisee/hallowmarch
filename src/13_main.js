@@ -91,12 +91,18 @@ async function boot() {
   await loadStep(0.68, 'Mustering the realms', () => { buildCrowds(); buildParticles(); buildSpellFX(); buildFireflies(); buildWeather(); buildAmbientLife(); buildDragon(); buildLootMeshes(); initCamps(); initTowns(); initMerchants(); initWar(); initWildlife(); initAnimals(); spawnDragon(); initBarrow(); });
   GAME.built = true;
   groupOutdoors();
-  await loadStep(0.78, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
-  await loadStep(0.84, 'Reading the chronicle');
+  // [perf2] the save read and the screen sized first, then the shaders asked for (perf2Compile, 13x_perf2.js) while the
+  // map is drawn: the GPU's process compiles them meanwhile (the map came first, and the screen's sizing then waited
+  // for every shader the compile had asked for)
+  await loadStep(0.78, 'Reading the chronicle');
   const save = await savePromise;
   if (save) { applySettings(save.settings); applyWorldSave(save.world); }
   resize();
   applyTimeOfDay(tod.p);
+  updateCamera(0.016);
+  camera.updateMatrixWorld();
+  perf2Compile(false);
+  await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
   await loadStep(0.9, 'Lighting the sky', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
@@ -104,6 +110,7 @@ async function boot() {
     DUN.root.visible = INDOOR.on;
     spellCompileVisible(false);
   });
+  await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
   await loadStep(0.97, 'Lighting the sky', () => tick(0.016));
   GAME.ready = true;
   window.__hm.ready = true;

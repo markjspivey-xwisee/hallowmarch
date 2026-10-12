@@ -37,12 +37,17 @@ const getEnt = (id) => (id == null ? null : ENT_BY_ID.get(id) || null);
 const SGRID = new Map();
 const SCELL = 12;
 const gkey = (cx, cz) => ((cx + 1024) << 11) | (cz + 1024);
+// [perf2] each cell keeps its list from step to step (emptied, not made again: some hundreds of lists a step were
+// garbage); a cell nobody stands in has an empty list, which every reader takes as none
+const SGRID_USED = [];
 function rebuildGrid() {
-  SGRID.clear();
+  for (let i = 0; i < SGRID_USED.length; i++) SGRID_USED[i].length = 0;
+  SGRID_USED.length = 0;
   for (const e of ENT) {
     const k = gkey(Math.floor(e.x / SCELL), Math.floor(e.z / SCELL));
     let l = SGRID.get(k);
     if (!l) SGRID.set(k, l = []);
+    if (!l.length) SGRID_USED.push(l);
     l.push(e);
   }
 }

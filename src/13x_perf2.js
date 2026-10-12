@@ -47,6 +47,9 @@ function perf2ReleaseStatic() {
   if (DUN.root) DUN.root.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && o.material === buildingMat) add(o); });
   for (const g of out) perf2Release(g);
   PERF2.pending = out.size;
+  // the water map (02c_water_map.js: 4 MB of floats) is made once and never sent again
+  const wt = WATERGRID.tex;
+  if (wt && wt.image && wt.image.data) wt.onUpdate = (t) => { if (t.image.data) { PERF2.releasedMB += t.image.data.byteLength / 1048576; t.image.data = null; } t.onUpdate = null; };
 }
 // A mesh whose geometry is made the first time it is shown (`visible` set true): the wrecks of things that may never
 // fall. Its shadow's proxy follows (shadowCaster made it with the empty geometry).
@@ -118,11 +121,27 @@ function perf2Compile(all) {
   gl.flush(); // (the GPU's process starts on them now)
   PERF2.warmed += renderer.info.programs.length - p0; PERF2.warmMs += performance.now() - t;
 }
+// The boot waits for the shaders with the veil counting them (where the browser tells whether a program is ready without
+// waiting for it: KHR_parallel_shader_compile, a phone's Chrome and Safari): the page stays alive and says what it is
+// doing; without it the first frame waits for them, as before. Gives up waiting after 90 s (the first frame then waits).
+async function perf2Shaders(f0, f1) {
+  const t0 = performance.now(), progs = renderer.info.programs, n = progs.length;
+  if (!renderer.extensions.has('KHR_parallel_shader_compile') || !n) { PERF2.shaderWait = { n, ready: n, ms: 0, ext: false }; return; }
+  const left = () => progs.filter((p) => p.isReady && !p.isReady()).length;
+  let k = left();
+  while (k > 0 && performance.now() - t0 < 90000) {
+    $('loadbar').style.width = Math.round((f0 + (f1 - f0) * (1 - k / n)) * 100) + '%';
+    $('loadmsg').textContent = `Lighting the sky: the shaders, ${n - k} of ${n}`;
+    await new Promise((r) => setTimeout(r, 40));
+    k = left();
+  }
+  PERF2.shaderWait = { n, ready: n - k, ms: Math.round(performance.now() - t0), ext: true };
+  BOOT_STEPS.push(['Lighting the sky (waiting for the shaders)', PERF2.shaderWait.ms, Math.round(t0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]);
+}
 {
-  // the static meshes let go of their arrays once they are drawn (from right after the world is built), and the
-  // shaders of what is in the scene are asked for at once
+  // the static meshes let go of their arrays once they are drawn (from right after the world is built)
   const go0 = groupOutdoors;
-  groupOutdoors = function perf2GroupOutdoors() { go0(); try { perf2ReleaseStatic(); perf2Compile(false); } catch (e) { reportError(e); } };
+  groupOutdoors = function perf2GroupOutdoors() { go0(); try { perf2ReleaseStatic(); } catch (e) { reportError(e); } };
   // the hidden things' shaders once the title is up (once: a new character's title comes again)
   const st0 = setupTitle;
   let warm = false;

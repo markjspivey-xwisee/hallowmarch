@@ -34,6 +34,10 @@ INIT_GL = r"""
   // the page's own frame loop can be held (window.__rafHold): only the frames a test asks for are drawn
   window.__rafHold = false; const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); });
+  // the JS heap's highest, looked at between the boot's steps (each step's garbage is still there as it ends)
+  const PK = window.__perf2peak = { heap: 0, at: 0, n: 0 };
+  const look = () => { const m = performance.memory; if (m && m.usedJSHeapSize > PK.heap) { PK.heap = m.usedJSHeapSize; PK.at = Math.round(performance.now()); } PK.n++; if (!(window.__hm && window.__hm.ready)) setTimeout(look, 20); };
+  setTimeout(look, 0);
 })();
 (() => {
   const T = window.__perf2 = { arrays: [], gl: { buf: new Map(), tex: new Map(), rb: new Map(), mips: new Set() }, t0: performance.now() };
@@ -270,6 +274,7 @@ async def mode_boot():
             res['profile'] = prof_top(prof, 60)
             res['profileTotal'] = prof_total(prof, 50)
         res['boot'] = await page.evaluate('__hm.perf.boot()')
+        res['peak'] = await page.evaluate("({ heapMB: Math.round(window.__perf2peak.heap / 1048576), at: window.__perf2peak.at, looks: window.__perf2peak.n })")
         res['scriptAt'] = await page.evaluate("__hm.perf2 ? __hm.perf2.scriptAt : null")
         res['steps'] = await page.evaluate("__hm.perf2 ? __hm.perf2.steps() : null")
         if 'sample' in ARGS:
@@ -292,7 +297,7 @@ async def mode_boot():
         res['errors'] = await page.evaluate('__hm.errors')
         await b.close()
     bt = res['boot']
-    print(f"boot: ready in {res['wall']} s wall ({bt.get('readyAt')} ms page time), script began at {res['scriptAt']} ms; the world {res['world']}")
+    print(f"boot: ready in {res['wall']} s wall ({bt.get('readyAt')} ms page time), script began at {res['scriptAt']} ms; the JS heap's highest between steps {res['peak']}; the world {res['world']}")
     for s in (res['steps'] or bt['steps']): print(f"   {s[1]:9.1f} ms  {s[0]}" + (f"  (began at {s[2]} ms)" if len(s) > 2 else '') + (f", JS heap {s[3]} MB as it ended" if len(s) > 3 and s[3] is not None else ''))
     for k in ('Boot', 'Play'):
         hp, m, rs = res['heap' + k], res['mem' + k], res['rss' + k]
@@ -388,9 +393,10 @@ FRAMES_JS = r"""((n, dt, simGap) => {
   // drawing, which is then waited for and timed on its own (gpu: a phone's GPU is another matter)
   const H = __hm, R = H.dbg.renderer, gl = R.getContext(), T = H.perf.PERFX.times, G = window.__perf2;
   const px = new Uint8Array(4), drain = () => { R.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
-  const out = [];
+  const out = [], acc = {};
   const snap = () => { const s = {}; for (const k in T) s[k] = T[k].ms; return s; };
   const glb = () => { let b = 0; for (const v of G.gl.buf.values()) b += v; return b; };
+  out.acc = acc;
   for (let i = 0; i < n; i++) {
     if (simGap > 0) H.simulate(simGap);
     drain();
@@ -401,11 +407,13 @@ FRAMES_JS = r"""((n, dt, simGap) => {
     const t2 = performance.now(); drain(); const gpu = performance.now() - t2;
     const rec = { i, ms: +ms.toFixed(1), gpu: Math.round(gpu), prog: R.info.programs.length - p0, geo: R.info.memory.geometries - g0, tex: R.info.memory.textures - t0x, up: Math.round((glb() - b0) / 1024) };
     const s1 = snap(); let sys = 0; const top = [];
-    for (const k in s1) { const d = s1[k] - (s0[k] || 0); sys += d; if (d > 1.5) top.push([k, +d.toFixed(1)]); }
+    for (const k in s1) { const d = s1[k] - (s0[k] || 0); sys += d; acc[k] = (acc[k] || 0) + d; if (d > 1.5) top.push([k, +d.toFixed(1)]); }
     rec.sys = +sys.toFixed(1);
     if (ms > 40 || rec.prog) rec.top = top.sort((a, b) => b[1] - a[1]).slice(0, 5);
     out.push(rec);
   }
+  // the systems' JS within the frames themselves (ms a frame), the last record
+  out.push({ acc: Object.entries(acc).map(([k, v]) => [k, +(v / n).toFixed(2)]).sort((a, b) => b[1] - a[1]).slice(0, 16) });
   return out;
 })"""
 
@@ -496,17 +504,25 @@ async def mode_views():
                 st['stepMedian'], st['stepP99'], st['stepMax'] = ss[len(ss) // 2], ss[int(len(ss) * 0.99)], ss[-1]
                 # frames: the first ones in view (what compiles and uploads on first sight), then a minute of the world with a
                 # frame drawn every half second of it
-                first = await page.evaluate(FRAMES_JS + "(8, 1 / 30, 0)")
-                await page.evaluate("__hm.perf.times(true); 0")
+                if 'fprofile' in ARGS:
+                    # a CPU profile of 10 frames drawn back to back (no world between them): where a frame's own JS goes
+                    await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', {'interval': 200})
+                    await page.evaluate("(() => { const R = __hm.dbg.renderer, gl = R.getContext(), px = new Uint8Array(4); R.setRenderTarget(null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return 0; })()")
+                    await cdp.send('Profiler.start')
+                    await page.evaluate("(() => { for (let i = 0; i < 10; i++) __hm.frame(1 / 30); return 0; })()")
+                    prof = (await cdp.send('Profiler.stop'))['profile']
+                    st['fprofile'] = prof_top(prof, 40)
+                    print('        frames profile (self ms over 10 frames):', ', '.join(f'{k} {v}' for k, v in st['fprofile'][:30]), flush=True)
+                first = (await page.evaluate(FRAMES_JS + "(8, 1 / 30, 0)"))[:-1]
                 fr = await page.evaluate(FRAMES_JS + f"({nframes}, 0.1, {60 / nframes - 0.1:.3f})")
-                ftop = await page.evaluate("__hm.perf.times(true).slice(0, 12).map((q) => [q.k, q.ms])")
+                ftop = fr.pop()['acc']
                 s = stats(fr)
                 spikes = sorted(fr, key=lambda f: -f['ms'])[:5]
                 res['views'].setdefault(v, {})[q] = {'steady': st, 'first': first, 'frames': s, 'spikes': spikes, 'ftop': ftop, 'gpu': sorted(f['gpu'] for f in fr)[len(fr) // 2]}
                 med_sys = sorted(f['sys'] for f in fr)[len(fr) // 2]
                 print(f"{q:6s} {v:9s} step {st['stepMs']:5.2f} ms (median {st['stepMedian']}, p99 {st['stepP99']}, max {st['stepMax']}); frame JS median {s['median']} ms (systems {med_sys}, the rest the draw), p90 {s['p90']}, max {s['max']}; first frames {[f['ms'] for f in first]} (programs {sum(f['prog'] for f in first)}); SwiftShader's drawing {res['views'][v][q]['gpu']} ms  [{time.time() - t1:.0f}s wall]", flush=True)
                 print('        step top (ms in 80 steps):', ', '.join(f'{k} {m:.0f}' for k, m in st['top'][:8]), flush=True)
-                print(f'        frame top (ms in {nframes} frames):', ', '.join(f'{k} {m:.0f}' for k, m in ftop[:8]), flush=True)
+                print(f'        frame top (ms a frame, the frame alone):', ', '.join(f'{k} {m}' for k, m in ftop[:12]), flush=True)
                 for f in [x for x in first if x['ms'] > 60] + spikes[:3]:
                     print(f"        spike #{f['i']}: {f['ms']} ms (systems {f['sys']}), programs {f['prog']}, geometries {f['geo']:+d}, textures {f['tex']:+d}, uploaded {f['up']} KB; " + ', '.join(f'{k} {m}' for k, m in f.get('top', [])), flush=True)
         res['errors'] = await page.evaluate('__hm.errors')
@@ -530,6 +546,7 @@ LONG_JS = r"""(() => {
     shadowProxies: H.dbg.SHADOW.proxies.length, stuck: W ? n(W.stuck) : null, falling: W ? n(W.fall) : null,
     engines: H.SIEGE && H.SIEGE.SIEGE ? H.SIEGE.SIEGE.engines.length : null, masons: H.look3 ? n(H.look3.MASON.list) : null,
     rubble: H.rubble ? n(H.rubble.RUBBLE.list) : null, rafters: H.rafters ? n(H.rafters.RAFTERS.list) : null,
+    roles: s.roles,
   };
   const G = window.__perf2 && window.__perf2.glBytes ? window.__perf2.glBytes() : null;
   return { t: Math.round(H.GAME.t), objs, meshes, geos: R.info.memory.geometries, texs: R.info.memory.textures, progs: R.info.programs.length, gl: G, lists,
@@ -631,8 +648,8 @@ async def mode_phone():
         await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 1 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
         # the first minute: a frame each 1/30 s of the world for the first 3 s, then one each half second (as a phone
         # draws at about 30 a second, the world between the frames simulated)
-        fr = await page.evaluate(FRAMES_JS + "(90, 1 / 30, 0)")
-        fr2 = await page.evaluate(FRAMES_JS + "(60, 0.1, 0.4)")
+        fr = (await page.evaluate(FRAMES_JS + "(90, 1 / 30, 0)"))[:-1]
+        fr2 = (await page.evaluate(FRAMES_JS + "(60, 0.1, 0.4)"))[:-1]
         res['first'] = stats(fr); res['minute'] = stats(fr2)
         res['spikes'] = sorted(fr + fr2, key=lambda f: -f['ms'])[:6]
         steps = await page.evaluate(STEPS_JS + "(100)")
@@ -676,5 +693,43 @@ async def mode_geohash():
     print('geohash', json.dumps(r, sort_keys=True))
     pathlib.Path(OUT + f'perf2_geohash_{TAG}.json').write_text(json.dumps(r, sort_keys=True))
 
+# ---------------------------------------------------------------------------------------------------------------
+# ab: the old way and the new side by side in one page, turn and turn about (a loaded machine moves each run's time a
+# lot; turns of a few milliseconds each see the same load): collidersNear with a Set against the stamp, and the
+# bodies' separation through forNear's closure against the loop written out
+# ---------------------------------------------------------------------------------------------------------------
+AB_JS = r"""(() => {
+  const H = __hm, COLL = H.build.COLL, s = COLL.cell, key = (cx, cz) => cx * 4096 + cz, seen = new Set(), out = [];
+  const oldNear = (x, z, rad) => { out.length = 0; seen.clear(); for (let cx = Math.floor((x - rad) / s); cx <= Math.floor((x + rad) / s); cx++) for (let cz = Math.floor((z - rad) / s); cz <= Math.floor((z + rad) / s); cz++) { const l = COLL.grid.get(key(cx, cz)); if (!l) continue; for (const c of l) if (!seen.has(c)) { seen.add(c); out.push(c); } } return out.length; };
+  let q = 1e9; const newNear = (x, z, rad) => { out.length = 0; const qq = ++q; for (let cx = Math.floor((x - rad) / s), cx1 = Math.floor((x + rad) / s); cx <= cx1; cx++) for (let cz = Math.floor((z - rad) / s), cz1 = Math.floor((z + rad) / s); cz <= cz1; cz++) { const l = COLL.grid.get(key(cx, cz)); if (!l) continue; for (let i = 0; i < l.length; i++) { const c = l[i]; if (c._abq !== qq) { c._abq = qq; out.push(c); } } } return out.length; };
+  const pts = H.ENT.filter((e) => e.alive && e.kind !== 'door').map((e) => [e.x, e.z]);
+  const T = { old: 0, new: 0, n: 0, same: true, colls: 0 };
+  for (let turn = 0; turn < 40; turn++) {
+    for (const which of turn % 2 ? ['new', 'old'] : ['old', 'new']) {
+      const f = which === 'old' ? oldNear : newNear, t = performance.now(); let c = 0;
+      for (const [x, z] of pts) c += f(x, z, 12.5);
+      T[which] += performance.now() - t; if (which === 'old') T.colls = c;
+    }
+  }
+  for (const [x, z] of pts.slice(0, 50)) { const a = oldNear(x, z, 12.5), A = out.slice(); const b = newNear(x, z, 12.5); if (a !== b || out.some((c, i) => c !== A[i])) T.same = false; }
+  T.n = pts.length * 40;
+  return { queries: T.n, oldMs: +T.old.toFixed(1), newMs: +T.new.toFixed(1), usEachOld: +(T.old * 1000 / T.n).toFixed(2), usEachNew: +(T.new * 1000 / T.n).toFixed(2), collidersEach: Math.round(T.colls / pts.length), sameLists: T.same };
+})()"""
+
+async def mode_ab():
+    async with async_playwright() as p:
+        b, page, cdp, logs, wall = await open_page(p, 320, 180)
+        page.set_default_timeout(3000000)
+        await page.evaluate("window.__rafHold = true; 0")
+        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; __hm.simulate(60); return 0; })()")
+        r = await page.evaluate(AB_JS)
+        # in a keep under siege: the bodies at the gate and on the walls
+        await page.evaluate("(() => { const H = __hm, K = H.WAR.keeps[0]; H.SIEGE.band(1, 0, 30, 12); H.simulate(20); return 0; })()")
+        r2 = await page.evaluate(AB_JS)
+        await b.close()
+    for k, v in (('the war at large', r), ('a keep stormed', r2)):
+        print(f"collidersNear, {k}: {v['queries']} queries of 12.5 m ({v['collidersEach']} colliders each on average): a Set {v['oldMs']} ms ({v['usEachOld']} us each), the stamp {v['newMs']} ms ({v['usEachNew']} us each); the same lists: {v['sameLists']}")
+    pathlib.Path(OUT + f'perf2_ab_{TAG}.json').write_text(json.dumps({'war': r, 'keep': r2}))
+
 if __name__ == '__main__':
-    asyncio.run({'boot': mode_boot, 'views': mode_views, 'long': mode_long, 'phone': mode_phone, 'geohash': mode_geohash}[MODE]())
+    asyncio.run({'boot': mode_boot, 'views': mode_views, 'long': mode_long, 'phone': mode_phone, 'geohash': mode_geohash, 'ab': mode_ab}[MODE]())
