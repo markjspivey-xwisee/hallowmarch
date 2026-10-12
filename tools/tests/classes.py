@@ -798,8 +798,8 @@ async def balance3(page):
       P2.cds = {}; P2.gcdUntil = 0; P2.power = P2.maxPower; const w2 = F.useAbility(P2, 'leap', t2); const chCd = (P2.cds.charge || 0) - H.GAME.t;
       const P3 = T.fresh('warrior', 20, 0); const fc = T.ahead(P3, 15); const t3 = T.foe(1, fc.x, fc.z, 20, 'warrior', 0); t3.ai.nextAbility = 1e9; P3.cds = {}; P3.gcdUntil = 0; P3.power = P3.maxPower;
       F.useAbility(P3, 'charge', t3); const low = (P3.cds.leap || 0) - H.GAME.t;
-      H.simulate(1.2); return { w1, leapCd: +leapCd.toFixed(1), w2, chCd: +chCd.toFixed(1), low: +low.toFixed(1) }; })()""")
-    check(r['w1'] is True and r['leapCd'] >= 9.9 and r['w2'] is True and r['chCd'] >= 9.9, f"Charge and Leap Strike are one rush ({r['leapCd']} s, {r['chCd']} s)")
+      H.simulate(1.2); return { w1, leapCd: +leapCd.toFixed(1), w2, chCd: +chCd.toFixed(1), low: +low.toFixed(1), share: H.bal7 ? H.bal7.B7T.rushShare : 10 }; })()""")
+    check(r['w1'] is True and r['leapCd'] >= r['share'] - 0.1 and r['w2'] is True and r['chCd'] >= r['share'] - 0.1, f"Charge and Leap Strike are one rush ({r['leapCd']} s, {r['chCd']} s; [balance7] the share {r['share']} s)")
     check(r['low'] <= 0, 'below Leap Strike a Charge holds nothing back')
 
     r = await ev(page, 'pierce', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 50, 0);
@@ -1073,6 +1073,21 @@ async def balance7(page):
     check(bool(cp) and cp['cold'] and cp['wind'] == 0 and cp['snare']['caught'] and abs(cp['snare']['root'] - 4.5) < 0.25 and cp['snare']['frozen'], f"in the cold the wind does not move its arrows and its snare freezes what it catches and holds it 4.5 s ({cp})")
     lc = r.get('logresCold')
     check(bool(lc) and lc['wind'] == 1 and lc['snare']['caught'] and not lc['snare']['frozen'] and abs(lc['snare']['root'] - 3.5) < 0.25, f"a Logres archer there shoots and snares as a plain one ({lc})")
+    # the rules: Charge every 12 s at 50 with its slowing blow, one rush of B7T.rushShare s, plain shafts by rank, Mend on a scratch, the texts
+    r = await ev(page, 'rules7', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = { share: B7.B7T.rushShare };
+      const P = T.fresh('warrior', 50, 0); const a = T.ahead(P, 15); const f = T.foe(1, a.x, a.z, 50, 'mage', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 40 }; F.setupStats(f);
+      H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower;
+      out.used = F.useAbility(P, 'charge', f); out.chargeCd = +((P.cds.charge || 0) - H.GAME.t).toFixed(1); out.leapCd = +((P.cds.leap || 0) - H.GAME.t).toFixed(1);
+      H.simulate(1.6); const sl = f.buffs.find((b) => b.kind === 'snare' && b.src === P.id); out.slow = sl ? +sl.value.toFixed(2) : 0;
+      out.plain = [20, 30, 40, 50].map((lv) => +B7.plainArrowK({ level: lv }).toFixed(2));
+      out.scratch = +H.bal4.mendWound({ hp: 95, maxHp: 100 }).toFixed(3); out.half = +H.bal4.mendWound({ hp: 50, maxHp: 100 }).toFixed(3);
+      out.leapText = H.bal5.ABILITIES.leap.desc.includes('holds the other back ' + out.share + ' s'); out.chargeText = H.bal5.ABILITIES.charge.desc.includes('every 12 s');
+      return out; })()""")
+    check(r['used'] is True and abs(r['chargeCd'] - 12) < 0.3 and r['leapCd'] >= r['share'] - 0.1 and r['leapCd'] <= r['share'] + 0.3, f"at 50 Charge comes round in 12 s and holds Leap Strike back {r['share']} s ({r['chargeCd']} s, {r['leapCd']} s)")
+    check(abs(r['slow'] - 0.4) < 0.01, f"at 50 its landing blow slows the foe by 40% ({r['slow']})")
+    check(r['plain'] == [1, 1.05, 1.1, 1.15], f"plain shafts strike 5% harder a rank past the first ({r['plain']})")
+    check(abs(r['scratch'] - 0.235) < 0.01 and r['half'] == 1, f"Mend on a scratch: a sixth of its measure and more as the wound deepens, all of it from half health ({r['scratch']} at 95%, {r['half']} at 50%)")
+    check(r['leapText'] and r['chargeText'], f"the tooltips name the rush share and Charge's wait ({r['leapText']}, {r['chargeText']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance7] checks {errs[:2]}')
 

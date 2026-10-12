@@ -12,6 +12,10 @@ usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|si
                 round each (narrow: version 13's, 52 m apart within 170 m of one centre)
   wooded        [balance7] version 14's arenas (90 m apart, trees or not); by default the arenas stand on open ground (no
                 more than two trees within 20 m of the middle and six within 30 m), 80 m apart
+  alt           [balance7] every other duel makes its B side first: the side made first acts first in every step, and in
+                a mirror of archers, both plain, it won 71% of the duels (the A side: the first calling of a pair, the
+                realm's way in kind=flavour, the skilled bot in kind=mastery)
+  plain=a|ab    [balance7] kind=flavour: the plain calling as the A side (a), or both plain (ab: the measure's own lean)
   trace=N       a timeline of the first N duels (presses, blows, and a look at both sides each second)
   kind=mastery  each calling's skilled bot against its simple bot (reps each, sides flipped)
   HM_BAL=path   writes every duel as JSON
@@ -36,6 +40,7 @@ TRACE = int(arg('trace', '0'))
 NARROW = 'narrow' in ARGS  # [balance6] version 13's arenas (52 m apart round one centre)
 OPEN = 'wooded' not in ARGS  # [balance7] open ground (no more than two trees within 20 m of an arena's middle, six within 30 m); `wooded`: version 14's arenas
 GAP = int(arg('gap', '80' if OPEN else '90'))  # [balance6] how far apart the arenas stand ([balance7] 80 m on open ground: 10 arenas)
+ALT = 'alt' in ARGS  # [balance7] every other duel makes its B side first (DS.make)
 CL4 = ['warrior', 'archer', 'mage', 'priest']
 PAIRS = [tuple(p.split('-')) for p in arg('pairs', '').split(',') if p] or [(CL4[i], CL4[j]) for i in range(4) for j in range(i + 1, 4)]
 
@@ -119,7 +124,12 @@ window.DS = {
   },
   make(lvl, [a, ka, b, kb, ra, rb, flip, plain], s, i) {
     const f = flip ? -1 : 1;
-    const ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18), ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18);
+    // [balance7] the fighter made first acts first in every step (the world's lists are walked in the order bodies were
+    // made): with CB.altOrder (`alt`) every other duel makes its B side first
+    const bFirst = !!CB.altOrder && (this.nMade = (this.nMade || 0) + 1) % 2 === 0;
+    let ua, ub;
+    if (bFirst) { ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18); ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18); }
+    else { ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18); ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18); }
     ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
     ua.target = ub.id; ub.target = ua.id;
     if (plain === 'b' || plain === 'ab') ub.plainCalling = true; // [balance7] 'a': the plain calling listed first, 'ab': both plain (the measure's own lean)
@@ -168,10 +178,12 @@ def spec_list(kind, reps):
     out = []
     if kind == 'flavour':  # [balance4] each realm's way of each calling against the same calling played plain (no realm's way)
         fb = arg('fbot', 'skilled')
+        pl = arg('plain', 'b')  # [balance7] 'a': the plain calling as the A side, 'ab': both plain (the measure's own lean)
         for c in [c for c in CL4 if not ONLY or c in ONLY]:
             for R in range(3):
                 for i in range(reps):
-                    out.append([c, fb, c, fb, R, (R + 1 + i % 2) % 3, i % 2, 'b'])
+                    if pl == 'a': out.append([c, fb, c, fb, (R + 1 + i % 2) % 3, R, i % 2, 'a'])
+                    else: out.append([c, fb, c, fb, R, (R + 1 + i % 2) % 3, i % 2, pl])
         return out
     if kind == 'mastery':
         for c in [c for c in CL4 if not ONLY or c in ONLY]:
@@ -240,7 +252,7 @@ async def main():
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
         # [balance6] the arenas far apart (spotsWide), unless `narrow` asks for version 13's (52 m apart round one centre)
-        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP}, {"true" if OPEN else "false"})'}; CB.lastFall = {'true' if 'lastfall' in ARGS else 'false'}; 0")  # [balance6] lastfall: a duel where both fell within the second the run looks is the one's that fell last (else a draw)
+        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP}, {"true" if OPEN else "false"})'}; CB.lastFall = {'true' if 'lastfall' in ARGS else 'false'}; CB.altOrder = {'true' if ALT else 'false'}; 0")  # [balance7] alt [balance6] lastfall: a duel where both fell within the second the run looks is the one's that fell last (else a draw)
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
         # machine a software renderer drawing every frame (keep it with `loop`)
         if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")

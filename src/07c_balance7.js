@@ -5,7 +5,7 @@
 const BAL7 = { stats: { logresHigh: 0, eriuWoods: 0, thuleCold: 0 } };
 // the rules' measures in one place (the tests set them between runs to measure a rule against its absence)
 const B7T = {
-  rushShare: RUSH_SHARE, // [warrior] Charge and Leap Strike share one rush from level 30: using either holds the other back this long
+  rushShare: 5, // [warrior] Charge and Leap Strike share one rush from level 30: using either holds the other back this long (RUSH_SHARE 10: the skilled warrior won 29% of its duels at 50, 35% with 5)
   deepFrost: true, // [warrior] a seasoned mage's frost holds Charge (07c_balance3.js deepFrostHeld)
   leapSlow: null, // [warrior] [share, s]: Leap Strike's landing slows what it strikes
   lightFeet: 0.15, // [archer] the share of weapon blows an archer's light feet carry it from
@@ -103,7 +103,8 @@ CLASS_REALM.archer[1].text = `Among trees you hide in half the time, stay hidden
 CLASS_REALM.archer[2].text = `In the cold (snow under you, or a freezing air) the wind does not move your arrows and your snares freeze what they catch and hold it ${ARCHER_GROUND.thuleSnare} s; anywhere, you strike chilled and frozen foes ${Math.round((ARCHER_REALM.thuleChill - 1) * 100)}% harder.`;
 
 /* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
-ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage, and the blow slows it by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there, and Charge is then ready in half its wait. Landing, you take ${RUSH_FOOTING} s to find your feet, and Shield Bash waits ${RUSH_BASH} s. Charge comes round every ${RUSH_CD_EARLY} s; from Leap Strike's level it and Leap Strike are one rush (either holds the other back ${RUSH_SHARE} s).`;
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage, and the blow slows it by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there, and Charge is then ready in half its wait. Landing, you take ${RUSH_FOOTING} s to find your feet, and Shield Bash waits ${RUSH_BASH} s. Charge comes round every ${RUSH_CD_EARLY} s; from Leap Strike's level it and Leap Strike are one rush (either holds the other back ${B7T.rushShare} s).`;
+ABILITIES.leap.desc = ABILITIES.leap.desc.replace('holds the other back 10 s', `holds the other back ${B7T.rushShare} s`); // (07c_balance3.js's text)
 ABILITIES.mend.desc = `Heals a friend for 36% of health, or you for ${Math.round(36 * PRIEST_SELF)}%. The deeper the wound, the more it mends: all of it from half health down, barely a sixth of it on a scratch.`;
 ARROW_DEF.plain.text = `Ordinary shafts. You never run out, and a seasoned archer's own shafts strike ${Math.round(B7T.plainRank * 100)}% harder for each rank past the first.`;
 // classHarm asks for an arrow with no special head: a seasoned archer's own shafts strike harder rank by rank (from rank II: 5, 10, 15%)
