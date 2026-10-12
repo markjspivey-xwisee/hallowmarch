@@ -455,6 +455,7 @@ async def main():
               H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); L.late2CheckNames(true); L.late2Deed('king'); L.late2Wear('blooded');
               const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()""")
             ok = await tap(page, '#lore-path [data-act="open"], #lore-path [data-act="aims"]')
+            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"deeds\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center' }); return 0; })()") # (the row scrolls: Deeds is its last page)
             ok2 = await tap(page, '.chron-nav [data-sec="deeds"]')
             await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
             box = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (!b) return null; const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()")

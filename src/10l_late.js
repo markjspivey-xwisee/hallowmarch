@@ -822,7 +822,7 @@ function chronDeeds() {
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(late2T(worn))}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
 }
-chronAdd('deeds', 'Deeds', 'you', chronDeeds, 'goals');
+chronAdd('deeds', 'Deeds', 'you', chronDeeds, 'gear'); // (at the end of its row: a page before Gear put Gear off an upright phone's row, guide.py)
 G2_SEE.deeds = ['goals', 'wilds']; // [guide2] the pages a reader goes on to (10f_guide2.js)
 $('menu-body').addEventListener('click', (ev) => {
   const b = ev.target.closest('.chron [data-l2]');
