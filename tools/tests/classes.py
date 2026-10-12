@@ -1137,9 +1137,10 @@ async def shots(page):
       w.tweak = { hp: 20, speed: 0.01 }; F.setupStats(w); H.simulate(0.1); CS(P, w, 6, 1.6, 0.3, 1.2); H.frame(0.016);
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'ward', P); for (let i = 0; i < 4; i++) { H.simulate(0.05); H.frame(0.05); }
       P.gcdUntil = 0; F.useAbility(P, 'firebolt', w); for (let i = 0; i < 6; i++) { H.simulate(0.05); H.frame(0.05); }
-      const broke = H.bal.breakCast(P); for (let i = 0; i < 3; i++) { H.simulate(0.03); H.frame(0.03); }
-      CS(P, w, 6, 1.6, 0.3, 1.2); return { broke, casting: !!P.casting, kept: H.bal6.BAL6.stats.wardKept || 0 }; })()""")
-    await snap(page, 'ward', 1)
+      const broke = H.bal.breakCast(P); H.frame(0.016);
+      /* both in the frame (the warrior stood out of it); the HUD shows the cast bar running on and "Warded" over the mage */
+      CS(P, w, 9.5, 1.8, 0.5, 1.2); return { broke, casting: !!P.casting, kept: H.bal6.BAL6.stats.wardKept || 0 }; })()""")
+    await snap(page, 'ward', 1, hud=True)
 
 async def main():
     async with async_playwright() as p:
