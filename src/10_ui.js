@@ -696,7 +696,7 @@ function renderMenu(tab) {
     const rr = realmRank(prog.rp);
     const nextRR = REALM_RANKS[rr] ?? null;
     const mins = Math.floor(prog.played / 60);
-    body.innerHTML = `<p>${P.name}, ${CLASSES[P.cls].name} of ${REALMS[P.faction].name}. ${RANK_TITLES[rr - 1]}.</p>
+    body.innerHTML = `<p>${esc(late2Named(P)) /* [late2] with the name it wears (10l_late.js) */}, ${CLASSES[P.cls].name} of ${REALMS[P.faction].name}. ${RANK_TITLES[rr - 1]}.</p>
       <div class="stats">
         <div class="stat"><small>Level</small><b>${prog.level}</b></div>
         <div class="stat"><small>Realm rank</small><b>${rr}</b></div>
@@ -704,6 +704,7 @@ function renderMenu(tab) {
         <div class="stat"><small>Creatures slain</small><b>${fmtInt(prog.kills)}</b></div>
         <div class="stat"><small>Foes slain</small><b>${fmtInt(prog.realmKills)}</b></div>
         <div class="stat"><small>Deaths</small><b>${fmtInt(prog.deaths)}</b></div>
+        ${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}
       </div>
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
       <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>`;

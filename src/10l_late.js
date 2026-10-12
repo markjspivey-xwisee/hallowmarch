@@ -161,6 +161,12 @@ function late2Forget() {
   saveSoon();
   return true;
 }
+// the Character page's figures (10_ui.js renderMenu)
+function late2CharStats() {
+  const prog = GAME.prog;
+  if (!prog) return '';
+  return `<div class="stat"><small>Names</small><b>${LATE2.names.length} of ${LATE2_NAMES.length}</b></div>` + (prog.level >= LEVEL_CAP ? `<div class="stat"><small>Veterancy</small><b>${LATE2.vet}</b></div>` : '');
+}
 // the experience bar at the cap (10_ui.js updateHUD)
 function late2XpBar() { const need = late2VetNeed(LATE2.vet); return [clamp(LATE2.vxp / need, 0, 1), `Veterancy ${LATE2.vet} · ${fmtInt(LATE2.vxp)} / ${fmtInt(need)}`]; }
 
