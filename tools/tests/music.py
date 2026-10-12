@@ -121,7 +121,9 @@ async def main():
                 check(L.get('base', 0) > 0.7 and L.get('drums', 0) > 0.3, f'battle layers follow the heat {L} (heat {got["heat"]})')
                 peak_live = max(peak_live, got['live'])
             # the fight ends: the foes go, the heat cools, the music leaves the battle
-            await ev("""(() => { const H = __hm, F = H.fn, P = H.GAME.player; for (const e of H.ENT.slice()) if (e.faction === 1 && Math.hypot(e.x - P.x, e.z - P.z) < 40 && e.role === 'soldier') F.removeEnt(e); P.combatUntil = -99; H.UI.modal = 'menu'; return 0; })()""")
+            # [audio2] and the wounds they left on you stop bleeding: each tick of a bleed puts the player back in the fight for
+            # 6 s, and the six warriors' bleeds ticked on 5 s after they were gone, past the 8 s below (the check failed then)
+            await ev("""(() => { const H = __hm, F = H.fn, P = H.GAME.player; for (const e of H.ENT.slice()) if (e.faction === 1 && Math.hypot(e.x - P.x, e.z - P.z) < 40 && e.role === 'soldier') F.removeEnt(e); P.combatUntil = -99; P.buffs = P.buffs.filter((b) => b.kind !== 'bleed' && b.kind !== 'dot' && b.kind !== 'burn'); H.UI.modal = 'menu'; return 0; })()""")
             await ev("__hm.simulate(8); 0")
             dt, s = await settle('frontier', 40)
             check(dt is not None, f"after the fight the frontier theme returns ({'%.1fs' % dt if dt else json.dumps(s)[:240]})")
