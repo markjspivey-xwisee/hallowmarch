@@ -105,8 +105,9 @@ window.PV = {
       const S = H.REALMS[0].town;
       if (!this.rubbleSet) {
         this.rubbleSet = true;
-        const hs = S.houses.map((q) => q.rec).filter((q) => q && !q.keepHall && q.state === 'whole').sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z));
-        this.ruin = hs[2]; this.scaf = hs[5];
+        // (the town's whole houses: the townfire view sets three of them alight before it)
+        const hs = H.HOUSES.filter((h) => !h.keepHall && h.S === S && h.state === 'whole').sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z));
+        this.ruin = hs[Math.min(2, hs.length - 2)]; this.scaf = hs[Math.min(5, hs.length - 1)];
         H.batter.houseBreak(this.ruin, null); H.batter.houseBreak(this.scaf, null);
         H.simulate(2.5);
         if (this.scaf.state === 'ruin') { this.scaf.stT = 1e4; H.simulate(0.3); }
