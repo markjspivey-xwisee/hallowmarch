@@ -9,7 +9,8 @@ shove a beached boat into the water and push her about ([polish]); hold a brand 
 beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall);
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
-[look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`).
+[look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
+(`only=housescaf`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -378,6 +379,21 @@ async def main():
             down = await page.evaluate("""(() => { const H = TF.H, P = TF.P(), { L, W } = window.__tfs; for (let i = 0; i < 40 && (P.motion || i < 2); i++) H.simulate(0.25); W.S && 0; return { dy: +(P.y - L.wyb).toFixed(2) }; })()""")
             check(r.get('on') and r.get('label') == 'Climb the scaffold' and ok1 and abs(up['dy'] - up['lift']) < 0.1 and abs(up['floor']) < 0.05, f"scaffold: a tap on Use climbs a mended tower's scaffold onto its first lift, standing on its boards ({json.dumps(r)}, {json.dumps(up)})")
             check(up['label'] == 'Climb down the ladder' and ok2 and abs(down['dy']) < 0.15, f"scaffold: and another climbs back down ({json.dumps(down)})")
+        if want('housescaf'):
+            # [look4] a town house brought down by stones, built back behind its own scaffold: a tap on Use climbs its ladder
+            # onto the boards, another climbs back down
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, S = H.REALMS[0].town;
+              const hs = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole').sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z)), A = hs[4] || hs[0];
+              H.batter.houseBreak(A, null); const m = H.UI.modal; H.UI.modal = null; H.simulate(0.3); A.stT = 1e4; H.simulate(0.3); A.stT = 20; H.simulate(0.2); H.UI.modal = m;
+              const Q = H.rubble.HSCAF.list.get(A), L = Q && Q.l3 && Q.l3.ladders.find((q) => !q.gone); if (!L) return { state: A.state, q: !!Q };
+              TF.stand(L.fx, L.fz, L.lx, L.lz); TF.P().y = L.wyb; H.simulate(0.2); window.__tfh = { A, L };
+              return { state: A.state, label: TF.label() }; })()""")
+            ok1 = await tap(page, '#t-use')
+            up = await page.evaluate("""(() => { const H = TF.H, P = TF.P(), { L } = window.__tfh; for (let i = 0; i < 40 && (P.motion || i < 2); i++) H.simulate(0.25); const fl = H.fn.floorAt(P.x, P.z, P.y + 0.3); return { dy: +(P.y - L.wyb).toFixed(2), lift: +(L.wyt - L.wyb).toFixed(2), floor: +(fl - P.y).toFixed(2), label: TF.label() }; })()""")
+            ok2 = await tap(page, '#t-use')
+            down = await page.evaluate("""(() => { const H = TF.H, P = TF.P(), { L } = window.__tfh; for (let i = 0; i < 40 && (P.motion || i < 2); i++) H.simulate(0.25); return { dy: +(P.y - L.wyb).toFixed(2) }; })()""")
+            check(r.get('state') == 'scaffold' and r.get('label') == 'Climb the scaffold' and ok1 and abs(up['dy'] - up['lift']) < 0.1 and abs(up['floor']) < 0.05, f"housescaf: a tap on Use climbs a house's scaffold onto its boards ({json.dumps(r)}, {json.dumps(up)})")
+            check(up['label'] == 'Climb down the ladder' and ok2 and abs(down['dy']) < 0.15, f"housescaf: and another climbs back down ({json.dumps(down)})")
         if want('guide'):
             # [guide] the path tracker: a tap on the step opens your path in the Chronicle, a tap on Aims the late game's
             # goals; a field note is tapped away

@@ -95,7 +95,7 @@ function drawDazzle() {
     const sc = e.scale || 1, y = e.y + (e.kind === 'humanoid' ? 1.74 + (e.mount ? 0.8 : 0) : e.kind === 'bear' ? 1.3 : 0.85) * sc;
     // [look4] the motes a size a player reads at any distance (at least about 1/40 of the way to the camera: they were a
     // few pixels at 640x360), wider round the head, with a faint trail behind each
-    const k = clamp((b.until - GAME.t) / 0.6, 0, 1) * (0.7 + b.value * 1.2), r = 0.4 * sc, dc = Math.sqrt(dist2(e.x, e.z, cx, cz) + (y - camera.position.y) ** 2), s0 = Math.max(0.21 * sc, dc * 0.026);
+    const k = clamp((b.until - GAME.t) / 0.6, 0, 1) * (0.7 + b.value * 1.2), r = 0.4 * sc, dc = Math.sqrt(dist2(e.x, e.z, cx, cz) + (y - camera.position.y) ** 2), s0 = Math.max(0.3 * sc, dc * 0.04);
     for (let i = 0; i < 3; i++) {
       const a = t * 4.2 + i * 2.094 + id, tw = 0.75 + 0.25 * Math.sin(t * 13 + i * 1.7 + id);
       glowPush(e.x + Math.cos(a) * r, y + Math.sin(a * 2 + i) * 0.05 * sc, e.z + Math.sin(a) * r, 2.8 * k, 2.5 * k, 1.5 * k, s0 * tw);

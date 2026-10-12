@@ -967,7 +967,7 @@ window.LK = {
   const castleOfK = (K) => LK.F.castleOf(K.site);
   const holdKeep = (K) => { K.lastEnemyNear = LK.H.GAME.t + 1e6; };
   const noGarrison = (K) => { for (const id of [...K.guards]) { const g = LK.F.getEnt(id); if (g) LK.F.removeEnt(g); } K.guards.clear(); K.nextGuardAt = 1e9; };
-  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s); H.UI.modal = m || 'menu'; };
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; }; // (simulate's own step is 0.05 s: a shorter stretch needs its own)
   // a town's house brought down by stones (04j_batter.js houseBreak), from its street: r realm, n the n-th nearest the plaza
   LK.felled = function (r, n) {
     const L = this, key = 'l4f' + r + '_' + n;
@@ -1065,13 +1065,16 @@ window.LK = {
     c.heat = Math.max(c.heat, 0.6); sim(L, 0.25);
     const g = gs()[0] || [...K.guards].map(F.getEnt).find((q) => q && q.alive && q.ai.fire);
     if (!g) return { skip: 'no beater' };
-    const tx = (g.x + c.x) / 2, ty = g.y + 1.1, tz = (g.z + c.z) / 2, dx = g.x - c.x, dz = g.z - c.z, dl = Math.hypot(dx, dz) || 1;
+    // from behind and beside the beater, looking past it at the fire it beats (siege3_crew's framing came out dark)
+    let ux = g.x - c.x, uz = g.z - c.z; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+    const tx = c.x * 0.6 + g.x * 0.4, ty = g.y + 1.2, tz = c.z * 0.6 + g.z * 0.4;
     let pick = null;
-    for (const rr of [3.4, 4.2, 5]) for (const a of [0.9, -0.9, 0.5, -0.5, 1.3, -1.3]) {
-      if (pick) break; const ca = Math.cos(a), sa = Math.sin(a), ux = (dx * ca - dz * sa) / dl, uz = (dx * sa + dz * ca) / dl, cx = g.x + ux * rr, cz = g.z + uz * rr, cy = Math.max(g.y, F.heightAt(cx, cz)) + 1.6;
-      if (H.walls.shotHit(cx, cy, cz, tx, ty, tz, {})) continue; pick = [cx, cy, cz];
+    for (const rr of [3.2, 4.2, 2.6]) for (const lat of [1.3, -1.3, 2.2, -2.2]) {
+      if (pick) break; const cx = g.x + ux * rr - uz * lat, cz = g.z + uz * rr + ux * lat, cy = Math.max(g.y, F.heightAt(cx, cz)) + 1.9;
+      if (H.walls.shotHit(cx, cy, cz, g.x, g.y + 1.3, g.z, {}) || H.walls.shotHit(cx, cy, cz, tx, ty, tz, {})) continue;
+      pick = [cx, cy, cz];
     }
-    if (!pick) pick = [g.x + dx / dl * 3.4, g.y + 1.8, g.z + dz / dl * 3.4];
+    if (!pick) pick = [g.x + ux * 3.2 - uz * 1.3, g.y + 1.9, g.z + uz * 3.2 + ux * 1.3];
     L.away(K.site.x + 60, K.site.z + 60);
     return { ...L.cam(pick[0], pick[1], pick[2], tx, ty, tz), beating: gs().length };
   });
@@ -1090,7 +1093,7 @@ window.LK = {
     const hold = { x: P.x, y: P.y, z: P.z };
     const sx = Math.cos(Ld.yawW), sz = -Math.sin(Ld.yawW), fx = Math.sin(Ld.yawW), fz = Math.cos(Ld.yawW);
     const c = { x: hold.x + sx * 2.2 - fx * 1.4, y: hold.y + 1.3, z: hold.z + sz * 2.2 - fz * 1.4 };
-    return { ...L.cam(c.x, c.y, c.z, hold.x + fx * 0.2, hold.y + 1.0, hold.z + fz * 0.2), y: +(P.y - Ld.wyb).toFixed(2), motion: P.motion ? P.motion.kind : null };
+    return { ...L.cam(c.x, c.y, c.z, hold.x + fx * 0.2, hold.y + 1.0, hold.z + fz * 0.2), y: +(P.y - Ld.wyb).toFixed(2), motion: P.motion ? P.motion.kind : null, st: W.state, t: +(W.t || 0).toFixed(2), gone: !!Ld.gone, vis: !!(W.scaffold && W.scaffold.visible), lifts: W.l4n };
   });
   // version 14's timber: a burh's walk burning at night, burnt through by day (the charred boards below), the hallow's ring
   D('look4', 'deck_gap', (L) => {

@@ -279,7 +279,13 @@ function drawClasses(dt) {
   }
   // [look4] a soft light low over the hallowed ground: a glow of 1.1 the ground's width and full strength at 0.6 m blew
   // the frame out to white round the priest (cls_hallow)
-  for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) { const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1); glowPush(G.x, heightAt(G.x, G.z) + 0.3, G.z, 0.3 * k, 0.26 * k, 0.13 * k, G.r * 0.95); }
+  // and its edge marked over the grass by a ring of slowly turning motes (the disc on the ground hides in a meadow)
+  for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) {
+    const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1), gy = heightAt(G.x, G.z);
+    glowPush(G.x, gy + 0.3, G.z, 0.3 * k, 0.26 * k, 0.13 * k, G.r * 0.95);
+    const n = near2(G.x, G.z, 60) ? Math.max(8, Math.round(G.r * 3.2)) : 0, t = renderTime * 0.18;
+    for (let i = 0; i < n; i++) { const a = t + (i / n) * TAU, x = G.x + Math.sin(a) * G.r * 0.93, z = G.z + Math.cos(a) * G.r * 0.93; glowPush(x, heightAt(x, z) + 0.42 + 0.06 * Math.sin(renderTime * 1.7 + i), z, 1.0 * k, 0.86 * k, 0.45 * k, 0.17); }
+  }
   const P = GAME.player;
   // chilled bodies breathe frost
   if (!lo) forNear(camX, camZ, 40, (e) => { if (e.alive && e.buffs.length && Math.random() < dt * 4 && chillOf(e) > 0) { const sc = e.scale || 1; fxAdd.emit(e.x + (Math.random() - 0.5) * 0.6 * sc, e.y + Math.random() * 1.6 * sc, e.z + (Math.random() - 0.5) * 0.6 * sc, 0, 0.25, 0, 0.9, 0.5, 0.8, 1.3, 0.07, -0.1, 0.5); } });

@@ -82,17 +82,19 @@ const LOOK4_CHAR_GLSL = /* glsl */`
     float px = max(max(px2.x, px2.y), 1e-5);
     // cells of a jittered grid stretched along the grain (about 16 cm along, 7.5 across), each a block of char; the
     // fissure is the edge between the two nearest cells, measured in metres
-    vec2 sc = vec2(1.0 / 0.16, 1.0 / 0.075), q = uv * sc, ip = floor(q), fq = fract(q);
-    float d1 = 9.0, d2 = 9.0; vec2 c1 = ip;
+    vec2 sc = vec2(1.0 / 0.19, 1.0 / 0.065), q = uv * sc, ip = floor(q), fq = fract(q);
+    float d1 = 9.0, d2 = 9.0; vec2 c1 = ip, c2 = ip;
     for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
       vec2 o = vec2(float(x), float(y)), h = hash22(ip + o);
       vec2 pm = (o + 0.12 + 0.76 * h - fq) / sc;
       float d = dot(pm, pm);
-      if (d < d1) { d2 = d1; d1 = d; c1 = ip + o; } else if (d < d2) d2 = d;
+      if (d < d1) { d2 = d1; c2 = c1; d1 = d; c1 = ip + o; } else if (d < d2) { d2 = d; c2 = ip + o; }
     }
     float e = (sqrt(d2) - sqrt(d1)) * 0.5, id = hash12(c1 + 7.3);
-    float w = 0.0035 + 0.0045 * hash12(floor(uv * vec2(4.0, 9.0)) + 3.1);
-    float crack = 1.0 - smoothstep(w, w + px, e);
+    // each fissure (the edge between two blocks) its own depth: some open wide, some hairlines, a few closed, so the
+    // checks read as a broken net, not a honeycomb
+    float ed = hash12(c1 + c2 + abs(c1 - c2) * 3.1 + 11.1), w = mix(0.0008, 0.0075, ed * ed) * step(0.12, ed); // (the same seen from either block)
+    float crack = (1.0 - smoothstep(w, w + px, e)) * (0.45 + 0.55 * ed);
     float keep = 1.0 - smoothstep(0.016, 0.03, px);
     return vec3(crack * keep, id, keep);
   }

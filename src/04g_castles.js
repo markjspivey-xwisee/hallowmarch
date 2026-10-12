@@ -814,7 +814,9 @@ const CASTLE_FS = (() => {
     if (tChar > 0.002 || tGlow > 0.002) ck4 = look4Char(uvC);
     if (tChar > 0.002) {
       float crk = ck4.x;
-      vec3 charc = vec3(0.017, 0.016, 0.015) * (0.6 + 0.55 * ck4.y + 0.35 * vnoise(uvC * 6.0));
+      // [look4] the char keeps the shape of what burnt (a shingle's edge, a log's seam): it was one flat black
+      float ol = clamp(dot(alb, vec3(0.3, 0.59, 0.11)) / max(dot(vCol, vec3(0.3, 0.59, 0.11)), 0.05), 0.4, 1.6);
+      vec3 charc = vec3(0.017, 0.016, 0.015) * (0.6 + 0.55 * ck4.y + 0.35 * vnoise(uvC * 6.0)) * ol;
       float ash = smoothstep(0.48, 0.82, vnoise(uvC * 2.1 + 3.0)) * (0.3 + 0.7 * max(n.y, 0.0)) * smoothstep(0.5, 1.0, tChar);
       charc = mix(charc, vec3(0.34, 0.33, 0.31) * (0.8 + 0.4 * vnoise(uvC * 9.0)), ash * 0.8 * (1.0 - crk));
       charc *= 1.0 - 0.7 * crk - 0.1 * (1.0 - ck4.z);
@@ -828,9 +830,9 @@ const CASTLE_FS = (() => {
       // [keeps] embers, [walls] glowing in the cracks of the char, brighter in the patches still alight, breathing;
       // [look4] in the fissures between the char's blocks, each block's edge breathing on its own (look4Char), and far off
       // (the fissures under a pixel) as a dull glow over the patches still alight
-      float hot = smoothstep(0.42, 0.8, vnoise(uvC * 1.1 + vec2(uTime * 0.04, 0.0)));
+      float hot = smoothstep(0.5, 0.85, vnoise(uvC * 0.9 + vec2(uTime * 0.04, 0.0))) * (0.6 + 0.4 * vnoise(uvC * 3.1 + 5.0));
       float pulse = 0.55 + 0.45 * sin(uTime * 2.1 + ck4.y * 25.0 + vnoise(uvC * 0.9) * 6.0);
-      col += vec3(2.3, 0.62, 0.12) * tGlow * (ck4.x * (0.1 + 0.9 * hot) + 0.14 * (1.0 - ck4.z) * hot) * pulse + vec3(0.5, 0.1, 0.02) * tGlow * hot * 0.3 * pulse;
+      col += vec3(1.9, 0.52, 0.1) * tGlow * hot * (ck4.x + 0.12 * (1.0 - ck4.z)) * pulse + vec3(0.45, 0.09, 0.02) * tGlow * hot * 0.3 * pulse;
     }
   `);
   return fs;

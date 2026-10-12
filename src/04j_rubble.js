@@ -99,19 +99,20 @@ function houseRubbleGeo(H, level) {
     if (run.round) {
       const a = um / run.R - Math.PI, rr = run.R - t / 2, x = Math.sin(a) * rr, z = Math.cos(a) * rr;
       b.add(G.box, lm(M, x, y - 0.06, z, a + Math.PI / 2, L * (1 - t / (2 * run.R)) + 0.01, 0.12, t - 0.035), MAT.plaster, col, H.y, 2);
-      if (!built) for (let k = 0; k < Math.max(1, Math.round(L / 0.22)); k++) {
-        const aa = (u0 + (k + 0.5) * (L / Math.max(1, Math.round(L / 0.22)))) / run.R - Math.PI;
-        b.add(G.ico, lm(M, Math.sin(aa) * rr, y + 0.01, Math.cos(aa) * rr, r() * 3, 0.1 + 0.05 * r(), 0.06 + 0.06 * r(), t * 0.42), MAT.plaster, darker(wallCol, 0.85 + 0.25 * r()));
+      // the broken edge: a few rough lumps of daub and wattle on it, here and there
+      if (!built) for (let k = 0, nk = Math.floor(r() * 3.2 * L / 0.5); k < nk; k++) {
+        const aa = (u0 + r() * L) / run.R - Math.PI, s0 = 0.04 + 0.05 * r();
+        b.add(G.ico, lm(M, Math.sin(aa) * (rr + (r() - 0.5) * t * 0.4), y + 0.005, Math.cos(aa) * (rr + (r() - 0.5) * t * 0.4), r() * 3, s0 * 1.4, s0 * (0.5 + 0.5 * r()), s0), MAT.plaster, darker(coreCol, 0.55 + 0.25 * r()));
       }
     } else {
       const p = faceP(run.F, um - run.len / 2, -t / 2);
       b.add(G.box, lm(M, p.x, y - 0.06, p.z, run.F.yaw, L, 0.12, t - 0.012), wallMat === MAT.logH ? MAT.wood : MAT.plaster, col, H.y, 2);
       if (!built) {
-        // the broken edge: rough lumps of the wall's core along it
-        const nk = Math.max(1, Math.round(L / 0.2));
-        for (let k = 0; k < nk; k++) {
-          const q = faceP(run.F, u0 + (k + 0.5) * (L / nk) - run.len / 2 + (r() - 0.5) * 0.05, -t / 2 + (r() - 0.5) * t * 0.3);
-          b.add(G.ico, lm(M, q.x, y + 0.005, q.z, r() * 3, 0.09 + 0.05 * r(), 0.05 + 0.06 * r(), Math.min(0.13, t * 0.38)), wallMat === MAT.logH ? MAT.wood : MAT.plaster, darker(H.style === 'timber' ? st.logs : coreCol, 0.8 + 0.3 * r()));
+        // the broken edge: a few rough lumps of the wall's core on it, here and there, darker than its face (a row of them
+        // evenly spaced read as battlements)
+        for (let k = 0, nk = Math.floor(r() * 3.2 * L / 0.5); k < nk; k++) {
+          const q = faceP(run.F, u0 + r() * L - run.len / 2, -t / 2 + (r() - 0.5) * t * 0.4), s0 = 0.04 + 0.05 * r();
+          b.add(G.ico, lm(M, q.x, y + 0.005, q.z, r() * 3, s0 * 1.4, s0 * (0.5 + 0.5 * r()), Math.min(s0, t * 0.35)), wallMat === MAT.logH ? MAT.wood : MAT.plaster, darker(H.style === 'timber' ? st.logs : coreCol, 0.55 + 0.25 * r()));
         }
       }
     }
@@ -164,10 +165,10 @@ function houseRubbleGeo(H, level) {
         if (run.round) { const a = u / run.R - Math.PI, rr = run.R + n; return { x: Math.sin(a) * rr, z: Math.cos(a) * rr, yaw: a }; }
         const p = faceP(run.F, u - run.len / 2, n); return { x: p.x, z: p.z, yaw: run.F.yaw };
       };
-      // the mound, out and in
-      if (fallen > 0.35) for (const side of [1, -1]) {
-        const q = spot(side, 0.3 + 0.2 * r()); if (!q) continue;
-        b.add(G.ico, lm(M, q.x, 0.02, q.z, q.yaw + r() * 0.6, 0.42 + 0.15 * r(), 0.1 + 0.16 * fallen, 0.38 + 0.2 * r()), MAT.plaster, darker(coreCol, 0.7 + 0.15 * r()), H.y, 1);
+      // the mound, out and in: low and broken, the dust and grit of the fallen wall (a single big one read as a pillow)
+      if (fallen > 0.3) for (const side of [1, -1]) for (let j = 0; j < 2; j++) {
+        const q = spot(side, 0.15 + 0.35 * r()); if (!q) continue;
+        b.add(G.ico, lm(M, q.x, 0.0, q.z, q.yaw + r() * 1.2, 0.22 + 0.16 * r(), 0.04 + 0.08 * fallen * r(), 0.2 + 0.14 * r()), MAT.plaster, [0.3 + 0.08 * r(), 0.27 + 0.06 * r(), 0.23 + 0.05 * r()], H.y, 1);
       }
       for (let k = 0; k < nk; k++) {
         const side = r() < 0.55 ? 1 : -1, n0 = 0.06 + r() * r() * (0.5 + 0.9 * fallen), q = spot(side, n0);
@@ -199,6 +200,14 @@ function houseRubbleGeo(H, level) {
       const x0 = (r() * 2 - 1) * iw, z0 = (r() * 2 - 1) * id, a = r() * TAU, L = 1.6 + r() * 2.2, rise = r() < 0.4 ? 0.6 + r() * 0.6 : 0.08;
       beam(b, M, [x0, 0.1 + rise, z0], [x0 + Math.sin(a) * L, 0.1, z0 + Math.cos(a) * L], 0.1, MAT.wood, darker(wood, 0.8 + 0.4 * r()), 0.13);
       info.timbers++;
+    }
+    // the floor under the fallen roof: dust and broken stuff over it, its boards showing between
+    for (let k = 0; k < (H.big ? 90 : 55); k++) {
+      const x0 = (r() * 2 - 1) * iw, z0 = (r() * 2 - 1) * id, s0 = 0.05 + 0.1 * r(), pick = r();
+      if (pick < 0.25) b.add(G.ico, lm(M, x0, 0.0, z0, r() * 3, 0.25 + 0.3 * r(), 0.03 + 0.04 * r(), 0.22 + 0.25 * r()), MAT.plaster, [0.32 + 0.06 * r(), 0.29 + 0.05 * r(), 0.25 + 0.04 * r()], H.y, 1);
+      else if (pick < 0.65) b.add(G.box, lm(M, x0, s0 * 0.3, z0, r() * TAU, s0 * 1.6, s0 * 0.7, s0 * 1.2, (r() - 0.5) * 0.8, (r() - 0.5) * 0.8), H.style === 'stone' ? MAT.plaster : MAT.stone, darker(r() < 0.5 ? coreCol : wallCol, 0.6 + 0.35 * r()), H.y, 1);
+      else b.add(G.ico, lm(M, x0, s0 * 0.35, z0, r() * 3, s0 * 1.2, s0 * 0.7, s0), MAT.plaster, darker(coreCol, 0.6 + 0.3 * r()), H.y, 1);
+      info.stones++;
     }
     const roofCol = H.style === 'timber' ? darker(st.roof, 1.1) : H.round ? st.thatch : st.roof;
     const roofMat = H.round ? MAT.thatch : H.style === 'timber' ? MAT.wood : MAT.slate;
@@ -335,6 +344,7 @@ function houseScafLay(H) {
     const w = houseW(H, x, z), c = addCircle(w.x, w.z, 0.1, 'scaffold', H.y + top - heightAt(w.x, w.z) + 0.3);
     c.active = false; c.hscaf = H; colls.push(c);
   }
+  H.scafColl = colls; // (updateHouses keeps them on while the house is being built back, as it did version 6's poles)
   look3ScaffoldWorld(Q, houseScafFrame(H), [probe]);
   Q.info = { standards: probe.standards, bays: probe.bays, boards: probe.boards, ladders: probe.ladders };
   HSCAF.list.set(H, Q); HSCAF.stats.laid++;

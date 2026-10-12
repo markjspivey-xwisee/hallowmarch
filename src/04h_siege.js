@@ -47,7 +47,7 @@ const SIEGE_FS = (() => {
         vec3 ck = look4Char(uv);
         float cg = vnoise(uv * 1.9) * 0.55 + vnoise(uv * 7.0 + 3.1) * 0.45;
         float ch = smoothstep(0.0, 0.3, uChar * 1.45 - cg * 0.62);
-        vec3 coal = vec3(0.05, 0.043, 0.037) * (0.6 + 0.6 * ck.y + 0.3 * vnoise(uv * 13.0));
+        vec3 coal = vec3(0.05, 0.043, 0.037) * (0.6 + 0.6 * ck.y + 0.3 * vnoise(uv * 13.0)) * clamp(dot(alb, vec3(0.3, 0.59, 0.11)) / max(dot(vCol, vec3(0.3, 0.59, 0.11)), 0.05), 0.4, 1.6); // (the planks' seams kept)
         alb = mix(alb, coal, ch);
         alb *= 1.0 - 0.6 * ck.x * ch;
         gEmb = ch * (0.04 + 0.95 * ck.x + 0.12 * (1.0 - ck.z)); gEmbId = ck.y;
