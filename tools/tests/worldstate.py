@@ -115,7 +115,7 @@ async def main():
         size0 = r['all']
 
         # ---- houses: two in ruins (one now under scaffolding) and one burning ----
-        r = await ev(page, 'houses', """(() => { const HS = T.H.HOUSES.filter((h) => h.state === 'whole' && Math.hypot(h.x - T.H.REALMS[0].town.x, h.z - T.H.REALMS[0].town.z) < 120);
+        r = await ev(page, 'houses', """(() => { if (T.H.war2) T.H.war2.HCREW.off = true; /* [war2] left to burn: nobody beats these fires out */ const HS = T.H.HOUSES.filter((h) => h.state === 'whole' && Math.hypot(h.x - T.H.REALMS[0].town.x, h.z - T.H.REALMS[0].town.z) < 120);
           const far = (list, from) => list.slice().sort((a, b) => Math.min(...from.map((f) => Math.hypot(b.x - f.x, b.z - f.z))) - Math.min(...from.map((f) => Math.hypot(a.x - f.x, a.z - f.z))))[0];
           const ha = HS[0], hb = far(HS, [ha]), hc = far(HS, [ha, hb]);
           window.T.houses = [ha.num, hb.num, hc.num];

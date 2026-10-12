@@ -32,6 +32,10 @@ function bandDownStep(e, wb, L, O, dt) {
   const R = TOWER.list.length ? towerRoomOf(e) : null;
   if (R && R.lv === 0 && !(e !== L && L && towerRoomOf(L) && towerRoomOf(L).T === R.T)) return bandOutOfTower(e, R.T, dt);
   if (e.ai.out) { e.ai.out = null; if (e === L) wb.goal = -1; } // out: the leader's way planned again from here (wbPlan)
+  if (bandWallsDown(e, wb, L, O, dt)) return true;
+  return bandGateOut(e, wb, L, O, dt);
+}
+function bandWallsDown(e, wb, L, O, dt) {
   let B = e.ai.down;
   const C = castleAt(e.x, e.z);
   if (!C || !C.posts.length || !C.S.keepRef) { if (B) e.ai.down = null; return false; }
@@ -40,8 +44,18 @@ function bandDownStep(e, wb, L, O, dt) {
   if (B && (h < 0.7 || GAME.t - B.t > 60)) { e.ai.down = null; if (e === L) wb.goal = -1; return false; } // down (or long enough: the band's own ways from here)
   if (!B && h < 2.0) return false;
   if (e !== L && L && Math.abs(L.y - e.y) < 1.5 && dist2(L.x, L.z, e.x, e.z) < 30 * 30) return false;
-  if (!B) { B = e.ai.down = { t: GAME.t, ri: -1 }; WAR2.stats.down++; }
+  if (!B) { B = e.ai.down = { t: GAME.t, ri: -1, best: h, bestT: GAME.t }; WAR2.stats.down++; }
   if (e.mount) dismount(e);
+  // no lower for 8 s (a stretch of walk cut off by burnt-through gaps, a way down it cannot find): it jumps down into
+  // the court, as a body thrown off a ladder falls (hurt by the height: 04m_ladders.js)
+  if (h < B.best - 0.3) { B.best = h; B.bestT = GAME.t; }
+  else if (GAME.t - B.bestT > 8) {
+    const dx = C.S.x - e.x, dz = C.S.z - e.z, d = Math.hypot(dx, dz) || 1;
+    e.motion = { kind: 'ladder', L: BZ_FALL_L, st: 3, t: 0, vy: 2.2, y0: e.y, by: null, dx: (dx / d) * 3.6, dz: (dz / d) * 3.6, dir: 1 };
+    setAct(e, 6, 1.5);
+    B.bestT = GAME.t; WAR2.stats.jumps = (WAR2.stats.jumps || 0) + 1;
+    return true;
+  }
   let wp = castleWaypoint(e, { x: C.S.x, y: C.S.y, z: C.S.z });
   if (wp && e.ai.climb) B.ri = e.ai.climb.ri;
   if (!wp) {
@@ -76,6 +90,79 @@ function bandOutOfTower(e, T, dt) {
   return true;
 }
 
+// the keep or temple whose walls (its court) hold a body on its court's floor: { C, ref } or null
+function walledAt(x, z) {
+  if (x > DUN_X0) return null;
+  for (const K of WAR.keeps) { if (dist2(x, z, K.site.x, K.site.z) > 26 * 26) continue; const C = castleOf(K.site); if (C && castleInside(C, x, z)) return { C, ref: K }; }
+  for (const T of WAR.temples) { if (dist2(x, z, T.site.x, T.site.z) > 20 * 20) continue; const C = castleOf(T.site); if (C && castleInside(C, x, z)) return { C, ref: T }; }
+  return null;
+}
+// a band's soldier in a court whose way lies outside those walls (a leader whose next point is out on the field, a
+// member whose leader has gone out) goes out by the gate: to it from inside, then through it, and a gate of its own realm
+// opens for it as for a sally even with foes before it (a leader walked straight for its next point, into the wall, and
+// the gate opened only with no foe within 19 m). A gate of the enemy's, shut, it does not pass: it fights there.
+// the next point out of the walls W for a body at e going to g outside them: its gate (to it from inside, then through it;
+// a gate of its own realm opens for it as for a sally, even with foes before it), or a gap burnt in a hallow's log wall
+// when the gate is the enemy's and whole; null when there is no way out it may take (a whole gate of the enemy's)
+function bandExitPoint(e, W, g) {
+  const D = W.ref.door, mine = W.ref.realm === e.faction;
+  const B = e.ai.gateOut && e.ai.gateOut.C === W.C ? e.ai.gateOut : (e.ai.gateOut = { C: W.C, past: false, n: 0 });
+  if (!B.n) { B.n = 1; WAR2.stats.gateOut = (WAR2.stats.gateOut || 0) + 1; }
+  if (D.alive && !mine) {
+    const c = W.ref.nav && W.ref.nav.tc ? hallowRingGap(W.ref, e.x, e.z) : null;
+    if (!c) return null;
+    const S = W.C.S, l = siteLocal(S, c.x, c.z), r = Math.hypot(l.x, l.z) || 1, ux = l.x / r, uz = l.z / r;
+    const pin = siteToWorld(S, ux * (r - 3), uz * (r - 3)), pout = siteToWorld(S, ux * (r + 4), uz * (r + 4));
+    if (!B.past && dist2(e.x, e.z, pin.x, pin.z) < 2.0 * 2.0) B.past = true;
+    return B.past ? pout : pin;
+  }
+  const S = W.C.S, gi = siteToWorld(S, 0, S.gateLocal.z - 4.5), go = siteToWorld(S, 0, S.gateLocal.z + 6);
+  if (!B.past && dist2(e.x, e.z, gi.x, gi.z) < 2.2 * 2.2) B.past = true;
+  if (B.past && D.alive && mine) { W.C.gate.sallyOpen = true; W.C.gate.sallyUntil = GAME.t + 1.5; }
+  return B.past ? go : gi;
+}
+// the walls that hold a body on their court's floor, when its way (g) lies outside them
+function bandWalledFrom(e, g) {
+  const W = walledAt(e.x, e.z);
+  if (!W || !W.C.gate || e.y - W.C.S.y > 1.2 || !g || castleInside(W.C, g.x, g.z) || dist2(g.x, g.z, W.C.S.x, W.C.S.z) < 15 * 15) { if (e.ai.gateOut) e.ai.gateOut = null; return null; }
+  return W;
+}
+// a member (thinkSoldier, through bandDownStep) whose leader has gone out of the walls it stands in: out after it
+function bandGateOut(e, wb, L, O, dt) {
+  if (!L || e === L) return false; // (the leader's own way out is its band's: bandLeaderExit)
+  const W = bandWalledFrom(e, { x: L.x, z: L.z });
+  if (!W) return false;
+  const q = bandExitPoint(e, W, L);
+  if (!q) return false;
+  if (e.mount) dismount(e);
+  moveToward(e, q.x, q.z, dt, 1.0, 0.3);
+  return true;
+}
+// the leader's way (end of updateWarband, after the engines have had their say):
+//  - in a court with its next point out on the field: out by the gate first;
+//  - by its engine ('bombard': siegeBandAfter sends it straight to a place beside the engine) from far off, with walls,
+//    a temple or a hill between: along its way to the gate (wbPlan's path) until the place is in sight (a band whose
+//    leader had fallen and been taken over by one at its own temple walked into the temple's wall for good)
+function bandLeaderExit(wb, L, O) {
+  if (!L || !wb.leaderGoal || (O && O.phase === 'breach')) return;
+  const W = bandWalledFrom(L, wb.leaderGoal);
+  if (W) { const q = bandExitPoint(L, W, wb.leaderGoal); if (q) wb.leaderGoal = { x: q.x, z: q.z }; return; }
+  if (O && O.phase === 'bombard' && wb.path && wb.pathIdx < wb.path.length) {
+    const g = wb.leaderGoal, d2 = dist2(L.x, L.z, g.x, g.z);
+    if (d2 < 40 * 40) return;
+    if (GAME.t > (wb.w2clearT || 0)) { wb.w2clearT = GAME.t + 2; wb.w2clear = segmentClear(L.x, L.z, g.x, g.z, 0.4, false); if (!wb.w2clear) WAR2.stats.bombardWay = (WAR2.stats.bombardWay || 0) + 1; }
+    if (wb.w2clear) return;
+    const n = NAV.nodes[wb.path[wb.pathIdx]];
+    if (n) wb.leaderGoal = { x: n.x, z: n.z };
+  }
+}
+// is the band's leader in this keep's court? (on its floor, within its walls)
+function bandInsideKeep(wb, K) {
+  const L = wb.L || wbLeader(wb);
+  if (!L || dist2(L.x, L.z, K.site.x, K.site.z) > 26 * 26 || L.y - K.site.y > 1.5) return false;
+  const C = castleOf(K.site);
+  return !!(C && castleInside(C, L.x, L.z));
+}
 // where a band's way starts (wbPlan): inside a keep's or a temple's walls, at its court, so the way goes out by its gate.
 // The nearest node in sight was taken before, and from inside the walls that was often one outside them, seen over a
 // low stretch or through a gap the colliders leave: the leader walked into the wall toward it for good.
@@ -84,6 +171,76 @@ function bandStartNode(L) {
   for (const K of WAR.keeps) { const C = castleOf(K.site); if (C && dist2(L.x, L.z, K.site.x, K.site.z) < 26 * 26 && castleInside(C, L.x, L.z)) return K.nav.court; }
   for (const T of WAR.temples) { const C = castleOf(T.site); if (C && dist2(L.x, L.z, T.site.x, T.site.z) < 20 * 20 && castleInside(C, L.x, L.z)) return T.nav.tc; }
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* storming a fallen tower with enough                                 */
+/* ------------------------------------------------------------------ */
+// A fallen tower's way in is one body wide at its courtyard door, and the garrison holds the court before it: a band
+// smaller than about twice the keep's fighting garrison seldom got through alive (siege3.py's stormcost). A band goes in
+// once it is strong enough for the defenders it will meet (half again their number, the archers on the walls counted at
+// half, the lord in full), or another band of its realm is there to go in with it, or it has waited its minute; until
+// then it keeps to its work (the gate, its engine). The commanders send a second band to a keep with a breach open
+// (cwChoose's 'wall' reason, 08g_campaign.js). From siegeBandAfter.
+const STORM_NEED = 1.5, STORM_WAIT = 60;
+const cwOpenBreach = (K) => { const C = castleOf(K.site); return !!(C && siegeOpenBreach(C, K.site.x, K.site.z)); };
+function siegeStormReady(wb, O, W, L) {
+  if (!W || W.kind !== 'tower') return true;
+  const K = W.C.S.keepRef;
+  if (!K) return true;
+  let def = 0;
+  for (const id of K.guards) { const g = getEnt(id); if (g && g.alive) def += g.ai.wall ? 0.5 : 1; }
+  const Lr = getEnt(K.lord);
+  if (Lr && Lr.alive) def += 1;
+  const n = wbMembers(wb).filter((m) => !m.siegeCrew).length;
+  if (n >= def * STORM_NEED) return true;
+  // another band of ours at this keep goes in with it
+  for (const w of WAR.warbands) {
+    if (w === wb || w.dead || w.realm !== wb.realm || !w.order || w.order.keep !== K) continue;
+    const L2 = wbLeader(w);
+    if (L2 && dist2(L2.x, L2.z, W.wx, W.wz) < 70 * 70 && n + wbMembers(w).length >= def * STORM_NEED) return true;
+  }
+  if (O.w2stormWait === undefined) { O.w2stormWait = GAME.t; WAR2.stats.stormWaits = (WAR2.stats.stormWaits || 0) + 1; }
+  return GAME.t - O.w2stormWait > STORM_WAIT;
+}
+
+/* ------------------------------------------------------------------ */
+/* a gap burnt in the timber hallow's ring is a way in                 */
+/* ------------------------------------------------------------------ */
+// The Thule hallow's log ring burns through into gaps (04g_blaze.js), but its gate still ruled the hallow: no raid went in
+// by a gap, and the hallow could not be taken while the gate stood. Now, once the temple may be raided at all (its realm
+// has lost a keep: templeExposed), a burnt-through stretch is a way in: a raid at its gate goes round to the gap and in
+// over the stumps (phase 'gap', then the court as through a broken gate), and the hallow may be taken while the gap
+// stays open (relicTakeable). From siegeBandAfter and relicTakeable.
+function hallowRingGap(T, x, z) {
+  const C = castleOf(T.site);
+  if (!C || !C.blaze || !C.blaze.ring) return null;
+  let best = null, bd = Infinity;
+  for (const c of C.blaze.cells) {
+    if (c.st !== 3 || (c.wall && c.wall.active)) continue;
+    const d = x == null ? 0 : dist2(x, z, c.x, c.z);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+const hallowOpen = (T) => templeExposed(T) && !!hallowRingGap(T);
+function raidGapStep(wb, L, O, T) {
+  if (O.type !== 'raid' || !T.door.alive || !templeExposed(T)) { if (O.phase === 'gap') { O.phase = 'siege'; wbPlan(wb, T.nav.tg); } return false; }
+  if (O.phase !== 'siege' && O.phase !== 'gap') return false;
+  const c = hallowRingGap(T, L.x, L.z);
+  if (!c) { if (O.phase === 'gap') { O.phase = 'siege'; wbPlan(wb, T.nav.tg); } return false; }
+  if (O.phase !== 'gap') {
+    O.phase = 'gap'; O.gi = 0;
+    WAR2.stats.ringRaids = (WAR2.stats.ringRaids || 0) + 1;
+    news(`${wbName(wb)} goes in by the gap burnt in the log wall of the ${T.site.name}!`, wb.realm, 'order');
+  }
+  // out before the gap, in it over the stumps, inside it, then the hallow's court
+  const S = T.site, l = siteLocal(S, c.x, c.z), r = Math.hypot(l.x, l.z) || 1, ux = l.x / r, uz = l.z / r;
+  const pts = [siteToWorld(S, ux * (r + 5), uz * (r + 5)), siteToWorld(S, ux * r, uz * r), siteToWorld(S, ux * (r - 4), uz * (r - 4))];
+  if (O.gi < pts.length && dist(L.x, L.z, pts[O.gi].x, pts[O.gi].z) < 2.2) O.gi++;
+  if (O.gi >= pts.length) { O.phase = 'assault'; wbPlan(wb, T.nav.tc); return false; } // in: the court, as through a broken gate
+  wb.leaderGoal = { x: pts[O.gi].x, z: pts[O.gi].z };
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -132,12 +289,12 @@ function warbandEngineBusy(wb, O) {
 // few minutes. A fire that has taken the whole roof (its fall begun) is past saving: they stand back and watch it come
 // down, then build again as before. Rain helps them. Calls in: 04e_houses.js (houseBurnStep), 08f_townlife.js
 // (houseLife, houseFlee, lifeRun's 'beat' step).
-const HCREW = { max: 5, k: 0.12, call: 45, scan: 1.2 };
+const HCREW = { max: 5, k: 0.08, call: 45, scan: 1.2, off: false }; // (off: tests that want a house to burn down)
 WAR2.stats.houseCrews = 0; WAR2.stats.houseBeats = 0; WAR2.stats.housesSaved = 0; WAR2.stats.housesLost = 0;
 // a villager near a burning house that wants hands (its crew not full) goes to it: from houseLife, once a while
 function houseCrewCall(e) {
   const ai = e.ai;
-  if (GAME.t < (ai.crewScan || 0)) return;
+  if (HCREW.off || GAME.t < (ai.crewScan || 0)) return;
   ai.crewScan = GAME.t + HCREW.scan + Math.random() * 0.6;
   if (ai.fisher || (ai.plan && ai.plan.flee)) return;
   let F = null, bd = HCREW.call * HCREW.call;
@@ -172,7 +329,7 @@ function houseCrewSpots(H) {
 function houseBeatStep(e, st, plan, dt, next) {
   const H = st.H, ai = e.ai, B = H.burn;
   const crew = H.w2crew || (H.w2crew = new Map());
-  if (H.state !== 'burning' || !B || B.fallAt) {
+  if (H.state !== 'burning' || !B || B.fallAt || HCREW.off) {
     // out, or past saving: stand back from it and watch, then on with the day
     crew.delete(e.id);
     if (e.anim.act === 21) e.anim.actT = e.anim.actDur;
@@ -227,6 +384,30 @@ function houseCrewDouse(H, B, dt) {
   for (const p of B.pts) if (p.fire && dist(p.x, p.z, B.x, B.z) > B.R + 0.35) { houseFireOut(p.fire); p.fire = null; }
   if (B.R < 0.3) { houseQuench(H); return true; }
   return false;
+}
+// the player beside a burning house (outside its walls, within reach of the eaves): Use beats the flames down with its
+// people, one beat a press (from houseOffers)
+WAR2.stats.playerHouseBeats = 0;
+function houseBeatOffers(P, offer) {
+  if (P.motion || P.x > DUN_X0) return;
+  const H = houseBurningNear(P.x, P.z, 16);
+  if (!H || !H.burn || H.burn.fallAt) return;
+  const l = houseL(H, P.x, P.z);
+  const d = H.round ? Math.hypot(l.x, l.z) - H.r : Math.max(Math.abs(l.x) - H.w / 2, Math.abs(l.z) - H.d / 2);
+  if (d < -0.4 || d > 2.6) return;
+  offer(Math.max(0.05, d), 2.6, 'Beat out the flames', () => housePlayerBeat(P, H), 0.2);
+}
+function housePlayerBeat(P, H) {
+  const B = H.burn;
+  if (!B || H.state !== 'burning') return;
+  setAct(P, 21, 1.1);
+  faceToward(P, H.x, H.z);
+  B.R = Math.max(0, B.R - 0.3);
+  for (const p of B.pts) if (p.fire && dist(p.x, p.z, B.x, B.z) > B.R + 0.35) { houseFireOut(p.fire); p.fire = null; }
+  WAR2.stats.playerHouseBeats++;
+  if (fxAlpha) { const q = houseW(H, 0, 0); for (let i = 0; i < 5; i++) fxAlpha.emit(lerp(P.x, q.x, 0.25) + (Math.random() - 0.5), P.y + 1.6 + Math.random(), lerp(P.z, q.z, 0.25) + (Math.random() - 0.5), (Math.random() - 0.5) * 0.6, 1 + Math.random(), (Math.random() - 0.5) * 0.6, 3.5, 0.3, 0.29, 0.28, -0.6, -0.2, 0.4); }
+  sfx('hiss');
+  if (B.R < 0.3) houseQuench(H);
 }
 // beaten out: the house stands, its walls black under the eaves for a while (updateWar2 fades it)
 function houseQuench(H) {
@@ -317,4 +498,4 @@ function updateWar2(dt) {
   for (const H of HOUSES) if (H.w2scorch) { if (H.state !== 'whole') H.w2scorch = false; else { H.char = Math.max(0, H.char - dt / 240); if (H.char <= 0) H.w2scorch = false; } }
 }
 
-queueMicrotask(() => { if (window.__hm) window.__hm.war2 = { WAR2, HCREW, bandDownStep, siegeEngineGuard, warbandEngineBusy, houseCrewCall, houseCrewSpots, houseQuench }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.war2 = { WAR2, HCREW, bandDownStep, bandGateOut, bandLeaderExit, bandStartNode, walledAt, siegeEngineGuard, warbandEngineBusy, siegeStormReady, hallowRingGap, hallowOpen, raidGapStep, houseCrewCall, houseCrewSpots, houseQuench, housePlayerBeat }; });

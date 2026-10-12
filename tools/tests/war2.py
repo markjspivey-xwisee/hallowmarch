@@ -105,6 +105,49 @@ async def main(p):
         check(r.get('outAt') is not None and r['outAt'] <= 20, f"it goes out at the door ({r.get('outAt')} s)")
         check(r.get('far', 0) > 25, f"and on toward its order ({r.get('far')} m after 90 s)")
 
+    if want('island'):
+        print('-- island: a leader on a stretch of a burh\'s walk cut off by burnt gaps', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, Z = H.blaze;
+          Z.blazeInit();
+          const K = WAR.keeps.find((k) => k.realm === 2 && k.orig === 2), C = fn.castleOf(K.site), B = C.blaze;
+          if (!B || B.ring) return { err: 'no walk' };
+          // a cell in the middle of a run, its neighbours either side burnt through
+          const c = B.cells.find((q) => q.nb.length >= 2 && q.nb.every((o) => o.nb.length >= 2) && q.f.active);
+          for (const o of c.nb) Z.deckThrough(o, true);
+          const ek = WAR.keeps.findIndex((k) => k.realm !== 2);
+          const id = __w2t.band(2, ek, 5, K.site.x, K.site.z);
+          const wb = __w2t.wb(id), L = fn.wbLeader(wb);
+          L.x = L.prevX = c.x; L.z = L.prevZ = c.z; L.y = c.y; wb.lid = L.id;
+          const h0 = +(L.y - Math.max(fn.heightAt(L.x, L.z), K.site.y)).toFixed(1);
+          let downAt = null;
+          for (let t = 0; t < 40; t++) { __w2t.quiet(); H.simulate(1); if (downAt === null && L.y - Math.max(fn.heightAt(L.x, L.z), K.site.y) < 0.8) downAt = t + 1; }
+          return { h0, downAt, alive: L.alive, hp: +(L.hp / L.maxHp).toFixed(2), jumps: H.war2.WAR2.stats.jumps || 0 };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('h0', 0) > 2, f"the leader starts up on the walk ({r.get('h0')} m)")
+        check(r.get('downAt') is not None and r['downAt'] <= 30, f"with no way down it jumps into the court ({r.get('downAt')} s, {r.get('jumps')} jumps, health {r.get('hp')})")
+
+    if want('court'):
+        print('-- court: a band in an enemy court with its gate whole', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR;
+          const ki = WAR.keeps.findIndex((k) => k.realm === 0 && k.door.alive);
+          const K = WAR.keeps[ki];
+          const id = __w2t.band(1, ki, 10, K.site.x, K.site.z);
+          const wb = __w2t.wb(id); wb.order.phase = 'siege';
+          let ph = null, door = 0, foes = 0;
+          for (let t = 0; t < 12; t += 2) {
+            __w2t.quiet(); H.simulate(2);
+            if (ph === null && wb.order && wb.order.phase === 'assault') ph = t + 2;
+            for (const m of fn.wbMembers(wb)) { const q = fn.getEnt(m.target); if (!q) continue; if (q.kind === 'door') door++; else if (q.role === 'lord' || q.role === 'guard') foes++; }
+          }
+          return { ph, door, foes, gate: K.door.alive };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('ph') is not None and r['ph'] <= 6, f"a band in the court of a keep it attacks storms the court, not the gate behind it ({r.get('ph')} s)")
+        check(r.get('foes', 0) > 0 and r.get('door', 1) == 0, f"it fights the lord and the garrison, not the gate ({r.get('foes')} looks at them, {r.get('door')} at the gate)")
+
     if want('engine'):
         print('-- engine: a mangonel its crew cannot push', flush=True)
         r = await ev(page, r"""(() => {
@@ -147,6 +190,63 @@ async def main(p):
         })()""")
         print('  ', json.dumps(r), flush=True)
         check(r.get('kept') or r.get('E') != 'work', f"a band whose engine works keeps its order past the 150 s watchdog (kept {r.get('kept')}, stalls {r.get('stalls')}, engine {r.get('E')})")
+
+    if want('storm'):
+        print('-- storm: a small band waits for enough to storm a fallen tower', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
+          // a Logres keep's corner tower brought down, its garrison whole, two Thule bands before it
+          const ki = WAR.keeps.findIndex((k) => k.realm === 0 && fn.castleOf(k.site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
+          const K = WAR.keeps[ki], C = fn.castleOf(K.site);
+          const W = C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));
+          fn.castleBreach(W);
+          const f = SG.siegeFace(W);
+          const small = __w2t.band(2, ki, 4, f.x + f.nx * 30, f.z + f.nz * 30);
+          const wbS = __w2t.wb(small);
+          let t = 0, sPhase = [];
+          for (; t < 40; t += 2) { __w2t.quiet(); H.simulate(2); sPhase.push(wbS.order ? wbS.order.phase : '-'); }
+          const waited = !sPhase.includes('breach');
+          const big = __w2t.band(2, ki, 9, f.x + f.nx * 32 + 3, f.z + f.nz * 32);
+          const wbB = __w2t.wb(big);
+          let goT = null;
+          for (t = 0; t < 40; t += 2) { __w2t.quiet(); H.simulate(2); if (goT === null && ((wbS.order && wbS.order.phase === 'breach') || (wbB.order && wbB.order.phase === 'breach'))) goT = t + 2; }
+          return { tower: W.T.role, waited, sPhase: sPhase.join(','), goT, stats: H.war2.WAR2.stats.stormWaits };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('waited'), f"a band of four does not storm a fallen tower against the whole garrison alone ({r.get('sPhase')})")
+        check(r.get('goT') is not None, f"with a second band beside it they go in ({r.get('goT')} s)")
+
+    if want('gap'):
+        print('-- gap: a raid goes in by a gap burnt in the timber hallow\'s ring', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, Z = H.blaze;
+          Z.blazeInit();
+          const T = WAR.temples[2], C = fn.castleOf(T.site), B = C.blaze;
+          if (!B || !B.ring) return { err: 'no ring' };
+          // Thule has lost a keep (its hallow may be raided); a stretch of its ring burnt through on the side away from its gate
+          const K = WAR.keeps.find((k) => k.orig === 2); fn.captureKeep(K, 0, null);
+          const c = B.cells.slice().sort((a, b) => Math.abs(Math.abs(b.am) - Math.PI) - Math.abs(Math.abs(a.am) - Math.PI))[B.cells.length - 1] || B.cells[0];
+          Z.deckThrough(c, true);
+          const S = T.site, g = { x: T.nav.tg.x, z: T.nav.tg.z };
+          const ek = WAR.keeps.findIndex((k) => k.realm !== 0);
+          const id = __w2t.band(0, ek, 9, g.x, g.z);
+          const wb = __w2t.wb(id);
+          const msg = H.CW.playerOrder(id, 'raid', 2);
+          const phases = new Set(); let took = null, inside = null;
+          for (let t = 0; t < 120; t += 2) {
+            __w2t.quiet(); H.simulate(2);
+            if (wb.order) phases.add(wb.order.type + '/' + wb.order.phase);
+            const L = fn.wbLeader(wb);
+            if (L && inside === null && Math.hypot(L.x - S.x, L.z - S.z) < 12) inside = t + 2;
+            if (took === null && WAR.relics.some((x) => x.state === 'carried' && x.carrierRealm === 0)) took = t + 2;
+            if (took !== null && t > took + 10) break;
+          }
+          return { msg, gap: !!H.war2.hallowRingGap(T), door: T.door.alive, phases: [...phases].join(','), inside, took, raids: H.war2.WAR2.stats.ringRaids };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('door') and r.get('gap'), 'the hallow\'s gate stands; its ring is burnt through')
+        check('raid/gap' in (r.get('phases') or ''), f"the raid goes round to the gap ({r.get('phases')})")
+        check(r.get('took') is not None, f"in by the gap, it takes the hallow (in the court at {r.get('inside')} s, taken at {r.get('took')} s)")
 
     if want('houses'):
         print('-- houses: townsfolk beat out a burning house', flush=True)

@@ -827,7 +827,7 @@ function siegeFireCone(x, z, dx, dz, range, half) {
 /* ------------------------------------------------------------------ */
 /* warbands bring engines to their sieges                              */
 /* ------------------------------------------------------------------ */
-const siegeLikePhase = (O) => !!O && (O.phase === 'siege' || O.phase === 'assault' || O.phase === 'breach' || O.phase === 'bombard');
+const siegeLikePhase = (O) => !!O && (O.phase === 'siege' || O.phase === 'assault' || O.phase === 'breach' || O.phase === 'bombard' || O.phase === 'gap'); // [war2] 'gap'
 function siegeBandOn(wb, E) {
   const O = wb.order;
   if (!O || !E.target) return false;
@@ -959,7 +959,7 @@ function siegeBandAfter(wb, L, O) {
     // off it ran into hills, water and the curtain itself; and not again for two minutes after one it could not reach)
     if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < (O.phase === 'bombard' ? 95 : 60) && GAME.t > (O.breachBan || 0)) { // [siege2] a band guarding its engine goes for the breach it made (the engine batters on at the next weakest way in, often the next tower)
       const W = siegeOpenBreach(C, L.x, L.z);
-      if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2]
+      if (W && siegeStormReady(wb, O, W, L)) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2] // [war2] a fallen tower only with enough to get through its door (08j_war2.js)
     }
     if (O.phase === 'breach') {
       const W = O.breach;
@@ -976,6 +976,7 @@ function siegeBandAfter(wb, L, O) {
       return;
     }
   }
+  if (T && raidGapStep(wb, L, O, T)) return; // [war2] a raid goes in by a gap burnt in the timber hallow's ring (08j_war2.js)
   // the engine plan: once, when the band first comes within reach of the walls
   if (O.siegeE === undefined && dS < 105 && (O.phase === 'travel' || O.phase === 'siege')) O.siegeE = siegePlanFor(wb, O);
   const E = O.siegeE ? siegeById(O.siegeE) : null;

@@ -328,7 +328,7 @@ function relicTakeable(rel, e) {
   if (rel.state !== 'temple') return false;
   if (rel.at === e.faction) return false;
   const T = WAR.temples[rel.at];
-  return !T.door.alive;
+  return !T.door.alive || hallowOpen(T); // [war2] or a gap burnt in its log wall (08j_war2.js)
 }
 
 function captureKeep(K, realm, killer) {
@@ -702,8 +702,10 @@ function wbPlan(wb, goalNode) {
 function wbEnemiesNear(wb, x, z, r) {
   // enemies on walls or behind them do not hold the band in place
   let n = 0;
+  const unr = wb.L && wb.L.ai && wb.L.ai.unreach; // [war2] nor one its leader chased and could not get nearer (it held the band for good: 08j_war2.js)
   forNear(x, z, r, (o) => {
     if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null || elevatedEnt(o)) return;
+    if (unr && unr.get(o.id) > GAME.t) return; // [war2]
     if (segmentClear(x, z, o.x, o.z, 0.2, false)) n++;
   });
   return n;
@@ -741,7 +743,8 @@ function updateWarband(wb, dt) {
     else {
       if (O.phase === 'travel' && K.realm !== wb.realm && dist(L.x, L.z, K.nav.gate.x, K.nav.gate.z) < 16) O.phase = 'siege';
       if (O.phase === 'siege' && !K.door.alive) { O.phase = 'assault'; wbPlan(wb, K.nav.court); }
-      if (O.phase === 'assault' && K.door.alive) { O.phase = 'siege'; wbPlan(wb, K.nav.gate); }
+      if (O.phase === 'assault' && K.door.alive && !bandInsideKeep(wb, K)) { O.phase = 'siege'; wbPlan(wb, K.nav.gate); } // [war2] not while it stands in the court (08j_war2.js)
+      if (O.phase !== 'assault' && (O.phase !== 'breach' || (O.breach && O.bi >= siegeBreachRoute(O.breach).length)) && O.type === 'attack' && bandInsideKeep(wb, K)) { O.phase = 'assault'; wbPlan(wb, K.nav.court); } // [war2] in the court (over a wall, through a gap since mended): the lord and the court are its goal, not the gate behind it
       goal = O.phase === 'assault' ? K.nav.court : K.nav.gate;
     }
   } else if (O.type === 'raid') {
@@ -835,6 +838,7 @@ function updateWarband(wb, dt) {
   wb.engaged = engaged;
   wb.L = L;
   siegeBandAfter(wb, L, O); // [siege] engines, breaches, and where the leader stands while they work (04h_siege.js)
+  bandLeaderExit(wb, L, O); // [war2] in a court with its way outside: out by the gate first (08j_war2.js)
 }
 function thinkSoldier(e, dt) {
   const wb = e.warband;

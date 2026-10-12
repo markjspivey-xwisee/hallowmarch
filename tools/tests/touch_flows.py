@@ -6,7 +6,7 @@ the book at a workbench, place and turn a building piece, order a companion, tam
 go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
 fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]);
 shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]);
-beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall);
+beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat out a burning house in the town with Use ([war2]: only=housefire);
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`).
@@ -166,6 +166,23 @@ async def main():
             st = await page.evaluate("(() => { __hm.simulate(0.3); const c = TF.fireC; return { st: c.st, heat: +c.heat.toFixed(2) }; })()")
             check(r['label'] == 'Beat out the flames' and ok and h1['heat'] < r['heat'] and h1['act'] == 21, f"firewall: by a fire on a burh's walk a tap on Use beats the flames down ({r['label']}, heat {r['heat']} -> {h1['heat']}, action {h1['act']})")
             check(st['st'] != 1, f"firewall: a few taps put it out ({json.dumps(st)})")
+
+        if want('housefire'):
+            # [war2] a house afire in the town: beside its walls a tap on Use beats the flames down, and a few more put
+            # it out (its people kept away: 08j_war2.js)
+            r = await page.evaluate("""(() => { const H = TF.H, W2 = H.war2; W2.HCREW.off = true; const S = H.REALMS[0].town, P = TF.P();
+              const h = H.HOUSES.find((q) => q.S === S && !q.keepHall && q.state === 'whole' && !q.round); H.fn.igniteHouse(h); H.simulate(4);
+              const o = H.fn.houseW(h, 0, h.d / 2 + 1.2); TF.stand(o.x, o.z, h.x, h.z); P.brand = null; H.simulate(0.1); H.frame(1/30);
+              TF.hf = h; return { label: TF.label(), R: +h.burn.R.toFixed(2) }; })()""")
+            ok = await tap(page, '#t-use')
+            h1 = await page.evaluate("(() => { __hm.simulate(0.2); const h = TF.hf; return { R: h.burn ? +h.burn.R.toFixed(2) : 0, act: TF.P().anim.act }; })()")
+            for i in range(14):
+                more = await page.evaluate("(() => { __hm.simulate(0.5); __hm.frame(1/30); return TF.hf.state === 'burning'; })()")
+                if not more: break
+                await tap(page, '#t-use')
+            st = await page.evaluate("(() => { __hm.simulate(0.3); const h = TF.hf, out = { state: h.state }; if (h.state !== 'whole') __hm.fn.houseRestore(h); __hm.war2.HCREW.off = false; return out; })()")
+            check(r['label'] == 'Beat out the flames' and ok and h1['R'] < r['R'] and h1['act'] == 21, f"housefire: beside a burning house a tap on Use beats the flames down ({r['label']}, front {r['R']} -> {h1['R']} m, action {h1['act']})")
+            check(st['state'] == 'whole', f"housefire: a few taps put it out ({json.dumps(st)})")
 
         if want('row'):
             # [water2] step into a moored boat from the jetty with Use, row with the stick, step out with Use

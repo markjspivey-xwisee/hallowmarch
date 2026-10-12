@@ -782,6 +782,7 @@ function setHouseShutters(H, win, open, who = null, quiet = false) {
 }
 // what the E key offers near a house: the door, or the shutters of the window in reach
 function houseOffers(P, offer) {
+  houseBeatOffers(P, offer); // [war2] beside a burning house: beat out the flames with its people (08j_war2.js)
   for (const H of HOUSES) {
     if (dist2(P.x, P.z, H.x, H.z) > (H.foot + 3) ** 2 || !houseIntact(H) || H.state === 'burning') continue;
     const D = H.door;

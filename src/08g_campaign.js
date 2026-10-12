@@ -81,7 +81,7 @@ function orderPhrase(wb, O) {
     case 'attack': {
       const K = O.keep;
       if (O.byPlayer) return `marches on ${K.site.name}${you}`;
-      const why = { breach: 'while its gate lies broken', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March` }[O.why] || 'to break its gate';
+      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March` }[O.why] || 'to break its gate';
       return `marches on ${K.site.name} ${why}`;
     }
     case 'defend': return O.byPlayer ? `marches to hold ${O.keep.site.name}${you}` : O.why === 'engines' ? `marches to break the siege engines before ${O.keep.site.name}` : `marches to lift the siege of ${O.keep.site.name}`; // [siege]
@@ -119,7 +119,7 @@ function phaseWord(wb) {
   if (O.type === 'retrieve') return 'giving chase';
   if (O.type === 'rally') return 'at your side';
   if (O.type === 'patrol') return O.home ? 'marching home' : 'on watch';
-  return { travel: 'on the march', siege: 'at the gate', assault: 'storming the court', hold: 'holding it', bombard: 'guarding its engine', breach: 'storming the breach' }[O.phase] || ''; // [siege] bombard, breach
+  return { travel: 'on the march', siege: 'at the gate', assault: 'storming the court', hold: 'holding it', bombard: 'guarding its engine', breach: 'storming the breach', gap: 'going in by the gap' }[O.phase] || ''; // [war2] gap // [siege] bombard, breach
 }
 function announceOrder(wb, O) {
   if (!O || !GAME.t) return;
@@ -202,13 +202,14 @@ function cwChoose(wb, r) {
     if (K.orig === r) { s += 20; why = 'retake'; }
     if (!K.door.alive) { s += 18; if (why === 'gate') why = 'breach'; }
     else s += (1 - K.door.hp / K.door.maxHp) * 10;
+    if (K.door.alive && cwOpenBreach(K)) { s += 14; if (why === 'gate') why = 'wall'; } // [war2] a breach open in its walls: a second band to storm it with the first (08j_war2.js)
     s -= liveGuards(K) * 1.5;
     if (K.realm === front || K.orig === front) s += 6;
     s -= dist(L.x, L.z, K.site.x, K.site.z) / 14;
     if (myKeeps === CW.KEEPS - 1) { s += 12; why = 'claim'; }
     if (lead && lead.realm === K.realm) { s += 16; why = 'break'; }
     // two bands of ours on one keep only when it is decisive; otherwise spread out
-    if (ours === 1) s += why === 'gate' ? -16 : why === 'breach' ? 10 : 6;
+    if (ours === 1) s += why === 'gate' ? -16 : why === 'breach' || why === 'wall' ? 10 : 6; // [war2] 'wall'
     // and keep out of a fight two other realms are already having
     s -= WAR.warbands.filter((w) => !w.dead && w.realm !== r && w.realm !== K.realm && w.order && w.order.keep === K).length * 22;
     push(s, { type: 'attack', keep: K }, why);
