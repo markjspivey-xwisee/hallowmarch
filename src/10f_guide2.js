@@ -7,7 +7,8 @@
 //    path's page shows the step at hand and folds the rest, and the field notes have a page of their own (a note shrunk
 //    to its title on a small screen opens there, itself first);
 //  - field notes for what came since (a keep's hall, the farmers, a ripe bed, an unfamiliar herb, scaffolds and masons,
-//    timber walls to set alight, houses broken by stones, a priest's Renewal, a mage's ward, a warrior's Charge), with
+//    timber walls to set alight, houses broken by stones, a priest's Renewal, a mage's ward, a warrior's Charge; and
+//    why something happened to you in a fight: dazzled, wounded, chilled), with
 //    their help lines, a Chronicle section and loading tips;
 //  - a gem or a pointer for the steps done anywhere (levels, command, the realm's gift, a masterwork, a campaign): a place
 //    where there is one (a camp or a champion of your level, a war table, a station, the keep your realm fights for), or a
@@ -15,7 +16,7 @@
 //  - the war panel's line for your own aim, a tap from the Aims page;
 //  - no tap lost on the HUD: the layout holds still while a finger is on a panel, until its click has landed (a panel
 //    moved by the layout between the finger coming down and the click left the click on whatever was there then).
-const G2 = { open: {}, noteFocus: null, point: null, pointT: 0, aimKey: '', stats: { folds: 0, pages: {} }, tap: { until: 0, downs: 0, clicks: 0 } };
+const G2 = { open: {}, noteFocus: null, point: null, pointT: 0, aimKey: '', stats: { folds: 0, pages: {} }, tap: { until: 0, downs: 0, clicks: 0, pending: false } };
 
 /* ------------------------------------------------------------------ */
 /* no tap lost: the HUD holds still under a finger                     */
@@ -26,12 +27,12 @@ const G2 = { open: {}, noteFocus: null, point: null, pointT: 0, aimKey: '', stat
 const g2TapHeld = () => performance.now() < G2.tap.until;
 document.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest('#hud')) return;
-  G2.tap.until = performance.now() + 2500; G2.tap.downs++;
+  G2.tap.until = performance.now() + 2500; G2.tap.downs++; G2.tap.pending = true;
 }, true);
 const g2TapUp = () => { if (g2TapHeld()) G2.tap.until = performance.now() + 1200; }; // (a busy phone's click may come most of a second after the finger lifts)
 document.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
 document.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
-document.addEventListener('click', () => { if (g2TapHeld()) { G2.tap.until = 0; G2.tap.clicks++; HUDL.k = 0; } }, true);
+document.addEventListener('click', () => { if (G2.tap.pending) { G2.tap.pending = false; G2.tap.clicks++; } if (g2TapHeld()) { G2.tap.until = 0; HUDL.k = 0; } }, true);
 
 /* ------------------------------------------------------------------ */
 /* the Chronicle on a phone: summaries first, detail folded            */
@@ -158,6 +159,10 @@ const G2_NOTES = {
   renew: { t: 'Renewal on yourself', x: () => `For 4 s nothing but a stun breaks your spells: renew before a long one. Renewing again while the last still has more than ${typeof RENEW_ROTE_LEFT !== 'undefined' ? RENEW_ROTE_LEFT : 2} s to mend costs twice the power: renew at need, not by rote.`, fight: true },
   ward: { t: 'Your Arcane Ward', x: () => 'While it holds, a stun breaks on it, and so does a blow that would break your spell ("Warded"): each costs the ward some of its strength. Raise it before a long spell, or before a warrior leaps in.', fight: true },
   charge: { t: 'Charge', x: () => 'It rushes you at a foe 5 to 28 m off, shield first, and lands with a blow. A snare, a frost, a wall or water may stop it on its way: then it is ready again in half the time.', fight: true },
+  // why something happened to you in a fight
+  dazzle: { t: 'Dazzled', x: () => 'Holy light: for a few seconds some of your weapon blows go wide, and you cannot read a blow coming to parry it. Step off a priest\'s hallowed ground.', fight: true },
+  wounded: { t: 'Wounded', x: () => 'A broadhead or a crippling arrow has opened a wound: healing on you takes less until it closes, in a few seconds.', fight: true },
+  chilled: { t: 'Chilled', x: () => 'Frost slows you, and the third chill freezes you solid for a moment. Fire, a storm or a heavy blow breaks the ice.', fight: true },
 };
 for (const k in G2_NOTES) if (!FIELD_NOTES[k]) FIELD_NOTES[k] = G2_NOTES[k]; else reportError(new Error(`[guide2] the field note "${k}" is another module's`)); // (an id taken twice would replace the other's note)
 // what each waits for (10e_guide.js guideWatch calls these)
@@ -169,6 +174,9 @@ Object.assign(GUIDE_WATCH, {
   renew: (P) => P.cls === 'priest' && P.buffs.some((b) => b.kind === 'hot' && b.src === P.id && b.until > GAME.t + 2),
   ward: (P) => P.cls === 'mage' && hasBuff(P, 'eward'),
   charge: (P) => P.cls === 'warrior' && !!(P.motion && P.motion.rush),
+  dazzle: (P) => hasBuff(P, 'dazzle'),
+  wounded: (P) => hasBuff(P, 'wound'),
+  chilled: (P) => hasBuff(P, 'chill') || hasBuff(P, 'frozen'),
 });
 // slower looks, once a second (with guideScan)
 G2.near = { scaffold: false, battered: false };

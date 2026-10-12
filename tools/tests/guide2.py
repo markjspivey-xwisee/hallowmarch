@@ -56,7 +56,7 @@ window.G2T = {
     for (let i = 0; i < 3; i++) { H.LORE.check(); H.LORE.state.noteUntil = 0; H.frame(1 / 30); }
     if (unset) unset();
     const ok = H.LORE.progress().seen.includes(id) || H.LORE.state.queue.includes(id);
-    for (const d of [...document.querySelectorAll('#banners > *')]) d.remove();
+    for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
     return ok;
   },
   prompt(t) { const p = document.getElementById('prompt'), q = document.getElementById('prompt-t'); if (t) { p.classList.add('on'); q._t = t; } else { p.classList.remove('on'); q._t = ''; } return 0; },
@@ -156,8 +156,11 @@ async def phone(p):
       const c0 = P.cls;
       out.ward = G2T.watch('ward', () => { P.cls = 'mage'; P.buffs.push({ kind: 'eward', until: H.GAME.t + 9, v: 1 }); }, () => { P.cls = c0; P.buffs.length = 0; });
       out.charge = G2T.watch('charge', () => { P.cls = 'warrior'; P.motion = { kind: 'leap', rush: true, t: 0, T: 1 }; H.LORE.check(); P.motion = null; P.cls = c0; }, null, false);
+      out.dazzle = G2T.watch('dazzle', () => { P.buffs.push({ kind: 'dazzle', until: H.GAME.t + 3, value: 0.15 }); }, () => { P.buffs.length = 0; });
+      out.wounded = G2T.watch('wounded', () => { P.buffs.push({ kind: 'wound', until: H.GAME.t + 6, value: 0.3 }); }, () => { P.buffs.length = 0; });
+      out.chilled = G2T.watch('chilled', () => { P.buffs.push({ kind: 'chill', until: H.GAME.t + 4, value: 1 }); }, () => { P.buffs.length = 0; });
       return out; })()""")
-    for k in ('hall', 'scaffold', 'setwall', 'renew', 'ward', 'charge'):
+    for k in ('hall', 'scaffold', 'setwall', 'renew', 'ward', 'charge', 'dazzle', 'wounded', 'chilled'):
         check(r.get(k) is True, f'the field note "{k}" is given in the world ({r.get(k)})')
     r = await ev(page, """(() => { const H = __hm, P = G2T.P();
       return G2T.watch('battered', () => { const h = H.guide2.nearHouse(P); if (h) { H.teleport(h.x + 9, h.z); H.batter.houseStoneHit(h, h.x, h.y + 1.2, h.z, 3, null, false); } }, null); })()""")
@@ -171,8 +174,8 @@ async def phone(p):
     # ---- a note shrunk to its title on a small phone opens the field notes' page, itself first ----
     await page.set_viewport_size({'width': 360, 'height': 640})
     await page.wait_for_timeout(250)
-    r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore; H.UI.modal = null; document.getElementById('menu').hidden = true; for (const d of [...document.querySelectorAll('#banners > *')]) d.remove();
-      L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; }
+    r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore; H.UI.modal = null; document.getElementById('menu').hidden = true; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
+      L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; d.remove = () => {}; } /* (it fades on the wall clock) */
       G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")
     print('  note at 360x640:', r, flush=True)
     ok = await tap(page, '#banners .lore-note:last-child')
@@ -239,10 +242,10 @@ async def phone(p):
             for _ in range(3): await ev(page, "__hm.frame(1/30); 0")
             c = await ev(page, "__hm.animals.anCompanions().map((e) => e.tame.cmd)")
             if not all(x == cmd for x in c) or moved != 0: lost += 1; print('    lost?', cmd, c, 'moved', moved, flush=True)
-            await ev(page, "(() => { const c = document.getElementById('cls'); if (c) c.style.paddingBottom = ''; for (const d of [...document.querySelectorAll('#banners > *')]) d.remove(); G2T.lay(); return 0; })()")
+            await ev(page, "(() => { const c = document.getElementById('cls'); if (c) c.style.paddingBottom = ''; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); G2T.lay(); return 0; })()")
     check(lost == 0, f'eight taps on Stay and Follow while the HUD changes under the finger: none lost, the bar held still ({lost} lost)')
     r = await ev(page, "(() => { const G = __hm.guide2.G2; return { held: __hm.guide2.g2TapHeld(), downs: G.tap.downs, clicks: G.tap.clicks }; })()")
-    check(not r['held'] and r['clicks'] >= 6, f'the layout goes on once each click has landed ({r})')
+    check(not r['held'] and r['clicks'] >= r['downs'] - 1, f'the layout goes on once each click has landed, every tap\'s click came ({r})')
 
     errs = await ev(page, "__hm.errors")
     check(errs == [], f'no errors ({errs[:2]})')

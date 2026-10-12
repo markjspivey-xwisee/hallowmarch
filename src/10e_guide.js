@@ -325,16 +325,16 @@ function guideNoteIndex() {
 /* ------------------------------------------------------------------ */
 function guideKeysHTML() {
   if (IS_TOUCH) return `<div class="keys">
-    <kbd>Left thumb</kbd><span>Drag anywhere on the left to walk; push to the edge to run.</span>
-    <kbd>Right thumb</kbd><span>Drag to turn the camera. Tap a creature, soldier or gate to target it.</span>
-    <kbd>Ability buttons</kbd><span>Your calling's eight abilities. Locked ones open as you level; past 20 they grow a rank every ten levels.</span>
-    <kbd>Use</kbd><span>Whatever the prompt over the buttons says: the herald, a door, a ladder or hatch, a workstation, a boat, water, a crew, a hallow. You can tap the prompt itself too.</span>
-    <kbd>Target · Jump · Ride</kbd><span>Cycle the foes in front of you · jump (Dive and Up in deep water) · whistle for your horse or step down.</span>
-    <kbd>Potion · Kit</kbd><span>Drink a healing draught · your gear, bags, crafting by hand and goods.</span>
-    <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best thing you carry.</span>
-    <kbd>Your path</kbd><span>Under your frame: the next step, how far and which way (the gold gem on the minimap). Tap it to unfold it, and its title for the whole path.</span>
-    <kbd>Buttons under the minimap</kbd><span>The map (and orders for your warbands), your kit and bags, the log, building (the hammer), and the menu with the Chronicle and this page.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
-    <kbd>Gift</kbd><span>The round gift button calls your realm's great gift, from realm rank 5 or level 30.</span></div>`;
+    <kbd>Left thumb</kbd><span>Drag on the left to walk; to the edge to run.</span>
+    <kbd>Right thumb</kbd><span>Drag to look around. Tap a creature, soldier or gate to target it.</span>
+    <kbd>Ability buttons</kbd><span>Your calling's eight abilities: they open as you level, and grow a rank every ten levels past 20.</span>
+    <kbd>Use</kbd><span>Does what the prompt over the buttons says (a door, a ladder, a fire, a boat, water). Tap the prompt itself too.</span>
+    <kbd>Target · Jump · Ride</kbd><span>The next foe in front · jump (Dive and Up in deep water) · your horse.</span>
+    <kbd>Potion · Kit</kbd><span>A healing draught · your gear, bags, crafting and goods.</span>
+    <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best you carry.</span>
+    <kbd>Your path</kbd><span>Under your frame: the next step and which way (the gold gem on the minimap). Tap to unfold it.</span>
+    <kbd>Buttons under the minimap</kbd><span>The map (and your warbands' orders), kit, log, building, and the menu with the Chronicle.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
+    <kbd>Gift</kbd><span>The round gift button: your realm's great gift, from realm rank 5 or level 30.</span></div>`; // [guide2] each in a line or two on a phone
   return `<div class="keys">
     <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
     <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
