@@ -124,6 +124,7 @@ async def main():
             r = await ev(page, 'wrath', """(() => { const P = T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L, St = L.LATE2.stats;
               const camp = T.risen().find((c) => c.realm === 0 && c.type === 'bandit'); let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
               const keep = new Set(camp.members); T.clearAround(camp.x, camp.z, 60, keep); for (const id of camp.members) { const m = F.getEnt(id); if (m && m !== C) { m.damagers = null; F.killEnt(m, null); F.removeEnt(m); } }
+              H.bal6.cleanArena(camp.x, camp.z, 45, new Set()); // (what the fights before left about the camp: runes, snares, ice, fire; after them the champion here once never thought through the scene)
               const place = () => { H.teleport(C.x + 3, C.z + 2); P.hp = P.maxHp; P.buffs.length = 0; C.buffs.length = 0; C.ccdr = null; C.target = P.id; C.threat = new Map([[P.id, 99]]); };
               const out = {}; place();
               // the blow lands on a foe that stays in the ring
@@ -260,7 +261,7 @@ async def main():
               // open ground: a meadow of the homeland, away from the town
               const R = H.REALMS[0]; let spot = null;
               for (let i = 0; i < 400 && !spot; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
-                if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) spot = { x, z }; }
+                if (!F.isWalkable(x, z) || H.water.waterAt(x, z) || (i < 300 && F.W.trees.some((t) => !t.gone && !t.felled && Math.hypot(t.x - x, t.z - z) < 11))) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) spot = { x, z }; } // (open meadow first, for the pictures)
               out.spot = !!spot; T.clearAround(P.x, P.z, 40);
               out.planted = L.late2StdPlant(); const at = S.std.at; out.at = at;
               out.mesh = at ? +Math.hypot(L.L2STD.mesh.position.x - at.x, L.L2STD.mesh.position.z - at.z).toFixed(2) : null;
@@ -290,7 +291,7 @@ async def main():
                   H.camera.position.set(at.x + 5.5, F.heightAt(at.x, at.z) + 2.6, at.z + 4.2); H.camera.lookAt(at.x, F.heightAt(at.x, at.z) + 2.2, at.z); return 0; })()""")
                 await frames(page, 3)
                 await shot(page, f'standard_day_{Q}')
-                await page.evaluate("(() => { T.H.setTod(0.96); return 0; })()")
+                await page.evaluate("(() => { T.H.setTod(2.1); return 0; })()")
                 await frames(page, 3)
                 await shot(page, f'standard_night_{Q}')
                 await page.evaluate("(() => { const H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
@@ -308,6 +309,7 @@ async def main():
               // hailed by name: a soldier of your realm beside you, out of a fight
               prog.realmKills = 30; H.simulate(0.3); L.late2Wear('blooded');
               const s = F.spawnRealmUnit(0, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
+              H.simulate(0.05); s.target = null; s.l2hailT = 0; // (a step, so the grid finds the guard where it stands)
               P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
               L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
               s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
@@ -360,9 +362,9 @@ async def main():
             r = await ev(page, 'scene', """(() => { const P = T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L;
               const camp = T.risen().filter((c) => c.realm === 0 && c.type === 'bandit')[0] || T.risen()[0];
               let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
-              T.camp = camp.id; T.C = C.id; H.teleport(C.x + 3.2, C.z + 2.4); P.hp = P.maxHp;
+              H.bal6.cleanArena(camp.x, camp.z, 45, new Set()); T.camp = camp.id; T.C = C.id; H.teleport(C.x + 3.2, C.z + 2.4); P.hp = P.maxHp;
               H.simulate(1.5); return { name: C.name, lvl: C.level, type: camp.type }; })()""")
-            for tod, label in [(0.45, 'day'), (0.97, 'night')]:
+            for tod, label in [(0.45, "day"), (2.1, "night")]:
                 await page.evaluate(f"""(() => {{ const H = T.H, F = T.F, P = H.GAME.player, C = F.getEnt(T.C); if (!C || !C.alive) return 0; H.setTod({tod});
                   C.ai.l2 = null; C.target = P.id; C.threat = new Map([[P.id, 50]]); P.hp = P.maxHp; H.teleport(C.x + 3.2, C.z + 2.4);
                   const S = C.ai.l2 = {{ next: 0, rally: true, enr: false, w: null, last: H.GAME.t }}; T.L.late2ChampThink(C, P, 0.05); H.simulate(0.8);
