@@ -9,8 +9,9 @@
   gap     a raid on the Thule hallow goes round to a gap burnt in its log ring (its gate whole) and takes the hallow
   stormshot  a band through a fallen tower's door into the court (screenshots by day and night)
   houses  townsfolk run to a burning house and beat it out (screenshots by day and night at low and high)
+  reset   a new campaign begins with every keep's garrison whole, a keep that stayed its own too
   gate    a gate burnt down is kept with the world: saved, put back, loaded broken and charred
-usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,gate] [noshots] [q=low|medium|high]"""
+usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,reset,gate] [noshots] [q=low|medium|high]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -392,6 +393,25 @@ async def main(p):
                 print(f'   {tag}: beating, state, front {ok}', flush=True)
                 await snap(page, f'war2_houses_{tag}_{QUALITY}')
                 await ev(page, "(() => { __hm.CAM.mode = 'follow'; for (let t = 0; t < 90; t++) { __hm.simulate(1); if (window.__w2t.H.state !== 'burning') break; } return 0; })()")
+
+    if want('reset'):
+        print('-- reset: a new campaign begins with every garrison whole', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR;
+          const alive = (k) => [...k.guards].map(fn.getEnt).filter((g) => g && g.alive).length + (fn.getEnt(k.lord) && fn.getEnt(k.lord).alive ? 1 : 0);
+          const K = WAR.keeps.find((k) => k.realm === k.orig && k.realm !== 0 && alive(k) >= 5);
+          if (!K) return { err: 'no keep' };
+          const n0 = alive(K);
+          let killed = 0;
+          for (const id of [...K.guards].slice(0, 4)) { const g = fn.getEnt(id); if (g && g.alive) { fn.killEnt(g, null); killed++; } }
+          __w2t.quiet(); H.simulate(1);
+          const n1 = alive(K);
+          H.CW.resetMarch();
+          __w2t.quiet(); H.simulate(1);
+          return { keep: K.site.name, n0, killed, n1, n2: alive(K), all: WAR.keeps.map(alive) };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('n2', 0) >= 7 and r.get('n1', 9) < r.get('n2', 0), f"a new campaign begins with every keep's garrison whole, a keep that stayed its own too ({r.get('keep')}: {r.get('n0')}, {r.get('n1')} after {r.get('killed')} fell, {r.get('n2')} after the reset; every keep {r.get('all')})")
 
     if want('gate'):
         print('-- gate: a burnt gate kept with the world', flush=True)

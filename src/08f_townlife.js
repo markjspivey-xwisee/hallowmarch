@@ -177,7 +177,7 @@ function houseFlee(e, F) {
     const D = F.door;
     steps.push(houseGo(D.in.x, D.in.z, { run: true, room: F, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: F }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: F }));
   }
-  if (!F.keepHall) { steps.push(lifeStep('beat', { H: F })); lifePlan(e, steps, { flee: F }); ai.lifeWait = 0; return; } // [war2] out, then beat the flames down with the neighbours (08j_war2.js)
+  if (!F.keepHall && !HCREW.off) { steps.push(lifeStep('beat', { H: F })); lifePlan(e, steps, { flee: F }); ai.lifeWait = 0; return; } // [war2] out, then beat the flames down with the neighbours (08j_war2.js; HCREW.off: they run as before)
   // a spot away from the fire, on the town side
   let dx = e.x - F.x, dz = e.z - F.z;
   const towardTown = { x: F.S.x - F.x, z: F.S.z - F.z };
