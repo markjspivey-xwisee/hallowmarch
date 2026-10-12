@@ -215,7 +215,7 @@ function updateHUD(dt) {
   else ca.classList.remove('on');
   // bounty
   const bo = $('bounty'), b = prog.bounty;
-  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : `Slay ${pluralName(b.name)}`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
+  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : b.risen ? `Bring down ${esc(b.name)}` /* [late2] a risen champion (10l_late.js) */ : `Slay ${pluralName(b.name)}`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
   else bo.classList.remove('on');
   updatePotionSlot();
   // error fade

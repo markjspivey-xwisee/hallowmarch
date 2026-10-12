@@ -598,13 +598,13 @@ function late2HeraldBounty() {
   if (!P || !prog || prog.level < LATE2_RISE_AT || prog.bounty) return null;
   const camps = CAMPS.filter((c) => late2Risen(c) && c.realm === P.faction);
   if (!camps.length) return null;
-  const c = camps[(prog.realmKills + prog.kills) % camps.length], nm = capFirst(late2RisenName(c));
-  const nb = { type: c.type, camp: c.id, need: 1, have: 0, name: nm, reward: Math.round(xpToNext(Math.min(prog.level, LEVEL_CAP - 1)) * 0.6), risen: 1 };
+  const c = camps[(prog.realmKills + prog.kills) % camps.length], rn = late2RisenName(c), nm = capFirst(rn);
+  const nb = { type: c.type, camp: c.id, need: 1, have: 0, name: rn, reward: Math.round(xpToNext(Math.min(prog.level, LEVEL_CAP - 1)) * 0.6), risen: 1 };
   const xp = prog.level >= LEVEL_CAP ? `${fmtInt(nb.reward)} experience toward your veterancy` : `${fmtInt(nb.reward)} experience`;
   return {
     b: nb,
     text: `<p>${esc(nm)} has risen in the far borderlands of ${esc(REALMS[P.faction].homeName)}, and the roads there are empty for fear of it. Bring it down and ${esc(REALMS[P.faction].name)} will reward you with ${xp}, ${fmtInt(Math.round(nb.reward * 0.1))} realm points and ${10 + prog.level * 5} gold. Its camp is circled on your map.</p>`,
-    accept: () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: bring down ${nm}`, 'quest'); saveSoon(); },
+    accept: () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: bring down ${rn}`, 'quest'); saveSoon(); },
   };
 }
 function late2BountyKill(e, b) {
