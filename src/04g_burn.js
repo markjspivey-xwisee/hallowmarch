@@ -140,7 +140,8 @@ function palisadeIgnite(c, heat = 0.12, gen = 0) {
 function palisadeSpots(c) {
   if (c.spots) return c.spots;
   const S = c.P.S, out = [];
-  for (const [o, y] of [[0.55, 1.6], [-0.55, 2.4], [0.55, 4.2], [-0.55, 5.4], [0, WALL_H + 0.3]]) {
+  // [v13] low, high and the top first: a stretch burns with three flames at most (PAL_FLAMES), climbing as it heats
+  for (const [o, y] of [[0.55, 1.6], [-0.55, 4.2], [0, WALL_H + 0.3], [-0.55, 2.4], [0.55, 5.4]]) {
     const l = palisadeLocal(c.side, c.a + (Math.random() - 0.5) * 0.5, o), p = siteToWorld(S, l.x, l.z);
     out.push({ x: p.x, z: p.z, y, s: o === 0 ? 0.9 : 0.75 });
   }
@@ -238,6 +239,7 @@ function palisadeGapClose(P, W) {
 
 // burnt-out fires let go before new ones are added (drawFires does it each frame, but a long simulate piles them up
 // against addFire's cap of 40 timed fires): the palisades' and the towers' flames (04n_towerfire.js)
+const PAL_FLAMES = 3; // [v13] the flames a burning stretch keeps
 function fireLetGo() {
   if (FIRES.length > 30) for (let i = FIRES.length - 1; i >= 0; i--) if (FIRES[i].until < GAME.t) FIRES.splice(i, 1);
 }
@@ -300,7 +302,9 @@ function palisadeBurnStep(c, dt, wet) {
   if (GAME.t > c.tick) {
     c.tick = GAME.t + 1.0;
     c.fires = c.fires.filter((f) => f.until > GAME.t);
-    const spots = palisadeSpots(c), want = Math.round(1 + c.heat * (spots.length - 1)), top = 1 + c.heat * (WALL_H + 0.5);
+    // [v13] three flames a stretch at most: seven stretches alight at five each filled addFire's cap of timed fires,
+    // and a stretch that let its flames go could not light them again (siege2.py's catch found it with 0 flames)
+    const spots = palisadeSpots(c), want = Math.round(1 + c.heat * (Math.min(PAL_FLAMES, spots.length) - 1)), top = 1 + c.heat * (WALL_H + 0.5);
     let lit = c.fires.length;
     // (the burnt-out fires are let go first: drawFires does it each frame, but a long simulate (tests) piles them up
     // against addFire's cap of timed fires; and a fire addFire did not add is no fire of this cell's)

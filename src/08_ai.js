@@ -852,6 +852,9 @@ function thinkSoldier(e, dt) {
   const anchor = L || e;
   const leash = O && O.type === 'carry' ? 14 : 40; // [siege] tuning: a hallow's escort stays by its bearer instead of giving chase
   if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, anchor.x, anchor.z) > leash || !canReach(e, t))) { t = null; e.target = null; }
+  // [v13] a gate struck under an old order is left once the band is sent elsewhere (a band at a gate given a new order
+  // by the player or its commander kept striking that gate until it died there: the order never moved it)
+  if (t && t.kind === 'door' && !t.siegeEngine && !(O && O.phase === 'siege' && t === (O.keep ? O.keep.door : O.temple ? O.temple.door : null))) { t = null; e.target = null; }
   if (GAME.t > (e.ai.nextScan || 0)) {
     e.ai.nextScan = GAME.t + 0.35 + Math.random() * 0.3;
     let cand = topThreat(e);

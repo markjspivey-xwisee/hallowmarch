@@ -90,7 +90,10 @@ async def main(p):
     # ---- the map: routes, badges and the side panel ----
     my = await ev(page, "__hm.CW.bands(0)")
     check(len(my) >= 1, f'Logres has warbands in the field ({len(my)})')
-    wb = my[0]
+    # the band to command: the strongest not caught in a siege's work (a band by its engine can be cut down there in the
+    # first seconds and its new men set out from the muster, which reads as the band going the wrong way)
+    free = [b for b in my if b['phase'] not in ('bombard', 'siege', 'assault', 'breach', 'hold') and b['n'] >= 3]
+    wb = max(free, key=lambda b: b['n']) if free else max(my, key=lambda b: b['n'])
     await ev(page, f"__hm.fn.toggleMap(true); __hm.CW.CWUI.sel = {wb['id']}; __hm.fn.toggleMap(false); __hm.fn.toggleMap(true)")
     side = await ev(page, "document.querySelector('#mapside .cw-side') && document.querySelector('#mapside .cw-side').textContent")
     check(bool(side) and 'Warbands of Logres' in side and 'Orders for the' in side, 'the map lists our warbands and the orders for the chosen one')
@@ -142,7 +145,10 @@ async def main(p):
         best, r3 = min(best, r['d']), r
     check(r3 is not None and r3['type'] == 'rally' and (best < d0 - 25 or best < 20), f'a rallied band comes to the player (its soldiers from {d0:.0f} m to {best:.0f} m) and stays with them ({r3})')
     if r3 and r3['d'] < 30:
-        await ev(page, "__hm.CAM.mode = 'play'; __hm.look(0.6, 0.35, 16)")
+        # ([v13] the camera turned toward the captain: from a fixed bearing it stood behind the camera or a house now and then)
+        # (and the captain chosen, as a player clicks it: at the muster more than 18 bodies may stand nearer the camera
+        # than the captain, and the names shown are the nearest 18 and the chosen one)
+        await ev(page, f"(() => {{ __hm.CAM.mode = 'play'; const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}), L = wb && __hm.fn.wbLeader(wb), P = __hm.GAME.player; if (L) P.target = L.id; __hm.look(L ? Math.atan2(L.x - P.x, L.z - P.z) : 0.6, 0.35, 10); return 0; }})()")
         await frames(page, 3)
         plate = await ev(page, "[...document.querySelectorAll('.np .cw-o')].filter((e) => e.style.display !== 'none' && e.closest('.np').style.display !== 'none').map((e) => e.textContent)")
         check(any('Rally' in t for t in plate), f"the captain's nameplate shows the order ({plate[:3]})")

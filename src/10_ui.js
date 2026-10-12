@@ -523,7 +523,7 @@ function updateNameplates() {
     if (P.target !== e.id && !npSeen(e, d)) continue;
     list.push([d, e]);
   }
-  list.sort((a, b) => a[0] - b[0]);
+  list.sort((a, b) => (b[1].id === P.target) - (a[1].id === P.target) || a[0] - b[0]); // [v13] the chosen one's name first: in a crowd it was cut with the farthest
   const max = IS_TOUCH ? 10 : 18;
   let used = 0;
   for (const [d, e] of list) {

@@ -165,20 +165,20 @@ async def realm_case(page, realm):
     r2 = await ev(page, 'again', "(() => ({ casts: T.G.GIFT.casts, err: document.getElementById('error') ? document.getElementById('error').textContent : '' }))()")
     check(r2['casts'] == r['casts'] and 'not ready' in r2['err'], f"{name}: pressed again it waits for the cooldown ({r2['err']!r})")
     if realm == 0:
-        r = await ev(page, 'standard', """(() => { T.H.simulate(1.6); const P = T.H.GAME.player, S = T.G.GIFT.standards[0], f = T.friends[0];
+        r = await ev(page, 'standard', """(() => { T.H.simulate(1.6); const P = T.H.GAME.player, S = T.G.GIFT.standards.find((q) => q.src === P.id), f = T.friends[0]; /* [v13] the caller's own */
           const buf = (e, k) => { const b = e.buffs.find((q) => q.kind === k && q.src === 'standard'); return b ? +b.value.toFixed(3) : 0; };
-          return { n: T.G.GIFT.standards.length, landed: S && S.landed, at: S && [S.x - P.x, S.z - P.z], shield: buf(P, 'shield') / P.maxHp, dmg: buf(P, 'dmg'), fshield: buf(f, 'shield') / f.maxHp, fsnare: f.buffs.some((b) => b.kind === 'snare'),
+          return { n: T.G.GIFT.standards.filter((q) => q.src === P.id).length, landed: S && S.landed, at: S && [S.x - P.x, S.z - P.z], shield: buf(P, 'shield') / P.maxHp, dmg: buf(P, 'dmg'), fshield: buf(f, 'shield') / f.maxHp, fsnare: f.buffs.some((b) => b.kind === 'snare'),
             foeShield: buf(T.foes[0], 'shield'), k: S && S.k }; })()""")
         k = r['k'] or 0
         check(r['n'] == 1 and r['landed'], 'Logres: the great standard is planted')
         check(near(r['shield'], 0.12 * k, 0.002) and near(r['dmg'], 0.15 * k, 0.002) and near(r['fshield'], 0.12 * k, 0.002), f"Logres: allies in reach are warded ({r['shield']:.3f} of health) and rallied (+{r['dmg']:.3f} damage), k {k:.2f}")
         check(not r['fsnare'] and r['foeShield'] == 0, 'Logres: the rally frees allies from snares; foes get nothing')
-        await shot(page, 'standard', """(() => { const S = T.G.GIFT.standards[0], P = T.H.GAME.player; T.cam(S.x + 7.5, S.y + 3.2, S.z - 10, S.x, S.y + 4.2, S.z); })()""", 8)
+        await shot(page, 'standard', """(() => { const P = T.H.GAME.player, S = T.G.GIFT.standards.find((q) => q.src === P.id) || T.G.GIFT.standards[0]; T.cam(S.x + 7.5, S.y + 3.2, S.z - 10, S.x, S.y + 4.2, S.z); })()""", 8)
         await page.evaluate("T.play()")
-        r = await ev(page, 'standard ends', "(() => { T.H.simulate(22); return { n: T.G.GIFT.standards.length, shield: T.H.GAME.player.buffs.filter((b) => b.src === 'standard' && b.until > T.H.GAME.t).length }; })()")
+        r = await ev(page, 'standard ends', "(() => { T.H.simulate(22); return { n: T.G.GIFT.standards.filter((q) => q.src === T.H.GAME.player.id).length, shield: T.H.GAME.player.buffs.filter((b) => b.src === 'standard' && b.until > T.H.GAME.t).length }; })()")
         check(r['n'] == 0 and r['shield'] == 0, 'Logres: after 20 s the standard is taken up and its wards run out')
     elif realm == 1:
-        r = await ev(page, 'hunt', """(() => { const hp0 = T.foes.map((e) => e.hp); T.H.simulate(4); const hs = T.G.GIFT.hounds.filter((h) => !h.removed);
+        r = await ev(page, 'hunt', """(() => { const hp0 = T.foes.map((e) => e.hp); T.H.simulate(4); const hs = T.G.GIFT.hounds.filter((h) => !h.removed && h.hunt && h.hunt.owner === T.H.GAME.player.id); /* [v13] the caller's own: a keep lord fighting elsewhere may loose his */
           return { n: hs.length, targets: hs.filter((h) => h.target && T.foes.some((f) => f.id === h.target)).length, hurt: T.foes.filter((e, i) => e.hp < hp0[i] || !e.alive).length, snared: T.foes.filter((e) => e.buffs.some((b) => b.kind === 'snare')).length,
             near: hs.filter((h) => T.foes.some((f) => Math.hypot(f.x - h.x, f.z - h.z) < 4)).length, faction: hs.every((h) => h.faction === T.H.GAME.player.faction), finite: hs.every((h) => Number.isFinite(h.x + h.y + h.z)) }; })()""")
         check(r['n'] == 5 and r['faction'] and r['finite'], 'Eriu: five hounds of the Grey Hunt run with the caller')
@@ -186,20 +186,21 @@ async def realm_case(page, realm):
         await shot(page, 'hunt', """(() => { const P = T.H.GAME.player; const hs = T.G.GIFT.hounds.filter((h) => !h.removed); const cx = hs.reduce((a, h) => a + h.x, 0) / hs.length, cz = hs.reduce((a, h) => a + h.z, 0) / hs.length;
           T.cam(cx - 7, T.F.heightAt(cx, cz) + 3.4, cz - 6, cx, T.F.heightAt(cx, cz) + 0.8, cz); })()""", 8)
         await page.evaluate("T.play()")
-        r = await ev(page, 'hunt ends', "(() => { T.H.simulate(16); return { n: T.G.GIFT.hounds.length, ents: T.H.ENT.filter((e) => e.role === 'hound').length }; })()")
+        r = await ev(page, 'hunt ends', "(() => { const id = T.H.GAME.player.id; T.H.simulate(16); return { n: T.G.GIFT.hounds.filter((h) => h.hunt && h.hunt.owner === id).length, ents: T.H.ENT.filter((e) => e.role === 'hound' && e.hunt && e.hunt.owner === id).length }; })()")
         check(r['n'] == 0 and r['ents'] == 0, 'Eriu: after 16 s the hounds go back into the mist')
     else:
-        r = await ev(page, 'winter', """(() => { const hp0 = T.foes.map((e) => e.hp); const fr0 = T.friends.map((e) => e.hp); T.H.simulate(3.2); const S = T.G.GIFT.storms[0];
-          return { n: T.G.GIFT.storms.length, at: S && Math.hypot(S.x - T.foes[1].x, S.z - T.foes[1].z), hurt: T.foes.filter((e, i) => e.hp < hp0[i] || !e.alive).length, snared: T.foes.filter((e) => e.buffs.some((b) => b.kind === 'snare' && Math.abs(b.value - 0.45) < 1e-6)).length,
+        r = await ev(page, 'winter', """(() => { const hp0 = T.foes.map((e) => e.hp); const fr0 = T.friends.map((e) => e.hp); T.H.simulate(3.2); const S = T.G.GIFT.storms.find((q) => q.src === T.H.GAME.player.id); /* [v13] the caller's own */
+          return { n: T.G.GIFT.storms.filter((q) => q.src === T.H.GAME.player.id).length, at: S && Math.hypot(S.x - T.foes[1].x, S.z - T.foes[1].z), hurt: T.foes.filter((e, i) => e.hp < hp0[i] || !e.alive).length, snared: T.foes.filter((e) => e.buffs.some((b) => b.kind === 'snare' && Math.abs(b.value - 0.45) < 1e-6)).length,
             friendsHurt: T.friends.filter((e, i) => e.hp < fr0[i]).length, held: T.foes.filter((e) => e.buffs.some((b) => (b.kind === 'snare' && b.value >= 0.45 - 1e-6) || b.kind === 'frozen')).length,
             buffs: T.foes.map((e) => e.alive ? e.buffs.filter((b) => b.src !== 'test').map((b) => b.kind + ':' + (+b.value).toFixed(2) + ':' + b.src + ':' + (b.until - T.H.GAME.t).toFixed(1)).join(',') : 'dead') }; })()""")
         check(r['n'] == 1 and r['at'] is not None and r['at'] < 4, f"Thule: the Iron Winter comes down on the foe ({r['at']:.1f} m off)")
         # (a foe the frost has frozen is held fast; [v12] the buffs are printed so a miss tells why)
         check(r['hurt'] == 3 and r['snared'] >= 2 and r['held'] == 3 and r['friendsHurt'] == 0, f"Thule: foes inside take frost and are slowed 45% or frozen; friends are spared ({r['snared']} slowed, {r['held']} held: {r['buffs']})")
-        await shot(page, 'winter', """(() => { const S = T.G.GIFT.storms[0]; T.cam(S.x + 21, S.y + 9, S.z - 17, S.x, S.y + 5, S.z); })()""", 10)
+        await shot(page, 'winter', """(() => { const S = T.G.GIFT.storms.find((q) => q.src === T.H.GAME.player.id) || T.G.GIFT.storms[0]; T.cam(S.x + 21, S.y + 9, S.z - 17, S.x, S.y + 5, S.z); })()""", 10)
         await page.evaluate("T.play()")
-        r = await ev(page, 'winter ends', "(() => { T.H.simulate(15); return { n: T.G.GIFT.storms.length }; })()")
-        check(r['n'] == 0, 'Thule: the storm blows out after 14 s')
+        # ([v13] the caller's own storm: a keep lord fighting elsewhere may call one of his own meanwhile)
+        r = await ev(page, 'winter ends', "(() => { const P = T.H.GAME.player, S0 = T.G.GIFT.storms.find((S) => S.src === P.id); T.H.simulate(15); return { n: T.G.GIFT.storms.filter((S) => S.src === P.id).length, had: !!S0, gone: !!S0 && !T.G.GIFT.storms.includes(S0), others: T.G.GIFT.storms.length }; })()")
+        check(r['had'] and r['gone'] and r['n'] == 0, f"Thule: the storm blows out after 14 s ({r['others']} storms of others)")
     # the HUD counts the cooldown down
     r = await ev(page, 'cooldown hud', "(() => { T.H.frame(1/30); return T.hud(); })()")
     check(r['cdt'] and r['cdt'].endswith('m') and float(r['p'] or 0) > 0.8, f"{name}: the button shows the cooldown ({r['cdt']}, {r['p']})")

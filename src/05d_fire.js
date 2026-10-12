@@ -4,7 +4,7 @@
 const FIRES = [];   // { x, y, z, size, ghost, acc, smokeAcc, seed }
 const FLASHES = []; // brief lights: { x, y, z, r, c, t0, life }
 function addFire(x, y, z, size = 1, ghost = false, until = Infinity, light = null) {
-  if (until < Infinity && FIRES.filter((f) => f.until < Infinity).length > 40) return;
+  if (until < Infinity && FIRES.filter((f) => f.until < Infinity).length > 60) return; // [v13] 60 (40): a burning palisade, a house and the grass at once
   FIRES.push({ x, y, z, size, ghost, acc: 0, smokeAcc: 0, emberAcc: 0, seed: Math.random() * 100, until, born: renderTime, lightR: light ? light.r : 0, lightK: light ? light.k : 1 });
 }
 function lightFlash(x, y, z, r, c, life = 0.35) {

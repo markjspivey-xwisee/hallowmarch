@@ -99,7 +99,7 @@ async def main():
           for (let r = 0; r < 60; r += 0.2) { const x = L.x + dir[0] * r, z = L.z + dir[1] * r, w = Wt.waterAt(x, z); const d = w ? w.depth : 0;
             if (!spots.deep && d > 2.0) spots.deep = [x, z]; if (d < 1.05 && d > 0.8 && !spots.waist) spots.waist = [x, z]; if (d < 0.65 && d > 0.35 && !spots.knee) spots.knee = [x, z]; if (!w && !spots.dry) spots.dry = [x + dir[0] * 3, z + dir[1] * 3]; }
           out.spots = spots;
-          const meas = (s) => { H.teleport(s[0], s[1]); H.simulate(0.6); const st = Wt.state(P.id); return { ...st, surf: (Wt.waterAt(P.x, P.z) || {}).y ?? null, ground: F.heightAt(P.x, P.z) }; };
+          const meas = (s) => { H.teleport(s[0], s[1]); H.simulate(1.5); /* [v13] settled: 0.6 s after a teleport a swimmer could still be rising to the float (1.23 against 1.30) */ const st = Wt.state(P.id); return { ...st, surf: (Wt.waterAt(P.x, P.z) || {}).y ?? null, ground: F.heightAt(P.x, P.z) }; };
           out.dry = meas(spots.dry); out.knee = meas(spots.knee); out.waist = meas(spots.waist); out.deep = meas(spots.deep);
           out.errors = H.errors.slice(0, 3); return out; })()""")
         print('player', json.dumps(r))

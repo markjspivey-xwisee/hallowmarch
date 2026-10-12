@@ -215,11 +215,13 @@ async def palisade(page):
       return out; })()""")
     check(r['st'] != 1, f"palisade: rain puts out a young fire on it ({r['t']} s)")
     r = await ev(page, 'palisade: rebuilt', """(() => { const K = T2.palK, C = T2.C(K), P = C.pal, out = {}; T2.away(); for (const c of P.cells) if (c.st === 1) { for (const f of c.fires) f.until = 0; c.st = 2; c.heat = 0; } __hm.palisade.PAL.dirty.add(P);
+      // [v13] and the grass fires out: one burning beside the wall lights it again and burns a new gap while the first is mended
+      const N = __hm.nature.NATURE; out.grassFires = N.fire.size; __hm.bal5.flattenCraters();
       const W = P.gaps[0], colls = W ? W.colls.map((q) => q.mid) : []; const st = [];
-      let t = 0; while (t < 260 && P.gaps.length) { __hm.simulate(4); t += 4; K.lastEnemyNear = -1e9; if (W) st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); }
+      out.gaps0 = P.gaps.length; let t = 0; while (t < 600 && P.gaps.length) { __hm.simulate(4); t += 4; K.lastEnemyNear = -1e9; if (W) st.push(W.state[0] + (W.state === 'repair' ? Math.round(W.t * 10) : '')); } /* [v13] a fire that spread far may burn through two stretches apart (a second gap opens from the stretches burnt through when the step began): each is built back in its turn */
       out.t = t; out.gaps = P.gaps.length; out.states = st.slice(0, 40).join(' '); out.closed = colls.every((c) => c.active); out.whole = P.cells.filter((c) => c.st !== 0).length; out.fresh = +Math.max(...P.cells.map((c) => c.fresh)).toFixed(2);
       return out; })()""")
-    check(r['gaps'] == 0 and r['closed'] and 'r' in r['states'], f"palisade: in peace its owners build the gap back behind scaffolding ({r['t']} s: {r['states'][:80]})")
+    check(r['gaps'] == 0 and r['closed'] and 'r' in r['states'], f"palisade: in peace its owners build the gap back behind scaffolding ({r['t']} s for {r.get('gaps0')} gaps: {r['states'][:80]})")
     check(r['whole'] == 0 and r['fresh'] > 0.2, f"palisade: and the charred logs are replaced with new ones, pale for a time ({r['whole']} cells not whole, fresh {r['fresh']})")
 
 async def cone(page):
@@ -429,6 +431,7 @@ async def stormall(page):
     for keep, pred, name in kinds:
         r = await ev(page, f'stormall: {name}', """(() => { T2.quiet(); T2.away(); const K = T2.keep(""" + keep + """), C = T2.C(K), F = T2.F, out = {};
           const W = T2.tower(K, """ + pred + """); T2.clearGarrison(K); const Lr = F.getEnt(K.lord); if (Lr) F.removeEnt(Lr); K.lord = null;
+          if (K.door && !K.door.alive) { K.door.alive = true; K.door.hp = K.door.maxHp; } /* [v13] its gate standing (an earlier step may have broken it): a broken gate sends a band in by the gate */
           if (W.state === 'whole') { const src = T2.dummy(2, K.site.x + W.ox * 70, K.site.z + W.oz * 70); T2.breakIt(W, src); F.removeEnt(src); }
           const id = T2.S.band(K.realm === 2 ? 1 : 2, K.id, 95, 10), wb = __hm.WAR.warbands.find((w) => w.id === id), Rt = T2.S2.siegeStormRoute(W), p0 = Rt[0];
           F.wbMembers(wb).forEach((e, i) => { e.x = e.prevX = p0.x + W.ox * (6 + Math.floor(i / 4) * 1.6) + (i % 4 - 1.5) * 1.6 * W.oz; e.z = e.prevZ = p0.z + W.oz * (6 + Math.floor(i / 4) * 1.6) - (i % 4 - 1.5) * 1.6 * W.ox; e.y = F.heightAt(e.x, e.z); e.hp = e.maxHp = 1e6; });
