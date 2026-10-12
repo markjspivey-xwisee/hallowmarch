@@ -1268,10 +1268,11 @@ function sndKeepAlarm(K) {
   SND.alarmAt[S.name] = gt + 40;
   for (let i = 0; i < 6; i++) sfxAt('alarmBell', S.x, (S.y || 0) + 14, S.z, { at: i * 1.15, f: 360 });
 }
-// the war's news: a keep of your realm attacked, a breach, a gate broken: a low call of two horns
-function sndNewsCue(kind, realm) {
+// the war's news that is about you (its 'alarm' kind): a keep of your realm attacked, a breach in your walls, a gate
+// of yours broken or burnt down (told under the breaker's realm), a foe's realm gift called near you: a low call of horns
+function sndNewsCue(kind) {
   const P = GAME.player;
-  if (!P || kind !== 'alarm' || realm !== P.faction) return;
+  if (!P || kind !== 'alarm') return;
   if (GAME.t - SND.newsCueAt < 8) return;
   SND.newsCueAt = GAME.t;
   sfx('alarmCue');
