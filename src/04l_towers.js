@@ -953,7 +953,7 @@ function updateTowers(dt) {
     D.k = clamp(D.k + (D.want ? 1 : -1) * dt * (D.want ? 2.6 : 1.4), 0, 1);
     if (was !== D.k) {
       D.part.K.dirty = true;
-      if (P && (was === 0 || D.k === 0) && dist2(P.x, P.z, D.x, D.z) < 15 * 15) sfx(D.k === 0 ? 'thud' : 'click');
+      if (was === 0 || D.k === 0) sfxAt(D.k === 0 ? 'thud' : 'click', D.x, D.wy + 1.2, D.z, D.k === 0 ? { vol: 0.6 } : null); // [audio2] placed (11c_sound.js)
     }
     D.coll.active = !D.gone && D.k < 0.55; // [walls] gone: fallen with a breached tower's upper works (04g_breach.js)
     D.leafColl.active = !D.gone && D.k > 0.85;
@@ -965,7 +965,7 @@ function updateTowers(dt) {
     Hh.bump = Math.max(0, Hh.bump - dt * 0.9);
     if (was !== Hh.k || wasB !== Hh.bump) {
       Hh.part.K.dirty = true;
-      if (P && (Hh.k === 0 && was > 0) && dist2(P.x, P.z, Hh.x, Hh.z) < 15 * 15) sfx('thud');
+      if (Hh.k === 0 && was > 0) sfxAt('thud', Hh.x, Hh.y, Hh.z, { vol: 0.7 }); // [audio2] placed (11c_sound.js)
     }
     Hh.floor.active = !Hh.gone && Hh.k < 0.25; // [walls] gone: a breached tower's, a burnt-out gallery's (04g_breach.js, 04n_towerfire.js)
     Hh.lidColl.active = !Hh.gone && Hh.k > 0.8;

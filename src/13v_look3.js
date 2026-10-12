@@ -171,7 +171,7 @@ function look3MasonThink(e, dt) {
   if (m.st === 'climb') {
     const Ln = m.nextL;
     if (!Ln || Ln.gone) { m.st = 'work'; return; }
-    if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; } else m.st = 'work'; }
+    if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; sfxAtE('creak', e, null, 0.3); /* [audio2] */ } else m.st = 'work'; }
     return;
   }
   if (m.st === 'work' && m.up && m.lad && m.t - (m.workT ?? m.t) > 10) {
@@ -185,7 +185,7 @@ function look3MasonThink(e, dt) {
     if (m.t >= m.next) {
       m.next = m.t + 1.0 + Math.random() * 0.6; MASON.stats.worked++;
       setAct(e, 1, 0.6);
-      later(0.3, () => { if (e.alive && !e.removed) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+      later(0.3, () => { if (e.alive && !e.removed) { sfxAtE(m.up ? 'mallet' : 'chisel', e, null, 1.3); if (m.up && Math.random() < 0.3) sfxAtE('creak', e, { at: 0.3 }, 0.05); } }); // [audio2] the one at the foot dresses the stone, the one above sets it on creaking boards (11c_sound.js)
     }
     return;
   }

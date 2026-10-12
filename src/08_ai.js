@@ -367,7 +367,7 @@ function onEntityKilled(e, killer) {
     if (S.door) S.door.active = false;
     if (S.doorMesh) S.doorMesh.visible = false;
     if (!e.burntDown) FX.splinters(e.x, e.y + 2, e.z); // [siege3] a burnt gate falls in as ash and embers (04g_blaze.js)
-    sfx('crash');
+    sfxAt('crash', e.x, e.y + 2, e.z); // [audio2] placed (11c_sound.js)
     if (e.templeRef) WAR.stats.templeGates++;
     news(e.burntDown ? `The gate of ${S.name} has burnt down!` : `The gate of ${S.name} has been broken!`, killer ? killer.faction : -1, e.faction === (GAME.player && GAME.player.faction) ? 'alarm' : 'normal'); // [siege3]
     return;
@@ -968,7 +968,7 @@ function updateWar(dt) {
     // siege detection
     let hostile = 0;
     forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm) hostile++; });
-    if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) news(`${K.site.name} is under attack!`, K.realm, 'alarm'); K.underSiegeUntil = now + 20; } }
+    if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) { news(`${K.site.name} is under attack!`, K.realm, 'alarm'); sndKeepAlarm(K); /* [audio2] its bell rings (11c_sound.js) */ } K.underSiegeUntil = now + 20; } }
     // door repair or rebuild
     const D = K.door;
     if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
@@ -1012,6 +1012,7 @@ function news(text, realm, kind = 'normal') {
   uiLog(text, 'realm', realm);
   const P = GAME.player;
   if (P && (kind === 'big' || (kind === 'alarm' && realm === P.faction))) uiBanner(text, realm);
+  sndNewsCue(kind, realm); // [audio2] the war's alarm: a low call of horns (11c_sound.js)
 }
 
 /* ------------------------------------------------------------------ */

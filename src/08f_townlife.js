@@ -287,7 +287,7 @@ function lifeRun(e, dt) {
       if (plan.t >= st.next) {
         st.next = plan.t + 1.0 + Math.random() * 0.5;
         setAct(e, 1, 0.6);
-        later(0.3, () => { if (e.alive) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+        later(0.3, () => { if (e.alive) sfxAtE(Math.random() < 0.16 ? 'saw' : 'mallet', e, null, 1.3); }); // [audio2] hammer and saw, placed (11c_sound.js)
       }
       if (plan.t > st.dur) next();
       return true;

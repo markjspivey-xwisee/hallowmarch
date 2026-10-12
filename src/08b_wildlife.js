@@ -366,6 +366,7 @@ function updateFish(dt) {
       if (!wb || wb.depth < 0.4) continue;
       FISH.list.push({ wy, x, z, dx: Math.cos(h), dz: Math.sin(h), L, H: 0.45 + Math.random() * 0.45, t: 0, dur: 0.7 + Math.random() * 0.3, s: 0.8 + Math.random() * 0.7 });
       waterSplash(x, z, 0.7);
+      sfxAt('plop', x, wy, z); // [audio2] a fish breaks the water (11c_sound.js)
       break;
     }
   }
@@ -375,7 +376,7 @@ function updateFish(dt) {
     const f = FISH.list[i];
     f.t += dt;
     const k = f.t / f.dur;
-    if (k >= 1) { waterSplash(f.x + f.dx * f.L, f.z + f.dz * f.L, 1); FISH.list.splice(i, 1); continue; }
+    if (k >= 1) { waterSplash(f.x + f.dx * f.L, f.z + f.dz * f.L, 1); sfxAt('plop', f.x + f.dx * f.L, f.wy, f.z + f.dz * f.L, { vol: 1.3 }); FISH.list.splice(i, 1); continue; } // [audio2]
     const x = f.x + f.dx * f.L * k, z = f.z + f.dz * f.L * k, y = (f.wy ?? WATER_Y) + f.H * 4 * k * (1 - k) - 0.05; // [water]
     const vy = f.H * 4 * (1 - 2 * k) / f.dur, vh = f.L / f.dur;
     iA.set([x, y, z, renderTime], n * 4);

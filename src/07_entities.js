@@ -219,7 +219,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   let dmg = amount * (1 - (opts.pierce === true ? 0 : dst.drBase * (1 - (+opts.pierce || 0)))) * (1 - buffMax(dst, 'dr')); // [balance3] a number pierces that share of the armour (bodkins: half)
   let absorbed = 0;
   for (const b of dst.buffs) {
-    if (b.kind === 'shield' && b.value > 0 && dmg > 0) { const a = Math.min(b.value, dmg); b.value -= a; dmg -= a; absorbed += a; }
+    if (b.kind === 'shield' && b.value > 0 && dmg > 0) { const a = Math.min(b.value, dmg); b.value -= a; dmg -= a; absorbed += a; if (b.value <= 0) sndShieldBroke(dst, b); } // [audio2] a ward broken is heard (11c_sound.js)
   }
   dst.hp -= dmg;
   if (dst.mount && dmg > 0 && !opts.dot) dismount(dst, 'You are thrown from the saddle!');
@@ -499,7 +499,7 @@ function useAbility(e, id, target) {
   if (A.cast > 0) {
     e.casting = { id, t: 0, total: A.cast, targetId: t ? t.id : null, gx: t ? t.x : e.x, gz: t ? t.z : e.z };
     steadyCast(e); // [balance6] a priest's guard against breaking goes to the spell it begins next, only while STEADY_NEXT is on (tried and set aside: it does nothing now; 07c_balance6.js)
-    if (e.role === 'player') sfx('cast');
+    sfxAtE('cast', e); // [audio2] placed (11c_sound.js)
     return true;
   }
   executeAbility(e, A, t);
@@ -537,7 +537,7 @@ function executeAbility(e, A, t, cast = null) {
     if (A.healPct) healEnt(e, e, e.maxHp * A.healPct * rk);
     if (A.buff) addBuff(e, A.buff.kind, A.buff.value, A.buff.dur, e.id);
     if (A.shieldPct) { addBuff(e, 'shield', e.maxHp * A.shieldPct * rk, A.dur, e.id); FX.ring(e.x, e.y + 1, e.z, 1.2, [0.6, 0.9, 1.6], 24, 1.5); }
-    if (A.id === 'rally') { FX.ring(e.x, e.y + 0.3, e.z, 2, [2.0, 1.4, 0.5], 36); sfx('horn'); }
+    if (A.id === 'rally') { FX.ring(e.x, e.y + 0.3, e.z, 2, [2.0, 1.4, 0.5], 36); sfxAtE('horn', e); } // [audio2] placed (11c_sound.js)
     if (A.id === 'bulwark') FX.ring(e.x, e.y + 1, e.z, 1.0, [1.4, 1.4, 1.6], 20, 1.2);
     if (A.blink) {
       const dx = Math.sin(e.yaw), dz = Math.cos(e.yaw);
@@ -546,7 +546,7 @@ function executeAbility(e, A, t, cast = null) {
       if (R.d > 0.3) { e.x = e.prevX = R.x; e.z = e.prevZ = R.z; e.y = Math.max(e.y, R.y); }
       e.buffs = e.buffs.filter((b) => b.kind !== 'snare' && b.kind !== 'root');
       FX.burst(e.x, e.y + 1, e.z, 20, [0.8, 0.6, 2.0], 2, 0.5, 0.2, 0);
-      sfx('blink');
+      sfxAtE('blink', e); // [audio2] placed (11c_sound.js)
     }
     if (A.dashBack) {
       const R = dashReach(e, e.x, e.z, -Math.sin(e.yaw), -Math.cos(e.yaw), A.dashBack); // [v12] along the floor it stands on, never over a parapet or off a tower
@@ -566,12 +566,12 @@ function executeAbility(e, A, t, cast = null) {
         dealDamage(e, o, r.d, { crit: r.crit, kind: 'fire' });
         if (A.root) addBuff(o, 'root', 1, A.root, e.id);
       });
-      sfx('fire');
+      sfxAtE('fire', e); // [audio2] placed (11c_sound.js)
     }
     if (A.groupHeal) {
       forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk); FX.heal(o.x, o.y, o.z); } });
       FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
-      sfx('heal');
+      sfxAtE('heal', e); // [audio2] placed (11c_sound.js)
     }
     if (A.spin) {
       // whirlwind: two full turns with the blade held out, cutting everything in reach
@@ -591,13 +591,13 @@ function executeAbility(e, A, t, cast = null) {
         });
         if (A.id === 'whirl') whirlHeal(e, struck); // [balance5] the press of foes heals a warrior (07c_balance5.js)
         natureSwing(e, A.spin + 0.4, Math.PI, 30); // nature: the blade cuts the grass round about and bites into trees
-        sfx('hit');
+        sfxAtE('hit', e); // [audio2] placed (11c_sound.js)
       };
-      for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfx('swing'); FX.dust(e.x, e.y, e.z, 3); } });
+      for (let i = 0; i < 6; i++) later(0.05 + i * 0.12, () => { if (e.alive) { spawnSlash(e, false, 0.22, (Math.random() - 0.5) * 0.25); if (i % 2 === 0) sfxAtE('swing', e); FX.dust(e.x, e.y, e.z, 3); } });
       later(0.32, () => cut(0.5));
       later(0.66, () => cut(0.5));
       spellDisc(e.x, e.z, A.spin + 0.8, DISC_KIND.shock, 0.75, [1.25, 1.1, 0.85]);
-      sfx('whirl');
+      sfxAtE('whirl', e); // [audio2] placed (11c_sound.js)
     }
     if (A.groupHot) {
       // mass renewal: a slow green light settles over everyone close by
@@ -612,16 +612,16 @@ function executeAbility(e, A, t, cast = null) {
         const x = e.x + Math.cos(a) * r, z = e.z + Math.sin(a) * r;
         fxAdd.emit(x, heightAt(x, z) + 0.1, z, (Math.random() - 0.5) * 0.3, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 0.3, 1.4 + Math.random(), 0.9, 1.6, 0.55, 0.14, -0.2, 0.4);
       }
-      sfx('renew');
+      sfxAtE('renew', e); // [audio2] placed (11c_sound.js)
     }
     return;
   }
   // friendly single target
   if (A.friendly) {
     const f = t || e;
-    if (A.heal) { healEnt(e, f, f.maxHp * A.heal * rk); FX.heal(f.x, f.y, f.z); sfx('heal'); }
+    if (A.heal) { healEnt(e, f, f.maxHp * A.heal * rk); FX.heal(f.x, f.y, f.z); sfxAtE('heal', f); } // [audio2] placed (11c_sound.js)
     if (A.hot) { addBuff(f, 'hot', (f.maxHp * A.hot[0] * rk) / A.hot[1], A.hot[1], e.id); FX.heal(f.x, f.y, f.z); }
-    if (A.shieldPct) { addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id); addBuff(f, 'dr', 0.3, A.dur, e.id); FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2); sfx('heal'); }
+    if (A.shieldPct) { addBuff(f, 'shield', f.maxHp * A.shieldPct * rk, A.dur, e.id); addBuff(f, 'dr', 0.3, A.dur, e.id); FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2); sfxAtE('heal', f); } // [audio2] placed (11c_sound.js)
     return;
   }
   // ground-targeted
@@ -655,7 +655,7 @@ function executeAbility(e, A, t, cast = null) {
         fireLandsAt(gx, gy, gz, A.radius, e); // [depth] the caster
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
         houseBlowAt(e, gx, gz, A.radius, A.dmg * rk); // [siege2] and houses (04j_batter.js)
-        sfx('boom');
+        sfxAt('boom', gx, gy + 1, gz); // [audio2] placed (11c_sound.js)
         cameraShake(0.4, gx, gz);
       });
     } else if (A.id === 'blizzard') {
@@ -674,7 +674,7 @@ function executeAbility(e, A, t, cast = null) {
           });
         });
       }
-      sfx('blizzard');
+      sfxAt('blizzard', gx, null, gz); // [audio2] placed (11c_sound.js)
     } else if (A.id === 'pillar') {
       // a column of dawn-light comes down: the foe inside burns, friends inside are mended
       const gy = heightAt(gx, gz);
@@ -691,7 +691,7 @@ function executeAbility(e, A, t, cast = null) {
           } else if (o.faction === e.faction) { healEnt(e, o, o.maxHp * A.healPct * rk * (o === e && e.cls === 'priest' ? priestSelf(e) : 1)); FX.heal(o.x, o.y, o.z); } // [balance4] a priest in its own column mends as its own wounds do (it mended in full)
         });
       });
-      sfx('pillar');
+      sfxAt('pillar', gx, null, gz); // [audio2] placed (11c_sound.js)
     }
     return;
   }
@@ -704,7 +704,7 @@ function executeAbility(e, A, t, cast = null) {
     e.yaw = L.yaw;
     setAct(e, 9, dur / 0.65);
     FX.dust(e.x, e.y, e.z, 12);
-    sfx('swing');
+    sfxAtE('swing', e); // [audio2] placed (11c_sound.js)
     return;
   }
   if (A.chain) {
@@ -727,7 +727,7 @@ function executeAbility(e, A, t, cast = null) {
         dealDamage(e, o, r.d, { crit: r.crit, kind: 'shock' });
         FX.burst(to[0], to[1], to[2], 16, [1.2, 1.5, 2.8], 4.5, 0.32, 0.1, 7);
         lightFlash(to[0], to[1], to[2], 9, [1.5, 1.9, 3.4], 0.28);
-        sfx('shock');
+        sfxAt('shock', to[0], to[1], to[2]); // [audio2] placed (11c_sound.js)
       });
     });
     return;
@@ -754,7 +754,7 @@ function executeAbility(e, A, t, cast = null) {
           dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
           FX.sparks(o.x, chest(o), o.z);
         });
-        sfx('swing');
+        sfxAtE('swing', e); // [audio2] placed (11c_sound.js)
         return;
       }
       if (!t.alive || dist(e.x, e.z, t.x, t.z) > abilityRange(e, A, t) + 1.5) return;
@@ -765,21 +765,21 @@ function executeAbility(e, A, t, cast = null) {
       FX.sparks(t.x, chest(t), t.z);
       if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); t.casting = null; FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
       if (A.snare) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
-      sfx('hit');
+      sfxAtE('hit', t); // [audio2] placed (11c_sound.js)
     });
     return;
   }
   if (A.proj) {
     spawnProjectile(e, t, A.proj, { mult: A.dmg * rk, snare: A.snare, ability: A.id, burn: A.burn ? [A.burn[0] * rk, A.burn[1]] : null, pierce: A.id === 'deadeye', arrow: A.arrow }); // [classes] arrow: the head chosen (07b_classes.js)
-    sfx(A.proj === 'arrow' || A.proj === 'firearrow' ? 'bow' : A.proj === 'deadeye' ? 'deadeye' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy');
-    if (A.proj === 'firearrow') sfx('ignite');
+    sfxAtE(A.proj === 'arrow' || A.proj === 'firearrow' ? 'bow' : A.proj === 'deadeye' ? 'deadeye' : A.proj === 'fire' ? 'fire' : A.proj === 'frost' ? 'frost' : 'holy', e); // [audio2] placed (11c_sound.js)
+    if (A.proj === 'firearrow') sfxAtE('ignite', e);
     return;
   }
   if (A.dot) {
     const r = computeDamage(e, t, A.dot[0] * rk);
     addBuff(t, 'dot', r.d / A.dot[1], A.dot[1], e.id);
     FX.burst(t.x, chest(t), t.z, 16, [2.0, 1.6, 0.6], 2, 0.6, 0.18, -1);
-    sfx('holy');
+    sfxAtE('holy', t); // [audio2] placed (11c_sound.js)
     return;
   }
   if (A.line) {
@@ -796,7 +796,7 @@ function executeAbility(e, A, t, cast = null) {
         dealDamage(e, o, r.d, { crit: r.crit, kind: 'arrow' });
       });
     });
-    sfx('bow');
+    sfxAtE('bow', e); // [audio2] placed (11c_sound.js)
   }
 }
 // the leap comes down: everything close is struck and staggered, and the ground takes the mark
@@ -820,7 +820,7 @@ function leapLand(e, A, rk) {
   spellDisc(e.x, e.z, A.radius * 0.85, DISC_KIND.crack, 9, [1, 1, 1], 0.07);
   natureSwing(e, A.radius * 0.9, Math.PI, 0); natureImpact(e.x, e.z, 'leap', A.radius); // nature: grass cut, a dent in the ground, trees knocked
   cameraShake(0.32, e.x, e.z);
-  sfx('slam');
+  sfxAtE('slam', e, null, 0.2); // [audio2] placed (11c_sound.js)
 }
 function areaDamage(src, x, z, radius, mult, extra) {
   if (!src.alive && src.role !== 'player') return;
@@ -866,7 +866,7 @@ function autoAttack(e) {
     setAct(e, e.rangedKind === 'arrow' ? 2 : 3, e.rangedKind === 'arrow' ? 0.6 : 0.45);
     const pk = classAutoKind(e); // [classes] a mage's bolt takes the element of the focus (07b_classes.js)
     later(e.rangedKind === 'arrow' ? 0.45 : 0.3, () => { if (e.alive && t.alive) spawnProjectile(e, t, pk, { mult: e.rangedKind === 'arcane' ? 0.9 : 1.0, auto: true }); });
-    if (e.role === 'player') sfx(e.rangedKind === 'arrow' ? 'bow' : 'zap');
+    sfxAtE(e.rangedKind === 'arrow' ? 'bow' : 'zap', e); // [audio2] every bow and staff, placed (11c_sound.js)
   } else {
     setAct(e, e.mobType === 'troll' ? 8 : 1, e.kind === 'humanoid' ? 0.6 : 0.45);
     later(0.26, () => {
@@ -877,7 +877,7 @@ function autoAttack(e) {
       dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee', auto: true }); // [classes] auto: a plain blow (momentum, weapon styles)
       if (t.kind !== 'door') FX.sparks(t.x, t.y + 1.1 * (t.scale || 1), t.z);
       else FX.dust(t.x, t.y + 1, t.z, 4, [0.4, 0.3, 0.2]);
-      if (e.role === 'player' || t.role === 'player') sfx(t.kind === 'door' ? 'thud' : 'hit');
+      sfxAtE(t.kind === 'door' ? 'thud' : 'hit', t); // [audio2] every blow, placed: a fight near you is heard (11c_sound.js)
     });
   }
 }
@@ -899,6 +899,7 @@ function spawnProjectile(src, target, kind, payload, point = null, visualOnly = 
     speed: PROJ_SPEED[kind] || 24, payload, visualOnly, age: 0, life: 3.5,
     dx: 0, dy: 0, dz: 1,
   });
+  if (!visualOnly && target) sndOnLoose(src, target, kind, PROJ_SPEED[kind] || 24); // [audio2] a foe's shot at you is heard coming (11c_sound.js)
 }
 function updateProjectiles(dt) {
   for (let i = PROJ.length - 1; i >= 0; i--) {

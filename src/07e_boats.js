@@ -358,8 +358,8 @@ function boatThud(B, sp, hit) {
   B.thudAt = GAME.t;
   B.sway.rv += (Math.random() - 0.5) * 0.4 * sp; B.sway.pv -= 0.25 * sp;
   if (dist2(B.x, B.z, camera.position.x, camera.position.z) < 40 * 40) {
-    if (hit.why === 'shore') { FX.dust(hit.x, heightAt(hit.x, hit.z), hit.z, 6, [0.42, 0.38, 0.3]); boatSfx('grind'); }
-    else boatSfx('knock');
+    if (hit.why === 'shore') { FX.dust(hit.x, heightAt(hit.x, hit.z), hit.z, 6, [0.42, 0.38, 0.3]); boatSfx('grind', B); } // [audio2] placed at the boat (11c_sound.js)
+    else boatSfx('knock', B);
     splashAt(hit.x, hit.z, 0.4 + Math.min(0.6, sp * 0.3));
   }
 }
@@ -948,7 +948,7 @@ function boatsDraw(dt) {
       for (const sd of [1, -1]) {
         const lx = sd * (0.7 + 1.55 * Math.cos(sweep)), lz = BOAT_LOCK_Z + 1.55 * Math.sin(sweep);
         const bx = B.x + lx * c + lz * s, bz = B.z - lx * s + lz * c;
-        if (crossed(0.03)) { splashAt(bx, bz, 0.35, { up: 0.6 }); if (sd > 0 && dist2(bx, bz, cam.x, cam.z) < 30 * 30) boatSfx('dip'); }
+        if (crossed(0.03)) { splashAt(bx, bz, 0.35, { up: 0.6 }); if (sd > 0) sfxAt('oar', bx, B.y ?? null, bz); } // [audio2] the stroke's dip and the thole's creak, placed (11c_sound.js)
         else if (crossed(0.47)) splashAt(bx, bz, 0.25, { up: 0.9 });
         else if (B.ph < 0.47) rippleDrop(bx, bz, 0.35, 0.006);
         else if (Math.random() < dt * 8) fxAlpha.emit(bx, w.y + 0.25, bz, 0, -0.5, 0, 0.4, 0.75, 0.8, 0.82, 0.02, 9, 0);

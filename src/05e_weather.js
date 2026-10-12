@@ -221,7 +221,7 @@ function strikeLightning(camX, camZ) {
   WEATHER.bolts.push({ path, t: 0 });
   WEATHER.flash = 1;
   lightFlash(x, gy + 20, z, 170, [3.0, 3.3, 4.2], 0.5);
-  setTimeout(() => sfx(d < 120 ? 'thunderNear' : 'thunder'), (d / 343) * 1000 * 0.6);
+  setTimeout(() => sfxAt(d < 120 ? 'thunderNear' : 'thunder', x, gy + 30, z, { now: true }), (d / 343) * 1000 * 0.6); // [audio2] from where it struck (11c_sound.js)
 }
 
 /* ---- weather tints the time-of-day light; called right after applyTimeOfDay ---- */

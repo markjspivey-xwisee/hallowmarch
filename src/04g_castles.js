@@ -544,8 +544,7 @@ function updateGate(G0, dt) {
   G0.open = clamp(G0.open + (G0.want ? 1 : -1) * dt / (G0.want ? 1.9 : 1.3), 0, 1);
   if (was !== G0.open) {
     setGatePose(G0);
-    const P = GAME.player;
-    if (P && dist2(P.x, P.z, D.x, D.z) < 40 * 40 && ((was === 0) || (G0.open === 0 && was > 0))) sfx(G0.port ? 'chain' : 'grind');
+    if ((was === 0) || (G0.open === 0 && was > 0)) sfxAt(G0.port ? 'chain' : 'grind', D.x, D.y + 2, D.z); // [audio2] placed (11c_sound.js)
   }
   // the gate blocks unless it stands open; while it swings only its own side may squeeze through
   coll.active = G0.open < 0.97 || !G0.want;
@@ -998,7 +997,7 @@ function castleBreach(W) {
   for (const f of W.rubbleFloors) f.active = true;
   W.wreck.visible = true;
   for (let i = 0; i < 6; i++) later(i * 0.12, () => FX.dust(W.wx + W.wax * (Math.random() - 0.5) * W.half * 2, S.y + W.rubble + Math.random() * W.top, W.wz + W.waz * (Math.random() - 0.5) * W.half * 2, 18, wallLit([0.42, 0.39, 0.35]))); // [walls] lit as the light is (07g_walls.js)
-  sfx('crash');
+  sfxAt('crash', W.wx, null, W.wz); sfxAt('collapse', W.wx, null, W.wz, { at: 0.15 }); // [audio2] placed (11c_sound.js)
   const P = GAME.player;
   if (P) cameraShake(0.5, W.wx, W.wz);
   const K = S.keepRef;

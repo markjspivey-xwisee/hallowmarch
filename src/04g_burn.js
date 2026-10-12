@@ -133,7 +133,8 @@ function palisadeIgnite(c, heat = 0.12, gen = 0) {
   PAL.stats.lit++;
   PAL.dirty.add(c.P);
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, c.x, c.z) < 70 * 70 && GAME.t > (c.P.told || 0)) { c.P.told = GAME.t + 20; sfx('ignite'); uiLog(`The palisade of ${c.P.S.name} has caught fire!`, 'warn'); }
+  sfxAt('ignite', c.x, null, c.z); // [audio2] placed, wherever it catches (11c_sound.js)
+  if (P && dist2(P.x, P.z, c.x, c.z) < 70 * 70 && GAME.t > (c.P.told || 0)) { c.P.told = GAME.t + 20; uiLog(`The palisade of ${c.P.S.name} has caught fire!`, 'warn'); }
   return true;
 }
 // where flames show on a burning cell: against its outer and inner faces, low and high, and along its top
@@ -174,7 +175,8 @@ function palisadeGapOpen(P, cells, quiet = false) {
   if (PAL.loading || quiet) { siegeOnBreach(W); return W; } // put back from a save, or an old gap grown wider: no dust, no crash, no news
   for (let i = 0; i < 6; i++) later(i * 0.12, () => FX.dust(W.wx + W.wax * (Math.random() - 0.5) * W.half * 2, S.y + Math.random() * WALL_H, W.wz + W.waz * (Math.random() - 0.5) * W.half * 2, 14, wallLit([0.2, 0.18, 0.16])));
   const Pl = GAME.player;
-  if (Pl && dist2(Pl.x, Pl.z, W.wx, W.wz) < 90 * 90) { sfx('crash'); cameraShake(0.3, W.wx, W.wz); }
+  sfxAt('timberfall', W.wx, null, W.wz); // [audio2] the burnt logs fall (11c_sound.js)
+  if (Pl && dist2(Pl.x, Pl.z, W.wx, W.wz) < 90 * 90) cameraShake(0.3, W.wx, W.wz);
   const K = S.keepRef;
   if (K && GAME.t > (P.newsAt || -1e9)) { P.newsAt = GAME.t + PAL_T.news; news(`The palisade of ${S.name} has burnt through!`, K.realm, K.realm === (Pl && Pl.faction) ? 'alarm' : 'normal'); }
   siegeOnBreach(W); // the garrison runs to hold the gap (04h_siege.js)

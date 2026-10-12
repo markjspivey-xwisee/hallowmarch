@@ -1,7 +1,10 @@
 /* ================================================================== */
 /* audio: small synthesised effects and an ambient bed (Web Audio)     */
 /* ================================================================== */
-const AUDIO = { ctx: null, master: null, sfxBus: null, amb: null, on: true, last: {}, noise: null, chirpAt: 4, cricket: null };
+const AUDIO = { ctx: null, master: null, sfxBus: null, amb: null, on: true, last: {}, noise: null, chirpAt: 4, cricket: null,
+  lvl: { master: 1, sfx: 1, amb: 1 }, voiceEnd: 0, fx: null }; // [audio2] the volumes (Volume, Effects, Ambience: 11c_sound.js) and the end of the voice being made
+// [audio2] the bus gains at Medium (the levels multiply them: 11c_sound.js SOUND_LEVELS)
+const AUDIO_BASE = { master: 0.5, sfx: 0.9, amb: 0.55 };
 
 function audioUnlock() {
   if (!AUDIO.on && AUDIO.ctx) return;
@@ -12,14 +15,19 @@ function audioUnlock() {
       const ctx = new AC();
       AUDIO.ctx = ctx;
       AUDIO.master = ctx.createGain();
-      AUDIO.master.gain.value = AUDIO.on ? 0.5 : 0;
+      AUDIO.master.gain.value = AUDIO.on ? AUDIO_BASE.master * AUDIO.lvl.master : 0; // [audio2] the Volume setting
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4;
-      AUDIO.master.connect(comp).connect(ctx.destination);
+      // [audio2] a limiter after the compressor: nothing reaches the speaker over -1 dBFS at any setting
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -4; lim.knee.value = 2; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
+      AUDIO.master.connect(comp).connect(lim).connect(ctx.destination);
       AUDIO.comp = comp; // [water2] the muffled world under the water goes in before it (07d_dive.js)
+      AUDIO.lim = lim;
       AUDIO.sfxBus = ctx.createGain();
-      AUDIO.sfxBus.gain.value = 0.9;
+      AUDIO.sfxBus.gain.value = AUDIO_BASE.sfx * AUDIO.lvl.sfx; // [audio2] the Effects setting
       AUDIO.sfxBus.connect(AUDIO.master);
+      AUDIO.fx = AUDIO.sfxBus; // [audio2] the effects bus itself (AUDIO.sfxBus is pointed at a placed voice while it is made)
       // two seconds of white noise, reused by every noisy sound
       const len = ctx.sampleRate * 2;
       const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -27,6 +35,7 @@ function audioUnlock() {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
       AUDIO.noise = buf;
       startAmbience();
+      sndInit(ctx); // [audio2] placed sounds, the places' air, the voices of the world (11c_sound.js)
     }
     if (AUDIO.ctx.state === 'suspended') AUDIO.ctx.resume();
   } catch (e) { /* audio is optional */ }
@@ -34,7 +43,7 @@ function audioUnlock() {
 function setSound(on) {
   AUDIO.on = on;
   if (on) audioUnlock();
-  if (AUDIO.master) AUDIO.master.gain.setTargetAtTime(on ? 0.5 : 0, AUDIO.ctx.currentTime, 0.05);
+  if (AUDIO.master) AUDIO.master.gain.setTargetAtTime(on ? AUDIO_BASE.master * AUDIO.lvl.master : 0, AUDIO.ctx.currentTime, 0.05); // [audio2] at the Volume setting
 }
 
 /* building blocks */
@@ -52,6 +61,7 @@ function tone(type, f0, f1, t, dur, vol, a = 0.005, dest = AUDIO.sfxBus) {
   env(g, t, a, vol, dur);
   o.connect(g).connect(dest);
   o.start(t); o.stop(t + a + dur + 0.05);
+  if (t + a + dur + 0.06 > AUDIO.voiceEnd) AUDIO.voiceEnd = t + a + dur + 0.06; // [audio2] when the voice being made falls silent
   return o;
 }
 function noiseBurst(t, dur, vol, ftype, f0, f1, q = 1, a = 0.004, dest = AUDIO.sfxBus) {
@@ -68,6 +78,7 @@ function noiseBurst(t, dur, vol, ftype, f0, f1, q = 1, a = 0.004, dest = AUDIO.s
   s.connect(f).connect(g).connect(dest);
   s.start(t, Math.random() * 1.5);
   s.stop(t + a + dur + 0.05);
+  if (t + a + dur + 0.06 > AUDIO.voiceEnd) AUDIO.voiceEnd = t + a + dur + 0.06; // [audio2]
 }
 function brass(t, freqs, step, len, vol) {
   // a soft horn: detuned saws through a closing low-pass
@@ -90,17 +101,26 @@ function brass(t, freqs, step, len, vol) {
       o.type = 'sawtooth'; o.frequency.value = fq; o.detune.value = det;
       o.connect(f); o.start(t0); o.stop(t0 + len + 0.05);
     }
+    if (t0 + len + 0.06 > AUDIO.voiceEnd) AUDIO.voiceEnd = t0 + len + 0.06; // [audio2]
   });
 }
 
 const SFX_GAP = { error: 0.25, click: 0.04, hit: 0.05, swing: 0.06, bow: 0.06, thud: 0.08, hoof: 0.06, hoofFast: 0.05, wade: 0.12, swim: 0.3, splashBig: 0.4 }; // [water] wade, swim, splashBig
 function sfx(name) {
+  sndCount(name); // [audio2] the tests' tally of what each system asks for (11c_sound.js)
   if (!AUDIO.ctx || !AUDIO.on || AUDIO.ctx.state !== 'running') return;
   const ctx = AUDIO.ctx, t = ctx.currentTime + 0.005;
   const gap = SFX_GAP[name] ?? 0.05;
   if (t - (AUDIO.last[name] || -1) < gap) return;
   AUDIO.last[name] = t;
   if (name === 'levelup') musicStinger('levelup'); // [music] a level or realm rank gained
+  sfxSynth(name, t, 1);
+}
+// [audio2] a sound's own synth, written into AUDIO.sfxBus (a placed voice points it at its own chain while it is made);
+// v scales it (the far ones are made a little simpler), o carries what a sound may want of its place
+function sfxSynth(name, t, v = 1, o = null) {
+  const S = SND_SYNTH[name]; // [audio2] the sounds of version 16 (11c_sound.js)
+  if (S) { try { S(t, v, o); } catch (e) { if (AUDIO.debug) throw e; } return; }
   try {
     switch (name) {
       case 'click': tone('sine', 1250, 820, t, 0.05, 0.08); break;
@@ -178,7 +198,7 @@ function sfx(name) {
 function startAmbience() {
   const ctx = AUDIO.ctx;
   const bus = ctx.createGain();
-  bus.gain.value = 0.55;
+  bus.gain.value = AUDIO_BASE.amb * AUDIO.lvl.amb; // [audio2] the Ambience setting
   bus.connect(AUDIO.master);
   const src = ctx.createBufferSource();
   src.buffer = AUDIO.noise; src.loop = true; src.playbackRate.value = 0.5;
@@ -219,6 +239,7 @@ function chirp(t) {
 function updateAudio(dt) {
   updateMusic(dt); // [music] the score: moods, battle layers, stingers, ducking (11b_music.js)
   if (!AUDIO.ctx || !AUDIO.amb || AUDIO.ctx.state !== 'running') return;
+  if (sndUpdate(dt)) return; // [audio2] the placed sounds, the places' air (wind, rain, crickets and birds now follow the place), the world's own voices (11c_sound.js)
   const t = AUDIO.ctx.currentTime;
   const night = U.uNight.value;
   const camY = camera.position.y;

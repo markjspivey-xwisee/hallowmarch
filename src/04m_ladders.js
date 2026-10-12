@@ -120,7 +120,7 @@ function ladderStrike(e, t) {
     spawnSlash(e, false);
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee', auto: true, ladder: true });
     FX.sparks(t.x, t.y + 1.1 * (t.scale || 1), t.z);
-    if (e.role === 'player' || t.role === 'player') sfx('hit');
+    sfxAtE('hit', t); // [audio2] placed (11c_sound.js)
     LADDER.stats.blows++;
   });
 }
@@ -179,8 +179,8 @@ function ladderPush(e, Hh) {
   Hh.heaveAt = GAME.t + 1.3 + Math.random() * 0.5;
   Hh.bump = 0.14;
   LADDER.stats.heaves++;
-  const P = GAME.player, near = P && dist2(P.x, P.z, Hh.x, Hh.z) < 20 * 20;
-  if (near) sfx('thud');
+  const P = GAME.player;
+  sfxAt('thud', Hh.x, Hh.y, Hh.z); // [audio2] placed (11c_sound.js)
   if (Math.random() < (foes.includes(P) ? LADDER.push.player : LADDER.push.npc)) {
     for (const o of foes) ladderShoveOff(o, Hh, true);
     Hh.until = GAME.t + 2.2; Hh.k = 0.35;
@@ -198,7 +198,7 @@ function ladderSlam(e, Hh) {
   setAct(e, 5, 0.4);
   LADDER.stats.slams++;
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, Hh.x, Hh.z) < 25 * 25) sfx('thud');
+  sfxAt('thud', Hh.x, Hh.y, Hh.z); // [audio2] placed (11c_sound.js)
   if (foe) {
     const r = computeDamage(e, foe, 1.2);
     dealDamage(e, foe, Math.max(r.d, foe.maxHp * 0.1), { kind: 'slam', heavy: true, crit: r.crit });
@@ -235,7 +235,7 @@ function ladderKnockOff(e, by) {
   const P = GAME.player;
   if (e === P) uiLog('You are knocked off the ladder!', 'hurt');
   else if (by === P) uiLog(`You knock ${theName(e)} off the ladder!`, 'dmg');
-  if (P && dist2(P.x, P.z, e.x, e.z) < 30 * 30) sfx('hit');
+  sfxAtE('hit', e); // [audio2] placed (11c_sound.js)
   return true;
 }
 // a body knocked off a ladder falls to the floor below (towerLadderStep hands it here)
@@ -262,7 +262,7 @@ function ladderFallStep(e, m, dt) {
   setAct(e, 4, 0.5);
   LADDER.stats.falls++;
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, e.x, e.z) < 30 * 30) sfx('thud');
+  sfxAtE('thud', e, null, 0.2); // [audio2] placed (11c_sound.js)
   if (k > 0) {
     // the fall harms by the height: no armour stops it
     const harm = e.maxHp * k, by = m.by != null ? getEnt(m.by) : null;

@@ -230,7 +230,8 @@ function deckIgnite(c, heat = 0.12, gen = 0) {
   BLAZE.stats.lit++;
   BLAZE.dirty.add(c.B);
   const P = GAME.player, B = c.B;
-  if (P && dist2(P.x, P.z, c.x, c.z) < 70 * 70 && GAME.t > (B.told || 0)) { B.told = GAME.t + 20; sfx('ignite'); uiLog(B.ring ? `The log wall of ${B.S.name} has caught fire!` : `The wall walk of ${B.S.name} has caught fire!`, 'warn'); }
+  sfxAt('ignite', c.x, c.y, c.z); // [audio2] placed, wherever it catches (11c_sound.js)
+  if (P && dist2(P.x, P.z, c.x, c.z) < 70 * 70 && GAME.t > (B.told || 0)) { B.told = GAME.t + 20; uiLog(B.ring ? `The log wall of ${B.S.name} has caught fire!` : `The wall walk of ${B.S.name} has caught fire!`, 'warn'); }
   return true;
 }
 // where flames show on a burning cell: on its boards and under them
@@ -348,7 +349,8 @@ function deckThrough(c, quiet = false) {
   });
   for (let i = 0; i < 4; i++) later(i * 0.1, () => FX.dust(c.x + (Math.random() - 0.5) * 1.4, c.y - Math.random() * 3, c.z + (Math.random() - 0.5) * 1.4, 12, wallLit([0.2, 0.18, 0.16])));
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, c.x, c.z) < 80 * 80) { sfx('crash'); cameraShake(0.15, c.x, c.z); }
+  sfxAt('timberfall', c.x, c.y, c.z); // [audio2] the burnt boards give way, heard as far as it carries (11c_sound.js)
+  if (P && dist2(P.x, P.z, c.x, c.z) < 80 * 80) cameraShake(0.15, c.x, c.z);
   const K = S.keepRef;
   const K2 = K || S.templeRef;
   if (K2 && GAME.t > (B.newsAt || -1e9)) { B.newsAt = GAME.t + 45; news(B.ring ? `The log wall of ${S.name} has burnt through!` : `The wall walk of ${S.name} has burnt through!`, K2.realm, K2.realm === (P && P.faction) ? 'alarm' : 'normal'); }
@@ -431,7 +433,8 @@ function gateIgnite(G0, heat = 0.12) {
   for (const m of G0.leaves) m.material = Z.mat;
   BLAZE.stats.gateLit++;
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, D.x, D.z) < 70 * 70) { sfx('ignite'); uiLog(`The gate of ${G0.S.name} has caught fire!`, 'warn'); }
+  sfxAt('ignite', D.x, D.y + 2, D.z); // [audio2] (11c_sound.js)
+  if (P && dist2(P.x, P.z, D.x, D.z) < 70 * 70) uiLog(`The gate of ${G0.S.name} has caught fire!`, 'warn');
   return true;
 }
 function gateSpots(G0) {
@@ -485,6 +488,7 @@ function gateFalls(G0, D) {
   Z.wmat.uniforms.uEmber.value = 1;
   G0.wreck.material = Z.wmat;
   BLAZE.stats.gateDown++;
+  sfxAt('timberfall', D.x, D.y + 2, D.z); // [audio2] the burnt gate falls in (11c_sound.js)
   D.burntDown = true; // (onEntityKilled tells it as burnt, not broken: 08_ai.js)
   D.hp = 1;
   killEnt(D, Z.by ? getEnt(Z.by) : null);
@@ -692,6 +696,7 @@ function blazeCrews(dt) {
         best.ai.fireBack = null;
         busy.push(best); have++; n++;
         BLAZE.stats.crews++;
+        sfxAtE('shout', best, null, 1.6); // [audio2] the one sent calls out (11c_sound.js)
       }
     }
   }
@@ -758,7 +763,7 @@ function blazeFightStep(e, dt) {
   if ((d < 1.4 || (f.kind === 'deck' && dist(e.x, e.z, f.x, f.z) < 2.3)) && dy < 1.2) {
     // at the flames: beat them with a wet hide, again and again (body action 21)
     turnToward(e, f.x, f.z, dt * 8);
-    if (e.anim.act !== 21 || e.anim.actT >= e.anim.actDur * 0.95) setAct(e, 21, 1.1);
+    if (e.anim.act !== 21 || e.anim.actT >= e.anim.actDur * 0.95) { setAct(e, 21, 1.1); sndBeat(e); } // [audio2] the beater's two blows heard (11c_sound.js)
     if (f.kind !== 'pal') f.beat(BZ_T.beat * dt); // (a palisade's own step counts the keep's people beside it: PAL_T.douse)
     BLAZE.stats.beats += dt;
     J.bestT = GAME.t;
@@ -867,7 +872,7 @@ function blazeOffers(P, offer) {
   }
 }
 function blazePlayerBeat(P, f) {
-  setAct(P, 21, 1.1);
+  setAct(P, 21, 1.1); sndBeat(P); // [audio2]
   faceToward(P, f.x, f.z);
   f.beat(BZ_T.beatP * (f.half ? 2 : 1)); // (a tower's beat halves it again)
   BLAZE.stats.playerBeats++;

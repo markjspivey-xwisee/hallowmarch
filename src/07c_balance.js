@@ -703,7 +703,8 @@ function wardTakesStun(e) {
   if (!b) return false;
   b.value *= 0.5;
   BAL.stats.wardStuns = (BAL.stats.wardStuns || 0) + 1;
-  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) { FX.ring(e.x, e.y + 1, e.z, 1.3, [0.7, 1.0, 1.9], 26, 1.7); sfx('blink'); }
+  if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) { FX.ring(e.x, e.y + 1, e.z, 1.3, [0.7, 1.0, 1.9], 26, 1.7); }
+  sfxAtE('wardbreak', e, { vol: 0.6 }, 1.3); // [audio2] the ward takes the stun: it cracks, heard (11c_sound.js)
   if (e === GAME.player || (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 30 * 30)) uiFloatAt(e.x, e.y + 2.3 * (e.scale || 1), e.z, 'Warded', 'immune');
   return true;
 }
@@ -725,7 +726,7 @@ function breakCast(e) {
 function priestGroupHeal(e, A, t, cast, rk) {
   forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? priestSelf(e) * sanctWound(e) : 1)); FX.heal(o.x, o.y, o.z); } }); // [balance7] sanctWound (07c_balance7.js)
   FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
-  sfx('heal');
+  sfxAtE('heal', e); // [audio2] placed (11c_sound.js)
 }
 function priestGroupHot(e, A, t, cast, rk) {
   forNear(e.x, e.z, A.radius, (o) => {
@@ -739,7 +740,7 @@ function priestGroupHot(e, A, t, cast, rk) {
     const x = e.x + Math.cos(a) * r, z = e.z + Math.sin(a) * r;
     fxAdd.emit(x, heightAt(x, z) + 0.1, z, (Math.random() - 0.5) * 0.3, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 0.3, 1.4 + Math.random(), 0.9, 1.6, 0.55, 0.14, -0.2, 0.4);
   }
-  sfx('renew');
+  sfxAtE('renew', e); // [audio2] placed (11c_sound.js)
 }
 
 /* ---- a priest's Divine Shield: the shield and the ward, and no stun, root or slow holds while it lasts ---- */
@@ -752,7 +753,7 @@ function divineShield(e, A, t, cast, rk) {
   for (const cat of ['stun', 'root', 'snare']) { const s = ccState(f, cat); s.immune = Math.max(s.immune, GAME.t + A.dur); s.until = Math.max(s.until, s.immune); }
   FX.ring(f.x, f.y + 1, f.z, 1.1, [1.6, 1.5, 0.8], 24, 1.2);
   spellPillar(f.x, f.y, f.z, 0.8, 1.2, 0.8, [1.9, 1.7, 1.0]);
-  sfx('heal');
+  sfxAtE('heal', e); // [audio2] placed (11c_sound.js)
 }
 
 /* ------------------------------------------------------------------ */
