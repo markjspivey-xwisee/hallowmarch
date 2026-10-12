@@ -531,7 +531,7 @@ function late2StdSpot(P) {
     const g = heightAt(x, z); if (floorAt(x, z, g + 4.6) - g > 0.25) continue; // (no floor there, nor a walk or a stair over it)
     collidersNear(x, z, 2.6, out);
     if (out.some((c) => c.active && c !== L2STD.coll && collCovers(c, x, z, 1.5))) continue;
-    if (W.trees.some((t) => !t.gone && !t.felled && dist2(t.x, t.z, x, z) < (2.2 + 1.6 * (t.s || 1)) ** 2)) continue;
+    if (W.trees.some((t) => !t.gone && !t.felled && !t.fallen && dist2(t.x, t.z, x, z) < (2.2 + 1.6 * (t.s || 1)) ** 2)) continue;
     return { x, z };
   }
   return null;
