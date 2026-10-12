@@ -50,8 +50,8 @@ function updateMountAnim(e, dt, sp) {
   const want = clamp(sp / 4.3, 0, 1.5);
   A.amt = lerp(A.amt, want, 1 - Math.exp(-dt * 6));
   A.phase = (A.phase + dt * sp * (TAU / 2) / beastStride('horse', A.amt)) % (TAU * 64);
-  if (e === GAME.player && A.amt > 0.08) {
+  if (A.amt > 0.08) { // [audio2] every rider's horse, placed (11c_sound.js: nothing is asked for far off)
     const q = Math.floor(A.phase / (Math.PI / 2));
-    if (q !== A.q) { A.q = q; sfx(A.amt > 1.05 ? 'hoofFast' : 'hoof'); }
+    if (q !== A.q) { A.q = q; if (e === GAME.player) sfx(A.amt > 1.05 ? 'hoofFast' : 'hoof'); else sfxAtE(A.amt > 1.05 ? 'hoofFast' : 'hoof', e, null, 0.05); }
   }
 }

@@ -185,7 +185,8 @@ function look3MasonThink(e, dt) {
     if (m.t >= m.next) {
       m.next = m.t + 1.0 + Math.random() * 0.6; MASON.stats.worked++;
       setAct(e, 1, 0.6);
-      later(0.3, () => { if (e.alive && !e.removed) { sfxAtE(m.up ? 'mallet' : 'chisel', e, null, 1.3); if (m.up && Math.random() < 0.3) sfxAtE('creak', e, { at: 0.3 }, 0.05); } }); // [audio2] the one at the foot dresses the stone, the one above sets it on creaking boards (11c_sound.js)
+      m.sndN = (m.sndN || 0) + 1;
+      later(0.3, () => { if (e.alive && !e.removed) { sfxAtE(m.up ? 'mallet' : 'chisel', e, null, 1.3); if (m.up && m.sndN % 2 === 0) sfxAtE('creak', e, { at: 0.3 }, 0.05); } }); // [audio2] the one at the foot dresses the stone, the one above sets it on creaking boards (11c_sound.js)
     }
     return;
   }
@@ -194,7 +195,7 @@ function look3MasonThink(e, dt) {
   const p = m.path[0];
   if (!p) {
     if (m.st === 'out') {
-      if (m.up) { if (towerClimb(e, L, 1)) { m.st = 'up'; MASON.stats.climbed++; } else { m.at = { x: L.fx, z: L.fz }; m.path = [m.at]; } }
+      if (m.up) { if (towerClimb(e, L, 1)) { m.st = 'up'; MASON.stats.climbed++; sfxAtE('creak', e, null, 0.3); /* [audio2] */ } else { m.at = { x: L.fx, z: L.fz }; m.path = [m.at]; } }
       else m.st = 'work';
     } else { setHouseDoor(m.H, true, e, true); MASON.stats.home++; removeEnt(e); }
     return;

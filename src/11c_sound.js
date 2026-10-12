@@ -47,7 +47,9 @@ const SND_DEF = {
   hiss: { ref: 4, max: 50, lvl: 0.3 }, drip: { ref: 3, max: 30, lvl: 0.12, per: 2 }, wade: { ref: 3, max: 35, lvl: 0.2 }, swim: { ref: 3, max: 35, lvl: 0.2 },
   splash: { ref: 4, max: 50, lvl: 0.35 }, splashBig: { ref: 5, max: 70, lvl: 0.55 },
   // [audio2] the sounds of version 16
-  chisel: { ref: 4, max: 65, lvl: 0.32, per: 2 }, mallet: { ref: 4, max: 75, lvl: 0.38, per: 3 }, creak: { ref: 3, max: 35, lvl: 0.18, per: 2, gap: 0.4 },
+  stepGrass: { ref: 2, max: 18, lvl: 0.1, per: 3, gap: 0.12 }, stepGravel: { ref: 2, max: 22, lvl: 0.12, per: 3, gap: 0.12 }, stepSnow: { ref: 2, max: 20, lvl: 0.12, per: 3, gap: 0.12 },
+  stepStone: { ref: 2, max: 24, lvl: 0.12, per: 3, gap: 0.12 }, stepWood: { ref: 2, max: 26, lvl: 0.13, per: 3, gap: 0.12 },
+  chisel: { ref: 4, max: 65, lvl: 0.32, per: 2 }, rung: { ref: 2.5, max: 30, lvl: 0.18, per: 2, gap: 0.2 }, mallet: { ref: 4, max: 75, lvl: 0.38, per: 3 }, creak: { ref: 3, max: 35, lvl: 0.18, per: 2, gap: 0.4 },
   saw: { ref: 4, max: 55, lvl: 0.25, per: 1, gap: 0.8 }, crack: { ref: 8, max: 150, lvl: 0.7 }, tiles: { ref: 8, max: 130, lvl: 0.6 },
   collapse: { ref: 14, max: 340, lvl: 1, roll: 0.7 }, timberfall: { ref: 10, max: 230, lvl: 0.85, roll: 0.8 }, beat: { ref: 3, max: 50, lvl: 0.35, per: 4, gap: 0.12 },
   shout: { ref: 6, max: 130, lvl: 0.45, per: 2, gap: 0.5 }, warcry: { ref: 10, max: 260, lvl: 0.7, per: 1, gap: 2 }, march: { ref: 6, max: 100, lvl: 0.4, per: 2, gap: 0.3 },
@@ -303,7 +305,8 @@ function sndFlush() {
     if (gt - r.t > 0.35 || r.t > gt + 0.01) { r.loud = -1; SND.stats.stale++; continue; }
     sndMixAt(r.def, r.x, r.y, r.z, r.o, mix);
     r.g = mix.g * ((r.o && r.o.vol) ?? 1); r.pan = mix.pan; r.fc = mix.fc; r.d = mix.d;
-    r.loud = r.def.lvl * r.g * (r.def.cue || (r.o && r.o.cue) ? 6 : 1);
+    r.cue = r.o && r.o.cue !== undefined ? !!r.o.cue : !!r.def.cue; // (a cue may be asked for as an ordinary sound: a ward far from you)
+    r.loud = r.def.lvl * r.g * (r.cue ? 6 : 1);
   }
   const ts = performance.now();
   q.sort((a, b) => b.loud - a.loud);
@@ -314,7 +317,7 @@ function sndFlush() {
   const cap = SND.cap, perFrame = IS_TOUCH || quality.level === 'low' ? 1 : 2; // (a voice is a dozen nodes and their links: a frame makes one or two, the loudest)
   for (const r of q) {
     if (r.loud < 0) continue;
-    const def = r.def, cue = def.cue || (r.o && r.o.cue);
+    const def = r.def, cue = r.cue;
     if (r.loud < 0.0025) { SND.stats.quiet++; continue; }
     const pn = (_sndPer[r.name] || 0);
     if (pn >= (def.per || 3)) { SND.stats.perName++; continue; }
@@ -420,6 +423,58 @@ function sndUpdate1(dt) {
   if (C.air <= 0) { C.air = 0.25; sndAirStep(now, 0.25); }
   if (C.life <= 0) { C.life = 0.5; if (GAME.started && GAME.player) sndLifeStep(now); }
   if (C.battle <= 0) { C.battle = 0.5; sndBattleStep(now); }
+  if (GAME.started && GAME.player) sndSteps(dt);
+}
+// footsteps: the player's, and on a desk the few walkers nearest you; each step on what is under it
+const SND_STEPS = { list: [], t: 0 };
+function sndSteps(dt) {
+  const P = GAME.player, L = SND.L, S = SND_STEPS;
+  S.t -= dt;
+  if (S.t <= 0) {
+    S.t = 0.5; S.list.length = 0;
+    if (!IS_TOUCH && quality.level !== 'low') {
+      for (const e of ENT) {
+        if (e === P || !e.alive || e.kind !== 'humanoid' || e.mount || !e.anim || e.anim.amt < 0.2) continue;
+        const d2 = dist2(e.x, e.z, L.x, L.z);
+        if (d2 > 12 * 12) continue;
+        S.list.push(e);
+        if (S.list.length >= 6) break;
+      }
+    }
+  }
+  sndStep(P, true);
+  for (const e of S.list) sndStep(e, false);
+}
+function sndStep(e, me) {
+  if (!e || !e.alive || e.mount || e.swim || e.boat || e.dive || e.motion || (e.wd || 0) > 0.08 || e.fixedY != null) { if (e) e._sndSt = undefined; return; }
+  const a = e.anim;
+  if (!a || a.amt < (me ? 0.1 : 0.2)) { e._sndSt = undefined; return; }
+  const st = Math.floor(a.phase / Math.PI);
+  if (e._sndSt !== undefined && st !== e._sndSt) sfxAt(sndStepKind(e), e.x, e.y + 0.05, e.z, { vol: (me ? 0.75 : 0.55) * (0.6 + 0.4 * Math.min(1.3, a.amt)), noOcc: me });
+  e._sndSt = st;
+}
+// what a foot comes down on: boards, stone, snow, a road's grit or turf
+function sndStepKind(e) {
+  const x = e.x, z = e.z;
+  if (inDungeonX(x)) return 'stepStone';
+  const gy = heightAt(x, z);
+  if (e.y > gy + 0.3) {
+    const list = FLOOR.grid.get(collKey(Math.floor(x / FLOOR.cell), Math.floor(z / FLOOR.cell)));
+    if (list) for (const f of list) {
+      if (!f.active) continue;
+      const tp = floorTopOf(f, x, z);
+      if (tp === null || Math.abs(tp - e.y) > 0.3) continue;
+      if (f.deck || f.tag === 'build' || f.tag === 'scaffold' || f.tag === 'hatch' || f.tag === 'jetty') return 'stepWood';
+      break;
+    }
+    const C = castleAt(x, z);
+    if (C) return C.R && C.R.style === 'timber' ? 'stepWood' : 'stepStone';
+    return 'stepWood';
+  }
+  if (typeof houseInside === 'function' && houseInside(x, z)) return 'stepWood';
+  if (typeof seasonSnowLieAt === 'function' && seasonSnowLieAt(x, z) > 0.3) return 'stepSnow';
+  if (W.road && sampleGrid(W.road, x, z) > 0.45) return 'stepGravel';
+  return 'stepGrass';
 }
 
 /* ------------------------------------------------------------------ */
@@ -487,6 +542,14 @@ Object.assign(SND_SYNTH, {
       noiseBurst(t0 + 0.006, 0.07, 0.06, 'bandpass', R_(1100, 1500), 800, 2, 0.002);
     }
   },
+  // footsteps: on turf, on a road's grit, in snow, on stone and on boards
+  stepGrass(t) { noiseBurst(t, 0.07, 0.07, 'lowpass', 1000, 300, 0.7, 0.004); noiseBurst(t + 0.01, 0.09, 0.025, 'bandpass', R_(2200, 3200), 1800, 1.2, 0.01); tone('sine', R_(95, 120), 60, t, 0.05, 0.06, 0.003); },
+  stepGravel(t) { for (let i = 0; i < 6; i++) noiseBurst(t + Math.random() * 0.06, 0.012, R_(0.03, 0.07), 'bandpass', R_(2200, 5200), 1800, 2, 0.001); noiseBurst(t, 0.06, 0.06, 'lowpass', 900, 300, 0.7, 0.003); tone('sine', R_(100, 125), 60, t, 0.05, 0.06, 0.003); },
+  stepSnow(t) { for (let i = 0; i < 5; i++) noiseBurst(t + i * 0.022 + Math.random() * 0.01, 0.03, R_(0.04, 0.07), 'bandpass', R_(1100, 1900), 900, 1.5, 0.003); tone('sine', R_(90, 110), 55, t, 0.06, 0.05, 0.004); },
+  stepStone(t) { tone('sine', R_(190, 240), 120, t, 0.04, 0.1, 0.001); noiseBurst(t, 0.025, 0.06, 'bandpass', R_(1800, 2600), 1400, 1.5, 0.001); noiseBurst(t + 0.02, 0.05, 0.02, 'highpass', 3000, 3500, 0.8, 0.003); },
+  stepWood(t) { const f = R_(125, 165); tone('sine', f, f * 0.65, t, 0.08, 0.13, 0.001); noiseBurst(t, 0.05, 0.06, 'bandpass', R_(500, 750), 400, 1.6, 0.002); tone('triangle', f * 2.3, f * 2.1, t, 0.03, 0.03, 0.001); },
+  // a foot or a hand on a ladder's rung: a small knock of wood
+  rung(t) { const f = R_(380, 520); tone('sine', f * 1.8, f, t, 0.05, 0.14, 0.001); noiseBurst(t, 0.03, 0.08, 'bandpass', R_(1300, 1800), 900, 2, 0.001); },
   // a mallet or a hammer on timber: a woody knock with its body
   mallet(t) {
     const f = R_(170, 250);
@@ -1011,7 +1074,7 @@ function sndAirStep(now, dt) {
     else if ((P.mountain > 0.3 || zoneAt(SND.L.x, SND.L.z).realm === 2) && day > 0.4 && r < 0.6) sndAround('caw', 30, 120, 18);
     else if (night > 0.6 && r < 0.75) sndWolfHowl();
   }
-  sndDiveFish(dt);
+  sndRiverPan(now);
 }
 // a sound at a random place round the listener: between r0 and r1 metres off, h metres up
 function sndAround(name, r0, r1, h) {
@@ -1057,12 +1120,17 @@ function sndLifeStep(now) {
     sfxAtE(v, e, null, v === 'chatter' ? 1.55 : 0.8);
     break;
   }
-  // a band storming a fallen tower: the stones of its rubble shift under their feet
+  // a climber on a ladder: the rungs knock and creak under it; a band storming a fallen tower: the stones of its rubble
+  // shift under their feet (one look at the bodies near)
   for (const e of ENT) {
-    const s = e.ai && e.ai.storm;
-    if (!s || s.done || !(s.i >= 1) || !e.alive || !(e.anim && e.anim.amt > 0.2)) continue;
-    if (dist2(e.x, e.z, L.x, L.z) > 45 * 45) continue;
-    sfxAtE('rubble', e, { at: Math.random() * 0.3 }, 0.05);
+    const m = e.motion, s = e.ai && e.ai.storm;
+    if (!(m && m.kind === 'ladder') && !s) continue;
+    if (!e.alive || dist2(e.x, e.z, L.x, L.z) > 45 * 45) continue;
+    if (m && m.kind === 'ladder') {
+      if ((e.sndRung || 0) > gt || dist2(e.x, e.z, L.x, L.z) > 30 * 30) continue;
+      e.sndRung = gt + 0.45 + Math.random() * 0.2;
+      sfxAtE(Math.random() < 0.3 ? 'creak' : 'rung', e, { vol: 0.8 }, 0.2);
+    } else if (!s.done && s.i >= 1 && e.anim && e.anim.amt > 0.2) sfxAtE('rubble', e, { at: Math.random() * 0.3 }, 0.05);
   }
   // boats near you creak: under way, and now and then against their ropes at the jetty
   if (typeof BOATS !== 'undefined') {
@@ -1115,7 +1183,16 @@ function sndBattleStep(now) {
     }
   }
   _sndBand.length = 0;
-  for (const c of cells.values()) { c.x /= c.n; c.z /= c.n; c.y /= c.n; c.d = Math.hypot(c.x - L.x, c.z - L.z); c.w = Math.min(1.6, c.n / 10) * sndDistGain({ ref: 45, max: 470, roll: 0.8 }, c.d); _sndBand.push(c); }
+  // the cells' fights gathered into battles: the biggest first, the cells within 70 m of it taken into it
+  const list = [...cells.values()].sort((a, b) => b.n - a.n);
+  for (const c of list) {
+    if (c.taken) continue;
+    for (const o of list) {
+      if (o === c || o.taken) continue;
+      if (dist2(o.x / o.n, o.z / o.n, c.x / c.n, c.z / c.n) < 70 * 70) { c.n += o.n; c.x += o.x; c.y += o.y; c.z += o.z; o.taken = true; }
+    }
+    c.x /= c.n; c.z /= c.n; c.y /= c.n; c.d = Math.hypot(c.x - L.x, c.z - L.z); c.w = Math.min(1.6, c.n / 10) * sndDistGain({ ref: 45, max: 470, roll: 0.8 }, c.d); _sndBand.push(c);
+  }
   _sndBand.sort((a, b) => b.w - a.w);
   SND.battle = _sndBand.slice(0, 2).map((c) => ({ n: c.n, d: Math.round(c.d), w: Math.round(c.w * 100) / 100 }));
   const mix = _sndMix;
@@ -1133,9 +1210,29 @@ function sndBattleStep(now) {
     if (Math.random() < 0.18 * c.w) sfxAt(Math.random() < 0.5 ? 'warcry' : 'clash', c.x, c.y + 1.5, c.z, { vol: 0.8 });
   });
 }
-// fish under the surface near a swimmer or a boat break the water now and then
-function sndDiveFish(dt) {
-  if (typeof FISH === 'undefined' || !FISH || !FISH.list) return;
+// the river's run (07b_swim.js waterSound plays it, by how near and fast the river runs): heard from the river's side
+function sndRiverPan(now) {
+  if (typeof SWIM === 'undefined' || !SWIM.sound || !SWIM.sound.g || !SND.air) return;
+  const S0 = SWIM.sound;
+  if (S0.pan === undefined) {
+    try { const p = AUDIO.ctx.createStereoPanner(); S0.g.disconnect(); S0.g.connect(p).connect(SND.air.duck); S0.pan = p; } catch (e) { S0.pan = null; }
+  }
+  if (!S0.pan) return;
+  const L = SND.L;
+  let bx = 0, bz = 0, bd = 70;
+  for (const Rv of RIVERS) {
+    const b = Rv.box;
+    if (L.x < b[0] - 70 || L.x > b[2] + 70 || L.z < b[1] - 70 || L.z > b[3] + 70) continue;
+    const P = Rv.pts;
+    for (let i = 0; i < P.length - 1; i++) {
+      const a = P[i], c = P[i + 1], ex = c.x - a.x, ez = c.z - a.z, l2 = ex * ex + ez * ez || 1;
+      const t = clamp(((L.x - a.x) * ex + (L.z - a.z) * ez) / l2, 0, 1), px = a.x + ex * t, pz = a.z + ez * t, d = Math.hypot(L.x - px, L.z - pz);
+      if (d < bd) { bd = d; bx = px; bz = pz; }
+    }
+  }
+  if (bd >= 70) return;
+  const s = ((bx - L.x) * L.rx + (bz - L.z) * L.rz) / Math.max(1e-3, bd);
+  sndSet(S0.pan.pan, clamp(s * 0.7 * sstep(2, 14, bd), -1, 1), now, 0.3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1179,8 +1276,10 @@ function sndBeat(e) { sfxAtE('beat', e, { at: 0.34 }, 0.5); sfxAtE('beat', e, { 
 // a shield worn through: a mage's Arcane Ward breaking
 function sndShieldBroke(dst, b) {
   if (!dst || b.src !== dst.id || dst.cls !== 'mage' || !hasBuff(dst, 'eward')) return;
-  sfxAtE('wardbreak', dst, null, 1.3);
+  sfxAtE('wardbreak', dst, { cue: sndMatters(dst) }, 1.3);
 }
+// a cue is a cue where it matters to you: your own body, your target, or one close by you
+function sndMatters(e) { const P = GAME.player; return !!P && !!e && (e === P || P.target === e.id || dist2(e.x, e.z, P.x, P.z) < 12 * 12); }
 
 /* ------------------------------------------------------------------ */
 /* the modules' own placed sounds: each still sounds as it did, now      */
@@ -1323,7 +1422,7 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.snd = {
     SND, SND_DEF, SND_SYNTH, SND_PLACE, SOUND_LEVELS, sfxAt, sfxAtE, sndFlush, sndMixAt, sndDistGain, sndOcc, sndListener, sndPlaceAt, sndUpdate,
-    setSoundLevel, soundLevelKey, soundVolumeKey, sndOnLoose, sndKeepAlarm, sndNewsCue, sndShieldBroke, sndBeat, sndLifeStep, sndAirStep, sndBattleStep, render: sndRenderOffline, sndBuf, syn: { tone, noiseBurst, sndToneF, sndVoiceSyn }, fish: (dt) => updateFish(dt),
+    setSoundLevel, soundLevelKey, soundVolumeKey, sndOnLoose, sndKeepAlarm, sndNewsCue, sndShieldBroke, sndBeat, sndLifeStep, sndAirStep, sndBattleStep, render: sndRenderOffline, sndBuf, syn: { tone, noiseBurst, sndToneF, sndVoiceSyn }, fish: (dt) => updateFish(dt), sndStep, sndStepKind,
     names: () => [...new Set([...Object.keys(SND_SYNTH).filter((k) => !k.includes(':')), ...Object.keys(SND_DEF).filter((k) => k !== '_')])],
     mix(name, x, y, z) { sndListener(); const def = SND_DEF[name] || SND_DEF._, m = sndMixAt(def, x, y, z, null, { g: 0, pan: 0, fc: 0, d: 0 }); return { g: Math.round(m.g * 1e4) / 1e4, pan: Math.round(m.pan * 100) / 100, fc: Math.round(m.fc), d: Math.round(m.d * 10) / 10, occ: sndOcc(x, y, z) }; },
     state() {

@@ -704,7 +704,7 @@ function wardTakesStun(e) {
   b.value *= 0.5;
   BAL.stats.wardStuns = (BAL.stats.wardStuns || 0) + 1;
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 60 * 60) { FX.ring(e.x, e.y + 1, e.z, 1.3, [0.7, 1.0, 1.9], 26, 1.7); }
-  sfxAtE('wardbreak', e, { vol: 0.6 }, 1.3); // [audio2] the ward takes the stun: it cracks, heard (11c_sound.js)
+  sfxAtE('wardbreak', e, { vol: 0.6, cue: sndMatters(e) }, 1.3); // [audio2] the ward takes the stun: it cracks, heard over the fight where it matters to you (11c_sound.js)
   if (e === GAME.player || (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 30 * 30)) uiFloatAt(e.x, e.y + 2.3 * (e.scale || 1), e.z, 'Warded', 'immune');
   return true;
 }

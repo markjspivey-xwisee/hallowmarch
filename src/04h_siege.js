@@ -565,6 +565,7 @@ function siegeEngineStep(E, dt) {
     if (hands > 0) {
       E.build = Math.min(1, E.build + (dt * (0.35 + 0.65 * work)) / E.spec.build);
       siegeCrewAct(E, Math.random() < 0.5 ? 8 : 1, 0.7, 0.85);
+      if (Math.random() < dt * 1.6) sfxAt(Math.random() < 0.2 ? 'saw' : 'mallet', E.x + (Math.random() - 0.5) * 3, null, E.z + (Math.random() - 0.5) * 3); // [audio2] its crew at work on it (11c_sound.js)
       if (Math.random() < dt * 1.2) { const p = siegeLocal(E, (Math.random() - 0.5) * 2, 0.6 + Math.random() * 2, (Math.random() - 0.5) * 3); FX.dust(p.x, p.y, p.z, 3, [0.5, 0.42, 0.3]); }
     }
     if (E.build >= 1) { E.state = dist(E.x, E.z, E.work.x, E.work.z) > 0.6 && E.spec.speed > 0 ? 'move' : 'work'; E.ph = E.kind === 'ram' ? 'pull' : 'wind'; E.arm = E.kind === 'mangonel' ? MANG_REST : E.kind === 'trebuchet' ? Math.PI / 2 : 0; if (E.state === 'work') siegeSettle(E); }
@@ -576,6 +577,7 @@ function siegeEngineStep(E, dt) {
       if (isWalkable(nx, nz)) {
         E.x = nx; E.z = nz;
         for (const w of E.wheels) w.rotation.x += step / 0.5;
+        E.sndRoll = (E.sndRoll || 0) + step; if (E.sndRoll > 1.4) { E.sndRoll = 0; sfxAt('creak', E.x, null, E.z, { vol: 1.5 }); } // [audio2] its wheels and frame groan as it rolls (11c_sound.js)
         siegeCrewAct(E, 5, 0.75, 0.8);
         siegeGround(E);
       } else { E.work = { x: E.x, z: E.z }; }

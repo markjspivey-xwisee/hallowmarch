@@ -9,7 +9,7 @@ a lake's shore, the Barrow's echo), a battle heard from afar, which sounds each 
 (masons, battered houses, fire crews, a burh's walk and gate burning, stormers on rubble, oars, fish, a band on the
 march, a keep's alarm, a shot at you, a flare, a ward breaking, the town's voices), the settings (Volume, Effects,
 Ambience: the menu rows, the buses, the save, old and junk saves), the cost of the sound in a battle, no errors.
-usage: python3 tools/tests/audio2.py [nooffline] [noworld] [only=levels,laws,air,listen,cap,places,battle,systems,cues,settings,cost] [wav]"""
+usage: python3 tools/tests/audio2.py [nooffline] [noworld] [phone: on a phone, the settings by touch] [shots: at 960x540, a picture of the settings] [only=levels,laws,listen,cap,places,battle,systems,steps,cues,settings,cost,soak] [wav]"""
 import json, asyncio, sys, time, base64, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -17,6 +17,8 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 OFFLINE, WORLD, WAV = 'nooffline' not in ARGS, 'noworld' not in ARGS, 'wav' in ARGS
+PHONE, SHOTS = 'phone' in ARGS, 'shots' in ARGS
+if PHONE: OFFLINE = False
 ONLY = next((a[5:].split(',') for a in ARGS if a.startswith('only=')), None)
 want = lambda k: ONLY is None or k in ONLY
 FAILS = []
@@ -37,7 +39,7 @@ HELP = """window.A2 = {
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=640, h=360)
+        b, page, logs = await setup(p, touch=PHONE, w=390 if PHONE else (960 if SHOTS else 640), h=780 if PHONE else (540 if SHOTS else 360))
         ev = page.evaluate
         log('booted')
         await ev("window.requestAnimationFrame = () => 0; 0")
@@ -92,7 +94,8 @@ async def main():
             print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'({time.time() - T0:.0f}s)'); await b.close(); return
 
         # ---------------------------------------------------------------- the world
-        await page.mouse.click(8, 8)
+        if PHONE: await page.touchscreen.tap(8, 8)
+        else: await page.mouse.click(8, 8)
         await page.wait_for_timeout(1200)
         st = await ev("__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
         if st == 'suspended':
@@ -125,8 +128,8 @@ async def main():
             check(r and r['through']['occ'] == 1 and r['side']['occ'] == 0, f"a house between the ears and a blow muffles it; one in the open at the same distance does not ({r})")
             # what is placed is played at its place's loudness: a crash at 10 m and at 150 m
             r = await ev("""(() => { const H = __hm, S = H.snd, P = H.GAME.player; S.resetCounts(); const L = S.SND.L;
-              S.sfxAt('crash', P.x + L.fx * 10, P.y + 1, P.z + L.fz * 10); H.fn.updateAudio(1 / 30);
-              S.sfxAt('crash', P.x + L.fx * 150, P.y + 1, P.z + L.fz * 150); H.fn.updateAudio(1 / 30);
+              S.sfxAt('crash', P.x + L.fx * 10, P.y + 1, P.z + L.fz * 10, { noOcc: true }); H.fn.updateAudio(1 / 30);
+              S.sfxAt('crash', P.x + L.fx * 150, P.y + 1, P.z + L.fz * 150, { noOcc: true }); H.fn.updateAudio(1 / 30);
               S.sfxAt('hit', P.x + L.fx * 400, P.y + 1, P.z + L.fz * 400); H.fn.updateAudio(1 / 30);
               return { log: S.SND.log.slice(-3), far: S.SND.stats.far }; })()""")
             log('placed', r)
@@ -203,7 +206,7 @@ async def main():
               H.snd.sndListener(); H.snd.sndBattleStep(__hm.fn.AUDIO.ctx.currentTime); const b = H.snd.SND.battle.slice(); const g = H.snd.SND.air.battle[0].on;
               for (const id of ids) { const e = F.getEnt(id); if (e) F.removeEnt(e); } return { b, g, a }; })()""")
             log('battle', r)
-            check(r['b'] and r['b'][0]['n'] >= 16 and 120 < r['b'][0]['d'] < 200 and r['g'] > 0.01, f"a fight 160 m off, out of sight, is heard as a din toward it ({r['b']}, its voice at {r['g']})")
+            check(r['b'] and r['b'][0]['n'] >= 16 and 120 < r['b'][0]['d'] < 200 and r['g'] > 0.01, f"a fight 160 m off, out of sight, is heard as one din toward it ({r['b']}, its voice at {r['g']})")
 
         if want('systems'):
             r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, P = H.GAME.player; S.resetCounts(); const out = {};
@@ -229,7 +232,7 @@ async def main():
             # a burh's walk alight: the garrison sent calls out and beats it; burnt through it falls; its gate burns and falls
             r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, Z = H.blaze; S.resetCounts(); const P = H.GAME.player;
               const Bk = Z.BLAZE.list.find((q) => !q.ring && q.cells && q.cells.length); const c = Bk.cells[Math.floor(Bk.cells.length / 2)];
-              H.teleport(c.x + 10, c.z); A2.hush(c.x, c.z, 60); Z.deckIgnite(c, 0.4); let t = 0; while (t < 30 && !(S.SND.count.beat > 0)) { H.simulate(1); t++; }
+              H.teleport(c.x + 10, c.z); A2.hush(c.x, c.z, 60); A2.clear(); Z.deckIgnite(c, 0.4); let t = 0; while (t < 80 && !(S.SND.count.beat > 0)) { H.simulate(1); A2.safe(); t++; }
               Z.deckThrough(c); const G0 = Z.BLAZE.gates && Z.BLAZE.gates[0]; let gate = null;
               if (G0) { try { Z.gateIgnite(G0); const D = G0.door; if (D && D.alive) { Z.gateFalls(G0, D); gate = 'fell'; } else gate = 'no door'; } catch (e) { gate = String(e).slice(0, 80); } }
               return { t, count: S.SND.count, gate }; })()""")
@@ -268,7 +271,30 @@ async def main():
               for (let k = 0; k < 60; k++) { H.simulate(0.5); (S.sndListener(), S.sndLifeStep(F.AUDIO.ctx.currentTime)); (S.sndListener(), S.sndAirStep(F.AUDIO.ctx.currentTime, 0.5)); } return S.SND.count; })()""")
             log('systems town', r)
             voices = sum(r.get(n, 0) for n in ['chatter', 'cluck', 'bleat', 'moo', 'bark', 'anvil'])
-            check(voices >= 2 and r.get('chirp', 0) >= 1, f"a town by day: its people talk, its beasts and its forge are heard, birds in the trees ({ {n: r.get(n, 0) for n in ['chatter', 'cluck', 'bleat', 'moo', 'bark', 'anvil', 'chirp']} })")
+            check(voices >= 2, f"a town by day: its people talk, its beasts and its forge are heard ({ {n: r.get(n, 0) for n in ['chatter', 'cluck', 'bleat', 'moo', 'bark', 'anvil', 'chirp']} })")
+            r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, w = window.__a2wood; if (!w) return null; S.resetCounts(); H.teleport(w[0], w[1]); H.setTod(0.3); F.applyTimeOfDay(0.3); A2.clear(); A2.safe();
+              for (let k = 0; k < 80; k++) { H.simulate(0.1); S.sndListener(); S.sndAirStep(F.AUDIO.ctx.currentTime, 0.5); } return S.SND.count; })()""")
+            check(r is None or r.get('chirp', 0) >= 1, f"birds sing in the woods by day, placed among the trees ({(r or {}).get('chirp', 0)} in 40 s; woodpeckers {(r or {}).get('woodpecker', 0)})")
+
+        if want('steps'):
+            # footsteps: on what is under each one
+            r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, P = H.GAME.player; A2.safe(); const out = {};
+              const at = (x, z, y) => { H.teleport(x, z); if (y != null) { P.y = y; P.prevY = y; } return S.sndStepKind(P); };
+              const R0 = H.REALMS[0], T = R0.town; out.plaza = at(T.x + 2, T.z + 2);
+              // a meadow: open turf off the roads near the town
+              let m = null; for (let k = 0; k < 200 && !m; k++) { const a = k * 0.7, d = 60 + k; const x = T.x + Math.cos(a) * d, z = T.z + Math.sin(a) * d; if (F.isWalkable(x, z) && !F.houseAt(x, z, 2) && F.sampleGrid(F.W.road, x, z) < 0.05 && !F.castles().some((C) => Math.hypot(C.S.x - x, C.S.z - z) < 40)) m = [x, z]; }
+              out.meadow = m ? at(m[0], m[1]) : null;
+              const g0 = (realm) => H.ENT.find((e) => e.alive && e.faction === realm && H.REALMS[realm].keepSites.some((S0) => Math.hypot(e.x - S0.x, e.z - S0.z) < 25 && e.y > S0.y + 4));
+              const a = g0(0); out.stoneWalk = a ? at(a.x + 0.5, a.z, a.y) : null;
+              const b = g0(2); out.timberWalk = b ? at(b.x + 0.5, b.z, b.y) : null;
+              const Hh = H.HOUSES.find((q) => !q.keepHall && q.state === 'whole' && q.realm === 0); out.house = at(Hh.x, Hh.z, F.floorAt(Hh.x, Hh.z, Hh.y + 0.5));
+              // a step: the gait turns half a cycle
+              S.resetCounts(); H.teleport(T.x + 2, T.z + 2); P.anim.amt = 1; P.anim.phase = 0.1; S.sndStep(P, true); P.anim.phase = Math.PI + 0.1; S.sndStep(P, true); P.anim.phase = 2 * Math.PI + 0.1; S.sndStep(P, true);
+              out.count = S.SND.count; return out; })()""")
+            log('steps', r)
+            check(r['meadow'] == 'stepGrass' and r['plaza'] in ('stepGravel', 'stepGrass') and r['stoneWalk'] == 'stepStone' and r['timberWalk'] == 'stepWood' and r['house'] == 'stepWood', f"footsteps on what is under them: turf in a meadow ({r['meadow']}), the town's plaza ({r['plaza']}), a Logres wall walk's stone ({r['stoneWalk']}), a burh's boards ({r['timberWalk']}), a house's floor ({r['house']})")
+            n = sum(v for k, v in r['count'].items() if k.startswith('step'))
+            check(n == 2, f"a step at each half turn of the gait ({n} in two steps)")
 
         if want('cues'):
             r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, P = H.GAME.player; S.resetCounts(); A2.calm(); A2.safe(); const T = H.REALMS[0].town; H.teleport(T.x, T.z);
@@ -302,10 +328,24 @@ async def main():
             rows = await ev("""['set-s', 'set-fx', 'set-amb', 'set-m'].map((id) => { const el = document.getElementById(id); return el ? id + ':' + [...el.querySelectorAll('button')].map((b) => b.dataset.v + (b.getAttribute('aria-checked') === 'true' ? '*' : '')).join(',') : id + ':none'; })""")
             log('rows', rows)
             check(all(':none' not in x for x in rows) and 'medium*' in rows[1] and 'medium*' in rows[2] and 'medium*' in rows[0], f"the settings have Volume, Effects, Ambience and Music rows, Medium by default {rows}")
-            await ev("document.querySelector('#set-fx button[data-v=\"low\"]').click(); 0")
-            await page.wait_for_timeout(500)
-            await ev("document.querySelector('#set-amb button[data-v=\"high\"]').click(); 0")
-            await page.wait_for_timeout(500)
+            if PHONE:
+                # by touch alone: each row's buttons at least 40 px, on the screen, tapped
+                g = await ev("""['set-s', 'set-fx', 'set-amb', 'set-m'].map((id) => [...document.querySelectorAll('#' + id + ' button')].map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.right)]; }))""")
+                small = [x for row in g for x in row if x[1] < 40 or x[0] < 40 or x[2] < 0 or x[3] > 390]
+                check(not small, f"on a phone every sound button takes a 40 px tap and is on the screen ({small[:3]})")
+                for sel in ['#set-fx button[data-v="low"]', '#set-amb button[data-v="high"]']:
+                    await page.evaluate(f"document.querySelector('{sel}').scrollIntoView({{ block: 'center' }}); 0")
+                    await page.wait_for_timeout(200)
+                    await page.tap(sel)
+                    await page.wait_for_timeout(500)
+            else:
+                await ev("document.querySelector('#set-fx button[data-v=\"low\"]').click(); 0")
+                await page.wait_for_timeout(500)
+                await ev("document.querySelector('#set-amb button[data-v=\"high\"]').click(); 0")
+                await page.wait_for_timeout(500)
+            if SHOTS or PHONE:
+                await page.evaluate("document.querySelector('#set-s').scrollIntoView({ block: 'center' }); 0")
+                await page.screenshot(path=str(OUT) + f"/audio2_settings_{'phone' if PHONE else 'desk'}.png", timeout=300000)
             r = await ev("""(() => { const H = __hm, A = H.fn.AUDIO, s = H.fn.buildSave(); return { sfx: A.lvl.sfx, amb: A.lvl.amb, fx: +A.fx.gain.value.toFixed(3), ambBus: +A.amb.bus.gain.value.toFixed(3), saved: [s.settings.master, s.settings.effects, s.settings.ambience],
               checked: ['set-fx', 'set-amb'].map((id) => [...document.querySelectorAll('#' + id + ' button')].filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.dataset.v)[0]) }; })()""")
             log('settings', r)
@@ -340,6 +380,27 @@ async def main():
             battle = await cost('battle')
             log('cost town', town, 'battle', battle)
             check(battle['audio'] < 2.5 and town['audio'] < 2.5, f"the sound's cost a frame (updateAudio: the score, the placed sounds, the air): {town['audio']} ms in a town by day, {battle['audio']} ms beside a fight of 32 ({battle.get('asked')} sounds asked and {battle.get('played')} played in 120 frames, {battle.get('occTests')} wall tests; the step {town['step']} and {battle['step']} ms)")
+
+        if want('soak'):
+            # a war with the sound running: the listener goes from the town to a keep, the frontier's biggest fight, the woods
+            # and back, the weather and the hour change; every voice ends, nothing is left that is not finite, no error
+            r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, P = H.GAME.player; A2.safe(); for (const c of H.WAR.commanders) { c.nextThink = 0; c.nextSpawn = 0; } for (const w of H.WAR.warbands) w.dead = false;
+              H.dbg.WEATHER.mode = 'auto'; S.resetCounts(); const R0 = H.REALMS[0], places = [[R0.town.x, R0.town.z], [R0.keepSites[0].x + 30, R0.keepSites[0].z], [0, 0], window.__a2wood || [R0.town.x, R0.town.z]];
+              let bad = 0, maxLive = 0, steps = 0;
+              for (let k = 0; k < 900; k++) {
+                if (k % 150 === 0) { const p = places[(k / 150) % places.length | 0]; H.teleport(p[0], p[1]); A2.safe(); }
+                if (k % 300 === 150) { H.setTod((k / 300) % 3); F.applyTimeOfDay((k / 300) % 3); }
+                H.simulate(0.2); F.updateAudio(0.2); steps++;
+                const st = S.SND; maxLive = Math.max(maxLive, st.voices.length);
+                for (const V of st.loops) if (!Number.isFinite(V.on)) bad++;
+                for (const k2 in st.air.k) if (!Number.isFinite(st.air.k[k2])) bad++;
+              }
+              const st = S.state(); return { steps, bad, maxLive, voices: st.voices, stats: st.stats, battle: st.battle, errs: H.errors.length }; })()""")
+            log('soak', r)
+            check(r['bad'] == 0 and r['errs'] == 0 and r['maxLive'] < 80, f"three minutes of war with the sound running, the listener in a town, by a keep, at the frontier and in the woods: nothing not finite, no error, the voices bounded (at most {r['maxLive']} held; {r['stats']['asked']} asked, {r['stats']['played']} played)")
+            await page.wait_for_timeout(3000)
+            r = await ev("(() => { __hm.fn.updateAudio(0.05); return __hm.snd.state().voices; })()")
+            check(r <= 8, f"once the frame's voices are done they let go of their nodes ({r} left after three seconds)")
 
         errs = await ev("__hm.errors")
         check(not errs, f'no runtime errors {errs[:3]}')

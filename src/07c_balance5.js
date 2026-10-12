@@ -27,7 +27,7 @@ function holyFlare(e, t) {
   BAL5.stats.flares++;
   const y = t.y + 1.7 * (t.scale || 1);
   if (dist2(t.x, t.z, camera.position.x, camera.position.z) < 60 * 60) { FX.burst(t.x, y, t.z, 22, [2.4, 1.9, 0.9], 3.5, 0.4, 0.1, -1); lightFlash(t.x, y, t.z, 8, [2.6, 2.1, 1.0], 0.25); }
-  sfxAt('flare', t.x, y, t.z); // [audio2] heard over the fight: a spell lost (11c_sound.js)
+  sfxAt('flare', t.x, y, t.z, { cue: sndMatters(t) || e === GAME.player }); // [audio2] heard over the fight where it matters to you: a spell lost (11c_sound.js)
   if (t === GAME.player) uiLog('Holy fire flares in your face: your spell is lost.', 'warn');
   if (e === GAME.player || t === GAME.player) uiFloatAt(t.x, t.y + 2.4 * (t.scale || 1), t.z, 'Flared', 'crit');
   return true;
