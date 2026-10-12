@@ -283,11 +283,13 @@ function late2Rescale() {
 function late2ChampThink(e, t, dt) {
   const ai = e.ai, now = GAME.t;
   let S = ai.l2;
+  const gap = S ? now - S.last : 0;
   // a new fight (none for 8 s, or it went home whole): the rally and the fury come again
-  if (!S || (now - S.last > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, next2: now + 8 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
+  if (!S || (gap > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, next2: now + 8 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
   S.last = now;
-  if (S.w && isStunned(e)) {
-    // a stun as it rears breaks its blow: the ring dies away and it is a while gathering itself again
+  if (S.w && (isStunned(e) || gap > 0.3)) {
+    // a stun as it rears breaks its blow (a stunned body does not think: updateNPCs, so the gap tells it): the ring dies
+    // away and it is a while gathering itself again
     const W = S.w; S.w = null; S.next = now + 6 + Math.random() * 2;
     if (W.disc && W.disc.on) W.disc.age = Math.max(W.disc.age, W.disc.dur - 0.25);
     for (const m of AOE_MARKS) if (m.x === W.x && m.z === W.z && m.until > now) m.until = now;
@@ -575,6 +577,54 @@ function late2StdStep() {
 }
 
 /* ------------------------------------------------------------------ */
+/* the herald's bounty on a risen champion, and the March hailing you  */
+/* ------------------------------------------------------------------ */
+// past 40 the herald asks for one of your homeland's risen champions (openHerald, 10_ui.js): one of them, brought down
+// by you (bountyOnKill hands it here, 09_player.js), for more than a bounty of six pays; saved with the bounty (`risen`)
+function late2HeraldBounty() {
+  const P = GAME.player, prog = GAME.prog;
+  if (!P || !prog || prog.level < LATE2_RISE_AT || prog.bounty) return null;
+  const camps = CAMPS.filter((c) => late2Risen(c) && c.realm === P.faction);
+  if (!camps.length) return null;
+  const c = camps[(prog.realmKills + prog.kills) % camps.length], nm = capFirst(late2RisenName(c));
+  const nb = { type: c.type, camp: c.id, need: 1, have: 0, name: nm, reward: Math.round(xpToNext(Math.min(prog.level, LEVEL_CAP - 1)) * 0.6), risen: 1 };
+  const xp = prog.level >= LEVEL_CAP ? `${fmtInt(nb.reward)} experience toward your veterancy` : `${fmtInt(nb.reward)} experience`;
+  return {
+    b: nb,
+    text: `<p>${esc(nm)} has risen in the far borderlands of ${esc(REALMS[P.faction].homeName)}, and the roads there are empty for fear of it. Bring it down and ${esc(REALMS[P.faction].name)} will reward you with ${xp}, ${fmtInt(Math.round(nb.reward * 0.1))} realm points and ${10 + prog.level * 5} gold. Its camp is circled on your map.</p>`,
+    accept: () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: bring down ${nm}`, 'quest'); saveSoon(); },
+  };
+}
+function late2BountyKill(e, b) {
+  if (!e.l2risen || e.camp !== b.camp || b.done) return;
+  b.have = b.need; b.done = true;
+  uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare');
+}
+// a soldier, a guard or a townsman of your realm you pass hails you by the name you wear, now and then
+const LATE2_HAILS = [
+  (n) => `Hail, ${n}!`, (n) => `${n}! The March remembers.`, (n) => `Make way for ${n}!`, (n) => `Well met, ${n}.`,
+];
+function late2Hail(P) {
+  const N = late2Worn(), W = LATE2.w;
+  if (!N || !P.alive || GAME.t < P.combatUntil + 6 || GAME.t < (W.hailT || 0) || inDungeon(P)) return;
+  let who = null;
+  forNear(P.x, P.z, 7, (o) => {
+    if (who || !o.alive || o === P || o.faction !== P.faction && o.faction !== FACTION_NEUTRAL) return;
+    if (!(o.role === 'soldier' || o.role === 'guard' || o.role === 'villager' || o.role === 'muster') || o.target) return;
+    if (o.faction === FACTION_NEUTRAL && zoneAt(o.x, o.z).realm !== P.faction) return;
+    if (GAME.t < (o.l2hailT || 0)) return;
+    who = o;
+  });
+  if (!who) return;
+  W.hailT = GAME.t + 40 + Math.random() * 40;
+  who.l2hailT = GAME.t + 600;
+  const line = LATE2_HAILS[Math.floor(Math.random() * LATE2_HAILS.length)](late2Named(P));
+  uiFloatAt(who.x, who.y + 2.25 * (who.scale || 1), who.z, line, 'xp');
+  uiLog(`${who.name}: "${line}"`, 'sys');
+  LATE2.stats.hails = (LATE2.stats.hails || 0) + 1;
+}
+
+/* ------------------------------------------------------------------ */
 /* the deeds as they happen                                            */
 /* ------------------------------------------------------------------ */
 // every foe the player has a share in (grantKillRewards, 07_entities.js)
@@ -630,7 +680,7 @@ function updateLate2(dt) {
   if (W.campN != null && hl && hl.n !== W.campN && hl.w === P.faction && hl.you) late2Deed('camp');
   W.campN = hl ? hl.n : 0;
   if ((W.camps = (W.camps || 0) - 0.25) <= 0) { W.camps = 5; if (CAMPS.some((c) => late2RiseK(c) >= 0 && !!c.l2on !== (warLevel() >= LATE2_RISE_AT))) late2Rescale(); }
-  if ((L2STD.tick = (L2STD.tick || 0) - 0.25) <= 0) { L2STD.tick = 1; late2StdStep(); }
+  if ((L2STD.tick = (L2STD.tick || 0) - 0.25) <= 0) { L2STD.tick = 1; late2StdStep(); late2Hail(P); }
   // near a risen camp (the field note's watch)
   W.near = prog.level >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
 }
@@ -819,4 +869,4 @@ registerSavePart('char', 'late', {
   key: (o) => (o ? [o.d, o.n, o.w, o.vt, Math.floor((o.vx || 0) / 1000), o.b, o.s, o.sm, o.sp] : null),
 });
 
-queueMicrotask(() => { if (window.__hm) window.__hm.late = { LATE2, LATE2_NAMES, LATE2_BOONS, LATE2_DEEDS, LATE2_RISE_AT, late2Deed, late2CheckNames, late2Wear, late2Learn, late2Forget, late2VetXP, late2VetNeed, late2Free, late2Spent, late2BoonK, late2K, late2HarmMult, late2RpMult, late2WearMult, late2Named, late2XpBar, late2Band, late2RiseK, late2Risen, late2Rescale, late2RisenName, late2RisenMark, late2Aims, late2NextName, late2ChampThink, late2Wrath, late2Rally, late2OnKill, chronDeeds, updateLate2, late2KindMove, LATE2_STD, L2STD, late2StdMake, late2StdPlant, late2StdTake, late2StdSpot, late2StdShow, late2StdStep, late2Offers }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late = { LATE2, LATE2_NAMES, LATE2_BOONS, LATE2_DEEDS, LATE2_RISE_AT, late2Deed, late2CheckNames, late2Wear, late2Learn, late2Forget, late2VetXP, late2VetNeed, late2Free, late2Spent, late2BoonK, late2K, late2HarmMult, late2RpMult, late2WearMult, late2Named, late2XpBar, late2Band, late2RiseK, late2Risen, late2Rescale, late2RisenName, late2RisenMark, late2Aims, late2NextName, late2ChampThink, late2Wrath, late2Rally, late2OnKill, chronDeeds, updateLate2, late2KindMove, LATE2_STD, L2STD, late2StdMake, late2StdPlant, late2StdTake, late2StdSpot, late2StdShow, late2StdStep, late2Offers, late2HeraldBounty, late2BountyKill, late2Hail }; });

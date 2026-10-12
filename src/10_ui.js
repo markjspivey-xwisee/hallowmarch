@@ -755,13 +755,17 @@ function openHerald() {
   const frontierTip = prog.level >= 14 ? `You are ready for the frontier. Step through the stones in the square to reach the muster.` : `The frontier will eat you alive below level 14 or so. Grow stronger in the glens and fields first.`;
   let body = `<p>Well met, ${P.name}. ${frontierTip}</p>`;
   const acts = [];
+  const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)
   if (b && b.done) {
     body += `<p>You have done what was asked. Take this for your trouble.</p>`;
     acts.push(['Claim reward', () => { addXP(b.reward); addRP(Math.round(b.reward * 0.1)); addGold(10 + prog.level * 5); uiLog(`The herald pays you ${10 + prog.level * 5} gold.`, 'loot'); prog.bounty = null; sfx('fanfare'); closeDialog(); saveSoon(); }]);
   } else if (b) {
     const c = CAMPS[b.camp];
-    body += `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;
+    body += b.risen ? `<p>Your bounty: bring down ${esc(b.name)} in the far borderlands, circled on your map.</p>` /* [late2] */ : `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;
     acts.push(['Abandon bounty', () => { prog.bounty = null; closeDialog(); }]);
+  } else if (l2b) { // [late2]
+    body += l2b.text;
+    acts.push(['Accept bounty', l2b.accept]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
     body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;

@@ -67,7 +67,7 @@ function buildSave() {
     char: {
       name: P.name, realm: P.faction, cls: P.cls, level: prog.level, xp: Math.round(prog.xp), rp: Math.round(prog.rp),
       kills: prog.kills, realmKills: prog.realmKills, deaths: prog.deaths, played: Math.round(prog.played),
-      bounty: b ? { type: b.type, camp: b.camp, need: b.need, have: b.have, name: b.name, reward: b.reward, done: !!b.done } : null,
+      bounty: b ? { type: b.type, camp: b.camp, need: b.need, have: b.have, name: b.name, reward: b.reward, done: !!b.done, ...(b.risen ? { risen: 1 } : {}) /* [late2] a risen champion's bounty (10l_late.js) */ } : null,
       pos: P.alive ? (inDungeon(P) ? { x: Math.round(BARROW.out.x * 10) / 10, z: Math.round(BARROW.out.z * 10) / 10 } : { x: Math.round(P.x * 10) / 10, z: Math.round(P.z * 10) / 10 }) : null,
       gold: Math.round(INV.gold), potions: INV.potions,
       bag: INV.bag.map(packItem), eq: Object.fromEntries(SLOTS.filter((s) => INV.eq[s]).map((s) => [s, packItem(INV.eq[s])])),

@@ -249,6 +249,7 @@ function chooseBounty() {
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;
+  if (b && b.risen) { late2BountyKill(e, b); return; } // [late2] a risen champion's bounty is that champion (10l_late.js)
   if (!b || e.mobType !== b.type || e.camp == null) return;
   b.have = Math.min(b.need, b.have + 1);
   if (b.have >= b.need && !b.done) { b.done = true; uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare'); }

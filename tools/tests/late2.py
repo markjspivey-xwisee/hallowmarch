@@ -1,7 +1,7 @@
 """[late2] The late game (version 16): the risen of the borderlands past 40, deeds and the names they earn, veterancy past
 the cap and its boons, the Chronicle's Deeds page, the aims and the tracker's mark, and the save (with the character, an old
 save's deeds taken from its path, a damaged one, and a reload with the same storage).
-usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,std,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
+usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,std,herald,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
        [noshots] [phone]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -129,7 +129,7 @@ async def main():
               place(); C.ai.l2 = { next: 0, next2: 1e9, rally: true, enr: false, w: null, last: H.GAME.t }; const w1 = St.wrath, b1 = St.broken || 0;
               L.late2ChampThink(C, P, 0.05); H.simulate(0.4); F.addBuff(C, 'stun', 1, 1.2, P.id); H.simulate(1.6); out.broken = (St.broken || 0) - b1; out.landed2 = St.wrath - w1;
               // each kind its own way: an outlaw's hamstring on its foe beside it
-              place(); C.ai.l2 = { next: 1e9, next2: 0, rally: true, enr: false, w: null, last: H.GAME.t }; const k0 = St.kinds || 0; P.buffs.length = 0;
+              place(); H.teleport(C.x + 1.4, C.z + 0.9); C.ai.l2 = { next: 1e9, next2: 0, rally: true, enr: false, w: null, last: H.GAME.t }; const k0 = St.kinds || 0; P.buffs.length = 0;
               L.late2ChampThink(C, P, 0.05); out.kind = (St.kinds || 0) - k0; out.wound = !!P.buffs.find((b) => b.kind === 'wound'); out.snare = !!P.buffs.find((b) => b.kind === 'snare');
               out.errors = H.errors.slice(0, 3); return out; })()""")
             check(r['started'] and r['landed'] == 1 and r['hit'] == 1 and r['stunned'] and r['harm'] > 0, f"the ring glows and the blow lands on a foe in it: {r['harm']} harm and a stun")
@@ -139,7 +139,7 @@ async def main():
               for (const [type, realm, d] of [['bear', 1, 8], ['skeleton', 0, 10], ['troll', 2, 12], ['wisp', 1, 3]]) {
                 const camp = T.risen().find((c) => c.type === type && c.realm === realm); let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
                 let tx = C.x + d, tz = C.z; for (let a = 0; a < 6.28 && !F.isWalkable(tx, tz); a += 0.4) { tx = C.x + Math.cos(a) * d; tz = C.z + Math.sin(a) * d; }
-                H.teleport(tx, tz); P.hp = P.maxHp; P.buffs.length = 0; P.ccdr = null; C.target = P.id;
+                H.teleport(tx, tz); H.simulate(0.05); P.hp = P.maxHp; P.buffs.length = 0; P.ccdr = null; C.target = P.id; // (a step, so the grid finds you where you stand)
                 const n0 = camp.members.size, x0 = C.x, z0 = C.z, hp0 = P.hp, did = L.late2KindMove(C, P, Math.hypot(P.x - C.x, P.z - C.z));
                 const o = { did, members: camp.members.size - n0, moved: +Math.hypot(C.x - x0, C.z - z0).toFixed(1), snare: !!P.buffs.find((b) => b.kind === 'snare') };
                 if (type === 'bear') o.pack = [...camp.members].map(F.getEnt).filter((m) => m && m !== C && m.alive && m.buffs.some((b) => b.kind === 'dmg')).length;
@@ -279,6 +279,27 @@ async def main():
                 await frames(page, 3)
                 await shot(page, f'standard_night_{Q}')
                 await page.evaluate("(() => { const H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
+
+        # ---- the herald's bounty on a risen champion, and the March hailing you by your name ----
+        if want('herald'):
+            r = await ev(page, 'herald', """(() => { const P = T.fresh('archer', 46), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
+              const out = {}; const o = L.late2HeraldBounty(); out.offered = !!o; if (!o) return out;
+              o.accept(); const b = prog.bounty; out.bounty = { name: b.name, camp: b.camp, risen: b.risen, need: b.need };
+              const camp = H.CAMPS[b.camp], other = T.risen().find((c) => c !== camp && c.realm === P.faction);
+              const kill = (c) => { let C = F.getEnt(c.eliteId); if (!C || !C.alive) { F.spawnMob(c, true); C = F.getEnt(c.eliteId); } C.damagers = new Map([[P.id, 1]]); F.killEnt(C, P); };
+              kill(other); out.afterOther = !!b.done;
+              kill(camp); out.afterOwn = !!b.done;
+              out.saved = (F.buildSave().char.bounty || {}).risen;
+              // hailed by name: a soldier of your realm beside you, out of a fight
+              prog.realmKills = 30; H.simulate(0.3); L.late2Wear('blooded');
+              const s = F.spawnRealmUnit(0, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
+              P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
+              L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
+              s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
+              out.errors = H.errors.slice(0, 3); return out; })()""")
+            check(r['offered'] and r['bounty']['risen'] == 1 and r['bounty']['need'] == 1, f"past 40 the herald offers a risen champion's bounty: {r.get('bounty')}")
+            check(not r['afterOther'] and r['afterOwn'] and r['saved'] == 1, 'another risen champion does not pay it; its own does, and the bounty is saved as a risen one')
+            check(r['hails'] == 1 and r['again'] == 1, 'a soldier of your realm beside you hails you by your name, once')
 
         # ---- the save ----
         if want('save') or want('reload'):
