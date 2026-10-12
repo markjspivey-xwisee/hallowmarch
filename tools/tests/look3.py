@@ -127,7 +127,8 @@ async def main():
               W.t = 0.93; let v = 0; while (v < 80 && ms.some((e) => !e.removed)) { H.simulate(0.5); K.lastEnemyNear = -1e9; v += 0.5; }
               out.v = v; out.home = ms.filter((e) => e.removed).length; out.stats = L3.MASON.stats;
               H.UI.modal = 'menu'; return out; })()""")
-            check(r['on'] and r['n'] == 2 and r['floors'] >= 6 and r['ladders'] >= 2, f"masons: a breached tower's scaffold goes up, its boards are floors and its ladders climbable, and two masons come out of the hall ({r['n']} after {r['t']} s; {r['floors']} floors, {r['ladders']} ladders)")
+            # ([look4] its first lift: the lifts above go up as the work comes up to them, 04d_look4.js; look4.py's lifts)
+            check(r['on'] and r['n'] == 2 and r['floors'] >= 2 and r['ladders'] >= 1, f"masons: a breached tower's scaffold goes up, its first lift's boards are floors and its ladder climbable, and two masons come out of the hall ({r['n']} after {r['t']} s; {r['floors']} floors, {r['ladders']} ladders)")
             check(r['sts'] == ['work', 'work'] and r['u'] < 90, f"they walk out by the gate and round the walls to it and set to work ({r['sts']} in {r['u']} s)")
             ys = sorted(r['ys'])
             check(abs(ys[0]) < 0.5 and abs(ys[1] - r['lift']) < 0.15, f"one at its foot, one up its ladder on the first lift's boards (heights {r['ys']} over the ground, the lift {r['lift']})")
