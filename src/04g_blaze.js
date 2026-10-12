@@ -23,7 +23,7 @@
 
 const BLAZE = { list: [], gates: [], ready: false, gaps: 0, stats: { lit: 0, spread: 0, out: 0, through: 0, rebuilt: 0, spared: 0, harm: 0, fell: 0, gateLit: 0, gateDown: 0, gateOut: 0, beats: 0, beatOut: 0, crews: 0, gaveUp: 0, playerBeats: 0 }, dirty: new Set() };
 const BZ_CELL = 1.6, DZ_MAX = 8, BZ_FLAMES = 2;
-const BZ_T = { climb: 16, burn: 55, spread: 7, quiet: 20, rebuild: 110, ember: 100, harm: 0.035, fresh: 140, npcCatch: 0.35, reach: 4, gate: 60, gateNpc: 0.3, beat: 0.075, beatP: 0.22, crew: 2, crewMax: 4 };
+const BZ_T = { climb: 16, burn: 55, spread: 7, quiet: 20, rebuild: 110, ember: 100, harm: 0.035, fresh: 140, npcCatch: 0.35, reach: 4, gate: 60, gateNpc: 0.3, beat: 0.16, beatP: 0.22, crew: 2, crewMax: 4 };
 const BZ_FALL_L = { hatch: null, T: null }; // the ladder fall's motion wants a ladder: none here (towerLadderStep only reads its hatch)
 const BLAZE_GLSL = /* glsl */`
     // [siege3] a burh's wall walk burning (04g_blaze.js): S = the keep (x, z, cos, sin of its yaw), Y = (the walk's top,
@@ -120,6 +120,7 @@ function blazeRingInit(C) {
   const S = C.S, tm = TEMPLE_MESH.get(S);
   if (!C.cutU) {
     C.cutU = castleCutUniforms();
+    towerBreachUpload(C); // (its tower slots empty: the defaults would cut everything above the stumps, 04g_breach.js)
     const m = shareMat(castleMat, { uFlash: buildingMat.uniforms.uFlash, ...C.cutU });
     C.mesh.material = m;
     if (tm) tm.material = m;
@@ -300,6 +301,20 @@ function deckBurnStep(c, dt, wet) {
   }
   if (c.t >= BZ_T.burn) deckThrough(c);
 }
+// a palisade stretch beaten out (its own step puts out a fire only as it climbs: 04g_burn.js)
+function palisadeOut(c) {
+  if (c.st !== 1) return;
+  for (const f of c.fires) f.until = GAME.t;
+  c.fires = []; c.heat = 0; c.st = c.char > 0.15 ? 2 : 0;
+  PAL.stats.out++; PAL.dirty.add(c.P);
+}
+function gateOut(G0) {
+  const Z = G0.bz, B = Z && Z.burn;
+  if (!B) return;
+  for (const f of B.fires) f.until = GAME.t;
+  Z.burn = null; if (Z.mat) Z.mat.uniforms.uEmber.value = 0;
+  BLAZE.stats.gateOut++;
+}
 function deckOut(c) {
   for (const f of c.fires) f.until = GAME.t;
   c.fires = []; c.heat = 0; c.st = c.char > 0.15 ? 2 : 0;
@@ -431,8 +446,8 @@ function gateBurnStep(G0, dt, wet) {
   B.t += dt;
   B.heat = clamp(B.heat + dt * (1 / BZ_T.climb) * (1 - 1.4 * wet), 0, 1);
   Z.char = Math.max(Z.char, clamp(B.t / BZ_T.gate, 0, 1) * 0.85 + B.heat * 0.15);
-  Z.mat.uniforms.uChar.value = Z.char; Z.mat.uniforms.uEmber.value = B.heat * 0.9;
-  if (B.heat <= 0) { for (const f of B.fires) f.until = GAME.t; Z.burn = null; Z.mat.uniforms.uEmber.value = 0; BLAZE.stats.gateOut++; return; }
+  Z.mat.uniforms.uChar.value = Z.char; Z.mat.uniforms.uEmber.value = B.heat * 0.4; // (the engines' embers glow in long checks: on a gate's broad leaves a softer glow)
+  if (B.heat <= 0) { gateOut(G0); return; }
   // the timbers give as they burn: the gate's strength goes with them, and it falls when they are spent
   D.hp -= D.maxHp * dt * (0.4 + 0.6 * B.heat) / BZ_T.gate; D.lastHitAt = GAME.t;
   if (GAME.t > B.tick) {
@@ -617,29 +632,29 @@ function blazeFiresOf(C) {
   const S = C.S;
   if (C.pal) for (const c of C.pal.cells) if (c.st === 1) {
     const l = palisadeLocal(c.side, c.a, -1.35), p = siteToWorld(S, l.x, l.z);
-    out.push({ key: c, kind: 'pal', x: c.x, y: S.y + 2, z: c.z, sx: p.x, sy: S.y, sz: p.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); } });
+    out.push({ key: c, kind: 'pal', x: c.x, y: S.y + 2, z: c.z, sx: p.x, sy: S.y, sz: p.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); if (c.heat <= 0.001) palisadeOut(c); } });
   }
   if (C.blaze && C.blaze.ring) for (const c of C.blaze.cells) if (c.st === 1) {
     // a hallow's log wall: beaten from the ground inside it
     const p = siteToWorld(S, Math.sin(c.am) * (BZ_RING.R0 - 1.6), Math.cos(c.am) * (BZ_RING.R0 - 1.6));
-    out.push({ key: c, kind: 'ring', x: c.x, y: S.y + 1.5, z: c.z, sx: p.x, sy: S.y, sz: p.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); } });
+    out.push({ key: c, kind: 'ring', x: c.x, y: S.y + 1.5, z: c.z, sx: p.x, sy: S.y, sz: p.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); if (c.heat <= 0.001 && c.st === 1) deckOut(c); } });
   }
   if (C.blaze && !C.blaze.ring) for (const c of C.blaze.cells) if (c.st === 1) {
     // beaten from the boards beside it (the nearest neighbour that still carries a body), else from below
     let st = null, bd = Infinity;
     for (const o of c.nb) if (o.f.active && o.st !== 1) { const d = dist2(o.x, o.z, c.x, c.z); if (d < bd) { bd = d; st = o; } }
-    out.push({ key: c, kind: 'deck', cell: st || c, x: c.x, y: c.y, z: c.z, sx: st ? st.x : c.x, sy: st ? st.y : c.y, sz: st ? st.z : c.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); } });
+    out.push({ key: c, kind: 'deck', cell: st || c, x: c.x, y: c.y, z: c.z, sx: st ? st.x : c.x, sy: st ? st.y : c.y, sz: st ? st.z : c.z, heat: c.heat, beat: (k) => { c.heat = Math.max(0, c.heat - k); if (c.heat <= 0.001 && c.st === 1) deckOut(c); } });
   }
   const G0 = C.gate;
   if (G0 && G0.bz && G0.bz.burn && blazeGateDoor(G0)) {
     const Z = G0.bz, p = siteToWorld(S, 0.6, G0.gz - 1.5), D = blazeGateDoor(G0);
-    out.push({ key: G0, kind: 'gate', x: D.x, y: S.y + 1.5, z: D.z, sx: p.x, sy: S.y, sz: p.z, heat: Z.burn.heat, beat: (k) => { Z.burn.heat = Math.max(0, Z.burn.heat - k); } });
+    out.push({ key: G0, kind: 'gate', x: D.x, y: S.y + 1.5, z: D.z, sx: p.x, sy: S.y, sz: p.z, heat: Z.burn.heat, beat: (k) => { if (!Z.burn) return; Z.burn.heat = Math.max(0, Z.burn.heat - k); if (Z.burn.heat <= 0.001) gateOut(G0); } });
   }
   for (const T of TOWER.list) {
     if (T.C !== C || !T.burn) continue;
     // a burning tower is fought from its foot inside the court (buckets thrown up, wet hides on poles): at half the pace
     const dx = S.x - T.wx, dz = S.z - T.wz, d = Math.hypot(dx, dz) || 1, r = (T.HO || T.RO) + 1.0;
-    out.push({ key: T, kind: 'tower', x: T.wx, y: S.y + 3, z: T.wz, sx: T.wx + dx / d * r, sy: S.y, sz: T.wz + dz / d * r, heat: T.burn.heat, half: true, beat: (k) => { T.burn.heat = Math.max(0, T.burn.heat - k * 0.5); } });
+    out.push({ key: T, kind: 'tower', x: T.wx, y: S.y + 3, z: T.wz, sx: T.wx + dx / d * r, sy: S.y, sz: T.wz + dz / d * r, heat: T.burn.heat, half: true, beat: (k) => { if (!T.burn) return; T.burn.heat = Math.max(0, T.burn.heat - k * 0.5); if (T.burn.heat <= 0.001) { for (const f of T.burn.fires) f.until = GAME.t; T.burn = null; TFIRE.stats.out++; TFIRE.dirty.add(T.C); } } });
   }
   return out;
 }
@@ -685,12 +700,12 @@ function blazeFightStep(e, dt) {
   const J = e.ai.fire, K = e.keep || e.temple, C = K && castleOf(K.site);
   if (!C) { e.ai.fire = null; return false; }
   const f = blazeFiresOf(C).find((q) => q.key === J.key);
-  if (!f) { e.ai.fire = null; if (e.anim.act === 21) e.anim.actT = e.anim.actDur; return false; }
+  if (!f) { if (J.route && e.ai.route === J.route) e.ai.route = null; e.ai.fire = null; if (e.anim.act === 21) e.anim.actT = e.anim.actDur; return false; }
   // a foe on it comes first
   if (GAME.t > (J.scan || 0)) {
     J.scan = GAME.t + 0.5;
     const t = topThreat(e);
-    if (t && dist2(t.x, t.z, e.x, e.z) < 7 * 7 && Math.abs(t.y - e.y) < 2.5) { e.ai.fire = null; return false; }
+    if (t && dist2(t.x, t.z, e.x, e.z) < 7 * 7 && Math.abs(t.y - e.y) < 2.5) { if (J.route && e.ai.route === J.route) e.ai.route = null; e.ai.fire = null; return false; }
   }
   e.target = null;
   const d = dist(e.x, e.z, f.sx, f.sz), dy = Math.abs(e.y - f.sy);
@@ -707,8 +722,19 @@ function blazeFightStep(e, dt) {
   if (GAME.t - J.bestT > 12 || GAME.t - J.since > 90) {
     // no nearer (a gap in the walk, a locked way up): it gives this fire up and goes back to its post
     (e.ai.fireBan || (e.ai.fireBan = new Map())).set(J.key, GAME.t + 30);
+    if (J.route && e.ai.route === J.route) e.ai.route = null;
     e.ai.fire = null; BLAZE.stats.gaveUp++;
     return false;
+  }
+  // a fire on the walk from below: up by a post's own way (its stair) as far as the walk, then along the boards
+  if (f.kind === 'deck' && e.y < f.sy - 0.6 && C.blaze && !deckCellUnder(C.blaze, e)) {
+    if (!J.route) J.route = blazeWayUp(e, C, f);
+    if (J.route) {
+      if (!e.ai.route) { e.ai.route = J.route; e.ai.ri = J.ri || 0; }
+      J.ri = e.ai.ri;
+      if (castleFollow(e, dt, 1.0)) return true;
+      J.route = null;
+    }
   }
   // up or down to the fire's floor by the castle's ways, then to it
   if (dy > 1.1) {
@@ -725,9 +751,35 @@ function blazeFightStep(e, dt) {
   if (f.kind === 'deck' && C.blaze) {
     const here = deckCellUnder(C.blaze, e);
     if (here && here !== f.cell) { const nx = deckNextToward(here, f.cell); if (nx) { moveToward(e, nx.x, nx.z, dt, 1.1, 0.2); return true; } }
+    if (!here) {
+      // at the head of a stair, on a landing or a tower's threshold: onto the nearest boards that carry first
+      let nb = null, bd = 9;
+      for (const c of C.blaze.cells) if (c.f.active && c.st !== 1 && Math.abs(c.y - e.y) < 1.2) { const d2 = dist2(c.x, c.z, e.x, e.z); if (d2 < bd) { bd = d2; nb = c; } }
+      if (nb) { moveToward(e, nb.x, nb.z, dt, 1.0, 0.15); return true; }
+    }
   }
   moveToward(e, f.sx, f.sz, dt, 1.15, 0.6);
   return true;
+}
+// a post's way (castleRoute) up onto the walk nearest the fire, cut where it reaches the walk, from where the body is
+function blazeWayUp(e, C, f) {
+  const K = C.S.keepRef;
+  if (!K) return null;
+  let best = null, bd = Infinity;
+  C.posts.forEach((Pp, i) => {
+    const Rt = castleRoute(K, i);
+    if (!Rt || Rt.some((q) => q.ladder)) return; // (the towers' ladders: a stair is the way up to a walk)
+    const k = Rt.findIndex((q) => q.y > f.sy - 0.4);
+    if (k < 0) return;
+    const q = Rt[k], d = dist(q.x, q.z, f.x, f.z) + dist(e.x, e.z, Rt[0].x, Rt[0].z) * 0.3;
+    if (d < bd) { bd = d; best = Rt.slice(0, k + 1); }
+  });
+  if (!best) return null;
+  // join it where the body is (the nearest point at about its height)
+  let j = 0, jd = Infinity;
+  best.forEach((q, i) => { const d = dist2(q.x, q.z, e.x, e.z) + (Math.abs(q.y - e.y) > 1.5 ? 400 : 0); if (d < jd) { jd = d; j = i; } });
+  e.ai.fire.ri = j;
+  return best;
 }
 // the walk's cell a body stands on, and the next cell on the way along the walk to another (through cells that carry)
 function deckCellUnder(B, e) { for (const c of B.cells) if (c.f.active && deckOn(c, e, 0.1)) return c; return null; }
