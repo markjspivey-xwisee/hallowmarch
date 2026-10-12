@@ -1605,7 +1605,7 @@ function updateLore(dt) {
   if (UI.modal === 'death') { if (!LORE.deathShown) { LORE.deathShown = true; deathNote(); } }
   else LORE.deathShown = false;
   // one field note at a time, never over an open window ([guide] nor a fight, unless it is about the fight)
-  if (LORE.queue.length && !UI.modal && performance.now() > LORE.noteUntil && GAME.player.alive) showNextNote();
+  if (LORE.queue.length && !UI.modal && performance.now() > LORE.noteUntil && GAME.player.alive && !g2TapHeld()) showNextNote(); // [guide2] nor while a finger is on a panel: a note laid over it would take the tap (10f_guide2.js)
   updateGuide(dt); // [guide] the next step's place (10e_guide.js)
   LORE.hudT -= dt;
   if (LORE.hudT <= 0) { LORE.hudT = 0.3; renderPathHud(); }

@@ -30,9 +30,9 @@ const g2TapHeld = () => performance.now() < G2.tap.until;
 document.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest('#hud')) return;
   G2.tap.downs++; G2.tap.pending = true; // (a tap on the HUD whose click is still to come: tests wait for it)
-  if (e.target.closest(HUD_ORDER.join(',') + ',#prompt')) G2.tap.until = performance.now() + 2500;
+  if (e.target.closest(HUD_ORDER.join(',') + ',#prompt')) G2.tap.until = Math.max(G2.tap.until, performance.now() + 2500); // (never shorter than a hold already asked for: a test holds the HUD from its measure to its tap)
 }, true);
-const g2TapUp = () => { if (g2TapHeld()) G2.tap.until = performance.now() + 1200; }; // (a busy phone's click may come most of a second after the finger lifts)
+const g2TapUp = () => { if (g2TapHeld()) G2.tap.until = Math.max(G2.tap.until, performance.now() + 1200); }; // (a busy phone's click may come most of a second after the finger lifts)
 document.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
 document.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
 document.addEventListener('click', () => { const mine = G2.tap.pending; if (mine) { G2.tap.pending = false; G2.tap.clicks++; } if (mine && g2TapHeld()) { G2.tap.until = 0; HUDL.k = 0; } }, true); // (only a press's own click lets the layout go on)
