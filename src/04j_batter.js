@@ -114,6 +114,7 @@ const houseHoled = (H, x, z) => !!(H && H.bat && H.bat.hr > 0.01 && houseIntact(
 // the arrow is kept in the leaf's own frame and drawn where the leaf now is (wallDoorPose)
 const _wdM = new THREE.Matrix4(), _wdV = new THREE.Vector3();
 function wallDoorRec(c, x, y, z, dx, dy, dz) {
+  if (c.tag === 'build' && c.build && c === c.build.leafColl) return buildDoorRec(c.build, x, y, z, dx, dy, dz); // [siege3] a built door's or gate's leaf (04j_rafters.js)
   if (c.tag === 'hdoor' || c.tag === 'prop') {
     const H = c.tag === 'hdoor' ? wallHouseOf(c) : null;
     if (H && (c === H.door.coll || c === H.door.collLeaf)) {

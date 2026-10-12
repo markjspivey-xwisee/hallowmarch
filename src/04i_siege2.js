@@ -111,10 +111,10 @@ function siegeStormTurn(e, s, Rt) {
     } else if (q.i <= 1 && !q.go) {
       // waiting too: the leader goes first, then whoever is nearest the rubble's foot
       const od = dist(o.x, o.z, p1.x, p1.z);
-      if (q.lead || (!s.lead && od < myD - 0.05)) ahead++;
+      if ((q.lead && q.i === 1) || (!s.lead && od < myD - 0.05)) ahead++; // [siege3] a leader still on its way (or fighting off the field) holds nobody back (04i_siege3.js)
     }
   }
-  if (inside >= STORM_IN || close || (ahead > 0 && !s.lead)) return false;
+  if (inside >= STORM_IN + (s.W.holding > GAME.t ? 1 : 0) || close || (ahead > 0 && !s.lead)) return false; // [siege3] a third while the first gather inside the door (04i_siege3.js)
   s.go = true;
   return true;
 }
@@ -193,6 +193,7 @@ function siegeStormStep(e, dt) {
       return true;
     }
   }
+  if (siegeStormHold(e, s, Rt, dt)) return true; // [siege3] inside the door, waiting for the others before going out (04i_siege3.js)
   const p = Rt[s.i], d = dist(e.x, e.z, p.x, p.z);
   if (d < STORM_R[s.i]) {
     s.i++; s.best = Infinity; s.bestT = GAME.t; s.side = 0;

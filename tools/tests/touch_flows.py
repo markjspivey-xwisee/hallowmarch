@@ -6,6 +6,7 @@ the book at a workbench, place and turn a building piece, order a companion, tam
 go into a keep's corner tower and climb it hatch by hatch ([land]); a Logres gate tower and a Thule corner tower, and a
 fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down turns you back on the rungs ([keeps]);
 shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]);
+beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall);
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
@@ -148,6 +149,22 @@ async def main():
             ok = await tap(page, '#t-use')
             st = await page.evaluate("(() => { __hm.simulate(0.5); const c = TF.palCast.pal.cells[TF.palC]; const out = { st: c.st }; c.st = 0; c.heat = 0; for (const f of c.fires) f.until = 0; c.fires = []; TF.P().brand = null; return out; })()")
             check(r['label'] == 'Set the palisade alight' and ok and st['st'] == 1, f"palisade: with a brand by an enemy burh's palisade, a tap on Use sets it alight ({r['label']}, {json.dumps(st)})")
+
+        if want('firewall'):
+            # [siege3] a fire on a burh's wall walk: standing on the boards beside it, a tap on Use beats the flames down,
+            # and a few more put it out (04g_blaze.js)
+            r = await page.evaluate("""(() => { const H = TF.H, Z = H.blaze; Z.blazeInit(); const P = TF.P(), C = H.fn.castleOf(H.REALMS[2].keepSites[0]), B = C.blaze;
+              const cs = B.cells.filter((c) => c.di === 0), c = cs[4], nb = cs[3]; Z.deckIgnite(c, 0.5); H.simulate(0.5);
+              P.brand = null; TF.stand(nb.x, nb.z, c.x, c.z); P.y = nb.y; H.simulate(0.1); H.frame(1/30); TF.fireC = c; return { label: TF.label(), heat: +c.heat.toFixed(2) }; })()""")
+            ok = await tap(page, '#t-use')
+            h1 = await page.evaluate("(() => { __hm.simulate(0.2); return { heat: +TF.fireC.heat.toFixed(2), act: TF.P().anim.act }; })()")
+            for i in range(8):
+                more = await page.evaluate("(() => { __hm.simulate(0.6); __hm.frame(1/30); return TF.fireC.st === 1; })()")
+                if not more: break
+                await tap(page, '#t-use')
+            st = await page.evaluate("(() => { __hm.simulate(0.3); const c = TF.fireC; return { st: c.st, heat: +c.heat.toFixed(2) }; })()")
+            check(r['label'] == 'Beat out the flames' and ok and h1['heat'] < r['heat'] and h1['act'] == 21, f"firewall: by a fire on a burh's walk a tap on Use beats the flames down ({r['label']}, heat {r['heat']} -> {h1['heat']}, action {h1['act']})")
+            check(st['st'] != 1, f"firewall: a few taps put it out ({json.dumps(st)})")
 
         if want('row'):
             # [water2] step into a moored boat from the jetty with Use, row with the stick, step out with Use

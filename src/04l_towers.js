@@ -988,6 +988,7 @@ function towerOffers(P, offer) {
   if (!TOWER.list.length) return;
   if (P.motion) { ladderOffers(P, offer); return; } // [keeps] on a ladder: climb on, climb down (04m_ladders.js)
   towerFireOffers(P, offer); // [keeps] a brand held to a timber tower's logs (04n_towerfire.js)
+  blazeOffers(P, offer); // [siege3] beat out the flames on a wall; a brand to a walk or a gate (04g_blaze.js)
   for (const T of TOWER.list) {
     if (Math.abs(P.x - T.S.x) > 30 || Math.abs(P.z - T.S.z) > 30) continue;
     for (const L of T.ladders) {

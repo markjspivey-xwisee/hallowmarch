@@ -679,7 +679,7 @@ function buildHouses(S, st, R) {
   const mIn = new THREE.Mesh(furn.build(), mat1); mIn.renderOrder = 1; scene.add(mIn);
   let mGl = null;
   if (glass.n) { mGl = new THREE.Mesh(glass.build(), shareMat(houseGlassMat, { uHA: TU.uHA, uHL: TU.uHL })); mGl.renderOrder = 6; scene.add(mGl); }
-  const dm = depthFrom(mat1);
+  const dm = depthFrom(mat1, HOUSE_DEPTH_FS); // [siege3] the hole a stone knocked in a roof lets the sun in (04j_rafters.js)
   HOUSE_DEPTHS.push(dm);
   shadowCaster(mExt, dm); shadowCaster(mIn, dm);
   S.houseSet = { recs, TU, mExt, mIn, mGl, mat: mat1 };
@@ -870,6 +870,7 @@ function fireLandsAt(x, y, z, r = 1, by = null) {
   let n = depthSparesBuilt(by) ? 0 : buildFireAt(x, y, z, r); // [building] placed structures catch (06k_build.js); [depth] not from your own side's spells
   n += towerFireAt(x, y, z, r, by); // [keeps] the timber towers of the burhs catch (04n_towerfire.js)
   n += palisadeFireAt(x, y, z, r, by); // [siege2] and the burhs' palisades (04g_burn.js)
+  n += deckFireAt(x, y, z, r, by); // [siege3] and their wall walks and gates of planks (04g_blaze.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole') continue;
     if (dist2(x, z, H.x, H.z) > (H.foot + r + 2) ** 2) continue;
@@ -890,6 +891,7 @@ function fireConeAt(x, z, dx, dz, range, half) {
   let n = buildFireCone(x, z, dx, dz, range, half); // [building] and placed structures (06k_build.js)
   n += towerFireCone(x, z, dx, dz, range, half); // [keeps] and the timber towers (04n_towerfire.js)
   n += palisadeFireCone(x, z, dx, dz, range, half); // [siege2] and the burhs' palisades (04g_burn.js)
+  n += deckFireCone(x, z, dx, dz, range, half); // [siege3] and their wall walks and gates (04g_blaze.js)
   for (const H of HOUSES) {
     if (H.state !== 'whole' || dist2(x, z, H.x, H.z) > (range + H.foot) ** 2) continue;
     for (const p of H.roofPts) {

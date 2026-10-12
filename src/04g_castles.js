@@ -230,7 +230,7 @@ function castleStone(C) {
   // towerGateStone, 04l_towers.js), and on over the gate between them behind the gatehouse
   const gx0 = GATE_TW.stone.x + 1.9, gseg = (we - gx0) / 2;
   for (const sx of [-1, 1]) C.floor(sx * (gx0 + gseg), hs - t / 2, gseg, t / 2, 0, H);
-  C.floor(0, hs - t / 2 - 0.55, GATE_TW.stone.x - 1.6, 0.75, 0, H);
+  C.floor(0, hs - t / 2 - 0.55, GATE_TW.stone.x - 1.6, 0.75, 0, H, H, H - 0.7, 0.7); // [siege3] a thin floor over the gate passage (it was solid to the ground: nobody walked in through a broken gate)
   C.coll(0, hs - t / 2 + 0.75, GATE_HW - 0.1, 0.62, 0, H - 0.1, 2.9);
   // crenellated parapets on the outer edges of the walks, from tower to tower ([land] no stairs climb the walks now)
   const pl = hs - 0.25, pe = TC - 2.9;
@@ -331,7 +331,7 @@ function castleTimber(C) {
   const wIn = hs - t / 2 - 0.5 - 1.6, wOut = hs - t / 2 - 0.5, wc = (wIn + wOut) / 2; // 12.8 .. 14.4
   const deck = (cx, cz, hx, hz, ends = true) => { // [keeps] ends: posts at its ends too (not where a tower's wall carries it)
     b.add(G.box, lm(M, cx, WT - 0.11, cz, 0, hx * 2, 0.22, hz * 2), MAT.wood, darker(st.wood, 1.05));
-    C.floor(cx, cz, hx + 0.06, hz + 0.06, 0, WT, WT, 0, 0.4);
+    (C.decks || (C.decks = [])).push({ cx, cz, hx, hz, y: WT, y0: 0, th: 0.4, f: C.floor(cx, cz, hx + 0.06, hz + 0.06, 0, WT, WT, 0, 0.4) }); // [siege3] the boards burn (04g_blaze.js)
     // joists under the boards and posts down to the ground along the inner edge
     const along = hx > hz, L = along ? hx * 2 : hz * 2, n = Math.max(2, Math.round(L / 2.6));
     for (let i = 0; i <= n; i++) {
@@ -361,7 +361,7 @@ function castleTimber(C) {
     // a landing at the head of the stair, joined to the walk
     b.add(G.box, lm(M, sx * 12.0, WT - 0.11, 4.75, 0, 1.55, 0.22, 0.9), MAT.wood, darker(st.wood, 1.02));
     b.add(G.box, lm(M, sx * 11.3, (WT - 0.3) / 2, 5.15, 0, 0.2, WT - 0.3, 0.2), MAT.logH, st.logs, S.y, 3);
-    C.floor(sx * 12.0, 4.75, 0.8, 0.5, 0, WT, WT, 0, 0.4);
+    C.decks.push({ cx: sx * 12.0, cz: 4.75, hx: 0.74, hz: 0.44, y: WT, y0: 0, th: 0.4, f: C.floor(sx * 12.0, 4.75, 0.8, 0.5, 0, WT, WT, 0, 0.4) }); // [siege3] (04g_blaze.js)
   }
   const foot = (sx) => [[sx * 10.2, -4.6], [sx * 12.0, -3.6], [sx * 12.0, 4.4], [sx * wc, 4.5]];
   // [keeps] the towers: shafts of logs on stone footings, a store, a room at the walks' height with doors onto them, a
@@ -393,9 +393,10 @@ function castleTemple(C) {
     const a0 = (i / segs) * TAU, a1 = ((i + 1) / segs) * TAU, am = (a0 + a1) / 2;
     if (Math.abs(angDiff(am, 0)) < 0.2) continue;
     const len = 2 * R0 * Math.sin((a1 - a0) / 2) + 0.3;
-    C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, 0.7 + 0.3, am, WT); // wide enough to cover the curve at the ends
-    const pr = R0 + 0.48;
+    const f = C.floor(Math.sin(am) * R0, Math.cos(am) * R0, len / 2, 0.7 + 0.3, am, WT); // wide enough to cover the curve at the ends
+    const pr = R0 + 0.48, nc = C.colls.length;
     castleParapet(C, Math.sin(a0) * pr, Math.cos(a0) * pr, Math.sin(a1) * pr, Math.cos(a1) * pr, WT, timber ? { th: 0.42, bh: 0.95, timber: true } : { th: 0.42, bh: 0.8, mh: 0.65, step: 1.45 });
+    if (timber) (C.ring || (C.ring = [])).push({ i, a0, a1, am, len, f, colls: C.colls.slice(nc) }); // [siege3] the log ring burns (04g_blaze.js)
   }
   for (const sx of [-1, 1]) castleArcFlight(C, 14.55, sx * 1.05, sx * 1.38, 0, WT, 1.25, 2, timber ? { timber: true, base: 0, rail: -sx } : { base: 0 });
   for (const sx of [-1, 1]) {
@@ -616,6 +617,7 @@ function castlePostSlots(K) {
 }
 function updateCastles(dt) {
   for (const C of CASTLES) { if (C.gate) updateGate(C.gate, dt); updateBreaches(C, dt); }
+  updateBlaze(dt); // [siege3] walks and gates of timber burning, the garrison at the fires (04g_blaze.js)
   updateTowers(dt); // [land] tower doors, hatches, the player at a ladder (04l_towers.js)
   updateSiege(dt); // [siege] engines, stones, sallies (04h_siege.js)
 }
@@ -633,6 +635,7 @@ function castleFollow(e, dt, speed = 0.85) {
   if (i >= Rt.length) { e.ai.route = null; e.ai.ri = 0; return false; }
   // [land] the next point is up or down a ladder: at its foot (or beside its hatch) the body climbs (04l_towers.js)
   if (Rt[i].ladder && Rt[i].ladder.gone) { e.ai.route = null; e.ai.ri = 0; return false; } // [keeps] burnt and fallen in (04n_towerfire.js)
+  if (BLAZE.gaps && Math.abs(Rt[i].y - e.y) < 0.6 && blazeGapOn(e.x, e.z, Rt[i].x, Rt[i].z, e.y)) { e.ai.route = null; e.ai.ri = 0; return false; } // [siege3] the walk ahead has burnt through (04g_blaze.js)
   if (Rt[i].ladder && towerLadderStart(e, Rt[i].ladder, Rt[i].y > e.y + 1 ? 1 : Rt[i].y < e.y - 1 ? -1 : 0)) return true;
   if (Rt[i].ladder && Math.abs(Rt[i].y - e.y) > 1) { const L = Rt[i].ladder, up = Rt[i].y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, speed, 0.05); return true; } // [keeps] not yet at its start: go there
   const px = e.x, pz = e.z;
@@ -668,6 +671,7 @@ function castleWaypoint(e, t) {
   const keep = e.ai.climb && GAME.t < e.ai.climb.until ? e.ai.climb.ri : -1;
   C.posts.forEach((P, i) => {
     const Rt = castleRoute(K, i), end = Rt[Rt.length - 1];
+    if (BLAZE.gaps && blazeRouteCut(Rt)) return; // [siege3] not over a walk burnt through (04g_blaze.js)
     let d = Infinity;
     for (const q of Rt) if (Math.abs(q.y - hi.y) < 1.6) d = Math.min(d, dist2(q.x, q.z, hi.x, hi.z));
     d = Math.min(d, dist2(end.x, end.z, hi.x, hi.z) + 4);
@@ -777,13 +781,14 @@ const CASTLE_CUT_GLSL = /* glsl */`
     }
     ${TBREACH_GLSL /* [walls] a breached stone tower (04g_breach.js) */}
     ${PAL_GLSL /* [siege2] a burh's palisade burning (04g_burn.js) */}
+    ${BLAZE_GLSL /* [siege3] a burh's wall walk burning (04g_blaze.js) */}
 `;
 const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
     ${a}
-    if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat)) discard; // [walls] (04g_breach.js); [siege2] (04g_burn.js)
+    if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat) || deckCut(vW, vMat)) discard; // [walls] (04g_breach.js); [siege2] (04g_burn.js); [siege3] (04g_blaze.js)
   `);
   fs = castlePatch(fs, 'float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0);', (a) => /* glsl */`${a}
     float tShel = towerShelterK(vW); wSnow *= 1.0 - tShel; wWet *= 1.0 - tShel; // [keeps] no snow on the floors inside a tower (before it whitens the albedo), nor a wet film`);
@@ -829,14 +834,14 @@ const CASTLE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   varying vec3 vW; varying float vMat;
   ${CASTLE_CUT_GLSL}
-  void main(){ if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat)) discard; gl_FragColor = vec4(1.0); }`; // [walls]; [siege2] vMat: the palisade's logs (04g_burn.js)
-const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] }, uKA: { value: [] }, uKB: { value: [] }, uKC: { value: [] }, uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: { value: [] }, uPB: { value: [] } } }); // [walls] uK*: the breached towers (04g_breach.js); [siege2] uP*: a burning palisade (04g_burn.js)
+  void main(){ if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat) || deckCut(vW, vMat)) discard; gl_FragColor = vec4(1.0); }`; // [siege3] deckCut (04g_blaze.js) // [walls]; [siege2] vMat: the palisade's logs (04g_burn.js)
+const castleMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: CASTLE_FS, uniforms: { uFlash: buildingMat.uniforms.uFlash, uCA: { value: [] }, uCB: { value: [] }, uCC: { value: [] }, uTA: { value: [] }, uTB: { value: [] }, uTR: { value: new THREE.Vector2(1, 0) }, uTS: { value: [] }, uKA: { value: [] }, uKB: { value: [] }, uKC: { value: [] }, uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: { value: [] }, uPB: { value: [] }, uDS: { value: new THREE.Vector4() }, uDY: { value: new THREE.Vector4() }, uDA: { value: [] }, uDB: { value: [] } } }); // [siege3] uD*: a burning wall walk (04g_blaze.js) // [walls] uK*: the breached towers (04g_breach.js); [siege2] uP*: a burning palisade (04g_burn.js)
 function castleCutUniforms() {
   const v = () => ({ value: Array.from({ length: CUT_MAX }, () => new THREE.Vector4()) });
   const t = (y) => ({ value: Array.from({ length: TW_FIRE_MAX }, () => new THREE.Vector4(y, 0, 0, 0)) }); // [keeps] the timber towers (04n_towerfire.js)
   const k = (y) => ({ value: Array.from({ length: TB_MAX }, () => new THREE.Vector4(0, y, 1e5, 0)) }); // [walls] the breached towers (04g_breach.js)
   const pz = (y) => ({ value: Array.from({ length: PZ_MAX }, () => new THREE.Vector4(0, y, 0, 0)) }); // [siege2] the palisade's zones (04g_burn.js)
-  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0), uKA: k(0), uKB: k(1), uKC: k(0), uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: pz(0), uPB: pz(1e5) }; // [keeps] uTS: the towers' rooms; [siege2] uP*
+  return { uCA: v(), uCB: v(), uCC: v(), uTA: t(0), uTB: t(1e5), uTR: { value: new THREE.Vector2(1, 0) }, uTS: t(0), uKA: k(0), uKB: k(1), uKC: k(0), uPS: { value: new THREE.Vector4() }, uPY: { value: new THREE.Vector4() }, uPA: pz(0), uPB: pz(1e5), uDS: { value: new THREE.Vector4() }, uDY: { value: new THREE.Vector4() }, uDA: { value: Array.from({ length: DZ_MAX }, () => new THREE.Vector4()) }, uDB: { value: Array.from({ length: DZ_MAX }, () => new THREE.Vector4()) } }; // [keeps] uTS: the towers' rooms; [siege2] uP*; [siege3] uD* (04g_blaze.js)
 }
 // split a box collider along one of its local axes: the ends stay, the middle (returned) can fall
 function castleSplitColl(c, axis, u0, u1) {

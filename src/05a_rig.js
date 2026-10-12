@@ -981,6 +981,19 @@ function humanVS(depth) {
       thL = mix(thL, pF.x, kk); shL = mix(shL, pF.y, kk); thR = mix(thR, pB.x, kk); shR = mix(shR, pB.y, kk);
       crouch = mix(crouch, 0.14, kk); bob *= 1.0 - kk; stepZ = mix(stepZ, 0.08 * drive, kk); capeX = mix(capeX, 0.35, kk);
     }
+    // [siege3] beating out flames (action 21, 04g_blaze.js): braced on bent knees and bent toward the fire, both arms swung
+    // up over the head and brought down hard in front, twice in each action, what the hands carried slung on the back
+    if (atype > 20.5 && atype < 21.5) {
+      float kk = smoothstep(0.0, 0.1, at) * (1.0 - smoothstep(0.9, 1.0, at)), still = kk * (1.0 - k);
+      float bt = fract(at * 2.0), up = smoothstep(0.0, 0.42, bt) * (1.0 - smoothstep(0.5, 0.68, bt));
+      float aw = mix(-0.5, -2.55, up);
+      uaL = mix(uaL, aw, kk); uaR = mix(uaR, aw + 0.1, kk); faL = mix(faL, -0.2 - 0.4 * up, kk); faR = mix(faR, -0.2 - 0.4 * up, kk);
+      uaLz = mix(uaLz, -0.2, kk); uaRz = mix(uaRz, 0.2, kk);
+      chestX = mix(chestX, 0.5 - 0.32 * up, kk); headX = mix(headX, 0.12 - 0.1 * up, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
+      vec2 bF = legIK(0.26, -0.735), bB = legIK(-0.32, -0.735);
+      thL = mix(thL, bF.x, still); shL = mix(shL, bF.y, still); thR = mix(thR, bB.x, still); shR = mix(shR, bB.y, still);
+      crouch = mix(crouch, 0.11, still); bob *= 1.0 - still; capeX = mix(capeX, 0.3, kk);
+    }
     // [water] swimming (iAnim.w < 0, 07b_swim.js): a head-up breaststroke when moving, treading water when still.
     // The body pitches forward about the waterline (1.3 m up, where it floats) so head and shoulders stay out.
     float swimK = clamp(-iAnim.w, 0.0, 1.0), swimPitch = 0.0;
@@ -1091,11 +1104,11 @@ function humanVS(depth) {
     // cloak, a blade, a mace or an axe across it from the right shoulder, a staff across it, a bow over the quiver).
     // They were held up off the rungs: the blade out to the side, the shield on the raised arm. In a blow from the rungs
     // (18) the right hand has its weapon again; the shield and the bow stay on the back
-    if (aBit > -0.5 && ((atype > 13.5 && atype < 14.5) || (atype > 17.5 && atype < 18.5))) {
+    if (aBit > -0.5 && ((atype > 13.5 && atype < 14.5) || (atype > 17.5 && atype < 18.5) || (atype > 20.5 && atype < 21.5))) { // [siege3] and beating out flames (21)
       int sb = int(aBit + 0.5);
       bool sS = sb == ${WBIT.shield} || sb == ${WBIT.shieldRound};
       bool sR = sb == ${WBIT.sword} || sb == ${WBIT.mace} || sb == ${WBIT.axe} || sb == ${WBIT.staff};
-      if (sS || sb == ${WBIT.bow} || (sR && atype < 14.5)) {
+      if (sS || sb == ${WBIT.bow} || (sR && (atype < 14.5 || atype > 20.5))) { // [siege3]
         int sm = int(iMisc.y + 0.5);
         bool slCape = ((sm >> ${WBIT.cape}) & 1) == 1, slQuiv = ((sm >> ${WBIT.quiver}) & 1) == 1;
         bool slShield = ((sm >> ${WBIT.shield}) & 1) == 1 || ((sm >> ${WBIT.shieldRound}) & 1) == 1;

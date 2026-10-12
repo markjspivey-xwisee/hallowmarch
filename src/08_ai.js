@@ -366,10 +366,10 @@ function onEntityKilled(e, killer) {
     const S = e.keepRef ? e.keepRef.site : e.templeRef.site;
     if (S.door) S.door.active = false;
     if (S.doorMesh) S.doorMesh.visible = false;
-    FX.splinters(e.x, e.y + 2, e.z);
+    if (!e.burntDown) FX.splinters(e.x, e.y + 2, e.z); // [siege3] a burnt gate falls in as ash and embers (04g_blaze.js)
     sfx('crash');
     if (e.templeRef) WAR.stats.templeGates++;
-    news(`The gate of ${S.name} has been broken!`, killer ? killer.faction : -1, e.faction === (GAME.player && GAME.player.faction) ? 'alarm' : 'normal');
+    news(e.burntDown ? `The gate of ${S.name} has burnt down!` : `The gate of ${S.name} has been broken!`, killer ? killer.faction : -1, e.faction === (GAME.player && GAME.player.faction) ? 'alarm' : 'normal'); // [siege3]
     return;
   }
   if (e.role === 'lord' && e.keep) {
@@ -604,6 +604,7 @@ function thinkPosted(e, dt, aggroR) {
   // garrison troops: hold a post, fight what comes near, never wander off. A soldier whose band is gone (one raised by
   // a priest after the rest fell, say) holds where it stands.
   const post = e.ai.post || (e.ai.post = { x: e.x, z: e.z, leash: 14 });
+  if (e.ai.fire && blazeFightStep(e, dt)) return; // [siege3] beating out a fire on its walls (04g_blaze.js)
   if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
   if ((e.ai.plug || e.ai.sally) && siegePostedThink(e, dt)) return; // [siege] holding a breach, or out on a sally (04h_siege.js)
   let t = getEnt(e.target);
@@ -888,8 +889,10 @@ function thinkSoldier(e, dt) {
     if (GAME.t > (e.ai.losCheck || 0)) { e.ai.losCheck = GAME.t + 0.6; e.ai.blocked = !segmentClear(e.x, e.z, L.x, L.z, 0.3, false); }
   } else e.ai.blocked = false;
   if (e.ai.blocked && wb.trail && wb.trail.length > 1 && followTrail(e, wb, dt)) return;
+  const sl = bandSlot(e, L, fx, fz); // [siege3] a place nobody can stand in (rubble, a fallen drum) moved toward the leader (04i_siege3.js)
+  if (bandUnstick(e, wb, L, sl.x, sl.z, dt)) return; // [siege3] pressed against something: along the leader's footsteps, a step aside
   e.ai.trailAbs = undefined;
-  moveToward(e, fx, fz, dt, d > 10 ? 1.15 : d > 3 ? 1.0 : 0.6, 0.6);
+  moveToward(e, sl.x, sl.z, dt, d > 10 ? 1.15 : d > 3 ? 1.0 : 0.6, 0.6);
 }
 // walk the leader's recent footsteps (used when a wall or palisade is in the way)
 function followTrail(e, wb, dt) {
