@@ -320,6 +320,10 @@ function shadowCaster(src, material) {
   SHADOW.proxies.push(m);
   return m;
 }
+// [perf2] a mesh taken away for good takes its shadow's proxies with it (they stayed in the shadow scene, holding it)
+function shadowDrop(src) {
+  for (let i = SHADOW.proxies.length - 1; i >= 0; i--) { const q = SHADOW.proxies[i]; if (q.userData.src === src) { SHADOW.scene.remove(q); SHADOW.proxies.splice(i, 1); } }
+}
 // a depth material from a colour material: same vertex stage and uniforms (live), only depth comes out
 function depthFrom(src, fs = DEPTH_FS, vs = null) {
   return new THREE.ShaderMaterial({ uniforms: src.uniforms, vertexShader: vs || src.vertexShader, fragmentShader: fs, side: THREE.DoubleSide, colorWrite: false });

@@ -70,11 +70,14 @@ function adaptQuality(dt) {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
+const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 async function loadStep(frac, msg, fn) {
   $('loadbar').style.width = Math.round(frac * 100) + '%';
   if (msg) $('loadmsg').textContent = msg;
   await nextPaint();
+  const t = performance.now(); // [perf2]
   if (fn) fn();
+  BOOT_STEPS.push([msg || '', +(performance.now() - t).toFixed(1), +t.toFixed(0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]); // [perf2] (the JS heap as the step ends: its garbage still in it)
 }
 async function boot() {
   const savePromise = loadSave().catch(() => null);

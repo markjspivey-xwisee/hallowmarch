@@ -37,13 +37,17 @@ function lodTris(N, s, emit) {
     }
   }
 }
+const TERRAIN_LOD_IDX = {}; // [perf2] every chunk's grid is the same: one 16-bit index a level for all 64 (each had its own 32-bit copy)
 function terrainLodGeo(g0, s) {
-  const idx = [], n = 65, v = (p) => p[1] * n + p[0];
-  lodTris(64, s, (a, b, c) => idx.push(v(a), v(b), v(c)));
+  if (!TERRAIN_LOD_IDX[s]) {
+    const idx = [], n = 65, v = (p) => p[1] * n + p[0];
+    lodTris(64, s, (a, b, c) => idx.push(v(a), v(b), v(c)));
+    TERRAIN_LOD_IDX[s] = new THREE.BufferAttribute(new Uint16Array(idx), 1);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', g0.attributes.position);
   g.setAttribute('normal', g0.attributes.normal);
-  g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+  g.setIndex(TERRAIN_LOD_IDX[s]);
   g.boundingSphere = g0.boundingSphere;
   return g;
 }

@@ -9,40 +9,68 @@ const STYLE = {
 };
 
 class Batch {
-  constructor() { this.pos = []; this.nrm = []; this.col = []; this.mat = []; this.ao = []; this.idx = []; this.n = 0; }
+  // [perf2] the vertices go into typed arrays grown by doubling (JS arrays of doubles held twice the bytes, were copied at
+  // each growth and once more into the geometry: the boot's largest garbage); `pos`, `nrm`, ... are views of what is filled
+  constructor() { this.n = 0; this.ni = 0; this._vc = 0; this._ic = 0; this._P = null; this._N = null; this._C = null; this._M = null; this._A = null; this._I = null; }
+  _room(nv, ni) {
+    if (this.n + nv > this._vc) {
+      const cap = Math.max(1024, this.n + nv, this._vc * 2), n = this.n;
+      const g = (a, k) => { const b = new Float32Array(cap * k); if (a) b.set(a.subarray(0, n * k)); return b; };
+      this._P = g(this._P, 3); this._N = g(this._N, 3); this._C = g(this._C, 3); this._M = g(this._M, 1); this._A = g(this._A, 1);
+      this._vc = cap;
+      this._growV(cap, g);
+    }
+    if (this.ni + ni > this._ic) { const cap = Math.max(3072, this.ni + ni, this._ic * 2), b = new Uint32Array(cap); if (this._I) b.set(this._I.subarray(0, this.ni)); this._I = b; this._ic = cap; }
+  }
+  _growV() {}
+  get pos() { return this._P ? this._P.subarray(0, this.n * 3) : new Float32Array(0); }
+  get nrm() { return this._N ? this._N.subarray(0, this.n * 3) : new Float32Array(0); }
+  get col() { return this._C ? this._C.subarray(0, this.n * 3) : new Float32Array(0); }
+  get mat() { return this._M ? this._M.subarray(0, this.n) : new Float32Array(0); }
+  get ao() { return this._A ? this._A.subarray(0, this.n) : new Float32Array(0); }
+  get idx() { return this._I ? this._I.subarray(0, this.ni) : new Uint32Array(0); }
   add(geo, m4, matId, color, baseY = null, aoH = 3) {
     const p = geo.attributes.position, nr = geo.attributes.normal;
-    const nm = new THREE.Matrix3().getNormalMatrix(m4);
-    const v = new THREE.Vector3(), nv = new THREE.Vector3();
+    const nm = _bNM.getNormalMatrix(m4);
+    const v = _bV, nv = _bNV;
     const base = this.n, flip = m4.determinant() < 0;
+    const n = geo.index ? geo.index.count : p.count;
+    this._room(p.count, Math.ceil(n / 3) * 3);
+    const P = this._P, N = this._N, C = this._C, M = this._M, A = this._A;
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i).applyMatrix4(m4);
       nv.fromBufferAttribute(nr, i).applyMatrix3(nm).normalize();
-      this.pos.push(v.x, v.y, v.z);
-      this.nrm.push(nv.x, nv.y, nv.z);
-      this.col.push(color[0], color[1], color[2]);
-      this.mat.push(matId);
-      this.ao.push(baseY === null ? 1 : clamp(0.45 + 0.55 * (v.y - baseY) / aoH, 0.45, 1));
+      const k = base + i, k3 = k * 3;
+      P[k3] = v.x; P[k3 + 1] = v.y; P[k3 + 2] = v.z;
+      N[k3] = nv.x; N[k3 + 1] = nv.y; N[k3 + 2] = nv.z;
+      C[k3] = color[0]; C[k3 + 1] = color[1]; C[k3 + 2] = color[2];
+      M[k] = matId;
+      A[k] = baseY === null ? 1 : clamp(0.45 + 0.55 * (v.y - baseY) / aoH, 0.45, 1);
     }
-    const n = geo.index ? geo.index.count : p.count, at = (i) => base + (geo.index ? geo.index.getX(i) : i);
+    const I = this._I, ix = geo.index, at = (i) => base + (ix ? ix.getX(i) : i);
+    let t = this.ni;
     for (let i = 0; i < n; i += 3) {
-      if (flip) this.idx.push(at(i), at(i + 2), at(i + 1));
-      else this.idx.push(at(i), at(i + 1), at(i + 2));
+      if (flip) { I[t++] = at(i); I[t++] = at(i + 2); I[t++] = at(i + 1); }
+      else { I[t++] = at(i); I[t++] = at(i + 1); I[t++] = at(i + 2); }
     }
+    this.ni = t;
     this.n += p.count;
   }
   build() {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
-    g.setAttribute('aCol', new THREE.Float32BufferAttribute(this.col, 3));
-    g.setAttribute('aMat', new THREE.Float32BufferAttribute(this.mat, 1));
-    g.setAttribute('aAO', new THREE.Float32BufferAttribute(this.ao, 1));
-    g.setIndex(this.n > 65535 ? new THREE.Uint32BufferAttribute(this.idx, 1) : new THREE.Uint16BufferAttribute(this.idx, 1));
+    const g = new THREE.BufferGeometry(), n = this.n;
+    const cut = (a, k) => (a ? a.slice(0, n * k) : new Float32Array(0));
+    g.setAttribute('position', new THREE.BufferAttribute(cut(this._P, 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(cut(this._N, 3), 3));
+    g.setAttribute('aCol', new THREE.BufferAttribute(cut(this._C, 3), 3));
+    g.setAttribute('aMat', new THREE.BufferAttribute(cut(this._M, 1), 1));
+    g.setAttribute('aAO', new THREE.BufferAttribute(cut(this._A, 1), 1));
+    const I = this.idx;
+    g.setIndex(n > 65535 ? new THREE.BufferAttribute(I.slice(), 1) : new THREE.BufferAttribute(Uint16Array.from(I), 1));
     g.computeBoundingSphere();
     return g;
   }
 }
+const _bNM = new THREE.Matrix3(), _bV = new THREE.Vector3(), _bNV = new THREE.Vector3(); // [perf2] (Batch.add's own, made once)
 const G = {
   box: new THREE.BoxGeometry(1, 1, 1),
   cyl8: new THREE.CylinderGeometry(1, 1, 1, 8, 1),

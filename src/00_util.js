@@ -1,6 +1,7 @@
 /* ================================================================== */
 /* util                                                                */
 /* ================================================================== */
+const BOOT_T0 = performance.now(); // [perf2] when the game's script began to run (after the page and three.js: 13x_perf2.js)
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);

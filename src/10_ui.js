@@ -196,7 +196,7 @@ function updateHUD(dt) {
     const lk = s.querySelector('.lock'); setT(lk, locked ? `Lv ${A.level}` : '');
     const rem = Math.max((P.cds[A.id] || 0) - GAME.t, P.gcdUntil - GAME.t, 0);
     const total = rem > P.gcdUntil - GAME.t + 0.01 ? A.cd : 0.6;
-    s.style.setProperty('--p', rem > 0 ? (rem / Math.max(total, 0.01)).toFixed(3) : 0);
+    { const pv = rem > 0 ? (rem / Math.max(total, 0.01)).toFixed(3) : 0; if (s._p !== pv) { s.style.setProperty('--p', pv); s._p = pv; } } // [perf2] (each slot's style was set every frame, changed or not)
     setT(s.querySelector('.cdt'), rem > 1 ? Math.ceil(rem) : '');
     setT(s.querySelector('.cost'), A.id === 'renew' && resolveTarget(P, A, t) === P && renewRote(P) ? A.cost * RENEW_ROTE_K : A.cost); // [balance6] renewing yourself by rote costs more: the slot shows that price (07c_balance6.js)
     s.classList.toggle('nopower', !locked && P.power < A.cost);
@@ -254,16 +254,17 @@ function buildMapImage() {
       const hx = heightAt(x + 2, z) - heightAt(x - 2, z), hz = heightAt(x, z + 2) - heightAt(x, z - 2);
       const shade = clamp(0.78 + (-hx * 0.55 - hz * 0.55) * 0.12, 0.45, 1.2);
       const rw = realmWeightsAt(x, z);
-      let col = [0.34, 0.42, 0.24];
-      for (let k = 0; k < 3; k++) col = col.map((v, i) => v + (rcols[k][i] - 0.35) * rw[k] * 0.18);
+      // [perf2] the same sums channel by channel (six arrays a pixel were made and thrown away: a phone spent seconds here)
+      let c0 = 0.34, c1 = 0.42, c2 = 0.24;
+      for (let k = 0; k < 3; k++) { const rc = rcols[k], w = rw[k]; c0 = c0 + (rc[0] - 0.35) * w * 0.18; c1 = c1 + (rc[1] - 0.35) * w * 0.18; c2 = c2 + (rc[2] - 0.35) * w * 0.18; }
       const rk = sampleGrid(W.rock, x, z), rd = sampleGrid(W.road, x, z), fl = sampleGrid(W.field, x, z);
-      col = col.map((v, i) => lerp(v, [0.5, 0.48, 0.45][i], rk));
-      if (h > 24) col = col.map((v) => lerp(v, 0.88, clamp((h - 24) / 16, 0, 0.8)));
-      col = col.map((v, i) => lerp(v, [0.72, 0.6, 0.3][i], fl * 0.8));
-      col = col.map((v, i) => lerp(v, [0.6, 0.5, 0.36][i], rd * 0.9));
-      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) col = wa.fx || wa.fz ? [0.16, 0.3, 0.38] : [0.12, 0.24, 0.32]; } // [water] lakes, ponds and rivers
+      c0 = lerp(c0, 0.5, rk); c1 = lerp(c1, 0.48, rk); c2 = lerp(c2, 0.45, rk);
+      if (h > 24) { const sk = clamp((h - 24) / 16, 0, 0.8); c0 = lerp(c0, 0.88, sk); c1 = lerp(c1, 0.88, sk); c2 = lerp(c2, 0.88, sk); }
+      c0 = lerp(c0, 0.72, fl * 0.8); c1 = lerp(c1, 0.6, fl * 0.8); c2 = lerp(c2, 0.3, fl * 0.8);
+      c0 = lerp(c0, 0.6, rd * 0.9); c1 = lerp(c1, 0.5, rd * 0.9); c2 = lerp(c2, 0.36, rd * 0.9);
+      { const wa = waterAt(x, z); if (wa && wa.depth > 0.05) { if (wa.fx || wa.fz) { c0 = 0.16; c1 = 0.3; c2 = 0.38; } else { c0 = 0.12; c1 = 0.24; c2 = 0.32; } } } // [water] lakes, ponds and rivers
       const k = (py * S + px) * 4;
-      img.data[k] = clamp(col[0] * shade, 0, 1) * 255; img.data[k + 1] = clamp(col[1] * shade, 0, 1) * 255; img.data[k + 2] = clamp(col[2] * shade, 0, 1) * 255; img.data[k + 3] = 255;
+      img.data[k] = clamp(c0 * shade, 0, 1) * 255; img.data[k + 1] = clamp(c1 * shade, 0, 1) * 255; img.data[k + 2] = clamp(c2 * shade, 0, 1) * 255; img.data[k + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);

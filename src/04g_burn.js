@@ -239,8 +239,8 @@ function palisadeScaffoldGeo(W) {
 // a gap built back: the colliders close again, the scaffold comes down
 function palisadeGapClose(P, W) {
   for (const q of W.colls) { q.mid.active = true; }
-  if (W.wreck) { W.wreck.removeFromParent(); W.wreck.geometry.dispose(); }
-  if (W.scaffold) { W.scaffold.removeFromParent(); W.scaffold.geometry.dispose(); }
+  if (W.wreck) { W.wreck.removeFromParent(); W.wreck.geometry.dispose(); shadowDrop(W.wreck); } // [perf2] and its shadow (02_render.js)
+  if (W.scaffold) { W.scaffold.removeFromParent(); W.scaffold.geometry.dispose(); shadowDrop(W.scaffold); }
   look3ScaffoldDrop(W); // [look3] its floors and ladders go with it (04d_look3.js)
   W.state = 'whole';
   P.gaps.splice(P.gaps.indexOf(W), 1);
