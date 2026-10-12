@@ -94,7 +94,7 @@ function bandOutOfTower(e, T, dt) {
 function walledAt(x, z) {
   if (x > DUN_X0) return null;
   for (const K of WAR.keeps) { if (dist2(x, z, K.site.x, K.site.z) > 26 * 26) continue; const C = castleOf(K.site); if (C && castleInside(C, x, z)) return { C, ref: K }; }
-  for (const T of WAR.temples) { if (dist2(x, z, T.site.x, T.site.z) > 20 * 20) continue; const C = castleOf(T.site); if (C && castleInside(C, x, z)) return { C, ref: T }; }
+  for (const T of WAR.temples) { if (dist2(x, z, T.site.x, T.site.z) > 15 * 15) continue; const C = castleOf(T.site); if (C) return { C, ref: T }; } // (a temple's ring is round, 16 m: castleInside's square box reached out past it)
   return null;
 }
 // A band's soldier in a court whose way lies outside those walls (a leader whose next point is out on the field, a member
@@ -208,7 +208,7 @@ function bandInsideKeep(wb, K) {
 function bandStartNode(L) {
   if (!L || L.x > DUN_X0) return null;
   for (const K of WAR.keeps) { const C = castleOf(K.site); if (C && dist2(L.x, L.z, K.site.x, K.site.z) < 26 * 26 && castleInside(C, L.x, L.z)) return K.nav.court; }
-  for (const T of WAR.temples) { const C = castleOf(T.site); if (C && dist2(L.x, L.z, T.site.x, T.site.z) < 20 * 20 && castleInside(C, L.x, L.z)) return T.nav.tc; }
+  for (const T of WAR.temples) if (dist2(L.x, L.z, T.site.x, T.site.z) < 15 * 15) return T.nav.tc; // (inside its round wall)
   return null;
 }
 
