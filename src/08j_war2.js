@@ -28,6 +28,7 @@ const WAR2 = { stats: { down: 0, engineSettled: 0, engineGivenUp: 0 } };
 function bandDownStep(e, wb, L, O, dt) {
   if (e.fixedY !== null || e.motion || e.carrying != null) return false;
   if (O && O.phase === 'breach') return false;
+  if (bandRubbleOut(e, wb, L, dt)) return true;
   // in a tower's ground room (walked in at its door after a foe, or on the way across the court): out at its door
   const R = TOWER.list.length ? towerRoomOf(e) : null;
   if (R && R.lv === 0 && !(e !== L && L && towerRoomOf(L) && towerRoomOf(L).T === R.T)) return bandOutOfTower(e, R.T, dt);
@@ -74,6 +75,33 @@ function bandWallsDown(e, wb, L, O, dt) {
   if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true;
   if (wp.ladder && Math.abs(wp.y - e.y) > 1) { const Ld = wp.ladder, up = wp.y > e.y; moveToward(e, up ? Ld.fx : Ld.ox, up ? Ld.fz : Ld.oz, dt, 1.0, 0.05); return true; }
   moveToward(e, wp.x, wp.z, dt, 1.0, 0.05);
+  return true;
+}
+// in a fallen tower's footprint (its store room, over its rubble) and not storming it: a band going in by a broken gate
+// past a fallen gate tower left one standing in the drum while the rest went on (siege2.py's stormall, 84 s at 1.2 m
+// from the drum's middle: its footsteps and its place lay beyond the drum's wall). Out by the stormers' way: through the
+// store room's courtyard door into the court when its band is there or goes there, else back over the rubble
+function bandRubbleOut(e, wb, L, dt) {
+  let B = e.ai.w2rub;
+  if (!B) {
+    if (!TBREACH.list.length || GAME.t < (e.ai.w2rubBan || 0) || (e.ai.storm && !e.ai.storm.done)) return false;
+    let W = null;
+    for (const w of TBREACH.list) {
+      const T = w.T;
+      if (w.state !== 'breach' || dist2(e.x, e.z, T.wx, T.wz) > (T.RI + 0.2) ** 2 || e.y > T.S.y + T.yG + 1.6) continue;
+      W = w; break;
+    }
+    if (!W) return false;
+    const Rt = towerBreachRoute(W), g = e === L ? wb.leaderGoal : L;
+    const toCourt = !!g && castleInside(W.C, g.x, g.z);
+    B = e.ai.w2rub = { W, pts: toCourt ? [Rt[3], Rt[4], Rt[5]] : [Rt[2], Rt[1], Rt[0]], i: 0, t: GAME.t };
+    WAR2.stats.rubbleOut = (WAR2.stats.rubbleOut || 0) + 1;
+  }
+  if (B.W.state !== 'breach' || B.i >= B.pts.length || GAME.t - B.t > 20) { e.ai.w2rub = null; if (B.i < B.pts.length) e.ai.w2rubBan = GAME.t + 10; return false; }
+  const q = B.pts[B.i];
+  if (dist2(e.x, e.z, q.x, q.z) < 0.8 * 0.8) { B.i++; return true; }
+  if (e.mount) dismount(e);
+  moveToward(e, q.x, q.z, dt, 1.0, 0.1);
   return true;
 }
 // out of a tower's ground room by its courtyard door: to the door from inside, then a pace out through it
