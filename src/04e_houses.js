@@ -570,6 +570,8 @@ const HOUSE_FS = (() => {
       alb = mix(alb, vec3(0.05, 0.043, 0.037) * (0.75 + 0.5 * nz), clamp(burnt, 0.0, 1.0));
       hGlow = vec3(2.6, 0.72, 0.15) * glow;
     }
+    ${LOOK3_CRACK_GLSL} // [look3] (04d_look3.js)
+    ${LOOK3_CRAZE_GLSL}
     // [siege2] battered by stones (04j_batter.js): long jagged cracks over the walls that branch as it weakens, grit and
     // dust ground into it; round the hole in the roof the broken ends of the covering and its timbers
     void houseBatter(inout vec3 alb, int hi, int kind, int m){
@@ -577,14 +579,20 @@ const HOUSE_FS = (() => {
       float k = D.w > 1.5 ? 1.0 : D.w;
       if (k < 0.002 || kind == 3 || kind == 4 || kind == 6) return;
       if (kind != 1 && kind != 7) {
-        float c1 = 1.0 - smoothstep(0.0, 0.07, abs(vnoise(vW.xz * 0.9 + vec2(vW.y * 1.3, -vW.y * 0.7)) - 0.5) * (0.6 + 1.6 * vnoise(vW.xz * 3.7 - vW.y)));
-        float c2 = 1.0 - smoothstep(0.0, 0.045, abs(vnoise(vec2(vW.x + vW.z, vW.y) * 2.6 + 5.0) - 0.5));
-        float cr = clamp(c1 * smoothstep(0.08, 0.45, k) + c2 * smoothstep(0.4, 0.85, k), 0.0, 1.0) * (1.0 - smoothstep(0.006, 0.03, length(fwidth(vW))) * 0.5);
+        // [look3] stone cracks along its joints (look3Crack), plaster, daub and timber in jagged runs that meet at angles
+        // (look3Craze, 04d_look3.js), on the upright faces: they were the iso-lines of a smooth noise, dark vines
+        vec3 hn = safeNormalize(vN);
+        vec2 huv = planarUV(vW, hn);
+        float cr = (m == 0 || m == 9 ? look3Crack(huv, k).x : look3Craze(huv, k)) * (1.0 - smoothstep(0.55, 0.8, abs(hn.y)));
         alb *= 1.0 - 0.78 * cr;
         alb = mix(alb, alb * vec3(0.8, 0.76, 0.7), smoothstep(0.15, 1.0, k) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
         // plaster and daub knocked off in patches, the laths and wattle under them showing; stone faces chipped dark
-        float sp = smoothstep(0.66 - 0.2 * k, 0.7 - 0.2 * k, vnoise(vW.xz * 0.85 + vec2(vW.y * 1.1, -vW.y * 0.6) + 3.7)) * step(0.12, k) * step(abs(vN.y), 0.6);
-        if (m == 2) alb = mix(alb, vec3(0.34, 0.26, 0.17) * (0.7 + 0.55 * vnoise(vec2(dot(vW.xz, vec2(0.7, 0.7)) * 9.0, vW.y * 30.0))), sp);
+        // [look3] smaller patches with broken, jagged edges (a finer noise in the threshold), the step down to the laths
+        // shaded just inside the edge and the broken plaster round it pale: they were big soft blots, like stains
+        float spn = vnoise(vW.xz * 1.5 + vec2(vW.y * 1.9, -vW.y * 1.1) + 3.7) * 0.78 + vnoise(vW.xz * 7.3 + vec2(vW.y * 6.1, vW.y * 2.3)) * 0.22;
+        float spT = 0.7 - 0.12 * k, spOn = step(0.12, k) * step(abs(vN.y), 0.6);
+        float sp = smoothstep(spT, spT + 0.008, spn) * spOn, spLip = smoothstep(spT - 0.03, spT, spn) * (1.0 - sp) * spOn, spIn = sp * (1.0 - smoothstep(spT + 0.008, spT + 0.04, spn));
+        if (m == 2) { alb = mix(alb, vec3(0.34, 0.26, 0.17) * (0.7 + 0.55 * vnoise(vec2(dot(vW.xz, vec2(0.7, 0.7)) * 9.0, vW.y * 30.0))), sp); alb *= (1.0 - 0.45 * spIn) * (1.0 + 0.22 * spLip); }
         else alb *= 1.0 - 0.5 * sp;
       }
       if ((kind == 1 || kind == 7) && D.z > 0.01) { float d = distance(vW.xz, D.xy) - D.z; alb *= 0.35 + 0.65 * smoothstep(0.05, 0.55, d); }

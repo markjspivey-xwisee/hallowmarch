@@ -664,18 +664,26 @@ const GLSL_TREE_HAND = /* glsl */`
   }
   // a leaf of a crown seen near: x how far into a leaf (0 the gap between leaves), y its own tone, zw its tilt. Cells of
   // a jittered grid on the plane the face looks along, each an elongated leaf turned its own way
+  // [look3] two grids of leaves, a size apart and turned to each other (the bigger leaves fewer), each leaf its own
+  // size, length and taper to a point: one grid of one shape read as a regular pattern of beads
   vec4 treeLeafAt(vec3 w, vec3 n, float tint){
     vec3 a = abs(n);
-    vec2 q = (a.x > a.y && a.x > a.z ? w.zy : a.y > a.z ? w.xz : w.xy) * 6.5 + tint * 31.0;
-    vec2 ip = floor(q), o = step(0.5, fract(q)) - 1.0, id = ip;
+    vec2 q0 = a.x > a.y && a.x > a.z ? w.zy : a.y > a.z ? w.xz : w.xy, id = vec2(0.0);
     float best = 9.0;
-    for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
-      vec2 c = ip + o + vec2(float(i), float(j)), h = hash22(c);
-      vec2 r = c + 0.15 + 0.7 * h - q;
-      float an = h.x * 6.2831, ca = cos(an), sa = sin(an);
-      vec2 rr = vec2(r.x * ca + r.y * sa, (r.y * ca - r.x * sa) * 1.9);
-      float e = dot(rr, rr);
-      if (e < best) { best = e; id = c; }
+    for (int g = 0; g < 2; g++) {
+      float fg = float(g);
+      vec2 q = (g == 0 ? q0 * 6.5 : vec2(q0.x * 0.8 - q0.y * 0.6, q0.x * 0.6 + q0.y * 0.8) * 4.3) + tint * 31.0 + fg * 17.3;
+      vec2 ip = floor(q), o = step(0.5, fract(q)) - 1.0;
+      for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
+        vec2 c = ip + o + vec2(float(i), float(j)), h = hash22(c + fg * 41.0);
+        if (g == 1 && h.y > 0.6) continue;
+        vec2 r = c + 0.15 + 0.7 * h - q, cs = normalize(hash22(c + 5.1 + fg * 3.0) - 0.5 + 1e-3);
+        vec2 rr = vec2(r.x * cs.x + r.y * cs.y, r.y * cs.x - r.x * cs.y);
+        float sz = 0.78 + 0.44 * fract(h.y * 7.3), el = 1.55 + 0.85 * fract(h.x * 9.7);
+        rr.y *= el * (1.0 + 0.55 * clamp(rr.x * 2.2, -0.45, 1.0));
+        float e = dot(rr, rr) / (sz * sz);
+        if (e < best) { best = e; id = c + fg * 97.0; }
+      }
     }
     return vec4(1.0 - smoothstep(0.26, 0.72, best), hash12(id + 3.1), hash22(id + 7.7) - 0.5);
   }
@@ -689,7 +697,10 @@ const treeMat = mat({
     attribute vec4 iPos; attribute vec2 iRot;
     varying vec3 vW; varying vec3 vN; varying float vPart; varying float vAO; varying float vTint; varying vec3 vLocal; varying float vFadeFar;
     void main(){
-      vFadeFar = smoothstep(uNearTree.z - 3.5, uNearTree.z, distance(iPos.xz, uNearTree.xy));
+      // [look3] each tree hands over within its own fifth of the band (by its tint, the same on its near self: 04c_trees.js):
+      // across the whole 3.5 m band every crown in it showed both looks at once, cards over lobes
+      float hb = (distance(iPos.xz, uNearTree.xy) - uNearTree.z + 3.5) / 3.5, ho = fract(iRot.y * 41.3 + 0.17) * 0.78;
+      vFadeFar = smoothstep(ho, ho + 0.22, hb);
       if (vFadeFar <= 0.0) { vW = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vPart = 0.0; vAO = 1.0; vTint = 0.0; vLocal = vec3(0.0); gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
       float c = cos(iRot.x), s = sin(iRot.x);
       vec3 p = position * iPos.w;

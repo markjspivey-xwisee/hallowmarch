@@ -787,3 +787,151 @@ window.LK = {
     return { ...L.eye(sp.x - 2, sp.z - 7.5, w.x + 1.0, F.heightAt(w.x, w.z) + 0.9, w.z, 1.6), rushing: !!(w.motion && w.motion.rush), x: +(w.x - sp.x).toFixed(1) };
   });
 })();
+// [look3] (version 14) what version 13's look left and what version 13 added, each from a fixed camera
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  const castleOf = (L, r, k) => { const S = L.keepSite(r, k); return { S, C: L.F.castles().find((q) => q.S === S) }; };
+  // wear a section with light stones until it is worn to k (not breached), its keep kept from building it back
+  LK.wear = function (C, W, k) {
+    const F = this.F, H = this.H, S = C.S, K = S.keepRef;
+    if (K) K.lastEnemyNear = H.GAME.t + 1e6;
+    if (W.state !== 'whole' || W.wear >= k) return W.wear;
+    const src = F.spawnRealmUnit(((K ? K.realm : 0) + 1) % 3, 'warrior', 30, 'guard', S.x + 90, S.z + 90, {}); src.hp = src.maxHp = 1e9;
+    const p = W.kind === 'tower' ? { x: W.T.wx + W.ox * (W.T.RO + 0.2), z: W.T.wz + W.oz * (W.T.RO + 0.2) } : { x: W.wx, z: W.wz };
+    for (let n = 0; W.state === 'whole' && W.wear < k && n < 400; n++) F.castleSiegeHit(src, p.x, p.z, 0.4, 0.15);
+    F.removeEnt(src);
+    return W.wear;
+  };
+  // the side of a curtain section away from its keep's middle: a point `out` m from its face, `up` m high
+  const outside = (L, C, W, out, along, up) => {
+    const S = C.S; let ox = -W.waz, oz = W.wax;
+    if ((W.wx + ox - S.x) ** 2 + (W.wz + oz - S.z) ** 2 < (W.wx - S.x) ** 2 + (W.wz - S.z) ** 2) { ox = -ox; oz = -oz; }
+    return { x: W.wx + ox * (W.across + out) + W.wax * along, y: S.y + up, z: W.wz + oz * (W.across + out) + W.waz * along };
+  };
+  // a Logres curtain worn by stones: its cracks up close and from the field
+  D('look3', 'crack_curtain', (L) => {
+    const { C } = castleOf(L, 0, 1), W = C.sections.find((q) => q.kind === 'stone');
+    const k = L.wear(C, W, 0.8);
+    L.hush(W.wx, W.wz, 30);
+    const c = outside(L, C, W, 4.2, 1.2, 1.9), t = outside(L, C, W, 0, -0.6, 2.6);
+    L.away(C.S.x + 60, C.S.z + 60);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), wear: +k.toFixed(2) };
+  });
+  D('look3', 'crack_curtain_far', (L) => {
+    const { C } = castleOf(L, 0, 1), W = C.sections.find((q) => q.kind === 'stone');
+    L.wear(C, W, 0.8);
+    const c = outside(L, C, W, 15, 7, 3.0), t = outside(L, C, W, 0, 0, 3.0);
+    L.away(C.S.x + 60, C.S.z + 60);
+    return L.cam(c.x, c.y, c.z, t.x, t.y, t.z);
+  });
+  // a Logres corner tower worn by stones (not yet breached), from the field
+  D('look3', 'crack_tower', (L) => {
+    const { S, C } = castleOf(L, 0, 1), W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === 1 && q.T.sz === 1), T = W.T;
+    const k = L.wear(C, W, 0.85);
+    const tp = (a, r, y) => { const q = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: q.x, y: S.y + y, z: q.z }; };
+    L.hush(T.wx, T.wz, 25);
+    const c = tp(W.aOut + 0.35, T.RO + 6.5, 2.4), t = tp(W.aOut, T.RO * 0.5, 3.4);
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), wear: +k.toFixed(2) };
+  });
+  // the mended tower's scaffold up close (look2's mend from 14 m: from 7)
+  D('look3', 'scaffold_tower', (L) => {
+    const r = L.views.mend.call(L, L); if (r && r.skip) return r;
+    const S = L.keepSite(0, 0), C = L.F.castles().find((q) => q.S === S), W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1), T = W.T;
+    const tp = (a, rr, y) => { const q = L.F.siteToWorld(S, T.cx + Math.sin(a) * rr, T.cz + Math.cos(a) * rr); return { x: q.x, y: S.y + y, z: q.z }; };
+    const c = tp(W.aOut - 0.45, T.RO + 8.5, 3.2), t = tp(W.aOut + 0.15, T.RO, 4.2);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), state: W.state, t: +(W.t || 0).toFixed(2), info: W.scafInfo };
+  });
+  // a Thule burh's palisade burnt through and built back: behind its scaffold, then whole with its pale new logs
+  const palGap = (L, stage) => {
+    const H = L.H, PLm = H.palisade, S = L.keepSite(2, 1), C = L.F.castles().find((q) => q.S === S), K = S.keepRef;
+    PLm.palisadeInit();
+    const P = C.pal;
+    if (!L.palW) {
+      L.hush(S.x, S.z, 45);
+      const c1 = P.cells.find((c) => c.side === 1 && Math.abs(c.a) < 1);
+      PLm.palisadeIgnite(c1, 1); c1.t = PLm.PAL_T.burn - 0.5; H.UI.modal = null; H.simulate(1.5);
+      for (const c of P.cells) if (c.st === 1) { for (const f of c.fires || []) f.until = 0; c.st = 2; c.heat = 0; }
+      PLm.PAL.dirty && PLm.PAL.dirty.add(P);
+      L.palW = P.gaps[0]; L.palC = c1; H.UI.modal = 'menu';
+    }
+    const W = L.palW;
+    if (!W) return null;
+    if (stage === 'repair' && W.state === 'breach') { K.lastEnemyNear = -1e9; H.UI.modal = null; for (let i = 0; i < 40 && W.state === 'breach'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; } H.UI.modal = 'menu'; }
+    if (stage === 'repair' && W.state === 'repair' && W.t < 0.3) { W.t = 0.35; H.UI.modal = null; H.simulate(0.5); H.UI.modal = 'menu'; }
+    if (stage === 'fresh' && W.state !== 'whole') { K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = 0.995; H.UI.modal = null; for (let i = 0; i < 40 && W.state !== 'whole'; i++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair') W.t = Math.max(W.t, 0.995); } H.UI.modal = 'menu'; }
+    K.lastEnemyNear = stage === 'fresh' ? -1e9 : H.GAME.t + 1e6;
+    return { S, C, W, c: L.palC };
+  };
+  // a point `out` m out from a palisade cell's wall, `along` m along it (04g_burn.js's palisadeLocal)
+  const palAt = (S, c, out, along) => { const a = c.a + along, o = 14.9 + out, l = c.side === 0 ? { x: a, z: -o } : c.side === 3 ? { x: a, z: o } : c.side === 1 ? { x: -o, z: a } : { x: o, z: a }; return LK.F.siteToWorld(S, l.x, l.z); };
+  D('look3', 'pal_scaffold', (L) => {
+    const g = palGap(L, 'repair'); if (!g) return { skip: 'no gap' };
+    const { S, W, c } = g, o = palAt(S, c, 11, -5), t = palAt(S, c, 0, 0);
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(o.x, S.y + 4.2, o.z, t.x, S.y + 3.0, t.z), state: W.state, t: +(W.t || 0).toFixed(2), info: W.scafInfo };
+  });
+  D('look3', 'pal_fresh', (L) => {
+    const g = palGap(L, 'fresh'); if (!g) return { skip: 'no gap' };
+    const { S, W, c } = g, o = palAt(S, c, 11, -5), t = palAt(S, c, 0, 0);
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(o.x, S.y + 4.2, o.z, t.x, S.y + 3.0, t.z), state: W.state };
+  });
+  // an Eriu lookout's thatched cone burnt and fallen in on its platform, by day
+  D('look3', 'cone_fallen', (L) => {
+    const H = L.H, T = H.towers.TOWER.list.find((q) => q.look === 'rath' && q.role === 'lookout');
+    if (!T) return { skip: 'no lookout' };
+    const S = T.S; S.keepRef.lastEnemyNear = H.GAME.t + 1e6;
+    if (!T.fallen) { H.towerfire.towerIgnite(T, T.TT + 2); T.burn.t = 69.5; H.UI.modal = null; H.simulate(1); H.simulate(20); H.UI.modal = 'menu'; S.keepRef.lastEnemyNear = H.GAME.t + 1e6; }
+    const aO = Math.atan2(T.cx, T.cz), q = (a, r, y) => { const w = L.F.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r); return { x: w.x, y: S.y + y, z: w.z }; };
+    const c = q(aO + 0.5, T.RO + 13, 8.5), t = q(aO, 0, 6.5);
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(c.x, c.y, c.z, t.x, t.y, t.z), fallen: !!T.fallen };
+  });
+  // a Logres town house cracked by a stone at its wall (and one holed from above, in the rain)
+  const battered = (L) => {
+    const H = L.H, F = L.F, B = H.batter, S = H.REALMS[0].town;
+    if (!L.batA) {
+      const hs = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round);
+      const A = hs[3] || hs[0], src = F.spawnRealmUnit(1, 'warrior', 30, 'guard', S.x + 70, S.z, {}); src.hp = src.maxHp = 1e9;
+      B.houseStoneHit(A, A.x + 1.5, A.y + 1.4, A.z, 3.2, src, false); B.houseStoneHit(A, A.x - 1.2, A.y + 1.8, A.z + 0.4, 3.2, src, false);
+      B.houseStoneHit(A, A.x + 0.4, A.y + A.wallH + 1, A.z + 0.5, 4.4, src, true);
+      F.removeEnt(src); L.batA = A;
+    }
+    return L.batA;
+  };
+  D('look3', 'house_cracked', (L) => {
+    const A = battered(L), d = A.door.out2, dx = d.x - A.x, dz = d.z - A.z, l = Math.hypot(dx, dz) || 1;
+    L.hush(A.x, A.z, 14); L.away(A.x + 40, A.z + 40);
+    return { ...L.cam(A.x + dx / l * 6.5 + dz / l * 1.5, A.y + 2.0, A.z + dz / l * 6.5 - dx / l * 1.5, A.x + dx / l * 2, A.y + 1.7, A.z + dz / l * 2), bat: A.bat ? +A.bat.k.toFixed(2) : 0 };
+  });
+  // the keeps' halls' footpaths: from the inside of the gate across the courtyard to the hall's door
+  for (const r of [0, 1, 2]) {
+    D('look3', `hall_path${r}`, (L) => {
+      const S = L.keepSite(r, 0), g = L.F.siteToWorld(S, 0, S.gateLocal.z - 3.2), h = L.F.siteToWorld(S, 0, -4);
+      L.hush(S.x, S.z, 20); L.away(S.x + 60, S.z + 60);
+      return L.cam(g.x, S.y + 6.5, g.z, h.x, S.y, h.z);
+    });
+  }
+})();
+// [look3] the masons at work on a breached tower's scaffold: one dressing stone at its foot, one up on the first lift
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  D('look3', 'masons', (L) => {
+    const H = L.H, F = L.F, L3 = H.look3, S = L.keepSite(0, 0), C = F.castles().find((q) => q.S === S), K = S.keepRef;
+    const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1), T = W.T;
+    if (W.state === 'whole') { const r = L.views.breach.call(L, L); if (r && r.skip) return r; }
+    H.UI.modal = null; K.lastEnemyNear = -1e9;
+    if (W.state === 'repair' && W.t > 0.6) W.t = 0.4;
+    if (!L3.MASON.list.some((e) => !e.removed && e.ai.mason.W === W)) W.masonsFor = null;
+    for (let t = 0; t < 140 && !(L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).length >= 2 && L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W).every((e) => e.ai.mason.st === 'work')); t++) { H.simulate(1); K.lastEnemyNear = -1e9; if (W.state === 'repair' && W.t > 0.6) W.t = 0.4; }
+    H.simulate(0.4); K.lastEnemyNear = H.GAME.t + 1e6; H.UI.modal = 'menu';
+    const ms = L3.MASON.list.filter((e) => !e.removed && e.ai.mason.W === W);
+    const tp = (a, rr, y) => { const q = F.siteToWorld(S, T.cx + Math.sin(a) * rr, T.cz + Math.cos(a) * rr); return { x: q.x, y: S.y + y, z: q.z }; };
+    const Ld = W.l3.ladders.find((q) => q.k === 0), aL = Math.atan2(F.siteLocal ? 0 : 0, 1);
+    void aL;
+    const c = { x: Ld.fx + (Ld.fx - T.wx) * 1.4 + 2, y: Ld.wyb + 3.2, z: Ld.fz + (Ld.fz - T.wz) * 1.4 + 2 };
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(c.x, c.y, c.z, Ld.lx, Ld.wyb + 1.6, Ld.lz), sts: ms.map((e) => e.ai.mason.st), ys: ms.map((e) => +(e.y - Ld.wyb).toFixed(2)) };
+  });
+})();

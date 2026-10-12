@@ -121,8 +121,11 @@ function towerRubbleGeo(W) {
     // the mound's height over the line out from the middle: highest over the fallen face
     const dd = Math.abs(u - (T.RO - 0.3));
     const h = Math.max(0.05, (W.rubble - T.yG + 0.2) * (1 - Math.min(1, dd / 3.2)) * (1 - 0.4 * Math.min(1, Math.abs(v) / 2.2)));
-    const [x, z] = at(u, v), s = 0.25 + 0.42 * r();
-    b.add(G.ico, lm(M, x, T.yG + h * (0.55 + 0.3 * r()), z, r() * TAU, s * 1.3, s * 0.75, s, r() * 0.6, r() * 0.6), MAT.stone, darker(st.stone, 0.66 + 0.3 * r()), C.S.y, 1.5);
+    const [x, z] = at(u, v), s = 0.25 + 0.42 * r(), y = T.yG + h * (0.55 + 0.3 * r());
+    // [look3] most of the heap is the drum's own dressed stones, tumbled and broken (it read as a pile of round
+    // boulders), with smaller broken pieces between them
+    if (i % 3) b.add(G.box, lm(M, x, y, z, r() * TAU, 0.45 + 0.5 * r(), 0.28 + 0.2 * r(), 0.32 + 0.3 * r(), (r() - 0.5) * 1.2, (r() - 0.5) * 1.2), MAT.stone, darker(st.stone, 0.66 + 0.3 * r()), C.S.y, 1.5);
+    else b.add(G.ico, lm(M, x, y - s * 0.2, z, r() * TAU, s * 0.9, s * 0.5, s * 0.7, r() * 0.6, r() * 0.6), MAT.stone, darker(st.stone, 0.62 + 0.3 * r()), C.S.y, 1.5);
   }
   // squared blocks of the face, tumbled
   for (let i = 0; i < 14; i++) {
@@ -142,23 +145,42 @@ function towerRubbleGeo(W) {
   }
   return b.build();
 }
-// poles round the drum's face, two lifts of boards, a hoist and new-cut stone at its foot
+// [look3] a putlog scaffold round the drum's face (look3Scaffold, 04d_look3.js): standards, ledgers, putlogs into the
+// wall, a floor of boards at each lift with its rail, braces and ladders; a hoist and new-cut stone at its foot and on its
+// top lift. Version 13's were poles and two rings of ledgers, the boards on edge to the eye
 function towerScaffoldGeo(W) {
-  const T = W.T, C = W.C, b = new Batch(), M = C.M, st = C.st, Hh = W.top + 1.2, R = T.RO + 0.5;
-  const ring = [-1.1, -0.55, 0, 0.55, 1.1];
-  for (const da of ring) { const a = W.aOut + da, x = T.cx + Math.sin(a) * R, z = T.cz + Math.cos(a) * R; b.add(G.cyl8, lm(M, x, Hh / 2, z, 0, 0.09, Hh, 0.09), MAT.logH, st.logs, C.S.y, 3); }
-  for (const y of [W.top * 0.36, W.top * 0.72]) for (let i = 0; i + 1 < ring.length; i++) {
-    const a0 = W.aOut + ring[i], a1 = W.aOut + ring[i + 1], am = (a0 + a1) / 2, L = 2 * R * Math.sin((a1 - a0) / 2);
-    const x = T.cx + Math.sin(am) * R * Math.cos((a1 - a0) / 2), z = T.cz + Math.cos(am) * R * Math.cos((a1 - a0) / 2);
-    b.add(G.cyl8, lm(M, x, y, z, am + Math.PI / 2, 0.06, L + 0.2, 0.06, Math.PI / 2), MAT.logH, st.logs);
-    const xi = T.cx + Math.sin(am) * (R - 0.32), zi = T.cz + Math.cos(am) * (R - 0.32);
-    b.add(G.box, lm(M, xi, y + 0.08, zi, am, L + 0.1, 0.06, 0.62), MAT.wood, darker(st.wood, 1.1));
+  const T = W.T, C = W.C, b = new Batch(), M = C.M, st = C.st, S = C.S, rnd = mulberry(Math.round(Math.abs(T.wx * 13 + T.wz * 7)) + 5);
+  const deep = 0.95, R = T.RO + deep + 0.08, span = 1.15;
+  const lifts = [];
+  for (let y = T.yG + 1.9; y < W.top - 0.5; y += 1.9) lifts.push(y);
+  const nSt = Math.max(3, Math.round((2 * span * R) / 2.0) + 1), pts = [], ins = [];
+  for (let i = 0; i < nSt; i++) { const a = W.aOut - span + (2 * span * i) / (nSt - 1); pts.push([T.cx + Math.sin(a) * R, T.cz + Math.cos(a) * R]); ins.push([-Math.sin(a), -Math.cos(a)]); }
+  const skip = new Set(T.colls);
+  const gy = (x, z) => { const w = siteToWorld(S, x, z); return heightAt(w.x, w.z) - S.y; };
+  const clear = (x, z, r = 0.2) => { const w = siteToWorld(S, x, z); return look3Clear(w.x, w.z, r, skip); };
+  const top = (lifts.length ? lifts[lifts.length - 1] : W.top) + 1.35;
+  W.scafInfo = look3Scaffold(b, M, pts, ins, { lifts, top, deep, gy, clear, pole: st.logs, wood: st.wood, baseY: S.y, seed: Math.round(Math.abs(T.wx * 7 + T.wz * 3)), curve: true });
+  look3ScaffoldWorld(W, S, [W.scafInfo]); // its boards are floors and its ladders are climbed while it stands
+  // new-cut stone waiting on the top lift, by the wall
+  if (lifts.length) for (let i = 0; i < 2; i++) {
+    const a = W.aOut + (i ? 0.35 : -0.42), rr = T.RO + 0.42, y = lifts[lifts.length - 1] + 0.37;
+    b.add(G.box, lm(M, T.cx + Math.sin(a) * rr, y, T.cz + Math.cos(a) * rr, a, 0.55, 0.42, 0.4), MAT.stone, darker(st.stone, 1.18 + 0.06 * rnd()));
   }
-  // a hoist's mast and boom, and fresh stone waiting
-  const a = W.aOut + 1.5, x = T.cx + Math.sin(a) * (R + 0.9), z = T.cz + Math.cos(a) * (R + 0.9);
-  b.add(G.cyl8, lm(M, x, (W.top + 2) / 2, z, 0, 0.11, W.top + 2, 0.11), MAT.logH, st.logs, C.S.y, 3);
-  b.add(G.cyl8, lm(M, x - Math.sin(a) * 1.0, W.top + 1.6, z - Math.cos(a) * 1.0, a, 0.07, 2.4, 0.07, Math.PI / 2 - 0.3), MAT.logH, st.logs);
-  for (let i = 0; i < 4; i++) { const aa = W.aOut - 1.6 + i * 0.22, xx = T.cx + Math.sin(aa) * (R + 1.3), zz = T.cz + Math.cos(aa) * (R + 1.3); b.add(G.box, lm(M, xx, T.yG + 0.25 + (i % 2) * 0.5, zz, aa, 0.6, 0.48, 0.9), MAT.stone, darker(st.stone, 1.18)); }
+  // a hoist's mast and boom, its rope and a stone in the sling, and new-cut stone waiting at the foot
+  const a = W.aOut + span + 0.38, x = T.cx + Math.sin(a) * (R + 0.6), z = T.cz + Math.cos(a) * (R + 0.6);
+  if (clear(x, z, 0.3)) {
+    const g = gy(x, z) - 0.3, mt = top + 0.6, bx = x - Math.sin(a) * 0.4 + Math.cos(a) * 1.3, bz = z - Math.cos(a) * 0.4 - Math.sin(a) * 1.3;
+    look3Pole(b, M, [x, g, z], [x, mt, z], 0.1, st.logs, MAT.logH, S.y);
+    look3Pole(b, M, [x, mt - 0.5, z], [bx, mt + 0.25, bz], 0.07, st.logs);
+    look3Pole(b, M, [bx, mt + 0.2, bz], [bx, mt - 2.6, bz], 0.012, [0.5, 0.42, 0.3], MAT.cloth);
+    b.add(G.box, lm(M, bx, mt - 2.85, bz, a, 0.5, 0.36, 0.36), MAT.stone, darker(st.stone, 1.2));
+  }
+  // (three on the ground, the fourth on the first: version 13 set every other one 0.5 m up in the air)
+  for (let i = 0; i < 4; i++) {
+    const j = i % 3, aa = W.aOut - span - 0.32 - j * 0.2, xx = T.cx + Math.sin(aa) * (R + 1.1), zz = T.cz + Math.cos(aa) * (R + 1.1);
+    if (!clear(xx, zz, 0.4)) continue;
+    b.add(G.box, lm(M, xx, gy(xx, zz) + 0.23 + (i === 3 ? 0.46 : 0), zz, aa + (i === 3 ? 0.25 : (rnd() - 0.5) * 0.3), 0.6, 0.46, 0.9), MAT.stone, darker(st.stone, 1.16 + 0.06 * rnd()));
+  }
   return b.build();
 }
 

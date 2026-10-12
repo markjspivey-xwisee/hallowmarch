@@ -230,7 +230,7 @@ function castleStone(C) {
   // towerGateStone, 04l_towers.js), and on over the gate between them behind the gatehouse
   const gx0 = GATE_TW.stone.x + 1.9, gseg = (we - gx0) / 2;
   for (const sx of [-1, 1]) C.floor(sx * (gx0 + gseg), hs - t / 2, gseg, t / 2, 0, H);
-  C.floor(0, hs - t / 2 - 0.55, GATE_TW.stone.x - 1.6, 0.75, 0, H);
+  C.floor(0, hs - t / 2 - 0.55, GATE_TW.stone.x - 1.6, 0.75, 0, H, H, H - 0.5, 0.5); // [look3] a bridge half a metre thick over the gateway: with no thickness it stood solid from the ground (floorSolidAt), and no body walked through the gate under it
   C.coll(0, hs - t / 2 + 0.75, GATE_HW - 0.1, 0.62, 0, H - 0.1, 2.9);
   // crenellated parapets on the outer edges of the walks, from tower to tower ([land] no stairs climb the walks now)
   const pl = hs - 0.25, pe = TC - 2.9;
@@ -615,7 +615,7 @@ function castlePostSlots(K) {
   return C ? C.posts.map((p) => p.pos) : null;
 }
 function updateCastles(dt) {
-  for (const C of CASTLES) { if (C.gate) updateGate(C.gate, dt); updateBreaches(C, dt); }
+  for (const C of CASTLES) { if (C.gate) updateGate(C.gate, dt); updateBreaches(C, dt); look3Scaffolds(C, dt); } // [look3] the scaffolds' floors and ladders, the masons (04d_look3.js)
   updateTowers(dt); // [land] tower doors, hatches, the player at a ladder (04l_towers.js)
   updateSiege(dt); // [siege] engines, stones, sallies (04h_siege.js)
 }
@@ -782,6 +782,7 @@ const CASTLE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
+    ${LOOK3_CRACK_GLSL /* [look3] cracks that climb the joints (04d_look3.js) */}
     ${a}
     if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat)) discard; // [walls] (04g_breach.js); [siege2] (04g_burn.js)
   `);
@@ -789,11 +790,12 @@ const CASTLE_FS = (() => {
     float tShel = towerShelterK(vW); wSnow *= 1.0 - tShel; wWet *= 1.0 - tShel; // [keeps] no snow on the floors inside a tower (before it whitens the albedo), nor a wet film`);
   fs = castlePatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', (a) => /* glsl */`
     if (cWear > 0.002) {
-      // cracks: long jagged lines that branch as the wall weakens, dust and scorch from the strikes
-      float c1 = 1.0 - smoothstep(0.0, 0.045, abs(vnoise(vW.xz * 0.9 + vec2(vW.y * 1.3, -vW.y * 0.7)) - 0.5) * (0.6 + 1.6 * vnoise(vW.xz * 3.7 - vW.y)));
-      float c2 = 1.0 - smoothstep(0.0, 0.03, abs(vnoise(vec2(vW.x + vW.z, vW.y) * 2.6 + 5.0) - 0.5));
-      float cr = clamp(c1 * smoothstep(0.1, 0.5, cWear) + c2 * smoothstep(0.4, 0.9, cWear), 0.0, 1.0);
-      alb *= 1.0 - 0.82 * cr;
+      // cracks, dust and scorch from the strikes. [look3] The cracks climb the joints of the courses a course at a time,
+      // break into runs and catch the light on their broken edge (look3Crack, 04d_look3.js), on the dressed stone's
+      // upright faces only: they were the iso-lines of a smooth noise, dark vines winding over stone, timber and logs
+      vec2 cr = (m == 0 || m == 9) ? look3Crack(uv, cWear) * (1.0 - smoothstep(0.55, 0.8, abs(n.y))) : vec2(0.0);
+      alb *= 1.0 - 0.86 * cr.x;
+      alb = mix(alb, alb * 1.32 + vec3(0.035, 0.032, 0.028), cr.y * (1.0 - cr.x) * 0.85);
       alb = mix(alb, alb * vec3(0.74, 0.7, 0.66), smoothstep(0.2, 1.0, cWear) * 0.45 * vnoise(vW.xz * 0.7 + vW.y * 0.5));
     }
     if (cFresh > 0.002) alb = mix(alb, alb * vec3(1.18, 1.15, 1.08) + vec3(0.04, 0.035, 0.03), cFresh * 0.85);
@@ -878,24 +880,33 @@ function breachGeo(C, W) {
   return b.build();
 }
 function scaffoldGeo(C, W) {
-  const b = new Batch(), M = C.M, st = C.st;
+  // [look3] a putlog scaffold along each face of the gap (look3Scaffold, 04d_look3.js): standards, ledgers, putlogs, a
+  // floor of boards at each lift with its rail, braces and ladders; where a standard cannot stand (a stair, a building, a
+  // tree) it is left out with its bays. New-cut stone (or logs) waiting at the foot, on the ground (version 13 set every
+  // other stone half a metre up in the air)
+  const b = new Batch(), M = C.M, st = C.st, S = C.S;
   const px = -W.az, pz = W.ax, yaw = Math.atan2(W.ax, W.az);
   const at = (u, v) => [W.lx + W.ax * u + px * v, W.lz + W.az * u + pz * v];
-  const H = W.top + 1.2, off = W.across + 0.45;
+  const gy = (x, z) => { const w = siteToWorld(S, x, z); return heightAt(w.x, w.z) - S.y; };
+  const clear = (x, z, r = 0.2) => { const w = siteToWorld(S, x, z); return look3Clear(w.x, w.z, r); };
+  const deep = 0.9, len = 2 * W.half + 1.6, n = Math.max(2, Math.ceil(len / 2.1)) + 1, lifts = [];
+  for (let y = 1.9; y < W.top - 0.4; y += 1.9) lifts.push(y);
+  if (!lifts.length) lifts.push(W.top * 0.6);
+  W.scafInfo = [];
   for (const sd of [-1, 1]) {
-    for (const u of [-W.half - 0.4, 0, W.half + 0.4]) { const [x, z] = at(u, sd * off); b.add(G.cyl8, lm(M, x, H / 2, z, 0, 0.09, H, 0.09), MAT.logH, st.logs, C.S.y, 3); }
-    for (const y of [W.top * 0.38, W.top * 0.78]) {
-      const [x, z] = at(0, sd * off);
-      b.add(G.cyl8, lm(M, x, y, z, yaw, 0.06, W.half * 2 + 1.0, 0.06, Math.PI / 2), MAT.logH, st.logs);
-      const [x2, z2] = at(0, sd * (off - 0.35));
-      b.add(G.box, lm(M, x2, y + 0.08, z2, yaw, 0.7, 0.06, W.half * 2 + 0.8), MAT.wood, darker(st.wood, 1.1));
-    }
-    // a brace across each bay
-    const [x, z] = at(-W.half / 2 - 0.2, sd * off);
-    b.add(G.cyl8, lm(M, x, W.top * 0.4, z, yaw, 0.05, Math.hypot(W.half + 0.4, W.top * 0.75), 0.05, Math.atan2(W.half + 0.4, W.top * 0.75)), MAT.logH, st.logs);
+    const pts = [], ins = [];
+    for (let i = 0; i < n; i++) { pts.push(at(-len / 2 + (len * i) / (n - 1), sd * (W.across + deep + 0.08))); ins.push([-px * sd, -pz * sd]); }
+    W.scafInfo.push(look3Scaffold(b, M, pts, ins, { lifts, top: lifts[lifts.length - 1] + 1.35, deep, gy, clear, pole: st.logs, wood: st.wood, baseY: S.y, seed: W.k * 31 + (sd > 0 ? 7 : 0) }));
   }
-  // a hoist of fresh-cut stone waiting at the foot
-  for (let i = 0; i < 3; i++) { const [x, z] = at(-W.half - 1.2 + i * 0.7, -(W.across + 1.6)); b.add(G.box, lm(M, x, 0.25 + (i % 2) * 0.5, z, yaw, 0.6, 0.48, 0.9), MAT.stone, darker(st.stone, 1.18)); }
+  look3ScaffoldWorld(W, S, W.scafInfo); // its boards are floors and its ladders are climbed while it stands
+  const timber = W.kind === 'timber';
+  for (let i = 0; i < 4; i++) {
+    const j = i % 3, [x, z] = at(-W.half - 0.6 + j * (timber ? 0 : 0.75), -(W.across + deep + 1.5) - (timber ? j * 0.46 : 0));
+    if (!clear(x, z, 0.4)) continue;
+    const g = gy(x, z);
+    if (timber) b.add(G.cyl8, lm(M, x, g + 0.22 + (i === 3 ? 0.38 : 0), z, yaw, 0.22, 3.0, 0.22, Math.PI / 2), MAT.logH, darker(st.logs, 1.25));
+    else b.add(G.box, lm(M, x, g + 0.23 + (i === 3 ? 0.46 : 0), z, yaw + (i === 3 ? 0.25 : 0), 0.6, 0.46, 0.9), MAT.stone, darker(st.stone, 1.18));
+  }
   return b.build();
 }
 function castleSections(C) {

@@ -215,15 +215,25 @@ function palisadeWreckGeo(W) {
   for (let i = 0; i < 10; i++) { const p = at((r() - 0.5) * W.half * 2.2, (r() - 0.5) * 2.4); b.add(G.ico, lm(M, p.x, 0.02, p.z, r() * 3, 0.5 + r() * 0.6, 0.05 + r() * 0.06, 0.4 + r() * 0.5), MAT.darkstone, [0.2 + r() * 0.06, 0.19 + r() * 0.05, 0.18 + r() * 0.05]); }
   return b.build();
 }
-// poles and boards over the gap and fresh logs waiting
+// [look3] a putlog scaffold along the outside of the gap (look3Scaffold, 04d_look3.js: standards, ledgers, putlogs, a
+// floor of boards at each lift with its rail, braces, ladders) and fresh logs waiting at its foot. Version 13's were six
+// poles and two boards on edge to the eye, and every other log lay 0.4 m up in the air
 function palisadeScaffoldGeo(W) {
-  const C = W.C, b = new Batch(), M = C.M, st = C.st;
-  const at = (u, v) => palisadeLocal(W.side, (W.a0 + W.a1) / 2 + u, v), yaw = W.side === 0 || W.side === 3 ? Math.PI / 2 : 0, Hh = WALL_H + 1.0;
-  for (const sd of [-1, 1]) {
-    for (const u of [-W.half - 0.3, 0, W.half + 0.3]) { const p = at(u, sd * 1.05); b.add(G.cyl8, lm(M, p.x, Hh / 2, p.z, 0, 0.08, Hh, 0.08), MAT.logH, st.logs, C.S.y, 3); }
-    for (const y of [WALL_H * 0.4, WALL_H * 0.8]) { const p = at(0, sd * 1.0); b.add(G.box, lm(M, p.x, y, p.z, yaw, 0.6, 0.06, W.half * 2 + 0.8), MAT.wood, darker(st.wood, 1.1)); }
+  const C = W.C, b = new Batch(), M = C.M, st = C.st, S = C.S;
+  const at = (u, v) => palisadeLocal(W.side, (W.a0 + W.a1) / 2 + u, v), yaw = W.side === 0 || W.side === 3 ? Math.PI / 2 : 0;
+  const deep = 0.9, off = 0.5 + deep + 0.08, len = 2 * W.half + 1.2, n = Math.max(2, Math.ceil(len / 2.1)) + 1;
+  const q0 = at(0, 0), q1 = at(0, 1), inx = q0.x - q1.x, inz = q0.z - q1.z, pts = [], ins = [];
+  for (let i = 0; i < n; i++) { const p = at(-len / 2 + (len * i) / (n - 1), off); pts.push([p.x, p.z]); ins.push([inx, inz]); }
+  const gy = (x, z) => { const w = siteToWorld(S, x, z); return heightAt(w.x, w.z) - S.y; };
+  const clear = (x, z, r = 0.2) => { const w = siteToWorld(S, x, z); return look3Clear(w.x, w.z, r); };
+  W.scafInfo = look3Scaffold(b, M, pts, ins, { lifts: [2.0, 4.0, 6.0], top: 7.35, deep, gy, clear, pole: st.logs, wood: st.wood, baseY: S.y, seed: Math.round(Math.abs(W.wx * 11 + W.wz * 5)) });
+  look3ScaffoldDrop(W); look3ScaffoldWorld(W, S, [W.scafInfo]); // its boards are floors and its ladders are climbed while it stands
+  // the new logs, peeled pale, lying side by side on the ground beyond the scaffold (and one across two of them)
+  for (let i = 0; i < 4; i++) {
+    const p = at(0.2 * (i % 2), off + 1.3 + (i < 3 ? i * 0.46 : 0.23));
+    if (!clear(p.x, p.z, 0.3)) continue;
+    b.add(G.cyl8, lm(M, p.x, gy(p.x, p.z) + 0.22 + (i === 3 ? 0.38 : 0), p.z, yaw + (i === 3 ? 0.06 : 0), 0.22, 3.2, 0.22, Math.PI / 2), MAT.logH, darker(st.logs, 1.25));
   }
-  for (let i = 0; i < 4; i++) { const p = at(-W.half + i * 0.6, 2.3); b.add(G.cyl8, lm(M, p.x, 0.22 + (i % 2) * 0.4, p.z, yaw, 0.22, 3.2, 0.22, Math.PI / 2), MAT.logH, darker(st.logs, 1.25)); }
   return b.build();
 }
 // a gap built back: the colliders close again, the scaffold comes down
@@ -231,6 +241,7 @@ function palisadeGapClose(P, W) {
   for (const q of W.colls) { q.mid.active = true; }
   if (W.wreck) { W.wreck.removeFromParent(); W.wreck.geometry.dispose(); }
   if (W.scaffold) { W.scaffold.removeFromParent(); W.scaffold.geometry.dispose(); }
+  look3ScaffoldDrop(W); // [look3] its floors and ladders go with it (04d_look3.js)
   W.state = 'whole';
   P.gaps.splice(P.gaps.indexOf(W), 1);
   siegeOnRepair(W);

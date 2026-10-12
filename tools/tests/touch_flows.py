@@ -8,6 +8,7 @@ fight at a hatch: Use slams it on a foe coming up, and a drag of the stick down 
 shove a beached boat into the water and push her about ([polish]); hold a brand to an enemy burh's palisade ([siege2]);
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
+[look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -340,6 +341,26 @@ async def main():
                 yt = await page.evaluate("+window.__tfl.yt.toFixed(2)")
                 ys.append([lab, lab2, y, yt])
             check(all(q[1] == 'Climb the ladder' and abs(q[2] - q[3]) < 0.1 for q in ys), f'{key}: Use pushes each hatch open and climbs each ladder to the top ({json.dumps(ys)})')
+        if want('scaffold'):
+            # [look3] a breached tower built back behind its scaffold: a tap on Use climbs the scaffold's ladder onto its
+            # first lift (its boards are a floor), another climbs back down
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, L3 = H.look3, S = H.REALMS[0].keepSites[1], C = F.castles().find((q) => q.S === S), K = S.keepRef;
+              const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === 1 && q.T.sz === -1), T = W.T;
+              if (W.state === 'whole') { const src = F.spawnRealmUnit(2, 'warrior', 30, 'guard', S.x + W.ox * 70, S.z + W.oz * 70, {}); src.hp = src.maxHp = 1e9; for (let n = 0; W.state === 'whole' && n < 80; n++) F.castleSiegeHit(src, T.wx + W.ox * (T.RO + 0.2), T.wz + W.oz * (T.RO + 0.2), 2.0, 4.4); F.removeEnt(src); }
+              const m = H.UI.modal; H.UI.modal = null; K.lastEnemyNear = -1e9;
+              for (let t = 0; t < 80 && !(W.l3 && W.l3.on); t++) { H.simulate(1); K.lastEnemyNear = -1e9; W.masonsFor = W.masonsFor || []; }
+              for (const e of L3.MASON.list) if (!e.removed) F.removeEnt(e);
+              if (W.t > 0.6) W.t = 0.3;
+              H.UI.modal = m;
+              const L = W.l3 && W.l3.ladders.find((q) => q.k === 0); if (!L) return { on: !!(W.l3 && W.l3.on) };
+              TF.stand(L.fx, L.fz, L.lx, L.lz); TF.P().y = L.wyb; H.simulate(0.2); window.__tfs = { W, L };
+              return { on: W.l3.on, label: TF.label() }; })()""")
+            ok1 = await tap(page, '#t-use')
+            up = await page.evaluate("""(() => { const H = TF.H, P = TF.P(), { L } = window.__tfs; for (let i = 0; i < 40 && (P.motion || i < 2); i++) { H.simulate(0.25); L.scaffold.S && 0; } const fl = H.fn.floorAt(P.x, P.z, P.y + 0.3); return { dy: +(P.y - L.wyb).toFixed(2), lift: +(L.wyt - L.wyb).toFixed(2), floor: +(fl - P.y).toFixed(2), label: TF.label() }; })()""")
+            ok2 = await tap(page, '#t-use')
+            down = await page.evaluate("""(() => { const H = TF.H, P = TF.P(), { L, W } = window.__tfs; for (let i = 0; i < 40 && (P.motion || i < 2); i++) H.simulate(0.25); W.S && 0; return { dy: +(P.y - L.wyb).toFixed(2) }; })()""")
+            check(r.get('on') and r.get('label') == 'Climb the scaffold' and ok1 and abs(up['dy'] - up['lift']) < 0.1 and abs(up['floor']) < 0.05, f"scaffold: a tap on Use climbs a mended tower's scaffold onto its first lift, standing on its boards ({json.dumps(r)}, {json.dumps(up)})")
+            check(up['label'] == 'Climb down the ladder' and ok2 and abs(down['dy']) < 0.15, f"scaffold: and another climbs back down ({json.dumps(down)})")
         if want('guide'):
             # [guide] the path tracker: a tap on the step opens your path in the Chronicle, a tap on Aims the late game's
             # goals; a field note is tapped away

@@ -102,7 +102,7 @@ function buildCoverMask() {
   }
   // floors that come down to the ground: stair flights, the dais, the rune circles
   for (const f of FLOOR.list) {
-    if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2) continue;
+    if (Math.min(f.ya, f.yb) - heightAt(f.x, f.z) > 1.2 || f.tag === 'scaffold') continue; // [look3] a scaffold's boards stand only a while (04d_look3.js)
     if (f.type === 'disc') coverCircle(f.x, f.z, f.r + pad);
     else coverBox(f.x, f.z, f.hx, f.hz, f.cos, f.sin, pad);
   }
@@ -110,6 +110,7 @@ function buildCoverMask() {
   mtnCoverAll(); // [land] nor up through a crag (03c_land.js)
   boatsCover(); // [water2] no grass through the hull of a boat drawn up on the shore (07e_boats.js)
   lookCoverAll(); // [look] the towns' trodden green, tofts and paths (13t_look.js)
+  look3CoverAll(); // [look3] and the keeps' halls' paths (13v_look3.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;
 }
@@ -536,6 +537,7 @@ function buildGroundAO() {
   const rg = new Uint8Array(R * R * 2);
   for (let q = 0; q < R * R; q++) rg[q * 2] = b[q];
   look2PathMap(rg, R);
+  look3PathMap(rg, R); // [look3] the keeps' halls' paths (13v_look3.js)
   const tex = new THREE.DataTexture(rg, R, R, THREE.RGFormat, THREE.UnsignedByteType);
   tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   tex.needsUpdate = true;
