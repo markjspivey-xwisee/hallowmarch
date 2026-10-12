@@ -36,7 +36,7 @@ window.GD = {
   P() { return this.H.GAME.player; },
   calm(r = 80) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && !e.siegeEngine && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; return 0; },
   // the HUD laid out now (the page's own pass runs four times a second of wall time)
-  lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; this.H.hud.hudLayout(1); return 0; },
+  lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; if (this.H.guide2) this.H.guide2.G2.tap.until = 0; this.H.hud.hudLayout(1); return 0; }, // [guide2] laid out now even while a tap's click is on its way
   // a field note on the screen now: shown, laid out, and held there (it fades on the wall clock)
   noteOn(id) { const H = this.H, L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== id); H.LORE.state.noteUntil = 0; H.LORE.loreNote(id); const q = H.LORE.state.queue; q.splice(q.indexOf(id), 1); q.unshift(id); H.hud.note(id); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.remove = () => {}; d.style.animation = 'none'; } this.lay(); return 0; },
   // where a panel is, and whether it is clear of every other panel the layout placed and on the screen

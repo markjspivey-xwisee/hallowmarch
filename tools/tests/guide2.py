@@ -174,11 +174,11 @@ async def phone(p):
     # ---- a note shrunk to its title on a small phone opens the field notes' page, itself first ----
     await page.set_viewport_size({'width': 360, 'height': 640})
     await page.wait_for_timeout(250)
-    r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore; H.UI.modal = null; document.getElementById('menu').hidden = true; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
+    r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore, Rh = H.REALMS[G2T.P().faction].herald; H.UI.modal = null; document.getElementById('menu').hidden = true; H.teleport(Rh.x + 6, Rh.z + 6); G2T.calm(); H.simulate(0.2); H.frame(1/30); for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
       L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; d.remove = () => {}; } /* (it fades on the wall clock) */
       G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")
     print('  note at 360x640:', r, flush=True)
-    ok = await tap(page, '#banners .lore-note:last-child')
+    ok = await tap(page, '#banners .lore-note')
     r2 = await ev(page, "(() => { const f = document.querySelector('.chron-body details.note-f'); return { modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec, first: f ? f.dataset.note : null, open: f ? f.open : null }; })()")
     if r.get('compact'):
         check(ok and r2['sec'] == 'notes' and r2['first'] == 'ward' and r2['open'], f'a tap on a note shrunk to its title opens the field notes, itself first and open ({r2})')

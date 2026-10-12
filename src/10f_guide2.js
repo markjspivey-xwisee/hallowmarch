@@ -112,7 +112,8 @@ function chronFold(sec) {
     if (n.tagName === 'FIGURE' || G2_KEEP.test(cls(n))) { flush(); continue; }
     run.push(n);
   }
-  closeS(); flush();
+  closeS();
+  if (G2.stats.pages[sec].folds) flush(); else run = []; // (a page of a lead and one block, the herbal's herbs, a list, stays as it is: one fold would only hide it)
   // one tap opens or shuts them all
   const all = [...el.querySelectorAll('details.cf')];
   if (all.length > 1) {
@@ -150,9 +151,9 @@ chronAdd('notes', 'Field notes', 'you', chronNotes, 'path');
 const g2Use = () => (IS_TOUCH ? 'Use' : 'E');
 const G2_NOTES = {
   hall: { t: 'A keep\'s great hall', x: () => `At the war table you command your realm's warbands; at the armourer's bench you mend and clean your gear; wash at the basin, dry off and heal by the hearth; the stores sell building goods. ${g2Use()} beside each.` },
-  farmers: { t: 'The farmers', x: () => `They sell seed and hoes. Till a bed of meadow (${g2Use()}), sow it, keep it weeded, and harvest it ripe: the rain waters it. Your plant card shows each plant's traits; the Chronicle's Fields page tells more.` },
-  ripe: { t: 'A ripe bed', x: () => `Harvest it before it sheds. Look at its plants first: keep the seed of the best (${g2Use()} on it), and your strain grows better each year.` },
-  herb: { t: 'An unfamiliar plant', x: () => `Examine it (${g2Use()}) to learn it for your herbal; then you may gather it, dig up its root with a knife, and plant it in your own bed.` },
+  farmers: { t: 'The farmers', x: () => `They sell seed and hoes. Till a bed of meadow (${IS_TOUCH ? 'Till a bed here, on the plant card' : 'E'}), sow it, keep it weeded, and harvest it ripe: the rain waters it. The Chronicle's Fields page tells more.` },
+  ripe: { t: 'A ripe bed', x: () => `Harvest it before it sheds. Look at its plants first: keep the seed of the best (${IS_TOUCH ? 'on its plant card' : 'E on it'}), and your strain grows better each year.` },
+  herb: { t: 'An unfamiliar plant', x: () => `Examine it (${IS_TOUCH ? 'on the plant card' : 'E'}) to learn it for your herbal; then you may gather it, dig up its root with a knife, and plant it in your own bed.` },
   scaffold: { t: 'Scaffolds and masons', x: () => `In peace a keep mends its breaches behind scaffolding, and two masons come out of its hall to work. Its boards carry you and its ladders climb: walk into one, or ${g2Use()}.` },
   setwall: { t: 'Timber burns', x: () => `${g2Use()} with your brand sets it alight. The keep's people leave their posts to beat the fire out; a stretch that burns through is a breach for your warbands. Rain damps a fire.` },
   battered: { t: 'Stones on houses', x: () => 'A siege stone cracks a house it strikes and holes its roof (the rain comes in), and enough of them bring it down to rubble. Its town builds it back once the fighting moves on.' },
@@ -185,7 +186,7 @@ function g2Scan(P) {
   const N = G2.near;
   N.scaffold = false; N.battered = false;
   if (inDungeon(P)) return;
-  if (typeof LOOK3S !== 'undefined' && LOOK3S.ladders) for (const L of LOOK3S.ladders) if (L && L.fx != null && dist2(L.fx, L.fz, P.x, P.z) < 30 * 30) { N.scaffold = true; break; }
+  if (typeof LOOK3S !== 'undefined' && LOOK3S.ladders) for (const L of LOOK3S.ladders) if (L && !L.gone && L.fx != null && dist2(L.fx, L.fz, P.x, P.z) < 30 * 30) { N.scaffold = true; break; } // (a scaffold taken down keeps its ladders, gone)
   if (!N.scaffold && typeof MASON !== 'undefined') for (const e of MASON.list) if (e && e.alive && dist2(e.x, e.z, P.x, P.z) < 30 * 30) { N.scaffold = true; break; }
   for (const H of HOUSES) if (H.bat && (H.bat.k > 0.15 || H.bat.fell) && dist2(H.x, H.z, P.x, P.z) < 45 * 45) { N.battered = true; break; }
 }
@@ -242,12 +243,13 @@ function g2UpdatePointer(dt) {
   G2.pointT -= dt;
   if (G2.pointT > 0) return;
   G2.pointT = 0.5;
-  const S = GAME.prog && GAME.prog.lore ? pathNext() : null, p = g2Pointer(S), sel = p ? p.sel : '';
-  if (sel === (G2.point && G2.point.sel) && !!p === !!G2.point) { G2.point = p; return; }
-  for (const el of document.querySelectorAll('.g2-point')) el.classList.remove('g2-point');
+  const S = GAME.prog && GAME.prog.lore ? pathNext() : null, p = g2Pointer(S);
+  if ((p && p.say) !== (G2.point && G2.point.say)) LORE.hudKey = '';
   G2.point = p;
-  if (p) for (const el of document.querySelectorAll(p.sel)) el.classList.add('g2-point');
-  LORE.hudKey = '';
+  // every look (the hotbar is built again on a level, and its gift slot with it)
+  const want = p ? new Set(document.querySelectorAll(p.sel)) : new Set();
+  for (const el of document.querySelectorAll('.g2-point')) if (!want.has(el)) el.classList.remove('g2-point');
+  for (const el of want) el.classList.add('g2-point');
 }
 // the tracker's line when there is no place but a button
 function g2PointerLine() {
