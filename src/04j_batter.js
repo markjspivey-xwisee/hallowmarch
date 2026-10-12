@@ -102,6 +102,7 @@ function houseBreak(H, src = null) {
 function houseBatterUniform(H, v) {
   const b = H.bat;
   if (!b) { v.set(0, 0, 0, 0); return; }
+  if (b.fell && !houseIntact(H)) { v.set(look4Level(H), 0, 0, 2.999); return; } // [look4] x: the level its broken walls are built back to (04j_rubble.js)
   v.set(b.hx, b.hz, houseIntact(H) ? b.hr : 0, clamp(b.k, 0, 0.999) + (b.fell ? 2 : 0));
 }
 // is (x, z) under the hole in this house's roof? (the rain falls in there)

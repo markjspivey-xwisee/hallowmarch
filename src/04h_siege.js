@@ -38,21 +38,23 @@ const SIEGE_FS = (() => {
   let fs = buildingMat.fragmentShader;
   const pre = 'void main(){', lit = 'vec3 col = lightSurface(alb, n, vAO);';
   if (!fs.includes(pre) || !fs.includes(lit)) return fs; // the building shader changed: engines lose their char, nothing else
-  fs = fs.replace(pre, `uniform float uChar, uEmber; float gEmb = 0.0;\n    ${pre}`);
+  fs = fs.replace(pre, `uniform float uChar, uEmber; float gEmb = 0.0, gEmbId = 0.0;\n    ${LOOK4_CHAR_GLSL /* [look4] (04d_look4.js) */}\n    ${pre}`);
   fs = fs.replace(lit, /* glsl */`
       if (uChar > 0.002 && m != 6) {
-        // fire eats the timber from the edges in: grain gone to charcoal, split into checks that glow while it burns
-        float cg = vnoise(vW.xz * 1.9 + vW.y * 2.3) * 0.55 + vnoise(vW.xz * 7.0 - vW.y * 5.0) * 0.45;
+        // fire eats the timber from the edges in: grain gone to charcoal, split into checks that glow while it burns.
+        // [look4] On the face's own coordinates, the checks blocks across and along the grain (look4Char, 04d_look4.js):
+        // contour lines of a noise of (x + y, z + y) laid the char and the embers in long diagonal streaks on a gate's leaves
+        vec3 ck = look4Char(uv);
+        float cg = vnoise(uv * 1.9) * 0.55 + vnoise(uv * 7.0 + 3.1) * 0.45;
         float ch = smoothstep(0.0, 0.3, uChar * 1.45 - cg * 0.62);
-        vec3 coal = vec3(0.05, 0.043, 0.037) * (0.55 + 0.9 * vnoise(vW.xz * 13.0 + vW.y * 11.0));
+        vec3 coal = vec3(0.05, 0.043, 0.037) * (0.6 + 0.6 * ck.y + 0.3 * vnoise(uv * 13.0)) * clamp(dot(alb, vec3(0.3, 0.59, 0.11)) / max(dot(vCol, vec3(0.3, 0.59, 0.11)), 0.05), 0.4, 1.6); // (the planks' seams kept)
         alb = mix(alb, coal, ch);
-        float chk = 1.0 - smoothstep(0.0, 0.09, abs(fract(vnoise(vW.xz * 4.1 + vW.y * 6.3) * 7.0) - 0.5));
-        alb *= 1.0 - 0.55 * chk * ch;
-        gEmb = ch * (0.35 + chk);
+        alb *= 1.0 - 0.6 * ck.x * ch;
+        gEmb = ch * (0.04 + 0.95 * ck.x + 0.12 * (1.0 - ck.z)); gEmbId = ck.y;
       }
       if (uChar > 0.002 && m == 6) alb *= 1.0 - 0.6 * uChar;
       ${lit}
-      if (uEmber > 0.002) col += vec3(2.0, 0.62, 0.13) * uEmber * gEmb * (0.55 + 0.45 * sin(uTime * 5.3 + vW.x * 2.1 + vW.z * 1.7 + vW.y * 3.0)) * smoothstep(0.45, 0.75, vnoise(vW.xz * 2.7 + vW.y * 3.1 + uTime * 0.35));`);
+      if (uEmber > 0.002) col += vec3(2.0, 0.62, 0.13) * uEmber * gEmb * (0.55 + 0.45 * sin(uTime * 5.3 + gEmbId * 37.0)) * smoothstep(0.45, 0.8, vnoise(uv * 1.4 + vec2(uTime * 0.3, 0.0)));`);
   return fs;
 })();
 const siegeMat = mat({ vertexShader: buildingMat.vertexShader, fragmentShader: SIEGE_FS, uniforms: { uFlash: { value: 0 }, uChar: { value: 0 }, uEmber: { value: 0 } } });

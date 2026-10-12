@@ -152,15 +152,32 @@ function look3MasonThink(e, dt) {
   }
   if (e.motion) return; // on the ladder (updateNPCs hands the motion to updateMotion first)
   if (m.st === 'down') {
-    // to the top of the ladder on the boards, then down it
+    // to the top of the ladder on the boards, then down it; [look4] each ladder climbed, the highest first (m.lad)
+    const Ld = m.lad && m.lad.length ? m.lad[m.lad.length - 1] : L;
+    if (m.lad && m.lad.length && e.y < Ld.wyt - 1) m.lad.pop();
     if (e.y < L.wyb + 1) { m.st = 'home'; m.path = null; return; }
-    if (moveToward(e, L.ox, L.oz, dt, 0.8, 0.12) && !towerClimb(e, L, -1)) { m.st = 'home'; m.path = null; }
+    const Lc = m.lad && m.lad.length ? m.lad[m.lad.length - 1] : L;
+    if (moveToward(e, Lc.ox, Lc.oz, dt, 0.8, 0.12) && !towerClimb(e, Lc, -1)) { m.st = 'home'; m.path = null; }
     return;
   }
   if (m.st === 'up') {
     // on the boards: a step along from the ladder's top, facing the wall, and to work
     m.st = 'work';
+    m.lad = m.lad || [L]; m.workT = m.t; // [look4] the ladders climbed so far, and when the work there began
     return;
+  }
+  // [look4] up to the next lift as the work comes up to it (look4LiftStep, 04d_look4.js): along the boards to its ladder
+  // and up (version 14's masons kept to the first lift)
+  if (m.st === 'climb') {
+    const Ln = m.nextL;
+    if (!Ln || Ln.gone) { m.st = 'work'; return; }
+    if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; } else m.st = 'work'; }
+    return;
+  }
+  if (m.st === 'work' && m.up && m.lad && m.t - (m.workT ?? m.t) > 10) {
+    const top = m.lad[m.lad.length - 1], Ln = W.l3 && W.l3.ladders.filter((q) => q.k === top.k + 1 && !q.gone).sort((a, b) => dist2(a.fx, a.fz, e.x, e.z) - dist2(b.fx, b.fz, e.x, e.z))[0];
+    if (Ln && dist(e.x, e.z, Ln.fx, Ln.fz) < 30) { m.nextL = Ln; m.st = 'climb'; return; } // (m.next is the next blow's time)
+    m.workT = m.t;
   }
   if (m.st === 'work') {
     turnToward(e, e.x + m.face.x, e.z + m.face.z, dt * 4);

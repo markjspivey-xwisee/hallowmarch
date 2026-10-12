@@ -420,6 +420,7 @@ function houseShaderPatch(src, anchor, fn) {
 const HOUSE_VS = /* glsl */`
   uniform vec4 uHA[${HOUSE_MAXH}];
   uniform vec4 uHC[${HOUSE_MAXH}];
+  uniform vec4 uHD[${HOUSE_MAXH}]; // [look4] a house brought down by stones (04j_batter.js)
   uniform vec4 uLeaf[${HOUSE_MAXLEAF / 4}];
   attribute vec3 aCol; attribute float aMat; attribute float aAO;
   attribute vec2 aPart; attribute vec4 aHinge;
@@ -434,6 +435,7 @@ const HOUSE_VS = /* glsl */`
       bool gone = A.y > 1.5, scaf = A.y > 2.5;
       // a ruin has no roof, furniture, doors or glass; the debris shows only in the ruin, the scaffold only while building
       bool hide = (gone && (kind == 1 || kind == 3 || kind == 4 || kind == 7)) || (kind == 5 && (!gone || scaf)) || (kind == 6 && !scaf);
+      if (kind == 5 && uHD[hi].w > 1.5) hide = true; // [look4] a house brought down by stones lies in its own rubble, not a burnt one's (04j_rubble.js)
       if (hide) { vW = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
       // the roof falls in: it drops down inside the walls and sags toward the middle
       if (A.z > 0.0 && (kind == 1 || kind == 7)) {
@@ -571,13 +573,15 @@ const HOUSE_FS = (() => {
       hGlow = vec3(2.6, 0.72, 0.15) * glow;
     }
     ${LOOK3_CRACK_GLSL} // [look3] (04d_look3.js)
+    ${LOOK4_STUB_GLSL} // [look4] (04d_look4.js)
+    float hNew = 0.0;
     ${LOOK3_CRAZE_GLSL}
     // [siege2] battered by stones (04j_batter.js): long jagged cracks over the walls that branch as it weakens, grit and
     // dust ground into it; round the hole in the roof the broken ends of the covering and its timbers
     void houseBatter(inout vec3 alb, int hi, int kind, int m){
       vec4 D = uHD[hi];
       float k = D.w > 1.5 ? 1.0 : D.w;
-      if (k < 0.002 || kind == 3 || kind == 4 || kind == 6) return;
+      if (k < 0.002 || kind == 3 || kind == 4 || kind == 6 || hNew > 0.5) return; // [look4] the walls built back are sound
       if (kind != 1 && kind != 7) {
         // [look3] stone cracks along its joints (look3Crack), plaster, daub and timber in jagged runs that meet at angles
         // (look3Craze, 04d_look3.js), on the upright faces: they were the iso-lines of a smooth noise, dark vines
@@ -607,6 +611,14 @@ const HOUSE_FS = (() => {
       // [siege2] a hole a stone knocked in the roof: the covering gone round it, ragged (04j_batter.js)
       if ((hKind == 1 || hKind == 7) && uHD[hHi].z > 0.01 && uHA[hHi].y < 1.5 && distance(vW.xz, uHD[hHi].xy) < uHD[hHi].z * (0.82 + 0.36 * vnoise(vW.xz * 3.1 + float(hHi) * 1.7))) discard;
     }
+    // [look4] a house brought down by stones: its walls broken off at a ragged line and built back course by course behind
+    // the scaffold (04d_look4.js look4Stub, the broken tops and the rubble: 04j_rubble.js); the new work pale
+    if (hHi >= 0 && (hKind == 0 || hKind == 2) && uHD[hHi].w > 1.5 && uHA[hHi].y > 1.5) {
+      vec2 d4 = vW.xz - uHC[hHi].xy, q4 = vec2(dot(d4, vec2(uHY[hHi].x, -uHY[hHi].y)), dot(d4, vec2(uHY[hHi].y, uHY[hHi].x)));
+      float st4 = look4Stub(q4, uHY[hHi].w, float(hHi)), y4 = vW.y - uHY[hHi].z;
+      if (y4 > max(st4, uHD[hHi].x)) discard;
+      if (y4 > st4 + 0.02) hNew = 1.0;
+    }
     hWet = houseWetU() * (1.0 - hIn); hSnow = houseSnowU() * (1.0 - hIn);
     if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, houseWetU() * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
   `);
@@ -614,6 +626,7 @@ const HOUSE_FS = (() => {
   fs = houseShaderPatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', () => /* glsl */`
     if (hHi >= 0) houseFire(alb, hHi, hKind, m);
     if (hHi >= 0) houseBatter(alb, hHi, hKind, m); // [siege2] (04j_batter.js)
+    if (hNew > 0.5) alb = mix(alb, alb * vec3(1.14, 1.12, 1.08) + vec3(0.035, 0.03, 0.025), 0.75); // [look4] new stone, fresh plaster (04j_rubble.js)
     vec3 col = hIn > 0.5 ? houseIndoor(alb, n, vAO, hHi) : lightSurface(alb, n, vAO);
     col += hGlow;
   `);
@@ -679,8 +692,8 @@ function buildHouses(S, st, R) {
     houseShell(ctx);
     for (const B of [ext, furn, glass]) { B.kind = HPART.FURN; B.hinge = null; }
     houseRooms(ctx);
-    ext.kind = HPART.RUIN; houseRuin(ctx);
-    ext.kind = HPART.SCAF; houseScaffold(ctx);
+    ext.kind = HPART.RUIN; houseRuin(ctx); // [look4] the scaffold is a working one of its own, built when it is first put up (04j_rubble.js)
+    houseScaffold(ctx); // [look4] (version 6's poles, as colliders standing down: 04f_rooms.js)
   });
   const mat1 = shareMat(houseMat, TU);
   const mExt = new THREE.Mesh(ext.build(), mat1); mExt.renderOrder = 1; scene.add(mExt);
@@ -698,7 +711,7 @@ function buildHouses(S, st, R) {
 function houseUniformsFor(H) {
   const T = H.S.houseSet.TU, i = H.slot;
   T.uHC.value[i].set(H.x, H.z, H.y + (H.round ? H.H0 : H.wallH), H.y + H.top - 0.3);
-  T.uHY.value[i].set(H.c, H.s, H.y, 0);
+  T.uHY.value[i].set(H.c, H.s, H.y, look4Dims(H)); // [look4] w: the walls' measures for a fallen house's stubs (04d_look4.js)
   T.uHL.value[i].set(H.hearth.x, H.hearth.wy + 0.4, H.hearth.z, 0);
   T.uHM.value[i].set(H.lamp.x, H.lamp.wy, H.lamp.z, 0);
 }
@@ -846,6 +859,7 @@ function updateHouses(dt) {
     else if (H.state === 'ruin') houseRuinStep(H, dt);
     else if (H.state === 'scaffold') houseScaffoldStep(H, dt);
   }
+  houseRubbleSync(); // [look4] a house brought down by stones: its broken walls and rubble (04j_rubble.js)
   houseHarm(dt);
 }
 

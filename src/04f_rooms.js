@@ -358,44 +358,21 @@ function houseRuin(ctx) {
   b.kind = HPART.EXT;
 }
 
-/* ------------------------------------------------------------------ */
-/* the scaffold: poles, ledgers and planks round the walls, a ladder,  */
-/* and the new roof frame going up                                     */
-/* ------------------------------------------------------------------ */
+/* [look4] the scaffold: a working putlog scaffold of its own, its boards floors and its ladder climbed, built the first */
+/* time a house is put back (houseScafSync, 04j_rubble.js)                                                              */
+// version 6's poles stay as the colliders they were, standing down and never raised (the working scaffold has its own):
+// what is placed at boot and the land's checks (mountains.py's sum of the colliders) read the world as version 14's did
+// (without them the land's sum of the colliders changed, and in houses.py a field hand stood on its way home at night)
 function houseScaffold(ctx) {
-  const { b, H, M } = ctx;
-  const fresh = [0.66, 0.52, 0.34], pole = [0.56, 0.44, 0.3];
-  b.kind = HPART.SCAF; b.hinge = null;
-  H.scafColl = [];
-  const poleAt = (lx, lz, hgt) => {
-    b.add(G.cyl8, lm(M, lx, hgt / 2 - 0.1, lz, 0, 0.06, hgt + 0.2, 0.06), MAT.logH, pole, H.y, 4);
-    const w = houseW(H, lx, lz);
-    const c = addCircle(w.x, w.z, 0.12, 'scaffold', hgt);
-    c.active = false;
-    H.scafColl.push(c);
-  };
+  const { H } = ctx;
+  H.scafPlace = [];
+  const poleAt = (lx, lz, hgt) => { const w = houseW(H, lx, lz), c = addCircle(w.x, w.z, 0.12, 'scaffold', hgt); c.active = false; c.l4old = true; H.scafPlace.push(c); };
   if (H.round) {
     const R = H.r + 0.75, n = H.big ? 14 : 9, hgt = H.wallH + 0.6;
-    const pts = [];
     for (let k = 0; k < n; k++) {
       const a = (k / n) * TAU + TAU / (2 * n);
       if (Math.abs(angDiff(a, 0)) < 0.45) continue;
-      pts.push([Math.sin(a) * R, Math.cos(a) * R]);
       poleAt(Math.sin(a) * R, Math.cos(a) * R, hgt);
-    }
-    for (let k = 0; k + 1 < pts.length; k++) for (const y of [1.4, 2.8]) beam(b, M, [pts[k][0], y, pts[k][1]], [pts[k + 1][0], y, pts[k + 1][1]], 0.05, MAT.wood, pole);
-    // new rafters climbing to the crown, battens round them
-    const nR = H.big ? 16 : 12, top = H.y0 + H.hc;
-    for (let k = 0; k < nR; k++) {
-      const a = (k / nR) * TAU + 0.13;
-      beam(b, M, [Math.sin(a) * (H.Rr - 0.4), H.roofAt(H.Rr - 0.4) - 0.2, Math.cos(a) * (H.Rr - 0.4)], [0, top - 0.5, 0], 0.08, MAT.wood, fresh, 0.1);
-    }
-    for (const f of [0.25, 0.5]) {
-      const rad = (H.Rr - 0.4) * (1 - f) + 0.2, y = H.roofAt(rad) - 0.16;
-      for (let k = 0; k < nR; k++) {
-        const a0 = (k / nR) * TAU + 0.13, a1 = ((k + 1) / nR) * TAU + 0.13;
-        beam(b, M, [Math.sin(a0) * rad, y, Math.cos(a0) * rad], [Math.sin(a1) * rad, y, Math.cos(a1) * rad], 0.04, MAT.wood, fresh);
-      }
     }
   } else {
     const w2 = H.w / 2 + 0.8, d2 = H.d / 2 + 0.8, hgt = H.wallH + 0.9;
@@ -406,28 +383,5 @@ function houseScaffold(ctx) {
       if (z > 0 && Math.abs(x) < 1.0 && Math.abs(z - d2) < 1e-3) continue; // the door stays clear
       poleAt(x, z, hgt);
     }
-    for (const s of [-1, 1]) for (const y of [1.5, H.wallH - 0.1]) {
-      beam(b, M, [s * w2, y, -d2], [s * w2, y, d2], 0.05, MAT.wood, pole);
-      b.add(G.box, lm(M, s * (w2 - 0.3), y + 0.06, 0, 0, 0.5, 0.05, 2 * d2 - 0.2), MAT.wood, fresh);
-    }
-    beam(b, M, [-w2, H.wallH - 0.1, -d2], [w2, H.wallH - 0.1, -d2], 0.05, MAT.wood, pole);
-    for (const s of [-1, 1]) beam(b, M, [s * w2, 0.1, -d2], [s * w2, H.wallH - 0.2, -d2 / 3], 0.04, MAT.wood, pole);
-    // a ladder against the side
-    for (const e of [-0.22, 0.22]) beam(b, M, [w2 + 0.5, 0, e + d2 / 3], [w2 - 0.1, H.wallH + 0.3, e + d2 / 3], 0.05, MAT.wood, fresh);
-    for (let k = 1; k < 9; k++) { const t = k / 9; b.add(G.box, lm(M, w2 + 0.5 - 0.6 * t, (H.wallH + 0.3) * t, d2 / 3, 0, 0.04, 0.04, 0.44), MAT.wood, fresh); }
-    // the new roof frame: rafters, ridge and battens of fresh timber
-    const yTop = H.wallH + H.rh - 0.15, n = Math.max(4, Math.round(H.d / 0.75));
-    for (let k = 0; k <= n; k++) {
-      const z = -H.d / 2 - 0.2 + (k / n) * (H.d + 0.4);
-      for (const s of [-1, 1]) beam(b, M, [s * (H.w / 2 + 0.3), H.wallH - 0.3 * H.tn, z], [0, yTop, z], 0.07, MAT.wood, fresh, 0.12);
-    }
-    b.add(G.box, lm(M, 0, yTop + 0.05, 0, 0, 0.14, 0.16, H.d + 0.5), MAT.wood, fresh);
-    for (const s of [-1, 1]) for (const f of [0.3, 0.65]) {
-      const x = s * (H.w / 2) * (1 - f), y = H.wallH + H.rh * f - 0.06;
-      b.add(G.box, lm(M, x, y, 0, 0, 0.06, 0.05, H.d + 0.5), MAT.wood, fresh);
-    }
-    // a stack of fresh thatch bundles or shingles waiting by the wall
-    for (let k = 0; k < 4; k++) b.add(G.cyl8, lm(M, -w2 - 0.6, 0.18 + (k % 2) * 0.3, -d2 / 2 + k * 0.4, 0, 0.17, 1.2, 0.17, Math.PI / 2), H.style === 'timber' ? MAT.wood : MAT.thatch, H.style === 'timber' ? fresh : [0.74, 0.62, 0.36]);
   }
-  b.kind = HPART.EXT;
 }

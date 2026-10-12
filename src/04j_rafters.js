@@ -12,10 +12,17 @@
 const HOUSE_DEPTH_FS = /* glsl */`
   ${GLSL_COMMON}
   uniform vec4 uHA[${HOUSE_MAXH}]; uniform vec4 uHD[${HOUSE_MAXH}];
+  uniform vec4 uHC[${HOUSE_MAXH}]; uniform vec4 uHY[${HOUSE_MAXH}]; // [look4]
   varying vec3 vW; varying vec2 vHP;
+  ${LOOK4_STUB_GLSL}
   void main(){
     if (vHP.x > -0.5) {
       int hHi = int(vHP.x + 0.5), hKind = int(vHP.y + 0.5);
+      // [look4] a house brought down by stones casts the shadow of its broken walls (the colour pass's own cut, 04d_look4.js)
+      if ((hKind == 0 || hKind == 2) && uHD[hHi].w > 1.5 && uHA[hHi].y > 1.5) {
+        vec2 d4 = vW.xz - uHC[hHi].xy, q4 = vec2(dot(d4, vec2(uHY[hHi].x, -uHY[hHi].y)), dot(d4, vec2(uHY[hHi].y, uHY[hHi].x)));
+        if (vW.y - uHY[hHi].z > max(look4Stub(q4, uHY[hHi].w, float(hHi)), uHD[hHi].x)) discard;
+      }
       // the hole in the roof lets the sun in (the colour pass's own cut, 04e_houses.js)
       if ((hKind == 1 || hKind == 7) && uHD[hHi].z > 0.01 && uHA[hHi].y < 1.5 && distance(vW.xz, uHD[hHi].xy) < uHD[hHi].z * (0.82 + 0.36 * vnoise(vW.xz * 3.1 + float(hHi) * 1.7))) discard;
     }

@@ -144,7 +144,10 @@ function look3Ladder(b, M, foot, top, side, col) {
 }
 function look3Scaffold(b, M, pts, ins, o) {
   const n = pts.length, gy = o.gy || (() => 0), r = mulberry(o.seed ?? 7);
-  const ok = pts.map(([x, z]) => !o.clear || o.clear(x, z));
+  // [look4] made again as its lifts go up (look4LiftStep, 04d_look4.js), it stands where it was laid out: the clear test
+  // would now refuse the places under its own boards (floors) and might take places a breach's rubble held
+  const prev = LOOK4.geoOnly && LOOK4.prev ? LOOK4.prev[LOOK4.runI++] : null;
+  const ok = prev && prev.ok && prev.ok.length === n ? prev.ok.slice() : pts.map(([x, z]) => !o.clear || o.clear(x, z));
   const pole = o.pole, wood = o.wood, lifts = o.lifts, deep = o.deep ?? 0.95;
   const out = { standards: 0, bays: 0, boards: 0, ladders: 0, floors: [], ladderRecs: [] };
   for (let i = 0; i < n; i++) {
@@ -152,6 +155,7 @@ function look3Scaffold(b, M, pts, ins, o) {
     // a standard needs a bay beside it, or it is a lone pole
     if (!((i > 0 && ok[i - 1]) || (i + 1 < n && ok[i + 1]))) { ok[i] = false; continue; }
   }
+  out.ok = ok.slice(); // [look4]
   for (let i = 0; i < n; i++) if (ok[i]) {
     const [x, z] = pts[i], g = gy(x, z) - 0.3;
     look3Pole(b, M, [x, g, z], [x + (r() - 0.5) * 0.06, o.top + r() * 0.3, z + (r() - 0.5) * 0.06], 0.07, darker(pole, 0.88 + 0.22 * r()), MAT.logH, o.baseY);
@@ -171,11 +175,12 @@ function look3Scaffold(b, M, pts, ins, o) {
     const L = Math.hypot(bx - ax, bz - az);
     return { ax, az, bx, bz, nx, nz, L, ux: (bx - ax) / L, uz: (bz - az) / L };
   };
-  const nb = Math.max(2, Math.floor((deep - 0.05) / 0.27)), b0 = 0.045, b1 = 0.17 + (nb - 1) * 0.27 + 0.125;
+  const nb = Math.max(2, Math.floor((deep - 0.05) / 0.27)), b0 = 0.045, b1 = 0.17 + (nb - 1) * 0.27 + 0.125, b0b = b; // [look4]
   for (const i of bays) {
     const B = bayOf(i), { ax, az, bx, bz, nx, nz, L, ux, uz } = B, yaw = Math.atan2(ux, uz);
     out.bays++;
     lifts.forEach((y, k) => {
+      const b = k < LOOK4.lifts ? b0b : LOOK4_NOB; // [look4] a lift not yet up is laid out but not drawn (look4LiftStep, 04d_look4.js)
       // the ledger along the outer row, the putlogs from it into the wall
       look3Pole(b, M, [ax - ux * 0.15, y, az - uz * 0.15], [bx + ux * 0.15, y, bz + uz * 0.15], 0.055, darker(pole, 0.92 + 0.15 * r()));
       for (const t of [0.22, 0.78]) {
@@ -183,8 +188,10 @@ function look3Scaffold(b, M, pts, ins, o) {
         b.add(G.box, lm(M, px + nx * (deep / 2 + 0.05), y + 0.07, pz + nz * (deep / 2 + 0.05), Math.atan2(nx, nz), 0.09, 0.09, deep + 0.35), MAT.plaster, darker(wood, 0.72 + 0.12 * r()));
       }
       // the boards on the putlogs, side by side across the floor; short of the opening where a ladder comes up
-      const open = upBay(k) === i ? (i === bays[0] ? -1 : 1) : 0;
-      const u0 = open < 0 ? OPEN : -0.11, u1 = open > 0 ? L - OPEN : L + 0.11;
+      // [look4] and short where the ladder from the lift below comes up through it (it stands to a climber's reach over
+      // its own lift: the hands reached for rungs in the air above a ladder that stopped at the boards)
+      const openAt = (kk) => (kk >= 0 && upBay(kk) === i ? (i === bays[0] ? -1 : 1) : 0), open = openAt(k), openB = openAt(k - 1);
+      const u0 = open < 0 || openB < 0 ? OPEN : -0.11, u1 = open > 0 || openB > 0 ? L - OPEN : L + 0.11;
       for (let j = 0; j < nb; j++) {
         const off = 0.17 + j * 0.27, ue = u1 - (o.curve ? j * 0.03 : 0), us = u0 + (o.curve ? j * 0.03 : 0), um = (us + ue) / 2;
         b.add(G.box, lm(M, ax + ux * (um + (r() - 0.5) * 0.04) + nx * off, y + 0.14, az + uz * (um + (r() - 0.5) * 0.04) + nz * off, yaw + (r() - 0.5) * 0.012, 0.25, 0.045, ue - us), MAT.plaster, darker(wood, 0.95 + 0.22 * r()));
@@ -209,10 +216,13 @@ function look3Scaffold(b, M, pts, ins, o) {
     const uc = first ? OPEN * 0.5 : L - OPEN * 0.5, at = (u, d) => [ax + ux * u + nx * d, az + uz * u + nz * d];
     const dl = Math.min(deep - 0.12, 0.78), yb = k === 0 ? null : lifts[k - 1] + 0.1625;
     const [lx0, lz0] = at(uc, dl), foot = k === 0 ? gy(lx0, lz0) : yb;
-    look3Ladder(b, M, [lx0, foot, lz0], [lx0 + nx * 0.06, y + 0.95, lz0 + nz * 0.06], [ux, uz], lad);
+    // [look4] upright, its rungs where a climber's hands and feet reach for a tower's (LADDER_AHEAD in front of the line it
+    // climbs on, a rung every 0.3 m from where it starts, 05a_rig.js): it leaned 6 cm and its climber stood 0.42 m back;
+    // and up to a climber's reach over the boards it leads to (1.95 m: through the next lift's boards, left short for it)
+    look3Ladder(k < LOOK4.lifts ? b : LOOK4_NOB, M, [lx0, foot, lz0], [lx0, y + 0.1625 + 1.95, lz0], [ux, uz], lad);
     // where a body starts, the line it climbs on, the place it steps off onto the boards (in the frame)
-    const [fx, fz] = k === 0 ? at(uc, -0.45) : at(uc + (first ? 1 : -1) * 0.9, 0.5), [lx, lz] = at(uc, 0.36), [qx, qz] = at(uc + (first ? 1 : -1) * 0.95, 0.5);
-    out.ladderRecs.push({ k, fx, fz, fy: k === 0 ? gy(fx, fz) : yb, lx, lz, ox: qx, oz: qz, yt: y + 0.1625, yaw: Math.atan2(nx, nz) });
+    const [fx, fz] = k === 0 ? at(uc, -0.45) : at(uc + (first ? 1 : -1) * 0.9, 0.5), [lx, lz] = at(uc, dl - LADDER_AHEAD), [qx, qz] = at(uc + (first ? 1 : -1) * 0.95, 0.5);
+    out.ladderRecs.push({ k, fx, fz, fy: foot, lx, lz, ox: qx, oz: qz, yt: y + 0.1625, yaw: Math.atan2(nx, nz), rx: lx0, rz: lz0 }); // [look4] fy: its foot (the rungs count from there); rx, rz: its rails' line
     out.ladders++;
   });
   return out;
@@ -236,6 +246,7 @@ function look3Clear(x, z, r, skip) {
 // for each run, in the site's frame S; kept on the section or gap (W.l3)
 const LOOK3S = { ladders: [], list: [] };
 function look3ScaffoldWorld(W, S, infos) {
+  if (LOOK4.geoOnly) return W.l3; // [look4] a scaffold's mesh made again as its lifts go up: its floors and ladders stay (04d_look4.js)
   const R = { floors: [], ladders: [], on: false, S };
   for (const info of infos) {
     if (!info) continue;
@@ -248,6 +259,7 @@ function look3ScaffoldWorld(W, S, infos) {
     for (const q of info.ladderRecs || []) {
       const f = siteToWorld(S, q.fx, q.fz), l = siteToWorld(S, q.lx, q.lz), o = siteToWorld(S, q.ox, q.oz);
       const L = { T: { S }, a: q.yaw, yaw: q.yaw, k: q.k, fx: f.x, fz: f.z, lx: l.x, lz: l.z, ox: o.x, oz: o.z, wyb: S.y + q.fy, wyt: S.y + q.yt, yawW: S.yaw + q.yaw, hatch: null, gone: true, scaffold: W, id: 'scaffold' };
+      if (q.rx !== undefined) { const rr = siteToWorld(S, q.rx, q.rz); L.rx = rr.x; L.rz = rr.z; } // [look4] where its rungs are (the tests)
       R.ladders.push(L); LOOK3S.ladders.push(L);
     }
   }
@@ -257,15 +269,16 @@ function look3ScaffoldWorld(W, S, infos) {
 }
 function look3ScafSync(W, on) {
   const R = W.l3;
-  if (!R || R.on === on) return;
-  R.on = on;
-  for (const f of R.floors) f.active = on;
-  for (const L of R.ladders) L.gone = !on;
+  const up = W.l4n ?? 99; // [look4] the lifts that are up (look4LiftStep, 04d_look4.js)
+  if (!R || (R.on === on && R.up === up)) return;
+  R.on = on; R.up = up;
+  for (const f of R.floors) f.active = on && (f.k ?? 0) < up;
+  for (const L of R.ladders) L.gone = !on || (L.k ?? 0) >= up;
 }
 // a gap's scaffold taken down for good (a palisade's: its scaffold is made for each repair): its floors and ladders go
 function look3ScaffoldDrop(W) {
   const R = W.l3;
-  if (!R) return;
+  if (!R || LOOK4.geoOnly) return; // [look4]
   look3ScafSync(W, false);
   for (const f of R.floors) {
     const i = FLOOR.list.indexOf(f); if (i >= 0) FLOOR.list.splice(i, 1);
@@ -283,6 +296,7 @@ function look3Scaffolds(C, dt) {
   for (const W of C.sections || []) if (W.state === 'repair' && !W.l3again && W.scaffold) look3Lay(C, W);
   for (const W of C.sections || []) if (W.l3) look3ScafSync(W, !!(W.scaffold && W.scaffold.visible && (W.state === 'repair')));
   if (C.pal) for (const W of C.pal.gaps) if (W.l3) look3ScafSync(W, W.state === 'repair' && !!W.scaffold);
+  look4LiftStep(C); // [look4] the lifts go up as the work comes up to them (04d_look4.js)
   if (typeof look3Masons === 'function') look3Masons(C, dt);
 }
 function look3Lay(C, W) {

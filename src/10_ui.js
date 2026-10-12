@@ -437,20 +437,19 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   ctx.fillStyle = 'rgba(8,9,11,0.12)'; ctx.fillRect(0, 0, S, S);
   // roads already baked in; mark realm names
   ctx.textAlign = 'center';
-  for (const R of REALMS) {
-    const [x, y] = w2m(R.dx * 400, R.dz * 400, S);
-    ctx.font = `${S * 0.04}px "IM Fell English SC", Georgia, serif`;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(R.name, x + 2, y + 2);
-    ctx.fillStyle = R.light; ctx.fillText(R.name, x, y);
-  }
   const kpx = S / Math.max(1, cv.clientWidth || S); // canvas pixels per screen pixel
-  ctx.font = `${Math.max(S * 0.017, 10.5 * kpx)}px "Alegreya Sans", sans-serif`;
-  const label = (txt, x, y, col = '#efe6d3') => { ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(txt, x + 1, y + 1); ctx.fillStyle = col; ctx.fillText(txt, x, y); };
-  for (const K of WAR.keeps) { const [x, y] = w2m(K.site.x, K.site.z, S); drawSiteIcon(ctx, 'keep', x, y, S * 0.014, REALMS[K.realm].color, GAME.t < K.underSiegeUntil); label(K.site.name, x, y + S * 0.034); }
-  for (const T of WAR.temples) { const [x, y] = w2m(T.site.x, T.site.z, S); drawSiteIcon(ctx, 'temple', x, y, S * 0.012, REALMS[T.realm].color); label(T.site.name, x, y + S * 0.03, '#d9cfb8'); }
-  for (const R of REALMS) { let [x, y] = w2m(R.musterSite.x, R.musterSite.z, S); drawSiteIcon(ctx, 'muster', x, y, S * 0.011, R.color); label('Muster', x, y + S * 0.028, '#bdb39d'); [x, y] = w2m(R.town.x, R.town.z, S); drawSiteIcon(ctx, 'town', x, y, S * 0.012, '#e9dfc9'); label(R.townName, x, y + S * 0.03); }
-  { const [x, y] = w2m(0, 0, S); ctx.fillStyle = '#e9dfc9'; ctx.beginPath(); ctx.arc(x, y, S * 0.006, 0, TAU); ctx.fill(); label('The Lone Tree', x, y - S * 0.014); }
-  { const [x, y] = w2m(BARROW.x, BARROW.z, S); drawBarrowIcon(ctx, x, y, S * 0.011); label('The Hollow Barrow', x, y + S * 0.03, '#a9e6e0'); }
+  // [look4] every name is laid out before it is drawn, so none lies over another, a site's mark, the guide's gem or you
+  // (look4MapLabels, 13w_look4.js): they were written each at its site, the realm's over its town's
+  const fs = Math.max(S * 0.017, 10.5 * kpx), fsR = S * 0.04, fnt = `${fs}px "Alegreya Sans", sans-serif`, LB = [], MK = [];
+  const label = (txt, x, y, col = '#efe6d3', r = 0, d = 0, pri = 3, spare = false) => LB.push({ t: txt, col, font: fnt, fs, pri, spare, at: look4SiteAt(x, y - d, r, d, fs) });
+  for (const R of REALMS) LB.push({ t: R.name, col: R.light, shade: 'rgba(0,0,0,0.55)', big: true, font: `${fsR}px "IM Fell English SC", Georgia, serif`, fs: fsR, pri: 6, at: [440, 405, 470, 330, 290].map((a) => w2m(R.dx * a, R.dz * a, S)) });
+  for (const K of WAR.keeps) { const [x, y] = w2m(K.site.x, K.site.z, S); drawSiteIcon(ctx, 'keep', x, y, S * 0.014, REALMS[K.realm].color, GAME.t < K.underSiegeUntil); MK.push([x, y, S * 0.016]); label(K.site.name, x, y + S * 0.034, '#efe6d3', S * 0.016, S * 0.034, 2); }
+  for (const T of WAR.temples) { const [x, y] = w2m(T.site.x, T.site.z, S); drawSiteIcon(ctx, 'temple', x, y, S * 0.012, REALMS[T.realm].color); MK.push([x, y, S * 0.014]); label(T.site.name, x, y + S * 0.03, '#d9cfb8', S * 0.014, S * 0.03, 3); }
+  for (const R of REALMS) { let [x, y] = w2m(R.musterSite.x, R.musterSite.z, S); drawSiteIcon(ctx, 'muster', x, y, S * 0.011, R.color); MK.push([x, y, S * 0.013]); label('Muster', x, y + S * 0.028, '#bdb39d', S * 0.013, S * 0.028, 5, true); [x, y] = w2m(R.town.x, R.town.z, S); drawSiteIcon(ctx, 'town', x, y, S * 0.012, '#e9dfc9'); MK.push([x, y, S * 0.014]); label(R.townName, x, y + S * 0.03, '#efe6d3', S * 0.014, S * 0.03, 1); }
+  { const [x, y] = w2m(0, 0, S); ctx.fillStyle = '#e9dfc9'; ctx.beginPath(); ctx.arc(x, y, S * 0.006, 0, TAU); ctx.fill(); MK.push([x, y, S * 0.008]); LB.push({ t: 'The Lone Tree', col: '#efe6d3', font: fnt, fs, pri: 4, at: [[x, y - S * 0.014], [x, y + S * 0.008 + fs], [x + S * 0.012 + fs * 3.4, y + fs * 0.35]] }); }
+  { const [x, y] = w2m(BARROW.x, BARROW.z, S); drawBarrowIcon(ctx, x, y, S * 0.011); MK.push([x, y, S * 0.013]); label('The Hollow Barrow', x, y + S * 0.03, '#a9e6e0', S * 0.013, S * 0.03, 3); }
+  look4MapLabels(ctx, S, LB, MK);
+  ctx.font = fnt;
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = w2m(p.x, p.z, S); ctx.fillStyle = '#ffe28a'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.arc(x, y, S * 0.008, 0, TAU); ctx.fill(); ctx.stroke(); }
   // allied warbands, and enemies close to anything of ours
   for (const wb of WAR.warbands) {
