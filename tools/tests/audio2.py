@@ -87,8 +87,12 @@ async def main():
             log('loops', lp)
             check(all(v['rms'] > 0.005 and v['peak'] < 1 and v['seam'] < max(0.05, v['rms'] * 3) for v in lp.values()), f"the air's loops are made, not clipped and loop without a seam {lp}")
             if WAV:
-                for n in ['collapse', 'shout', 'warcry', 'bell', 'chisel', 'howl']:
-                    r = await ev(f"(async () => {{ const r = await __hm.snd.render('{n}', {{ secs: 4, at: [3, 0, -6] }}); return r; }})()")
+                # version 16's sounds to listen to, each at 6 m ahead and a little to the right, as a player would hear it
+                for n in ['collapse', 'crack', 'tiles', 'timberfall', 'chisel', 'mallet', 'creak', 'saw', 'beat', 'shout', 'warcry', 'march', 'rubble', 'oar', 'plop',
+                          'bell', 'alarmBell', 'alarmCue', 'flare', 'wardbreak', 'incoming', 'howl', 'owl', 'stepGrass', 'stepStone', 'stepWood']:
+                    r = await ev(f"__hm.snd.render('{n}', {{ secs: 4, at: [3, 0, -6], seed: 5, wav: true }}).then((r) => r.wav || '')")
+                    if r: pathlib.Path(OUT, f'audio2_{n}.wav').write_bytes(base64.b64decode(r))
+                log('wav: tools/out/audio2_<name>.wav')
 
         if not WORLD:
             print('FAILED:' if FAILS else 'ALL PASSED', FAILS, f'({time.time() - T0:.0f}s)'); await b.close(); return
@@ -336,7 +340,13 @@ async def main():
                 for sel in ['#set-fx button[data-v="low"]', '#set-amb button[data-v="high"]']:
                     await page.evaluate(f"document.querySelector('{sel}').scrollIntoView({{ block: 'center' }}); 0")
                     await page.wait_for_timeout(200)
-                    await page.tap(sel)
+                    # a finger on the middle of the button, which must be what the screen shows there (page.tap's own wait
+                    # for the action to settle hung once with the game's frames stopped)
+                    box = await ev(f"""(() => {{ const el = document.querySelector('{sel}'), r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
+                      return {{ x, y, top: !!hit && (hit === el || el.contains(hit)) }}; }})()""")
+                    check(box['top'], f"the button {sel} is what a finger comes down on ({box})")
+                    try: await asyncio.wait_for(page.touchscreen.tap(box['x'], box['y']), 40)
+                    except Exception as ex: print('  the tap on', sel, 'did not return:', str(ex)[:120])
                     await page.wait_for_timeout(500)
             else:
                 await ev("document.querySelector('#set-fx button[data-v=\"low\"]').click(); 0")

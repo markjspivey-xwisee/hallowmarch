@@ -724,6 +724,9 @@
   #war .g2-aim:hover .t { color: #fff4dc; }
   body.touch #war { cursor: pointer; }
   @media (max-width: 760px), (pointer: coarse) { #war .g2-aim { font-size: 10.5px; column-gap: 4px; } }
+  /* audio2: the settings' rows (Volume, Effects, Ambience, Music and the rest) take a 40 px tap on a touch screen (11c_sound.js) */
+  body.touch .setrow .seg button { min-height: 40px; min-width: 44px; padding: 8px 12px; }
+  body.touch .setrow { row-gap: 6px; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

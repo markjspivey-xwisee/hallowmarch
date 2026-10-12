@@ -1414,7 +1414,19 @@ async function sndRenderOffline(name, o = {}) {
     if (i % win === win - 1) { mw = Math.max(mw, ws / win); ws = 0; }
   }
   const db = (x) => Math.round(10 * Math.log10(x + 1e-12) * 10) / 10;
-  return { name, ...res, peakDb: Math.round(20 * Math.log10(pk + 1e-12) * 10) / 10, rmsL: db(sl / n), rmsR: db(sr2 / n), rmsDb: db((sl + sr2) / 2 / n), loud50Db: db(mw), clip, len: Math.round((last / sr) * 100) / 100, finite: Number.isFinite(sl + sr2), bright: Math.round((hi / Math.max(1e-12, (sl + sr2) / 2)) * 1000) / 1000 };
+  const R = { name, ...res, peakDb: Math.round(20 * Math.log10(pk + 1e-12) * 10) / 10, rmsL: db(sl / n), rmsR: db(sr2 / n), rmsDb: db((sl + sr2) / 2 / n), loud50Db: db(mw), clip, len: Math.round((last / sr) * 100) / 100, finite: Number.isFinite(sl + sr2), bright: Math.round((hi / Math.max(1e-12, (sl + sr2) / 2)) * 1000) / 1000 };
+  if (o.wav) R.wav = sndWav(Lc, Rc, Math.min(n, last + Math.floor(sr * 0.1)), sr); // (audio2.py wav: to listen to)
+  return R;
+}
+// a 16-bit stereo WAV of a render, as base64
+function sndWav(Lc, Rc, n, sr) {
+  const v = new DataView(new ArrayBuffer(44 + n * 4)), str = (at, t) => { for (let i = 0; i < t.length; i++) v.setUint8(at + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 4, true);
+  for (let i = 0; i < n; i++) { v.setInt16(44 + i * 4, Math.round(clamp(Lc[i], -1, 1) * 32767), true); v.setInt16(46 + i * 4, Math.round(clamp(Rc[i], -1, 1) * 32767), true); }
+  const u8 = new Uint8Array(v.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(bin);
 }
 
 /* test hooks: window.__hm.snd */
