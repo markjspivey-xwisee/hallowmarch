@@ -94,11 +94,12 @@ function botDodge(e, t, dt) {
     if (d < R) { best = { x: p.point.x, z: p.point.z, now: true, out: R - d }; break; }
   }
   // burning grass under its feet (2% of health a second): out of it
-  if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45) {
+  if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45 && !botFireThrough(e, t)) { // [balance7] a blade after its foe goes through the flames (07c_balance7.js)
     let bx = 0, bz = 0, nb = 0;
     for (let a = 0; a < 8; a++) { const x = e.x + Math.sin(a * 0.785) * 2.5, z = e.z + Math.cos(a * 0.785) * 2.5; if (natGet(x, z, 2) > 0.3) { bx += x; bz += z; nb++; } }
     if (nb < 8) best = nb ? { x: bx / nb, z: bz / nb, now: false, fire: true } : { x: e.x, z: e.z, now: false, fire: true };
   }
+  if (!best && B7T.volleyDodge) best = botVolleyAt(e); // [balance7] a foe's volley falling on it (07c_balance7.js)
   if (!best && typeof SPELL !== 'undefined') for (const S of SPELL.emitters) {
     if (S.kind !== 'blizzard' || !S.src || S.src.faction === e.faction || S.until < GAME.t + 0.8) continue;
     if (dist(e.x, e.z, S.x, S.z) < S.r + e.radius * (e.scale || 1) + 0.4) { best = { x: S.x, z: S.z, now: false }; break; }

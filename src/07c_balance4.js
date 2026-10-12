@@ -50,6 +50,7 @@ const RUSH_CD_EARLY = 12;
 function chargeRush(e, A, t, rk) {
   if (!t || !t.alive) return;
   if (e.level < ABILITIES.leap.level) e.cds.charge = Math.min(e.cds.charge || 0, GAME.t + RUSH_CD_EARLY);
+  else if (B7T.chargeCdLate) e.cds.charge = Math.min(e.cds.charge || 0, GAME.t + B7T.chargeCdLate); // [balance7] (07c_balance7.js)
   faceToward(e, t.x, t.z);
   e.cds.bash = Math.max(e.cds.bash || 0, GAME.t + RUSH_BASH + Math.min(RUSH.maxT, dist(e.x, e.z, t.x, t.z) / RUSH.speed));
   e.motion = { kind: 'leap', rush: true, t: 0, dur: RUSH.maxT, tid: t.id, A, rk, stuck: 0, dust: 0, yaw: e.yaw };
@@ -122,7 +123,7 @@ function chargeLands(e, A, t, rk) {
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
     FX.sparks(t.x, t.y + 1.2 * (t.scale || 1), t.z);
     if (A.snare && RUSH.slow) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
-    else if (e.level < ABILITIES.leap.level) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id);
+    else if (e.level < ABILITIES.leap.level || B7T.chargeSlowLate) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id); // [balance7] B7T.chargeSlowLate (07c_balance7.js)
     if (e === GAME.player || t === GAME.player) sfx('hit');
   });
 }
@@ -142,7 +143,7 @@ const mageRankK = (e) => mageRankOf(abilityRank(e.level)); // [balance6] 1 + MAG
 // the deeper the wound, the more Mend mends: all of its measure from half health down, under half of it on a scratch.
 // A heal cast at need does its full work; one cast by habit, every other breath, does little (a priest pressing every
 // key in turn healed as much as one who mends at need, and out-lasted every foe who did not break its spells)
-const MEND_WOUND = { floor: 0.3, full: 0.5 };
+const MEND_WOUND = { floor: 0.15, full: 0.5 }; // [balance7] 0.3: a priest pressing Mend in turn mended a scratch at a third of its measure (07c_balance7.js)
 function mendWound(f) {
   if (!f || !(f.maxHp > 0)) return 1;
   const miss = clamp(1 - f.hp / f.maxHp, 0, 1);

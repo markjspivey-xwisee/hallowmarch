@@ -47,7 +47,7 @@ function rushShare(e, A) {
   if (A.id === 'leap') e.cds.bash = Math.max(e.cds.bash || 0, GAME.t + RUSH_BASH + 0.8); // [balance4] a rush spends the shield arm: Shield Bash waits after a Leap Strike as after a Charge (07c_balance4.js)
   if (A.id !== 'charge' && A.id !== 'leap' || e.level < ABILITIES.leap.level) return;
   const other = A.id === 'charge' ? 'leap' : 'charge', t = GAME.t;
-  e.cds[other] = Math.max(e.cds[other] || 0, t + RUSH_SHARE);
+  e.cds[other] = Math.max(e.cds[other] || 0, t + B7T.rushShare); // [balance7] RUSH_SHARE (07c_balance7.js)
 }
 // [balance3] an NPC warrior's shield wall: a bow shooting from out of reach, and no rush ready to close on it
 function npcWallWanted(e, t) {
@@ -65,7 +65,7 @@ const frostRootExtra = (src) => (src && abilityRank(src.level || 1) >= 2 ? { fro
 const blizzardHeld = (e) => e.buffs.some((b) => b.kind === 'snare' && b.blizzard && b.until > GAME.t);
 // canUse asks: what the calling forbids right now (null: nothing)
 function classCanUse(e, A, target) {
-  if ((A.leap && frostHeld(e)) || (A.dash && deepFrostHeld(e)) || ((A.leap || A.dash) && blizzardHeld(e))) { BAL3.stats.held++; return 'held'; }
+  if ((A.leap && frostHeld(e)) || (A.dash && B7T.deepFrost && deepFrostHeld(e)) || ((A.leap || A.dash) && blizzardHeld(e))) { BAL3.stats.held++; return 'held'; } // [balance7] B7T.deepFrost (07c_balance7.js)
   return rushWhy(e, A, target); // [balance4] no rush on a horse, in the water or at a foe on another floor (07c_balance4.js)
 }
 

@@ -637,7 +637,7 @@ function executeAbility(e, A, t, cast = null) {
           later(0.5, () => areaDamage(e, gx, gz, A.radius, A.dmg * rk, null));
         });
       }
-      aoeMarker(gx, gz, A.radius, 2.2);
+      aoeMarker(gx, gz, A.radius, 2.2, e.faction); // [balance7] whose volley it is (a skilled bot steps out of a foe's: 07c_balance7.js)
     } else if (A.id === 'meteor') {
       const gy = heightAt(gx, gz);
       spawnProjectile(e, null, 'meteor', null, { x: gx, y: gy, z: gz }, true, { x: gx - 8, y: gy + 26, z: gz - 6 });
@@ -809,6 +809,7 @@ function leapLand(e, A, rk) {
     const r = computeDamage(e, o, A.dmg * rk);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
     if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); o.casting = null; FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+    if (B7T.leapSlow && o.alive && o.kind !== 'door') addBuff(o, 'snare', B7T.leapSlow[0], B7T.leapSlow[1], e.id); // [balance7] (07c_balance7.js)
   });
   for (let i = 0; i < 26; i++) {
     const a = (i / 26) * TAU;
@@ -838,7 +839,7 @@ function runLater() {
   }
 }
 const AOE_MARKS = [];
-function aoeMarker(x, z, r, dur) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur }); }
+function aoeMarker(x, z, r, dur, faction = null) { AOE_MARKS.push({ x, z, r, until: GAME.t + dur, faction, t0: GAME.t }); } // [balance7] faction, t0
 
 /* ------------------------------------------------------------------ */
 /* auto attack                                                         */

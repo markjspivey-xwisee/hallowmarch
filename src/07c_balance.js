@@ -289,7 +289,7 @@ function botMove(e, t, dt) {
   // nor chase a bow that keeps away: a casting duel at range ([balance2] closing on it denied an archer every draw,
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
-  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level ? e.meleeRange + tr - 0.4 : 8; // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 the bow won 24 of 24 from casting range, the priest 23 of 24 pressing to its mace: from Tumble's level it keeps within its holy fire's flare (8 m)
+  else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level && B7T.priestPress ? e.meleeRange + tr - 0.4 : 8; // [balance7] B7T.priestPress // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 the bow won 24 of 24 from casting range, the priest 23 of 24 pressing to its mace: from Tumble's level it keeps within its holy fire's flare (8 m)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -459,6 +459,7 @@ function botArcher(e, t) {
   if (rushComing(e, t) && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 9) && !canUse(e, 'snare', null)) { faceToward(e, t.x, t.z); if (botUse(e, 'snare', null)) return true; }
   if (botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 5) >= 2 && botUse(e, 'volley', t)) return true;
   if (t.cs && t.cs.blockOn && botUse(e, 'volley', t)) return true; // [balance4] a volley falls from above: a raised shield does not turn it
+  if (B7T.archerVolley && archerVolleyWorth(t) && botUse(e, 'volley', t)) return true; // [balance7] at a foe that stands where it is (07c_balance7.js)
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
@@ -625,11 +626,12 @@ function botPriest(e, t) {
   if (fight && hpF < (long ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
-  if (fight && (broke || blade || isRooted(e) || hasBuff(e, 'snare')) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance5] a fresh one, or it does not steady
+  if (fight && (broke || blade || isRooted(e) || (B7T.priestSnareRenew && hasBuff(e, 'snare'))) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance7] B7T.priestSnareRenew // [balance5] a fresh one, or it does not steady
   // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
   if (fight && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance6] (a spent steadiness guards no more spells)
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
-  if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
+  const race = B7T.priestRace && !many && abilityRank(e.level) <= 1 ? B7T.priestRace : 0; // [balance7] a duel of rank I is a race: mend lower, smite more (07c_balance7.js)
+  if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) - race : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
   if (steadyNext(e) && hpF < 0.68 && botUse(e, 'mend', e)) return true; // [balance6] the steadied spell spent on the heal, not a smite
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
@@ -649,12 +651,12 @@ function botPriest(e, t) {
   // home); a priest that only mended lost three duels in four to a warrior at 10
   if (castOk && t.cls === 'warrior' && abilityRank(e.level) >= 2 && !dazzled(t) && hpF > 0.42 && botUse(e, 'smite', t)) return true; // (from rank II: at 10 it smote instead of mending and lost more)
   if (healOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true; // [balance6] healOk
-  if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk
+  if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) - race && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk [balance7] race
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race
   const pressed = (hpF < 0.9 || GAME.t - (e.lastHitAt || -99) < 6) && many;
-  if (castOk && (!pressed || pw > (reach ? 0.6 : 0.4) || t.hp < t.maxHp * 0.2) && botUse(e, 'smite', t)) return true;
+  if ((castOk || B7T.priestBait) && (!pressed || pw > (reach ? 0.6 : 0.4) || t.hp < t.maxHp * 0.2) && botUse(e, 'smite', t)) return true; // [balance7] B7T.priestBait (07c_balance7.js)
   return false;
 }
 
@@ -667,7 +669,7 @@ const PRIEST_SELF = 0.76; // [balance5] 0.75: a priest pressing its abilities in
 // get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
 // outlasted every bow and staff while one of 50 did not
 const PRIEST_SELF_LATE = 0.55; // [balance5] 0.65 was tried on clean ground: with the skilled priest pressing a bow and no longer throwing its spells away from under a meteor, it won 80% of its duels at 50
-const priestSelf = (e) => (abilityRank(e.level) <= 1 ? PRIEST_SELF : PRIEST_SELF_LATE / rankMult(e.level));
+const priestSelf = (e) => (abilityRank(e.level) <= 1 ? B7T.priestSelf : PRIEST_SELF_LATE / rankMult(e.level)); // [balance7] B7T.priestSelf: PRIEST_SELF (07c_balance7.js)
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
@@ -721,7 +723,7 @@ function breakCast(e) {
   return true;
 }
 function priestGroupHeal(e, A, t, cast, rk) {
-  forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? priestSelf(e) : 1)); FX.heal(o.x, o.y, o.z); } });
+  forNear(e.x, e.z, A.radius, (o) => { if (o.alive && o.faction === e.faction && isActor(o)) { healEnt(e, o, o.maxHp * A.groupHeal * rk * (o === e ? priestSelf(e) * sanctWound(e) : 1)); FX.heal(o.x, o.y, o.z); } }); // [balance7] sanctWound (07c_balance7.js)
   FX.ring(e.x, e.y + 0.3, e.z, A.radius * 0.3, [1.0, 1.6, 0.7], 50, A.radius);
   sfx('heal');
 }
