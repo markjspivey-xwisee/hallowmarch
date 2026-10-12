@@ -5,7 +5,7 @@ and feet on the rungs, the walls rising course by course, the new roof frame on 
 it); a castle's scaffold ladder has its rungs where a climber's limbs reach; the firefighters' beater; the map's names
 laid out clear of each other, the sites' marks and the guide's gem (on a desk and a phone); then pictures of the look4
 group of tools/tests/look_views.js unless noshots.
-usage: python3 tools/tests/look4.py [noshots] [only=ruin,scaffold,ladder,map,beater] [shots=view:q:variant,...] [tag=now]"""
+usage: python3 tools/tests/look4.py [noshots] [only=ruin,scaffold,ladder,lifts,map,beater] [shots=view:q:variant,...] [tag=now]"""
 import json, asyncio, sys, time, pathlib, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
@@ -46,7 +46,7 @@ async def grab(page, path, frames=2):
 ARGS = sys.argv[1:]
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
 FLAGS = {a for a in ARGS if '=' not in a}
-ONLY = OPT.get('only', 'ruin,scaffold,ladder,map,beater').split(',')
+ONLY = OPT.get('only', 'ruin,scaffold,ladder,lifts,map,beater').split(',')
 TAG = OPT.get('tag', 'now')
 T0 = time.time()
 FAILS = []
@@ -116,7 +116,7 @@ window.T4 = {
     const H = this.H, P = H.GAME.player, M = H.motion;
     P.x = P.prevX = L.fx; P.z = P.prevZ = L.fz; P.y = L.wyb; P.motion = null; P.hp = P.maxHp = 1e7; P.onGround = true; P.vy = 0; P.anim.act = 0; P.anim.actDur = 0; H.UI.modal = null;
     H.towers.towerClimb(P, L, 1);
-    const fx = Math.sin(L.yawW), fz = Math.cos(L.yawW), rungs = []; for (let y = 0.3; y < L.wyt - L.wyb + 0.75; y += 0.3) rungs.push(L.wyb + y); // (a scaffold's ladder stands 0.8 m over the boards it leads to)
+    const fx = Math.sin(L.yawW), fz = Math.cos(L.yawW), rungs = []; for (let y = 0.3; y < L.wyt - L.wyb + 1.8; y += 0.3) rungs.push(L.wyb + y); // (a scaffold's ladder stands 1.95 m over the boards it leads to)
     const Fr = { rungs, fx, fz, lx: L.lx, lz: L.lz, ahead: (L.rx - L.lx) * fx + (L.rz - L.lz) * fz };
     const rec = M.motionRun([{ e: P, kind: 'human', which: ['feet', 'hands'] }], sec, 1 / 60, { cam: () => { H.UI.modal = null; H.CAM.mode = 'fixed'; H.camera.position.set(P.x + 4, P.y + 2, P.z + 4); H.camera.lookAt(P.x, P.y + 1, P.z); H.camera.updateMatrixWorld(); } });
     const S = rec[0].filter((s) => s.L && s.L.feet && s.L.hands && s.y > L.wyb + 0.05 && s.y < L.wyt - 0.05), out = { feet: [], hands: [], ahead: +Fr.ahead.toFixed(3), n: S.length };
@@ -176,6 +176,27 @@ async def main():
                 print(f"  {name}: rung line {ah} m ahead; feet {json.dumps(fe)[:300]}; hands {json.dumps(ha)[:300]}", flush=True)
                 check(len(fe) >= 6 and all(0.012 <= q['dy'] <= 0.045 and ah - 0.1 <= q['a'] <= ah + 0.06 for q in fe), f"{name}: every foot stands on a rung while it holds ({len(fe)} holds, {min([q['dy'] for q in fe] or [0])}-{max([q['dy'] for q in fe] or [0])} m over its middle, {min([q['a'] for q in fe] or [0])}-{max([q['a'] for q in fe] or [0])} m ahead)")
                 check(len(ha) >= 6 and all(abs(q['dy']) <= 0.06 and abs(q['a'] - ah) <= 0.06 for q in ha), f"{name}: every hand holds a rung while it holds ({len(ha)} holds, {min([q['dy'] for q in ha] or [0])}-{max([q['dy'] for q in ha] or [0])} m, {min([q['a'] for q in ha] or [0])}-{max([q['a'] for q in ha] or [0])} m ahead)")
+        if 'lifts' in ONLY or 'ladder' in ONLY:
+            # a breached tower's scaffold goes up lift by lift with the work, and the mason above climbs to each
+            r = await ev(page, """(() => { const H = __hm, L3 = H.look3, S = LK.keepSite(0, 0), C = H.fn.castles().find((q) => q.S === S), K = S.keepRef;
+              const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1);
+              if (W.state !== 'repair') return { none: W.state };
+              const n = Math.max(...W.l3.ladders.map((q) => q.k + 1)), out = { n, ups: [] }, sim = (s) => { H.UI.modal = null; H.simulate(s); };
+              for (const t of [0.13, 0.35, 0.55, 0.8]) { W.t = t; K.lastEnemyNear = -1e9; sim(0.1); out.ups.push([t, W.l4n, W.l3.floors.filter((f) => f.active).length, W.l3.ladders.filter((q) => !q.gone).length]); }
+              // the masons: back to the start of the work (one lift up), then all of them up while the one above works
+              W.t = 0.13; for (const e of L3.MASON.list) if (!e.removed) H.fn.removeEnt(e); W.masonsFor = null; sim(0.1);
+              let t = 0; const up = () => L3.MASON.list.find((e) => !e.removed && e.ai.mason.W === W && e.ai.mason.up);
+              while (t < 150 && !(up() && up().ai.mason.st === 'work')) { K.lastEnemyNear = -1e9; W.t = Math.min(W.t, 0.13); sim(1); t += 1; }
+              out.reached = t; W.t = 0.8; t = 0;
+              while (t < 60 && !(up() && up().ai.mason.lad && up().ai.mason.lad.length >= 2 && up().ai.mason.st === 'work')) { K.lastEnemyNear = -1e9; W.t = Math.min(W.t, 0.8); sim(1); t += 1; }
+              const m = up() && up().ai.mason; out.lad = m && m.lad ? m.lad.map((q) => q.k) : null; out.st = m && m.st; out.y = up() ? +(up().y - S.y).toFixed(2) : null; out.t2 = t;
+              return out; })()""")
+            print(f'  lifts: {json.dumps(r)}', flush=True)
+            if r.get('none'): check(False, f"a breached tower being mended ({r})")
+            else:
+                ups = r['ups']
+                check(ups[0][1] == 1 and ups[-1][1] == r['n'] and all(ups[i][1] <= ups[i + 1][1] for i in range(len(ups) - 1)) and ups[0][3] == 1 and ups[-1][3] == r['n'], f"a tower's scaffold rises lift by lift with the work ({r['n']} lifts; [work, lifts up, floors on, ladders on]: {ups})")
+                check(r['lad'] and len(r['lad']) >= 2 and r['st'] == 'work', f"the mason above climbs on to the next lift as it goes up (ladders climbed {r['lad']}, {r['st']}, {r['y']} m up, after {r['t2']} s)")
         if 'beater' in ONLY:
             r = await ev(page, """(() => { const WB = __hm.fn.WB; return { bit: WB.beater, torch: WB.torch }; })()""")
             check(r['bit'] == 1 << 21 and r['torch'] == 1 << 20, f"the fire beater has its own part bit ({r}); the beaters view shows it in their hands")

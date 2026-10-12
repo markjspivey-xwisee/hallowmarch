@@ -184,8 +184,10 @@ function look3Scaffold(b, M, pts, ins, o) {
         b.add(G.box, lm(M, px + nx * (deep / 2 + 0.05), y + 0.07, pz + nz * (deep / 2 + 0.05), Math.atan2(nx, nz), 0.09, 0.09, deep + 0.35), MAT.plaster, darker(wood, 0.72 + 0.12 * r()));
       }
       // the boards on the putlogs, side by side across the floor; short of the opening where a ladder comes up
-      const open = upBay(k) === i ? (i === bays[0] ? -1 : 1) : 0;
-      const u0 = open < 0 ? OPEN : -0.11, u1 = open > 0 ? L - OPEN : L + 0.11;
+      // [look4] and short where the ladder from the lift below comes up through it (it stands to a climber's reach over
+      // its own lift: the hands reached for rungs in the air above a ladder that stopped at the boards)
+      const openAt = (kk) => (kk >= 0 && upBay(kk) === i ? (i === bays[0] ? -1 : 1) : 0), open = openAt(k), openB = openAt(k - 1);
+      const u0 = open < 0 || openB < 0 ? OPEN : -0.11, u1 = open > 0 || openB > 0 ? L - OPEN : L + 0.11;
       for (let j = 0; j < nb; j++) {
         const off = 0.17 + j * 0.27, ue = u1 - (o.curve ? j * 0.03 : 0), us = u0 + (o.curve ? j * 0.03 : 0), um = (us + ue) / 2;
         b.add(G.box, lm(M, ax + ux * (um + (r() - 0.5) * 0.04) + nx * off, y + 0.14, az + uz * (um + (r() - 0.5) * 0.04) + nz * off, yaw + (r() - 0.5) * 0.012, 0.25, 0.045, ue - us), MAT.plaster, darker(wood, 0.95 + 0.22 * r()));
@@ -211,8 +213,9 @@ function look3Scaffold(b, M, pts, ins, o) {
     const dl = Math.min(deep - 0.12, 0.78), yb = k === 0 ? null : lifts[k - 1] + 0.1625;
     const [lx0, lz0] = at(uc, dl), foot = k === 0 ? gy(lx0, lz0) : yb;
     // [look4] upright, its rungs where a climber's hands and feet reach for a tower's (LADDER_AHEAD in front of the line it
-    // climbs on, a rung every 0.3 m from where it starts, 05a_rig.js): it leaned 6 cm and its climber stood 0.42 m back
-    look3Ladder(k < LOOK4.lifts ? b : LOOK4_NOB, M, [lx0, foot, lz0], [lx0, y + 0.95, lz0], [ux, uz], lad);
+    // climbs on, a rung every 0.3 m from where it starts, 05a_rig.js): it leaned 6 cm and its climber stood 0.42 m back;
+    // and up to a climber's reach over the boards it leads to (1.95 m: through the next lift's boards, left short for it)
+    look3Ladder(k < LOOK4.lifts ? b : LOOK4_NOB, M, [lx0, foot, lz0], [lx0, y + 0.1625 + 1.95, lz0], [ux, uz], lad);
     // where a body starts, the line it climbs on, the place it steps off onto the boards (in the frame)
     const [fx, fz] = k === 0 ? at(uc, -0.45) : at(uc + (first ? 1 : -1) * 0.9, 0.5), [lx, lz] = at(uc, dl - LADDER_AHEAD), [qx, qz] = at(uc + (first ? 1 : -1) * 0.95, 0.5);
     out.ladderRecs.push({ k, fx, fz, fy: foot, lx, lz, ox: qx, oz: qz, yt: y + 0.1625, yaw: Math.atan2(nx, nz), rx: lx0, rz: lz0 }); // [look4] fy: its foot (the rungs count from there); rx, rz: its rails' line

@@ -106,8 +106,9 @@ const LOOK4_CHAR_GLSL = /* glsl */`
 const LOOK4 = { lifts: Infinity, geoOnly: false, stats: { liftsUp: 0 } };
 const LOOK4_NOB = { add() {} };
 function look4LiftsWanted(W) {
-  const R = W.l3, n = R && R.ladders.length ? Math.max(...R.ladders.map((L) => (L.k ?? 0) + 1)) : 1;
-  return clamp(1 + Math.floor((clamp(W.t || 0, 0, 1) * n) / 0.75 + 1e-6), 1, n);
+  // (a tower's scaffold goes up once its rubble is cleared, at 12% of the work: 04g_breach.js)
+  const R = W.l3, n = R && R.ladders.length ? Math.max(...R.ladders.map((L) => (L.k ?? 0) + 1)) : 1, t0 = W.kind === 'tower' ? 0.12 : 0;
+  return clamp(1 + Math.floor((Math.max(0, clamp(W.t || 0, 0, 1) - t0) * n) / (0.75 - t0) + 1e-6), 1, n);
 }
 function look4LiftStep(C) {
   const each = (W, geo) => {

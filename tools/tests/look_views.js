@@ -1111,6 +1111,16 @@ window.LK = {
     L.away(K.site.x + 60, K.site.z + 60);
     return { ...L.cam(cam.x, K.site.y + 3.0, cam.z, t.x, K.site.y + 5.0, t.z), heat: +c.heat.toFixed(2) };
   });
+  // a burh's walk built back: the new boards pale beside the old, seen from the court
+  D('look4', 'deck_fresh', (L) => {
+    const H = L.H, F = L.F, K = keepOf(2, 0), C = castleOfK(K), B = C.blaze, Z = H.blaze;
+    holdKeep(K); noGarrison(K);
+    const side = B.cells.filter((c) => c.di === 0), c = side[Math.floor(side.length / 2)];
+    if (!L.l4fresh) { c.char = 1; Z.deckThrough(c); sim(L, 0.5); Z.deckMended(c); Z.blazeUpload(B); sim(L, 0.5); L.l4fresh = true; }
+    const cam = F.siteToWorld(K.site, c.lx + 2.2, c.lz + 6.5), t = F.siteToWorld(K.site, c.lx, c.lz);
+    L.away(K.site.x + 60, K.site.z + 60);
+    return { ...L.cam(cam.x, c.y + 1.2, cam.z, t.x, c.y - 0.2, t.z), fresh: +c.fresh.toFixed(2) };
+  });
   D('look4', 'ring', (L) => {
     const H = L.H, F = L.F, T = H.WAR.temples[2], C = F.castleOf(T.site), B = C.blaze, Z = H.blaze;
     T.lastEnemyNear = H.GAME.t + 1e6;
