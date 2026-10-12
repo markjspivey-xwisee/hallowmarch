@@ -122,7 +122,7 @@ function castGiftUlt(e, at = null) {
   if (!D) return 'dead';
   if (e.mount) dismount(e);
   const U0 = D.ult, k = giftUltK(e);
-  e.giftCdUntil = GAME.t + (e === GAME.player ? GIFT_CD : 360);
+  e.giftCdUntil = GAME.t + (e === GAME.player ? GIFT_CD * late2GiftCdK() /* [late2] a Champion of the realm's (10l_late.js) */ : 360);
   GIFT.casts++;
   GIFT.lastCast = { id: U0.id, by: e.id, t: GAME.t, realm: e.faction };
   if (U0.id === 'standard') giftStandard(e, k);

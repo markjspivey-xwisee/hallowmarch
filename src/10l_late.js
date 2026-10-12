@@ -42,7 +42,7 @@ const LATE2 = {
 const LATE2_DEEDS = {
   foes: 'Foes of the realms slain', champ: 'Champions brought down', high: 'Risen champions brought down', lord: 'Keep lords slain',
   keep: 'Keeps taken with you there', hallow: 'Hallows carried home', camp: 'Campaigns won with you there', dragon: 'Cinderwing brought down',
-  king: 'The Hollow King laid to rest', mw: 'Named masterworks made', vet: 'Veterancy',
+  king: 'The Hollow King laid to rest', mw: 'Named masterworks made', vet: 'Veterancy', rr: 'Realm rank',
 };
 // t: the name, as it follows yours ("Aldric Kingsbane", "Aldric the Victor"); k: what wearing it gives
 const LATE2_NAMES = [
@@ -59,9 +59,18 @@ const LATE2_NAMES = [
   { id: 'kingsbane', t: 'Kingsbane', deed: 'king', n: 1, rp: 400, k: { dead: 0.08 }, gift: 'You strike the dead 8% harder: barrow bones, draugr and everything that walks in the Barrow.' },
   { id: 'masterwright', t: 'Masterwright', deed: 'mw', n: 1, rp: 500, k: { wear: 0.3 }, gift: 'Your gear wears 30% slower.' },
   { id: 'unbowed', t: 'the Unbowed', deed: 'vet', n: 10, rp: 1500, k: { hp: 0.03 }, gift: 'You have 3% more health.' },
+  // realm ranks past the great gift: the realm's own names for those who serve it longest (said after a comma)
+  { id: 'rr6', t: 'Champion of {realm}', sep: ', ', deed: 'rr', n: 6, rp: 0, k: { giftCd: 0.15 }, gift: 'Your realm\'s great gift comes round 15% sooner.' },
+  { id: 'rr8', t: 'Marshal of {realm}', sep: ', ', deed: 'rr', n: 8, rp: 0, k: { aura: 0.03 }, gift: 'Soldiers of your realm within 20 m of you strike 3% harder.' },
+  { id: 'rr10', t: 'Hero of the March', sep: ', ', deed: 'rr', n: 10, rp: 0, k: { hp: 0.04 }, gift: 'You have 4% more health.' },
+  { id: 'rr12', t: 'Sword of {realm}', sep: ', ', deed: 'rr', n: 12, rp: 0, k: { all: 0.03 }, gift: 'Everything you strike, you strike 3% harder.' },
+  { id: 'rr15', t: 'Legend of the March', sep: ', ', deed: 'rr', n: 15, rp: 0, k: { hp: 0.03, all: 0.03 }, gift: 'You have 3% more health, and strike everything 3% harder.' },
 ];
+// a name as it is said after yours: "Aldric Kingsbane", "Aldric, Marshal of Logres"
+const late2T = (N) => (N ? N.t.replace('{realm}', GAME.player ? REALMS[GAME.player.faction].name : 'the Realm') : '');
+const late2Say = (P, N) => (N ? `${P.name}${N.sep || ' '}${late2T(N)}` : P.name);
 const LATE2_BY_ID = Object.fromEntries(LATE2_NAMES.map((N) => [N.id, N]));
-const late2Count = (deed) => (deed === 'foes' ? (GAME.prog ? GAME.prog.realmKills || 0 : 0) : deed === 'vet' ? LATE2.vet : LATE2.d[deed] || 0);
+const late2Count = (deed) => (deed === 'foes' ? (GAME.prog ? GAME.prog.realmKills || 0 : 0) : deed === 'vet' ? LATE2.vet : deed === 'rr' ? (GAME.prog ? realmRank(GAME.prog.rp) : 1) : LATE2.d[deed] || 0);
 const late2Worn = () => (LATE2.worn && LATE2_BY_ID[LATE2.worn]) || null;
 const late2K = (k) => { const N = late2Worn(); return (N && N.k[k]) || 0; };
 function late2Deed(deed, n = 1) {
@@ -79,15 +88,15 @@ function late2CheckNames(quiet) {
     LATE2.stats.named++;
     if (!LATE2.worn) { LATE2.worn = N.id; setupStats(P, true); }
     if (quiet) continue;
-    uiBanner(`The March names you ${N.t}`, P.faction);
-    uiLog(`You have earned a name: ${P.name} ${N.t}. ${N.gift}${LATE2.worn === N.id ? '' : ' Wear it on the Chronicle\'s Deeds page.'}`, 'level');
+    uiBanner(N.deed === 'rr' ? `${REALMS[P.faction].name} names you ${late2T(N)}` : `The March names you ${late2T(N)}`, P.faction);
+    uiLog(`You have earned a name: ${late2Say(P, N)}. ${N.gift}${LATE2.worn === N.id ? '' : ' Wear it on the Chronicle\'s Deeds page.'}`, 'level');
     sfx('fanfare');
     flashScreen([1.0, 0.85, 0.45], 0.25);
-    addRP(N.rp);
+    if (N.rp) addRP(N.rp);
   }
 }
 // the player's name as the March says it: with the name it wears
-function late2Named(P) { const N = late2Worn(); return N ? `${P.name} ${N.t}` : P.name; }
+function late2Named(P) { return late2Say(P, late2Worn()); }
 function late2Wear(id) {
   const P = GAME.player;
   if (id && !LATE2.names.includes(id)) return false;
@@ -180,7 +189,7 @@ function late2HarmMult(src, dst, opts) {
       if (late2IsChampion(dst)) k *= 1 + late2K('champ');
       if (late2IsDead(dst)) k *= 1 + late2K('dead');
     }
-    k *= 1 + late2BoonK('dmg');
+    k *= 1 + late2BoonK('dmg') + late2K('all');
   } else {
     if (src) {
       if (src.faction === FACTION_MONSTER) k *= 1 - late2K('wildDr');
@@ -192,6 +201,8 @@ function late2HarmMult(src, dst, opts) {
   }
   return k;
 }
+// the realm's great gift's clock (06c_gifts.js)
+const late2GiftCdK = () => 1 - late2K('giftCd');
 // addRP (07_entities.js)
 const late2RpMult = () => 1 + late2K('rp') + late2BoonK('rp');
 // wearItem (05h_wear.js): only the player's own gear wears
@@ -568,6 +579,9 @@ function late2Offers(P, offer) {
 // while it stands: your realm's soldiers, your companions and you within its reach strike harder (once a second)
 function late2StdStep() {
   const at = LATE2.std.at, P = GAME.player;
+  // a Marshal's presence: your realm's soldiers about you strike harder
+  const aura = P && P.alive ? late2K('aura') : 0;
+  if (aura) forNear(P.x, P.z, 20, (o) => { if (o.alive && o !== P && o.faction === P.faction && isActor(o) && o.kind !== 'door' && o.role !== 'villager') addBuff(o, 'dmg', aura, 1.6, 'l2aura'); });
   if (!at || !P) return;
   forNear(at.x, at.z, LATE2_STD.reach, (o) => {
     if (!o.alive || o.kind === 'door' || o.faction !== P.faction || !isActor(o)) return;
@@ -668,6 +682,7 @@ function updateLate2(dt) {
   }
   // soldiers of the enemy realms slain (prog.realmKills, counted after this kill's share: grantKillRewards)
   if (prog.realmKills !== W.rk) { W.rk = prog.realmKills; late2CheckNames(false); }
+  const rr = realmRank(prog.rp); if (rr !== W.rr) { const was = W.rr; W.rr = rr; late2CheckNames(was == null); } // (a realm rank's name: told when it is won, not on loading)
   // a hallow carried all the way home
   if (P.carrying != null) W.carried = WAR.relics[P.carrying] || null;
   else if (W.carried) { const rel = W.carried; W.carried = null; if (rel.state === 'temple' && rel.at === P.faction) late2Deed('hallow'); }
@@ -733,7 +748,7 @@ function late2Aims() {
     if (up.length) out.push({ t: `Bring down a risen champion`, x: `${mine.length ? capFirst(mine[0].name) + ' and ' + (up.length - 1) + ' more' : up.length + ' of them'} hold the farthest borderland camps, a few levels above you. Risen brought down: ${LATE2.d.high}.` });
   }
   const N = late2NextName();
-  if (N) out.push({ t: `Earn a name: ${P.name} ${N.t}`, m: [late2Count(N.deed) / N.n, `${fmtInt(late2Count(N.deed))} / ${fmtInt(N.n)}`], x: `${LATE2_DEEDS[N.deed]}. ${N.gift}` });
+  if (N) out.push({ t: `Earn a name: ${late2Say(P, N)}`, m: [late2Count(N.deed) / N.n, `${fmtInt(late2Count(N.deed))} / ${fmtInt(N.n)}`], x: `${LATE2_DEEDS[N.deed]}. ${N.gift}` });
   return out;
 }
 // the name nearest to being earned (by the share of its deed done), of those a character of this level can earn now
@@ -767,9 +782,9 @@ function chronDeeds() {
   const earned = LATE2_NAMES.filter((N) => LATE2.names.includes(N.id)), left = LATE2_NAMES.filter((N) => !LATE2.names.includes(N.id));
   const meter = (a, b) => `<span class="meter"><i><b style="width:${(clamp(a / Math.max(1, b), 0, 1) * 100).toFixed(1)}%"></b></i>${fmtInt(Math.min(a, b))} / ${fmtInt(b)}</span>`;
   const names = earned.length
-    ? `<ul class="gd-aims l2-names">${earned.map((N) => `<li${N === worn ? ' class="on"' : ''}><b>${esc(P.name)} ${esc(N.t)}</b><small>${esc(N.gift)}</small>${N === worn ? '<span class="l2-tag">Worn</span>' : `<button type="button" class="btn l2-btn" data-l2="wear:${N.id}">Wear this name</button>`}</li>`).join('')}</ul>${worn ? '<div class="acts"><button type="button" class="btn l2-btn" data-l2="wear:">Go by your own name</button></div>' : ''}`
+    ? `<ul class="gd-aims l2-names">${earned.map((N) => `<li${N === worn ? ' class="on"' : ''}><b>${esc(late2Say(P, N))}</b><small>${esc(N.gift)}</small>${N === worn ? '<span class="l2-tag">Worn</span>' : `<button type="button" class="btn l2-btn" data-l2="wear:${N.id}">Wear this name</button>`}</li>`).join('')}</ul>${worn ? '<div class="acts"><button type="button" class="btn l2-btn" data-l2="wear:">Go by your own name</button></div>' : ''}`
     : '<p>No name yet. The first comes soon enough: twenty-five soldiers of the enemy realms, a champion of the borderlands five times over, the Hollow King or Cinderwing.</p>';
-  const toEarn = left.map((N) => `<li><b>${esc(N.t)}</b>${meter(late2Count(N.deed), N.n)}<small>${esc(LATE2_DEEDS[N.deed])}. ${esc(N.gift)} Earned: ${fmtInt(N.rp)} realm points.</small></li>`).join('');
+  const toEarn = left.map((N) => `<li><b>${esc(late2T(N))}</b>${meter(late2Count(N.deed), N.n)}<small>${esc(LATE2_DEEDS[N.deed])}. ${esc(N.gift)}${N.rp ? ` Earned: ${fmtInt(N.rp)} realm points.` : ''}</small></li>`).join('');
   const tally = Object.keys(LATE2_DEEDS).map((k) => `<li><b>${fmtInt(late2Count(k))}</b> ${esc(LATE2_DEEDS[k].toLowerCase())}</li>`).join('');
   const free = late2Free();
   const vet = prog.level >= LEVEL_CAP
@@ -791,7 +806,7 @@ function chronDeeds() {
     <h3>The standard of your name</h3>${late2StdHTML()}
     <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
-    <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(worn.t)}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
+    <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(late2T(worn))}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
 }
 chronAdd('deeds', 'Deeds', 'you', chronDeeds, 'goals');
