@@ -222,7 +222,8 @@ function houseRubbleGeo(H, level) {
 // the walls' colliders stand as high as the broken walls (and the shots' walls: 07g_walls.js asks look4WallTop)
 function houseRubbleColl(H, on, level) {
   for (const c of H.coll) {
-    if (c.tag !== 'house') continue;
+    // (and the posts of a hall's porch, which come down with the wall before them: look4Stub)
+    if (c.tag !== 'house' && !(c.tag === 'post' && (() => { const q = houseL(H, c.x, c.z); return H.round ? Math.hypot(q.x, q.z) > H.r + 0.3 : Math.abs(q.z) > H.d / 2 + 0.3; })())) continue;
     if (c.h0 === undefined) c.h0 = c.h;
     c.h = on ? Math.min(c.h0, Math.max(1.6, level + 0.15)) : c.h0;
   }

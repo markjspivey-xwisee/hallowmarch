@@ -169,14 +169,14 @@ function look3MasonThink(e, dt) {
   // [look4] up to the next lift as the work comes up to it (look4LiftStep, 04d_look4.js): along the boards to its ladder
   // and up (version 14's masons kept to the first lift)
   if (m.st === 'climb') {
-    const Ln = m.next;
+    const Ln = m.nextL;
     if (!Ln || Ln.gone) { m.st = 'work'; return; }
     if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; } else m.st = 'work'; }
     return;
   }
   if (m.st === 'work' && m.up && m.lad && m.t - (m.workT ?? m.t) > 10) {
     const top = m.lad[m.lad.length - 1], Ln = W.l3 && W.l3.ladders.filter((q) => q.k === top.k + 1 && !q.gone).sort((a, b) => dist2(a.fx, a.fz, e.x, e.z) - dist2(b.fx, b.fz, e.x, e.z))[0];
-    if (Ln && dist(e.x, e.z, Ln.fx, Ln.fz) < 30) { m.next = Ln; m.st = 'climb'; return; }
+    if (Ln && dist(e.x, e.z, Ln.fx, Ln.fz) < 30) { m.nextL = Ln; m.st = 'climb'; return; } // (m.next is the next blow's time)
     m.workT = m.t;
   }
   if (m.st === 'work') {

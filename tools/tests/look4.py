@@ -180,13 +180,17 @@ async def main():
             # a breached tower's scaffold goes up lift by lift with the work, and the mason above climbs to each
             r = await ev(page, """(() => { const H = __hm, L3 = H.look3, S = LK.keepSite(0, 0), C = H.fn.castles().find((q) => q.S === S), K = S.keepRef;
               const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1);
+              if (W.state !== 'repair') LK.views.mend.call(LK, LK); // (alone: the ladder check's tower)
               if (W.state !== 'repair') return { none: W.state };
               const n = Math.max(...W.l3.ladders.map((q) => q.k + 1)), out = { n, ups: [] }, sim = (s) => { H.UI.modal = null; H.simulate(s); };
               // (and drawn: the mesh's vertices, and those of the first ladder's rails and rungs: made again, the scaffold once showed its standards alone)
               const V = H.camera.position.constructor, v = new V(), L0 = W.l3.ladders.find((q) => q.k === 0);
               const ladV = () => { const pos = W.scaffold.geometry.attributes.position; W.scaffold.updateMatrixWorld(true); const M = W.scaffold.matrixWorld; let c = 0; for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(M); if (Math.hypot(v.x - L0.rx, v.z - L0.rz) < 0.35 && v.y > L0.wyb + 0.2 && v.y < L0.wyt) c++; } return c; };
               for (const t of [0.13, 0.35, 0.55, 0.8]) { W.t = t; K.lastEnemyNear = -1e9; sim(0.1); out.ups.push([t, W.l4n, W.l3.floors.filter((f) => f.active).length, W.l3.ladders.filter((q) => !q.gone).length, W.scaffold.geometry.attributes.position.count, ladV()]); }
-              // the masons: back to the start of the work (one lift up), then all of them up while the one above works
+              // the masons (in peace: the war about the keep hushed, as look3.py's masons): back to the start of the work (one lift
+              // up), then all of them up while the one above works
+              LK.hush(S.x, S.z, 60); for (const e of H.ENT.slice()) if (e.alive && e.role === 'soldier') H.fn.removeEnt(e);
+              H.WAR.commanders.forEach((c) => { c.nextThink = 1e9; c.nextSpawn = 1e9; }); for (const w of H.WAR.warbands) w.dead = true;
               W.t = 0.13; for (const e of L3.MASON.list) if (!e.removed) H.fn.removeEnt(e); W.masonsFor = null; sim(0.1);
               let t = 0; const up = () => L3.MASON.list.find((e) => !e.removed && e.ai.mason.W === W && e.ai.mason.up);
               while (t < 150 && !(up() && up().ai.mason.st === 'work')) { K.lastEnemyNear = -1e9; W.t = Math.min(W.t, 0.13); sim(1); t += 1; }
@@ -212,7 +216,8 @@ async def main():
                   const L = H.look4.MAPL.last; if (!L) return { none: true };
                   const over = (a, b) => a[0] < b[2] - 0.5 && a[2] > b[0] + 0.5 && a[1] < b[3] - 0.5 && a[3] > b[1] + 0.5;
                   let n = 0; for (let i = 0; i < L.placed.length; i++) for (let j = i + 1; j < L.placed.length; j++) if (over(L.placed[i].box, L.placed[j].box)) n++;
-                  return { n: L.placed.length, of: L.n, overlaps: n, pills: L.placed.filter((q) => q.pill).map((q) => q.t), names: L.placed.map((q) => q.t) }; })()""")
+                  for (const q of L.placed) if (!q.pill) for (const bb of L.bands || []) if (over(q.box, bb)) n++; // (nor over a warband's badge or name)
+                  return { n: L.placed.length, of: L.n, overlaps: n, bands: (L.bands || []).length, pills: L.placed.filter((q) => q.pill).map((q) => q.t), names: L.placed.map((q) => q.t) }; })()""")
                 print(f'  map {w}x{h}: {json.dumps(r)}', flush=True)
                 check(not r.get('none') and r['overlaps'] == 0 and r['n'] >= (r['of'] - 3 if w > 600 else 12) and all(t in r['names'] for t in ('Brackenford', 'Glenrua', 'Skarvik', 'Logres', 'Thule')), f"the map at {w}x{h}: {r.get('n')} of {r.get('of')} names placed (every town, keep and realm), none over another ({r.get('overlaps')}), on pills: {r.get('pills')}")
                 await page.screenshot(path=OUT + f'look4_{TAG}_map_{w}x{h}.png', timeout=300000)

@@ -6,7 +6,7 @@
 // (guideMapMark, 10e_guide.js), the muster's and the temple's names into each other at a small map. Now every name is laid
 // out before it is drawn: in order of importance, each at the first of its places (under its mark, over it, to its right,
 // to its left; a realm's name at the first of a few places along its axis) where it lies over no name already placed, no
-// site's mark, the gem and its pill, or you; one that fits nowhere is drawn on a dark pill of its own (a name the map can
+// site's mark, the gem and its pill, a warband's mark, badge and name, or you; one that fits nowhere is drawn on a dark pill of its own (a name the map can
 // spare, the muster's, is left out instead). Test hook __hm.look4.mapLabels.
 const MAPL = { last: null };
 function look4MapLabels(ctx, S, labels, marks) {
@@ -27,6 +27,24 @@ function look4MapLabels(ctx, S, labels, marks) {
   }
   // you
   { const P = GAME.player; if (P) { const [px, py] = w2m(P.x, P.z, S); boxes.push([px - S * 0.017, py - S * 0.017, px + S * 0.017, py + S * 0.017]); } }
+  // the warbands the map shows, drawn after the names (drawCampaignMap, 08g_campaign.js): each band's mark, its order's
+  // badge over it and, for your own, its name under it (a band at a keep's gate wrote its name over the keep's)
+  const bandBoxes = [];
+  if (typeof cwSpotted === 'function' && GAME.player) {
+    const P = GAME.player, u = S / Math.max(1, cw), sc = u * 2.2;
+    ctx.font = `700 ${11 * u}px "Alegreya Sans", sans-serif`;
+    for (const wb of WAR.warbands) {
+      const L = !wb.dead && wbLeader(wb);
+      if (!L || !cwSpotted(wb, P)) continue;
+      const [x, y] = w2m(L.x, L.z, S);
+      bandBoxes.push([x - sc * 4.2, y - sc * 9.2, x + sc * 4.2, y + S * 0.008]);
+      if (wb.realm === P.faction && typeof WB_ORD !== 'undefined') {
+        const w = ctx.measureText(WB_ORD[wbOrd(wb) - 1] || '').width;
+        bandBoxes.push([x - w / 2 - 2, y + sc * 5.6 - 11 * u * 0.85, x + w / 2 + 2, y + sc * 5.6 + 11 * u * 0.25]);
+      }
+    }
+    boxes.push(...bandBoxes);
+  }
   const order = labels.map((l, i) => ({ ...l, i })).sort((a, b) => a.pri - b.pri || a.i - b.i);
   for (const l of order) {
     ctx.font = l.font;
@@ -50,7 +68,7 @@ function look4MapLabels(ctx, S, labels, marks) {
     ctx.fillStyle = l.shade || 'rgba(0,0,0,0.75)'; ctx.fillText(l.t, cx + (l.big ? 2 : 1), cy + (l.big ? 2 : 1));
     ctx.fillStyle = l.col; ctx.fillText(l.t, cx, cy);
   }
-  MAPL.last = { placed, n: labels.length, marks: marks.length, S };
+  MAPL.last = { placed, n: labels.length, marks: marks.length, S, bands: bandBoxes.map((q) => q.map((v) => Math.round(v))) };
   return placed;
 }
 // the places a site's name may go: under its mark (d below), over it, to its right, to its left
