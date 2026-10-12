@@ -2,7 +2,7 @@
 the cap and its boons, the Chronicle's Deeds page, the aims and the tracker's mark, and the save (with the character, an old
 save's deeds taken from its path, a damaged one, and a reload with the same storage).
 usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,std,herald,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
-       [noshots] [phone]"""
+       [noshots] [phone] [small] [shots=wrath_day,standard_day,...]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -52,8 +52,11 @@ window.T = {
 async def frames(page, n=3):
     for _ in range(n): await page.evaluate("__hm.frame(1/30)")
 
+SHOT_ONLY = set(ARGS['shots'].split(',')) if 'shots' in ARGS else None
+
 async def shot(page, name, w=None, h=None):
     if not SHOTS: return
+    if SHOT_ONLY is not None and not any(name.startswith(k) for k in SHOT_ONLY): return
     # (the Chronicle's page fades in on the wall clock: a loaded machine took the picture before it had)
     try: await page.wait_for_function("[...document.querySelectorAll('.chron-body')].every((b) => b.getAnimations().every((a) => a.playState === 'finished'))", timeout=20000, polling=200)
     except Exception: pass
@@ -63,7 +66,8 @@ async def shot(page, name, w=None, h=None):
 async def main():
     phone = 'phone' in FLAGS
     async with async_playwright() as p:
-        b, page, logs = await setup(p, touch=phone, w=390 if phone else 960, h=780 if phone else 540)
+        small = 'small' in FLAGS  # (pictures at 640x360: under SwiftShader on a loaded machine one at 960x540 and high quality ran past five minutes)
+        b, page, logs = await setup(p, touch=phone, w=390 if phone else 640 if small else 960, h=780 if phone else 360 if small else 540)
         await page.evaluate(f"__hm.fn.setQuality('{Q}')")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)
