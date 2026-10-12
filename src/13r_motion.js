@@ -131,6 +131,13 @@ function motionParts(crowd, kind) {
     let top = -1, ty = -1;
     for (let i = 0; i < n; i++) if (Math.round(bone[i]) === 2 && vis(i) && pos[i * 3 + 1] > ty) { ty = pos[i * 3 + 1]; top = i; }
     P.head = top >= 0 ? [[top]] : []; // (a group, as the feet and knees)
+    // [motion4] the hands: the fist's own points about its middle (the forearms' bones 4 and 6, the body's own, no gear)
+    // (only points no other vertex shares: the probe finds a vertex by its rest place, and a blade's grip or a shield's
+    // strap held in the fist drew over the fist's own, from wherever it was carried: on the back up a ladder)
+    const cnt = new Map(), key = (i) => pos[i * 3].toFixed(5) + ',' + pos[i * 3 + 1].toFixed(5) + ',' + pos[i * 3 + 2].toFixed(5);
+    for (let i = 0; i < n; i++) { const k = key(i); cnt.set(k, (cnt.get(k) || 0) + 1); }
+    const fist = (b, sx) => { const ids = []; for (let i = 0; i < n; i++) if (Math.round(bone[i]) === b && vis(i) && cnt.get(key(i)) === 1 && Math.hypot(pos[i * 3] - sx * SK.fist[0], pos[i * 3 + 1] - SK.fist[1], pos[i * 3 + 2] - SK.fist[2]) < 0.045) ids.push(i); return ids.slice(0, 12); };
+    P.hands = [fist(4, 1), fist(6, -1)];
   } else if (kind === 'hen' || kind === 'pheasant' || kind === 'duck') {
     P.feet = [lowest((i) => Math.round(bone[i]) === 9, 4, 0.006), lowest((i) => Math.round(bone[i]) === 12, 4, 0.006)];
     // the wing tips: the wing points farthest out (or back, folded)

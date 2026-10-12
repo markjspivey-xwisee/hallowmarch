@@ -284,7 +284,10 @@ function buildBeast(kind, lod) {
         shape: hi && F.shag ? (i, th) => { const a = furTuft(F.shag * (path[i].rel ? 0.45 : 1), i, th, b0); return [a * Math.sin(th), a * Math.cos(th)]; } : null,
         attr: (i, th, p) => ({ bone: b0 + path[i].rel, w: path[i].w, mat: mat.fur, ao: 0.62 + 0.38 * sstepJ(0.0, 0.7, p[1] / LG.top[1]) * (0.75 + 0.25 * Math.abs(Math.sin(th))), u: th / TAU, v: p[1] * 1.6 }),
       });
-      const fb = b0 + 2, F0 = pts[3], rf = r[4];
+      // [motion4] the foot set so its sole stands on the ground (y 0) as built, wherever the rig's foot point is: a wolf's
+      // or a hound's pads stood 1.3 to 1.6 cm over it, a deer's hooves 0.9, a boar's 0.7 and the cattle's 1.7 cm in it
+      const rf = r[4], sole = S.paw === 'paw' ? 0.55 * rf : S.paw === 'bear' ? 0.5 * rf : S.paw === 'horse' ? 0.01 + 0.9 * rf : 0.004 + 0.95 * rf;
+      const fb = b0 + 2, F0 = [pts[3][0], sole, pts[3][2]];
       if (S.paw === 'paw') {
         // a padded paw with four toes and claws
         kitBlob(K, V3.add(F0, [0, 0.0, rf * 0.45]), hi ? 12 : 6, hi ? 7 : 3, { shape: (d) => [d[0] * rf * 1.25, d[1] * rf * (d[1] < 0 ? 0.55 : 0.85), d[2] * rf * 1.55], attr: (d) => ({ bone: fb, w: 1, mat: mat.fur, ao: d[1] < -0.4 ? 0.45 : 0.85 }) });

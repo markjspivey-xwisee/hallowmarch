@@ -77,7 +77,8 @@ function flBeastGait(S, ph, amtRaw, sc, f) {
 function footLockStep(e, dt) {
   if (!flNear(e, FL_NEAR * 1.15)) { e._fl = e._flH = null; e._flX = e.x; e._flZ = e.z; e._flY = e.y; e._flVy = 0; e._flYw = e.yaw; return; } // [motion3] far off: not followed (planted afresh when it comes near)
   const human = e.kind === 'humanoid', S = !human ? BEASTS[e.crowd || e.kind] : null;
-  const onFeet = e.alive && !e.seat && !e.boat && !e.swim && !e.dive && e.fixedY == null && e.onGround !== false && !e.flying && !(e.motion && e.motion.kind === 'leap');
+  const rush = !!(e.motion && e.motion.rush); // [motion4] a Charge's rush runs on its feet: they are held as a runner's (left to the run, it landed with a foot carried in over the ground, 4 to 7 cm)
+  const onFeet = e.alive && !e.seat && !e.boat && !e.swim && !e.dive && e.fixedY == null && (e.onGround !== false || rush) && !e.flying && !(e.motion && ((e.motion.kind === 'leap' && !rush) || e.motion.kind === 'ladder')); // [motion4] (on a ladder the feet are on its rungs: ladderLegs, 05a_rig.js)
   // the body's own motion this step, in its frame (across, along)
   const c = Math.cos(e.yaw), s = Math.sin(e.yaw), mx = e.x - (e._flX ?? e.x), mz = e.z - (e._flZ ?? e.z), idt = 1 / Math.max(dt, 1e-4);
   e._flVy = lerp(e._flVy || 0, (e.y - (e._flY ?? e.y)) * idt, 0.5); e._flY = e.y; // [motion3] how fast it climbs (a foot lands on the floor it will be on)
@@ -170,7 +171,7 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // taken where the body is drawn next (footLockSlot: the player moves after its gait steps, so a place taken here
       // would be a step behind)
       if (!o.down) {
-        o.latch = false;
+        o.latch = false; o.frozen = false;
         // [motion4] a landing the leg could not reach was taken in the air (footLockSlot: o.air): it goes on as a quick
         // step from there, already off the ground, and comes down where the stance can be spent
         if (o.air && o.lwx != null) {
@@ -222,6 +223,13 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
       // be by then), each seen from where the body is now (footLockSlot again where it is drawn). A person's foot goes
       // from the one to the other over the ground; a beast's across (along, its own swing: the vault reads it). A foot
       // carried across with a body shoved aside, or round with one turning, skated as it rose and as it came down
+      // [motion4] the body halted (its gait no longer turns over: the keys let go, a rush landing, a walker at its place):
+      // a person's foot in the air stays where it was last drawn and comes down there as the gait settles (it was carried
+      // in toward the body over the ground as the stride shrank, 4 cm as a rush landed and up to 30 cm from a sprint)
+      if (o.human && du < 0.05 && o.useA && o.dx != null && o.gz != null && !o.frozen) {
+        const px = x0 + o.dx, pz = o.gz + o.dz;
+        o.ax = o.lwx = e.x + px * c + pz * s; o.az = o.lwz = e.z - px * s + pz * c; o.latch = true; o.ywL = e.yaw + (o.yo || 0); o.frozen = true;
+      } else if (du >= 0.05) o.frozen = false;
       let lx = x0 + o.tx + vx * tl, lz = z0 + reach + o.tz + vz * tl;
       // [motion4] from its last frames in the air the place it comes down on is kept in the world: worked out afresh each
       // step it swung round with a body turning 0.2 rad a frame, and the foot came in over the ground
@@ -314,6 +322,13 @@ function footLockSlot(e, horse) {
     if (o.air && !o.down) hy = Math.max(hy, (o.hT ?? e.y) + FL_AIR_H - flHumanLift(e, o.w ?? 1));
     // (a person's leg reaches little below where it stands: a foot left too far below as the body climbs is drawn up)
     o.dy = clamp((hy ?? e.y) - e.y, e.kind === 'humanoid' && !horse ? -0.2 : -0.45, e.kind === 'humanoid' && !horse ? FL_UP : 0.45); // [motion3] (a person's foot up to FL_UP: flFloor finds nothing higher than 0.6 but a stair's tread)
+    // [motion4] shoving a boat off (action 19), each foot steps into the stance (the front one 0.34 m ahead, the back one
+    // 0.5 behind: humanVS) over the floor under it on its way, a shingle beach running down to the water
+    if (o.human && o.down && o.g && !horse && e.anim.act === 19 && e.anim.actDur > 0) {
+      const at = clamp(e.anim.actT / e.anim.actDur, 0, 1), kk = _flSS(0, 0.18, at) * (1 - _flSS(0.85, 1, at)), front = o.g[3] > 0;
+      const kS = front ? _flSS(0, 0.55, kk) : _flSS(0.45, 1, kk), sc = e.scale || 1, a = lerp(o.along + o.dz, (front ? 0.34 : -0.5) * sc, _flSS(0.15, 0.85, kS)), lx = o.g[3] + o.dx;
+      o.dy = clamp(lerp(o.dy, flFloor(e, e.x + lx * c + a * s, e.z - lx * s + a * c) - e.y, kS), -0.2, 0.6);
+    }
     if (o.down && o.g && !(o.hop > 0)) {
       const dx = o.wx - e.x, dz = o.wz - e.z;
       let cx = dx * c - dz * s - o.g[3], cz = dx * s + dz * c - o.along;
