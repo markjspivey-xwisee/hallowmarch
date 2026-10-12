@@ -202,7 +202,7 @@ Object.assign(GUIDE_WATCH, {
   chilled: (P) => hasBuff(P, 'chill') || hasBuff(P, 'frozen'),
 });
 // slower looks, once a second (with guideScan)
-G2.near = { scaffold: false, battered: false };
+G2.near = { scaffold: false, battered: false, housefire: false };
 G2.scanT = 0;
 function g2Scan(P) {
   const N = G2.near;
@@ -211,6 +211,7 @@ function g2Scan(P) {
   if (typeof LOOK3S !== 'undefined' && LOOK3S.ladders) for (const L of LOOK3S.ladders) if (L && !L.gone && L.fx != null && dist2(L.fx, L.fz, P.x, P.z) < 30 * 30) { N.scaffold = true; break; } // (a scaffold taken down keeps its ladders, gone)
   if (!N.scaffold && typeof MASON !== 'undefined') for (const e of MASON.list) if (e && e.alive && dist2(e.x, e.z, P.x, P.z) < 30 * 30) { N.scaffold = true; break; }
   for (const H of HOUSES) if (H.bat && (H.bat.k > 0.15 || H.bat.fell) && dist2(H.x, H.z, P.x, P.z) < 45 * 45) { N.battered = true; break; }
+  N.housefire = false; for (const H of HOUSES) if (H.state === 'burning' && !H.keepHall && dist2(H.x, H.z, P.x, P.z) < 40 * 40) { N.housefire = true; break; } // [v15] (war2's townsfolk at their houses' fires)
   // what is happening now: a garrison near you leaving its posts to fight a fire (once in a minute and a half)
   if (GAME.t > (G2.fireToldT || -1e9) + 90) {
     let crew = null;
@@ -353,3 +354,9 @@ queueMicrotask(() => {
     halls: () => HALL.list, nearHouse: (P) => guideNearest(HOUSES.filter((h) => !h.keepHall && h.state === 'whole'), P),
   };
 });
+
+// [v15] fitting version 15 together: what war2 added that a player meets, told as the other notes are
+if (!FIELD_NOTES.housefire) FIELD_NOTES.housefire = { t: 'A house on fire', x: () => `Its neighbours run to it and beat at the flames under the eaves; ${g2Use()} beside its walls to help. A house saved stands black under its eaves a while; once the fire has the whole roof it is past saving, and its town builds it again.` };
+GUIDE_WATCH.housefire = () => G2.near.housefire;
+LOADING_TIPS.push('A burning house can be saved: its neighbours run to beat out the flames, and you can help beside its walls, until the fire has the whole roof.');
+CHRON_EXTRA.sieges.push(() => '<h3>The war\'s new ways in</h3><p>A second band may be sent to a keep whose wall lies breached, to go in by the breach. A gap burnt in the Thule hallow\'s log ring is a way in once Thule has lost a keep, and the hallow can be taken while it is open. A band waits by a fallen tower until it is strong enough for the garrison it will meet, or a second band comes, or a minute has passed. The longer a war lasts, the faster a hold on the March counts toward winning it.</p>');
