@@ -1,15 +1,24 @@
 """[war2] A war that keeps moving: each stall the campaign soak found, set up and watched until it moves on.
   down    a band's leader left up on its own keep's wall walk with an order elsewhere comes down by the castle's ways
   tower   a band's leader in a burh's corner tower's ground room comes out at its door and goes on
+  island  a leader on a stretch of walk cut off by burnt gaps jumps down into the court (hurt by the fall)
+  court   a band in the court of the keep it attacks storms the court, not the gate behind it
   engine  a mangonel that cannot be pushed to its place is settled where it stands (or given up), not waited on for good
   watch   a band at a gate whose own engine is at work is not given up as stalled
+  storm   a band of four waits before a fallen tower against the whole garrison, and goes in with a second band beside it
+  gap     a raid on the Thule hallow goes round to a gap burnt in its log ring (its gate whole) and takes the hallow
+  stormshot  a band through a fallen tower's door into the court (screenshots by day and night)
   houses  townsfolk run to a burning house and beat it out (screenshots by day and night at low and high)
   gate    a gate burnt down is kept with the world: saved, put back, loaded broken and charred
 usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,gate] [noshots] [q=low|medium|high]"""
-import json, asyncio, sys, pathlib, time
+import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
 from playwright.async_api import async_playwright
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 ARGS = sys.argv[1:]
 SHOTS = 'noshots' not in ARGS
@@ -24,6 +33,21 @@ def check(cond, what):
     if not cond: FAILS.append(what)
 
 async def ev(page, js): return await page.evaluate(js)
+
+async def snap(page, name):
+    # the picture from the fixed camera already set: the HUD hidden, the particles born in the frames' future while
+    # simulating let go (CLAUDE.md, Gotchas), a few frames drawn, the canvas read
+    url = await page.evaluate("""(() => { const hud = document.getElementById('hud'); if (hud) hud.style.visibility = 'hidden';
+      __hm.frame(1/30); const now = __hm.dbg.U.uTime.value;
+      for (const P of [__hm.walls.fx.fxAlpha, __hm.walls.fx.fxAdd]) { const a0 = P.a0.array, a1 = P.a1.array; let k = 0;
+        for (let i = 0; i < P.max; i++) if (a0[i * 4 + 3] > now + 1e-3 && a1[i * 4 + 3] > 0) { a1[i * 4 + 3] = -1; k++; }
+        if (k) { P.dirty0 = 0; P.dirty1 = P.max - 1; } }
+      for (let i = 0; i < 7; i++) __hm.frame(1/30); const u = __hm.dbg.renderer.domElement.toDataURL('image/png');
+      if (hud) hud.style.visibility = ''; return u; })()""")
+    data = base64.b64decode(url.split(',', 1)[1])
+    if Image: Image.open(io.BytesIO(data)).convert('RGB').save(OUT + name + '.png')
+    else: pathlib.Path(OUT + name + '.png').write_bytes(data)
+    print(f'  shot {name}', flush=True)
 
 HELP = r"""(() => {
   const H = __hm, fn = H.fn, WAR = H.WAR;
@@ -183,13 +207,15 @@ async def main(p):
           // its leader and crew stand by it; the band gets no nearer and lands no blow (the gate's foes are kept off)
           const ms = fn.wbMembers(wb);
           ms.slice(0, 4).forEach((m, i) => { m.siegeCrew = E.id; m.siegeSlot = i; E.crew.push(m.id); });
+          for (const m of ms) m.hp = m.maxHp = 1e6; // (the watchdog alone: a band cut down to two by a sally is merged into the next to muster,
+          E.ent.hp = E.ent.maxHp = E.lastHp = 1e9; //  and an engine hacked apart is no longer at work)
           const st0 = WAR.stats.bandStalls || 0;
           wb.realProgress = H.GAME.t; wb.hitAt = -1e9;
           for (let t = 0; t < 170; t += 5) { __w2t.quiet(); H.simulate(5); if (!wb.order || wb.order !== O) break; }
-          return { kept: wb.order === O, stalls: (WAR.stats.bandStalls || 0) - st0, E: E.state, crew: E.crew.length };
+          return { kept: wb.order === O, stalls: (WAR.stats.bandStalls || 0) - st0, E: E.state, crew: E.crew.length, n: fn.wbMembers(wb).length, dead: !!wb.dead, phase: wb.order ? wb.order.phase : null };
         })()""")
         print('  ', json.dumps(r), flush=True)
-        check(r.get('kept') or r.get('E') != 'work', f"a band whose engine works keeps its order past the 150 s watchdog (kept {r.get('kept')}, stalls {r.get('stalls')}, engine {r.get('E')})")
+        check(r.get('kept') and r.get('E') == 'work' and r.get('crew', 0) > 0, f"a band whose engine works keeps its order past the 150 s watchdog (kept {r.get('kept')}, stalls {r.get('stalls')}, engine {r.get('E')}, crew {r.get('crew')})")
 
     if want('storm'):
         print('-- storm: a small band waits for enough to storm a fallen tower', flush=True)
@@ -262,37 +288,52 @@ async def main(p):
 
     if want('stormshot') and SHOTS:
         print('-- stormshot: a band through a fallen tower\'s door, by day and by night', flush=True)
-        for tod, tag, k in ((0.5, 'day', 0), (0.02, 'night', 1)):
-            r = await ev(page, f"""(() => {{
-              const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
-              H.setTod({tod});
-              const Ks = WAR.keeps.map((q, i) => i).filter((i) => WAR.keeps[i].orig === 0 && fn.castleOf(WAR.keeps[i].site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
-              const ki = Ks[{k} % Ks.length], K = WAR.keeps[ki], C = fn.castleOf(K.site);
-              if (K.realm !== 0) fn.captureKeep(K, 0, null);
-              fn.fillGarrison(K, true);
-              const W = C.sections.filter((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w))[{k}] || C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));
-              // the court's guards stand down (the band comes through to a thinned court)
-              for (const id of K.guards) {{ const g = fn.getEnt(id); if (g && !g.ai.wall) {{ g.alive = false; g.hp = 0; g.removeAt = H.GAME.t; }} }}
-              fn.castleBreach(W);
-              const f = SG.siegeFace(W);
-              const id = __w2t.band(2, ki, 14, f.x + f.nx * 14, f.z + f.nz * 14);
-              const wb = __w2t.wb(id); wb.order.siegeE = null;
-              let through = 0, t = 0;
-              for (; t < 60 && through < 3; t += 0.5) {{ __w2t.quiet(); H.simulate(0.5); through = fn.wbMembers(wb).filter((m) => m.ai.storm && m.ai.storm.done && !m.ai.storm.failed).length; if (W.state !== 'breach') fn.castleBreach(W); }}
-              const Rt = H.siege2.siegeStormRoute(W), door = Rt[4], inn = Rt[3];
-              // from the court, a little to the side of the door's line, at a man's height and a half
-              const dx = door.x - inn.x, dz = door.z - inn.z, d = Math.hypot(dx, dz) || 1;
-              const px = door.x + dx / d * 9 + dz / d * 3.5, pz = door.z + dz / d * 9 - dx / d * 3.5;
-              H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
-              H.camera.position.set(px, K.site.y + 2.4, pz);
-              H.camera.lookAt(door.x, K.site.y + 1.6, door.z);
-              for (let i = 0; i < 3; i++) H.frame(1 / 30);
-              return {{ keep: K.site.name, t, through, n: fn.wbMembers(wb).length }};
-            }})()""")
-            print('  ', json.dumps(r), flush=True)
-            await page.screenshot(path=OUT + f'war2_storm_{tag}_{QUALITY}.png', timeout=300000)
-            print(f'  shot war2_storm_{tag}_{QUALITY}', flush=True)
-            await ev(page, "(() => { __hm.CAM.mode = 'follow'; __hm.setTod(0.5); return 0; })()")
+        r = await ev(page, """(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
+          H.setTod(0.42); // (look_views.js's TOD: day 0.42, night 2.1)
+          const Ks = WAR.keeps.map((q, i) => i).filter((i) => WAR.keeps[i].orig === 0 && WAR.keeps[i].door.alive && fn.castleOf(WAR.keeps[i].site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
+          if (!Ks.length) return { err: 'no keep' };
+          const ki = Ks[0], K = WAR.keeps[ki], C = fn.castleOf(K.site);
+          if (K.realm !== 0) fn.captureKeep(K, 0, null);
+          fn.fillGarrison(K, true);
+          const W = C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));
+          // the court's guards and the lord stand down and none come fresh (a thinned court: the archers on the walls
+          // stay), and the stormers are not thinned by them: the picture is the way in, not the fight (war2.py storm)
+          for (const id of K.guards) { const g = fn.getEnt(id); if (g && !g.ai.wall) { g.alive = false; g.hp = 0; g.removeAt = H.GAME.t; } }
+          const Lr = fn.getEnt(K.lord); if (Lr) fn.removeEnt(Lr); K.lord = null; K.nextGuardAt = H.GAME.t + 1e6;
+          fn.castleBreach(W);
+          const f = SG.siegeFace(W);
+          const id = __w2t.band(2, ki, 12, f.x + f.nx * 14, f.z + f.nz * 14);
+          const wb = __w2t.wb(id); wb.order.siegeE = null;
+          for (const m of fn.wbMembers(wb)) m.hp = m.maxHp = 1e6;
+          let through = 0, t = 0;
+          for (; t < 60 && through < 2; t += 0.5) { __w2t.quiet(); H.simulate(0.5); through = fn.wbMembers(wb).filter((m) => m.ai.storm && m.ai.storm.done && !m.ai.storm.failed).length; if (W.state !== 'breach') fn.castleBreach(W); }
+          const Rt = H.siege2.siegeStormRoute(W), door = Rt[4], inn = Rt[3];
+          // from the court, a little to the side of the door's line, at a man's height and a half: the first place
+          // out of the hall and the houses with nothing between it and the door
+          const dx = door.x - inn.x, dz = door.z - inn.z, d = Math.hypot(dx, dz) || 1, fy = door.y ?? K.site.y;
+          let px = door.x + dx / d * 9 + dz / d * 3.5, pz = door.z + dz / d * 9 - dx / d * 3.5, py = fy + 2.4;
+          found: for (const dd of [8, 6.5, 10, 5, 12]) for (const lat of [3.5, -3.5, 2, -2, 5.5, -5.5, 0]) for (const hh of [2.2, 3.6]) {
+            const qx = door.x + dx / d * dd + dz / d * lat, qz = door.z + dz / d * dd - dx / d * lat, qy = fy + hh;
+            if (fn.houseAt(qx, qz, 0.6)) continue;
+            const R = H.walls.shotHit(qx, qy, qz, door.x, fy + 1.2, door.z);
+            if (R && R.t < 0.85) continue;
+            px = qx; pz = qz; py = qy; break found;
+          }
+          H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+          H.camera.position.set(px, py, pz);
+          H.camera.lookAt(door.x, fy + 1.3, door.z);
+          H.camera.updateMatrixWorld();
+          const near = fn.wbMembers(wb).filter((m) => Math.hypot(m.x - door.x, m.z - door.z) < 12).length;
+          return { keep: K.site.name, t, through, n: fn.wbMembers(wb).length, near };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('through', 0) >= 1, f"stormshot: the band comes through the fallen tower's door ({r.get('through')} through in {r.get('t')} s at {r.get('keep')})")
+        await snap(page, f'war2_storm_day_{QUALITY}')
+        # the same moment by night (a second and a half on)
+        await ev(page, "(() => { __hm.setTod(2.1); __w2t.quiet(); __hm.simulate(1.5); return 0; })()")
+        await snap(page, f'war2_storm_night_{QUALITY}')
+        await ev(page, "(() => { __hm.CAM.mode = 'follow'; __hm.setTod(0.42); return 0; })()")
 
     if want('houses'):
         print('-- houses: townsfolk beat out a burning house', flush=True)
@@ -325,27 +366,32 @@ async def main(p):
         check(r.get('crewMax', 0) >= 2, f"its people run to it and beat the flames ({r.get('crewMax')} at once)")
         check(r.get('saved') is not None, f"they beat it out (out after {r.get('saved')} s; {r.get('state')})")
         if SHOTS:
-            for tod, tag in ((0.5, 'day'), (0.0, 'night')):
+            for tod, tag in ((0.42, 'day'), (2.1, 'night')):  # (look_views.js's TOD: day 0.42, night 2.1)
                 ok = await ev(page, f"""(() => {{
                   const H = __hm, fn = H.fn, B = window.__w2t.H;
-                  if (B.state !== 'whole') return false;
-                  fn.igniteHouse(B);
                   H.setTod({tod});
-                  for (let t = 0; t < 14; t++) H.simulate(1);
+                  // set alight again and caught while its people beat it (two or more at it, the fire still up)
+                  let vs = [];
+                  for (let t = 0; t < 60; t++) {{
+                    if (B.state === 'whole') fn.igniteHouse(B);
+                    if (B.state !== 'burning') break;
+                    H.simulate(1);
+                    vs = H.ENT.filter((e) => e.alive && e.role === 'villager' && e.anim.act === 21 && Math.hypot(e.x - B.x, e.z - B.z) < 12);
+                    if (vs.length >= 2 && B.burn && B.burn.R > 1.2) break;
+                  }}
                   H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
                   // look at the house from its side, the crew in the foreground
-                  const vs = H.ENT.filter((e) => e.alive && e.role === 'villager' && e.anim.act === 21);
                   const cx = vs.length ? vs.reduce((a, e) => a + e.x, 0) / vs.length : B.x, cz = vs.length ? vs.reduce((a, e) => a + e.z, 0) / vs.length : B.z;
                   const dx = cx - B.x, dz = cz - B.z, d = Math.hypot(dx, dz) || 1;
                   const px = cx + dx / d * 7 + dz / d * 4, pz = cz + dz / d * 7 - dx / d * 4;
                   H.camera.position.set(px, fn.heightAt(px, pz) + 3.2, pz);
                   H.camera.lookAt(B.x, B.y + 2.6, B.z);
-                  for (let i = 0; i < 3; i++) H.frame(1 / 30);
-                  return vs.length;
+                  H.camera.updateMatrixWorld();
+                  return [vs.length, B.state, B.burn ? +B.burn.R.toFixed(1) : 0];
                 }})()""")
-                await page.screenshot(path=OUT + f'war2_houses_{tag}_{QUALITY}.png', timeout=300000)
-                print(f'  shot war2_houses_{tag}_{QUALITY} ({ok} beating)', flush=True)
-                await ev(page, "(() => { __hm.CAM.mode = 'follow'; for (let t = 0; t < 60; t++) { __hm.simulate(1); if (window.__w2t.H.state !== 'burning') break; } return 0; })()")
+                print(f'   {tag}: beating, state, front {ok}', flush=True)
+                await snap(page, f'war2_houses_{tag}_{QUALITY}')
+                await ev(page, "(() => { __hm.CAM.mode = 'follow'; for (let t = 0; t < 90; t++) { __hm.simulate(1); if (window.__w2t.H.state !== 'burning') break; } return 0; })()")
 
     if want('gate'):
         print('-- gate: a burnt gate kept with the world', flush=True)
