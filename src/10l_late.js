@@ -570,6 +570,7 @@ function late2StdPlant() {
   if (!sp) { uiError('No open ground here for your standard'); return false; }
   LATE2.std.at = { x: Math.round(sp.x * 100) / 100, z: Math.round(sp.z * 100) / 100 };
   late2StdShow();
+  setAct(P, 5, 0.8); // (a reach: the body drives the pole in)
   sfx('thud'); FX.dust(sp.x, heightAt(sp.x, sp.z), sp.z, 8);
   uiLog(`You plant the standard of ${late2Named(P)}. ${REALMS[P.faction].name} fights the harder about it.`, 'level');
   saveSoon();
@@ -579,6 +580,7 @@ function late2StdTake() {
   if (!LATE2.std.at) return false;
   LATE2.std.at = null;
   late2StdShow();
+  if (GAME.player && GAME.player.alive) setAct(GAME.player, 5, 0.7); // (a reach: the pole pulled up)
   sfx('equip');
   uiLog('You take up your standard.', 'sys');
   saveSoon();
