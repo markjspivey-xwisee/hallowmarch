@@ -195,7 +195,7 @@ async def phone(p):
         await shot(page, 'guide2_phone_notes')
     else:
         check(ok, f'the note shows whole on a 360x640 phone and a tap takes it away ({r2})')
-    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")
+    await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); return 0; })()")  # (the note kept for the tap goes: a note up makes room for itself and the war panel waits)
     await page.set_viewport_size({'width': 390, 'height': 780})
     await page.wait_for_timeout(250)
 
