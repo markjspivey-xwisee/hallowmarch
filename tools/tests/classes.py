@@ -892,7 +892,8 @@ async def balance4(page):
     check(r['20']['t'] < 1.3 and r['20']['d'] < 3.6, f"a rush reaches a foe walking away from it at 6 m/s ({r['20']})")
     rse = await page.evaluate("__hm.bal4.RUSH_SLOW_EARLY")  # [balance6] 40% for 2.5 s (45% for 3 s)
     check(abs(r['20']['slow'] - rse[0]) < 0.01 and r['20']['slowFor'] > rse[1] - 0.6, f"until Leap Strike the rush's blow slows by {rse[0]:.0%} for {rse[1]} s ({r['20']})")
-    check(r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow does not slow ({r['30']})")
+    late = await page.evaluate("!!(__hm.bal7 && __hm.bal7.B7T.chargeSlowLate)")  # [balance7] its blow slows at every level now
+    check((abs(r['30']['slow'] - rse[0]) < 0.01) if late else r['30']['slow'] == 0, f"from Leap Strike's level the rush's blow {'slows as below it ([balance7])' if late else 'does not slow'} ({r['30']})")
     # [balance4] a skilled priest of rank I holds its mace from a warrior's guard; from rank II it swings
     r = await ev(page, 'hold-mace', """(() => { const H = T.H; const out = {};
       for (const lv of [10, 30]) { const P = T.fresh('warrior', lv, 0); const a = T.ahead(P, 2.5); const pr = T.F.spawnRealmUnit(2, 'priest', lv, 'bot', a.x, a.z); pr.testFoe = true; H.bal.botMake(pr, 'skilled'); pr.target = P.id; H.simulate(0.6); out[lv] = !!(pr.bot && pr.bot.holdMace); }
@@ -977,7 +978,10 @@ async def balance5(page):
       for (const R of [0, 1, 2]) { const P = T.fresh('archer', 20, R); C.csOf(P).drawFrom = H.GAME.t; H.simulate(0.6); out['draw' + R] = +C.drawK(P).toFixed(2); C.csOf(P).drawFrom = -1; }
       out.A = H.bal5.ARCHER_REALM; out.text = C.CLASS_REALM.archer.map((q) => q.text.slice(0, 40)); return out; })()""")
     ld = r['A']['logresDraw']  # [balance6] 0.92 (0.85): the check reads the measure
-    check(abs(r['draw0'] / max(1e-6, r['draw1']) - 1 / ld) < 0.06 and abs(r['draw1'] - r['draw2']) < 0.02, f"a Logres archer draws {round((1 - ld) * 100)}% sooner ({r['draw0']}, {r['draw1']}, {r['draw2']})")
+    if await page.evaluate("!!__hm.bal7"):  # [balance7] the Logres way is an edge from a perch only (classes.py b7 checks it there)
+        check(abs(r['draw0'] - r['draw1']) < 0.02 and abs(r['draw1'] - r['draw2']) < 0.02, f"on the ground a Logres archer draws as the others do ([balance7]: from a perch a quarter sooner) ({r['draw0']}, {r['draw1']}, {r['draw2']})")
+    else:
+        check(abs(r['draw0'] / max(1e-6, r['draw1']) - 1 / ld) < 0.06 and abs(r['draw1'] - r['draw2']) < 0.02, f"a Logres archer draws {round((1 - ld) * 100)}% sooner ({r['draw0']}, {r['draw1']}, {r['draw2']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance5] checks {errs[:2]}')
 
