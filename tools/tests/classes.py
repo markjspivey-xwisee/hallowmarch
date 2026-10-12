@@ -1111,6 +1111,7 @@ async def shots(page):
     # [balance4] Charge rushes: a warrior halfway along its rush at a mage, shield raised across its body, dust behind
     if want('rush'): await ev(page, 'rush-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 0);
       const a = T.ahead(P, 20); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
+      w.ai.post.leash = 40; /* [balance6] a guard at its post rushes only within its leash ([balance4]): this one's reaches the mage */
       H.simulate(0.2); CS(P, w, 7.5, 1.6, 0.5, 1.1); H.frame(0.016);
       w.cds = {}; w.gcdUntil = 0; w.power = w.maxPower; w.target = P.id; const r = F.useAbility(w, 'charge', P);
       for (let i = 0; i < 12 && w.motion; i++) { H.simulate(0.05); H.frame(0.05); }
