@@ -219,7 +219,7 @@ function classHarm(src, dst, amount, opts) {
   if (sun) m *= 1 + 0.05 * sun;
   if (hasBuff(dst, 'stagger')) m *= 1.2;
   if (opts.arrow && src) m *= arrowHarm(src, dst, opts);
-  else if (src && src.cls === 'archer' && opts.kind === 'arrow' && B7T.plainK !== 1 && abilityRank(src.level) >= 2) m *= B7T.plainK; // [balance7] (07c_balance7.js)
+  else if (src && src.cls === 'archer' && opts.kind === 'arrow') m *= plainArrowK(src); // [balance7] a seasoned archer's own shafts (07c_balance7.js)
   // the elements meet the world and each other
   const el = opts.elem || (opts.kind === 'fire' || opts.kind === 'ember' ? 'fire' : opts.kind === 'frost' || opts.kind === 'ice' || opts.kind === 'rime' ? 'frost' : opts.kind === 'shock' || opts.kind === 'spark' ? 'storm' : null);
   if (el && src && !opts.noReact) m *= elementReact(src, dst, el, opts);

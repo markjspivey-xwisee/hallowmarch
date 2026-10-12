@@ -95,7 +95,7 @@ window.DS = {
       ua.target = ub.id; ub.target = ua.id;
       if (plain === 'b') ub.plainCalling = true; // [balance4] the realm's way against the plain calling
       const RN = ['Logres', 'Eriu', 'Thule'];
-      const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + RN[ra], b: b + ':plain', ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
+      const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + (plain === 'b' ? RN[ra] : plain === 'a' ? 'plain' : 'plainA'), b: b + ':' + (plain === 'b' ? 'plain' : plain === 'a' ? RN[rb] : 'plainB'), ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
       ua._duel = ub._duel = D;
       return D;
     });
@@ -122,9 +122,10 @@ window.DS = {
     const ua = CB.unit(ra, a, lvl, s.x - 9 * f, s.z, ka, 18), ub = CB.unit(rb, b, lvl, s.x + 9 * f, s.z, kb, 18);
     ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
     ua.target = ub.id; ub.target = ua.id;
-    if (plain === 'b') ub.plainCalling = true;
+    if (plain === 'b' || plain === 'ab') ub.plainCalling = true; // [balance7] 'a': the plain calling listed first, 'ab': both plain (the measure's own lean)
+    if (plain === 'a' || plain === 'ab') ua.plainCalling = true;
     const RN = ['Logres', 'Eriu', 'Thule'];
-    const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + RN[ra], b: b + ':plain', ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
+    const D = plain ? { kind: 'duel', bot: 'flavour-' + ka, a: a + ':' + (plain === 'b' ? RN[ra] : plain === 'a' ? 'plain' : 'plainA'), b: b + ':' + (plain === 'b' ? 'plain' : plain === 'a' ? RN[rb] : 'plainB'), ua, ub, t0: this.H.GAME.t, ra, rb, arena: i } : { kind: 'duel', bot: ka === kb ? ka : 'mastery', a: ka === kb ? a : a + ':' + ka, b: ka === kb ? b : b + ':' + kb, ua, ub, t0: this.H.GAME.t, ra, rb, arena: i };
     ua._duel = ub._duel = D;
     return D;
   },

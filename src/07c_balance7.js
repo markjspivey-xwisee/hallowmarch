@@ -13,7 +13,7 @@ const B7T = {
   priestPress: true, // [priest bot] a skilled priest presses a bow to its mace before Tumble's level
   priestSnareRenew: true, // [priest bot] a skilled priest renews itself for steadiness when slowed
   sanctWound: false, // [priest] Sanctuary's heal on the priest itself weighs the wound as Mend's does (tried: it cost the careful priest, who uses it at 70%, as much as the careless one)
-  plainK: 1.1, // [archer] a seasoned archer's own shafts: plain arrows from rank II strike this much harder
+  plainRank: 0.05, // [archer] a seasoned archer's own shafts: plain arrows strike this much harder for each rank past the first (1.08 and 1.12 from rank II alike were tried: the simple archer of 30 won 47.5 of 48 against the simple priest)
   chargeSlowLate: true, // [warrior] a Charge's landing slows its foe from Leap Strike's level too (as below it)
   warriorFire: true, // [warrior bot] a skilled warrior goes through burning grass after its foe instead of stepping out of it
   priestBait: false, // [priest bot] a skilled priest smites through a blade whose bash is ready, or a foe that has just cut a spell (it stood idle)
@@ -105,7 +105,9 @@ CLASS_REALM.archer[2].text = `In the cold (snow under you, or a freezing air) th
 /* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
 ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage, and the blow slows it by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there, and Charge is then ready in half its wait. Landing, you take ${RUSH_FOOTING} s to find your feet, and Shield Bash waits ${RUSH_BASH} s. Charge comes round every ${RUSH_CD_EARLY} s; from Leap Strike's level it and Leap Strike are one rush (either holds the other back ${RUSH_SHARE} s).`;
 ABILITIES.mend.desc = `Heals a friend for 36% of health, or you for ${Math.round(36 * PRIEST_SELF)}%. The deeper the wound, the more it mends: all of it from half health down, barely a sixth of it on a scratch.`;
-ARROW_DEF.plain.text = `Ordinary shafts. You never run out, and from rank II (level 30) a seasoned archer's own shafts strike ${Math.round((B7T.plainK - 1) * 100)}% harder.`;
+ARROW_DEF.plain.text = `Ordinary shafts. You never run out, and a seasoned archer's own shafts strike ${Math.round(B7T.plainRank * 100)}% harder for each rank past the first.`;
+// classHarm asks for an arrow with no special head: a seasoned archer's own shafts strike harder rank by rank (from rank II: 5, 10, 15%)
+const plainArrowK = (e) => 1 + B7T.plainRank * Math.max(0, abilityRank(e.level || 1) - 1);
 
 setTimeout(() => {
   LOADING_TIPS.push(
@@ -117,5 +119,5 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal7 = { BAL7, B7T, ARCHER_GROUND, archerTrees, archerColdAt, archerWayHere, archerDrawK, archerHighK, archerWindK, archerAmbushK, archerHideT, archerHideWalk, snareCold, snareHold };
+  window.__hm.bal7 = { BAL7, B7T, plainArrowK, ARCHER_GROUND, archerTrees, archerColdAt, archerWayHere, archerDrawK, archerHighK, archerWindK, archerAmbushK, archerHideT, archerHideWalk, snareCold, snareHold };
 }, 0);
