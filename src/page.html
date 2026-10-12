@@ -680,6 +680,47 @@
   #banners.hl-compact .lore-note b { font-size: 16px; }
   #banners.hl-compact .lore-note small { font-size: 0; } #banners.hl-compact .lore-note small::after { content: 'Field note · tap'; font-size: 10.5px; }
   #banners.hl-compact > .banner:not(.lore-note):not(.lore-step) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.3; }
+  /* guide2: the Chronicle folded into its summaries, the field notes' page, a glow on the button that does your next step, your aim on the war panel (10f_guide2.js) */
+  .chron details.cf { border: 1px solid var(--line); border-radius: 6px; background: rgba(0, 0, 0, 0.16); min-width: 0; }
+  .chron details.cf > summary { position: relative; display: block; list-style: none; cursor: pointer; padding: 12px 40px 11px 12px; min-height: 44px; box-sizing: border-box; }
+  .chron details.cf > summary::-webkit-details-marker { display: none; }
+  .chron details.cf > summary::after { content: ''; position: absolute; right: 15px; top: 15px; width: 8px; height: 8px; border-right: 2px solid var(--bronze-hi); border-bottom: 2px solid var(--bronze-hi); transform: rotate(45deg); transition: transform 0.2s ease; }
+  .chron details.cf[open] > summary::after { transform: rotate(-135deg); top: 19px; }
+  .chron details.cf > summary h3 { margin: 0; }
+  .chron details.cf > summary:hover h3, .chron details.cf[open] > summary h3 { color: var(--ink); }
+  .chron details.cf > .cf-b { display: grid; gap: 12px; padding: 0 12px 13px; min-width: 0; }
+  .chron details.cf > .cf-b > p { margin: 0; line-height: 1.55; }
+  .chron details.cf.cf-in { border: 0; border-radius: 0; background: none; }
+  .chron details.cf.cf-in > summary { display: grid; gap: 8px; padding: 0 0 24px; min-height: 0; }
+  .chron details.cf.cf-in > summary > p { margin: 0; line-height: 1.55; }
+  .chron details.cf-card:not([open]) > summary > p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; } /* a card's first lines, the rest a tap away */
+  .chron details.cf.cf-in > summary::before { content: 'More'; position: absolute; right: 24px; bottom: 2px; font: 500 11px/1 var(--caps); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bronze-hi); }
+  .chron details.cf.cf-in[open] > summary::before { content: 'Less'; }
+  .chron details.cf.cf-in > summary::after { top: auto; bottom: 4px; right: 6px; }
+  .chron details.cf.cf-in[open] > summary::after { top: auto; bottom: 0; }
+  .chron details.cf.cf-in > .cf-b { padding: 6px 0 0; }
+  .chron .gd-tier details.cf.cf-in > summary { padding-bottom: 2px; padding-right: 56px; }
+  .chron .gd-tier details.cf.cf-in > summary::before { bottom: 6px; }
+  .chron .gd-tier details.cf.cf-in > summary::after { bottom: 8px; }
+  .chron .gd-tier details.cf.cf-in[open] > summary::after { bottom: 4px; }
+  .chron .cf-all { justify-self: end; padding: 6px 14px; font-size: 12.5px; }
+  body.touch .chron .cf-all { min-height: 40px; }
+  .chron details.note-f { border-left: 3px solid var(--bronze); }
+  .chron details.note-f > .cf-b > p { font-size: 14px; color: var(--ink-dim); }
+  @media (max-height: 520px) { .chron .figure.map { width: min(100%, 300px); } } /* a phone on its side: the map in half a screen */
+  .chron .rhead { flex-wrap: wrap; row-gap: 4px; } /* a realm's pill wraps under its name on a narrow phone (it ran 21 px past the sheet at 360) */
+  @keyframes g2pt { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 211, 106, 0); } 50% { box-shadow: 0 0 0 3px rgba(255, 211, 106, 0.9), 0 0 18px rgba(255, 211, 106, 0.6); } }
+  .g2-point { animation: g2pt 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .g2-point { animation: none; box-shadow: 0 0 0 3px rgba(255, 211, 106, 0.9); } }
+  #war .g2-aim { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: center; column-gap: 6px; row-gap: 3px; padding-top: 5px; border-top: 1px solid var(--line); font: 600 12px/1.25 var(--ui); color: var(--ink); cursor: pointer; }
+  #war .g2-aim .gem { width: 7px; height: 7px; transform: rotate(45deg); background: #ffd36a; box-shadow: 0 0 6px rgba(255, 211, 106, 0.8); }
+  #war .g2-aim .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #war .g2-aim .d { color: #ffd88a; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 500; }
+  #war .g2-aim i { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: rgba(0, 0, 0, 0.5); overflow: hidden; }
+  #war .g2-aim i b { display: block; height: 100%; background: linear-gradient(90deg, var(--bronze), var(--bronze-hi)); }
+  #war .g2-aim:hover .t { color: #fff4dc; }
+  body.touch #war { cursor: pointer; }
+  @media (max-width: 760px), (pointer: coarse) { #war .g2-aim { font-size: 10.5px; column-gap: 4px; } }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

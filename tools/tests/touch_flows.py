@@ -58,7 +58,9 @@ window.TF = {
 
 async def tap(page, sel, frames=2):
     """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
-    await page.evaluate("__hm.frame(1/30); __hm.hud.HUDL.k = 0; __hm.hud.hudLayout(0); 0")
+    # [guide2] laid out now, then held still as a finger comes down (the page's own frames ran a layout pass between
+    # the measure and the tap now and then, and the tap landed where a panel had been: G2.tap, 10f_guide2.js)
+    await page.evaluate("__hm.frame(1/30); __hm.hud.HUDL.k = 0; __hm.hud.hudLayout(0); if (__hm.guide2) __hm.guide2.G2.tap.until = performance.now() + 4000; 0")
     box = await page.evaluate("""((sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return null;
       const x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
       return { x, y, top: !!hit && (hit === el || el.contains(hit)), hit: hit ? (hit.id || String(hit.className).slice(0, 20)) : null }; })""", sel)

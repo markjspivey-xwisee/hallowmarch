@@ -963,17 +963,17 @@ function farmNotices(dt) {
   const P = GAME.player;
   if (!P || !GAME.started || UI.modal || guideQuiet()) return; // [guide] not over a new character's first steps
   const tips = FARM.herbal;
-  const tip = (bit, text) => { if (tips.tips & bit) return; tips.tips |= bit; uiToast(text, 'hint'); saveSoon(); };
+  const tip = (bit, text, note) => { if (tips.tips & bit) return; tips.tips |= bit; if (note && FIELD_NOTES[note]) loreNote(note); else uiToast(text, 'hint'); saveSoon(); }; // [guide2] a field note where there is one (10f_guide2.js): it was a toast
   if (!(tips.tips & 1)) {
     const fieldNear = FARM.plots.some((Q) => Q.own === 't' && dist2(Q.x, Q.z, P.x, P.z) < 30 * 30);
     const farmer = FARM.farmers.map(getEnt).find((e) => e && e.alive && e.ai.seedSeller && dist2(e.x, e.z, P.x, P.z) < 14 * 14);
-    if (fieldNear || farmer) tip(1, `The farmers ${farmer ? 'here' : 'of the town'} sell seed and hoes. Till a bed of meadow (E), sow it, keep it weeded and watered by the rain, and harvest it when it is ripe. The Chronicle's Fields page tells more.`);
+    if (fieldNear || farmer) tip(1, `The farmers ${farmer ? 'here' : 'of the town'} sell seed and hoes. Till a bed of meadow (E), sow it, keep it weeded and watered by the rain, and harvest it when it is ripe. The Chronicle's Fields page tells more.`, 'farmers');
   }
   for (const Q of FARM.plots) {
     if (Q.own !== 'p' || Q.ripeNoted) continue;
-    if (Q.plants.some((pl) => pl && !pl.dead && pl.g >= 1)) { Q.ripeNoted = true; if (dist2(Q.x, Q.z, P.x, P.z) < 120 * 120) uiLog('A bed of yours is ripe. Harvest it before it sheds, or keep the seed of its best plant.', 'sys'); tip(2, 'A bed is ripe. Look at the plants: the plant card shows each one\'s traits. Keep the seed of the best, and your strain grows better each year.'); }
+    if (Q.plants.some((pl) => pl && !pl.dead && pl.g >= 1)) { Q.ripeNoted = true; if (dist2(Q.x, Q.z, P.x, P.z) < 120 * 120) uiLog('A bed of yours is ripe. Harvest it before it sheds, or keep the seed of its best plant.', 'sys'); tip(2, 'A bed is ripe. Look at the plants: the plant card shows each one\'s traits. Keep the seed of the best, and your strain grows better each year.', 'ripe'); }
   }
-  if (!(tips.tips & 4)) { const H = farmHerbNear(P.x, P.z, 6); if (H && !farmKnows(H.k)) tip(4, 'An unfamiliar plant grows nearby. Examine it (E) to learn it for your herbal.'); }
+  if (!(tips.tips & 4)) { const H = farmHerbNear(P.x, P.z, 6); if (H && !farmKnows(H.k)) tip(4, 'An unfamiliar plant grows nearby. Examine it (E) to learn it for your herbal.', 'herb'); }
 }
 
 /* ------------------------------------------------------------------ */

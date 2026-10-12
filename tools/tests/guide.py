@@ -249,9 +249,9 @@ async def phone(p):
       return out; })()""")
     check(r.get('master') is True, f'the step "master" is taken when a named masterwork is in your bags ({r})')
     check(r.get('campaign') is True, f'the step "campaign" is taken when your realm wins a campaign with you in it ({r})')
-    # Cinderwing: hit by you, then fallen
+    # Cinderwing: hit by you (a fifth of its harm: [guide2] a single blow from afar no longer counts), then fallen
     r = await ev(page, """(() => { const H = __hm, P = GD.P(), L = H.LORE, Dg = H.guide.dragon(); if (!Dg) return 'no dragon';
-      const a0 = Dg.alive; Dg.alive = true; Dg.removed = false; Dg.damagers = new Set([P.id]); GD.steps(); H.teleport(Dg.x + 20, Dg.z); Dg.alive = false; const done = GD.steps().done.includes('dragon'); Dg.alive = a0; return done; })()""")
+      const a0 = Dg.alive; Dg.alive = true; Dg.removed = false; Dg.damagers = new Set([P.id]); Dg.threat = new Map([[P.id, Dg.maxHp * 0.2]]); GD.steps(); H.teleport(Dg.x + 20, Dg.z); Dg.alive = false; const done = GD.steps().done.includes('dragon'); Dg.alive = a0; return done; })()""")
     check(r is True, f'the step "dragon" is taken when Cinderwing falls with your blows in it ({r})')
     r = await ev(page, "({ banners: [...document.querySelectorAll('#banners .lore-step b')].map((b) => b.textContent), errs: __hm.errors.slice(0, 3) })")
     check(len(r['banners']) >= 1, f'each step taken is named in a banner ({r["banners"][-3:]})')

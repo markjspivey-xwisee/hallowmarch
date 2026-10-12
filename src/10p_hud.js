@@ -80,6 +80,7 @@ function hudKey(W, H, touch) {
 }
 function hudLayout(dt) {
   if (!HUDL.on || !GAME.started || !GAME.player) return;
+  if (g2TapHeld()) { HUDL.k = 0; return; } // [guide2] no panel moves under a finger before its click lands (10f_guide2.js): a tap on the companion bar came to nothing when it moved
   HUDL.t -= dt;
   // a look four times a second (reading the panels' sizes makes the browser lay the page out)
   HUDL.k -= dt;
