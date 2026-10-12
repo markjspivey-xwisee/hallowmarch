@@ -455,9 +455,9 @@ async def main():
               H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); L.late2CheckNames(true); L.late2Deed('king'); L.late2Wear('blooded');
               const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()""")
             ok = await tap(page, '#lore-path [data-act="open"], #lore-path [data-act="aims"]')
-            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"deeds\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center' }); return 0; })()") # (the row scrolls: Deeds is its last page)
+            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"deeds\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()") # (the row scrolls: Deeds is its last page)
             ok2 = await tap(page, '.chron-nav [data-sec="deeds"]')
-            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (b) b.scrollIntoView({ block: 'center', behavior: 'instant' }); return 0; })()")
             box = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (!b) return null; const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()")
             ok3 = await tap(page, '#menu-body [data-l2="wear:kingsbane"]')
             r = await page.evaluate("({ worn: __hm.late.LATE2.worn, sec: __hm.LORE.state.chronSec, frame: document.getElementById('pf-name').textContent })")
@@ -466,10 +466,10 @@ async def main():
             await page.evaluate("""(() => { const H = TF.H, F = H.fn, L = H.late, P = TF.P(), R = H.REALMS[P.faction]; H.GAME.prog.level = 45; H.INV.gold = Math.max(H.INV.gold, 1500);
               for (let i = 0; i < 400; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
                 if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) break; }
-              TF.calm(); H.LORE.openChronicle('deeds'); return 0; })()""")
-            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:make\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+              TF.calm(); H.LORE.openChronicle('deeds'); return 0; })()""") # (the sheet scrolls smoothly: each scroll below is instant, or the tap measured the button still off the screen)
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:make\"]'); if (!b) return 0; b.scrollIntoView({ block: 'center', behavior: 'instant' }); const sh = b.closest('.sheet'); if (sh) { const d = b.getBoundingClientRect().top - sh.getBoundingClientRect().top - sh.clientHeight / 2; if (Math.abs(d) > 40) sh.scrollTop += d; } return 0; })()"); await page.evaluate("__hm.frame(1/30); 0")
             ok4 = await tap(page, '#menu-body [data-l2="std:make"]')
-            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:plant\"]'); if (b) b.scrollIntoView({ block: 'center' }); return 0; })()")
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:plant\"]'); if (!b) return 0; b.scrollIntoView({ block: 'center', behavior: 'instant' }); const sh = b.closest('.sheet'); if (sh) { const d = b.getBoundingClientRect().top - sh.getBoundingClientRect().top - sh.clientHeight / 2; if (Math.abs(d) > 40) sh.scrollTop += d; } return 0; })()"); await page.evaluate("__hm.frame(1/30); 0")
             ok5 = await tap(page, '#menu-body [data-l2="std:plant"]')
             st = await page.evaluate("(() => { const L = __hm.late, at = L.LATE2.std.at, P = __hm.GAME.player; return { made: L.LATE2.std.made, at: !!at, modal: __hm.UI.modal, d: at ? +Math.hypot(at.x - P.x, at.z - P.z).toFixed(1) : null }; })()")
             await page.evaluate("(() => { const H = TF.H, L = H.late, at = L.LATE2.std.at, P = TF.P(); if (at) { H.teleport(at.x + 1.3, at.z + 0.4); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.CAM.yaw = P.yaw; } H.simulate(0.2); return 0; })()")
