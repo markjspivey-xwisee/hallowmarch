@@ -236,9 +236,8 @@ function towerHeaps() {
     if (T.look === 'rath') { towerConeHeap(T); continue; } // [siege2] a fallen cone's thatch and poles on the platform
     if (T.look !== 'timber') continue;
     // [perf2] the heap is made the first time it shows (13x_perf2.js)
-    const m = new THREE.Mesh(perf2Empty(), buildingMat);
-    m.visible = false; m.renderOrder = 1;
-    perf2Lazy(m, () => towerHeapGeo(T));
+    const m = perf2LazyMesh(() => towerHeapGeo(T), buildingMat);
+    m.renderOrder = 1;
     scene.add(m);
     shadowCaster(m, BUILDING_DEPTH);
     T.heap = m;
@@ -265,9 +264,8 @@ function towerConeHit(T, x, y, z, r) {
 // [siege2] the charred thatch and poles of a fallen cone, heaped on its platform (hidden until then)
 function towerConeHeap(T) {
   // [perf2] the heap is made the first time it shows (13x_perf2.js)
-  const m = new THREE.Mesh(perf2Empty(), buildingMat);
-  m.visible = false; m.renderOrder = 1;
-  perf2Lazy(m, () => towerConeHeapGeo(T));
+  const m = perf2LazyMesh(() => towerConeHeapGeo(T), buildingMat);
+  m.renderOrder = 1;
   scene.add(m);
   shadowCaster(m, BUILDING_DEPTH);
   T.heap = m;

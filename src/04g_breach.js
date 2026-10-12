@@ -94,7 +94,7 @@ function towerBreachInit() {
       const f1 = C.floor(T.cx + ox * (r0 + r1) / 2, T.cz + oz * (r0 + r1) / 2, 1.05, (r1 - r0) / 2, aOut + Math.PI, Math.min(gOut, W.rubble - 0.6), W.rubble, Math.min(gOut, 0) - 1.2, 0, 'rubble');
       const f2 = C.floor(T.cx + ox * (rc + r0) / 2, T.cz + oz * (rc + r0) / 2, 1.05, (r0 - rc) / 2, aOut + Math.PI, W.rubble, T.yG + 0.32, T.yG - 1.2, 0, 'rubble');
       for (const f of [f1, f2]) { f.active = false; W.rubbleFloors.push(f); }
-      W.wreck = new THREE.Mesh(perf2Empty(), buildingMat); W.wreck.visible = false; perf2Lazy(W.wreck, () => towerRubbleGeo(W)); W.wreck.renderOrder = 1; scene.add(W.wreck); // [perf2] its rubble is made the first time it shows (13x_perf2.js)
+      W.wreck = perf2LazyMesh(() => towerRubbleGeo(W), buildingMat); W.wreck.renderOrder = 1; scene.add(W.wreck); // [perf2] its rubble is made the first time it shows (13x_perf2.js)
       W.scaffold = new THREE.Mesh(look3EmptyGeo(), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold); // [look3] laid out when first put up (look3Lay, 04d_look3.js)
       shadowCaster(W.wreck, BUILDING_DEPTH); shadowCaster(W.scaffold, BUILDING_DEPTH);
       // the banners on its top

@@ -498,9 +498,7 @@ function buildCastleGate(C, temple) {
     shadowCaster(m, BUILDING_DEPTH);
     G0.port = m; G0.portH = h - 0.05;
   }
-  const wreck = new THREE.Mesh(perf2Empty(), buildingMat);
-  wreck.visible = false;
-  perf2Lazy(wreck, () => gateWreckGeo(S, st, hw, h, timber)); // [perf2] the splinters are made the first time they show (13x_perf2.js)
+  const wreck = perf2LazyMesh(() => gateWreckGeo(S, st, hw, h, timber), buildingMat); // [perf2] the splinters are made the first time they show (13x_perf2.js)
   wreck.renderOrder = 1;
   scene.add(wreck);
   G0.wreck = wreck;
@@ -972,7 +970,7 @@ function castleSections(C) {
       f.active = false;
       W.rubbleFloors.push(f);
     }
-    W.wreck = new THREE.Mesh(perf2Empty(), buildingMat); W.wreck.visible = false; perf2Lazy(W.wreck, () => breachGeo(C, W)); W.wreck.renderOrder = 1; scene.add(W.wreck); // [perf2] its rubble is made the first time it shows (13x_perf2.js)
+    W.wreck = perf2LazyMesh(() => breachGeo(C, W), buildingMat); W.wreck.renderOrder = 1; scene.add(W.wreck); // [perf2] its rubble is made the first time it shows (13x_perf2.js)
     W.scaffold = new THREE.Mesh(look3EmptyGeo(), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold); // [look3] laid out when first put up (look3Lay, 04d_look3.js)
     shadowCaster(W.wreck, BUILDING_DEPTH); shadowCaster(W.scaffold, BUILDING_DEPTH);
   });

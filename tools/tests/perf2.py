@@ -12,7 +12,10 @@ usage: python3 tools/tests/perf2.py boot [track] [w=640] [h=360] [tag=now]
          a GC), the GPU's bytes, the scene's objects, geometries, textures and programs, the lists that can grow, and a
          run of frames drawn at low; fails if the heap or the scene keeps growing
        python3 tools/tests/perf2.py phone [cpu=4] [tag=now]
-         a phone: 390x780 with touch, the CPU slowed `cpu` times (CDP), the boot and the first minute's frames at low
+         a phone: 390x780 with touch, the CPU slowed `cpu` times (CDP), the boot and the first minute's frames at low,
+         the touch controls' own cost (the stick, a camera drag, a tap that picks), the memory after
+       python3 tools/tests/perf2.py geohash [tag=now]     the merged meshes' arrays hashed (two builds: the same geometry)
+       python3 tools/tests/perf2.py ab [tag=now]          the old way and the new, turn and turn about, in one page
 Writes tools/out/perf2_<mode>_<tag>.json."""
 import asyncio, json, os, sys, time, pathlib, re
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -626,6 +629,29 @@ async def mode_long():
 # ---------------------------------------------------------------------------------------------------------------
 # phone: an upright phone with touch, its CPU slowed (CDP), the boot and the first minute's frames at low
 # ---------------------------------------------------------------------------------------------------------------
+TOUCH_JS = r"""(() => {
+  const c = __hm.dbg.renderer.domElement, R = c.getBoundingClientRect(), now = () => performance.now();
+  const ev = (type, id, x, y) => new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, isPrimary: id === 7 });
+  const x0 = R.left + R.width * 0.2, y0 = R.top + R.height * 0.75, x1 = R.left + R.width * 0.75, y1 = R.top + R.height * 0.45;
+  document.body.offsetWidth;
+  c.dispatchEvent(ev('pointerdown', 7, x0, y0));
+  let t = now();
+  for (let i = 0; i < 200; i++) c.dispatchEvent(ev('pointermove', 7, x0 + 30 * Math.sin(i / 10), y0 - 30 * Math.cos(i / 10)));
+  const stick = (now() - t) / 200;
+  t = now(); document.body.offsetWidth; const layout = now() - t;
+  c.dispatchEvent(ev('pointerup', 7, x0, y0));
+  c.dispatchEvent(ev('pointerdown', 8, x1, y1));
+  t = now();
+  for (let i = 0; i < 200; i++) c.dispatchEvent(ev('pointermove', 8, x1 + 40 * Math.sin(i / 15), y1 + 10 * Math.cos(i / 15)));
+  const drag = (now() - t) / 200;
+  c.dispatchEvent(ev('pointerup', 8, x1, y1));
+  t = now();
+  for (let i = 0; i < 40; i++) { c.dispatchEvent(ev('pointerdown', 9 + i, x1, y1)); c.dispatchEvent(ev('pointerup', 9 + i, x1, y1)); }
+  const tap = (now() - t) / 40;
+  const r = (v) => +v.toFixed(3);
+  return { stick: r(stick), drag: r(drag), tap: r(tap), layout: r(layout) };
+})()"""
+
 async def mode_phone():
     cpu = float(OPT.get('cpu', 4))
     res = {'cpu': cpu}
@@ -655,6 +681,15 @@ async def mode_phone():
         steps = await page.evaluate(STEPS_JS + "(100)")
         ss = sorted(steps)
         res['step'] = {'median': ss[len(ss) // 2], 'p90': ss[int(len(ss) * 0.9)], 'max': ss[-1]}
+        # the touch controls' own cost: the stick dragged (200 moves), the camera dragged on the right (200), taps that
+        # pick what is under the finger (40), each dispatched to the canvas as a phone's pointer events are, and the
+        # style and layout the next frame then pays
+        try:
+            res['touch'] = await page.evaluate(TOUCH_JS)
+            print(f"   touch: a stick move {res['touch']['stick']} ms, a camera drag's move {res['touch']['drag']} ms, a tap (picking) {res['touch']['tap']} ms; the style and layout after 200 stick moves {res['touch']['layout']} ms", flush=True)
+        except Exception as ex:
+            res['touch'] = {'error': str(ex)[:300]}
+            print('   touch: could not measure:', res['touch']['error'], flush=True)
         res['heapPlay'] = await heap(cdp)
         res['memPlay'] = await page.evaluate(MEM_JS)
         res['rssPlay'] = procs_rss()

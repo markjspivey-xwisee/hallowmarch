@@ -7,11 +7,11 @@
 //   the keeps and temples, the castles, the towers' rooms, the Barrow, the camps' props, the workstations) is let go
 //   once it is on the GPU (perf2Release). About 80 MB of the page's 180 MB of ArrayBuffers were these copies.
 // - the wrecks of things that may never fall (every stone tower's rubble, every curtain's breach, every gate's
-//   splinters) are made the first time they show (perf2Lazy), not all at the boot.
+//   splinters) are made the first time they show (perf2LazyMesh), not all at the boot.
 // - the terrain's 64 chunks and their coarser levels share one index each (the same grid), 16-bit (03_terrain.js,
 //   13q_lod.js).
-// - the shaders that are not in view at the boot (the Barrow's, the crowds' far models, fire, rubble) are compiled
-//   while the loading veil is still up (perf2Warm), not on the frame that first shows them.
+// - every shader of what the boot has made, shown or not (the Barrow's, the crowds' far models, fire, rubble), is asked
+//   for while the loading veil is still up (perf2Compile), not on the frame that first shows it.
 const PERF2 = { released: 0, releasedMB: 0, pending: 0, lazy: 0, made: 0, madeMB: 0, warmed: 0, warmMs: 0 };
 function perf2Bytes(g) {
   let b = 0;
@@ -59,22 +59,25 @@ function perf2SetGeo(mesh, g) {
   for (const q of SHADOW.proxies) if (q.userData.src === mesh) q.geometry = g;
   if (old && old !== g) old.dispose();
 }
-function perf2Lazy(mesh, make) {
-  let vis = !!mesh.visible, made = false;
-  const build = () => {
-    made = true;
-    const t = performance.now(), g = make();
-    perf2SetGeo(mesh, g);
-    PERF2.made++; PERF2.madeMB += perf2Bytes(g) / 1048576; PERF2.makeMs = (PERF2.makeMs || 0) + performance.now() - t;
+function perf2Make(mesh, make) {
+  const t = performance.now(), g = make();
+  perf2SetGeo(mesh, g);
+  PERF2.made++; PERF2.madeMB += perf2Bytes(g) / 1048576; PERF2.makeMs = (PERF2.makeMs || 0) + performance.now() - t;
+}
+// `visible` is an accessor on the class's prototype: defined on each mesh instead (Object.defineProperty over the data
+// property Object3D's constructor makes), it put every such mesh's properties in a dictionary, and the renderer's walk
+// over the scene each frame read them slowly (a walk of 700 objects with 100 such: 0.14-0.27 ms against 0.05-0.08 here)
+let PERF2_LAZY_MESH = null; // (made at first use: the boot builds the wrecks after this module's own code has run)
+function perf2LazyMesh(make, material) {
+  if (!PERF2_LAZY_MESH) PERF2_LAZY_MESH = class Perf2LazyMesh extends THREE.Mesh {
+    get visible() { return this._pv; }
+    set visible(v) { this._pv = !!v; if (this._pv && this._pm) { const f = this._pm; this._pm = null; perf2Make(this, f); } }
   };
-  Object.defineProperty(mesh, 'visible', {
-    configurable: true, enumerable: true,
-    get() { return vis; },
-    set(v) { vis = !!v; if (vis && !made) build(); },
-  });
-  if (vis) build();
+  const m = new PERF2_LAZY_MESH(perf2Empty(), material); // (Object3D's constructor shows it: nothing to make yet)
+  m._pm = make;
+  m.visible = false;
   PERF2.lazy++;
-  return mesh;
+  return m;
 }
 // an empty geometry with the building shader's attributes (as look3EmptyGeo, 04d_look3.js)
 function perf2Empty() { return look3EmptyGeo(); }
@@ -82,7 +85,7 @@ function perf2Empty() { return look3EmptyGeo(); }
 /* the boot: each step's time (13_main.js's loadStep keeps them: the first was not timed before) */
 window.__hm.perf2 = {
   PERF2,
-  release: perf2Release, releaseStatic: perf2ReleaseStatic, lazy: perf2Lazy,
+  release: perf2Release, releaseStatic: perf2ReleaseStatic, lazy: perf2LazyMesh,
   steps: () => BOOT_STEPS.slice(), // [name, ms, when it began (ms after the page began)]
   scriptAt: Math.round(BOOT_T0), // when the game's script began to run (ms after the page began: the page, three.js, the script's parse)
   // what the page holds now, by kind (the geometries the scene draws, with their arrays let go or not)
