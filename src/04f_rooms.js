@@ -360,3 +360,28 @@ function houseRuin(ctx) {
 
 /* [look4] the scaffold: a working putlog scaffold of its own, its boards floors and its ladder climbed, built the first */
 /* time a house is put back (houseScafSync, 04j_rubble.js)                                                              */
+// version 6's poles stay as the colliders they were, standing down and never raised (the working scaffold has its own):
+// what is placed at boot and the land's checks (mountains.py's sum of the colliders) read the world as version 14's did
+// (without them the land's sum of the colliders changed, and in houses.py a field hand stood on its way home at night)
+function houseScaffold(ctx) {
+  const { H } = ctx;
+  H.scafPlace = [];
+  const poleAt = (lx, lz, hgt) => { const w = houseW(H, lx, lz), c = addCircle(w.x, w.z, 0.12, 'scaffold', hgt); c.active = false; c.l4old = true; H.scafPlace.push(c); };
+  if (H.round) {
+    const R = H.r + 0.75, n = H.big ? 14 : 9, hgt = H.wallH + 0.6;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * TAU + TAU / (2 * n);
+      if (Math.abs(angDiff(a, 0)) < 0.45) continue;
+      poleAt(Math.sin(a) * R, Math.cos(a) * R, hgt);
+    }
+  } else {
+    const w2 = H.w / 2 + 0.8, d2 = H.d / 2 + 0.8, hgt = H.wallH + 0.9;
+    const xs = [-w2, -w2 / 3, w2 / 3, w2], zs = [-d2, -d2 / 3, d2 / 3, d2];
+    for (const x of xs) for (const z of zs) {
+      const edge = Math.abs(Math.abs(x) - w2) < 1e-3 || Math.abs(Math.abs(z) - d2) < 1e-3;
+      if (!edge) continue;
+      if (z > 0 && Math.abs(x) < 1.0 && Math.abs(z - d2) < 1e-3) continue; // the door stays clear
+      poleAt(x, z, hgt);
+    }
+  }
+}

@@ -693,6 +693,7 @@ function buildHouses(S, st, R) {
     for (const B of [ext, furn, glass]) { B.kind = HPART.FURN; B.hinge = null; }
     houseRooms(ctx);
     ext.kind = HPART.RUIN; houseRuin(ctx); // [look4] the scaffold is a working one of its own, built when it is first put up (04j_rubble.js)
+    houseScaffold(ctx); // [look4] (version 6's poles, as colliders standing down: 04f_rooms.js)
   });
   const mat1 = shareMat(houseMat, TU);
   const mExt = new THREE.Mesh(ext.build(), mat1); mExt.renderOrder = 1; scene.add(mExt);
