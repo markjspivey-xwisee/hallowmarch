@@ -283,7 +283,7 @@ function late2ChampThink(e, t, dt) {
   const ai = e.ai, now = GAME.t;
   let S = ai.l2;
   // a new fight (none for 8 s, or it went home whole): the rally and the fury come again
-  if (!S || (now - S.last > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
+  if (!S || (now - S.last > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, next2: now + 8 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
   S.last = now;
   if (S.w) {
     S.w.t += dt;
@@ -299,11 +299,12 @@ function late2ChampThink(e, t, dt) {
     uiFloatAt(e.x, e.y + 2.4 * (e.scale || 1), e.z, 'Enraged', 'crit');
     if (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 60 * 60) uiLog(`${capFirst(theName(e))} fights on in a fury!`, 'warn');
   }
-  if (now < S.next) return false;
   const M = MOBS[e.mobType] || {}, ranged = !!M.ranged, d = dist(e.x, e.z, t.x, t.z);
+  if (now > S.next2 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && late2KindMove(e, t, d)) S.next2 = now + 13 + Math.random() * 4; // each kind its own way
+  if (now < S.next) return false;
   if (ranged ? d > 26 : d > 5.2) return false;
   if (Math.abs((t.y || 0) - (e.y || 0)) > 3) return false; // not at one up on a wall or a rock
-  const total = 1.45, r = ranged ? 4.6 : 6.5, x = ranged ? t.x : e.x, z = ranged ? t.z : e.z;
+  const total = 1.45, r = ranged ? 4.6 : e.mobType === 'troll' ? 8 : 6.5, x = ranged ? t.x : e.x, z = ranged ? t.z : e.z; // (a troll's breaks the ground farther)
   S.w = { t: 0, total, x, z, r, ranged };
   spellDisc(x, z, r, DISC_KIND.holy, total + 0.1, ranged ? [0.45, 1.3, 1.9] : [1.9, 0.55, 0.16]);
   aoeMarker(x, z, r, total, e.faction); // (the skilled bots step out of it: 07c_balance7.js)
@@ -338,6 +339,56 @@ function late2Wrath(e, W) {
     if (W.ranged) addBuff(o, 'snare', 0.4, 3, e.id); else addBuff(o, 'stun', 1, 0.9, e.id);
     LATE2.stats.wrathHits++;
   });
+}
+// each kind of risen its own way, on a clock of its own (late2ChampThink): true when it acted
+const LATE2_KIND = { wolf: 'howl', boar: 'howl', bear: 'howl', skeleton: 'grave', draugr: 'grave', bandit: 'hamstring', troll: 'burst', wisp: 'blink' };
+function late2KindMove(e, t, d) {
+  const way = LATE2_KIND[e.mobType], camp = CAMPS[e.camp], P = GAME.player, near = P && dist2(e.x, e.z, P.x, P.z) < 60 * 60;
+  if (way === 'howl') { // the hunt's howl: its foes slowed, its pack's blood up
+    if (d > 14) return false;
+    sfx('roar'); FX.ring(e.x, e.y + 0.4, e.z, 3.5, [1.2, 1.0, 0.8], 36, 5);
+    forNear(e.x, e.z, 14, (o) => { if (o.alive && isEnemy(e, o) && isActor(o)) addBuff(o, 'snare', 0.35, 4, e.id); });
+    if (camp) for (const id of camp.members) { const m = getEnt(id); if (m && m.alive && dist2(m.x, m.z, e.x, e.z) < 20 * 20) addBuff(m, 'dmg', 0.15, 8, e.id); }
+    if (near) uiLog(`${capFirst(theName(e))} howls, and the pack's blood is up.`, 'warn');
+  } else if (way === 'grave') { // the dead call the dead: two rise out of the ground about its foe
+    if (d > 22 || !camp || camp.members.size >= camp.count + 4) return false;
+    for (let i = 0; i < 2; i++) {
+      const a = Math.random() * TAU, x = t.x + Math.cos(a) * 3.2, z = t.z + Math.sin(a) * 3.2;
+      if (!isWalkable(x, z)) continue;
+      const m = spawnMob(camp);
+      m.x = m.prevX = x; m.z = m.prevZ = z; m.y = heightAt(x, z);
+      m.threat = new Map([[t.id, 1]]); m.target = t.id; m.ai.pulled = true;
+      FX.dust(x, m.y, z, 10); lightFlash(x, m.y + 1, z, 6, [0.6, 1.2, 1.5], 0.4);
+    }
+    sfx('raise');
+    if (near) uiLog(`${capFirst(theName(e))} calls the dead up out of the ground!`, 'warn');
+  } else if (way === 'hamstring') { // a cut to the back of the leg: slowed, and wounds that mend slowly
+    if (d > (e.meleeRange || 2.6) + 0.6) return false;
+    setAct(e, 1, 0.5); turnToward(e, t.x, t.z, 9);
+    const r = computeDamage(e, t, 1.1);
+    dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
+    addBuff(t, 'snare', 0.5, 5, e.id); addBuff(t, 'wound', 0.3, 6, e.id);
+    uiFloatAt(t.x, t.y + 2.2, t.z, 'Hamstrung', 'hurt'); sfx('hit');
+  } else if (way === 'burst') { // it stamps, and the ground bursts under a foe that keeps off
+    if (d < 7 || d > 24) return false;
+    const x = t.x, z = t.z;
+    spellDisc(x, z, 3.2, DISC_KIND.holy, 1.2, [1.6, 0.9, 0.35]); aoeMarker(x, z, 3.2, 1.15, e.faction); sfx('slam');
+    later(1.15, () => {
+      if (!e.alive) return;
+      const y = heightAt(x, z);
+      spellDisc(x, z, 2.8, DISC_KIND.crack, 6); FX.burst(x, y + 0.2, z, 26, [0.5, 0.42, 0.33], 6, 0.7, 0.2, 9); FX.dust(x, y, z, 12); cameraShake(0.2, x, z); sfx('crash');
+      forNear(x, z, 3.6, (o) => { if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(o.x, o.z, x, z) > 3.2 || Math.abs((o.y || 0) - y) > 2.5) return; const r = computeDamage(e, o, 1.4); dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true }); addBuff(o, 'stun', 1, 0.6, e.id); });
+    });
+  } else if (way === 'blink') { // a wisp slips away from a blade at its side
+    if (d > 4.5) return false;
+    const dx = (e.x - t.x) / Math.max(0.1, d), dz = (e.z - t.z) / Math.max(0.1, d), R = dashReach(e, e.x, e.z, dx, dz, 10);
+    if (R.d < 4) return false;
+    FX.burst(e.x, e.y + 1, e.z, 20, [0.6, 1.4, 2.0], 3, 0.4, 0.16, 0);
+    e.x = e.prevX = R.x; e.z = e.prevZ = R.z;
+    FX.burst(e.x, e.y + 1, e.z, 20, [0.6, 1.4, 2.0], 3, 0.4, 0.16, 0); sfx('blink');
+  } else return false;
+  LATE2.stats.kinds = (LATE2.stats.kinds || 0) + 1;
+  return true;
 }
 // at half its strength: a roar, its pack mended, and two more come at its call
 function late2Rally(e, t) {
@@ -517,7 +568,7 @@ function chronDeeds() {
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
-    <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
+    <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(worn.t)}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;

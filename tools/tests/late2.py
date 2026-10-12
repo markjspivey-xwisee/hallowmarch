@@ -249,13 +249,13 @@ async def main():
                 await page.evaluate(f"""(() => {{ const H = T.H, F = T.F, P = H.GAME.player, C = F.getEnt(T.C); if (!C || !C.alive) return 0; H.setTod({tod});
                   C.ai.l2 = null; C.target = P.id; C.threat = new Map([[P.id, 50]]); P.hp = P.maxHp; H.teleport(C.x + 3.2, C.z + 2.4);
                   const S = C.ai.l2 = {{ next: 0, rally: true, enr: false, w: null, last: H.GAME.t }}; T.L.late2ChampThink(C, P, 0.05); H.simulate(0.8);
-                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const a = Math.atan2(P.x - C.x, P.z - C.z) + 0.9; H.camera.position.set(C.x + Math.sin(a) * 11, C.y + 5.5, C.z + Math.cos(a) * 11); H.camera.lookAt(C.x, C.y + 1, C.z); return 0; }})()""")
+                  document.getElementById('hud').hidden = true; T.camA = Math.atan2(P.x - C.x, P.z - C.z) + 0.9; T.cam = () => {{ const C2 = F.getEnt(T.C); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(C2.x + Math.sin(T.camA) * 9.5, C2.y + 4.6, C2.z + Math.cos(T.camA) * 9.5); H.camera.lookAt(C2.x, C2.y + 1.1, C2.z); }}; T.cam(); return 0; }})()""")
                 await frames(page, 3)
                 await shot(page, f'wrath_{label}_{Q}')
-                await page.evaluate("(() => { T.H.simulate(0.75); return 0; })()")
+                await page.evaluate("(() => { T.H.simulate(0.75); T.cam(); return 0; })()")
                 await frames(page, 2)
                 await shot(page, f'wrath_blow_{label}_{Q}')
-            await page.evaluate("(() => { const H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; return 0; })()")
+            await page.evaluate("(() => { const H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
         errs = await page.evaluate("__hm.errors.slice(0, 5)")
         check(not errs, f'no runtime errors ({errs})')
