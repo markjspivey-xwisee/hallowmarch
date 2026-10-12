@@ -27,6 +27,11 @@ def check(ok, msg):
 
 HELP = r"""
 window.TF = {
+  // [late2] a control in a scrolling sheet brought to the upper third of the box that scrolls it (the menu's sticky foot
+  // covers the lower part of the sheet)
+  see(sel) { const b = document.querySelector(sel); if (!b) return 0; let q = b.parentElement;
+    while (q && !(q.scrollHeight > q.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(q).overflowY))) q = q.parentElement;
+    if (q) q.scrollTop += b.getBoundingClientRect().top - q.getBoundingClientRect().top - q.clientHeight * 0.3; return 0; },
   H: window.__hm,
   P() { return this.H.GAME.player; },
   calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; H.LORE.state.noteUntil = performance.now() + 120000; }, // [guide] no field note pops up under a finger mid-flow (guide.py and the guide flow show theirs)
@@ -467,9 +472,9 @@ async def main():
               for (let i = 0; i < 400; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
                 if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) break; }
               TF.calm(); H.LORE.openChronicle('deeds'); return 0; })()""") # (the sheet scrolls smoothly: each scroll below is instant, or the tap measured the button still off the screen)
-            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:make\"]'); if (!b) return 0; b.scrollIntoView({ block: 'center', behavior: 'instant' }); const sh = b.closest('.sheet'); if (sh) { const d = b.getBoundingClientRect().top - sh.getBoundingClientRect().top - sh.clientHeight / 2; if (Math.abs(d) > 40) sh.scrollTop += d; } return 0; })()"); await page.evaluate("__hm.frame(1/30); 0")
+            await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate("TF.see('#menu-body [data-l2=\"std:make\"]')")
             ok4 = await tap(page, '#menu-body [data-l2="std:make"]')
-            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"std:plant\"]'); if (!b) return 0; b.scrollIntoView({ block: 'center', behavior: 'instant' }); const sh = b.closest('.sheet'); if (sh) { const d = b.getBoundingClientRect().top - sh.getBoundingClientRect().top - sh.clientHeight / 2; if (Math.abs(d) > 40) sh.scrollTop += d; } return 0; })()"); await page.evaluate("__hm.frame(1/30); 0")
+            await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate("TF.see('#menu-body [data-l2=\"std:plant\"]')")
             ok5 = await tap(page, '#menu-body [data-l2="std:plant"]')
             st = await page.evaluate("(() => { const L = __hm.late, at = L.LATE2.std.at, P = __hm.GAME.player; return { made: L.LATE2.std.made, at: !!at, modal: __hm.UI.modal, d: at ? +Math.hypot(at.x - P.x, at.z - P.z).toFixed(1) : null }; })()")
             await page.evaluate("(() => { const H = TF.H, L = H.late, at = L.LATE2.std.at, P = TF.P(); if (at) { H.teleport(at.x + 1.3, at.z + 0.4); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.CAM.yaw = P.yaw; } H.simulate(0.2); return 0; })()")
