@@ -95,10 +95,11 @@ const HF_HOLD = 3;
 // power: it only takes the old one's place (a buff of the same kind and source is refreshed, the heal left in it lost),
 // and a priest that renews on every turn of its rotation, for the steadiness it gives, drains itself. A careful priest
 // renews when the last has run out, or pays for the steadiness when it needs it (priestView asks)
-const RENEW_ROTE_K = 2, RENEW_ROTE_LEFT = 2;
+const RENEW_ROTE_K = 2, RENEW_ROTE_LEFT = 2; // (three times, with the skilled priest paying it only rooted or with power to spare, was tried: the skilled priest of 10 fell from 50% of its duels to 38% and the simple one stayed at 77%)
+// the next Renewal on yourself would cost more (the bots: a careful priest pays for steadiness only when it must)
+const renewRote = (e) => e.buffs.some((q) => q.kind === 'hot' && q.src === e.id && q.until > GAME.t + RENEW_ROTE_LEFT);
 function renewRoteCost(e, A) {
-  const b = e.buffs.find((q) => q.kind === 'hot' && q.src === e.id && q.until > GAME.t + RENEW_ROTE_LEFT);
-  if (!b) return A.cost;
+  if (!renewRote(e)) return A.cost;
   BAL6.stats.rote = (BAL6.stats.rote || 0) + 1;
   return Math.max(A.cost, Math.min(e.power, A.cost * RENEW_ROTE_K));
 }
@@ -231,7 +232,7 @@ CLASS_REALM.archer[2].text = `The wind moves your arrows only ${ARCHER_REALM.thu
 /* ---- what a player reads ---- */
 ABILITIES.charge.desc += ` A rush held on its way (a snare, a frost, a wall) comes round again in half its wait.`;
 ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health. While it holds, a stun that strikes you breaks on it instead, at half its strength, and so does a blow that would break your spell (it costs the ward a quarter of what it has left).';
-ABILITIES.renew.desc = `Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells; cast on yourself while your last Renewal still has more than ${RENEW_ROTE_LEFT} s to mend, it costs ${RENEW_ROTE_K === 2 ? 'twice' : RENEW_ROTE_K + ' times'} the power.`;
+ABILITIES.renew.desc = `Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells; cast on yourself while your last Renewal still has more than ${RENEW_ROTE_LEFT} s to mend, it costs ${['', 'once', 'twice', 'three times', 'four times'][RENEW_ROTE_K] || RENEW_ROTE_K + ' times'} the power.`;
 
 // the loading screen's word on the callings (10d_classes_ui.js keeps the rest; LOADING_TIPS is declared in 10c_lore.js,
 // which loads after this module, so the push waits for every module to load)
@@ -245,5 +246,5 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal6 = { BAL6, breakFires: balBreakFires, cleanArena: balCleanArena, STEADY_NEXT, steadyCast, castSteady, steadyNext, RENEW_ROTE_K, RENEW_ROTE_LEFT, renewRoteCost, archerPresser, archerCastsBy, WARD_GUARD, wardTakesBreak, spellGuarded, botMageElbow, mageAoeWorth, RUSH_HELD_K, rushHeld, MAGE_RANK, mageRankOf };
+  window.__hm.bal6 = { BAL6, breakFires: balBreakFires, cleanArena: balCleanArena, STEADY_NEXT, steadyCast, castSteady, steadyNext, RENEW_ROTE_K, RENEW_ROTE_LEFT, renewRote, renewRoteCost, archerPresser, archerCastsBy, WARD_GUARD, wardTakesBreak, spellGuarded, botMageElbow, mageAoeWorth, RUSH_HELD_K, rushHeld, MAGE_RANK, mageRankOf };
 }, 0);

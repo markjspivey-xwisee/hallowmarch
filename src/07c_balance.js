@@ -608,9 +608,10 @@ function botPriest(e, t) {
   // dazzled warrior parries nothing): while the bash is spent a priest casts through the blade (it stood idle by it)
   const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
-  // [balance6] a priest's flare ready and no spell steadied against it (a Renewal steadies one spell now: 07c_balance6.js):
-  // the heals and the pillar wait for a Renewal or for the flare to be spent; a smite is worth the risk (held back too,
-  // the priest stood idle beside a foe whose Holy Fire was ready most of the time)
+  // [balance6] under the rule tried and set aside (STEADY_NEXT, 07c_balance6.js: a Renewal steadying the next spell only),
+  // a priest's flare ready and no spell steadied against it: the heals and the pillar wait for a Renewal or for the flare
+  // to be spent, a smite is worth the risk (held back too, the priest stood idle beside a foe whose Holy Fire was ready
+  // most of the time). With the rule set aside, healOk is castOk
   const healOk = castOk && !(STEADY_NEXT && !!t && t.cls === 'priest' && flareThreat(e) && !steadyNext(e));
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)

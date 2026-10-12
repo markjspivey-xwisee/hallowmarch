@@ -1,6 +1,8 @@
 """[balance3] The duel scope: duels between the callings' bots, many at once, with what happened in each.
 Every pair of callings (or the pairs named) fights `reps` duels at each level, realms rotated and swapped; up to
-18 arenas fight at once (the world is stepped anyway, so more arenas a phase cost little). With `tap` each duel also
+18 arenas fight at once (the world is stepped anyway, so more arenas a phase cost little). [balance6] The arenas stand
+far apart (CB.spotsWide, a firebreak round each) and each runs its own queue: a duel over, its arena is made whole and
+the next begins there at once. With `tap` each duel also
 records, for both sides, the harm dealt by kind, the healing, the shields that absorbed blows, the parries, and the
 share of the fight spent stunned, rooted, slowed, casting, holding a shield or a draw, and in reach of the foe.
 usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|simple|mastery|both]

@@ -7,7 +7,8 @@ usage: python3 tools/tests/classes.py [mech] [balance] [shots] [reps=N]
   shots    screenshots of the new actions (960x540)
   HM_BAL=path writes the balance table there as JSON as well
   [balance3] together: both bots' dummies and packs fight in one phase (16 arenas) when the land has room; nopack,
-  noduel, reps=N, dreps=N, mreps=N, levels=10,30,50 as before"""
+  noduel, reps=N, dreps=N, mreps=N, levels=10,30,50 as before
+  [balance6] b6: the rules of version 14 by number (also in mech); shots only=ward: a mage's ward keeping its spell"""
 import json, asyncio, sys, os, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -58,6 +59,9 @@ window.CB = {
       for (let k = 0; k < 16; k++) { const b = k / 16 * Math.PI * 2; for (const rr of [4, 9, 14, 19]) { const xx = x + Math.sin(b) * rr, zz = z + Math.cos(b) * rr; if (!F.isWalkable(xx, zz) || Math.abs(F.heightAt(xx, zz) - h0) > 3.2 || F.heightAt(xx, zz) < -2.6) return false; } }
       const wa = H.water && H.water.waterAt; // [balance6] no water to kite into (a swimmer cannot shoot or cast)
       if (wa) for (let k = 0; k < 16; k++) { const b = k / 16 * Math.PI * 2; for (const rr of [0, 8, 16, 24]) { const w = wa(x + Math.sin(b) * rr, z + Math.cos(b) * rr); if (w && w.depth > 0.25) return false; } }
+      // [balance6] and open ground: in a grove of thirty trees the pack's beasts and outlaws stuck on the trunks while an
+      // archer shot them down, and it outlasted every pack at every level (the pack's arenas only: the duels keep theirs)
+      if (this.packOpen && H.cls && H.cls.treesNear && H.cls.treesNear(x, z, 22) > 2) return false;
       if (H.ENT.some((e) => e.alive && !e.balance && e.role !== 'player' && e.kind !== 'door' && e.role !== 'critter' && e.faction !== H.FACTION_NEUTRAL && Math.hypot(e.x - x, e.z - z) < 42)) return false;
       if (H.CAMPS.some((c) => Math.hypot(c.x - x, c.z - z) < 56)) return false;
       return true;
@@ -68,7 +72,7 @@ window.CB = {
       const rc = Math.hypot(cx, cz); if (rc < 330 || rc > 460) continue;
       const out = [];
       for (let gz = cz - 170; gz <= cz + 170 && out.length < 18; gz += 10) for (let gx = cx - 170; gx <= cx + 170 && out.length < 18; gx += 10) {
-        const d = Math.hypot(gx - cx, gz - cz); if (d < 40 || d > 170) continue;
+        const d = Math.hypot(gx - cx, gz - cz); if (d < 40 || d > (this.packOpen ? 140 : 170)) continue; // [balance6] the pack spawns 11 m out and the fighter kites: within 170 m of the player, where beasts do not rest
         if (out.some((s) => Math.hypot(s.x - gx, s.z - gz) < 52)) continue;
         if (good(gx, gz)) out.push({ x: gx, z: gz });
       }
@@ -179,6 +183,7 @@ window.CB = {
   setup1(lvl, kinds, rep = 0) {
     this.wipe();
     const need = kinds.length * 8;
+    if (!this.packOpen) { this.packOpen = true; this.cached = null; } // [balance6] open ground for the time to kill and the pack
     const S = this.spots(need); if (S.length < need) throw new Error('only ' + S.length + ' arenas');
     this.A = [];
     let i = 0;
@@ -305,6 +310,7 @@ KINDS = [k for k in ('simple', 'skilled') if k in ARGS] or ['simple', 'skilled']
 LEVELS = next(([int(x) for x in a.split('=')[1].split(',')] for a in ARGS if a.startswith('levels=')), [10, 30, 50])
 async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
+    await page.evaluate("CB.packOpen = true; 0")  # [balance6] the time to kill and the pack on open ground within 140 m of the player
     if 'flat' in ARGS: await page.evaluate("CB.flat = true; 0")  # [balance5] no crater lasts a second (a probe of what the craters cost)
     rows = {}
     for lvl in LEVELS:
@@ -1122,6 +1128,16 @@ async def shots(page):
       for (let i = 0; i < 30; i++) { H.simulate(0.05); hold(); H.frame(0.05); }
       CS(P, w, 4.6, 1.5, 0.55, 1.3); return { r, dazzle: w.buffs.filter((b) => b.kind === 'dazzle').map((b) => b.src + ':' + b.value.toFixed(2)), grounds: C.CLS.grounds.length }; })()""")
     await snap(page, 'hallow', 1)
+    # [balance6] the ward keeps the spell: a mage behind its Arcane Ward in the middle of a firebolt, a breaking blow taken
+    # by the ward (its ring flares, "Warded" over its head), the spell still in its hands
+    if want('ward'): await ev(page, 'ward-shot', """(() => { const H = T.H, F = T.F, C = H.cls; H.UI.modal = null; H.CAM.mode = 'play'; const P = T.fresh('mage', 30, 1);
+      const a = T.ahead(P, 12); const w = T.foe(2, a.x, a.z, 30, 'warrior', 0); w.ai.nextAbility = 1e9; w.swingAt = 1e9; P.swingAt = 1e9; P.target = w.id;
+      w.tweak = { hp: 20, speed: 0.01 }; F.setupStats(w); H.simulate(0.1); CS(P, w, 6, 1.6, 0.3, 1.2); H.frame(0.016);
+      P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'ward', P); for (let i = 0; i < 4; i++) { H.simulate(0.05); H.frame(0.05); }
+      P.gcdUntil = 0; F.useAbility(P, 'firebolt', w); for (let i = 0; i < 6; i++) { H.simulate(0.05); H.frame(0.05); }
+      const broke = H.bal.breakCast(P); for (let i = 0; i < 3; i++) { H.simulate(0.03); H.frame(0.03); }
+      CS(P, w, 6, 1.6, 0.3, 1.2); return { broke, casting: !!P.casting, kept: H.bal6.BAL6.stats.wardKept || 0 }; })()""")
+    await snap(page, 'ward', 1)
 
 async def main():
     async with async_playwright() as p:
