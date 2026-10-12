@@ -249,6 +249,11 @@ async def phone(p):
             if not all(x == cmd for x in c) or moved != 0: lost += 1; print('    lost?', cmd, c, 'moved', moved, flush=True)
             await ev(page, "(() => { const c = document.getElementById('cls'); if (c) c.style.paddingBottom = ''; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); G2T.lay(); return 0; })()")
     check(lost == 0, f'eight taps on Stay and Follow while the HUD changes under the finger: none lost, the bar held still ({lost} lost)')
+    # a panel above the bar gains and loses a line: the bar keeps its place (it jumped 18 px each way)
+    r = await ev(page, """(() => { const H = __hm, b = document.getElementById('petbar'), c = document.getElementById('cls'), ys = [];
+      for (const pad of ['24px', '', '24px', '']) { if (c) c.style.paddingBottom = pad; G2T.lay(); ys.push(Math.round(b.getBoundingClientRect().top)); }
+      if (c) c.style.paddingBottom = ''; G2T.lay(); return ys; })()""")
+    check(len(set(r)) == 1, f'the companion bar keeps its place while a panel above it gains and loses a line ({r})')
     r = await ev(page, "(() => { const G = __hm.guide2.G2; return { held: __hm.guide2.g2TapHeld(), downs: G.tap.downs, clicks: G.tap.clicks }; })()")
     check(not r['held'] and r['clicks'] >= r['downs'] - 1, f'the layout goes on once each click has landed, every tap\'s click came ({r})')
 

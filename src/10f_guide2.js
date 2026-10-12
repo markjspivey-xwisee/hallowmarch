@@ -25,8 +25,10 @@ const G2 = { open: {}, noteFocus: null, point: null, pointT: 0, aimKey: '', stat
 // under it then: the HUD's layout pass (10p_hud.js) asks g2TapHeld() and waits while a finger is on a panel and until its
 // click has landed (or 1.2 s after the finger lifts with no click: a drag)
 const g2TapHeld = () => performance.now() < G2.tap.until;
+// (only a panel the layout moves: the pad, the stick and the hotbar stay put, and a draw held on X must not hold the
+// layout for its seconds)
 document.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest('#hud')) return;
+  if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest(HUD_ORDER.join(',') + ',#prompt')) return;
   G2.tap.until = performance.now() + 2500; G2.tap.downs++; G2.tap.pending = true;
 }, true);
 const g2TapUp = () => { if (g2TapHeld()) G2.tap.until = performance.now() + 1200; }; // (a busy phone's click may come most of a second after the finger lifts)
