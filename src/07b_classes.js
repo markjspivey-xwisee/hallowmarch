@@ -201,7 +201,7 @@ function classHarm(src, dst, amount, opts) {
     }
     if (src.cls === 'archer') {
       if (cs.hidden && !opts.dot) {
-        m *= realmFlavour(src) && src.faction === 1 ? ARCHER_REALM.eriuAmbush : 1.5; // [balance5] 1.8 (07c_balance5.js)
+        m *= archerAmbushK(src); // [balance5] 1.8 (07c_balance5.js) [balance7] Eriu's among trees (07c_balance7.js)
         opts.crit = true;
         breakHiding(src, 4);
         CLS.stats.ambush++;
@@ -219,12 +219,13 @@ function classHarm(src, dst, amount, opts) {
   if (sun) m *= 1 + 0.05 * sun;
   if (hasBuff(dst, 'stagger')) m *= 1.2;
   if (opts.arrow && src) m *= arrowHarm(src, dst, opts);
+  else if (src && src.cls === 'archer' && opts.kind === 'arrow' && B7T.plainK !== 1 && abilityRank(src.level) >= 2) m *= B7T.plainK; // [balance7] (07c_balance7.js)
   // the elements meet the world and each other
   const el = opts.elem || (opts.kind === 'fire' || opts.kind === 'ember' ? 'fire' : opts.kind === 'frost' || opts.kind === 'ice' || opts.kind === 'rime' ? 'frost' : opts.kind === 'shock' || opts.kind === 'spark' ? 'storm' : null);
   if (el && src && !opts.noReact) m *= elementReact(src, dst, el, opts);
   else if (src && !opts.dot && !opts.auto && frozenOf(dst) && (opts.kind === 'melee' || opts.kind === 'arrow')) m *= shatter(src, dst, 1.6, opts);
   // the defender's calling: an archer's light feet, a warrior's stance and shield, wards
-  if (dst.cls === 'archer' && opts.kind === 'melee' && !opts.dot && src && src !== dst && !isStunned(dst) && Math.random() < 0.15) {
+  if (dst.cls === 'archer' && opts.kind === 'melee' && !opts.dot && src && src !== dst && !isStunned(dst) && Math.random() < B7T.lightFeet) { // [balance7] 0.15 (07c_balance7.js)
     if (dst === GAME.player || src === GAME.player) uiFloatAt(dst.x, dst.y + 2.2 * (dst.scale || 1), dst.z, 'Dodged', 'miss');
     return 0;
   }
@@ -830,7 +831,7 @@ function runeBurst(R) {
 /* the archer's draw, arrows in flight, hiding, snares                 */
 /* ------------------------------------------------------------------ */
 const DRAW_FULL = 1.2;
-const drawFull = (e) => DRAW_FULL * (realmFlavour(e) && e.faction === 0 ? ARCHER_REALM.logresDraw : 1); // [balance5] 0.75 (07c_balance5.js)
+const drawFull = (e) => DRAW_FULL * archerDrawK(e); // [balance5] 0.75 (07c_balance5.js) [balance7] Logres from a wall or a tower only (07c_balance7.js)
 function drawK(e) {
   const cs = csOf(e);
   if (cs.drawFrom < 0) return 0;
@@ -887,7 +888,7 @@ function looseArrow(e, k, target, wobble = 0) {
   const hx = dx / dh, hz = dz / dh, c = Math.cos(yawJ), s = Math.sin(yawJ);
   const ux = hx * c - hz * s, uz = hx * s + hz * c;
   const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null, // [walls] ox, oy, oz: where it was loosed (07g_walls.js)
-    mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * (realmFlavour(e) && e.faction === 0 && elevatedEnt(e) ? 1.2 : 1), crit: k >= 0.98 ? 0.2 : 0, wind: realmFlavour(e) && e.faction === 2 ? ARCHER_REALM.thuleWind : 1 }; // [balance5] noWind: the wind moved a Thule arrow not at all
+    mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * archerHighK(e), crit: k >= 0.98 ? 0.2 : 0, wind: archerWindK(e) }; // [balance5] noWind: the wind moved a Thule arrow not at all [balance7] the realm's ways on their own ground (07c_balance7.js)
   CLS.arrows.push(A);
   CLS.stats.drawn++;
   setAct(e, 2, 0.55, 0.8);
@@ -1011,13 +1012,13 @@ function updateHiding(e, dt) {
   if (!clsHas(e, 'hide') || !e.alive || e.mount) { cs.hidden = false; cs.hideT = 0; return; }
   cs.coverT = (cs.coverT || 0) - dt;
   if (cs.coverT <= 0) { cs.coverT = 0.25; cs.cover = coverAt(e); }
-  const sp = e.anim ? e.anim.amt * 4.3 : 0, eriu = realmFlavour(e) && e.faction === 1;
-  const still = sp < (eriu ? 4.2 : 1.2);
+  const sp = e.anim ? e.anim.amt * 4.3 : 0;
+  const still = sp < archerHideWalk(e); // [balance7] Eriu's walk hidden among trees (07c_balance7.js)
   // no hiding in the thick of a fight: three quiet seconds first
   const ok = cs.cover >= 0.55 && still && nowT() > cs.hideBreak && !e.casting && nowT() > e.combatUntil - 3;
   if (ok) {
     cs.hideT += dt;
-    if (!cs.hidden && cs.hideT >= (eriu ? 0.75 : 1.5)) {
+    if (!cs.hidden && cs.hideT >= archerHideT(e)) { // [balance7]
       cs.hidden = true;
       if (e === GAME.player) { uiLog('You are hidden. Your first shot from cover strikes harder.', 'sys'); classCue('hidden'); }
       // foes at a distance lose sight of you
@@ -1056,10 +1057,10 @@ function stepSnares(dt) {
     const src = getEnt(S.owner) || { id: S.owner, level: S.level, dmgMult: 1, faction: S.faction, buffs: [], role: 'none', scale: 1, alive: false };
     const r = computeDamage(src, prey, 0.7);
     dealDamage(src, prey, r.d, { kind: 'melee', snare: true });
-    addBuff(prey, 'root', 1, S.thule ? ARCHER_REALM.thuleSnare : 3.5, S.owner); // [balance] 4 and 3 [balance5] Thule 4.5 (07c_balance5.js)
+    addBuff(prey, 'root', 1, snareHold(S), S.owner); // [balance] 4 and 3 [balance5] Thule 4.5 (07c_balance5.js) [balance7] Thule's in the cold (07c_balance7.js)
     // [balance] the cord whips about: whoever runs beside the prey is slowed
     forNear(S.x, S.z, 5, (o) => { if (o !== prey && o.alive && isActor(o) && !o.flying && o.faction !== S.faction && o.faction !== FACTION_NEUTRAL && o.role !== 'critter') addBuff(o, 'snare', 0.5, 3.5, S.owner); }); // [balance2] 4 m, 40% for 2.5 s: a snare buys time against a pack
-    if (S.thule) addChill(prey, 3, src);
+    if (snareCold(S)) addChill(prey, 3, src); // [balance7] in the cold
     FX.sparks(S.x, S.y + 0.2, S.z);
     classSfx('snare', S.x, S.z);
     if (prey === GAME.player) uiError('You are caught in a snare!');

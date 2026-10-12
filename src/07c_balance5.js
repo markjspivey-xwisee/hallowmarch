@@ -94,7 +94,7 @@ function botDodge(e, t, dt) {
     if (d < R) { best = { x: p.point.x, z: p.point.z, now: true, out: R - d }; break; }
   }
   // burning grass under its feet (2% of health a second): out of it
-  if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45) {
+  if (!best && typeof NATURE !== 'undefined' && NATURE.fire && NATURE.fire.size && natGet(e.x, e.z, 2) > 0.45 && !botFireThrough(e, t)) { // [balance7] a blade after its foe goes through the flames (07c_balance7.js)
     let bx = 0, bz = 0, nb = 0;
     for (let a = 0; a < 8; a++) { const x = e.x + Math.sin(a * 0.785) * 2.5, z = e.z + Math.cos(a * 0.785) * 2.5; if (natGet(x, z, 2) > 0.3) { bx += x; bz += z; nb++; } }
     if (nb < 8) best = nb ? { x: bx / nb, z: bz / nb, now: false, fire: true } : { x: e.x, z: e.z, now: false, fire: true };

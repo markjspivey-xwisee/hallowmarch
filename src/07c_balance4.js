@@ -122,7 +122,7 @@ function chargeLands(e, A, t, rk) {
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
     FX.sparks(t.x, t.y + 1.2 * (t.scale || 1), t.z);
     if (A.snare && RUSH.slow) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
-    else if (e.level < ABILITIES.leap.level) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id);
+    else if (e.level < ABILITIES.leap.level || B7T.chargeSlowLate) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id); // [balance7] B7T.chargeSlowLate (07c_balance7.js)
     if (e === GAME.player || t === GAME.player) sfx('hit');
   });
 }

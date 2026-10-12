@@ -809,6 +809,7 @@ function leapLand(e, A, rk) {
     const r = computeDamage(e, o, A.dmg * rk);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
     if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); o.casting = null; FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+    if (B7T.leapSlow && o.alive && o.kind !== 'door') addBuff(o, 'snare', B7T.leapSlow[0], B7T.leapSlow[1], e.id); // [balance7] (07c_balance7.js)
   });
   for (let i = 0; i < 26; i++) {
     const a = (i / 26) * TAU;

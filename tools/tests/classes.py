@@ -8,7 +8,8 @@ usage: python3 tools/tests/classes.py [mech] [balance] [shots] [reps=N]
   HM_BAL=path writes the balance table there as JSON as well
   [balance3] together: both bots' dummies and packs fight in one phase (16 arenas) when the land has room; nopack,
   noduel, reps=N, dreps=N, mreps=N, levels=10,30,50 as before
-  [balance6] b6: the rules of version 14 by number (also in mech); shots only=ward: a mage's ward keeping its spell"""
+  [balance6] b6: the rules of version 14 by number (also in mech); shots only=ward: a mage's ward keeping its spell
+  [balance7] b7: the rules of version 15 by number (also in mech): the archers' realm ways on their own ground"""
 import json, asyncio, sys, os, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -17,7 +18,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 SHOTS = 'shots' in ARGS
 BAL = 'balance' in ARGS
-MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS or 'b4' in ARGS or 'b5' in ARGS or 'b6' in ARGS)
+MECH = 'mech' in ARGS or not (BAL or SHOTS or 'b3' in ARGS or 'b4' in ARGS or 'b5' in ARGS or 'b6' in ARGS or 'b7' in ARGS)
 REPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('reps=')), 3)
 # [balance] duels are short and noisy: they get more repetitions of their own (dreps=N)
 DREPS = next((int(a.split('=')[1]) for a in ARGS if a.startswith('dreps=')), REPS * 3)
@@ -90,9 +91,9 @@ window.CB = {
   // next door in 5 to 8 pairings a run, and the skilled bots stepped out of their neighbours' fire 688 times in a run of
   // mastery duels at 30 (none in a mirror run alone), which decided the mirrors. `gap` apart, and a firebreak round each
   // (fireBreak), nothing from one reaches another
-  spotsWide(n, gap = 90) {
+  spotsWide(n, gap = this.wideGap || 90, open = this.wideOpen) {
     const H = this.H, F = this.F;
-    const key = gap + ':' + n;
+    const key = gap + ':' + n + (open ? ':open' : '');
     if (this.wideKey === key && this.wide) { H.teleport(this.centre ? this.centre.x : this.wide[0].x, this.centre ? this.centre.z : this.wide[0].z); this.fireBreak = this.wide.slice(0, n); this.breakR = 34; return this.wide.slice(0, n); }
     const towns = H.REALMS.map((R) => R.town);
     const good = (x, z) => {
@@ -107,6 +108,10 @@ window.CB = {
       if (wa) for (let k = 0; k < 24; k++) { const b = k / 24 * Math.PI * 2; for (const rr of [0, 6, 12, 18, 24, 30, 36]) { const w = wa(x + Math.sin(b) * rr, z + Math.cos(b) * rr); if (w && w.depth > 0.25) return false; } }
       if (H.ENT.some((e) => e.alive && !e.balance && e.role !== 'player' && e.kind !== 'door' && e.role !== 'critter' && e.faction !== H.FACTION_NEUTRAL && Math.hypot(e.x - x, e.z - z) < 50)) return false;
       if (H.CAMPS.some((c) => Math.hypot(c.x - x, c.z - z) < 60)) return false;
+      // [balance7] open ground: no more than two trees within 20 m of the middle and six within 30 m (four of version 14's
+      // eleven arenas had 8 to 34 within 20 m: a rush stopped at a trunk and a bow kited round them, and what the fire and
+      // the meteors felled there stayed felled for the rest of the run)
+      if (open && H.cls && H.cls.treesNear && (H.cls.treesNear(x, z, 20) > 2 || H.cls.treesNear(x, z, 30) > 6)) return false;
       return true;
     };
     // candidates on a 10 m grid, taken greedily, each `gap` from those already taken
@@ -129,6 +134,25 @@ window.CB = {
     this.firesBroken = (this.firesBroken || 0) + n;
     return n;
   },
+  // [balance7] the meadow made whole round an arena: its cut, burnt and thrown-up ground grows back at once (a duel's
+  // fire burnt the grass, and the next duels there were fought on ash: no grass to catch, no cover to hide in). On
+  // fresh grass a fire arrow or a firebolt lights it, and a skilled bot steps out of the flames; on ash nothing burns.
+  // The warrior won 30 of 48 duels against a mage at 50 in fresh arenas and 11.5 late in a run whose arenas had burnt.
+  grassWhole: true,
+  wholeGrass(x, z, r = 36) {
+    const N = this.H.nature; if (!N || !N.NAT || !this.grassWhole) return 0;
+    const NAT = N.NAT, D = NAT.data, R = NAT.res;
+    const i0 = Math.max(1, Math.floor(x - r + 512)), i1 = Math.min(R - 2, Math.floor(x + r + 512)), j0 = Math.max(1, Math.floor(z - r + 512)), j1 = Math.min(R - 2, Math.floor(z + r + 512));
+    let n = 0;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const dx = i - 511.5 - x, dz = j - 511.5 - z; if (dx * dx + dz * dz > r * r) continue;
+      const o = (j * R + i) * 4; if (D[o + 2]) continue; // (a fire still burning: cleanArena puts it out first)
+      if (D[o] || D[o + 1] || D[o + 3]) { D[o] = 0; D[o + 1] = 0; D[o + 3] = 0; n++; }
+    }
+    if (n) { const d = NAT.dirty; NAT.dirty = d ? [Math.min(d[0], i0), Math.min(d[1], j0), Math.max(d[2], i1), Math.max(d[3], j1)] : [i0, j0, i1, j1]; }
+    this.grassMade = (this.grassMade || 0) + n;
+    return n;
+  },
   wipe() {
     const gone = new Set();
     for (const e of this.H.ENT.slice()) if (e.balance) { gone.add(e.id); e.damagers = null; if (e.alive) this.F.killEnt(e, null); this.F.removeEnt(e); }
@@ -143,6 +167,7 @@ window.CB = {
     for (const q of C.ice) if (q.until > t) q.until = t - 1;
     for (let i = C.arrows.length - 1; i >= 0; i--) if (gone.has(C.arrows[i].src)) C.arrows.splice(i, 1);
     const P = this.B.PROJ; for (let i = P.length - 1; i >= 0; i--) if (gone.has(P[i].src)) P.splice(i, 1);
+    for (const s of this.fireBreak || []) this.wholeGrass(s.x, s.z, 36); // [balance7] and the meadow whole again
   },
   // a fighter: a bot of the calling, a player's measure, fair gear for the level
   unit(realm, cls, lvl, x, z, kind, r = 16) {
@@ -311,6 +336,7 @@ LEVELS = next(([int(x) for x in a.split('=')[1].split(',')] for a in ARGS if a.s
 async def balance(page):
     await page.evaluate("() => {" + BAL_JS + "; return 0; }")
     await page.evaluate("CB.packOpen = true; 0")  # [balance6] the time to kill and the pack on open ground within 140 m of the player
+    if 'wooded' not in ARGS: await page.evaluate("CB.wideOpen = true; CB.wideGap = 80; 0")  # [balance7] the duels on open ground, 80 m apart (duels.py's arenas)
     if 'flat' in ARGS: await page.evaluate("CB.flat = true; 0")  # [balance5] no crater lasts a second (a probe of what the craters cost)
     rows = {}
     for lvl in LEVELS:
@@ -729,6 +755,7 @@ B3 = ('b3' in ARGS) or MECH
 B4 = ('b4' in ARGS) or MECH  # [balance4]
 B5 = ('b5' in ARGS) or MECH  # [balance5]
 B6 = ('b6' in ARGS) or MECH  # [balance6]
+B7 = ('b7' in ARGS) or MECH  # [balance7]
 async def balance3(page):
     """pursuit, frost holds, one rush, half-piercing bodkins and Deadeye, the dazzle, the shield wall, the wound and a
     priest's own healing by rank, and NPC warriors walling against a bow"""
@@ -997,6 +1024,55 @@ async def balance6(page):
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance6] checks {errs[:2]}')
 
+async def balance7(page):
+    """[balance7] the archers' realm ways are edges on their own ground: Logres from a wall or a perch, Eriu among trees,
+    Thule in the cold; elsewhere an archer of the realm shoots as a plain one"""
+    await page.evaluate("() => {" + MECH_JS + "; return 0; }")
+    r = await ev(page, 'logres', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = {};
+      const P = T.fresh('archer', 30, 0); out.ground = { draw: B7.archerDrawK(P), high: B7.archerHighK(P), wind: B7.archerWindK(P) };
+      const y0 = P.y; P.fixedY = y0 + 4; P.y = y0 + 4; out.perch = { draw: B7.archerDrawK(P), high: B7.archerHighK(P) };
+      const Q = T.fresh('archer', 30, 1); Q.fixedY = Q.y + 4; Q.y = Q.fixedY; out.eriuPerch = B7.archerDrawK(Q); Q.fixedY = null;
+      const L = T.fresh('archer', 8, 0); L.fixedY = L.y + 4; L.y = L.fixedY; out.young = B7.archerDrawK(L); L.fixedY = null;
+      return out; })()""")
+    check(r['ground']['draw'] == 1 and r['ground']['high'] == 1 and r['ground']['wind'] == 1, f"a Logres archer on the ground draws and shoots as a plain one ({r['ground']})")
+    check(abs(r['perch']['draw'] - 0.75) < 1e-6 and abs(r['perch']['high'] - 1.2) < 1e-6, f"from a perch it reaches full draw a quarter sooner and strikes 20% harder ({r['perch']})")
+    check(r['eriuPerch'] == 1 and r['young'] == 1, f"not an archer of Eriu, nor one below the realm's way's level ({r['eriuPerch']}, {r['young']})")
+    r = await ev(page, 'eriu', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {};
+      const P = T.fresh('archer', 30, 1); out.open = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
+      // among trees: two or more standing within 7 m
+      const near = H.seasons.treesNear(P.x, P.z, 500); let spot = null;
+      for (const t of near) { if (C.treesNear(t.x + 1.6, t.z, 7) >= 3 && F.isWalkable(t.x + 1.6, t.z)) { spot = t; break; } }
+      if (!spot) return { open: out.open, none: true };
+      H.teleport(spot.x + 1.6, spot.z); H.simulate(0.3); P.combatUntil = 0;
+      out.woods = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
+      // hiding there: standing still, it is hidden within a second
+      H.simulate(1.0); out.hidden = C.csOf(P).hidden; out.cover = +C.csOf(P).cover.toFixed(2);
+      const Q = T.fresh('archer', 30, 0); H.teleport(spot.x + 1.6, spot.z); H.simulate(0.3); Q.combatUntil = 0; H.simulate(1.0); out.logresHidden = C.csOf(Q).hidden; H.simulate(1.0); out.logresLater = C.csOf(Q).hidden;
+      return out; })()""")
+    check(r['open']['hide'] == 1.5 and r['open']['walk'] == 1.2 and r['open']['amb'] == 1.5, f"an Eriu archer in the open hides as any archer does ({r['open']})")
+    check(not r.get('none') and r['woods']['trees'] >= 2 and r['woods']['hide'] == 0.75 and r['woods']['walk'] > 4 and abs(r['woods']['amb'] - 1.8) < 1e-6, f"among trees it hides in half the time, walks hidden and strikes 80% harder from hiding ({r.get('woods')})")
+    check(r.get('hidden') and not r.get('logresHidden') and r.get('logresLater'), f"there it is hidden within a second, a Logres archer only after 1.5 s ({r.get('hidden')}, {r.get('logresHidden')}, {r.get('logresLater')}; cover {r.get('cover')})")
+    r = await ev(page, 'thule', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {}; const k0 = H.farm.SEASON.k;
+      const snare = (P) => { const a = T.ahead(P, 1.2); C.laySnare(P); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1]; const f = T.foe(1, S.x, S.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.x = S.x; f.z = S.z; H.simulate(0.2);
+        const root = f.buffs.find((b) => b.kind === 'root' && b.src === P.id); return { caught: S.caught === f.id, root: root ? +(root.until - H.GAME.t + 0.2).toFixed(2) : 0, frozen: !!C.frozenOf(f) }; };
+      const P = T.fresh('archer', 30, 2); H.setTod(0.5); H.simulate(0.2);
+      out.warm = { cold: B7.archerColdAt(P.x, P.z), wind: B7.archerWindK(P), snare: snare(P) };
+      // the dead of winter in Thule's own lands: the snow lies and the air bites
+      H.farm.setSeason(3); H.seasons.seasonSettle(); H.setTod(0.0); H.simulate(0.5);
+      const Rm = H.REALMS[2].town; let spot = null;
+      for (let i = 0; i < 400 && !spot; i++) { const a = i * 2.4, d = 30 + (i % 20) * 6, x = Rm.x + Math.sin(a) * d, z = Rm.z + Math.cos(a) * d; if (F.isWalkable(x, z) && B7.archerColdAt(x, z)) spot = { x, z }; }
+      if (spot) { const Q = T.fresh('archer', 30, 2); H.teleport(spot.x, spot.z); H.simulate(0.3); out.coldPlace = { lie: +H.seasons.lie(Q.x, Q.z).toFixed(2), cold: B7.archerColdAt(Q.x, Q.z), wind: B7.archerWindK(Q), snare: snare(Q) };
+        const L = T.fresh('archer', 30, 0); H.teleport(spot.x, spot.z); H.simulate(0.3); out.logresCold = { wind: B7.archerWindK(L), snare: snare(L) }; }
+      H.farm.setSeason(k0); H.seasons.seasonSettle(); H.setTod(0.45);
+      return out; })()""")
+    check(not r['warm']['cold'] and r['warm']['wind'] == 1 and r['warm']['snare']['caught'] and abs(r['warm']['snare']['root'] - 3.5) < 0.25 and not r['warm']['snare']['frozen'], f"a Thule archer in the warm: the wind moves its arrows and its snare holds as any other ({r['warm']})")
+    cp = r.get('coldPlace')
+    check(bool(cp) and cp['cold'] and cp['wind'] == 0 and cp['snare']['caught'] and abs(cp['snare']['root'] - 4.5) < 0.25 and cp['snare']['frozen'], f"in the cold the wind does not move its arrows and its snare freezes what it catches and holds it 4.5 s ({cp})")
+    lc = r.get('logresCold')
+    check(bool(lc) and lc['wind'] == 1 and lc['snare']['caught'] and not lc['snare']['frozen'] and abs(lc['snare']['root'] - 3.5) < 0.25, f"a Logres archer there shoots and snares as a plain one ({lc})")
+    errs = await page.evaluate("__hm.errors.slice(0, 3)")
+    check(not errs, f'no runtime errors in the [balance7] checks {errs[:2]}')
+
 # ------------------------------------------------------------------ screenshots
 CAMJS = r"""window.CC = (x, y, z, tx, ty, tz) => { const H = __hm; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld(); };
 // a side view of two bodies: from beside the line between them, looking at the point k of the way from a to b
@@ -1170,6 +1246,8 @@ async def main():
             await balance5(page)  # [balance5]
         if B6:
             await balance6(page)  # [balance6]
+        if B7:
+            await balance7(page)  # [balance7]
         if SHOTS:
             await shots(page)
         errs = await page.evaluate("__hm.errors.slice(0, 5)")

@@ -6,10 +6,12 @@ the next begins there at once. With `tap` each duel also
 records, for both sides, the harm dealt by kind, the healing, the shields that absorbed blows, the parries, and the
 share of the fight spent stunned, rooted, slowed, casting, holding a shield or a draw, and in reach of the foe.
 usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|simple|mastery|both]
-                                    [pairs=warrior-priest,archer-priest] [tap] [trace=N] [cap=60] [gap=90] [narrow]
+                                    [pairs=warrior-priest,archer-priest] [tap] [trace=N] [cap=60] [gap=80] [narrow] [wooded]
   lastfall      [balance6] both fallen within the second the run looks: the one that fell last won (else a draw)
   gap=M         [balance6] the arenas stand at least M m apart (90) anywhere on the homelands' open ground, a firebreak
                 round each (narrow: version 13's, 52 m apart within 170 m of one centre)
+  wooded        [balance7] version 14's arenas (90 m apart, trees or not); by default the arenas stand on open ground (no
+                more than two trees within 20 m of the middle and six within 30 m), 80 m apart
   trace=N       a timeline of the first N duels (presses, blows, and a look at both sides each second)
   kind=mastery  each calling's skilled bot against its simple bot (reps each, sides flipped)
   HM_BAL=path   writes every duel as JSON
@@ -32,7 +34,8 @@ ONLY = [c for c in arg('only', '').split(',') if c]  # kind=mastery: only these 
 TAP = 'tap' in ARGS or any(a.startswith('trace=') for a in ARGS)
 TRACE = int(arg('trace', '0'))
 NARROW = 'narrow' in ARGS  # [balance6] version 13's arenas (52 m apart round one centre)
-GAP = int(arg('gap', '90'))  # [balance6] how far apart the arenas stand
+OPEN = 'wooded' not in ARGS  # [balance7] open ground (no more than two trees within 20 m of an arena's middle, six within 30 m); `wooded`: version 14's arenas
+GAP = int(arg('gap', '80' if OPEN else '90'))  # [balance6] how far apart the arenas stand ([balance7] 80 m on open ground: 10 arenas)
 CL4 = ['warrior', 'archer', 'mage', 'priest']
 PAIRS = [tuple(p.split('-')) for p in arg('pairs', '').split(',') if p] or [(CL4[i], CL4[j]) for i in range(4) for j in range(i + 1, 4)]
 
@@ -59,6 +62,7 @@ window.DS = {
       if (!e.balance || (e._duel && e._duel.res)) return; // a duel that is over counts no more
       const R = me.rec(e), H = me.H;
       R.t += dt;
+      if (e.maxPower > 0 && e.power < e.maxPower * 0.15) R.dry = (R.dry || 0) + dt; // [balance7] the share of the fight spent short of power
       if (me.traceIds && me.traceIds.has(e.id)) {
         if (e.casting && e._trc !== e.casting) { e._trc = e.casting; me.ev(e, 'cast ' + e.casting.id); }
         if ((e._trT || 0) <= H.GAME.t) { e._trT = H.GAME.t + 1; const t = H.fn.getEnt(e.target); me.ev(e, `@ hp ${Math.round(100 * e.hp / e.maxHp)}% pw ${Math.round(e.power)} d ${t ? Math.hypot(t.x - e.x, t.z - e.z).toFixed(1) : '-'} [${e.buffs.filter((b) => b.until > H.GAME.t).map((b) => b.kind).join(',')}]${e.cs && e.cs.stance !== undefined && e.cls === 'warrior' ? ' st' + e.cs.stance + ' m' + (e.cs.mom || 0).toFixed(1) : ''}`); }
@@ -138,6 +142,7 @@ window.DS = {
         const gone = new Set([D.ua.id, D.ub.id]);
         for (const e of [D.ua, D.ub]) { e.damagers = null; if (e.alive) H.fn.killEnt(e, null); H.fn.removeEnt(e); }
         this.cleaned = (this.cleaned || 0) + H.bal6.cleanArena(this.S[i].x, this.S[i].z, 36, gone);
+        CB.wholeGrass(this.S[i].x, this.S[i].z, 36); // [balance7] the meadow whole again for the next duel (classes.py)
         this.fill(i); fresh = true;
       }
       if (fresh) CB.A = CB.A.filter((D) => !D.res);
@@ -206,9 +211,9 @@ def scope(rows):
     G = {}
     for r in rows:
         if not r.get('A'): continue
-        G.setdefault((r['a'], r['b']), []).append(r)
-    for (a, b), L in G.items():
-        print(f'\n  {a} vs {b} ({len(L)} duels, {sum(1 for r in L if r["win"] == a)}-{sum(1 for r in L if r["win"] == b)}, mean {sum(r["t"] for r in L) / len(L):.1f} s)', flush=True)
+        G.setdefault((r['a'], r['b'], r.get('bot', '')), []).append(r)  # [balance7] each bot kind apart (kind=both mixed them)
+    for (a, b, bk), L in G.items():
+        print(f'\n  {a} vs {b}{" (" + bk + ")" if bk in ("simple", "skilled") else ""} ({len(L)} duels, {sum(1 for r in L if r["win"] == a)}-{sum(1 for r in L if r["win"] == b)}, mean {sum(r["t"] for r in L) / len(L):.1f} s)', flush=True)
         for side, who, hp in (('A', a, 'hpA'), ('B', b, 'hpB')):
             T = sum(r['t'] for r in L) or 1
             dealt = {}
@@ -234,7 +239,7 @@ async def main():
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
         # [balance6] the arenas far apart (spotsWide), unless `narrow` asks for version 13's (52 m apart round one centre)
-        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP})'}; CB.lastFall = {'true' if 'lastfall' in ARGS else 'false'}; 0")  # [balance6] lastfall: a duel where both fell within the second the run looks is the one's that fell last (else a draw)
+        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP}, {"true" if OPEN else "false"})'}; CB.lastFall = {'true' if 'lastfall' in ARGS else 'false'}; 0")  # [balance6] lastfall: a duel where both fell within the second the run looks is the one's that fell last (else a draw)
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
         # machine a software renderer drawing every frame (keep it with `loop`)
         if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
@@ -247,7 +252,7 @@ async def main():
             t0 = time.time()
             # [balance6] a queue a level: each arena begins its next duel as soon as its last one ends
             n = await page.evaluate(f"DS.queue({lvl}, {json.dumps(specs)})")
-            if lvl == LEVELS[0]: print(f'  {n} arenas' + (' (narrow)' if NARROW else f' at least {GAP} m apart, a firebreak round each: ' + str(await page.evaluate("JSON.stringify(DS.S.map((s) => [s.x, s.z]))"))), flush=True)
+            if lvl == LEVELS[0]: print(f'  {n} arenas' + (' (narrow)' if NARROW else f' at least {GAP} m apart' + (' on open ground' if OPEN else '') + ', a firebreak round each (x, z, trees within 20 and 30 m): ' + str(await page.evaluate("JSON.stringify(DS.S.map((s) => [s.x, s.z, __hm.cls.treesNear(s.x, s.z, 20), __hm.cls.treesNear(s.x, s.z, 30)]))"))), flush=True)
             if TRACE: await page.evaluate(f"DS.traceOn({TRACE})")
             last = 0
             while True:
