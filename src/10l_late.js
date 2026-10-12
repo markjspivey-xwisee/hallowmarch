@@ -846,12 +846,14 @@ CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><
 for (const [id, note] of Object.entries({
   l2name: { t: 'A name of your own', x: () => `The March has given you a name for your deeds. It shows with your own on your frame, and the name you wear gives you something of the deed. Choose which to wear on the Chronicle's Deeds page (${IS_TOUCH ? 'tap your path' : 'J'}).` },
   l2risen: { t: 'The risen of the borderlands', x: () => 'The farthest borderland camps of every homeland are held now by risen champions who keep pace with you. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
+  l2std: { t: 'The standard of your name', x: () => `A veteran with a name may have a standard made (the Chronicle's Deeds page) and plant it where it fights: your realm's soldiers, your companions and you strike harder about it. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up.` },
   l2vet: { t: 'Veterancy', x: () => `Past level 50 your experience raises your veterancy, and every rank is a boon to learn: health, harm, power, a steady eye, thick skin, realm points. ${IS_TOUCH ? 'Tap your path' : 'J'}, then Deeds.` },
 })) if (!FIELD_NOTES[id]) FIELD_NOTES[id] = note;
 Object.assign(GUIDE_WATCH, {
   l2name: () => LATE2.names.length > 0,
   l2risen: () => LATE2.w.near,
   l2vet: () => LATE2.vet > 0 || (GAME.prog && GAME.prog.level >= LEVEL_CAP),
+  l2std: () => late2StdOk() && !LATE2.std.made,
 });
 GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). From level 40 risen champions hold the farthest borderland camps of every homeland, and keep pace with you. Past level 50 your experience raises your veterancy: every rank is a boon to learn. From level 40, with a name, you may have a standard made and plant it where you fight (${IS_TOUCH ? 'Use' : 'E'} beside it takes it up).</p>`);
 LOADING_TIPS.push(
