@@ -30,7 +30,7 @@ const LATE2 = {
   vet: 0, vxp: 0, // veterancy past the cap, and the experience toward its next rank
   boons: {}, // boon id -> steps learned
   seeded: false, // an older character's deeds taken from its path once
-  w: { t: 0, carried: null, keepRealm: null, campN: null, near: false }, // the watcher's memory (not saved)
+  w: { t: 0, carried: null, keepRealm: null, campN: null, near: false, rk: null }, // the watcher's memory (not saved)
   stats: { wrath: 0, wrathHits: 0, rallies: 0, risenFell: 0, risenSpawned: 0, camps: 0, named: 0, vetRanks: 0 },
 };
 
@@ -366,7 +366,6 @@ function late2OnKill(e) {
     const th = (e.threat && e.threat.get(P.id)) || 0;
     if (th / Math.max(1, e.maxHp) >= 0.05 || e.lastHitBy === P.id) late2Deed('dragon');
   }
-  if (e.faction <= 2 && e.faction !== P.faction) late2CheckNames(false); // (the realm kills are prog.realmKills)
 }
 // a named masterwork made (guideMade, 10e_guide.js)
 function late2Made(rec) { if (rec && rec.mw) late2Deed('mw'); }
@@ -392,6 +391,8 @@ function updateLate2(dt) {
     late2CheckNames(true);
     if (LATE2.names.length > before) uiLog(`The March remembers your deeds: ${LATE2.names.length - before} name${LATE2.names.length - before === 1 ? ' is' : 's are'} yours. The Chronicle's Deeds page lists them.`, 'level');
   }
+  // soldiers of the enemy realms slain (prog.realmKills, counted after this kill's share: grantKillRewards)
+  if (prog.realmKills !== W.rk) { W.rk = prog.realmKills; late2CheckNames(false); }
   // a hallow carried all the way home
   if (P.carrying != null) W.carried = WAR.relics[P.carrying] || null;
   else if (W.carried) { const rel = W.carried; W.carried = null; if (rel.state === 'temple' && rel.at === P.faction) late2Deed('hallow'); }
@@ -544,7 +545,7 @@ registerSavePart('char', 'late', {
     let room = LATE2.vet;
     for (const B of LATE2_BOONS) { const s = Math.min(int(b[B.id], 0, LATE2_BOON_MAX), room); if (s > 0) { LATE2.boons[B.id] = s; room -= s; } }
     LATE2.seeded = !!(o && o.s);
-    LATE2.w = { t: 0, carried: null, keepRealm: null, campN: null, near: false };
+    LATE2.w = { t: 0, carried: null, keepRealm: null, campN: null, near: false, rk: null };
   },
   // what counts as a change worth writing: the deeds, names, ranks, boons; the experience in thousands
   key: (o) => (o ? [o.d, o.n, o.w, o.vt, Math.floor((o.vx || 0) / 1000), o.b, o.s] : null),
