@@ -328,7 +328,7 @@ function relicTakeable(rel, e) {
   if (rel.state !== 'temple') return false;
   if (rel.at === e.faction) return false;
   const T = WAR.temples[rel.at];
-  return !T.door.alive;
+  return !T.door.alive || hallowOpen(T); // [war2] or a gap burnt in its log wall (08j_war2.js)
 }
 
 function captureKeep(K, realm, killer) {
@@ -469,6 +469,7 @@ function fightTarget(e, t, dt, opts = {}) {
       moveToward(e, ax, az, dt, 0.8, 0.1);
     } else turnToward(e, t.x, t.z, dt * 10);
   } else {
+    if (bandGateShotStep(e, t, dt)) return; // [war2] a bow or a staff whose shots at a gate strike the wall beside it: before the gate (08j_war2.js)
     if (castleClimbToward(e, t, dt)) return; // castles: up the stairs after a foe on the walls (04g_castles.js)
     const reach = (e.rangedKind ? e.rangedRange : e.meleeRange * (e.scale || 1)) + tr - 0.4;
     if (d > reach && !e.casting) { moveToward(e, t.x, t.z, dt, 1, reach * 0.9); fightChase(e, t, d); }
@@ -693,7 +694,7 @@ function doorOpenFor(wb) {
 function wbPlan(wb, goalNode) {
   const L = wbLeader(wb);
   if (!L) return;
-  const start = nearestNavNode(L.x, L.z, null, true);
+  const start = bandStartNode(L) || nearestNavNode(L.x, L.z, null, true); // [war2] inside a keep's or a temple's walls: from its court, out by its gate (08j_war2.js)
   const path = navPath(start.id, goalNode.id, doorOpenFor(wb));
   wb.path = path || [goalNode.id];
   wb.pathIdx = 0;
@@ -702,8 +703,10 @@ function wbPlan(wb, goalNode) {
 function wbEnemiesNear(wb, x, z, r) {
   // enemies on walls or behind them do not hold the band in place
   let n = 0;
+  const unr = wb.L && wb.L.ai && wb.L.ai.unreach; // [war2] nor one its leader chased and could not get nearer (it held the band for good: 08j_war2.js)
   forNear(x, z, r, (o) => {
     if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null || elevatedEnt(o)) return;
+    if (unr && unr.get(o.id) > GAME.t) return; // [war2]
     if (segmentClear(x, z, o.x, o.z, 0.2, false)) n++;
   });
   return n;
@@ -741,7 +744,8 @@ function updateWarband(wb, dt) {
     else {
       if (O.phase === 'travel' && K.realm !== wb.realm && dist(L.x, L.z, K.nav.gate.x, K.nav.gate.z) < 16) O.phase = 'siege';
       if (O.phase === 'siege' && !K.door.alive) { O.phase = 'assault'; wbPlan(wb, K.nav.court); }
-      if (O.phase === 'assault' && K.door.alive) { O.phase = 'siege'; wbPlan(wb, K.nav.gate); }
+      if (O.phase === 'assault' && K.door.alive && !bandInsideKeep(wb, K)) { O.phase = 'siege'; wbPlan(wb, K.nav.gate); } // [war2] not while it stands in the court (08j_war2.js)
+      if (O.phase !== 'assault' && (O.phase !== 'breach' || (O.breach && O.bi >= siegeBreachRoute(O.breach).length)) && O.type === 'attack' && bandInsideKeep(wb, K)) { O.phase = 'assault'; wbPlan(wb, K.nav.court); } // [war2] in the court (over a wall, through a gap since mended): the lord and the court are its goal, not the gate behind it
       goal = O.phase === 'assault' ? K.nav.court : K.nav.gate;
     }
   } else if (O.type === 'raid') {
@@ -806,6 +810,7 @@ function updateWarband(wb, dt) {
   // breach it cannot climb, before a wall), gives the order back for a new one: the war never stands still. Waiting
   // is no stall: holding a keep it took, by its engine while it works, or defending its own keep.
   if (GAME.t - (wb.hitAt ?? -1e9) < 20) wb.realProgress = GAME.t; // (blows that land are progress too: a gate being battered)
+  if (warbandEngineBusy(wb, O)) wb.realProgress = GAME.t; // [war2] and its own engine at work, rolling on or rising (08j_war2.js)
   if (GAME.t - (wb.realProgress ?? (wb.realProgress = GAME.t)) > 150) {
     const waiting = O.phase === 'hold' || O.type === 'defend' || O.type === 'patrol' || (O.phase === 'bombard' && O.bombSince !== undefined);
     wb.realProgress = GAME.t;
@@ -834,6 +839,7 @@ function updateWarband(wb, dt) {
   wb.engaged = engaged;
   wb.L = L;
   siegeBandAfter(wb, L, O); // [siege] engines, breaches, and where the leader stands while they work (04h_siege.js)
+  bandLeaderExit(wb, L, O); // [war2] in a court with its way outside: out by the gate first (08j_war2.js)
 }
 function thinkSoldier(e, dt) {
   const wb = e.warband;
@@ -881,6 +887,7 @@ function thinkSoldier(e, dt) {
   if (t) { if (e.mount) { dismount(e); e.ai.remountAt = GAME.t + 12; } fightTarget(e, t, dt); return; }
   e.target = null;
   if (!L) return;
+  if (bandDownStep(e, wb, L, O, dt)) return; // [war2] up on a walk with nothing to fight: down by the castle's ways (08j_war2.js)
   // [siege] siegeLikePhase: the gate, the court, a breach, or standing by the engines (04h_siege.js)
   if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && !siegeLikePhase(O)) mountUp(e, true);
   if (e === L && e.mount && (wb.engaged || siegeLikePhase(O))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
@@ -895,7 +902,7 @@ function thinkSoldier(e, dt) {
   if (d > 6) {
     if (GAME.t > (e.ai.losCheck || 0)) { e.ai.losCheck = GAME.t + 0.6; e.ai.blocked = !segmentClear(e.x, e.z, L.x, L.z, 0.3, false); }
   } else e.ai.blocked = false;
-  if (e.ai.blocked && wb.trail && wb.trail.length > 1 && followTrail(e, wb, dt)) return;
+  if (e.ai.blocked && wb.trail && wb.trail.length > 1 && bandTrailStep(e, wb, dt)) return; // [war2] along the footsteps while it gets on along them (08j_war2.js)
   const sl = bandSlot(e, L, fx, fz); // [siege3] a place nobody can stand in (rubble, a fallen drum) moved toward the leader (04i_siege3.js)
   if (bandUnstick(e, wb, L, sl.x, sl.z, dt)) return; // [siege3] pressed against something: along the leader's footsteps, a step aside
   e.ai.trailAbs = undefined;
@@ -980,6 +987,7 @@ function updateWar(dt) {
     if (now > T.nextGuardAt && now - T.lastEnemyNear > 20) { T.nextGuardAt = now + 30; fillGuardians(T, false); }
   }
   updateRelics(dt);
+  updateWar2(dt); // [war2] (08j_war2.js)
   updateCampaign(dt); // [campaign] claims, victory, the peace and the reset (08g_campaign.js)
   // camps respawn
   for (const c of CAMPS) {

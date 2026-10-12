@@ -99,7 +99,7 @@ function ladderRungs(e, m, dt) {
   let go = 1;
   if (foe) {
     const ahead = m.dir > 0 ? foe.y > e.y - 0.4 : foe.y < e.y + 0.4;
-    if (ahead) { go = 0; m.held = (m.held || 0) + dt; }
+    if (ahead) { go = 0; m.held = (m.held || 0) + dt; ladderHeldTurn(e, m); } // [war2] held 25 s: back the way it came (08j_war2.js)
     if (e !== P && !isStunned(e) && GAME.t >= (e.swingAt || 0)) { e.target = foe.id; ladderStrike(e, foe); }
   } else m.held = 0;
   // the player's target in reach is struck from the rungs, at the pace of the auto-attack

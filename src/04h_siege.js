@@ -536,6 +536,7 @@ function siegeImpact(s) {
     FX.dust(a.x, a.y + 0.2, a.z, 22, [0.44, 0.39, 0.31]);
     siegeDebris(a.x, a.y + 0.2, a.z, 14, [0.4, 0.34, 0.26]);
     siegeSplash(src, a.x, a.z, 2.6, 1.1);
+    houseBlowAt(src, a.x, a.z, 1.8, mult * 0.6); // [war2] a stone that lands beside a house (a keep's hall in the court, a wall short) shakes it: its walls crack (04j_batter.js)
   }
   if (near) { sfx(s.heavy ? 'boom' : 'crash'); cameraShake(s.heavy ? 0.4 : 0.25, a.x, a.z); }
 }
@@ -556,6 +557,7 @@ function siegeEngineStep(E, dt) {
   if (!E.crew.length && !E.player) { E.idleT += dt; if (E.idleT > 200) { siegeDismantle(E); return; } } else E.idleT = 0;
   if (E.wb && (E.wb.dead || !siegeBandOn(E.wb, E))) { E.wb = null; siegeReleaseCrew(E); }
   const work = Math.min(hands, E.spec.crew) / E.spec.crew;
+  if (siegeEngineGuard(E, dt)) return; // [war2] an engine that cannot get on is settled where it stands or given up (08j_war2.js)
   if (E.state === 'build') {
     if (hands > 0) {
       E.build = Math.min(1, E.build + (dt * (0.35 + 0.65 * work)) / E.spec.build);
@@ -826,7 +828,7 @@ function siegeFireCone(x, z, dx, dz, range, half) {
 /* ------------------------------------------------------------------ */
 /* warbands bring engines to their sieges                              */
 /* ------------------------------------------------------------------ */
-const siegeLikePhase = (O) => !!O && (O.phase === 'siege' || O.phase === 'assault' || O.phase === 'breach' || O.phase === 'bombard');
+const siegeLikePhase = (O) => !!O && (O.phase === 'siege' || O.phase === 'assault' || O.phase === 'breach' || O.phase === 'bombard' || O.phase === 'gap'); // [war2] 'gap'
 function siegeBandOn(wb, E) {
   const O = wb.order;
   if (!O || !E.target) return false;
@@ -958,7 +960,7 @@ function siegeBandAfter(wb, L, O) {
     // off it ran into hills, water and the curtain itself; and not again for two minutes after one it could not reach)
     if (O.phase !== 'breach' && O.phase !== 'assault' && K.door.alive && dS < (O.phase === 'bombard' ? 95 : 60) && GAME.t > (O.breachBan || 0)) { // [siege2] a band guarding its engine goes for the breach it made (the engine batters on at the next weakest way in, often the next tower)
       const W = siegeOpenBreach(C, L.x, L.z);
-      if (W) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2]
+      if (W && siegeStormReady(wb, O, W, L)) { O.phase = 'breach'; O.breach = W; O.bi = 0; O.bprog = null; SIEGE.stats.breachAssaults++; news(`${typeof wbName === 'function' ? wbName(wb) : REALMS[wb.realm].name} storms ${W.kind === 'tower' ? 'the fallen tower' : 'the breach in the wall'} of ${S.name}!`, wb.realm, 'order'); } // [siege2] // [war2] a fallen tower only with enough to get through its door (08j_war2.js)
     }
     if (O.phase === 'breach') {
       const W = O.breach;
@@ -975,6 +977,7 @@ function siegeBandAfter(wb, L, O) {
       return;
     }
   }
+  if (T && raidGapStep(wb, L, O, T)) return; // [war2] a raid goes in by a gap burnt in the timber hallow's ring (08j_war2.js)
   // the engine plan: once, when the band first comes within reach of the walls
   if (O.siegeE === undefined && dS < 105 && (O.phase === 'travel' || O.phase === 'siege')) O.siegeE = siegePlanFor(wb, O);
   const E = O.siegeE ? siegeById(O.siegeE) : null;

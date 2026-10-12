@@ -81,7 +81,7 @@ function orderPhrase(wb, O) {
     case 'attack': {
       const K = O.keep;
       if (O.byPlayer) return `marches on ${K.site.name}${you}`;
-      const why = { breach: 'while its gate lies broken', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March` }[O.why] || 'to break its gate';
+      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March` }[O.why] || 'to break its gate';
       return `marches on ${K.site.name} ${why}`;
     }
     case 'defend': return O.byPlayer ? `marches to hold ${O.keep.site.name}${you}` : O.why === 'engines' ? `marches to break the siege engines before ${O.keep.site.name}` : `marches to lift the siege of ${O.keep.site.name}`; // [siege]
@@ -119,7 +119,7 @@ function phaseWord(wb) {
   if (O.type === 'retrieve') return 'giving chase';
   if (O.type === 'rally') return 'at your side';
   if (O.type === 'patrol') return O.home ? 'marching home' : 'on watch';
-  return { travel: 'on the march', siege: 'at the gate', assault: 'storming the court', hold: 'holding it', bombard: 'guarding its engine', breach: 'storming the breach' }[O.phase] || ''; // [siege] bombard, breach
+  return { travel: 'on the march', siege: 'at the gate', assault: 'storming the court', hold: 'holding it', bombard: 'guarding its engine', breach: 'storming the breach', gap: 'going in by the gap' }[O.phase] || ''; // [war2] gap // [siege] bombard, breach
 }
 function announceOrder(wb, O) {
   if (!O || !GAME.t) return;
@@ -202,13 +202,14 @@ function cwChoose(wb, r) {
     if (K.orig === r) { s += 20; why = 'retake'; }
     if (!K.door.alive) { s += 18; if (why === 'gate') why = 'breach'; }
     else s += (1 - K.door.hp / K.door.maxHp) * 10;
+    if (K.door.alive && cwOpenBreach(K)) { s += 14; if (why === 'gate') why = 'wall'; } // [war2] a breach open in its walls: a second band to storm it with the first (08j_war2.js)
     s -= liveGuards(K) * 1.5;
     if (K.realm === front || K.orig === front) s += 6;
     s -= dist(L.x, L.z, K.site.x, K.site.z) / 14;
     if (myKeeps === CW.KEEPS - 1) { s += 12; why = 'claim'; }
     if (lead && lead.realm === K.realm) { s += 16; why = 'break'; }
     // two bands of ours on one keep only when it is decisive; otherwise spread out
-    if (ours === 1) s += why === 'gate' ? -16 : why === 'breach' ? 10 : 6;
+    if (ours === 1) s += why === 'gate' ? -16 : why === 'breach' || why === 'wall' ? 10 : 6; // [war2] 'wall'
     // and keep out of a fight two other realms are already having
     s -= WAR.warbands.filter((w) => !w.dead && w.realm !== r && w.realm !== K.realm && w.order && w.order.keep === K).length * 22;
     push(s, { type: 'attack', keep: K }, why);
@@ -253,13 +254,14 @@ function planWar(C) {
   // the muster: a realm down to its last keep musters bigger bands, faster; so does a long war
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (mine.length < MAX_WARBANDS() + underdog && now > C.nextSpawn) {
+  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog && now > C.nextSpawn) { // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
     const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
     const wb = spawnWarband(r, size);
     wbOrd(wb);
     // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
     const vet = Math.round(cwWeary() * 4);
     if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
+    cwMergeRemnants(r, wb, mine); // [war2] the last of a broken band join the new one (08j_war2.js)
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
   }
@@ -392,22 +394,23 @@ function updateCampaign(dt) {
   const el = campaignElapsed();
   if (!CAMPAIGN.longSaid && el > CW.LONG) {
     CAMPAIGN.longSaid = true;
-    news('The war drags on. Garrisons thin, broken gates mend slowly, and the musters send out bigger bands of veterans.', -1, 'big');
+    news('The war drags on. Garrisons thin, broken gates mend slowly, the musters send out bigger bands of veterans, and the elders grow impatient: a hold on the March counts for more the longer the war lasts.', -1, 'big'); // [war2] the claims' pace (08j_war2.js)
   }
   for (let r = 0; r < 3; r++) {
     const c = CAMPAIGN.claims[r], R = REALMS[r];
     const keeps = WAR.keeps.filter((K) => K.realm === r).length, hal = foreignHallows(r);
     CAMPAIGN.renown[r] += (dt / 60) * (keeps + 2 * hal);
     const kOn = keeps >= CW.KEEPS, hOn = hal >= 2;
-    c.k = kOn ? c.k + dt : Math.max(0, c.k - dt * CW.DECAY);
-    c.h = hOn ? c.h + dt : Math.max(0, c.h - dt * CW.DECAY);
-    if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.round((CW.KEEP_HOLD - c.k) / 60)} more minutes and ${R.name} wins the March.`, r, 'big');
+    const rate = cwClaimRate(); // [war2] the long war: a hold counts for more (08j_war2.js)
+    c.k = kOn ? c.k + dt * rate : Math.max(0, c.k - dt * CW.DECAY);
+    c.h = hOn ? c.h + dt * rate : Math.max(0, c.h - dt * CW.DECAY);
+    if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.max(1, Math.round((CW.KEEP_HOLD - c.k) / rate / 60))} more minutes and ${R.name} wins the March.`, r, 'big'); // [war2] / rate
     if (!kOn && c.kOn) news(`${possessive(R.name)} hold on the keeps is broken. Its claim fades slowly.`, r, 'normal');
-    if (hOn && !c.hOn) news(`${R.name} holds both enemy hallows in the ${R.templeName}! Keep them there ${Math.round((CW.HALLOW_HOLD - c.h) / 60)} more minutes to win the March.`, r, 'big');
+    if (hOn && !c.hOn) news(`${R.name} holds both enemy hallows in the ${R.templeName}! Keep them there ${Math.max(1, Math.round((CW.HALLOW_HOLD - c.h) / rate / 60))} more minutes to win the March.`, r, 'big'); // [war2] / rate
     if (!hOn && c.hOn) news(`${R.name} no longer holds both hallows. Its claim fades slowly.`, r, 'normal');
     c.kOn = kOn; c.hOn = hOn;
     // warnings as the end nears
-    const left = Math.min(kOn ? CW.KEEP_HOLD - c.k : 1e9, hOn ? CW.HALLOW_HOLD - c.h : 1e9);
+    const left = Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9); // [war2] in seconds still to hold
     if (left < 180 && c.warned < 1) { c.warned = 1; news(`Three minutes: ${R.name} is close to winning the March.`, r, 'big'); }
     if (left < 60 && c.warned < 2) { c.warned = 2; news(`One minute: ${R.name} will win the March unless its hold is broken!`, r, 'big'); }
     if (left > 240) c.warned = 0;
@@ -475,7 +478,7 @@ function restoreKeep(K) {
     fillGarrison(K, true);
     const S = K.site, col = REALMS[K.orig].rgb.map((v) => v * 2 + 0.4);
     for (let i = 0; i < 4; i++) later(i * 0.3, () => FX.burst(S.x + (Math.random() - 0.5) * 16, S.y + 10 + Math.random() * 5, S.z + (Math.random() - 0.5) * 16, 24, col, 6, 1.0, 0.24, 3));
-  }
+  } else fillGarrison(K, true); // [war2] a keep that stayed its own begins the new campaign with its garrison whole too (thinned by the last, two fell in its first three minutes: 08j_war2.js)
   K.underSiegeUntil = -99;
   K.lastOwnerChange = GAME.t;
   setDoorState(K.door, true, 1);
@@ -544,8 +547,8 @@ function applyCampaignSave(c) {
 function cwTopClaims() {
   const out = [];
   CAMPAIGN.claims.forEach((c, r) => {
-    if (c.k > 0) out.push({ r, kind: 'keeps', left: CW.KEEP_HOLD - c.k, frac: c.k / CW.KEEP_HOLD, on: c.kOn });
-    if (c.h > 0) out.push({ r, kind: 'hallows', left: CW.HALLOW_HOLD - c.h, frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
+    if (c.k > 0) out.push({ r, kind: 'keeps', left: (CW.KEEP_HOLD - c.k) / cwClaimRate(), frac: c.k / CW.KEEP_HOLD, on: c.kOn }); // [war2] (the long war's pace)
+    if (c.h > 0) out.push({ r, kind: 'hallows', left: (CW.HALLOW_HOLD - c.h) / cwClaimRate(), frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
   });
   return out.sort((a, b) => b.frac - a.frac);
 }

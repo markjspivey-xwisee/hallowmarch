@@ -173,6 +173,7 @@ async def main():
 
         # ---- the burn: spreading fires, char, collapse, a smoking ruin, scaffold, whole again ----
         r = await ev(page, 'burning', """(() => { const h = T.house(2), P = T.H.GAME.player;
+          if (T.H.war2) T.H.war2.HCREW.off = true; // [war2] this house is left to burn down (its people beat out the next)
           T.H.teleport(h.door.out2.x + 14, h.door.out2.z + 14);
           const fires0 = h.burn.pts.filter((q) => q.fire).length;
           T.H.simulate(12);
@@ -236,15 +237,26 @@ async def main():
         check(r['openBy'] >= 1 and r['opened'] >= r['n'] - 1, 'in the morning they open the shutters')
         check(r['out'] >= r['vill'] - 2, 'and go out into the town')
 
-        # ---- they run from a fire ----
+        # ---- they run from a fire (with nobody beating it), and [war2] they beat it out ----
         r = await ev(page, 'flee', """(() => { const S = T.H.REALMS[0].town, h = S.houses[0].rec;
+          if (T.H.war2) T.H.war2.HCREW.off = true;
           const vill = T.H.ENT.filter((e) => e.role === 'villager' && Math.hypot(e.x - S.x, e.z - S.z) < 60);
           vill.forEach((e, i) => { const a = i * 1.3; e.x = h.door.out2.x + Math.cos(a) * 3; e.z = h.door.out2.z + Math.sin(a) * 3; e.prevX = e.x; e.prevZ = e.z; e.ai.plan = null; });
           T.F.igniteHouse(h); T.H.simulate(10);
           const d = vill.map((e) => +Math.hypot(e.x - h.x, e.z - h.z).toFixed(1));
           T.F.houseRestore(h);
-          return { d, far: d.filter((x) => x > 15).length, n: d.length }; })()""")
-        check(r['far'] >= r['n'] - 1, 'townsfolk run from a burning house')
+          if (T.H.war2) T.H.war2.HCREW.off = false;
+          // [war2] again, the townsfolk free to fight it: out of the house, and the flames beaten down by its people
+          vill.forEach((e, i) => { const a = i * 1.3; e.x = h.door.out2.x + Math.cos(a) * 3; e.z = h.door.out2.z + Math.sin(a) * 3; e.prevX = e.x; e.prevZ = e.z; e.ai.plan = null; e.ai.crewScan = 0; });
+          T.F.igniteHouse(h);
+          let crew = 0, beat = 0, t = 0;
+          for (; t < 60 && h.state === 'burning'; t++) { T.H.simulate(1); crew = Math.max(crew, h.w2crew ? h.w2crew.size : 0); beat = Math.max(beat, vill.filter((e) => e.anim.act === 21).length); }
+          const out = { d, far: d.filter((x) => x > 15).length, n: d.length, crew, beat, saved: h.state === 'whole', t, inside: vill.filter((e) => T.F.houseHas(h, e.x, e.z, -0.2)).length };
+          if (h.state !== 'whole') T.F.houseRestore(h);
+          return out; })()""")
+        check(r['far'] >= r['n'] - 1, 'townsfolk run from a burning house (with nobody to fight it)')
+        check(r['crew'] >= 2 and r['beat'] >= 2, f"[war2] with their neighbours they beat at the flames ({r['crew']} in the crew, {r['beat']} beating at once)")
+        check(r['saved'], f"[war2] and beat it out ({r['t']} s)")
 
         # ---- rain does not fall indoors ----
         r = await ev(page, 'roof', """(() => { const h = T.house(1); return { over: T.F.houseRoofOver(h.x, h.z), out: T.F.houseRoofOver(h.door.out2.x + 0, h.door.out2.z + 0) }; })()""")

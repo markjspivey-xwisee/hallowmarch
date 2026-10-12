@@ -14,6 +14,7 @@ function houseLife(e, dt) {
   // fire first: anyone near a burning house gets out and away
   const F = houseBurningNear(e.x, e.z, 19);
   if (F && !(ai.plan && ai.plan.flee === F)) { houseFlee(e, F); }
+  else if (!F) houseCrewCall(e); // [war2] a neighbour's house afire within call: run and help beat it out (08j_war2.js)
   if (ai.plan) { if (lifeRun(e, dt)) return true; }
   if (boatLife(e, dt)) return true; // [water2] a fisher rows out in the morning (07e_boats.js)
   e.seat = null;
@@ -52,7 +53,7 @@ function houseLife(e, dt) {
 // colliders (houses, fences, workstations, furniture, trees; doors open for townsfolk, so they are no wall), smoothed to
 // a few waypoints by sight lines over the same grid. Null when there is no way within the box (or the ends are far).
 const _lpC = [];
-function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76) {
+function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false) { // [war2] gates: a castle's gate is a wall (a band's way round, 08j_war2.js)
   const x0 = Math.floor(Math.min(ax, bx) - 10), z0 = Math.floor(Math.min(az, bz) - 10);
   const W = Math.ceil(Math.max(ax, bx) + 10) - x0, Hh = Math.ceil(Math.max(az, bz) + 10) - z0;
   if (W > maxSpan || Hh > maxSpan || W < 2 || Hh < 2) return null;
@@ -60,7 +61,7 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76) {
   for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + i + 0.5, z0 + j + 0.5)) blocked[j * W + i] = 1;
   collidersNear(x0 + W / 2, z0 + Hh / 2, Math.hypot(W, Hh) / 2 + 2, _lpC);
   for (const c of _lpC) {
-    if (!c.active || c.tag === 'door' || c.tag === 'hdoor' || c.vert) continue;
+    if (!c.active || ((c.tag === 'door' && !gates) || c.tag === 'hdoor') || (c.vert && (!gates || (c.y0 != null && c.y0 > heightAt(c.x, c.z) + 1.8)))) continue; // [war2] gates: and a wall that stands from the ground (a palisade, a curtain) is a wall
     const r = (c.type === 'circle' ? c.r : Math.hypot(c.hx, c.hz)) + pad;
     const i0 = Math.max(0, Math.floor(c.x - r - x0)), i1 = Math.min(W - 1, Math.floor(c.x + r - x0)), j0 = Math.max(0, Math.floor(c.z - r - z0)), j1 = Math.min(Hh - 1, Math.floor(c.z + r - z0));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
@@ -176,6 +177,7 @@ function houseFlee(e, F) {
     const D = F.door;
     steps.push(houseGo(D.in.x, D.in.z, { run: true, room: F, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: F }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: F }));
   }
+  if (!F.keepHall && !HCREW.off) { steps.push(lifeStep('beat', { H: F })); lifePlan(e, steps, { flee: F }); ai.lifeWait = 0; return; } // [war2] out, then beat the flames down with the neighbours (08j_war2.js; HCREW.off: they run as before)
   // a spot away from the fire, on the town side
   let dx = e.x - F.x, dz = e.z - F.z;
   const towardTown = { x: F.S.x - F.x, z: F.S.z - F.z };
@@ -287,6 +289,7 @@ function lifeRun(e, dt) {
       return true;
     }
     case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
+    case 'beat': return houseBeatStep(e, st, plan, dt, next); // [war2] beating out a house's fire (08j_war2.js)
     default: next(); return true;
   }
 }

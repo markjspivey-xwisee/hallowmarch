@@ -782,6 +782,7 @@ function setHouseShutters(H, win, open, who = null, quiet = false) {
 }
 // what the E key offers near a house: the door, or the shutters of the window in reach
 function houseOffers(P, offer) {
+  houseBeatOffers(P, offer); // [war2] beside a burning house: beat out the flames with its people (08j_war2.js)
   for (const H of HOUSES) {
     if (dist2(P.x, P.z, H.x, H.z) > (H.foot + 3) ** 2 || !houseIntact(H) || H.state === 'burning') continue;
     const D = H.door;
@@ -917,6 +918,7 @@ function houseBurnStep(H, dt) {
   // rain slows the fire but does not put it out
   const damp = 1 / (1 + 0.7 * clamp(WEATHER.raining, 0, 1));
   B.R = Math.min(B.maxR, B.R + B.speed * dt * damp);
+  if (houseCrewDouse(H, B, dt)) return; // [war2] its people beat the front back, and a fire beaten to nothing is out (08j_war2.js)
   for (const p of B.pts) {
     if (!p.fire && dist(p.x, p.z, B.x, B.z) <= B.R) { p.fire = houseFireAdd(p.x, p.y, p.z, 0.3); p.t0 = H.stT; }
     if (p.fire) p.fire.size = Math.min(p.max, 0.3 + (H.stT - p.t0) * 0.12) * (1 - 0.3 * H.fall);

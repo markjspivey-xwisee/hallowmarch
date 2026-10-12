@@ -115,7 +115,7 @@ async def main():
         size0 = r['all']
 
         # ---- houses: two in ruins (one now under scaffolding) and one burning ----
-        r = await ev(page, 'houses', """(() => { const HS = T.H.HOUSES.filter((h) => h.state === 'whole' && Math.hypot(h.x - T.H.REALMS[0].town.x, h.z - T.H.REALMS[0].town.z) < 120);
+        r = await ev(page, 'houses', """(() => { if (T.H.war2) T.H.war2.HCREW.off = true; /* [war2] left to burn: nobody beats these fires out */ const HS = T.H.HOUSES.filter((h) => h.state === 'whole' && Math.hypot(h.x - T.H.REALMS[0].town.x, h.z - T.H.REALMS[0].town.z) < 120);
           const far = (list, from) => list.slice().sort((a, b) => Math.min(...from.map((f) => Math.hypot(b.x - f.x, b.z - f.z))) - Math.min(...from.map((f) => Math.hypot(a.x - f.x, a.z - f.z))))[0];
           const ha = HS[0], hb = far(HS, [ha]), hc = far(HS, [ha, hb]);
           window.T.houses = [ha.num, hb.num, hc.num];
@@ -213,7 +213,7 @@ async def main():
         r = await ev(page, 'restored', "(() => ({ got: __hm.land.LAND.restored, errors: __hm.errors.slice(0, 4), t: __hm.GAME.t }))()")
         got = r['got'] or {}
         check(not r['errors'], 'no errors on loading the busy save')
-        check(got.get('felled', 0) >= 2 and got.get('grow') == 1 and got.get('dyn', 0) >= 1 and got.get('craters', 0) >= 1 and got.get('houses', 0) >= 3 and got.get('walls') == 3 and got.get('piles') == 1 and got.get('fire', 0) > 5, 'every kind of change is read back')
+        check(got.get('felled', 0) >= 2 and got.get('grow') == 1 and got.get('dyn', 0) >= 1 and got.get('craters', 0) >= 1 and got.get('houses', 0) >= 3 and got.get('walls', 0) >= 3 and got.get('piles') == 1 and got.get('fire', 0) > 5, 'every kind of change is read back')  # [war2] walls: three set here, and any the running war wore meanwhile (each compared below)
         dt = r['t'] - got.get('t', 0)
         snap1 = await ev(page, 'snapshot after', "T.snap(T.P)")
         # trees

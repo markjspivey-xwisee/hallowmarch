@@ -730,6 +730,7 @@ function blazeBackStep(e, dt) {
     if (B.wp && !B.wp.ladder && Math.abs(e.y - B.y) > 0.3 && dist(e.x, e.z, B.wp.x, B.wp.z) > 0.45 && GAME.t < (B.footT ??= GAME.t + 6)) { e.target = null; moveToward(e, B.wp.x, B.wp.z, dt, 0.9, 0.05); return true; }
     e.ai.fireBack = null; BLAZE.stats.back++; return false;
   }
+  backStepUnstick(e, B); // [war2] no lower and no nearer for a while: another way down (08j_war2.js)
   const wp = castleWaypoint(e, { x: post.x, y: B.y, z: post.z });
   if (!wp || (wp.ladder && wp.ladder.gone)) { e.ai.fireBack = null; return false; }
   B.wp = wp; // [v14] (the latest way point: the way's foot once on the lowest steps)
