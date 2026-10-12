@@ -1,7 +1,7 @@
 """[late2] The late game (version 16): the risen of the borderlands past 40, deeds and the names they earn, veterancy past
 the cap and its boons, the Chronicle's Deeds page, the aims and the tracker's mark, and the save (with the character, an old
 save's deeds taken from its path, a damaged one, and a reload with the same storage).
-usage: python3 tools/tests/late2.py [only=rise,fight,names,vet,page,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
+usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
        [noshots] [phone]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -114,6 +114,27 @@ async def main():
                     check(r['high'] == 1 and r['champD'] == 1 and r['fell'] == 1, 'the deed is told: one risen, one champion')
                     check(r['vetXP'] > 12000 and r['rp'] >= 250 and r['drops'] >= 3 and r['trophies'] >= 2, f"its spoils: {r['vetXP']} experience to veterancy, {r['rp']} realm points, {r['drops']} pieces of gear and other things, {r['trophies']} trophies")
                 check(r['errors'] == 0, 'no errors in the fight')
+
+        # ---- a risen champion's ways, by number: the ring and its blow, a stun that breaks it off, each kind its own ----
+        if want('wrath'):
+            r = await ev(page, 'wrath', """(() => { const P = T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L, St = L.LATE2.stats;
+              const camp = T.risen().find((c) => c.realm === 0 && c.type === 'bandit'); let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
+              const keep = new Set(camp.members); T.clearAround(camp.x, camp.z, 60, keep); for (const id of camp.members) { const m = F.getEnt(id); if (m && m !== C) { m.damagers = null; F.killEnt(m, null); F.removeEnt(m); } }
+              const place = () => { H.teleport(C.x + 3, C.z + 2); P.hp = P.maxHp; P.buffs.length = 0; C.buffs.length = 0; C.ccdr = null; C.target = P.id; C.threat = new Map([[P.id, 99]]); };
+              const out = {}; place();
+              // the blow lands on a foe that stays in the ring
+              C.ai.l2 = { next: 0, next2: 1e9, rally: true, enr: false, w: null, last: H.GAME.t }; const w0 = St.wrath, h0 = St.wrathHits, hp0 = P.hp;
+              L.late2ChampThink(C, P, 0.05); out.started = !!C.ai.l2.w; H.simulate(1.6); out.landed = St.wrath - w0; out.hit = St.wrathHits - h0; out.stunned = !!P.buffs.find((b) => b.kind === 'stun'); out.harm = Math.round(hp0 - P.hp);
+              // a stun as it rears breaks the blow off
+              place(); C.ai.l2 = { next: 0, next2: 1e9, rally: true, enr: false, w: null, last: H.GAME.t }; const w1 = St.wrath, b1 = St.broken || 0;
+              L.late2ChampThink(C, P, 0.05); H.simulate(0.4); F.addBuff(C, 'stun', 1, 1.2, P.id); H.simulate(1.6); out.broken = (St.broken || 0) - b1; out.landed2 = St.wrath - w1;
+              // each kind its own way: an outlaw's hamstring on its foe beside it
+              place(); C.ai.l2 = { next: 1e9, next2: 0, rally: true, enr: false, w: null, last: H.GAME.t }; const k0 = St.kinds || 0; P.buffs.length = 0;
+              L.late2ChampThink(C, P, 0.05); out.kind = (St.kinds || 0) - k0; out.wound = !!P.buffs.find((b) => b.kind === 'wound'); out.snare = !!P.buffs.find((b) => b.kind === 'snare');
+              out.errors = H.errors.slice(0, 3); return out; })()""")
+            check(r['started'] and r['landed'] == 1 and r['hit'] == 1 and r['stunned'] and r['harm'] > 0, f"the ring glows and the blow lands on a foe in it: {r['harm']} harm and a stun")
+            check(r['broken'] == 1 and r['landed2'] == 0, 'a stun as it rears breaks the blow off')
+            check(r['kind'] == 1 and r['wound'] and r['snare'], 'an outlaw hamstrings its foe: slowed and wounded')
 
         # ---- deeds and names ----
         if want('names'):

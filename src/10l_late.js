@@ -285,6 +285,15 @@ function late2ChampThink(e, t, dt) {
   // a new fight (none for 8 s, or it went home whole): the rally and the fury come again
   if (!S || (now - S.last > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, next2: now + 8 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
   S.last = now;
+  if (S.w && isStunned(e)) {
+    // a stun as it rears breaks its blow: the ring dies away and it is a while gathering itself again
+    const W = S.w; S.w = null; S.next = now + 6 + Math.random() * 2;
+    if (W.disc && W.disc.on) W.disc.age = Math.max(W.disc.age, W.disc.dur - 0.25);
+    for (const m of AOE_MARKS) if (m.x === W.x && m.z === W.z && m.until > now) m.until = now;
+    uiFloatAt(e.x, e.y + 2.4 * (e.scale || 1), e.z, 'Broken off', 'immune');
+    LATE2.stats.broken = (LATE2.stats.broken || 0) + 1;
+    return false;
+  }
   if (S.w) {
     S.w.t += dt;
     if (S.w.ranged) turnToward(e, S.w.x, S.w.z, dt * 4); else if (t) turnToward(e, t.x, t.z, dt * 2);
@@ -306,7 +315,7 @@ function late2ChampThink(e, t, dt) {
   if (Math.abs((t.y || 0) - (e.y || 0)) > 3) return false; // not at one up on a wall or a rock
   const total = 1.45, r = ranged ? 4.6 : e.mobType === 'troll' ? 8 : 6.5, x = ranged ? t.x : e.x, z = ranged ? t.z : e.z; // (a troll's breaks the ground farther)
   S.w = { t: 0, total, x, z, r, ranged };
-  spellDisc(x, z, r, DISC_KIND.holy, total + 0.1, ranged ? [0.45, 1.3, 1.9] : [1.9, 0.55, 0.16]);
+  S.w.disc = spellDisc(x, z, r, DISC_KIND.holy, total + 0.1, ranged ? [0.45, 1.3, 1.9] : [1.9, 0.55, 0.16]);
   aoeMarker(x, z, r, total, e.faction); // (the skilled bots step out of it: 07c_balance7.js)
   e.swingAt = Math.max(e.swingAt || 0, now + total + 0.5);
   if (e.kind === 'humanoid') setAct(e, 8, total + 0.15);
@@ -568,12 +577,13 @@ function chronDeeds() {
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
-    <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
+    <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(worn.t)}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
 }
 chronAdd('deeds', 'Deeds', 'you', chronDeeds, 'goals');
+G2_SEE.deeds = ['goals', 'wilds']; // [guide2] the pages a reader goes on to (10f_guide2.js)
 $('menu-body').addEventListener('click', (ev) => {
   const b = ev.target.closest('.chron [data-l2]');
   if (!b || b.disabled) return;
@@ -595,7 +605,7 @@ CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><
 /* ------------------------------------------------------------------ */
 for (const [id, note] of Object.entries({
   l2name: { t: 'A name of your own', x: () => `The March has given you a name for your deeds. It shows with your own on your frame, and the name you wear gives you something of the deed. Choose which to wear on the Chronicle's Deeds page (${IS_TOUCH ? 'tap your path' : 'J'}).` },
-  l2risen: { t: 'The risen of the borderlands', x: () => 'The farthest borderland camps of every homeland are held now by risen champions who keep pace with you. A risen champion breaks the ground about it after a glowing warning: step out of the ring. At half its strength it calls its pack.' },
+  l2risen: { t: 'The risen of the borderlands', x: () => 'The farthest borderland camps of every homeland are held now by risen champions who keep pace with you. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack.' },
   l2vet: { t: 'Veterancy', x: () => `Past level 50 your experience raises your veterancy, and every rank is a boon to learn: health, harm, power, a steady eye, thick skin, realm points. ${IS_TOUCH ? 'Tap your path' : 'J'}, then Deeds.` },
 })) if (!FIELD_NOTES[id]) FIELD_NOTES[id] = note;
 Object.assign(GUIDE_WATCH, {
