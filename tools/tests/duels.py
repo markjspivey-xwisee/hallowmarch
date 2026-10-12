@@ -5,6 +5,7 @@ records, for both sides, the harm dealt by kind, the healing, the shields that a
 share of the fight spent stunned, rooted, slowed, casting, holding a shield or a draw, and in reach of the foe.
 usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|simple|mastery|both]
                                     [pairs=warrior-priest,archer-priest] [tap] [trace=N] [cap=60] [gap=90] [narrow]
+  lastfall      [balance6] both fallen within the second the run looks: the one that fell last won (else a draw)
   gap=M         [balance6] the arenas stand at least M m apart (90) anywhere on the homelands' open ground, a firebreak
                 round each (narrow: version 13's, 52 m apart within 170 m of one centre)
   trace=N       a timeline of the first N duels (presses, blows, and a look at both sides each second)
@@ -231,7 +232,7 @@ async def main():
         await page.set_viewport_size({'width': 320, 'height': 180})
         await page.evaluate("() => {" + BAL_JS + DS_JS + "; return 0; }")
         # [balance6] the arenas far apart (spotsWide), unless `narrow` asks for version 13's (52 m apart round one centre)
-        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP})'}; 0")
+        await page.evaluate(f"CB.arenas = (n) => {'CB.spots(n)' if NARROW else f'CB.spotsWide(n, {GAP})'}; CB.lastFall = {'true' if 'lastfall' in ARGS else 'false'}; 0")  # [balance6] lastfall: a duel where both fell within the second the run looks is the one's that fell last (else a draw)
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
         # machine a software renderer drawing every frame (keep it with `loop`)
         if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
@@ -244,7 +245,7 @@ async def main():
             t0 = time.time()
             # [balance6] a queue a level: each arena begins its next duel as soon as its last one ends
             n = await page.evaluate(f"DS.queue({lvl}, {json.dumps(specs)})")
-            if lvl == LEVELS[0]: print(f'  {n} arenas' + (' (narrow)' if NARROW else f' at least {GAP} m apart, a firebreak round each'), flush=True)
+            if lvl == LEVELS[0]: print(f'  {n} arenas' + (' (narrow)' if NARROW else f' at least {GAP} m apart, a firebreak round each: ' + str(await page.evaluate("JSON.stringify(DS.S.map((s) => [s.x, s.z]))"))), flush=True)
             if TRACE: await page.evaluate(f"DS.traceOn({TRACE})")
             last = 0
             while True:

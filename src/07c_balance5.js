@@ -32,7 +32,7 @@ function holyFlare(e, t) {
   return true;
 }
 // [balance5] the bots: a spell worth breaking (time left on it, and no steadfast caster)
-const castBreakable = (t, left = 0.3) => !!t && !!t.casting && t.casting.total - t.casting.t > left && !hasBuff(t, 'steadfast') && t.role !== 'boss' && t.role !== 'dungeonBoss';
+const castBreakable = (t, left = 0.3) => !!t && !!t.casting && t.casting.total - t.casting.t > left && !spellGuarded(t) && t.role !== 'boss' && t.role !== 'dungeonBoss'; // [balance6] nor a warded mage's (07c_balance6.js)
 // a foe who could flare e's next spell: a priest of Holy Fire's level with it ready, in its reach
 function flareThreat(e) {
   return !!nearestWhere(e.x, e.z, FLARE_REACH + 1, (o) => o.alive && o.cls === 'priest' && isEnemy(o, e) && o.level >= ABILITIES.holyfire.level && (o.cds.holyfire || 0) <= GAME.t + 0.3 && o.target === e.id);

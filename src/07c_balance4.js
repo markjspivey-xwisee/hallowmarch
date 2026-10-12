@@ -25,7 +25,7 @@ const RUSH = { speed: 18, maxT: 1.9, slow: false, stats: { rushes: 0, arrived: 0
 // until Leap Strike is learned (level 30) Charge is the warrior's only rush, and its landing blow slows the foe as Charge
 // always promised (45% for 3 s): a bow walked away from every landing at 10 (the warrior won 3 of 24 against it with
 // 30% for 2 s), and a priest or a mage held by it still has the 3 s before Shield Bash to answer
-const RUSH_SLOW_EARLY = [0.45, 3];
+const RUSH_SLOW_EARLY = [0.4, 2.5]; // [balance6] [0.45, 3]: the skilled warrior won 65% of its duels at 10 in arenas far apart, three in four against a bow or a priest
 // [balance4] after a Charge no root or slow took hold for 2 s (chargeFree, 07c_balance.js): the answer to kiting while the
 // rush never moved the warrior; a real rush is that answer, and a frost nova may meet the warrior where it lands
 const CHARGE_FREE = 0;
@@ -70,6 +70,7 @@ function chargeRushStep(e, m, dt) {
     RUSH.stats[why]++;
     if (RUSH.onEvent) RUSH.onEvent(e, `rush ${why} at ${t ? dist(e.x, e.z, t.x, t.z).toFixed(1) : '-'} m after ${m.t.toFixed(2)} s`); // tests: a duel's trace
     if (why === 'arrived' && t) chargeLands(e, m.A, t, m.rk);
+    if (why === 'blocked') rushHeld(e); // [balance6] a rush that never reached its foe comes round sooner (07c_balance6.js)
     return true;
   };
   if (!e.alive) { e.motion = null; e.onGround = true; return false; }
@@ -133,7 +134,7 @@ function chargeLands(e, A, t, rk) {
 // A mage has no armour, no heal and no rush: past 30 the warrior's Rallying Cry and Bulwark, the priest's Divine Shield
 // and Mass Renewal and the archer's Deadeye left its spells behind (it won about a third of its duels at 30 and 50)
 const MAGE_RANK_K = 0.07;
-const mageRankK = (e) => 1 + MAGE_RANK_K * (abilityRank(e.level) - 1);
+const mageRankK = (e) => mageRankOf(abilityRank(e.level)); // [balance6] 1 + MAGE_RANK_K a rank past the first: a step at rank II, then a little each rank (07c_balance6.js)
 
 /* ------------------------------------------------------------------ */
 /* Mend closes wounds                                                  */
