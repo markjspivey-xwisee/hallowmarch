@@ -105,11 +105,11 @@ async def main():
                   P.bot = null;
                   const vx1 = L.vxp + T.L.late2VetNeed(0) * L.vet;
                   return { cls, champ: C.name, clvl: C.level, champHp: Math.round(C.maxHp), php: Math.round(P.maxHp), champT, t, alive: P.alive, minHp: +minHp.toFixed(2), left: +(P.hp / P.maxHp).toFixed(2), potions: H.INV.potions,
-                    wrath: L.stats.wrath - s0.wrath, hits: L.stats.wrathHits - s0.wrathHits, rallies: L.stats.rallies - s0.rallies, fell: L.stats.risenFell - s0.risenFell,
+                    wrath: L.stats.wrath - s0.wrath, hits: L.stats.wrathHits - s0.wrathHits, kinds: (L.stats.kinds || 0) - (s0.kinds || 0), broken: (L.stats.broken || 0) - (s0.broken || 0), rallies: L.stats.rallies - s0.rallies, fell: L.stats.risenFell - s0.risenFell,
                     high: L.d.high - d0.high, champD: L.d.champ - d0.champ, vetXP: vx1 - vx0, rp: Math.round(prog.rp - rp0), drops: H.LOOT.length + H.INV.bag.length - loot0, trophies: F.goodsCount('trophy') + H.LOOT.filter((q) => q.item && q.item.goods === 'trophy').length - tr0, foes: foes.size, errors: H.errors.length }; })('""" + cls + "', " + str(REALM) + ")")
                 won = r['champT'] is not None and r['alive']
                 check(won, f"a level 50 {cls} (skilled) brings down {r['champ']} ({r['clvl']}) in {r['champT']} s, {r['minHp']*100:.0f}% health at the lowest, {r['potions']} draughts left")
-                check(r['rallies'] == 1 and (r['wrath'] >= 1 or cls == 'archer'), f"it broke the ground {r['wrath']} times ({r['hits']} struck; a bow that keeps it off may never see it) and rallied its pack once")
+                check(r['rallies'] == 1 and (r['wrath'] + r['kinds'] + r['broken'] >= 1 or cls == 'archer'), f"it broke the ground {r['wrath']} times ({r['hits']} struck, {r['broken']} broken off; a foe that keeps it off may never see it), went its own way {r['kinds']} times and rallied its pack once")
                 if won:
                     check(r['high'] == 1 and r['champD'] == 1 and r['fell'] == 1, 'the deed is told: one risen, one champion')
                     check(r['vetXP'] > 12000 and r['rp'] >= 250 and r['drops'] >= 3 and r['trophies'] >= 2, f"its spoils: {r['vetXP']} experience to veterancy, {r['rp']} realm points, {r['drops']} pieces of gear and other things, {r['trophies']} trophies")

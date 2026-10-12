@@ -273,12 +273,13 @@ function late2Retake(c) {
 }
 function late2Rescale() {
   const on = warLevel() >= LATE2_RISE_AT, P = GAME.player;
+  let rose = 0;
   for (const c of CAMPS) {
     if (late2RiseK(c) < 0) continue;
     if (!!c.l2on !== on) {
       // not under your eyes: a camp you stand in (a level gained in the middle of its fight) is taken over once you go
       if (P && P.alive && GAME.started && dist2(P.x, P.z, c.x, c.z) < 70 * 70) continue;
-      c.l2on = on; late2Retake(c); continue;
+      c.l2on = on; late2Retake(c); if (on) rose++; continue;
     }
     if (!on) continue;
     const B = late2Band(c);
@@ -288,6 +289,12 @@ function late2Rescale() {
       const lv = e.elite ? B[1] + B[2] : clamp(B[0] + (e.l2off || 0), B[0], B[1]);
       if (lv !== e.level) { e.level = lv; setupStats(e, true); }
     }
+  }
+  // told once, as it happens (a level gained, not a character loaded at 40 and more)
+  if (rose && P && GAME.started && GAME.prog && GAME.prog.level === LATE2_RISE_AT && !LATE2.toldRise) {
+    LATE2.toldRise = true;
+    uiToast('The farthest borderland camps have risen to meet you.', 'quest');
+    uiLog(`Risen champions now hold the three farthest borderland camps of every homeland, and keep pace with you: the best spoils of the wilds. The Chronicle's Deeds page names them.`, 'level');
   }
 }
 // a risen champion in a fight (thinkMob, 08_ai.js): true while it is busy with its own work
@@ -844,7 +851,7 @@ for (const [id, note] of Object.entries({
 Object.assign(GUIDE_WATCH, {
   l2name: () => LATE2.names.length > 0,
   l2risen: () => LATE2.w.near,
-  l2vet: () => LATE2.vet > 0,
+  l2vet: () => LATE2.vet > 0 || (GAME.prog && GAME.prog.level >= LEVEL_CAP),
 });
 GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). From level 40 risen champions hold the farthest borderland camps of every homeland, and keep pace with you. Past level 50 your experience raises your veterancy: every rank is a boon to learn. From level 40, with a name, you may have a standard made and plant it where you fight (${IS_TOUCH ? 'Use' : 'E'} beside it takes it up).</p>`);
 LOADING_TIPS.push(
