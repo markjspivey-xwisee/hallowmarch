@@ -5,7 +5,10 @@ lifts, then the one suspension, gathered); no foot moving over the ground while 
 the touchdown as in the stance (every beast at a walk and a trot, people walking and running); a person up a keep's
 stair with no foot in a tread or a riser, swinging or standing; shoves and cuts held run after run; and the foot lock
 for a crowd: every body near the camera gets its row, past the 256 of version 11, and what it costs.
-usage: python3 tools/tests/gaits.py [only=feet,falls,stair,shove,crowd] [reps=3]"""
+usage: python3 tools/tests/gaits.py [only=feet,falls,stair,shove,cuts,crowd] [reps=3] [cuts=26]
+([motion4] cuts: the player cutting 46, 92 and 135 degrees at a sprint and 46 and 92 at a run, the cut started at every
+frame of a whole stride (cuts=N runs a case, 26 by default: a sprint's stride is 26 frames), each run's worst stance
+under 2 cm: a sharp cut at a sprint slid a planted foot 2 to 24 cm at one cut in five across the stride)"""
 import json, asyncio, sys, pathlib, time, re
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -13,8 +16,9 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
-ONLY = OPT.get('only', 'falls,feet,stair,shove,crowd').split(',')
+ONLY = OPT.get('only', 'falls,feet,stair,shove,cuts,crowd').split(',')
 REPS = int(OPT.get('reps', 3))
+CUTS = int(OPT.get('cuts', 26))
 FAILS = []
 T0 = time.time()
 
@@ -160,13 +164,26 @@ async def main():
             # shoves and cuts, run after run: the worst stance of every run
             for name, js, lim in (("a horse trotting shoved sideways", "MO.shove('horse', 3.0, 0.8)", 4.0), ("a wolf trotting shoved sideways", "MO.shove('wolf', 3.0, 0.8)", 4.0),
                                   ("a person walking shoved sideways", "MO.shove('human', 1.4, 0.8)", 7.0), ("a person standing shoved sideways", "MO.shove('human', 0, 0.6)", 2.0),
-                                  ("the player cutting 46 degrees at a sprint", "MO.cut(0.8, true)", 6.0), ("the player cutting 92 degrees at a sprint", "MO.cut(1.6, true)", 8.0), ("the player cutting 46 degrees at a run", "MO.cut(0.8, false)", 6.0)):
+                                  ("the player cutting 46 degrees at a sprint", "MO.cut(0.8, true)", 2.0), ("the player cutting 92 degrees at a sprint", "MO.cut(1.6, true)", 2.0), ("the player cutting 46 degrees at a run", "MO.cut(0.8, false)", 2.0)):
                 vals = []
                 for k in range(REPS):
                     r = await ev(page, js)
                     vals.append(r.get('slideMax', 99))
                 print(f"  {name}: worst stance {vals} cm", flush=True)
                 check(max(vals) <= lim, f"{name}: every run's worst stance under {lim} cm ({vals})")
+        if 'cuts' in ONLY:
+            # [motion4] sharp cuts, the cut started at every frame of a whole stride (a sprint's is 26 frames): no planted
+            # foot slides, run after run (13s_footlock.js: a foot the leg can no longer draw where it stands is lifted in
+            # that very frame, a landing kept in the world from the swing's last frames, the heading kept until it lifts)
+            for name, ang, sprint in (("46 degrees at a sprint", 0.8, True), ("92 degrees at a sprint", 1.6, True), ("135 degrees at a sprint", 2.4, True),
+                                      ("46 degrees at a run", 0.8, False), ("92 degrees at a run", 1.6, False)):
+                vals = []
+                for k in range(CUTS):
+                    r = await ev(page, f"MO.cut({ang}, {'true' if sprint else 'false'}, {1.2 + k / 60}, {2.2 + k / 60})")
+                    vals.append(r.get('slideMax', 99))
+                srt = sorted(vals)
+                print(f"  the player cutting {name}: worst stances {vals} cm (median {srt[len(srt) // 2]}) [{time.time() - T0:.0f}s]", flush=True)
+                check(max(vals) <= 2.0, f"the player cutting {name}, {len(vals)} cuts across the stride: every one's worst stance under 2 cm (the worst {max(vals)} cm)")
         if 'crowd' in ONLY:
             # the foot lock for a crowd: 400 soldiers walking about within 40 m of the camera, all of them drawn with their
             # feet held (version 11 held 256), and what it costs a step and a frame

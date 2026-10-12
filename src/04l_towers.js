@@ -879,6 +879,7 @@ function towerLadderStep(e, m, dt) {
     e.x = lerp(m.sx, L.lx, k); e.z = lerp(m.sz, L.lz, k);
     e.yaw = m.syaw + angDiff(m.syaw, L.yawW) * k;
     if (m.t >= m.t0) { m.st = 1; m.t = 0; }
+    e.anim.phase = (e.y - L.wyb) * 10.472; // [motion4] the rungs' own cycle for the hands and feet (2 pi a 0.6 m from the foot, taken where the body now is: ladderLegs, ladderHands in 05a_rig.js)
     return true;
   }
   if (m.st === 1) {
@@ -894,6 +895,7 @@ function towerLadderStep(e, m, dt) {
     m.y = up ? Math.min(yEnd, ny) : Math.max(yEnd, ny);
     e.x = L.lx; e.z = L.lz; e.y = m.y; e.yaw = L.yawW;
     if (m.y === yEnd) { m.st = 2; m.t = 0; m.sx = e.x; m.sz = e.z; setAct(e, 14, m.t2 / 0.06, 0.94); LADDER_CLIMBERS.delete(e); } // the pose eases out as the body steps off
+    e.anim.phase = (e.y - L.wyb) * 10.472; // [motion4]
     return true;
   }
   // off the ladder: forward onto the floor at the top, or back onto the floor at the foot
@@ -907,6 +909,7 @@ function towerLadderStep(e, m, dt) {
     e.anim.act = 0; e.anim.actDur = 0;
     e.onGround = true; e.vy = 0;
   }
+  e.anim.phase = (e.y - L.wyb) * 10.472; // [motion4]
   return true;
 }
 // the nearest ladder start within reach of e at its own height (for the player's E and walking into one)
