@@ -260,7 +260,7 @@ function deckBurnStep(c, dt, wet) {
   c.t += dt;
   c.heat = clamp(c.heat + dt * (1 / BZ_T.climb) * (1 - 1.5 * wet), 0, 1);
   c.char = Math.max(c.char, clamp(c.t / BZ_T.burn, 0, 1) * 0.9 + c.heat * 0.1);
-  const B = c.B, S = B.S;
+  const B = c.B;
   if (c.heat <= 0) { deckOut(c); return; }
   if (GAME.t > c.tick) {
     c.tick = GAME.t + 1.0;
