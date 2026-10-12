@@ -60,7 +60,7 @@ WATCH_JS = r"""(() => {
       Ltgt: tg ? (tg.kind === 'door' ? (tg.siegeEngine ? 'engine' : 'door') : tg.role || tg.kind) : '', near: near ? near.S.name : '', nd: Math.round(nd), inside,
       door: K ? (K.door.alive ? +(K.door.hp / K.door.maxHp).toFixed(2) : 0) : O && O.temple ? (O.temple.door.alive ? 1 : 0) : null,
       own: K ? K.realm : null, E: E ? E.kind + ':' + E.state : '', storm: m.filter((e) => e.ai && e.ai.storm).length, crew: m.filter((e) => e.siegeCrew).length,
-      path: wb.path ? wb.pathIdx + '/' + wb.path.length : '-', replans: wb.replans || 0, ai: L.ai ? Object.keys(L.ai).filter((k) => L.ai[k] && typeof L.ai[k] === 'object').slice(0, 6).join(',') : '' };
+      path: wb.path ? wb.pathIdx + '/' + wb.path.length : '-', replans: wb.replans || 0, mo: L.motion ? L.motion.kind + ':' + (L.motion.st ?? '') : '', room: H.towers && H.towers.towerRoomOf(L) ? 'lv' + H.towers.towerRoomOf(L).lv : '', ai: L.ai ? Object.keys(L.ai).filter((k) => L.ai[k] && typeof L.ai[k] === 'object').slice(0, 6).join(',') : '' };
   }
   function look(dt) {
     const now = GAME.t, peace = H.CW.CAMPAIGN.state !== 'war';
@@ -132,7 +132,7 @@ def fmt_snap(e):
     return (f"t={e['t']} {['Logres','Eriu','Thule'][e['r']]}#{e['id']} {e['k']} why={e['why']} n={e['n']} L={e['L']} up={e['up']} dGoal={e['dGoal']} dLG={e['dLG']} "
             f"eng={int(e['eng'])} fighting={e['fighting']} doorTgt={e['doorTgt']} far={e['far']} Ltgt={e['Ltgt']} near={e['near']}@{e['nd']}{' in' if e['inside'] else ''}(own {e.get('nOwn')} gate {e.get('nGate')}) "
             f"door={e['door']} own={e['own']} E={e['E']} storm={e['storm']} crew={e['crew']} path={e['path']} replans={e['replans']} mount={int(e['mount'])} ai={e['ai']}"
-            + (f" dur={e['dur']:.0f}" if 'dur' in e else ''))
+            + (f" mo={e.get('mo')} room={e.get('room')}" if e.get('mo') or e.get('room') else '') + (f" dur={e['dur']:.0f}" if 'dur' in e else ''))
 
 async def main():
     async with async_playwright() as p:

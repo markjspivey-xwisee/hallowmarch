@@ -254,13 +254,14 @@ function planWar(C) {
   // the muster: a realm down to its last keep musters bigger bands, faster; so does a long war
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (mine.length < MAX_WARBANDS() + underdog && now > C.nextSpawn) {
+  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog && now > C.nextSpawn) { // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
     const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
     const wb = spawnWarband(r, size);
     wbOrd(wb);
     // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
     const vet = Math.round(cwWeary() * 4);
     if (vet) for (const e of wbMembers(wb)) { e.wlOff = (e.wlOff || 0) + vet; e.level += vet; setupStats(e, true); }
+    cwMergeRemnants(r, wb, mine); // [war2] the last of a broken band join the new one (08j_war2.js)
     mine.push(wb);
     C.nextSpawn = now + 26 + Math.random() * 18 - underdog * 8;
   }

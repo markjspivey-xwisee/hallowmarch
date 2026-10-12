@@ -97,13 +97,10 @@ function walledAt(x, z) {
   for (const T of WAR.temples) { if (dist2(x, z, T.site.x, T.site.z) > 20 * 20) continue; const C = castleOf(T.site); if (C && castleInside(C, x, z)) return { C, ref: T }; }
   return null;
 }
-// a band's soldier in a court whose way lies outside those walls (a leader whose next point is out on the field, a
-// member whose leader has gone out) goes out by the gate: to it from inside, then through it, and a gate of its own realm
-// opens for it as for a sally even with foes before it (a leader walked straight for its next point, into the wall, and
-// the gate opened only with no foe within 19 m). A gate of the enemy's, shut, it does not pass: it fights there.
-// the next point out of the walls W for a body at e going to g outside them: its gate (to it from inside, then through
-// it), or a gap burnt in a hallow's log wall
-// when the gate is the enemy's and whole; null when there is no way out it may take (a whole gate of the enemy's)
+// A band's soldier in a court whose way lies outside those walls (a leader whose next point is out on the field, a member
+// whose leader has gone out) goes out by the gate (a leader walked straight for its next point, into the wall). The next
+// point out of the walls W for a body at e: its gate (to it from inside, then through it), or, when the gate is the
+// enemy's and whole, a gap burnt in a hallow's log wall; null when there is no way out it may take (it fights there).
 function bandExitPoint(e, W, g) {
   const D = W.ref.door, mine = W.ref.realm === e.faction;
   const B = e.ai.gateOut && e.ai.gateOut.C === W.C ? e.ai.gateOut : (e.ai.gateOut = { C: W.C, past: false, n: 0 });
@@ -539,6 +536,33 @@ registerSavePart('world', 'gates', {
   },
   key(d) { return d ? d.map((q) => q.slice(0, 3).join(':')).join(',') : ''; },
 });
+
+// a body (not the player) held on a ladder by a foe ahead of it for 25 s (a foe standing over a hatch it cannot break,
+// one its blows from the rungs cannot fell) goes back the way it came, once a climb (from ladderRungs, 04m_ladders.js)
+function ladderHeldTurn(e, m) {
+  if (e === GAME.player || m.w2turned || m.held < 25) return;
+  m.dir = -m.dir; m.held = 0; m.w2turned = true;
+  WAR2.stats.ladderTurns = (WAR2.stats.ladderTurns || 0) + 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* the last of a broken band                                           */
+/* ------------------------------------------------------------------ */
+// At low a realm musters two bands (three at medium), and a band cut down to its last one or two soldiers held its place
+// at the muster for as long as they lived: a lone soldier stuck at a far keep kept a realm at half its strength for ten
+// minutes. A band of fewer than three (not bearing a hallow, not under the player's order) no longer counts against the
+// muster (cwBandsCounted, from planWar), and the next band to muster takes them in (cwMergeRemnants): they follow its
+// captain from wherever they are.
+const bandRemnant = (wb) => { const m = wbMembers(wb); return m.length < 3 && !m.some((e) => e.carrying != null) && !(wb.order && wb.order.byPlayer); };
+const cwBandsCounted = (mine) => mine.filter((w) => !w.dead && !bandRemnant(w)).length;
+function cwMergeRemnants(r, wb, mine) {
+  for (const w of mine) {
+    if (w === wb || w.dead || !bandRemnant(w)) continue;
+    for (const e of wbMembers(w)) { e.warband = wb; wb.members.push(e.id); e.target = null; if (e.ai) { e.ai.storm = null; e.ai.down = null; } if (e.siegeCrew) e.siegeCrew = null; }
+    w.members = []; w.dead = true; w.order = null;
+    WAR2.stats.merged = (WAR2.stats.merged || 0) + 1;
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* the long war: a hold on the March counts for more                   */

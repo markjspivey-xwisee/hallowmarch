@@ -5,7 +5,7 @@
   watch   a band at a gate whose own engine is at work is not given up as stalled
   houses  townsfolk run to a burning house and beat it out (screenshots by day and night at low and high)
   gate    a gate burnt down is kept with the world: saved, put back, loaded broken and charred
-usage: python3 tools/tests/war2.py [only=down,tower,engine,watch,houses,gate] [noshots] [q=low|medium|high]"""
+usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,gate] [noshots] [q=low|medium|high]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -259,6 +259,40 @@ async def main(p):
         check(r.get('door') and r.get('gap'), 'the hallow\'s gate stands; its ring is burnt through')
         check('raid/gap' in (r.get('phases') or ''), f"the raid goes round to the gap ({r.get('phases')})")
         check(r.get('took') is not None, f"in by the gap, it takes the hallow (its wardens fallen; in the court at {r.get('inside')} s, taken at {r.get('took')} s; {r.get('n')} left)")
+
+    if want('stormshot') and SHOTS:
+        print('-- stormshot: a band through a fallen tower\'s door, by day and by night', flush=True)
+        for tod, tag, k in ((0.5, 'day', 0), (0.02, 'night', 1)):
+            r = await ev(page, f"""(() => {{
+              const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
+              H.setTod({tod});
+              const Ks = WAR.keeps.map((q, i) => i).filter((i) => WAR.keeps[i].orig === 0 && fn.castleOf(WAR.keeps[i].site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
+              const ki = Ks[{k} % Ks.length], K = WAR.keeps[ki], C = fn.castleOf(K.site);
+              if (K.realm !== 0) fn.captureKeep(K, 0, null);
+              fn.fillGarrison(K, true);
+              const W = C.sections.filter((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w))[{k}] || C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));
+              // the court's guards stand down (the band comes through to a thinned court)
+              for (const id of K.guards) {{ const g = fn.getEnt(id); if (g && !g.ai.wall) {{ g.alive = false; g.hp = 0; g.removeAt = H.GAME.t; }} }}
+              fn.castleBreach(W);
+              const f = SG.siegeFace(W);
+              const id = __w2t.band(2, ki, 14, f.x + f.nx * 14, f.z + f.nz * 14);
+              const wb = __w2t.wb(id); wb.order.siegeE = null;
+              let through = 0, t = 0;
+              for (; t < 60 && through < 3; t += 0.5) {{ __w2t.quiet(); H.simulate(0.5); through = fn.wbMembers(wb).filter((m) => m.ai.storm && m.ai.storm.done && !m.ai.storm.failed).length; if (W.state !== 'breach') fn.castleBreach(W); }}
+              const Rt = H.siege2.siegeStormRoute(W), door = Rt[4], inn = Rt[3];
+              // from the court, a little to the side of the door's line, at a man's height and a half
+              const dx = door.x - inn.x, dz = door.z - inn.z, d = Math.hypot(dx, dz) || 1;
+              const px = door.x + dx / d * 9 + dz / d * 3.5, pz = door.z + dz / d * 9 - dx / d * 3.5;
+              H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+              H.camera.position.set(px, K.site.y + 2.4, pz);
+              H.camera.lookAt(door.x, K.site.y + 1.6, door.z);
+              for (let i = 0; i < 3; i++) H.frame(1 / 30);
+              return {{ keep: K.site.name, t, through, n: fn.wbMembers(wb).length }};
+            }})()""")
+            print('  ', json.dumps(r), flush=True)
+            await page.screenshot(path=OUT + f'war2_storm_{tag}_{QUALITY}.png', timeout=300000)
+            print(f'  shot war2_storm_{tag}_{QUALITY}', flush=True)
+            await ev(page, "(() => { __hm.CAM.mode = 'follow'; __hm.setTod(0.5); return 0; })()")
 
     if want('houses'):
         print('-- houses: townsfolk beat out a burning house', flush=True)

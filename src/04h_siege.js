@@ -536,6 +536,7 @@ function siegeImpact(s) {
     FX.dust(a.x, a.y + 0.2, a.z, 22, [0.44, 0.39, 0.31]);
     siegeDebris(a.x, a.y + 0.2, a.z, 14, [0.4, 0.34, 0.26]);
     siegeSplash(src, a.x, a.z, 2.6, 1.1);
+    houseBlowAt(src, a.x, a.z, 1.8, mult * 0.6); // [war2] a stone that lands beside a house (a keep's hall in the court, a wall short) shakes it: its walls crack (04j_batter.js)
   }
   if (near) { sfx(s.heavy ? 'boom' : 'crash'); cameraShake(s.heavy ? 0.4 : 0.25, a.x, a.z); }
 }

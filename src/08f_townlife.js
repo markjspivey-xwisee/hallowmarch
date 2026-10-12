@@ -61,7 +61,7 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false) { //
   for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + i + 0.5, z0 + j + 0.5)) blocked[j * W + i] = 1;
   collidersNear(x0 + W / 2, z0 + Hh / 2, Math.hypot(W, Hh) / 2 + 2, _lpC);
   for (const c of _lpC) {
-    if (!c.active || ((c.tag === 'door' && !gates) || c.tag === 'hdoor') || c.vert) continue; // [war2] gates
+    if (!c.active || ((c.tag === 'door' && !gates) || c.tag === 'hdoor') || (c.vert && (!gates || (c.y0 != null && c.y0 > heightAt(c.x, c.z) + 1.8)))) continue; // [war2] gates: and a wall that stands from the ground (a palisade, a curtain) is a wall
     const r = (c.type === 'circle' ? c.r : Math.hypot(c.hx, c.hz)) + pad;
     const i0 = Math.max(0, Math.floor(c.x - r - x0)), i1 = Math.min(W - 1, Math.floor(c.x + r - x0)), j0 = Math.max(0, Math.floor(c.z - r - z0)), j1 = Math.min(Hh - 1, Math.floor(c.z + r - z0));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
