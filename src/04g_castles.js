@@ -67,12 +67,17 @@ function floorSolidAt(x, z, y) {
   return false;
 }
 const elevatedEnt = (e) => e.fixedY !== null || e.y > heightAt(e.x, e.z) + 2.2;
+const castleSolidN = (x, z, y, r) => +floorSolidAt(x, z, y) + floorSolidAt(x + r, z, y) + floorSolidAt(x - r, z, y) + floorSolidAt(x, z + r, y) + floorSolidAt(x, z - r, y); // [v15] how much of a body's footprint is in a raised floor's solid
 // stepTo asks: may this body move to (x, z)? Not into the side of a stair or a wall top, and the garrison and the
 // war never walk off the edge of a wall walk (the player may: they drop)
 function castleStepBlocked(e, x, z, y) {
   if (x > DUN_X0 || !FLOOR.list.length) return false;
   const r = e.radius * (e.scale || 1) * 0.65;
-  if (floorSolidAt(x, z, y) || floorSolidAt(x + r, z, y) || floorSolidAt(x - r, z, y) || floorSolidAt(x, z + r, y) || floorSolidAt(x, z - r, y)) return true;
+  // [v15] a body standing on the ground inside a raised floor's solid (a rath's bank, a ramp: shoved in by its fellows or
+  // set down there) may walk out of it, by any step that leaves no more of it in the solid: every step was refused, and
+  // a band's leader stood inside Ráth Brannagh's bank for the rest of the war (campaign_soak.py: 500 s over five
+  // orders). Not up on a stair or a walk: a crew on a stair under a walk rebuilt over it wandered under the boards
+  if (floorSolidAt(x, z, y) || floorSolidAt(x + r, z, y) || floorSolidAt(x - r, z, y) || floorSolidAt(x, z + r, y) || floorSolidAt(x, z - r, y)) { if (!floorSolidAt(e.x, e.z, y) || y > heightAt(e.x, e.z) + 0.3 || castleSolidN(x, z, y, r) > castleSolidN(e.x, e.z, y, r)) return true; }
   if (e.role !== 'player' && y - floorAt(x, z, y) > 1.1 && y - heightAt(e.x, e.z) > 1.1) return true;
   return false;
 }

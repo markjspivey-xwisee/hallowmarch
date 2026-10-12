@@ -160,7 +160,11 @@ function siegeStormFight(e, s, dt) {
 // a storming member's step (thinkSoldier): true while the storm has the body
 function siegeStormStep(e, dt) {
   const s = e.ai.storm, wb = e.warband, O = wb && wb.order;
-  if (!O || O.phase !== 'breach' || O.breach !== s.W || s.W.state !== 'breach' || e.carrying != null || e.siegeCrew) { e.ai.storm = null; return false; }
+  // [v15] a band whose leader is through and has turned to the court ('assault': 08_ai.js's [war2] rule for a band in
+  // the court) keeps storming with those still on their way in: dropped there, one stood against the drum or at its
+  // place in the ranks outside the walls for a minute and more (siege2.py's stormall); once through, it goes with the band
+  const goingIn = !!O && O.breach === s.W && (O.phase === 'breach' || (O.phase === 'assault' && !s.done));
+  if (!goingIn || s.W.state !== 'breach' || e.carrying != null || e.siegeCrew) { e.ai.storm = null; return false; }
   const W = s.W, Rt = siegeStormRoute(W);
   if (e.mount) dismount(e);
   if (s.done) {

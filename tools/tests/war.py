@@ -135,6 +135,9 @@ async def main(p):
     # ---- rally to me ----
     my = await ev(page, "__hm.CW.bands(0)")
     rb = next((x for x in my if not x['mine']), my[0])
+    # [v15] (sturdy for the scene: cut down meanwhile, the band was gone, or merged into the next to muster, before the
+    # hand-back could be read)
+    await ev(page, f"(() => {{ const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); window.__wHp = __hm.fn.wbMembers(wb).map((m) => [m, m.maxHp]); for (const m of __hm.fn.wbMembers(wb)) {{ m.hp = m.maxHp = 1e6; }} return 0; }})()")
     msg = await ev(page, f"__hm.CW.playerOrder({rb['id']}, 'rally', -1)")
     print('   ', msg)
     d0 = await ev(page, f"(() => {{ {MEDIAN} const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); const P = __hm.GAME.player; return med(wb, P.x, P.z); }})()")
@@ -154,8 +157,10 @@ async def main(p):
         check(any('Rally' in t for t in plate), f"the captain's nameplate shows the order ({plate[:3]})")
         await shot(page, 'war_rally')
     rel = await ev(page, f"__hm.CW.playerOrder({rb['id']}, 'release', -1)")
-    o = await ev(page, f"(() => {{ __hm.simulate(6); const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); return wb && wb.order ? {{ type: wb.order.type, mine: !!wb.order.byPlayer }} : null; }})()")
-    check(o is not None and not o['mine'], f'handed back, the commander gives the band its own order again ({rel}; {o})')
+    # [v15] up to 30 s for the commander's next look (a fixed 6 s missed it now and then); a band cut down meanwhile says so
+    o = await ev(page, f"(() => {{ for (let t = 0; t < 30; t += 2) {{ __hm.simulate(2); const wb = __hm.WAR.warbands.find((w) => w.id === {rb['id']}); if (!wb || wb.dead) return {{ gone: true, t }}; if (wb.order && !wb.order.byPlayer) return {{ type: wb.order.type, mine: false, t }}; }} return null; }})()")
+    check(o is not None and (o.get('gone') or not o['mine']) and 'gone' not in str(rel), f'handed back, the commander gives the band its own order again ({rel}; {o})')
+    await ev(page, "(() => { for (const [m, h] of window.__wHp || []) { m.maxHp = h; m.hp = Math.min(m.hp, h); } window.__wHp = null; return 0; })()")
 
     # ---- the long war, until a realm wins ----
     print('the campaign:', flush=True)

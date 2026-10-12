@@ -194,7 +194,8 @@ function bandLeaderDetour(wb, L, O) {
   if (d < P.d - 1 || dist2(L.x, L.z, P.x, P.z) > 9) { P.d = d; P.x = L.x; P.z = L.z; P.t = GAME.t; }
   const D = wb.w2detour;
   if (D) {
-    while (D.i < D.pts.length && dist2(L.x, L.z, D.pts[D.i].x, D.pts[D.i].z) < 1.6 * 1.6) D.i++;
+    const R = D.narrow ? 1.0 : 1.6; // [v15] a narrow way's points are dense and followed close (its corners not cut)
+    while (D.i < D.pts.length && dist2(L.x, L.z, D.pts[D.i].x, D.pts[D.i].z) < R * R) D.i++;
     if (GAME.t < D.until && D.i < D.pts.length && !wb.engaged) { wb.leaderGoal = { x: D.pts[D.i].x, z: D.pts[D.i].z }; return true; }
     wb.w2detour = null;
   }
@@ -202,8 +203,27 @@ function bandLeaderDetour(wb, L, O) {
   if (O.phase === 'hold' || (O.phase === 'bombard' && O.bombSince !== undefined) || L.siegeCrew) return false;
   P.t = GAME.t; P.d = d;
   const k = Math.min(1, 60 / d), tx = L.x + (g.x - L.x) * k, tz = L.z + (g.z - L.z) * k;
-  const pts = localPath(L.x, L.z, tx, tz, 0.6, 76, true);
-  if (pts && pts.length) { wb.w2detour = { pts, i: 0, until: GAME.t + 25 }; wb.leaderGoal = { x: pts[0].x, z: pts[0].z }; WAR2.stats.detours = (WAR2.stats.detours || 0) + 1; return true; }
+  let pts = localPath(L.x, L.z, tx, tz, 0.6, 76, true);
+  // [v15] a narrow way the 1 m grid closes inside a keep's or a temple's walls (the strip between a burh's hall and its
+  // back palisade, 1.2 m wide: two bands' leaders stood in it for minutes, order after order, campaign_soak.py): on the
+  // court's floor (the grid knows nothing of heights: not up on a walk), a grid of quarter metres padded by a little less
+  // than a body's size (the strip is a body and a half wide), its sight lines a cell clear of what stands so the corners
+  // are not cut, to the court; from there the band's own way (from outside, the walls and the gate close the court)
+  if (!pts) {
+    let cn = null;
+    for (const K of WAR.keeps) {
+      const S = K.site, C = dist2(L.x, L.z, S.x, S.z) < 22 * 22 && L.y - Math.max(heightAt(L.x, L.z), S.y) < 0.6 ? castleOf(S) : null;
+      if (!C) continue;
+      // within the walls' inner faces (castleInside's box stops short of the strip behind a burh's hall), never from
+      // outside: through a breach the court is no way on for a band whose way lies out by the gate
+      const dx = L.x - S.x, dz = L.z - S.z, c = Math.cos(S.yaw), s = Math.sin(S.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c;
+      if (C.kind === 'round' ? lx * lx + lz * lz < 15.6 * 15.6 : Math.abs(lx) < 14.4 && Math.abs(lz) < 14.4) { cn = K.nav.court; break; }
+    }
+    if (!cn) for (const T of WAR.temples) if (dist2(L.x, L.z, T.site.x, T.site.z) < 15 * 15 && L.y - Math.max(heightAt(L.x, L.z), T.site.y) < 0.6) { cn = T.nav.tc; break; }
+    if (cn && dist2(L.x, L.z, cn.x, cn.z) > 3 * 3) pts = localPath(L.x, L.z, cn.x, cn.z, 0.36, 48, true, 0.25);
+    if (pts && pts.length) { if (L.mount) { dismount(L); L.ai.remountAt = GAME.t + 20; } WAR2.stats.narrowWays = (WAR2.stats.narrowWays || 0) + 1; pts.narrow = true; }
+  }
+  if (pts && pts.length) { wb.w2detour = { pts, i: 0, until: GAME.t + 25, narrow: !!pts.narrow }; wb.leaderGoal = { x: pts[0].x, z: pts[0].z }; WAR2.stats.detours = (WAR2.stats.detours || 0) + 1; return true; }
   wb.goal = -1; WAR2.stats.detourReplans = (WAR2.stats.detourReplans || 0) + 1; // (planned again from here by updateWarband's next look)
   return false;
 }
@@ -431,8 +451,21 @@ function houseBeatStep(e, st, plan, dt, next) {
   const d = dist(e.x, e.z, st.spot.x, st.spot.z);
   if (d > 0.8) {
     c.beat = -1;
+    // [v15] the way round what stands between (another house, a fence: localPath, 08f_townlife.js): the crew ran from
+    // across the town in straight lines and stood behind the next house while the fire took the roof (war2.py's houses:
+    // two of five beat, and the house burnt, one run in two)
+    if (st.path) {
+      const w = st.path[0];
+      if (!w || plan.t > st.pathUntil) st.path = null;
+      else { if (dist(e.x, e.z, w.x, w.z) < 0.8 || moveToward(e, w.x, w.z, dt, 1.6, 0.5)) { st.path.shift(); if (!st.path.length) st.path = null; } if (st.path) return true; }
+    }
     if (d < st.best - 0.3) { st.best = d; st.bestT = plan.t; }
-    else if (plan.t - st.bestT > 2.5) { c.k = (c.k + 1) % 8; st.spotT = 0; } // something in the way: the next place round
+    else if (plan.t - st.bestT > 2.5) {
+      st.bestT = plan.t;
+      const way = d > 3 && !st.pathTried ? localPath(e.x, e.z, st.spot.x, st.spot.z) : null; // [v15]
+      if (way && way.length) { st.path = way; st.pathUntil = plan.t + 30; st.pathTried = true; WAR2.stats.crewWays = (WAR2.stats.crewWays || 0) + 1; return true; }
+      c.k = (c.k + 1) % 8; st.spotT = 0; st.pathTried = false; // something in the way: the next place round
+    }
     moveToward(e, st.spot.x, st.spot.z, dt, 1.6, 0.5);
     return true;
   }

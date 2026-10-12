@@ -66,6 +66,14 @@ HELP = r"""(() => {
       const P = H.GAME.player, S = H.REALMS[P.faction].town;
       P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = fn.heightAt(P.x, P.z); P.hp = P.maxHp; P.alive = true;
     },
+    // [v15] the scene alone: no commander plans, no other band about (the scenes ran inside the live war, and now and then
+    // a band passing by stormed with the small one, the engine's band breached its wall and took the keep, or the
+    // island's leader fought a foe below instead of jumping)
+    calm() {
+      for (const C of WAR.commanders) { C.nextThink = 1e9; C.nextSpawn = 1e9; }
+      for (const e of H.ENT.slice()) if (e.role === 'soldier') fn.removeEnt(e);
+      for (const w of WAR.warbands) w.dead = true;
+    },
   };
   return 0;
 })()"""
@@ -135,7 +143,7 @@ async def main(p):
         print('-- island: a leader on a stretch of a burh\'s walk cut off by burnt gaps', flush=True)
         r = await ev(page, r"""(() => {
           const H = __hm, fn = H.fn, WAR = H.WAR, Z = H.blaze;
-          Z.blazeInit();
+          Z.blazeInit(); __w2t.calm(); // [v15]
           const K = WAR.keeps.find((k) => k.realm === 2 && k.orig === 2), C = fn.castleOf(K.site), B = C.blaze;
           if (!B || B.ring) return { err: 'no walk' };
           // a cell in the middle of a run, its neighbours either side burnt through
@@ -197,12 +205,14 @@ async def main(p):
         print('-- watch: a band at the gate whose engine is at work', flush=True)
         r = await ev(page, r"""(() => {
           const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
+          __w2t.calm(); // [v15]
           const ki = WAR.keeps.findIndex((k) => k.realm !== 0), K = WAR.keeps[ki], C = fn.castleOf(K.site);
           const g = SG.siegeGatePoint(K.site);
           const id = __w2t.band(0, ki, 7, g.x + g.nx * 60, g.z + g.nz * 60);
           const wb = __w2t.wb(id), O = wb.order;
           O.phase = 'siege';
           const W = (C.sections || []).find((w) => w.state === 'whole'), f = SG.siegeFace(W);
+          const hp0 = [W.hp, W.maxHp]; W.hp = W.maxHp = 1e12; // [v15] its stones crack the wall and no more: brought down, the band stormed it and took the keep (its crew left the engine)
           const x = f.x + f.nx * 55, z = f.z + f.nz * 55;
           const E = SG.siegeCreate('trebuchet', 0, x, z, Math.atan2(f.x - x, f.z - z), { C, W }, { x, z });
           E.build = 1; E.state = 'work'; E.wb = wb; O.siegeE = E.id;
@@ -214,6 +224,7 @@ async def main(p):
           const st0 = WAR.stats.bandStalls || 0;
           wb.realProgress = H.GAME.t; wb.hitAt = -1e9;
           for (let t = 0; t < 170; t += 5) { __w2t.quiet(); H.simulate(5); if (!wb.order || wb.order !== O) break; }
+          W.maxHp = hp0[1]; W.hp = Math.min(hp0[0], hp0[1]);
           return { kept: wb.order === O, stalls: (WAR.stats.bandStalls || 0) - st0, E: E.state, crew: E.crew.length, n: fn.wbMembers(wb).length, dead: !!wb.dead, phase: wb.order ? wb.order.phase : null };
         })()""")
         print('  ', json.dumps(r), flush=True)
@@ -224,6 +235,7 @@ async def main(p):
         r = await ev(page, r"""(() => {
           const H = __hm, fn = H.fn, WAR = H.WAR, SG = H.SIEGE;
           // a Logres keep's corner tower brought down, its garrison whole, two Thule bands before it
+          __w2t.calm(); // [v15]
           const ki = WAR.keeps.findIndex((k) => k.realm === 0 && fn.castleOf(k.site).sections.some((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w)));
           const K = WAR.keeps[ki], C = fn.castleOf(K.site);
           const W = C.sections.find((w) => w.kind === 'tower' && H.siege2.siegeTowerWayOk(w));

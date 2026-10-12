@@ -53,25 +53,25 @@ function houseLife(e, dt) {
 // colliders (houses, fences, workstations, furniture, trees; doors open for townsfolk, so they are no wall), smoothed to
 // a few waypoints by sight lines over the same grid. Null when there is no way within the box (or the ends are far).
 const _lpC = [];
-function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false) { // [war2] gates: a castle's gate is a wall (a band's way round, 08j_war2.js)
+function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs = 1) { // [war2] gates: a castle's gate is a wall (a band's way round, 08j_war2.js); [v15] cs: the cells' size in metres (a narrow way: 0.25)
   const x0 = Math.floor(Math.min(ax, bx) - 10), z0 = Math.floor(Math.min(az, bz) - 10);
-  const W = Math.ceil(Math.max(ax, bx) + 10) - x0, Hh = Math.ceil(Math.max(az, bz) + 10) - z0;
-  if (W > maxSpan || Hh > maxSpan || W < 2 || Hh < 2) return null;
+  const W = Math.ceil((Math.ceil(Math.max(ax, bx) + 10) - x0) / cs), Hh = Math.ceil((Math.ceil(Math.max(az, bz) + 10) - z0) / cs);
+  if (W * cs > maxSpan || Hh * cs > maxSpan || W < 2 || Hh < 2) return null;
   const N = W * Hh, blocked = new Uint8Array(N);
-  for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + i + 0.5, z0 + j + 0.5)) blocked[j * W + i] = 1;
-  collidersNear(x0 + W / 2, z0 + Hh / 2, Math.hypot(W, Hh) / 2 + 2, _lpC);
+  for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + (i + 0.5) * cs, z0 + (j + 0.5) * cs)) blocked[j * W + i] = 1;
+  collidersNear(x0 + W * cs / 2, z0 + Hh * cs / 2, Math.hypot(W, Hh) * cs / 2 + 2, _lpC);
   for (const c of _lpC) {
     if (!c.active || ((c.tag === 'door' && !gates) || c.tag === 'hdoor') || (c.vert && (!gates || (c.y0 != null && c.y0 > heightAt(c.x, c.z) + 1.8)))) continue; // [war2] gates: and a wall that stands from the ground (a palisade, a curtain) is a wall
     const r = (c.type === 'circle' ? c.r : Math.hypot(c.hx, c.hz)) + pad;
-    const i0 = Math.max(0, Math.floor(c.x - r - x0)), i1 = Math.min(W - 1, Math.floor(c.x + r - x0)), j0 = Math.max(0, Math.floor(c.z - r - z0)), j1 = Math.min(Hh - 1, Math.floor(c.z + r - z0));
+    const i0 = Math.max(0, Math.floor((c.x - r - x0) / cs)), i1 = Math.min(W - 1, Math.floor((c.x + r - x0) / cs)), j0 = Math.max(0, Math.floor((c.z - r - z0) / cs)), j1 = Math.min(Hh - 1, Math.floor((c.z + r - z0) / cs));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const dx = x0 + i + 0.5 - c.x, dz = z0 + j + 0.5 - c.z;
+      const dx = x0 + (i + 0.5) * cs - c.x, dz = z0 + (j + 0.5) * cs - c.z;
       if (c.type === 'circle') { if (dx * dx + dz * dz < r * r) blocked[j * W + i] = 1; continue; }
       const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
       if (Math.abs(lx) < c.hx + pad && Math.abs(lz) < c.hz + pad) blocked[j * W + i] = 1;
     }
   }
-  const cellOf = (x, z) => clamp(Math.floor(z - z0), 0, Hh - 1) * W + clamp(Math.floor(x - x0), 0, W - 1);
+  const cellOf = (x, z) => clamp(Math.floor((z - z0) / cs), 0, Hh - 1) * W + clamp(Math.floor((x - x0) / cs), 0, W - 1);
   const s = cellOf(ax, az), g = cellOf(bx, bz);
   blocked[s] = 0; blocked[g] = 0;
   // A* with a binary heap of [f, cell] pairs; 8 neighbours, no corner cutting
@@ -107,13 +107,17 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false) { //
   for (let k = g; k !== -1; k = from[k]) cells.push(k);
   cells.reverse();
   // smoothed: from each waypoint, on to the farthest cell in clear sight (sampled every half metre over the grid)
-  const clear = (a, b) => { const ax2 = (a % W) + 0.5, az2 = ((a / W) | 0) + 0.5, bx2 = (b % W) + 0.5, bz2 = ((b / W) | 0) + 0.5, n = Math.ceil(Math.hypot(bx2 - ax2, bz2 - az2) * 2); for (let q = 1; q < n; q++) { const t = q / n, i = Math.floor(ax2 + (bx2 - ax2) * t), j = Math.floor(az2 + (bz2 - az2) * t); if (blocked[j * W + i]) return false; } return true; };
+  // [v15] on a fine grid (cs < 1: a narrow way) a sight line keeps a cell clear on either side, so in the narrow part the
+  // way stays as the cells run (dense) and the corners are not cut: a body (its own size more than the pad) cut a corner
+  // straight into the wall beyond it and was held there
+  const fine = cs < 1, freeAt = (i, j) => { if (!fine) return !blocked[j * W + i]; for (let v = -1; v <= 1; v++) for (let u = -1; u <= 1; u++) { const i2 = i + u, j2 = j + v; if (i2 >= 0 && j2 >= 0 && i2 < W && j2 < Hh && blocked[j2 * W + i2]) return false; } return true; };
+  const clear = (a, b) => { const ax2 = (a % W) + 0.5, az2 = ((a / W) | 0) + 0.5, bx2 = (b % W) + 0.5, bz2 = ((b / W) | 0) + 0.5, n = Math.ceil(Math.hypot(bx2 - ax2, bz2 - az2) * 2); for (let q = 1; q < n; q++) { const t = q / n, i = Math.floor(ax2 + (bx2 - ax2) * t), j = Math.floor(az2 + (bz2 - az2) * t); if (!freeAt(i, j)) return false; } return true; };
   const out = [];
   let a = 0;
   while (a < cells.length - 1) {
     let b = cells.length - 1;
     while (b > a + 1 && !clear(cells[a], cells[b])) b--;
-    out.push({ x: x0 + (cells[b] % W) + 0.5, z: z0 + ((cells[b] / W) | 0) + 0.5 });
+    out.push({ x: x0 + ((cells[b] % W) + 0.5) * cs, z: z0 + (((cells[b] / W) | 0) + 0.5) * cs });
     a = b;
   }
   if (out.length) { out[out.length - 1].x = bx; out[out.length - 1].z = bz; }

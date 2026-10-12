@@ -182,6 +182,9 @@ async def main():
         if want('housefire'):
             # [war2] a house afire in the town: beside its walls a tap on Use beats the flames down, and a few more put
             # it out (its people kept away: 08j_war2.js)
+            # [v15] the page's own frames held meanwhile (the game's time is the flow's simulate alone): on a loaded machine
+            # they ran the fire on through each tap's waits, and fourteen taps did not catch it up one run in three
+            await page.evaluate("(() => { if (!window.__rafWrapped) { window.__rafWrapped = true; const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); } window.__rafHold = true; return 0; })()")
             r = await page.evaluate("""(() => { const H = TF.H, W2 = H.war2; W2.HCREW.off = true; const S = H.REALMS[0].town, P = TF.P();
               const h = H.HOUSES.find((q) => q.S === S && !q.keepHall && q.state === 'whole' && !q.round); H.fn.igniteHouse(h); H.simulate(4);
               const o = H.fn.houseW(h, 0, h.d / 2 + 1.2); TF.stand(o.x, o.z, h.x, h.z); P.brand = null; H.simulate(0.1); H.frame(1/30);
@@ -192,7 +195,7 @@ async def main():
                 more = await page.evaluate("(() => { __hm.simulate(0.5); __hm.frame(1/30); return TF.hf.state === 'burning'; })()")
                 if not more: break
                 await tap(page, '#t-use')
-            st = await page.evaluate("(() => { __hm.simulate(0.3); const h = TF.hf, out = { state: h.state }; if (h.state !== 'whole') __hm.fn.houseRestore(h); __hm.war2.HCREW.off = false; return out; })()")
+            st = await page.evaluate("(() => { __hm.simulate(0.3); const h = TF.hf, out = { state: h.state }; if (h.state !== 'whole') __hm.fn.houseRestore(h); __hm.war2.HCREW.off = false; window.__rafHold = false; return out; })()")
             check(r['label'] == 'Beat out the flames' and ok and h1['R'] < r['R'] and h1['act'] == 21, f"housefire: beside a burning house a tap on Use beats the flames down ({r['label']}, front {r['R']} -> {h1['R']} m, action {h1['act']})")
             check(st['state'] == 'whole', f"housefire: a few taps put it out ({json.dumps(st)})")
 
@@ -398,7 +401,8 @@ async def main():
               const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === 1 && q.T.sz === -1), T = W.T;
               if (W.state === 'whole') { const src = F.spawnRealmUnit(2, 'warrior', 30, 'guard', S.x + W.ox * 70, S.z + W.oz * 70, {}); src.hp = src.maxHp = 1e9; for (let n = 0; W.state === 'whole' && n < 80; n++) F.castleSiegeHit(src, T.wx + W.ox * (T.RO + 0.2), T.wz + W.oz * (T.RO + 0.2), 2.0, 4.4); F.removeEnt(src); }
               const m = H.UI.modal; H.UI.modal = null; K.lastEnemyNear = -1e9;
-              for (let t = 0; t < 80 && !(W.l3 && W.l3.on); t++) { H.simulate(1); K.lastEnemyNear = -1e9; W.masonsFor = W.masonsFor || []; }
+              const calmK = () => { for (const e of H.ENT) if (e.alive && e.faction < 3 && e.faction !== K.realm && e.kind !== 'door' && (e.role === 'soldier' || e.warband) && Math.hypot(e.x - S.x, e.z - S.z) < 90) { e.alive = false; e.removeAt = H.GAME.t; } }; /* [v15] no band about the keep: a breach draws the commanders' bands now (war2), and a foe near it holds the masons off */
+              for (let t = 0; t < 80 && !(W.l3 && W.l3.on); t++) { calmK(); H.simulate(1); K.lastEnemyNear = -1e9; W.masonsFor = W.masonsFor || []; }
               for (const e of L3.MASON.list) if (!e.removed) F.removeEnt(e);
               if (W.t > 0.6) W.t = 0.3;
               H.UI.modal = m;
@@ -436,19 +440,26 @@ async def main():
             t = await page.evaluate("(document.querySelector('.chron-body') || {}).textContent || ''")
             check(ok and r['modal'] == 'menu' and r['sec'] in ('path', 'goals') and ok2 and 'Level 30' in t, f'guide: a tap on the path opens it in the Chronicle, and a tap its Aims ({r})')
             await tap(page, '#btn-resume')
-            await page.evaluate("(() => { const L = __hm.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'ladder'); __hm.LORE.state.noteUntil = 0; __hm.hud.note('ladder'); return 0; })()")
+            await page.evaluate("(() => { const L = __hm.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'ladder'); __hm.LORE.state.noteUntil = 0; __hm.hud.note('ladder'); const ns = [...document.querySelectorAll('#banners .lore-note:not(.hl-old)')], d = ns[ns.length - 1]; if (d) d.id = 'tf-note'; return 0; })()")
             n0 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
-            ok = await tap(page, '#banners .lore-note:not(.hl-old):last-child')
+            ok = await tap(page, '#tf-note')
             n1 = await page.evaluate("document.querySelectorAll('#banners .lore-note').length")
-            check(ok and n1 < n0, f'guide: a tap takes a field note away ({n0} then {n1})')  # (an older one may fade by itself meanwhile)
+            gone = await page.evaluate("!document.getElementById('tf-note')")
+            # [v15] the note tapped is gone (counting every note failed one run in three: on a loaded machine the next note in
+            # the queue came up in the 11.5 s the tap's waits can take)
+            check(ok and gone, f'guide: a tap takes a field note away ({n0} then {n1})')
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);
               const f = H.fn.siteToWorld(S, L.foot.x, L.foot.z), c = F.spawnRealmUnit(1, 'warrior', 24, 'soldier', f.x, f.z, {}); c.y = L.wyb; c.ai.post = null; c.maxHp = c.hp = 4000; window.__tfc = c;
               H.towers.towerClimb(c, L, 1); let lab = null; for (let i = 0; i < 60 && !(lab && lab.startsWith('Slam')); i++) { H.simulate(0.1); lab = TF.label(); } return lab; })()""")
+            s0 = await page.evaluate("__hm.ladders.LADDER.stats.slams")
             ok = await tap(page, '#t-use')
             st = await page.evaluate("(() => { __hm.simulate(0.3); const c = window.__tfc; return c.motion ? c.motion.st : null; })()")
-            check(r == 'Slam the hatch on them' and ok and st == 3, f'ladder: a foe comes up the ladder and a tap on Use slams the hatch on it ({r}, {st})')
+            s1 = await page.evaluate("__hm.ladders.LADDER.stats.slams")
+            # [v15] the slam counted (or the climber still falling): the page's own frames run on through a tap's waits on a
+            # loaded machine, and the climber had fallen and stood up again by the look after it (st None, one run in five)
+            check(r == 'Slam the hatch on them' and ok and (st == 3 or s1 > s0), f'ladder: a foe comes up the ladder and a tap on Use slams the hatch on it ({r}, {st}, slams {s0} -> {s1})')
             await page.evaluate("(() => { const c = window.__tfc; __hm.simulate(2); __hm.fn.removeEnt(c); return 0; })()")
             r = await page.evaluate("""(() => { const H = TF.H, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[0], P = TF.P(), p = H.fn.siteToWorld(S, L.foot.x, L.foot.z);
               H.INPUT.joy = null; H.INPUT.keys.clear(); P.motion = null; TF.stand(p.x, p.z, L.lx, L.lz); P.y = L.wyb; H.towers.towerClimb(P, L, 1); H.simulate(2.5); return { y: +(P.y - S.y).toFixed(2), dir: P.motion ? P.motion.dir : null }; })()""")

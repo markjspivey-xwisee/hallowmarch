@@ -433,8 +433,11 @@ async def stormall(page):
     for keep, pred, name in kinds:
         r = await ev(page, f'stormall: {name}', """(() => { T2.quiet(); T2.away(); const K = T2.keep(""" + keep + """), C = T2.C(K), F = T2.F, out = {};
           const W = T2.tower(K, """ + pred + """); T2.clearGarrison(K); const Lr = F.getEnt(K.lord); if (Lr) F.removeEnt(Lr); K.lord = null;
-          if (K.door && !K.door.alive) { K.door.alive = true; K.door.hp = K.door.maxHp; } /* [v13] its gate standing (an earlier step may have broken it): a broken gate sends a band in by the gate */
+          if (W.state === 'repair') F.castleRepairDone(W); /* [v15] mended meanwhile (an earlier step's quiet): whole again, then broken below */
           if (W.state === 'whole') { const src = T2.dummy(2, K.site.x + W.ox * 70, K.site.z + W.oz * 70); T2.breakIt(W, src); F.removeEnt(src); }
+          K.lastEnemyNear = __hm.GAME.t;
+          /* [v13] its gate standing (an earlier step may have broken it): a broken gate sends a band in by the gate; [v15] after the stones that brought the tower down (they batter the gate beside a gate tower), and whole as a rebuilt gate is (setDoorState) */
+          if (K.door && !K.door.alive) { const D = K.door, S = K.site; D.alive = true; D.hp = D.maxHp; D.faction = K.realm; if (S.door) { S.door.active = true; S.door.owner = K.realm; } if (S.doorMesh) S.doorMesh.visible = true; }
           const id = T2.S.band(K.realm === 2 ? 1 : 2, K.id, 95, 10), wb = __hm.WAR.warbands.find((w) => w.id === id), Rt = T2.S2.siegeStormRoute(W), p0 = Rt[0];
           F.wbMembers(wb).forEach((e, i) => { e.x = e.prevX = p0.x + W.ox * (6 + Math.floor(i / 4) * 1.6) + (i % 4 - 1.5) * 1.6 * W.oz; e.z = e.prevZ = p0.z + W.oz * (6 + Math.floor(i / 4) * 1.6) - (i % 4 - 1.5) * 1.6 * W.ox; e.y = F.heightAt(e.x, e.z); e.hp = e.maxHp = 1e6; });
           wb.order.siegeE = null;
