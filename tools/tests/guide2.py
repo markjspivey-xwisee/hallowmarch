@@ -165,6 +165,10 @@ async def phone(p):
     r = await ev(page, """(() => { const H = __hm, P = G2T.P();
       return G2T.watch('battered', () => { const h = H.guide2.nearHouse(P); if (h) { H.teleport(h.x + 9, h.z); H.batter.houseStoneHit(h, h.x, h.y + 1.2, h.z, 3, null, false); } }, null); })()""")
     check(r is True, f'the field note "battered" is given by a house battered near you ({r})')
+    # the lakes' note waits for ice near you (it was given in Ériu in spring when ice lay anywhere)
+    r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore, N = H.LORE.notes.lakeice; if (!N) return 'no note'; H.simulate(0.1); H.frame(1/30);
+      const P = G2T.P(), Rh = H.REALMS[1].town; H.teleport(Rh.x, Rh.z); G2T.calm(); return { ok: typeof N.ok === 'function' ? N.ok() : 'none' }; })()""")
+    check(isinstance(r, dict) and r['ok'] is False, f'the note on the lakes freezing waits in a town far from ice ({r})')
     # what is happening now: a garrison near you runs to a fire (a toast)
     r = await ev(page, """(() => { const H = __hm, P = G2T.P(), F = H.fn; for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
       const e = F.spawnRealmUnit((P.faction + 1) % 3, 'warrior', 20, 'soldier', P.x + 30, P.z); e.ai.fire = { key: 1, kind: 'pal' }; H.guide2.G2.fireToldT = -1e9; H.guide2.g2Scan(P);

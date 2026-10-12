@@ -174,7 +174,7 @@ const G2_NOTES = {
   ripe: { t: 'A ripe bed', x: () => `Harvest it before it sheds. Look at its plants first: keep the seed of the best (${IS_TOUCH ? 'on its plant card' : 'E on it'}), and your strain grows better each year.` },
   herb: { t: 'An unfamiliar plant', x: () => `Examine it (${IS_TOUCH ? 'on the plant card' : 'E'}) to learn it for your herbal; then you may gather it, dig up its root with a knife, and plant it in your own bed.` },
   scaffold: { t: 'Scaffolds and masons', x: () => `In peace a keep mends its breaches behind scaffolding, and two masons come out of its hall to work. Its boards carry you and its ladders climb: walk into one, or ${g2Use()}.` },
-  setwall: { t: 'Timber burns', x: () => `${g2Use()} with your brand sets it alight. The keep's people leave their posts to beat the fire out; a stretch that burns through is a breach for your warbands. Rain damps a fire.` },
+  setwall: { t: 'Timber burns', x: () => `With a brand in hand, ${g2Use()} sets it alight. The keep's people leave their posts to beat the fire out; a stretch that burns through is a breach for your warbands. Rain damps a fire.` },
   battered: { t: 'Stones on houses', x: () => 'A siege stone cracks a house it strikes and holes its roof (the rain comes in), and enough of them bring it down to rubble. Its town builds it back once the fighting moves on.' },
   renew: { t: 'Renewal on yourself', x: () => `For 4 s nothing but a stun breaks your spells: renew before a long one. Renewing again while the last still has more than ${typeof RENEW_ROTE_LEFT !== 'undefined' ? RENEW_ROTE_LEFT : 2} s to mend costs twice the power: renew at need, not by rote.`, fight: true },
   ward: { t: 'Your Arcane Ward', x: () => 'While it holds, a stun breaks on it, and so does a blow that would break your spell ("Warded"): each costs the ward some of its strength. Raise it before a long spell, or before a warrior leaps in.', fight: true },
@@ -328,8 +328,12 @@ LOADING_TIPS.push(
 /* ------------------------------------------------------------------ */
 /* the frame                                                           */
 /* ------------------------------------------------------------------ */
+// the lakes' note only where ice is near you: 05k_seasons.js gives the note at boot (seasonsInit replaces the one 10e_guide.js
+// had guarded) and queues it when ice lies anywhere, so a player in Ériu in spring was told of the ice; it waits now
+const g2LakeIceOk = () => { const P = GAME.player; return !!(P && typeof SICE !== 'undefined' && SICE.on && guideIceNear(P)); };
 function updateGuide2(dt) {
   const P = GAME.player;
+  if (FIELD_NOTES.lakeice && FIELD_NOTES.lakeice.ok !== g2LakeIceOk) FIELD_NOTES.lakeice.ok = g2LakeIceOk;
   if (!GAME.started || !P || !GAME.prog) return;
   G2.scanT -= dt;
   if (G2.scanT <= 0) { G2.scanT = 1; g2Scan(P); }
