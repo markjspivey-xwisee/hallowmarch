@@ -1138,9 +1138,18 @@ async def shots(page):
       P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'ward', P); for (let i = 0; i < 4; i++) { H.simulate(0.05); H.frame(0.05); }
       P.gcdUntil = 0; F.useAbility(P, 'firebolt', w); for (let i = 0; i < 6; i++) { H.simulate(0.05); H.frame(0.05); }
       const broke = H.bal.breakCast(P); H.frame(0.016);
-      /* both in the frame (the warrior stood out of it); the HUD shows the cast bar running on and "Warded" over the mage */
+      /* both in the frame (the warrior stood out of it) */
       CS(P, w, 9.5, 1.8, 0.5, 1.2); return { broke, casting: !!P.casting, kept: H.bal6.BAL6.stats.wardKept || 0 }; })()""")
-    await snap(page, 'ward', 1, hud=True)
+    if want('ward'):
+        # of the HUD only the cast bar (the spell runs on) and the word over the mage ("Warded"): the whole HUD covered the
+        # scene at 640x360
+        await page.evaluate("document.getElementById('hud').style.visibility = 'hidden'; for (const id of ['castbar', 'floaters']) document.getElementById(id).style.visibility = 'visible'; 0")
+        await frames(page, 1)
+        try:
+            t0 = time.time(); await page.screenshot(path=OUT + 'cls_ward.png', timeout=420000); print(f'  shot cls_ward ({time.time() - t0:.0f}s)', flush=True)
+        except Exception as err:
+            print(f'  shot cls_ward failed: {str(err)[:120]}', flush=True)
+        await page.evaluate("for (const id of ['castbar', 'floaters']) document.getElementById(id).style.visibility = ''; 0")
 
 async def main():
     async with async_playwright() as p:
