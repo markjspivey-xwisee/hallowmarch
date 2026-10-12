@@ -164,7 +164,9 @@ async def main():
                 c = o.get('climb') or {}
                 check(c and abs(c['y']) < 0.05 and abs(c['floor']) < 0.05, f"house {i}: a body climbs its ladder onto the boards ({c})")
                 sp = o.get('spot') or {}
-                check(sp and sp['solid'] == 0 and sp['d'] <= 0.8, f"house {i}: the townsfolk work inside it at the wall ({sp})")
+                # [motion5] (d: from the spot to 0.2 m inside the wall's face; a builder stands where its mallet meets the wall,
+                # HAMMER_REACH 0.705 m from the face: 0.905, inside the scaffold's standards a metre out)
+                check(sp and sp['solid'] == 0 and sp['d'] <= 0.95, f"house {i}: the townsfolk work inside it at the wall ({sp})")
                 a = o['after']
                 check(a['state'] == 'whole' and not a['rub'] and a['colls'] == 0 and a['floors'] == 0 and a['ladders'] == 0 and not a['mesh'] and not a['rubble'] and a['h'] > 3 and a['shotHigh'] == 'house', f"house {i}: whole again, the scaffold down (colliders, floors and ladder off), the walls' colliders whole ({a})")
         if 'ladder' in ONLY:

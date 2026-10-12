@@ -157,12 +157,13 @@ function look3MasonThink(e, dt) {
     if (m.lad && m.lad.length && e.y < Ld.wyt - 1) m.lad.pop();
     if (e.y < L.wyb + 1) { m.st = 'home'; m.path = null; return; }
     const Lc = m.lad && m.lad.length ? m.lad[m.lad.length - 1] : L;
+    if (m.ws) { m.wsT = (m.wsT || 0) + dt; if (moveToward(e, m.ws.x, m.ws.z, dt, 0.8, 0.08) || m.wsT > 4) { m.ws = null; m.wsT = 0; } return; } // [motion5] (back out from the wall first)
     if (moveToward(e, Lc.ox, Lc.oz, dt, 0.8, 0.12) && !towerClimb(e, Lc, -1)) { m.st = 'home'; m.path = null; }
     return;
   }
   if (m.st === 'up') {
     // on the boards: a step along from the ladder's top, facing the wall, and to work
-    m.st = 'work'; m.wallD = undefined; // [motion5] (in to the wall again from here)
+    m.st = 'work'; m.wallD = undefined; m.ws = { x: e.x, z: e.z }; // [motion5] (in to the wall again from here, and back out to here before going on)
     m.lad = m.lad || [L]; m.workT = m.t; // [look4] the ladders climbed so far, and when the work there began
     return;
   }
@@ -171,6 +172,9 @@ function look3MasonThink(e, dt) {
   if (m.st === 'climb') {
     const Ln = m.nextL;
     if (!Ln || Ln.gone) { m.st = 'work'; return; }
+    // [motion5] first back out from the wall to where the work began on these boards (stepped in to the mallet's reach, a
+    // way straight on to the next ladder could run into a tower's curved wall), then on along the boards
+    if (m.ws) { m.wsT = (m.wsT || 0) + dt; if (moveToward(e, m.ws.x, m.ws.z, dt, 0.8, 0.08) || m.wsT > 4) { m.ws = null; m.wsT = 0; } return; }
     if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; } else m.st = 'work'; }
     return;
   }

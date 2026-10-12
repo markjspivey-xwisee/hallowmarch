@@ -842,6 +842,23 @@ function humanVS(depth) {
     vec4 lk4L = footLock4(flSlot, 0) / rsc0, lk4R = footLock4(flSlot, 1) / rsc0;
     vec2 lkL = lk4L.xy, lkR = lk4R.xy;
     fL.x += lkL.y; fR.x += lkR.y;
+    // [motion5] the heel rises before the foot leaves the ground: in the last of the stance the foot turns about its ball
+    // (0.14 m ahead of the ankle along its own heading, 0.088 under it), toes down, the ankle rising and coming forward
+    // over the ball, which stands where it stood, and it leaves the ground already turned, the turn going on into the
+    // swing (it was lifted flat and its toes pointed down only once it was well up: a walker looked flat-footed). The
+    // ankle moves along the foot's own heading (the lock's: a planted foot keeps it while the body turns over it), across
+    // too, else the ball slid as the body turned in a cut (5 cm); and it is raised by what the turn asks in the air too,
+    // so the ball never dips below the swing's own height. (swL, swR: how far through its swing each foot is)
+    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
+    float hoK = max(gk, 0.5 * turnK), hoD = mix(0.3, 0.24, runK) * duty, hoP = mix(0.62, 0.5, runK);
+    float uR0 = fract(uL + 0.5);
+    float toeL = (swL > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * (1.0 - smoothstep(0.85, 1.0, swL)), smoothstep(0.0, 0.16, swL)) : hoP * smoothstep(duty - hoD, duty, uL)) * hoK;
+    float toeR = (swR > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * (1.0 - smoothstep(0.85, 1.0, swR)), smoothstep(0.0, 0.16, swR)) : hoP * smoothstep(duty - hoD, duty, uR0)) * hoK;
+    float pvL = max(toeL, 0.0), pvR = max(toeR, 0.0);
+    float w5L = lk4L.w * rsc0, w5R = lk4R.w * rsc0, yo5L = (w5L - 10.0 * floor(w5L * 0.1 + 0.5)) * 2.0, yo5R = (w5R - 10.0 * floor(w5R * 0.1 + 0.5)) * 2.0;
+    float dvL = 0.14 * (1.0 - cos(pvL)) + 0.088 * sin(pvL), dvR = 0.14 * (1.0 - cos(pvR)) + 0.088 * sin(pvR);
+    fL.x += dvL * cos(yo5L); lkL.x += dvL * sin(yo5L); fR.x += dvR * cos(yo5R); lkR.x += dvR * sin(yo5R);
+    fL.y += 0.088 * (cos(pvL) - 1.0) + 0.14 * sin(pvL); fR.y += 0.088 * (cos(pvR) - 1.0) + 0.14 * sin(pvR);
     float slopeDrop = min(0.1, abs(slopeK) * 0.14);
     gaitDrop += slopeDrop;
     // the ankle's height above the hip, keeping a planted foot on the ground however the body bobs and sinks
@@ -868,22 +885,6 @@ function humanVS(depth) {
     // faster than it rises (the toes, 0.13 m ahead of the ankle and 0.09 below it, rise at least three quarters as fast
     // as the ankle), and the ankle comes forward over them as the foot turns, so they leave the ground from where they
     // stood (turned about the ankle off a low stance they dipped back into the ground and slid 2 to 4 cm)
-    float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
-    // [motion5] the heel rises before the foot leaves the ground: in the last of the stance the foot turns about its ball
-    // (0.14 m ahead of the ankle, 0.088 under it), toes down, the ankle rising and coming forward over the ball, which stands
-    // where it stood, and it leaves the ground already turned, the turn going on into the swing (it was lifted flat and its
-    // toes pointed down only once it was well up: a walker looked flat-footed). The ankle is raised by what the turn asks
-    // in the air too, so the ball never dips below the swing's own height (the toes rose three quarters as fast as the ankle)
-    float hoK = max(gk, 0.5 * turnK), hoD = mix(0.3, 0.24, runK) * duty, hoP = mix(0.62, 0.5, runK);
-    float uR0 = fract(uL + 0.5);
-    float toeL = (swL > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * (1.0 - smoothstep(0.85, 1.0, swL)), smoothstep(0.0, 0.16, swL)) : hoP * smoothstep(duty - hoD, duty, uL)) * hoK;
-    float toeR = (swR > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * (1.0 - smoothstep(0.85, 1.0, swR)), smoothstep(0.0, 0.16, swR)) : hoP * smoothstep(duty - hoD, duty, uR0)) * hoK;
-    float pvL = max(toeL, 0.0), pvR = max(toeR, 0.0);
-    fL.x += 0.14 * (1.0 - cos(pvL)) + 0.088 * sin(pvL); fR.x += 0.14 * (1.0 - cos(pvR)) + 0.088 * sin(pvR);
-    fL.y += 0.088 * (cos(pvL) - 1.0) + 0.14 * sin(pvL); fR.y += 0.088 * (cos(pvR) - 1.0) + 0.14 * sin(pvR);
-    fzL = clamp(fL.x, -0.82, 0.82); fzR = clamp(fR.x, -0.82, 0.82);
-    rL = sqrt(max(0.7145 - fzL * fzL - lxL * lxL, 0.0144)); rR = sqrt(max(0.7145 - fzR * fzR - lxR * lxR, 0.0144));
-    upL = max(vL - rL, 0.0); upR = max(vR - rR, 0.0);
     float abL = atan(lxL / max(min(vL, rL), 0.3)), abR = atan(lxR / max(min(vR, rR), 0.3));
     vec2 ikL = legIK(fL.x, (fL.y + hL - 0.845 + gaitDrop - gaitBob) / cos(abL)), ikR = legIK(fR.x, (fR.y + hR - 0.845 + gaitDrop - gaitBob) / cos(abR)); // [polish] (a leg swung out reaches as far down)
     float thL = ikL.x, shL = ikL.y, thR = ikR.x, shR = ikR.y;
