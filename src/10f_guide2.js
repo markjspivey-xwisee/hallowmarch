@@ -28,13 +28,14 @@ const g2TapHeld = () => performance.now() < G2.tap.until;
 // (only a panel the layout moves: the pad, the stick and the hotbar stay put, and a draw held on X must not hold the
 // layout for its seconds)
 document.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest(HUD_ORDER.join(',') + ',#prompt')) return;
-  G2.tap.until = performance.now() + 2500; G2.tap.downs++; G2.tap.pending = true;
+  if (e.pointerType === 'mouse' || !e.target || !e.target.closest || !e.target.closest('#hud')) return;
+  G2.tap.downs++; G2.tap.pending = true; // (a tap on the HUD whose click is still to come: tests wait for it)
+  if (e.target.closest(HUD_ORDER.join(',') + ',#prompt')) G2.tap.until = performance.now() + 2500;
 }, true);
 const g2TapUp = () => { if (g2TapHeld()) G2.tap.until = performance.now() + 1200; }; // (a busy phone's click may come most of a second after the finger lifts)
 document.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
 document.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'mouse') g2TapUp(); }, true);
-document.addEventListener('click', () => { if (G2.tap.pending) { G2.tap.pending = false; G2.tap.clicks++; } if (g2TapHeld()) { G2.tap.until = 0; HUDL.k = 0; } }, true);
+document.addEventListener('click', () => { const mine = G2.tap.pending; if (mine) { G2.tap.pending = false; G2.tap.clicks++; } if (mine && g2TapHeld()) { G2.tap.until = 0; HUDL.k = 0; } }, true); // (only a press's own click lets the layout go on)
 
 /* ------------------------------------------------------------------ */
 /* the Chronicle on a phone: summaries first, detail folded            */

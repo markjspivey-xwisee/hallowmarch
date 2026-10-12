@@ -70,6 +70,9 @@ async def tap(page, sel, frames=2):
     if not box or not box['top']:
         print('  cannot tap', sel, json.dumps(box)); return False
     await page.touchscreen.tap(box['x'], box['y'])
+    # [guide2] its click comes after the finger lifts, sometimes after the next frames: the world is read once it has landed
+    try: await page.wait_for_function("!(window.__hm && __hm.guide2 && __hm.guide2.G2.tap.pending)", timeout=6000, polling=50)
+    except Exception: pass
     for _ in range(frames): await page.evaluate("__hm.frame(1/30); 0")
     return True
 
