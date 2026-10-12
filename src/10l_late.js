@@ -812,7 +812,7 @@ function chronDeeds() {
     return `<li><b>${esc(capFirst(late2RisenName(c)))}</b> ${st}<small>The ${esc((MOB_PLURAL[c.type] || c.type).toLowerCase())} of the far borderlands of ${esc(REALMS[c.realm].name)}.</small></li>`;
   }).join('');
   return `<p class="lead">The March remembers what you do in it. Deeds earn you names, and the name you wear gives you something of the deed it was earned by; it shows with your own on your frame. Past level 50 your experience raises your veterancy, and every rank is a boon.</p>
-    <h3 data-cf-open>Your names</h3>${names}
+    <h3${earned.length <= 4 ? ' data-cf-open' : ''}>Your names</h3>${names}
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
