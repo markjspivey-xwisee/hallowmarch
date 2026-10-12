@@ -303,6 +303,19 @@ function late2Rescale() {
     uiLog(`Risen champions now hold the three farthest borderland camps of every homeland, and keep pace with you: the best spoils of the wilds. The Chronicle's Deeds page names them.`, 'level');
   }
 }
+/* global sfxAt, sfxAtE */ // (audio2's sounds placed where they happen, 11c_sound.js: there once the branches meet)
+// a sound from where it happens: audio2's placed sound once it is there (it fades, pans and muffles by itself), else the
+// plain sound only when it happens within 55 m of you ('none' for one that has no plain sound)
+function late2Snd(name, e, h = null, o = null, alt = null) {
+  if (typeof sfxAtE === 'function') { sfxAtE(name, e, o, h); return; }
+  const P = GAME.player;
+  if (alt !== 'none' && P && e && dist2(P.x, P.z, e.x, e.z) < 55 * 55) sfx(alt || name);
+}
+function late2SndAt(name, x, y, z, alt = null) {
+  if (typeof sfxAt === 'function') { sfxAt(name, x, y, z); return; }
+  const P = GAME.player;
+  if (alt !== 'none' && P && dist2(P.x, P.z, x, z) < 55 * 55) sfx(alt || name);
+}
 // a risen champion in a fight (thinkMob, 08_ai.js): true while it is busy with its own work
 function late2ChampThink(e, t, dt) {
   const ai = e.ai, now = GAME.t;
@@ -318,6 +331,7 @@ function late2ChampThink(e, t, dt) {
     if (W.disc && W.disc.on) W.disc.age = Math.max(W.disc.age, W.disc.dur - 0.25);
     for (const m of AOE_MARKS) if (m.x === W.x && m.z === W.z && m.until > now) m.until = now;
     uiFloatAt(e.x, e.y + 2.4 * (e.scale || 1), e.z, 'Broken off', 'immune');
+    late2Snd('stagger', e, 1.4, null, 'hit');
     LATE2.stats.broken = (LATE2.stats.broken || 0) + 1;
     return false;
   }
@@ -333,6 +347,7 @@ function late2ChampThink(e, t, dt) {
     S.enr = true;
     addBuff(e, 'dmg', 0.2, 120, e.id);
     uiFloatAt(e.x, e.y + 2.4 * (e.scale || 1), e.z, 'Enraged', 'crit');
+    late2Snd('roar', e, 1.5);
     if (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 60 * 60) uiLog(`${capFirst(theName(e))} fights on in a fury!`, 'warn');
   }
   const M = MOBS[e.mobType] || {}, ranged = !!M.ranged, d = dist(e.x, e.z, t.x, t.z);
@@ -346,7 +361,7 @@ function late2ChampThink(e, t, dt) {
   aoeMarker(x, z, r, total, e.faction); // (the skilled bots step out of it: 07c_balance7.js)
   e.swingAt = Math.max(e.swingAt || 0, now + total + 0.5);
   if (e.kind === 'humanoid') setAct(e, 8, total + 0.15);
-  sfx(ranged ? 'cast' : 'roarSmall');
+  late2Snd(ranged ? 'cast' : 'roarSmall', e, 2);
   return true;
 }
 // the blow that breaks the ground (or, for a wisp, the drowned light bursting up under its foe)
@@ -356,7 +371,7 @@ function late2Wrath(e, W) {
   if (W.ranged) {
     for (let n = 0; n < 34; n++) { const a = Math.random() * TAU, r = Math.random() * W.r; fxAdd.emit(W.x + Math.cos(a) * r, y + 0.1, W.z + Math.sin(a) * r, 0, 4 + Math.random() * 5, 0, 0.5, 0.5, 1.4, 2.0, 0.24, 0, 0.5); }
     lightFlash(W.x, y + 2, W.z, 10, [0.6, 1.6, 2.3], 0.5);
-    sfx('lance');
+    late2SndAt('lance', W.x, y + 0.5, W.z);
   } else {
     spellDisc(W.x, W.z, W.r * 0.8, DISC_KIND.crack, 7);
     spellDisc(W.x, W.z, W.r, DISC_KIND.shock, 0.8, [1.7, 1.05, 0.55]);
@@ -364,7 +379,7 @@ function late2Wrath(e, W) {
     FX.burst(W.x, y + 0.3, W.z, 24, [1.6, 0.8, 0.3], 4, 0.5, 0.14, 7);
     lightFlash(W.x, y + 1, W.z, 9, [2.2, 1.1, 0.45], 0.35);
     cameraShake(0.32, W.x, W.z);
-    sfx('slam');
+    late2Snd('slam', e, 0.2);
   }
   LATE2.stats.wrath++;
   forNear(W.x, W.z, W.r + 0.5, (o) => {
@@ -382,7 +397,7 @@ function late2KindMove(e, t, d) {
   const way = LATE2_KIND[e.mobType], camp = CAMPS[e.camp], P = GAME.player, near = P && dist2(e.x, e.z, P.x, P.z) < 60 * 60;
   if (way === 'howl') { // the hunt's howl: its foes slowed, its pack's blood up
     if (d > 14) return false;
-    sfx('roar'); FX.ring(e.x, e.y + 0.4, e.z, 3.5, [1.2, 1.0, 0.8], 36, 5);
+    late2Snd('roar', e, 1.2); FX.ring(e.x, e.y + 0.4, e.z, 3.5, [1.2, 1.0, 0.8], 36, 5);
     forNear(e.x, e.z, 14, (o) => { if (o.alive && isEnemy(e, o) && isActor(o)) addBuff(o, 'snare', 0.35, 4, e.id); });
     if (camp) for (const id of camp.members) { const m = getEnt(id); if (m && m.alive && dist2(m.x, m.z, e.x, e.z) < 20 * 20) addBuff(m, 'dmg', 0.15, 8, e.id); }
     if (near) uiLog(`${capFirst(theName(e))} howls, and the pack's blood is up.`, 'warn');
@@ -396,7 +411,7 @@ function late2KindMove(e, t, d) {
       m.threat = new Map([[t.id, 1]]); m.target = t.id; m.ai.pulled = true;
       FX.dust(x, m.y, z, 10); lightFlash(x, m.y + 1, z, 6, [0.6, 1.2, 1.5], 0.4);
     }
-    sfx('raise');
+    late2Snd('raise', e);
     if (near) uiLog(`${capFirst(theName(e))} calls the dead up out of the ground!`, 'warn');
   } else if (way === 'hamstring') { // a cut to the back of the leg: slowed, and wounds that mend slowly
     if (d > (e.meleeRange || 2.6) + 0.6) return false;
@@ -404,15 +419,15 @@ function late2KindMove(e, t, d) {
     const r = computeDamage(e, t, 1.1);
     dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
     addBuff(t, 'snare', 0.5, 5, e.id); addBuff(t, 'wound', 0.3, 6, e.id);
-    uiFloatAt(t.x, t.y + 2.2, t.z, 'Hamstrung', 'hurt'); sfx('hit');
+    uiFloatAt(t.x, t.y + 2.2, t.z, 'Hamstrung', 'hurt'); late2Snd('hit', t);
   } else if (way === 'burst') { // it stamps, and the ground bursts under a foe that keeps off
     if (d < 7 || d > 24) return false;
     const x = t.x, z = t.z;
-    spellDisc(x, z, 3.2, DISC_KIND.holy, 1.2, [1.6, 0.9, 0.35]); aoeMarker(x, z, 3.2, 1.15, e.faction); sfx('slam');
+    spellDisc(x, z, 3.2, DISC_KIND.holy, 1.2, [1.6, 0.9, 0.35]); aoeMarker(x, z, 3.2, 1.15, e.faction); late2Snd('slam', e, 0.2);
     later(1.15, () => {
       if (!e.alive) return;
       const y = heightAt(x, z);
-      spellDisc(x, z, 2.8, DISC_KIND.crack, 6); FX.burst(x, y + 0.2, z, 26, [0.5, 0.42, 0.33], 6, 0.7, 0.2, 9); FX.dust(x, y, z, 12); cameraShake(0.2, x, z); sfx('crash');
+      spellDisc(x, z, 2.8, DISC_KIND.crack, 6); FX.burst(x, y + 0.2, z, 26, [0.5, 0.42, 0.33], 6, 0.7, 0.2, 9); FX.dust(x, y, z, 12); cameraShake(0.2, x, z); late2SndAt('quake', x, null, z, 'crash');
       forNear(x, z, 3.6, (o) => { if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(o.x, o.z, x, z) > 3.2 || Math.abs((o.y || 0) - y) > 2.5) return; const r = computeDamage(e, o, 1.4); dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true }); addBuff(o, 'stun', 1, 0.6, e.id); });
     });
   } else if (way === 'blink') { // a wisp slips away from a blade at its side
@@ -421,7 +436,7 @@ function late2KindMove(e, t, d) {
     if (R.d < 4) return false;
     FX.burst(e.x, e.y + 1, e.z, 20, [0.6, 1.4, 2.0], 3, 0.4, 0.16, 0);
     e.x = e.prevX = R.x; e.z = e.prevZ = R.z;
-    FX.burst(e.x, e.y + 1, e.z, 20, [0.6, 1.4, 2.0], 3, 0.4, 0.16, 0); sfx('blink');
+    FX.burst(e.x, e.y + 1, e.z, 20, [0.6, 1.4, 2.0], 3, 0.4, 0.16, 0); late2Snd('blink', e);
   } else return false;
   LATE2.stats.kinds = (LATE2.stats.kinds || 0) + 1;
   return true;
@@ -429,7 +444,7 @@ function late2KindMove(e, t, d) {
 // at half its strength: a roar, its pack mended, and two more come at its call
 function late2Rally(e, t) {
   const camp = CAMPS[e.camp];
-  sfx('roar');
+  late2Snd('roar', e, 1.5);
   FX.ring(e.x, e.y + 0.3, e.z, 2.6, [2.0, 1.25, 0.5], 40);
   lightFlash(e.x, e.y + 2, e.z, 10, [2.0, 1.3, 0.6], 0.6);
   e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.06);
@@ -467,54 +482,20 @@ const LATE2_STD = { cost: 1000, lv: 40, reach: 18, harm: 0.05, poleH: 3.7, flagW
 const L2STD = { mesh: null, slot: -1, coll: null, tick: 0 };
 function late2StdBuild() {
   if (L2STD.mesh) return;
-  const g = new THREE.CylinderGeometry(0.038, 0.05, LATE2_STD.poleH, 8, 1);
-  g.translate(0, LATE2_STD.poleH / 2, 0);
-  const fin = new THREE.ConeGeometry(0.075, 0.22, 8);
-  fin.translate(0, LATE2_STD.poleH + 0.11, 0);
-  const bar = new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6);
-  bar.rotateZ(Math.PI / 2); bar.translate(0.25, LATE2_STD.poleH - 0.06, 0);
-  const parts = [g, fin, bar], pos = [], nrm = [], tt = [], idx = [];
-  let base = 0;
-  parts.forEach((q, i) => {
-    const qq = q.index ? q : q;
-    const P = qq.attributes.position.array, N = qq.attributes.normal.array, I = qq.index.array;
-    for (let k = 0; k < P.length; k++) { pos.push(P[k]); nrm.push(N[k]); }
-    for (let k = 0; k < P.length / 3; k++) tt.push(i === 1 ? 1 : 0);
-    for (let k = 0; k < I.length; k++) idx.push(I[k] + base);
-    base += P.length / 3;
-  });
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setAttribute('aT', new THREE.Float32BufferAttribute(tt, 1));
-  geo.setIndex(idx);
-  const m = new THREE.Mesh(geo, mat({
-    vertexShader: /* glsl */`
-      attribute float aT; varying vec3 vW; varying vec3 vN; varying float vT; varying float vH;
-      void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vT = aT; vH = position.y; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: /* glsl */`
-      ${GLSL_COMMON}
-      ${GLSL_ATMOS}
-      uniform float uWet, uSnowCover;
-      varying vec3 vW; varying vec3 vN; varying float vT; varying float vH;
-      void main(){
-        vec3 n = safeNormalize(vN), V = safeNormalize(cameraPosition - vW);
-        // ash, its grain along the pole, a leather grip a little above a hand's height; the finial gilt
-        float grain = 0.88 + 0.12 * vnoise(vec2(atan(vN.z, vN.x + 1e-4) * 3.0, vH * 9.0));
-        float grip = step(0.95, vH) * step(vH, 1.45);
-        vec3 alb = mix(vec3(0.42, 0.31, 0.2) * grain, vec3(0.2, 0.13, 0.08), grip);
-        alb = mix(alb, vec3(0.86, 0.66, 0.3), vT);
-        alb *= 1.0 - 0.3 * uWet * (1.0 - vT);
-        float dif = clamp(dot(n, uLightDir), 0.0, 1.0);
-        vec3 col = alb * (uAmbient * 0.75 + uLightColor * dif * 0.85);
-        col += vT * uLightColor * spow(max(dot(reflect(-uLightDir, n), V), 0.0), 20.0) * 0.7;
-        col = mix(col, vec3(0.92, 0.94, 0.97) * (uAmbient + uLightColor * 0.5), clamp(uSnowCover, 0.0, 1.0) * step(0.6, n.y) * 0.8);
-        gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
-      }`,
-  }));
-  m.position.set(0, -999, 0); // (in the scene from the start, out of sight: its program is made with the rest at boot)
+  // drawn with the building shader (its plaster branch tinted as ash, as a tower's hatch lids are; the gilt finial its gold):
+  // no program of its own, lit by the sun, the shadows and the fires, wet in rain and white in snow as the rest of the world
+  const b = new Batch(), h = LATE2_STD.poleH, T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z), ash = [0.42, 0.31, 0.2];
+  b.add(new THREE.CylinderGeometry(0.038, 0.05, h, 8, 1), T(0, h / 2, 0), MAT.plaster, ash, 0, 2.2); // the pole, thicker at its foot
+  b.add(new THREE.CylinderGeometry(0.056, 0.056, 0.5, 8, 1), T(0, 1.2, 0), MAT.cloth, [0.2, 0.13, 0.08]); // a leather grip
+  const bar = new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6, 1);
+  bar.rotateZ(Math.PI / 2);
+  b.add(bar, T(0.25, h - 0.06, 0), MAT.plaster, ash); // the cross-bar the flag hangs from
+  b.add(new THREE.ConeGeometry(0.075, 0.22, 8, 1), T(0, h + 0.11, 0), MAT.gold, [0.86, 0.66, 0.3]); // the gilt finial
+  const m = new THREE.Mesh(b.build(), buildingMat);
+  m.position.set(0, -999, 0); // (in the scene from the start, out of sight until it is planted)
   m.userData.keep = false;
   scene.add(m);
+  shadowCaster(m, BUILDING_DEPTH || (BUILDING_DEPTH = depthFrom(buildingMat)));
   L2STD.mesh = m;
   L2STD.slot = BANNERS.length;
   addBanner(null, { world: true, x: 0, y: -999, z: 0, yaw: 0, w: 0.001, h: 0.001, kind: 1 }, 0);
@@ -550,6 +531,7 @@ function late2StdShow() {
     B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm, 1], L2STD.slot * 4);
     L2STD.coll = addCircle(at.x, at.z, 0.12, 'prop', LATE2_STD.poleH);
   }
+  L2STD.mesh.updateMatrixWorld(); // (its shadow's proxy copies it this frame)
   B.aB0.needsUpdate = true; B.aB1.needsUpdate = true;
 }
 try { late2StdBuild(); } catch (e) { console.error(e); } // (at load, so the boot's compile makes its program with the rest)
@@ -571,7 +553,7 @@ function late2StdPlant() {
   LATE2.std.at = { x: Math.round(sp.x * 100) / 100, z: Math.round(sp.z * 100) / 100 };
   late2StdShow();
   setAct(P, 5, 0.8); // (a reach: the body drives the pole in)
-  sfx('thud'); FX.dust(sp.x, heightAt(sp.x, sp.z), sp.z, 8);
+  late2Snd('thud', P, 0.2); FX.dust(sp.x, heightAt(sp.x, sp.z), sp.z, 8);
   uiLog(`You plant the standard of ${late2Named(P)}. ${REALMS[P.faction].name} fights the harder about it.`, 'level');
   saveSoon();
   return true;
@@ -598,6 +580,7 @@ function late2StdStep() {
   const aura = P && P.alive ? late2K('aura') : 0;
   if (aura) forNear(P.x, P.z, 20, (o) => { if (o.alive && o !== P && o.faction === P.faction && isActor(o) && o.kind !== 'door' && o.role !== 'villager') addBuff(o, 'dmg', aura, 1.6, 'l2aura'); });
   if (!at || !P) return;
+  if (typeof sfxAt === 'function' && Math.random() < 0.5) sfxAt('flap', at.x, heightAt(at.x, at.z) + 3.4, at.z); // (its cloth in the wind: audio2's)
   forNear(at.x, at.z, LATE2_STD.reach, (o) => {
     if (!o.alive || o.kind === 'door' || o.faction !== P.faction || !isActor(o)) return;
     if (o !== P && o.role === 'villager') return;
@@ -649,6 +632,7 @@ function late2Hail(P) {
   who.l2hailT = GAME.t + 600;
   const line = LATE2_HAILS[Math.floor(Math.random() * LATE2_HAILS.length)](late2Named(P));
   uiFloatAt(who.x, who.y + 2.25 * (who.scale || 1), who.z, line, 'xp');
+  late2Snd('shout', who, 1.6, { vol: 0.7 }, 'none');
   uiLog(`${who.name}: "${line}"`, 'sys');
   LATE2.stats.hails = (LATE2.stats.hails || 0) + 1;
 }
