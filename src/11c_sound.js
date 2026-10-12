@@ -26,7 +26,7 @@ const SND = {
   L: { x: 0, y: 0, z: 0, rx: 1, rz: 0, fx: 0, fz: -1, ok: false, under: false },
   occ: new Map(), place: new Map(), bufs: {}, clock: { loops: 0, air: 0, life: 0, battle: 0, occ: 0 },
   stats: { asked: 0, played: 0, far: 0, quiet: 0, stale: 0, capped: 0, stolen: 0, occluded: 0, occTests: 0, cues: 0, flushes: 0, perName: 0, gap: 0 },
-  count: {}, played: {}, log: [], battle: [], prof: { occ: 0, play: 0, n: 0, sort: 0 }, duckUntil: 0, alarmAt: {}, newsCueAt: -99, incomingAt: -99, lastLife: {},
+  count: {}, played: {}, log: [], battle: [], prof: { occ: 0, play: 0, n: 0, sort: 0, chain: 0, synth: 0 }, duckUntil: 0, alarmAt: {}, newsCueAt: -99, incomingAt: -99, lastLife: {},
 };
 // each sound's reach: ref (full within), max (nothing beyond), lvl (how loud it is at its source, for the cap), per
 // (at most this many of it in one frame), gap (seconds between two at the same place), cue (heard over the rest), roll
@@ -36,7 +36,7 @@ const SND_DEF = {
   bow: { ref: 3, max: 50, lvl: 0.35, per: 3 }, zap: { ref: 3, max: 50, lvl: 0.3 }, cast: { ref: 3, max: 40, lvl: 0.22, per: 2 },
   fire: { ref: 4, max: 75, lvl: 0.6 }, frost: { ref: 4, max: 60, lvl: 0.35 }, holy: { ref: 4, max: 60, lvl: 0.3 }, heal: { ref: 4, max: 40, lvl: 0.3 },
   blink: { ref: 3, max: 50, lvl: 0.35 }, boom: { ref: 14, max: 300, lvl: 1, roll: 0.8 }, crash: { ref: 12, max: 240, lvl: 1, roll: 0.8 },
-  horn: { ref: 25, max: 500, lvl: 0.5, roll: 0.6 }, death: { ref: 4, max: 50, lvl: 0.45 }, fizzle: { ref: 3, max: 30, lvl: 0.2 },
+  horn: { ref: 25, max: 500, lvl: 0.5, roll: 0.6 }, fanfare: { ref: 25, max: 450, lvl: 0.5, roll: 0.6 }, death: { ref: 4, max: 50, lvl: 0.45 }, fizzle: { ref: 3, max: 30, lvl: 0.2 },
   hoof: { ref: 3, max: 50, lvl: 0.3, per: 4, gap: 0.03 }, hoofFast: { ref: 3, max: 55, lvl: 0.32, per: 4, gap: 0.03 }, whinny: { ref: 5, max: 100, lvl: 0.4 },
   roar: { ref: 30, max: 520, lvl: 1, roll: 0.6 }, wingbeat: { ref: 16, max: 180, lvl: 0.7 }, breath: { ref: 16, max: 180, lvl: 0.9 },
   thunder: { ref: 600, max: 6000, lvl: 0.8 }, thunderNear: { ref: 400, max: 3000, lvl: 1 },
@@ -156,6 +156,7 @@ function sndInit(ctx) {
     }
     sndAirInit(ctx);
     sndLoopsInit(ctx);
+    sndTreesNear(0, 0, 1); // the trees' grid, made now (at the first touch on the title) rather than in play
     SND.ready = true;
   } catch (e) { SND.ready = false; if (AUDIO.debug) throw e; }
 }
@@ -310,7 +311,7 @@ function sndFlush() {
   for (const k in _sndPer) _sndPer[k] = 0;
   let live = 0, made = 0;
   for (const v of SND.voices) if (v.end > now) live++;
-  const cap = SND.cap, perFrame = IS_TOUCH || quality.level === 'low' ? 2 : 3; // (a voice is a dozen nodes: a frame makes a few at most, the loudest)
+  const cap = SND.cap, perFrame = IS_TOUCH || quality.level === 'low' ? 1 : 2; // (a voice is a dozen nodes and their links: a frame makes one or two, the loudest)
   for (const r of q) {
     if (r.loud < 0) continue;
     const def = r.def, cue = def.cue || (r.o && r.o.cue);
@@ -359,15 +360,17 @@ function sndFlush() {
 }
 // a voice: the synth written into its own gain, low-pass and panner
 function sndPlay(name, t, g, pan, fc, loud, cue, o) {
-  const ctx = AUDIO.ctx;
+  const ctx = AUDIO.ctx, tA = performance.now();
   const vg = ctx.createGain(); vg.gain.value = g;
   let out = vg, f = null, p = null;
   if (fc < 15000) { f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc; f.Q.value = 0.6; out.connect(f); out = f; }
   if (Math.abs(pan) > 0.02 && ctx.createStereoPanner) { p = ctx.createStereoPanner(); p.pan.value = pan; out.connect(p); out = p; }
   out.connect(cue ? SND.cueBus : SND.fxIn);
+  const tB = performance.now();
   const keep = AUDIO.sfxBus;
   AUDIO.sfxBus = vg; AUDIO.voiceEnd = 0;
   try { sfxSynth(name, t, 1, o); } finally { AUDIO.sfxBus = keep; }
+  const tC = performance.now(); SND.prof.chain += tB - tA; SND.prof.synth += tC - tB;
   const v = { vg, f, p, t0: t, end: Math.max(AUDIO.voiceEnd, t + 0.1), loud, name, cue: !!cue, stolen: false };
   SND.voices.push(v);
   SND.stats.played++;
@@ -1061,6 +1064,15 @@ function sndLifeStep(now) {
     if (dist2(e.x, e.z, L.x, L.z) > 45 * 45) continue;
     sfxAtE('rubble', e, { at: Math.random() * 0.3 }, 0.05);
   }
+  // boats near you creak: under way, and now and then against their ropes at the jetty
+  if (typeof BOATS !== 'undefined') {
+    for (const B of BOATS.list) {
+      if ((B.creakAt || 0) > gt || dist2(B.x, B.z, L.x, L.z) > 40 * 40 || B.st === 'burnt' || B.st === 'burning') continue;
+      const moving = Math.hypot(B.vx || 0, B.vz || 0) > 0.25;
+      B.creakAt = gt + 1.5 + Math.random() * 4;
+      if (moving || Math.random() < 0.2) sfxAt('creak', B.x, B.y ?? null, B.z, { vol: moving ? 1 : 0.6 });
+    }
+  }
   // the town's forge rings by day while its fire burns
   if (night < 0.55 && typeof CRAFT !== 'undefined' && CRAFT.stations) {
     for (const S of CRAFT.stations) {
@@ -1239,6 +1251,14 @@ queueMicrotask(() => {
     const orig = survSfx;
     survSfx = sndAdopt('surv', orig, (kind, x, z) => (x === undefined ? null : [x, null, z]), { _: { ref: 3, max: 45, lvl: 0.25 } });
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* what a player is told: How to play, a loading tip                    */
+/* ------------------------------------------------------------------ */
+queueMicrotask(() => {
+  if (typeof GUIDE_HELP !== 'undefined') GUIDE_HELP.push(() => `<h3>Sound</h3><p>The March is heard as it is seen: a fight, a fire or a falling wall is heard from where it is, fainter far off and behind walls. Listen for what matters: a foe's arrow loosed at you whistles as it comes, from its side; a priest's flare and a ward breaking ring out; a keep of yours under attack rings its bell. Volume, Effects, Ambience and Music are in the menu's Settings.</p>`);
+  if (typeof LOADING_TIPS !== 'undefined') LOADING_TIPS.push('Listen: an arrow loosed at you whistles as it comes, from the side it was shot from.', 'A keep of your realm under attack rings its bell, and the bell carries far.');
 });
 
 /* ------------------------------------------------------------------ */

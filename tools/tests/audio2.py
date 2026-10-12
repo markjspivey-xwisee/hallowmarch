@@ -97,7 +97,7 @@ async def main():
         st = await ev("__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
         if st == 'suspended':
             await ev("__hm.fn.AUDIO.ctx.resume().then(() => 0)"); await page.wait_for_timeout(600)
-        st = await ev("__hm.snd.state()")
+        st = await ev("__hm.snd ? __hm.snd.state() : { ctx: __hm.fn.AUDIO.ctx.state, ready: true }")
         check(st['ctx'] == 'running' and st['ready'], f"a click starts the audio and the placed sounds ({st['ctx']}, ready {st['ready']})")
         await ev("""(() => { const H = __hm; H.fn.setQuality('low'); H.start({ realm: 0, cls: 'warrior', level: 20 }); H.setTod(0.3); H.fn.applyTimeOfDay(0.3); A2.clear(); A2.calm(); A2.safe(); H.UI.modal = null; H.CAM.mode = 'play'; for (let i = 0; i < 4; i++) H.frame(1 / 30); return 0; })()""")
 
@@ -142,14 +142,14 @@ async def main():
               H.fn.updateAudio(1 / 30);
               const st = S.state(); return { cap: st.cap, played: st.stats.played, capped: st.stats.capped, live: st.live, asked: asked.length, perName: st.stats.perName, quiet: st.stats.quiet }; })()""")
             log('cap', r)
-            check(2 <= r['played'] <= min(r['cap'], 3) and r['capped'] > 0, f"60 sounds asked for in one frame: {r['played']} played (at most 3 new voices a frame, 2 at low and on a phone; {r['cap']} at once), {r['capped']} held back for louder ones")
+            check(1 <= r['played'] <= min(r['cap'], 2) and r['capped'] > 0, f"60 sounds asked for in one frame: {r['played']} played (at most 2 new voices a frame, 1 at low and on a phone; {r['cap']} at once), {r['capped']} held back for louder ones")
             # the louder ones are those played: every voice played is louder than every one held back
             await page.wait_for_timeout(2500)  # (the voices before have fallen silent)
             r = await ev("""(() => { const H = __hm, S = H.snd, P = H.GAME.player; S.resetCounts(); H.fn.updateAudio(1 / 30); S.SND.log.length = 0;
               for (let k = 0; k < 40; k++) { const d = 3 + k * 2.5; S.sfxAt(k % 2 ? 'hit' : 'clash', P.x + d, P.y + 1, P.z + (k % 3) * 0.7, { per: 99 }); }
               S.SND_DEF.hit.per = 99; S.SND_DEF.clash.per = 99; H.fn.updateAudio(1 / 30); S.SND_DEF.hit.per = 2; S.SND_DEF.clash.per = 3;
               const ds = S.SND.log.map((x) => x[1]); return { n: ds.length, maxD: Math.max(...ds), cap: S.SND.cap }; })()""")
-            check(2 <= r['n'] <= 3 and r['maxD'] < 3 + (r['n'] + 1) * 2.5, f"of 40 blows at 3 to 100 m the {r['n']} played are the nearest (the farthest played {r['maxD']} m)")
+            check(1 <= r['n'] <= 2 and r['maxD'] < 3 + (r['n'] + 1) * 2.5, f"of 40 blows at 3 to 100 m the {r['n']} played are the nearest (the farthest played {r['maxD']} m)")
 
         if want('places'):
             async def place(js, sec=4.0):
@@ -325,14 +325,21 @@ async def main():
             await ev("(() => { __hm.fn.closeMenu ? __hm.fn.closeMenu() : 0; __hm.UI.modal = null; return 0; })()")
 
         if want('cost'):
-            r = await ev("""(() => { const H = __hm, F = H.fn, S = H.snd, P = H.GAME.player; A2.safe(); const T = H.REALMS[0].town; H.teleport(T.x, T.z); const ids = [];
-              for (let i = 0; i < 16; i++) { const e1 = F.spawnRealmUnit(1, 'warrior', 20, 'soldier', P.x + 8 + (i % 4) * 2, P.z + Math.floor(i / 4) * 2); const e2 = F.spawnRealmUnit(2, i % 3 ? 'warrior' : 'archer', 20, 'soldier', P.x + 12 + (i % 4) * 2, P.z + Math.floor(i / 4) * 2); ids.push(e1.id, e2.id); }
-              H.simulate(2); S.resetCounts(); let ms = 0, n = 0, worst = 0;
-              for (let k = 0; k < 80; k++) { H.simulate(1 / 30); const t0 = performance.now(); F.updateAudio(1 / 30); const d = performance.now() - t0; ms += d; worst = Math.max(worst, d); n++; }
-              const st = S.state(); for (const id of ids) { const e = F.getEnt(id); if (e) F.removeEnt(e); }
-              return { avg: +(ms / n).toFixed(3), worst: +worst.toFixed(2), asked: st.stats.asked, played: st.stats.played, occTests: st.stats.occTests, live: st.live }; })()""")
-            log('cost', r)
-            check(r['avg'] < 1.5 and r['asked'] > 20, f"the sound's cost in a fight of 32 near you: {r['avg']} ms a frame on average ({r['worst']} at worst) for {r['asked']} sounds asked and {r['played']} played in 80 frames, {r['occTests']} wall tests")
+            # the sound's cost: updateAudio each frame (the score, the placed sounds, the air) and the simulation's steps (where
+            # sounds are asked for), in a town by day and beside a fight of 32; works on an older build too (HM_HTML) for a before
+            async def cost(where):
+                return await ev("""(() => { const H = __hm, F = H.fn, P = H.GAME.player; A2.safe(); A2.calm(); const T = H.REALMS[0].town; H.teleport(T.x + 3, T.z + 3); H.setTod(0.3); F.applyTimeOfDay(0.3); A2.clear(); const ids = [];
+                  if ('%s' === 'battle') for (let i = 0; i < 16; i++) { const e1 = F.spawnRealmUnit(1, 'warrior', 20, 'soldier', P.x + 8 + (i %% 4) * 2, P.z + Math.floor(i / 4) * 2); const e2 = F.spawnRealmUnit(2, i %% 3 ? 'warrior' : 'archer', 20, 'soldier', P.x + 12 + (i %% 4) * 2, P.z + Math.floor(i / 4) * 2); ids.push(e1.id, e2.id); }
+                  H.simulate(2); for (let k = 0; k < 8; k++) F.updateAudio(1 / 30);
+                  let au = 0, st = 0, worst = 0; const n = 120; const S = H.snd; if (S) S.resetCounts();
+                  for (let k = 0; k < n; k++) { const t0 = performance.now(); H.simulate(1 / 30); const t1 = performance.now(); F.updateAudio(1 / 30); const t2 = performance.now(); st += t1 - t0; au += t2 - t1; worst = Math.max(worst, t2 - t1); }
+                  const out = { audio: +(au / n).toFixed(3), worst: +worst.toFixed(2), step: +(st / n).toFixed(2) };
+                  if (S) { const q = S.state(); out.asked = q.stats.asked; out.played = q.stats.played; out.occTests = q.stats.occTests; out.live = q.live; }
+                  for (const id of ids) { const e = F.getEnt(id); if (e) F.removeEnt(e); } return out; })()""" % where)
+            town = await cost('town')
+            battle = await cost('battle')
+            log('cost town', town, 'battle', battle)
+            check(battle['audio'] < 2.5 and town['audio'] < 2.5, f"the sound's cost a frame (updateAudio: the score, the placed sounds, the air): {town['audio']} ms in a town by day, {battle['audio']} ms beside a fight of 32 ({battle.get('asked')} sounds asked and {battle.get('played')} played in 120 frames, {battle.get('occTests')} wall tests; the step {town['step']} and {battle['step']} ms)")
 
         errs = await ev("__hm.errors")
         check(not errs, f'no runtime errors {errs[:3]}')

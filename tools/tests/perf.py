@@ -3,8 +3,9 @@ Views: the Logres town with its fields and common, a keep courtyard, inside its 
 with the war running, a forest, the Barrow, the mountains from the Logres orchard ([land]). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
-usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16]
-(js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view)
+usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [audio]
+(js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: a click
+first, so the sound runs: without a gesture there is no AudioContext and updateAudio does nothing)
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -93,6 +94,9 @@ async def main():
         res['boot']['wall'] = round(time.time() - t0, 1)
         res['boot'].update(await ev(page, '__hm.perf.boot()'))
         await ev(page, HELP)
+        if 'audio' in ARGS:  # [audio2] a click first, so the sound runs in what is measured (no gesture, no AudioContext: updateAudio does nothing)
+            await page.mouse.click(8, 8); await page.wait_for_timeout(1500)
+            res['boot']['audio'] = await ev(page, "__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
         await ev(page, "__hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); 0")
         # let the war get going and the town wake up
         await ev(page, "__hm.simulate(40); 0")
