@@ -421,9 +421,15 @@ FRAMES_JS = r"""((n, dt, simGap) => {
 })"""
 
 STEPS_JS = r"""((n) => {
-  // n single steps, each timed (simulate(0.05) is one simStep and the war's summary)
-  const H = __hm, out = [];
-  for (let i = 0; i < n; i++) { const t = performance.now(); H.simulate(0.05); out.push(+(performance.now() - t).toFixed(2)); }
+  // n single steps, each timed (simulate(0.05) is one simStep and the war's summary); a step over 40 ms keeps what its
+  // systems took (the timers, when they are on: window.__perf2spikes), the rest of it being the GC and what is not timed
+  const H = __hm, out = [], sp = window.__perf2spikes = [];
+  for (let i = 0; i < n; i++) {
+    H.perf.times(true);
+    const t = performance.now(); H.simulate(0.05); const ms = performance.now() - t;
+    out.push(+ms.toFixed(2));
+    if (ms > 40) sp.push({ i, ms: +ms.toFixed(1), top: H.perf.times(true).slice(0, 4).map((q) => [q.k, q.ms]) });
+  }
   return out;
 })"""
 
@@ -505,6 +511,7 @@ async def mode_views():
                 steps = await page.evaluate(STEPS_JS + "(160)")
                 ss = sorted(steps)
                 st['stepMedian'], st['stepP99'], st['stepMax'] = ss[len(ss) // 2], ss[int(len(ss) * 0.99)], ss[-1]
+                st['stepSpikes'] = await page.evaluate("window.__perf2spikes || []")
                 # frames: the first ones in view (what compiles and uploads on first sight), then a minute of the world with a
                 # frame drawn every half second of it
                 if 'fprofile' in ARGS:
@@ -525,6 +532,7 @@ async def mode_views():
                 med_sys = sorted(f['sys'] for f in fr)[len(fr) // 2]
                 print(f"{q:6s} {v:9s} step {st['stepMs']:5.2f} ms (median {st['stepMedian']}, p99 {st['stepP99']}, max {st['stepMax']}); frame JS median {s['median']} ms (systems {med_sys}, the rest the draw), p90 {s['p90']}, max {s['max']}; first frames {[f['ms'] for f in first]} (programs {sum(f['prog'] for f in first)}); SwiftShader's drawing {res['views'][v][q]['gpu']} ms  [{time.time() - t1:.0f}s wall]", flush=True)
                 print('        step top (ms in 80 steps):', ', '.join(f'{k} {m:.0f}' for k, m in st['top'][:8]), flush=True)
+                for x in sorted(st['stepSpikes'], key=lambda x: -x['ms'])[:3]: print(f"        step spike #{x['i']}: {x['ms']} ms; " + (', '.join(f'{k} {m}' for k, m in x['top']) or '(no timers)') + ' (nested timers overlap: updateNPCs holds the thinks)', flush=True)
                 print(f'        frame top (ms a frame, the frame alone):', ', '.join(f'{k} {m}' for k, m in ftop[:12]), flush=True)
                 for f in [x for x in first if x['ms'] > 60] + spikes[:3]:
                     print(f"        spike #{f['i']}: {f['ms']} ms (systems {f['sys']}), programs {f['prog']}, geometries {f['geo']:+d}, textures {f['tex']:+d}, uploaded {f['up']} KB; " + ', '.join(f'{k} {m}' for k, m in f.get('top', [])), flush=True)

@@ -227,7 +227,9 @@ async def palisade(page):
     check(r['whole'] == 0 and r['fresh'] > 0.2, f"palisade: and the charred logs are replaced with new ones, pale for a time ({r['whole']} cells not whole, fresh {r['fresh']})")
 
 async def cone(page):
-    r = await ev(page, 'cone: catch', """(() => { T2.quiet(); T2.away(); const K = T2.keep(1, 1), C = T2.C(K), F = T2.F, TF = __hm.towerfire, out = {};
+    # [perf2] the keep's garrison kept off the fire: since version 14 its crews beat a young fire out before it took hold
+    # (the test failed so on version 15's main too)
+    r = await ev(page, 'cone: catch', """(() => { T2.quiet(); T2.away(); const K = T2.keep(1, 1), C = T2.C(K), F = T2.F, TF = __hm.towerfire, out = {}; T2.clearGarrison(K);
       const T = __hm.towers.TOWER.list.find((q) => q.C === C && q.look === 'rath' && q.role === 'gate'); K.lastEnemyNear = __hm.GAME.t;
       const own = T2.dummy(1, T.wx, T.wz); F.fireLandsAt(T.wx, T.S.y + T.eave + 0.5, T.wz, 1.2, own); F.removeEnt(own); out.spared = !T.burn;
       const foe = T2.dummy(2, T.wx, T.wz); F.fireLandsAt(T.wx + 1.0, T.S.y + T.eave + 0.4, T.wz, 1.2, foe); F.removeEnt(foe);
