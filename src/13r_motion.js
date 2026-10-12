@@ -124,6 +124,9 @@ function motionParts(crowd, kind) {
   if (kind === 'human') {
     const vis = (i) => !bit || bit[i] < -0.5;
     P.feet = [lowest((i) => Math.round(bone[i]) === 8 && vis(i), 5), lowest((i) => Math.round(bone[i]) === 10 && vis(i), 5)];
+    // [motion5] the same sole points one by one (heel to toe, the left foot's then the right's): the point a foot stands on
+    // as it rolls from heel to toe (motion5.py's heel)
+    P.soles = [...P.feet[0], ...P.feet[1]].map((i) => [i]);
     // the knees: the foremost points of the leg about knee height
     const knee = (b) => { let best = -1, bz = -1; for (let i = 0; i < n; i++) { const y = pos[i * 3 + 1]; if ((Math.round(bone[i]) === b || Math.round(bone[i]) === b - 1) && vis(i) && Math.abs(y - SK.knee[1]) < 0.05 && pos[i * 3 + 2] > bz) { bz = pos[i * 3 + 2]; best = i; } } return best >= 0 ? [best] : []; };
     P.knees = [knee(8), knee(10)];

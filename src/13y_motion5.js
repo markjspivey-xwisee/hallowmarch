@@ -132,4 +132,32 @@ function rubbleSinkY(W, lx, ly, lz, half) {
   }
   return best === null ? ly : Math.min(ly, best + 0.14 - half);
 }
-window.__hm.motion5 = { rubbleSinkY, rubbleMound, RUBHF, RUB_CELL, rubHfBuild, rubHfSync, rubbleTopAt, floorUnderRubble, rubbleFootFloor };
+// [motion5] shoving a boat off (action 19, 07e_boats.js): the hands go onto her gunwale at the end the shover stands at
+// (SHOVE_U of the way from her middle to that end, either side of her keel), and press on it while she grinds away down
+// the beach. Where the gunwale lies over the shover's floor differs from beach to beach (0.2 to 0.65 m: the shore's fall,
+// the boat lying in the water or not), so it travels with the action: animActValue packs it into the action's fraction
+// with the shove's progress (motion5ActValue), and humanVS (05a_rig.js) reaches the hands for it, the body bending low over
+// a low gunwale. They were posed by fixed angles and pressed on the air half a metre over her stern
+const SHOVE_U = 0.975;
+function motion5ShoveH(B, P) {
+  if (!B || !B.root || !P) return null;
+  const gx = B.x - P.x, gz = B.z - P.z, gl = Math.hypot(gx, gz) || 1;
+  const near = ((gx / gl) * Math.sin(B.yaw) + (gz / gl) * Math.cos(B.yaw)) > 0 ? -1 : 1;
+  B.root.updateMatrixWorld(true);
+  const m = B.root.matrixWorld.elements, lu = near * SHOVE_U, z = (lu * BOAT_L) / 2, y = boatSheer(lu) + 0.03, hb = boatHB(lu);
+  let sum = 0, mx = 0, mz = 0;
+  for (const side of [1, -1]) { const x = side * hb; sum += m[1] * x + m[5] * y + m[9] * z + m[13]; mx += (m[0] * x + m[4] * y + m[8] * z + m[12]) / 2; mz += (m[2] * x + m[6] * y + m[10] * z + m[14]) / 2; }
+  // (the middle of her two gunwales there across the shover's line, + to its left: she lies rolled on the shore)
+  const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+  P._shoveX = clamp((mx - P.x) * fz - (mz - P.z) * fx, -0.08, 0.07);
+  return clamp(sum / 2 - P.y, 0, 1.26);
+}
+// the action's value for a body shoving a boat off: 19 + (its progress in 256 steps x 1024 + the gunwale's height over its
+// floor in 2 cm steps x 16 + her keel across its line in 1 cm steps from -8 cm) / 2^18 (exact in a float: 19 takes five
+// of its 24 bits; humanVS unpacks all three); null for anything else (animActValue goes on as before)
+function motion5ActValue(e) {
+  if (e.anim.act !== 19 || !(e.anim.actDur > 0)) return null;
+  const qa = Math.min(255, Math.floor(clamp(e.anim.actT / e.anim.actDur, 0, 0.999) * 256)), qh = clamp(Math.round((e._shoveH ?? 0.45) / 0.02), 0, 63), qx = clamp(Math.round((e._shoveX ?? 0) / 0.01) + 8, 0, 15);
+  return 19 + (qa * 1024 + qh * 16 + qx) / 262144;
+}
+window.__hm.motion5 = { SHOVE_U, motion5ShoveH, motion5ActValue, boatPose: (i, dt) => boatPose(BOATS.list[i], dt), rubbleSinkY, rubbleMound, RUBHF, RUB_CELL, rubHfBuild, rubHfSync, rubbleTopAt, floorUnderRubble, rubbleFootFloor };

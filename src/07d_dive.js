@@ -188,7 +188,7 @@ function diveSteer(P, dt, f, s, mag) {
   const want = sp3 > 0.25 ? clamp(Math.atan2(-P.dvy, Math.max(hs, 0.05)), -1.15, 1.2) : -0.75;
   D.pitch = lerp(D.pitch, want, 1 - Math.exp(-dt * 3));
   P.swimAmt = lerp(P.swimAmt || 0, clamp(sp3 / 2.4, 0, 1.4), 1 - Math.exp(-dt * 5));
-  P.swimPh = ((P.swimPh || 0) + dt * (0.6 + 3.0 * P.swimAmt)) % (TAU * 64);
+  P.swimPh = ((P.swimPh || 0) + dt * (0.6 + 2.86 * sp3)) % (TAU * 64); // [motion5] a stroke carries a diver about 2.2 m, as a swimmer at the surface (07b_swim.js): it was 4.2 m at 2.5 m/s, the arms in slow motion
   // breath
   const rate = (sprint ? 1.6 : 1) * (P.swimAmt > 0.3 ? 1.1 : 0.9);
   P.breath = Math.max(0, (P.breath ?? 1) - dt * rate / DIVE_BREATH);

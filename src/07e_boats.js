@@ -590,6 +590,7 @@ function boatShoveOff(B, P) {
     // round to the end she is shoved from, if you are not there already
     const ex = B.x - gx * (BOAT_L / 2 + 0.45), ez = B.z - gz * (BOAT_L / 2 + 0.45);
     if (Math.hypot(P.x - ex, P.z - ez) < 3.2 && isWalkable(ex, ez)) { P.x = P.prevX = ex; P.z = P.prevZ = ez; P.y = floorAt(ex, ez, heightAt(ex, ez) + 1); }
+    P._shoveH = motion5ShoveH(B, P); // [motion5] where her gunwale lies for the hands (13y_motion5.js)
   }
   boatSfx('grind');
   FX.dust(B.x - gx * 1.6, heightAt(B.x - gx * 1.6, B.z - gz * 1.6), B.z - gz * 1.6, 5, [0.42, 0.38, 0.3]);

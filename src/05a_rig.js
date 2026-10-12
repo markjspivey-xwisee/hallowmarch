@@ -676,6 +676,9 @@ const LADDER_AHEAD = 0.33;
 // 0.698 m out from the keel (boatHB at BOAT_LOCK_Z, + 0.02), 0.33 m over the thwart's top and 0.48 m aft of the rower
 // (BOAT_SEAT_Z + 0.08 - BOAT_LOCK_Z), where the rower sits facing aft
 const OAR_GRIP = 0.59, OAR_LOCK = { x: 0.698, y: 0.33, z: 0.48 };
+// [motion5] the shover's hands on a boat's gunwale (action 19): how far ahead of its root and how far either side of her keel
+// (13y_motion5.js SHOVE_U: 0.95 of the way to her end, the shover 0.45 m beyond it), and the fist's middle over the gunwale
+const SHOVE_A_W = '0.580', SHOVE_X_W = '0.060', SHOVE_FIST = '0.008';
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -806,6 +809,14 @@ function humanVS(depth) {
     float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 2.2), death = clamp(iAnim.w, 0.0, 1.0);
     float turnK = clamp(-iAnim.y, 0.0, 1.0); // [motion] stepping round on the spot (07_entities.js updateAnim)
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
+    // [motion5] a boat shoved off (action 19): the progress in 256 steps and the gunwale's height over the floor in 2 cm
+    // steps, packed by motion5ActValue (13y_motion5.js)
+    float shH = 0.45, shX = 0.0;
+    if (atype > 18.5 && atype < 19.5) {
+      // (fract * 2^18 is exact: 19 has five bits, so the fraction keeps nineteen)
+      float F19 = floor(fract(iAnim.z) * 262144.0 + 0.5), qa19 = floor(F19 / 1024.0 + 1e-4), r19 = F19 - qa19 * 1024.0, qh19 = floor(r19 / 16.0 + 1e-4);
+      at = clamp(qa19 / 255.0, 0.0, 1.0); shH = qh19 * 0.02; shX = (r19 - qh19 * 16.0 - 8.0) * 0.01;
+    }
     float k = min(amt, 1.0), run = clamp((amt - 1.0) * 2.0, 0.0, 1.0), idle = 1.0 - k;
     float hunched = mod(floor(iColB.w / 4.0), 2.0);
     float t = uTime + iPos.x * 0.37 + iPos.z * 0.21;
@@ -858,12 +869,18 @@ function humanVS(depth) {
     // as the ankle), and the ankle comes forward over them as the foot turns, so they leave the ground from where they
     // stood (turned about the ankle off a low stance they dipped back into the ground and slid 2 to 4 cm)
     float swL = uL < duty ? 0.0 : (uL - duty) / (1.0 - duty), swR = fract(uL + 0.5) < duty ? 0.0 : (fract(uL + 0.5) - duty) / (1.0 - duty);
-    float toeL = (swL > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * smoothstep(0.0, 0.08, swL) * (1.0 - smoothstep(0.85, 1.0, swL)) : 0.0) * max(gk, 0.5 * turnK);
-    float toeR = (swR > 0.0 ? mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * smoothstep(0.0, 0.08, swR) * (1.0 - smoothstep(0.85, 1.0, swR)) : 0.0) * max(gk, 0.5 * turnK);
-    toeL = min(toeL, max(asin(min((0.09 + 0.25 * (fL.y + upL)) / 0.158, 1.0)) - 0.606, 0.0));
-    toeR = min(toeR, max(asin(min((0.09 + 0.25 * (fR.y + upR)) / 0.158, 1.0)) - 0.606, 0.0));
+    // [motion5] the heel rises before the foot leaves the ground: in the last of the stance the foot turns about its ball
+    // (0.14 m ahead of the ankle, 0.088 under it), toes down, the ankle rising and coming forward over the ball, which stands
+    // where it stood, and it leaves the ground already turned, the turn going on into the swing (it was lifted flat and its
+    // toes pointed down only once it was well up: a walker looked flat-footed). The ankle is raised by what the turn asks
+    // in the air too, so the ball never dips below the swing's own height (the toes rose three quarters as fast as the ankle)
+    float hoK = max(gk, 0.5 * turnK), hoD = mix(0.3, 0.24, runK) * duty, hoP = mix(0.62, 0.5, runK);
+    float uR0 = fract(uL + 0.5);
+    float toeL = (swL > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swL)) * (1.0 - smoothstep(0.85, 1.0, swL)), smoothstep(0.0, 0.16, swL)) : hoP * smoothstep(duty - hoD, duty, uL)) * hoK;
+    float toeR = (swR > 0.0 ? mix(hoP, mix(0.55, -0.22, smoothstep(0.0, 0.6, swR)) * (1.0 - smoothstep(0.85, 1.0, swR)), smoothstep(0.0, 0.16, swR)) : hoP * smoothstep(duty - hoD, duty, uR0)) * hoK;
     float pvL = max(toeL, 0.0), pvR = max(toeR, 0.0);
-    fL.x += 0.13 * (1.0 - cos(pvL)) + 0.09 * sin(pvL); fR.x += 0.13 * (1.0 - cos(pvR)) + 0.09 * sin(pvR);
+    fL.x += 0.14 * (1.0 - cos(pvL)) + 0.088 * sin(pvL); fR.x += 0.14 * (1.0 - cos(pvR)) + 0.088 * sin(pvR);
+    fL.y += 0.088 * (cos(pvL) - 1.0) + 0.14 * sin(pvL); fR.y += 0.088 * (cos(pvR) - 1.0) + 0.14 * sin(pvR);
     fzL = clamp(fL.x, -0.82, 0.82); fzR = clamp(fR.x, -0.82, 0.82);
     rL = sqrt(max(0.7145 - fzL * fzL - lxL * lxL, 0.0144)); rR = sqrt(max(0.7145 - fzR * fzR - lxR * lxR, 0.0144));
     upL = max(vL - rL, 0.0); upR = max(vR - rR, 0.0);
@@ -995,9 +1012,15 @@ function humanVS(depth) {
     } else if (atype > 12.5 && atype < 13.5) {
       // [survival] down on the haunches to reach the ground: picking mushrooms and herbs, drinking from a lake (the leap's landing crouch)
       float kk = smoothstep(0.0, 0.22, at) * (1.0 - smoothstep(0.8, 1.0, at));
-      vec2 cL = legIK(0.15, -0.545), cR = legIK(-0.05, -0.545); // [motion] both feet flat on the ground (they sank 10 cm)
-      thL = mix(thL, cL.x, kk); thR = mix(thR, cR.x, kk); shL = mix(shL, cL.y, kk); shR = mix(shR, cR.y, kk);
-      crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk;
+      crouch = mix(crouch, 0.3, kk); stepZ = 0.08 * kk; bob *= 1.0 - kk;
+      // [motion5] each foot where it stands (the gait's place with the lock's hold, on the floor under it), the hips sinking
+      // over them: the crouch set the feet at fixed places under the body (one 0.15 m ahead, the other 0.05 m behind, both
+      // at the body's own floor), so they slid there from where they stood as it went down, and back as it rose (a body
+      // landing from a fall, 13 cm), and on a slope one stood in the ground
+      // (the legs reach the feet wholly at every point of the crouch: mixed by their angles with the gait's, which reached
+      // the feet from hips not yet sunk, a body landing from a fall stood 10 cm into the ground for 0.1 s)
+      vec2 cL = legIK(fL.x - stepZ, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), cR = legIK(fR.x - stepZ, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
+      thL = cL.x; thR = cR.x; shL = cL.y; shR = cR.y;
       chestX = mix(chestX, 0.55, kk); headX = mix(headX, 0.12, kk);
       uaL = mix(uaL, -0.8, kk); faL = mix(faL, -0.3, kk); uaLz = mix(uaLz, -0.15, kk); uaR = mix(uaR, -0.3, kk); faR = mix(faR, -0.55, kk);
     } else if (atype > 13.5 && atype < 14.5) {
@@ -1047,22 +1070,48 @@ function humanVS(depth) {
       uaL = mix(uaL, -0.95 + 0.15 * drive, kk); uaR = mix(uaR, -0.95 + 0.15 * drive, kk);
       faL = mix(faL, -0.75 + 0.6 * drive, kk); faR = mix(faR, -0.75 + 0.6 * drive, kk);
       uaLz = mix(uaLz, -0.22, kk); uaRz = mix(uaRz, 0.22, kk);
-      chestX = mix(chestX, 0.82, kk); headX = mix(headX, -0.45, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
+      // [motion5] her end (07e_boats.js boatLaunchStep: still for 0.25 s, then gathering way to 1.1 m/s over half a second),
+      // how far she has gone (s9), and the body following her for her first 0.3 m: the hips driving forward over the feet
+      // and the chest bending lower after her; bent as low over her as her gunwale lies (from 0.65 m over the floor to 0.2)
+      float t9 = at * 1.3, s9 = t9 < 0.25 ? 0.0 : t9 < 0.75 ? 1.1 * (t9 - 0.25) * (t9 - 0.25) : 0.275 + 1.1 * (t9 - 0.75);
+      float fol = smoothstep(0.0, 0.3, s9), low9 = smoothstep(0.62, 0.22, shH);
+      chestX = mix(chestX, mix(0.95, 1.25, low9) + 0.12 * fol, kk); headX = mix(headX, -0.45 - 0.35 * low9, kk); chestY = mix(chestY, 0.0, kk); headY = mix(headY, 0.0, kk);
       // [motion4] the feet step into the stance, the front one and then the back, lifted as they go (a quick step's rise:
       // clear of the ground before they move), and stay where they came down while the body drives forward over them:
       // they glided into it over the ground, and the drive (stepZ) carried them 8 cm with it
-      bob *= 1.0 - kk; stepZ = mix(stepZ, 0.08 * drive, kk); capeX = mix(capeX, 0.35, kk);
+      bob *= 1.0 - kk; stepZ = mix(stepZ, 0.04 + 0.16 * fol, kk); capeX = mix(capeX, 0.35, kk); // [motion5] (the drive follows her)
       float kF = smoothstep(0.0, 0.55, kk), kB = smoothstep(0.45, 1.0, kk);
       float liftF = 0.06 * pow(max(sin(3.14159 * kF), 0.0), 0.35), liftB = 0.06 * pow(max(sin(3.14159 * kB), 0.0), 0.35);
       // (each over the ground where it goes, a shingle beach running down to the water: the lock gives the floor under each
       // foot on its way, 13s_footlock.js, else the slope's line; set level with the body's own floor the front foot stood
       // 15 cm over the shingle and the back one as far into it. The hips sink as far as the legs need to reach it)
-      float aF = mix(fL.x, 0.34, smoothstep(0.15, 0.85, kF)), aB = mix(fR.x, -0.5, smoothstep(0.15, 0.85, kB));
+      float aF = mix(fL.x, 0.34, smoothstep(0.15, 0.85, kF)), aB = mix(fR.x, mix(-0.5, -0.4, low9), smoothstep(0.15, 0.85, kB)); // [motion5] (a shorter stance, crouched)
       float gF = flSlot > 0.5 ? hL : mix(hL, slopeK * aF, kF), gB = flSlot > 0.5 ? hR : mix(hR, slopeK * aB, kB);
-      crouch = mix(crouch, max(0.14, max(0.115 - gF, 0.205 - gB)), kk);
+      // [motion5] the hands on her gunwale by her end (13y_motion5.js: SHOVE_U of the way to it, ${SHOVE_A_W} m ahead of the
+      // root and ${SHOVE_X_W} m either side of her keel, the keel shX across the body's line and the gunwale shH over its floor,
+      // packed with the action) and following her down the beach (the floor's slope along the body) for her first 0.3 m;
+      // the hips as low as the hands need to reach it with the arms a little bent (the shoulder over the hips after the
+      // chest's lean), reached for as the oars' grips are (in the frame before the chest's lean and the hips' sink, each
+      // arm swung in at the shoulder); beyond, the arms straighten after her and come away. They were posed by fixed angles
+      // and pressed on the air half a metre over her stern
+      float rs9 = max(iColA.w, 0.3), sR = min(s9, 0.3), ty9 = (shH + ${SHOVE_FIST} + slopeK * sR) / rs9, tz9 = (${SHOVE_A_W} + sR) / rs9;
+      float cN = mix(0.95, 1.25, low9) + 0.12 * fol, ys9 = 1.04 + 0.395 * cos(cN) + 0.01 * sin(cN), zs9 = -0.01 + 0.395 * sin(cN) - 0.01 * cos(cN) + 0.04 + 0.16 * fol;
+      float dxN = 0.19 - (${SHOVE_X_W} - abs(shX)) / rs9, dzN = tz9 - zs9;
+      float kNeed = clamp(ys9 - ty9 - sqrt(max(0.29 - dzN * dzN - dxN * dxN, 0.0025)), 0.0, 0.46);
+      crouch = mix(crouch, max(max(0.14, kNeed), max(0.115 - gF, 0.205 - gB)), kk); // [motion5] (kNeed)
       if (kk > 0.0) {
         vec2 pF = legIK(aF - stepZ, gF + liftF - 0.845 + crouch), pB = legIK(aB - stepZ, gB + liftB - 0.845 + crouch);
         thL = pF.x; shL = pF.y; thR = pB.x; shR = pB.y;
+        float gy9 = (shH + ${SHOVE_FIST} + slopeK * s9) / rs9 + crouch - bob, gz9 = (${SHOVE_A_W} + s9) / rs9 - stepZ;
+        vec2 q9 = vec2(gy9 - 1.04, gz9 + 0.01); float c9 = cos(chestX), n9 = sin(chestX);
+        q9 = vec2(q9.x * c9 + q9.y * n9, q9.y * c9 - q9.x * n9) + vec2(1.04, -0.01);
+        // (each hand by its own gunwale: the left out at shX + half her beam there, the right at shX - it)
+        float dz9 = q9.y + 0.02, dxL9 = (shX + ${SHOVE_X_W}) / rs9 - 0.19, dxR9 = (${SHOVE_X_W} - shX) / rs9 - 0.19;
+        float rL9 = sqrt(max(dxL9 * dxL9 + dz9 * dz9 - 0.0029, 0.01)), rR9 = sqrt(max(dxR9 * dxR9 + dz9 * dz9 - 0.0029, 0.01));
+        float yL9 = atan(dxL9 / max(dz9, 0.05)) - atan(0.054 / rL9), yR9 = atan(dxR9 / max(dz9, 0.05)) - atan(0.054 / rR9);
+        vec2 aL9 = armIK(q9.x, rL9 + 0.036 - 0.02), aR9 = armIK(q9.x, rR9 + 0.036 - 0.02);
+        uaL = mix(uaL, aL9.x, kk); uaR = mix(uaR, aR9.x, kk); faL = mix(faL, aL9.y, kk); faR = mix(faR, aR9.y, kk);
+        uaLz = mix(uaLz, 0.0, kk); uaRz = mix(uaRz, 0.0, kk); uaLy = yL9 * kk; uaRy = -yR9 * kk;
       }
     }
     // [motion4] a blow, a flinch, a reach, a smash or a parry (actions 1, 4, 5, 8 and 11) shifts the body's weight over
