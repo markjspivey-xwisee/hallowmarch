@@ -205,12 +205,18 @@ async def crew(page):
       const side = T3.cellsOf(B, 1), c = side[Math.floor(side.length / 2)];
       T3.Z.deckIgnite(c, 0.35);
       let t = 0, at = 0; const beaters = new Set(); const gs = [...K.guards].map(F.getEnt).filter(Boolean);
-      while (t < 90 && c.st === 1) { __hm.simulate(0.5); t += 0.5; for (const g of gs) if (g.alive && g.ai.fire) beaters.add(g.id); if (!at && gs.some((g) => g.alive && g.ai.fire && Math.abs(g.y - c.y) < 1.25 && Math.hypot(g.x - c.x, g.z - c.z) < 2.5)) at = t; }
+      const y0 = new Map(gs.map((g) => [g.id, g.y])), rose = new Set();
+      while (t < 90 && c.st === 1) { __hm.simulate(0.5); t += 0.5; for (const g of gs) { if (g.alive && g.ai.fire) beaters.add(g.id); if (g.alive && g.y - y0.get(g.id) > 1.5) rose.add(g.id); } if (!at && gs.some((g) => g.alive && g.ai.fire && Math.abs(g.y - c.y) < 1.25 && Math.hypot(g.x - c.x, g.z - c.z) < 2.5)) at = t; }
       out.t = t; out.st = c.st; out.char = +c.char.toFixed(2); out.beaters = beaters.size; out.arrived = at; out.beats = +T3.Z.BLAZE.stats.beats.toFixed(1);
       out.acts = gs.filter((g) => g.anim.act === 21).length;
+      // [siege3] the fire out, those who climbed onto the walk come back down to their posts' floor (not left at the walk's edge)
+      const up = () => gs.filter((g) => g.alive && rose.has(g.id) && beaters.has(g.id) && Math.abs(g.y - y0.get(g.id)) > 1.1);
+      let tb = 0; while (tb < 45 && up().length) { __hm.simulate(0.5); tb += 0.5; }
+      out.rose = [...rose].filter((id) => beaters.has(id)).length; out.stillUp = up().length; out.backT = tb; out.back = T3.Z.BLAZE.stats.back;
       return out; })()""")
     check(r['beaters'] >= 1 and (r['arrived'] > 0 or (r['st'] != 1 and r['st'] != 3)), f"crew: they climb up to a fire on the walk's boards (there at {r['arrived']} s)")
     check(r['st'] != 1 and r['st'] != 3, f"crew: and beat it out before it burns through ({r['t']} s, char {r['char']}, {r['beats']} s of beating)")
+    check(r['stillUp'] == 0, f"crew: the fire out, those who climbed onto the walk go back down to their posts' floor ({r['rose']} went up, {r['stillUp']} still up after {r['backT']} s)")
     r = await ev(page, 'crew: diversion', """(() => { const { K, C, B } = T3.burh(0), out = {}, F = T3.F;
       // with a foe at the gate the crew still goes to a fire on the far wall: the watch is thinner while it burns
       __hm.palisade.palisadeInit(); const c = C.pal.cells.find((q) => q.side === 0 && q.a > 4 && q.st === 0); __hm.palisade.palisadeIgnite(c, 0.3);

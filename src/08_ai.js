@@ -604,7 +604,7 @@ function thinkPosted(e, dt, aggroR) {
   // garrison troops: hold a post, fight what comes near, never wander off. A soldier whose band is gone (one raised by
   // a priest after the rest fell, say) holds where it stands.
   const post = e.ai.post || (e.ai.post = { x: e.x, z: e.z, leash: 14 });
-  if (e.ai.fire && blazeFightStep(e, dt)) return; // [siege3] beating out a fire on its walls (04g_blaze.js)
+  if ((e.ai.fire || e.ai.fireBack) && blazeFightStep(e, dt)) return; // [siege3] beating out a fire on its walls, then back to its post's floor (04g_blaze.js)
   if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
   if ((e.ai.plug || e.ai.sally) && siegePostedThink(e, dt)) return; // [siege] holding a breach, or out on a sally (04h_siege.js)
   let t = getEnt(e.target);

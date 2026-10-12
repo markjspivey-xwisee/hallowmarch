@@ -21,7 +21,7 @@
 // updateCastles), 04e_houses.js (fireLandsAt, fireConeAt), 04l_towers.js (towerOffers), 08_ai.js (thinkPosted, the
 // burnt gate's news), 05a_rig.js (action 21's pose).
 
-const BLAZE = { list: [], gates: [], ready: false, gaps: 0, stats: { lit: 0, spread: 0, out: 0, through: 0, rebuilt: 0, spared: 0, harm: 0, fell: 0, gateLit: 0, gateDown: 0, gateOut: 0, beats: 0, beatOut: 0, crews: 0, gaveUp: 0, playerBeats: 0 }, dirty: new Set() };
+const BLAZE = { list: [], gates: [], ready: false, gaps: 0, stats: { lit: 0, spread: 0, out: 0, through: 0, rebuilt: 0, spared: 0, harm: 0, fell: 0, gateLit: 0, gateDown: 0, gateOut: 0, beats: 0, beatOut: 0, crews: 0, gaveUp: 0, back: 0, playerBeats: 0 }, dirty: new Set() };
 const BZ_CELL = 1.6, DZ_MAX = 8, BZ_FLAMES = 2;
 const BZ_T = { climb: 16, burn: 55, spread: 7, quiet: 20, rebuild: 110, ember: 100, harm: 0.035, fresh: 140, npcCatch: 0.35, reach: 4, gate: 60, gateNpc: 0.3, beat: 0.16, beatP: 0.22, crew: 2, crewMax: 4 };
 const BZ_FALL_L = { hatch: null, T: null }; // the ladder fall's motion wants a ladder: none here (towerLadderStep only reads its hatch)
@@ -670,7 +670,7 @@ function blazeCrews(dt) {
     if (!fires.length) continue;
     const gs = [...(K.guards || K.guardians)].map(getEnt).filter((g) => g && g.alive);
     const busy = gs.filter((g) => g.ai.fire && fires.some((f) => f.key === g.ai.fire.key));
-    for (const g of gs) if (g.ai.fire && !fires.some((f) => f.key === g.ai.fire.key)) g.ai.fire = null; // out
+    for (const g of gs) if (g.ai.fire && !fires.some((f) => f.key === g.ai.fire.key)) blazeJobEnd(g); // out: back to its post's floor
     let n = busy.length;
     for (const f of fires.sort((a, b) => b.heat - a.heat)) {
       if (n >= BZ_T.crewMax) break;
@@ -688,24 +688,52 @@ function blazeCrews(dt) {
           if (d < bd) { bd = d; best = g; }
         }
         if (!best) break;
-        best.ai.fire = { key: f.key, kind: f.kind, best: Infinity, bestT: GAME.t, since: GAME.t };
+        best.ai.fire = { key: f.key, kind: f.kind, best: Infinity, bestT: GAME.t, since: GAME.t, py: best.ai.fireBack ? best.ai.fireBack.y : best.y }; // (py: the floor it goes back to)
+        best.ai.fireBack = null;
         busy.push(best); have++; n++;
         BLAZE.stats.crews++;
       }
     }
   }
 }
+// a fire's work over (out, given up, a foe on it): its borrowed way let go, and a way back to the floor of its post
+// (a guard of the court that climbed onto the walk would walk straight for its post and stand at the walk's edge)
+function blazeJobEnd(e) {
+  const J = e.ai.fire;
+  if (!J) return;
+  if (J.route && e.ai.route === J.route) e.ai.route = null;
+  if (e.anim.act === 21) e.anim.actT = e.anim.actDur;
+  if (J.py != null) e.ai.fireBack = { y: J.py, until: GAME.t + 60, scan: 0, foe: false };
+  e.ai.fire = null;
+}
+// back down (or up) to its post's floor by the castle's ways (castleWaypoint), a foe near coming first; thinkPosted
+// walks it the rest of the way
+function blazeBackStep(e, dt) {
+  const B = e.ai.fireBack, post = e.ai.post;
+  if (!post || GAME.t > B.until || e.fixedY !== null) { e.ai.fireBack = null; return false; }
+  if (GAME.t > B.scan) { B.scan = GAME.t + 0.5; const t = topThreat(e); B.foe = !!(t && dist2(t.x, t.z, e.x, e.z) < 12 * 12 && Math.abs(t.y - e.y) < 3); }
+  if (B.foe) return false;
+  if (Math.abs(e.y - B.y) < 1.1) { e.ai.fireBack = null; BLAZE.stats.back++; return false; }
+  const wp = castleWaypoint(e, { x: post.x, y: B.y, z: post.z });
+  if (!wp || (wp.ladder && wp.ladder.gone)) { e.ai.fireBack = null; return false; }
+  e.target = null;
+  if (wp.ladder && towerLadderStart(e, wp.ladder, wp.y > e.y + 1 ? 1 : wp.y < e.y - 1 ? -1 : 0)) return true;
+  if (wp.ladder && Math.abs(wp.y - e.y) > 1) { const L = wp.ladder, up = wp.y > e.y; moveToward(e, up ? L.fx : L.ox, up ? L.fz : L.oz, dt, 1.0, 0.05); return true; }
+  moveToward(e, wp.x, wp.z, dt, 0.9, 0.05);
+  return true;
+}
 // a firefighter's step (thinkPosted): true while the fire has the body
 function blazeFightStep(e, dt) {
+  if (!e.ai.fire) return blazeBackStep(e, dt);
   const J = e.ai.fire, K = e.keep || e.temple, C = K && castleOf(K.site);
-  if (!C) { e.ai.fire = null; return false; }
+  if (!C) { blazeJobEnd(e); return false; }
   const f = blazeFiresOf(C).find((q) => q.key === J.key);
-  if (!f) { if (J.route && e.ai.route === J.route) e.ai.route = null; e.ai.fire = null; if (e.anim.act === 21) e.anim.actT = e.anim.actDur; return false; }
+  if (!f) { blazeJobEnd(e); return false; }
   // a foe on it comes first
   if (GAME.t > (J.scan || 0)) {
     J.scan = GAME.t + 0.5;
     const t = topThreat(e);
-    if (t && dist2(t.x, t.z, e.x, e.z) < 7 * 7 && Math.abs(t.y - e.y) < 2.5) { if (J.route && e.ai.route === J.route) e.ai.route = null; e.ai.fire = null; return false; }
+    if (t && dist2(t.x, t.z, e.x, e.z) < 7 * 7 && Math.abs(t.y - e.y) < 2.5) { blazeJobEnd(e); return false; }
   }
   e.target = null;
   const d = dist(e.x, e.z, f.sx, f.sz), dy = Math.abs(e.y - f.sy);
@@ -722,8 +750,7 @@ function blazeFightStep(e, dt) {
   if (GAME.t - J.bestT > 12 || GAME.t - J.since > 90) {
     // no nearer (a gap in the walk, a locked way up): it gives this fire up and goes back to its post
     (e.ai.fireBan || (e.ai.fireBan = new Map())).set(J.key, GAME.t + 30);
-    if (J.route && e.ai.route === J.route) e.ai.route = null;
-    e.ai.fire = null; BLAZE.stats.gaveUp++;
+    blazeJobEnd(e); BLAZE.stats.gaveUp++;
     return false;
   }
   // a fire on the walk from below: up by a post's own way (its stair) as far as the walk, then along the boards
