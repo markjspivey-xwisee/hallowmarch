@@ -459,6 +459,7 @@ function botArcher(e, t) {
   if (rushComing(e, t) && clsHas(e, 'snare') && !CLS.snares.some((s) => s.owner === e.id && !s.sprung && dist2(s.x, s.z, e.x, e.z) < 9) && !canUse(e, 'snare', null)) { faceToward(e, t.x, t.z); if (botUse(e, 'snare', null)) return true; }
   if (botFoes(e, 40, (o) => dist(o.x, o.z, t.x, t.z) < 5) >= 2 && botUse(e, 'volley', t)) return true;
   if (t.cs && t.cs.blockOn && botUse(e, 'volley', t)) return true; // [balance4] a volley falls from above: a raised shield does not turn it
+  if (B7T.archerVolley && archerVolleyWorth(t) && botUse(e, 'volley', t)) return true; // [balance7] at a foe that stands where it is (07c_balance7.js)
   if (botUse(e, 'firearrow', t)) return true;
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
@@ -629,7 +630,8 @@ function botPriest(e, t) {
   // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
   if (fight && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance6] (a spent steadiness guards no more spells)
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
-  if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
+  const race = B7T.priestRace && !many && abilityRank(e.level) <= 1 ? B7T.priestRace : 0; // [balance7] a duel of rank I is a race: mend lower, smite more (07c_balance7.js)
+  if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) - race : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
   if (steadyNext(e) && hpF < 0.68 && botUse(e, 'mend', e)) return true; // [balance6] the steadied spell spent on the heal, not a smite
   // holy ground where the fight is
   if (clsHas(e, 'consecrate') && devOf(e) >= 35 && foesNear >= 1 && hpF < 0.95 && !CLS.grounds.some((G) => G.src === e.id && dist2(G.x, G.z, e.x, e.z) < 25)) { if (botUse(e, 'consecrate', null)) return true; }
@@ -649,7 +651,7 @@ function botPriest(e, t) {
   // home); a priest that only mended lost three duels in four to a warrior at 10
   if (castOk && t.cls === 'warrior' && abilityRank(e.level) >= 2 && !dazzled(t) && hpF > 0.42 && botUse(e, 'smite', t)) return true; // (from rank II: at 10 it smote instead of mending and lost more)
   if (healOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true; // [balance6] healOk
-  if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk
+  if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) - race && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk [balance7] race
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
   const reach = dist(e.x, e.z, t.x, t.z) < e.meleeRange + t.radius * (t.scale || 1) + 0.6;
   // a reserve for mending only in a long fight (more than one foe on you); one foe is a race

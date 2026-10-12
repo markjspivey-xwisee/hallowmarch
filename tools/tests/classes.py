@@ -1055,7 +1055,10 @@ async def balance7(page):
     r = await ev(page, 'thule', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {}; const k0 = H.farm.SEASON.k;
       const snare = (P) => { const a = T.ahead(P, 1.2); C.laySnare(P); H.simulate(1.2); const S = C.CLS.snares[C.CLS.snares.length - 1]; const f = T.foe(1, S.x, S.z, 30, 'warrior', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.x = S.x; f.z = S.z; H.simulate(0.2);
         const root = f.buffs.find((b) => b.kind === 'root' && b.src === P.id); return { caught: S.caught === f.id, root: root ? +(root.until - H.GAME.t + 0.2).toFixed(2) : 0, frozen: !!C.frozenOf(f) }; };
-      const P = T.fresh('archer', 30, 2); H.setTod(0.5); H.simulate(0.2);
+      // the south in spring by day: warm (Thule's own lands are cold most of the year: its edge there)
+      const P = T.fresh('archer', 30, 2); H.setTod(0.5); const Lt = H.REALMS[0].town; let warm = null;
+      for (let i = 0; i < 400 && !warm; i++) { const a = i * 2.4, d = 40 + (i % 20) * 6, x = Lt.x + Math.sin(a) * d, z = Lt.z + Math.cos(a) * d; if (F.isWalkable(x, z) && !B7.archerColdAt(x, z)) warm = { x, z }; }
+      if (warm) H.teleport(warm.x, warm.z); H.simulate(0.2); out.home = B7.archerColdAt(H.REALMS[2].town.x, H.REALMS[2].town.z);
       out.warm = { cold: B7.archerColdAt(P.x, P.z), wind: B7.archerWindK(P), snare: snare(P) };
       // the dead of winter in Thule's own lands: the snow lies and the air bites
       H.farm.setSeason(3); H.seasons.seasonSettle(); H.setTod(0.0); H.simulate(0.5);

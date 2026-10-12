@@ -12,12 +12,34 @@ const B7T = {
   priestSelf: PRIEST_SELF, // [priest] its own wounds mend at this share of a heal's measure at rank I
   priestPress: true, // [priest bot] a skilled priest presses a bow to its mace before Tumble's level
   priestSnareRenew: true, // [priest bot] a skilled priest renews itself for steadiness when slowed
-  sanctWound: false, // [priest] Sanctuary's heal on the priest itself weighs the wound as Mend's does
-  plainK: 1, // [archer] plain shafts from rank II
-  chargeSlowLate: false, // [warrior] a Charge's landing slows its foe from Leap Strike's level too (as below it)
-  warriorFire: false, // [warrior bot] a skilled warrior goes through burning grass after its foe instead of stepping out of it
+  sanctWound: false, // [priest] Sanctuary's heal on the priest itself weighs the wound as Mend's does (tried: it cost the careful priest, who uses it at 70%, as much as the careless one)
+  plainK: 1.08, // [archer] a seasoned archer's own shafts: plain arrows from rank II strike this much harder
+  chargeSlowLate: true, // [warrior] a Charge's landing slows its foe from Leap Strike's level too (as below it)
+  warriorFire: true, // [warrior bot] a skilled warrior goes through burning grass after its foe instead of stepping out of it
   priestBait: false, // [priest bot] a skilled priest smites through a blade whose bash is ready, or a foe that has just cut a spell (it stood idle)
+  archerVolley: false, // [archer bot] a skilled archer volleys a lone foe that stands where it is (casting, drawing, held, or not moving)
+  chargeCdLate: 12, // [warrior] Charge's wait from Leap Strike's level (0: its own 16 s): 12 s at every level now
+  npcDevotion: true, // [priest] an NPC priest keeps the devotion it comes to the field with (it faded at the first look)
+  priestRace: 0.15, // [priest bot] in a duel at rank I a skilled priest mends this much lower and smites instead
+  volleyDodge: true, // [bots] a skilled bot steps out of a foe's volley before its second wave
 };
+// botDodge asks: a foe's volley falling on e (its three waves land 0.85, 1.4 and 1.95 s after it is loosed): out of it,
+// a drawn bow let go and a spell finished first (a skilled archer drawing in a mirror stood under every wave)
+function botVolleyAt(e) {
+  if (e.cls === 'warrior') return null; // (a blade after its foe goes on under the arrows, as through the flames)
+  for (const m of AOE_MARKS) {
+    if (m.faction == null || m.faction === e.faction || m.until < GAME.t + 0.6) continue;
+    if (dist(e.x, e.z, m.x, m.z) > m.r + e.radius * (e.scale || 1)) continue;
+    if (e.casting) return null;
+    if (e.cs && e.cs.drawFrom >= 0) releaseDraw(e, getEnt(e.target)); // (the arrow loosed as it is, then out)
+    BAL7.stats.volleyDodges = (BAL7.stats.volleyDodges || 0) + 1;
+    return { x: m.x, z: m.z, now: false };
+  }
+  return null;
+}
+// a volley's three waves fall over two seconds: worth it at a foe that will still be there (a skilled archer kept it for
+// two foes or a raised shield, and a simple archer standing in a mirror took the skilled one's quick shots instead)
+const archerVolleyWorth = (t) => !!t && t.alive && (!!t.casting || isRooted(t) || isStunned(t) || (!!t.cs && t.cs.drawFrom >= 0) || (!!t.anim && t.anim.amt < 0.08 && !(t.motion && t.motion.kind)));
 // botDodge asks: a skilled warrior after its foe does not step out of burning grass (2% of its health a second)
 const botFireThrough = (e, t) => B7T.warriorFire && e.cls === 'warrior' && !!t && t.alive && e.hp > e.maxHp * 0.25;
 // Sanctuary on the priest itself: weighed by the wound as Mend is (B7T.sanctWound)
@@ -80,9 +102,16 @@ CLASS_REALM.archer[0].text = `From a wall, a tower or any perch you reach full d
 CLASS_REALM.archer[1].text = `Among trees you hide in half the time, stay hidden while you walk, and a shot from hiding strikes ${Math.round((ARCHER_GROUND.eriuAmbush - 1) * 100)}% harder instead of 50%.`;
 CLASS_REALM.archer[2].text = `In the cold (snow under you, or a freezing air) the wind does not move your arrows and your snares freeze what they catch and hold it ${ARCHER_GROUND.thuleSnare} s; anywhere, you strike chilled and frozen foes ${Math.round((ARCHER_REALM.thuleChill - 1) * 100)}% harder.`;
 
+/* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage, and the blow slows it by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there, and Charge is then ready in half its wait. Landing, you take ${RUSH_FOOTING} s to find your feet, and Shield Bash waits ${RUSH_BASH} s. Charge comes round every ${RUSH_CD_EARLY} s; from Leap Strike's level it and Leap Strike are one rush (either holds the other back ${RUSH_SHARE} s).`;
+ABILITIES.mend.desc = `Heals a friend for 36% of health, or you for ${Math.round(36 * PRIEST_SELF)}%. The deeper the wound, the more it mends: all of it from half health down, barely a sixth of it on a scratch.`;
+ARROW_DEF.plain.text = `Ordinary shafts. You never run out, and from rank II (level 30) a seasoned archer's own shafts strike ${Math.round((B7T.plainK - 1) * 100)}% harder.`;
+
 setTimeout(() => {
   LOADING_TIPS.push(
     'An archer of Logres draws quicker and strikes harder from a wall or a tower; one of Ériu hides and walks hidden among trees; one of Thule hunts best in the snow and the frost.',
+    'A warrior\'s Charge comes round every 12 s at every level, and its landing blow slows the foe.',
+    'Mend a scratch and Mend does little: keep it for the deep wound.',
   );
 }, 0);
 

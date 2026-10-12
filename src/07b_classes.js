@@ -90,7 +90,7 @@ function csOf(e) {
   // NPCs come to the field with a few habits of their own
   if (e.role !== 'player') {
     if (e.cls === 'mage') e.cs.focus = pick(Math.random, ['fire', 'frost', e.level >= 6 ? 'storm' : 'fire']);
-    if (e.cls === 'priest') e.cs.dev = 20 + Math.random() * 30;
+    if (e.cls === 'priest') { e.cs.dev = 20 + Math.random() * 30; if (B7T.npcDevotion) e.cs.devAt = GAME.t; } // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
   }
   return e.cs;
 }

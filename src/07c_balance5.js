@@ -99,6 +99,7 @@ function botDodge(e, t, dt) {
     for (let a = 0; a < 8; a++) { const x = e.x + Math.sin(a * 0.785) * 2.5, z = e.z + Math.cos(a * 0.785) * 2.5; if (natGet(x, z, 2) > 0.3) { bx += x; bz += z; nb++; } }
     if (nb < 8) best = nb ? { x: bx / nb, z: bz / nb, now: false, fire: true } : { x: e.x, z: e.z, now: false, fire: true };
   }
+  if (!best && B7T.volleyDodge) best = botVolleyAt(e); // [balance7] a foe's volley falling on it (07c_balance7.js)
   if (!best && typeof SPELL !== 'undefined') for (const S of SPELL.emitters) {
     if (S.kind !== 'blizzard' || !S.src || S.src.faction === e.faction || S.until < GAME.t + 0.8) continue;
     if (dist(e.x, e.z, S.x, S.z) < S.r + e.radius * (e.scale || 1) + 0.4) { best = { x: S.x, z: S.z, now: false }; break; }
