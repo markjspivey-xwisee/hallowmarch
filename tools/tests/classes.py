@@ -817,7 +817,7 @@ async def balance3(page):
       for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
       return out; })()""")
     check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.3 and r['50']['wound'] == 0.3, f"a broadhead's wound: 30% at every rank ([balance5]: 45% from rank II before) ({r})")
-    check(abs(r['20']['self'] - 0.7) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 70% ([balance5] 75%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
+    check(abs(r['20']['self'] - 0.76) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 76% ([balance5] 70%, [balance6] 76%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
 
@@ -988,7 +988,8 @@ async def balance6(page):
       P.bot = null; return out; })()""")
     check(r['far'] and r['near'] and r['blade'], f"a skilled archer takes a priest for a blade at its throat only at its mace, a warrior within 9 m ({r})")
     r = await ev(page, 'well', """(() => { const H = T.H, F = T.F, C = H.cls; const P = T.fresh('priest', 20, 1); const out = {};
-      C.csOf(P).dev = 60; P.hp = P.maxHp * 0.5; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'renew', P); H.simulate(0.05);
+      /* devotion fades from its last gain: a long run's clock had faded it to nothing */
+      C.csOf(P).dev = 60; C.csOf(P).devAt = H.GAME.t; C.csOf(P).devTick = H.GAME.t; P.hp = P.maxHp * 0.5; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'renew', P); H.simulate(0.05);
       const hots = P.buffs.filter((b) => b.kind === 'hot' && b.until > H.GAME.t);
       out.n = hots.length; out.src = hots.map((b) => b.src === P.id ? 'renew' : String(b.src)); out.well = +(hots.filter((b) => b.src === 'well').reduce((a, b) => a + b.value, 0) / P.maxHp).toFixed(4);
       const h0 = P.hp; H.simulate(3.02); out.healed = +((P.hp - h0) / P.maxHp).toFixed(3); return out; })()""")

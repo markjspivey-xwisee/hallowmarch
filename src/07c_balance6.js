@@ -231,8 +231,8 @@ CLASS_REALM.archer[2].text = `The wind moves your arrows only ${ARCHER_REALM.thu
 
 /* ---- what a player reads ---- */
 ABILITIES.charge.desc += ` A rush held on its way (a snare, a frost, a wall) comes round again in half its wait.`;
-ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health. While it holds, a stun that strikes you breaks on it instead, at half its strength, and so does a blow that would break your spell (it costs the ward a quarter of what it has left).';
-ABILITIES.renew.desc = `Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells; cast on yourself while your last Renewal still has more than ${RENEW_ROTE_LEFT} s to mend, it costs ${['', 'once', 'twice', 'three times', 'four times'][RENEW_ROTE_K] || RENEW_ROTE_K + ' times'} the power.`;
+ABILITIES.ward.desc = 'Absorbs damage equal to 35% of your health, and bites back at anyone who strikes you in your focus: burning, chilling or shocking them. While it holds, a stun that strikes you breaks on it instead, at half its strength, and so does a blow that would break your spell (it costs the ward a quarter of what it has left).';
+ABILITIES.renew.desc = `Heals 32% over 9 seconds. On yourself it also loosens roots, and for 4 s nothing but a stun breaks your spells; cast on yourself while your last Renewal still has more than ${RENEW_ROTE_LEFT} s to mend, it costs ${['', 'once', 'twice', 'three times', 'four times'][RENEW_ROTE_K] || RENEW_ROTE_K + ' times'} the power. With 20 devotion it also blesses the target.`;
 
 // the loading screen's word on the callings (10d_classes_ui.js keeps the rest; LOADING_TIPS is declared in 10c_lore.js,
 // which loads after this module, so the push waits for every module to load)
