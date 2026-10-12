@@ -1046,7 +1046,7 @@ function renderPathHud() {
     html = `<div class="ph"><span class="lbl">Your path</span><span class="n">${n} / ${N}</span><button type="button" class="tog" data-act="min" aria-label="Fold your path away">${iconSvg('lminus', 12)}</button></div>`
       + `<button type="button" class="step" data-act="open" title="Open your path in the Chronicle${IS_TOUCH ? '' : ' (J)'}"><span class="gem"></span><span class="st">${S.title}</span><span class="hint">${S.hint(R, prog)}</span>`
       + (m ? `<span class="meter"><i><b style="width:${(m[0] * 100).toFixed(1)}%"></b></i>${m[1]}</span>` : '')
-      + guideWhereLine() /* [guide] how far and which way: the gold gem on the minimap (10e_guide.js) */
+      + guideWhereLine() /* [guide] how far and which way: the gold gem on the minimap (10e_guide.js) */ + g2PointerLine() /* [guide2] or the button that does it (10f_guide2.js) */
       + `<span class="rw">${iconSvg(rw.ic, 14)}Reward: ${rw.t}</span></button>` + water2PathLine(); // [water2] diving and boats, when they are at hand (07e_boats.js)
   }
   if (html !== LORE.hudKey) { el.innerHTML = html; LORE.hudKey = html; }
@@ -1117,7 +1117,12 @@ function loreWatch() {
   LORE.keepRealm = kr;
   if (GIFT.lastCast && GIFT.lastCast.by === P.id) ev.gift = true;
   const Dg = DRAGON.e;
-  if (Dg) { if (Dg.alive && !Dg.removed) LORE.dragonHit = !!(Dg.damagers && Dg.damagers.has(P.id)); else if (LORE.dragonHit) { if (dist2(P.x, P.z, Dg.x, Dg.z) < 200 * 200) ev.dragon = true; LORE.dragonHit = false; } }
+  // [guide2] brought down by you: your share of the harm it took (its threat holds every blow) a twentieth of its health
+  // or more, or the last blow, and you near when it fell (a single arrow and a fall 200 m off counted)
+  if (Dg) {
+    if (Dg.alive && !Dg.removed) { const th = Dg.threat && Dg.threat.get(P.id); if (th) LORE.dragonHit = Math.max(LORE.dragonHit || 0, th / Math.max(1, Dg.maxHp)); if (Dg.lastHitBy === P.id) LORE.dragonLast = GAME.t; }
+    else if (LORE.dragonHit) { if (dist2(P.x, P.z, Dg.x, Dg.z) < 120 * 120 && (LORE.dragonHit >= 0.05 || Dg.lastHitBy === P.id || GAME.t - (LORE.dragonLast || -99) < 3)) ev.dragon = true; LORE.dragonHit = 0; }
+  }
   if (!LORE.mwNames) LORE.mwNames = new Set(RECIPES.filter((r) => r.mw).map((r) => r.mw));
   if (!pathDone('master') && kitItems().some((it) => LORE.mwNames.has(it.name))) ev.master = true;
   const H = CAMPAIGN.history, hl = H.length ? H[H.length - 1] : null;
@@ -1173,7 +1178,7 @@ function showNextNote() {
   d.setAttribute('role', 'status');
   d.title = 'Click to dismiss';
   d.innerHTML = `<small>Field note</small><b>${N.t}</b><span>${text}</span>`;
-  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact'); d.remove(); if (small && !UI.modal) openChronicle('path'); }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle
+  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact'); d.remove(); if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); } }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle ([guide2] on the field notes' page, itself first and open)
   host.appendChild(d);
   setTimeout(() => d.remove(), 11000);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);
@@ -1214,6 +1219,7 @@ function renderChronicle(body, fromNav = false) {
   const grps = CHRON_GROUPS.map(([gk, gl]) => `<button type="button" data-grp="${gk}" aria-current="${gk === G[0]}">${gl}</button>`).join('');
   const secs = CHRON_GROUPS.flatMap(([gk, , ks]) => ks.filter((k) => label[k]).map((k) => `<button type="button" data-sec="${k}" aria-current="${k === sec}"${gk === G[0] ? '' : ' hidden'}>${label[k]}</button>`)).join('');
   body.innerHTML = `<div class="chron"><nav class="chron-nav" aria-label="Chronicle"><div class="chron-grps">${grps}</div><div class="chron-secs">${secs}</div></nav><div class="chron-body">${fn()}</div></div>`;
+  chronFold(sec); // [guide2] a long page folds into its summaries on a phone (10f_guide2.js)
   const sheet = body.closest('.sheet');
   const nav = body.querySelector('.chron-nav'), row = nav.querySelector('.chron-secs'), cur = row.querySelector('[aria-current="true"]');
   if (sheet && !fromNav) sheet.scrollTop = 0;
@@ -1424,7 +1430,7 @@ function chronWar() {
       <li><b>Strike harder.</b> Each foreign hallow in your temple adds a tenth to the damage of every soldier of your realm, you among them. Taking back your own hallow does not make you stronger, but it ends the enemy's gain.</li>
     </ol>
     ${campaignChronHTML() /* [campaign] how a campaign is won, the standing and past campaigns (08g_campaign.js) */}
-    <div class="acts">${chronLink('sieges', 'Sieges: gates, engines, breaches, towers')}${chronLink('orders', 'Orders')}</div>${'' /* [guide] towersChronHTML moved to chronSieges (10e_guide.js) */}
+    <div class="acts">${chronLink('sieges', 'Sieges and towers')}${chronLink('orders', 'Orders')}</div>${'' /* [guide] towersChronHTML moved to chronSieges (10e_guide.js) */}
     <div class="tide" role="table" aria-label="The war now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Keeps</span><span class="h c" role="columnheader">Bonus</span><span class="h w" role="columnheader">Its own hallow</span>
       ${tide.map((t) => `<span class="r" style="--rc:${t.R.color}"><i></i>${t.R.name}</span><span class="c">${t.keeps}</span><span class="c">${t.bonus ? '+' + t.bonus + '%' : '·'}</span><span class="w">${t.R.hallowName} ${t.ownAt}</span>`).join('')}</div>
     <p class="now">${lead}</p>`;
@@ -1529,18 +1535,23 @@ function chronBarrow() {
 }
 function chronPath() {
   const prog = GAME.prog, P = GAME.player, R = REALMS[P.faction], next = pathNext();
-  const rows = PATH_STEPS.map((S, i) => {
-    const done = prog.lore.done.includes(S.id), cur = S === next;
+  const row = (S) => {
+    const i = S.idx, done = prog.lore.done.includes(S.id), cur = S === next;
     const rw = rewardLabel(S, prog, !cur);
     return `<li class="${done ? 'done' : cur ? 'cur' : ''}"><span class="mk">${done ? '✓' : i + 1}</span><span><b>${S.title}</b>${cur ? `<small>${S.hint(R, prog)}</small>` : ''}</span><span class="rw">${iconSvg(rw.ic, 14)}${done ? 'Claimed' : rw.t}</span></li>`;
-  }).join('');
-  // [guide] the newest note first
-  const notes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).reverse().map((id) => `<div class="note"><b>${FIELD_NOTES[id].t}</b>${FIELD_NOTES[id].x(R)}</div>`).join('');
-  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each one pays a reward the moment you take it, and the next one always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. You can take them in any order. The Aims page says what opens at 20, 30, 40 and 50.</p>
-    <ol class="steps">${rows}</ol>
-    <div class="acts">${chronLink('goals', 'Aims: what opens at 20, 30, 40 and 50')}</div>
-    ${notes ? `<h3>Field notes</h3>${notes}` : ''}
-    <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`; // [guide] the link to Aims
+  };
+  // [guide2] the step at hand and the two after it; the steps walked and the rest of the way each folded under a line (a
+  // phone read the whole path, 1,700 px of it, to find the one step that mattered)
+  const done = PATH_STEPS.filter((S) => prog.lore.done.includes(S.id)), ahead = PATH_STEPS.filter((S) => !prog.lore.done.includes(S.id));
+  const near = ahead.slice(0, 3), far = ahead.slice(3);
+  const fold = (title, list, open = false) => `<details class="cf"${open ? ' open' : ''}><summary><h3>${title}</h3></summary><div class="cf-b"><ol class="steps">${list.map(row).join('')}</ol></div></details>`;
+  const nNotes = prog.lore.seen.filter((id) => FIELD_NOTES[id]).length;
+  return `<p>${capFirst(guideNumber(PATH_STEPS.length))} steps from recruit to the height of your powers. Each pays a reward the moment you take it; the next always shows at the ${IS_TOUCH ? 'top left' : 'left'} of your screen, with a gold gem on your minimap where it is to be done. Take them in any order.</p>
+    ${done.length ? fold(`${capFirst(guideNumber(done.length))} step${done.length === 1 ? '' : 's'} walked`, done) : ''}
+    ${near.length ? `<ol class="steps">${near.map(row).join('')}</ol>` : `<p class="now">Every step is walked. The Aims page says what to aim for now.</p>`}
+    ${far.length ? fold(`${capFirst(guideNumber(far.length))} more step${far.length === 1 ? '' : 's'} ahead`, far) : ''}
+    <div class="acts">${chronLink('goals', 'Aims: what opens at 20, 30, 40 and 50')}${chronLink('notes', `Field notes (${nNotes})`)}</div>
+    <div class="acts"><button type="button" class="btn" data-lore="prologue">Replay the prologue</button></div>`; // [guide] the link to Aims; [guide2] the field notes have their own page (10f_guide2.js)
 }
 
 /* ------------------------------------------------------------------ */
@@ -1563,7 +1574,7 @@ function loreOnStart(save) {
   prog.lore = kept || { done: [], seen: [], pro: 0, pv: PATH_VERSION };
   const pv0 = prog.lore.pv || 1; // [guide] the path a character's save knew: steps added since are new to it
   prog.lore.pv = PATH_VERSION;
-  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: false, campN: null }); // [guide]
+  Object.assign(LORE, { ev: {}, bounty: prog.bounty, potions: INV.potions, carried: null, doors: new Map(), elites: new Set(), loot: new Set(LOOT), queue: [], noteUntil: 0, deathShown: false, watchT: 0, hudKey: '', fresh: !!save.fresh, keepRealm: null, dragonHit: 0, dragonLast: -99, campN: null }); // [guide] ([guide2] dragonHit: your share of its harm)
   GUIDE.made.length = 0; GUIDE.wallSeen = false; GUIDE.mark = null; GUIDE.markT = 0;
   for (const S of PATH_STEPS) {
     // steps already behind you are marked off quietly: levels you have, and for characters

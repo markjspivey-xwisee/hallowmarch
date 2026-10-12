@@ -312,7 +312,7 @@ function hallOffers(P, offer) {
   if (!H || !houseIntact(H) || H.state === 'burning') return;
   if (!HALL.seen.has(H.num)) {
     HALL.seen.add(H.num);
-    uiToast(`The great hall of ${H.S.name}: command your realm's warbands at the war table, mend and clean your gear at the armourer's bench, wash at the basin, dry off by the hearth.`, 'hint');
+    loreNote('hall'); // [guide2] a field note now (10f_guide2.js); it was a toast
   }
   const sp = H.hallSpots, mine = hallHolder(H) === P.faction, d = (q) => dist(P.x, P.z, q.x, q.z);
   offer(d(sp.table), 2.5, mine ? `Command the warbands at the war table of ${H.S.name}` : `Study the war table (it answers to ${REALMS[hallHolder(H)].name})`, () => hallWarTable(H), 0.1);

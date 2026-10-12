@@ -55,6 +55,8 @@ function guideMarkOf(S) {
   const P = GAME.player, prog = GAME.prog, R = REALMS[P.faction];
   if (!S || inDungeon(P)) return null;
   const b = prog.bounty;
+  const g2 = g2MarkOf(S); // [guide2] the steps done anywhere and the late levels: a place where there is one (10f_guide2.js)
+  if (g2 !== undefined) return g2;
   switch (S.id) {
     case 'herald': return R.herald ? guideTown(P, R, R.herald.x, R.herald.z, `the ${R.name} Herald`) : null;
     case 'bounty':
@@ -323,16 +325,16 @@ function guideNoteIndex() {
 /* ------------------------------------------------------------------ */
 function guideKeysHTML() {
   if (IS_TOUCH) return `<div class="keys">
-    <kbd>Left thumb</kbd><span>Drag anywhere on the left to walk; push to the edge to run.</span>
-    <kbd>Right thumb</kbd><span>Drag to turn the camera. Tap a creature, soldier or gate to target it.</span>
-    <kbd>Ability buttons</kbd><span>Your calling's eight abilities. Locked ones open as you level; past 20 they grow a rank every ten levels.</span>
-    <kbd>Use</kbd><span>Whatever the prompt over the buttons says: the herald, a door, a ladder or hatch, a workstation, a boat, water, a crew, a hallow. You can tap the prompt itself too.</span>
-    <kbd>Target · Jump · Ride</kbd><span>Cycle the foes in front of you · jump (Dive and Up in deep water) · whistle for your horse or step down.</span>
-    <kbd>Potion · Kit</kbd><span>Drink a healing draught · your gear, bags, crafting by hand and goods.</span>
-    <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best thing you carry.</span>
-    <kbd>Your path</kbd><span>Under your frame: the next step, how far and which way (the gold gem on the minimap). Tap it to unfold it, and its title for the whole path.</span>
-    <kbd>Buttons under the minimap</kbd><span>The map (and orders for your warbands), your kit and bags, the log, building (the hammer), and the menu with the Chronicle and this page.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
-    <kbd>Gift</kbd><span>The round gift button calls your realm's great gift, from realm rank 5 or level 30.</span></div>`;
+    <kbd>Left thumb</kbd><span>Drag on the left to walk; to the edge to run.</span>
+    <kbd>Right thumb</kbd><span>Drag to look around. Tap a creature, soldier or gate to target it.</span>
+    <kbd>Ability buttons</kbd><span>Your calling's eight abilities: they open as you level, and grow a rank every ten levels past 20.</span>
+    <kbd>Use</kbd><span>Does what the prompt over the buttons says (a door, a ladder, a fire, a boat, water). Tap the prompt itself too.</span>
+    <kbd>Target · Jump · Ride</kbd><span>The next foe in front · jump (Dive and Up in deep water) · your horse.</span>
+    <kbd>Potion · Kit</kbd><span>A healing draught · your gear, bags, crafting and goods.</span>
+    <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best you carry.</span>
+    <kbd>Your path</kbd><span>Under your frame: the next step and which way (the gold gem on the minimap). Tap to unfold it.</span>
+    <kbd>Buttons under the minimap</kbd><span>The map (and your warbands' orders), kit, log, building, and the menu with the Chronicle.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
+    <kbd>Gift</kbd><span>The round gift button: your realm's great gift, from realm rank 5 or level 30.</span></div>`; // [guide2] each in a line or two on a phone
   return `<div class="keys">
     <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>
     <kbd>Mouse drag</kbd><span>Turn the camera. Right-drag also turns you. Scroll to zoom.</span>
@@ -349,9 +351,9 @@ function guideKeysHTML() {
 }
 // the systems' own blocks, in the order a player meets them; a new system adds its function here
 const GUIDE_HELP = [
-  () => `<h3>What to do</h3><p>Your path, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, always shows your next step, how far and which way; the gold gem on the minimap marks the place. Every step pays a reward. The Chronicle (${IS_TOUCH ? 'in the menu, or tap your path' : 'J'}) tells the story, how every part of the March works, and what to aim for at 20, 30, 40 and 50.</p>`,
+  () => `<h3>What to do</h3><p>Your path, at the ${IS_TOUCH ? 'top left' : 'left'} of the screen, always shows your next step, how far and which way; the gold gem on the minimap marks the place. Every step pays a reward. The Chronicle (${IS_TOUCH ? 'in the menu, or tap your path' : 'J'}) tells the story, how every part of the March works, what to aim for at 20, 30, 40 and 50 (your aim also shows on the war panel), and keeps every field note you were given. A long page folds: ${IS_TOUCH ? 'tap' : 'click'} a heading to open it.</p>`, // [guide2]
   () => `<h3>How the war works</h3><p>Level up against creatures in your home realm. The portal stones in your town carry you to the frontier muster. Break a keep's gate, slay its lord and the keep is yours. When a realm loses one of its keeps, its temple gate can be broken and its hallow carried off. Bring a hallow to your own temple gate to keep it, and every soldier of your realm hits harder. A realm that holds four of the six keeps for five minutes, or both enemy hallows for four, wins the campaign; from realm rank 3 or level 20 you can command your realm's warbands from the map.</p>`,
-  () => `<h3>Keeps, towers and sieges</h3><p>Gates open for their own side and shut against enemies. Every tower can be entered and climbed: walk into a ladder, and push a hatch open as you come up to it. Walls stop what flies: shoot through crenels, slits and open doors. Siege engines crack walls and towers into breaches; ${IS_TOUCH ? 'Use' : 'E'} beside one of your realm's to join its crew.</p>`,
+  () => `<h3>Keeps, towers and sieges</h3><p>Gates open for their own side and shut against enemies. Every tower can be entered and climbed: walk into a ladder, and push a hatch open as you come up to it. Walls stop what flies: shoot through crenels, slits and open doors. Siege engines crack walls and towers into breaches; ${IS_TOUCH ? 'Use' : 'E'} beside one of your realm's to join its crew.</p><p>Timber burns: a burh's palisade, walks and gates, the thatch of a tower. Set them alight with a brand (${IS_TOUCH ? 'Use' : 'E'}), or beat flames on your own walls out with ${IS_TOUCH ? 'Use' : 'E'} beside them. Siege stones crack and hole houses too, and bring them down. In peace masons mend breaches behind scaffolds whose boards and ladders you can climb.</p>`, // [guide2] fire on the walls, scaffolds (versions 13 and 14)
   () => `<h3>Loot and gear</h3><p>Fallen foes drop gear in six grades, from worn grey to legendary orange, of about their own level, to 50. Walk over it to pick it up. Gear wears, soaks and dirties: wash it at any water, mend it at a merchant, an armourer or a forge. Sell what you do not need to the merchant in your town.</p>`,
   () => `<h3>The Hollow Barrow and Cinderwing</h3><p>East of the Lone Tree lies a grassy mound with a ring of standing stones before it: the Hollow Barrow, for strong characters around level 18 and up. The gate of the Well of Souls opens only when its warden falls; the Hollow King's hoard is the best loot in the land. Cinderwing, a great red dragon, comes down to rest on high ground: keep out of its fire and away from its tail.</p>`,
   () => waterHelp(), // [water] 07b_swim.js
@@ -382,24 +384,25 @@ function chronGoals() {
   const rr = realmRank(prog.rp), gift = typeof GIFT_DEF !== 'undefined' && GIFT_DEF[P.faction];
   const champs = CAMPS.filter((c) => c.elite);
   const lvlOk = (n) => (L >= n ? '<span class="gd-ok">now</span>' : `<span class="gd-at">level ${n}</span>`);
+  const nextTier = [20, 30, 40, 50].find((n) => n > L) || 50, tierOpen = (n) => (n === nextTier ? ' data-cf-open' : ''); // [guide2] folded on a phone: the tier you reach next open
   const mw = RECIPES.filter((r) => r.mw && (!r.cls || r.cls.includes(P.cls))).length;
   const goods = (id) => (GOODS[id] ? goodsCount(id) : 0);
   const aims = guideAims().map((a) => `<li><b>${a.t}</b>${a.m ? `<span class="meter"><i><b style="width:${(clamp(a.m[0], 0, 1) * 100).toFixed(1)}%"></b></i>${a.m[1]}</span>` : ''}${a.x ? `<small>${a.x}</small>` : ''}</li>`).join('');
   return `<p class="lead">The path takes a recruit to the frontier and through the first deeds of the war. Past level 20 the March rises to meet you: the frontier's soldiers, the Barrow, Cinderwing and the champions all keep pace with your level, and new things open every ten levels.</p>
-    <h3>Now</h3><ul class="gd-aims">${aims}</ul>
-    <div class="gd-tier"><h4>Level 20 ${lvlOk(20)}</h4><ul class="plain">
+    <h3 data-cf-open>Now</h3><ul class="gd-aims">${aims}</ul>
+    <div class="gd-tier"${tierOpen(20)}><h4>Level 20 ${lvlOk(20)}</h4><ul class="plain">
       <li><b>Your seventh ability</b>, and the frontier's soldiers, the Barrow and Cinderwing now rise with you.</li>
       <li><b>Command the warbands</b> of ${R.name} from the map (also from realm rank 3, or at the war table of a keep your realm holds).</li>
       <li><b>Borderland champions</b>: ${champs.length} named camps on the wild edges of the homelands, for levels 20 to 40. Each drops two pieces of good gear and a trophy.</li>
       <li><b>The Hollow King</b> rises with you: his hoard is two levels above yours, the best gear in the land.</li></ul></div>
-    <div class="gd-tier"><h4>Level 30 ${lvlOk(30)}</h4><ul class="plain">
+    <div class="gd-tier"${tierOpen(30)}><h4>Level 30 ${lvlOk(30)}</h4><ul class="plain">
       <li><b>Your eighth ability</b>, and every ability reaches rank II.</li>
       <li><b>Your realm's great gift</b>${gift ? `, ${esc(gift.ult.name)},` : ''} on ${IS_TOUCH ? 'the gift button' : 'key 9'} (or at realm rank 5): it turns a big fight. You are realm rank ${rr} now.</li>
       <li><b>Cinderwing</b> is a fight for a seasoned band: three pieces of rare gear or better and a dragon scale.</li></ul></div>
-    <div class="gd-tier"><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
+    <div class="gd-tier"${tierOpen(40)}><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
       <li><b>Rank III.</b> The fiercest champions hold the camps for levels 35 to 40.</li>
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
-    <div class="gd-tier"><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
+    <div class="gd-tier"${tierOpen(50)}><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
       <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you.</li>
       <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
@@ -481,6 +484,7 @@ LOADING_TIPS.push(
 function updateGuide(dt) {
   if (!GAME.started || !GAME.player || !GAME.prog) return;
   guideUpdateMark(dt);
+  updateGuide2(dt); // [guide2] notes' slower looks, the pointer on a button (10f_guide2.js)
 }
 
 /* ------------------------------------------------------------------ */

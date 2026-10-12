@@ -36,7 +36,7 @@ window.GD = {
   P() { return this.H.GAME.player; },
   calm(r = 80) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && !e.siegeEngine && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; return 0; },
   // the HUD laid out now (the page's own pass runs four times a second of wall time)
-  lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; this.H.hud.hudLayout(1); return 0; },
+  lay() { const L = this.H.hud.HUDL; L.k = 0; L.t = 0; if (this.H.guide2) this.H.guide2.G2.tap.until = 0; this.H.hud.hudLayout(1); return 0; }, // [guide2] laid out now even while a tap's click is on its way
   // a field note on the screen now: shown, laid out, and held there (it fades on the wall clock)
   noteOn(id) { const H = this.H, L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== id); H.LORE.state.noteUntil = 0; H.LORE.loreNote(id); const q = H.LORE.state.queue; q.splice(q.indexOf(id), 1); q.unshift(id); H.hud.note(id); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.remove = () => {}; d.style.animation = 'none'; } this.lay(); return 0; },
   // where a panel is, and whether it is clear of every other panel the layout placed and on the screen
@@ -249,9 +249,9 @@ async def phone(p):
       return out; })()""")
     check(r.get('master') is True, f'the step "master" is taken when a named masterwork is in your bags ({r})')
     check(r.get('campaign') is True, f'the step "campaign" is taken when your realm wins a campaign with you in it ({r})')
-    # Cinderwing: hit by you, then fallen
+    # Cinderwing: hit by you (a fifth of its harm: [guide2] a single blow from afar no longer counts), then fallen
     r = await ev(page, """(() => { const H = __hm, P = GD.P(), L = H.LORE, Dg = H.guide.dragon(); if (!Dg) return 'no dragon';
-      const a0 = Dg.alive; Dg.alive = true; Dg.removed = false; Dg.damagers = new Set([P.id]); GD.steps(); H.teleport(Dg.x + 20, Dg.z); Dg.alive = false; const done = GD.steps().done.includes('dragon'); Dg.alive = a0; return done; })()""")
+      const a0 = Dg.alive; Dg.alive = true; Dg.removed = false; Dg.damagers = new Set([P.id]); Dg.threat = new Map([[P.id, Dg.maxHp * 0.2]]); GD.steps(); H.teleport(Dg.x + 20, Dg.z); Dg.alive = false; const done = GD.steps().done.includes('dragon'); Dg.alive = a0; return done; })()""")
     check(r is True, f'the step "dragon" is taken when Cinderwing falls with your blows in it ({r})')
     r = await ev(page, "({ banners: [...document.querySelectorAll('#banners .lore-step b')].map((b) => b.textContent), errs: __hm.errors.slice(0, 3) })")
     check(len(r['banners']) >= 1, f'each step taken is named in a banner ({r["banners"][-3:]})')

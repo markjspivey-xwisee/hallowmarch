@@ -59,13 +59,24 @@ window.TF = {
 
 async def tap(page, sel, frames=2):
     """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
-    await page.evaluate("__hm.frame(1/30); __hm.hud.HUDL.k = 0; __hm.hud.hudLayout(0); 0")
+    # [guide2] laid out now, then held still as a finger comes down (the page's own frames ran a layout pass between
+    # the measure and the tap now and then, and the tap landed where a panel had been: G2.tap, 10f_guide2.js); first the
+    # last tap's click lands (on a slow machine it came after the next measure and let the layout go on under it)
+    try: await page.wait_for_function("!(window.__hm && __hm.guide2 && __hm.guide2.G2.tap.pending)", timeout=6000, polling=100)
+    except Exception: pass
+    # (held until the tap's own click lands, however long the page's frames take on a loaded machine: a hold of 4 s ran
+    # out between the measure and the finger now and then, and a panel moved under it)
+    await page.evaluate("__hm.frame(1/30); __hm.hud.HUDL.k = 0; if (__hm.guide2) __hm.guide2.G2.tap.until = 0; __hm.hud.hudLayout(0); if (__hm.guide2) __hm.guide2.G2.tap.until = performance.now() + 30000; 0")
     box = await page.evaluate("""((sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return null;
       const x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y);
       return { x, y, top: !!hit && (hit === el || el.contains(hit)), hit: hit ? (hit.id || String(hit.className).slice(0, 20)) : null }; })""", sel)
     if not box or not box['top']:
         print('  cannot tap', sel, json.dumps(box)); return False
     await page.touchscreen.tap(box['x'], box['y'])
+    # [guide2] its click comes after the finger lifts, sometimes after the next frames: the world is read once it has landed
+    try: await page.wait_for_function("!(window.__hm && __hm.guide2 && __hm.guide2.G2.tap.pending)", timeout=15000, polling=50)
+    except Exception: pass
+    await page.evaluate("if (__hm.guide2) __hm.guide2.G2.tap.until = 0; 0") # (the hold is the tap's own: a tap outside the HUD, in a menu, has no click of the HUD's to let it go)
     for _ in range(frames): await page.evaluate("__hm.frame(1/30); 0")
     return True
 
@@ -272,11 +283,15 @@ async def main():
         if want('companion'):
             r = await page.evaluate("""(() => { const H = TF.H, A = H.animals, P = TF.P(); TF.stand(P.x, P.z, P.x + 1, P.z); TF.calm(); if (!A.anCompanions().length) A.anSpawn(A.anRecord('hound', { owner: 'player', cmd: 'follow' }), P.x + 1.5, P.z + 1); return A.anCompanions().map((e) => e.tame.cmd); })()""")
             await page.evaluate("for (let i = 0; i < 10; i++) __hm.frame(1/30); 0")
+            # [guide2] what each press and click met, and where the bar stood then: printed if a tap comes to nothing
+            await page.evaluate("""(() => { if (window.TFEV) return 0; window.TFEV = []; for (const k of ['pointerdown', 'pointerup', 'click']) document.addEventListener(k, (e) => { const b = document.getElementById('petbar'), r = b && b.getBoundingClientRect(), t = e.target;
+              TFEV.push([k, Math.round(performance.now()), (t.id || t.tagName) + '.' + String(t.className || '').slice(0, 12) + (t.dataset && t.dataset.cmd ? '[' + t.dataset.cmd + ']' : '') + (t.closest && t.closest('[data-aid]') ? '[pet]' : ''), Math.round(e.clientX) + ',' + Math.round(e.clientY), r ? Math.round(r.top) : null, window.__hm.guide2 ? Math.round(window.__hm.guide2.G2.tap.until - performance.now()) : null]); if (TFEV.length > 40) TFEV.shift(); }, true); return 0; })()""")
             ok = await tap(page, '#petbar [data-cmd="stay"]', 3)
             c1 = await page.evaluate("__hm.animals.anCompanions().map((e) => e.tame.cmd)")
             ok2 = await tap(page, '#petbar [data-cmd="follow"]', 3)
             c2 = await page.evaluate("__hm.animals.anCompanions().map((e) => e.tame.cmd)")
             check(ok and ok2 and all(c == 'stay' for c in c1) and all(c == 'follow' for c in c2), f'companion: Stay and Follow on the companion bar ({r} -> {c1} -> {c2})')
+            if not (ok and ok2 and all(c == 'stay' for c in c1) and all(c == 'follow' for c in c2)): print('  events (kind, ms, target, x,y, bar top, hold ms left):', json.dumps(await page.evaluate("TFEV.slice(-8)")))
 
         if want('tame'):
             r = await page.evaluate("""(() => { const H = TF.H, A = H.animals, fn = H.fn, P = TF.P();
