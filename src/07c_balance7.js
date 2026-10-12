@@ -13,13 +13,13 @@ const B7T = {
   priestPress: true, // [priest bot] a skilled priest presses a bow to its mace before Tumble's level
   priestSnareRenew: true, // [priest bot] a skilled priest renews itself for steadiness when slowed
   sanctWound: false, // [priest] Sanctuary's heal on the priest itself weighs the wound as Mend's does (tried: it cost the careful priest, who uses it at 70%, as much as the careless one)
-  plainK: 1.08, // [archer] a seasoned archer's own shafts: plain arrows from rank II strike this much harder
+  plainK: 1.1, // [archer] a seasoned archer's own shafts: plain arrows from rank II strike this much harder
   chargeSlowLate: true, // [warrior] a Charge's landing slows its foe from Leap Strike's level too (as below it)
   warriorFire: true, // [warrior bot] a skilled warrior goes through burning grass after its foe instead of stepping out of it
   priestBait: false, // [priest bot] a skilled priest smites through a blade whose bash is ready, or a foe that has just cut a spell (it stood idle)
   archerVolley: false, // [archer bot] a skilled archer volleys a lone foe that stands where it is (casting, drawing, held, or not moving)
   chargeCdLate: 12, // [warrior] Charge's wait from Leap Strike's level (0: its own 16 s): 12 s at every level now
-  npcDevotion: true, // [priest] an NPC priest keeps the devotion it comes to the field with (it faded at the first look)
+  npcDevotion: false, // [priest] an NPC priest keeps the devotion it comes to the field with (it fades at the first look: devAt -99). Tried and set aside: the priests won 72% of their duels at 50, skilled and simple (left for a pass that weighs the war's healers too)
   priestRace: 0.15, // [priest bot] in a duel at rank I a skilled priest mends this much lower and smites instead
   volleyDodge: true, // [bots] a skilled bot steps out of a foe's volley before its second wave
 };
