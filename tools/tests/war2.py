@@ -9,9 +9,10 @@
   gap     a raid on the Thule hallow goes round to a gap burnt in its log ring (its gate whole) and takes the hallow
   stormshot  a band through a fallen tower's door into the court (screenshots by day and night)
   houses  townsfolk run to a burning house and beat it out (screenshots by day and night at low and high)
+  beat    the player beats a burning house's flames down with Use beside its walls, until it is out
   reset   a new campaign begins with every keep's garrison whole, a keep that stayed its own too
   gate    a gate burnt down is kept with the world: saved, put back, loaded broken and charred
-usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,reset,gate] [noshots] [q=low|medium|high]"""
+usage: python3 tools/tests/war2.py [only=down,tower,island,court,engine,watch,storm,gap,stormshot,houses,beat,reset,gate] [noshots] [q=low|medium|high]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -393,6 +394,31 @@ async def main(p):
                 print(f'   {tag}: beating, state, front {ok}', flush=True)
                 await snap(page, f'war2_houses_{tag}_{QUALITY}')
                 await ev(page, "(() => { __hm.CAM.mode = 'follow'; for (let t = 0; t < 90; t++) { __hm.simulate(1); if (window.__w2t.H.state !== 'burning') break; } return 0; })()")
+
+    if want('beat'):
+        print('-- beat: the player beats a burning house\'s flames with Use', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, P = H.GAME.player, S = H.REALMS[0].town;
+          H.war2.HCREW.off = true; // (its people kept away: the player's own beating)
+          const h = H.HOUSES.find((q) => q.S === S && !q.keepHall && q.state === 'whole' && !q.round);
+          fn.igniteHouse(h); H.simulate(4);
+          const o = fn.houseW(h, 0, h.d / 2 + 1.2);
+          P.x = P.prevX = o.x; P.z = P.prevZ = o.z; P.y = fn.heightAt(o.x, o.z); P.hp = P.maxHp = 1e7; P.brand = null; P.mount = null;
+          H.simulate(0.2);
+          const q = fn.currentInteraction(), out = { label: q ? q.label : null, R0: h.burn ? +h.burn.R.toFixed(2) : 0 };
+          if (q && q.label === 'Beat out the flames') q.act();
+          H.simulate(0.2);
+          out.act = P.anim.act; out.R1 = h.burn ? +h.burn.R.toFixed(2) : 0;
+          let n = 1;
+          for (; n < 40 && h.state === 'burning'; n++) { const q2 = fn.currentInteraction(); if (!q2 || q2.label !== 'Beat out the flames') break; q2.act(); H.simulate(0.5); }
+          out.presses = n; out.state = h.state;
+          if (h.state !== 'whole') fn.houseRestore(h);
+          H.war2.HCREW.off = false;
+          return out;
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r.get('label') == 'Beat out the flames' and r.get('act') == 21 and r.get('R1', 9) < r.get('R0', 0), f"Use beside a burning house's walls beats its flames down ({r.get('label')}, front {r.get('R0')} -> {r.get('R1')} m, action {r.get('act')})")
+        check(r.get('state') == 'whole', f"a few more presses put it out ({r.get('presses')} presses, {r.get('state')})")
 
     if want('reset'):
         print('-- reset: a new campaign begins with every garrison whole', flush=True)
