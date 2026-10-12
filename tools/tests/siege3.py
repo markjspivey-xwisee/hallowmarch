@@ -172,6 +172,7 @@ async def gate(page):
 async def temple(page):
     r = await ev(page, 'temple: gate', """(() => { T3.quiet(); T3.away(); T3.dry(); const out = {}, T = __hm.WAR.temples[2], C = T3.C(T), G0 = C.gate, D = T.door, P = __hm.GAME.player, F = T3.F;
       out.has = !!G0.bz; const p = F.siteToWorld(T.site, 0, G0.gz + 0.6);
+      for (const id of [...T.guardians]) { const g = F.getEnt(id); if (g) F.removeEnt(g); } T.guardians.clear(); T.nextGuardAt = 1e9; /* (its wardens would beat the fire out at once) */
       T.exposedUntil = -99; for (const K of __hm.WAR.keeps) if (K.orig === 2) K.realm = 2;
       out.shut = T3.Z.gateFireAt(p.x, T.site.y + 1.5, p.z, 1.2, P);
       T.exposedUntil = __hm.GAME.t + 300;
@@ -321,14 +322,15 @@ async def shots(page):
       const side = T3.cellsOf(B, 0), c = side[Math.floor(side.length / 2)], d = side[Math.floor(side.length / 2) + 1]; c.char = 1; T3.Z.deckThrough(c); d.char = 0.8; d.st = 2; T3.Z.blazeUpload(B); __hm.simulate(2);
       const cam = F.siteToWorld(K.site, c.lx + 0.2, c.lz + 6.0), t = F.siteToWorld(K.site, c.lx, c.lz); T3.cam(cam.x, c.y + 1.8, cam.z, t.x, c.y - 0.8, t.z);
       return { cell: [c.lx, c.lz] }; })()""", 'high')
-    await shot(page, 'siege3_crew', """(() => { const { K, C } = T3.burh(0), F = T3.F; K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.45);
+    await shot(page, 'siege3_crew', """(() => { const { K, C } = T3.burh(0), F = T3.F; K.lastEnemyNear = __hm.GAME.t; __hm.setTod(0.45); T3.calm(C);
       T3.clearGarrison(K); K.nextGuardAt = 0; F.fillGarrison(K, true); __hm.simulate(2);
       __hm.palisade.palisadeInit(); const c = C.pal.cells.find((q) => q.side === 0 && Math.abs(q.a - 3) < 1); __hm.palisade.palisadeIgnite(c, 0.7);
       let t = 0; const gs = () => [...K.guards].map(F.getEnt).filter((g) => g && g.alive && g.ai.fire && g.anim.act === 21);
       while (t < 30 && gs().length < 2) { __hm.simulate(0.5); t += 0.5; } __hm.simulate(0.3);
       c.heat = Math.max(c.heat, 0.6);
-      const l = __hm.fn.siteToWorld(K.site, c.a + 2.5, -14.9 + 8.0), tt = F.siteToWorld(K.site, c.a, -14.9 + 1.4); T3.cam(l.x, K.site.y + 11.5, l.z, tt.x, K.site.y + 1.2, tt.z);
-      return { beating: gs().length, t }; })()""", 'low')
+      const g = gs()[0] || [...K.guards].map(F.getEnt).find((q) => q && q.alive && q.ai.fire);
+      if (g) { const dx = g.x - c.x, dz = g.z - c.z, dl = Math.hypot(dx, dz) || 1; T3.cam(g.x + dx / dl * 3.6 + dz / dl * 1.6, g.y + 2.4, g.z + dz / dl * 3.6 - dx / dl * 1.6, (g.x + c.x) / 2, g.y + 1.2, (g.z + c.z) / 2); }
+      return { beating: gs().length, t, g: !!g }; })()""", 'low')
     await shot(page, 'siege3_roof_in', """(() => { const hs0 = __hm.REALMS.flatMap((R) => R.town.houses.map((h) => h.rec)).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round); const H = T3.roofH || hs0[Math.min(5, hs0.length - 1)]; T3.roofH = H; if (!H) return { none: true };
       if (!H.bat || !(H.bat.hr > 0.01)) __hm.batter.houseStoneHit(H, H.x + 0.6, H.y + H.top, H.z + 0.4, 4.4, null, true);
       __hm.rafters.houseRafterSync(2); __hm.setTod(0.47); T3.F.setHouseDoor && T3.F.setHouseDoor(H, true, null, true);
