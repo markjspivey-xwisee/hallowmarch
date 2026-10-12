@@ -59,6 +59,7 @@ const SND_DEF = {
   bleat: { ref: 4, max: 70, lvl: 0.25, per: 1, gap: 1 }, moo: { ref: 6, max: 130, lvl: 0.35, per: 1, gap: 1.5 }, howl: { ref: 40, max: 700, lvl: 0.4, per: 1, gap: 3, roll: 0.5 },
   owl: { ref: 12, max: 220, lvl: 0.22, per: 1, gap: 3 }, caw: { ref: 10, max: 220, lvl: 0.3, per: 1, gap: 1 }, woodpecker: { ref: 8, max: 160, lvl: 0.25, per: 1, gap: 3 },
   anvil: { ref: 6, max: 120, lvl: 0.4, per: 1, gap: 0.25 }, chatter: { ref: 3, max: 30, lvl: 0.14, per: 2, gap: 0.9 },
+  stagger: { ref: 4, max: 60, lvl: 0.4, per: 2, gap: 0.3 }, quake: { ref: 12, max: 220, lvl: 0.95, roll: 0.8 }, flap: { ref: 3, max: 40, lvl: 0.15, per: 2, gap: 0.5 },
   // cues: heard over the rest, never capped
   loose: { ref: 4, max: 90, lvl: 0.5, cue: true, per: 1, gap: 0.25 }, incoming: { ref: 400, max: 4000, lvl: 0.6, cue: true, per: 1, gap: 0.35 },
   flare: { ref: 5, max: 80, lvl: 0.6, cue: true, per: 1 }, wardbreak: { ref: 5, max: 70, lvl: 0.6, cue: true, per: 1 },
@@ -607,6 +608,26 @@ Object.assign(SND_SYNTH, {
     noiseBurst(t + 0.25, 0.9, 0.08, 'bandpass', 900, 2600, 0.8, 0.15);
     // the charred timbers splintering as they come down
     for (let i = 0; i < 6; i++) { const t0 = t + 0.05 + Math.random() * 0.8; noiseBurst(t0, 0.025, R_(0.03, 0.07), 'bandpass', R_(1600, 3400), 1200, 2.2, 0.001); }
+  },
+  // for the late game's risen champions (late2, 10l_late.js: sfxAtE them where they happen): a wind-up broken off by a
+  // stun: a grunt and a stagger of feet in their gear
+  stagger(t) {
+    const f = R_(90, 125);
+    sndVoiceSyn(t, f * 1.35, f * 1.15, f * 0.7, R_(0.2, 0.3), 0.13, Math.random() < 0.5 ? 'oh' : 'oo', { breath: 0.5, q: 5, a: 0.015, peakAt: 0.1 });
+    for (let i = 0; i < 2; i++) noiseBurst(t + 0.08 + i * R_(0.12, 0.18), 0.07, R_(0.06, 0.1), 'bandpass', R_(500, 800), 300, 1.1, 0.004);
+    for (let i = 0; i < 4; i++) { const f2 = R_(2400, 4200); tone('triangle', f2, f2 * 0.96, t + Math.random() * 0.2, 0.03, 0.012, 0.001); }
+  },
+  // the ground bursting up under a foe (a troll's stamp come through the earth): a deep heave, clods and stones
+  quake(t) {
+    tone('sine', R_(48, 58), 28, t, 0.9, 0.42, 0.03);
+    noiseBurst(t, 0.9, 0.34, 'lowpass', 700, 120, 0.8, 0.02);
+    noiseBurst(t + 0.05, 0.08, 0.2, 'bandpass', 1400, 600, 1, 0.002);
+    for (let i = 0; i < 10; i++) { const t0 = t + 0.12 + Math.pow(Math.random(), 1.3) * 0.9, f = R_(140, 420); tone('sine', f * 1.5, f, t0, R_(0.05, 0.1), R_(0.04, 0.1), 0.002); noiseBurst(t0, 0.05, R_(0.03, 0.08), 'bandpass', R_(700, 1900), 500, 1.6, 0.002); }
+  },
+  // a banner on its pole in the wind (a standard planted): the cloth snapping
+  flap(t) {
+    const n = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) { const t0 = t + i * R_(0.08, 0.16); noiseBurst(t0, 0.06, R_(0.06, 0.11), 'bandpass', R_(700, 1300), 900, 1.4, 0.004); noiseBurst(t0 + 0.01, 0.03, 0.03, 'bandpass', 3000, 3600, 1, 0.002); }
   },
   // a fire beater brought down on the flames: a wet slap, the hiss of what it beat out
   beat(t) {
