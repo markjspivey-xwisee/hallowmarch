@@ -73,7 +73,6 @@ function perf2Lazy(mesh, make) {
     set(v) { vis = !!v; if (vis && !made) build(); },
   });
   if (vis) build();
-  mesh.userData.perf2Lazy = true; // (perf2Compile leaves it hidden: showing it would make it)
   PERF2.lazy++;
   return mesh;
 }
@@ -99,25 +98,18 @@ window.__hm.perf2 = {
     return { geos, released: PERF2.released, freedGeos: freed, keptMB: +(kept / 1048576).toFixed(1), releasedMB: +PERF2.releasedMB.toFixed(1), lazy: PERF2.lazy, made: PERF2.made, madeMB: +PERF2.madeMB.toFixed(2), warmed: PERF2.warmed, warmMs: Math.round(PERF2.warmMs) };
   },
 };
-/* shaders: compiled while the loading veil is still up, and the hidden things' too while the title shows */
-// three.js links a program as soon as compile() asks and waits for it only on its first draw: asked early, the GPU's
-// process (a phone's driver, SwiftShader here) compiles them while the boot goes on (the map, the save); the first frame
-// then waits only for what is not done yet. The hidden meshes (the Barrow, a tower's rooms, the dragon far off, what
-// shows only in a fight or a fire) are asked for once the title is up, so their first sight does not stall a frame.
-function perf2Compile(all) {
-  const t = performance.now(), p0 = renderer.info.programs.length, shown = [];
-  if (all) scene.traverse((o) => { if (!o.visible && !o.userData.perf2Lazy && (o.isMesh || o.isPoints || o.isLine || o.isGroup || o.isObject3D)) { shown.push(o); o.visible = true; } });
-  const dun = DUN.root ? DUN.root.visible : false;
+/* shaders: asked for while the loading veil is still up */
+// three.js links a program as soon as compile() asks (compile prepares every material in the scene, hidden or not) and
+// waits for it only at its first draw: asked for once the screen is sized (a canvas resize waits for every shader asked
+// for), the GPU's process (a phone's driver, SwiftShader here) compiles them while the boot draws the map. The shadow
+// pass's own (the depth materials of what casts a shadow, shown or not) are asked for once the title is up. What is
+// made after the boot (an engine's charring, a fire's own) still compiles at its first sight.
+function perf2Compile(shadows) {
+  const t = performance.now(), p0 = renderer.info.programs.length;
   try {
-    if (DUN.root) DUN.root.visible = true;
-    spellCompileVisible(true);
-    renderer.compile(scene, camera);
-    if (all && SHADOW.rt) renderer.compile(SHADOW.scene, SHADOW.cam);
-  } catch (e) { reportError(e); } finally {
-    for (const o of shown) o.visible = false;
-    if (DUN.root) DUN.root.visible = dun;
-    spellCompileVisible(false);
-  }
+    if (shadows) { if (SHADOW.rt) renderer.compile(SHADOW.scene, SHADOW.cam); }
+    else { spellCompileVisible(true); renderer.compile(scene, camera); }
+  } catch (e) { reportError(e); } finally { if (!shadows) spellCompileVisible(false); }
   gl.flush(); // (the GPU's process starts on them now)
   PERF2.warmed += renderer.info.programs.length - p0; PERF2.warmMs += performance.now() - t;
 }
@@ -142,7 +134,7 @@ async function perf2Shaders(f0, f1) {
   // the static meshes let go of their arrays once they are drawn (from right after the world is built)
   const go0 = groupOutdoors;
   groupOutdoors = function perf2GroupOutdoors() { go0(); try { perf2ReleaseStatic(); } catch (e) { reportError(e); } };
-  // the hidden things' shaders once the title is up (once: a new character's title comes again)
+  // the shadow pass's shaders once the title is up (once: a new character's title comes again)
   const st0 = setupTitle;
   let warm = false;
   setupTitle = function perf2SetupTitle(...a) { st0.apply(this, a); if (!warm) { warm = true; setTimeout(() => perf2Compile(true), 300); } };
