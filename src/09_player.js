@@ -216,6 +216,7 @@ function currentInteraction() {
   animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
   depthOffers(P, offer); // [depth] cut bushes, fell apple trees, grub out stumps, set plants alight, nests, your well (09u_depth.js)
   towerOffers(P, offer); // [land] climb a tower's ladder, open or shut its hatch (04l_towers.js)
+  late2Offers(P, offer); // [late2] take up the standard of your name (10l_late.js)
   return best;
 }
 function playerInteract() {

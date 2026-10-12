@@ -1,7 +1,7 @@
 """[late2] The late game (version 16): the risen of the borderlands past 40, deeds and the names they earn, veterancy past
 the cap and its boons, the Chronicle's Deeds page, the aims and the tracker's mark, and the save (with the character, an old
 save's deeds taken from its path, a damaged one, and a reload with the same storage).
-usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
+usage: python3 tools/tests/late2.py [only=rise,wrath,fight,names,vet,page,std,save,reload,shots] [cls=warrior,mage|all] [realm=0|1|2] [q=low|high]
        [noshots] [phone]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -135,6 +135,22 @@ async def main():
             check(r['started'] and r['landed'] == 1 and r['hit'] == 1 and r['stunned'] and r['harm'] > 0, f"the ring glows and the blow lands on a foe in it: {r['harm']} harm and a stun")
             check(r['broken'] == 1 and r['landed2'] == 0, 'a stun as it rears breaks the blow off')
             check(r['kind'] == 1 and r['wound'] and r['snare'], 'an outlaw hamstrings its foe: slowed and wounded')
+            r = await ev(page, 'kinds', """(() => { const H = T.H, F = T.F, L = T.L, P = H.GAME.player, out = {};
+              for (const [type, realm, d] of [['bear', 1, 8], ['skeleton', 0, 10], ['troll', 2, 12], ['wisp', 1, 3]]) {
+                const camp = T.risen().find((c) => c.type === type && c.realm === realm); let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
+                let tx = C.x + d, tz = C.z; for (let a = 0; a < 6.28 && !F.isWalkable(tx, tz); a += 0.4) { tx = C.x + Math.cos(a) * d; tz = C.z + Math.sin(a) * d; }
+                H.teleport(tx, tz); P.hp = P.maxHp; P.buffs.length = 0; P.ccdr = null; C.target = P.id;
+                const n0 = camp.members.size, x0 = C.x, z0 = C.z, hp0 = P.hp, did = L.late2KindMove(C, P, Math.hypot(P.x - C.x, P.z - C.z));
+                const o = { did, members: camp.members.size - n0, moved: +Math.hypot(C.x - x0, C.z - z0).toFixed(1), snare: !!P.buffs.find((b) => b.kind === 'snare') };
+                if (type === 'bear') o.pack = [...camp.members].map(F.getEnt).filter((m) => m && m !== C && m.alive && m.buffs.some((b) => b.kind === 'dmg')).length;
+                if (type === 'troll') { H.simulate(1.3); o.stun = !!P.buffs.find((b) => b.kind === 'stun'); o.harm = Math.round(hp0 - P.hp); }
+                out[type] = o;
+              }
+              out.errors = H.errors.slice(0, 3); return out; })()""")
+            check(r['bear']['did'] and r['bear']['snare'] and r['bear'].get('pack', 0) >= 1, f"a beast howls: its foe slowed, its pack's blood up ({r['bear']})")
+            check(r['skeleton']['did'] and 1 <= r['skeleton']['members'] <= 2, f"the dead call the dead up about their foe ({r['skeleton']})")
+            check(r['troll']['did'] and r['troll'].get('stun') and r['troll'].get('harm', 0) > 0, f"a troll's stone-burst under a foe that keeps off ({r['troll']})")
+            check(r['wisp']['did'] and r['wisp']['moved'] >= 4, f"a wisp slips away from a blade at its side ({r['wisp']})")
 
         # ---- deeds and names ----
         if want('names'):
@@ -219,6 +235,50 @@ async def main():
             await page.evaluate("(() => { const el = [...document.querySelectorAll('#menu-body h3')].find((h) => /Veterancy/.test(h.textContent)); if (el) { const d = el.closest('details'); if (d) d.open = true; el.scrollIntoView({ block: 'start' }); } })()")
             await shot(page, ('phone_' if phone else 'desk_') + 'veterancy')
             await page.evaluate("T.H.UI.modal = null; document.getElementById('menu').hidden = true;")
+
+        # ---- the standard of your name: made, planted, rallying, taken up ----
+        if want('std'):
+            r = await ev(page, 'standard', """(() => { const P = T.fresh('warrior', 45), H = T.H, F = T.F, L = T.L, S = L.LATE2;
+              const out = { okBefore: L.late2StdMake() };
+              H.GAME.prog.realmKills = 30; H.simulate(0.3); H.INV.gold = 2500;
+              out.made = L.late2StdMake(); out.gold = H.INV.gold; out.again = L.late2StdMake();
+              // open ground: a meadow of the homeland, away from the town
+              const R = H.REALMS[0]; let spot = null;
+              for (let i = 0; i < 400 && !spot; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
+                if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) spot = { x, z }; }
+              out.spot = !!spot; T.clearAround(P.x, P.z, 40);
+              out.planted = L.late2StdPlant(); const at = S.std.at; out.at = at;
+              out.mesh = at ? +Math.hypot(L.L2STD.mesh.position.x - at.x, L.L2STD.mesh.position.z - at.z).toFixed(2) : null;
+              out.meshY = at ? +(L.L2STD.mesh.position.y - F.heightAt(at.x, at.z)).toFixed(2) : null;
+              out.coll = !!(L.L2STD.coll && L.L2STD.coll.active);
+              const near = F.spawnRealmUnit(0, 'warrior', 45, 'soldier', at.x + 6, at.z + 2), far = F.spawnRealmUnit(0, 'warrior', 45, 'soldier', at.x + 26, at.z), foe = F.spawnRealmUnit(1, 'warrior', 45, 'soldier', at.x - 5, at.z + 1);
+              for (const e of [near, far, foe]) { e.ai.post = { x: e.x, z: e.z, leash: 2 }; }
+              foe.faction = 1; H.simulate(1.3);
+              const has = (e) => e.buffs.some((b) => b.kind === 'dmg' && b.src === 'l2std');
+              out.buff = { you: has(P), near: has(near), far: has(far), foe: has(foe) };
+              H.teleport(at.x + 1.2, at.z + 0.6); H.simulate(0.2); out.label = F.currentInteraction ? (F.currentInteraction() || {}).label : null;
+              const save = F.buildSave().char.x.late; out.save = { sm: save.sm, sp: save.sp };
+              out.taken = L.late2StdTake(); out.after = { at: S.std.at, meshY: L.L2STD.mesh.position.y, coll: !!(L.L2STD.coll && L.L2STD.coll.active) };
+              F.savePartsLoad('char', { late: save }); out.loaded = { at: S.std.at, meshOk: !!S.std.at && Math.hypot(L.L2STD.mesh.position.x - S.std.at.x, L.L2STD.mesh.position.z - S.std.at.z) < 0.01 };
+              F.savePartsLoad('char', { late: { ...save, sp: [99999, 3] } }); out.badSp = S.std.at;
+              for (const e of [near, far, foe]) { e.damagers = null; F.killEnt(e, null); F.removeEnt(e); }
+              out.errors = H.errors.slice(0, 3); return out; })()""")
+            check(not r['okBefore'] and r['made'] and r['gold'] == 1500 and not r['again'], 'with a name and 1,000 gold the standard is made, once')
+            check(r['spot'] and r['planted'] and r['mesh'] == 0 and -0.2 < r['meshY'] < 0.05 and r['coll'], f"planted on open ground, its pole standing on it ({r['meshY']} m) with a collider")
+            check(r['buff']['you'] and r['buff']['near'] and not r['buff']['far'] and not r['buff']['foe'], f"you and your realm's soldier beside it strike harder; one 26 m off and a foe do not ({r['buff']})")
+            check(r['label'] == 'Take up your standard', f"Use beside it offers to take it up ({r['label']})")
+            check(r['save']['sm'] == 1 and r['save']['sp'] and r['taken'] and r['after']['at'] is None and r['after']['meshY'] < -900 and not r['after']['coll'], 'saved where it stands; taken up, it is gone from the land')
+            check(r['loaded']['at'] and r['loaded']['meshOk'] and r['badSp'] is None, 'loaded, it stands again where it was; a place off the map is dropped')
+            if SHOTS:
+                await page.evaluate("""(() => { const H = T.H, F = T.F, L = T.L, P = H.GAME.player, at = L.LATE2.std.at; if (!at) return 0; H.setTod(0.42); document.getElementById('hud').hidden = true;
+                  H.teleport(at.x + 2.2, at.z + 1.5); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.simulate(0.5); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+                  H.camera.position.set(at.x + 5.5, F.heightAt(at.x, at.z) + 2.6, at.z + 4.2); H.camera.lookAt(at.x, F.heightAt(at.x, at.z) + 2.2, at.z); return 0; })()""")
+                await frames(page, 3)
+                await shot(page, f'standard_day_{Q}')
+                await page.evaluate("(() => { T.H.setTod(0.96); return 0; })()")
+                await frames(page, 3)
+                await shot(page, f'standard_night_{Q}')
+                await page.evaluate("(() => { const H = T.H; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
         # ---- the save ----
         if want('save') or want('reload'):

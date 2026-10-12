@@ -31,6 +31,7 @@ const LATE2 = {
   vet: 0, vxp: 0, // veterancy past the cap, and the experience toward its next rank
   boons: {}, // boon id -> steps learned
   seeded: false, // an older character's deeds taken from its path once
+  std: { made: false, at: null }, // the standard of your name: made, and where it stands planted ({ x, z }) or null
   w: { t: 0, carried: null, keepRealm: null, campN: null, near: false, rk: null }, // the watcher's memory (not saved)
   stats: { wrath: 0, wrathHits: 0, rallies: 0, risenFell: 0, risenSpawned: 0, camps: 0, named: 0, vetRanks: 0 },
 };
@@ -429,6 +430,151 @@ function late2RisenSpoils(e) {
 }
 
 /* ------------------------------------------------------------------ */
+/* the standard of your name                                           */
+/* ------------------------------------------------------------------ */
+// From level 40, with a name of your own, a veteran may have a standard made (gold: what a level 50 has and cannot
+// spend) and plant it on open ground: a pole of ash with a gilt finial and its realm's flag streaming downwind from it
+// (the banners' own cloth and shader, 04_props.js: one instance kept for it). While it stands, every soldier of your
+// realm, every companion of yours and you within its reach strike harder. Taken up again with Use beside it; planted
+// anew it is brought to you. Saved with the character.
+const LATE2_STD = { cost: 1000, lv: 40, reach: 18, harm: 0.05, poleH: 3.7, flagW: 1.35, flagH: 0.8 };
+const L2STD = { mesh: null, slot: -1, coll: null, tick: 0 };
+function late2StdBuild() {
+  if (L2STD.mesh) return;
+  const g = new THREE.CylinderGeometry(0.038, 0.05, LATE2_STD.poleH, 8, 1);
+  g.translate(0, LATE2_STD.poleH / 2, 0);
+  const fin = new THREE.ConeGeometry(0.075, 0.22, 8);
+  fin.translate(0, LATE2_STD.poleH + 0.11, 0);
+  const bar = new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6);
+  bar.rotateZ(Math.PI / 2); bar.translate(0.25, LATE2_STD.poleH - 0.06, 0);
+  const parts = [g, fin, bar], pos = [], nrm = [], tt = [], idx = [];
+  let base = 0;
+  parts.forEach((q, i) => {
+    const qq = q.index ? q : q;
+    const P = qq.attributes.position.array, N = qq.attributes.normal.array, I = qq.index.array;
+    for (let k = 0; k < P.length; k++) { pos.push(P[k]); nrm.push(N[k]); }
+    for (let k = 0; k < P.length / 3; k++) tt.push(i === 1 ? 1 : 0);
+    for (let k = 0; k < I.length; k++) idx.push(I[k] + base);
+    base += P.length / 3;
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('aT', new THREE.Float32BufferAttribute(tt, 1));
+  geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, mat({
+    vertexShader: /* glsl */`
+      attribute float aT; varying vec3 vW; varying vec3 vN; varying float vT; varying float vH;
+      void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vT = aT; vH = position.y; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: /* glsl */`
+      ${GLSL_COMMON}
+      ${GLSL_ATMOS}
+      uniform float uWet, uSnowCover;
+      varying vec3 vW; varying vec3 vN; varying float vT; varying float vH;
+      void main(){
+        vec3 n = safeNormalize(vN), V = safeNormalize(cameraPosition - vW);
+        // ash, its grain along the pole, a leather grip a little above a hand's height; the finial gilt
+        float grain = 0.88 + 0.12 * vnoise(vec2(atan(vN.z, vN.x + 1e-4) * 3.0, vH * 9.0));
+        float grip = step(0.95, vH) * step(vH, 1.45);
+        vec3 alb = mix(vec3(0.42, 0.31, 0.2) * grain, vec3(0.2, 0.13, 0.08), grip);
+        alb = mix(alb, vec3(0.86, 0.66, 0.3), vT);
+        alb *= 1.0 - 0.3 * uWet * (1.0 - vT);
+        float dif = clamp(dot(n, uLightDir), 0.0, 1.0);
+        vec3 col = alb * (uAmbient * 0.75 + uLightColor * dif * 0.85);
+        col += vT * uLightColor * spow(max(dot(reflect(-uLightDir, n), V), 0.0), 20.0) * 0.7;
+        col = mix(col, vec3(0.92, 0.94, 0.97) * (uAmbient + uLightColor * 0.5), clamp(uSnowCover, 0.0, 1.0) * step(0.6, n.y) * 0.8);
+        gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
+      }`,
+  }));
+  m.position.set(0, -999, 0); // (in the scene from the start, out of sight: its program is made with the rest at boot)
+  m.userData.keep = false;
+  scene.add(m);
+  L2STD.mesh = m;
+  L2STD.slot = BANNERS.length;
+  addBanner(null, { world: true, x: 0, y: -999, z: 0, yaw: 0, w: 0.001, h: 0.001, kind: 1 }, 0);
+}
+// open ground before you for it: the land itself (no floor, no water, no house, nothing standing within a flag's length,
+// no tree whose crown it would stream into), not under the Barrow
+function late2StdSpot(P) {
+  if (inDungeon(P) || P.swim || P.y - heightAt(P.x, P.z) > 0.4) return null; // (from the land, not a wall or a boat)
+  const a0 = P.yaw, out = [];
+  for (const [d, da] of [[1.6, 0], [1.6, 0.6], [1.6, -0.6], [2.4, 0], [2.4, 1.2], [2.4, -1.2], [1.4, 2.4], [1.4, -2.4], [3.2, 0.3], [3.2, -0.3]]) {
+    const x = P.x + Math.sin(a0 + da) * d, z = P.z + Math.cos(a0 + da) * d;
+    if (!isWalkable(x, z) || houseAt(x, z, 1.8)) continue;
+    const w = waterAt(x, z); if (w && w.depth > 0.05) continue;
+    const g = heightAt(x, z); if (floorAt(x, z, g + 4.6) - g > 0.25) continue; // (no floor there, nor a walk or a stair over it)
+    collidersNear(x, z, 2.6, out);
+    if (out.some((c) => c.active && c !== L2STD.coll && collCovers(c, x, z, 1.5))) continue;
+    if (W.trees.some((t) => !t.gone && !t.felled && dist2(t.x, t.z, x, z) < (2.2 + 1.6 * (t.s || 1)) ** 2)) continue;
+    return { x, z };
+  }
+  return null;
+}
+function late2StdShow() {
+  late2StdBuild();
+  const at = LATE2.std.at, B = bannerGeo.attributes;
+  if (L2STD.coll) { L2STD.coll.active = false; L2STD.coll = null; }
+  if (!at) {
+    L2STD.mesh.position.set(0, -999, 0);
+    B.aB0.array.set([0, -999, 0, 0], L2STD.slot * 4); B.aB1.array.set([0.001, 0.001, 0, 1], L2STD.slot * 4);
+  } else {
+    const y = heightAt(at.x, at.z) - 0.08, realm = GAME.player ? GAME.player.faction : 0;
+    L2STD.mesh.position.set(at.x, y, at.z);
+    B.aB0.array.set([at.x + 0.02, y + LATE2_STD.poleH - 0.05, at.z, 0], L2STD.slot * 4);
+    B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm, 1], L2STD.slot * 4);
+    L2STD.coll = addCircle(at.x, at.z, 0.12, 'prop', LATE2_STD.poleH);
+  }
+  B.aB0.needsUpdate = true; B.aB1.needsUpdate = true;
+}
+try { late2StdBuild(); } catch (e) { console.error(e); } // (at load, so the boot's compile makes its program with the rest)
+const late2StdOk = () => !!GAME.prog && GAME.prog.level >= LATE2_STD.lv && LATE2.names.length > 0;
+function late2StdMake() {
+  if (!late2StdOk() || LATE2.std.made || INV.gold < LATE2_STD.cost) return false;
+  INV.gold -= LATE2_STD.cost;
+  LATE2.std.made = true;
+  sfx('coins');
+  uiLog(`The banner-makers of ${REALMS[GAME.player.faction].townName} sew the standard of ${late2Named(GAME.player)}. Plant it from the Chronicle's Deeds page.`, 'loot');
+  saveSoon();
+  return true;
+}
+function late2StdPlant() {
+  const P = GAME.player;
+  if (!P || !LATE2.std.made || !P.alive) return false;
+  const sp = late2StdSpot(P);
+  if (!sp) { uiError('No open ground here for your standard'); return false; }
+  LATE2.std.at = { x: Math.round(sp.x * 100) / 100, z: Math.round(sp.z * 100) / 100 };
+  late2StdShow();
+  sfx('thud'); FX.dust(sp.x, heightAt(sp.x, sp.z), sp.z, 8);
+  uiLog(`You plant the standard of ${late2Named(P)}. ${REALMS[P.faction].name} fights the harder about it.`, 'level');
+  saveSoon();
+  return true;
+}
+function late2StdTake() {
+  if (!LATE2.std.at) return false;
+  LATE2.std.at = null;
+  late2StdShow();
+  sfx('equip');
+  uiLog('You take up your standard.', 'sys');
+  saveSoon();
+  return true;
+}
+// Use beside it (09_player.js currentInteraction)
+function late2Offers(P, offer) {
+  const at = LATE2.std.at;
+  if (at && !inDungeon(P)) offer(dist(P.x, P.z, at.x, at.z), 2.6, 'Take up your standard', () => late2StdTake(), 0.4);
+}
+// while it stands: your realm's soldiers, your companions and you within its reach strike harder (once a second)
+function late2StdStep() {
+  const at = LATE2.std.at, P = GAME.player;
+  if (!at || !P) return;
+  forNear(at.x, at.z, LATE2_STD.reach, (o) => {
+    if (!o.alive || o.kind === 'door' || o.faction !== P.faction || !isActor(o)) return;
+    if (o !== P && o.role === 'villager') return;
+    addBuff(o, 'dmg', LATE2_STD.harm, 1.6, 'l2std');
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* the deeds as they happen                                            */
 /* ------------------------------------------------------------------ */
 // every foe the player has a share in (grantKillRewards, 07_entities.js)
@@ -484,12 +630,20 @@ function updateLate2(dt) {
   if (W.campN != null && hl && hl.n !== W.campN && hl.w === P.faction && hl.you) late2Deed('camp');
   W.campN = hl ? hl.n : 0;
   if ((W.camps = (W.camps || 0) - 0.25) <= 0) { W.camps = 5; if (CAMPS.some((c) => late2RiseK(c) >= 0 && !!c.l2on !== (warLevel() >= LATE2_RISE_AT))) late2Rescale(); }
+  if ((L2STD.tick = (L2STD.tick || 0) - 0.25) <= 0) { L2STD.tick = 1; late2StdStep(); }
   // near a risen camp (the field note's watch)
   W.near = prog.level >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
 }
 
 // the risen camps on the world map past 40, before the names are laid out round them (drawWorldMap, 10_ui.js)
 function late2MapMarks(ctx, S, MK) {
+  const at = LATE2.std.at, P = GAME.player;
+  if (at && P) { // your standard: a little flag in your realm's colour
+    const [x, y] = w2m(at.x, at.z, S), h = S * 0.022;
+    ctx.strokeStyle = '#140a05'; ctx.lineWidth = Math.max(1.5, S * 0.0022); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
+    ctx.fillStyle = REALMS[P.faction].color; ctx.beginPath(); ctx.moveTo(x, y - h); ctx.lineTo(x + h * 0.75, y - h * 0.78); ctx.lineTo(x, y - h * 0.56); ctx.closePath(); ctx.fill(); ctx.stroke();
+    MK.push([x + h * 0.3, y - h * 0.6, h * 0.7]);
+  }
   if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return;
   for (const c of CAMPS) {
     if (!late2Risen(c)) continue;
@@ -551,6 +705,13 @@ function late2NextName() {
 /* ------------------------------------------------------------------ */
 /* the Chronicle: deeds, names, veterancy, the risen                   */
 /* ------------------------------------------------------------------ */
+function late2StdHTML() {
+  const P = GAME.player, S = LATE2.std, R = REALMS[P.faction];
+  const say = `<p>From level ${LATE2_STD.lv}, with a name of your own, the banner-makers of ${esc(R.townName)} will sew you a standard: a pole of ash with a gilt finial and ${esc(R.name)}'s colours streaming from it. Plant it on open ground and every soldier of ${esc(R.name)}, every companion of yours and you within ${LATE2_STD.reach} m of it strike ${Math.round(LATE2_STD.harm * 100)}% harder. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up again.</p>`;
+  if (!S.made) return say + (late2StdOk() ? `<div class="acts"><button type="button" class="btn l2-btn" data-l2="std:make"${INV.gold >= LATE2_STD.cost ? '' : ' disabled'}>Have it made (${fmtInt(LATE2_STD.cost)} gold)</button></div>` : `<p class="now">${P.level < LATE2_STD.lv ? `At level ${LATE2_STD.lv}.` : 'Once the March has given you a name.'}</p>`);
+  const at = S.at, where = at ? `It stands in ${esc(zoneAt(at.x, at.z).name)}, ${Math.round(dist(P.x, P.z, at.x, at.z))} m from you.` : 'You carry it furled.';
+  return say + `<p class="now">${where}</p><div class="acts"><button type="button" class="btn l2-btn" data-l2="std:plant">${at ? 'Bring it here and plant it' : 'Plant it here'}</button>${at ? '<button type="button" class="btn l2-btn" data-l2="std:take">Take it up</button>' : ''}</div>`;
+}
 function chronDeeds() {
   const P = GAME.player, prog = GAME.prog, R = REALMS[P.faction], worn = late2Worn();
   const earned = LATE2_NAMES.filter((N) => LATE2.names.includes(N.id)), left = LATE2_NAMES.filter((N) => !LATE2.names.includes(N.id));
@@ -577,6 +738,7 @@ function chronDeeds() {
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
+    <h3>The standard of your name</h3>${late2StdHTML()}
     <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(worn.t)}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
@@ -592,13 +754,19 @@ $('menu-body').addEventListener('click', (ev) => {
   if (act === 'wear') ok = late2Wear(id || null);
   else if (act === 'boon') ok = late2Learn(id);
   else if (act === 'forget') ok = late2Forget();
+  else if (act === 'std') {
+    if (id === 'make') ok = late2StdMake();
+    else if (id === 'take') ok = late2StdTake();
+    else if (id === 'plant') { if (late2StdPlant()) { closeMenu(); return; } }
+  }
   if (ok) { sfx('click'); renderChronicle($('menu-body'), true); }
 });
 // the Aims page: what opens past 40 and 50
 CHRON_EXTRA.goals.push(() => `<div class="gd-tier"><h4>Past 40 and past 50</h4><ul class="plain">
   <li><b>The risen of the borderlands</b>: from level ${LATE2_RISE_AT} the farthest camps of every homeland rise with you, each led by a risen champion with its own name. The best spoils of the wilds.</li>
   <li><b>Veterancy</b>: past level 50 your experience raises your veterancy, and every rank is a boon to learn (five steps each of six).</li>
-  <li><b>Names</b>: the March names you for your deeds (${LATE2.names.length} of ${LATE2_NAMES.length} yours). Wear one and it gives you something of the deed. ${chronLink('deeds', 'Deeds')}</li></ul></div>`);
+  <li><b>Names</b>: the March names you for your deeds (${LATE2.names.length} of ${LATE2_NAMES.length} yours). Wear one and it gives you something of the deed.</li>
+  <li><b>The standard of your name</b>: from level ${LATE2_STD.lv}, with a name, have one made and plant it where you fight: your realm strikes harder about it. ${chronLink('deeds', 'Deeds')}</li></ul></div>`);
 
 /* ------------------------------------------------------------------ */
 /* what players are told                                               */
@@ -613,7 +781,7 @@ Object.assign(GUIDE_WATCH, {
   l2risen: () => LATE2.w.near,
   l2vet: () => LATE2.vet > 0,
 });
-GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). From level 40 risen champions hold the farthest borderland camps of every homeland, and keep pace with you. Past level 50 your experience raises your veterancy: every rank is a boon to learn.</p>`);
+GUIDE_HELP.push(() => `<h3>Past 40 and past 50</h3><p>The March names you for your deeds: champions and lords brought down, keeps taken, hallows carried home, campaigns won, Cinderwing and the Hollow King. Wear a name and it gives you something of the deed (the Chronicle's Deeds page). From level 40 risen champions hold the farthest borderland camps of every homeland, and keep pace with you. Past level 50 your experience raises your veterancy: every rank is a boon to learn. From level 40, with a name, you may have a standard made and plant it where you fight (${IS_TOUCH ? 'Use' : 'E'} beside it takes it up).</p>`);
 LOADING_TIPS.push(
   'The March names you for your deeds. Wear a name and it gives you something of the deed: the Chronicle\'s Deeds page.',
   'From level 40, risen champions hold the farthest borderland camps of every homeland. When the ground about one glows, step out of the ring.',
@@ -625,7 +793,7 @@ LOADING_TIPS.push(
 /* ------------------------------------------------------------------ */
 registerSavePart('char', 'late', {
   save() {
-    return { v: 1, d: { ...LATE2.d }, n: LATE2.names.slice(), w: LATE2.worn, vt: LATE2.vet, vx: Math.round(LATE2.vxp), b: { ...LATE2.boons }, s: LATE2.seeded ? 1 : 0 };
+    return { v: 1, d: { ...LATE2.d }, n: LATE2.names.slice(), w: LATE2.worn, vt: LATE2.vet, vx: Math.round(LATE2.vxp), b: { ...LATE2.boons }, s: LATE2.seeded ? 1 : 0, sm: LATE2.std.made ? 1 : 0, sp: LATE2.std.at ? [LATE2.std.at.x, LATE2.std.at.z] : null };
   },
   load(o) {
     const int = (v, a, b) => (Number.isFinite(+v) && v !== null && v !== '' ? clamp(Math.floor(+v), a, b) : a);
@@ -642,9 +810,13 @@ registerSavePart('char', 'late', {
     for (const B of LATE2_BOONS) { const s = Math.min(int(b[B.id], 0, LATE2_BOON_MAX), room); if (s > 0) { LATE2.boons[B.id] = s; room -= s; } }
     LATE2.seeded = !!(o && o.s);
     LATE2.w = { t: 0, carried: null, keepRealm: null, campN: null, near: false, rk: null };
+    LATE2.std = { made: !!(o && o.sm), at: null };
+    const sp = o && Array.isArray(o.sp) && o.sp.length === 2 && o.sp.every((v) => Number.isFinite(+v) && Math.abs(+v) < HALF) ? { x: +o.sp[0], z: +o.sp[1] } : null;
+    if (LATE2.std.made && sp && isWalkable(sp.x, sp.z)) LATE2.std.at = sp;
+    try { late2StdShow(); } catch (e) { reportError(e); }
   },
   // what counts as a change worth writing: the deeds, names, ranks, boons; the experience in thousands
-  key: (o) => (o ? [o.d, o.n, o.w, o.vt, Math.floor((o.vx || 0) / 1000), o.b, o.s] : null),
+  key: (o) => (o ? [o.d, o.n, o.w, o.vt, Math.floor((o.vx || 0) / 1000), o.b, o.s, o.sm, o.sp] : null),
 });
 
-queueMicrotask(() => { if (window.__hm) window.__hm.late = { LATE2, LATE2_NAMES, LATE2_BOONS, LATE2_DEEDS, LATE2_RISE_AT, late2Deed, late2CheckNames, late2Wear, late2Learn, late2Forget, late2VetXP, late2VetNeed, late2Free, late2Spent, late2BoonK, late2K, late2HarmMult, late2RpMult, late2WearMult, late2Named, late2XpBar, late2Band, late2RiseK, late2Risen, late2Rescale, late2RisenName, late2RisenMark, late2Aims, late2NextName, late2ChampThink, late2Wrath, late2Rally, late2OnKill, chronDeeds, updateLate2 }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late = { LATE2, LATE2_NAMES, LATE2_BOONS, LATE2_DEEDS, LATE2_RISE_AT, late2Deed, late2CheckNames, late2Wear, late2Learn, late2Forget, late2VetXP, late2VetNeed, late2Free, late2Spent, late2BoonK, late2K, late2HarmMult, late2RpMult, late2WearMult, late2Named, late2XpBar, late2Band, late2RiseK, late2Risen, late2Rescale, late2RisenName, late2RisenMark, late2Aims, late2NextName, late2ChampThink, late2Wrath, late2Rally, late2OnKill, chronDeeds, updateLate2, late2KindMove, LATE2_STD, L2STD, late2StdMake, late2StdPlant, late2StdTake, late2StdSpot, late2StdShow, late2StdStep, late2Offers }; });
