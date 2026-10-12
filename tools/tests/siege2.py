@@ -182,8 +182,10 @@ async def palisade(page):
       // the player's fire spell on its back wall always does
       F.fireLandsAt(c0.x, K.site.y + 3, c0.z, 1.2, __hm.GAME.player);
       out.lit = c0.st; T2.palC = P.cells.indexOf(c0); T2.palK = K;
-      const t0 = __hm.GAME.t; let t = 0, maxB = 0; while (t < 30) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; maxB = Math.max(maxB, P.cells.filter((c) => c.st === 1).length); }
-      out.heat = +c0.heat.toFixed(2); out.char = +c0.char.toFixed(2); out.burning = maxB; out.fires = c0.fires.length; out.spread = PL.PAL.stats.spread;
+      // [look3] its flames counted all through the 30 s, not only at their end: the fire spreads by chance, and with eight or
+      // ten stretches and the grass round them alight addFire's cap of timed fires (60) left the stretch none at that moment
+      const t0 = __hm.GAME.t; let t = 0, maxB = 0, maxF = 0; while (t < 30) { __hm.simulate(1); t++; K.lastEnemyNear = __hm.GAME.t; maxB = Math.max(maxB, P.cells.filter((c) => c.st === 1).length); maxF = Math.max(maxF, c0.fires.length); }
+      out.heat = +c0.heat.toFixed(2); out.char = +c0.char.toFixed(2); out.burning = maxB; out.fires = maxF; out.firesEnd = c0.fires.length; out.spread = PL.PAL.stats.spread;
       out.zones = C.cutU.uPA.value.filter((v) => v.z > v.y).length;
       return out; })()""")
     check(r['spared'], 'palisade: the garrison\'s own fire spares its own palisade')

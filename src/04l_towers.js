@@ -923,6 +923,11 @@ function towerLadderNear(e, reach) {
       if (Math.abs(e.y - L.wyt) < 0.7) { const d = dist(e.x, e.z, L.ox, L.oz); if (d < bd) { bd = d; best = { L, dir: -1, d }; } }
     }
   }
+  for (const L of LOOK3S.ladders) { // [look3] a scaffold's ladders while it stands (04d_look3.js)
+    if (L.gone) continue;
+    if (Math.abs(e.y - L.wyb) < 0.7) { const d = dist(e.x, e.z, L.fx, L.fz); if (d < bd) { bd = d; best = { L, dir: 1, d }; } }
+    if (Math.abs(e.y - L.wyt) < 0.7) { const d = dist(e.x, e.z, L.ox, L.oz); if (d < bd) { bd = d; best = { L, dir: -1, d }; } }
+  }
   return best;
 }
 
@@ -991,6 +996,7 @@ function towerOffers(P, offer) {
   if (!TOWER.list.length) return;
   if (P.motion) { ladderOffers(P, offer); return; } // [keeps] on a ladder: climb on, climb down (04m_ladders.js)
   towerFireOffers(P, offer); // [keeps] a brand held to a timber tower's logs (04n_towerfire.js)
+  look3LadderOffers(P, offer); // [look3] a scaffold's ladders (04d_look3.js)
   for (const T of TOWER.list) {
     if (Math.abs(P.x - T.S.x) > 30 || Math.abs(P.z - T.S.z) > 30) continue;
     for (const L of T.ladders) {

@@ -1036,6 +1036,7 @@ function updateNPCs(dt0) {
       else if (e.role === 'muster') thinkPosted(e, dt, 26);
       else if (e.role === 'villager' || e.role === 'herald' || e.role === 'merchant') thinkVillager(e, dt);
       else if (e.role === 'animal') thinkAnimal(e, dt); // [animals] companions, livestock, wild horses (08h_animals.js)
+      else if (e.role === 'mason') look3MasonThink(e, dt); // [look3] at work on a scaffold, or on the way (13v_look3.js)
       autoAttack(e);
     }
     // power regen

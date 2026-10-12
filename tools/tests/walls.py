@@ -372,6 +372,7 @@ async def breach(page):
       out.wear = +W.wear.toFixed(2); out.stateMid = W.state;
       out.hits = 4 + BT.hitUntil(W, src);
       out.state = W.state; out.breached = !!T.breached;
+      K.lastEnemyNear = H.GAME.t + 30; // [look3] the siege goes on (else a keep quiet 20 s since the war's last foe begins to mend it 2 s on, and the rubble's ramps stand down)
       H.simulate(2.5);
       out.after = { top: BT.floorH(T, T.aIn + Math.PI, 1.2, T.TT + 0.2), room: BT.floorH(T, T.aIn + 0.6, 1.4, T.H + 0.2), ladders: T.ladders.map((L) => !!L.gone), hatches: T.hatches.map((h) => h.floor.active), doorsUp: T.doors.filter((D) => D.y > 1).map((D) => D.coll.active), arY: +(ar.y - S.y).toFixed(2), gdY: +(gd.y - S.y).toFixed(2), arHurt: ar.hp < 2000, roomOf: !!__hm.towers.towerRoomOf(gd) };
       // the rubble: a ramp up from the field and down into the store room

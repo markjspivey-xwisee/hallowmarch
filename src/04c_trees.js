@@ -144,7 +144,8 @@ const NEAR_TREE_VS = /* glsl */`
     vW = iPos.xyz + r; vPart = aPart; vAO = aAO; vTint = iRot.y; vLocal = position; vUV = aUV; vSeed = aSeed;
     // hand over from the far trees by dithering across a band
     float d = distance(iPos.xz, uNearTree.xy);
-    vFade = 1.0 - smoothstep(uNearTree.z - 3.5, uNearTree.z, d);
+    float hb = (d - uNearTree.z + 3.5) / 3.5, ho = fract(iRot.y * 41.3 + 0.17) * 0.78; // [look3] its own fifth of the band (04_props.js)
+    vFade = 1.0 - smoothstep(ho, ho + 0.22, hb);
     gl_Position = vFade <= 0.0 ? vec4(0.0, 0.0, -2.0, 1.0) : projectionMatrix * viewMatrix * vec4(vW, 1.0);
   }`;
 // the leaf-cluster and needle patterns on the cards

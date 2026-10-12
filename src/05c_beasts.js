@@ -687,6 +687,7 @@ const beastMat = mat({
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
     ${GLSL_ROOFS} // [look2] underRoof: a beast in a room is lit by the room, as a person is
+    ${LOOK3_FUR_GLSL} // [look3] a coat lit from behind by a fire glows along its outline (04d_look3.js)
     uniform vec4 uFurK;   // saddle, belly, socks, strand scale
     uniform float uDarkCoat;
     uniform vec3 uEye, uEyeAt;
@@ -768,6 +769,7 @@ const beastMat = mat({
       vec3 col = actorLight(alb, n, V, rough, metal, ao * (1.0 - 0.4 * gRoom), sh, sss);
       col += alb * vec3(0.2, 0.12, 0.055) * gRoom * (0.45 + 0.55 * uNight) * ao;
       col += alb * pointLights(vW, n) * (0.4 + 0.6 * ao);
+      if (m == 11 || m == 12) col += look3FurGlow(vW, n, V, alb) * (0.5 + 0.5 * ao) + alb * vec3(0.12, 0.075, 0.04) * gRoom * (0.3 + 0.7 * uNight) * (0.6 + 0.4 * ao); // [look3] the fire through the coat's outline, the room's warm light given back
       col += wetSheen(vW, n, V, bWet * 0.75, 0.75, sh) * ao; // feature/weather: a rain-slick coat (its own, visual pass)
       // soft back-lit fringe along the silhouette
       float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
