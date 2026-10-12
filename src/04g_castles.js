@@ -788,6 +788,7 @@ const CASTLE_FS = (() => {
   fs = castlePatch(fs, 'void main(){', (a) => /* glsl */`
     ${CASTLE_CUT_GLSL}
     ${LOOK3_CRACK_GLSL /* [look3] cracks that climb the joints (04d_look3.js) */}
+    ${LOOK4_CHAR_GLSL /* [look4] charred timber's checks (04d_look4.js) */}
     ${a}
     if (castleCut(vW) || towerCut(vW) || towerBreachCut(vW) || palisadeCut(vW, vMat) || deckCut(vW, vMat)) discard; // [walls] (04g_breach.js); [siege2] (04g_burn.js); [siege3] (04g_blaze.js)
   `);
@@ -805,29 +806,31 @@ const CASTLE_FS = (() => {
     }
     if (cFresh > 0.002) alb = mix(alb, alb * vec3(1.18, 1.15, 1.08) + vec3(0.04, 0.035, 0.03), cFresh * 0.85);
     // [walls] charred logs: charcoal near black, broken into the checks burnt timber cracks into, grey ash lying on what
-    // faces up and on the ridges between the checks (04n_towerfire.js); the embers glow in the cracks
-    float tCk = 1.0;
-    if (tChar > 0.002 || tGlow > 0.002) {
-      vec2 cq = vec2(dot(vW.xz, vec2(0.83, 0.56)) * 2.4 + vW.y * 0.3, vW.y * 3.6 + dot(vW.xz, vec2(-0.56, 0.83)) * 0.9);
-      if (pOn > 0.5) cq = vec2(pAl * 2.9 + vnoise(vec2(vW.y * 1.7, pAl)) * 0.8, vW.y * 5.2 + floor(pAl / 0.48) * 1.7); // [siege2] a palisade's upright logs check across their grain (04g_burn.js)
-      tCk = abs(vnoise(cq) - 0.5) + 0.55 * abs(vnoise(cq * 2.3 + 7.1) - 0.5);
-    }
+    // faces up and on the ridges between the checks (04n_towerfire.js); the embers glow in the cracks. [look4] The checks
+    // are blocks across and along the grain (look4Char, 04d_look4.js), on the face's own coordinates: they were the
+    // iso-lines of a noise of the world position, a net of winding veins (from above a burning roof glowed like lava)
+    vec3 ck4 = vec3(0.0, 0.5, 1.0);
+    vec2 uvC = pOn > 0.5 ? vec2(vW.y + floor(pAl / 0.48) * 1.7, pAl) : uv; // [siege2] a palisade's logs stand upright: their grain runs up (04g_burn.js)
+    if (tChar > 0.002 || tGlow > 0.002) ck4 = look4Char(uvC);
     if (tChar > 0.002) {
-      float crk = 1.0 - smoothstep(0.03, 0.09, tCk);
-      vec3 charc = vec3(0.017, 0.016, 0.015) * (0.65 + 0.7 * vnoise(vW.xz * 6.0 + vW.y * 4.0));
-      float ash = smoothstep(0.48, 0.82, vnoise(vW.xz * 2.1 - vW.y * 1.3 + 3.0)) * (0.3 + 0.7 * max(n.y, 0.0)) * smoothstep(0.5, 1.0, tChar);
-      charc = mix(charc, vec3(0.34, 0.33, 0.31) * (0.8 + 0.4 * vnoise(vW.xz * 9.0)), ash * 0.8 * (1.0 - crk));
-      charc *= 1.0 - 0.7 * crk;
+      float crk = ck4.x;
+      vec3 charc = vec3(0.017, 0.016, 0.015) * (0.6 + 0.55 * ck4.y + 0.35 * vnoise(uvC * 6.0));
+      float ash = smoothstep(0.48, 0.82, vnoise(uvC * 2.1 + 3.0)) * (0.3 + 0.7 * max(n.y, 0.0)) * smoothstep(0.5, 1.0, tChar);
+      charc = mix(charc, vec3(0.34, 0.33, 0.31) * (0.8 + 0.4 * vnoise(uvC * 9.0)), ash * 0.8 * (1.0 - crk));
+      charc *= 1.0 - 0.7 * crk - 0.1 * (1.0 - ck4.z);
       alb = mix(alb, charc, smoothstep(0.0, 0.8, tChar));
     }
-    if (tFresh > 0.002) alb = mix(alb, alb * vec3(1.25, 1.16, 1.0) + vec3(0.05, 0.04, 0.02), tFresh * 0.65); // [keeps] new timber
+    // [keeps] new timber; [look4] peeled and new-cut, a pale yellow-tan whatever the old logs' colour (it was the old
+    // colour a fifth brighter, which the shade swallowed), its grain streaked along the log
+    if (tFresh > 0.002) alb = mix(alb, vec3(0.74, 0.6, 0.4) * (0.86 + 0.28 * vnoise(uvC * vec2(1.3, 11.0))), tFresh * 0.85);
     ${a}
     if (tGlow > 0.002) {
-      // [keeps] embers, [walls] glowing in the cracks of the char, brighter in the patches still alight, breathing
-      float crack = 1.0 - smoothstep(0.0, 0.05 + 0.05 * tGlow, tCk);
-      float hot = smoothstep(0.3, 0.72, vnoise(vW.xz * 1.2 + vW.y * 0.8 + uTime * 0.04));
-      float pulse = 0.55 + 0.45 * sin(uTime * 2.1 + vnoise(vW.xz * 0.9 + vW.y) * 9.0);
-      col += vec3(2.3, 0.62, 0.12) * tGlow * crack * (0.3 + 0.7 * hot) * pulse + vec3(0.5, 0.1, 0.02) * tGlow * hot * 0.3 * pulse;
+      // [keeps] embers, [walls] glowing in the cracks of the char, brighter in the patches still alight, breathing;
+      // [look4] in the fissures between the char's blocks, each block's edge breathing on its own (look4Char), and far off
+      // (the fissures under a pixel) as a dull glow over the patches still alight
+      float hot = smoothstep(0.42, 0.8, vnoise(uvC * 1.1 + vec2(uTime * 0.04, 0.0)));
+      float pulse = 0.55 + 0.45 * sin(uTime * 2.1 + ck4.y * 25.0 + vnoise(uvC * 0.9) * 6.0);
+      col += vec3(2.3, 0.62, 0.12) * tGlow * (ck4.x * (0.1 + 0.9 * hot) + 0.14 * (1.0 - ck4.z) * hot) * pulse + vec3(0.5, 0.1, 0.02) * tGlow * hot * 0.3 * pulse;
     }
   `);
   return fs;

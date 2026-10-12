@@ -163,7 +163,7 @@ function towerScaffoldGeo(W) {
   look3ScaffoldWorld(W, S, [W.scafInfo]); // its boards are floors and its ladders are climbed while it stands
   // new-cut stone waiting on the top lift, by the wall
   if (lifts.length) for (let i = 0; i < 2; i++) {
-    const a = W.aOut + (i ? 0.35 : -0.42), rr = T.RO + 0.42, y = lifts[lifts.length - 1] + 0.37;
+    const a = W.aOut + (i ? 0.35 : -0.42), rr = T.RO + 0.42, y = lifts[Math.min(lifts.length, LOOK4.lifts) - 1] + 0.37; // [look4] on the highest lift that is up (04d_look4.js)
     b.add(G.box, lm(M, T.cx + Math.sin(a) * rr, y, T.cz + Math.cos(a) * rr, a, 0.55, 0.42, 0.4), MAT.stone, darker(st.stone, 1.18 + 0.06 * rnd()));
   }
   // a hoist's mast and boom, its rope and a stone in the sling, and new-cut stone waiting at the foot

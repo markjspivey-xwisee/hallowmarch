@@ -242,7 +242,8 @@ function wallHouse(H, ax, ay, az, dx, dy, dz, R, ox, oy, oz) {
     if (t0 >= R.t) continue;
     // its top where the shot is: the eaves, or a gable end's slope
     const gable = !H.round && Math.abs(Math.sin(c.yaw - H.yaw)) < 0.5;
-    const top = (tq) => { if (H.round || !gable) return H.y + H.wallH; const p = houseL(H, ax + dx * tq, az + dz * tq); return H.y + H.wallH + Math.max(0, H.rh - Math.abs(p.x) * H.tn); };
+    const fell = look4Fell(H); // [look4] a house brought down by stones: its walls broken off (04d_look4.js)
+    const top = (tq) => { if (fell) { const p = houseL(H, ax + dx * tq, az + dz * tq); return H.y + Math.min(look4WallTop(H, p.x, p.z), H.wallH + (H.round || !gable ? 0 : Math.max(0, H.rh - Math.abs(p.x) * H.tn))); } if (H.round || !gable) return H.y + H.wallH; const p = houseL(H, ax + dx * tq, az + dz * tq); return H.y + H.wallH + Math.max(0, H.rh - Math.abs(p.x) * H.tn); };
     // first point of [t0, t1] between the foot and the top (the top is straight over each half of a gable)
     let th = -1;
     for (let k = 0; k <= 6; k++) {

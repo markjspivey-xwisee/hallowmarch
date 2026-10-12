@@ -15,6 +15,7 @@ const WB = {
   helmet: 1 << 8, hood: 1 << 9, pauldron: 1 << 10, robe: 1 << 11, tabard: 1 << 12, hairShort: 1 << 13, hairLong: 1 << 14,
   beard: 1 << 15, shieldRound: 1 << 16, skirt: 1 << 17, belt: 1 << 18, circlet: 1 << 19,
   torch: 1 << 20, // a burning brand held in the left hand (09d_brand.js)
+  beater: 1 << 21, // [look4] a fire beater (a leather flap on an ash pole) in the right hand while beating out flames (action 21)
 };
 const WBIT = {};
 for (const k in WB) WBIT[k] = Math.round(Math.log2(WB[k]));
@@ -599,6 +600,15 @@ function buildHumanoid(lod) {
       Tb(new THREE.CylinderGeometry(0.036, 0.03, 0.13, hi ? 9 : 5), M4([0, 0.405, 0]), { mat: mat.leather });
       for (const y of [0.36, 0.42]) Tb(new THREE.TorusGeometry(0.034, 0.007, 4, hi ? 10 : 6), M4([0, y, 0], [Math.PI / 2, 0, 0]), { mat: mat.leather });
       Tb(new THREE.SphereGeometry(0.036, hi ? 8 : 5, hi ? 5 : 3, 0, TAU, 0, Math.PI / 2), M4([0, 0.468, 0]), { mat: mat.leather });
+    }
+    // [look4] a fire beater in the right fist, shown only while beating out flames (action 21: 13_main.js sets its bit):
+    // an ash pole, a wet leather flap lashed to its end, its flat face to the ground as the arms come down (they beat
+    // with empty fists)
+    {
+      const Bt = (geo, mm, o) => kitGeo(K, geo, inHand(gripR, 1.85, mm), { bone: B.farmR, w: 1, bit: WBIT.beater, ...o });
+      Bt(new THREE.CylinderGeometry(0.015, 0.019, 1.15, hi ? 7 : 4), M4([0, 0.4, 0]), { mat: mat.wood });
+      Bt(new THREE.BoxGeometry(0.34, 0.4, 0.016), M4([0, 1.1, 0], [0.06, 0, 0]), { mat: mat.leather });
+      if (hi) for (const y of [0.93, 0.99]) Bt(new THREE.TorusGeometry(0.02, 0.005, 3, 6), M4([0, y, 0], [Math.PI / 2, 0, 0]), { mat: mat.leather });
     }
     // bow: a recurved stave with a wrapped grip, and its string
     const arc = [];

@@ -165,8 +165,8 @@ function houseRestPlan(e, H, dur) {
 function houseWorkPlan(e, H) {
   const side = (e.id % 2) ? 1 : -1;
   const lx = H.round ? side * (H.r + 1.6) : side * (H.w / 2 + 1.7), lz = H.round ? -0.6 : -H.d * 0.15;
-  const p = houseW(H, lx, lz);
-  return [houseGo(p.x, p.z), lifeStep('work', { dur: 14 + Math.random() * 10, fx: H.x, fz: H.z, H })];
+  const p = houseScafWorkSpot(H, side) || { ...houseW(H, lx, lz), fx: H.x, fz: H.z }; // [look4] inside the scaffold at the wall, hammering at it (04j_rubble.js)
+  return [houseGo(p.x, p.z), lifeStep('work', { dur: 14 + Math.random() * 10, fx: p.fx, fz: p.fz, H })];
 }
 // out of a burning house by the door, then away to watch from a safe distance
 function houseFlee(e, F) {

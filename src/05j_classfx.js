@@ -277,7 +277,9 @@ function drawClasses(dt) {
       if (!R.disc || !R.disc.on || R.disc.owner !== R) { R.disc = spellDisc(R.x, R.z, 2.2, DISC_KIND.rune, left, c); if (R.disc) R.disc.owner = R; }
     }
   }
-  for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) { const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1); glowPush(G.x, heightAt(G.x, G.z) + 0.6, G.z, 1.1 * k, 0.95 * k, 0.5 * k, G.r * 1.4); }
+  // [look4] a soft light low over the hallowed ground: a glow of 1.1 the ground's width and full strength at 0.6 m blew
+  // the frame out to white round the priest (cls_hallow)
+  for (const G of CLS.grounds) if (near2(G.x, G.z, 100)) { const k = clamp((G.until - GAME.t) / 1.2, 0, 1) * clamp((GAME.t - G.t0) / 0.4, 0, 1); glowPush(G.x, heightAt(G.x, G.z) + 0.3, G.z, 0.3 * k, 0.26 * k, 0.13 * k, G.r * 0.95); }
   const P = GAME.player;
   // chilled bodies breathe frost
   if (!lo) forNear(camX, camZ, 40, (e) => { if (e.alive && e.buffs.length && Math.random() < dt * 4 && chillOf(e) > 0) { const sc = e.scale || 1; fxAdd.emit(e.x + (Math.random() - 0.5) * 0.6 * sc, e.y + Math.random() * 1.6 * sc, e.z + (Math.random() - 0.5) * 0.6 * sc, 0, 0.25, 0, 0.9, 0.5, 0.8, 1.3, 0.07, -0.1, 0.5); } });

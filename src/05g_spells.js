@@ -140,8 +140,10 @@ const DISC_FS = (additive) => /* glsl */`
       float wave = band(r, fract(uTime * 0.35), 0.05) * (1.0 - fract(uTime * 0.35)) * 0.6;
       float star = spow(0.5 + 0.5 * cos(ang * 8.0 - uTime * 0.5), 16.0) * (1.0 - smoothstep(0.05, 0.55, r)) * 0.9;
       float core = (1.0 - smoothstep(0.0, 0.12, r)) * 0.6;
-      a = fill + ring + ticks * 0.7 + wave + star + core;
-      col = uCol * a;
+      // [look4] the ring and its marks read, the middle a glow rather than a white blaze (with the bloom, a star and a
+      // core of 3 to 4 times the light's colour under the priest's feet whitened the frame round it: cls_hallow)
+      a = fill + ring + ticks * 0.7 + wave + star * 0.45 + core * 0.35;
+      col = uCol * min(a, 1.1) * 0.7;
     } else {
       // scorched ground: soot with a few embers that cool
       float soot = (1.0 - smoothstep(0.2, 1.0, r)) * (0.6 + 0.4 * vnoise(vW.xz * 1.8));
