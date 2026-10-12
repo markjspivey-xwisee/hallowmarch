@@ -335,7 +335,14 @@ async def shots(page):
       while (t < 30 && gs().length < 2) { __hm.simulate(0.5); t += 0.5; } __hm.simulate(0.3);
       c.heat = Math.max(c.heat, 0.6);
       const g = gs()[0] || [...K.guards].map(F.getEnt).find((q) => q && q.alive && q.ai.fire);
-      if (g) { const dx = g.x - c.x, dz = g.z - c.z, dl = Math.hypot(dx, dz) || 1; T3.cam(g.x + dx / dl * 3.6 + dz / dl * 1.6, g.y + 2.4, g.z + dz / dl * 3.6 - dx / dl * 1.6, (g.x + c.x) / 2, g.y + 1.2, (g.z + c.z) / 2); }
+      if (g) {
+        // from the court's side, a place with a clear view of the beater and the fire (nothing between, not in a wall)
+        const tx = (g.x + c.x) / 2, ty = g.y + 1.2, tz = (g.z + c.z) / 2, ox = K.site.x - c.x, oz = K.site.z - c.z, ol = Math.hypot(ox, oz) || 1; let pick = null;
+        for (const r of [5.5, 4.5, 7]) for (const a of [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05]) for (const h of [2.6, 1.8, 3.6]) {
+          if (pick) break; const ca = Math.cos(a), sa = Math.sin(a), ux = (ox * ca - oz * sa) / ol, uz = (ox * sa + oz * ca) / ol, cx = g.x + ux * r, cz = g.z + uz * r, cy = Math.max(g.y, F.heightAt(cx, cz)) + h;
+          if (__hm.walls.shotHit(cx, cy, cz, tx, ty, tz, {}) || __hm.walls.shotHit(g.x, g.y + 1.6, g.z, cx, cy, cz, {})) continue; pick = [cx, cy, cz]; }
+        if (pick) T3.cam(pick[0], pick[1], pick[2], tx, ty, tz); else { const dx = g.x - c.x, dz = g.z - c.z, dl = Math.hypot(dx, dz) || 1; T3.cam(g.x + dx / dl * 3.6 + dz / dl * 1.6, g.y + 2.4, g.z + dz / dl * 3.6 - dx / dl * 1.6, tx, ty, tz); }
+      }
       return { beating: gs().length, t, g: !!g }; })()""", 'low')
     await shot(page, 'siege3_roof_in', """(() => { const hs0 = __hm.REALMS.flatMap((R) => R.town.houses.map((h) => h.rec)).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round); const H = T3.roofH || hs0[Math.min(5, hs0.length - 1)]; T3.roofH = H; if (!H) return { none: true };
       if (!H.bat || !(H.bat.hr > 0.01)) __hm.batter.houseStoneHit(H, H.x + 0.6, H.y + H.top, H.z + 0.4, 4.4, null, true);

@@ -154,7 +154,7 @@ async def main():
             # [siege3] a fire on a burh's wall walk: standing on the boards beside it, a tap on Use beats the flames down,
             # and a few more put it out (04g_blaze.js)
             r = await page.evaluate("""(() => { const H = TF.H, Z = H.blaze; Z.blazeInit(); const P = TF.P(), C = H.fn.castleOf(H.REALMS[2].keepSites[0]), B = C.blaze;
-              const cs = B.cells.filter((c) => c.di === 0), c = cs[4], nb = cs[3]; Z.deckIgnite(c, 0.5); H.simulate(0.5);
+              const cs = B.cells.filter((c) => c.di === 0), c = cs[4], nb = cs[3]; Z.deckIgnite(c, 0.5, Z.BZ_T.reach); H.simulate(0.5); /* (it does not spread: a tap beats the nearest fire, which was the boards underfoot when it had) */
               P.brand = null; TF.stand(nb.x, nb.z, c.x, c.z); P.y = nb.y; H.simulate(0.1); H.frame(1/30); TF.fireC = c; return { label: TF.label(), heat: +c.heat.toFixed(2) }; })()""")
             ok = await tap(page, '#t-use')
             h1 = await page.evaluate("(() => { __hm.simulate(0.2); return { heat: +TF.fireC.heat.toFixed(2), act: TF.P().anim.act }; })()")
