@@ -314,7 +314,7 @@ async def main():
                 if (!F.isWalkable(x, z) || H.water.waterAt(x, z) || H.ENT.some((e) => e.alive && e !== P && e.kind !== 'door' && Math.hypot(e.x - x, e.z - z) < 16)) continue; H.teleport(x, z); break; }
               H.simulate(0.1);
               const s = F.spawnRealmUnit(P.faction, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
-              H.simulate(0.05); s.target = null; s.threat = null; s.l2hailT = 0; out.near = [+Math.hypot(s.x - P.x, s.z - P.z).toFixed(1), s.alive, s.faction === P.faction, !!L.LATE2.worn]; // (a step, so the grid finds the guard where it stands)
+              H.simulate(0.05); s.target = null; s.threat = null; s.l2hailT = 0; out.near = [+Math.hypot(s.x - P.x, s.z - P.z).toFixed(1), s.alive, s.faction, P.faction, s.role, L.LATE2.worn, P.alive]; // (a step, so the grid finds the guard where it stands)
               P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
               L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
               s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
