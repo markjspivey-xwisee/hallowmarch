@@ -1488,8 +1488,8 @@ function chronWilds() {
   const realms = REALMS.map((R) => `<dt style="color:${R.light}">${R.name}</dt><dd>${campSummary(R.id)}</dd>`).join('');
   const champs = REALMS.map((R) => {
     const list = CAMPS.filter((c) => c.realm === R.id && c.elite).map((c) => {
-      const e = getEnt(c.eliteId);
-      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${c.lmin}–${c.lmax}</small></li>`;
+      const e = getEnt(c.eliteId), B = late2Band(c); // [late2] a risen camp's band (10l_late.js)
+      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${B[0]}–${B[1]}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
     }).join('');
     return `<div class="card rcard" style="--rc:${R.color}"><div class="rhead"><span class="em">${emblemSvg(R.id, 22)}</span><b style="font-size:20px">${R.homeName}</b></div><ul class="champs">${list}</ul></div>`;
   }).join('');
@@ -1501,7 +1501,7 @@ function chronWilds() {
     <dl class="facts">${realms}</dl>
     <p class="now">The numbers are levels. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
     <h3>Champions of the borderlands</h3>
-    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40.</p>
+    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40; from 40 the three farthest camps of each homeland rise with you, held by risen champions (the Deeds page).</p>
     ${champs}
     <p class="now">${P.level < 20 ? `You are level ${P.level}: come back at 20.` : 'Champions of your level are the best hunting in the land outside the Barrow.'}</p>`;
 }

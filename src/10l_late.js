@@ -219,7 +219,8 @@ function late2RiseK(camp) {
   }
   return camp.l2k;
 }
-const late2Risen = (camp) => late2RiseK(camp) >= 0 && warLevel() >= LATE2_RISE_AT;
+// risen now (`l2on`: set when the camp is taken over, which waits while you stand in it: late2Rescale)
+const late2Risen = (camp) => late2RiseK(camp) >= 0 && !!camp.l2on;
 // a camp's band of levels: [lowest, highest, the champion's step above the highest] (spawnMob, 08_ai.js)
 function late2Band(camp) {
   if (!late2Risen(camp)) return [camp.lmin, camp.lmax, 1];
@@ -233,6 +234,16 @@ function late2OnSpawn(e, camp, elite) {
   if (!elite) { e.l2off = e.level - late2Band(camp)[0]; return; }
   e.l2risen = true;
   e.name = late2RisenName(camp);
+  // a risen champion looks the part: a little greater, a humanoid's weapon alight (the dead's with their own cold
+  // fire), a beast's coat darker, a wisp burning ember-red
+  e.scale *= 1.08;
+  const Lk = e.look;
+  if (Lk) {
+    if (Lk.scale) Lk.scale = e.scale;
+    if (e.kind === 'humanoid') Lk.flags = ((Lk.flags || 0) & 15) | ((camp.type === 'skeleton' || camp.type === 'draugr' ? 2 : 1) << 4) | (3 << 7);
+    else if (e.kind === 'wisp' && Lk.colA) { Lk.colA = [1.9, 0.7, 0.32]; Lk.colB = [0.95, 0.32, 0.12]; }
+    else if (Lk.colA) { Lk.colA = Lk.colA.map((v) => v * 0.62); if (Lk.colB) Lk.colB = Lk.colB.map((v) => v * 0.62); }
+  }
   e.tweak = { hp: LATE2_RISEN_HP / Math.sqrt((MOBS[camp.type] || {}).hp || 1), dmg: LATE2_RISEN_DMG }; // (a champion's is 2.8 and 1.3: a risen one is a fight of half a minute and more)
   e.ai.l2 = null;
   LATE2.stats.risenSpawned++;
@@ -249,10 +260,14 @@ function late2Retake(c) {
   LATE2.stats.camps++;
 }
 function late2Rescale() {
-  const on = warLevel() >= LATE2_RISE_AT;
+  const on = warLevel() >= LATE2_RISE_AT, P = GAME.player;
   for (const c of CAMPS) {
     if (late2RiseK(c) < 0) continue;
-    if (!!c.l2on !== on) { c.l2on = on; late2Retake(c); continue; }
+    if (!!c.l2on !== on) {
+      // not under your eyes: a camp you stand in (a level gained in the middle of its fight) is taken over once you go
+      if (P && P.alive && GAME.started && dist2(P.x, P.z, c.x, c.z) < 70 * 70) continue;
+      c.l2on = on; late2Retake(c); continue;
+    }
     if (!on) continue;
     const B = late2Band(c);
     for (const id of c.members) {
@@ -266,7 +281,10 @@ function late2Rescale() {
 // a risen champion in a fight (thinkMob, 08_ai.js): true while it is busy with its own work
 function late2ChampThink(e, t, dt) {
   const ai = e.ai, now = GAME.t;
-  const S = ai.l2 || (ai.l2 = { next: now + 4 + Math.random() * 3, rally: false, enr: false, w: null });
+  let S = ai.l2;
+  // a new fight (none for 8 s, or it went home whole): the rally and the fury come again
+  if (!S || (now - S.last > 8 && !S.w)) S = ai.l2 = { next: now + 4 + Math.random() * 3, rally: false, enr: false, w: null, last: now };
+  S.last = now;
   if (S.w) {
     S.w.t += dt;
     if (S.w.ranged) turnToward(e, S.w.x, S.w.z, dt * 4); else if (t) turnToward(e, t.x, t.z, dt * 2);
@@ -405,8 +423,24 @@ function updateLate2(dt) {
   const H = CAMPAIGN.history, hl = H.length ? H[H.length - 1] : null;
   if (W.campN != null && hl && hl.n !== W.campN && hl.w === P.faction && hl.you) late2Deed('camp');
   W.campN = hl ? hl.n : 0;
+  if ((W.camps = (W.camps || 0) - 0.25) <= 0) { W.camps = 5; if (CAMPS.some((c) => late2RiseK(c) >= 0 && !!c.l2on !== (warLevel() >= LATE2_RISE_AT))) late2Rescale(); }
   // near a risen camp (the field note's watch)
   W.near = prog.level >= LATE2_RISE_AT && CAMPS.some((c) => late2Risen(c) && dist2(P.x, P.z, c.x, c.z) < 110 * 110);
+}
+
+// the risen camps on the world map past 40, before the names are laid out round them (drawWorldMap, 10_ui.js)
+function late2MapMarks(ctx, S, MK) {
+  if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return;
+  for (const c of CAMPS) {
+    if (!late2Risen(c)) continue;
+    const e = getEnt(c.eliteId), up = !!(e && e.alive), [x, y] = w2m(c.x, c.z, S), r = S * 0.0085;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = up ? '#e0582a' : 'rgba(150, 128, 110, 0.55)'; ctx.strokeStyle = '#140a05'; ctx.lineWidth = Math.max(1.5, S * 0.0022);
+    ctx.fillRect(-r, -r, 2 * r, 2 * r); ctx.strokeRect(-r, -r, 2 * r, 2 * r);
+    if (up) { ctx.fillStyle = '#ffd9a0'; ctx.fillRect(-r * 0.32, -r * 0.32, r * 0.64, r * 0.64); }
+    ctx.restore();
+    MK.push([x, y, r * 1.6]);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -484,7 +518,7 @@ function chronDeeds() {
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>
     <h3${prog.level >= LEVEL_CAP && free ? ' data-cf-open' : ''}>Veterancy</h3>${vet}
     <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
-    <ul class="gd-aims">${risenList}</ul>
+    <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(worn.t)}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
 }

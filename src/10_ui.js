@@ -133,7 +133,7 @@ function unitSub(e, viewer) {
   if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
-  if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
+  if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
   if (e.faction <= 2) {
     const R = REALMS[e.faction];
     const role = { player: CLASSES[e.cls].name, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
@@ -449,6 +449,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   for (const R of REALMS) { let [x, y] = w2m(R.musterSite.x, R.musterSite.z, S); drawSiteIcon(ctx, 'muster', x, y, S * 0.011, R.color); MK.push([x, y, S * 0.013]); label('Muster', x, y + S * 0.028, '#bdb39d', S * 0.013, S * 0.028, 5, true); [x, y] = w2m(R.town.x, R.town.z, S); drawSiteIcon(ctx, 'town', x, y, S * 0.012, '#e9dfc9'); MK.push([x, y, S * 0.014]); label(R.townName, x, y + S * 0.03, '#efe6d3', S * 0.014, S * 0.03, 1); }
   { const [x, y] = w2m(0, 0, S); ctx.fillStyle = '#e9dfc9'; ctx.beginPath(); ctx.arc(x, y, S * 0.006, 0, TAU); ctx.fill(); MK.push([x, y, S * 0.008]); LB.push({ t: 'The Lone Tree', col: '#efe6d3', font: fnt, fs, pri: 4, at: [[x, y - S * 0.014], [x, y + S * 0.008 + fs], [x + S * 0.012 + fs * 3.4, y + fs * 0.35]] }); }
   { const [x, y] = w2m(BARROW.x, BARROW.z, S); drawBarrowIcon(ctx, x, y, S * 0.011); MK.push([x, y, S * 0.013]); label('The Hollow Barrow', x, y + S * 0.03, '#a9e6e0', S * 0.013, S * 0.03, 3); }
+  late2MapMarks(ctx, S, MK); // [late2] the risen camps past 40 (10l_late.js)
   look4MapLabels(ctx, S, LB, MK);
   ctx.font = fnt;
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = w2m(p.x, p.z, S); ctx.fillStyle = '#ffe28a'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.arc(x, y, S * 0.008, 0, TAU); ctx.fill(); ctx.stroke(); }

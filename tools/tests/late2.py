@@ -54,6 +54,9 @@ async def frames(page, n=3):
 
 async def shot(page, name, w=None, h=None):
     if not SHOTS: return
+    # (the Chronicle's page fades in on the wall clock: a loaded machine took the picture before it had)
+    try: await page.wait_for_function("[...document.querySelectorAll('.chron-body')].every((b) => b.getAnimations().every((a) => a.playState === 'finished'))", timeout=20000, polling=200)
+    except Exception: pass
     await page.screenshot(path=str(OUT) + '/late2_' + name + '.png', timeout=300000)
     print('  shot late2_' + name, f'[{time.time() - T0:.0f}s]', flush=True)
 
@@ -106,7 +109,7 @@ async def main():
                     high: L.d.high - d0.high, champD: L.d.champ - d0.champ, vetXP: vx1 - vx0, rp: Math.round(prog.rp - rp0), drops: H.LOOT.length + H.INV.bag.length - loot0, trophies: F.goodsCount('trophy') + H.LOOT.filter((q) => q.item && q.item.goods === 'trophy').length - tr0, foes: foes.size, errors: H.errors.length }; })('""" + cls + "', " + str(REALM) + ")")
                 won = r['champT'] is not None and r['alive']
                 check(won, f"a level 50 {cls} (skilled) brings down {r['champ']} ({r['clvl']}) in {r['champT']} s, {r['minHp']*100:.0f}% health at the lowest, {r['potions']} draughts left")
-                check(r['wrath'] >= 1 and r['rallies'] == 1, f"it broke the ground {r['wrath']} times ({r['hits']} struck) and rallied its pack once")
+                check(r['rallies'] == 1 and (r['wrath'] >= 1 or cls == 'archer'), f"it broke the ground {r['wrath']} times ({r['hits']} struck; a bow that keeps it off may never see it) and rallied its pack once")
                 if won:
                     check(r['high'] == 1 and r['champD'] == 1 and r['fell'] == 1, 'the deed is told: one risen, one champion')
                     check(r['vetXP'] > 12000 and r['rp'] >= 250 and r['drops'] >= 3 and r['trophies'] >= 2, f"its spoils: {r['vetXP']} experience to veterancy, {r['rp']} realm points, {r['drops']} pieces of gear and other things, {r['trophies']} trophies")
@@ -245,7 +248,7 @@ async def main():
             for tod, label in [(0.45, 'day'), (0.97, 'night')]:
                 await page.evaluate(f"""(() => {{ const H = T.H, F = T.F, P = H.GAME.player, C = F.getEnt(T.C); if (!C || !C.alive) return 0; H.setTod({tod});
                   C.ai.l2 = null; C.target = P.id; C.threat = new Map([[P.id, 50]]); P.hp = P.maxHp; H.teleport(C.x + 3.2, C.z + 2.4);
-                  const S = C.ai.l2 = {{ next: 0, rally: true, enr: false, w: null }}; T.L.late2ChampThink(C, P, 0.05); H.simulate(0.8);
+                  const S = C.ai.l2 = {{ next: 0, rally: true, enr: false, w: null, last: H.GAME.t }}; T.L.late2ChampThink(C, P, 0.05); H.simulate(0.8);
                   H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const a = Math.atan2(P.x - C.x, P.z - C.z) + 0.9; H.camera.position.set(C.x + Math.sin(a) * 11, C.y + 5.5, C.z + Math.cos(a) * 11); H.camera.lookAt(C.x, C.y + 1, C.z); return 0; }})()""")
                 await frames(page, 3)
                 await shot(page, f'wrath_{label}_{Q}')
