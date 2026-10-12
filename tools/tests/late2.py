@@ -309,7 +309,7 @@ async def main():
               // hailed by name: a soldier of your realm beside you, out of a fight
               prog.realmKills = 30; H.simulate(0.3); L.late2Wear('blooded');
               const s = F.spawnRealmUnit(0, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
-              H.simulate(0.05); s.target = null; s.l2hailT = 0; // (a step, so the grid finds the guard where it stands)
+              H.simulate(0.05); T.clearAround(P.x, P.z, 12, new Set([s.id])); H.simulate(0.05); s.target = null; s.l2hailT = 0; // (a step, so the grid finds the guard where it stands; nobody else beside you to hail you)
               P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
               L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
               s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
