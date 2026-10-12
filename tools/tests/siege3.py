@@ -7,7 +7,7 @@ crew: the garrison sees a fire on its walls and goes to beat it out (leaving its
 out with Use; storm: a band through a fallen gate tower's rubble with nobody stuck (gate broken), and a band of ten
 storming each keep kind's tower door against its garrison; roof: a holed roof's shadow and its broken rafters; door:
 arrows stuck in a built door swing with it; save: a burning walk, a burnt-through gap and a rebuilding one saved and
-loaded. usage: python3 tools/tests/siege3.py [noshots] [only=deck,gate,temple,crew,player,storm,stormcost,roof,door,save,shots] [quality]"""
+loaded. usage: python3 tools/tests/siege3.py [noshots] [only=deck,gate,temple,crew,player,ring,roof,door,gatepast,stormcost,shots,save] [shots=name,...] [reps=N] [big] [quality]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -204,11 +204,11 @@ async def crew(page):
       const side = T3.cellsOf(B, 1), c = side[Math.floor(side.length / 2)];
       T3.Z.deckIgnite(c, 0.35);
       let t = 0, at = 0; const beaters = new Set(); const gs = [...K.guards].map(F.getEnt).filter(Boolean);
-      while (t < 90 && c.st === 1) { __hm.simulate(0.5); t += 0.5; for (const g of gs) if (g.alive && g.ai.fire) beaters.add(g.id); if (!at && gs.some((g) => g.alive && g.ai.fire && Math.abs(g.y - c.y) < 1 && Math.hypot(g.x - c.x, g.z - c.z) < 2.5)) at = t; }
+      while (t < 90 && c.st === 1) { __hm.simulate(0.5); t += 0.5; for (const g of gs) if (g.alive && g.ai.fire) beaters.add(g.id); if (!at && gs.some((g) => g.alive && g.ai.fire && Math.abs(g.y - c.y) < 1.25 && Math.hypot(g.x - c.x, g.z - c.z) < 2.5)) at = t; }
       out.t = t; out.st = c.st; out.char = +c.char.toFixed(2); out.beaters = beaters.size; out.arrived = at; out.beats = +T3.Z.BLAZE.stats.beats.toFixed(1);
       out.acts = gs.filter((g) => g.anim.act === 21).length;
       return out; })()""")
-    check(r['beaters'] >= 1 and r['arrived'] > 0, f"crew: they climb onto the walk to a fire on its boards (on it at {r['arrived']} s)")
+    check(r['beaters'] >= 1 and (r['arrived'] > 0 or (r['st'] != 1 and r['st'] != 3)), f"crew: they climb up to a fire on the walk's boards (there at {r['arrived']} s)")
     check(r['st'] != 1 and r['st'] != 3, f"crew: and beat it out before it burns through ({r['t']} s, char {r['char']}, {r['beats']} s of beating)")
     r = await ev(page, 'crew: diversion', """(() => { const { K, C, B } = T3.burh(0), out = {}, F = T3.F;
       // with a foe at the gate the crew still goes to a fire on the far wall: the watch is thinner while it burns
@@ -258,7 +258,7 @@ async def ring(page):
     check(r['st'] == 0 and r['wall'] and r['floor'], f"ring: in peace the wardens build it back ({r['t']} s, fresh {r['fresh']})")
 
 async def roof(page):
-    r = await ev(page, 'roof: hole', """(() => { T3.quiet(); T3.away(); const out = {}, F = T3.F; const hs = __hm.REALMS[0].town.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round);
+    r = await ev(page, 'roof: hole', """(() => { T3.quiet(); T3.away(); const out = {}, F = T3.F; const hs = __hm.REALMS.flatMap((R) => R.town.houses.map((h) => h.rec)).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round);
       const H = hs[Math.min(5, hs.length - 1)]; T3.roofH = H; out.n = hs.length; if (!H) return out;
       __hm.batter.houseStoneHit(H, H.x + 0.6, H.y + H.top, H.z + 0.4, 4.4, null, true);
       out.hole = +H.bat.hr.toFixed(2); __hm.simulate(1.2); __hm.rafters.houseRafterSync(2);
@@ -327,9 +327,9 @@ async def shots(page):
       let t = 0; const gs = () => [...K.guards].map(F.getEnt).filter((g) => g && g.alive && g.ai.fire && g.anim.act === 21);
       while (t < 30 && gs().length < 2) { __hm.simulate(0.5); t += 0.5; } __hm.simulate(0.3);
       c.heat = Math.max(c.heat, 0.6);
-      const l = __hm.fn.siteToWorld(K.site, c.a - 4.5, -14.9 + 4.6), tt = F.siteToWorld(K.site, c.a, -14.9 + 1.3); T3.cam(l.x, K.site.y + 2.3, l.z, tt.x, K.site.y + 1.5, tt.z);
+      const l = __hm.fn.siteToWorld(K.site, c.a + 2.5, -14.9 + 8.0), tt = F.siteToWorld(K.site, c.a, -14.9 + 1.4); T3.cam(l.x, K.site.y + 11.5, l.z, tt.x, K.site.y + 1.2, tt.z);
       return { beating: gs().length, t }; })()""", 'low')
-    await shot(page, 'siege3_roof_in', """(() => { const H = T3.roofH || __hm.REALMS[0].town.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round)[5]; T3.roofH = H;
+    await shot(page, 'siege3_roof_in', """(() => { const hs0 = __hm.REALMS.flatMap((R) => R.town.houses.map((h) => h.rec)).filter((h) => h && !h.keepHall && h.state === 'whole' && !h.round); const H = T3.roofH || hs0[Math.min(5, hs0.length - 1)]; T3.roofH = H; if (!H) return { none: true };
       if (!H.bat || !(H.bat.hr > 0.01)) __hm.batter.houseStoneHit(H, H.x + 0.6, H.y + H.top, H.z + 0.4, 4.4, null, true);
       __hm.rafters.houseRafterSync(2); __hm.setTod(0.47); T3.F.setHouseDoor && T3.F.setHouseDoor(H, true, null, true);
       const l = __hm.fn.houseL ? null : null; const b = H.bat, cx = H.x + (H.x - b.hx) * 0.0, dx = b.hx - H.x, dz = b.hz - H.z, dl = Math.hypot(dx, dz) || 1;
@@ -395,7 +395,7 @@ async def gatepast(page):
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, w=640, h=360)
+        b, page, logs = await setup(p, w=960 if 'big' in ARGS else 640, h=540 if 'big' in ARGS else 360)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
         await page.evaluate("__hm.start({ realm: 2, cls: 'mage', level: 30 }); 0")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")

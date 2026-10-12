@@ -171,7 +171,7 @@ async def storm(page, garrison):
 async def palisade(page):
     r = await ev(page, 'palisade: catch', """(() => { T2.quiet(); T2.away(); const K = T2.keep(2, 0), C = T2.C(K), PL = __hm.palisade, out = {}, F = T2.F;
       PL.palisadeInit(); const P = C.pal; out.cells = P.cells.length; out.sides = [...new Set(P.cells.map((c) => c.side))].join('');
-      K.lastEnemyNear = __hm.GAME.t;
+      K.lastEnemyNear = __hm.GAME.t; T2.clearGarrison(K); /* [siege3] the palisade alone: the garrison would run to beat its fire out (04g_blaze.js) */
       // the garrison's own fire spares its own palisade
       const c0 = P.cells.find((c) => c.side === 0 && Math.abs(c.a) < 1), own = T2.dummy(2, c0.x, c0.z); F.fireLandsAt(c0.x, K.site.y + 3, c0.z, 1.2, own); F.removeEnt(own);
       out.spared = c0.st === 0;
