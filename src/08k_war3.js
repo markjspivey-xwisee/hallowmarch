@@ -32,7 +32,7 @@ const W3 = {
   PRESS_RE: 90, // s: a realm one keep from a claim looks again at which keep to press for
   PACT_END: 45, // s: a pact outlasts the leader's lead by this long
   COL_IN: 50, // s: a column's stragglers take their posts this long after its captain is in
-  CLAIM3: 0.45, // the pace of a claim built on three keeps held, more than any other realm (of four's)
+  CLAIM3: 0.5, // the pace of a claim built on three keeps held, more than any other realm (of four's)
   LEVY: 1, // bands more a realm with three keeps or more musters
   stats: { captures: 0, holds: 0, given: 0, columns: 0, columnsIn: 0, columnsLost: 0, garrisoned: 0, gateWork: 0, presses: 0, braces: 0, secures: 0, pacts: 0, rallies: 0, peaceEngines: 0, peaceMended: 0, handedBack: 0 },
   pact: null, // { against, members: [a, b], t, lostAt }

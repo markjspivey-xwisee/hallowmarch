@@ -639,10 +639,10 @@ function cwMergeRemnants(r, wb, mine) {
 /* the long war: a hold on the March counts for more                   */
 /* ------------------------------------------------------------------ */
 // A claim (four keeps, or both enemy hallows) grows a second a second; from the long war's start (15 min) to its height
-// (40 min, cwWeary) it grows up to 1.6 times as fast, so a realm that takes its fourth keep late in a long war need hold it
+// (40 min, cwWeary) it grows up to 1.6 times as fast ([war3] twice), so a realm that takes its fourth keep late in a long war need hold it
 // a little over three minutes, not five: the war is decided by keeps and hallows more often than by the elders' call at
 // the hour (updateCampaign, 08g_campaign.js; the news and the countdowns say so)
-const CLAIM_LATE = 0.6;
+const CLAIM_LATE = 1.0; // [war3] up to twice the pace at 40 minutes (0.6: of six hours at low on version 15, four went to the elders at the hour)
 const cwClaimRate = () => 1 + CLAIM_LATE * cwWeary();
 
 /* ------------------------------------------------------------------ */
