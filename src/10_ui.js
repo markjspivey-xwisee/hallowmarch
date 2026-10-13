@@ -719,8 +719,10 @@ function renderMenu(tab) {
         <div class="stat"><small>Deaths</small><b>${fmtInt(prog.deaths)}</b></div>
         ${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}
       </div>
+      ${gsCharHTML() /* [gearstats] the stats in a fight and what they do (10g_gearstats.js) */}
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
       <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>`;
+    gsCharWire(body); // [gearstats] the kit and the Gear page a tap away
   } else if (tab === 'settings') {
     const q = quality.level, m = tod.mode;
     body.innerHTML = `<div class="setrow"><span>Graphics</span><div class="seg" id="set-q">${['low', 'medium', 'high'].map((k) => `<button type="button" data-v="${k}" aria-checked="${q === k}">${QUALITY_PRESETS[k].label}</button>`).join('')}</div></div>

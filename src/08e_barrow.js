@@ -42,7 +42,6 @@ function initBarrow() {
   BARROW_PACKS.forEach((pk, i) => { pk.idx = i; pk.members = new Set(); pk.respawn = []; for (const m of pk.mobs) pk.members.add(spawnBarrowMob(m[0], m[1], m[2], m[3], pk).id); });
   spawnWarden();
   spawnKing();
-  try { late3Init(); } catch (err) { reportError(err); } // [late3] the Deep Barrow's dead, its lord and its chests (10m_deep.js)
   // chests: one in the side crypt, the king's hoard in the vault
   DUN.chests.length = 0;
   for (const [id, spot, yaw, label] of [['crypt', DUN.spots.cryptChest, 0, 'Open the burial chest'], ['vault', DUN.spots.vaultChest, -Math.PI / 2, "Open the Hollow King's hoard"]]) {
@@ -51,6 +50,10 @@ function initBarrow() {
     DUN.chests.push(ch);
     addBox(ch.x, ch.z, 0.75, 0.5, yaw, 'prop', 1.0);
   }
+  // [late3] the Deep Barrow's dead, its lord and its chests (10m_deep.js), after the Barrow's own chests: late3Init adds the
+  // deep's to DUN.chests, and when it ran first the line above emptied the list again, so nothing offered them to Use,
+  // swung their lids or marked them on the map
+  try { late3Init(); } catch (err) { reportError(err); }
 }
 function buildChestMesh(ch) {
   const b = new Batch(), lidB = new Batch(), M0 = new THREE.Matrix4();

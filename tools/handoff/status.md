@@ -1,6 +1,6 @@
 # The Hallowmarch: project handoff
 
-**Status, 2026-10-13:** Version 18 is merged on `main` and published.
+**Status, 2026-10-13:** Version 18 is merged on `main` and published. It also has the fixes landed on `main` after version 17: the Deep Barrow's chests open in play, and gear's stats say what they do where players look.
 
 - **The war's holds are real.** A broken gate is mended behind a scaffold by the keep's masons and hung at full strength. A thinned keep sends for a column from the realm's nearest keep. Garrisons sally only when it pays, and a pact keeps faith in the field. No campaign is won before its twentieth minute, and soldiers no longer stand penned in towers and on walls.
 - **The callings are within the aim where version 17 left them out.** Blunt arrows break a spell only from a full draw. A young priest's spell is paused by a stun, not broken. The Ash-Crowned's crown of ash turns holy light, and the measures are steadier.
@@ -31,9 +31,4 @@ Also open:
 - Live build: https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T (Claude artifact).
 - The repository's `CLAUDE.md` holds the same notes as below and is the copy to edit. This record mirrors it at each milestone.
 
-**How to help:**
-1. Read the requirements and conventions below.
-2. Pick up the first unfinished item on the roadmap.
-3. Test through `window.__hm` with the harness in `tools/`.
-4. Push to a feature branch to be merged.
-5. Update this record when you finish a piece of work.
+**How to help:** read the requirements and conventions below, then pick up the first unfinished item on the roadmap. Several sessions work at once: follow CLAUDE.md's "Working alongside other sessions" (a branch for each piece of work, fast-forwarded into `main` after a rebase; a work note on Interego; this record written by compare-and-swap; the live artifact republished only from merged `main`). Test through `window.__hm` with the harness in `tools/`, and update this record when you finish a piece of work.

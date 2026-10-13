@@ -1080,6 +1080,9 @@ function deepWallShow() {
   W.coll.active = !DEEP.wallBroken;
   if (DEEP.wallBroken && !DEEP.rubble.userData.made) { DEEP.rubble.geometry = deepRubbleGeo(); DEEP.rubble.userData.made = true; }
   DEEP.rubble.visible = DEEP.wallBroken;
+  // the forgotten tomb's chest is found once the wall is down: no mark for it on the map before
+  const N = DEEP.chests.find((c) => c.id === 'dniche');
+  if (N) N.ready = DEEP.wallBroken;
 }
 // Use beside the cracked wall: a few heavy blows bring it down
 function deepWallStrike() {
@@ -1695,4 +1698,4 @@ const DEEP_PART = {
 };
 registerSavePart('char', 'deep', DEEP_PART);
 
-queueMicrotask(() => { if (!window.__hm) return; Object.assign(window.__hm.fn, { dunWX, dunWZ, dunU, dunV, dunIdx, dunCellAt, stepTo, waterAt, fireLandsAt, natureImpact, late3IsDeepCell }); window.__hm.deep = { DEEP_PART, DUN_ROOM, DEEP, DEEP_ROOMS, DEEP_SLABS, DEEP_CHANNELS, DEEP_PACKS, DEEP_LORD, DEEP_FIRE, DEEP_SLAB, DEEP_FLOOD, DEEP_SEAL, DEEP_LV, DEEP_Y, DEEP_PIT, DEEP_POOL, late3SealReady, late3SealWhy, late3SealOpen, late3InDeep, late3Room, late3WaterAt, late3FireAt, late3Impact, late3Offers, late3OpenChest, late3LordThink, late3Aims, late3BotHazard, late3HeraldText, chronDeep, deepIgnite, deepCellNear, deepSlabCrack, deepSlabFall, deepSlabMend, deepFall, deepWallBreak, deepWallStrike, deepLordFresh, deepLordReset, deepSpawnLord, deepWord, deepPitchOut, deepEdgeOut, deepSpawn, deepPacksFresh }; });
+queueMicrotask(() => { if (!window.__hm) return; Object.assign(window.__hm.fn, { dunWX, dunWZ, dunU, dunV, dunIdx, dunCellAt, stepTo, waterAt, fireLandsAt, natureImpact, late3IsDeepCell }); window.__hm.deep = { DEEP_PART, DUN_ROOM, DEEP, DEEP_ROOMS, DEEP_SLABS, DEEP_CHANNELS, DEEP_PACKS, DEEP_LORD, DEEP_FIRE, DEEP_SLAB, DEEP_FLOOD, DEEP_SEAL, DEEP_LV, DEEP_Y, DEEP_PIT, DEEP_POOL, late3SealReady, late3SealWhy, late3SealOpen, late3InDeep, late3Room, late3WaterAt, late3FireAt, late3Impact, late3Offers, late3OpenChest, late3LordThink, late3Aims, late3BotHazard, late3HeraldText, chronDeep, deepIgnite, deepCellNear, deepSlabCrack, deepSlabFall, deepSlabMend, deepFall, deepWallBreak, deepWallShow, deepWallStrike, deepLordFresh, deepLordReset, deepSpawnLord, deepWord, deepPitchOut, deepEdgeOut, deepSpawn, deepPacksFresh }; });
