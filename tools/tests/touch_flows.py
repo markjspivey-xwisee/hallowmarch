@@ -11,7 +11,7 @@ beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat o
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
-[late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use (`only=deep`).
+[late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use, and raise a standard struck down (`only=deep`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
@@ -204,6 +204,18 @@ async def main():
             s2 = await page.evaluate("(() => { const D = __hm.deep.DEEP; const out = { broken: D.wallBroken, coll: D.wall.coll.active }; __hm.fn.leaveBarrow && 0; return out; })()")
             check(r['label'] == 'Break the cracked wall' and s2['broken'] and not s2['coll'], f"deep: three taps on Use bring the cracked wall down ({r['label']}: {s2})")
             await page.evaluate("(() => { const H = TF.H; H.fn.setIndoor(false); const t = H.REALMS[0].town; H.teleport(t.x + 6, t.z + 6); H.simulate(0.2); return 0; })()")
+            # [late3] the standard of your name struck down, raised again by a tap on Use beside it (10n_veteran.js)
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, L = H.late, V = H.vet3, P = TF.P();
+              F.setIndoor(false); H.GAME.prog.level = 50; L.LATE2.d.king = Math.max(1, L.LATE2.d.king); L.late2CheckNames(true); if (!L.LATE2.worn) L.late2Wear('kingsbane');
+              const t = H.REALMS[P.faction].town; H.INV.gold = Math.max(H.INV.gold, 5000); if (!L.LATE2.std.made) L.late2StdMake();
+              let ok = !!L.LATE2.std.at; for (let rr = 40; rr < 120 && !ok; rr += 6) for (let k = 0; k < 12 && !ok; k++) { const x = t.x + Math.cos(k * 0.52) * rr, z = t.z + Math.sin(k * 0.52) * rr; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); H.simulate(0.1); ok = L.late2StdPlant(); }
+              const at = L.LATE2.std.at; if (!at) return { label: null };
+              V.late3StdFall(null); H.simulate(1.2);
+              TF.stand(at.x + 1.1, at.z, at.x, at.z); H.frame(1/30); return { label: TF.label() }; })()""")
+            ok = await tap(page, '#t-use')
+            s3 = await page.evaluate("(() => { __hm.simulate(1.5); const V = __hm.vet3; return { fallen: V.L3V.std.fallen, k: +V.L3V.std.k.toFixed(2) }; })()")
+            check(ok and r['label'] == 'Raise your standard' and not s3['fallen'], f"deep: a standard struck down is raised by a tap on Use beside it ({r['label']}: {s3})")
+            await page.evaluate("(() => { const L = __hm.late; if (L.LATE2.std.at) L.late2StdTake(); return 0; })()")
 
         if want('housefire'):
             # [war2] a house afire in the town: beside its walls a tap on Use beats the flames down, and a few more put
