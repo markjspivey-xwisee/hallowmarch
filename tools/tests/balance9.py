@@ -90,11 +90,12 @@ async def main():
 
         r = await ev(page, 'measures', """(() => { const H = T.H, B9 = H.bal9; return {
           wound1: H.bal.woundOf({ level: 10 }), wound2: H.bal.woundOf({ level: 30 }), realm: H.bal4.PRIEST_REALM,
-          lord: B9.lordHolyK({ deepLord: true }), dead: B9.lordHolyK({ mobType: 'skeleton' }), noDazzle: B9.lordNoDazzle({ deepLord: true }), dazzleDead: B9.lordNoDazzle({ mobType: 'skeleton' }), burst: B9.B9T.burstRing, steady: B9.B9T.steadyStun }; })()""")
+          lord: B9.lordHolyK({ deepLord: true }), dead: B9.lordHolyK({ mobType: 'skeleton' }), noDazzle: B9.lordNoDazzle({ deepLord: true }), dazzleDead: B9.lordNoDazzle({ mobType: 'skeleton' }), turns: B9.lordTurnsLight({ deepLord: true }), turnsDead: B9.lordTurnsLight({ mobType: 'skeleton' }), burst: B9.B9T.burstRing, steady: B9.B9T.steadyStun }; })()""")
         check(r['wound1'] == 0.3 and abs(r['wound2'] - 0.22) < 1e-9, f"a bow's wound takes 30% off healing at rank I, 22% from rank II ({r['wound1']}, {r['wound2']})")
         check(r['realm']['logresBless'] == 0.96 and r['realm']['logresGround'] == 0.96 and abs(r['realm']['eriuHot'] - 0.016) < 1e-9, f"the priests' realm ways: the Shield of Logres 4% and 4%, the Well of Ériu 1.6% a second ({r['realm']})")
         check(r['lord'] < r['dead'] and r['dead'] == 1.6, f"holy light strikes the dead 1.6 times as hard, Vorlach {r['lord']} times ({r['lord']}, {r['dead']})")
         check(r['noDazzle'] and not r['dazzleDead'], "and it does not dazzle him (the rest of the dead it does)")
+        check(r['turns'] and not r['turnsDead'], "nor does a Smite strike him a quarter harder, holy ground burn and slow him or his light give more devotion (as on the rest of the dead)")
 
         r = await ev(page, 'texts', """(() => { const H = T.H; H.LORE.openChronicle('callings'); const txt = document.body.textContent; const A = H.bal5.ABILITIES;
           H.LORE.openChronicle('deep'); const deep = document.body.textContent; // (textContent: a folded section's words are still in the page, not in innerText) H.UI.modal = 'menu';

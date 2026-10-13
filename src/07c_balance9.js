@@ -156,9 +156,13 @@ function priestSteadyFirst(e, t) {
 const lordHolyK = (dst) => (dst && dst.deepLord ? B9T.lordHoly : 1.6);
 // dazzleOnHit asks (07c_balance3.js): his crown turns the dazzle too (a smite at rank IV made a quarter of his blows go wide,
 // and the skilled priest was down to 70 to 76% of its health at its lowest, its three draughts untouched)
-const lordNoDazzle = (dst) => !!dst && !!dst.deepLord && B9T.lordHoly < 1.6;
+const lordTurnsLight = (dst) => !!dst && !!dst.deepLord && B9T.lordHoly < 1.6;
+const lordNoDazzle = lordTurnsLight;
+// and the rest of what holy light does to the dead it does to him as to the living (07b_classes.js): a Smite strikes the dead a
+// quarter harder (priestView), holy ground burns and slows them (stepGrounds: the living only from a priest of Thule), and a
+// priest's holy light on them gives it more devotion (classOnHit): on him, none of it
 // the Deep's page (10m_deep.js) says it
-const lordHolyText = () => (B9T.lordHoly < 1.6 ? ` His crown of ash turns holy light: a priest's light strikes him ${B9T.lordHoly <= 1 ? 'no' : 'little'} harder than the living, and does not dazzle him.` : '');
+const lordHolyText = () => (B9T.lordHoly < 1.6 ? ` His crown of ash turns holy light: a priest's light and holy ground strike him ${B9T.lordHoly <= 1 ? 'no' : 'little'} harder than the living, and do not dazzle him.` : '');
 
 // the priests' realm ways (07c_balance4.js's PRIEST_REALM, read where they act: classHarm, blessing, stepGrounds), and
 // their texts in CLASS_REALM from them, as balance5 and balance6 wrote them
@@ -187,5 +191,5 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal9 = { BAL9, B9T, bluntBreak, bluntFullShot, bluntWorth, archerHeavyBlunt, archerWordDraw, priestCutSpentBow, priestMaceHold, lordHolyK, lordNoDazzle, stunKeepsCast, stunBreak, priestSteadyFirst };
+  window.__hm.bal9 = { BAL9, B9T, bluntBreak, bluntFullShot, bluntWorth, archerHeavyBlunt, archerWordDraw, priestCutSpentBow, priestMaceHold, lordHolyK, lordNoDazzle, lordTurnsLight, stunKeepsCast, stunBreak, priestSteadyFirst };
 }, 0);

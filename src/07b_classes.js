@@ -483,8 +483,8 @@ function classOnHit(src, dst, dmg, opts) {
     }
   }
   if (src.cls === 'priest') {
-    if (opts.kind === 'holy' && isUndead(dst)) addDev(src, 5);
-    else if (opts.holy && isUndead(dst)) addDev(src, 1);
+    if (opts.kind === 'holy' && isUndead(dst) && !lordTurnsLight(dst)) addDev(src, 5); // [balance9] on the Ash-Crowned as on the living (07c_balance9.js)
+    else if (opts.holy && isUndead(dst) && !lordTurnsLight(dst)) addDev(src, 1);
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
@@ -618,7 +618,7 @@ function priestView(e, cs, A, t) {
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
-  if (A.id === 'smite' && t && isUndead(t)) view().dmg = A.dmg * 1.25;
+  if (A.id === 'smite' && t && isUndead(t) && !lordTurnsLight(t)) view().dmg = A.dmg * 1.25; // [balance9] not on the Ash-Crowned: his crown turns the light (07c_balance9.js)
   if (A.id === 'holyfire' && t) holyFlare(e, t); // [balance5] Holy Fire flares in a caster's face: its spell is lost (07c_balance5.js)
   if (A.id === 'sanctuary') view().custom = priestGroupHeal; // [balance] the priest's own share mends more slowly (07c_balance.js)
   if (A.id === 'massrenew') view().custom = priestGroupHot;
@@ -1138,10 +1138,11 @@ function stepGrounds(dt) {
         if (G.realm === 0) addBuff(o, 'hallowed', 1, 1.2, 'hallowed');
       } else if (o.faction !== FACTION_NEUTRAL) {
         hallowDazzle(G, o); // [balance5] holy ground dazzles the foes on it (07c_balance5.js)
-        if (isUndead(o) || G.realm === 2) {
-          const r = computeDamage(src, o, (isUndead(o) ? 0.55 : 0.3) * G.rk);
+        const dead = isUndead(o) && !lordTurnsLight(o); // [balance9] holy ground burns the Ash-Crowned as it burns the living (07c_balance9.js)
+        if (dead || G.realm === 2) {
+          const r = computeDamage(src, o, (dead ? 0.55 : 0.3) * G.rk);
           dealDamage(src, o, r.d, { crit: r.crit, kind: 'holy', holy: true });
-          if (isUndead(o) && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
+          if (dead && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
         }
       }
     });
