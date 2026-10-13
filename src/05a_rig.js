@@ -1655,7 +1655,20 @@ const humanoidMat = mat({
         float flow = 0.5 + 0.5 * sin(vO.y * 31.0 + vO.z * 17.0 - uTime * (2.6 + gs) + vnoise(vO.xy * 26.0 + uTime * 0.7) * 4.0);
         float rim = spow(1.0 - abs(dot(n, V)), 2.0);
         float core = (m == 6 || m == 9) ? 1.0 : m == 5 ? 0.32 : 0.5;
-        col += gc * (0.07 + 0.16 * gs) * core * (0.35 + flow * flow + rim * 1.3) * (0.85 + 0.15 * sin(uTime * 5.0 + vO.y * 3.0));
+        col += gc * (0.07 + 0.16 * gs) * core * (0.35 + flow * flow + rim * 1.3) * (0.85 + 0.15 * sin(uTime * 5.0 + vO.y * 3.0)) * ((fl & 512) != 0 ? 2.2 : 1.0); // [late4] a risen champion's weapon burns bright enough to read by day
+      }
+      // [late4] a risen champion (flag 512, 10o_late4.js): embers smoulder in the seams of its mail, leather and cloth, its
+      // eyes burn, and its outline glows as a coal does, by day as by night (the dead's in their own cold fire)
+      if ((fl & 512) != 0) {
+        vec3 ec = gk == 2 ? vec3(0.5, 1.35, 2.5) : vec3(2.6, 0.85, 0.2);
+        float pulse = 0.72 + 0.28 * sin(uTime * 2.3 + vO.y * 4.0) * sin(uTime * 1.1 + vO.x * 6.0);
+        bool seam = m == 1 || m == 2 || m == 3 || m == 8 || m == 10 || m == 16 || m == 17 || m == 4;
+        vec3 q = vO * 9.0;
+        float vn = abs(vnoise(q.xy + q.z * 0.7) - 0.5) + 0.5 * abs(vnoise(q.zy * 2.1 + 3.7) - 0.5);
+        float vein = seam ? fineMix(1.0 - smoothstep(0.015, 0.06, vn), 0.05, q.xy) : 0.0;
+        float rimE = spow(1.0 - abs(dot(n, V)), 3.0);
+        col += ec * (vein * (0.75 + 0.7 * pulse) + rimE * 0.32 * pulse) * (m == 14 ? 0.0 : 1.0);
+        if (m == 14) col += ec * 1.6;
       }
       col = mix(col, vec3(1.0, 0.95, 0.85) * 1.4, clamp(vMisc.z, 0.0, 1.0) * 0.55);
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);

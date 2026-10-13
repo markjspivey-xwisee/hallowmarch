@@ -48,19 +48,21 @@ function late3StdPose() {
   if (!L2STD.mesh) return;
   const at = LATE2.std.at, S = L3V.std, m = L2STD.mesh, B = bannerGeo.attributes;
   const k = at ? smooth(clamp(S.k, 0, 1)) : 0;
-  m.rotation.set(0, 0, S.side * k * 1.5);
+  m.rotation.set(0, 0, S.side * k * late4StdFallA(at, S.side)); // [late4] its head down on the ground where it lands (10o_late4.js)
   m.updateMatrixWorld();
   if (at) {
     const code = (GAME.player ? GAME.player.faction : 0) + late3StdCode();
     const y = heightAt(at.x, at.z) - 0.08;
-    if (k > 0.02) B.aB0.array.set([0, -999, 0, 0], L2STD.slot * 4); // the flag comes down with the pole
-    else B.aB0.array.set([at.x + 0.02, y + LATE2_STD.poleH - 0.05, at.z, 0], L2STD.slot * 4);
+    const lie = k > 0.97 ? late4StdLie(at, S.side, L2STD.slot) : (late4StdUncover(), false); // [late4] down: the flag itself lies spread by the pole's head (10o_late4.js)
+    if (lie) { /* (placed) */ } else if (k > 0.02) B.aB0.array.set([0, -999, 0, 0], L2STD.slot * 4); // the flag comes down with the pole
+    else B.aB0.array.set([at.x, y + LATE2_STD.flagTop, at.z, 0], L2STD.slot * 4); // [late4] the flag's hoist down the pole's head (10l_late.js)
     B.aB1.array[L2STD.slot * 4 + 2] = code;
+    B.aB1.array[L2STD.slot * 4 + 3] = late4StdKind() + (lie ? 1 : 0); // [late4] a veteran's flag, torn as it is struck, lying when struck down (10o_late4.js)
     S.code = code;
     B.aB0.needsUpdate = true; B.aB1.needsUpdate = true;
-    const H = S.fallen || k > 0.5 ? late3StdHeap() : L3V_HEAP;
+    const H = (S.fallen || k > 0.5) && !lie ? late3StdHeap() : L3V_HEAP; // [late4] (no heap where the flag lies)
     if (H) {
-      H.visible = k > 0.95;
+      H.visible = k > 0.95 && !lie;
       if (H.visible) {
         const R = REALMS[GAME.player ? GAME.player.faction : 0], len = LATE2_STD.poleH * 0.92;
         H.position.set(at.x - S.side * len, heightAt(at.x - S.side * len, at.z) + 0.02, at.z);
@@ -70,13 +72,13 @@ function late3StdPose() {
         }
       }
     }
-  } else if (L3V_HEAP) L3V_HEAP.visible = false;
+  } else { if (L3V_HEAP) L3V_HEAP.visible = false; late4StdUncover(); } // [late4] (the ground under a flag taken up given back)
 }
 function late3StdFall(by) {
   const S = L3V.std, at = LATE2.std.at, P = GAME.player;
   if (S.fallen || !at) return;
   S.fallen = true; S.hp = 0;
-  S.side = Math.random() < 0.5 ? -1 : 1;
+  S.side = late4StdFallSide(at); // [late4] the way that is clear (10o_late4.js)
   L3V.stats.fell++;
   sfxAt('thud', at.x, heightAt(at.x, at.z) + 0.5, at.z); sfxAt('hit', at.x, heightAt(at.x, at.z) + 2.5, at.z);
   FX.dust(at.x - S.side * 1.8, heightAt(at.x, at.z), at.z, 14);
@@ -114,6 +116,7 @@ function late3StdStep() {
   });
   if (!dmg) { S.hp = Math.min(1, S.hp + 0.02); return; } // (a lull: the bearers steady it)
   S.hp -= dmg;
+  late4StdTear(dmg); // [late4] the cloth rent by what strikes it (10o_late4.js)
   L3V.stats.hits++;
   S.shake = 0.4;
   const y = heightAt(at.x, at.z);
@@ -176,7 +179,7 @@ registerSavePart('char', 'vet3', {
   load(o) {
     o = o && typeof o === 'object' && !Array.isArray(o) ? o : null;
     L3V.mantle = !o || o.m !== 0;
-    L3V.std = { hp: 1, fallen: !!(o && o.f), k: o && o.f ? 1 : 0, side: 1, code: -1, shake: 0 };
+    L3V.std = { hp: 1, fallen: !!(o && o.f), k: o && o.f ? 1 : 0, side: o && o.f && LATE2.std.at ? late4StdFallSide(LATE2.std.at) : 1, code: -1, shake: 0 }; // [late4] (fallen the way that is clear)
     try { late3StdPose(); } catch (e) { reportError(e); }
   },
   key: (o) => (o ? [o.m, o.f] : null),

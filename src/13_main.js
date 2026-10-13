@@ -245,6 +245,7 @@ function drawActors(fx, fz) {
       if (e._hamUntil > GAME.t) _mi[1] |= WB.hammer; // [motion5] a mallet in the hand of a builder or a mason at work
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
       if (e.role === 'player') { const mc = late3MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late3] the mantle of the name you wear (10n_veteran.js)
+      else if (e.l2risen || e.role === 'lord') { const mc = late4MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late4] the March's other veterans wear their devices: a risen champion's crowned skull, a keep lord's tower past 40 (10o_late4.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat
@@ -384,6 +385,7 @@ function simStep(dt) {
   updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
   updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
+  updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -436,6 +438,7 @@ function tick(dt) {
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   look5Frame(dt); // [look5] holy ground's light in the grass (13z_look5.js)
+  drawLate4(dt); // [late4] the risen's embers and glow, boulders and flasks in flight (10o_late4.js)
   drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
   drawDepth(dt); // [depth] nests and their eggs (09u_depth.js)

@@ -454,7 +454,7 @@ function townModel(b, S, st, R) {
 const BANNER_MAX = 160;
 const bannerGeo = (() => {
   const g = new THREE.InstancedBufferGeometry();
-  const base = new THREE.PlaneGeometry(1, 1, 6, 8);
+  const base = new THREE.PlaneGeometry(1, 1, 12, 8); // [late4] (12 columns: a veteran's standard's long flag ripples along its length; 6 before)
   base.translate(0.5, -0.5, 0);
   g.setAttribute('position', base.attributes.position);
   g.setAttribute('uv', base.attributes.uv);
@@ -472,11 +472,18 @@ const bannerMat = mat({
   },
   vertexShader: /* glsl */`
     uniform float uTime, uWind;
+    uniform float uWet; // [late4] (a soaked standard's fly hangs heavier)
     uniform vec2 uWindDir;
     attribute vec4 aB0; attribute vec4 aB1;
     varying vec2 vUv; varying vec3 vW; varying float vRealm; varying float vShade;
+    varying float vKind; varying float vAsp; // [late4] the flag's kind (2 + how torn: a veteran's standard) and its length over its height
+    uniform highp sampler2D uHeightTex; // [late4] the ground under a standard's flag struck down (kind 3)
+    float l4Ground(vec2 xz){
+      vec2 g = clamp((xz + 512.0) * 0.5, vec2(0.0), vec2(511.999)); ivec2 i = ivec2(floor(g)); vec2 f = g - vec2(i);
+      return mix(mix(texelFetch(uHeightTex, i, 0).r, texelFetch(uHeightTex, i + ivec2(1, 0), 0).r, f.x), mix(texelFetch(uHeightTex, i + ivec2(0, 1), 0).r, texelFetch(uHeightTex, i + ivec2(1, 1), 0).r, f.x), f.y);
+    }
     void main(){
-      vUv = uv; vRealm = aB1.z;
+      vUv = uv; vRealm = aB1.z; vKind = aB1.w; vAsp = aB1.x / max(aB1.y, 0.01);
       float w = aB1.x, h = aB1.y, kind = aB1.w;
       float u = position.x, v = -position.y;
       vec3 p;
@@ -488,6 +495,26 @@ const bannerMat = mat({
         float wave = (0.55 + 0.45 * sin(uTime * 1.6 + v * 3.0 + seed)) * 0.09 * v * h * gust + (0.5 + 0.5 * sin(uTime * 2.3 + u * 4.0 + seed)) * 0.03 * v;
         p = vec3((u - 0.5) * w, -v * h, wave);
         vShade = 0.85 + 0.3 * cos(uTime * 1.6 + v * 3.0 + seed) * v;
+      } else if (kind > 2.99) {
+        // [late4] a veteran's standard struck down (10o_late4.js late4StdLie): the flag lies on the ground beside the fallen
+        // pole's head, its hoist along the pole (local z) and its fly spread across the ground (local x) in loose folds, the
+        // tails rumpled; its height is the ground's under each point (below), so it lies on a slope as on the flat
+        float rid = sin(u * 10.5 + v * 1.9 + seed), lift = 0.05 + 0.05 * (0.5 + 0.5 * rid) * smoothstep(0.0, 0.1, u) + 0.035 * smoothstep(0.7, 1.0, u) * (0.5 + 0.5 * sin(v * 6.0 + u * 3.0 + seed));
+        p = vec3(0.1 + u * w * 0.84 + 0.05 * sin(v * 4.0 + seed), lift, v * h);
+        vShade = 0.86 + 0.22 * cos(u * 10.5 + v * 1.9 + seed);
+      } else if (kind > 1.5) {
+        // [late4] a veteran's standard (10o_late4.js): a long swallow-tailed flag lashed down the pole's head; its fly streams
+        // downwind as the wind blows and hangs down the pole as it falls (a wet one heavier), waves running along it to the
+        // tails, growing toward them
+        float wk = clamp(0.12 + 0.6 * uWind, 0.0, 1.0) * (1.0 - 0.3 * uWet);
+        yaw = atan(-uWindDir.y, uWindDir.x) + sin(uTime * 0.31 + seed) * 0.16 * (0.4 + wk);
+        float droop = (1.0 - wk) * 1.3 + 0.07, a = droop * u;
+        float sx = sin(a) / droop, sy = (1.0 - cos(a)) / droop;
+        float ph = uTime * (2.0 + 2.4 * uWind) - u * 6.5 + seed;
+        float amp = (0.06 + 0.13 * wk) * w * u * (0.45 + 0.55 * u);
+        float wave = sin(ph) * amp + sin(ph * 1.7 + v * 3.0) * amp * 0.22;
+        p = vec3(sx * w, -sy * w - v * h * (1.0 - 0.05 * wk * u) + sin(ph * 0.8 + v) * 0.02 * u * wk, wave);
+        vShade = 0.84 + 0.34 * cos(ph) * min(1.0, u * 2.2);
       } else {
         // a flag on a pole streams downwind from the pole (the poles stand clear of everything a flag's length around)
         yaw = atan(-uWindDir.y, uWindDir.x) + sin(uTime * 0.37 + seed) * 0.22;
@@ -497,15 +524,20 @@ const bannerMat = mat({
       }
       float c = cos(yaw), s = sin(yaw);
       vec3 wp = aB0.xyz + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+      if (kind > 2.99) wp.y = l4Ground(wp.xz) + p.y; // [late4] (lying on the ground)
       vW = wp;
-      gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+      vec4 vp = viewMatrix * vec4(wp, 1.0);
+      if (kind > 2.99) vp.xyz *= 1.0 - 0.08 / max(length(vp.xyz), 0.5); // [late4] (drawn 8 cm nearer the eye: the land's chunks lie a few centimetres off its height map, and the ground showed through the cloth)
+      gl_Position = projectionMatrix * vp;
     }`,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
     uniform vec3 uRealmCol[4], uRealmLight[4];
     uniform float uWet; // feature/weather
+    uniform float uSnowCover, uWind; // [late4]
     varying vec2 vUv; varying vec3 vW; varying float vRealm; varying float vShade;
+    varying float vKind; varying float vAsp; // [late4]
     float emblem(vec2 p, int r){
       if (r == 0) {
         float tri = 1.0 - abs(fract((p.x + 0.45) / 0.3) * 2.0 - 1.0);
@@ -535,6 +567,37 @@ const bannerMat = mat({
       float em = dvf > 0.5 ? l3DeviceMask(p * 1.15, int(dvf) - 1) : emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r); // (the standard's flag runs up the pole: its v is up)
       vec3 c = mix(base, light, max(em * 0.92, clamp(trim, 0.0, 1.0) * 0.7));
       if (dvf > 0.5) c = mix(c, vec3(0.92, 0.7, 0.3), clamp(trim, 0.0, 1.0) * 0.85); // (a gilt border about the device)
+      if (vKind > 1.5) {
+        // [late4] a veteran's standard (10o_late4.js): the swallow tails cut from the fly, rents where it has been struck
+        // (toward the fly and the foot, more as it is torn), the realm's field with a band of its light colour along the
+        // hoist and the edges, the device of the name worn large on the hoist half in gold thread with a dark outline, a
+        // gilt fringe on the tails, snow lying along its head in still air
+        float fu = vUv.x, fv = 1.0 - vUv.y, tear = clamp(fract(vKind + 0.002) / 0.98, 0.0, 1.0); // (+0.002: a kind of exactly 3 comes out of the interpolation as 2.9999998 here and there, and read fully torn)
+        float nd = abs(fv - 0.5) - (fu - 0.6) / 0.4 * 0.29;
+        if (fu > 0.6 && nd < 0.0) discard;
+        float rag = smoothstep(0.2, 1.0, fu) * 0.78 + 0.35 * smoothstep(0.7, 1.0, fv);
+        float hn = vnoise(vec2(fu * 8.0, fv * 5.0) + 3.1) * 0.62 + vnoise(vec2(fu * 21.0, fv * 13.0) + 9.4) * 0.38;
+        float torn = hn * rag - (1.06 - tear * 0.6);
+        if (tear > 0.02 && torn > 0.0) discard;
+        float edge = min(min(fu, 1.0 - fu) * vAsp, min(fv, 1.0 - fv)), nEdge = fu > 0.6 ? nd : 1.0;
+        float band = 1.0 - smoothstep(0.075, 0.09, min(edge, nEdge * 0.9));
+        float gilt = 1.0 - smoothstep(0.022, 0.032, min(edge, nEdge * 0.9));
+        vec2 dq = vec2((fu - 0.27) * vAsp, 0.5 - fv) / 0.44 * 0.75;
+        float dd = dvf > 0.5 ? l3DeviceD(dq, int(dvf) - 1) : 9.0, dfw = fwidth(dd) + 1e-4;
+        float dmk = dvf > 0.5 ? 1.0 - smoothstep(-dfw, dfw, dd) : emblem(dq / 0.75 * 0.6, r);
+        float dline = dvf > 0.5 ? (1.0 - smoothstep(0.0, 0.035, abs(dd))) * (1.0 - dmk) : 0.0;
+        vec3 fc = mix(base, light, band * 0.85);
+        fc = mix(fc, vec3(0.9, 0.7, 0.3), gilt * 0.9);
+        float thread = 0.88 + 0.12 * sin((dq.x + dq.y) * 140.0);
+        fc = mix(fc, vec3(0.93, 0.73, 0.32) * thread, dmk);
+        fc = mix(fc, base * 0.35, dline * 0.85);
+        float fringe = smoothstep(0.955, 0.97, fu) * step(0.45, fract(fv * 46.0));
+        fc = mix(fc, vec3(0.86, 0.66, 0.28), fringe);
+        fc *= 1.0 - 0.35 * smoothstep(-0.12, 0.0, torn) * step(0.02, tear); // (a rent's frayed edge)
+        float sk = uSnowCover * mix(smoothstep(0.16, 0.0, fv) * clamp(1.25 - uWind * 0.55, 0.0, 1.0), 0.9, step(2.99, vKind)) * (0.7 + 0.3 * vnoise(vec2(fu * 30.0, fv * 30.0))); // (a flag struck down takes the snow all over)
+        fc = mix(fc, vec3(0.9, 0.92, 0.96), clamp(sk, 0.0, 1.0));
+        c = fc;
+      }
       vec3 col = c * (uAmbient * 0.6 + uLightColor * 0.6) * vShade;
       col *= 1.0 - 0.34 * uWet; // feature/weather: soaked cloth hangs darker
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);

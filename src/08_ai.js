@@ -580,6 +580,7 @@ function thinkMob(e, dt) {
     return;
   }
   ai.pulled = false;
+  if (e.l4host && late4HostIdle(e, dt)) return; // [late4] a roaming host of the risen on its march (10o_late4.js)
   // idle wandering inside the camp
   if (!ai.wander || GAME.t > ai.wanderUntil) {
     const a = Math.random() * TAU, r = Math.random() * e.home.r;

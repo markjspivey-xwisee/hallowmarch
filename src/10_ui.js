@@ -152,7 +152,7 @@ function updateHUD(dt) {
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
-  setT($('pf-name'), late2Named(P)); // [late2] with the name it wears (10l_late.js)
+  setT($('pf-name'), late4FrameName(P)); $('pf-name').classList.toggle('l4-long', LATE4.frameSmall); // [late2] with the name it wears (10l_late.js); [late4] on a phone a long one in a smaller letter, the deed whole and your own shortened if need be (10o_late4.js)
   setT($('pf-lv'), `Lv ${prog.level}`);
   setT($('pf-sub'), `${REALMS[P.faction].name} ${CLASSES[P.cls].name} · RR ${realmRank(prog.rp)} ${RANK_TITLES[realmRank(prog.rp) - 1]}`);
   setW($('pf-hp'), P.hp / P.maxHp); setW($('pf-hpl'), P.hp / P.maxHp);
@@ -530,7 +530,7 @@ function updateNameplates() {
     if (e.kind === 'door') { if (!e.alive || e.hp >= e.maxHp * 0.999 && P.target !== e.id) continue; }
     else if (!e.alive && P.target !== e.id) continue;
     const d = dist(e.x, e.z, camX, camZ);
-    if (d > (P.target === e.id ? 70 : e.kind === 'dragon' ? 110 : 36)) continue;
+    if (d > (P.target === e.id ? 70 : e.kind === 'dragon' ? 110 : e.l2risen ? 62 : 36)) continue; // [late4] a risen champion's name reads farther (10o_late4.js)
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
     // [phones] and above ground, not through the walls of a house, a hall or a keep (npSeen, 10p_hud.js)
@@ -553,6 +553,7 @@ function updateNameplates() {
     if (el._txt !== txt) { el._n.textContent = txt; el._txt = txt; }
     el._eid = e.id; // (which body this name is over: two may share a name)
     el.style.setProperty('--nc', nameColor(e, P));
+    if (el._l4 !== !!e.l2risen) { el._l4 = !!e.l2risen; el.classList.toggle('risen', el._l4); } // [late4] a risen champion's name in ember (page.html)
     campaignPlate(el, e); // [campaign] a band's order over its captain (08g_campaign.js)
     const sel = P.target === e.id;
     el.classList.toggle('sel', sel);
