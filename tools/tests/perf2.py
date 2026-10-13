@@ -775,5 +775,33 @@ async def mode_ab():
         print(f"collidersNear, {k}: {v['queries']} queries of 12.5 m ({v['collidersEach']} colliders each on average): a Set {v['oldMs']} ms ({v['usEachOld']} us each), the stamp {v['newMs']} ms ({v['usEachNew']} us each); the same lists: {v['sameLists']}")
     pathlib.Path(OUT + f'perf2_ab_{TAG}.json').write_text(json.dumps({'war': r, 'keep': r2}))
 
+# ---------------------------------------------------------------------------------------------------------------
+# ctx: a lost WebGL context given back (WEBGL_lose_context): the static meshes have let go of their arrays, so the page
+# loads again (the game saved first) instead of throwing at every frame; the character is there to continue
+# ---------------------------------------------------------------------------------------------------------------
+async def mode_ctx():
+    fails = []
+    async with async_playwright() as p:
+        b, page, cdp, logs, wall = await open_page(p, 480, 270)
+        page.set_default_timeout(900000)
+        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.UI.modal = null; __hm.simulate(2); window.__perf2mark = 1; for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return 0; })()")
+        m0 = await page.evaluate("__hm.perf2.mem()")
+        nav = asyncio.ensure_future(page.wait_for_event('framenavigated', timeout=900000))
+        await page.evaluate("(() => { const ext = __hm.dbg.renderer.getContext().getExtension('WEBGL_lose_context'); ext.loseContext(); setTimeout(() => ext.restoreContext(), 400); return 0; })()")
+        await nav
+        await page.wait_for_function('window.__hm && window.__hm.ready', timeout=900000, polling=500)
+        r = await page.evaluate("({ mark: window.__perf2mark || null, errors: __hm.errors.slice(0, 3), title: !!(__hm.UI.titleSave && __hm.UI.titleSave.char), name: __hm.UI.titleSave && __hm.UI.titleSave.char ? __hm.UI.titleSave.char.name : null })")
+        # and it plays on from the save
+        r2 = await page.evaluate("(() => { const s = __hm.UI.titleSave; __hm.start({ ...s.char }); __hm.UI.modal = null; __hm.simulate(2); for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return { errors: __hm.errors.slice(0, 3), lvl: __hm.GAME.player.level }; })()")
+        await b.close()
+    print('before the loss:', json.dumps({k: m0[k] for k in ('released', 'freedGeos', 'releasedMB')}), flush=True)
+    print('after the context came back:', json.dumps(r), '; continued:', json.dumps(r2), flush=True)
+    if r['mark'] is not None: fails.append('the page was not loaded again')
+    if not r['title']: fails.append('no saved character to continue')
+    if r['errors'] or r2['errors']: fails.append(f"errors {r['errors']} {r2['errors']}")
+    if r2['lvl'] != 12: fails.append(f"the character came back at level {r2['lvl']}")
+    print('FAIL ' + '; '.join(fails) if fails else 'PASS: a lost context given back loads the page again and the character plays on', flush=True)
+    if fails: sys.exit(1)
+
 if __name__ == '__main__':
-    asyncio.run({'boot': mode_boot, 'views': mode_views, 'long': mode_long, 'phone': mode_phone, 'geohash': mode_geohash, 'ab': mode_ab}[MODE]())
+    asyncio.run({'boot': mode_boot, 'views': mode_views, 'long': mode_long, 'phone': mode_phone, 'geohash': mode_geohash, 'ab': mode_ab, 'ctx': mode_ctx}[MODE]())

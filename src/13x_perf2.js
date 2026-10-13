@@ -143,3 +143,14 @@ async function perf2Shaders(f0, f1) {
   let warm = false;
   setupTitle = function perf2SetupTitle(...a) { st0.apply(this, a); if (!warm) { warm = true; setTimeout(() => perf2Compile(true), 300); } };
 }
+// A lost WebGL context (a phone takes it back from a page left in the background, or under another app's memory):
+// three.js gives everything back from the CPU's copies when the context returns, and the static meshes have let go of
+// theirs, so the page is loaded again once the context is back, the game saved first (as a phone's browser does with a
+// page it has dropped). Without it every frame after the return would throw at the first released mesh.
+canvas.addEventListener('webglcontextrestored', () => {
+  PERF2.restored = (PERF2.restored || 0) + 1;
+  if (!PERF2.released || PERF2.reloading) return;
+  PERF2.reloading = true;
+  const go = () => { try { location.reload(); } catch (e) { reportError(e); } };
+  try { Promise.race([saveNow(), new Promise((r) => setTimeout(r, 4000))]).then(go, go); } catch (e) { go(); }
+});
