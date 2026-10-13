@@ -5,7 +5,7 @@ stormed by a band (siege), the Logres town with three houses burning and its cre
 one behind its scaffold (rubble), a breached tower mended by the masons (masons). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
-usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [seed] [audio]
+usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [seed] [audio] [war=MIN]
 (budget: [perf2] fails when a view goes over its budget, BUDGET below; [war3] budget and seed: the same war each run, Math.random seeded and the page's own frames held)
 (js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: a click
 first, so the sound runs: without a gesture there is no AudioContext and updateAudio does nothing)
@@ -180,6 +180,11 @@ async def main():
         await ev(page, "__hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); 0")
         # let the war get going and the town wake up
         await ev(page, "__hm.simulate(40); 0")
+        # [war4] war=MIN: the war MIN minutes on (its engines, wrecks, scaffolds and fires where it fought), the player kept
+        # in town and whole meanwhile (the seeded war is the same each run: compare builds with the same MIN)
+        for m in range(int(OPT.get('war', 0))):
+            await ev(page, "(() => { const P = __hm.GAME.player, S = __hm.REALMS[P.faction].town; for (let i = 0; i < 30; i++) { P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = __hm.fn.heightAt(P.x, P.z); P.hp = P.maxHp; P.alive = true; __hm.simulate(2); } return 0; })()")
+        if OPT.get('war'): print(f"the war {OPT['war']} minutes on: {await ev(page, 'JSON.stringify(__hm.CW.state().keeps)')} keeps, {await ev(page, '__hm.SIEGE.SIEGE.engines.filter((q) => !q.gone).length')} engines in the field", flush=True)
         for q in (QUALS if 'js' not in ARGS else []):
             await ev(page, f"__hm.fn.setQuality('{q}'); 0")
             for v in VIEWS:

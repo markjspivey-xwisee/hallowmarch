@@ -85,6 +85,7 @@ function look3Masons(C, dt) {
   const jobs = [];
   for (const W of C.sections || []) if (W.l3) jobs.push(W);
   if (C.pal) for (const W of C.pal.gaps) if (W.l3) jobs.push(W);
+  if (C.gate && C.gate.w4 && C.gate.w4.l3) jobs.push(C.gate.w4); // [war4] a new gate hung behind a scaffold in the gateway (08l_war4.js)
   for (const W of jobs) {
     if (!W.l3.on) { W.masonsFor = null; continue; }
     if (look5MasonsAgain(C, W)) continue; // [look5] gone home from a foe, they come out again once the keep is quiet; a save's masons back at their work (13z_look5.js)
@@ -123,6 +124,7 @@ function look3GateWay(S, round) {
 // in it (localPath over the colliders, short legs out on the field)
 function look3MasonRoute(e, tx, tz, out) {
   const m = e.ai.mason, C = m.C, S = C.S, round = C.kind === 'round', [gin, gout] = look3GateWay(S, round);
+  if (m.W && m.W.w4gate) { m.path = (out ? [m.H.door.out2, { x: tx, z: tz }] : [m.H.door.out2, m.H.door.out]).map((p) => ({ x: p.x, z: p.z })); return; } // [war4] the gate's scaffold stands in the court: across it, not out by the gate (08l_war4.js)
   const lt = siteLocal(S, out ? tx : e.x, out ? tz : e.z), mg = round ? RATH_R + 6.5 : KEEP_HS + 6.5;
   const ring = [];
   if (round) {

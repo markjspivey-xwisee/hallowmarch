@@ -727,7 +727,7 @@ function wbEnemiesNear(wb, x, z, r) {
   let n = 0;
   const unr = wb.L && wb.L.ai && wb.L.ai.unreach; // [war2] nor one its leader chased and could not get nearer (it held the band for good: 08j_war2.js)
   forNear(x, z, r, (o) => {
-    if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null || elevatedEnt(o)) return;
+    if (n || !o.alive || o.faction > 3 || o.faction === wb.realm || !isActor(o) || o.fixedY !== null || elevatedEnt(o) || war4Allied(o.faction, wb.realm)) return; // [war4] nor an ally of the pact (08l_war4.js)
     if (unr && unr.get(o.id) > GAME.t) return; // [war2]
     if (segmentClear(x, z, o.x, o.z, 0.2, false)) n++;
   });
@@ -959,7 +959,7 @@ function looseRelicFor(r, mine) {
   return WAR.relics.find((x) => {
     if (mine.some((w) => w.order && w.order.relic === x)) return false;
     if (x.state === 'ground') return dist(x.x, x.z, M.x, M.z) < 420;
-    return x.state === 'carried' && x.realm === r && x.carrierRealm !== r;
+    return x.state === 'carried' && x.realm === r && x.carrierRealm !== r && !war4Allied(r, x.carrierRealm); // [war4] (not run down from an ally while the pact holds: 08l_war4.js)
   });
 }
 // take the nearest band that is only marching somewhere and give it a more urgent order
@@ -991,14 +991,14 @@ function updateWar(dt) {
   for (const K of WAR.keeps) {
     // siege detection
     let hostile = 0;
-    forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm) hostile++; });
+    forNear(K.site.x, K.site.z, 34, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm && !war4Allied(o.faction, K.realm)) hostile++; }); // [war4] an ally of the pact is no foe at the walls (08l_war4.js)
     if (hostile > 0) { K.lastEnemyNear = now; if (hostile >= 2 || K.door.hp < K.door.maxHp * 0.98) { if (now > K.underSiegeUntil && K.realm === (GAME.player && GAME.player.faction)) { news(`${K.site.name} is under attack!`, K.realm, 'alarm'); sndKeepAlarm(K); /* [audio2] its bell rings (11c_sound.js) */ } K.underSiegeUntil = now + 20; } }
     // door repair or rebuild
     const D = K.door;
     if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
-    if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); }
+    if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
     // reinforcements trickle in when the keep is quiet
-    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; fillGarrison(K, false); }
+    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; war4Trickle(K); } // [war4] out of the hall's door to their posts (08l_war4.js)
   }
   for (const T of WAR.temples) {
     const D = T.door;
@@ -1013,6 +1013,7 @@ function updateWar(dt) {
   updateRelics(dt);
   updateWar2(dt); // [war2] (08j_war2.js)
   updateWar3(dt); // [war3] the pact, the presses, the peace (08k_war3.js)
+  updateWar4(dt); // [war4] gates mended behind scaffolds, relief columns, the pact in the field (08l_war4.js)
   updateCampaign(dt); // [campaign] claims, victory, the peace and the reset (08g_campaign.js)
   // camps respawn
   for (const c of CAMPS) {

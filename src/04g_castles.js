@@ -1023,6 +1023,7 @@ function castleSiegeHit(src, x, z, r, mult) {
     if (!C.sections || !C.sections.length || dist2(x, z, C.S.x, C.S.z) > 50 * 50) continue;
     const K = C.S.keepRef;
     if (src && K && src.faction === K.realm) continue;
+    if (src && K && war4Allied(src.faction, K.realm)) { W4.stats.stonesSpared++; continue; } // [war4] a pact's stones spare an ally's walls (08l_war4.js)
     for (const W of C.sections) {
       if (W.state !== 'whole') continue;
       const dx = x - W.wx, dz = z - W.wz, al = clamp(dx * W.wax + dz * W.waz, -W.half, W.half);

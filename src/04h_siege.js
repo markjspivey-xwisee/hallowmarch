@@ -1130,7 +1130,8 @@ function siegeSallies(dt) {
     if (!E && now < K.underSiegeUntil) forNear(gp.x, gp.z, 26, (o) => { if (o.alive && o.role === 'soldier' && o.warband && o.faction !== K.realm && !castleInside(C, o.x, o.z)) band++; });
     const few = !E && band > 0 && band === atGate && atGate <= 2 && guards.length >= atGate + 2;
     if (!E && !few) continue;
-    for (const g of guards) g.ai.sally = { K, E: E ? E.id : null, phase: 'out', until: now + (E ? 50 : 30), through: false };
+    if (!war4SallyPays(K, C, guards, E, gp)) continue; // [war4] only with two swords to every foe out there, the engine's band too (08l_war4.js)
+    for (const g of war4SallyParty(guards)) g.ai.sally = { K, E: E ? E.id : null, phase: 'out', until: now + (E ? 50 : 30), through: false }; // [war4] one stays behind
     SIEGE.stats.sallies++;
     SIEGE.sallyNext.set(K, now + 75 + Math.random() * 30); // a garrison does not throw its gate open every minute
     news(`The gate of ${S.name} opens: its garrison sallies out ${E ? `against the ${REALMS[E.realm].name} ${E.spec.label}` : 'at the attackers'}!`, K.realm, 'normal');

@@ -963,7 +963,7 @@ function updateTowers(dt) {
       if (was === 0 || D.k === 0) sfxAt(D.k === 0 ? 'thud' : 'click', D.x, D.wy + 1.2, D.z, D.k === 0 ? { vol: 0.6 } : null); // [audio2] placed (11c_sound.js)
     }
     D.coll.active = !D.gone && D.k < 0.55; // [walls] gone: fallen with a breached tower's upper works (04g_breach.js)
-    D.leafColl.active = !D.gone && D.k > 0.85;
+    D.leafColl.active = !D.gone && D.k > 0.85 && !(GAME.t < (D.w4give || 0)); // [war4] a body penned behind the open leaf squeezes past it (08l_war4.js)
   }
   for (const Hh of TOWER.hatches) {
     const want = Hh.held || GAME.t < Hh.until;

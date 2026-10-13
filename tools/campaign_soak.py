@@ -25,7 +25,10 @@ WATCH_JS = r"""(() => {
   const H = __hm, WAR = H.WAR, GAME = H.GAME, fn = H.fn;
   const W2 = window.__w2 = { cls: {}, eps: [], stalls: [], prev: new Map(), seenStalls: WAR.stats.bandStalls || 0, keepsHeld: [0, 0, 0], held4: [0, 0, 0], caps: [], ks: null, held4Max: [0, 0, 0], run4: [0, 0, 0] };
   // [war3] every keep's change of hands, with what held it the look before: its guards, lord and gate
-  const keepSnap = () => WAR.keeps.map((K) => { let g = 0; for (const id of K.guards) { const q = fn.getEnt(id); if (q && q.alive) g++; } const Lr = fn.getEnt(K.lord); return { r: K.realm, g, lord: !!(Lr && Lr.alive), door: K.door.alive ? +(K.door.hp / K.door.maxHp).toFixed(2) : 0 }; });
+  // [war4] and how the fall came: how long the attack that took it had lasted (from the end of its last quiet spell of
+  // 20 s), and how long its gate had lain broken (a walk-in: the gate down before that attack began)
+  const busy = WAR.keeps.map(() => GAME.t);
+  const keepSnap = () => WAR.keeps.map((K, i) => { let g = 0; for (const id of K.guards) { const q = fn.getEnt(id); if (q && q.alive) g++; } const Lr = fn.getEnt(K.lord); if (GAME.t - K.lastEnemyNear > 20) busy[i] = GAME.t; return { r: K.realm, g, lord: !!(Lr && Lr.alive), door: K.door.alive ? +(K.door.hp / K.door.maxHp).toFixed(2) : 0, busy: Math.round(GAME.t - busy[i]), gdown: K.door.alive ? 0 : Math.round(GAME.t - (K.door.deadAt || GAME.t)) }; });
   const key = (O) => (O ? O.type + '/' + (O.phase || '-') : 'none');
   const castles = () => (fn.castles ? fn.castles() : []);
   function goalPt(wb, O) {
@@ -78,7 +81,7 @@ WATCH_JS = r"""(() => {
     const keeps = [0, 1, 2].map((r) => WAR.keeps.filter((K) => K.realm === r).length);
     for (let r = 0; r < 3; r++) { W2.keepsHeld[r] += keeps[r] * dt; if (keeps[r] >= 4) { W2.held4[r] += dt; W2.run4[r] += dt; W2.held4Max[r] = Math.max(W2.held4Max[r], W2.run4[r]); } else W2.run4[r] = 0; }
     const ks = keepSnap();
-    if (W2.ks) ks.forEach((k, i) => { const p = W2.ks[i]; if (p.r !== k.r) W2.caps.push({ t: Math.round(now), n: H.CW.CAMPAIGN.n, k: i, from: p.r, to: k.r, g: p.g, lord: p.lord, door: p.door, peace: peace ? 1 : 0 }); });
+    if (W2.ks) ks.forEach((k, i) => { const p = W2.ks[i]; if (p.r !== k.r) W2.caps.push({ t: Math.round(now), n: H.CW.CAMPAIGN.n, k: i, from: p.r, to: k.r, g: p.g, lord: p.lord, door: p.door, peace: peace ? 1 : 0, busy: p.busy, gdown: p.gdown }); });
     W2.ks = ks;
     const seen = new Set();
     for (const wb of WAR.warbands) {
@@ -130,7 +133,7 @@ CHUNK_JS = """(() => {
   return { t: Math.round(s.t), bad: s.nonFinite, errors: s.errors.slice(0, 3), n: c.n, state: c.state, el: c.el, keeps: c.keeps, hallows: c.hallows,
     claims: c.claims.map((q) => q.k + '/' + q.h), renown: c.renown, bands: __hm.WAR.warbands.filter((w) => !w.dead).length,
     stats: __hm.WAR.stats, siege: sg, hist: H.map((h) => ({ n: h.n, w: h.w, how: h.how, m: h.m, cap: h.cap, hal: h.hal })),
-    cls: W2.cls, eps, stalls, caps, keepsHeld: W2.keepsHeld.map(Math.round), held4: W2.held4.map(Math.round), held4Max: W2.held4Max.map(Math.round), w3: __hm.war3 ? __hm.war3.W3.stats : null,
+    cls: W2.cls, eps, stalls, caps, keepsHeld: W2.keepsHeld.map(Math.round), held4: W2.held4.map(Math.round), held4Max: W2.held4Max.map(Math.round), w3: __hm.war3 ? __hm.war3.W3.stats : null, w4: __hm.war4 ? __hm.war4.W4.stats : null,
     news: __hm.WAR.news.filter((n) => n.t > s.t - %d && /won|claim|holds|breach|seized|placed|engine|ram|trebuchet|mangonel|sall|captured|presses|common cause|column|pact/i.test(n.text)).slice(-10).map((n) => Math.round(n.t) + ' ' + n.text) };
 })()"""
 
@@ -194,7 +197,14 @@ async def main():
             print(f"  a captured keep held for: median {hs[len(hs) // 2]} s, under 3 min {sum(1 for h in hs if h < 180)} of {len(hs)}, quartiles {hs[len(hs) // 4]}/{hs[3 * len(hs) // 4]} s", flush=True)
         if war_caps:
             print(f"  what held it when it fell: guards (median) {sorted(c['g'] for c in war_caps)[len(war_caps) // 2]}, gate standing {sum(1 for c in war_caps if c['door'] > 0)} of {len(war_caps)}", flush=True)
+            # [war4] how it fell: the attack's length, and walk-ins (its gate down before the attack that took it began)
+            bz = sorted(c.get('busy', 0) for c in war_caps)
+            walk = [c for c in war_caps if c.get('gdown', 0) > c.get('busy', 0) + 5]
+            print(f"  the attack that took it had lasted: median {bz[len(bz) // 2]} s (quartiles {bz[len(bz) // 4]}/{bz[3 * len(bz) // 4]}); walk-ins (the gate down before that attack began) {len(walk)} of {len(war_caps)}", flush=True)
+            mins = sorted(round(c['t'] / 60) for c in war_caps)
+            print(f"  captures at the game minutes {mins}", flush=True)
         if last.get('w3'): print('war3', json.dumps(last['w3']), flush=True)
+        if last.get('w4'): print('war4', json.dumps(last['w4']), flush=True)
         by = {}
         for e in all_eps: by.setdefault(e['k'], []).append(e.get('dur', 30))
         print('still episodes (30 s or more) by order/phase:', {k: f"{len(v)} x, {sum(v):.0f}s" for k, v in sorted(by.items(), key=lambda kv: -sum(kv[1]))}, flush=True)
