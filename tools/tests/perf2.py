@@ -613,7 +613,8 @@ async def mode_long():
         await b.close()
     S = res['samples']
     # what grew: from the sample at 10 minutes (the world awake, the war under way) to the last
-    base = S[min(2, len(S) - 1)] if len(S) > 2 else S[0]
+    # from the tenth minute of war (the war's first engines, scaffolds and fires shown by then), never the last sample
+    base = next((x for x in S[:-1] if x['t'] >= 590), S[max(0, len(S) - 2)])
     last = S[-1]
     grow = {'heapMB': round(last['heap']['usedMB'] - base['heap']['usedMB'], 1), 'backingMB': round(last['heap']['backingMB'] - base['heap']['backingMB'], 1),
             'objs': last['objs'] - base['objs'], 'geos': last['geos'] - base['geos'], 'texs': last['texs'] - base['texs'], 'progs': last['progs'] - base['progs']}
