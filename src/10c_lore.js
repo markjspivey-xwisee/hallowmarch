@@ -345,7 +345,7 @@ const PATH_STEPS = [
     hint: () => 'The great red dragon rests on high ground between its flights: the gold gem marks it while it is in the sky. A fight for the strong, or for many.',
     reward: { item: { slot: 'legs', q: 4 } } },
   { id: 'lv40', lv: 40, level: 40, title: 'Reach level 40', short: 'Level 40',
-    hint: () => 'Rank III at 40. The fiercest champions hold the camps for levels 35 to 40.',
+    hint: () => 'Rank III at 40, and the three farthest borderland camps of every homeland rise with you, each led by a risen champion.', // [late2] (10l_late.js)
     reward: { item: { slot: 'chest', q: 4 } } },
   { id: 'master', lv: 40, pv: 2, title: 'Make a named masterwork', short: 'A masterwork',
     hint: () => 'A master crafter (crafting 85 and up) of level 40 makes them at the forge, the workbench, the tanning rack or the loom, from dragon scales, grave-iron from the Barrow\'s dead and champions\' trophies.',
@@ -354,7 +354,7 @@ const PATH_STEPS = [
     hint: (R) => `${R.name} wins by holding four of the six keeps for five minutes, or both enemy hallows for four. Lead its warbands and carry the hallows home.`,
     reward: { item: { slot: 'cloak', q: 5 } } },
   { id: 'lv50', lv: 50, level: 50, title: 'Reach level 50', short: 'Level 50',
-    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you.',
+    hint: () => 'The height of your powers: rank IV, and the whole war rises to meet you. Past 50 your experience raises your veterancy.', // [late2] (10l_late.js)
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
@@ -1488,8 +1488,8 @@ function chronWilds() {
   const realms = REALMS.map((R) => `<dt style="color:${R.light}">${R.name}</dt><dd>${campSummary(R.id)}</dd>`).join('');
   const champs = REALMS.map((R) => {
     const list = CAMPS.filter((c) => c.realm === R.id && c.elite).map((c) => {
-      const e = getEnt(c.eliteId);
-      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${c.lmin}–${c.lmax}</small></li>`;
+      const e = getEnt(c.eliteId), B = late2Band(c); // [late2] a risen camp's band (10l_late.js)
+      return `<li>${e && e.alive ? `<b>${esc(capFirst(e.name))}</b>` : '<b class="gone">fallen, for now</b>'}<small>${MOB_PLURAL[c.type] || c.type} · ${B[0]}–${B[1]}${late2Risen(c) ? ' · risen' : ''}</small></li>`;
     }).join('');
     return `<div class="card rcard" style="--rc:${R.color}"><div class="rhead"><span class="em">${emblemSvg(R.id, 22)}</span><b style="font-size:20px">${R.homeName}</b></div><ul class="champs">${list}</ul></div>`;
   }).join('');
@@ -1501,7 +1501,7 @@ function chronWilds() {
     <dl class="facts">${realms}</dl>
     <p class="now">The numbers are levels. Your bounty from the herald is circled on your map, and the gold gem marks your path's next step.</p>
     <h3>Champions of the borderlands</h3>
-    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40.</p>
+    <p>Past level 20 the wild edges of each realm hold harder camps, each led by a named champion. A champion hits hard and takes a lot of killing, drops two pieces of good gear, and comes back five to seven minutes after it falls. The borderlands are for levels 20 to 40; from 40 the three farthest camps of each homeland rise with you, held by risen champions (the Deeds page).</p>
     ${champs}
     <p class="now">${P.level < 20 ? `You are level ${P.level}: come back at 20.` : 'Champions of your level are the best hunting in the land outside the Barrow.'}</p>`;
 }

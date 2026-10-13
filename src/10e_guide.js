@@ -135,7 +135,8 @@ function guideUpdateMark(dt) {
   if (GUIDE.markT > 0) return;
   GUIDE.markT = 0.5;
   const P = GAME.player;
-  GUIDE.mark = P && P.alive && GAME.prog && GAME.prog.lore ? guideMarkOf(pathNext()) : null;
+  const S = P && P.alive && GAME.prog && GAME.prog.lore ? pathNext() : undefined;
+  GUIDE.mark = S ? guideMarkOf(S) : S === null && !inDungeon(P) ? late2RisenMark(P) : null; // [late2] the path walked: a risen champion past 40 (10l_late.js)
 }
 // the gem on the minimap, or an arrow on its rim pointing the way (10_ui.js drawMinimap calls this)
 function guideMinimap(ctx, toM, S, dpr) {
@@ -207,9 +208,12 @@ function guideAims() {
   const rr = realmRank(prog.rp), next = REALM_RANKS[rr] ?? null, prev = REALM_RANKS[rr - 1] ?? 0;
   const out = [];
   if (prog.level < LEVEL_CAP) out.push({ t: `Reach level ${prog.level + 1}`, m: [prog.xp / xpToNext(prog.level), `${fmtInt(prog.xp)} / ${fmtInt(xpToNext(prog.level))} XP`] });
+  const l2 = late2Aims(), l2n = l2.findIndex((a) => /^Earn a name/.test(a.t)); // [late2] boons, veterancy, the risen, the next name (10l_late.js)
+  out.push(...(l2n >= 0 ? l2.slice(0, l2n) : l2));
   if (next !== null) out.push({ t: `Realm rank ${rr + 1}: ${RANK_TITLES[rr]}`, m: [clamp((prog.rp - prev) / Math.max(1, next - prev), 0, 1), `${fmtInt(prog.rp)} / ${fmtInt(next)} RP`], x: 'Realm points come from enemy soldiers, keeps, gates and hallows.' });
   const won = CAMPAIGN.history.filter((h) => h.w === P.faction && h.you).length;
   out.push({ t: CAMPAIGN.state === 'war' ? `Win campaign ${CAMPAIGN.n} for ${REALMS[P.faction].name}` : 'Peace: the next campaign begins soon', x: `Hold four of the six keeps for five minutes, or both enemy hallows for four. Campaigns won with you there: ${won}.` });
+  if (l2n >= 0) out.push(l2[l2n]); // [late2]
   return out;
 }
 
@@ -294,6 +298,7 @@ function guideWatch(want) {
 // something was made at a fire, a station or by hand (09t_craft.js survCraftOnce)
 function guideMade(rec) {
   if (!rec) return;
+  late2Made(rec); // [late2] a named masterwork is a deed (10l_late.js)
   if (rec.skill === 'cook') GUIDE.made.push('cook');
   if (STATION_DEF[rec.st]) GUIDE.made.push('craft'); // at a workstation (bread at the bakehouse is both)
 }
@@ -400,10 +405,10 @@ function chronGoals() {
       <li><b>Your realm's great gift</b>${gift ? `, ${esc(gift.ult.name)},` : ''} on ${IS_TOUCH ? 'the gift button' : 'key 9'} (or at realm rank 5): it turns a big fight. You are realm rank ${rr} now.</li>
       <li><b>Cinderwing</b> is a fight for a seasoned band: three pieces of rare gear or better and a dragon scale.</li></ul></div>
     <div class="gd-tier"${tierOpen(40)}><h4>Level 40 ${lvlOk(40)}</h4><ul class="plain">
-      <li><b>Rank III.</b> The fiercest champions hold the camps for levels 35 to 40.</li>
+      <li><b>Rank III.</b> The risen of the borderlands: the three farthest camps of every homeland rise with you, each led by a risen champion with its own name (the Deeds page).${'' /* [late2] 10l_late.js */}</li>
       <li><b>Named masterworks</b> (${mw} for your calling): item level 50, made at the forge, the workbench, the tanning rack or the loom by a master's hand (crafting 85 and up) from dragon scales, grave-iron from the Barrow's dead and champions' trophies. You carry ${goods('dragon_scale')} scale${goods('dragon_scale') === 1 ? '' : 's'}, ${goods('grave_iron')} grave-iron and ${goods('trophy')} troph${goods('trophy') === 1 ? 'y' : 'ies'}.</li></ul></div>
     <div class="gd-tier"${tierOpen(50)}><h4>Level 50 ${lvlOk(50)}</h4><ul class="plain">
-      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you.</li>
+      <li><b>Rank IV</b>, the height of your powers. Gear drops and is made to item level 50; the whole war rises to meet you. Your experience goes on into <b>veterancy</b>, and every rank of it is a boon to learn.${'' /* [late2] 10l_late.js */}</li>
       <li><b>Win campaigns</b> for ${R.name}: lead its warbands, take keeps, carry hallows home. Each victory pays you a share of the spoils (gold, realm points and an epic piece), and the Chronicle keeps the record.</li></ul></div>
     ${chronExtra('goals')}`;
 }

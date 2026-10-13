@@ -12,6 +12,11 @@ async def main():
             await page.evaluate(f"__hm.fn.setQuality('{q}')")
             if q == 'high': await page.evaluate("__hm.start({realm:0, cls:'warrior', level:15})")
             for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
+        # [late2] the standard of your name planted before you: its pole (the building shader) and its flag drawn at every quality (10l_late.js)
+        await page.evaluate("(() => { const L = __hm.late, P = __hm.GAME.player; L.LATE2.std.made = true; L.LATE2.std.at = { x: P.x + Math.sin(P.yaw) * 4, z: P.z + Math.cos(P.yaw) * 4 }; L.late2StdShow(); return 0; })()")
+        for q in ['low', 'medium', 'high']:
+            await page.evaluate(f"__hm.fn.setQuality('{q}')")
+            for _ in range(2): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
         await page.evaluate("__hm.setTod(2.1)")
         for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
         # [water2] under the water (the surface from below, the shafts, the fish, the finds), a boat and its jetty, and

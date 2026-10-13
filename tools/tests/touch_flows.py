@@ -10,7 +10,7 @@ beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat o
 [guide] open your path and its aims from the path tracker, and tap a field note away (`only=guide`; tools/tests/guide.py
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
-(`only=housescaf`).
+(`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
@@ -28,6 +28,11 @@ def check(ok, msg):
 
 HELP = r"""
 window.TF = {
+  // [late2] a control in a scrolling sheet brought to the upper third of the box that scrolls it (the menu's sticky foot
+  // covers the lower part of the sheet)
+  see(sel) { const b = document.querySelector(sel); if (!b) return 0; let q = b.parentElement;
+    while (q && !(q.scrollHeight > q.clientHeight + 2 && /(auto|scroll)/.test(getComputedStyle(q).overflowY))) q = q.parentElement;
+    if (q) q.scrollTop += b.getBoundingClientRect().top - q.getBoundingClientRect().top - q.clientHeight * 0.3; return 0; },
   H: window.__hm,
   P() { return this.H.GAME.player; },
   calm(r = 70) { const H = this.H, P = this.P(); for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && H.fn.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < r) { e.alive = false; e.removeAt = H.GAME.t; } P.hp = P.maxHp; P.buffs.length = 0; P.casting = null; P.target = null; P.combatUntil = 0; H.LORE.state.noteUntil = performance.now() + 120000; }, // [guide] no field note pops up under a finger mid-flow (guide.py and the guide flow show theirs)
@@ -463,6 +468,37 @@ async def main():
             on = await page.evaluate("__hm.fn.AUDIO.on")
             check(all(ok) and r['fx'] == 0.5 and r['amb'] == 1.4 and not r['on'] and r['saved'] == [0.5, 1.4, False] and on, f"sound: taps on the menu's Settings set Effects Low, Ambience High and Volume Off, and Volume back on ({ok}, {json.dumps(r)}, on again {on})")
             await tap(page, '#btn-resume')
+        if want('deeds'):
+            # [late2] the Chronicle's Deeds page by touch: a tap on your path opens the Chronicle, a tap its Deeds page, and a
+            # tap on a name's button wears it (a character with two names: the Blooded, worn, and Kingsbane)
+            await page.evaluate("""(() => { const H = TF.H, L = H.late; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm();
+              H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); L.late2CheckNames(true); L.late2Deed('king'); L.late2Wear('blooded');
+              const e = document.getElementById('lore-path'); if (e && !e.classList.contains('min')) e.querySelector('[data-act=min]').click(); return 0; })()""")
+            ok = await tap(page, '#lore-path [data-act="open"], #lore-path [data-act="aims"]')
+            if not ok: await page.evaluate("__hm.LORE.openChronicle('path'); 0") # (the tracker waits off the screen now and then: the guide flow's business; the Chronicle opened, the rest by touch)
+            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"deeds\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()") # (the row scrolls: Deeds is its last page)
+            ok2 = await tap(page, '.chron-nav [data-sec="deeds"]')
+            await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (b) b.scrollIntoView({ block: 'center', behavior: 'instant' }); return 0; })()")
+            box = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-l2=\"wear:kingsbane\"]'); if (!b) return null; const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()")
+            ok3 = await tap(page, '#menu-body [data-l2="wear:kingsbane"]')
+            r = await page.evaluate("({ worn: __hm.late.LATE2.worn, sec: __hm.LORE.state.chronSec, frame: document.getElementById('pf-name').textContent })")
+            check(ok2 and ok3 and r['worn'] == 'kingsbane' and r['sec'] == 'deeds' and box and box[1] >= 40, f"deeds: taps open the Deeds page and wear a name ({r}, button {box}, the tracker tapped: {ok})")
+            # the standard of your name: a tap has it made and another plants it on open ground; Use beside it takes it up
+            await page.evaluate("""(() => { const H = TF.H, F = H.fn, L = H.late, P = TF.P(), R = H.REALMS[P.faction]; H.GAME.prog.level = 45; H.INV.gold = Math.max(H.INV.gold, 1500);
+              for (let i = 0; i < 400; i++) { const a = i * 2.399, d = 60 + (i % 20) * 6, x = R.town.x + Math.sin(a) * d, z = R.town.z - Math.cos(a) * d;
+                if (!F.isWalkable(x, z) || H.water.waterAt(x, z)) continue; H.teleport(x, z); P.yaw = a; if (L.late2StdSpot(P)) break; }
+              TF.calm(); H.LORE.openChronicle('deeds'); return 0; })()""") # (the sheet scrolls smoothly: each scroll below is instant, or the tap measured the button still off the screen)
+            await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate("TF.see('#menu-body [data-l2=\"std:make\"]')")
+            ok4 = await tap(page, '#menu-body [data-l2="std:make"]')
+            await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate("TF.see('#menu-body [data-l2=\"std:plant\"]')")
+            ok5 = await tap(page, '#menu-body [data-l2="std:plant"]')
+            st = await page.evaluate("(() => { const L = __hm.late, at = L.LATE2.std.at, P = __hm.GAME.player; return { made: L.LATE2.std.made, at: !!at, modal: __hm.UI.modal, d: at ? +Math.hypot(at.x - P.x, at.z - P.z).toFixed(1) : null }; })()")
+            await page.evaluate("(() => { const H = TF.H, L = H.late, at = L.LATE2.std.at, P = TF.P(); if (at) { H.teleport(at.x + 1.3, at.z + 0.4); P.yaw = Math.atan2(at.x - P.x, at.z - P.z); H.CAM.yaw = P.yaw; } H.simulate(0.2); return 0; })()")
+            lab = await page.evaluate("TF.label()")
+            ok6 = await tap(page, '#t-use')
+            st2 = await page.evaluate("({ at: !!__hm.late.LATE2.std.at })")
+            check(ok4 and ok5 and st['made'] and st['at'] and st['modal'] is None and lab == 'Take up your standard' and ok6 and not st2['at'], f"deeds: a tap has the standard made, another plants it before you ({st}), and Use beside it takes it up ({lab}, {st2})")
+            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.GAME.prog.level = 24; return 0; })()")
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);

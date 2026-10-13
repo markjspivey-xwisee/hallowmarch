@@ -216,6 +216,7 @@ function currentInteraction() {
   animalOffers(P, offer); // [animals] taming, animal cards, pens and the herder (08h_animals.js)
   depthOffers(P, offer); // [depth] cut bushes, fell apple trees, grub out stumps, set plants alight, nests, your well (09u_depth.js)
   towerOffers(P, offer); // [land] climb a tower's ladder, open or shut its hatch (04l_towers.js)
+  late2Offers(P, offer); // [late2] take up the standard of your name (10l_late.js)
   return best;
 }
 function playerInteract() {
@@ -248,6 +249,7 @@ function chooseBounty() {
 }
 function bountyOnKill(e) {
   const b = GAME.prog && GAME.prog.bounty;
+  if (b && b.risen) { late2BountyKill(e, b); return; } // [late2] a risen champion's bounty is that champion (10l_late.js)
   if (!b || e.mobType !== b.type || e.camp == null) return;
   b.have = Math.min(b.need, b.have + 1);
   if (b.have >= b.need && !b.done) { b.done = true; uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare'); }

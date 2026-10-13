@@ -49,6 +49,7 @@ function rescaleWar() {
     if (lv !== e.level) { e.level = lv; setupStats(e, true); }
   }
   VENT_SRC.level = 18 + boost;
+  late2Rescale(); // [late2] the risen camps keep pace (10l_late.js)
 }
 function mobLook(M, type, lvl, sc, elite) {
   const tier = mobTier(M, lvl), late = tier - 4;
@@ -71,7 +72,8 @@ function mobLook(M, type, lvl, sc, elite) {
 }
 function spawnMob(camp, elite = false) {
   const M = MOBS[camp.type];
-  const lvl = elite ? camp.lmax + 1 : camp.lmin + Math.floor(Math.random() * (camp.lmax - camp.lmin + 1));
+  const band = late2Band(camp); // [late2] past 40 the farthest borderland camps rise with you (10l_late.js)
+  const lvl = elite ? band[1] + band[2] : band[0] + Math.floor(Math.random() * (band[1] - band[0] + 1));
   const a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
   let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
   if (!isWalkable(x, z)) { x = camp.x; z = camp.z; }
@@ -85,6 +87,7 @@ function spawnMob(camp, elite = false) {
     hover: M.kind === 'wisp' ? 1.6 : 0,
   });
   if (elite) { e.elite = true; e.properName = true; e.tweak = { hp: 2.8, dmg: 1.3 }; camp.eliteId = e.id; }
+  late2OnSpawn(e, camp, elite); // [late2] a risen champion's name and might (10l_late.js)
   setupStats(e);
   camp.members.add(e.id);
   return e;
@@ -555,6 +558,7 @@ function thinkMob(e, dt) {
   if (t) {
     if (dist(e.x, e.z, e.home.x, e.home.z) > 42) { ai.evade = true; e.target = null; return; }
     if (!ai.pulled) { ai.pulled = true; socialAggro(e, t); }
+    if (e.l2risen && late2ChampThink(e, t, dt)) return; // [late2] a risen champion's wrath and rally (10l_late.js)
     fightTarget(e, t, dt);
     return;
   }

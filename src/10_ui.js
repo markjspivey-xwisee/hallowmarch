@@ -133,7 +133,7 @@ function unitSub(e, viewer) {
   if (e.siegeEngine) return 'Siege engine'; // [siege] (04h_siege.js)
   if (e.kind === 'door') return e.keepRef ? `Gate of ${e.keepRef.site.name}` : `Gate of ${e.templeRef.site.name}`;
   if (e.role === 'dungeonBoss') return 'Undead · lord of the barrow';
-  if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
+  if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
   if (e.faction <= 2) {
     const R = REALMS[e.faction];
     const role = { player: CLASSES[e.cls].name, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
@@ -152,7 +152,7 @@ function updateHUD(dt) {
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
-  setT($('pf-name'), P.name);
+  setT($('pf-name'), late2Named(P)); // [late2] with the name it wears (10l_late.js)
   setT($('pf-lv'), `Lv ${prog.level}`);
   setT($('pf-sub'), `${REALMS[P.faction].name} ${CLASSES[P.cls].name} · RR ${realmRank(prog.rp)} ${RANK_TITLES[realmRank(prog.rp) - 1]}`);
   setW($('pf-hp'), P.hp / P.maxHp); setW($('pf-hpl'), P.hp / P.maxHp);
@@ -160,8 +160,9 @@ function updateHUD(dt) {
   setW($('pf-pw'), P.power / P.maxPower); setT($('pf-pwt'), `${fmtInt(P.power)} / ${fmtInt(P.maxPower)}`);
   setW($('pf-en'), P.endurance / 100);
   const need = xpToNext(prog.level);
-  setW($('pf-xp'), prog.level >= LEVEL_CAP ? 1 : prog.xp / need);
-  setT($('pf-xpt'), prog.level >= LEVEL_CAP ? 'Max level' : `XP ${fmtInt(prog.xp)} / ${fmtInt(need)}`);
+  const vb = prog.level >= LEVEL_CAP ? late2XpBar() : null; // [late2] past the cap, veterancy (10l_late.js)
+  setW($('pf-xp'), vb ? vb[0] : prog.xp / need);
+  setT($('pf-xpt'), vb ? vb[1] : `XP ${fmtInt(prog.xp)} / ${fmtInt(need)}`);
   setT($('pf-rpt'), `${fmtInt(prog.rp)} RP`);
   if (UI.frame % 6 === 0) { const h = buffsHTML(P); if ($('pf-buffs')._h !== h) { $('pf-buffs').innerHTML = h; $('pf-buffs')._h = h; } }
   // target frame
@@ -214,7 +215,7 @@ function updateHUD(dt) {
   else ca.classList.remove('on');
   // bounty
   const bo = $('bounty'), b = prog.bounty;
-  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : `Slay ${pluralName(b.name)}`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
+  if (b) { bo.classList.add('on'); const h = `<b>Herald's bounty</b><span>${b.done ? 'Done: return to the herald' : b.risen ? `Bring down ${esc(b.name)}` /* [late2] a risen champion (10l_late.js) */ : `Slay ${pluralName(b.name)}`}</span><span class="num">${b.have} / ${b.need}</span>`; if (bo._h !== h) { bo.innerHTML = h; bo._h = h; } }
   else bo.classList.remove('on');
   updatePotionSlot();
   // error fade
@@ -460,6 +461,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   for (const R of REALMS) { let [x, y] = w2m(R.musterSite.x, R.musterSite.z, S); drawSiteIcon(ctx, 'muster', x, y, S * 0.011, R.color); MK.push([x, y, S * 0.013]); label('Muster', x, y + S * 0.028, '#bdb39d', S * 0.013, S * 0.028, 5, true); [x, y] = w2m(R.town.x, R.town.z, S); drawSiteIcon(ctx, 'town', x, y, S * 0.012, '#e9dfc9'); MK.push([x, y, S * 0.014]); label(R.townName, x, y + S * 0.03, '#efe6d3', S * 0.014, S * 0.03, 1); }
   { const [x, y] = w2m(0, 0, S); ctx.fillStyle = '#e9dfc9'; ctx.beginPath(); ctx.arc(x, y, S * 0.006, 0, TAU); ctx.fill(); MK.push([x, y, S * 0.008]); LB.push({ t: 'The Lone Tree', col: '#efe6d3', font: fnt, fs, pri: 4, at: [[x, y - S * 0.014], [x, y + S * 0.008 + fs], [x + S * 0.012 + fs * 3.4, y + fs * 0.35]] }); }
   { const [x, y] = w2m(BARROW.x, BARROW.z, S); drawBarrowIcon(ctx, x, y, S * 0.011); MK.push([x, y, S * 0.013]); label('The Hollow Barrow', x, y + S * 0.03, '#a9e6e0', S * 0.013, S * 0.03, 3); }
+  late2MapMarks(ctx, S, MK); // [late2] the risen camps past 40 (10l_late.js)
   look4MapLabels(ctx, S, LB, MK);
   ctx.font = fnt;
   for (const rel of WAR.relics) { const p = relicPosition(rel); const [x, y] = w2m(p.x, p.z, S); ctx.fillStyle = '#ffe28a'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.arc(x, y, S * 0.008, 0, TAU); ctx.fill(); ctx.stroke(); }
@@ -706,7 +708,7 @@ function renderMenu(tab) {
     const rr = realmRank(prog.rp);
     const nextRR = REALM_RANKS[rr] ?? null;
     const mins = Math.floor(prog.played / 60);
-    body.innerHTML = `<p>${P.name}, ${CLASSES[P.cls].name} of ${REALMS[P.faction].name}. ${RANK_TITLES[rr - 1]}.</p>
+    body.innerHTML = `<p>${esc(late2Named(P)) /* [late2] with the name it wears (10l_late.js) */}, ${CLASSES[P.cls].name} of ${REALMS[P.faction].name}. ${RANK_TITLES[rr - 1]}.</p>
       <div class="stats">
         <div class="stat"><small>Level</small><b>${prog.level}</b></div>
         <div class="stat"><small>Realm rank</small><b>${rr}</b></div>
@@ -714,6 +716,7 @@ function renderMenu(tab) {
         <div class="stat"><small>Creatures slain</small><b>${fmtInt(prog.kills)}</b></div>
         <div class="stat"><small>Foes slain</small><b>${fmtInt(prog.realmKills)}</b></div>
         <div class="stat"><small>Deaths</small><b>${fmtInt(prog.deaths)}</b></div>
+        ${late2CharStats() /* [late2] names and veterancy (10l_late.js) */}
       </div>
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
       <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>`;
@@ -765,13 +768,17 @@ function openHerald() {
   const frontierTip = prog.level >= 14 ? `You are ready for the frontier. Step through the stones in the square to reach the muster.` : `The frontier will eat you alive below level 14 or so. Grow stronger in the glens and fields first.`;
   let body = `<p>Well met, ${P.name}. ${frontierTip}</p>`;
   const acts = [];
+  const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)
   if (b && b.done) {
     body += `<p>You have done what was asked. Take this for your trouble.</p>`;
     acts.push(['Claim reward', () => { addXP(b.reward); addRP(Math.round(b.reward * 0.1)); addGold(10 + prog.level * 5); uiLog(`The herald pays you ${10 + prog.level * 5} gold.`, 'loot'); prog.bounty = null; sfx('fanfare'); closeDialog(); saveSoon(); }]);
   } else if (b) {
     const c = CAMPS[b.camp];
-    body += `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;
+    body += b.risen ? `<p>Your bounty: bring down ${esc(b.name)} in the far borderlands, circled on your map.</p>` /* [late2] */ : `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;
     acts.push(['Abandon bounty', () => { prog.bounty = null; closeDialog(); }]);
+  } else if (l2b) { // [late2]
+    body += l2b.text;
+    acts.push(['Accept bounty', l2b.accept]);
   } else if (prog.level < LEVEL_CAP) {
     const nb = chooseBounty();
     body += `<p>The ${pluralName(nb.name)} are troubling travellers. Slay ${nb.need} of them and I will see you rewarded with ${fmtInt(nb.reward)} experience and ${10 + prog.level * 5} gold. Their haunt is marked on your map.</p>`;
