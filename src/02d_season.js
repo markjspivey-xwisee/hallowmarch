@@ -22,16 +22,36 @@ U.uSeasonMap = { value: SEASON_TEX0 };
 // camera and uSnowK.y = 1 / uSnowCover, so uSnowCover * snowHere(p) is the snow that lies at p (sheltered surfaces
 // pass a smaller uSnowCover, as before)
 U.uSnowK = { value: new THREE.Vector2(0, 100) };
+// [weather2] the shelter map (12c_weather2.js): 1 m texels over the land, the height of the highest roof or floor over each
+// (world y; far below where the sky is open). Below it no snow lies or falls and no rain falls: houses and halls, tower
+// rooms, built roofs, tents, the walks and galleries over the ground. Off the map to the east lies the Barrow: all under ground
+const SHELTER_TEX0 = new THREE.DataTexture(new Float32Array([-1e4]), 1, 1, THREE.RedFormat, THREE.FloatType);
+SHELTER_TEX0.needsUpdate = true;
+U.uShelter = { value: SHELTER_TEX0 };
+U.uShelterOn = { value: 0 };
+const GLSL_SHELTER = /* glsl */`
+uniform highp sampler2D uShelter;
+uniform float uShelterOn;
+float shelterY(vec2 xz){
+  if (uShelterOn < 0.5) return -1e4;
+  if (xz.x > 600.0) return 1e5;
+  if (abs(xz.x) > 511.5 || abs(xz.y) > 511.5) return -1e4;
+  return texelFetch(uShelter, ivec2(floor(xz + 512.0)), 0).r;
+}
+// 1 under a roof (no snow lies, no rain falls), 0 under the open sky
+float shelteredK(vec3 wp){ return wp.y < shelterY(wp.xz) ? 1.0 : 0.0; }
+`;
 
 const GLSL_SEASON = /* glsl */`
 uniform vec4 uSeasonA, uSeasonB, uSeasonC, uSeasonD;
 uniform sampler2D uSeasonMap;
 uniform vec2 uSnowK;
+${GLSL_SHELTER}
 vec4 seasonMapAt(vec2 xz){ return texture(uSeasonMap, clamp((xz + 512.0) / 1024.0, vec2(0.0005), vec2(0.9995))); }
 // the air's temperature here now (°C), as farmTempAt reckons it
 float seasonTemp(vec2 xz){ return uSeasonC.w + seasonMapAt(xz).g * 40.0 - 30.0; }
 // multiply uSnowCover by this: the falling snow round the camera, or the winter's snow lying here
-float snowHere(vec3 wp){ return clamp(max(uSnowK.x, seasonMapAt(wp.xz).r) * uSnowK.y, 0.0, 100.0); }
+float snowHere(vec3 wp){ return clamp(max(uSnowK.x, seasonMapAt(wp.xz).r) * uSnowK.y, 0.0, 100.0) * (1.0 - shelteredK(wp)); } // [weather2] none under a roof
 // hoar frost on the turf on cold nights and mornings
 float frostAt(vec2 xz){ return clamp((0.5 - seasonTemp(xz)) / 4.0, 0.0, 1.0); }
 // the meadow through the year: lush in spring, gold on the dry turf in high summer, tawny and brown in autumn,

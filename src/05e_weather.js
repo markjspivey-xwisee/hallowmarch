@@ -53,6 +53,7 @@ const PRECIP_COMMON = /* glsl */`
   ${GLSL_COMMON}
   ${GLSL_WORLD}
   ${GLSL_ROOFS}
+  ${GLSL_SHELTER} // [weather2] every roof, hall, tower room, tent and walk overhead (12c_weather2.js)
   uniform float uTime, uWind;
   uniform vec2 uWindDir;
   uniform vec3 uBox;
@@ -86,7 +87,7 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime));
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp) || wp.y < shelterY(wp.xz)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec3 dir = safeNormalize(vec3(wind.x, -fall, wind.z));
         vec3 side = safeNormalize(cross(dir, safeNormalize(rel)));
         vec3 p = wp - dir * position.y * (0.55 + 0.35 * aSeed.w) + side * position.x * 0.016 * (1.0 + hd * 0.03);
@@ -121,7 +122,7 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime) + sway);
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp) || wp.y < shelterY(wp.xz)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec4 mv = viewMatrix * vec4(wp, 1.0);
         float s = 0.035 + 0.04 * fract(aSeed.w * 7.3);
         mv.xy += (position.xy - vec2(0.0, 0.5)) * s;
@@ -220,6 +221,7 @@ function updateWeather(dt) {
       const x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r, y = heightAt(x, z) + 0.03;
       if (houseRoofOver(x, z) || towerRoofOver(x, z)) continue; // no splashes on a floor ([land] nor in a tower's rooms)
       if (live && wxRainAt(x, z) < 0.15) continue; // [weather2] none beyond the edge of the rain
+      if (wxSheltered(x, z, y + 0.3)) continue; // [weather2] nor under a walk or a tent (12c_weather2.js)
       const A = U.uAmbient.value;
       fxAlpha.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.6, (Math.random() - 0.5) * 0.6, 0.22, A.x * 0.9 + 0.1, A.y * 0.9 + 0.1, A.z * 0.9 + 0.12, 0.05, 9, 0);
     }
@@ -283,7 +285,9 @@ function applyWeather() {
   // noise is above it): overcast lowers it, so the sky closes over. It raised it toward 0.95, so the clouds thinned away
   // as the rain set in, and the moon and the stars shone through a storm (they kept 15% of their light under it)
   skyU.uCloudCover.value = lerp(skyU.uCloudCover.value, 0.04, oc * 0.92);
-  const hid = (1 - oc) * (1 - oc);
+  // [weather2] with the clouds that are there drawn (the dome, 12c_weather2.js) the sun, the moon and the stars are hidden
+  // only where a cloud stands in front of them: a thin veil of the overcast at the camera dims them a little more
+  const hid = U.uCloudDomeOn.value.x > 0.5 ? 1 - 0.35 * oc * oc : (1 - oc) * (1 - oc);
   skyU.uSunVis.value *= hid;
   skyU.uMoonVis.value *= hid;
   skyU.uStars.value *= hid;

@@ -17,8 +17,8 @@ const WX_N = 12; // cells the shaders see (the nearest to the camera)
 const WX_BASE_Y = 230; // the cloud base (world y; the land lies between about -3 and 90 m)
 const WX_KINDS = {
   //        half length, half width,  cover, rain, storm, mist, tall,  life (s),   grow, fade, speed (x the wind)
-  front: { a: [650, 1050], b: [240, 360], cover: 0.97, precip: 0.8, storm: 0.12, mist: 0, thick: 0.55, life: [460, 760], grow: 90, fade: 110, speed: [0.9, 1.1] },
-  bank: { a: [320, 620], b: [200, 330], cover: 0.84, precip: 0, storm: 0, mist: 0, thick: 0.32, life: [320, 640], grow: 70, fade: 90, speed: [0.85, 1.05] },
+  front: { a: [650, 1050], b: [240, 360], cover: 0.97, precip: 0.8, storm: 0.12, mist: 0, thick: 0.55, life: [820, 1300], grow: 90, fade: 130, speed: [0.9, 1.1] },
+  bank: { a: [320, 620], b: [200, 330], cover: 0.84, precip: 0, storm: 0, mist: 0, thick: 0.32, life: [420, 800], grow: 70, fade: 90, speed: [0.85, 1.05] },
   shower: { a: [160, 260], b: [130, 210], cover: 0.93, precip: 0.9, storm: 0.05, mist: 0, thick: 0.64, life: [200, 340], grow: 60, fade: 70, speed: [0.9, 1.15] },
   storm: { a: [220, 340], b: [180, 260], cover: 1.0, precip: 1.0, storm: 1.0, mist: 0, thick: 1.0, life: [240, 380], grow: 75, fade: 80, speed: [0.8, 1.0] },
   mist: { a: [240, 420], b: [200, 330], cover: 0.1, precip: 0, storm: 0, mist: 1.0, thick: 0.03, life: [260, 480], grow: 60, fade: 90, speed: [0.12, 0.25] },
@@ -26,7 +26,7 @@ const WX_KINDS = {
 // fair-weather cloud of each realm (the cover between the systems), Logres, Ériu, Thule; and how often each realm makes
 // a system of its own (a second's chance, with the season's odds deciding what)
 const WX_FAIR = [0.22, 0.34, 0.3];
-const WX_MAKE = [0.012, 0.022, 0.018];
+const WX_MAKE = [0.014, 0.03, 0.022];
 const WX = {
   on: true, cells: [], id: 1, t: 0,
   // the wind: the bearing it blows FROM (radians, compass), its speed (m/s), and where it is turning to
@@ -215,13 +215,13 @@ function wxClimateKind(realm, upwind) {
 function wxSpawnStep(dt) {
   WX.spawnT -= dt;
   if (WX.spawnT > 0) return;
-  WX.spawnT = 6 + Math.random() * 6;
+  WX.spawnT = 5 + Math.random() * 5;
   const v = wxWindVec();
   const near = WX.cells.filter((c) => Math.hypot(c.x, c.z) < 1500 && c.kind !== 'mist').length;
-  if (near >= 7) return;
+  if (near >= 9) return;
   // from beyond the March, upwind: the weather of the realm the wind comes over
   if (Math.random() < 0.55) {
-    const side = (Math.random() - 0.5) * 1400, d = 1700 + Math.random() * 300;
+    const side = (Math.random() - 0.5) * 1300, d = 1150 + Math.random() * 250;
     const x = -v.x * d - v.z * side, z = -v.z * d + v.x * side;
     const realm = realmAt(-v.x * 300, -v.z * 300);
     if (Math.random() < WX_MAKE[realm] * 16) { const k = wxClimateKind(realm, true); if (k) wxMake(k, x, z, { realm }); }
@@ -305,6 +305,7 @@ function wxStrikeStep(dt) {
     const d = Math.hypot(x - cam.x, z - cam.z);
     if (Math.random() < 0.45) { wxCloudFlash(x, z, d); continue; } // in the cloud: the cloud lights up, thunder rolls
     const onMap = Math.abs(x) < HALF - 10 && Math.abs(z) < HALF - 10;
+    (WX.stats.at || (WX.stats.at = [])).push([Math.round(x), Math.round(z), c.id]); if (WX.stats.at.length > 40) WX.stats.at.shift();
     if (onMap && P && !inDungeon(P) && Math.hypot(x - P.x, z - P.z) < 260) { WX.stats.strikes++; strikeNear(x, z, 0, 28); }
     else if (onMap && Math.random() < 0.5) { WX.stats.strikes++; natureStrike(x, z, 10); wxBoltVisual(x, z, d); }
     else if (d < 2200) { WX.stats.far++; wxBoltVisual(x, z, d); }
@@ -408,7 +409,7 @@ vec4 wxField(vec2 xz, out float storm){
     clear *= 1.0 - B.z * e;
     precip = max(precip, C.x * core);
     storm = max(storm, C.y * core);
-    thick = max(thick, B.w * e);
+    thick = max(thick, B.w * sqrt(max(0.0, 1.0 - r * r)) * (0.35 + 0.65 * e)); // a dome: tallest over its heart
   }
   return vec4(1.0 - clear, precip, storm, thick);
 }
@@ -451,7 +452,9 @@ function wxBuildClouds() {
           // far off the shapes are lost in the warp's texels: keep their mean
           float far = smoothstep(0.55, 0.9, L);
           dens = mix(dens, smoothstep(0.1, 0.95, c) * 0.9, far * 0.6);
-          gl_FragColor = vec4(clamp(dens, 0.0, 1.0), clamp(F.w, 0.0, 1.0), clamp(F.y, 0.0, 1.0), clamp(storm, 0.0, 1.0));
+          // each heap stands as tall as its own: the towers of a storm, the low puffs of fair weather
+          float tall = F.w * (0.45 + 0.75 * smoothstep(thr - 0.05, thr + 0.35, n));
+          gl_FragColor = vec4(clamp(dens, 0.0, 1.0), clamp(tall, 0.0, 1.0), clamp(F.y, 0.0, 1.0), clamp(storm, 0.0, 1.0));
         }`,
     });
     WXR.domeMat = mat({
@@ -494,7 +497,7 @@ function wxBuildClouds() {
             vec3 skyA = mix(uHorizon, uZenith, 0.6);
             for (int i = 0; i < 24; i++) {
               if (i >= steps) break;
-              float t = t0 + (float(i) + 0.5) * dt;
+              float t = t0 + (float(i) + 0.5 + (hash12(gl_FragCoord.xy) - 0.5) * 0.35) * dt;
               vec3 p = ro + rd * t;
               vec4 F = cmap(p.xz);
               if (F.r < 0.02) continue;
@@ -502,9 +505,9 @@ function wxBuildClouds() {
               float hh = (p.y - base) / (top - base);
               if (hh > 1.0) continue;
               // a flat base, a rounded crown; the shapes broken by a finer noise riding on the wind
-              float prof = smoothstep(0.0, 0.06, hh) * (1.0 - smoothstep(0.5 + 0.35 * F.r, 1.0, hh));
               vec2 pw = p.xz - uWxWindD.xy;
               float dn = vnoise(pw * 0.0105 + vec2(p.y * 0.019, -p.y * 0.013)) * 0.62 + vnoise(pw * 0.034 + p.y * 0.03 + 7.1) * 0.38;
+              float prof = smoothstep(0.0, 0.06, hh) * (1.0 - smoothstep(0.45 + 0.3 * F.r, 1.0, hh + (dn - 0.5) * 0.35 * detK));
               float dens = clamp(F.r * prof * 1.5 - (1.0 - dn) * mix(0.5, 0.12, F.r) * detK, 0.0, 1.0);
               if (dens < 0.004) continue;
               // the light's way out of the cloud toward the sun or the moon (the field a little along it)
@@ -546,6 +549,7 @@ function wxBuildClouds() {
 // the frame (13_main.js tick, after applyWeather): the cells to the shaders, the field, the dome, the shadows, the mist
 const _wxCellList = [];
 function wxCloudsFrame(dt) {
+  wxShelterStep(dt);
   if (!WXR.on) { U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; return; }
   if (!WXR.field || WXR.q !== (WX_Q[quality.level] || WX_Q.medium)) wxBuildClouds();
   const cu = WXR.cu, cam = camera.position, held = wxHeld();
@@ -595,13 +599,190 @@ function wxCloudsFrame(dt) {
   } else U.uMist.value.x = 0;
 }
 
+/* ---- what is coming: a shower, a front or a storm the wind will carry over a place ---- */
+const WX_POINTS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+function wxCompass(dx, dz) { const b = Math.atan2(dx, -dz); return WX_POINTS[((Math.round(b / (Math.PI / 4)) % 8) + 8) % 8]; }
+function wxForecast(x, z) {
+  if (wxHeld()) return null;
+  const v = wxWindVec(), s = WX.wind.s * 0.8;
+  let best = null;
+  for (const c of WX.cells) {
+    const st = c.storm * c.s, pr = c.precip * c.s;
+    const what = st > 0.5 ? 'storm' : pr > 0.35 ? 'rain' : null;
+    if (!what) continue;
+    const dx = x - c.x, dz = z - c.z, along = dx * v.x + dz * v.z, across = Math.abs(-dx * v.z + dz * v.x), R = Math.max(c.a, c.b);
+    if (along <= 0 || across > R * 0.75) continue; // its way does not pass over here
+    const edge = along - R * 0.7;
+    if (edge < 0) continue; // here already
+    const eta = edge / Math.max(0.3, s * c.sp);
+    if (eta > 300 || c.age + eta > c.life - c.fade * 0.5) continue; // too far yet, or it will have died away
+    if (!best || eta < best.eta) best = { what, eta, from: wxCompass(c.x - x, c.z - z), id: c.id };
+  }
+  if (best && best.what === 'rain') best.what = farmTempAt(x, z) < 1 ? 'snow' : 'rain';
+  return best;
+}
+// the war panel's line (10_ui.js): what is coming over you, and from where
+let _wxFcT = -1, _wxFcS = '';
+function wxForecastText() {
+  if (GAME.t - _wxFcT < 1 && _wxFcT >= 0) return _wxFcS;
+  _wxFcT = GAME.t;
+  const P = GAME.player, f = P && !inDungeon(P) ? wxForecast(P.x, P.z) : null;
+  _wxFcS = f ? ` · ${f.what === 'storm' ? 'A storm' : f.what === 'snow' ? 'Snow' : 'Rain'} coming from the ${f.from}` : '';
+  return _wxFcS;
+}
+// what players are told: a field note when weather is first seen coming, a line of help, tips
+if (typeof FIELD_NOTES !== 'undefined') Object.assign(FIELD_NOTES, {
+  w2coming: { t: 'Weather on the way', x: () => 'Weather crosses the March on the wind: rain off the western sea over Ériu, snow out of Thule, fair skies over Logres. A storm is seen coming long before it breaks; the war panel says what comes and from where. Under a roof you stay dry.' },
+});
+if (typeof GUIDE_WATCH !== 'undefined') GUIDE_WATCH.w2coming = (P) => !!(P && wxForecastText());
+if (typeof GUIDE_HELP !== 'undefined') GUIDE_HELP.push(() => `<h3>Weather</h3><p>Showers, fronts, storms and banks of cloud cross the March on the wind, born of each realm's climate and the season: rain falls under its cloud and the sky is clear beside it. The war panel says what is coming and from where. Rain soaks you and your gear, damps fires and waters the fields; snow lies where it is cold; lightning strikes the tallest things under a storm. Under a roof, in a tower's rooms or a tent you stay dry.</p>`);
+if (typeof LOADING_TIPS !== 'undefined') LOADING_TIPS.push(
+  'Weather crosses the March on the wind: watch the sky upwind, and the war panel\'s line, to see a storm coming.',
+  'Rain falls only under its cloud: a shower can soak one field and leave the next one dry.',
+);
+
+/* ================================================================== */
+/* shelter: no snow or rain under a roof                                */
+/* ================================================================== */
+// The shelter map (1 m texels over the land, U.uShelter): over each texel the height of the highest roof, room or floor
+// standing over it (world y), or far below where the sky is open. Every shader's snowHere (02d_season.js), the ground's
+// snow and wet film (03_terrain.js) and the drops of rain and snow (05e_weather.js) read it; wxShelterY / wxSheltered
+// answer the same on the CPU. Made again when what stands changes: a house falls or is built back, a stone holes a
+// roof, a tower is breached or mended, a roof is built or pulled down, a walk burns through (looked at once a second).
+const WXS = { N: 1024, data: null, tex: null, key: '', t: 0, builds: 0, ms: 0, counts: {} };
+const WXS_OPEN = -1e4;
+function wxsMark(x, z, h) {
+  const i = Math.floor(x + 512), j = Math.floor(z + 512);
+  if (i < 0 || j < 0 || i >= 1024 || j >= 1024) return;
+  const q = j * 1024 + i;
+  if (h > WXS.data[q]) WXS.data[q] = h;
+}
+// a roof record as the rain shaders take it (houseRoofsForRain: houses, built roofs, the towers' rooms): its roof's
+// underside over each texel it covers (less its covering's thickness), but not under a hole knocked in it
+function wxsRoof(R, hole, under) {
+  const reach = R.round ? R.Rr : Math.hypot(R.w / 2 + (R.ohSide || 0), R.d / 2 + (R.ohGable || 0));
+  const x0 = Math.floor(R.x - reach), x1 = Math.ceil(R.x + reach), z0 = Math.floor(R.z - reach), z1 = Math.ceil(R.z + reach);
+  let n = 0;
+  for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+    const px = x + 0.5, pz = z + 0.5, dx = px - R.x, dz = pz - R.z;
+    if (hole && hole.r > 0 && Math.hypot(px - hole.x, pz - hole.z) < hole.r) continue;
+    const lx = dx * R.c - dz * R.s, lz = dx * R.s + dz * R.c;
+    let h;
+    if (R.round) {
+      const at = Math.hypot(lx, lz);
+      if (at > R.Rr) continue;
+      h = Math.min(R.y + R.y0 + R.hc, R.y + R.y0 + (R.Rr - at) * (R.hc / R.Rr));
+    } else {
+      const hw = R.w / 2 + (R.ohSide || 0), hd = R.d / 2 + (R.ohGable || 0);
+      if (Math.abs(lx) > hw || Math.abs(lz) > hd) continue;
+      const top = R.y + R.wallH + R.rh;
+      h = Math.min(top, top - hw * R.tn + (hw - Math.abs(lx)) * R.tn);
+    }
+    wxsMark(px, pz, h - under);
+    n++;
+  }
+  return n;
+}
+function wxShelterBuild() {
+  const t0 = performance.now();
+  if (!WXS.data) WXS.data = new Float32Array(1024 * 1024);
+  WXS.data.fill(WXS_OPEN);
+  const C = WXS.counts = { houses: 0, built: 0, towers: 0, tents: 0, floors: 0 };
+  // the houses and the keeps' halls: under the roof's covering (thatch the thickest)
+  for (const H of HOUSES) {
+    if (!houseIntact(H)) continue;
+    const R = H.round ? { x: H.x, z: H.z, c: H.c, s: H.s, round: true, Rr: H.Rr, y: H.y, y0: H.y0, hc: H.hc }
+      : { x: H.x, z: H.z, c: H.c, s: H.s, w: H.w, d: H.d, ohSide: H.ohSide, ohGable: H.ohGable, y: H.y, wallH: H.wallH, rh: H.rh, tn: H.tn };
+    wxsRoof(R, H.bat && H.bat.hr > 0 ? { x: H.bat.hx, z: H.bat.hz, r: H.bat.hr } : null, 0.45);
+    C.houses++;
+  }
+  // the roofs built by the player
+  if (typeof BUILD !== 'undefined') for (const pc of BUILD.pieces) {
+    if (!BP[pc.t].roof || (pc.st !== 'built' && pc.st !== 'burning')) continue;
+    if (!pc.rainH) { const L = []; buildRoofsForRain(L, pc.x, pc.z); }
+    if (pc.rainH) { wxsRoof(pc.rainH, null, 0.3); C.built++; }
+  }
+  // the towers' rooms (not a breached one: open to the sky)
+  if (typeof TOWER !== 'undefined') for (const T of TOWER.list) {
+    if (T.breached || !T.rain) continue;
+    const R = T.rain, top = T.S.y + T.shelterY - 0.05;
+    const reach = T.kind === 'drum' ? T.RI + 0.3 : T.HI * 1.42 + 0.3;
+    for (let z = Math.floor(T.wz - reach); z <= Math.ceil(T.wz + reach); z++) for (let x = Math.floor(T.wx - reach); x <= Math.ceil(T.wx + reach); x++) {
+      const l = twLocal(T, x + 0.5, z + 0.5);
+      if (twInside(T, l.x, l.z, 0.25)) wxsMark(x + 0.5, z + 0.5, top);
+    }
+    C.towers++;
+    void R;
+  }
+  // the camps' tents (a lean tent of cloth over a bedroll)
+  for (const c of COLL.circles || []) {
+    if (c.tag !== 'tent' || !c.active) continue;
+    const gy = heightAt(c.x, c.z), r = c.r * 0.85;
+    for (let z = Math.floor(c.z - r); z <= Math.ceil(c.z + r); z++) for (let x = Math.floor(c.x - r); x <= Math.ceil(c.x + r); x++) if (Math.hypot(x + 0.5 - c.x, z + 0.5 - c.z) < r) wxsMark(x + 0.5, z + 0.5, gy + 0.85);
+    C.tents++;
+  }
+  // a walk, a gallery or a deck over open ground: the ground under it lies dry (a floor the masonry fills is no shelter)
+  if (typeof FLOOR !== 'undefined') for (const f of FLOOR.list) {
+    if (!f.active || f.tag === 'scaffold') continue;
+    const top = Math.min(f.ya, f.yb), under = f.th > 0 ? top - f.th : top - 0.12;
+    if (f.y0 > -1e3 && f.th <= 0 && f.y0 < top - 0.8) continue; // solid from the ground (a rampart, a stair's masonry)
+    const r = f.type === 'disc' ? f.r : Math.hypot(f.hx, f.hz);
+    if (r > 40) continue;
+    let any = false;
+    for (let z = Math.floor(f.z - r); z <= Math.ceil(f.z + r); z++) for (let x = Math.floor(f.x - r); x <= Math.ceil(f.x + r); x++) {
+      const px = x + 0.5, pz = z + 0.5;
+      if (floorTopOf(f, px, pz) === null) continue;
+      if (under - heightAt(px, pz) < 1.3) continue;
+      wxsMark(px, pz, under - 0.05); any = true;
+    }
+    if (any) C.floors++;
+  }
+  if (!WXS.tex) {
+    WXS.tex = new THREE.DataTexture(WXS.data, 1024, 1024, THREE.RedFormat, THREE.FloatType);
+    WXS.tex.minFilter = WXS.tex.magFilter = THREE.NearestFilter; WXS.tex.generateMipmaps = false;
+    U.uShelter.value = WXS.tex;
+  }
+  WXS.tex.needsUpdate = true;
+  U.uShelterOn.value = 1;
+  WXS.builds++; WXS.ms = performance.now() - t0;
+}
+// what decides the map: each house's state and the hole in its roof, the built roofs, the towers breached, the floors standing
+function wxShelterKey() {
+  let k = '';
+  for (const H of HOUSES) k += houseIntact(H) ? (H.bat && H.bat.hr > 0 ? 'h' + Math.round(H.bat.hr * 10) : '1') : '0';
+  if (typeof BUILD !== 'undefined') for (const pc of BUILD.pieces) if (BP[pc.t].roof && (pc.st === 'built' || pc.st === 'burning')) k += 'b' + pc.id;
+  if (typeof TOWER !== 'undefined') for (const T of TOWER.list) k += T.breached ? 'x' : 't';
+  if (typeof FLOOR !== 'undefined') { let n = 0; for (const f of FLOOR.list) if (f.active) n++; k += 'f' + n; }
+  return k;
+}
+function wxShelterStep(dt) {
+  WXS.t -= dt;
+  if (WXS.t > 0) return;
+  WXS.t = 1;
+  if (!HOUSES.length) return;
+  const k = wxShelterKey();
+  if (k !== WXS.key) { WXS.key = k; wxShelterBuild(); }
+}
+// the same on the CPU: the shelter's height over a place, and whether a point lies under it
+function wxShelterY(x, z) {
+  if (x > 600) return 1e5;
+  if (!WXS.data || Math.abs(x) > 511.5 || Math.abs(z) > 511.5) return WXS_OPEN;
+  return WXS.data[Math.floor(z + 512) * 1024 + Math.floor(x + 512)];
+}
+function wxSheltered(x, z, y) { return y < wxShelterY(x, z); }
+
 /* ---- test hooks ---- */
 function hookWeather2() {
   if (WX.hooked || !window.__hm || !window.__hm.fn) return;
   WX.hooked = true;
   window.__hm.weather2 = {
-    WX, WXR, WX_KINDS, WX_Q, weatherAt, wxFieldAt, wxHeld, wxLive, wxMake, wxSave, wxLoad, wxGridAt, wxRainAt, wxStormAt, wxSnowingAt, wxPrecipAt, wxWetAt,
+    WX, WXR, WXS, WX_KINDS, WX_Q, weatherAt, wxForecast, wxForecastText, wxShelterBuild, wxShelterKey, wxShelterY, wxSheltered, wxsRoof, wxFieldAt, wxHeld, wxLive, wxMake, wxSave, wxLoad, wxGridAt, wxRainAt, wxStormAt, wxSnowingAt, wxPrecipAt, wxWetAt,
     updateWeather2, wxCloudFlash, wxBoltVisual, wxStrikeStep, wxCloudsFrame, wxBuildClouds,
+    precip: () => ({ rain: rainMesh, snow: snowMesh }),
+    sites: SITES, TRACKS,
+    half: (h) => THREE.DataUtils.fromHalfFloat(h),
+    // the fair weather's cloud of each realm (tests set a clear sky), the old values back
+    fairSet(a) { const old = WX_FAIR.slice(); for (let k = 0; k < 3; k++) WX_FAIR[k] = a[k]; return old; },
     // every cell gone (a calm sky to test in), the wind held
     calm() { WX.cells.length = 0; WX.seeded = true; WX.spawnT = 1e9; return 0; },
     // the systems running again on their own

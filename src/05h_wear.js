@@ -143,6 +143,7 @@ function skyOver(e) {
   if (inDungeon(e) || (e === GAME.player && INDOOR.on)) return 0;
   if (houseRoofOver(e.x, e.z)) return 0;
   if (towerRoofOver(e.x, e.z, e.y)) return 0; // [land] in a tower's rooms (04l_towers.js)
+  if (wxSheltered(e.x, e.z, e.y + 1.2 * (e.scale || 1))) return 0; // [weather2] under any roof, tent, walk or gallery (12c_weather2.js)
   return underCrown(e.x, e.z) ? 0.3 : 1;
 }
 function heatAt(x, y, z) {

@@ -357,7 +357,7 @@ const terrainMat = mat({
       col = mix(col, lightSurface(mix(vec3(0.5, 0.26, 0.08), vec3(0.62, 0.45, 0.14), vnoise(vW.xz * 3.1)) * mix(1.0, 0.55, uSeasonA.w), n, 1.0), clamp(litter * 1.3, 0.0, 0.8));
       col *= 1.0 - 0.22 * canopy * (0.6 + 0.4 * gSh);
       col *= 1.0 - 0.42 * groundAO(vW.xz); // and in contact shade at the foot of walls and houses
-      float wetG = uWet * (1.0 - 0.8 * canopy);
+      float wetG = uWet * (1.0 - 0.8 * canopy) * (1.0 - shelteredK(vW)); // [weather2] dry under a roof (12c_weather2.js)
       // weather: rain darkens and glosses the ground and pools on paths; snow settles on open ground
       if (wetG > 0.01) {
         vec3 V = safeNormalize(cameraPosition - vW);
@@ -377,7 +377,7 @@ const terrainMat = mat({
       vec4 szm = seasonMapAt(vW.xz); // one fetch for the frost and the snow
       float frost = clamp((0.5 - (uSeasonC.w + szm.g * 40.0 - 30.0)) / 4.0, 0.0, 1.0) * smoothstep(0.5, 0.85, n.y) * (1.0 - 0.6 * canopy) * (1.0 - A.r) * (0.55 + 0.45 * vnoise(vW.xz * 2.3));
       col = mix(col, lightSurface(vec3(0.74, 0.78, 0.82), n, 1.0), frost * 0.5);
-      float sCov = uSnowCover * clamp(max(uSnowK.x, szm.r) * uSnowK.y, 0.0, 100.0); // [seasons] the snow that lies here (snowHere, 02d_season.js)
+      float sCov = uSnowCover * clamp(max(uSnowK.x, szm.r) * uSnowK.y, 0.0, 100.0) * (1.0 - shelteredK(vW)); // [seasons] the snow that lies here (snowHere, 02d_season.js); [weather2] none under a roof
       if (sCov > 0.01) {
         // [look2] trodden ground under snow (the roads, the plazas, the paths: the road channel) is packed grey slush with
         // darker tracks along it, and wet grey earth where it shows: the snow lay thinner there (A.r took 0.45 off it)
