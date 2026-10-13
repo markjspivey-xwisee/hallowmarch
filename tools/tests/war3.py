@@ -198,7 +198,9 @@ async def main(p):
           const H = __hm, fn = H.fn, WAR = H.WAR, W3 = H.war3.W3;
           __w3t.calm(); __w3t.quiet(); __w3t.whole();
           for (const C of WAR.commanders) { C.nextThink = H.GAME.t + 1; C.nextSpawn = H.GAME.t + 1; }
-          // Logres takes one of Ériu's keeps: three keeps
+          // a band of Logres on the march elsewhere (the press turns a marching band), then Logres takes one of Ériu's keeps: three
+          const far = WAR.keeps.findIndex((k) => k.realm === 2), M = H.REALMS[0].musterSite;
+          const mid = __w3t.band(0, far, 8, M.x, M.z);
           const ki = WAR.keeps.findIndex((k) => k.realm === 1);
           __w3t.give(ki, 0);
           W3.look = 0;
@@ -334,6 +336,59 @@ async def main(p):
           return { ok };
         })()""")
         check(r['ok'], "the Chronicle's war page tells how keeps are held and pressed")
+
+    if SHOTS:
+        print('shots: the new guards mending a gate; the column on the road; the map with a keep pressed for', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, W3 = H.war3.W3;
+          __w3t.calm(); __w3t.quiet(); __w3t.whole();
+          H.setTod(0.42);
+          const ki = WAR.keeps.findIndex((k) => k.realm === 0 && k.orig === 0), K = WAR.keeps[ki], S = K.site, G0 = fn.castleOf(S).gate;
+          for (const id of [...K.guards]) { const g = fn.getEnt(id); if (g) fn.removeEnt(g); }
+          K.guards.clear();
+          fn.killEnt(K.door, null);
+          const c = K.nav.court;
+          const id = __w3t.band(1, ki, 10, c.x, c.z), wb = __w3t.wb(id);
+          wb.order.phase = 'assault';
+          fn.captureKeep(K, 1, fn.wbLeader(wb));
+          for (let t = 0; t < 14; t++) { __w3t.quiet(); H.simulate(1); }
+          // from the court, the gateway's inside
+          const a = fn.siteToWorld(S, 4.5, G0.gz - 9.5), b = fn.siteToWorld(S, 0, G0.gz);
+          H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+          H.camera.position.set(a.x, S.y + 3.2, a.z); H.camera.lookAt(b.x, S.y + 1.6, b.z); H.camera.updateMatrixWorld();
+          const work = [...K.guards].map(fn.getEnt).filter((g) => g && g.alive && g.ai.w3g).map((g) => +Math.hypot(g.x - g.ai.w3g.p.x, g.z - g.ai.w3g.p.z).toFixed(2));
+          window.__w3col = WAR.warbands.find((w) => w.w3col && w.w3col.keep === ki);
+          return { keep: S.name, work };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(len(r['work']) >= 1 and all(d < 0.6 for d in r['work']), f"the gate's menders stand at their work ({r['work']})")
+        await snap(page, 'war3_gate_work')
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, col = window.__w3col;
+          if (!col) return { err: 'no column' };
+          const L = fn.wbLeader(col), m = fn.wbMembers(col);
+          // beside the road, ahead of the column's captain
+          const yaw = L.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw);
+          H.camera.position.set(L.x + fx * 9 + fz * 5, L.y + 3.2, L.z + fz * 9 - fx * 5); H.camera.lookAt(L.x - fx * 2, L.y + 1.2, L.z - fz * 2); H.camera.updateMatrixWorld();
+          return { n: m.length, name: H.CW.wbName(col) };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        if not r.get('err'): await snap(page, 'war3_column')
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, W3 = H.war3.W3;
+          __w3t.whole();
+          const ki = WAR.keeps.findIndex((k) => k.realm === 1);
+          __w3t.give(ki, 0);
+          W3.look = 0; H.simulate(1);
+          H.UI.modal = null; H.CAM.mode = 'play';
+          fn.toggleMap();
+          return { press: W3.press[0] ? WAR.keeps[W3.press[0].keep].site.name : null, modal: H.UI.modal };
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        await page.wait_for_timeout(1500)
+        await page.screenshot(path=OUT + 'war3_map.png', timeout=300000)
+        print('  shot war3_map', flush=True)
+        await ev(page, "(() => { __hm.fn.toggleMap(); __hm.UI.modal = 'menu'; return 0; })()")
 
     errs = await ev(page, '__hm.errors.slice(0, 5)')
     check(not errs, f'no runtime errors {errs}')

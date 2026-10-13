@@ -1,11 +1,11 @@
 /* ================================================================== */
 /* [war3] campaigns won in the field (version 17)                      */
 /* ================================================================== */
-// Why keeps changed hands 36 to 44 times an hour and no realm held four for more than two minutes (campaign_soak.py's
-// capture log, version 16): a keep taken was left with its new lord alone and a gate set back on its hinges at half its
-// strength the moment it fell (captureKeep); the band that took it held its court 35 s and marched off to the next keep;
-// a guard came every 14 s while nobody was near; and the realm it was taken from marched straight back (`retake`, +20).
-// Most keeps fell again within three minutes, to the band that had lost them, against a lord and one or two guards.
+// Why keeps changed hands 36 to 44 times an hour on version 15's builds (33 at medium on version 16) and no realm held
+// four for more than two minutes: a keep taken was left with its new lord alone and a gate set back on its hinges at half
+// its strength the moment it fell (captureKeep); the band that took it held its court 35 s and marched off to the next
+// keep; a guard came every 14 s while nobody was near; and the realm it was taken from marched straight back (`retake`,
+// +20). (campaign_soak.py's capture log, added with this work: a keep falls with a median of one guard left.)
 // Now a keep taken means something, as the March would have it:
 //   the band that took it holds its court until the keep is garrisoned and its gate stands (at most W3.HOLD_MAX s), and
 //   leaves up to three of its soldiers as the court's guards at once; a column of the rest marches from the realm's
@@ -354,6 +354,7 @@ function war3Choose(wb, r, C, L) {
       if (fresh.length && !press && !rally && c.why !== 'claim') c.s -= 12; // hold what it took before it reaches further
     } else if (o.type === 'raid') {
       if (o.temple.realm === ally) c.s -= 45;
+      if (press && c.why !== 'reclaim') c.s -= 12; // (pressing: the keep first, a hallow of its own excepted)
     }
   }
   const busy = (K, f) => WAR.warbands.some((w) => !w.dead && w.realm === r && w.order && w.order.keep === K && f(w.order));
