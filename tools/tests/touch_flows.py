@@ -12,9 +12,10 @@ plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 [late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use, and raise a standard struck down (`only=deep`).
+[net] others in the March: the Players button, a party made and its frames tapped, its chat sent by taps (`only=net`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
-import asyncio, json, sys, pathlib
+import asyncio, json, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
 from playwright.async_api import async_playwright
@@ -106,7 +107,8 @@ def want(name): return ONLY is None or name in ONLY
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, touch=True, w=390, h=780)
+        # [net] the stand-in for the artifact's room (src/00n_netstub.js): the March shared, for the party and chat flow
+        b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tf-' + str(int(time.time())) + '", user: "uTouch", noDb: true };' if want('net') else None)
         cdp = await page.context.new_cdp_session(page)
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
         await page.evaluate(HELP)
@@ -533,6 +535,40 @@ async def main():
             st2 = await page.evaluate("({ at: !!__hm.late.LATE2.std.at })")
             check(ok4 and ok5 and st['made'] and st['at'] and st['modal'] is None and lab == 'Take up your standard' and ok6 and not st2['at'], f"deeds: a tap has the standard made, another plants it before you ({st}), and Use beside it takes it up ({lab}, {st2})")
             await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.GAME.prog.level = 24; return 0; })()")
+
+        if want('net'):
+            # [net] others in the March by touch: the Players button, a tap invites a player of your realm to a party (it
+            # answers), the party's frames show it and a tap there targets it, the party's chat typed and sent by taps
+            await page.evaluate(pathlib.Path(__file__).with_name('net_fake.js').read_text())
+            await page.evaluate("""(() => { const P = TF.P(); TF.calm(); __hm.UI.modal = null; NF.add({ name: 'Brisa', realm: 0, cls: 'mage', x: P.x + 5, z: P.z + 3, accept: true }); NF.add({ name: 'Caelan', realm: 1, cls: 'archer', x: P.x - 8, z: P.z + 4 }); return 0; })()""")
+            for _ in range(40):
+                await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
+                if await page.evaluate("(() => { const b = document.getElementById('btn-net'); return !!b && !b.hidden && __hm.net.state().peers.filter((q) => q.ghost).length >= 2; })()"): break
+            ok1 = await tap(page, '#btn-net')
+            sheet = await page.evaluate("!document.getElementById('netsheet').hidden")
+            ok2 = await tap(page, '#netsheet button[data-act="inv"]')
+            party = False
+            for _ in range(40):
+                await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
+                party = await page.evaluate("(() => { const s = __hm.net.state(); return !!s.party && s.peers.some((q) => q.name === 'Brisa' && q.party === s.party); })()")
+                if party: break
+            check(ok1 and sheet and ok2 and party, f'net: a tap on the Players button opens who is here, a tap on Invite makes a party with Brisa ({ok1}, {sheet}, {ok2}, {party})')
+            await tap(page, '#netsheet-close')
+            for _ in range(6): await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
+            ok3 = await tap(page, '#netparty .net-pm')
+            tgt = await page.evaluate("(() => { const g = __hm.net.ghost(__hm.net.state().peers.find((q) => q.name === 'Brisa').peer); return !!g && __hm.GAME.player.target === g.id; })()")
+            clear = await page.evaluate("(() => { const el = document.getElementById('netparty'), r = el.getBoundingClientRect(), L = __hm.hud.HUDL; const hit = L.placed.filter((q) => q.sel !== '#netparty' && q.x < r.right - 1 && r.left < q.x + q.w - 1 && q.y < r.bottom - 1 && r.top < q.y + q.h - 1).map((q) => q.sel); return { hit, on: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, off: el.classList.contains('hl-off') }; })()")
+            check(ok3 and tgt and not clear['hit'] and clear['on'], f"net: the party's frames show Brisa, clear of the other panels, and a tap targets her ({ok3}, {tgt}, {json.dumps(clear)})")
+            await tap(page, '#btn-net')
+            ok4 = await tap(page, '#netsheet button[data-act="say"][data-ch="p"]')
+            await page.keyboard.type('Hold the line')
+            ok5 = await tap(page, '#netchat-go')
+            for _ in range(10): await page.evaluate("__hm.simulate(0.1); 0")
+            heard = await page.evaluate("NF.heard('Brisa', 'say').map((e) => e[3])")
+            check(ok4 and ok5 and any(h[1] == 'Hold the line' and h[0] == 'p' for h in heard), f"net: the party's chat typed and sent by taps reaches Brisa ({ok4}, {ok5}, {heard})")
+            await page.evaluate("(() => { const H = __hm, P = H.GAME.player, g = H.net.ghost(H.net.state().peers.find((q) => q.name === 'Brisa').peer); H.CAM.yaw = Math.atan2(g.x - P.x, g.z - P.z) + 0.5; H.CAM.pitch = 0.2; H.CAM.dist = H.CAM.targetDist = 7; H.frame(1/30); H.frame(1/30); return 0; })()")
+            await page.screenshot(path=OUT + 'touch_net.png', timeout=300000)
+            await page.evaluate("NF.stop(); __hm.UI.modal = null; 0")
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);

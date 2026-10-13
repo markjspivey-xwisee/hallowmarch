@@ -18,7 +18,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 KV = dict(a.split('=', 1) for a in ARGS if '=' in a)
-PARTS = [a for a in ARGS if a in ('room', 'server', 'phone')] or ['room']
+PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf')] or ['room']
 THREE = 'three' in ARGS
 LOSSY = 'lossy' in ARGS
 SHOTS = 'shots' in ARGS
@@ -55,7 +55,7 @@ async def boot(ctx, cfg, name):
     page = await ctx.new_page()
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
-    page.on('console', lambda m: logs.append(f'[{m.type}] {m.text}') if m.type in ('error',) else None)
+    page.on('console', lambda m: logs.append(f'[{m.type}] {m.text}') if m.type in ('error',) else (print('   ', name, m.text, flush=True) if m.text.startswith('NETLOG') else None))
     await page.add_init_script(f'window.__HM_NET = {json.dumps(cfg)};')
     three = hm.THREE_LOCAL.read_text()
     async def three_route(route): await route.fulfill(status=200, content_type='application/javascript', body=three, headers={'Access-Control-Allow-Origin': '*'})
@@ -187,6 +187,9 @@ async def room_part(p):
         await A.evaluate("__hm.net.chat('r', 'For Logres!'); 0")
         await step(pages, 0.1, 6)
         await shot(B, 'room_ally')
+        await A.evaluate("__hm.net.sheet(true); 0")
+        await shot(A, 'room_sheet')
+        await A.evaluate("__hm.net.sheet(false); 0")
     # a third page, late: an Eriu archer, a foe
     if THREE:
         Cp = await boot(ctx, {'room': rid, 'user': 'uCaelan', **lossy}, 'C')
@@ -357,6 +360,8 @@ async def server_part(p):
             await step([A], 0.1)
         g = await A.evaluate("(() => { const g = NT.ghostOf('Nodric'); return g ? [g.x, g.z, g.anim.amt] : null; })()")
         check(g and abs(g[0] - (me['x'] + 11.5)) < 2.5, f"he walks on the page ({g and round(g[0] - me['x'], 2)} m east, gait {g and round(g[2], 2)})")
+        await A.evaluate("__hm.INPUT.keys.add('KeyW'); 0")
+        for i in range(10): await step([A], 0.1)
         s1 = await N1.state()
         aname = next((v['name'] for v in s1['peers'].values() if v['name']), '')
         check(aname == 'Aldwin' and s1['got']['fast'] > 3, f"the headless player hears the page ({aname}, {s1['got']['fast']} states)")
@@ -366,10 +371,15 @@ async def server_part(p):
         await N2.cmd({'cmd': 'hello', 'name': 'Farwen', 'realm': 2, 'cls': 'mage', 'x': far[0], 'z': far[1]})
         await N2.wait('welcome')
         await asyncio.sleep(0.5)
-        for i in range(40): await step([A], 0.1)
+        n1a = next((v['n'] for v in (await N1.state())['peers'].values() if v['name'] == 'Aldwin'), 0)
+        n2a = next((v['n'] for v in (await N2.state())['peers'].values() if v['name'] == 'Aldwin'), 0)
+        for i in range(40):
+            await A.evaluate(f"NT.P.yaw = {i} * 0.15; __hm.CAM.yaw = NT.P.yaw; 0")
+            await step([A], 0.1)
+        await A.evaluate("__hm.INPUT.keys.delete('KeyW'); 0")
         s1 = await N1.state(); s2 = await N2.state()
-        n1 = next((v['n'] for v in s1['peers'].values() if v['name'] == 'Aldwin'), 0)
-        n2 = next((v['n'] for v in s2['peers'].values() if v['name'] == 'Aldwin'), 0)
+        n1 = next((v['n'] for v in s1['peers'].values() if v['name'] == 'Aldwin'), 0) - n1a
+        n2 = next((v['n'] for v in s2['peers'].values() if v['name'] == 'Aldwin'), 0) - n2a
         check(n1 >= 8 and n2 <= max(4, n1 // 4), f"interest: the near player had {n1} states of the page, the far one {n2} (for its map)")
         # a blow over the server: landed, told back
         apeer = await A.evaluate('NT.st().self')
@@ -413,10 +423,59 @@ async def server_part(p):
         try: print('server says:', srv.communicate(timeout=3)[0][-600:])
         except Exception: srv.kill()
 
+async def perf_part(p):
+    """the cost of others drawn: one page alone, then with ten players walking round it (net_fake.js)"""
+    rid = 'net-perf-' + ''.join(random.choice('abcdefghijk') for _ in range(5))
+    b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+    ctx = await b.new_context(viewport={'width': 640, 'height': 360})
+    A = await boot(ctx, {'room': rid, 'user': 'uPerf'}, 'A')
+    town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
+    await start(A, 0, 'warrior', 30, 'Aldwin', town[0] + 4, town[1] + 12)
+    log('started')
+    await A.evaluate(pathlib.Path(__file__).with_name('net_fake.js').read_text())
+    log('fakes ready')
+    # each frame's JS apart from SwiftShader's drawing: the GPU drained first by a readPixels (as perf2.py does)
+    ONE = "(() => { const H = __hm, gl = H.dbg.renderer.getContext(), px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t0 = performance.now(); H.simulate(0.05); const t1 = performance.now(); H.frame(1/30); const t2 = performance.now(); return [t1 - t0, t2 - t1]; })()"
+    async def MEAS_RUN():
+        await A.evaluate("(() => { const H = __hm; H.CAM.yaw = 0; H.CAM.pitch = 0.3; H.CAM.dist = H.CAM.targetDist = 9; return 0; })()")
+        for _ in range(8): await A.evaluate(ONE); await asyncio.sleep(0.03)
+        sims, frs, ri = [], [], []
+        for i in range(40):
+            a, b2 = await A.evaluate(ONE); sims.append(a); frs.append(b2)
+            if i % 10 == 0: ri.append(await A.evaluate("(() => { const r = __hm.renderInfo(); return [r.calls, r.triangles]; })()"))
+            await asyncio.sleep(0.03)
+        st = await A.evaluate('NT.st()')
+        med = lambda v: sorted(v)[len(v) // 2]
+        return {'step': round(med(sims), 2), 'frame': round(med(frs), 2), 'calls': [r[0] for r in ri], 'tris': [r[1] for r in ri], 'ghosts': len([q for q in st['peers'] if q['ghost']]), 'down': st['stats']['downBytes'], 'recv': st['stats']['fastRecv']}
+    await A.evaluate('NT.calm(); 0')
+    log('measuring alone')
+    r0 = await MEAS_RUN()
+    log('alone', json.dumps(r0))
+    await A.evaluate("(() => { const P = __hm.GAME.player; for (let i = 0; i < 10; i++) NF.add({ name: 'Walker' + i, realm: i % 3, cls: ['warrior', 'archer', 'mage', 'priest'][i % 4], level: 30, x: P.x, z: P.z, walk: 'circle', cx: P.x, cz: P.z + 8, r: 6 + i, speed: 3 + (i % 3) * 1.5, ang: i }); return 0; })()")
+    for _ in range(30): await A.evaluate('__hm.simulate(0.1); 0'); await asyncio.sleep(0.05)
+    d0 = (await A.evaluate('NT.st()'))['stats']['downBytes']; t0 = time.time()
+    r1 = await MEAS_RUN()
+    d1 = (await A.evaluate('NT.st()'))['stats']['downBytes']; t1 = time.time()
+    log('ten others', json.dumps(r1))
+    check(r1['ghosts'] == 10, f"ten others drawn as bodies ({r1['ghosts']})")
+    check(r1['step'] < r0['step'] * 1.6 + 1.5, f"a step with ten others: {r1['step']} ms against {r0['step']} ms alone")
+    check(r1['frame'] < r0['frame'] * 1.6 + 4, f"a frame with ten others: {r1['frame']} ms against {r0['frame']} ms alone (calls {r1['calls']} against {r0['calls']})")
+    per = r1['down'] / max(1, r1['recv'])
+    log(f"heard from ten walking players: {r1['recv']} updates, {per:.0f} B each (at ten a second each: {per * 100 / 1024:.1f} KB/s; here the stand-in's timers ran slower under SwiftShader's load)")
+    if SHOTS:
+        await A.evaluate("(() => { const H = __hm; H.CAM.mode = 'play'; H.CAM.pitch = 0.18; H.CAM.dist = H.CAM.targetDist = 12; H.CAM.yaw = 0; return 0; })()")
+        for _ in range(4): await A.evaluate('__hm.simulate(0.05); 0')
+        await shot(A, 'ten_others')
+    errs = await A.evaluate('__hm.errors.slice()')
+    check(not errs, f'no errors ({errs[:2]})')
+    await A.evaluate('NF.stop()')
+    await b.close()
+
 async def main():
     async with async_playwright() as p:
         if 'room' in PARTS: await room_part(p)
         if 'server' in PARTS: await server_part(p)
+        if 'perf' in PARTS: await perf_part(p)
     print(f'\n{len(FAILS)} failed in {time.time() - T0:.0f}s')
     for f in FAILS: print('  FAIL', f)
     sys.exit(1 if FAILS else 0)

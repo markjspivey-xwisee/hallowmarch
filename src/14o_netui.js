@@ -349,4 +349,4 @@ GUIDE_HELP.push(() => `<h3>Others in the March</h3><p>Whoever has the March open
 LOADING_TIPS.push('Other players in the March are drawn as they are: their realm, calling, gear and the name they wear. Those of your realm are allies, the others foes.', 'Invite players of your realm to a party from the Players button: their health shows by your own and their places on the map.');
 
 /* test and debug hooks */
-window.__hm.net = { NET, NETUI, NETSTUB, state: netState, chat: netChatSend, invite: netInvite, answer: netInviteAnswer, leave: netPartyLeave, sheet: netSheetToggle, sheetRender: netSheetRender, chatOpen: netChatOpen, pump: netPump, ghost: netGhost, world: netWorldObj };
+window.__hm.net = { NET, NETUI, NETSTUB, uiOn: netUiOn, peerUpdate: netPeerUpdate, peerLeft: netPeerLeft, state: netState, chat: netChatSend, invite: netInvite, answer: netInviteAnswer, leave: netPartyLeave, sheet: netSheetToggle, sheetRender: netSheetRender, chatOpen: netChatOpen, pump: netPump, ghost: netGhost, world: netWorldObj };

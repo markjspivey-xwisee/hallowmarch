@@ -136,7 +136,7 @@ function unitSub(e, viewer) {
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
   if (e.faction <= 2) {
     const R = REALMS[e.faction];
-    const role = { player: CLASSES[e.cls].name, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
+    const role = { player: CLASSES[e.cls].name, remote: `${CLASSES[e.cls].name} · a player` /* [net] another page's player (14n_net.js) */, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
     return `${R.name} · ${role}`;
   }
   return e.role === 'herald' ? 'Herald' : e.role === 'merchant' ? 'Merchant' : 'Villager';

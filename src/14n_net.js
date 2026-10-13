@@ -517,6 +517,7 @@ function netHandle(R, kind, d) {
     const from = { x: netNum(d[1], -4000, 4000), y: netNum(d[2], -500, 500), z: netNum(d[3], -4000, 4000) };
     const pt = tgt ? null : { x: netNum(d[5], -4000, 4000), y: netNum(d[6], -500, 500), z: netNum(d[7], -4000, 4000) };
     spawnProjectile(src, tgt, d[0], null, pt, true, from);
+    if (tgt === P) sndOnLoose(src, P, d[0], PROJ_SPEED[d[0]] || 24); // a foe's shot at you is heard coming (11c_sound.js)
     return;
   }
   if (kind === 'ar') {

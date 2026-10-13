@@ -12,7 +12,8 @@ const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const S = { peer: '', acct: null, token: '', peers: {}, got: { peer: 0, far: 0, ev: 0, left: 0, fast: 0 }, evs: [], me: null, seq: 0, evSeq: 0, ring: [], save: null };
 const ws = new WebSocket(url);
 let tick = null;
-ws.on('open', () => out({ open: true }));
+const pending = [];
+ws.on('open', () => { out({ open: true }); for (const m of pending.splice(0)) ws.send(m); });
 ws.on('message', (data) => {
   const m = JSON.parse(String(data));
   if (m.t === 'welcome') { S.peer = m.peer; S.acct = m.acct; S.token = m.token; out({ welcome: { peer: m.peer, acct: m.acct, token: m.token, world: m.world } }); }
@@ -27,7 +28,7 @@ ws.on('message', (data) => {
   else if (m.t === 'denied') out({ denied: m.why });
 });
 ws.on('close', () => { out({ closed: true }); process.exit(0); });
-const send = (o) => ws.send(JSON.stringify(o));
+const send = (o) => { const m = JSON.stringify(o); if (ws.readyState === 1) ws.send(m); else pending.push(m); };
 function fast() {
   if (!S.me) return;
   const d = { s: ++S.seq, t: Math.round(performance.now()), p: [S.me.x, 30, S.me.z], y: 0, v: [0, 0], a: 0, h: 1, m: 2000, d: 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '', ev: S.ring.map((r) => r.e) };
