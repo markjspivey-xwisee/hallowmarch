@@ -195,13 +195,14 @@ async def main():
             check(any(a.startswith('Earn a name') for a in r['aims']), f"the aims name the next name to earn ({r['next']})")
             r = await ev(page, 'realm ranks', """(() => { const H = T.H, F = T.F, L = T.L, P = H.GAME.player, prog = H.GAME.prog;
               F.addRP(52000 - prog.rp); H.simulate(0.3); const out = { rr: L.LATE2.names.filter((id) => /^rr/.test(id)) };
-              L.late2Wear('rr6'); out.gift = +(1 - L.LATE2_NAMES.find((N) => N.id === 'rr6').k.giftCd).toFixed(2); out.cdK = +L.LATE2 && 0;
+              L.late2Wear('rr6'); out.gift = +(1 - L.LATE2_NAMES.find((N) => N.id === 'rr6').k.giftCd).toFixed(2); out.cdK = +L.late2GiftCdK().toFixed(2);
               L.late2Wear('rr8'); out.named = L.late2Named(P);
               const s = F.spawnRealmUnit(P.faction, 'warrior', 45, 'soldier', P.x + 4, P.z + 2); s.ai.post = { x: s.x, z: s.z, leash: 1 }; H.simulate(1.3);
               out.aura = s.buffs.some((b) => b.kind === 'dmg' && b.src === 'l2aura'); s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
               L.late2Wear('rr12'); const foe = F.spawnMob(H.CAMPS[0]); out.all = +L.late2HarmMult(P, foe, {}).toFixed(3); foe.damagers = null; F.killEnt(foe, null); F.removeEnt(foe);
               return out; })()""")
             check(r['rr'] == ['rr6', 'rr8', 'rr10', 'rr12'], f"realm ranks past the great gift earn the realm's own names: {r['rr']}")
+            check(r['cdK'] == 0.85, f"Champion of the realm: the great gift comes round 15% sooner ({r['cdK']})")
             check(r['named'].endswith(', Marshal of Logres') and r['aura'], f"\"{r['named']}\": soldiers of your realm about you strike harder")
             check(r['all'] == 1.03, f"Sword of the realm: everything struck 3% harder ({r['all']})")
 
