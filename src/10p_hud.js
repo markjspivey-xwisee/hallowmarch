@@ -68,7 +68,7 @@ function hudMove(el, x, y, w = 0) {
 function hudReset() {
   for (const el of HUDL.moved) { el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = ''; if (el.id === 'war') el.style.position = ''; if (el.id === 'buildbar') el.style.width = ''; }
   HUDL.moved.clear();
-  for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off'); }
+  for (const sel of HUD_ORDER) { const el = document.querySelector(sel); if (el) el.classList.remove('hl-compact', 'hl-off', 'hl-brief'); } // [look6] hl-brief
   { const bn = $('banners'); if (bn) for (const k of bn.children) k.classList.remove('hl-old'); } // [guide]
   const zt = $('zonetoast'); if (zt && !HUDL.moved.has(zt)) zt.style.left = zt.style.top = zt.style.transform = '';
   const bt = $('bottom'), lg = $('log');
@@ -198,6 +198,15 @@ function hudLayout(dt) {
       r = measure(sel, el);
       if (free(r)) { placed.push({ ...r, sel }); continue; }
       c = seek(sel, r);
+    }
+    if (!c && sel === '#banners' && el.querySelector('.lore-note:not(.hl-old)')) { // [look6] a note's first lines under its title before its title alone (on a 360x640 phone or one on its side it shrank to its title, read only by a tap)
+      el.classList.add('hl-brief');
+      r = measure(sel, el);
+      if (free(r)) { placed.push({ ...r, sel }); continue; }
+      c = seek(sel, r);
+      if (c) { put(sel, el, r, c); continue; }
+      el.classList.remove('hl-brief');
+      r = measure(sel, el);
     }
     if (!c && HUD_COMPACT.has(sel)) {
       el.classList.add('hl-compact');

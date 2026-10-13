@@ -680,6 +680,12 @@
   #banners.hl-compact .lore-note b { font-size: 16px; }
   #banners.hl-compact .lore-note small { font-size: 0; } #banners.hl-compact .lore-note small::after { content: 'Field note · tap'; font-size: 10.5px; }
   #banners.hl-compact > .banner:not(.lore-note):not(.lore-step) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.3; }
+  /* look6: a field note's first lines under its title on a small phone (it shrank to its title alone); a tap reads it whole */
+  #hud #banners.hl-brief > .banner { width: auto; max-width: min(330px, 62vw); padding: 6px 11px 7px; }
+  #banners.hl-brief .lore-note b { font-size: 15px; }
+  #banners.hl-brief .lore-note small { font-size: 0; } #banners.hl-brief .lore-note small::after { content: 'Field note · tap to read'; font-size: 10.5px; }
+  #banners.hl-brief .lore-note span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; line-height: 1.28; }
+  #banners.hl-brief > .banner:not(.lore-note):not(.lore-step) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.3; }
   /* guide2: the Chronicle folded into its summaries, the field notes' page, a glow on the button that does your next step, your aim on the war panel (10f_guide2.js) */
   .chron details.cf { border: 1px solid var(--line); border-radius: 6px; background: rgba(0, 0, 0, 0.16); min-width: 0; }
   .chron details.cf > summary { position: relative; display: block; list-style: none; cursor: pointer; padding: 12px 40px 11px 12px; min-height: 44px; box-sizing: border-box; }

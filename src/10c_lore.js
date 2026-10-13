@@ -1178,7 +1178,7 @@ function showNextNote() {
   d.setAttribute('role', 'status');
   d.title = 'Click to dismiss';
   d.innerHTML = `<small>Field note</small><b>${N.t}</b><span>${text}</span>`;
-  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact'); d.remove(); if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); } }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle ([guide2] on the field notes' page, itself first and open)
+  d.addEventListener('click', () => { const small = $('banners').classList.contains('hl-compact') || $('banners').classList.contains('hl-brief'); /* [look6] its first lines only: a tap reads it whole */ d.remove(); if (small && !UI.modal) { G2.noteFocus = id; openChronicle('notes'); } }); // [guide] shrunk to its title on a small screen: a tap reads it in the Chronicle ([guide2] on the field notes' page, itself first and open)
   host.appendChild(d);
   setTimeout(() => d.remove(), 11000);
   while (host.childNodes.length > 3) host.removeChild(host.firstChild);

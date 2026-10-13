@@ -377,7 +377,7 @@ function deckWreckGeo(c) {
     const lx = c.lx + (c.alongX ? (r() - 0.5) * L * 0.5 : 0), lz = c.lz + (c.alongX ? 0 : (r() - 0.5) * L * 0.5), wp = siteToWorld(S, lx, lz), gy = heightAt(wp.x, wp.z) - S.y, H = c.y - S.y - 0.6 - gy;
     b.add(G.box, lm(M, lx, gy + H * 0.45, lz, yaw0 + 0.3, 0.16, 0.18, Math.hypot(H, 1.4), 0.9), MAT.wood, coal());
   }
-  for (let i = 0; i < 6; i++) { const lx = c.lx + (r() - 0.5) * 2.2, lz = c.lz + (r() - 0.5) * 2.2, wp = siteToWorld(S, lx, lz); b.add(G.ico, lm(M, lx, heightAt(wp.x, wp.z) - S.y + 0.02, lz, r() * 3, 0.45 + r() * 0.5, 0.04 + r() * 0.05, 0.4 + r() * 0.4), MAT.darkstone, [0.2 + r() * 0.06, 0.19 + r() * 0.05, 0.18 + r() * 0.05]); }
+  for (let i = 0; i < 6; i++) { const lx = c.lx + (r() - 0.5) * 2.2, lz = c.lz + (r() - 0.5) * 2.2, wp = siteToWorld(S, lx, lz); b.add(G.ico, lm(M, lx, heightAt(wp.x, wp.z) - S.y + 0.02, lz, r() * 3, 0.45 + r() * 0.5, 0.04 + r() * 0.05, 0.4 + r() * 0.4), MAT.darkstone, [0.36 + r() * 0.08, 0.35 + r() * 0.07, 0.33 + r() * 0.07]); } // [look6] pale ash (it was charcoal-dark, and with the char drawn over it the burnt walk's fall read as one black smear from the walk)
   return b.build();
 }
 
@@ -395,7 +395,7 @@ function ringWreckGeo(c) {
     const a = lerp(c.a0, c.a1, r()), p = at(a, BZ_RING.R0 + (r() < 0.5 ? -1 : 1) * (0.9 + r() * 2.2)), L = 1.4 + r() * 2.4;
     b.add(G.cyl8, lm(M, p.x, 0.18 + r() * 0.2, p.z, a + Math.PI / 2 + (r() - 0.5) * 0.8, 0.22, L, 0.22, Math.PI / 2 + (r() - 0.5) * 0.3), MAT.logH, coal(), S.y, 1.2);
   }
-  for (let i = 0; i < 10; i++) { const p = at(lerp(c.a0, c.a1, r()), BZ_RING.R0 + (r() - 0.5) * 3); b.add(G.ico, lm(M, p.x, 0.02, p.z, r() * 3, 0.5 + r() * 0.6, 0.05 + r() * 0.06, 0.4 + r() * 0.5), MAT.darkstone, [0.2 + r() * 0.06, 0.19 + r() * 0.05, 0.18 + r() * 0.05]); }
+  for (let i = 0; i < 10; i++) { const p = at(lerp(c.a0, c.a1, r()), BZ_RING.R0 + (r() - 0.5) * 3); b.add(G.ico, lm(M, p.x, 0.02, p.z, r() * 3, 0.5 + r() * 0.6, 0.05 + r() * 0.06, 0.4 + r() * 0.5), MAT.darkstone, [0.36 + r() * 0.08, 0.35 + r() * 0.07, 0.33 + r() * 0.07]); } // [look6] pale ash
   return b.build();
 }
 

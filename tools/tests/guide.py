@@ -132,8 +132,8 @@ async def phone(p):
         await page.set_viewport_size({'width': w, 'height': h})
         await page.wait_for_timeout(250)
         await ev(page, "GD.noteOn('needs')")
-        r = await ev(page, "(() => { const c = GD.clear('#banners'); c.compact = document.getElementById('banners').classList.contains('hl-compact'); return c; })()")
-        check(r.get('shown') and r.get('on') and not r.get('hit'), f'a field note fits a {w}x{h} phone, clear of the other panels, {"shrunk to its title" if r.get("compact") else "whole"} ({r})')
+        r = await ev(page, "(() => { const c = GD.clear('#banners'); c.compact = document.getElementById('banners').classList.contains('hl-compact'); c.brief = document.getElementById('banners').classList.contains('hl-brief'); return c; })()")  # [look6] hl-brief: its title and first lines
+        check(r.get('shown') and r.get('on') and not r.get('hit'), f'a field note fits a {w}x{h} phone, clear of the other panels, {"shrunk to its title" if r.get("compact") else "its title and first lines" if r.get("brief") else "whole"} ({r})')
         if r.get('compact') and w == 844: await shot(page, 'guide_phone_note_small')
     await page.set_viewport_size({'width': 390, 'height': 780})
     await page.wait_for_timeout(250)

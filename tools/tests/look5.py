@@ -188,18 +188,23 @@ async def main():
               // the rule itself: a panel that loses a line keeps its taller place until HUD_HOLD_T has gone by
               const a = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 80 }), b = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); const hold = L5h.hold.get('#war'); hold.until = -1; const c = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); L5h.hold.delete('#war');
               // in the HUD: a panel over another in the same column gains a line and loses it again
+              // [look6] with no field note up: while one shows an upright phone lays the HUD out in the note's order, where the
+              // class panel keeps its place and the path tracker over it moves aside instead (the check failed once in a full
+              // run, #cls staying at 240, most likely so; run without the scenes before it, no note was up and it passed: `dg`)
+              for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); H.LORE.state.queue.length = 0;
               L5.lay(); for (let i = 0; i < 3; i++) H.frame(1/30);
               const P = Hd.HUDL.placed.filter((q) => Hd.HUD_HOLD.has(q.sel)), pairs = [];
               for (const A of P) for (const B of P) if (A !== B && B.y > A.y + A.h - 2 && B.y - (A.y + A.h) < 40 && A.x < B.x + B.w && B.x < A.x + A.w) pairs.push([A.sel, B.sel]);
               if (!pairs.length) return { unit: [a.h, b.h, c.h], pairs: 0, placed: Hd.HUDL.placed.map((q) => q.sel + '@' + Math.round(q.y) + '+' + Math.round(q.h)) };
               const [sa, sb] = pairs[0], A = document.querySelector(sa), B = document.querySelector(sb), top = () => Math.round(B.getBoundingClientRect().top);
               const t0 = top(), x = document.createElement('div'); x.textContent = 'A line more'; x.style.cssText = 'height:34px';
-              A.appendChild(x); L5.lay(); H.frame(1/30); const t1 = top(), h0 = L5h.held;
+              const ah = () => Math.round(A.getBoundingClientRect().height), dg = { note: !!document.querySelector('#banners > .lore-note:not(.hl-old)'), banners: document.getElementById('banners').className, a: A.className, b: B.className, ah0: ah() }; // [look6] what the HUD held when it failed
+              A.appendChild(x); L5.lay(); H.frame(1/30); const t1 = top(), h0 = L5h.held; dg.ah1 = ah(); dg.a1 = A.className; dg.b1 = B.className;
               x.remove(); L5.lay(); H.frame(1/30); const t2 = top();
-              return { unit: [a.h, b.h, c.h], pairs: pairs.length, pair: pairs[0], t0, t1, t2, held: L5h.held - h0 }; })()""", 'hud held')
+              return { unit: [a.h, b.h, c.h], pairs: pairs.length, pair: pairs[0], t0, t1, t2, held: L5h.held - h0, dg, placed: Hd.HUDL.placed.map((q) => q.sel + '@' + Math.round(q.y) + '+' + Math.round(q.h)) }; })()""", 'hud held')
             check(r['unit'] == [80, 80, 60], f"a panel that loses a line keeps its taller place until its hold runs out ({r['unit']})")
             if r.get('pairs'):
-                check(r['t1'] > r['t0'] and r['t2'] == r['t1'] and r['held'] > 0, f"in the HUD: {r['pair'][0]} gains a line and loses it, {r['pair'][1]} under it moves down once and stays ({r['t0']} -> {r['t1']} -> {r['t2']})")
+                check(r['t1'] > r['t0'] and r['t2'] == r['t1'] and r['held'] > 0, f"in the HUD: {r['pair'][0]} gains a line and loses it, {r['pair'][1]} under it moves down once and stays ({r['t0']} -> {r['t1']} -> {r['t2']})" + ('' if r['t1'] > r['t0'] else f" {r.get('dg')} {r.get('placed')}"))
             else:
                 print('  (no two panels one over the other in this HUD: only the rule checked)', r.get('placed'))
             r = await ev(page, """(() => { const H = L5.H, P = L5.P(); const fc = document.getElementById('farmcard'), pb = document.getElementById('petbar');
@@ -224,7 +229,7 @@ async def main():
                   H.LORE.openChronicle('war'); const st = H.guide2.G2.stats.pages.war || {}; const war = Math.round(document.querySelector('.chron-body').getBoundingClientRect().height);
                   const folds = [...document.querySelectorAll('.chron-body details.cf > summary')].map((q) => q.textContent.trim()).slice(0, 6);
                   return { vh, now, old, war, war0: st.h0, folds }; })()""", f'pages {w}x{h}')
-                check(r['now'] <= r['vh'] * (1.05 if h >= 700 else 1.2), f"{w}x{h}: How to play on about one screen ({r['now']} px, the sheet {r['vh']}; as it was {r['old']})")
+                check(r['now'] <= r['vh'] * 1.05, f"{w}x{h}: How to play on one screen ({r['now']} px, the sheet {r['vh']}; as it was {r['old']})")  # [look6] at 360x640 too (it was 1.1 of its screens)
                 check(r['war'] <= r['vh'] * 1.75, f"{w}x{h}: the War page folded in under 1.75 screens ({r['war']} px, the sheet {r['vh']}; natural {r['war0']}; folds {r['folds']})")
             await page.set_viewport_size({'width': 390, 'height': 780})
             r = await ev(page, """(() => { const H = L5.H, L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'l5fold'); const w0 = H.guide.GUIDE_WATCH.l5fold();

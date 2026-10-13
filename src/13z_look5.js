@@ -234,7 +234,7 @@ function look5HelpHTML() {
   let sys = '';
   GUIDE_HELP.slice(1).forEach((f) => { try { sys += guideFold(f(), false); } catch (e) { reportError(e); } });
   let what = '';
-  try { what = GUIDE_HELP[0] ? guideFold(GUIDE_HELP[0](), true) : ''; } catch (e) { reportError(e); }
+  try { what = GUIDE_HELP[0] ? guideFold(GUIDE_HELP[0](), innerHeight >= 700) : ''; } catch (e) { reportError(e); } // [look6] folded under its heading on a short phone (360x640: the page was 1.1 of its screens)
   return `<div class="keys">${first}</div>${what}
     <details class="gd-help l5-group"><summary>All the controls</summary><div><div class="keys">${rest}</div></div></details>
     <details class="gd-help l5-group"><summary>Every part of the March</summary><div class="l5-sys">${sys}</div></details>`;

@@ -220,7 +220,7 @@ function houseWorkPlan(e, H) {
   const side = (e.id % 2) ? 1 : -1;
   const lx = H.round ? side * (H.r + 1.6) : side * (H.w / 2 + 1.7), lz = H.round ? -0.6 : -H.d * 0.15;
   e.ai.l5n = (e.ai.l5n || 0) + 1; // [look5] each stint at the next place along the wall
-  const p = houseScafWorkSpot(H, side, e.ai.l5n) || { ...houseW(H, lx, lz), fx: H.x, fz: H.z }; // [look4] inside the scaffold at the wall, hammering at it (04j_rubble.js)
+  const p = houseScafWorkSpot(H, side, e.ai.l5n, e) || { ...houseW(H, lx, lz), fx: H.x, fz: H.z }; // [look4] inside the scaffold at the wall, hammering at it (04j_rubble.js); [look6] not where another builder is
   return [houseGo(p.x, p.z), lifeStep('work', { dur: 14 + Math.random() * 10, fx: p.fx, fz: p.fz, H })];
 }
 // out of a burning house by the door, then away to watch from a safe distance

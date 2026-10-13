@@ -40,7 +40,7 @@ const SIEGE_FS = (() => {
   if (!fs.includes(pre) || !fs.includes(lit)) return fs; // the building shader changed: engines lose their char, nothing else
   fs = fs.replace(pre, `uniform float uChar, uEmber; float gEmb = 0.0, gEmbId = 0.0;\n    ${LOOK4_CHAR_GLSL /* [look4] (04d_look4.js) */}\n    ${pre}`);
   fs = fs.replace(lit, /* glsl */`
-      if (uChar > 0.002 && m != 6) {
+      if (uChar > 0.002 && m != 6 && m != 9) { // [look6] ash (darkstone) is not charred: the heaps of ash round a wreck were drawn as coal
         // fire eats the timber from the edges in: grain gone to charcoal, split into checks that glow while it burns.
         // [look4] On the face's own coordinates, the checks blocks across and along the grain (look4Char, 04d_look4.js):
         // contour lines of a noise of (x + y, z + y) laid the char and the embers in long diagonal streaks on a gate's leaves
@@ -50,7 +50,12 @@ const SIEGE_FS = (() => {
         vec3 coal = vec3(0.05, 0.043, 0.037) * (0.6 + 0.6 * ck.y + 0.3 * vnoise(uv * 13.0)) * clamp(dot(alb, vec3(0.3, 0.59, 0.11)) / max(dot(vCol, vec3(0.3, 0.59, 0.11)), 0.05), 0.4, 1.6); // (the planks' seams kept)
         alb = mix(alb, coal, ch);
         alb *= 1.0 - 0.6 * ck.x * ch;
-        gEmb = ch * (0.04 + 0.95 * ck.x + 0.12 * (1.0 - ck.z)); gEmbId = ck.y;
+        // [look6] burnt timber lying open to the sky wears a coat of pale ash on what faces up, checked by the char's
+        // fissures: from a step back a burh's walk burnt through left one black smear below it (the checks fade to their
+        // mean under a pixel, and the mean is charcoal)
+        float ashK = ch * smoothstep(0.55, 0.9, n.y) * (0.45 + 0.4 * vnoise(uv * 2.3 + 1.7));
+        alb = mix(alb, vec3(0.31, 0.3, 0.29) * (0.75 + 0.5 * ck.y), ashK * (1.0 - 0.8 * ck.x));
+        gEmb = ch * (0.04 + 0.95 * ck.x + 0.12 * (1.0 - ck.z)) * (1.0 - 0.7 * ashK); gEmbId = ck.y;
       }
       if (uChar > 0.002 && m == 6) alb *= 1.0 - 0.6 * uChar;
       ${lit}

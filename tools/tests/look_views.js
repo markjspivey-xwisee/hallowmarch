@@ -1065,30 +1065,45 @@ window.LK = {
     return { ...L.eye(cx, cz, p.x + s * 0.6, L.floor(p.x, p.z) + 1.0, p.z + c * 0.6, 1.5), act: e.anim.act, dur: e.anim.actDur };
   });
   D('look4', 'beaters', (L) => {
-    const H = L.H, F = L.F, K = keepOf(2, 0), C = castleOfK(K);
+    // [look6] the firefighters against the burning palisade they beat: a stretch in the middle of a side (the corner's
+    // stretch put the camera in the gap by a tower, against its dark wall), the camera in the court, the beater between it
+    // and the flames, the frames run so the flames show (a still after a simulation lost them: CLAUDE.md, Gotchas)
+    const H = L.H, F = L.F, K = keepOf(2, 0), C = castleOfK(K), S = K.site;
     K.lastEnemyNear = H.GAME.t;
     if (!L.l4beat) {
       noGarrison(K); K.nextGuardAt = 0; F.fillGarrison(K, true); sim(L, 2);
-      H.palisade.palisadeInit(); const c = C.pal.cells.find((q) => q.side === 0 && Math.abs(q.a - 3) < 1); H.palisade.palisadeIgnite(c, 0.7);
+      H.palisade.palisadeInit();
+      // the stretch with the most open court before it: in the middle of a side, a clear line from 7 m in
+      // (a side wall's: the hall stands by the back wall and the gate in the front)
+      const mid = C.pal.cells.filter((q) => (q.side === 1 || q.side === 2) && Math.abs(q.a) < 5).map((q) => {
+        const inn = { x: S.x + (q.x - S.x) * 0.55, z: S.z + (q.z - S.z) * 0.55 };
+        const clear = !H.walls.shotHit(inn.x, S.y + 1.8, inn.z, q.x, S.y + 1.6, q.z, {}) ? 1 : 0;
+        return { q, clear, d: Math.abs(q.a) };
+      }).sort((a, b) => b.clear - a.clear || a.d - b.d);
+      const c = (mid[0] || {}).q || C.pal.cells.find((q) => q.side === 0 && Math.abs(q.a - 3) < 1);
+      H.palisade.palisadeIgnite(c, 0.7);
       L.l4beat = c;
     }
     const c = L.l4beat, gs = () => [...K.guards].map(F.getEnt).filter((g) => g && g.alive && g.ai.fire && g.anim.act === 21);
-    for (let t = 0; t < 30 && gs().length < 2; t += 0.5) sim(L, 0.5);
-    c.heat = Math.max(c.heat, 0.6); sim(L, 0.25);
+    for (let t = 0; t < 30 && gs().length < 2; t += 0.5) { c.heat = Math.max(c.heat, 0.6); sim(L, 0.5); }
+    c.heat = Math.max(c.heat, 0.7);
     const g = gs()[0] || [...K.guards].map(F.getEnt).find((q) => q && q.alive && q.ai.fire);
     if (!g) return { skip: 'no beater' };
-    // from behind and beside the beater, looking past it at the fire it beats (siege3_crew's framing came out dark)
-    let ux = g.x - c.x, uz = g.z - c.z; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
-    const tx = c.x * 0.6 + g.x * 0.4, ty = g.y + 1.2, tz = c.z * 0.6 + g.z * 0.4;
+    L.away(S.x + 60, S.z + 60);
+    // from the court: back from the beater toward the keep's middle and to one side, looking past it at the fire
+    let ux = S.x - c.x, uz = S.z - c.z; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+    const tx = c.x * 0.7 + g.x * 0.3, ty = g.y + 1.3, tz = c.z * 0.7 + g.z * 0.3;
     let pick = null;
-    for (const rr of [3.2, 4.2, 2.6]) for (const lat of [1.3, -1.3, 2.2, -2.2]) {
-      if (pick) break; const cx = g.x + ux * rr - uz * lat, cz = g.z + uz * rr + ux * lat, cy = Math.max(g.y, F.heightAt(cx, cz)) + 1.9;
-      if (H.walls.shotHit(cx, cy, cz, g.x, g.y + 1.3, g.z, {}) || H.walls.shotHit(cx, cy, cz, tx, ty, tz, {})) continue;
+    for (const rr of [4.5, 3.6, 5.5, 2.8]) for (const lat of [1.8, -1.8, 2.8, -2.8, 1.0, -1.0]) {
+      if (pick) break; const cx = g.x + ux * rr - uz * lat, cz = g.z + uz * rr + ux * lat, cy = Math.max(g.y, F.heightAt(cx, cz)) + 1.75;
+      if (!F.isWalkable(cx, cz) || F.houseAt(cx, cz, 0.6) || H.walls.shotHit(cx, cy, cz, g.x, g.y + 1.2, g.z, {}) || H.walls.shotHit(cx, cy, cz, tx, ty, tz, {})) continue;
       pick = [cx, cy, cz];
     }
-    if (!pick) pick = [g.x + ux * 3.2 - uz * 1.3, g.y + 1.9, g.z + uz * 3.2 + ux * 1.3];
-    L.away(K.site.x + 60, K.site.z + 60);
-    return { ...L.cam(pick[0], pick[1], pick[2], tx, ty, tz), beating: gs().length };
+    if (!pick) pick = [g.x + ux * 4.5 - uz * 1.8, g.y + 1.75, g.z + uz * 4.5 + ux * 1.8];
+    const r = L.cam(pick[0], pick[1], pick[2], tx, ty, tz);
+    // the frames run (the world with them) so the flames and the beating show as in play, the camera held
+    for (let i = 0; i < 8; i++) { const m = H.UI.modal; H.UI.modal = null; c.heat = Math.max(c.heat, 0.7); H.frame(1 / 15); H.UI.modal = m || 'menu'; H.camera.position.set(pick[0], pick[1], pick[2]); H.camera.lookAt(tx, ty, tz); }
+    return { ...r, beating: gs().length, heat: +c.heat.toFixed(2), side: c.side, a: +c.a.toFixed(1) };
   });
   // a climber half way up a scaffold's ladder, from beside it (the hands and feet on its rungs)
   D('look4', 'scaf_climb', (L) => {
@@ -1293,7 +1308,16 @@ window.LK = {
   });
   // the mason up on a breached tower's scaffold with its mallet, close (look3's masons from 5 m)
   D('look5', 'mason_close', (L) => {
-    const r = L.views.masons.call(L, L); if (r && r.skip) return r;
+    // [look6] the war kept away while the masons come: a breach draws the commanders' bands, and after `mound` they kept
+    // the keep from mending (no scaffold in 140 s); every foe of the keep within 140 m sent away and the commanders held
+    const H0 = L.H, S0 = L.keepSite(0, 0), K0 = S0.keepRef, held = H0.WAR.commanders.map((Cm) => Cm.nextThink);
+    const away = () => { for (const e of H0.ENT.slice()) if (e.alive && e.role === 'soldier' && e.faction !== K0.realm && Math.hypot(e.x - S0.x, e.z - S0.z) < 140) L.F.removeEnt(e); };
+    for (const Cm of H0.WAR.commanders) Cm.nextThink = H0.GAME.t + 400;
+    away();
+    const sim0 = H0.simulate; H0.simulate = function (sec, dt) { away(); return sim0.call(this, sec, dt); };
+    let r;
+    try { r = L.views.masons.call(L, L); } finally { H0.simulate = sim0; H0.WAR.commanders.forEach((Cm, i) => { Cm.nextThink = Math.min(held[i], H0.GAME.t + 5); }); }
+    if (r && r.skip) return r;
     const H = L.H, F = L.F, L3 = H.look3, ms = L3.MASON.list.filter((e) => !e.removed && e.alive && e.ai.mason && e.ai.mason.st === 'work');
     const up = ms.sort((a, b) => b.y - a.y)[0];
     if (!up) return { skip: 'no mason at work' };
@@ -1352,4 +1376,309 @@ window.LK = {
     L.away(A.x + 40, A.z + 40);
     return { ...L.cam(cx, L.floor(cx, cz) + 2.4, cz, A.x, A.y + 1.8, A.z), st: A.state, t: +A.stT.toFixed(1), builders: bs.map((e) => +(e.y - A.y).toFixed(2)) };
   });
+})();
+// [look6] (version 18) what version 17 added, as a player meets it: the Deep Barrow hall by hall with the player in it by
+// its own light (the seal, the Long Stair, the cistern dry and flooded with the player swimming, the pyres' pitch alight,
+// a gallery slab giving way and fallen, the Ash Throne, the lord's cleave and his Ember Word), a veteran in its mantle,
+// its horse in its barding at a gallop, the standard with its device and struck down, a column on the road from the
+// muster, and two guards mending a broken gate with mallets
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
+  // frames with the world running in step with them (what is emitted shows, as in play), then held
+  const live = (L, sec, dt = 1 / 10) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || 'menu'; };
+  // a veteran of 50 who has laid the Hollow King to rest and brought the Ash-Crowned down, wearing a name (the mantle)
+  LK.vet = function (name = 'ashbane') {
+    const H = this.H, F = this.F, Lt = H.late.LATE2;
+    if (H.GAME.prog.level < 50) { H.GAME.prog.level = 50; F.rescaleWar(); }
+    Lt.d.king = Math.max(1, Lt.d.king || 0); H.GAME.prog.kingKills = Math.max(1, H.GAME.prog.kingKills || 0);
+    if (name === 'ashbane') Lt.d.deep = Math.max(1, Lt.d.deep || 0);
+    H.late.late2CheckNames(true);
+    if (Lt.worn !== name) H.late.late2Wear(name);
+    H.vet3.L3V.mantle = true;
+    return Lt.worn;
+  };
+  // under the Barrow: the seal broken, the deep drawn, the player at (u, v) facing yaw, the play camera behind it
+  LK.deepPrep = function () {
+    const H = this.H, Dp = H.deep, D0 = Dp.DEEP;
+    this.vet();
+    if (!D0.opened) Dp.late3SealOpen(true);
+    if (!this.l6deep) { Dp.deepPacksFresh(); this.l6deep = true; }
+    return D0;
+  };
+  LK.under = function (u, v, yaw, pitch = 0.25, dist = 6, keep) {
+    const H = this.H, F = this.F, P = H.GAME.player, p = F.dunPoint(u, v);
+    if (P.mount) { try { F.dismount(P); } catch (e) { /* */ } }
+    P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; P.yaw = yaw; P.vy = 0; P.onGround = true; P.motion = null; P.l3fall = null; P.hp = P.maxHp = 1e7; P.buffs.length = 0; P.casting = null; P.swim = false; P.target = null;
+    F.setIndoor(true); this.afterIndoor = true;
+    H.deep.DEEP.root.visible = true;
+    H.CAM.mode = 'play'; H.UI.modal = 'menu'; H.look(yaw, pitch, dist); H.CAM.near = dist;
+    return { at: [u, v], y: +p.y.toFixed(2) };
+  };
+  // the deep's dead in a hall cleared (a hall looked at on its own), or kept where they stand
+  LK.deepCalm = function (room) {
+    const H = this.H, F = this.F;
+    for (const e of H.ENT.slice()) if (e.alive && e.deep && !e.deepLord && (!room || (H.deep.late3Room(e.x, e.z) || {}).id === room)) { e.damagers = null; F.killEnt(e, null); F.removeEnt(e); }
+  };
+  const P0 = (L) => L.H.GAME.player;
+  LK.H.look6Top = (S, x, z) => { const m = S.mesh, lx = x - m.position.x, lz = z - m.position.z; return m.position.y + lx * Math.sin(m.rotation.z) * Math.cos(m.rotation.x) - lz * Math.sin(m.rotation.x); };
+  D('look6', 'deep_seal', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep();
+    // the seal whole, as a player first meets it
+    D0.seal.target = 0; D0.seal.open = 0; D0.seal.mesh.position.y = -7; D0.seal.coll.active = true;
+    const r = L.under(193, 10.5, 0, 0.12, 4.5);
+    sim(L, 0.3);
+    return { ...r, seal: D0.seal.open };
+  });
+  D('look6', 'deep_stair', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep();
+    Dp.late3SealOpen(true); D0.seal.open = 1; D0.seal.target = 1;
+    const r = L.under(193, 22.5, 0, 0.35, 4.5);
+    sim(L, 0.3);
+    return r;
+  });
+  D('look6', 'deep_cistern', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep();
+    D0.flood.st = 0; D0.flood.next = 1e9; D0.wy = Dp.DEEP_FLOOD.base; D0.water.position.y = D0.wy;
+    L.deepCalm('cistern');
+    const r = L.under(180, 39.5, -Math.PI / 2 - 0.35, 0.22, 5.5);
+    sim(L, 0.3);
+    return { ...r, wy: +D0.wy.toFixed(2) };
+  });
+  D('look6', 'deep_flood', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep();
+    D0.flood.st = 2; D0.flood.t = 0; D0.flood.next = 1e9; D0.wy = Dp.DEEP_FLOOD.high; D0.water.position.y = D0.wy;
+    L.deepCalm('cistern');
+    const r = L.under(171, 46.5, -Math.PI / 2 + 0.25, 0.3, 5.0);
+    live(L, 1.2);
+    const P = P0(L);
+    return { ...r, wy: +D0.wy.toFixed(2), swim: !!P.swim, y: +P.y.toFixed(2) };
+  });
+  D('look6', 'deep_pyres', (L) => {
+    const H = L.H, F = L.F, Dp = H.deep, D0 = L.deepPrep();
+    L.deepCalm('pyres');
+    Dp.deepPitchOut(); for (const C of D0.cells) C.ch = 0;
+    const C = D0.cells.find((c) => c.hall === 'pyres' && Math.abs(F.dunU(c.x) - 123) < 1.2 && Math.abs(F.dunV(c.z) - 49) < 1.2) || D0.cells[20];
+    Dp.deepIgnite(C, null);
+    sim(L, 3.5);
+    const r = L.under(131, 50.5, -Math.PI / 2 - 0.2, 0.3, 5.5);
+    live(L, 1.0);
+    return { ...r, lit: D0.cells.filter((c) => c.heat > 0.2).length };
+  });
+  // a gallery slab cracking under the player (shaking, embers through its cracks), and fallen with the player in the pit
+  const gallerySlab = (L) => L.H.deep.DEEP.slabs.find((s) => s.hall === 'crack' && s.u0 === 80);
+  D('look6', 'deep_slab', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep(), S = gallerySlab(L);
+    L.deepCalm('crack');
+    if (S.st !== 0) Dp.deepSlabMend(S);
+    const r = L.under(82, 49, -Math.PI / 2, 0.32, 5.0);
+    Dp.deepSlabCrack(S, 1.1, null);
+    live(L, 0.8);
+    return { ...r, st: S.st, t: +S.t.toFixed(2) };
+  });
+  D('look6', 'deep_slab_fall', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep(), S = gallerySlab(L);
+    L.deepCalm('crack');
+    if (S.st !== 0) Dp.deepSlabMend(S);
+    const r = L.under(82, 49, -Math.PI / 2, 0.32, 5.0);
+    Dp.deepSlabFall(S);
+    live(L, 1.0);
+    const P = P0(L), F = L.F;
+    // as the player sees it: the play camera follows it down into the pit
+    H.CAM.mode = 'play'; H.look(-Math.PI / 2 + 0.5, 0.55, 4.2); H.CAM.near = 4.2;
+    for (let i = 0; i < 3; i++) H.frame(1 / 30);
+    return { st: S.st, fall: !!P.l3fall, y: +P.y.toFixed(2), slabTop: +H.look6Top(S, P.x, P.z).toFixed(2), slabY: +S.mesh.position.y.toFixed(2) };
+  });
+  D('look6', 'deep_throne', (L) => {
+    const H = L.H, Dp = H.deep, D0 = L.deepPrep();
+    L.deepCalm('ashhall');
+    Dp.deepLordFresh();
+    const r = L.under(55, 48.5, -Math.PI / 2, 0.16, 6.0);
+    sim(L, 0.3);
+    return r;
+  });
+  // the lord's fight: his cleave's marker before him, and his Ember Word spoken over a burning aisle
+  const lordFight = (L, want) => {
+    const H = L.H, F = L.F, Dp = H.deep, D0 = L.deepPrep();
+    L.deepCalm('ashhall');
+    const id = Dp.deepLordFresh(), K = F.getEnt(D0.lord);
+    const r = L.under(36, 48.5, -Math.PI / 2, 0.22, 7.0);
+    const P = P0(L);
+    for (let i = 0; i < 40 && !(K.casting && K.casting.id === want); i++) {
+      P.hp = P.maxHp;
+      if (want === 'word') K.ai.nextWord = Math.min(K.ai.nextWord || 0, H.GAME.t);
+      else if (K.ai.awake) {
+        K.ai.nextWord = H.GAME.t + 60; K.ai.nextCleave = Math.min(K.ai.nextCleave || 0, H.GAME.t);
+        // (within his cleave's 4.8 m: from his reach's edge he only strikes)
+        if (Math.hypot(P.x - K.x, P.z - K.z) > 4.2) { const a = Math.atan2(P.x - K.x, P.z - K.z); P.x = P.prevX = K.x + Math.sin(a) * 3.6; P.z = P.prevZ = K.z + Math.cos(a) * 3.6; P.yaw = a + Math.PI; }
+      }
+      sim(L, 0.25);
+    }
+    live(L, want === 'word' ? 1.2 : 0.5);
+    P.hp = P.maxHp;
+    H.look(Math.atan2(K.x - P.x, K.z - P.z), 0.18, 7.0);
+    return { ...r, casting: K.casting ? K.casting.id : null, lordAt: [+F.dunU(K.x).toFixed(1), +F.dunV(K.z).toFixed(1)] };
+  };
+  D('look6', 'deep_word', (L) => lordFight(L, 'word'));
+  D('look6', 'deep_cleave', (L) => lordFight(L, 'cleave'));
+  /* ---- a veteran the March can see ---- */
+  D('look6', 'vet_mantle', (L) => {
+    const H = L.H, F = L.F, m = H.REALMS[0].musterSite, sp = L.open(m.x + 18, m.z + 14, 4, 90) || m;
+    L.hush(sp.x, sp.z, 20);
+    const worn = L.vet('ashbane');
+    const r = L.play(sp.x, sp.z, 0.9, 0.16, 3.6);
+    sim(L, 0.4);
+    return { ...r, worn, code: H.vet3.late3MantleCode(P0(L)) };
+  });
+  D('look6', 'vet_mantle_side', (L) => {
+    const H = L.H, F = L.F, m = H.REALMS[0].musterSite, sp = L.open(m.x + 18, m.z + 14, 4, 90) || m;
+    L.hush(sp.x, sp.z, 20);
+    L.vet('kingsbane');
+    L.play(sp.x, sp.z, 0.9, 0.16, 3.6);
+    sim(L, 0.4);
+    const P = P0(L), a = 0.9 + 2.2;
+    return { ...L.cam(P.x + Math.sin(a) * 3.4, P.y + 1.6, P.z + Math.cos(a) * 3.4, P.x, P.y + 1.15, P.z), worn: H.late.LATE2.worn };
+  });
+  // the horse in its barding at a gallop, from abreast (the device on its flank)
+  D('look6', 'vet_barding', (L) => {
+    const H = L.H, F = L.F, sp = L.open(H.REALMS[2].musterSite.x + 34, H.REALMS[2].musterSite.z + 10, 10, 90);
+    if (!sp) return { skip: 'no room' };
+    L.hush(sp.x, sp.z, 45);
+    L.vet('ashbane'); H.late.LATE2.vet = Math.max(5, H.late.LATE2.vet || 0);
+    for (let j = -36; j <= 30; j += 1.5) H.nature.natureCut(sp.x + j, sp.z, 3.5, 1, false);
+    const P = P0(L); L.play(sp.x - 24, sp.z, Math.PI / 2, 0.1, 6);
+    F.mountUp(P, true); sim(L, 0.2);
+    H.UI.modal = null; H.INPUT.keys.clear(); H.INPUT.keys.add('KeyW'); H.INPUT.keys.add('ShiftLeft');
+    H.CAM.yaw = Math.PI / 2;
+    for (let k = 0; k < 110; k++) { H.CAM.yaw = Math.PI / 2; H.simulate(1 / 60, 1 / 60); }
+    live(L, 0.2, 1 / 60);
+    H.INPUT.keys.clear(); H.UI.modal = 'menu';
+    // from abreast at the horse's flank, on whichever side the ground is lower (the camera on a rise looked down on it)
+    const side = F.heightAt(P.x, P.z - 5) <= F.heightAt(P.x, P.z + 5) ? -1 : 1, cz = P.z + side * 4.6;
+    return { ...L.cam(P.x + 0.6, Math.max(F.heightAt(P.x, cz) + 0.6, P.y + 1.35), cz, P.x + 0.3, P.y + 1.15, P.z), at: +(P.x - sp.x).toFixed(1), bard: H.vet3.late3BardCode(P), mount: !!P.mount, side };
+  });
+  // the standard of the name: its flag with the device, planted on the frontier, and struck down
+  const plant6 = (L) => {
+    const H = L.H, F = L.F, P = P0(L), Lt = H.late.LATE2, m = H.REALMS[0].musterSite, sp = L.open(m.x + 26, m.z - 18, 4, 90) || { x: m.x + 26, z: m.z - 18 };
+    L.hush(sp.x, sp.z, 20);
+    L.vet('kingsbane');
+    Lt.std.made = true;
+    const V = H.vet3.L3V; V.std.fallen = false; V.std.k = 0; V.std.hp = 1;
+    if (!(Lt.std.at && Math.hypot(Lt.std.at.x - sp.x, Lt.std.at.z - sp.z) < 3)) { L.play(sp.x, sp.z, 0.7, 0.12, 6.5); if (Lt.std.at) H.late.late2StdTake(); H.late.late2StdPlant(); }
+    H.vet3.late3StdPose();
+    return Lt.std.at;
+  };
+  D('look6', 'vet_std', (L) => {
+    const H = L.H, F = L.F, at = plant6(L);
+    if (!at) return { skip: 'not planted' };
+    L.away(at.x + 40, at.z + 40);
+    sim(L, 0.5);
+    const y = F.heightAt(at.x, at.z);
+    return { ...L.cam(at.x + 1.6, y + 2.6, at.z + 5.4, at.x + 0.5, y + 2.9, at.z), code: H.vet3.L3V.std.code };
+  });
+  D('look6', 'vet_std_fallen', (L) => {
+    const H = L.H, F = L.F, at = plant6(L), V = H.vet3;
+    if (!at) return { skip: 'not planted' };
+    L.away(at.x + 40, at.z + 40);
+    V.L3V.std.fallen = true; V.L3V.std.hp = 0; V.L3V.std.side = 1;
+    sim(L, 1.3);
+    const y = F.heightAt(at.x, at.z);
+    return { ...L.cam(at.x + 3.0, y + 2.2, at.z + 4.6, at.x - 1.6, y + 0.3, at.z), k: +V.L3V.std.k.toFixed(2) };
+  });
+  /* ---- the war's holds: a column from the muster, a gate mended ---- */
+  // a Logres keep falls to Ériu: a column marches from Ériu's muster to fill its posts; seen on the road
+  LK.w3keep = function () {
+    const H = this.H, F = this.F, WAR = H.WAR;
+    if (this.l6col && this.l6col.ki != null) return this.l6col;
+    const ki = WAR.keeps.findIndex((k) => k.realm === 0 && k.orig === 0), K = WAR.keeps[ki];
+    for (const id of [...K.guards]) { const g = F.getEnt(id); if (g) F.removeEnt(g); }
+    K.guards.clear();
+    if (K.door.alive) F.killEnt(K.door, null);
+    F.captureKeep(K, 1, null);
+    this.l6col = { ki, t: H.GAME.t };
+    return this.l6col;
+  };
+  D('look6', 'w3_column', (L) => {
+    const H = L.H, F = L.F, WAR = H.WAR, s = L.w3keep();
+    const col = WAR.warbands.find((w) => w.w3col && w.w3col.keep === s.ki && !w.dead);
+    if (!col) return { skip: 'no column' };
+    let ms = F.wbMembers(col);
+    // the column some way along its road
+    for (let t = 0; t < 40 && ms.length && Math.hypot(ms[0].x - H.REALMS[1].musterSite.x, ms[0].z - H.REALMS[1].musterSite.z) < 60; t += 1) { L.away(H.REALMS[0].town.x, H.REALMS[0].town.z); sim(L, 1); ms = F.wbMembers(col); }
+    if (!ms.length) return { skip: 'column gone' };
+    const L0 = F.wbLeader(col) || ms[0], yaw = L0.yaw || 0, fx = Math.sin(yaw), fz = Math.cos(yaw), sx = Math.cos(yaw), sz = -Math.sin(yaw);
+    live(L, 0.5);
+    const c = { x: L0.x + fx * 9 + sx * 6, z: L0.z + fz * 9 + sz * 6 };
+    return { ...L.eye(c.x, c.z, L0.x - fx * 3, L0.y + 1.0, L0.z - fz * 3, 2.2), n: ms.length, name: H.CW.wbName(col) };
+  });
+  D('look6', 'w3_gate', (L) => {
+    const H = L.H, F = L.F, WAR = H.WAR, W3 = H.war3.W3;
+    const ki = WAR.keeps.findIndex((k) => k.realm === 2 && k.orig === 2), K = WAR.keeps[ki], S = K.site, C = F.castleOf(S), G0 = C.gate;
+    if (K.door.alive) F.killEnt(K.door, null);
+    K.lastEnemyNear = -99; K.nextGuardAt = 0; F.fillGarrison && F.fillGarrison(K, true);
+    const w0 = W3.stats.gateWork;
+    L.away(S.x + 80, S.z + 80);
+    for (let t = 0; t < 30 && W3.stats.gateWork - w0 < 3; t += 0.5) { K.lastEnemyNear = -99; sim(L, 0.5); }
+    live(L, 0.6);
+    const ws = [...K.guards].map(F.getEnt).filter((g) => g && g.alive && g.ai.w3g);
+    const p = F.siteToWorld(S, 0, G0.gz - 7.5), t = F.siteToWorld(S, 0, G0.gz - 0.5);
+    return { ...L.eye(p.x, p.z, t.x, S.y + 1.2, t.z, 1.7), workers: ws.length, work: W3.stats.gateWork - w0, door: K.door.alive };
+  });
+})();
+// [look6] the world's checks under the Barrow too: LK.check looks at the land (|x| <= 512); the Deep Barrow's dead stand on
+// their floors and in nothing solid, its chests and its pitch where they belong, a standing slab's cells ground
+(function () {
+  const LK = window.LK;
+  LK.checkDeep = function () {
+    const H = this.H, F = this.F, Dp = H.deep, D0 = Dp && Dp.DEEP, out = { counts: {}, examples: {}, n: {} };
+    const add = (k, ex) => { out.counts[k] = (out.counts[k] || 0) + 1; const L = out.examples[k] = out.examples[k] || []; if (L.length < 8) L.push(ex); };
+    const keys = ['a deep body sunk into its floor', 'a deep body floating', 'a deep body inside something solid', 'a deep chest inside something solid', 'pitch off the floor', 'pitch under a pyre or brazier', 'a standing slab with no ground', 'a deep torch in the rock'];
+    for (const k of keys) out.counts[k] = 0;
+    if (!D0 || !D0.built) return out;
+    const r1 = (v) => Math.round(v * 10) / 10, near = [];
+    const inside = (c, x, z, r) => { if (c.type === 'circle') return c.r + r - Math.hypot(x - c.x, z - c.z); const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos; return Math.min(c.hx + r - Math.abs(lx), c.hz + r - Math.abs(lz)); };
+    const solid = (x, z, r, skip, tags) => { F.collidersNear(x, z, r + 8, near); let best = null, bd = 0.02; for (const c of near) { if ((skip && skip(c)) || c.active === false || (tags && !tags(c))) continue; const d = inside(c, x, z, r); if (d > bd) { bd = d; best = c; } } return best ? { tag: best.tag, by: r1(bd) } : null; };
+    let nb = 0;
+    for (const e of H.ENT) {
+      if (!e.alive || e.removed || !(e.deep || e.deepLord) || e.l3fall || e.swim || e.wd > 0.3) continue;
+      nb++;
+      const fy = F.dunFloorAt(e.x, e.z);
+      if (!(e.deepLord && e.seat)) {
+        if (e.y < fy - 0.06) add('a deep body sunk into its floor', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), y: r1(e.y), floor: r1(fy) });
+        else if (e.y > fy + 0.12 && !(e.vy > 0.01)) add('a deep body floating', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), y: r1(e.y), floor: r1(fy) });
+      }
+      const s = solid(e.x, e.z, Math.min(0.25, (e.radius || 0.4) * 0.5), null, (c) => c.tag !== 'door' && c.tag !== 'gate' && !(e.deepLord && c.tag === 'prop'));
+      if (s && s.by > 0.15) add('a deep body inside something solid', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), ...s });
+    }
+    out.n.bodies = nb;
+    for (const ch of D0.chests) {
+      const s = solid(ch.x, ch.z, 0.3, (c) => c.tag === 'prop' && Math.hypot(c.x - ch.x, c.z - ch.z) < 0.2);
+      if (s) add('a deep chest inside something solid', { id: ch.id, ...s });
+    }
+    for (const C of D0.cells) {
+      const fy = F.dunFloorAt(C.x, C.z);
+      if (Math.abs(fy - C.y) > 0.03) add('pitch off the floor', { i: C.i, hall: C.hall, y: r1(C.y), floor: r1(fy) });
+      const s = solid(C.x, C.z, 0.2, null, (c) => c.tag === 'prop' || c.tag === 'brazier');
+      if (s) add('pitch under a pyre or brazier', { i: C.i, hall: C.hall, ...s });
+    }
+    out.n.pitch = D0.cells.length;
+    for (const S of D0.slabs) {
+      if (S.st !== 0) continue;
+      for (let u = S.u0; u < S.u1; u++) for (let v = S.v0; v < S.v1; v++) { const k = F.dunCellAt(F.dunWX(u + 0.5), F.dunWZ(v + 0.5)); if (k < 0 || H.DUN.cell[k] !== 4) { add('a standing slab with no ground', { i: S.i, u, v }); break; } }
+    }
+    for (const t of H.DUN.torches || []) {
+      if (t.x < 1000 || !Dp.late3Room(t.x, t.z)) continue;
+      // the flame stands over open ground in its hall (a sconce on the wall's face, its fire out in the room)
+      const k = F.dunCellAt(t.x, t.z);
+      if (k < 0 || !H.DUN.cell[k]) add('a deep torch in the rock', { u: r1(F.dunU(t.x)), v: r1(F.dunV(t.z)) });
+    }
+    return out;
+  };
+  const check0 = LK.check;
+  LK.check = function () {
+    const o = check0.call(this), d = this.checkDeep();
+    for (const k in d.counts) { o.counts['deep: ' + k] = d.counts[k]; if (d.examples[k]) o.examples['deep: ' + k] = d.examples[k]; }
+    o.n.deep = d.n;
+    return o;
+  };
 })();
