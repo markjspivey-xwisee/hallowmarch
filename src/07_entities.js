@@ -202,7 +202,7 @@ function computeDamage(src, dst, mult) {
   let d = baseDmg(src.level) * src.dmgMult * mult;
   d *= 0.9 + Math.random() * 0.2;
   d *= clamp(1 + 0.07 * (src.level - dst.level), 0.45, 1.7);
-  if (src.faction <= 2) d *= REALM_BONUS[src.faction];
+  if (src.faction <= 2 && src.role !== 'bot') d *= REALM_BONUS[src.faction]; // [balance9] not the measures' bots: the war run on beside the duels, and a hallow its realm took made one side of a duel strike 10% harder (07c_balance9.js)
   if (src.role === 'player' && GAME.prog) d *= 1 + 0.015 * (realmRank(GAME.prog.rp) - 1);
   d *= 1 + buffSum(src, 'dmg');
   const crit = Math.random() < 0.08 + (src.critBonus || 0);
