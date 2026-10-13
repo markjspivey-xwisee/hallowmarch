@@ -443,6 +443,7 @@ function late4Slot(H, e) {
 function late4HostStep(dt) {
   if (!LATE4.hosts.length) late4HostInit();
   const on = late4HostOn();
+  let routed = false; // (one host's track worked out a step at most: each is a few dozen ways found on the land)
   for (const H of LATE4.hosts) {
     const alive = H.ids.map(getEnt).filter((o) => o && o.alive);
     if (H.up && !alive.length) { // brought down: it walks again in a quarter of an hour
@@ -451,7 +452,10 @@ function late4HostStep(dt) {
     }
     if (!H.up) {
       if (H.down > 0) H.down = Math.max(0, H.down - dt);
-      if (on && H.down <= 0 && (H.spawnT = (H.spawnT || 0) - dt) <= 0) { H.spawnT = 2; late4HostSpawn(H); }
+      if (on && H.down <= 0 && (H.spawnT = (H.spawnT || 0) - dt) <= 0) {
+        if (!H.route) { if (routed) { H.spawnT = 0; continue; } routed = true; const t0 = performance.now(); late4Route(H); LATE4.stats.routeMs = Math.round((LATE4.stats.routeMs || 0) + performance.now() - t0); }
+        H.spawnT = 2; late4HostSpawn(H);
+      }
       continue;
     }
     if (!on) { for (const o of alive) { o.alive = false; removeEnt(o); } H.up = false; H.ids = []; continue; } // (the March falls back below 40)

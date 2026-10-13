@@ -236,7 +236,7 @@ async def main():
               X.late4HostsFresh();
               H.simulate(6);
               out.hosts = X.LATE4.hosts.map((Hh) => { const l = F.getEnt(Hh.lead); return { up: Hh.up, route: Hh.route ? Hh.route.length : 0, ids: Hh.ids.length, lead: l ? l.name : null, level: l ? l.level : null }; });
-              out.legs = X.LATE4.stats.routeLegs; out.fails = X.LATE4.stats.routeFails;
+              out.legs = X.LATE4.stats.routeLegs; out.fails = X.LATE4.stats.routeFails; out.routeMs = X.LATE4.stats.routeMs || 0;
               // it walks its track: the point goes on, its bodies with it
               const Hh = X.LATE4.hosts[0], p0 = [Hh.px, Hh.pz]; let maxLag = 0;
               for (let i = 0; i < 40; i++) { H.simulate(1); for (const id of Hh.ids) { const o = F.getEnt(id); if (o && o.alive) maxLag = Math.max(maxLag, Math.hypot(o.x - Hh.px, o.z - Hh.pz)); } }
