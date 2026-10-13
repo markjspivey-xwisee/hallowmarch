@@ -374,6 +374,9 @@ async def std(page):
       // saved fallen, read back fallen
       V.L3V.std.fallen = true; V.L3V.std.k = 1; const sv = H.fn.buildSave(); a.saved = sv.char && sv.char.x ? sv.char.x.vet3 : null;
       ally.damagers = null; F.killEnt(ally, null);
+      // the barding of your horse: from veterancy 3 the device on its cloth, for the horse you ride (none at 2)
+      L.LATE2.vet = 2; a.bard2 = V.late3BardCode(P2); L.LATE2.vet = 3; a.bard3 = V.late3BardCode(P2); a.bardHtml = /barding/.test(V.late3BardHTML());
+      L.LATE2.vet = 0;
       return a; })()""")
     print(json.dumps(r))
     check(r['worn'] == 'kingsbane' and r['dev'] == 6, f"the name worn has its device ({r['worn']}: {r['dev']})")
@@ -383,6 +386,7 @@ async def std(page):
     check(not r['buffFallen'], 'fallen, it gives your soldiers no strength')
     check('Raise your standard' in r['offers'] and r['raised'] and abs(r['rotUp']) < 0.05 and r['buffUp'], f"Use beside it raises it again, and its strength with it ({r['offers']})")
     check(r['saved'] is not None and r['saved'].get('f') == 1, f"fallen, it is saved fallen ({r['saved']})")
+    check(r['bard2'] == 0 and r['bard3'] == 4 * 7 and r['bardHtml'], f"at veterancy 3 your horse wears the device on its cloth (code {r['bard3']}; at 2 {r['bard2']})")
 
 async def vetshots(page):
     await ev(page, """(() => { const H = __hm, F = H.fn, L = H.late, V = H.vet3; L3.start('warrior', 50); const P = H.GAME.player; F.setIndoor(false); L.LATE2.d.deep = 1; L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('ashbane'); V.L3V.mantle = true; V.L3V.std.fallen = false; V.L3V.std.k = 0;
@@ -392,7 +396,9 @@ async def vetshots(page):
         await page.evaluate(f"__hm.fn.setQuality('{q}')")
         for tod, nm in ((0.35, 'day'), (2.2, 'night')):
             await snap(page, f'mantle_{nm}_{q}', f"const P = H.GAME.player, at = window.L3V_AT, F = H.fn; H.setTod({tod}); P.x = P.prevX = at.x + 3.2; P.z = P.prevZ = at.z + 1.0; P.yaw = Math.atan2(at.x - P.x, at.z - P.z) + 3.14; H.simulate(0.3); const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw); H.camera.position.set(P.x - fx * 2.9, P.y + 1.7, P.z - fz * 2.9); H.camera.lookAt(P.x, P.y + 1.15, P.z)")
-            await snap(page, f'standard_{nm}_{q}', f"const at = window.L3V_AT, F = H.fn, y = F.heightAt(at.x, at.z); H.setTod({tod}); H.camera.position.set(at.x + 5.2, y + 2.8, at.z + 4.4); H.camera.lookAt(at.x, y + 2.6, at.z)")
+            await snap(page, f'standard_{nm}_{q}', f"const at = window.L3V_AT, F = H.fn, y = F.heightAt(at.x, at.z), P = H.GAME.player; H.setTod({tod}); P.x = P.prevX = at.x - 1.6; P.z = P.prevZ = at.z + 1.2; P.yaw = 2.6; H.simulate(0.3); H.camera.position.set(at.x + 1.4, y + 2.7, at.z + 5.6); H.camera.lookAt(at.x + 0.5, y + 2.75, at.z)")
+        await snap(page, f'barding_{q}', "const P = H.GAME.player, at = window.L3V_AT, F = H.fn, L = H.late; H.setTod(0.38); L.LATE2.vet = 5; P.x = P.prevX = at.x + 6; P.z = P.prevZ = at.z + 3; P.yaw = 1.2; if (!P.mount) F.mountUp(P, true); H.simulate(0.4); const sx = Math.cos(P.yaw), sz = -Math.sin(P.yaw); H.camera.position.set(P.x + sx * 4.2 + Math.sin(P.yaw) * 0.6, P.y + 1.9, P.z + sz * 4.2 + Math.cos(P.yaw) * 0.6); H.camera.lookAt(P.x, P.y + 1.15, P.z)")
+        await ev(page, "(() => { const H = __hm, P = H.GAME.player; if (P.mount) H.fn.dismount(P); return 0; })()")
         await snap(page, f'standard_fallen_{q}', "const at = window.L3V_AT, F = H.fn, V = H.vet3, y = F.heightAt(at.x, at.z); H.setTod(0.4); V.L3V.std.fallen = true; V.L3V.std.k = 1; V.late3StdPose(); H.camera.position.set(at.x + 4.5, y + 2.6, at.z + 4.0); H.camera.lookAt(at.x - 1.5, y + 0.3, at.z)")
         await ev(page, "(() => { const V = __hm.vet3; V.L3V.std.fallen = false; V.L3V.std.k = 0; V.late3StdPose(); return 0; })()")
     await ev(page, "(() => { const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")

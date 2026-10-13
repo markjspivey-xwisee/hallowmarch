@@ -704,6 +704,7 @@ const beastMat = mat({
     ${GLSL_WEATHER}
     varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash;
     varying vec2 vWx; // visual pass: this beast's own wetness and snow (05h_wear.js), packed with the hit flash
+    ${L3_DEVICE_GLSL /* [late3] a veteran's barding (04_l3device.js, 10n_veteran.js) */}
     void main(){
       float bWet = clamp(vWx.x, 0.0, 1.0), bSnow = clamp(vWx.y, 0.0, 1.0);
       vec3 n = safeNormalize(vN);
@@ -750,7 +751,17 @@ const beastMat = mat({
       else if (m == 7) { alb = (uDarkCoat > 0.5 ? vFur * mix(0.26, 0.9, step(0.55, dot(vFur, vec3(0.33)))) : vFur2) * (0.75 + 0.5 * fineMix(vnoise(vec2(vUV.x * 40.0, vO.y * 60.0)), 0.5, vec2(vUV.x * 40.0, vO.y * 60.0))); rough = 0.55; sss = 0.1; }
       else if (m == 10) {
         // the saddle cloth: woven, with the rider's colours
-        alb = vFur2 * (0.86 + 0.14 * fineMix(0.5 + 0.5 * sin(vO.x * 700.0) * sin(vO.z * 700.0), 0.5, vO.xz * 110.0));
+        // [late3] a veteran's barding: the device of the name worn above the cloth's red, 4 x (device + 1) (10n_veteran.js)
+        float bdev = floor(vFur2.r / 4.0);
+        vec3 clo = vec3(vFur2.r - bdev * 4.0, vFur2.g, vFur2.b);
+        alb = clo * (0.86 + 0.14 * fineMix(0.5 + 0.5 * sin(vO.x * 700.0) * sin(vO.z * 700.0), 0.5, vO.xz * 110.0));
+        if (bdev > 0.5) {
+          // on each flank in gold, upright and facing the head, and a gilt band above the fringe
+          float th = abs(vUV.x);
+          float dm = l3DeviceMask(vec2((vUV.x < 0.0 ? -1.0 : 1.0) * vUV.y / 0.27, (1.42 - th) / 0.6), int(bdev) - 1);
+          alb = mix(alb, vec3(0.9, 0.72, 0.3) * 0.88, dm);
+          alb = mix(alb, vec3(0.85, 0.66, 0.3), smoothstep(1.6, 1.64, th) * (1.0 - smoothstep(1.72, 1.76, th)) * 0.85);
+        }
         rough = 0.9; sss = 0.2;
       }
       else if (m == 3) { alb = vec3(0.24, 0.14, 0.08) * (0.85 + 0.25 * vnoise(vO.xz * 40.0)); rough = 0.45; sss = 0.05; }

@@ -1524,10 +1524,10 @@ const humanoidMat = mat({
         if (mdev > 0.5 && vAO > 0.8 && !undead) {
           // [late3] the mantle of a name: its device on the back in the realm's charge, a gilt border down its edges and hem
           vec3 charge = realm < 0.5 ? vec3(0.95, 0.75, 0.32) : vec3(0.93, 0.9, 0.8);
-          float dm = l3DeviceMask(vec2((vUV.x - 0.5) * 0.48, vUV.y - 1.02) / 0.13, int(mdev) - 1);
-          alb = mix(alb, charge * 0.8 * folds, dm);
-          float edge = clamp((1.0 - smoothstep(0.43, 0.47, vUV.y)) + smoothstep(0.9, 0.95, abs(vUV.x * 2.0 - 1.0)), 0.0, 1.0);
-          alb = mix(alb, vec3(0.78, 0.6, 0.27) * folds, edge * 0.85);
+          float dm = l3DeviceMask(vec2((vUV.x - 0.5) * 0.48, vUV.y - 1.0) / 0.17, int(mdev) - 1);
+          alb = mix(alb, charge * 0.92 * folds, dm);
+          float edge = clamp((1.0 - smoothstep(0.45, 0.49, vUV.y)) + smoothstep(0.88, 0.93, abs(vUV.x * 2.0 - 1.0)), 0.0, 1.0);
+          alb = mix(alb, vec3(0.86, 0.66, 0.3) * folds, edge * 0.9);
         }
         rough = 0.9; sss = 0.15;
       } else if (m == 9) {

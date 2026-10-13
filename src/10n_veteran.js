@@ -15,6 +15,9 @@
 
 const L3V = { mantle: true, std: { hp: 1, fallen: false, k: 0, side: 1, code: -1, shake: 0 }, stats: { hits: 0, fell: 0, raised: 0 } };
 const L3V_STD = { lv: 40, reach: 2.8, hit: 0.07, champ: 0.18, lord: 0.13, fallT: 0.8, raiseT: 0.9 };
+// the barding of your horse: from this rank of veterancy the horse you ride (and your own, standing) wears the device of
+// the name you wear on each flank of its cloth, in gold with a gilt band (a peak, veterancy's own, with no name worn)
+const L3V_BARD = 3;
 // the device of the name you wear (L3_DEVICE_OF, 04_l3device.js), or -1
 function late3Device() { const N = late2Worn(); return N && L3_DEVICE_OF[N.deed] != null ? L3_DEVICE_OF[N.deed] : -1; }
 const late3MantleOk = () => !!GAME.prog && GAME.prog.level >= L3V_STD.lv && late3Device() >= 0;
@@ -23,6 +26,8 @@ function late3MantleCode(e) { return L3V.mantle && e.alive && late3MantleOk() ? 
 // the banners' shader: the realm + 4 x (device + 1) on the standard's flag (late2StdShow, 10l_late.js)
 function late3StdCode() { const d = late3Device(); return d >= 0 ? 4 * (d + 1) : 0; }
 const late3StdDown = () => !!LATE2.std.at && L3V.std.fallen;
+// the beasts' shader: 4 x (device + 1) above the cloth's red (drawActors, 13_main.js; the cloth's branch in 05c_beasts.js)
+function late3BardCode(P) { if (!P || P !== GAME.player || !(LATE2.vet >= L3V_BARD)) return 0; const d = late3Device(); return 4 * ((d >= 0 ? d : 8) + 1); }
 
 /* ------------------------------------------------------------------ */
 /* the standard struck down, and raised again                          */
@@ -142,7 +147,13 @@ function late3MantleHTML() {
   if (!LATE2.worn) return '';
   const dev = d >= 0 ? L3_DEVICE_NAMES[d] : 'none';
   if (GAME.prog.level < L3V_STD.lv) return `<p>From level ${L3V_STD.lv} you wear the mantle of your name: ${esc(R.name)}'s colours with its device (${esc(dev)}) on the back.</p>`;
-  return `<p>You wear the mantle of your name: ${esc(R.name)}'s colours, ${esc(dev)} on its back for the deed you are named for, a gilt border down its edges. It takes the rain, the mud and the blows as the rest of your gear does.</p><div class="acts"><button type="button" class="btn l2-btn" data-l3="mantle">${L3V.mantle ? 'Put the mantle away' : 'Wear the mantle'}</button></div>`;
+  return `<p>You wear the mantle of your name: ${esc(R.name)}'s colours, ${esc(dev)} on its back for the deed you are named for, a gilt border down its edges. It takes the rain, the mud and the blows as the rest of your gear does.</p>${late3BardHTML()}<div class="acts"><button type="button" class="btn l2-btn" data-l3="mantle">${L3V.mantle ? 'Put the mantle away' : 'Wear the mantle'}</button></div>`;
+}
+function late3BardHTML() {
+  const d = late3Device(), dev = L3_DEVICE_NAMES[d >= 0 ? d : 8];
+  if (!(GAME.prog.level >= LEVEL_CAP)) return '';
+  if (LATE2.vet < L3V_BARD) return `<p>At veterancy ${L3V_BARD} your horse earns its barding: the device of your name on each flank of its cloth, in gold.</p>`;
+  return `<p>Your horse wears its barding: ${esc(dev)} in gold on each flank of its cloth${d >= 0 ? ', the device of the name you wear' : ' (veterancy\'s own, until you wear a name)'}.</p>`;
 }
 function late3StdHTML() {
   if (!LATE2.std.made) return '';
@@ -156,8 +167,10 @@ $('menu-body').addEventListener('click', (ev) => {
 });
 if (!FIELD_NOTES.l3mantle) FIELD_NOTES.l3mantle = { t: 'The mantle of your name', x: () => `From level ${L3V_STD.lv} the name you wear shows on your shoulders: a mantle in your realm's colours with the device of its deed on the back. The Chronicle's Deeds page puts it away.` };
 if (!FIELD_NOTES.l3stdfall) FIELD_NOTES.l3stdfall = { t: 'A standard struck down', x: () => `Foes fighting about your standard hew at it. Struck down, it gives no strength until you raise it again: ${IS_TOUCH ? 'tap Use' : 'press E'} beside it.` };
+if (!FIELD_NOTES.l3bard) FIELD_NOTES.l3bard = { t: 'Your horse\'s barding', x: () => `Veterancy ${L3V_BARD}: the horse you ride wears your barding now, the device of your name in gold on each flank of its cloth.` };
 GUIDE_WATCH.l3mantle = () => late3MantleOk() && L3V.mantle;
-LOADING_TIPS.push('From level 40 the name you wear shows on your mantle, and its device on the flag of your standard.', 'Foes fighting about your standard can strike it down. Raise it again with Use beside it.');
+GUIDE_WATCH.l3bard = (P) => !!P.mount && LATE2.vet >= L3V_BARD;
+LOADING_TIPS.push('From level 40 the name you wear shows on your mantle, and its device on the flag of your standard. At veterancy 3 your horse wears it too.', 'Foes fighting about your standard can strike it down. Raise it again with Use beside it.');
 registerSavePart('char', 'vet3', {
   save: () => (!L3V.mantle || L3V.std.fallen ? { m: L3V.mantle ? 1 : 0, f: L3V.std.fallen ? 1 : 0 } : null),
   load(o) {
@@ -168,4 +181,4 @@ registerSavePart('char', 'vet3', {
   },
   key: (o) => (o ? [o.m, o.f] : null),
 });
-queueMicrotask(() => { if (window.__hm) window.__hm.vet3 = { L3V, L3V_STD, late3Device, late3MantleCode, late3StdCode, late3StdStep, late3StdFall, late3StdRaise, late3StdPose, late3StdOffers, late3MantleHTML, late3StdHTML, late3MantleOk }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.vet3 = { L3V, L3V_STD, L3V_BARD, late3BardCode, late3BardHTML, late3Device, late3MantleCode, late3StdCode, late3StdStep, late3StdFall, late3StdRaise, late3StdPose, late3StdOffers, late3MantleHTML, late3StdHTML, late3MantleOk }; });
