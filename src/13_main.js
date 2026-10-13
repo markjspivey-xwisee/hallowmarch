@@ -245,6 +245,7 @@ function drawActors(fx, fz) {
       if (e._hamUntil > GAME.t) _mi[1] |= WB.hammer; // [motion5] a mallet in the hand of a builder or a mason at work
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
       if (e.role === 'player') { const mc = late3MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late3] the mantle of the name you wear (10n_veteran.js)
+      else if (e.l2risen || e.role === 'lord') { const mc = late4MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late4] the March's other veterans wear their devices: a risen champion's crowned skull, a keep lord's tower past 40 (10o_late4.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat

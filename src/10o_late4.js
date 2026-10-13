@@ -730,7 +730,7 @@ function updateLate4(dt) {
 LATE2.d.roam = 0;
 LATE2_DEEDS.roam = 'Roaming hosts of the risen brought down';
 {
-  const N = { id: 'roadwarden', t: 'Roadwarden', deed: 'roam', n: 3, rp: 1200, k: { risen: 0.04, wear: 0.05 }, gift: 'Your gear wears 5% slower on the road, and you strike the risen 4% harder.' };
+  const N = { id: 'roadwarden', t: 'Roadwarden', deed: 'roam', n: 3, rp: 1200, k: { risen: 0.04, wear: 0.05 }, gift: 'You strike the risen 4% harder, and your gear wears 5% slower.' };
   const i = LATE2_NAMES.findIndex((x) => x.deed === 'rr');
   LATE2_NAMES.splice(i < 0 ? LATE2_NAMES.length : i, 0, N);
   LATE2_BY_ID[N.id] = N;
@@ -740,6 +740,10 @@ function late4HostsHTML() {
   if (!GAME.prog || GAME.prog.level < LATE4_HOST_AT) return `<p>From level ${LATE4_HOST_AT} the risen walk the borderlands too: a host in each homeland, going from camp to camp along the tracks, and fighting what it meets.</p>`;
   const P = GAME.player, rows = LATE4.hosts.map((H) => `<li><b>${esc(capFirst(H.D.name))}</b> and ${esc(H.D.host)} (${esc(REALMS[H.D.realm].homeName)}): ${H.up ? 'walking the borderlands' : H.down > 0 ? `brought down; walks again in about ${Math.max(1, Math.round(H.down / 60))} minutes` : 'gathering'}${P && H.up && H.D.realm === P.faction ? ', circled on your map' : ''}.</li>`).join('');
   return `<p>A host of the risen walks the borderlands of each homeland, from camp to camp, and falls on whatever it meets. Its leader is a risen champion: bringing it down is a deed (three earn the name Roadwarden), and pays as a risen champion does. It walks again a quarter of an hour later.</p><ul class="plain">${rows}</ul>`;
+}
+// the Deeds page's section (chronDeeds, 10l_late.js): the wind-ups, the second ways, the hosts
+function late4DeedsHTML() {
+  return `<p>Each kind winds up its blow as it would: an outlaw, a troll or the dead raise their weapons overhead, a bear rears onto its hind legs, a wolf crouches to spring. Past half its strength a risen champion fights another way besides, warned of by a ring on the ground: a bear's maul, a wolf's pounce, the dead's grave-hands, an outlaw's fire flask, a troll's hurled boulder, a wisp's lure. A risen champion is known at a glance: embers in its coat or its mail, ember eyes, its name in ember.</p><h3>The roaming risen</h3>${late4HostsHTML()}`;
 }
 if (!FIELD_NOTES.l4host) FIELD_NOTES.l4host = { t: 'A host on the road', x: () => 'A host of the risen walks these borderlands from camp to camp and falls on whatever it meets. Its leader is a risen champion: bring it down, and the March tells of it.' };
 if (!FIELD_NOTES.l4second) FIELD_NOTES.l4second = { t: 'A risen champion at bay', x: () => 'Past half its strength a risen champion fights another way besides: a maul, a pounce, a charge, the grave\'s hands, a fire flask, a boulder, a lure. A ring on the ground warns of each: step out of it.', fight: true };
@@ -752,6 +756,15 @@ LOADING_TIPS.push(
   'From level 40 a host of the risen walks the borderlands of each homeland, from camp to camp. Its leader is a deed to bring down.',
 );
 CHRON_EXTRA.goals.push(() => (GAME.prog && GAME.prog.level >= 30 ? `<div class="gd-tier"><h4>The roaming risen</h4>${late4HostsHTML()}</div>` : ''));
+// the mantle on the March's other veterans (drawActors, 13_main.js; the people's shader draws a device on a cape as on
+// yours: 05a_rig.js): a risen champion of the living (an outlaw, a troll) the crowned skull of the risen, a keep lord the
+// tower of the keeps once the March has risen with you (40); the dead wear none (their shader draws no device)
+function late4MantleCode(e) {
+  if (!e.alive || e.kind !== 'humanoid') return 0;
+  if (e.l2risen && !l4Cold(e)) return 8 * (6 + 1);
+  if (e.role === 'lord' && warLevel() >= LATE4_HOST_AT && GAME.prog && GAME.prog.level >= LATE4_HOST_AT) return 8 * (2 + 1);
+  return 0;
+}
 // the name on your frame (updateHUD, 10_ui.js): on a touch screen a long one would be cut short at the deed ("Aldric,
 // Marshal of Lo..."): the deed's name is kept whole and your own shortened before it ("Ald., Marshal of Logres"); the
 // Character page says it whole
@@ -797,4 +810,4 @@ registerSavePart('char', 'late4', {
   load(o) { L3V.std.tear = o && typeof o === 'object' ? late4N(o.t, 0, 100, 0) / 100 : 0; late4StdFlag(); },
   key: (o) => (o ? [Math.round(o.t / 10)] : null),
 });
-queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, late4FrameName, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, late4FrameName, late4MantleCode, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });

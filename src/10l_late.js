@@ -198,6 +198,7 @@ function late2HarmMult(src, dst, opts) {
       if (dst.faction <= 2 && dst.faction !== P.faction) k *= 1 + late2K('realm');
       if (late2IsChampion(dst)) k *= 1 + late2K('champ');
       if (late2IsDead(dst)) k *= 1 + late2K('dead');
+      if (dst.l2risen) k *= 1 + late2K('risen'); // [late4] the Roadwarden's: the risen struck harder (10o_late4.js)
     }
     k *= 1 + late2BoonK('dmg') + late2K('all');
   } else {
@@ -823,6 +824,7 @@ function chronDeeds() {
     ${stdUp ? '' : `<h3>The standard of your name</h3>${late2StdHTML()}`}
     <h3>The risen of the borderlands</h3><p>From level ${LATE2_RISE_AT} the three farthest borderland camps of every homeland are held by risen champions who keep pace with you: their camps a few levels round yours, the champion one to three above it. A risen champion breaks the ground about it after a moment's warning (a glowing ring: step out of it, or stun it as it rears and the blow is broken off; a troll's ring is wider), rallies its pack at half its strength and calls two more to it, and fights on in a fury at a quarter. Each kind has a way of its own besides: a beast howls, slowing its foes and stirring its pack; the dead call the dead up out of the ground about their foe; an outlaw hamstrings, slowing you and keeping your wounds from mending; a troll stamps and the ground bursts under a foe that keeps off (another glowing ring); a wisp slips away from a blade at its side. Each pays a third piece of the best gear, a second trophy, a share of a level in experience and realm points.</p>
     <ul class="gd-aims">${risenList}</ul>${prog.level >= LATE2_RISE_AT ? '<p>On the map an ember diamond marks each risen camp, bright while its champion stands.</p>' : ''}
+    ${late4DeedsHTML() /* [late4] how the risen wind up, their second way, and the roaming hosts (10o_late4.js) */}
     <p class="now">Now: ${earned.length ? `${earned.length} name${earned.length === 1 ? '' : 's'} of ${LATE2_NAMES.length}${worn ? `, wearing <b>${esc(late2T(worn))}</b>` : ''}` : 'no name yet'}${prog.level >= LEVEL_CAP ? `, veterancy ${LATE2.vet}` : ''}, realm rank ${realmRank(prog.rp)} of ${R.name}.</p>
     <div class="acts">${chronLink('goals', 'Aims')}${chronLink('path', 'Your path')}</div>`;
 }
