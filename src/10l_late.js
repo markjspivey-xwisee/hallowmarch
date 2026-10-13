@@ -64,7 +64,7 @@ const LATE2_NAMES = [
   { id: 'rr8', t: 'Marshal of {realm}', sep: ', ', deed: 'rr', n: 8, rp: 0, k: { aura: 0.03 }, gift: 'Soldiers of your realm within 20 m of you strike 3% harder.' },
   { id: 'rr10', t: 'Hero of the March', sep: ', ', deed: 'rr', n: 10, rp: 0, k: { hp: 0.04 }, gift: 'You have 4% more health.' },
   { id: 'rr12', t: 'Sword of {realm}', sep: ', ', deed: 'rr', n: 12, rp: 0, k: { all: 0.03 }, gift: 'Everything you strike, you strike 3% harder.' },
-  { id: 'rr15', t: 'Legend of the March', sep: ', ', deed: 'rr', n: 15, rp: 0, k: { hp: 0.03, all: 0.03 }, gift: 'You have 3% more health, and strike everything 3% harder.' },
+  { id: 'rr15', t: 'Legend of the March', sep: ', ', deed: 'rr', n: 15, rp: 0, k: { hp: 0.02, all: 0.02 }, gift: 'You have 2% more health, and strike everything 2% harder.' }, // [balance8] 3% and 3%: worn with the thirty boons it won a priests' mirror at 50 21 of 24 (balance8.py vet)
 ];
 // a name as it is said after yours: "Aldric Kingsbane", "Aldric, Marshal of Logres"
 const late2T = (N) => (N ? N.t.replace('{realm}', GAME.player ? REALMS[GAME.player.faction].name : 'the Realm') : '');
@@ -109,12 +109,16 @@ function late2Wear(id) {
 /* ------------------------------------------------------------------ */
 /* veterancy past the cap, and its boons                               */
 /* ------------------------------------------------------------------ */
+// [balance8] the fighting boons at half their first measure (1% health, harm, critical blows and softer, 2% power a step):
+// all thirty steps made a veteran's skilled bot win its mirror duels at 50 23 of 24 as a priest (7 of 24 without), and a worn
+// name with them 20.5 of 24 as an archer (15 without): a veteran felt them, and they decided a duel between equals
+// (tools/tests/balance8.py vet; Balance of the callings, version 17)
 const LATE2_BOONS = [
-  { id: 'hide', n: 'Iron hide', x: '1% more health', k: 'hp', v: 0.01 },
-  { id: 'edge', n: 'Keen edge', x: 'your blows and spells 1% harder', k: 'dmg', v: 0.01 },
-  { id: 'wells', n: 'Deep wells', x: '2% more power', k: 'pow', v: 0.02 },
-  { id: 'eye', n: 'Steady eye', x: '1% more critical blows', k: 'crit', v: 0.01 },
-  { id: 'skin', n: 'Thick skin', x: 'blows strike you 1% softer', k: 'dr', v: 0.01 },
+  { id: 'hide', n: 'Iron hide', x: '½% more health', k: 'hp', v: 0.005 },
+  { id: 'edge', n: 'Keen edge', x: 'your blows and spells ½% harder', k: 'dmg', v: 0.005 },
+  { id: 'wells', n: 'Deep wells', x: '1% more power', k: 'pow', v: 0.01 },
+  { id: 'eye', n: 'Steady eye', x: '½% more critical blows', k: 'crit', v: 0.005 },
+  { id: 'skin', n: 'Thick skin', x: 'blows strike you ½% softer', k: 'dr', v: 0.005 },
   { id: 'campaigner', n: 'Old campaigner', x: '4% more realm points', k: 'rp', v: 0.04 },
 ];
 const LATE2_BOON_BY_ID = Object.fromEntries(LATE2_BOONS.map((B) => [B.id, B]));
@@ -350,6 +354,7 @@ function late2ChampThink(e, t, dt) {
   S.w = { t: 0, total, x, z, r, ranged };
   S.w.disc = spellDisc(x, z, r, DISC_KIND.holy, total + 0.1, ranged ? [0.45, 1.3, 1.9] : [1.9, 0.55, 0.16]);
   aoeMarker(x, z, r, total, e.faction); // (the skilled bots step out of it: 07c_balance7.js)
+  Object.assign(AOE_MARKS[AOE_MARKS.length - 1], { stun: !ranged, src: e.id }); // [balance8] a blow that stuns: a skilled warrior steps out of it too, or bashes its champion as it rears (b8StunMark, 07c_balance8.js)
   e.swingAt = Math.max(e.swingAt || 0, now + total + 0.5);
   if (e.kind === 'humanoid') setAct(e, 8, total + 0.15);
   late2Snd(ranged ? 'cast' : 'roarSmall', e, 2);
@@ -779,7 +784,7 @@ function chronDeeds() {
   const free = late2Free();
   const vet = prog.level >= LEVEL_CAP
     ? `<p class="now">Veterancy <b>${LATE2.vet}</b>: ${late2XpBar()[1].replace(/^Veterancy \d+ · /, '')} experience to the next rank. ${free ? `<b>${free}</b> boon${free === 1 ? '' : 's'} to learn.` : 'Every rank you have is learned.'}</p>
-      <ul class="gd-aims l2-boons">${LATE2_BOONS.map((B) => { const s = LATE2.boons[B.id] || 0; return `<li><b>${esc(B.n)} ${s ? RANK_NUMERAL[s] : ''}</b><small>${esc(capFirst(B.x))} a step${s ? `: ${Math.round(B.v * s * 100)}% now` : ''}, to ${LATE2_BOON_MAX} steps.</small>${s >= LATE2_BOON_MAX ? '<span class="l2-tag">Mastered</span>' : `<button type="button" class="btn l2-btn" data-l2="boon:${B.id}"${free ? '' : ' disabled'}>Learn${s ? ' the next step' : ''}</button>`}</li>`; }).join('')}</ul>
+      <ul class="gd-aims l2-boons">${LATE2_BOONS.map((B) => { const s = LATE2.boons[B.id] || 0; return `<li><b>${esc(B.n)} ${s ? RANK_NUMERAL[s] : ''}</b><small>${esc(capFirst(B.x))} a step${s ? `: ${+(B.v * s * 100).toFixed(1)}% now` : ''}, to ${LATE2_BOON_MAX} steps.</small>${s >= LATE2_BOON_MAX ? '<span class="l2-tag">Mastered</span>' : `<button type="button" class="btn l2-btn" data-l2="boon:${B.id}"${free ? '' : ' disabled'}>Learn${s ? ' the next step' : ''}</button>`}</li>`; }).join('')}</ul>
       ${late2Spent() ? `<div class="acts"><button type="button" class="btn l2-btn" data-l2="forget"${INV.gold >= LATE2_FORGET_COST ? '' : ' disabled'}>Unlearn every boon (${fmtInt(LATE2_FORGET_COST)} gold)</button></div>` : ''}`
     : `<p>At level 50 your experience does not end: it raises your veterancy, rank by rank, and every rank is a boon to learn here. You are level ${prog.level}.</p>`;
   const risen = CAMPS.filter((c) => late2RiseK(c) >= 0).sort((a, b) => a.realm - b.realm || a.lmin - b.lmin);

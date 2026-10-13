@@ -43,7 +43,11 @@ function balCleanArena(x, z, r, gone) {
   if (typeof NATURE !== 'undefined' && NATURE.craters) {
     for (let q = NATURE.craters.length - 1; q >= 0; q--) {
       const K = NATURE.craters[q];
-      const cx = (K.i0 + K.i1) / 2 - 511.5, cz = (K.j0 + K.j1) / 2 - 511.5;
+      // [balance8] the crater's own middle (natureCrater keeps it): it was taken as a nature-map cell's (i - 511.5), but a crater's
+      // i and j are the 2 m height map's, so no crater was ever found within an arena and none was undone as its duel ended:
+      // a level's queue of duels was fought in arenas cratered ever deeper (183 craters and the ground 3 to 7 m from where it
+      // lay within 20 m of the middles after 144 duels at 50, 8 to 12 m after 432), where a Charge stopped at every bowl's rim
+      const cx = K.x ?? -HALF + (K.i0 + K.i1) / 2 * HS, cz = K.z ?? -HALF + (K.j0 + K.j1) / 2 * HS;
       if ((cx - x) * (cx - x) + (cz - z) * (cz - z) > r2) continue;
       for (let j = K.j0; j <= K.j1; j++) for (let i = K.i0; i <= K.i1; i++) { const v = K.d[(j - K.j0) * K.w + (i - K.i0)]; if (v) W.H[j * HN + i] -= v * K.k; }
       natTerrainUpdate(K.i0, K.j0, K.i1, K.j1);

@@ -26,6 +26,8 @@ const B7T = {
 // botDodge asks: a foe's volley falling on e (its three waves land 0.85, 1.4 and 1.95 s after it is loosed): out of it,
 // a drawn bow let go and a spell finished first (a skilled archer drawing in a mirror stood under every wave)
 function botVolleyAt(e) {
+  const ring = b8RingAt(e); // [balance8] a ring that stuns (a risen champion's wrath): out of it and kept out, a warrior too, or its champion bashed as it rears (07c_balance8.js)
+  if (ring !== undefined) return ring;
   if (e.cls === 'warrior') return null; // (a blade after its foe goes on under the arrows, as through the flames)
   for (const m of AOE_MARKS) {
     if (m.faction == null || m.faction === e.faction || m.until < GAME.t + 0.6) continue;
@@ -43,7 +45,7 @@ const archerVolleyWorth = (t) => !!t && t.alive && (!!t.casting || isRooted(t) |
 // botDodge asks: a skilled warrior after its foe does not step out of burning grass (2% of its health a second)
 const botFireThrough = (e, t) => B7T.warriorFire && e.cls === 'warrior' && !!t && t.alive && e.hp > e.maxHp * 0.25;
 // Sanctuary on the priest itself: weighed by the wound as Mend is (B7T.sanctWound)
-const sanctWound = (e) => (B7T.sanctWound ? mendWound(e) : 1);
+const sanctWound = (e) => (B7T.sanctWound ? mendWound(e) : sanctKneeK(e)); // [balance8] whole from 70% health down (07c_balance8.js)
 
 /* ------------------------------------------------------------------ */
 /* the archers' realm ways: edges on their own ground                  */
@@ -113,7 +115,7 @@ const plainArrowK = (e) => 1 + B7T.plainRank * Math.max(0, abilityRank(e.level |
 setTimeout(() => {
   LOADING_TIPS.push(
     'An archer of Logres draws quicker and strikes harder from a wall or a tower; one of Ériu hides and walks hidden among trees; one of Thule hunts best in the snow and the frost.',
-    'A warrior\'s Charge comes round every 12 s at every level, and its landing blow slows the foe.',
+    B7T.chargeCdLate ? `A warrior's Charge comes round every ${B7T.chargeCdLate} s at every level, and its landing blow slows the foe.` : `A warrior's Charge comes round every ${RUSH_CD_EARLY} s and its landing blow slows the foe until Leap Strike is learned; then Charge waits longer and the two are one rush.`, // [balance8] (07c_balance8.js sets the late rules back before this runs)
     'Mend a scratch and Mend does little: keep it for the deep wound.',
   );
 }, 0);
