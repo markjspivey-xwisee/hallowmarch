@@ -232,7 +232,7 @@ function planWar(C) {
   for (const wb of mine) wbOrd(wb);
   // in the peace every band marches home to its muster
   if (CAMPAIGN.state === 'peace') {
-    for (const wb of mine) if (!wb.order || !wb.order.home) cwSetOrder(wb, { type: 'patrol', node: REALMS[r].nav.muster, until: CAMPAIGN.peaceUntil + 40, home: true }, 'home');
+    for (const wb of mine) if ((!wb.order || !wb.order.home) && !(wb.w3col && wb.w3col.peace)) cwSetOrder(wb, { type: 'patrol', node: REALMS[r].nav.muster, until: CAMPAIGN.peaceUntil + 40, home: true }, 'home'); // [war4] (a column of the peace marches on to its keep: 08l_war4.js)
     return;
   }
   // urgent: a hallow lies in the field, or ours is being carried off
@@ -415,12 +415,12 @@ function updateCampaign(dt) {
     if (!hOn && c.hOn) news(`${R.name} no longer holds both hallows. Its claim fades slowly.`, r, 'normal');
     c.kOn = kOn; c.hOn = hOn;
     // warnings as the end nears
-    const left = Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : k3 > 0 ? (CW.KEEP_HOLD - c.k) / rate / k3 : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9); // [war2] in seconds still to hold; [war3] at three keeps' pace too
+    const left = war4Left(Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : k3 > 0 ? (CW.KEEP_HOLD - c.k) / rate / k3 : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9)); // [war2] in seconds still to hold; [war3] at three keeps' pace too; [war4] never before the twentieth minute (08l_war4.js)
     if (left < 180 && c.warned < 1) { c.warned = 1; news(`Three minutes: ${R.name} is close to winning the March.`, r, 'big'); }
     if (left < 60 && c.warned < 2) { c.warned = 2; news(`One minute: ${R.name} will win the March unless its hold is broken!`, r, 'big'); }
     if (left > 240) c.warned = 0;
-    if (c.k >= CW.KEEP_HOLD) { campaignVictory(r, 'keeps'); return; }
-    if (c.h >= CW.HALLOW_HOLD) { campaignVictory(r, 'hallows'); return; }
+    if (c.k >= CW.KEEP_HOLD && war4MayWin(r, 'keeps')) { campaignVictory(r, 'keeps'); return; } // [war4] no claim won before the twentieth minute (08l_war4.js)
+    if (c.h >= CW.HALLOW_HOLD && war4MayWin(r, 'hallows')) { campaignVictory(r, 'hallows'); return; }
   }
   if (el >= CW.CALL) {
     const order = [0, 1, 2].sort((a, b) => CAMPAIGN.renown[b] - CAMPAIGN.renown[a] || WAR.keeps.filter((K) => K.realm === b).length - WAR.keeps.filter((K) => K.realm === a).length);
@@ -554,8 +554,8 @@ function cwTopClaims() {
   const out = [];
   CAMPAIGN.claims.forEach((c, r) => {
     const k3 = c.kOn ? 0 : war3ClaimSlow(r, WAR.keeps.filter((K) => K.realm === r).length); // [war3] the slow claim of three keeps (08k_war3.js)
-    if (c.k > 0) out.push({ r, kind: 'keeps', left: (CW.KEEP_HOLD - c.k) / cwClaimRate() / (k3 > 0 ? k3 : 1), frac: c.k / CW.KEEP_HOLD, on: c.kOn, slow: k3 > 0, held: k3 < 0 }); // [war2] (the long war's pace)
-    if (c.h > 0) out.push({ r, kind: 'hallows', left: (CW.HALLOW_HOLD - c.h) / cwClaimRate(), frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
+    if (c.k > 0) out.push({ r, kind: 'keeps', left: war4Left((CW.KEEP_HOLD - c.k) / cwClaimRate() / (k3 > 0 ? k3 : 1)), frac: c.k / CW.KEEP_HOLD, on: c.kOn, slow: k3 > 0, held: k3 < 0 }); // [war2] (the long war's pace); [war4] not before the twentieth minute
+    if (c.h > 0) out.push({ r, kind: 'hallows', left: war4Left((CW.HALLOW_HOLD - c.h) / cwClaimRate()), frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
   });
   return out.sort((a, b) => b.frac - a.frac);
 }

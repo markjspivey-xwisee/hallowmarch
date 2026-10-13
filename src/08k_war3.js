@@ -64,7 +64,7 @@ const w3Fresh = (K, r) => !!K.w3 && K.realm === r && K.w3.by === r && GAME.t - K
 function w3Threat(K) {
   let n = 0;
   for (const wb of WAR.warbands) if (!wb.dead && wb.realm !== K.realm && wb.order && wb.order.keep === K && wb.order.type === 'attack') n++;
-  forNear(K.site.x, K.site.z, 40, (o) => { if (o.alive && isActor(o) && o.faction <= 2 && o.faction !== K.realm) n += 0.2; });
+  forNear(K.site.x, K.site.z, 40, (o) => { if (o.alive && isActor(o) && w4Foe(o.faction, K.realm)) n += 0.2; }); // [war4] (an ally of the pact is none)
   return n;
 }
 
@@ -126,36 +126,37 @@ function war3OnCapture(K, realm, old, gateDown) {
     for (let i = 0; i < n; i++) if (war3MakeGuard(inside[i], K, free[i], hb)) given++;
     W3.stats.given += given;
   }
-  // the rest come from the muster
+  // the rest come from the muster ([war4] or the realm's nearest keep: 08l_war4.js)
   const miss = w3FreeSlots(K);
-  if (miss.length) war3Column(K, realm, miss);
+  const colWb = miss.length ? war3Column(K, realm, miss) : null;
   const R = REALMS[realm];
-  const what = [hb && given ? `${wbName(hb)} leaves ${['', 'one', 'two', 'three'][given] || given} of its soldiers to hold the court` : hb ? `${wbName(hb)} holds its court` : '', miss.length ? `a column marches from the ${R.musterSite.name} to garrison it` : ''].filter(Boolean);
+  const what = [hb && given ? `${wbName(hb)} leaves ${['', 'one', 'two', 'three'][given] || given} of its soldiers to hold the court` : hb ? `${wbName(hb)} holds its court` : '', colWb ? `a column marches from ${colWb.w3col.from} to garrison it` : ''].filter(Boolean); // [war4]
   if (what.length) news(`${K.site.name} is ${possessive(R.name)}: ${what.join(', and ')}${gateDown ? '; its broken gate must be mended' : ''}.`, realm, 'normal');
 }
 // a column of soldiers for the posts still empty, marching from the muster (a band whose order is the keep's garrison)
-function war3Column(K, realm, slots) {
-  const R = REALMS[realm], M = R.musterSite;
-  const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: M.x, progZ: M.z, w3col: { keep: K.id } };
+function war3Column(K, realm, slots, o = null) {
+  const src = war4ColumnFrom(K, realm); // [war4] from the realm's nearest keep (out of its hall) or its muster (08l_war4.js)
+  const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: src.x, progZ: src.z, w3col: { keep: K.id, from: src.name, src: src.from, peace: !!(o && o.peace) } };
   slots.forEach((s, i) => {
     const sp = w3SlotSpec(K, s);
-    // in a file along the muster's road: the captain first, the archers last
-    const a = R.bearing + Math.PI + (i - slots.length / 2) * 0.12, r = 4 + i * 1.6;
-    const e = spawnRealmUnit(realm, sp.cls, warUnitLevel('guard'), 'soldier', M.x + Math.sin(a) * r, M.z + Math.cos(a) * r);
+    // in a file along the muster's road (or out of the keep's hall): the captain first, the archers last
+    const p = src.at(i, slots.length);
+    const e = spawnRealmUnit(realm, sp.cls, warUnitLevel('guard'), 'soldier', p.x, p.z);
     e.warband = wb; e.w3slot = s;
+    if (src.hall) { e.y = e.prevY = floorAt(e.x, e.z, src.hall.y + 0.3); setHouseDoor(src.hall, true, e, true); } // [war4]
     wb.members.push(e.id);
   });
   WAR.warbands.push(wb);
   K.w3.col = wb.id;
   W3.stats.columns++;
-  wbSetOrder(wb, { type: 'garrison', keep: K, why: 'garrison' });
+  wbSetOrder(wb, { type: 'garrison', keep: K, why: (o && o.why) || 'garrison' });
   return wb;
 }
 // a column's way (from updateWarband): to the keep's court, then each soldier to its post. Returns its goal, or null
 // when the order is over (the keep lost on the way, or every soldier at a post): updateWarband then stops for this step
 function war3ColumnGoal(wb, O, L, members) {
   const K = O.keep, now = GAME.t;
-  if (K.realm !== wb.realm || CAMPAIGN.state !== 'war') {
+  if (K.realm !== wb.realm || (CAMPAIGN.state !== 'war' && !(wb.w3col && wb.w3col.peace))) { // [war4] a column of the peace marches on (08l_war4.js)
     // the keep lost on the way, or the war over: a band like any other from here (the commander gives it an order)
     if (K.w3 && K.w3.col === wb.id) K.w3.col = null;
     wb.w3col = null; wb.order = null;
@@ -180,7 +181,7 @@ function war3ColumnGoal(wb, O, L, members) {
       wb.dead = true; wb.order = null; wb.w3col = null;
       if (K.w3 && K.w3.col === wb.id) K.w3.col = null;
       W3.stats.columnsIn++;
-      news(`The column from the ${REALMS[wb.realm].musterSite.name} has taken its posts in ${K.site.name}.`, wb.realm, 'normal');
+      news(`The column from ${wb.w3col && wb.w3col.from ? wb.w3col.from : 'the ' + REALMS[wb.realm].musterSite.name} has taken its posts in ${K.site.name}.`, wb.realm, 'normal'); // [war4] (from the nearest keep or the muster)
       return null;
     }
     if (late) { // posts all taken by others: the rest are a band like any other
@@ -272,14 +273,14 @@ function w3PactStep() {
     if (P.against === lead) { P.lostAt = null; return; }
     if (P.lostAt == null) P.lostAt = now;
     if (now - P.lostAt < W3.PACT_END && lead < 0) return;
-    news(`The pact against ${REALMS[P.against].name} is ended: ${REALMS[P.members[0]].name} and ${REALMS[P.members[1]].name} are rivals again.`, -1, 'normal');
+    news(`The pact against ${REALMS[P.against].name} is ended: ${REALMS[P.members[0]].name} and ${REALMS[P.members[1]].name} are rivals again${W4.on ? ', and their bands in the field are foes once more' : ''}.`, -1, 'normal'); // [war4]
     W3.pact = null;
   }
   if (lead < 0 || W3.pact) return;
   const m = [0, 1, 2].filter((q) => q !== lead);
   W3.pact = { against: lead, members: m, t: now, lostAt: null };
   W3.stats.pacts++;
-  news(`${REALMS[m[0]].name} and ${REALMS[m[1]].name} make common cause against ${REALMS[lead].name}: neither will march on the other while ${REALMS[lead].name} leads the March.`, -1, 'big');
+  news(`${REALMS[m[0]].name} and ${REALMS[m[1]].name} make common cause against ${REALMS[lead].name}: neither will march on the other${W4.on ? ' nor fall on the other\'s bands in the field' : ''} while ${REALMS[lead].name} leads the March.`, -1, 'big'); // [war4] the pact keeps faith in the field (08l_war4.js)
 }
 // the keep a realm should go for: its own first, then the weakest and nearest of the rest
 function w3BestTarget(r, ownFirst) {
@@ -377,7 +378,7 @@ function war3Choose(wb, r, C, L) {
 // the commanders' orders that need words of their own
 function war3OrderPhrase(wb, O) {
   const R = REALMS[wb.realm];
-  if (O.type === 'garrison') return `marches from the ${R.musterSite.name} to garrison ${O.keep.site.name}`;
+  if (O.type === 'garrison') return `marches from ${wb.w3col && wb.w3col.from ? wb.w3col.from : 'the ' + R.musterSite.name} to ${O.why === 'relief' ? 'fill the posts of' : 'garrison'} ${O.keep.site.name}`; // [war4] from the nearest keep or the muster; a relief (08l_war4.js)
   if (O.type === 'defend' && O.why === 'brace') return `marches to hold ${O.keep.site.name} against ${possessive(REALMS[O.foe] ? REALMS[O.foe].name : 'the enemy')} push`;
   if (O.type === 'defend' && O.why === 'secure') return `marches to secure ${O.keep.site.name}, newly taken`;
   return null;
@@ -426,13 +427,15 @@ function w3PeaceStep(dt) {
     if (dirty) castleCutUpload(C);
   }
   // half a minute before the new campaign the keeps go back to their own realms: their garrisons march in
-  if (!Pz.back && CAMPAIGN.peaceUntil - now < 30) {
+  // [war4] as the peace begins, and their garrisons do march in: a column from the realm's nearest keep or muster (08l_war4.js)
+  if (!Pz.back && (W4.on ? now - Pz.t0 > W4.PEACE_BACK : CAMPAIGN.peaceUntil - now < 30)) {
     Pz.back = true;
-    for (const K of WAR.keeps) if (K.realm !== K.orig) { restoreKeep(K); W3.stats.handedBack++; }
+    for (const K of WAR.keeps) if (K.realm !== K.orig) { if (W4.on) war4HandBack(K); else restoreKeep(K); W3.stats.handedBack++; }
   }
 }
 // from resetMarch: whatever the peace left undone is done
 function war3Reset() {
+  war4Reset(); // [war4] columns on the road take their posts, the gates' work is over (08l_war4.js)
   for (const E of SIEGE.engines) if (!E.gone) { siegeReleaseCrew(E); siegeRemove(E); }
   for (const C of CASTLES) {
     if (!C.sections) continue;
@@ -623,7 +626,7 @@ function war3HudLine() {
   if (pact && (pact.against === me || pact.members.includes(me))) return line(REALMS[pact.against].color, `<b>${REALMS[pact.members[0]].name}</b> and <b>${REALMS[pact.members[1]].name}</b> in common cause against <b>${REALMS[pact.against].name}</b>`);
   for (let q = 0; q < 3; q++) { const Pr = W3.press[q]; if (Pr) return line(REALMS[q].color, `<b>${REALMS[q].name}</b> presses for a fourth keep: ${WAR.keeps[Pr.keep].site.name}`); }
   const K = WAR.keeps.filter((Q) => w3Fresh(Q, me)).sort((a, b) => b.w3.t - a.w3.t)[0];
-  if (K) return line(REALMS[me].color, `${K.site.name}: garrison ${w3GuardsN(K)}/6${K.w3.col != null ? ' · column on the march' : ''}${K.door.alive ? '' : ' · gate down'}`);
+  if (K) return line(REALMS[me].color, `${K.site.name}: garrison ${w3GuardsN(K)}/6${K.w3.col != null ? ' · column on the march' : ''}${K.door.alive ? '' : war4GateWord(K)}`); // [war4] the new gate's progress (08l_war4.js)
   if (pact) return line(REALMS[pact.against].color, `<b>${REALMS[pact.members[0]].name}</b> and <b>${REALMS[pact.members[1]].name}</b> against <b>${REALMS[pact.against].name}</b>`);
   return '';
 }
@@ -658,9 +661,9 @@ function war3HeraldText() {
 }
 function war3ChronHTML() {
   return `<h3>Holding what you take</h3>
-    <p>A keep taken is held before the next is sought. The band that took it holds its court and leaves up to three of its soldiers as the new guards; a column of the rest marches from the realm's muster along the roads, fights whatever meets it, and takes the posts, the archers climbing to the walls. A gate broken when the keep fell stays broken until two of its new guards have mended it in a quiet hour, mallets in hand. Cut off the column, or strike before the gate stands, and the keep may be won back cheaply; leave them a few minutes and it holds.</p>
+    <p>A keep taken is held before the next is sought. The band that took it holds its court and leaves up to three of its soldiers as the new guards; a column of the rest marches from the realm's nearest keep or its muster along the roads, fights whatever meets it, and takes the posts, the archers climbing to the walls. A gate broken when the keep fell stays broken until its masons have hung a new one behind a scaffold in a quiet spell. Cut off the column, or strike before the gate stands, and the keep may be won back cheaply; leave them a few minutes and it holds.</p>
     <p>A realm with three keeps presses for a fourth: it names the keep and sends every free band there, and the keep's owners send a band to meet the blow. A realm that leads the March finds the two behind it in common cause: they leave each other's keeps alone and both march on the leader until its lead is gone. A realm down to its last keep calls every band to win one of its own back. All of it is cried in the war's news, ringed on the map and told on the war panel.</p>
-    <p>When a campaign is won the truce holds: the crews break up their engines, the walls are mended behind their scaffolds, and half a minute before the next campaign the keeps go back to their own realms, their garrisons marching in.</p>`;
+    <p>When a campaign is won the truce holds: the crews break up their engines, the walls are mended behind their scaffolds, and the keeps go back to their own realms, their garrisons marching in from the nearest keep or muster.</p>${W4.on ? war4ChronHTML() : ''}`; // [war4] (08l_war4.js)
 }
 
 /* ------------------------------------------------------------------ */
@@ -668,13 +671,13 @@ function war3ChronHTML() {
 /* ------------------------------------------------------------------ */
 queueMicrotask(() => { // (FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADING_TIPS are declared by later modules)
 Object.assign(FIELD_NOTES, {
-  keepheld: { t: 'A keep must be held', x: () => `The band that took it holds its court while a column marches from the muster to garrison it, and its new guards mend the broken gate. Help them hold it a few minutes and it stands; leave it bare and it is soon lost again.` },
+  keepheld: { t: 'A keep must be held', x: () => `The band that took it holds its court while a column marches from the nearest keep or the muster to garrison it, and its masons hang a new gate behind a scaffold. Help them hold it a few minutes and it stands; leave it bare and it is soon lost again.` }, // [war4]
   presses: { t: 'One keep from the March', x: () => `A realm with three keeps presses for a fourth, and the keep is ringed on the map. Four keeps held long enough win the campaign; the realms behind may make common cause against it. The war panel says who is close.` },
 });
 GUIDE_WATCH.keepheld = (P) => WAR.keeps.some((K) => K.w3 && K.realm === P.faction && GAME.t - K.w3.t < 60 && dist2(P.x, P.z, K.site.x, K.site.z) < 120 * 120);
 GUIDE_WATCH.presses = () => W3.press.some((q) => !!q) || !!W3.pact;
-GUIDE_HELP.push(() => `<h3>Holding keeps and pressing for the March</h3><p>A keep taken is held by the band that took it until a column from the muster has garrisoned it and its gate is mended. A realm with three keeps presses for a fourth (ringed on the map); the realms behind a leader make common cause against it. The war panel and the herald say who is close to a claim.</p>`);
-LOADING_TIPS.push('A keep you take is held while a column marches from your muster to garrison it: cut off an enemy column and the keep it was marching to is easier to win back.', 'A realm with three keeps presses for a fourth, ringed on the map: the realms behind it often make common cause against it.');
+GUIDE_HELP.push(() => `<h3>Holding keeps and pressing for the March</h3><p>A keep taken is held by the band that took it until a column from the nearest keep or the muster has garrisoned it and its gate is mended. A realm with three keeps presses for a fourth (ringed on the map); the realms behind a leader make common cause against it. The war panel and the herald say who is close to a claim.</p>`);
+LOADING_TIPS.push('A keep you take is held while a column marches from your realm\'s nearest keep or muster to garrison it: cut off an enemy column and the keep it was marching to is easier to win back.', 'A realm with three keeps presses for a fourth, ringed on the map: the realms behind it often make common cause against it.');
 });
 
 /* ------------------------------------------------------------------ */
