@@ -1,5 +1,5 @@
 """[late3] The Deep Barrow end to end, and a veteran the March can see.
-usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wall,lord,save,std,fight,shots,vetshots]
+usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wall,lord,save,std,compile,fight,shots,vetshots]
        [cls=warrior,archer,mage,priest] [lv=45,50] [q=low|high] [sq=low,high] [shots=seal,stair,...] [w=640 h=360] [noshots] [phone]
        [fhome=u,v,r] [diag]
   probe: the deep is built (rooms, cells, walls, the seal, the slabs, the channels, the water), its dead and lord stand
@@ -74,6 +74,7 @@ async def main():
         if 'wall' in ONLY: await wall(page)
         if 'lord' in ONLY: await lord(page)
         if 'save' in ONLY: await save(page)
+        if 'compile' in ONLY: await compile_(page)
         if 'fight' in ONLY: await fight(page)
         if 'std' in ONLY: await std(page)
         if 'shots' in ONLY and not NOSHOTS: await shots(page)
@@ -303,6 +304,26 @@ async def save(page):
     check(r['sane']['kills'] <= 1e6 and all(k in ('dcist', 'dpyre', 'dniche') for k in r['sane']['taken']), f"a damaged part is made sane: {r['sane']}")
     check(not r['old']['opened'] and r['old']['kills'] == 0 and r['old']['seal'], f"an old save (no part): the seal whole, no falls: {r['old']}")
     check(r['back']['opened'] and not r['back']['seal'], f"read back: the seal open again: {r['back']}")
+
+async def compile_(page):
+    # every program the deep and a veteran's looks draw, at high, medium and low: the Hall of Pyres with its pitch burning,
+    # the cistern's water, the slabs, the embers; out of doors the mantle, a horse's barding and the standard's flag
+    msgs = []
+    page.on('console', lambda m: msgs.append(m.text) if m.type == 'error' else None)
+    for q in ['high', 'medium', 'low']:
+        await page.evaluate(f"__hm.fn.setQuality('{q}')")
+        await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP; L3.start('warrior', 50); L3.kingDown(); H.deep.late3SealOpen(true);
+          L3.to(140, 39); D.root.visible = true; H.camera.position.set(F.dunWX(140.5), -12.6, F.dunWZ(38.2)); H.camera.lookAt(F.dunWX(121), -18.2, F.dunWZ(52));
+          const C = D.cells.find((c) => c.hall === 'pyres' && c.st === 0); if (C) H.deep.deepIgnite(C, null); H.simulate(1); H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
+          for (let i = 0; i < 3; i++) H.frame(1/30);
+          L3.to(170, 48); H.camera.position.set(F.dunWX(185.5), -14.2, F.dunWZ(37.6)); H.camera.lookAt(F.dunWX(165), -18.6, F.dunWZ(50)); for (let i = 0; i < 3; i++) H.frame(1/30);
+          return 0; })()""")
+        await ev(page, """(() => { const H = __hm, F = H.fn, L = H.late, P = H.GAME.player; H.deep.deepPitchOut(); F.setIndoor(false); const t = H.REALMS[0].town; H.teleport(t.x + 30, t.z + 30);
+          L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('kingsbane'); L.LATE2.vet = 5; H.INV.gold = 5000; if (!L.LATE2.std.made) L.late2StdMake(); if (!L.LATE2.std.at) L.late2StdPlant();
+          if (!P.mount) F.mountUp(P, true); H.simulate(0.3); H.CAM.mode = 'play'; H.UI.modal = null; for (let i = 0; i < 3; i++) H.frame(1/30); if (P.mount) F.dismount(P); return 0; })()""")
+    bad = await ev(page, "__hm.dbg.renderer.info.programs.filter(p => p.diagnostics && !p.diagnostics.runnable).map(p => p.name + ': ' + (p.diagnostics.fragmentShader.log || p.diagnostics.vertexShader.log).slice(0, 300))")
+    progs = await ev(page, "__hm.renderInfo().programs")
+    check(not bad and not [m for m in msgs if 'shader' in m.lower() or 'program' in m.lower()], f"every program compiles at high, medium and low ({progs} programs; bad {bad[:2]}; console {msgs[:2]})")
 
 async def fight(page):
     print('fight: each calling\'s skilled bot through the deep and against its lord', flush=True)
