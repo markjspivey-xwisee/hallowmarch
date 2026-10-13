@@ -84,7 +84,7 @@ function wxLook(f, o) {
   o.raining = clamp(f.precip, 0, 1);
   o.storm = clamp(f.storm, 0, 1);
   o.mist = clamp(f.mist, 0, 1);
-  o.fog = clamp(Math.max(0.25 * o.overcast, 0.7 * o.raining + 0.3 * o.storm, o.mist), 0, 1);
+  o.fog = clamp(Math.max(0.25 * o.overcast, 0.7 * o.raining + 0.3 * o.storm, 0.45 * o.mist), 0, 1);
   return o;
 }
 function wxKindOf(o) { return o.storm > 0.5 ? 'storm' : o.raining > 0.3 ? 'rain' : o.mist > 0.5 ? 'mist' : o.overcast > 0.55 ? 'cloudy' : 'clear'; }
@@ -401,14 +401,15 @@ vec4 wxField(vec2 xz, out float storm){
     if (i >= n) break;
     vec4 A = uWxA[i], B = uWxB[i], C = uWxC[i];
     vec2 d = xz - A.xy;
-    if (dot(d, d) > B.x * B.x * 1.25) continue;
+    if (dot(d, d) > B.x * B.x * 2.6) continue;
     vec2 l = vec2(dot(d, A.zw), dot(d, vec2(-A.w, A.z))) / B.xy;
     float r = length(l) * (1.0 + (vnoise(xz * 0.0045 + float(i) * 7.13) - 0.5) * 0.42);
+    // a storm's anvil spreads out over its tower, farther than its cloud reaches below (the storm channel carries it)
+    if (C.y > 0.0) storm = max(storm, C.y * (1.0 - smoothstep(0.3, 1.55, r)) * (r < 1.0 ? 1.0 : 0.85));
     if (r >= 1.0) continue;
     float e = 1.0 - smoothstep(0.4, 1.0, r), core = 1.0 - smoothstep(0.25, 0.8, r);
     clear *= 1.0 - B.z * e;
     precip = max(precip, C.x * core);
-    storm = max(storm, C.y * core);
     thick = max(thick, B.w * sqrt(max(0.0, 1.0 - r * r)) * (0.35 + 0.65 * e)); // a dome: tallest over its heart
   }
   return vec4(1.0 - clear, precip, storm, thick);
@@ -453,7 +454,8 @@ function wxBuildClouds() {
           float far = smoothstep(0.55, 0.9, L);
           dens = mix(dens, smoothstep(0.1, 0.95, c) * 0.9, far * 0.6);
           // each heap stands as tall as its own: the towers of a storm, the low puffs of fair weather
-          float tall = F.w * (0.45 + 0.75 * smoothstep(thr - 0.05, thr + 0.35, n));
+          float bil = fbm3(p * 2.6 + w * 1.4 + 7.3); // billows: the heaps' crowns rise and fall whatever the cover
+          float tall = F.w * (0.4 + 0.45 * smoothstep(thr - 0.05, thr + 0.35, n) + 0.55 * smoothstep(0.3, 0.75, bil));
           gl_FragColor = vec4(clamp(dens, 0.0, 1.0), clamp(tall, 0.0, 1.0), clamp(F.y, 0.0, 1.0), clamp(storm, 0.0, 1.0));
         }`,
     });
@@ -491,37 +493,50 @@ function wxBuildClouds() {
           float phase = 0.55 + 0.9 * spow(cosA * 0.5 + 0.5, 6.0) + 0.6 * spow(max(cosA, 0.0), 40.0);
           vec3 amb = mix(uHorizon, uZenith, 0.55);
           if (t1 > t0) {
+            // two paces: long strides through the clear air to the first cloud along the ray, then short steps through it
+            // (one long stride back), so its edges and crowns are resolved and do not stand in layers
             int steps = int(uDomeP.x + 0.5);
             float dt = (t1 - t0) / float(steps);
-            // the finer shapes only where the steps are short enough to see them (far off they would only speckle)
-            float detK = 1.0 - smoothstep(70.0, 420.0, dt * length(rd.xz));
+            float dtF = clamp(dt * 0.22, 14.0, 150.0);
+            float detK = 1.0 - smoothstep(70.0, 420.0, dtF * length(rd.xz));
             vec3 skyA = mix(uHorizon, uZenith, 0.6);
-            for (int i = 0; i < 24; i++) {
-              if (i >= steps) break;
-              float t = t0 + (float(i) + 0.5 + (hash12(gl_FragCoord.xy) - 0.5) * 0.35) * dt;
+            float jit = hash12(gl_FragCoord.xy);
+            float t = t0 + jit * dt;
+            bool fine = false;
+            float tBack = t0, tKeep = 0.0; // never step back behind where the short steps last left the cloud; keep short past the stride that found it
+            for (int i = 0; i < 56; i++) {
+              if (i >= steps * 4 || t > t1 || T < 0.015) break;
               vec3 p = ro + rd * t;
               vec4 F = cmap(p.xz);
-              if (F.r < 0.02) continue;
               float top = base + 45.0 + F.g * 600.0;
               float hh = (p.y - base) / (top - base);
-              if (hh > 1.0) continue;
+              float av = F.a * smoothstep(base + 530.0, base + 575.0, p.y) * (1.0 - smoothstep(base + 610.0, base + 645.0, p.y));
+              bool cloud = (F.r > 0.02 && hh <= 1.08) || av > 0.04;
+              if (!fine) {
+                if (cloud) { fine = true; tKeep = t + dt * 0.5; t = max(tBack, t - dt) + jit * dtF; continue; }
+                t += dt; continue;
+              }
+              if (!cloud) { if (t > tKeep) { fine = false; tBack = t; } t += dtF; continue; }
               // a flat base, a rounded crown; the shapes broken by a finer noise riding on the wind
               vec2 pw = p.xz - uWxWindD.xy;
-              float dn = vnoise(pw * 0.0105 + vec2(p.y * 0.019, -p.y * 0.013)) * 0.62 + vnoise(pw * 0.034 + p.y * 0.03 + 7.1) * 0.38;
+              float dn = vnoise(pw * 0.0062 + vec2(p.y * 0.011, -p.y * 0.008)) * 0.62 + vnoise(pw * 0.019 + p.y * 0.017 + 7.1) * 0.38;
               float prof = smoothstep(0.0, 0.06, hh) * (1.0 - smoothstep(0.45 + 0.3 * F.r, 1.0, hh + (dn - 0.5) * 0.35 * detK));
               float dens = clamp(F.r * prof * 1.5 - (1.0 - dn) * mix(0.5, 0.12, F.r) * detK, 0.0, 1.0);
-              if (dens < 0.004) continue;
-              // the light's way out of the cloud toward the sun or the moon (the field a little along it)
-              vec4 F2 = cmap(p.xz + Lf.xz / Lf.y * clamp(top - p.y, 30.0, 420.0) * 0.6);
-              float od = F.r * (1.0 - hh) * (0.45 + F.g) + F2.r * 0.75 * (0.5 + 0.5 * F2.g);
-              float sunT = exp(-od * 2.4);
-              vec3 col = uCloudLit * (sunT * phase * sunUp * 0.95) + (uCloudShade * 0.55 + skyA * 0.32) * (0.5 + 0.5 * hh);
-              col *= (1.0 - 0.4 * F.b * (1.0 - hh)) * (1.0 - 0.22 * F.a); // rain and storm darken the base
-              col += uSunGlow * spow(max(cosA, 0.0), 6.0) * (1.0 - dens) * 0.6 * uSunVis * sunUp;
-              float a = 1.0 - exp(-dens * uDomeP.w * dt);
-              if (tHit < 0.0) tHit = t;
-              C += T * a * col; T *= 1.0 - a;
-              if (T < 0.015) break;
+              dens = max(dens, smoothstep(0.04, 0.45, av - (1.0 - dn) * 0.25 * detK) * 0.8);
+              if (dens > 0.004) {
+                // the light's way out of the cloud toward the sun or the moon (the field a little along it)
+                vec4 F2 = cmap(p.xz + Lf.xz / Lf.y * clamp(top - p.y, 30.0, 420.0) * 0.6);
+                float od = F.r * (1.0 - hh) * (0.45 + F.g) + F2.r * 0.75 * (0.5 + 0.5 * F2.g);
+                float sunT = exp(-od * 2.4);
+                vec3 col = uCloudLit * (sunT * phase * sunUp * 0.95) + (uCloudShade * 0.55 + skyA * 0.32) * (0.5 + 0.5 * hh);
+                col *= (1.0 - 0.4 * F.b * (1.0 - hh)) * (1.0 - 0.22 * F.a); // rain and storm darken the base
+                col *= 0.82 + 0.36 * dn * detK + 0.18 * (1.0 - detK); // the billows: their crowns catch more of the light
+                col += uSunGlow * spow(max(cosA, 0.0), 6.0) * (1.0 - dens) * 0.6 * uSunVis * sunUp;
+                float a = 1.0 - exp(-dens * uDomeP.w * dtF);
+                if (tHit < 0.0) tHit = t;
+                C += T * a * col; T *= 1.0 - a;
+              }
+              t += dtF;
             }
           }
           // the distance fades the far clouds into the haze of the horizon
@@ -546,6 +561,67 @@ function wxBuildClouds() {
   U.uCloudMap.value = WXR.field.texture;
   U.uCloudDome.value = WXR.dome.texture;
   U.uCloudDomeOn.value.x = 1;
+}
+// rain hanging under its cloud, seen from afar: a veil of falling streaks through each raining cell, turned to the
+// camera, as wide as the rain the cloud field holds along it (the drops round the camera take over within 150 m)
+const WX_SHAFT_N = 8;
+function wxBuildShafts() {
+  const g = new THREE.InstancedBufferGeometry();
+  const q = new THREE.PlaneGeometry(1, 1, 1, 1);
+  g.setAttribute('position', q.attributes.position); g.setIndex(q.index);
+  g.setAttribute('iS', new THREE.InstancedBufferAttribute(new Float32Array(WX_SHAFT_N * 4), 4).setUsage(THREE.DynamicDrawUsage));
+  g.instanceCount = 0;
+  const m = new THREE.Mesh(g, mat({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: /* glsl */`
+      attribute vec4 iS; // the cell's middle x, z, the veil's half width, its rain
+      uniform vec4 uCloudMapP;
+      varying vec3 vW; varying float vR;
+      void main(){
+        vec2 c = iS.xy, to = cameraPosition.xz - c;
+        vec2 side = to.x * to.x + to.y * to.y > 1.0 ? normalize(vec2(-to.y, to.x)) : vec2(1.0, 0.0);
+        vec2 xz = c + side * position.x * 2.0 * iS.z;
+        vW = vec3(xz.x, mix(-24.0, uCloudMapP.w + 15.0, position.y + 0.5), xz.y); vR = iS.w;
+        gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0);
+      }`,
+    fragmentShader: /* glsl */`
+      ${GLSL_COMMON}
+      ${GLSL_ATMOS}
+      uniform sampler2D uCloudMap; uniform vec4 uCloudMapP;
+      varying vec3 vW; varying float vR;
+      void main(){
+        vec2 dd = vW.xz - uCloudMapP.xy; vec2 q = dd / (uCloudMapP.z + length(dd));
+        vec4 F = texture(uCloudMap, q * 0.5 + 0.5);
+        float d = distance(vW, cameraPosition);
+        float st = vnoise(vec2((vW.x + vW.z) * 0.06, vW.y * 0.012 + uTime * 0.9)) * 0.6 + vnoise(vec2((vW.x - vW.z) * 0.21, vW.y * 0.05 + uTime * 2.3)) * 0.4;
+        float a = smoothstep(0.06, 0.55, F.b) * (0.45 + 0.55 * st) * smoothstep(140.0, 420.0, d) * (1.0 - smoothstep(uCloudMapP.w - 40.0, uCloudMapP.w + 10.0, vW.y)) * 0.5;
+        if (a < 0.004) discard;
+        vec3 col = (uAmbient * 0.8 + uLightColor * 0.12) * (0.75 - 0.25 * F.a);
+        gl_FragColor = vec4(safeColor(applyFog(col, vW)), a);
+      }`,
+  }));
+  m.frustumCulled = false; m.renderOrder = 6;
+  scene.add(m);
+  WXR.shafts = m;
+}
+function wxShaftsFrame() {
+  if (!WXR.shafts) wxBuildShafts();
+  const m = WXR.shafts, A = m.geometry.attributes.iS, cam = camera.position;
+  let n = 0;
+  if (!INDOOR.on) {
+    const L = _wxCellList; // the cells nearest the camera, sorted (wxCloudsFrame)
+    for (const [d, c] of L) {
+      if (n >= WX_SHAFT_N || d > 4500) break;
+      const pr = c.precip * c.s;
+      if (pr < 0.15) continue;
+      A.array[n * 4] = c.x; A.array[n * 4 + 1] = c.z; A.array[n * 4 + 2] = Math.max(c.a, c.b) * 0.85; A.array[n * 4 + 3] = pr;
+      n++;
+    }
+    if (wxHeld() && (WEATHER.raining || 0) > 0.15) { /* a held rain falls everywhere: the drops show it */ }
+  }
+  m.geometry.instanceCount = n; m.visible = n > 0;
+  if (n) A.needsUpdate = true;
+  void cam;
 }
 // the frame (13_main.js tick, after applyWeather): the cells to the shaders, the field, the dome, the shadows, the mist
 const _wxCellList = [];
@@ -586,6 +662,7 @@ function wxCloudsFrame(dt) {
   const Ld = U.uLightDir.value, ly = Math.max(Ld.y, 0.15);
   const oc = WEATHER.overcast || 0;
   U.uCloudSh.value.set(Ld.x / ly, Ld.z / ly, 0, INDOOR.on ? 0 : 0.72 * clamp(Ld.y * 4, 0, 1) * (1 - 0.55 * oc));
+  wxShaftsFrame();
   // lightning in the cloud
   const F = WX.flash;
   U.uWxFlash.value.set(F.x, F.y, F.z, F.k * F.k * 1.6);

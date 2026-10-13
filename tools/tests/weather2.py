@@ -348,7 +348,8 @@ async def main():
             # the moon between clouds
             await shot('moon_clouds', """(() => { const H = __hm, X = W2T.X, P = W2T.P(); W2T.live(); H.setTod(2.0); H.frame(1 / 30);
               const M = H.dbg.skyU.uMoonDir.value, cy = P.y + 3, t = (330 - cy) / Math.max(M.y, 0.05);
-              X.wxMake('bank', P.x + M.x * t + 250, P.z + M.z * t + 120, { age: 200 }).sp = 0; X.wxMake('bank', P.x + M.x * t - 380, P.z + M.z * t - 260, { age: 200 }).sp = 0;
+              const hl = Math.hypot(M.x, M.z) || 1, sx = -M.z / hl, sz = M.x / hl;
+              X.wxMake('bank', P.x + M.x * t + sx * 560, P.z + M.z * t + sz * 560, { age: 200, ang: Math.atan2(sz, sx) }).sp = 0; X.wxMake('bank', P.x + M.x * t * 1.6 - sx * 640, P.z + M.z * t * 1.6 - sz * 640, { age: 200, ang: Math.atan2(sz, sx) }).sp = 0;
               W2T.cam(P.x, cy, P.z, P.x + M.x * 100, cy + M.y * 100 - 18, P.z + M.z * 100); __hm.fn.weatherAdvance(3); return 0; })()""")
             # a clear sky after rain: the shower moved off, the ground wet
             await shot('after_rain', """(() => { const H = __hm, X = W2T.X, P = W2T.P(); W2T.live(); H.setTod(0.7);

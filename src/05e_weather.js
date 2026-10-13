@@ -294,7 +294,7 @@ function applyWeather() {
   for (const v of [skyU.uCloudLit.value, skyU.uCloudShade.value]) { grey(v); v.multiplyScalar(1 - 0.3 * oc - 0.35 * st); }
   for (const v of [U.uZenith.value, U.uHorizon.value]) { grey(v); v.multiplyScalar(1 - 0.22 * oc - 0.3 * st); }
   U.uSunGlow.value.multiplyScalar(1 - 0.8 * oc);
-  U.uFogDensity.value *= 1 + 1.4 * fog + 2.2 * mist;
+  U.uFogDensity.value *= 1 + 1.4 * fog + (U.uCloudDomeOn.value.x > 0.5 ? 0.7 : 2.2) * mist; // [weather2] the mist lies in the valleys (uMist, 12c_weather2.js)
   RAYS_BOOST.value = (1 - 0.85 * oc) + mist * 1.4;
   // a lightning flash lights everything for a moment
   if (W2.flash > 0) {
