@@ -36,6 +36,7 @@ const W4 = {
   SALLY_K: 2, // swords to every foe a sally goes out with
   PEACE_BACK: 8, // s into the peace: the keeps go back to their own realms, their columns march in
   EARLY: 1200, // s: no claim is won before the twentieth minute
+  DOWN_H: 0.8, // m: a band's soldier this high on a keep's floors with nothing to fight goes down by its ways (war2's: 2)
   stats: { gatesStarted: 0, gatesHung: 0, gateWorkS: 0, gatePaused: 0, reliefs: 0, colKeep: 0, colMuster: 0, trickleHall: 0, salliesKept: 0, salliesGone: 0, pacts: 0, recalled: 0, handedBack: 0, peaceCols: 0, colsHome: 0, earlyHeld: 0, stonesSpared: 0 },
   look: 0,
   pactKey: '',
@@ -71,9 +72,29 @@ function w4PactBegins(P) {
 }
 function w4PactStep() {
   const P = W3.pact, key = P ? P.against + ':' + Math.round(P.t * 10) : '';
-  if (key === W4.pactKey) return;
-  W4.pactKey = key;
-  if (P) w4PactBegins(P);
+  if (key !== W4.pactKey) { W4.pactKey = key; if (P) w4PactBegins(P); }
+  if (P) w4PactSweep();
+}
+// while it holds (every 2 s): an order against an ally (a raid the chance of an open temple gave, a chase after an ally
+// carrying a hallow of ours) is given back: its band could only stand before the ally's gate, or steal from a friend
+function w4PactSweep() {
+  for (const wb of WAR.warbands) {
+    const O = wb.order;
+    if (wb.dead || !O || O.byPlayer) continue;
+    let bad = false;
+    if (O.type === 'attack' && O.keep && war4Allied(wb.realm, O.keep.realm)) bad = true;
+    else if (O.type === 'raid' && O.temple && war4Allied(wb.realm, O.temple.realm)) bad = true;
+    else if (O.type === 'retrieve' && O.relic && O.relic.state === 'carried') { const c = getEnt(O.relic.carrier); if (c && war4Allied(wb.realm, c.faction)) bad = true; }
+    if (bad) { wb.order = null; W4.stats.recalled++; }
+  }
+}
+// the commander's choices (from cwChoose, after war3Choose): none against an ally while the pact holds
+function war4Choose(r, C) {
+  if (!W4.on || !W3.pact) return;
+  for (let i = C.length - 1; i >= 0; i--) {
+    const o = C[i].o;
+    if ((o.type === 'attack' && o.keep && war4Allied(r, o.keep.realm)) || (o.type === 'raid' && o.temple && war4Allied(r, o.temple.realm))) C.splice(i, 1);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -178,20 +199,30 @@ function w4GateScaffoldGeo(C, G0) {
   const a = (round ? G0.hw : Math.max(G0.hw, GATE_HW)) + 0.45, wing = 1.9;
   const gyF = (x, z) => { const w = siteToWorld(S, x, z); return heightAt(w.x, w.z) - S.y; };
   const clear = (x, z, r = 0.24) => { const w = siteToWorld(S, x, z); return look3Clear(w.x, w.z, r); };
-  let zr = null;
+  // the row: from the wall inward, the first place its standards stand clear and its boards leave a mason's head room
+  // under anything above them (the walk over a Logres gate is a bridge 0.5 m thick at the walls' height: boards at the
+  // gate's height under it put the mason's head in its timbers); the lift as high as the gate and that head room allow
+  let zr = null, deep = 0.95, lift = G0.h + 0.5;
   for (let z = G0.gz - 1.3; z > G0.gz - 9; z -= 0.25) {
-    if (clear(-a, z) && clear(a, z) && (clear(-a - wing, z) || clear(a + wing, z))) { zr = z; break; }
+    if (!(clear(-a, z) && clear(a, z) && (clear(-a - wing, z) || clear(a + wing, z)))) continue;
+    // how far the boards reach toward the wall: to its face beside the passage (a shot along the frame's +z), a little short
+    let dp = 0.95;
+    for (const sx of [-1, 1]) {
+      const p = siteToWorld(S, sx * (a - 0.2), z), q = siteToWorld(S, sx * (a - 0.2), z + 4);
+      const R = shotHit(p.x, S.y + G0.h + 0.4, p.z, q.x, S.y + G0.h + 0.4, q.z, { ground: false });
+      if (R) dp = Math.min(dp, Math.max(0.55, R.t * 4 - 0.12));
+    }
+    let yl = G0.h + 0.5;
+    for (let x = -a - wing; x <= a + wing + 1e-3; x += 0.9) for (let dz = 0; dz <= dp + 1e-3; dz += 0.3) {
+      const w = siteToWorld(S, x, z + dz), u = w4Underside(w.x, w.z, S.y + yl);
+      if (u - (S.y + yl + 0.16) < 2.05) yl = u - S.y - 2.21;
+    }
+    if (yl < 2.8) continue; // (too low over the passage for a rider: further in)
+    zr = z; deep = dp; lift = yl;
+    break;
   }
   if (zr === null) return null;
-  // how far the boards reach toward the wall: to its face beside the passage (a shot along the frame's +z), a little short
-  let deep = 0.95;
-  for (const sx of [-1, 1]) {
-    const p = siteToWorld(S, sx * (a - 0.2), zr), q = siteToWorld(S, sx * (a - 0.2), zr + 4);
-    const R = shotHit(p.x, S.y + G0.h + 0.4, p.z, q.x, S.y + G0.h + 0.4, q.z, { ground: false });
-    if (R) deep = Math.min(deep, Math.max(0.55, R.t * 4 - 0.12));
-  }
   const pts = [[-a - wing, zr], [-a, zr], [a, zr], [a + wing, zr]], ins = pts.map(() => [0, 1]);
-  const lift = G0.h + 0.5;
   const b = new Batch();
   const info = look3Scaffold(b, M, pts, ins, { lifts: [lift], top: lift + 1.35, deep, gy: gyF, clear: (x, z) => clear(x, z), pole: st.logs, wood: st.wood, baseY: S.y, seed: Math.round(Math.abs(S.x * 3 + S.z)) % 97 });
   if (!info || info.bays < 2 || !info.ladders) return null;
@@ -203,6 +234,20 @@ function w4GateScaffoldGeo(C, G0) {
     b.add(G.box, lm(I, x, g + 0.06 + i * 0.12, z, 0.06 * (i - 1), 0.22, 0.1, Math.min(G0.h, 3.6)), MAT.wood, darker(wood, 0.9 + 0.08 * i), S.y);
   }
   return { geo: b.build(), infos: [info] };
+}
+// the lowest underside of anything standing over (x, z) above world height y (a floor's solid bottom: a bridge's, a
+// deck's); -Infinity when something solid stands there from the ground up through y
+function w4Underside(x, z, y) {
+  let u = Infinity;
+  const list = FLOOR.grid.get(collKey(Math.floor(x / FLOOR.cell), Math.floor(z / FLOOR.cell)));
+  if (list) for (const f of list) {
+    if (!f.active) continue;
+    const t = floorTopOf(f, x, z);
+    if (t === null || t <= y + 0.3) continue;
+    if (f.y0 < y) return -Infinity;
+    u = Math.min(u, f.y0);
+  }
+  return u;
 }
 // the gate's mending record (a scaffold job for the masons: look3Masons reads l3, t and masonsFor)
 function w4GateOf(K) {
@@ -266,6 +311,7 @@ function w4GateStep(K, dt) {
   if (D.alive) { if (g.st !== 'whole') w4GateDone(g, false); return; }
   if (g.st === 'whole') { g.st = 'down'; g.t = g.t0 || 0; g.t0 = 0; }
   const quiet = now - K.lastEnemyNear;
+  w4GatePlug(K, g, quiet < 6);
   if (g.st === 'down') {
     if (quiet > W4.GATE_QUIET && now - D.deadAt > W4.GATE_QUIET) w4GateStart(g);
     else return;
@@ -280,6 +326,24 @@ function w4GateStep(K, dt) {
   if (g.t >= 1) w4GateDone(g, true);
 }
 const G0Wreck = (g, on) => { if (g.G0.wreck) g.G0.wreck.visible = on; };
+// the gateway manned while its gate is down and foes are about: the court's two front guards stand in its mouth, either
+// side of the way in, and fight what comes through (as a breach is held: siegePostedThink, ai.plug); let go once quiet
+// (war3GateWork has them hang the new leaves then)
+function w4GatePlug(K, g, foes) {
+  const W = g.plugW || (g.plugW = { state: 'whole', w4gate: true, C: g.C });
+  const was = W.state;
+  W.state = foes && !K.door.alive ? 'breach' : 'whole';
+  if (W.state !== 'breach' || (was === 'breach' && GAME.t < (g.plugT || 0))) return;
+  g.plugT = GAME.t + 1;
+  const S = g.C.S, gz = S.gateLocal.z - (g.C.kind === 'round' ? 4 : 4.2);
+  for (const id of K.guards) {
+    const e = getEnt(id);
+    if (!e || !e.alive || !e.ai || e.ai.wall || (e.ai.slot !== 'c0' && e.ai.slot !== 'c1') || e.ai.plug || e.ai.fire || e.ai.sally) continue;
+    const p = siteToWorld(S, (e.ai.slot === 'c0' ? -1 : 1) * 1.3, gz);
+    e.ai.plug = { W, x: p.x, z: p.z };
+    W4.stats.gatePlugs = (W4.stats.gatePlugs || 0) + 1;
+  }
+}
 // does war4 mend this keep's gate? (the war's old rule in updateWar stands aside: 08_ai.js)
 const war4GateMends = (K) => W4.on && !!w4GateOf(K);
 // the war panel's word for a gate down (08k_war3.js's line)
@@ -412,10 +476,135 @@ registerSavePart('world', 'war4', {
 });
 
 /* ------------------------------------------------------------------ */
+/* out of a tower's room round its furniture                           */
+/* ------------------------------------------------------------------ */
+// A band's captain stood in a corner drum's store room at Dragonmere for six minutes of an hour's soak (campaign_soak.py
+// `room=lv0`, order after order): making straight for its door (bandOutOfTower, 08j_war2.js) it got no nearer in 5 s,
+// gave up for 15, and so on. Once it gets no nearer, it takes a way round what stands in the room (barrels, crates, a
+// rack, its fellows) on a quarter-metre grid to the door's inner side, walls and gates standing (localPath); none, it
+// gives up as before. B: bandOutOfTower's record
+function war4RoomWayFind(e, B, inn) {
+  B.w4tried = true;
+  if (!W4.on) return false;
+  const pts = localPath(e.x, e.z, inn.x, inn.z, 0.32, 12, true, 0.25);
+  if (!pts || !pts.length) { W4.stats.roomWaysNone = (W4.stats.roomWaysNone || 0) + 1; return false; }
+  B.w4p = { pts, i: 0 };
+  W4.stats.roomWays = (W4.stats.roomWays || 0) + 1;
+  return true;
+}
+function war4RoomWay(e, B) {
+  const W = B.w4p;
+  if (!W) return null;
+  while (W.i < W.pts.length && dist2(e.x, e.z, W.pts[W.i].x, W.pts[W.i].z) < 0.35 * 0.35) { W.i++; B.bd = Infinity; }
+  if (W.i >= W.pts.length) { B.w4p = null; return null; }
+  return W.pts[W.i];
+}
+
+// A band's soldier a little up on a keep's floors (the foot of a burh's stair, a landing: 0.8 to 2.6 m) where the castle's
+// ways have nothing (castleWaypoint looks only past 1.1 m, and only along the posts' routes) steps off the edge nearest
+// its way (toward its leader or its band's next point, then the court, then all round): to 0.4 m short of the first place
+// within 4 m that stands 0.6 m lower with nothing solid between, and down (the ladder fall's motion, unhurt so low).
+// war4.py's walls scene: two captains set on Thule walks came down their stairs to a metre over the ground and stood
+// there against the stair's side. From bandWallsDown (08j_war2.js), where it would give up
+const _w4lj = { x: 0, z: 0 };
+function war4LowJump(e, wb, L, B, C, h, dt) {
+  if (!W4.on || h > 2.6) return false;
+  if (!B.w4edge) {
+    const g = e === L ? wb && wb.leaderGoal : L, dirs = [];
+    if (g) dirs.push(Math.atan2(g.z - e.z, g.x - e.x));
+    dirs.push(Math.atan2(C.S.z - e.z, C.S.x - e.x));
+    for (let k = 0; k < 8; k++) dirs.push((k / 8) * TAU);
+    const r = e.radius * (e.scale || 1) * 0.9;
+    let E = null;
+    for (const a of dirs) {
+      const ux = Math.cos(a), uz = Math.sin(a);
+      for (let s = 0.25; s <= 4; s += 0.25) {
+        const px = e.x + ux * s, pz = e.z + uz * s;
+        if (floorAt(px, pz, e.y - 0.3) < e.y - 0.6) { const k = Math.max(0, s - 0.4); E = { x: e.x + ux * k, z: e.z + uz * k, ux, uz, t: GAME.t }; break; }
+        _w4lj.x = px; _w4lj.z = pz; resolveCollisions(_w4lj, r, e.y, e.faction);
+        if (Math.abs(_w4lj.x - px) > 0.02 || Math.abs(_w4lj.z - pz) > 0.02) break;
+      }
+      if (E) break;
+    }
+    B.w4edge = E || { none: true };
+  }
+  const E = B.w4edge;
+  if (E.none) return false;
+  if (dist2(e.x, e.z, E.x, E.z) > 0.3 * 0.3 && GAME.t - E.t < 5) { moveToward(e, E.x, E.z, dt, 1.0, 0.05); return true; }
+  B.w4edge = null;
+  e.motion = { kind: 'ladder', L: BZ_FALL_L, st: 3, t: 0, vy: 1.4, y0: e.y, by: null, dx: E.ux * 2.6, dz: E.uz * 2.6, dir: 1 };
+  setAct(e, 6, 1.0);
+  W4.stats.lowJumps = (W4.stats.lowJumps || 0) + 1;
+  return true;
+}
+// A band's soldier up in a tower (a room above the store, a gallery, an open top) with nothing to fight: down that tower's
+// own ladders, floor by floor (the hatches open as it comes down through them), to the store room and out at its door
+// (bandOutOfTower). The castle's ways (castleWaypoint) know only the posts' routes, and a top no post's route ends on (a
+// back corner's) held a captain there: war4.py's walls scene found eleven of 48 raised floors such tops, 9 to 10.5 m up.
+// From bandDownStep (08j_war2.js); not a member beside its leader on the same floor
+function war4TowerDown(e, wb, L, R, dt) {
+  if (!W4.on || e.motion || e.fixedY !== null) return false;
+  if (e !== L && L && Math.abs(L.y - e.y) < 1.5 && dist2(L.x, L.z, e.x, e.z) < 30 * 30) return false;
+  let Ld = null, bd = 1.0;
+  for (const q of R.T.ladders) { if (q.gone) continue; const d = Math.abs(q.wyt - e.y); if (d < bd) { bd = d; Ld = q; } }
+  if (!Ld) return false;
+  if (e.mount) dismount(e);
+  if (towerLadderStart(e, Ld, -1)) { W4.stats.towerDowns = (W4.stats.towerDowns || 0) + 1; return true; }
+  moveToward(e, Ld.ox, Ld.oz, dt, 0.9, 0.25);
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* the war's thinking at its worst, measured in a running war (tests)  */
+/* ------------------------------------------------------------------ */
+// war4Prof(true) wraps the war's thinking (each wrapped once; a module's own binding, as perfTimers does): for each, the
+// calls, the time, how many took over 5, 20 and 50 ms, and the worst call with what it was about
+const W4P = { on: false, wrapped: false, f: {} };
+function w4ProfWhat(name, a) {
+  const e = a[0];
+  if (name === 'localPath') return { from: [Math.round(a[0]), Math.round(a[1])], to: [Math.round(a[2]), Math.round(a[3])], pad: a[4], span: a[5], gates: !!a[6], cs: a[7] || 1, t: Math.round(GAME.t) };
+  if (e && typeof e === 'object' && e.id !== undefined) {
+    const t = getEnt(e.target), C = castleAt(e.x, e.z);
+    return { role: e.role, cls: e.cls, keep: e.keep ? e.keep.site.name : C ? C.S.name : '', wall: !!(e.ai && e.ai.wall), up: +(e.y - heightAt(e.x, e.z)).toFixed(1), tgt: t ? Math.round(dist(e.x, e.z, t.x, t.z)) : null, ai: e.ai ? Object.keys(e.ai).filter((k) => e.ai[k] && typeof e.ai[k] === 'object').slice(0, 8).join(',') : '', t: Math.round(GAME.t) };
+  }
+  if (e && e.members) { const L = wbLeader(e); return { band: e.id, order: e.order ? e.order.type + '/' + e.order.phase : '', L: L ? [Math.round(L.x), Math.round(L.z)] : null, t: Math.round(GAME.t) }; }
+  return null;
+}
+function war4Prof(on = true) {
+  W4P.on = on;
+  if (W4P.wrapped || !on) return;
+  W4P.wrapped = true;
+  const w = (name, f) => function (...a) {
+    if (!W4P.on) return f.apply(this, a);
+    const t0 = performance.now();
+    try { return f.apply(this, a); } finally {
+      const ms = performance.now() - t0, r = W4P.f[name] || (W4P.f[name] = { n: 0, ms: 0, max: 0, over: [0, 0, 0], worst: null });
+      r.n++; r.ms += ms;
+      if (ms > 5) r.over[0]++;
+      if (ms > 20) r.over[1]++;
+      if (ms > 50) r.over[2]++;
+      if (ms > r.max) { r.max = ms; r.worst = w4ProfWhat(name, a); }
+    }
+  };
+  thinkPosted = w('thinkPosted', thinkPosted); thinkSoldier = w('thinkSoldier', thinkSoldier); localPath = w('localPath', localPath);
+  pickTarget = w('pickTarget', pickTarget); wallsSeekLine = w('wallsSeekLine', wallsSeekLine); wallsStepToCrenel = w('wallsStepToCrenel', wallsStepToCrenel);
+  castleFollow = w('castleFollow', castleFollow); blazeFightStep = w('blazeFightStep', blazeFightStep); siegePostedThink = w('siegePostedThink', siegePostedThink);
+  npcAbilities = w('npcAbilities', npcAbilities); wallsShotClear = w('wallsShotClear', wallsShotClear); bandLeaderDetour = w('bandLeaderDetour', bandLeaderDetour);
+  fightTarget = w('fightTarget', fightTarget); updateWarband = w('updateWarband', updateWarband); autoAttack = w('autoAttack', autoAttack);
+  updateWar = w('updateWar', updateWar); updateNPCs = w('updateNPCs', updateNPCs); updateCastles = w('updateCastles', updateCastles);
+  simStep = w('simStep', simStep);
+}
+function war4ProfOut(reset) {
+  const out = Object.entries(W4P.f).map(([k, r]) => ({ k, n: r.n, ms: +r.ms.toFixed(1), each: +(r.ms / Math.max(1, r.n)).toFixed(3), max: +r.max.toFixed(1), over5: r.over[0], over20: r.over[1], over50: r.over[2], worst: r.worst })).sort((a, b) => b.max - a.max);
+  if (reset) W4P.f = {};
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* test hooks                                                          */
 /* ------------------------------------------------------------------ */
 queueMicrotask(() => {
   if (!window.__hm) return;
-  window.__hm.war4 = { W4, setDoorState, war4Allied, w4Foe, war4SallyPays, war4SallyParty, war4ColumnFrom, w4ReliefStep, war4Trickle, w4GateOf, w4GateStep, w4GateScaffoldGeo, war4GateMends, war4HandBack, w4PeaceColumns, war4ColumnsHome, war4MayWin, war4Left, updateWar4, war4Reset, w4PactStep,
+  window.__hm.war4 = { W4, W4P, war4Prof, war4ProfOut, setDoorState, war4Allied, w4Foe, war4SallyPays, war4SallyParty, war4ColumnFrom, w4ReliefStep, war4Trickle, w4GateOf, w4GateStep, w4GateScaffoldGeo, war4GateMends, war4HandBack, w4PeaceColumns, war4ColumnsHome, war4MayWin, war4Left, updateWar4, war4Reset, w4PactStep,
     gate: (ki) => { const K = WAR.keeps[ki], g = w4GateOf(K); return g ? { st: g.st, t: +g.t.toFixed(3), laid: g.laid, scaf: !!g.scaffold, on: !!(g.l3 && g.l3.on), ladders: g.l3 ? g.l3.ladders.length : 0, floors: g.l3 ? g.l3.floors.length : 0, info: g.scafInfo ? g.scafInfo.map((q) => ({ standards: q.standards, bays: q.bays, boards: q.boards, ladders: q.ladders })) : null, door: K.door.alive, hp: +(K.door.hp / K.door.maxHp).toFixed(2), leafY: +g.G0.leaves[0].scale.y.toFixed(2), leafVis: g.G0.leaves[0].visible, open: +g.G0.open.toFixed(2), masons: (g.masonsFor || []).length } : null; } };
 });

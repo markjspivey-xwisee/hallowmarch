@@ -959,7 +959,7 @@ function looseRelicFor(r, mine) {
   return WAR.relics.find((x) => {
     if (mine.some((w) => w.order && w.order.relic === x)) return false;
     if (x.state === 'ground') return dist(x.x, x.z, M.x, M.z) < 420;
-    return x.state === 'carried' && x.realm === r && x.carrierRealm !== r;
+    return x.state === 'carried' && x.realm === r && x.carrierRealm !== r && !war4Allied(r, x.carrierRealm); // [war4] (not run down from an ally while the pact holds: 08l_war4.js)
   });
 }
 // take the nearest band that is only marching somewhere and give it a more urgent order

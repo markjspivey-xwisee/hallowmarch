@@ -178,10 +178,11 @@ function war3ColumnGoal(wb, O, L, members) {
       if (s) war3MakeGuard(e, K, s, wb);
     }
     if (!wbMembers(wb).length) {
+      const from = wb.w3col && wb.w3col.from; // [war4] (where it marched from: said below)
       wb.dead = true; wb.order = null; wb.w3col = null;
       if (K.w3 && K.w3.col === wb.id) K.w3.col = null;
       W3.stats.columnsIn++;
-      news(`The column from ${wb.w3col && wb.w3col.from ? wb.w3col.from : 'the ' + REALMS[wb.realm].musterSite.name} has taken its posts in ${K.site.name}.`, wb.realm, 'normal'); // [war4] (from the nearest keep or the muster)
+      news(`The column from ${from || 'the ' + REALMS[wb.realm].musterSite.name} has taken its posts in ${K.site.name}.`, wb.realm, 'normal'); // [war4] (from the nearest keep or the muster)
       return null;
     }
     if (late) { // posts all taken by others: the rest are a band like any other

@@ -221,6 +221,7 @@ function cwChoose(wb, r) {
   const own = WAR.keeps.filter((K) => K.realm === r).sort((a, b) => a.door.hp / a.door.maxHp - b.door.hp / b.door.maxHp);
   if (own.length) push(4, { type: 'patrol', node: own[0].nav.gate, until: now + 30 }, 'watch');
   war3Choose(wb, r, C, L); // [war3] hold what was taken, press for the claim, the pact, win one back (08k_war3.js)
+  war4Choose(r, C); // [war4] nothing against an ally while the pact holds (08l_war4.js)
   if (!C.length) return null;
   C.sort((a, b) => b.s - a.s);
   // a little chance decides between choices that score about the same
@@ -241,7 +242,7 @@ function planWar(C) {
   else if (Math.random() < 0.5 && !mine.some((w) => w.order && (w.order.type === 'raid' || w.order.type === 'carry'))) {
     // a chance: an enemy temple lies open; a band on the march turns to raid it
     for (const T of WAR.temples) {
-      if (T.realm === r || !templeExposed(T)) continue;
+      if (T.realm === r || !templeExposed(T) || war4Allied(r, T.realm)) continue; // [war4] not an ally's while the pact holds (08l_war4.js)
       if (WAR.warbands.some((w) => !w.dead && w.realm !== r && w.order && w.order.type === 'raid' && w.order.temple === T)) continue;
       const rel = WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm && x.realm === r) || WAR.relics.find((x) => x.state === 'temple' && x.at === T.realm);
       if (rel && retask(mine, T.site.x, T.site.z, { type: 'raid', temple: T, relic: rel, why: rel.realm === r ? 'reclaim' : 'hallow' })) break;

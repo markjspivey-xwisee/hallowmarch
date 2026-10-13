@@ -17,7 +17,10 @@
   early    a realm holding four keeps from the start: its claim stands full but is not won before the twentieth minute
            (cried once; the war panel's clock says so), and is won after it
   save     a gate half hung saved and loaded: the work goes on from where it was
-usage: python3 tools/tests/war4.py [only=gate,column,relief,trickle,sally,pact,peace,early,save] [shots] [q=low|medium|high] [w=960 h=540]"""
+  rooms    a captain anywhere in a tower's ground room of any keep, its way elsewhere, gets out at the door
+  walls    a captain up on any of a keep's raised floors (walks, decks, landings, stairs), its way elsewhere, comes down
+  prof     (only when asked) MINS minutes of AI-only war, the war's thinking at its worst (war4Prof)
+usage: python3 tools/tests/war4.py [only=gate,column,relief,trickle,sally,pact,peace,early,save,rooms,walls,prof] [shots] [q=low|medium|high] [w=960 h=540] [mins=15] [json=PATH]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -33,6 +36,7 @@ ONLY = next((a[5:].split(',') for a in ARGS if a.startswith('only=')), None)
 QUALITY = next((a[2:] for a in ARGS if a.startswith('q=')), 'low')
 W = int(next((a[2:] for a in ARGS if a.startswith('w=')), '640'))
 H = int(next((a[2:] for a in ARGS if a.startswith('h=')), '360'))
+JSON_OUT = next((a[5:] for a in ARGS if a.startswith('json=')), None)
 FAILS = []
 T0 = time.time()
 
@@ -399,6 +403,107 @@ async def main(p):
         check(r['part'] and r['tl'] is not None and abs(r['tl'] - r['t0']) < 0.02, f"saved at {r['t0']} and read back ({r['tl']}, {r['part']})")
         check(r['t1'] > r['t0'], f"the work goes on from there ({r['t1']})")
         check(r['errs'] == 0, 'a damaged part loads as nothing')
+
+    if want('rooms'):
+        # [war4] a band's captain in a tower's ground room of any keep (anywhere in it: behind the barrels, by the rack)
+        # with its way elsewhere gets out at the door (version 17's soaks: a captain in Dragonmere's corner drum for six
+        # minutes, order after order)
+        print('rooms: a captain anywhere in a tower\'s ground room gets out', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, TW = H.towers;
+          __w4t.calm(); __w4t.quiet(); __w4t.whole();
+          const clear = () => { for (const e of H.ENT.slice()) if (e.role === 'soldier') fn.removeEnt(e); for (const w of WAR.warbands) w.dead = true; WAR.warbands.length = 0; };
+          const res = { tried: 0, out: 0, stuck: [], worst: 0 };
+          for (const K of WAR.keeps) {
+            const S = K.site, C = fn.castleOf(S);
+            // the garrison out of the way: the scene is about the way out, not a fight
+            for (const id of [...K.guards]) { const g = fn.getEnt(id); if (g) fn.removeEnt(g); } K.guards.clear();
+            const Lr = fn.getEnt(K.lord); if (Lr) fn.removeEnt(Lr); K.lord = null; K.nextGuardAt = 1e12;
+            const ek = WAR.keeps.findIndex((q) => q.orig !== K.orig);
+            for (const T of TW.list().filter((T) => T.C === C)) {
+              for (let i = 0; i < 9; i++) {
+                const r = i === 8 ? 0.4 : T.RI - 0.55, a = (i / 8) * Math.PI * 2;
+                const p = fn.siteToWorld(S, T.cx + Math.sin(a) * r, T.cz + Math.cos(a) * r);
+                clear();
+                const id = H.SIEGE.band(K.realm, ek, 30, 3), wb = WAR.warbands.find((w) => w.id === id), L = fn.wbLeader(wb);
+                wb.lid = L.id;
+                for (const e of fn.wbMembers(wb)) if (e !== L) fn.removeEnt(e);
+                L.x = L.prevX = p.x; L.z = L.prevZ = p.z; L.y = fn.floorAt(p.x, p.z, S.y + T.yG + 0.5);
+                H.simulate(0.2);
+                const q0 = TW.towerRoomOf(L);
+                if (!q0 || q0.T !== T || q0.lv !== 0) continue; // (no body stands there: furniture)
+                res.tried++;
+                let outAt = null;
+                for (let t = 1; t <= 40; t++) { H.simulate(1); const q = TW.towerRoomOf(L); if (!q || q.T !== T) { outAt = t; break; } }
+                if (outAt !== null) { res.out++; res.worst = Math.max(res.worst, outAt); }
+                else if (!L.alive) res.dead = (res.dead || 0) + 1;
+                else res.stuck.push({ keep: S.name, T: T.role, at: [+p.x.toFixed(1), +p.z.toFixed(1)], end: [+L.x.toFixed(1), +L.z.toFixed(1), +(L.y - S.y).toFixed(1)], mo: L.motion ? L.motion.kind : '', ai: Object.keys(L.ai).filter((k) => L.ai[k] && typeof L.ai[k] === 'object').join(','), tgt: !!L.target });
+              }
+            }
+            fn.fillGarrison(K, true);
+          }
+          clear();
+          res.stuck = res.stuck.slice(0, 8);
+          res.ways = H.war4.W4.stats.roomWays || 0;
+          return res;
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        # (one place in about 275 may hold a body set down where none could walk: beside an Eriu gate drum's ladder, a
+        # captain set there takes not a step, its first one refused, a place no body reaches on its own; printed above)
+        check(r['tried'] >= 150 and len(r['stuck']) <= 1, f"out of every tower's ground room ({r['out']} of {r['tried']} places, the slowest {r['worst']} s; ways round the furniture {r['ways']})")
+
+    if want('walls'):
+        # [war4] a band's captain up on any raised floor of a keep (a walk, a deck, a landing, a stair: 1.2 m and more over
+        # the ground) with its way elsewhere is down within a minute (version 17's soaks: a captain on Dragonmere's walk
+        # 4.7 m up for a quarter of an hour; one on Ulfsborg's bank or stair 2.5 m up, 54 s at a time)
+        print('walls: a captain up on any of a keep\'s raised floors comes down', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR;
+          __w4t.calm(); __w4t.quiet(); __w4t.whole();
+          const clear = () => { for (const e of H.ENT.slice()) if (e.role === 'soldier') fn.removeEnt(e); for (const w of WAR.warbands) w.dead = true; WAR.warbands.length = 0; };
+          const res = { tried: 0, down: 0, stuck: [], worst: 0, byH: {} };
+          for (const K of WAR.keeps) {
+            const S = K.site, C = fn.castleOf(S);
+            const ek = WAR.keeps.findIndex((q) => q.orig !== K.orig);
+            const fl = C.floors.filter((f) => f.active && f.type === 'box').map((f) => ({ f, top: (f.ya + f.yb) / 2, g: fn.heightAt(f.x, f.z) })).filter((q) => q.top - q.g > 1.2 && q.f.hx * q.f.hz > 0.6);
+            const pick = fl.filter((q, i) => i % Math.max(1, Math.floor(fl.length / 7)) === 0).slice(0, 8);
+            for (const q of pick) {
+              clear();
+              const id = H.SIEGE.band(K.realm, ek, 30, 3), wb = WAR.warbands.find((w) => w.id === id), L = fn.wbLeader(wb);
+              wb.lid = L.id;
+              for (const e of fn.wbMembers(wb)) if (e !== L) fn.removeEnt(e);
+              L.x = L.prevX = q.f.x; L.z = L.prevZ = q.f.z; L.y = fn.floorAt(q.f.x, q.f.z, q.top + 0.4);
+              const h0 = L.y - fn.heightAt(L.x, L.z);
+              if (h0 < 1.2) continue;
+              res.tried++;
+              const band = h0 < 2 ? 'under 2 m' : h0 < 4 ? '2-4 m' : 'over 4 m';
+              let downAt = null;
+              for (let t = 1; t <= 60; t++) { H.simulate(1); if (!L.alive) break; if (L.y - Math.max(fn.heightAt(L.x, L.z), S.y) < 0.7 || Math.hypot(L.x - S.x, L.z - S.z) > 45) { downAt = t; break; } }
+              const B = res.byH[band] || (res.byH[band] = [0, 0]); B[0]++;
+              if (downAt !== null) { res.down++; B[1]++; res.worst = Math.max(res.worst, downAt); }
+              else if (L.alive) res.stuck.push({ keep: S.name, tag: q.f.tag, h: +h0.toFixed(1), at: [+q.f.x.toFixed(1), +q.f.z.toFixed(1)], end: [+L.x.toFixed(1), +L.z.toFixed(1), +(L.y - fn.heightAt(L.x, L.z)).toFixed(1)] });
+            }
+          }
+          clear();
+          res.stuck = res.stuck.slice(0, 10);
+          return res;
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r['tried'] >= 25 and not r['stuck'], f"down off every kind of raised floor ({r['down']} of {r['tried']}, the slowest {r['worst']} s; by height {r['byH']})")
+
+    if ONLY and 'prof' in ONLY: # (only when asked: it runs minutes of war)
+        # the war's thinking at its worst in a running war: MINS minutes of AI-only war (the player in town), every
+        # wrapped system's calls, time, and its worst call with what it was about (war4Prof)
+        mins = int(next((a[5:] for a in ARGS if a.startswith('mins=')), '15'))
+        print(f'prof: {mins} minutes of war at {QUALITY}, the worst calls of the war\'s thinking', flush=True)
+        await ev(page, "(() => { if (__hm.CW.CAMPAIGN.state !== 'war') __hm.CW.resetMarch(); __hm.war4.war4Prof(true); __hm.war4.war4ProfOut(true); return 0; })()")
+        for m in range(mins):
+            t1 = time.time()
+            await ev(page, "(() => { for (let i = 0; i < 30; i++) { __w4t.quiet(); __hm.simulate(2); } return 0; })()")
+            if m % 5 == 4: print(f'  minute {m + 1} ({time.time() - t1:.0f}s wall)', flush=True)
+        rows = await ev(page, "__hm.war4.war4ProfOut(false)")
+        for q in rows: print(f"  {q['k']:18s} n {q['n']:7d} ms {q['ms']:9.1f} each {q['each']:7.3f} max {q['max']:6.1f} >5 {q['over5']:4d} >20 {q['over20']:3d} >50 {q['over50']:3d} worst {json.dumps(q['worst'])}", flush=True)
+        if JSON_OUT: pathlib.Path(JSON_OUT).write_text(json.dumps(rows))
 
     print(f'\n{len(FAILS)} failed: {FAILS}' if FAILS else '\nall passed', flush=True)
     errs = await ev(page, "__hm.errors.slice(0, 5)")
