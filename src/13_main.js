@@ -227,10 +227,10 @@ function drawActors(fx, fz) {
     if (e.kind === 'wisp') {
       const k = e.alive ? 1 : 1 - e.anim.death;
       if (k <= 0.01) continue;
-      const pulse = 0.85 + 0.15 * Math.sin(renderTime * 5 + e.id);
-      glowPush(e.x, y, e.z, 0.55 * k, 1.6 * k, 1.35 * k, 1.5 * pulse);
-      glowPush(e.x, y, e.z, 2.2 * k, 2.4 * k, 2.2 * k, 0.32);
-      if (e.alive && Math.random() < 0.35) FX.trail(e.x + (Math.random() - 0.5) * 0.4, y + (Math.random() - 0.5) * 0.4, e.z + (Math.random() - 0.5) * 0.4, [0.5, 1.5, 1.2], 0.14, 0.7);
+      const pulse = 0.85 + 0.15 * Math.sin(renderTime * 5 + e.id), wc = look5WispCol(e), ws = e.scale || 1; // [look5] each wisp in its own colour (its look: the late wisps' pale, storm-blue, ghost-green and violet lights, a risen champion's ember red), at its size: every wisp was drawn teal (13z_look5.js)
+      glowPush(e.x, y, e.z, wc[0] * k, wc[1] * k, wc[2] * k, 1.5 * pulse * ws);
+      glowPush(e.x, y, e.z, wc[3] * k, wc[4] * k, wc[5] * k, 0.32 * ws);
+      if (e.alive && Math.random() < 0.35) FX.trail(e.x + (Math.random() - 0.5) * 0.4 * ws, y + (Math.random() - 0.5) * 0.4 * ws, e.z + (Math.random() - 0.5) * 0.4 * ws, wc.tr, 0.14 * ws, 0.7);
       continue;
     }
     _p4[0] = e.x; _p4[1] = y; _p4[2] = e.z; _p4[3] = e.yaw;
@@ -435,6 +435,7 @@ function tick(dt) {
   drawHall(dt); // [building] the torches of the keeps' halls (04k_hall.js)
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
+  look5Frame(dt); // [look5] holy ground's light in the grass (13z_look5.js)
   drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
   drawDepth(dt); // [depth] nests and their eggs (09u_depth.js)

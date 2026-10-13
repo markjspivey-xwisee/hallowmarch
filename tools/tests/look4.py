@@ -94,9 +94,11 @@ window.T4 = {
     H.stT = 1e4; this.sim(0.3);
     out.state = H.state;
     const Q = Rb.HSCAF.list.get(H); out.scaf = !!Q; if (!Q) return out;
-    out.info = Q.info; out.colls = Q.colls.filter((c) => c.active).length; out.floors = Q.l3 ? Q.l3.floors.filter((f) => f.active).length : 0; out.ladders = Q.l3 ? Q.l3.ladders.filter((L) => !L.gone).length : 0;
+    out.info = Q.info; out.colls = Q.colls.filter((c) => c.active).length;
+    out.floors0 = Q.l3 ? Q.l3.floors.filter((f) => f.active).length : 0; // [look5] the lift goes up with the walls (13z_look5.js): none while they are low
     out.lv = [];
     for (const k of [0.1, 0.3, 0.5, 0.7]) { H.stT = 70 * k; this.sim(0.1); this.H.frame(1 / 30); out.lv.push([k, Rb.houseRubbleLevel(H), H.S.houseSet.TU.uHD.value[H.slot].x, Q.key]); }
+    out.floors = Q.l3 ? Q.l3.floors.filter((f) => f.active).length : 0; out.ladders = Q.l3 ? Q.l3.ladders.filter((L) => !L.gone).length : 0; // [look5] (read with the walls up)
     // a body climbs its ladder onto the boards
     const L = Q.l3.ladders.find((q) => !q.gone);
     if (L) {
@@ -160,7 +162,7 @@ async def main():
                 inf = o['info']
                 check(o['state'] == 'scaffold' and inf['standards'] >= 6 and inf['boards'] >= 10 and inf['ladders'] >= 1 and o['colls'] >= 6 and o['floors'] >= 3 and o['ladders'] >= 1, f"house {i}: built back behind a working scaffold ({inf['standards']} standards solid ({o['colls']}), {inf['bays']} bays, {o['floors']} floors of boards, {o['ladders']} ladder(s))")
                 lv = o['lv']
-                check(lv[0][1] < lv[1][1] < lv[2][1] and lv[3][1] > 1e3 and all(abs(q[1] - q[2]) < 1e-3 or q[1] > 1e3 for q in lv) and lv[3][3] == 'roof' and lv[0][3] == 'up', f"house {i}: its walls rise course by course ({[q[1] for q in lv]}), the shader told, the roof frame on them once they stand ({[q[3] for q in lv]})")
+                check(lv[0][1] < lv[1][1] < lv[2][1] and lv[3][1] > 1e3 and all(abs(q[1] - q[2]) < 1e-3 or q[1] > 1e3 for q in lv) and lv[3][3].split(':')[0] == 'roof' and lv[0][3].split(':')[0] == 'up', f"house {i}: its walls rise course by course ({[q[1] for q in lv]}), the shader told, the roof frame on them once they stand ({[q[3] for q in lv]})")
                 c = o.get('climb') or {}
                 check(c and abs(c['y']) < 0.05 and abs(c['floor']) < 0.05, f"house {i}: a body climbs its ladder onto the boards ({c})")
                 sp = o.get('spot') or {}

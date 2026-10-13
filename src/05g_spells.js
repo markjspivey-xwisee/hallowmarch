@@ -151,6 +151,12 @@ const DISC_FS = (additive) => /* glsl */`
       a = soot * 0.8;
       col = mix(vec3(0.05, 0.04, 0.035), vec3(1.6, 0.5, 0.1), ember);
     }
+    // [look5] none on its own steep triangles: a disc laid by a crag is draped a ring of half a metre at a time, and the
+    // triangles from the foot of the face to up it stood as bands of light in the air (holy ground on a phone at low)
+    vec3 dn = cross(dFdx(vW), dFdy(vW));
+    float lie = smoothstep(0.45, 0.7, abs(dn.y) / max(length(dn), 1e-9));
+    a *= lie;
+    ${additive ? 'col *= lie;' : ''}
     // soften the outer edge so the disc never shows its rim
     a *= (1.0 - smoothstep(0.92, 1.0, r)) * env;
     ${additive ? 'gl_FragColor = vec4(col * env * (1.0 - smoothstep(0.92, 1.0, r)) * vFog, 1.0);' : 'gl_FragColor = vec4(col, clamp(a * vFog, 0.0, 0.92));'}

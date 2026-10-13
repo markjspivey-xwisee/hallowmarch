@@ -140,6 +140,7 @@ function houseRubbleGeo(H, level) {
     for (let i = 0; i < run.n; i++) {
       const T = tops[i].y;
       if (T >= fullH - 0.02) continue;
+      if (!run.round && T >= H.wallH - 0.02) continue; // [look5] no course over the eaves: the gables come back with the roof (the house's own wall stops at the eaves while it is built back), and a gable's course floated over the house as a plank (13z_look5.js)
       const a = Math.max(i * LOOK4_SEG, run.round ? 0 : run.e0), c = Math.min((i + 1) * LOOK4_SEG, run.round ? L : run.e1);
       if (c - a < 0.02) continue;
       for (const [p0, p1] of houseRubbleSolid(a, c, houseRubbleHoles(H, run, T))) cap(run, p0, p1, T, tops[i].built);
@@ -148,7 +149,8 @@ function houseRubbleGeo(H, level) {
       if (j < 0) continue;
       const T2 = tops[j].y, ub = run.round && j === 0 ? L : (i + 1) * LOOK4_SEG;
       if (Math.abs(T2 - T) < 0.01 || (!run.round && (ub <= run.e0 || ub >= run.e1))) continue;
-      const lo = Math.min(T, T2), hi = Math.min(Math.max(T, T2), fullH);
+      const lo = Math.min(T, T2), hi = Math.min(Math.max(T, T2), fullH, run.round ? 1e9 : H.wallH); // [look5] (not over the eaves)
+      if (hi - lo < 0.01) continue;
       // only where there is wall between the two tops at the boundary
       if (!houseRubbleSolid(ub - 0.02, ub + 0.02, houseRubbleHoles(H, run, (lo + hi) / 2)).length) continue;
       end(run, ub % L, lo, hi, T > T2 ? 1 : -1);
@@ -358,12 +360,16 @@ function houseScafSync() {
     let Q = HSCAF.list.get(H);
     if (!want && !Q) continue;
     if (want && !Q) Q = houseScafLay(H);
-    const roof = want && (!look4Fell(H) || look4Level(H) > 1e3), key = want ? (roof ? 'roof' : 'up') : '';
+    const roof = want && (!look4Fell(H) || look4Level(H) > 1e3), up = want ? look5HouseLifts(H, Q) : 0, key = want ? (roof ? 'roof' : 'up') + ':' + up : ''; // [look5] its lifts go up with the walls (13z_look5.js): it stood whole from the start
+    Q.l4n = up;
     if (Q.key !== key) {
       Q.key = key;
       if (Q.mesh) { houseRubbleDrop(Q); Q.mesh = null; }
       if (want) {
-        const { g } = houseScafGeo(H, Q, roof);
+        LOOK4.lifts = up; // [look5] the lifts not yet up laid out but not drawn (look3Scaffold, as a castle's: look4LiftStep)
+        let gq = null;
+        try { gq = houseScafGeo(H, Q, roof); } finally { LOOK4.lifts = Infinity; }
+        const { g } = gq;
         Q.mesh = new THREE.Mesh(g, buildingMat); Q.mesh.renderOrder = 1; scene.add(Q.mesh);
         Q.proxy = shadowCaster(Q.mesh, BUILDING_DEPTH);
         HSCAF.stats.shown++;
@@ -388,17 +394,22 @@ function houseSpotClear(x, z, r, skip) {
 }
 // where a townsman works on a house being built back: inside its scaffold at the wall, under the boards (side: which
 // side of the house), facing the wall
-function houseScafWorkSpot(H, side) {
+function houseScafWorkSpot(H, side, k = 0) {
   const Q = HSCAF.list.get(H);
   if (!Q) return null;
   // the first of a few places along the walls (its side first, then the back, then the other side) clear of what stands
   // by the house (a bench, barrels: a yard's things) and of the standards
-  const skip = new Set(H.coll), cands = [];
-  if (H.round) for (const a of [1.65, 2.2, 1.1, 2.75]) for (const sd of [side, -side]) cands.push([Math.sin(sd * a), Math.cos(sd * a), H.r]);
+  const skip = new Set(H.coll);
+  let cands = [];
+  // [look5] more places along each wall, so a stint can move on from the last (k: its stints so far; they hammered one
+  // wall each at one spot)
+  const AS = k ? [1.65, 2.2, 1.1, 2.75, 1.4, 1.92, 2.48] : [1.65, 2.2, 1.1, 2.75], ZS = k ? [-0.15, 0.1, -0.35, 0.3, -0.05, 0.2, -0.25, 0.38, -0.42] : [-0.15, 0.1, -0.35, 0.3];
+  if (H.round) for (const a of AS) for (const sd of [side, -side]) cands.push([Math.sin(sd * a), Math.cos(sd * a), H.r]);
   else {
-    for (const sd of [side, -side]) for (const z of [-0.15, 0.1, -0.35, 0.3]) cands.push([sd, 0, H.w / 2, z * H.d]);
+    for (const sd of [side, -side]) for (const z of ZS) cands.push([sd, 0, H.w / 2, z * H.d]);
     for (const x of [0, 0.25, -0.25]) cands.push([0, -1, H.d / 2, x * H.w]);
   }
+  if (k) { const own = cands.filter((c, i) => (H.round ? i % 2 === 0 : i < ZS.length)), n = (k * 3) % own.length; cands = [...own.slice(n), ...own.slice(0, n), ...cands.filter((c) => !own.includes(c))]; }
   for (const c of cands) {
     let l, f;
     const o = HAMMER_REACH; // [motion5] as far from the wall's face as the mallet reaches (05a_rig.js action 23): at 0.5 m it struck 22 cm into the wall

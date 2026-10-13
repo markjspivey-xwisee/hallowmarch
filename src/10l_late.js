@@ -370,6 +370,7 @@ function late2Wrath(e, W) {
     late2SndAt('lance', W.x, y + 0.5, W.z);
   } else {
     spellDisc(W.x, W.z, W.r * 0.8, DISC_KIND.crack, 7);
+    natureCut(W.x, W.z, W.r * 0.6, 0.85, false); // [look5] the grass pounded to stubble where the ground broke: in a meadow the cracks lay under the blades (05h_nature.js; it grows back)
     spellDisc(W.x, W.z, W.r, DISC_KIND.shock, 0.8, [1.7, 1.05, 0.55]);
     for (let n = 0; n < 16; n++) { const a = n / 16 * TAU; FX.dust(W.x + Math.cos(a) * W.r * 0.7, y, W.z + Math.sin(a) * W.r * 0.7, 3); }
     FX.burst(W.x, y + 0.3, W.z, 24, [1.6, 0.8, 0.3], 4, 0.5, 0.14, 7);
@@ -423,7 +424,7 @@ function late2KindMove(e, t, d) {
     later(1.15, () => {
       if (!e.alive) return;
       const y = heightAt(x, z);
-      spellDisc(x, z, 2.8, DISC_KIND.crack, 6); FX.burst(x, y + 0.2, z, 26, [0.5, 0.42, 0.33], 6, 0.7, 0.2, 9); FX.dust(x, y, z, 12); cameraShake(0.2, x, z); late2SndAt('quake', x, null, z, 'crash');
+      spellDisc(x, z, 2.8, DISC_KIND.crack, 6); natureCut(x, z, 2.0, 0.85, false); /* [look5] the grass pounded where the ground burst */ FX.burst(x, y + 0.2, z, 26, [0.5, 0.42, 0.33], 6, 0.7, 0.2, 9); FX.dust(x, y, z, 12); cameraShake(0.2, x, z); late2SndAt('quake', x, null, z, 'crash');
       forNear(x, z, 3.6, (o) => { if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(o.x, o.z, x, z) > 3.2 || Math.abs((o.y || 0) - y) > 2.5) return; const r = computeDamage(e, o, 1.4); dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee', heavy: true }); addBuff(o, 'stun', 1, 0.6, e.id); });
     });
   } else if (way === 'blink') { // a wisp slips away from a blade at its side

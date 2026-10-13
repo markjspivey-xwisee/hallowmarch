@@ -32,6 +32,7 @@ function look4MapLabels(ctx, S, labels, marks) {
   const bandBoxes = [];
   if (typeof cwSpotted === 'function' && GAME.player) {
     const P = GAME.player, u = S / Math.max(1, cw), sc = u * 2.2;
+    const names = look5BandNames(ctx, S, P); // [look5] each of your bands' names where the campaign's map draws it (13z_look5.js)
     ctx.font = `700 ${11 * u}px "Alegreya Sans", sans-serif`;
     for (const wb of WAR.warbands) {
       const L = !wb.dead && wbLeader(wb);
@@ -39,8 +40,8 @@ function look4MapLabels(ctx, S, labels, marks) {
       const [x, y] = w2m(L.x, L.z, S);
       bandBoxes.push([x - sc * 4.2, y - sc * 9.2, x + sc * 4.2, y + S * 0.008]);
       if (wb.realm === P.faction && typeof WB_ORD !== 'undefined') {
-        const w = ctx.measureText(WB_ORD[wbOrd(wb) - 1] || '').width;
-        bandBoxes.push([x - w / 2 - 2, y + sc * 5.6 - 11 * u * 0.85, x + w / 2 + 2, y + sc * 5.6 + 11 * u * 0.25]);
+        const w = ctx.measureText(WB_ORD[wbOrd(wb) - 1] || '').width, at = names.get(wb) || [x, y + sc * 5.6];
+        bandBoxes.push([at[0] - w / 2 - 2, at[1] - 11 * u * 0.85, at[0] + w / 2 + 2, at[1] + 11 * u * 0.25]);
       }
     }
     boxes.push(...bandBoxes);

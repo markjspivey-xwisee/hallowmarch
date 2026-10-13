@@ -52,7 +52,7 @@ function houseRafterGeo(H) {
     return b.build();
   }
   // a pitched roof: the rafters run down from the ridge (along the house) to the eaves, 0.55 m apart
-  const side = l0.x >= 0 ? 1 : -1, x0 = Math.max(0, Math.abs(l0.x) - hr * 1.2), x1 = Math.min(H.w / 2 + H.ohSide - 0.05, Math.abs(l0.x) + hr * 1.2);
+  const side = l0.x >= 0 ? 1 : -1, x0 = Math.max(0, Math.abs(l0.x) - hr * 2.4), x1 = Math.min(H.w / 2 + H.ohSide - 0.05, Math.abs(l0.x) + hr * 2.4); // [look5] (well past the hole's edge, under the covering: cut short at it, from inside the room they read as sticks floating in the hole, a cross of them)
   const roofY = (ax) => H.wallH + H.rh - ax * H.tn - H.roofTh / H.cs - 0.06; // just under the covering
   const zs = [];
   for (let z = Math.ceil((l0.z - hr) / 0.55) * 0.55; z <= l0.z + hr + 1e-6; z += 0.55) zs.push(z);
@@ -68,7 +68,7 @@ function houseRafterGeo(H) {
   });
   // a purlin running along the house under the rafters, snapped where the stone came through
   const px = Math.min(x1, Math.max(x0, Math.abs(l0.x))), py = roofY(px) - 0.12;
-  for (const sd of [-1, 1]) b.add(G.box, lm(M, side * px, py - 0.12, l0.z + sd * hr * 0.55, 0, 0.11, 0.12, hr * 0.9, sd * 0.35), MAT.wood, burnt);
+  for (const sd of [-1, 1]) b.add(G.box, lm(M, side * px, py - 0.12 - hr * 0.12, l0.z + sd * hr * 0.95, 0, 0.11, 0.12, hr * 1.7, sd * 0.2), MAT.wood, burnt); // [look5] (its halves from under the covering, sagging into the hole)
   return b.build();
 }
 // once a second: a mesh of broken timbers for each holed house still standing (and none for the others)
