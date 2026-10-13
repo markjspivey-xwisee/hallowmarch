@@ -398,13 +398,13 @@ async def main():
         # ---- the pictures ----
         if want('shots') and SHOTS:
             await ev(page, 'prep', "(() => { T4.fresh('warrior', 50); __hm.fn.setQuality('" + Q + "'); __hm.setTod(0.75); return 0; })()")
-            for name, type, realm, act in (('bear', 'bear', 1, 20), ('wolf', 'wolf', 1, 22), ('boar', 'boar', 1, 22), ('bandit', 'bandit', 0, 8)):
+            for name, type, realm, act in (('bear', 'bear', 1, 20), ('wolf', 'wolf', 1, 22), ('boar', 'boar', 1, 22), ('bandit', 'bandit', 0, 8), ('troll', 'troll', 2, 8)):
                 await ev(page, name, """(() => { const H = T4.H, F = T4.F, P = H.GAME.player; const R = T4.champ('%s', %d); const C = R.C;
                   T4.clearAround(C.x, C.z, 30, new Set([C.id])); C.ai.tameHold = H.GAME.t + 999; C.target = null; C.threat = null;
                   const [px, pz] = T4.spot(C.x, C.z, 25); H.teleport(px, pz); H.simulate(0.2);
                   T4.X.setAct(C, %d, 1.6); H.simulate(0.62);
                   H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const a = C.yaw + 1.1, d = %s, ly = C.y + (C.mobType === 'bear' ? 1.55 : 1.0) * (C.scale || 1); H.camera.position.set(C.x + Math.sin(a) * d, C.y + (C.mobType === 'bear' ? 2.2 : 1.7), C.z + Math.cos(a) * d); H.camera.lookAt(C.x, ly, C.z); H.camera.updateMatrixWorld();
-                  window.__rafHold = true; return { act: C.anim.act, frac: +(C.anim.actT / C.anim.actDur).toFixed(2) }; })()""" % (type, realm, act, '8.5' if type == 'bear' else '5.5' if type != 'bandit' else '4.5'))
+                  window.__rafHold = true; return { act: C.anim.act, frac: +(C.anim.actT / C.anim.actDur).toFixed(2) }; })()""" % (type, realm, act, '8.5' if type == 'bear' else '7.5' if type == 'troll' else '5.5' if type != 'bandit' else '4.5'))
                 await frames(page, 2)
                 await shot(page, name + '_' + Q)
                 await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
