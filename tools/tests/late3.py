@@ -1,6 +1,7 @@
 """[late3] The Deep Barrow end to end, and a veteran the March can see.
-usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wall,lord,fight,save,reload,shots,std,mantle]
-       [cls=warrior,archer,mage,priest] [lv=45,50] [q=low|high] [noshots] [phone]
+usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wall,lord,save,std,fight,shots,vetshots]
+       [cls=warrior,archer,mage,priest] [lv=45,50] [q=low|high] [sq=low,high] [shots=seal,stair,...] [w=640 h=360] [noshots] [phone]
+       [fhome=u,v,r] [diag]
   probe: the deep is built (rooms, cells, walls, the seal, the slabs, the channels, the water), its dead and lord stand
   seal:  the seal holds below 45 or before the Hollow King has fallen to you, says why, and yields to his slayer at 45
   halls: every hall is reachable on foot from the seal (the grid), nothing of the deep is walkable that should not be
@@ -12,8 +13,9 @@ usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wal
          down from two thirds, calls his wardens, burns at a third, resets when you leave, falls; the hoard opens
   fight: each calling's skilled bot (fair gear, three draughts) through the deep's halls and against its lord at 45 and 50
   save:  the part read back whole, damaged ones made sane, an old save
-  reload: saved, the page reloaded with the same storage, the seal open, the falls counted, the name earned
-  shots: the halls by their own light (high and low), the lord's fight
+  std:   the name worn has its device, the mantle carries it from 40, the standard's flag too; foes strike it down; Use raises it
+  shots: the halls by their own light, the lord's fight (late3_<view>_<q>.png); vetshots: the mantle and the standard by day
+         and night, and fallen
 """
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -25,11 +27,13 @@ def arg(k, d=None):
     for a in ARGS:
         if a.startswith(k + '='): return a.split('=', 1)[1]
     return d
-ONLY = set((arg('only') or 'probe,seal,halls,water,pitch,slabs,wall,lord,save,fight,reload,shots').split(','))
+ONLY = set((arg('only') or 'probe,seal,halls,water,pitch,slabs,wall,lord,save,std,fight,shots,vetshots').split(','))
 CLS = (arg('cls') or 'warrior,archer,mage,priest').split(',')
 LVS = [int(x) for x in (arg('lv') or '45,50').split(',')]
 NOSHOTS = 'noshots' in ARGS
 Q = arg('q', 'low')
+FHOME = [float(x) for x in (arg('fhome') or '38,49,15').split(',')]  # the bot's ground in the lord's hall: u, v, radius
+DIAG = 'diag' in ARGS  # the fight: what struck the player, by what, and where it stood
 FAILS = []
 
 def check(ok, msg):
@@ -56,7 +60,7 @@ window.L3 = {
 
 async def main():
     async with async_playwright() as p:
-        b, page, logs = await setup(p, touch='phone' in ARGS, w=640 if 'phone' not in ARGS else 390, h=360 if 'phone' not in ARGS else 780)
+        b, page, logs = await setup(p, touch='phone' in ARGS, w=int(arg('w', '640')) if 'phone' not in ARGS else 390, h=int(arg('h', '360')) if 'phone' not in ARGS else 780)
         await page.evaluate(f"__hm.fn.setQuality('{Q}')")
         await page.evaluate(HELP)
         await page.evaluate("L3.start('warrior', 50)")
@@ -71,11 +75,12 @@ async def main():
         if 'lord' in ONLY: await lord(page)
         if 'save' in ONLY: await save(page)
         if 'fight' in ONLY: await fight(page)
+        if 'std' in ONLY: await std(page)
+        if 'vetshots' in ONLY and not NOSHOTS: await vetshots(page)
         if 'shots' in ONLY and not NOSHOTS: await shots(page)
         errs = await ev(page, "__hm.errors.map(String).slice(0, 8)")
         check(not errs, f"no runtime errors ({errs[:3]})")
         print('logs', [l for l in logs][:6])
-        if 'reload' in ONLY: await reload(page)
         print(f'took {time.time() - t0:.0f} s')
         print('FAILED: ' + '; '.join(FAILS) if FAILS else 'all late3 checks passed', flush=True)
         await b.close()
@@ -325,18 +330,72 @@ async def fight(page):
               const id = H.deep.deepLordFresh(), K = F.getEnt(id);
               for (const e of H.ENT) if (e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM.ashhall) {{ e.damagers = null; F.killEnt(e, null); }}
               L3.to(46, 48.5); L3.safe(); H.INV.potions = 3;
-              H.bal.botMake(P, 'skilled', {{ x: F.dunWX(40), z: F.dunWZ(48.5), r: 9 }}); P.target = K.id; H.simulate(0.5);
+              for (const k of ['arrows_broadhead', 'arrows_bodkin', 'arrows_fire', 'arrows_blunt']) H.INV.goods[k] = 40; // (a veteran's quiver)
+              H.bal.botMake(P, 'skilled', {{ x: F.dunWX({FHOME[0]}), z: F.dunWZ({FHOME[1]}), r: {FHOME[2]} }}); P.target = K.id; H.simulate(0.5);
               const st0 = {{ ...D.stats }};
               const out = {{ lvl: K.level, hp: Math.round(K.maxHp), php: Math.round(P.maxHp) }};
-              let t = 0, low = 1; for (; t < 300 && K.alive && P.alive; t += 1) {{ if (!F.getEnt(P.target) || !F.getEnt(P.target).alive) P.target = K.id; H.simulate(1); low = Math.min(low, P.hp / P.maxHp); }}
+              const hurt = {{}}, trace = [];
+              if ({'true' if DIAG else 'false'}) H.bal.BAL.tap = (s, d, dmg, ab, o) => {{ if (d !== P || !(dmg > 0)) return; const k = (s ? (s.deepLord ? 'lord' : (s.name || s.mobType || s.kind || '?')) : 'none') + ':' + ((o && (o.kind || o.id || o.src)) || ''); hurt[k] = (hurt[k] || 0) + Math.round(dmg); }};
+              // as a player plays him: a warden on you is cut down first, then back to the lord
+              const warden = () => H.ENT.find((e) => e.alive && e.deep && !e.deepLord && Math.hypot(e.x - P.x, e.z - P.z) < 7 && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM.ashhall);
+              let t = 0, low = 1; for (; t < 300 && K.alive && P.alive; t += 1) {{ const w = warden(); if (w) P.target = w.id; else if (!F.getEnt(P.target) || !F.getEnt(P.target).alive || P.target !== K.id) P.target = K.id; H.simulate(1); low = Math.min(low, P.hp / P.maxHp);
+                if ({'true' if DIAG else 'false'}) {{ const adds = H.ENT.filter((e) => e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM.ashhall); trace.push([t, Math.round(P.hp / P.maxHp * 100), Math.round(K.hp / K.maxHp * 100), +Math.hypot(P.x - K.x, P.z - K.z).toFixed(1), adds.length, adds.length ? +Math.min(...adds.map((e) => Math.hypot(P.x - e.x, P.z - e.z))).toFixed(1) : -1, +F.dunU(P.x).toFixed(1), +F.dunV(P.z).toFixed(1), H.INV.potions, (F.getEnt(P.target) || {{}}).name || '-', P.buffs.map((b) => b.kind).join('/'), H.bal.BAL.stats.kites - (L3.k0 || 0), H.bal5.BAL5.stats.dodges - (L3.d0 || 0), P.casting ? P.casting.id : '', P.cs ? P.cs.drawFrom : null, K.target === P.id ? 1 : 0, H.deep.DEEP.marks.length]); L3.k0 = H.bal.BAL.stats.kites; L3.d0 = H.bal5.BAL5.stats.dodges; }} }}
+              if ({'true' if DIAG else 'false'}) {{ H.bal.BAL.tap = null; out.hurt = hurt; out.trace = trace; }}
               out.t = t; out.dead = !K.alive; out.alive = P.alive; out.low = +low.toFixed(2); out.kLeft = +(Math.max(0, K.hp) / K.maxHp).toFixed(2); out.potions = H.INV.potions;
               out.words = D.stats.words - st0.words; out.broken = D.stats.wordsBroken - st0.wordsBroken; out.stamps = D.stats.stamps - st0.stamps; out.falls = D.stats.falls - st0.falls; out.burns = D.stats.burnHits - st0.burnHits;
               P.bot = null; return out; }})()""")
             print(json.dumps(r), flush=True)
             check(r['dead'] and r['alive'], f"a level {lv} {cls} (skilled bot) brings down the Ash-Crowned (level {r['lvl']}): {r['t']} s, lowest health {r['low']*100:.0f}%, Words spoken {r['words']} broken {r['broken']}, stamps {r['stamps']}, falls {r['falls']}, pitch burns {r['burns']}, draughts left {r['potions']}, lord at {r['kLeft']*100:.0f}%")
 
-async def reload(page):
-    pass
+async def std(page):
+    r = await ev(page, """(() => { const H = __hm, F = H.fn, V = H.vet3, L = H.late, P = H.GAME.player; L3.start('warrior', 50); const P2 = H.GAME.player;
+      F.setIndoor(false); L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('kingsbane');
+      const a = { worn: L.LATE2.worn, dev: V.late3Device(), mantle39: 0, mantle: V.late3MantleCode(P2) };
+      H.GAME.prog.level = 39; a.mantle39 = V.late3MantleCode(P2); H.GAME.prog.level = 50;
+      V.L3V.mantle = false; a.mantleOff = V.late3MantleCode(P2); V.L3V.mantle = true;
+      // the standard: made and planted on open ground by the town
+      const t = H.REALMS[0].town; H.INV.gold = 5000; L.late2StdMake();
+      let planted = false; for (let r = 30; r < 120 && !planted; r += 6) for (let k = 0; k < 12 && !planted; k++) { const x = t.x + Math.cos(k * 0.52) * r, z = t.z + Math.sin(k * 0.52) * r; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); P2.yaw = k; H.simulate(0.1); planted = L.late2StdPlant(); }
+      const at = L.LATE2.std.at, A1 = H.dbg && H.dbg.bannerGeo ? H.dbg.bannerGeo : null;
+      a.planted = planted; a.code = V.L3V.std.code; a.want = P2.faction + 4 * (a.dev + 1);
+      // foes fighting about it hew at it: three enemy soldiers in a fight beside it
+      const foes = []; for (let i = 0; i < 3; i++) { const o = F.spawnRealmUnit((P2.faction + 1) % 3, 'warrior', 50, 'soldier', at.x + Math.cos(i * 2) * 1.6, at.z + Math.sin(i * 2) * 1.6); o.combatUntil = H.GAME.t + 999; o.ai = o.ai || {}; foes.push(o); }
+      P2.x = P2.prevX = at.x + 30; P2.z = P2.prevZ = at.z;
+      let t2 = 0; for (; t2 < 20 && !V.L3V.std.fallen; t2++) { for (const o of foes) { o.combatUntil = H.GAME.t + 999; o.x = o.prevX = at.x + (o.x - at.x) * 0.98; o.z = o.prevZ = at.z + (o.z - at.z) * 0.98; } H.simulate(1); }
+      a.fellIn = t2; a.fallen = V.L3V.std.fallen; H.simulate(1.2); a.k = +V.L3V.std.k.toFixed(2); a.rot = +L.L2STD.mesh.rotation.z.toFixed(2);
+      for (const o of foes) { o.damagers = null; F.killEnt(o, null); }
+      // fallen, it gives no strength: a soldier of yours beside it gets no buff
+      const ally = F.spawnRealmUnit(P2.faction, 'warrior', 50, 'soldier', at.x + 1, at.z + 1); ally.buffs.length = 0; H.simulate(2.2); a.buffFallen = ally.buffs.some((b) => b.src === 'l2std');
+      // Use beside it: raise it
+      P2.x = P2.prevX = at.x + 1.2; P2.z = P2.prevZ = at.z; H.simulate(0.2);
+      const offers = []; L.late2Offers(P2, (d, rr, label, fn) => { if (d < rr) offers.push(label); }); a.offers = offers;
+      V.late3StdRaise(); H.simulate(1.5); a.raised = !V.L3V.std.fallen && V.L3V.std.k === 0; a.rotUp = +L.L2STD.mesh.rotation.z.toFixed(2);
+      ally.buffs.length = 0; H.simulate(2.2); a.buffUp = ally.buffs.some((b) => b.src === 'l2std');
+      // saved fallen, read back fallen
+      V.L3V.std.fallen = true; V.L3V.std.k = 1; const sv = H.fn.buildSave(); a.saved = sv.char && sv.char.x ? sv.char.x.vet3 : null;
+      ally.damagers = null; F.killEnt(ally, null);
+      return a; })()""")
+    print(json.dumps(r))
+    check(r['worn'] == 'kingsbane' and r['dev'] == 6, f"the name worn has its device ({r['worn']}: {r['dev']})")
+    check(r['mantle'] == 8 * 7 and r['mantle39'] == 0 and r['mantleOff'] == 0, f"from 40 the mantle carries it (code {r['mantle']}; at 39 {r['mantle39']}; put away {r['mantleOff']})")
+    check(r['planted'] and r['code'] == r['want'], f"the standard's flag carries the device (code {r['code']}, {r['want']})")
+    check(r['fallen'] and r['fellIn'] <= 8 and abs(r['rot']) > 1.3, f"three foes fighting about it strike it down in {r['fellIn']} s, the pole lying ({r['rot']})")
+    check(not r['buffFallen'], 'fallen, it gives your soldiers no strength')
+    check('Raise your standard' in r['offers'] and r['raised'] and abs(r['rotUp']) < 0.05 and r['buffUp'], f"Use beside it raises it again, and its strength with it ({r['offers']})")
+    check(r['saved'] is not None and r['saved'].get('f') == 1, f"fallen, it is saved fallen ({r['saved']})")
+
+async def vetshots(page):
+    await ev(page, """(() => { const H = __hm, F = H.fn, L = H.late, V = H.vet3; L3.start('warrior', 50); const P = H.GAME.player; F.setIndoor(false); L.LATE2.d.deep = 1; L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('ashbane'); V.L3V.mantle = true; V.L3V.std.fallen = false; V.L3V.std.k = 0;
+      const t = H.REALMS[0].town; H.INV.gold = 5000; L.late2StdMake(); let ok = false; for (let r = 40; r < 120 && !ok; r += 6) for (let k = 0; k < 12 && !ok; k++) { const x = t.x + Math.cos(k * 0.52) * r, z = t.z + Math.sin(k * 0.52) * r; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); P.yaw = k; H.simulate(0.1); ok = L.late2StdPlant(); }
+      window.L3V_AT = L.LATE2.std.at; H.dbg.WEATHER && (H.dbg.WEATHER.mode = 'clear'); return 0; })()""")
+    for q in (arg('sq') or Q).split(','):
+        await page.evaluate(f"__hm.fn.setQuality('{q}')")
+        for tod, nm in ((0.35, 'day'), (2.2, 'night')):
+            await snap(page, f'mantle_{nm}_{q}', f"const P = H.GAME.player, at = window.L3V_AT, F = H.fn; H.setTod({tod}); P.x = P.prevX = at.x + 3.2; P.z = P.prevZ = at.z + 1.0; P.yaw = Math.atan2(at.x - P.x, at.z - P.z) + 3.14; H.simulate(0.3); const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw); H.camera.position.set(P.x - fx * 2.9, P.y + 1.7, P.z - fz * 2.9); H.camera.lookAt(P.x, P.y + 1.15, P.z)")
+            await snap(page, f'standard_{nm}_{q}', f"const at = window.L3V_AT, F = H.fn, y = F.heightAt(at.x, at.z); H.setTod({tod}); H.camera.position.set(at.x + 5.2, y + 2.8, at.z + 4.4); H.camera.lookAt(at.x, y + 2.6, at.z)")
+        await snap(page, f'standard_fallen_{q}', "const at = window.L3V_AT, F = H.fn, V = H.vet3, y = F.heightAt(at.x, at.z); H.setTod(0.4); V.L3V.std.fallen = true; V.L3V.std.k = 1; V.late3StdPose(); H.camera.position.set(at.x + 4.5, y + 2.6, at.z + 4.0); H.camera.lookAt(at.x - 1.5, y + 0.3, at.z)")
+        await ev(page, "(() => { const V = __hm.vet3; V.L3V.std.fallen = false; V.L3V.std.k = 0; V.late3StdPose(); return 0; })()")
+    await ev(page, "(() => { const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
 SHOT_ONLY = arg('shots')
 async def snap(page, name, js):
@@ -371,4 +430,5 @@ async def shots(page):
         await snap(page, f'word_{q}', CAM + "const D = H.deep.DEEP, F = H.fn, K = F.getEnt(D.lord), P = H.GAME.player; L3.to(40, 48.5); L3.safe(); H.simulate(1.0); K.ai.nextWord = 0; for (let i = 0; i < 12 && !(K.casting && K.casting.id === 'word'); i++) { L3.safe(); H.simulate(0.25); } H.simulate(1.4); L3.safe(); cam(F.dunU(K.x) + 9, K.y + 4.2, F.dunV(K.z) - 6, F.dunU(K.x), K.y + 1.6, F.dunV(K.z))")
     await ev(page, "(() => { const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

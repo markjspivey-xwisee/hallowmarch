@@ -259,7 +259,7 @@ function botMove(e, t, dt) {
   if (skilled && ranged) {
     // [balance3] a mage also steps off from a blade its frost holds when the hold is about to give
     const p = (e.cls === 'archer' ? archerPresser(e, 9) : botPresser(e, 7.5)) || (e.cls === 'mage' ? heldBladeNear(e) : null); // [balance6] a priest presses an archer only at its mace (07c_balance6.js) // out of a whirlwind's reach [balance4] and out of a held blade's reach at any level (a rooted warrior still strikes and bashes what stands by it)
-    if (p && (e.cs && e.cs.drawFrom < 0 || dist(e.x, e.z, p.x, p.z) < 3.2)) {
+    if (p && (e.cs && e.cs.drawFrom < 0 || dist(e.x, e.z, p.x, p.z) < late3KiteReach(p))) { // [late3] a giant's blade reaches farther than a man's (10m_deep.js)
       let ax = e.x - p.x, az = e.z - p.z;
       const L = Math.hypot(ax, az) || 1; ax /= L; az /= L;
       // keep to the arena: bend the way out along its rim
@@ -267,6 +267,7 @@ function botMove(e, t, dt) {
         const hx = H.x - e.x, hz = H.z - e.z, hd = Math.hypot(hx, hz);
         if (hd > H.r * 0.6) { const w = clamp((hd - H.r * 0.6) / (H.r * 0.5), 0, 1); ax = ax * (1 - w) + (hx / (hd || 1)) * w + az * w * 0.8; az = az * (1 - w) + (hz / (hd || 1)) * w - ax * w * 0.8; }
       }
+      if (inDungeon(e)) [ax, az] = late3KiteWay(e, ax, az, p, H); // [late3] under the Barrow: round a pillar or a pit, not into it (10m_deep.js)
       BAL.stats.kites++;
       go(e.x + ax * 4, e.z + az * 4, 1, 0);
       return;

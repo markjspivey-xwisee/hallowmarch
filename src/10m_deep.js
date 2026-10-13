@@ -42,7 +42,7 @@ const DEEP_SLABS = [];
 for (let i = 0; i < 5; i++) DEEP_SLABS.push({ hall: 'crack', u0: 72 + i * 4, u1: 76 + i * 4, v0: 46, v1: 52 });
 for (const [v0, v1] of [[35, 41], [57, 63]]) for (let i = 0; i < 6; i++) DEEP_SLABS.push({ hall: 'ash', u0: 30 + i * 4, u1: 34 + i * 4, v0, v1 });
 // the lord: his might over a barrow-king's (dungeonBoss), his harm, his clocks
-const DEEP_LORD = { base: 24, hp: 3.4, dmg: 1.0, scale: 1.78, wordT: 2.8, wordRage: 2.2, wordCd: [16, 19], wordCdRage: 11, cleaveCd: [7, 9], stampCd: [11, 13], respawn: 900, vetK: 0.01, vetMax: 30 };
+const DEEP_LORD = { base: 24, hp: 3.4, dmg: 1.0, scale: 1.78, speed: 5.0, speedRage: 6.0, wordT: 2.8, wordRage: 2.2, wordCd: [16, 19], wordCdRage: 11, cleaveCd: [7, 9], stampCd: [11, 13], respawn: 900, vetK: 0.01, vetMax: 30 };
 const DEEP_SEAL = { u: 193, v: 15.45, w: 4.2, h: 4.5 };
 const DEEP = {
   built: false, opened: false, kills: 0, wallBroken: false, seal: null, slabs: [], cells: [], wall: null, rubble: null,
@@ -1173,7 +1173,7 @@ function deepSpawnLord() {
   const sp = DEEP.seat;
   const e = makeEnt({
     kind: 'humanoid', faction: FACTION_MONSTER, role: 'dungeonBoss', mobType: 'skeleton', level: DEEP_LORD.base + barrowBoost(), baseLevel: DEEP_LORD.base, name: DEEP_LORD_NAME,
-    tweak: { hp: DEEP_LORD.hp * deepVetK(), dmg: DEEP_LORD.dmg, speed: 6.2, swing: 2.4, meleeRange: 3.2 },
+    tweak: { hp: DEEP_LORD.hp * deepVetK(), dmg: DEEP_LORD.dmg, speed: DEEP_LORD.speed, swing: 2.4, meleeRange: 3.2 },
     x: sp.x, z: sp.z, y: -17.4, yaw: Math.PI / 2, scale: DEEP_LORD.scale, radius: 0.55,
     look: { tabard: [0.2, 0.05, 0.035], armor: [0.4, 0.28, 0.15], skin: 0.2, hair: 0.1, mask: WB.axe | WB.cape | WB.circlet | WB.pauldron | WB.tabard | WB.belt | WB.skirt, flags: 1 | (1 << 4) | (3 << 7), scale: DEEP_LORD.scale, outfit: OUTFIT.skeleton, emblem: 3, fem: 0, bulk: 0.15 },
     home: { x: sp.x, z: sp.z, r: 1 }, camp: null,
@@ -1296,7 +1296,7 @@ function late3LordThink(e, dt) {
   const hpF = e.hp / e.maxHp;
   if (hpF < 0.66 && !ai.p2) { ai.p2 = true; ai.nextStamp = now + 2; deepLordCall(e, 2); }
   if (hpF < 0.33 && !ai.enraged) {
-    ai.enraged = true; e.speed = 7.2;
+    ai.enraged = true; e.speed = DEEP_LORD.speedRage;
     addBuff(e, 'dmg', 0.2, 9999, 'l3rage');
     uiBanner(`${DEEP_LORD_NAME} burns with the fury of the first kings!`, -1);
     sfxAtE('kingRoar', e, null, 2.6);
@@ -1394,6 +1394,50 @@ function late3LordDeath(e, killer) {
 /* the skilled bots: what a veteran knows (botDodge, 07c_balance5.js)  */
 /* ------------------------------------------------------------------ */
 // a cracking slab under it, the lord's cleave or stamp about to land, the pitch burning under its feet: out of it
+// [late3] how near a pressing blade may come before a skilled bow or staff stops drawing and steps away (botMove,
+// 07c_balance.js): a man's reach (3.2 m, as before for every body of a man's size), a giant's by its own (the Ash-Crowned
+// cleaves from six metres: the archer stood drawing in his reach and died at 50)
+function late3KiteReach(p) { const sc = p.scale || 1; return sc > 1.25 ? (p.meleeRange || 2.6) * sc + 1.0 : 3.2; }
+// [late3] a skilled bow or staff stepping away from a blade under the Barrow (botMove, 07c_balance.js): the halls have
+// pillars, braziers and pits, and a step straight away pressed the archer against a pillar of the Ash Throne, where it
+// stood drawing in his reach until it died; the way out turns along what stands there (only under the Barrow: the
+// duels' and the pack's arenas are open ground and keep their measure)
+const _l3cn = [];
+function late3Clear(x, z, r, fire) {
+  if (!isWalkable(x, z)) return false;
+  if (fire) for (const C of DEEP.cells) if (C.st === 1 && C.heat > 0.2 && distToSeg(x, z, C.ax, C.az, C.bx, C.bz) < 1.0) return false;
+  collidersNear(x, z, r + 2, _l3cn);
+  for (const c of _l3cn) {
+    if (!c.active) continue;
+    if (c.type === 'circle') { if (dist2(x, z, c.x, c.z) < (c.r + r) * (c.r + r)) return false; }
+    else { const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos; if (Math.abs(lx) < c.hx + r && Math.abs(lz) < c.hz + r) return false; }
+  }
+  return true;
+}
+function late3KiteWay(e, ax, az, p, H) {
+  // the way out of sixteen, clear for 3.5 m (else 1.4): where it ends farthest from the blade, kept off the hall's walls
+  // and corners (within 0.7 of the arena's reach of its middle), the way it went before a little preferred, so it circles
+  // the hall instead of running into a corner (the arena's rim bent the step back toward its middle, and the lord stood
+  // there: the bow walked into his reach; straight away from him, it ran into the corner and stood there)
+  const r = (e.radius || 0.45) + 0.1, B = e.bot || {};
+  const ok = (dx, dz, len) => { for (let s = 0.7; s <= len + 0.01; s += 0.7) if (!late3Clear(e.x + dx * s, e.z + dz * s, r, true)) return false; return true; };
+  const room = late3Room(e.x, e.z);
+  for (const len of [3.5, 1.4]) {
+    let best = null, bs = -Infinity;
+    for (let i = 0; i < 16; i++) {
+      const a = i * TAU / 16, dx = Math.sin(a), dz = Math.cos(a);
+      if (!ok(dx, dz, len)) continue;
+      const ex = e.x + dx * 3.5, ez = e.z + dz * 3.5;
+      let sc = dist(ex, ez, p.x, p.z) + 0.3 * (dx * ax + dz * az);
+      if (H) sc -= 1.5 * Math.max(0, dist(ex, ez, H.x, H.z) - 0.7 * H.r);
+      if (B.l3dir) sc += 0.6 * (dx * B.l3dir[0] + dz * B.l3dir[1]);
+      if (late3Room(ex, ez) !== room) sc -= 6; // (out of a lord's hall he goes back to his throne)
+      if (sc > bs) { bs = sc; best = [dx, dz]; }
+    }
+    if (best) { B.l3dir = best; return best; }
+  }
+  return [ax, az];
+}
 function late3BotHazard(e, t) {
   if (!DEEP.built || !late3InDeep(e)) return null;
   const now = GAME.t, rr = e.radius * (e.scale || 1);
@@ -1402,9 +1446,25 @@ function late3BotHazard(e, t) {
     return { x: e.x + (e.x - out.x) / d, z: e.z + (e.z - out.z) / d, now: true, out: d };
   }
   for (const M of DEEP.marks) if (!M.slab && M.until > now && dist(e.x, e.z, M.x, M.z) < M.r + rr) return { x: M.x, z: M.z, now: true, out: M.r + rr - dist(e.x, e.z, M.x, M.z) };
-  for (const C of DEEP.cells) if (C.st === 1 && C.heat > 0.3 && distToSeg(e.x, e.z, C.ax, C.az, C.bx, C.bz) < 0.9) return { x: (C.ax + C.bx) / 2, z: (C.az + C.bz) / 2, now: false };
-  void t;
+  for (const C of DEEP.cells) if (C.st === 1 && C.heat > 0.3 && distToSeg(e.x, e.z, C.ax, C.az, C.bx, C.bz) < 0.9) {
+    // out of the burning pitch by the nearest way that is not burning, away from the foe (straight away from the cell's
+    // middle a bow kiting the Ash-Crowned stepped back into his reach, then back into the fire, for seconds on end)
+    const d = late3FireWay(e, t && t.alive ? t : null);
+    return { x: e.x - d[0], z: e.z - d[1], now: false };
+  }
   return null;
+}
+function late3FireWay(e, foe) {
+  const r = (e.radius || 0.45) + 0.1;
+  let best = [0, 1], bs = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const a = i * TAU / 16, dx = Math.sin(a), dz = Math.cos(a);
+    let sc = 0;
+    for (let s = 0.7; s <= 2.11; s += 0.7) if (!late3Clear(e.x + dx * s, e.z + dz * s, r, s > 1.3)) { sc = -100 + s; break; }
+    if (sc > -50 && foe) sc += 0.4 * dist(e.x + dx * 2.1, e.z + dz * 2.1, foe.x, foe.z);
+    if (sc > bs) { bs = sc; best = [dx, dz]; }
+  }
+  return best;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1426,6 +1486,9 @@ function late3Update(dt) {
   if (inDeep && !DEEP.inDeep) { uiLog('You go down into the Deep Barrow, where the first kings were burned.', 'sys'); if (typeof loreNote === 'function') loreNote('l3deep'); }
   DEEP.inDeep = inDeep;
   if (inDeep) DEEP.lastDeep = now;
+  // the deep is drawn only from its own halls, or the Hollow King's hall above its stair (the Barrow's other halls do not
+  // pay for it: frustum culling keeps its big merged mesh in nearly every view of the Barrow)
+  if (DEEP.root) DEEP.root.visible = inDeep || (!!P && inDungeon(P) && dunU(P.x) > 160);
   DEEP.marks = DEEP.marks.filter((M) => M.until > now);
   for (const o of ENT) if (o.l3fall && o.alive && !o.removed) deepFallStep(o, dt);
   deepSlabStep(dt);
