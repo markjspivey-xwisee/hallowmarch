@@ -883,6 +883,8 @@ function siegePlanFor(wb, O) {
       else kind = r < 0.34 ? 'ram' : r < 0.68 ? 'mangonel' : 'trebuchet';
       if (C.kind === 'timber' && kind === 'trebuchet') kind = 'mangonel'; // a palisade falls to less
     }
+    kind = loopsEngineKind(wb.realm, kind); // [loops] the engine the realm's timber and iron can raise, or none (08m_loops.js)
+    if (!kind) return null;
   }
   let target, spot, work;
   if (kind === 'ram') {

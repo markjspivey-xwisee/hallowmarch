@@ -41,6 +41,7 @@ function houseLife(e, dt) {
     return true;
   }
   if (farmLife(e)) return true; // [farming] farmers go out to work the town fields before anything else (08h_farming.js)
+  if (loopsLife(e, dt)) return true; // [loops] the woodcutters and the quarryman at their trades (08m_loops.js)
   if (GAME.t > (ai.nextVisit ?? (ai.nextVisit = GAME.t + 30 + Math.random() * 90))) {
     ai.nextVisit = GAME.t + 80 + Math.random() * 120;
     ai.visitUntil = GAME.t + 50;
@@ -346,6 +347,7 @@ function lifeRun(e, dt) {
     case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
     case 'beat': return houseBeatStep(e, st, plan, dt, next); // [war2] beating out a house's fire (08j_war2.js)
     case 'scaf': return look5ScafStep(e, st, plan, dt, next); // [look5] up a house's scaffold to work from its boards (13z_look5.js)
+    case 'lchop': case 'lquarry': return loopsLifeStep(e, st, plan, dt, next); // [loops] felling a tree, breaking stone (08m_loops.js)
     default: next(); return true;
   }
 }

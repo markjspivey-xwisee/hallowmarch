@@ -527,7 +527,7 @@ function updateBlaze(dt) {
         const was = c.rb;
         c.quiet = (c.quiet || 0) + dt;
         if (c.quiet < 2) continue;
-        c.rb = Math.min(1, c.rb + dt / BZ_T.rebuild);
+        c.rb = Math.min(1, c.rb + (dt * (B.S.keepRef ? loopsWork(B.S.keepRef, 'deck', dt, BZ_T.rebuild) : 1)) / BZ_T.rebuild); // [loops] timber from the keep's stores (08m_loops.js)
         c.fresh = Math.min(1, c.rb * 3);
         if (c.rb > 0.15 && c.wreck) c.wreck.visible = false;
         if (Math.floor(was * 40) !== Math.floor(c.rb * 40)) BLAZE.dirty.add(B);

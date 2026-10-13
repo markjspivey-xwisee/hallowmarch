@@ -1059,7 +1059,7 @@ function updateBreaches(C, dt) {
       dirty = true;
     }
     if (W.state === 'repair') {
-      W.t = Math.min(1, W.t + dt / BREACH_REPAIR);
+      W.t = Math.min(1, W.t + (dt * (K ? loopsWork(K, 'breach', dt, BREACH_REPAIR) : 1)) / BREACH_REPAIR); // [loops] stone and timber from the keep's stores (08m_loops.js)
       if (W.t > 0.12) W.wreck.visible = false;
       if (W.coll) W.coll.h = Math.max(0.3, (W.coll.fullH || 7) * W.t);
       W.fresh = Math.min(1, W.t * 3);

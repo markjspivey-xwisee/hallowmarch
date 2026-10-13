@@ -754,7 +754,7 @@ function boatLife(e, dt) {
       e.x = e.prevX = step.x; e.z = e.prevZ = step.z; e.y = J.deck; e.fixedY = J.deck;
       F.st = 'ashore'; F.t = 0;
       // the catch goes to the town's stores with the fields' harvest (the farmers' dialog tells what they hold)
-      if (typeof FARM !== 'undefined' && GOODS.fish_raw) { const n = 2 + Math.floor(Math.random() * 5); FARM.granary.fish_raw = (FARM.granary.fish_raw || 0) + n; BOATS.caught = (BOATS.caught || 0) + n; }
+      if (typeof FARM !== 'undefined' && GOODS.fish_raw) { const n = 2 + Math.floor(Math.random() * 5); FARM.granary.fish_raw = (FARM.granary.fish_raw || 0) + n; BOATS.caught = (BOATS.caught || 0) + n; loopsCatch(realmAt(e.x, e.z), n); /* [loops] (08m_loops.js) */ }
     }
     return true;
   }

@@ -290,7 +290,7 @@ function updatePalisades(dt) {
       if (W.state === 'breach' && W.quiet > 2) { W.state = 'repair'; W.t = 0; W.scaffold = new THREE.Mesh(palisadeScaffoldGeo(W), buildingMat); W.scaffold.renderOrder = 1; scene.add(W.scaffold); shadowCaster(W.scaffold, BUILDING_DEPTH); siegeOnRepair(W); }
       if (W.state === 'repair') {
         const was = W.t;
-        W.t = Math.min(1, W.t + dt / PAL_T.rebuild);
+        W.t = Math.min(1, W.t + (dt * (K ? loopsWork(K, 'palisade', dt, PAL_T.rebuild) : 1)) / PAL_T.rebuild); // [loops] timber from the keep's stores (08m_loops.js)
         if (W.t > 0.12 && W.wreck && W.wreck.visible) W.wreck.visible = false;
         for (const c of W.cells) { c.fresh = Math.min(1, W.t * 3); c.char = Math.max(0, 1 - W.t * 2.5); c.ember = 0; }
         if (Math.floor(was * 60) !== Math.floor(W.t * 60)) PAL.dirty.add(P);

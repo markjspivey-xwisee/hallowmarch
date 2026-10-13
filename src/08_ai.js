@@ -192,6 +192,7 @@ function fillGarrison(K, all) {
     L.ai.post = { x: p.x, z: p.z, leash: 12 };
     L.keep = K;
     K.lord = L.id;
+    if (!all) loopsLord(K, L); // [loops] fed and armed from the keep's stores (08m_loops.js)
     if (!all) return;
   }
   const need = [];
@@ -359,6 +360,7 @@ function captureKeep(K, realm, killer) {
   const S = K.site;
   for (let i = 0; i < 6; i++) later(i * 0.25, () => FX.burst(S.x + (Math.random() - 0.5) * 20, S.y + 10 + Math.random() * 6, S.z + (Math.random() - 0.5) * 20, 30, REALMS[realm].rgb.map((v) => v * 2 + 0.4), 7, 1.0, 0.25, 3));
   news(`${S.name} has been captured by ${REALMS[realm].name}!`, realm, 'big');
+  loopsOnCapture(K, realm, old); // [loops] the keep's stores are the taker's (08m_loops.js)
   war3OnCapture(K, realm, old, gateDown); // [war3] held by the band that took it, garrisoned by a column from the muster (08k_war3.js)
   if (GAME.player && GAME.player.faction === realm && dist(GAME.player.x, GAME.player.z, S.x, S.z) < 70) { addRP(250); }
   sfx('horn');
@@ -914,7 +916,7 @@ function thinkSoldier(e, dt) {
   if (!L) return;
   if (bandDownStep(e, wb, L, O, dt)) return; // [war2] up on a walk with nothing to fight: down by the castle's ways (08j_war2.js)
   // [siege] siegeLikePhase: the gate, the court, a breach, or standing by the engines (04h_siege.js)
-  if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && !siegeLikePhase(O)) mountUp(e, true);
+  if (e === L && !e.mount && !wb.engaged && GAME.t > (e.ai.remountAt || 0) && !siegeLikePhase(O) && loopsHorseOk(e)) mountUp(e, true); // [loops] a horse from the realm's stables (08m_loops.js)
   if (e === L && e.mount && (wb.engaged || siegeLikePhase(O))) { dismount(e); e.ai.remountAt = GAME.t + 15; }
   if (e === L) { if (wb.leaderGoal && (!wb.engaged || siegeLikePhase(O))) moveToward(e, wb.leaderGoal.x, wb.leaderGoal.z, dt, 0.92, 0.8); return; }
   // formation behind the leader
@@ -999,7 +1001,7 @@ function updateWar(dt) {
     if (D.alive && now - D.lastHitAt > 25 && D.hp < D.maxHp) D.hp = Math.min(D.maxHp, D.hp + D.maxHp * 0.015 * dt);
     if (!D.alive && now - K.lastEnemyNear > 40 && now - D.deadAt > 40 && !war4GateMends(K)) { setDoorState(D, true, 0.35); news(`${K.site.name} has rebuilt its gate.`, K.realm, 'normal'); } // [war4] mended behind a scaffold instead (08l_war4.js)
     // reinforcements trickle in when the keep is quiet
-    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; war4Trickle(K); } // [war4] out of the hall's door to their posts (08l_war4.js)
+    if (now > K.nextGuardAt && now - K.lastEnemyNear > 12) { K.nextGuardAt = now + 14; if (loopsTrickleOk(K)) war4Trickle(K); } // [loops] a guard comes only if the keep's stores can feed him (08m_loops.js) // [war4] out of the hall's door to their posts (08l_war4.js)
   }
   for (const T of WAR.temples) {
     const D = T.door;
@@ -1083,6 +1085,9 @@ function updateNPCs(dt0) {
       else if (e.role === 'villager' || e.role === 'herald' || e.role === 'merchant') thinkVillager(e, dt);
       else if (e.role === 'animal') thinkAnimal(e, dt); // [animals] companions, livestock, wild horses (08h_animals.js)
       else if (e.role === 'mason') look3MasonThink(e, dt); // [look3] at work on a scaffold, or on the way (13v_look3.js)
+      else if (e.role === 'escort') loopsEscortThink(e, dt); // [loops] a cart's escort, its carter and its horse (08m_loops.js)
+      else if (e.role === 'carter') loopsCarterThink(e, dt);
+      else if (e.role === 'carthorse') loopsHorseThink(e, dt);
       autoAttack(e);
     }
     // power regen

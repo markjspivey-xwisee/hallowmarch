@@ -320,7 +320,7 @@ function w4GateStep(K, dt) {
   // foes about: the work stops (the masons go home: look3MasonThink), and goes on once they are gone
   if (quiet < 3) { if (!g.idle) W4.stats.gatePaused++; g.idle = 1; return; }
   g.idle = 0;
-  g.t = Math.min(1, g.t + dt / W4.GATE_T);
+  g.t = Math.min(1, g.t + (dt * loopsWork(K, 'gate', dt, W4.GATE_T)) / W4.GATE_T); // [loops] timber and iron from the keep's stores (08m_loops.js)
   W4.stats.gateWorkS += dt;
   if (g.t > 0.12) G0Wreck(g, false);
   w4GateLeaves(g, clamp((g.t - 0.15) / 0.8, 0, 1));

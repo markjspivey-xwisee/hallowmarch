@@ -260,8 +260,9 @@ function planWar(C) {
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
   if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
-    const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
+    const size = loopsMuster(r, 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3)); // [loops] as many as the realm's stores feed and arm (08m_loops.js)
     const wb = spawnWarband(r, size);
+    loopsMustered(wb); // [loops]
     wbOrd(wb);
     // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
     const vet = Math.round(cwWeary() * 4);
@@ -575,7 +576,7 @@ function campaignHudHTML() {
       return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : c.slow ? 'Three keeps, more than any other realm: the claim grows at two fifths of the pace' : c.held ? 'Three keeps: the claim holds' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : c.slow || c.held ? 'holds 3 keeps' : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on || c.slow ? fmtClock(c.left) : c.held ? 'held' : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`; // [war3] slow, held
     }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60} min</div>`;
   }
-  return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
+  return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}${loopsHudLine() /* [loops] what each realm's stores lack (08m_loops.js) */}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
 }
 function campaignHeraldText() {
   const P = GAME.player, R = REALMS[P.faction];

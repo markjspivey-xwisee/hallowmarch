@@ -600,6 +600,7 @@ function farmTownDone(P) {
       for (let q = 0; q < P.valid.length; q++) if (P.valid[q] && P.dmg[q] < 2) n++;
       const amount = n * C.yieldN * T.hp * (0.5 + 0.65 * P.fert) * (1 - 0.4 * P.weeds) * 0.9;
       FARM.granary[C.produce] = Math.round((FARM.granary[C.produce] || 0) + amount);
+      loopsHarvest(T.town || 0, C.produce, amount); // [loops] into the realm's stores (08m_loops.js)
       P.fert = clamp(P.fert - C.fert, 0, 1);
     }
     T.phase = 'stubble'; P.till = 0.2; T.g = 0; T.dead = false;

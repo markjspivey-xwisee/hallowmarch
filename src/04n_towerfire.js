@@ -207,7 +207,7 @@ function updateTowerFires(dt) {
       Fl.quiet += dt;
       if (Fl.quiet < 2) continue;
       const was = Fl.r;
-      Fl.r = Math.min(1, Fl.r + dt / TFIRE.rebuild);
+      Fl.r = Math.min(1, Fl.r + (dt * (K ? loopsWork(K, 'tower', dt, TFIRE.rebuild) : 1)) / TFIRE.rebuild); // [loops] timber from the keep's stores (08m_loops.js)
       Fl.fresh = Math.min(1, Fl.r * 3);
       T.char = Math.max(0, 1 - Fl.r * 1.5);
       if (Math.floor(was * 60) !== Math.floor(Fl.r * 60)) TFIRE.dirty.add(T.C);

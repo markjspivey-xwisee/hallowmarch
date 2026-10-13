@@ -203,7 +203,7 @@ async def phone(p):
     ok = await tap(page, '#lore-path [data-act="open"]')
     check(ok, f'the step is tapped ({dbg})')
     r = await ev(page, "({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec, n: document.querySelectorAll('.chron .steps li').length })")
-    check(r['modal'] == 'menu' and r['sec'] == 'path' and r['n'] == 24, f'it opens your path: twenty-four steps ({r})')
+    check(r['modal'] == 'menu' and r['sec'] == 'path' and r['n'] == 26, f'it opens your path: twenty-six steps ({r})')  # [loops] two more (08m_loops.js)
     for sec, want in [('goals', ['Level 20', 'Level 30', 'Level 40', 'Level 50', 'Realm rank']), ('gear', ['Wear', 'Mud and blood', 'Masterworks']), ('callings', ['warrior'])]:
         ok = await tap(page, f'.chron-nav [data-sec="{sec}"]')
         r = await ev(page, "({ t: document.querySelector('.chron-body').textContent, o: GD.overflow(), errs: __hm.errors.length })")

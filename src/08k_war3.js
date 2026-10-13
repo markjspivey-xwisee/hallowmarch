@@ -136,6 +136,7 @@ function war3OnCapture(K, realm, old, gateDown) {
 // a column of soldiers for the posts still empty, marching from the muster (a band whose order is the keep's garrison)
 function war3Column(K, realm, slots, o = null) {
   const src = war4ColumnFrom(K, realm); // [war4] from the realm's nearest keep (out of its hall) or its muster (08l_war4.js)
+  slots = loopsColumn(K, realm, slots, src); // [loops] as many as its stores can feed (08m_loops.js)
   const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: src.x, progZ: src.z, w3col: { keep: K.id, from: src.name, src: src.from, peace: !!(o && o.peace) } };
   slots.forEach((s, i) => {
     const sp = w3SlotSpec(K, s);

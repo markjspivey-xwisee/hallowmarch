@@ -170,6 +170,9 @@ async def main():
             for e in d['stalls']: print('   STALL', fmt_snap(e), flush=True)
             for e in d['eps']: print('   STILL', fmt_snap(e), flush=True)
             for e in d['errors']: print('   ERR', e[:300], flush=True)
+            # [loops] each realm's stores and what ran short (08m_loops.js; absent on a build before version 19)
+            lp = await page.evaluate("(() => { const L = __hm.loops; if (!L) return null; const O = L.LOOPS, R = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)])); return { r: O.r.map(R), shortT: O.stats.shortT.map(R), s: { thin: O.stats.thin, hungry: O.stats.hungry, noEngine: O.stats.noEngine, downgraded: O.stats.downgraded, foot: O.stats.footCaptains, slow: Math.round(O.stats.slowWork), noGuard: O.stats.noGuard, cars: O.stats.caravans, arrived: O.stats.arrived, raided: O.stats.raided, taken: O.stats.keepsTaken, traded: Math.round(O.stats.traded) } }; })()")
+            if lp: print('   loops:', json.dumps(lp['r']), json.dumps(lp['s']), flush=True); last['loops'] = lp
         print('\nCAMPAIGNS', flush=True)
         for h in last['hist']: print(f"  campaign {h['n']}: realm {h['w']} by {h['how']} after {h['m']} min (keeps taken {h['cap']}, hallows home {h['hal']})", flush=True)
         if last['state'] == 'war': print(f"  campaign {last['n']}: still running at {last['el']} s", flush=True)
@@ -205,6 +208,7 @@ async def main():
             print(f"  captures at the game minutes {mins}", flush=True)
         if last.get('w3'): print('war3', json.dumps(last['w3']), flush=True)
         if last.get('w4'): print('war4', json.dumps(last['w4']), flush=True)
+        if last.get('loops'): print('loops', json.dumps(last['loops']), flush=True)  # [loops] (08m_loops.js)
         by = {}
         for e in all_eps: by.setdefault(e['k'], []).append(e.get('dur', 30))
         print('still episodes (30 s or more) by order/phase:', {k: f"{len(v)} x, {sum(v):.0f}s" for k, v in sorted(by.items(), key=lambda kv: -sum(kv[1]))}, flush=True)

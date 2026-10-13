@@ -992,7 +992,7 @@ function houseRuinStep(H, dt) {
   }
 }
 function houseScaffoldStep(H, dt) {
-  H.stT += dt;
+  H.stT += dt * loopsHouseWork(H, dt); // [loops] timber and stone from the town's stores (08m_loops.js)
   // the charred walls are cleaned and made good as the work goes on
   H.char = (H.bat && H.bat.fell ? 0.1 : 1) * (1 - smooth(clamp(H.stT / (HOUSE_TIME.scaffold * 0.8), 0, 1))); // [siege2] a house brought down by stones was never burnt (04j_batter.js)
   if (H.stT >= HOUSE_TIME.scaffold) houseRestore(H);

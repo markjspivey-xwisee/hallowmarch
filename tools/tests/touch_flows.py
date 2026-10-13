@@ -13,6 +13,7 @@ plays a new player's first steps by touch).
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 [late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use, and raise a standard struck down (`only=deep`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
+[loops] give timber to the realm's stores by a tap on Use at the quartermaster and a tap on Give (`only=stores`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -373,6 +374,17 @@ async def main():
                 check(pm > 0.25, f'shove: the stick walks you into her side and she gives ({pm:.2f} m)')
             else:
                 check(False, 'shove: no water beside the boat to push her from')
+
+        if want('stores'):
+            # [loops] the quartermaster by Use, then the dialog's Give button for the timber carried (08m_loops.js)
+            r = await page.evaluate("""(() => { const H = TF.H, R = H.REALMS[0], Q = R.quartermaster; H.fn.goodsAdd('log', 12, true); H.fn.goodsAdd('stone', 6, true); H.loops.LOOPS.r[0].timber = 10;
+              TF.stand(Q.x + Math.sin(Q.yaw) * 1.4, Q.z + Math.cos(Q.yaw) * 1.4, Q.x, Q.z); return { label: TF.label(), rp: H.GAME.prog.rp, t: Math.round(H.loops.LOOPS.r[0].timber) }; })()""")
+            ok = await tap(page, '#t-use', 3)
+            dl = await page.evaluate("({ modal: __hm.UI.modal, title: document.getElementById('dlg-title').textContent })")
+            ok2 = await tap(page, '#dlg-actions button[data-lgive="timber"]', 2)
+            st = await page.evaluate("({ rp: __hm.GAME.prog.rp, t: Math.round(__hm.loops.LOOPS.r[0].timber), logs: __hm.fn.goodsCount('log') })")
+            check(ok and ok2 and dl['modal'] == 'dialog' and st['logs'] == 0 and st['t'] >= r['t'] + 12 and st['rp'] > r['rp'], f"stores: a tap on Use at the quartermaster ({r['label']}) and a tap on Give hands the timber over ({json.dumps(dl)}; {json.dumps(st)})")
+            await page.evaluate("__hm.fn.closeDialog(); 0")
 
         if want('wartable'):
             r = await page.evaluate("""(() => { const H = TF.H, h = H.fn.halls().find((q) => q.realm === 0 && q.state !== 'ruin'), sp = h.hallSpots.table; const dx = h.x - sp.x, dz = h.z - sp.z, d = Math.hypot(dx, dz) || 1; const x = sp.x + dx / d * 1.1, z = sp.z + dz / d * 1.1;

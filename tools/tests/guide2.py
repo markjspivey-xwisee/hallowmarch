@@ -138,7 +138,7 @@ async def phone(p):
     r = await ev(page, """(() => { const H = __hm; for (const id of ['herald', 'bounty', 'lv5', 'draught', 'cook', 'craft']) H.LORE.complete(id); H.LORE.openChronicle('path');
       const cur = document.querySelector('.chron .steps li.cur'), dd = cur && cur.closest('details');
       return { n: document.querySelectorAll('.chron .steps li').length, cls: [...document.querySelectorAll('.chron .steps li')].map((li) => li.className).slice(0, 8), curShown: !!cur && !dd, folds: [...document.querySelectorAll('.chron-body details.cf summary')].map((s) => s.textContent), h: Math.round(document.querySelector('.chron-body').getBoundingClientRect().height), notes: !!document.querySelector('.chron [data-lore="sec:notes"]') }; })()""")
-    check(r['n'] == 24 and r['curShown'] and len(r['folds']) == 2 and r['h'] < 900, f'your path: 24 steps, the one at hand open, the walked and the rest folded, {r["h"]} px ({r["folds"]})')
+    check(r['n'] == 26 and r['curShown'] and len(r['folds']) == 2 and r['h'] < 900, f'your path: 26 steps ([loops]), the one at hand open, the walked and the rest folded, {r["h"]} px ({r["folds"]})')
     check(r['notes'], 'the path links to the field notes\' page')
     await shot(page, 'guide2_phone_path')
 
