@@ -315,13 +315,15 @@ async def main():
               H.simulate(0.1);
               const s = F.spawnRealmUnit(P.faction, 'warrior', 45, 'guard', P.x + 3, P.z + 1); s.ai.post = { x: s.x, z: s.z, leash: 1 };
               H.simulate(0.05); s.target = null; s.threat = null; s.l2hailT = 0; out.near = [+Math.hypot(s.x - P.x, s.z - P.z).toFixed(1), s.alive, s.faction, P.faction, s.role, L.LATE2.worn, P.alive]; // (a step, so the grid finds the guard where it stands)
-              P.combatUntil = 0; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
+              P.combatUntil = -100; L.LATE2.w.hailT = 0; const h0 = L.LATE2.stats.hails || 0; // (out of a fight these six seconds: the clock of a game just begun is under 6)
+              out.dbg = { t: +H.GAME.t.toFixed(1), cu: P.combatUntil, ht: L.LATE2.w.hailT, worn: L.LATE2.worn, isP: P === H.GAME.player, near: H.ENT.filter((o) => o !== P && Math.hypot(o.x - P.x, o.z - P.z) < 7).map((o) => [o.role, o.faction, !!o.target, o.l2hailT || 0, o.alive, +Math.hypot(o.x - P.x, o.z - P.z).toFixed(1)]) };
+              L.late2Hail(P); out.hails = (L.LATE2.stats.hails || 0) - h0;
               L.LATE2.w.hailT = 0; L.late2Hail(P); out.again = (L.LATE2.stats.hails || 0) - h0; // (once in ten minutes a body)
               s.damagers = null; F.killEnt(s, null); F.removeEnt(s);
               out.errors = H.errors.slice(0, 3); return out; })()""")
             check(r['offered'] and r['bounty']['risen'] == 1 and r['bounty']['need'] == 1, f"past 40 the herald offers a risen champion's bounty: {r.get('bounty')}")
             check(not r['afterOther'] and r['afterOwn'] and r['saved'] == 1, 'another risen champion does not pay it; its own does, and the bounty is saved as a risen one')
-            check(r['hails'] == 1 and r['again'] == 1, f"a soldier of your realm beside you hails you by your name, once ({r.get('hails')}, {r.get('again')}, the guard {r.get('near')})")
+            check(r['hails'] == 1 and r['again'] == 1, f"a soldier of your realm beside you hails you by your name, once ({r.get('hails')}, {r.get('again')}, the guard {r.get('near')}, {r.get('dbg')})")
 
         # ---- the save ----
         if want('save') or want('reload'):
