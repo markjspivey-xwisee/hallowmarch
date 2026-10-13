@@ -34,6 +34,18 @@ async def main():
                 await page.evaluate("""(() => { const H = __hm, Wt = H.water, P = H.GAME.player; Wt.boats.leave(); H.farm.setSeason(0.875); H.seasons.seasonSettle(); const R = H.REALMS[2]; H.teleport(R.town.x + 34, R.town.z + 30); H.simulate(0.2); for (let k = 0; k < 8; k++) Wt.tracks.lay(P.x + k * 0.4, P.z + 1, 0, k % 5, 0.3, 1, k % 3); return 0; })()""")
                 for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
         await page.evaluate("(() => { __hm.farm.setSeason(0.42); __hm.seasons.seasonSettle(); return 0; })()")
+        # [late3] the Deep Barrow (its floor, pits, channels of pitch burning, water, embers) at every quality, and a
+        # veteran's mantle and its horse's barding out of doors (10m_deep.js, 10n_veteran.js)
+        for q in ['high', 'medium', 'low']:
+            await page.evaluate(f"__hm.fn.setQuality('{q}')")
+            await page.evaluate("""(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player; H.late.LATE2.d.king = 1; H.GAME.prog.kingKills = 1; H.deep.late3SealOpen(true);
+              const p = F.dunPoint(140, 39); H.teleport(p.x, p.z); F.setIndoor(true); P.y = p.y; D.root.visible = true; H.camera.position.set(F.dunWX(140.5), -12.6, F.dunWZ(38.2)); H.camera.lookAt(F.dunWX(121), -18.2, F.dunWZ(52));
+              const C = D.cells.find((c) => c.hall === 'pyres' && c.st === 0); if (C) H.deep.deepIgnite(C, null); H.simulate(1); return 0; })()""")
+            for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
+            await page.evaluate("""(() => { const H = __hm, F = H.fn, P = H.GAME.player; H.deep.deepPitchOut(); F.setIndoor(false); const t = H.REALMS[0].town; H.teleport(t.x + 30, t.z + 30);
+              H.GAME.prog.level = 50; H.late.late2CheckNames(true); H.late.late2Wear('kingsbane'); H.late.LATE2.vet = 5; if (!P.mount) F.mountUp(P, true); H.simulate(0.3); return 0; })()""")
+            for _ in range(3): await page.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
+            await page.evaluate("(() => { const H = __hm, P = H.GAME.player; if (P.mount) H.fn.dismount(P); return 0; })()")
         print('console:', [m[:400] for m in msgs][:6])
         print('errors', await page.evaluate("__hm.errors"))
         print('programs', await page.evaluate("__hm.renderInfo().programs"))

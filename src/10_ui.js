@@ -785,6 +785,7 @@ function openHerald() {
     acts.push(['Accept bounty', () => { prog.bounty = nb; closeDialog(); uiToast(`Bounty accepted: slay ${nb.need} ${pluralName(nb.name)}`, 'quest'); saveSoon(); }]); // [guide] pluralName: wolves, not wolfs (10e_guide.js)
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
+  body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

@@ -524,12 +524,17 @@ const bannerMat = mat({
       }
       return 0.0;
     }
+    ${L3_DEVICE_GLSL}
     void main(){
-      int r = int(vRealm + 0.5);
+      // [late3] a standard of a name carries its device: the realm + 4 x (device + 1) (04_l3device.js, 10n_veteran.js)
+      float rv = vRealm + 0.5, dvf = floor(rv / 4.0);
+      int r = int(rv - dvf * 4.0);
       vec3 base = uRealmCol[r], light = uRealmLight[r];
       vec2 p = vec2(vUv.x * 2.0 - 1.0, vUv.y * 2.0 - 1.0) * vec2(1.0, 1.25);
       float trim = step(0.9, abs(vUv.x * 2.0 - 1.0)) + step(0.94, abs(vUv.y * 2.0 - 1.0));
-      vec3 c = mix(base, light, max(emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r) * 0.92, clamp(trim, 0.0, 1.0) * 0.7));
+      float em = dvf > 0.5 ? l3DeviceMask(p * 1.15, int(dvf) - 1) : emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r); // (the standard's flag runs up the pole: its v is up)
+      vec3 c = mix(base, light, max(em * 0.92, clamp(trim, 0.0, 1.0) * 0.7));
+      if (dvf > 0.5) c = mix(c, vec3(0.92, 0.7, 0.3), clamp(trim, 0.0, 1.0) * 0.85); // (a gilt border about the device)
       vec3 col = c * (uAmbient * 0.6 + uLightColor * 0.6) * vShade;
       col *= 1.0 - 0.34 * uWet; // feature/weather: soaked cloth hangs darker
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);

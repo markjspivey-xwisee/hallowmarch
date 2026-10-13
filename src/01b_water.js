@@ -307,7 +307,8 @@ function riverAt(x, z, pad = 6) {
 const _wa = { y: 0, depth: 0, fx: 0, fz: 0 };
 function waterAt(x, z, out = _wa) {
   const S = WATERGRID.surf;
-  if (!S || x > DUN_X0 || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;
+  if (x > DUN_X0) return late3WaterAt(x, z, out); // [late3] the Deep Barrow's cistern (10m_deep.js)
+  if (!S || Math.abs(x) > HALF - 2 || Math.abs(z) > HALF - 2) return null;
   const gx = (x + HALF) / HS, gz = (z + HALF) / HS, i = Math.floor(gx), j = Math.floor(gz), u = gx - i, v = gz - j;
   // the surface of the water from the four texels around the point that have water
   let y = 0, w = 0, fx = 0, fz = 0;

@@ -1439,12 +1439,13 @@ const humanoidMat = mat({
       return d;
     }
     float emblemMask(vec2 q, float realm){ float d = emblemD(q, realm); float fw = fwidth(d) + 1e-4; return 1.0 - smoothstep(-fw, fw, d); }
+    ${L3_DEVICE_GLSL}
     void main(){
       vec3 n = safeNormalize(vN);
       vec3 V = safeNormalize(cameraPosition - vW);
       int src = int(vMat + 0.5), m = src;
       int outfit = int(vStyle.x + 0.5);
-      float realm = vStyle.y;
+      float mdev = floor((vStyle.y + 0.5) / 8.0), realm = vStyle.y - mdev * 8.0; // [late3] the device of a name worn, above the realm (10n_veteran.js)
       bool robed = outfit == 2 || outfit == 3 || outfit == 9;
       bool undead = outfit == 6 || outfit == 7;
       // dress the body layers for this outfit
@@ -1520,6 +1521,14 @@ const humanoidMat = mat({
         float folds = 0.84 + 0.16 * sin(vUV.x * 22.0 + vnoise(vUV * vec2(4.0, 3.0)) * 3.0);
         alb = vTab * 0.6 * folds * (0.95 + 0.08 * fineMix(sin(vO.x * 700.0) * sin(vO.y * 700.0), 0.0, vO.xy * 110.0));
         if (undead) alb = vec3(0.16, 0.16, 0.17) * folds;
+        if (mdev > 0.5 && vAO > 0.8 && !undead) {
+          // [late3] the mantle of a name: its device on the back in the realm's charge, a gilt border down its edges and hem
+          vec3 charge = realm < 0.5 ? vec3(0.95, 0.75, 0.32) : vec3(0.93, 0.9, 0.8);
+          float dm = l3DeviceMask(vec2((vUV.x - 0.5) * 0.48, vUV.y - 1.0) / 0.17, int(mdev) - 1);
+          alb = mix(alb, charge * 0.92 * folds, dm);
+          float edge = clamp((1.0 - smoothstep(0.45, 0.49, vUV.y)) + smoothstep(0.88, 0.93, abs(vUV.x * 2.0 - 1.0)), 0.0, 1.0);
+          alb = mix(alb, vec3(0.86, 0.66, 0.3) * folds, edge * 0.9);
+        }
         rough = 0.9; sss = 0.15;
       } else if (m == 9) {
         alb = mix(vec3(1.0), vTab, 0.55) * 1.4; emit = 1.3 + 0.4 * sin(vW.y * 3.0 + vMisc.y);

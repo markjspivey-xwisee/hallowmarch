@@ -1005,6 +1005,7 @@ function natureStrike(x, z, r = 8) {
 }
 // heavy impacts: a meteor, the leap strike, the dragon landing
 function natureImpact(x, z, kind, r = 3) {
+  if (x > DUN_X0) late3Impact(x, z, kind, r); // [late3] a heavy blow under the Barrow breaks the deep's slabs and its cracked wall (10m_deep.js)
   if (!NATURE.built || x > DUN_X0 - 50) return;
   if (kind === 'meteor') {
     natureCrater(x, z, r * 0.62, 1.5 + r * 0.12, 0.3);

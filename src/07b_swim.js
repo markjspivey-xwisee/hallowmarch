@@ -138,7 +138,7 @@ function updateWater(dt) {
     const near = e === P || dist2(e.x, e.z, camX, camZ) < 160 * 160 || (P && dist2(e.x, e.z, P.x, P.z) < 160 * 160);
     if (!near) { e.swimOK = false; continue; }
     const D = swimDims(e);
-    let w = D && !inDungeon(e) ? waterAt(e.x, e.z, _wUpd) : null;
+    let w = D && (!inDungeon(e) || late3InDeep(e)) ? waterAt(e.x, e.z, _wUpd) : null; // [late3] the Deep Barrow's cistern is real water (10m_deep.js)
     if (w && onIce(e, w)) w = null; // on the ice: dry feet
     if (w && e.y > w.y + 0.1) w = null; // [water2] above it: on a jetty's deck, or in the air
     const was = !!e.swim;
@@ -317,7 +317,7 @@ function waterNear(P) {
   return best;
 }
 function waterOffers(P, offer) {
-  if (inDungeon(P)) return;
+  if (inDungeon(P) && !late3InDeep(P)) return; // [late3] (the cistern can be drunk: 10m_deep.js)
   dive2Offers(P, offer); boatOffers(P, offer); // [water2] the bed's finds, holes in the ice, boats (07d_dive.js, 07e_boats.js)
   if (P.mount || P.dive || P.boat) return;
   const s = waterNear(P);

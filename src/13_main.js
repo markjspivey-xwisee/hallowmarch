@@ -244,13 +244,14 @@ function drawActors(fx, fz) {
       if (e.anim.act === 21 && e.anim.actDur > 0) _mi[1] |= WB.beater; // [look4] a fire beater in the hands that beat out flames (05a_rig.js)
       if (e._hamUntil > GAME.t) _mi[1] |= WB.hammer; // [motion5] a mallet in the hand of a builder or a mason at work
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
+      if (e.role === 'player') { const mc = late3MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late3] the mantle of the name you wear (10n_veteran.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat
         _ma[0] = MA.phase; _ma[1] = MA.amt; _ma[2] = e.onGround === false ? 6.5 : 0; _ma[3] = 0;
         _hc[0] = e.mount.coat[0]; _hc[1] = e.mount.coat[1]; _hc[2] = e.mount.coat[2]; _hc[3] = 1 + (e.mount.crowd ? e.mount.visCode || 0 : 0);
         _p4[3] = beastLeanYaw(e); // [motion] the horse leans into the turn with its rider (13r_motion.js); [motion3] before its hooves' row (the tilt it takes off)
-        _hb[0] = e.mount.cloth[0]; _hb[1] = e.mount.cloth[1]; _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, true); // the horse is as wet as its rider; [polish] its planted hooves (13s_footlock.js)
+        _hb[0] = e.mount.cloth[0] + late3BardCode(e); _hb[1] = e.mount.cloth[1]; /* [late3] a veteran's barding (10n_veteran.js) */ _hb[2] = e.mount.cloth[2]; _hb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, true); // the horse is as wet as its rider; [polish] its planted hooves (13s_footlock.js)
         (dx * dx + dz * dz < lodD2 && H[0].n < H[0].max ? H[0] : H[1]).push(_p4, _ma, _hc, _hb);
         _p4[1] = y + HORSE_SEAT - 0.86 * sc;
         _a4[0] = MA.phase; _a4[1] = MA.amt;
@@ -272,7 +273,7 @@ function drawActors(fx, fz) {
       _ca[0] = L.colA[0]; _ca[1] = L.colA[1]; _ca[2] = L.colA[2]; _ca[3] = sc + (e.visCode || 0); // [animals] pattern and seed above the scale
       const C = crowdBeast[e.crowd || e.kind]; // [animals] shorn sheep, bulls, tacked horses
       if (C && e.role !== 'bird' && e.kind !== 'hen') _p4[3] = beastLeanYaw(e); // [motion] a beast leans into its turns (beastVS); [motion3] before its feet's row, which takes off the tilt the shader will get (a step of the tilt a frame late moved the feet 3 cm)
-      _cb[0] = L.colB[0]; _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, false); // visual pass: its own wet and snow; [polish] its planted feet (13s_footlock.js)
+      _cb[0] = L.colB[0] + (e.tame && e.tame.k === 'horse' && e.tame.owner === 'player' ? late3BardCode(GAME.player) : 0); _cb[1] = L.colB[1]; _cb[2] = L.colB[2]; _cb[3] = beastWx(e, e.anim.flash) + 256 * footLockSlot(e, false); // [late3] your horse's barding (10n_veteran.js) // visual pass: its own wet and snow; [polish] its planted feet (13s_footlock.js)
       if (C) (dx * dx + dz * dz < lodD2 && C[0].n < C[0].max ? C[0] : C[1]).push(_p4, _a4, _ca, _cb);
     }
   }

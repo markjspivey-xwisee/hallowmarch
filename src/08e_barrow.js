@@ -42,6 +42,7 @@ function initBarrow() {
   BARROW_PACKS.forEach((pk, i) => { pk.idx = i; pk.members = new Set(); pk.respawn = []; for (const m of pk.mobs) pk.members.add(spawnBarrowMob(m[0], m[1], m[2], m[3], pk).id); });
   spawnWarden();
   spawnKing();
+  try { late3Init(); } catch (err) { reportError(err); } // [late3] the Deep Barrow's dead, its lord and its chests (10m_deep.js)
   // chests: one in the side crypt, the king's hoard in the vault
   DUN.chests.length = 0;
   for (const [id, spot, yaw, label] of [['crypt', DUN.spots.cryptChest, 0, 'Open the burial chest'], ['vault', DUN.spots.vaultChest, -Math.PI / 2, "Open the Hollow King's hoard"]]) {
@@ -209,6 +210,7 @@ function thinkBarrowMob(e, dt) {
   moveToward(e, ai.wander.x, ai.wander.z, dt, 0.25, 0.5);
 }
 function onBarrowMobDeath(e) {
+  if (e.deep) { late3MobDeath(e); return; } // [late3] the Deep Barrow's dead (10m_deep.js)
   const S = BARROW_STATE;
   if (e.id === S.warden) {
     S.wardenDead = true; S.wardenAt = GAME.t + WARDEN_RESPAWN;
@@ -258,6 +260,7 @@ function updateVents(dt) {
 
 /* ---- chests ---- */
 function openChest(ch) {
+  if (ch.deep) { late3OpenChest(ch); return; } // [late3] the Deep Barrow's chests (10m_deep.js)
   const P = GAME.player;
   if (!ch.ready || ch.opened || !P) return;
   const near = ENT.some((o) => o.alive && o.faction === FACTION_MONSTER && inDungeon(o) && dist2(o.x, o.z, ch.x, ch.z) < 12 * 12 && o.threat && o.threat.has(P.id));
@@ -522,6 +525,7 @@ function updateBarrow(dt) {
   updateFlow();
   updateVents(dt);
   updateChests(dt);
+  late3Update(dt); // [late3] the Deep Barrow: its seal, slabs, pitch, water, dead and lord (10m_deep.js)
   const playerNear = (x, z, r) => P && inDungeon(P) && dist2(P.x, P.z, x, z) < r * r;
   for (const pk of BARROW_PACKS) {
     for (let i = pk.respawn.length - 1; i >= 0; i--) {

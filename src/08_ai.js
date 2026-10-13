@@ -364,7 +364,7 @@ function captureKeep(K, realm, killer) {
 function onEntityKilled(e, killer) {
   if (e.siegeEngine) { siegeEngineKilled(e, killer); return; } // [siege] an engine hacked apart or burnt (04h_siege.js)
   if (e.role === 'boss') { onDragonDeath(e); return; }
-  if (e.role === 'dungeonBoss') { onKingDeath(e, killer); return; }
+  if (e.role === 'dungeonBoss') { if (e.deepLord) late3LordDeath(e, killer); else onKingDeath(e, killer); return; } // [late3] the Ash-Crowned (10m_deep.js)
   if (e.dunPack != null) { onBarrowMobDeath(e); return; }
   if (e.kind === 'door') {
     const S = e.keepRef ? e.keepRef.site : e.templeRef.site;
@@ -1064,8 +1064,8 @@ function updateNPCs(dt0) {
       else if (!e.casting.custom) { e.casting.t += dt; if (e.casting.t >= e.casting.total) finishCast(e); }
     }
     if (!isStunned(e)) {
-      if (e.role === 'mob') { if (e.dunPack != null) thinkBarrowMob(e, dt); else thinkMob(e, dt); }
-      else if (e.role === 'dungeonBoss') thinkHollowKing(e, dt);
+      if (e.role === 'mob') { if (e.dunPack != null) { if (e.deep) late3MobThink(e, dt); else thinkBarrowMob(e, dt); } else thinkMob(e, dt); } // [late3] the Deep Barrow's dead (10m_deep.js)
+      else if (e.role === 'dungeonBoss') { if (e.deepLord) late3LordThink(e, dt); else thinkHollowKing(e, dt); }
       else if (e.role === 'soldier') thinkSoldier(e, dt);
       else if (e.role === 'guard') thinkPosted(e, dt, e.fixedY !== null || e.ai.wall ? 38 : 22);
       else if (e.role === 'lord') thinkPosted(e, dt, 14);

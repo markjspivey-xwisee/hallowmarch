@@ -202,6 +202,7 @@ function currentInteraction() {
     const ex = DUN.spots.exit;
     offer(dist(P.x, P.z, ex.x, ex.z), 3.4, 'Climb back up to the daylight', () => leaveBarrow());
     for (const ch of DUN.chests) if (ch.ready && !ch.opened) offer(dist(P.x, P.z, ch.x, ch.z), 3.0, ch.label || 'Open the chest', () => openChest(ch), 0.3);
+    late3Offers(P, offer); // [late3] the seal beneath the Hollow King's hall, the cracked wall (10m_deep.js)
   } else if (BARROW.door && P.carrying == null) offer(dist(P.x, P.z, BARROW.door.x, BARROW.door.z), 3.8, 'Enter the Hollow Barrow', () => enterBarrow());
   houseOffers(P, offer); // doors and shutters
   wearOffers(P, offer); // feature/weather: wash muddy, bloody gear at a town well or trough
