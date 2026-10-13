@@ -171,9 +171,10 @@ async def main(p):
           const res = [];
           for (const on of [false, true]) {
             W3.on = on;
-            const ki = WAR.keeps.findIndex((k) => k.realm === 1 && k.orig === 1 && fn.castleOf(k.site) && fn.castleOf(k.site).kind !== 'round'), K = WAR.keeps[ki], S = K.site, G0 = fn.castleOf(S).gate;
+            // (Logres's keeps are square, with gate drums and a walk over the gate: a room the castle counts inside)
+            const ki = WAR.keeps.findIndex((k) => k.realm === 0 && k.orig === 0 && fn.castleOf(k.site) && fn.castleOf(k.site).kind !== 'round'), K = WAR.keeps[ki], S = K.site, G0 = fn.castleOf(S).gate;
             const ek = WAR.keeps.findIndex((k) => k.realm === 2);
-            const id = __w3t.band(0, ek, 6, S.x, S.z), wb = __w3t.wb(id), L = fn.wbLeader(wb);
+            const id = __w3t.band(1, ek, 6, S.x, S.z), wb = __w3t.wb(id), L = fn.wbLeader(wb);
             const p = fn.siteToWorld(S, S.gateLocal.x, G0.gz + 1.0);
             for (const e of fn.wbMembers(wb)) { e.x = e.prevX = p.x + (Math.random() - 0.5); e.z = e.prevZ = p.z + (Math.random() - 0.5); e.y = fn.floorAt(e.x, e.z, S.y + 0.5); }
             wb.lid = L.id; fn.mountUp(L, true);
@@ -327,7 +328,7 @@ async def main(p):
         r = await ev(page, r"""(() => {
           const H = __hm;
           H.LORE.openChronicle('war');
-          const txt = document.body.innerText;
+          const txt = document.body.textContent;
           const ok = /Holding what you take/.test(txt);
           H.UI.modal = 'menu';
           return { ok };

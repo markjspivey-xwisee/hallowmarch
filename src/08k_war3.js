@@ -32,7 +32,7 @@ const W3 = {
   PRESS_RE: 90, // s: a realm one keep from a claim looks again at which keep to press for
   PACT_END: 45, // s: a pact outlasts the leader's lead by this long
   COL_IN: 50, // s: a column's stragglers take their posts this long after its captain is in
-  CLAIM3: 1 / 3, // the pace of a claim built on three keeps held, more than any other realm (of four's)
+  CLAIM3: 0.45, // the pace of a claim built on three keeps held, more than any other realm (of four's)
   LEVY: 1, // bands more a realm with three keeps or more musters
   stats: { captures: 0, holds: 0, given: 0, columns: 0, columnsIn: 0, columnsLost: 0, garrisoned: 0, gateWork: 0, presses: 0, braces: 0, secures: 0, pacts: 0, rallies: 0, peaceEngines: 0, peaceMended: 0, handedBack: 0 },
   pact: null, // { against, members: [a, b], t, lostAt }
@@ -247,12 +247,12 @@ function war3GateWork(e, dt) {
 /* ------------------------------------------------------------------ */
 /* the commanders: hold, press, common cause, win it back              */
 /* ------------------------------------------------------------------ */
-// does realm r lead the March? (a claim on it, or three keeps with a claim not yet faded)
+// does realm r lead the March? (a claim on it running: four keeps, or both enemy hallows. Three keeps building a claim
+// slowly made a pact too soon: the realms behind stopped every lead before it was one, and the war went to the elders)
 function w3Leads(r) {
-  const c = CAMPAIGN.claims[r], n = w3KeepsOf(r);
-  return n >= CW.KEEPS || foreignHallows(r) >= 2 || (n === CW.KEEPS - 1 && c.k / CW.KEEP_HOLD > 0.25);
+  return w3KeepsOf(r) >= CW.KEEPS || foreignHallows(r) >= 2;
 }
-// [war3] momentum: a realm with three keeps, more than any other realm, builds its claim on the keeps at a third of the
+// [war3] momentum: a realm with three keeps, more than any other realm, builds its claim on the keeps at W3.CLAIM3 of the
 // pace of four (it fades no more while it holds three at all): returns the share of the pace, -1 to hold it, 0 to fade
 function war3ClaimSlow(r, n) {
   if (!W3.on || n !== CW.KEEPS - 1) return 0;
@@ -368,7 +368,7 @@ function war3Choose(wb, r, C, L) {
     if (q === r || !P) continue;
     const K = WAR.keeps[P.keep];
     if (!K || K.realm !== r || busy(K, (O) => O.type === 'defend')) continue;
-    C.push({ s: 70 - dist(L.x, L.z, K.site.x, K.site.z) / 16, o: { type: 'defend', keep: K, since: now + 90, foe: q }, why: 'brace' });
+    C.push({ s: 92 - dist(L.x, L.z, K.site.x, K.site.z) / 16, o: { type: 'defend', keep: K, since: now + 90, foe: q }, why: 'brace' }); // (the keep that would give the foe its claim: one band, before anything else)
   }
 }
 // the commanders' orders that need words of their own
@@ -457,6 +457,27 @@ function war3EngageGuard(wb, members) {
   if (wb.w3held == null) wb.w3held = now;
   if (now - wb.w3held > 20) { wb.w3free = now + 20; wb.engagedUntil = -99; wb.w3held = null; W3.stats.unheld = (W3.stats.unheld || 0) + 1; }
 }
+// a band in its own keep's or temple's court with its way out by the gate, the gate shut against foes before it (it
+// opens for its own only while no foe stands within 19 m), and nobody of the band fighting through the walls: after
+// 20 s the gate opens for it as for the garrison's sally, and it goes out at them (38 to 66 s at Ráth Brannagh in
+// version 15's soaks, `heldAt`, `eng=0 fighting=0`; from updateWar3's look)
+function w3SallyStep() {
+  const now = GAME.t;
+  for (const wb of WAR.warbands) {
+    const L = wb.L;
+    if (wb.dead || !wb.order || !L || !L.alive || !wb.leaderGoal) { wb.w3gw = null; continue; }
+    const W = walledAt(L.x, L.z);
+    if (!W || W.ref.realm !== wb.realm || !W.ref.door.alive || !W.C.gate || L.y - W.C.S.y > 1.2 || castleInside(W.C, wb.leaderGoal.x, wb.leaderGoal.z) || dist2(wb.leaderGoal.x, wb.leaderGoal.z, W.C.S.x, W.C.S.z) < 15 * 15) { wb.w3gw = null; continue; }
+    const G0 = W.C.gate;
+    if (G0.open > 0.9) { wb.w3gw = null; continue; }
+    if (wb.w3gw == null) { wb.w3gw = now; continue; }
+    if (now - wb.w3gw < 20) continue;
+    G0.sallyUntil = now + 14; G0.sallyOpen = true;
+    wb.w3gw = now + 10;
+    W3.stats.sallies = (W3.stats.sallies || 0) + 1;
+    news(`The gate of ${W.C.S.name} opens: ${wbName(wb)} sallies out at the foes before it.`, wb.realm, 'normal');
+  }
+}
 // one band leader's way round (localPath, up to the quarter-metre grid) in a step at most: two or three in one step
 // made the war's worst steps (bandLeaderDetour, 08j_war2.js); the others look again next step
 function war3PathToken() {
@@ -482,6 +503,63 @@ function war3StartNode(L) {
   return null;
 }
 
+// an engine far from the camera is drawn as two or three meshes, not nine to twelve (its frame, uprights, wheels and
+// drum merged at rest; its arm, counterweight or log as they move; its ropes, slings and stones, a few pixels at that
+// distance, left out): each engine's parts were a draw and a shadow's draw each, and a war fifteen minutes on with
+// engines and their wrecks before the keeps put the busiest views at medium over the call budget (perf.py budget).
+// From siegePose, every step an engine is posed
+const W3_ENG_FAR = { low: 36, medium: 55, high: 85 };
+function w3Merge(parts) {
+  let nv = 0, ni = 0;
+  for (const [g] of parts) { nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
+  const P = new Float32Array(nv * 3), N = new Float32Array(nv * 3), C = new Float32Array(nv * 3), M = new Float32Array(nv), A = new Float32Array(nv);
+  const I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  let v0 = 0, i0 = 0;
+  for (const [g, x, y, z] of parts) {
+    const p = g.attributes.position.array, n = g.attributes.normal.array, c = g.attributes.aCol, m = g.attributes.aMat, a = g.attributes.aAO, cnt = g.attributes.position.count;
+    for (let i = 0; i < cnt; i++) { const k = (v0 + i) * 3, q = i * 3; P[k] = p[q] + x; P[k + 1] = p[q + 1] + y; P[k + 2] = p[q + 2] + z; N[k] = n[q]; N[k + 1] = n[q + 1]; N[k + 2] = n[q + 2]; }
+    if (c) C.set(c.array.subarray(0, cnt * 3), v0 * 3);
+    if (m) M.set(m.array.subarray(0, cnt), v0);
+    if (a) A.set(a.array.subarray(0, cnt), v0); else A.fill(1, v0, v0 + cnt);
+    if (g.index) { const ix = g.index.array; for (let i = 0; i < g.index.count; i++) I[i0 + i] = ix[i] + v0; i0 += g.index.count; }
+    else { for (let i = 0; i < cnt; i++) I[i0 + i] = v0 + i; i0 += cnt; }
+    v0 += cnt;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  g.setAttribute('aCol', new THREE.BufferAttribute(C, 3)); g.setAttribute('aMat', new THREE.BufferAttribute(M, 1)); g.setAttribute('aAO', new THREE.BufferAttribute(A, 1));
+  g.setIndex(new THREE.BufferAttribute(I, 1));
+  g.computeBoundingSphere();
+  return g;
+}
+function war3EngineLod(E) {
+  if (!W3.on || E.gone) return;
+  const built = siegeActive(E) && (E.state !== 'build' || E.build >= 1); // (a wreck, a burning engine: its own pose, near model)
+  const d2 = dist2(E.x, E.z, camera.position.x, camera.position.z), D = W3_ENG_FAR[quality.level] || 55;
+  const far = built && d2 > D * D;
+  if (!far && !E.w3far) return;
+  if (far && !E.w3far) {
+    const P = siegeParts(E.kind, E.realm);
+    if (!P.w3far) {
+      const parts = [[P.base, 0, 0, 0], [P.upper, 0, 0, 0]];
+      if (P.wheel) for (const [x, y, z] of P.wheels) parts.push([P.wheel, x, y, z]);
+      if (P.drum && P.drumAt) parts.push([P.drum, P.drumAt[0], P.drumAt[1], P.drumAt[2]]);
+      P.w3far = w3Merge(parts);
+    }
+    E.w3far = siegeMesh(E, P.w3far);
+    W3.stats.engFar = (W3.stats.engFar || 0) + 1;
+  }
+  const f = E.w3far;
+  f.visible = far;
+  if (!far) return;
+  // the near model's parts the far one stands for, and the small moving ones, hidden while it shows
+  E.base.visible = false; E.upper.visible = false;
+  for (const w of E.wheels) w.visible = false;
+  for (const m of [E.drum, E.rope, E.stoneM, E.pouch]) if (m) m.visible = false;
+  for (const m of E.ropes || []) m.visible = false;
+  for (const m of E.slingR || []) m.visible = false;
+}
+
 /* ------------------------------------------------------------------ */
 /* every step (from updateWar)                                         */
 /* ------------------------------------------------------------------ */
@@ -492,6 +570,7 @@ function updateWar3(dt) {
   if (GAME.t < W3.look) return;
   W3.look = GAME.t + 2;
   w3ColumnSanity();
+  w3SallyStep();
   const ow = W3.stats.orders || (W3.stats.orders = {});
   for (const wb of WAR.warbands) { const O = wb.order; if (!wb.dead && O && !O.w3c) { O.w3c = 1; const k = O.type + (O.why ? '/' + O.why : ''); ow[k] = (ow[k] || 0) + 1; } }
   w3PactStep();
@@ -606,5 +685,5 @@ registerSavePart('world', 'war3', {
 queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.fn.localPathT = localPath; window.__hm.lp = LP; // (tests: the way-finder and its measure)
-  window.__hm.war3 = { W3, w3KeepsOf, w3GuardsN, w3FreeSlots, w3Fresh, w3Threat, w3Leads, w3BestTarget, war3MakeGuard, war3OnCapture, war3Column, war3HoldOn, war3GateWork, war3Choose, war3HudLine, war3HeraldText, w3PeaceStep, war3Reset, updateWar3, war3ClaimSlow, war3Levy, war3EngageGuard, war3PathToken, war3StartNode };
+  window.__hm.war3 = { W3, w3KeepsOf, w3GuardsN, w3FreeSlots, w3Fresh, w3Threat, w3Leads, w3BestTarget, war3MakeGuard, war3OnCapture, war3Column, war3HoldOn, war3GateWork, war3Choose, war3HudLine, war3HeraldText, w3PeaceStep, war3Reset, updateWar3, war3EngineLod, war3ClaimSlow, war3Levy, war3EngageGuard, war3PathToken, war3StartNode };
 });

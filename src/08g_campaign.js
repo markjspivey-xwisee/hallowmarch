@@ -406,7 +406,7 @@ function updateCampaign(dt) {
     CAMPAIGN.renown[r] += (dt / 60) * (keeps + 2 * hal);
     const kOn = keeps >= CW.KEEPS, hOn = hal >= 2;
     const rate = cwClaimRate(); // [war2] the long war: a hold counts for more (08j_war2.js)
-    const k3 = kOn ? 0 : war3ClaimSlow(r, keeps); // [war3] three keeps, more than any other realm: the claim grows at a third of the pace; three: it does not fade (08k_war3.js)
+    const k3 = kOn ? 0 : war3ClaimSlow(r, keeps); // [war3] three keeps, more than any other realm: the claim grows at W3.CLAIM3 of the pace; three: it does not fade (08k_war3.js)
     c.k = kOn ? c.k + dt * rate : k3 > 0 ? c.k + dt * rate * k3 : k3 < 0 ? c.k : Math.max(0, c.k - dt * CW.DECAY);
     c.h = hOn ? c.h + dt * rate : Math.max(0, c.h - dt * CW.DECAY);
     if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.max(1, Math.round((CW.KEEP_HOLD - c.k) / rate / 60))} more minutes and ${R.name} wins the March.`, r, 'big'); // [war2] / rate
@@ -571,14 +571,14 @@ function campaignHudHTML() {
     const top = cwTopClaims().slice(0, 2);
     body = top.length ? top.map((c) => {
       const R = REALMS[c.r];
-      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : c.slow ? 'Three keeps, more than any other realm: the claim grows at a third of the pace' : c.held ? 'Three keeps: the claim holds' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : c.slow || c.held ? 'holds 3 keeps' : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on || c.slow ? fmtClock(c.left) : c.held ? 'held' : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`; // [war3] slow, held
+      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : c.slow ? 'Three keeps, more than any other realm: the claim grows at not quite half the pace' : c.held ? 'Three keeps: the claim holds' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : c.slow || c.held ? 'holds 3 keeps' : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on || c.slow ? fmtClock(c.left) : c.held ? 'held' : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`; // [war3] slow, held
     }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60} min</div>`;
   }
   return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
 }
 function campaignHeraldText() {
   const P = GAME.player, R = REALMS[P.faction];
-  const rule = `<p>The war is fought in campaigns. A realm that holds ${CW.KEEPS} of the six keeps for ${CW.KEEP_HOLD / 60} minutes (three, more than any other realm, build that claim at a third of the pace), or both enemy hallows in its temple for ${CW.HALLOW_HOLD / 60}, wins the March; after an hour the elders give it to the realm with the most renown. Then, after a short peace, every keep and hallow goes home and it all begins again.</p>`;
+  const rule = `<p>The war is fought in campaigns. A realm that holds ${CW.KEEPS} of the six keeps for ${CW.KEEP_HOLD / 60} minutes (three, more than any other realm, build that claim at not quite half the pace), or both enemy hallows in its temple for ${CW.HALLOW_HOLD / 60}, wins the March; after an hour the elders give it to the realm with the most renown. Then, after a short peace, every keep and hallow goes home and it all begins again.</p>`;
   const cmd = cwCanCommand()
     ? `<p>You have earned the right to command. Open the map, choose one of ${possessive(R.name)} warbands and tell it to attack a keep, defend one of ours, raid an open temple or rally to you. It holds your order until the deed is done, then the commander takes it back.</p>`
     : `<p>At realm rank 3 or level 20 you may command ${possessive(R.name)} warbands yourself, from the map.</p>`;
@@ -596,7 +596,7 @@ function campaignChronHTML() {
   const hist = CAMPAIGN.history.slice().reverse().map((h) => `<li><b style="color:${REALMS[h.w].light}">The ${ordinalWord(h.n)} campaign</b>: ${REALMS[h.w].name}, ${h.how === 'keeps' ? `holding ${CW.KEEPS} keeps` : h.how === 'hallows' ? 'holding both enemy hallows' : 'by renown'}, after ${h.m} minutes. Keeps taken ${h.cap.join(' · ')}; hallows carried home ${h.hal.join(' · ')}.</li>`).join('');
   const now = CAMPAIGN.state === 'peace' ? `${REALMS[CAMPAIGN.winner].name} has won the ${ordinalWord(CAMPAIGN.n)} campaign; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.` : `The ${ordinalWord(CAMPAIGN.n)} campaign has run for ${Math.floor(campaignElapsed() / 60)} minutes.`;
   return `<h3>How a campaign is won</h3>
-    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a twelfth of the speed it grew, so a realm that keeps winning the fourth keep back gets there in the end; and a realm that holds three keeps, more than any other realm, builds its claim at a third of the pace (with three it never fades). If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
+    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a twelfth of the speed it grew, so a realm that keeps winning the fourth keep back gets there in the end; and a realm that holds three keeps, more than any other realm, builds its claim at not quite half the pace (with three it never fades). If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
     <p>The winners share the spoils. After a short peace every keep and hallow goes back to its own realm and the next campaign begins. The realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster; and from a quarter of an hour on the long war thins the garrisons, slows the mending of broken gates and swells every muster with veterans, so no campaign stalls for ever.</p>
     <div class="tide" role="table" aria-label="The campaign now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Renown</span><span class="h c" role="columnheader">Taken</span><span class="h w" role="columnheader">Claim on the March</span>${rows}</div>
     ${war3ChronHTML()}
@@ -775,7 +775,7 @@ function campaignSideHTML() {
   }).join('');
   const head = CAMPAIGN.state === 'peace'
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`
-    : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at a third of the pace). At one hour the realm with the most renown wins.</p>`;
+    : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at not quite half the pace). At one hour the realm with the most renown wins.</p>`;
   let cmd = '';
   const bands = cwBandsOf(P.faction);
   const can = cwCanCommand();

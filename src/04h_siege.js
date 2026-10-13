@@ -351,6 +351,7 @@ function siegePose(E, dt) {
   E.mat.uniforms.uFlash.value = Math.max(0, E.flash);
   E.flash = Math.max(0, E.flash - dt * 3);
   E.shake = Math.max(0, E.shake - dt * 4);
+  war3EngineLod(E); // [war3] far from the camera: two or three draws, not a dozen (08k_war3.js)
 }
 
 /* ------------------------------------------------------------------ */
