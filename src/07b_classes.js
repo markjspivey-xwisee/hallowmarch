@@ -90,7 +90,7 @@ function csOf(e) {
   // NPCs come to the field with a few habits of their own
   if (e.role !== 'player') {
     if (e.cls === 'mage') e.cs.focus = pick(Math.random, ['fire', 'frost', e.level >= 6 ? 'storm' : 'fire']);
-    if (e.cls === 'priest') { e.cs.dev = 20 + Math.random() * 30; if (B7T.npcDevotion) e.cs.devAt = GAME.t; } // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
+    if (e.cls === 'priest') { e.cs.dev = 20 + Math.random() * 30; if (B7T.npcDevotion && e.role !== 'bot') e.cs.devAt = GAME.t; } // [balance8] the war's priests, not the bots that measure the callings (07c_balance8.js) // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
   }
   return e.cs;
 }
@@ -611,6 +611,7 @@ function priestView(e, cs, A, t) {
   const view = () => V || (V = { ...A });
   const dv = devOf(e);
   const hm = (1 + 0.25 * dv / 100) * (sanctified(e) ? 1.15 : 1);
+  if (dv > 0 && (A.heal || A.hot) && e.role !== 'player' && e.role !== 'bot') { BAL8.stats.npcDevHeals++; BAL8.stats.npcDevSum += dv; } // [balance8] the war's priests' heals strengthened by devotion (07c_balance8.js)
   if (A.heal) view().heal = A.heal * hm * (t === e || !t ? priestSelf(e) : 1) * mendWound(t || e); // a priest's own wounds mend more slowly than another's ([balance] 0.85) [balance2] and not faster with rank [balance4] the deeper the wound, the more Mend mends (07c_balance4.js)
   if (A.hot) view().hot = [A.hot[0] * hm * (t === e || !t ? priestSelf(e) : 1), A.hot[1]]; // [balance] and their own renewal
   if (A.id === 'renew' && (t === e || !t)) { const c = renewRoteCost(e, A); if (c !== A.cost) view().cost = c; priestSteadfast(e); renewMark(e); } // [balance6] renewing by rote costs power (07c_balance6.js) // [balance2] Renewal on yourself loosens roots and slows and steadies your spells (07c_balance.js) [balance5] a fresh one (07c_balance5.js)
@@ -623,6 +624,7 @@ function priestView(e, cs, A, t) {
   if (A.id === 'massrenew') view().custom = priestGroupHot;
   if (A.id === 'divine') view().custom = divineShield; // [balance] it also lifts and wards off stuns, roots and slows (07c_balance.js)
   if (A.id === 'renew' && clsHas(e, 'bless') && dv >= 20 && t) {
+    if (e.role !== 'player' && e.role !== 'bot') BAL8.stats.npcBless++; // [balance8] the war's priests' blessings (07c_balance8.js)
     cs.dev -= 12;
     const f = t && !isEnemy(e, t) ? t : e;
     blessing(e, f);

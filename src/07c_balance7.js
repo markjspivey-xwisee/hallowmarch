@@ -43,7 +43,7 @@ const archerVolleyWorth = (t) => !!t && t.alive && (!!t.casting || isRooted(t) |
 // botDodge asks: a skilled warrior after its foe does not step out of burning grass (2% of its health a second)
 const botFireThrough = (e, t) => B7T.warriorFire && e.cls === 'warrior' && !!t && t.alive && e.hp > e.maxHp * 0.25;
 // Sanctuary on the priest itself: weighed by the wound as Mend is (B7T.sanctWound)
-const sanctWound = (e) => (B7T.sanctWound ? mendWound(e) : 1);
+const sanctWound = (e) => (B7T.sanctWound ? mendWound(e) : sanctKneeK(e)); // [balance8] whole from 70% health down (07c_balance8.js)
 
 /* ------------------------------------------------------------------ */
 /* the archers' realm ways: edges on their own ground                  */

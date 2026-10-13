@@ -23,7 +23,7 @@ function holyFlare(e, t) {
   if (!t || !t.alive || !t.casting || t === e || t.kind === 'door' || t.role === 'boss' || t.role === 'dungeonBoss') return false;
   if (dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1)) return false;
   BAL5.stats.flareTries++;
-  if (!breakCast(t)) return false;
+  if (!flareBreak(t)) return false; // [balance8] a Renewal's steadiness does not keep a spell from the flare, a mage's ward does (07c_balance8.js)
   BAL5.stats.flares++;
   const y = t.y + 1.7 * (t.scale || 1);
   if (dist2(t.x, t.z, camera.position.x, camera.position.z) < 60 * 60) { FX.burst(t.x, y, t.z, 22, [2.4, 1.9, 0.9], 3.5, 0.4, 0.1, -1); lightFlash(t.x, y, t.z, 8, [2.6, 2.1, 1.0], 0.25); }
@@ -42,7 +42,7 @@ function flareThreat(e) {
 // [balance5] what a skilled hand flares: a priest's heal (a smite is worth less than the Holy Fire's own burn), or any
 // long spell of a mage or a bow (a meteor, a firebolt, an aimed shot)
 function flareWorth(t, e) {
-  if (!castBreakable(t, 0.3) || (e && dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1))) return false;
+  if (!flareBreakable(t, 0.3) || (e && dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1))) return false; // [balance8] (07c_balance8.js)
   if (t.cls === 'priest') return t.casting.id === 'mend' || t.casting.id === 'pillar' || t.casting.id === 'raise';
   return true;
 }

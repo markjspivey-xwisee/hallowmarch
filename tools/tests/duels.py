@@ -41,6 +41,9 @@ NARROW = 'narrow' in ARGS  # [balance6] version 13's arenas (52 m apart round on
 OPEN = 'wooded' not in ARGS  # [balance7] open ground (no more than two trees within 20 m of an arena's middle, six within 30 m); `wooded`: version 14's arenas
 GAP = int(arg('gap', '80' if OPEN else '90'))  # [balance6] how far apart the arenas stand ([balance7] 80 m on open ground: 10 arenas)
 ALT = 'alt' in ARGS  # [balance7] every other duel makes its B side first (DS.make)
+IDLE = int(arg('idle', '0'))  # [balance8] the run's clock moved on this many seconds before each level's duels
+# [balance8] the world's clock as the duels see it: game time, the hour, the season, the weather, the cold at the arenas
+CLOCK_JS = "JSON.stringify((() => { const H = __hm, S = CB.wide || []; return { t: Math.round(H.GAME.t), night: H.dbg.U.uNight ? +H.dbg.U.uNight.value.toFixed(2) : null, season: H.farm && H.farm.seasonNow ? H.farm.seasonNow() : null, rain: +(H.dbg.WEATHER.raining || 0).toFixed(2), snow: +(H.dbg.WEATHER.snowing || 0).toFixed(2), cold: S.slice(0, 9).filter((s) => H.bal7.archerColdAt(s.x, s.z)).length, craters: H.nature.NATURE.craters.length, ents: H.ENT.length, trees: S.slice(0, 9).reduce((a, s) => a + H.cls.treesNear(s.x, s.z, 20), 0) }; })())"
 CL4 = ['warrior', 'archer', 'mage', 'priest']
 PAIRS = [tuple(p.split('-')) for p in arg('pairs', '').split(',') if p] or [(CL4[i], CL4[j]) for i in range(4) for j in range(i + 1, 4)]
 
@@ -243,7 +246,8 @@ def scope(rows):
             hparts = ', '.join(f'{k} {v / T:.0f}' for k, v in sorted(hb.items(), key=lambda kv: -kv[1]) if v / T >= 1)  # [balance4]
             print(f'    {who:<14} hp {hpm:.0f}  dps {tot / T:.0f} ({parts})  selfheal/s {S("heal") / T:.0f}' + (f' ({hparts})' if hparts else '') + f'  absorbed/s {S("absorbed") / T:.0f}  parries {S("parries")} parried {S("parried")}' + (f'  FOREIGN harm {fo:.0f} ({sum(1 for r in L if r[side].get("foreign"))} duels, by {[r[side].get("foreignBy") for r in L if r[side].get("foreign")][:3]})' if fo else ''), flush=True)
             st = {k: S(k) / T for k in ('stun', 'root', 'snare', 'cast', 'block', 'draw', 'reach', 'pray')}
-            print(f'    {"":<14} stunned {st["stun"]:.0%} rooted {st["root"]:.0%} slowed {st["snare"]:.0%} casting {st["cast"]:.0%} shield {st["block"]:.0%} drawing {st["draw"]:.0%} praying {st["pray"]:.0%} in reach {st["reach"]:.0%}  casts {S("casts")} cut {S("cut")}', flush=True)
+            dry = sum(r[side].get('dry', 0) for r in L) / T  # [balance8] the share of the fight spent short of power (under 15%)
+            print(f'    {"":<14} stunned {st["stun"]:.0%} rooted {st["root"]:.0%} slowed {st["snare"]:.0%} casting {st["cast"]:.0%} shield {st["block"]:.0%} drawing {st["draw"]:.0%} praying {st["pray"]:.0%} in reach {st["reach"]:.0%} dry {dry:.0%}  casts {S("casts")} cut {S("cut")}', flush=True)
 
 async def main():
     async with async_playwright() as p:
@@ -259,6 +263,10 @@ async def main():
         allrows = {}
         for lvl in LEVELS:
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
+            # [balance8] idle=S: the run's clock moved on S seconds before the duels (nothing fought meanwhile), to tell what
+            # the clock does (the season, the hour, the weather) from what earlier duels leave behind
+            if IDLE: await page.evaluate(f"(() => {{ const H = __hm; for (let k = 0; k < {IDLE}; k += 10) {{ H.simulate(10); const P = H.GAME.player; P.hp = P.maxHp; }} return 0; }})()")
+            print('  clock', await page.evaluate(CLOCK_JS), flush=True)
             if TAP: await page.evaluate("DS.tapOn()")
             specs = spec_list(KIND, REPS)
             rows = []
@@ -274,6 +282,7 @@ async def main():
                     last = r['done']; print(f'  level {lvl}: {r["done"]}/{len(specs)} duels ({time.time() - t0:.0f}s)', flush=True)
                 if not r['open']: break
             rows = await page.evaluate("DS.doneOut()")
+            print('  clock', await page.evaluate(CLOCK_JS), flush=True)  # [balance8]
             if TRACE:
                 for T in await page.evaluate(f"DS.traceOut({json.dumps([{k: r[k] for k in ('a', 'b', 'win', '_trA', '_trB')} for r in rows])})"):
                     print(f"\n  trace {T['a']} vs {T['b']} (won by {T['win']})", flush=True)

@@ -596,7 +596,7 @@ function botPriest(e, t) {
   // foe who has just broken a spell (blunt arrows, a storm, a mace): instants then, and long casts only when the foe
   // is busy or held, or the need is dire
   const pw = e.power / Math.max(1, e.maxPower);
-  const broke = GAME.t - (B.cutAt || -99) < 3;
+  const broke = GAME.t - (B.cutAt || -99) < 3 && !priestCutSpent(e, t); // [balance8] not once the foe's interrupt is spent (07c_balance8.js)
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
   // a blade in reach breaks spells (a mace above all) and sets them back: with power to spare, steady yourself before
@@ -613,7 +613,7 @@ function botPriest(e, t) {
   // a priest's flare ready and no spell steadied against it: the heals and the pillar wait for a Renewal or for the flare
   // to be spent, a smite is worth the risk (held back too, the priest stood idle beside a foe whose Holy Fire was ready
   // most of the time). With the rule set aside, healOk is castOk
-  const healOk = castOk && !(STEADY_NEXT && !!t && t.cls === 'priest' && flareThreat(e) && !steadyNext(e));
+  const healOk = castOk && !(STEADY_NEXT && !!t && t.cls === 'priest' && flareThreat(e) && !steadyNext(e)) && !priestFlareWait(e, hpF); // [balance8] no heal begun into a foe priest's ready flare (07c_balance8.js)
   // shields and instants first; a warrior closing in meets the Divine Shield before the leap and the bash, not after
   if (t && t.cls === 'warrior' && (dist(e.x, e.z, t.x, t.z) < 9 || rushComing(e, t)) && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true; // [balance4] or a rush on its way (the leap and the bash came before the shield)
   if (hpF < 0.6 && !hasBuff(e, 'shield') && botUse(e, 'divine', e)) return true;
@@ -628,7 +628,7 @@ function botPriest(e, t) {
   // that follow
   if (fight && (broke || blade || isRooted(e) || (B7T.priestSnareRenew && hasBuff(e, 'snare'))) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance7] B7T.priestSnareRenew // [balance5] a fresh one, or it does not steady
   // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
-  if (fight && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance6] (a spent steadiness guards no more spells)
+  if (fight && !B8T.flareThrough && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance8] (a Renewal no longer guards against the flare) [balance6] (a spent steadiness guards no more spells)
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
   const race = B7T.priestRace && !many && abilityRank(e.level) <= 1 ? B7T.priestRace : 0; // [balance7] a duel of rank I is a race: mend lower, smite more (07c_balance7.js)
   if (hpF < (healOk ? (many ? 0.6 : rich ? 0.55 : 0.52) - race : 0.3) && botUse(e, 'mend', e)) return true; // [balance6] healOk
