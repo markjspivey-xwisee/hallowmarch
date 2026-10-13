@@ -572,7 +572,7 @@ const bannerMat = mat({
         // (toward the fly and the foot, more as it is torn), the realm's field with a band of its light colour along the
         // hoist and the edges, the device of the name worn large on the hoist half in gold thread with a dark outline, a
         // gilt fringe on the tails, snow lying along its head in still air
-        float fu = vUv.x, fv = 1.0 - vUv.y, tear = fract(vKind) / 0.98;
+        float fu = vUv.x, fv = 1.0 - vUv.y, tear = clamp(fract(vKind + 0.002) / 0.98, 0.0, 1.0); // (+0.002: a kind of exactly 3 comes out of the interpolation as 2.9999998 here and there, and read fully torn)
         float nd = abs(fv - 0.5) - (fu - 0.6) / 0.4 * 0.29;
         if (fu > 0.6 && nd < 0.0) discard;
         float rag = smoothstep(0.2, 1.0, fu) * 0.78 + 0.35 * smoothstep(0.7, 1.0, fv);
