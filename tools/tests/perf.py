@@ -5,8 +5,8 @@ stormed by a band (siege), the Logres town with three houses burning and its cre
 one behind its scaffold (rubble), a breached tower mended by the masons (masons). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
-usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [audio]
-(budget: [perf2] fails when a view goes over its budget, BUDGET below)
+usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [seed] [audio]
+(budget: [perf2] fails when a view goes over its budget, BUDGET below; [war3] budget and seed: the same war each run, Math.random seeded and the page's own frames held)
 (js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: a click
 first, so the sound runs: without a gesture there is no AudioContext and updateAudio does nothing)
 Writes tools/out/perf_<tag>.json and prints a table."""
@@ -154,6 +154,14 @@ async def ev(page, js):
 # let by, so a view that comes and goes with the war's bodies does not fail one run in three)
 BUDGET = {'low': (770e3, 176), 'medium': (1.76e6, 240), 'high': (2.9e6, 290)}
 
+# [war3] `budget` (and `seed`) measures the same war each time: Math.random seeded before the page's own script, and the
+# page's own frames held once it is up, so the war unfolds only by the steps simulated and the frames drawn here (a
+# war fifteen minutes on drew far more where it fought, one run in three over the budget: CLAUDE.md, row 57's left)
+SEED = 'budget' in ARGS or 'seed' in ARGS
+HOLD = """(() => { let s = 1234567; Math.random = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })();
+(() => { window.__rafHold = false; const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); })();"""
+
 def fmt_m(n):
     return f'{n/1e6:.2f}M' if n >= 1e6 else f'{n/1e3:.0f}k'
 
@@ -161,7 +169,8 @@ async def main():
     res = {'tag': TAG, 'views': {}, 'sim': {}, 'systems': [], 'boot': {}}
     async with async_playwright() as p:
         t0 = time.time()
-        b, page, logs = await setup(p, touch=False, w=W, h=H)
+        b, page, logs = await setup(p, touch=False, w=W, h=H, init=HOLD if SEED else None)
+        if SEED: await ev(page, "window.__rafHold = true; 0")  # [war3] only the steps and frames asked for from here
         res['boot']['wall'] = round(time.time() - t0, 1)
         res['boot'].update(await ev(page, '__hm.perf.boot()'))
         await ev(page, HELP)

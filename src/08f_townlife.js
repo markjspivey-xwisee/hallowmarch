@@ -53,17 +53,65 @@ function houseLife(e, dt) {
 // colliders (houses, fences, workstations, furniture, trees; doors open for townsfolk, so they are no wall), smoothed to
 // a few waypoints by sight lines over the same grid. Null when there is no way within the box (or the ends are far).
 const _lpC = [];
+// [war3] the A*'s own arrays, kept between calls and grown when a grid is bigger (it made a Float32Array, an Int32Array
+// and two Uint8Arrays of the grid's size and an array a node pushed each call: 40 to 90 ms now and then for a band's
+// leader on the quarter-metre grid, perf2.py); a cell's cost is good only while its stamp is this call's
+const LP = { n: 0, blocked: null, gs: null, from: null, stamp: null, shut: null, gen: 0, hf: null, hk: null, hn: 0, stats: { calls: 0, ms: 0, max: 0, cells: 0 } };
+const lpWalkArr = () => W.walk; // (the world's walk mask: inside localPath W is the grid's width)
+function lpGrow(N) {
+  if (LP.n >= N) return;
+  LP.n = Math.max(N, Math.ceil(LP.n * 1.5));
+  LP.blocked = new Uint8Array(LP.n); LP.gs = new Float32Array(LP.n); LP.from = new Int32Array(LP.n); LP.stamp = new Uint32Array(LP.n); LP.shut = new Uint32Array(LP.n);
+  LP.gen = 0;
+}
+function lpHeapPush(fv, k) {
+  if (LP.hn >= (LP.hf ? LP.hf.length : 0)) { const n2 = Math.max(1024, (LP.hf ? LP.hf.length : 0) * 2), f2 = new Float64Array(n2), k2 = new Int32Array(n2); if (LP.hf) { f2.set(LP.hf); k2.set(LP.hk); } LP.hf = f2; LP.hk = k2; }
+  const hf = LP.hf, hk = LP.hk;
+  let q = LP.hn++;
+  while (q > 0) { const pq = (q - 1) >> 1; if (hf[pq] <= fv) break; hf[q] = hf[pq]; hk[q] = hk[pq]; q = pq; }
+  hf[q] = fv; hk[q] = k;
+}
+function lpHeapPop() {
+  const hf = LP.hf, hk = LP.hk, top = hk[0], n = --LP.hn;
+  if (n) {
+    const lf = hf[n], lk = hk[n];
+    let q = 0;
+    for (;;) { const l = 2 * q + 1, r2 = l + 1; let m = q, mv = lf; if (l < n && hf[l] < mv) { m = l; mv = hf[l]; } if (r2 < n && hf[r2] < mv) m = r2; if (m === q) break; hf[q] = hf[m]; hk[q] = hk[m]; q = m; }
+    hf[q] = lf; hk[q] = lk;
+  }
+  return top;
+}
 function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs = 1) { // [war2] gates: a castle's gate is a wall (a band's way round, 08j_war2.js); [v15] cs: the cells' size in metres (a narrow way: 0.25)
   const x0 = Math.floor(Math.min(ax, bx) - 10), z0 = Math.floor(Math.min(az, bz) - 10);
   const W = Math.ceil((Math.ceil(Math.max(ax, bx) + 10) - x0) / cs), Hh = Math.ceil((Math.ceil(Math.max(az, bz) + 10) - z0) / cs);
   if (W * cs > maxSpan || Hh * cs > maxSpan || W < 2 || Hh < 2) return null;
-  const N = W * Hh, blocked = new Uint8Array(N);
-  for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) if (!isWalkable(x0 + (i + 0.5) * cs, z0 + (j + 0.5) * cs)) blocked[j * W + i] = 1;
+  const t0 = performance.now();
+  const N = W * Hh;
+  lpGrow(N);
+  const blocked = LP.blocked;
+  blocked.fill(0, 0, N);
+  // [war3] the walk mask read as isWalkable reads it, once a texel along a row (no mage's ice, no frozen lake, not in
+  // the Barrow: those ask isWalkable itself for each cell)
+  const plain = !CLS.ice.length && !SICE.on && x0 + W * cs < DUN_X0, walk = plain ? lpWalkArr() : null;
+  for (let j = 0; j < Hh; j++) {
+    const z = z0 + (j + 0.5) * cs, jo = j * W;
+    if (plain && Math.abs(z) > HALF - 4) { blocked.fill(1, jo, jo + W); continue; }
+    const tj = Math.round((z + HALF) / HS) * HN;
+    for (let i = 0; i < W; i++) {
+      const x = x0 + (i + 0.5) * cs;
+      if (plain) { if (Math.abs(x) > HALF - 4 || walk[tj + Math.round((x + HALF) / HS)] !== 0) blocked[jo + i] = 1; }
+      else if (!isWalkable(x, z)) blocked[jo + i] = 1;
+    }
+  }
   collidersNear(x0 + W * cs / 2, z0 + Hh * cs / 2, Math.hypot(W, Hh) * cs / 2 + 2, _lpC);
   for (const c of _lpC) {
     if (!c.active || ((c.tag === 'door' && !gates) || c.tag === 'hdoor') || (c.vert && (!gates || (c.y0 != null && c.y0 > heightAt(c.x, c.z) + 1.8)))) continue; // [war2] gates: and a wall that stands from the ground (a palisade, a curtain) is a wall
     const r = (c.type === 'circle' ? c.r : Math.hypot(c.hx, c.hz)) + pad;
-    const i0 = Math.max(0, Math.floor((c.x - r - x0) / cs)), i1 = Math.min(W - 1, Math.floor((c.x + r - x0) / cs)), j0 = Math.max(0, Math.floor((c.z - r - z0) / cs)), j1 = Math.min(Hh - 1, Math.floor((c.z + r - z0) / cs));
+    // [war3] a box's cells are looked at only within its own bounds (the padded box's, inside the square of its circle as
+    // before, so the same cells come out): a wall's circle took in a square of 120 by 120 cells on the fine grid
+    let ex = r, ez = r;
+    if (c.type !== 'circle') { const ac = Math.abs(c.cos), as = Math.abs(c.sin), hx = c.hx + pad, hz = c.hz + pad; ex = Math.min(r, hx * ac + hz * as); ez = Math.min(r, hx * as + hz * ac); }
+    const i0 = Math.max(0, Math.floor((c.x - ex - x0) / cs)), i1 = Math.min(W - 1, Math.floor((c.x + ex - x0) / cs)), j0 = Math.max(0, Math.floor((c.z - ez - z0) / cs)), j1 = Math.min(Hh - 1, Math.floor((c.z + ez - z0) / cs));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const dx = x0 + (i + 0.5) * cs - c.x, dz = z0 + (j + 0.5) * cs - c.z;
       if (c.type === 'circle') { if (dx * dx + dz * dz < r * r) blocked[j * W + i] = 1; continue; }
@@ -74,37 +122,36 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs =
   const cellOf = (x, z) => clamp(Math.floor((z - z0) / cs), 0, Hh - 1) * W + clamp(Math.floor((x - x0) / cs), 0, W - 1);
   const s = cellOf(ax, az), g = cellOf(bx, bz);
   blocked[s] = 0; blocked[g] = 0;
-  // A* with a binary heap of [f, cell] pairs; 8 neighbours, no corner cutting
-  const gs = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), shut = new Uint8Array(N), heap = [];
-  const hOf = (k) => Math.hypot((k % W) - (g % W), ((k / W) | 0) - ((g / W) | 0));
-  const push = (fv, k) => { const it = [fv, k]; heap.push(it); let q = heap.length - 1; while (q > 0) { const pq = (q - 1) >> 1; if (heap[pq][0] <= fv) break; heap[q] = heap[pq]; q = pq; } heap[q] = it; };
-  const pop = () => {
-    const top = heap[0], last = heap.pop(), n = heap.length;
-    if (n) { let q = 0; for (;;) { const l = 2 * q + 1, r2 = l + 1; let m = q, mv = last[0]; if (l < n && heap[l][0] < mv) { m = l; mv = heap[l][0]; } if (r2 < n && heap[r2][0] < mv) m = r2; if (m === q) break; heap[q] = heap[m]; q = m; } heap[q] = last; }
-    return top[1];
-  };
-  gs[s] = 0; push(hOf(s), s);
+  // A* with a binary heap of (f, cell) in typed arrays; 8 neighbours, no corner cutting (the same order as before, so
+  // the same way comes out)
+  const gen = (LP.gen = (LP.gen + 1) >>> 0) || (LP.stamp.fill(0), LP.shut.fill(0), (LP.gen = 1));
+  const gs = LP.gs, from = LP.from, stamp = LP.stamp, shut = LP.shut;
+  const gi = g % W, gj = (g / W) | 0;
+  const hOf = (k) => Math.hypot((k % W) - gi, ((k / W) | 0) - gj);
+  LP.hn = 0;
+  stamp[s] = gen; gs[s] = 0; from[s] = -1; lpHeapPush(hOf(s), s);
   let found = false, guard = 0;
-  while (heap.length && guard++ < N * 8) {
-    const k = pop();
-    if (shut[k]) continue;
+  while (LP.hn && guard++ < N * 8) {
+    const k = lpHeapPop();
+    if (shut[k] === gen) continue;
     if (k === g) { found = true; break; }
-    shut[k] = 1;
-    const ki = k % W, kj = (k / W) | 0;
+    shut[k] = gen;
+    const ki = k % W, kj = (k / W) | 0, gk = gs[k];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       if (!di && !dj) continue;
       const ni = ki + di, nj = kj + dj;
       if (ni < 0 || nj < 0 || ni >= W || nj >= Hh) continue;
       const n2 = nj * W + ni;
-      if (blocked[n2] || shut[n2]) continue;
+      if (blocked[n2] || shut[n2] === gen) continue;
       if (di && dj && (blocked[kj * W + ni] || blocked[nj * W + ki])) continue;
-      const ng = gs[k] + (di && dj ? 1.4142 : 1);
-      if (ng < gs[n2]) { gs[n2] = ng; from[n2] = k; push(ng + hOf(n2), n2); }
+      const ng = gk + (di && dj ? 1.4142 : 1);
+      if (stamp[n2] !== gen || ng < gs[n2]) { stamp[n2] = gen; gs[n2] = ng; from[n2] = k; lpHeapPush(ng + hOf(n2), n2); }
     }
   }
-  if (!found) return null;
+  LP.stats.calls++; LP.stats.cells += N;
+  if (!found) { const ms = performance.now() - t0; LP.stats.ms += ms; LP.stats.max = Math.max(LP.stats.max, ms); return null; }
   const cells = [];
-  for (let k = g; k !== -1; k = from[k]) cells.push(k);
+  for (let k = g; k !== -1 && cells.length <= N; k = k === s ? -1 : from[k]) cells.push(k);
   cells.reverse();
   // smoothed: from each waypoint, on to the farthest cell in clear sight (sampled every half metre over the grid)
   // [v15] on a fine grid (cs < 1: a narrow way) a sight line keeps a cell clear on either side, so in the narrow part the
@@ -121,6 +168,7 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs =
     a = b;
   }
   if (out.length) { out[out.length - 1].x = bx; out[out.length - 1].z = bz; }
+  const ms = performance.now() - t0; LP.stats.ms += ms; LP.stats.max = Math.max(LP.stats.max, ms);
   return out;
 }
 // each house gets its people in turn, from the town's villagers

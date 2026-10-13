@@ -51,7 +51,9 @@ function bandWallsDown(e, wb, L, O, dt) {
   // the court, as a body thrown off a ladder falls (hurt by the height: 04m_ladders.js)
   if (h < B.best - 0.3) { B.best = h; B.bestT = GAME.t; }
   else if (GAME.t - B.bestT > 8) {
-    const dx = C.S.x - e.x, dz = C.S.z - e.z, d = Math.hypot(dx, dz) || 1;
+    if (war3JumpEdge(e, B, C, dt)) return true; // [war3] to the walk's edge first (08k_war3.js)
+    const Ej = B.edge && !B.edge.none ? B.edge : null; B.edge = null; // [war3] and over it
+    const dx = Ej ? Ej.ux : C.S.x - e.x, dz = Ej ? Ej.uz : C.S.z - e.z, d = Math.hypot(dx, dz) || 1;
     e.motion = { kind: 'ladder', L: BZ_FALL_L, st: 3, t: 0, vy: 2.2, y0: e.y, by: null, dx: (dx / d) * 3.6, dz: (dz / d) * 3.6, dir: 1 };
     setAct(e, 6, 1.5);
     B.bestT = GAME.t; WAR2.stats.jumps = (WAR2.stats.jumps || 0) + 1;
@@ -106,6 +108,7 @@ function bandRubbleOut(e, wb, L, dt) {
 }
 // out of a tower's ground room by its courtyard door: to the door from inside, then a pace out through it
 function bandOutOfTower(e, T, dt) {
+  if (GAME.t < (e.ai.outBan || 0)) return false; // [war3] (it could get no nearer its door: its band's own ways, below)
   const D = T.doors.find((d) => d.y < T.yG + 0.6) || T.doors[0];
   if (!D) return false;
   const inn = twW(T, D.a, T.RI - 0.45, D.off), out = twW(T, D.a, T.RO + 1.2, D.off);
@@ -114,6 +117,12 @@ function bandOutOfTower(e, T, dt) {
   if (e.mount) dismount(e);
   if (!B.past && dist(e.x, e.z, inn.x, inn.z) < 0.5) B.past = true;
   const q = B.past ? out : inn;
+  // [war3] no nearer its door for 5 s: the room it is counted in is not one it stands in (a gate drum's ground room
+  // reaches over the gate passage beside it: a captain stood in Dragonmere's passage making for the gate-ward's door
+  // through the drum's wall for a quarter of an hour, order after order, campaign_soak.py): its band's own ways for 15 s
+  const dq = dist(e.x, e.z, q.x, q.z);
+  if (B.bq !== B.past || dq < B.bd - 0.3) { B.bq = B.past; B.bd = dq; B.bt = GAME.t; }
+  else if (GAME.t - B.bt > 5) { e.ai.out = null; e.ai.outBan = GAME.t + 15; WAR2.stats.outGiveUps = (WAR2.stats.outGiveUps || 0) + 1; return false; }
   moveToward(e, q.x, q.z, dt, 1.0, 0.1);
   return true;
 }
@@ -201,6 +210,7 @@ function bandLeaderDetour(wb, L, O) {
   }
   if (wb.engaged || d < 4 || GAME.t - P.t < 8 || L.fixedY !== null || L.motion || !O) return false;
   if (O.phase === 'hold' || (O.phase === 'bombard' && O.bombSince !== undefined) || L.siegeCrew) return false;
+  if (!war3PathToken()) return false; // [war3] one leader's way round a step at most (08k_war3.js)
   P.t = GAME.t; P.d = d;
   const k = Math.min(1, 60 / d), tx = L.x + (g.x - L.x) * k, tz = L.z + (g.z - L.z) * k;
   let pts = localPath(L.x, L.z, tx, tz, 0.6, 76, true);
@@ -255,6 +265,7 @@ function bandInsideKeep(wb, K) {
 // low stretch or through a gap the colliders leave: the leader walked into the wall toward it for good.
 function bandStartNode(L) {
   if (!L || L.x > DUN_X0) return null;
+  const w3 = war3StartNode(L); if (w3) return w3; // [war3] in an enemy keep's gate passage, its gate shut: from the gate outside (08k_war3.js)
   for (const K of WAR.keeps) { const C = castleOf(K.site); if (C && dist2(L.x, L.z, K.site.x, K.site.z) < 26 * 26 && castleInside(C, L.x, L.z)) return K.nav.court; }
   for (const T of WAR.temples) if (dist2(L.x, L.z, T.site.x, T.site.z) < 15 * 15) return T.nav.tc; // (inside its round wall)
   return null;
@@ -615,8 +626,8 @@ function ladderHeldTurn(e, m) {
 // minutes. A band of fewer than three (not bearing a hallow, not under the player's order) no longer counts against the
 // muster (cwBandsCounted, from planWar), and the next band to muster takes them in (cwMergeRemnants): they follow its
 // captain from wherever they are.
-const bandRemnant = (wb) => { const m = wbMembers(wb); return m.length < 3 && !m.some((e) => e.carrying != null) && !(wb.order && wb.order.byPlayer); };
-const cwBandsCounted = (mine) => mine.filter((w) => !w.dead && !bandRemnant(w)).length;
+const bandRemnant = (wb) => { const m = wbMembers(wb); return m.length < 3 && !m.some((e) => e.carrying != null) && !(wb.order && wb.order.byPlayer) && !wb.w3col; }; // [war3] a garrison's column is no remnant (08k_war3.js)
+const cwBandsCounted = (mine) => mine.filter((w) => !w.dead && !bandRemnant(w) && !w.w3col).length; // [war3] nor does it hold a band's place at the muster
 function cwMergeRemnants(r, wb, mine) {
   for (const w of mine) {
     if (w === wb || w.dead || !bandRemnant(w)) continue;
@@ -630,10 +641,10 @@ function cwMergeRemnants(r, wb, mine) {
 /* the long war: a hold on the March counts for more                   */
 /* ------------------------------------------------------------------ */
 // A claim (four keeps, or both enemy hallows) grows a second a second; from the long war's start (15 min) to its height
-// (40 min, cwWeary) it grows up to 1.6 times as fast, so a realm that takes its fourth keep late in a long war need hold it
+// (40 min, cwWeary) it grows up to 1.6 times as fast ([war3] twice), so a realm that takes its fourth keep late in a long war need hold it
 // a little over three minutes, not five: the war is decided by keeps and hallows more often than by the elders' call at
 // the hour (updateCampaign, 08g_campaign.js; the news and the countdowns say so)
-const CLAIM_LATE = 0.6;
+const CLAIM_LATE = 1.0; // [war3] up to twice the pace at 40 minutes (0.6: of six hours at low on version 15, four went to the elders at the hour)
 const cwClaimRate = () => 1 + CLAIM_LATE * cwWeary();
 
 /* ------------------------------------------------------------------ */
