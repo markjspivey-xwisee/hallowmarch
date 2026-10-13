@@ -1313,7 +1313,7 @@ function late3LordThink(e, dt) {
     if ((inHall(P) && dist(P.x, P.z, e.x, e.z) < 34) || (e.threat && e.threat.size)) deepLordWake(e);
     return;
   }
-  // a Word cut short: a stun, a flare, a storm, a blunt arrow (at full draw, an Aimed Shot or Deadeye: [balance9]) or a mace cleared his spell
+  // a Word cut short: a stun, a flare, a storm, a blunt arrow (from any shot: the dead's spells, [balance9]) or a mace cleared his spell
   if (ai.word && (!e.casting || e.casting.id !== 'word')) deepWordBroken(e);
   let t = topThreat(e);
   if (!t && P && P.alive && late3InDeep(P)) t = P;
@@ -1616,7 +1616,7 @@ function chronDeep() {
   <li><b>The Hall of Pyres</b>: pitch runs in channels across the floor. Fire spreads along it: a fire spell lights it under your foes as surely as the pyre-keeper's Kindle lights it under you. Break the Kindle, and step out of the flames.</li>
   <li><b>The Breaking Gallery</b>: the floor is slabs over a pit of embers. Stand on one too long and it cracks and falls; a meteor or a leap strike breaks one at once. Keep moving. A cracked wall there hides a tomb the barrow forgot.</li>
   <li><b>The Ash Throne</b>: ${esc(DEEP_LORD_NAME)}, first of the barrow-kings.</li></ul>
-  <h3>The Ash-Crowned</h3><p>He keeps pace with you to level 50 and past it (a veteran finds him the stronger). Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow at full draw, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
+  <h3>The Ash-Crowned</h3><p>He keeps pace with you to level 50 and past it (a veteran finds him the stronger). Parry, shield or step out of his cleave. When he speaks the Ember Word, break it: a stun or a shield bash, a priest's Holy Fire, a mage's storm, a blunt arrow, a mace; spoken, it lights the pitch about you, burns all near him and mends him.${lordHolyText()} From two thirds of his strength he stamps, and the slabs of his hall crack and fall; he calls his ash-wardens up out of the pits, and at a third he burns with fury.</p>
   <h3>Spoils</h3><p>The deep's chests pay above the Barrow's, and his hoard is at the top of the gear curve (item level 50, epic and legendary). His fall is a deed: the March names you Ashbane.</p>
   <p class="now">${now}${lv < DEEP_LV ? ` You are level ${lv}.` : ''}</p>`;
 }
@@ -1630,7 +1630,7 @@ for (const [id, note] of Object.entries({
   l3slab: { t: 'A floor that breaks', x: () => 'These slabs lie over a pit of embers. Stand on one too long and it cracks and falls: keep moving. If you fall, you climb out burnt.' },
   l3pitch: { t: 'Pitch', x: () => 'Pitch runs in the channels. Fire spreads along it and burns whoever stands in it: a fire spell lights it under your foes; break a pyre-keeper\'s Kindle before it lights it under you.' },
   l3flood: { t: 'The water rises', x: () => 'In deep water you swim: no spell, no shot. The water puts out a fire on you. Keep to the walkways, or swim for it.' },
-  l3lord: { t: 'The Ash-Crowned', x: () => 'Break his Ember Word: a stun or a bash, Holy Fire, a storm, a blunt arrow at full draw, a mace. Parry, shield or step out of his cleave, and off the slabs when they crack.' }, // [balance9] at full draw (07c_balance9.js)
+  l3lord: { t: 'The Ash-Crowned', x: () => 'Break his Ember Word: a stun or a bash, Holy Fire, a storm, a blunt arrow, a mace. Parry, shield or step out of his cleave, and off the slabs when they crack.' },
 })) if (!FIELD_NOTES[id]) FIELD_NOTES[id] = note;
 Object.assign(GUIDE_WATCH, {
   l3seal: () => DEEP.near.seal && !DEEP.opened,
@@ -1641,7 +1641,7 @@ GUIDE_HELP.push(() => `<h3>The Deep Barrow</h3><p>From level ${DEEP_LV}, once yo
 LOADING_TIPS.push(
   'Beneath the Hollow King\'s hall a sealed stair goes down. It yields to his slayer at level 45.',
   'In the Deep Barrow a fire spell lights the pitch in the channels under your foes. It lights it under you as well.',
-  'The Ash-Crowned\'s Ember Word can be broken: a stun, a bash, Holy Fire, a storm, a blunt arrow at full draw, a mace.', // [balance9] (a quick shot's sets a spell back: 07c_balance9.js)
+  'The Ash-Crowned\'s Ember Word can be broken: a stun, a bash, Holy Fire, a storm, a blunt arrow, a mace.',
 );
 
 /* ------------------------------------------------------------------ */

@@ -36,18 +36,19 @@ async def main():
         r = await ev(page, 'blunt', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 30, 0);
           const a = T.ahead(P, 12); const pr = T.foe(1, a.x, a.z, 30, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9; H.simulate(0.1);
           const out = {};
-          const shot = (name, opts, steady) => {
+          const shot = (name, opts, steady, dead) => {
             pr.buffs = pr.buffs.filter((q) => q.kind !== 'steadfast'); if (steady) F.addBuff(pr, 'steadfast', 1, 4, 'steadfast');
-            pr.casting = { id: 'mend', t: 0.9, total: 1.5, targetId: pr.id, gx: pr.x, gz: pr.z }; pr.hp = pr.maxHp;
+            pr.casting = { id: 'mend', t: 0.9, total: 1.5, targetId: pr.id, gx: pr.x, gz: pr.z, custom: !!dead }; pr.hp = pr.maxHp;
             F.dealDamage(P, pr, 5, { kind: 'arrow', arrow: 'blunt', ...opts });
             out[name] = pr.casting ? +pr.casting.t.toFixed(2) : 'broken';
           };
           shot('quick', { ability: 'quickshot' }); shot('cripple', { ability: 'cripple' }); shot('half', { drawn: 0.6 });
-          shot('full', { drawn: 1 }); shot('aimed', { ability: 'aimed' }); shot('deadeye', { ability: 'deadeye' }); shot('steadyFull', { drawn: 1 }, true);
+          shot('full', { drawn: 1 }); shot('aimed', { ability: 'aimed' }); shot('deadeye', { ability: 'deadeye' }); shot('steadyFull', { drawn: 1 }, true); shot('quickDead', { ability: 'quickshot' }, false, true);
           pr.casting = null; out.stats = H.bal9.BAL9.stats; return out; })()""")
         check(r['quick'] == 0.55 and r['cripple'] == 0.55 and r['half'] == 0.55, f"a blunt head from a quick shot, a crippling arrow or a bow not fully drawn sets the spell back 0.35 s ({r['quick']}, {r['cripple']}, {r['half']})")
         check(r['full'] == 'broken' and r['aimed'] == 'broken' and r['deadeye'] == 'broken', f"from a full draw, an Aimed Shot or Deadeye it breaks the spell ({r['full']}, {r['aimed']}, {r['deadeye']})")
         check(r['steadyFull'] != 'broken', f"a steadfast priest keeps its spell from a full draw's blunt head ({r['steadyFull']})")
+        check(r['quickDead'] == 'broken', f"the spells of the dead (a spell of their own: the Ash-Crowned's Word) break from a quick shot's blunt head, as before ({r['quickDead']})")
 
         r = await ev(page, 'steady', """(() => { const H = T.H, F = T.F; const out = {};
           for (const [k, pl, steady] of [['l10', 10, true], ['l10bare', 10, false], ['l20', 20, true]]) {
@@ -102,7 +103,7 @@ async def main():
           return { blunt: H.cls.ARROW_DEF.blunt.text, broad: H.cls.ARROW_DEF.broadhead.text, renew: A.renew.desc, cripple: A.cripple.desc,
             page: { full: txt.includes('from a full draw, an Aimed Shot or Deadeye'), steady: txt.includes('waits through the stun'), wound: txt.includes('22% from a bow of rank II'), realm: txt.includes('4% less harm') },
             deep: deep.includes('crown of ash') }; })()""")
-        check('full draw' in r['blunt'] and 'quick shot' in r['blunt'], f"the blunt head's text says it ({r['blunt'][:120]})")
+        check('full draw' in r['blunt'] and 'quick shot' in r['blunt'] and 'spells of the dead' in r['blunt'], f"the blunt head's text says it ({r['blunt'][:120]})")
         check('Divine Shield' in r['renew'] and 'waits through the stun' in r['renew'], f"Renewal's tooltip says a steadied spell waits through a stun ({r['renew'][-160:]})")
         check('22% from a bow of rank II' in r['broad'] and '22% from a bow of rank II' in r['cripple'], "the broadhead's and Crippling Arrow's texts say the wound by rank")
         check(all(r['page'].values()), f"the Callings page says the rules ({r['page']})")

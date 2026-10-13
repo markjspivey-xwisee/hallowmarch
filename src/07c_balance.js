@@ -428,7 +428,7 @@ function botArcherArrow(e, t) {
   if (!clsHas(e, 'arrows') || !t) return 'plain';
   // [balance3] a blunt head only for a spell it can still break: time left for the arrow to fly, and a caster who is
   // not steadfast (a priest's own Renewal) — against those it is only a weak arrow
-  if (t.casting && !spellGuarded(t) && t.casting.total - t.casting.t > 0.5 && bluntWorth(e)) return 'blunt'; // [balance6] (nor a warded mage's) [balance9] and only for the drawn shot that will break it (07c_balance9.js)
+  if (t.casting && !spellGuarded(t) && t.casting.total - t.casting.t > 0.5 && bluntWorth(e, t)) return 'blunt'; // [balance6] (nor a warded mage's) [balance9] and only for the drawn shot that will break it (07c_balance9.js)
   // [balance2] a healer: a broadhead's wound mends slowly [balance3] before the armour piercer (bodkins go through only
   // half the armour now)
   if (t.cls === 'priest') return 'broadhead';

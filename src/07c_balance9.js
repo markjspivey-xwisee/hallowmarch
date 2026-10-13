@@ -20,7 +20,8 @@ const B9T = {
   burstRing: true, // [bots] a risen troll's stone-burst under a foe that keeps off (10l_late.js) is a ring that stuns: the skilled bots step out of it as out of the wrath, a caster letting its spell go (they finished their spell and took it: Hrungnir Moss-Crown brought a skilled mage of 50 to 14% with two draughts)
   priestRealm: { logresBless: 0.96, logresGround: 0.96, eriuHot: 0.016 }, // [priest] the realms' ways evened out again (PRIEST_REALM: 0.94, 0.94, 0.012): against a priest of no realm's way the Shield of Logres won 17 to 23 of 24, the Well of Ériu 8.5 to 14, the Hearth of Thule 8 to 18.5 (version 17)
   priestBowSpent: true, // [priest bot] a skilled priest casts again at once after a bow broke its spell, while the bow has no Aimed Shot or Deadeye coming (it waited 3 s after any broken spell)
-  wordDraw: true, // [archer bot] a foe of the deep begins a long spell of its own (the Ash-Crowned's Ember Word, a pyre-keeper's Kindle): the skilled archer draws a blunt head at once (it drew only between its other shots, and with a quick shot's blunt head no longer breaking a spell it broke 1 Word in 7 at 45, where version 17's bow broke 4 in 7 and brought him down)
+  bluntDead: true, // [archer] the spells of the dead (`casting.custom`: the Ash-Crowned's Ember Word, a pyre-keeper's Kindle, the Hollow King's) a blunt head breaks from any shot, as before: kept to a full draw, the skilled archer broke 1 of the Ash-Crowned's 7 Words at 45 and fell (the lord at 12%), where version 17's broke 4 in 7
+  wordDraw: false, // [archer bot] set aside with bluntDead: drawing a blunt head at once when the Word began (it broke 4 of 6, but the fight ran 300 s and the lord stood at 17%) a foe of the deep begins a long spell of its own (the Ash-Crowned's Ember Word, a pyre-keeper's Kindle): the skilled archer draws a blunt head at once (it drew only between its other shots, and with a quick shot's blunt head no longer breaking a spell it broke 1 Word in 7 at 45, where version 17's bow broke 4 in 7 and brought him down)
 };
 
 /* ------------------------------------------------------------------ */
@@ -46,6 +47,7 @@ function bluntFullShot(opts) {
 function bluntBreak(src, dst, opts) {
   if (!B9T.bluntHeavy) return breakCast(dst);
   if (!dst || !dst.casting) return false;
+  if (dst.casting.custom && B9T.bluntDead) return breakCast(dst); // the spells of the dead (the Ash-Crowned's Ember Word, a pyre-keeper's Kindle, the Hollow King's): from any shot, as before
   if (bluntFullShot(opts)) { const b = breakCast(dst); if (b) BAL9.stats.bluntBreak++; return b; } // (not a steadfast priest's, nor a warded mage's)
   castPushback(dst); // (07c_balance.js: not a steadfast priest's, twice at most for one spell)
   BAL9.stats.bluntSetBack++;
@@ -54,7 +56,7 @@ function bluntBreak(src, dst, opts) {
 // the skilled archer bot (botArcherArrow, 07c_balance.js): a blunt head only for a shot that can break the spell: the
 // arrow on the string (the bot holds to full draw), or the Aimed Shot or Deadeye that botArcher looses at a caster
 // (archerHeavyBlunt)
-const bluntWorth = (e) => !B9T.bluntHeavy || (B9T.bluntDrawn > 0 && !!e.cs && e.cs.drawFrom >= 0);
+const bluntWorth = (e, t) => !B9T.bluntHeavy || (B9T.bluntDead && !!t && !!t.casting && !!t.casting.custom) || (B9T.bluntDrawn > 0 && !!e.cs && e.cs.drawFrom >= 0);
 // botArcher asks before its Aimed Shot or Deadeye: at a priest or a mage, whose spells are most of its fight, a blunt head
 // (a careful archer keeps its heavy shot for the spell: the arrow is chosen as the shot is begun, and it lands as the
 // caster is likely in the middle of another); restored after (the next look chooses the arrow again)
@@ -181,10 +183,10 @@ ARROW_DEF.broadhead.text = `Wide hunting heads: a fifth more harm to beasts and 
 ABILITIES.cripple.desc = ABILITIES.cripple.desc.replace('healing on it takes 30% less', `healing on it takes ${woundText()}`);
 
 /* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
-if (B9T.bluntHeavy) ARROW_DEF.blunt.text = 'Heavy blunt heads: less harm, but they knock a foe back and shatter bone and ice. From a bow at full draw, an Aimed Shot or Deadeye one breaks the spell it strikes; from a quick shot it only sets the spell back.';
+if (B9T.bluntHeavy) ARROW_DEF.blunt.text = 'Heavy blunt heads: less harm, but they knock a foe back and shatter bone and ice. From a bow at full draw, an Aimed Shot or Deadeye one breaks the spell it strikes; from a quick shot it only sets the spell back (the spells of the dead it breaks from any shot).';
 const steadyStunText = () => (B9T.steadyStun ? ` Until you learn Divine Shield, while you stand steadfast a stun only pauses your spell: it waits through the stun and goes on after.` : '');
 ABILITIES.renew.desc = ABILITIES.renew.desc.replace("nothing but a stun or a foe's Holy Fire breaks your spells", "nothing but a stun or a foe's Holy Fire breaks your spells (until you learn Divine Shield, a stun then only pauses the spell: it waits through the stun and goes on after)"); // (07c_balance8.js's text)
-const bluntRuleText = () => (B9T.bluntHeavy ? ' A blunt head breaks the spell it strikes from a full draw, an Aimed Shot or Deadeye; from a quick shot it only sets the spell back.' : '');
+const bluntRuleText = () => (B9T.bluntHeavy ? ' A blunt head breaks the spell it strikes from a full draw, an Aimed Shot or Deadeye; from a quick shot it only sets the spell back (the spells of the dead it breaks from any shot).' : '');
 
 setTimeout(() => {
   LOADING_TIPS.push(
