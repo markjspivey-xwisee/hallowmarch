@@ -76,11 +76,20 @@ function seasonMapBuild() {
 // the snow lying on the land: dts seconds of the year's clock
 function seasonLieStep(dts) {
   const R = SEAS.res, c = SEAS.cell, L = SEAS.lie, Wm = SEAS.warm, B = SEAS.bytes;
-  const air = seasonAirNow(), snowing = WEATHER.snowing || 0, rain = (WEATHER.raining || 0) * (1 - clamp(snowing * 3, 0, 1));
+  const air = seasonAirNow(), snowing0 = WEATHER.snowing || 0, rain0 = (WEATHER.raining || 0) * (1 - clamp(snowing0 * 3, 0, 1));
   const cx = (camera.position.x + HALF) / c, cz = (camera.position.z + HALF) / c, near2 = (300 / c) ** 2, view2 = (420 / c) ** 2;
+  // [weather2] live: each texel's own snow and rain falling, and its own air (the weather over it: 12c_weather2.js), so the
+  // snow lies under the snow's cloud wherever it is and melts under the rain; held: the camera's, near it, as before
+  const live = wxLive(), airAdj = live ? wxTempAdjGrid(camera.position.x, camera.position.z) : 0;
   let vmax = 0;
   for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
-    const q = j * R + i, T = air + Wm[q], d2 = (i + 0.5 - cx) ** 2 + (j + 0.5 - cz) ** 2, near = d2 < near2 ? 1 : 0;
+    const q = j * R + i, d2 = (i + 0.5 - cx) ** 2 + (j + 0.5 - cz) ** 2;
+    let T = air + Wm[q], near = d2 < near2 ? 1 : 0, snowing = snowing0, rain = rain0;
+    if (live) {
+      const x = -HALF + (i + 0.5) * c, z = -HALF + (j + 0.5) * c;
+      near = 1; snowing = wxGridAt('snowing', x, z); rain = wxGridAt('rain', x, z) * (1 - clamp(snowing * 3, 0, 1));
+      T += wxTempAdjGrid(x, z) - airAdj;
+    }
     let v = L[q];
     if (T < 0.5) v += dts * (0.00035 * Math.min(6, 0.3 + (0.5 - T)) + near * snowing / 70);
     else v -= dts * (T - 0.5) * 0.0011 * (1 + near * 1.5 * rain);
@@ -383,7 +392,8 @@ function seasonsFrame(dt) {
   const Wsnow = WEATHER.snow || 0, here = seasonSnowLieAt(camera.position.x, camera.position.z);
   const cover = INDOOR.on ? 0 : Math.max(Wsnow, here, SEAS.lieView > 0.03 ? 0.02 : 0);
   U.uSnowCover.value = cover;
-  U.uSnowK.value.set(Wsnow, 1 / Math.max(cover, 0.01));
+  // [weather2] live: the snow lies where the season map says (each place under its own snowfall), not everywhere in view
+  U.uSnowK.value.set(wxLive() ? 0 : Wsnow, 1 / Math.max(cover, 0.01));
   if (SEAS.dirty && SEAS.tex) { SEAS.tex.needsUpdate = true; SEAS.dirty = false; }
   const q = quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.35;
   if (SEAS.leaves) {

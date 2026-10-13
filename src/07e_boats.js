@@ -326,7 +326,7 @@ function boatPhys(B, dt, thrust, turn) {
   along -= along * Math.min(1, (0.2 + 0.16 * Math.abs(along)) * dt);
   side -= side * Math.min(1, 2.6 * dt);
   // the wind leans on a boat a little
-  const wnd = (U.uWind.value || 1) * (0.06 + 0.12 * (WEATHER.storm || 0));
+  const wnd = (U.uWind.value || 1) * (0.06 + 0.12 * wxStormAt(B.x, B.z)); // [weather2] the storm over her
   rvx = fx * along + fz * side; rvz = fz * along - fx * side;
   B.vx = flx + rvx + U.uWindDir.value.x * wnd * dt; B.vz = flz + rvz + U.uWindDir.value.y * wnd * dt;
   B.wr -= B.wr * Math.min(1, 2.0 * dt);
@@ -369,7 +369,7 @@ function boatPose(B, dt) {
   const w = waterAt(B.x, B.z, _bW);
   const wy = w ? w.y : heightAt(B.x, B.z) + BOAT_DRAFT * 0.7;
   const S = B.sway, t = GAME.t + B.seed, rv = Math.hypot(w ? w.fx : 0, w ? w.fz : 0);
-  const wave = (0.012 + 0.02 * (U.uWind.value || 1) * (0.5 + (WEATHER.storm || 0)) + 0.01 * rv) * (B.grounded > 0.5 ? 0.15 : 1);
+  const wave = (0.012 + 0.02 * (U.uWind.value || 1) * (0.5 + wxStormAt(B.x, B.z)) + 0.01 * rv) * (B.grounded > 0.5 ? 0.15 : 1);
   const drive = B.ph > 0.02 && B.ph < 0.47 ? Math.sin(Math.PI * (B.ph - 0.02) / 0.45) * B.eff : 0;
   const wantR = Math.sin(t * 1.1) * wave + Math.sin(t * 2.3 + 1) * wave * 0.4 - B.wr * 0.1 + (B.rider ? 0.015 : 0);
   const wantP = Math.sin(t * 0.9 + 2) * wave * 0.6 - drive * 0.025;
@@ -647,7 +647,7 @@ function boatFireCone(x, z, dx, dz, range, half) {
 }
 function boatBurnStep(B, dt) {
   B.burnT += dt;
-  B.char = Math.min(1, B.char + dt / 42 * (WEATHER.raining > 0.3 ? 0.55 : 1));
+  B.char = Math.min(1, B.char + dt / 42 * (wxPrecipAt(B.x, B.z) > 0.3 ? 0.55 : 1)); // [weather2]
   B.vx *= Math.exp(-dt * 2); B.vz *= Math.exp(-dt * 2);
   B.fireT = (B.fireT || 0) - dt;
   if (B.fireT <= 0) {

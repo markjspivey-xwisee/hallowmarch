@@ -55,7 +55,9 @@ function natFuel(i, j) {
   if (NAT.data[o + 1] > 40 || NAT.data[o + 2] > 0) return 0; // burnt already (until it has grown back), or burning
   return Math.min(1, g) * (1 - 0.6 * NAT.data[o] / 255);
 }
-function natDry() {
+function natDry(x, z) {
+  // [weather2] at a place: its own rain, its ground's wetness and the snow lying there (12c_weather2.js)
+  if (x !== undefined && wxLive()) return clamp(1 - 0.92 * Math.max(wxGridAt('wet', x, z), wxGridAt('rain', x, z)) - 0.9 * seasonSnowLieAt(x, z), 0, 1);
   const wet = Math.max(U.uWet.value || 0, WEATHER.raining || 0, WEATHER.wet || 0);
   return clamp(1 - 0.92 * wet - 0.9 * (U.uSnowCover.value || 0), 0, 1);
 }
@@ -546,7 +548,7 @@ function stepTree(t, dt) {
   // burning: the fire climbs through the crown, chars the wood and strips the leaves, then dies down
   if (t.fire > 0) {
     t.burnT += dt;
-    const dry = natDry();
+    const dry = natDry(t.x, t.z); // [weather2]
     const dying = t.burnT > t.burnDur || dry < 0.25;
     t.fire = dying ? Math.max(0, t.fire - dt * (dry < 0.25 ? 0.25 : 0.08)) : Math.min(1, t.fire + dt * 0.22 * (0.4 + dry));
     t.char = Math.min(1, t.char + dt * t.fire / 18);
@@ -730,7 +732,7 @@ function natureSwing(e, r, half, treePower = 0) {
 // set grass alight around (x, z): a few seed cells inside r. heat is how far the fire can run (about 35 m at 1)
 function igniteGrass(x, z, r = 1, seeds = 0, heat = 1) {
   if (!NATURE.built || x > DUN_X0 - 50) return 0;
-  if (natDry() < 0.2) return 0;
+  if (natDry(x, z) < 0.2) return 0; // [weather2]
   let n = 0;
   const m = seeds || Math.max(1, Math.round(r * r * 0.8));
   for (let k = 0; k < m; k++) {
@@ -758,12 +760,14 @@ function stepGrassFire(dt) {
   if (C.fire < 0.25) return;
   const step = C.fire; C.fire = 0;
   if (!NATURE.fire.size) { NATURE.fireList.length = 0; return; }
-  const dry = natDry();
+  const dry0 = natDry();
   const wx = U.uWindDir.value.x, wz = U.uWindDir.value.y, wind = clamp(U.uWind.value, 0, 3);
   const D = NAT.data, list = NATURE.fireList;
   list.length = 0;
   const born = [];
+  const live = wxLive(); // [weather2] each cell burns as dry as its own place is (12c_weather2.js)
   for (const [k, c] of NATURE.fire) {
+    const dry = live ? natDry(c.i - 511.5, c.j - 511.5) : dry0;
     c.t += step * (dry < 0.35 ? 2.2 : 1);
     const life = c.life;
     const ramp = Math.min(1, c.t / 0.9) * (1 - sstep(life - 1.6, life, c.t));
@@ -797,7 +801,7 @@ function stepGrassFire(dt) {
     const c = list[Math.floor(Math.random() * list.length)];
     const x = c.i - 511.5, z = c.j - 511.5;
     const t = nearestTree(x, z, 1.6, (o) => !o.felled || o.log);
-    if (t && Math.random() < 0.35 * dry) igniteTree(t, Math.min(1, c.heat + 0.2));
+    if (t && Math.random() < 0.35 * natDry(x, z)) igniteTree(t, Math.min(1, c.heat + 0.2));
     if (Math.random() < 0.2) { const H = houseAt(x, z, 1.2); if (H && Math.random() < 0.3) igniteHouse(H, x, z); }
   }
 }
@@ -1152,7 +1156,7 @@ function natAddPile(x, z, yaw, kind) {
 }
 function natureLightPile(p) {
   if (p.lit) return;
-  if (natDry() < 0.25) { uiError('The wood is too wet to light.'); return; }
+  if (natDry(p.x, p.z) < 0.25) { uiError('The wood is too wet to light.'); return; }
   p.lit = true; p.litAt = GAME.t; p.until = GAME.t + 240;
   addFire(p.x, p.y + 0.35, p.z, 0.85, false, p.until, { r: 9, k: 1 });
   // a ring of scorched ground under the fire, but a campfire is tended: it does not spread

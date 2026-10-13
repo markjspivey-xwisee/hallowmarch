@@ -92,6 +92,17 @@ const U = {
   // [water2] under the water (07d_dive.js): x the eye is under, y the surface over it, z the water's murk per metre, w its depth; and the water's own colour
   uUnder: { value: new THREE.Vector4(0, -1000, 0.1, 0) },
   uUnderCol: { value: new THREE.Vector3(0.04, 0.1, 0.1) },
+  // [weather2] the clouds (12c_weather2.js): the cloud field over the land round the camera (r density, g how tall, b rain,
+  // a storm; warped so it reaches the horizon), where it lies (camera x, z, the warp's radius, the cloud base's y), the
+  // sun's or moon's way through it to the ground (x, z per metre up, strength); the dome of the sky ray-marched through
+  // it (rgb the cloud's light, a what it lets through) and whether it is drawn; a flash in the cloud; mist in the valleys
+  uCloudMap: { value: ZERO_TEX },
+  uCloudMapP: { value: new THREE.Vector4(0, 0, 1500, 230) },
+  uCloudSh: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uCloudDome: { value: ZERO_TEX },
+  uCloudDomeOn: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uWxFlash: { value: new THREE.Vector4(0, 1, 0, 0) },
+  uMist: { value: new THREE.Vector4(0, 0, 0.12, 0) },
 };
 const PL_MAX = 12;
 
@@ -122,6 +133,7 @@ uniform vec3 uLightDir, uLightColor, uAmbient;
 uniform vec3 uZenith, uHorizon, uSunGlow, uGlowDir;
 uniform float uFogDensity, uNight;
 uniform vec4 uUnder; uniform vec3 uUnderCol; // [water2] (07d_dive.js)
+uniform vec4 uMist; // [weather2] mist in the valleys: density, its floor's y, 1 / its depth (12c_weather2.js)
 vec3 skyBase(vec3 dir){
   float e = clamp(dir.y, -0.2, 1.0);
   float k = smoothstep(-0.03, 0.52, e);
@@ -157,6 +169,13 @@ vec3 applyFog(vec3 col, vec3 wpos){
   float dy = v.y * FK;
   float hk = abs(dy) > 1e-3 ? (1.0 - exp(-dy)) / dy : 1.0 - 0.5 * dy;
   float f = 1.0 - exp(-d * uFogDensity * clamp(c0 * hk, 0.0, 2.5));
+  // [weather2] mist lying in the valleys: a thin dense layer over its floor (uMist.y), thinning fast with height (12c_weather2.js)
+  if (uMist.x > 0.0) {
+    float c2 = exp(-uMist.z * clamp(cameraPosition.y - uMist.y, -30.0, 300.0));
+    float dy2 = v.y * uMist.z;
+    float hk2 = abs(dy2) > 1e-3 ? (1.0 - exp(-dy2)) / dy2 : 1.0 - 0.5 * dy2;
+    f = 1.0 - (1.0 - f) * exp(-d * uMist.x * clamp(c2 * hk2, 0.0, 8.0));
+  }
   // [water2] above the surface, seen from under it: the air's haze, then the water up to where the ray leaves it (through
   // the surface's window; a seam at a shore or a river's step shows nothing but water, so far off is it)
   if (uUnder.x > 0.5) { vec3 a = mix(col, fogColor(v / max(d, 1e-4)), clamp(f, 0.0, 1.0)); return underFogD(a, clamp((uUnder.y - cameraPosition.y) / max(v.y, 1e-4), 0.0, 1.0) * d, v.y / max(d, 1e-3)); }
@@ -234,14 +253,24 @@ uniform vec4 uShadowParams; // texel, depth bias, normal offset (m), taps
 vec3 shadowCoord(vec3 wp){ vec4 sp = uShadowMatrix * vec4(wp, 1.0); return sp.xyz / sp.w; }
 float shadowEdge(vec3 s){ vec2 e = smoothstep(0.0, 0.07, s.xy) * smoothstep(0.0, 0.07, 1.0 - s.xy); return e.x * e.y; }
 bool shadowOut(vec3 s){ return s.x <= 0.001 || s.y <= 0.001 || s.x >= 0.999 || s.y >= 0.999 || s.z >= 1.0; }
+// [weather2] the clouds' shadows: the cloud field read where the light's way from here meets the cloud base (12c_weather2.js)
+uniform sampler2D uCloudMap;
+uniform vec4 uCloudMapP, uCloudSh;
+vec4 cloudMapAt(vec2 xz){ vec2 d = xz - uCloudMapP.xy; vec2 q = d / (uCloudMapP.z + length(d)); return texture(uCloudMap, q * 0.5 + 0.5); }
+float cloudShade(vec3 wp){
+  if (uCloudSh.w < 0.001) return 1.0;
+  vec4 c = cloudMapAt(wp.xz + uCloudSh.xy * max(uCloudMapP.w + 60.0 - wp.y, 0.0));
+  return 1.0 - uCloudSh.w * smoothstep(0.08, 0.75, c.r) * (0.75 + 0.25 * c.g);
+}
 `;
 // fragment stage: rotated Poisson PCF
 const GLSL_SHADOW = GLSL_SHADOW_BASE + /* glsl */`
 const vec2 SH_TAPS[9] = vec2[9](vec2(0.0, 0.0), vec2(-0.94, -0.34), vec2(0.94, 0.34), vec2(-0.34, 0.94), vec2(0.34, -0.94), vec2(-0.66, 0.66), vec2(0.66, -0.66), vec2(0.0, -0.55), vec2(0.0, 0.55));
 float shadowAt(vec3 wp, vec3 n){
-  if (uShadowOn < 0.01) return 1.0;
+  float cs = cloudShade(wp); // [weather2]
+  if (uShadowOn < 0.01) return cs;
   vec3 s = shadowCoord(wp + n * uShadowParams.z);
-  if (shadowOut(s)) return 1.0;
+  if (shadowOut(s)) return cs;
   int taps = int(uShadowParams.w + 0.5);
   float ang = hash12(floor(gl_FragCoord.xy)) * 6.2831853;
   mat2 rm = mat2(cos(ang), sin(ang), -sin(ang), cos(ang));
@@ -250,17 +279,18 @@ float shadowAt(vec3 wp, vec3 n){
     if (i >= taps) break;
     sum += step(s.z - uShadowParams.y, texture(uShadowMap, s.xy + rm * SH_TAPS[i] * r).r);
   }
-  return mix(1.0, sum / float(max(taps, 1)), shadowEdge(s) * uShadowOn);
+  return cs * mix(1.0, sum / float(max(taps, 1)), shadowEdge(s) * uShadowOn);
 }
 `;
 // vertex stage: one tap (grass blades, flowers)
 const GLSL_SHADOW_V = GLSL_SHADOW_BASE + /* glsl */`
 float shadowAtV(vec3 wp, vec2 jit){
-  if (uShadowOn < 0.01) return 1.0;
+  float cs = cloudShade(wp); // [weather2]
+  if (uShadowOn < 0.01) return cs;
   vec3 s = shadowCoord(wp + vec3(0.0, 0.06, 0.0));
-  if (shadowOut(s)) return 1.0;
+  if (shadowOut(s)) return cs;
   float v = step(s.z - uShadowParams.y * 2.0, textureLod(uShadowMap, s.xy + jit * uShadowParams.x * 1.6, 0.0).r);
-  return mix(1.0, v, shadowEdge(s) * uShadowOn);
+  return cs * mix(1.0, v, shadowEdge(s) * uShadowOn);
 }
 `;
 
@@ -528,6 +558,28 @@ function compassDir(az, el, out = new THREE.Vector3()) {
   return out.set(Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e));
 }
 
+/* [weather2] the clouds as the sky shows them: the dome of the sky (12c_weather2.js ray-marches it through the cloud field
+   each frame from the camera), read by direction; rgb the clouds' own light, a how much of what lies behind them shows */
+const GLSL_CLOUDS = /* glsl */`
+uniform sampler2D uCloudDome;
+uniform vec4 uCloudDomeOn, uWxFlash;
+vec2 cloudDomeUV(vec3 dir){
+  float e = asin(clamp(dir.y, 0.0, 1.0));
+  float r = 1.0 - pow(e / 1.5707963, 0.625);
+  float hl = length(dir.xz);
+  return (hl > 1e-5 ? dir.xz / hl * r : vec2(0.0)) * 0.5 + 0.5;
+}
+vec4 cloudDome(vec3 dir){
+  if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
+  vec4 c = texture(uCloudDome, cloudDomeUV(dir));
+  float fade = smoothstep(-0.03, 0.02, dir.y);
+  c.a = clamp(c.a, 0.0, 1.0);
+  // a flash in the cloud: the lightning lights the cloud about it from within
+  vec3 fd = uWxFlash.xyz;
+  float fk = uWxFlash.w * (1.0 - c.a) * (spow(max(dot(dir, fd), 0.0), 18.0) * 2.2 + spow(max(dot(dir, fd), 0.0), 3.0) * 0.35);
+  return vec4((c.rgb + vec3(0.75, 0.8, 1.0) * fk) * fade, mix(1.0, c.a, fade));
+}
+`;
 /* ------------------------------------------------------------------ */
 /* Sky                                                                 */
 /* ------------------------------------------------------------------ */
@@ -554,6 +606,7 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
+    ${GLSL_CLOUDS}
     uniform vec3 uCloudLit, uCloudShade, uSunDir, uMoonDir;
     uniform float uCloudCover, uSunVis, uMoonVis, uStars;
     varying vec3 vDir;
@@ -600,6 +653,9 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
       col = mix(col, vec3(1.65, 1.6, 1.5), sdisk * uSunVis);
       col += vec3(0.5, 0.42, 0.3) * spow(sc, 2500.0) * uSunVis;
       float hz = smoothstep(-0.01, 0.06, dir.y);
+      // [weather2] the clouds that are there: the dome ray-marched through the systems' cloud field (12c_weather2.js); the
+      // sun, the moon and the stars show only where no cloud stands in front of them
+      if (uCloudDomeOn.x > 0.5) { vec4 cd = cloudDome(dir); col = col * cd.a + cd.rgb; hz = 0.0; }
       if (hz > 0.0) {
         vec2 cp = dir.xz / (dir.y + 0.09);
         cp = cp * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);

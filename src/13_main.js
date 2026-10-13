@@ -386,6 +386,7 @@ function simStep(dt) {
   updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
   updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
+  updateWeather2(dt); // [weather2] the weather systems: fronts, showers and storms carried across the March (12c_weather2.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -405,6 +406,7 @@ function tick(dt) {
   applyWeather();
   applyIndoor();
   updateNightSky(dt); // [aurora] the northern lights and shooting stars (05i_aurora.js)
+  wxCloudsFrame(dt); // [weather2] the cloud field and the dome of the sky, the clouds' shadows, mist in the valleys (12c_weather2.js)
   // simulation (the menu and the prologue pause the world)
   if (UI.modal !== 'menu' && UI.modal !== 'prologue') {
     // up to two steps so a slow frame rate does not slow the world down

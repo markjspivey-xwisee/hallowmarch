@@ -153,7 +153,7 @@ function updateTowerFires(dt) {
     if (B) {
       B.t += dt;
       // rain damps a fire: a young one goes out in a downpour, a grown one only burns slower
-      const wet = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1));
+      const wet = wxLive() ? wxCastleWet(T.C, 0, true) : clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)); // [weather2] over this keep
       B.heat = clamp(B.heat + dt * (1 / TFIRE.climb) * (1 - 1.4 * wet), 0, 1);
       T.char = Math.max(T.char || 0, clamp(B.t / TFIRE.burn, 0, 1) * 0.9 + B.heat * 0.1);
       if (B.heat <= 0) { for (const f of B.fires) f.until = GAME.t; T.burn = null; TFIRE.stats.out++; TFIRE.dirty.add(T.C); continue; }

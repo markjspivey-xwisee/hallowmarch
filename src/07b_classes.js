@@ -114,8 +114,9 @@ function wetOf(e) {
   if (wf && !inDungeon(e)) { try { const q = wf(e.x, e.z); if (q && (q === true || q.depth > 0.2 || q.deep)) w = 1; } catch (err) { /* the water module answers in its own way */ } }
   return w;
 }
-const rainHere = (e) => (inDungeon(e) || INDOOR.on && e === GAME.player ? 0 : clamp(WEATHER.raining - WEATHER.snowing, 0, 1) * (e._sky === undefined ? 1 : e._sky));
-const stormNow = () => clamp(WEATHER.storm || 0, 0, 1);
+// [weather2] the rain and the storm over the body (12c_weather2.js: each place its own)
+const rainHere = (e) => (inDungeon(e) || INDOOR.on && e === GAME.player ? 0 : clamp(wxLive() ? wxGridAt('rain', e.x, e.z) : WEATHER.raining - WEATHER.snowing, 0, 1) * (e._sky === undefined ? 1 : e._sky));
+const stormNow = (e) => clamp(e && wxLive() ? wxStormAt(e.x, e.z) : WEATHER.storm || 0, 0, 1);
 function chillOf(e) { let v = 0; for (const b of e.buffs) if (b.kind === 'chill' && b.until > GAME.t) v = Math.max(v, b.value); return v; }
 const frozenOf = (e) => hasBuff(e, 'frozen');
 const burningOf = (e) => e.buffs.some((b) => b.kind === 'burn' && b.until > GAME.t);
@@ -272,7 +273,7 @@ function elementReact(src, dst, el, opts) {
     }
   } else if (el === 'frost') {
     if (burningOf(dst)) { if (!auto) { m *= 1.4; combo(src, dst, 'quench'); } dropBuffs(dst, ['burn']); steamPuff(dst.x, dst.y + 1.2 * (dst.scale || 1), dst.z, 8); }
-    if (WEATHER.snowing > 0.3 && !inDungeon(dst)) m *= 1.12;
+    if ((wxLive() ? wxGridAt('snowing', dst.x, dst.z) : WEATHER.snowing) > 0.3 && !inDungeon(dst)) m *= 1.12; // [weather2] the snow falling there
     let n = auto ? 0.34 : 1;
     if (mage && attOf(src, 'frost') >= 60 && !auto) n += 1;
     if (wet > 0.3 && realmFlavour(src) && src.faction === 1 && mage) n *= 2;
@@ -283,7 +284,7 @@ function elementReact(src, dst, el, opts) {
     if (frozenOf(dst) && !auto) m *= shatter(src, dst, 2.0 * res, opts);
     else if (burningOf(dst) && !auto && mage) { m *= 1.3 * res; overload(src, dst); }
     if (wet > 0.3) { m *= 1.35; if (!auto) CLS.stats.combos.conduct = (CLS.stats.combos.conduct || 0) + 1; }
-    if (stormNow() > 0.5 && !inDungeon(dst)) m *= 1.25;
+    if (stormNow(dst) > 0.5 && !inDungeon(dst)) m *= 1.25;
     else if (realmFlavour(src) && src.faction === 1 && rainHere(src) > 0.2) m *= 1.25;
     if (dst.casting && Math.random() < 0.6 && dst.role !== 'boss') breakCast(dst); // [balance2] a steadfast priest's spell holds (07c_balance.js)
   }
@@ -721,7 +722,7 @@ function stormChain(e, A, t, cast, rk) {
   }
   const chest = (u) => u.y + 1.2 * (u.scale || 1);
   // weather-calling: in the rain the sky answers
-  if (realmFlavour(e) && e.faction === 1 && (rainHere(e) > 0.2 || stormNow() > 0.5) && !inDungeon(t)) {
+  if (realmFlavour(e) && e.faction === 1 && (rainHere(e) > 0.2 || stormNow(e) > 0.5) && !inDungeon(t)) {
     strikeAt({ x: t.x, y: chest(t) + 0.6, z: t.z, gy: t.y });
     later(0.08, () => { if (t.alive) { const r = computeDamage(e, t, A.dmg * rk * 0.6); dealDamage(e, t, r.d, { crit: r.crit, kind: 'shock' }); } });
   }
@@ -1461,7 +1462,7 @@ function updateClasses(dt) {
   // ice sheets melt (faster in the sun and near fire), and whoever stands on one at the end drops into the water
   for (let i = CLS.ice.length - 1; i >= 0; i--) {
     const s = CLS.ice[i];
-    if (WEATHER.snowing < 0.3) s.until -= dt * 0.6 * sunStrength();
+    if ((wxLive() ? wxGridAt('snowing', s.x, s.z) : WEATHER.snowing) < 0.3) s.until -= dt * 0.6 * sunStrength(); // [weather2]
     if (GAME.t > s.until) iceSheetEnd(s);
   }
   // the dead near a priest of their realm are not carried off at once

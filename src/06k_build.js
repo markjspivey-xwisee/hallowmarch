@@ -736,7 +736,7 @@ function buildBrandTarget(P, ax, az) {
   return best ? { kind: 'build', pc: best, x: best.x, z: best.z, label: `Set the ${BP[best.t].name.toLowerCase()} alight`, d: bd } : null;
 }
 function bBurnStep(pc, dt) {
-  const rain = Math.max(0, WEATHER.raining - WEATHER.snowing);
+  const rain = wxRainAt(pc.x, pc.z); // [weather2] the rain over the piece
   pc.burnT += dt * (1 - 0.45 * rain * (1 - pc.shelter));
   pc.char = Math.min(1, pc.burnT / pc.burnDur);
   if (pc.fire) { pc.fire.size = (BP[pc.t].roof ? 1.1 : 0.8) * (0.6 + 0.8 * Math.sin(Math.PI * Math.min(1, pc.char * 1.1))); }

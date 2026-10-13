@@ -501,8 +501,9 @@ function gateFalls(G0, D) {
 /* ------------------------------------------------------------------ */
 function updateBlaze(dt) {
   if (!BLAZE.ready) { blazeInit(); if (!BLAZE.ready) return; }
-  const wet = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)) + clamp(U.uSnowCover.value, 0, 1) * 0.3;
+  const wet0 = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)) + clamp(U.uSnowCover.value, 0, 1) * 0.3;
   for (const B of BLAZE.list) {
+    const wet = wxCastleWet(B.C, wet0); // [weather2] the rain and the snow over this keep (12c_weather2.js)
     if (!B.linked && !B.ring) blazeLinks(B);
     let busy = false;
     for (const c of B.cells) {
@@ -539,7 +540,7 @@ function updateBlaze(dt) {
   for (const G0 of BLAZE.gates) {
     const Z = G0.bz, D = blazeGateDoor(G0);
     if (!D) continue;
-    if (Z.burn) gateBurnStep(G0, dt, wet);
+    if (Z.burn) gateBurnStep(G0, dt, wxCastleWet(G0, wet0)); // [weather2] the rain over its keep
     if (Z.down) {
       if (Z.wmat) Z.wmat.uniforms.uEmber.value = Math.max(0, Z.wmat.uniforms.uEmber.value - dt / 90);
       if (D.alive) { // rebuilt by its owners (the war's own rule for a broken gate): new leaves, pale

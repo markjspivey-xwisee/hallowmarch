@@ -815,7 +815,7 @@ function houseOffers(P, offer) {
 /* the hours: shutters open by day, closed at night and in storms       */
 /* ------------------------------------------------------------------ */
 const HOUSE_CLOCK = { night: 0, harm: 0 };
-const houseWantsShut = () => HOUSE_CLOCK.night > 0.42 || WEATHER.storm > 0.5;
+const houseWantsShut = (H) => HOUSE_CLOCK.night > 0.42 || (H && wxLive() ? wxStormAt(H.x, H.z) : WEATHER.storm) > 0.5; // [weather2] the storm over the house (12c_weather2.js)
 // somebody who lives here is about and will see to the shutters and the door
 function houseTended(H) {
   const P = GAME.player;
@@ -852,7 +852,7 @@ function updateHouses(dt) {
     if (H.scafColl) for (const c of H.scafColl) c.active = H.state === 'scaffold';
     // houses whose people are away (or far from anyone who could see) keep the hours by themselves
     if (H.state === 'whole' && (!P || dist2(P.x, P.z, H.x, H.z) > 45 * 45) && !houseTended(H)) {
-      const open = !houseWantsShut();
+      const open = !houseWantsShut(H);
       for (const win of H.wins) if (win.target !== (open ? 1 : 0)) { setHouseShutters(H, win, open, null, true); for (const L of win.leaves) L.open = L.target; }
       if (D.leaf.target) { D.leaf.target = 0; D.leaf.open = 0; }
     }
@@ -932,7 +932,7 @@ function houseBurnStep(H, dt) {
   const B = H.burn;
   H.stT += dt;
   // rain slows the fire but does not put it out
-  const damp = 1 / (1 + 0.7 * clamp(WEATHER.raining, 0, 1));
+  const damp = 1 / (1 + 0.7 * clamp(wxPrecipAt(H.x, H.z), 0, 1)); // [weather2] the rain over the house
   B.R = Math.min(B.maxR, B.R + B.speed * dt * damp);
   if (houseCrewDouse(H, B, dt)) return; // [war2] its people beat the front back, and a fire beaten to nothing is out (08j_war2.js)
   for (const p of B.pts) {

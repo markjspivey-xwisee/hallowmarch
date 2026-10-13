@@ -50,8 +50,7 @@ function farmTempAt(x, z) {
   let t = SEASON.temp + rw[0] * 1.2 - rw[2] * 6.5;
   t -= Math.max(0, heightAt(x, z) - 6) * 0.3;
   t -= 7 * night;
-  t -= 2.5 * (WEATHER.raining || 0) + 1.2 * (WEATHER.overcast || 0) * (1 - night);
-  t += 1.5 * (WEATHER.overcast || 0) * night;
+  t += wxTempAdj(x, z); // [weather2] the rain and the cloud over this place (12c_weather2.js): -2.5 rain, -1.2 cloud by day, +1.5 by night
   return t;
 }
 
@@ -370,12 +369,17 @@ function farmPollinate(P, s, pl) {
 }
 const FARM_WEEDS = [1.15, 1.0, 0.6, 0.07];
 // one slow step of every bed: water, weeds, rest, and every plant's growth, frost, drought and ripeness
+const _farmWx = {};
 function farmStepPlots(dt) {
-  const rainNow = Math.max(0, (WEATHER.raining || 0) - (WEATHER.snowing || 0));
+  const rainNow0 = Math.max(0, (WEATHER.raining || 0) - (WEATHER.snowing || 0));
   const sun = typeof sunStrength === 'function' ? sunStrength() : 0.5;
-  const snow = WEATHER.snow || 0;
-  const storm = WEATHER.storm || 0;
+  const snow0 = WEATHER.snow || 0;
+  const storm0 = WEATHER.storm || 0;
+  const live = wxLive();
   for (const P of FARM.plots) {
+    // [weather2] the rain, the snow lying and the storm over this bed (12c_weather2.js)
+    const lw = live ? weatherAt(P.x, P.z, _farmWx) : null;
+    const rainNow = lw ? lw.rain : rainNow0, snow = lw ? lw.snow : snow0, storm = lw ? lw.storm : storm0;
     const temp = farmTempAt(P.x, P.z) + 3 * snow * (P.own === 'p' ? 1 : 1); // snow lying on a bed keeps the frost off it
     P.temp = temp;
     const evap = (0.0003 + 0.0016 * clamp((temp - 4) / 22, 0, 1) * (0.35 + 0.65 * sun)) * (1 - 0.6 * rainNow);
