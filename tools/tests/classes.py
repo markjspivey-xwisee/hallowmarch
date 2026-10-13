@@ -526,12 +526,17 @@ async def mechanics(page):
         P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const why = F.useAbility(P, 'quickshot', f); H.simulate(1.2);
         out[k] = { why, used: n0 - F.goodsCount('arrows_' + k), bleed: f.buffs.some((b) => b.kind === 'bleed'), burn: f.buffs.some((b) => b.kind === 'burn'), snare: f.buffs.some((b) => b.kind === 'snare'), cast: !!f.casting };
       }
+      // [balance9] a blunt head from a quick shot sets a spell back; from an Aimed Shot it breaks it (07c_balance9.js)
+      F.goodsAdd('arrows_blunt', 5, true); C.csOf(P).arrow = 'blunt'; f.buffs.length = 0; f.casting = { id: 'smite', t: 0, total: 9, targetId: P.id };
+      P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; const whyA = F.useAbility(P, 'aimed', f); H.simulate(2.4); out.bluntAimed = { why: whyA, cast: !!f.casting };
+      out.heavy = !!(H.bal9 && H.bal9.B9T.bluntHeavy);
       C.csOf(P).arrow = 'plain';
       return out; })()""")
-    check(all(r[k]['used'] == 1 for k in r), 'each special arrow is taken from the packs')
+    check(all(r[k]['used'] == 1 for k in ('broadhead', 'bodkin', 'fire', 'blunt')), 'each special arrow is taken from the packs')
     check(r['broadhead']['bleed'], 'broadheads open a bleeding wound')
     check(r['fire']['burn'], 'fire arrows set the foe burning')
-    check(r['blunt']['snare'] and not r['blunt']['cast'], 'blunt arrows stagger and break a spell')
+    check(r['blunt']['snare'] and r['blunt']['cast'] == r['heavy'], 'blunt arrows stagger; from a quick shot one sets a spell back ([balance9]; it broke it before)')
+    check(r['bluntAimed']['why'] is True and not r['bluntAimed']['cast'], 'from an Aimed Shot a blunt head breaks a spell')
 
     r = await ev(page, 'hiding', """(() => { const P = T.H.GAME.player, C = T.H.cls, F = T.F, H = T.H;
       let spot = null;
@@ -1024,8 +1029,8 @@ async def balance6(page):
       C.csOf(P).dev = 60; C.csOf(P).devAt = H.GAME.t; C.csOf(P).devTick = H.GAME.t; P.hp = P.maxHp * 0.5; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'renew', P); H.simulate(0.05);
       const hots = P.buffs.filter((b) => b.kind === 'hot' && b.until > H.GAME.t);
       out.n = hots.length; out.src = hots.map((b) => b.src === P.id ? 'renew' : String(b.src)); out.well = +(hots.filter((b) => b.src === 'well').reduce((a, b) => a + b.value, 0) / P.maxHp).toFixed(4);
-      const h0 = P.hp; H.simulate(3.02); out.healed = +((P.hp - h0) / P.maxHp).toFixed(3); return out; })()""")
-    check(r['n'] == 2 and 'well' in r['src'] and 'renew' in r['src'] and abs(r['well'] - 0.012) < 0.002, f"the Well of Eriu heals beside the Renewal, not merged into it ({r})")
+      const h0 = P.hp; H.simulate(3.02); out.healed = +((P.hp - h0) / P.maxHp).toFixed(3); out.hot = H.bal4.PRIEST_REALM.eriuHot; return out; })()""")
+    check(r['n'] == 2 and 'well' in r['src'] and 'renew' in r['src'] and abs(r['well'] - r['hot']) < 0.002, f"the Well of Eriu heals beside the Renewal, not merged into it ({r}; [balance9] the measure read from PRIEST_REALM: 1.2% a second in version 14, 1.6% in version 18)")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance6] checks {errs[:2]}')
 

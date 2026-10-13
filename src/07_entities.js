@@ -203,7 +203,7 @@ function computeDamage(src, dst, mult) {
   let d = baseDmg(src.level) * src.dmgMult * mult;
   d *= 0.9 + Math.random() * 0.2;
   d *= clamp(1 + 0.07 * (src.level - dst.level), 0.45, 1.7);
-  if (src.faction <= 2) d *= REALM_BONUS[src.faction];
+  if (src.faction <= 2 && src.role !== 'bot') d *= REALM_BONUS[src.faction]; // [balance9] not the measures' bots: the war run on beside the duels, and a hallow its realm took made one side of a duel strike 10% harder (07c_balance9.js)
   if (src.role === 'player' && GAME.prog) d *= 1 + 0.015 * (realmRank(GAME.prog.rp) - 1);
   d *= 1 + buffSum(src, 'dmg');
   const crit = Math.random() < 0.08 + (src.critBonus || 0);
@@ -772,7 +772,7 @@ function executeAbility(e, A, t, cast = null) {
       const r = computeDamage(e, t, A.dmg * rk);
       dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
       FX.sparks(t.x, chest(t), t.z);
-      if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); t.casting = null; FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+      if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); stunBreak(t); /* [balance9] a steadied priest's spell waits through it below Divine Shield (07c_balance9.js) */ FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
       if (A.snare) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
       sfxAtE('hit', t); // [audio2] placed (11c_sound.js)
     });
@@ -817,7 +817,7 @@ function leapLand(e, A, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(e.x, e.z, o.x, o.z) > A.radius + o.radius * (o.scale || 1)) return;
     const r = computeDamage(e, o, A.dmg * rk);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
-    if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); o.casting = null; FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+    if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); stunBreak(o); /* [balance9] */ FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
     if (B7T.leapSlow && o.alive && o.kind !== 'door') addBuff(o, 'snare', B7T.leapSlow[0], B7T.leapSlow[1], e.id); // [balance7] (07c_balance7.js)
   });
   for (let i = 0; i < 26; i++) {
@@ -928,7 +928,7 @@ function updateProjectiles(dt) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
         const pl = p.payload || {};
         const r = computeDamage(src, t, pl.mult || 1);
-        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
+        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto, ability: pl.ability }); // [classes] arrow heads and elements [balance9] ability: the shot that loosed it (a blunt head's break, 07c_balance9.js)
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
         if (pl.ability === 'cripple' && t.alive) crippleWound(src, t, pl.snare); // [balance5] a crippling arrow's wound mends slowly (07c_balance5.js)
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }

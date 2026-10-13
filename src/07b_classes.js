@@ -90,7 +90,7 @@ function csOf(e) {
   // NPCs come to the field with a few habits of their own
   if (e.role !== 'player') {
     if (e.cls === 'mage') e.cs.focus = pick(Math.random, ['fire', 'frost', e.level >= 6 ? 'storm' : 'fire']);
-    if (e.cls === 'priest') { e.cs.dev = 20 + Math.random() * 30; if (B7T.npcDevotion && e.role !== 'bot') e.cs.devAt = GAME.t; } // [balance8] the war's priests, not the bots that measure the callings (07c_balance8.js) // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
+    if (e.cls === 'priest') { e.cs.dev = e.role === 'bot' && B9T.botNoDevotion ? 0 : 20 + Math.random() * 30; if (B7T.npcDevotion && e.role !== 'bot') e.cs.devAt = GAME.t; } // [balance9] a bot comes with none at any hour (its 20 to 50 faded at its first look by 0.8 a second of the run's clock: a priest bot made in a page's first minute kept most of it, 07c_balance9.js) // [balance8] the war's priests, not the bots that measure the callings (07c_balance8.js) // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
   }
   return e.cs;
 }
@@ -210,7 +210,7 @@ function classHarm(src, dst, amount, opts) {
       if (realmFlavour(src) && src.faction === 2 && (chillOf(dst) > 0 || frozenOf(dst))) m *= ARCHER_REALM.thuleChill; // [balance5] 1.15
       if (dst.buffs.some((b) => b.kind === 'tracked' && b.src === src.id && b.until > t)) m *= 1.1;
     }
-    if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= 1.6;
+    if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= lordHolyK(dst); // [balance9] 1.6, but not on the deep's lord: his ash crown turns it (07c_balance9.js)
     // blessings
     for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= PRIEST_REALM.thuleBless; break; } // [balance4] 1.12 (07c_balance4.js)
   }
@@ -414,7 +414,7 @@ function parry(dst, src) {
   CLS.stats.parries++;
   if (BAL.tap) BAL.tap(src, dst, 0, 0, { parry: true }); // [balance3] tests count parries (07c_balance.js)
   const boss = src.role === 'boss' || src.role === 'dungeonBoss' || src.kind === 'door';
-  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); src.casting = null; addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
+  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); stunBreak(src); /* [balance9] (07c_balance9.js) */ addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
   addMom(dst, 2);
   setAct(dst, 11, 0.42);
   const x = (dst.x + src.x) / 2, z = (dst.z + src.z) / 2, y = dst.y + 1.25 * (dst.scale || 1);
@@ -483,8 +483,8 @@ function classOnHit(src, dst, dmg, opts) {
     }
   }
   if (src.cls === 'priest') {
-    if (opts.kind === 'holy' && isUndead(dst)) addDev(src, 5);
-    else if (opts.holy && isUndead(dst)) addDev(src, 1);
+    if (opts.kind === 'holy' && isUndead(dst) && !lordTurnsLight(dst)) addDev(src, 5); // [balance9] on the Ash-Crowned as on the living (07c_balance9.js)
+    else if (opts.holy && isUndead(dst) && !lordTurnsLight(dst)) addDev(src, 1);
     else if (opts.kind === 'holy') addDev(src, 1.5);
   }
   if (src.cls === 'archer' && opts.arrow && opts.arrow !== 'plain') arrowEffect(src, dst, dmg, opts.arrow, opts);
@@ -501,7 +501,7 @@ function styleProc(src, dst, dmg, opts, strong) {
 function finisherLands(src, dst, fin, dmg) {
   CLS.stats.finishers++;
   styleProc(src, dst, dmg, {}, true);
-  if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); dst.casting = null; }
+  if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); stunBreak(dst); /* [balance9] */ }
   if (realmFlavour(src) && src.faction === 2 && csOf(src).stance === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips); // [balance2] in fury only, as the Chronicle says (a Thule warrior in a guarded stance outlasted every pack)
   const y = dst.y + 1.2 * (dst.scale || 1);
   FX.burst(dst.x, y, dst.z, 30, fin.style === 'sword' ? [2.2, 0.5, 0.35] : fin.style === 'axe' ? [2.0, 1.6, 1.1] : [2.4, 2.0, 1.2], 6, 0.45, 0.13, 7);
@@ -618,7 +618,7 @@ function priestView(e, cs, A, t) {
   if (A.groupHeal) view().groupHeal = A.groupHeal * hm;
   if (A.groupHot) view().groupHot = [A.groupHot[0] * hm, A.groupHot[1]];
   if (A.healPct && A.id === 'pillar') view().healPct = A.healPct * hm;
-  if (A.id === 'smite' && t && isUndead(t)) view().dmg = A.dmg * 1.25;
+  if (A.id === 'smite' && t && isUndead(t) && !lordTurnsLight(t)) view().dmg = A.dmg * 1.25; // [balance9] not on the Ash-Crowned: his crown turns the light (07c_balance9.js)
   if (A.id === 'holyfire' && t) holyFlare(e, t); // [balance5] Holy Fire flares in a caster's face: its spell is lost (07c_balance5.js)
   if (A.id === 'sanctuary') view().custom = priestGroupHeal; // [balance] the priest's own share mends more slowly (07c_balance.js)
   if (A.id === 'massrenew') view().custom = priestGroupHot;
@@ -980,7 +980,7 @@ function arrowEffect(src, dst, dmg, type, opts) {
   if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', woundOf(src), 6, 'wound'); } // [balance2] and the wound mends slowly (healWound) [balance3] deeper from rank II
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
-    breakCast(dst); // [balance2] not a steadfast priest's
+    bluntBreak(src, dst, opts); // [balance2] not a steadfast priest's [balance9] and only from a full draw, an Aimed Shot or Deadeye: a quick one sets the spell back (07c_balance9.js)
     addBuff(dst, 'snare', 0.35, 2, src.id);
     if (dst.fixedY === null && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { const d = Math.max(0.3, dist(src.x, src.z, dst.x, dst.z)); stepTo(dst, dst.x + (dst.x - src.x) / d * 1.5, dst.z + (dst.z - src.z) / d * 1.5); }
   }
@@ -1138,10 +1138,11 @@ function stepGrounds(dt) {
         if (G.realm === 0) addBuff(o, 'hallowed', 1, 1.2, 'hallowed');
       } else if (o.faction !== FACTION_NEUTRAL) {
         hallowDazzle(G, o); // [balance5] holy ground dazzles the foes on it (07c_balance5.js)
-        if (isUndead(o) || G.realm === 2) {
-          const r = computeDamage(src, o, (isUndead(o) ? 0.55 : 0.3) * G.rk);
+        const dead = isUndead(o) && !lordTurnsLight(o); // [balance9] holy ground burns the Ash-Crowned as it burns the living (07c_balance9.js)
+        if (dead || G.realm === 2) {
+          const r = computeDamage(src, o, (dead ? 0.55 : 0.3) * G.rk);
           dealDamage(src, o, r.d, { crit: r.crit, kind: 'holy', holy: true });
-          if (isUndead(o) && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
+          if (dead && o.alive) addBuff(o, 'snare', 0.3, 1.2, G.src);
         }
       }
     });
@@ -1391,7 +1392,7 @@ function classActValue(e) {
   if (cs.praying) return 12 + 0.5;
   return 0;
 }
-function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || !!(e.bot && e.bot.holdMace)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js)
+function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || priestMaceHold(e)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js) [balance9] asked at each swing (07c_balance9.js)
 // a mage's own bolt takes the colour of the focus
 function classAutoKind(e) {
   if (e.cls !== 'mage' || !e.cs || !clsHas(e, 'focus')) return e.rangedKind;
