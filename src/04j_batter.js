@@ -38,6 +38,7 @@ function houseStoneHit(H, x, y, z, mult = 1, src = null, fromAbove = null) {
   b.k = clamp(b.k + (BATTER_K * mult) / houseToughness(H), 0, 1);
   const top = fromAbove ?? y > H.y + H.wallH - 0.3;
   const near = dist2(H.x, H.z, camera.position.x, camera.position.z) < 90 * 90;
+  if (top && houseIntact(H)) sfxAt('tiles', x, H.y + H.wallH + 0.6, z); else sfxAt('crack', x, y, z); // [audio2] the roof's covering clatters down, or the wall cracks (11c_sound.js)
   if (top && houseIntact(H)) {
     // a hole in the roof where it struck (a second blow nearby makes it bigger)
     const p = houseRoofPoint(H, x, z);
@@ -94,6 +95,7 @@ function houseBreak(H, src = null) {
     cameraShake(0.35, H.x, H.z);
   }
   houseSfx('collapse', H.x, cy, H.z);
+  sfxAt('collapse', H.x, cy, H.z); // [audio2] and its stones tumbling down (11c_sound.js)
   const P = GAME.player;
   if (P && dist2(P.x, P.z, H.x, H.z) < 90 * 90) uiLog(H.keepHall ? `The great hall of ${H.S.name} falls in under the stones!` : `A house in ${H.S.name} falls in under the stones!`, 'warn');
 }

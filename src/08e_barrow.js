@@ -174,7 +174,7 @@ function thinkBarrowMob(e, dt) {
       e.threat = e.threat || new Map();
       e.threat.set(P.id, 1);
       packAggro(e, P);
-      if (e.elite && !ai.taunted) { ai.taunted = true; uiFloatAt(e.x, e.y + 2.8 * (e.scale || 1), e.z, 'None pass the Well', 'immune'); sfx('roarSmall'); }
+      if (e.elite && !ai.taunted) { ai.taunted = true; uiFloatAt(e.x, e.y + 2.8 * (e.scale || 1), e.z, 'None pass the Well', 'immune'); sfxAtE('roarSmall', e, null, 2); /* [audio2] placed */ }
     }
   }
   if (t) {
@@ -236,7 +236,7 @@ function updateVents(dt) {
     const warn = s > 0.52 && s < 0.68, burn = s >= 0.68 && s < 0.93;
     if (warn && Math.random() < dt * 30) fxAdd.emit(V.x + (Math.random() - 0.5) * 1.4, V.y + 0.1, V.z + (Math.random() - 0.5) * 1.4, 0, 0.6 + Math.random(), 0, 0.5, 2.0, 0.8, 0.25, 0.08, -1, 0.5);
     if (burn) {
-      if (!V.burning) { V.burning = true; if (dist(P.x, P.z, V.x, V.z) < 30) sfx('ventRoar'); }
+      if (!V.burning) { V.burning = true; sfxAt('ventRoar', V.x, V.y + 1, V.z); } // [audio2] placed (11c_sound.js)
       for (let n = 0; n < 5; n++) {
         const a = Math.random() * TAU, r = Math.random() * 0.6;
         fxAdd.emit(V.x + Math.cos(a) * r, V.y + 0.1, V.z + Math.sin(a) * r, (Math.random() - 0.5) * 0.6, 4.5 + Math.random() * 2.5, (Math.random() - 0.5) * 0.6, 0.55 + Math.random() * 0.25, 2.4, 1.0, 0.3, 0.32 + Math.random() * 0.25, -1.5, 0.4);
@@ -301,7 +301,7 @@ function wakeKing(e) {
     FX.dust(e.x, -6.2, e.z, 14, [0.4, 0.38, 0.34]);
   }
   e.ai.nextCleave = GAME.t + 3; e.ai.nextChill = GAME.t + 8; e.ai.nextLance = GAME.t + 6;
-  sfx('kingRoar');
+  sfxAtE('kingRoar', e, null, 2.5); /* [audio2] placed */
   cameraShake(0.25, e.x, e.z);
   uiBanner('The Hollow King rises from his throne.', -1);
   setAct(e, 5, 1.4);
@@ -328,9 +328,9 @@ function raiseDead(e, n) {
   const closed = DUN.tombs.filter((t) => t.target === 0).sort((a, b) => dist2(a.x, a.z, e.x, e.z) - dist2(b.x, b.z, e.x, e.z));
   const tombs = closed.length >= n ? closed.slice(0, n) : closed.concat(DUN.tombs.filter((t) => t.target === 1)).slice(0, n);
   uiBanner('"Rise, my wardens."', -1);
-  sfx('raise');
+  sfxAtE('raise', e, null, 2); // [audio2] placed (11c_sound.js)
   tombs.forEach((T, i) => {
-    later(i * 0.45, () => { if (e.alive) { T.target = 1; sfx('grind'); } });
+    later(i * 0.45, () => { if (e.alive) { T.target = 1; sfxAt('grind', T.x, null, T.z); } }); // [audio2] placed (11c_sound.js)
     later(0.75 + i * 0.45, () => {
       if (!e.alive) return;
       const o = spawnBarrowMob('skeleton', 18, dunU(T.x), dunV(T.z), null, { name: 'risen bones', hp: 0.55 });
@@ -402,7 +402,7 @@ function thinkHollowKing(e, dt) {
   if (hpF < 0.25 && !ai.enraged) {
     ai.enraged = true; e.speed = 7.4; e.swing = 1.9;
     uiBanner('The Hollow King burns with a cold fury!', -1);
-    sfx('kingRoar');
+    sfxAtE('kingRoar', e, null, 2.5); /* [audio2] placed */
     flareHall(true);
   }
   // a spell in hand: hold still and let it build
@@ -417,7 +417,7 @@ function thinkHollowKing(e, dt) {
         FX.burst(e.x, e.y + 1.2, e.z, 50, [0.7, 1.5, 2.4], 6, 0.7, 0.18, 1);
         lightFlash(e.x, e.y + 1.5, e.z, 14, [1.2, 2.2, 3.2], 0.7);
         cameraShake(0.3, e.x, e.z);
-        sfx('frost'); sfx('boom');
+        sfxAtE('frost', e); sfxAtE('boom', e); /* [audio2] placed */
         forNear(e.x, e.z, 7.2, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           const r = computeDamage(e, o, 1.0);
@@ -431,7 +431,7 @@ function thinkHollowKing(e, dt) {
       if (!c.hit && c.t >= 0.62) {
         c.hit = true;
         spawnSlash(e, true);
-        sfx('swing'); cameraShake(0.22, e.x, e.z);
+        sfxAtE('swing', e, { vol: 1.4 }, 1.6); /* [audio2] placed */ cameraShake(0.22, e.x, e.z);
         forNear(e.x, e.z, 5.6, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           if (Math.abs(angDiff(e.yaw, Math.atan2(o.x - e.x, o.z - e.z))) > 1.15) return;
@@ -445,7 +445,7 @@ function thinkHollowKing(e, dt) {
     return;
   }
   const d = dist(e.x, e.z, t.x, t.z);
-  if (GAME.t > ai.nextChill && d < 7.5) { kingCast(e, 'chill', 1.4); aoeMarker(e.x, e.z, 7, 1.4); sfx('cast'); return; }
+  if (GAME.t > ai.nextChill && d < 7.5) { kingCast(e, 'chill', 1.4); aoeMarker(e.x, e.z, 7, 1.4); sfxAtE('cast', e, null, 2); /* [audio2] placed */ return; }
   if (GAME.t > ai.nextCleave && d < 4.6) {
     kingCast(e, 'cleave', 1.05);
     setAct(e, 8, 1.0);
@@ -467,7 +467,7 @@ function thinkHollowKing(e, dt) {
         const y = heightAt(x, z);
         for (let n = 0; n < 22; n++) fxAdd.emit(x + (Math.random() - 0.5) * 1.6, y + 0.1, z + (Math.random() - 0.5) * 1.6, 0, 6 + Math.random() * 5, 0, 0.45, 0.6, 1.6, 2.2, 0.22, 0, 0.5);
         lightFlash(x, y + 2, z, 8, [0.8, 1.9, 2.6], 0.5);
-        sfx('lance');
+        sfxAtE('lance', e, null, 2); /* [audio2] placed */
         forNear(x, z, 2.3, (o) => {
           if (!o.alive || !isEnemy(e, o) || !isActor(o)) return;
           const r = computeDamage(e, o, 1.25);
@@ -483,7 +483,7 @@ function onKingDeath(e, killer) {
   S.kingDead = true; S.kingAt = GAME.t + KING_RESPAWN;
   for (const id of S.adds) { const o = getEnt(id); if (o && o.alive) killEnt(o, null); }
   S.adds.clear();
-  sfx('kingDeath');
+  sfxAtE('kingDeath', e, null, 2); /* [audio2] placed */
   cameraShake(0.45, e.x, e.z);
   flashScreen([0.6, 0.9, 1.0], 0.35);
   FX.burst(e.x, e.y + 1.6, e.z, 90, [0.6, 1.4, 1.8], 5, 1.4, 0.2, -0.5);
@@ -547,5 +547,5 @@ function updateBarrow(dt) {
     const a = Math.random() * TAU, r = Math.random() * 2.6;
     fxAdd.emit(W.x + Math.cos(a) * r, W.y + 0.1, W.z + Math.sin(a) * r, 0, 1.2 + Math.random() * 1.6, 0, 1.6 + Math.random(), 0.35, 1.1, 1.25, 0.16, -0.3, 0.3);
   }
-  if (Math.random() < dt * 0.4) sfx('drip');
+  if (Math.random() < dt * 0.4) sndAround('drip', 3, 14, 1.5 + Math.random() * 2); // [audio2] the Barrow's drips placed round you, its halls' echo after them (11c_sound.js)
 }

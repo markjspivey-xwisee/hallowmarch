@@ -619,7 +619,7 @@ function updateGates(dt) {
     g.open = clamp(g.open + Math.sign(g.target - g.open) * dt / (g.kind === 'bars' ? 2.6 : 3.4), 0, 1);
     g.mesh.position.y = g.fy + smooth(g.open) * (g.h + 0.2) * (g.kind === 'bars' ? 1 : -1);
     g.coll.active = g.open < 0.55;
-    if (INDOOR.on && Math.floor(was * 8) !== Math.floor(g.open * 8)) { sfx(g.kind === 'bars' ? 'chain' : 'grind'); const P = GAME.player; if (P) cameraShake(0.08, g.mesh.position.x, g.mesh.position.z); }
+    if (INDOOR.on && Math.floor(was * 8) !== Math.floor(g.open * 8)) { sfxAt(g.kind === 'bars' ? 'chain' : 'grind', g.mesh.position.x, g.mesh.position.y + 1.5, g.mesh.position.z); const P = GAME.player; if (P) cameraShake(0.08, g.mesh.position.x, g.mesh.position.z); } // [audio2] the gate grinds where it stands (11c_sound.js)
   }
 }
 

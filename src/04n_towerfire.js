@@ -52,7 +52,8 @@ function towerIgnite(T, y = 3) {
   TFIRE.stats.lit++;
   TFIRE.dirty.add(T.C);
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, T.wx, T.wz) < 60 * 60) { sfx('ignite'); uiLog(T.look === 'rath' ? `The thatch of a tower of ${T.S.name} has caught fire!` : `A tower of ${T.S.name} has caught fire!`, 'warn'); } // [siege2]
+  sfxAt('ignite', T.wx, null, T.wz); // [audio2] (11c_sound.js)
+  if (P && dist2(P.x, P.z, T.wx, T.wz) < 60 * 60) { uiLog(T.look === 'rath' ? `The thatch of a tower of ${T.S.name} has caught fire!` : `A tower of ${T.S.name} has caught fire!`, 'warn'); } // [siege2]
   return true;
 }
 // spots on the tower where flames show, up to the height the fire has climbed to: the walls' faces, the gallery, the roof
@@ -125,7 +126,8 @@ function towerFallIn(T) {
   });
   for (let i = 0; i < 8; i++) later(i * 0.1, () => FX.dust(T.wx + (Math.random() - 0.5) * T.RO * 2, T.S.y + T.H + Math.random() * 4, T.wz + (Math.random() - 0.5) * T.RO * 2, 16, wallLit([0.22, 0.19, 0.17]))); // [siege2] RO: a drum's too
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, T.wx, T.wz) < 80 * 80) { sfx('crash'); cameraShake(0.35, T.wx, T.wz); uiLog(T.look === 'rath' ? `The burning thatch of a tower of ${T.S.name} falls in!` : `The burning tower of ${T.S.name} falls in!`, 'warn'); } // [siege2]
+  sfxAt('timberfall', T.wx, null, T.wz); sfxAt('crash', T.wx, null, T.wz, { at: 0.2 }); // [audio2] the burning tower falls in, placed (11c_sound.js)
+  if (P && dist2(P.x, P.z, T.wx, T.wz) < 80 * 80) { cameraShake(0.35, T.wx, T.wz); uiLog(T.look === 'rath' ? `The burning thatch of a tower of ${T.S.name} falls in!` : `The burning tower of ${T.S.name} falls in!`, 'warn'); } // [siege2]
   TFIRE.dirty.add(T.C);
 }
 // built back: the gallery, the roof and the ladder stand again

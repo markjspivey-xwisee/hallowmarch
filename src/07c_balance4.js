@@ -57,7 +57,7 @@ function chargeRush(e, A, t, rk) {
   e.onGround = false; // (the foot lock leaves a rushing body's feet to the run)
   setAct(e, 10, RUSH.maxT); // the shield raised across the body, the legs running (05a_rig.js: the guard over the gait)
   if (dist2(e.x, e.z, camera.position.x, camera.position.z) < 70 * 70) FX.dust(e.x, e.y, e.z, 10);
-  if (e === GAME.player || dist2(e.x, e.z, camera.position.x, camera.position.z) < 40 * 40) sfx('swing');
+  sfxAtE('swing', e, { vol: 1.3 }); // [audio2] placed (11c_sound.js)
   RUSH.stats.rushes++; if (RUSH.onEvent) RUSH.onEvent(e, `rush from ${dist(e.x, e.z, t.x, t.z).toFixed(1)} m`);
 }
 // each step of a rush (updateMotion): on toward the foe along the ground; true while it carries the body
@@ -124,7 +124,7 @@ function chargeLands(e, A, t, rk) {
     FX.sparks(t.x, t.y + 1.2 * (t.scale || 1), t.z);
     if (A.snare && RUSH.slow) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
     else if (e.level < ABILITIES.leap.level || B7T.chargeSlowLate) addBuff(t, 'snare', RUSH_SLOW_EARLY[0], RUSH_SLOW_EARLY[1], e.id); // [balance7] B7T.chargeSlowLate (07c_balance7.js)
-    if (e === GAME.player || t === GAME.player) sfx('hit');
+    sfxAtE('hit', t, { vol: 1.2 }); // [audio2] placed (11c_sound.js)
   });
 }
 

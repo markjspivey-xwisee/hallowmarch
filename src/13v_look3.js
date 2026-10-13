@@ -175,7 +175,7 @@ function look3MasonThink(e, dt) {
     // [motion5] first back out from the wall to where the work began on these boards (stepped in to the mallet's reach, a
     // way straight on to the next ladder could run into a tower's curved wall), then on along the boards
     if (m.ws) { m.wsT = (m.wsT || 0) + dt; if (moveToward(e, m.ws.x, m.ws.z, dt, 0.8, 0.08) || m.wsT > 4) { m.ws = null; m.wsT = 0; } return; }
-    if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; } else m.st = 'work'; }
+    if (moveToward(e, Ln.fx, Ln.fz, dt, 0.8, 0.15)) { if (towerClimb(e, Ln, 1)) { m.lad.push(Ln); m.st = 'up'; MASON.stats.climbed++; sfxAtE('creak', e, null, 0.3); /* [audio2] */ } else m.st = 'work'; }
     return;
   }
   if (m.st === 'work' && m.up && m.lad && m.t - (m.workT ?? m.t) > 10) {
@@ -194,7 +194,8 @@ function look3MasonThink(e, dt) {
     if (m.t >= m.next) {
       m.next = m.t + 1.05 + Math.random() * 0.5; MASON.stats.worked++;
       setAct(e, 23, 1.05);
-      later(0.68, () => { if (e.alive && !e.removed) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+      m.sndN = (m.sndN || 0) + 1;
+      later(0.68, () => { if (e.alive && !e.removed) { sfxAtE(m.up ? 'mallet' : 'chisel', e, null, 1.3); if (m.up && m.sndN % 2 === 0) sfxAtE('creak', e, { at: 0.3 }, 0.05); } }); // [audio2] the one at the foot dresses the stone, the one above sets it on creaking boards (11c_sound.js); [motion5] as the mallet meets the wall
     }
     return;
   }
@@ -203,7 +204,7 @@ function look3MasonThink(e, dt) {
   const p = m.path[0];
   if (!p) {
     if (m.st === 'out') {
-      if (m.up) { if (towerClimb(e, L, 1)) { m.st = 'up'; MASON.stats.climbed++; } else { m.at = { x: L.fx, z: L.fz }; m.path = [m.at]; } }
+      if (m.up) { if (towerClimb(e, L, 1)) { m.st = 'up'; MASON.stats.climbed++; sfxAtE('creak', e, null, 0.3); /* [audio2] */ } else { m.at = { x: L.fx, z: L.fz }; m.path = [m.at]; } }
       else m.st = 'work';
     } else { setHouseDoor(m.H, true, e, true); MASON.stats.home++; removeEnt(e); }
     return;

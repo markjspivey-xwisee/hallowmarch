@@ -399,6 +399,7 @@ function houseCrewCall(e) {
     if (d < bd && (!H.w2crew || H.w2crew.size < HCREW.max)) { bd = d; F = H; }
   }
   if (!F) return;
+  sfxAtE('shout', e, null, 1.6); // [audio2] a call of fire as it runs (11c_sound.js)
   e.seat = null;
   const steps = [];
   if (ai.house && houseHas(ai.house, e.x, e.z, -0.6) && houseIntact(ai.house)) { const H = ai.house, D = H.door; steps.push(houseGo(D.in.x, D.in.z, { run: true, room: H, exact: true }), lifeStep('door', { open: true }), houseGo(D.c.x, D.c.z, { run: true, loose: true, via: H }), houseGo(D.out2.x, D.out2.z, { run: true, loose: true, via: H })); }
@@ -472,7 +473,7 @@ function houseBeatStep(e, st, plan, dt, next) {
   // at it: beat the flames (the fire's front over its start, under the eaves)
   const l = houseL(H, B.x, B.z), q = houseW(H, clamp(l.x, -H.w / 2, H.w / 2) || 0, clamp(l.z, -H.d / 2, H.d / 2) || 0);
   turnToward(e, H.round ? H.x : q.x, H.round ? H.z : q.z, dt * 8);
-  if (e.anim.act !== 21 || e.anim.actT >= e.anim.actDur * 0.95) setAct(e, 21, 1.1);
+  if (e.anim.act !== 21 || e.anim.actT >= e.anim.actDur * 0.95) { setAct(e, 21, 1.1); sndBeat(e); } // [audio2] the beater's two blows heard (11c_sound.js)
   c.beat = GAME.t;
   return true;
 }
@@ -508,7 +509,7 @@ function houseBeatOffers(P, offer) {
 function housePlayerBeat(P, H) {
   const B = H.burn;
   if (!B || H.state !== 'burning') return;
-  setAct(P, 21, 1.1);
+  setAct(P, 21, 1.1); sndBeat(P); // [audio2]
   faceToward(P, H.x, H.z);
   B.R = Math.max(0, B.R - 0.3);
   for (const p of B.pts) if (p.fire && dist(p.x, p.z, B.x, B.z) > B.R + 0.35) { houseFireOut(p.fire); p.fire = null; }

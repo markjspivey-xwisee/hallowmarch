@@ -326,7 +326,7 @@ function strikeAt(c) {
   WEATHER.flash = 1;
   lightFlash(c.x, c.y + 3, c.z, 70, [3.2, 3.4, 4.3], 0.6);
   lightFlash(c.x, c.gy + 1.2, c.z, 16, [3.4, 3.4, 4.0], 0.45);
-  sfx('thunderNear');
+  sfxAt('thunderNear', c.x, c.y, c.z, { now: true }); // [audio2] from where it struck (11c_sound.js)
   const P = GAME.player;
   if (P && dist2(P.x, P.z, c.x, c.z) < 40 * 40) cameraShake(0.32, c.x, c.z);
   // where it went into the earth: a burnt star of grass, sparks and smoke

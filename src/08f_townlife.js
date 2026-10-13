@@ -288,7 +288,7 @@ function lifeRun(e, dt) {
       if (plan.t >= st.next) {
         st.next = plan.t + 1.05 + Math.random() * 0.4;
         setAct(e, 23, 1.05);
-        later(0.68, () => { if (e.alive) houseSfx('hammer', e.x, e.y + 1.3, e.z); });
+        later(0.68, () => { if (e.alive) sfxAtE('mallet', e, null, 1.3); }); // [audio2] placed (11c_sound.js); [motion5] as the mallet meets the wall
       }
       if (plan.t > st.dur) next();
       return true;

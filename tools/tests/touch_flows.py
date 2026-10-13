@@ -11,6 +11,7 @@ beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat o
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
 (`only=housescaf`).
+[audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -448,6 +449,20 @@ async def main():
             # [v15] the note tapped is gone (counting every note failed one run in three: on a loaded machine the next note in
             # the queue came up in the 11.5 s the tap's waits can take)
             check(ok and gone, f'guide: a tap takes a field note away ({n0} then {n1})')
+        if want('sound'):
+            # [audio2] the sound's settings by touch alone (11c_sound.js): the menu's button, its Settings, then Effects Low,
+            # Ambience High, Volume Off and back to Medium; each button scrolled into view first (the sheet scrolls on a phone)
+            await page.evaluate("(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); return 0; })()")
+            ok = [await tap(page, '#btn-menu'), await tap(page, '#menu-tabs [data-tab="settings"]')]
+            async def tap_row(sel):
+                await page.evaluate(f"(() => {{ const el = document.querySelector('{sel}'); if (el) el.scrollIntoView({{ block: 'center' }}); return 0; }})()")
+                return await tap(page, sel)
+            for sel in ['#set-fx [data-v="low"]', '#set-amb [data-v="high"]', '#set-s [data-v="off"]']: ok.append(await tap_row(sel))
+            r = await page.evaluate("(() => { const A = __hm.fn.AUDIO, s = __hm.fn.buildSave().settings; return { fx: A.lvl.sfx, amb: A.lvl.amb, on: A.on, saved: [s.effects, s.ambience, s.sound] }; })()")
+            ok.append(await tap_row('#set-s [data-v="medium"]'))
+            on = await page.evaluate("__hm.fn.AUDIO.on")
+            check(all(ok) and r['fx'] == 0.5 and r['amb'] == 1.4 and not r['on'] and r['saved'] == [0.5, 1.4, False] and on, f"sound: taps on the menu's Settings set Effects Low, Ambience High and Volume Off, and Volume back on ({ok}, {json.dumps(r)}, on again {on})")
+            await tap(page, '#btn-resume')
         if want('ladder'):
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, T = H.towers.TOWER.list.find((q) => q.look === 'stone' && q.role === 'gate' && q.sx === 1), S = T.S, L = T.ladders[1], Hh = L.hatch, P = TF.P();
               P.faction = 0; const sp = F.siteToWorld(S, T.cx + Math.sin(L.a + 1.2) * 0.95, T.cz + Math.cos(L.a + 1.2) * 0.95); TF.stand(sp.x, sp.z, Hh.cx, Hh.cz); P.y = L.wyt; P.faction = 0; Hh.held = true; H.simulate(1.0);

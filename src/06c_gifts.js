@@ -323,7 +323,7 @@ function giftStandard(e, k) {
   setAct(e, 1, 0.7);
   faceToward(e, at.x, at.z);
   spellPillar(at.x, y, at.z, 1.6, 26, 1.4, [2.2, 1.7, 0.7]);
-  sfx('fanfare');
+  sfxAtE('fanfare', e, null, 2); // [audio2] placed: a champion's call is heard where it is called (11c_sound.js)
   return S;
 }
 function giftStandardEnd(S, now = false) {
@@ -395,7 +395,7 @@ function giftHunt(e, k) {
   const D = GIFT_DEF[1].ult;
   setAct(e, 3, 0.9);
   giftSfx('howl', e.x, e.z);
-  sfx('horn');
+  sfxAtE('horn', e, null, 2); // [audio2] placed (11c_sound.js)
   for (let i = 0; i < D.n; i++) {
     const a = e.yaw + Math.PI + (i - (D.n - 1) / 2) * 0.55, r = 2.2 + (i % 2) * 0.8;
     let x = e.x + Math.sin(a) * r, z = e.z + Math.cos(a) * r;
@@ -540,7 +540,7 @@ function giftWinter(e, k, at = null) {
   spellDisc(x, z, D.r, DISC_KIND.frost, D.dur + 1.5, [0.55, 0.8, 1.2]);
   aoeMarker(x, z, D.r, D.dur);
   giftSfx('gale', x, z);
-  sfx('frost');
+  sfxAtE('frost', e, { max: 200, ref: 12 }, 2); // [audio2] placed (11c_sound.js)
   return S;
 }
 function giftWinterEnd(S) {

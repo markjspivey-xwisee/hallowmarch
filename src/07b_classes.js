@@ -405,7 +405,7 @@ function setBlock(e, on) {
     // the parry window opens only when the shield comes up fresh, not when it is held or flicked
     cs.blockAt = t - cs.blockDown >= PARRY_REARM ? t : -9;
     e.casting = null;
-    if (e === GAME.player) sfx('swing');
+    sfxAtE('swing', e); // [audio2] placed (11c_sound.js)
   } else cs.blockDown = t;
 }
 function parry(dst, src) {
@@ -656,7 +656,7 @@ function frostNova(e, A, t, cast, rk) {
     if (eriuGrowth && o.alive && dist2(o.x, o.z, camera.position.x, camera.position.z) < 60 * 60) for (let q = 0; q < 10; q++) { const a = Math.random() * TAU; fxAlpha.emit(o.x + Math.cos(a) * 0.4, o.y + 0.05, o.z + Math.sin(a) * 0.4, Math.cos(a) * 0.3, 1.2 + Math.random(), Math.sin(a) * 0.3, 0.8, 0.16, 0.3, 0.1, 0.07, 3, 1); }
   });
   frostLands(e.x, e.z, R, e);
-  sfx('frost'); classSfx('freeze', e.x, e.z);
+  sfxAtE('frost', e); classSfx('freeze', e.x, e.z); // [audio2] placed (11c_sound.js)
 }
 function thunderclap(e, A, t, cast, rk) {
   const R = A.pbaoe;
@@ -676,7 +676,7 @@ function thunderclap(e, A, t, cast, rk) {
       addBuff(o, 'snare', 0.4, 2, e.id);
     }
   });
-  sfx('shock'); sfx('boom');
+  sfxAtE('shock', e); sfxAtE('boom', e, { vol: 0.8 }); // [audio2] placed (11c_sound.js)
 }
 function elementWard(e, A, t, cast, rk) {
   const logres = realmFlavour(e) && e.faction === 0;
@@ -686,7 +686,7 @@ function elementWard(e, A, t, cast, rk) {
   const c = ELEM_COL[A.elem];
   FX.ring(e.x, e.y + 1, e.z, 1.2, c, 30, 1.6);
   if (logres) forNear(e.x, e.z, 8, (o) => { if (o !== e && o.alive && o.faction === e.faction && isActor(o) && o.kind === 'humanoid') { addBuff(o, 'shield', amt * 0.5 * (o.maxHp / e.maxHp), A.dur, e.id); FX.ring(o.x, o.y + 1, o.z, 1.0, c, 18, 1.2); } });
-  sfx('blink');
+  sfxAtE('blink', e); // [audio2] placed (11c_sound.js)
 }
 function elementBlink(e, A, t, cast, rk) {
   const ox = e.x, oz = e.z, el = A.elem;
@@ -703,7 +703,7 @@ function elementBlink(e, A, t, cast, rk) {
   else if (el === 'frost') { spellDisc(ox, oz, 3.5, DISC_KIND.frost, 3, [0.55, 0.8, 1.2]); hit(0.35, { kind: 'frost' }); frostLands(ox, oz, 3.5, e); }
   else { spellDisc(ox, oz, 3.8, DISC_KIND.shock, 0.5, [1.2, 1.5, 2.8]); hit(0.45, { kind: 'shock' }); lightFlash(ox, heightAt(ox, oz) + 1.5, oz, 10, [1.6, 2.0, 3.4], 0.25); }
   if (realmFlavour(e) && e.faction === 2) layRune(e, ox, oz, el);
-  sfx('blink');
+  sfxAtE('blink', e); // [audio2] placed (11c_sound.js)
 }
 function stormChain(e, A, t, cast, rk) {
   if (!t) return;
@@ -734,7 +734,7 @@ function stormChain(e, A, t, cast, rk) {
       dealDamage(e, o, r.d, { crit: r.crit, kind: 'shock' });
       FX.burst(to[0], to[1], to[2], 16, [1.2, 1.5, 2.8], 4.5, 0.32, 0.1, 7);
       lightFlash(to[0], to[1], to[2], 9, [1.5, 1.9, 3.4], 0.28);
-      sfx('shock');
+      sfxAt('shock', to[0], to[1], to[2]); // [audio2] placed (11c_sound.js)
     });
   });
 }
@@ -842,7 +842,7 @@ function startDraw(e) {
   const cs = csOf(e);
   if (e.cls !== 'archer' || !e.alive || e.casting || e.mount || e.carrying != null || isStunned(e) || cs.drawFrom >= 0) return false;
   cs.drawFrom = nowT();
-  if (e === GAME.player) sfx('swing');
+  sfxAtE('swing', e, { vol: 0.6 }); // [audio2] placed (11c_sound.js)
   return true;
 }
 function releaseDraw(e, target) {
@@ -893,8 +893,8 @@ function looseArrow(e, k, target, wobble = 0) {
   CLS.stats.drawn++;
   setAct(e, 2, 0.55, 0.8);
   faceToward(e, tx, tz);
-  if (e === GAME.player || dist2(e.x, e.z, camera.position.x, camera.position.z) < 45 * 45) sfx('bow');
-  if (type === 'fire') sfx('ignite');
+  sfxAtE('bow', e); // [audio2] placed (11c_sound.js)
+  if (type === 'fire') sfxAtE('ignite', e);
   if (k >= 0.98 && e === GAME.player) FX.burst(sx, sy, sz, 8, [2.0, 1.8, 1.2], 2, 0.25, 0.06, 0);
   return A;
 }
@@ -971,7 +971,7 @@ function arrowHits(A, o, src0) {
   if (A.k >= 0.98 && src0 === GAME.player) uiFloatAt(o.x, o.y + 2.5 * (o.scale || 1), o.z, 'Full draw', 'crit');
   FX.sparks(A.x, A.y, A.z);
   if (A.type === 'fire') fireLandsAt(A.x, A.y, A.z, 0.8, src); // [depth] the archer
-  if (src0 === GAME.player) sfx('hit');
+  sfxAt('hit', A.x, A.y, A.z); // [audio2] placed (11c_sound.js)
 }
 // the special heads do their own work once an arrow (drawn or from an ability) strikes
 function arrowEffect(src, dst, dmg, type, opts) {
@@ -1090,7 +1090,7 @@ function consecrate(e, A, t, cast, rk) {
   spellPillar(x, heightAt(x, z), z, 1.4, 16, 1.0, [1.9, 1.6, 0.9]);
   lightFlash(x, heightAt(x, z) + 2, z, 14, [2.6, 2.2, 1.3], 0.7);
   setAct(e, 12, 0.9);
-  sfx('pillar');
+  sfxAtE('pillar', e); // [audio2] placed (11c_sound.js)
 }
 function raiseFallen(e, A, t, cast, rk) {
   const cs = csOf(e);
@@ -1106,7 +1106,7 @@ function raiseFallen(e, A, t, cast, rk) {
   spellPillar(f.x, f.y, f.z, 1.1, 18, 1.4, [2.2, 1.9, 1.1]);
   FX.levelUp(f.x, f.y, f.z);
   lightFlash(f.x, f.y + 2, f.z, 12, [2.6, 2.2, 1.3], 0.8);
-  sfx('raise');
+  sfxAtE('raise', e); // [audio2] placed (11c_sound.js)
   if (e === GAME.player) uiLog(`You raise ${theName(f)} from the field.`, 'level');
   else if (GAME.player && dist2(e.x, e.z, GAME.player.x, GAME.player.z) < 60 * 60) uiLog(`${e.name} raises ${f.name} from the field.`, 'realm', e.faction);
 }

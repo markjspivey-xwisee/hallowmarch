@@ -166,7 +166,7 @@ function updateWater(dt) {
     // in from the air: a big splash
     if (e._wAir !== undefined && e._wAir > w.y + 0.25 && e.y <= w.y + 0.05) {
       splashAt(e.x, e.z, clamp(0.8 + (e._wAir - w.y) * 0.25, 0.8, 2), { up: 1.3 });
-      if (e === P) { sfx('splashBig'); SWIM.enterAt = GAME.t; }
+      sfxAt('splashBig', e.x, w.y, e.z); if (e === P) SWIM.enterAt = GAME.t; // [audio2] placed (11c_sound.js)
     }
     e._wAir = e.y;
     // a critter in deep water keeps its head up too (critters do not use groundY)
@@ -200,7 +200,7 @@ function updateWater(dt) {
     if (e.swim || w.depth > 0.62 * sc) {
       let burnt = false;
       for (let i = e.buffs.length - 1; i >= 0; i--) if (e.buffs[i].kind === 'burn') { e.buffs.splice(i, 1); burnt = true; }
-      if (burnt) { waterSteam(e.x, w.y, e.z, 14); if (e === P || dist2(e.x, e.z, camX, camZ) < 30 * 30) sfx('hiss'); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); }
+      if (burnt) { waterSteam(e.x, w.y, e.z, 14); sfxAt('hiss', e.x, w.y + 0.5, e.z); if (e === P) uiLog('The water puts out the flames on you.', 'sys'); } // [audio2] placed (11c_sound.js)
     }
     // splashes and ripples: a wader's every footfall, a swimmer's strokes and wake
     const vis = dist2(e.x, e.z, camX, camZ) < 45 * 45 && !e.dive; // [water2] a diver leaves no splashes on the surface
@@ -210,7 +210,7 @@ function updateWater(dt) {
         if (strokes && (e.swimAmt > 0.15 || e.kind !== 'humanoid')) {
           const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
           splashAt(e.x + fx * 0.55 * sc, e.z + fz * 0.55 * sc, e.kind === 'humanoid' ? 0.45 : 0.3, { up: 0.7 });
-          if (e === P) sfx('swim');
+          sfxAt('swim', e.x, w.y, e.z); // [audio2] placed (11c_sound.js)
         }
         e._wakeT = (e._wakeT || 0) - dt;
         if (e._wakeT <= 0) { e._wakeT = 0.12; rippleDrop(e.x, e.z, 0.55 * sc, 0.005 + 0.018 * Math.min(1, rel / 2.5)); }
@@ -219,7 +219,7 @@ function updateWater(dt) {
         if (e._wStep !== undefined && step !== e._wStep && e.anim.amt > 0.08) {
           const side = step & 1 ? 1 : -1, cx = Math.cos(e.yaw) * 0.14 * side * sc, fx = Math.sin(e.yaw) * 0.3 * sc, fz = Math.cos(e.yaw) * 0.3 * sc;
           splashAt(e.x + fx + cx, e.z + fz - Math.sin(e.yaw) * 0.14 * side * sc, clamp(0.25 + w.depth * 0.6 + e.anim.amt * 0.2, 0.25, 0.9), { up: 0.6 + e.anim.amt * 0.4 });
-          if (e === P) sfx('wade');
+          sfxAt('wade', e.x, w.y, e.z, e === P ? null : { vol: 0.7 }); // [audio2] placed (11c_sound.js)
         }
         e._wStep = step;
         if (e.anim.amt > 0.05) { e._wakeT = (e._wakeT || 0) - dt; if (e._wakeT <= 0) { e._wakeT = 0.16; rippleDrop(e.x, e.z, 0.4 * sc, 0.006 + 0.012 * Math.min(1, w.depth)); } }

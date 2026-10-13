@@ -540,7 +540,8 @@ function siegeImpact(s) {
     siegeSplash(src, a.x, a.z, 2.6, 1.1);
     houseBlowAt(src, a.x, a.z, 1.8, mult * 0.6); // [war2] a stone that lands beside a house (a keep's hall in the court, a wall short) shakes it: its walls crack (04j_batter.js)
   }
-  if (near) { sfx(s.heavy ? 'boom' : 'crash'); cameraShake(s.heavy ? 0.4 : 0.25, a.x, a.z); }
+  sfxAt(s.heavy ? 'boom' : 'crash', a.x, a.y, a.z); // [audio2] placed (11c_sound.js)
+  if (near) cameraShake(s.heavy ? 0.4 : 0.25, a.x, a.z);
 }
 
 /* ------------------------------------------------------------------ */
@@ -564,6 +565,7 @@ function siegeEngineStep(E, dt) {
     if (hands > 0) {
       E.build = Math.min(1, E.build + (dt * (0.35 + 0.65 * work)) / E.spec.build);
       siegeCrewAct(E, Math.random() < 0.5 ? 8 : 1, 0.7, 0.85);
+      if (Math.random() < dt * 1.6) sfxAt(Math.random() < 0.2 ? 'saw' : 'mallet', E.x + (Math.random() - 0.5) * 3, null, E.z + (Math.random() - 0.5) * 3); // [audio2] its crew at work on it (11c_sound.js)
       if (Math.random() < dt * 1.2) { const p = siegeLocal(E, (Math.random() - 0.5) * 2, 0.6 + Math.random() * 2, (Math.random() - 0.5) * 3); FX.dust(p.x, p.y, p.z, 3, [0.5, 0.42, 0.3]); }
     }
     if (E.build >= 1) { E.state = dist(E.x, E.z, E.work.x, E.work.z) > 0.6 && E.spec.speed > 0 ? 'move' : 'work'; E.ph = E.kind === 'ram' ? 'pull' : 'wind'; E.arm = E.kind === 'mangonel' ? MANG_REST : E.kind === 'trebuchet' ? Math.PI / 2 : 0; if (E.state === 'work') siegeSettle(E); }
@@ -575,6 +577,7 @@ function siegeEngineStep(E, dt) {
       if (isWalkable(nx, nz)) {
         E.x = nx; E.z = nz;
         for (const w of E.wheels) w.rotation.x += step / 0.5;
+        E.sndRoll = (E.sndRoll || 0) + step; if (E.sndRoll > 1.4) { E.sndRoll = 0; sfxAt('creak', E.x, null, E.z, { vol: 1.5 }); } // [audio2] its wheels and frame groan as it rolls (11c_sound.js)
         siegeCrewAct(E, 5, 0.75, 0.8);
         siegeGround(E);
       } else { E.work = { x: E.x, z: E.z }; }
@@ -622,7 +625,8 @@ function siegeRamStep(E, dt, hands, work) {
         FX.dust(h.x, h.y, h.z, 14, [0.5, 0.44, 0.36]);
         siegeDebris(h.x, h.y + 0.6, h.z, 10, [0.42, 0.3, 0.18], 3, 3);
         const P = GAME.player;
-        if (P && dist2(P.x, P.z, h.x, h.z) < 70 * 70) { sfx('thud'); if (Math.random() < 0.35) sfx('crash'); cameraShake(0.22, h.x, h.z); }
+        sfxAt('thud', h.x, h.y, h.z, { vol: 1.3 }); if (Math.random() < 0.35) sfxAt('crash', h.x, h.y, h.z); // [audio2] placed (11c_sound.js)
+        if (P && dist2(P.x, P.z, h.x, h.z) < 70 * 70) cameraShake(0.22, h.x, h.z);
       }
       E.psiV = -Math.abs(E.psiV) * 0.22; E.ph = 'settle'; E.pt = 0; E.shake = 0.6;
     }
@@ -656,8 +660,7 @@ function siegeMangonelStep(E, dt, hands, work) {
       E.arm = MANG_REST; E.armV = -E.armV * 0.16; E.ph = 'settle'; E.pt = 0; E.shake = 1;
       const q = siegeLocal(E, 0, 2.5, 0.5);
       FX.dust(q.x, q.y, q.z, 6, [0.55, 0.5, 0.4]);
-      const P = GAME.player;
-      if (P && dist2(P.x, P.z, E.x, E.z) < 60 * 60) sfx('thud');
+      sfxAt('thud', E.x, null, E.z); // [audio2] placed (11c_sound.js)
     }
   } else {
     E.pt += dt;
@@ -710,7 +713,7 @@ function siegeTrebStep(E, dt, hands, work) {
     sl.x = lerp(sl.x, 0, k); sl.y = lerp(sl.y, 0.42, k); sl.z = lerp(sl.z, tip.z + TREB_SLING - 0.05, k);
     sl.px = sl.x; sl.py = sl.y; sl.pz = sl.z;
     if (E.pt > 1.0 && !E.loaded && hands > 0) { E.loaded = true; siegeCrewAct(E, 5, 0.7, 0.1); }
-    if (E.pt > 2.2 && E.loaded) { E.ph = 'throw'; E.pt = 0; E.armV = 0; const P = GAME.player; if (P && dist2(P.x, P.z, E.x, E.z) < 70 * 70) sfx('grind'); }
+    if (E.pt > 2.2 && E.loaded) { E.ph = 'throw'; E.pt = 0; E.armV = 0; sfxAt('grind', E.x, null, E.z); } // [audio2] placed (11c_sound.js)
   } else if (E.ph === 'throw') {
     E.pt += dt;
     siegeTrebSwing(E, dt);
@@ -730,8 +733,7 @@ function siegeIgnite(E, by = null) {
   if (E.coll) E.coll.active = false;
   const R = REALMS[E.realm], S = E.target && E.target.C ? E.target.C.S : null;
   news(`The ${R.name} ${E.spec.label}${S ? ` before ${S.name}` : ''} is on fire!`, E.realm, 'normal');
-  const P = GAME.player;
-  if (P && dist2(P.x, P.z, E.x, E.z) < 70 * 70) sfx('ignite');
+  sfxAt('ignite', E.x, null, E.z); // [audio2] placed (11c_sound.js)
   if (typeof igniteGrass === 'function') igniteGrass(E.x, E.z, 2.2, 3, 0.8);
   return true;
 }
@@ -769,7 +771,8 @@ function siegeWreck(E, how) {
   FX.splinters(p.x, p.y, p.z);
   FX.dust(p.x, E.y + 0.3, p.z, 24, burnt ? [0.25, 0.23, 0.21] : [0.5, 0.45, 0.38]);
   const P = GAME.player;
-  if (P && dist2(P.x, P.z, E.x, E.z) < 80 * 80) { sfx('crash'); cameraShake(0.25, E.x, E.z); }
+  sfxAt('crash', E.x, null, E.z); // [audio2] placed (11c_sound.js)
+  if (P && dist2(P.x, P.z, E.x, E.z) < 80 * 80) cameraShake(0.25, E.x, E.z);
   const R = REALMS[E.realm], S = E.target && E.target.C ? E.target.C.S : null;
   news(`The ${R.name} ${E.spec.label}${S ? ` before ${S.name}` : ''} has been ${burnt ? 'burnt to the ground' : 'hacked apart'}.`, S && S.keepRef ? S.keepRef.realm : E.realm, 'normal');
 }

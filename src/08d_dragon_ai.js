@@ -137,7 +137,7 @@ function thinkDragon(e, dt) {
       FX.dust(e.x, e.y, e.z, 40, [0.45, 0.4, 0.32]);
       cameraShake(0.5, e.x, e.z);
       natureImpact(e.x, e.z, 'dragon'); // nature (05h_nature.js): the landing craters the ground and throws down trees
-      sfx('thud');
+      sfxAtE('thud', e, { vol: 1.6 }, 0.5); /* [audio2] placed */
       if (Pl && dist(Pl.x, Pl.z, e.x, e.z) < 260) news(`${DRAGON_NAME} has landed in the March!`, -1, 'big');
     }
     return;
@@ -193,7 +193,7 @@ function thinkDragon(e, dt) {
     e.x += Math.sin(e.yaw) * sp * dt; e.z += Math.cos(e.yaw) * sp * dt;
     D.alt += (D.perch.y + 22 - D.alt) * (1 - Math.exp(-dt * 0.5));
     e.y = e.fixedY = D.alt;
-    if (d < 14 || D.stateT > 14) { setDragonState('strafe'); sfx('roar'); }
+    if (d < 14 || D.stateT > 14) { setDragonState('strafe'); sfxAtE('roar', e, null, 3); /* [audio2] placed */ }
     return;
   }
   if (D.state === 'strafe') {
@@ -236,7 +236,7 @@ function thinkDragon(e, dt) {
   if (tgt) { D.lastFoe = t; D.lastTarget = tgt.id; }
   // wounded: up into the air for a burning run, then back down
   if (!D.halfDone && e.hp < e.maxHp * 0.5 && !D.act) {
-    D.halfDone = true; D.strafeNext = true; D.liftFrom = e.y; setDragonState('takeoff'); sfx('roar'); return;
+    D.halfDone = true; D.strafeNext = true; D.liftFrom = e.y; setDragonState('takeoff'); sfxAtE('roar', e, null, 3); /* [audio2] placed */ return;
   }
   if (!tgt && t - D.lastFoe > 70 && !D.act) {
     // nothing to fight: heal and take to the sky again
@@ -253,7 +253,7 @@ function thinkDragon(e, dt) {
       if (o && o.alive && dist(o.x, o.z, e.x + fwdX * 4.5, e.z + fwdZ * 4.5) < 4.2 + o.radius) {
         const r = computeDamage(e, o, 1.6);
         dealDamage(e, o, r.d, { kind: 'melee', crit: r.crit });
-        FX.sparks(o.x, o.y + 1.1, o.z); sfx('hit'); cameraShake(0.2, o.x, o.z);
+        FX.sparks(o.x, o.y + 1.1, o.z); sfxAtE('hit', o); /* [audio2] placed */ cameraShake(0.2, o.x, o.z);
       }
     }
     if (A.kind === 'tail' && !A.hit && at > 0.5) {
@@ -265,7 +265,7 @@ function thinkDragon(e, dt) {
         dealDamage(e, o, r.d, { kind: 'melee' });
         FX.dust(o.x, o.y, o.z, 6);
       }
-      sfx('swing'); FX.dust(e.x - fwdX * 6, e.y, e.z - fwdZ * 6, 18, [0.45, 0.4, 0.32]);
+      sfxAtE('swing', e, { vol: 1.5 }, 2); /* [audio2] placed */ FX.dust(e.x - fwdX * 6, e.y, e.z - fwdZ * 6, 18, [0.45, 0.4, 0.32]);
     }
     if (A.kind === 'breath') {
       D.breathing = at > 0.28 && at < 0.88;
@@ -290,7 +290,7 @@ function thinkDragon(e, dt) {
   const behind = foes.some((o) => dist(o.x, o.z, e.x, e.z) < 9 && Math.abs(angDiff(e.yaw + Math.PI, Math.atan2(o.x - e.x, o.z - e.z))) < 1.2);
   if (behind && t > D.nextTail) { D.nextTail = t + 7; D.act = { kind: 'tail', t: 0, dur: DRAGON_ACT.tail, side: Math.random() < 0.5 ? 1 : -1 }; return; }
   if (Math.abs(off) > 0.5) return;
-  if (t > D.nextBreath && d < 17 && d > 4) { D.nextBreath = t + 11 + Math.random() * 5; D.act = { kind: 'breath', t: 0, dur: DRAGON_ACT.breath }; aoeMarker(e.x + fwdX * 13, e.z + fwdZ * 13, 7, 1.0); sfx('breath'); return; }
+  if (t > D.nextBreath && d < 17 && d > 4) { D.nextBreath = t + 11 + Math.random() * 5; D.act = { kind: 'breath', t: 0, dur: DRAGON_ACT.breath }; aoeMarker(e.x + fwdX * 13, e.z + fwdZ * 13, 7, 1.0); sfxAtE('breath', e, null, 3); /* [audio2] placed */ return; }
   if (d < 7.8 && t > D.nextBite) { D.nextBite = t + 2.4; D.act = { kind: 'bite', t: 0, dur: DRAGON_ACT.bite, tgt: tgt.id }; return; }
   if (d > 6.5 && dist(e.x + fwdX, e.z + fwdZ, D.perch.x, D.perch.z) < 26) {
     const sp = 3.2;
@@ -305,7 +305,7 @@ function onDragonDeath(e) {
   e.removeAt = GAME.t + 90;
   e.flying = false;
   news(`${DRAGON_NAME} has fallen!`, -1, 'big');
-  sfx('roar');
+  sfxAtE('roar', e, null, 3); /* [audio2] placed */
 }
 
 /* ------------------------------------------------------------------ */
@@ -402,7 +402,7 @@ function dragonTargetPose(dt) {
     for (let k = 0; k < 4; k++) P.tailYaw[k] = 0.11 * Math.sin(tr * 1.3 - k * 0.8) + clamp(F.turn * (0.6 + 0.2 * k), -0.35, 0.35);
     P.jaw = D.breathing ? 0.7 : 0.04 + 0.03 * Math.max(0, Math.sin(tr * 0.4));
     // the whoosh of a downstroke when it is close
-    if (fl > 0.5 && prevCyc - Math.floor(prevCyc) < 0.08 && c >= 0.08 && D.wingSnd < t && dist2(e.x, e.z, camera.position.x, camera.position.z) < 90 * 90) { D.wingSnd = t + 0.5; sfx('wingbeat'); }
+    if (fl > 0.5 && prevCyc - Math.floor(prevCyc) < 0.08 && c >= 0.08 && D.wingSnd < t && dist2(e.x, e.z, camera.position.x, camera.position.z) < 90 * 90) { D.wingSnd = t + 0.5; sfxAtE('wingbeat', e, null, 3); /* [audio2] placed */ }
     D.wingEase = 18;
     return P;
   }
@@ -459,7 +459,7 @@ function dragonTargetPose(dt) {
       const r = smooth(clamp(at / 0.2, 0, 1)) * (1 - smooth(clamp((at - 0.85) / 0.15, 0, 1)));
       P.neck = [P.neck[0] - 0.35 * r, P.neck[1] - 0.25 * r, P.neck[2] - 0.15 * r]; P.head -= 0.5 * r; P.jaw = 0.85 * r;
       P.wl = [0.6 + 0.1 * r, 1.0 - 0.75 * r, 0.0, -1.4 + 1.2 * r, 0.6 - 0.4 * r, 1 - 0.8 * r]; P.wr = P.wl.slice();
-      if (!A.snd && at > 0.15) { A.snd = true; sfx('roar'); cameraShake(0.35, D.e.x, D.e.z); }
+      if (!A.snd && at > 0.15) { A.snd = true; sfxAtE('roar', D.e, null, 3); /* [audio2] placed */ cameraShake(0.35, D.e.x, D.e.z); }
     }
   }
   if (D.poseOverride) for (const k in D.poseOverride) P[k] = Array.isArray(D.poseOverride[k]) ? D.poseOverride[k].slice() : D.poseOverride[k];
@@ -495,7 +495,7 @@ function drawDragon(dt) {
     const g = heightAt(e.x, e.z);
     e.fixedY = Math.max(g, e.fixedY - dt * Math.min(30, 4 + D.stateT * 14));
     e.y = e.fixedY;
-    if (e.fixedY <= g + 0.01) { e.fixedY = null; e.y = g; FX.dust(e.x, g, e.z, 40, [0.45, 0.4, 0.32]); cameraShake(0.6, e.x, e.z); sfx('crash'); }
+    if (e.fixedY <= g + 0.01) { e.fixedY = null; e.y = g; FX.dust(e.x, g, e.z, 40, [0.45, 0.4, 0.32]); cameraShake(0.6, e.x, e.z); sfxAtE('crash', e, null, 0.5); /* [audio2] placed */ }
   }
   if (D.state === 'dead') D.stateT += dt;
   dragonAnimate(dt);
