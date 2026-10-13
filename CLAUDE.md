@@ -782,6 +782,8 @@ Still off (for the next pass):
 - **The priest's mastery at 30** (11 of 24): the skilled priest mends more (56 health a second against 37) and smites less (48 against 90) than its simple self, which runs short of power a third of the fight and wins anyway; a priest of rank II's race (it smites at rank I instead of mending early: `B7T.priestRace`) is the next thing to try.
 - **The Shield of Logres at 50** (20 of 24 against the plain priest): a mirror of two healers is a race any steady edge decides.
 - **The skilled archer against the skilled priest at 50** (37 and 27 of 48: about two in three).
+- **The deep and the risen** (The late game's foes weighed again, below): the skilled priest brings the Ash-Crowned down slowest and least hurt (112 to 126 s, 55 to 62% at its lowest, its draughts untouched); the simple archer stands off out of his hall (its Tumble pressed in turn) while he goes back to his throne whole; the simple warrior falls to him at 50 with him at 13%, and the simple warrior and archer to Hrungnir Moss-Crown at 40 and 45 (the archer at 50 too).
+- **The war's hallow bonus on the measures' bots** (taken off after the runs: not yet measured whether the level 10 drift goes with it), and `classes.py balance`'s time to kill and the pack on this work's rules (Tested, below).
 
 ### The late game's foes weighed again ([balance9], version 18)
 
