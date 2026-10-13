@@ -26,6 +26,7 @@ const LATE4 = {
   bolts: [], // boulders in flight
   rushes: [], // gore rushes on their way
   air: null, // the deep's air: its own placed voices
+  off: false, // (tests: no host walks: late4Measuring)
   stats: { windups: 0, broken: 0, seconds: 0, by: {}, hostSpawned: 0, hostFell: 0, hostFights: 0, routeLegs: 0, routeFails: 0, deepSaved: 0, deepLoaded: 0, tears: 0 },
 };
 const LATE4_HOST_AT = 40; // the level at which the hosts walk (the risen camps rise at the same)
@@ -364,7 +365,18 @@ function late4Route(H) {
   if (H.px == null && H.route.length) { H.px = H.route[0].x; H.pz = H.route[0].z; H.ri = 1; }
   return H.route;
 }
-const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOST_AT && GAME.prog.level >= LATE4_HOST_AT;
+// the hosts keep off the measures (the callings' balance: classes.py, duels.py, balance8.py): while the player is played by
+// a bot, or any body of the measures (`e.balance`) stands, or a test has set `LATE4.off`, no host walks (a host walks the
+// homelands' ring where the duels' arenas lie, and passes the risen camps where the risen are measured)
+const L4_MEASURE = { t0: -1e9, on: false };
+function late4Measuring() {
+  if (LATE4.off) return true;
+  const P = GAME.player;
+  if (P && P.bot) return true;
+  if (Math.abs(GAME.t - L4_MEASURE.t0) >= 2) { L4_MEASURE.t0 = GAME.t; L4_MEASURE.on = ENT.some((e) => e.balance && e.alive); }
+  return L4_MEASURE.on;
+}
+const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOST_AT && GAME.prog.level >= LATE4_HOST_AT && !late4Measuring();
 function late4HostSpawn(H) {
   late4Route(H);
   if (!H.route.length || H.px == null) return false;

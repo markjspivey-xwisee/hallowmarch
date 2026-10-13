@@ -89,12 +89,29 @@ async def main():
               const R = T4.champ('bandit', 0), C = R.C; const [qx, qz] = T4.spot(C.x, C.z, 40); H.teleport(qx, qz); P.yaw = Math.atan2(C.x - P.x, C.z - P.z); H.CAM.yaw = P.yaw; for (let i = 0; i < 12; i++) { H.simulate(0.05); P.yaw = Math.atan2(C.x - P.x, C.z - P.z); H.CAM.yaw = P.yaw; H.frame(1/30); }
               const el = [...document.querySelectorAll('#nameplates .np')].find((n) => n.style.display !== 'none' && n._eid === C.id);
               out.plate = el ? { risen: el.classList.contains('risen'), text: el.textContent } : null;
+              // the March's other veterans wear their devices: a risen outlaw the crowned skull, a keep lord past 40 the tower, the dead none
+              const sk = T4.champ('skeleton', 0), lord = H.ENT.find((e) => e.alive && e.role === 'lord');
+              out.mantle = { bandit: X.late4MantleCode(C), skeleton: sk ? X.late4MantleCode(sk.C) : null, lord: lord ? X.late4MantleCode(lord) : null };
               out.errors = H.errors.slice(0, 3); return out; })()""")
+            check(r['mantle']['bandit'] == 8 * 7 and r['mantle']['skeleton'] == 0 and r['mantle']['lord'] == 8 * 3, f"the March's other veterans wear their devices: a risen outlaw the crowned skull, a keep lord past 40 the tower, the dead none ({r['mantle']})")
             check(r['bear'] and r['bear']['marked'] and r['bear']['g'] >= 4, f"a risen bear is marked: 4 above its second colour's green ({r['bear']})")
             check(r['bandit'] and r['bandit']['marked'] and (r['bandit']['flags'] & 512), f"a risen outlaw is marked: flag 512 for the people's shader ({r['bandit']})")
             check(r['skeleton'] and (r['skeleton']['flags'] & 512) and r['wolf'] and r['wolf']['g'] >= 4 and r['troll'] and (r['troll']['flags'] & 512), 'the dead, the wolves and the trolls marked too')
             check(r['plate'] and r['plate']['risen'], f"its name in ember on its plate at 40 m ({r['plate']})")
             check(not r['errors'], f"no errors ({r['errors']})")
+
+        # ---- a long name on the frame: on a phone the deed whole and your own shortened (with `phone`, or only=frame) ----
+        if (phone and want('frame')) or (ONLY is not None and 'frame' in ONLY):
+            r = await ev(page, 'frame', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, L = T4.L, X = T4.X, out = {};
+              P.name = 'Wilhelmina'; if (!L.LATE2.names.includes('rr8')) L.LATE2.names.push('rr8'); L.late2Wear('rr8'); H.simulate(0.2); H.frame(1/30);
+              const el = document.getElementById('pf-name'); out.text = el.textContent; out.full = L.late2Named(P); out.over = el.scrollWidth - el.clientWidth;
+              out.touch = !!('ontouchstart' in window);
+              return out; })()""")
+            check(r['text'] == r['full'] if not phone else (r['text'].endswith('Marshal of Logres') and r['text'] != r['full'] and r['over'] <= 1), f"a long name on the frame: {r['text']!r} (in full {r['full']!r}; past its box by {r['over']} px)")
+            await page.evaluate("window.__rafHold = true; 0")
+            await frames(page, 2)
+            if SHOTS: await page.screenshot(path=str(OUT) + '/late4_frame_' + ('phone' if phone else 'desk') + '.png', timeout=300000, clip={'x': 0, 'y': 0, 'width': min(W, 390), 'height': 160})
+            await page.evaluate("window.__rafHold = false; 0")
 
         # ---- the wind-ups ----
         if want('windup'):
@@ -406,6 +423,8 @@ async def main():
             await page.evaluate("__hm.UI.modal = null; __hm.CAM.mode = 'play'; __hm.setTod(0.75); 0")
 
         print('ERRORS', await page.evaluate("__hm.errors.slice(0, 5)"), flush=True)
+        bad = await page.evaluate("__hm.dbg.renderer.info.programs.filter(p => p.diagnostics && !p.diagnostics.runnable).map(p => p.name + ': ' + ((p.diagnostics.vertexShader.log || '') + (p.diagnostics.fragmentShader.log || '')).slice(0, 300))")
+        check(not bad, f"every program drawn compiled ({bad})")
         await b.close()
     print(f'done in {time.time() - T0:.0f}s', flush=True)
     if FAILS:
