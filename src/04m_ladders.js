@@ -252,14 +252,21 @@ function ladderFallStep(e, m, dt) {
   }
   e.onGround = false;
   const gy = floorAt(e.x, e.z, Math.max(ny, e.y - 0.6));
-  if (ny > gy) { e.y = ny; return true; }
+  if (ny > gy) {
+    e.y = ny;
+    // [motion5] the last of a fall from more than a step: the legs reach down for the ground and take it bent at the knees
+    // (the crouch, action 13: its feet set on the ground by IK), and the body rises from it (it came down with its legs
+    // tucked up under it and stood up straight in the same frame, the feet flicking down 30 cm)
+    if (ny - gy < 0.5 && m.y0 - gy > 0.9 && e.anim.act !== 13) setAct(e, 13, 0.8);
+    return true;
+  }
   // landed
   e.y = gy; e.motion = null; e.onGround = true; e.vy = 0;
   if (e.prevX !== undefined) { e.prevX = e.x; e.prevZ = e.z; }
   LADDER_CLIMBERS.delete(e);
   const h = m.y0 - gy, k = clamp((h - LADDER.fall.safe) * LADDER.fall.perM, 0, LADDER.fall.max);
   FX.dust(e.x, gy, e.z, 10);
-  setAct(e, 4, 0.5);
+  if (!(e.anim.act === 13 && e.anim.actDur > 0)) setAct(e, 4, 0.5); // [motion5] (a fall from more than a step lands in the crouch)
   LADDER.stats.falls++;
   const P = GAME.player;
   if (P && dist2(P.x, P.z, e.x, e.z) < 30 * 30) sfx('thud');

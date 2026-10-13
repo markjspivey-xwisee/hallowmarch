@@ -121,7 +121,7 @@ function towerRubbleGeo(W) {
     // the mound's height over the line out from the middle: highest over the fallen face
     const dd = Math.abs(u - (T.RO - 0.3));
     const h = Math.max(0.05, (W.rubble - T.yG + 0.2) * (1 - Math.min(1, dd / 3.2)) * (1 - 0.4 * Math.min(1, Math.abs(v) / 2.2)));
-    const [x, z] = at(u, v), s = 0.25 + 0.42 * r(), y = T.yG + h * (0.55 + 0.3 * r());
+    const [x, z] = at(u, v), s = 0.25 + 0.42 * r(), y = rubbleSinkY(W, x, T.yG + h * (0.55 + 0.3 * r()), z, 0.26); // [motion5] (sunk in the mound over the way a body walks: 13y_motion5.js)
     // [look3] most of the heap is the drum's own dressed stones, tumbled and broken (it read as a pile of round
     // boulders), with smaller broken pieces between them
     if (i % 3) b.add(G.box, lm(M, x, y, z, r() * TAU, 0.45 + 0.5 * r(), 0.28 + 0.2 * r(), 0.32 + 0.3 * r(), (r() - 0.5) * 1.2, (r() - 0.5) * 1.2), MAT.stone, darker(st.stone, 0.66 + 0.3 * r()), C.S.y, 1.5);
@@ -130,12 +130,12 @@ function towerRubbleGeo(W) {
   // squared blocks of the face, tumbled
   for (let i = 0; i < 14; i++) {
     const u = T.RO - 1.2 + r() * 3.6, v = (r() - 0.5) * 3.2, [x, z] = at(u, v);
-    b.add(G.box, lm(M, x, T.yG + 0.3 + r() * 0.5, z, r() * TAU, 0.55 + 0.35 * r(), 0.4 + 0.2 * r(), 0.45 + 0.3 * r(), (r() - 0.5) * 0.8, (r() - 0.5) * 0.8), MAT.stone, darker(st.stone, 0.72 + 0.25 * r()));
+    b.add(G.box, lm(M, x, rubbleSinkY(W, x, T.yG + 0.3 + r() * 0.5, z, 0.32), z, r() * TAU, 0.55 + 0.35 * r(), 0.4 + 0.2 * r(), 0.45 + 0.3 * r(), (r() - 0.5) * 0.8, (r() - 0.5) * 0.8), MAT.stone, darker(st.stone, 0.72 + 0.25 * r())); // [motion5]
   }
   // the guard room's beams and boards, broken, in the heap inside
   for (let i = 0; i < 6; i++) {
     const u = (r() - 0.3) * T.RI, v = (r() - 0.5) * T.RI, [x, z] = at(u, v);
-    b.add(G.box, lm(M, x, T.yG + 0.5 + r() * 0.7, z, r() * TAU, 0.18, 0.16, 1.2 + r() * 1.4, (r() - 0.5) * 0.9, (r() - 0.5) * 0.4), MAT.wood, darker(st.wood, 0.55 + 0.25 * r()));
+    b.add(G.box, lm(M, x, rubbleSinkY(W, x, T.yG + 0.5 + r() * 0.7, z, 0.2), z, r() * TAU, 0.18, 0.16, 1.2 + r() * 1.4, (r() - 0.5) * 0.9, (r() - 0.5) * 0.4), MAT.wood, darker(st.wood, 0.55 + 0.25 * r())); // [motion5]
   }
   // the broken ends of the drum either side of the V: ragged courses stepping down into the gap
   for (const sd of [-1, 1]) for (let k = 0; k < 6; k++) {
@@ -143,6 +143,7 @@ function towerRubbleGeo(W) {
     const x = T.cx + Math.sin(a) * rr, z = T.cz + Math.cos(a) * rr, y = lerp(W.rubble + 0.15, W.cutY - 0.6, t);
     b.add(G.box, lm(M, x, y, z, a, 0.7 + 0.3 * r(), 0.45 + 0.25 * r(), T.RO - T.RI + 0.1, (r() - 0.5) * 0.2, (r() - 0.5) * 0.25), MAT.stone, darker(st.stone, 0.74 + 0.22 * r()));
   }
+  rubbleMound(b, W); // [motion5] the mound the stones lie on, over the ramps a body walks (13y_motion5.js)
   return b.build();
 }
 // [look3] a putlog scaffold round the drum's face (look3Scaffold, 04d_look3.js): standards, ledgers, putlogs into the

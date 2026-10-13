@@ -102,7 +102,7 @@ window.MO = {
     });
     this.over(Ln, Math.max(14, Math.max(...vs) * sec * 0.9));
     const rec = this.M.motionRun(ents, sec, 1 / 60);
-    const out = vs.map((v, i) => ({ v, ...this.M.motionMeasure(rec[i], { skip: opts.skip ?? 0.6 }) }));
+    const out = vs.map((v, i) => ({ v, ...this.M.motionMeasure(rec[i], { skip: opts.skip ?? 0.6, contact: opts.contact }) })); // [motion5] (contact: a bird's is 1.5 cm, its leg a fifth of a person's)
     this.clear();
     return out;
   },
@@ -230,11 +230,11 @@ async def main():
             report('shoved', r, [3.0, 3.0]); res['beast_shove'] = r
         if 'farm' in ONLY:
             for kind, vs in (('sheep', [0.4, 1.1, 2.6, 5.0]), ('cattle', [0.4, 1.0, 2.2, 4.5]), ('pig', [0.4, 1.0, 2.4, 4.5]), ('hound', [0.6, 1.5, 3.6, 7.5]), ('hen', [0.15, 0.4, 0.9, 2.0])):
-                r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6)")
+                r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6{', { contact: 0.015 }' if kind == 'hen' else ''})") # [motion5] a bird in contact within 1.5 cm (its leg is 15-20 cm: 4 cm was a fifth of it, and counted the end of a swing coming down as a stance)
                 report(kind, r, vs); res[kind] = r
         if 'bird' in ONLY:
             for kind, vs in (('pheasant', [0.3, 0.9, 2.2]), ('duck', [0.3, 0.9, 1.6])):
-                r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6)")
+                r = await ev(page, f"MO.straight('{kind}', {vs}, 2.6, {{ contact: 0.015 }})")
                 report(kind, r, vs); res[kind] = r
         if 'player' in ONLY:
             # the player by the keys: across the muster ground walking and sprinting, up a keep's stair onto the wall walk

@@ -343,6 +343,7 @@ function updateAnim(e, dt) {
 function animActValue(e) {
   const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
   const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
+  const m5 = motion5ActValue(e); if (m5) return m5; // [motion5] a boat shoved off: the gunwale's height with the progress (13y_motion5.js)
   if (e.casting) {
     if (e.casting.id === 'summon') return 0;
     const A = ABILITIES[e.casting.id];

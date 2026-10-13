@@ -79,7 +79,7 @@ function birdBuild(kind, lod) {
   // legs: shank and foot (the duck's webbed); they swing at the hip, tuck in the air
   for (const s of [1, -1]) {
     const b = s > 0 ? 9 : 12, x = s * (duck ? 0.05 : 0.04), top = D.legTop;
-    kitTube(K, [{ c: [x, top, 0.0], rx: 0.009, rz: 0.009 }, { c: [x, top * 0.5, 0.008], rx: 0.007, rz: 0.007 }, { c: [x, 0.015, 0.01], rx: 0.006, rz: 0.006 }], hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) });
+    kitTube(K, birdLegTubePts(BIRD_LEGS[kind], x, top - 0.012, 0.009, 0.0062), hi ? 6 : 4, { front: [0, 0, 1], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.8 }) }); // [motion5] down to the hock, bent back, and on to the foot (05j_birdlegs.js)
     if (duck) kitBlob(K, [x, 0.008, 0.04], 6, 3, { r: [0.03, 0.005, 0.034], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
     else for (const [ta, tl] of [[-0.4, 0.045], [0, 0.05], [0.4, 0.045], [Math.PI, 0.025]]) kitTube(K, [{ c: [x, 0.01, 0.01], rx: 0.0045, rz: 0.0045 }, { c: [x + Math.sin(ta) * tl, 0.004, 0.01 + Math.cos(ta) * tl], rx: 0.0028, rz: 0.0028 }], 4, { cap1: 'dome', front: [0, 1, 0], attr: () => ({ bone: b, w: 1, mat: FMAT.beak, ao: 0.75 }) });
   }
@@ -98,8 +98,10 @@ function birdVS(depth) {
   attribute float aBone; attribute float aW; attribute float aMat; attribute vec2 aUV; attribute float aAO;
   attribute vec4 iPos; attribute vec4 iAnim; attribute vec4 iColA; attribute vec4 iColB;
   ${depth ? '' : 'varying vec3 vW; varying vec3 vN; varying vec3 vNo; varying vec3 vO; varying vec2 vUV; varying float vMat; varying float vAO; varying vec3 vFur; varying vec3 vFur2; varying float vFlash; varying vec2 vWx; varying vec2 vPat;'}
+  uniform vec4 uLegJ;   // [motion5] the hock and the ankle at rest, (z, y) each (05j_birdlegs.js)
   vec3 P; vec3 Nn;
   void rotP(mat3 R, vec3 pv){ P = pv + R * (P - pv); Nn = R * Nn; }
+  ${BIRD_LEG_GLSL}
   void main(){
     ${depth ? '' : 'vMat = aMat; vFur = iColA.rgb; vFur2 = iColB.rgb; vFlash = fract(iColB.w); vWx = vec2(mod(floor(iColB.w + 1e-3), 16.0), floor((iColB.w + 1e-3) / 16.0)) / 15.0; vUV = aUV; vAO = aAO; vO = position; vPat = vec2(mod(floor(iColA.w / 4.0 + 1e-3), 4.0), floor(iColA.w / 16.0 + 1e-3));'}
     P = position; Nn = normal;
@@ -120,11 +122,22 @@ function birdVS(depth) {
       legsX = mod(floor(q / 4096.0), 16.0) / 15.0;
       patter = floor(q / 65536.0);
     }
-    // walking: the head holds still in space, then jerks forward with each step; the body sways
-    float stepF = fract(ph / 3.14159);
-    float headZ = (0.03 - 0.06 * smoothstep(0.0, 0.25, stepF)) * k;
+    // [motion5] the gait (05j_birdlegs.js): both feet, and how far the body comes down over its planted legs; a mallard
+    // pattering over the water slaps its feet at the wingbeat's pace
+    vec2 H0 = vec2(uHip.z, uHip.y), K0 = uLegJ.xy, A0 = uLegJ.zw;
+    float bsc = max(mod(iColA.w, 4.0), 0.2), duty, reach, lc, lh, strideM, runK, gk;
+    blGait(amtW, bsc, uGait, duty, reach, lc, lh, strideM, runK, gk);
+    if (patter > 0.5) { duty = 0.42; reach = 0.06; lc = 0.012; lh = 0.035; gk = 1.0; }
+    float uLf = fract(ph * 0.159155), legL = length(K0 - H0) + length(A0 - K0);
+    vec3 ftL = blFoot(uLf, duty, reach, lc, lh), ftR = blFoot(fract(uLf + 0.5), duty, reach, lc, lh);
+    float drop = fly ? 0.0 : max(blNeed(H0, A0, legL, ftL.x), blNeed(H0, A0, legL, ftR.x)) * (1.0 - smoothstep(0.0, 0.3, death));
+    // [motion5] walking, a pheasant's head holds still in the air while the body walks on under it, then thrusts forward,
+    // once a step (it jumped forward in one frame and drew back over a quarter of the step); a mallard waddles, its body
+    // rolling over each foot, and does not bob
+    float stepF = fract(ph / 3.14159), hold = 0.55, hA = min(hold * strideM, 0.065) * gk * (1.0 - runK) * (1.0 - uBirdK.x);
+    float headZ = stepF < hold ? hA * (0.5 - stepF / hold) : hA * (smoothstep(hold, 1.0, stepF) - 0.5);
     float headX = 0.12 * sin(t * 0.7) * sin(t * 0.31) * idle, headY = 0.5 * sin(t * 0.43) * sin(t * 0.17 + 1.0) * idle;
-    float sway = 0.06 * sin(ph) * k, bob = abs(sin(ph)) * 0.01 * k;
+    float sway = mix(0.04, 0.11, uBirdK.x) * sin(ph) * k, bob = 0.0;
     float tailX = 0.05 * sin(t * 1.3) * idle - 0.08 * k, peck = 0.0, tip = 0.0;
     // the wings on the ground: folded, a shuffle now and then
     float beat = 0.0, sweep = 0.0, hBeat = 0.0, hSweep = 0.0;
@@ -172,27 +185,27 @@ function birdVS(depth) {
     }
     if (isLeg) {
       vec3 hip = b == 9 ? uHip : vec3(-uHip.x, uHip.y, uHip.z);
-      // each foot is planted while it is down and swings forward through the air; the pace as beastStride gives it
-      float amtS = amtW, bsc = max(mod(iColA.w, 4.0), 0.2), vSpd = amtS * 4.3, fC = sqrt(1.06 / max(uGait.z * bsc, 0.05));
-      float strideM = clamp(mix(uGait.x, uGait.y, smoothstep(0.7, 1.4, amtS)), vSpd / (4.0 * fC * bsc), max(vSpd / (1.6 * fC * bsc), 0.02));
-      float c = (patter > 0.5 ? ph * 1.0 : ph) + (b == 9 ? 0.0 : 3.1416);
-      float u = fract(c * 0.159155), duty = 0.6, reach = strideM * duty, fx, lift;
-      if (patter > 0.5) reach = 0.07;
-      if (u < duty) { fx = reach * (1.0 - 2.0 * u / duty); lift = 0.0; }
-      else { float wv = (u - duty) / (1.0 - duty); fx = reach * (2.0 * wv * wv * (3.0 - 2.0 * wv) - 1.0); lift = sin(3.14159 * wv); }
-      float sw = asin(clamp(fx / uGait.z, -0.95, 0.95));
-      float liftK = smoothstep(0.0, 0.03, amtS) + patter;
+      // [motion5] each leg reaches its foot by IK (05j_birdlegs.js): planted while it bears the bird, rising and landing in
+      // place, the toes (a mallard's web) curled in the air (the stiff leg swung about the hip rocked the foot, the web 2.5 cm
+      // into the ground, and the shank's fold carried the foot back over the ground as it lifted)
+      vec3 f = b == 9 ? ftL : ftR;
+      vec2 A = A0 + f.xy; float cu = f.z, pf = blToes(f.z, f.y, uBirdK.x > 0.5 ? 0.066 : 0.05);
       if (fly && patter < 0.5) {
-        // in the air the legs are drawn up and back under the tail; to land they reach down and forward
-        sw = mix(-1.35, 0.42, legsX); lift = mix(1.0, 0.15, legsX); liftK = 1.0;
+        // in the air the legs are drawn up and back under the tail, the toes curled behind; to land they reach down and
+        // forward, spread
+        A = mix(H0 + vec2(-0.14, -0.07) * (uGait.z / 0.2), A0 + vec2(0.05, 0.03) * (uGait.z / 0.2), legsX);
+        cu = 1.0 - legsX; pf = mix(2.3, 0.2, legsX);
       }
-      if (P.y < uGait.z * 0.62) rotP(rotX(0.9 * lift * min(liftK, 1.0)), vec3(hip.x, uGait.z * 0.6, 0.0));
-      rotP(rotX(-sw * w), hip);
+      blLegPose(H0, K0, A0, vec2(H0.x, H0.y - drop), A, pf, cu, w, hip.x);
       if (death > 0.0) rotP(rotX(0.8 * smoothstep(0.0, 0.5, death)), hip);
       b = 0;
+    } else {
+      // [motion5] the body over its legs: down as far as the planted legs need (the vault), the waddle a roll of the body
+      // about the hips (the legs stand)
+      rotP(rotX(tip), vec3(0.0, uGait.z, 0.0));
+      P.y -= drop;
+      rotP(rotZ(sway), vec3(0.0, H0.y - drop, 0.0));
     }
-    rotP(rotX(tip), vec3(0.0, uGait.z, 0.0));
-    rotP(rotZ(sway), vec3(0.0, 0.0, 0.0));
     P.y += bob;
     if (fly) {
       // the body rides the beat (lifted on the downstroke), pitches and banks about its middle
@@ -233,6 +246,7 @@ function birdUniforms(kind) {
     uGait: { value: new THREE.Vector4(D.stride[0], D.stride[1], D.legTop, D.legTop) },
     uShoulder: { value: v(D.sh) }, uWrist: { value: v([D.sh[0] + D.arm, D.sh[1] + 0.004, D.sh[2] - 0.012]) },
     uHip: { value: v(D.hip) }, uBodyC: { value: v(D.centre) }, uBirdK: { value: new THREE.Vector4(D.k, 0, 0, 0) },
+    uLegJ: { value: new THREE.Vector4(BIRD_LEGS[kind].K[0], BIRD_LEGS[kind].K[1], BIRD_LEGS[kind].A[0], BIRD_LEGS[kind].A[1]) }, // [motion5] (05j_birdlegs.js)
   };
 }
 

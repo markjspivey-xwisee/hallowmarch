@@ -38,9 +38,10 @@ window.GT = {
     P.x = P.prevX = Ln.x - Ln.sx * 12; P.z = P.prevZ = Ln.z - Ln.sz * 12;
     const L0 = v * sec / 2, e = MO.body(kind, Ln.x - Ln.ux * L0, Ln.z - Ln.uz * L0, Math.atan2(Ln.ux, Ln.uz));
     MO.over(Ln, 14);
-    const rec = M.motionRun([{ e, kind: kind === 'human' ? 'human' : 'beast', which: ['feet'], drive(e, t, dt) { const s = MO.ramp(v, t) * dt; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); } }], sec, 1 / 60)[0];
+    const rec = M.motionRun([{ e, kind: kind === 'human' ? 'human' : 'beast', which: kind === 'human' ? ['feet', 'soles'] : ['feet'], drive(e, t, dt) { const s = MO.ramp(v, t) * dt; e.x += Ln.ux * s; e.z += Ln.uz * s; e.yaw = Math.atan2(Ln.ux, Ln.uz); } }], sec, 1 / 60)[0];
     MO.clear();
-    return rec.filter((s) => s.t >= 0.6 && s.L && s.L.feet).map((s) => ({ t: s.t, x: s.x, z: s.z, feet: s.L.feet.map((p) => p ? [p[0], p[3] - M.motionFloor(p[0], p[2], s.y), p[2]] : null) }));
+    // [motion5] a person's sole points one by one too (heel to toe: the point a rolling foot stands on)
+    return rec.filter((s) => s.t >= 0.6 && s.L && s.L.feet).map((s) => ({ t: s.t, x: s.x, z: s.z, feet: s.L.feet.map((p) => p ? [p[0], p[3] - M.motionFloor(p[0], p[2], s.y), p[2]] : null), soles: s.L.soles ? s.L.soles.map((p) => p ? [p[0], p[1] - M.motionFloor(p[0], p[2], s.y), p[2]] : null) : null }));
   },
   // the order the feet come down in and what bears the body, over whole cycles (a foot is down within 1.5 cm of its floor
   // above its lowest: hooves and paws sit a little over or into it at rest)
@@ -69,6 +70,27 @@ window.GT = {
         if (p[1] < base + 0.04) run.push(p); else close();
       }
       close();
+    }
+    // [motion5] a person's foot rolls from heel to toe (05a_rig.js: the heel rises about the ball before the toes leave the
+    // ground), so its sole's middle moves up and forward over a toe that stands still: for a person, near the ground is its
+    // lowest sole point within 4 cm, and what moves is the point it stands on (the lowest sole point at each frame, from
+    // where that same point was the frame before), added up over the span (the sole's middle's own measure: mid)
+    if (S[0].soles) {
+      const mid = { worst: +(worst * 100).toFixed(1), mean: +(n ? sum / n * 100 : 0).toFixed(2) };
+      worst = 0; sum = 0; n = 0;
+      for (let f = 0; f < nf; f++) {
+        const low = (s) => { let j = -1, h = 9; for (let k = 0; k < 5; k++) { const p = s.soles[f * 5 + k]; if (p && p[1] < h) { h = p[1]; j = k; } } return [j, h]; };
+        const base = Math.min(...S.map((s) => low(s)[1]));
+        let dx = 0, dz = 0, on = false;
+        const close = () => { if (on) { const d = Math.hypot(dx, dz); worst = Math.max(worst, d); sum += d; n++; } dx = dz = 0; on = false; };
+        for (let i = 1; i < S.length; i++) {
+          const [j, h] = low(S[i]), q = j >= 0 ? S[i - 1].soles[f * 5 + j] : null, p = j >= 0 ? S[i].soles[f * 5 + j] : null;
+          if (!p || !q || h >= base + 0.04) { close(); continue; }
+          dx += p[0] - q[0]; dz += p[2] - q[2]; on = true;
+        }
+        close();
+      }
+      return { worst: +(worst * 100).toFixed(1), mean: +(n ? sum / n * 100 : 0).toFixed(2), n, mid };
     }
     return { worst: +(worst * 100).toFixed(1), mean: +(n ? sum / n * 100 : 0).toFixed(2), n };
   },
@@ -137,7 +159,7 @@ async def main():
                 for v in vs:
                     r = await ev(page, f"GT.skate('{kind}', {v})")
                     worst.append((r['worst'], kind, v))
-                    print(f"  {kind:7s} {v:4.1f} m/s: a foot near the ground moves at most {r['worst']} cm (mean {r['mean']} cm, {r['n']} spans)", flush=True)
+                    print(f"  {kind:7s} {v:4.1f} m/s: a foot near the ground moves at most {r['worst']} cm (mean {r['mean']} cm, {r['n']} spans)" + (f"; the sole's middle as before {r['mid']['worst']} cm (mean {r['mid']['mean']}: it rises and rolls forward with the heel)" if r.get('mid') else ''), flush=True)
             worst.sort(reverse=True)
             check(worst[0][0] <= 1.5, f"no foot near the ground skates (the worst: {worst[0][1]} at {worst[0][2]} m/s, {worst[0][0]} cm)")
         if 'stair' in ONLY:
