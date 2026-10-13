@@ -51,7 +51,9 @@ function bandWallsDown(e, wb, L, O, dt) {
   // the court, as a body thrown off a ladder falls (hurt by the height: 04m_ladders.js)
   if (h < B.best - 0.3) { B.best = h; B.bestT = GAME.t; }
   else if (GAME.t - B.bestT > 8) {
-    const dx = C.S.x - e.x, dz = C.S.z - e.z, d = Math.hypot(dx, dz) || 1;
+    if (war3JumpEdge(e, B, C, dt)) return true; // [war3] to the walk's edge first (08k_war3.js)
+    const Ej = B.edge && !B.edge.none ? B.edge : null; B.edge = null; // [war3] and over it
+    const dx = Ej ? Ej.ux : C.S.x - e.x, dz = Ej ? Ej.uz : C.S.z - e.z, d = Math.hypot(dx, dz) || 1;
     e.motion = { kind: 'ladder', L: BZ_FALL_L, st: 3, t: 0, vy: 2.2, y0: e.y, by: null, dx: (dx / d) * 3.6, dz: (dz / d) * 3.6, dir: 1 };
     setAct(e, 6, 1.5);
     B.bestT = GAME.t; WAR2.stats.jumps = (WAR2.stats.jumps || 0) + 1;

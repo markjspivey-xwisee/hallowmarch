@@ -505,6 +505,36 @@ function war3StartNode(L) {
   }
   return null;
 }
+// a jump down off a walk goes from the walk's edge (bandWallsDown, 08j_war2.js): the jump is below the boards 0.24 s
+// after it leaves them, 0.9 m on, so from by the walk's outer side it landed on the same boards, again and again (a
+// burh's deck is about 2.5 m wide: a Logres captain stood on Dragonmere's walk 4.7 m over the court for a quarter of an
+// hour of a soak at medium, its jumps counted every 8 s). Looks toward the court (then 35 and 70 degrees either side)
+// for the first point a body there would stand 1.2 m or more lower, short of anything solid at its height, walks to
+// 0.4 m short of it (5 s at most) and returns false there: the jump goes that way (B.edge.ux, uz)
+const _w3je = { x: 0, z: 0 };
+function war3JumpEdge(e, B, C, dt) {
+  if (!W3.on) return false;
+  if (!B.edge) {
+    const cx = C.S.x - e.x, cz = C.S.z - e.z, a0 = Math.atan2(cz, cx), r = e.radius * (e.scale || 1) * 0.9;
+    let E = null;
+    for (const da of [0, 0.6, -0.6, 1.2, -1.2]) {
+      const ux = Math.cos(a0 + da), uz = Math.sin(a0 + da);
+      for (let s = 0.25; s <= 8; s += 0.25) {
+        const px = e.x + ux * s, pz = e.z + uz * s;
+        if (floorAt(px, pz, e.y - 0.3) < e.y - 1.2) { const k = Math.max(0, s - 0.4); E = { x: e.x + ux * k, z: e.z + uz * k, ux, uz, t: GAME.t }; break; }
+        _w3je.x = px; _w3je.z = pz; resolveCollisions(_w3je, r, e.y, e.faction);
+        if (Math.abs(_w3je.x - px) > 0.02 || Math.abs(_w3je.z - pz) > 0.02) break; // a wall, a merlon, a tower's side
+      }
+      if (E) break;
+    }
+    B.edge = E || { none: true, t: GAME.t };
+    W3.stats.jumpEdges = (W3.stats.jumpEdges || 0) + (E ? 1 : 0);
+  }
+  const E = B.edge;
+  if (E.none) return false;
+  if (dist2(e.x, e.z, E.x, E.z) > 0.3 * 0.3 && GAME.t - E.t < 5) { moveToward(e, E.x, E.z, dt, 1.0, 0.05); return true; }
+  return false;
+}
 
 // an engine far from the camera is drawn as two or three meshes, not nine to twelve (its frame, uprights, wheels and
 // drum merged at rest; its arm, counterweight or log as they move; its ropes, slings and stones, a few pixels at that
