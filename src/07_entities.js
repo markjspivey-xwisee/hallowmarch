@@ -873,7 +873,7 @@ function autoAttack(e) {
   e.swingAt = now + e.swing * (0.95 + Math.random() * 0.1);
   faceToward(e, t.x, t.z);
   if (e.rangedKind) {
-    setAct(e, e.rangedKind === 'arrow' ? 2 : 3, e.rangedKind === 'arrow' ? 0.6 : 0.45);
+    setAct(e, e.rangedKind === 'arrow' ? 2 : 3, e.rangedKind === 'arrow' ? 0.55 : 0.36); // [anim2] the string let go (0.82 of a draw) and the hands thrust out (0.86 of a cast) as the shot leaves (0.45 s and 0.3 s on: they came 40 and 90 ms after it)
     const pk = classAutoKind(e); // [classes] a mage's bolt takes the element of the focus (07b_classes.js)
     later(e.rangedKind === 'arrow' ? 0.45 : 0.3, () => { if (e.alive && t.alive) spawnProjectile(e, t, pk, { mult: e.rangedKind === 'arcane' ? 0.9 : 1.0, auto: true }); });
     sfxAtE(e.rangedKind === 'arrow' ? 'bow' : 'zap', e); // [audio2] every bow and staff, placed (11c_sound.js)

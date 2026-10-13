@@ -631,7 +631,14 @@ function buildHumanoid(lod) {
     kitTube(K, arc, hi ? 6 : 4, { front: [0, 0, 1], side: [1, 0, 0], attr: (i, th, p) => ({ bone: B.farmL, w: 1, mat: Math.abs(p[1]) < 0.06 ? mat.leather : mat.wood, bit: WBIT.bow, u: th / TAU, v: p[1] }) });
     kitMove(K, bowBase, M4(V3.add(gripL, [0.005, 0, 0])));
     const tipY = Math.sin(0.9) * 0.66, tipZ = (Math.cos(0.9) - 1) * 0.66 + 0.035;
-    L(new THREE.CylinderGeometry(0.0022, 0.0022, tipY * 2, 3), M4([0.005, 0, tipZ]), { mat: mat.string, bit: WBIT.bow });
+    L(new THREE.CylinderGeometry(0.0022, 0.0022, tipY * 2, 3, 2), M4([0.005, 0, tipZ]), { mat: mat.string, bit: WBIT.bow }); // [anim2] a ring at its middle, to be drawn back
+    // [anim2] an arrow for the string, shown only while the bow is drawn (humanVS lays it from the drawing fingers across
+    // the bow hand): built along +z from its nock, A2_ARROW (0.3 m) out to the bow hand's side, where nothing else of the
+    // body lies, so the shader knows its points from the bow's own (it shares the bow's bit)
+    const Ar = (geo, mm, o) => kitGeo(K, geo, M4(V3.add(gripL, [A2_ARROW, 0, 0])).multiply(mm), { bone: B.farmL, w: 1, bit: WBIT.bow, ...o });
+    Ar(new THREE.CylinderGeometry(0.0042, 0.0042, 0.72, hi ? 5 : 3), M4([0, 0, 0.38], [Math.PI / 2, 0, 0]), { mat: mat.wood });
+    Ar(new THREE.ConeGeometry(0.0085, 0.055, hi ? 4 : 3), M4([0, 0, 0.765], [Math.PI / 2, 0, 0]), { mat: mat.steel });
+    for (const a of [0, 2.09, 4.19]) Ar(new THREE.BoxGeometry(0.0015, 0.016, 0.075), M4([Math.sin(a) * 0.008, Math.cos(a) * 0.008, 0.075], [0, 0, -a]), { mat: mat.cloth });
   }
   return K.build();
 }
@@ -681,6 +688,7 @@ const OAR_GRIP = 0.59, OAR_LOCK = { x: 0.698, y: 0.33, z: 0.48 };
 const SHOVE_A_W = '0.580', SHOVE_X_W = '0.060', SHOVE_FIST = '0.008';
 // [anim2] how far a body lying dead is let down after its fall (its back, its heels and the back of its head on the floor)
 const A2_DEAD_DROP = 0.0;
+const A2_ARROW = 0.3; // [anim2] how far out to the bow hand's side the drawn arrow is built (in rest)
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -811,6 +819,10 @@ function humanVS(depth) {
     float ph = iAnim.x, amt = clamp(iAnim.y, 0.0, 2.2), death = clamp(iAnim.w, 0.0, 1.0);
     float turnK = clamp(-iAnim.y, 0.0, 1.0); // [motion] stepping round on the spot (07_entities.js updateAnim)
     float atype = floor(iAnim.z + 1e-4), at = clamp(fract(iAnim.z), 0.0, 1.0);
+    // [anim2] the drawn arrow shows from the nocking to the loose (its points: the bow's bit, out beyond the bow)
+    bool a2Arrow = aBit > -0.5 && int(aBit + 0.5) == ${WBIT.bow} && position.x > ${(SK.fist[0] + A2_ARROW * 0.5).toFixed(3)};
+    float a2Nock = (atype > 1.5 && atype < 2.5 && death <= 0.0) ? smoothstep(0.12, 0.28, at) * (1.0 - smoothstep(0.82, 0.86, at)) : 0.0;
+    if (a2Arrow && a2Nock < 0.5) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
     // [motion5] a boat shoved off (action 19): the progress in 256 steps and the gunwale's height over the floor in 2 cm
     // steps, packed by motion5ActValue (13y_motion5.js)
     float shH = 0.45, shX = 0.0;
@@ -1326,6 +1338,47 @@ function humanVS(depth) {
         bone = 1; // carried by the chest
       }
     }
+    // [anim2] a bow held out to draw stands upright before the target, as a bow is held (raised with the arm out to the
+    // side, its stave lay along the arm and pointed at the target end on, like a spear), and a staff raised to cast stands
+    // upright in the hand, tipping toward the foe as the spell goes (it lay level out ahead like a lance): the turns the
+    // arm and the chest give them undone about the fist (in its rest frame, before the skinning turns it back)
+    mat3 a2C = mat3(1.0); float a2W = 0.0;
+    if (aBit > -0.5 && death <= 0.0 && atype > 1.5 && atype < 3.5) {
+      int ub = int(aBit + 0.5);
+      bool isBow = ub == ${WBIT.bow} && atype < 2.5, isStaff = ub == ${WBIT.staff} && atype > 2.5 && bone == 6;
+      if (isBow || isStaff) {
+        mat3 Ch = rotX(-chestX) * rotY(-chestY), S;
+        vec3 fc;
+        if (isBow) { S = rotX(-uaL) * rotZ(-uaLz); if (uaLy != 0.0) S = S * rotY(-uaLy); a2C = rotX(-faL) * S * Ch; fc = ${glv(SK.fist)}; a2W = smoothstep(0.0, 0.25, at) * (1.0 - smoothstep(0.88, 1.0, at)); }
+        else { S = rotX(-uaR) * rotZ(-uaRz); if (uaRy != 0.0) S = S * rotY(-uaRy); a2C = rotX(-faR) * S * Ch * rotX(0.35 * smoothstep(0.86, 1.0, at)); fc = ${glv([-SK.fist[0], SK.fist[1], SK.fist[2]])}; a2W = smoothstep(0.0, 0.3, at); }
+        P = mix(P, fc + a2C * (P - fc), a2W); Nn = normalize(mix(Nn, a2C * Nn, a2W));
+      }
+    }
+    // [anim2] the bow drawn: the string's middle pulled back to the drawing fingers and an arrow lying from them across the
+    // bow hand (the string stood straight between the tips a forearm's length off the fist that drew it, and no arrow was
+    // nocked). Laid in the left forearm's own frame before it is turned: the right fist where its arm puts it, taken back
+    // through the left arm's turns, so the bow arm's skinning carries both to it.
+    if (a2Nock > 0.0 && aBit > -0.5 && int(aBit + 0.5) == ${WBIT.bow} && (a2Arrow || m == ${AM.string})) {
+      vec3 F = ${HSK.ELR} + rotX(faR) * (${glv([-SK.fist[0], SK.fist[1], SK.fist[2]])} - ${HSK.ELR});
+      mat3 RR = rotZ(uaRz) * rotX(uaR); if (uaRy != 0.0) RR = rotY(uaRy) * RR;
+      F = ${HSK.SHR} + RR * (F - ${HSK.SHR});
+      vec3 Q = F - ${HSK.SHL}; if (uaLy != 0.0) Q = rotY(-uaLy) * Q; Q = ${HSK.SHL} + rotX(-uaL) * (rotZ(-uaLz) * Q);
+      Q = ${HSK.ELL} + rotX(-faL) * (Q - ${HSK.ELL});
+      // (the nock a little in from the fist's middle, on the fingers that hold it)
+      Q += vec3(0.0, 0.012, 0.0);
+      vec3 fc = ${glv(SK.fist)};
+      if (a2Arrow) {
+        vec3 lp = position - ${glv([SK.fist[0] + 0.3, SK.fist[1], SK.fist[2]])}, G = ${glv([SK.fist[0] - 0.014, SK.fist[1] + 0.03, SK.fist[2] + 0.01])};
+        G = mix(G, fc + a2C * (G - fc), a2W);
+        vec3 dr = normalize(G - Q), sd = normalize(cross(vec3(0.0, 1.0, 0.0), dr)), upv = cross(dr, sd);
+        P = Q + sd * lp.x + upv * lp.y + dr * lp.z; Nn = sd * normal.x + upv * normal.y + dr * normal.z;
+      } else {
+        float ty = ${Math.sin(0.9) * 0.66}, sy = clamp((position.y - ${SK.fist[1].toFixed(4)}) / ty, -1.0, 1.0);
+        vec3 c0 = vec3(${(SK.fist[0] + 0.005).toFixed(4)}, position.y, ${(SK.fist[2] + (Math.cos(0.9) - 1) * 0.66 + 0.035).toFixed(4)}), e0 = vec3(c0.x, ${SK.fist[1].toFixed(4)} + sign(sy) * ty, c0.z);
+        c0 = mix(c0, fc + a2C * (c0 - fc), a2W); e0 = mix(e0, fc + a2C * (e0 - fc), a2W);
+        P = mix(c0, mix(e0, Q, 1.0 - abs(sy)), a2Nock) + (P - c0);
+      }
+    }
     // [anim2] what the hands held lies with them on the ground: a blade, a mace or an axe turned flat and along the arm, a
     // staff along it, a shield or a bow turned flat over the forearm (they stood up off the body lying on its back: a
     // sword pointed at the sky from the fist, a shield stood on its edge)
@@ -1404,6 +1457,19 @@ function humanVS(depth) {
         P.z += sign(dz) * min(adz, slack);
         P.y += min(max(adz - slack, 0.0), 0.35);
       }
+    }
+    // [anim2] dead, the skirts of a robe, a tunic or a tabard lie down over the legs onto the ground: the half under the
+    // body flat on it, the half over it down onto the legs, its sides spread out as the cloth flattens; and a cape lies on
+    // the ground under the body (a robe kept its flare round the legs and stood up off a body lying on its back like a
+    // bell, its back half in the ground). The ground lies along z = -0.112 here before the fall's turn.
+    if (d2 > 0.0 && !arm && (bone == 11 || (aBit > 10.5 && P.y < ${(SK.hip[1] - 0.02).toFixed(3)}))) {
+      int cb2 = int(aBit + 0.5);
+      float zb = -0.112 - 0.011 * P.y;
+      if (cb2 == ${WBIT.robe} || cb2 == ${WBIT.tabard} || cb2 == ${WBIT.skirt}) {
+        float dw = d2 * smoothstep(${(SK.hip[1] - 0.02).toFixed(3)}, ${(SK.hip[1] - 0.3).toFixed(3)}, P.y);
+        float z2 = clamp(P.z, zb + 0.004, 0.125), sq = abs(P.z - z2);
+        P.z = mix(P.z, z2, dw); P.x += sign(P.x) * 0.6 * sq * dw;
+      } else if (bone == 11) P.z = mix(P.z, max(P.z, zb + 0.006), d2);
     }
     // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
     // the planted feet from side to side, a few centimetres each stride

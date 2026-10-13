@@ -414,3 +414,122 @@ function a2DragonDead(D, e, P) {
   return P;
 }
 window.__hm.anim2.dragon = { A2D, DBI, a2DragonSolve, a2DragonDead, a2DragonGroups, a2DragonH, a2DragonPoseAt };
+
+/* ------------------------------------------------------------------ */
+/* weapons held and used as weapons are (measured from what is drawn)  */
+/* ------------------------------------------------------------------ */
+// The points of a person's gear looked at (rest places, one vertex for each place): each fist's middle, a sword's tip,
+// its guard and the two edges a third of the way up its blade, an axe's head and the far end of its edge, a mace's head,
+// a staff's ends, three points of each shield's face, the bow string's middle, and the drawn arrow's nock and point.
+function a2GearParts(crowd) {
+  if (crowd._a2Gear) return crowd._a2Gear;
+  const A = crowd.geo.attributes, pos = A.position.array, bone = A.aBone.array, bit = A.aBit.array, mt = A.aMat.array, n = A.position.count;
+  // (a place no vertex of another part shares: the copies of one part's vertex move as one)
+  const cnt = new Map(), key = (i) => pos[i * 3].toFixed(5) + ',' + pos[i * 3 + 1].toFixed(5) + ',' + pos[i * 3 + 2].toFixed(5);
+  for (let i = 0; i < n; i++) { const k = key(i), w = Math.round(bit[i]) * 64 + Math.round(bone[i]), c = cnt.get(k); cnt.set(k, c === undefined || c === w ? w : -1); }
+  const one = (i) => cnt.get(key(i)) >= 0;
+  const V = (i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]], d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const of = (b, bn) => { const ids = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === b && Math.round(bone[i]) === bn && one(i)) ids.push(i); return ids; };
+  const far = (ids, p, sg = 1) => ids.reduce((a, i) => (a < 0 || sg * d3(V(i), p) > sg * d3(V(a), p) ? i : a), -1);
+  const fR = [-SK.fist[0], SK.fist[1], SK.fist[2]], fL = SK.fist.slice();
+  const mp = motionParts(crowd, 'human'), G = { fR: mp.hands[1].slice(0, 6), fL: mp.hands[0].slice(0, 6) };
+  // a blade or a haft: its far end, and two points across it at a fraction of the way along it (the edges)
+  const across = (ids, tip, f0, f1) => {
+    const t = V(tip), ax = [t[0] - fR[0], t[1] - fR[1], t[2] - fR[2]], L = Math.hypot(...ax), u = ax.map((x) => x / L);
+    const band = ids.filter((i) => { const q = V(i), s = ((q[0] - fR[0]) * u[0] + (q[1] - fR[1]) * u[1] + (q[2] - fR[2]) * u[2]) / L; return s > f0 && s < f1; });
+    const perp = (i) => { const q = V(i), s = (q[0] - fR[0]) * u[0] + (q[1] - fR[1]) * u[1] + (q[2] - fR[2]) * u[2]; return [q[0] - fR[0] - s * u[0], q[1] - fR[1] - s * u[1], q[2] - fR[2] - s * u[2]]; };
+    let e1 = -1, l1 = -1;
+    for (const i of band) { const p = perp(i), l = Math.hypot(...p); if (l > l1) { l1 = l; e1 = i; } }
+    if (e1 < 0) return [];
+    const p1 = perp(e1);
+    let e2 = -1, l2 = Infinity;
+    for (const i of band) { const p = perp(i), dot = p[0] * p1[0] + p[1] * p1[1] + p[2] * p1[2]; if (dot < l2) { l2 = dot; e2 = i; } }
+    return [e1, e2];
+  };
+  const sw = of(WBIT.sword, 6);
+  if (sw.length) { const tip = far(sw, fR); G.sword = { tip, edges: across(sw, tip, 0.28, 0.4), guard: far(sw.filter((i) => d3(V(i), fR) > 0.07 && d3(V(i), fR) < 0.13), fR, -1) }; }
+  const ax = of(WBIT.axe, 6);
+  if (ax.length) { const tip = far(ax, fR); G.axe = { tip, edges: across(ax, tip, 0.62, 0.9) }; }
+  const mc = of(WBIT.mace, 6);
+  if (mc.length) G.mace = { tip: far(mc, fR) };
+  const st = of(WBIT.staff, 6);
+  if (st.length) G.staff = { top: far(st, fR), bot: far(st.filter((i) => V(i)[1] > fR[1] + 0.3 || V(i)[2] < fR[2]), [fR[0], fR[1] + 1.2, fR[2]]) };
+  for (const k of ['shield', 'shieldRound']) {
+    const ids = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT[k] && Math.round(mt[i]) === AM.shieldFace && one(i)) ids.push(i);
+    if (ids.length > 3) { const c = ids.reduce((a, i) => a.map((x, j) => x + V(i)[j] / ids.length), [0, 0, 0]); const a = far(ids, c), b = far(ids, V(a)); const cc = far(ids.filter((i) => i !== a && i !== b), [(V(a)[0] + V(b)[0]) / 2, (V(a)[1] + V(b)[1]) / 2, (V(a)[2] + V(b)[2]) / 2]); G[k] = { face: [a, b, cc] }; }
+  }
+  const bw = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT.bow && one(i)) bw.push(i);
+  if (bw.length) {
+    const str = bw.filter((i) => Math.round(mt[i]) === AM.string && pos[i * 3] < SK.fist[0] + 0.1), arr = bw.filter((i) => pos[i * 3] > SK.fist[0] + A2_ARROW * 0.5);
+    const mid = str.reduce((a, i) => (a < 0 || Math.abs(pos[i * 3 + 1] - fL[1]) < Math.abs(pos[a * 3 + 1] - fL[1]) ? i : a), -1);
+    const az = (i) => pos[i * 3 + 2];
+    const wood = bw.filter((i) => Math.round(mt[i]) === AM.wood && pos[i * 3] < SK.fist[0] + 0.1);
+    G.bow = { str: mid, nock: arr.reduce((a, i) => (a < 0 || az(i) < az(a) ? i : a), -1), point: arr.reduce((a, i) => (a < 0 || az(i) > az(a) ? i : a), -1), grip: far(bw.filter((i) => Math.round(mt[i]) === AM.leather), fL, -1), top: far(wood, [fL[0], fL[1] + 2, fL[2]], -1), bot: far(wood, [fL[0], fL[1] - 2, fL[2]], -1) };
+  }
+  return (crowd._a2Gear = G);
+}
+// bodies held in an action at progress at (the clock stopped: actDur long), drawn once, and their gear's points read:
+// for each body {fR, fL (fists' middles), sword..., bow...} in the world
+function a2GearAt(es, act, at) {
+  for (const e of es) { e.anim.act = act; e.anim.actDur = 1000; e.anim.actT = at * 1000; }
+  motionDraw();
+  const crowd = crowdHuman, G = a2GearParts(crowd), ids = [], put = (v) => { if (v >= 0 && !ids.includes(v)) ids.push(v); };
+  for (const v of [...G.fR, ...G.fL]) put(v);
+  for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow']) if (G[k]) for (const v of Object.values(G[k]).flat()) put(v);
+  const rows = a2Probe(crowd, ids.slice(0, A2.W)), ip = crowd.attrs[0].array, out = [];
+  const avg = (vs, row) => { const ps = vs.map((v) => row[ids.indexOf(v)]).filter(Boolean); return ps.length ? [0, 1, 2].map((j) => ps.reduce((a, p) => a + p[j], 0) / ps.length) : null; };
+  for (const e of es) {
+    let j = -1;
+    for (let i = 0; i < crowd.n; i++) if (ip[i * 4] === Math.fround(e.x) && ip[i * 4 + 2] === Math.fround(e.z)) { j = i; break; }
+    if (j < 0) { out.push(null); continue; }
+    const row = rows[j], P = (v) => (v >= 0 ? row[ids.indexOf(v)] : null), o = { fR: avg(G.fR, row), fL: avg(G.fL, row) };
+    for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow']) if (G[k]) { o[k] = {}; for (const [n2, v] of Object.entries(G[k])) o[k][n2] = Array.isArray(v) ? v.map(P) : P(v); }
+    out.push(o);
+  }
+  return out;
+}
+// what the gear does through each action, by the numbers (anim2.py's weapons): for each body the strike (act 1) step by
+// step (the blade's grip in the fist, when its tip moves fastest against when the blow lands, and whether its edge or its
+// flat leads the cut), the bow at full draw (its stave upright, the string's middle at the drawing fingers, the arrow from
+// them along the facing), the staff in a cast (upright), the shield in the guard (its face to the foe)
+function a2GearMeasure(es, opt = {}) {
+  const N = opt.n ?? 40, out = es.map((e) => ({ cls: e.cls, realm: e.faction }));
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.hypot(a[0], a[1], a[2]), nrm = (a) => { const l = len(a) || 1; return a.map((x) => x / l); };
+  const fwd = (e) => [Math.sin(e.yaw), 0, Math.cos(e.yaw)];
+  // the strike
+  const S = [];
+  for (let k = 0; k <= N; k++) S.push(a2GearAt(es, 1, k / N));
+  es.forEach((e, i) => {
+    const w = ['sword', 'axe', 'mace'].find((k) => S[0][i] && S[0][i][k] && S[0][i][k].tip);
+    if (!w) return;
+    let peak = 0, peakAt = 0, lead = 0, lw = 0, grip = 0, g0 = null;
+    for (let k = 1; k <= N; k++) {
+      const a = S[k - 1][i] && S[k - 1][i][w], b = S[k][i] && S[k][i][w];
+      if (!a || !b || !a.tip || !b.tip) continue;
+      const sp = len(sub(b.tip, a.tip)) * N;
+      if (sp > peak) { peak = sp; peakAt = (k - 0.5) / N; }
+      if (b.edges && b.edges.length === 2 && a.edges && a.edges[0] && a.edges[1] && b.edges[0] && b.edges[1]) {
+        const ma = a.edges[0].map((x, j) => (x + a.edges[1][j]) / 2), mb = b.edges[0].map((x, j) => (x + b.edges[1][j]) / 2), v = sub(mb, ma);
+        const ax = nrm(sub(b.tip, S[k][i].fR)), vp = sub(v, ax.map((x) => x * dot(v, ax))), wd = nrm(sub(b.edges[0], b.edges[1]));
+        if (len(vp) > 1e-4 && (k - 0.5) / N > 0.3 && (k - 0.5) / N < 0.6) { lead += Math.abs(dot(nrm(vp), wd)) * len(vp); lw += len(vp); }
+      }
+      const gd = S[k][i].fR && b.tip ? len(sub(b.tip, S[k][i].fR)) : null;
+      if (gd != null) { if (g0 == null) g0 = gd; grip = Math.max(grip, Math.abs(gd - g0)); }
+    }
+    out[i].strike = { weapon: w, peakAt: +peakAt.toFixed(3), peak: +peak.toFixed(2), landsAt: +(0.26 / 0.6).toFixed(3), edgeLead: lw ? +(lead / lw).toFixed(3) : null, gripDrift: +grip.toFixed(4) };
+  });
+  // the bow at full draw, the staff in a cast, the shield in the guard
+  const D = a2GearAt(es, 2, 0.75), C = a2GearAt(es, 3, 0.6), Gd = a2GearAt(es, 10, 0.6);
+  es.forEach((e, i) => {
+    const d = D[i], c = C[i], g = Gd[i], f = fwd(e);
+    if (d && d.bow && d.bow.top && d.bow.bot && d.fR) {
+      const b = d.bow, st = nrm(sub(b.top, b.bot));
+      out[i].draw = { staveUp: +st[1].toFixed(3), stringToFist: b.str ? +len(sub(b.str, d.fR)).toFixed(3) : null, arrowFwd: b.nock && b.point ? +dot(nrm(sub(b.point, b.nock)), f).toFixed(3) : null, nockToFist: b.nock ? +len(sub(b.nock, d.fR)).toFixed(3) : null, gripInFist: b.grip && d.fL ? +len(sub(b.grip, d.fL)).toFixed(3) : null };
+    }
+    if (c && c.staff && c.staff.top && c.staff.bot) out[i].cast = { staffUp: +nrm(sub(c.staff.top, c.staff.bot))[1].toFixed(3) };
+    const sh = g && (g.shield && g.shield.face && g.shield.face.every(Boolean) ? g.shield : g.shieldRound && g.shieldRound.face && g.shieldRound.face.every(Boolean) ? g.shieldRound : null);
+    if (sh) { const [p0, p1, p2] = sh.face; let n = nrm([...[0, 1, 2].map((j) => (sub(p1, p0)[(j + 1) % 3] * sub(p2, p0)[(j + 2) % 3] - sub(p1, p0)[(j + 2) % 3] * sub(p2, p0)[(j + 1) % 3]))]); const ctr = [0, 1, 2].map((j) => (p0[j] + p1[j] + p2[j]) / 3); if (dot(n, sub(ctr, [e.x, ctr[1], e.z])) < 0) n = n.map((x) => -x); out[i].guard = { shieldFaces: +dot(n, f).toFixed(3) }; }
+  });
+  return out;
+}
+window.__hm.anim2.gear = { a2GearParts, a2GearAt, a2GearMeasure };
