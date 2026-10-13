@@ -447,7 +447,7 @@ function a2GearParts(crowd) {
     return [e1, e2];
   };
   const sw = of(WBIT.sword, 6);
-  if (sw.length) { const tip = far(sw, fR); G.sword = { tip, edges: across(sw, tip, 0.28, 0.4), guard: far(sw.filter((i) => d3(V(i), fR) > 0.07 && d3(V(i), fR) < 0.13), fR, -1) }; }
+  if (sw.length) { const tip = far(sw, fR); G.sword = { tip, edges: across(sw, tip, 0.72, 0.88), guard: far(sw.filter((i) => d3(V(i), fR) > 0.07 && d3(V(i), fR) < 0.13), fR, -1) }; }
   const ax = of(WBIT.axe, 6);
   if (ax.length) { const tip = far(ax, fR); G.axe = { tip, edges: across(ax, tip, 0.62, 0.9) }; }
   const mc = of(WBIT.mace, 6);

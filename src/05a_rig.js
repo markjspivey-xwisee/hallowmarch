@@ -1354,6 +1354,22 @@ function humanVS(depth) {
         P = mix(P, fc + a2C * (P - fc), a2W); Nn = normalize(mix(Nn, a2C * Nn, a2W));
       }
     }
+    // [anim2] a shield raised in the guard or a parry is turned to the foe on its forearm (the forearm rolls: the rig's
+    // elbow only bends): raised and bent across the body it stood edge on to the foe, its face to the side (its face's
+    // normal 110 degrees off the facing, measured). The roll that brings the face nearest the facing, about the
+    // forearm's own line through the fist, up to 1.8 rad.
+    if (aBit > -0.5 && death <= 0.0 && bone == 4 && atype > 9.5 && atype < 11.5) {
+      int sb2 = int(aBit + 0.5);
+      if (sb2 == ${WBIT.shield} || sb2 == ${WBIT.shieldRound}) {
+        float ws = atype < 10.5 ? smoothstep(0.0, 0.5, at) : smoothstep(0.0, 0.16, at) * (1.0 - smoothstep(0.7, 1.0, at));
+        mat3 S = rotX(-uaL) * rotZ(-uaLz); if (uaLy != 0.0) S = S * rotY(-uaLy);
+        vec3 g = rotX(-faL) * S * (rotX(-chestX) * (rotY(-chestY) * vec3(0.0, 0.0, 1.0)));
+        float th = clamp(atan(-g.z, g.x + 1e-5), -1.8, 1.8) * ws;
+        vec3 fc = vec3(${SK.fist[0].toFixed(4)}, P.y, ${SK.fist[2].toFixed(4)});
+        mat3 Rr = rotY(th);
+        P = fc + Rr * (P - fc); Nn = Rr * Nn;
+      }
+    }
     // [anim2] the bow drawn: the string's middle pulled back to the drawing fingers and an arrow lying from them across the
     // bow hand (the string stood straight between the tips a forearm's length off the fist that drew it, and no arrow was
     // nocked). Laid in the left forearm's own frame before it is turned: the right fist where its arm puts it, taken back
