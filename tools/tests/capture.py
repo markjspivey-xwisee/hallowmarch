@@ -46,9 +46,22 @@ START = """(() => { const H = __hm;
   const L = H.late.LATE2; H.GAME.prog.realmKills = 40; L.d.king = 1; H.GAME.prog.kingKills = 1; L.vet = 4;
   H.late.late2CheckNames(true); if (!L.worn && L.names.length) H.late.late2Wear(L.names[L.names.length - 1]);
   L.std.made = true; H.deep.late3SealOpen(true);
-  H.simulate(20); window.__rafHold = true; H.fn.setQuality('low'); return 0; })()"""
+  H.simulate(20); H.fn.setQuality('low');
+  // the page's own frames held (each costs seconds under SwiftShader): the test draws the frames it needs
+  if (!window.__rafWrapped) { window.__rafWrapped = true; const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); }
+  window.__rafHold = true; return 0; })()"""
 ST = "JSON.stringify(__hm.capture.state())"
 
+# a press at a control's middle, the control checked to be the topmost thing there (the page's frames are held, so
+# Playwright's own wait for a control to stand still waits on frames that do not come)
+WHERE = """((sel) => { const b = document.querySelector(sel); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2, top = document.elementFromPoint(x, y); return [x, y, !!top && (top === b || b.contains(top))]; })"""
+async def press(page, sel, touch=False):
+    x, y, top = await page.evaluate(WHERE + f"({sel!r})")
+    check(top, f"{sel} is the topmost thing where it is pressed")
+    if touch: await page.touchscreen.tap(x, y)
+    else: await page.mouse.click(x, y)
 async def state(page): return json.loads(await page.evaluate(ST))
 # the world and the camera moved as frames move them, not drawn (a frame drawn under SwiftShader takes seconds)
 async def steps(page, n, dt=0.05): await page.evaluate(f"for (let i = 0; i < {n}; i++) __hm.capture.think({dt}); 0")
@@ -63,7 +76,7 @@ async def desk(p):
         await ev("__hm.fn.openMenu('settings'); 0")
         has = await ev("!!document.getElementById('set-capture')")
         check(has, "the Settings page has its Capture mode row")
-        await page.click('#set-capture')
+        await press(page, '#set-capture')
         s = await state(page)
         check(s['on'] and s['modal'] == 'capture' and not s['hud'], f"its button opens capture mode: the HUD hidden ({s['modal']}, hud {s['hud']})")
         vis = await ev("(() => { const c = document.getElementById('cap'), r = c.getBoundingClientRect(); return !c.hidden && r.width > 200 && r.height > 200; })()")
@@ -173,7 +186,7 @@ async def desk(p):
         def dims(u):
             if not Image: return None
             im = Image.open(io.BytesIO(base64.b64decode(u.split(',', 1)[1]))).convert('RGB')
-            px = list(im.resize((32, 18)).getdata())
+            sm = im.resize((32, 18)); px = list(sm.get_flattened_data() if hasattr(sm, "get_flattened_data") else sm.getdata())
             return im.size, sum(sum(q) for q in px) / (len(px) * 3)
         if Image:
             (wa, ha), ma = dims(r['a']); (wb, hb), mb = dims(r['b'])
@@ -195,8 +208,7 @@ async def phone(p):
     ev = page.evaluate
     await ev(START)
     await ev("__hm.fn.openMenu('settings'); 0")
-    await ev("document.getElementById('set-capture').scrollIntoView({ block: 'center' }); 0")
-    await page.tap('#set-capture')
+    await press(page, '#set-capture', touch=True)
     s = await state(page)
     check(s['on'], "a tap on the Settings page's button opens capture mode on a phone")
     r = await ev("""(() => { const c = document.getElementById('cap'), r = c.getBoundingClientRect(), pad = document.getElementById('cap-pad'), pr = pad.getBoundingClientRect();
