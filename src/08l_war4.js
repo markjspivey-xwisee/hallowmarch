@@ -24,7 +24,8 @@
 // Shared files only call in (each marked [war4]): 07_entities.js (isEnemy), 08_ai.js (updateWar: the gate's old rule, the
 // alarm's count, the trickle, the step; wbEnemiesNear), 08k_war3.js (the column's source and words, the peace's hand-back,
 // a column in the peace, the threat count, the pact's words, the war panel's gate), 08g_campaign.js (planWar's peace,
-// the claims' floor), 04h_siege.js (the sally), 04g_castles.js (castleSiegeHit), 13v_look3.js (the masons at the gate).
+// the claims' floor), 04h_siege.js (the sally), 04g_castles.js (castleSiegeHit), 13v_look3.js (the masons at the gate),
+// 08j_war2.js (down off towers and low walls, out of a tower's room), 04l_towers.js (a door's open leaf gives way).
 const W4 = {
   on: true, // (tests: off restores version 17's ways)
   GATE_QUIET: 10, // s of quiet (and since the gate fell) before the masons put up its scaffold
@@ -612,5 +613,6 @@ queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.war4 = { W4, W4P, war4Prof, war4ProfOut, setDoorState, war4Allied, w4Foe, war4SallyPays, war4SallyParty, war4ColumnFrom, w4ReliefStep, war4Trickle, w4GateOf, w4GateStep, w4GateScaffoldGeo, war4GateMends, war4HandBack, w4PeaceColumns, war4ColumnsHome, war4MayWin, war4Left, updateWar4, war4Reset, w4PactStep, w4GatePlug, w4Underside, war4RoomWayFind, war4RoomWay, war4LowJump, war4TowerDown,
     collNear: (x, z, r) => { const a = []; collidersNear(x, z, r, a); return a; },
+    floorsAt: (x, z) => { const l = FLOOR.grid.get(collKey(Math.floor(x / FLOOR.cell), Math.floor(z / FLOOR.cell))) || []; return l.filter((f) => f.active).map((f) => ({ tag: f.tag, type: f.type, top: floorTopOf(f, x, z), y0: f.y0 })); },
     gate: (ki) => { const K = WAR.keeps[ki], g = w4GateOf(K); return g ? { st: g.st, t: +g.t.toFixed(3), laid: g.laid, scaf: !!g.scaffold, on: !!(g.l3 && g.l3.on), ladders: g.l3 ? g.l3.ladders.length : 0, floors: g.l3 ? g.l3.floors.length : 0, info: g.scafInfo ? g.scafInfo.map((q) => ({ standards: q.standards, bays: q.bays, boards: q.boards, ladders: q.ladders })) : null, door: K.door.alive, hp: +(K.door.hp / K.door.maxHp).toFixed(2), leafY: +g.G0.leaves[0].scale.y.toFixed(2), leafVis: g.G0.leaves[0].visible, open: +g.G0.open.toFixed(2), masons: (g.masonsFor || []).length } : null; } };
 });
