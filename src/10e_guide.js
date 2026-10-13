@@ -415,13 +415,14 @@ function chronGoals() {
 }
 function chronGear() {
   const worn = kitItems().filter((it) => itemDur(it) < 40).length, cost = repairAllCost(), dirt = kitDirt();
-  return `<p class="lead">What you wear makes you. Gear comes in six grades and in item levels to 50, and it lives as you do: it wears, it soaks, it gets muddy and bloody, and it can be cleaned and mended.</p>
+  return `<p class="lead">What you wear makes you. Every piece adds to five stats (Damage, Health, Armour, Critical and Power). Gear comes in six grades and in item levels to 50, and it lives as you do: it wears, it soaks, it gets muddy and bloody, and it can be cleaned and mended.</p>
+    ${gsChronHTML() /* [gearstats] what each stat does, with your numbers (10g_gearstats.js) */}
     <h3>Grades and levels</h3>
     <div class="cons">${QUALITY.map((Q) => `<span style="--c:${Q.col}"><i></i>${Q.name}</span>`).join('')}</div>
     <p>Foes drop gear of about their own level, all the way to 50: a champion's spoils a little above it, a keep lord's more, and the Hollow King's and Cinderwing's hoards two above yours. The brighter the beam over a find, the better it is. Merchants and your path pay gear at your level. ${IS_TOUCH ? 'Kit' : 'I'} shows what you wear and carry; compare a piece before you put it on, and sell what you do not need.</p>
     <h3>Wear and weather</h3>
     <ul class="plain">
-      <li><b>Wear.</b> Every blow you take or give wears your gear a little. Badly worn gear gives less, and broken gear nothing at all, until it is mended: by a merchant in town, at a keep hall's armourer's bench, or at a forge with iron (with your own hammer, good as new).</li>
+      <li><b>Wear.</b> Every blow you take or give wears your gear a little. Worn gear gives all its stats until it breaks; broken gear gives nothing at all until it is mended: by a merchant in town, at a keep hall's armourer's bench, or at a forge with iron (with your own hammer, good as new).</li>
       <li><b>Mud and blood.</b> Muddy ground, rain and fighting spatter it. Wash at a well, a trough, a hall's basin or the edge of any water; an armourer cleans it for nothing.</li>
       <li><b>Wet and snow.</b> Rain, rivers and snow soak you and your gear to the waterline. A fire, a hearth or the sun dries you; snow melts by a fire.</li>
       <li><b>Masterworks.</b> A skilled crafter's gear may come with a master's touch, an extra quality the grade would not give; a named masterwork is about a sixth better than a drop of its grade and level.</li></ul>

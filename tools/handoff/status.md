@@ -9,4 +9,4 @@
 - Live build: https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T (Claude artifact).
 - The repository's `CLAUDE.md` holds the same notes as below and is the copy to edit. This record mirrors it at each milestone.
 
-**How to help:** read the requirements and conventions below, then pick up the first unfinished item on the roadmap. Test through `window.__hm` with the harness in `tools/`, push to a feature branch to be merged, and update this record when you finish a piece of work.
+**How to help:** read the requirements and conventions below, then pick up the first unfinished item on the roadmap. Several sessions work at once: follow CLAUDE.md's "Working alongside other sessions" (a branch for each piece of work, fast-forwarded into `main` after a rebase; a work note on Interego; this record written by compare-and-swap; the live artifact republished only from merged `main`). Test through `window.__hm` with the harness in `tools/`, and update this record when you finish a piece of work.

@@ -270,6 +270,31 @@
   #kit-card .val { display: inline-flex; align-items: center; gap: 5px; color: #e3c56c; font-size: 13px; }
   #kit-card .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
   #kit-card .acts .btn.primary { font-size: 14px; padding: 8px 14px; }
+  /* [gearstats] the card stays at the foot of the kit's view (it opened below the bags and the goods, out of sight),
+     each stat in the sums is a button that opens what it does, and a piece's stats say what they do (10g_gearstats.js) */
+  #kit-card { position: sticky; bottom: 0; z-index: 2; min-height: 0; max-height: 48vh; overflow-y: auto; background: #16181d; box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.55); }
+  #kit-card.has-x { padding-right: 50px; }
+  #kit-card .gs-x { position: absolute; top: 4px; right: 4px; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: rgba(0, 0, 0, 0.3); color: var(--ink-dim); font: 600 15px var(--ui); cursor: pointer; }
+  #kit-card .gs-x:hover { color: var(--ink); border-color: var(--line-strong); }
+  #kit-card .gs-what { margin: 2px 0; font-size: 14px; line-height: 1.45; color: var(--ink); }
+  #kit-card .gs-why { margin-left: 5px; color: var(--ink-faint); font-size: 12px; }
+  .statsum .gs-cell { padding: 6px 8px; min-height: 40px; min-width: 0; border-radius: 5px; border: 1px solid transparent; background: rgba(0, 0, 0, 0.28); display: grid; gap: 1px; text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+  .statsum .gs-cell:hover { background: rgba(223, 193, 136, 0.1); border-color: var(--line); }
+  .statsum .gs-cell.sel { box-shadow: inset 0 0 0 2px var(--bronze-hi); }
+  .statsum i { font-style: normal; font-size: 11px; line-height: 1.2; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gs-tap { margin: 6px 0 0; font-size: 12px; color: var(--ink-faint); }
+  .gs-h { margin: 8px 0 -4px; font: 500 13px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bronze-hi); }
+  .stats .gs-sub { font-style: normal; font-size: 11.5px; color: var(--ink-faint); }
+  .stat.gs-kit { min-height: 40px; border: 1px solid var(--line); text-align: left; color: var(--ink); font: inherit; cursor: pointer; }
+  .stat.gs-kit b { color: var(--bronze-hi); }
+  .stat.gs-kit:hover { border-color: var(--line-strong); }
+  details.gs-more > summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--bronze-hi); font-weight: 600; }
+  details.gs-more > .acts { margin-top: 8px; }
+  .gs-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .gs-list li { line-height: 1.45; color: var(--ink-dim); font-size: 14px; }
+  .gs-list b { color: var(--ink); }
+  .gs-list .gs-num { color: var(--bronze-hi); font-variant-numeric: tabular-nums; }
+  .gs-list .gs-from { display: block; margin-top: 1px; font-size: 12.5px; color: var(--ink-faint); }
   .banner.loot { display: grid; gap: 1px; border-left-color: var(--rcol); }
   .banner.loot small { font: 500 11.5px var(--caps); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
   .banner.loot.legend { font: 400 24px/1.2 var(--display); box-shadow: 0 0 34px color-mix(in srgb, var(--rcol) 45%, transparent); }
@@ -284,7 +309,7 @@
     .eqslot .ic, .shoprow .ic { width: 34px; height: 34px; }
     .eqslot .nm, .shoprow .nm { font-size: 12.5px; }
     .statsum { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    #kit-card { min-height: 0; }
+    #kit-card { min-height: 0; max-height: 46vh; }
   }
 
   #death .sheet { text-align: center; justify-items: center; width: min(420px, 100%); }

@@ -43,12 +43,7 @@ function openKit(mode = 'kit') {
 function closeKit() { $('kit').hidden = true; if (UI.modal === 'kit') UI.modal = null; UI.kitSel = null; UI.kitHover = null; }
 function toggleKit() { if (UI.modal === 'kit') closeKit(); else openKit('kit'); }
 
-function statSummary() {
-  const g = gearTotals(INV.eq);
-  const P = GAME.player;
-  const row = (k, label) => `<div><small>${label}</small><b>+${k === 'crit' ? g[k].toFixed(g[k] % 1 ? 1 : 0) : Math.round(g[k])}%</b></div>`;
-  return `<div class="statsum">${row('dmg', 'Damage')}${row('hp', 'Health')}${row('arm', 'Armour')}${row('crit', 'Critical')}${row('pow', 'Power')}<div><small>Max health</small><b>${fmtInt(P.maxHp)}</b></div></div>`;
-}
+function statSummary() { return gsSummaryHTML(); } // [gearstats] each stat a button that opens what it does (10g_gearstats.js)
 function itemButton(it, cls, data, slotName) {
   const Q = it ? QUALITY[it.q] : null;
   const ic = iconSvg(itemIcon(it, slotName), 24);
@@ -101,19 +96,23 @@ function compareLines(it, other) {
 function renderKitCard() {
   const box = $('kit-card');
   const sel = UI.kitHover || UI.kitSel;
+  box.classList.toggle('has-x', !!UI.kitSel); // [gearstats] a card you chose can be closed
+  if (sel && sel.stat) { box.innerHTML = gsCardHTML(sel.stat); gsKeepInView(); return; } // [gearstats] what a stat does (10g_gearstats.js)
   if (!sel || !sel.item) {
-    box.innerHTML = `<p class="hint">${IS_TOUCH ? 'Tap an item to see it.' : 'Click an item to see it; double-click to equip it.'} Loot drops where foes fall. Walk over it to pick it up.</p>`;
+    const stats = UI.kitMode !== 'shop' ? ` ${IS_TOUCH ? 'Tap' : 'Click'} a stat above to see what it does.` : ''; // [gearstats]
+    box.innerHTML = `<p class="hint">${IS_TOUCH ? 'Tap an item to see its stats.' : 'Click an item to see its stats; double-click to equip it.'}${stats} Loot drops where foes fall. Walk over it to pick it up.</p>`;
+    gsKeepInView(); // [gearstats]
     return;
   }
   const it = sel.item, Q = QUALITY[it.q], where = sel.where;
   const shop = UI.kitMode === 'shop' && UI.kitShop;
-  let html = `<b class="in" style="--qc:${Q.col}">${esc(it.name)}</b>`;
+  let html = `${gsCloseHTML() /* [gearstats] */}<b class="in" style="--qc:${Q.col}">${esc(it.name)}</b>`;
   if (it.slot === 'junk') {
     html += `<span class="sub">Trophy${it.n > 1 ? ` · ${it.n} carried` : ''}. Merchants pay for these.</span><span class="val">${iconSvg('coin', 14)}Worth ${fmtInt(sellValue(it))} gold</span>`;
   } else {
     const req = itemReq(it), lowLv = GAME.prog.level < req, wrong = it.cls && it.cls !== GAME.player.cls;
     html += `<span class="sub">${Q.name} ${SLOT_NAME[it.slot].toLowerCase()}${it.base !== SLOT_NAME[it.slot] ? ' · ' + esc(it.base.toLowerCase()) : ''} · item level ${it.lvl}${wrong ? ` · <span class="down">${CLASSES[it.cls].name} only</span>` : ''}${lowLv ? ` · <span class="down">needs level ${req}</span>` : ''}</span>`;
-    html += `<ul>${STAT_ORDER.filter((k) => it.st[k]).map((k) => `<li>${statText(k, it.st[k])}</li>`).join('')}${it.glow ? `<li class="glow" style="--gc:${['', '#ff8a3a', '#7cc4ff', '#ffe08a', '#c58cff', '#8cf07a', '#9cc8ff'][it.glow]}">Enchanted: ${GLOW_KIND[it.glow]}</li>` : ''}</ul>`;
+    html += `<ul>${STAT_ORDER.filter((k) => it.st[k]).map((k) => gsStatLi(k, it.st[k]) /* [gearstats] with what it does */).join('')}${it.glow ? `<li class="glow" style="--gc:${['', '#ff8a3a', '#7cc4ff', '#ffe08a', '#c58cff', '#8cf07a', '#9cc8ff'][it.glow]}">Enchanted: ${GLOW_KIND[it.glow]}</li>` : ''}</ul>`;
     html += wearCardLines(it); // feature/weather: durability, mud and blood
     const eq = INV.eq[it.slot];
     if (where !== 'eq' && eq !== it) {
@@ -130,15 +129,18 @@ function renderKitCard() {
   if (where === 'bag' && !shop) acts.push([UI.kitConfirm === it ? 'Press again to throw away' : 'Throw away', 'discard', false]);
   html += `<div class="acts">${acts.map(([l, a, dis]) => `<button class="btn${a === 'equip' || a === 'buy' ? ' primary' : ''}" type="button" data-act="${a}" ${dis ? 'disabled' : ''}>${l}</button>`).join('')}</div>`;
   box.innerHTML = html;
+  gsKeepInView(); // [gearstats]
 }
 function kitItemFrom(el) {
   if (!el) return null;
+  if (el.dataset.stat !== undefined) return GEAR_STAT_INFO[el.dataset.stat] ? { stat: el.dataset.stat } : null; // [gearstats] a stat in the kit's sums
   if (el.dataset.bag !== undefined) { const it = INV.bag[+el.dataset.bag]; return it ? { item: it, where: 'bag' } : null; }
   if (el.dataset.eq !== undefined) { const it = INV.eq[el.dataset.eq]; return it ? { item: it, where: 'eq', slot: el.dataset.eq } : null; }
   if (el.dataset.shop !== undefined && UI.kitShop) { const it = merchantStock(UI.kitShop).items[+el.dataset.shop]; return it ? { item: it, where: 'shop' } : null; }
   return null;
 }
 function kitAction(a) {
+  if (gsKitAction(a)) return; // [gearstats] close the card, or every stat explained (10g_gearstats.js)
   const sel = UI.kitSel;
   if (!sel) return;
   const it = sel.item;
@@ -166,7 +168,7 @@ function bindKit() {
     if (b.dataset.gooduse) { goodsUse(b.dataset.gooduse); renderKit(); return; } // goods (06d_goods.js)
     if (b.dataset.act) { kitAction(b.dataset.act); return; }
     const s = kitItemFrom(b);
-    if (s) { UI.kitSel = s; UI.kitConfirm = null; UI.kitHover = null; renderKit(); sfx('click'); }
+    if (s) { UI.kitSel = s; UI.kitConfirm = null; UI.kitHover = null; renderKit(); gsReveal(s); sfx('click'); } // [gearstats] what you chose kept in view above its card
   });
   kit.addEventListener('dblclick', (e) => {
     const b = e.target.closest('button');
@@ -179,7 +181,7 @@ function bindKit() {
   if (!IS_TOUCH) {
     kit.addEventListener('pointerover', (e) => {
       const s = kitItemFrom(e.target.closest('button'));
-      if (s && (!UI.kitHover || UI.kitHover.item !== s.item)) { UI.kitHover = s; renderKitCard(); }
+      if (s && (!UI.kitHover || UI.kitHover.item !== s.item || UI.kitHover.stat !== s.stat)) { UI.kitHover = s; renderKitCard(); } // [gearstats] a stat too
     });
     kit.addEventListener('pointerout', (e) => {
       if (!UI.kitHover) return;
