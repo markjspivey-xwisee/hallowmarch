@@ -3,7 +3,7 @@ status header in tools/handoff/status.md. Publish the output with Interego's pub
 urn:graph:project:hallowmarch, visibility shared, modal status Asserted, sign_authorship true, if_match set to the
 current head from get_current_head).
 usage: python3 tools/handoff/make_handoff.py OUT.ttl [VERSION] [STATUS_LINE] [summary]
-summary: (version 15) the record holds the status, the owner's standing requirements, how to build, the roadmap's
+summary: (version 15) the record holds the status, the owner's standing requirements, how to build (and how sessions work alongside each other), the roadmap's
 latest rows and Next, and the history, with the commit whose CLAUDE.md holds the rest (the whole notes passed 500 KB,
 too much to send through a tool call at each milestone)."""
 import pathlib, sys, datetime
@@ -24,6 +24,7 @@ if 'summary' in sys.argv[4:]:
     md = (head + '# The Hallowmarch: working notes, in summary\n\n' + pre + '\n'
           + f'The whole working notes (the architecture, every module, the conventions, the tests and every measure) are the repository\'s `CLAUDE.md` (commit {commit} on `main`); this record holds the parts a newcomer needs first.\n\n'
           + section("The owner's standing requirements") + '\n' + section('Build and run') + '\n'
+          + (section('Working alongside other sessions') + '\n' if '\n## Working alongside other sessions' in doc else '')
           + '\n'.join(keep) + '\n\n' + section('History'))
 else:
     md = head + body
