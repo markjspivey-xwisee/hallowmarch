@@ -529,7 +529,8 @@ const CAP_SHOTS = [
       capPlayerTo(E.x, E.z);
       GAME.player.capHide = true;
       const L = (lx, ly, lz) => siegeLocal(E, lx, ly, lz);
-      const a = L(-15, 2.4, -6), b = L(-19, 5.5, -15), ta = L(0, 5.5, 2), tb = { x: S.x, y: gy + 6, z: S.z };
+      const a = L(-15, 2.4, -6), b = L(-19, 5.5, -15), ta = L(0, 5.5, 2), tk = 0.55; // ends looking between the engine and the keep, both in the frame
+      const tb = { x: ta.x + (S.x - ta.x) * tk, y: ta.y + (gy + 6 - ta.y) * tk, z: ta.z + (S.z - ta.z) * tk };
       return { keys: [capKey(a.x, a.y, a.z, ta.x, ta.y, ta.z, 50), capKey(b.x, b.y, b.z, tb.x, tb.y, tb.z, 46)] };
     },
   },
@@ -672,7 +673,7 @@ const CAP_SHOTS = [
       P.yaw = 0.7 + 2.4;
       CAPTURE.showMe = true;
       const gy = heightAt(sp.x, sp.z);
-      return { orbit: { x: sp.x, y: gy + 1.4, z: sp.z, r: 6.5, h: 0.6, a: 0.7 + 2.0, w: 0.16 } };
+      return { orbit: { x: sp.x, y: gy + 2.0, z: sp.z, r: 7.6, h: 0.5, a: 0.7 + 2.0, w: 0.16 } }; // the flag in the frame over you
     },
   },
   {
