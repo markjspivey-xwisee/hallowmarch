@@ -23,7 +23,9 @@ T0 = time.time()
 # [war2] the band watcher: installed once, then every chunk is simulated 2 s at a time with a look between
 WATCH_JS = r"""(() => {
   const H = __hm, WAR = H.WAR, GAME = H.GAME, fn = H.fn;
-  const W2 = window.__w2 = { cls: {}, eps: [], stalls: [], prev: new Map(), seenStalls: WAR.stats.bandStalls || 0, keepsHeld: [0, 0, 0], held4: [0, 0, 0] };
+  const W2 = window.__w2 = { cls: {}, eps: [], stalls: [], prev: new Map(), seenStalls: WAR.stats.bandStalls || 0, keepsHeld: [0, 0, 0], held4: [0, 0, 0], caps: [], ks: null, held4Max: [0, 0, 0], run4: [0, 0, 0] };
+  // [war3] every keep's change of hands, with what held it the look before: its guards, lord and gate
+  const keepSnap = () => WAR.keeps.map((K) => { let g = 0; for (const id of K.guards) { const q = fn.getEnt(id); if (q && q.alive) g++; } const Lr = fn.getEnt(K.lord); return { r: K.realm, g, lord: !!(Lr && Lr.alive), door: K.door.alive ? +(K.door.hp / K.door.maxHp).toFixed(2) : 0 }; });
   const key = (O) => (O ? O.type + '/' + (O.phase || '-') : 'none');
   const castles = () => (fn.castles ? fn.castles() : []);
   function goalPt(wb, O) {
@@ -38,6 +40,7 @@ WATCH_JS = r"""(() => {
     if (O.type === 'carry') { const n = WAR.temples[wb.realm].nav.tg; return { x: n.x, z: n.z }; }
     if (O.type === 'retrieve' || O.type === 'rally') return O.point ? { x: O.point.x, z: O.point.z } : null;
     if (O.type === 'patrol') return { x: O.node.x, z: O.node.z };
+    if (O.type === 'garrison') { const n = O.keep.nav.court; return { x: n.x, z: n.z }; } // [war3] a column to its keep's court
     return null;
   }
   const engineOf = (O) => (O && O.siegeE && H.SIEGE ? H.SIEGE.SIEGE.engines.find((E) => E.id === O.siegeE && !E.gone) : null);
@@ -73,7 +76,10 @@ WATCH_JS = r"""(() => {
       W2.seenStalls = nowStalls;
     }
     const keeps = [0, 1, 2].map((r) => WAR.keeps.filter((K) => K.realm === r).length);
-    for (let r = 0; r < 3; r++) { W2.keepsHeld[r] += keeps[r] * dt; if (keeps[r] >= 4) W2.held4[r] += dt; }
+    for (let r = 0; r < 3; r++) { W2.keepsHeld[r] += keeps[r] * dt; if (keeps[r] >= 4) { W2.held4[r] += dt; W2.run4[r] += dt; W2.held4Max[r] = Math.max(W2.held4Max[r], W2.run4[r]); } else W2.run4[r] = 0; }
+    const ks = keepSnap();
+    if (W2.ks) ks.forEach((k, i) => { const p = W2.ks[i]; if (p.r !== k.r) W2.caps.push({ t: Math.round(now), n: H.CW.CAMPAIGN.n, k: i, from: p.r, to: k.r, g: p.g, lord: p.lord, door: p.door, peace: peace ? 1 : 0 }); });
+    W2.ks = ks;
     const seen = new Set();
     for (const wb of WAR.warbands) {
       if (wb.dead) continue;
@@ -120,12 +126,12 @@ CHUNK_JS = """(() => {
   const c = __hm.CW.state(), H = __hm.CW.CAMPAIGN.history;
   const sg = __hm.SIEGE ? __hm.SIEGE.stats() : null;
   const W2 = window.__w2;
-  const eps = W2.eps.splice(0), stalls = W2.stalls.splice(0);
+  const eps = W2.eps.splice(0), stalls = W2.stalls.splice(0), caps = W2.caps.splice(0);
   return { t: Math.round(s.t), bad: s.nonFinite, errors: s.errors.slice(0, 3), n: c.n, state: c.state, el: c.el, keeps: c.keeps, hallows: c.hallows,
     claims: c.claims.map((q) => q.k + '/' + q.h), renown: c.renown, bands: __hm.WAR.warbands.filter((w) => !w.dead).length,
     stats: __hm.WAR.stats, siege: sg, hist: H.map((h) => ({ n: h.n, w: h.w, how: h.how, m: h.m, cap: h.cap, hal: h.hal })),
-    cls: W2.cls, eps, stalls, keepsHeld: W2.keepsHeld.map(Math.round), held4: W2.held4.map(Math.round),
-    news: __hm.WAR.news.filter((n) => n.t > s.t - %d && /won|claim|holds|breach|seized|placed|engine|ram|trebuchet|mangonel|sall/i.test(n.text)).slice(-10).map((n) => Math.round(n.t) + ' ' + n.text) };
+    cls: W2.cls, eps, stalls, caps, keepsHeld: W2.keepsHeld.map(Math.round), held4: W2.held4.map(Math.round), held4Max: W2.held4Max.map(Math.round), w3: __hm.war3 ? __hm.war3.W3.stats : null,
+    news: __hm.WAR.news.filter((n) => n.t > s.t - %d && /won|claim|holds|breach|seized|placed|engine|ram|trebuchet|mangonel|sall|captured|presses|common cause|column|pact/i.test(n.text)).slice(-10).map((n) => Math.round(n.t) + ' ' + n.text) };
 })()"""
 
 def fmt_snap(e):
@@ -143,12 +149,12 @@ async def main():
         await page.evaluate(WATCH_JS)
         print(f'soak {MINS} min, {QUALITY} band count, booted in {time.time() - T0:.0f}s', flush=True)
         last = None
-        all_eps, all_stalls = [], []
+        all_eps, all_stalls, all_caps = [], [], []
         for i in range(MINS * 60 // CHUNK):
             t1 = time.time()
             d = await page.evaluate(CHUNK_JS % (CHUNK, CHUNK))
             last = d
-            all_eps += d['eps']; all_stalls += d['stalls']
+            all_eps += d['eps']; all_stalls += d['stalls']; all_caps += d['caps']
             print(f"t={d['t']}s ({time.time() - t1:.0f}s wall) campaign {d['n']} {d['state']} el={d['el']} keeps={d['keeps']} hallows={d['hallows']} claims k/h={d['claims']} renown={d['renown']} bands={d['bands']} bad={d['bad']} errors={len(d['errors'])} stalls={d['stats'].get('bandStalls', 0)} chases={d['stats'].get('chasesDropped', 0)}", flush=True)
             if d['siege']: print('   siege:', json.dumps(d['siege']), flush=True)
             tot = {'fight': 0, 'nearer': 0, 'wait': 0, 'still': 0}
@@ -174,7 +180,21 @@ async def main():
             print(f"  {k:18s} {s:7.0f}s  fight {T['fight'] / s:5.1%}  nearer {T['nearer'] / s:5.1%}  wait {T['wait'] / s:5.1%}  still {T['still'] / s:5.1%}", flush=True)
         s = sum(tot.values()) or 1
         print(f"  {'all':18s} {s:7.0f}s  fight {tot['fight'] / s:5.1%}  nearer {tot['nearer'] / s:5.1%}  wait {tot['wait'] / s:5.1%}  still {tot['still'] / s:5.1%}", flush=True)
-        print(f"keeps held (keep-seconds by realm) {last['keepsHeld']}; time each realm held four or more {last['held4']}", flush=True)
+        print(f"keeps held (keep-seconds by realm) {last['keepsHeld']}; time each realm held four or more {last['held4']} (longest run {last['held4Max']})", flush=True)
+        # [war3] the keeps' changes of hands: how long each was held, what held it when it fell
+        war_caps = [c for c in all_caps if not c['peace']]
+        print(f"\nCAPTURES {len(war_caps)} in war (+{len(all_caps) - len(war_caps)} in peace/reset)", flush=True)
+        held = []
+        lastAt = {}
+        for c in all_caps:
+            if c['k'] in lastAt and not c['peace'] and lastAt[c['k']][1] == c['n']: held.append(c['t'] - lastAt[c['k']][0])
+            lastAt[c['k']] = (c['t'], c['n'])
+        if held:
+            hs = sorted(held)
+            print(f"  a captured keep held for: median {hs[len(hs) // 2]} s, under 3 min {sum(1 for h in hs if h < 180)} of {len(hs)}, quartiles {hs[len(hs) // 4]}/{hs[3 * len(hs) // 4]} s", flush=True)
+        if war_caps:
+            print(f"  what held it when it fell: guards (median) {sorted(c['g'] for c in war_caps)[len(war_caps) // 2]}, gate standing {sum(1 for c in war_caps if c['door'] > 0)} of {len(war_caps)}", flush=True)
+        if last.get('w3'): print('war3', json.dumps(last['w3']), flush=True)
         by = {}
         for e in all_eps: by.setdefault(e['k'], []).append(e.get('dur', 30))
         print('still episodes (30 s or more) by order/phase:', {k: f"{len(v)} x, {sum(v):.0f}s" for k, v in sorted(by.items(), key=lambda kv: -sum(kv[1]))}, flush=True)
@@ -182,7 +202,7 @@ async def main():
         for e in all_stalls: bs[e['k']] = bs.get(e['k'], 0) + 1
         print('stalls (orders given back) by order/phase:', bs, flush=True)
         if JSON_OUT:
-            pathlib.Path(JSON_OUT).write_text(json.dumps({'mins': MINS, 'quality': QUALITY, 'hist': last['hist'], 'state': last['state'], 'el': last['el'], 'n': last['n'], 'stats': last['stats'], 'siege': last['siege'], 'cls': last['cls'], 'eps': all_eps, 'stalls': all_stalls, 'keepsHeld': last['keepsHeld'], 'held4': last['held4']}))
+            pathlib.Path(JSON_OUT).write_text(json.dumps({'mins': MINS, 'quality': QUALITY, 'hist': last['hist'], 'state': last['state'], 'el': last['el'], 'n': last['n'], 'stats': last['stats'], 'siege': last['siege'], 'cls': last['cls'], 'eps': all_eps, 'stalls': all_stalls, 'caps': all_caps, 'keepsHeld': last['keepsHeld'], 'held4': last['held4'], 'held4Max': last['held4Max'], 'w3': last.get('w3')}))
         for l in logs[:5]: print(l)
         await b.close()
     print(f'done in {time.time() - T0:.0f}s')

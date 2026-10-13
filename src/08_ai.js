@@ -335,7 +335,7 @@ function relicTakeable(rel, e) {
 }
 
 function captureKeep(K, realm, killer) {
-  const old = K.realm;
+  const old = K.realm, gateDown = !K.door.alive; // [war3]
   K.realm = realm;
   K.lastOwnerChange = GAME.t;
   K.underSiegeUntil = -99;
@@ -345,13 +345,14 @@ function captureKeep(K, realm, killer) {
   const L = getEnt(K.lord);
   if (L && L.alive) { L.alive = false; L.removeAt = GAME.t; }
   K.lord = null;
-  setDoorState(K.door, true, 0.5);
+  if (!(W3.on && gateDown && CAMPAIGN.state === 'war')) setDoorState(K.door, true, 0.5); else { K.door.faction = realm; if (K.site.door) K.site.door.owner = realm; } // [war3] a gate broken when the keep fell stays broken until its new owners mend it (08k_war3.js)
   setSiteBanners(K.site, realm);
   fillGarrison(K, false);
   K.nextGuardAt = GAME.t + 8;
   const S = K.site;
   for (let i = 0; i < 6; i++) later(i * 0.25, () => FX.burst(S.x + (Math.random() - 0.5) * 20, S.y + 10 + Math.random() * 6, S.z + (Math.random() - 0.5) * 20, 30, REALMS[realm].rgb.map((v) => v * 2 + 0.4), 7, 1.0, 0.25, 3));
   news(`${S.name} has been captured by ${REALMS[realm].name}!`, realm, 'big');
+  war3OnCapture(K, realm, old, gateDown); // [war3] held by the band that took it, garrisoned by a column from the muster (08k_war3.js)
   if (GAME.player && GAME.player.faction === realm && dist(GAME.player.x, GAME.player.z, S.x, S.z) < 70) { addRP(250); }
   sfx('horn');
   saveSoon();
@@ -612,6 +613,7 @@ function thinkPosted(e, dt, aggroR) {
   if ((e.ai.fire || e.ai.fireBack) && blazeFightStep(e, dt)) return; // [siege3] beating out a fire on its walls, then back to its post's floor (04g_blaze.js)
   if (e.ai.route && castleFollow(e, dt)) return; // castles: up the stairs to a wall post (04g_castles.js)
   if ((e.ai.plug || e.ai.sally) && siegePostedThink(e, dt)) return; // [siege] holding a breach, or out on a sally (04h_siege.js)
+  if (e.keep && !e.keep.door.alive && war3GateWork(e, dt)) return; // [war3] two of the court's guards mend a broken gate while the keep is quiet (08k_war3.js)
   let t = getEnt(e.target);
   if (t && (!t.alive || !isEnemy(e, t) || dist(t.x, t.z, post.x, post.z) > aggroR + 8 || !canReach(e, t))) { t = null; e.target = null; }
   if (!t && GAME.t > (e.ai.nextScan || 0)) {
@@ -738,11 +740,12 @@ function updateWarband(wb, dt) {
   const engaged = GAME.t < wb.engagedUntil;
 
   let goal = null;
-  if (O.type === 'attack' || O.type === 'defend') {
+  if (O.type === 'garrison') { goal = war3ColumnGoal(wb, O, L, members); if (!goal) return; } // [war3] a column from the muster to its keep's posts (08k_war3.js)
+  else if (O.type === 'attack' || O.type === 'defend') {
     const K = O.keep;
     if (O.type === 'attack' && K.realm === wb.realm) {
       if (O.phase !== 'hold') { O.phase = 'hold'; O.holdUntil = GAME.t + 35; wbPlan(wb, K.nav.court); }
-      if (GAME.t > O.holdUntil) { wb.order = null; return; }
+      if (GAME.t > O.holdUntil && !war3HoldOn(wb, O, K)) { wb.order = null; return; } // [war3] the band that took it holds it till it is garrisoned and its gate stands (08k_war3.js)
       goal = K.nav.court;
     } else if (O.type === 'defend' && (K.realm !== wb.realm || (GAME.t > K.underSiegeUntil + 15 && GAME.t > O.since + 30))) { wb.order = null; return; }
     else {
@@ -992,6 +995,7 @@ function updateWar(dt) {
   }
   updateRelics(dt);
   updateWar2(dt); // [war2] (08j_war2.js)
+  updateWar3(dt); // [war3] the pact, the presses, the peace (08k_war3.js)
   updateCampaign(dt); // [campaign] claims, victory, the peace and the reset (08g_campaign.js)
   // camps respawn
   for (const c of CAMPS) {
