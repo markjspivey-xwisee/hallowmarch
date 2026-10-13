@@ -549,6 +549,7 @@ function beastVS(depth) {
     float tailX = -0.12 * k - 0.22 * gal + 0.05 * sin(t * 1.1);
     float tailY = (0.1 + 0.22 * idle) * sin(t * (1.5 + 3.0 * k));
     float frontReach = 0.0, hindPush = 0.0, lungeZ = 0.0, rear = 0.0, tuck = 0.0;
+    float rearA = 0.0, rear20 = 0.0, paw20 = 0.0, crouch22 = 0.0; // [late4] how far the body rears (rad), the wind-ups' own (actions 20, 22)
     if (atype > 0.5 && atype < 1.5) {
       float lunge = sin(at * 3.1416);
       if (uBeastK.x > 0.5) {
@@ -581,7 +582,32 @@ function beastVS(depth) {
       headX -= 0.3 * g; headY *= 1.0 - g; tailX -= 0.3 * g;
     } else if (atype > 3.5 && atype < 4.5) {
       float kk = sin(at * 3.1416); pitch -= 0.08 * kk; headX -= 0.28 * kk; jaw = max(jaw, 0.3 * kk); lungeZ = -0.07 * kk;
+    } else if (atype > 19.5 && atype < 20.5) {
+      // [late4] body action 20, a risen bear's wind-up (10o_late4.js): it rears up onto its hind legs (they stay where they
+      // stand, their hocks bending as the hips sink), paws the air with its forelegs in turn and roars, its head brought
+      // down to its foe, then crashes down onto its forepaws as the blow lands (the action's end: the wrath at 0.9)
+      rear20 = smoothstep(0.0, 0.3, at) * (1.0 - smoothstep(0.76, 0.89, at));
+      rearA = 1.08 * rear20; // (rear itself stays 0: the strike's own front-paw tilt is left out, so the paws leave and meet the ground level)
+      paw20 = sin(at * 33.0) * rear20 * (1.0 - smoothstep(0.62, 0.76, at));
+      frontReach = 1.05 * rear20 * smoothstep(0.1, 0.45, rear20); // (none while the forepaws are still near the ground: they leave it and come down where they stood)
+      hindPush = -rearA;
+      headX += 0.62 * rear20 + 0.25 * smoothstep(0.86, 0.92, at) * (1.0 - smoothstep(0.93, 1.0, at)); headY *= 1.0 - rear20;
+      jaw = max(jaw, 0.7 * rear20 * smoothstep(0.25, 0.45, at));
+      tailX += 0.3 * rear20;
+      bob -= 0.1 * uGait.w * rear20; // the hips sink as the body rises over them
+    } else if (atype > 21.5 && atype < 22.5) {
+      // [late4] body action 22, a risen wolf's or boar's wind-up (10o_late4.js): it crouches to spring, forequarters low,
+      // haunches bunched, head low and forward, its feet planted where they stand, quivering; it springs as the blow lands
+      float cr = smoothstep(0.0, 0.38, at) * (1.0 - smoothstep(0.82, 0.92, at));
+      float spr = smoothstep(0.84, 0.9, at) * (1.0 - smoothstep(0.92, 1.0, at));
+      crouch22 = cr;
+      bob -= (0.24 * uGait.z * cr) * (1.0 - 0.15 * sin(t * 43.0) * smoothstep(0.35, 0.5, at)) - 0.06 * uGait.z * spr;
+      pitch += 0.17 * cr - 0.14 * spr;
+      headX += 0.34 * cr - 0.3 * spr; headY *= 1.0 - cr; jaw = max(jaw, 0.18 * cr + 0.65 * spr);
+      tailX += 0.35 * cr; tailY *= 1.0 - 0.8 * cr;
+      lungeZ += 0.3 * spr * uGait.z; spine += 0.06 * cr;
     }
+    if (rearA == 0.0) rearA = 0.62 * rear; // [late4] (a bear's own strike rears as it did)
     // [water] swimming (iAnim.w < 0, 07b_swim.js): nose up, back awash, tail trailing, the legs paddling in turn
     float swimK = clamp(-iAnim.w, 0.0, 1.0);
     if (swimK > 0.001) {
@@ -597,7 +623,7 @@ function beastVS(depth) {
     // planted feet (footLockStep) above its weather in iColB.w
     float kT = floor(iPos.w * 0.159155 + 0.5), slopeS = floor((kT + 5.0) / 11.0 + 1e-3), leanN = kT - 11.0 * slopeS, leanA = leanN * 0.04, flSlot = floor(iColB.w / 256.0 + 1e-3);
     float bSlope = slopeS * 0.05; // [polish] the ground's rise along the body (beastLeanYaw): the beast stands tilted with it
-    float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck);
+    float vaultK = (1.0 - swimK) * (1.0 - d1) * (1.0 - tuck) * (1.0 - rear20); // [late4] (not reared up on its hind legs)
     vec4 lkA = footLock4(flSlot, 0), lkB = footLock4(flSlot, 1), lkC = footLock4(flSlot, 2), lkD = footLock4(flSlot, 3); // [polish] the floor under each foot; [motion3] and where the lock holds it along the body
     vec4 dh4 = vec4(lkA.z, lkB.z, lkC.z, lkD.z) / bsc, dz4 = vec4(lkA.y, lkB.y, lkC.y, lkD.y) / bsc;
     vec2 sink = vaultK > 0.001 ? bbVault(ph, off, duty, reachB, fold, trot, spine, pitch, bob, lungeZ, dh4, dz4, hb) * vaultK : vec2(0.0);
@@ -642,6 +668,8 @@ function beastVS(depth) {
       // [polish] the hoof or paw stays level (its rest angle) whatever the leg and the body above it do, then tucks in the air
       float lowA = sw - midA - ((fr ? spine : -spine) + pitch + thV) + bbTuck(fr, fp, fold);
       if (fr) lowA += 0.35 * rear + 1.6 * tuck;
+      if (fr && rear20 > 0.0) { float pw = leg == 0 ? paw20 : -paw20, up = smoothstep(0.2, 0.6, rear20); midA += (0.5 * rear20 + 0.4 * pw) * up; sw += 0.22 * pw * up; lowA += (0.8 * rear20 - 0.3 * pw) * up; } // [late4] the forepaws raised and pawing the air in turn (action 20), level near the ground
+      if (!fr) lowA += rearA; // [late4] a hind paw stays flat on the ground as the body rears over it (it tipped by the rear's angle)
       if (fr) { midA -= 0.25 * tuck; sw += 0.5 * tuck; } else { lowA -= 0.3 * tuck; sw -= 0.55 * tuck; }
       if (death > 0.0) { sw = mix(sw, fr ? 0.35 : -0.3, d1); midA *= 1.0 - d1; lowA = mix(lowA, fr ? 0.25 : -0.15, d1); }
       if (swimK > 0.001) {
@@ -659,7 +687,7 @@ function beastVS(depth) {
       b = fr ? 1 : 0; w = 1.0;
     }
     rotP(rotX((b == 1 ? spine : -spine) * w), uSpine);
-    if (rear > 0.0) rotP(rotX(-0.62 * rear), uBT);
+    if (rearA > 0.0) rotP(rotX(-rearA), uBT); // [late4] (by rearA: a bear's strike 0.62 rad, its wind-up's rear 1.08)
     rotP(rotX(pitch), vec3(0.0, uFT.y, uSpine.z));
     if (sink.x + sink.y > 0.0) { rotP(rotX(thV), vec3(0.0, vPiv.y, vPiv.x)); P.y -= sink.y; } // [polish] the vault
     P.y += bob; P.z += lungeZ;
@@ -707,6 +735,9 @@ const beastMat = mat({
     ${L3_DEVICE_GLSL /* [late3] a veteran's barding (04_l3device.js, 10n_veteran.js) */}
     void main(){
       float bWet = clamp(vWx.x, 0.0, 1.0), bSnow = clamp(vWx.y, 0.0, 1.0);
+      // [late4] a risen champion of the beasts: 4 above its second colour's green (10o_late4.js); fur2 is that colour
+      float l4ris = floor(vFur2.g / 4.0 + 1e-3);
+      vec3 fur2 = vec3(vFur2.r, vFur2.g - 4.0 * l4ris, vFur2.b);
       vec3 n = safeNormalize(vN);
       vec3 no = safeNormalize(vNo);
       vec3 V = safeNormalize(cameraPosition - vW);
@@ -715,7 +746,7 @@ const beastMat = mat({
       float ao = vAO;
       if (m == 11 || m == 12) {
         vec3 light = min(vFur * 1.55 + 0.07, vec3(0.95));
-        vec3 dark = uDarkCoat > 0.5 ? vFur * 0.22 + 0.01 : vFur2 * mix(1.0, 0.62, uFurK.x);
+        vec3 dark = uDarkCoat > 0.5 ? vFur * 0.22 + 0.01 : fur2 * mix(1.0, 0.62, uFurK.x);
         // countershading: a darker saddle, a pale belly and throat, darker lower legs, a dark tail tip
         float legs = 1.0 - smoothstep(uLegH * 0.95, uLegH * 1.25, vO.y);
         float saddle = smoothstep(0.15, 0.85, no.y) * (1.0 - legs) * uFurK.x;
@@ -748,12 +779,12 @@ const beastMat = mat({
       else if (m == 25) { alb = (uBeastK.y > 0.5 ? vec3(0.2, 0.13, 0.12) : vec3(0.05, 0.045, 0.045)) * mix(0.25, 1.0, vAO); rough = 0.28; sss = 0.0; ao = 1.0; }
       else if (m == 27) { alb = vec3(0.1, 0.085, 0.07); rough = 0.4; sss = 0.0; }
       else if (m == 28) { alb = vec3(0.3, 0.07, 0.08); rough = 0.3; sss = 0.4; }
-      else if (m == 7) { alb = (uDarkCoat > 0.5 ? vFur * mix(0.26, 0.9, step(0.55, dot(vFur, vec3(0.33)))) : vFur2) * (0.75 + 0.5 * fineMix(vnoise(vec2(vUV.x * 40.0, vO.y * 60.0)), 0.5, vec2(vUV.x * 40.0, vO.y * 60.0))); rough = 0.55; sss = 0.1; }
+      else if (m == 7) { alb = (uDarkCoat > 0.5 ? vFur * mix(0.26, 0.9, step(0.55, dot(vFur, vec3(0.33)))) : fur2) * (0.75 + 0.5 * fineMix(vnoise(vec2(vUV.x * 40.0, vO.y * 60.0)), 0.5, vec2(vUV.x * 40.0, vO.y * 60.0))); rough = 0.55; sss = 0.1; }
       else if (m == 10) {
         // the saddle cloth: woven, with the rider's colours
         // [late3] a veteran's barding: the device of the name worn above the cloth's red, 4 x (device + 1) (10n_veteran.js)
-        float bdev = floor(vFur2.r / 4.0);
-        vec3 clo = vec3(vFur2.r - bdev * 4.0, vFur2.g, vFur2.b);
+        float bdev = floor(fur2.r / 4.0);
+        vec3 clo = vec3(fur2.r - bdev * 4.0, fur2.g, fur2.b);
         alb = clo * (0.86 + 0.14 * fineMix(0.5 + 0.5 * sin(vO.x * 700.0) * sin(vO.z * 700.0), 0.5, vO.xz * 110.0));
         if (bdev > 0.5) {
           // on each flank in gold, upright and facing the head, and a gilt band above the fringe
@@ -768,6 +799,26 @@ const beastMat = mat({
       else if (m == 15) { alb = vec3(0.85, 0.66, 0.3); rough = 0.25; metal = 0.9; sss = 0.0; }
       else if (m == 6) { alb = vec3(0.62, 0.63, 0.66); rough = 0.3; metal = 0.85; sss = 0.0; }
       else alb = vFur;
+      // [late4] a risen champion's old wounds (10o_late4.js): long scars raked across its flanks, pale and hairless, their
+      // edges puckered; and its coat singed dark along the back where the embers run
+      float l4scar = 0.0, l4vein = 0.0;
+      if (l4ris > 0.5 && (m == 11 || m == 12)) {
+        vec2 fl = vec2(vO.z, vO.y) * 1.0;
+        float sd = 1.0;
+        for (int i = 0; i < 3; i++) {
+          float fi = float(i);
+          vec2 c = vec2(0.12 - 0.22 * fi, uLegH * (1.35 + 0.22 * fi));
+          vec2 dir = normalize(vec2(1.0, 0.55 - 0.35 * fi));
+          vec2 d = fl - c; float along = dot(d, dir), across = dot(d, vec2(-dir.y, dir.x));
+          sd = min(sd, max(abs(across) - 0.006 * (1.0 + sin(along * 60.0) * 0.3), abs(along) - 0.13));
+        }
+        l4scar = (1.0 - smoothstep(0.0, 0.01, sd)) * step(0.02, abs(vO.x)) * (1.0 - smoothstep(0.55, 0.9, abs(no.y)));
+        alb = mix(alb, mix(vec3(0.55, 0.42, 0.38), alb, 0.25), clamp(l4scar, 0.0, 1.0) * 0.85);
+        vec3 q = vO * 5.5;
+        float vn = abs(vnoise(q.zx + q.y * 0.8) - 0.5) + 0.5 * abs(vnoise(q.zy * 2.3 + 1.7) - 0.5);
+        l4vein = fineMix(1.0 - smoothstep(0.018, 0.07, vn), 0.06, q.zx) * (0.25 + 0.75 * smoothstep(-0.3, 0.5, no.y));
+        alb *= 1.0 - 0.45 * l4vein;
+      }
       /* ---- weather (feature/weather): a soaked coat darkens and shines, snow settles along the back and the head ---- */
       if (bWet > 0.01) {
         // a soaked coat clumps into dark wet locks
@@ -792,6 +843,17 @@ const beastMat = mat({
       // soft back-lit fringe along the silhouette
       float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
       col += (uLightColor * 0.22 * sh * max(0.0, dot(-V, uLightDir) * 0.5 + 0.5) + uAmbient * 0.1) * rim * (m == 11 || m == 12 ? 1.0 : 0.0) * alb * 2.0;
+      // [late4] the embers of a risen champion: they burn in the veins of its coat, its eyes and its outline, bright enough to
+      // read by day as by night (and bloom), pulsing as a fire's coals do
+      if (l4ris > 0.5) {
+        vec3 ec = vec3(2.6, 0.82, 0.18);
+        float pulse = 0.72 + 0.28 * sin(uTime * 2.1 + vO.z * 5.0) * sin(uTime * 1.3 + vO.y * 3.0);
+        if (m == 14) col += ec * 1.9;
+        else if (m == 11 || m == 12) {
+          float rimE = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+          col += ec * (l4vein * (0.9 + 0.8 * pulse) + rimE * 0.45 * pulse + l4scar * 0.12);
+        } else if (m == 25 || m == 13) col += ec * 0.25 * pulse; // (its mouth and teeth lit from within)
+      }
       col = mix(col, vec3(1.0, 0.95, 0.85) * 1.4, clamp(vFlash, 0.0, 1.0) * 0.55);
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,

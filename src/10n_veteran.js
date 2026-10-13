@@ -54,8 +54,9 @@ function late3StdPose() {
     const code = (GAME.player ? GAME.player.faction : 0) + late3StdCode();
     const y = heightAt(at.x, at.z) - 0.08;
     if (k > 0.02) B.aB0.array.set([0, -999, 0, 0], L2STD.slot * 4); // the flag comes down with the pole
-    else B.aB0.array.set([at.x + 0.02, y + LATE2_STD.poleH - 0.05, at.z, 0], L2STD.slot * 4);
+    else B.aB0.array.set([at.x, y + LATE2_STD.flagTop, at.z, 0], L2STD.slot * 4); // [late4] the flag's hoist down the pole's head (10l_late.js)
     B.aB1.array[L2STD.slot * 4 + 2] = code;
+    B.aB1.array[L2STD.slot * 4 + 3] = late4StdKind(); // [late4] a veteran's flag, torn as it is struck (10o_late4.js)
     S.code = code;
     B.aB0.needsUpdate = true; B.aB1.needsUpdate = true;
     const H = S.fallen || k > 0.5 ? late3StdHeap() : L3V_HEAP;
@@ -114,6 +115,7 @@ function late3StdStep() {
   });
   if (!dmg) { S.hp = Math.min(1, S.hp + 0.02); return; } // (a lull: the bearers steady it)
   S.hp -= dmg;
+  late4StdTear(dmg); // [late4] the cloth rent by what strikes it (10o_late4.js)
   L3V.stats.hits++;
   S.shake = 0.4;
   const y = heightAt(at.x, at.z);

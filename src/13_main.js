@@ -384,6 +384,7 @@ function simStep(dt) {
   updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
   updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
+  updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -436,6 +437,7 @@ function tick(dt) {
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   look5Frame(dt); // [look5] holy ground's light in the grass (13z_look5.js)
+  drawLate4(dt); // [late4] the risen's embers and glow, boulders and flasks in flight (10o_late4.js)
   drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
   drawDepth(dt); // [depth] nests and their eggs (09u_depth.js)

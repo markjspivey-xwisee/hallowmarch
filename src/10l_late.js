@@ -268,6 +268,7 @@ function late2OnSpawn(e, camp, elite) {
   }
   e.tweak = { hp: LATE2_RISEN_HP / Math.sqrt((MOBS[camp.type] || {}).hp || 1), dmg: LATE2_RISEN_DMG }; // (a champion's is 2.8 and 1.3: a risen one is a fight of half a minute and more)
   e.ai.l2 = null;
+  late4MarkRisen(e); // [late4] embers in its coat or mail, scars, a glow by day, its name in ember (10o_late4.js)
   LATE2.stats.risenSpawned++;
 }
 // a camp risen or fallen back is taken over: its bodies go and new ones come (rescaleWar, 08_ai.js)
@@ -326,6 +327,7 @@ function late2ChampThink(e, t, dt) {
     if (W.disc && W.disc.on) W.disc.age = Math.max(W.disc.age, W.disc.dur - 0.25);
     for (const m of AOE_MARKS) if (m.x === W.x && m.z === W.z && m.until > now) m.until = now;
     uiFloatAt(e.x, e.y + 2.4 * (e.scale || 1), e.z, 'Broken off', 'immune');
+    late4WindBroken(e); // [late4] a reared bear comes down, a crouched beast rises, at once (10o_late4.js)
     late2Snd('stagger', e, 1.4, null, 'hit');
     LATE2.stats.broken = (LATE2.stats.broken || 0) + 1;
     return false;
@@ -337,7 +339,7 @@ function late2ChampThink(e, t, dt) {
     return true;
   }
   if (isStunned(e) || !t) return false;
-  if (!S.rally && e.hp < e.maxHp * 0.5) { S.rally = true; late2Rally(e, t); }
+  if (!S.rally && e.hp < e.maxHp * 0.5) { S.rally = true; late2Rally(e, t); S.next3 = now + 2.5; } // [late4] from the rally its second way (10o_late4.js)
   if (!S.enr && e.hp < e.maxHp * 0.25) {
     S.enr = true;
     addBuff(e, 'dmg', 0.2, 120, e.id);
@@ -347,6 +349,7 @@ function late2ChampThink(e, t, dt) {
   }
   const M = MOBS[e.mobType] || {}, ranged = !!M.ranged, d = dist(e.x, e.z, t.x, t.z);
   if (now > S.next2 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && late2KindMove(e, t, d)) S.next2 = now + 13 + Math.random() * 4; // each kind its own way
+  if (S.next3 && now > S.next3 && now > S.next2 - 11 && Math.abs((t.y || 0) - (e.y || 0)) < 3 && !e.motion && late4Second(e, t, d)) { S.next3 = now + (S.enr ? 9 : 12) + Math.random() * 3; S.next = Math.max(S.next, now + 3); } // [late4] and from the rally a second way of its kind, on a clock of its own (10o_late4.js)
   if (now < S.next) return false;
   if (ranged ? d > 26 : d > 5.2) return false;
   if (Math.abs((t.y || 0) - (e.y || 0)) > 3) return false; // not at one up on a wall or a rock
@@ -356,7 +359,7 @@ function late2ChampThink(e, t, dt) {
   aoeMarker(x, z, r, total, e.faction); // (the skilled bots step out of it: 07c_balance7.js)
   Object.assign(AOE_MARKS[AOE_MARKS.length - 1], { stun: !ranged, src: e.id }); // [balance8] a blow that stuns: a skilled warrior steps out of it too, or bashes its champion as it rears (b8StunMark, 07c_balance8.js)
   e.swingAt = Math.max(e.swingAt || 0, now + total + 0.5);
-  if (e.kind === 'humanoid') setAct(e, 8, total + 0.15);
+  late4WindUp(e, total); // [late4] a humanoid's overhead smash (8), a bear rearing (20), a wolf or a boar crouching to spring (22): 10o_late4.js
   late2Snd(ranged ? 'cast' : 'roarSmall', e, 2);
   return true;
 }
@@ -391,7 +394,7 @@ function late2Wrath(e, W) {
 // each kind of risen its own way, on a clock of its own (late2ChampThink): true when it acted
 const LATE2_KIND = { wolf: 'howl', boar: 'howl', bear: 'howl', skeleton: 'grave', draugr: 'grave', bandit: 'hamstring', troll: 'burst', wisp: 'blink' };
 function late2KindMove(e, t, d) {
-  const way = LATE2_KIND[e.mobType], camp = CAMPS[e.camp], P = GAME.player, near = P && dist2(e.x, e.z, P.x, P.z) < 60 * 60;
+  const way = LATE2_KIND[e.mobType], camp = late4CampOf(e), P = GAME.player, near = P && dist2(e.x, e.z, P.x, P.z) < 60 * 60; // [late4] (a roaming host's own stand-in camp: 10o_late4.js)
   if (way === 'howl') { // the hunt's howl: its foes slowed, its pack's blood up
     if (d > 14) return false;
     late2Snd('roar', e, 1.2); FX.ring(e.x, e.y + 0.4, e.z, 3.5, [1.2, 1.0, 0.8], 36, 5);
@@ -404,6 +407,7 @@ function late2KindMove(e, t, d) {
       const a = Math.random() * TAU, x = t.x + Math.cos(a) * 3.2, z = t.z + Math.sin(a) * 3.2;
       if (!isWalkable(x, z)) continue;
       const m = spawnMob(camp);
+      late4Adopt(camp, m); // [late4] one called up by a roaming host walks with it (10o_late4.js)
       m.x = m.prevX = x; m.z = m.prevZ = z; m.y = heightAt(x, z);
       m.threat = new Map([[t.id, 1]]); m.target = t.id; m.ai.pulled = true;
       FX.dust(x, m.y, z, 10); lightFlash(x, m.y + 1, z, 6, [0.6, 1.2, 1.5], 0.4);
@@ -440,7 +444,7 @@ function late2KindMove(e, t, d) {
 }
 // at half its strength: a roar, its pack mended, and two more come at its call
 function late2Rally(e, t) {
-  const camp = CAMPS[e.camp];
+  const camp = late4CampOf(e); // [late4] (a roaming host's own: 10o_late4.js)
   late2Snd('roar', e, 1.5);
   FX.ring(e.x, e.y + 0.3, e.z, 2.6, [2.0, 1.25, 0.5], 40);
   lightFlash(e.x, e.y + 2, e.z, 10, [2.0, 1.3, 0.6], 0.6);
@@ -449,6 +453,7 @@ function late2Rally(e, t) {
   for (const id of camp.members) { const o = getEnt(id); if (o && o.alive && o !== e && dist2(o.x, o.z, e.x, e.z) < 22 * 22) { o.hp = Math.min(o.maxHp, o.hp + o.maxHp * 0.2); FX.heal(o.x, o.y, o.z); } }
   for (let i = 0; i < 2; i++) {
     const m = spawnMob(camp);
+    late4Adopt(camp, m); // [late4]
     if (t) { m.threat = new Map([[t.id, 1]]); m.target = t.id; m.ai.pulled = true; }
     FX.dust(m.x, m.y, m.z, 8);
   }
@@ -475,19 +480,23 @@ function late2RisenSpoils(e) {
 // (the banners' own cloth and shader, 04_props.js: one instance kept for it). While it stands, every soldier of your
 // realm, every companion of yours and you within its reach strike harder. Taken up again with Use beside it; planted
 // anew it is brought to you. Saved with the character.
-const LATE2_STD = { cost: 1000, lv: 40, reach: 18, harm: 0.05, poleH: 3.7, flagW: 1.35, flagH: 0.8 };
+const LATE2_STD = { cost: 1000, lv: 40, reach: 18, harm: 0.05, poleH: 5.2, flagW: 2.7, flagH: 1.55, flagTop: 4.95 }; // [late4] a veteran's: a long swallow-tailed flag lashed down the head of a taller pole, its device read from 15 m (it was 1.35 by 0.8 at the top of 3.7 m)
 const L2STD = { mesh: null, slot: -1, coll: null, tick: 0 };
 function late2StdBuild() {
   if (L2STD.mesh) return;
   // drawn with the building shader (its plaster branch tinted as ash, as a tower's hatch lids are; the gilt finial its gold):
   // no program of its own, lit by the sun, the shadows and the fires, wet in rain and white in snow as the rest of the world
-  const b = new Batch(), h = LATE2_STD.poleH, T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z), ash = [0.42, 0.31, 0.2];
-  b.add(new THREE.CylinderGeometry(0.038, 0.05, h, 8, 1), T(0, h / 2, 0), MAT.plaster, ash, 0, 2.2); // the pole, thicker at its foot
-  b.add(new THREE.CylinderGeometry(0.056, 0.056, 0.5, 8, 1), T(0, 1.2, 0), MAT.cloth, [0.2, 0.13, 0.08]); // a leather grip
-  const bar = new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6, 1);
-  bar.rotateZ(Math.PI / 2);
-  b.add(bar, T(0.25, h - 0.06, 0), MAT.plaster, ash); // the cross-bar the flag hangs from
-  b.add(new THREE.ConeGeometry(0.075, 0.22, 8, 1), T(0, h + 0.11, 0), MAT.gold, [0.86, 0.66, 0.3]); // the gilt finial
+  const b = new Batch(), h = LATE2_STD.poleH, T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z), ash = [0.42, 0.31, 0.2], gilt = [0.86, 0.66, 0.3];
+  b.add(new THREE.CylinderGeometry(0.042, 0.06, h, 10, 1), T(0, h / 2, 0), MAT.plaster, ash, 0, 2.2); // the pole, thicker at its foot
+  b.add(new THREE.CylinderGeometry(0.066, 0.066, 0.55, 10, 1), T(0, 1.25, 0), MAT.cloth, [0.2, 0.13, 0.08]); // a leather grip
+  // [late4] the flag is lashed down the head of the pole between two gilt bands (it turns about the pole with the wind,
+  // so no cross-bar): a third band under them, the shoe at the foot, and a gilt spear-point for a finial
+  const top = LATE2_STD.flagTop, bot = top - LATE2_STD.flagH;
+  for (const y of [top + 0.03, bot - 0.03, bot - 0.42]) b.add(new THREE.CylinderGeometry(0.058, 0.058, 0.07, 10, 1), T(0, y, 0), MAT.gold, gilt);
+  b.add(new THREE.CylinderGeometry(0.068, 0.06, 0.16, 10, 1), T(0, 0.08, 0), MAT.gold, [0.5, 0.42, 0.3]); // the shoe
+  b.add(new THREE.CylinderGeometry(0.05, 0.04, 0.12, 8, 1), T(0, h + 0.06, 0), MAT.gold, gilt); // the socket
+  b.add(new THREE.ConeGeometry(0.07, 0.42, 4, 1), T(0, h + 0.33, 0), MAT.gold, gilt); // the spear-point
+  b.add(new THREE.SphereGeometry(0.06, 8, 6), T(0, h + 0.13, 0), MAT.gold, gilt); // the knop under it
   const m = new THREE.Mesh(b.build(), buildingMat);
   m.position.set(0, -999, 0); // (in the scene from the start, out of sight until it is planted)
   m.userData.keep = false;
@@ -504,12 +513,12 @@ function late2StdSpot(P) {
   const a0 = P.yaw, out = [];
   for (const [d, da] of [[1.6, 0], [1.6, 0.6], [1.6, -0.6], [2.4, 0], [2.4, 1.2], [2.4, -1.2], [1.4, 2.4], [1.4, -2.4], [3.2, 0.3], [3.2, -0.3]]) {
     const x = P.x + Math.sin(a0 + da) * d, z = P.z + Math.cos(a0 + da) * d;
-    if (!isWalkable(x, z) || houseAt(x, z, 1.8)) continue;
+    if (!isWalkable(x, z) || houseAt(x, z, 3.0)) continue; // [late4] (a flag of 2.7 m: 1.8 before)
     const w = waterAt(x, z); if (w && w.depth > 0.05) continue;
     const g = heightAt(x, z); if (floorAt(x, z, g + 4.6) - g > 0.25) continue; // (no floor there, nor a walk or a stair over it)
-    collidersNear(x, z, 2.6, out);
-    if (out.some((c) => c.active && c !== L2STD.coll && collCovers(c, x, z, 1.5))) continue;
-    if (W.trees.some((t) => !t.gone && !t.felled && !t.fallen && dist2(t.x, t.z, x, z) < (2.2 + 1.6 * (t.s || 1)) ** 2)) continue;
+    collidersNear(x, z, 3.6, out);
+    if (out.some((c) => c.active && c !== L2STD.coll && (collCovers(c, x, z, 1.5) || ((c.h || 0) > 3.2 && collCovers(c, x, z, 2.9))))) continue; // [late4] nothing standing as high as the flag within its length
+    if (W.trees.some((t) => !t.gone && !t.felled && !t.fallen && dist2(t.x, t.z, x, z) < (2.9 + 1.6 * (t.s || 1)) ** 2)) continue; // [late4] (2.2 m before)
     return { x, z };
   }
   return null;
@@ -524,8 +533,8 @@ function late2StdShow() {
   } else {
     const y = heightAt(at.x, at.z) - 0.08, realm = GAME.player ? GAME.player.faction : 0;
     L2STD.mesh.position.set(at.x, y, at.z);
-    B.aB0.array.set([at.x + 0.02, y + LATE2_STD.poleH - 0.05, at.z, 0], L2STD.slot * 4);
-    B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm + late3StdCode(), 1], L2STD.slot * 4); // [late3] the device of your name on its flag (10n_veteran.js)
+    B.aB0.array.set([at.x, y + LATE2_STD.flagTop, at.z, 0], L2STD.slot * 4); // [late4] the flag's hoist down the pole's head
+    B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm + late3StdCode(), late4StdKind()], L2STD.slot * 4); // [late3] the device of your name on its flag (10n_veteran.js); [late4] kind 2, a veteran's standard, and how torn it is (10o_late4.js)
     L2STD.coll = addCircle(at.x, at.z, 0.12, 'prop', LATE2_STD.poleH);
   }
   L2STD.mesh.updateMatrixWorld(); // (its shadow's proxy copies it this frame)
@@ -559,6 +568,7 @@ function late2StdPlant() {
 function late2StdTake() {
   if (!LATE2.std.at) return false;
   LATE2.std.at = null;
+  if (L3V.std.tear) { L3V.std.tear = 0; uiLog('Furled, its rents are mended.', 'sys'); } // [late4] the torn cloth mended while it is carried (10o_late4.js)
   late2StdShow();
   if (GAME.player && GAME.player.alive) setAct(GAME.player, 5, 0.7); // (a reach: the pole pulled up)
   sfx('equip');
@@ -644,6 +654,7 @@ function late2Hail(P) {
 function late2OnKill(e) {
   const P = GAME.player;
   if (!P || !GAME.prog || !e) return;
+  if (e.l4host && e.properName) { late4HostKill(e); return; } // [late4] the leader of a roaming host (10o_late4.js)
   if (e.elite && e.camp != null && e.faction === FACTION_MONSTER) {
     late2Deed('champ');
     if (e.l2risen) { late2Deed('high'); late2RisenSpoils(e); }
@@ -709,6 +720,7 @@ function late2MapMarks(ctx, S, MK) {
     MK.push([x + h * 0.3, y - h * 0.6, h * 0.7]);
   }
   if (!GAME.prog || GAME.prog.level < LATE2_RISE_AT) return;
+  late4MapMarks(ctx, S, MK); // [late4] the roaming hosts where they walk (10o_late4.js)
   for (const c of CAMPS) {
     if (!late2Risen(c)) continue;
     const e = getEnt(c.eliteId), up = !!(e && e.alive), [x, y] = w2m(c.x, c.z, S), r = S * 0.0085;
@@ -747,6 +759,7 @@ function late2Aims() {
     if (up.length) out.push({ t: `Bring down a risen champion`, x: `${mine.length ? capFirst(mine[0].name) + ' and ' + (up.length - 1) + ' more' : up.length + ' of them'} hold the farthest borderland camps, a few levels above you. Risen brought down: ${LATE2.d.high}.` });
   }
   out.push(...late3Aims()); // [late3] the Deep Barrow (10m_deep.js)
+  out.push(...late4Aims()); // [late4] a roaming host of the risen (10o_late4.js)
   const N = late2NextName();
   if (N) out.push({ t: `Earn a name: ${late2Say(P, N)}`, m: [late2Count(N.deed) / N.n, `${fmtInt(late2Count(N.deed))} / ${fmtInt(N.n)}`], x: `${LATE2_DEEDS[N.deed]}. ${N.gift}` });
   return out;
