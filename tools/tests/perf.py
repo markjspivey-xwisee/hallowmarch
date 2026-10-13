@@ -2,7 +2,8 @@
 Views: the Logres town with its fields and common, a keep courtyard, inside its great hall, a river, a frontier battle
 with the war running, a forest, the Barrow, the mountains from the Logres orchard ([land]); [perf2] a Thule burh on fire
 stormed by a band (siege), the Logres town with three houses burning and its crews at them (townfire), a house in rubble and
-one behind its scaffold (rubble), a breached tower mended by the masons (masons). For each view and quality: calls and triangles (main pass, shadow pass),
+one behind its scaffold (rubble), a breached tower mended by the masons (masons); [look6] the Deep Barrow's halls (deep:
+deep_cistern flooded, deep_pyres burning, deep_gallery with a slab fallen, deep_throne the Ash-Crowned speaking his Word). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
 usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget] [seed] [audio]
@@ -18,7 +19,10 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 QUALS = [a for a in ARGS if a in ('high', 'medium', 'low')] or ['low', 'medium', 'high']
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
-VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow,mountain,siege,townfire,rubble,masons').split(',') # [perf2] the newest systems' views: a burning burh stormed, a town's fire crews, rubble and a scaffold, the masons
+VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow,mountain,siege,townfire,rubble,masons,deep').split(',') # [perf2] the newest systems' views: a burning burh stormed, a town's fire crews, rubble and a scaffold, the masons
+# [look6] the Deep Barrow's halls with the player in each (the cistern flooded, the Hall of Pyres burning, the Breaking Gallery
+# with a slab fallen, the Ash-Crowned speaking his Word over a burning aisle): `deep` stands for the four
+VIEWS = [w for v in VIEWS for w in (['deep_cistern', 'deep_pyres', 'deep_gallery', 'deep_throne'] if v == 'deep' else [v])]
 TAG = OPT.get('tag', 'run')
 ROWS = int(OPT.get('rows', 8))
 W, H = int(OPT.get('w', 640)), int(OPT.get('h', 360))
@@ -139,6 +143,27 @@ window.PV = {
       const p = H.DUN.spots.arrive;
       P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = F.dunFloorAt(p.x, p.z); P.yaw = Math.PI / 2;
       F.setIndoor(true); H.CAM.mode = 'play'; H.UI.modal = null; H.look(Math.PI / 2, 0.3, 6); this.calm();
+    } else if (name.startsWith('deep_')) {
+      // [look6] the Deep Barrow, the player in each hall by its own light (a veteran of 50 past the seal)
+      const Dp = H.deep, D0 = Dp.DEEP;
+      if (!this.deepSet) {
+        this.deepSet = true;
+        if (H.GAME.prog.level < 50) { H.GAME.prog.level = 50; F.rescaleWar(); }
+        H.late.LATE2.d.king = Math.max(1, H.late.LATE2.d.king || 0); H.GAME.prog.kingKills = Math.max(1, H.GAME.prog.kingKills || 0);
+        if (!D0.opened) Dp.late3SealOpen(true);
+      }
+      const at = { deep_cistern: [171, 46.5, -1.32], deep_pyres: [131, 50.5, -1.77], deep_gallery: [70, 49, -1.57], deep_throne: [36, 48.5, -1.57] }[name];
+      if (name === 'deep_cistern') { D0.flood.st = 2; D0.flood.t = 0; D0.flood.next = 1e9; D0.wy = Dp.DEEP_FLOOD.high; D0.water.position.y = D0.wy; }
+      if (name === 'deep_pyres') { Dp.deepPitchOut(); const C = D0.cells.find((c) => c.hall === 'pyres' && Math.abs(F.dunU(c.x) - 123) < 1.2 && Math.abs(F.dunV(c.z) - 49) < 1.2) || D0.cells[20]; Dp.deepIgnite(C, null); H.simulate(3.5); }
+      if (name === 'deep_gallery') { const S = D0.slabs.find((s) => s.hall === 'crack' && s.u0 === 76); if (S && S.st === 0) Dp.deepSlabFall(S); H.simulate(1.2); }
+      const p = F.dunPoint(at[0], at[1]);
+      P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; P.yaw = at[2]; P.l3fall = null; P.motion = null;
+      F.setIndoor(true); D0.root.visible = true; H.CAM.mode = 'play'; H.UI.modal = null; H.look(at[2], 0.25, 6); this.calm();
+      if (name === 'deep_throne') {
+        const id = Dp.deepLordFresh(), K = F.getEnt(D0.lord);
+        for (let i = 0; i < 40 && !(K.casting && K.casting.id === 'word'); i++) { this.calm(); K.ai.nextWord = Math.min(K.ai.nextWord || 0, H.GAME.t); H.simulate(0.25); }
+        H.simulate(1.0); this.calm(); void id;
+      }
     }
     return 0;
   },
@@ -197,7 +222,7 @@ async def main():
         # the JS cost of the simulation and of the frame, by system (at low: SwiftShader's frames at high take minutes)
         await ev(page, "__hm.fn.setQuality('low'); __hm.perf.timers(); 0")
         for v in (VIEWS if 'render' not in ARGS else []):
-            if v == 'barrow': continue
+            if v == 'barrow' or v.startswith('deep_'): continue  # [look6] (the deep's views: their draw counts and frame only)
             await ev(page, f"PV.view('{v}'); __hm.simulate(0.5); __hm.perf.times(true); 0")
             r = await ev(page, "(() => { const t = performance.now(); __hm.simulate(4); const s = performance.now() - t; const t2 = performance.now(); for (let i = 0; i < 6; i++) __hm.frame(); const f = performance.now() - t2; return { stepMs: +(s / 80).toFixed(2), frameMs: +(f / 6).toFixed(1), top: __hm.perf.times(true).slice(0, 14) }; })()")
             res['sim'][v] = r

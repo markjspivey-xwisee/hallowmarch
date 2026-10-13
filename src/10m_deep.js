@@ -439,6 +439,7 @@ function deepSlabMesh(S, rnd) {
   }
   for (let x = -w / 2 + 1; x < w / 2 - 0.5; x += 1.33) b.add(G.box, lm(M0, x, 0.003, 0, 0, 0.04, 0.008, d - 0.2), MAT.darkstone, [0.08, 0.075, 0.07]);
   const m = b.mesh();
+  if (typeof look6SlabMat !== 'undefined') m.material = look6SlabMat; // [look6] the ground's marks on its top (14_look6.js): a cracking slab's ring was drawn under it
   m.position.set(dunWX((S.u0 + S.u1) / 2), DEEP_Y, dunWZ((S.v0 + S.v1) / 2));
   m.matrixAutoUpdate = true;
   return m;
@@ -490,7 +491,7 @@ function deepChannels(b) {
       pos.push(dunWX(u0 + nu), y, dunWZ(v0 + nv), dunWX(u0 - nu), y, dunWZ(v0 - nv), dunWX(u1 - nu), y, dunWZ(v1 - nv), dunWX(u1 + nu), y, dunWZ(v1 + nv));
       cellA.push(C.i, C.i, C.i, C.i);
       chA.push(0, s0, 1, s0, 1, s1, 0, s1);
-      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      idx.push(n, n + 2, n + 1, n, n + 3, n + 2); // [look6] facing up: wound the other way they faced down and were culled (the pitch, its flames and its ash were never drawn)
     }
     Ch.first = first; Ch.last = cells.length - 1;
   }
@@ -516,7 +517,8 @@ function deepChannels(b) {
   return new THREE.Mesh(g, deepChannelMat);
 }
 function deepSealMesh() {
-  const b = new Batch(), M0 = new THREE.Matrix4(), w = DEEP_SEAL.w, h = DEEP_SEAL.h;
+  // [look6] a DeepBatch: its runes glow as embers (the building shader's rune branch drew them as the Barrow's cold blue glyphs)
+  const b = new DeepBatch(), M0 = new THREE.Matrix4(), w = DEEP_SEAL.w, h = DEEP_SEAL.h;
   b.add(G.box, lm(M0, 0, h / 2, 0, 0, w, h, 0.62), MAT.rock, darker(DEEP_STONE, 1.05), 0, h);
   // the first kings' seal: a ring of runes about a crowned skull, cut into the face and glowing like a coal
   for (let q = 0; q < 16; q++) {
@@ -527,7 +529,7 @@ function deepSealMesh() {
   for (const s of [-1, 1]) b.add(G.ico, lm(M0, s * 0.13, 2.3, 0.39, 0, 0.07, 0.08, 0.03), MAT.rune, darker(DEEP_EMBER, 0.8));
   for (let q = 0; q < 5; q++) b.add(G.cone8, lm(M0, -0.3 + q * 0.15, 2.78, 0.3, 0, 0.05, 0.22, 0.04), MAT.gold, [0.6, 0.42, 0.18]);
   for (const s of [-1, 1]) b.add(G.box, lm(M0, s * (w / 2 - 0.25), h / 2, 0.32, 0, 0.06, h - 0.4, 0.02), MAT.rune, darker(DEEP_EMBER, 0.5));
-  const m = new THREE.Mesh(b.build(), buildingMat);
+  const m = b.mesh(); // [look6]
   m.position.set(dunWX(DEEP_SEAL.u), -7, dunWZ(DEEP_SEAL.v));
   m.rotation.y = Math.PI; // its carved face toward the Hollow King's hall
   m.matrixAutoUpdate = true;
@@ -629,7 +631,7 @@ function late3BuildDeep() {
     for (const [u, v, fu, fv] of [[20.2, 37, 1, 0], [20.2, 60, 1, 0], [55.8, 37, -1, 0], [55.8, 60, -1, 0], [36, 34.2, 0, 1], [48, 34.2, 0, 1], [36, 63.8, 0, -1], [48, 63.8, 0, -1]]) deepTorch(b, u, v, [fu, fv]);
     DUN.lights.push({ x: deepX(42), y: DEEP_PIT + 0.9, z: deepZ(38), r: 12, c: [1.2, 0.42, 0.1], pulse: 1 });
     DUN.lights.push({ x: deepX(42), y: DEEP_PIT + 0.9, z: deepZ(60), r: 12, c: [1.2, 0.42, 0.1], pulse: 1 });
-    DUN.lights.push({ x: deepX(24), y: DEEP_Y + 5, z: deepZ(48.5), r: 14, c: [1.0, 0.4, 0.12], pulse: 1 });
+    DUN.lights.push({ x: deepX(27), y: DEEP_Y + 6, z: deepZ(48.5), r: 24, c: [1.0, 0.4, 0.12], pulse: 1 }); // [look6] the throne's glow reaching down the aisle (at 14 m it lost its place among four lights at low to the torches by the door, and from the door the throne and its king were black)
     for (let k = 0; k < 5; k++) deepBones(b, 30 + rnd() * 24, 43 + rnd() * 11, 0.5, 5, rnd);
   }
   const root = new THREE.Group();
@@ -942,9 +944,16 @@ function deepEdgeOut(S, x, z) {
   }
   return best || DEEP.hall || { x: x, z: z };
 }
+// [look6] the top of a slab at a point, as it falls and lies tilted in its pit (a body standing on it falls with it)
+function look6SlabTop(S, x, z) {
+  const m = S.mesh;
+  if (!m) return -Infinity;
+  const lx = x - m.position.x, lz = z - m.position.z;
+  return m.position.y + lx * Math.sin(m.rotation.z) * Math.cos(m.rotation.x) - lz * Math.sin(m.rotation.x);
+}
 function deepFall(o, S, by) {
   const out = deepEdgeOut(S, o.x, o.z);
-  o.l3fall = { t: 0, x: o.x, z: o.z, y0: o.y, y1: DEEP_PIT + 0.05, out, landed: false, burnT: 0, by: by ? by.id : null };
+  o.l3fall = { t: 0, x: o.x, z: o.z, y0: o.y, y1: DEEP_PIT + 0.05, out, landed: false, burnT: 0, by: by ? by.id : null, S }; // [look6] S: it rides its slab down
   o.casting = null;
   if (o.motion) o.motion = null;
   setAct(o, 6, 0.6);
@@ -955,9 +964,11 @@ function deepFallStep(o, dt) {
   const F = o.l3fall;
   F.t += dt;
   let y;
-  if (F.t < 0.5) { const k = F.t / 0.5; y = F.y0 - (F.y0 - F.y1) * k * k; }
+  if (F.t < 0.5) { const k = F.t / 0.5; y = F.y0 - (F.y0 - F.y1) * k * k; if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z)); } // [look6] on its slab, not through it
   else if (F.t < DEEP_SLAB.climbOut) {
     y = F.y1;
+    if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z)); // [look6] lying on the fallen slab in the embers (it lay in the pit under it)
+    F.yl = y;
     if (!F.landed) {
       F.landed = true;
       const h = F.y0 - F.y1, k = clamp((h - 1.6) * 0.075, 0, 0.65), harm = o.maxHp * k;
@@ -977,7 +988,7 @@ function deepFallStep(o, dt) {
     // scrambling up the pit's side onto firm ground: hand over hand, as on a ladder
     const k = smooth((F.t - DEEP_SLAB.climbOut) / DEEP_SLAB.climbT);
     if (!F.climb) { F.climb = true; setAct(o, 14, DEEP_SLAB.climbT + 0.1); }
-    y = lerp(F.y1, DEEP_Y, k);
+    y = lerp(F.yl ?? F.y1, DEEP_Y, k); // [look6] from where it lay
     o.x = lerp(F.x, F.out.x, k * k); o.z = lerp(F.z, F.out.z, k * k);
   } else {
     o.l3fall = null; o.fixedY = null;

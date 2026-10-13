@@ -456,9 +456,12 @@ function gateWreckGeo(S, st, hw, h, timber) {
   const b = new Batch(), M = siteMatrix(S), gz = S.gateLocal.z, wood = darker(st.wood, 0.7), r = mulberry(Math.round(Math.abs(S.x * 13 + S.z * 7)));
   // one leaf hangs from its lowest hinge, smashed off above; the other lies broken across the threshold inside
   const nb = Math.round(hw / 0.36);
+  // [look6] the leaf hangs swung in against the passage's side, as an open leaf stands (GATE_OPEN): it stood across half
+  // the gateway at 0.55 rad, and everyone who passed the broken gate walked through its boards
+  const ca = Math.cos(GATE_OPEN), sa = Math.sin(GATE_OPEN);
   for (let i = 0; i < nb; i++) {
-    const x = -hw + (i + 0.5) * (hw / nb), bh = h * (0.25 + 0.45 * r());
-    b.add(G.box, lm(M, x, bh / 2, gz - 0.2 + (i / nb) * 0.9, 0.55, hw / nb - 0.02, bh, 0.2, 0, 0.08 * (r() - 0.5)), MAT.wood, darker(wood, 0.8 + 0.3 * r()));
+    const s = (i + 0.5) * (hw / nb), bh = h * (0.25 + 0.45 * r());
+    b.add(G.box, lm(M, -hw + s * ca, bh / 2, gz - s * sa, GATE_OPEN, hw / nb - 0.02, bh, 0.2, 0, 0.08 * (r() - 0.5)), MAT.wood, darker(wood, 0.8 + 0.3 * r()));
   }
   for (let i = 0; i < nb + 2; i++) {
     const x = r() * hw * 1.4 - 0.2, z = gz - 0.6 - r() * 3.2, L = 0.6 + r() * (h * 0.55);

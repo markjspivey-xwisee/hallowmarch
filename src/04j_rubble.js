@@ -394,9 +394,10 @@ function houseSpotClear(x, z, r, skip) {
 }
 // where a townsman works on a house being built back: inside its scaffold at the wall, under the boards (side: which
 // side of the house), facing the wall
-function houseScafWorkSpot(H, side, k = 0) {
+function houseScafWorkSpot(H, side, k = 0, who = null) {
   const Q = HSCAF.list.get(H);
   if (!Q) return null;
+  if (k) { const p6 = look6WorkSpot(H, side, k, who); if (p6) return p6; } // [look6] the k-th clear place along its side, one another builder is not at
   // the first of a few places along the walls (its side first, then the back, then the other side) clear of what stands
   // by the house (a bench, barrels: a yard's things) and of the standards
   const skip = new Set(H.coll);
@@ -411,16 +412,44 @@ function houseScafWorkSpot(H, side, k = 0) {
   }
   if (k) { const own = cands.filter((c, i) => (H.round ? i % 2 === 0 : i < ZS.length)), n = (k * 3) % own.length; cands = [...own.slice(n), ...own.slice(0, n), ...cands.filter((c) => !own.includes(c))]; }
   for (const c of cands) {
-    let l, f;
-    const o = HAMMER_REACH; // [motion5] as far from the wall's face as the mallet reaches (05a_rig.js action 23): at 0.5 m it struck 22 cm into the wall
-    if (H.round) { l = { x: c[0] * (c[2] + o), z: c[1] * (c[2] + o) }; f = { x: c[0] * (c[2] - 0.2), z: c[1] * (c[2] - 0.2) }; }
-    else if (c[0]) { l = { x: c[0] * (c[2] + o), z: c[3] }; f = { x: c[0] * (c[2] - 0.2), z: c[3] }; }
-    else { l = { x: c[3], z: c[1] * (c[2] + o) }; f = { x: c[3], z: c[1] * (c[2] - 0.2) }; }
-    const p = houseW(H, l.x, l.z);
-    if (!houseSpotClear(p.x, p.z, 0.32, skip)) continue;
-    const q = houseW(H, f.x, f.z);
-    return { x: p.x, z: p.z, fx: q.x, fz: q.z };
+    const p6 = houseScafSpotAt(H, c, skip); // [look6] (the place for a candidate: houseScafSpotAt, shared with look6WorkSpot)
+    if (p6) return p6;
   }
   return null;
 }
-queueMicrotask(() => { if (window.__hm) window.__hm.rubble = { RUBBLE, HSCAF, houseScafSync, houseScafLay, houseScafPts, houseScafLifts, houseScafWorkSpot, houseRubbleSync, houseRubbleGeo, houseRubbleLevel, houseRubbleRuns, houseRubbleStub, stubAt: look4StubAt, wallTop: look4WallTop, fell: look4Fell, dims: look4Dims }; });
+// [look6] the place at the wall for a candidate ([sign or 0, sign or 0, half-measure, offset along], as above), or null
+function houseScafSpotAt(H, c, skip) {
+  let l, f;
+  const o = HAMMER_REACH; // [motion5] as far from the wall's face as the mallet reaches (05a_rig.js action 23): at 0.5 m it struck 22 cm into the wall
+  if (H.round) { l = { x: c[0] * (c[2] + o), z: c[1] * (c[2] + o) }; f = { x: c[0] * (c[2] - 0.2), z: c[1] * (c[2] - 0.2) }; }
+  else if (c[0]) { l = { x: c[0] * (c[2] + o), z: c[3] }; f = { x: c[0] * (c[2] - 0.2), z: c[3] }; }
+  else { l = { x: c[3], z: c[1] * (c[2] + o) }; f = { x: c[3], z: c[1] * (c[2] - 0.2) }; }
+  const p = houseW(H, l.x, l.z);
+  if (!houseSpotClear(p.x, p.z, 0.32, skip)) return null;
+  const q = houseW(H, f.x, f.z);
+  return { x: p.x, z: p.z, fx: q.x, fz: q.z };
+}
+// [look6] a builder's stint at the foot: the places along its own side of the house in order (a round house's from the
+// door round), the clear ones only, and the k-th of them that another builder is not working at (H._l6at: where each is
+// now). Version 17's turn of three gave the same place twice in four stints wherever the next in its turn was not
+// clear (a standard, a yard's barrel) or another builder stood there: the first clear one after it was the same place
+function look6SpotList(H, side) {
+  const skip = new Set(H.coll), out = [];
+  if (H.round) for (let a = 0.9; a <= 2.8; a += 0.27) { const p = houseScafSpotAt(H, [Math.sin(side * a), Math.cos(side * a), H.r], skip); if (p) out.push(p); }
+  else for (let z = -0.42; z <= 0.42; z += 0.12) { const p = houseScafSpotAt(H, [side, 0, H.w / 2, z * H.d], skip); if (p) out.push(p); }
+  return out;
+}
+function look6WorkSpot(H, side, k, who) {
+  const L = look6SpotList(H, side);
+  if (!L.length) return null;
+  const at = H._l6at || (H._l6at = new Map());
+  const taken = (p) => { for (const [id, q] of at) { if (who && id === who.id) continue; const o = getEnt(id); if (o && o.alive && dist2(o.x, o.z, q.x, q.z) < 4 && dist2(p.x, p.z, q.x, q.z) < 0.9 * 0.9) return true; } return false; }; // (another at or on its way to its place: within 2 m of it)
+  for (let j = 0; j < L.length; j++) {
+    const p = L[(k * 2 + j) % L.length];
+    if (taken(p)) continue;
+    if (who) at.set(who.id, p);
+    return p;
+  }
+  return null;
+}
+queueMicrotask(() => { if (window.__hm) window.__hm.rubble = { RUBBLE, HSCAF, houseScafSync, houseScafLay, houseScafPts, houseScafLifts, houseScafWorkSpot, look6SpotList, look6WorkSpot, houseRubbleSync, houseRubbleGeo, houseRubbleLevel, houseRubbleRuns, houseRubbleStub, stubAt: look4StubAt, wallTop: look4WallTop, fell: look4Fell, dims: look4Dims }; });

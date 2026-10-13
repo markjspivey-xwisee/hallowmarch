@@ -436,6 +436,7 @@ function tick(dt) {
   drawBuild(dt); // [building] the placement ghost, flames and states of placed structures (06k_build.js)
   drawClasses(dt); // [classes] arrows in flight, ice sheets, snares, frozen bodies, steam and the parry cue (05j_classfx.js)
   look5Frame(dt); // [look5] holy ground's light in the grass (13z_look5.js)
+  look6Frame(dt); // [look6] the cistern's water stirred by those in it (14_look6.js)
   drawFarming(dt); // [farming] crops, weeds and herbs near the camera, the beds' soil, the plant card (08i_farm_draw.js)
   drawAnimals(dt); // [animals] pen gates, the paddock marker, the companion bar (08h_animals.js)
   drawDepth(dt); // [depth] nests and their eggs (09u_depth.js)
