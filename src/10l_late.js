@@ -563,7 +563,7 @@ function late2StdTake() {
 // Use beside it (09_player.js currentInteraction)
 function late2Offers(P, offer) {
   const at = LATE2.std.at;
-  if (at && !inDungeon(P)) offer(dist(P.x, P.z, at.x, at.z), 2.6, 'Take up your standard', () => late2StdTake(), 0.4);
+  if (at && !inDungeon(P) && !late3StdDown()) offer(dist(P.x, P.z, at.x, at.z), 2.6, 'Take up your standard', () => late2StdTake(), 0.4); // [late3] fallen, it is raised first (10n_veteran.js)
   late3StdOffers(P, offer); // [late3] a fallen standard raised again (10n_veteran.js)
 }
 // while it stands: your realm's soldiers, your companions and you within its reach strike harder (once a second)

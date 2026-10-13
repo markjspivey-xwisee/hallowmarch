@@ -532,7 +532,7 @@ const bannerMat = mat({
       vec3 base = uRealmCol[r], light = uRealmLight[r];
       vec2 p = vec2(vUv.x * 2.0 - 1.0, vUv.y * 2.0 - 1.0) * vec2(1.0, 1.25);
       float trim = step(0.9, abs(vUv.x * 2.0 - 1.0)) + step(0.94, abs(vUv.y * 2.0 - 1.0));
-      float em = dvf > 0.5 ? l3DeviceMask(vec2(p.x, -p.y) * 1.3, int(dvf) - 1) : emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r);
+      float em = dvf > 0.5 ? l3DeviceMask(p * 1.15, int(dvf) - 1) : emblem(p * vec2(1.0, 1.0) - vec2(0.0, 0.0), r); // (the standard's flag runs up the pole: its v is up)
       vec3 c = mix(base, light, max(em * 0.92, clamp(trim, 0.0, 1.0) * 0.7));
       if (dvf > 0.5) c = mix(c, vec3(0.92, 0.7, 0.3), clamp(trim, 0.0, 1.0) * 0.85); // (a gilt border about the device)
       vec3 col = c * (uAmbient * 0.6 + uLightColor * 0.6) * vShade;

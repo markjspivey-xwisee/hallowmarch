@@ -756,6 +756,7 @@ function applyIndoor() {
   U.uWet.value = 0; U.uSnowCover.value = 0; U.uFlashLight.value = 0;
   U.uShadowOn.value = 0;
   composite.uniforms.uBloom.value = 0.55;
+  late3IndoorLight(lowQ); // [late3] the deep's halls have the light of what burns and glows in them (10m_deep.js)
 }
 function inDungeon(e) { return !!e && inDungeonX(e.x); }
 /* a short fade to black while the world changes */

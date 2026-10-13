@@ -216,6 +216,8 @@ const deepWaterMat = mat({
       gPL = pointLights(vW + vec3(0.0, 0.25, 0.0), n);
       vec3 base = vec3(0.01, 0.028, 0.03);
       vec3 col = base * (0.4 + uAmbient * 2.0) + gPL * (0.05 + 0.45 * fres) + vec3(0.02, 0.05, 0.055) * fres;
+      // a cold glow in the still water: what lives in the cistern's dark (faint, drifting with the ripples)
+      col += vec3(0.006, 0.03, 0.032) * (0.55 + 0.45 * vnoise(p * 0.35 + g * 2.0 + vec2(t * 0.05, 0.0)));
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
 });
@@ -277,8 +279,9 @@ function deepShell(b, rnd) {
       b.add(G.box, lm(DM0, dunWX(pu), fy + h / 2 - 0.2, dunWZ(pv), yaw + (rnd() - 0.5) * 0.06, w, h + 0.4, 0.38, (rnd() - 0.5) * 0.04, (rnd() - 0.5) * 0.03), MAT.rock, darker(DEEP_STONE, 0.85 + rnd() * 0.25), fy, 3);
       if (hot && rnd() < 0.55) {
         const off = (w / 2 + 0.03) * (rnd() < 0.5 ? -1 : 1);
-        const ex = W.axisU ? pu + nIn[0] * 0.05 : pu + off, ez = W.axisU ? pv + off : pv + nIn[1] * 0.05;
-        b.add(G.box, lm(DM0, dunWX(ex), fy + h * 0.4, dunWZ(ez), yaw, 0.05, h * (0.5 + rnd() * 0.3), 0.36), MAT.rune, darker(DEEP_EMBER, 0.55 + rnd() * 0.35));
+        // (a thin line in the wall's face beside the slab: a fin as deep as the slab glowed as a bar seen along the wall)
+        const ex = W.axisU ? pu - nIn[0] * 0.06 : pu + off, ez = W.axisU ? pv + off : pv - nIn[1] * 0.06;
+        b.add(G.box, lm(DM0, dunWX(ex), fy + h * 0.4, dunWZ(ez), yaw, 0.05, h * (0.5 + rnd() * 0.3), 0.1), MAT.rune, darker(DEEP_EMBER, 0.55 + rnd() * 0.35));
       } else if (!hot && W.room >= 0 && DUN_ROOMS[W.room].id === 'cistern' && rnd() < 0.35) {
         // the cistern's walls weep: a green-black stain of water down them
         b.add(G.box, lm(DM0, dunWX(pu + nIn[0] * 0.2), fy + h * 0.45, dunWZ(pv + nIn[1] * 0.2), yaw, w * 0.5, h * 0.9, 0.02), MAT.darkstone, [0.05, 0.08, 0.07]);
@@ -396,9 +399,37 @@ function deepPyre(b, u, v, rnd, burning) {
   addBox(p.x, p.z, 1.65, 1.15, 0, 'prop', 1.8);
   if (burning) { addFire(p.x, p.y, p.z, 1.05, false, Infinity, { r: 13, k: 1.35 }); DEEP.pyreFires = (DEEP.pyreFires || 0) + 1; }
 }
+// The embers in the deep's cracks, the rings of its pillars and its throne's runes glow with their own red light: the
+// building shader's rune branch lays a cold blue glyph over whatever colour it is given (the Barrow's runes), and the
+// embers read as blue and white stripes on red. A DeepBatch sends what is added as a rune in an ember's colour (red over
+// blue) to a batch of its own, drawn with this emissive material (its flicker by the place)
+const deepEmberMat = mat({
+  vertexShader: /* glsl */`attribute vec3 aCol; varying vec3 vC; varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vC = aCol; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    ${GLSL_COMMON}
+    ${GLSL_ATMOS}
+    varying vec3 vC; varying vec3 vW;
+    void main(){
+      float fl = 0.78 + 0.22 * sin(uTime * 2.3 + vW.x * 1.7 + vW.z * 1.3) * sin(uTime * 1.37 + vW.y * 2.1 + vW.x * 0.6);
+      gl_FragColor = vec4(safeColor(applyFog(vC * 1.7 * fl, vW)), 1.0);
+    }`,
+});
+class DeepBatch extends Batch {
+  constructor() { super(); this.emb = new Batch(); }
+  add(geo, m4, matId, color, baseY = null, aoH = 3) {
+    if (matId === MAT.rune && color[0] > color[2] * 2) return this.emb.add(geo, m4, matId, color, baseY, aoH);
+    return super.add(geo, m4, matId, color, baseY, aoH);
+  }
+  // the batch's mesh, its embers a mesh of their own within it (so they move with it)
+  mesh() {
+    const m = new THREE.Mesh(this.build(), buildingMat);
+    if (this.emb.n) { const e = new THREE.Mesh(this.emb.build(), deepEmberMat); e.userData.keep = false; m.add(e); }
+    return m;
+  }
+}
 // a great stone slab over a pit (its own mesh: it falls, and rises again)
 function deepSlabMesh(S, rnd) {
-  const b = new Batch(), M0 = new THREE.Matrix4(), w = S.u1 - S.u0, d = S.v1 - S.v0;
+  const b = new DeepBatch(), M0 = new THREE.Matrix4(), w = S.u1 - S.u0, d = S.v1 - S.v0;
   b.add(G.box, lm(M0, 0, -0.22, 0, 0, w - 0.06, 0.44, d - 0.06), MAT.rock, darker(DEEP_STONE, 0.95 + rnd() * 0.12), -0.44, 0.6);
   // its face: a few flags laid in it, cracked across, embers glowing faintly in the cracks
   for (let q = 0; q < 6; q++) {
@@ -407,7 +438,7 @@ function deepSlabMesh(S, rnd) {
     if (q % 2 === 0) b.add(G.box, lm(M0, x, 0.006, z, a, L * 0.7, 0.012, 0.022), MAT.rune, darker(DEEP_EMBER, 0.35 + rnd() * 0.25));
   }
   for (let x = -w / 2 + 1; x < w / 2 - 0.5; x += 1.33) b.add(G.box, lm(M0, x, 0.003, 0, 0, 0.04, 0.008, d - 0.2), MAT.darkstone, [0.08, 0.075, 0.07]);
-  const m = new THREE.Mesh(b.build(), buildingMat);
+  const m = b.mesh();
   m.position.set(dunWX((S.u0 + S.u1) / 2), DEEP_Y, dunWZ((S.v0 + S.v1) / 2));
   m.matrixAutoUpdate = true;
   return m;
@@ -526,7 +557,7 @@ function deepRubbleGeo() {
   return b.build();
 }
 function late3BuildDeep() {
-  const rnd = mulberry(4417), b = new Batch();
+  const rnd = mulberry(4417), b = new DeepBatch();
   deepShell(b, rnd);
   // the Long Stair: its steps, a torch now and then on the walls
   for (let v = 15; v < 37; v++) {
@@ -603,7 +634,7 @@ function late3BuildDeep() {
   }
   const root = new THREE.Group();
   const chMesh = deepChannels(b); // (its cut edges go into the batch: before it is built)
-  root.add(new THREE.Mesh(b.build(), buildingMat));
+  root.add(b.mesh());
   const floor = deepFloor();
   root.add(floor);
   root.add(deepPitMesh(pits));
@@ -1465,6 +1496,23 @@ function late3FireWay(e, foe) {
     if (sc > bs) { bs = sc; best = [dx, dz]; }
   }
   return best;
+}
+
+/* ------------------------------------------------------------------ */
+/* the light of the deep's halls (applyIndoor, 04d_barrow.js)           */
+/* ------------------------------------------------------------------ */
+// The Barrow's halls are lit by their torches over a faint cold ambient. The deep's are great halls lit by what burns or
+// glows in them (the cistern's cold glow off the water, the pyres', the pits' embers): their ambient takes its colour and
+// is stronger, and its fog thinner, so the far side of a hall reads (at low, with four lights, the cistern was black)
+const DEEP_AMB = { cistern: [0.12, 0.18, 0.19], dpass1: [0.07, 0.09, 0.1], pyres: [0.19, 0.11, 0.065], dpass2: [0.12, 0.08, 0.055], crack: [0.18, 0.095, 0.055], niche: [0.1, 0.07, 0.05], nichedoor: [0.1, 0.07, 0.05], dpass3: [0.12, 0.08, 0.055], ashhall: [0.2, 0.11, 0.065], dstair: [0.09, 0.07, 0.06], dland: [0.08, 0.09, 0.09] };
+function late3IndoorLight(lowQ) {
+  if (!DEEP.built) return;
+  const R = late3Room(camera.position.x, camera.position.z);
+  const a = R && DEEP_AMB[R.id];
+  if (!a) return;
+  U.uAmbient.value.set(a[0] * lowQ, a[1] * lowQ, a[2] * lowQ);
+  U.uFogDensity.value = R.id === 'dstair' || R.id.startsWith('dpass') || R.id.startsWith('niche') ? 0.028 : 0.018;
+  U.uZenith.value.set(a[0] * 0.12, a[1] * 0.12, a[2] * 0.12); U.uHorizon.value.copy(U.uZenith.value);
 }
 
 /* ------------------------------------------------------------------ */

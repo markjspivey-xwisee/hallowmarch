@@ -76,8 +76,8 @@ async def main():
         if 'save' in ONLY: await save(page)
         if 'fight' in ONLY: await fight(page)
         if 'std' in ONLY: await std(page)
-        if 'vetshots' in ONLY and not NOSHOTS: await vetshots(page)
         if 'shots' in ONLY and not NOSHOTS: await shots(page)
+        if 'vetshots' in ONLY and not NOSHOTS: await vetshots(page)
         errs = await ev(page, "__hm.errors.map(String).slice(0, 8)")
         check(not errs, f"no runtime errors ({errs[:3]})")
         print('logs', [l for l in logs][:6])
@@ -384,7 +384,7 @@ async def std(page):
     check(r['planted'] and r['code'] == r['want'], f"the standard's flag carries the device (code {r['code']}, {r['want']})")
     check(r['fallen'] and r['fellIn'] <= 8 and abs(r['rot']) > 1.3, f"three foes fighting about it strike it down in {r['fellIn']} s, the pole lying ({r['rot']})")
     check(not r['buffFallen'], 'fallen, it gives your soldiers no strength')
-    check('Raise your standard' in r['offers'] and r['raised'] and abs(r['rotUp']) < 0.05 and r['buffUp'], f"Use beside it raises it again, and its strength with it ({r['offers']})")
+    check(r['offers'] == ['Raise your standard'] and r['raised'] and abs(r['rotUp']) < 0.05 and r['buffUp'], f"Use beside it raises it again (the only offer while it lies), and its strength with it ({r['offers']})")
     check(r['saved'] is not None and r['saved'].get('f') == 1, f"fallen, it is saved fallen ({r['saved']})")
     check(r['bard2'] == 0 and r['bard3'] == 4 * 7 and r['bardHtml'], f"at veterancy 3 your horse wears the device on its cloth (code {r['bard3']}; at 2 {r['bard2']})")
 
@@ -399,19 +399,19 @@ async def vetshots(page):
             await snap(page, f'standard_{nm}_{q}', f"const at = window.L3V_AT, F = H.fn, y = F.heightAt(at.x, at.z), P = H.GAME.player; H.setTod({tod}); P.x = P.prevX = at.x - 1.6; P.z = P.prevZ = at.z + 1.2; P.yaw = 2.6; H.simulate(0.3); H.camera.position.set(at.x + 1.4, y + 2.7, at.z + 5.6); H.camera.lookAt(at.x + 0.5, y + 2.75, at.z)")
         await snap(page, f'barding_{q}', "const P = H.GAME.player, at = window.L3V_AT, F = H.fn, L = H.late; H.setTod(0.38); L.LATE2.vet = 5; P.x = P.prevX = at.x + 6; P.z = P.prevZ = at.z + 3; P.yaw = 1.2; if (!P.mount) F.mountUp(P, true); H.simulate(0.4); const sx = Math.cos(P.yaw), sz = -Math.sin(P.yaw); H.camera.position.set(P.x + sx * 4.2 + Math.sin(P.yaw) * 0.6, P.y + 1.9, P.z + sz * 4.2 + Math.cos(P.yaw) * 0.6); H.camera.lookAt(P.x, P.y + 1.15, P.z)")
         await ev(page, "(() => { const H = __hm, P = H.GAME.player; if (P.mount) H.fn.dismount(P); return 0; })()")
-        await snap(page, f'standard_fallen_{q}', "const at = window.L3V_AT, F = H.fn, V = H.vet3, y = F.heightAt(at.x, at.z); H.setTod(0.4); V.L3V.std.fallen = true; V.L3V.std.k = 1; V.late3StdPose(); H.camera.position.set(at.x + 4.5, y + 2.6, at.z + 4.0); H.camera.lookAt(at.x - 1.5, y + 0.3, at.z)")
+        await snap(page, f'standard_fallen_{q}', "const at = window.L3V_AT, F = H.fn, V = H.vet3, y = F.heightAt(at.x, at.z), P = H.GAME.player; P.x = P.prevX = at.x + 9; P.z = P.prevZ = at.z - 6; H.setTod(0.4); V.L3V.std.fallen = true; V.L3V.std.k = 1; V.late3StdPose(); H.camera.position.set(at.x + 4.5, y + 2.6, at.z + 4.0); H.camera.lookAt(at.x - 1.5, y + 0.3, at.z)")
         await ev(page, "(() => { const V = __hm.vet3; V.L3V.std.fallen = false; V.L3V.std.k = 0; V.late3StdPose(); return 0; })()")
     await ev(page, "(() => { const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
 SHOT_ONLY = arg('shots')
 async def snap(page, name, js):
     if SHOT_ONLY and not any(name.startswith(k) for k in SHOT_ONLY.split(',')): return
-    await ev(page, "(() => { const H = __hm; document.getElementById('hud').hidden = true; " + js + "; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; for (let i = 0; i < 4; i++) H.frame(1/30); return 0; })()")
+    ri = await ev(page, "(() => { const H = __hm; document.getElementById('hud').hidden = true; " + js + "; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; for (let i = 0; i < 4; i++) H.frame(1/30); const R = H.renderInfo ? H.renderInfo() : null; return R ? { calls: R.calls, tris: R.triangles, programs: R.programs } : null; })()")
     t = time.time()
     await page.screenshot(path=str(OUT) + '/late3_' + name + '.png', timeout=300000)
-    print(f'  shot late3_{name} ({time.time() - t:.0f} s)', flush=True)
+    print(f'  shot late3_{name} ({time.time() - t:.0f} s) {json.dumps(ri)}', flush=True)
 
-CAM = "const cam = (u, y, v, lu, ly, lv) => { const F = H.fn; H.camera.position.set(F.dunWX(u), y, F.dunWZ(v)); H.camera.lookAt(F.dunWX(lu), ly, F.dunWZ(lv)); }; "
+CAM = "const cam = (u, y, v, lu, ly, lv) => { const F = H.fn; H.deep.DEEP.root.visible = true; H.camera.position.set(F.dunWX(u), y, F.dunWZ(v)); H.camera.lookAt(F.dunWX(lu), ly, F.dunWZ(lv)); }; "
 async def shots(page):
     await ev(page, """(() => { L3.start('warrior', 50); L3.kingDown(); const H = __hm, F = H.fn; H.deep.late3SealOpen(true); H.deep.deepPacksFresh(); F.setIndoor(true); H.setTod(1.2); return 0; })()""")
     for q in (arg('sq') or Q).split(','):
@@ -420,16 +420,16 @@ async def shots(page):
         await snap(page, f'seal_{q}', CAM + "const D = H.deep.DEEP; D.seal.target = 0; D.seal.open = 0; D.seal.mesh.position.y = -7; D.seal.coll.active = true; L3.to(193, 9); cam(195.5, -4.6, 7.5, 193, -5.2, 15.4)")
         await ev(page, "(() => { __hm.deep.late3SealOpen(true); return 0; })()")
         # down the Long Stair
-        await snap(page, f'stair_{q}', CAM + "L3.to(193, 12); cam(193, -7.6, 15.2, 193, -14.5, 33)")
+        await snap(page, f'stair_{q}', CAM + "L3.to(193, 12); cam(193.3, -5.6, 14.0, 193, -15.2, 34)")
         # the cistern, still and flooded
         await snap(page, f'cistern_{q}', CAM + "const D = H.deep.DEEP; D.flood.st = 0; D.wy = H.deep.DEEP_FLOOD.base; D.water.position.y = D.wy; L3.to(186, 38.5); cam(185.5, -14.2, 37.6, 165, -18.6, 50)")
         await snap(page, f'cistern_flood_{q}', CAM + "const D = H.deep.DEEP; D.flood.st = 2; D.flood.t = 0; D.wy = H.deep.DEEP_FLOOD.high; D.water.position.y = D.wy; H.simulate(0.2); cam(185.5, -14.2, 37.6, 165, -18.6, 50)")
         await ev(page, "(() => { const D = __hm.deep.DEEP; D.flood.st = 0; D.flood.next = 1e9; D.wy = __hm.deep.DEEP_FLOOD.base; D.water.position.y = D.wy; return 0; })()")
         # the Hall of Pyres, its pitch burning
-        await snap(page, f'pyres_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(140, 39); H.deep.deepPitchOut(); for (const C of D.cells) C.ch = 0; const C = D.cells.find((c) => c.hall === 'pyres' && Math.abs(H.fn.dunU(c.x) - 123) < 1.2 && Math.abs(H.fn.dunV(c.z) - 49) < 1.2) || D.cells[20]; H.deep.deepIgnite(C, null); H.simulate(5); H.camera.position.set(H.fn.dunWX(140), -12.5, H.fn.dunWZ(38.5)); for (let i = 0; i < 8; i++) H.frame(1/30); cam(140.5, -12.6, 38.2, 121, -18.2, 52)")
+        await snap(page, f'pyres_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(140, 39); cam(140.5, -12.6, 38.2, 121, -18.2, 52); H.deep.deepPitchOut(); for (const C of D.cells) C.ch = 0; const C = D.cells.find((c) => c.hall === 'pyres' && Math.abs(H.fn.dunU(c.x) - 123) < 1.2 && Math.abs(H.fn.dunV(c.z) - 49) < 1.2) || D.cells[20]; H.deep.deepIgnite(C, null); H.simulate(5); for (let i = 0; i < 8; i++) H.frame(1/30); cam(140.5, -12.6, 38.2, 121, -18.2, 52)")
         await ev(page, "(() => { __hm.deep.deepPitchOut(); return 0; })()")
         # the Breaking Gallery: a slab fallen into the embers
-        await snap(page, f'gallery_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(63, 49); const S = D.slabs.find((s) => s.hall === 'crack' && s.u0 === 80); if (S && S.st === 0) H.deep.deepSlabFall(S); H.simulate(1.2); cam(66.5, -14.6, 47.2, 84, -19.6, 49.5)")
+        await snap(page, f'gallery_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(63, 49); const S = D.slabs.find((s) => s.hall === 'crack' && s.u0 === 80); if (S && S.st === 0) H.deep.deepSlabFall(S); H.simulate(1.2); cam(64.6, -15.4, 49, 86, -19.4, 49)")
         # the Ash Throne: the Ash-Crowned on his throne
         await snap(page, f'throne_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); const id = H.deep.deepLordFresh(); L3.to(60, 48.5); H.simulate(0.3); cam(46, -14.5, 44, 22, -15.5, 48.5)")
         # his fight: the Ember Word spoken over a burning aisle
