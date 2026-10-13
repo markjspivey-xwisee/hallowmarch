@@ -149,11 +149,11 @@ async def main():
                 if not o: check(False, f'{k}: no champion'); continue
                 print(f'  {k}: ' + ' | '.join(f"foot {i}: slide {f['slideCm']} cm, up {f['riseCm']} cm, end {f['back']} cm" for i, f in enumerate(o['feet'])), flush=True)
                 check(o['seen'] > o['n'] * 0.9, f'{k}: the probe found the body every frame ({o["seen"]} of {o["n"]})')
-            b = r.get('bear')
-            if b:
-                check(all(f['slideCm'] <= 2.0 for f in b['feet'][2:]), 'a rearing bear\'s hind feet stay where they stand (2 cm at most)')
-                check(all(f['riseCm'] >= 40 for f in b['feet'][:2]), 'its forepaws rise 40 cm and more as it rears')
-                check(all(f['back'] is not None and f['back'] <= 3.0 for f in b['feet']), 'and come down where they stood (3 cm)')
+            bb = r.get('bear')
+            if bb:
+                check(all(f['slideCm'] <= 2.0 for f in bb['feet'][2:]), 'a rearing bear\'s hind feet stay where they stand (2 cm at most)')
+                check(all(f['riseCm'] >= 40 for f in bb['feet'][:2]), 'its forepaws rise 40 cm and more as it rears')
+                check(all(f['back'] is not None and f['back'] <= 3.0 for f in bb['feet']), 'and come down where they stood (3 cm)')
             for k in ('wolf', 'boar'):
                 o = r.get(k)
                 if o: check(all(f['slideCm'] <= 2.0 and f['riseCm'] <= 6 for f in o['feet']), f'a crouching {k}\'s four feet stay planted (2 cm at most, none lifted)')
@@ -243,6 +243,15 @@ async def main():
               out.tear = +(V.L3V.std.tear || 0).toFixed(2); out.kindTorn = bg ? +bg.aB1.array[L.L2STD.slot * 4 + 3].toFixed(3) : null;
               for (const o of foes) { o.damagers = null; F.killEnt(o, null); }
               const sv = F.buildSave(); out.saved = sv.char && sv.char.x ? sv.char.x.late4 : null;
+              // struck down: the pole falls the way that is clear and the flag lies spread by its head, no blade through it
+              if (!V.L3V.std.fallen) V.late3StdFall(null);
+              H.simulate(1.5);
+              const Ls = X.L4STD, sl = L.L2STD.slot * 4, hx = bg.aB0.array[sl], hz = bg.aB0.array[sl + 2];
+              out.fallen = { lie: Ls.lie, kind: +bg.aB1.array[sl + 3].toFixed(3), side: V.L3V.std.side, rot: +L.L2STD.mesh.rotation.z.toFixed(2), head: +Math.hypot(hx - at.x, hz - at.z).toFixed(2), marks: Ls.marks.length,
+                bare: Ls.marks.length ? Ls.marks.every(([n]) => X.COVER.data[n] === 255) : null };
+              const was = Ls.marks.map(([n, v]) => [n, v]);
+              V.late3StdRaise(); H.simulate(1.5);
+              out.raised = { lie: Ls.lie, kind: +bg.aB1.array[sl + 3].toFixed(3), marks: Ls.marks.length, back: was.every(([n, v]) => X.COVER.data[n] === v), y: +(bg.aB0.array[sl + 1] - F.heightAt(at.x, at.z)).toFixed(2) };
               // taken up, the rents are mended
               P.x = P.prevX = at.x + 1.2; P.z = P.prevZ = at.z; H.simulate(0.2); if (V.L3V.std.fallen) V.late3StdRaise(); H.simulate(1.2); L.late2StdTake(); out.tearAfter = V.L3V.std.tear || 0;
               out.errors = H.errors.slice(0, 3); return out; })()""")
@@ -250,6 +259,10 @@ async def main():
             check(r['kind'] is not None and 1.99 < r['kind'] < 2.02, f"its flag is a veteran's (kind 2: {r['kind']})")
             check(r['tear'] > 0.05 and r['kindTorn'] > 2.04, f"struck, it is torn ({r['tear']}, kind {r['kindTorn']})")
             check(r['saved'] and r['saved'].get('t', 0) > 0 and r['tearAfter'] == 0, f"its rents saved, and mended once it is taken up ({r['saved']}, {r['tearAfter']})")
+            fa, ra = r.get('fallen') or {}, r.get('raised') or {}
+            check(fa.get('lie') and fa.get('kind', 0) > 2.99 and abs(fa.get('rot', 0)) > 1.15 and 4.2 < fa.get('head', 0) < 5.2, f"struck down, the pole lies along the ground and its flag lies spread by its head ({fa})")
+            check(fa.get('marks', 0) >= 6 and fa.get('bare'), f"no blade grows up through the fallen pole and flag ({fa.get('marks')} texels made bare)")
+            check(ra.get('lie') is False and 1.99 < ra.get('kind', 0) < 3 and ra.get('marks') == 0 and ra.get('back') and ra.get('y', 0) > 4.5, f"raised, the flag flies again from the pole's head and the ground is given back ({ra})")
             check(not r['errors'], f"no errors ({r['errors']})")
 
         # ---- the deep remembers ----
@@ -381,6 +394,15 @@ async def main():
                 await frames(page, 3)
                 await shot(page, name + '_' + Q)
                 await page.evaluate("window.__rafHold = false; 0")
+            # struck down: the flag lying by the fallen pole's head (clear weather, by day)
+            await ev(page, 'stdfall', """(() => { const H = T4.H, F = T4.F, L = T4.L, V = H.vet3; const Wt = H.dbg.WEATHER; Wt.mode = 'fixed'; Wt.kind = 'clear'; Wt.raining = 0; Wt.wet = 0; Wt.snowing = 0; Wt.snow = 0; Wt.overcast = 0; Wt.target = 0; Wt.w = 0; Wt.fog = 0; Wt.next = 1e9; H.dbg.U.uWet.value = 0;
+              H.setTod(0.75); V.late3StdFall(null); H.simulate(1.5); const at = L.LATE2.std.at, S = V.L3V.std, gy = F.heightAt(at.x, at.z);
+              const hx = at.x - S.side * 4.0, hz = at.z - S.side * 0.9;
+              H.camera.position.set(hx + S.side * 2.8 + 2.4, gy + 3.8, hz - S.side * 4.6); H.camera.lookAt(hx, gy + 0.15, hz); H.camera.updateMatrixWorld();
+              window.__rafHold = true; return { side: S.side, lie: T4.X.L4STD.lie }; })()""")
+            await frames(page, 3)
+            await shot(page, 'std_fallen_' + Q)
+            await page.evaluate("window.__rafHold = false; __hm.vet3.late3StdRaise(); __hm.simulate(1.2); 0")
             await page.evaluate("__hm.UI.modal = null; __hm.CAM.mode = 'play'; __hm.setTod(0.75); 0")
 
         print('ERRORS', await page.evaluate("__hm.errors.slice(0, 5)"), flush=True)

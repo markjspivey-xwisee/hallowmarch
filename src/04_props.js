@@ -472,10 +472,16 @@ const bannerMat = mat({
   },
   vertexShader: /* glsl */`
     uniform float uTime, uWind;
+    uniform float uWet; // [late4] (a soaked standard's fly hangs heavier)
     uniform vec2 uWindDir;
     attribute vec4 aB0; attribute vec4 aB1;
     varying vec2 vUv; varying vec3 vW; varying float vRealm; varying float vShade;
     varying float vKind; varying float vAsp; // [late4] the flag's kind (2 + how torn: a veteran's standard) and its length over its height
+    uniform highp sampler2D uHeightTex; // [late4] the ground under a standard's flag struck down (kind 3)
+    float l4Ground(vec2 xz){
+      vec2 g = clamp((xz + 512.0) * 0.5, vec2(0.0), vec2(511.999)); ivec2 i = ivec2(floor(g)); vec2 f = g - vec2(i);
+      return mix(mix(texelFetch(uHeightTex, i, 0).r, texelFetch(uHeightTex, i + ivec2(1, 0), 0).r, f.x), mix(texelFetch(uHeightTex, i + ivec2(0, 1), 0).r, texelFetch(uHeightTex, i + ivec2(1, 1), 0).r, f.x), f.y);
+    }
     void main(){
       vUv = uv; vRealm = aB1.z; vKind = aB1.w; vAsp = aB1.x / max(aB1.y, 0.01);
       float w = aB1.x, h = aB1.y, kind = aB1.w;
@@ -489,6 +495,13 @@ const bannerMat = mat({
         float wave = (0.55 + 0.45 * sin(uTime * 1.6 + v * 3.0 + seed)) * 0.09 * v * h * gust + (0.5 + 0.5 * sin(uTime * 2.3 + u * 4.0 + seed)) * 0.03 * v;
         p = vec3((u - 0.5) * w, -v * h, wave);
         vShade = 0.85 + 0.3 * cos(uTime * 1.6 + v * 3.0 + seed) * v;
+      } else if (kind > 2.99) {
+        // [late4] a veteran's standard struck down (10o_late4.js late4StdLie): the flag lies on the ground beside the fallen
+        // pole's head, its hoist along the pole (local z) and its fly spread across the ground (local x) in loose folds, the
+        // tails rumpled; its height is the ground's under each point (below), so it lies on a slope as on the flat
+        float rid = sin(u * 10.5 + v * 1.9 + seed), lift = 0.022 + 0.05 * (0.5 + 0.5 * rid) * smoothstep(0.0, 0.1, u) + 0.035 * smoothstep(0.7, 1.0, u) * (0.5 + 0.5 * sin(v * 6.0 + u * 3.0 + seed));
+        p = vec3(0.1 + u * w * 0.84 + 0.05 * sin(v * 4.0 + seed), lift, v * h);
+        vShade = 0.86 + 0.22 * cos(u * 10.5 + v * 1.9 + seed);
       } else if (kind > 1.5) {
         // [late4] a veteran's standard (10o_late4.js): a long swallow-tailed flag lashed down the pole's head; its fly streams
         // downwind as the wind blows and hangs down the pole as it falls (a wet one heavier), waves running along it to the
@@ -511,6 +524,7 @@ const bannerMat = mat({
       }
       float c = cos(yaw), s = sin(yaw);
       vec3 wp = aB0.xyz + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+      if (kind > 2.99) wp.y = l4Ground(wp.xz) + p.y; // [late4] (lying on the ground)
       vW = wp;
       gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     }`,
@@ -578,7 +592,7 @@ const bannerMat = mat({
         float fringe = smoothstep(0.955, 0.97, fu) * step(0.45, fract(fv * 46.0));
         fc = mix(fc, vec3(0.86, 0.66, 0.28), fringe);
         fc *= 1.0 - 0.35 * smoothstep(-0.12, 0.0, torn) * step(0.02, tear); // (a rent's frayed edge)
-        float sk = uSnowCover * smoothstep(0.16, 0.0, fv) * clamp(1.25 - uWind * 0.55, 0.0, 1.0) * (0.7 + 0.3 * vnoise(vec2(fu * 30.0, fv * 30.0)));
+        float sk = uSnowCover * mix(smoothstep(0.16, 0.0, fv) * clamp(1.25 - uWind * 0.55, 0.0, 1.0), 0.9, step(2.99, vKind)) * (0.7 + 0.3 * vnoise(vec2(fu * 30.0, fv * 30.0))); // (a flag struck down takes the snow all over)
         fc = mix(fc, vec3(0.9, 0.92, 0.96), clamp(sk, 0.0, 1.0));
         c = fc;
       }

@@ -520,8 +520,76 @@ function late4StdKind() { return 2 + clamp(L3V.std.tear || 0, 0, 1) * 0.98; }
 function late4StdFlag() {
   if (!L2STD.mesh || L2STD.slot < 0) return;
   const B = bannerGeo.attributes;
-  B.aB1.array[L2STD.slot * 4 + 3] = late4StdKind();
+  B.aB1.array[L2STD.slot * 4 + 3] = late4StdKind() + (L4STD.lie ? 1 : 0);
   B.aB1.needsUpdate = true;
+}
+// struck down (late3StdFall, late3StdPose: 10n_veteran.js): the pole falls the way that is clear and lies along the ground,
+// its head on it, and the flag itself lies spread beside its head (kind 3 in the banners' shader: its device, its rents,
+// the rain and the snow on it, the ground's height under every point), no blade growing up through either
+const L4STD = { lie: false, key: null, marks: [] };
+// the side it falls to (-1 or 1): the one whose pole and flag would lie through less (houses, walls, fences, trees, bushes,
+// water), either when both are clear
+function late4StdFallSide(at) {
+  const out = [], bad = (x, z) => {
+    let n = 0;
+    if (!isWalkable(x, z)) n += 1;
+    if (houseAt(x, z, 0.25)) n += 3;
+    out.length = 0; collidersNear(x, z, 1.2, out);
+    if (out.some((c) => c.active && c !== L2STD.coll && collCovers(c, x, z, 0.15))) n += 2;
+    const w = waterAt(x, z); if (w && w.depth > 0.05) n += 1;
+    return n;
+  };
+  const score = (sd) => {
+    let n = 0;
+    for (let t = 0.8; t <= LATE2_STD.poleH + 0.1; t += 0.75) n += bad(at.x - sd * t, at.z);
+    for (let a = 3.4; a <= LATE2_STD.flagTop; a += 0.5) for (let q = 0.4; q <= 2.4; q += 0.5) n += bad(at.x - sd * a, at.z - sd * q);
+    return n;
+  };
+  const a = score(-1), b = score(1);
+  return a === b ? (Math.random() < 0.5 ? -1 : 1) : a < b ? -1 : 1;
+}
+// how far the pole turns as it falls: its head down on the ground where it lands (a slope away or toward it)
+function late4StdFallA(at, side) {
+  if (!at) return 1.5;
+  const y0 = heightAt(at.x, at.z) - 0.08, L = LATE2_STD.poleH, hg = heightAt(at.x - side * L * 0.98, at.z);
+  return clamp(Math.acos(clamp((hg + 0.07 - y0) / L, -0.6, 0.6)), 1.2, 1.9);
+}
+// the flag lying by the fallen pole's head (late3StdPose once it is down): true when it lies
+function late4StdLie(at, side, slot) {
+  if (!at || slot < 0) { late4StdUncover(); return false; }
+  const B = bannerGeo.attributes, d = LATE2_STD.flagTop * Math.sin(late4StdFallA(at, side)), x = at.x - side * d;
+  B.aB0.array.set([x, heightAt(x, at.z), at.z, side * Math.PI / 2], slot * 4);
+  L4STD.lie = true;
+  late4StdCover(at, side);
+  return true;
+}
+// the texels under the fallen pole and its flag made bare (a blade grew up through the cloth), and given back after
+function late4StdCover(at, side) {
+  const key = `${at.x.toFixed(2)},${at.z.toFixed(2)},${side}`;
+  if (L4STD.key === key && (!L4STD.marks.length || COVER.data[L4STD.marks[0][0]] === 255)) return; // (the map rebuilt since: again)
+  late4StdUncover();
+  L4STD.key = key;
+  const R = COVER.res, L = LATE2_STD.poleH + 0.3, a0 = LATE2_STD.flagTop - LATE2_STD.flagH - 0.15, a1 = LATE2_STD.flagTop + 0.15, q1 = 0.1 + LATE2_STD.flagW * 0.84 + 0.15;
+  const inside = (px, pz) => {
+    const al = (at.x - px) * side, ac = (at.z - pz) * side; // along the pole from its foot, across toward the fly
+    if (al >= 0.3 && al <= L && Math.abs(pz - at.z) <= 0.45) return true; // the pole
+    return al >= a0 && al <= a1 && ac >= -0.3 && ac <= q1; // the flag
+  };
+  const i0 = Math.max(0, Math.floor(Math.min(at.x, at.x - side * L) - 1 + 512)), i1 = Math.min(R - 1, Math.ceil(Math.max(at.x, at.x - side * L) + 1 + 512));
+  const j0 = Math.max(0, Math.floor(Math.min(at.z, at.z - side * q1) - 1 + 512)), j1 = Math.min(R - 1, Math.ceil(Math.max(at.z, at.z - side * q1) + 1 + 512));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const n = j * R + i, v = COVER.data[n];
+    if (v === 255 || !inside(i - 512 + 0.5, j - 512 + 0.5)) continue;
+    L4STD.marks.push([n, v]); COVER.data[n] = 255;
+  }
+  if (L4STD.marks.length) COVER.tex.needsUpdate = true;
+}
+function late4StdUncover() {
+  L4STD.lie = false;
+  if (!L4STD.key) return;
+  for (const [n, v] of L4STD.marks) if (COVER.data[n] === 255) COVER.data[n] = v;
+  if (L4STD.marks.length) COVER.tex.needsUpdate = true;
+  L4STD.marks.length = 0; L4STD.key = null;
 }
 // a blow on it (late3StdStep, 10n_veteran.js): the cloth is rent by what strikes it
 function late4StdTear(dmg) {
@@ -810,4 +878,4 @@ registerSavePart('char', 'late4', {
   load(o) { L3V.std.tear = o && typeof o === 'object' ? late4N(o.t, 0, 100, 0) / 100 : 0; late4StdFlag(); },
   key: (o) => (o ? [Math.round(o.t / 10)] : null),
 });
-queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, late4FrameName, late4MantleCode, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, late4FrameName, late4MantleCode, late4StdFallSide, late4StdFallA, late4StdLie, L4STD, COVER, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });
