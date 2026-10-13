@@ -42,7 +42,7 @@ const DEEP_SLABS = [];
 for (let i = 0; i < 5; i++) DEEP_SLABS.push({ hall: 'crack', u0: 72 + i * 4, u1: 76 + i * 4, v0: 46, v1: 52 });
 for (const [v0, v1] of [[35, 41], [57, 63]]) for (let i = 0; i < 6; i++) DEEP_SLABS.push({ hall: 'ash', u0: 30 + i * 4, u1: 34 + i * 4, v0, v1 });
 // the lord: his might over a barrow-king's (dungeonBoss), his harm, his clocks
-const DEEP_LORD = { base: 24, hp: 2.4, dmg: 1.1, scale: 1.78, wordT: 2.8, wordRage: 2.2, wordCd: [16, 19], wordCdRage: 11, cleaveCd: [7, 9], stampCd: [11, 13], respawn: 900, vetK: 0.01, vetMax: 30 };
+const DEEP_LORD = { base: 24, hp: 3.4, dmg: 1.0, scale: 1.78, wordT: 2.8, wordRage: 2.2, wordCd: [16, 19], wordCdRage: 11, cleaveCd: [7, 9], stampCd: [11, 13], respawn: 900, vetK: 0.01, vetMax: 30 };
 const DEEP_SEAL = { u: 193, v: 15.45, w: 4.2, h: 4.5 };
 const DEEP = {
   built: false, opened: false, kills: 0, wallBroken: false, seal: null, slabs: [], cells: [], wall: null, rubble: null,
@@ -682,6 +682,14 @@ function late3Init() {
     addBox(ch.x, ch.z, 0.75, 0.5, yaw, 'prop', 1.0);
   }
   late3ApplySaved();
+}
+// every pack of the deep standing again, whole (the tests' fresh start: a new descent)
+function deepPacksFresh() {
+  for (const e of ENT.slice()) if (e.deep && !e.deepLord) removeEnt(e);
+  DEEP.adds.clear(); DEEP.flood.drowned = [];
+  DEEP_PACKS.forEach((pk) => { pk.members = new Set(); pk.respawn = []; for (const m of pk.mobs) pk.members.add(deepSpawn(m[0], m[1], m[2], m[3], pk).id); });
+  rescaleWar();
+  return DEEP_PACKS.reduce((a, pk) => a + pk.members.size, 0);
 }
 // a pack's own wake: the first to see you calls the rest
 function deepPackAggro(e, t) {
@@ -1403,6 +1411,7 @@ function late3BotHazard(e, t) {
 /* each step (updateBarrow, 08e_barrow.js)                              */
 /* ------------------------------------------------------------------ */
 function late3Update(dt) {
+  late3VetStep(dt); // (the standard of your name falling or rising: 10n_veteran.js)
   if (!DEEP.built) return;
   const P = GAME.player, now = GAME.t;
   // the seal sinking into the floor
@@ -1561,4 +1570,4 @@ const DEEP_PART = {
 };
 registerSavePart('char', 'deep', DEEP_PART);
 
-queueMicrotask(() => { if (!window.__hm) return; Object.assign(window.__hm.fn, { dunWX, dunWZ, dunU, dunV, dunIdx, dunCellAt, stepTo, waterAt, fireLandsAt, natureImpact, late3IsDeepCell }); window.__hm.deep = { DEEP_PART, DUN_ROOM, DEEP, DEEP_ROOMS, DEEP_SLABS, DEEP_CHANNELS, DEEP_PACKS, DEEP_LORD, DEEP_FIRE, DEEP_SLAB, DEEP_FLOOD, DEEP_SEAL, DEEP_LV, DEEP_Y, DEEP_PIT, DEEP_POOL, late3SealReady, late3SealWhy, late3SealOpen, late3InDeep, late3Room, late3WaterAt, late3FireAt, late3Impact, late3Offers, late3OpenChest, late3LordThink, late3Aims, late3BotHazard, late3HeraldText, chronDeep, deepIgnite, deepCellNear, deepSlabCrack, deepSlabFall, deepSlabMend, deepFall, deepWallBreak, deepWallStrike, deepLordFresh, deepLordReset, deepSpawnLord, deepWord, deepPitchOut, deepEdgeOut, deepSpawn }; });
+queueMicrotask(() => { if (!window.__hm) return; Object.assign(window.__hm.fn, { dunWX, dunWZ, dunU, dunV, dunIdx, dunCellAt, stepTo, waterAt, fireLandsAt, natureImpact, late3IsDeepCell }); window.__hm.deep = { DEEP_PART, DUN_ROOM, DEEP, DEEP_ROOMS, DEEP_SLABS, DEEP_CHANNELS, DEEP_PACKS, DEEP_LORD, DEEP_FIRE, DEEP_SLAB, DEEP_FLOOD, DEEP_SEAL, DEEP_LV, DEEP_Y, DEEP_PIT, DEEP_POOL, late3SealReady, late3SealWhy, late3SealOpen, late3InDeep, late3Room, late3WaterAt, late3FireAt, late3Impact, late3Offers, late3OpenChest, late3LordThink, late3Aims, late3BotHazard, late3HeraldText, chronDeep, deepIgnite, deepCellNear, deepSlabCrack, deepSlabFall, deepSlabMend, deepFall, deepWallBreak, deepWallStrike, deepLordFresh, deepLordReset, deepSpawnLord, deepWord, deepPitchOut, deepEdgeOut, deepSpawn, deepPacksFresh }; });

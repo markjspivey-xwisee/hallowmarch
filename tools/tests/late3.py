@@ -48,7 +48,8 @@ window.L3 = {
   start: (cls, lv, realm) => { const H = __hm, F = H.fn; F.newCharacter(); H.start({ realm: realm || 0, cls, level: lv }); const P = H.GAME.player; H.bal.applyFairGear(P, Math.min(50, lv)); H.INV.potions = 3; P.hp = P.maxHp; P.power = P.maxPower; return 0; },
   calm: () => { const H = __hm; for (const e of H.ENT) if (e.alive && e.faction === H.FACTION_MONSTER && e.x > 1000 && !e.deepLord && e.role !== 'dungeonBoss') { e.damagers = null; H.fn.killEnt(e, null); } return 0; },
   kingDown: () => { const H = __hm; H.late.LATE2.d.king = Math.max(1, H.late.LATE2.d.king); H.GAME.prog.kingKills = Math.max(1, H.GAME.prog.kingKills || 0); return 0; },
-  safe: () => { const P = __hm.GAME.player; P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0; return 0; },
+  safe: () => { const P = __hm.GAME.player; if (!P.alive) { L3.deaths = (L3.deaths || 0) + 1; P.alive = true; P.removeAt = 0; } P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0; P.l3fall = null; return 0; },
+  pstate: () => { const P = __hm.GAME.player; return { alive: P.alive, hp: Math.round(P.hp), deaths: L3.deaths || 0, log: [...document.querySelectorAll('#log .line, #log div')].slice(-4).map((d) => d.textContent) }; },
 };
 0;
 """
@@ -165,6 +166,7 @@ async def water(page):
     check(r['drained'] < -19 and r['stAfter'] == 0, f"it drains again ({r['drained']})")
 
 async def pitch(page):
+    print('player', json.dumps(await ev(page, 'L3.pstate()')))
     r = await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player; L3.calm(); L3.safe();
       H.deep.deepPitchOut(); for (const C of D.cells) { C.ch = 0; C.st = 0; }
       const a = {};
@@ -190,6 +192,7 @@ async def pitch(page):
     check(r['rearmed'] == r['total'] and r['firesAfter'] == 0, f"the pitch seeps back ({r['rearmed']} of {r['total']} cells ready again), no flame left")
 
 async def slabs(page):
+    print('player', json.dumps(await ev(page, 'L3.pstate()')))
     r = await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player; L3.calm(); L3.safe();
       const S = D.slabs.find((s) => s.hall === 'crack' && s.st === 0); const a = {};
       L3.to((S.u0 + S.u1) / 2, (S.v0 + S.v1) / 2); const y0 = P.y, hp0 = P.hp;
@@ -214,6 +217,7 @@ async def slabs(page):
     check(r['meteor'] and r['meteorFell'], 'a meteor on a slab breaks it')
 
 async def wall(page):
+    print('player', json.dumps(await ev(page, 'L3.pstate()')))
     r = await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player; L3.calm(); L3.safe();
       D.wallBroken = false; D.wall.hits = 0; H.deep.DEEP.wall.mesh.visible = true; D.wall.coll.active = true;
       const a = {}; L3.to(67.5, 50.6); H.simulate(0.2);
@@ -231,6 +235,7 @@ async def wall(page):
     check(r['inTomb'] and r['chest'], 'beyond it a forgotten tomb and its chest')
 
 async def lord(page):
+    print('player', json.dumps(await ev(page, 'L3.pstate()')))
     r = await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player; L3.calm(); L3.safe();
       const id = H.deep.deepLordFresh(), K = F.getEnt(id); const a = { lvl: K.level, hp: Math.round(K.maxHp) };
       L3.to(48, 48.5); P.yaw = -Math.PI / 2; H.simulate(0.5); a.awake = K.ai.awake;
@@ -262,8 +267,8 @@ async def lord(page):
       const ch = D.chests.find((c) => c.id === 'dhoard');
       a.dead = !K.alive; a.kills = D.kills - k0; a.deed = H.late.LATE2.d.deep - n0; a.name = H.late.LATE2.names.includes('ashbane'); a.hoard = ch.ready && !ch.opened;
       // the hoard: the top of the gear curve
-      P.x = P.prevX = ch.x + 1.2; P.z = P.prevZ = ch.z; L3.calm(); const nL = H.LOOT.length; H.deep.late3OpenChest(ch); H.simulate(1.0);
-      const got = H.LOOT.slice(nL).filter((l) => l.item); a.items = got.map((l) => [l.item.lvl, l.item.q]);
+      P.x = P.prevX = ch.x + 1.2; P.z = P.prevZ = ch.z; L3.calm(); const before = new Set(H.LOOT); H.deep.late3OpenChest(ch); H.simulate(1.0);
+      const got = H.LOOT.filter((l) => !before.has(l) && l.item && Math.hypot(l.x - ch.x, l.z - ch.z) < 3); a.items = got.map((l) => [l.item.lvl, l.item.q]);
       return a; })()""")
     print(json.dumps(r))
     check(r['lvl'] >= 54, f"the Ash-Crowned at level {r['lvl']} for a player of 50 ({r['hp']} health)")
@@ -298,7 +303,7 @@ async def fight(page):
     print('fight: each calling\'s skilled bot through the deep and against its lord', flush=True)
     for lv in LVS:
         for cls in CLS:
-            await page.evaluate(f"L3.start('{cls}', {lv}); L3.kingDown(); __hm.deep.late3SealOpen(true); 0")
+            await page.evaluate(f"L3.start('{cls}', {lv}); L3.kingDown(); __hm.deep.late3SealOpen(true); __hm.deep.deepPacksFresh(); 0")
             # through the halls: a pack of each, the skilled bot played by the game's own bot
             r = await ev(page, f"""(() => {{ const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player;
               F.setIndoor(true); const out = {{ cls: '{cls}', lv: {lv}, halls: [] }};
@@ -316,9 +321,9 @@ async def fight(page):
             hall_ok = all(h[2] == 0 for h in r['halls']) and len(r['halls']) == 3
             check(hall_ok, f"a level {lv} {cls} clears the deep's halls ({', '.join(f'{h[0]} {h[1]} s, {h[3]*100:.0f}% left' for h in r['halls'])})")
             r = await ev(page, f"""(() => {{ const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player;
-              L3.start('{cls}', {lv}); L3.kingDown(); H.deep.late3SealOpen(true); F.setIndoor(true);
+              F.setIndoor(true); P.alive = true; P.removeAt = 0;
               const id = H.deep.deepLordFresh(), K = F.getEnt(id);
-              for (const e of H.ENT) if (e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.DUN_ROOM.ashhall) {{ e.damagers = null; F.killEnt(e, null); }}
+              for (const e of H.ENT) if (e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM.ashhall) {{ e.damagers = null; F.killEnt(e, null); }}
               L3.to(46, 48.5); L3.safe(); H.INV.potions = 3;
               H.bal.botMake(P, 'skilled', {{ x: F.dunWX(40), z: F.dunWZ(48.5), r: 9 }}); P.target = K.id; H.simulate(0.5);
               const st0 = {{ ...D.stats }};
@@ -333,7 +338,37 @@ async def fight(page):
 async def reload(page):
     pass
 
+SHOT_ONLY = arg('shots')
+async def snap(page, name, js):
+    if SHOT_ONLY and not any(name.startswith(k) for k in SHOT_ONLY.split(',')): return
+    await ev(page, "(() => { const H = __hm; document.getElementById('hud').hidden = true; " + js + "; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; for (let i = 0; i < 4; i++) H.frame(1/30); return 0; })()")
+    t = time.time()
+    await page.screenshot(path=str(OUT) + '/late3_' + name + '.png', timeout=300000)
+    print(f'  shot late3_{name} ({time.time() - t:.0f} s)', flush=True)
+
+CAM = "const cam = (u, y, v, lu, ly, lv) => { const F = H.fn; H.camera.position.set(F.dunWX(u), y, F.dunWZ(v)); H.camera.lookAt(F.dunWX(lu), ly, F.dunWZ(lv)); }; "
 async def shots(page):
-    pass
+    await ev(page, """(() => { L3.start('warrior', 50); L3.kingDown(); const H = __hm, F = H.fn; H.deep.late3SealOpen(true); H.deep.deepPacksFresh(); F.setIndoor(true); H.setTod(1.2); return 0; })()""")
+    for q in (arg('sq') or Q).split(','):
+        await page.evaluate(f"__hm.fn.setQuality('{q}')")
+        # the seal from the Hollow King's hall, whole
+        await snap(page, f'seal_{q}', CAM + "const D = H.deep.DEEP; D.seal.target = 0; D.seal.open = 0; D.seal.mesh.position.y = -7; D.seal.coll.active = true; L3.to(193, 9); cam(195.5, -4.6, 7.5, 193, -5.2, 15.4)")
+        await ev(page, "(() => { __hm.deep.late3SealOpen(true); return 0; })()")
+        # down the Long Stair
+        await snap(page, f'stair_{q}', CAM + "L3.to(193, 12); cam(193, -7.6, 15.2, 193, -14.5, 33)")
+        # the cistern, still and flooded
+        await snap(page, f'cistern_{q}', CAM + "const D = H.deep.DEEP; D.flood.st = 0; D.wy = H.deep.DEEP_FLOOD.base; D.water.position.y = D.wy; L3.to(186, 38.5); cam(185.5, -14.2, 37.6, 165, -18.6, 50)")
+        await snap(page, f'cistern_flood_{q}', CAM + "const D = H.deep.DEEP; D.flood.st = 2; D.flood.t = 0; D.wy = H.deep.DEEP_FLOOD.high; D.water.position.y = D.wy; H.simulate(0.2); cam(185.5, -14.2, 37.6, 165, -18.6, 50)")
+        await ev(page, "(() => { const D = __hm.deep.DEEP; D.flood.st = 0; D.flood.next = 1e9; D.wy = __hm.deep.DEEP_FLOOD.base; D.water.position.y = D.wy; return 0; })()")
+        # the Hall of Pyres, its pitch burning
+        await snap(page, f'pyres_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(140, 39); H.deep.deepPitchOut(); for (const C of D.cells) C.ch = 0; const C = D.cells.find((c) => c.hall === 'pyres' && Math.abs(H.fn.dunU(c.x) - 123) < 1.2 && Math.abs(H.fn.dunV(c.z) - 49) < 1.2) || D.cells[20]; H.deep.deepIgnite(C, null); H.simulate(5); H.camera.position.set(H.fn.dunWX(140), -12.5, H.fn.dunWZ(38.5)); for (let i = 0; i < 8; i++) H.frame(1/30); cam(140.5, -12.6, 38.2, 121, -18.2, 52)")
+        await ev(page, "(() => { __hm.deep.deepPitchOut(); return 0; })()")
+        # the Breaking Gallery: a slab fallen into the embers
+        await snap(page, f'gallery_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); L3.to(63, 49); const S = D.slabs.find((s) => s.hall === 'crack' && s.u0 === 80); if (S && S.st === 0) H.deep.deepSlabFall(S); H.simulate(1.2); cam(66.5, -14.6, 47.2, 84, -19.6, 49.5)")
+        # the Ash Throne: the Ash-Crowned on his throne
+        await snap(page, f'throne_{q}', CAM + "const D = H.deep.DEEP; L3.calm(); const id = H.deep.deepLordFresh(); L3.to(60, 48.5); H.simulate(0.3); cam(46, -14.5, 44, 22, -15.5, 48.5)")
+        # his fight: the Ember Word spoken over a burning aisle
+        await snap(page, f'word_{q}', CAM + "const D = H.deep.DEEP, F = H.fn, K = F.getEnt(D.lord), P = H.GAME.player; L3.to(40, 48.5); L3.safe(); H.simulate(1.0); K.ai.nextWord = 0; for (let i = 0; i < 12 && !(K.casting && K.casting.id === 'word'); i++) { L3.safe(); H.simulate(0.25); } H.simulate(1.4); L3.safe(); cam(F.dunU(K.x) + 9, K.y + 4.2, F.dunV(K.z) - 6, F.dunU(K.x), K.y + 1.6, F.dunV(K.z))")
+    await ev(page, "(() => { const H = __hm; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').hidden = false; return 0; })()")
 
 asyncio.run(main())

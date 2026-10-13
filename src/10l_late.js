@@ -519,11 +519,12 @@ function late2StdShow() {
     const y = heightAt(at.x, at.z) - 0.08, realm = GAME.player ? GAME.player.faction : 0;
     L2STD.mesh.position.set(at.x, y, at.z);
     B.aB0.array.set([at.x + 0.02, y + LATE2_STD.poleH - 0.05, at.z, 0], L2STD.slot * 4);
-    B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm, 1], L2STD.slot * 4);
+    B.aB1.array.set([LATE2_STD.flagW, LATE2_STD.flagH, realm + late3StdCode(), 1], L2STD.slot * 4); // [late3] the device of your name on its flag (10n_veteran.js)
     L2STD.coll = addCircle(at.x, at.z, 0.12, 'prop', LATE2_STD.poleH);
   }
   L2STD.mesh.updateMatrixWorld(); // (its shadow's proxy copies it this frame)
   B.aB0.needsUpdate = true; B.aB1.needsUpdate = true;
+  late3StdPose(); // [late3] struck down, it lies fallen (10n_veteran.js)
 }
 try { late2StdBuild(); } catch (e) { console.error(e); } // (at load, so the boot's compile makes its program with the rest)
 const late2StdOk = () => !!GAME.prog && GAME.prog.level >= LATE2_STD.lv && LATE2.names.length > 0;
@@ -563,6 +564,7 @@ function late2StdTake() {
 function late2Offers(P, offer) {
   const at = LATE2.std.at;
   if (at && !inDungeon(P)) offer(dist(P.x, P.z, at.x, at.z), 2.6, 'Take up your standard', () => late2StdTake(), 0.4);
+  late3StdOffers(P, offer); // [late3] a fallen standard raised again (10n_veteran.js)
 }
 // while it stands: your realm's soldiers, your companions and you within its reach strike harder (once a second)
 function late2StdStep() {
@@ -570,7 +572,8 @@ function late2StdStep() {
   // a Marshal's presence: your realm's soldiers about you strike harder
   const aura = P && P.alive ? late2K('aura') : 0;
   if (aura) forNear(P.x, P.z, 20, (o) => { if (o.alive && o !== P && o.faction === P.faction && isActor(o) && o.kind !== 'door' && o.role !== 'villager') addBuff(o, 'dmg', aura, 1.6, 'l2aura'); });
-  if (!at || !P) return;
+  late3StdStep(); // [late3] foes hew at it, and strike it down (10n_veteran.js)
+  if (!at || !P || late3StdDown()) return;
   if (Math.random() < 0.5) sfxAt('flap', at.x, heightAt(at.x, at.z) + 3.4, at.z); // (its cloth in the wind: audio2's)
   forNear(at.x, at.z, LATE2_STD.reach, (o) => {
     if (!o.alive || o.kind === 'door' || o.faction !== P.faction || !isActor(o)) return;
@@ -763,7 +766,8 @@ function late2NextName() {
 /* ------------------------------------------------------------------ */
 function late2StdHTML() {
   const P = GAME.player, S = LATE2.std, R = REALMS[P.faction];
-  const say = `<p>From level ${LATE2_STD.lv}, with a name of your own, the banner-makers of ${esc(R.townName)} will sew you a standard: a pole of ash with a gilt finial and ${esc(R.name)}'s colours streaming from it. Plant it on open ground and every soldier of ${esc(R.name)}, every companion of yours and you within ${LATE2_STD.reach} m of it strike ${Math.round(LATE2_STD.harm * 100)}% harder. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up again.</p>`;
+  let say = `<p>From level ${LATE2_STD.lv}, with a name of your own, the banner-makers of ${esc(R.townName)} will sew you a standard: a pole of ash with a gilt finial and ${esc(R.name)}'s colours streaming from it. Plant it on open ground and every soldier of ${esc(R.name)}, every companion of yours and you within ${LATE2_STD.reach} m of it strike ${Math.round(LATE2_STD.harm * 100)}% harder. ${IS_TOUCH ? 'Use' : 'E'} beside it takes it up again.</p>`;
+  say += late3StdHTML(); // [late3] its device, and foes that strike it down (10n_veteran.js)
   if (!S.made) return say + (late2StdOk() ? `<div class="acts"><button type="button" class="btn l2-btn" data-l2="std:make"${INV.gold >= LATE2_STD.cost ? '' : ' disabled'}>Have it made (${fmtInt(LATE2_STD.cost)} gold)</button></div>` : `<p class="now">${P.level < LATE2_STD.lv ? `At level ${LATE2_STD.lv}.` : 'Once the March has given you a name.'}</p>`);
   const at = S.at, where = at ? `It stands in ${esc(zoneAt(at.x, at.z).name)}, ${Math.round(dist(P.x, P.z, at.x, at.z))} m from you.` : 'You carry it furled.';
   return say + `<p class="now">${where}</p><div class="acts"><button type="button" class="btn l2-btn" data-l2="std:plant">${at ? 'Bring it here and plant it' : 'Plant it here'}</button>${at ? '<button type="button" class="btn l2-btn" data-l2="std:take">Take it up</button>' : ''}</div>`;
@@ -791,7 +795,7 @@ function chronDeeds() {
   }).join('');
   const stdUp = late2StdOk(); // (one you can have made, plant or take up comes up under your names, open: what you can do first)
   return `<p class="lead">The March remembers what you do in it. Deeds earn you names, and the name you wear gives you something of the deed it was earned by; it shows with your own on your frame. Past level 50 your experience raises your veterancy, and every rank is a boon.</p>
-    <h3${earned.length <= 4 ? ' data-cf-open' : ''}>Your names</h3>${names}
+    <h3${earned.length <= 4 ? ' data-cf-open' : ''}>Your names</h3>${names}${late3MantleHTML() /* [late3] the mantle of your name (10n_veteran.js) */}
     ${stdUp ? `<h3 data-cf-open>The standard of your name</h3>${late2StdHTML()}` : ''}
     <h3>Names still to earn</h3><ul class="gd-aims">${toEarn || '<li><b>Every name is yours.</b></li>'}</ul>
     <h3>Your deeds</h3><ul class="plain l2-tally">${tally}</ul>

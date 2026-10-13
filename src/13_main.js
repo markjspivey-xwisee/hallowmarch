@@ -244,6 +244,7 @@ function drawActors(fx, fz) {
       if (e.anim.act === 21 && e.anim.actDur > 0) _mi[1] |= WB.beater; // [look4] a fire beater in the hands that beat out flames (05a_rig.js)
       if (e._hamUntil > GAME.t) _mi[1] |= WB.hammer; // [motion5] a mallet in the hand of a builder or a mason at work
       _st[0] = L.outfit ?? 0; _st[1] = L.emblem ?? 3; _st[2] = (L.fem ? 1 : 0) + 2 * footLockSlot(e, false); _st[3] = L.bulk ?? 0; // [polish] the row of its planted feet above the bit (13s_footlock.js)
+      if (e.role === 'player') { const mc = late3MantleCode(e); if (mc) { _st[1] += mc; _mi[1] |= WB.cape; } } // [late3] the mantle of the name you wear (10n_veteran.js)
       if (e.mount && e.alive) {
         // the horse under the rider, then the rider on the saddle
         const MA = e.mountAnim, H = crowdBeast[e.mount.crowd] || crowdBeast.horse; // [animals] your own horse in its own coat

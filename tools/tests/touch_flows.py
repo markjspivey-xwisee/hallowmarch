@@ -11,6 +11,7 @@ beat out a fire on a burh's wall walk with Use ([siege3]: only=firewall); beat o
 plays a new player's first steps by touch).
 [look3] climb a mended tower's scaffold and back down with Use (`only=scaffold`). [look4] the same up a house's scaffold
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
+[late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use (`only=deep`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
@@ -184,6 +185,25 @@ async def main():
             st = await page.evaluate("(() => { __hm.simulate(0.3); const c = TF.fireC; return { st: c.st, heat: +c.heat.toFixed(2) }; })()")
             check(r['label'] == 'Beat out the flames' and ok and h1['heat'] < r['heat'] and h1['act'] == 21, f"firewall: by a fire on a burh's walk a tap on Use beats the flames down ({r['label']}, heat {r['heat']} -> {h1['heat']}, action {h1['act']})")
             check(st['st'] != 1, f"firewall: a few taps put it out ({json.dumps(st)})")
+
+        if want('deep'):
+            # [late3] the seal beneath the Hollow King's hall broken by a tap on Use (a level 50 who has laid him to
+            # rest), then the cracked wall in the Breaking Gallery brought down by three taps (10m_deep.js)
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, D = H.deep.DEEP, P = TF.P();
+              H.GAME.prog.level = 50; H.late.LATE2.d.king = Math.max(1, H.late.LATE2.d.king); D.opened = false; D.seal.target = 0; D.seal.open = 0; D.seal.mesh.position.y = -7; D.seal.coll.active = true;
+              const p = F.dunPoint(193, 12.8); TF.stand(p.x, p.z, F.dunWX(193), F.dunWZ(20)); F.setIndoor(true); P.y = p.y; H.simulate(0.1); H.frame(1/30);
+              return { label: TF.label() }; })()""")
+            ok = await tap(page, '#t-use')
+            s1 = await page.evaluate("(() => { __hm.simulate(4); const D = __hm.deep.DEEP; return { opened: D.opened, open: +D.seal.open.toFixed(2), coll: D.seal.coll.active }; })()")
+            check(ok and r['label'] and 'seal' in r['label'] and s1['opened'] and not s1['coll'], f"deep: before the seal a tap on Use breaks it ({r['label']}: {s1})")
+            r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, D = H.deep.DEEP, P = TF.P(); D.wallBroken = false; D.wall.hits = 0; D.wall.mesh.visible = true; D.wall.coll.active = true;
+              const p = F.dunPoint(67.5, 50.4); TF.stand(p.x, p.z, D.wall.x, D.wall.z); F.setIndoor(true); P.y = p.y; H.simulate(0.1); H.frame(1/30); return { label: TF.label() }; })()""")
+            for i in range(3):
+                await tap(page, '#t-use')
+                await page.evaluate("__hm.simulate(1.0); 0")
+            s2 = await page.evaluate("(() => { const D = __hm.deep.DEEP; const out = { broken: D.wallBroken, coll: D.wall.coll.active }; __hm.fn.leaveBarrow && 0; return out; })()")
+            check(r['label'] == 'Break the cracked wall' and s2['broken'] and not s2['coll'], f"deep: three taps on Use bring the cracked wall down ({r['label']}: {s2})")
+            await page.evaluate("(() => { const H = TF.H; H.fn.setIndoor(false); const t = H.REALMS[0].town; H.teleport(t.x + 6, t.z + 6); H.simulate(0.2); return 0; })()")
 
         if want('housefire'):
             # [war2] a house afire in the town: beside its walls a tap on Use beats the flames down, and a few more put
