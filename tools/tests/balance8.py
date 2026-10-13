@@ -84,8 +84,11 @@ window.B8 = {
   // the boons of thirty steps of veterancy and a worn name, given to a bot by their own numbers (10l_late.js: late2Stats,
   // late2HarmMult): health, power and critical blows on the body, harm dealt and taken through its measure
   vet(e, name) {
-    const B = { hp: 0.05, dmg: 0.05, pow: 0.10, crit: 0.05, dr: 0.05 };
-    const Nm = name ? { hp: 0.03, all: 0.03 } : { hp: 0, all: 0 };
+    // every boon at its five steps (10l_late.js LATE2_BOONS), and the Legend of the March's gift (LATE2_NAMES rr15)
+    const L = this.L, K = (k) => L.LATE2_BOONS.reduce((a, B) => a + (B.k === k ? B.v * 5 : 0), 0);
+    const B = { hp: K('hp'), dmg: K('dmg'), pow: K('pow'), crit: K('crit'), dr: K('dr') };
+    const nk = (L.LATE2_NAMES.find((n) => n.id === 'rr15') || {}).k || {};
+    const Nm = name ? { hp: nk.hp || 0, all: nk.all || 0 } : { hp: 0, all: 0 };
     e.maxHp *= 1 + B.hp + Nm.hp; e.hp = e.maxHp;
     e.maxPower *= 1 + B.pow; e.power = e.maxPower;
     e.critBonus = (e.critBonus || 0) + B.crit;
@@ -111,8 +114,9 @@ window.B8 = {
     const bFirst = (this.nMade = this.nMade + 1) % 2 === 0; // the side made first acts first: every other duel the other way round
     const r0 = (Math.floor(n / 2)) % 3, r1 = (Math.floor(n / 2) + 1) % 3, ra = n % 2 ? r1 : r0, rb = n % 2 ? r0 : r1;
     let ua, ub;
-    if (bFirst) { ub = CB.unit(rb, b, lvl, s.x + 9, s.z, kb, 18); ua = CB.unit(ra, a, lvl, s.x - 9, s.z, ka, 18); }
-    else { ua = CB.unit(ra, a, lvl, s.x - 9, s.z, ka, 18); ub = CB.unit(rb, b, lvl, s.x + 9, s.z, kb, 18); }
+    const sx = Math.floor(n / 2) % 2 ? -9 : 9; // (the sides change places every other pair of duels: an arena's ground leans one way)
+    if (bFirst) { ub = CB.unit(rb, b, lvl, s.x + sx, s.z, kb, 18); ua = CB.unit(ra, a, lvl, s.x - sx, s.z, ka, 18); }
+    else { ua = CB.unit(ra, a, lvl, s.x - sx, s.z, ka, 18); ub = CB.unit(rb, b, lvl, s.x + sx, s.z, kb, 18); }
     if (v) this.vet(ua, v === 'name');
     ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 18 };
     ua.target = ub.id; ub.target = ua.id;

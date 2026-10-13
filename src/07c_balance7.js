@@ -26,6 +26,8 @@ const B7T = {
 // botDodge asks: a foe's volley falling on e (its three waves land 0.85, 1.4 and 1.95 s after it is loosed): out of it,
 // a drawn bow let go and a spell finished first (a skilled archer drawing in a mirror stood under every wave)
 function botVolleyAt(e) {
+  const ring = b8RingAt(e); // [balance8] a ring that stuns (a risen champion's wrath): out of it and kept out, a warrior too, or its champion bashed as it rears (07c_balance8.js)
+  if (ring !== undefined) return ring;
   if (e.cls === 'warrior') return null; // (a blade after its foe goes on under the arrows, as through the flames)
   for (const m of AOE_MARKS) {
     if (m.faction == null || m.faction === e.faction || m.until < GAME.t + 0.6) continue;

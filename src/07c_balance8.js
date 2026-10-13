@@ -2,7 +2,7 @@
 /* [balance8] the callings within the aim for simple play and mastery  */
 /*   alike, and the late game's fights weighed (version 17)            */
 /* ================================================================== */
-const BAL8 = { stats: { flareThrough: 0, sanctKnee: 0, spentFlare: 0, spentBash: 0, healHeld: 0, npcBless: 0, npcDevHeals: 0, npcDevSum: 0 } };
+const BAL8 = { stats: { flareThrough: 0, sanctKnee: 0, spentFlare: 0, spentBash: 0, healHeld: 0, npcBless: 0, npcDevHeals: 0, npcDevSum: 0, ringBash: 0, ringStep: 0 } };
 // the rules' measures in one place (the tests set them between runs to measure a rule against its absence)
 const B8T = {
   flareThrough: true, // [priest] Holy Fire's flare breaks a spell a Renewal steadied (light in the face is no blow): only a mage's ward keeps its spell from it
@@ -15,6 +15,7 @@ const B8T = {
   woundLate: 0.15, // [archer] from rank II a broadhead's or a crippling arrow's wound takes this share off healing (WOUND_HEAL_LATE 0.3; rank I keeps 0.3)
   priestHoldBow: true, // [priest bot] a skilled priest keeps its Holy Fire a moment for a bow's long shot within its reach, as for a staff's or a priest's spell
   priestDazzleEarly: true, // [priest bot] a skilled priest of rank I dazzles a warrior with Smite first (it cannot parry dazzled)
+  stunRing: true, // [bots] every skilled bot steps out of a ring that stuns (a risen champion's wrath), a warrior too, or bashes the champion as it rears
 };
 
 /* ------------------------------------------------------------------ */
@@ -121,6 +122,42 @@ const priestBladeWaits = (e) => !B8T.priestRankOneCasts || abilityRank(e.level) 
 // lost to it (B8T.flareThrough: a Renewal no longer guards it), so the heal waits, unless the need is dire
 const priestFlareWait = (e, hpF) => !!(B8T.flareThrough && B8T.priestFlareWait && hpF > 0.3 && flareThreat(e) && (BAL8.stats.healHeld++, true));
 
+/* ------------------------------------------------------------------ */
+/* the skilled hands at a risen champion's wrath                        */
+/* ------------------------------------------------------------------ */
+// A risen champion rears and breaks the ground about it after a glowing warning (10l_late.js: 1.6 times its blow and a
+// stun of 0.9 s within 6.5 m, 8 m a troll's). The skilled bots stepped out of a foe's volley, but a warrior was kept out
+// of that rule (it goes on under arrows) and a caster finished its spell first: the skilled warrior and priest were struck
+// by every wrath at 40, 45 and 50 (balance8.py risen), where a player who knows steps out or stuns the champion as it
+// rears. botVolleyAt (07c_balance7.js) asks, for a ring that stuns: true when dealt with (no step)
+// botVolleyAt asks first (07c_balance7.js): a ring that stuns about e, or a step from its edge: the point to keep away
+// from (out of it, and kept out until it breaks: a skilled hand does not walk back into it), null when dealt with (a
+// warrior's bash breaks it off), undefined when there is none
+function b8RingAt(e) {
+  if (!B8T.stunRing) return undefined;
+  for (const m of AOE_MARKS) {
+    if (!m.stun || m.faction == null || m.faction === e.faction || m.until <= GAME.t) continue;
+    const d = dist(e.x, e.z, m.x, m.z), R = m.r + e.radius * (e.scale || 1);
+    if (d > R + 1.2) continue;
+    if (b8StunMark(e, m)) return null;
+    if (d <= R && m.until < GAME.t + 0.25) continue; // (too late to get out)
+    if (e.cs && e.cs.drawFrom >= 0) releaseDraw(e, getEnt(e.target)); // (the arrow loosed as it is, then out)
+    return { x: m.x, z: m.z, now: false };
+  }
+  return undefined;
+}
+// botWarrior asks: its foe is rearing to break the ground (a ring that stuns about it): no Charge or Leap Strike into it
+const b8RingHold = (e, t) => !!(B8T.stunRing && t && AOE_MARKS.some((m) => m.stun && m.src === t.id && m.until > GAME.t));
+function b8StunMark(e, m) {
+  const C = m.src != null ? getEnt(m.src) : null;
+  if (e.cls === 'warrior' && C && C.alive && e.level >= ABILITIES.bash.level && (e.cds.bash || 0) <= GAME.t && e.power >= ABILITIES.bash.cost && dist(e.x, e.z, C.x, C.z) <= (e.meleeRange || 2.6) + 0.8) {
+    if (botUseAny(e, 'bash', C)) { BAL8.stats.ringBash++; return true; } // (a stun as it rears breaks its blow off)
+  }
+  if (e.casting && e.casting.total - e.casting.t > m.until - GAME.t - 0.15) e.casting = null; // (the stun would cut it anyway)
+  BAL8.stats.ringStep++;
+  return false;
+}
+
 /* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
 ABILITIES.holyfire.desc = `Burns an enemy for 240% over 8 seconds. Cast at a foe within ${FLARE_REACH} m in the middle of a spell, it flares the spell away${B8T.flareThrough ? ': a Renewal\'s steadiness does not keep it, only a mage\'s ward does' : ''}.`;
 ABILITIES.sanctuary.desc = `Heals all allies within 14 m for 25%, and you for ${Math.round(25 * PRIEST_SELF)}%: all of your own share from ${Math.round((1 - B8T.sanctKnee) * 100)}% health down, a sixth of it at full health.`;
@@ -134,6 +171,6 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal8 = { BAL8, B8T, priestSelfLateK, flareBreak, flareBreakable, sanctKneeK, priestCutSpent, priestFlareWait };
+  window.__hm.bal8 = { BAL8, B8T, priestSelfLateK, flareBreak, flareBreakable, sanctKneeK, priestCutSpent, priestFlareWait, b8StunMark, b8RingAt, b8RingHold };
 }, 0);
 ABILITIES.renew.desc = ABILITIES.renew.desc.replace('nothing but a stun breaks your spells', 'nothing but a stun or a foe\'s Holy Fire breaks your spells'); // (07c_balance6.js's text)

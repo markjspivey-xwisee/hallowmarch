@@ -211,7 +211,7 @@ async def main():
             r = await ev(page, 'veterancy', """(() => { const P = T.fresh('priest', 50), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog; const need = L.late2VetNeed(0);
               const hp0 = P.maxHp, xp0 = prog.xp; F.addXP(need + 120);
               const out = { vet: L.LATE2.vet, vxp: L.LATE2.vxp, level: prog.level, xp: prog.xp, free: L.late2Free(), bar: L.late2XpBar(), need0: need, need1: L.late2VetNeed(1), aims: H.guide.guideAims().map((a) => a.t).slice(0, 3) };
-              out.learn = L.late2Learn('hide'); out.hp = +(P.maxHp / hp0).toFixed(4); out.again = L.late2Learn('edge'); out.free2 = L.late2Free();
+              out.learn = L.late2Learn('hide'); out.hp = +(P.maxHp / hp0).toFixed(4); out.hideV = L.LATE2_BOONS.find((B) => B.id === 'hide').v; out.again = L.late2Learn('edge'); out.free2 = L.late2Free();
               F.addXP(L.late2VetNeed(1) + L.late2VetNeed(2) + L.late2VetNeed(3)); out.vet2 = L.LATE2.vet;
               for (let i = 0; i < 6; i++) L.late2Learn('hide'); out.hideSteps = L.LATE2.boons.hide; L.late2Learn('campaigner'); L.late2Learn('edge');
               const foe = F.spawnRealmUnit(1, 'warrior', 50, 'soldier', P.x + 4, P.z); out.edge = +L.late2HarmMult(P, foe, {}).toFixed(3); out.rpK = +L.late2RpMult().toFixed(3);
@@ -221,7 +221,7 @@ async def main():
             check(r['level'] == 50 and r['vet'] == 1 and r['vxp'] == 120 and r['free'] == 1, f"at 50 experience raises veterancy: rank {r['vet']}, {r['vxp']} toward the next ({r['need1']})")
             check(r['bar'][1].startswith('Veterancy 1') and 0 < r['bar'][0] < 0.05, f"the experience bar says so: {r['bar'][1]}")
             check(any('boon' in a for a in r['aims']), f"the aims say a boon waits: {r['aims']}")
-            check(r['learn'] and r['hp'] == 1.01 and not r['again'] and r['free2'] == 0, 'Iron hide: 1% more health; no second boon without a second rank')
+            check(r['learn'] and r['hp'] == round(1 + r['hideV'], 4) and not r['again'] and r['free2'] == 0, f"Iron hide: {r['hideV'] * 100:g}% more health ({r['hp']}); no second boon without a second rank")  # [balance8] the boon's own measure (half of version 16's)
             check(r['vet2'] == 4 and r['hideSteps'] == 4, f"three more ranks, three more steps ({r['hideSteps']} of five learned)")
             check(r['edge'] == 1.0 and r['rpK'] == 1.0, 'with every rank spent nothing more is learned')
             check(not r['forgetPoor'] and r['forget'] and r['afterForget']['spent'] == 0 and r['afterForget']['free'] == 4 and r['afterForget']['gold'] == 3500 and r['afterForget']['hp'] == 1.0, f"unlearning costs 1,500 gold and gives every rank back: {r['afterForget']}")

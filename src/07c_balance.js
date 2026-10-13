@@ -393,7 +393,7 @@ function botWarrior(e, t) {
   // [balance3] out of reach is far enough to charge (from 5 m): a bow that kept just past 6.5 m was never caught
   // [balance4] a Charge rushes now, and a snare lying on its way catches it: a skilled hand walks round it first (a
   // Leap Strike goes over a snare)
-  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8)) {
+  if (d > Math.max(5.2, e.meleeRange + t.radius * (t.scale || 1) + 0.8) && !b8RingHold(e, t)) { // [balance8] not into a ring that stuns (07c_balance8.js)
     if (botUse(e, 'leap', t)) return true;
     const sn = snareOnLine(e, t);
     if (sn && !canUse(e, 'charge', t)) { if (!B.side || GAME.t > B.side.until) B.side = { until: GAME.t + 0.7, sx: sn.x, sz: sn.z }; }
