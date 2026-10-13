@@ -111,6 +111,7 @@ function flFloor(e, x, z, yRef) {
   return best > -Infinity ? best : y;
 }
 const FL_SOLE = [-0.05, 0.05, 0.15]; // (from the ankle: the heel, the middle of the sole, the toes)
+const A2FL = { replant: 0, clamp: 0 }; // [anim2] (counts: feet planted afresh at draw time, rows held to the legs' reach)
 // floorAt, but on a castle's flight of steps the tread over that point: a flight is one ramp from its foot to its landing
 // (castleFlight, 04g_castles.js), which joins the treads' back edges, so a foot set on the ramp stood up to a riser
 // below the stone it was drawn on (the treads: n of them, each as high as the ramp at its upper end)
@@ -293,6 +294,21 @@ function footLockSlot(e, horse) {
       }
     }
     if (o.down && o.h == null) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; }
+    // [anim2] a planted foot (or one taking a quick step) far from where the gait puts it: the body was set down somewhere
+    // new between two steps (a journey, a release, a portal, the world paused under a menu or the prologue): it is planted
+    // afresh where the gait has it. footLockFeet does the same a step later, but the draw-time lift below began a quick
+    // step here first, from the old place: the foot was drawn 16 m behind the body, the leg folded up off the ground for
+    // as long as the world stayed paused, and then swept the 16 m in the air in 0.16 s
+    if (o.down && o.g) {
+      const hw = o.hop > 0 && o.hwx != null, dx = (hw ? o.hwx : o.wx) - e.x, dz = (hw ? o.hwz : o.wz) - e.z;
+      if (Math.hypot(dx * c - dz * s - o.g[3], dx * s + dz * c - o.along) > FL_JUMP) {
+        const lx = o.g[3] + o.tx, lz = o.along + o.tz;
+        o.hop = 0; o.fresh = false; o.land = false; o.cx = o.tx; o.cz = o.tz; o.hwx = null;
+        o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.yw = e.yaw; o.ywL = null;
+        o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
+        A2FL.replant++;
+      }
+    }
     // [motion4] a person's planted foot the leg can no longer draw where it stands (the body cut away from it between two
     // frames: across past the hip's swing, or turned past its own heading) is lifted in this very frame (a quick step,
     // already off the ground), and so is a quick step still at its first frame: drawn short of its place on the ground,
@@ -378,9 +394,12 @@ function footLockSlot(e, horse) {
   // (a beast stands tilted with the slope along it, beastLeanYaw: its feet's heights are what the tilt leaves)
   const tilt = horse || e.kind !== 'humanoid' ? clamp(Math.round((e._bslope || 0) * 20), -20, 20) * 0.05 : 0;
   const r = FOOT_LOCK.n++, D = FOOT_LOCK.data;
+  // [anim2] never past what a leg can reach (a row past it folded the leg up behind the body: the safety net under the replant above)
+  const lim = 1.0 * (e.scale || 1);
+  for (const o of L) if (o && (Math.abs(o.dx) > lim || Math.abs(o.dz) > lim)) { o.dx = clamp(o.dx, -lim, lim); o.dz = clamp(o.dz, -lim, lim); A2FL.clamp++; }
   for (let f = 0; f < 4; f++) { const o = L[f], k = (r * FOOT_LOCK.W + f) * 4; D[k] = o ? o.dx : 0; D[k + 1] = o ? o.dz : 0; D[k + 2] = o ? o.dy - tilt * (o.along + o.dz) : 0; D[k + 3] = (o && (o.down ? o.tread : o.treadT) ? 20 : 10) + (o ? (o.yo || 0) * 0.5 : 0); } // (w: 20 on a stair's tread, where a person's foot stands level, else 10; [motion3] plus half the turn that keeps a person's planted foot on its heading)
   return r + 1;
 }
 function footLockBegin() { FOOT_LOCK.n = 0; rubHfSync(); } // [motion5] (the heaps' drawn tops for the feet: 13y_motion5.js)
 function footLockEnd() { if (FOOT_LOCK.n || FOOT_LOCK.was) FOOT_LOCK.tex.needsUpdate = true; FOOT_LOCK.was = FOOT_LOCK.n; }
-window.__hm.footLock = { FOOT_LOCK, footLockStep, flHumanGait, flBeastGait, footLockSlot, floorTreadAt };
+window.__hm.footLock = { A2FL, FOOT_LOCK, footLockStep, flHumanGait, flBeastGait, footLockSlot, floorTreadAt };
