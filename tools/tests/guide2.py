@@ -185,7 +185,7 @@ async def phone(p):
     await page.wait_for_timeout(250)
     r = await ev(page, """(() => { const H = __hm, L = H.GAME.prog.lore, Rh = H.REALMS[G2T.P().faction].herald; H.UI.modal = null; document.getElementById('menu').hidden = true; H.teleport(Rh.x + 6, Rh.z + 6); G2T.calm(); H.simulate(0.2); H.frame(1/30); for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d);
       L.seen = L.seen.filter((x) => x !== 'ward'); H.LORE.state.queue.length = 0; H.LORE.state.noteUntil = 0; H.LORE.loreNote('ward'); H.hud.note('ward'); const d = [...document.querySelectorAll('#banners .lore-note')].pop(); if (d) { d.style.animation = 'none'; d.remove = () => {}; } /* (it fades on the wall clock) */
-      G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")
+      G2T.lay(); return { compact: document.getElementById('banners').classList.contains('hl-compact') || document.getElementById('banners').classList.contains('hl-brief'), brief: document.getElementById('banners').classList.contains('hl-brief'), n: document.querySelectorAll('#banners .lore-note').length }; })()""")  # [look6] or its first lines (hl-brief)
     print('  note at 360x640:', r, flush=True)
     # the zone's name over the middle of the screen fades by itself after a journey, and the plant card goes when you look
     # away: a few frames until the note has its place (a 360x640 phone has room for it beside nothing else)

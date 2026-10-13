@@ -945,11 +945,14 @@ function deepEdgeOut(S, x, z) {
   return best || DEEP.hall || { x: x, z: z };
 }
 // [look6] the top of a slab at a point, as it falls and lies tilted in its pit (a body standing on it falls with it)
-function look6SlabTop(S, x, z) {
-  const m = S.mesh;
-  if (!m) return -Infinity;
-  const lx = x - m.position.x, lz = z - m.position.z;
-  return m.position.y + lx * Math.sin(m.rotation.z) * Math.cos(m.rotation.x) - lz * Math.sin(m.rotation.x);
+// (from the slab's own state, as deepSlabStep will pose it at the end of this step: a body steps before its slab)
+function look6SlabTop(S, x, z, dt = 0) {
+  let down = 0;
+  if (S.st === 2) { const k = clamp((S.t + dt) / DEEP_SLAB.fall, 0, 1); down = k * k; }
+  else if (S.st === 3) down = 1;
+  else if (S.st === 4) down = 1 - smooth(clamp((S.t + dt) / DEEP_SLAB.rise, 0, 1));
+  const y = lerp(DEEP_Y, DEEP_PIT + 0.35, down), a = S.tilt[0] * down, c = S.tilt[1] * down, lx = x - S.x, lz = z - S.z;
+  return y + lx * Math.sin(c) * Math.cos(a) - lz * Math.sin(a);
 }
 function deepFall(o, S, by) {
   const out = deepEdgeOut(S, o.x, o.z);
@@ -964,10 +967,10 @@ function deepFallStep(o, dt) {
   const F = o.l3fall;
   F.t += dt;
   let y;
-  if (F.t < 0.5) { const k = F.t / 0.5; y = F.y0 - (F.y0 - F.y1) * k * k; if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z)); } // [look6] on its slab, not through it
+  if (F.t < 0.5) { const k = F.t / 0.5; y = F.y0 - (F.y0 - F.y1) * k * k; if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z, dt)); } // [look6] on its slab, not through it
   else if (F.t < DEEP_SLAB.climbOut) {
     y = F.y1;
-    if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z)); // [look6] lying on the fallen slab in the embers (it lay in the pit under it)
+    if (F.S) y = Math.max(y, look6SlabTop(F.S, o.x, o.z, dt)); // [look6] lying on the fallen slab in the embers (it lay in the pit under it)
     F.yl = y;
     if (!F.landed) {
       F.landed = true;

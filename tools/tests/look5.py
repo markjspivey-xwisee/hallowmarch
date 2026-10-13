@@ -224,7 +224,7 @@ async def main():
                   H.LORE.openChronicle('war'); const st = H.guide2.G2.stats.pages.war || {}; const war = Math.round(document.querySelector('.chron-body').getBoundingClientRect().height);
                   const folds = [...document.querySelectorAll('.chron-body details.cf > summary')].map((q) => q.textContent.trim()).slice(0, 6);
                   return { vh, now, old, war, war0: st.h0, folds }; })()""", f'pages {w}x{h}')
-                check(r['now'] <= r['vh'] * (1.05 if h >= 700 else 1.2), f"{w}x{h}: How to play on about one screen ({r['now']} px, the sheet {r['vh']}; as it was {r['old']})")
+                check(r['now'] <= r['vh'] * 1.05, f"{w}x{h}: How to play on one screen ({r['now']} px, the sheet {r['vh']}; as it was {r['old']})")  # [look6] at 360x640 too (it was 1.1 of its screens)
                 check(r['war'] <= r['vh'] * 1.75, f"{w}x{h}: the War page folded in under 1.75 screens ({r['war']} px, the sheet {r['vh']}; natural {r['war0']}; folds {r['folds']})")
             await page.set_viewport_size({'width': 390, 'height': 780})
             r = await ev(page, """(() => { const H = L5.H, L = H.GAME.prog.lore; L.seen = L.seen.filter((x) => x !== 'l5fold'); const w0 = H.guide.GUIDE_WATCH.l5fold();

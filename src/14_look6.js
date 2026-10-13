@@ -142,4 +142,4 @@ function look6Frame(dt) {
   LOOK6.ringN = n;
 }
 
-queueMicrotask(() => { if (window.__hm) window.__hm.look6 = { LOOK6, look6Frame, look6SlabMat, look6Patch }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.look6 = { LOOK6, look6Frame, look6SlabMat, look6Patch, gateWreckGeo, look6SlabTop, deepFloorMat, deepEmberMat, deepWaterMat, deepChannelMat, siegeFS: () => SIEGE_FS }; });

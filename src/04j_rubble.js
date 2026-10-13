@@ -434,9 +434,15 @@ function houseScafSpotAt(H, c, skip) {
 // now). Version 17's turn of three gave the same place twice in four stints wherever the next in its turn was not
 // clear (a standard, a yard's barrel) or another builder stood there: the first clear one after it was the same place
 function look6SpotList(H, side) {
-  const skip = new Set(H.coll), out = [];
-  if (H.round) for (let a = 0.9; a <= 2.8; a += 0.27) { const p = houseScafSpotAt(H, [Math.sin(side * a), Math.cos(side * a), H.r], skip); if (p) out.push(p); }
-  else for (let z = -0.42; z <= 0.42; z += 0.12) { const p = houseScafSpotAt(H, [side, 0, H.w / 2, z * H.d], skip); if (p) out.push(p); }
+  const skip = new Set(H.coll), out = [], at = (c) => { const p = houseScafSpotAt(H, c, skip); if (p) out.push(p); };
+  // its own side first, then round the back, then the other side (a place is clear only where the walk mask is: a few)
+  if (H.round) { for (let a = 0.75; a <= 2.9; a += 0.14) at([Math.sin(side * a), Math.cos(side * a), H.r]); out.own = out.length; for (let a = 0.75; a <= 2.9; a += 0.14) at([Math.sin(-side * a), Math.cos(-side * a), H.r]); }
+  else {
+    for (let z = -0.44; z <= 0.441; z += 0.06) at([side, 0, H.w / 2, z * H.d]);
+    out.own = out.length;
+    for (let x = 0.4; x >= -0.401; x -= 0.08) at([0, -1, H.d / 2, x * side * H.w]);
+    for (let z = 0.44; z >= -0.441; z -= 0.06) at([-side, 0, H.w / 2, z * H.d]);
+  }
   return out;
 }
 function look6WorkSpot(H, side, k, who) {
@@ -444,8 +450,9 @@ function look6WorkSpot(H, side, k, who) {
   if (!L.length) return null;
   const at = H._l6at || (H._l6at = new Map());
   const taken = (p) => { for (const [id, q] of at) { if (who && id === who.id) continue; const o = getEnt(id); if (o && o.alive && dist2(o.x, o.z, q.x, q.z) < 4 && dist2(p.x, p.z, q.x, q.z) < 0.9 * 0.9) return true; } return false; }; // (another at or on its way to its place: within 2 m of it)
+  const i0 = Math.floor(((k * 0.618034) % 1) * (L.own || L.length)); // (a stint's place well along its own side from the last's; past them round the house)
   for (let j = 0; j < L.length; j++) {
-    const p = L[(k * 2 + j) % L.length];
+    const p = L[(i0 + j) % L.length];
     if (taken(p)) continue;
     if (who) at.set(who.id, p);
     return p;

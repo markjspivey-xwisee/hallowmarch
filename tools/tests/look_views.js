@@ -1625,3 +1625,60 @@ window.LK = {
     return { ...L.eye(p.x, p.z, t.x, S.y + 1.2, t.z, 1.7), workers: ws.length, work: W3.stats.gateWork - w0, door: K.door.alive };
   });
 })();
+// [look6] the world's checks under the Barrow too: LK.check looks at the land (|x| <= 512); the Deep Barrow's dead stand on
+// their floors and in nothing solid, its chests and its pitch where they belong, a standing slab's cells ground
+(function () {
+  const LK = window.LK;
+  LK.checkDeep = function () {
+    const H = this.H, F = this.F, Dp = H.deep, D0 = Dp && Dp.DEEP, out = { counts: {}, examples: {}, n: {} };
+    const add = (k, ex) => { out.counts[k] = (out.counts[k] || 0) + 1; const L = out.examples[k] = out.examples[k] || []; if (L.length < 8) L.push(ex); };
+    const keys = ['a deep body sunk into its floor', 'a deep body floating', 'a deep body inside something solid', 'a deep chest inside something solid', 'pitch off the floor', 'pitch under a pyre or brazier', 'a standing slab with no ground', 'a deep torch in the rock'];
+    for (const k of keys) out.counts[k] = 0;
+    if (!D0 || !D0.built) return out;
+    const r1 = (v) => Math.round(v * 10) / 10, near = [];
+    const inside = (c, x, z, r) => { if (c.type === 'circle') return c.r + r - Math.hypot(x - c.x, z - c.z); const dx = x - c.x, dz = z - c.z, lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos; return Math.min(c.hx + r - Math.abs(lx), c.hz + r - Math.abs(lz)); };
+    const solid = (x, z, r, skip, tags) => { F.collidersNear(x, z, r + 8, near); let best = null, bd = 0.02; for (const c of near) { if ((skip && skip(c)) || c.active === false || (tags && !tags(c))) continue; const d = inside(c, x, z, r); if (d > bd) { bd = d; best = c; } } return best ? { tag: best.tag, by: r1(bd) } : null; };
+    let nb = 0;
+    for (const e of H.ENT) {
+      if (!e.alive || e.removed || !(e.deep || e.deepLord) || e.l3fall || e.swim || e.wd > 0.3) continue;
+      nb++;
+      const fy = F.dunFloorAt(e.x, e.z);
+      if (!(e.deepLord && e.seat)) {
+        if (e.y < fy - 0.06) add('a deep body sunk into its floor', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), y: r1(e.y), floor: r1(fy) });
+        else if (e.y > fy + 0.12 && !(e.vy > 0.01)) add('a deep body floating', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), y: r1(e.y), floor: r1(fy) });
+      }
+      const s = solid(e.x, e.z, Math.min(0.25, (e.radius || 0.4) * 0.5), null, (c) => c.tag !== 'door' && c.tag !== 'gate' && !(e.deepLord && c.tag === 'prop'));
+      if (s && s.by > 0.15) add('a deep body inside something solid', { name: e.name, u: r1(F.dunU(e.x)), v: r1(F.dunV(e.z)), ...s });
+    }
+    out.n.bodies = nb;
+    for (const ch of D0.chests) {
+      const s = solid(ch.x, ch.z, 0.3, (c) => c.tag === 'prop' && Math.hypot(c.x - ch.x, c.z - ch.z) < 0.2);
+      if (s) add('a deep chest inside something solid', { id: ch.id, ...s });
+    }
+    for (const C of D0.cells) {
+      const fy = F.dunFloorAt(C.x, C.z);
+      if (Math.abs(fy - C.y) > 0.03) add('pitch off the floor', { i: C.i, hall: C.hall, y: r1(C.y), floor: r1(fy) });
+      const s = solid(C.x, C.z, 0.2, null, (c) => c.tag === 'prop' || c.tag === 'brazier');
+      if (s) add('pitch under a pyre or brazier', { i: C.i, hall: C.hall, ...s });
+    }
+    out.n.pitch = D0.cells.length;
+    for (const S of D0.slabs) {
+      if (S.st !== 0) continue;
+      for (let u = S.u0; u < S.u1; u++) for (let v = S.v0; v < S.v1; v++) { const k = F.dunCellAt(F.dunWX(u + 0.5), F.dunWZ(v + 0.5)); if (k < 0 || H.DUN.cell[k] !== 4) { add('a standing slab with no ground', { i: S.i, u, v }); break; } }
+    }
+    for (const t of H.DUN.torches || []) {
+      if (t.x < 1000 || !Dp.late3Room(t.x, t.z)) continue;
+      // the flame stands over open ground in its hall (a sconce on the wall's face, its fire out in the room)
+      const k = F.dunCellAt(t.x, t.z);
+      if (k < 0 || !H.DUN.cell[k]) add('a deep torch in the rock', { u: r1(F.dunU(t.x)), v: r1(F.dunV(t.z)) });
+    }
+    return out;
+  };
+  const check0 = LK.check;
+  LK.check = function () {
+    const o = check0.call(this), d = this.checkDeep();
+    for (const k in d.counts) { o.counts['deep: ' + k] = d.counts[k]; if (d.examples[k]) o.examples['deep: ' + k] = d.examples[k]; }
+    o.n.deep = d.n;
+    return o;
+  };
+})();
