@@ -742,6 +742,7 @@ function late2RisenMark(P) {
   const R = REALMS[P.faction];
   const list = CAMPS.filter((c) => late2Risen(c)).map((c) => getEnt(c.eliteId)).filter((e) => e && e.alive);
   const own = list.filter((e) => CAMPS[e.camp] && CAMPS[e.camp].realm === P.faction);
+  const hl = late4HostLead(P); if (hl) own.push(hl); // [late4] the roaming host of your homeland, where it walks (10o_late4.js)
   const e = guideNearest(own.length ? own : list, P);
   return e ? guideTown(P, R, e.x, e.z, capFirst(e.name)) : null;
 }

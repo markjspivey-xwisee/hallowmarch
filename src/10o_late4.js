@@ -499,6 +499,12 @@ function late4MapMarks(ctx, S, MK) {
     MK.push([x, y, r * 1.2]);
   }
 }
+// the leader of the host walking in your homeland, alive (late2RisenMark: the gem may mark it)
+function late4HostLead(P) {
+  if (!P || !late4HostOn()) return null;
+  const H = LATE4.hosts.find((h) => h.up && h.D.realm === P.faction), e = H ? getEnt(H.lead) : null;
+  return e && e.alive ? e : null;
+}
 // the nearest host walking in your homeland (the gem's place for the late levels: late2RisenMark)
 function late4HostMark(P) {
   if (!late4HostOn() || !P) return null;
@@ -746,6 +752,17 @@ LOADING_TIPS.push(
   'From level 40 a host of the risen walks the borderlands of each homeland, from camp to camp. Its leader is a deed to bring down.',
 );
 CHRON_EXTRA.goals.push(() => (GAME.prog && GAME.prog.level >= 30 ? `<div class="gd-tier"><h4>The roaming risen</h4>${late4HostsHTML()}</div>` : ''));
+// the name on your frame (updateHUD, 10_ui.js): on a touch screen a long one would be cut short at the deed ("Aldric,
+// Marshal of Lo..."): the deed's name is kept whole and your own shortened before it ("Ald., Marshal of Logres"); the
+// Character page says it whole
+const LATE4_FRAME_CH = 22; // (what an upright phone's frame shows of a name at its size)
+function late4FrameName(P) {
+  const full = late2Named(P), N = late2Worn();
+  if (!N || !IS_TOUCH || full.length <= LATE4_FRAME_CH) return full;
+  const t = late2T(N), sep = N.sep || ' ', room = LATE4_FRAME_CH - t.length - sep.length - 1;
+  if (room < 2) return t; // (a deed's name too long for both: the deed alone)
+  return (P.name.length <= room ? P.name : P.name.slice(0, room).trimEnd() + '.') + sep + t;
+}
 // the aims past the path (late2Aims, 10l_late.js): a host walking in your homeland
 function late4Aims() {
   const P = GAME.player, H = P ? LATE4.hosts.find((h) => h.up && h.D.realm === P.faction) : null;
@@ -780,4 +797,4 @@ registerSavePart('char', 'late4', {
   load(o) { L3V.std.tear = o && typeof o === 'object' ? late4N(o.t, 0, 100, 0) / 100 : 0; late4StdFlag(); },
   key: (o) => (o ? [Math.round(o.t / 10)] : null),
 });
-queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, late4FrameName, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });

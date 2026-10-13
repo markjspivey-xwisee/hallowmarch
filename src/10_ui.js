@@ -152,7 +152,7 @@ function updateHUD(dt) {
   const P = GAME.player, prog = GAME.prog;
   UI.frame++;
   // player frame
-  setT($('pf-name'), late2Named(P)); // [late2] with the name it wears (10l_late.js)
+  setT($('pf-name'), late4FrameName(P)); // [late2] with the name it wears (10l_late.js); [late4] on a phone a long one keeps the deed whole and shortens your own (10o_late4.js)
   setT($('pf-lv'), `Lv ${prog.level}`);
   setT($('pf-sub'), `${REALMS[P.faction].name} ${CLASSES[P.cls].name} · RR ${realmRank(prog.rp)} ${RANK_TITLES[realmRank(prog.rp) - 1]}`);
   setW($('pf-hp'), P.hp / P.maxHp); setW($('pf-hpl'), P.hp / P.maxHp);
