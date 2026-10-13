@@ -180,7 +180,10 @@ async def main():
         if want('hud'):
             r = await ev(page, """(() => { const H = L5.H, Hd = H.hud, L = Hd.HUDL, L5h = Hd.HUDL5; L5.lay(); for (let i = 0; i < 12; i++) H.frame(1/30);
               const p0 = L5h.passes, w0 = L5h.whys.length; for (let i = 0; i < 60; i++) H.frame(1/20); return { ro: !!L5h.ro, still: L5h.passes - p0, why: L5h.whys.slice(w0), key: L.key }; })()""", 'hud passes')
-            check(r['ro'] and r['key'] == '' and r['still'] <= 3, f"the layout pass reads the panels only when one has changed (a ResizeObserver, a MutationObserver): {r['still']} passes in 3 s, for {r['why']} (it read every panel's size four times a second, and laid them out once a second besides)")
+            # [v17] a pass asked for by a toast or a note laid out as it shows is a change too (the war's news came oftener once
+            # war3's columns and pacts were cried: four toasts in the 3 s once): what must not come back is the pass on a timer
+            unasked = [w for w in r['why'] if w != 'asked']
+            check(r['ro'] and r['key'] == '' and 'timer' not in r['why'] and len(unasked) <= 3, f"the layout pass reads the panels only when one has changed (a ResizeObserver, a MutationObserver): {r['still']} passes in 3 s, for {r['why']} (it read every panel's size four times a second, and laid them out once a second besides)")
             r = await ev(page, """(() => { const H = L5.H, Hd = H.hud, L5h = Hd.HUDL5;
               // the rule itself: a panel that loses a line keeps its taller place until HUD_HOLD_T has gone by
               const a = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 80 }), b = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); const hold = L5h.hold.get('#war'); hold.until = -1; const c = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); L5h.hold.delete('#war');

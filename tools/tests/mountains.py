@@ -172,8 +172,10 @@ GROUND = r"""((pre) => { const W = __hm.fn.W, HN = 513, N2 = HN * HN, Ht = __hm.
   // ([keeps] not those of any keep either: every keep's towers are hollow since version 11, 04l_towers.js)
   const C = __hm.build.COLL, keeps = __hm.REALMS.flatMap((R) => R.keepSites), inKeep = (c) => keeps.some((S) => Math.hypot(c.x - S.x, c.z - S.z) < 26);
   let cs = 0, nb = 0, nc = 0;
-  for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c)) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
-  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
+  // ([v17] nor the Barrow's, off the map at x > 1000: the Deep Barrow was dug under it in version 17, 10m_deep.js; the base's
+  // sum was taken again on the version 10 build with the same rule: the land's own colliders are as they were)
+  for (const c of C.boxes) { if (c.tag === 'tree' || inKeep(c) || c.x > 1000) continue; nb++; cs = (cs * 131 + Math.round((c.x * 3 + c.z * 7 + c.hx * 11 + c.hz * 13) * 10)) % 1000000007; }
+  for (const c of C.circles) { if (c.tag === 'tree' || inKeep(c) || c.jetty || c.outcrop || c.x > 1000) continue; // [v10] not the jetties' posts (07e_boats.js); [heights] nor the outcrops' (03d_heights.js)
     const p = c.lookWas || c; // [look] a camp's tent turned off a tree counts where it stood (05d_fire.js)
     nc++; cs = (cs * 131 + Math.round((p.x * 3 + p.z * 7 + c.r * 11) * 10)) % 1000000007; }
   const coll = { boxes: nb, circles: nc, sum: cs };

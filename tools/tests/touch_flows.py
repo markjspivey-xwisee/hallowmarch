@@ -207,7 +207,7 @@ async def main():
             # [late3] the standard of your name struck down, raised again by a tap on Use beside it (10n_veteran.js)
             r = await page.evaluate("""(() => { const H = TF.H, F = H.fn, L = H.late, V = H.vet3, P = TF.P();
               F.setIndoor(false); H.GAME.prog.level = 50; L.LATE2.d.king = Math.max(1, L.LATE2.d.king); L.late2CheckNames(true); if (!L.LATE2.worn) L.late2Wear('kingsbane');
-              const t = H.REALMS[P.faction].town; H.INV.gold = Math.max(H.INV.gold, 5000); if (!L.LATE2.std.made) L.late2StdMake();
+              const t = H.REALMS[P.faction].town; H.INV.gold = Math.max(H.INV.gold, 5000); window.__tfStdWas = L.LATE2.std.made; if (!L.LATE2.std.made) L.late2StdMake();
               let ok = !!L.LATE2.std.at; for (let rr = 40; rr < 120 && !ok; rr += 6) for (let k = 0; k < 12 && !ok; k++) { const x = t.x + Math.cos(k * 0.52) * rr, z = t.z + Math.sin(k * 0.52) * rr; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); H.simulate(0.1); ok = L.late2StdPlant(); }
               const at = L.LATE2.std.at; if (!at) return { label: null };
               V.late3StdFall(null); H.simulate(1.2);
@@ -215,7 +215,9 @@ async def main():
             ok = await tap(page, '#t-use')
             s3 = await page.evaluate("(() => { __hm.simulate(1.5); const V = __hm.vet3; return { fallen: V.L3V.std.fallen, k: +V.L3V.std.k.toFixed(2) }; })()")
             check(ok and r['label'] == 'Raise your standard' and not s3['fallen'], f"deep: a standard struck down is raised by a tap on Use beside it ({r['label']}: {s3})")
-            await page.evaluate("(() => { const L = __hm.late; if (L.LATE2.std.at) L.late2StdTake(); return 0; })()")
+            # [v17] taken up and unmade again as it was found (the deeds flow after it has the standard made by a tap: run in
+            # one page with this one, it found the standard made already and no button to make it)
+            await page.evaluate("(() => { const L = __hm.late; if (L.LATE2.std.at) L.late2StdTake(); if (!window.__tfStdWas) L.LATE2.std.made = false; return 0; })()")
 
         if want('housefire'):
             # [war2] a house afire in the town: beside its walls a tap on Use beats the flames down, and a few more put
