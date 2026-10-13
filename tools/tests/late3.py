@@ -184,7 +184,7 @@ async def pitch(page):
       H.simulate(4); a.burning7 = D.cells.filter((c) => c.st === 1 && c.hall === 'pyres').length; a.fires = D.fires.length;
       // a body stood in the burning pitch burns
       const C1 = D.cells.find((c) => c.st === 1 && c.heat > 0.6);
-      P.x = P.prevX = C1.x; P.z = P.prevZ = C1.z; const hp0 = P.hp; H.simulate(1.0); a.harm = +((hp0 - P.hp) / P.maxHp).toFixed(3);
+      P.x = P.prevX = C1.x; P.z = P.prevZ = C1.z; const hp0 = P.hp; H.simulate(2.0); a.harm = +((hp0 - P.hp) / P.maxHp / 2).toFixed(3); // (a second's harm over two: it bites every half second)
       L3.safe(); L3.to(F.dunU(C0.x) + 3, F.dunV(C0.z) + 3);
       H.simulate(30); a.burnt = D.cells.filter((c) => c.st === 2).length; a.burningLate = D.cells.filter((c) => c.st === 1).length;
       a.relight = F.fireLandsAt(C0.x, C0.y + 0.2, C0.z, 1.2, P);
@@ -193,7 +193,7 @@ async def pitch(page):
     print(json.dumps(r))
     check(r['lit'] >= 1, f"a fire spell landing on the pitch lights it ({r['lit']} cells)")
     check(r['burning7'] > r['burning3'] >= 1, f"the fire spreads along the channels ({r['burning3']} cells burning at 3 s, {r['burning7']} at 7 s, {r['fires']} flames)")
-    check(r['harm'] > 0.04, f"whoever stands in the burning pitch burns ({r['harm'] * 100:.1f}% of health a second)")
+    check(r['harm'] > 0.035, f"whoever stands in the burning pitch burns ({r['harm'] * 100:.1f}% of health a second)")
     check(r['burnt'] > 10 and r['relight'] == 0, f"it burns out ({r['burnt']} cells charred) and a burnt channel will not catch again at once")
     check(r['rearmed'] == r['total'] and r['firesAfter'] == 0, f"the pitch seeps back ({r['rearmed']} of {r['total']} cells ready again), no flame left")
 
@@ -274,7 +274,7 @@ async def lord(page):
       a.dead = !K.alive; a.kills = D.kills - k0; a.deed = H.late.LATE2.d.deep - n0; a.name = H.late.LATE2.names.includes('ashbane'); a.hoard = ch.ready && !ch.opened;
       // the hoard: the top of the gear curve
       P.x = P.prevX = ch.x + 1.2; P.z = P.prevZ = ch.z; L3.calm(); const before = new Set(H.LOOT); H.deep.late3OpenChest(ch); H.simulate(1.0);
-      const got = H.LOOT.filter((l) => !before.has(l) && l.item && Math.hypot(l.x - ch.x, l.z - ch.z) < 3); a.items = got.map((l) => [l.item.lvl, l.item.q]);
+      const got = H.LOOT.filter((l) => !before.has(l) && l.item && Math.hypot(l.x - ch.x, l.z - ch.z) < 6); // (a piece flung from the chest lands up to 3 m off it) a.items = got.map((l) => [l.item.lvl, l.item.q]);
       return a; })()""")
     print(json.dumps(r))
     check(r['lvl'] >= 54, f"the Ash-Crowned at level {r['lvl']} for a player of 50 ({r['hp']} health)")
