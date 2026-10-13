@@ -382,6 +382,7 @@ function drawMinimap() {
   if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   guideMinimap(ctx, toM, S, dpr); // [guide] where your path's next step is (10e_guide.js)
+  netMinimap(ctx, toM, S, dpr); // [net] the others in the March (14o_netui.js)
   const t = getEnt(P.target);
   if (t) { const [x, y] = toM(t.x, t.z); ctx.strokeStyle = '#ffe28a'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(x, y, 5 * dpr, 0, TAU); ctx.stroke(); }
   // view cone and player arrow
@@ -481,6 +482,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   const b = GAME.prog.bounty;
   if (b && !b.done) { const c = CAMPS[b.camp]; const [x, y] = w2m(c.x, c.z, S); ctx.strokeStyle = '#ffd36a'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(x, y, S * 0.02, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
   guideMapMark(ctx, S); // [guide] your path's next step (10e_guide.js)
+  netWorldMap(ctx, S); // [net] your party and the others (14o_netui.js)
   const [px, py] = w2m(P.x, P.z, S);
   ctx.save(); ctx.translate(px, py); ctx.rotate(-P.yaw + Math.PI);
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;

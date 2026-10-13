@@ -342,6 +342,7 @@ function relicTakeable(rel, e) {
 }
 
 function captureKeep(K, realm, killer) {
+  if (netCaptureHeld(K, realm)) return; // [net] another page keeps the shared war: a capture here is told to it (14n_net.js)
   const old = K.realm, gateDown = !K.door.alive; // [war3]
   K.realm = realm;
   K.lastOwnerChange = GAME.t;
@@ -1050,6 +1051,7 @@ function updateNPCs(dt0) {
   for (let i = ENT.length - 1; i >= 0; i--) {
     const e = ENT[i];
     if (e.removed) continue;
+    if (e.role === 'remote') { netRemoteStep(e, dt0); continue; } // [net] another page's player: moved by what its page says (14n_net.js)
     let dt = dt0; // [phones] townsfolk and kept beasts far from the player live at half rate (below)
     if (!e.alive) {
       if (GAME.t > e.removeAt && e.kind !== 'door') removeEnt(e);

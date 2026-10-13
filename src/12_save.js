@@ -5,6 +5,7 @@ const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer:
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend() {
+  try { const srv = await netServerSaveRef(); if (srv) { SAVE.server = true; return srv; } } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
     if (!C || typeof C.use !== 'function') return null;

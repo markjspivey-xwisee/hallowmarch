@@ -68,6 +68,7 @@ function nearestWhere(x, z, r, pred) {
 
 function isEnemy(a, b) {
   if (!a || !b || a === b) return false;
+  if (a.role === 'remote' || b.role === 'remote') return netIsEnemy(a, b); // [net] another page's player: a foe only to you, of another realm (14n_net.js)
   if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return !!((a.game && b.role === 'player') || (b.game && a.role === 'player')); // [survival] the player hunts deer
   if (a.flying || b.flying) return false;
   if (W3.pact && a.role !== 'bot' && b.role !== 'bot' && war4Allied(a.faction, b.faction)) return false; // [war4] a pact keeps faith in the field (08l_war4.js); [v18] not between the measures' bots (balance9's duels run beside the war)
@@ -142,6 +143,7 @@ function setupStats(e, keepRatio = false) {
 /* buffs                                                               */
 /* ------------------------------------------------------------------ */
 function addBuff(e, kind, value, dur, src = null, extra = null) {
+  if (e.role === 'remote') return netOutBuff(e, kind, value, dur, src, extra); // [net] told to its own page, which lays it (14n_net.js)
   const now = GAME.t;
   if (kind === 'stun' || kind === 'snare' || kind === 'root') { const g = giftBuffAdjust(e, kind, value, dur); value = g.value; dur = g.dur; } // [gifts] Unbroken, Cold-blooded (06c_gifts.js)
   if ((kind === 'stun' || kind === 'snare' || kind === 'root') && src !== 'frozen') { dur = ccAdjust(e, kind, dur, src, !!(extra && extra.ccAll)); if (!(dur > 0)) return _ccImmune; } // [balance] diminishing returns on control for players and champions (07c_balance.js)
@@ -213,6 +215,7 @@ function computeDamage(src, dst, mult) {
 }
 function dealDamage(src, dst, amount, opts = {}) {
   if (!dst || !dst.alive || !(amount > 0)) return 0;
+  if (dst.role === 'remote') return netOutHit(src, dst, amount, opts); // [net] a blow on another page's player is settled by that page (14n_net.js)
   if (dst.kind === 'door') {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
@@ -258,6 +261,7 @@ function dealDamage(src, dst, amount, opts = {}) {
 }
 function healEnt(src, dst, amount, quiet = false) {
   if (!dst || !dst.alive || dst.kind === 'door') return 0;
+  if (dst.role === 'remote') return netOutHeal(src, dst, amount); // [net] (14n_net.js)
   const before = dst.hp;
   amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
@@ -274,7 +278,7 @@ function healEnt(src, dst, amount, quiet = false) {
   return h;
 }
 function killEnt(e, killer) {
-  if (!e.alive) return;
+  if (!e.alive || e.role === 'remote') return; // [net] another page's player dies on its own page (14n_net.js)
   e.alive = false;
   e.hp = 0;
   e.deadAt = GAME.t;
@@ -344,6 +348,7 @@ function updateAnim(e, dt) {
   footLockStep(e, dt); // [polish] each planted foot keeps its place on the ground (13s_footlock.js)
 }
 function animActValue(e) {
+  if (e.role === 'remote') return e.netAct || 0; // [net] what its own page draws it doing (14n_net.js)
   const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
   const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
   const m5 = motion5ActValue(e); if (m5) return m5; // [motion5] a boat shoved off: the gunwale's height with the progress (13y_motion5.js)
@@ -909,6 +914,7 @@ function spawnProjectile(src, target, kind, payload, point = null, visualOnly = 
     dx: 0, dy: 0, dz: 1,
   });
   if (!visualOnly && target) sndOnLoose(src, target, kind, PROJ_SPEED[kind] || 24); // [audio2] a foe's shot at you is heard coming (11c_sound.js)
+  if (src === GAME.player) netOnShot(src, target, kind, point, from); // [net] shown on the others' pages (14n_net.js)
 }
 function updateProjectiles(dt) {
   for (let i = PROJ.length - 1; i >= 0; i--) {

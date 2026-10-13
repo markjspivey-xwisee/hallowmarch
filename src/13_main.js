@@ -386,6 +386,7 @@ function simStep(dt) {
   updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
   updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
+  netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
   renderer.info.reset();
@@ -411,7 +412,7 @@ function tick(dt) {
     let rest = Math.min(dt, 0.1);
     if (GAME.hitStop > 0) { GAME.hitStop -= dt; rest *= 0.06; }
     while (rest > 1e-4) { const s = Math.min(rest, 0.05); simStep(s); rest -= s; }
-  }
+  } else netPump(dt); // [net] the menu pauses your world, not the room (14n_net.js)
   // camera
   updateCamera(dt);
   camera.updateMatrixWorld();
@@ -483,6 +484,7 @@ function tick(dt) {
   if (GAME.started && GAME.player) updateHUD(dt);
   if (GAME.started && GAME.player) updateLore(dt);
   if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
+  netUiFrame(); // [net] the Players button, the party's frames, speech over heads (14o_netui.js)
   hudLayout(dt); // [phones] keep the panels apart on every screen (10p_hud.js)
   updateAudio(dt);
   adaptQuality(dt);

@@ -892,6 +892,7 @@ function looseArrow(e, k, target, wobble = 0) {
   const A = { ox: sx, oy: sy, oz: sz, x: sx, y: sy, z: sz, px: sx, py: sy, pz: sz, vx: ux * Math.cos(th) * speed, vy: Math.sin(th) * speed, vz: uz * Math.cos(th) * speed, src: e.id, faction: e.faction, k, type, age: 0, tgt: target ? target.id : null, // [walls] ox, oy, oz: where it was loosed (07g_walls.js)
     mult: (0.55 + 1.05 * Math.pow(k, 1.2)) * archerHighK(e), crit: k >= 0.98 ? 0.2 : 0, wind: archerWindK(e) }; // [balance5] noWind: the wind moved a Thule arrow not at all [balance7] the realm's ways on their own ground (07c_balance7.js)
   CLS.arrows.push(A);
+  netOnArrow(A); // [net] shown on the others' pages (14n_net.js)
   CLS.stats.drawn++;
   setAct(e, 2, 0.55, 0.8);
   faceToward(e, tx, tz);
@@ -928,6 +929,7 @@ function stepArrows(dt) {
     });
     if (hit) {
       CLS.arrows.splice(i, 1);
+      if (A.vis) { FX.sparks(A.x, A.y, A.z); continue; } // [net] another page's arrow, shown: its blow comes from its page (14n_net.js)
       arrowHits(A, hit, src);
       continue;
     }
@@ -940,7 +942,7 @@ function stepArrows(dt) {
       CLS.arrows.splice(i, 1);
       const x = blocked ? A.px : A.x, z = blocked ? A.pz : A.z, y = blocked ? A.py : gy;
       const inWater = !blocked && (A.y <= surf || isWaterAt(x, z)), wy = surf > -Infinity ? surf : WATER_Y;
-      if (A.type === 'fire') { if (!inWater) fireLandsAt(x, y, z, 1, A.src); else steamPuff(x, wy + 0.1, z, 3); } // [depth] the archer
+      if (A.type === 'fire' && !A.vis) { if (!inWater) fireLandsAt(x, y, z, 1, A.src); else steamPuff(x, wy + 0.1, z, 3); } // [depth] the archer
       if (inWater) { splashAt(x, z, 0.3, { up: 1.2 }); continue; }
       FX.dust(x, y, z, 2);
       // it stays where it fell, and a special arrow can be picked up again

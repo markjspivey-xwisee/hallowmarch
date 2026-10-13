@@ -1,0 +1,11 @@
+{
+  "name": "hallowmarch-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Hallowmarch's own server (rung 2): accounts, saves, the shared world, a presence relay with interest management and checks",
+  "type": "module",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ws": "^8.18.0" }
+}
