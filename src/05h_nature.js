@@ -882,6 +882,7 @@ function natProtected(x, z) {
 }
 // rebuild the terrain chunk vertices, normals and the height texture over grid cells [i0..i1] x [j0..j1]
 function natTerrainUpdate(i0, j0, i1, j1) {
+  A2FL.ground++; // [anim2] the ground moved (a crater, one softening or undone): planted feet read their floor again (13s_footlock.js)
   i0 = Math.max(0, i0 - 1); j0 = Math.max(0, j0 - 1); i1 = Math.min(HN - 1, i1 + 1); j1 = Math.min(HN - 1, j1 + 1);
   const CELLS = 64, n = CELLS + 1, H = W.H;
   const seen = new Set();

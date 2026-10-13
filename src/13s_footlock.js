@@ -33,6 +33,9 @@ const FL_GIVE = 0.004, FL_HOP_T = 0.16, FL_HOP_H = 0.07, FL_MARGIN = 0.015, FL_H
 // cm at once); where a swinging foot will come down is kept in the world from its last frames in the air (FL_LATCH_W),
 // and a landing the leg cannot reach is taken in the air instead (FL_AIR_H over the ground, then a quick step)
 const FL_YAW = 0.9, FL_HOP_POW = 0.35, FL_HOP_LIFT = 0.1, FL_LATCH_W = 0.85, FL_AIR_H = 0.055;
+// [anim2] a person standing still with a foot farther than FL_SETTLE m from its rest place (FL_SETTLE_T s after it stopped)
+// brings it in by a quick step
+const FL_SETTLE = 0.3, FL_SETTLE_T = 0.06;
 const flHopH = (hop) => FL_HOP_H * Math.pow(Math.max(Math.sin(Math.PI * clamp(hop, 0, 1)), 0), FL_HOP_POW);
 const flNear = (e, r) => { const dx = e.x - camera.position.x, dz = e.z - camera.position.z; return dx * dx + dz * dz < r * r; };
 const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -90,6 +93,7 @@ function footLockStep(e, dt) {
   else e._flH = null;
   if (!onFeet || e.mount || (!human && !(S && S.front)) || e.role === 'bird') { e._fl = null; return; }
   const still = e.anim.amt < 0.02 && !(e.anim.turn > 0.05);
+  if (!still) e._a2go = GAME.t; // [anim2] (when it last moved: a stride it stopped in is settled a moment after)
   footLockFeet(e, e._fl || (e._fl = []), human ? 2 : 4, human ? (f) => flHumanGait(e, f) : (f) => flBeastGait(S, e.anim.phase, e.anim.amt, e.scale || 1, f), still, dt, vx, vz);
 }
 // the floor under a foot at (x, z): a stair's tread, a deck, the ground (a drop beyond a step, off a wall walk's edge or a
@@ -111,7 +115,7 @@ function flFloor(e, x, z, yRef) {
   return best > -Infinity ? best : y;
 }
 const FL_SOLE = [-0.05, 0.05, 0.15]; // (from the ankle: the heel, the middle of the sole, the toes)
-const A2FL = { replant: 0, clamp: 0 }; // [anim2] (counts: feet planted afresh at draw time, rows held to the legs' reach)
+const A2FL = { replant: 0, clamp: 0, settle: 0, ground: 0 }; // (ground: bumped whenever the ground's heights change, 05h_nature.js) // [anim2] (counts: feet planted afresh at draw time, rows held to the legs' reach)
 // floorAt, but on a castle's flight of steps the tread over that point: a flight is one ramp from its foot to its landing
 // (castleFlight, 04g_castles.js), which joins the treads' back edges, so a foot set on the ramp stood up to a riser
 // below the stone it was drawn on (the treads: n of them, each as high as the ramp at its upper end)
@@ -208,6 +212,13 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
           // next step: it steps (a cut at a sprint or a hard shove dragged the foot along the ground 10 cm and more)
           // ([motion3] from where it is drawn: brought in to FL_MAX first, it jumped over the ground, 10 cm in a sharp cut)
           o.hop = 1e-4; o.hx = clamp(cx, loH, hiH); o.hz = cz; cx = o.hx; cz = o.hz; o.hwx = o.wx; o.hwz = o.wz; // (and the place it leaves, on the ground: footLockSlot)
+        } else if (still && o.human && m > FL_SETTLE * (e.scale || 1) && GAME.t - (e._a2go ?? 0) > FL_SETTLE_T && !L.some((q) => q && q !== o && (q.hop > 0 || (q.down && !q.fresh && Math.hypot(q.cx, q.cz) > m)))) {
+          // [anim2] standing still in a stride the straight legs cannot stand in: a body stopped dead mid-stride kept its
+          // feet where they came down (one 0.62 m ahead of the hip and the other 0.3 behind), and the farther one hung 26
+          // cm in the air for as long as it stood. Once it has stood a moment it brings that foot in by a quick step, one
+          // foot at a time, the farther first (the other waits for it to land), as a person does who stops
+          o.hop = 1e-4; o.hx = clamp(cx, loH, hiH); o.hz = cz; cx = o.hx; cz = o.hz; o.hwx = o.wx; o.hwz = o.wz;
+          A2FL.settle++;
         }
         o.cx = cx; o.cz = cz;
       }
@@ -287,13 +298,16 @@ function footLockSlot(e, horse) {
       if (refuse) {
         // [motion4] not set down there (the leg would be drawn short of it, over the ground): a quick step from the air
         o.hop = FL_HOP_LIFT; o.hwx = o.wx = o.lwx; o.hwz = o.wz = o.lwz; o.hx = lx - o.g[3]; o.hz = lz - o.along;
-        o.fresh = false; o.land = false; o.yw = yw; o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
+        o.fresh = false; o.land = false; o.yw = yw; o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; o.hEp = A2FL.ground;
       } else {
         o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.fresh = false; o.land = false; o.yw = yw; // ([motion3] and its heading)
         o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
       }
     }
-    if (o.down && o.h == null) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; }
+    // [anim2] and again when the ground has moved under it since (a crater pressed in, softening or undone): a foot planted
+    // before a meteor fell kept the floor it came down on while the body settled 0.8 m lower into the bowl, its legs drawn
+    // up to that height (both feet 0.8 m over the ground in the duels at 50, for as long as it stood)
+    if (o.down && (o.h == null || (o.hEp !== A2FL.ground && !(o.hop > 0)))) { o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; o.hEp = A2FL.ground; }
     // [anim2] a planted foot (or one taking a quick step) far from where the gait puts it: the body was set down somewhere
     // new between two steps (a journey, a release, a portal, the world paused under a menu or the prologue): it is planted
     // afresh where the gait has it. footLockFeet does the same a step later, but the draw-time lift below began a quick
@@ -305,7 +319,7 @@ function footLockSlot(e, horse) {
         const lx = o.g[3] + o.tx, lz = o.along + o.tz;
         o.hop = 0; o.fresh = false; o.land = false; o.cx = o.tx; o.cz = o.tz; o.hwx = null;
         o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.yw = e.yaw; o.ywL = null;
-        o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
+        o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; o.hEp = A2FL.ground;
         A2FL.replant++;
       }
     }

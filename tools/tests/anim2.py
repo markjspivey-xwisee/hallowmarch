@@ -51,6 +51,61 @@ window.A2T = {
     }
     return best ? { x: best.x, z: best.z, n: bn } : null;
   },
+  // an open stretch near (cx, cz): motion.py's lane (no prop on the bodies' lines)
+  lane(cx, cz, L, n) {
+    const F = this.F, CV = this.H.dbg.COVER, clear = (x, z) => { const i = Math.floor(x + 512), j = Math.floor(z + 512); return !CV || i < 0 || j < 0 || i >= 1024 || j >= 1024 || CV.data[j * 1024 + i] === 0; };
+    for (let r = 0; r < 160; r += 6) for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, x0 = cx + Math.sin(a) * r, z0 = cz + Math.cos(a) * r;
+      for (const yaw of [0, 0.8, 1.6, 2.4]) {
+        const ux = Math.sin(yaw), uz = Math.cos(yaw), sx = uz, sz = -ux;
+        let ok = true, hmin = 1e9, hmax = -1e9;
+        for (let i = 0; i < n && ok; i++) for (let j = -2; j <= L + 2 && ok; j += 0.75) for (const o of [-1, 0, 1]) { const x = x0 + ux * (j - L / 2) + sx * ((i - (n - 1) / 2) * 3 + o), z = z0 + uz * (j - L / 2) + sz * ((i - (n - 1) / 2) * 3 + o); if (!clear(x, z) || !F.isWalkable(x, z) || __hm.water.waterAt(x, z)) ok = false; else { const h = F.heightAt(x, z); hmin = Math.min(hmin, h); hmax = Math.max(hmax, h); } }
+        if (ok && hmax - hmin < 0.6) return { x: x0, z: z0, ux, uz, sx, sz, L };
+      }
+    }
+    return null;
+  },
+  made: [],
+  clear() { for (const e of this.made) { if (e.mount) e.mount = null; this.F.removeEnt(e); } this.made = []; },
+  person(x, z, yaw, cls = 'warrior', realm = 0) { const e = this.F.spawnRealmUnit(realm, cls, 20, 'test', x, z); e.yaw = yaw; e.prevX = e.x; e.prevZ = e.z; e.testMo = true; this.made.push(e); return e; },
+  // people walking or running side by side, each stopping dead at its own point of the stride, then standing: the search
+  // looks at them every frame (a raised foot should come down as the gait settles)
+  stops(v, n, dt, tag) {
+    const P = this.H.GAME.player, Ln = this.lane(P.x + 40, P.z + 40, v * 3 + 6, n);
+    if (!Ln) return { err: 'no lane' };
+    const es = [];
+    for (let i = 0; i < n; i++) { const off = (i - (n - 1) / 2) * 3; es.push(this.person(Ln.x + Ln.sx * off - Ln.ux * v * 1.5, Ln.z + Ln.sz * off - Ln.uz * v * 1.5, Math.atan2(Ln.ux, Ln.uz))); }
+    this.over(Ln.x, Ln.z, 10, 10);
+    const T = Math.round(3.4 / dt);
+    for (let s = 0; s < T; s++) {
+      const t = s * dt;
+      es.forEach((e, i) => { const tStop = 1.2 + i * (0.6 / n); const k = t < tStop ? Math.min(1, t / 0.35) : 0; e.x += Ln.ux * v * k * dt; e.z += Ln.uz * v * k * dt; e.yaw = Math.atan2(Ln.ux, Ln.uz); });
+      this.A.a2Step(dt, { tag });
+    }
+    this.clear();
+    return 0;
+  },
+  // duels of every pair of callings, skilled or simple, side by side (6 m apart within a ring), the search looking at
+  // them every frame; each pair made again as it ends
+  duels(lvl, kind, sec, dt, tag) {
+    const H = this.H, F = this.F, B = H.bal, P = H.GAME.player, CL = ['warrior', 'archer', 'mage', 'priest'], pairs = [];
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) pairs.push([CL[i], CL[j]]);
+    const Ln = this.lane(P.x + 60, P.z + 60, 30, 3);
+    if (!Ln) return { err: 'no lane' };
+    const unit = (realm, cls, x, z) => { const e = F.spawnRealmUnit(realm, cls, lvl, 'bot', x, z); e.tweak = { hp: 1.1, dmg: 1.25 }; e.gear = B.fairGear(cls, lvl).tot; B.botMake(e, kind, { x, z, r: 9 }); F.setupStats(e); e.hp = e.maxHp; e.power = e.maxPower; e.a2duel = true; this.made.push(e); return e; };
+    const spots = pairs.map((pr, i) => ({ x: Ln.x + Ln.sx * ((i % 3) - 1) * 11 + Ln.ux * (Math.floor(i / 3) - 0.5) * 14, z: Ln.z + Ln.sz * ((i % 3) - 1) * 11 + Ln.uz * (Math.floor(i / 3) - 0.5) * 14 }));
+    const A = pairs.map(() => null);
+    const make = (i) => { const s = spots[i], [a, b] = pairs[i]; const ua = unit(0, a, s.x - 4, s.z), ub = unit(1, b, s.x + 4, s.z); ua.bot.home = ub.bot.home = { x: s.x, z: s.z, r: 9 }; ua.target = ub.id; ub.target = ua.id; A[i] = { ua, ub, t0: H.GAME.t }; };
+    pairs.forEach((_, i) => make(i));
+    this.over(Ln.x, Ln.z, 22, 18);
+    let duels = pairs.length;
+    for (let s = 0; s < Math.round(sec / dt); s++) {
+      this.A.a2Step(dt, { tag, r: 70 });
+      if (s % 30 === 0) A.forEach((D, i) => { if (!D.ua.alive || !D.ub.alive || H.GAME.t - D.t0 > 40) { for (const e of [D.ua, D.ub]) { if (e.alive) F.killEnt(e, null); } if (H.GAME.t - Math.max(D.ua.deadAt || 0, D.ub.deadAt || 0) > 2.5 || H.GAME.t - D.t0 > 42) { for (const e of [D.ua, D.ub]) { F.removeEnt(e); } make(i); duels++; } } });
+    }
+    this.clear();
+    return duels;
+  },
   // n frames of the search at dt, the camera following a place (a function giving x, z)
   run(n, dt, follow, tag) {
     for (let i = 0; i < n; i++) { if (follow && i % 15 === 0) { const f = follow(); if (f) this.over(f.x, f.z); } this.A.a2Step(dt, { tag }); }

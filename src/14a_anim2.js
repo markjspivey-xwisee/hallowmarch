@@ -84,7 +84,9 @@ function a2Parts(crowd, kind) {
   crowd._a2Parts = crowd._a2Parts || {};
   if (crowd._a2Parts[kind]) return crowd._a2Parts[kind];
   const P = motionParts(crowd, kind), A = crowd.geo.attributes, pos = A.position.array, bone = A.aBone.array, bit = A.aBit ? A.aBit.array : null, n = A.position.count;
-  const Q = { feet: P.feet.map((g) => g.slice(0, kind === 'human' ? 5 : 4)), body: [] };
+  // (one vertex for each rest place: the probe finds a vertex by its place, and two sharing one wrote to one slot)
+  const seen = new Set(), uniq = (ids) => ids.filter((i) => { const k = pos[i * 3].toFixed(5) + ',' + pos[i * 3 + 1].toFixed(5) + ',' + pos[i * 3 + 2].toFixed(5); if (seen.has(k)) return false; seen.add(k); return true; });
+  const Q = { feet: P.feet.map((g) => uniq(g).slice(0, kind === 'human' ? 5 : 4)), body: [] };
   if (kind === 'human') {
     // the skin's extremes bone by bone (up, down, ahead, behind, out to each side): where a body lying dead meets the floor
     const skin = (i) => (!bit || bit[i] < -0.5);
@@ -95,7 +97,7 @@ function a2Parts(crowd, kind) {
       for (const [ax, sg] of [[1, -1], [1, 1], [2, -1], [2, 1], [0, -1], [0, 1]]) {
         let best = ids[0];
         for (const i of ids) if (sg * pos[i * 3 + ax] > sg * pos[best * 3 + ax]) best = i;
-        if (!Q.body.includes(best)) Q.body.push(best);
+        if (!Q.body.includes(best) && uniq([best]).length) Q.body.push(best);
       }
     }
     Q.body = Q.body.slice(0, A2.W - 10);
@@ -110,7 +112,8 @@ function a2Floor(x, z, y) { const h = motionFloor(x, z, y); return y - h > 0.6 ?
 function a2LiftOf(e) {
   const sc = e.scale || 1, amt = clamp(e.anim.amt, 0, 2.2), vel = amt * 4.3 / Math.max(sc, 0.3), runK = _flSS(2.4, 4.4, vel), stepS = Math.min(humanStep(vel), humanStepCap(humanSlopeQ(e)));
   const turnK = e.anim.turn > 0.05 && e.anim.amt < 0.15 ? clamp(e.anim.turn, 0, 1) : 0;
-  return Math.max(lerp(0.1, 0.3, runK) * Math.min(1, stepS / 0.42) * _flSS(0, 0.04, amt), 0.075 * turnK) * sc;
+  // (a runner's heel kicks up close to its seat: the lowest of its sole 0.55 m up at 6 m/s is its stride, not a leg left up)
+  return (Math.max(lerp(0.1, 0.3, runK) * Math.min(1, stepS / 0.42) * _flSS(0, 0.04, amt), 0.075 * turnK) + 0.22 * runK) * sc;
 }
 // a body on its feet: alive, standing or walking on a floor (not in the air, a leap, on a ladder, falling, in the water,
 // in a saddle, a seat or a boat)

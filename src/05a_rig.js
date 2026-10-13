@@ -877,6 +877,12 @@ function humanVS(depth) {
     // 0.86 m set it 3 to 20 percent short, and a walker shoved aside slid as far); where the leg cannot reach that deep
     // (the foot far ahead or behind: legIK lifts the ankle, the heel rises), over the depth it does reach, else the foot
     // was drawn short of its place across as it came down and as it left, a centimetre
+    // [anim2] a planted foot the straight leg cannot reach (a body stopped dead mid-stride, its feet held where they came
+    // down; a stance the lock holds wider than the gait's): the hips sink as far as it needs (up to 0.22 m), rather than the
+    // leg straightening and lifting the foot (one stood 26 cm in the air); a foot held in the air where a stopping stride
+    // left it, as far as it is up already. Standing and stopping only
+    float a2nL = 0.845 - hL - fL.y - sqrt(max(0.7117 - fL.x * fL.x - lkL.x * lkL.x, 0.0)), a2nR = 0.845 - hR - fR.y - sqrt(max(0.7117 - fR.x * fR.x - lkR.x * lkR.x, 0.0));
+    gaitDrop = max(gaitDrop, clamp(max(a2nL, a2nR), 0.0, 0.22) * (1.0 - gk)); // (standing and stopping: a walker's own stance ends lift the heel, as they did)
     float vL = 0.845 - gaitDrop + gaitBob - hL - fL.y, vR = 0.845 - gaitDrop + gaitBob - hR - fR.y;
     float lxL = clamp(lkL.x, -0.25, 0.45), lxR = clamp(lkR.x, -0.45, 0.25), fzL = clamp(fL.x, -0.82, 0.82), fzR = clamp(fR.x, -0.82, 0.82);
     float rL = sqrt(max(0.7145 - fzL * fzL - lxL * lxL, 0.0144)), rR = sqrt(max(0.7145 - fzR * fzR - lxR * lxR, 0.0144)); // (legIK's reach, 0.8453 m, squared)
