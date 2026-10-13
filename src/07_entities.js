@@ -68,6 +68,7 @@ function nearestWhere(x, z, r, pred) {
 
 function isEnemy(a, b) {
   if (!a || !b || a === b) return false;
+  if (a.capHide || b.capHide) return false; // [capture] the player out of the frame is no one's foe (14_capture.js)
   if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return !!((a.game && b.role === 'player') || (b.game && a.role === 'player')); // [survival] the player hunts deer
   if (a.flying || b.flying) return false;
   if (W3.pact && a.role !== 'bot' && b.role !== 'bot' && war4Allied(a.faction, b.faction)) return false; // [war4] a pact keeps faith in the field (08l_war4.js); [v18] not between the measures' bots (balance9's duels run beside the war)

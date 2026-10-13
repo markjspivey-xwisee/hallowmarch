@@ -207,7 +207,7 @@ function drawActors(fx, fz) {
   const camX = camera.position.x, camZ = camera.position.z;
   const maxD2 = 175 * 175;
   for (const e of ENT) {
-    if (e.removed || e.kind === 'door' || e.kind === 'dragon') continue;
+    if (e.removed || e.kind === 'door' || e.kind === 'dragon' || e.capHide) continue; // [capture] the player kept out of the frame (14_capture.js)
     const dx = e.x - camX, dz = e.z - camZ;
     if (dx * dx + dz * dz > maxD2) continue;
     const sc = e.scale || 1;
@@ -388,6 +388,7 @@ function simStep(dt) {
   updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
 }
 function tick(dt) {
+  dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
   renderer.info.reset();
   renderTime += dt;
   U.uTime.value = renderTime;
@@ -414,6 +415,7 @@ function tick(dt) {
   }
   // camera
   updateCamera(dt);
+  captureCamera(); // [capture] the capture build's camera: free, orbiting, following or on its path (14_capture.js)
   camera.updateMatrixWorld();
   if (GAME.player && CAM.mode === 'play') U.uCamFocus.value.set(GAME.player.x, GAME.player.y + 1.3, GAME.player.z);
   else U.uCamFocus.value.set(0, -1000, 0);

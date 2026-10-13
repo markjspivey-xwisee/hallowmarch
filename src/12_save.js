@@ -110,6 +110,7 @@ function saveNow() {
   clearTimeout(SAVE.timer);
   // nothing to keep until a character is in the world (and never overwrite one from the title screen)
   if (SAVE.wiping || !GAME.ready || !GAME.player) return Promise.resolve();
+  if (CAPTURE.on) return Promise.resolve(); // [capture] nothing is saved while the capture build stages its shots (14_capture.js)
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
   if (body === SAVE.lastBody) return Promise.resolve();
