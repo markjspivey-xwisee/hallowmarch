@@ -421,16 +421,25 @@ function pickTarget(e, radius, clearOnly = false) { // [walls] clearOnly: only a
   forNear(e.x, e.z, radius, (o, d2) => {
     if (!o.alive || !isEnemy(e, o) || o === e) return;
     if (o.kind === 'door') return;
-    if (!canReach(e, o)) return;
-    if (!classSeen(e, o, d2)) return; // [classes] a hidden archer is seen only close by
     let s = d2;
     if (e.threat && e.threat.has(o.id)) s -= e.threat.get(o.id) * 4;
     if (o.role === 'player') s *= 0.85;
     if (o.carrying != null) s *= 0.4;
-    _cands.push([s, o]);
+    _cands.push([s, o, d2]);
   });
   if (!_cands.length) return null;
   _cands.sort((a, b) => a[0] - b[0]);
+  // [war3] whether it can reach a foe and see it hidden is asked in that order, of the nearest first, only until three
+  // are found (it was asked of every body in reach: a wall archer's scan in a battle looked at a hundred); the same three
+  // come out, in the same order
+  let nv = 0;
+  for (let i = 0; i < _cands.length && nv < 3; i++) {
+    const o = _cands[i][1];
+    if (!canReach(e, o) || !classSeen(e, o, _cands[i][2])) continue; // [classes] a hidden archer is seen only close by
+    _cands[nv++] = _cands[i];
+  }
+  _cands.length = nv;
+  if (!nv) return null;
   // [walls] a bow, a wand or a staff takes the first of them it can strike, not one behind a wall or a breastwork
   // (07g_walls.js); with none clear, the first in sight as before
   let first = null;

@@ -106,6 +106,7 @@ function bandRubbleOut(e, wb, L, dt) {
 }
 // out of a tower's ground room by its courtyard door: to the door from inside, then a pace out through it
 function bandOutOfTower(e, T, dt) {
+  if (GAME.t < (e.ai.outBan || 0)) return false; // [war3] (it could get no nearer its door: its band's own ways, below)
   const D = T.doors.find((d) => d.y < T.yG + 0.6) || T.doors[0];
   if (!D) return false;
   const inn = twW(T, D.a, T.RI - 0.45, D.off), out = twW(T, D.a, T.RO + 1.2, D.off);
@@ -114,6 +115,12 @@ function bandOutOfTower(e, T, dt) {
   if (e.mount) dismount(e);
   if (!B.past && dist(e.x, e.z, inn.x, inn.z) < 0.5) B.past = true;
   const q = B.past ? out : inn;
+  // [war3] no nearer its door for 5 s: the room it is counted in is not one it stands in (a gate drum's ground room
+  // reaches over the gate passage beside it: a captain stood in Dragonmere's passage making for the gate-ward's door
+  // through the drum's wall for a quarter of an hour, order after order, campaign_soak.py): its band's own ways for 15 s
+  const dq = dist(e.x, e.z, q.x, q.z);
+  if (B.bq !== B.past || dq < B.bd - 0.3) { B.bq = B.past; B.bd = dq; B.bt = GAME.t; }
+  else if (GAME.t - B.bt > 5) { e.ai.out = null; e.ai.outBan = GAME.t + 15; WAR2.stats.outGiveUps = (WAR2.stats.outGiveUps || 0) + 1; return false; }
   moveToward(e, q.x, q.z, dt, 1.0, 0.1);
   return true;
 }
