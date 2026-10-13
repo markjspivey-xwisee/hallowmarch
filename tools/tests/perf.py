@@ -205,20 +205,24 @@ async def main():
         await ev(page, "__hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); 0")
         # let the war get going and the town wake up
         await ev(page, "__hm.simulate(40); 0")
-        for q in (QUALS if 'js' not in ARGS else []):
-            await ev(page, f"__hm.fn.setQuality('{q}'); 0")
-            for v in VIEWS:
-                await ev(page, f"PV.view('{v}'); __hm.simulate(0.3); __hm.frame(); for (let i = 0; i < {int(OPT.get('settle', 0))}; i++) __hm.frame(); 0")  # [motion] settle=N: N more frames so the levels of detail settle
-                r = await ev(page, "(() => { const f = __hm.perf.frame(); return f; })()")
-                r['frameMs'] = r['ms']
-                if 'shots' in ARGS and q in OPT.get('shotq', 'low').split(','):
-                    await ev(page, "__hm.frame(); 0")
-                    await page.screenshot(path=OUT + f'perf_{TAG}_{q}_{v}.png', timeout=300000)
-                r['rows'] = r['rows'][:ROWS * 2]
-                res['views'].setdefault(v, {})[q] = r
-                print(f"{q:6s} {v:7s} calls {r['calls']:4d} (main {r['main']['calls']:4d} shadow {r['shadow']['calls']:3d})  tris {fmt_m(r['tris']):>7s} (main {fmt_m(r['main']['tris'])}, shadow {fmt_m(r['shadow']['tris'])})  programs {r['programs']}  frame JS {r['frameMs']} ms", flush=True)
-                for row in r['rows'][:ROWS]:
-                    print(f"         {row['pass']:6s} {row['label'][:44]:44s} {row['calls']:3d} calls {fmt_m(row['tris']):>7s}  ({row['inst']} x {row['each']})")
+        # [look6] the deep's views after every other at every quality: they move the war on (a fire lit, a slab fallen, the
+        # lord's Word waited for), and the views above ground at the next quality would meet another war than before
+        plan = [(q, v) for q in QUALS for v in VIEWS if not v.startswith('deep_')] + [(q, v) for q in QUALS for v in VIEWS if v.startswith('deep_')]
+        qnow = None
+        for q, v in (plan if 'js' not in ARGS else []):
+            if q != qnow:
+                await ev(page, f"__hm.fn.setQuality('{q}'); 0"); qnow = q
+            await ev(page, f"PV.view('{v}'); __hm.simulate(0.3); __hm.frame(); for (let i = 0; i < {int(OPT.get('settle', 0))}; i++) __hm.frame(); 0")  # [motion] settle=N: N more frames so the levels of detail settle
+            r = await ev(page, "(() => { const f = __hm.perf.frame(); return f; })()")
+            r['frameMs'] = r['ms']
+            if 'shots' in ARGS and q in OPT.get('shotq', 'low').split(','):
+                await ev(page, "__hm.frame(); 0")
+                await page.screenshot(path=OUT + f'perf_{TAG}_{q}_{v}.png', timeout=300000)
+            r['rows'] = r['rows'][:ROWS * 2]
+            res['views'].setdefault(v, {})[q] = r
+            print(f"{q:6s} {v:7s} calls {r['calls']:4d} (main {r['main']['calls']:4d} shadow {r['shadow']['calls']:3d})  tris {fmt_m(r['tris']):>7s} (main {fmt_m(r['main']['tris'])}, shadow {fmt_m(r['shadow']['tris'])})  programs {r['programs']}  frame JS {r['frameMs']} ms", flush=True)
+            for row in r['rows'][:ROWS]:
+                print(f"         {row['pass']:6s} {row['label'][:44]:44s} {row['calls']:3d} calls {fmt_m(row['tris']):>7s}  ({row['inst']} x {row['each']})")
         # the JS cost of the simulation and of the frame, by system (at low: SwiftShader's frames at high take minutes)
         await ev(page, "__hm.fn.setQuality('low'); __hm.perf.timers(); 0")
         for v in (VIEWS if 'render' not in ARGS else []):

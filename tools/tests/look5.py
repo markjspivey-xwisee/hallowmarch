@@ -194,12 +194,13 @@ async def main():
               if (!pairs.length) return { unit: [a.h, b.h, c.h], pairs: 0, placed: Hd.HUDL.placed.map((q) => q.sel + '@' + Math.round(q.y) + '+' + Math.round(q.h)) };
               const [sa, sb] = pairs[0], A = document.querySelector(sa), B = document.querySelector(sb), top = () => Math.round(B.getBoundingClientRect().top);
               const t0 = top(), x = document.createElement('div'); x.textContent = 'A line more'; x.style.cssText = 'height:34px';
-              A.appendChild(x); L5.lay(); H.frame(1/30); const t1 = top(), h0 = L5h.held;
+              const ah = () => Math.round(A.getBoundingClientRect().height), dg = { note: !!document.querySelector('#banners > .lore-note:not(.hl-old)'), banners: document.getElementById('banners').className, a: A.className, b: B.className, ah0: ah() }; // [look6] what the HUD held when it failed
+              A.appendChild(x); L5.lay(); H.frame(1/30); const t1 = top(), h0 = L5h.held; dg.ah1 = ah(); dg.a1 = A.className; dg.b1 = B.className;
               x.remove(); L5.lay(); H.frame(1/30); const t2 = top();
-              return { unit: [a.h, b.h, c.h], pairs: pairs.length, pair: pairs[0], t0, t1, t2, held: L5h.held - h0 }; })()""", 'hud held')
+              return { unit: [a.h, b.h, c.h], pairs: pairs.length, pair: pairs[0], t0, t1, t2, held: L5h.held - h0, dg, placed: Hd.HUDL.placed.map((q) => q.sel + '@' + Math.round(q.y) + '+' + Math.round(q.h)) }; })()""", 'hud held')
             check(r['unit'] == [80, 80, 60], f"a panel that loses a line keeps its taller place until its hold runs out ({r['unit']})")
             if r.get('pairs'):
-                check(r['t1'] > r['t0'] and r['t2'] == r['t1'] and r['held'] > 0, f"in the HUD: {r['pair'][0]} gains a line and loses it, {r['pair'][1]} under it moves down once and stays ({r['t0']} -> {r['t1']} -> {r['t2']})")
+                check(r['t1'] > r['t0'] and r['t2'] == r['t1'] and r['held'] > 0, f"in the HUD: {r['pair'][0]} gains a line and loses it, {r['pair'][1]} under it moves down once and stays ({r['t0']} -> {r['t1']} -> {r['t2']})" + ('' if r['t1'] > r['t0'] else f" {r.get('dg')} {r.get('placed')}"))
             else:
                 print('  (no two panels one over the other in this HUD: only the rule checked)', r.get('placed'))
             r = await ev(page, """(() => { const H = L5.H, P = L5.P(); const fc = document.getElementById('farmcard'), pb = document.getElementById('petbar');
