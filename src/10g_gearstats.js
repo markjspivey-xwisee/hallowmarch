@@ -19,6 +19,7 @@ const GEAR_STAT_INFO = {
   crit: { name: 'Critical', short: 'more critical hits' },
   pow: { name: 'Power', short: 'more power' },
 };
+const GS_STATS_H = 'What the stats do'; // the Gear page's section on them
 const GS_SLOT_WORD = { weapon: 'weapons', head: 'helms and hoods', chest: 'coats and robes', hands: 'gloves', legs: 'leggings', cloak: 'cloaks', ring: 'rings', charm: 'charms' };
 const gsPct = (v) => { const r = Math.round((+v || 0) * 10) / 10; return r % 1 ? r.toFixed(1) : String(Math.round(r)); };
 const gsTap = () => (IS_TOUCH ? 'tap' : 'click');
@@ -95,7 +96,7 @@ function gsReveal(s) {
 }
 function gsKitAction(a) {
   if (a === 'clear') { UI.kitSel = null; UI.kitHover = null; UI.kitConfirm = null; renderKit(); return true; }
-  if (a === 'stats') { closeKit(); openChronicle('gear'); return true; }
+  if (a === 'stats') { closeKit(); gsOpenStatsPage(); return true; }
   return false;
 }
 
@@ -104,8 +105,14 @@ function gsListHTML(from) {
   const n = gsNow();
   return `<ul class="plain gs-list">${STAT_ORDER.map((k) => `<li><b>${GEAR_STAT_INFO[k].name}</b> <span class="gs-num">+${gsPct(n.g[k])}%</span>. ${gsWhat(k, n)}${from ? `<span class="gs-from">${gsFrom(k)}</span>` : ''}</li>`).join('')}</ul>`;
 }
+// the Gear page with its stats open: a phone folds the page (10f_guide2.js chronFold), and on a small one an open section
+// would make it too long to read (guide2.py's limit, 2.4 sheets), so it opens only for a player who came to read it
+function gsOpenStatsPage() {
+  G2.open[`gear|${GS_STATS_H}`] = true; // the fold's key: the page and its heading (g2FoldEl)
+  openChronicle('gear');
+}
 function gsChronHTML() {
-  return `<h3 data-cf-open>What the stats do</h3>
+  return `<h3>${GS_STATS_H}</h3>
     <p>Every piece of gear adds to five stats. Your numbers now:</p>
     ${gsListHTML(true)}
     <p>To see what a piece gives, open your kit (${gsKitKey()}) and ${gsTap()} it. Its card lists its stats and what it would change against what you wear. ${IS_TOUCH ? 'Tap' : 'Click'} a stat in your kit for the pieces it comes from.</p>`;
@@ -130,7 +137,7 @@ function gsCharWire(body) {
   for (const b of body.querySelectorAll('[data-gs]')) {
     b.onclick = () => {
       if (b.dataset.gs === 'kit') { closeMenu(); openKit('kit'); }
-      else openChronicle('gear');
+      else gsOpenStatsPage();
     };
   }
 }
