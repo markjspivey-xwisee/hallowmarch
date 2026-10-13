@@ -280,8 +280,10 @@ async def main():
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
             # [balance8] idle=S: the run's clock moved on S seconds before the duels (nothing fought meanwhile), to tell what
             # the clock does (the season, the hour, the weather) from what earlier duels leave behind
-            if CLOCK == 'fix':  # [balance9] the same day of the year at every level's start
-                await page.evaluate("(() => { const H = __hm, S = H.farm.SEASON; if (window.__clk0 == null) window.__clk0 = { k: S.t / S.yearSec }; else { H.farm.setSeason(window.__clk0.k); H.seasons.seasonSettle(); } return 0; })()")
+            if CLOCK == 'fix':  # [balance9] the same day of the year at every level's start, the first level's too: the jump back
+                # settles the lying snow (seasonSettle), which a page fresh from its boot has not done (a first level began with no
+                # arena in the cold, the later ones with two, then none as the run's spring warmed)
+                await page.evaluate("(() => { const H = __hm, S = H.farm.SEASON; if (window.__clk0 == null) window.__clk0 = { k: S.t / S.yearSec }; H.farm.setSeason(window.__clk0.k); H.seasons.seasonSettle(); return 0; })()")
             if IDLE: await page.evaluate(f"(() => {{ const H = __hm; for (let k = 0; k < {IDLE}; k += 10) {{ H.simulate(10); const P = H.GAME.player; P.hp = P.maxHp; }} return 0; }})()")
             print('  clock', await page.evaluate(CLOCK_JS), flush=True)
             if TAP: await page.evaluate("DS.tapOn()")

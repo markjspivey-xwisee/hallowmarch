@@ -99,10 +99,10 @@ async def main():
         r = await ev(page, 'texts', """(() => { const H = T.H; H.LORE.openChronicle('callings'); const txt = document.body.textContent; const A = H.bal5.ABILITIES;
           H.LORE.openChronicle('deep'); const deep = document.body.textContent; // (textContent: a folded section's words are still in the page, not in innerText) H.UI.modal = 'menu';
           return { blunt: H.cls.ARROW_DEF.blunt.text, broad: H.cls.ARROW_DEF.broadhead.text, renew: A.renew.desc, cripple: A.cripple.desc,
-            page: { full: txt.includes('from a full draw, an Aimed Shot or Deadeye'), steady: txt.includes('waits through a stun'), wound: txt.includes('22% from a bow of rank II'), realm: txt.includes('4% less harm') },
+            page: { full: txt.includes('from a full draw, an Aimed Shot or Deadeye'), steady: txt.includes('waits through the stun'), wound: txt.includes('22% from a bow of rank II'), realm: txt.includes('4% less harm') },
             deep: deep.includes('crown of ash') }; })()""")
         check('full draw' in r['blunt'] and 'quick shot' in r['blunt'], f"the blunt head's text says it ({r['blunt'][:120]})")
-        check('Divine Shield' in r['renew'] and 'waits through a stun' in r['renew'], f"Renewal's tooltip says a steadied spell waits through a stun ({r['renew'][-160:]})")
+        check('Divine Shield' in r['renew'] and 'waits through the stun' in r['renew'], f"Renewal's tooltip says a steadied spell waits through a stun ({r['renew'][-160:]})")
         check('22% from a bow of rank II' in r['broad'] and '22% from a bow of rank II' in r['cripple'], "the broadhead's and Crippling Arrow's texts say the wound by rank")
         check(all(r['page'].values()), f"the Callings page says the rules ({r['page']})")
         check(r['deep'], "the Deep's page says the Ash-Crowned's crown of ash turns holy light")

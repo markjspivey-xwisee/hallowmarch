@@ -109,7 +109,8 @@ function priestMaceHold(e) {
 // warrior bashed and parried the skilled priest's spells 59 to 77 times in 48 duels at 10 and won 35 to 45 of them (the
 // priest 17 to 24% of all its duels at 10). Now, until Divine Shield is learned, a spell begun while steadfast (or held
 // steadfast through) waits while its priest is stunned and goes on after: the stun still costs the priest its time.
-// Every place a stun clears a spell asks (bash, leap, parry, a mace finisher, the casting step of the bodies and the player)
+// Every place a stun clears a spell asks (bash, leap, parry, a mace finisher, the casting step of the bodies and the player),
+// each step of the stun: a steadiness that runs out under it lets the stun break the spell then
 function stunKeepsCast(e) {
   if (!B9T.steadyStun || !e || e.cls !== 'priest' || !e.casting || e.casting.custom) return false;
   if (e.level >= ABILITIES.divine.level || !castSteady(e)) return false;
@@ -154,8 +155,8 @@ ABILITIES.cripple.desc = ABILITIES.cripple.desc.replace('healing on it takes 30%
 
 /* ---- what a player reads: the tooltips (the Callings page's rows: 10d_classes_ui.js) ---- */
 if (B9T.bluntHeavy) ARROW_DEF.blunt.text = 'Heavy blunt heads: less harm, but they knock a foe back and shatter bone and ice. From a bow at full draw, an Aimed Shot or Deadeye one breaks the spell it strikes; from a quick shot it only sets the spell back.';
-const steadyStunText = () => (B9T.steadyStun ? ` Until you learn Divine Shield, a spell begun steadfast waits through a stun and goes on after.` : '');
-ABILITIES.renew.desc = ABILITIES.renew.desc.replace("nothing but a stun or a foe's Holy Fire breaks your spells", "nothing but a stun or a foe's Holy Fire breaks your spells (until you learn Divine Shield, a spell begun so waits through a stun and goes on after)"); // (07c_balance8.js's text)
+const steadyStunText = () => (B9T.steadyStun ? ` Until you learn Divine Shield, while you stand steadfast a stun only pauses your spell: it waits through the stun and goes on after.` : '');
+ABILITIES.renew.desc = ABILITIES.renew.desc.replace("nothing but a stun or a foe's Holy Fire breaks your spells", "nothing but a stun or a foe's Holy Fire breaks your spells (until you learn Divine Shield, a stun then only pauses the spell: it waits through the stun and goes on after)"); // (07c_balance8.js's text)
 const bluntRuleText = () => (B9T.bluntHeavy ? ' A blunt head breaks the spell it strikes from a full draw, an Aimed Shot or Deadeye; from a quick shot it only sets the spell back.' : '');
 
 setTimeout(() => {
