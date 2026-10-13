@@ -1491,7 +1491,7 @@ function late3BotHazard(e, t) {
   const now = GAME.t, rr = e.radius * (e.scale || 1);
   for (const S of DEEP.slabs) if (S.st === 1 && inSlab(S, e.x, e.z, rr)) {
     const out = deepEdgeOut(S, e.x, e.z), d = Math.max(0.2, dist(e.x, e.z, out.x, out.z));
-    return { x: e.x + (e.x - out.x) / d, z: e.z + (e.z - out.z) / d, now: true, out: d };
+    return { x: e.x + (e.x - out.x) / d, z: e.z + (e.z - out.z) / d, now: true, out: d, slab: true }; // [v18] (slab: botDodge always steps off it)
   }
   for (const M of DEEP.marks) if (!M.slab && M.until > now && dist(e.x, e.z, M.x, M.z) < M.r + rr) return { x: M.x, z: M.z, now: true, out: M.r + rr - dist(e.x, e.z, M.x, M.z) };
   for (const C of DEEP.cells) if (C.st === 1 && C.heat > 0.3 && distToSeg(e.x, e.z, C.ax, C.az, C.bx, C.bz) < 0.9) {

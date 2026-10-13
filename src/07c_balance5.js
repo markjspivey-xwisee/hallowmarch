@@ -116,7 +116,7 @@ function botDodge(e, t, dt) {
     // body gets clear only from near the edge in the time the meteor takes to fall, else it finishes its spell
     const ready = (id) => e.level >= ABILITIES[id].level && (e.cds[id] || 0) <= GAME.t && e.power >= ABILITIES[id].cost;
     const leap = (e.cls === 'mage' && ready('blink')) || (e.cls === 'archer' && ready('tumble'));
-    if (!leap && best.out > effectiveSpeed(e) * 0.7) return false;
+    if (!leap && best.out > effectiveSpeed(e) * 0.7 && !best.slab) return false; // [v18] off a cracking slab whatever it is drawing or casting (a player steps off as its ring shows: the skilled archer at 50 finished its draw and fell into the embers in half its fights against the Ash-Crowned)
     if (e.casting) e.casting = null;
     if (e.cls === 'mage' && leap) { e.yaw = Math.atan2(ax, az); if (botUseAny(e, 'blink', e)) return true; }
     if (e.cls === 'archer' && leap) { e.yaw = Math.atan2(-ax, -az); if (botUseAny(e, 'tumble', e)) return true; }
