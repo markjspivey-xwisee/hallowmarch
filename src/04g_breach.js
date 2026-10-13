@@ -94,7 +94,7 @@ function towerBreachInit() {
       const f1 = C.floor(T.cx + ox * (r0 + r1) / 2, T.cz + oz * (r0 + r1) / 2, 1.05, (r1 - r0) / 2, aOut + Math.PI, Math.min(gOut, W.rubble - 0.6), W.rubble, Math.min(gOut, 0) - 1.2, 0, 'rubble');
       const f2 = C.floor(T.cx + ox * (rc + r0) / 2, T.cz + oz * (rc + r0) / 2, 1.05, (r0 - rc) / 2, aOut + Math.PI, W.rubble, T.yG + 0.32, T.yG - 1.2, 0, 'rubble');
       for (const f of [f1, f2]) { f.active = false; W.rubbleFloors.push(f); }
-      W.wreck = new THREE.Mesh(towerRubbleGeo(W), buildingMat); W.wreck.visible = false; W.wreck.renderOrder = 1; scene.add(W.wreck);
+      W.wreck = perf2LazyMesh(() => towerRubbleGeo(W), buildingMat); W.wreck.renderOrder = 1; scene.add(W.wreck); // [perf2] its rubble is made the first time it shows (13x_perf2.js)
       W.scaffold = new THREE.Mesh(look3EmptyGeo(), buildingMat); W.scaffold.visible = false; W.scaffold.renderOrder = 1; scene.add(W.scaffold); // [look3] laid out when first put up (look3Lay, 04d_look3.js)
       shadowCaster(W.wreck, BUILDING_DEPTH); shadowCaster(W.scaffold, BUILDING_DEPTH);
       // the banners on its top
@@ -226,7 +226,7 @@ function towerBreachSync(W, down) {
   for (const B of W.banners) { a1[B.k * 4] = down ? 0 : B.w; a1[B.k * 4 + 1] = down ? 0 : B.h; }
   if (W.banners.length) bannerGeo.attributes.aB1.needsUpdate = true;
   // the parts mesh (doors and lids) is posed again
-  for (const K of TOWER.keeps) if (K.C === T.C) K.dirty = true;
+  for (const K of TOWER.keeps) if (K.C === T.C) { K.dirty = true; for (const q of K.parts) q.dirty = true; } // [perf2] (each part posed again: 04l_towers.js poses only those marked)
 }
 // the upper works fall (from castleBreach): whoever stood up there falls into the rubble
 function towerBreachFall(W) {

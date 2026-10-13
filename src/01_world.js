@@ -800,16 +800,18 @@ function zoneAt(x, z) {
 /* ------------------------------------------------------------------ */
 /* Collision queries                                                   */
 /* ------------------------------------------------------------------ */
-const _collSeen = new Set();
+// [perf2] each query stamps the colliders it has taken (a collider in several cells is taken once): the same list in the
+// same order as a Set of those seen gave, at a fraction of the cost (it was the March's costliest call in a fight)
+let _collQ = 0;
 function collidersNear(x, z, rad, out) {
   out.length = 0;
-  _collSeen.clear();
-  const s = COLL.cell;
-  for (let cx = Math.floor((x - rad) / s); cx <= Math.floor((x + rad) / s); cx++) {
-    for (let cz = Math.floor((z - rad) / s); cz <= Math.floor((z + rad) / s); cz++) {
+  const q = ++_collQ, s = COLL.cell;
+  const cx0 = Math.floor((x - rad) / s), cx1 = Math.floor((x + rad) / s), cz0 = Math.floor((z - rad) / s), cz1 = Math.floor((z + rad) / s);
+  for (let cx = cx0; cx <= cx1; cx++) {
+    for (let cz = cz0; cz <= cz1; cz++) {
       const list = COLL.grid.get(collKey(cx, cz));
       if (!list) continue;
-      for (const c of list) if (!_collSeen.has(c)) { _collSeen.add(c); out.push(c); }
+      for (let i = 0; i < list.length; i++) { const c = list[i]; if (c._cq !== q) { c._cq = q; out.push(c); } }
     }
   }
   return out;
@@ -834,6 +836,7 @@ function resolveCollisions(p, r, y = null, faction = -1) {
       } else {
         // to local: local +Z -> (sin, cos), local +X -> (cos, -sin)
         const dx = p.x - c.x, dz = p.z - c.z;
+        const rb = c.hx + c.hz + r; if (dx * dx + dz * dz > rb * rb) continue; // [perf2] beyond its corners: no push (as below), sooner
         const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
         const qx = clamp(lx, -c.hx, c.hx), qz = clamp(lz, -c.hz, c.hz);
         let ex = lx - qx, ez = lz - qz;

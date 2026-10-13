@@ -30,8 +30,8 @@ const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path', '#ban
 const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
-  if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
-  const cs = getComputedStyle(el);
+  const cs = getComputedStyle(el); // [perf2] (asked for once)
+  if (el.offsetParent === null && cs.position !== 'fixed') return false;
   return cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetWidth > 2 && el.offsetHeight > 2;
 }
 const hudRect = (el) => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };

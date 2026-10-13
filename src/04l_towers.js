@@ -794,8 +794,11 @@ function towerParts(C) {
   geo.setAttribute('aMat', new THREE.Float32BufferAttribute(matA, 1));
   geo.setAttribute('aAO', new THREE.Float32BufferAttribute(ao, 1));
   geo.setIndex(n > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
-  const K = { C, parts, geo, dirty: true };
-  for (const p of parts) p.K = K;
+  const K = { C, parts, geo, dirty: true, r0: Infinity, r1: -1 };
+  for (const p of parts) { p.K = K; p.dirty = true; }
+  // [perf2] only the parts that moved are posed again and sent to the GPU (a door swinging rewrote every door and lid
+  // of its keep, and sent them all, each step): the range not yet sent is kept until the next upload
+  for (const a of [geo.attributes.position, geo.attributes.normal]) a.onUpload(() => { K.r0 = Infinity; K.r1 = -1; });
   towerPose(K);
   geo.computeBoundingSphere();
   geo.boundingSphere.radius += 3;
@@ -810,6 +813,9 @@ const _twV = new THREE.Vector3(), _twN = new THREE.Matrix3();
 function towerPose(K) {
   const P = K.geo.attributes.position.array, N = K.geo.attributes.normal.array;
   for (const p of K.parts) {
+    if (!p.dirty) continue; // [perf2] only what moved
+    p.dirty = false;
+    K.r0 = Math.min(K.r0, p.v0); K.r1 = Math.max(K.r1, p.v0 + p.n - 1);
     const Mw = p.frame();
     _twN.getNormalMatrix(Mw);
     for (let i = 0; i < p.n; i++) {
@@ -820,6 +826,7 @@ function towerPose(K) {
       N[o] = _twV.x; N[o + 1] = _twV.y; N[o + 2] = _twV.z;
     }
   }
+  if (K.r1 >= K.r0) for (const a of [K.geo.attributes.position, K.geo.attributes.normal]) { a.clearUpdateRanges(); a.addUpdateRange(K.r0 * 3, (K.r1 - K.r0 + 1) * 3); } // [perf2] what moved since the last upload
   K.geo.attributes.position.needsUpdate = true;
   K.geo.attributes.normal.needsUpdate = true;
   K.dirty = false;
@@ -952,7 +959,7 @@ function updateTowers(dt) {
     const was = D.k;
     D.k = clamp(D.k + (D.want ? 1 : -1) * dt * (D.want ? 2.6 : 1.4), 0, 1);
     if (was !== D.k) {
-      D.part.K.dirty = true;
+      D.part.K.dirty = true; D.part.dirty = true; // [perf2]
       if (P && (was === 0 || D.k === 0) && dist2(P.x, P.z, D.x, D.z) < 15 * 15) sfx(D.k === 0 ? 'thud' : 'click');
     }
     D.coll.active = !D.gone && D.k < 0.55; // [walls] gone: fallen with a breached tower's upper works (04g_breach.js)
@@ -964,7 +971,7 @@ function updateTowers(dt) {
     Hh.k = clamp(Hh.k + (want ? 1 : -1) * dt * (want ? 2.2 : Hh.slam > GAME.t ? 9 : 1.6), 0, 1);
     Hh.bump = Math.max(0, Hh.bump - dt * 0.9);
     if (was !== Hh.k || wasB !== Hh.bump) {
-      Hh.part.K.dirty = true;
+      Hh.part.K.dirty = true; Hh.part.dirty = true; // [perf2]
       if (P && (Hh.k === 0 && was > 0) && dist2(P.x, P.z, Hh.x, Hh.z) < 15 * 15) sfx('thud');
     }
     Hh.floor.active = !Hh.gone && Hh.k < 0.25; // [walls] gone: a breached tower's, a burnt-out gallery's (04g_breach.js, 04n_towerfire.js)

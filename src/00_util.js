@@ -1,6 +1,7 @@
 /* ================================================================== */
 /* util                                                                */
 /* ================================================================== */
+const BOOT_T0 = performance.now(); // [perf2] when the game's script began to run (after the page and three.js: 13x_perf2.js)
 const TAU = Math.PI * 2;
 const DEG = Math.PI / 180;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -59,4 +60,5 @@ function segDist2(px, pz, ax, az, bx, bz) {
   const qx = ax + abx * t, qz = az + abz * t;
   return dist2(px, pz, qx, qz);
 }
-function fmtInt(n) { return Math.round(n).toLocaleString('en-US'); }
+const FMT_INT = new Intl.NumberFormat('en-US'); // [perf2] made once (toLocaleString made one each call: the HUD formats a dozen numbers a frame)
+function fmtInt(n) { return FMT_INT.format(Math.round(n)); }

@@ -235,17 +235,23 @@ function towerHeaps() {
   for (const T of TOWER.list) {
     if (T.look === 'rath') { towerConeHeap(T); continue; } // [siege2] a fallen cone's thatch and poles on the platform
     if (T.look !== 'timber') continue;
+    // [perf2] the heap is made the first time it shows (13x_perf2.js)
+    const m = perf2LazyMesh(() => towerHeapGeo(T), buildingMat);
+    m.renderOrder = 1;
+    scene.add(m);
+    shadowCaster(m, BUILDING_DEPTH);
+    T.heap = m;
+  }
+}
+function towerHeapGeo(T) { // [perf2] (it was made at the boot for every tower)
+  {
     const b = new Batch(), M = T.C.M, r = mulberry(Math.round(Math.abs(T.wx * 13 + T.wz * 7)) + 5);
     for (let i = 0; i < 22; i++) {
       const x = T.cx + (r() - 0.5) * T.HI * 1.6, z = T.cz + (r() - 0.5) * T.HI * 1.6, L = 0.8 + r() * 2.2;
       b.add(i % 3 ? G.box : G.cyl8, lm(M, x, T.H + 0.08 + r() * 0.35, z, r() * TAU, i % 3 ? 0.18 : 0.13, i % 3 ? 0.12 : L, i % 3 ? L : 0.13, (r() - 0.5) * 0.5, i % 3 ? 0 : Math.PI / 2 + (r() - 0.5) * 0.4), MAT.logH, [0.07 + r() * 0.05, 0.06 + r() * 0.04, 0.05 + r() * 0.03]);
     }
     for (let i = 0; i < 9; i++) { const x = T.cx + (r() - 0.5) * T.HI * 1.5, z = T.cz + (r() - 0.5) * T.HI * 1.5; b.add(G.box, lm(M, x, T.H + 0.04, z, r() * TAU, 0.5 + r() * 0.6, 0.04, 0.3 + r() * 0.4), MAT.shingle, [0.09, 0.08, 0.07]); }
-    const m = new THREE.Mesh(b.build(), buildingMat);
-    m.visible = false; m.renderOrder = 1;
-    scene.add(m);
-    shadowCaster(m, BUILDING_DEPTH);
-    T.heap = m;
+    return b.build();
   }
 }
 
@@ -257,17 +263,21 @@ function towerConeHit(T, x, y, z, r) {
 }
 // [siege2] the charred thatch and poles of a fallen cone, heaped on its platform (hidden until then)
 function towerConeHeap(T) {
+  // [perf2] the heap is made the first time it shows (13x_perf2.js)
+  const m = perf2LazyMesh(() => towerConeHeapGeo(T), buildingMat);
+  m.renderOrder = 1;
+  scene.add(m);
+  shadowCaster(m, BUILDING_DEPTH);
+  T.heap = m;
+}
+function towerConeHeapGeo(T) { // [perf2] (it was made at the boot for every cone)
   const b = new Batch(), M = T.C.M, r = mulberry(Math.round(Math.abs(T.wx * 11 + T.wz * 5)) + 9);
   for (let i = 0; i < 14; i++) {
     const a = r() * TAU, rr = Math.sqrt(r()) * (T.RO - 0.6), p = twP(T, a, rr), L = 0.8 + r() * 1.8;
     b.add(G.cyl8, lm(M, p.x, T.TT + 0.1 + r() * 0.25, p.z, r() * TAU, 0.07, L, 0.07, Math.PI / 2 + (r() - 0.5) * 0.5), MAT.logH, [0.06 + r() * 0.04, 0.05 + r() * 0.03, 0.045 + r() * 0.03]);
   }
   for (let i = 0; i < 12; i++) { const a = r() * TAU, rr = Math.sqrt(r()) * (T.RO - 0.5), p = twP(T, a, rr); b.add(G.ico, lm(M, p.x, T.TT + 0.04, p.z, r() * 3, 0.5 + r() * 0.5, 0.08 + r() * 0.1, 0.4 + r() * 0.5), MAT.thatch, [0.11 + r() * 0.05, 0.1 + r() * 0.04, 0.08 + r() * 0.03]); }
-  const m = new THREE.Mesh(b.build(), buildingMat);
-  m.visible = false; m.renderOrder = 1;
-  scene.add(m);
-  shadowCaster(m, BUILDING_DEPTH);
-  T.heap = m;
+  return b.build();
 }
 
 // save part world.x.towerfire: which towers burn or lie fallen, how far their rebuilding has come

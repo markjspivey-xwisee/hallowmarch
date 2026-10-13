@@ -1061,16 +1061,23 @@ function updateNPCs(dt0) {
     e.power = Math.min(e.maxPower, e.power + e.maxPower * dt * (GAME.t > e.combatUntil ? 0.05 : 0.02));
     // separation
     if (e.fixedY === null) {
-      forNear(e.x, e.z, 1.6, (o) => {
-        if (o === e || !o.alive || o.kind === 'door' || o.fixedY !== null || Math.abs(o.y - e.y) > 1.5) return; // [keeps] not bodies on another floor
-        const rr = (e.radius * (e.scale || 1) + o.radius * (o.scale || 1)) * 0.9;
-        const dx = e.x - o.x, dz = e.z - o.z, d2 = dx * dx + dz * dz;
-        if (d2 < rr * rr && d2 > 1e-6) {
-          const d = Math.sqrt(d2), push = (rr - d) * 0.5;
-          if (o.role !== 'player') stepTo(e, e.x + (dx / d) * push, e.z + (dz / d) * push);
-          else stepTo(e, e.x + (dx / d) * push * 2, e.z + (dz / d) * push * 2);
+      // [perf2] forNear's loop written out (a closure a body a step was made for it): the same bodies in the same order
+      const sx = e.x, sz = e.z, x0 = Math.floor((sx - 1.6) / SCELL), x1 = Math.floor((sx + 1.6) / SCELL), z0 = Math.floor((sz - 1.6) / SCELL), z1 = Math.floor((sz + 1.6) / SCELL);
+      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+        const l = SGRID.get(gkey(cx, cz));
+        if (!l) continue;
+        for (const o of l) {
+          if (dist2(sx, sz, o.x, o.z) > 1.6 * 1.6) continue;
+          if (o === e || !o.alive || o.kind === 'door' || o.fixedY !== null || Math.abs(o.y - e.y) > 1.5) continue; // [keeps] not bodies on another floor
+          const rr = (e.radius * (e.scale || 1) + o.radius * (o.scale || 1)) * 0.9;
+          const dx = e.x - o.x, dz = e.z - o.z, d2 = dx * dx + dz * dz;
+          if (d2 < rr * rr && d2 > 1e-6) {
+            const d = Math.sqrt(d2), push = (rr - d) * 0.5;
+            if (o.role !== 'player') stepTo(e, e.x + (dx / d) * push, e.z + (dz / d) * push);
+            else stepTo(e, e.x + (dx / d) * push * 2, e.z + (dz / d) * push * 2);
+          }
         }
-      });
+      }
     }
     const gy = groundY(e) + (e.hover || 0) * (1 + 0.15 * Math.sin(GAME.t * 2 + e.id));
     e.y = e.fixedY !== null ? e.fixedY : gy;

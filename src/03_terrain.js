@@ -421,6 +421,7 @@ const terrainMat = mat({
     }`,
 });
 const terrainChunks = [];
+let TERRAIN_IDX = null; // [perf2] the chunks' shared index
 function buildTerrain() {
   const CH = 8, CELLS = 64; // 8x8 chunks of 64 cells (2 m)
   for (let cj = 0; cj < CH; cj++) {
@@ -443,20 +444,24 @@ function buildTerrain() {
           if (y < minY) minY = y; if (y > maxY) maxY = y;
         }
       }
-      const idx = new Uint32Array(CELLS * CELLS * 6);
-      let t = 0;
-      for (let j = 0; j < CELLS; j++) {
-        for (let i = 0; i < CELLS; i++) {
-          const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
-          // alternate the diagonal to reduce directional artefacts
-          if ((i + j) & 1) { idx[t++] = a; idx[t++] = c; idx[t++] = b; idx[t++] = b; idx[t++] = c; idx[t++] = d; }
-          else { idx[t++] = a; idx[t++] = c; idx[t++] = d; idx[t++] = a; idx[t++] = d; idx[t++] = b; }
+      // [perf2] every chunk has the same grid: one 16-bit index for all 64 (each had its own 32-bit copy, 6 MB)
+      if (!TERRAIN_IDX) {
+        const idx = new Uint16Array(CELLS * CELLS * 6);
+        let t = 0;
+        for (let j = 0; j < CELLS; j++) {
+          for (let i = 0; i < CELLS; i++) {
+            const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+            // alternate the diagonal to reduce directional artefacts
+            if ((i + j) & 1) { idx[t++] = a; idx[t++] = c; idx[t++] = b; idx[t++] = b; idx[t++] = c; idx[t++] = d; }
+            else { idx[t++] = a; idx[t++] = c; idx[t++] = d; idx[t++] = a; idx[t++] = d; idx[t++] = b; }
+          }
         }
+        TERRAIN_IDX = new THREE.BufferAttribute(idx, 1);
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
+      g.setIndex(TERRAIN_IDX);
       const cx = -HALF + (ci + 0.5) * CELLS * HS, cz = -HALF + (cj + 0.5) * CELLS * HS;
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, (minY + maxY) / 2, cz), Math.hypot(CELLS, CELLS, (maxY - minY) / 2));
       const m = new THREE.Mesh(g, terrainMat);

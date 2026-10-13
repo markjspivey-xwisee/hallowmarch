@@ -1318,8 +1318,9 @@ function anUpdateUI(dt) {
   // a phone held upright has no room beside the health frame: the bar goes under it (and under the path tracker)
   const tall = innerWidth <= 760 && innerHeight > innerWidth;
   bar.classList.toggle('tall', tall);
-  const cls = $('cls'), clsLeft = cls && cls.offsetParent && IS_TOUCH && !cls.hidden && cls.childElementCount > 0;
+  const cls = $('cls');
   if (tall && !HUDL.on) { // [phones] the HUD's layout pass (10p_hud.js) stacks the column now
+    const clsLeft = cls && cls.offsetParent && IS_TOUCH && !cls.hidden && cls.childElementCount > 0; // [perf2] asked only here (reading offsetParent laid the page out four times a second)
     let top = $('pf').getBoundingClientRect().bottom;
     const lp = $('lore-path');
     if (lp && !lp.hidden && lp.offsetParent) top = Math.max(top, lp.getBoundingClientRect().bottom);

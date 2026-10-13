@@ -1,9 +1,12 @@
 """Performance: draw calls, triangles, programs and JS time in fixed views at high, medium and low.
 Views: the Logres town with its fields and common, a keep courtyard, inside its great hall, a river, a frontier battle
-with the war running, a forest, the Barrow, the mountains from the Logres orchard ([land]). For each view and quality: calls and triangles (main pass, shadow pass),
+with the war running, a forest, the Barrow, the mountains from the Logres orchard ([land]); [perf2] a Thule burh on fire
+stormed by a band (siege), the Logres town with three houses burning and its crews at them (townfire), a house in rubble and
+one behind its scaffold (rubble), a breached tower mended by the masons (masons). For each view and quality: calls and triangles (main pass, shadow pass),
 the top meshes by triangles (instances x triangles each) and the JS cost of a frame; then the JS cost of a
 simulation step and the top systems by JS time (every update and draw function timed); then the boot.
-usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16]
+usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [tag=before] [rows=8] [w=640] [h=360] [js|render] [settle=16] [budget]
+(budget: [perf2] fails when a view goes over its budget, BUDGET below)
 (js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view)
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib
@@ -14,7 +17,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 QUALS = [a for a in ARGS if a in ('high', 'medium', 'low')] or ['low', 'medium', 'high']
 OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
-VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow,mountain').split(',')
+VIEWS = OPT.get('views', 'town,keep,hall,river,battle,forest,barrow,mountain,siege,townfire,rubble,masons').split(',') # [perf2] the newest systems' views: a burning burh stormed, a town's fire crews, rubble and a scaffold, the masons
 TAG = OPT.get('tag', 'run')
 ROWS = int(OPT.get('rows', 8))
 W, H = int(OPT.get('w', 640)), int(OPT.get('h', 360))
@@ -68,6 +71,69 @@ window.PV = {
     } else if (name === 'mountain') {
       // [land] from the Logres orchard, under the ring's mountains (crags, scree, the reshaped faces)
       const o = H.surv.FORAGE.orchard; this.stand(o.x, o.z, Math.atan2(95 - o.x, 234 - o.z), 0.05, 6);
+    } else if (name === 'siege') {
+      // [perf2] a Thule burh on fire (its palisade, walk and gate), its garrison at the fires, a Logres band of ten storming it
+      const WAR = H.WAR, K = WAR.keeps.find((k) => k.orig === 2 && k.realm === 2) || WAR.keeps.find((k) => k.orig === 2), C = F.castleOf(K.site);
+      if (!this.siegeSet) {
+        this.siegeSet = true;
+        H.palisade.palisadeInit(); H.blaze.blazeInit();
+        const pc = C.pal ? C.pal.cells.filter((c) => c.st === 0) : [], dc = C.blaze ? C.blaze.cells.filter((c) => c.st === 0) : [];
+        for (let i = 0; i < 4 && pc.length; i++) H.palisade.palisadeIgnite(pc[Math.floor((i + 0.5) * pc.length / 4)], 0.5);
+        for (let i = 0; i < 3 && dc.length; i++) H.blaze.deckIgnite(dc[Math.floor((i + 0.5) * dc.length / 3)], 0.5);
+        if (C.gate) H.blaze.gateIgnite(C.gate, 0.4);
+        this.siegeBand = H.SIEGE.band(0, WAR.keeps.indexOf(K), 40, 10);
+        H.simulate(6);
+      }
+      const wb = WAR.warbands.find((w) => w.id === this.siegeBand), L = wb && !wb.dead ? F.wbLeader(wb) : null, S = K.site;
+      const bx = L ? L.x : S.x + Math.sin(Math.atan2(S.x, S.z)) * 40, bz = L ? L.z : S.z + Math.cos(Math.atan2(S.x, S.z)) * 40;
+      const dx = S.x - bx, dz = S.z - bz, d = Math.hypot(dx, dz) || 1;
+      this.stand(bx - dx / d * 10, bz - dz / d * 10, Math.atan2(dx, dz), 0.16, 8);
+    } else if (name === 'townfire') {
+      // [perf2] the Logres town with three houses on fire and their people beating them out
+      const S = H.REALMS[0].town;
+      if (!this.fireSet) {
+        this.fireSet = true;
+        const hs = H.HOUSES.filter((h) => !h.keepHall && h.S === S && h.state === 'whole').sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z));
+        this.fireHouses = [hs[1], hs[4], hs[7]].filter(Boolean);
+        for (const h of this.fireHouses) F.igniteHouse(h);
+        H.simulate(6);
+      }
+      const h = this.fireHouses[0];
+      this.stand(S.x + (h.x - S.x) * 0.35 + 5, S.z + (h.z - S.z) * 0.35 + 5, Math.atan2(h.x - S.x, h.z - S.z), 0.2, 8);
+    } else if (name === 'rubble') {
+      // [perf2] a house of the Logres town brought down by stones, and another being built back behind its scaffold
+      const S = H.REALMS[0].town;
+      if (!this.rubbleSet) {
+        this.rubbleSet = true;
+        // (the town's whole houses: the townfire view sets three of them alight before it)
+        const hs = H.HOUSES.filter((h) => !h.keepHall && h.S === S && h.state === 'whole').sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z));
+        this.ruin = hs[Math.min(2, hs.length - 2)]; this.scaf = hs[Math.min(5, hs.length - 1)];
+        H.batter.houseBreak(this.ruin, null); H.batter.houseBreak(this.scaf, null);
+        H.simulate(2.5);
+        if (this.scaf.state === 'ruin') { this.scaf.stT = 1e4; H.simulate(0.3); }
+        if (this.scaf.state === 'scaffold') this.scaf.stT = Math.max(this.scaf.stT, 22);
+        H.simulate(0.5);
+      }
+      const A = this.ruin, B = this.scaf, mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2, dx = mx - S.x, dz = mz - S.z, d = Math.hypot(dx, dz) || 1;
+      this.stand(mx - dx / d * 9, mz - dz / d * 9, Math.atan2(dx, dz), 0.25, 9);
+    } else if (name === 'masons') {
+      // [perf2] a Logres corner tower brought down by stones and mended behind its scaffold, the keep's masons at work on it
+      const S = H.REALMS[0].keepSites[0], C = F.castles().find((q) => q.S === S), K = S.keepRef;
+      const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1), T = W.T;
+      if (!this.masonSet) {
+        this.masonSet = true;
+        if (W.state === 'whole') {
+          const src = F.spawnRealmUnit(2, 'warrior', 30, 'guard', S.x + W.ox * 60, S.z + W.oz * 60, {}); src.hp = src.maxHp = 1e9;
+          for (let n = 0; W.state === 'whole' && n < 80; n++) F.castleSiegeHit(src, T.wx + W.ox * (T.RO + 0.2), T.wz + W.oz * (T.RO + 0.2), 2.0, 4.4);
+          F.removeEnt(src);
+        }
+        const L3 = H.look3, mine = () => L3.MASON.list.filter((e) => !e.removed && e.ai.mason && e.ai.mason.W === W);
+        for (let t = 0; t < 160 && !(mine().length >= 2 && mine().every((e) => e.ai.mason.st === 'work')); t++) { K.lastEnemyNear = -1e9; H.simulate(1); if (W.state === 'repair' && W.t > 0.6) W.t = 0.4; }
+        this.masonsN = mine().length;
+      }
+      K.lastEnemyNear = -1e9;
+      const a = Math.atan2(W.ox, W.oz), x = T.wx + Math.sin(a) * (T.RO + 12), z = T.wz + Math.cos(a) * (T.RO + 12);
+      this.stand(x, z, a + Math.PI, 0.3, 8);
     } else if (name === 'barrow') {
       const p = H.DUN.spots.arrive;
       P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = F.dunFloorAt(p.x, p.z); P.yaw = Math.PI / 2;
@@ -81,6 +147,11 @@ window.PV = {
 
 async def ev(page, js):
     return await page.evaluate(js)
+
+# [perf2] the budgets (CLAUDE.md, Phones and performance): triangles and draw calls a frame, both passes, in every view;
+# `budget` fails the run when a view goes over (low about 700k and 160 calls, medium about 1.6 million: a tenth more is
+# let by, so a view that comes and goes with the war's bodies does not fail one run in three)
+BUDGET = {'low': (770e3, 176), 'medium': (1.76e6, 240), 'high': (2.9e6, 290)}
 
 def fmt_m(n):
     return f'{n/1e6:.2f}M' if n >= 1e6 else f'{n/1e3:.0f}k'
@@ -136,11 +207,22 @@ async def main():
             top = sorted(self_t.items(), key=lambda kv: -kv[1])[:30]
             res['profile'] = [(k, round(v / 1000, 1)) for k, v in top]
             print('profile (self ms over 12 s simulated + 4 frames, total %.0f ms): ' % (tot / 1000) + ', '.join(f"{k} {v/1000:.0f}" for k, v in top), flush=True)
+        # [perf2] every view within its budget
+        over = []
+        for v, qs in res['views'].items():
+            for q, r in qs.items():
+                bt, bc = BUDGET[q]
+                if r['tris'] > bt or r['calls'] > bc: over.append(f"{q} {v}: {fmt_m(r['tris'])} triangles (budget {fmt_m(bt)}), {r['calls']} calls (budget {bc})")
+        res['over'] = over
+        if 'budget' in ARGS:
+            for o in over: print('OVER BUDGET', o, flush=True)
+            print('budget: ' + ('every view within its budget' if not over else f'{len(over)} over'), flush=True)
         res['errors'] = await ev(page, "__hm.errors")
         res['heap'] = await ev(page, "performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null")
         print('boot', json.dumps(res['boot']), 'heap now', res['heap'], 'MB')
         print('errors', res['errors'])
         await b.close()
     pathlib.Path(OUT + f'perf_{TAG}.json').write_text(json.dumps(res, indent=1))
+    if 'budget' in ARGS and (res.get('over') or res.get('errors')): sys.exit(1)
 
 asyncio.run(main())

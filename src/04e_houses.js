@@ -385,20 +385,21 @@ const houseStageNum = (H) => HOUSE_STAGE[H.state] ?? 0;
 /* drawing: a batch that also records each vertex's house, part and hinge */
 /* ------------------------------------------------------------------ */
 class HouseBatch extends Batch {
-  constructor() { super(); this.hp = []; this.hg = []; this.hi = -1; this.kind = HPART.EXT; this.hinge = null; }
+  constructor() { super(); this._HP = null; this._HG = null; this.hi = -1; this.kind = HPART.EXT; this.hinge = null; }
+  _growV(cap, g) { this._HP = g(this._HP, 2); this._HG = g(this._HG, 4); } // [perf2] typed arrays, as Batch's (04_props.js)
   add(geo, m4, matId, color, baseY = null, aoH = 3) {
     const n0 = this.n;
     super.add(geo, m4, matId, color, baseY, aoH);
-    const h = this.hinge;
+    const h = this.hinge, HP = this._HP, HG = this._HG;
     for (let i = n0; i < this.n; i++) {
-      this.hp.push(this.hi, this.kind);
-      if (h) this.hg.push(h[0], h[1], h[2], h[3]); else this.hg.push(0, 0, -1, 0);
+      HP[i * 2] = this.hi; HP[i * 2 + 1] = this.kind;
+      if (h) { HG[i * 4] = h[0]; HG[i * 4 + 1] = h[1]; HG[i * 4 + 2] = h[2]; HG[i * 4 + 3] = h[3]; } else { HG[i * 4] = 0; HG[i * 4 + 1] = 0; HG[i * 4 + 2] = -1; HG[i * 4 + 3] = 0; }
     }
   }
   build() {
-    const g = super.build();
-    g.setAttribute('aPart', new THREE.Float32BufferAttribute(this.hp, 2));
-    g.setAttribute('aHinge', new THREE.Float32BufferAttribute(this.hg, 4));
+    const g = super.build(), n = this.n;
+    g.setAttribute('aPart', new THREE.BufferAttribute(this._HP ? this._HP.slice(0, n * 2) : new Float32Array(0), 2));
+    g.setAttribute('aHinge', new THREE.BufferAttribute(this._HG ? this._HG.slice(0, n * 4) : new Float32Array(0), 4));
     return g;
   }
 }
