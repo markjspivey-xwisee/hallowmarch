@@ -442,6 +442,8 @@ function netOnArrow(A) {
 }
 // the land changed by your hand (a tree you fell, your fire landing, your meteor's or your leap's crater): told to the
 // others, whose pages change theirs the same way (those here now: a page that comes later has its own land)
+// a change a player makes to the land, told to the pages there now (each does it as its own page did; the fire with the
+// remote body as its caster, so it spares what the March's own fire spares there: a friend's town, a foe's never)
 function netLand(kind, data) { if (netOn() && GAME.player) netEvent('land', 0, [kind, ...data]); }
 // a keep's capture by your hand, when another page is the host: told to it (it takes it if it agrees)
 function netCaptureHeld(K, realm) {

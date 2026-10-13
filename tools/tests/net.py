@@ -22,6 +22,7 @@ PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf')] or ['room'
 THREE = 'three' in ARGS
 LOSSY = 'lossy' in ARGS
 SHOTS = 'shots' in ARGS
+QUICK = 'quick' in ARGS  # perf: the picture only, no measures
 W, H = int(KV.get('w', 960 if SHOTS else 640)), int(KV.get('h', 540 if SHOTS else 360))
 OUT = hm.OUT
 FAILS = []
@@ -140,7 +141,10 @@ async def room_part(p):
     a = await A.evaluate('NT.me()'); g = await B.evaluate("(() => { const g = NT.ghostOf('Aldwin'); return g ? { x: g.x, z: g.z, amt: g.anim.amt } : null; })()")
     rest = ((a['x'] - g['x']) ** 2 + (a['z'] - g['z']) ** 2) ** 0.5 if g else 99
     med = sorted(errs)[len(errs) // 2] if errs else 99
-    check(med < 2.5, f'A walking: B draws him within {med:.2f} m (median; the most {max(errs) if errs else 99:.2f} m; the delay is about a step)')
+    # drawn 120 ms behind the sender, a step of the test's or two late (the room's delivery comes between the evaluates),
+    # and with the lossy room's 60 ms and its jitter a step more: at 7 m/s of the test's game time a step is 0.7 m
+    lim = 3.6 if LOSSY else 2.5
+    check(med < lim, f'A walking: B draws him within {med:.2f} m (median, under {lim}; the most {max(errs) if errs else 99:.2f} m; the delay is about two steps)')
     check(amts and max(amts) > 0.6, f'his legs walk (gait amount up to {max(amts) if amts else 0:.2f})')
     check(rest < 0.6, f'stopped, he stands where he stands ({rest:.2f} m)')
     # an action seen: A strikes, B sees the act
@@ -178,12 +182,22 @@ async def room_part(p):
     await B.evaluate("__hm.net.chat('p', 'On your left'); 0")
     ok = await until(pages, A, "NT.logHas('[Party] Brisa: On your left')", 6)
     check(ok, 'party chat heard')
+    # the land: a tree A fells falls on B's page too, A's fire lands there
+    ti = await A.evaluate("(() => { const P = NT.P; let best = -1, bd = 1e9; for (const t of __hm.fn.W.trees) { if (t.felled || t.state !== 'stand') continue; const d = Math.hypot(t.x - P.x, t.z - P.z); if (d < bd) { bd = d; best = t.i; } } const t = __hm.fn.W.trees[best]; __hm.teleport(t.x - 2.2, t.z); NT.calm(); return best; })()")
+    await step(pages, 0.1, 12)
+    l0 = (await B.evaluate('NT.st()'))['stats'].get('landIn', 0)
+    await A.evaluate(f"(() => {{ const t = __hm.fn.W.trees[{ti}]; __hm.nature.fellTree(t, 1, 0, 30, true); __hm.net.land('fell', [{ti}, 1, 0]); __hm.fn.fireLandsAt(t.x + 3, t.y, t.z + 3, 1.5, NT.P); return 0; }})()")
+    ok = await until(pages, B, f"(() => {{ const t = __hm.fn.W.trees[{ti}]; return !!t.felled; }})()", 6)
+    l1 = (await B.evaluate('NT.st()'))['stats'].get('landIn', 0)
+    check(ok and l1 - l0 >= 2, f"the tree A fells falls on B's page, and A's fire lands there (tree {ti}, {l1 - l0} changes of the land heard)")
+    await A.evaluate(f"__hm.teleport({tx + 4}, {tz + 10}); NT.calm(); 0")
+    await step(pages, 0.1, 6)
     # the sizes and the rates
     sA = await A.evaluate('NT.st()')
     check(sA['lastFastBytes'] < 3800 and sA['slowBytes'] < 3800, f"what A sends fits presence (fast {sA['lastFastBytes']} B, profile {sA['slowBytes']} B)")
     log('A stats', json.dumps(sA['stats']))
     if SHOTS:
-        await B.evaluate("(() => { const g = NT.ghostOf('Aldwin'); const P = NT.P; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); __hm.CAM.yaw = P.yaw; __hm.CAM.pitch = 0.25; __hm.CAM.dist = __hm.CAM.targetDist = 6; NT.P.target = g.id; return 0; })()")
+        await B.evaluate("(() => { const g = NT.ghostOf('Aldwin'); const P = NT.P; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); __hm.CAM.yaw = P.yaw + 0.55; __hm.CAM.pitch = 0.2; __hm.CAM.dist = __hm.CAM.targetDist = 5; NT.P.target = g.id; return 0; })()")
         await A.evaluate("__hm.net.chat('r', 'For Logres!'); 0")
         await step(pages, 0.1, 6)
         await shot(B, 'room_ally')
@@ -241,7 +255,7 @@ async def room_part(p):
             await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; if (g) { P.x = g.x - 1.6; P.z = g.z; P.target = g.id; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); } return 0; })()")
             await step(pages, 0.1)
             if not (await Cp.evaluate('NT.P.alive')): break
-        dead = not (await Cp.evaluate('NT.P.alive'))
+        dead = await until(pages, Cp, '!NT.P.alive', 4)
         check(dead, 'C falls to A')
         ok = await until(pages, A, "(() => { const g = NT.ghostOf('Caelan'); return !!g && !g.alive; })()", 6)
         check(ok, "C's body falls on A's page")
@@ -455,22 +469,23 @@ async def perf_part(p):
         med = lambda v: sorted(v)[len(v) // 2]
         return {'step': round(med(sims), 2), 'frame': round(med(frs), 2), 'calls': [r[0] for r in ri], 'tris': [r[1] for r in ri], 'ghosts': len([q for q in st['peers'] if q['ghost']]), 'down': st['stats']['downBytes'], 'recv': st['stats']['fastRecv']}
     await A.evaluate('NT.calm(); 0')
-    log('measuring alone')
-    r0 = await MEAS_RUN()
-    log('alone', json.dumps(r0))
+    if not QUICK:
+        log('measuring alone')
+        r0 = await MEAS_RUN()
+        log('alone', json.dumps(r0))
     await A.evaluate("(() => { const P = __hm.GAME.player; for (let i = 0; i < 10; i++) NF.add({ name: 'Walker' + i, realm: i % 3, cls: ['warrior', 'archer', 'mage', 'priest'][i % 4], level: 30, x: P.x, z: P.z, walk: 'circle', cx: P.x, cz: P.z + 8, r: 6 + i, speed: 3 + (i % 3) * 1.5, ang: i }); return 0; })()")
     for _ in range(30): await A.evaluate('__hm.simulate(0.1); 0'); await asyncio.sleep(0.05)
-    d0 = (await A.evaluate('NT.st()'))['stats']['downBytes']; t0 = time.time()
-    r1 = await MEAS_RUN()
-    d1 = (await A.evaluate('NT.st()'))['stats']['downBytes']; t1 = time.time()
-    log('ten others', json.dumps(r1))
-    check(r1['ghosts'] == 10, f"ten others drawn as bodies ({r1['ghosts']})")
-    check(r1['step'] < r0['step'] * 1.6 + 1.5, f"a step with ten others: {r1['step']} ms against {r0['step']} ms alone")
-    check(r1['frame'] < r0['frame'] * 1.6 + 4, f"a frame with ten others: {r1['frame']} ms against {r0['frame']} ms alone (calls {r1['calls']} against {r0['calls']})")
-    per = r1['down'] / max(1, r1['recv'])
-    log(f"heard from ten walking players: {r1['recv']} updates, {per:.0f} B each (at ten a second each: {per * 100 / 1024:.1f} KB/s; here the stand-in's timers ran slower under SwiftShader's load)")
+    if not QUICK:
+        r1 = await MEAS_RUN()
+        log('ten others', json.dumps(r1))
+        check(r1['ghosts'] == 10, f"ten others drawn as bodies ({r1['ghosts']})")
+        check(r1['step'] < r0['step'] * 1.6 + 1.5, f"a step with ten others: {r1['step']} ms against {r0['step']} ms alone")
+        check(r1['frame'] < r0['frame'] * 1.6 + 4, f"a frame with ten others: {r1['frame']} ms against {r0['frame']} ms alone (calls {r1['calls']} against {r0['calls']})")
+        per = r1['down'] / max(1, r1['recv'])
+        log(f"heard from ten walking players: {r1['recv']} updates, {per:.0f} B each (at ten a second each: {per * 100 / 1024:.1f} KB/s; here the stand-in's timers ran slower under SwiftShader's load)")
     if SHOTS:
-        await A.evaluate("(() => { const H = __hm; H.CAM.mode = 'play'; H.CAM.pitch = 0.18; H.CAM.dist = H.CAM.targetDist = 12; H.CAM.yaw = 0; return 0; })()")
+        await A.set_viewport_size({'width': 960, 'height': 540})
+        await A.evaluate("(() => { const H = __hm; H.CAM.mode = 'play'; H.CAM.pitch = 0.32; H.CAM.dist = H.CAM.targetDist = 14; H.CAM.yaw = 0; return 0; })()")
         for _ in range(4): await A.evaluate('__hm.simulate(0.05); 0')
         await shot(A, 'ten_others')
     errs = await A.evaluate('__hm.errors.slice()')
