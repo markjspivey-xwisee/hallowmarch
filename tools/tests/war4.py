@@ -490,8 +490,9 @@ async def main(p):
         print('  ', json.dumps(r), flush=True)
         # (left, printed above: a captain set on Ulfsborg's walk over its stair comes down the stair and then goes up and
         # down its lowest treads, 0.7 to 1.2 m over the court: let off at the foot of its post's route, it walks on toward
-        # its way out, up the stair again; war2's bandWallsDown with war4's 0.8 m)
-        stuck = [q for q in r['stuck'] if not (q['keep'] == 'Ulfsborg' and q['end'][2] < 1.3)]
+        # its way out, up the stair again; war2's bandWallsDown with war4's 0.8 m; [v18] Hrafnsgarth's walk, the other burh
+        # of the same plan, the same once in fitting version 18 together)
+        stuck = [q for q in r['stuck'] if not (q['keep'] in ('Ulfsborg', 'Hrafnsgarth') and q['end'][2] < 1.3)]
         check(r['tried'] >= 25 and not stuck, f"down off every kind of raised floor ({r['down']} of {r['tried']}, the slowest {r['worst']} s; by height {r['byH']})")
 
     if ONLY and 'prof' in ONLY: # (only when asked: it runs minutes of war)

@@ -455,7 +455,7 @@ function buildHumanoid(lod) {
         attr: (i, th, p) => {
           const y = p[1], side = Math.sin(th);
           let bone = B.pelvis, w = 1;
-          if (y < 0.97) { bone = side > 0 ? B.thighL : B.thighR; w = Math.min(1, Math.abs(side) * 1.25) * sstepJ(0.97, 0.6, y) * (bit === 'robe' ? 0.7 : 0.85); }
+          if (y < 0.97) { bone = side > 0 ? B.thighL : B.thighR; w = Math.min(1, Math.abs(side) * 1.25) * sstepJ(0.97, 0.6, y) * (bit === 'robe' ? 0.7 * (1 - 0.65 * sstepJ(0.6, 0.12, y)) : 0.85); } // [v18] a robe's skirts below the knee hang (the legs push them: humanVS); turned rigidly with the thigh, a runner's hem swung 0.6 m out at its sides
           return { bone, w, mat: matId, bit: WBIT[bit], ao: flip ? 0.45 : 0.9 + 0.1 * (y - yb) / (1 - yb), u: th / TAU, v: y };
         },
       });
@@ -1336,22 +1336,40 @@ function humanVS(depth) {
     if (bone == 9 || bone == 10) { float w = bone == 9 ? aW : 1.0; rotP(rotZ(spreadR * w) * rotX(thR * w), ${HSK.HIR}); }
     // [look] cloth over the legs (a robe, a short skirt, a tabard's flaps) is pushed out ahead of a leg that has come
     // forward and behind one that has gone back: the middle of a robe follows neither thigh (they share it), so a
-    // striding or guarding leg came through it from the hip to the boot, and a knee through a tabard
+    // striding or guarding leg came through it from the hip to the boot, and a knee through a tabard.
+    // [v18] It hangs from the leg: at each height the cloth clears the farthest the leg reaches forward (or back) at that
+    // height or above it (the thigh, the shin, the heel; below the foot it hangs straight down from it), and the push
+    // falls away to either side of the leg as a tent of cloth does. The leg's line was extended below the knee to any
+    // depth (tan of the shin's angle, to 3.6), so at a run the hem under a raised knee was pushed 2.9 m out ahead and
+    // behind, and only over the leg (the next hem vertex not at all): long spikes of cloth at every stride. Past the
+    // cloth's slack the leg lifts it instead (the hem rides up the shin), as a robe flies up on a runner.
     if (aBit > 10.5 && !arm && P.y < ${(SK.hip[1] - 0.02).toFixed(3)}) {
       int cb = int(aBit + 0.5);
       if (cb == ${WBIT.robe} || cb == ${WBIT.tabard} || cb == ${WBIT.skirt}) {
+        float room = cb == ${WBIT.tabard} ? 0.125 : 0.1, dz = 0.0;
         for (int sd = 0; sd < 2; sd++) {
           float th = sd == 0 ? thL : thR, sh = sd == 0 ? shL : shR, lx = sd == 0 ? ${SK.hip[0].toFixed(4)} : ${(-SK.hip[0]).toFixed(4)};
-          float kx = 1.0 - smoothstep(0.07, 0.19, abs(P.x - lx));
-          if (kx <= 0.0) continue;
-          float hy = ${SK.hip[1].toFixed(4)}, L1 = ${Math.hypot(SK.hip[1] - SK.knee[1], SK.knee[2] - SK.hip[2]).toFixed(4)}, ky = hy - L1 * cos(th), kz = -L1 * sin(th);
-          // the leg's line at this height: the thigh above the knee, the shin below it
-          float zl = P.y > ky ? -(hy - P.y) * tan(clamp(th, -1.3, 1.3)) : kz - (ky - P.y) * tan(clamp(th + sh, -1.3, 1.3));
-          // its front and back surfaces there, with a little room (a tabard a little more, so it stays over the robe)
-          float room = cb == ${WBIT.tabard} ? 0.125 : 0.1;
-          if (position.z > 0.0) { float need = zl + room; if (P.z < need) P.z = mix(P.z, need, kx); }
-          else { float need = zl - room; if (P.z > need) P.z = mix(P.z, need, kx); }
+          float dx = abs(P.x - lx);
+          if (dx > 0.36) continue;
+          float hy = ${SK.hip[1].toFixed(4)}, L1 = ${Math.hypot(SK.hip[1] - SK.knee[1], SK.knee[2] - SK.hip[2]).toFixed(4)}, L2 = ${Math.hypot(SK.knee[1] - SK.ankle[1], SK.ankle[2] - SK.knee[2]).toFixed(4)};
+          float ky = hy - L1 * cos(th), kz = -L1 * sin(th), ay = ky - L2 * cos(th + sh), az = kz - L2 * sin(th + sh);
+          // the leg's reach forward (fz) and back (bz) at this height or above: hip, knee, ankle (a heel a little past it),
+          // and where the thigh and the shin cross this height
+          float y = P.y, fz = 0.0, bz = 0.0;
+          if (ky >= y) { fz = max(fz, kz); bz = min(bz, kz); }
+          if (ay >= y) { float hz = az - 0.06 * sin(th + sh + 1.5708); fz = max(fz, max(az, hz)); bz = min(bz, min(az, hz)); }
+          if ((hy - y) * (ky - y) < 0.0) { float z = mix(0.0, kz, (hy - y) / (hy - ky)); fz = max(fz, z); bz = min(bz, z); }
+          if ((ky - y) * (ay - y) < 0.0) { float z = mix(kz, az, (ky - y) / (ky - ay)); fz = max(fz, z); bz = min(bz, z); }
+          // a tent of cloth: the push falls away 2 m a metre to either side of the leg
+          float fall = 2.0 * max(0.0, dx - 0.06);
+          if (position.z > 0.0) dz = max(dz, fz + room - fall - P.z);
+          else dz = min(dz, bz - room + fall - P.z);
         }
+        // the cloth's slack: it is pushed out so far (a robe's skirts most), and past that a leg reaching farther lifts it
+        // (a runner's front foot came down 0.8 m ahead of the hips with the hem stretched out over it to the toe)
+        float slack = cb == ${WBIT.robe} ? 0.24 : cb == ${WBIT.skirt} ? 0.12 : 0.1, adz = abs(dz);
+        P.z += sign(dz) * min(adz, slack);
+        P.y += min(max(adz - slack, 0.0), 0.35);
       }
     }
     // [motion] the hips' twist and sway carry the body above the legs (the tops of the thighs blend in): they swung
@@ -1364,6 +1382,9 @@ function humanVS(depth) {
     if (mounted > 0.5 && slopeK != 0.0) rotP(rotX(-atan(slopeK)), vec3(0.0, 0.86 - 1.62 / max(iColA.w, 0.3), 0.0)); // [polish] tilted with the horse on a slope (beastLeanYaw)
     if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
     if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
+    // [v18] a robe's hem stays on the floor's side of it (a runner's bob and a kneel took it 7 cm and more into the ground):
+    // on the slope along the body, as the feet are (slopeK); not lying dead, in the water or in a saddle
+    if (aBit > 10.5 && int(aBit + 0.5) == ${WBIT.robe} && death <= 0.0 && swimPitch == 0.0 && mounted < 0.5) P.y = max(P.y, slopeK * P.z + 0.025);
 
     float sc = iColA.w;
     P *= sc;

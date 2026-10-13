@@ -1,12 +1,39 @@
 # The Hallowmarch: project handoff
 
-**Status, 2026-10-13:** Version 17 is merged on `main` and published. Campaigns are won in the field: a keep taken is held (its takers keep the court, a named column marches from the muster to fill its posts, two guards mend a broken gate), the commanders hold what they took and press for a fourth keep, the two behind make common cause against a leader, and the peace clears the field before a new campaign; on the merged build two campaigns at low were won by keeps after 39 minutes and by hallows after 27. The callings were measured on whole ground at last (the duel arenas' craters had never been undone since version 14) and tuned again: 23 and 20 of the 24 shares within the band in two runs. Veterans of 45 and more can break the seal under the Hollow King's hall into the Deep Barrow (a cistern that floods, pitch that burns, slabs that break, Vorlach the Ash-Crowned), and a veteran is seen by the mantle of its name, its horse's barding and the device on its standard. The world was looked at again (risen camps, wisps, holy ground in the grass, houses rebuilt lift by lift, masons in a war, the phone's long pages folded, a HUD laid out only when something changes). The whole suite (`tools/tests/*.py`, `tools/soak.py 10`, `tools/campaign_soak.py 60` at low and medium) was run on the merged build.
+**Status, 2026-10-13:** Version 18 is merged on `main` and published.
 
-**Open points (see the Roadmap, row 67):** a fallen keep still has a median of one guard left, its gate mended without a scaffold, columns only from the muster; the callings still out of the band (the skilled priest of 10, the simple priest and mage of 10, the simple warrior against the simple archer, the skilled archer against the skilled priest at 30 and 50, the priests' realm ways, a veteran's boons in a priests' mirror) and the deep's lord brought down by a priest far faster than by the rest; the risen with one move each and no wind-up for beasts, no roaming risen past 40, a standard that reads small, the deep's state not saved past its seal and chests; a burh's burnt walk that reads as a smear at small sizes; a few checks that fail now and then (`classes.py`'s storm through the wet, `water.py`'s wolf in deep water, `siege3.py`'s crew scenes, `music.py`'s fight's end, `loot.py`'s level 35 ratio). This Interego record begins a new chain at version 17 on the pod the connector signs in to now (the record of versions up to 15 is on the pod it signed in to before; at version 16 it could not sign in).
+- **The war's holds are real.** A broken gate is mended behind a scaffold by the keep's masons and hung at full strength. A thinned keep sends for a column from the realm's nearest keep. Garrisons sally only when it pays, and a pact keeps faith in the field. No campaign is won before its twentieth minute, and soldiers no longer stand penned in towers and on walls.
+- **The callings are within the aim where version 17 left them out.** Blunt arrows break a spell only from a full draw. A young priest's spell is paused by a stun, not broken. The Ash-Crowned's crown of ash turns holy light, and the measures are steadier.
+- **The late game is alive.** Risen bears rear and wolves crouch. Every risen kind has a second move, and champions are marked by embers. Hosts of the risen roam the frontier past 40. The veteran's standard is a swallow-tailed one, and the Deep Barrow remembers its state and has its own air.
+- **The world was looked at again.** The deep's pitch is drawn, its seal and floors smoulder, the broken gate's leaf lies against the passage, and How to play fits one screen on a small phone.
+- **The owner's reports while fitting were put right:**
+  - Robes and tabards no longer stretch far out at a run.
+  - Storm cloud hides the moon and stars.
+- **Testing.** The whole suite ran on the merged build: `tools/tests/*.py`, `tools/soak.py 10`, `perf.py ... budget`, and campaign soaks at low and medium.
+
+**Open points (see the Roadmap, row 72).** The owner has asked for:
+- Every way of working the land made needed and valuable, with loops within and between the realms.
+- Multiplayer on a spectrum up to a persistent March of many players, with accounts and saves. The server would go on the owner's Railway once that is connected.
+- Real clouds and weather systems.
+- No snow inside buildings.
+- No walking leg left in the air.
+- Weapons held as weapons.
+- Cinderwing's death pose fixed.
+- A measured answer on WASM.
+
+Also open:
+- At low, campaigns now run to the hour's renown rule.
+- At medium, the forest and siege views go over the call budget.
+- The skilled archer's margin against the Ash-Crowned is thin.
 
 **Where things are**
 - Source: https://github.com/markjspivey-xwisee/hallowmarch (private), branch `main`. Every feature branch so far is merged.
 - Live build: https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T (Claude artifact).
 - The repository's `CLAUDE.md` holds the same notes as below and is the copy to edit. This record mirrors it at each milestone.
 
-**How to help:** read the requirements and conventions below, then pick up the first unfinished item on the roadmap. Test through `window.__hm` with the harness in `tools/`, push to a feature branch to be merged, and update this record when you finish a piece of work.
+**How to help:**
+1. Read the requirements and conventions below.
+2. Pick up the first unfinished item on the roadmap.
+3. Test through `window.__hm` with the harness in `tools/`.
+4. Push to a feature branch to be merged.
+5. Update this record when you finish a piece of work.

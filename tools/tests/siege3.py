@@ -154,6 +154,7 @@ async def deck(page):
 async def gate(page):
     r = await ev(page, 'gate: burn', """(() => { T3.quiet(); T3.away(); T3.dry(); const { K, C } = T3.burh(1), G0 = C.gate, D = K.door, out = {}, F = T3.F; K.lastEnemyNear = __hm.GAME.t;
       T3.clearGarrison(K);
+      if (__hm.war4) { T3.reliefN = __hm.war4.W4.RELIEF_N; __hm.war4.W4.RELIEF_N = -1; } /* [v18] (war4's relief column, sent for a garrison cleared away, beat the fire out as it came in by the gate) */
       D.alive || F.setDoorState && 0; out.alive0 = D.alive; out.hp0 = D.hp;
       const P = __hm.GAME.player, p = F.siteToWorld(K.site, 0, G0.gz + 0.6);
       out.lit = T3.Z.gateFireAt(p.x, K.site.y + 1.5, p.z, 1.2, P); out.burning = !!G0.bz.burn;
@@ -167,7 +168,8 @@ async def gate(page):
     check(not r['alive'] and not r['coll'] and r['wreck'], f"gate: it burns down in {r['t'] + 15} s: everyone may pass, its charred wreck lies in the gateway")
     check(any('burnt down' in n for n in r['news']), f"gate: the news tells it burnt down ({r['news']})")
     r = await ev(page, 'gate: rebuilt', """(() => { const K = T3.gK, C = T3.C(K), G0 = C.gate, D = K.door, out = {}; T3.peace(K); D.deadAt = -1e9;
-      const t = T3.until(() => D.alive, 120, 1); __hm.simulate(1); out.t = t; out.alive = D.alive; out.down = G0.bz.down; out.leafMat = G0.leaves[0].material === G0.bz.leafMats[0]; out.wreck = G0.wreck.visible; return out; })()""")
+      const t = T3.until(() => D.alive, 120, 1); __hm.simulate(1); out.t = t; out.alive = D.alive; out.down = G0.bz.down; out.leafMat = G0.leaves[0].material === G0.bz.leafMats[0]; out.wreck = G0.wreck.visible;
+      if (__hm.war4 && T3.reliefN !== undefined) __hm.war4.W4.RELIEF_N = T3.reliefN; return out; })()""")
     check(r['alive'] and not r['down'] and r['leafMat'] and not r['wreck'], f"gate: in peace the keep hangs new leaves ({r['t']} s)")
 
 async def temple(page):

@@ -237,10 +237,14 @@ function applyWeather() {
   L.multiplyScalar(dim);
   A.multiplyScalar(1 - 0.12 * oc - 0.2 * st);
   // clouds close in; the sun's disc and shadows fade behind them
-  skyU.uCloudCover.value = lerp(skyU.uCloudCover.value, 0.95, oc * 0.85);
-  skyU.uSunVis.value *= 1 - 0.85 * oc;
-  skyU.uMoonVis.value *= 1 - 0.85 * oc;
-  skyU.uStars.value *= 1 - oc;
+  // [v18] uCloudCover is the noise's threshold for cloud (the sky, the water's mirror and the aurora draw cloud where the
+  // noise is above it): overcast lowers it, so the sky closes over. It raised it toward 0.95, so the clouds thinned away
+  // as the rain set in, and the moon and the stars shone through a storm (they kept 15% of their light under it)
+  skyU.uCloudCover.value = lerp(skyU.uCloudCover.value, 0.04, oc * 0.92);
+  const hid = (1 - oc) * (1 - oc);
+  skyU.uSunVis.value *= hid;
+  skyU.uMoonVis.value *= hid;
+  skyU.uStars.value *= hid;
   for (const v of [skyU.uCloudLit.value, skyU.uCloudShade.value]) { grey(v); v.multiplyScalar(1 - 0.3 * oc - 0.35 * st); }
   for (const v of [U.uZenith.value, U.uHorizon.value]) { grey(v); v.multiplyScalar(1 - 0.22 * oc - 0.3 * st); }
   U.uSunGlow.value.multiplyScalar(1 - 0.8 * oc);
