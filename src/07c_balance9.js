@@ -16,6 +16,7 @@ const B9T = {
   burstRing: true, // [bots] a risen troll's stone-burst under a foe that keeps off (10l_late.js) is a ring that stuns: the skilled bots step out of it as out of the wrath, a caster letting its spell go (they finished their spell and took it: Hrungnir Moss-Crown brought a skilled mage of 50 to 14% with two draughts)
   priestRealm: { logresBless: 0.96, logresGround: 0.96, eriuHot: 0.016 }, // [priest] the realms' ways evened out again (PRIEST_REALM: 0.94, 0.94, 0.012): against a priest of no realm's way the Shield of Logres won 17 to 23 of 24, the Well of Ériu 8.5 to 14, the Hearth of Thule 8 to 18.5 (version 17)
   priestBowSpent: true, // [priest bot] a skilled priest casts again at once after a bow broke its spell, while the bow has no Aimed Shot or Deadeye coming (it waited 3 s after any broken spell)
+  wordDraw: true, // [archer bot] a foe of the deep begins a long spell of its own (the Ash-Crowned's Ember Word, a pyre-keeper's Kindle): the skilled archer draws a blunt head at once (it drew only between its other shots, and with a quick shot's blunt head no longer breaking a spell it broke 1 Word in 7 at 45, where version 17's bow broke 4 in 7 and brought him down)
 };
 
 /* ------------------------------------------------------------------ */
@@ -65,6 +66,24 @@ function archerHeavyBlunt(e, t, id) {
   if (botUseAny(e, id, t)) { BAL9.stats.heavyBlunt++; return true; }
   cs.arrow = was;
   return false;
+}
+
+// botArcher asks first (07c_balance.js): a foe in the middle of a long spell of its own (`casting.custom`: the Ash-Crowned's
+// Ember Word, 2.8 s, 2.2 in his fury; a pyre-keeper's Kindle; no calling's spell is one, so the duels never meet it) with
+// time for a full draw and the arrow's flight: draw a blunt head now, as a player who has read the Deep's page does
+function archerWordDraw(e, t) {
+  if (!B9T.wordDraw || !B9T.bluntHeavy || !t || !t.casting || !t.casting.custom || !e.bot || !clsHas(e, 'draw') || !clsHas(e, 'arrows')) return false;
+  if (!castBreakable(t, drawFull(e) + 0.6) || dist(e.x, e.z, t.x, t.z) > e.rangedRange + 2 || e.power <= 6) return false;
+  const P = e === GAME.player, cs = csOf(e);
+  if (P && !goodsHave(ARROW_DEF.blunt.good, 1)) return false;
+  const was = cs.arrow;
+  cs.arrow = 'blunt';
+  faceToward(e, t.x, t.z);
+  if (P) classHold(true); else startDraw(e);
+  if (cs.drawFrom < 0) { cs.arrow = was; return false; }
+  e.bot.drawTo = GAME.t + drawFull(e) + 0.6; e.bot.next = GAME.t + 0.2;
+  BAL9.stats.wordDraws = (BAL9.stats.wordDraws || 0) + 1;
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -168,5 +187,5 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal9 = { BAL9, B9T, bluntBreak, bluntFullShot, bluntWorth, archerHeavyBlunt, priestCutSpentBow, priestMaceHold, lordHolyK, lordNoDazzle, stunKeepsCast, stunBreak, priestSteadyFirst };
+  window.__hm.bal9 = { BAL9, B9T, bluntBreak, bluntFullShot, bluntWorth, archerHeavyBlunt, archerWordDraw, priestCutSpentBow, priestMaceHold, lordHolyK, lordNoDazzle, stunKeepsCast, stunBreak, priestSteadyFirst };
 }, 0);

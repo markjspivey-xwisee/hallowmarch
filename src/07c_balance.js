@@ -442,6 +442,7 @@ function botArcher(e, t) {
   const want = botArcherArrow(e, t);
   if (want !== cs.arrow) { if (P) { if (want === 'plain' || goodsHave(ARROW_DEF[want].good, 1)) cs.arrow = want; } else cs.arrow = want; }
   if (cs.drawFrom >= 0) return false; // the reflex looses it
+  if (archerWordDraw(e, t)) return true; // [balance9] a foe of the deep in a long spell of its own: a blunt head drawn now (07c_balance9.js)
   const d = dist(e.x, e.z, t.x, t.z);
   const p = archerPresser(e, 9); // [balance6] (07c_balance6.js)
   if (p) {
