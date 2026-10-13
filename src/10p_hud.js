@@ -20,6 +20,9 @@ const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-pa
 // there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
 // most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
 // do not jump at every toast
+// [look5] an upright phone: the path tracker (what to do next) straight after the target frame: with the plant card and the
+// companion bar up it waited out of sight (the class panel waits or takes the next free place instead)
+const HUD_ORDER_TALL = ['#buildbar', '#farmcard', '#breath', '#tf', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#banners', '#zonetoast'];
 const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#lore-path', '#petbar', '#war', '#bounty', '#zonetoast']; // an upright phone: the class panel and the path keep their places (the war panel moved over the path's)
 const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames, the path in its place
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
@@ -94,7 +97,7 @@ function hudLayout(dt) {
   // a few seconds besides; hudKey read every panel's size four times a second
   if (HUDL5.ro) { if (renderTime > HUDL5.wake) { HUDL5.wake = Infinity; HUDL5.dirty = true; } if (!asked && !HUDL5.dirty && HUDL.t > 0) return; }
   else { const key = hudKey(W, H, touch); if (key === HUDL.key && HUDL.t > 0) return; }
-  HUDL5.dirty = false; HUDL5.passes++;
+  HUDL5.dirty = false; HUDL5.passes++; if (HUDL5.whys.length < 40) HUDL5.whys.push(asked ? 'asked' : HUDL5.why || 'timer'); HUDL5.why = '';
   HUDL.t = HUDL5.ro ? 5 : 1;
   const t0 = performance.now();
   hudReset();
@@ -177,7 +180,7 @@ function hudLayout(dt) {
     placed.push({ ...c, sel });
   };
   const noteUp = mode !== 'desk' && !!document.querySelector('#banners > .lore-note:not(.hl-old)'); // [guide]
-  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? (mode === 'wide' ? HUD_ORDER_NOTE_WIDE : HUD_ORDER_NOTE) : HUD_ORDER) {
+  for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? (mode === 'wide' ? HUD_ORDER_NOTE_WIDE : HUD_ORDER_NOTE) : mode === 'tall' ? HUD_ORDER_TALL : HUD_ORDER) { // [look5] HUD_ORDER_TALL
     const el = document.querySelector(sel);
     if (!el || !hudShown(el)) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)
@@ -186,9 +189,10 @@ function hudLayout(dt) {
     // the zone's name, only while it shows ([v9] and while it fades: it keeps the place it had)
     if (sel === '#zonetoast' && !el.classList.contains('on') && +getComputedStyle(el).opacity < 0.05) continue;
     let r = measure(sel, el);
-    { const hr = hudHeld(sel, r); if (hr !== r && free(hr)) { placed.push({ ...hr, sel }); continue; } } // [look5] it keeps its taller place a while: the panels under it stay put
+    const hr = hudHeld(sel, r); // [look5] it keeps its taller place a while: the panels under it stay put (wherever it is placed)
+    if (hr !== r && free(hr)) { placed.push({ ...hr, sel }); continue; }
     if (free(r)) { placed.push({ ...r, sel }); continue; }
-    let c = seek(sel, r);
+    let c = (hr !== r && seek(sel, hr)) || seek(sel, r);
     if (!c && sel === '#banners' && el.children.length > 1) { // [guide] a toast and a note together do not fit an upright phone: the newest shows, the older wait
       for (const k of [...el.children].slice(0, -1)) k.classList.add('hl-old');
       r = measure(sel, el);
@@ -234,16 +238,17 @@ function hudLayout(dt) {
 // place for a few seconds (HUD_HOLD_T), so the panels under it do not move up and back down every time it gains and
 // loses one (the companion bar under the class panel moved 18 to 24 px every few seconds; a tap could land on the
 // button under the one aimed at); it gives the room back once its height has held that long.
-const HUDL5 = { ro: null, mo: null, dirty: true, wake: Infinity, passes: 0, hold: new Map(), held: 0 };
+const HUDL5 = { ro: null, mo: null, dirty: true, wake: Infinity, passes: 0, hold: new Map(), held: 0, why: '', whys: [] };
 const HUD_HOLD = new Set(['#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#farmcard']), HUD_HOLD_T = 6;
 const HUD_WATCH = [...HUD_ORDER, '#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#tpad', '#joyhint', '#prompt', '#castbar', '#log', '#bottom'];
 function hudWatch() {
   if (HUDL5.ro !== null || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return;
   const els = HUD_WATCH.map((s) => document.querySelector(s)).filter(Boolean);
   if (els.length < 6) return; // (the HUD is not built yet)
-  HUDL5.ro = new ResizeObserver(() => { HUDL5.dirty = true; });
+  // (a size that changed by less than a pixel, a number in a panel ticking, is no change to its place)
+  HUDL5.ro = new ResizeObserver((es) => { for (const en of es) { const r = en.contentRect, k = en.target, o = k._l5sz; if (!o || Math.abs(o[0] - r.width) > 0.75 || Math.abs(o[1] - r.height) > 0.75) { k._l5sz = [r.width, r.height]; HUDL5.dirty = true; HUDL5.why = (k.id || k.className) + ':size'; } } });
   const noise = (m) => m.attributeName === 'class' && String(m.oldValue || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim() === String(m.target.className || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim();
-  HUDL5.mo = new MutationObserver((list) => { for (const m of list) if (m.type === 'childList' || !noise(m)) { HUDL5.dirty = true; return; } });
+  HUDL5.mo = new MutationObserver((list) => { for (const m of list) if (m.type === 'childList' || !noise(m)) { HUDL5.dirty = true; HUDL5.why = (m.target.id || String(m.target.className).slice(0, 24)) + ':' + (m.attributeName || m.type); return; } });
   for (const el of els) {
     HUDL5.ro.observe(el);
     HUDL5.mo.observe(el, { attributes: true, attributeFilter: ['class', 'hidden'], attributeOldValue: true, childList: el.id === 'banners' || el.id === 'tpad', subtree: el.id === 'banners' || el.id === 'tpad' });

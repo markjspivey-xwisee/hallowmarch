@@ -401,13 +401,15 @@ function houseScafWorkSpot(H, side, k = 0) {
   // by the house (a bench, barrels: a yard's things) and of the standards
   const skip = new Set(H.coll);
   let cands = [];
-  if (H.round) for (const a of [1.65, 2.2, 1.1, 2.75]) for (const sd of [side, -side]) cands.push([Math.sin(sd * a), Math.cos(sd * a), H.r]);
+  // [look5] more places along each wall, so a stint can move on from the last (k: its stints so far; they hammered one
+  // wall each at one spot)
+  const AS = k ? [1.65, 2.2, 1.1, 2.75, 1.4, 1.92, 2.48] : [1.65, 2.2, 1.1, 2.75], ZS = k ? [-0.15, 0.1, -0.35, 0.3, -0.05, 0.2, -0.25, 0.38, -0.42] : [-0.15, 0.1, -0.35, 0.3];
+  if (H.round) for (const a of AS) for (const sd of [side, -side]) cands.push([Math.sin(sd * a), Math.cos(sd * a), H.r]);
   else {
-    for (const sd of [side, -side]) for (const z of [-0.15, 0.1, -0.35, 0.3]) cands.push([sd, 0, H.w / 2, z * H.d]);
+    for (const sd of [side, -side]) for (const z of ZS) cands.push([sd, 0, H.w / 2, z * H.d]);
     for (const x of [0, 0.25, -0.25]) cands.push([0, -1, H.d / 2, x * H.w]);
   }
-  // [look5] each stint at the next place along its own side (k: its stints so far): they hammered one wall each at one spot
-  if (k) { const own = cands.filter((c, i) => (H.round ? i % 2 === 0 : i < 4)), n = k % own.length; cands = [...own.slice(n), ...own.slice(0, n), ...cands.filter((c) => !own.includes(c))]; }
+  if (k) { const own = cands.filter((c, i) => (H.round ? i % 2 === 0 : i < ZS.length)), n = (k * 3) % own.length; cands = [...own.slice(n), ...own.slice(0, n), ...cands.filter((c) => !own.includes(c))]; }
   for (const c of cands) {
     let l, f;
     const o = HAMMER_REACH; // [motion5] as far from the wall's face as the mallet reaches (05a_rig.js action 23): at 0.5 m it struck 22 cm into the wall

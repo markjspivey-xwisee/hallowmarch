@@ -1317,6 +1317,28 @@ window.LK = {
     L.away(S.x + 60, S.z + 60);
     return { ...L.cam(c.x, F.heightAt(c.x, c.z) + 2.6, c.z, (a.x + b.x) / 2, men[1].y + 0.8, (a.z + b.z) / 2), ys: men.map((e) => +(e.y - F.heightAt(e.x, e.z)).toFixed(2)), st: W.state };
   });
+  // a builder up on a house's scaffold, hammering at the wall from its boards (13z_look5.js look5ScafStep): a house with
+  // people of its own, its walls high enough for the boards' work
+  D('look5', 'house_up', (L) => {
+    const H = L.H, F = L.F, Rb = H.rubble, S = H.REALMS[0].town;
+    if (!L.l5up) {
+      const hs = S.houses.map((h) => h.rec).filter((h) => h && !h.keepHall && h.state === 'whole' && h.residents && h.residents.length);
+      hs.sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z));
+      const A = hs[1] || hs[0]; H.war2.HCREW.off = true; H.batter.houseBreak(A, null); sim(L, 2); A.stT = 1e4; sim(L, 0.3); L.l5up = A;
+    }
+    const A = L.l5up, Q = Rb.HSCAF.list.get(A); if (!Q) return { skip: 'no scaffold' };
+    const full = (A.round ? A.wallH : A.wallH + A.rh) + 0.1, at = (lv) => lv / full * 0.6 * 70, Ld = Q.l3.ladders.find((q) => q.k === 0);
+    let up = null;
+    L.away(A.x + 30, A.z + 30);
+    for (let t = 0; t < 160 && !up; t += 0.5) {
+      if (A.state !== 'scaffold') break;
+      A.stT = Math.min(Math.max(A.stT, at(Q.lifts[0] + 1.3)), at(full - 0.5)); sim(L, 0.5);
+      up = A.residents.map(F.getEnt).find((b) => b && b.alive && !b.motion && b.y > Ld.wyb + 1 && b.anim.act === 23) || null;
+    }
+    if (!up) return { skip: 'nobody up', st: A.state };
+    const fx = Math.sin(up.yaw), fz = Math.cos(up.yaw), sx = Math.cos(up.yaw), sz = -Math.sin(up.yaw);
+    return { ...L.cam(up.x - fx * 2.6 + sx * 2.4, up.y + 1.6, up.z - fz * 2.6 + sz * 2.4, up.x + fx * 0.4, up.y + 1.2, up.z + fz * 0.4), y: +(up.y - Ld.wyb).toFixed(2), act: up.anim.act, lift: +(Ld.wyt - Ld.wyb).toFixed(2) };
+  });
   // builders at a house being built back: a fallen house of Brackenford a third of the way through, from its street
   D('look5', 'house_builders', (L) => {
     const A = L.felled(0, 2), H = L.H;

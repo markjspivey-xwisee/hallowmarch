@@ -297,4 +297,5 @@ function look5BandNames(ctx, S, P) {
   return C.m;
 }
 
+queueMicrotask(() => { if (window.__hm && window.__hm.hud) Object.assign(window.__hm.hud, { HUDL5, hudHeld, hudWatch, HUD_HOLD }); });
 queueMicrotask(() => { if (window.__hm) window.__hm.look5 = { LOOK5, look5InColl, look5WispCol, look5Frame, look5BandNames, look5HouseLifts, look5ScafUpPlan, look5BoardSpot, look5MasonsAgain, look5MasonsInPlace, look5HelpHTML, look5DeskHelpHTML, look5PhoneHelp }; });
