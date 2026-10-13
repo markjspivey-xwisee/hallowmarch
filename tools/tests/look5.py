@@ -86,7 +86,9 @@ async def main():
         if want('hallow'):
             r = await ev(page, """(() => { const H = L5.H, F = L5.F, P = L5.P(); L5.calm(); const C = H.cls; try { C.csOf(P).dev = 80; } catch (e) { /* */ } H.UI.modal = null;
               const ok = C.consecrate(P); H.simulate(0.6); H.frame(1/30); const U = H.dbg.U, a = { n: U.uHallowN.value, h: U.uHallow.value[0].toArray().map((v) => +v.toFixed(2)), c: U.uHallowC.value[0].toArray().map((v) => +v.toFixed(2)), at: [+P.x.toFixed(2), +P.z.toFixed(2)] };
+              a.bad = H.dbg.renderer.info.programs.filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name); a.progs = H.dbg.renderer.info.programs.length;
               H.simulate(13); H.frame(1/30); a.after = U.uHallowN.value; H.UI.modal = 'menu'; return a; })()""", 'holy ground')
+            check(not r['bad'], f"its disc and the grass drawn with it: no program that does not compile ({r['bad']}; {r['progs']} programs)")
             check(r['n'] == 1 and abs(r['h'][0] - r['at'][0]) < 0.6 and abs(r['h'][1] - r['at'][1]) < 0.6 and abs(r['h'][2] - 6.5) < 0.01 and r['h'][3] > 0.8, f"holy ground near the camera fills the grass's light: {r['h']} (the priest at {r['at']}), its colour {r['c'][:3]}")
             check(r['after'] == 0, 'and empties it when the ground is gone')
 
