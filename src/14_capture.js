@@ -882,11 +882,11 @@ function capPointer(e) {
       return;
     }
     if (!C.drag || C.mode === 'follow' || (C.play && C.mode === 'path')) return;
-    const k = (C.cam.fov / 55) * 0.0042;
-    C.aim.yaw -= (e.clientX - C.drag.x) * k;
-    C.aim.pitch = clamp(C.aim.pitch - (e.clientY - C.drag.y) * k, -1.5, 1.5);
+    const k = (C.cam.fov / 55) * 0.0042, dx = e.clientX - C.drag.x, dy = e.clientY - C.drag.y;
     C.drag = { x: e.clientX, y: e.clientY };
-    if (C.mode === 'orbit') { C.orbit.a -= (e.clientX - C.drag.x) * 0.004; }
+    if (C.mode === 'orbit') { C.orbit.a -= dx * 0.004; C.orbit.h = clamp(C.orbit.h + dy * 0.05, -20, 80); return; }
+    C.aim.yaw -= dx * k;
+    C.aim.pitch = clamp(C.aim.pitch - dy * k, -1.5, 1.5);
   } else {
     if (C.ptrs) C.ptrs.delete(e.pointerId);
     if (!C.ptrs || C.ptrs.size < 2) C.pinch = null;
@@ -1093,6 +1093,14 @@ if (window.__hm) {
     tod: capTod, weather: capWeather, season: capSeason, bolt: capLightning, mode: capMode, rate: capRate, render: capRender, frameRect: capFrameRect,
     // one frame of a film: the world's step and the camera's move of 1/fps, then drawn
     step(dt = 1 / 24) { try { tick(dt); } catch (err) { reportError(err); } return 0; },
+    // the same without drawing (tests: the clock, the world and the camera as a frame moves them)
+    think(dt = 1 / 24) {
+      const w = captureDt(dt);
+      if (UI.modal !== 'menu') { let rest = Math.min(w, 0.1); while (rest > 1e-4) { const q = Math.min(rest, 0.05); try { simStep(q); } catch (err) { reportError(err); } rest -= q; } }
+      renderTime += w; U.uTime.value = renderTime;
+      captureCamera();
+      return 0;
+    },
     shots() { return CAP_SHOTS.map((s) => ({ id: s.id, name: s.name, line: s.line, dur: s.dur, need: s.need ? s.need() : '' })); },
     state() { const C = CAPTURE, c = C.cam; return { on: C.on, mode: C.mode, play: C.play, pt: +C.pt.toFixed(3), dur: C.dur, k: C.k, shot: C.shot, keys: C.keys.length, hide: C.hideMe, cam: [c.x, c.y, c.z, c.yaw, c.pitch, c.roll, c.fov].map((v) => +v.toFixed(3)), modal: UI.modal, hud: !$('hud').hidden, made: C.made.filter((e) => !e.removed).length, stats: { ...C.stats } }; },
   };

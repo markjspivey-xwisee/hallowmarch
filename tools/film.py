@@ -13,6 +13,9 @@ usage: python3 tools/film.py [shots=a,b,...|all] [look] [w=960] [h=540] [q=mediu
   stills=id:variant,...: a still of a shot's first frame with a variant laid on it: a season (spring, summer, autumn,
   winter), a time of day (dawn, day, golden, dusk, night) or a weather (clear, haze, rain, storm, snow, mist); written to
   tools/out/film/<tag>/still_<id>_<variant>.png.
+  score: the trailer's score from the game's own procedural music (src/11b_music.js, rendered offline: a mood, or a
+  stinger, a segment), its segments laid end to end with crossfades of 0.8 s to the trailer's chapters
+  (`SCORE`), as tools/out/film/<tag>/score.m4a (AAC).
   Under SwiftShader a frame at 960x540 takes about 3 s at low, 6-9 s at medium and 8-13 s at high (two browsers at once
   are no faster: it uses both CPUs)."""
 import asyncio, base64, io, json, os, pathlib, subprocess, sys, time
@@ -129,6 +132,36 @@ async def film(page, sid):
             if f.name not in ('f0000.jpg',): f.unlink()
     return mp4
 
+# the trailer's chapters and the mood under each: (mood or stinger, seconds, the battle's heat)
+SCORE = [('title', 5.56, None), ('logres', 5.33, None), ('eriu', 5.33, None), ('thule', 5.33, None), ('frontier', 5.33, None), ('battle', 26.45, 1),
+         ('title', 10.33, None), ('frontier', 5.33, None), ('barrow', 10.67, None), ('title', 5.56, None), ('victory', 7.0, None)]
+XF = 0.8
+
+async def score(page):
+    parts = []
+    for i, (what, secs, heat) in enumerate(SCORE):
+        o = {'wav': True, 'vol': 0.9}
+        if heat is not None: o['heat'] = heat
+        r = json.loads(await page.evaluate(f"__hm.music.render('{what}', {secs + (XF if i < len(SCORE) - 1 else 0):.2f}, {json.dumps(o)}).then((r) => JSON.stringify(r))"))
+        f = OUT / f'score_{i:02d}_{what}.wav'
+        f.write_bytes(base64.b64decode(r['wav']))
+        # each segment brought to a level of its own (the moods come out 18 dB apart): the battle and the last stinger louder
+        want = -19.0 if what in ('battle', 'victory') else -22.0
+        parts.append((f, want - r['rmsDb']))
+        log('score', what, f'{secs} s', 'peak', r['peakDb'], 'dB, rms', r['rmsDb'], 'dB')
+    # laid end to end with crossfades, a gentle fade at the very end
+    inputs = sum((['-i', str(f)] for f, _ in parts), [])
+    chain = [f'[{i}:a]volume={g:.1f}dB[g{i}]' for i, (_, g) in enumerate(parts)]
+    last = '[g0]'
+    for i in range(1, len(parts)):
+        out = f'[x{i}]'
+        chain.append(f'{last}[g{i}]acrossfade=d={XF}:c1=tri:c2=tri{out}')
+        last = out
+    total = sum(x[1] for x in SCORE)
+    chain.append(f'{last}afade=t=out:st={total - 2.5:.2f}:d=2.5,alimiter=limit=0.89[out]')
+    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', *inputs, '-filter_complex', ';'.join(chain), '-map', '[out]', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', str(OUT / 'score.m4a')], check=True)
+    log('score ->', (OUT / 'score.m4a').name, f'{total:.1f} s')
+
 VARIANT = {'spring': 'season', 'summer': 'season', 'autumn': 'season', 'winter': 'season', 'dawn': 'tod', 'day': 'tod', 'golden': 'tod', 'dusk': 'tod', 'night': 'tod', 'after': 'tod',
            'clear': 'weather', 'haze': 'weather', 'rain': 'weather', 'storm': 'weather', 'snow': 'weather', 'mist': 'weather'}
 
@@ -149,7 +182,7 @@ async def main():
         log('started; the war has run 30 s')
         shots = json.loads(await page.evaluate("JSON.stringify(__hm.capture.shots())"))
         want = opt('shots')
-        ids = [s['id'] for s in shots] if (want in (None, 'all') and not opt('stills')) else ([] if want is None else want.split(','))
+        ids = [s['id'] for s in shots] if (want in (None, 'all') and not opt('stills') and 'score' not in FLAGS) else ([] if want is None else want.split(','))
         for s in shots:
             if s['id'] in ids and s['need']: log(s['id'], 'needs:', s['need'])
         for sid in ids:
@@ -157,6 +190,7 @@ async def main():
             else: await film(page, sid)
         for spec in (opt('stills') or '').split(','):
             if spec: await still(page, spec)
+        if 'score' in FLAGS: await score(page)
         errs = await page.evaluate("__hm.errors.map(String).slice(0, 8)")
         log('errors:', errs or 'none', logs[:4])
         await b.close()
