@@ -106,6 +106,35 @@ window.A2T = {
     this.clear();
     return duels;
   },
+  // the player's own doings by the keys, at dt a frame: walk, sprint and stop dead, turn on the spot, jump and land, stunned
+  // in a run, mount and dismount, kneel, struck down and released; the search looks at the player every frame
+  player(dt, tag) {
+    const H = this.H, F = this.F, P = H.GAME.player, K = H.INPUT.keys, self = this;
+    const Ln = this.lane(P.x + 30, P.z + 30, 40, 1);
+    if (!Ln) return { err: 'no lane' };
+    const yaw0 = Math.atan2(Ln.ux, Ln.uz);
+    P.x = P.prevX = Ln.x - Ln.ux * 18; P.z = P.prevZ = Ln.z - Ln.uz * 18; P.y = F.heightAt(P.x, P.z); P.yaw = yaw0; P.onGround = true; P.vy = 0; P.endurance = 100;
+    const chase = () => { H.UI.modal = null; H.CAM.mode = 'fixed'; H.camera.position.set(P.x - Math.sin(P.yaw) * 7, P.y + 4, P.z - Math.cos(P.yaw) * 7); H.camera.lookAt(P.x, P.y + 1, P.z); H.camera.updateMatrixWorld(); };
+    const run = (sec, f) => { const n = Math.round(sec / dt); for (let i = 0; i < n; i++) { if (f) f(i * dt); H.CAM.yaw = H.CAM.yaw ?? yaw0; this.calm(); chase(); this.A.a2Step(dt, { tag }); } };
+    const back = () => { P.x = P.prevX = Ln.x - Ln.ux * 18; P.z = P.prevZ = Ln.z - Ln.uz * 18; P.y = F.heightAt(P.x, P.z); P.yaw = yaw0; H.CAM.yaw = yaw0; };
+    K.clear(); H.CAM.yaw = yaw0;
+    const keys = (...ks) => { K.clear(); for (const k of ks) K.add(k); };
+    // walk, stop; run, stop; sprint, stop (each a few times, at different points of the stride)
+    for (const [ks, t] of [[['KeyW'], 1.3], [['KeyW'], 1.55], [['KeyW', 'ShiftLeft'], 1.2], [['KeyW', 'ShiftLeft'], 1.37], [['KeyW', 'ShiftLeft'], 1.5]]) { back(); keys(...ks); run(t); keys(); run(1.2); }
+    // turning on the spot, both ways
+    back(); keys(); run(1.5, (t) => { H.CAM.yaw = yaw0 + 2.5 * Math.sin(t * 2); P.yaw = H.CAM.yaw; });
+    // a jump from a run and its landing, and one standing
+    back(); keys('KeyW'); run(0.8); K.add('Space'); run(0.1); K.delete('Space'); run(1.2); keys(); run(0.8);
+    keys('Space'); run(0.1); keys(); run(1.4);
+    // stunned in a run
+    back(); keys('KeyW', 'ShiftLeft'); run(0.9); F.addBuff(P, 'stun', 1, 1.2, 'test'); run(1.6); keys(); run(0.6);
+    // mount, ride, stop, dismount (a horse called)
+    back(); keys(); try { F.mountUp && F.mountUp(P); } catch (err) {} run(0.6); keys('KeyW'); run(1.4); keys(); run(0.8); try { F.dismount && F.dismount(P); } catch (err) {} run(1.2);
+    // kneel (a priest's prayer: action 12), then up and away
+    back(); keys(); P.anim.act = 12; P.anim.actT = 0; P.anim.actDur = 1.6; run(1.8); keys('KeyW'); run(0.8); keys(); run(0.8);
+    K.clear();
+    return 0;
+  },
   // n frames of the search at dt, the camera following a place (a function giving x, z)
   run(n, dt, follow, tag) {
     for (let i = 0; i < n; i++) { if (follow && i % 15 === 0) { const f = follow(); if (f) this.over(f.x, f.z); } this.A.a2Step(dt, { tag }); }

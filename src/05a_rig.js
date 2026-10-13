@@ -210,7 +210,7 @@ function kitGeo(kit, geo, m4, o) {
       const P = [v.x, v.y, v.z], Nn = [nv.x, nv.y, nv.z];
       const us = o.uvScale || 1;
       ids.push(kit.vert(P, Nn, {
-        bone: o.bone, w: o.w ?? 1, bit: o.bit ?? -1, ao: o.ao ?? 1,
+        bone: o.bone, bones: o.bones, w: o.w ?? 1, bit: o.bit ?? -1, ao: o.ao ?? 1, // [anim2] a SkinKit4's bones (Cinderwing's spines, teeth, horns, claws and spade were all left on its hips)
         mat: o.matFn ? o.matFn(P, Nn) : o.mat,
         u: uv ? uv.getX(i + k) * us : 0, v: uv ? uv.getY(i + k) * us : 0,
       }));
@@ -679,6 +679,8 @@ const OAR_GRIP = 0.59, OAR_LOCK = { x: 0.698, y: 0.33, z: 0.48 };
 // [motion5] the shover's hands on a boat's gunwale (action 19): how far ahead of its root and how far either side of her keel
 // (13y_motion5.js SHOVE_U: 0.95 of the way to her end, the shover 0.45 m beyond it), and the fist's middle over the gunwale
 const SHOVE_A_W = '0.580', SHOVE_X_W = '0.060', SHOVE_FIST = '0.008';
+// [anim2] how far a body lying dead is let down after its fall (its back, its heels and the back of its head on the floor)
+const A2_DEAD_DROP = 0.0;
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -1262,10 +1264,17 @@ function humanVS(depth) {
     }
     // dying: the knees go, then the body falls back
     float d1 = smoothstep(0.0, 0.45, death), d2 = smoothstep(0.2, 1.0, death);
+    // [anim2] and lies along the ground on its back: the legs out straight, the arms out on the ground at its sides, the
+    // head turned to one side (each body its own way), its weight on the floor under it. It lay 22 to 25 cm over the
+    // ground with its knees drawn up and its arms raised off it (the knees' buckle kept to the end, the arms pitched
+    // forward: up, once the body lay on its back), the chest and the head bent back into it
+    float dv = fract(sin(dot(floor(iPos.xz * 7.0), vec2(12.9898, 78.233))) * 43758.5453);
     if (death > 0.0) {
-      thL = mix(thL, -0.55, d1); thR = mix(thR, -0.35, d1); shL = mix(shL, 1.15, d1); shR = mix(shR, 0.9, d1);
-      chestX = mix(mix(chestX, 0.4, d1), -0.15, d2); headX = mix(headX, -0.35, d2); headY = mix(headY, 0.4, d2);
-      uaL = mix(uaL, -0.35, d2); uaR = mix(uaR, -0.95, d2); uaLz = mix(uaLz, 0.85, d2); uaRz = mix(uaRz, -0.65, d2); faL = mix(faL, -0.3, d2); faR = mix(faR, -0.6, d2);
+      thL = mix(mix(thL, -0.55, d1), 0.02 - 0.1 * dv, d2); thR = mix(mix(thR, -0.35, d1), 0.08, d2); shL = mix(mix(shL, 1.15, d1), 0.06 + 0.24 * dv, d2); shR = mix(mix(shR, 0.9, d1), 0.04, d2);
+      spreadL = mix(spreadL, 0.14 + 0.08 * dv, d2); spreadR = mix(spreadR, -0.12, d2);
+      chestX = mix(mix(chestX, 0.4, d1), 0.0, d2); chestY = mix(chestY, 0.0, d2); headX = mix(headX, 0.1, d2); headY = mix(headY, dv < 0.5 ? 0.85 : -0.85, d2);
+      uaL = mix(uaL, 0.05, d2); uaR = mix(uaR, 0.04, d2); uaLz = mix(uaLz, 0.55 + 0.5 * dv, d2); uaRz = mix(uaRz, -0.95 + 0.45 * dv, d2); faL = mix(faL, -0.06, d2); faR = mix(faR, -0.04, d2);
+      uaLy *= 1.0 - d2; uaRy *= 1.0 - d2; pelvisY *= 1.0 - d2; swayX *= 1.0 - d2; stepZ *= 1.0 - d2; bob *= 1.0 - d2; crouch *= 1.0 - d2;
       capeX = mix(capeX, -0.1, d2);
     }
 
@@ -1315,6 +1324,24 @@ function humanVS(depth) {
           P = o + vec3(0.0, 0.0, -g.x) + ay * g.y + az * g.z; Nn = vec3(0.0, 0.0, -gn.x) + ay * gn.y + az * gn.z;
         }
         bone = 1; // carried by the chest
+      }
+    }
+    // [anim2] what the hands held lies with them on the ground: a blade, a mace or an axe turned flat and along the arm, a
+    // staff along it, a shield or a bow turned flat over the forearm (they stood up off the body lying on its back: a
+    // sword pointed at the sky from the fist, a shield stood on its edge)
+    if (aBit > -0.5 && d2 > 0.0 && bone >= 3 && bone <= 6) {
+      int db = int(aBit + 0.5);
+      bool dR = db == ${WBIT.sword} || db == ${WBIT.mace} || db == ${WBIT.axe} || db == ${WBIT.beater} || db == ${WBIT.hammer}, dS = db == ${WBIT.staff};
+      bool dL = db == ${WBIT.shield} || db == ${WBIT.shieldRound} || db == ${WBIT.bow} || db == ${WBIT.torch};
+      if (dR || dS) {
+        float t0 = dS ? 0.22 : 1.85, t1 = dS ? 3.12 : 3.22; // (a little past pointing down the arm: its far end on the ground, not raised over it)
+        vec3 fR = ${glv([-SK.fist[0], SK.fist[1], SK.fist[2]])};
+        mat3 dm = rotX(mix(t0, t1, d2)) * rotY(1.5708 * d2) * rotX(-t0);
+        P = fR + dm * (P - fR); Nn = dm * Nn;
+      } else if (dL) {
+        vec3 fL3 = ${glv(SK.fist)};
+        mat3 dm = rotY(-1.5708 * d2);
+        P = fL3 + dm * (P - fL3); Nn = dm * Nn;
       }
     }
     /* ------------------- skinning ------------------- */
@@ -1387,7 +1414,10 @@ function humanVS(depth) {
     if (swimPitch != 0.0) rotP(rotX(swimPitch), vec3(0.0, 1.3, 0.0)); // [water] the swimmer lies forward in the water
     if (mounted > 0.5 && slopeK != 0.0) rotP(rotX(-atan(slopeK)), vec3(0.0, 0.86 - 1.62 / max(iColA.w, 0.3), 0.0)); // [polish] tilted with the horse on a slope (beastLeanYaw)
     if (lean != 0.0) rotP(rotZ(lean), vec3(0.0, mounted > 0.5 ? 0.86 - 1.62 / max(iColA.w, 0.3) : 0.0, 0.0)); // [motion] leaning into a turn, from the feet (a rider's: the horse's; 1.62 is HORSE_SEAT, 05c_beasts.js)
-    if (death > 0.0) { rotP(rotX(-1.5 * d2), vec3(0.0, 0.0, -0.12)); P.y += 0.14 * d2; }
+    // [anim2] laid along the ground: flat (1.5 rad left the head 12 cm over the heels), down onto the floor (P.y + 0.14 held
+    // the body 22 to 25 cm over it), and along the floor's slope under it from the feet to the head (humanSlopeYaw reads
+    // it under a body lying dead)
+    if (death > 0.0) { rotP(rotX(-1.56 * d2), vec3(0.0, 0.0, -0.12)); P.y -= (${A2_DEAD_DROP.toFixed(3)} + 0.03 * max(bulk, 0.0)) * d2; if (slopeK != 0.0) rotP(rotX(-atan(slopeK) * d2), vec3(0.0)); }
     // [v18] a robe's hem stays on the floor's side of it (a runner's bob and a kneel took it 7 cm and more into the ground):
     // on the slope along the body, as the feet are (slopeK); not lying dead, in the water or in a saddle
     if (aBit > 10.5 && int(aBit + 0.5) == ${WBIT.robe} && death <= 0.0 && swimPitch == 0.0 && mounted < 0.5) P.y = max(P.y, slopeK * P.z + 0.025);

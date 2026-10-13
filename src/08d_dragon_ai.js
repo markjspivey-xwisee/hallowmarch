@@ -406,15 +406,7 @@ function dragonTargetPose(dt) {
     D.wingEase = 18;
     return P;
   }
-  if (st === 'dead') {
-    const k = clamp(D.stateT / 1.2, 0, 1);
-    P.bodyRoll = 1.25 * smooth(k); P.bodyY = -1.15 * smooth(k);
-    P.wl = [0.35, 0.5, 0.3, -0.1, 0.7, 0.3]; P.wr = [-0.6, 0.9, 0.2, -0.3, 1.2, 0.6];
-    P.neck = [0.25, 0.3, 0.2]; P.neckYaw = [0.3, 0.3, 0.2]; P.head = 0.3; P.jaw = 0.35;
-    P.fl = [0.4, 0.6, 0.3]; P.fr = [-0.3, 0.8, 0.2]; P.bl = [0.5, 0.4, 0.2]; P.br = [-0.2, 0.5, 0.2];
-    P.tail = [-0.05, -0.05, -0.05, -0.05]; P.tailYaw = [0.2, 0.25, 0.3, 0.3];
-    return P;
-  }
+  if (st === 'dead') return a2DragonDead(D, e, P); // [anim2] lying as a great beast lies, settled onto the ground (14a_anim2.js)
   // standing on the perch: wings folded, neck in an S, tail on the ground
   P.wl = [0.6, 1.0, 0.0, -1.4, 0.6, 1]; P.wr = P.wl.slice();
   P.chest = 0.025 * Math.sin(t * 1.1);
@@ -509,6 +501,7 @@ function drawDragon(dt) {
   D.skinTick = (D.skinTick || 0) + 1;
   if (d2 < 150 * 150 || D.skinTick % 2 === 0) skinDragon();
   dragonMat.uniforms.uHurt.value = e.anim ? e.anim.flash : 0;
+  dragonMat.uniforms.uDead.value = D.state === 'dead' ? Math.min(1, D.stateT / 2.5) : 0; // [anim2] its eyes go dark as it dies
   // fire from the mouth
   const breath = D.breathing ? 1 : 0;
   dragonMat.uniforms.uBreath.value += (breath - dragonMat.uniforms.uBreath.value) * (1 - Math.exp(-dt * 8));

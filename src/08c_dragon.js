@@ -131,7 +131,7 @@ function buildDragonKit() {
   };
   kitTube(K, TAIL.map(([z, y, rx, rz]) => ({ c: [0, y, z], rx, rz })), 14, {
     front: up, side, cap1: 'dome',
-    attr: (i, th, p) => ({ bones: tb(p[2]), mat: Math.cos(th) < -0.4 ? DM.belly : DM.scale, ao: 0.75 + 0.25 * sstepJ(-1, 0.2, Math.cos(th)), u: th / TAU, v: -p[2] * 1.2 }),
+    attr: (i, th, p) => ({ bones: tb(p[2]), mat: Math.cos(th) < -0.4 ? DM.belly : DM.scale, ao: 0.75 + 0.25 * sstepJ(-1, 0.2, Math.cos(th)), u: th / TAU, v: p[2] * 1.2 }), // [anim2] v toward the head, as on the body (the scales lap the same way)
   });
   {
     const spade = new THREE.ConeGeometry(0.42, 0.9, 4, 1);
@@ -362,15 +362,18 @@ const dragonMat = mat({
   vertexShader: /* glsl */`
     attribute float aMat; attribute vec2 aUV; attribute float aAO;
     varying vec3 vW; varying vec3 vN; varying float vMat; varying vec2 vUV; varying float vAO;
-    void main(){ vW = position; vN = normal; vMat = aMat; vUV = aUV; vAO = aAO; gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }`,
+    varying vec2 vCS; // [anim2] the way round a tube as a direction, so it has no seam
+    void main(){ vW = position; vN = normal; vMat = aMat; vUV = aUV; vAO = aAO; vCS = vec2(cos(6.2831853 * aUV.x), sin(6.2831853 * aUV.x)); gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
     ${GLSL_SHADOW}
     ${GLSL_PLIGHT}
     ${GLSL_ACTOR_LIGHT}
-    uniform float uHurt, uBreath;
+    uniform float uHurt, uBreath, uDead; // [anim2] uDead: the coals of its eyes go out as it dies
     varying vec3 vW; varying vec3 vN; varying float vMat; varying vec2 vUV; varying float vAO;
+    varying vec2 vCS;
+    ${A2_SCALES_GLSL}
     void main(){
       vec3 n = safeNormalize(vN);
       vec3 V = safeNormalize(cameraPosition - vW);
@@ -378,30 +381,17 @@ const dragonMat = mat({
       int m = int(vMat + 0.5);
       vec3 alb; float rough = 0.55, metal = 0.0, sss = 0.1, ao = vAO; vec3 emit = vec3(0.0);
       if (m == 0) {
-        // overlapping scales: a row offset per course, each scale darker toward its lower rim
-        // rounded scales on two staggered lattices
-        vec2 g = vec2(vUV.x * 15.0, vUV.y * 3.6);
-        vec2 qa = fract(g) - vec2(0.5, 0.15), qb = fract(g + vec2(0.5, 0.5)) - vec2(0.5, 0.15);
-        float da = length(qa * vec2(1.0, 1.25)), db = length(qb * vec2(1.0, 1.25));
-        float d = min(da, db) / 0.62;
-        vec2 fw = fwidth(g);
-        float px = max(fw.x, fw.y);
-        float detail = 1.0 - smoothstep(0.12, 0.45, px);
-        float sc = mix(0.62, smoothstep(1.0, 0.15, d), detail);
-        float rim = mix(0.12, smoothstep(0.78, 1.0, d), detail);
-        // larger plates of colour so the hide reads at a distance too
-        float blot = vnoise(vUV * vec2(4.0, 1.2) + 3.0);
-        alb = mix(vec3(0.3, 0.06, 0.05), vec3(0.52, 0.13, 0.07), sc) * (0.82 + 0.36 * blot);
-        alb = mix(alb, vec3(0.13, 0.03, 0.03), rim * 0.6);
+        // [anim2] overlapping scales (a2Scales, 14a_anim2.js): rows lapping toward the tail and down the legs, each scale
+        // its own shade, rounded and lifted at its free edge, bumped through a frame of the surface's own (they were two
+        // lattices of discs that read as a checker of blocks, bumped by the derivative of a step: 2x2 blocks along each edge)
+        vec3 sn = n; float srim = 0.0, ssh = 0.0;
+        float sc = a2Scales(vUV, vCS, vW, n, sn, srim, ssh);
+        float blot = a2Blot(vUV, vCS);
+        alb = mix(vec3(0.3, 0.06, 0.05), vec3(0.5, 0.12, 0.07), sc) * (0.86 + 0.28 * blot) * (0.9 + 0.2 * ssh);
+        alb = mix(alb, vec3(0.12, 0.03, 0.03), srim * 0.65);
+        n = sn;
         // bronze sheen on the scales
-        metal = 0.3; rough = 0.45;
-        if (detail > 0.01) {
-          vec3 dpx = dFdx(vW), dpy = dFdy(vW);
-          float dhx = dFdx(sc), dhy = dFdy(sc);
-          vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
-          float det = dot(dpx, r1);
-          n = safeNormalize(abs(det) * n - 0.35 * detail * sign(det) * (dhx * r1 + dhy * r2));
-        }
+        metal = 0.25; rough = 0.42 + 0.12 * srim;
       } else if (m == 1) {
         float band = fract(vUV.y * 4.0);
         alb = vec3(0.78, 0.52, 0.28) * (0.8 + 0.2 * smoothstep(0.0, 0.5, band)) * mix(0.55, 1.0, fineMix(smoothstep(0.0, 0.08, band) * smoothstep(1.0, 0.92, band), 0.85, vec2(vUV.y * 40.0)));
@@ -417,7 +407,7 @@ const dragonMat = mat({
       } else if (m == 3) {
         alb = mix(vec3(0.72, 0.66, 0.55), vec3(0.16, 0.13, 0.12), smoothstep(0.4, 1.0, vUV.y)); rough = 0.35;
       } else if (m == 4) { alb = vec3(0.86, 0.82, 0.7); rough = 0.3; }
-      else if (m == 5) { alb = vec3(0.1); emit = vec3(2.4, 1.4, 0.25) * (0.85 + 0.15 * sin(uTime * 3.0)); }
+      else if (m == 5) { alb = vec3(0.1); emit = vec3(2.4, 1.4, 0.25) * (0.85 + 0.15 * sin(uTime * 3.0)) * (1.0 - uDead); } // [anim2] uDead
       else if (m == 6) { alb = vec3(0.16, 0.05, 0.05); rough = 0.4; }
       else { alb = vec3(0.3, 0.06, 0.06); rough = 0.4; emit = vec3(2.2, 0.8, 0.15) * uBreath; }
       float sh = shadowAt(vW, n);
@@ -427,5 +417,5 @@ const dragonMat = mat({
       col = mix(col, vec3(1.0, 0.85, 0.7) * 1.4, uHurt * 0.4);
       gl_FragColor = vec4(safeColor(applyFog(col, vW)), 1.0);
     }`,
-  uniforms: { uHurt: { value: 0 }, uBreath: { value: 0 } },
+  uniforms: { uHurt: { value: 0 }, uBreath: { value: 0 }, uDead: { value: 0 } }, // [anim2] uDead
 });
