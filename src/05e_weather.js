@@ -179,7 +179,7 @@ function updateWeather(dt) {
   W2.mist = (W2.mist || 0) + (look[4] - (W2.mist || 0)) * k;
   // rain falls as snow where it is cold. [seasons] The season and the weather agree: snow where the air is near or
   // below freezing by farmTempAt (Thule in winter, the heights, the south on cold winter nights), rain in a Thule summer
-  const coldK = clamp((1.5 - farmTempAt(camX, camZ)) / 3.5, 0, 1);
+  const coldK = WX.coldK !== undefined ? WX.coldK : clamp((1.5 - farmTempAt(camX, camZ)) / 3.5, 0, 1); // [weather2] a test may hold it
   const precip = W2.raining;
   W2.snowing = precip * coldK;
   const rain = precip * (1 - coldK);

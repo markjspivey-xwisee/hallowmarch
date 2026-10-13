@@ -458,13 +458,14 @@ function wxBuildClouds() {
         }`,
     });
     WXR.domeMat = mat({
-      uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uSunVis: skyU.uSunVis, uDomeP: { value: new THREE.Vector4(10, 9000, 1, 0.012) }, uWxWindD: cu.uWxWind },
+      uniforms: { uCloudLit: skyU.uCloudLit, uCloudShade: skyU.uCloudShade, uSunVis: skyU.uSunVis, uDomeP: { value: new THREE.Vector4(10, 9000, 1, 0.012) }, uWxWindD: cu.uWxWind, uEye: { value: new THREE.Vector3() } },
       vertexShader: FS_VERT, depthTest: false, depthWrite: false,
       fragmentShader: /* glsl */`
         ${GLSL_COMMON}
         ${GLSL_ATMOS}
         uniform sampler2D uCloudMap;
         uniform vec4 uCloudMapP, uDomeP, uWxWindD;
+        uniform vec3 uEye;
         uniform vec3 uCloudLit, uCloudShade;
         uniform float uSunVis;
         varying vec2 vUv;
@@ -476,7 +477,7 @@ function wxBuildClouds() {
           float e = 1.5707963 * pow(1.0 - r, 1.6);
           vec2 h = r > 1e-5 ? q / r : vec2(1.0, 0.0);
           vec3 rd = vec3(h.x * cos(e), sin(e), h.y * cos(e));
-          vec3 ro = cameraPosition;
+          vec3 ro = uEye; // (the pass is drawn with a camera of its own: cameraPosition is not the eye's)
           float base = uCloudMapP.w, topMax = base + 650.0;
           float sy = max(rd.y, 0.012);
           float t0 = max(0.0, (base - ro.y) / sy), t1 = min((topMax - ro.y) / sy, t0 + 6500.0);
@@ -577,7 +578,7 @@ function wxCloudsFrame(dt) {
   const every = WXR.q.every, dome = !INDOOR.on || WXR.n < 3;
   const prevT = renderer.getRenderTarget();
   if (WXR.n % every === 0 || WXR.n < 3) pass(WXR.fieldMat, WXR.field);
-  if (dome && (WXR.n % every === (every > 1 ? 1 : 0) || WXR.n < 3)) pass(WXR.domeMat, WXR.dome);
+  if (dome && (WXR.n % every === (every > 1 ? 1 : 0) || WXR.n < 3)) { WXR.domeMat.uniforms.uEye.value.copy(cam); pass(WXR.domeMat, WXR.dome); }
   renderer.setRenderTarget(prevT);
   U.uCloudDomeOn.value.x = 1;
   // the clouds' shadows on the land: the light's way up to the cloud, and how dark they are (fading as the light lowers,

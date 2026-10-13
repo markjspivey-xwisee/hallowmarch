@@ -11,7 +11,8 @@ shelter map, no drift on a floor inside, and, rendered, no difference inside a h
 between a blizzard over a white winter and no snow at all (the same view outside differs). Pictures (unless noshots):
 a front coming in over a keep, a storm over the frontier from a town, the moon between clouds, a clear sky after rain,
 mist in a valley, rain under its cloud, inside in a blizzard; at the quality given (q=high|medium|low) and `phone`.
-usage: python3 tools/tests/weather2.py [only=systems,place,held,save,shelter,inside,clouds,shots] [q=medium] [noshots] [phone]"""
+usage: python3 tools/tests/weather2.py [only=systems,place,held,save,shelter,inside,clouds,shots] [q=medium] [noshots] [phone] [big]
+(big: 960x540 for the final pictures; 640x360 by default)"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -81,22 +82,25 @@ window.W2T = {
     const b = new Uint8Array(4); R.readRenderTargetPixels(rt, Math.floor((qx * 0.5 + 0.5) * n), Math.floor((qz * 0.5 + 0.5) * n), 1, 1, b);
     return Array.from(b).map((v) => +(v / 255).toFixed(3));
   },
-  // a white winter: snow lying everywhere (the season map full) and it falling hard (a held storm in the cold)
+  // a white winter in a held blizzard (the same light either way): with the snow lying everywhere and falling (on) or
+  // with none lying and none drawn falling (off)
   winterSnow(on) {
-    const S = this.H.seasons.SEAS, W = this.W;
+    const S = this.H.seasons.SEAS, W = this.W, X = this.X;
     this.H.farm.setSeason(0.88); this.H.seasons.seasonSettle();
-    W.mode = 'auto'; W.next = 1e9; W.kind = on ? 'storm' : 'cloudy';
-    W.raining = on ? 1 : 0; W.storm = on ? 1 : 0; W.overcast = 1; W.fog = 1; W.snow = on ? 1 : 0; W.wet = 0;
+    W.mode = 'auto'; W.next = 1e9; W.kind = 'storm'; X.WX.coldK = 1;
+    W.raining = 1; W.storm = 1; W.overcast = 1; W.fog = 1; W.snow = on ? 1 : 0; W.wet = 0;
     if (S.lie) { S.lie.fill(on ? 1 : 0); for (let i = 0; i < S.lie.length; i++) S.bytes[i * 4] = on ? 255 : 0; S.dirty = true; if (S.tex) S.tex.needsUpdate = true; }
     for (const e of this.H.ENT) e.snow = on ? 1 : 0;
+    X.precip().snow.visible = on;
     return 0;
   },
+  winterEnd() { const X = this.X; delete X.WX.coldK; X.precip().snow.visible = true; this.W.next = 60; return 0; },
 };
 0;
 """
 
 async def main():
-    w, h = (390, 780) if PHONE else (640, 360)
+    w, h = (390, 780) if PHONE else (960, 540) if 'big' in ARGS else (640, 360)
     async with async_playwright() as p:
         b, page, logs = await setup(p, touch=PHONE, w=w, h=h)
         await page.evaluate(HELPERS)
@@ -279,16 +283,15 @@ async def main():
                 name = v[0]
                 r = await ev(page, 'inside ' + name, f"""(() => {{ const H = __hm, v = {json.dumps(v)};
                   W2T.cam(v[1], v[2], v[3], v[4], v[5], v[6]); H.setTod(0.4);
-                  W2T.winterSnow(true); for (let i = 0; i < 4; i++) H.frame(1 / 30); H.frame(0); const A = W2T.px(0.1, 0.1, 0.9, 0.9);
-                  W2T.winterSnow(false); for (let i = 0; i < 4; i++) H.frame(1 / 30);
-                  // the same instant as the snowy frame: put the clock back so the hearths flicker alike
-                  H.frame(0); const B = W2T.px(0.1, 0.1, 0.9, 0.9);
+                  W2T.winterSnow(true); for (let i = 0; i < 4; i++) H.frame(1 / 30); W2T.W.snow = 1; H.frame(0); const A = W2T.px(0.1, 0.1, 0.9, 0.9);
+                  W2T.winterSnow(false); W2T.W.snow = 0; H.frame(0); const B = W2T.px(0.1, 0.1, 0.9, 0.9);
                   return {{ ...W2T.diff(A.raw, B.raw), lA: +A.l.toFixed(1), lB: +B.l.toFixed(1), snowing: +H.dbg.WEATHER.snowing.toFixed(2), errors: H.errors.length }}; }})()""")
                 if name == 'outside':
                     check(r['mean'] > 4, f"outside the same blizzard shows (mean difference {r['mean']}, the method sees snow)")
                 else:
                     check(r['mean'] < 1.0, f"inside {name}: no snow lies or falls (mean difference {r['mean']}, at most {r['max']}; light {r['lA']} / {r['lB']})")
 
+        await page.evaluate("W2T.winterEnd && W2T.winterEnd(); 0")
         if 'clouds' in ONLY:
             r = await ev(page, 'clouds', """(() => { const X = W2T.X, H = __hm, P = W2T.P(); W2T.live(); const F = X.WX_FAIR || null;
               H.farm.setSeason(0.4); H.setTod(0.4);
@@ -362,7 +365,7 @@ async def main():
             # inside a house in a blizzard
             await shot('inside_blizzard', """(() => { const H = __hm, Q = H.HOUSES.find((h) => !h.keepHall && h.state === 'whole' && !h.round && h.w > 4.5); H.setTod(0.45);
               W2T.cam(Q.x - Q.s * 0.3, Q.y + 1.6, Q.z - Q.c * 0.3, Q.x + Q.s * 3, Q.y + 0.6, Q.z + Q.c * 3); W2T.winterSnow(true); return 0; })()""")
-            await page.evaluate("W2T.winterSnow(false); W2T.W.next = 60; 0")
+            await page.evaluate("W2T.winterSnow(false); W2T.winterEnd(); 0")
 
         r = await ev(page, 'end', "({ errors: __hm.errors.slice(0, 5) })")
         check(not r['errors'], 'no runtime errors')
