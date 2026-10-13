@@ -209,12 +209,13 @@ async def room_part(p):
         heard = await Cp.evaluate("NT.logHas('Logres only')")
         check(not heard, "Logres' realm chat is not heard by Eriu")
         # the fight: A strikes C
+        await until(pages, A, "!!NT.ghostOf('Caelan')", 15)
         c0 = await Cp.evaluate('NT.me()')
-        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); NT.P.target = g.id; NT.P.hp = NT.P.maxHp; return 0; })()")
+        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); if (g) NT.P.target = g.id; NT.P.hp = NT.P.maxHp; return 0; })()")
         await Cp.evaluate("NT.P.target = null; 0")
         hits = []
         for i in range(30):
-            await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; P.x = g.x - 1.6; P.z = g.z; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); P.target = g.id; return 0; })()")
+            await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; if (!g) return 0; P.x = g.x - 1.6; P.z = g.z; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); P.target = g.id; return 0; })()")
             await step(pages, 0.1)
             hits.append(await Cp.evaluate('NT.P.hp'))
         c1 = await Cp.evaluate('NT.me()')
@@ -228,11 +229,11 @@ async def room_part(p):
         await A.evaluate("(() => { const P = NT.P; P.x += 200; return 0; })()")
         await step(pages, 0.1, 3)
         r0 = (await Cp.evaluate('NT.st()'))['stats']['hitsRefused']
-        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); __hm.fn.dealDamage(NT.P, g, 50, { kind: 'melee' }); return 0; })()")
+        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); if (g) __hm.fn.dealDamage(NT.P, g, 50, { kind: 'melee' }); return 0; })()")
         await step(pages, 0.1, 6)
         r1 = (await Cp.evaluate('NT.st()'))['stats']['hitsRefused']
         check(r1 > r0, f'a blow from 200 m is refused by the struck page ({r0} to {r1})')
-        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; P.x = g.x - 1.6; P.z = g.z; return 0; })()")
+        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; if (g) { P.x = g.x - 1.6; P.z = g.z; } return 0; })()")
         # the kill: C low, A finishes him
         rp0 = (await A.evaluate('NT.me()'))['rp']
         await Cp.evaluate("NT.P.hp = Math.max(1, NT.P.maxHp * 0.04); 0")
@@ -360,8 +361,14 @@ async def server_part(p):
             await step([A], 0.1)
         g = await A.evaluate("(() => { const g = NT.ghostOf('Nodric'); return g ? [g.x, g.z, g.anim.amt] : null; })()")
         check(g and abs(g[0] - (me['x'] + 11.5)) < 2.5, f"he walks on the page ({g and round(g[0] - me['x'], 2)} m east, gait {g and round(g[2], 2)})")
+        # the server measures a pace by its own clock, so the page walks at the pace of the wall clock here
+        # (stepped faster than that, its run reads 70 m/s and the server rightly drops it)
+        async def rt(n):
+            for _ in range(n):
+                t0 = time.time(); await step([A], 0.1)
+                await asyncio.sleep(max(0.0, 0.1 - (time.time() - t0)))
         await A.evaluate("__hm.INPUT.keys.add('KeyW'); 0")
-        for i in range(10): await step([A], 0.1)
+        await rt(10)
         s1 = await N1.state()
         aname = next((v['name'] for v in s1['peers'].values() if v['name']), '')
         check(aname == 'Aldwin' and s1['got']['fast'] > 3, f"the headless player hears the page ({aname}, {s1['got']['fast']} states)")
@@ -375,7 +382,7 @@ async def server_part(p):
         n2a = next((v['n'] for v in (await N2.state())['peers'].values() if v['name'] == 'Aldwin'), 0)
         for i in range(40):
             await A.evaluate(f"NT.P.yaw = {i} * 0.15; __hm.CAM.yaw = NT.P.yaw; 0")
-            await step([A], 0.1)
+            await rt(1)
         await A.evaluate("__hm.INPUT.keys.delete('KeyW'); 0")
         s1 = await N1.state(); s2 = await N2.state()
         n1 = next((v['n'] for v in s1['peers'].values() if v['name'] == 'Aldwin'), 0) - n1a

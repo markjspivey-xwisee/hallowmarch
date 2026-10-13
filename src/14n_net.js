@@ -73,6 +73,16 @@ async function netLinkRoom() {
   L.setSlow = (o) => room.presence({ hm: o }).catch((e) => { NET.stats.refused++; netNote('slow ' + (e && e.code)); });
   L.setFast = (o) => (fast || room).presence({ f: o }).catch((e) => { NET.stats.refused++; netNote('fast ' + (e && e.code)); });
   L.connected = () => (typeof room.connected === 'function' ? room.connected() : true) && L.conn;
+  // the shared war kept in the artifact's db (written by the host: netWorldKeep), taken by the first host of a session
+  try {
+    const db = await withTimeout(C.use('db').catch(() => null), 6000);
+    if (db) {
+      L.db = db;
+      const snap = await withTimeout(db.doc('net/world').get().catch(() => null), 6000);
+      const d = snap && snap.exists ? snap.data() : null;
+      if (d && d.v === 1 && d.w && typeof d.w === 'object' && Date.now() - netNum(d.at, 0, 1e15) < 14 * 86400e3) NET.srvWorld = d.w;
+    }
+  } catch (e) { /* no db: the war lives while someone is here */ }
   L.close = () => { for (const u of L.unsub) { try { u(); } catch (e) { /* gone */ } } if (fast) fast.leave().catch(() => {}); };
   return L;
 }
@@ -85,7 +95,7 @@ async function netConnect() {
     if (!L) L = await netLinkRoom();
   } catch (e) { reportError(e); L = null; }
   if (!L) { NET.state = 'alone'; netNote('no room'); return; }
-  NET.link = L; NET.state = 'on';
+  NET.link = L; NET.state = 'on'; NET.linkedAt = performance.now();
   netNote('linked ' + L.kind);
   NET.slowKey = ''; NET.fastKey = '';
   netUiOn(); // the Players button, the chat (14o_netui.js)
@@ -302,10 +312,14 @@ function netFastObj(now) {
   return o;
 }
 // the ring of moments: each read once by its number; kept a few seconds, so a page that hears every few updates still has them
+// a moment that must not be lost (an invite and its answer, a chat line, a death, a capture told to the host, the land)
+// stays in the ring longer than a blow's: a page busy for a few seconds (a long frame, a phone in a pocket) still finds it
+// in the latest state it reads, which is all presence keeps
+const NET_EV_KEEP = { inv: 9000, pa: 9000, say: 9000, die: 9000, cap: 9000, land: 6000 };
 function netEvent(kind, to, data) {
   if (!netOn()) return;
   NET.evSeq++;
-  NET.out.push({ e: [NET.evSeq, kind, to || 0, data], t: performance.now() });
+  NET.out.push({ e: [NET.evSeq, kind, to || 0, data], t: performance.now(), k: NET_EV_KEEP[kind] || NET.cfg.ringT });
   NET.stats.evOut++;
   NET.fastAt = Math.min(NET.fastAt, performance.now() - 1000 / NET.cfg.fastHz + 30); // out within a few hundredths
 }
@@ -326,7 +340,8 @@ function netPump(dt) {
   // the fast state ten times a second while anything changes
   if (P && GAME.started && now - NET.fastAt >= 1000 / NET.cfg.fastHz) {
     NET.fastAt = now;
-    while (NET.out.length && (now - NET.out[0].t > NET.cfg.ringT || NET.out.length > NET.cfg.ringMax)) NET.out.shift();
+    if (NET.out.length) NET.out = NET.out.filter((x) => now - x.t <= x.k);
+    while (NET.out.length > NET.cfg.ringMax) NET.out.shift();
     const o = netFastObj(now);
     const key = JSON.stringify([o.p, o.y, o.v, o.a, o.h, o.m, o.d, o.mo, o.ph, o.sw, o.st, o.cs, o.fl, o.tg, NET.evSeq]);
     if (key !== NET.fastKey) {
@@ -341,6 +356,17 @@ function netPump(dt) {
     }
   }
   netDeathWatch();
+  netWorldKeep(now);
+}
+// the host writes the shared war to the artifact's db when it has changed (once in 30 s at most, one write at a time),
+// so the next session's first host takes it up; a viewer who may not write the db leaves it to whoever may
+function netWorldKeep(now) {
+  const L = NET.link;
+  if (!NET.isHost || !L || !L.db || L.dbNo || L.dbBusy || now - (L.dbAt || 0) < 30000 || !GAME.started) return;
+  const w = netWorldObj(), k = JSON.stringify([w.k, w.g, w.cn, w.cl]);
+  if (k === L.dbKey) return;
+  L.dbAt = now; L.dbBusy = true;
+  L.db.doc('net/world').set({ v: 1, w, at: Date.now() }).then(() => { L.dbKey = k; NET.stats.worldKept = (NET.stats.worldKept || 0) + 1; }).catch((e) => { if (e && (e.code === 'invalid_argument' || e.code === 'not_granted' || e.code === 'revoked')) L.dbNo = true; }).finally(() => { L.dbBusy = false; });
 }
 
 /* ------------------------------------------------------------------ */
@@ -414,6 +440,9 @@ function netOnArrow(A) {
   if (!P || A.src !== P.id || !netOn()) return;
   netEvent('ar', 0, [netR2(A.x), netR2(A.y), netR2(A.z), netR2(A.vx), netR2(A.vy), netR2(A.vz), (A.type || '').slice(0, 10)]);
 }
+// the land changed by your hand (a tree you fell, your fire landing, your meteor's or your leap's crater): told to the
+// others, whose pages change theirs the same way (those here now: a page that comes later has its own land)
+function netLand(kind, data) { if (netOn() && GAME.player) netEvent('land', 0, [kind, ...data]); }
 // a keep's capture by your hand, when another page is the host: told to it (it takes it if it agrees)
 function netCaptureHeld(K, realm) {
   if (!netOn() || NET.isHost || NET.applyingWorld || !NET.host) return false;
@@ -528,6 +557,15 @@ function netHandle(R, kind, d) {
     sfxAtE('bow', src);
     return;
   }
+  if (kind === 'land') {
+    if (!src || !Array.isArray(d) || !NATURE.built) return;
+    const k = d[0];
+    if (k === 'fell') { const t = W.trees[d[1] | 0]; if (t && !t.felled && dist(t.x, t.z, src.x, src.z) < 12) fellTree(t, netNum(d[2], -50, 50, 1), netNum(d[3], -50, 50, 0), 30, true); }
+    else if (k === 'fire') { const x = netNum(d[1], -4000, 4000), z = netNum(d[3], -4000, 4000); if (dist(x, z, src.x, src.z) < 70) fireLandsAt(x, netNum(d[2], -500, 500), z, netNum(d[4], 0.2, 6, 1), src); }
+    else if (k === 'imp' && (d[3] === 'meteor' || d[3] === 'leap')) { const x = netNum(d[1], -4000, 4000), z = netNum(d[2], -4000, 4000); if (dist(x, z, src.x, src.z) < 60) natureImpact(x, z, d[3], netNum(d[4], 1, 8, 3)); }
+    NET.stats.landIn = (NET.stats.landIn || 0) + 1;
+    return;
+  }
   if (kind === 'cap' && NET.isHost) {
     // a player's capture told to the host: taken when that player is of the realm and stands at the keep
     if (!Array.isArray(d)) return;
@@ -566,18 +604,19 @@ function netHostElect() {
   NET.isHost = !!me && (NET.host === NET.self || best === 'me');
   if (was !== NET.host && was) { netNote('host ' + NET.host); if (NET.isHost) uiLog('You now keep the March\'s shared war for those here.', 'sys'); }
   if (!NET.isHost) { const H = NET.peers.get(NET.host); netWorldTake(H && H.slow && H.slow.w); }
-  else if (NET.srvWorld && !NET.srvWorldDone) { NET.srvWorldDone = true; netWorldTake(netWorldRead(NET.srvWorld)); netNote('world from the server'); } // the first host takes the war where the server kept it
+  else if (NET.srvWorld && !NET.srvWorldDone && performance.now() - NET.linkedAt > 3000 && ![...NET.peers.values()].some((R) => R.slow && R.slow.on)) { NET.srvWorldDone = true; netWorldTake(netWorldRead(NET.srvWorld)); netNote('world kept'); } // the first host of a session takes the war where it was kept (the server's, or the artifact's db)
 }
 function netWorldObj() {
   return {
     k: WAR.keeps.map((K) => K.realm), g: WAR.keeps.map((K) => (K.door.alive ? 1 : 0)), td: Math.round(tod.p * 1000) / 1000, tm: tod.mode === 'cycle' ? 1 : 0,
-    cn: typeof CAMPAIGN !== 'undefined' ? CAMPAIGN.n || 0 : 0,
+    cn: CAMPAIGN.n || 0, cl: CAMPAIGN.claims.map((c) => [Math.round(c.k), Math.round(c.h)]),
   };
 }
 function netWorldRead(w) {
   const o = { k: [], g: [], td: netNum(w.td, 0, 3), tm: w.tm === 1 ? 1 : 0, cn: Math.round(netNum(w.cn, 0, 1e6)) };
   if (Array.isArray(w.k)) o.k = w.k.slice(0, 16).map((r) => (NET_REALM_OK(r) ? r : -1));
   if (Array.isArray(w.g)) o.g = w.g.slice(0, 16).map((v) => (v === 0 ? 0 : 1));
+  if (Array.isArray(w.cl) && w.cl.length === 3) o.cl = w.cl.map((c) => (Array.isArray(c) ? [netNum(c[0], 0, 1e5), netNum(c[1], 0, 1e5)] : [0, 0]));
   return o;
 }
 function netWorldTake(w) {
@@ -591,6 +630,8 @@ function netWorldTake(w) {
       captureKeep(K, r, null);
       NET.stats.keepsApplied++;
     });
+    // the claims on the March, while it is the same campaign: one war panel for everyone here
+    if (w.cl && w.cn === (CAMPAIGN.n || 0)) CAMPAIGN.claims.forEach((c, i) => { const h = w.cl[i]; if (Math.abs(c.k - h[0]) > 3) c.k = h[0]; if (Math.abs(c.h - h[1]) > 3) c.h = h[1]; });
     // the hour: one sky for everyone here (only while the sky runs its cycle)
     if (w.tm && tod.mode === 'cycle') { const d = ((w.td - tod.p + 4.5) % 3) - 1.5; tod.p = Math.abs(d) > 0.08 ? w.td : (tod.p + d * 0.05 + 3) % 3; }
   } finally { NET.applyingWorld = false; }

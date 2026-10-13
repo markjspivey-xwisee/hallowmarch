@@ -665,6 +665,7 @@ function executeAbility(e, A, t, cast = null) {
         spellDisc(gx, gz, A.radius * 0.55, DISC_KIND.crack, 14, [1, 1, 1], 0.07);
         lightFlash(gx, gy + 1.5, gz, 22, [3.4, 1.6, 0.5], 0.9);
         natureImpact(gx, gz, 'meteor', A.radius); // nature: a crater, trees thrown down and set alight
+        if (e === GAME.player) netLand('imp', [netR2(gx), netR2(gz), 'meteor', A.radius]); // [net] (14n_net.js)
         areaDamage(e, gx, gz, A.radius, A.dmg * rk, { kind: 'fire' }); // [classes] the meteor's fire meets frost, wet and ice
         fireLandsAt(gx, gy, gz, A.radius, e); // [depth] the caster
         castleSiegeHit(e, gx, gz, A.radius, A.dmg * rk); // castles: meteors batter walls (04g_castles.js)
@@ -833,6 +834,7 @@ function leapLand(e, A, rk) {
   spellDisc(e.x, e.z, A.radius * 1.35, DISC_KIND.shock, 0.6, [1.4, 1.2, 0.9]);
   spellDisc(e.x, e.z, A.radius * 0.85, DISC_KIND.crack, 9, [1, 1, 1], 0.07);
   natureSwing(e, A.radius * 0.9, Math.PI, 0); natureImpact(e.x, e.z, 'leap', A.radius); // nature: grass cut, a dent in the ground, trees knocked
+  if (e === GAME.player) netLand('imp', [netR2(e.x), netR2(e.z), 'leap', A.radius]); // [net] (14n_net.js)
   cameraShake(0.32, e.x, e.z);
   sfxAtE('slam', e, null, 0.2); // [audio2] placed (11c_sound.js)
 }

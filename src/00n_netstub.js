@@ -7,7 +7,7 @@
 // one browser profile (the tests' pages, two tabs on a desk) that installs it with the same room name is in one room.
 // It keeps the runtime's rules where they shape the client: presence is a merged object of at most 4 KiB sent coalesced
 // (about 30 a second), per field latest wins, a top-level null removes a field, newcomers get everyone's presence,
-// a page that leaves (or stops answering for 4 s) is in `left`; `emit` on a topic is refused (`not_permitted`) unless
+// a page that leaves (or stops answering for 12 s: `silence`) is in `left`; `emit` on a topic is refused (`not_permitted`) unless
 // the stand-in is told the viewer may send (`emit: true`): viewers by link may set presence only, so the client never
 // needs a topic; db writes are refused (`invalid_argument`) for a viewer at `view` (`dbWrite: false`); `join(name)` gives
 // a named room. It can also delay and drop what it carries (`latency`, `jitter`, `drop`) to try the client against a
@@ -120,6 +120,9 @@ function netStubInstall() {
   const lobby = mkRoom('');
   const deliver = (m) => {
     NETSTUB.stats.recv++;
+    // a page heard again after it was taken for gone (its timers starved, or new): everyone says again who they are, as a
+    // room hands a reconnected page everyone's presence and everyone its own
+    if (m.type !== 'hello' && m.type !== 'bye' && !NETSTUB.seen.has(m.from)) { NETSTUB.seen.set(m.from, performance.now()); NETSTUB.stats.back = (NETSTUB.stats.back || 0) + 1; post({ type: 'hello', from: NETSTUB.peer }); for (const R of NETSTUB.rooms.values()) post({ type: 'pres', from: NETSTUB.peer, by: uid, room: R.name, p: R.mine, re: 1 }); }
     if (m.type === 'hello') { for (const R of NETSTUB.rooms.values()) post({ type: 'pres', from: NETSTUB.peer, by: uid, room: R.name, p: R.mine, re: 1 }); return; }
     if (m.type === 'bye') { for (const R of NETSTUB.rooms.values()) { const p = R.peers.get(m.from); if (p) { R.peers.delete(m.from); R.queue('left', p); } } NETSTUB.seen.delete(m.from); return; }
     if (m.type === 'hb') { NETSTUB.seen.set(m.from, performance.now()); return; }
@@ -147,12 +150,13 @@ function netStubInstall() {
     if (d > 0) setTimeout(() => deliver(m), d); else deliver(m);
   };
   post({ type: 'hello', from: NETSTUB.peer });
-  // a heartbeat, and a page not heard for 4 s has left (a page killed without its goodbye)
+  // a heartbeat, and a page not heard for 12 s has left (a page killed without its goodbye; a page's timers run late while
+  // SwiftShader takes the machine, so the tests' pages are given that long)
   NETSTUB.hb = setInterval(() => {
     post({ type: 'hb', from: NETSTUB.peer });
     const now = performance.now();
     for (const [peer, t] of NETSTUB.seen) {
-      if (now - t < 4000) continue;
+      if (now - t < (+cfg.silence || 12000)) continue;
       NETSTUB.seen.delete(peer);
       for (const R of NETSTUB.rooms.values()) { const p = R.peers.get(peer); if (p) { R.peers.delete(peer); R.queue('left', p); } }
     }

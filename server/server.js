@@ -145,7 +145,8 @@ function worldCheck(w) {
   if (!w.k.every((r) => r === 0 || r === 1 || r === 2)) return null;
   const g = Array.isArray(w.g) && w.g.length === WORLD.keepCount ? w.g.map((v) => (v === 0 ? 0 : 1)) : WORLD.keepCount ? new Array(WORLD.keepCount).fill(1) : [];
   const td = typeof w.td === 'number' && w.td >= 0 && w.td <= 3 ? w.td : 0;
-  return { k: w.k.slice(), g, td, tm: w.tm === 1 ? 1 : 0, cn: Number.isFinite(w.cn) ? Math.max(0, Math.round(w.cn)) : 0, at: Date.now() };
+  const cl = Array.isArray(w.cl) && w.cl.length === 3 ? w.cl.map((c) => (Array.isArray(c) ? [Math.max(0, Math.min(1e5, +c[0] || 0)), Math.max(0, Math.min(1e5, +c[1] || 0))] : [0, 0])) : undefined;
+  return { k: w.k.slice(), g, td, tm: w.tm === 1 ? 1 : 0, cn: Number.isFinite(w.cn) ? Math.max(0, Math.round(w.cn)) : 0, cl, at: Date.now() };
 }
 const legitJump = (p) => p.x > 1000 || WORLD.ports.some(([x, z]) => Math.hypot(p.x - x, p.z - z) < 45);
 // a moment for this reader? (a blow, an invite, a party's chat to whom it concerns; a realm's chat to its realm)
