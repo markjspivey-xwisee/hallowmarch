@@ -55,6 +55,20 @@ window.T4 = {
   // a spot on walkable ground about (x, z) at about distance d
   spot(x, z, d) { for (let a = 0; a < 6.28; a += 0.3) { const tx = x + Math.cos(a) * d, tz = z + Math.sin(a) * d; if (this.F.isWalkable(tx, tz)) return [tx, tz]; } return [x + d, z]; },
   safe() { const P = this.H.GAME.player; if (!P.alive) { P.alive = true; P.removeAt = 0; } P.hp = P.maxHp; P.power = P.maxPower; P.buffs.length = 0; return 0; },
+  // what a scene's simulation emitted is born in the frames' future and would show frozen where it was emitted (CLAUDE.md,
+  // Gotchas): let it go before a picture, as look.py's views do
+  unborn() {
+    const H = this.H; H.frame(1 / 30);
+    const now = H.dbg.U.uTime.value, fx = H.walls && H.walls.fx;
+    if (!fx) return 0;
+    for (const P of [fx.fxAlpha, fx.fxAdd]) {
+      if (!P || !P.a0) continue;
+      const a0 = P.a0.array, a1 = P.a1.array; let k = 0;
+      for (let i = 0; i < P.max; i++) if (a0[i * 4 + 3] > now + 1e-3 && a1[i * 4 + 3] > 0) { a1[i * 4 + 3] = -1; k++; }
+      if (k) { P.dirty0 = 0; P.dirty1 = P.max - 1; }
+    }
+    return 0;
+  },
 };
 0;
 """
@@ -65,7 +79,8 @@ async def frames(page, n=3):
 async def shot(page, name):
     if not SHOTS: return
     if SHOT_ONLY is not None and not any(name.startswith(k) for k in SHOT_ONLY): return
-    await page.evaluate("document.getElementById('hud').hidden = true; __hm.frame(1/30); 0")
+    await page.evaluate("document.getElementById('hud').hidden = true; if (window.T4) T4.unborn(); __hm.frame(1/30); 0")
+    if 'phone' in FLAGS: name += '_phone'
     await page.screenshot(path=str(OUT) + '/late4_' + name + '.png', timeout=300000)
     await page.evaluate("document.getElementById('hud').hidden = false; 0")
     print('  shot late4_' + name, f'[{time.time() - T0:.0f}s]', flush=True)
@@ -105,10 +120,15 @@ async def main():
         if (phone and want('frame')) or (ONLY is not None and 'frame' in ONLY):
             r = await ev(page, 'frame', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, L = T4.L, X = T4.X, out = {};
               P.name = 'Wilhelmina'; if (!L.LATE2.names.includes('rr8')) L.LATE2.names.push('rr8'); L.late2Wear('rr8'); H.simulate(0.2); H.frame(1/30);
-              const el = document.getElementById('pf-name'); out.text = el.textContent; out.full = L.late2Named(P); out.over = el.scrollWidth - el.clientWidth;
-              out.touch = !!('ontouchstart' in window);
+              const el = document.getElementById('pf-name'); out.text = el.textContent; out.full = L.late2Named(P); out.over = el.scrollWidth - el.clientWidth; out.small = el.classList.contains('l4-long');
+              P.name = 'Aldric'; H.frame(1/30); out.text2 = el.textContent; out.full2 = L.late2Named(P); out.over2 = el.scrollWidth - el.clientWidth;
+              P.name = 'Wilhelmina'; H.frame(1/30);
               return out; })()""")
-            check(r['text'] == r['full'] if not phone else (r['text'].endswith('Marshal of Logres') and r['text'] != r['full'] and r['over'] <= 1), f"a long name on the frame: {r['text']!r} (in full {r['full']!r}; past its box by {r['over']} px)")
+            if phone:
+                check(r['text'].endswith('Marshal of Logres') and r['text'] != r['full'] and r['over'] <= 1 and r['small'], f"a long name on a phone's frame keeps its deed whole in a smaller letter: {r['text']!r} (in full {r['full']!r}; past its box by {r['over']} px)")
+                check(r['text2'] == r['full2'] and r['over2'] <= 1, f"and one a little long is said whole: {r['text2']!r} (past its box by {r['over2']} px)")
+            else:
+                check(r['text'] == r['full'] and r['text2'] == r['full2'], f"on a desk the name is said whole ({r['text']!r})")
             await page.evaluate("window.__rafHold = true; 0")
             await frames(page, 2)
             if SHOTS: await page.screenshot(path=str(OUT) + '/late4_frame_' + ('phone' if phone else 'desk') + '.png', timeout=300000, clip={'x': 0, 'y': 0, 'width': min(W, 390), 'height': 160})
@@ -342,11 +362,11 @@ async def main():
             check(not r2['errors'], f"no errors after the reload ({r2['errors']})")
             if SHOTS and (SHOT_ONLY is None or 'deep' in SHOT_ONLY):
                 await ev(page, 'deep view', """(() => { const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, P = H.GAME.player; DP.opened = true; D.late3SealOpen(true);
-                  const S = DP.slabs[%d], u = F.dunU(S.x), v = F.dunV(S.z), p = F.dunPoint(u + 9, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true); H.simulate(0.2);
+                  const S = DP.slabs[%d], u = F.dunU(S.x), v = F.dunV(S.z), p = F.dunPoint(u - 10, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true); H.simulate(0.2);
                   for (const e of H.ENT) if (e.alive && e.deep && Math.hypot(e.x - P.x, e.z - P.z) < 30) e.ai.taunted = false;
-                  // from above the gallery's edge, down into the pit where the slab lies (the player out of the picture)
-                  const q = F.dunPoint(u + 2.6, v + 2.4);
-                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(q.x, D.DEEP_Y + 3.4, q.z); H.camera.lookAt(S.x, D.DEEP_Y - 1.4, S.z); H.camera.updateMatrixWorld(); window.__rafHold = true; return 0; })()""" % r['slab'])
+                  // from the gallery's floor before the gap (the slabs run along u), down into the pit where the slab lies
+                  const q = F.dunPoint(u - 5.2, v + 1.6);
+                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(q.x, D.DEEP_Y + 2.3, q.z); H.camera.lookAt(S.x, D.DEEP_Y - 1.6, S.z); H.camera.updateMatrixWorld(); window.__rafHold = true; return 0; })()""" % r['slab'])
                 await frames(page, 3)
                 await shot(page, 'deep_reload_' + Q)
                 await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; __hm.fn.setIndoor(false); 0")

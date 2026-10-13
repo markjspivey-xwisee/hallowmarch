@@ -27,6 +27,7 @@ const LATE4 = {
   rushes: [], // gore rushes on their way
   air: null, // the deep's air: its own placed voices
   off: false, // (tests: no host walks: late4Measuring)
+  frameSmall: false, // (the frame's name in the smaller letter: late4FrameName)
   stats: { windups: 0, broken: 0, seconds: 0, by: {}, hostSpawned: 0, hostFell: 0, hostFights: 0, routeLegs: 0, routeFails: 0, deepSaved: 0, deepLoaded: 0, tears: 0 },
 };
 const LATE4_HOST_AT = 40; // the level at which the hosts walk (the risen camps rise at the same)
@@ -850,11 +851,14 @@ function late4MantleCode(e) {
 // the name on your frame (updateHUD, 10_ui.js): on a touch screen a long one would be cut short at the deed ("Aldric,
 // Marshal of Lo..."): the deed's name is kept whole and your own shortened before it ("Ald., Marshal of Logres"); the
 // Character page says it whole
-const LATE4_FRAME_CH = 22; // (what an upright phone's frame shows of a name at its size)
+const LATE4_FRAME_CH = 22, LATE4_FRAME_CH_SMALL = 25; // (what an upright phone's frame shows of a name at its size, and in the smaller letter)
 function late4FrameName(P) {
   const full = late2Named(P), N = late2Worn();
+  LATE4.frameSmall = false;
   if (!N || !IS_TOUCH || full.length <= LATE4_FRAME_CH) return full;
-  const t = late2T(N), sep = N.sep || ' ', room = LATE4_FRAME_CH - t.length - sep.length - 1;
+  LATE4.frameSmall = true; // (a smaller letter: "Aldric, Marshal of Logres" whole)
+  if (full.length <= LATE4_FRAME_CH_SMALL) return full;
+  const t = late2T(N), sep = N.sep || ' ', room = LATE4_FRAME_CH_SMALL - t.length - sep.length - 1;
   if (room < 2) return t; // (a deed's name too long for both: the deed alone)
   return (P.name.length <= room ? P.name : P.name.slice(0, room).trimEnd() + '.') + sep + t;
 }
