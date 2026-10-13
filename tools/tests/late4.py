@@ -81,7 +81,7 @@ async def shot(page, name):
     if SHOT_ONLY is not None and not any(name.startswith(k) for k in SHOT_ONLY): return
     await page.evaluate("document.getElementById('hud').hidden = true; if (window.T4) T4.unborn(); __hm.frame(1/30); 0")
     if 'phone' in FLAGS: name += '_phone'
-    await page.screenshot(path=str(OUT) + '/late4_' + name + '.png', timeout=300000)
+    await page.screenshot(path=str(OUT) + '/late4_' + name + '.png', timeout=600000 if Q == 'high' else 300000)
     await page.evaluate("document.getElementById('hud').hidden = false; 0")
     print('  shot late4_' + name, f'[{time.time() - T0:.0f}s]', flush=True)
 
@@ -397,7 +397,7 @@ async def main():
 
         # ---- the pictures ----
         if want('shots') and SHOTS:
-            await ev(page, 'prep', "(() => { T4.fresh('warrior', 50); __hm.fn.setQuality('" + Q + "'); __hm.setTod(0.75); return 0; })()")
+            await ev(page, 'prep', "(() => { T4.X.LATE4.off = true; T4.fresh('warrior', 50); __hm.fn.setQuality('" + Q + "'); __hm.setTod(0.75); return 0; })()")  # (no host walks into the champions' pictures)
             for name, type, realm, act in (('bear', 'bear', 1, 20), ('wolf', 'wolf', 1, 22), ('boar', 'boar', 1, 22), ('bandit', 'bandit', 0, 8), ('troll', 'troll', 2, 8)):
                 await ev(page, name, """(() => { const H = T4.H, F = T4.F, P = H.GAME.player; const R = T4.champ('%s', %d); const C = R.C;
                   T4.clearAround(C.x, C.z, 30, new Set([C.id])); C.ai.tameHold = H.GAME.t + 999; C.target = null; C.threat = null;
@@ -409,7 +409,7 @@ async def main():
                 await shot(page, name + '_' + Q)
                 await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
             # a roaming host on its track
-            await ev(page, 'host', """(() => { const H = T4.H, F = T4.F, X = T4.X, P = H.GAME.player; const t = H.REALMS[1].town; H.teleport(t.x, t.z); H.simulate(0.3);
+            await ev(page, 'host', """(() => { const H = T4.H, F = T4.F, X = T4.X, P = H.GAME.player; X.LATE4.off = false; const t = H.REALMS[1].town; H.teleport(t.x, t.z); H.simulate(0.3);
               X.late4HostsFresh(); H.simulate(4);
               const Hh = X.LATE4.hosts[1]; for (let i = 0; i < 12; i++) H.simulate(1);
               const lead = F.getEnt(Hh.lead); if (!lead) return { none: 1 };

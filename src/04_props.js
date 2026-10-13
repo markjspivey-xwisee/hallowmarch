@@ -499,7 +499,7 @@ const bannerMat = mat({
         // [late4] a veteran's standard struck down (10o_late4.js late4StdLie): the flag lies on the ground beside the fallen
         // pole's head, its hoist along the pole (local z) and its fly spread across the ground (local x) in loose folds, the
         // tails rumpled; its height is the ground's under each point (below), so it lies on a slope as on the flat
-        float rid = sin(u * 10.5 + v * 1.9 + seed), lift = 0.022 + 0.05 * (0.5 + 0.5 * rid) * smoothstep(0.0, 0.1, u) + 0.035 * smoothstep(0.7, 1.0, u) * (0.5 + 0.5 * sin(v * 6.0 + u * 3.0 + seed));
+        float rid = sin(u * 10.5 + v * 1.9 + seed), lift = 0.05 + 0.05 * (0.5 + 0.5 * rid) * smoothstep(0.0, 0.1, u) + 0.035 * smoothstep(0.7, 1.0, u) * (0.5 + 0.5 * sin(v * 6.0 + u * 3.0 + seed));
         p = vec3(0.1 + u * w * 0.84 + 0.05 * sin(v * 4.0 + seed), lift, v * h);
         vShade = 0.86 + 0.22 * cos(u * 10.5 + v * 1.9 + seed);
       } else if (kind > 1.5) {
@@ -526,7 +526,9 @@ const bannerMat = mat({
       vec3 wp = aB0.xyz + vec3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
       if (kind > 2.99) wp.y = l4Ground(wp.xz) + p.y; // [late4] (lying on the ground)
       vW = wp;
-      gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+      vec4 vp = viewMatrix * vec4(wp, 1.0);
+      if (kind > 2.99) vp.xyz *= 1.0 - 0.08 / max(length(vp.xyz), 0.5); // [late4] (drawn 8 cm nearer the eye: the land's chunks lie a few centimetres off its height map, and the ground showed through the cloth)
+      gl_Position = projectionMatrix * vp;
     }`,
   fragmentShader: /* glsl */`
     ${GLSL_COMMON}
