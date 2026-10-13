@@ -65,8 +65,9 @@ async def frames(page, n=3):
 async def shot(page, name):
     if not SHOTS: return
     if SHOT_ONLY is not None and not any(name.startswith(k) for k in SHOT_ONLY): return
-    await page.evaluate("__hm.frame(1/30); 0")
+    await page.evaluate("document.getElementById('hud').hidden = true; __hm.frame(1/30); 0")
     await page.screenshot(path=str(OUT) + '/late4_' + name + '.png', timeout=300000)
+    await page.evaluate("document.getElementById('hud').hidden = false; 0")
     print('  shot late4_' + name, f'[{time.time() - T0:.0f}s]', flush=True)
 
 async def main():
@@ -305,12 +306,12 @@ async def main():
               F.savePartsLoad('char', { deep4: { v: 1, d: [[99, 'x', 5], 'q', [1, 'cinder', -5, 1e9, NaN]], s: [[1e6, 2, 3]], p: [[1, 9, 'z', 300]], f: ['a', 1e9] } });
               out.junkOk = !H.errors.length;
               out.errors = H.errors.slice(0, 3); return out; })()""")
-            b, a = r['before'], r['after']
-            check(r['part'] and b['killed'] == 3, f"the deep's state saved ({json.dumps(r['part'])[:300]})")
-            check(a['respawn'][1] == b['respawn'][1] and a['respawn'][2] == b['respawn'][2] and a['packs'][1] == b['packs'][1], f"its dead stay dead until their time (packs {b['packs']} -> {a['packs']}, waiting {b['respawn']} -> {a['respawn']})")
+            bf, a = r['before'], r['after']
+            check(r['part'] and bf['killed'] == 3, f"the deep's state saved ({json.dumps(r['part'])[:300]})")
+            check(a['respawn'][1] == bf['respawn'][1] and a['respawn'][2] == bf['respawn'][2] and a['packs'][1] == bf['packs'][1], f"its dead stay dead until their time (packs {bf['packs']} -> {a['packs']}, waiting {bf['respawn']} -> {a['respawn']})")
             check(a['slab'] == 3, f"the fallen slab lies in its pit ({a['slab']})")
-            check(a['burning'] >= 1 and a['charred'] >= 1, f"the pitch burns and lies charred as it was ({b['burning']}/{b['charred']} -> {a['burning']}/{a['charred']})")
-            check(abs(a['wy'] - b['wy']) < 0.05 and a['flood'] == 2, f"the cistern's water stands as it stood ({b['wy']} -> {a['wy']})")
+            check(a['burning'] >= 1 and a['charred'] >= 1, f"the pitch burns and lies charred as it was ({bf['burning']}/{bf['charred']} -> {a['burning']}/{a['charred']})")
+            check(abs(a['wy'] - bf['wy']) < 0.05 and a['flood'] == 2, f"the cistern's water stands as it stood ({bf['wy']} -> {a['wy']})")
             check(r['junkOk'], 'a damaged part made sane')
             check(not r['errors'], f"no errors ({r['errors']})")
 
@@ -337,13 +338,15 @@ async def main():
             check(r2['started'] and r2['slab'] == 3, f"reloaded ({stored} bytes stored): the gallery's slab still lies in its pit ({r2['slab']})")
             check(r2['pk'] == r['pk'] and r2['waiting'] >= 2, f"the pyres' dead still dead ({r['pk']} -> {r2['pk']}, {r2['waiting']} waiting)")
             check(r2['burning'] + r2['charred'] >= 3, f"the pitch still burning or charred ({r2['burning']} burning, {r2['charred']} charred)")
-            check(r2['hosts'] == r['hosts'] or all(a and b and abs(a[0] - b[0]) <= 3 and abs(a[1] - b[1]) <= 3 for a, b in zip(r['hosts'], r2['hosts'])), f"the hosts where they walked ({r['hosts']} -> {r2['hosts']})")
+            check(r2['hosts'] == r['hosts'] or all(ha and hb and abs(ha[0] - hb[0]) <= 3 and abs(ha[1] - hb[1]) <= 3 for ha, hb in zip(r['hosts'], r2['hosts'])), f"the hosts where they walked ({r['hosts']} -> {r2['hosts']})")
             check(not r2['errors'], f"no errors after the reload ({r2['errors']})")
             if SHOTS and (SHOT_ONLY is None or 'deep' in SHOT_ONLY):
                 await ev(page, 'deep view', """(() => { const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, P = H.GAME.player; DP.opened = true; D.late3SealOpen(true);
-                  const S = DP.slabs[%d], u = F.dunU(S.x), v = F.dunV(S.z), p = F.dunPoint(u + 4.5, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true); H.simulate(0.2);
+                  const S = DP.slabs[%d], u = F.dunU(S.x), v = F.dunV(S.z), p = F.dunPoint(u + 9, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true); H.simulate(0.2);
                   for (const e of H.ENT) if (e.alive && e.deep && Math.hypot(e.x - P.x, e.z - P.z) < 30) e.ai.taunted = false;
-                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(p.x + 1.5, p.y + 3.2, p.z + 2.5); H.camera.lookAt(S.x, D.DEEP_Y - 0.5, S.z); H.camera.updateMatrixWorld(); window.__rafHold = true; return 0; })()""" % r['slab'])
+                  // from above the gallery's edge, down into the pit where the slab lies (the player out of the picture)
+                  const q = F.dunPoint(u + 2.6, v + 2.4);
+                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(q.x, D.DEEP_Y + 3.4, q.z); H.camera.lookAt(S.x, D.DEEP_Y - 1.4, S.z); H.camera.updateMatrixWorld(); window.__rafHold = true; return 0; })()""" % r['slab'])
                 await frames(page, 3)
                 await shot(page, 'deep_reload_' + Q)
                 await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; __hm.fn.setIndoor(false); 0")
@@ -380,8 +383,8 @@ async def main():
                   T4.clearAround(C.x, C.z, 30, new Set([C.id])); C.ai.tameHold = H.GAME.t + 999; C.target = null; C.threat = null;
                   const [px, pz] = T4.spot(C.x, C.z, 25); H.teleport(px, pz); H.simulate(0.2);
                   T4.X.setAct(C, %d, 1.6); H.simulate(0.62);
-                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const a = C.yaw + 1.1, d = %s; H.camera.position.set(C.x + Math.sin(a) * d, C.y + 1.7, C.z + Math.cos(a) * d); H.camera.lookAt(C.x, C.y + 1.0 * (C.scale || 1), C.z); H.camera.updateMatrixWorld();
-                  window.__rafHold = true; return { act: C.anim.act, frac: +(C.anim.actT / C.anim.actDur).toFixed(2) }; })()""" % (type, realm, act, '5.5' if type != 'bandit' else '4.5'))
+                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const a = C.yaw + 1.1, d = %s, ly = C.y + (C.mobType === 'bear' ? 1.55 : 1.0) * (C.scale || 1); H.camera.position.set(C.x + Math.sin(a) * d, C.y + (C.mobType === 'bear' ? 2.2 : 1.7), C.z + Math.cos(a) * d); H.camera.lookAt(C.x, ly, C.z); H.camera.updateMatrixWorld();
+                  window.__rafHold = true; return { act: C.anim.act, frac: +(C.anim.actT / C.anim.actDur).toFixed(2) }; })()""" % (type, realm, act, '8.5' if type == 'bear' else '5.5' if type != 'bandit' else '4.5'))
                 await frames(page, 2)
                 await shot(page, name + '_' + Q)
                 await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; 0")
@@ -392,7 +395,7 @@ async def main():
               const lead = F.getEnt(Hh.lead); if (!lead) return { none: 1 };
               const [px, pz] = T4.spot(lead.x, lead.z, 70); H.teleport(px, pz); H.simulate(0.1);
               H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const r = Hh.route, nx = r[Hh.ri % r.length], dx = nx.x - Hh.px, dz = nx.z - Hh.pz, L = Math.hypot(dx, dz) || 1;
-              H.camera.position.set(Hh.px + dx / L * 11 + dz / L * 5, F.heightAt(Hh.px, Hh.pz) + 2.6, Hh.pz + dz / L * 11 - dx / L * 5); H.camera.lookAt(Hh.px, F.heightAt(Hh.px, Hh.pz) + 0.8, Hh.pz); H.camera.updateMatrixWorld();
+              H.camera.position.set(Hh.px + dx / L * 12 + dz / L * 6, F.heightAt(Hh.px, Hh.pz) + 4.2, Hh.pz + dz / L * 12 - dx / L * 6); H.camera.lookAt(Hh.px - dx / L * 2, F.heightAt(Hh.px, Hh.pz) + 0.6, Hh.pz - dz / L * 2); H.camera.updateMatrixWorld();
               window.__rafHold = true; return { ids: Hh.ids.length }; })()""")
             await frames(page, 2)
             await shot(page, 'host_' + Q)

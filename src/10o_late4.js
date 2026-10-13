@@ -581,11 +581,13 @@ function late4StdCover(at, side) {
   if (L4STD.key === key && (!L4STD.marks.length || COVER.data[L4STD.marks[0][0]] === 255)) return; // (the map rebuilt since: again)
   late4StdUncover();
   L4STD.key = key;
-  const R = COVER.res, L = LATE2_STD.poleH + 0.3, a0 = LATE2_STD.flagTop - LATE2_STD.flagH - 0.15, a1 = LATE2_STD.flagTop + 0.15, q1 = 0.1 + LATE2_STD.flagW * 0.84 + 0.15;
+  // every texel centre within half a texel of the pole or the flag: the map is read between centres, so a point under the
+  // cloth then reads at least half bare (no blade from 0.3), and the grass comes back within a metre of its edge
+  const g = 0.5, R = COVER.res, L = LATE2_STD.poleH + 0.3, a0 = LATE2_STD.flagTop - LATE2_STD.flagH - g, a1 = LATE2_STD.flagTop + g, q1 = 0.15 + LATE2_STD.flagW * 0.84 + g;
   const inside = (px, pz) => {
     const al = (at.x - px) * side, ac = (at.z - pz) * side; // along the pole from its foot, across toward the fly
-    if (al >= 0.3 && al <= L && Math.abs(pz - at.z) <= 0.45) return true; // the pole
-    return al >= a0 && al <= a1 && ac >= -0.3 && ac <= q1; // the flag
+    if (al >= 0.3 && al <= L && Math.abs(pz - at.z) <= 0.06 + g) return true; // the pole
+    return al >= a0 && al <= a1 && ac >= -g && ac <= q1; // the flag
   };
   const i0 = Math.max(0, Math.floor(Math.min(at.x, at.x - side * L) - 1 + 512)), i1 = Math.min(R - 1, Math.ceil(Math.max(at.x, at.x - side * L) + 1 + 512));
   const j0 = Math.max(0, Math.floor(Math.min(at.z, at.z - side * q1) - 1 + 512)), j1 = Math.min(R - 1, Math.ceil(Math.max(at.z, at.z - side * q1) + 1 + 512));
