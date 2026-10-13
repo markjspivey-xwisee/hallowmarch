@@ -487,10 +487,15 @@ function war4RoomWayFind(e, B, inn) {
   B.w4tried = true;
   if (!W4.on) return false;
   const pts = localPath(e.x, e.z, inn.x, inn.z, 0.32, 12, true, 0.25);
-  if (!pts || !pts.length) { W4.stats.roomWaysNone = (W4.stats.roomWaysNone || 0) + 1; return false; }
-  B.w4p = { pts, i: 0 };
-  W4.stats.roomWays = (W4.stats.roomWays || 0) + 1;
-  return true;
+  if (pts && pts.length) { B.w4p = { pts, i: 0 }; W4.stats.roomWays = (W4.stats.roomWays || 0) + 1; return true; }
+  // none: penned behind its door's open leaf (it swings into the room and stands open while anyone is within 2.2 m of
+  // the door, so the body it pens holds it open: an Ériu captain stood so in Ráth Brannagh's gate drum for twenty
+  // minutes of a soak at medium, order after order); it puts its shoulder to the leaf and squeezes past (the leaf's
+  // collider gives way a few seconds: 04l_towers.js)
+  const T = B.T, D = T && (T.doors.find((d) => d.y < T.yG + 0.6) || T.doors[0]);
+  if (D && D.k > 0.5 && dist2(e.x, e.z, D.x, D.z) < 3 * 3) { D.w4give = GAME.t + 4; W4.stats.leafGives = (W4.stats.leafGives || 0) + 1; return true; }
+  W4.stats.roomWaysNone = (W4.stats.roomWaysNone || 0) + 1;
+  return false;
 }
 function war4RoomWay(e, B) {
   const W = B.w4p;
@@ -605,6 +610,7 @@ function war4ProfOut(reset) {
 /* ------------------------------------------------------------------ */
 queueMicrotask(() => {
   if (!window.__hm) return;
-  window.__hm.war4 = { W4, W4P, war4Prof, war4ProfOut, setDoorState, war4Allied, w4Foe, war4SallyPays, war4SallyParty, war4ColumnFrom, w4ReliefStep, war4Trickle, w4GateOf, w4GateStep, w4GateScaffoldGeo, war4GateMends, war4HandBack, w4PeaceColumns, war4ColumnsHome, war4MayWin, war4Left, updateWar4, war4Reset, w4PactStep,
+  window.__hm.war4 = { W4, W4P, war4Prof, war4ProfOut, setDoorState, war4Allied, w4Foe, war4SallyPays, war4SallyParty, war4ColumnFrom, w4ReliefStep, war4Trickle, w4GateOf, w4GateStep, w4GateScaffoldGeo, war4GateMends, war4HandBack, w4PeaceColumns, war4ColumnsHome, war4MayWin, war4Left, updateWar4, war4Reset, w4PactStep, w4GatePlug, w4Underside, war4RoomWayFind, war4RoomWay, war4LowJump, war4TowerDown,
+    collNear: (x, z, r) => { const a = []; collidersNear(x, z, r, a); return a; },
     gate: (ki) => { const K = WAR.keeps[ki], g = w4GateOf(K); return g ? { st: g.st, t: +g.t.toFixed(3), laid: g.laid, scaf: !!g.scaffold, on: !!(g.l3 && g.l3.on), ladders: g.l3 ? g.l3.ladders.length : 0, floors: g.l3 ? g.l3.floors.length : 0, info: g.scafInfo ? g.scafInfo.map((q) => ({ standards: q.standards, bays: q.bays, boards: q.boards, ladders: q.ladders })) : null, door: K.door.alive, hp: +(K.door.hp / K.door.maxHp).toFixed(2), leafY: +g.G0.leaves[0].scale.y.toFixed(2), leafVis: g.G0.leaves[0].visible, open: +g.G0.open.toFixed(2), masons: (g.masonsFor || []).length } : null; } };
 });

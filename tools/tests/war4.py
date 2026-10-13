@@ -448,8 +448,8 @@ async def main(p):
           return res;
         })()""")
         print('  ', json.dumps(r), flush=True)
-        # (one place in about 275 may hold a body set down where none could walk: beside an Eriu gate drum's ladder, a
-        # captain set there takes not a step, its first one refused, a place no body reaches on its own; printed above)
+        # (one place in about 275 may stand: a captain set down in one of Rath Brannagh's gate drums, between its ladder and the
+        # door, took no step in the last runs, the door open beside it; not traced further; printed above)
         check(r['tried'] >= 150 and len(r['stuck']) <= 1, f"out of every tower's ground room ({r['out']} of {r['tried']} places, the slowest {r['worst']} s; ways round the furniture {r['ways']})")
 
     if want('walls'):

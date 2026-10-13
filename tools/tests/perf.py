@@ -184,7 +184,7 @@ async def main():
         # in town and whole meanwhile (the seeded war is the same each run: compare builds with the same MIN)
         for m in range(int(OPT.get('war', 0))):
             await ev(page, "(() => { const P = __hm.GAME.player, S = __hm.REALMS[P.faction].town; for (let i = 0; i < 30; i++) { P.x = P.prevX = S.x + 3; P.z = P.prevZ = S.z + 3; P.y = __hm.fn.heightAt(P.x, P.z); P.hp = P.maxHp; P.alive = true; __hm.simulate(2); } return 0; })()")
-        if OPT.get('war'): print(f"the war {OPT['war']} minutes on: {await ev(page, 'JSON.stringify(__hm.CW.state().keeps)')} keeps, {await ev(page, '__hm.SIEGE.engines().length')} engines in the field", flush=True)
+        if OPT.get('war'): print(f"the war {OPT['war']} minutes on: {await ev(page, 'JSON.stringify(__hm.CW.state().keeps)')} keeps, {await ev(page, '__hm.SIEGE.SIEGE.engines.filter((q) => !q.gone).length')} engines in the field", flush=True)
         for q in (QUALS if 'js' not in ARGS else []):
             await ev(page, f"__hm.fn.setQuality('{q}'); 0")
             for v in VIEWS:

@@ -44,7 +44,7 @@ function bandWallsDown(e, wb, L, O, dt) {
   // height over the court (or the ground outside, where it is higher): a keep's court may stand on a terrace
   const h = e.y - Math.max(heightAt(e.x, e.z), C.S.y);
   if (B && (h < 0.7 || GAME.t - B.t > 60)) { e.ai.down = null; if (e === L) wb.goal = -1; return false; } // down (or long enough: the band's own ways from here)
-  if (!B && h < (W4.on ? W4.DOWN_H : 2.0)) return false; // [war4] from 1.2 m: a stair or a bank 1.2 to 2 m up held a captain who never walks off an edge (08l_war4.js)
+  if (!B && h < (W4.on ? W4.DOWN_H : 2.0)) return false; // [war4] from 0.8 m (W4.DOWN_H): a stair or a bank 1 to 2 m up held a captain who never walks off an edge (08l_war4.js)
   if (e !== L && L && Math.abs(L.y - e.y) < 1.5 && dist2(L.x, L.z, e.x, e.z) < 30 * 30) return false;
   if (!B) { B = e.ai.down = { t: GAME.t, ri: -1, best: h, bestT: GAME.t }; WAR2.stats.down++; }
   if (e.mount) dismount(e);
@@ -119,7 +119,7 @@ function bandOutOfTower(e, T, dt) {
   if (e.mount) dismount(e);
   if (!B.past && dist(e.x, e.z, inn.x, inn.z) < 0.5) B.past = true;
   let q = B.past ? out : inn;
-  const wq = !B.past ? war4RoomWay(e, B, inn) : null; // [war4] round the room's furniture to its door, on a fine grid (08l_war4.js)
+  const wq = !B.past ? war4RoomWay(e, B) : null; // [war4] round the room's furniture to its door, on a fine grid (08l_war4.js)
   if (wq) q = wq;
   // [war3] no nearer its door for 5 s: the room it is counted in is not one it stands in (a gate drum's ground room
   // reaches over the gate passage beside it: a captain stood in Dragonmere's passage making for the gate-ward's door
