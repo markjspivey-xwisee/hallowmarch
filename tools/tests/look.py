@@ -105,6 +105,7 @@ async def serve():
             try:
                 if c.get('quit'): (cmd / (f.stem + '.out.json')).write_text(json.dumps({'bye': 1})); break
                 if c.get('reload'): await page.evaluate(VIEWS_JS.read_text() + '\n;0'); out['reloaded'] = True
+                if c.get('vp'): await page.set_viewport_size({'width': c['vp'][0], 'height': c['vp'][1]}); await page.evaluate("__hm.frame(1/30); 0"); out['vp'] = c['vp']  # [look5] a phone's screen or a desk's
                 if c.get('q'): await page.evaluate(f"__hm.fn.setQuality('{c['q']}'); 0")
                 if c.get('js'): out['r'] = await page.evaluate(c['js'])
                 if c.get('shot') and not (isinstance(out.get('r'), dict) and out['r'].get('skip')):

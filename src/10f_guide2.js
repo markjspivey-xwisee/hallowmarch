@@ -128,6 +128,7 @@ function chronFold(sec) {
     if (S) { S.nodes.push(n); continue; }
     // before the first section: the lead and the figures stay (a figure is a summary), the rest of a long opening folds
     if (i === 0 && n.tagName === 'P') continue;
+    if (n.tagName === 'FIGURE' && g2Phone() && hts.get(n) > vh * 0.5) { flush(); put(n, look5FigTitle(sec), [n]); continue; } // [look5] a drawing taller than half a phone's sheet (the war's six steps, drawn tall on an upright phone) folds under its own title (13z_look5.js)
     if (n.tagName === 'FIGURE' || G2_KEEP.test(cls(n))) { flush(); continue; }
     run.push(n);
   }

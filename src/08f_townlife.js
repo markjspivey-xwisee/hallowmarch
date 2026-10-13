@@ -168,9 +168,11 @@ function houseRestPlan(e, H, dur) {
 }
 // hammer at the new frame from a spot beside the scaffold
 function houseWorkPlan(e, H) {
+  const up = look5ScafUpPlan(e, H); if (up) return up; // [look5] one of them up the scaffold's ladder to work from its boards once a lift is up (13z_look5.js)
   const side = (e.id % 2) ? 1 : -1;
   const lx = H.round ? side * (H.r + 1.6) : side * (H.w / 2 + 1.7), lz = H.round ? -0.6 : -H.d * 0.15;
-  const p = houseScafWorkSpot(H, side) || { ...houseW(H, lx, lz), fx: H.x, fz: H.z }; // [look4] inside the scaffold at the wall, hammering at it (04j_rubble.js)
+  e.ai.l5n = (e.ai.l5n || 0) + 1; // [look5] each stint at the next place along the wall
+  const p = houseScafWorkSpot(H, side, e.ai.l5n) || { ...houseW(H, lx, lz), fx: H.x, fz: H.z }; // [look4] inside the scaffold at the wall, hammering at it (04j_rubble.js)
   return [houseGo(p.x, p.z), lifeStep('work', { dur: 14 + Math.random() * 10, fx: p.fx, fz: p.fz, H })];
 }
 // out of a burning house by the door, then away to watch from a safe distance
@@ -295,6 +297,7 @@ function lifeRun(e, dt) {
     }
     case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
     case 'beat': return houseBeatStep(e, st, plan, dt, next); // [war2] beating out a house's fire (08j_war2.js)
+    case 'scaf': return look5ScafStep(e, st, plan, dt, next); // [look5] up a house's scaffold to work from its boards (13z_look5.js)
     default: next(); return true;
   }
 }

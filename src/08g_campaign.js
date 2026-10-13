@@ -707,7 +707,8 @@ function drawCampaignMap(ctx, S, P) {
     if (wb.realm === P.faction) {
       ctx.font = `700 ${11 * u}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
       const t = WB_ORD[wbOrd(wb) - 1] || '';
-      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillText(t, x + 1, y + sc * 5.6 + 1); ctx.fillStyle = '#f3e6c4'; ctx.fillText(t, x, y + sc * 5.6);
+      const at = look5BandNames(ctx, S, P).get(wb) || [x, y + sc * 5.6]; // [look5] laid out clear of each other's (13z_look5.js): two bands at one place wrote their names over each other
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillText(t, at[0] + 1, at[1] + 1); ctx.fillStyle = '#f3e6c4'; ctx.fillText(t, at[0], at[1]);
     }
   }
   // the claim, across the top of the map

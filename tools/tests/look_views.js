@@ -1157,3 +1157,176 @@ window.LK = {
   D('look4', 'roof_in', (L) => { const A = holed(L), b = A.bat, dx = b.hx - A.x, dz = b.hz - A.z, dl = Math.hypot(dx, dz) || 1; L.away(A.x + 40, A.z + 40); return L.cam(b.hx - dx / dl * 1.6, A.y + 1.4, b.hz - dz / dl * 1.6, b.hx, A.y + A.wallH + 0.6, b.hz); });
   D('look4', 'roof_out', (L) => { const A = holed(L), b = A.bat; L.away(A.x + 40, A.z + 40); return L.cam(b.hx + 4.5, A.y + A.top + 5.5, b.hz + 4.5, b.hx, A.y + A.wallH, b.hz); });
 })();
+// [look5] (version 17) what version 16 added, as a player meets it: the risen camps and their champions, the wrath's ring
+// as it glows and as it breaks the ground, the standard of a veteran's name planted on the frontier and in a keep's
+// court, hens, pheasants and mallards walking on their new legs, horses at a gathered gallop, a mason with its mallet at a
+// tower's scaffold, a fallen tower's mound of broken stone with stormers on it, builders up on a house's scaffold
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
+  // step the world at 60 Hz, `drive` moving the bodies a test holds (13r_motion.js motionRun with nothing to measure)
+  const run = (L, sec, drive) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; const n = Math.round(sec * 60); for (let k = 0; k < n; k++) { if (drive) drive(k / 60, 1 / 60); H.motion.motionRun([], 1 / 60, 1 / 60); } H.UI.modal = m || 'menu'; };
+  // a camera round a point: the first of a few places at `d` m with nothing solid between it and the point
+  LK.around = function (x, y, z, d, up, a0 = 0, look = null) {
+    const H = this.H, F = this.F, Tr = F.W.trees;
+    for (const dd of [d, d * 0.8, d * 1.25]) for (let k = 0; k < 16; k++) {
+      const a = a0 + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 0.39, cx = x + Math.sin(a) * dd, cz = z + Math.cos(a) * dd;
+      if (!F.isWalkable(cx, cz) && !(H.water.waterAt(cx, cz))) continue;
+      const cy = Math.max(F.heightAt(cx, cz) + 0.5, y + up);
+      if (H.walls.shotHit(cx, cy, cz, x, y + 0.6, z, {})) continue;
+      if (Tr.some((t) => !t.gone && !t.felled && Math.hypot(t.x - (cx + x) / 2, t.z - (cz + z) / 2) < dd * 0.45 + 0.6)) continue;
+      return this.cam(cx, cy, cz, look ? look.x : x, look ? look.y : y + 0.9, look ? look.z : z);
+    }
+    return this.cam(x + Math.sin(a0) * d, y + up, z + Math.cos(a0) * d, x, y + 0.9, z);
+  };
+  // the risen of the borderlands: the player past 40 (level 45), the nine farthest camps taken over
+  LK.rise = function () {
+    const H = this.H, F = this.F;
+    if (H.GAME.prog.level < 45) { H.GAME.prog.level = 45; F.rescaleWar(); }
+    return H.CAMPS.filter((c) => H.late.late2Risen(c));
+  };
+  const champOf = (L, id) => {
+    const H = L.H, F = L.F, camp = L.rise().find((c) => c.id === id) || L.rise()[0];
+    let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
+    return { camp, C };
+  };
+  // a risen champion in its camp, out of a fight, turned to the camera
+  for (const [name, id] of [['risen_bandit', 43], ['risen_wisp', 50], ['risen_troll', 59], ['risen_bear', 51], ['risen_dead', 42]]) {
+    D('look5', name, (L) => {
+      const { camp, C } = champOf(L, id); if (!C) return { skip: 'no champion' };
+      C.target = null; C.threat && C.threat.clear && C.threat.clear(); sim(L, 0.3);
+      const v = L.around(C.x, C.y, C.z, 5.5 + 1.6 * (C.scale || 1), 1.0 + 0.4 * (C.scale || 1), Math.atan2(camp.x - C.x, camp.z - C.z) + Math.PI, { x: C.x, y: C.y + 1.0 * (C.scale || 1), z: C.z });
+      C.yaw = Math.atan2(L.H.camera.position.x - C.x, L.H.camera.position.z - C.z); sim(L, 0.05);
+      return { ...v, champ: C.name, lvl: C.level, kind: C.kind, type: camp.type, scale: +(C.scale || 1).toFixed(2), n: camp.members.size };
+    });
+  }
+  // the wrath: a risen champion's ring glowing under its foe (a soldier of Logres held in it), and the ground broken after
+  const wrath = (L, at) => {
+    const H = L.H, F = L.F, { camp, C } = champOf(L, 43);
+    for (const id of [...camp.members]) { const m = F.getEnt(id); if (m && m !== C) { m.damagers = null; F.killEnt(m, null); F.removeEnt(m); } }
+    for (const o of H.ENT.slice()) if (o.alive && o !== C && o.kind !== 'door' && o.role !== 'player' && !o.siegeEngine && Math.hypot(o.x - C.x, o.z - C.z) < 30) F.removeEnt(o);
+    const a = Math.atan2(camp.x - C.x, camp.z - C.z) + Math.PI, fx = C.x + Math.sin(a) * 2.2, fz = C.z + Math.cos(a) * 2.2;
+    const foe = F.spawnRealmUnit(0, 'warrior', 45, 'guard', fx, fz, { yaw: Math.atan2(C.x - fx, C.z - fz) });
+    foe.ai.post = { x: fx, z: fz, leash: 0.3 }; foe.hp = foe.maxHp = 1e9; foe.testLook = true; L.made.push(foe);
+    C.hp = C.maxHp; C.buffs.length = 0; C.target = foe.id; C.threat = new Map([[foe.id, 99]]);
+    C.ai.l2 = { next: 0, next2: 1e9, rally: true, enr: false, w: null, last: H.GAME.t };
+    L.away(C.x + 30, C.z - 30); H.GAME.player.hp = H.GAME.player.maxHp = 1e9; // (the camp thinks only with the player within reach)
+    H.late.late2ChampThink(C, foe, 0.05);
+    sim(L, at);
+    const v = L.around(C.x, C.y, C.z, 9.5, 3.2, a + 0.9, { x: (C.x + fx) / 2, y: C.y + 0.5, z: (C.z + fz) / 2 });
+    return { ...v, w: C.ai.l2 && C.ai.l2.w ? +C.ai.l2.w.t.toFixed(2) : null, wrath: H.late.LATE2.stats.wrath };
+  };
+  D('look5', 'wrath_ring', (L) => wrath(L, 0.95));
+  D('look5', 'wrath_break', (L) => { const r = wrath(L, 1.62); for (let i = 0; i < 7; i++) L.H.frame(0.2); return r; }); // (the discs age by the frames' clock: the ring's 1.55 s run out, the cracks and the shockwave's after 0.2 s)
+  // the standard of the player's name: made and planted on the frontier (the Logres muster's field) and in a keep's court
+  const plant = (L, x, z, yaw) => {
+    const H = L.H, F = L.F, P = H.GAME.player, Lt = H.late.LATE2;
+    if (!Lt.names.length) { Lt.d.foes = 0; H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 30); H.late.late2CheckNames(true); }
+    if (!Lt.names.length) Lt.names.push('blooded');
+    Lt.std.made = true;
+    L.play(x, z, yaw, 0.12, 6.5);
+    const ok = H.late.late2StdPlant();
+    sim(L, 0.9);
+    P.yaw = yaw + 2.4; L.H.look(yaw + 0.5, 0.12, 6.5);
+    return { planted: ok, at: Lt.std.at };
+  };
+  D('look5', 'std_field', (L) => {
+    const H = L.H, m = H.REALMS[0].musterSite, sp = L.open(m.x + 26, m.z - 18, 4, 90) || { x: m.x + 26, z: m.z - 18 };
+    L.hush(sp.x, sp.z, 20);
+    return plant(L, sp.x, sp.z, 0.7);
+  });
+  D('look5', 'std_court', (L) => {
+    const H = L.H, F = L.F, S = L.keepSite(0, 0), p = F.siteToWorld(S, 4.5, S.gateLocal.z - 7);
+    L.hush(p.x, p.z, 12);
+    return plant(L, p.x, p.z, L.yawTo(p.x, p.z, S.x, S.z) + 0.6);
+  });
+  // hens about a farmyard (Brackenford's hens), and mallards by a pond's edge, walking on their legs, from low beside them
+  const walkers = (L, kinds, x, z, yaw, vs, gap = 0.9) => {
+    const F = L.F, ux = Math.sin(yaw), uz = Math.cos(yaw), sx = Math.cos(yaw), sz = -Math.sin(yaw), B = [];
+    kinds.forEach((k, i) => { const e = L.beast(k, x + sx * (i - (kinds.length - 1) / 2) * gap - ux * (1 + i * 0.4), z + sz * (i - (kinds.length - 1) / 2) * gap - uz * (1 + i * 0.4), yaw); e.role = 'test'; B.push(e); });
+    run(L, 1.4, (t, dt) => B.forEach((e, i) => { const v = vs[i % vs.length] * Math.min(1, t / 0.35); e.x += ux * v * dt; e.z += uz * v * dt; e.yaw = yaw; }));
+    return B;
+  };
+  D('look5', 'hens', (L) => {
+    const H = L.H, F = L.F, S = H.REALMS[0].town, hn = H.ENT.filter((e) => e.alive && e.kind === 'hen' && Math.hypot(e.x - S.x, e.z - S.z) < 140);
+    const c0 = hn[0] || S, sp = L.open(c0.x, c0.z, 2.2, 30) || c0;
+    L.hush(sp.x, sp.z, 6); for (let j = -3; j <= 3; j++) H.nature.natureCut(sp.x + j, sp.z, 3.2, 1, false);
+    const B = walkers(L, ['hen', 'hen', 'pheasant'], sp.x, sp.z, 1.57, [0.45, 0.7, 0.55], 0.75);
+    const m = B[1], cx = m.x - 0.6, cz = m.z + 2.9;
+    L.away(sp.x + 50, sp.z + 50);
+    return { ...L.cam(cx, m.y + 0.62, cz, m.x + 0.3, m.y + 0.16, m.z - 0.3), at: [+sp.x.toFixed(1), +sp.z.toFixed(1)] };
+  });
+  D('look5', 'ducks', (L) => {
+    const H = L.H, F = L.F, Pd = H.water.PONDS.filter((p) => p.n > 30).sort((a, b) => Math.hypot(a.x - H.REALMS[1].town.x, a.z - H.REALMS[1].town.z) - Math.hypot(b.x - H.REALMS[1].town.x, b.z - H.REALMS[1].town.z))[0];
+    if (!Pd) return { skip: 'no pond' };
+    // the bank: the first walkable point out from the pond's middle with no water on it, and dry ground along it
+    let bank = null;
+    for (let a = 0; a < 6.28 && !bank; a += 0.3) for (let r = 2; r < 40; r += 0.5) {
+      const x = Pd.x + Math.sin(a) * r, z = Pd.z + Math.cos(a) * r;
+      if (H.water.waterAt(x, z)) continue;
+      if (!F.isWalkable(x, z)) break;
+      const x1 = x + Math.sin(a) * 1.2, z1 = z + Math.cos(a) * 1.2;
+      if (!H.water.waterAt(x1, z1) && F.isWalkable(x1, z1)) { bank = { x: x1, z: z1, a }; }
+      break;
+    }
+    if (!bank) return { skip: 'no bank' };
+    L.hush(bank.x, bank.z, 10);
+    const yaw = bank.a + Math.PI / 2;
+    for (let j = -3; j <= 3; j++) H.nature.natureCut(bank.x + Math.sin(yaw) * j, bank.z + Math.cos(yaw) * j, 2.6, 1, false);
+    const B = walkers(L, ['duck', 'duck'], bank.x, bank.z, yaw, [0.5, 0.65], 0.7);
+    const m = B[0], ox = Math.sin(bank.a), oz = Math.cos(bank.a);
+    L.away(bank.x + 50, bank.z + 50);
+    return { ...L.cam(m.x + ox * 2.4 + Math.sin(yaw) * 0.6, m.y + 0.6, m.z + oz * 2.4 + Math.cos(yaw) * 0.6, m.x - ox * 0.6, m.y + 0.1, m.z - oz * 0.6), pond: [Math.round(Pd.x), Math.round(Pd.z)] };
+  });
+  // two horses at a gallop (11 and 13 m/s) from abreast, the grass mown along their lane so the legs show
+  D('look5', 'gallop', (L) => {
+    const H = L.H, F = L.F, sp = L.open(H.REALMS[2].musterSite.x + 34, H.REALMS[2].musterSite.z + 10, 10, 90);
+    if (!sp) return { skip: 'no room' };
+    L.hush(sp.x, sp.z, 45);
+    const a = L.beast('horse', sp.x - 22, sp.z - 1.4, Math.PI / 2), b = L.beast('horse', sp.x - 21, sp.z + 1.8, Math.PI / 2, { cols: [[0.66, 0.6, 0.52], [0.2, 0.17, 0.14]] });
+    for (let j = -30; j <= 30; j += 1.5) H.nature.natureCut(sp.x + j, sp.z, 3.5, 1, false);
+    run(L, 1.9, (t, dt) => { const k = Math.min(1, t / 0.5); a.x += 11 * k * dt; b.x += 13 * k * dt; a.yaw = b.yaw = Math.PI / 2; });
+    const mx = (a.x + b.x) / 2;
+    L.away(sp.x + 60, sp.z + 60);
+    return { ...L.eye(mx - 0.5, sp.z - 8.0, mx, F.heightAt(mx, sp.z) + 0.95, sp.z, 1.2), at: [+(a.x - sp.x).toFixed(1), +(b.x - sp.x).toFixed(1)] };
+  });
+  // the mason up on a breached tower's scaffold with its mallet, close (look3's masons from 5 m)
+  D('look5', 'mason_close', (L) => {
+    const r = L.views.masons.call(L, L); if (r && r.skip) return r;
+    const H = L.H, F = L.F, L3 = H.look3, ms = L3.MASON.list.filter((e) => !e.removed && e.alive && e.ai.mason && e.ai.mason.st === 'work');
+    const up = ms.sort((a, b) => b.y - a.y)[0];
+    if (!up) return { skip: 'no mason at work' };
+    const fx = Math.sin(up.yaw), fz = Math.cos(up.yaw), sx = Math.cos(up.yaw), sz = -Math.sin(up.yaw);
+    return { ...L.cam(up.x - fx * 1.6 + sx * 2.3, up.y + 1.7, up.z - fz * 1.6 + sz * 2.3, up.x + fx * 0.5, up.y + 1.25, up.z + fz * 0.5), act: up.anim.act, y: +up.y.toFixed(2), sts: r.sts };
+  });
+  // a fallen tower's mound of broken stone with stormers on it, from the field
+  D('look5', 'mound', (L) => {
+    const H = L.H, F = L.F, S = L.keepSite(0, 0), C = F.castles().find((q) => q.S === S), K = S.keepRef;
+    const W = C.sections.find((q) => q.kind === 'tower' && q.T.role === 'corner' && q.T.sx === -1 && q.T.sz === -1), T = W.T;
+    if (W.state !== 'breach') { if (W.state !== 'whole') { W.state = 'whole'; } const r = L.views.breach.call(L, L); if (r && r.skip) return r; }
+    K.lastEnemyNear = H.GAME.t + 1e6;
+    const Rt = H.siege2.siegeStormRoute(W), a = Rt[0], b = Rt[2];
+    L.hush((a.x + b.x) / 2, (a.z + b.z) / 2, 16);
+    const dx = b.x - a.x, dz = b.z - a.z, dl = Math.hypot(dx, dz), ux = dx / dl, uz = dz / dl, yaw = Math.atan2(ux, uz);
+    const men = [[0.35, -0.7], [0.55, 0.8], [0.72, -0.2]].map(([f, lat], i) => {
+      const x = a.x + dx * f - uz * lat, z = a.z + dz * f + ux * lat, e = F.spawnRealmUnit(2, ['warrior', 'archer', 'warrior'][i], 30, 'guard', x, z, { yaw });
+      e.ai.post = null; e.role = 'test'; e.testLook = true; e.y = F.floorAt(x, z, 60); L.made.push(e); return e;
+    });
+    run(L, 0.8, (t, dt) => men.forEach((e, i) => { const v = 0.9 + 0.25 * i; e.x += ux * v * dt; e.z += uz * v * dt; e.yaw = yaw; }));
+    const c = { x: a.x - ux * 5.5 + uz * 6.5, z: a.z - uz * 5.5 - ux * 6.5 };
+    L.away(S.x + 60, S.z + 60);
+    return { ...L.cam(c.x, F.heightAt(c.x, c.z) + 2.6, c.z, (a.x + b.x) / 2, men[1].y + 0.8, (a.z + b.z) / 2), ys: men.map((e) => +(e.y - F.heightAt(e.x, e.z)).toFixed(2)), st: W.state };
+  });
+  // builders at a house being built back: a fallen house of Brackenford a third of the way through, from its street
+  D('look5', 'house_builders', (L) => {
+    const A = L.felled(0, 2), H = L.H;
+    if (A.state === 'ruin') { A.stT = 1e4; sim(L, 0.3); }
+    if (A.state === 'scaffold') A.stT = Math.max(A.stT, 30);
+    sim(L, 6);
+    const o = A.door.out2, dx = o.x - A.x, dz = o.z - A.z, l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l;
+    const cx = A.x + ux * (A.foot + 7) + uz * 4, cz = A.z + uz * (A.foot + 7) - ux * 4;
+    const bs = H.ENT.filter((e) => e.alive && e.kind === 'humanoid' && Math.hypot(e.x - A.x, e.z - A.z) < 9 && e.role === 'villager');
+    L.away(A.x + 40, A.z + 40);
+    return { ...L.cam(cx, L.floor(cx, cz) + 2.4, cz, A.x, A.y + 1.8, A.z), st: A.state, t: +A.stT.toFixed(1), builders: bs.map((e) => +(e.y - A.y).toFixed(2)) };
+  });
+})();

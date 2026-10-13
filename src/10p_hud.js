@@ -9,13 +9,13 @@
 const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
-  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone
-  wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] },
+  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2', 'R2', 'CB'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone; [look5] the path tracker anywhere free rather than out of sight
+  wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2', 'R2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] }, // [look5]
   desk: { '#breath': ['C', 'CB'], '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
-const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is
+const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [look5] the path tracker (what to do next) before the companion bar and the war panel: with the plant card and the companion bar up it waited out of sight on an upright phone
 // [guide] while a field note shows, it comes before the panels that stay, which make room for it a few seconds: after them
 // there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
 // most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
@@ -81,15 +81,21 @@ function hudKey(W, H, touch) {
 function hudLayout(dt) {
   if (!HUDL.on || !GAME.started || !GAME.player) return;
   if (g2TapHeld()) { HUDL.k = 0; return; } // [guide2] no panel moves under a finger before its click lands (10f_guide2.js): a tap on the companion bar came to nothing when it moved
+  hudWatch(); // [look5]
+  const asked = HUDL.k === 0; // [look5] (something asked for a pass now: a note, a toast, a resize, a test)
   HUDL.t -= dt;
   // a look four times a second (reading the panels' sizes makes the browser lay the page out)
   HUDL.k -= dt;
   if (HUDL.k > 0) return;
   HUDL.k = 0.25;
   const W = innerWidth, H = innerHeight, touch = document.body.classList.contains('touch');
-  const key = hudKey(W, H, touch);
-  if (key === HUDL.key && HUDL.t > 0) return;
-  HUDL.t = 1;
+  // [look5] with the observers up the look reads nothing: a pass runs when a panel has changed its size, shown or hidden
+  // (ResizeObserver, MutationObserver: hudWatch), when a held height lets go, when something asks for one, and once in
+  // a few seconds besides; hudKey read every panel's size four times a second
+  if (HUDL5.ro) { if (renderTime > HUDL5.wake) { HUDL5.wake = Infinity; HUDL5.dirty = true; } if (!asked && !HUDL5.dirty && HUDL.t > 0) return; }
+  else { const key = hudKey(W, H, touch); if (key === HUDL.key && HUDL.t > 0) return; }
+  HUDL5.dirty = false; HUDL5.passes++;
+  HUDL.t = HUDL5.ro ? 5 : 1;
   const t0 = performance.now();
   hudReset();
   const S = hudSafe(), top = (W <= 760 || touch ? 12 : 16) + S.t;
@@ -180,6 +186,7 @@ function hudLayout(dt) {
     // the zone's name, only while it shows ([v9] and while it fades: it keeps the place it had)
     if (sel === '#zonetoast' && !el.classList.contains('on') && +getComputedStyle(el).opacity < 0.05) continue;
     let r = measure(sel, el);
+    { const hr = hudHeld(sel, r); if (hr !== r && free(hr)) { placed.push({ ...hr, sel }); continue; } } // [look5] it keeps its taller place a while: the panels under it stay put
     if (free(r)) { placed.push({ ...r, sel }); continue; }
     let c = seek(sel, r);
     if (!c && sel === '#banners' && el.children.length > 1) { // [guide] a toast and a note together do not fit an upright phone: the newest shows, the older wait
@@ -217,8 +224,40 @@ function hudLayout(dt) {
     }
   }
   HUDL.placed = placed;
-  HUDL.key = hudKey(W, H, touch);
+  HUDL.key = HUDL5.ro ? '' : hudKey(W, H, touch); // [look5]
   HUDL.n++; HUDL.ms = performance.now() - t0;
+}
+// [look5] (version 17) The layout pass's watchers: a ResizeObserver on every panel the pass places or keeps clear of
+// (a size changed, a panel shown or hidden: a hidden one has no size), a MutationObserver for what changes no size (the
+// zone's name fading in, a toast or a note added to the banners, a button of the pad shown or hidden), the classes the
+// pass itself sets (hl-*) left out. Panels that keep still: a panel in the columns that loses a line keeps its taller
+// place for a few seconds (HUD_HOLD_T), so the panels under it do not move up and back down every time it gains and
+// loses one (the companion bar under the class panel moved 18 to 24 px every few seconds; a tap could land on the
+// button under the one aimed at); it gives the room back once its height has held that long.
+const HUDL5 = { ro: null, mo: null, dirty: true, wake: Infinity, passes: 0, hold: new Map(), held: 0 };
+const HUD_HOLD = new Set(['#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#farmcard']), HUD_HOLD_T = 6;
+const HUD_WATCH = [...HUD_ORDER, '#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#tpad', '#joyhint', '#prompt', '#castbar', '#log', '#bottom'];
+function hudWatch() {
+  if (HUDL5.ro !== null || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return;
+  const els = HUD_WATCH.map((s) => document.querySelector(s)).filter(Boolean);
+  if (els.length < 6) return; // (the HUD is not built yet)
+  HUDL5.ro = new ResizeObserver(() => { HUDL5.dirty = true; });
+  const noise = (m) => m.attributeName === 'class' && String(m.oldValue || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim() === String(m.target.className || '').replace(/\s*\bhl-[a-z]+\b/g, '').trim();
+  HUDL5.mo = new MutationObserver((list) => { for (const m of list) if (m.type === 'childList' || !noise(m)) { HUDL5.dirty = true; return; } });
+  for (const el of els) {
+    HUDL5.ro.observe(el);
+    HUDL5.mo.observe(el, { attributes: true, attributeFilter: ['class', 'hidden'], attributeOldValue: true, childList: el.id === 'banners' || el.id === 'tpad', subtree: el.id === 'banners' || el.id === 'tpad' });
+  }
+  addEventListener('resize', () => { HUDL5.dirty = true; });
+}
+// a panel's place in the columns: a little taller than it is while it holds the height it had (see above)
+function hudHeld(sel, r) {
+  if (!HUD_HOLD.has(sel)) return r;
+  const now = renderTime, h = HUDL5.hold.get(sel);
+  if (!h || r.h >= h.h - 0.5 || now > h.until || Math.abs(r.w - h.w) > 2) { HUDL5.hold.set(sel, { h: r.h, w: r.w, until: now + HUD_HOLD_T }); return r; }
+  HUDL5.wake = Math.min(HUDL5.wake, h.until + 0.05);
+  HUDL5.held++;
+  return { ...r, h: h.h };
 }
 // [phones] a name shows only where its body could be seen: not through the walls of a house, a hall or a keep
 const _npCn = [];

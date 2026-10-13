@@ -760,6 +760,8 @@ const GRASS_VERT = /* glsl */`
   ${GLSL_COVER}
   ${GLSL_MEADOW}
   ${GLSL_SEASON} // [seasons] 02d_season.js
+  ${LOOK5_HALLOW_GLSL} // [look5] holy ground's light in the blades (02f_look5.js)
+  varying vec4 vHal; // [look5]
   uniform sampler2D uDriftMap; uniform float uSnowCover; // [polish] the drifts (07f_tracks.js) and the snow lying
   varying vec2 vSzn; // [seasons] the snow lying here (times uSnowCover), hoar frost
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
@@ -771,7 +773,7 @@ const GRASS_VERT = /* glsl */`
   attribute vec4 aRnd;
   varying vec3 vWorld; varying vec3 vN; varying vec3 vAcross; varying vec4 vInfo; varying vec4 vLook; varying vec4 vDecal; varying float vSh;
   void main(){
-    vSh = 1.0; vNat = vec4(0.0); vPatch = vec4(0.0); vCanopy = 0.0; vSzn = vec2(0.0);
+    vSh = 1.0; vNat = vec4(0.0); vPatch = vec4(0.0); vCanopy = 0.0; vSzn = vec2(0.0); vHal = vec4(0.0);
     vWorld = vec3(0.0); vN = vec3(0.0, 1.0, 0.0); vAcross = vec3(1.0, 0.0, 0.0); vInfo = vec4(0.0); vLook = vec4(0.0); vDecal = vec4(0.0);
     vec2 base = aOff + uTile * floor((uCenter - aOff) / uTile + 0.5);
     float dcam = length(base - uCam2);
@@ -833,6 +835,7 @@ const GRASS_VERT = /* glsl */`
     vInfo.z *= 1.0 - 0.38 * groundAO(base);
     vLook = vec4(realmTint(B.rgb), clamp(B.a + smoothstep(0.55, 0.85, vnoise(base * 0.07 + 3.0)) * 0.35 * B.r, 0.0, 1.0));
     vDecal = sampleDecal(base);
+    if (uHallowN > 0.5) vHal = look5Hallow(base); // [look5] holy ground's light at the blade's root
     vSh = dcam < uFadeFar + 4.0 ? shadowAtV(world, vec2(aRnd.z, aRnd.y) * 2.0 - 1.0) : 1.0;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }`;
@@ -848,6 +851,7 @@ const GRASS_FRAG = /* glsl */`
   varying vec4 vNat; // nature: cut, burnt, burning (05h_nature.js)
   varying vec4 vPatch; // visual pass: dry, lush, the blade's own hue, the gust bending it
   varying float vCanopy;
+  varying vec4 vHal; // [look5] holy ground's light (02f_look5.js)
   void main(){
     float t = clamp(vInfo.x, 0.0, 1.0);
     float wetB = uWet * (1.0 - 0.8 * vCanopy), snowB = uSnowCover * vSzn.x * (1.0 - 0.7 * vCanopy); // [seasons] the snow lying here
@@ -894,6 +898,10 @@ const GRASS_FRAG = /* glsl */`
     col = mix(col, uTargetColor * 1.5, clamp(vDecal.g, 0.0, 1.0) * (0.45 + 0.4 * t));
     col = mix(col, uAoeColor * 1.4, clamp(vDecal.b, 0.0, 1.0) * (0.35 + 0.4 * t));
     col = mix(col, vec3(0.5, 1.0, 0.6) * 1.3, clamp(vDecal.a, 0.0, 1.0) * (0.35 + 0.4 * t));
+    // [look5] holy ground's light caught in the blades, brightest at their tips (02f_look5.js): its disc lay under the grass
+    float hk = clamp(vHal.a, 0.0, 1.0);
+    col = mix(col, vHal.rgb * 0.55, hk * (0.22 + 0.5 * t));
+    col += vHal.rgb * hk * (0.06 + 0.3 * t * t);
     float g = clamp(vInfo.w * uNight, 0.0, 1.0);
     vec3 glow = uGlowColor * (0.1 + 0.9 * spow(t, 1.25)) * (0.62 + 0.38 * ndl) * (0.8 + 0.35 * (vInfo.z - 0.8));
     col = mix(col, glow, g * 0.9);

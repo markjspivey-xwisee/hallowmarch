@@ -74,8 +74,15 @@ function spawnMob(camp, elite = false) {
   const M = MOBS[camp.type];
   const band = late2Band(camp); // [late2] past 40 the farthest borderland camps rise with you (10l_late.js)
   const lvl = elite ? band[1] + band[2] : band[0] + Math.floor(Math.random() * (band[1] - band[0] + 1));
-  const a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
+  let a = Math.random() * TAU, r = Math.random() * camp.r * (elite ? 0.4 : 1);
   let x = camp.x + Math.cos(a) * r, z = camp.z + Math.sin(a) * r;
+  // [look5] not inside what the camp stands round: its fire pit (at its middle, where a champion was most often set
+  // down: a risen champion stood in the flames), a tent, the log, the rack. A body set down in a collider never steps,
+  // so nothing pushed it out (13z_look5.js)
+  for (let k = 0; k < 12 && (!isWalkable(x, z) || look5InColl(x, z, M.radius || 0.5)); k++) {
+    a = Math.random() * TAU; r = (0.25 + 0.75 * Math.random()) * camp.r * (elite ? 0.55 : 1);
+    x = camp.x + Math.cos(a) * r; z = camp.z + Math.sin(a) * r;
+  }
   if (!isWalkable(x, z)) { x = camp.x; z = camp.z; }
   const name = elite ? pick(Math.random, ELITE_NAMES[camp.type]) : M.names[mobTier(M, lvl)];
   const sc = lerp(M.scale[0], M.scale[1], clamp((lvl - 1) / 19, 0, 1)) * (1 + 0.08 * clamp((lvl - 20) / 20, 0, 1)) * (elite ? 1.2 : 1);

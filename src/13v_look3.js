@@ -87,6 +87,7 @@ function look3Masons(C, dt) {
   if (C.pal) for (const W of C.pal.gaps) if (W.l3) jobs.push(W);
   for (const W of jobs) {
     if (!W.l3.on) { W.masonsFor = null; continue; }
+    if (look5MasonsAgain(C, W)) continue; // [look5] gone home from a foe, they come out again once the keep is quiet; a save's masons back at their work (13z_look5.js)
     if (W.masonsFor || GAME.t - (K.lastEnemyNear ?? -1e9) < 25 || (W.t || 0) > 0.8) continue;
     // (the outer run's ladder, where there are two: a curtain's scaffold stands on both its faces)
     const H = HALL.list.find((q) => q.S === S), L = W.l3.ladders.filter((q) => q.k === 0).sort((a, b) => dist2(b.fx, b.fz, S.x, S.z) - dist2(a.fx, a.fz, S.x, S.z))[0];

@@ -374,6 +374,7 @@ function guideFold(html, open) {
   return `<details class="gd-help"${open ? ' open' : ''}><summary>${m[1]}</summary><div>${html.slice(0, m.index)}${html.slice(m.index + m[0].length)}</div></details>`;
 }
 function guideHelpHTML() {
+  if (look5PhoneHelp()) return look5HelpHTML(); // [look5] on a phone: what a new player needs first, the rest a tap away (13z_look5.js)
   let s = guideKeysHTML();
   GUIDE_HELP.forEach((f, i) => { try { s += guideFold(f(), i === 0); } catch (e) { reportError(e); } });
   return s;
