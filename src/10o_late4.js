@@ -218,9 +218,10 @@ function late4Second(e, t, d) {
     spellDisc(tx, tz, 3.0, DISC_KIND.holy, 1.65, [1.6, 0.9, 0.35]);
     turnToward(e, tx, tz, 20); setAct(e, 8, 1.0); e.swingAt = Math.max(e.swingAt || 0, now + 1.8);
     late2Snd('roarSmall', e, 2);
-    later(0.55, () => { if (e.alive && !isStunned(e)) late4Throw(e, tx, tz, 1.05, 'boulder'); });
+    let thrown = false; // (a stun before it heaves the boulder breaks the throw off; once thrown it lands)
+    later(0.55, () => { if (e.alive && !isStunned(e)) { late4Throw(e, tx, tz, 1.05, 'boulder'); thrown = true; } });
     later(1.6, () => {
-      if (!e.alive) return;
+      if (!thrown) return;
       const gy = heightAt(tx, tz);
       if (!inDungeon(e)) { try { natureImpact(tx, tz, 'leap', 3); } catch (err) { reportError(err); } }
       spellDisc(tx, tz, 2.8, DISC_KIND.crack, 6);
