@@ -8,9 +8,10 @@ const B8T = {
   flareThrough: true, // [priest] Holy Fire's flare breaks a spell a Renewal steadied (light in the face is no blow): only a mage's ward keeps its spell from it
   sanctKnee: 0.3, // [priest] Sanctuary mends the priest's own wounds by their depth: all of it from 70% health down (0: as before)
   priestSpent: true, // [priest bot] a skilled priest casts again once the foe's interrupt is spent (it waited 3 s after any broken spell)
+  flarePriestAny: true, // [priest bot] a skilled priest flares any spell a foe priest casts (it kept its flare for a heal: in a mirror at 30 the careless priest, flaring whatever it met as Holy Fire came round, broke the careful one's spells twice as often)
   priestFlareWait: true, // [priest bot] a skilled priest does not begin a heal into a foe priest's ready flare (it baits it with a smite)
   priestRankOneCasts: true, // [priest bot] a skilled priest of rank I casts through a warrior's blade instead of waiting on its bash
-  priestSelfLate: 0.62, // [priest] its own wounds mend at this share of a heal's rank I measure from rank II (PRIEST_SELF_LATE 0.55; 0.7 was tried: the priest won 33 of 48 against the mage at 30 and 50 and 40 of 48 against the warrior at 50)
+  priestSelfLate: [0, 0, 0.66, 0.64, 0.62], // [priest] its own wounds mend at this share of a heal's rank I measure at ranks II, III and IV (PRIEST_SELF_LATE 0.55 at every rank; measured on whole ground, 0.7 at every rank gave the priest of 30 and 50 33 of 48 against the mage and that of 50 40 of 48 against the warrior, and 0.62 left the priest of 30 with 29% of its duels and 3 of 48 against the bow)
   woundLate: 0.15, // [archer] from rank II a broadhead's or a crippling arrow's wound takes this share off healing (WOUND_HEAL_LATE 0.3; rank I keeps 0.3)
   priestHoldBow: true, // [priest bot] a skilled priest keeps its Holy Fire a moment for a bow's long shot within its reach, as for a staff's or a priest's spell
   priestDazzleEarly: true, // [priest bot] a skilled priest of rank I dazzles a warrior with Smite first (it cannot parry dazzled)
@@ -105,6 +106,12 @@ function priestCutSpent(e, t) {
   }
   return false;
 }
+// priestSelf (07c_balance.js) asks: a priest's own healing from rank II, as a share of a heal's rank I measure
+function priestSelfLateK(e) {
+  const L = B8T.priestSelfLate;
+  if (!Array.isArray(L)) return L || PRIEST_SELF_LATE;
+  return L[clamp(abilityRank(e.level || 1), 2, L.length - 1)];
+}
 // botPriest asks: does a skilled priest hold its spells while a warrior's Shield Bash is ready (castOk)? Only from rank II,
 // when Divine Shield answers the bash: at rank I nothing does (a Renewal's steadiness does not keep a spell from a stun), and
 // a priest that waited on the bash stood idle beside the warrior (it mended 5 health a second and smote nothing, and won 2 of
@@ -127,6 +134,6 @@ setTimeout(() => {
 
 setTimeout(() => {
   if (!window.__hm) return;
-  window.__hm.bal8 = { BAL8, B8T, flareBreak, flareBreakable, sanctKneeK, priestCutSpent, priestFlareWait };
+  window.__hm.bal8 = { BAL8, B8T, priestSelfLateK, flareBreak, flareBreakable, sanctKneeK, priestCutSpent, priestFlareWait };
 }, 0);
 ABILITIES.renew.desc = ABILITIES.renew.desc.replace('nothing but a stun breaks your spells', 'nothing but a stun or a foe\'s Holy Fire breaks your spells'); // (07c_balance6.js's text)

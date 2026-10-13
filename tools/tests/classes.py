@@ -842,9 +842,10 @@ async def balance3(page):
 
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F, B = H.bal; const out = {};
       for (const lv of [20, 30, 50]) { const P = T.fresh('archer', lv, 0); out[lv] = { wound: B.woundOf(P), self: +B.priestSelf({ level: lv }).toFixed(3) }; }
+      out.late = H.bal8 ? H.bal8.B8T.woundLate : 0.3; out.selfLate = H.bal8 ? [30, 50].map((lv) => H.bal8.priestSelfLateK({ level: lv })) : [0.55, 0.55]; // [balance8] the late measures, rank by rank (07c_balance8.js)
       return out; })()""")
-    check(r['20']['wound'] == 0.3 and r['30']['wound'] == 0.3 and r['50']['wound'] == 0.3, f"a broadhead's wound: 30% at every rank ([balance5]: 45% from rank II before) ({r})")
-    check(abs(r['20']['self'] - 0.76) < 0.01 and abs(r['30']['self'] * 1.12 - 0.55) < 0.01 and abs(r['50']['self'] * 1.36 - 0.55) < 0.01, f"a priest's own healing: 76% ([balance5] 70%, [balance6] 76%), then a steady 55% of rank I's from rank II ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
+    check(r['20']['wound'] == 0.3 and r['30']['wound'] == r['late'] and r['50']['wound'] == r['late'], f"a broadhead's wound: 30% at rank I, {r['late'] * 100:g}% from rank II ([balance5]: 30% at every rank; [balance8] the late wound on whole ground) ({r})")
+    check(abs(r['20']['self'] - 0.76) < 0.01 and abs(r['30']['self'] * 1.12 - r['selfLate'][0]) < 0.01 and abs(r['50']['self'] * 1.36 - r['selfLate'][1]) < 0.01, f"a priest's own healing: 76% ([balance5] 70%, [balance6] 76%), then {r['selfLate'][0] * 100:g}% of rank I's at rank II and {r['selfLate'][1] * 100:g}% at rank IV ([balance8]; 55% at every rank before) ({r['20']['self']}, {r['30']['self']}, {r['50']['self']})")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance3] checks {errs[:2]}')
 
@@ -951,7 +952,7 @@ async def balance5(page):
       // a priest steadfast from its own Renewal keeps its spell
       const a2 = T.ahead(P, 6, 3); const q = T.foe(2, a2.x, a2.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
       q.cds = {}; q.gcdUntil = 0; q.power = q.maxPower; q.hp = q.maxHp * 0.6; F.useAbility(q, 'renew', q); out.steady = H.fn.hasBuff(q, 'steadfast');
-      q.gcdUntil = 0; F.useAbility(q, 'mend', q); H.simulate(0.2); P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'holyfire', q); out.kept = !!q.casting;
+      q.gcdUntil = 0; F.useAbility(q, 'mend', q); H.simulate(0.2); P.cds = {}; P.gcdUntil = 0; F.useAbility(P, 'holyfire', q); out.kept = !!q.casting; out.through = !!(H.bal8 && H.bal8.B8T.flareThrough); // [balance8] the flare breaks a steadied spell (07c_balance8.js)
       // a second Renewal while the first still mends does not steady
       H.simulate(4.5); const q2 = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t); q.cds = {}; q.gcdUntil = 0; q.casting = null; F.useAbility(q, 'renew', q); out.stale = q.buffs.some((b) => b.kind === 'steadfast' && b.until > H.GAME.t); out.q2 = q2;
       // and one cast after the last has run its course does
@@ -959,7 +960,7 @@ async def balance5(page):
       out.stats = H.bal5.BAL5.stats; return out; })()""")
     check(r['casting'] and r['r'] is True and r['broken'], f"Holy Fire flares a mage's firebolt away ({r})")
     check(r['far'], f"a mage beyond the flare's reach keeps its spell ({r['far']})")
-    check(r['steady'] and r['kept'], f"a priest steadfast from its own Renewal keeps its Mend through the flare ({r})")
+    check(r['steady'] and (r['kept'] != r['through']), f"a priest steadfast from its own Renewal " + ("loses its Mend to the flare all the same ([balance8]: the flare is no blow)" if r['through'] else "keeps its Mend through the flare") + f" ({r})")
     check(not r['q2'] and r['stale'] and r['fresh'], f"every Renewal on yourself steadies for 4 s (the fresh Renewal's rule was tried and set aside) ({r})")
     r = await ev(page, 'wound', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 20, 0);
       const a = T.ahead(P, 14); const q = T.foe(2, a.x, a.z, 20, 'priest', 0); q.ai.nextAbility = 1e9; q.swingAt = 1e9; H.simulate(0.1);
@@ -1079,17 +1080,18 @@ async def balance7(page):
     lc = r.get('logresCold')
     check(bool(lc) and lc['wind'] == 1 and lc['snare']['caught'] and not lc['snare']['frozen'] and abs(lc['snare']['root'] - 3.5) < 0.25, f"a Logres archer there shoots and snares as a plain one ({lc})")
     # the rules: Charge every 12 s at 50 with its slowing blow, one rush of B7T.rushShare s, plain shafts by rank, Mend on a scratch, the texts
-    r = await ev(page, 'rules7', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = { share: B7.B7T.rushShare };
+    # [balance8] the late Charge set back to version 14's on whole ground (07c_balance8.js): the wait and the slow read from B7T
+    r = await ev(page, 'rules7', """(() => { const H = T.H, F = T.F, B7 = H.bal7; const out = { share: B7.B7T.rushShare, cdLate: B7.B7T.chargeCdLate || H.bal5.ABILITIES.charge.cd, slowLate: !!B7.B7T.chargeSlowLate };
       const P = T.fresh('warrior', 50, 0); const a = T.ahead(P, 15); const f = T.foe(1, a.x, a.z, 50, 'mage', 0); f.ai.nextAbility = 1e9; f.swingAt = 1e9; f.tweak = { hp: 40 }; F.setupStats(f);
       H.simulate(0.1); P.target = f.id; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower;
       out.used = F.useAbility(P, 'charge', f); out.chargeCd = +((P.cds.charge || 0) - H.GAME.t).toFixed(1); out.leapCd = +((P.cds.leap || 0) - H.GAME.t).toFixed(1);
       H.simulate(1.6); const sl = f.buffs.find((b) => b.kind === 'snare' && b.src === P.id); out.slow = sl ? +sl.value.toFixed(2) : 0;
       out.plain = [20, 30, 40, 50].map((lv) => +B7.plainArrowK({ level: lv }).toFixed(2));
       out.scratch = +H.bal4.mendWound({ hp: 95, maxHp: 100 }).toFixed(3); out.half = +H.bal4.mendWound({ hp: 50, maxHp: 100 }).toFixed(3);
-      out.leapText = H.bal5.ABILITIES.leap.desc.includes('holds the other back ' + out.share + ' s'); out.chargeText = H.bal5.ABILITIES.charge.desc.includes('every 12 s');
+      out.leapText = H.bal5.ABILITIES.leap.desc.includes('holds the other back ' + out.share + ' s'); out.chargeText = H.bal5.ABILITIES.charge.desc.includes(out.slowLate ? 'every ' + out.cdLate + ' s' : 'it waits ' + out.cdLate + ' s');
       return out; })()""")
-    check(r['used'] is True and abs(r['chargeCd'] - 12) < 0.3 and r['leapCd'] >= r['share'] - 0.1 and r['leapCd'] <= r['share'] + 0.3, f"at 50 Charge comes round in 12 s and holds Leap Strike back {r['share']} s ({r['chargeCd']} s, {r['leapCd']} s)")
-    check(abs(r['slow'] - 0.4) < 0.01, f"at 50 its landing blow slows the foe by 40% ({r['slow']})")
+    check(r['used'] is True and abs(r['chargeCd'] - r['cdLate']) < 0.3 and r['leapCd'] >= r['share'] - 0.1 and r['leapCd'] <= r['share'] + 0.3, f"at 50 Charge comes round in {r['cdLate']} s and holds Leap Strike back {r['share']} s ({r['chargeCd']} s, {r['leapCd']} s)")
+    check(abs(r['slow'] - (0.4 if r['slowLate'] else 0)) < 0.01, f"at 50 its landing blow " + ("slows the foe by 40%" if r['slowLate'] else "does not slow ([balance8]: version 14's late Charge)") + f" ({r['slow']})")
     check(r['plain'] == [1, 1.05, 1.1, 1.15], f"plain shafts strike 5% harder a rank past the first ({r['plain']})")
     check(abs(r['scratch'] - 0.235) < 0.01 and r['half'] == 1, f"Mend on a scratch: a sixth of its measure and more as the wound deepens, all of it from half health ({r['scratch']} at 95%, {r['half']} at 50%)")
     check(r['leapText'] and r['chargeText'], f"the tooltips name the rush share and Charge's wait ({r['leapText']}, {r['chargeText']})")

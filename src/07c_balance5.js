@@ -43,7 +43,7 @@ function flareThreat(e) {
 // long spell of a mage or a bow (a meteor, a firebolt, an aimed shot)
 function flareWorth(t, e) {
   if (!flareBreakable(t, 0.3) || (e && dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1))) return false; // [balance8] (07c_balance8.js)
-  if (t.cls === 'priest') return t.casting.id === 'mend' || t.casting.id === 'pillar' || t.casting.id === 'raise';
+  if (t.cls === 'priest') return t.casting.id === 'mend' || t.casting.id === 'pillar' || t.casting.id === 'raise' || (B8T.flarePriestAny && B8T.flareThrough); // [balance8] any spell of a priest's, now that its Renewal does not keep it (07c_balance8.js)
   return true;
 }
 

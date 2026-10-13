@@ -669,7 +669,7 @@ const PRIEST_SELF = 0.76; // [balance5] 0.75: a priest pressing its abilities in
 // get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
 // outlasted every bow and staff while one of 50 did not
 const PRIEST_SELF_LATE = 0.55; // [balance5] 0.65 was tried on clean ground: with the skilled priest pressing a bow and no longer throwing its spells away from under a meteor, it won 80% of its duels at 50
-const priestSelf = (e) => (abilityRank(e.level) <= 1 ? B7T.priestSelf : (B8T.priestSelfLate || PRIEST_SELF_LATE) / rankMult(e.level)); // [balance8] B8T.priestSelfLate (07c_balance8.js) // [balance7] B7T.priestSelf: PRIEST_SELF (07c_balance7.js)
+const priestSelf = (e) => (abilityRank(e.level) <= 1 ? B7T.priestSelf : priestSelfLateK(e) / rankMult(e.level)); // [balance8] B8T.priestSelfLate, rank by rank (07c_balance8.js) // [balance7] B7T.priestSelf: PRIEST_SELF (07c_balance7.js)
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
