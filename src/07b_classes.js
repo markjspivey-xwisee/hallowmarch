@@ -414,7 +414,7 @@ function parry(dst, src) {
   CLS.stats.parries++;
   if (BAL.tap) BAL.tap(src, dst, 0, 0, { parry: true }); // [balance3] tests count parries (07c_balance.js)
   const boss = src.role === 'boss' || src.role === 'dungeonBoss' || src.kind === 'door';
-  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); src.casting = null; addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
+  if (!boss) { addBuff(src, 'stun', 1, src.role === 'player' || src.bot ? 0.7 : 0.9, dst.id, { ccAll: true }); stunBreak(src); /* [balance9] (07c_balance9.js) */ addBuff(src, 'stagger', 1, 3, dst.id); } // [balance] ccAll: parries cannot stun-lock
   addMom(dst, 2);
   setAct(dst, 11, 0.42);
   const x = (dst.x + src.x) / 2, z = (dst.z + src.z) / 2, y = dst.y + 1.25 * (dst.scale || 1);
@@ -501,7 +501,7 @@ function styleProc(src, dst, dmg, opts, strong) {
 function finisherLands(src, dst, fin, dmg) {
   CLS.stats.finishers++;
   styleProc(src, dst, dmg, {}, true);
-  if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); dst.casting = null; }
+  if (fin.style === 'mace' && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { addBuff(dst, 'stun', 1, 1 + 0.25 * fin.pips, src.id); stunBreak(dst); /* [balance9] */ }
   if (realmFlavour(src) && src.faction === 2 && csOf(src).stance === 2) healEnt(src, src, src.maxHp * 0.03 * fin.pips); // [balance2] in fury only, as the Chronicle says (a Thule warrior in a guarded stance outlasted every pack)
   const y = dst.y + 1.2 * (dst.scale || 1);
   FX.burst(dst.x, y, dst.z, 30, fin.style === 'sword' ? [2.2, 0.5, 0.35] : fin.style === 'axe' ? [2.0, 1.6, 1.1] : [2.4, 2.0, 1.2], 6, 0.45, 0.13, 7);

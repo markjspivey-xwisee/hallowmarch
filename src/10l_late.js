@@ -421,6 +421,7 @@ function late2KindMove(e, t, d) {
     if (d < 7 || d > 24) return false;
     const x = t.x, z = t.z;
     spellDisc(x, z, 3.2, DISC_KIND.holy, 1.2, [1.6, 0.9, 0.35]); aoeMarker(x, z, 3.2, 1.15, e.faction); late2Snd('slam', e, 0.2);
+    if (B9T.burstRing) Object.assign(AOE_MARKS[AOE_MARKS.length - 1], { stun: true, src: e.id }); // [balance9] it stuns: the skilled hands step out of its ring as out of the wrath's (b8RingAt), casters too (07c_balance9.js)
     later(1.15, () => {
       if (!e.alive) return;
       const y = heightAt(x, z);

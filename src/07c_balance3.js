@@ -71,7 +71,7 @@ function classCanUse(e, A, target) {
 
 // holy light lands: the foe is dazzled (Smite and the Pillar, not holy ground or Holy Fire's burning)
 function dazzleOnHit(src, dst, dmg, opts) {
-  if (src.cls !== 'priest' || opts.kind !== 'holy' || opts.holy || opts.dot || !dst.alive || dst.kind === 'door' || dst.role === 'boss') return;
+  if (src.cls !== 'priest' || opts.kind !== 'holy' || opts.holy || opts.dot || !dst.alive || dst.kind === 'door' || dst.role === 'boss' || lordNoDazzle(dst)) return; // [balance9] nor the Ash-Crowned (07c_balance9.js)
   const fresh = !hasBuff(dst, 'dazzle');
   addBuff(dst, 'dazzle', dazzleMissOf(src.level), DAZZLE.dur, 'dazzle');
   BAL3.dazzledIds.add(dst.id);

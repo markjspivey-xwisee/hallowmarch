@@ -1067,7 +1067,7 @@ function updateNPCs(dt0) {
     // mid-leap: the leap carries the body, nothing else does
     if (e.motion && updateMotion(e, dt)) { updateAnim(e, dt); continue; }
     if (e.casting) {
-      if (isStunned(e)) e.casting = null;
+      if (isStunned(e)) stunBreak(e); // [balance9] a steadied priest's spell waits through a stun below Divine Shield (07c_balance9.js)
       else if (!e.casting.custom) { e.casting.t += dt; if (e.casting.t >= e.casting.total) finishCast(e); }
     }
     if (!isStunned(e)) {

@@ -771,7 +771,7 @@ function executeAbility(e, A, t, cast = null) {
       const r = computeDamage(e, t, A.dmg * rk);
       dealDamage(e, t, r.d, { crit: r.crit, kind: 'melee' });
       FX.sparks(t.x, chest(t), t.z);
-      if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); t.casting = null; FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+      if (A.stun) { addBuff(t, 'stun', 1, A.stun, e.id); stunBreak(t); /* [balance9] a steadied priest's spell waits through it below Divine Shield (07c_balance9.js) */ FX.ring(t.x, chest(t) + 0.6, t.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
       if (A.snare) addBuff(t, 'snare', A.snare[0], A.snare[1], e.id);
       sfxAtE('hit', t); // [audio2] placed (11c_sound.js)
     });
@@ -816,7 +816,7 @@ function leapLand(e, A, rk) {
     if (!o.alive || !isEnemy(e, o) || !isActor(o) || dist(e.x, e.z, o.x, o.z) > A.radius + o.radius * (o.scale || 1)) return;
     const r = computeDamage(e, o, A.dmg * rk);
     dealDamage(e, o, r.d, { crit: r.crit, kind: 'melee' });
-    if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); o.casting = null; FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
+    if (o.kind !== 'door' && o.role !== 'boss') { addBuff(o, 'stun', 1, A.stun, e.id); stunBreak(o); /* [balance9] */ FX.ring(o.x, chest(o) + 0.6, o.z, 0.4, [1.8, 1.8, 0.8], 12, 0.6); }
     if (B7T.leapSlow && o.alive && o.kind !== 'door') addBuff(o, 'snare', B7T.leapSlow[0], B7T.leapSlow[1], e.id); // [balance7] (07c_balance7.js)
   });
   for (let i = 0; i < 26; i++) {

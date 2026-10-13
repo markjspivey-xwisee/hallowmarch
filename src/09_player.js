@@ -313,7 +313,7 @@ function updatePlayer(dt) {
   } else P.y = gy;
   // casting
   if (P.casting) {
-    if (isStunned(P)) P.casting = null;
+    if (isStunned(P)) stunBreak(P); // [balance9] a steadied priest's spell waits through a stun below Divine Shield (07c_balance9.js)
     else { P.casting.t += dt; if (P.casting.t >= P.casting.total) finishCast(P); }
   }
   autoAttack(P);

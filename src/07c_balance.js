@@ -291,6 +291,7 @@ function botMove(e, t, dt) {
   // and the priest won nearly every duel against one); a staff is closed on, so a mage casts into a mace
   // [balance3] unless the bow cannot leap away (no Tumble learned yet): then the priest presses it
   else if (e.cls === 'priest' && skilled && t.cls === 'archer') want = t.level < ABILITIES.tumble.level && B7T.priestPress ? e.meleeRange + tr - 0.4 : 8; // [balance7] B7T.priestPress // [balance4] measured again: from casting range at 10 the bow won 21.5 of 24 (14.5 pressed) [balance5] and on clean ground at 30 and 50 the bow won 24 of 24 from casting range, the priest 23 of 24 pressing to its mace: from Tumble's level it keeps within its holy fire's flare (8 m)
+  else if (e.cls === 'priest' && skilled && t.cls === 'mage' && B9T.priestFlareMage && abilityRank(e.level) <= 1) want = FLARE_REACH - 2; // [balance9] at rank I within its flare of a staff, not after it to its mace (07c_balance9.js)
   else want = e.meleeRange * (e.scale || 1) + tr - 0.4;
   if (d > want) go(t.x, t.z, 1, Math.max(0.3, want * 0.9));
   else turnToward(e, t.x, t.z, dt * 10);
@@ -627,7 +628,7 @@ function botPriest(e, t) {
   if (fight && hpF < (long ? 0.97 : 0.85) && !hot && (botUse(e, 'massrenew', e) || botUse(e, 'renew', e))) return true;
   // [balance2] cut off, held, or a blade in reach: a Renewal on yourself loosens the bonds and steadies the spells
   // that follow
-  if (fight && (broke || blade || isRooted(e) || (B7T.priestSnareRenew && hasBuff(e, 'snare'))) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance7] B7T.priestSnareRenew // [balance5] a fresh one, or it does not steady
+  if (fight && (broke || blade || isRooted(e) || (B7T.priestSnareRenew && hasBuff(e, 'snare')) || priestSteadyFirst(e, t)) && !steady && (renewFresh(e) || isRooted(e)) && botUse(e, 'renew', e)) return true; // [balance9] priestSteadyFirst: a Renewal before a spell into a ready bash at rank I (07c_balance9.js) // [balance7] B7T.priestSnareRenew // [balance5] a fresh one, or it does not steady
   // [balance5] a foe's Holy Fire ready to flare a long spell away: Renewal on yourself first, so nothing but a stun breaks it
   if (fight && !B8T.flareThrough && !steadyNext(e) && t && t.alive && flareThreat(e) && renewFresh(e) && botUse(e, 'renew', e)) return true; // [balance8] (a Renewal no longer guards against the flare) [balance6] (a spent steadiness guards no more spells)
   // [balance4] Mend weighs the wound (07c_balance4.js): a good hand mends at need, from a little over half health down
