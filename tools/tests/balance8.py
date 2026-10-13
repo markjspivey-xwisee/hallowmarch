@@ -58,7 +58,11 @@ window.B8 = {
     const P = this.fresh(cls, lvl, realm), H = this.H, F = this.F, L = this.L.LATE2;
     const camp = this.risen().filter((c) => c.realm === P.faction).sort((a, b) => this.L.late2RiseK(b) - this.L.late2RiseK(a))[0];
     // the camp as it stands for a fighter of this level: its champion whole and its pack about it
-    let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
+    // (taken over afresh as late2Retake does: every fight meets the camp whole, its champion and its pack)
+    for (const id of [...camp.members]) { const m = F.getEnt(id); camp.members.delete(id); if (m) { m.alive = false; m.damagers = null; F.removeEnt(m); } }
+    if (camp.respawnAt) camp.respawnAt.length = 0; camp.eliteId = null; camp.eliteAt = 0;
+    for (let i = 0; i < (camp.count || 4); i++) F.spawnMob(camp, !!camp.elite && i === 0);
+    const C = F.getEnt(camp.eliteId);
     const keep = new Set(camp.members); this.clearAround(camp.x, camp.z, 60, keep);
     H.bal6.cleanArena(camp.x, camp.z, 45, new Set());
     const a = Math.random() * 6.28; H.teleport(C.x + Math.cos(a) * 16, C.z + Math.sin(a) * 16);

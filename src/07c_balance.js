@@ -607,7 +607,7 @@ function botPriest(e, t) {
   // back or breaks it now and then, and a priest who waits on every blow loses the race to one who casts through them
   // [balance4] and of a warrior's, only its Shield Bash breaks a spell (a blow sets it back; a parry needs a swing, and a
   // dazzled warrior parries nothing): while the bash is spent a priest casts through the blade (it stood idle by it)
-  const blade = rich && !!t && t.cls === 'warrior' && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
+  const blade = rich && !!t && t.cls === 'warrior' && priestBladeWaits(e) && dist(e.x, e.z, t.x, t.z) < (t.meleeRange || 2.7) * (t.scale || 1) + e.radius + 1.6 && (t.cds.bash || 0) <= GAME.t + 1.4 && !isStunned(t);
   const castOk = steady || busy || (!broke && !blade);
   // [balance6] under the rule tried and set aside (STEADY_NEXT, 07c_balance6.js: a Renewal steadying the next spell only),
   // a priest's flare ready and no spell steadied against it: the heals and the pillar wait for a Renewal or for the flare
@@ -646,10 +646,10 @@ function botPriest(e, t) {
   // priest that waited on a foe's Mend gave up a third of its harm)
   if ((e.cds.holyfire || 0) > GAME.t) B.hfReady = null; else if (B.hfReady == null) B.hfReady = GAME.t;
   const hfHeld = B.hfReady != null && GAME.t - B.hfReady < HF_HOLD;
-  if (!(hfHeld && (t.cls === 'priest' || t.cls === 'mage') && !spellGuarded(t) && dist(e.x, e.z, t.x, t.z) < FLARE_REACH + 2) && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true; // (a steadfast caster cannot be flared: burn it)
+  if (!(hfHeld && (t.cls === 'priest' || t.cls === 'mage' || (B8T.priestHoldBow && t.cls === 'archer')) && !spellGuarded(t) && /* [balance8] a bow's long shots too (07c_balance8.js) */ dist(e.x, e.z, t.x, t.z) < FLARE_REACH + 2) && !t.buffs.some((b) => b.kind === 'dot' && b.src === e.id && b.until > GAME.t + 1) && botUse(e, 'holyfire', t)) return true; // (a steadfast caster cannot be flared: burn it)
   // [balance6] a warrior not yet dazzled: holy light first, so its blows go wide and it cannot parry (the mace strikes
   // home); a priest that only mended lost three duels in four to a warrior at 10
-  if (castOk && t.cls === 'warrior' && abilityRank(e.level) >= 2 && !dazzled(t) && hpF > 0.42 && botUse(e, 'smite', t)) return true; // (from rank II: at 10 it smote instead of mending and lost more)
+  if (castOk && t.cls === 'warrior' && abilityRank(e.level) >= (B8T.priestDazzleEarly ? 1 : 2) && !dazzled(t) && hpF > 0.42 && botUse(e, 'smite', t)) return true; // (from rank II: at 10 it smote instead of mending and lost more) [balance8] B8T.priestDazzleEarly: from rank I, now that it casts through the blade
   if (healOk && (pw > 0.3 || hpF > 0.9) && botUse(e, 'pillar', t)) return true; // [balance6] healOk
   if (healOk && hpF < (many ? 0.7 : rich ? 0.62 : 0.58) - race && botUse(e, 'mend', e)) return true; // [balance4] (0.82, 0.72, 0.66) [balance6] healOk [balance7] race
   // smite with power to spare, or to finish; in reach the mace does the rest for nothing
@@ -669,7 +669,7 @@ const PRIEST_SELF = 0.76; // [balance5] 0.75: a priest pressing its abilities in
 // get): the step from rank I is where Divine Shield and Mass Renewal have joined a priest's craft, and a priest of 30
 // outlasted every bow and staff while one of 50 did not
 const PRIEST_SELF_LATE = 0.55; // [balance5] 0.65 was tried on clean ground: with the skilled priest pressing a bow and no longer throwing its spells away from under a meteor, it won 80% of its duels at 50
-const priestSelf = (e) => (abilityRank(e.level) <= 1 ? B7T.priestSelf : PRIEST_SELF_LATE / rankMult(e.level)); // [balance7] B7T.priestSelf: PRIEST_SELF (07c_balance7.js)
+const priestSelf = (e) => (abilityRank(e.level) <= 1 ? B7T.priestSelf : (B8T.priestSelfLate || PRIEST_SELF_LATE) / rankMult(e.level)); // [balance8] B8T.priestSelfLate (07c_balance8.js) // [balance7] B7T.priestSelf: PRIEST_SELF (07c_balance7.js)
 // [balance2] Renewal on yourself: roots loosen, and for 4 s nothing but a stun breaks your spells (not a
 // blunt arrow, a storm, a mace or a thunderclap): the priest's answer to being kited and cut off
 function priestSteadfast(e) {
@@ -692,7 +692,7 @@ function chargeFree(e, dur) {
 // wear down a priest who would otherwise mend as fast as the arrows land
 const WOUND_HEAL = 0.3; // [balance3] 0.4: a skilled archer now keeps the wound open on a priest (broadheads, not blunt heads into a steadfast spell)
 const WOUND_HEAL_LATE = 0.3; // [balance3] 0.45 from rank II: a priest's healing outgrew the arrows at 30 and 50 [balance5] measured in arenas pocked by meteors, where a bow's shots struck the rims; on clean ground a bow won 24 of 24 against a priest at 50 (07c_balance5.js)
-const woundOf = (src) => (src && abilityRank(src.level || 1) >= 2 ? WOUND_HEAL_LATE : WOUND_HEAL);
+const woundOf = (src) => (src && abilityRank(src.level || 1) >= 2 ? (B8T.woundLate ?? WOUND_HEAL_LATE) : WOUND_HEAL); // [balance8] B8T.woundLate (07c_balance8.js)
 function healWound(dst) { const v = buffMax(dst, 'wound'); return v > 0 ? 1 - v : 1; }
 // [balance2] a mage's Arcane Ward (elementWard, marked 'eward' while it lasts): a stun that strikes the mage breaks on
 // it instead, and the ward loses half of what it has left. The mage's answer to a leap and a bash: the ward is spent,

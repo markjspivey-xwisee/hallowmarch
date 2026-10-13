@@ -9,7 +9,32 @@ const B8T = {
   sanctKnee: 0.3, // [priest] Sanctuary mends the priest's own wounds by their depth: all of it from 70% health down (0: as before)
   priestSpent: true, // [priest bot] a skilled priest casts again once the foe's interrupt is spent (it waited 3 s after any broken spell)
   priestFlareWait: true, // [priest bot] a skilled priest does not begin a heal into a foe priest's ready flare (it baits it with a smite)
+  priestRankOneCasts: true, // [priest bot] a skilled priest of rank I casts through a warrior's blade instead of waiting on its bash
+  priestSelfLate: 0.62, // [priest] its own wounds mend at this share of a heal's rank I measure from rank II (PRIEST_SELF_LATE 0.55; 0.7 was tried: the priest won 33 of 48 against the mage at 30 and 50 and 40 of 48 against the warrior at 50)
+  woundLate: 0.15, // [archer] from rank II a broadhead's or a crippling arrow's wound takes this share off healing (WOUND_HEAL_LATE 0.3; rank I keeps 0.3)
+  priestHoldBow: true, // [priest bot] a skilled priest keeps its Holy Fire a moment for a bow's long shot within its reach, as for a staff's or a priest's spell
+  priestDazzleEarly: true, // [priest bot] a skilled priest of rank I dazzles a warrior with Smite first (it cannot parry dazzled)
 };
+
+/* ------------------------------------------------------------------ */
+/* the measures on whole ground: what version 15 set on cratered ground */
+/* ------------------------------------------------------------------ */
+// From version 14 every duel of a level was fought in arenas the earlier duels of the level had cratered (balCleanArena
+// looked for each crater at the wrong place: 07c_balance6.js), deeper with every meteor and Leap Strike: 183 craters after
+// 144 duels at 50, the ground 3 to 12 m from where it lay within 20 m of the middles. A rush stopped at every rim and a
+// bow's shots struck them, and version 15 measured its rules there: on whole ground the skilled warrior of 30 won 71% of its
+// duels and the simple one 84%, the skilled warrior of 50 62% (22 to 43% on the craters), and the skilled archer of 50 47 of
+// 48 duels against the priest. Version 15's late Charge (every 12 s from Leap Strike's level, its blow slowing, one rush of
+// 5 s) is set back to version 14's: from Leap Strike's level Charge waits its own 16 s, its blow does not slow, and the two
+// rushes hold each other back 10 s
+Object.assign(B7T, { chargeCdLate: 0, chargeSlowLate: false, rushShare: 10 });
+ABILITIES.charge.desc = `Rush at a foe 5–28 m away, shield first, and strike it as you land: 80% weapon damage, and until Leap Strike is learned the blow slows it by ${Math.round(RUSH_SLOW_EARLY[0] * 100)}% for ${RUSH_SLOW_EARLY[1]} s. The rush tears you free of any slow or root but a seasoned mage's frost; a snare or a root that catches you on the way holds you there, and Charge is then ready in half its wait. Landing, you take ${RUSH_FOOTING} s to find your feet, and Shield Bash waits ${RUSH_BASH} s. Charge comes round every ${RUSH_CD_EARLY} s; from Leap Strike's level it waits ${B7T.chargeCdLate || ABILITIES.charge.cd} s, and it and Leap Strike are one rush (either holds the other back ${B7T.rushShare} s).`;
+ABILITIES.leap.desc = ABILITIES.leap.desc.replace(/holds the other back \d+ s/, `holds the other back ${B7T.rushShare} s`);
+// the Callings page's Charge row (10d_classes_ui.js): the rules from Leap Strike's level
+function chargeLateText() {
+  const cd = B7T.chargeCdLate || ABILITIES.charge.cd;
+  return `from Leap Strike's level Charge waits ${cd} s${B7T.chargeSlowLate ? ' and its blow still slows' : ', its blow no longer slows'}, and it and Leap Strike are one rush (either holds the other back ${B7T.rushShare} s)`;
+}
 
 /* ------------------------------------------------------------------ */
 /* the priest: Holy Fire's flare through a Renewal's steadiness         */
@@ -80,6 +105,11 @@ function priestCutSpent(e, t) {
   }
   return false;
 }
+// botPriest asks: does a skilled priest hold its spells while a warrior's Shield Bash is ready (castOk)? Only from rank II,
+// when Divine Shield answers the bash: at rank I nothing does (a Renewal's steadiness does not keep a spell from a stun), and
+// a priest that waited on the bash stood idle beside the warrior (it mended 5 health a second and smote nothing, and won 2 of
+// 48 duels against the skilled warrior at 10, where the simple priest, casting through the blade, won 32 of 48)
+const priestBladeWaits = (e) => !B8T.priestRankOneCasts || abilityRank(e.level) >= 2;
 // botPriest asks: a foe priest's flare is ready and in reach (flareThreat, 07c_balance5.js): a heal begun now would be
 // lost to it (B8T.flareThrough: a Renewal no longer guards it), so the heal waits, unless the need is dire
 const priestFlareWait = (e, hpF) => !!(B8T.flareThrough && B8T.priestFlareWait && hpF > 0.3 && flareThreat(e) && (BAL8.stats.healHeld++, true));

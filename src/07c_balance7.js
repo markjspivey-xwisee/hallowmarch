@@ -113,7 +113,7 @@ const plainArrowK = (e) => 1 + B7T.plainRank * Math.max(0, abilityRank(e.level |
 setTimeout(() => {
   LOADING_TIPS.push(
     'An archer of Logres draws quicker and strikes harder from a wall or a tower; one of Ériu hides and walks hidden among trees; one of Thule hunts best in the snow and the frost.',
-    'A warrior\'s Charge comes round every 12 s at every level, and its landing blow slows the foe.',
+    B7T.chargeCdLate ? `A warrior's Charge comes round every ${B7T.chargeCdLate} s at every level, and its landing blow slows the foe.` : `A warrior's Charge comes round every ${RUSH_CD_EARLY} s and its landing blow slows the foe until Leap Strike is learned; then Charge waits longer and the two are one rush.`, // [balance8] (07c_balance8.js sets the late rules back before this runs)
     'Mend a scratch and Mend does little: keep it for the deep wound.',
   );
 }, 0);
