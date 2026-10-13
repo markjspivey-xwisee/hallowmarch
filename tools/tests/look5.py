@@ -188,6 +188,10 @@ async def main():
               // the rule itself: a panel that loses a line keeps its taller place until HUD_HOLD_T has gone by
               const a = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 80 }), b = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); const hold = L5h.hold.get('#war'); hold.until = -1; const c = Hd.hudHeld('#war', { x: 10, y: 10, w: 120, h: 60 }); L5h.hold.delete('#war');
               // in the HUD: a panel over another in the same column gains a line and loses it again
+              // [look6] with no field note up: while one shows an upright phone lays the HUD out in the note's order, where the
+              // class panel keeps its place and the path tracker over it moves aside instead (the check failed once in a full
+              // run, #cls staying at 240, most likely so; run without the scenes before it, no note was up and it passed: `dg`)
+              for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); H.LORE.state.queue.length = 0;
               L5.lay(); for (let i = 0; i < 3; i++) H.frame(1/30);
               const P = Hd.HUDL.placed.filter((q) => Hd.HUD_HOLD.has(q.sel)), pairs = [];
               for (const A of P) for (const B of P) if (A !== B && B.y > A.y + A.h - 2 && B.y - (A.y + A.h) < 40 && A.x < B.x + B.w && B.x < A.x + A.w) pairs.push([A.sel, B.sel]);
