@@ -96,8 +96,8 @@ async def main():
         check(r['lord'] < r['dead'] and r['dead'] == 1.6, f"holy light strikes the dead 1.6 times as hard, Vorlach {r['lord']} times ({r['lord']}, {r['dead']})")
         check(r['noDazzle'] and not r['dazzleDead'], "and it does not dazzle him (the rest of the dead it does)")
 
-        r = await ev(page, 'texts', """(() => { const H = T.H; H.LORE.openChronicle('callings'); const txt = document.body.innerText; const A = H.bal5.ABILITIES;
-          H.LORE.openChronicle('deep'); const deep = document.body.innerText; H.UI.modal = 'menu';
+        r = await ev(page, 'texts', """(() => { const H = T.H; H.LORE.openChronicle('callings'); const txt = document.body.textContent; const A = H.bal5.ABILITIES;
+          H.LORE.openChronicle('deep'); const deep = document.body.textContent; // (textContent: a folded section's words are still in the page, not in innerText) H.UI.modal = 'menu';
           return { blunt: H.cls.ARROW_DEF.blunt.text, broad: H.cls.ARROW_DEF.broadhead.text, renew: A.renew.desc, cripple: A.cripple.desc,
             page: { full: txt.includes('from a full draw, an Aimed Shot or Deadeye'), steady: txt.includes('waits through a stun'), wound: txt.includes('22% from a bow of rank II'), realm: txt.includes('4% less harm') },
             deep: deep.includes('crown of ash') }; })()""")

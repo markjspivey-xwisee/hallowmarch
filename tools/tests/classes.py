@@ -1029,8 +1029,8 @@ async def balance6(page):
       C.csOf(P).dev = 60; C.csOf(P).devAt = H.GAME.t; C.csOf(P).devTick = H.GAME.t; P.hp = P.maxHp * 0.5; P.cds = {}; P.gcdUntil = 0; P.power = P.maxPower; F.useAbility(P, 'renew', P); H.simulate(0.05);
       const hots = P.buffs.filter((b) => b.kind === 'hot' && b.until > H.GAME.t);
       out.n = hots.length; out.src = hots.map((b) => b.src === P.id ? 'renew' : String(b.src)); out.well = +(hots.filter((b) => b.src === 'well').reduce((a, b) => a + b.value, 0) / P.maxHp).toFixed(4);
-      const h0 = P.hp; H.simulate(3.02); out.healed = +((P.hp - h0) / P.maxHp).toFixed(3); return out; })()""")
-    check(r['n'] == 2 and 'well' in r['src'] and 'renew' in r['src'] and abs(r['well'] - 0.012) < 0.002, f"the Well of Eriu heals beside the Renewal, not merged into it ({r})")
+      const h0 = P.hp; H.simulate(3.02); out.healed = +((P.hp - h0) / P.maxHp).toFixed(3); out.hot = H.bal4.PRIEST_REALM.eriuHot; return out; })()""")
+    check(r['n'] == 2 and 'well' in r['src'] and 'renew' in r['src'] and abs(r['well'] - r['hot']) < 0.002, f"the Well of Eriu heals beside the Renewal, not merged into it ({r}; [balance9] the measure read from PRIEST_REALM: 1.2% a second in version 14, 1.6% in version 18)")
     errs = await page.evaluate("__hm.errors.slice(0, 3)")
     check(not errs, f'no runtime errors in the [balance6] checks {errs[:2]}')
 

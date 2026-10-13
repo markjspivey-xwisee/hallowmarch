@@ -138,7 +138,7 @@ const lordHolyK = (dst) => (dst && dst.deepLord ? B9T.lordHoly : 1.6);
 // and the skilled priest was down to 70 to 76% of its health at its lowest, its three draughts untouched)
 const lordNoDazzle = (dst) => !!dst && !!dst.deepLord && B9T.lordHoly < 1.6;
 // the Deep's page (10m_deep.js) says it
-const lordHolyText = () => (B9T.lordHoly < 1.6 ? ' His crown of ash turns holy light: a priest\'s light strikes him little harder than the living, and does not dazzle him.' : '');
+const lordHolyText = () => (B9T.lordHoly < 1.6 ? ` His crown of ash turns holy light: a priest's light strikes him ${B9T.lordHoly <= 1 ? 'no' : 'little'} harder than the living, and does not dazzle him.` : '');
 
 // the priests' realm ways (07c_balance4.js's PRIEST_REALM, read where they act: classHarm, blessing, stepGrounds), and
 // their texts in CLASS_REALM from them, as balance5 and balance6 wrote them
