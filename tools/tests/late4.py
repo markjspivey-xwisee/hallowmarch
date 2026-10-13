@@ -165,10 +165,16 @@ async def main():
               for (const [type, realm, d, wait] of [['bear', 1, 2.6, 1.2], ['wolf', 1, 10, 2.0], ['boar', 1, 10, 2.4], ['skeleton', 0, 8, 1.6], ['bandit', 0, 12, 1.5], ['troll', 2, 15, 2.0], ['wisp', 1, 12, 2.6]]) {
                 const R = T4.champ(type, realm); if (!R) { out[type] = null; continue; }
                 const C = R.C; T4.clearAround(C.x, C.z, 40, new Set([C.id]));
-                const [tx, tz] = T4.spot(C.x, C.z, d); H.teleport(tx, tz); H.simulate(0.05); T4.safe(); P.ccdr = null; C.buffs.length = 0; C.target = P.id; C.threat = new Map([[P.id, 99]]); C.motion = null;
-                const by0 = St.by[X.LATE4_SECOND[type]] || 0, hp0 = P.hp, x0 = P.x, z0 = P.z, cx0 = C.x, cz0 = C.z;
-                C.ai.l2 = { next: 1e9, next2: 1e9, next3: 0, rally: true, enr: false, w: null, last: H.GAME.t };
-                const did = X.late4Second(C, P, Math.hypot(P.x - C.x, P.z - C.z));
+                // (a place with the way clear: a charge or a pull stops at what stands in its line)
+                let did = false, by0 = 0, hp0 = 0, x0 = 0, z0 = 0, cx0 = C.x, cz0 = C.z;
+                for (let tries = 0; tries < 16 && !did; tries++) {
+                  const a = tries * 0.4, tx = C.x + Math.cos(a) * d, tz = C.z + Math.sin(a) * d; if (!F.isWalkable(tx, tz)) continue;
+                  if (type === 'wisp') { const dd = Math.hypot(tx - C.x, tz - C.z), R = X.dashReach(P, tx, tz, (C.x - tx) / dd, (C.z - tz) / dd, dd - 2.5); if (R.d < dd - 3.5) continue; } // (a lure draws its foe over the land, not through the bog)
+                  H.teleport(tx, tz); H.simulate(0.05); T4.safe(); P.ccdr = null; C.buffs.length = 0; C.target = P.id; C.threat = new Map([[P.id, 99]]); C.motion = null;
+                  by0 = St.by[X.LATE4_SECOND[type]] || 0; hp0 = P.hp; x0 = P.x; z0 = P.z; cx0 = C.x; cz0 = C.z;
+                  C.ai.l2 = { next: 1e9, next2: 1e9, next3: 0, rally: true, enr: false, w: null, last: H.GAME.t };
+                  did = X.late4Second(C, P, Math.hypot(P.x - C.x, P.z - C.z));
+                }
                 const o = { did, n: (St.by[X.LATE4_SECOND[type]] || 0) - by0 };
                 const seen = new Set(); let moved = 0, cmoved = 0;
                 for (let k = 0; k < Math.round(wait / 0.1); k++) { H.simulate(0.1); for (const b of P.buffs) seen.add(b.kind); moved = Math.max(moved, Math.hypot(P.x - x0, P.z - z0)); cmoved = Math.max(cmoved, Math.hypot(C.x - cx0, C.z - cz0)); }
@@ -277,6 +283,40 @@ async def main():
             check(abs(a['wy'] - b['wy']) < 0.05 and a['flood'] == 2, f"the cistern's water stands as it stood ({b['wy']} -> {a['wy']})")
             check(r['junkOk'], 'a damaged part made sane')
             check(not r['errors'], f"no errors ({r['errors']})")
+
+        # ---- the deep after a reload: saved as it lay, the page loaded again with the same storage, the character continued ----
+        if want('reload'):
+            r = await ev(page, 'before reload', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X, out = {};
+              H.deep.deepPacksFresh(); H.deep.deepPitchOut();
+              const pk = D.DEEP_PACKS[1]; for (const id of [...pk.members].slice(0, 2)) { const e = F.getEnt(id); if (e && e.alive) { e.damagers = null; F.killEnt(e, null); } }
+              const S = DP.slabs.filter((s) => s.hall === 'crack')[2]; D.deepSlabFall(S); H.simulate(1.5); window.__l4slab = DP.slabs.indexOf(S);
+              for (const i of [5, 6, 7, 30, 31]) D.deepIgnite(DP.cells[i], null); H.simulate(2.5);
+              X.late4HostsFresh(); H.simulate(3);
+              out.slab = DP.slabs.indexOf(S); out.burning = DP.cells.filter((c) => c.st === 1).length; out.pk = pk.members.size; out.hosts = X.LATE4.hosts.map((h) => h.px != null ? [Math.round(h.px), Math.round(h.pz)] : null);
+              H.UI.modal = 'menu'; F.saveNow(); return out; })()""")
+            await page.wait_for_timeout(1500)
+            stored = await page.evaluate("(localStorage.getItem('hallowmarch.save.v1') || '').length")
+            await page.goto('http://hm.test/', wait_until='commit', timeout=300000)
+            await page.wait_for_function("window.__hm && window.__hm.ready", timeout=240000, polling=500)
+            await page.evaluate(f"__hm.fn.setQuality('{Q}')")
+            await page.evaluate(HELPERS)
+            r2 = await ev(page, 'after reload', """(() => { document.getElementById('btn-continue').click(); const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X; H.simulate(0.5);
+              const S = DP.slabs[%d];
+              return { started: H.GAME.started, slab: S ? S.st : null, burning: DP.cells.filter((c) => c.st === 1).length, charred: DP.cells.filter((c) => c.st === 2).length, pk: D.DEEP_PACKS[1].members.size, waiting: D.DEEP_PACKS[1].respawn.length,
+                hosts: X.LATE4.hosts.map((h) => h.px != null ? [Math.round(h.px), Math.round(h.pz)] : null), loaded: X.LATE4.stats.deepLoaded, errors: H.errors.slice(0, 3) }; })()""" % r['slab'])
+            check(r2['started'] and r2['slab'] == 3, f"reloaded ({stored} bytes stored): the gallery's slab still lies in its pit ({r2['slab']})")
+            check(r2['pk'] == r['pk'] and r2['waiting'] >= 2, f"the pyres' dead still dead ({r['pk']} -> {r2['pk']}, {r2['waiting']} waiting)")
+            check(r2['burning'] + r2['charred'] >= 3, f"the pitch still burning or charred ({r2['burning']} burning, {r2['charred']} charred)")
+            check(r2['hosts'] == r['hosts'] or all(a and b and abs(a[0] - b[0]) <= 3 and abs(a[1] - b[1]) <= 3 for a, b in zip(r['hosts'], r2['hosts'])), f"the hosts where they walked ({r['hosts']} -> {r2['hosts']})")
+            check(not r2['errors'], f"no errors after the reload ({r2['errors']})")
+            if SHOTS and (SHOT_ONLY is None or 'deep' in SHOT_ONLY):
+                await ev(page, 'deep view', """(() => { const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, P = H.GAME.player; DP.opened = true; D.late3SealOpen(true);
+                  const S = DP.slabs[%d], u = F.dunU(S.x), v = F.dunV(S.z), p = F.dunPoint(u + 4.5, v); P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true); H.simulate(0.2);
+                  for (const e of H.ENT) if (e.alive && e.deep && Math.hypot(e.x - P.x, e.z - P.z) < 30) e.ai.taunted = false;
+                  H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.camera.position.set(p.x + 1.5, p.y + 3.2, p.z + 2.5); H.camera.lookAt(S.x, D.DEEP_Y - 0.5, S.z); H.camera.updateMatrixWorld(); window.__rafHold = true; return 0; })()""" % r['slab'])
+                await frames(page, 3)
+                await shot(page, 'deep_reload_' + Q)
+                await page.evaluate("window.__rafHold = false; __hm.UI.modal = null; __hm.CAM.mode = 'play'; __hm.fn.setIndoor(false); 0")
 
         # ---- the deep's own air (a real click starts the sound) ----
         if want('air'):

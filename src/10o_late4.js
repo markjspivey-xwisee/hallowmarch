@@ -336,7 +336,7 @@ function late4Route(H) {
   }
   // from each camp's point on to the next a way can be found to (by localPath on 2 m cells; failing that, by a point
   // between them drawn in toward the town; a camp no way reaches is passed by)
-  const route = [], leg = (a, b) => { try { return localPath(a.x, a.z, b.x, b.z, 0.7, 260, false, 2); } catch (err) { reportError(err); return null; } };
+  const route = [], leg = (a, b) => { try { return localPath(a.x, a.z, b.x, b.z, 0.7, 260, false, 2) || localPath(a.x, a.z, b.x, b.z, 0.7, 640, false, 4); } catch (err) { reportError(err); return null; } }; // (2 m cells, then 4 m cells for a long way round)
   const n = pts.length;
   let i = 0, guard = 0;
   while (guard++ < n * 2 && pts.length >= 2) {
@@ -360,13 +360,14 @@ function late4Route(H) {
     }
     if (!done || i >= n) break;
   }
-  H.route = route.length >= 2 ? route : [{ x: T.x, z: T.z }, { x: T.x + 1, z: T.z }];
-  if (H.px == null) { H.px = H.route[0].x; H.pz = H.route[0].z; H.ri = 1; }
+  H.route = route.length >= 6 ? route : []; // (no track found: the host does not walk)
+  if (H.px == null && H.route.length) { H.px = H.route[0].x; H.pz = H.route[0].z; H.ri = 1; }
   return H.route;
 }
 const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOST_AT && GAME.prog.level >= LATE4_HOST_AT;
 function late4HostSpawn(H) {
   late4Route(H);
+  if (!H.route.length || H.px == null) return false;
   const D = H.D, w = warLevel(), P = GAME.player;
   if (P && dist2(P.x, P.z, H.px, H.pz) < 55 * 55) return false; // (not under your eyes)
   // a stand-in camp for spawnMob (08_ai.js) and the risen's band: the host stands one step up the risen's ladder
@@ -445,10 +446,19 @@ function late4HostStep(dt) {
     const fighting = alive.some((o) => { const t = getEnt(o.target); return (t && t.alive) || GAME.t < (o.combatUntil || 0) || o.ai.evade; });
     if (fighting) { H.fight = GAME.t; continue; } // (the bodies' home stands where the fight began: the leash holds them)
     if (GAME.t - H.fight < 3) continue;
+    const r = H.route, nx = r[H.ri % r.length], d = Math.hypot(nx.x - H.px, nx.z - H.pz), P = GAME.player;
+    // far from you its bodies rest (updateNPCs: no mob thinks 170 m off), so they go on with it out of sight
+    if (P && dist2(P.x, P.z, H.px, H.pz) > 160 * 160 && alive.every((o) => dist2(P.x, P.z, o.x, o.z) > 165 * 165)) {
+      if (d < 0.6) { H.ri = (H.ri + 1) % r.length; continue; }
+      const sp = Math.min(d, 2.4 * dt);
+      H.px += ((nx.x - H.px) / d) * sp; H.pz += ((nx.z - H.pz) / d) * sp; H.home.x = H.px; H.home.z = H.pz;
+      for (const o of alive) { const s = late4Slot(H, o); if (isWalkable(s.x, s.z)) { o.x = o.prevX = s.x; o.z = o.prevZ = s.z; o.y = groundY(o); o.yaw = Math.atan2(s.yawX - s.x, s.yawZ - s.z); } }
+      H.stuck = 0;
+      continue;
+    }
     // the slowest body keeps the pace: the point waits for those behind
     let lag = 0;
     for (const o of alive) { const s = late4Slot(H, o); lag = Math.max(lag, Math.hypot(o.x - s.x, o.z - s.z)); }
-    const r = H.route, nx = r[H.ri % r.length], d = Math.hypot(nx.x - H.px, nx.z - H.pz);
     if (lag > 9) { H.stuck += dt; if (H.stuck > 25) { for (const o of alive) { const s = late4Slot(H, o); if (Math.hypot(o.x - s.x, o.z - s.z) > 9 && isWalkable(s.x, s.z)) { o.x = o.prevX = s.x; o.z = o.prevZ = s.z; o.y = groundY(o); } } H.stuck = 0; } continue; }
     H.stuck = 0;
     if (d < 0.6) { H.ri = (H.ri + 1) % r.length; continue; }
@@ -679,7 +689,7 @@ function late4AirStep(dt) {
       for (const [u, v] of A.at) { const x = dunWX(u), z = dunWZ(v), dd = dist2(x, z, SND.L.x, SND.L.z); if (dd < bd) { bd = dd; bx = x; bz = z; } }
       const y = k === 'embers' ? DEEP_PIT + 0.5 : DEEP_Y + 1;
       sndMixAt(A, bx, y, bz, null, mix);
-      g = mix.gain * A.g * (k === 'embers' ? 0.6 + 0.4 * (DEEP.slabs.some((S) => S.st >= 2 && S.hall === 'crack') ? 1.4 : 1) : 1) * (k === 'drip' && DEEP.flood.st === 1 ? 1.6 : 1);
+      g = mix.g * A.g * (k === 'embers' ? 0.6 + 0.4 * (DEEP.slabs.some((S) => S.st >= 2 && S.hall === 'crack') ? 1.4 : 1) : 1) * (k === 'drip' && DEEP.flood.st === 1 ? 1.6 : 1);
       sndSet(V.f.frequency, mix.fc, now, 0.3);
       if (V.p) sndSet(V.p.pan, mix.pan, now, 0.3);
     }
@@ -770,4 +780,4 @@ registerSavePart('char', 'late4', {
   load(o) { L3V.std.tear = o && typeof o === 'object' ? late4N(o.t, 0, 100, 0) / 100 : 0; late4StdFlag(); },
   key: (o) => (o ? [Math.round(o.t / 10)] : null),
 });
-queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, updateLate4, drawLate4, bannerGeo, setAct }; });
+queueMicrotask(() => { if (window.__hm) window.__hm.late4 = { LATE4, LATE4_HOSTS, LATE4_SECOND, LATE4_AIR, late4MarkRisen, late4WindUp, late4WindBroken, late4Second, late4Shove, late4HostInit, late4HostsFresh, late4Route, late4HostSpawn, late4HostStep, late4HostOn, late4HostMark, late4StdKind, late4StdFlag, late4StdTear, late4DeepSave, late4DeepLoad, late4AirStep, late4AirBuf, updateLate4, drawLate4, bannerGeo, setAct, dashReach }; });
