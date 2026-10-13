@@ -9,6 +9,9 @@ usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wal
   pitch: fire spreads along the channels from a fire spell, burns who stands in it, burns out and re-arms
   slabs: a gallery slab cracks under a body, falls; the body falls into the embers and climbs out; the slab rises again
   wall:  the cracked wall breaks under Use (three blows) and under a meteor; the tomb's chest behind it
+  chests: every chest of the deep opened as a player opens one: Use beside it (currentInteraction), marked on the map
+         while it waits (the tomb's only once its wall is down, the hoard only once its lord has fallen), its lid swinging
+         open, its spoils; the Barrow's own burial chest beside them
   lord:  the Ash-Crowned wakes, cleaves, speaks the Word (broken by a stun; spoken, it lights the pitch), stamps the slabs
          down from two thirds, calls his wardens, burns at a third, resets when you leave, falls; the hoard opens
   fight: each calling's skilled bot (fair gear, three draughts) through the deep's halls and against its lord at 45 and 50
@@ -27,7 +30,7 @@ def arg(k, d=None):
     for a in ARGS:
         if a.startswith(k + '='): return a.split('=', 1)[1]
     return d
-ONLY = set((arg('only') or 'probe,seal,halls,water,pitch,slabs,wall,lord,save,std,fight,shots,vetshots').split(','))
+ONLY = set((arg('only') or 'probe,seal,halls,water,pitch,slabs,wall,chests,lord,save,std,fight,shots,vetshots').split(','))
 CLS = (arg('cls') or 'warrior,archer,mage,priest').split(',')
 LVS = [int(x) for x in (arg('lv') or '45,50').split(',')]
 NOSHOTS = 'noshots' in ARGS
@@ -72,6 +75,7 @@ async def main():
         if 'pitch' in ONLY: await pitch(page)
         if 'slabs' in ONLY: await slabs(page)
         if 'wall' in ONLY: await wall(page)
+        if 'chests' in ONLY: await chests(page)
         if 'lord' in ONLY: await lord(page)
         if 'save' in ONLY: await save(page)
         if 'compile' in ONLY: await compile_(page)
@@ -239,6 +243,54 @@ async def wall(page):
     check(any('cracked wall' in o for o in r['offers']) and r['blocked'], f"Use at the cracked wall offers to break it: {r['offers']}")
     check(r['broken'] and not r['coll'] and r['rubble'], 'three blows bring it down to rubble')
     check(r['inTomb'] and r['chest'], 'beyond it a forgotten tomb and its chest')
+
+async def chests(page):
+    # The deep's chests as a player meets them. Until the fix initBarrow (08e_barrow.js) emptied DUN.chests after late3Init had
+    # put the deep's in it, so no chest of the deep was offered to Use, swung its lid or showed on the map; the other scenes
+    # here opened them by calling late3OpenChest, and never saw it. Each is opened here by Use beside it, from its floor.
+    print('player', json.dumps(await ev(page, 'L3.pstate()')))
+    r = await ev(page, """(() => { const H = __hm, F = H.fn, D = H.deep.DEEP, DN = H.DUN, P = H.GAME.player; L3.calm(); L3.safe(); L3.kingDown(); H.deep.late3SealOpen(true);
+      const a = { list: DN.chests.map((c) => c.id) };
+      const marked = () => DN.chests.filter((c) => c.ready && !c.opened).map((c) => c.id); /* what the minimap and the map mark (10_ui.js), and Use offers (09_player.js) */
+      const beside = (ch) => { for (let k = 0; k < 16; k++) { const t = k / 16 * Math.PI * 2, x = ch.x + Math.cos(t) * 1.5, z = ch.z + Math.sin(t) * 1.5, i = F.dunCellAt(x, z);
+        if (i >= 0 && DN.cell[i] === 1) { P.x = P.prevX = x; P.z = P.prevZ = z; P.y = F.dunPoint(F.dunU(x), F.dunV(z)).y; P.onGround = true; P.vy = 0; F.setIndoor(true); return true; } } return false; };
+      const use = (ch) => { L3.calm(); L3.safe(); const out = { id: ch.id, at: beside(ch) }; H.simulate(0.2); L3.calm();
+        const it = F.currentInteraction(); out.label = it ? it.label : null;
+        const g0 = H.INV.gold, b0 = H.INV.bag.length, L0 = new Set(H.LOOT);
+        if (it && it.label === ch.label) it.act();
+        H.simulate(1.6);
+        out.opened = ch.opened; out.lid = +ch.lid.toFixed(2); out.lidRot = ch.lidMesh ? +ch.lidMesh.rotation.x.toFixed(2) : null;
+        out.gold = H.INV.gold - g0; out.items = (H.INV.bag.length - b0) + H.LOOT.filter((l) => !L0.has(l) && l.item && !l.item.goods).length;
+        out.marked = marked().includes(ch.id); const it2 = F.currentInteraction(); out.after = it2 ? it2.label : null; return out; };
+      // the tomb's chest: no mark and no Use while its wall stands
+      const N = D.chests.find((c) => c.id === 'dniche'), Hd = D.chests.find((c) => c.id === 'dhoard');
+      for (const ch of D.chests) if (ch !== Hd) ch.opened = false;
+      D.wallBroken = false; D.wall.hits = 0; H.deep.deepWallShow();
+      a.marked = marked(); a.nicheHidden = !N.ready;
+      a.cist = use(D.chests.find((c) => c.id === 'dcist'));
+      a.pyre = use(D.chests.find((c) => c.id === 'dpyre'));
+      H.deep.deepWallBreak(P); a.nicheShown = N.ready && marked().includes('dniche');
+      a.niche = use(N);
+      // the hoard: neither marked nor offered while its lord stands; Use opens it once he has fallen
+      const id = H.deep.deepLordFresh(), K = F.getEnt(id); a.hoardHidden = !Hd.ready && !marked().includes('dhoard');
+      L3.to(48, 48.5); H.simulate(0.3); K.ai.awake = true; F.dealDamage(P, K, K.maxHp * 2, {}); H.simulate(2.5);
+      a.hoardShown = Hd.ready && marked().includes('dhoard');
+      a.hoard = use(Hd);
+      // the Barrow's own burial chest, set up beside them in the same list
+      const C = DN.chests.find((c) => c.id === 'crypt'); C.opened = false; C.ready = true;
+      a.crypt = use(C);
+      a.errors = H.errors.length; return a; })()""")
+    print(json.dumps(r))
+    check(all(i in r['list'] for i in ('crypt', 'vault', 'dcist', 'dpyre', 'dniche', 'dhoard')), f"every chest of the Barrow and the deep is in the chests' list: {r['list']}")
+    check(r['nicheHidden'] and 'dniche' not in r['marked'], f"the forgotten tomb's chest is not marked while its wall stands: {r['marked']}")
+    check('dcist' in r['marked'] and 'dpyre' in r['marked'], "the cistern's and the pyres' chests are marked on the map")
+    for k, name in (('cist', 'the drowned coffer'), ('pyre', "the pyre-keeper's chest"), ('niche', 'the forgotten chest'), ('hoard', 'the hoard of the Ash-Crowned'), ('crypt', 'the burial chest')):
+        c = r[k]
+        check(c['at'] and c['label'] and c['label'].lower().endswith(name.split(' ', 1)[1].lower()) and c['opened'] and c['lid'] == 1 and c['lidRot'] is not None and c['lidRot'] < -1.5
+              and c['gold'] > 0 and c['items'] >= 1 and not c['marked'],
+              f"Use beside {name} opens it: offered '{c['label']}', opened {c['opened']}, lid {c['lid']} ({c['lidRot']} rad), {c['gold']} gold, {c['items']} pieces, mark gone, then '{c['after']}'")
+    check(r['nicheShown'], "the wall down, the tomb's chest is marked")
+    check(r['hoardHidden'] and r['hoardShown'], 'the hoard is marked only once its lord has fallen')
 
 async def lord(page):
     print('player', json.dumps(await ev(page, 'L3.pstate()')))
