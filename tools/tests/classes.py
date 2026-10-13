@@ -1042,7 +1042,8 @@ async def balance7(page):
     check(abs(r['perch']['draw'] - 0.75) < 1e-6 and abs(r['perch']['high'] - 1.2) < 1e-6, f"from a perch it reaches full draw a quarter sooner and strikes 20% harder ({r['perch']})")
     check(r['eriuPerch'] == 1 and r['young'] == 1, f"not an archer of Eriu, nor one below the realm's way's level ({r['eriuPerch']}, {r['young']})")
     r = await ev(page, 'eriu', """(() => { const H = T.H, F = T.F, B7 = H.bal7, C = H.cls; const out = {};
-      const P = T.fresh('archer', 30, 1); out.open = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
+      T.open = true; const P = T.fresh('archer', 30, 1); T.open = false; // (open ground: a spot with nobody near can stand among trees)
+      out.open = { trees: B7.archerTrees(P), hide: B7.archerHideT(P), walk: B7.archerHideWalk(P), amb: B7.archerAmbushK(P) };
       // among trees: two or more standing within 7 m
       const near = H.seasons.treesNear(P.x, P.z, 500); let spot = null;
       for (const t of near) { if (C.treesNear(t.x + 1.6, t.z, 7) >= 3 && F.isWalkable(t.x + 1.6, t.z)) { spot = t; break; } }
