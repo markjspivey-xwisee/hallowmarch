@@ -90,7 +90,7 @@ function csOf(e) {
   // NPCs come to the field with a few habits of their own
   if (e.role !== 'player') {
     if (e.cls === 'mage') e.cs.focus = pick(Math.random, ['fire', 'frost', e.level >= 6 ? 'storm' : 'fire']);
-    if (e.cls === 'priest') { e.cs.dev = 20 + Math.random() * 30; if (B7T.npcDevotion && e.role !== 'bot') e.cs.devAt = GAME.t; } // [balance8] the war's priests, not the bots that measure the callings (07c_balance8.js) // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
+    if (e.cls === 'priest') { e.cs.dev = e.role === 'bot' && B9T.botNoDevotion ? 0 : 20 + Math.random() * 30; if (B7T.npcDevotion && e.role !== 'bot') e.cs.devAt = GAME.t; } // [balance9] a bot comes with none at any hour (its 20 to 50 faded at its first look by 0.8 a second of the run's clock: a priest bot made in a page's first minute kept most of it, 07c_balance9.js) // [balance8] the war's priests, not the bots that measure the callings (07c_balance8.js) // [balance7] its devotion from the moment it comes (devAt -99: the first look faded it all away) (07c_balance7.js)
   }
   return e.cs;
 }
@@ -210,7 +210,7 @@ function classHarm(src, dst, amount, opts) {
       if (realmFlavour(src) && src.faction === 2 && (chillOf(dst) > 0 || frozenOf(dst))) m *= ARCHER_REALM.thuleChill; // [balance5] 1.15
       if (dst.buffs.some((b) => b.kind === 'tracked' && b.src === src.id && b.until > t)) m *= 1.1;
     }
-    if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= 1.6;
+    if (src.cls === 'priest' && isUndead(dst) && (opts.kind === 'holy' || opts.holy)) m *= lordHolyK(dst); // [balance9] 1.6, but not on the deep's lord: his ash crown turns it (07c_balance9.js)
     // blessings
     for (const b of src.buffs) if (b.kind === 'bless' && b.until > t && b.value === 2) { m *= PRIEST_REALM.thuleBless; break; } // [balance4] 1.12 (07c_balance4.js)
   }
@@ -980,7 +980,7 @@ function arrowEffect(src, dst, dmg, type, opts) {
   if (type === 'broadhead') { addBuff(dst, 'bleed', dmg * 0.25 / 6, 6, src.id); addBuff(dst, 'wound', woundOf(src), 6, 'wound'); } // [balance2] and the wound mends slowly (healWound) [balance3] deeper from rank II
   else if (type === 'fire') { if (wetOf(dst) < 0.5 && !(rainHere(dst) > 0.3 && Math.random() < 0.3)) { const r = computeDamage(src, dst, 0.4); addBuff(dst, 'burn', r.d / 6, 6, src.id); } else steamPuff(dst.x, dst.y + 1.2, dst.z, 3); }
   else if (type === 'blunt') {
-    breakCast(dst); // [balance2] not a steadfast priest's
+    bluntBreak(src, dst, opts); // [balance2] not a steadfast priest's [balance9] and only from a full draw, an Aimed Shot or Deadeye: a quick one sets the spell back (07c_balance9.js)
     addBuff(dst, 'snare', 0.35, 2, src.id);
     if (dst.fixedY === null && dst.role !== 'boss' && dst.role !== 'dungeonBoss') { const d = Math.max(0.3, dist(src.x, src.z, dst.x, dst.z)); stepTo(dst, dst.x + (dst.x - src.x) / d * 1.5, dst.z + (dst.z - src.z) / d * 1.5); }
   }
@@ -1391,7 +1391,7 @@ function classActValue(e) {
   if (cs.praying) return 12 + 0.5;
   return 0;
 }
-function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || !!(e.bot && e.bot.holdMace)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js)
+function classNoAuto(e) { const cs = e.cs; return !!cs && (cs.blockOn || cs.drawFrom >= 0 || cs.praying || priestMaceHold(e)); } // [balance4] a skilled priest bot holds its mace from a warrior's guard (07c_balance.js) [balance9] asked at each swing (07c_balance9.js)
 // a mage's own bolt takes the colour of the focus
 function classAutoKind(e) {
   if (e.cls !== 'mage' || !e.cs || !clsHas(e, 'focus')) return e.rangedKind;

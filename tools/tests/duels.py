@@ -16,6 +16,10 @@ usage: python3 tools/tests/duels.py [levels=10,30,50] [reps=12] [kind=skilled|si
                 a mirror of archers, both plain, it won 71% of the duels (the A side: the first calling of a pair, the
                 realm's way in kind=flavour, the skilled bot in kind=mastery)
   plain=a|ab    [balance7] kind=flavour: the plain calling as the A side (a), or both plain (ab: the measure's own lean)
+  pre=JS        [balance9] JS run once the page is up, before the levels (a rule set against its absence)
+  clock=fix|run [balance9] fix (the default): every level begins on the day of the year the page began with
+  reps10=N      [balance9] the reps at level 10 (twice reps by default: its duels are quick, and 144 a calling moved its
+                shares by chance as much as anything did)
   trace=N       a timeline of the first N duels (presses, blows, and a look at both sides each second)
   kind=mastery  each calling's skilled bot against its simple bot (reps each, sides flipped)
   HM_BAL=path   writes every duel as JSON
@@ -42,6 +46,14 @@ OPEN = 'wooded' not in ARGS  # [balance7] open ground (no more than two trees wi
 GAP = int(arg('gap', '80' if OPEN else '90'))  # [balance6] how far apart the arenas stand ([balance7] 80 m on open ground: 10 arenas)
 ALT = 'alt' in ARGS  # [balance7] every other duel makes its B side first (DS.make)
 IDLE = int(arg('idle', '0'))  # [balance8] the run's clock moved on this many seconds before each level's duels
+# [balance9] the measure steady wherever a level falls in a run: three level 10 tables in one page (version 17's rules)
+# moved the simple priest 74, 81 and 70% and the skilled priest 22, 20 and 17%, as 144 duels a calling move by chance
+# (a share's binomial spread is 3.5 to 4 points; the clock lines showed no rain, no snow, one arena in the cold or none).
+# So each level begins on the same day of the year (clock=fix, the default: the season the page began with; clock=run
+# lets it run on as before), and level 10, whose duels are quick, fights twice the reps (reps10=N to set them: 96 a pair,
+# 288 duels a calling, narrow a share's chance spread from about 3.6 points to 2.5)
+CLOCK = arg('clock', 'fix')
+REPS10 = int(arg('reps10', str(REPS * 2)))
 # [balance8] the world's clock as the duels see it: game time, the hour, the season, the weather, the cold at the arenas
 CLOCK_JS = "JSON.stringify((() => { const H = __hm, S = CB.wide || []; return { t: Math.round(H.GAME.t), night: H.dbg.U.uNight ? +H.dbg.U.uNight.value.toFixed(2) : null, season: H.farm && H.farm.seasonNow ? H.farm.seasonNow() : null, rain: +(H.dbg.WEATHER.raining || 0).toFixed(2), snow: +(H.dbg.WEATHER.snowing || 0).toFixed(2), cold: S.slice(0, 9).filter((s) => H.bal7.archerColdAt(s.x, s.z)).length, craters: H.nature.NATURE.craters.length, ents: H.ENT.length, trees: S.slice(0, 9).reduce((a, s) => a + H.cls.treesNear(s.x, s.z, 20), 0) }; })())"
 CL4 = ['warrior', 'archer', 'mage', 'priest']
@@ -260,15 +272,20 @@ async def main():
         # [balance4] nothing here is drawn: the page's own frame loop stops (H.simulate steps the world), which spares the
         # machine a software renderer drawing every frame (keep it with `loop`)
         if 'loop' not in ARGS: await page.evaluate("window.requestAnimationFrame = () => 0; 0")
+        # [balance9] pre=JS: evaluated once the page is up, before the levels (a rule set against its absence:
+        # pre=__hm.bal9.B9T.bluntFull=false;0)
+        if arg('pre', ''): print('  pre', arg('pre', ''), await page.evaluate("(() => { " + arg('pre', '') + " ; return 0; })()"), flush=True)
         allrows = {}
         for lvl in LEVELS:
             await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")  # [balance3] clear skies for every measure: rain damps fire and soaks foes for storms, and a run's weather moved its duels
             # [balance8] idle=S: the run's clock moved on S seconds before the duels (nothing fought meanwhile), to tell what
             # the clock does (the season, the hour, the weather) from what earlier duels leave behind
+            if CLOCK == 'fix':  # [balance9] the same day of the year at every level's start
+                await page.evaluate("(() => { const H = __hm, S = H.farm.SEASON; if (window.__clk0 == null) window.__clk0 = { k: S.t / S.yearSec }; else { H.farm.setSeason(window.__clk0.k); H.seasons.seasonSettle(); } return 0; })()")
             if IDLE: await page.evaluate(f"(() => {{ const H = __hm; for (let k = 0; k < {IDLE}; k += 10) {{ H.simulate(10); const P = H.GAME.player; P.hp = P.maxHp; }} return 0; }})()")
             print('  clock', await page.evaluate(CLOCK_JS), flush=True)
             if TAP: await page.evaluate("DS.tapOn()")
-            specs = spec_list(KIND, REPS)
+            specs = spec_list(KIND, REPS10 if lvl == 10 else REPS)  # [balance9] level 10: twice the duels (reps10)
             rows = []
             t0 = time.time()
             # [balance6] a queue a level: each arena begins its next duel as soon as its last one ends

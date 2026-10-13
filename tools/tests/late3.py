@@ -1,7 +1,7 @@
 """[late3] The Deep Barrow end to end, and a veteran the March can see.
 usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wall,lord,save,std,compile,fight,shots,vetshots]
        [cls=warrior,archer,mage,priest] [lv=45,50] [q=low|high] [sq=low,high] [shots=seal,stair,...] [w=640 h=360] [noshots] [phone]
-       [fhome=u,v,r] [diag]
+       [fhome=u,v,r] [diag] [bots=skilled,simple]
   probe: the deep is built (rooms, cells, walls, the seal, the slabs, the channels, the water), its dead and lord stand
   seal:  the seal holds below 45 or before the Hollow King has fallen to you, says why, and yields to his slayer at 45
   halls: every hall is reachable on foot from the seal (the grid), nothing of the deep is walkable that should not be
@@ -12,6 +12,7 @@ usage: python3 tools/tests/late3.py [only=probe,seal,halls,water,pitch,slabs,wal
   lord:  the Ash-Crowned wakes, cleaves, speaks the Word (broken by a stun; spoken, it lights the pitch), stamps the slabs
          down from two thirds, calls his wardens, burns at a third, resets when you leave, falls; the hoard opens
   fight: each calling's skilled bot (fair gear, three draughts) through the deep's halls and against its lord at 45 and 50
+         ([balance9] bots=skilled,simple: the simple bot too, pressing 1-8 in turn)
   save:  the part read back whole, damaged ones made sane, an old save
   std:   the name worn has its device, the mantle carries it from 40, the standard's flag too; foes strike it down; Use raises it
   shots: the halls by their own light, the lord's fight (late3_<view>_<q>.png); vetshots: the mantle and the standard by day
@@ -34,6 +35,7 @@ NOSHOTS = 'noshots' in ARGS
 Q = arg('q', 'low')
 FHOME = [float(x) for x in (arg('fhome') or '38,49,15').split(',')]  # the bot's ground in the lord's hall: u, v, radius
 DIAG = 'diag' in ARGS  # the fight: what struck the player, by what, and where it stood
+BOTS = (arg('bots') or 'skilled').split(',')  # [balance9] the fight played by these bots (simple: 1-8 in turn)
 FAILS = []
 
 def check(ok, msg):
@@ -326,8 +328,9 @@ async def compile_(page):
     check(not bad and not [m for m in msgs if 'shader' in m.lower() or 'program' in m.lower()], f"every program compiles at high, medium and low ({progs} programs; bad {bad[:2]}; console {msgs[:2]})")
 
 async def fight(page):
-    print('fight: each calling\'s skilled bot through the deep and against its lord', flush=True)
+    print('fight: each calling\'s ' + ' and '.join(BOTS) + ' bot through the deep and against its lord', flush=True)
     for lv in LVS:
+      for bk in BOTS:  # [balance9]
         for cls in CLS:
             await page.evaluate(f"L3.start('{cls}', {lv}); L3.kingDown(); __hm.deep.late3SealOpen(true); __hm.deep.deepPacksFresh(); 0")
             # through the halls: a pack of each, the skilled bot played by the game's own bot
@@ -335,7 +338,7 @@ async def fight(page):
               F.setIndoor(true); const out = {{ cls: '{cls}', lv: {lv}, halls: [] }};
               for (const [room, u, v, r] of [['cistern', 168.5, 38.5, 16], ['pyres', 123, 49, 15], ['crack', 82, 49, 12]]) {{
                 L3.to(u, v); L3.safe(); H.INV.potions = 3;
-                H.bal.botMake(P, 'skilled', {{ x: F.dunWX(u), z: F.dunWZ(v), r }});
+                H.bal.botMake(P, '{bk}', {{ x: F.dunWX(u), z: F.dunWZ(v), r }});
                 const foes = () => H.ENT.filter((e) => e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM[room]);
                 for (const e of foes()) {{ e.threat = new Map([[P.id, 1]]); }}
                 let t = 0; for (; t < 150 && foes().length && P.alive; t += 1) {{ const f = foes()[0]; if (!F.getEnt(P.target) || !F.getEnt(P.target).alive) P.target = f.id; H.simulate(1); }}
@@ -345,14 +348,14 @@ async def fight(page):
               P.bot = null; return out; }})()""")
             print(json.dumps(r), flush=True)
             hall_ok = all(h[2] == 0 for h in r['halls']) and len(r['halls']) == 3
-            check(hall_ok, f"a level {lv} {cls} clears the deep's halls ({', '.join(f'{h[0]} {h[1]} s, {h[3]*100:.0f}% left' for h in r['halls'])})")
+            check(hall_ok, f"a level {lv} {cls} ({bk} bot) clears the deep's halls ({', '.join(f'{h[0]} {h[1]} s, {h[3]*100:.0f}% left' for h in r['halls'])})")
             r = await ev(page, f"""(() => {{ const H = __hm, F = H.fn, D = H.deep.DEEP, P = H.GAME.player;
               F.setIndoor(true); P.alive = true; P.removeAt = 0;
               const id = H.deep.deepLordFresh(), K = F.getEnt(id);
               for (const e of H.ENT) if (e.alive && e.deep && !e.deepLord && H.deep.late3Room(e.x, e.z) === H.deep.DUN_ROOM.ashhall) {{ e.damagers = null; F.killEnt(e, null); }}
               L3.to(46, 48.5); L3.safe(); H.INV.potions = 3;
               for (const k of ['arrows_broadhead', 'arrows_bodkin', 'arrows_fire', 'arrows_blunt']) H.INV.goods[k] = 40; // (a veteran's quiver)
-              H.bal.botMake(P, 'skilled', {{ x: F.dunWX({FHOME[0]}), z: F.dunWZ({FHOME[1]}), r: {FHOME[2]} }}); P.target = K.id; H.simulate(0.5);
+              H.bal.botMake(P, '{bk}', {{ x: F.dunWX({FHOME[0]}), z: F.dunWZ({FHOME[1]}), r: {FHOME[2]} }}); P.target = K.id; H.simulate(0.5);
               const st0 = {{ ...D.stats }};
               const out = {{ lvl: K.level, hp: Math.round(K.maxHp), php: Math.round(P.maxHp) }};
               const hurt = {{}}, trace = [];
@@ -366,7 +369,8 @@ async def fight(page):
               out.words = D.stats.words - st0.words; out.broken = D.stats.wordsBroken - st0.wordsBroken; out.stamps = D.stats.stamps - st0.stamps; out.falls = D.stats.falls - st0.falls; out.burns = D.stats.burnHits - st0.burnHits;
               P.bot = null; return out; }})()""")
             print(json.dumps(r), flush=True)
-            check(r['dead'] and r['alive'], f"a level {lv} {cls} (skilled bot) brings down the Ash-Crowned (level {r['lvl']}): {r['t']} s, lowest health {r['low']*100:.0f}%, Words spoken {r['words']} broken {r['broken']}, stamps {r['stamps']}, falls {r['falls']}, pitch burns {r['burns']}, draughts left {r['potions']}, lord at {r['kLeft']*100:.0f}%")
+            r['bot'] = bk  # [balance9]
+            check(r['dead'] and r['alive'], f"a level {lv} {cls} ({bk} bot) brings down the Ash-Crowned (level {r['lvl']}): {r['t']} s, lowest health {r['low']*100:.0f}%, Words spoken {r['words']} broken {r['broken']}, stamps {r['stamps']}, falls {r['falls']}, pitch burns {r['burns']}, draughts left {r['potions']}, lord at {r['kLeft']*100:.0f}%")
 
 async def std(page):
     r = await ev(page, """(() => { const H = __hm, F = H.fn, V = H.vet3, L = H.late, P = H.GAME.player; L3.start('warrior', 50); const P2 = H.GAME.player;

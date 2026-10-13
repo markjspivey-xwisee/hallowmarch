@@ -927,7 +927,7 @@ function updateProjectiles(dt) {
         const src = getEnt(p.src) || { level: 1, dmgMult: 1, faction: p.srcFaction, buffs: [], role: 'none', scale: 1, alive: false };
         const pl = p.payload || {};
         const r = computeDamage(src, t, pl.mult || 1);
-        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto }); // [classes] arrow heads and elements
+        dealDamage(src, t, r.d, { crit: r.crit, kind: ARROWLIKE[p.kind] ? 'arrow' : p.kind, pierce: pl.pierce || pl.arrow === 'bodkin' ? BODKIN_PIERCE : false /* [balance3] Deadeye and bodkins go through half the armour */, arrow: pl.arrow, elem: pl.arrow === 'fire' || p.kind === 'firearrow' ? 'fire' : undefined, auto: !!pl.auto, ability: pl.ability }); // [classes] arrow heads and elements [balance9] ability: the shot that loosed it (a blunt head's break, 07c_balance9.js)
         if (pl.snare) addBuff(t, 'snare', pl.snare[0], pl.snare[1], p.src);
         if (pl.ability === 'cripple' && t.alive) crippleWound(src, t, pl.snare); // [balance5] a crippling arrow's wound mends slowly (07c_balance5.js)
         if (pl.burn && t.alive) { const b = computeDamage(src, t, pl.burn[0]); addBuff(t, 'burn', b.d / pl.burn[1], pl.burn[1], p.src); }

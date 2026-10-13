@@ -427,7 +427,7 @@ function botArcherArrow(e, t) {
   if (!clsHas(e, 'arrows') || !t) return 'plain';
   // [balance3] a blunt head only for a spell it can still break: time left for the arrow to fly, and a caster who is
   // not steadfast (a priest's own Renewal) — against those it is only a weak arrow
-  if (t.casting && !spellGuarded(t) && t.casting.total - t.casting.t > 0.5) return 'blunt'; // [balance6] (nor a warded mage's)
+  if (t.casting && !spellGuarded(t) && t.casting.total - t.casting.t > 0.5 && bluntWorth(e)) return 'blunt'; // [balance6] (nor a warded mage's) [balance9] and only for the drawn shot that will break it (07c_balance9.js)
   // [balance2] a healer: a broadhead's wound mends slowly [balance3] before the armour piercer (bodkins go through only
   // half the armour now)
   if (t.cls === 'priest') return 'broadhead';
@@ -465,9 +465,9 @@ function botArcher(e, t) {
   // a foe coming in: slow it first
   if (!t.rangedKind && t.target === e.id && d < 18 && !hasBuff(t, 'snare') && !isRooted(t) && botUse(e, 'cripple', t)) return true;
   const safe = !nearestWhere(e.x, e.z, 13, (o) => botEnemy(e, o) && !o.rangedKind && o.target === e.id && !isRooted(o) && !archerCastsBy(e, o)); // [balance6] a priest off its mace with its flare spent (07c_balance6.js)
-  if (safe && d > 10 && botUse(e, 'deadeye', t)) return true;
+  if (safe && d > 10 && (archerHeavyBlunt(e, t, 'deadeye') || botUse(e, 'deadeye', t))) return true; // [balance9] a blunt head at a caster: the heavy shot breaks its spell (07c_balance9.js)
   if (safe && botUse(e, 'pierce', t)) return true;
-  if (safe && botUse(e, 'aimed', t)) return true;
+  if (safe && (archerHeavyBlunt(e, t, 'aimed') || botUse(e, 'aimed', t))) return true; // [balance9]
   // a quick shot between draws costs a draw nothing
   if (botUse(e, 'quickshot', t)) return true;
   // the drawn bow: hold to full and loose
@@ -597,7 +597,7 @@ function botPriest(e, t) {
   // foe who has just broken a spell (blunt arrows, a storm, a mace): instants then, and long casts only when the foe
   // is busy or held, or the need is dire
   const pw = e.power / Math.max(1, e.maxPower);
-  const broke = GAME.t - (B.cutAt || -99) < 3 && !priestCutSpent(e, t); // [balance8] not once the foe's interrupt is spent (07c_balance8.js)
+  const broke = GAME.t - (B.cutAt || -99) < 3 && !priestCutSpent(e, t) && !priestCutSpentBow(e, t); // [balance8] not once the foe's interrupt is spent (07c_balance8.js) [balance9] a bow's too (07c_balance9.js)
   const busy = !!t && (isStunned(t) || (!!t.casting && t.casting.total - t.casting.t > 0.5) || dist(e.x, e.z, t.x, t.z) > 34);
   const steady = hasBuff(e, 'steadfast');
   // a blade in reach breaks spells (a mace above all) and sets them back: with power to spare, steady yourself before
