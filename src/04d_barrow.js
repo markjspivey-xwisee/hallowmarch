@@ -5,7 +5,7 @@
 // isWalkable defer to that grid there, so every other system works unchanged.
 const DUN_X0 = 1000;
 const DUN = {
-  ox: 1400, oz: 0, u0: -10, v0: -18, GW: 230, GH: 48,
+  ox: 1400, oz: 0, u0: -10, v0: -18, GW: 230, GH: 84, // [late3] 84 (48): the Deep Barrow's halls lie south of the old ones (10m_deep.js)
   cell: null, room: null, fy: null, cy: null, built: false,
   root: null, gates: {}, chests: [], vents: [], lights: [], torches: [], tombs: [], spots: {},
 };
@@ -51,6 +51,7 @@ function buildDungeonGrid() {
   for (let u = 190; u < 198; u++) for (let v = -6; v < 6; v++) { const k = dunIdx(u - DUN.u0, v - DUN.v0); fy[k] = -6.2; }
   // the stair up to the daylight: walkable, but drawn by its own steps (cell type 3)
   for (let u = -8; u < 0; u++) for (let v = -2; v < 2; v++) { const k = dunIdx(u - DUN.u0, v - DUN.v0); cell[k] = 3; room[k] = 0; fy[k] = (-u) * 0.56; cy[k] = fy[k] + 4.2; }
+  late3Grid(cell, room, fy, cy); // [late3] the Deep Barrow's stair, basin, slabs and dais (10m_deep.js)
   // rock cells borrow the height of the nearest floor so the bilinear sample never spikes
   const known = new Uint8Array(N);
   for (let k = 0; k < N; k++) known[k] = cell[k] ? 1 : 0;
@@ -76,7 +77,7 @@ function dunFloorAt(x, z) {
   return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
 }
 function dunCeilAt(x, z) { const k = dunCellAt(x, z); return k >= 0 && DUN.cy ? DUN.cy[k] : 10; }
-const dunOpen = (t) => t === 1 || t === 3;
+const dunOpen = (t) => t === 1 || t === 3 || t === 4; // [late3] 4: a slab over a pit, drawn by its own mesh (10m_deep.js)
 function dunWalkable(x, z) { const k = dunCellAt(x, z); return k >= 0 && DUN.cell && dunOpen(DUN.cell[k]); }
 function dunRoomAt(x, z) { const k = dunCellAt(x, z); return k >= 0 && DUN.room && DUN.room[k] >= 0 ? DUN_ROOMS[DUN.room[k]] : null; }
 const dunPoint = (u, v, dy = 0) => ({ x: dunWX(u), z: dunWZ(v), y: dunFloorAt(dunWX(u), dunWZ(v)) + dy });
@@ -218,7 +219,7 @@ function buildDungeon() {
   const segs = [];
   for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
     const k = j * GW + i;
-    if (!C[k] || isRound(k)) continue;
+    if (!C[k] || isRound(k) || late3IsDeepCell(k)) continue; // [late3] the deep's walls are its own (10m_deep.js)
     for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (at(i + di, j + dj)) continue;
       segs.push({ i, j, di, dj });
@@ -289,7 +290,7 @@ function buildDungeon() {
     if (!C[k]) continue;
     for (const [di, dj] of [[1, 0], [0, 1]]) {
       const q = dunIdx(i + di, j + dj);
-      if (q < 0 || !C[q]) continue;
+      if (q < 0 || !C[q] || late3IsDeepCell(k) || late3IsDeepCell(q)) continue; // [late3] (the deep's own headers: 10m_deep.js)
       const lo = Math.min(CY[k], CY[q]), hi = Math.max(CY[k], CY[q]);
       if (hi - lo < 0.62 || (isRound(k) && isRound(q))) continue;
       const u = i + DUN.u0 + (di ? 1 : 0.5), v = j + DUN.v0 + (dj ? 1 : 0.5);
@@ -305,7 +306,7 @@ function buildDungeon() {
   }
   // ---- roofs: great capstones across each room, stepped down the ramps ----
   for (const R of DUN_ROOMS) {
-    if (R.round) continue;
+    if (R.round || R.deep) continue; // [late3] (the deep's roofs are its own)
     const du = R.u[1] - R.u[0], dv = R.v[1] - R.v[0];
     const acrossV = du >= dv; // slabs span the narrow way
     const spanLen = acrossV ? dv : du, runLen = acrossV ? du : dv;
@@ -520,6 +521,7 @@ function buildDungeon() {
   DUN.root.add(buildLightShaft(new THREE.Vector3(dunWX(-7.6), 6.7, dunWZ(0)), new THREE.Vector3(dunWX(4.2), 0.05, dunWZ(0)), 3.4, 5.2, [0.085, 0.095, 0.11]));
   for (const k in DUN.gates) DUN.root.add(DUN.gates[k].mesh);
   for (const t of DUN.tombs) DUN.root.add(t.lid);
+  late3BuildDeep(); // [late3] the Deep Barrow: its halls, slabs, pitch, water and seal (10m_deep.js)
   scene.add(DUN.root);
   DUN.built = true;
 }
@@ -541,7 +543,7 @@ function buildDungeonFloor() {
     return id;
   };
   for (let j = 0; j < DUN.GH; j++) for (let i = 0; i < GW; i++) {
-    if (C[j * GW + i] !== 1) continue;
+    if (C[j * GW + i] !== 1 || late3IsDeepCell(j * GW + i)) continue; // [late3] (the deep's floor is its own)
     const a = vert(i, j), b = vert(i + 1, j), c = vert(i + 1, j + 1), d = vert(i, j + 1);
     idx.push(a, d, c, a, c, b);
   }

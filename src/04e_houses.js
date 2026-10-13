@@ -886,6 +886,7 @@ function igniteHouse(H, x, z) {
 }
 // a fire spell lands at (x, y, z) with reach r: any house it falls on or beside catches
 function fireLandsAt(x, y, z, r = 1, by = null) {
+  if (x > DUN_X0) return late3FireAt(x, y, z, r, by); // [late3] under the Barrow: the deep's pitch catches (10m_deep.js)
   const own = depthSparesGround(x, z, by); // [depth] by: who cast it; the garrison's own fire never lights its own town or keep (09u_depth.js)
   if (!own) natureFireAt(x, y, z, r); // nature (05h_nature.js): grass and trees catch too
   if (!own) depthFireAt(x, y, z, r); // [depth] berry bushes and apple trees catch (09u_depth.js)

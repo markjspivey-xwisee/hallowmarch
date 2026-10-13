@@ -639,7 +639,7 @@ function late2OnKill(e) {
     late2Deed('champ');
     if (e.l2risen) { late2Deed('high'); late2RisenSpoils(e); }
   } else if (e.role === 'lord') { late2Deed('lord'); late2Deed('champ'); }
-  else if (e.role === 'dungeonBoss') late2Deed('king');
+  else if (e.role === 'dungeonBoss') late2Deed(e.deepLord ? 'deep' : 'king'); // [late3] the Ash-Crowned is a deed of his own (10m_deep.js)
   else if (e.kind === 'dragon') {
     // your share of what it took (its threat holds every blow), as the path counts it (10c_lore.js), or the last blow
     const th = (e.threat && e.threat.get(P.id)) || 0;
@@ -737,6 +737,7 @@ function late2Aims() {
     const mine = up.filter((e) => CAMPS[e.camp] && CAMPS[e.camp].realm === P.faction);
     if (up.length) out.push({ t: `Bring down a risen champion`, x: `${mine.length ? capFirst(mine[0].name) + ' and ' + (up.length - 1) + ' more' : up.length + ' of them'} hold the farthest borderland camps, a few levels above you. Risen brought down: ${LATE2.d.high}.` });
   }
+  out.push(...late3Aims()); // [late3] the Deep Barrow (10m_deep.js)
   const N = late2NextName();
   if (N) out.push({ t: `Earn a name: ${late2Say(P, N)}`, m: [late2Count(N.deed) / N.n, `${fmtInt(late2Count(N.deed))} / ${fmtInt(N.n)}`], x: `${LATE2_DEEDS[N.deed]}. ${N.gift}` });
   return out;

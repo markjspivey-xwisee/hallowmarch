@@ -20,7 +20,7 @@ const BAL5 = { stats: { flares: 0, flareTries: 0, whirlHeal: 0, dodges: 0 } };
 // broke every mage's firebolt, and a priest of 10 won 16 of 24 duels against a mage)
 const FLARE_REACH = 10;
 function holyFlare(e, t) {
-  if (!t || !t.alive || !t.casting || t === e || t.kind === 'door' || t.role === 'boss' || t.role === 'dungeonBoss') return false;
+  if (!t || !t.alive || !t.casting || t === e || t.kind === 'door' || t.role === 'boss' || (t.role === 'dungeonBoss' && !t.deepLord)) return false; // [late3] the Ash-Crowned's Ember Word can be flared (10m_deep.js)
   if (dist(e.x, e.z, t.x, t.z) > FLARE_REACH + t.radius * (t.scale || 1)) return false;
   BAL5.stats.flareTries++;
   if (!breakCast(t)) return false;
@@ -33,7 +33,7 @@ function holyFlare(e, t) {
   return true;
 }
 // [balance5] the bots: a spell worth breaking (time left on it, and no steadfast caster)
-const castBreakable = (t, left = 0.3) => !!t && !!t.casting && t.casting.total - t.casting.t > left && !spellGuarded(t) && t.role !== 'boss' && t.role !== 'dungeonBoss'; // [balance6] nor a warded mage's (07c_balance6.js)
+const castBreakable = (t, left = 0.3) => !!t && !!t.casting && t.casting.total - t.casting.t > left && !spellGuarded(t) && t.role !== 'boss' && (t.role !== 'dungeonBoss' || !!t.deepLord); // [late3] (the Ember Word: 10m_deep.js) // [balance6] nor a warded mage's (07c_balance6.js)
 // a foe who could flare e's next spell: a priest of Holy Fire's level with it ready, in its reach
 function flareThreat(e) {
   return !!nearestWhere(e.x, e.z, FLARE_REACH + 1, (o) => o.alive && o.cls === 'priest' && isEnemy(o, e) && o.level >= ABILITIES.holyfire.level && (o.cds.holyfire || 0) <= GAME.t + 0.3 && o.target === e.id);
@@ -100,6 +100,7 @@ function botDodge(e, t, dt) {
     for (let a = 0; a < 8; a++) { const x = e.x + Math.sin(a * 0.785) * 2.5, z = e.z + Math.cos(a * 0.785) * 2.5; if (natGet(x, z, 2) > 0.3) { bx += x; bz += z; nb++; } }
     if (nb < 8) best = nb ? { x: bx / nb, z: bz / nb, now: false, fire: true } : { x: e.x, z: e.z, now: false, fire: true };
   }
+  if (!best) best = late3BotHazard(e, t); // [late3] a cracking slab, the Ash-Crowned's cleave or stamp, burning pitch (10m_deep.js)
   if (!best && B7T.volleyDodge) best = botVolleyAt(e); // [balance7] a foe's volley falling on it (07c_balance7.js)
   if (!best && typeof SPELL !== 'undefined') for (const S of SPELL.emitters) {
     if (S.kind !== 'blizzard' || !S.src || S.src.faction === e.faction || S.until < GAME.t + 0.8) continue;
