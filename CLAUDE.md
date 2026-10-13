@@ -782,6 +782,36 @@ Still off (for the next pass):
 - **The Shield of Logres at 50** (20 of 24 against the plain priest): a mirror of two healers is a race any steady edge decides.
 - **The skilled archer against the skilled priest at 50** (37 and 27 of 48: about two in three).
 
+### The late game's foes weighed again ([balance9], version 18)
+
+**The Deep Barrow** (`late3.py only=fight lv=45,50 bots=skilled,simple`: fair gear of the level, three draughts and a quiver, through the cistern, the Hall of Pyres and the gallery, then the lord; one fight each). In version 17 the skilled priest brought Vorlach down in 44 to 58 s with 70 to 72% of its health at its lowest and its draughts untouched, where the others took 75 to 107 s with a third of their health or less. Holy light struck him 1.6 times as hard (a Smite a quarter harder again), his blows went wide under its dazzle, and holy ground burned and slowed him. Now his crown of ash turns all of it: at 1.0 and with no dazzle (and holy ground still burning him) the skilled priest took 57 to 64 s with 70 to 80% of its health at its lowest; with holy ground's burn and the Smite's quarter turned too, 122 to 126 s with 55 to 62%, its draughts still untouched. A blunt head from a quick shot no longer breaking a spell cost the archer his Words: kept to a full draw for the dead's spells too, the skilled archer broke 1 of 7 at 45 and fell (the lord at 12%), and drawing a blunt head at once when he began one (`archerWordDraw`, set aside) it broke 4 of 6, but the fight ran past 300 s with the lord at 17%. The dead's own spells (`casting.custom`) now break from any shot, as before (`B9T.bluntDead`): 102 s at 45 with 33% at its lowest, 5 of 7 Words broken.
+
+| Level (the lord) | Bot | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|---|
+| 45 (49; 35,600 health) | skilled | 79 s, lowest health 28%, Words 5 spoken and none broken, two draughts left | 102 s, 33%, 2 and 5, two left | 92 s, 3%, 6 and 0, one left | 122 s, 55%, 6 and 2, three left (63 s and 80% with the Smite's quarter and holy ground's burn still on him) |
+| 45 | simple | (not fought) | stood off: the lord at 96% after 300 s, 1 Word | (not fought) | 153 s, 27%, 6 and 4, two left |
+| 50 (54; 39,000) | skilled | 73 s, 39%, 4 and 0, two left | 91 s, 39%, 2 and 4, two left | 85 s, 21%, 4 and 1, two left | 112 s, 57%, 5 and 2, three left (57 s and 70% before) |
+| 50 | simple | fell at 96 s, the lord at 13% | stood off: the lord at 89% after 300 s, no Word | 92 s, 22% (it fell among the pyres first) | 145 s, 64%, 7 and 1, three left |
+
+(The skilled warrior and mage, and the simple warrior and mage at 50, fought on builds of this work before its last rules for the archer and the priest, which do not reach them; the archer's and the priest's rows are the final build's. Version 17's skilled bots, for comparison: at 45 the warrior 85 s and 33%, the archer 107 s and 42%, the mage 100 s and 24%, the priest 58 s and 70%; at 50 75 s and 39%, 104 s and 24%, 94 s and 13%, 44 s and 72%.)
+
+So every calling's skilled bot brings him down at 45 and 50, the warrior quickest (73 to 79 s), the archer and the mage at 85 to 102 s with a fifth to a third of their health at their lowest (the mage once at 3%), and the priest slowest and least hurt (112 to 122 s, 55 to 57%, its draughts untouched). The simple priest brings him down in 145 to 153 s; the simple warrior fell with him at 13%; the simple archer stood off with him at 89 to 96% for the whole 300 s, no Word spoken and no stamp. Traced (`late3.py ... diag`): its Tumble, pressed in turn, leapt it back toward the hall's east door, and it walked on out of the hall (u 56 to 63, the hall ends at 56), where the lord gives up a quarry out of his hall after 5 s and goes back to his throne whole (as the Hollow King does): he stood at 100% four times in the 300 s. A careless bow that tumbles out of his hall finds him whole again; the skilled bot keeps to its ground (`botAwayYaw`). Left for the next pass: the simple bot keeping to its ground (it would move the duels' simple archer too), or the lord waiting at his door a while.
+
+**The risen of Thule** (`balance8.py risen realms=2 levels=40,45,50 bots=simple,skilled`: Hrungnir Moss-Crown and his trolls, taken over afresh for every fight; fair gear and three draughts; one fight each). Version 17 fought them only at 50, where Hrungnir brought a skilled mage to 14% with two draughts and killed the simple warrior, archer and mage. The skilled bots now step out of his stone-burst (it stuns) as out of his wrath.
+
+| Level (the champion) | Bot | Warrior | Archer | Mage | Priest |
+|---|---|---|---|---|---|
+| 40 (43; 26,856 health) | simple | fell (53%), 1 drunk | fell (25%), 1 drunk | 70 s (41%) | 88 s (34%), 1 drunk |
+| 45 (48; 29,794 health) | simple | fell (3%), 2 drunk | fell (29%), 1 drunk | 66 s (8%), 2 drunk | 96 s (49%) |
+| 50 (53; 32,733 health) | simple | 63 s (17%), 2 drunk | fell (1%), 1 drunk | fell (2%), 1 drunk | 87 s (66%) |
+| 40 (43; 26,856 health) | skilled | 59 s (35%), 1 drunk | 59 s (45%), 1 drunk | 57 s (80%) | 82 s (54%) |
+| 45 (48; 29,794 health) | skilled | 53 s (60%) | 64 s (44%) | 57 s (40%), 1 drunk | 76 s (51%) |
+| 50 (53; 32,733 health) | skilled | 48 s (62%) | 51 s (41%), 1 drunk | 48 s (87%) | 69 s (59%) |
+
+(The time to bring Hrungnir down and, in brackets, the fighter's lowest health, or "fell" with the champion's health left; the draughts drunk.) Every skilled bot brings him down at every level, in 48 to 82 s, the priest slowest; the skilled mage of 50 kept 87% of its health (version 17: 14% with two draughts). The simple bots: the priest at every level (87 to 96 s), the mage at 40 and 45, the warrior at 50; the simple archer fell at every level, standing in the trolls' reach shooting as it stands in a warrior's (its duels too).
+
+**A veteran's boons in a priests' mirror**: not changed in version 18 and not measured again (version 17: halved, the boons' side won 74.5 of 96, and with the Legend's gift 84: Still off).
+
 ### Version 17 ([balance8])
 
 **What a player meets** (the tooltips, the Callings page and the loading tips say it; 07c_balance8.js, 10d_classes_ui.js):
@@ -1810,6 +1840,8 @@ Mirror duels at 50 (the A side's wins of 24, the side carrying the boons; in bra
 | and the Legend of the March at 2% and 2% | 14 | 13 | 14 | 23 |
 
 The pack at 50 (the skilled bot, the median of three; none against all thirty steps): version 16's boons the warrior 72 against 78 s, the archer 32 against 27, the mage 49 against 62, the priest 72 against 92; half of them 61 against 80, 32 against 36, 48 against 62, 87 against 84, and again 63 against 61, 31 against 32, 59 against 50, 78 against 87. The full boons decided a mirror between equals: a priests' mirror is a race of 25 to 30 s that any steady edge decides (23 of 24, and the name with them 22), and an archer with the name won 20.5. Now the fighting boons are ½% health, harm, critical blows and softer and 1% power a step (2.5%, 2.5%, 5%, 2.5% and 2.5% for all thirty), the realm points' 4% as before, and the Legend of the March gives 2% health and 2% harder (3% and 3%: with the halved boons it won the priests' mirror 21 of 24). The two runs at half disagree, and so does the side with nothing (the priests' A side won 14 of 24 in one and 8 in the other): over the four callings the boons' side won 1 duel of 96 more than the side with none in the first and 27.5 more in the second (20.5 at the full measure), the priests' 2.5 and 14 of 24 more (16 at the full measure). So 24 duels a condition do not tell half the boons from all of them in a mirror of healers; 96 do: halved, the priest's boons won 74.5 of 96 (78%) and with the Legend's 2% and 2% 84 (88%), against 44 with none, and the pack 70 s against 81. A veteran priest still wins its mirror between equals more often than not: still off (Balance of the callings, version 17). The other names' gifts (each in its own field: the Scourge's 6% against the enemy realms' soldiers, Championsbane's 6% against champions) were not measured in duels.
+
+**Weighed again (version 18, [balance9])**: the Deep Barrow by both bots at 45 and 50, the Ash-Crowned's crown of ash turning holy light, and Hrungnir Moss-Crown's trolls at 40, 45 and 50: under Balance of the callings, The late game's foes weighed again.
 
 ### Version 17 ([late3]): the Deep Barrow, and a veteran the March can see
 
