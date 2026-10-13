@@ -773,7 +773,7 @@ The priests' realm ways (`kind=flavour alt only=priest`, one run: each realm's w
 - Of the 24 shares 23 are within the band in each run (version 17: 23 and 20; main's level 10 this morning: the skilled priest 24% and the simple priest 75%). Out: the skilled priest of 10 in the first run (31%; 47% in the second) and the simple priest of 10 in the second (81%; 66% in the first): the same priest of 10, by where its level fell in the run (above).
 - The pairs named for this work: the skilled archer against the skilled priest at 30 from 42-46 of 48 to 29 and 27, at 50 from 39-44 to 37 and 27; the skilled warrior against the skilled priest at 10 from 36-37 to 27 and 19; the skilled mage against the skilled priest 19 and 21 of 48 at 30 and 25 and 26 at 50 (version 17: 19-22 and 24-29), 36 and 26 at 10 (31 and 31). The simple warrior still beats the simple archer 48 of 48 at 30 and 47 at 50 in both runs.
 - Mastery: the warrior 23 to 24 of 24, the archer 22 at 30 and 50 (13.5 to 19 before) and 34 of 48 at 10 (10 to 15 of 24), the mage 21 and 22 (14 to 21) and 37.5 of 48 at 10, the priest 42 of 48 at 10, 20 at 50 (15 to 18) and 11 at 30 (11 to 14: still a coin toss).
-- The priests' realm ways: within 10 to 14.5 of 24 of the plain priest but the Shield of Logres at 50 (20).
+- The priests' realm ways: 10 to 14.5 of 24 against the plain priest, but the Shield of Logres at 50 (20).
 
 Still off (for the next pass):
 
@@ -784,6 +784,8 @@ Still off (for the next pass):
 - **The skilled archer against the skilled priest at 50** (37 and 27 of 48: about two in three).
 - **The deep and the risen** (The late game's foes weighed again, below): the skilled priest brings the Ash-Crowned down slowest and least hurt (112 to 126 s, 55 to 62% at its lowest, its draughts untouched); the simple archer stands off out of his hall (its Tumble pressed in turn) while he goes back to his throne whole; the simple warrior falls to him at 50 with him at 13%, and the simple warrior and archer to Hrungnir Moss-Crown at 40 and 45 (the archer at 50 too).
 - **The war's hallow bonus on the measures' bots** (taken off after the runs: not yet measured whether the level 10 drift goes with it), and `classes.py balance`'s time to kill and the pack on this work's rules (Tested, below).
+
+Tested on the final build (one browser at a time, the machine shared with three other builders): `tools/lint.sh` 0 errors; `balance9.py` (22 checks), `merged.py noshots`, `integration.py`, `late2.py noshots` (71), `barrow.py` (every calling's skilled bot beats the Hollow King at 28: the warrior in 20 s with 72% health left, the archer 33 s and 59%, the mage 28 s and 74%, the priest 25 s and 85%), `level50.py` and `loot.py` passed; `classes.py mech` (131 checks) passed but one, the Well of Ériu's heal read against version 14's 1.2% (it reads its measure from `PRIEST_REALM` now: `classes.py b6`); the risen of Thule at 40, 45 and 50 by both bots and the deep by both bots at 45 and 50 as above.
 
 ### The late game's foes weighed again ([balance9], version 18)
 
