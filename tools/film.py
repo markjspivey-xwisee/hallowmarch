@@ -1,6 +1,6 @@
 """[capture] Film the March's shots with the capture build (src/14_capture.js), for trailers.
 
-usage: python3 tools/film.py [shots=a,b,...|all] [look] [w=960] [h=540] [q=medium] [fps=24] [secs=S] [tag=film]
+usage: python3 tools/film.py [shots=a,b,...|all] [look|track] [w=960] [h=540] [q=medium] [fps=24] [secs=S] [tag=film]
                              [stills=id:variant,...] [crf=20] [keep]
   Boots the game in headless Chromium (SwiftShader, seeded: the same war each run), starts a level 50 Logres warrior
   who has earned what the late shots need (a name, the standard of its name, the Hollow King laid to rest, the Deep
@@ -13,6 +13,11 @@ usage: python3 tools/film.py [shots=a,b,...|all] [look] [w=960] [h=540] [q=mediu
   stills=id:variant,...: a still of a shot's first frame with a variant laid on it: a season (spring, summer, autumn,
   winter), a time of day (dawn, day, golden, dusk, night) or a weather (clear, haze, rain, storm, snow, mist); written to
   tools/out/film/<tag>/still_<id>_<variant>.png.
+  track: each shot's camera move and its marks seen through it, frame by frame, as the film's frames are taken
+  (`__hm.capture.track`: no frame is drawn), to tools/out/film/<tag>/tracks.json ({shot: {marks, fps, frames:
+  [[u, v] or null per mark], cams}}): what a compositor's tracking gives, for titles that stay on what they name.
+  A path's camera is exactly the film's (it follows its keys alone); a shot whose keys hang on the war (the siege's
+  engine) is tracked where this run's war put it.
   score: the trailer's score from the game's own procedural music (src/11b_music.js, rendered offline: a mood, or a
   stinger, a segment), its segments laid end to end with crossfades of 0.8 s to the trailer's chapters
   (`SCORE`), as tools/out/film/<tag>/score.m4a (AAC).
@@ -137,6 +142,14 @@ SCORE = [('title', 5.56, None), ('logres', 5.33, None), ('eriu', 5.33, None), ('
          ('title', 10.33, None), ('frontier', 5.33, None), ('barrow', 10.67, None), ('title', 5.56, None), ('victory', 7.0, None)]
 XF = 0.8
 
+async def track(page, sid, tracks):
+    r = await stage(page, sid, json.dumps({'dur': float(opt('secs')), 'hold': True}) if opt('secs') else '{"hold": true}')
+    if r.get('error'): log(sid, 'not staged:', r['error']); return
+    secs = float(opt('secs', r['dur']))
+    t = json.loads(await page.evaluate(f"JSON.stringify(__hm.capture.track({FPS}, {int(round(secs * FPS))}, {W} / {H}))"))
+    tracks[sid] = t
+    log(sid, 'tracked', t['marks'], len(t['frames']), 'frames')
+
 async def score(page):
     parts = []
     for i, (what, secs, heat) in enumerate(SCORE):
@@ -185,9 +198,12 @@ async def main():
         ids = [s['id'] for s in shots] if (want in (None, 'all') and not opt('stills') and 'score' not in FLAGS) else ([] if want is None else want.split(','))
         for s in shots:
             if s['id'] in ids and s['need']: log(s['id'], 'needs:', s['need'])
+        tracks = {}
         for sid in ids:
             if 'look' in FLAGS: await look(page, sid)
+            elif 'track' in FLAGS: await track(page, sid, tracks)
             else: await film(page, sid)
+        if tracks: (OUT / 'tracks.json').write_text(json.dumps(tracks)); log('tracks ->', 'tracks.json')
         for spec in (opt('stills') or '').split(','):
             if spec: await still(page, spec)
         if 'score' in FLAGS: await score(page)

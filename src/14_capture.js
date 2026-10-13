@@ -421,7 +421,7 @@ const CAP_SHOTS = [
       const T = W.heroTree, gy = heightAt(T.x, T.z);
       capPlayerTo(T.x + 3, T.z + 3);
       capHush(T.x, T.z, 30);
-      return { keys: [capKey(T.x + 17, gy + 0.9, T.z + 9, T.x, gy + 5.2, T.z, 44), capKey(T.x + 11, gy + 3.2, T.z + 14, T.x, gy + 6.2, T.z, 46), capKey(T.x + 4, gy + 8.5, T.z + 15, T.x - 14, gy + 5, T.z - 40, 50)] };
+      return { marks: [{ t: 'The Lone Tree', x: T.x, y: gy + 6.5, z: T.z }], keys: [capKey(T.x + 17, gy + 0.9, T.z + 9, T.x, gy + 5.2, T.z, 44), capKey(T.x + 11, gy + 3.2, T.z + 14, T.x, gy + 6.2, T.z, 46), capKey(T.x + 4, gy + 8.5, T.z + 15, T.x - 14, gy + 5, T.z - 40, 50)] };
     },
   },
   {
@@ -431,7 +431,7 @@ const CAP_SHOTS = [
       const p = (d, l, h) => ({ x: S.x - R.dx * d + R.px * l, z: S.z - R.dz * d + R.pz * l, y: gy + h });
       const a = p(84, 34, 24), b = p(52, 16, 13);
       capPlayerTo(S.x, S.z);
-      return { keys: [capKey(a.x, a.y, a.z, S.x, gy + 1, S.z, 44), capKey(b.x, b.y, b.z, S.x + R.px * 4, gy + 2, S.z + R.pz * 4, 46)] };
+      return { marks: [{ t: 'Brackenford', x: S.x, y: gy + 2, z: S.z }], keys: [capKey(a.x, a.y, a.z, S.x, gy + 1, S.z, 44), capKey(b.x, b.y, b.z, S.x + R.px * 4, gy + 2, S.z + R.pz * 4, 46)] };
     },
   },
   {
@@ -440,7 +440,7 @@ const CAP_SHOTS = [
       const R = REALMS[1], S = R.town, hs = capTownHouses(1), h = hs[3] || hs[0];
       const out = capYawTo(S.x, S.z, h.x, h.z), a = capAhead(h.x, h.z, out + Math.PI + 0.35, 26), b = capAhead(h.x, h.z, out + Math.PI + 0.15, 19);
       capPlayerTo(a.x, a.z);
-      return { keys: [capKey(a.x, capGround(a.x, a.z) + 1.8, a.z, h.x, h.y + 2.4, h.z, 48), capKey(b.x, capGround(b.x, b.z) + 2.8, b.z, h.x, h.y + 3.2, h.z, 50)] };
+      return { marks: [{ t: 'Glenrua', x: h.x, y: h.y + 4, z: h.z }], keys: [capKey(a.x, capGround(a.x, a.z) + 1.8, a.z, h.x, h.y + 2.4, h.z, 48), capKey(b.x, capGround(b.x, b.z) + 2.8, b.z, h.x, h.y + 3.2, h.z, 50)] };
     },
   },
   {
@@ -450,7 +450,7 @@ const CAP_SHOTS = [
       const p = (d, l, h) => ({ x: S.x - R.dx * d + R.px * l, z: S.z - R.dz * d + R.pz * l, y: gy + h });
       const a = p(70, -30, 18), b = p(44, -14, 8);
       capPlayerTo(S.x, S.z);
-      return { keys: [capKey(a.x, a.y, a.z, S.x, gy + 2, S.z, 46), capKey(b.x, b.y, b.z, S.x - R.px * 4, gy + 3, S.z - R.pz * 4, 48)] };
+      return { marks: [{ t: 'Skarvik', x: S.x, y: gy + 2, z: S.z }], keys: [capKey(a.x, a.y, a.z, S.x, gy + 2, S.z, 46), capKey(b.x, b.y, b.z, S.x - R.px * 4, gy + 3, S.z - R.pz * 4, 48)] };
     },
   },
   {
@@ -531,7 +531,8 @@ const CAP_SHOTS = [
       const L = (lx, ly, lz) => siegeLocal(E, lx, ly, lz);
       const a = L(-15, 2.4, -6), b = L(-19, 5.5, -15), ta = L(0, 5.5, 2), tk = 0.55; // ends looking between the engine and the keep, both in the frame
       const tb = { x: ta.x + (S.x - ta.x) * tk, y: ta.y + (gy + 6 - ta.y) * tk, z: ta.z + (S.z - ta.z) * tk };
-      return { keys: [capKey(a.x, a.y, a.z, ta.x, ta.y, ta.z, 50), capKey(b.x, b.y, b.z, tb.x, tb.y, tb.z, 46)] };
+      const me = L(0, 4, 0);
+      return { marks: [{ t: 'Trebuchet', x: me.x, y: me.y, z: me.z }, { t: K.site.name || 'Keep', x: S.x, y: gy + 9, z: S.z }], keys: [capKey(a.x, a.y, a.z, ta.x, ta.y, ta.z, 50), capKey(b.x, b.y, b.z, tb.x, tb.y, tb.z, 46)] };
     },
   },
   {
@@ -541,6 +542,7 @@ const CAP_SHOTS = [
       capPlayerTo(S.x + 6, S.z + 6);
       let n = 0;
       return {
+        marks: [{ t: S.name || 'Keep', x: S.x, y: gy + 12, z: S.z }],
         keys: [capKey(a.x, heightAt(a.x, a.z) + 9, a.z, S.x, gy + 6, S.z, 50), capKey(b.x, heightAt(b.x, b.z) + 7, b.z, S.x, gy + 7, S.z, 50)],
         act(t) { if ((n === 0 && t > 1.1) || (n === 1 && t > 3.2)) { n++; capLightning(S.x, S.z); } },
       };
@@ -556,7 +558,7 @@ const CAP_SHOTS = [
       capPlayerTo(a.x, a.z);
       igniteHouse(h);
       HCREW.off = true; capRun(11); HCREW.off = false;
-      return { keys: [capKey(a.x, capGround(a.x, a.z) + 1.7, a.z, h.x, h.y + 2.6, h.z, 50), capKey(b.x, capGround(b.x, b.z) + 1.5, b.z, h.x, h.y + 3.0, h.z, 52)] };
+      return { marks: [{ t: 'Roof', x: h.x, y: h.y + 4.5, z: h.z }], keys: [capKey(a.x, capGround(a.x, a.z) + 1.7, a.z, h.x, h.y + 2.6, h.z, 50), capKey(b.x, capGround(b.x, b.z) + 1.5, b.z, h.x, h.y + 3.0, h.z, 52)] };
     },
   },
   {
@@ -573,7 +575,7 @@ const CAP_SHOTS = [
       const L = (along, out, y) => { const l = palisadeLocal(3, along, out), p = siteToWorld(S, l.x, l.z); return { x: p.x, y: S.y + y, z: p.z }; };
       const a = L(c0.a + 9, 21, 4.2), b = L(c0.a + 5, 15, 3.4), t = L(c0.a, 0, 3.2);
       capPlayerTo(a.x, a.z);
-      return { keys: [capKey(a.x, a.y, a.z, t.x, t.y, t.z, 50), capKey(b.x, b.y, b.z, t.x, t.y + 0.4, t.z, 52)] };
+      return { marks: [{ t: 'Palisade', x: t.x, y: t.y + 1.5, z: t.z }], keys: [capKey(a.x, a.y, a.z, t.x, t.y, t.z, 50), capKey(b.x, b.y, b.z, t.x, t.y + 0.4, t.z, 52)] };
     },
   },
   {
@@ -635,7 +637,7 @@ const CAP_SHOTS = [
       for (let i = 0; i < lit.length; i += 5) deepIgnite(lit[i], null);
       const K = getEnt(DEEP.lord), ky = K ? K.y : p.y;
       const a = dunPoint(47, 46.5), b = dunPoint(36, 47.8);
-      return { keys: [capKey(a.x, ky + 2.4, a.z, dunWX(23), ky + 3.4, dunWZ(48.5), 50), capKey(b.x, ky + 1.6, b.z, dunWX(23), ky + 3.6, dunWZ(48.5), 46)] };
+      return { marks: [{ t: 'Vorlach', x: dunWX(23), y: ky + 3.4, z: dunWZ(48.5) }], keys: [capKey(a.x, ky + 2.4, a.z, dunWX(23), ky + 3.4, dunWZ(48.5), 50), capKey(b.x, ky + 1.6, b.z, dunWX(23), ky + 3.6, dunWZ(48.5), 46)] };
     },
   },
   {
@@ -656,7 +658,7 @@ const CAP_SHOTS = [
       capPlayerTo(C.x + 22, C.z - 22);
       const m = { x: (C.x + fx) / 2, z: (C.z + fz) / 2 }, gy = heightAt(m.x, m.z);
       const c1 = capAhead(m.x, m.z, a + 1.1, 10), c2 = capAhead(m.x, m.z, a + 0.7, 8);
-      return { keys: [capKey(c1.x, gy + 3.4, c1.z, m.x, gy + 0.8, m.z, 50), capKey(c2.x, gy + 2.6, c2.z, m.x, gy + 0.9, m.z, 50)] };
+      return { marks: [{ t: C.name || 'Champion', x: C.x, y: C.y + 2.6 * (C.scale || 1), z: C.z }], keys: [capKey(c1.x, gy + 3.4, c1.z, m.x, gy + 0.8, m.z, 50), capKey(c2.x, gy + 2.6, c2.z, m.x, gy + 0.9, m.z, 50)] };
     },
   },
   {
@@ -673,7 +675,8 @@ const CAP_SHOTS = [
       P.yaw = 0.7 + 2.4;
       CAPTURE.showMe = true;
       const gy = heightAt(sp.x, sp.z);
-      return { orbit: { x: sp.x, y: gy + 2.0, z: sp.z, r: 7.6, h: 0.5, a: 0.7 + 2.0, w: 0.16 } }; // the flag in the frame over you
+      const at = LATE2.std.at || sp;
+      return { marks: [{ t: 'Standard', x: at.x, y: heightAt(at.x, at.z) + 3.4, z: at.z }], orbit: { x: sp.x, y: gy + 2.0, z: sp.z, r: 7.6, h: 0.5, a: 0.7 + 2.0, w: 0.16 } }; // the flag in the frame over you
     },
   },
   {
@@ -713,6 +716,7 @@ function captureShot(id, o = {}) {
   try { r = s.set(o); } catch (err) { reportError(err); r = null; }
   if (!r) { capToast(`${s.name} cannot be staged here now`); C.shot = null; return { error: 'not staged' }; }
   C.act = r.act || null;
+  C.marks = r.marks || [];
   if (s.pre) capRun(s.pre);
   // a winter shot's snow: the weather's own check of the cold reads where the camera will be
   if ((o.weather || s.weather) === 'snow' && r.keys) { C.cam.x = r.keys[0].x; C.cam.z = r.keys[0].z; capWeather('snow'); if (s.fog != null && !o.weather) WEATHER.fog = s.fog; }
@@ -737,6 +741,30 @@ function captureShot(id, o = {}) {
   capApply();
   capRender();
   return { shot: s.id, name: s.name, mode: C.mode, dur: C.dur, keys: C.keys.length };
+}
+
+// the shot's camera move frame by frame and its marks seen through it, as a compositor tracks a shot for the titles
+// laid over it: frame i is the camera after i + 1 steps of 1/fps (as the frames are filmed: a step, then the picture),
+// a mark at [u, v] on the frame (0..1 from its top left) or null behind the camera. A path or an orbit only (a followed
+// body moves as the world does); the camera's own state is put back after.
+function captureTrack(fps = 24, n = 96, aspect = 16 / 9) {
+  const C = CAPTURE, marks = C.marks || [], out = { marks: marks.map((m) => m.t), fps, frames: [], cams: [] };
+  if (!(C.mode === 'path' && C.keys.length >= 2) && C.mode !== 'orbit') return out;
+  const keep = JSON.stringify({ cam: C.cam, aim: C.aim, orbit: C.orbit, pt: C.pt, play: C.play, vel: C.vel });
+  const cam = new THREE.PerspectiveCamera(50, aspect, 0.1, 6000), v = new THREE.Vector3(), dt = 1 / fps;
+  cam.rotation.order = 'YXZ';
+  if (C.mode === 'path') { C.pt = 0; C.play = true; }
+  for (let i = 0; i < n; i++) {
+    if (C.mode === 'path') capPathStep(dt); else capOrbitStep(dt);
+    const c = C.cam;
+    cam.position.set(c.x, c.y, c.z); cam.rotation.set(c.pitch, c.yaw, c.roll || 0); cam.fov = c.fov; cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    out.cams.push([c.x, c.y, c.z, c.yaw, c.pitch, c.fov].map((q) => +q.toFixed(3)));
+    out.frames.push(marks.map((m) => { v.set(m.x, m.y, m.z).project(cam); return v.z < 1 && Math.abs(v.x) < 3 && Math.abs(v.y) < 3 ? [+((v.x + 1) / 2).toFixed(4), +((1 - v.y) / 2).toFixed(4)] : null; }));
+  }
+  const k = JSON.parse(keep);
+  Object.assign(C.cam, k.cam); Object.assign(C.aim, k.aim); Object.assign(C.orbit, k.orbit); C.pt = k.pt; C.play = k.play; C.vel = k.vel;
+  capApply();
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1109,6 +1137,7 @@ if (window.__hm) {
       captureCamera();
       return 0;
     },
+    track: captureTrack,
     shots() { return CAP_SHOTS.map((s) => ({ id: s.id, name: s.name, line: s.line, dur: s.dur, need: s.need ? s.need() : '' })); },
     state() { const C = CAPTURE, c = C.cam; return { on: C.on, mode: C.mode, play: C.play, pt: +C.pt.toFixed(3), dur: C.dur, k: C.k, shot: C.shot, keys: C.keys.length, hide: C.hideMe, cam: [c.x, c.y, c.z, c.yaw, c.pitch, c.roll, c.fov].map((v) => +v.toFixed(3)), modal: UI.modal, hud: !$('hud').hidden, made: C.made.filter((e) => !e.removed).length, stats: { ...C.stats } }; },
   };
