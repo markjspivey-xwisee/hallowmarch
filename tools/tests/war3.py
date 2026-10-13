@@ -167,13 +167,16 @@ async def main(p):
         print('gatepass: a mounted captain in an enemy keep\'s gate passage, its gate shut, gets out and on', flush=True)
         r = await ev(page, r"""(() => {
           const H = __hm, fn = H.fn, WAR = H.WAR, W3 = H.war3.W3;
-          __w3t.calm(); __w3t.quiet(); __w3t.whole();
+          __w3t.calm(); __w3t.quiet(); __w3t.whole(); __w3t.calm(); // [war4] (whole() hands a keep back through captureKeep, whose column came by: alone again)
           const res = [];
           for (const on of [false, true]) {
             W3.on = on;
             // (Logres's keeps are square, with gate drums and a walk over the gate: a room the castle counts inside)
             const ki = WAR.keeps.findIndex((k) => k.realm === 0 && k.orig === 0 && fn.castleOf(k.site) && fn.castleOf(k.site).kind !== 'round'), K = WAR.keeps[ki], S = K.site, G0 = fn.castleOf(S).gate;
             const ek = WAR.keeps.findIndex((k) => k.realm === 2);
+            // [war4] nobody of the keep's about (a relief column mans its walls within a minute of quiet now, and its archers
+            // hold a band in its passage in a fight: the scene is the stall without one)
+            for (const gid of [...K.guards]) { const g = fn.getEnt(gid); if (g) fn.removeEnt(g); } K.guards.clear(); K.nextGuardAt = H.GAME.t + 1e9; K.w4relT = H.GAME.t + 1e9;
             const id = __w3t.band(1, ek, 6, S.x, S.z), wb = __w3t.wb(id), L = fn.wbLeader(wb);
             const p = fn.siteToWorld(S, S.gateLocal.x, G0.gz + 1.0);
             for (const e of fn.wbMembers(wb)) { e.x = e.prevX = p.x + (Math.random() - 0.5); e.z = e.prevZ = p.z + (Math.random() - 0.5); e.y = fn.floorAt(e.x, e.z, S.y + 0.5); }
@@ -182,7 +185,7 @@ async def main(p):
             const x0 = L.x, z0 = L.z;
             let outAt = null;
             for (let t = 1; t <= 60; t++) { __w3t.quiet(); H.simulate(1); if (outAt === null && Math.hypot(L.x - x0, L.z - z0) > 15) outAt = t; }
-            res.push({ on, keep: S.name, outAt, moved: +Math.hypot(L.x - x0, L.z - z0).toFixed(1), door: K.door.alive });
+            res.push({ on, keep: S.name, outAt, moved: +Math.hypot(L.x - x0, L.z - z0).toFixed(1), door: K.door.alive, pact: W3.pact ? W3.pact.members : null, order: wb.order ? wb.order.type + '/' + wb.order.phase : null });
             for (const e of fn.wbMembers(wb)) fn.removeEnt(e);
             wb.dead = true;
           }
