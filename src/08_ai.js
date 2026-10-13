@@ -737,6 +737,7 @@ function updateWarband(wb, dt) {
     wb.nextEngageCheck = GAME.t + 0.4;
     if (wbEnemiesNear(wb, L.x, L.z, 24) > 0) wb.engagedUntil = GAME.t + 2.5;
   }
+  war3EngageGuard(wb, members); // [war3] not held for good by foes none of it fights (08k_war3.js)
   const engaged = GAME.t < wb.engagedUntil;
 
   let goal = null;

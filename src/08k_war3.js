@@ -32,6 +32,8 @@ const W3 = {
   PRESS_RE: 90, // s: a realm one keep from a claim looks again at which keep to press for
   PACT_END: 45, // s: a pact outlasts the leader's lead by this long
   COL_IN: 50, // s: a column's stragglers take their posts this long after its captain is in
+  CLAIM3: 1 / 3, // the pace of a claim built on three keeps held, more than any other realm (of four's)
+  LEVY: 1, // bands more a realm with three keeps or more musters
   stats: { captures: 0, holds: 0, given: 0, columns: 0, columnsIn: 0, columnsLost: 0, garrisoned: 0, gateWork: 0, presses: 0, braces: 0, secures: 0, pacts: 0, rallies: 0, peaceEngines: 0, peaceMended: 0, handedBack: 0 },
   pact: null, // { against, members: [a, b], t, lostAt }
   press: [null, null, null], // per realm, while it holds three keeps: { keep, t }
@@ -101,6 +103,8 @@ function war3OnCapture(K, realm, old, gateDown) {
   if (W3.log.length > 240) W3.log.shift();
   K.w3 = { t: now, by: realm, from: old, col: null, holder: null };
   if (!W3.on || CAMPAIGN.state !== 'war') return;
+  const Cm = WAR.commanders[realm];
+  if (Cm) Cm.nextSpawn = Math.min(Cm.nextSpawn, now + 10); // momentum: men flock to a banner that wins
   // the band that took it: the nearest of the taker's bands sent against it
   let hb = null, hd = 80 * 80;
   for (const wb of WAR.warbands) {
@@ -248,6 +252,15 @@ function w3Leads(r) {
   const c = CAMPAIGN.claims[r], n = w3KeepsOf(r);
   return n >= CW.KEEPS || foreignHallows(r) >= 2 || (n === CW.KEEPS - 1 && c.k / CW.KEEP_HOLD > 0.25);
 }
+// [war3] momentum: a realm with three keeps, more than any other realm, builds its claim on the keeps at a third of the
+// pace of four (it fades no more while it holds three at all): returns the share of the pace, -1 to hold it, 0 to fade
+function war3ClaimSlow(r, n) {
+  if (!W3.on || n !== CW.KEEPS - 1) return 0;
+  for (let q = 0; q < 3; q++) if (q !== r && w3KeepsOf(q) >= n) return -1;
+  return W3.CLAIM3;
+}
+// and musters one band more: the March's levies follow the winning banners (from planWar's muster)
+const war3Levy = (r) => (W3.on && w3KeepsOf(r) >= CW.KEEPS - 1 ? W3.LEVY : 0);
 // the pact against the leader, from war3Update
 function w3PactStep() {
   const now = GAME.t, P = W3.pact;
@@ -297,7 +310,7 @@ function w3AimStep() {
         if (K && (!P || P.keep !== K.id)) {
           W3.press[r] = P = { keep: K.id, t: now };
           W3.stats.presses++;
-          news(`${R.name} holds three keeps and presses for a fourth: its warbands march on ${K.site.name}.`, r, 'big');
+          news(`${R.name} holds three keeps and presses for a fourth: its warbands march on ${K.site.name}.${war3ClaimSlow(r, n) > 0 ? ` While it holds more keeps than any other realm its claim on the March grows.` : ''}`, r, 'big');
           news(`${REALMS[K.realm].name} sees the blow coming and makes ready to hold ${K.site.name}.`, K.realm, 'normal');
           retask(mine, K.site.x, K.site.z, { type: 'attack', keep: K, why: 'claim' });
         } else if (P) P.t = now;
@@ -430,6 +443,46 @@ function war3Reset() {
 }
 
 /* ------------------------------------------------------------------ */
+/* the war's last stalls, and its thinking at its worst                 */
+/* ------------------------------------------------------------------ */
+// a band held in place by foes none of it fights (a foe behind a wall the sight test missed, one on a ledge nobody
+// climbs: up to 76 s in an hour of version 15, campaign_soak.py's `eng=1 fighting=0`): after 20 s held with no member
+// in a fight (striking or struck), the band goes on for 20 s (from updateWarband, before it reads its engagement)
+function war3EngageGuard(wb, members) {
+  const now = GAME.t;
+  if (!W3.on) return;
+  if (now < (wb.w3free || 0)) { wb.engagedUntil = -99; return; }
+  if (now >= wb.engagedUntil) { wb.w3held = null; return; }
+  for (const e of members) if (now < e.combatUntil) { wb.w3held = null; return; }
+  if (wb.w3held == null) wb.w3held = now;
+  if (now - wb.w3held > 20) { wb.w3free = now + 20; wb.engagedUntil = -99; wb.w3held = null; W3.stats.unheld = (W3.stats.unheld || 0) + 1; }
+}
+// one band leader's way round (localPath, up to the quarter-metre grid) in a step at most: two or three in one step
+// made the war's worst steps (bandLeaderDetour, 08j_war2.js); the others look again next step
+function war3PathToken() {
+  if (!W3.on) return true;
+  if (W3.lpT !== GAME.t) { W3.lpT = GAME.t; W3.lpN = 0; }
+  if (W3.lpN >= 1) { W3.stats.lpDeferred = (W3.stats.lpDeferred || 0) + 1; return false; }
+  W3.lpN++;
+  return true;
+}
+// a leader in an enemy keep's gate passage with its gate standing (the walk over the gate makes a room of it, so the
+// castle counts it inside: version 16's soak had a Logres captain mounted there 200 s and more, through the keep's
+// change of hands and two orders): its way starts at the node before the gate, not at the court behind the shut leaves
+// (from bandStartNode, 08j_war2.js)
+function war3StartNode(L) {
+  if (!W3.on) return null;
+  for (const K of WAR.keeps) {
+    if (dist2(L.x, L.z, K.site.x, K.site.z) > 26 * 26) continue;
+    if (K.realm === L.faction || !K.door.alive) return null;
+    const S = K.site, lt = siteLocal(S, L.x, L.z), g = S.gateLocal;
+    if (Math.abs(lt.x - g.x) < GATE_HW + 1 && Math.abs(lt.z - g.z) < KEEP_T + 2.6) { W3.stats.gateStarts = (W3.stats.gateStarts || 0) + 1; return K.nav.gate; }
+    return null;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 /* every step (from updateWar)                                         */
 /* ------------------------------------------------------------------ */
 function updateWar3(dt) {
@@ -439,6 +492,8 @@ function updateWar3(dt) {
   if (GAME.t < W3.look) return;
   W3.look = GAME.t + 2;
   w3ColumnSanity();
+  const ow = W3.stats.orders || (W3.stats.orders = {});
+  for (const wb of WAR.warbands) { const O = wb.order; if (!wb.dead && O && !O.w3c) { O.w3c = 1; const k = O.type + (O.why ? '/' + O.why : ''); ow[k] = (ow[k] || 0) + 1; } }
   w3PactStep();
   w3AimStep();
 }
@@ -550,5 +605,6 @@ registerSavePart('world', 'war3', {
 })();
 queueMicrotask(() => {
   if (!window.__hm) return;
-  window.__hm.war3 = { W3, w3KeepsOf, w3GuardsN, w3FreeSlots, w3Fresh, w3Threat, w3Leads, w3BestTarget, war3MakeGuard, war3OnCapture, war3Column, war3HoldOn, war3GateWork, war3Choose, war3HudLine, war3HeraldText, w3PeaceStep, war3Reset, updateWar3 };
+  window.__hm.fn.localPathT = localPath; window.__hm.lp = LP; // (tests: the way-finder and its measure)
+  window.__hm.war3 = { W3, w3KeepsOf, w3GuardsN, w3FreeSlots, w3Fresh, w3Threat, w3Leads, w3BestTarget, war3MakeGuard, war3OnCapture, war3Column, war3HoldOn, war3GateWork, war3Choose, war3HudLine, war3HeraldText, w3PeaceStep, war3Reset, updateWar3, war3ClaimSlow, war3Levy, war3EngageGuard, war3PathToken, war3StartNode };
 });

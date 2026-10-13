@@ -258,7 +258,7 @@ function planWar(C) {
   // the muster: a realm down to its last keep musters bigger bands, faster; so does a long war
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
-  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog && now > C.nextSpawn) { // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
+  if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
     const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
     const wb = spawnWarband(r, size);
     wbOrd(wb);
@@ -406,7 +406,8 @@ function updateCampaign(dt) {
     CAMPAIGN.renown[r] += (dt / 60) * (keeps + 2 * hal);
     const kOn = keeps >= CW.KEEPS, hOn = hal >= 2;
     const rate = cwClaimRate(); // [war2] the long war: a hold counts for more (08j_war2.js)
-    c.k = kOn ? c.k + dt * rate : Math.max(0, c.k - dt * CW.DECAY);
+    const k3 = kOn ? 0 : war3ClaimSlow(r, keeps); // [war3] three keeps, more than any other realm: the claim grows at a third of the pace; three: it does not fade (08k_war3.js)
+    c.k = kOn ? c.k + dt * rate : k3 > 0 ? c.k + dt * rate * k3 : k3 < 0 ? c.k : Math.max(0, c.k - dt * CW.DECAY);
     c.h = hOn ? c.h + dt * rate : Math.max(0, c.h - dt * CW.DECAY);
     if (kOn && !c.kOn) news(`${R.name} holds ${keeps} of the six keeps! Hold them ${Math.max(1, Math.round((CW.KEEP_HOLD - c.k) / rate / 60))} more minutes and ${R.name} wins the March.`, r, 'big'); // [war2] / rate
     if (!kOn && c.kOn) news(`${possessive(R.name)} hold on the keeps is broken. Its claim fades slowly.`, r, 'normal');
@@ -414,7 +415,7 @@ function updateCampaign(dt) {
     if (!hOn && c.hOn) news(`${R.name} no longer holds both hallows. Its claim fades slowly.`, r, 'normal');
     c.kOn = kOn; c.hOn = hOn;
     // warnings as the end nears
-    const left = Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9); // [war2] in seconds still to hold
+    const left = Math.min(kOn ? (CW.KEEP_HOLD - c.k) / rate : k3 > 0 ? (CW.KEEP_HOLD - c.k) / rate / k3 : 1e9, hOn ? (CW.HALLOW_HOLD - c.h) / rate : 1e9); // [war2] in seconds still to hold; [war3] at three keeps' pace too
     if (left < 180 && c.warned < 1) { c.warned = 1; news(`Three minutes: ${R.name} is close to winning the March.`, r, 'big'); }
     if (left < 60 && c.warned < 2) { c.warned = 2; news(`One minute: ${R.name} will win the March unless its hold is broken!`, r, 'big'); }
     if (left > 240) c.warned = 0;
@@ -446,7 +447,7 @@ function campaignVictory(r, how) {
   }
   CAMPAIGN.history.push(rec);
   while (CAMPAIGN.history.length > 12) CAMPAIGN.history.shift();
-  const howTxt = how === 'keeps' ? 'holding four of the six keeps' : how === 'hallows' ? 'holding both enemy hallows' : 'with the most renown when the elders called the war';
+  const howTxt = how === 'keeps' ? 'by its hold on the keeps' : how === 'hallows' ? 'holding both enemy hallows' : 'with the most renown when the elders called the war';
   news(`${R.name} has won the ${ordinalWord(rec.n)} campaign for the March, ${howTxt}! The armies go home.`, r, 'big');
   WAR.stats.campaigns = (WAR.stats.campaigns || 0) + 1;
   // every band turns for home at once, the player's orders with them
@@ -552,7 +553,8 @@ function applyCampaignSave(c) {
 function cwTopClaims() {
   const out = [];
   CAMPAIGN.claims.forEach((c, r) => {
-    if (c.k > 0) out.push({ r, kind: 'keeps', left: (CW.KEEP_HOLD - c.k) / cwClaimRate(), frac: c.k / CW.KEEP_HOLD, on: c.kOn }); // [war2] (the long war's pace)
+    const k3 = c.kOn ? 0 : war3ClaimSlow(r, WAR.keeps.filter((K) => K.realm === r).length); // [war3] the slow claim of three keeps (08k_war3.js)
+    if (c.k > 0) out.push({ r, kind: 'keeps', left: (CW.KEEP_HOLD - c.k) / cwClaimRate() / (k3 > 0 ? k3 : 1), frac: c.k / CW.KEEP_HOLD, on: c.kOn, slow: k3 > 0, held: k3 < 0 }); // [war2] (the long war's pace)
     if (c.h > 0) out.push({ r, kind: 'hallows', left: (CW.HALLOW_HOLD - c.h) / cwClaimRate(), frac: c.h / CW.HALLOW_HOLD, on: c.hOn });
   });
   return out.sort((a, b) => b.frac - a.frac);
@@ -569,14 +571,14 @@ function campaignHudHTML() {
     const top = cwTopClaims().slice(0, 2);
     body = top.length ? top.map((c) => {
       const R = REALMS[c.r];
-      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on ? fmtClock(c.left) : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`;
+      return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : c.slow ? 'Three keeps, more than any other realm: the claim grows at a third of the pace' : c.held ? 'Three keeps: the claim holds' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : c.slow || c.held ? 'holds 3 keeps' : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on || c.slow ? fmtClock(c.left) : c.held ? 'held' : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`; // [war3] slow, held
     }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60} min</div>`;
   }
   return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
 }
 function campaignHeraldText() {
   const P = GAME.player, R = REALMS[P.faction];
-  const rule = `<p>The war is fought in campaigns. A realm that holds ${CW.KEEPS} of the six keeps for ${CW.KEEP_HOLD / 60} minutes, or both enemy hallows in its temple for ${CW.HALLOW_HOLD / 60}, wins the March; after an hour the elders give it to the realm with the most renown. Then, after a short peace, every keep and hallow goes home and it all begins again.</p>`;
+  const rule = `<p>The war is fought in campaigns. A realm that holds ${CW.KEEPS} of the six keeps for ${CW.KEEP_HOLD / 60} minutes (three, more than any other realm, build that claim at a third of the pace), or both enemy hallows in its temple for ${CW.HALLOW_HOLD / 60}, wins the March; after an hour the elders give it to the realm with the most renown. Then, after a short peace, every keep and hallow goes home and it all begins again.</p>`;
   const cmd = cwCanCommand()
     ? `<p>You have earned the right to command. Open the map, choose one of ${possessive(R.name)} warbands and tell it to attack a keep, defend one of ours, raid an open temple or rally to you. It holds your order until the deed is done, then the commander takes it back.</p>`
     : `<p>At realm rank 3 or level 20 you may command ${possessive(R.name)} warbands yourself, from the map.</p>`;
@@ -594,7 +596,7 @@ function campaignChronHTML() {
   const hist = CAMPAIGN.history.slice().reverse().map((h) => `<li><b style="color:${REALMS[h.w].light}">The ${ordinalWord(h.n)} campaign</b>: ${REALMS[h.w].name}, ${h.how === 'keeps' ? `holding ${CW.KEEPS} keeps` : h.how === 'hallows' ? 'holding both enemy hallows' : 'by renown'}, after ${h.m} minutes. Keeps taken ${h.cap.join(' · ')}; hallows carried home ${h.hal.join(' · ')}.</li>`).join('');
   const now = CAMPAIGN.state === 'peace' ? `${REALMS[CAMPAIGN.winner].name} has won the ${ordinalWord(CAMPAIGN.n)} campaign; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.` : `The ${ordinalWord(CAMPAIGN.n)} campaign has run for ${Math.floor(campaignElapsed() / 60)} minutes.`;
   return `<h3>How a campaign is won</h3>
-    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a twelfth of the speed it grew, so a realm that keeps winning the fourth keep back gets there in the end. If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
+    <p>The war is fought in campaigns. A realm wins the March when it holds <b>${CW.KEEPS} of the six keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or keeps <b>both enemy hallows</b> in its temple for ${CW.HALLOW_HOLD / 60}. A broken hold does not start again from nothing: its count drains away at a twelfth of the speed it grew, so a realm that keeps winning the fourth keep back gets there in the end; and a realm that holds three keeps, more than any other realm, builds its claim at a third of the pace (with three it never fades). If no realm has won after an hour, the elders give the March to the realm with the most <b>renown</b>: a point a minute for each keep held and two for each enemy hallow, five for each keep taken and ten for each hallow brought home.</p>
     <p>The winners share the spoils. After a short peace every keep and hallow goes back to its own realm and the next campaign begins. The realm left with a single keep fights back hardest, because its commander musters bigger warbands, faster; and from a quarter of an hour on the long war thins the garrisons, slows the mending of broken gates and swells every muster with veterans, so no campaign stalls for ever.</p>
     <div class="tide" role="table" aria-label="The campaign now"><span class="h" role="columnheader">Realm</span><span class="h c" role="columnheader">Renown</span><span class="h c" role="columnheader">Taken</span><span class="h w" role="columnheader">Claim on the March</span>${rows}</div>
     ${war3ChronHTML()}
@@ -773,7 +775,7 @@ function campaignSideHTML() {
   }).join('');
   const head = CAMPAIGN.state === 'peace'
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`
-    : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March. At one hour the realm with the most renown wins.</p>`;
+    : `<p class="cw-rules">Hold <b>${CW.KEEPS} of the 6 keeps</b> for ${CW.KEEP_HOLD / 60} minutes, or <b>both enemy hallows</b> for ${CW.HALLOW_HOLD / 60}, and your realm wins the March (three keeps, more than any other realm, build the claim at a third of the pace). At one hour the realm with the most renown wins.</p>`;
   let cmd = '';
   const bands = cwBandsOf(P.faction);
   const can = cwCanCommand();
@@ -876,7 +878,7 @@ function showVictory(rec) {
     window.addEventListener('keydown', (e) => { if (UI.modal === 'victory' && (e.code === 'Escape' || e.code === 'Enter')) { e.preventDefault(); closeVictory(); } }, true);
   }
   const R = REALMS[rec.w], won = P.faction === rec.w;
-  const how = rec.how === 'keeps' ? `In ${rec.m} minutes of war ${R.name} took and held ${CW.KEEPS} of the six keeps for ${CW.KEEP_HOLD / 60} minutes, and no one could break its hold.`
+  const how = rec.how === 'keeps' ? `In ${rec.m} minutes of war ${R.name} took the keeps of the March and held them until its claim was made, and no one could break its hold.`
     : rec.how === 'hallows' ? `In ${rec.m} minutes of war ${R.name} set both enemy hallows in the ${R.templeName} and kept them there for ${CW.HALLOW_HOLD / 60} minutes.`
       : `After an hour of war the elders called it for ${R.name}, whose banners had flown longest over the March.`;
   const rows = [0, 1, 2].map((r) => `<span class="r" style="--rc:${REALMS[r].color}"><i></i>${REALMS[r].name}</span><span>${rec.cap[r]}</span><span>${rec.hal[r]}</span><span>${rec.gates[r]}</span><span>${rec.ren[r]}</span>`).join('');

@@ -13,7 +13,8 @@
            whatever is left done at the reset
   save     the pact, the presses and a keep newly taken saved and loaded
   ui       the war panel's line, the herald's word and the Chronicle's section
-usage: python3 tools/tests/war3.py [only=capture,lost,press,pact,rally,peace,save,ui] [shots] [q=low|medium|high]"""
+  gatepass a mounted captain in an enemy keep's gate passage (its gate shut) gets out and on
+usage: python3 tools/tests/war3.py [only=capture,lost,gatepass,press,pact,rally,peace,save,ui] [shots] [q=low|medium|high]"""
 import json, asyncio, sys, pathlib, time, base64, io
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -161,6 +162,34 @@ async def main(p):
         })()""")
         print('  ', json.dumps(r), flush=True)
         check(not r.get('err') and r['colOrder'] != 'garrison' and not r['w3col'] and r['slotsHeld'] == 0 and r['alive'] > 0, 'the column turns band: no garrison order, no posts held')
+
+    if want('gatepass'):
+        print('gatepass: a mounted captain in an enemy keep\'s gate passage, its gate shut, gets out and on', flush=True)
+        r = await ev(page, r"""(() => {
+          const H = __hm, fn = H.fn, WAR = H.WAR, W3 = H.war3.W3;
+          __w3t.calm(); __w3t.quiet(); __w3t.whole();
+          const res = [];
+          for (const on of [false, true]) {
+            W3.on = on;
+            const ki = WAR.keeps.findIndex((k) => k.realm === 1 && k.orig === 1 && fn.castleOf(k.site) && fn.castleOf(k.site).kind !== 'round'), K = WAR.keeps[ki], S = K.site, G0 = fn.castleOf(S).gate;
+            const ek = WAR.keeps.findIndex((k) => k.realm === 2);
+            const id = __w3t.band(0, ek, 6, S.x, S.z), wb = __w3t.wb(id), L = fn.wbLeader(wb);
+            const p = fn.siteToWorld(S, S.gateLocal.x, G0.gz + 1.0);
+            for (const e of fn.wbMembers(wb)) { e.x = e.prevX = p.x + (Math.random() - 0.5); e.z = e.prevZ = p.z + (Math.random() - 0.5); e.y = fn.floorAt(e.x, e.z, S.y + 0.5); }
+            wb.lid = L.id; fn.mountUp(L, true);
+            wb.path = null; wb.goal = -1;
+            const x0 = L.x, z0 = L.z;
+            let outAt = null;
+            for (let t = 1; t <= 60; t++) { __w3t.quiet(); H.simulate(1); if (outAt === null && Math.hypot(L.x - x0, L.z - z0) > 15) outAt = t; }
+            res.push({ on, keep: S.name, outAt, moved: +Math.hypot(L.x - x0, L.z - z0).toFixed(1), door: K.door.alive });
+            for (const e of fn.wbMembers(wb)) fn.removeEnt(e);
+            wb.dead = true;
+          }
+          W3.on = true;
+          return res;
+        })()""")
+        print('  ', json.dumps(r), flush=True)
+        check(r[1]['outAt'] is not None, f"with war3 the captain is out of {r[1]['keep']}'s gate passage and on its way in {r[1]['outAt']} s (without: {r[0]['outAt']}, moved {r[0]['moved']} m)")
 
     if want('press'):
         print('press: a realm with three keeps presses for a fourth', flush=True)

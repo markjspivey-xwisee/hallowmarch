@@ -201,6 +201,7 @@ function bandLeaderDetour(wb, L, O) {
   }
   if (wb.engaged || d < 4 || GAME.t - P.t < 8 || L.fixedY !== null || L.motion || !O) return false;
   if (O.phase === 'hold' || (O.phase === 'bombard' && O.bombSince !== undefined) || L.siegeCrew) return false;
+  if (!war3PathToken()) return false; // [war3] one leader's way round a step at most (08k_war3.js)
   P.t = GAME.t; P.d = d;
   const k = Math.min(1, 60 / d), tx = L.x + (g.x - L.x) * k, tz = L.z + (g.z - L.z) * k;
   let pts = localPath(L.x, L.z, tx, tz, 0.6, 76, true);
@@ -255,6 +256,7 @@ function bandInsideKeep(wb, K) {
 // low stretch or through a gap the colliders leave: the leader walked into the wall toward it for good.
 function bandStartNode(L) {
   if (!L || L.x > DUN_X0) return null;
+  const w3 = war3StartNode(L); if (w3) return w3; // [war3] in an enemy keep's gate passage, its gate shut: from the gate outside (08k_war3.js)
   for (const K of WAR.keeps) { const C = castleOf(K.site); if (C && dist2(L.x, L.z, K.site.x, K.site.z) < 26 * 26 && castleInside(C, L.x, L.z)) return K.nav.court; }
   for (const T of WAR.temples) if (dist2(L.x, L.z, T.site.x, T.site.z) < 15 * 15) return T.nav.tc; // (inside its round wall)
   return null;
