@@ -273,8 +273,8 @@ async def lord(page):
       const ch = D.chests.find((c) => c.id === 'dhoard');
       a.dead = !K.alive; a.kills = D.kills - k0; a.deed = H.late.LATE2.d.deep - n0; a.name = H.late.LATE2.names.includes('ashbane'); a.hoard = ch.ready && !ch.opened;
       // the hoard: the top of the gear curve
-      P.x = P.prevX = ch.x + 1.2; P.z = P.prevZ = ch.z; L3.calm(); const before = new Set(H.LOOT); H.deep.late3OpenChest(ch); H.simulate(1.0);
-      const got = H.LOOT.filter((l) => !before.has(l) && l.item && Math.hypot(l.x - ch.x, l.z - ch.z) < 6); // (a piece flung from the chest lands up to 3 m off it) a.items = got.map((l) => [l.item.lvl, l.item.q]);
+      P.x = P.prevX = ch.x + 9; P.z = P.prevZ = ch.z; L3.calm(); const before = new Set(H.LOOT); H.deep.late3OpenChest(ch); H.simulate(1.0); /* (you stand back: what lands within 1.7 m of you goes into your bags) */
+      const got = H.LOOT.filter((l) => !before.has(l) && l.item && !l.item.goods && Math.hypot(l.x - ch.x, l.z - ch.z) < 6); /* (a piece flung from the chest lands up to 3 m off it) */ a.items = got.map((l) => [l.item.lvl, l.item.q]);
       return a; })()""")
     print(json.dumps(r))
     check(r['lvl'] >= 54, f"the Ash-Crowned at level {r['lvl']} for a player of 50 ({r['hp']} health)")
