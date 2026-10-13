@@ -60,7 +60,7 @@ function flareBreak(t) {
 // ward holds it or a lord of the dead casts it
 function flareBreakable(t, left = 0.3) {
   if (!B8T.flareThrough) return castBreakable(t, left);
-  if (!t || !t.casting || t.casting.total - t.casting.t <= left || t.role === 'boss' || t.role === 'dungeonBoss') return false;
+  if (!t || !t.casting || t.casting.total - t.casting.t <= left || t.role === 'boss' || (t.role === 'dungeonBoss' && !t.deepLord)) return false; // [v17] the Ash-Crowned's Ember Word can be flared, as castBreakable says ([late3], 10m_deep.js)
   return !(WARD_GUARD.on && t.cls === 'mage' && hasBuff(t, 'eward') && t.buffs.some((q) => q.kind === 'shield' && q.src === t.id && q.until > GAME.t && q.value > 1));
 }
 
