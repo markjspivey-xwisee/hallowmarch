@@ -6,10 +6,11 @@ import hm
 from playwright.async_api import async_playwright
 OUT = str(hm.OUT) + '/'
 
-async def setup(p, touch=False, w=800, h=450):
+async def setup(p, touch=False, w=800, h=450, init=None):
     b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
     ctx = await b.new_context(viewport={'width': w, 'height': h}, has_touch=touch, is_mobile=touch)
     page = await ctx.new_page()
+    if init: await page.add_init_script(init)  # [war3] a script before the page's own (perf.py budget: Math.random seeded, the frames held)
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
     three = hm.THREE_LOCAL.read_text()
