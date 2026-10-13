@@ -723,7 +723,7 @@ function drawCampaignMap(ctx, S, P) {
   const top = cwTopClaims()[0];
   let msg = null, col = '#dfc188';
   if (CAMPAIGN.state === 'peace') { const R = REALMS[CAMPAIGN.winner] || REALMS[0]; msg = `${R.name} has won the March · peace for ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}`; col = R.light; }
-  else if (top && top.on) { const R = REALMS[top.r]; msg = `${R.name} ${top.kind === 'keeps' ? `holds ${WAR.keeps.filter((K) => K.realm === top.r).length} keeps` : 'holds both enemy hallows'} · victory in ${fmtClock(top.left)}`; col = R.light; }
+  else if (top && (top.on || top.slow)) { const R = REALMS[top.r]; msg = `${R.name} ${top.kind === 'keeps' ? `holds ${WAR.keeps.filter((K) => K.realm === top.r).length} keeps` : 'holds both enemy hallows'} · victory in ${fmtClock(top.left)}${top.slow ? ' at this pace' : ''}`; col = R.light; } // [war3] a claim built slowly on three keeps (08k_war3.js)
   if (msg) {
     ctx.font = `600 ${Math.max(S * 0.024, 13 * u)}px "Alegreya Sans", sans-serif`; ctx.textAlign = 'center';
     const w = ctx.measureText(msg).width + S * 0.04, h = S * 0.044;
@@ -769,9 +769,9 @@ function campaignSideHTML() {
   const R = REALMS[P.faction];
   const claims = cwTopClaims();
   const standing = [0, 1, 2].sort((a, b) => CAMPAIGN.renown[b] - CAMPAIGN.renown[a]).map((r) => {
-    const c = claims.find((q) => q.r === r && q.on);
+    const c = claims.find((q) => q.r === r && (q.on || q.slow)); // [war3] a slow claim on three keeps too (08k_war3.js)
     const k = WAR.keeps.filter((K) => K.realm === r).length, h = foreignHallows(r);
-    return `<li style="--rc:${REALMS[r].color}"><i></i><b>${REALMS[r].name}</b><span>${k} keep${k === 1 ? '' : 's'}${h ? ` · ${h} hallow${h === 1 ? '' : 's'}` : ''} · ${Math.round(CAMPAIGN.renown[r])} renown${c ? `<br><em>wins in ${fmtClock(c.left)}</em>` : ''}</span></li>`;
+    return `<li style="--rc:${REALMS[r].color}"><i></i><b>${REALMS[r].name}</b><span>${k} keep${k === 1 ? '' : 's'}${h ? ` · ${h} hallow${h === 1 ? '' : 's'}` : ''} · ${Math.round(CAMPAIGN.renown[r])} renown${c ? `<br><em>wins in ${fmtClock(c.left)}${c.slow ? ' at this pace' : ''}</em>` : ''}</span></li>`;
   }).join('');
   const head = CAMPAIGN.state === 'peace'
     ? `<p class="cw-now"><b style="color:${REALMS[CAMPAIGN.winner].light}">${REALMS[CAMPAIGN.winner].name}</b> has won the March. The armies go home; the March resets in ${fmtClock(CAMPAIGN.peaceUntil - GAME.t)}.</p>`

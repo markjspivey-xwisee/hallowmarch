@@ -620,6 +620,7 @@ function war3HeraldText() {
   if (W3.pact) bits.push(`${REALMS[W3.pact.members[0]].name} and ${REALMS[W3.pact.members[1]].name} have made common cause against ${REALMS[W3.pact.against].name}.`);
   const top = cwTopClaims()[0];
   if (top && top.on) bits.push(`${REALMS[top.r].name} wins the March in ${fmtClock(top.left)} unless its hold is broken.`);
+  else if (top && top.slow) bits.push(`${REALMS[top.r].name} holds more keeps than any other realm, and its claim grows: at this pace it wins the March in ${fmtClock(top.left)}.`);
   const fresh = WAR.keeps.filter((K) => w3Fresh(K, me));
   for (const K of fresh) bits.push(`${K.site.name} is newly ours: ${w3GuardsN(K)} of its six guards are at their posts${K.w3.col != null ? ', and a column marches from the muster with the rest' : ''}${K.door.alive ? '' : '; its gate is still being mended'}.`);
   if (!bits.length) return '';
