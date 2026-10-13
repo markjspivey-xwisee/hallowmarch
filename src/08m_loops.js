@@ -28,6 +28,8 @@ const LOOPS = {
   caravans: [], nextCar: 1,
   yards: [],                   // the stores yards behind the quartermasters (one a town)
   workers: [],                 // the woodcutters, quarrymen and smiths of the towns (villagers with ai.lj)
+  pend: [{}, {}, {}],          // the town's woods' and quarry's work while you are by: brought in by its woodcutters and quarryman
+  fieldK: [1, 1, 1],           // each realm's harvest weighed by its fields' size (Brackenford's fields against the gardens)
   inited: false, seeded: false, campN: null, clock: { prod: 0, look: 0, car: [8, 12, 16], news: 0, trade: 0 },
   short: [0, 1, 2].map(() => ({})), // what each realm is short of now (good: since when), for the news and the panel
   said: [0, 1, 2].map(() => ({})),  // when the news last told it
@@ -40,14 +42,16 @@ const LOOPS = {
     keepCap: 2.5,
     start: 0.8,               // a new world's stores, a share of the targets
     // the town's work out of sight, a game minute (what the visible workers do when the town is near: the same rates)
-    prod: { food: 12, timber: 4.5, stone: 2, iron: 1.5, hides: 1.2, wool: 0.8, horses: 0.55 },
+    prod: { food: 16, timber: 5.5, stone: 2, iron: 2.6, hides: 1.2, wool: 0.8, horses: 0.85 },
     // a keep's own land (its fields and woods round its walls), a minute, to whoever holds it
-    keepProd: { food: 1, timber: 0.6, stone: 0.3 },
+    keepProd: { food: 1.5, timber: 0.6, stone: 0.3 },
+    keepLost: 0.2,             // a share of the town's work lost for each of its realm's own keeps in other hands
+    keepWon: 0.15,             // and gained for each enemy keep it holds
     // what the war draws
     soldier: { food: 1.5, iron: 0.2, hides: 0.15, wool: 0.1 }, // a soldier mustered (a column's soldier: food only)
     guard: { food: 1.5 },        // a guard who comes to a keep's post
     lord: { food: 2, iron: 3 },
-    upkeep: 0.25,              // food a guard eats a minute, from its keep's stores
+    upkeep: 0.15,              // food a guard eats a minute, from its keep's stores
     engine: { ram: { timber: 10, iron: 1 }, mangonel: { timber: 18, iron: 2, hides: 2 }, trebuchet: { timber: 28, iron: 3, stone: 6 } },
     work: { gate: { timber: 12, iron: 2 }, breach: { stone: 20, timber: 5 }, palisade: { timber: 10 }, deck: { timber: 1.5 }, tower: { timber: 12 }, house: { timber: 10, stone: 5 } },
     slow: 0.3,                 // the pace of work with its goods short
@@ -255,22 +259,39 @@ function loopsSay(r, key, text) {
 function loopsHarvest(r, produce, amount) {
   if (!LOOPS.on || !(amount > 0)) return;
   const w = LOOPS_WORTH[produce];
-  if (w) loopsAdd(r, w[0], amount * w[1] * 0.5);
-  else loopsAdd(r, 'food', amount * 0.4);
+  const k = LOOPS.fieldK[r] || 1;
+  if (w) loopsAdd(r, w[0], amount * w[1] * 0.5 * k);
+  else loopsAdd(r, 'food', amount * 0.4 * k);
 }
 // a fisher's catch (07e_boats.js)
 function loopsCatch(r, n) { if (LOOPS.on && n > 0) loopsAdd(r, 'food', n * 0.8); }
 // the town's work out of sight: each realm's rate a minute, the town's own workers doing it in sight
+// the land a realm's keeps guard: each of its own keeps in other hands costs it a share of its town's work (its
+// borderland farms and woods unsafe), each enemy keep it holds brings in a share of that keep's realm's (forage and
+// tribute from the lands round it)
+function loopsLandK(r) {
+  let k = 1;
+  for (const K of WAR.keeps) { if (K.orig === r && K.realm !== r) k -= LT.keepLost; else if (K.realm === r && K.orig !== r) k += LT.keepWon; }
+  return clamp(k, 0.4, 1.6);
+}
+// a woodcutter's log or a quarryman's stone brought in: the town's woods' (or quarry's) work since the last
+function loopsBring(r, g) { const P0 = LOOPS.pend[r]; if (P0 && P0[g] > 0) { loopsAdd(r, g, P0[g]); P0[g] = 0; } }
 function loopsProduce(dt) {
   const m = dt / 60;
   for (let r = 0; r < 3; r++) {
-    const vis = loopsTownSeen(r);
+    const vis = loopsTownSeen(r), lk = loopsLandK(r);
     for (const g of LOOPS_R) {
       let k = LT.prod[g];
-      // what the woodcutters, quarrymen and smith do in sight is counted when they do it (loopsLife)
-      if (vis && (g === 'timber' || g === 'stone' || g === 'iron')) k *= 0.15;
       // a realm whose fields were burnt or trampled harvests less (the town fields' state: farming)
       if (g === 'food') k *= loopsFieldsK(r);
+      if (g !== 'horses') k *= lk;
+      // the woods' and the quarry's work while you are by is brought in by the woodcutters and the quarryman as they
+      // fell and break (loopsBring): the same in all, seen or not; what waits more than four minutes comes in anyway
+      if (g === 'timber' || g === 'stone' || g === 'iron') {
+        const P0 = LOOPS.pend[r];
+        if (vis) { P0[g] = (P0[g] || 0) + k * m; const over = P0[g] - k * 4; if (over > 0) { P0[g] -= over; loopsAdd(r, g, over); } continue; }
+        if (P0[g] > 0) { loopsAdd(r, g, P0[g]); P0[g] = 0; }
+      }
       loopsAdd(r, g, k * m);
     }
   }
@@ -363,7 +384,12 @@ function loopsCarRoute(r, K) {
   const path = navPath(N.town.id, KN.gate.id, () => false);
   if (!path) return null;
   const pts = path.map((id) => ({ x: NAV.nodes[id].x, z: NAV.nodes[id].z }));
-  // the last point: before the gate, on the keep's side of the road
+  // out of the town's square (its portal stones, its well): the cart is loaded on the road out, past the houses' green
+  const a = pts[0], b = pts[1], d = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+  for (let k = 24; k < Math.min(60, d - 4); k += 2) {
+    const x = a.x + ((b.x - a.x) / d) * k, z = a.z + ((b.z - a.z) / d) * k;
+    if (isWalkable(x, z) && !look5InColl(x, z, 2.4) && !(typeof houseAt === 'function' && houseAt(x, z, 3))) { pts[0] = { x, z }; break; }
+  }
   return pts;
 }
 function loopsCaravanStep(dt) {
@@ -374,7 +400,7 @@ function loopsCaravanStep(dt) {
     LOOPS.clock.car[r] -= dt;
     if (LOOPS.clock.car[r] > 0) continue;
     LOOPS.clock.car[r] = LT.carEvery[0] + Math.random() * (LT.carEvery[1] - LT.carEvery[0]);
-    if (LOOPS.caravans.filter((c) => c.realm === r && c.state !== 'gone').length >= 2) continue;
+    if (LOOPS.caravans.filter((c) => c.realm === r && (c.state === 'road' || c.state === 'wreck')).length >= 2) continue;
     // the neediest keep of the realm's, not under attack, with no cart on its way
     let best = null, bs = LT.keepLow;
     for (const K of WAR.keeps) {
@@ -458,10 +484,16 @@ function loopsCarStep(c, dt) {
   const horse = loopsEnt(c.horse), carter = loopsEnt(c.carter);
   if (c.state === 'wreck') {
     c.wreckT += dt;
-    if (c.wreckT > 75) loopsCarGone(c);
+    if ((c.wreckT > 75 && !loopsSeenBy(c.ax, c.az)) || c.wreckT > 900) loopsCarGone(c); // (nothing vanishes in sight)
     return;
   }
   if (c.state === 'gone') return;
+  if (c.state === 'parked') {
+    // unharnessed and taken in once nobody is by to see it (or, in a busy town, a while later with you not close)
+    c.parkT = (c.parkT || 0) + dt;
+    if (!loopsSeenBy(c.ax, c.az) || (c.parkT > 120 && !loopsSeenBy(c.ax, c.az, 35))) loopsCarGone(c); else if (horse) loopsCartFollow(c, horse, dt);
+    return;
+  }
   if (!horse || !carter) { loopsCarLost(c); return; }
   const K = WAR.keeps[c.keep];
   if (!c.back && K && K.realm !== c.realm) loopsCarTurn(c);
@@ -483,7 +515,9 @@ function loopsCarStep(c, dt) {
   }
   // the carter at the horse's head, on its left
   const hy = horse.yaw, lx = horse.x + Math.cos(hy) * 1.0 + Math.sin(hy) * 0.9, lz = horse.z - Math.sin(hy) * 1.0 + Math.cos(hy) * 0.9;
-  if (!carter.target) moveToward(carter, lx, lz, dt, 1.25, 0.3);
+  const ct = carter.target != null ? getEnt(carter.target) : null;
+  if (ct && (!ct.alive || dist2(ct.x, ct.z, carter.x, carter.z) > 3.5 * 3.5)) carter.target = null; // (he swings back at whoever strikes him, and goes on)
+  if (carter.target == null) moveToward(carter, lx, lz, dt, 1.25, 0.3);
   // the player escorting: near it on most of the way
   const P = GAME.player;
   if (P && P.alive && P.faction === c.realm && !c.back) { c.nearT += dt; if (dist2(P.x, P.z, horse.x, horse.z) < 30 * 30) c.near += dt; }
@@ -521,8 +555,12 @@ function loopsEscorted(c, K) {
 function loopsCarHome(c) {
   for (const g in c.load) loopsAdd(c.realm, g, c.load[g], false);
   c.load = {};
-  loopsCarGone(c);
+  // it stands on the road out of town until nobody is by to see it unharnessed and taken in
+  c.state = 'parked';
+  for (const id of c.esc) { const e = getEnt(id); if (e && e.alive) e.lCar = null; }
 }
+// is a place in sight of the player (near enough that a body there should not simply be gone)?
+function loopsSeenBy(x, z, r = 95) { const P = GAME.player; return !!P && dist2(P.x, P.z, x, z) < r * r; }
 function loopsCarGone(c) {
   c.state = 'gone';
   for (const id of [c.horse, c.carter, ...c.esc]) { const e = getEnt(id); if (e && !e.removed) { if (e.alive) { e.alive = false; e.removeAt = GAME.t; } e.lCar = null; } }
@@ -543,13 +581,13 @@ function loopsCarLost(c) {
   }
   if (by != null) LOOPS.stats.raidedBy[by]++;
   // the player who takes it finds a share on the ground (goods, by what the cart carried)
-  if (byPlayer && c.cart) {
+  if (byPlayer) {
     const spill = { food: 'bread', timber: 'plank', stone: 'stone', iron: 'iron' };
     let k = 0;
     for (const g in c.load) {
       const id = spill[g]; if (!id || !GOODS[id]) continue;
       const W = LOOPS_WORTH[id] ? LOOPS_WORTH[id][1] : 1, n = Math.max(1, Math.round((c.load[g] * 0.35) / W));
-      dropGood(id, Math.min(30, n), c.cart.ax + Math.cos(c.yaw) * (k - 1), c.cart.az - Math.sin(c.yaw) * (k - 1));
+      dropGood(id, Math.min(30, n), c.ax + Math.cos(c.yaw) * (k * 0.9 - 1.2) * 1.6, c.az - Math.sin(c.yaw) * (k * 0.9 - 1.2) * 1.6);
       k++;
     }
     LOOPS.you.raids++;
@@ -560,7 +598,7 @@ function loopsCarLost(c) {
   if (horse && horse.alive) { horse.lCar = null; horse.lBolt = { x: horse.x + (Math.random() - 0.5) * 40, z: horse.z + (Math.random() - 0.5) * 40, until: GAME.t + 20 }; }
   for (const id of c.esc) { const e = getEnt(id); if (e && e.alive) e.lCar = null; }
   // the cart set alight
-  if (c.cart) { c.cart.burn = 1; c.cart.tipped = 1; }
+  if (c.cart) c.cart.burn = 0.05;
   const R = REALMS[c.realm], K = WAR.keeps[c.keep];
   const txt = `${byPlayer ? 'You fall' : by != null ? REALMS[by].name + ' falls' : 'Raiders fall'} on ${possessive(R.name)} cart for ${K ? K.site.name : 'its keep'}${took.length ? `: ${took.join(', ')} taken` : ''}.`;
   news(txt, by != null ? by : c.realm, P && P.faction === c.realm ? 'alarm' : 'normal');
@@ -591,17 +629,27 @@ function loopsCarterThink(e, dt) {
 function loopsStrayThink(e, dt) {
   const R = REALMS[e.faction] || REALMS[0], T = R.town;
   if (e.role === 'escort') { const t = pickTarget(e, 14); if (t) { e.target = t.id; fightTarget(e, t, dt); return; } }
-  moveToward(e, T.x, T.z, dt, e.lFlee != null ? 1.6 : 1.0, 6);
-  const P = GAME.player;
-  if (dist2(e.x, e.z, T.x, T.z) < 40 * 40 || !P || dist2(P.x, P.z, e.x, e.z) > 200 * 200) { e.alive = false; e.removeAt = GAME.t; }
+  // gone once nobody is by to see it; in sight, home through the door of a house of its town
+  e.lStrayT = (e.lStrayT || 0) + dt;
+  if (!loopsSeenBy(e.x, e.z) || (e.lStrayT > 150 && !loopsSeenBy(e.x, e.z, 35))) { e.alive = false; e.removeAt = GAME.t; return; }
+  let H = e.lHome != null ? HOUSES[e.lHome] : null;
+  if (!H || !houseIntact(H)) {
+    H = null; let bd = 260 * 260;
+    for (const h of HOUSES) { if (h.keepHall || h.realm !== e.faction || !houseIntact(h)) continue; const d = dist2(h.door.c.x, h.door.c.z, e.x, e.z); if (d < bd && dist2(h.door.c.x, h.door.c.z, T.x, T.z) < 200 * 200) { bd = d; H = h; } }
+    e.lHome = H ? H.num : null;
+  }
+  if (!H) { moveToward(e, T.x, T.z, dt, e.lFlee != null ? 1.6 : 1.0, 6); return; }
+  const D = H.door.c;
+  if (e.lIn) { if (GAME.t > e.lIn) { e.alive = false; e.removeAt = GAME.t; setHouseDoor(H, false, null, true); } return; }
+  if (dist2(e.x, e.z, D.x, D.z) < 1.3 * 1.3) { setHouseDoor(H, true, e); e.lIn = GAME.t + 0.8; moveToward(e, D.x, D.z, dt, 0.6, 0); return; }
+  moveToward(e, D.x, D.z, dt, e.lFlee != null ? 1.6 : 1.0, 0.4);
 }
 function loopsHorseThink(e, dt) {
   if (e.lCar && e.lCar.state === 'road') return; // walked by its cart
   const b = e.lBolt;
   if (b && GAME.t < b.until) { moveToward(e, b.x, b.z, dt, 1.4, 2); return; }
   // loose: it wanders off and is gone out of sight
-  const P = GAME.player;
-  if (!P || dist2(P.x, P.z, e.x, e.z) > 120 * 120) { e.alive = false; e.removeAt = GAME.t; }
+  if (!loopsSeenBy(e.x, e.z)) { e.alive = false; e.removeAt = GAME.t; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -828,7 +876,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
     if (!t) return done();
     // the tree down and lying still: to the log, cut it up and carry it off (the stump grows again in its time)
     if (st.ph === 'split') {
-      if (!t.log) { loopsAdd(J.realm, 'timber', st.timber); LOOPS.stats.felled++; return done(); }
+      if (!t.log) { loopsBring(J.realm, 'timber'); LOOPS.stats.felled++; return done(); }
       if (!st.at2) {
         const len = TREE_DIM[t.kind].trunk * natS(t), along = Math.min(len * 0.5, 2.4), side = (e.id % 2 ? 1 : -1) * (TREE_DIM[t.kind].r * natS(t) + 0.8);
         st.lx = t.x + t.fall.ux * along + t.fall.uz * side; st.lz = t.z + t.fall.uz * along - t.fall.ux * side;
@@ -891,8 +939,8 @@ function loopsLifeStep(e, st, plan, dt, next) {
       });
     }
     if (st.n >= 6) {
-      loopsAdd(J.realm, 'stone', 4);
-      if (Math.random() < 0.35) loopsAdd(J.realm, 'iron', 0.8);
+      loopsBring(J.realm, 'stone');
+      if (Math.random() < 0.35) loopsBring(J.realm, 'iron');
       LOOPS.stats.quarried++;
       const R = CRAFT.rocks.get(st.rock) || { n: 3, until: 0 };
       R.n--; if (R.n <= 0) R.until = GAME.t + 900;
@@ -926,10 +974,14 @@ function loopsCarried() {
   return by;
 }
 // the pay for so many units of a store's good to a realm now: realm points and gold, by need and your level
-function loopsPay(r, g, units) {
+// `floor`: what a merchant would give for the same goods: the realm never pays less gold than that (firewood and sticks,
+// worth little to the stores, sell for a gold piece each), and a tenth more for each step of its need
+function loopsPay(r, g, units, floor = 0) {
   const L = GAME.prog ? GAME.prog.level : 1, need = loopsNeedK(r, g), lk = 1 + L / 25;
-  return { rp: Math.round(units * LT.rp[g] * need * lk), gold: Math.round(units * LT.gold[g] * need * lk), need };
+  return { rp: Math.round(units * LT.rp[g] * need * lk), gold: Math.round(Math.max(units * LT.gold[g] * need * lk, floor * (1 + 0.1 * need))), need };
 }
+// what a merchant gives for a list of [goodId, n, units]
+const loopsSellOf = (list) => list.reduce((a, [id, n]) => a + Math.max(1, Math.floor((GOODS[id] ? GOODS[id].value : 1) * 0.5)) * n, 0);
 // hand over every good of a store's kind: into the town's stores (where = realm) or a keep's (where = keep)
 function loopsDeliver(g, K = null) {
   const P = GAME.player, prog = GAME.prog;
@@ -939,6 +991,7 @@ function loopsDeliver(g, K = null) {
   const list = (loopsCarried()[g] || []);
   if (!list.length) return null;
   let units = 0;
+  const floor = loopsSellOf(list);
   for (const [id, n, u] of list) { if (goodsTake(id, n)) units += u; }
   if (!(units > 0)) return null;
   // a keep's stores take what they hold; the rest goes on to the town
@@ -946,7 +999,7 @@ function loopsDeliver(g, K = null) {
   if (K && LOOPS_K.includes(g)) { into = loopsKeepAdd(K, g, units); if (units - into > 0) loopsAdd(r, g, units - into, false); }
   else loopsAdd(r, g, units, false);
   // a keep in want pays as the realm would for what it lacks most
-  const pay = loopsPay(r, g, units);
+  const pay = loopsPay(r, g, units, floor);
   if (K && LOOPS_K.includes(g)) { const kn = 1 + 1.5 * clamp(1 - loopsKeepFill(K, g), 0, 1); pay.rp = Math.round(pay.rp * Math.max(1, kn / pay.need)); pay.gold = Math.round(pay.gold * Math.max(1, kn / pay.need)); }
   addRP(pay.rp); addGold(pay.gold);
   LOOPS.you.units += units; LOOPS.you.n++; LOOPS.you.rp += pay.rp; LOOPS.you.gold += pay.gold;
@@ -986,14 +1039,14 @@ function loopsOpenStores(K = null) {
   const S = K ? loopsKeep(K) : LOOPS.r[r], tg = K ? LT.keepTarget : LT.target, goods = K ? LOOPS_K : LOOPS_R;
   const bar = (g) => { const f = clamp(S[g] / tg[g], 0, 1.6); const short = f < 0.2; return `<li class="ls-row${short ? ' short' : ''}"><span class="ls-g">${iconSvg(LOOPS_ICON[g] || 'bag', 16)}${LOOPS_LABEL[g]}</span><span class="ls-bar"><i style="width:${Math.round(Math.min(1, f / 1.6) * 100)}%"></i><b style="left:${Math.round(100 / 1.6)}%"></b></span><span class="ls-n">${fmtInt(S[g])}</span></li>`; };
   const carried = loopsCarried();
-  const offers = goods.filter((g) => carried[g] && g !== 'horses').map((g) => { const u = carried[g].reduce((a, q) => a + q[2], 0), p = loopsPay(r, g, u); return [g, u, p]; });
+  const offers = goods.filter((g) => carried[g] && g !== 'horses').map((g) => { const u = carried[g].reduce((a, q) => a + q[2], 0), p = loopsPay(r, g, u, loopsSellOf(carried[g])); return [g, u, p]; });
   const horses = !K && typeof anMine === 'function' ? anMine().filter((e) => e.alive && e.tame.k === 'horse' && anAdult(e.tame) && dist2(e.x, e.z, P.x, P.z) < 22 * 22) : [];
   const wants = goods.filter((g) => S[g] < tg[g] * 0.5).map((g) => LOOPS_LABEL[g]);
   $('dlg-body').innerHTML = `<p>${K ? `The keep's stewards keep its garrison fed and its walls mended from these stores; carts from ${R.townName} fill them.` : `The quartermaster keeps what the realm's fields, woods, quarries and herds bring in: the war draws on it for every band, engine, gate and wall.`} ${wants.length ? `<b>${R.name} wants ${wants.join(', ')}</b>: it pays more for what it lacks.` : 'The stores are well stocked.'}</p><ul class="loops-stores">${goods.map(bar).join('')}</ul>${offers.length || horses.length ? '' : '<p class="fineprint">You carry nothing the stores take. Food, timber, stone, iron, hides and wool all count (and a horse of your own, at the town).</p>'}`;
   const box = $('dlg-actions');
   box.innerHTML = '';
   const btn = (txt, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn' + (primary ? ' primary' : ''); b.textContent = txt; b.onclick = fn; box.appendChild(b); return b; };
-  for (const [g, u, p] of offers) btn(`Give ${Math.round(u)} ${LOOPS_LABEL[g]} (${fmtInt(p.rp)} rp, ${fmtInt(p.gold)} gold)`, () => { loopsDeliver(g, K); sfx('coins'); loopsOpenStores(K); }).dataset.lgive = g;
+  for (const [g, u, p] of offers) btn(`Give ${u < 10 ? Math.round(u * 10) / 10 : Math.round(u)} ${LOOPS_LABEL[g]} (${fmtInt(p.rp)} rp, ${fmtInt(p.gold)} gold)`, () => { loopsDeliver(g, K); sfx('coins'); loopsOpenStores(K); }).dataset.lgive = g;
   for (const e of horses) btn(`Give ${e.tame.name} to the stables`, () => { loopsGiveHorse(e); loopsOpenStores(K); }).dataset.lhorse = e.id;
   btn('Done', closeDialog, true);
 }
@@ -1005,17 +1058,21 @@ function loopsOpenStores(K = null) {
 // under a cloth, as many as its stores hold (a stack for each third of the target, at most three), made again when a
 // level changes. A raider with a burning brand sets an enemy's yard alight (Use beside it): it burns with real flames
 // for half a minute, chars, and a share of the realm's timber, food, wool and hides goes up with it.
-const YARD_CELL = [[0, 'timber', -2.0, 0.9], [1, 'timber', -2.0, -0.9], [2, 'timber', -2.0, 2.7], [0, 'stone', 0.4, 0.9], [1, 'stone', 0.4, -0.9], [2, 'stone', 0.4, 2.7], [0, 'food', 2.4, 1.2], [1, 'food', 2.4, -0.6], [2, 'food', 2.4, 3.0], [0, 'iron', 0.4, -2.6]];
+// [stack, good, x along the yard, z across it]: every stack turned a quarter so its long side runs along the yard
+// (logs 2.3 m, 1.24 m wide; stone 1.7 by 1.22; sacks 2 by 1.3; the iron bars and their bale 1.9 by 0.9), apart
+const YARD_CELL = [[0, 'timber', -2.0, 0], [1, 'timber', -2.0, -1.45], [2, 'timber', -2.0, 1.45], [0, 'stone', 0.4, 0], [1, 'stone', 0.4, -1.3], [2, 'stone', 0.4, 1.3], [0, 'food', 2.45, 0], [1, 'food', 2.45, -1.4], [2, 'food', 2.45, 1.4], [0, 'iron', 0.4, 2.55]];
+const YARD_BOX = { x: 0.15, z: 0.45, hx: 3.4, hz: 2.65 }; // what the stacks cover, the yard's own frame
 function loopsYardSpot(R) {
-  const S = R.town, want = siteToWorld(S, 14.5, 12.5);
+  const S = R.town, want = siteToWorld(S, 16, 14), Q = R.quartermaster;
   const d = U.uGroundAO.value && U.uGroundAO.value.image && U.uGroundAO.value.image.data;
   const onPath = (x, z) => { if (!d || d.length < 1024 * 1024 * 2) return false; const i = clamp(Math.floor(x + 512), 0, 1023), j = clamp(Math.floor(z + 512), 0, 1023); return d[(j * 1024 + i) * 2 + 1] > 40; };
   for (let k = 0; k < 80; k++) {
     const a = k * 2.399, r = k * 0.45, x = want.x + Math.cos(a) * r, z = want.z + Math.sin(a) * r;
-    let ok = isWalkable(x, z) && !look5InColl(x, z, 3.6) && !(typeof houseAt === 'function' && houseAt(x, z, 4));
-    if (ok) for (let q = 0; q < 12 && ok; q++) { const b = (q / 12) * TAU, px = x + Math.cos(b) * 3.2, pz = z + Math.sin(b) * 3.2; if (!isWalkable(px, pz) || onPath(px, pz) || Math.abs(heightAt(px, pz) - heightAt(x, z)) > 0.5) ok = false; }
+    let ok = isWalkable(x, z) && !look5InColl(x, z, 4.5) && !(typeof houseAt === 'function' && houseAt(x, z, 5));
+    if (ok) for (let q = 0; q < 16 && ok; q++) { const b = (q / 16) * TAU, px = x + Math.cos(b) * 4.2, pz = z + Math.sin(b) * 4.2; if (!isWalkable(px, pz) || onPath(px, pz) || Math.abs(heightAt(px, pz) - heightAt(x, z)) > 0.5) ok = false; }
     if (ok && onPath(x, z)) ok = false;
-    if (ok) { let t = 0; natTreesNear(x, z, 4.5, () => t++); if (t) ok = false; }
+    if (ok && Q && dist2(x, z, Q.x, Q.z) < 5.8 * 5.8) ok = false; // the quartermaster stands before it, not in it
+    if (ok) { let t = 0; natTreesNear(x, z, 5.5, () => t++); if (t) ok = false; }
     if (ok) return { x, z, yaw: S.yaw };
   }
   return null;
@@ -1026,8 +1083,9 @@ function loopsYardInit() {
     const sp = loopsYardSpot(R);
     if (!sp) continue;
     const Y = { r: R.id, x: sp.x, z: sp.z, yaw: sp.yaw, key: '', burn: 0, char: 0, mesh: null, mat: shareMat(siegeMat, { uFlash: { value: 0 }, uChar: { value: 0 }, uEmber: { value: 0 } }) };
-    Y.coll = addBox(sp.x, sp.z, 3.4, 2.4, sp.yaw, 'prop', 1.6);
-    if (COVER.tex) coverMarkBox(sp.x, sp.z, 3.4, 2.4, sp.yaw, 0.4);
+    const c = Math.cos(sp.yaw), sn = Math.sin(sp.yaw), bx = sp.x + YARD_BOX.x * c + YARD_BOX.z * sn, bz = sp.z - YARD_BOX.x * sn + YARD_BOX.z * c;
+    Y.coll = addBox(bx, bz, YARD_BOX.hx, YARD_BOX.hz, sp.yaw, 'prop', 1.6);
+    if (COVER.tex) coverMarkBox(bx, bz, YARD_BOX.hx, YARD_BOX.hz, sp.yaw, 0.4);
     R.lyard = Y;
     LOOPS.yards.push(Y);
   }
@@ -1046,7 +1104,7 @@ function loopsYardDraw() {
       if (i >= loopsYardN(Y.r, g)) continue;
       const wx = Y.x + lx * c + lz * sn, wz = Y.z - lx * sn + lz * c, gy = heightAt(wx, wz);
       // a stack lies across the yard (logs along its length), on the ground: the cart's bed height taken off
-      M.makeRotationY(Y.yaw + (g === 'timber' ? Math.PI / 2 : 0) + i * 0.13).setPosition(wx, gy - 0.76, wz);
+      M.makeRotationY(Y.yaw + Math.PI / 2 + (g === 'timber' ? 0 : (i - 1) * 0.05)).setPosition(wx, gy - 0.76, wz);
       loopsLoadInto(b, g, M);
     }
     if (Y.mesh) { Y.mesh.geometry.dispose(); Y.mesh.geometry = b.n ? b.build() : new THREE.BufferGeometry(); for (const q of Y.casters || []) q.geometry = Y.mesh.geometry; }
@@ -1064,7 +1122,7 @@ function loopsYardIgnite(Y, by) {
   const S = LOOPS.r[Y.r], lost = [];
   for (const [g, k] of [['timber', 0.35], ['food', 0.2], ['wool', 0.3], ['hides', 0.3]]) { const n = S[g] * k; S[g] -= n; if (n >= 1) lost.push(`${Math.round(n)} ${LOOPS_LABEL[g]}`); }
   const c = Math.cos(Y.yaw), sn = Math.sin(Y.yaw);
-  for (const [lx, lz, sz] of [[-2, 0.9, 1.3], [0.4, -0.9, 0.9], [2.4, 1.2, 1.1]]) addFire(Y.x + lx * c + lz * sn, heightAt(Y.x, Y.z) + 0.8, Y.z - lx * sn + lz * c, sz, false, GAME.t + 32, { r: 10, k: 1.3 });
+  for (const [lx, lz, sz] of [[-2, 0, 1.3], [0.4, 0, 0.9], [2.45, 0, 1.1]]) addFire(Y.x + lx * c + lz * sn, heightAt(Y.x, Y.z) + 0.8, Y.z - lx * sn + lz * c, sz, false, GAME.t + 32, { r: 10, k: 1.3 });
   sfxAt('crackle', Y.x, heightAt(Y.x, Y.z) + 1, Y.z);
   if (by === GAME.player) { LOOPS.you.raids++; addRP(Math.round(60 + GAME.prog.level * 3)); }
   news(`${by === GAME.player ? 'You set' : 'Raiders set'} ${possessive(REALMS[Y.r].name)} stores yard in ${REALMS[Y.r].townName} alight${lost.length ? `: ${lost.join(', ')} go up in smoke` : ''}!`, by && by.faction <= 2 ? by.faction : Y.r, 'normal');
@@ -1114,7 +1172,11 @@ function loopsSpawnQuartermasters() {
     const S = R.town, lx = 11, lz = 8.5;
     const c = siteToWorld(S, lx, lz), yaw = S.yaw + Math.atan2(-lx, -lz);
     let x = c.x - Math.sin(yaw) * 1.05, z = c.z - Math.cos(yaw) * 1.05;
-    if (!isWalkable(x, z) || (typeof houseAt === 'function' && houseAt(x, z, 0.8))) { const p = natClearSpot(x, z, S.x, S.z, 0.6); x = p.x; z = p.z; }
+    // clear of the workstations, wells and props placed at boot, and of the houses
+    for (let k = 0, x0 = x, z0 = z; k < 60; k++) {
+      if (isWalkable(x, z) && !look5InColl(x, z, 0.7) && !(typeof houseAt === 'function' && houseAt(x, z, 1.0))) break;
+      const a = k * 2.399, r = 0.5 + k * 0.25; x = x0 + Math.cos(a) * r; z = z0 + Math.sin(a) * r;
+    }
     const look = villagerLook(R.id);
     look.mask = (look.mask & ~WB.robe) | WB.belt | WB.tabard;
     look.tabard = R.rgb.map((v) => v * 0.8 + 0.1);
@@ -1165,6 +1227,11 @@ function loopsInit() {
   if (LOOPS.inited || !WAR.keeps.length || !REALMS[0].town) return;
   LOOPS.inited = true;
   for (const K of WAR.keeps) loopsKeep(K);
+  // the realms' fields against each other: Brackenford's broad fields, the gardens of Ériu and Thule
+  const area = [0, 0, 0];
+  for (const F of W.fieldRects || []) { const r = F.realm != null ? F.realm : 0; if (r >= 0 && r < 3) area[r] += 4 * F.hw * F.hd; }
+  const used = area.filter((a) => a > 0), mean = used.length ? used.reduce((a, b) => a + b, 0) / used.length : 1;
+  LOOPS.fieldK = area.map((a) => (a > 0 ? clamp(mean / a, 0.4, 3) : 1));
   if (!LOOPS.seeded) { for (let r = 0; r < 3; r++) for (const g of LOOPS_R) LOOPS.r[r][g] = Math.round(LT.target[g] * LT.start); LOOPS.seeded = true; }
   loopsSpawnWorkers();
   loopsSpawnQuartermasters();
@@ -1238,7 +1305,7 @@ registerSavePart('char', 'loops', {
 
 queueMicrotask(() => {
   if (!window.__hm) return;
-  window.__hm.loops = { LOOPS, LT, LOOPS_R, LOOPS_K, LOOPS_WORTH, LOOPS_CART, loopsFill, loopsKeepFill, loopsNeedK, loopsAdd, loopsTake, loopsKeepTake, loopsKeepAdd, loopsShort, loopsKeepShort, loopsMuster, loopsColumn, loopsTrickleOk, loopsLord, loopsEngineKind, loopsHorseOk, loopsWork, loopsHouseWork, loopsHarmMult, loopsHarvest, loopsCatch, loopsProduce, loopsFieldsK, loopsOnCapture, loopsTradeStep, loopsCarSend, loopsCarStep, loopsCarLost, loopsCarTurn, loopsCaravanStep, loopsDeliver, loopsGiveHorse, loopsOpenStores, loopsCarried, loopsPay, loopsHudLine, loopsWarText, loopsTreeFor, loopsRockFor, loopsLife, updateLoops, keep: (i) => loopsKeep(WAR.keeps[i]),
+  window.__hm.loops = { LOOPS, LT, LOOPS_R, LOOPS_K, LOOPS_WORTH, LOOPS_CART, loopsFill, loopsKeepFill, loopsNeedK, loopsAdd, loopsTake, loopsKeepTake, loopsKeepAdd, loopsShort, loopsKeepShort, loopsMuster, loopsColumn, loopsTrickleOk, loopsLord, loopsEngineKind, loopsHorseOk, loopsWork, loopsHouseWork, loopsHarmMult, loopsHarvest, loopsCatch, loopsProduce, loopsFieldsK, loopsLandK, loopsOnCapture, loopsTradeStep, loopsCarSend, loopsCarStep, loopsCarLost, loopsCarTurn, loopsCaravanStep, loopsDeliver, loopsGiveHorse, loopsOpenStores, loopsCarried, loopsPay, loopsSellOf, loopsHudLine, loopsWarText, loopsTreeFor, loopsRockFor, loopsLife, updateLoops, keep: (i) => loopsKeep(WAR.keeps[i]),
     // for the measures: the player's own jobs
     natureStartJob: (t) => natureStartJob('chop', t), splitJob: (t) => natureStartJob('split', t), nearestTree, natStanding, mineStart, rockNear, natSplitGoods, houses: () => HOUSES, loopsYardIgnite, loopsYardN, LADEN, loopsLadenK, loopsHeavy,
     get RECIPES() { return RECIPES; }, get PRICE_LISTS() { return { prov: PROVISIONS, hall: HALL_STORES, farm: FARM_SHOP }; } };
@@ -1271,6 +1338,7 @@ function chronStores() {
     <div class="ls-table now">${[0, 1, 2].map(row).join('')}<p class="fineprint">${LOOPS_R.map((g) => LOOPS_LABEL[g]).join(', ')}: each bar is the store against what the realm aims to keep. Red is short.</p></div>
     <h3>What the war draws</h3>
     <ul class="plain"><li><b>A band at the muster</b>: food for each soldier, and iron, hides and wool to arm it. Short of food the band musters thin and hungry (its blows land softer); short of iron it marches ill-armed.</li><li><b>An engine</b>: timber and iron, a trebuchet most (and stone for its weight), a ram least. A realm without the timber builds a lesser engine, or none.</li><li><b>A captain's horse</b> from the stables: none, and the captain marches on foot.</li><li><b>A keep</b>: its garrison eats from the keep's own stores; a new guard or lord is fed and armed from them, a column out of it too. Its broken gate wants timber and iron, a breach stone and timber, a burnt palisade, walk or tower timber: without them the work drags.</li><li><b>A house</b> built back in town: timber and stone.</li></ul>
+    <p>The keeps guard the roads to a realm's borderland farms and woods: each of its own keeps in other hands costs its town a fifth of its work, and each enemy keep it holds brings in tribute from the lands round it.</p>
     <h3>Carts on the roads</h3>
     <p>The keeps are supplied by carts from the town: a cart, its horse, a carter and two soldiers walk the roads by the pass and the muster to the keep's gate. Bands of the other realms fall on them; a cart taken is lost to its realm, and half of what it carried goes to the realm that took it. Walk beside a cart of yours most of the way and see it safe, and the realm pays you for it. A keep taken is taken with its stores.</p>
     <h3>Your part</h3>

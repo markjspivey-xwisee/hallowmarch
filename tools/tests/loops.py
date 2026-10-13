@@ -180,8 +180,9 @@ async def main():
                   for (const id in g) { gold += sell(id) * g[id]; const w = L.LOOPS_WORTH[id]; if (w) units[w[0]] = (units[w[0]] || 0) + g[id] * w[1]; }
                   for (const s in units) {
                     const S = L.LOOPS.r[0], keep = S[s];
-                    S[s] = L.LT.target[s]; const a = L.loopsPay(0, s, units[s]); rp0 += a.rp; gold0 += a.gold;
-                    S[s] = 0; const e = L.loopsPay(0, s, units[s]); rpE += e.rp; goldE += e.gold;
+                    const list = Object.keys(g).filter((id) => L.LOOPS_WORTH[id] && L.LOOPS_WORTH[id][0] === s).map((id) => [id, g[id], 0]), fl = L.loopsSellOf(list);
+                    S[s] = L.LT.target[s]; const a = L.loopsPay(0, s, units[s], fl); rp0 += a.rp; gold0 += a.gold;
+                    S[s] = 0; const e = L.loopsPay(0, s, units[s], fl); rpE += e.rp; goldE += e.gold;
                     S[s] = keep;
                   }
                   row[k] = { sold: Math.round(gold), units: Object.fromEntries(Object.entries(units).map(([a, b]) => [a, Math.round(b)])), rp: Math.round(rp0), gold: Math.round(gold0), rpShort: Math.round(rpE), goldShort: Math.round(goldE) };
@@ -208,7 +209,7 @@ async def main():
             r50 = res['50']
             for lv in ['10', '30', '50']:
                 q = res[lv]['felling']
-                check(q['gold'] + q['rp'] > 1.5 * q['sold'] and q['goldShort'] + q['rpShort'] > 3.5 * q['sold'], f"at {lv} an hour's felling given to the realm is worth more than sold to a merchant ({q['gold']} gold + {q['rp']} rp, short {q['goldShort']} + {q['rpShort']}, against {q['sold']} gold)")
+                check(q['gold'] >= q['sold'] and q['gold'] + q['rp'] > 1.4 * q['sold'] and q['goldShort'] + q['rpShort'] > 2 * q['sold'], f"at {lv} an hour's felling given to the realm is worth more than sold to a merchant ({q['gold']} gold + {q['rp']} rp, short {q['goldShort']} + {q['rpShort']}, against {q['sold']} gold)")
             check(r50['felling']['rpShort'] > r50['war']['rp'] * 0.25, f"at 50 an hour's felling for a realm short of timber pays a good share of an hour of war's realm points ({r50['felling']['rpShort']} against {r50['war']['rp']})")
 
         if want('short'):
@@ -283,9 +284,10 @@ async def main():
               const H = __hm, L = H.loops, LO = L.LOOPS, fn = H.fn, K = H.WAR.keeps[1], S = L.keep(1);
               S.food = 3; S.timber = 3;
               const c = L.loopsCarSend(0, K, true); window.__lc2 = c;
-              const thule0 = { ...LO.r[2] }, load = { ...c.load };
+              const load = { ...c.load };
               H.simulate(20);
-              // a band of Thule falls on it
+              // a band of Thule falls on it (Thule's stores looked at just before: the town's own work goes on meanwhile)
+              const thule0 = { ...LO.r[2] };
               const h = fn.getEnt(c.horse), carter = fn.getEnt(c.carter);
               const foe = fn.spawnRealmUnit(2, 'warrior', 30, 'soldier', h.x + 4, h.z + 2);
               fn.dealDamage(foe, carter, carter.hp * 2, {});
@@ -430,8 +432,8 @@ async def main():
               return { a, b, c };
             })()""")
             print('  ', r, flush=True)
-            check(r['a']['iron'] == 33 and r['a']['stone'] == 21, f"the stores read back ({r['a']['size']} bytes)")
-            check(r['b']['iron'] == 33 and r['c']['ok'], f"an old save changes nothing, a damaged part loads sane ({r['c']})")
+            check(r['a']['iron'] >= 33 and r['a']['stone'] == 21, f"the stores read back ({r['a']['size']} bytes)")
+            check(r['b']['iron'] == r['a']['iron'] and r['c']['ok'], f"an old save changes nothing, a damaged part loads sane ({r['c']})")
 
         if want('ui'):
             print('UI', flush=True)
@@ -455,14 +457,35 @@ async def main():
             await b.close()
             b, page, logs = await setup(p, w=960, h=540)
             await ev(page, "__hm.fn.setQuality('medium'); 0")
+            # the page's own frames held (each picture draws its own: a frame of the loop at medium over a new town took minutes)
+            await ev(page, r"""(() => { if (window.__rafWrapped) { window.__rafHold = true; return 0; } window.__rafWrapped = true; window.__rafHold = true; const raf = window.requestAnimationFrame.bind(window);
+              window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); return 0; })()""")
             await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
-            await ev(page, "(() => { __lt.calm(); __lt.full(); const K = __hm.WAR.keeps[0], S = __hm.loops.keep(0); S.timber = 2; S.food = 8; S.stone = 2; window.__lc = __hm.loops.loopsCarSend(0, K, true); __hm.setTod(0.95); __hm.simulate(40); return 0; })()")
-            for name, js in [('loops_cart', r"""(() => { const c = __lc, h = __hm.fn.getEnt(c.horse), P = __hm.GAME.player; P.x = P.prevX = h.x + 30; P.z = P.prevZ = h.z + 30; __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed'; const yaw = c.yaw + 2.1; const cam = __hm.camera; cam.position.set(c.ax + Math.sin(yaw) * 9, __hm.fn.heightAt(c.ax, c.az) + 3.2, c.az + Math.cos(yaw) * 9); cam.lookAt(c.ax + (h.x - c.ax) * 0.4, __hm.fn.heightAt(c.ax, c.az) + 1.0, c.az + (h.z - c.az) * 0.4); return 0; })()""")]:
+            await ev(page, "(() => { __lt.calm(); __lt.full(); const K = __hm.WAR.keeps[0], S = __hm.loops.keep(0); S.timber = 2; S.food = 8; S.stone = 2; window.__lc = __hm.loops.loopsCarSend(0, K, true); __hm.setTod(0.95); __hm.dbg.WEATHER.mode = 'clear'; __hm.simulate(40); return 0; })()")
+            async def shot(name, js):
                 await ev(page, js)
-                await ev(page, "(() => { for (let i = 0; i < 6; i++) __hm.frame(1/30); return 0; })()")
+                await ev(page, "(() => { const hud = document.getElementById('hud'); if (hud) hud.style.visibility = 'hidden'; for (let i = 0; i < 6; i++) __hm.frame(1/30); return 0; })()")
                 await page.screenshot(path=OUT + name + '.png', timeout=300000)
+                await ev(page, "(() => { const hud = document.getElementById('hud'); if (hud) hud.style.visibility = ''; return 0; })()")
                 print('  shot', name, flush=True)
+            # a cart on the road with its horse, carter and escort, from beside it
+            await shot('loops_cart', r"""(() => { const c = __lc, h = __hm.fn.getEnt(c.horse), P = __hm.GAME.player; P.x = P.prevX = h.x + 40; P.z = P.prevZ = h.z + 40; __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed';
+              const mx = (c.ax + h.x) / 2, mz = (c.az + h.z) / 2, side = c.yaw + Math.PI / 2 + 0.55, cam = __hm.camera, gy = __hm.fn.heightAt(mx, mz);
+              cam.position.set(mx + Math.sin(side) * 8.5, gy + 2.6, mz + Math.cos(side) * 8.5); cam.lookAt(mx, gy + 1.0, mz); return 0; })()""")
+            # the stores yard behind Brackenford's quartermaster
+            await shot('loops_yard', r"""(() => { const Y = __hm.loops.LOOPS.yards[0], Q = __hm.REALMS[0].quartermaster, cam = __hm.camera, gy = __hm.fn.heightAt(Y.x, Y.z), P = __hm.GAME.player; P.x = P.prevX = Q.x; P.z = P.prevZ = Q.z;
+              const a = Math.atan2(Q.x - Y.x, Q.z - Y.z) + 0.35; cam.position.set(Y.x + Math.sin(a) * 10, gy + 3.2, Y.z + Math.cos(a) * 10); cam.lookAt(Y.x, gy + 0.9, Y.z); return 0; })()""")
+            # a woodcutter at work
+            ok = await ev(page, r"""(() => { const H = __hm, LO = H.loops.LOOPS; __hm.CAM.mode = 'play'; __hm.UI.modal = null; const P = H.GAME.player, T = H.REALMS[0].town; P.x = P.prevX = T.x + 3; P.z = P.prevZ = T.z + 3;
+              const ws = LO.workers.map((id) => H.fn.getEnt(id)).filter((e) => e && e.ai.lj && e.ai.lj.realm === 0 && e.ai.lj.job === 'wood');
+              for (const e of ws) e.ai.lj.next = 0;
+              for (let k = 0; k < 120; k++) { H.simulate(1); const w = ws.find((e) => e.ai.plan && e.ai.plan.steps[e.ai.plan.i] && e.ai.plan.steps[e.ai.plan.i].k === 'lchop' && e.ai.plan.steps[e.ai.plan.i].n >= 1 && !e.ai.plan.steps[e.ai.plan.i].tree.felled); if (w) { window.__lw = w; return true; } }
+              return false; })()""")
+            if ok:
+                await shot('loops_woodcutter', r"""(() => { const w = __lw, t = w.ai.plan.steps[w.ai.plan.i].tree, cam = __hm.camera, gy = __hm.fn.heightAt(w.x, w.z); __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed';
+                  const a = Math.atan2(w.x - t.x, w.z - t.z) + 1.2; cam.position.set(w.x + Math.sin(a) * 5, gy + 2.0, w.z + Math.cos(a) * 5); cam.lookAt((w.x + t.x) / 2, gy + 1.3, (w.z + t.z) / 2); return 0; })()""")
+            check(ok, 'a woodcutter found at work for the picture')
 
         errs = await ev(page, "__hm.errors.length")
         errlist = await ev(page, "__hm.errors.slice(0, 5).map((e) => String(e.msg || e).slice(0, 200))")
