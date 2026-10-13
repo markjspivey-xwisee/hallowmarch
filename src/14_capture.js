@@ -687,6 +687,13 @@ const CAP_SHOTS = [
     },
   },
 ];
+// each shot's few words under its name in the panel (its line is the button's title)
+const CAP_SUB = { lonetree: 'The heart of the March', logres: 'Logres from the air', eriu: "Ériu's roundhouses", thule: 'Thule in winter',
+  callings: "The three realms' twelve", clash: 'Logres against Thule', siege: 'A stone about to fly', storm: 'Lightning strikes',
+  housefire: 'A house burns', palisade: 'A palisade alight', cinderwing: 'Followed in flight', gallop: 'Two horses, tracked',
+  pyres: "The Deep's burning pitch", throne: 'Vorlach asleep', risen: 'The wrath breaks the ground', standard: 'You, in your mantle',
+  orchard: 'The Logres orchard' };
+for (const s of CAP_SHOTS) s.sub = s.sub || CAP_SUB[s.id] || s.line.split(':')[0];
 const capShotOf = (id) => CAP_SHOTS.find((s) => s.id === id) || null;
 // stage a shot: the last one cleared, its time, season and weather, its scene; then its camera move from the start
 function captureShot(id, o = {}) {
@@ -923,7 +930,7 @@ const CAP_CSS = `
 #cap .cap-b[disabled] { opacity: 0.4; cursor: default; }
 #cap .cap-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 #cap .cap-shots .cap-b { text-align: left; padding: 6px 8px; line-height: 1.2; }
-#cap .cap-shots .cap-b small { display: block; color: var(--ink-faint); font-size: 11px; }
+#cap .cap-shots .cap-b small { display: block; color: var(--ink-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #cap .cap-shots .cap-b[aria-pressed="true"] small { color: rgba(27,20,11,0.7); }
 #cap label { display: grid; grid-template-columns: 74px 1fr 40px; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-dim); margin: 3px 0; }
 #cap label output { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
@@ -945,7 +952,7 @@ const CAP_CSS = `
 #cap-out a { color: var(--bronze-hi); }
 #cap-out .cap-b { border: 1px solid var(--line-strong); background: var(--slate-2); color: var(--ink); border-radius: 5px; padding: 8px 16px; cursor: pointer; font: inherit; }
 @media (pointer: coarse) { #cap .cap-b { min-height: 40px; } #cap input[type=range] { height: 28px; } }
-@media (max-width: 640px) { #cap { left: 8px; right: 8px; width: auto; top: auto; bottom: calc(8px + var(--safe-b, 0px)); max-height: 46%; } #cap-pad { bottom: calc(46% + 18px); } }
+@media (max-width: 640px) { #cap { left: 8px; right: 8px; width: auto; top: auto; bottom: calc(8px + var(--safe-b, 0px)); max-height: 46%; } #cap-pad { bottom: calc(46% + 18px); } #cap-tip { bottom: auto; top: calc(14px + var(--safe-t, 0px)); } }
 `;
 function capBuild() {
   const C = CAPTURE;
@@ -980,7 +987,7 @@ function capRender() {
   const c = C.cam, todNow = Object.entries(CAP_TOD).find(([, p]) => Math.abs(p - tod.p) < 0.02), seasonK = SEASON.t / SEASON.yearSec;
   const seasonNow = Object.entries(CAP_SEASON).find(([, k]) => Math.abs(k - seasonK) < 0.06);
   C.el.innerHTML = `<div class="cap-hd"><h2>Capture</h2><div class="cap-row"><button type="button" class="cap-b" data-c="hide" title="Hide the panel (H)">Hide</button><button type="button" class="cap-b" data-c="leave">Leave</button></div></div>
-    <h3>Shots</h3><div class="cap-shots">${CAP_SHOTS.map((s) => { const why = s.need ? s.need() : ''; return `<button type="button" class="cap-b" data-c="shot" data-v="${s.id}" aria-pressed="${C.shot === s.id}" ${why ? `disabled title="${esc(why)}"` : `title="${esc(s.line)}"`}>${esc(s.name)}<small>${esc(why ? 'Not now' : s.line.split(':')[0].slice(0, 34))}</small></button>`; }).join('')}</div>
+    <h3>Shots</h3><div class="cap-shots">${CAP_SHOTS.map((s) => { const why = s.need ? s.need() : ''; return `<button type="button" class="cap-b" data-c="shot" data-v="${s.id}" aria-pressed="${C.shot === s.id}" ${why ? `disabled title="${esc(why)}"` : `title="${esc(s.line)}"`}>${esc(s.name)}<small>${esc(why ? 'Not now' : s.sub)}</small></button>`; }).join('')}</div>
     <h3>Camera</h3>${capSeg('mode', [['free', 'Free'], ['orbit', 'Orbit'], ['follow', 'Follow'], ['path', 'Path']], C.play ? 'path' : C.mode)}
     ${capSlider('cap-fov', 'Lens', 12, 100, 1, Math.round(c.fov), (v) => `${Math.round(v)}°`)}
     ${capSlider('cap-roll', 'Roll', -30, 30, 1, Math.round(c.roll / DEG), (v) => `${Math.round(v)}°`)}

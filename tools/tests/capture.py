@@ -180,7 +180,7 @@ async def desk(p):
         if SHOTS:
             await ev("__hm.capture.shot('storm', { hold: true }); __hm.capture.render(); 0")
             await frames(page, 3)
-            await page.screenshot(path=str(OUT / 'capture_desk.png'), timeout=300000)
+            await page.screenshot(path=OUT + 'capture_desk.png', timeout=300000)
     if 'still' in ONLY:
         r = await ev("""(() => { const C = __hm.capture.CAPTURE; C.bars = 0; const a = __hm.capture.still('image/png'); C.bars = 2.39; const b = __hm.capture.still('image/png'); C.bars = 0; return { a, b }; })()""")
         def dims(u):
@@ -237,7 +237,7 @@ async def phone(p):
     if SHOTS:
         await ev("__hm.capture.shot('lonetree', { hold: true }); __hm.capture.render(); 0")
         await frames(page, 3)
-        await page.screenshot(path=str(OUT / 'capture_phone.png'), timeout=300000)
+        await page.screenshot(path=OUT + 'capture_phone.png', timeout=300000)
     errs = await ev("__hm.errors.map(String).slice(0, 5)")
     check(not errs, f"no runtime errors on the phone ({errs[:3]})")
     await b.close()
