@@ -33,9 +33,13 @@ The CI wrapper turns printed failures into a failed job even when a diagnostic s
 
 All low, medium and high render views pass the original budgets. Forest: low 164 calls and 739,000 triangles; medium 204 calls and 1.56 million triangles. Over the hour-long war, from minute 10 to minute 60, heap growth is 4.1 MB, ArrayBuffers 2.3 MB, scene objects 26, geometries 53 and textures zero; all remain within the original limits. No simulation errors or non-finite positions were recorded.
 
-The water follow-up produced no failed assertions and no runtime errors, including diving, ice, boats and tracks. Its job was initially marked failed because the CI wrapper read the elapsed label in `errors [164s] []` as malformed error data. The parser now removes only a numeric elapsed label, while retaining rejection of nonempty or malformed errors, printed failures and failing process exits. Unit fixtures and replay of the exact captured water output verify this correction. The source test's assertions were not changed.
+The water follow-up produced no failed assertions and no runtime errors, including diving, ice, boats and tracks. Its job was initially marked failed because the CI wrapper read the elapsed label in `errors [164s] []` as malformed error data. The parser now removes only a numeric elapsed label, while retaining rejection of nonempty or malformed errors, printed failures and failing process exits. Unit fixtures and replay of the exact captured water output verify this correction. The source test's water behavior assertions were retained.
+
+The first CI run on main also caught an older hard-coded float check: a short recruit correctly floated 1.23 m below the surface, while the assertion assumed an unscaled 1.3 m body. The player float check now measures the same 1.3 m clearance relative to body height and retains its 6 cm tolerance. It also exercises short (0.94), standard (1.0) and tall (1.06) bodies through the real motion simulation. [Focused verification](https://github.com/markjspivey-xwisee/hallowmarch/actions/runs/38609976964) records the result.
 
 ## Rollout and remaining work
+
+Production deployment a8bb13cb-2dcb-4706-9688-dc9895b0d332 reached SUCCESS. [Read-only deployment verification](https://github.com/markjspivey-xwisee/hallowmarch/actions/runs/38609568192) confirmed /health and byte-for-byte equality with the built HTML of 3161b65 (served HTML SHA-256 f4ca61d87049eacd37a62e79d1da75375789c0267cf5d59dff4ce243cea25d0f). The subsequent body-size test correction does not change the game build.
 
 Railway production is connected to GitHub main, server/Dockerfile, the existing /data volume and the existing /health endpoint. A source push touching server/**, src/** or build.py deploys automatically. No account, company or season data is reset for this release.
 
