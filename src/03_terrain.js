@@ -357,7 +357,7 @@ const terrainMat = mat({
       col = mix(col, lightSurface(mix(vec3(0.5, 0.26, 0.08), vec3(0.62, 0.45, 0.14), vnoise(vW.xz * 3.1)) * mix(1.0, 0.55, uSeasonA.w), n, 1.0), clamp(litter * 1.3, 0.0, 0.8));
       col *= 1.0 - 0.22 * canopy * (0.6 + 0.4 * gSh);
       col *= 1.0 - 0.42 * groundAO(vW.xz); // and in contact shade at the foot of walls and houses
-      float wetG = uWet * (1.0 - 0.8 * canopy) * (1.0 - shelteredK(vW)); // [weather2] dry under a roof (12c_weather2.js)
+      float wetG = wetHere(vW, uWet) * (1.0 - 0.8 * canopy) * (1.0 - shelteredK(vW)); // [weather2] the wetness here (wetHere) // [weather2] dry under a roof (12c_weather2.js)
       // weather: rain darkens and glosses the ground and pools on paths; snow settles on open ground
       if (wetG > 0.01) {
         vec3 V = safeNormalize(cameraPosition - vW);
@@ -854,7 +854,7 @@ const GRASS_FRAG = /* glsl */`
   varying vec4 vHal; // [look5] holy ground's light (02f_look5.js)
   void main(){
     float t = clamp(vInfo.x, 0.0, 1.0);
-    float wetB = uWet * (1.0 - 0.8 * vCanopy), snowB = uSnowCover * vSzn.x * (1.0 - 0.7 * vCanopy); // [seasons] the snow lying here
+    float wetB = wetHere(vWorld, uWet) * (1.0 - 0.8 * vCanopy), /* [weather2] */ snowB = uSnowCover * vSzn.x * (1.0 - 0.7 * vCanopy); // [seasons] the snow lying here
     float sh = clamp(vSh, 0.0, 1.0);
     vec3 V = safeNormalize(cameraPosition - vWorld);
     vec3 n = safeNormalize(vN);

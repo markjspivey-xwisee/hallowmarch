@@ -50,6 +50,14 @@ window.W2T = {
     document.getElementById('hud').style.visibility = 'hidden';
     H.camera.position.set(x, y, z); H.camera.lookAt(tx, ty, tz); H.camera.updateMatrixWorld();
   },
+  // the way from (x, z) at eye height y with the lowest horizon (the open land, no mountain before the camera)
+  openDir(x, z, y) {
+    let best = 0, bestE = 1e9;
+    for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2, ux = Math.sin(a), uz = -Math.cos(a); let e = -1e9;
+      for (let d = 40; d < 1600; d *= 1.18) { const hx = x + ux * d, hz = z + uz * d; if (Math.abs(hx) > 510 || Math.abs(hz) > 510) break; e = Math.max(e, (this.H.fn.heightAt(hx, hz) - y) / d); }
+      if (e < bestE) { bestE = e; best = a; } }
+    return { x: Math.sin(best), z: -Math.cos(best), e: bestE };
+  },
   play() { const H = this.H; H.UI.modal = null; H.CAM.mode = 'play'; document.getElementById('hud').style.visibility = ''; },
   // the player somewhere safe: no foes about, full health
   safe() { const P = this.P(); P.hp = P.maxHp; for (const e of this.H.ENT) if (e !== P && e.alive && e.faction !== P.faction && e.faction !== 4 && Math.hypot(e.x - P.x, e.z - P.z) < 60) { e.x += 400; e.z += 400; } return 0; },

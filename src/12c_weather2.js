@@ -20,13 +20,13 @@ const WX_KINDS = {
   front: { a: [650, 1050], b: [240, 360], cover: 0.97, precip: 0.8, storm: 0.12, mist: 0, thick: 0.55, life: [820, 1300], grow: 90, fade: 130, speed: [0.9, 1.1] },
   bank: { a: [320, 620], b: [200, 330], cover: 0.84, precip: 0, storm: 0, mist: 0, thick: 0.32, life: [420, 800], grow: 70, fade: 90, speed: [0.85, 1.05] },
   shower: { a: [160, 260], b: [130, 210], cover: 0.93, precip: 0.9, storm: 0.05, mist: 0, thick: 0.64, life: [200, 340], grow: 60, fade: 70, speed: [0.9, 1.15] },
-  storm: { a: [220, 340], b: [180, 260], cover: 1.0, precip: 1.0, storm: 1.0, mist: 0, thick: 1.0, life: [240, 380], grow: 75, fade: 80, speed: [0.8, 1.0] },
+  storm: { a: [290, 420], b: [240, 330], cover: 1.0, precip: 1.0, storm: 1.0, mist: 0, thick: 1.0, life: [240, 380], grow: 75, fade: 80, speed: [0.8, 1.0] },
   mist: { a: [240, 420], b: [200, 330], cover: 0.1, precip: 0, storm: 0, mist: 1.0, thick: 0.03, life: [260, 480], grow: 60, fade: 90, speed: [0.12, 0.25] },
 };
 // fair-weather cloud of each realm (the cover between the systems), Logres, Ériu, Thule; and how often each realm makes
 // a system of its own (a second's chance, with the season's odds deciding what)
 const WX_FAIR = [0.22, 0.34, 0.3];
-const WX_MAKE = [0.014, 0.03, 0.022];
+const WX_MAKE = [0.011, 0.042, 0.022]; // Logres fair, Ériu wet off the western sea, Thule between
 const WX = {
   on: true, cells: [], id: 1, t: 0,
   // the wind: the bearing it blows FROM (radians, compass), its speed (m/s), and where it is turning to
@@ -68,9 +68,9 @@ function wxFieldAt(x, z, o = _wxF) {
     if (dx * dx + dz * dz > c.a * c.a * 1.1) continue;
     const al = (dx * c.ca + dz * c.sa) / c.a, ac = (-dx * c.sa + dz * c.ca) / c.b, d = Math.sqrt(al * al + ac * ac);
     if (d >= 1) continue;
-    const s = c.s, e = 1 - sstep(0.4, 1, d), core = 1 - sstep(0.25, 0.8, d);
+    const s = c.s, e = 1 - sstep(c.storm * s > 0.15 ? 0.72 : 0.4, 1, d), core = 1 - sstep(0.25, 0.8, d);
     clear *= 1 - c.cover * s * e;
-    precip = Math.max(precip, c.precip * s * core);
+    precip = Math.max(precip, c.storm * s > 0.15 ? c.precip * s * core : wxRainOut(c.precip * s * core, x, z)); // a storm rains wherever it builds
     storm = Math.max(storm, c.storm * s * core);
     mist = Math.max(mist, c.mist * s * e);
     thick = Math.max(thick, c.thick * s * e);
@@ -78,6 +78,15 @@ function wxFieldAt(x, z, o = _wxF) {
   o.cover = 1 - clear; o.precip = precip; o.storm = storm; o.mist = mist; o.thick = thick;
   return o;
 }
+// how much of a cloud's rain falls here (the shaders' wxField does the same): the air off the western sea rains itself
+// out over Ériu, and what crosses on into Logres's lee rains less (a front there often a drizzle or a grey sky)
+const WX_WETK = [0.62, 1.1, 0.85];
+function wxRainOut(p, x, z) {
+  if (p <= 0) return 0;
+  const w = wxRealmW(x, z, _wxRW2), k = w[0] * WX_WETK[0] + w[1] * WX_WETK[1] + w[2] * WX_WETK[2];
+  return Math.max(0, p * k - (1 - k) * 0.4);
+}
+const _wxRW2 = [0, 0, 0];
 // what the cover, rain and storm of a place make of the sky there (the old WEATHER_LOOK's measures)
 function wxLook(f, o) {
   o.overcast = clamp((f.cover - 0.32) / 0.6, 0, 1) ** 1.15;
@@ -181,6 +190,20 @@ function wxGridStep(dt) {
 // the sun's strength in a clear sky (sunStrength in 05h_wear.js weighs the camera's own cloud)
 function sunStrength0() { return clamp(1 - U.uNight.value * 1.3, 0, 1) * clamp(U.uLightDir.value.y * 2.2, 0, 1); }
 
+// the grid's wetness to the shaders (U.uWxWet, 02d_season.js wetHere): the wet film on the ground, the grass and the
+// buildings lies where it has rained, not wherever the camera's own rain is (held weather: uWet everywhere, as before)
+let WXWET_TEX = null;
+function wxWetUpload() {
+  const G = WX.grid; if (!G) return;
+  if (!WXWET_TEX) {
+    WXWET_TEX = new THREE.DataTexture(new Uint8Array(WX_GN * WX_GN), WX_GN, WX_GN, THREE.RedFormat, THREE.UnsignedByteType);
+    WXWET_TEX.magFilter = WXWET_TEX.minFilter = THREE.LinearFilter;
+    U.uWxWet.value = WXWET_TEX;
+  }
+  const D = WXWET_TEX.image.data;
+  for (let i = 0; i < D.length; i++) D[i] = Math.round(clamp(G.wet[i], 0, 1) * 255);
+  WXWET_TEX.needsUpdate = true;
+}
 /* ---- the systems: born of the realms' climates, carried by the wind, growing and dying away ---- */
 function wxRand(a) { return a[0] + Math.random() * (a[1] - a[0]); }
 function wxMake(kind, x, z, o = {}) {
@@ -189,7 +212,7 @@ function wxMake(kind, x, z, o = {}) {
   const ang = o.ang !== undefined ? o.ang : kind === 'front' ? Math.atan2(v.z, v.x) + Math.PI / 2 : Math.random() * Math.PI;
   const c = {
     id: WX.id++, kind, x, z, ang, ca: Math.cos(ang), sa: Math.sin(ang),
-    a: wxRand(K.a), b: wxRand(K.b), cover: K.cover, precip: K.precip * (o.wetK || 1), storm: K.storm, mist: K.mist, thick: K.thick,
+    a: wxRand(K.a), b: wxRand(K.b), cover: K.cover, precip: K.precip * (o.wetK || (kind === 'storm' ? 1 : 0.75 + 0.45 * Math.random())), storm: K.storm, mist: K.mist, thick: K.thick,
     age: o.age || 0, life: wxRand(K.life), grow: K.grow, fade: K.fade, sp: wxRand(K.speed), realm: o.realm ?? realmAt(clamp(x, -400, 400), clamp(z, -400, 400)), s: 0,
   };
   if (c.b > c.a) { const t = c.a; c.a = c.b; c.b = t; }
@@ -203,7 +226,11 @@ function wxClimateKind(realm, upwind) {
   const odds = seasonWeatherOdds(WEATHER_ODDS[realm]);
   let r = Math.random(), i = 0;
   for (; i < odds.length - 1; i++) { if (r < odds[i]) break; r -= odds[i]; }
-  const k = ['clear', 'cloudy', 'rain', 'storm', 'mist'][i];
+  let k = ['clear', 'cloudy', 'rain', 'storm', 'mist'][i];
+  // the realms' own skies: Ériu's soft rain off the western sea (a grey day there often rains), Logres's fair weather
+  // (its rain often only a grey bank), Thule's as the season makes it
+  if (realm === 1 && (k === 'cloudy' ? Math.random() < 0.45 : k === 'clear' && Math.random() < 0.15)) k = 'rain';
+  if (realm === 0 && k === 'rain' && Math.random() < 0.35) k = 'cloudy';
   if (k === 'clear') return null;
   if (k === 'cloudy') return 'bank';
   if (k === 'rain') return upwind || Math.random() < 0.3 ? 'front' : 'shower';
@@ -272,7 +299,7 @@ function updateWeather2(dt) {
   }
   if (!wxHeld()) wxSpawnStep(dt);
   WX.grid.t -= dt;
-  if (WX.grid.t <= 0) { const gdt = 0.5 - WX.grid.t; WX.grid.t = 0.5; wxGridStep(gdt); }
+  if (WX.grid.t <= 0) { const gdt = 0.5 - WX.grid.t; WX.grid.t = 0.5; wxGridStep(gdt); wxWetUpload(); }
   wxStrikeStep(dt);
 }
 // a world that starts with weather already about it (a new game or an old save): a few systems at their ages
@@ -398,6 +425,10 @@ float wxFair(vec2 xz){
 vec4 wxField(vec2 xz, out float storm){
   if (uWxHeld.x >= 0.0) { storm = uWxHeld.z; return vec4(uWxHeld.x, uWxHeld.y, uWxHeld.z, uWxHeld.w); }
   float clear = 1.0 - wxFair(xz), precip = 0.0, thick = 0.16; storm = 0.0;
+  // (wxRainOut: the rain shadow of Logres, Ériu's wet air; a storm rains wherever it builds)
+  vec3 rw = vec3(wxBear(xz, 2.6179939), wxBear(xz, 4.712389), wxBear(xz, 0.5235988));
+  rw = mix(vec3(1.0 / 3.0), rw, smoothstep(10.0, 60.0, length(xz)));
+  float rk = dot(rw / max(rw.x + rw.y + rw.z, 1e-4), vec3(${WX_WETK.join(', ')}));
   int n = int(uWxWind.z + 0.5);
   for (int i = 0; i < ${WX_N}; i++) {
     if (i >= n) break;
@@ -409,9 +440,9 @@ vec4 wxField(vec2 xz, out float storm){
     // a storm's anvil spreads out over its tower, farther than its cloud reaches below (the storm channel carries it)
     if (C.y > 0.0) storm = max(storm, C.y * (1.0 - smoothstep(0.3, 1.55, r)) * (r < 1.0 ? 1.0 : 0.85));
     if (r >= 1.0) continue;
-    float e = 1.0 - smoothstep(0.4, 1.0, r), core = 1.0 - smoothstep(0.25, 0.8, r);
+    float e = 1.0 - smoothstep(C.y > 0.15 ? 0.72 : 0.4, 1.0, r), core = 1.0 - smoothstep(0.25, 0.8, r); // a storm's cloud stands whole out to its flanks
     clear *= 1.0 - B.z * e;
-    precip = max(precip, C.x * core);
+    precip = max(precip, C.y > 0.15 ? C.x * core : max(0.0, C.x * core * rk - (1.0 - rk) * 0.4));
     thick = max(thick, B.w * sqrt(max(0.0, 1.0 - r * r)) * (0.35 + 0.65 * e)); // a dome: tallest over its heart
   }
   return vec4(1.0 - clear, precip, storm, thick);
@@ -442,15 +473,18 @@ vec4 wxMarch(vec3 ro, vec3 rd, float jit){
             // two paces: long strides through the clear air to the first cloud along the ray, then short steps through it
             // (one long stride back), so its edges and crowns are resolved and do not stand in layers
             int steps = int(uDomeP.x + 0.5);
-            float dt = (t1 - t0) / float(steps);
-            float dtF = clamp(dt * 0.22, 14.0, 150.0);
+            // the long strides grow with the distance (a cloud's flank near the eye is not stepped over; far off a flank
+            // missed is a pixel), so a tower is seen whole and not only its heart
+            float strideK = 1.1 / float(steps);
+            float dt = clamp(t0 * strideK, 45.0, (t1 - t0) / float(steps) * 1.5);
+            float dtF = clamp((t1 - t0) / float(steps) * 0.22, 14.0, 150.0);
             float detK = 1.0 - smoothstep(70.0, 420.0, dtF * length(rd.xz));
             vec3 skyA = mix(uHorizon, uZenith, 0.6);
             float t = t0 + jit * dt * 0.5;
             bool fine = false;
             float tBack = t0, tKeep = 0.0; // never step back behind where the short steps last left the cloud; keep short past the stride that found it
-            for (int i = 0; i < 56; i++) {
-              if (i >= steps * 4 || t > t1 || T < 0.015) break;
+            for (int i = 0; i < 64; i++) {
+              if (i >= 64 || t > t1 || T < 0.015) break;
               vec3 p = ro + rd * t;
               // within the cloud its sides bulge and draw in with height (a heap of heaps, not a column)
               vec2 xzw = p.xz;
@@ -462,13 +496,16 @@ vec4 wxMarch(vec3 ro, vec3 rd, float jit){
               bool cloud = (F.r > 0.02 && hh <= 1.08) || av > 0.04;
               if (!fine) {
                 if (cloud) { fine = true; tKeep = t + dt * 0.5; t = max(tBack, t - dt) + jit * dtF; continue; }
-                t += dt; continue;
+                t += dt; dt = clamp(t * strideK, 45.0, (t1 - t0) / float(steps) * 1.5); continue;
               }
               if (!cloud) { if (t > tKeep) { fine = false; tBack = t; } t += dtF; continue; }
               // a flat base, a rounded crown; the shapes broken by a finer noise riding on the wind
               vec2 pw = p.xz - uWxWindD.xy;
               float det2 = 1.0 - smoothstep(16.0, 70.0, dtF * length(rd.xz)); // (the finest only where the steps resolve it)
               float dn = vnoise(pw * 0.0062 + vec2(p.y * 0.011, -p.y * 0.008)) * 0.62 + mix(0.19, vnoise(pw * 0.017 + p.y * 0.015 + 7.1) * 0.38, det2);
+              // the cauliflower edge: a finer billow where the steps resolve it, eating into the thin edges more than the heart
+              float det3 = 1.0 - smoothstep(8.0, 30.0, dtF * length(rd.xz));
+              dn += (vnoise(pw * 0.043 + vec2(p.y * 0.04, 3.3)) - 0.5) * 0.22 * det3;
               float prof = smoothstep(0.0, 0.06, hh) * (1.0 - smoothstep(0.45 + 0.3 * F.r, 1.0, hh + (dn - 0.5) * 0.35 * detK));
               float dens = clamp(F.r * prof * 1.5 - (1.0 - dn) * mix(0.5, 0.12, F.r) * detK, 0.0, 1.0);
               dens = max(dens, smoothstep(0.04, 0.45, av - (1.0 - dn) * 0.25 * detK) * 0.8);
@@ -489,6 +526,7 @@ vec4 wxMarch(vec3 ro, vec3 rd, float jit){
                 float sunT = exp(-od * 1.7);
                 vec3 col = uCloudLit * (sunT * phase * sunUp * 0.95) + (uCloudShade * 0.55 + skyA * 0.32) * (0.5 + 0.5 * hh);
                 col *= (1.0 - 0.4 * F.b * (1.0 - hh)) * (1.0 - 0.22 * F.a); // rain and storm darken the base
+                col *= mix(1.0 - 0.45 * smoothstep(0.25, 0.8, F.g), 1.0, smoothstep(0.0, 0.3, hh)); // a tall heap's flat base lies in its own shade
                 col *= 0.82 + 0.36 * dn * detK + 0.18 * (1.0 - detK); // the billows: their crowns catch more of the light
                 col += uSunGlow * spow(max(cosA, 0.0), 6.0) * (1.0 - dens) * 0.6 * uSunVis * sunUp;
                 float a = 1.0 - exp(-dens * uDomeP.w * dtF);
@@ -556,6 +594,8 @@ function wxBuildClouds() {
           // each heap stands as tall as its own: the towers of a storm, the low puffs of fair weather
           float bil = fbm3(p * 2.6 + w * 1.4 + 7.3); // billows: the heaps' crowns rise and fall whatever the cover
           float tall = F.w * (0.4 + 0.45 * smoothstep(thr - 0.05, thr + 0.35, n) + 0.55 * smoothstep(0.3, 0.75, bil));
+          // a storm's tower stands broad and whole over its rain (a column of cloud, not a heap on a heap)
+          tall = mix(tall, sqrt(max(F.w, 0.0)) * (0.82 + 0.18 * bil), smoothstep(0.35, 0.9, storm) * step(0.0, uWxHeld.x * -1.0 - 0.5));
           gl_FragColor = vec4(clamp(dens, 0.0, 1.0), clamp(tall, 0.0, 1.0), clamp(F.y, 0.0, 1.0), clamp(storm, 0.0, 1.0));
         }`,
     });
@@ -670,6 +710,7 @@ function wxShaftsFrame() {
 const _wxCellList = [];
 function wxCloudsFrame(dt) {
   wxShelterStep(dt);
+  U.uWxWetOn.value = WXWET_TEX && !wxHeld() && !INDOOR.on ? 1 : 0; // the wet film where it has rained (wxWetUpload)
   if (!WXR.on) { U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; return; }
   if (!WXR.field || WXR.q !== (WX_Q[quality.level] || WX_Q.medium)) wxBuildClouds();
   const cu = WXR.cu, cam = camera.position, held = wxHeld();

@@ -469,6 +469,7 @@ const HOUSE_FS = (() => {
     float houseSnowU(){ return uSnowCover; }
     float hWet = 0.0, hSnow = 0.0;
     #define uWet hWet
+    #define WX_WET_HERE hWet
     #define uSnowCover hSnow
   `);
   fs = houseShaderPatch(fs, 'void main(){', (a) => /* glsl */`
@@ -620,10 +621,10 @@ const HOUSE_FS = (() => {
       if (y4 > max(st4, uHD[hHi].x)) discard;
       if (y4 > st4 + 0.02) hNew = 1.0;
     }
-    hWet = houseWetU() * (1.0 - hIn); hSnow = houseSnowU() * (1.0 - hIn);
-    if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, houseWetU() * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
+    hWet = wetHere(vW, houseWetU()) * (1.0 - hIn); /* [weather2] */ hSnow = houseSnowU() * (1.0 - hIn);
+    if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, wetHere(vW, houseWetU()) * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
   `);
-  fs = houseShaderPatch(fs, 'alb *= 1.0 - 0.22 * uWet;', (x) => 'if (hHi >= 0 && m >= 40) alb = houseAlbedo(m, n, hHi, alb);\n    ' + x);
+  fs = houseShaderPatch(fs, 'alb *= 1.0 - 0.22 * wHere;' /* [weather2] */, (x) => 'if (hHi >= 0 && m >= 40) alb = houseAlbedo(m, n, hHi, alb);\n    ' + x);
   fs = houseShaderPatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', () => /* glsl */`
     if (hHi >= 0) houseFire(alb, hHi, hKind, m);
     if (hHi >= 0) houseBatter(alb, hHi, hKind, m); // [siege2] (04j_batter.js)

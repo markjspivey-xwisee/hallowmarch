@@ -29,6 +29,12 @@ const SHELTER_TEX0 = new THREE.DataTexture(new Float32Array([-1e4]), 1, 1, THREE
 SHELTER_TEX0.needsUpdate = true;
 U.uShelter = { value: SHELTER_TEX0 };
 U.uShelterOn = { value: 0 };
+// [weather2] the ground's wetness at each place (12c_weather2.js's 32 x 32 grid: it soaks where it rains and dries in the
+// sun), so the wet film lies under the rain and not beyond its edge; uWxWetOn 0 while the weather is held (uWet everywhere)
+const WXWET_TEX0 = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+WXWET_TEX0.needsUpdate = true;
+U.uWxWet = { value: WXWET_TEX0 };
+U.uWxWetOn = { value: 0 };
 const GLSL_SHELTER = /* glsl */`
 uniform highp sampler2D uShelter;
 uniform float uShelterOn;
@@ -40,6 +46,10 @@ float shelterY(vec2 xz){
 }
 // 1 under a roof (no snow lies, no rain falls), 0 under the open sky
 float shelteredK(vec3 wp){ return wp.y < shelterY(wp.xz) ? 1.0 : 0.0; }
+// [weather2] how wet the surfaces at wp are: the camera's own uWet while the weather is held, else the ground's wetness there
+uniform sampler2D uWxWet;
+uniform float uWxWetOn;
+float wetHere(vec3 wp, float w){ return uWxWetOn < 0.5 ? w : texture(uWxWet, clamp((wp.xz + 512.0) / 1024.0, vec2(0.0), vec2(1.0))).r; }
 `;
 
 const GLSL_SEASON = /* glsl */`

@@ -62,9 +62,10 @@ const B_FS = (() => {
     float pieceSnowU(){ return uSnowCover; }
     float pWet = 0.0, pSnow = 0.0;
     #define uWet pWet
+    #define WX_WET_HERE pWet
     #define uSnowCover pSnow
   `);
-  fs = bPatch(fs, 'void main(){', (a) => a + '\n      pWet = pieceWetU() * (1.0 - uPc.w); pSnow = pieceSnowU() * (1.0 - uPc.w);');
+  fs = bPatch(fs, 'void main(){', (a) => a + '\n      pWet = wetHere(vW, pieceWetU()) * (1.0 - uPc.w); /* [weather2] */ pSnow = pieceSnowU() * (1.0 - uPc.w);');
   fs = bPatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', () => /* glsl */`
       // fire: soot creeps over the piece, charred wood crazes into cracks that glow while it burns
       float bNz = vnoise(vW.xz * 1.9 + vW.y * 2.3) * 0.6 + vnoise(vW.xz * 5.3 - vW.y * 4.1 + 7.0) * 0.4;

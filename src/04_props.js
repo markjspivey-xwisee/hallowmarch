@@ -125,6 +125,9 @@ const buildingMat = mat({
     uniform float uFlash, uWet, uSnowCover;
     varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying float vMat; varying float vAO;
     vec2 planarUV(vec3 p, vec3 n){ vec3 a = abs(n); if (a.y > 0.7) return p.xz; return a.x > a.z ? vec2(p.z, p.y) : vec2(p.x, p.y); }
+    #ifndef WX_WET_HERE
+    #define WX_WET_HERE wetHere(vW, uWet)
+    #endif
     void main(){
       vec3 n = safeNormalize(vN);
       int m = int(vMat + 0.5);
@@ -228,9 +231,10 @@ const buildingMat = mat({
         alb *= 0.9 + 0.1 * vnoise(vW.xz * 4.0);
       }
       // rain darkens stone and wood; snow settles on roofs and ledges
-      alb *= 1.0 - 0.22 * uWet;
+      float wHere = WX_WET_HERE; // [weather2] the wetness here, not the camera's (02d_season.js wetHere)
+      alb *= 1.0 - 0.22 * wHere;
       /* ---- weather (GLSL_WEATHER; feature/weather): soaked by porosity, sheltered undersides stay dry, snow on what faces up ---- */
-      float wWet = uWet * mix(0.12, 1.0, smoothstep(-0.7, 0.05, n.y)) * mix(0.65, 1.0, smoothstep(-0.1, 0.6, n.y));
+      float wWet = wHere * mix(0.12, 1.0, smoothstep(-0.7, 0.05, n.y)) * mix(0.65, 1.0, smoothstep(-0.1, 0.6, n.y));
       float wPor = (m == 6 || m == 12 || m == 11 || m == 14) ? 0.0 : (m == 4 || m == 8) ? 1.0 : (m == 3 || m == 10 || m == 7) ? 0.3 : 0.6;
       alb *= 1.0 - wWet * wPor * 0.3;
       float wSnow = snowAmount(vW, n, uSnowCover * snowHere(vW), gPL) * (m == 14 ? 0.0 : 1.0); // [seasons] the snow lying here
@@ -238,7 +242,7 @@ const buildingMat = mat({
       /* ---- end weather ---- */
       vec3 col = lightSurface(alb, n, vAO);
       /* ---- weather: the wet film, trickles down the walls, sparkle on the snow ---- */
-      if (uWet > 0.01) {
+      if (wWet > 0.01) { // [weather2]
         vec3 Vw = safeNormalize(cameraPosition - vW);
         col += wetSheen(vW, n, Vw, wWet * (1.0 - wSnow), wPor, gSh) * mix(0.55, 1.0, vAO);
         col += (uAmbient * 0.55 + uLightColor * 0.25 * gSh) * rivulets(vW, n, wWet) * 0.3;
