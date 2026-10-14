@@ -25,7 +25,7 @@ const NET = {
   fastAt: 0, slowAt: 0, slowKey: '', fastKey: '', seq: 0, lastFast: null,
   out: [], evSeq: 0, inbox: [],
   party: '', partyLead: false, invites: [], partyMax: 6,
-  host: '', isHost: false, applyingWorld: false, srvWorld: null, srvWorldDone: false, worldKey: '', worldT: 0, capAsked: new Map(),
+  host: '', isHost: false, applyingWorld: false, srvWorld: null, srvWorldDone: false, worldKey: '', worldT: 0, capAsked: new Map(), regions: null, // [net] the regions' keepers (14p_netws.js)
   vel: { x: 0, z: 0, px: 0, pz: 0, t: 0 },
   cfg: { fastHz: 10, delay: 120, predict: 0.25, ringT: 2600, ringMax: 22, slowEvery: 1.0, ghostR: 260 },
   stats: { fastSent: 0, slowSent: 0, upBytes: 0, downBytes: 0, fastRecv: 0, slowRecv: 0, evOut: 0, evIn: 0, hitsOut: 0, hitsIn: 0, hitsRefused: 0, hitsLanded: 0, buffsOut: 0, buffsIn: 0, healsIn: 0, ghosts: 0, interp: 0, extrap: 0, held: 0, jumps: 0, keepsApplied: 0, capsAsked: 0, capsTaken: 0, chatOut: 0, chatIn: 0, refused: 0, sizeTrim: 0, kills: 0, deaths: 0, linkErr: 0 },
@@ -284,7 +284,7 @@ function netSlowObj() {
     o.wr = [P.wet || 0, P.snow || 0, P.dirt || 0, P.blood || 0, P.batter || 0].map((v) => Math.round(clamp(v, 0, 1) * 20) / 20);
     if (NET.party) { o.pt = NET.party; o.pl = NET.partyLead ? 1 : 0; }
   }
-  if (NET.isHost) o.w = netWorldObj();
+  if (NET.isHost || netKeepsMine()) o.w = netWorldObj(); // [net] the shard's host, or a region's keeper (its keeps)
   return o;
 }
 function netFastObj(now) {
@@ -456,12 +456,16 @@ function netOutBreak(e, flare) {
 // remote body as its caster, so it spares what the March's own fire spares there: a friend's town, a foe's never)
 function netLand(kind, data) { if (netOn() && GAME.player) netEvent('land', 0, [kind, ...data]); }
 // a keep's capture by your hand, when another page is the host: told to it (it takes it if it agrees)
+// who keeps a keep's word: its region's keeper (the server says, 14p_netws.js), else the shard's host
+function netKeepHost(i) { const G = NET.regions, r = G && G.kr[i], h = r && G.h[r]; return h || NET.host; }
+const netKeepMine = (i) => { const h = netKeepHost(i); return !!h && (h === NET.self || (NET.isHost && h === NET.host)); };
+const netKeepsMine = () => !!(NET.regions && NET.regions.kr.length && WAR.keeps.some((K, i) => netKeepMine(i)));
 function netCaptureHeld(K, realm) {
-  if (!netOn() || NET.isHost || NET.applyingWorld || !NET.host) return false;
   const i = WAR.keeps.indexOf(K), P = GAME.player;
+  if (!netOn() || NET.applyingWorld || !netKeepHost(i) || netKeepMine(i)) return false;
   if (P && realm === P.faction && dist(P.x, P.z, K.site.x, K.site.z) < 90 && !NET.capAsked.has(i + ':' + realm)) {
     NET.capAsked.set(i + ':' + realm, GAME.t);
-    netEvent('cap', NET.host, [i, realm]);
+    netEvent('cap', netKeepHost(i), [i, realm]);
     NET.stats.capsAsked++;
     uiLog(`You have taken ${K.site.name}: the March's host hears of it.`, 'sys', realm);
   }
@@ -587,7 +591,7 @@ function netHandle(R, kind, d) {
     NET.stats.landIn = (NET.stats.landIn || 0) + 1;
     return;
   }
-  if (kind === 'cap' && NET.isHost) {
+  if (kind === 'cap' && Array.isArray(d) && netKeepMine(d[0] | 0)) {
     // a player's capture told to the host: taken when that player is of the realm and stands at the keep
     if (!Array.isArray(d)) return;
     const K = WAR.keeps[d[0] | 0], realm = d[1];
@@ -624,7 +628,7 @@ function netHostElect() {
   NET.host = best === 'me' ? NET.self : best || '';
   NET.isHost = !!me && (NET.host === NET.self || best === 'me');
   if (was !== NET.host && was) { netNote('host ' + NET.host); if (NET.isHost) uiLog('You now keep the March\'s shared war for those here.', 'sys'); }
-  if (!NET.isHost) { const H = NET.peers.get(NET.host); netWorldTake(H && H.slow && H.slow.w); }
+  if (!NET.isHost) { const H = NET.peers.get(NET.host); netWorldTake(H && H.slow && H.slow.w, NET.regions && NET.regions.kr.length ? 'nokeeps' : ''); } // [net] with regions, the keeps come from the server's merged word
   else if (NET.srvWorld && !NET.srvWorldDone && performance.now() - NET.linkedAt > 3000 && ![...NET.peers.values()].some((R) => R.slow && R.slow.on)) { NET.srvWorldDone = true; netWorldTake(netWorldRead(NET.srvWorld)); netNote('world kept'); } // the first host of a session takes the war where it was kept (the server's, or the artifact's db)
 }
 function netWorldObj() {
@@ -640,18 +644,19 @@ function netWorldRead(w) {
   if (Array.isArray(w.cl) && w.cl.length === 3) o.cl = w.cl.map((c) => (Array.isArray(c) ? [netNum(c[0], 0, 1e5), netNum(c[1], 0, 1e5)] : [0, 0]));
   return o;
 }
-function netWorldTake(w) {
+function netWorldTake(w, part = '') {
   if (!w || !GAME.started) return;
   NET.applyingWorld = true;
   try {
     // the keeps' owners, as the host's war has them
-    WAR.keeps.forEach((K, i) => {
+    if (part !== 'nokeeps') WAR.keeps.forEach((K, i) => {
       const r = w.k[i];
-      if (!NET_REALM_OK(r) || r === K.realm) return;
+      if (!NET_REALM_OK(r) || r === K.realm || (part === 'keeps' && netKeepMine(i))) return; // [net] a keep this page keeps is its own word
       captureKeep(K, r, null);
       NET.stats.keepsApplied++;
     });
     // the claims on the March, while it is the same campaign: one war panel for everyone here
+    if (part === 'keeps' || part === 'keepsall') return;
     if (w.cl && w.cn === (CAMPAIGN.n || 0)) CAMPAIGN.claims.forEach((c, i) => { const h = w.cl[i]; if (Math.abs(c.k - h[0]) > 3) c.k = h[0]; if (Math.abs(c.h - h[1]) > 3) c.h = h[1]; });
     // the hour: one sky for everyone here (only while the sky runs its cycle)
     if (w.tm && tod.mode === 'cycle') { const d = ((w.td - tod.p + 4.5) % 3) - 1.5; tod.p = Math.abs(d) > 0.08 ? w.td : (tod.p + d * 0.05 + 3) % 3; }

@@ -564,6 +564,30 @@ async def season_part(p):
         await A.evaluate("__hm.LORE.openChronicle('season'); 0")
         inj = await A.evaluate("!!document.querySelector('.chron img')")
         check(not inj, 'what the server says is set as text')
+        # regions: a page of Thule at Logres' first keep keeps that region's word; the shard's host (A, at home) follows it
+        B = await boot(ctx, {'room': 'srv', 'user': 'uSeasonB', 'noRoom': True, 'server': url}, 'B')
+        kx, kz = await A.evaluate('(() => { const S = __hm.WAR.keeps[0].site; return [S.x * 0.8, S.z * 0.8]; })()')
+        await start(B, 2, 'warrior', 30, 'Hakon', kx, kz)
+        ok = await until([A, B], B, "!!(__hm.net.NET.regions && __hm.net.NET.regions.h.f0 === __hm.net.NET.self)", 30)
+        rg = await B.evaluate("JSON.stringify(__hm.net.NET.regions)")
+        check(ok, f'the page at the keep keeps its region ({rg})')
+        ok = await until([A, B], A, "!!(__hm.net.NET.regions && __hm.net.NET.regions.h.f0 && __hm.net.NET.regions.h.f0 !== __hm.net.NET.self) && NT.st().isHost", 20)
+        check(ok, 'the shard\'s host (away in its homeland) is told so')
+        await B.evaluate("__hm.fn.captureKeep(__hm.WAR.keeps[0], 2, null); 0")
+        ok = await until([A, B], A, "__hm.WAR.keeps[0].realm === 2", 30)
+        check(ok, "the region's keeper takes the keep: the shard's host has it from the server")
+        ok = False
+        for _ in range(30):
+            if http_json(base + '/season')['keeps'][0]['r'] == 2: ok = True; break
+            await step([A, B], 0.25)
+        check(ok, 'and the season has it')
+        await A.evaluate("__hm.fn.captureKeep(__hm.WAR.keeps[0], 1, null); 0")
+        await step([A, B], 0.25, 8)
+        k0 = await A.evaluate("__hm.WAR.keeps[0].realm")
+        check(k0 == 2, f'a page that does not keep the region holds a capture there for its keeper ({k0})')
+        errsB = await B.evaluate('__hm.errors.slice()')
+        check(not errsB, f'B: no errors ({errsB[:2]})')
+        await B.close()
         if SHOTS or True:
             await A.evaluate("__hm.LORE.openChronicle('season'); __hm.frame(1/30); 0")
             await A.evaluate("__hm.season.msg({ t: 'season', s: __hm.season.NETS.s && { ...JSON.parse(JSON.stringify(__hm.season.NETS.s)) } }); 0")

@@ -57,7 +57,10 @@ function netWsOpen() {
     let ws;
     try { ws = new WebSocket(NETWS.url); } catch (e) { resolve(false); return; }
     NETWS.ws = ws; NETWS.state = 'opening';
-    const fail = setTimeout(() => { try { ws.close(); } catch (e) { /* gone */ } resolve(false); }, 7000);
+    // 7 s to open; a socket open and waiting on its welcome (a page busy booting, a slow phone) waits 20 s more
+    let fail = null;
+    const giveUp = () => { try { ws.close(); } catch (e) { /* gone */ } resolve(false); };
+    fail = setTimeout(() => { if (ws.readyState === 1 && NETWS.state === 'opening') fail = setTimeout(giveUp, 20000); else giveUp(); }, 7000);
     ws.onopen = async () => {
       NETWS.stats.opens++;
       const tok = NETWS.token || (await netWsToken(NETWS.host));
@@ -83,6 +86,12 @@ function netWsOpen() {
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
       else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') netSeasonMsg(m); // the season (14q_netseason.js)
+      else if (m.t === 'hosts' && m.h && typeof m.h === 'object' && Array.isArray(m.kr)) { // the regions' keepers (CLAUDE.md, Multiplayer: who simulates what)
+        const h = {};
+        for (const k of Object.keys(m.h).slice(0, 12)) if (/^[fhb][0-2]?$/.test(k) && typeof m.h[k] === 'string') h[k] = m.h[k].slice(0, 32);
+        NET.regions = { h, kr: m.kr.slice(0, 16).map((x) => netStr(x, 3)), you: netStr(m.you, 3) };
+        NET.stats.regions = (NET.stats.regions || 0) + 1;
+      } else if (m.t === 'world' && m.w && typeof m.w === 'object') { netWorldTake(netWorldRead(m.w), m.init ? 'keepsall' : 'keeps'); NET.stats.worldIn = (NET.stats.worldIn || 0) + 1; }
     };
     ws.onclose = () => {
       clearTimeout(fail);

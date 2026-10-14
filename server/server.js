@@ -43,7 +43,7 @@ const CFG = {
   seasonPush: +process.env.HM_SEASON_PUSH || 10000,
 };
 fs.mkdirSync(path.join(CFG.data, 'saves'), { recursive: true });
-const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0 };
+const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0, regionChanges: 0, worldTold: 0 };
 
 /* ------------------------------------------------------------------ */
 /* the March's ground: the sites and the walkable land (src/01_world.js) */
@@ -159,6 +159,69 @@ function worldCheck(w) {
   const cl = Array.isArray(w.cl) && w.cl.length === 3 ? w.cl.map((c) => (Array.isArray(c) ? [Math.max(0, Math.min(1e5, +c[0] || 0)), Math.max(0, Math.min(1e5, +c[1] || 0))] : [0, 0])) : undefined;
   return { k: w.k.slice(), g, td, tm: w.tm === 1 ? 1 : 0, cn: Number.isFinite(w.cn) ? Math.max(0, Math.round(w.cn)) : 0, cl, at: Date.now() };
 }
+/* ------------------------------------------------------------------ */
+/* regions: who simulates what (CLAUDE.md, Multiplayer)                */
+/* ------------------------------------------------------------------ */
+// The March in seven regions: each realm's third of the frontier (f0, f1, f2: the keeps stand there), each homeland
+// (h0, h1, h2) and the Barrow (b). Of the pages in a region the one there longest keeps it: its word on the keeps of that
+// region is the shard's (a keep's region is its frontier third), and the shard's host (the page longest in the shard) keeps
+// whatever has no keeper of its own, the hour and the claims. Handed on when it leaves the region or the March.
+const MUSTERS = (WORLD.SITES || []).filter((s) => s.kind === 'muster').map((s) => [s.x, s.z, s.realm]);
+function regionOf(x, z) {
+  if (x > 1000) return 'b';
+  let best = 0, bd = Infinity;
+  for (const [mx, mz, r] of MUSTERS) { const d = Math.hypot(x - mx, z - mz); if (d < bd) { bd = d; best = r; } }
+  return (Math.hypot(x, z) < 190 ? 'f' : 'h') + best;
+}
+const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
+function regionHosts(R) {
+  const h = {};
+  for (const c of R.clients.values()) {
+    if (!c.region || !c.slow || c.slow.on !== 1) continue;
+    const o = h[c.region] && R.clients.get(h[c.region]);
+    if (!o || c.since < o.since || (c.since === o.since && c.peer < o.peer)) h[c.region] = c.peer;
+  }
+  return h;
+}
+function regionsTell(R, force) {
+  const h = regionHosts(R), key = JSON.stringify(h);
+  if (!force && key === R.regionKey) return;
+  R.regionKey = key; R.regions = h; STATS.regionChanges++;
+  for (const c of R.clients.values()) send(c, { t: 'hosts', h, kr: KEEP_REGION, you: c.region || '' });
+}
+// the war's shared state as the pages report it: each keep from its region's keeper (else the shard's host), the hour
+// and the claims from the shard's host; merged, kept, told to every page when a keep changes, and a keep a page took in
+// the live war taken in the season (a change between two of one keeper's reports, not its first word)
+// the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
+function worldNow(R) {
+  const w = WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && R.clients.size <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
+  return w;
+}
+function worldReport(c, raw) {
+  const w = worldCheck(raw);
+  if (!w) return;
+  const R = c.room, H = roomHost(R), hosts = R.regions || {};
+  const cur = WORLDS[R.name] || { ...w };
+  const merged = { ...cur, k: (cur.k || w.k).slice(), g: (cur.g || w.g).slice() };
+  if (H === c) { merged.td = w.td; merged.tm = w.tm; merged.cn = w.cn; merged.cl = w.cl; }
+  let changed = false;
+  R.rep = R.rep || [];
+  const sk = SEASON.keepsOf();
+  w.k.forEach((r, i) => {
+    const keeper = hosts[KEEP_REGION[i]] || (H && H.peer);
+    if (keeper !== c.peer) return;
+    // the keeper's last word on it, or the shard's (a new keeper was handed the merged war with its hosts: `world` init)
+    const last = R.rep[i] && R.rep[i].peer === c.peer ? R.rep[i].r : cur.k ? cur.k[i] : r;
+    if (last !== r && sk && sk[i] !== r) SEASON.capture(i, r, c.acct.name);
+    R.rep[i] = { peer: c.peer, r };
+    if (merged.k[i] !== r) { merged.k[i] = r; changed = true; }
+    merged.g[i] = w.g[i];
+  });
+  merged.at = Date.now();
+  WORLDS[R.name] = merged; worldsSave();
+  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged }); }
+}
 const legitJump = (p) => p.x > 1000 || WORLD.ports.some(([x, z]) => Math.hypot(p.x - x, p.z - z) < 45);
 // a moment for this reader? (a blow, an invite, a party's chat to whom it concerns; a realm's chat to its realm)
 function evFor(c, o, ev) {
@@ -180,8 +243,7 @@ function onHello(c, h) {
   c.room = R; c.peer = crypto.randomBytes(8).toString('hex'); c.since = Date.now();
   R.clients.set(c.peer, c);
   STATS.hellos++;
-  const sk = SEASON.keepsOf(); let world = WORLDS[R.name] || null;
-  if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2)) world = { ...(world || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() }; // the season decides who holds the keeps
+  const world = worldNow(R); // the season decides who holds the keeps while nobody is here
   c.lastSeen = (SEASON.roster[c.acct.id] && SEASON.roster[c.acct.id].last) || 0;
   send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest }, token: tokenFor(c.acct.id), room: R.name, world, interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
@@ -217,21 +279,14 @@ function onSlow(c, d) {
   c.realm = d.r === 0 || d.r === 1 || d.r === 2 ? d.r : -1;
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
-  if (d.w && roomHost(R) === c) {
-    const w = worldCheck(d.w);
-    if (w) {
-      // a keep taken in the live war is taken in the season (a change between two of the host's reports, not its first)
-      if (R.hostK && R.hostBy === c.peer && SEASON.RS) { const sk = SEASON.keepsOf(); w.k.forEach((r, i) => { if (r !== R.hostK[i] && sk && sk[i] !== r) SEASON.capture(i, r, c.acct.name); }); }
-      R.hostK = w.k.slice(); R.hostBy = c.peer;
-      WORLDS[R.name] = w; worldsSave();
-    }
-  }
+  if (d.w) worldReport(c, d.w);
   if (c.realm >= 0) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
     if (!c.toldSeason || c.toldRealm !== c.realm) { c.toldSeason = true; c.toldRealm = c.realm; seasonTell(c, c.lastSeen ? (Date.now() - c.lastSeen) / 1000 : -1, true); }
   }
   for (const o of R.clients.values()) if (o !== c) send(o, { t: 'peer', peer: c.peer, by: c.acct.id, slow: d });
+  if (c.region && !c.regionTold) { c.regionTold = true; regionsTell(R); }
 }
 function onFast(c, d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.p) || d.p.length !== 3 || !d.p.every(Number.isFinite)) { STATS.badMsgs++; return; }
@@ -243,6 +298,8 @@ function onFast(c, d) {
     if (dd > 6 && dd / dt > CFG.maxPace && !legitJump(p) && !(c.pos.x > 1000)) { c.suspect = (c.suspect || 0) + 1; STATS.paceDropped++; return; }
   }
   c.pos = p; c.posT = now;
+  const rg = regionOf(p.x, p.z);
+  if (rg !== c.region) { const first = !c.region; c.region = rg; regionsTell(c.room); if (first) { send(c, { t: 'hosts', h: c.room.regions || {}, kr: KEEP_REGION, you: rg }); const w = worldNow(c.room); if (w) send(c, { t: 'world', w, init: 1 }); } }
   // the moments new since this sender's last (over a socket nothing is lost: each is sent once)
   const evs = Array.isArray(d.ev) ? d.ev.filter((e) => Array.isArray(e) && e.length >= 3 && Number.isFinite(e[0]) && e[0] > (c.evSeq || 0) && typeof e[1] === 'string').slice(-40) : [];
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
@@ -352,7 +409,7 @@ const server = http.createServer((req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, rooms: [...ROOMS.values()].map((R) => ({ name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -374,6 +431,7 @@ wss.on('connection', (ws) => {
     if (!R) return;
     R.clients.delete(c.peer);
     for (const o of R.clients.values()) send(o, { t: 'left', peer: c.peer });
+    regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
   });
 });

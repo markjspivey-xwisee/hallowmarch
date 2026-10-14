@@ -70,12 +70,12 @@ function netsRoster(o) {
 function netsApply(first) {
   const s = NETS.s, P = GAME.player;
   const k = s.keeps.map((K) => K.r);
-  if (NET.isHost && k.length === WAR.keeps.length) {
+  if (k.length === WAR.keeps.length && WAR.keeps.some((K, i) => netKeepMine(i))) {
     NET.applyingWorld = true;
     try {
       WAR.keeps.forEach((K, i) => {
         const r = k[i];
-        if (!NET_REALM_OK(r) || r === K.realm) return;
+        if (!NET_REALM_OK(r) || r === K.realm || !netKeepMine(i)) return; // the keep's region's keeper takes it (the others hear it from the server)
         if (NETS.k && NETS.k[i] === r) return; // the season has not changed it since it last said: the live war's own
         captureKeep(K, r, null);
         NETS.stats.keepsApplied++;
@@ -103,7 +103,7 @@ function netSeasonHudHTML() {
   if (!netsOn()) return '';
   const s = NETS.s, P = GAME.player, ro = NETS.roster;
   const left = Math.max(0, s.len - s.t);
-  return `<div class="ns-line" title="The season of the March: the realms live on while you are away">Season ${s.n} · ${s.over ? 'over' : 'day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small>${netsAgo(left)} left</small>`}</div>`;
+  return `<div class="ns-line" title="The season of the March: the realms live on while you are away">Season ${s.n} · ${s.over ? 'over' : 'day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small> · ${netsAgo(left)} left</small>`}</div>`;
 }
 // what the player carries that the realm's stores take, by store
 function netsCarried() {
@@ -176,7 +176,7 @@ function chronSeason() {
   const st = s.st ? Object.entries(s.st).map(([g, n]) => `<li><b>${fmtInt(n)}</b> ${g}</li>`).join('') : '';
   const list = ro ? ro.list.map((x) => `<li>${x.on ? '<b class="ns-on">●</b> ' : ''}${esc(x.n)}${x.c ? ` · ${CLASSES[x.c].name} ${x.l}` : ''}${x.on ? ' · on now' : ` · ${x.ago < 2 ? 'just now' : netsAgo(x.ago * 60) + ' ago'}`}${x.g ? ` · brought ${fmtInt(x.g)} today` : ''}</li>`).join('') : '';
   const news = s.news.slice().reverse().map((L) => `<li>${esc(L[2])}</li>`).join('') || '<li>All quiet.</li>';
-  const pts = s.pts.map((p, i) => `<li style="--rc:${REALMS[i].color}"${i === r ? ' class="on"' : ''}><b>${esc(netsRealmName(i))}</b> ${fmtInt(p)} points · ${s.keeps.filter((K) => K.r === i).length} keeps</li>`).join('');
+  const pts = s.pts.map((p, i) => `<li style="--rc:${REALMS[i].color}"${i === r ? ' class="on"' : ''}><b>${esc(netsRealmName(i))}</b> ${fmtInt(p)} points · ${((n) => n + (n === 1 ? ' keep' : ' keeps'))(s.keeps.filter((K) => K.r === i).length)}</li>`).join('');
   const officer = realmRank(GAME.prog.rp) >= 5;
   return `<h2>The season</h2>
 <p class="lead">Season ${s.n}, ${s.over ? `over: ${s.winner >= 0 ? esc(netsRealmName(s.winner)) + ' holds the March' : 'the March is quiet'}` : `day ${s.day} of ${s.days}`}: ${esc(NETS_PHASE[s.phase].toLowerCase())}. The realms live on while you are away: every keep held earns its realm points through the season (twice in the final week), and the realm with the most at its end holds the March.</p>
