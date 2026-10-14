@@ -23,7 +23,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 KV = dict(a.split('=', 1) for a in ARGS if '=' in a)
-PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'companies')] or ['room']
+PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'companies', 'weather')] or ['room']
 THREE = 'three' in ARGS
 LOSSY = 'lossy' in ARGS
 SHOTS = 'shots' in ARGS
@@ -876,6 +876,84 @@ async def perf_part(p):
     await A.evaluate('NF.stop()')
     await b.close()
 
+WXJS = r"""window.WXT = {
+  H: window.__hm, get W() { return this.H.weather2; },
+  st(id) { const WX = this.W.WX; const c = id ? WX.cells.find((q) => q.id === id) : null;
+    return { follow: !!WX.follow, n: WX.cells.length, net: WX.cells.filter((q) => q.net).length, own: WX.cells.filter((q) => !q.net && !q.gone).length, held: this.W.wxHeld(),
+      c: c ? { x: c.x, z: c.z, s: c.s, fin: c.fin, age: c.age, net: !!c.net } : null, made: WX.stats.made, nwx: this.H.netwx ? this.H.netwx.NWX.stats : null }; },
+  at(x, z) { const o = this.W.weatherAt(x, z, {}); return { storm: o.storm, rain: o.rain, cover: o.cover }; },
+};
+0"""
+
+async def weather_part(p):
+    """[perf3] the weather shared: the host's systems on every page of the room (the same storm over the same place), eased
+    in, no weather of the follower's own; the host leaving, the next keeps the sky"""
+    rid = 'net-wx-' + ''.join(random.choice('abcdefghijk') for _ in range(6))
+    b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+    ctx = await b.new_context(viewport={'width': W, 'height': H})
+    A = await boot(ctx, {'room': rid, 'user': 'uAldwin'}, 'A')
+    town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
+    tx, tz = town
+    await start(A, 0, 'warrior', 30, 'Aldwin', tx + 4, tz + 10)
+    for _ in range(10): await A.evaluate('__hm.simulate(0.2); 0'); await asyncio.sleep(0.1)
+    B = await boot(ctx, {'room': rid, 'user': 'uBrisa'}, 'B')
+    await start(B, 0, 'mage', 30, 'Brisa', tx - 4, tz + 10)
+    pages = [A, B]
+    for pg in pages:
+        await pg.evaluate(WXJS)
+    # the weather live on both (a new game's own: Always clear off, no test's fixed weather)
+    for pg in pages: await pg.evaluate("(() => { const E = __hm.dbg.WEATHER; E.mode = 'auto'; if (E.next > 1e6) E.next = 60; __hm.weather2.release(); return 0; })()")
+    held = [await pg.evaluate('WXT.W.wxHeld()') for pg in pages]
+    check(held == [False, False], f'the weather is live on both pages ({held})')
+    ok = await until(pages, B, "NT.st().peers.some((p) => p.on && p.ghost)", 40)
+    hostA = (await A.evaluate('NT.st()'))['isHost']
+    H_, F_ = (A, B) if hostA else (B, A)
+    check(hostA or (await B.evaluate('NT.st()'))['isHost'], f'a host ({"A" if hostA else "B"})')
+    own0 = await F_.evaluate('WXT.st()')
+    log('follower before', json.dumps(own0))
+    # a storm on the host's page, 220 m from the town
+    sid = await H_.evaluate(f"(() => {{ const c = WXT.W.wxMake('storm', {tx + 220}, {tz}, {{ age: 120 }}); c.life = Math.max(c.life, 700); return c.id; }})()")
+    ok = await until(pages, F_, f"WXT.st({sid}).c !== null", 40, 0.25)
+    check(ok, f'the follower has the host\'s storm (id {sid})')
+    trail = []
+    for i in range(36):
+        await step(pages, 0.5)
+        a = await H_.evaluate(f'WXT.st({sid})'); f = await F_.evaluate(f'WXT.st({sid})')
+        if a['c'] and f['c']: trail.append((a['c'], f['c'], f['follow'], f['own']))
+    if trail:
+        last = trail[-1]
+        d = ((last[0]['x'] - last[1]['x']) ** 2 + (last[0]['z'] - last[1]['z']) ** 2) ** 0.5
+        check(d < 40, f'the same storm over the same place: {d:.1f} m apart after 18 s')
+        check(abs(last[0]['age'] - last[1]['age']) < 8, f"its age the same ({last[0]['age']:.0f} s and {last[1]['age']:.0f} s)")
+        ss = [t[1]['s'] for t in trail]
+        check(ss[0] < ss[-1] - 0.2 and all(ss[i + 1] >= ss[i] - 0.02 for i in range(len(ss) - 1)), f'it fades in on the follower: s {ss[0]:.2f} .. {ss[-1]:.2f}')
+        jumps = [(((trail[i + 1][1]['x'] - trail[i][1]['x']) ** 2 + (trail[i + 1][1]['z'] - trail[i][1]['z']) ** 2) ** 0.5) for i in range(len(trail) - 1)]
+        check(max(jumps) < 25, f'nothing jumps: its largest move in a half second {max(jumps):.1f} m')
+        check(all(t[2] for t in trail[-10:]), 'the follower follows')
+    cx, cz = (trail[-1][0]['x'], trail[-1][0]['z']) if trail else (tx + 220, tz)
+    wa = await H_.evaluate(f'WXT.at({cx}, {cz})'); wb = await F_.evaluate(f'WXT.at({cx}, {cz})')
+    check(wa['storm'] > 0.4 and abs(wa['storm'] - wb['storm']) < 0.1 and abs(wa['rain'] - wb['rain']) < 0.12, f"the weather under it the same on both: storm {wa['storm']:.2f} / {wb['storm']:.2f}, rain {wa['rain']:.2f} / {wb['rain']:.2f}")
+    fl = await F_.evaluate('WXT.st()')
+    for _ in range(40): await step(pages, 0.5)
+    fl2 = await F_.evaluate('WXT.st()')
+    check(fl2['own'] == 0, f"the follower's own systems gone, faded out ({own0['own']} at first, {fl2['own']} now), {fl2['net']} of the host's")
+    hs = await H_.evaluate('WXT.st()')
+    check(abs(hs['n'] - fl2['net']) <= 1, f"the same systems: the host {hs['n']}, the follower {fl2['net']}")
+    nb = (await F_.evaluate('NT.st()'))['stats']
+    log('follower stats', json.dumps(fl2['nwx']), 'profile bytes', nb.get('downBytes'))
+    # the host leaves: the follower keeps the sky and goes on making it
+    before = await F_.evaluate(f'WXT.st({sid})')
+    await H_.close()
+    pages2 = [F_]
+    ok = await until(pages2, F_, 'NT.st().isHost', 40, 0.5)
+    check(ok, 'the follower is the host once the other has gone')
+    for _ in range(50): await step(pages2, 0.5)
+    after = await F_.evaluate(f'WXT.st({sid})')
+    check(not after['follow'] and after['c'] is not None, f"it keeps the storm and its own sky (following {after['follow']}, the storm {'there' if after['c'] else 'gone'})")
+    errs = await F_.evaluate('__hm.errors.slice()')
+    check(not errs, f'no errors ({errs[:2]})')
+    await b.close()
+
 async def main():
     async with async_playwright() as p:
         if 'room' in PARTS: await room_part(p)
@@ -884,6 +962,7 @@ async def main():
         if 'season' in PARTS: await season_part(p)
         if 'companies' in PARTS: await companies_part(p)
         if 'deployed' in PARTS: await deployed_part(p)
+        if 'weather' in PARTS: await weather_part(p)
     print(f'\n{len(FAILS)} failed in {time.time() - T0:.0f}s')
     for f in FAILS: print('  FAIL', f)
     sys.exit(1 if FAILS else 0)

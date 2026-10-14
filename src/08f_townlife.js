@@ -57,7 +57,7 @@ const _lpC = [];
 // [war3] the A*'s own arrays, kept between calls and grown when a grid is bigger (it made a Float32Array, an Int32Array
 // and two Uint8Arrays of the grid's size and an array a node pushed each call: 40 to 90 ms now and then for a band's
 // leader on the quarter-metre grid, perf2.py); a cell's cost is good only while its stamp is this call's
-const LP = { n: 0, blocked: null, gs: null, from: null, stamp: null, shut: null, gen: 0, hf: null, hk: null, hn: 0, stats: { calls: 0, ms: 0, max: 0, cells: 0 } };
+const LP = { n: 0, blocked: null, gs: null, from: null, fromV: null, /* [perf3] the parents the last search left (its own or the WebAssembly memory's) */ stamp: null, shut: null, gen: 0, hf: null, hk: null, hn: 0, stats: { calls: 0, ms: 0, max: 0, cells: 0 } };
 const lpWalkArr = () => W.walk; // (the world's walk mask: inside localPath W is the grid's width)
 function lpGrow(N) {
   if (LP.n >= N) return;
@@ -81,6 +81,36 @@ function lpHeapPop() {
     hf[q] = lf; hk[q] = lk;
   }
   return top;
+}
+// [perf3] localPath's A* on its own (the JS way; 14s_wasm.js's WebAssembly does the same step for step): fills LP.from
+function lpSearchJS(W, Hh, N, s, g) {
+  const blocked = LP.blocked;
+  const gen = (LP.gen = (LP.gen + 1) >>> 0) || (LP.stamp.fill(0), LP.shut.fill(0), (LP.gen = 1));
+  const gs = LP.gs, from = LP.from, stamp = LP.stamp, shut = LP.shut;
+  const gi = g % W, gj = (g / W) | 0;
+  const hOf = (k) => Math.hypot((k % W) - gi, ((k / W) | 0) - gj);
+  LP.hn = 0;
+  stamp[s] = gen; gs[s] = 0; from[s] = -1; lpHeapPush(hOf(s), s);
+  let found = false, guard = 0;
+  while (LP.hn && guard++ < N * 8) {
+    const k = lpHeapPop();
+    if (shut[k] === gen) continue;
+    if (k === g) { found = true; break; }
+    shut[k] = gen;
+    const ki = k % W, kj = (k / W) | 0, gk = gs[k];
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const ni = ki + di, nj = kj + dj;
+      if (ni < 0 || nj < 0 || ni >= W || nj >= Hh) continue;
+      const n2 = nj * W + ni;
+      if (blocked[n2] || shut[n2] === gen) continue;
+      if (di && dj && (blocked[kj * W + ni] || blocked[nj * W + ki])) continue;
+      const ng = gk + (di && dj ? 1.4142 : 1);
+      if (stamp[n2] !== gen || ng < gs[n2]) { stamp[n2] = gen; gs[n2] = ng; from[n2] = k; lpHeapPush(ng + hOf(n2), n2); }
+    }
+  }
+  LP.fromV = from;
+  return found;
 }
 function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs = 1) { // [war2] gates: a castle's gate is a wall (a band's way round, 08j_war2.js); [v15] cs: the cells' size in metres (a narrow way: 0.25)
   const x0 = Math.floor(Math.min(ax, bx) - 10), z0 = Math.floor(Math.min(az, bz) - 10);
@@ -125,30 +155,8 @@ function localPath(ax, az, bx, bz, pad = 0.45, maxSpan = 76, gates = false, cs =
   blocked[s] = 0; blocked[g] = 0;
   // A* with a binary heap of (f, cell) in typed arrays; 8 neighbours, no corner cutting (the same order as before, so
   // the same way comes out)
-  const gen = (LP.gen = (LP.gen + 1) >>> 0) || (LP.stamp.fill(0), LP.shut.fill(0), (LP.gen = 1));
-  const gs = LP.gs, from = LP.from, stamp = LP.stamp, shut = LP.shut;
-  const gi = g % W, gj = (g / W) | 0;
-  const hOf = (k) => Math.hypot((k % W) - gi, ((k / W) | 0) - gj);
-  LP.hn = 0;
-  stamp[s] = gen; gs[s] = 0; from[s] = -1; lpHeapPush(hOf(s), s);
-  let found = false, guard = 0;
-  while (LP.hn && guard++ < N * 8) {
-    const k = lpHeapPop();
-    if (shut[k] === gen) continue;
-    if (k === g) { found = true; break; }
-    shut[k] = gen;
-    const ki = k % W, kj = (k / W) | 0, gk = gs[k];
-    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-      if (!di && !dj) continue;
-      const ni = ki + di, nj = kj + dj;
-      if (ni < 0 || nj < 0 || ni >= W || nj >= Hh) continue;
-      const n2 = nj * W + ni;
-      if (blocked[n2] || shut[n2] === gen) continue;
-      if (di && dj && (blocked[kj * W + ni] || blocked[nj * W + ki])) continue;
-      const ng = gk + (di && dj ? 1.4142 : 1);
-      if (stamp[n2] !== gen || ng < gs[n2]) { stamp[n2] = gen; gs[n2] = ng; from[n2] = k; lpHeapPush(ng + hOf(n2), n2); }
-    }
-  }
+  // [perf3] the search itself in lpSearch (14s_wasm.js: WebAssembly when it is on, else lpSearchJS below: the same way)
+  const found = lpSearch(W, Hh, N, s, g), from = LP.fromV;
   LP.stats.calls++; LP.stats.cells += N;
   if (!found) { const ms = performance.now() - t0; LP.stats.ms += ms; LP.stats.max = Math.max(LP.stats.max, ms); return null; }
   const cells = [];

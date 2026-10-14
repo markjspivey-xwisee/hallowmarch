@@ -98,6 +98,15 @@ function perfTimers() {
   renderShadowPass = w('renderShadowPass', renderShadowPass); renderPost = w('renderPost', renderPost); updateHUD = w('updateHUD', updateHUD);
   updateLore = w('updateLore', updateLore); classHUD = w('classHUD', classHUD); updateAudio = w('updateAudio', updateAudio);
   updateGrassCenters = w('updateGrassCenters', updateGrassCenters); drawGifts = w('drawGifts', drawGifts); drawHall = w('drawHall', drawHall);
+  // [perf3] the systems of versions 13 to 19 (none of them was timed: perf2.py's step and frame tops left them out)
+  updateWeather2 = w('updateWeather2', updateWeather2); wxCloudsFrame = w('wxCloudsFrame', wxCloudsFrame); wxCloudsScreen = w('wxCloudsScreen', wxCloudsScreen);
+  updateLoops = w('updateLoops', updateLoops); updateSeason = w('updateSeason', updateSeason); netPump = w('netPump', netPump); netUiFrame = w('netUiFrame', netUiFrame);
+  footLockStep = w('footLockStep', footLockStep); updateWar3 = w('updateWar3', updateWar3); updateWar4 = w('updateWar4', updateWar4);
+  updateLate2 = w('updateLate2', updateLate2); updateLate4 = w('updateLate4', updateLate4); drawLate4 = w('drawLate4', drawLate4); updateSeasons = w('updateSeasons', updateSeasons);
+  updateBlaze = w('updateBlaze', updateBlaze); updatePalisades = w('updatePalisades', updatePalisades); updateMountains = w('updateMountains', updateMountains);
+  updateLod = w('updateLod', updateLod); hudLayout = w('hudLayout', hudLayout); updateTowers = w('updateTowers', updateTowers); updateSiege = w('updateSiege', updateSiege);
+  localPath = w('localPath', localPath); a2DragonSolve = w('a2DragonSolve', a2DragonSolve); updateNightSky = w('updateNightSky', updateNightSky);
+  tracksUpdate = w('tracksUpdate', tracksUpdate); drawWalls = w('drawWalls', drawWalls); updateWarPanel = w('updateWarPanel', updateWarPanel); look5Frame = w('look5Frame', look5Frame); look6Frame = w('look6Frame', look6Frame);
 }
 function perfTimes(reset = false) {
   const out = Object.entries(PERFX.times).map(([k, r]) => ({ k, ms: +r.ms.toFixed(2), n: r.n, each: +(r.ms / Math.max(1, r.n)).toFixed(3) })).sort((a, b) => b.ms - a.ms);
