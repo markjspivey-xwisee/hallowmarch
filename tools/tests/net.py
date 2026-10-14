@@ -348,7 +348,9 @@ class NodeClient:
         return None
     async def quit(self):
         try: await self.cmd({'cmd': 'quit'}); await asyncio.wait_for(self.proc.wait(), 3)
-        except Exception: self.proc.kill()
+        except Exception:
+            try: self.proc.kill()
+            except ProcessLookupError: pass
 
 def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
@@ -775,9 +777,11 @@ async def companies_part(p):
         eid = await A.evaluate("(() => { const M = __hm.companies.CO.s.co.mem.find((x) => x.n.startsWith('Edda')); return M ? M.id : ''; })()")
         await A.evaluate("__hm.net.sheet(true); 0"); await until([A], A, "(__hm.frame(1/30), true)", 0.2)
         await asyncio.sleep(0.5)
-        await A.evaluate(f"document.querySelector('#netsheet-co button[data-co=\"remove\"][data-who=\"{eid}\"]').click(); 0")
-        ok = await until([A, B], B, "!!__hm.companies.CO.s && !__hm.companies.CO.s.co", 15)
-        check(ok and eid, 'the captain removes Edda, and her page is told')
+        await until([A, B], A, "!__hm.companies.CO.busy && !!document.querySelector('#netsheet-co button[data-co=\"remove\"]')", 20)
+        await A.evaluate(f"(() => {{ const b = document.querySelector('#netsheet-co button[data-co=\"remove\"][data-who=\"{eid}\"]'); if (b) b.click(); return 0; }})()")
+        ok = await until([A, B], B, "!!__hm.companies.CO.s && !__hm.companies.CO.s.co", 25)
+        why = await A.evaluate("__hm.companies.CO.msg + ' / busy ' + __hm.companies.CO.busy")
+        check(ok and eid, f'the captain removes Edda, and her page is told ({why})')
         ok = await until([A, B], A, "(() => { const g = NT.ghostOf('Edda'); return !!g && !__hm.companies.ofEnt(g); })()", 15)
         check(ok, 'and her nameplate no longer names the company')
         if SHOTS:
