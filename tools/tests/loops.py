@@ -41,7 +41,7 @@ QUALITY = next((a[2:] for a in ARGS if a.startswith('q=')), 'low')
 FAILS = []
 T0 = time.time()
 
-def want(k): return (ONLY is None and k not in ('shots', 'phone')) or (ONLY is not None and k in ONLY) or (k in ('shots', 'phone') and ONLY is None and not NOSHOTS)
+def want(k): return (ONLY is None and k not in ('shots', 'phone', 'seasonshots')) or (ONLY is not None and k in ONLY) or (k in ('shots', 'phone') and ONLY is None and not NOSHOTS)
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -640,6 +640,29 @@ async def main():
                 await shot('loops_woodcutter', r"""(() => { const w = __lw, t = w.ai.plan.steps[w.ai.plan.i].tree, cam = __hm.camera, gy = __hm.fn.heightAt(w.x, w.z); __hm.UI.modal = 'menu'; __hm.CAM.mode = 'fixed';
                   const a = Math.atan2(w.x - t.x, w.z - t.z) + 1.2; cam.position.set(w.x + Math.sin(a) * 5, gy + 2.0, w.z + Math.cos(a) * 5); cam.lookAt((w.x + t.x) / 2, gy + 1.3, (w.z + t.z) / 2); return 0; })()""")
             check(ok, 'a woodcutter found at work for the picture')
+
+        if want('seasonshots'):
+            # [loops] the season as a player sees it: the Chronicle's Season page on a phone, the war panel's line on a desk
+            print('SEASON SHOTS', flush=True)
+            await b.close()
+            for (w, h, touch, name) in ((390, 780, True, 'loops_season_phone'), (960, 540, False, 'loops_season_desk')):
+                b, page, logs = await setup(p, touch=touch, w=w, h=h)
+                await ev(page, "__hm.fn.setQuality('low'); 0")
+                await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 24 }); __hm.UI.modal = null; return 0; })()")
+                await ev(page, HELP)
+                await ev(page, "(() => { __lt.quiet(); __lt.calm(); __hm.simulate(2); __hm.season.away(9 * 86400); __hm.GAME.prog.rp = 60000; __hm.simulate(2); for (let i = 0; i < 4; i++) __hm.frame(1/30); return 0; })()")
+                await page.wait_for_timeout(1500)
+                await page.screenshot(path=OUT + name + '_hud.png', timeout=300000)
+                await ev(page, "(() => { __hm.LORE.openChronicle('season'); return 0; })()")
+                await page.wait_for_timeout(800)
+                await page.screenshot(path=OUT + name + '_page.png', timeout=300000)
+                await ev(page, "(() => { const b = document.querySelector('#menu-body .season-proj'); if (b) b.scrollIntoView({ block: 'start', behavior: 'instant' }); return 0; })()")
+                await page.wait_for_timeout(400)
+                await page.screenshot(path=OUT + name + '_work.png', timeout=300000)
+                wide = await ev(page, "(() => { const m = document.querySelector('#menu-body .chron-body'); return [m.scrollWidth, m.clientWidth]; })()")
+                check(wide[0] <= wide[1] + 2, f'the Season page has no sideways overflow at {w}x{h} ({wide})')
+                print('  shots', name, flush=True)
+                if name.endswith('phone'): await b.close()
 
         errs = await ev(page, "__hm.errors.length")
         errlist = await ev(page, "__hm.errors.slice(0, 5).map((e) => String(e.msg || e).slice(0, 200))")
