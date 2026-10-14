@@ -30,9 +30,11 @@ jobs:
           git config user.email "hallowmarch-ci@users.noreply.github.com"
           for ref in 6032c70c385245dbdd1a9530a357b8895e57164b d9539934d435d642f34bc3f338dc050a1da91ad9 20a7b35669e8bbe17bb8806d1b4eb1e3e062e713 364a714ef09c8494045c2185ca668053beafcef2; do
             if ! git merge --no-edit --no-ff "$ref"; then
-              git diff --name-only --diff-filter=U
-              git diff --cc
-              exit 1
+              if ! python3 tools/ci/merge_saved.py; then
+                git diff --name-only --diff-filter=U
+                git diff --cc
+                exit 1
+              fi
             fi
           done
       - name: Save assembled work in progress
