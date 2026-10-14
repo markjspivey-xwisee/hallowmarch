@@ -81,6 +81,7 @@ function netWsOpen() {
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
+      else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
     };
     ws.onclose = () => {
       clearTimeout(fail);
@@ -122,6 +123,38 @@ function netLinkWS(url) {
     return L;
   })();
   return NETWS.linkP;
+}
+// the account: name a guest's (`claim`: it keeps its character), or sign in to a named one (`login`: its token is kept and
+// the page loads again, so the boot reads that account's save: nothing of the guest's character is written over it)
+function netWsAcct(op, name, pass) {
+  return new Promise((res) => {
+    if (NETWS.acctWait || !netWsSend({ t: 'acct', op, name, pass })) { res({ ok: false, why: NETWS.acctWait ? 'Wait a moment' : 'Not linked to the server' }); return; }
+    NETWS.acctWait = res;
+    setTimeout(() => { if (NETWS.acctWait === res) { NETWS.acctWait = null; res({ ok: false, why: 'The server did not answer' }); } }, 9000);
+  });
+}
+async function netAcctDo(op, name, pass) {
+  const r = await netWsAcct(op, name, pass);
+  if (!r || !r.ok || !r.acct || typeof r.token !== 'string') return r;
+  NETWS.stats.acct = (NETWS.stats.acct || 0) + 1;
+  if (op === 'claim') { NETWS.acct = r.acct; NETWS.token = r.token; await netWsTokenKeep(NETWS.host, r.token); return r; }
+  await netWsTokenKeep(NETWS.host, r.token);
+  NETWS.reload = true;
+  setTimeout(() => location.reload(), 600);
+  return r;
+}
+async function netAcctOut() {
+  try { localStorage.removeItem('hallowmarch.token.' + NETWS.host); } catch (e) { /* storage blocked */ }
+  try {
+    const C = window.claude;
+    if (C && typeof C.use === 'function') {
+      const [db, user] = await Promise.all([C.use('db'), C.use('user')]);
+      const uid = user && (await user.id());
+      if (db && uid) { const ref = db.doc('data/users/' + uid + '/server'); const s = await ref.get(); const d = s.exists ? s.data() : {}; const tokens = { ...(d.tokens || {}) }; delete tokens[NETWS.host]; await ref.set({ tokens }); }
+    }
+  } catch (e) { /* kept in this browser only */ }
+  NETWS.reload = true;
+  setTimeout(() => location.reload(), 300);
 }
 // the save held by the server (12_save.js: initSaveBackend asks this first): a document's three calls over the socket
 async function netServerSaveRef() {

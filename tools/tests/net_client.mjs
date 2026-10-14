@@ -2,7 +2,7 @@
 // page does (hello with a token, the profile, the fast state ten times a second with its ring of moments), driven by
 // JSON lines on stdin, telling what it hears as JSON lines on stdout.
 // commands: {"cmd":"hello","name":..,"realm":..,"cls":..,"x":..,"z":..} {"cmd":"move","x":..,"z":..} {"cmd":"ev","kind":..,"to":..,"data":..}
-//           {"cmd":"state"} {"cmd":"save","d":{...}} {"cmd":"load"} {"cmd":"quit"}
+//           {"cmd":"state"} {"cmd":"save","d":{...}} {"cmd":"load"} {"cmd":"raw","m":{...}} {"cmd":"quit"}
 import { createRequire } from 'node:module';
 import readline from 'node:readline';
 const require = createRequire(import.meta.url);
@@ -26,6 +26,7 @@ ws.on('message', (data) => {
   else if (m.t === 'left') { S.got.left++; delete S.peers[m.peer]; }
   else if (m.t === 'save' || m.t === 'saved') { S.save = m; out({ save: m }); }
   else if (m.t === 'denied') out({ denied: m.why });
+  else if (m.t === 'acct') out({ acct: m });
 });
 ws.on('close', () => { out({ closed: true }); process.exit(0); });
 const send = (o) => { const m = JSON.stringify(o); if (ws.readyState === 1) ws.send(m); else pending.push(m); };
@@ -50,5 +51,6 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   else if (c.cmd === 'state') out({ state: { peer: S.peer, acct: S.acct, got: S.got, peers: Object.fromEntries(Object.entries(S.peers).map(([k, v]) => [k, { name: v.slow && v.slow.n, x: v.fast && v.fast.p[0], z: v.fast && v.fast.p[2], n: v.n }])), evs: S.evs.slice(-20) } });
   else if (c.cmd === 'save') send({ t: 'save', d: c.d });
   else if (c.cmd === 'load') send({ t: 'load' });
+  else if (c.cmd === 'raw') send(c.m);
   else if (c.cmd === 'quit') { clearInterval(tick); ws.close(); }
 });

@@ -49,6 +49,7 @@ function chargeLateText() {
 // maces. Only a mage's ward keeps its spell from the flare (wardTakesBreak, as before). A careful priest casts its heals
 // when the foe's Holy Fire is spent, and baits it with a smite.
 function flareBreak(t) {
+  if (t && t.role === 'remote') return netOutBreak(t, 1); // [net] told to its page (14n_net.js)
   if (!B8T.flareThrough) return breakCast(t);
   if (!t || !t.casting) return false;
   if (wardTakesBreak(t)) return false; // a mage behind its ward keeps its spell (07c_balance6.js)

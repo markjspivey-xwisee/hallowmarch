@@ -35,7 +35,7 @@ const CFG = {
   maxPace: 45,
 };
 fs.mkdirSync(path.join(CFG.data, 'saves'), { recursive: true });
-const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0 };
+const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0 };
 
 /* ------------------------------------------------------------------ */
 /* the March's ground: the sites and the walkable land (src/01_world.js) */
@@ -172,6 +172,30 @@ function onHello(c, h) {
   send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest }, token: tokenFor(c.acct.id), room: R.name, world: WORLDS[R.name] || null, interest: CFG.interest });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
+// the account, from a page already in: a guest names its own (`claim`: name and password set on it, so it keeps its
+// save), or asks for a named one's token (`login`: the page keeps it and loads again; this socket stays the guest's, so
+// nothing the page saves before it reloads lands on the named account); six tries a minute a socket
+function onAcct(c, m) {
+  const now = Date.now(), no = (why) => send(c, { t: 'acct', ok: false, why });
+  c.acctTries = (c.acctTries || []).filter((t) => now - t < 60000);
+  if (c.acctTries.length >= 6) { STATS.acctRefused++; no('Too many tries: wait a minute'); return; }
+  c.acctTries.push(now);
+  const name = cleanName(m.name), pass = typeof m.pass === 'string' ? m.pass : '';
+  if (name.length < 3 || pass.length < 6 || pass.length > 200) { no('A name of 3 to 20 letters and a password of 6 or more'); return; }
+  if (m.op === 'claim') {
+    if (!c.acct.guest) { no('This account has a name already'); return; }
+    if (accountByName(name)) { no('That name is taken'); return; }
+    const salt = crypto.randomBytes(16).toString('hex');
+    c.acct.name = name; c.acct.guest = false; c.acct.pass = { salt, hash: crypto.scryptSync(pass, salt, 32).toString('hex') };
+    accountsSave(); STATS.claims++;
+    send(c, { t: 'acct', ok: true, op: 'claim', acct: { id: c.acct.id, name: c.acct.name, guest: false }, token: tokenFor(c.acct.id) });
+  } else if (m.op === 'login') {
+    const r = accountResolve({ login: { name, pass } });
+    if (r.err) { STATS.acctRefused++; no(r.err); return; }
+    STATS.logins++;
+    send(c, { t: 'acct', ok: true, op: 'login', acct: { id: r.A.id, name: r.A.name, guest: false }, token: tokenFor(r.A.id) });
+  } else no('Unknown');
+}
 function onSlow(c, d) {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return;
   d.since = c.since; // the server's clock decides who was here first (the host)
@@ -226,6 +250,7 @@ function onMsg(c, raw) {
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
   if (m.t === 'slow') onSlow(c, m.d);
+  else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
   else if (m.t === 'ping') send(c, { t: 'pong', c: m.c, s: now });
   else if (m.t === 'save') {

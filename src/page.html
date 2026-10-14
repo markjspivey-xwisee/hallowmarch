@@ -814,6 +814,11 @@
   #netsheet .net-line b { color: var(--rc, #fff); }
   #netsheet .net-quiet { opacity: 0.75; font-size: 13px; }
   #log .chat { color: var(--rcol, #e8e0d0); }
+  #netsheet-acct { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+  #netsheet-acct .net-fields { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  #netsheet-acct input { flex: 1 1 160px; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.45); color: var(--ink); font: 15px var(--ui); }
+  #netsheet-acct .net-msg { min-height: 18px; font-size: 13px; opacity: 0.9; }
+  #netsheet-acct .net-msg.bad { color: #f0a090; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>

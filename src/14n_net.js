@@ -442,6 +442,16 @@ function netOnArrow(A) {
 }
 // the land changed by your hand (a tree you fell, your fire landing, your meteor's or your leap's crater): told to the
 // others, whose pages change theirs the same way (those here now: a page that comes later has its own land)
+// a spell of another page's player broken here (a flare, a storm, a blunt arrow that broke it on your page: breakCast and
+// flareBreak): told to its page, which breaks it by its own rules (a steadied spell, a mage's ward), so a flare is a flare
+// between players too; the body here stops casting at once, and its page's word follows
+function netOutBreak(e, flare) {
+  if (!e.casting || !netOn() || !GAME.player || !netIsEnemy(GAME.player, e)) return false;
+  netEvent('brk', e.netPeer, flare ? 1 : 0);
+  NET.stats.breaksOut = (NET.stats.breaksOut || 0) + 1;
+  e.casting = null;
+  return true;
+}
 // a change a player makes to the land, told to the pages there now (each does it as its own page did; the fire with the
 // remote body as its caster, so it spares what the March's own fire spares there: a friend's town, a foe's never)
 function netLand(kind, data) { if (netOn() && GAME.player) netEvent('land', 0, [kind, ...data]); }
@@ -557,6 +567,15 @@ function netHandle(R, kind, d) {
     const x = netNum(d[0], -4000, 4000), y = netNum(d[1], -500, 500), z = netNum(d[2], -4000, 4000);
     CLS.arrows.push({ ox: x, oy: y, oz: z, x, y, z, px: x, py: y, pz: z, vx: netNum(d[3], -120, 120), vy: netNum(d[4], -120, 120), vz: netNum(d[5], -120, 120), src: src.id, faction: src.faction, k: 1, type: /^[a-z]{1,10}$/.test(d[6]) ? d[6] : '', age: 0, tgt: null, mult: 0, crit: 0, wind: 1, vis: true });
     sfxAtE('bow', src);
+    return;
+  }
+  if (kind === 'brk') {
+    // a foe broke your spell on its page: within reach of a spell's interrupt (a flare's 10 m, a storm's or an arrow's
+    // reach), one a second at most; your own rules decide (castSteady, a ward)
+    if (!src || !src.alive || !P || !P.alive || !P.casting || !netIsEnemy(src, P) || dist(src.x, src.z, P.x, P.z) > 45 || GAME.t - (R.brkAt || -9) < 0.8) return;
+    R.brkAt = GAME.t;
+    const id = P.casting.id, broke = d === 1 ? flareBreak(P) : breakCast(P);
+    if (broke) { NET.stats.breaksIn = (NET.stats.breaksIn || 0) + 1; uiLog(`${R.slow ? R.slow.dn : 'A foe'} breaks your ${ABILITIES[id] ? ABILITIES[id].name : 'spell'}.`, 'hurt'); }
     return;
   }
   if (kind === 'land') {

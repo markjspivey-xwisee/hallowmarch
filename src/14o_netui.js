@@ -42,7 +42,7 @@ function netUiOn() {
   if (!$('netsheet')) {
     const o = document.createElement('div');
     o.className = 'overlay'; o.id = 'netsheet'; o.hidden = true;
-    o.innerHTML = '<div class="sheet panel" role="dialog" aria-labelledby="netsheet-title"><div class="kithead"><h2 id="netsheet-title">In the March</h2><button class="btn" id="netsheet-close" type="button">Close</button></div><div id="netsheet-body"></div></div>';
+    o.innerHTML = '<div class="sheet panel" role="dialog" aria-labelledby="netsheet-title"><div class="kithead"><h2 id="netsheet-title">In the March</h2><button class="btn" id="netsheet-close" type="button">Close</button></div><div id="netsheet-body"></div><div id="netsheet-acct" hidden></div></div>';
     document.body.appendChild(o);
     $('netsheet-close').onclick = () => netSheetToggle(false);
     o.addEventListener('click', (e) => {
@@ -56,6 +56,7 @@ function netUiOn() {
       else if (act === 'leave') netPartyLeave();
       else if (act === 'tgt') { const g = netGhost(peer); if (g) { setPlayerTarget(g); netSheetToggle(false); } }
       else if (act === 'say') { netSheetToggle(false); netChatOpen(b.dataset.ch || 'r'); }
+      else if (act === 'acct-claim' || act === 'acct-login' || act === 'acct-out') { netAcctClick(act); return; }
       netSheetRender();
     });
   }
@@ -80,7 +81,50 @@ function netSheetToggle(force) {
   o.hidden = !open;
   UI.modal = open ? 'net' : UI.modal === 'net' ? null : UI.modal;
   NETUI.open = open;
-  if (open) netSheetRender();
+  if (open) { netSheetRender(); netAcctRender(); }
+}
+// your account on the March's own server (rung 2: 14p_netws.js), in its own part of the sheet so what you type stays while
+// the rest is drawn again: a guest names its account (and keeps its character), or signs in to another (the page loads
+// again with that account's character), or signs out of a named one
+function netAcctRender(msg, bad) {
+  const box = $('netsheet-acct');
+  if (!box) return;
+  const A = NETWS.acct;
+  if (!NET.link || NET.link.kind !== 'ws' || !A) { box.hidden = true; return; }
+  box.hidden = false;
+  if (box._k !== A.id + ':' + A.guest) {
+    box._k = A.id + ':' + A.guest;
+    box.textContent = '';
+    const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
+    const btn = (label, act, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; return b; };
+    box.appendChild(el('h3', '', `Your account on ${NETWS.host}`));
+    if (A.guest) {
+      box.appendChild(el('p', 'net-quiet', 'You play as a guest of this server: your character is kept for this browser (and, inside the artifact, for your claude.ai account). Give your account a name and a password to come back to it from anywhere, or sign in to one you have.'));
+      const f = el('div', 'net-fields');
+      const n = el('input'); n.id = 'netacct-name'; n.type = 'text'; n.maxLength = 20; n.placeholder = 'Name (3 to 20 letters)'; n.autocomplete = 'username'; n.spellcheck = false;
+      const pw = el('input'); pw.id = 'netacct-pass'; pw.type = 'password'; pw.maxLength = 200; pw.placeholder = 'Password (6 or more)'; pw.autocomplete = 'current-password';
+      f.appendChild(n); f.appendChild(pw); box.appendChild(f);
+      const acts = el('div', 'net-acts'); acts.appendChild(btn('Name this account', 'acct-claim', ' primary')); acts.appendChild(btn('Sign in', 'acct-login')); box.appendChild(acts);
+    } else {
+      box.appendChild(el('p', 'net-quiet', `Signed in as ${A.name}. The server keeps your character; sign in with your name and password on any device.`));
+      const acts = el('div', 'net-acts'); acts.appendChild(btn('Sign out', 'acct-out')); box.appendChild(acts);
+    }
+    box.appendChild(el('div', 'net-msg'));
+  }
+  const m = box.querySelector('.net-msg');
+  if (m && msg !== undefined) { m.textContent = msg; m.classList.toggle('bad', !!bad); }
+}
+async function netAcctClick(act) {
+  if (act === 'acct-out') { netAcctRender('Signing out: the page loads again as a new guest.'); await netAcctOut(); return; }
+  const n = $('netacct-name'), pw = $('netacct-pass');
+  const name = n ? n.value.trim() : '', pass = pw ? pw.value : '';
+  if (name.length < 3 || pass.length < 6) { netAcctRender('A name of 3 to 20 letters and a password of 6 or more.', true); return; }
+  netAcctRender(act === 'acct-claim' ? 'Naming your account...' : 'Signing in...');
+  const r = await netAcctDo(act === 'acct-claim' ? 'claim' : 'login', name, pass);
+  if (!r || !r.ok) { netAcctRender(netStr(r && r.why, 80) || 'The server did not answer.', true); return; }
+  if (pw) pw.value = '';
+  if (act === 'acct-claim') { netAcctRender(); netAcctRender(`Your account is ${r.acct.name} now: sign in with it on any device.`); }
+  else netAcctRender(`Signed in as ${r.acct.name}: the March loads again with your character.`);
 }
 // built with elements and textContent: names and lines from other pages are never markup
 function netSheetRender() {

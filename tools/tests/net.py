@@ -248,6 +248,14 @@ async def room_part(p):
         r1 = (await Cp.evaluate('NT.st()'))['stats']['hitsRefused']
         check(r1 > r0, f'a blow from 200 m is refused by the struck page ({r0} to {r1})')
         await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); const P = NT.P; if (g) { P.x = g.x - 1.6; P.z = g.z; } return 0; })()")
+        # an interrupt across the net: C draws out a long spell, A breaks it on his page, C's page breaks it
+        cid = await Cp.evaluate("(() => { const A5 = __hm.bal5.ABILITIES, id = Object.keys(A5).find((k) => A5[k].cast >= 1) || 'firebolt'; NT.P.casting = { id, t: 0, total: 30 }; return id; })()")
+        ok = await until(pages, A, "(() => { const g = NT.ghostOf('Caelan'); return !!(g && g.casting); })()", 4)
+        await A.evaluate("(() => { const g = NT.ghostOf('Caelan'); if (g) __hm.bal.breakCast(g); return 0; })()")
+        ok2 = await until(pages, Cp, "!NT.P.casting", 4)
+        bi = (await Cp.evaluate('NT.st()'))['stats'].get('breaksIn', 0)
+        check(ok and ok2 and bi >= 1, f"C's spell ({cid}) seen on A's page, broken there and so on C's own ({ok}, {ok2}, {bi})")
+        await Cp.evaluate("NT.P.casting = null; 0")
         # the kill: C low, A finishes him
         rp0 = (await A.evaluate('NT.me()'))['rp']
         await Cp.evaluate("NT.P.hp = Math.max(1, NT.P.maxHp * 0.04); 0")
@@ -436,6 +444,40 @@ async def server_part(p):
         nm = await A2.evaluate("(() => { const s = __hm.SAVE.loaded; return s && s.char ? s.char.name : ''; })()")
         check(nm == 'Aldwin', f'a new page in the same browser reads its save back from the server ({nm})')
         errs = await A2.evaluate('__hm.errors.slice()')
+        check(not errs, f'no errors ({errs[:2]})')
+        # accounts: the guest's account named from the Players sheet (it keeps its character), a wrong password refused,
+        # and the account signed in from another browser (another device): the page loads again with that character
+        await start(A2, 0, 'priest', 30, 'Aldwin', tx + 4, tz + 10)
+        ok = await until([A2], A2, "NT.st().state === 'on' && NT.st().kind === 'ws'", 10)
+        await A2.evaluate("__hm.net.sheet(true); 0")
+        has = await A2.evaluate("!!document.getElementById('netacct-name') && !document.getElementById('netsheet-acct').hidden")
+        check(ok and has, f'the Players sheet offers to name the account (linked {ok}, fields {has})')
+        await A2.fill('#netacct-name', 'Aldwinsson'); await A2.fill('#netacct-pass', 'hallow-pass-1')
+        await A2.evaluate("document.querySelector('#netsheet-acct button[data-act=\"acct-claim\"]').click(); 0")  # (a click by script: Playwright's waits for two still frames, which SwiftShader's load can starve)
+        ok = await until([A2], A2, "document.querySelector('#netsheet-acct .net-msg').textContent.startsWith('Your account is')", 10)
+        st = stats()
+        check(ok and st['claims'] == 1, f"the guest's account is named Aldwinsson ({st['claims']} named)")
+        await A2.evaluate('__hm.fn.saveNow(); 0'); await asyncio.sleep(1.5)
+        await N1.cmd({'cmd': 'raw', 'm': {'t': 'acct', 'op': 'login', 'name': 'Aldwinsson', 'pass': 'wrong-pass'}})
+        r = await N1.wait('acct')
+        check(r and not r['ok'], f"a wrong password is refused ({r and r.get('why')})")
+        ctx2 = await b.new_context(viewport={'width': W, 'height': H})
+        A3 = await boot(ctx2, {**cfg, 'user': 'uSrvB'}, 'A3')
+        await start(A3, 1, 'archer', 30, 'Strangely', tx + 6, tz + 10)
+        ok = await until([A3], A3, "NT.st().state === 'on' && NT.st().kind === 'ws'", 10)
+        await A3.evaluate("__hm.net.sheet(true); 0")
+        await A3.fill('#netacct-name', 'aldwinsson'); await A3.fill('#netacct-pass', 'hallow-pass-1')
+        await A3.evaluate("document.querySelector('#netsheet-acct button[data-act=\"acct-login\"]').click(); 0")
+        try:
+            await A3.wait_for_event('load', timeout=60000)
+            await A3.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
+            await A3.evaluate(HOLD); await A3.evaluate(HELP)
+            nm = await A3.evaluate("(() => { const s = __hm.SAVE.loaded; return s && s.char ? s.char.name : ''; })()")
+        except Exception as e:
+            nm = f'({e})'[:120]
+        st = stats()
+        check(nm == 'Aldwin' and st['logins'] >= 1, f'signed in from another browser, the page loads again with that character ({nm}; {st["logins"]} sign-ins)')
+        errs = await A3.evaluate('__hm.errors.slice()')
         check(not errs, f'no errors ({errs[:2]})')
         await N1.quit(); await N2.quit()
         await b.close()

@@ -721,6 +721,7 @@ function castPushback(e) {
 }
 // a spell broken by a blow or an arrow, unless the caster stands steadfast; true when it broke
 function breakCast(e) {
+  if (e && e.role === 'remote') return netOutBreak(e, 0); // [net] another page's player: its page breaks the spell by its own rules (14n_net.js)
   if (!e || !e.casting || castSteady(e)) return false; // [balance6] the steadied spell (07c_balance6.js): hasBuff(e, 'steadfast')
   if (wardTakesBreak(e)) return false; // [balance6] a mage's ward takes the blow that would break its spell (07c_balance6.js)
   e.casting = null;
