@@ -16,9 +16,12 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
 function resize() {
+  if (GRAPHICS_CONTEXT_LOST) return;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
+  // Bound recovery work even on a large desktop; the ordinary DPR floor cannot enforce this cap.
+  if (BOOT_SAFE) quality.dprActual = Math.min(quality.dprActual, 1280 / view.w, 1280 / view.h, Math.sqrt(921600 / (view.w * view.h)));
   renderer.setPixelRatio(quality.dprActual);
   renderer.setSize(view.w, view.h, false);
   camera.aspect = view.w / view.h;
@@ -37,6 +40,7 @@ function setQuality(level, auto = false) {
   const rebuild = level !== quality.level;
   quality.level = level;
   Object.assign(quality, QUALITY_PRESETS[level]);
+  if (BOOT_SAFE) quality.msaa = 0;
   quality.auto = auto;
   quality.scale = 1;
   if (rebuild && GAME.built) { buildGrass(); buildFlowers(); }
@@ -73,11 +77,15 @@ function adaptQuality(dt) {
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 async function loadStep(frac, msg, fn) {
+  graphicsAssertActive();
+  if (msg) graphicsCheckpoint(msg);
   $('loadbar').style.width = Math.round(frac * 100) + '%';
   if (msg) $('loadmsg').textContent = msg;
   await nextPaint();
+  graphicsAssertActive();
   const t = performance.now(); // [perf2]
-  if (fn) fn();
+  if (fn) await fn();
+  graphicsAssertActive();
   BOOT_STEPS.push([msg || '', +(performance.now() - t).toFixed(1), +t.toFixed(0), performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null]); // [perf2] (the JS heap as the step ends: its garbage still in it)
 }
 async function boot() {
@@ -97,25 +105,31 @@ async function boot() {
   // for every shader the compile had asked for)
   await loadStep(0.78, 'Reading the chronicle');
   const save = await savePromise;
+  graphicsAssertActive();
   if (save) { applySettings(save.settings); applyWorldSave(save.world); }
+  graphicsCheckpoint('Sizing graphics targets');
   resize();
   applyTimeOfDay(tod.p);
   updateCamera(0.016);
   camera.updateMatrixWorld();
-  perf2Compile(false);
+  if (!BOOT_SAFE) { graphicsCheckpoint('Compiling world shaders'); perf2Compile(false); }
   await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
   await loadStep(0.9, 'Lighting the sky', () => {
     updateCamera(0.016);
     camera.updateMatrixWorld();
-    try { DUN.root.visible = true; spellCompileVisible(true); renderer.compile(scene, camera); } catch (e) { reportError(e); }
-    DUN.root.visible = INDOOR.on;
-    spellCompileVisible(false);
+    if (!BOOT_SAFE) {
+      try { DUN.root.visible = true; spellCompileVisible(true); renderer.compile(scene, camera); } catch (e) { reportError(e); }
+      DUN.root.visible = INDOOR.on;
+      spellCompileVisible(false);
+    }
   });
-  await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
-  await loadStep(0.97, 'Lighting the sky', () => tick(0.016));
+  if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
+  await loadStep(0.97, 'Drawing the first view', () => tick(0.016));
+  graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
   setupTitle(save);
+  graphicsCheckpoint('Ready');
   const L = $('loading');
   L.style.opacity = 0;
   L.style.pointerEvents = 'none'; // [v9] a fading veil takes no taps
@@ -128,6 +142,7 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
+  if (GRAPHICS_CONTEXT_LOST) return;
   $('title').hidden = true;
   const P = createPlayer(save);
   savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
@@ -393,6 +408,7 @@ function simStep(dt) {
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
+  if (GRAPHICS_CONTEXT_LOST) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
   renderer.info.reset();
   renderTime += dt;
@@ -499,6 +515,7 @@ function tick(dt) {
   adaptQuality(dt);
 }
 function frame(now) {
+  if (GRAPHICS_CONTEXT_LOST) return;
   requestAnimationFrame(frame);
   let dt = (now - lastNow) / 1000;
   lastNow = now;
@@ -545,6 +562,9 @@ window.__hm = {
     return warSummary();
   },
   summary: warSummary,
+  startup() {
+    return { ...GRAPHICS_STARTUP, events: GRAPHICS_STARTUP.events.slice(), buffer: [gl.drawingBufferWidth, gl.drawingBufferHeight], target: sceneRT ? [sceneRT.width, sceneRT.height] : null, rtType: sceneRT && sceneRT.texture.type, bloomTargets: bloomRTs.length, raysEnabled: !!raysRT, legacyClouds: !BOOT_SAFE, rippleTargets: RIPPLE.res, weatherGpu: { on: WXR.on, field: !!WXR.field, dome: !!WXR.dome, screen: !!WXR.scr, fieldMat: !!WXR.fieldMat, domeMat: !!WXR.domeMat, screenMat: !!WXR.scrMat }, proactivePrograms: PERF2.warmed };
+  },
   renderInfo() {
     const r = renderer.info.render;
     const crowds = { human: crowdHuman.n, humanLo: crowdHumanLo.n };
@@ -566,6 +586,7 @@ window.__hm = {
 window.__hm.water = WATER_DEBUG; // [water] test hooks (07b_swim.js)
 
 boot().catch((err) => {
+  if (GRAPHICS_CONTEXT_LOST) return;
   reportError(err);
   $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
 });

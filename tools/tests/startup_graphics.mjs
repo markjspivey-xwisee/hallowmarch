@@ -30,10 +30,13 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
   const elements={scene:element('canvas'),loading:element('div'),nogl:element('p')};
   elements.loading.hidden=false;
   const ctx={URL,URLSearchParams,
+    performance:{now:()=>0},
+    setTimeout:()=>0,clearTimeout:()=>{},
+    requestAnimationFrame:()=>0,cancelAnimationFrame:()=>{},
     location:{href:url,search:new URL(url).search,reload(){state.reloads++;}},
     document:{getElementById:k=>elements[k],createElement:element},
     matchMedia:q=>({matches:q==='(pointer: coarse)'&&touch}),
-    window:{},navigator:{maxTouchPoints:touch?5:0,deviceMemory:8,hardwareConcurrency:8},
+    window:{addEventListener(k,f){callbacks['window:'+k]=f;}},navigator:{maxTouchPoints:touch?5:0,deviceMemory:8,hardwareConcurrency:8},
     screen:{width:1024,height:768},
     THREE:{LinearSRGBColorSpace:1,NoToneMapping:0,HalfFloatType:2,UnsignedByteType:3,
       WebGLRenderer:class {
@@ -47,7 +50,7 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
           this.extensions={has:()=>true};
         }
         setClearColor() {}
-        getContext() {return {ALIASED_POINT_SIZE_RANGE:1,getParameter:()=>[1,64]};}
+        getContext() {return {ALIASED_POINT_SIZE_RANGE:1,getParameter:()=>[1,64],isContextLost:()=>false};}
         dispose(){state.disposed=true;}
       }}
   };
@@ -56,7 +59,7 @@ function boot({url='https://march.example/?tag=a&tag=b', touch=false, failure=''
   try { vm.runInContext(render,ctx); } catch(e) {error=e;}
   if(!error) {
     vm.runInContext(automatic,ctx);
-    vm.runInContext('globalThis.__startup={safe:BOOT_SAFE,quality};',ctx);
+    vm.runInContext('globalThis.__startup={safe:BOOT_SAFE,quality,rtType:RT_TYPE};',ctx);
   }
   return {ctx,elements,options,state,error};
 }
@@ -75,6 +78,8 @@ test('safe recovery selects Low before any scene or world allocation',()=>{
   assert.equal(b.ctx.__startup.quality.dpr,1);
   assert.equal(b.ctx.__startup.quality.auto,false);
   assert.equal(b.options[0].powerPreference,'default');
+  assert.equal(b.ctx.__startup.rtType,b.ctx.THREE.UnsignedByteType);
+  assert.ok(b.ctx.window.__hmStartup,'trace exists before world generation');
 });
 test('blocked creation reports browser reason and preserves retry URL without reload',()=>{
   const reason='Web page caused context loss and was blocked';
@@ -90,6 +95,7 @@ test('blocked creation reports browser reason and preserves retry URL without re
   const expected=new URL(original);expected.searchParams.set('safe','1');
   assert.equal(children.find(x=>x.tag==='a').href,expected.href);
   assert.equal(b.state.reloads,0);
+  assert.ok(b.ctx.window.__hmStartup,'failure retains the early startup trace');
 });
 test('unsupported WebGL 2 is distinguished and the failed renderer is disposed',()=>{
   const b=boot({webgl2:false});
@@ -152,4 +158,25 @@ test('recovery without a saved preference retains the ordinary device default on
   const tablet=boot({url:'https://march.example/?safe=1',touch:true});tablet.ctx.SAVE={loaded:null};
   vm.runInContext(phone+'\n'+saveGraphics,tablet.ctx);
   assert.equal(vm.runInContext('graphicsSaveSettings().quality',tablet.ctx),'medium');
+});
+
+test('a context lost while a boot step yields prevents subsequent world allocation',async()=>{
+  const b=boot({url:'https://march.example/?safe=1'});
+  assert.equal(b.error,undefined);
+  let paint;
+  b.ctx.nextPaint=()=>new Promise(resolve=>{paint=resolve;});
+  b.ctx.$=id=>b.elements[id]||(b.elements[id]={style:{}});
+  b.ctx.BOOT_STEPS=[];
+  b.ctx.allocate=()=>{throw new Error('allocation must not run after loss');};
+  const source=read('13_main.js');
+  const stepStart=source.indexOf('async function loadStep(');
+  const stepEnd=source.indexOf('\nasync function boot()',stepStart);
+  assert.ok(stepStart>=0&&stepEnd>stepStart);
+  vm.runInContext(source.slice(stepStart,stepEnd),b.ctx);
+  const pending=vm.runInContext("loadStep(0.5,'Controlled allocation',allocate)",b.ctx);
+  assert.equal(typeof paint,'function');
+  vm.runInContext('GRAPHICS_CONTEXT_LOST=true',b.ctx);
+  paint();
+  await assert.rejects(pending,/Graphics stopped during Controlled allocation/);
+  assert.equal(b.ctx.BOOT_STEPS.length,0,'an interrupted allocation is not counted as complete');
 });

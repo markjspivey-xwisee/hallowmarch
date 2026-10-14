@@ -55,8 +55,18 @@ A production desktop report exposed a gap between software-renderer CI and the u
 
 The recovery URL `?safe=1` chooses the existing Low preset before any world generation or render-target sizing, requests the browser's default graphics preference, and keeps saved graphics settings and tablet detection from restoring High during that launch. The Graphics menu can still change detail after startup. This option reduces startup graphics demand; it does not override the browser's WebGL safety block.
 
-Early graphics initialization failures now remove the loading veil, show the browser's actual context-creation message, and offer a manual low-graphics reload preserving the existing URL's server and other parameters. There is no automatic reload loop. If the browser continues refusing WebGL, closing and reopening the browser may still be needed.
+Early graphics initialization failures now remove the loading veil, show the browser's actual context-creation message, and offer a manual low-graphics reload preserving the existing URL's server and other parameters. Creation failure does not retry automatically. If the browser continues refusing WebGL, closing and reopening the browser may still be needed.
 
 Automatic game saves during a recovery launch retain the previously saved graphics preference, or the ordinary device default for a new save. Selecting a detail level in Graphics explicitly replaces that preference. The recovery preset does not permanently downgrade saved graphics settings by itself.
 
 The standalone HTML also declares UTF-8 and a device-width viewport. Direct-page tests check both: a phone's recovery panel uses its actual viewport rather than a scaled desktop layout, and the title's accented names decode consistently.
+
+## Bounded GPU recovery launch
+
+After enabling graphics acceleration, the affected user saw the independent WebGL2 cube render, then tried Hallowmarch and reported that both the game and the cube stopped working. This makes a game-triggered browser GPU failure plausible; it does not identify a particular shader, driver reset or memory-pressure cause.
+
+The recovery launch now uses byte color render targets, zero MSAA, no shadow map, bloom, rays or simulated ripple render targets, and a drawing buffer limited to 1280 pixels per side and 921600 pixels in total. It omits both the ray-marched cloud GPU passes and the legacy full-resolution procedural-cloud fallback. CPU weather and gameplay remain available. Recovery skips proactive world/shadow shader compilation; only materials needed for the drawn view compile. Manual detail changes retain these recovery limits while preserving the selected preference for ordinary launches.
+
+An early graphics trace records the current startup phase and context events in this tab's session storage. Context loss snapshots an already-running character before clearing readiness, stops boot and frame scheduling, removes the loading veil and presents a manual recovery action. Restoration does not automatically reload or redraw released CPU buffers.
+
+The direct-page regression exercises the recovery launch at a 3840×2160 viewport, checks the actual render target bounds and absence of optional GPU effects, observes rendering for 30 seconds, verifies saved preferences, and injects a real per-context loss/restoration through WEBGL_lose_context. That controlled test verifies loss handling; software WebGL remains insufficient evidence for the affected Windows GPU. The local Node startup suite passes all ten cases, including loss while boot yields before allocation. A healthy independent cube → recovery game → healthy cube sequence on that GPU is still required before declaring the reported reset fixed.

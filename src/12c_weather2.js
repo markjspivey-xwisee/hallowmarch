@@ -410,7 +410,7 @@ const WX_Q = {
   low: { field: 128, dome: 160, steps: 7, veil: 0, every: 2, scr: 4 },
 };
 const WX_R = 1500; // the field's warp: metres near the camera per unit (it reaches to the horizon)
-const WXR = { field: null, dome: null, fieldMat: null, domeMat: null, q: null, n: 0, on: true, cellA: null, cellB: null, cellC: null, mistY: 0 };
+const WXR = { field: null, dome: null, fieldMat: null, domeMat: null, q: null, n: 0, on: !BOOT_SAFE, cellA: null, cellB: null, cellC: null, mistY: 0 };
 const GLSL_WXFIELD = /* glsl */`
 uniform vec4 uWxA[${WX_N}], uWxB[${WX_N}], uWxC[${WX_N}];
 uniform vec4 uWxBase; // fair cloud of Logres, Ériu, Thule
@@ -555,6 +555,8 @@ vec4 wxMarch(vec3 ro, vec3 rd, float jit){
 }
 `;
 function wxBuildClouds() {
+  // Recovery keeps the CPU weather and shelter simulation, without volumetric GPU passes.
+  if (BOOT_SAFE) return;
   const q = WX_Q[quality.level] || WX_Q.medium;
   WXR.q = q;
   const mk = (n, type) => { const rt = new THREE.WebGLRenderTarget(n, n, { depthBuffer: false, stencilBuffer: false, type, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false }); rt.texture.wrapS = rt.texture.wrapT = THREE.ClampToEdgeWrapping; return rt; };
@@ -712,7 +714,11 @@ const _wxCellList = [];
 function wxCloudsFrame(dt) {
   wxShelterStep(dt);
   U.uWxWetOn.value = WXWET_TEX && !wxHeld() && !INDOOR.on ? 1 : 0; // the wet film where it has rained (wxWetUpload)
-  if (!WXR.on) { U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; return; }
+  if (BOOT_SAFE || !WXR.on) {
+    U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0;
+    U.uCloudScrP.value.z = 0; WXR.scrOn = false;
+    return;
+  }
   if (!WXR.field || WXR.q !== (WX_Q[quality.level] || WX_Q.medium)) wxBuildClouds();
   const cu = WXR.cu, cam = camera.position, held = wxHeld();
   // the nearest cells
@@ -767,7 +773,7 @@ function wxCloudsFrame(dt) {
 // in scr of its pixels each way, read by the sky (cloudScreen in 02_render.js); off indoors and when the clouds are off
 function wxCloudsScreen() {
   const S = U.uCloudScrP.value;
-  if (!WXR.on || !WXR.field || !WXR.scrMat || INDOOR.on || !sceneRT || WXR.scrOff) { S.z = 0; WXR.scrOn = false; return; }
+  if (BOOT_SAFE || !WXR.on || !WXR.field || !WXR.scrMat || INDOOR.on || !sceneRT || WXR.scrOff) { S.z = 0; WXR.scrOn = false; return; }
   const sc = WXR.q.scr || 3, w = Math.max(1, Math.ceil(sceneRT.width / sc)), h = Math.max(1, Math.ceil(sceneRT.height / sc));
   if (!WXR.scr || WXR.scr.width !== w || WXR.scr.height !== h) {
     if (WXR.scr) WXR.scr.dispose();

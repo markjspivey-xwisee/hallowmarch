@@ -120,6 +120,6 @@ window.__hm.perf = {
   rp: (realm, along, lat) => rp(REALMS[realm], along, lat), SITES, RIVERS, LAKES,
 };
 {
-  const markReady = () => { if (GAME.ready) PERFX.readyAt = +performance.now().toFixed(0); else setTimeout(markReady, 50); };
+  const markReady = () => { if (GRAPHICS_CONTEXT_LOST) return; if (GAME.ready) PERFX.readyAt = +performance.now().toFixed(0); else setTimeout(markReady, 50); };
   markReady();
 }

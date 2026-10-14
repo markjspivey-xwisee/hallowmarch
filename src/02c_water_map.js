@@ -186,7 +186,7 @@ const rippleSimMat = new THREE.ShaderMaterial({
 const rippleClearMat = new THREE.ShaderMaterial({ vertexShader: FS_VERT, fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }', depthTest: false, depthWrite: false });
 // make or drop the targets for the current quality (high 256, medium 128, low none)
 function rippleSetup() {
-  const want = !FLOAT_RT || REDUCE_MOTION ? 0 : quality.level === 'high' ? 256 : quality.level === 'medium' ? 128 : 0;
+  const want = BOOT_SAFE || !FLOAT_RT || REDUCE_MOTION ? 0 : quality.level === 'high' ? 256 : quality.level === 'medium' ? 128 : 0;
   if (want === RIPPLE.res) return;
   if (RIPPLE.rtA) { RIPPLE.rtA.dispose(); RIPPLE.rtB.dispose(); RIPPLE.rtA = RIPPLE.rtB = null; }
   RIPPLE.res = want;

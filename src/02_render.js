@@ -6,27 +6,73 @@ const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in w
 const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const BOOT_SAFE = new URLSearchParams(location.search).get('safe') === '1';
+const GRAPHICS_TRACE_KEY = 'hallowmarch.graphics.trace.v1';
+let GRAPHICS_CONTEXT_LOST = false;
+let graphicsPrevious = null;
+try { graphicsPrevious = JSON.parse(sessionStorage.getItem(GRAPHICS_TRACE_KEY) || 'null'); } catch (e) { /* diagnostics never gate startup */ }
+const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
+function graphicsCheckpoint(phase, message = '') {
+  GRAPHICS_STARTUP.phase = phase;
+  GRAPHICS_STARTUP.events.push({ phase, message: String(message).slice(0, 500), at: Math.round(performance.now()) });
+  if (GRAPHICS_STARTUP.events.length > 32) GRAPHICS_STARTUP.events.shift();
+  try {
+    const { recovery, phase: stage, events, lost, restored, stopped } = GRAPHICS_STARTUP;
+    sessionStorage.setItem(GRAPHICS_TRACE_KEY, JSON.stringify({ recovery, phase: stage, events, lost, restored, stopped }));
+  } catch (e) { /* private storage may be unavailable */ }
+  console.info('[Hallowmarch graphics]', phase, message);
+}
+graphicsCheckpoint(GRAPHICS_STARTUP.phase);
 let GRAPHICS_START_MESSAGE = '';
 canvas.addEventListener('webglcontextcreationerror', (event) => {
   GRAPHICS_START_MESSAGE = String(event.statusMessage || '').slice(0, 500);
+  graphicsCheckpoint('Graphics context creation failed', GRAPHICS_START_MESSAGE);
 });
-function graphicsStartFailure(error) {
+function graphicsStartFailure(error, title = 'Graphics could not start') {
   const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
   if (loading) { loading.hidden = true; loading.style.display = 'none'; }
   if (!notice) return;
   notice.hidden = false;
   notice.setAttribute('role', 'alert');
   const heading = document.createElement('strong');
-  heading.textContent = 'Graphics could not start';
+  heading.textContent = title;
   const detail = document.createElement('span');
   detail.textContent = GRAPHICS_START_MESSAGE || String(error && error.message || error);
   const help = document.createElement('span');
-  help.textContent = 'Hallowmarch needs WebGL 2. Try low graphics. If the browser still blocks graphics, close and reopen it before trying again.';
+  help.textContent = GRAPHICS_CONTEXT_LOST ? 'The browser stopped graphics. Close this game tab and restart the browser before trying the reduced graphics launch. Your saved character is kept.' : 'Hallowmarch needs WebGL 2. Try reduced graphics. If the browser still blocks graphics, close and reopen it before trying again.';
   const retry = document.createElement('a'), target = new URL(location.href);
   target.searchParams.set('safe', '1');
   retry.href = target.href;
   retry.textContent = 'Reload with low graphics';
   notice.replaceChildren(heading, detail, help, retry);
+}
+
+canvas.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  if (GRAPHICS_CONTEXT_LOST) return;
+  const stage = GRAPHICS_STARTUP.phase;
+  GRAPHICS_CONTEXT_LOST = true;
+  GRAPHICS_STARTUP.lost++;
+  GRAPHICS_STARTUP.stopped = true;
+  GRAPHICS_START_MESSAGE = 'Graphics stopped during ' + stage + (event.statusMessage ? ': ' + event.statusMessage : '.');
+  graphicsCheckpoint(stage, GRAPHICS_START_MESSAGE);
+  const state = window.__hm;
+  if (state) {
+    // Capture progress while saveNow still sees a ready game; no GPU access is needed.
+    try { state.fn.saveNow(); } catch (e) { console.error(e); }
+    state.ready = false;
+    state.GAME.ready = false;
+  }
+  for (const id of ['title', 'hud', 'menu']) { const panel = document.getElementById(id); if (panel) panel.hidden = true; }
+  graphicsStartFailure(new Error(GRAPHICS_START_MESSAGE), 'Graphics stopped');
+  console.error('[Hallowmarch graphics]', GRAPHICS_START_MESSAGE);
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  GRAPHICS_STARTUP.restored++;
+  graphicsCheckpoint(GRAPHICS_STARTUP.phase, 'Graphics context restored; waiting for a manual reload.');
+  // The scene may have released its CPU buffers. Do not restart this GPU workload automatically.
+});
+function graphicsAssertActive() {
+  if (GRAPHICS_CONTEXT_LOST) throw new Error('Graphics stopped during ' + GRAPHICS_STARTUP.phase);
 }
 
 let renderer;
@@ -48,7 +94,7 @@ renderer.autoClear = false;
 renderer.setClearColor(0x000000, 1);
 const gl = renderer.getContext();
 const FLOAT_RT = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
-const RT_TYPE = FLOAT_RT ? THREE.HalfFloatType : THREE.UnsignedByteType;
+const RT_TYPE = !BOOT_SAFE && FLOAT_RT ? THREE.HalfFloatType : THREE.UnsignedByteType;
 const MAX_POINT = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64;
 
 const QUALITY_PRESETS = {
@@ -58,6 +104,7 @@ const QUALITY_PRESETS = {
 };
 const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : IS_TOUCH ? 'medium' : 'high';
 const quality = { level: GRAPHICS_BOOT_LEVEL, ...QUALITY_PRESETS[GRAPHICS_BOOT_LEVEL] };
+graphicsCheckpoint('Preparing graphics data');
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 900);
 camera.rotation.order = 'YXZ';
@@ -328,7 +375,7 @@ const SHADOW = { rt: null, size: 0, half: 44, near: 1, far: 420, cam: new THREE.
 SHADOW.scene.matrixWorldAutoUpdate = false;
 const SHADOW_LEVELS = { high: { size: 2048, half: 46, taps: 7 }, medium: { size: IS_TOUCH ? 1024 : 1536, half: 38, taps: 5 }, low: null };
 function setupShadows(level) {
-  const L = SHADOW_LEVELS[level];
+  const L = SHADOW_LEVELS[BOOT_SAFE ? 'low' : level];
   if (!L) {
     if (SHADOW.rt) { SHADOW.rt.dispose(); SHADOW.rt = null; }
     SHADOW.size = 0; U.uShadowOn.value = 0; U.uShadowMap.value = null;
@@ -696,7 +743,7 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
       // [weather2] the clouds that are there: the dome ray-marched through the systems' cloud field (12c_weather2.js); the
       // sun, the moon and the stars show only where no cloud stands in front of them
       if (uCloudDomeOn.x > 0.5) { vec4 cd = cloudScreen(dir, gl_FragCoord.xy); col = col * cd.a + cd.rgb; hz = 0.0; }
-      if (hz > 0.0) {
+      if (${BOOT_SAFE ? 'false' : 'hz > 0.0'}) {
         vec2 cp = dir.xz / (dir.y + 0.09);
         cp = cp * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
         vec2 warp = vec2(fbm(cp * 0.55 + 4.1), fbm(cp * 0.55 - 7.3));
@@ -730,6 +777,7 @@ fsMesh.frustumCulled = false;
 const fsScene = new THREE.Scene();
 fsScene.add(fsMesh);
 function pass(material, target) {
+  if (GRAPHICS_CONTEXT_LOST) return;
   fsMesh.material = material;
   renderer.setRenderTarget(target);
   renderer.render(fsScene, fsCam);
@@ -884,14 +932,17 @@ function makeTargets() {
   for (const rt of bloomRTs) rt.dispose();
   bloomRTs.length = 0;
   let bw = w, bh = h;
-  for (let i = 0; i < quality.bloom; i++) {
+  for (let i = 0; i < (BOOT_SAFE ? 0 : quality.bloom); i++) {
     bw = Math.max(1, bw >> 1); bh = Math.max(1, bh >> 1);
     bloomRTs.push(new THREE.WebGLRenderTarget(bw, bh, { type: RT_TYPE, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false }));
   }
   composite.uniforms.uRes.value.set(w, h);
   if (raysRT) raysRT.dispose();
-  const rs = quality.level === 'high' ? 2 : 3;
-  raysRT = new THREE.WebGLRenderTarget(Math.max(1, Math.floor(w / rs)), Math.max(1, Math.floor(h / rs)), { type: RT_TYPE, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+  raysRT = null;
+  if (!BOOT_SAFE) {
+    const rs = quality.level === 'high' ? 2 : 3;
+    raysRT = new THREE.WebGLRenderTarget(Math.max(1, Math.floor(w / rs)), Math.max(1, Math.floor(h / rs)), { type: RT_TYPE, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+  }
 }
 function renderPost() {
   let src = sceneRT;
@@ -909,7 +960,8 @@ function renderPost() {
   }
   if (updateRays()) { raysMat.uniforms.tScene.value = sceneRT.texture; pass(raysMat, raysRT); composite.uniforms.tRays.value = raysRT.texture; }
   composite.uniforms.tScene.value = sceneRT.texture;
-  composite.uniforms.tBloom.value = bloomRTs[0].texture;
+  composite.uniforms.tBloom.value = bloomRTs.length ? bloomRTs[0].texture : ZERO_TEX;
+  if (BOOT_SAFE) { composite.uniforms.uBloom.value = 0; composite.uniforms.uRays.value = 0; composite.uniforms.tRays.value = ZERO_TEX; }
   pass(composite, null);
   if (DBG.shadowView && SHADOW.rt) { dbgShadowMat.uniforms.t.value = SHADOW.rt.depthTexture; pass(dbgShadowMat, null); }
 }

@@ -109,6 +109,8 @@ window.__hm.perf2 = {
 // pass's own (the depth materials of what casts a shadow, shown or not) are asked for once the title is up. What is
 // made after the boot (an engine's charring, a fire's own) still compiles at its first sight.
 function perf2Compile(shadows) {
+  // Recovery compiles only what a frame draws, avoiding a burst of hidden materials.
+  if (BOOT_SAFE || GRAPHICS_CONTEXT_LOST) return;
   const t = performance.now(), p0 = renderer.info.programs.length;
   try {
     if (shadows) { if (SHADOW.rt) renderer.compile(SHADOW.scene, SHADOW.cam); }
@@ -121,14 +123,19 @@ function perf2Compile(shadows) {
 // waiting for it: KHR_parallel_shader_compile, a phone's Chrome and Safari): the page stays alive and says what it is
 // doing; without it the first frame waits for them, as before. Gives up waiting after 90 s (the first frame then waits).
 async function perf2Shaders(f0, f1) {
+  if (BOOT_SAFE || GRAPHICS_CONTEXT_LOST) {
+    PERF2.shaderWait = { n: 0, ready: 0, ms: 0, ext: false, skipped: true };
+    return;
+  }
   const t0 = performance.now(), progs = renderer.info.programs, n = progs.length;
   if (!renderer.extensions.has('KHR_parallel_shader_compile') || !n) { PERF2.shaderWait = { n, ready: n, ms: 0, ext: false }; return; }
   const left = () => progs.filter((p) => p.isReady && !p.isReady()).length;
   let k = left();
-  while (k > 0 && performance.now() - t0 < 90000) {
+  while (k > 0 && !GRAPHICS_CONTEXT_LOST && performance.now() - t0 < 90000) {
     $('loadbar').style.width = Math.round((f0 + (f1 - f0) * (1 - k / n)) * 100) + '%';
     $('loadmsg').textContent = `Lighting the sky: the shaders, ${n - k} of ${n}`;
     await new Promise((r) => setTimeout(r, 40));
+    if (GRAPHICS_CONTEXT_LOST) break;
     k = left();
   }
   PERF2.shaderWait = { n, ready: n - k, ms: Math.round(performance.now() - t0), ext: true };
@@ -141,16 +148,11 @@ async function perf2Shaders(f0, f1) {
   // the shadow pass's shaders once the title is up (once: a new character's title comes again)
   const st0 = setupTitle;
   let warm = false;
-  setupTitle = function perf2SetupTitle(...a) { st0.apply(this, a); if (!warm) { warm = true; setTimeout(() => perf2Compile(true), 300); } };
+  setupTitle = function perf2SetupTitle(...a) { st0.apply(this, a); if (!BOOT_SAFE && !GRAPHICS_CONTEXT_LOST && !warm) { warm = true; setTimeout(() => perf2Compile(true), 300); } };
 }
-// A lost WebGL context (a phone takes it back from a page left in the background, or under another app's memory):
-// three.js gives everything back from the CPU's copies when the context returns, and the static meshes have let go of
-// theirs, so the page is loaded again once the context is back, the game saved first (as a phone's browser does with a
-// page it has dropped). Without it every frame after the return would throw at the first released mesh.
+// Static meshes may have released their CPU arrays, so a restored context needs a
+// manual reload. The early graphics loss handler keeps rendering stopped and shows
+// recovery instructions; automatically replaying a failing GPU workload can loop.
 canvas.addEventListener('webglcontextrestored', () => {
   PERF2.restored = (PERF2.restored || 0) + 1;
-  if (!PERF2.released || PERF2.reloading) return;
-  PERF2.reloading = true;
-  const go = () => { try { location.reload(); } catch (e) { reportError(e); } };
-  try { Promise.race([saveNow(), new Promise((r) => setTimeout(r, 4000))]).then(go, go); } catch (e) { go(); }
 });
