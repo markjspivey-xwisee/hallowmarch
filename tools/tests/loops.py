@@ -534,6 +534,15 @@ async def main():
             print('  ', r, flush=True)
             check(r['dt'] > 2.9 * 86400 and r['told'], f"a save read back three days later runs the season on three days and tells it ({r['size']} bytes)")
             check('While you were away' in r['title'] and 'Season' in r['title'], f"the title tells the season and the time away ({r['title'][:140]})")
+            # the reckoning passed while away: the season's winner told, and your realm's win paid and a deed of the veteran's
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), P = H.GAME.player;
+              RS.realms[P.faction].sp += 1e5; // (your realm far ahead)
+              const rp0 = H.GAME.prog.rp, sum = S.away(31 * 86400);
+              return { phase: RS.phase, n: RS.n, last: S.SEASONP.you.last, won: S.SEASONP.you.won, rp: H.GAME.prog.rp - rp0, deed: H.late ? H.late.LATE2.d.season : null, name: H.late ? H.late.LATE2.names.includes('longwar') : null };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['last'] >= 1 and r['won'] >= 1 and r['rp'] >= 2500 and r['deed'] == 1 and r['name'], f"a season won while away: told, paid, a deed and the name of the Long War ({r})")
             r = await ev(page, r"""(() => { const H = __hm, fn = H.fn;
               fn.savePartsLoad('world', { realm: { rs: { v: 1, realms: 'x', keeps: [] }, real: 'q' } }); H.simulate(1);
               const a = H.season.rs(); const ok1 = !!a && a.phase === 'muster' && a.keeps.length === 6;

@@ -189,6 +189,7 @@ function seasonGiveGold(n) {
   if (!spendGold(n)) return false;
   const pts = realmSimContribute(RS, P.faction, 'gold', n, P.name);
   SEASONP.you.pts += pts; SEASONP.you.gold += n; SEASONP.stats.gave++;
+  if (typeof GUIDE !== 'undefined') GUIDE.made.push('fund'); // (the path's step: 10c_lore.js)
   uiToast(`You give ${fmtInt(n)} gold to ${possessive(REALMS[P.faction].name)} treasury (${pts.toFixed(1)} season points).`);
   saveSoon();
   return true;
@@ -199,6 +200,7 @@ function seasonVote(id) {
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P) return false;
   const ok = realmSimOrder(RS, P.faction, { type: 'project', id }, { name: P.name, rank: seasonRank() });
+  if (ok && typeof GUIDE !== 'undefined') GUIDE.made.push('fund');
   if (ok) { SEASONP.you.votes++; uiToast(seasonRank() >= 5 ? `As an officer of the realm you set its work: ${RSM.projects[id].name}.` : `Your voice is counted for ${RSM.projects[id].name}.`); saveSoon(); }
   return ok;
 }
@@ -327,6 +329,11 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADI
   GUIDE_WATCH.lseason = (P) => !!SEASONP.rs && GAME.prog.level >= 4;
   GUIDE_WATCH.loffensive = (P) => !!SEASONP.rs && SEASONP.rs.offs.some((O) => O.state === 'planned' && SEASONP.rs.keeps[O.k].h === P.faction);
   GUIDE_HELP.push(() => `<h3>The season</h3><p>The war is a season of ${SEASONP.days} days: the muster, the war, the reckoning. Each hour a keep or an enemy hallow held earns its realm season points, and so do projects built, offensives won and goods delivered. Offensives are announced days ahead. Your realm votes on its work (officers from realm rank 5 set it); give gold to its treasury on the Chronicle's Season page. The realms live on while you are away, and you are told what happened when you return.</p>`);
+  // the path: the realm's work funded (pv 3, with the stores' steps: 08m_loops.js)
+  const S = { id: 'fund', lv: 10, old: 18, pv: 3, title: "Fund the realm's work", short: "Fund the realm's work",
+    hint: (R) => `${R.name} pours its stores into one work at a time: walls, a granary, a yard, a smithy, siege engines. On the Chronicle's Season page give gold to its treasury, or vote for the next work.`,
+    reward: { gold: (L) => 40 + L * 4 } };
+  if (!PATH_BY_ID[S.id]) { const i = PATH_STEPS.findIndex((q) => q.lv > S.lv); PATH_STEPS.splice(i < 0 ? PATH_STEPS.length : i, 0, S); PATH_BY_ID[S.id] = S; PATH_STEPS.forEach((q, j) => { q.idx = j; }); }
   LOADING_TIPS.push('A season lasts weeks: the realm that holds and prepares best wins it, not the one that wins an hour.', 'Offensives are announced days ahead on the war panel: raise the walls of the keep named and be there when it comes.', 'The realms live on while you are away: the Chronicle\'s Season page tells what happened.');
 });
 queueMicrotask(() => {
