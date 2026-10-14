@@ -562,7 +562,7 @@ const CAP_SHOTS = [
     },
   },
   {
-    id: 'palisade', name: 'The burh burns', line: 'A Thule palisade alight at night, its garrison at the flames', tod: 'night', season: 'summer', weather: 'clear', dur: 5, pre: 4,
+    id: 'palisade', name: 'The burh burns', line: 'A Thule palisade alight at night, its garrison at the flames', tod: 'night', season: 'summer', weather: 'clear', dur: 5, pre: 7,
     set() {
       palisadeInit();
       const S = REALMS[2].keepSites[0], C = castleOf(S);
@@ -571,9 +571,9 @@ const CAP_SHOTS = [
       const c0 = cells[Math.floor(cells.length * 0.55)];
       if (!c0) return null;
       const i0 = cells.indexOf(c0);
-      for (let i = Math.max(0, i0 - 2); i <= Math.min(cells.length - 1, i0 + 2); i++) palisadeIgnite(cells[i], 0.95);
+      for (let i = Math.max(0, i0 - 3); i <= Math.min(cells.length - 1, i0 + 3); i++) palisadeIgnite(cells[i], 1);
       const L = (along, out, y) => { const l = palisadeLocal(3, along, out), p = siteToWorld(S, l.x, l.z); return { x: p.x, y: S.y + y, z: p.z }; };
-      const a = L(c0.a + 9, 21, 4.2), b = L(c0.a + 5, 15, 3.4), t = L(c0.a, 0, 3.2);
+      const a = L(c0.a + 7, 12, 2.4), b = L(c0.a + 3.5, 8, 2.0), t = L(c0.a, 0, 3.4); // close on the burning stretch: its flames, its char, its people
       capPlayerTo(a.x, a.z);
       return { marks: [{ t: 'Palisade', x: t.x, y: t.y + 1.5, z: t.z }], keys: [capKey(a.x, a.y, a.z, t.x, t.y, t.z, 50), capKey(b.x, b.y, b.z, t.x, t.y + 0.4, t.z, 52)] };
     },
