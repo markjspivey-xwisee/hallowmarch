@@ -1,0 +1,40 @@
+name: Verify deployed version 20
+on:
+  push:
+    branches: [feature/v20-deployment-check-20261014]
+permissions:
+  contents: read
+jobs:
+  deployed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3161b65a8725e5d2d8f8ec758f90d55fefa5fd5b
+      - run: python3 build.py
+      - name: Confirm health and exact published source
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, time, urllib.request
+          host = "https://march-production-f6d9.up.railway.app"
+          page = pathlib.Path("hallowmarch.html").read_text()
+          prefix = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><script>window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>'
+          expected = (prefix + page + "</body></html>").encode()
+          for attempt in range(40):
+              try:
+                  with urllib.request.urlopen(host + "/health", timeout=20) as response:
+                      healthy = response.status == 200 and json.load(response)["ok"] is True
+                  request = urllib.request.Request(host + "/?verification=3161b65", headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      live = response.read()
+                  if healthy and live == expected:
+                      print("PASS: production is healthy and serves the exact build of 3161b65")
+                      print("HTML sha256", hashlib.sha256(live).hexdigest())
+                      break
+              except (OSError, ValueError) as error:
+                  print("Waiting for the deployment:", type(error).__name__, flush=True)
+              time.sleep(3)
+          else:
+              raise AssertionError("production did not serve the exact verified version 20 build")
+          PY
