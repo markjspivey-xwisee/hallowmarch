@@ -206,7 +206,7 @@ window.A2T = {
       const a = k / 12 * 6.283, L = this.lane(P.x + 40 + Math.sin(a) * d, P.z - 40 + Math.cos(a) * d, 6, 4);
       // (an orchard's apple trees are forage plants, not the world's trees: one stood in the bodies' row in a picture)
       const apple = (x, z, rr) => ((H.surv && H.surv.FORAGE && H.surv.FORAGE.list) || []).some((p) => p.k === 'apple' && !p.gone && Math.hypot(p.x - x, p.z - z) < rr);
-      if (L && T(L.x, L.z, r).length === 0 && T(L.x + L.ux * 7, L.z + L.uz * 7, 9).length === 0 && !apple(L.x, L.z, r) && !apple(L.x + L.ux * 7, L.z + L.uz * 7, 9) && !H.water.waterAt(L.x + L.ux * 7, L.z + L.uz * 7)) return L;
+      if (L && T(L.x, L.z, r).length === 0 && T(L.x + L.ux * 7, L.z + L.uz * 7, 9).length === 0 && !apple(L.x, L.z, r) && Math.hypot(L.x - 0.6, L.z + 0.4) > r + 14 /* (the Lone Tree's, W.heroTree: no tree of W.trees) */ && !apple(L.x + L.ux * 7, L.z + L.uz * 7, 9) && !H.water.waterAt(L.x + L.ux * 7, L.z + L.uz * 7)) return L;
     }
     return null;
   },
@@ -223,13 +223,13 @@ window.A2T = {
       const b = F.spawnMob(camp), k = es.length - 12;
       b.x = b.prevX = Ln.x + Ln.sx * (k * 3.2 - 6.4) + Ln.ux * 6.5; b.z = b.prevZ = Ln.z + Ln.sz * (k * 3.2 - 6.4) + Ln.uz * 6.5; b.y = F.heightAt(b.x, b.z); b.home = { x: b.x, z: b.z, r: 1 }; this.made.push(b); es.push(b);
     }
-    // (and the deer, a horse and the farm beasts, made as motion.py makes them: a second row behind the camps')
+    // (and the deer, a horse and the farm beasts, made as motion.py makes them: a row beyond the people, from the camera)
     ['deer', 'horse', 'sheep', 'cattle', 'pig', 'hound'].forEach((kind, k) => {
-      const x = Ln.x + Ln.sx * (k * 3.2 - 8) + Ln.ux * 10.5, z = Ln.z + Ln.sz * (k * 3.2 - 8) + Ln.uz * 10.5;
+      const x = Ln.x + Ln.sx * (k * 3.2 - 8) - Ln.ux * 6.5, z = Ln.z + Ln.sz * (k * 3.2 - 8) - Ln.uz * 6.5;
       const b = F.makeEnt({ kind, faction: 4, role: 'test', name: 'anim2 ' + kind, level: 5, x, z, y: F.heightAt(x, z), radius: 0.4, look: { colA: [0.45, 0.43, 0.4], colB: [0.3, 0.28, 0.26] }, scale: 1 });
       b.yaw = Math.atan2(Ln.sx, Ln.sz); b.prevX = b.x; b.prevZ = b.z; b.testMo = true; this.made.push(b); es.push(b);
     });
-    this.over(Ln.x + Ln.ux * 4, Ln.z + Ln.uz * 4, 12, 9);
+    this.over(Ln.x, Ln.z, 12, 9);
     for (let k = 0; k < 10; k++) A.a2Step(1 / 30, {});
     for (const e of es) { F.killEnt(e, null); e.removeAt = Infinity; }
     for (let k = 0; k < 75; k++) A.a2Step(1 / 30, {});

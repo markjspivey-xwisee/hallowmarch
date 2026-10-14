@@ -401,7 +401,7 @@ function a2DragonFlatten(e, P) {
     if (py - heightAt(px, pz) > 0.9) return;
     const k = Math.round(px) + ',' + Math.round(pz);
     if (seen.has(k)) return;
-    seen.add(k); natureCut(Math.round(px), Math.round(pz), 0.75, 0.9, false); n++;
+    seen.add(k); natureCut(Math.round(px), Math.round(pz), 0.9, 1, false); n++;
   };
   for (let v = 0; v < N; v += 3) cut(Wp[v * 3], Wp[v * 3 + 1], Wp[v * 3 + 2]);
   // (and across the big triangles: a wing's membrane spans metres between its fingers, with no vertex in its middle, and
