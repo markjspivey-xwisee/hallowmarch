@@ -241,7 +241,7 @@ window.LK = {
     if (!fn) return { skip: 'no such view' };
     const info = fn.call(this, this, variant) || {};
     if (info.skip) return info;
-    if (this.TOD[variant] !== undefined) this.tod(variant);
+    if (this.TOD[variant] !== undefined && !(info.keepTod && variant === 'day')) this.tod(variant); // [look7] a view that sets its own hour keeps it (the sky's views), unless a variant asks for another
     if (variant === 'rain') this.rain(false);
     if (variant === 'storm') this.rain(true);
     if (variant === 'mist') this.mist();
@@ -1682,3 +1682,220 @@ window.LK = {
     return o;
   };
 })();
+// [look7] (version 20) what version 19 added, as a player meets it: the realm's stores yard behind its quartermaster (and
+// an enemy's set alight), a cart on the road with its horse, carter and escort (and one taken: tipped and burning), the
+// towns' woodcutters and quarryman at work; the weather's systems (heaps of cumulus, a front's deck, a storm's towers over
+// the frontier, rain under its cloud and dry beside it, the clouds' shadows on the land, mist in a valley at dawn, the moon
+// between clouds, lightning in a storm, the wet ground under a shower, a house in a storm from inside); the dead of a fight
+// lying with their gear, Cinderwing dead where it fell, a bow drawn, a staff in a cast and a shield raised; others in the
+// March (remote players: tools/tests/net_fake.js, look.py serve net)
+(function () {
+  const LK = window.LK, D = (g, n, f) => LK.def(g, n, f);
+  const sim = (L, s) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; H.simulate(s, Math.min(0.05, s)); H.UI.modal = m || 'menu'; };
+  const live = (L, sec, dt = 1 / 4) => { const H = L.H, m = H.UI.modal; H.UI.modal = null; for (let t = 0; t < sec - 1e-6; t += dt) H.frame(dt); H.UI.modal = m || 'menu'; };
+  // the live weather with nothing in the sky but what a view makes (weather2.py's W2T.live)
+  LK.wxLive = function () { const W = this.H.dbg.WEATHER, X = this.H.weather2; W.mode = 'auto'; W.next = 60; X.WX.on = true; X.calm(); X.fairSet([0.22, 0.34, 0.3]); X.WX.grid && X.WX.grid.wet && X.WX.grid.wet.fill(0); W.wet = 0; return X; };
+  // the way from (x, z) at height y with the lowest horizon
+  LK.openDir = function (x, z, y) {
+    let best = 0, bestE = 1e9;
+    for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2, ux = Math.sin(a), uz = -Math.cos(a); let e = -1e9;
+      for (let d = 40; d < 1600; d *= 1.18) { const hx = x + ux * d, hz = z + uz * d; if (Math.abs(hx) > 510 || Math.abs(hz) > 510) break; e = Math.max(e, (this.F.heightAt(hx, hz) - y) / d); }
+      if (e < bestE) { bestE = e; best = a; } }
+    return { x: Math.sin(best), z: -Math.cos(best), e: bestE };
+  };
+  const site = (L, kind, realm) => L.H.weather2.sites.find((s) => s.kind === kind && s.realm === realm);
+  /* ---- the realm's stores ---- */
+  D('look7', 'l7_yard', (L) => {
+    const H = L.H, Y = H.loops.LOOPS.yards[0], Q = H.REALMS[0].quartermaster;
+    if (!Y) return { skip: 'no yard' };
+    const gy = L.F.heightAt(Y.x, Y.z), a = Math.atan2(Q.x - Y.x, Q.z - Y.z) + 0.35;
+    return { ...L.cam(Y.x + Math.sin(a) * 10, gy + 3.2, Y.z + Math.cos(a) * 10, Y.x, gy + 0.9, Y.z), stacks: Y.n || null };
+  });
+  D('look7', 'l7_yard_fire', (L) => {
+    const H = L.H, Y = H.loops.LOOPS.yards[1];
+    if (!Y) return { skip: 'no yard' };
+    Y.burn = 0; H.loops.loopsYardIgnite(Y, null); sim(L, 6); live(L, 1.0);
+    const gy = L.F.heightAt(Y.x, Y.z), a = Y.yaw + 0.6;
+    return { ...L.cam(Y.x + Math.sin(a) * 11, gy + 3.5, Y.z + Math.cos(a) * 11, Y.x, gy + 1.2, Y.z), burn: +Y.burn.toFixed(1) };
+  });
+  // a cart on its way to a keep, from beside the road
+  LK.l7cart = function () {
+    const H = this.H, LO = H.loops, c0 = LO.LOOPS.caravans.find((c) => c.state === 'go' && this.F.getEnt(c.horse));
+    if (c0) return c0;
+    const K = H.WAR.keeps.find((k) => k.owner === 0) || H.WAR.keeps[0], S = LO.keep(H.WAR.keeps.indexOf(K)); S.timber = 2; S.food = 8; S.stone = 2;
+    const c = LO.loopsCarSend(0, K, true); sim(this, 40); return c;
+  };
+  D('look7', 'l7_cart', (L) => {
+    const c = L.l7cart(); if (!c) return { skip: 'no cart' };
+    const h = L.F.getEnt(c.horse); if (!h) return { skip: 'no horse' };
+    const mx = (c.ax + h.x) / 2, mz = (c.az + h.z) / 2, side = c.yaw + Math.PI / 2 + 0.55, gy = L.F.heightAt(mx, mz);
+    L.H.GAME.player.x = h.x + 40; L.H.GAME.player.z = h.z + 40;
+    return { ...L.cam(mx + Math.sin(side) * 8.5, gy + 2.6, mz + Math.cos(side) * 8.5, mx, gy + 1.0, mz), state: c.state };
+  });
+  D('look7', 'l7_cart_close', (L) => {
+    const c = L.l7cart(); if (!c) return { skip: 'no cart' };
+    const gy = L.F.heightAt(c.ax, c.az), side = c.yaw - Math.PI / 2 - 0.4;
+    return L.cam(c.ax + Math.sin(side) * 3.6, gy + 1.7, c.az + Math.cos(side) * 3.6, c.ax, gy + 0.8, c.az);
+  });
+  D('look7', 'l7_cart_wreck', (L) => {
+    const c = L.l7cart(); if (!c) return { skip: 'no cart' };
+    const h = L.F.getEnt(c.horse), ca = L.F.getEnt(c.carter);
+    if (c.state !== 'wreck') { if (ca && ca.alive) L.F.killEnt(ca, null); if (h && h.alive) L.F.killEnt(h, null); if (c.state !== 'wreck') L.H.loops.loopsCarLost(c); }
+    sim(L, 4); live(L, 0.8);
+    const gy = L.F.heightAt(c.ax, c.az), side = c.yaw + Math.PI / 2 + 0.7;
+    return { ...L.cam(c.ax + Math.sin(side) * 6, gy + 2.4, c.az + Math.cos(side) * 6, c.ax, gy + 0.6, c.az), state: c.state };
+  });
+  // the town's woodcutters and quarryman at their work
+  const worker = (L, job, k) => {
+    const H = L.H, LO = H.loops.LOOPS, T = H.REALMS[0].town, P = H.GAME.player;
+    P.x = P.prevX = T.x + 3; P.z = P.prevZ = T.z + 3;
+    const ws = LO.workers.map((id) => L.F.getEnt(id)).filter((e) => e && e.ai.lj && e.ai.lj.realm === 0 && e.ai.lj.job === job);
+    for (const e of ws) e.ai.lj.next = Math.min(e.ai.lj.next, H.GAME.t);
+    for (let i = 0; i < 160; i++) {
+      sim(L, 1);
+      const w = ws.find((e) => { const st = e.ai.plan && e.ai.plan.steps[e.ai.plan.i]; return st && st.k === k && st.n >= 1 && !(st.tree && st.tree.felled); });
+      if (w) return w;
+    }
+    return null;
+  };
+  D('look7', 'l7_woodcutter', (L) => {
+    const w = worker(L, 'wood', 'lchop'); if (!w) return { skip: 'no woodcutter at work' };
+    const st = w.ai.plan.steps[w.ai.plan.i], t = st.tree, gy = L.F.heightAt(w.x, w.z), a = Math.atan2(w.x - t.x, w.z - t.z) + 1.2;
+    live(L, 0.6);
+    return L.cam(w.x + Math.sin(a) * 5, gy + 2.0, w.z + Math.cos(a) * 5, (w.x + t.x) / 2, gy + 1.3, (w.z + t.z) / 2);
+  });
+  D('look7', 'l7_quarry', (L) => {
+    const w = worker(L, 'stone', 'lquarry'); if (!w) return { skip: 'no quarryman at work' };
+    const gy = L.F.heightAt(w.x, w.z), a = w.yaw + 1.3;
+    live(L, 0.6);
+    return L.cam(w.x + Math.sin(a) * 4.5, gy + 1.9, w.z + Math.cos(a) * 4.5, w.x + Math.sin(w.yaw) * 0.8, gy + 0.9, w.z + Math.cos(w.yaw) * 0.8);
+  });
+  /* ---- the weather's systems ---- */
+  const sky = (L, tod, fn) => { const X = L.wxLive(); L.H.setTod(tod); L.F.applyTimeOfDay(tod); L.H.farm.setSeason(0.4); const r = fn(X); L.F.weatherAdvance(5); return { ...r, keepTod: true, tod }; };
+  D('look7', 'l7_heaps', (L) => sky(L, 0.5, (X) => {
+    const T = site(L, 'town', 0), o = L.openDir(T.x, T.z, T.y + 4);
+    X.fairSet([0.5, 0.5, 0.5]);
+    return L.cam(T.x, T.y + 4, T.z, T.x + o.x * 300, T.y + 55, T.z + o.z * 300);
+  }));
+  D('look7', 'l7_front', (L) => sky(L, 0.55, (X) => {
+    const K = site(L, 'keep', 0), o = L.openDir(K.x, K.z, K.y + 9);
+    const c = X.wxMake('front', K.x + o.x * 1500, K.z + o.z * 1500, { age: 220, ang: Math.atan2(o.z, o.x) + Math.PI / 2 }); c.sp = 0;
+    return L.cam(K.x, K.y + 9, K.z, K.x + o.x * 300, K.y + 45, K.z + o.z * 300);
+  }));
+  D('look7', 'l7_storm', (L) => sky(L, 1.05, (X) => {
+    const T = site(L, 'town', 1), o = L.openDir(T.x, T.z, T.y + 8);
+    const c = X.wxMake('storm', T.x + o.x * 1300, T.z + o.z * 1300, { age: 150 }); c.sp = 0;
+    return L.cam(T.x, T.y + 8, T.z, T.x + o.x * 300, T.y + 40, T.z + o.z * 300);
+  }));
+  D('look7', 'l7_rain_edge', (L) => sky(L, 0.45, (X) => {
+    const T = site(L, 'town', 0), o = L.openDir(T.x, T.z, T.y + 12);
+    const c = X.wxMake('storm', T.x + o.x * 700 + o.z * 250, T.z + o.z * 700 - o.x * 250, { age: 160 }); c.sp = 0;
+    return L.cam(T.x, T.y + 12, T.z, T.x + o.x * 300, T.y + 30, T.z + o.z * 300);
+  }));
+  // under a shower's edge on the ground: wet road and grass under it, dry beside it (the wet film by place)
+  D('look7', 'l7_wet_edge', (L) => sky(L, 0.5, (X) => {
+    const T = site(L, 'town', 0), c = X.wxMake('shower', T.x + 160, T.z, { age: 180, ang: 0 }); c.sp = 0; c.a = 170; c.b = 150; c.life = 1e6;
+    for (let i = 0; i < 20; i++) X.updateWeather2(0.5);
+    return L.cam(T.x - 20, T.y + 22, T.z + 30, T.x + 20, T.y, T.z);
+  }));
+  D('look7', 'l7_shadows', (L) => sky(L, 0.35, (X) => {
+    const T = site(L, 'town', 2); X.fairSet([0.55, 0.55, 0.55]);
+    const R = L.H.REALMS[2], p = { x: T.x - R.dx * 70, z: T.z - R.dz * 70 };
+    return L.cam(p.x, L.F.heightAt(p.x, p.z) + 40, p.z, T.x, T.y, T.z);
+  }));
+  D('look7', 'l7_mist', (L) => sky(L, 2.85, (X) => {
+    const T = site(L, 'town', 1), o = L.openDir(T.x, T.z, T.y + 25);
+    const c = X.wxMake('mist', T.x + o.x * 250, T.z + o.z * 250, { age: 120 }); c.sp = 0; c.life = 1e6;
+    return L.cam(T.x, T.y + 25, T.z, T.x + o.x * 300, T.y + 5, T.z + o.z * 300);
+  }));
+  D('look7', 'l7_moon', (L) => sky(L, 2.0, (X) => {
+    const H = L.H, P = H.GAME.player; H.frame(1 / 30);
+    const M = H.dbg.skyU.uMoonDir.value, cy = P.y + 3, t = (330 - cy) / Math.max(M.y, 0.05), hl = Math.hypot(M.x, M.z) || 1, sx = -M.z / hl, sz = M.x / hl;
+    X.wxMake('bank', P.x + M.x * t + sx * 560, P.z + M.z * t + sz * 560, { age: 200, ang: Math.atan2(sz, sx) }).sp = 0;
+    X.wxMake('bank', P.x + M.x * t * 1.6 - sx * 640, P.z + M.z * t * 1.6 - sz * 640, { age: 200, ang: Math.atan2(sz, sx) }).sp = 0;
+    return L.cam(P.x, cy, P.z, P.x + M.x * 100, cy + M.y * 100 - 18, P.z + M.z * 100);
+  }));
+  // a storm over the player at night, lightning in the cloud
+  D('look7', 'l7_lightning', (L) => sky(L, 2.1, (X) => {
+    const T = site(L, 'town', 0), o = L.openDir(T.x, T.z, T.y + 6);
+    const c = X.wxMake('storm', T.x + o.x * 500, T.z + o.z * 500, { age: 150 }); c.sp = 0;
+    for (let i = 0; i < 6; i++) X.updateWeather2(0.5);
+    X.wxCloudFlash(c.x, c.z, 500);
+    return L.cam(T.x, T.y + 6, T.z, T.x + o.x * 300, T.y + 50, T.z + o.z * 300);
+  }));
+  // in a house in a storm: the rain at the window, none inside
+  D('look7', 'l7_inside_storm', (L) => sky(L, 0.5, (X) => {
+    const h = L.house(0, 1, false), D0 = h.door, i = D0.in;
+    const c = X.wxMake('storm', h.x, h.z, { age: 160 }); c.sp = 0; c.life = 1e6;
+    L.F.setHouseDoor && L.F.setHouseDoor(h, true);
+    return { ...L.play(i.x, i.z, Math.atan2(D0.out.x - h.x, D0.out.z - h.z), 0.2, 3.0), house: h.num };
+  }));
+  /* ---- bodies ---- */
+  // the dead of a fight lying on the field: each calling of two realms struck down
+  D('look7', 'l7_dead', (L) => {
+    const H = L.H, F = L.F, m = H.REALMS[0].musterSite, sp = L.open(m.x + 30, m.z - 20, 6, 120) || m;
+    L.hush(sp.x, sp.z, 30);
+    for (let i = -7; i <= 7; i += 1.5) for (let j = -7; j <= 7; j += 1.5) H.nature.natureCut(sp.x + i, sp.z + j, 1.2, 1, false);
+    const es = [];
+    ['warrior', 'archer', 'mage', 'priest'].forEach((c, i) => [0, 2].forEach((r, j) => {
+      const e = F.spawnRealmUnit(r, c, 30, 'guard', sp.x + (i - 1.5) * 2.4, sp.z + (j - 0.5) * 3.2, { yaw: 0.6 + i });
+      e.ai.post = { x: e.x, z: e.z, leash: 1 }; e.testLook = true; L.made.push(e); es.push(e);
+    }));
+    sim(L, 0.5);
+    for (const e of es) { F.killEnt(e, null); e.removeAt = Infinity; }
+    sim(L, 2.6);
+    return L.cam(sp.x + 6.5, F.heightAt(sp.x, sp.z) + 2.8, sp.z + 6.0, sp.x, F.heightAt(sp.x, sp.z) + 0.2, sp.z);
+  });
+  D('look7', 'l7_dragon_dead', (L) => {
+    const H = L.H, F = L.F, Dg = H.dbg.DRAGON, e = Dg.e, P0 = Dg.perches[0];
+    if (!e || !P0) return { skip: 'no dragon' };
+    if (e.alive || Dg.state !== 'dead') {
+      try { H.bal5.flattenCraters(); } catch (err) { /* */ }
+      e.alive = true; e.hp = e.maxHp; e.x = P0.x; e.z = P0.z; e.y = F.heightAt(e.x, e.z); e.yaw = 0.7; e.fixedY = null; H.dbg.setDragonState('perch'); Dg.act = null;
+      const P = H.GAME.player; P.x = P.prevX = P0.x + 30; P.z = P.prevZ = P0.z + 30;
+      for (let i = 0; i < 30; i++) F.dragonAnimate(1 / 30);
+      e.removeAt = Infinity; F.killEnt(e, P); e.removeAt = Infinity; e.fixedY = null; e.y = F.heightAt(e.x, e.z);
+      for (let i = 0; i < 150; i++) F.dragonAnimate(1 / 30);
+    }
+    const a = e.yaw + 1.1;
+    return { ...L.cam(e.x + Math.sin(a) * 18, e.y + 5, e.z + Math.cos(a) * 18, e.x, e.y + 1, e.z), state: Dg.state };
+  });
+  // the callings' weapons in their use, as a fight shows them: a bow drawn, a staff in a cast, a shield raised
+  D('look7', 'l7_weapons', (L) => {
+    const H = L.H, F = L.F, m = H.REALMS[1].musterSite, sp = L.open(m.x + 20, m.z + 20, 6, 120) || m;
+    L.hush(sp.x, sp.z, 30);
+    for (let i = -6; i <= 6; i += 1.5) for (let j = -4; j <= 4; j += 1.5) H.nature.natureCut(sp.x + i, sp.z + j, 1.2, 1, false);
+    const face = 0, acts = [['archer', 2, 0.75], ['mage', 3, 0.55], ['warrior', 10, 0.6], ['priest', 3, 0.5]], es = [];
+    acts.forEach(([c, act, at], i) => {
+      const e = F.spawnRealmUnit(1, c, 30, 'guard', sp.x + (i - 1.5) * 2.0, sp.z, { yaw: face });
+      e.ai.post = { x: e.x, z: e.z, leash: 1 }; e.testLook = true; L.made.push(e); es.push([e, act, at]);
+    });
+    sim(L, 0.3);
+    for (const [e, act, at] of es) { e.yaw = e.prevYaw = face + 1.2; e.anim.act = act; e.anim.actDur = 1000; e.anim.actT = at * 1000; }
+    H.frame(1 / 60);
+    for (const [e, act, at] of es) e.anim.actT = at * 1000;
+    const gy = F.heightAt(sp.x, sp.z);
+    return L.cam(sp.x + 1.0, gy + 1.5, sp.z + 6.5, sp.x, gy + 1.1, sp.z);
+  });
+  /* ---- others in the March ---- */
+  D('look7', 'l7_others', (L) => {
+    const H = L.H, F = L.F;
+    if (!window.NF) return { skip: 'no net_fake (load tools/tests/net_fake.js)' };
+    if (!H.net || H.net.NET.state === 'alone') return { skip: 'no room (look.py serve net)' };
+    const T = H.REALMS[0].town, sp = L.open(T.x + 10, T.z - 6, 3, 40) || T;
+    if (!LK.l7nf) {
+      LK.l7nf = [
+        NF.add({ name: 'Wren', realm: 0, cls: 'archer', level: 34, x: sp.x + 2, z: sp.z + 3, yaw: 2.6 }),
+        NF.add({ name: 'Osric', realm: 0, cls: 'priest', level: 41, x: sp.x - 2, z: sp.z + 3.5, yaw: 3.4 }),
+        NF.add({ name: 'Brannoc', realm: 1, cls: 'warrior', level: 38, walk: 'circle', cx: sp.x, cz: sp.z + 8, r: 5, speed: 3.5, x: sp.x, z: sp.z + 13 }),
+      ];
+    }
+    for (let i = 0; i < 25; i++) { H.frame(1 / 10); }
+    try { H.net.chat('r', 'To the quartermaster with the timber!'); } catch (e) { /* */ }
+    const P = H.GAME.player;
+    const r = L.play(sp.x, sp.z - 2, 0, 0.18, 6.5);
+    live(L, 1.0);
+    return { ...r, peers: Object.keys(H.net.NET.peers || {}).length };
+  });
+})();
+0;

@@ -52,6 +52,8 @@ async def setup(p, w, h, touch=False):
     ctx = await b.new_context(viewport={'width': w, 'height': h}, has_touch=touch, is_mobile=touch)
     page = await ctx.new_page()
     await page.add_init_script(HOLD)
+    # [look7] others in the March: the stand-in room (00n_netstub.js), so look7's views can draw remote players (net_fake.js)
+    if 'net' in FLAGS: await page.add_init_script("window.__HM_NET = { room: 'look7' };")
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
     three = hm.THREE_LOCAL.read_text()
