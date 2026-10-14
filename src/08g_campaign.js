@@ -63,6 +63,7 @@ function wbOrd(wb) {
 }
 function wbName(wb, withRealm = true) {
   if (wb.w3col) return war3ColName(wb, withRealm); // [war3] a garrison's column (08k_war3.js)
+  if (wb.season) return s2Name(wb, withRealm); // [season2] an army of the season (08o_season2.js)
   const o = WB_ORD[wbOrd(wb) - 1] || `${wbOrd(wb)}th`;
   return withRealm ? `${possessive(REALMS[wb.realm].name)} ${o} Warband` : `${o} Warband`;
 }
@@ -713,6 +714,7 @@ function drawCampaignMap(ctx, S, P) {
   bands.sort((a, b) => (a.realm === P.faction) - (b.realm === P.faction) || (a.id === sel) - (b.id === sel));
   for (const wb of bands) cwDrawRoute(ctx, wb, toPx, u, 1, wb.realm === P.faction ? 0.95 : 0.6, wb.id === sel);
   war3MapMarks(ctx, toPx, u, sc); // [war3] a keep pressed for, ringed (08k_war3.js)
+  season2MapMarks(ctx, toPx, u, sc); // [season2] the season's pennants (08o_season2.js)
   for (const wb of bands) {
     const L = wbLeader(wb), [x, y] = toPx(L.x, L.z), R = REALMS[wb.realm];
     if (wb.id === sel) { ctx.strokeStyle = `rgba(255, 231, 168, ${0.6 + 0.4 * Math.sin(renderTime * 5)})`; ctx.lineWidth = sc * 0.6; ctx.beginPath(); ctx.arc(x, y, sc * 5.2, 0, TAU); ctx.stroke(); }

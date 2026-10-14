@@ -52,7 +52,8 @@ function netsRead(o) {
   const s = { n: netNum(o.n, 1, 1e6), t: netNum(o.t, 0, 1e10), len: netNum(o.len, 600, 1e9), day: netNum(o.day, 1, 1e5), days: netNum(o.days, 1, 1e5), phase: NETS_PHASE[o.phase] ? o.phase : 'war', over: o.over ? 1 : 0, winner: NET_REALM_OK(o.winner) ? o.winner : -1 };
   s.pts = Array.isArray(o.pts) && o.pts.length === 3 ? o.pts.map((v) => netNum(v, 0, 1e12)) : [0, 0, 0];
   s.keeps = Array.isArray(o.keeps) ? o.keeps.slice(0, 16).map((K, i) => ({ i, r: NET_REALM_OK(K && K.r) ? K.r : -1, g: netNum(K && K.g, 0, 999), gate: K && K.gate ? 1 : 0, siege: K && K.siege ? 1 : 0 })) : [];
-  s.armies = Array.isArray(o.armies) ? o.armies.slice(0, 24).filter((A) => A && NET_REALM_OK(A.r)).map((A) => ({ r: A.r, n: netNum(A.n, 0, 9999), to: netNum(A.to, -1, 16), st: A.st === 'siege' ? 'siege' : 'march', x: netNum(A.x, -5000, 5000), z: netNum(A.z, -5000, 5000) })) : [];
+  s.armies = Array.isArray(o.armies) ? o.armies.slice(0, 24).filter((A) => A && NET_REALM_OK(A.r)).map((A) => ({ r: A.r, n: netNum(A.n, 0, 9999), to: netNum(A.to, -1, 16), st: A.st === 'siege' ? 'siege' : 'march', x: netNum(A.x, -5000, 5000), z: netNum(A.z, -5000, 5000), f: A.f ? 1 : 0, off: A.off ? 1 : 0 })) : []; // [season2] f: on a page's field, off: an offensive's
+  s.offs = Array.isArray(o.offs) ? o.offs.slice(0, 12).filter((O) => O && NET_REALM_OK(O.r)).map((O) => ({ r: O.r, k: netNum(O.k, -1, 16), state: O.state === 'planned' ? 'planned' : 'siege', inS: netNum(O.inS, 0, 1e9) })) : []; // [season2] the offensives announced
   s.st = o.st && typeof o.st === 'object' ? Object.fromEntries(['food', 'timber', 'stone', 'iron', 'hides', 'wool', 'horses'].map((g) => [g, netNum(o.st[g], 0, 1e9)])) : null;
   s.built = Array.isArray(o.built) ? o.built.slice(0, 12).map((x) => netStr(x, 24)) : [];
   s.proj = Array.isArray(o.proj) ? o.proj.slice(0, 12).filter((p) => p && typeof p.id === 'string').map((p) => ({ id: netStr(p.id, 24), label: netStr(p.label, 60), did: netStr(p.did, 80), built: !!p.built, votes: netNum(p.votes, 0, 1e9), need: netsGoods(p.need), have: netsGoods(p.have) })) : [];
@@ -107,7 +108,7 @@ function netsWorldMap(ctx, S) {
   ctx.save();
   ctx.font = `600 ${Math.round(S * 0.02)}px system-ui, sans-serif`;
   for (const A of NETS.s.armies) {
-    if (A.r !== me && A.st !== 'siege') continue;
+    if ((A.r !== me && A.st !== 'siege') || A.f) continue; // [season2] (one on a page's field is a band there: 08o_season2.js)
     const [x, y] = w2m(A.x, A.z, S), u = S * 0.012;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(x, y + u * 1.4); ctx.lineTo(x, y - u * 1.6); ctx.stroke();
@@ -130,7 +131,7 @@ function netSeasonHudHTML() {
   if (!netsOn()) return '';
   const s = NETS.s, P = GAME.player, ro = NETS.roster;
   const left = Math.max(0, s.len - s.t);
-  return `<div class="ns-line" title="The season of the March: the realms live on while you are away">Season ${s.n} · ${s.over ? 'over' : 'day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small> · ${netsAgo(left)} left</small>`}</div>`;
+  return `<div class="ns-line" title="The season of the March: the realms live on while you are away">Season ${s.n} · ${s.over ? 'over' : 'day ' + s.day + ' of ' + s.days} · ${NETS_PHASE[s.phase]}${!s.over && s.phase === 'build' ? '' : ''}${ro && P ? ` · <b style="color:${REALMS[P.faction].color}">${ro.now}</b> of ${esc(netsRealmName(P.faction))} on` : ''}${s.over ? '' : `<small> · ${netsAgo(left)} left</small>`}</div>${season2HudLine() /* [season2] */}`;
 }
 // what the player carries that the realm's stores take, by store
 function netsCarried() {
@@ -212,6 +213,7 @@ function netsChronSeason() {
 <h3 data-cf-open>${esc(R.name)}'s stores</h3><ul class="gd-aims ns-st">${st}</ul><div class="acts ns-give">${give}</div>
 <h3 data-cf-open>Works</h3><p>The realm builds the work with the most votes from its stores as the goods come in. One vote each for each work${officer ? '; yours counts thrice (an officer of the realm)' : '; an officer of the realm (rank 5) counts thrice'}.</p><ul class="gd-aims ns-proj">${proj}</ul>
 <h3>The keeps and the armies</h3><ul class="gd-aims ns-keeps">${keeps}</ul><p>${esc(R.name)}'s next levy in ${netsAgo(s.levyIn)}.${officer ? '' : ' An officer of the realm (rank 5) may call a muster now.'}</p><ul class="ns-armies">${armies}</ul>${officer && s.phase !== 'build' ? '<div class="acts"><button type="button" class="btn ns-btn" data-ns="muster">Call a muster</button></div>' : ''}
+${season2ChronHTML() /* [season2] (08o_season2.js) */}
 <h3 data-cf-open>Your realm today</h3><p>${ro ? `${ro.now} on now, ${ro.day} today.` : ''}</p><ul class="ns-roster">${list}</ul>
 <h3 data-cf-open>News of the season</h3><ul class="ns-news">${news}</ul>
 <p class="fineprint" id="ns-said"></p>`;

@@ -41,6 +41,13 @@ const RSM = {
   price: [2, 4, 4, 15, 6, 5, 120, 0], // gold a unit at the border fairs: the treasury buys what the realm's work lacks
   catchUp: 0.35,            // a realm behind gets up to this much more work and its walls stand that much stronger
   maxLog: 80,
+  // [season2] (version 20) the season's armies on the field: an army a page has brought onto the live war is its own
+  // until it says otherwise or says nothing for `stale` s of the season's time (then folded back where it last stood)
+  field: { stale: 180 },
+  // [season2] a realm's deliveries earn season points by the day, saturating: P(D) = max (1 - e^(-D / full)) points for
+  // D units of worth delivered that day (D: every player of the realm together; work counts as RSM.sp.work points an hour
+  // worth): one player's hour (about 800 units) earns about 16, a crowd no more than `max` a day. The goods all go in.
+  delivery: { max: 40, full: 1500 },
   projects: {
     // (days: the quickest it can be done; the realm's stores above a reserve set the pace, so what players deliver speeds it)
     walls: { cost: [0, 1200, 3000, 240, 0, 0, 0, 0], days: 1, max: 3, name: "raise a keep's walls a tier" },
@@ -88,7 +95,7 @@ function realmSimInit(seed, opts = {}) {
     names: { realms: ['Logres', 'Ériu', 'Thule'], keeps: homes.map((h, i) => `the ${['Logres', 'Ériu', 'Thule'][h]} keep ${i % 2 ? 'east' : 'west'}`) },
     realms: [0, 1, 2].map((r) => ({
       s: RSM.target.map((v) => Math.round(v * 0.8)), bank: [0, 0, 0, 0, 0, 0, 0, 0], lev: 12, sp: 0, del: 0, work: 0, proj: { walls: 0, granary: 0, yard: 0, smithy: 0, engines: 0 },
-      act: 'granary', prog: 0, votes: {}, aim: -1, short: [], hungry: 0, by: {}, raidAt: 0, decideAt: 0, levyAt: 0, refillAt: 0,
+      act: 'granary', prog: 0, votes: {}, aim: -1, short: [], hungry: 0, by: {}, raidAt: 0, decideAt: 0, levyAt: 0, refillAt: 0, dDay: -1, dWorth: 0, // [season2] the day's deliveries
       stats: { trained: 0, lost: 0, taken: 0, raids: 0, made: 0, ate: 0, offensives: 0, won: 0, hungryH: 0, poured: 0, bought: 0 },
     })),
     keeps: homes.map((h) => ({ h, home: h, g: RSM.garrison, tier: 0, gate: 1, siege: null })),
@@ -159,7 +166,8 @@ function rsmSub(RS, dt) {
     if (RS.phase !== 'reckon') rsmPoints(RS, r, R, hr);
     if (RS.phase !== 'reckon' && RS.t >= R.decideAt) { R.decideAt = RS.t + RSM.hours.decide * 3600 * (0.8 + 0.4 * rsmRand(RS)); rsmDecide(RS, r, R); }
   }
-  if (!RS.live) { rsmArmies(RS, hr); rsmHallowsHome(RS); }
+  rsmArmies(RS, hr); // [season2] while a player is in the page too: the armies on the field are the page's, the rest by the numbers
+  if (!RS.live) rsmHallowsHome(RS);
   rsmOffensives(RS);
 }
 function rsmPhase(RS, from, to) {
@@ -320,7 +328,7 @@ function rsmDecide(RS, r, R) {
       rsmLog(RS, r, `${rsmRN(RS, r)} announces its offensive: it will march on ${rsmKN(RS, k)} (held by ${rsmRN(RS, RS.keeps[k].h)}) in ${rsmDur(at - RS.t)}. Both realms prepare.`, 'big');
     }
   }
-  if (RS.live || RS.phase !== 'war') return;
+  if (RS.phase !== 'war') return; // [season2] (while a player is in the page too: its armies near the player are bands of the live war)
   // a raid on an enemy's fields and yards, now and then
   if (RS.t >= R.raidAt && R.lev >= 16 && !RS.armies.some((A) => A.r === r && A.kind === 'raid')) {
     R.raidAt = RS.t + RSM.hours.raid * 3600 * (0.7 + 0.6 * rsmRand(RS));
@@ -329,7 +337,7 @@ function rsmDecide(RS, r, R) {
     rsmArmy(RS, r, 8, 'raid', -1, q);
   }
   // a hallow raid: a realm holding three keeps or more on an enemy temple whose realm has lost a keep
-  if (rsmKeepsOf(RS, r) >= 3 && R.lev >= 24 && !RS.armies.some((A) => A.r === r && A.kind === 'hallow')) {
+  if (!RS.live && rsmKeepsOf(RS, r) >= 3 && R.lev >= 24 && !RS.armies.some((A) => A.r === r && A.kind === 'hallow')) {
     const q = [0, 1, 2].find((t) => t !== r && RS.hallows[t] === t && rsmKeepsOf(RS, t) < 2);
     if (q != null && rsmRand(RS) < 0.35) rsmArmy(RS, r, 14, 'hallow', -1, q);
   }
@@ -373,11 +381,12 @@ function rsmArmyHome(RS, A, why) {
   R.lev = Math.min(RSM.levyMax * 2, R.lev + A.n);
   A.state = 'gone';
   if (A.k >= 0 && RS.keeps[A.k].siege && RS.keeps[A.k].siege.a === A.id) RS.keeps[A.k].siege = null;
-  if (why) rsmLog(RS, A.r, `${rsmRN(RS, A.r)}'s army of ${A.n} goes home from ${A.k >= 0 ? rsmKN(RS, A.k) : 'the field'}: ${why}.`);
+  if (why) rsmLog(RS, A.r, `${rsmRN(RS, A.r)}'s army of ${Math.round(A.n)} goes home from ${A.k >= 0 ? rsmKN(RS, A.k) : 'the field'}: ${why}.`);
 }
 function rsmArmies(RS, hr) {
   for (const A of RS.armies) {
     if (A.state === 'gone') continue;
+    if (A.onField) { if (RS.t - A.onField.at <= RSM.field.stale) continue; A.onField = null; A.s2fold = (A.s2fold || 0) + 1; } // [season2] the page's, or folded back unheard
     const R = RS.realms[A.r];
     if (A.state === 'march') {
       A.p += (RSM.march * hr) / A.len;
@@ -433,10 +442,10 @@ function rsmSiege(RS, A, R, hr) {
     rsmArmyHome(RS, A, A.n < A.n0 * 0.3 ? `beaten back by ${rsmRN(RS, K.h)}` : 'the siege given up');
   }
 }
-function rsmRaid(RS, A) {
+function rsmRaid(RS, A, field) {
   const V = RS.realms[A.q], R = RS.realms[A.r];
-  // the victim's own levy may catch them: the raid's worth by the numbers
-  const caught = rsmRand(RS) < rsmClamp(V.lev / (V.lev + A.n * 3), 0.1, 0.7);
+  // the victim's own levy may catch them: the raid's worth by the numbers ([season2] or as the field decided)
+  const caught = field ? field === 'caught' : rsmRand(RS) < rsmClamp(V.lev / (V.lev + A.n * 3), 0.1, 0.7);
   if (caught) { const lost = Math.ceil(A.n * 0.5); A.n -= lost; R.stats.lost += lost; rsmLog(RS, A.q, `${rsmRN(RS, A.q)} caught ${rsmRN(RS, A.r)}'s raiders in its fields: ${lost} fell.`); }
   else {
     const loot = [];
@@ -465,7 +474,6 @@ function rsmOffensives(RS) {
     if (O.state !== 'planned' || RS.t < O.at) continue;
     if (RS.phase !== 'war') { O.state = 'done'; O.res = 'called off'; continue; }
     if (RS.keeps[O.k].h === O.r) { O.state = 'done'; O.res = 'taken'; continue; }
-    if (RS.live) { O.state = 'live'; O.liveUntil = RS.t + 3600; rsmLog(RS, O.r, `${rsmRN(RS, O.r)}'s offensive on ${rsmKN(RS, O.k)} begins: its bands march.`, 'big'); continue; }
     const R = RS.realms[O.r];
     const A = rsmArmy(RS, O.r, Math.max(12, R.lev - 4), 'offensive', O.k);
     if (!A) { O.state = 'done'; O.res = 'too few'; rsmLog(RS, O.r, `${rsmRN(RS, O.r)}'s offensive on ${rsmKN(RS, O.k)} is called off: too few soldiers under arms.`); continue; }
@@ -478,6 +486,16 @@ function rsmOffensives(RS) {
 /* ------------------------------------------------------------------ */
 /* the players                                                         */
 /* ------------------------------------------------------------------ */
+// [season2] a realm's deliveries by the day: the points a delivery of `worth` units earns on top of what its players
+// gave today (the day of the season's clock), saturating at RSM.delivery.max a day
+function rsmDeliverPts(RS, R, worth) {
+  const day = Math.floor(RS.t / rsmDay), D = RSM.delivery;
+  if (R.dDay !== day) { R.dDay = day; R.dWorth = 0; }
+  const P = (x) => D.max * (1 - Math.exp(-x / D.full));
+  const a = R.dWorth || 0;
+  R.dWorth = a + worth;
+  return P(a + worth) - P(a);
+}
 // a player's delivery or work. kind: a good of RSM_GOODS (amount: units), or 'work' (hours given to the project).
 // Returns the season points it earned the realm.
 function realmSimContribute(RS, realm, kind, amount, who) {
@@ -485,7 +503,7 @@ function realmSimContribute(RS, realm, kind, amount, who) {
   amount = rsmNum(amount, 0, 0, 1e6);
   if (!R || !(amount > 0)) return 0;
   let pts = 0;
-  if (kind === 'work') { R.work = Math.min(200, R.work + amount); pts = amount * RSM.sp.work; }
+  if (kind === 'work') { R.work = Math.min(200, R.work + amount); pts = rsmDeliverPts(RS, R, amount * RSM.sp.work * RSM.sp.units); } // [season2]
   else if (RSM_G[kind] != null) {
     const g = RSM_G[kind];
     // into the stores up to their cap; the rest is kept for the realm's works (up to twice what its project wants)
@@ -495,7 +513,7 @@ function realmSimContribute(RS, realm, kind, amount, who) {
     R.bank[g] = Math.min(R.bank[g] + amount - into, Math.max(2 * (P ? P.cost[g] : 0), RSM.target[g]));
     const worth = g === 7 ? amount / 4 : g === 6 ? amount * 40 : g === 3 ? amount * 4 : amount;
     R.del += worth;
-    pts = worth / RSM.sp.units;
+    pts = rsmDeliverPts(RS, R, worth); // [season2] by the day, saturating (was worth / RSM.sp.units)
   } else return 0;
   if (RS.phase === 'reckon') pts = 0;
   R.sp += pts;
@@ -526,7 +544,7 @@ function realmSimOrder(RS, realm, order, who) {
     return true;
   }
   if (order.type === 'muster') {
-    if (!officer || RS.live) return false;
+    if (!officer) return false; // [season2] (while a player is in the page too: its army comes onto the field near the player)
     const k = R.aim >= 0 ? R.aim : rsmTarget(RS, realm);
     return k >= 0 && RS.phase === 'war' && !!rsmArmy(RS, realm, Math.min(R.lev - 4, 30), 'assault', k);
   }
@@ -541,8 +559,12 @@ function realmSimLive(RS, ev) {
     if (K.h === ev.holder) return;
     const old = K.h;
     K.h = ev.holder; K.siege = null; K.g = Math.max(K.g * 0.5, 3);
-    const O = RS.offs.find((q) => q.r === ev.holder && q.k === ev.keep && q.state === 'live');
-    if (O) { O.state = 'done'; O.res = 'taken'; RS.realms[ev.holder].sp += RSM.sp.offensive; }
+    const O = RS.offs.find((q) => q.r === ev.holder && q.k === ev.keep && (q.state === 'live' || q.state === 'siege')); // [season2] (an offensive's army in the field: 'siege')
+    if (O) { O.state = 'done'; O.res = 'taken'; RS.realms[ev.holder].sp += RSM.sp.offensive; RS.realms[ev.holder].stats.won++; }
+    // [season2] the taker's armies marching on it or at its walls (but those on a page's field, which says so itself) go home,
+    // their soldiers into its garrison first
+    for (const A of RS.armies) if (A.state !== 'gone' && A.r === ev.holder && A.k === ev.keep && !A.onField) { const n = Math.max(0, Math.min(A.n, RSM.garrison * 1.5 - K.g)); K.g += n; A.n -= n; rsmArmyHome(RS, A, ''); }
+    RS.armies = RS.armies.filter((A) => A.state !== 'gone');
     RS.stats.captures++;
     rsmLog(RS, ev.holder, `${rsmKN(RS, ev.keep)} has fallen to ${rsmRN(RS, ev.holder)} in the field, taken from ${rsmRN(RS, old)}.`, 'big');
   } else if (ev.type === 'battle' && ev.winner >= 0 && ev.winner < 3) {
@@ -596,6 +618,7 @@ function realmSimSanitize(o, opts = {}) {
     R.act = RSM.projects[q.act] ? q.act : q.act === '' ? '' : 'granary'; R.prog = rsmNum(q.prog, 0, 0, 1);
     if (q.votes && typeof q.votes === 'object') for (const id of RSM_PROJ) if (q.votes[id]) R.votes[id] = rsmNum(q.votes[id], 0, 0, 1e4);
     R.aim = rsmNum(q.aim, -1, -1, RS.keeps.length - 1) | 0; R.hungry = rsmNum(q.hungry, 0, 0, 48);
+    R.dDay = rsmNum(q.dDay, -1, -1, 1e5) | 0; R.dWorth = rsmNum(q.dWorth, 0, 0, 1e9); // [season2]
     for (const f of ['raidAt', 'decideAt', 'levyAt', 'refillAt']) R[f] = rsmNum(q[f], 0, 0, RS.len + rsmDay);
     if (Array.isArray(q.short)) R.short = q.short.filter((g) => RSM_G[g] != null).slice(0, 8);
     if (q.by && typeof q.by === 'object') for (const w of Object.keys(q.by).slice(0, 40)) R.by[String(w).slice(0, 40)] = rsmNum(q.by[w], 0, 0, 1e6);
@@ -635,6 +658,59 @@ function realmSimSanitize(o, opts = {}) {
   return RS;
 }
 
+/* ------------------------------------------------------------------ */
+/* [season2] the season's armies as bands of the live war (version 20) */
+/* ------------------------------------------------------------------ */
+// A page (alone: the player's own; on the server: the region's keeper) brings an army near its player onto its live war
+// as a band, and tells RS what became of it; while it is on a field RS leaves it alone (never two of one army).
+//   realmSimFieldTake(RS, id, who)   -> the army's plain description, or null (gone, or on another's field)
+//   realmSimFieldReport(RS, id, rep, who) -> true if heard. rep: { n (the army's soldiers left, RS's measure), p (0..1 along
+//     its road), state ('march'|'siege'), done ('' | 'fallen' | 'beaten' | 'taken' | 'home' | 'raided' | 'caught'), fold }
+//   realmSimFieldFold(RS, who)       every army on `who`'s field folded back where it last stood (a page gone)
+function rsmFieldDesc(RS, A) {
+  return { id: A.id, r: A.r, n: Math.round(A.n * 10) / 10, n0: A.n0, kind: A.kind, k: A.k, q: A.q, eng: A.eng, state: A.state, p: Math.round(A.p * 1000) / 1000, arm: A.arm, hungry: A.hungry, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 };
+}
+function realmSimFieldTake(RS, id, who) {
+  const A = RS && RS.armies.find((q) => q.id === (id | 0) && q.state !== 'gone');
+  who = String(who || 'page').slice(0, 40);
+  if (!A || (A.onField && A.onField.who !== who)) return null;
+  A.onField = { who, at: RS.t };
+  return rsmFieldDesc(RS, A);
+}
+function realmSimFieldFold(RS, who) {
+  let n = 0;
+  if (RS) for (const A of RS.armies) if (A.onField && (who == null || A.onField.who === String(who))) { A.onField = null; n++; }
+  return n;
+}
+function realmSimFieldReport(RS, id, rep, who) {
+  const A = RS && RS.armies.find((q) => q.id === (id | 0) && q.state !== 'gone');
+  if (!A || !A.onField || !rep || typeof rep !== 'object' || (who != null && A.onField.who !== String(who))) return false;
+  const R = RS.realms[A.r];
+  A.onField.at = RS.t;
+  const n = rsmNum(rep.n, A.n, 0, A.n); // (an army never grows on the field)
+  if (n < A.n) { R.stats.lost += A.n - n; A.flost = (A.flost || 0) + A.n - n; A.n = n; }
+  if (A.state === 'march' && rep.p != null) A.p = rsmNum(rep.p, A.p, 0, 1);
+  const K = A.k >= 0 ? RS.keeps[A.k] : null;
+  if (rep.state === 'siege' && K && K.h !== A.r && RS.phase === 'war' && A.state === 'march') { A.state = 'siege'; K.siege = { a: A.id, t: Math.round(RS.t) }; RS.stats.sieges++; }
+  const done = typeof rep.done === 'string' ? rep.done : '';
+  const O = RS.offs.find((q) => q.army === A.id && q.state === 'siege');
+  if (done === 'taken' && K) {
+    if (K.h !== A.r) realmSimLive(RS, { type: 'keep', keep: A.k, holder: A.r });
+    if (K.h === A.r) { const m = Math.max(0, Math.min(A.n, RSM.garrison * 1.5 - K.g)); K.g += m; A.n -= m; }
+    if (O && O.state === 'siege') { O.state = 'done'; O.res = 'taken'; R.sp += RSM.sp.offensive; R.stats.won++; }
+    rsmArmyHome(RS, A, '');
+  } else if (done === 'fallen' || done === 'beaten' || A.n < 0.5) {
+    if (O) { O.state = 'done'; O.res = 'held'; if (K) RS.realms[K.h].sp += RSM.sp.offensive * 0.6; }
+    if (K && K.siege && K.siege.a === A.id) K.siege = null;
+    rsmLog(RS, A.r, A.n < 0.5 ? `${rsmRN(RS, A.r)}'s army ${A.k >= 0 ? `on ${rsmKN(RS, A.k)}` : 'in the field'} has fallen to the last soldier.` : `${rsmRN(RS, A.r)}'s army is beaten back from ${A.k >= 0 ? rsmKN(RS, A.k) : 'the field'} with ${Math.round(A.n)} left.`, O ? 'big' : 'news');
+    rsmArmyHome(RS, A, '');
+  } else if ((done === 'raided' || done === 'caught') && A.kind === 'raid') rsmRaid(RS, A, done);
+  else if (done === 'home') rsmArmyHome(RS, A, typeof rep.why === 'string' ? rep.why.slice(0, 60) : 'called home');
+  if (A.state === 'gone') { RS.armies = RS.armies.filter((q) => q !== A); return true; }
+  if (rep.fold) A.onField = null;
+  return true;
+}
+
 /* global module */
 // Node: export the contract (the page concatenates this file into one module; there `module` is undefined)
-if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };
+if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, RSM_GEO, realmSimFieldTake, realmSimFieldReport, realmSimFieldFold, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };

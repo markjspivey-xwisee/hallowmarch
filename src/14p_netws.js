@@ -86,6 +86,7 @@ function netWsOpen() {
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
       else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') netSeasonMsg(m); // the season (14q_netseason.js)
+      else if (m.t === 'sarmy' || m.t === 'sarmyfold') season2ServerMsg(m); // [season2] a season's army handed to this page, or taken back (08o_season2.js)
       else if (m.t === 'hosts' && m.h && typeof m.h === 'object' && Array.isArray(m.kr)) { // the regions' keepers (CLAUDE.md, Multiplayer: who simulates what)
         const h = {};
         for (const k of Object.keys(m.h).slice(0, 12)) if (/^[fhb][0-2]?$/.test(k) && typeof m.h[k] === 'string') h[k] = m.h[k].slice(0, 32);
