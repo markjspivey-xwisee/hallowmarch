@@ -1,0 +1,51 @@
+name: Version 20 season calibration
+on:
+  push:
+    branches: [feature/v20-season-calibration-20261014]
+permissions:
+  contents: read
+jobs:
+  balance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cap: [34, 35, 36, 37]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test the cap on calibration and held-out seeds
+        env:
+          DELIVERY_CAP: ${{ matrix.cap }}
+        run: |
+          mkdir -p tools/out
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path("src/08m_realm.js")
+          s = p.read_text()
+          old = "delivery: { max: 32, full: 1500 }"
+          assert old in s
+          p.write_text(s.replace(old, "delivery: { max: " + os.environ["DELIVERY_CAP"] + ", full: 1500 }"))
+          test = pathlib.Path("tools/tests/loops_season.js").read_text()
+          pathlib.Path("tools/tests/loops_season_heldout.js").write_text(test.replace("s * 7919", "(s + 500) * 7919"))
+          PY
+          set +e
+          node tools/tests/loops_season.js seeds=12 json=tools/out/calibration.json > tools/out/calibration.log 2>&1
+          a=$?
+          node tools/tests/loops_season_heldout.js seeds=24 json=tools/out/heldout.json > tools/out/heldout.log 2>&1
+          b=$?
+          set -e
+          cat tools/out/calibration.log
+          cat tools/out/heldout.log
+          echo "calibration_exit=$a heldout_exit=$b"
+          test "$a" = 0
+          test "$b" = 0
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: season-cap-${{ matrix.cap }}-evidence
+          path: tools/out/
+          retention-days: 14
