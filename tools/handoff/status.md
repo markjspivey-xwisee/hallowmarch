@@ -9,9 +9,10 @@
 - **The owner's reports while fitting were put right:**
   - Robes and tabards no longer stretch far out at a run.
   - Storm cloud hides the moon and stars.
+- **After version 18, the capture build** (row 72): a mode of the game for filming trailers and stills (Settings, ` or F8, or `#capture`: a free, orbiting, following or keyframed camera, the world's clock frozen or slowed, seventeen staged shots, stills and clips, nothing saved while it is on), `tools/film.py` to film its shots, and a trailer filmed with it: https://claude.ai/artifact/S6GbvpN4tXB8cR47MRrHcu. The live game artifact still holds version 18 without the capture build: republish it from `main`.
 - **Testing.** The whole suite ran on the merged build: `tools/tests/*.py`, `tools/soak.py 10`, `perf.py ... budget`, and campaign soaks at low and medium.
 
-**Open points (see the Roadmap, row 72).** The owner has asked for:
+**Open points (see the Roadmap, row 73).** The owner has asked for:
 - Every way of working the land made needed and valuable, with loops within and between the realms.
 - Multiplayer on a spectrum up to a persistent March of many players, with accounts and saves. The server would go on the owner's Railway once that is connected.
 - Real clouds and weather systems.

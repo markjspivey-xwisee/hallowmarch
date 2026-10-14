@@ -169,6 +169,10 @@ async def desk(p):
             await steps(page, 4, 1 / 24); await frames(page, 2)
             st = await state(page)
             check(not r.get('error') and st['mode'] in ('path', 'follow', 'orbit') and left == 0, f"{s['id']}: staged ({r.get('error') or st['mode']}, {st['made']} bodies made, {left} left of the last shot's)")
+            if s['id'] in ('logres', 'siege'):
+                t = await ev("(() => { const C = __hm.capture.CAPTURE, pt0 = C.pt, x0 = C.cam.x, T = __hm.capture.track(24, 96, 16 / 9); return { n: T.frames.length, marks: T.marks, f0: T.frames[0], fl: T.frames[95], back: C.pt === pt0 && C.cam.x === x0 }; })()")
+                inside = all(q is not None and 0 <= q[0] <= 1 and 0 <= q[1] <= 1 for q in t['f0'][:1])
+                check(t['n'] == 96 and t['marks'] and inside and t['back'], f"{s['id']}: its camera move tracked frame by frame, its first mark on the frame and the camera put back ({t['marks']}, {t['f0']}, {t['fl']})")
             if s['id'] == 'gallop':
                 g = await ev("(() => { const C = __hm.capture.CAPTURE, e = __hm.fn.getEnt(C.follow.id); for (let i = 0; i < 30; i++) __hm.capture.think(1 / 24); return +Math.hypot(e.x - C.cam.x, e.z - C.cam.z).toFixed(1); })()")
                 check(g < 14, f"Follow keeps the galloping horse beside the camera ({g} m off)")
