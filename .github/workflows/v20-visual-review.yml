@@ -1,0 +1,42 @@
+name: Version 20 visual review
+on:
+  push:
+    branches: [feature/v20-visual-review-20261014]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: v20-integrated-visuals-evidence
+          path: qa
+          run-id: 38599488138
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Export the captured views for inspection
+        run: |
+          python3 -m pip install Pillow==11.3.0
+          python3 - <<'PY'
+          import pathlib, hashlib, base64, io
+          from PIL import Image, ImageDraw
+          files = sorted(pathlib.Path("qa").rglob("look_v20-integrated*.png"))
+          assert len(files) == 8, files
+          w, h = Image.open(files[0]).size
+          sheet = Image.new("RGB", (w * 2, (h + 28) * 4), "#151a20")
+          draw = ImageDraw.Draw(sheet)
+          for i, p in enumerate(files):
+              im = Image.open(p).convert("RGB")
+              assert im.size == (w, h)
+              x, y = (i % 2) * w, (i // 2) * (h + 28)
+              sheet.paste(im, (x, y + 28))
+              draw.text((x + 8, y + 7), p.stem, fill="white")
+              print("source", p.name, hashlib.sha256(p.read_bytes()).hexdigest())
+          b = io.BytesIO()
+          sheet.save(b, format="PNG")
+          print("BEGIN_QA_IMAGE")
+          print(base64.b64encode(b.getvalue()).decode("ascii"))
+          print("END_QA_IMAGE")
+          PY
