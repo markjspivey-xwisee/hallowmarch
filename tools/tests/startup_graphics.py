@@ -58,6 +58,10 @@ async def failed_creation(browser, name, w, h, touch=False):
         await page.goto(url, wait_until='commit', timeout=120000)
         panel = page.locator('#nogl')
         await expect(panel).to_be_visible()
+        check(await page.evaluate("document.characterSet === 'UTF-8'"), name + ' uses UTF-8')
+        if touch:
+            layout = await page.evaluate("({width:innerWidth, panel:document.getElementById('nogl').getBoundingClientRect().width})")
+            check(layout['width']==w and w-40 <= layout['panel'] <= w, name + ' uses device-width layout with readable recovery panel')
         await expect(panel).to_have_attribute('role', 'alert')
         await expect(panel).to_contain_text('Graphics could not start')
         await expect(panel.locator('span').filter(has_text=REASON)).to_have_text(REASON)
@@ -96,6 +100,7 @@ async def safe_boot(browser):
           webgl2:__hm.dbg.renderer.capabilities.isWebGL2, calls:__hm.renderInfo().calls,
           stored:localStorage.getItem('hallowmarch.save.v1')
         })""")
+        check(await page.evaluate("document.characterSet === 'UTF-8'"), 'standalone title uses UTF-8')
         check(st['level']=='low' and st['auto'] is False and st['msaa']==0, 'safe startup selects low without MSAA')
         check(st['savedQuality']=='high', 'real save loader reads previous high preference')
         check(st['stored']==text, 'safe startup preserves stored save')

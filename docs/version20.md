@@ -58,3 +58,5 @@ The recovery URL `?safe=1` chooses the existing Low preset before any world gene
 Early graphics initialization failures now remove the loading veil, show the browser's actual context-creation message, and offer a manual low-graphics reload preserving the existing URL's server and other parameters. There is no automatic reload loop. If the browser continues refusing WebGL, closing and reopening the browser may still be needed.
 
 Automatic game saves during a recovery launch retain the previously saved graphics preference, or the ordinary device default for a new save. Selecting a detail level in Graphics explicitly replaces that preference. The recovery preset does not permanently downgrade saved graphics settings by itself.
+
+The standalone HTML also declares UTF-8 and a device-width viewport. Direct-page tests check both: a phone's recovery panel uses its actual viewport rather than a scaled desktop layout, and the title's accented names decode consistently.
