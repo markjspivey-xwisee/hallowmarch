@@ -180,7 +180,7 @@ function a2Scan(opt = {}) {
       const lim = Math.max(opt.lim ?? 0.2, 1.25 * lift + 0.08);
       const hiF = Math.max(...fh.map((h) => h ?? -1)), loF = Math.min(...fs.map((h) => h ?? 9));
       const stand = e.anim.amt < 0.03 && !(e.anim.turn > 0.05);
-      const bad = hiF > lim ? 'high' : stand && loF > (opt.hover ?? 0.1) && loF < 9 ? 'hover' : null; // (hover: a flat sole on a hillside stands on its highest point, as the foot lock reads its floor, and its lowest point is a few centimetres over the ground under it)
+      const bad = hiF > lim ? 'high' : stand && loF > (opt.hover ?? 0.15) && loF < 9 ? 'hover' : null; // (hover: a flat sole on a hillside stands on its highest point, as the foot lock reads its floor, and its lowest point is a few centimetres over the ground under it)
       A2.stats.bodies++;
       // (episodes: how long a body stays so, by what it was doing: a foot carried up for a frame or two as a stride stops
       // is not one left in the air)
@@ -460,7 +460,13 @@ function a2GearParts(crowd) {
   if (st.length) G.staff = { top: far(st, fR), bot: far(st.filter((i) => V(i)[1] > fR[1] + 0.3 || V(i)[2] < fR[2]), [fR[0], fR[1] + 1.2, fR[2]]) };
   for (const k of ['shield', 'shieldRound']) {
     const ids = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT[k] && Math.round(mt[i]) === AM.shieldFace && one(i)) ids.push(i);
-    if (ids.length > 3) { const c = ids.reduce((a, i) => a.map((x, j) => x + V(i)[j] / ids.length), [0, 0, 0]); const a = far(ids, c), b = far(ids, V(a)); const cc = far(ids.filter((i) => i !== a && i !== b), [(V(a)[0] + V(b)[0]) / 2, (V(a)[1] + V(b)[1]) / 2, (V(a)[2] + V(b)[2]) / 2]); G[k] = { face: [a, b, cc] }; }
+    if (ids.length > 3) {
+      const c = ids.reduce((a, i) => a.map((x, j) => x + V(i)[j] / ids.length), [0, 0, 0]); const a = far(ids, c), b = far(ids, V(a)); const cc = far(ids.filter((i) => i !== a && i !== b), [(V(a)[0] + V(b)[0]) / 2, (V(a)[1] + V(b)[1]) / 2, (V(a)[2] + V(b)[2]) / 2]);
+      // (and the point of its back nearest its painted face's middle, and that middle: which way the face looks)
+      const bk = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT[k] && Math.round(mt[i]) === AM.wood && one(i)) bk.push(i);
+      const mid = far(ids, c, -1);
+      G[k] = { face: [a, b, cc], mid, back: bk.length ? far(bk, V(mid), -1) : -1 };
+    }
   }
   // a robe's hem: eight points round its lowest ring (how far it is carried out from the body in each action)
   { const rb = []; let lo = Infinity; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT.robe && one(i) && Math.round(bone[i]) !== 3 && Math.round(bone[i]) !== 4 && Math.round(bone[i]) !== 5 && Math.round(bone[i]) !== 6) { rb.push(i); lo = Math.min(lo, pos[i * 3 + 1]); }
@@ -543,7 +549,12 @@ function a2GearMeasure(es, opt = {}) {
     }
     if (c && c.staff && c.staff.top && c.staff.bot) out[i].cast = { staffUp: +nrm(sub(c.staff.top, c.staff.bot))[1].toFixed(3) };
     const sh = g && (g.shield && g.shield.face && g.shield.face.every(Boolean) ? g.shield : g.shieldRound && g.shieldRound.face && g.shieldRound.face.every(Boolean) ? g.shieldRound : null);
-    if (sh) { const [p0, p1, p2] = sh.face; let n = nrm([...[0, 1, 2].map((j) => (sub(p1, p0)[(j + 1) % 3] * sub(p2, p0)[(j + 2) % 3] - sub(p1, p0)[(j + 2) % 3] * sub(p2, p0)[(j + 1) % 3]))]); const ctr = [0, 1, 2].map((j) => (p0[j] + p1[j] + p2[j]) / 3); if (dot(n, sub(ctr, [e.x, ctr[1], e.z])) < 0) n = n.map((x) => -x); out[i].guard = { shieldFaces: +dot(n, f).toFixed(3) }; }
+    if (sh) {
+      const [p0, p1, p2] = sh.face; let n = nrm([...[0, 1, 2].map((j) => (sub(p1, p0)[(j + 1) % 3] * sub(p2, p0)[(j + 2) % 3] - sub(p1, p0)[(j + 2) % 3] * sub(p2, p0)[(j + 1) % 3]))]);
+      // (the painted face's side: from the back's nearest point to the face's middle)
+      if (sh.mid && sh.back) { if (dot(n, sub(sh.mid, sh.back)) < 0) n = n.map((x) => -x); } else { const ctr = [0, 1, 2].map((j) => (p0[j] + p1[j] + p2[j]) / 3); if (dot(n, sub(ctr, [e.x, ctr[1], e.z])) < 0) n = n.map((x) => -x); }
+      out[i].guard = { shieldFaces: +dot(n, f).toFixed(3), painted: !!(sh.mid && sh.back) };
+    }
   });
   return out;
 }

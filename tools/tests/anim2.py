@@ -20,7 +20,7 @@ arrow's nock at the drawing fingers, the arrow along the facing; the staff uprig
 foe in the guard.
 `shots`: pictures at 960x540 (tools/out/anim2_*.png): Cinderwing dead from its side, from behind and from above, its
 scales up close in daylight, people dead, the archer drawing, the guard, the mage casting, the strike.
-usage: python3 tools/tests/anim2.py [only=war,duels,player,dead,dragon,weapons,shots] [min=4] [q=low] [fps=30]"""
+usage: python3 tools/tests/anim2.py [only=war,duels,player,dead,dragon,weapons,shots] [min=4] [q=low] [fps=30] [shots=dragon_dead_side,...]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -33,6 +33,7 @@ ONLY = arg('only', 'war,duels,player,dead,dragon,weapons').split(',')
 MIN = float(arg('min', '4'))
 Q = arg('q', 'low')
 FPS = int(arg('fps', '30'))
+SHOTS = arg('shots', 'dragon_dead_side,dragon_dead_behind,dragon_dead_above,dragon_scales,dead_people,dead_close,strike_30,strike_45,strike_60,guard_front,draw_side,draw_front,cast_side').split(',')
 FAILS = []
 T0 = time.time()
 
@@ -195,7 +196,14 @@ window.A2T = {
       const h = AD.a2DragonH(v); if (h < low) low = h; if (h < -0.15) under++;
       if (D.bindP[v * 3 + 2] < -9.2) { let b = -1, w = 0; for (let k = 0; k < 4; k++) if (D.bw[v * 4 + k] > w) { w = D.bw[v * 4 + k]; b = D.bi[v * 4 + k]; } if (b !== B.tail4) spadeOff++; }
     }
-    return { st: D.state, under, low: +low.toFixed(3), head: top(['neck3', 'head', 'jaw']), back: top(['hips', 'chest']), tail: top(['tail3', 'tail4']), wings: top(['wlF1', 'wlF2', 'wlF3', 'wlF4', 'wrF1', 'wrF2', 'wrF3', 'wrF4']), spadeOff, solve: AD.A2D.stats, x: e.x, z: e.z, y: e.y, yaw: e.yaw };
+    // (version 18's dead pose, for the record: rolled 72 degrees onto its side, its neck and tail bent in its own frame)
+    const was = { bodyPitch: 0, bodyRoll: 1.25, bodyY: -1.15, chest: 0, neck: [0.25, 0.3, 0.2], neckYaw: [0.3, 0.3, 0.2], head: 0.3, headYaw: 0, jaw: 0.35, tail: [-0.05, -0.05, -0.05, -0.05], tailYaw: [0.2, 0.25, 0.3, 0.3], fl: [0.4, 0.6, 0.3], fr: [-0.3, 0.8, 0.2], bl: [0.5, 0.4, 0.2], br: [-0.2, 0.5, 0.2], spread: 0, wl: [0.35, 0.5, 0.3, -0.1, 0.7, 0.3], wr: [-0.6, 0.9, 0.2, -0.3, 1.2, 0.6] };
+    const now = { under, low: +low.toFixed(3), head: top(['neck3', 'head', 'jaw']), back: top(['hips', 'chest']), tail: top(['tail3', 'tail4']), wings: top(['wlF1', 'wlF2', 'wlF3', 'wlF4', 'wrF1', 'wrF2', 'wrF3', 'wrF4']) };
+    AD.a2DragonPoseAt(was, e);
+    let u0 = 0, l0 = 1e9; for (let v = 0; v < D.kit.n; v++) { const h = AD.a2DragonH(v); if (h < l0) l0 = h; if (h < -0.15) u0++; }
+    const before = { under: u0, low: +l0.toFixed(3), head: top(['neck3', 'head', 'jaw']), back: top(['hips', 'chest']), tail: top(['tail3', 'tail4']), wings: top(['wlF1', 'wlF2', 'wlF3', 'wlF4', 'wrF1', 'wrF2', 'wrF3', 'wrF4']) };
+    AD.a2DragonPoseAt(D.pose, e);
+    return { st: D.state, ...now, spadeOff, before, solve: AD.A2D.stats, x: e.x, z: e.z, y: e.y, yaw: e.yaw };
   },
   // each calling of each realm in the open, their gear measured through the strike, the draw, a cast and the guard
   gear() {
@@ -332,8 +340,9 @@ async def main():
         if 'shots' in ONLY:
             await page.set_viewport_size({'width': 960, 'height': 540})
             async def shot(name, js):
+                if name not in SHOTS: return
                 await ev(page, js)
-                await ev(page, "__hm.frame(); __hm.frame(); 0")
+                await ev(page, "__hm.frame(); 0")
                 await page.screenshot(path=str(pathlib.Path(OUT) / f'anim2_{name}.png'), timeout=300000)
                 print(f'  shot anim2_{name}.png [{time.time() - T0:.0f}s]', flush=True)
             await ev(page, "__hm.setTod(0.42); 0")
