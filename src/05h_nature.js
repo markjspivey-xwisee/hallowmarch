@@ -1112,6 +1112,7 @@ function stepJob(dt) {
         // the last blow: it goes over away from the axe
         t.notch = 1;
         fellTree(t, t.x - P.x, t.z - P.z, 30, true);
+        netLand('fell', [t.i, netR2(t.x - P.x), netR2(t.z - P.z)]); // [net] it falls on the others' pages too (14n_net.js)
         natureStopJob(null);
         P.yaw = J.yaw;
       }

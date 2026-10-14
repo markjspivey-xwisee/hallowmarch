@@ -137,7 +137,7 @@ function unitSub(e, viewer) {
   if (e.role === 'mob') return `${e.mobType === 'wisp' ? 'Spirit' : e.kind === 'humanoid' ? (e.mobType === 'skeleton' || e.mobType === 'draugr' ? 'Undead' : 'Hostile') : 'Beast'}${e.l2risen ? ' · risen champion' /* [late2] 10l_late.js */ : e.elite ? ' · elite' : ''} · ${CON[conIndex(e.level, viewer.level)].name} to you`;
   if (e.faction <= 2) {
     const R = REALMS[e.faction];
-    const role = { player: CLASSES[e.cls].name, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
+    const role = { player: CLASSES[e.cls].name, remote: `${CLASSES[e.cls].name} · a player` /* [net] another page's player (14n_net.js) */, soldier: CLASSES[e.cls].name, guard: `${CLASSES[e.cls].name} of the garrison`, lord: 'Keep lord', guardian: 'Hallow warden', muster: 'Muster warden' }[e.role] || '';
     return `${R.name} · ${role}`;
   }
   return e.role === 'herald' ? 'Herald' : e.role === 'merchant' ? 'Merchant' : 'Villager';
@@ -234,7 +234,7 @@ function updateWarPanel() {
     const rel = WAR.relics.filter((x) => x.state === 'temple' && x.at === R.id).map((x) => `<i style="--rc:${REALMS[x.realm].color}" title="${REALMS[x.realm].hallow}"></i>`).join('');
     return `<div class="row ${R.id === P.faction ? 'me' : ''}" style="--rc:${R.color}"><span class="sw"></span><span>${R.name}</span><span class="k" title="Keeps held">${keeps} keeps</span><span class="rel">${rel}</span></div>`;
   }).join('');
-  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}${wxForecastText() /* [weather2] what is coming, and from where (12c_weather2.js) */}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
+  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + netSeasonHudHTML() /* [net] the season on the server (14q_netseason.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}${wxForecastText() /* [weather2] what is coming, and from where (12c_weather2.js) */}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
   const w = $('war');
   if (w._h !== html) { w.innerHTML = html; w._h = html; }
 }
@@ -383,6 +383,7 @@ function drawMinimap() {
   if (!dun) drawFarmMap(ctx, toM, k); // [farming] your beds and the town strips (08i_farm_draw.js)
   if (!dun) drawCampaignMinimap(ctx, toM, S, dpr); // [campaign] warband routes and orders (08g_campaign.js)
   guideMinimap(ctx, toM, S, dpr); // [guide] where your path's next step is (10e_guide.js)
+  netMinimap(ctx, toM, S, dpr); // [net] the others in the March (14o_netui.js)
   const t = getEnt(P.target);
   if (t) { const [x, y] = toM(t.x, t.z); ctx.strokeStyle = '#ffe28a'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(x, y, 5 * dpr, 0, TAU); ctx.stroke(); }
   // view cone and player arrow
@@ -482,6 +483,7 @@ function drawWorldMap(canvasOnly = false) { // [campaign] canvasOnly: the live r
   const b = GAME.prog.bounty;
   if (b && !b.done) { const c = CAMPS[b.camp]; const [x, y] = w2m(c.x, c.z, S); ctx.strokeStyle = '#ffd36a'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(x, y, S * 0.02, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
   guideMapMark(ctx, S); // [guide] your path's next step (10e_guide.js)
+  netWorldMap(ctx, S); // [net] your party and the others (14o_netui.js)
   const [px, py] = w2m(P.x, P.z, S);
   ctx.save(); ctx.translate(px, py); ctx.rotate(-P.yaw + Math.PI);
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;

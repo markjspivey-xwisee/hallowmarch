@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>March Server Probe</title>
+<style>
+  :root { --bg: #15130f; --ink: #efe6d4; --dim: #b8ad98; --ok: #6fdc7f; --bad: #f08a78; --line: #3a342a; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg: #f6f1e7; --ink: #1d1a14; --dim: #5d5546; --ok: #1f7a32; --bad: #a3321f; --line: #d8cfbd; } }
+  :root[data-theme="dark"] { --bg: #15130f; --ink: #efe6d4; --dim: #b8ad98; --ok: #6fdc7f; --bad: #f08a78; --line: #3a342a; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--dim); margin: 0 0 12px; max-width: 640px; }
+  ol { padding-left: 20px; max-width: 680px; }
+  li { margin: 6px 0; padding: 6px 8px; border-left: 4px solid var(--line); overflow-wrap: anywhere; }
+  li.ok { border-color: var(--ok); } li.bad { border-color: var(--bad); }
+  li b { display: inline-block; min-width: 3.2em; }
+  .ok b { color: var(--ok); } .bad b { color: var(--bad); }
+  code { font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>March server probe</h1>
+<p>Can a published artifact's page reach The Hallowmarch's own server? Each line below is one way of reaching it; green means it works from inside the artifact. The results are also kept in this artifact's database (document <code>probe/&lt;your id&gt;</code>) when it has one.</p>
+<ol id="out"></ol>
+<script>
+const HOST = 'march-production-f6d9.up.railway.app';
+const out = document.getElementById('out'), R = { at: new Date().toISOString(), ua: navigator.userAgent, res: {} };
+function line(name, ok, detail) { const li = document.createElement('li'); li.className = ok ? 'ok' : 'bad'; const b = document.createElement('b'); b.textContent = ok ? 'yes' : 'no'; li.append(b, ' ' + name + (detail ? ': ' + detail : '')); out.append(li); R.res[name] = { ok, detail: String(detail || '').slice(0, 200) }; }
+const timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out after ' + ms + ' ms')), ms))]);
+async function run() {
+  try { const r = await timeout(fetch('https://' + HOST + '/health'), 8000); line('fetch to the server', r.ok, r.status + ' ' + (await r.text()).slice(0, 80)); } catch (e) { line('fetch to the server', false, e.message); }
+  try { const r = await timeout(fetch('https://' + HOST + '/season'), 8000); const j = await r.json(); line('the season read by fetch', !!j.keeps, 'day ' + j.day + ', ' + j.phase); } catch (e) { line('the season read by fetch', false, e.message); }
+  await new Promise((res) => {
+    let ws, done = false;
+    const end = (ok, d) => { if (done) return; done = true; line('WebSocket to the server', ok, d); try { ws.close(); } catch (e) {} res(); };
+    try { ws = new WebSocket('wss://' + HOST + '/ws'); } catch (e) { end(false, e.message); return; }
+    const t = setTimeout(() => end(false, 'no answer in 8 s'), 8000);
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 1, room: 'probe' }));
+    ws.onmessage = (m) => { clearTimeout(t); try { const o = JSON.parse(m.data); end(o.t === 'welcome', 'welcomed as ' + (o.acct && o.acct.id)); } catch (e) { end(false, 'bad answer'); } };
+    ws.onerror = () => { clearTimeout(t); end(false, 'refused (a content policy or the network)'); };
+  });
+  const C = window.claude;
+  line('the artifact runtime', !!(C && C.use), C ? 'window.claude is here' : 'no window.claude');
+  if (C && C.use) {
+    for (const cap of ['user', 'db', 'room']) {
+      try { const x = await timeout(C.use(cap), 6000); line('claude.use("' + cap + '")', !!x, x ? 'granted' : 'null'); R[cap] = x; } catch (e) { line('claude.use("' + cap + '")', false, e && (e.code || e.message)); }
+    }
+    try { if (R.db && R.user) { const id = await R.user.id(); const res = R.res; await R.db.doc('probe/' + id).set({ at: R.at, ua: R.ua, res }); line('results kept in the db', true, 'probe/' + id); } } catch (e) { line('results kept in the db', false, e && (e.code || e.message)); }
+  }
+}
+run();
+</script>
+</body>
+</html>

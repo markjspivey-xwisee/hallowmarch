@@ -389,6 +389,7 @@ function simStep(dt) {
   updateWeather2(dt); // [weather2] the weather systems: fronts, showers and storms carried across the March (12c_weather2.js)
   updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
   updateSeason(dt); // [loops] the season of weeks: its clock, points, projects and offensives (08n_season.js)
+  netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
@@ -416,7 +417,7 @@ function tick(dt) {
     let rest = Math.min(dt, 0.1);
     if (GAME.hitStop > 0) { GAME.hitStop -= dt; rest *= 0.06; }
     while (rest > 1e-4) { const s = Math.min(rest, 0.05); simStep(s); rest -= s; }
-  }
+  } else netPump(dt); // [net] the menu pauses your world, not the room (14n_net.js)
   // camera
   updateCamera(dt);
   captureCamera(); // [capture] the capture build's camera: free, orbiting, following or on its path (14_capture.js)
@@ -491,6 +492,7 @@ function tick(dt) {
   if (GAME.started && GAME.player) updateHUD(dt);
   if (GAME.started && GAME.player) updateLore(dt);
   if (GAME.started && GAME.player) classHUD(dt); // [classes] momentum, stance, the draw, attunement, devotion and the combo cue (10d_classes_ui.js)
+  netUiFrame(); // [net] the Players button, the party's frames, speech over heads (14o_netui.js)
   hudLayout(dt); // [phones] keep the panels apart on every screen (10p_hud.js)
   updateAudio(dt);
   adaptQuality(dt);

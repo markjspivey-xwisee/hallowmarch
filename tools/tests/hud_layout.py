@@ -49,6 +49,16 @@ window.HL = {
     P.breath = 0.15; // [water2] the breath bar, coming back after a dive (07d_dive.js)
     // the builder's bar
     if (H.build && !H.build.BUILD.mode) { F.goodsAdd && F.goodsAdd('tool_hammer', 1); try { H.build.buildToggle(true); } catch (e) {} }
+    // [net] the March shared: two players of your realm in your party (the party's frames, the Players button), over a
+    // stand-in link that sends nothing
+    if (H.net) {
+      const N = H.net.NET;
+      if (N.state !== 'on') { N.state = 'on'; N.link = { kind: 'test', setSlow() {}, setFast() {}, connected: () => true, close() {} }; H.net.uiOn(); }
+      N.party = 'hltest01';
+      [['hlpeera', 'Brisa'], ['hlpeerb', 'Caelan Longshadow']].forEach(([k, nm], i) => H.net.peerUpdate(k, { slow: { v: 1, on: 1, since: 1, n: nm, dn: nm, r: 0, c: i ? 'priest' : 'mage', l: 31, rr: 2, pt: 'hltest01' }, fast: { s: 1 + Math.round(H.GAME.t * 10), t: Math.round(performance.now()), p: [P.x + 2 + i, P.y, P.z + 3], y: 0, v: [0, 0], a: 0, h: 0.6 + 0.3 * i, m: 2400, d: 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '', ev: [] } }));
+      // [net] the season on the server: its line on the war panel (a long one: the season's day, phase, who is on, the time left)
+      if (H.season) { H.net.NETWS.state = 'on'; H.season.msg({ t: 'season', s: { n: 1, t: 200000, len: 2419200, day: 3, days: 28, phase: 'final', pts: [100, 120, 90], keeps: [0, 0, 1, 1, 2, 2].map((r, i) => ({ i, r, g: 8, gate: 1 })), armies: [], st: { food: 900, timber: 300, stone: 200, iron: 80, hides: 50, wool: 30, horses: 12 }, built: [], proj: [], target: 2, levyIn: 1800, news: [] }, roster: { now: 12, day: 40, list: [] } }); }
+    }
     H.UI.modal = null; H.CAM.mode = 'play';
     return 0;
   },
@@ -63,7 +73,7 @@ window.HL = {
     return r.width > 2 && r.height > 2;
   },
   // the panels a player reads or touches
-  PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#buildbar', '#farmcard', '#castbar', '#breath', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
+  PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#netparty', '#buildbar', '#farmcard', '#castbar', '#breath', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
   measure() {
     this.H.hud.HUDL.k = 0; this.H.hud.hudLayout(0); // the layout pass looks four times a second: look now
     const out = [], W = innerWidth, Hh = innerHeight;

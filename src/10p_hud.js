@@ -9,28 +9,29 @@
 const HUDL = { on: true, t: 0, k: 0, key: '', moved: new Set(), placed: [], n: 0, ms: 0 };
 addEventListener('resize', () => { HUDL.k = 0; });
 const HUD_PREF = {
-  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2', 'R2', 'CB'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone; [look5] the path tracker anywhere free rather than out of sight
-  wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2', 'R2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] }, // [look5]
-  desk: { '#breath': ['C', 'CB'], '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
+  tall: { '#breath': ['C', 'CB', 'L', 'R2'], '#buildbar': ['CB', 'C'], '#tf': ['L', 'L2'], '#cls': ['L', 'L2', 'R2'], '#petbar': ['L', 'R', 'CB'], '#netparty': ['L', 'R', 'L2', 'R2'], '#war': ['R', 'R2'], '#farmcard': ['L', 'R2', 'CB', 'R'], '#lore-path': ['L', 'L2', 'R2', 'CB'], '#bounty': ['R', 'R2', 'L'], '#banners': ['C', 'CB', 'L'], '#zonetoast': ['C', 'CB'] }, // [guide] a note shrunk to its title fits under the frames on a small phone; [look5] the path tracker anywhere free rather than out of sight
+  wide: { '#breath': ['C', 'L2', 'CB', 'R2'], '#buildbar': ['L2', 'C', 'CB'], '#tf': ['L2', 'L'], '#cls': ['L', 'L2', 'C'], '#petbar': ['L2', 'C', 'R2', 'CB'], '#netparty': ['L2', 'L', 'R', 'R2'], '#war': ['R2', 'R', 'L2'], '#farmcard': ['L2', 'C', 'R2', 'CB', 'L'], '#lore-path': ['L', 'L2', 'R2'], '#bounty': ['R2', 'C', 'L2'], '#banners': ['C', 'CB', 'L2'], '#zonetoast': ['C', 'L2', 'CB'] }, // [look5]
+  desk: { '#breath': ['C', 'CB'], '#tf': ['L2', 'L'], '#petbar': ['C', 'L2'], '#netparty': ['L2', 'L', 'R2'], '#war': ['R', 'R2'], '#farmcard': ['R', 'R2', 'CB', 'L2'], '#lore-path': ['L', 'L2'], '#bounty': ['R', 'R2'], '#banners': ['C', 'CB', 'L2'] },
 };
 // in order of need: the first placed get the best places (the builder's bar and the plant card are what you are
 // using while they are open)
-const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [look5] the path tracker (what to do next) before the companion bar and the war panel: with the plant card and the companion bar up it waited out of sight on an upright phone
+// [net] '#netparty' (the party's frames, 14o_netui.js) after the companion bar in every order, with its places in HUD_PREF
+const HUD_ORDER = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#netparty', '#war', '#bounty', '#banners', '#zonetoast']; // [water2] the breath bar (07d_dive.js) next after what is in your hands: under the water nothing else is; [look5] the path tracker (what to do next) before the companion bar and the war panel: with the plant card and the companion bar up it waited out of sight on an upright phone
 // [guide] while a field note shows, it comes before the panels that stay, which make room for it a few seconds: after them
 // there was never room on a phone and every note waited out of sight (placed after the class panel and the companion bar,
 // most notes shrank to their titles on an upright phone); a toast keeps its place after them, so the panels you reach for
 // do not jump at every toast
 // [look5] an upright phone: the path tracker (what to do next) straight after the target frame: with the plant card and the
 // companion bar up it waited out of sight (the class panel waits or takes the next free place instead)
-const HUD_ORDER_TALL = ['#buildbar', '#farmcard', '#breath', '#tf', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#banners', '#zonetoast'];
-const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#lore-path', '#petbar', '#war', '#bounty', '#zonetoast']; // an upright phone: the class panel and the path keep their places (the war panel moved over the path's)
-const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#lore-path', '#cls', '#petbar', '#war', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames, the path in its place
+const HUD_ORDER_TALL = ['#buildbar', '#farmcard', '#breath', '#tf', '#lore-path', '#cls', '#petbar', '#netparty', '#war', '#bounty', '#banners', '#zonetoast'];
+const HUD_ORDER_NOTE = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#banners', '#lore-path', '#petbar', '#netparty', '#war', '#bounty', '#zonetoast']; // an upright phone: the class panel and the path keep their places (the war panel moved over the path's)
+const HUD_ORDER_NOTE_WIDE = ['#buildbar', '#farmcard', '#breath', '#tf', '#banners', '#lore-path', '#cls', '#petbar', '#netparty', '#war', '#bounty', '#zonetoast']; // on its side: the whole note beside the frames, the path in its place
 // [v9] on a desk the path tracker (what to do next) comes before the companion bar: a small window keeps it in view
-const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
+const HUD_ORDER_DESK = ['#buildbar', '#farmcard', '#breath', '#tf', '#cls', '#lore-path', '#petbar', '#netparty', '#war', '#bounty', '#banners', '#zonetoast']; // [water2]
 // what may shrink to its essentials when there is no room, and (on a touch screen) what waits out of sight until there
 // is: the companion bar's commands, the target and the calling's marks come back as soon as the screen has room
-const HUD_COMPACT = new Set(['#war', '#petbar', '#farmcard', '#lore-path', '#banners']); // [guide] a field note shrinks to its title (tap to read it in the Chronicle)
-const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
+const HUD_COMPACT = new Set(['#war', '#petbar', '#netparty' /* [net] names and health only */, '#farmcard', '#lore-path', '#banners']); // [guide] a field note shrinks to its title (tap to read it in the Chronicle)
+const HUD_HIDE = new Set(['#tf', '#cls', '#petbar', '#netparty', '#war', '#lore-path', '#bounty', '#banners', '#zonetoast', '#breath']); // the plant card is what you are using: it never waits; [water2] the breath bar waits only out of the water (under it nothing comes before it)
 function hudShown(el) {
   if (!el || el.hidden || !el.isConnected) return false;
   const cs = getComputedStyle(el); // [perf2] (asked for once)
@@ -248,7 +249,7 @@ function hudLayout(dt) {
 // loses one (the companion bar under the class panel moved 18 to 24 px every few seconds; a tap could land on the
 // button under the one aimed at); it gives the room back once its height has held that long.
 const HUDL5 = { ro: null, mo: null, dirty: true, wake: Infinity, passes: 0, hold: new Map(), held: 0, why: '', whys: [] };
-const HUD_HOLD = new Set(['#tf', '#cls', '#lore-path', '#petbar', '#war', '#bounty', '#farmcard']), HUD_HOLD_T = 6;
+const HUD_HOLD = new Set(['#tf', '#cls', '#lore-path', '#petbar', '#netparty', '#war', '#bounty', '#farmcard']), HUD_HOLD_T = 6;
 const HUD_WATCH = [...HUD_ORDER, '#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#tpad', '#joyhint', '#prompt', '#castbar', '#log', '#bottom'];
 function hudWatch() {
   if (HUDL5.ro !== null || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return;
