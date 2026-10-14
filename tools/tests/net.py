@@ -599,8 +599,9 @@ async def season_part(p):
             await A.evaluate("__hm.season.msg({ t: 'season', s: __hm.season.NETS.s && { ...JSON.parse(JSON.stringify(__hm.season.NETS.s)) } }); 0")
             info = await A.evaluate("(() => { const b = document.getElementById('menu-body'); const c = b.querySelector('.chron'); return [b.innerHTML.length, c ? c.innerHTML.length : -1, b.scrollHeight, b.clientHeight, (c ? c.textContent : b.textContent).slice(0, 200)]; })()")
             log('season page', info)
+            await A.emulate_media(reduced_motion='reduce')  # the page fades in by the document's clock, which a slow SwiftShader page barely turns
             await A.evaluate("__hm.LORE.openChronicle('season'); 0")
-            await asyncio.sleep(1.5)  # the page fades in by the wall clock
+            await asyncio.sleep(1.5)
             await shot(A, 'season_page')
         errs = await A.evaluate('__hm.errors.slice()')
         check(not errs, f'no errors ({errs[:2]})')
