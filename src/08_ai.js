@@ -973,6 +973,7 @@ function retask(mine, x, z, order) {
   for (const wb of mine) {
     const O = wb.order;
     if (O && (O.byPlayer || !((O.type === 'attack' && O.phase === 'travel') || O.type === 'patrol'))) continue; // [campaign] the player's orders hold
+    if (season2Held(wb)) continue; // [season2] a season's army keeps the season's order (08o_season2.js)
     if (wbMembers(wb).length < 4) continue;
     const L = wbLeader(wb);
     const d = dist(L.x, L.z, x, z);

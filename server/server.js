@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { makeSeason } from './season.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
+import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '..');
@@ -188,6 +189,7 @@ function regionOf(x, z) {
   return (Math.hypot(x, z) < 190 ? 'f' : 'h') + best;
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
+const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS); // [season2] (server/fieldarmies.js)
 function regionHosts(R) {
   const h = {};
   for (const c of R.clients.values()) {
@@ -477,6 +479,7 @@ function onMsg(c, raw) {
   else if (m.t === 'order') onOrder(c, m);
   else if (m.t === 'season') seasonTell(c, -1, false);
   else if (m.t === 'co') onCo(c, m); // [companies]
+  else if (m.t === 'sarmyrep') FIELD.report(c, m); // [season2]
   else if (m.t === 'save') {
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
@@ -526,6 +529,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
+    FIELD.left(c); // [season2] its armies back to the season
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
@@ -539,6 +543,7 @@ if (SEASON.RS) {
   setInterval(() => { try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep);
   setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush);
   setInterval(() => { if (SEASON.dirty) SEASON.save(); }, 30000);
+  setInterval(() => { try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000); // [season2]
 }
 let closing = false;
 const shutdown = () => { if (closing) return; closing = true; try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); } catch (e) { console.warn('shutdown', e.message); } process.exit(0); };

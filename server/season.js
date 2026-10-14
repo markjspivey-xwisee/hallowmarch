@@ -10,7 +10,7 @@ export function loadRealmModule(srcDir, hereDir) {
     let code;
     try { code = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
     try {
-      const M = new Function(code + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null, realmSimLive: typeof realmSimLive === "function" ? realmSimLive : null, RSM: typeof RSM === "object" ? RSM : null, RSM_GOODS: typeof RSM_GOODS !== "undefined" ? RSM_GOODS : null, RSM_GEO: typeof RSM_GEO !== "undefined" ? RSM_GEO : null};')();
+      const M = new Function(code + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null, realmSimLive: typeof realmSimLive === "function" ? realmSimLive : null, /* [season2] */ realmSimFieldTake: typeof realmSimFieldTake === "function" ? realmSimFieldTake : null, realmSimFieldReport: typeof realmSimFieldReport === "function" ? realmSimFieldReport : null, realmSimFieldFold: typeof realmSimFieldFold === "function" ? realmSimFieldFold : null, RSM: typeof RSM === "object" ? RSM : null, RSM_GOODS: typeof RSM_GOODS !== "undefined" ? RSM_GOODS : null, RSM_GEO: typeof RSM_GEO !== "undefined" ? RSM_GEO : null};')();
       if (FNS.every((k) => typeof M[k] === 'function')) { M.file = path.basename(f); return M.RSM && M.RSM_GOODS ? loopsAdapt(M) : M; }
       console.warn('season: ' + f + ' lacks the contract\'s functions');
     } catch (e) { console.warn('season: ' + f + ' did not load: ' + e.message); }
@@ -57,7 +57,8 @@ function loopsAdapt(L) {
         n: RS.n, t: RS.t, len: RS.len, day: Math.floor(RS.t / day) + 1, days: Math.round(RS.len / day), phase: ph, over: ph === 'over' ? 1 : 0, winner: RS.winner == null ? -1 : RS.winner,
         pts: RS.realms.map((q) => Math.round(q.sp)),
         keeps: RS.keeps.map((K, i) => ({ i, r: K.h, g: Math.round(K.g), gate: K.gate > 0.5 ? 1 : 0, siege: K.siege ? 1 : 0, tier: K.tier })),
-        armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 24).map((A) => { const [x, z] = pos(A); return { r: A.r, n: Math.round(A.n), to: A.k, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z) }; }),
+        armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 24).map((A) => { const [x, z] = pos(A); return { r: A.r, n: Math.round(A.n), to: A.k, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z), f: A.onField ? 1 : 0, off: RS.offs.some((O) => O.army === A.id && O.state === 'siege') ? 1 : 0 }; }), // [season2] f: on a page's field, off: an offensive's
+        offs: RS.offs.filter((O) => O.state === 'planned' || O.state === 'siege').slice(-12).map((O) => ({ r: O.r, k: O.k, state: O.state, inS: Math.max(0, Math.round(O.at - RS.t)) })), // [season2] the offensives announced
         news: RS.log.filter((L2) => L2.t > since && (realm < 0 || L2.r === realm || L2.r === -1 || L2.k === 'big')).slice(-12).map((L2) => [Math.round(L2.t), L2.r, L2.x]),
         target: R ? R.aim : -1, st: null, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
       };

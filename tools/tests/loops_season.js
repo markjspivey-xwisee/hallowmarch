@@ -123,6 +123,72 @@ let warned = 0, offs = 0;
 for (const t of runs) for (const x of t.ann) if (true) { const L = { x }; offs++; const m = /in (\d+)d/.exec(L.x); if (m && +m[1] >= 1) warned++; }
 check(offs > 0 && warned / offs > 0.8, `offensives are announced a day and more ahead (${warned} of ${offs} in the logs kept)`);
 
-if (JSONOUT) require('fs').writeFileSync(JSONOUT, JSON.stringify({ ms, caps, wins, changes, margins, place: { none: place(none), d3: place(d3), d1: place(d1) } }, null, 1));
+// [season2] (version 20) crowds of players: each realm's players log in when they can (six days in ten, at an hour of
+// their own) and bring an hour's work (timber, stone, iron, food and an hour on the works) and vote; realms uneven
+const crowdDay = (seed, P) => { // P: players a realm; returns the players' plan [r][i] = { hour, on(d) }
+  let x = (seed * 2654435761) >>> 0;
+  const rnd = () => { x = (x + 0x6d2b79f5) | 0; let t = Math.imul(x ^ (x >>> 15), x | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return P.map((n) => Array.from({ length: n }, () => ({ hour: Math.floor(rnd() * 24), q: 0.6 + rnd() * 0.8, rnd })));
+};
+function crowdSeason(seed, P) {
+  const plan = crowdDay(seed, P), got = [0, 0, 0];
+  const work = (RS, d, h) => {
+    for (let r = 0; r < 3; r++) for (const pl of plan[r]) {
+      if (pl.hour !== h || pl.rnd() > 0.6) continue;
+      const q = pl.q;
+      got[r] += M.realmSimContribute(RS, r, 'timber', Math.round(250 * q), 'p') + M.realmSimContribute(RS, r, 'stone', Math.round(450 * q), 'p') + M.realmSimContribute(RS, r, 'iron', Math.round(20 * q), 'p') + M.realmSimContribute(RS, r, 'food', Math.round(200 * q), 'p') + M.realmSimContribute(RS, r, 'work', 1, 'p');
+      if (pl.rnd() < 0.3) M.realmSimOrder(RS, r, { type: 'project', id: ['walls', 'smithy', 'engines', 'granary'][Math.floor(pl.rnd() * 4)] }, { name: 'p', rank: 2 });
+    }
+  };
+  const t = season(seed, work);
+  t.got = got;
+  return t;
+}
+const CROWDS = { even: [2, 2, 2], ten: [10, 2, 2], twenty: [20, 2, 2], none: [0, 0, 0], many: [20, 20, 20] };
+const cr = {};
+const t1 = Date.now();
+for (const [name, P] of Object.entries(CROWDS)) {
+  const ts = [];
+  for (let s = 1; s <= SEEDS; s++) ts.push(crowdSeason(s * 7919 + 17, P));
+  const prevs = ts.map((t) => t.RS.past[0]);
+  const w = [0, 0, 0]; prevs.forEach((q) => w[q.w]++);
+  const mean = (f) => ts.reduce((a, t) => a + f(t), 0) / ts.length;
+  const sp0 = mean((t) => t.RS.past[0].sp[0]), del0 = mean((t) => t.got[0]), spO = mean((t) => (t.RS.past[0].sp[1] + t.RS.past[0].sp[2]) / 2);
+  const margin = prevs.map((q) => { const v = q.sp.slice().sort((a, b) => b - a); return (v[0] - v[1]) / v[0]; });
+  const offs = ts.map((t) => t.RS.realms.map((R) => [R.stats.offensives, R.stats.won]));
+  cr[name] = { P, wins: w, place0: mean((t) => (t.final ? t.final.indexOf(0) + 1 : 2)), sp0: Math.round(sp0), del0: Math.round(del0), spO: Math.round(spO), share: del0 / Math.max(1, sp0), margin: margin.reduce((a, b) => a + b, 0) / margin.length, close: margin.filter((m) => m < 0.25).length, offs: offs.reduce((a, o) => a + o[0][0] + o[1][0] + o[2][0], 0) / ts.length, offWon: offs.reduce((a, o) => a + o[0][1] + o[1][1] + o[2][1], 0) / ts.length, made0: mean((t) => t.RS.realms[0].stats.made), madeO: mean((t) => (t.RS.realms[1].stats.made + t.RS.realms[2].stats.made) / 2) };
+  const c = cr[name];
+  console.log(`crowd ${name.padEnd(6)} ${P.join('/').padEnd(8)} wins ${w.join('/')}  Logres's mean place ${c.place0.toFixed(2)}, points ${c.sp0} (the others ${c.spO}), of which deliveries ${c.del0} (${(c.share * 100).toFixed(0)}%), works ${c.made0.toFixed(0)} (the others ${c.madeO.toFixed(0)}); margin ${(c.margin * 100).toFixed(0)}%, close ${c.close}/${SEEDS}; offensives a season ${c.offs.toFixed(1)}, ${c.offWon.toFixed(1)} won`);
+}
+console.log(`crowds: ${((Date.now() - t1) / 1000).toFixed(1)} s`);
+check(cr.ten.wins[0] < SEEDS && cr.twenty.wins[0] < SEEDS, `a realm of ten or twenty players against two and two does not win every season (${cr.ten.wins[0]} and ${cr.twenty.wins[0]} of ${SEEDS})`);
+check(cr.twenty.share < 0.35, `deliveries are under a third of a crowd's season points (${(cr.twenty.share * 100).toFixed(0)}% for twenty players a day)`);
+check(cr.twenty.del0 < cr.ten.del0 * 1.25, `twenty players' deliveries count barely more than ten's (${cr.twenty.del0} and ${cr.ten.del0} points)`);
+check(cr.ten.place0 <= cr.even.place0 + 0.01, `but a realm with more players does place better (${cr.ten.place0.toFixed(2)} against ${cr.even.place0.toFixed(2)})`);
+check(cr.many.close >= SEEDS / 2 && cr.even.close >= SEEDS / 2, `even realms stay close at the top (${cr.even.close} and ${cr.many.close} of ${SEEDS} within a quarter)`);
+// [season2] the field contract: an army on a page's field is the page's; told back; folded unheard
+{
+  const F = M.realmSimInit(7); M.realmSimStep(F, 8 * DAY);
+  F.realms[2].lev = 40; F.realms[2].aim = 0;
+  M.realmSimOrder(F, 2, { type: 'muster' }, { name: 'o', rank: 9 });
+  const A = F.armies.find((q) => q.r === 2 && q.k === 0);
+  const d = A && M.realmSimFieldTake(F, A.id, 'peer:a');
+  check(d && d.n === A.n && !M.realmSimFieldTake(F, A.id, 'peer:b'), 'an army taken onto a page\'s field is that page\'s alone (never two of one army)');
+  const p0 = A.p; M.realmSimStep(F, 60); check(A.p === p0, 'RS steps it no further while it is there');
+  M.realmSimFieldReport(F, A.id, { n: A.n - 6, p: 0.5 }, 'peer:a'); check(A.n === d.n - 6 && A.p === 0.5, 'its losses and its road told back');
+  check(!M.realmSimFieldReport(F, A.id, { n: 0 }, 'peer:b') && A.n === d.n - 6, 'a page that does not hold it is not heard');
+  M.realmSimFieldReport(F, A.id, { n: A.n + 50 }, 'peer:a'); check(A.n === d.n - 6, 'an army never grows on the field');
+  M.realmSimStep(F, M.RSM.field.stale + 120); check(!A.onField && A.p > 0.5, 'unheard longer than its time, it is folded back and marches on');
+  const B2 = M.realmSimFieldTake(F, A.id, 'peer:c'), sp1 = F.realms[0].sp;
+  M.realmSimFieldReport(F, A.id, { n: 0, done: 'fallen' }, 'peer:c');
+  check(B2 && !F.armies.includes(A), 'cut down in the field, it is gone from the season');
+  const G = M.realmSimInit(8); M.realmSimStep(G, 8 * DAY); G.realms[1].lev = 40; G.realms[1].aim = 1; M.realmSimOrder(G, 1, { type: 'muster' }, { name: 'o', rank: 9 });
+  const A2 = G.armies.find((q) => q.r === 1 && q.k === 1); M.realmSimFieldTake(G, A2.id, 'page');
+  M.realmSimFieldReport(G, A2.id, { n: A2.n, state: 'siege' }, 'page'); const sieged = G.keeps[1].siege && G.keeps[1].siege.a === A2.id;
+  M.realmSimFieldReport(G, A2.id, { n: A2.n - 3, done: 'taken' }, 'page');
+  check(sieged && G.keeps[1].h === 1 && !G.armies.includes(A2) && G.keeps[1].g >= 3, `its siege laid and the keep taken in the field: taken in the season, the army into its garrison (${G.keeps[1].g.toFixed(1)})`);
+  check(M.realmSimFieldFold(F, 'nobody') === 0, 'folding a page that holds nothing folds nothing');
+}
+if (JSONOUT) require('fs').writeFileSync(JSONOUT, JSON.stringify({ ms, caps, wins, changes, margins, crowds: cr, place: { none: place(none), d3: place(d3), d1: place(d1) } }, null, 1));
 console.log(fails.length ? `FAILED ${fails.length}: ${fails.join('; ')}` : 'all passed');
 process.exit(fails.length ? 1 : 0);

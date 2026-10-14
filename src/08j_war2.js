@@ -633,8 +633,8 @@ function ladderHeldTurn(e, m) {
 // minutes. A band of fewer than three (not bearing a hallow, not under the player's order) no longer counts against the
 // muster (cwBandsCounted, from planWar), and the next band to muster takes them in (cwMergeRemnants): they follow its
 // captain from wherever they are.
-const bandRemnant = (wb) => { const m = wbMembers(wb); return m.length < 3 && !m.some((e) => e.carrying != null) && !(wb.order && wb.order.byPlayer) && !wb.w3col; }; // [war3] a garrison's column is no remnant (08k_war3.js)
-const cwBandsCounted = (mine) => mine.filter((w) => !w.dead && !bandRemnant(w) && !w.w3col).length; // [war3] nor does it hold a band's place at the muster
+const bandRemnant = (wb) => { const m = wbMembers(wb); return m.length < 3 && !m.some((e) => e.carrying != null) && !(wb.order && wb.order.byPlayer) && !wb.w3col && !wb.season; }; // [season2] nor a season's army (08o_season2.js) // [war3] a garrison's column is no remnant (08k_war3.js)
+const cwBandsCounted = (mine) => mine.filter((w) => !w.dead && !bandRemnant(w) && !w.w3col && !w.season).length; // [season2] a season's army holds no place at the muster // [war3] nor does it hold a band's place at the muster
 function cwMergeRemnants(r, wb, mine) {
   for (const w of mine) {
     if (w === wb || w.dead || !bandRemnant(w)) continue;
