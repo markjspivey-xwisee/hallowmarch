@@ -356,7 +356,7 @@ async def main():
                 await page.evaluate("(() => { for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return 0; })()")
                 await page.screenshot(path=OUT + f'weather2_{name}_{sfx}.png', timeout=300000)
                 print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
-            setup_js = "(() => { W2T.live(); __hm.farm.setSeason(0.4); __hm.fn.weatherAdvance(5); return 0; })()"
+            setup_js = "(() => { W2T.live(); __hm.farm.setSeason(0.4); if (__hm.bal5) __hm.bal5.flattenCraters(); __hm.fn.weatherAdvance(5); return 0; })()" # (the grass fires the checks' lightning lit put out)
             await page.evaluate(setup_js)
             # a front coming in over a keep, seen from its wall walk (toward the open land: no mountain before it)
             await shot('front_keep', """(() => { const H = __hm, X = W2T.X, K = H.weather2.sites.find((s) => s.kind === 'keep' && s.realm === 0); H.setTod(0.55);
