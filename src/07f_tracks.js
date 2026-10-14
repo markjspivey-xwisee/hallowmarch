@@ -305,6 +305,9 @@ function buildDrifts() {
       const nx = lx * c.cos + lz * c.sin, nz = -lx * c.sin + lz * c.cos;
       if (nx * Wx + nz * Wz > -0.3) continue;
       const fx = c.x + nx * (lx ? c.hx : c.hz), fz = c.z + nz * (lx ? c.hx : c.hz);
+      // [weather2] no drift where a roof stands over it: the inside face of a house's wall, of a tower's room, of a hall
+      // (a house's or a tower's walls are boxes, and the face turned to the wind inside gathered a drift on the floor)
+      { const ox = fx + nx * 0.9, oz = fz + nz * 0.9; if (houseRoofOver(ox, oz) || towerRoofOver(ox, oz, heightAt(ox, oz) + 0.2) || wxSheltered(ox, oz, heightAt(ox, oz) + 0.2)) { TRACKS.driftsSheltered = (TRACKS.driftsSheltered || 0) + 1; continue; } }
       const tx = -nz, tz = nx; // along the face
       const segs = Math.max(2, Math.round((len * 2) / 0.6)), R = 5, depth = 1.2 + hash2(Math.round(fx * 7), Math.round(fz * 7)) * 0.7;
       const ch = add((Math.floor(fx / 64) + 64) * 256 + Math.floor(fz / 64) + 64);

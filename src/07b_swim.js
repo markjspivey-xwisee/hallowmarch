@@ -239,12 +239,15 @@ function drawWater(dt) {
   const P = GAME.player;
   const cx = P ? P.x : camera.position.x, cz = P ? P.z : camera.position.z;
   // rain dimples the water near the player
-  if (RIPPLE.on && WEATHER.raining > 0.05 && !INDOOR.on) {
-    SWIM.rainT -= dt * (10 + 40 * WEATHER.raining);
+  // [weather2] the most rain falling anywhere round you, and each drop only where it rains (12c_weather2.js)
+  const rainMax = wxLive() ? wxPrecipBox(cx, cz) : WEATHER.raining;
+  if (RIPPLE.on && rainMax > 0.05 && !INDOOR.on) {
+    SWIM.rainT -= dt * (10 + 40 * rainMax);
     while (SWIM.rainT < 0) {
       SWIM.rainT += 1;
       const x = cx + (Math.random() - 0.5) * RIPPLE.size * 0.8, z = cz + (Math.random() - 0.5) * RIPPLE.size * 0.8;
-      if (waterAt(x, z)) rippleDrop(x, z, 0.16, 0.012 * (0.5 + WEATHER.raining));
+      const pr = wxPrecipAt(x, z);
+      if (pr > 0.05 && waterAt(x, z)) rippleDrop(x, z, 0.16, 0.012 * (0.5 + pr));
     }
   }
   // spells that land on water throw it up (meteors, frost, holy ground ...)

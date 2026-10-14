@@ -233,7 +233,7 @@ function updateWarPanel() {
     const rel = WAR.relics.filter((x) => x.state === 'temple' && x.at === R.id).map((x) => `<i style="--rc:${REALMS[x.realm].color}" title="${REALMS[x.realm].hallow}"></i>`).join('');
     return `<div class="row ${R.id === P.faction ? 'me' : ''}" style="--rc:${R.color}"><span class="sw"></span><span>${R.name}</span><span class="k" title="Keeps held">${keeps} keeps</span><span class="rel">${rel}</span></div>`;
   }).join('');
-  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
+  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}${wxForecastText() /* [weather2] what is coming, and from where (12c_weather2.js) */}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
   const w = $('war');
   if (w._h !== html) { w.innerHTML = html; w._h = html; }
 }
@@ -791,6 +791,7 @@ function openHerald() {
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
+  if (typeof wxHeraldText === 'function') body += wxHeraldText(); // [weather2] the sky over the March (12c_weather2.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

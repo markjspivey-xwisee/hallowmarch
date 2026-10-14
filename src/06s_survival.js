@@ -97,7 +97,7 @@ function updateNeeds(dt) {
   else if (sp < 0.3) act = 0.55;
   if (P.mount) act *= 0.8;
   const heat = P._heat || 0, sun = typeof sunStrength === 'function' ? sunStrength() : 0;
-  const cold = clamp((WEATHER.snowing || 0) + 0.5 * (U.uSnowCover.value || 0) + (P.snow || 0) * 0.5, 0, 1);
+  const cold = clamp(wxSnowingAt(P.x, P.z) * ((P._sky ?? 1) > 0 ? 1 : 0) + 0.5 * (U.uSnowCover.value || 0) + (P.snow || 0) * 0.5, 0, 1); // [weather2] the snow falling where you stand, not under a roof
   const hr = act * (1 + 0.3 * cold + 0.12 * (P.wet || 0)) / NEEDS.hungerSecs;
   const tr = act * (1 + 0.5 * sun * (inDungeon(P) || INDOOR.on ? 0 : 1) + 0.9 * heat) / NEEDS.thirstSecs;
   SURV.hunger = Math.max(0, SURV.hunger - dt * hr * NEEDS.speed);

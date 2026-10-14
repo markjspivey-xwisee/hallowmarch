@@ -53,10 +53,18 @@ const PRECIP_COMMON = /* glsl */`
   ${GLSL_COMMON}
   ${GLSL_WORLD}
   ${GLSL_ROOFS}
+  ${GLSL_SHELTER} // [weather2] every roof, hall, tower room, tent and walk overhead (12c_weather2.js)
   uniform float uTime, uWind;
   uniform vec2 uWindDir;
   uniform vec3 uBox;
   attribute vec4 aSeed;
+  // [weather2] the rain under the cloud here (the cloud field, 12c_weather2.js), against the most in the box (uAmount)
+  uniform sampler2D uCloudMap; uniform vec4 uCloudMapP; uniform float uLive;
+  float wxRainHere(vec2 xz, float most){
+    if (uLive < 0.5) return 1.0;
+    vec2 d = xz - uCloudMapP.xy; vec2 q = d / (uCloudMapP.z + length(d));
+    return smoothstep(0.05, 0.3, texture(uCloudMap, q * 0.5 + 0.5).b / max(most, 0.05));
+  }
   // a point fixed in falling world space, wrapped into a box around the camera
   vec3 wrapPoint(vec3 seed, vec3 drift){
     vec3 p = seed * uBox + drift;
@@ -67,7 +75,7 @@ function buildWeather() {
   const common = { transparent: true, depthWrite: false, side: THREE.DoubleSide };
   rainMesh = new THREE.Mesh(precipGeometry(RAIN_MAX, 11), mat({
     ...common,
-    uniforms: { uBox: { value: new THREE.Vector3(38, 24, 38) }, uAmount: { value: 0 } },
+    uniforms: { uBox: { value: new THREE.Vector3(38, 24, 38) }, uAmount: { value: 0 }, uLive: { value: 0 } },
     vertexShader: /* glsl */`
       ${PRECIP_COMMON}
       uniform float uAmount;
@@ -79,11 +87,11 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime));
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp) || wp.y < shelterY(wp.xz)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec3 dir = safeNormalize(vec3(wind.x, -fall, wind.z));
         vec3 side = safeNormalize(cross(dir, safeNormalize(rel)));
         vec3 p = wp - dir * position.y * (0.55 + 0.35 * aSeed.w) + side * position.x * 0.016 * (1.0 + hd * 0.03);
-        vA = (1.0 - smoothstep(uBox.x * 0.32, uBox.x * 0.5, hd)) * smoothstep(0.6, 2.5, length(rel)) * uAmount;
+        vA = (1.0 - smoothstep(uBox.x * 0.32, uBox.x * 0.5, hd)) * smoothstep(0.6, 2.5, length(rel)) * uAmount * wxRainHere(wp.xz, uAmount);
         gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: /* glsl */`
@@ -101,7 +109,7 @@ function buildWeather() {
   scene.add(rainMesh);
   snowMesh = new THREE.Mesh(precipGeometry(SNOW_MAX, 23), mat({
     ...common,
-    uniforms: { uBox: { value: new THREE.Vector3(30, 20, 30) }, uAmount: { value: 0 } },
+    uniforms: { uBox: { value: new THREE.Vector3(30, 20, 30) }, uAmount: { value: 0 }, uLive: { value: 0 } },
     vertexShader: /* glsl */`
       ${PRECIP_COMMON}
       uniform float uAmount;
@@ -114,11 +122,11 @@ function buildWeather() {
         vec3 wp = wrapPoint(aSeed.xyz, vec3(wind.x * uTime, -fall * uTime, wind.z * uTime) + sway);
         vec3 rel = wp - cameraPosition;
         float hd = length(rel.xz);
-        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
+        if (wp.y < terrainHeight(wp.xz) || hd > uBox.x * 0.5 || underRoof(wp) || wp.y < shelterY(wp.xz)) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
         vec4 mv = viewMatrix * vec4(wp, 1.0);
         float s = 0.035 + 0.04 * fract(aSeed.w * 7.3);
         mv.xy += (position.xy - vec2(0.0, 0.5)) * s;
-        vA = (1.0 - smoothstep(uBox.x * 0.3, uBox.x * 0.5, hd)) * smoothstep(0.4, 1.5, length(rel)) * uAmount;
+        vA = (1.0 - smoothstep(uBox.x * 0.3, uBox.x * 0.5, hd)) * smoothstep(0.4, 1.5, length(rel)) * uAmount * wxRainHere(wp.xz, uAmount);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */`
@@ -141,6 +149,17 @@ function buildWeather() {
 function updateWeather(dt) {
   const W2 = WEATHER;
   const camX = camera.position.x, camZ = camera.position.z;
+  // [weather2] the weather systems on the map decide the weather at the camera (12c_weather2.js); a held weather (Always
+  // clear, or a test that sets the kind with next past 1e6) is one weather everywhere, chosen as before
+  const live = wxLive();
+  let look, k;
+  if (live) {
+    const lw = weatherAt(camX, camZ, _wxCamW);
+    W2.kind = lw.kind;
+    look = _wxCamLook; look[0] = lw.overcast; look[1] = lw.fog; look[2] = lw.raining; look[3] = lw.storm; look[4] = lw.mist;
+    // the systems move smoothly: ease only a jump of the camera (a journey, a portal)
+    k = 1 - Math.exp(-dt / 2.5);
+  } else {
   if (W2.mode === 'clear') W2.kind = 'clear';
   else {
     W2.next -= dt;
@@ -149,9 +168,10 @@ function updateWeather(dt) {
       W2.next = W2.kind === 'clear' ? 200 + Math.random() * 220 : W2.kind === 'storm' ? 110 + Math.random() * 90 : 150 + Math.random() * 180;
     }
   }
-  const look = WEATHER_LOOK[W2.kind];
+  look = WEATHER_LOOK[W2.kind];
   // ease the sky toward the new weather over half a minute
-  const k = 1 - Math.exp(-dt / 9);
+  k = 1 - Math.exp(-dt / 9);
+  }
   W2.overcast += (look[0] - W2.overcast) * k;
   W2.fog += (look[1] - W2.fog) * k;
   W2.raining += (look[2] - W2.raining) * k;
@@ -159,25 +179,41 @@ function updateWeather(dt) {
   W2.mist = (W2.mist || 0) + (look[4] - (W2.mist || 0)) * k;
   // rain falls as snow where it is cold. [seasons] The season and the weather agree: snow where the air is near or
   // below freezing by farmTempAt (Thule in winter, the heights, the south on cold winter nights), rain in a Thule summer
-  const coldK = clamp((1.5 - farmTempAt(camX, camZ)) / 3.5, 0, 1);
+  const coldK = WX.coldK !== undefined ? WX.coldK : clamp((1.5 - farmTempAt(camX, camZ)) / 3.5, 0, 1); // [weather2] a test may hold it
   const precip = W2.raining;
   W2.snowing = precip * coldK;
   const rain = precip * (1 - coldK);
   // surfaces soak up the rain and dry out after it, faster in sun and wind; snow builds while it falls and melts
   // in sun and rain, slowly in the cold north (rates: 05h_wear.js)
+  if (live) {
+    // [weather2] the ground's wetness and the snow lying are each place's own (12c_weather2.js's grid, the season map):
+    // the camera reads its own
+    // (both are read smoothly from their maps, so they follow the camera at once: a journey from a Thule winter does not
+    // carry its snow along)
+    W2.wet = wxGridAt('wet', camX, camZ);
+    W2.snow = typeof seasonSnowLieAt === 'function' ? seasonSnowLieAt(camX, camZ) : 0;
+  } else {
   W2.wet = clamp(W2.wet + (rain > 0.2 ? dt * rain / 50 : -dt * weatherDryRate() / 140), 0, 1);
   W2.snow = clamp(W2.snow + (W2.snowing > 0.2 ? dt * W2.snowing / 70 : -dt * weatherMeltRate(coldK) / 200), 0, 1);
+  }
   U.uWet.value = W2.wet;
   U.uSnowCover.value = W2.snow;
   U.uRain.value = INDOOR.on ? 0 : rain;
   if (rainMesh) {
-    rainMesh.material.uniforms.uAmount.value = rain;
-    rainMesh.geometry.instanceCount = rain > 0.01 ? Math.round(RAIN_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.32) * clamp(rain * 1.2, 0, 1)) : 0;
-    snowMesh.material.uniforms.uAmount.value = W2.snowing;
-    snowMesh.geometry.instanceCount = W2.snowing > 0.01 ? Math.round(SNOW_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.35) * clamp(W2.snowing * 1.2, 0, 1)) : 0;
+    // [weather2] the drops fall only under the cloud that rains (the shaders read the cloud field's rain at each drop): the
+    // box holds as many as the most rain anywhere in it, so the edge of a shower stands a few metres off, clear behind it
+    let rainB = rain, snowB = W2.snowing;
+    if (live) { const pk = wxPrecipBox(camX, camZ); rainB = Math.max(rain, pk * (1 - coldK)); snowB = Math.max(W2.snowing, pk * coldK); }
+    if (INDOOR.on) rainB = snowB = 0;
+    rainMesh.material.uniforms.uAmount.value = rainB;
+    rainMesh.material.uniforms.uLive.value = live ? 1 : 0;
+    rainMesh.geometry.instanceCount = rainB > 0.01 ? Math.round(RAIN_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.32) * clamp(rainB * 1.2, 0, 1)) : 0;
+    snowMesh.material.uniforms.uAmount.value = snowB;
+    snowMesh.material.uniforms.uLive.value = live ? 1 : 0;
+    snowMesh.geometry.instanceCount = snowB > 0.01 ? Math.round(SNOW_MAX * (quality.level === 'high' ? 1 : quality.level === 'medium' ? 0.6 : 0.35) * clamp(snowB * 1.2, 0, 1)) : 0;
   }
   // splashes around the player
-  if (rain > 0.25 && GAME.player && !INDOOR.on) {
+  if (rain > 0.25 && GAME.player && !INDOOR.on && !inDungeon(GAME.player)) {
     const P = GAME.player;
     W2.splash = (W2.splash || 0) + dt * 70 * rain;
     while (W2.splash >= 1) {
@@ -185,13 +221,15 @@ function updateWeather(dt) {
       const a = Math.random() * TAU, r = 1.5 + Math.random() * 11;
       const x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r, y = heightAt(x, z) + 0.03;
       if (houseRoofOver(x, z) || towerRoofOver(x, z)) continue; // no splashes on a floor ([land] nor in a tower's rooms)
+      if (live && wxRainAt(x, z) < 0.15) continue; // [weather2] none beyond the edge of the rain
+      if (wxSheltered(x, z, y + 0.3)) continue; // [weather2] nor under a walk or a tent (12c_weather2.js)
       const A = U.uAmbient.value;
       fxAlpha.emit(x, y, z, (Math.random() - 0.5) * 0.6, 0.9 + Math.random() * 0.6, (Math.random() - 0.5) * 0.6, 0.22, A.x * 0.9 + 0.1, A.y * 0.9 + 0.1, A.z * 0.9 + 0.12, 0.05, 9, 0);
     }
   }
   // lightning
   W2.flash = Math.max(0, W2.flash - dt * 4.5);
-  if (W2.storm > 0.5 && !INDOOR.on) {
+  if (W2.storm > 0.5 && !INDOOR.on && !live) { // [weather2] live: the storms' own cells strike (wxStrikeStep, 12c_weather2.js)
     W2.nextBolt -= dt;
     if (W2.nextBolt <= 0) { W2.nextBolt = 5 + Math.random() * 16; strikeLightning(camX, camZ); }
   }
@@ -204,7 +242,7 @@ function updateWeather(dt) {
     if (!on) continue;
     for (const p of b.path) glowPush(p[0], p[1], p[2], 2.4, 2.6, 3.2, p[3]);
   }
-  W2.label = W2.kind === 'clear' ? 'Clear' : W2.kind === 'cloudy' ? 'Overcast' : W2.kind === 'mist' ? 'Mist' : W2.snowing > 0.3 ? (W2.kind === 'storm' ? 'Blizzard' : 'Snow') : W2.kind === 'storm' ? 'Storm' : 'Rain';
+  W2.label = live ? wxLabelOf(W2.kind, W2.snowing) : W2.kind === 'clear' ? 'Clear' : W2.kind === 'cloudy' ? 'Overcast' : W2.kind === 'mist' ? 'Mist' : W2.snowing > 0.3 ? (W2.kind === 'storm' ? 'Blizzard' : 'Snow') : W2.kind === 'storm' ? 'Storm' : 'Rain';
 }
 function strikeLightning(camX, camZ) {
   const a = Math.random() * TAU, d = 70 + Math.random() * 200;
@@ -224,6 +262,13 @@ function strikeLightning(camX, camZ) {
   setTimeout(() => sfxAt(d < 120 ? 'thunderNear' : 'thunder', x, gy + 30, z, { now: true }), (d / 343) * 1000 * 0.6); // [audio2] from where it struck (11c_sound.js)
 }
 
+const _wxCamW = {}, _wxCamLook = [0, 0, 0, 0, 0];
+// [weather2] the most rain or snow falling anywhere in the box of drops round the camera
+function wxPrecipBox(x, z) {
+  let m = wxPrecipAt(x, z);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; m = Math.max(m, wxPrecipAt(x + Math.cos(a) * 17, z + Math.sin(a) * 17)); }
+  return m;
+}
 /* ---- weather tints the time-of-day light; called right after applyTimeOfDay ---- */
 function applyWeather() {
   const W2 = WEATHER;
@@ -241,14 +286,16 @@ function applyWeather() {
   // noise is above it): overcast lowers it, so the sky closes over. It raised it toward 0.95, so the clouds thinned away
   // as the rain set in, and the moon and the stars shone through a storm (they kept 15% of their light under it)
   skyU.uCloudCover.value = lerp(skyU.uCloudCover.value, 0.04, oc * 0.92);
-  const hid = (1 - oc) * (1 - oc);
+  // [weather2] with the clouds that are there drawn (the dome, 12c_weather2.js) the sun, the moon and the stars are hidden
+  // only where a cloud stands in front of them: a thin veil of the overcast at the camera dims them a little more
+  const hid = U.uCloudDomeOn.value.x > 0.5 ? 1 - 0.35 * oc * oc : (1 - oc) * (1 - oc);
   skyU.uSunVis.value *= hid;
   skyU.uMoonVis.value *= hid;
   skyU.uStars.value *= hid;
   for (const v of [skyU.uCloudLit.value, skyU.uCloudShade.value]) { grey(v); v.multiplyScalar(1 - 0.3 * oc - 0.35 * st); }
   for (const v of [U.uZenith.value, U.uHorizon.value]) { grey(v); v.multiplyScalar(1 - 0.22 * oc - 0.3 * st); }
   U.uSunGlow.value.multiplyScalar(1 - 0.8 * oc);
-  U.uFogDensity.value *= 1 + 1.4 * fog + 2.2 * mist;
+  U.uFogDensity.value *= 1 + 1.4 * fog + (U.uCloudDomeOn.value.x > 0.5 ? 0.7 : 2.2) * mist; // [weather2] the mist lies in the valleys (uMist, 12c_weather2.js)
   RAYS_BOOST.value = (1 - 0.85 * oc) + mist * 1.4;
   // a lightning flash lights everything for a moment
   if (W2.flash > 0) {

@@ -125,7 +125,7 @@ function updateBrand(dt) {
   const ww = waterAt(P.x, P.z); // [water] any lake, pond or river (01b_water.js)
   if (ww && (P.swim || ww.y - P.y > 0.9)) { putOutBrand(P, 'The water puts out your brand.', true); return; }
   // rain in the open puts it out in a while; under a roof or a crown it keeps
-  const rain = WEATHER.raining || 0;
+  const rain = wxPrecipAt(P.x, P.z); // [weather2] the rain where you stand
   if (rain > 0.15 && skyOver(P) > 0.5) {
     B.wet += dt * rain;
     if (B.wet > BRAND.rainLife) { putOutBrand(P, 'The rain puts out your brand.', true); return; }

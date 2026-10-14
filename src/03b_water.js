@@ -24,6 +24,7 @@ const waterMat = mat({
     ${GLSL_WATER_MAP}
     ${GLSL_WEATHER}
     ${GLSL_SEASON} // [seasons] 02d_season.js
+    ${GLSL_CLOUDS} // [weather2] the clouds that are there, in the mirror (12c_weather2.js)
     uniform float uSnowCover;
     uniform vec3 uLeaf;
     uniform float uRain; // feature/weather
@@ -135,7 +136,8 @@ const waterMat = mat({
       vec3 R = reflect(-V, n);
       vec3 refl = skyBase(safeNormalize(vec3(R.x, max(R.y, 0.02), R.z)));
       // visual pass: the clouds drift across the mirror too
-      if (R.y > 0.0) {
+      if (uCloudDomeOn.x > 0.5) { vec4 cd = cloudDome(safeNormalize(vec3(R.x, max(R.y, 0.0), R.z))); refl = refl * cd.a + cd.rgb; } // [weather2]
+      else if (R.y > 0.0) {
         vec2 cp = R.xz / (R.y + 0.09) * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
         float cn = fbm(cp * 1.15 + 0.4);
         float ccov = smoothstep(uCloudCover, uCloudCover + 0.22, cn);

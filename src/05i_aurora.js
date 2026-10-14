@@ -15,9 +15,11 @@
 // Hooks elsewhere: tick in 13_main.js calls updateNightSky(dt) (marked [aurora]).
 
 const AUR_GLSL_CLOUD = /* glsl */`
+${GLSL_CLOUDS}
 // the cloud layer of the sky, so the lights pass behind the same clouds (this mirrors the cloud field of the sky
 // shader in 02_render.js; if that changes, change this with it: the weather fade hides the lights regardless)
 float aurCloud(vec3 dir){
+  if (uCloudDomeOn.x > 0.5) return 1.0 - cloudScreen(dir, gl_FragCoord.xy).a; // [weather2] the clouds that are there, the view's own (12c_weather2.js)
   vec2 cp = dir.xz / (dir.y + 0.09);
   cp = cp * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
   vec2 warp = vec2(fbm(cp * 0.55 + 4.1), fbm(cp * 0.55 - 7.3));

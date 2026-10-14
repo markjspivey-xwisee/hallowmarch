@@ -506,7 +506,7 @@ function houseCrewDouse(H, B, dt) {
     if (c.beat > 0 && GAME.t - c.beat < 0.5) n++;
   }
   if (!n) return false;
-  B.R = Math.max(0, B.R - n * HCREW.k * dt * (1 + 0.5 * clamp(WEATHER.raining || 0, 0, 1)));
+  B.R = Math.max(0, B.R - n * HCREW.k * dt * (1 + 0.5 * clamp(wxPrecipAt(H.x, H.z), 0, 1))); // [weather2] the rain over the house
   WAR2.stats.houseBeats += n * dt;
   for (const p of B.pts) if (p.fire && dist(p.x, p.z, B.x, B.z) > B.R + 0.35) { houseFireOut(p.fire); p.fire = null; }
   if (B.R < 0.3) { houseQuench(H); return true; }

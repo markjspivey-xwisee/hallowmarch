@@ -745,7 +745,7 @@ function siegeIgnite(E, by = null) {
 }
 function siegeBurnStep(E, dt) {
   // the fire takes the timbers one after another; rain slows it but cannot save the engine
-  const wet = clamp(WEATHER.raining || 0, 0, 1);
+  const wet = clamp(wxPrecipAt(E.x, E.z), 0, 1); // [weather2] the rain over the engine
   E.burn = Math.min(1, E.burn + (dt / 24) / (1 + 0.8 * wet));
   const pts = siegeParts(E.kind, E.realm).burn;
   while (E.fires < pts.length && E.burn > E.fires * 0.2) {
@@ -815,7 +815,7 @@ function siegeEngineKilled(ent, killer) {
 // enough of it (a single burning arrow seldom does it; a fireball or two will; wet hides on a ram hold out longer)
 function siegeHeat(E, k) {
   const now = GAME.t;
-  E.heat = Math.max(0, (E.heat || 0) - (now - (E.heatT || now)) * 0.03) + k * (E.kind === 'ram' ? 0.55 : 1) / (1 + 0.8 * clamp(WEATHER.raining || 0, 0, 1));
+  E.heat = Math.max(0, (E.heat || 0) - (now - (E.heatT || now)) * 0.03) + k * (E.kind === 'ram' ? 0.55 : 1) / (1 + 0.8 * clamp(wxPrecipAt(E.x, E.z), 0, 1)); // [weather2]
   E.heatT = now;
   if (E.heat >= 1) siegeIgnite(E);
   else if (E.heat > 0.2) { const p = siegeLocal(E, (Math.random() - 0.5) * 1.6, 1 + Math.random(), (Math.random() - 0.5) * 2); FX.burst(p.x, p.y, p.z, 6, [2.2, 1.0, 0.3], 1.5, 0.5, 0.12, -1); }

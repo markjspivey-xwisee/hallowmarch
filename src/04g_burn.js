@@ -259,8 +259,9 @@ function fireLetGo() {
 // each step (updateSiege asks)
 function updatePalisades(dt) {
   if (!PAL.ready) { palisadeInit(); if (!PAL.ready) return; }
-  const wet = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)) + clamp(U.uSnowCover.value, 0, 1) * 0.3;
+  const wet0 = clamp(U.uWet.value, 0, 1) * (0.4 + 0.6 * clamp(WEATHER.raining || 0, 0, 1)) + clamp(U.uSnowCover.value, 0, 1) * 0.3;
   for (const P of PAL.list) {
+    const wet = wxCastleWet(P.C, wet0); // [weather2] the rain and the snow over this keep (12c_weather2.js)
     let busy = false;
     for (const c of P.cells) {
       if (c.fresh > 0) { const was = c.fresh; c.fresh = Math.max(0, c.fresh - dt / PAL_T.fresh); if (Math.floor(was * 30) !== Math.floor(c.fresh * 30)) PAL.dirty.add(P); }

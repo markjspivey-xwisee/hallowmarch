@@ -719,8 +719,9 @@ function anPenThink(e, dt) {
     return;
   }
   // shelter from snow and hard rain
-  const storm = WEATHER.snowing > 0.3 || WEATHER.raining > 0.65 || (typeof SEASON !== 'undefined' && SEASON && /winter/i.test(SEASON.name || '') && U.uNight.value > 0.5);
-  if (storm && rec.k !== 'hen' || storm && WEATHER.raining > 0.3 && rec.k === 'hen') {
+  const wq = weatherAt(e.x, e.z, _anWx); // [weather2] the snow and the rain over the pen (12c_weather2.js)
+  const storm = wq.snowing > 0.3 || wq.raining > 0.65 || (typeof SEASON !== 'undefined' && SEASON && /winter/i.test(SEASON.name || '') && U.uNight.value > 0.5);
+  if (storm && rec.k !== 'hen' || storm && wq.raining > 0.3 && rec.k === 'hen') {
     const S = pen.shedL, sp = penWorld(pen, S.x + ((rec.aid % 3) - 1) * 1.1, S.z + ((rec.aid % 2) - 0.5) * 0.9);
     if (dist(e.x, e.z, sp.x, sp.z) > 1.2) { ai.mode = 'shelter'; anGoTo(e, sp.x, sp.z, dt, 0.5, 0.6, false); ai.until = 0; return; }
     if (ai.mode !== 'rest') { ai.mode = 'rest'; ai.until = GAME.t + 20; setAct(e, rec.k === 'hen' ? 7 : 9, 20); }
@@ -748,11 +749,12 @@ function anPenThink(e, dt) {
   // grazing on good grass feeds them
   if (ai.mode === 'graze') rec.hunger = Math.min(1, rec.hunger + dt * 0.012 * anPenGrass(pen));
 }
+const _anWx = {};
 // how much grazing a pen gives: none under snow or in winter, less in a dry spell
 function anPenGrass(pen) {
   if (pen._gT && GAME.t - pen._gT < 5) return pen._g;
   let g = sampleGrid(W.grass, pen.x, pen.z);
-  if (WEATHER.snowing > 0.2 || U.uSnowCover && U.uSnowCover.value > 0.35) g *= 0.1;
+  if (wxSnowingAt(pen.x, pen.z) > 0.2 || (typeof seasonSnowLieAt === 'function' ? seasonSnowLieAt(pen.x, pen.z) : U.uSnowCover.value) > 0.35) g *= 0.1; // [weather2] the snow on this pen
   if (typeof SEASON !== 'undefined' && SEASON && /winter/i.test(SEASON.name || '')) g *= 0.15;
   pen._gT = GAME.t; pen._g = clamp(g, 0, 1);
   return pen._g;
@@ -858,7 +860,7 @@ function anClock(e, dt) {
   rec.thirst = Math.max(0, rec.thirst - dt * K.food * 1.2);
   if (rec.cmd !== 'pen' || rec.owner === 'player' && !penById(rec.pen)) {
     // away from a pen they drink at any water and nibble as they go
-    if (heightAt(e.x, e.z) < WATER_Y + 0.6 || WEATHER.raining > 0.4 || (typeof waterAt === 'function' && waterAt(e.x, e.z))) rec.thirst = Math.min(1, rec.thirst + dt * 0.05);
+    if (heightAt(e.x, e.z) < WATER_Y + 0.6 || wxPrecipAt(e.x, e.z) > 0.4 || (typeof waterAt === 'function' && waterAt(e.x, e.z))) rec.thirst = Math.min(1, rec.thirst + dt * 0.05);
     else rec.thirst = Math.max(rec.thirst, 0.5);
     if (!K.fights && rec.k !== 'hound' && sampleGrid(W.grass, e.x, e.z) > 0.4) rec.hunger = Math.min(1, rec.hunger + dt * 0.004);
   }
@@ -986,7 +988,8 @@ function updateAnimals(dt) {
     pen.gateColl.active = !open && pen.gateOpen < 0.2;
     if (pen.owner === 'town') { pen.feed = Math.max(pen.feed, 20); pen.water = Math.max(pen.water, 20); }
     else {
-      if (WEATHER.raining > 0.2) pen.water = Math.min(12, pen.water + dt * WEATHER.raining * 0.03);
+      const pr = wxPrecipAt(pen.x, pen.z); // [weather2] the rain over the pen fills its trough
+      if (pr > 0.2) pen.water = Math.min(12, pen.water + dt * pr * 0.03);
       if (pen._wNear === undefined) pen._wNear = anWaterNear(pen.x, pen.z, 22);
       if (pen._wNear) pen.water = Math.min(12, pen.water + dt * 0.05);
     }

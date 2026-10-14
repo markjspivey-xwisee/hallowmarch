@@ -469,6 +469,7 @@ const HOUSE_FS = (() => {
     float houseSnowU(){ return uSnowCover; }
     float hWet = 0.0, hSnow = 0.0;
     #define uWet hWet
+    #define WX_WET_HERE hWet
     #define uSnowCover hSnow
   `);
   fs = houseShaderPatch(fs, 'void main(){', (a) => /* glsl */`
@@ -620,10 +621,10 @@ const HOUSE_FS = (() => {
       if (y4 > max(st4, uHD[hHi].x)) discard;
       if (y4 > st4 + 0.02) hNew = 1.0;
     }
-    hWet = houseWetU() * (1.0 - hIn); hSnow = houseSnowU() * (1.0 - hIn);
-    if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, houseWetU() * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
+    hWet = wetHere(vW, houseWetU()) * (1.0 - hIn); /* [weather2] */ hSnow = houseSnowU() * (1.0 - hIn);
+    if (hHi >= 0 && hIn > 0.5 && uHD[hHi].z > 0.01) { float hu = 1.0 - smoothstep(uHD[hHi].z * 0.8, uHD[hHi].z + 0.7, distance(vW.xz, uHD[hHi].xy)); hWet = max(hWet, wetHere(vW, houseWetU()) * hu); hSnow = max(hSnow, houseSnowU() * hu * step(0.5, vN.y)); } // [siege2] the rain falls in through it
   `);
-  fs = houseShaderPatch(fs, 'alb *= 1.0 - 0.22 * uWet;', (x) => 'if (hHi >= 0 && m >= 40) alb = houseAlbedo(m, n, hHi, alb);\n    ' + x);
+  fs = houseShaderPatch(fs, 'alb *= 1.0 - 0.22 * wHere;' /* [weather2] */, (x) => 'if (hHi >= 0 && m >= 40) alb = houseAlbedo(m, n, hHi, alb);\n    ' + x);
   fs = houseShaderPatch(fs, 'vec3 col = lightSurface(alb, n, vAO);', () => /* glsl */`
     if (hHi >= 0) houseFire(alb, hHi, hKind, m);
     if (hHi >= 0) houseBatter(alb, hHi, hKind, m); // [siege2] (04j_batter.js)
@@ -815,7 +816,7 @@ function houseOffers(P, offer) {
 /* the hours: shutters open by day, closed at night and in storms       */
 /* ------------------------------------------------------------------ */
 const HOUSE_CLOCK = { night: 0, harm: 0 };
-const houseWantsShut = () => HOUSE_CLOCK.night > 0.42 || WEATHER.storm > 0.5;
+const houseWantsShut = (H) => HOUSE_CLOCK.night > 0.42 || (H && wxLive() ? wxStormAt(H.x, H.z) : WEATHER.storm) > 0.5; // [weather2] the storm over the house (12c_weather2.js)
 // somebody who lives here is about and will see to the shutters and the door
 function houseTended(H) {
   const P = GAME.player;
@@ -852,7 +853,7 @@ function updateHouses(dt) {
     if (H.scafColl) for (const c of H.scafColl) c.active = H.state === 'scaffold';
     // houses whose people are away (or far from anyone who could see) keep the hours by themselves
     if (H.state === 'whole' && (!P || dist2(P.x, P.z, H.x, H.z) > 45 * 45) && !houseTended(H)) {
-      const open = !houseWantsShut();
+      const open = !houseWantsShut(H);
       for (const win of H.wins) if (win.target !== (open ? 1 : 0)) { setHouseShutters(H, win, open, null, true); for (const L of win.leaves) L.open = L.target; }
       if (D.leaf.target) { D.leaf.target = 0; D.leaf.open = 0; }
     }
@@ -932,7 +933,7 @@ function houseBurnStep(H, dt) {
   const B = H.burn;
   H.stT += dt;
   // rain slows the fire but does not put it out
-  const damp = 1 / (1 + 0.7 * clamp(WEATHER.raining, 0, 1));
+  const damp = 1 / (1 + 0.7 * clamp(wxPrecipAt(H.x, H.z), 0, 1)); // [weather2] the rain over the house
   B.R = Math.min(B.maxR, B.R + B.speed * dt * damp);
   if (houseCrewDouse(H, B, dt)) return; // [war2] its people beat the front back, and a fire beaten to nothing is out (08j_war2.js)
   for (const p of B.pts) {

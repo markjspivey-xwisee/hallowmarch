@@ -143,6 +143,7 @@ function skyOver(e) {
   if (inDungeon(e) || (e === GAME.player && INDOOR.on)) return 0;
   if (houseRoofOver(e.x, e.z)) return 0;
   if (towerRoofOver(e.x, e.z, e.y)) return 0; // [land] in a tower's rooms (04l_towers.js)
+  if (wxSheltered(e.x, e.z, e.y + 1.2 * (e.scale || 1))) return 0; // [weather2] under any roof, tent, walk or gallery (12c_weather2.js)
   return underCrown(e.x, e.z) ? 0.3 : 1;
 }
 function heatAt(x, y, z) {
@@ -167,7 +168,7 @@ function updateWear(dt0) {
   WEAR.n = (WEAR.n || 0) + 1;
   hookWear();
   const W2 = WEATHER, P = GAME.player;
-  const rain = Math.max(0, W2.raining - W2.snowing), snowing = W2.snowing;
+  const rain0 = Math.max(0, W2.raining - W2.snowing), snowing0 = W2.snowing, live = wxLive(); // [weather2]
   const sun = sunStrength(), wind = clamp((U.uWind.value - 1) / 1.5, 0, 1);
   const camX = camera.position.x, camZ = camera.position.z;
   const A = U.uAmbient.value, Lc = U.uLightColor.value;
@@ -178,7 +179,12 @@ function updateWear(dt0) {
     let dt = dt0;
     if (e !== P && dist2(e.x, e.z, camX, camZ) > 40 * 40) { if ((WEAR.n + e.id) % 3) continue; dt = dt0 * 3; }
     // shelter and the warmth of fires are looked up about once a second for each body
-    if (e._wxT === undefined || GAME.t >= e._wxT) { e._wxT = GAME.t + 0.8 + Math.random() * 0.4; e._sky = skyOver(e); e._heat = heatAt(e.x, e.y, e.z); }
+    if (e._wxT === undefined || GAME.t >= e._wxT) {
+      e._wxT = GAME.t + 0.8 + Math.random() * 0.4; e._sky = skyOver(e); e._heat = heatAt(e.x, e.y, e.z);
+      // [weather2] the rain and the snow falling where the body stands, and its ground's wetness (12c_weather2.js)
+      if (live) { const q = weatherAt(e.x, e.z, _wearWx); e._wxR = q.rain; e._wxS = q.snowing; e._wxW = q.wet; } else e._wxR = e._wxS = e._wxW = undefined;
+    }
+    const rain = live && e._wxR !== undefined ? e._wxR : rain0, snowing = live && e._wxS !== undefined ? e._wxS : snowing0;
     // [water] in any water (07b_swim.js): the gear soaks up to the waterline (e.wl); swimming or chest-deep soaks it all
     const wdep = inDungeon(e) ? 0 : Math.max(0, (e.wsurf ?? -1e3) - e.y) * ((e.wd || 0) > 0 ? 1 : 0) / (e.scale || 1);
     const water = wdep > 0.3;
@@ -204,7 +210,7 @@ function updateWear(dt0) {
     if (sp > 0.6 && sp < 30 && !water && !inDungeon(e) && (e.onGround !== false || e.mount)) {
       const road = sampleGrid(W.road, e.x, e.z), grass = sampleGrid(W.grass, e.x, e.z);
       const bare = clamp(road * 0.9 + (1 - grass) * 0.45, 0, 1);
-      const mud = W2.wet;
+      const mud = live && e._wxW !== undefined ? e._wxW : W2.wet; // [weather2]
       const k = (sp * bare * (0.25 + 1.6 * mud)) / 1400 * (e.mount ? 0.35 : 1);
       if (e === P) dirtyGear(k * dt); else e.dirt = Math.min(1, (e.dirt || 0) + k * dt);
       if (mud < 0.12 && W2.snow < 0.2 && road > 0.3 && sky > 0 && dist2(e.x, e.z, camX, camZ) < 50 * 50) {
@@ -225,7 +231,7 @@ function updateWear(dt0) {
   if (!P) return;
   // the player's kit: rain slowly rinses it, wading through a lake or a pond washes it clean
   const pWater = !inDungeon(P) && (P.wd || 0) > 0.3; // [water] wading in any water (07b_swim.js)
-  const wash = pWater ? 0.4 : rain * (P._sky || 0) * 0.0025, bloodK = pWater ? 1.5 : 5;
+  const wash = pWater ? 0.4 : (live && P._wxR !== undefined ? P._wxR : rain0) * (P._sky || 0) * 0.0025, bloodK = pWater ? 1.5 : 5;
   if (wash > 0) {
     const before = kitDirt();
     for (const s of SLOTS) {
@@ -239,7 +245,7 @@ function updateWear(dt0) {
     if (pWater && before > 0.08 && kitDirt() <= 0.02 && GAME.t - WEAR.washMsgAt > 30) { WEAR.washMsgAt = GAME.t; uiLog('The water washes the mud and blood from your gear.', 'sys'); saveSoon(); }
   }
   // storms: now and then the lightning comes down near you, on whatever stands tallest
-  if (W2.storm > 0.5 && !INDOOR.on && !inDungeon(P) && W2.mode !== 'clear') {
+  if (W2.storm > 0.5 && !INDOOR.on && !inDungeon(P) && W2.mode !== 'clear' && !live) { // [weather2] live: the storms' cells strike (12c_weather2.js)
     WEAR.strikeIn -= dt;
     if (WEAR.strikeIn <= 0) { WEAR.strikeIn = 16 + Math.random() * 30; strikeNear(P.x, P.z); }
   }
@@ -267,6 +273,7 @@ function wearVisual(e, out) {
   return out;
 }
 
+const _wearWx = {};
 /* ---- lightning on the ground ---- */
 function treeHeight(t) { return (t.kind === 'pine' ? 10.5 : t.kind === 'birch' ? 8.5 : 8) * t.s; }
 // the ring starts close enough that sheltering under a tall tree in a storm is a real risk

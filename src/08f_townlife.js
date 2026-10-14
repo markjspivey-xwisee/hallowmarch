@@ -23,7 +23,7 @@ function houseLife(e, dt) {
   // a house being built again: its people help with the work
   if (H.state === 'scaffold') { lifePlan(e, houseWorkPlan(e, H)); return true; }
   if (!houseIntact(H)) { lifeWander(e); return true; }
-  const shut = houseWantsShut(), day = !shut;
+  const shut = houseWantsShut(H), day = !shut;
   const windowsToDo = H.wins.filter((w) => w.leaves.length && w.target !== (day ? 1 : 0));
   if (!day || GAME.t < (ai.visitUntil || 0)) {
     // [v9] a night (or a storm) at home: the day's first call home comes a while after going out again, not at once

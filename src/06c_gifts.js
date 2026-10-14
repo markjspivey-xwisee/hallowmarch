@@ -630,7 +630,7 @@ function updateGifts(dt) {
     O.steadfast = !!giftHas(P, 'steadfast') && allies >= 2;
     O.unbroken = !!giftHas(P, 'unbroken');
     O.woodwise = !!giftHas(P, 'woodwise') && trees >= 3;
-    O.rainblest = !!giftHas(P, 'rainblest') && !inDungeon(P) && WEATHER.raining > 0.2 && WEATHER.snowing < 0.5 && skyOver(P) > 0.5;
+    O.rainblest = !!giftHas(P, 'rainblest') && !inDungeon(P) && wxPrecipAt(P.x, P.z) > 0.2 && wxSnowingAt(P.x, P.z) < 0.5 && skyOver(P) > 0.5; // [weather2] the rain where you stand
     O.coldblood = !!giftHas(P, 'coldblood');
     O.woundfury = !!giftHas(P, 'woundfury') && P.alive && P.hp < P.maxHp * 0.5;
   }
@@ -640,7 +640,7 @@ function updateGifts(dt) {
     if (GIFT.rainT <= 0) {
       GIFT.rainT = 2;
       const k = giftHas(P, 'rainblest');
-      if (P.hp < P.maxHp) { healEnt(P, P, P.maxHp * 0.012 * k * (0.5 + 0.5 * clamp(WEATHER.raining, 0, 1)), true); if (dist2(P.x, P.z, camera.position.x, camera.position.z) < 40 * 40) for (let n = 0; n < 6; n++) fxAdd.emit(P.x + (Math.random() - 0.5) * 0.8, P.y + 0.2 + Math.random() * 1.6, P.z + (Math.random() - 0.5) * 0.8, 0, 0.6, 0, 0.9, 0.5, 1.4, 1.0, 0.1, -0.3, 0.5); }
+      if (P.hp < P.maxHp) { healEnt(P, P, P.maxHp * 0.012 * k * (0.5 + 0.5 * clamp(wxPrecipAt(P.x, P.z), 0, 1)), true); if (dist2(P.x, P.z, camera.position.x, camera.position.z) < 40 * 40) for (let n = 0; n < 6; n++) fxAdd.emit(P.x + (Math.random() - 0.5) * 0.8, P.y + 0.2 + Math.random() * 1.6, P.z + (Math.random() - 0.5) * 0.8, 0, 0.6, 0, 0.9, 0.5, 1.4, 1.0, 0.1, -0.3, 0.5); }
     }
   } else GIFT.rainT = Math.min(GIFT.rainT, 0.5);
   for (let i = GIFT.standards.length - 1; i >= 0; i--) stepStandard(GIFT.standards[i], dt);
