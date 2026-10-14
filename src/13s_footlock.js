@@ -37,8 +37,23 @@ const FL_YAW = 0.9, FL_HOP_POW = 0.35, FL_HOP_LIFT = 0.1, FL_LATCH_W = 0.85, FL_
 // brings it in by a quick step
 const FL_SETTLE = 0.3, FL_SETTLE_T = 0.06;
 // [anim2] a planted foot a body standing still should bring in: farther than FL_SETTLE from its rest place, or on a floor
-// 0.45 m (at its scale) above or below the body's own
-const a2Unsettled = (e, o, m) => m > FL_SETTLE * (e.scale || 1) || (o.h != null && Math.abs(o.h - e.y) > 0.45 * (e.scale || 1));
+// 0.45 m (at its scale) above or below the body's own, or 0.3 m where its rest place is 0.1 m nearer the body's floor (a
+// mage casting on a crater's wall stood with a foot 0.42 m up on its slope, 22 cm over the ground under its drawn sole)
+const a2Unsettled = (e, o, m) => {
+  const sc = e.scale || 1;
+  if (m > FL_SETTLE * sc) return true;
+  // (and once it has stood A2_SETTLE_LATE s, a foot 0.2 m off its rest place or turned 0.6 rad off the body's heading: an
+  // archer drawing an aimed shot stood 5 s with a foot crossed 0.27 m out and turned 0.85 rad, drawn 27 cm off the ground)
+  if (GAME.t - (e._a2go ?? 0) > A2_SETTLE_LATE && (m > 0.2 * sc || (o.yw != null && Math.abs(angDiff(e.yaw, o.yw)) > 0.6))) return true;
+  if (o.h == null || Math.abs(o.h - e.y) <= A2_SETTLE_H * sc) return false;
+  if (Math.abs(o.h - e.y) > 0.45 * sc || !o.g) return true;
+  // (from A2_SETTLE_H on, only where its rest place stands nearer the body's floor: a step that would land as far off again,
+  // on a crater's wall or a flight's next tread, is no settling, and would be taken again and again)
+  const c = Math.cos(e.yaw), s = Math.sin(e.yaw), lx = o.g[3] + (o.tx || 0), lz = o.along + (o.tz || 0);
+  const hr = flFloor(e, e.x + lx * c + lz * s, e.z - lx * s + lz * c);
+  return Math.abs(o.h - e.y) - Math.abs(hr - e.y) > 0.1 * sc;
+};
+const A2_SETTLE_H = 0.3, A2_SOLE_UP = 0.04, A2_SETTLE_LATE = 0.4;
 const flHopH = (hop) => FL_HOP_H * Math.pow(Math.max(Math.sin(Math.PI * clamp(hop, 0, 1)), 0), FL_HOP_POW);
 const flNear = (e, r) => { const dx = e.x - camera.position.x, dz = e.z - camera.position.z; return dx * dx + dz * dz < r * r; };
 const _flSS = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -111,12 +126,18 @@ function flFloor(e, x, z, yRef, yaw) { // [anim2] (yaw: a planted foot's own hea
   // and its toes, sought along the body's turned facing, found a stair's next tread it did not reach: a caster turned to its
   // foe on a flight stood with both feet 27 cm over the tread under them for as long as it cast)
   const ya = yaw ?? e.yaw, sc = e.scale || 1, fx = Math.sin(ya) * sc, fz = Math.cos(ya) * sc;
-  let best = -Infinity, tread = false;
+  let best = -Infinity, tread = false, onGround = true, mid = null;
   for (const k of FL_SOLE) {
-    const h = floorTreadAt(x + fx * k, z + fz * k, y + 0.5);
+    const sx = x + fx * k, sz = z + fz * k, h = floorTreadAt(sx, sz, y + 0.5);
     if (y - h > 0.6 || h - y > (_flTread ? FL_UP : 0.6)) continue; // [motion3] (a stair's tread up to FL_UP over the body: climbing a steep flight a foot lands 0.5 to 0.75 m over it, and the tread past 0.6 was passed over: the foot stood 27 cm into the riser)
     if (h > best) { best = h; tread = _flTread; }
+    if (Math.abs(h - heightAt(sx, sz)) > 1e-3) onGround = false; else if (k === FL_SOLE[1]) mid = h;
   }
+  // [anim2] on the bare ground (no floor, no tread) the sole stands on the ground under its middle, its toes or heel a few
+  // centimetres into a steep slope at most: the highest under heel and toe, the rule for a stair's riser, set a foot on a
+  // crater's wall level with its toes' ground, and the foot drawn flat stood 18 to 25 cm over the ground under it while
+  // its body cast (the skilled duels at 20)
+  if (onGround && mid !== null && best > mid + A2_SOLE_UP * sc) best = mid + A2_SOLE_UP * sc;
   _flTread = best > -Infinity && tread;
   return best > -Infinity ? best : y;
 }
