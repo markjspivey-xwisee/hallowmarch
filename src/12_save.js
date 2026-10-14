@@ -48,9 +48,19 @@ async function loadSave() {
   return s;
 }
 
+function graphicsSaveSettings() {
+  const recovery = BOOT_SAFE && !quality.userChanged;
+  const stored = SAVE.loaded && SAVE.loaded.settings;
+  const storedLevel = stored && Object.hasOwn(QUALITY_PRESETS, stored.quality) ? stored.quality : null;
+  return {
+    quality: recovery ? storedLevel || phoneQualityPick(true) || (IS_TOUCH ? 'medium' : 'high') : quality.level,
+    auto: recovery ? storedLevel ? stored.auto !== false : true : quality.auto !== false,
+  };
+}
+
 function buildSave() {
   const P = GAME.player, prog = GAME.prog;
-  const settings = { quality: quality.level, auto: quality.auto !== false, tod: tod.mode, sound: AUDIO.on, weather: WEATHER.mode };
+  const settings = { ...graphicsSaveSettings(), tod: tod.mode, sound: AUDIO.on, weather: WEATHER.mode };
   settings.music = MUSIC.vol; // [music] the score's volume, 0 to 1 (11b_music.js)
   settings.master = AUDIO.lvl.master; settings.effects = AUDIO.lvl.sfx; settings.ambience = AUDIO.lvl.amb; // [audio2] Volume, Effects, Ambience: 0 to 1.4 (11c_sound.js)
   const world = {

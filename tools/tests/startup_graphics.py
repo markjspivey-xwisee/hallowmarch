@@ -104,13 +104,26 @@ async def safe_boot(browser):
         await expect(page.locator('#title')).to_be_visible()
         await page.wait_for_function("document.getElementById('loading').hidden || getComputedStyle(document.getElementById('loading')).display === 'none'", timeout=30000)
         await page.screenshot(path=str(hm.OUT / 'startup-safe-title.png'), timeout=120000)
-        await page.evaluate("__hm.fn.openMenu('settings')")
+        await page.evaluate("__hm.start(); __hm.fn.openMenu('settings')")
+        persisted = await page.evaluate("""async () => {
+          await __hm.fn.saveNow();
+          const saved = JSON.parse(localStorage.getItem('hallowmarch.save.v1'));
+          return {quality:saved.settings.quality, auto:saved.settings.auto, char:!!saved.char};
+        }""")
+        check(persisted['quality']=='high' and persisted['auto'] is True and persisted['char'],
+              'game saves preserve previous graphics preference during recovery')
         await expect(page.locator('#set-q button')).to_have_count(3)
         await expect(page.locator('#set-q [data-v=low]')).to_have_attribute('aria-checked','true')
         check(await page.locator('#set-q [data-v=medium]').is_visible() and await page.locator('#set-q [data-v=high]').is_visible(),
               'safe startup keeps graphics controls available')
         await asyncio.wait_for(page.evaluate("__hm.fn.setQuality('medium')"), timeout=120)
         check(await page.evaluate("__hm.quality.level === 'medium' && __hm.quality.auto === false"), 'safe startup permits manual quality changes')
+        explicit = await page.evaluate("""async () => {
+          await __hm.fn.saveNow();
+          const saved = JSON.parse(localStorage.getItem('hallowmarch.save.v1'));
+          return {quality:saved.settings.quality, auto:saved.settings.auto};
+        }""")
+        check(explicit['quality']=='medium' and explicit['auto'] is False, 'explicit graphics change updates saved preference')
         check(not await page.evaluate('__hm.errors') and not errors and not console_errors, 'manual quality change has no runtime errors')
         check(len(navigations)==1, 'safe startup has no automatic navigation')
     finally:

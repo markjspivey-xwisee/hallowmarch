@@ -56,3 +56,5 @@ A production desktop report exposed a gap between software-renderer CI and the u
 The recovery URL `?safe=1` chooses the existing Low preset before any world generation or render-target sizing, requests the browser's default graphics preference, and keeps saved graphics settings and tablet detection from restoring High during that launch. The Graphics menu can still change detail after startup. This option reduces startup graphics demand; it does not override the browser's WebGL safety block.
 
 Early graphics initialization failures now remove the loading veil, show the browser's actual context-creation message, and offer a manual low-graphics reload preserving the existing URL's server and other parameters. There is no automatic reload loop. If the browser continues refusing WebGL, closing and reopening the browser may still be needed.
+
+Automatic game saves during a recovery launch retain the previously saved graphics preference, or the ordinary device default for a new save. Selecting a detail level in Graphics explicitly replaces that preference. The recovery preset does not permanently downgrade saved graphics settings by itself.

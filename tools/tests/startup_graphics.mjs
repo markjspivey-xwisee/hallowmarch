@@ -14,6 +14,7 @@ function extract(source, name) {
   return source.slice(start, end + 2);
 }
 const apply = extract(read('12_save.js'), 'applySettings');
+const saveGraphics = extract(read('12_save.js'), 'graphicsSaveSettings');
 const phone = extract(read('13q_lod.js'), 'phoneQualityPick');
 const set = extract(read('13_main.js'), 'setQuality');
 const automatic = read('13_main.js').split('\n').find(line => line.startsWith('quality.auto ='));
@@ -130,4 +131,25 @@ test('tablet selection cannot raise recovery quality, ordinary tablets remain Me
   assert.equal(vm.runInContext('phoneQualityPick()',safe.ctx),'low');
   const normal=boot({touch:true});vm.runInContext(phone,normal.ctx);
   assert.equal(vm.runInContext('phoneQualityPick()',normal.ctx),'medium');
+});
+
+test('automatic saves preserve the existing graphics preference until a manual change',()=>{
+  const b=boot({url:'https://march.example/?safe=1'});settings(b);
+  b.ctx.SAVE={loaded:{settings:{quality:'high',auto:true}}};
+  vm.runInContext(phone+'\n'+saveGraphics,b.ctx);
+  assert.equal(vm.runInContext('graphicsSaveSettings().quality',b.ctx),'high');
+  assert.equal(vm.runInContext('graphicsSaveSettings().auto',b.ctx),true);
+  assert.equal(b.ctx.__startup.quality.level,'low');
+  vm.runInContext("setQuality('low')",b.ctx);
+  assert.equal(vm.runInContext('graphicsSaveSettings().quality',b.ctx),'low');
+  assert.equal(vm.runInContext('graphicsSaveSettings().auto',b.ctx),false);
+});
+test('recovery without a saved preference retains the ordinary device default on save',()=>{
+  const desk=boot({url:'https://march.example/?safe=1'});desk.ctx.SAVE={loaded:null};
+  vm.runInContext(phone+'\n'+saveGraphics,desk.ctx);
+  assert.equal(vm.runInContext('graphicsSaveSettings().quality',desk.ctx),'high');
+  assert.equal(vm.runInContext('graphicsSaveSettings().auto',desk.ctx),true);
+  const tablet=boot({url:'https://march.example/?safe=1',touch:true});tablet.ctx.SAVE={loaded:null};
+  vm.runInContext(phone+'\n'+saveGraphics,tablet.ctx);
+  assert.equal(vm.runInContext('graphicsSaveSettings().quality',tablet.ctx),'medium');
 });

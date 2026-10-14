@@ -33,6 +33,7 @@ function resize() {
 }
 function setQuality(level, auto = false) {
   if (!QUALITY_PRESETS[level]) return;
+  if (!auto) quality.userChanged = true;
   const rebuild = level !== quality.level;
   quality.level = level;
   Object.assign(quality, QUALITY_PRESETS[level]);

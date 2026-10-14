@@ -282,8 +282,8 @@ function updateLod() {
 }
 
 /* the phone's quality: a touch screen starts at low (it can be raised in the menu), a small or weak desk at medium */
-function phoneQualityPick() {
-  if (BOOT_SAFE) return 'low';
+function phoneQualityPick(ignoreRecovery = false) {
+  if (BOOT_SAFE && !ignoreRecovery) return 'low';
   if (!IS_TOUCH) return null;
   const mem = navigator.deviceMemory || 4, cores = navigator.hardwareConcurrency || 4;
   const big = Math.min(screen.width, screen.height) >= 700; // a tablet
