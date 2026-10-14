@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water]
+        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water, startup]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,11 +42,13 @@ jobs:
           case "$CHECK" in
             headless)
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
+              node --test tools/tests/startup_graphics.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
               ;;
+            startup) check python3 tools/tests/startup_graphics.py ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
             performance) echo 'Performance checks run in the following steps.' ;;

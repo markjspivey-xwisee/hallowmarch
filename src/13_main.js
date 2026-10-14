@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* main: boot, game start, frame loop, quality, debug hooks            */
 /* ================================================================== */
-quality.auto = true;
+quality.auto = !BOOT_SAFE;
 GAME.ready = false;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];

@@ -183,8 +183,11 @@ function applyWorldSave(w) {
 }
 function applySettings(st) {
   if (!st) return;
-  if (QUALITY_PRESETS[st.quality] && st.quality !== quality.level && !(IS_TOUCH && st.auto !== false)) setQuality(st.quality, st.auto !== false); // [phones] a phone left on auto keeps the phone's own pick (13q_lod.js)
-  else quality.auto = st.auto !== false;
+  // A manual recovery launch keeps the low preset while reading saved graphics preferences.
+  if (!BOOT_SAFE) {
+    if (QUALITY_PRESETS[st.quality] && st.quality !== quality.level && !(IS_TOUCH && st.auto !== false)) setQuality(st.quality, st.auto !== false); // [phones] a phone left on auto keeps the phone's own pick (13q_lod.js)
+    else quality.auto = st.auto !== false;
+  }
   if (['cycle', 'morning', 'golden', 'night'].includes(st.tod)) setTimeMode(st.tod);
   if (typeof st.sound === 'boolean') AUDIO.on = st.sound;
   if (Number.isFinite(st.music)) setMusicVolume(st.music); // [music] older saves have none: the default stays

@@ -48,3 +48,11 @@ The separate Claude artifact is still version 19. This environment has no Claude
 Updating Georgio's shared Interego project graph is blocked by an agent-ID/DID registration mismatch: the bare ChatGPT subject verifies as signed ReadWrite, while publication derives a DID the gate reports as unregistered. No credentials or registrations were changed. Continuation is saved in the authenticated ChatGPT Interego pod; repository source and this record remain the reviewable work.
 
 The older gameplay and balance limits in CLAUDE.md's Next row remain open. The relay still delegates detailed field simulation to clients; this release does not provide an authoritative server simulation of every blow.
+
+## Graphics startup recovery
+
+A production desktop report exposed a gap between software-renderer CI and the user's browser: Edge reported that the page's WebGL context was blocked after context loss, and a reload became unresponsive. A successful deployment and software-renderer checks do not establish compatibility with that GPU and driver.
+
+The recovery URL `?safe=1` chooses the existing Low preset before any world generation or render-target sizing, requests the browser's default graphics preference, and keeps saved graphics settings and tablet detection from restoring High during that launch. The Graphics menu can still change detail after startup. This option reduces startup graphics demand; it does not override the browser's WebGL safety block.
+
+Early graphics initialization failures now remove the loading veil, show the browser's actual context-creation message, and offer a manual low-graphics reload preserving the existing URL's server and other parameters. There is no automatic reload loop. If the browser continues refusing WebGL, closing and reopening the browser may still be needed.

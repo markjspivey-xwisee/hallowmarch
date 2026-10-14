@@ -5,16 +5,42 @@ const canvas = document.getElementById('scene');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+const BOOT_SAFE = new URLSearchParams(location.search).get('safe') === '1';
+let GRAPHICS_START_MESSAGE = '';
+canvas.addEventListener('webglcontextcreationerror', (event) => {
+  GRAPHICS_START_MESSAGE = String(event.statusMessage || '').slice(0, 500);
+});
+function graphicsStartFailure(error) {
+  const loading = document.getElementById('loading'), notice = document.getElementById('nogl');
+  if (loading) { loading.hidden = true; loading.style.display = 'none'; }
+  if (!notice) return;
+  notice.hidden = false;
+  notice.setAttribute('role', 'alert');
+  const heading = document.createElement('strong');
+  heading.textContent = 'Graphics could not start';
+  const detail = document.createElement('span');
+  detail.textContent = GRAPHICS_START_MESSAGE || String(error && error.message || error);
+  const help = document.createElement('span');
+  help.textContent = 'Hallowmarch needs WebGL 2. Try low graphics. If the browser still blocks graphics, close and reopen it before trying again.';
+  const retry = document.createElement('a'), target = new URL(location.href);
+  target.searchParams.set('safe', '1');
+  retry.href = target.href;
+  retry.textContent = 'Reload with low graphics';
+  notice.replaceChildren(heading, detail, help, retry);
+}
+
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: BOOT_SAFE ? 'default' : 'high-performance' });
 } catch (e) {
-  document.getElementById('nogl').hidden = false;
+  graphicsStartFailure(e);
   throw e;
 }
 if (!renderer.capabilities.isWebGL2) {
-  document.getElementById('nogl').hidden = false;
-  throw new Error('WebGL 2 is not available');
+  const error = new Error('WebGL 2 is not available in this browser.');
+  graphicsStartFailure(error);
+  renderer.dispose();
+  throw error;
 }
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
@@ -30,7 +56,8 @@ const QUALITY_PRESETS = {
   medium: { dpr: 1.25, msaa: 2, grass: 0.62, flowers: 0.7, treeDist: 300, nearTrees: 28, bloom: 5, label: 'Medium' },
   low: { dpr: 1.0, msaa: 0, grass: 0.36, flowers: 0.45, treeDist: 200, nearTrees: 0, bloom: 4, label: 'Low' }, // [motion] treeDist 230 -> 200: the farthest chunks are lost in the fog at low
 };
-const quality = { level: IS_TOUCH ? 'medium' : 'high', ...QUALITY_PRESETS[IS_TOUCH ? 'medium' : 'high'] };
+const GRAPHICS_BOOT_LEVEL = BOOT_SAFE ? 'low' : IS_TOUCH ? 'medium' : 'high';
+const quality = { level: GRAPHICS_BOOT_LEVEL, ...QUALITY_PRESETS[GRAPHICS_BOOT_LEVEL] };
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 900);
 camera.rotation.order = 'YXZ';
