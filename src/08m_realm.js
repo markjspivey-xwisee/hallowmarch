@@ -48,6 +48,9 @@ const RSM = {
   // D units of worth delivered that day (D: every player of the realm together; work counts as RSM.sp.work points an hour
   // worth): one player's hour (about 800 units) earns about 16, a crowd no more than `max` a day. The goods all go in.
   delivery: { max: 40, full: 1500 },
+  // [season2] an offensive's keep, warned two days ahead: the holder may bring its garrison to `room` x a full one, with
+  // up to `share` of the attackers' number from its levy (an assault or a retake: 1.5 and 0.35)
+  brace: { room: 1.5, share: 0.35, feed: 0 },
   projects: {
     // (days: the quickest it can be done; the realm's stores above a reserve set the pace, so what players deliver speeds it)
     walls: { cost: [0, 1200, 3000, 240, 0, 0, 0, 0], days: 1, max: 3, name: "raise a keep's walls a tier" },
@@ -402,8 +405,9 @@ function rsmArmies(RS, hr) {
       rsmLog(RS, A.r, `${rsmRN(RS, A.r)} lays siege to ${rsmKN(RS, A.k)} (${A.n} against ${Math.round(K.g)} on its walls).`, 'big');
       // the holder sends what it can spare to relieve it
       const D = RS.realms[K.h];
-      const room = Math.max(0, Math.round(RSM.garrison * 1.5 - K.g));
-      if (D.lev >= 8 && room > 0) { const n = Math.min(D.lev - 4, Math.round(A.n * 0.35), room); D.lev -= n; K.g += n; RS.stats.relief++; rsmLog(RS, K.h, `${rsmRN(RS, K.h)} sends ${n} soldiers to relieve ${rsmKN(RS, A.k)}.`); }
+      // [season2] an offensive was announced days ahead: the holder has had time to bring more to its walls
+      const warned = A.kind === 'offensive', room = Math.max(0, Math.round(RSM.garrison * (warned ? RSM.brace.room : 1.5) - K.g));
+      if (D.lev >= 8 && room > 0) { const n = Math.min(D.lev - 4, Math.round(A.n * (warned ? RSM.brace.share : 0.35)), room); D.lev -= n; K.g += n; RS.stats.relief++; rsmLog(RS, K.h, `${rsmRN(RS, K.h)} sends ${n} soldiers to relieve ${rsmKN(RS, A.k)}.`); }
       continue;
     }
     if (A.state === 'siege') rsmSiege(RS, A, R, hr);
@@ -416,6 +420,8 @@ function rsmSiege(RS, A, R, hr) {
   A.siegeH += hr;
   if (K.h === A.r) { rsmArmyHome(RS, A, ''); return; }
   const hungryA = R.hungry > 2 ? 0.85 : 1, hungryD = D.hungry > 2 ? 0.85 : 1;
+  // [season2] an offensive's keep, warned: the holder keeps feeding its walls from the levy while the siege lasts
+  if (A.kind === 'offensive' && D.lev > 6) { const n = Math.min(D.lev - 6, RSM.brace.feed * hr, Math.max(0, RSM.garrison * RSM.brace.room - K.g)); D.lev -= n; K.g += n; }
   const att = A.n * A.arm * hungryA * (1 + 0.3 * A.eng) * (1 + 0.4 * rsmBehind(RS, A.r));
   const def = (K.g + 3) * (1 + 0.12 * D.proj.smithy) * hungryD * (1 + 0.3 * K.tier) * (K.gate > 0 ? 1.5 : 1) * (1 + RSM.catchUp * rsmBehind(RS, K.h));
   // the gate gives way to the engines and the rams
