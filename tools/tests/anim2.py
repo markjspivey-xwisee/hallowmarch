@@ -9,7 +9,9 @@ action, and how long each body stayed so (episodes: the longest, how many lasted
 running war, the camera over its biggest fight, at FPS steps a second; `duels`: every pair of callings, skilled at 20 and
 simple at 50, at 60 steps a second; `player`: the player's own doings by the keys, at 60 and at 20 frames a second
 (stops at every point of the stride, turns on the spot, a jump and its landing, stunned in a run, mounting and
-dismounting, kneeling). Fails on any episode over 1 s, and on the player's over 0.5 s.
+dismounting, kneeling); `ways`: the player up a tower's ladder by walking into it and down again, swimming out of a
+lake onto its shore, into a boat at a jetty and out again, at 60 and 20 frames a second. Fails on any episode over 1 s,
+and on the player's over 0.5 s.
 `dead`: each calling of each realm and the camps' beasts struck down and lying: the lowest point of each over the floor
 under it and its highest (nothing stands up off a body lying dead).
 `dragon`: Cinderwing killed at its perch and lying: no vertex more than 15 cm under the ground, its neck, head and tail
@@ -20,7 +22,7 @@ arrow's nock at the drawing fingers, the arrow along the facing; the staff uprig
 foe in the guard.
 `shots`: pictures at 960x540 (tools/out/anim2_*.png): Cinderwing dead from its side, from behind and from above, its
 scales up close in daylight, people dead, the archer drawing, the guard, the mage casting, the strike.
-usage: python3 tools/tests/anim2.py [only=war,duels,player,dead,dragon,weapons,shots] [min=4] [q=low] [fps=30] [shots=dragon_dead_side,...]"""
+usage: python3 tools/tests/anim2.py [only=war,duels,player,ways,dead,dragon,weapons,shots] [min=4] [q=low] [fps=30] [shots=dragon_dead_side,...]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -29,11 +31,11 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 def arg(k, d):
     return next((a.split('=', 1)[1] for a in ARGS if a.startswith(k + '=')), d)
-ONLY = arg('only', 'war,duels,player,dead,dragon,weapons').split(',')
+ONLY = arg('only', 'war,duels,player,ways,dead,dragon,weapons').split(',')
 MIN = float(arg('min', '4'))
 Q = arg('q', 'low')
 FPS = int(arg('fps', '30'))
-SHOTS = arg('shots', 'dragon_dead_side,dragon_dead_behind,dragon_dead_above,dragon_scales,dead_people,dead_close,strike_30,strike_45,strike_60,guard_front,draw_side,draw_front,cast_side').split(',')
+SHOTS = arg('shots', 'dragon_dead_side,dragon_dead_behind,dragon_dead_above,dragon_scales,dead_people,dead_close,strike_30,strike_45,strike_60,guard_front,draw_side,draw_front,cast_side,idle_side').split(',')
 FAILS = []
 T0 = time.time()
 
@@ -146,12 +148,65 @@ window.A2T = {
     K.clear();
     return 0;
   },
+  // the player's ways on and off, by the keys, at dt a frame: into a Logres corner tower, up its ladder by walking into it
+  // and off at its top, down again and off at its foot; swimming out of a lake onto its shore; into a boat at a jetty and
+  // out onto the jetty. Each ends with the player standing (the search looks at it every frame)
+  ways(dt, tag) {
+    const H = this.H, F = this.F, P = H.GAME.player, K = H.INPUT.keys, out = {};
+    const chase = () => { H.UI.modal = null; H.CAM.mode = 'fixed'; H.camera.position.set(P.x - Math.sin(P.yaw) * 6, P.y + 3.5, P.z - Math.cos(P.yaw) * 6); H.camera.lookAt(P.x, P.y + 1, P.z); H.camera.updateMatrixWorld(); };
+    const step = (sec, f) => { const n = Math.round(sec / dt); let i = 0; for (; i < n; i++) { if (f && f(i * dt)) break; this.calm(); chase(); this.A.a2Step(dt, { tag }); } return +(i * dt).toFixed(2); };
+    const toward = (x, z) => { H.CAM.yaw = Math.atan2(x - P.x, z - P.z); };
+    K.clear();
+    // the ladder: in at the store room's door, up to the guard room, down again, out into the court
+    const K0 = H.WAR.keeps.find((q) => q.orig === 0 && q.site === H.REALMS[0].keepSites[0]), S = K0.site;
+    const T = H.towers.TOWER.list.find((q) => q.S === S && q.sx === 1 && q.sz === 1), L = T.ladders[0];
+    const w0 = F.siteToWorld(S, T.cx + Math.sin(T.aIn) * 0.9, T.cz + Math.cos(T.aIn) * 0.9), foot = F.siteToWorld(S, L.foot.x, L.foot.z), lad = { x: L.lx, z: L.lz }; // (the ladder's own place is in the world's frame)
+    P.mount = null; P.motion = null; P.x = P.prevX = w0.x; P.z = P.prevZ = w0.z; P.y = S.y + T.yG; P.onGround = true; P.vy = 0;
+    step(0.5);
+    K.add('KeyW');
+    out.walk = step(6, () => { toward(foot.x, foot.z); return Math.hypot(foot.x - P.x, foot.z - P.z) < 0.3; });
+    out.into = step(2, () => { toward(lad.x, lad.z); return !!P.motion; });
+    K.delete('KeyW'); out.climbing = P.motion ? P.motion.kind : null;
+    out.up = step(15, () => !P.motion); out.yUp = +(P.y - S.y).toFixed(2);
+    step(1.5);
+    try { H.towers.towerLadderStart(P, L, -1); } catch (err) {}
+    out.downing = P.motion ? P.motion.kind : null;
+    out.down = step(15, () => !P.motion); out.yDown = +(P.y - S.y).toFixed(2);
+    step(1.2);
+    P.motion = null;
+    // swimming out: from deep water beside Brackenford's jetty to its shore
+    const Bt = H.water.boats, J = Bt.jetties().find((j) => j.realm === 0) || Bt.jetties()[0];
+    if (J) {
+      const ax = J.end.x - J.x0, az = J.end.z - J.z0, al = Math.hypot(ax, az) || 1, sx = -az / al * 5, sz = ax / al * 5;
+      let sw = null; for (const s of [1, -1]) { const x = J.end.x + ax / al * 6 + sx * s, z = J.end.z + az / al * 6 + sz * s, w = H.water.waterAt(x, z); if (w && w.depth > 1.9) { sw = { x, z, s }; break; } }
+      if (sw) {
+        P.x = P.prevX = sw.x; P.z = P.prevZ = sw.z; const w = H.water.waterAt(sw.x, sw.z); P.y = w.y - 1.3; P.vy = 0;
+        step(0.8); out.swam = !!P.swim; out.from = +Math.hypot(sw.x - J.x0, sw.z - J.z0).toFixed(1);
+        const lx = J.x0 + sx * sw.s - ax / al * 6, lz = J.z0 + sz * sw.s - az / al * 6;
+        K.add('KeyW'); out.swimOut = step(30, () => { toward(lx, lz); return !P.swim && !(P.swimK > 0.05) && !H.water.waterAt(P.x, P.z); }); K.delete('KeyW');
+        out.ashore = !P.swim; step(1.5);
+      }
+      // a boat: into one moored at the jetty, a moment at the thwart, out onto the jetty
+      let i = Bt.list().findIndex((q) => q.realm === J.realm && q.home && q.st === 'moored');
+      if (i < 0) { i = Bt.list().findIndex((q) => q.realm === J.realm && q.home); if (i >= 0) try { Bt.restore(i); } catch (err) {} } // (the last run left it out on the water)
+      if (i >= 0) {
+        const b = Bt.state(i); P.x = P.prevX = J.end.x * 0.5 + J.x0 * 0.5; P.z = P.prevZ = J.end.z * 0.5 + J.z0 * 0.5; P.y = F.floorAt(P.x, P.z, P.y + 3); step(0.5);
+        try { Bt.board(i); } catch (err) {} out.boarded = !!P.boat; step(1.5);
+        try { Bt.leave(); } catch (err) {} out.left = !P.boat; out.yLeft = +P.y.toFixed(2); step(1.5);
+        out.boatAt = [+b.x.toFixed(1), +b.z.toFixed(1)];
+      }
+    }
+    K.clear();
+    return out;
+  },
   // an open stretch with no tree within r m of it or of a camera 7 m off it (for pictures and the gear)
   open(r = 12) {
     const H = this.H, P = H.GAME.player, T = H.seasons.treesNear;
     for (let d = 0; d < 420; d += 25) for (let k = 0; k < 12; k++) {
       const a = k / 12 * 6.283, L = this.lane(P.x + 40 + Math.sin(a) * d, P.z - 40 + Math.cos(a) * d, 6, 4);
-      if (L && T(L.x, L.z, r).length === 0 && T(L.x + L.ux * 7, L.z + L.uz * 7, 9).length === 0 && !H.water.waterAt(L.x + L.ux * 7, L.z + L.uz * 7)) return L;
+      // (an orchard's apple trees are forage plants, not the world's trees: one stood in the bodies' row in a picture)
+      const apple = (x, z, rr) => ((H.surv && H.surv.FORAGE && H.surv.FORAGE.list) || []).some((p) => p.k === 'apple' && !p.gone && Math.hypot(p.x - x, p.z - z) < rr);
+      if (L && T(L.x, L.z, r).length === 0 && T(L.x + L.ux * 7, L.z + L.uz * 7, 9).length === 0 && !apple(L.x, L.z, r) && !apple(L.x + L.ux * 7, L.z + L.uz * 7, 9) && !H.water.waterAt(L.x + L.ux * 7, L.z + L.uz * 7)) return L;
     }
     return null;
   },
@@ -279,7 +334,7 @@ async def main():
             r = await ev(page, "__hm.anim2.a2Report()")
             summary(r, 'war'); res['war'] = r
             check(r['stats']['bodies'] > 1000, f"the war's bodies looked at ({r['stats']['bodies']})")
-        need = any(k in ONLY for k in ('duels', 'player', 'dead', 'dragon', 'weapons', 'shots'))
+        need = any(k in ONLY for k in ('duels', 'player', 'ways', 'dead', 'dragon', 'weapons', 'shots'))
         if need and 'war' not in ONLY:
             await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(20); 0")
         if 'duels' in ONLY:
@@ -296,6 +351,16 @@ async def main():
                 r = await ev(page, "__hm.anim2.a2Report()")
                 print(f'player at {fps} frames a second [{time.time() - T0:.0f}s]', flush=True)
                 summary(r, f'player {fps}', 0.5); res[f'player{fps}'] = r
+            await ev(page, "(() => { const K = __hm.INPUT.keys; K.clear(); return 0; })()")
+        if 'ways' in ONLY:
+            for fps in (60, 20):
+                await ev(page, "__hm.anim2.a2Reset(); 0")
+                w = await ev(page, f"A2T.ways({1 / fps}, 'w{fps}')", f'ways at {fps} frames a second')
+                r = await ev(page, "__hm.anim2.a2Report()")
+                check(w.get('climbing') == 'ladder' and abs(w.get('yUp', 0) - 7) < 0.1 and w.get('downing') == 'ladder' and abs(w.get('yDown', 9)) < 0.3, f'the player up a tower ladder by walking into it and down again ({fps} frames a second)')
+                check(w.get('swam') and w.get('ashore'), f'the player swims out of the lake onto its shore ({fps})')
+                check(w.get('boarded') and w.get('left'), f'the player steps into a boat at the jetty and out again ({fps})')
+                summary(r, f'ways {fps}', 0.5); res[f'ways{fps}'] = r
             await ev(page, "(() => { const K = __hm.INPUT.keys; K.clear(); return 0; })()")
         if 'dead' in ONLY:
             r = await ev(page, "A2T.dead()", 'dead')
@@ -366,6 +431,9 @@ async def main():
             await shot('draw_side', "A2T.pose(['archer', 'mage'], 2, 0.75, 'side', 3.4)")
             await shot('draw_front', "A2T.pose(['archer', 'mage'], 2, 0.75, 'front', 3.4)")
             await shot('cast_side', "(() => { A2T._pose.es[1].anim.act = 3; return A2T.pose(['archer', 'mage'], 3, 0.6, 'side', 3.4); })()")
+            # (each calling standing and as it walks, side on: what the hands carry when nothing is being done with it)
+            await ev(page, "A2T.clear(); A2T._pose = null; 0")
+            await shot('idle_side', "A2T.pose(['warrior', 'archer', 'mage', 'priest'], 0, 0, 'side', 5.5)")
             await page.set_viewport_size({'width': 640, 'height': 360})
         errs = await ev(page, "__hm.errors.slice(0, 5)")
         check(not errs, f'no runtime errors ({errs})')
