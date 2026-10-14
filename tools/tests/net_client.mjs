@@ -27,6 +27,7 @@ ws.on('message', (data) => {
   else if (m.t === 'save' || m.t === 'saved') { S.save = m; out({ save: m }); }
   else if (m.t === 'denied') out({ denied: m.why });
   else if (m.t === 'acct') out({ acct: m });
+  else if (m.t === 'company' || m.t === 'co') out({ company: m }); // [companies]
 });
 ws.on('close', () => { out({ closed: true }); process.exit(0); });
 const send = (o) => { const m = JSON.stringify(o); if (ws.readyState === 1) ws.send(m); else pending.push(m); };

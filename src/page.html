@@ -865,6 +865,34 @@
   .chron .ns-st { display: flex; flex-wrap: wrap; gap: 4px 14px; }
   .chron .ns-roster, .chron .ns-news, .chron .ns-armies { font-size: 13.5px; }
   .chron .ns-on { color: #6fdc7f; }
+  /* companies */
+  #netsheet-co { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+  #netsheet-co .co-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; }
+  #netsheet-co .co-title { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+  #netsheet-co .co-title b { font-size: 15px; }
+  #netsheet-co .co-title small { opacity: 0.8; font-size: 12.5px; }
+  #netsheet-co .co-shield, .chron .co-shield { flex: none; vertical-align: middle; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+  #netsheet-co .co-notice { padding: 7px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.3); border-left: 3px solid var(--bronze-hi, #c9a25c); font-style: italic; overflow-wrap: anywhere; margin-bottom: 6px; }
+  #netsheet-co .co-notice small { opacity: 0.75; font-style: normal; }
+  #netsheet-co .co-tally { font-size: 13px; opacity: 0.9; margin: 4px 0 8px; }
+  #netsheet-co .net-fields { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  #netsheet-co input { flex: 1 1 180px; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.45); color: var(--ink); font: 15px var(--ui); }
+  #netsheet-co .co-found { display: grid; gap: 8px; margin: 6px 0; }
+  #netsheet-co .co-devs { display: flex; flex-wrap: wrap; gap: 4px; }
+  #netsheet-co .co-dev { min-width: 40px; min-height: 40px; padding: 4px; display: inline-grid; place-items: center; }
+  #netsheet-co .co-dev.on, #netsheet-co .co-sw.on { outline: 2px solid var(--bronze-hi, #e6c27a); outline-offset: 1px; }
+  #netsheet-co .co-tinct { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  #netsheet-co .co-tinct span { width: 52px; font-size: 13px; opacity: 0.85; }
+  #netsheet-co .co-sw { width: 40px; min-height: 40px; padding: 0; background: var(--sw); border: 1px solid rgba(0, 0, 0, 0.6); }
+  #netsheet-co .co-pledge { align-items: center; margin: 4px 0 8px; }
+  #netsheet-co .co-roster .net-row { padding: 5px 9px; }
+  #netsheet-co .co-lines i { opacity: 0.7; }
+  #netsheet-co .co-standing { margin: 4px 0 6px; padding-left: 4px; list-style: none; display: grid; gap: 3px; font-size: 13px; }
+  #netsheet-co .co-standing li.on, .chron .co-st.on { color: var(--bronze-hi, #e6c27a); }
+  #netsheet-co .net-msg { min-height: 18px; font-size: 13px; opacity: 0.9; }
+  #netsheet-co .net-msg.bad { color: #f0a090; }
+  .np .co { display: block; font-size: 10.5px; line-height: 1.1; color: var(--cc, #e8dcc0); opacity: 0.92; text-align: center; text-shadow: 0 1px 2px #000; letter-spacing: 0.02em; }
+  .chron .co-st { list-style: none; }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
