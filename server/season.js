@@ -39,7 +39,13 @@ function loopsAdapt(L) {
     realmSimContribute: (RS, realm, kind, n, who) => { L.realmSimContribute(RS, realm, kind, n, who); return G.includes(kind) ? n : 0; },
     realmSimOrder: (RS, realm, o, acct) => {
       const rank = o.w >= 3 ? 5 : 1;
-      if (o.kind === 'target' && rank < 5) return { ok: false, why: 'Only an officer of the realm (rank 5) names the keep it marches on' };
+      // a voice below rank 5 for a keep: it names the realm's next keep while no officer has (an officer's word stands)
+      if (o.kind === 'target' && rank < 5) {
+        const K = RS.keeps[o.keep | 0];
+        if (!K || K.h === realm) return { ok: false, why: 'Not a keep of the foe' };
+        if (RS.realms[realm].aim >= 0 && RS.realms[realm].aim !== (o.keep | 0)) return { ok: true, why: 'Counted: an officer has named the keep already' };
+        RS.realms[realm].aim = o.keep | 0; return { ok: true };
+      }
       if (o.kind === 'muster' && RS.phase !== 'war') return { ok: false, why: 'No muster before the war' };
       const ok = L.realmSimOrder(RS, realm, { type: o.kind, id: o.id, keep: o.keep }, { name: o.by || acct, rank });
       return ok ? { ok: true } : { ok: false, why: 'Not now' };
@@ -53,7 +59,7 @@ function loopsAdapt(L) {
         keeps: RS.keeps.map((K, i) => ({ i, r: K.h, g: Math.round(K.g), gate: K.gate > 0.5 ? 1 : 0, siege: K.siege ? 1 : 0, tier: K.tier })),
         armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 24).map((A) => { const [x, z] = pos(A); return { r: A.r, n: Math.round(A.n), to: A.k, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z) }; }),
         news: RS.log.filter((L2) => L2.t > since && (realm < 0 || L2.r === realm || L2.r === -1 || L2.k === 'big')).slice(-12).map((L2) => [Math.round(L2.t), L2.r, L2.x]),
-        target: R ? R.aim : -1, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
+        target: R ? R.aim : -1, st: null, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
       };
       if (R) {
         s.st = Object.fromEntries(G.slice(0, 7).map((g, i) => [g, Math.round(R.s[i])]));
@@ -61,7 +67,7 @@ function loopsAdapt(L) {
         s.proj = Object.keys(RSM.projects).map((id) => {
           const P = RSM.projects[id], need = {}, have = {};
           P.cost.forEach((c, i) => { if (c > 0 && i < 7) { need[G[i]] = c; have[G[i]] = Math.round(Math.min(c, R.s[i] + R.bank[i])); } });
-          return { id, label: (PROJ[id] || [P.name])[0], did: `${(PROJ[id] || ['', P.name])[1]}${R.act === id ? ` (at work: ${Math.round(R.prog * 100)}%)` : ''}`, built: R.proj[id] >= P.max && id !== 'walls', votes: Math.round(R.votes[id] || 0), need, have };
+          return { id, label: (PROJ[id] || [P.name])[0], did: `${(PROJ[id] || ['', P.name])[1]}${R.act === id ? ` (at work: ${Math.round(R.prog * 100)}%)` : ''}`, built: R.proj[id] >= P.max && id !== 'walls', votes: Math.round(R.votes[id] || 0), atWork: R.act === id, need, have };
         });
       }
       return s;
