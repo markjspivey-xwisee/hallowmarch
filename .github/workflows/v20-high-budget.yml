@@ -1,0 +1,32 @@
+name: High quality render budget
+on:
+  push:
+    branches: [feature/v20-high-budget-20261014]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  high:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - run: bash tools/lint.sh 80
+      - run: python3 tools/ci/run_check.py python3 tools/tests/perf.py high render budget tag=v20-high
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: high-budget-evidence
+          path: tools/out/
+          retention-days: 14
