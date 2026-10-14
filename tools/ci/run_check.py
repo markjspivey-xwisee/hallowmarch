@@ -20,6 +20,8 @@ p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
 for line in p.stdout:
     print(line, end="", flush=True)
     s = line.strip()
+    # water2 prefixes its diagnostic summary with elapsed time, e.g. errors [164s] [].
+    s = re.sub(r"^(errors )\[\d+(?:\.\d+)?s\]\s*", r"\1", s)
     if re.match(r"^(FAIL(?:ED)?\b|STEP FAILED\b|\[pageerror\])", s):
         failed = True
     if re.search(r"\b[1-9]\d* (?:failed|failures)\b", s) or re.match(r"^view .* failed:", s):
