@@ -12,7 +12,7 @@
 // and frame to the others (stamped by the server: a page cannot claim one). All of it in the Players sheet's Company part
 // (P, or the Players button), by keys or by taps. Alone it does not run; inside the artifact's room (rung 1) the sheet says
 // plainly that companies are kept by the March's own server. Every name and line from another player is set as text.
-const CO = { s: null, q: 0, waits: new Map(), ver: 0, noted: false, told: false, dev: 2, col: [0, 3], busy: false, msg: '', bad: false, stats: { msgs: 0, said: 0, heard: 0, musters: 0, asks: 0 } };
+const CO = { s: null, q: 0, queue: Promise.resolve(), askAt: -1e9, sayAt: -1e9, waits: new Map(), ver: 0, noted: false, told: false, dev: 2, col: [0, 3], busy: false, msg: '', bad: false, stats: { msgs: 0, said: 0, heard: 0, musters: 0, asks: 0 } };
 const CO_DEV_NAMES = ['Crossed blades', 'Upright blade', 'Tower', 'Chalice', 'Wreath', 'Flame', 'Crowned skull', 'Hammer', 'Peak', 'Star'];
 const CO_TINCT_NAMES = ['colour', 'light', 'dark', 'gold', 'silver'];
 const coTinct = (r, i) => { const R = REALMS[NET_REALM_OK(r) ? r : 0]; return [R.color, R.light, R.dark, '#d4a944', '#e2e2da'][i] || R.color; };
@@ -111,13 +111,23 @@ function coRead(o) {
 }
 const coReadBrief = (x) => ({ id: typeof (x && x.id) === 'string' ? x.id.slice(0, 40) : '', n: netStr(x && x.n, 24), dev: Math.round(netNum(x && x.dev, 0, 9)), col: Array.isArray(x && x.col) ? [Math.round(netNum(x.col[0], 0, 4)), Math.round(netNum(x.col[1], 0, 4))] : [0, 3], m: netNum(x && x.m, 0, 99), pts: netNum(x && x.pts, 0, 1e9), u: netNum(x && x.u, 0, 1e12), caps: netNum(x && x.caps, 0, 1e6), by: netStr(x && x.by, 24) });
 function coAsk(op, o = {}) {
-  return new Promise((res) => {
-    const q = ++CO.q;
-    CO.stats.asks++;
-    if (!netWsSend({ t: 'co', op, q, ...o })) { res({ ok: false, why: "Not linked to the March's server" }); return; }
-    CO.waits.set(q, res);
-    setTimeout(() => { if (CO.waits.has(q)) { CO.waits.delete(q); res({ ok: false, why: 'The server did not answer' }); } }, 9000);
+  // Requests share the socket's rate limits. Serialize them and honor the
+  // minimum spacing so a quick second submission cannot be refused as too fast.
+  const pending = CO.queue.then(async () => {
+    const key = op === 'say' ? 'sayAt' : 'askAt', gap = op === 'say' ? 1050 : 400;
+    const delay = Math.max(0, CO[key] + gap - performance.now());
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    CO[key] = performance.now();
+    return new Promise((res) => {
+      const q = ++CO.q;
+      CO.stats.asks++;
+      if (!netWsSend({ t: 'co', op, q, ...o })) { res({ ok: false, why: "Not linked to the March's server" }); return; }
+      CO.waits.set(q, res);
+      setTimeout(() => { if (CO.waits.has(q)) { CO.waits.delete(q); res({ ok: false, why: 'The server did not answer' }); } }, 9000);
+    });
   });
+  CO.queue = pending.catch(() => {});
+  return pending;
 }
 
 /* ------------------------------------------------------------------ */

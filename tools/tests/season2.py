@@ -12,6 +12,7 @@ usage: python3 tools/tests/season2.py [only=field,offense,ui,shots] [noshots]"""
 import asyncio, sys, pathlib, time, base64
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
+OUT = pathlib.Path(OUT)
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
