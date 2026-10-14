@@ -412,6 +412,7 @@ const server = http.createServer((req, res) => {
     const op = u.searchParams.get('op'), i = +u.searchParams.get('i'), r = +u.searchParams.get('r');
     if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('h' in K) K.h = r; else if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; give(200, { ok: true, keeps: SEASON.keepsOf() }); return; }
     if (op === 'reset' && SEASON.M) { SEASON.RS = SEASON.M.realmSimInit(CFG.seasonSeed + Date.now() % 1000, { keeps: CFG.keeps, len: CFG.seasonLen, season: (SEASON.RS && SEASON.RS.n || 0) + 1 }); SEASON.roster = {}; SEASON.chat = [[], [], []]; for (const A of Object.values(ACCOUNTS)) delete A.votes; accountsSave(); SEASON.save(); give(200, { ok: true, n: SEASON.RS.n }); return; }
+    if (op === 'step' && SEASON.RS) { const s = Math.max(0, Math.min(90 * 86400, +(u.searchParams.get('s')) || 0)); SEASON.M.realmSimStep(SEASON.RS, s); SEASON.dirty = true; give(200, { ok: true, t: SEASON.RS.t, phase: SEASON.RS.phase }); return; }
     if (op === 'save') { SEASON.save(); give(200, { ok: true }); return; }
     give(400, { ok: false }); return;
   }

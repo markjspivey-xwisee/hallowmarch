@@ -551,6 +551,8 @@ async def season_part(p):
         # a keep taken in the live war is taken in the season (the page keeps the shared war)
         host = await A.evaluate('NT.st().isHost')
         check(host, 'the page keeps the shared war')
+        # (in the season's muster a keep taken in the field is a skirmish: the season is stepped into its war first)
+        http_json(base + '/admin?op=step&s=' + str(8 * 86400), 'POST', {'x-hm-admin': 'net-test-key'})
         await A.evaluate("(() => { const K = __hm.WAR.keeps[0]; __hm.fn.captureKeep(K, 1, null); return 0; })()")
         ok = False
         for _ in range(40):

@@ -57,7 +57,7 @@ window.HL = {
       N.party = 'hltest01';
       [['hlpeera', 'Brisa'], ['hlpeerb', 'Caelan Longshadow']].forEach(([k, nm], i) => H.net.peerUpdate(k, { slow: { v: 1, on: 1, since: 1, n: nm, dn: nm, r: 0, c: i ? 'priest' : 'mage', l: 31, rr: 2, pt: 'hltest01' }, fast: { s: 1 + Math.round(H.GAME.t * 10), t: Math.round(performance.now()), p: [P.x + 2 + i, P.y, P.z + 3], y: 0, v: [0, 0], a: 0, h: 0.6 + 0.3 * i, m: 2400, d: 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '', ev: [] } }));
       // [net] the season on the server: its line on the war panel (a long one: the season's day, phase, who is on, the time left)
-      if (H.season) { H.net.NETWS.state = 'on'; H.season.msg({ t: 'season', s: { n: 1, t: 200000, len: 2419200, day: 3, days: 28, phase: 'final', pts: [100, 120, 90], keeps: [0, 0, 1, 1, 2, 2].map((r, i) => ({ i, r, g: 8, gate: 1 })), armies: [], st: { food: 900, timber: 300, stone: 200, iron: 80, hides: 50, wool: 30, horses: 12 }, built: [], proj: [], target: 2, levyIn: 1800, news: [] }, roster: { now: 12, day: 40, list: [] } }); }
+      if (H.netseason) { H.net.NETWS.state = 'on'; H.netseason.msg({ t: 'season', s: { n: 1, t: 200000, len: 2419200, day: 3, days: 28, phase: 'final', pts: [100, 120, 90], keeps: [0, 0, 1, 1, 2, 2].map((r, i) => ({ i, r, g: 8, gate: 1 })), armies: [], st: { food: 900, timber: 300, stone: 200, iron: 80, hides: 50, wool: 30, horses: 12 }, built: [], proj: [], target: 2, levyIn: 1800, news: [] }, roster: { now: 12, day: 40, list: [] } }); }
     }
     H.UI.modal = null; H.CAM.mode = 'play';
     return 0;

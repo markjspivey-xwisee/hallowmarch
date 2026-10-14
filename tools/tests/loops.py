@@ -343,7 +343,7 @@ async def main():
               return { ok, horses: L.LOOPS.r[0].horses - h0, gone: !!e.removed };
             })()""")
             print('   horse', r4, flush=True)
-            check(r4.get('skip') or (r4['ok'] and r4['horses'] == 1 and r4['gone']), f"a horse of your own given to the stables ({r4})")
+            check(r4.get('skip') or (r4['ok'] and abs(r4['horses'] - 1) < 1e-6 and r4['gone']), f"a horse of your own given to the stables ({r4})")
             r5 = await ev(page, "(() => { __hm.UI.modal = null; __hm.LORE.check(); return { deliver: __hm.LORE.progress().done.includes('deliver') }; })()")
             check(r5['deliver'], f"the path's step to supply the realm is taken ({r5})")
             await ev(page, "__hm.fn.closeDialog ? __hm.fn.closeDialog() : 0; __hm.UI.modal = null; 0")
