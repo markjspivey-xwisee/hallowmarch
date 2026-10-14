@@ -20,6 +20,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { makeSeason } from './season.js';
+import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '..');
@@ -82,6 +83,19 @@ const WORLDS = store.read('worlds.json', {});
 // the season: the realms' strategic state, stepped while nobody is here (server/season.js)
 CFG.keeps = WORLD.keeps;
 const SEASON = makeSeason(CFG, store, STATS);
+// [companies] the companies of the realms (server/companies.js): kept beside the season, told to their members
+const COMP = makeCompanies(CFG, store, STATS, {
+  acct: (id) => ACCOUNTS[id] || null,
+  acctByName: (n) => (n ? accountByName(n) : null),
+  realmOf: (id) => (SEASON.roster[id] && (SEASON.roster[id].r === 0 || SEASON.roster[id].r === 1 || SEASON.roster[id].r === 2) ? SEASON.roster[id].r : -1),
+  seasonN: () => (SEASON.RS && SEASON.RS.n) || 1,
+  unitsPerPoint: () => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.sp && SEASON.M.RSM.sp.units) || 40,
+  projects: () => (SEASON.M && SEASON.M.RSM ? Object.keys(SEASON.M.RSM.projects) : ((SEASON.summary(0, 0) || {}).proj || []).map((p) => p.id)),
+  projectName: (id) => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.projects[id] ? SEASON.M.RSM.projects[id].name : id),
+  pledgeApply: (realm, proj, good, units) => coPledgeApply(SEASON, realm, proj, good, units),
+  reserved: reservedNames(WORLD),
+});
+SEASON.coOf = (id) => { const co = COMP.of(id); return co ? co.name : ''; }; // [companies] the realm's roster names each one's company
 let worldTimer = null;
 const worldsSave = () => { clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; }, 1500); };
 
@@ -213,7 +227,7 @@ function worldReport(c, raw) {
     if (keeper !== c.peer) return;
     // the keeper's last word on it, or the shard's (a new keeper was handed the merged war with its hosts: `world` init)
     const last = R.rep[i] && R.rep[i].peer === c.peer ? R.rep[i].r : cur.k ? cur.k[i] : r;
-    if (last !== r && sk && sk[i] !== r) SEASON.capture(i, r, c.acct.name);
+    if (last !== r && sk && sk[i] !== r) { SEASON.capture(i, r, c.acct.name); coCaptured(R, i, r); } // [companies] the companies about it count it
     R.rep[i] = { peer: c.peer, r };
     if (merged.k[i] !== r) { merged.k[i] = r; changed = true; }
     merged.g[i] = w.g[i];
@@ -265,6 +279,7 @@ function onAcct(c, m) {
     c.acct.name = name; c.acct.guest = false; c.acct.pass = { salt, hash: crypto.scryptSync(pass, salt, 32).toString('hex') };
     accountsSave(); STATS.claims++;
     send(c, { t: 'acct', ok: true, op: 'claim', acct: { id: c.acct.id, name: c.acct.name, guest: false }, token: tokenFor(c.acct.id) });
+    coTell(c, false); // [companies] a named account may found or join a company now
   } else if (m.op === 'login') {
     const r = accountResolve({ login: { name, pass } });
     if (r.err) { STATS.acctRefused++; no(r.err); return; }
@@ -277,13 +292,14 @@ function onSlow(c, d) {
   d.since = c.since; // the server's clock decides who was here first (the host)
   c.slow = d;
   c.realm = d.r === 0 || d.r === 1 || d.r === 2 ? d.r : -1;
+  { const tag = c.realm >= 0 && !c.acct.guest ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
   if (d.w) worldReport(c, d.w);
   if (c.realm >= 0) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
-    if (!c.toldSeason || c.toldRealm !== c.realm) { c.toldSeason = true; c.toldRealm = c.realm; seasonTell(c, c.lastSeen ? (Date.now() - c.lastSeen) / 1000 : -1, true); }
+    if (!c.toldSeason || c.toldRealm !== c.realm) { c.toldSeason = true; c.toldRealm = c.realm; seasonTell(c, c.lastSeen ? (Date.now() - c.lastSeen) / 1000 : -1, true); coTell(c, true); } // [companies] and its company
   }
   for (const o of R.clients.values()) if (o !== c) send(o, { t: 'peer', peer: c.peer, by: c.acct.id, slow: d });
   if (c.region && !c.regionTold) { c.regionTold = true; regionsTell(R); }
@@ -353,6 +369,7 @@ function onContrib(c, m) {
   c.cWin.push(now);
   if (!(c.realm >= 0)) { send(c, { t: 'contrib', ok: false, why: 'No realm yet', q: m.q }); return; }
   const r = SEASON.RS ? SEASON.contribute(c.acct.id, c.realm, String(m.k || ''), m.n) : { ok: false, why: 'No season here' };
+  if (r.ok && r.took > 0) { const cr = COMP.delivered(c.acct.id, c.realm, String(m.k || ''), r.took); if (cr) { r.co = cr; coTellCo(cr.co); } } // [companies] counted for the company (and its pledge)
   send(c, { t: 'contrib', q: m.q, k: m.k, ...r });
 }
 function onOrder(c, m) {
@@ -370,6 +387,76 @@ function onOrder(c, m) {
   if (!r.ok) STATS.ordersRefused++;
   send(c, { t: 'order', q: m.q, ...r });
   if (r.ok) for (const R of ROOMS.values()) for (const x of R.clients.values()) if (x.realm === c.realm) seasonTell(x, -1, false);
+}
+/* ------------------------------------------------------------------ */
+/* [companies] the companies: asked, answered, told (server/companies.js) */
+/* ------------------------------------------------------------------ */
+const coClients = function* () { for (const R of ROOMS.values()) yield* R.clients.values(); };
+const coOnline = () => { const s = new Set(); for (const o of coClients()) if (o.acct) s.add(o.acct.id); return s; };
+// a player told its company (or its invitations) and the realm's companies' standing; the first telling a session carries
+// when it was last here, so the page tells it what was said in the company meanwhile
+function coTell(c, first) {
+  if (!c.acct) return;
+  const o = { t: 'company', s: COMP.stateFor(c.acct, c.realm, coOnline()) };
+  if (first) { o.first = 1; o.seen = c.lastSeen || 0; }
+  send(c, o); STATS.coTold = (STATS.coTold || 0) + 1;
+}
+function coTellAcct(id) { for (const o of coClients()) if (o.acct && o.acct.id === id) coTell(o, false); }
+function coTellCo(coId) { const m = new Set(COMP.membersOf(coId)); for (const o of coClients()) if (o.acct && m.has(o.acct.id)) coTell(o, false); }
+// a keep taken in the live war (worldReport): the players of its taker about it (on its region's pages: within 160 m)
+function coCaptured(R, i, r) {
+  const K = WORLD.keeps && WORLD.keeps[i];
+  if (!K) return;
+  const accts = [];
+  for (const o of R.clients.values()) if (o.realm === r && o.pos && Math.hypot(o.pos.x - K.x, o.pos.z - K.z) < 160 && !o.acct.guest) accts.push(o.acct.id);
+  for (const id of COMP.captured(accts, r)) coTellCo(id);
+}
+function onCo(c, m) {
+  const now = Date.now(), reply = (r) => send(c, { t: 'co', q: m.q, op: m.op, ...r });
+  if (m.op === 'say' ? now - (c.coSayAt || 0) < 1000 : now - (c.coAt || 0) < 350) { COMP.stats.refused++; reply({ ok: false, why: 'Not so fast' }); return; }
+  if (m.op === 'say') c.coSayAt = now; else c.coAt = now;
+  if (m.op === 'get') { coTell(c, false); reply({ ok: true }); return; }
+  if (!(c.realm >= 0)) { reply({ ok: false, why: 'No realm yet' }); return; }
+  const A = c.acct, before = COMP.of(A.id);
+  let r;
+  if (m.op === 'found') r = COMP.found(A, c.realm, m.name, m.dev, m.col);
+  else if (m.op === 'invite') r = COMP.invite(A, m.name);
+  else if (m.op === 'answer') r = COMP.answer(A, String(m.id || ''), !!m.yes, c.realm);
+  else if (m.op === 'leave') r = COMP.leave(A);
+  else if (m.op === 'remove') r = COMP.remove(A, m.who);
+  else if (m.op === 'rank') r = COMP.rank(A, m.who, m.role);
+  else if (m.op === 'notice') r = COMP.notice(A, m.text);
+  else if (m.op === 'pledge') r = COMP.pledge(A, typeof m.id === 'string' ? m.id.slice(0, 16) : '');
+  else if (m.op === 'say') {
+    r = COMP.say(A, m.text);
+    if (r.ok) { const mem = new Set(COMP.membersOf(r.co)); for (const o of coClients()) if (o.acct && mem.has(o.acct.id)) send(o, { t: 'company', say: r.line, co: r.co }); }
+    reply({ ok: r.ok, why: r.why }); return;
+  } else if (m.op === 'muster') {
+    // the company's members here now, the nearest first, form one party with the one who called it (six at most)
+    const co = COMP.of(A.id);
+    if (!co || (co.mem[A.id].role !== 'cap' && co.mem[A.id].role !== 'off')) { reply({ ok: false, why: 'Only the captain and the officers muster the company' }); return; }
+    if (now - (co.musAt || 0) < 20000) { reply({ ok: false, why: 'The company mustered a moment ago' }); return; }
+    const mem = new Set(Object.keys(co.mem)), here = [...c.room.clients.values()].filter((o) => o !== c && o.acct && mem.has(o.acct.id) && o.realm === co.realm && o.slow && o.slow.on === 1);
+    here.sort((a, b) => (a.pos && c.pos ? Math.hypot(a.pos.x - c.pos.x, a.pos.z - c.pos.z) : 9e9) - (b.pos && c.pos ? Math.hypot(b.pos.x - c.pos.x, b.pos.z - c.pos.z) : 9e9));
+    if (!here.length) { reply({ ok: false, why: 'No one of the company is in the March with you now' }); return; }
+    co.musAt = now; COMP.stats.musters++;
+    const pt = 'co' + crypto.randomBytes(6).toString('hex'), take = [c, ...here.slice(0, 5)];
+    for (const o of take) send(o, { t: 'company', muster: { pt, by: A.name, n: take.length, co: co.name } });
+    for (const o of here.slice(5)) send(o, { t: 'company', muster: { full: 1, by: A.name, n: take.length, co: co.name } });
+    reply({ ok: true, n: take.length, left: Math.max(0, here.length - 5) }); return;
+  } else r = { ok: false, why: 'Unknown' };
+  reply({ ok: r.ok, why: r.why, name: r.name });
+  if (!r.ok) return;
+  // told: everyone of the company (and of the one it was before), an invitee or the one removed
+  const after = COMP.of(A.id);
+  if (after) coTellCo(after.id);
+  if (before && before !== after) coTellCo(before.id);
+  coTell(c, false);
+  if (r.to) { coTellAcct(r.to); for (const o of coClients()) if (o.acct && o.acct.id === r.to) send(o, { t: 'company', invited: { by: A.name, co: after ? after.name : '' } }); }
+  if (r.who) coTellAcct(r.who);
+  if (m.op === 'answer' && r.co) coTellCo(r.co);
+  // the stamp on the profile: a member's company on its frame and nameplate to the others at once
+  for (const o of coClients()) if (o.acct && (o === c || o.acct.id === r.who) && o.slow) onSlow(o, { ...o.slow });
 }
 function onMsg(c, raw) {
   STATS.msgs++; STATS.bytesIn += raw.length;
@@ -389,6 +476,7 @@ function onMsg(c, raw) {
   else if (m.t === 'contrib') onContrib(c, m);
   else if (m.t === 'order') onOrder(c, m);
   else if (m.t === 'season') seasonTell(c, -1, false);
+  else if (m.t === 'co') onCo(c, m); // [companies]
   else if (m.t === 'save') {
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
@@ -417,7 +505,7 @@ const server = http.createServer((req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -453,7 +541,7 @@ if (SEASON.RS) {
   setInterval(() => { if (SEASON.dirty) SEASON.save(); }, 30000);
 }
 let closing = false;
-const shutdown = () => { if (closing) return; closing = true; try { SEASON.step(); SEASON.save(); store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); } catch (e) { console.warn('shutdown', e.message); } process.exit(0); };
+const shutdown = () => { if (closing) return; closing = true; try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); } catch (e) { console.warn('shutdown', e.message); } process.exit(0); };
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
-export { server, STATS, CFG, SEASON };
+export { server, STATS, CFG, SEASON, COMP };
