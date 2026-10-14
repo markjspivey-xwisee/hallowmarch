@@ -77,6 +77,10 @@ function netWsOpen() {
         NET.self = m.peer; NET.srvWorld = m.world || null; NETWS.season = m.season || null;
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(NETWS.host, m.token); }
         NET.slowKey = ''; NET.fastKey = ''; // everything again, to whoever is there now
+        // The new socket has no realm until it receives this profile. Send it before
+        // a reconnecting player's first company or season action, without waiting
+        // for the one-second pump (the socket preserves this message order).
+        if (GAME.ready && GAME.started && GAME.player) netWsSend({ t: 'slow', d: netSlowObj() });
         resolve(true);
       } else if (m.t === 'denied') { clearTimeout(fail); netNote('denied ' + netStr(m.why, 80)); resolve(false); }
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
