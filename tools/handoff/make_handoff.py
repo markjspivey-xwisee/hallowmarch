@@ -43,7 +43,7 @@ ttl = f'''@prefix schema: <https://schema.org/> .
   dct:title "The Hallowmarch: project handoff" ;
   schema:name "The Hallowmarch" ;
   schema:description "An original three-realm war game for the browser, built entirely in code with three.js and published as one HTML file." ;
-  schema:url <https://claude.ai/artifact/QgnzHjUXkBKjCtHwb6H62T> ;
+  schema:url <https://claude.ai/artifact/KZMFoKYvezPNTxGVS4k4ya> ;
   schema:codeRepository <https://github.com/markjspivey-xwisee/hallowmarch> ;
   schema:programmingLanguage "JavaScript", "GLSL", "Python" ;
   schema:runtimePlatform "Web browser with WebGL 2; three.js 0.160.0" ;
