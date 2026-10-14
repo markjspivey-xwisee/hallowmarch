@@ -93,7 +93,7 @@ async def main():
         # ---- the player wading and swimming ----
         r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, P = H.GAME.player, L = H.dbg.LAKES[0];
           // a line from the lake's middle outward: find depths
-          const out = { samples: [] };
+          const out = { samples: [], scale: P.scale || 1, floatSizes: [] };
           const dir = [Math.cos(0.7), Math.sin(0.7)];
           let spots = {};
           for (let r = 0; r < 60; r += 0.2) { const x = L.x + dir[0] * r, z = L.z + dir[1] * r, w = Wt.waterAt(x, z); const d = w ? w.depth : 0;
@@ -101,15 +101,23 @@ async def main():
           out.spots = spots;
           const meas = (s) => { H.teleport(s[0], s[1]); H.simulate(1.5); /* [v13] settled: 0.6 s after a teleport a swimmer could still be rising to the float (1.23 against 1.30) */ const st = Wt.state(P.id); return { ...st, surf: (Wt.waterAt(P.x, P.z) || {}).y ?? null, ground: F.heightAt(P.x, P.z) }; };
           out.dry = meas(spots.dry); out.knee = meas(spots.knee); out.waist = meas(spots.waist); out.deep = meas(spots.deep);
+          // A recruit's height varies: verify the same head/shoulder clearance for short, standard and tall bodies.
+          const ownScale = P.scale;
+          for (const scale of [0.94, 1, 1.06]) {
+            P.scale = scale; const st = meas(spots.deep);
+            out.floatSizes.push({ scale, depth: st.surf - st.y, swim: st.swim, alive: P.alive });
+          }
+          P.scale = ownScale; meas(spots.deep);
           out.errors = H.errors.slice(0, 3); return out; })()""")
         print('player', json.dumps(r))
         dry, knee, waist, deep = r['dry'], r['knee'], r['waist'], r['deep']
         check(not dry['swim'] and dry['speed'] > knee['speed'] > waist['speed'], 'wading slows the player as the water deepens (%.2f > %.2f > %.2f)' % (dry['speed'], knee['speed'], waist['speed']))
         check(not knee['swim'] and not waist['swim'], 'knee- and waist-deep water is waded')
         check(deep['swim'] and deep['speed'] < waist['speed'], 'chest-deep water is swum, slowly (%.2f)' % deep['speed'])
-        check(deep['swim'] and abs(deep['y'] - (deep['surf'] - 1.3)) < 0.06, 'the swimmer floats with head and shoulders out (feet %.2f below the surface)' % (deep['surf'] - deep['y']))
+        check(deep['swim'] and abs((deep['surf'] - deep['y']) / r['scale'] - 1.3) < 0.06, 'the swimmer floats with head and shoulders out (feet %.2f below the surface)' % (deep['surf'] - deep['y']))
         check(waist['wl'] > 0.7 and knee['wl'] > 0.35, 'gear soaks up to the waterline (knee %.2f, waist %.2f)' % (knee['wl'], waist['wl']))
         check(deep['wet'] > 0.9, 'a swimmer is soaked through')
+        check(all(s['alive'] and s['swim'] and abs(s['depth'] / s['scale'] - 1.3) < 0.06 for s in r['floatSizes']), 'short, standard and tall bodies float with the same head and shoulder clearance: %s' % r['floatSizes'])
 
         # ---- moving: swim across, the camera above water, no casting ----
         r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, P = H.GAME.player, L = H.dbg.LAKES[0];
