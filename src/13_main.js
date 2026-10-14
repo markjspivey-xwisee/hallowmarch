@@ -422,6 +422,7 @@ function tick(dt) {
   projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);
   skyU.uInvVP.value.copy(projView).invert();
+  wxCloudsScreen(); // [weather2] the main view's own clouds, once the camera is placed (12c_weather2.js)
   const P = GAME.player;
   const fx = P ? P.x : W.heroTree.x, fz = P ? P.z : W.heroTree.z;
   // world-space helpers

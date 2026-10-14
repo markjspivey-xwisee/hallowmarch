@@ -101,6 +101,8 @@ const U = {
   uCloudSh: { value: new THREE.Vector4(0, 0, 0, 0) },
   uCloudDome: { value: ZERO_TEX },
   uCloudDomeOn: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uCloudScr: { value: ZERO_TEX }, // [weather2] the main view's own clouds (x, y one over the view's size, z on)
+  uCloudScrP: { value: new THREE.Vector4(1, 1, 0, 0) },
   uWxFlash: { value: new THREE.Vector4(0, 1, 0, 0) },
   uMist: { value: new THREE.Vector4(0, 0, 0.12, 0) },
 };
@@ -561,23 +563,34 @@ function compassDir(az, el, out = new THREE.Vector3()) {
 /* [weather2] the clouds as the sky shows them: the dome of the sky (12c_weather2.js ray-marches it through the cloud field
    each frame from the camera), read by direction; rgb the clouds' own light, a how much of what lies behind them shows */
 const GLSL_CLOUDS = /* glsl */`
-uniform sampler2D uCloudDome;
-uniform vec4 uCloudDomeOn, uWxFlash;
+uniform sampler2D uCloudDome, uCloudScr;
+uniform vec4 uCloudDomeOn, uWxFlash, uCloudScrP;
 vec2 cloudDomeUV(vec3 dir){
   float e = asin(clamp(dir.y, 0.0, 1.0));
   float r = 1.0 - pow(e / 1.5707963, 0.625);
   float hl = length(dir.xz);
   return (hl > 1e-5 ? dir.xz / hl * r : vec2(0.0)) * 0.5 + 0.5;
 }
-vec4 cloudDome(vec3 dir){
-  if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
-  vec4 c = texture(uCloudDome, cloudDomeUV(dir));
+vec4 cloudLitDir(vec3 dir, vec4 c){
   float fade = smoothstep(-0.03, 0.02, dir.y);
   c.a = clamp(c.a, 0.0, 1.0);
   // a flash in the cloud: the lightning lights the cloud about it from within
   vec3 fd = uWxFlash.xyz;
   float fk = uWxFlash.w * (1.0 - c.a) * (spow(max(dot(dir, fd), 0.0), 18.0) * 2.2 + spow(max(dot(dir, fd), 0.0), 3.0) * 0.35);
   return vec4((c.rgb + vec3(0.75, 0.8, 1.0) * fk) * fade, mix(1.0, c.a, fade));
+}
+vec4 cloudDome(vec3 dir){
+  if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
+  return cloudLitDir(dir, texture(uCloudDome, cloudDomeUV(dir)));
+}
+// the sky of the main view: its own pixel of the screen's clouds (wxCloudsScreen), else the dome
+vec4 cloudScreen(vec3 dir, vec2 fc){
+  if (uCloudScrP.z < 0.5) return cloudDome(dir);
+  if (uCloudDomeOn.x < 0.5 || dir.y < -0.03) return vec4(0.0, 0.0, 0.0, 1.0);
+  // (four taps half a texel of the pass apart: a tent over its texels, so the steps' spread reads as soft, not as grain)
+  vec2 o = 0.5 * uCloudScrP.w * uCloudScrP.xy, uv = fc * uCloudScrP.xy;
+  vec4 c = texture(uCloudScr, uv + vec2(-o.x, -o.y)) + texture(uCloudScr, uv + vec2(o.x, -o.y)) + texture(uCloudScr, uv + vec2(-o.x, o.y)) + texture(uCloudScr, uv + o);
+  return cloudLitDir(dir, c * 0.25);
 }
 `;
 /* ------------------------------------------------------------------ */
@@ -655,7 +668,7 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
       float hz = smoothstep(-0.01, 0.06, dir.y);
       // [weather2] the clouds that are there: the dome ray-marched through the systems' cloud field (12c_weather2.js); the
       // sun, the moon and the stars show only where no cloud stands in front of them
-      if (uCloudDomeOn.x > 0.5) { vec4 cd = cloudDome(dir); col = col * cd.a + cd.rgb; hz = 0.0; }
+      if (uCloudDomeOn.x > 0.5) { vec4 cd = cloudScreen(dir, gl_FragCoord.xy); col = col * cd.a + cd.rgb; hz = 0.0; }
       if (hz > 0.0) {
         vec2 cp = dir.xz / (dir.y + 0.09);
         cp = cp * 0.3 + vec2(uTime * 0.008, uTime * 0.002) + vec2(3.7, 1.2);
