@@ -113,6 +113,7 @@ function seasonOnCapture(K, realm) {
   try { realmSimLive(RS, { type: 'keep', keep: K.id, holder: realm }); } finally { SEASONP.mute = false; }
   SEASONP.ln = RS.ln; // (the live war has told it)
   if (RS.phase === 'war') SEASONP.stats.liveCaps++;
+  else if (RS.phase === 'muster' && GAME.player) uiLog(`The muster: ${K.site.name} is taken only for this battle, and goes back to ${REALMS[K.orig].name} when it ends. No keep falls for the season until the war.`, 'realm', realm);
 }
 function seasonOnBattle(r) {
   const RS = SEASONP.rs;
@@ -285,7 +286,7 @@ function chronSeason() {
   const news = RS.log.filter((L) => L.r === me || L.r === -1 || L.k === 'big').slice(-10).reverse().map((L) => `<li><small>day ${Math.floor(L.t / 86400) + 1}</small> ${esc(L.x)}</li>`).join('');
   const past = RS.past.slice(-4).reverse().map((p) => `<li>Season ${p.n}: <b>${REALMS[p.w].name}</b> (${p.sp.map((v, r) => `${REALMS[r].name} ${fmtInt(v)}`).join(', ')})</li>`).join('');
   const y = SEASONP.you;
-  return `<p class="lead">The war for the March is fought over a season of ${sum.days} days, not an hour. First the muster (a week: the realms raise their stores, build and train, and no keep can fall), then the war (keeps and hallows change hands, and each realm announces its offensives days ahead), then the reckoning: the realm with the most season points wins the season, and a new one begins. The realms live on while you are away.</p>
+  return `<p class="lead">The war for the March is fought over a season of ${sum.days} days, not an hour. First the muster (a week: the realms raise their stores, build and train; the battles are skirmishes, and a keep taken in one goes back when it ends), then the war (keeps and hallows change hands, and each realm announces its offensives days ahead), then the reckoning: the realm with the most season points wins the season, and a new one begins. The realms live on while you are away.</p>
     <div class="now"><p><b>${seasonClockText(sum)}</b></p><ol class="plain season-stand">${stand}</ol>
     ${SEASONP.away ? `<p><b>While you were away (${rsmDur(SEASONP.away.el)}):</b> ${esc(SEASONP.away.sum.lines.filter((x) => !/^While/.test(x)).slice(-4).join(' '))}</p>` : ''}</div>
     <h3>Season points</h3><p>Each hour of the war a realm's own keep counts ${RSM.sp.own}, a keep taken from another ${RSM.sp.won}, an enemy hallow in its temple ${RSM.sp.hallow}. A project finished counts ${RSM.sp.project} (a tier of walls ${RSM.sp.tier}), an offensive that takes its keep ${RSM.sp.offensive} (beaten off, ${Math.round(RSM.sp.offensive * 0.6)} to the defender), a battle won in the field ${RSM.sp.battle}, and every ${RSM.sp.units} units delivered to the stores one. A realm that falls behind works harder and holds its walls the stronger, and the others turn on the leader.</p>
@@ -345,7 +346,7 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADI
   }
   if (typeof G2_SEE !== 'undefined') G2_SEE.season = ['stores', 'war'];
   Object.assign(FIELD_NOTES, {
-    lseason: { t: 'A season of weeks', x: (R) => `The war is fought over a season of ${SEASONP.days} days: the muster (no keep can fall), the war, the reckoning. Keeps and hallows held, projects built and goods delivered win it; the realms live on while you are away. The Chronicle's Season page.` },
+    lseason: { t: 'A season of weeks', x: (R) => `The war is fought over a season of ${SEASONP.days} days: the muster (skirmishes: no keep falls for the season), the war, the reckoning. Keeps and hallows held, projects built and goods delivered win it; the realms live on while you are away. The Chronicle's Season page.` },
     loffensive: { t: 'An offensive is coming', x: (R) => `An offensive is announced against a keep of ${R.name}. Raise its walls, fill its stores, and be there when it comes: the war panel counts it down.` },
   });
   GUIDE_WATCH.lseason = (P) => !!SEASONP.rs && GAME.prog.level >= 4;
