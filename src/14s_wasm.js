@@ -40,6 +40,7 @@ function wasmLpLayout(M, N, W, H) {
 }
 // localPath's search: LP.blocked holds the grid; fills LP.fromV (the parents) and says whether g was reached
 function lpSearch(W, Hh, N, s, g) {
+  if (WASM.rec && WASM.rec.length < 400) WASM.rec.push({ W, Hh, N, s, g, b: LP.blocked.slice(0, N) }); // (tests: the searches of a running war, to replay both ways)
   const M = WASM.lp && wasmModule('lp_astar');
   if (!M) { WASM.stats.lpJs++; return lpSearchJS(W, Hh, N, s, g); }
   wasmLpLayout(M, N, W, Hh);
@@ -53,3 +54,4 @@ function lpSearch(W, Hh, N, s, g) {
   LP.fromV = new Int32Array(L.buf, L.pFrom, N);
   return r === 1;
 }
+if (typeof window !== "undefined") setTimeout(() => { if (window.__hm) window.__hm.wasm = { WASM, wasmModule, lpSearch, lpSearchJS, LP }; }, 0); // test hooks

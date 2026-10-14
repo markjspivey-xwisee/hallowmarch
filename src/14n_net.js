@@ -285,6 +285,7 @@ function netSlowObj() {
     if (NET.party) { o.pt = NET.party; o.pl = NET.partyLead ? 1 : 0; }
   }
   if (NET.isHost || netKeepsMine()) o.w = netWorldObj(); // [net] the shard's host, or a region's keeper (its keeps)
+  if (NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
   return o;
 }
 function netFastObj(now) {
@@ -628,8 +629,8 @@ function netHostElect() {
   NET.host = best === 'me' ? NET.self : best || '';
   NET.isHost = !!me && (NET.host === NET.self || best === 'me');
   if (was !== NET.host && was) { netNote('host ' + NET.host); if (NET.isHost) uiLog('You now keep the March\'s shared war for those here.', 'sys'); }
-  if (!NET.isHost) { const H = NET.peers.get(NET.host); netWorldTake(H && H.slow && H.slow.w, NET.regions && NET.regions.kr.length ? 'nokeeps' : ''); } // [net] with regions, the keeps come from the server's merged word
-  else if (NET.srvWorld && !NET.srvWorldDone && performance.now() - NET.linkedAt > 3000 && ![...NET.peers.values()].some((R) => R.slow && R.slow.on)) { NET.srvWorldDone = true; netWorldTake(netWorldRead(NET.srvWorld)); netNote('world kept'); } // the first host of a session takes the war where it was kept (the server's, or the artifact's db)
+  if (!NET.isHost) { const H = NET.peers.get(NET.host); netWorldTake(H && H.slow && H.slow.w, NET.regions && NET.regions.kr.length ? 'nokeeps' : ''); netWxTake(H && H.slow && H.slow.wx); } // [perf3] and its sky // [net] with regions, the keeps come from the server's merged word
+  else if (NET.srvWorld && !NET.srvWorldDone && performance.now() - NET.linkedAt > 3000 && ![...NET.peers.values()].some((R) => R.slow && R.slow.on)) { NET.srvWorldDone = true; netWorldTake(netWorldRead(NET.srvWorld)); netWxResume(NET.srvWorld); /* [perf3] its sky too */ netNote('world kept'); } // the first host of a session takes the war where it was kept (the server's, or the artifact's db)
 }
 function netWorldObj() {
   return {

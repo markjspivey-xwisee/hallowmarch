@@ -222,6 +222,16 @@ function worldReport(c, raw) {
   WORLDS[R.name] = merged; worldsSave();
   if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged }); }
 }
+// [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
+function keepWx(R, wx) {
+  if (!wx || typeof wx !== 'object' || wx.v !== 1 || !Array.isArray(wx.c)) return;
+  const s = JSON.stringify(wx);
+  if (s.length > 4000) { STATS.wxRefused = (STATS.wxRefused || 0) + 1; return; }
+  const w = WORLDS[R.name] || (WORLDS[R.name] = {});
+  w.wx = { ...JSON.parse(s), at: Date.now() };
+  STATS.wxKept = (STATS.wxKept || 0) + 1;
+  if (!R.wxSavedAt || Date.now() - R.wxSavedAt > 60000) { R.wxSavedAt = Date.now(); worldsSave(); }
+}
 const legitJump = (p) => p.x > 1000 || WORLD.ports.some(([x, z]) => Math.hypot(p.x - x, p.z - z) < 45);
 // a moment for this reader? (a blow, an invite, a party's chat to whom it concerns; a realm's chat to its realm)
 function evFor(c, o, ev) {
@@ -280,6 +290,7 @@ function onSlow(c, d) {
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
   if (d.w) worldReport(c, d.w);
+  if (d.wx && roomHost(R) === c) keepWx(R, d.wx); // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
   if (c.realm >= 0) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;

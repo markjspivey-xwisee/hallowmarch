@@ -42,7 +42,7 @@ function wxLive() { return !wxHeld(); }
 // a cell's strength through its life: it grows, holds, and dies away
 function wxCellS(c) {
   const up = smooth(clamp(c.age / c.grow, 0, 1)), down = smooth(clamp((c.life - c.age) / c.fade, 0, 1));
-  return up * down;
+  return up * down * (c.fin ?? 1); // [perf3] a system taken from the host fades in (14r_netwx.js)
 }
 function wxWindVec() { const f = WX.wind.from; return { x: -Math.sin(f), z: Math.cos(f) }; } // the way it blows toward
 // a realm's weight at a place by its bearing (the shaders' wxRealmW mirrors it): as realmWeightsAt, out to the horizon
@@ -286,7 +286,8 @@ function updateWeather2(dt) {
   wxWindStep(dt);
   const v = wxWindVec(), s = WX.wind.s;
   WX.off.x += v.x * s * 0.8 * dt; WX.off.z += v.z * s * 0.8 * dt;
-  if (!WX.seeded && !wxHeld()) wxSeed();
+  if (WX.follow) netWxStep(dt); // [perf3] the host's sky: its systems eased in (14r_netwx.js)
+  if (!WX.seeded && !wxHeld() && !WX.follow) wxSeed();
   const sunUp = sunStrength0();
   for (let i = WX.cells.length - 1; i >= 0; i--) {
     const c = WX.cells[i];
@@ -297,7 +298,7 @@ function updateWeather2(dt) {
     c.s = wxCellS(c);
     if (c.age >= c.life || Math.hypot(c.x, c.z) > 2600) { WX.cells.splice(i, 1); WX.stats.gone++; }
   }
-  if (!wxHeld()) wxSpawnStep(dt);
+  if (!wxHeld() && !WX.follow) wxSpawnStep(dt); // [perf3] a page following the host makes no weather of its own
   WX.grid.t -= dt;
   if (WX.grid.t <= 0) { const gdt = 0.5 - WX.grid.t; WX.grid.t = 0.5; wxGridStep(gdt); wxWetUpload(); }
   wxStrikeStep(dt);
