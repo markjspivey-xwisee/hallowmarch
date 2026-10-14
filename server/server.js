@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
+import { makeSeason } from './season.js';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '..');
@@ -33,9 +34,16 @@ const CFG = {
   maxMsg: 8192,
   maxSave: 768 * 1024,
   maxPace: 45,
+  here: HERE,
+  // the season (server/season.js): its seconds a real second, how often it is stepped (ms), its length, its seed
+  seasonSpeed: +process.env.HM_SEASON_SPEED || 1,
+  seasonStep: +process.env.HM_SEASON_STEP || 5000,
+  seasonLen: (+process.env.HM_SEASON_DAYS || 28) * 86400,
+  seasonSeed: +process.env.HM_SEASON_SEED || 19,
+  seasonPush: +process.env.HM_SEASON_PUSH || 10000,
 };
 fs.mkdirSync(path.join(CFG.data, 'saves'), { recursive: true });
-const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0 };
+const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0 };
 
 /* ------------------------------------------------------------------ */
 /* the March's ground: the sites and the walkable land (src/01_world.js) */
@@ -50,10 +58,10 @@ function loadWorld() {
     const keeps = Wd.SITES.filter((s) => s.kind === 'keep');
     const ports = Wd.SITES.filter((s) => s.kind === 'town' || s.kind === 'muster').map((s) => [s.x, s.z]);
     console.log(`world: ${Wd.SITES.length} sites, ${keeps.length} keeps, built in ${Date.now() - t0} ms`);
-    return { ...Wd, keepCount: keeps.length, ports };
+    return { ...Wd, keepCount: keeps.length, ports, keeps: keeps.map((k) => ({ home: k.realm, x: Math.round(k.x), z: Math.round(k.z), name: k.name })) };
   } catch (e) {
     console.warn('world: not loaded (' + e.message + '): checks use bounds only');
-    return { keepCount: 6, ports: [], HALF: 512 };
+    return { keepCount: 6, ports: [], HALF: 512, keeps: null };
   }
 }
 const WORLD = loadWorld();
@@ -71,6 +79,9 @@ const ACCOUNTS = store.read('accounts.json', {});
 let accTimer = null;
 const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => store.write('accounts.json', ACCOUNTS), 400); };
 const WORLDS = store.read('worlds.json', {});
+// the season: the realms' strategic state, stepped while nobody is here (server/season.js)
+CFG.keeps = WORLD.keeps;
+const SEASON = makeSeason(CFG, store, STATS);
 let worldTimer = null;
 const worldsSave = () => { clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; }, 1500); };
 
@@ -169,7 +180,10 @@ function onHello(c, h) {
   c.room = R; c.peer = crypto.randomBytes(8).toString('hex'); c.since = Date.now();
   R.clients.set(c.peer, c);
   STATS.hellos++;
-  send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest }, token: tokenFor(c.acct.id), room: R.name, world: WORLDS[R.name] || null, interest: CFG.interest });
+  const sk = SEASON.keepsOf(); let world = WORLDS[R.name] || null;
+  if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2)) world = { ...(world || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() }; // the season decides who holds the keeps
+  c.lastSeen = (SEASON.roster[c.acct.id] && SEASON.roster[c.acct.id].last) || 0;
+  send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest }, token: tokenFor(c.acct.id), room: R.name, world, interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
 // the account, from a page already in: a guest names its own (`claim`: name and password set on it, so it keeps its
@@ -203,7 +217,20 @@ function onSlow(c, d) {
   c.realm = d.r === 0 || d.r === 1 || d.r === 2 ? d.r : -1;
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
-  if (d.w && roomHost(R) === c) { const w = worldCheck(d.w); if (w) { WORLDS[R.name] = w; worldsSave(); } }
+  if (d.w && roomHost(R) === c) {
+    const w = worldCheck(d.w);
+    if (w) {
+      // a keep taken in the live war is taken in the season (a change between two of the host's reports, not its first)
+      if (R.hostK && R.hostBy === c.peer && SEASON.RS) { const sk = SEASON.keepsOf(); w.k.forEach((r, i) => { if (r !== R.hostK[i] && sk && sk[i] !== r) SEASON.capture(i, r, c.acct.name); }); }
+      R.hostK = w.k.slice(); R.hostBy = c.peer;
+      WORLDS[R.name] = w; worldsSave();
+    }
+  }
+  if (c.realm >= 0) {
+    SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
+    c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
+    if (!c.toldSeason || c.toldRealm !== c.realm) { c.toldSeason = true; c.toldRealm = c.realm; seasonTell(c, c.lastSeen ? (Date.now() - c.lastSeen) / 1000 : -1, true); }
+  }
   for (const o of R.clients.values()) if (o !== c) send(o, { t: 'peer', peer: c.peer, by: c.acct.id, slow: d });
 }
 function onFast(c, d) {
@@ -219,6 +246,7 @@ function onFast(c, d) {
   // the moments new since this sender's last (over a socket nothing is lost: each is sent once)
   const evs = Array.isArray(d.ev) ? d.ev.filter((e) => Array.isArray(e) && e.length >= 3 && Number.isFinite(e[0]) && e[0] > (c.evSeq || 0) && typeof e[1] === 'string').slice(-40) : [];
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
+  for (const e of evs) if (e[1] === 'say' && Array.isArray(e[3]) && e[3][0] === 'r' && typeof e[3][1] === 'string' && c.realm >= 0) { SEASON.chatIn(c.realm, c.acct.name === 'Guest' && c.slow ? cleanName(c.slow.n) || 'Guest' : c.acct.name, e[3][1].replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')); STATS.chatKept++; }
   c.fast = { ...d, ev: [] };
   const R = c.room;
   for (const o of R.clients.values()) {
@@ -238,6 +266,47 @@ function onFast(c, d) {
     }
   }
 }
+/* ------------------------------------------------------------------ */
+/* the season: told, given to, ordered (server/season.js)               */
+/* ------------------------------------------------------------------ */
+// what a player of a realm is told: the season's summary for its realm (with the news since `away` s ago on the first
+// telling: what a returning player missed), its realm's roster, and (the first time) its realm's chat
+function seasonTell(c, away, first) {
+  if (!SEASON.RS || !(c.realm >= 0)) return;
+  const since = away >= 0 ? SEASON.RS.t - away * SEASON.speed : first ? SEASON.RS.t - 3600 : c.seasonT || SEASON.RS.t - 60;
+  const s = SEASON.summary(c.realm, since);
+  c.seasonT = SEASON.RS.t;
+  const online = [...c.room.clients.values()].filter((o) => o.realm === c.realm).map((o) => o.acct.id);
+  for (const R of ROOMS.values()) if (R !== c.room) for (const o of R.clients.values()) if (o.realm === c.realm) online.push(o.acct.id);
+  const o = { t: 'season', s, roster: SEASON.rosterOf(c.realm, online), first: first ? 1 : 0, away: away >= 0 ? Math.round(away) : -1, speed: SEASON.speed };
+  if (first) o.chat = (SEASON.chat[c.realm] || []).slice(-20);
+  send(c, o); STATS.seasonPushes++;
+}
+function onContrib(c, m) {
+  const now = Date.now();
+  c.cWin = (c.cWin || []).filter((t) => now - t < 1000);
+  if (c.cWin.length >= 4) { send(c, { t: 'contrib', ok: false, why: 'Too fast', q: m.q }); return; }
+  c.cWin.push(now);
+  if (!(c.realm >= 0)) { send(c, { t: 'contrib', ok: false, why: 'No realm yet', q: m.q }); return; }
+  const r = SEASON.RS ? SEASON.contribute(c.acct.id, c.realm, String(m.k || ''), m.n) : { ok: false, why: 'No season here' };
+  send(c, { t: 'contrib', q: m.q, k: m.k, ...r });
+}
+function onOrder(c, m) {
+  const now = Date.now();
+  if (now - (c.orderAt || 0) < 2500) { STATS.ordersRefused++; send(c, { t: 'order', ok: false, why: 'One order at a time', q: m.q }); return; }
+  c.orderAt = now;
+  if (!(c.realm >= 0) || !SEASON.RS) { send(c, { t: 'order', ok: false, why: 'No season here', q: m.q }); return; }
+  // one vote an account for each choice a season (a vote again for the same thing counts once)
+  const o = m.o || {}, key = [o.kind, o.id, o.keep].join(':');
+  const V = (c.acct.votes = c.acct.votes || {});
+  const sn = SEASON.RS.n || 1;
+  if (o.kind !== 'muster' && V[key] === sn) { STATS.ordersRefused++; send(c, { t: 'order', ok: false, why: 'You have voted for that already', q: m.q }); return; }
+  const r = SEASON.order(c.acct.id, c.realm, o, c.rank || 0, c.acct.name);
+  if (r.ok && o.kind !== 'muster') { V[key] = sn; accountsSave(); }
+  if (!r.ok) STATS.ordersRefused++;
+  send(c, { t: 'order', q: m.q, ...r });
+  if (r.ok) for (const R of ROOMS.values()) for (const x of R.clients.values()) if (x.realm === c.realm) seasonTell(x, -1, false);
+}
 function onMsg(c, raw) {
   STATS.msgs++; STATS.bytesIn += raw.length;
   if (raw.length > CFG.maxMsg && !(raw.length <= CFG.maxSave + 64 && raw.slice(0, 20).includes('"save"'))) { STATS.badMsgs++; return; }
@@ -253,6 +322,9 @@ function onMsg(c, raw) {
   else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
   else if (m.t === 'ping') send(c, { t: 'pong', c: m.c, s: now });
+  else if (m.t === 'contrib') onContrib(c, m);
+  else if (m.t === 'order') onOrder(c, m);
+  else if (m.t === 'season') seasonTell(c, -1, false);
   else if (m.t === 'save') {
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
@@ -267,7 +339,8 @@ function onMsg(c, raw) {
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000) })); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, rooms: [...ROOMS.values()].map((R) => ({ name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/season') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, rooms: [...ROOMS.values()].map((R) => ({ name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -295,5 +368,14 @@ wss.on('connection', (ws) => {
 // a heartbeat: a socket that stops answering is closed (its body leaves the others' worlds)
 setInterval(() => { for (const ws of wss.clients) { if (ws._dead) { ws.terminate(); continue; } ws._dead = true; ws.ping(); } }, 15000);
 wss.on('connection', (ws) => ws.on('pong', () => { ws._dead = false; }));
+// the season goes on while nobody is here: stepped by the server's clock, told to each realm's players, kept
+if (SEASON.RS) {
+  setInterval(() => { try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep);
+  setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush);
+  setInterval(() => { if (SEASON.dirty) SEASON.save(); }, 30000);
+}
+let closing = false;
+const shutdown = () => { if (closing) return; closing = true; try { SEASON.step(); SEASON.save(); store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); } catch (e) { console.warn('shutdown', e.message); } process.exit(0); };
+process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
-export { server, STATS, CFG };
+export { server, STATS, CFG, SEASON };
