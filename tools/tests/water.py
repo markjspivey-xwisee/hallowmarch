@@ -167,7 +167,7 @@ async def main():
           const foe = F.spawnRealmUnit(1, 'warrior', 20, 'soldier', sx, L.z);
           foe.ai.post = { x: sx, z: L.z }; foe.target = P.id; foe.threat = new Map([[P.id, 100]]);
           const M = H.MOBS; const wolf = F.makeEnt({ kind: 'wolf', faction: H.FACTION_MONSTER, role: 'mob', mobType: 'wolf', name: 'wolf', level: 20, x: sx, z: L.z + 1.5, y: F.heightAt(sx, L.z + 1.5), look: { colA: [0.4, 0.4, 0.4], colB: [0.3, 0.3, 0.3] }, home: { x: sx, z: L.z + 1.5, r: 30 } });
-          F.setupStats(wolf); wolf.target = P.id; wolf.threat = new Map([[P.id, 100]]); wolf.ai.state = 'chase';
+          F.setupStats(wolf); window.__waterActors = { foe: foe.id, wolf: wolf.id }; wolf.target = P.id; wolf.threat = new Map([[P.id, 100]]); wolf.ai.state = 'chase';
           P.hp = P.maxHp * 50; P.maxHp *= 50; P.hp = P.maxHp;
           const track = [];
           for (let i = 0; i < 16; i++) { H.simulate(0.5); P.x = px; P.z = pz; const a = Wt.state(foe.id), b = Wt.state(wolf.id); track.push([+a.x.toFixed(1), +a.wd.toFixed(2), a.swim, +b.x.toFixed(1), +b.wd.toFixed(2), b.swim]); }
@@ -183,18 +183,20 @@ async def main():
 
         # ---- wading numbers for the soldier and the wolf: slower as it deepens, then swimming ----
         r = await page.evaluate("""(() => { const H = __hm, Wt = H.water, F = H.fn, L = H.dbg.LAKES[0];
-          const foe = H.ENT.find((e) => e.role === 'soldier' && e.faction === 1 && Math.hypot(e.x - L.x, e.z - L.z) < 80);
-          const wolf = H.ENT.find((e) => e.kind === 'wolf' && Math.hypot(e.x - L.x, e.z - L.z) < 80);
+          const foe = F.getEnt(window.__waterActors.foe);
+          const wolf = F.getEnt(window.__waterActors.wolf);
           const out = {};
           for (const [name, e] of [['soldier', foe], ['wolf', wolf]]) {
-            if (!e) { out[name] = null; continue; }
+            if (!e || !e.alive) { out[name] = null; continue; }
             const D = Wt.swimDims(e.id), rows = [];
             for (const want of [0, D.start * 0.35, D.start * 0.75, D.start * 1.6]) {
               let spot = null; for (let r = 0; r < 70 && !spot; r += 0.2) { const x = L.x + r, w = Wt.waterAt(x, L.z); const d = w ? w.depth : 0; if (want === 0 ? !w : Math.abs(d - want) < 0.06) spot = [x, L.z]; }
               if (!spot) { rows.push(null); continue; }
-              e.target = null; e.threat = null; e.x = e.prevX = spot[0]; e.z = e.prevZ = spot[1]; e.y = F.heightAt(spot[0], spot[1]); e.swim = false;
-              H.simulate(0.3); e.x = spot[0]; e.z = spot[1]; H.simulate(0.05);
-              const st = Wt.state(e.id); rows.push([+want.toFixed(2), +st.wd.toFixed(2), +st.speed.toFixed(2), st.swim]);
+              e.target = null; e.threat = null; e.buffs = []; e.casting = null; e.x = e.prevX = spot[0]; e.z = e.prevZ = spot[1]; e.y = F.heightAt(spot[0], spot[1]); e.swim = false;
+              // Measure the production water step without letting the nearby warrior kill the wolf.
+              // Chasing and swimming with live AI are exercised separately above.
+              Wt.tickSwimmers(0.3); e.x = spot[0]; e.z = spot[1]; Wt.tickSwimmers(0.05);
+              const st = Wt.state(e.id); rows.push([+want.toFixed(2), +st.wd.toFixed(2), +st.speed.toFixed(2), st.swim, e.alive]);
             }
             out[name] = rows;
           }
@@ -202,7 +204,7 @@ async def main():
         print('npc wading', json.dumps(r))
         for name in ('soldier', 'wolf'):
             rows = r.get(name)
-            ok = bool(rows) and all(rows) and rows[0][2] > rows[1][2] > rows[2][2] and not rows[2][3] and rows[3][3] and rows[3][2] < rows[2][2]
+            ok = bool(rows) and all(rows) and all(row[4] for row in rows) and rows[0][2] > rows[1][2] > rows[2][2] and not rows[2][3] and rows[3][3] and rows[3][2] < rows[2][2]
             check(ok, 'a %s wades slower as the water deepens and swims when it is deep: %s' % (name, rows))
 
         # ---- townsfolk keep out of deep water ----

@@ -368,6 +368,7 @@ const WATER_DEBUG = {
   state: (id) => { const e = getEnt(id); return e ? { x: e.x, y: e.y, z: e.z, swim: !!e.swim, wd: e.wd || 0, wadeK: e.wadeK || 0, swimK: e.swimK || 0, swimAmt: e.swimAmt || 0, wl: e.wl || 0, wet: e.wet || 0, swimOK: !!e.swimOK, speed: effectiveSpeed(e), burning: e.buffs.some((b) => b.kind === 'burn') } : null; },
   rivers: () => RIVERS.map((Rv) => ({ realm: Rv.realm, len: Rv.len, pts: Rv.pts.length, src: [Rv.pts[0].x, Rv.pts[0].z], mouth: [Rv.pts[Rv.pts.length - 1].x, Rv.pts[Rv.pts.length - 1].z], course: Rv.pts.filter((p, i) => i % 4 === 0).map((p) => [Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, Math.round(p.surf * 100) / 100, Math.round(p.hw * 10) / 10, Math.round(p.speed * 100) / 100]) })),
   ripple: () => ({ on: RIPPLE.on, res: RIPPLE.res, steps: RIPPLE.steps, drops: RIPPLE.drops.length, B: U.uRippleB.value.toArray() }),
+  tickSwimmers: (dt) => updateWater(dt), // isolated physics measurements; live AI is tested separately
   tickWater: (dt) => drawWater(dt), // the ripple window without drawing the world (tests)
   splashAt, rippleDrop, swimAllowed, waterNear, waterOffers, deepWaterAt, swimPassable, riverAt, chronWater,
   meshes: () => ({ n: WATER_MESHES.length, cells: WATERGRID.cells }),
