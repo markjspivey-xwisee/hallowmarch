@@ -170,7 +170,7 @@ async def phone(p):
 
     # ---- field notes: held in a fight unless about the fight, shown once, dismissed by a tap ----
     await ev(page, "for (const d of [...document.querySelectorAll('#banners > *')]) d.parentNode.removeChild(d); 0")
-    r = await ev(page, """(() => { const H = __hm, P = GD.P(), L = H.LORE; GD.calm(); H.surv.SURV.hunger = 0.3; H.GAME.prog.lore.seen = H.GAME.prog.lore.seen.filter((x) => x !== 'needs' && x !== 'burning');
+    r = await ev(page, """(() => { const H = __hm, P = GD.P(), L = H.LORE; GD.calm(); H.surv.SURV.hunger = 0.3; H.GAME.prog.lore.seen = Object.keys(L.notes).filter((x) => x !== 'needs' && x !== 'burning'); L.state.queue.length = 0; /* [loops] every other note seen: the stores' and the farmers' watches (near the quartermaster, a town field) queued theirs ahead of it */
       P.combatUntil = H.GAME.t + 30; L.check(); L.state.noteUntil = 0; H.frame(1/30);
       const held = !L.progress().seen.includes('needs') && L.state.queue.includes('needs');
       P.buffs.push({ kind: 'burn', until: H.GAME.t + 6, src: null, v: 0, tick: 99 }); L.check(); L.state.noteUntil = 0; H.frame(1/30);
@@ -203,13 +203,14 @@ async def phone(p):
     ok = await tap(page, '#lore-path [data-act="open"]')
     check(ok, f'the step is tapped ({dbg})')
     r = await ev(page, "({ modal: __hm.UI.modal, sec: __hm.LORE.state.chronSec, n: document.querySelectorAll('.chron .steps li').length })")
-    check(r['modal'] == 'menu' and r['sec'] == 'path' and r['n'] == 24, f'it opens your path: twenty-four steps ({r})')
+    check(r['modal'] == 'menu' and r['sec'] == 'path' and r['n'] == 27, f'it opens your path: twenty-seven steps ({r})')  # [loops] three more (08m_loops.js, 08n_season.js)
     for sec, want in [('goals', ['Level 20', 'Level 30', 'Level 40', 'Level 50', 'Realm rank']), ('gear', ['Wear', 'Mud and blood', 'Masterworks']), ('callings', ['warrior'])]:
         ok = await tap(page, f'.chron-nav [data-sec="{sec}"]')
         r = await ev(page, "({ t: document.querySelector('.chron-body').textContent, o: GD.overflow(), errs: __hm.errors.length })")
         check(ok and all(w in r['t'] for w in want) and r['o'] <= 1, f'the Chronicle page "{sec}" reads on a phone ({[w for w in want if w not in r["t"]]}, overflow {r["o"]})')
         if sec == 'goals': await shot(page, 'guide_phone_aims')
     check(await tap(page, '.chron-nav [data-grp="war"]'), 'the war part is tapped')
+    await ev(page, "(() => { const b = document.querySelector('.chron-nav [data-sec=\"sieges\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()")  # [loops] the war's row is wider (Stores, Season): it scrolls
     ok = await tap(page, '.chron-nav [data-sec="sieges"]')
     r = await ev(page, "({ t: document.querySelector('.chron-body').textContent, o: GD.overflow() })")
     check(ok and 'Engines' in r['t'] and 'Towers and ladders' in r['t'] and 'Breaches' in r['t'] and r['o'] <= 1, f'the Sieges page has the engines, breaches and towers (overflow {r["o"]})')
@@ -262,7 +263,7 @@ async def phone(p):
       __hm.fn.newCharacter(); const v = F.validSave(JSON.parse(JSON.stringify(s))); F.startGame({ ...v.char });
       return __hm.LORE.progress(); })()""")
     check(all(k in r['done'] for k in ('cook', 'craft', 'climb')) and not any(k in r['done'] for k in ('command', 'keep', 'gift', 'dragon', 'master', 'campaign')), f'an old save gains the new early steps quietly and keeps the late ones ahead ({r["done"]})')
-    check(await ev(page, "__hm.GAME.prog.lore.pv") == 2, 'and its path is now of version 2')
+    check(await ev(page, "__hm.GAME.prog.lore.pv") >= 2, 'and its path is now of version 2 or later')  # [loops] version 3: the stores' steps
     errs = await ev(page, "__hm.errors")
     check(errs == [], f'no errors ({errs[:2]})')
     for l in logs[-5:]: print('  ', l)

@@ -320,7 +320,7 @@ function w4GateStep(K, dt) {
   // foes about: the work stops (the masons go home: look3MasonThink), and goes on once they are gone
   if (quiet < 3) { if (!g.idle) W4.stats.gatePaused++; g.idle = 1; return; }
   g.idle = 0;
-  g.t = Math.min(1, g.t + dt / W4.GATE_T);
+  g.t = Math.min(1, g.t + (dt * loopsWork(K, 'gate', dt, W4.GATE_T)) / W4.GATE_T); // [loops] timber and iron from the keep's stores (08m_loops.js)
   W4.stats.gateWorkS += dt;
   if (g.t > 0.12) G0Wreck(g, false);
   w4GateLeaves(g, clamp((g.t - 0.15) / 0.8, 0, 1));
@@ -360,6 +360,7 @@ function war4GateWord(K) {
 // a keep handed back (from w3PeaceStep): its takers go home (as restoreKeep's do), its own lord takes his seat, and a
 // column of its own marches in from the realm's nearest keep or muster (not its garrison set at its posts at once)
 function war4HandBack(K) {
+  if (seasonKeepStays(K)) return; // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
   K.guards.clear();
   const Lr = getEnt(K.lord);

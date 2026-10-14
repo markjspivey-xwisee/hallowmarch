@@ -84,7 +84,7 @@ function orderPhrase(wb, O) {
     case 'attack': {
       const K = O.keep;
       if (O.byPlayer) return `marches on ${K.site.name}${you}`;
-      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March`, pact: `in common cause against ${REALMS[K.realm].name}`, regain: K.orig === wb.realm ? `to win it back: ${R.name} is down to its last keep` : `to win a keep: ${R.name} has lost all but one` }[O.why] || 'to break its gate'; // [war3] pact, regain (08k_war3.js)
+      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March`, pact: `in common cause against ${REALMS[K.realm].name}`, offensive: 'in its announced offensive', /* [loops] */ regain: K.orig === wb.realm ? `to win it back: ${R.name} is down to its last keep` : `to win a keep: ${R.name} has lost all but one` }[O.why] || 'to break its gate'; // [war3] pact, regain (08k_war3.js)
       return `marches on ${K.site.name} ${why}`;
     }
     case 'defend': return O.byPlayer ? `marches to hold ${O.keep.site.name}${you}` : O.why === 'engines' ? `marches to break the siege engines before ${O.keep.site.name}` : `marches to lift the siege of ${O.keep.site.name}`; // [siege]
@@ -260,8 +260,9 @@ function planWar(C) {
   const keepsOwned = WAR.keeps.filter((K) => K.realm === r).length;
   const underdog = keepsOwned <= 1 ? 1 : 0;
   if (cwBandsCounted(mine) < MAX_WARBANDS() + underdog + war3Levy(r) && now > C.nextSpawn) { // [war3] a realm with three keeps or more musters one band more (08k_war3.js) // [war2] a band's last two or three do not hold its place at the muster (08j_war2.js)
-    const size = 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3);
+    const size = loopsMuster(r, 7 + Math.floor(Math.random() * 4) + underdog * 2 + Math.round(cwWeary() * 3)); // [loops] as many as the realm's stores feed and arm (08m_loops.js)
     const wb = spawnWarband(r, size);
+    loopsMustered(wb); // [loops]
     wbOrd(wb);
     // the long war hardens the bands: late in a campaign they muster as veterans, up to four levels up
     const vet = Math.round(cwWeary() * 4);
@@ -447,6 +448,7 @@ function campaignVictory(r, how) {
     uiLog(`Victory! Your share of the spoils: ${fmtInt(rp)} realm points, ${fmtInt(gold)} gold${xp ? `, ${fmtInt(xp)} experience` : ''} and ${it.name}.`, 'rp');
   }
   CAMPAIGN.history.push(rec);
+  seasonOnBattle(r); // [loops] a battle won counts for the season (08n_season.js)
   while (CAMPAIGN.history.length > 12) CAMPAIGN.history.shift();
   const howTxt = how === 'keeps' ? 'by its hold on the keeps' : how === 'hallows' ? 'holding both enemy hallows' : 'with the most renown when the elders called the war';
   news(`${R.name} has won the ${ordinalWord(rec.n)} campaign for the March, ${howTxt}! The armies go home.`, r, 'big');
@@ -473,6 +475,7 @@ function cwFanfare(win) {
 }
 // after the peace every keep and hallow goes home and a new campaign begins
 function restoreKeep(K) {
+  if (seasonKeepStays(K)) { fillGarrison(K, true); K.underSiegeUntil = -99; setDoorState(K.door, true, 1); return; } // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   if (K.realm !== K.orig) {
     for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
     K.guards.clear();
@@ -492,6 +495,7 @@ function restoreKeep(K) {
 function resetMarch() {
   war3Reset(); // [war3] the engines gone, the walls whole (08k_war3.js)
   for (const K of WAR.keeps) restoreKeep(K);
+  seasonAfterReset(); // [loops] the keeps as the season holds them (08n_season.js)
   for (const rel of WAR.relics) {
     const c = rel.carrier != null ? getEnt(rel.carrier) : null;
     if (c) c.carrying = null;
@@ -511,7 +515,7 @@ function resetMarch() {
   CAMPAIGN.longSaid = false;
   CAMPAIGN.seen = { keeps: [], doors: new Map(), relics: [] };
   for (const wb of WAR.warbands) if (wb.order && wb.order.home) wb.order = null;
-  news(`Horns across the March: the ${ordinalWord(CAMPAIGN.n)} campaign begins. Every keep and hallow is back with its own realm.`, -1, 'big');
+  news(`Horns across the March: the ${ordinalWord(CAMPAIGN.n)} campaign begins. ${seasonKeepsHeld() ? 'The keeps and hallows stand as the season\'s war has left them.' : 'Every keep and hallow is back with its own realm.'}`, -1, 'big'); // [loops] in the season's war (08n_season.js)
   sfx('horn');
   saveSoon(800);
 }
@@ -575,7 +579,7 @@ function campaignHudHTML() {
       return `<div class="cw-claim${c.on ? ' on' : ''}" style="--rc:${R.color}" title="${c.on ? 'Victory in' : c.slow ? 'Three keeps, more than any other realm: the claim grows at two fifths of the pace' : c.held ? 'Three keeps: the claim holds' : 'A fading claim'}"><span><b>${R.name}</b> ${c.kind === 'keeps' ? (c.on ? `holds ${WAR.keeps.filter((K) => K.realm === c.r).length} keeps` : c.slow || c.held ? 'holds 3 keeps' : 'claim on keeps') : (c.on ? 'holds both hallows' : 'claim on hallows')}</span><span class="num">${c.on || c.slow ? fmtClock(c.left) : c.held ? 'held' : 'fading'}</span><i><b style="width:${(c.frac * 100).toFixed(1)}%"></b></i></div>`; // [war3] slow, held
     }).join('') : `<div class="cw-rule">To win: ${CW.KEEPS} keeps for ${CW.KEEP_HOLD / 60} min, or both enemy hallows for ${CW.HALLOW_HOLD / 60} min</div>`;
   }
-  return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
+  return `<div class="cw-hud"><div class="cw-h" title="After an hour the elders call the war for the realm with the most renown"><span>Campaign ${CAMPAIGN.n}</span><span class="num">${CAMPAIGN.state === 'peace' ? 'peace' : fmtClock(el)}</span></div>${body}${war3HudLine()}${loopsHudLine() /* [loops] what each realm's stores lack (08m_loops.js) */}</div>`; // [war3] who presses for a claim, the pact, a keep of yours held (08k_war3.js)
 }
 function campaignHeraldText() {
   const P = GAME.player, R = REALMS[P.faction];

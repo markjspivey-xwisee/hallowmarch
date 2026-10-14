@@ -263,6 +263,8 @@ function g2MarkOf(S) {
     case 'gift': return giftUltUnlocked(P) ? null : g2LevelMark(P, prog);
     case 'master': return prog.level < 40 ? g2LevelMark(P, prog) : g2MasterMark(P, prog);
     case 'campaign': return CAMPAIGN.state === 'war' ? guideMarkOf({ id: 'keep' }) : null;
+    case 'deliver': case 'caravan': return loopsMarkOf(S, P); // [loops] the quartermaster, a cart on the road (08m_loops.js)
+    case 'fund': return null; // [loops] the Chronicle's Season page (08n_season.js)
     default: return undefined; // (10e_guide.js knows it)
   }
 }

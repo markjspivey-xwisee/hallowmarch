@@ -136,6 +136,7 @@ function war3OnCapture(K, realm, old, gateDown) {
 // a column of soldiers for the posts still empty, marching from the muster (a band whose order is the keep's garrison)
 function war3Column(K, realm, slots, o = null) {
   const src = war4ColumnFrom(K, realm); // [war4] from the realm's nearest keep (out of its hall) or its muster (08l_war4.js)
+  slots = loopsColumn(K, realm, slots, src); // [loops] as many as its stores can feed (08m_loops.js)
   const wb = { id: WAR.nextWb++, realm, members: [], order: null, path: null, pathIdx: 0, created: GAME.t, engagedUntil: -99, lastProgress: GAME.t, progX: src.x, progZ: src.z, w3col: { keep: K.id, from: src.name, src: src.from, peace: !!(o && o.peace) } };
   slots.forEach((s, i) => {
     const sp = w3SlotSpec(K, s);
@@ -374,7 +375,7 @@ function war3Choose(wb, r, C, L) {
     const K = WAR.keeps[P.keep];
     if (!K || K.realm !== r || busy(K, (O) => O.type === 'defend')) continue;
     C.push({ s: 92 - dist(L.x, L.z, K.site.x, K.site.z) / 16, o: { type: 'defend', keep: K, since: now + 90, foe: q }, why: 'brace' }); // (the keep that would give the foe its claim: one band, before anything else)
-  }
+  }  seasonChoose(wb, r, C, L); // [loops] the season's announced offensives (08n_season.js)
 }
 // the commanders' orders that need words of their own
 function war3OrderPhrase(wb, O) {
@@ -393,7 +394,7 @@ function w3PeaceStep(dt) {
   let Pz = W3.peace;
   if (!Pz) {
     Pz = W3.peace = { t0: now, eng: SIEGE.engines.filter((E) => !E.gone).map((E) => E.id), back: false };
-    news('The truce holds: the crews break up their engines, the masons mend the walls, and the keeps go back to their own realms before the next campaign.', -1, 'normal');
+    news(seasonKeepsHeld() ? 'The truce holds: the crews break up their engines and the masons mend the walls. In the season\'s war the keeps taken stay with their takers.' : 'The truce holds: the crews break up their engines, the masons mend the walls, and the keeps go back to their own realms before the next campaign.', -1, 'normal'); // [loops] seasonKeepsHeld (08n_season.js)
     W3.pact = null; W3.press = [null, null, null]; W3.rally = [null, null, null];
   }
   // one engine every second and a half, broken up where it stands (its crew go home with their band)

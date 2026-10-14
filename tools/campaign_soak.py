@@ -5,7 +5,7 @@ was won (keeps, hallows or renown) with the raid and siege counters.
 is going (its leader nearer its next waypoint), waited on purpose (holding a keep, defending, on watch, by its working
 engine) or stood still; a band still for 30 s or more is written down (its order, phase, where its leader stands, what
 is round it), and so is every band that gives its order back after 150 s without getting anywhere (`bandStalls`).
-usage: python3 tools/campaign_soak.py [minutes=60] [low|medium|high (band count)] [chunk-seconds=300] [json=PATH] [quiet]"""
+usage: python3 tools/campaign_soak.py [minutes=60] [low|medium|high (band count)] [chunk-seconds=300] [json=PATH] [quiet] [realm=0|1|2]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from hmlib import setup
@@ -17,6 +17,7 @@ MINS = int(nums[0]) if nums else 60
 CHUNK = int(nums[1]) if len(nums) > 1 else 300
 QUALITY = next((a for a in ARGS if a in ('low', 'medium', 'high')), 'low')
 JSON_OUT = next((a[5:] for a in ARGS if a.startswith('json=')), None)
+REALM = int(next((a[6:] for a in ARGS if a.startswith('realm=')), '0'))  # [loops] the player's realm (its town is the one in sight)
 QUIET = 'quiet' in ARGS
 T0 = time.time()
 
@@ -148,7 +149,7 @@ async def main():
         b, page, logs = await setup(p, w=320, h=180)
         page.set_default_timeout(3000000)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; return 0; })()")
+        await page.evaluate(f"(() => {{ __hm.start({{ realm: {REALM}, cls: 'warrior', level: 20 }}); __hm.UI.modal = 'menu'; return 0; }})()")  # [loops] realm=
         await page.evaluate(WATCH_JS)
         print(f'soak {MINS} min, {QUALITY} band count, booted in {time.time() - T0:.0f}s', flush=True)
         last = None
@@ -170,6 +171,9 @@ async def main():
             for e in d['stalls']: print('   STALL', fmt_snap(e), flush=True)
             for e in d['eps']: print('   STILL', fmt_snap(e), flush=True)
             for e in d['errors']: print('   ERR', e[:300], flush=True)
+            # [loops] each realm's stores and what ran short (08m_loops.js; absent on a build before version 19)
+            lp = await page.evaluate("(() => { const L = __hm.loops; if (!L) return null; const O = L.LOOPS, R = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v)])); return { r: O.r.map(R), shortT: O.stats.shortT.map(R), made: O.stats.made.map(R), drawn: O.stats.drawn.map(R), s: { thin: O.stats.thin, hungry: O.stats.hungry, noEngine: O.stats.noEngine, downgraded: O.stats.downgraded, foot: O.stats.footCaptains, slow: Math.round(O.stats.slowWork), noGuard: O.stats.noGuard, cars: O.stats.caravans, arrived: O.stats.arrived, raided: O.stats.raided, taken: O.stats.keepsTaken, traded: Math.round(O.stats.traded), road: O.caravans.filter((c) => c.state === 'road').length, carts: O.caravans.length, people: __hm.ENT.filter((e) => e.alive && (e.role === 'carter' || e.role === 'escort' || e.role === 'carthorse')).length } }; })()")
+            if lp: print('   loops:', json.dumps(lp['r']), json.dumps(lp['s']), flush=True); last['loops'] = lp
         print('\nCAMPAIGNS', flush=True)
         for h in last['hist']: print(f"  campaign {h['n']}: realm {h['w']} by {h['how']} after {h['m']} min (keeps taken {h['cap']}, hallows home {h['hal']})", flush=True)
         if last['state'] == 'war': print(f"  campaign {last['n']}: still running at {last['el']} s", flush=True)
@@ -205,6 +209,7 @@ async def main():
             print(f"  captures at the game minutes {mins}", flush=True)
         if last.get('w3'): print('war3', json.dumps(last['w3']), flush=True)
         if last.get('w4'): print('war4', json.dumps(last['w4']), flush=True)
+        if last.get('loops'): print('loops', json.dumps(last['loops']), flush=True)  # [loops] (08m_loops.js)
         by = {}
         for e in all_eps: by.setdefault(e['k'], []).append(e.get('dur', 30))
         print('still episodes (30 s or more) by order/phase:', {k: f"{len(v)} x, {sum(v):.0f}s" for k, v in sorted(by.items(), key=lambda kv: -sum(kv[1]))}, flush=True)

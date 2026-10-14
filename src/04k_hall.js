@@ -346,6 +346,7 @@ function hallWarTable(H) {
   setAct(P, 5, 0.55);
   if (holder === P.faction) uiToast(`The war table of ${H.S.name} answers to you: choose one of ${REALMS[P.faction].name}'s warbands on the map, then a keep to attack or defend, a temple to raid, or tell it to rally to you.`, 'hint');
   else uiToast(`This war table answers to ${REALMS[holder].name} now. Take ${H.S.name} back to command from it.`, 'hint');
+  if (holder === P.faction && typeof loopsWarText === 'function') uiLog(loopsWarText(holder), 'realm'); // [loops] what the realm's stores lack (08m_loops.js)
   toggleMap(true);
 }
 function hallArmourer(H) {
@@ -403,6 +404,7 @@ function hallStores(H) {
     };
     box.appendChild(btn);
   }
+  if (H.S.keepRef && typeof loopsOpenStores === 'function') { const g = document.createElement('button'); g.type = 'button'; g.className = 'btn'; g.textContent = 'Give goods to the keep\'s stores'; g.dataset.lkeep = '1'; g.onclick = () => loopsOpenStores(H.S.keepRef); box.appendChild(g); } // [loops] (08m_loops.js)
   const done = document.createElement('button');
   done.type = 'button'; done.className = 'btn primary'; done.textContent = 'Done';
   done.onclick = closeDialog;

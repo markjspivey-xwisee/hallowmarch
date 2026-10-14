@@ -53,6 +53,7 @@ function setupTitle(save) {
     const c = save.char;
     $('continue').hidden = false;
     $('continue-desc').textContent = `${c.name}, level ${c.level} ${CLASSES[c.cls].name} of ${REALMS[c.realm].name}. Realm rank ${realmRank(c.rp || 0)}.`;
+    if ($('season-title')) $('season-title').textContent = seasonTitleText(save); // [loops] the season, and what happened while you were away (08n_season.js)
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);
@@ -792,6 +793,7 @@ function openHerald() {
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
   if (typeof wxHeraldText === 'function') body += wxHeraldText(); // [weather2] the sky over the March (12c_weather2.js)
+  if (GAME.player) body += `<p>${esc(seasonWarText(GAME.player.faction))}</p>`; // [loops] the season: its clock, the standing, an offensive coming (08n_season.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

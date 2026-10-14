@@ -358,7 +358,7 @@ const PATH_STEPS = [
     reward: { item: { slot: 'weapon', q: 5 } } },
 ];
 const PATH_BY_ID = Object.fromEntries(PATH_STEPS.map((S, i) => { S.idx = i; return [S.id, S]; }));
-const PATH_VERSION = 2; // [guide] 2: the steps of version 13 (pv 2 on a step)
+const PATH_VERSION = 3; // [guide] 2: the steps of version 13 (pv 2 on a step); [loops] 3: supplying the realm and escorting a cart (08m_loops.js)
 const REWARD_SLOT_WORD = { weapon: 'weapon', cloak: 'cloak', ring: 'ring', charm: 'charm', chest: 'chest piece', head: 'helm', hands: 'pair of gloves', legs: 'pair of leggings' };
 function loreLvlFrac(prog, target) { return clamp((prog.level - 1 + (prog.level >= LEVEL_CAP ? 0 : prog.xp / xpToNext(prog.level))) / Math.max(1, target - 1), 0, 1); }
 function pathDone(id) { const L = GAME.prog && GAME.prog.lore; return !!L && L.done.includes(id); }

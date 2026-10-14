@@ -165,6 +165,7 @@ function effectiveSpeed(e) {
   s *= giftSpeedMult(e); // [gifts] Wood-wise (06c_gifts.js)
   s *= waterSpeedMult(e); // [water] wading and swimming are slow (07b_swim.js)
   s *= classSpeedMult(e); // [classes] chills, a raised shield, a drawn bow, prayer (07b_classes.js)
+  if (e.role === 'player') s *= loopsLadenK(e); // [loops] heavy packs on foot: a horse carries them (08m_loops.js)
   return s;
 }
 function tickBuffs(e, dt) {
@@ -217,11 +218,13 @@ function dealDamage(src, dst, amount, opts = {}) {
   if (dst.kind === 'door') {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
+    amount *= seasonGateK(dst); // [loops] a keep's walls raised a tier in the season: its gate holds the longer (08n_season.js)
   }
   if (!opts.dot && src && src !== dst && src.x !== undefined && towerSightBlocked(src, dst)) return 0; // [keeps] no blow through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)
   amount *= gearLateHarm(src, dst); // [balance2] a late foe is as tough as the gear of its level (06e_gearcurve.js)
   amount *= late2HarmMult(src, dst, opts); // [late2] the player's name and veteran's boons (10l_late.js)
+  amount *= loopsHarmMult(src, dst); // [loops] a hungry soldier's blows, an ill-armed one's hide (08m_loops.js)
   amount = classHarm(src, dst, amount, opts); // [classes] stances, the shield and the parry, elements and combos, ambush (07b_classes.js)
   amount *= survivalHarmMult(dst, opts); // [survival] fireward and frostward draughts (06s_survival.js)
   if (!(amount > 0)) return 0;

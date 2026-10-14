@@ -67,8 +67,9 @@ function goodsHTML() {
   const ids = Object.keys(INV.goods || {}).filter((id) => GOODS[id] && INV.goods[id] > 0);
   if (!ids.length) return '<h3>Goods</h3><p class="fineprint">Wood, stone, food, seeds and the like are kept here.</p>';
   const by = {};
+  const laden = typeof loopsLadenHTML === 'function' ? loopsLadenHTML() : ''; // [loops] how heavy your packs are (08m_loops.js)
   for (const id of ids) (by[GOODS[id].kind] = by[GOODS[id].kind] || []).push(id);
-  let html = '<h3>Goods</h3><div class="goodslist">';
+  let html = '<h3>Goods</h3>' + laden + '<div class="goodslist">';
   for (const k of Object.keys(GOOD_KINDS)) {
     if (!by[k]) continue;
     html += `<div class="goodsgrp"><h4>${GOOD_KINDS[k]}</h4>`;
