@@ -276,7 +276,7 @@ function chronSeason() {
   if (!RS || !P) return '<p class="lead">The season begins once you are in the March.</p>';
   const me = P.faction, sum = realmSimSummary(RS, me, SEASONP.away ? SEASONP.away.since : -1), R = RS.realms[me];
   const order = [0, 1, 2].sort((a, b) => sum.sp[b] - sum.sp[a]);
-  const stand = order.map((r) => `<li style="--rc:${REALMS[r].color}"${r === me ? ' class="me"' : ''}><b>${REALMS[r].name}</b> ${fmtInt(sum.sp[r])} <small>(${RS.keeps.filter((K) => K.h === r).length} keeps)</small></li>`).join('');
+  const stand = order.map((r) => `<li style="--rc:${REALMS[r].color}"${r === me ? ' class="me"' : ''}><b>${REALMS[r].name}</b> ${fmtInt(sum.sp[r])} <small>(${((n) => `${n} keep${n === 1 ? '' : 's'}`)(RS.keeps.filter((K) => K.h === r).length)})</small></li>`).join('');
   const offs = sum.offs.map((O) => `<li><b>${REALMS[O.r].name}</b> on ${O.keep}: ${O.state === 'planned' ? `in ${rsmDur(O.inS)}` : 'under way'}${O.against ? ' <b>(against us)</b>' : ''}</li>`).join('');
   const officer = seasonRank() >= 5;
   // the works: one line each, a button to vote (or, an officer, to set it)
