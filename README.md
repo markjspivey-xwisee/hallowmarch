@@ -6,23 +6,28 @@ Everything is made in code: the terrain, castles, towns, people, beasts, sky and
 
 ## Play
 
-The current build is published as a Claude artifact. You can also build it yourself and open `hallowmarch.html` in a browser. It needs a network connection, because three.js and the fonts load from a CDN.
+[Play the persistent March](https://march-production-f6d9.up.railway.app/). The server runs the realm season while players are away and keeps accounts, saves and companies. Choose a realm and a calling, then help your realm through fighting, deliveries and shared works.
+
+You can also build the game yourself and open `hallowmarch.html` in a browser. A standalone page runs its own world and saves in browser storage. It needs a network connection, because three.js and the fonts load from a CDN. The separately published Claude artifact remains version 19 until it is republished.
 
 | Keys | |
 |---|---|
 | W A S D | Move relative to the camera. Shift to run, Space to jump |
 | Mouse drag | Turn the camera. Right-drag also turns you. Scroll to zoom |
 | Click | Target a creature, soldier, gate or friend |
-| 1 – 6 | Abilities (1 – 8 from the next version) |
+| 1 – 8 | Abilities |
 | Tab · F | Cycle enemies in front of you · target yourself |
 | E | Use a portal stone, speak to the herald, take a hallow, open a chest |
 | R | Whistle for your horse, or step down |
 | I · Q | Gear and bags · drink a healing draught |
 | M · L · H · Esc | Map · log · help · menu |
+| P · U | Players and companies · dive while swimming |
 
 On phones and tablets the game shows a thumb joystick and touch buttons.
 
-Progress saves to the artifact's private per-player database on claude.ai. Opened as a plain file, it saves to the browser's local storage.
+On the server, sign in to keep your character across devices. The Players panel includes persistent companies within your realm: membership, ranks, chat, notices and support for shared works. The season's armies enter the live war near players and their losses return to the season; deliveries help your realm without letting a large roster alone decide the result.
+
+The Claude artifact uses its private per-player database. A plain file uses browser storage.
 
 ## Build
 
@@ -37,10 +42,19 @@ python3 build.py      # writes hallowmarch.html
 The tests drive the real page in headless Chromium using SwiftShader WebGL, through the debug API `window.__hm`.
 
 ```sh
-cd tools && npm install && cd ..                  # once: three.js for the test browser, eslint
+npm ci --prefix tools                            # three.js for the test browser, eslint
+npm ci --prefix server                           # server tests and local hosting
 pip install playwright && python3 -m playwright install chromium   # once, if Chromium is missing
 
-tools/lint.sh                                     # build, then eslint the module script
+bash tools/lint.sh                                # build, then eslint the module script
+node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
+node tools/tests/net_companies.mjs                # actual socket and persistence checks
+node tools/tests/wasm_lp.js n=4000 seed=1 time      # JS/WASM paths and fallback
+node tools/tests/loops_season.js seeds=12          # season participation measures
+python3 tools/tests/net.py companies weather       # browser/server flows
+python3 tools/tests/season2.py                     # live field armies
+python3 tools/tests/perf.py low medium high render budget
+python3 tools/tests/perf2.py long minutes=60       # heap, buffers and scene growth
 python3 tools/tests/shaders.py                    # compile every shader at every quality level
 python3 tools/tests/barrow.py                     # the dungeon, end to end
 python3 tools/tests/phone.py                      # phone HUD screenshots -> tools/out/
@@ -56,6 +70,8 @@ python3 tools/hm.py '{"script":[["eval","__hm.start({realm:0,cls:\"warrior\",lev
 | `src/00–05*.js` | World, rendering, terrain, buildings, trees, the Barrow, characters, fire, weather and effects |
 | `src/06–08*.js` | Game data, items, entities and combat, war AI, wildlife, the dragon, and the Barrow's monsters |
 | `src/09–13*.js` | Player, horses, loot, UI, kit screen, audio, saves, and the main loop |
+| `src/14*.js` | Multiplayer, accounts, realm season, companies and shared weather |
+| `server/` | Persistent accounts, saves, companies, season and WebSocket service |
 | `tools/` | Test harness, tests, lint, war soak and a world-map dump |
 | `CLAUDE.md` | Working notes for developers and AI agents: architecture, conventions, rules and roadmap |
 

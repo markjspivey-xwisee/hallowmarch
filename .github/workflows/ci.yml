@@ -1,0 +1,82 @@
+name: Hallowmarch verification
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hallowmarch-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and lint
+        run: bash tools/lint.sh 80
+      - name: Run check
+        env:
+          CHECK: ${{ matrix.check }}
+        run: |
+          check() { python tools/ci/run_check.py "$@"; }
+          case "$CHECK" in
+            headless)
+              node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
+              node tools/tests/net_companies.mjs
+              node tools/tests/wasm_lp.js n=4000 seed=1 time
+              node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
+              ;;
+            companies) check python3 tools/tests/net.py companies ;;
+            season) check python3 tools/tests/season2.py ;;
+            performance) echo 'Performance checks run in the following steps.' ;;
+            visuals) check python3 tools/tests/look.py views=l7_yard,l7_cart,l7_woodcutter,l7_quarry,l7_moon,l7_dead,l7_weapons,l7_inside_storm q=low v=day tag=hallowmarch-ci ;;
+            shaders) check python3 tools/tests/shaders.py ;;
+            phone)
+              check python3 tools/tests/phone.py
+              check python3 tools/tests/touch_flows.py only=net,stores,season
+              ;;
+            soak) check python3 tools/soak.py 10 ;;
+            water)
+              check python3 tools/tests/water.py
+              check python3 tools/tests/water2.py
+              ;;
+          esac
+      - name: Pathfinding and shared weather
+        if: ${{ matrix.check == 'performance' }}
+        run: |
+          python3 tools/ci/run_check.py python3 tools/tests/perf3.py only=wasm,net tag=hallowmarch-ci
+          python3 tools/ci/run_check.py python3 tools/tests/net.py weather
+      - name: Draw budgets at every quality
+        if: ${{ matrix.check == 'performance' }}
+        run: python3 tools/ci/run_check.py python3 tools/tests/perf.py low medium high render budget tag=hallowmarch-ci
+      - name: Heap, buffers and scene over an hour of war
+        if: ${{ matrix.check == 'performance' }}
+        run: python3 tools/ci/run_check.py python3 tools/tests/perf2.py long minutes=60 tag=hallowmarch-ci
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: hallowmarch-ci-${{ matrix.check }}-evidence
+          path: |
+            tools/out/
+            hallowmarch.html
+          retention-days: 14
