@@ -790,6 +790,7 @@ function openHerald() {
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
+  if (GAME.player) body += `<p>${esc(seasonWarText(GAME.player.faction))}</p>`; // [loops] the season: its clock, the standing, an offensive coming (08n_season.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

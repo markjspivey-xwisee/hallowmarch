@@ -7,7 +7,7 @@
 const SEASONP = {
   rs: null, pend: undefined, ln: 0, mute: false, away: null, said: {},
   days: RSM.days, maxAway: 21 * 86400,
-  you: { pts: 0, gold: 0, votes: 0, n: 0, won: 0, last: 0 },   // (won: seasons your realm won; last: the season last reckoned with you)                      // the player's part (saved with the character)
+  you: { pts: 0, gold: 0, votes: 0, n: 0, won: 0, last: 0 }, // the player's part (saved with the character; won: seasons your realm won, last: the season last reckoned with you)
   stats: { applied: 0, liveCaps: 0, battles: 0, offline: 0, offlineS: 0, offlineMs: 0, aims: 0, braces: 0, relayed: 0, gave: 0 },
 };
 const seasonMe = () => (GAME.player ? GAME.player.faction : 0);
