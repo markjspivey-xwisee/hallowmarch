@@ -10,7 +10,12 @@ takes over, its body gone); the sizes and rates on the wire. `lossy` runs the st
 Server (`server`): starts server/server.js on a free port and two clients: a Node client (tools/tests/net_client.mjs) and
 a page with ?server=: accounts (guest token, saved and presented again), the save held by the server, the presence relay
 with interest management, a hit too far refused, a speed jump not relayed, the shared world persisted.
-usage: python3 tools/tests/net.py [room] [three] [lossy] [phone] [server] [shots] [w=640 h=360]"""
+[companies] (`companies`): a local server and two pages (a desk's and a phone's, by taps) and headless players: an
+account named from the sheet, a name refused, a company founded with its device and tinctures, a guest refused, an
+invitation to a player who is away taken on her return (by a tap), the company's chat kept for her, a pledge counted
+from the Season page's goods, the company's name on a member's nameplate and frame to the others, a muster forming one
+party, the captain removing a member, the server stopped and started (the company read back, the pages linked again).
+usage: python3 tools/tests/net.py [room] [three] [lossy] [phone] [server] [companies] [shots] [w=640 h=360]"""
 import asyncio, json, sys, pathlib, time, os, random, subprocess, socket
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
@@ -18,7 +23,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 KV = dict(a.split('=', 1) for a in ARGS if '=' in a)
-PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed')] or ['room']
+PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'companies')] or ['room']
 THREE = 'three' in ARGS
 LOSSY = 'lossy' in ARGS
 SHOTS = 'shots' in ARGS
@@ -343,7 +348,9 @@ class NodeClient:
         return None
     async def quit(self):
         try: await self.cmd({'cmd': 'quit'}); await asyncio.wait_for(self.proc.wait(), 3)
-        except Exception: self.proc.kill()
+        except Exception:
+            try: self.proc.kill()
+            except ProcessLookupError: pass
 
 def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
@@ -614,6 +621,185 @@ async def season_part(p):
         try: print('server says:', srv.communicate(timeout=3)[0][-500:])
         except Exception: srv.kill()
 
+async def companies_part(p):
+    """[companies] companies on a local server (server/companies.js, 14r_companies.js)"""
+    import tempfile
+    port = free_port(); data = tempfile.mkdtemp(prefix='net_co_', dir=str(OUT))
+    root = pathlib.Path(__file__).resolve().parents[2]
+    env = {**os.environ, 'PORT': str(port), 'HM_DATA': data, 'HM_SEASON_SPEED': '1', 'HM_SEASON_STEP': '1000', 'HM_SEASON_PUSH': '3000', 'HM_ADMIN': 'net-test-key'}
+    def srv_start():
+        return subprocess.Popen(['node', str(root / 'server' / 'server.js')], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    srv = srv_start()
+    base = f'http://127.0.0.1:{port}'; url = f'ws://127.0.0.1:{port}/ws'
+    async def srv_up():
+        for _ in range(80):
+            try: http_json(base + '/health'); return True
+            except Exception: await asyncio.sleep(0.25)
+        return False
+    async def name_acct(pg, name):
+        await pg.evaluate("__hm.net.sheet(true); 0")
+        await until([pg], pg, "(__hm.frame(1/30), !!document.getElementById('netacct-name'))", 15)
+        await pg.fill('#netacct-name', name); await pg.fill('#netacct-pass', 'company-pass-1')
+        await pg.evaluate("document.querySelector('#netsheet-acct button[data-act=\"acct-claim\"]').click(); 0")
+        return await until([pg], pg, "document.querySelector('#netsheet-acct .net-msg').textContent.startsWith('Your account is') && !!__hm.companies.CO.s && !__hm.companies.CO.s.guest", 15)
+    CO_TXT = "(document.getElementById('netsheet-co') || {}).textContent || ''"
+    try:
+        await srv_up()
+        b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+        ctx = await b.new_context(viewport={'width': W, 'height': H})
+        tctx = await b.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # Edda plays on a phone: her taps are taps
+        A = await boot(ctx, {'room': 'srv', 'user': 'uCoA', 'noRoom': True, 'server': url}, 'A')
+        town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
+        await start(A, 0, 'warrior', 30, 'Corwen', town[0] + 4, town[1] + 10)
+        ok = await until([A], A, "!!__hm.companies.CO.s && __hm.companies.CO.s.guest === true", 30)
+        check(ok, 'a guest is told of companies (and that it is a guest)')
+        await A.evaluate("__hm.net.sheet(true); 0")
+        t = await A.evaluate(CO_TXT)
+        check('named accounts' in t and not await A.evaluate("!!document.getElementById('co-name')"), f'the sheet offers a guest no founding: it names its account first ({t[:90]!r})')
+        # a guest refused by the server too (a headless guest asks)
+        G = NodeClient('G'); await G.start(url)
+        await G.cmd({'cmd': 'hello', 'name': 'Wander', 'realm': 0, 'cls': 'mage', 'x': town[0], 'z': town[1]})
+        await G.wait('welcome'); await asyncio.sleep(0.6)
+        await G.cmd({'cmd': 'raw', 'm': {'t': 'co', 'op': 'found', 'q': 1, 'name': 'Wanderers', 'dev': 1, 'col': [0, 3]}})
+        await asyncio.sleep(0.8)
+        st = http_json(base + '/stats')['companies']
+        check(st['n'] == 0 and st['refused'] >= 1, f"the server refuses a guest's company ({st})")
+        tag = 'x' + str(int(time.time()) % 10000)
+        ok = await name_acct(A, 'Corwen' + tag)
+        check(ok, 'Corwen names his account from the sheet')
+        await until([A], A, f"(__hm.frame(1/30), !!document.getElementById('co-name'))", 10)
+        # a name refused, then the company founded with a device and tinctures (keys and clicks on a desk)
+        await A.fill('#co-name', 'Kestrel Hold Guard')
+        await A.evaluate("document.querySelector('#netsheet-co button[data-co=\"found\"]').click(); 0")
+        ok = await until([A], A, "document.querySelector('#netsheet-co .co-msg').textContent.includes(\"March's own\")", 10)
+        why = await A.evaluate("document.querySelector('#netsheet-co .co-msg').textContent")
+        check(ok, f"a name of the March's own is refused ({why!r})")
+        await A.evaluate("document.querySelector('#netsheet-co button[data-co=\"dev\"][data-i=\"2\"]').click(); document.querySelector('#netsheet-co button[data-co=\"col\"][data-k=\"1\"][data-i=\"3\"]').click(); 0")
+        await A.fill('#co-name', 'The Iron Oath')
+        await A.press('#co-name', 'Enter')
+        ok = await until([A], A, "!!(__hm.companies.CO.s.co && __hm.companies.CO.s.co.n === 'The Iron Oath')", 10)
+        co = await A.evaluate("(() => { const c = __hm.companies.CO.s.co; return c && [c.role, c.dev, c.col]; })()")
+        check(ok and co == ['cap', 2, [0, 3]], f'Corwen founds The Iron Oath by the Enter key: a tower, gold on red ({co})')
+        # a headless player of the realm with a named account joins (raw), and Edda is named on her phone, then goes away
+        N1 = NodeClient('N1'); await N1.start(url)
+        await N1.cmd({'cmd': 'hello', 'name': 'Nodric', 'realm': 0, 'cls': 'warrior', 'x': town[0] + 7, 'z': town[1] + 10})
+        await N1.wait('welcome'); await asyncio.sleep(0.5)
+        await N1.cmd({'cmd': 'raw', 'm': {'t': 'acct', 'op': 'claim', 'name': 'Nodric' + tag, 'pass': 'company-pass-1'}})
+        await N1.wait('acct')
+        B = await boot(tctx, {'room': 'srv', 'user': 'uCoB', 'noRoom': True, 'server': url}, 'B')
+        await start(B, 0, 'priest', 30, 'Edda', town[0] + 6, town[1] + 12)
+        await until([B], B, "!!__hm.companies.CO.s", 30)
+        ok = await name_acct(B, 'Edda' + tag)
+        check(ok, 'Edda names her account on her phone')
+        await B.evaluate("__hm.fn.saveNow(); 0"); await asyncio.sleep(1.2)
+        await B.close()
+        # invited while away; the company speaks while she is away
+        await A.fill('#co-inv', 'Edda' + tag)
+        await A.evaluate("document.querySelector('#netsheet-co button[data-co=\"invite\"]').click(); 0")
+        ok = await until([A], A, "document.querySelector('#netsheet-co .co-msg').textContent.startsWith('Invited')", 10)
+        check(ok, 'Corwen invites Edda, who is away')
+        await asyncio.sleep(0.5)
+        await A.fill('#co-inv', 'Nodric' + tag); await A.press('#co-inv', 'Enter')
+        await asyncio.sleep(1.2)
+        await A.fill('#co-notice', 'We muster at Kestrel Hold on day 12'); await A.press('#co-notice', 'Enter')
+        await asyncio.sleep(0.6)
+        await A.fill('#co-say', 'To the hold at dusk, and bring stone. <img src=x onerror=alert(1)>'); await A.press('#co-say', 'Enter')
+        ok = await until([A], A, "__hm.companies.CO.s.co.chat.some((L) => L[2].startsWith('To the hold at dusk')) && __hm.companies.CO.s.co.notice.x.startsWith('We muster')", 10)
+        check(ok, 'the notice is set and the company spoken to')
+        # Edda comes back (the same phone): the invitation and what was said are waiting; she joins by a tap
+        B = await boot(tctx, {'room': 'srv', 'user': 'uCoB', 'noRoom': True, 'server': url}, 'B')
+        await start(B, 0, 'priest', 30, 'Edda', town[0] + 6, town[1] + 12)
+        ok = await until([B], B, "!!(__hm.companies.CO.s && __hm.companies.CO.s.invites.length)", 30)
+        check(ok, 'on her return the invitation waits for her')
+        badge = await B.evaluate("(() => { __hm.frame(1/30); const b = document.getElementById('btn-net'); return [b && !b.hidden, b && b.classList.contains('net-glow'), b && b.textContent]; })()")
+        check(badge[0] and badge[1], f'the Players button shows and glows for it ({badge})')
+        await B.tap('#btn-net', timeout=60000)
+        await until([B], B, "(__hm.frame(1/30), !!document.querySelector('#netsheet-co button[data-co=\"answer\"]'))", 10)
+        await B.evaluate("document.querySelector('#netsheet-co button[data-co=\"answer\"][data-yes=\"1\"]').scrollIntoView(); 0")
+        await B.tap('#netsheet-co button[data-co="answer"][data-yes="1"]', timeout=60000)
+        ok = await until([B], B, "!!(__hm.companies.CO.s && __hm.companies.CO.s.co && __hm.companies.CO.s.co.n === 'The Iron Oath')", 15)
+        check(ok, 'she joins The Iron Oath by a tap')
+        chat = await B.evaluate("__hm.companies.CO.s.co.chat.map((L) => L[2])")
+        logHad = await B.evaluate("NT.logHas('While') || NT.logHas('while you were away')")
+        check(any(c.startswith('To the hold at dusk') for c in chat), f'the company\'s chat said while she was away is hers ({chat[-3:]})')
+        inj = await B.evaluate("!!document.querySelector('#netsheet-co img, #log img')")
+        check(not inj, 'a line with markup is shown as text')
+        sh = await B.evaluate(CO_TXT)
+        check('We muster at Kestrel Hold on day 12' in sh and 'Corwen' + tag in sh, f'the sheet shows the notice and the roster ({sh[:120]!r})')
+        # Nodric (on now, without a page) answers his invitation
+        ninv = next((l['company']['s']['invites'] for l in reversed(N1.lines) if 'company' in l and l['company'].get('s') and l['company']['s'].get('invites')), None)
+        if ninv: await N1.cmd({'cmd': 'raw', 'm': {'t': 'co', 'op': 'answer', 'q': 3, 'id': ninv[0]['id'], 'yes': True}})
+        ok = await until([A], A, "__hm.companies.CO.s.co.mem.length === 3", 10)
+        check(bool(ninv) and ok, f"Nodric, on now, was told of his invitation at once and joins ({ninv and ninv[0]['n']})")
+        # a pledge: the Season page's goods brought by Edda count for the company
+        await A.evaluate("document.querySelector('#netsheet-co button[data-co=\"pledge\"][data-id=\"granary\"]').click(); 0")
+        ok = await until([A], A, "__hm.companies.CO.s.co.pledge === 'granary'", 10)
+        check(ok, 'Corwen pledges the company to the granary')
+        await B.evaluate("__hm.net.sheet(false); __hm.fn.goodsAdd('log', 40, true); 0")
+        r = await B.evaluate("__hm.netseason.giveAll('timber').then((r) => JSON.stringify(r))")
+        ok = await until([A], A, "(__hm.net.NETWS && 0) || (__hm.companies.CO.s.co.pl.granary || 0) >= 40", 10)
+        pts = await A.evaluate("JSON.stringify([__hm.companies.CO.s.co.pts, __hm.companies.CO.s.co.u, __hm.companies.CO.s.co.pl, __hm.companies.CO.s.co.mem.map((M) => [M.n, M.du])])")
+        check(ok and '"co"' in r, f'40 timber brought by Edda count for the company and its pledge ({r[:160]}; {pts})')
+        # the Season page's company lines
+        await B.evaluate("__hm.LORE.openChronicle('season'); __hm.frame(1/30); 0")
+        pg = await B.evaluate("(document.querySelector('#menu-body .chron') || {}).textContent || ''")
+        check('Companies of Logres' in pg and 'The Iron Oath' in pg and 'pledged' in pg, 'the Season page tells the realm\'s companies and her own')
+        await B.evaluate("__hm.UI.modal = null; document.getElementById('menu').hidden = true; 0")
+        # the company's name on her nameplate and frame on Corwen's page
+        ok = await until([A, B], A, "(() => { const g = NT.ghostOf('Edda'); return !!(g && __hm.companies.ofEnt(g)); })()", 20)
+        await A.evaluate("__hm.net.sheet(false); (() => { const g = NT.ghostOf('Edda'); if (g) { __hm.GAME.player.target = g.id; } __hm.CAM.yaw = Math.atan2(-(g.x - NT.P.x), -(g.z - NT.P.z)); return 0; })()")
+        for _ in range(3): await A.evaluate('__hm.frame(1/30); 0')
+        npTxt = await A.evaluate("[...document.querySelectorAll('#nameplates .np')].filter((e) => e.style.display !== 'none').map((e) => e.textContent).join(' | ')")
+        tf = await A.evaluate("document.getElementById('tf-sub').textContent")
+        check(ok and 'The Iron Oath' in npTxt and 'The Iron Oath' in tf, f"the others see her company under her name and on her frame ({npTxt[:80]!r}; {tf!r})")
+        if SHOTS:
+            await shot(A, 'co_nameplate')
+        # the muster: one party for those on
+        await asyncio.sleep(0.5)
+        await A.evaluate("__hm.net.sheet(true); document.querySelector('#netsheet-co button[data-co=\"muster\"]').click(); 0")
+        ok = await until([A, B], B, "!!__hm.net.NET.party && __hm.net.NET.party.startsWith('co')", 15)
+        same = await A.evaluate("__hm.net.NET.party") == await B.evaluate("__hm.net.NET.party")
+        check(ok and same, 'Corwen musters the company: Edda is in his party')
+        ok = await until([A, B], A, "(__hm.frame(1/30), !document.getElementById('netparty').hidden)", 10)
+        check(ok, "the party's frames show on Corwen's screen")
+        # the captain removes a member (Nodric, if he joined; else Edda after the restart)
+        # the server stopped and started: everything read back, the pages linked again
+        await A.evaluate('__hm.fn.saveNow(); 0'); await asyncio.sleep(0.8)
+        srv.terminate()
+        try: srv.communicate(timeout=5)
+        except Exception: srv.kill()
+        await step([A, B], 0.1, 5)
+        srv = srv_start(); await srv_up()
+        ok = await until([A, B], A, "__hm.net.NETWS.state === 'on' && !!(__hm.companies.CO.s && __hm.companies.CO.s.co)", 60)
+        c2 = await A.evaluate("(() => { const c = __hm.companies.CO.s && __hm.companies.CO.s.co; return c && [c.n, c.mem.length, c.notice.x, c.pl.granary || 0, c.chat.length]; })()")
+        check(ok and c2 and c2[0] == 'The Iron Oath' and c2[1] >= 2 and c2[2].startswith('We muster') and c2[3] >= 40, f'after the server restarts the company is read back and the page told it ({c2})')
+        # the captain removes Edda: she is told
+        eid = await A.evaluate("(() => { const M = __hm.companies.CO.s.co.mem.find((x) => x.n.startsWith('Edda')); return M ? M.id : ''; })()")
+        await A.evaluate("__hm.net.sheet(true); 0"); await until([A], A, "(__hm.frame(1/30), true)", 0.2)
+        await asyncio.sleep(0.5)
+        await until([A, B], A, "!__hm.companies.CO.busy && !!document.querySelector('#netsheet-co button[data-co=\"remove\"]')", 20)
+        await A.evaluate(f"(() => {{ const b = document.querySelector('#netsheet-co button[data-co=\"remove\"][data-who=\"{eid}\"]'); if (b) b.click(); return 0; }})()")
+        ok = await until([A, B], B, "!!__hm.companies.CO.s && !__hm.companies.CO.s.co", 25)
+        why = await A.evaluate("__hm.companies.CO.msg + ' / busy ' + __hm.companies.CO.busy")
+        check(ok and eid, f'the captain removes Edda, and her page is told ({why})')
+        ok = await until([A, B], A, "(() => { const g = NT.ghostOf('Edda'); return !!g && !__hm.companies.ofEnt(g); })()", 15)
+        check(ok, 'and her nameplate no longer names the company')
+        if SHOTS:
+            await A.evaluate("__hm.net.sheet(true); 0")
+            await A.emulate_media(reduced_motion='reduce'); await asyncio.sleep(1.0)
+            await shot(A, 'co_sheet_desk')
+            await B.evaluate("__hm.net.sheet(true); 0"); await B.emulate_media(reduced_motion='reduce'); await asyncio.sleep(1.0)
+            await shot(B, 'co_sheet_phone')
+        for pg in (A, B):
+            errs = await pg.evaluate('__hm.errors.slice()')
+            check(not errs, f'{pg._name}: no errors ({errs[:2]})')
+        await N1.quit(); await G.quit()
+        await b.close()
+    finally:
+        srv.terminate()
+        try: print('server says:', srv.communicate(timeout=3)[0][-400:])
+        except Exception: srv.kill()
+
 async def deployed_part(p):
     """[net] the deployed server (Railway, CLAUDE.md: Multiplayer): its health, the season played by asynchronous
     players (net_season.mjs against it), and two pages linked to it at once"""
@@ -696,6 +882,7 @@ async def main():
         if 'server' in PARTS: await server_part(p)
         if 'perf' in PARTS: await perf_part(p)
         if 'season' in PARTS: await season_part(p)
+        if 'companies' in PARTS: await companies_part(p)
         if 'deployed' in PARTS: await deployed_part(p)
     print(f'\n{len(FAILS)} failed in {time.time() - T0:.0f}s')
     for f in FAILS: print('  FAIL', f)

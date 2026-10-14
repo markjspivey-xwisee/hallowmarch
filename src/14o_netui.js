@@ -158,7 +158,7 @@ function netSheetRender() {
     const s = R.slow, f = R.fast;
     const row = el('div', 'net-row');
     row.style.setProperty('--rc', REALMS[s.r].color);
-    const nm = el('span', 'net-nm'); nm.appendChild(el('b', '', s.dn)); nm.appendChild(el('small', '', ` ${REALMS[s.r].name} ${CLASSES[s.c].name} · level ${s.l}${f ? ` · ${Math.round(dist(f.x, f.z, P.x, P.z))} m` : ''}${s.pt && s.pt === NET.party ? ' · in your party' : ''}${R.peer === NET.host ? ' · keeps the shared war' : ''}`));
+    const nm = el('span', 'net-nm'); nm.appendChild(el('b', '', s.dn)); nm.appendChild(el('small', '', ` ${REALMS[s.r].name} ${CLASSES[s.c].name} · level ${s.l}${f ? ` · ${Math.round(dist(f.x, f.z, P.x, P.z))} m` : ''}${s.pt && s.pt === NET.party ? ' · in your party' : ''}${R.peer === NET.host ? ' · keeps the shared war' : ''}${s.co ? ` · ${s.co[0]}` /* [companies] */ : ''}`));
     row.appendChild(nm);
     const acts = el('span', 'net-acts');
     if (R.ghost) acts.appendChild(btn('Target', 'tgt', R.peer));
@@ -303,11 +303,12 @@ function netSheetBadge() {
   const b = $('btn-net');
   if (!b) return;
   const n = netPeopleCount();
-  b.hidden = !netOn() || (n === 0 && !NET.party && !NET.invites.length);
-  const t = NET.invites.length ? '!' : n ? String(n) : '';
+  const coI = typeof coInvited === 'function' && coInvited(); // [companies] the company is there with nobody else in the March; an invitation to one
+  b.hidden = !netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted()));
+  const t = NET.invites.length || coI ? '!' : n ? String(n) : '';
   const s = b.querySelector('.net-n');
   if (s && s.textContent !== t) s.textContent = t;
-  b.classList.toggle("net-glow", NET.invites.length > 0);
+  b.classList.toggle("net-glow", NET.invites.length > 0 || coI);
 }
 function netUiFrame() {
   if (!NETUI.on || !GAME.started || !GAME.player) return;

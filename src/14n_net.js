@@ -157,6 +157,8 @@ function netSlowRead(o) {
   s.pl = o.pl === 1 ? 1 : 0;
   if (o.w && typeof o.w === 'object') s.w = netWorldRead(o.w);
   if (o.srv === 1) s.srv = 1;
+  // [companies] a member's company (stamped by the March's server only: a page in the shared room cannot claim one)
+  if (NET.link && NET.link.kind === 'ws' && Array.isArray(o.co) && o.co.length === 4 && netStr(o.co[0], 24)) s.co = [netStr(o.co[0], 24), Math.round(netNum(o.co[1], 0, 9)), Math.round(netNum(o.co[2], 0, 4)), Math.round(netNum(o.co[3], 0, 4))];
   return s;
 }
 function netFastRead(o) {

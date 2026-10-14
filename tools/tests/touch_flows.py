@@ -13,6 +13,7 @@ plays a new player's first steps by touch).
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 [late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use, and raise a standard struck down (`only=deep`).
 [net] others in the March: the Players button, a party made and its frames tapped, its chat sent by taps (`only=net`).
+[companies] a company by touch on a local server of its own: the account named, a company founded, spoken to and pledged by taps (`only=company`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
 [loops] give timber to the realm's stores by a tap on Use at the quartermaster and a tap on Give (`only=stores`); the Chronicle's Season page: a vote and gold given by taps (`only=season`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
@@ -105,6 +106,83 @@ async def drag_stick(page, cdp, dx, dy, secs):
     return st
 
 def want(name): return ONLY is None or name in ONLY
+
+async def company_flow(p):
+    """[companies] a company by touch alone on a phone (390x780), on a local server of its own: the Players button, the
+    account named by taps and the keyboard, a company founded with its device and tinctures, the company spoken to and
+    its goods pledged by taps"""
+    import subprocess, tempfile, socket, urllib.request, os
+    sk = socket.socket(); sk.bind(('127.0.0.1', 0)); port = sk.getsockname()[1]; sk.close()
+    data = tempfile.mkdtemp(prefix='tf_co_', dir=str(OUT))
+    root = pathlib.Path(__file__).resolve().parents[2]
+    srv = subprocess.Popen(['node', str(root / 'server' / 'server.js')], env={**os.environ, 'PORT': str(port), 'HM_DATA': data}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(80):
+            try: urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2); break
+            except Exception: await asyncio.sleep(0.25)
+        url = f'ws://127.0.0.1:{port}/ws'
+        b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tfco", user: "uTouchCo", noRoom: true, server: "' + url + '" };')
+        await page.evaluate("__hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate(HELP)
+        await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
+        await page.evaluate("TF.calm(); 0")
+        for _ in range(200):
+            await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
+            if await page.evaluate("!!__hm.companies.CO.s && (() => { const b = document.getElementById('btn-net'); return !!b && !b.hidden; })()"): break
+        ok1 = await tap(page, '#btn-net')
+        async def field(sel, text):
+            await page.evaluate(f"TF.see('{sel}')")
+            ok = await tap(page, sel)
+            await page.keyboard.type(text)
+            return ok
+        tag = str(int(time.time()) % 100000)
+        ok2 = await field('#netacct-name', 'Niamh' + tag) and await field('#netacct-pass', 'touch-pass-1')
+        await page.evaluate("TF.see('#netsheet-acct button[data-act=\"acct-claim\"]')")
+        ok3 = await tap(page, '#netsheet-acct button[data-act="acct-claim"]')
+        named = False
+        for _ in range(60):
+            await page.evaluate("__hm.simulate(0.1); 0"); await asyncio.sleep(0.05)
+            named = await page.evaluate("!!document.getElementById('co-name')")
+            if named: break
+        check(ok1 and ok2 and ok3 and named, f'company: the Players button, the account named by taps and keys, the founding offered ({ok1}, {ok2}, {ok3}, {named})')
+        ok4 = await field('#co-name', 'The Grey Lanterns')
+        await page.evaluate("TF.see('#netsheet-co button[data-co=\"dev\"][data-i=\"8\"]')")
+        ok5 = await tap(page, '#netsheet-co button[data-co="dev"][data-i="8"]') and await tap(page, '#netsheet-co button[data-co="col"][data-k="0"][data-i="2"]') and await tap(page, '#netsheet-co button[data-co="col"][data-k="1"][data-i="4"]')
+        sizes = await page.evaluate("[...document.querySelectorAll('#netsheet-co button')].map((b) => { const r = b.getBoundingClientRect(); return Math.min(r.width, r.height); }).filter((v) => v > 0)")
+        wide = await page.evaluate("(() => { const s = document.querySelector('#netsheet .sheet'); return [s.scrollWidth, s.clientWidth]; })()")
+        await page.evaluate("TF.see('#netsheet-co button[data-co=\"found\"]')")
+        ok6 = await tap(page, '#netsheet-co button[data-co="found"]')
+        co = None
+        for _ in range(60):
+            await page.evaluate("__hm.simulate(0.1); 0"); await asyncio.sleep(0.05)
+            co = await page.evaluate("(() => { const c = __hm.companies.CO.s && __hm.companies.CO.s.co; return c ? [c.n, c.dev, c.col, c.role] : null; })()")
+            if co: break
+        check(ok4 and ok5 and ok6 and co == ['The Grey Lanterns', 8, [2, 4], 'cap'], f'company: founded by taps with a peak, silver on dark ({co}); every button 40 px or more ({min(sizes) if sizes else None}), the sheet no wider than the screen ({wide})')
+        check(sizes and min(sizes) >= 39.5 and wide[0] <= wide[1] + 1, 'company: the sheet\'s buttons are a finger\'s size and nothing runs past its edge')
+        ok7 = await field('#co-say', 'Lanterns lit at Glenrua')
+        await page.evaluate("TF.see('#netsheet-co button[data-co=\"say\"]')")
+        ok8 = await tap(page, '#netsheet-co button[data-co="say"]')
+        said = False
+        for _ in range(40):
+            await page.evaluate("__hm.simulate(0.1); 0"); await asyncio.sleep(0.05)
+            said = await page.evaluate("__hm.companies.CO.s.co.chat.some((L) => L[2] === 'Lanterns lit at Glenrua')")
+            if said: break
+        check(ok7 and ok8 and said, f'company: a line typed and said to the company by taps ({ok7}, {ok8}, {said})')
+        await page.evaluate("TF.see('#netsheet-co .co-pledge button')")
+        ok9 = await tap(page, '#netsheet-co .co-pledge button')
+        pl = ''
+        for _ in range(40):
+            await page.evaluate("__hm.simulate(0.1); 0"); await asyncio.sleep(0.05)
+            pl = await page.evaluate("__hm.companies.CO.s.co.pledge")
+            if pl: break
+        check(ok9 and pl, f"company: its goods pledged to a work by a tap ({pl})")
+        await page.evaluate("TF.see('#netsheet-co .co-head'); __hm.frame(1/30); 0")
+        await page.screenshot(path=OUT + 'touch_company.png', timeout=300000)
+        errs = await page.evaluate("__hm.errors")
+        check(not errs, f'company: no errors {errs[:2]}')
+        await b.close()
+    finally:
+        srv.terminate()
 
 async def main():
     async with async_playwright() as p:
@@ -624,6 +702,7 @@ async def main():
         errs = await page.evaluate("__hm.errors")
         check(not errs, f'no errors {errs[:2]}')
         await b.close()
+        if want('company'): await company_flow(p)
     print(f'{len(FAILS)} failures')
 
 asyncio.run(main())

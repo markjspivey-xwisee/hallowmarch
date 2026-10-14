@@ -64,7 +64,7 @@ function netsRead(o) {
 const netsGoods = (o) => (o && typeof o === 'object' ? Object.fromEntries(Object.keys(o).slice(0, 8).filter((g) => /^[a-z]{2,10}$/.test(g)).map((g) => [g, netNum(o[g], 0, 1e9)])) : {});
 function netsRoster(o) {
   if (!o || !Array.isArray(o.list)) return null;
-  return { now: netNum(o.now, 0, 1e6), day: netNum(o.day, 0, 1e6), list: o.list.slice(0, 40).map((x) => ({ n: netStr(x && x.n, 24) || 'Guest', c: CLASSES[x && x.c] ? x.c : '', l: netNum(x && x.l, 0, 60), on: x && x.on ? 1 : 0, ago: netNum(x && x.ago, 0, 1e6), g: netNum(x && x.g, 0, 1e9) })) };
+  return { now: netNum(o.now, 0, 1e6), day: netNum(o.day, 0, 1e6), list: o.list.slice(0, 40).map((x) => ({ n: netStr(x && x.n, 24) || 'Guest', c: CLASSES[x && x.c] ? x.c : '', l: netNum(x && x.l, 0, 60), on: x && x.on ? 1 : 0, ago: netNum(x && x.ago, 0, 1e6), g: netNum(x && x.g, 0, 1e9), co: netStr(x && x.co, 24) /* [companies] */ })) };
 }
 // the season taken into the live war: the keeps the season changed (by the page that keeps the shared war: the others
 // follow it), the realm's stores into loops's when it is here; the first telling to a returning player
@@ -202,7 +202,7 @@ function netsChronSeason() {
   const carried = netsCarried();
   const give = Object.keys(carried).map((g) => `<button type="button" class="btn ns-btn" data-ns="give:${g}">Bring ${fmtInt(carried[g].reduce((a, x) => a + x[2], 0))} ${g}</button>`).join('') || '<span>You carry nothing the stores take (food, timber, stone, iron, hides, wool): gather, farm and hunt, then come back.</span>';
   const st = s.st ? Object.entries(s.st).map(([g, n]) => `<li><b>${fmtInt(n)}</b> ${g}</li>`).join('') : '';
-  const list = ro ? ro.list.map((x) => `<li>${x.on ? '<b class="ns-on">●</b> ' : ''}${esc(x.n)}${x.c ? ` · ${CLASSES[x.c].name} ${x.l}` : ''}${x.on ? ' · on now' : ` · ${x.ago < 2 ? 'just now' : netsAgo(x.ago * 60) + ' ago'}`}${x.g ? ` · brought ${fmtInt(x.g)} today` : ''}</li>`).join('') : '';
+  const list = ro ? ro.list.map((x) => `<li>${x.on ? '<b class="ns-on">●</b> ' : ''}${esc(x.n)}${x.c ? ` · ${CLASSES[x.c].name} ${x.l}` : ''}${x.on ? ' · on now' : ` · ${x.ago < 2 ? 'just now' : netsAgo(x.ago * 60) + ' ago'}`}${x.g ? ` · brought ${fmtInt(x.g)} today` : ''}${x.co ? ` · ${esc(x.co)}` /* [companies] */ : ''}</li>`).join('') : '';
   const news = s.news.slice().reverse().map((L) => `<li>${esc(L[2])}</li>`).join('') || '<li>All quiet.</li>';
   const pts = s.pts.map((p, i) => `<li style="--rc:${REALMS[i].color}"${i === r ? ' class="on"' : ''}><b>${esc(netsRealmName(i))}</b> ${fmtInt(p)} points · ${((n) => n + (n === 1 ? ' keep' : ' keeps'))(s.keeps.filter((K) => K.r === i).length)}</li>`).join('');
   const officer = realmRank(GAME.prog.rp) >= 5;

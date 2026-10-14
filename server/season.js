@@ -179,7 +179,7 @@ export function makeSeason(cfg, store, stats) {
   S.rosterOf = (realm, online) => {
     const now = Date.now(), on = new Set(online);
     const today = Object.entries(S.roster).filter(([id, R]) => R.r === realm && now - R.last < 86400e3).sort((a, b) => b[1].last - a[1].last).slice(0, 40)
-      .map(([id, R]) => ({ n: R.name || 'Guest', c: R.c || '', l: R.l || 0, on: on.has(id) ? 1 : 0, ago: Math.round((now - R.last) / 60000), g: Math.round(R.today || 0) }));
+      .map(([id, R]) => ({ n: R.name || 'Guest', c: R.c || '', l: R.l || 0, on: on.has(id) ? 1 : 0, ago: Math.round((now - R.last) / 60000), g: Math.round(R.today || 0), co: S.coOf ? S.coOf(id) || undefined : undefined /* [companies] */ }));
     return { now: today.filter((x) => x.on).length, day: today.length, list: today };
   };
   S.chatIn = (realm, name, text) => {
