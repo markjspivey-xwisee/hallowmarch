@@ -1,0 +1,42 @@
+name: Version 20 rendering profile
+on:
+  push:
+    branches: [feature/v20-render-profile-20261014]
+permissions:
+  contents: read
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: version19
+            ref: a28e05579437be07171bfb4fa1ea1d8ee89667a7
+          - label: version20
+            ref: 9271363a75d2425422bcf30ef95e04330ac1395c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and build
+        run: |
+          npm ci --prefix tools
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+          python3 build.py
+      - name: Profile the same fixed views
+        run: python3 tools/tests/perf.py low medium views=forest,siege render seed rows=200 tag=${{ matrix.label }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: render-${{ matrix.label }}-evidence
+          path: tools/out/
+          retention-days: 14
