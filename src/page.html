@@ -444,8 +444,9 @@
   .season-hud .season-off { color: #e8c98a; }
   .season-title { font-size: 13px; color: var(--ink-dim); margin: 4px 0 8px; line-height: 1.4; }
   .season-title:empty { display: none; }
-  .season-stand { margin: 6px 0; padding: 0; list-style: none; }
-  .season-stand li { border-left: 3px solid var(--rc); padding: 2px 0 2px 8px; margin: 3px 0; }
+  .season-stand { margin: 6px 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .season-stand li { border-left: 3px solid var(--rc); padding: 1px 0 1px 6px; margin: 0; }
+  .season-stand li.me b { color: var(--ink); }
   .season-proj .btn.season-btn, .chron .acts .btn.season-btn { min-height: 40px; }
   .season-news small { color: var(--ink-faint); margin-right: 4px; }
   .loops-hud { margin-top: 3px; font-size: 11.5px; line-height: 1.35; color: var(--ink-faint); }

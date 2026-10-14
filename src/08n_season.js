@@ -276,22 +276,22 @@ function chronSeason() {
   if (!RS || !P) return '<p class="lead">The season begins once you are in the March.</p>';
   const me = P.faction, sum = realmSimSummary(RS, me, SEASONP.away ? SEASONP.away.since : -1), R = RS.realms[me];
   const order = [0, 1, 2].sort((a, b) => sum.sp[b] - sum.sp[a]);
-  const stand = order.map((r, i) => `<li style="--rc:${REALMS[r].color}"><b>${ordinalWord(i + 1)}: ${REALMS[r].name}</b> ${fmtInt(sum.sp[r])} points, ${RS.keeps.filter((K) => K.h === r).length} keeps${r === me ? ' (yours)' : ''}</li>`).join('');
+  const stand = order.map((r) => `<li style="--rc:${REALMS[r].color}"${r === me ? ' class="me"' : ''}><b>${REALMS[r].name}</b> ${fmtInt(sum.sp[r])} <small>(${RS.keeps.filter((K) => K.h === r).length} keeps)</small></li>`).join('');
   const offs = sum.offs.map((O) => `<li><b>${REALMS[O.r].name}</b> on ${O.keep}: ${O.state === 'planned' ? `in ${rsmDur(O.inS)}` : 'under way'}${O.against ? ' <b>(against us)</b>' : ''}</li>`).join('');
   const officer = seasonRank() >= 5;
   // the works: one line each, a button to vote (or, an officer, to set it)
   const projs = RSM_PROJ.map((id) => {
     const P0 = RSM.projects[id], built = R.proj[id], act = R.act === id;
     const full = id !== 'walls' && built >= P0.max;
-    return `<li${act ? ' class="on"' : ''}><b>${capFirst(P0.name)}</b>${built ? ` (${built})` : ''}<small>${SEASON_PROJ_X[id]}</small>${act ? `<span class="l2-tag">At work: ${sum.project.prog}%</span>` : full ? '<span class="l2-tag">Done</span>' : `<button type="button" class="btn season-btn" data-season="proj:${id}">${officer ? 'Set the realm to it' : 'Vote for it'}${R.votes[id] ? ` (${Math.round(R.votes[id])})` : ''}</button>`}</li>`;
+    return `<li${act ? ' class="on"' : ''}><b>${capFirst(P0.name)}</b>${built ? ` (${built})` : ''}${act ? `<span class="l2-tag">At work: ${sum.project.prog}%</span>` : full ? '<span class="l2-tag">Done</span>' : `<button type="button" class="btn season-btn" data-season="proj:${id}">${officer ? 'Set the realm to it' : 'Vote for it'}${R.votes[id] ? ` (${Math.round(R.votes[id])})` : ''}</button>`}</li>`;
   }).join('');
-  const wants = RSM_PROJ.map((id) => `<li><b>${capFirst(RSM.projects[id].name)}</b>: ${RSM.projects[id].cost.map((v, g) => (v ? `${fmtInt(v)} ${RSM_GOODS[g]}` : '')).filter(Boolean).join(', ')}</li>`).join('');
+  const wants = RSM_PROJ.map((id) => `<li><b>${capFirst(RSM.projects[id].name)}</b>: ${SEASON_PROJ_X[id]}. It wants ${RSM.projects[id].cost.map((v, g) => (v ? `${fmtInt(v)} ${RSM_GOODS[g]}` : '')).filter(Boolean).join(', ')}</li>`).join('');
   const aims = officer ? `<div class="acts">${RS.keeps.map((K, k) => (K.h !== me ? `<button type="button" class="btn season-btn" data-season="aim:${k}">${R.aim === k ? 'Named: ' : 'Name '}${esc(WAR.keeps[k].site.name)}</button>` : '')).join('')}</div>` : '<p>From realm rank 5 you are an officer of the realm: you set its work and name the keep for its next offensive.</p>';
   const gold = [100, 500].map((n) => `<button type="button" class="btn season-btn" data-season="gold:${n}"${INV.gold >= n ? '' : ' disabled'}>Give ${n} gold</button>`).join('');
   const news = RS.log.filter((L) => L.r === me || L.r === -1 || L.k === 'big').slice(-8).reverse().map((L) => `<li><small>day ${Math.floor(L.t / 86400) + 1}</small> ${esc(L.x)}</li>`).join('');
   const past = RS.past.slice(-4).reverse().map((p) => `<li>Season ${p.n}: <b>${REALMS[p.w].name}</b> (${p.sp.map((v, r) => `${REALMS[r].name} ${fmtInt(v)}`).join(', ')})</li>`).join('');
   const y = SEASONP.you;
-  return `<p class="lead">The war is a season of ${sum.days} days: the muster (a week of building and skirmishes: no keep falls for the season), the war (keeps and hallows change hands; offensives are announced days ahead), the reckoning (the most season points wins). The realms live on while you are away.</p>
+  return `<p class="lead">The war is a season of ${sum.days} days: the muster (building; no keep falls), the war, the reckoning (the most points wins). The realms live on while you are away.</p>
     <div class="now"><p><b>${seasonClockText(sum)}</b></p><ol class="plain season-stand">${stand}</ol>
     ${offs ? `<ul class="plain">${offs}</ul>` : ''}
     ${SEASONP.away ? `<p><b>While you were away (${rsmDur(SEASONP.away.el)}):</b> ${esc(SEASONP.away.sum.lines.filter((x) => !/^While/.test(x)).slice(-3).join(' '))}</p>` : ''}</div>
@@ -300,7 +300,7 @@ function chronSeason() {
     <h3>Season points</h3><p>Each hour of the war a realm's own keep counts ${RSM.sp.own}, a keep taken ${RSM.sp.won}, an enemy hallow in its temple ${RSM.sp.hallow}. A work finished ${RSM.sp.project} (a tier of walls ${RSM.sp.tier}), an offensive that takes its keep ${RSM.sp.offensive} (beaten off, ${Math.round(RSM.sp.offensive * 0.6)} to the defender), a battle won ${RSM.sp.battle}, every ${RSM.sp.units} units delivered one. A realm behind works harder and its walls stand stronger, and the others turn on the leader.</p>
     <h3>Offensives</h3><p>An offensive is announced about two days ahead: the realm marches with everything it trained and every engine it stockpiled. Defend the keep named: raise its walls, fill its stores, be there.</p>${aims}
     <h3>The season's length</h3><p>This season lasts ${sum.days} days. The next: ${[7, 21, 42].map((d) => `<button type="button" class="btn season-btn" data-season="len:${d}"${(RS.nextLen || RS.len) === d * 86400 ? ' aria-pressed="true"' : ''}>${d / 7} week${d > 7 ? 's' : ''}</button>`).join(' ')}</p>
-    <h3>What each work wants</h3><ul class="plain">${wants}</ul>
+    <h3>What each work does and wants</h3><ul class="plain">${wants}</ul>
     <h3>The season's news</h3><ul class="plain season-news">${news || '<li>Nothing yet.</li>'}</ul>
     ${past ? `<h3>Seasons past</h3><ul class="plain">${past}</ul>` : ''}`;
 }

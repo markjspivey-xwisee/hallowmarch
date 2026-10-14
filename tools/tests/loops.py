@@ -645,14 +645,17 @@ async def main():
             # [loops] the season as a player sees it: the Chronicle's Season page on a phone, the war panel's line on a desk
             print('SEASON SHOTS', flush=True)
             await b.close()
-            for (w, h, touch, name) in ((390, 780, True, 'loops_season_phone'), (960, 540, False, 'loops_season_desk')):
+            for (w, h, touch, name) in ((390, 780, True, 'loops_season_phone'), (1280, 720, False, 'loops_season_desk')):
                 b, page, logs = await setup(p, touch=touch, w=w, h=h)
+                await page.emulate_media(reduced_motion='reduce') # (the Chronicle's sheet fades in by a CSS animation that a loaded headless page may not run)
                 await ev(page, "__hm.fn.setQuality('low'); 0")
                 await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 24 }); __hm.UI.modal = null; return 0; })()")
                 await ev(page, HELP)
                 await ev(page, "(() => { __lt.quiet(); __lt.calm(); __hm.simulate(2); __hm.season.away(9 * 86400); __hm.GAME.prog.rp = 60000; __hm.simulate(2); for (let i = 0; i < 4; i++) __hm.frame(1/30); return 0; })()")
                 await page.wait_for_timeout(1500)
                 await page.screenshot(path=OUT + name + '_hud.png', timeout=300000)
+                vis = await ev(page, "(() => { const w = document.getElementById('war'); return !!w && w.offsetParent !== null && !w.classList.contains('hl-off'); })()")
+                if vis: await page.locator('#war').screenshot(path=OUT + name + '_war.png', timeout=300000)
                 await ev(page, "(() => { __hm.LORE.openChronicle('season'); return 0; })()")
                 await page.wait_for_timeout(2500) # (the sheet fades in on the wall clock)
                 await page.screenshot(path=OUT + name + '_page.png', timeout=300000)
