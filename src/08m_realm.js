@@ -38,6 +38,7 @@ const RSM = {
   march: 150,               // metres of road an hour
   siegeHours: 30,           // an army gives up a siege after this many hours
   sp: { own: 0.5, won: 2.5, hallow: 3, project: 20, tier: 12, units: 40, battle: 10, offensive: 15, work: 3 }, // season points
+  price: [2, 4, 4, 15, 6, 5, 120, 0], // gold a unit at the border fairs: the treasury buys what the realm's work lacks
   catchUp: 0.35,            // a realm behind gets up to this much more work and its walls stand that much stronger
   maxLog: 80,
   projects: {
@@ -88,7 +89,7 @@ function realmSimInit(seed, opts = {}) {
     realms: [0, 1, 2].map((r) => ({
       s: RSM.target.map((v) => Math.round(v * 0.8)), bank: [0, 0, 0, 0, 0, 0, 0, 0], lev: 12, sp: 0, del: 0, work: 0, proj: { walls: 0, granary: 0, yard: 0, smithy: 0, engines: 0 },
       act: 'granary', prog: 0, votes: {}, aim: -1, short: [], hungry: 0, by: {}, raidAt: 0, decideAt: 0, levyAt: 0, refillAt: 0,
-      stats: { trained: 0, lost: 0, taken: 0, raids: 0, made: 0, ate: 0, offensives: 0, won: 0, hungryH: 0, poured: 0 },
+      stats: { trained: 0, lost: 0, taken: 0, raids: 0, made: 0, ate: 0, offensives: 0, won: 0, hungryH: 0, poured: 0, bought: 0 },
     })),
     keeps: homes.map((h) => ({ h, home: h, g: RSM.garrison, tier: 0, gate: 1, siege: null })),
     hallows: [0, 1, 2],     // where each realm's hallow stands (in whose temple)
@@ -235,6 +236,14 @@ function rsmProject(RS, r, R, hr) {
   const pace = hr / (P.days * 24) * (1 + Math.min(3, R.work / 20) + 4 * banked); // the players' work (hours given) and goods brought quicken it
   let got = 1;
   // (it draws only above a reserve of half the target: the war's own needs come first)
+  // the treasury buys at the border fairs what the work lacks this step (above the reserve the war keeps)
+  for (let g = 0; g < 7; g++) {
+    if (!(P.cost[g] > 0)) continue;
+    const want = P.cost[g] * pace - (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]);
+    if (want <= 0) continue;
+    const n = Math.min(want * 0.3, Math.max(0, R.s[7] - RSM.target[7] * 0.25) / RSM.price[g]); // (a fair sells a little at a time)
+    if (n > 0) { R.s[7] -= n * RSM.price[g]; R.bank[g] += n; R.stats.bought += n; }
+  }
   // (the goods the players brought for the works, R.bank, first)
   for (let g = 0; g < 8; g++) if (P.cost[g] > 0) got = Math.min(got, (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]) / (P.cost[g] * pace + 1e-9));
   got = rsmClamp(got, 0, 1);

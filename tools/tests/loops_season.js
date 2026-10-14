@@ -86,11 +86,11 @@ check(place(d1) > 1.0 || SEEDS < 4, 'but never wins every season by deliveries a
 // a realm short of each thing shows it
 const st = (starve) => { const t = season(424242, null, { starve }); return t.RS.realms[0]; };
 const base = runs[0].RS.realms[0];
-const noFood = st([[0, 0]]), noIron = st([[0, 3]]), noTimber = st([[0, 1]]);
+const noFood = st([[0, 0]]), noIron = st([[0, 3]]), noTimber = st([[0, 1], [0, 7]]); // (and no gold to buy it at the fairs)
 console.log(`Logres short: of food trained ${noFood.stats.trained} (whole ${base.stats.trained}), hungry ${noFood.stats.hungryH.toFixed(0)} h; of iron trained ${noIron.stats.trained}; of timber made ${noTimber.stats.made} projects (whole ${base.stats.made})`);
 check(noFood.stats.trained < base.stats.trained * 0.3 && noFood.stats.hungryH > 48, 'without food it trains next to nobody and its soldiers go hungry');
 check(noIron.stats.trained < base.stats.trained * 0.3, 'without iron its levies go untrained');
-check(noTimber.stats.made < base.stats.made, 'without timber its projects stall');
+check(noTimber.stats.made < base.stats.made * 0.5, 'without timber (nor gold to buy it) its projects stall');
 
 // determinism, the save and its sanitising
 const a = season(99), b = season(99);
