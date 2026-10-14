@@ -322,8 +322,10 @@ async def main():
               for (let i = 0; i < 4; i++) H.frame(1 / 30);
               const cloud = W2T.px(0.47, 0.47, 0.53, 0.53).l;
               __hm.weather2.fairSet(fair);
-              return { moon: m.map((v) => +v.toFixed(2)), clear: +clear.toFixed(1), cloud: +cloud.toFixed(1) }; })()""")
+              const scr = !!X.WXR.scrOn && !!X.WXR.scr, scrK = X.WXR.scr ? [X.WXR.scr.width, X.WXR.scr.height] : null;
+              return { moon: m.map((v) => +v.toFixed(2)), clear: +clear.toFixed(1), cloud: +cloud.toFixed(1), scr, scrK }; })()""")
             check(r['clear'] > r['cloud'] * 1.6 and r['clear'] > 60, f"the moon shines in a clear sky and is hidden behind a cloud ({r['clear']} / {r['cloud']})")
+            check(r['scr'], f"the view's own clouds are drawn (a pass of {r['scrK']})")
 
         if 'shots' in ONLY and SHOTS:
             sfx = ('phone_' if PHONE else '') + Q

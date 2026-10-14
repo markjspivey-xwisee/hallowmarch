@@ -188,9 +188,10 @@ function updateWeather(dt) {
   if (live) {
     // [weather2] the ground's wetness and the snow lying are each place's own (12c_weather2.js's grid, the season map):
     // the camera reads its own
-    W2.wet += (wxGridAt('wet', camX, camZ) - W2.wet) * (1 - Math.exp(-dt / 1.5));
-    const lie = typeof seasonSnowLieAt === 'function' ? seasonSnowLieAt(camX, camZ) : 0;
-    W2.snow += (lie - W2.snow) * (1 - Math.exp(-dt / 1.5));
+    // (both are read smoothly from their maps, so they follow the camera at once: a journey from a Thule winter does not
+    // carry its snow along)
+    W2.wet = wxGridAt('wet', camX, camZ);
+    W2.snow = typeof seasonSnowLieAt === 'function' ? seasonSnowLieAt(camX, camZ) : 0;
   } else {
   W2.wet = clamp(W2.wet + (rain > 0.2 ? dt * rain / 50 : -dt * weatherDryRate() / 140), 0, 1);
   W2.snow = clamp(W2.snow + (W2.snowing > 0.2 ? dt * W2.snowing / 70 : -dt * weatherMeltRate(coldK) / 200), 0, 1);
