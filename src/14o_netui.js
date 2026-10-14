@@ -371,6 +371,7 @@ function netMinimap(ctx, toM, S, dpr) {
   }
 }
 function netWorldMap(ctx, S) {
+  if (typeof netsWorldMap === 'function') netsWorldMap(ctx, S); // the season's armies (14q_netseason.js)
   if (!netOn()) return;
   const P = GAME.player;
   for (const R of NET.peers.values()) {

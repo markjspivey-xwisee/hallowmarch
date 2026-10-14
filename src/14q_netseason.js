@@ -99,6 +99,27 @@ function netsApply(first) {
   }
   if (!NETS.noted && P) { NETS.noted = true; loreNote('netseason'); }
 }
+// the season's armies on the map: a pennant in their realm's colour with their number, a siege ringed (your realm's
+// always; a foe's at a siege, as the news tells it)
+function netsWorldMap(ctx, S) {
+  if (!netsOn() || !GAME.player) return;
+  const me = GAME.player.faction;
+  ctx.save();
+  ctx.font = `600 ${Math.round(S * 0.02)}px system-ui, sans-serif`;
+  for (const A of NETS.s.armies) {
+    if (A.r !== me && A.st !== 'siege') continue;
+    const [x, y] = w2m(A.x, A.z, S), u = S * 0.012;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y + u * 1.4); ctx.lineTo(x, y - u * 1.6); ctx.stroke();
+    ctx.fillStyle = REALMS[A.r].color;
+    ctx.beginPath(); ctx.moveTo(x, y - u * 1.6); ctx.lineTo(x + u * 1.8, y - u * 1.1); ctx.lineTo(x, y - u * 0.6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (A.st === 'siege') { ctx.strokeStyle = REALMS[A.r].color; ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(x, y, u * 3, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+    const t = String(A.n);
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.fillStyle = '#f4ead8';
+    ctx.strokeText(t, x + u * 2.1, y - u * 0.6); ctx.fillText(t, x + u * 2.1, y - u * 0.6);
+  }
+  ctx.restore();
+}
 // a line on the war panel (10_ui.js updateWarPanel)
 function netSeasonHudHTML() {
   // the server's state shown plainly: linked (the season's line), reconnecting, or not reached (playing alone)
