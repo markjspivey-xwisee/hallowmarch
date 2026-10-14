@@ -358,7 +358,7 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADI
   GUIDE_WATCH.loffensive = (P) => !!SEASONP.rs && SEASONP.rs.offs.some((O) => O.state === 'planned' && SEASONP.rs.keeps[O.k].h === P.faction);
   GUIDE_HELP.push(() => `<h3>The season</h3><p>The war is a season of ${SEASONP.days} days: the muster, the war, the reckoning. Each hour a keep or an enemy hallow held earns its realm season points, and so do projects built, offensives won and goods delivered. Offensives are announced days ahead. Your realm votes on its work (officers from realm rank 5 set it); give gold to its treasury on the Chronicle's Season page. The realms live on while you are away, and you are told what happened when you return.</p>`);
   // the path: the realm's work funded (pv 3, with the stores' steps: 08m_loops.js)
-  const S = { id: 'fund', lv: 10, old: 18, pv: 3, title: "Fund the realm's work", short: "Fund the realm's work",
+  const S = { id: 'fund', lv: 15, old: 20, pv: 3, title: "Fund the realm's work", short: "Fund the realm's work",
     hint: (R) => `${R.name} pours its stores into one work at a time: walls, a granary, a yard, a smithy, siege engines. On the Chronicle's Season page give gold to its treasury, or vote for the next work.`,
     reward: { gold: (L) => 40 + L * 4 } };
   if (!PATH_BY_ID[S.id]) { const i = PATH_STEPS.findIndex((q) => q.lv > S.lv); PATH_STEPS.splice(i < 0 ? PATH_STEPS.length : i, 0, S); PATH_BY_ID[S.id] = S; PATH_STEPS.forEach((q, j) => { q.idx = j; }); }
