@@ -84,6 +84,8 @@ export function makeSeason(cfg, store, stats) {
     if (take < n) stats.contribClipped++;
     if (take <= 0) return { ok: false, why: 'More than you could have gathered: wait a while', took: 0 };
     const got = S.M.realmSimContribute(S.RS, realm, kind, take, acct);
+    if (got < take) B[kind][0] += take - got; // what the stores had no room for stays in the bucket
+    if (!(got > 0)) return { ok: false, why: `The realm's stores of ${kind} are full`, took: 0 };
     const R = S.roster[acct];
     if (R) { const day = Math.floor(now / 86400e3); if (R.day !== day) { R.day = day; R.today = 0; } R.today += got; R.given = (R.given || 0) + got; }
     stats.contribs++; S.dirty = true;

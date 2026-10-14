@@ -18,7 +18,7 @@ from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
 KV = dict(a.split('=', 1) for a in ARGS if '=' in a)
-PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf')] or ['room']
+PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed')] or ['room']
 THREE = 'three' in ARGS
 LOSSY = 'lossy' in ARGS
 SHOTS = 'shots' in ARGS
@@ -489,6 +489,126 @@ async def server_part(p):
         try: print('server says:', srv.communicate(timeout=3)[0][-600:])
         except Exception: srv.kill()
 
+def http_json(url, method='GET', headers=None):
+    import urllib.request
+    req = urllib.request.Request(url, method=method, headers=headers or {}, data=b'' if method == 'POST' else None)
+    return json.loads(urllib.request.urlopen(req, timeout=15).read())
+
+async def season_part(p):
+    """[net] the season (server/season.js, 14q_netseason.js): a page of Ériu linked to a local server whose season runs
+    600 times as fast, and a headless player of its realm"""
+    import tempfile
+    port = free_port(); data = tempfile.mkdtemp(prefix='net_season_', dir=str(OUT))
+    root = pathlib.Path(__file__).resolve().parents[2]
+    env = {**os.environ, 'PORT': str(port), 'HM_DATA': data, 'HM_SEASON_SPEED': '30', 'HM_SEASON_STEP': '500', 'HM_SEASON_PUSH': '1500', 'HM_ADMIN': 'net-test-key'}
+    srv = subprocess.Popen(['node', str(root / 'server' / 'server.js')], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    base = f'http://127.0.0.1:{port}'; url = f'ws://127.0.0.1:{port}/ws'
+    try:
+        for _ in range(60):
+            try: http_json(base + '/health'); break
+            except Exception: await asyncio.sleep(0.25)
+        b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+        ctx = await b.new_context(viewport={'width': W, 'height': H})
+        A = await boot(ctx, {'room': 'srv', 'user': 'uSeasonA', 'noRoom': True, 'server': url}, 'A')
+        town = await A.evaluate('(() => { const T = __hm.REALMS[1].town; return [T.x, T.z]; })()')
+        await start(A, 1, 'archer', 30, 'Eithne', town[0] + 4, town[1] + 10)
+        ok = await until([A], A, "!!__hm.season.NETS.s", 20)
+        check(ok, 'the page is told the season by the server')
+        if not ok:
+            print(await A.evaluate("JSON.stringify({ st: NT.st().state, kind: NT.st().kind, ws: __hm.net.NETWS.state, stats: __hm.net.NETWS.stats, errs: __hm.errors.slice(0, 3), ns: __hm.season.NETS.stats })"))
+            raise RuntimeError('no season')
+        s0 = await A.evaluate("(() => { const s = __hm.season.NETS.s; return { day: s.day, phase: s.phase, st: s.st, keeps: s.keeps.map((K) => K.r) }; })()")
+        log('season', json.dumps(s0))
+        await A.evaluate('__hm.frame(1/30); 0')
+        line = await A.evaluate("(() => { __hm.guide2.updateWarPanel(); const e = document.querySelector('#war .ns-line'); return e ? e.textContent : ''; })()")
+        check('Season' in line and 'day' in line, f'the war panel tells the season ({line!r})')
+        # a player of the realm comes while the page plays: on its roster
+        N1 = NodeClient('N1'); await N1.start(url)
+        await N1.cmd({'cmd': 'hello', 'name': 'Nuala', 'realm': 1, 'cls': 'priest', 'x': town[0] - 200, 'z': town[1]})
+        ok = await until([A], A, "!!(__hm.season.NETS.roster && __hm.season.NETS.roster.list.some((x) => x.n === 'Nuala' && x.on))", 30)
+        check(ok, 'another player of the realm on the roster, on now')
+        # the Season page: bring timber, vote for a work
+        await A.evaluate("__hm.fn.goodsAdd('log', 30, true); __hm.fn.goodsAdd('grain', 50, true); __hm.LORE.openChronicle('season'); 0")
+        await A.evaluate('__hm.frame(1/30); 0')
+        has = await A.evaluate("(() => [...document.querySelectorAll('.chron [data-ns]')].map((b) => b.dataset.ns))()")
+        check('give:timber' in has and 'give:food' in has and any(h.startswith('project:') for h in has), f'the Season page offers to bring goods and vote ({has[:6]})')
+        c0 = http_json(base + '/stats')['contribs']
+        await A.evaluate("document.querySelector('.chron [data-ns=\"give:timber\"]').click(); 0")
+        ok = await until([A], A, "__hm.season.NETS.stats.contribs >= 1 && !__hm.season.NETS.busy", 15)
+        logs = await A.evaluate("__hm.fn.goodsCount('log')")
+        said = await A.evaluate("JSON.stringify([__hm.season.NETS.said, __hm.season.NETS.stats, __hm.season.NETS.s.st])")
+        check(ok and http_json(base + '/stats')['contribs'] > c0 and logs == 0, f'timber brought from the packs to the realm by a tap (logs left {logs}; {said})')
+        await A.evaluate("document.querySelector('.chron [data-ns=\"project:walls\"]').click(); 0")
+        ok = await until([A], A, "__hm.season.NETS.stats.orders >= 1 && !__hm.season.NETS.busy", 15)
+        pub = http_json(base + '/stats')
+        check(ok and pub['orders'] >= 1, f"a vote for a work by a tap ({pub['orders']} orders)")
+        # a keep taken in the live war is taken in the season (the page keeps the shared war)
+        host = await A.evaluate('NT.st().isHost')
+        check(host, 'the page keeps the shared war')
+        await A.evaluate("(() => { const K = __hm.WAR.keeps[0]; __hm.fn.captureKeep(K, 1, null); return 0; })()")
+        ok = False
+        for _ in range(40):
+            await step([A], 0.25)
+            if http_json(base + '/season')['keeps'][0]['r'] == 1: ok = True; break
+        check(ok, 'a keep taken in the live war is taken in the season')
+        # the season takes a keep (as its armies would): the live war follows
+        r = http_json(base + '/admin?op=keep&i=5&r=1', 'POST', {'x-hm-admin': 'net-test-key'})
+        ok = await until([A], A, "__hm.WAR.keeps[5].realm === 1", 30)
+        check(ok, f"a keep the season takes is taken in the live war ({r.get('keeps')})")
+        # and the live war's own is not taken back by the season's next word
+        await A.evaluate("__hm.fn.captureKeep(__hm.WAR.keeps[2], 2, null); 0")
+        await step([A], 0.25, 12)
+        kk = await A.evaluate("__hm.WAR.keeps.map((K) => K.realm)")
+        check(kk[2] == 2, f'the live war keeps its own capture ({kk})')
+        bad = await A.evaluate("(() => { const n = __hm.season.NETS.stats.msgs; __hm.season.msg({ t: 'season', s: { day: 'x', keeps: [{ r: 7 }], news: [[1, 0, '<img src=x onerror=alert(1)>']], st: { food: 'lots' } } }); return [n, __hm.season.NETS.s.news.map((L) => L[2])]; })()")
+        await A.evaluate("__hm.LORE.openChronicle('season'); 0")
+        inj = await A.evaluate("!!document.querySelector('.chron img')")
+        check(not inj, 'what the server says is set as text')
+        if SHOTS or True:
+            await A.evaluate("__hm.LORE.openChronicle('season'); __hm.frame(1/30); 0")
+            await A.evaluate("__hm.season.msg({ t: 'season', s: __hm.season.NETS.s && { ...JSON.parse(JSON.stringify(__hm.season.NETS.s)) } }); 0")
+            info = await A.evaluate("(() => { const b = document.getElementById('menu-body'); const c = b.querySelector('.chron'); return [b.innerHTML.length, c ? c.innerHTML.length : -1, b.scrollHeight, b.clientHeight, (c ? c.textContent : b.textContent).slice(0, 200)]; })()")
+            log('season page', info)
+            await A.set_viewport_size({'width': 960, 'height': 540})
+            await A.evaluate("__hm.LORE.openChronicle('season'); 0")
+            await asyncio.sleep(1.5)  # the page fades in by the wall clock
+            await shot(A, 'season_page')
+        errs = await A.evaluate('__hm.errors.slice()')
+        check(not errs, f'no errors ({errs[:2]})')
+        await N1.quit()
+        await b.close()
+    finally:
+        srv.terminate()
+        try: print('server says:', srv.communicate(timeout=3)[0][-500:])
+        except Exception: srv.kill()
+
+async def deployed_part(p):
+    """[net] the deployed server (Railway, CLAUDE.md: Multiplayer): its health, the season played by asynchronous
+    players (net_season.mjs against it), and two pages linked to it at once"""
+    host = KV.get('host', 'march-production-f6d9.up.railway.app')
+    h = http_json(f'https://{host}/health')
+    check(h.get('ok'), f'the deployed server answers ({h})')
+    r = subprocess.run(['node', str(pathlib.Path(__file__).with_name('net_season.mjs')), f'wss://{host}/ws'], capture_output=True, text=True, timeout=180)
+    print(r.stdout[-1800:])
+    check(r.returncode == 0, 'asynchronous players play the season on the deployed server')
+    b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+    ctx = await b.new_context(viewport={'width': W, 'height': H})
+    url = f'wss://{host}/ws'
+    A, B = await asyncio.gather(boot(ctx, {'room': 'dep', 'user': 'uDepA', 'noRoom': True, 'server': url, 'shard': 'net-test'}, 'A'), boot(ctx, {'room': 'dep', 'user': 'uDepB', 'noRoom': True, 'server': url, 'shard': 'net-test'}, 'B'))
+    town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
+    await start(A, 0, 'warrior', 30, 'Osric', town[0] + 4, town[1] + 10)
+    await start(B, 0, 'priest', 30, 'Wynn', town[0] + 8, town[1] + 10)
+    ok = await until([A, B], A, "NT.st().state === 'on' && !!NT.ghostOf('Wynn')", 40)
+    check(ok, 'two pages on the deployed server see each other')
+    ok = await until([A, B], B, "!!NT.ghostOf('Osric') && !!__hm.season.NETS.s", 30)
+    check(ok, 'and both are told the season')
+    rtt = await A.evaluate('__hm.net.NETWS.stats.rtt')
+    log('round trip to the deployed server', rtt, 'ms')
+    for pg in (A, B):
+        errs = await pg.evaluate('__hm.errors.slice()')
+        check(not errs, f'{pg._name}: no errors ({errs[:2]})')
+    await b.close()
+
 async def perf_part(p):
     """the cost of others drawn: one page alone, then with ten players walking round it (net_fake.js)"""
     rid = 'net-perf-' + ''.join(random.choice('abcdefghijk') for _ in range(5))
@@ -543,6 +663,8 @@ async def main():
         if 'room' in PARTS: await room_part(p)
         if 'server' in PARTS: await server_part(p)
         if 'perf' in PARTS: await perf_part(p)
+        if 'season' in PARTS: await season_part(p)
+        if 'deployed' in PARTS: await deployed_part(p)
     print(f'\n{len(FAILS)} failed in {time.time() - T0:.0f}s')
     for f in FAILS: print('  FAIL', f)
     sys.exit(1 if FAILS else 0)

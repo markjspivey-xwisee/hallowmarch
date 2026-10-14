@@ -338,7 +338,19 @@ function onMsg(c, raw) {
 /* ------------------------------------------------------------------ */
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
-  if (u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000) })); return; }
+  if (u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok: true, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000) })); return; }
+  // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
+  // would set it (tests: the season's own capture told to the pages), a new season, the season saved now
+  if (u.pathname === '/admin' && req.method === 'POST') {
+    const key = process.env.HM_ADMIN || '', give = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    const got = String(req.headers['x-hm-admin'] || '');
+    if (!key || got.length !== key.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key))) { give(403, { ok: false }); return; }
+    const op = u.searchParams.get('op'), i = +u.searchParams.get('i'), r = +u.searchParams.get('r');
+    if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; give(200, { ok: true, keeps: SEASON.keepsOf() }); return; }
+    if (op === 'reset' && SEASON.M) { SEASON.RS = SEASON.M.realmSimInit(CFG.seasonSeed + Date.now() % 1000, { keeps: CFG.keeps, len: CFG.seasonLen, season: (SEASON.RS && SEASON.RS.n || 0) + 1 }); SEASON.roster = {}; SEASON.chat = [[], [], []]; for (const A of Object.values(ACCOUNTS)) delete A.votes; accountsSave(); SEASON.save(); give(200, { ok: true, n: SEASON.RS.n }); return; }
+    if (op === 'save') { SEASON.save(); give(200, { ok: true }); return; }
+    give(400, { ok: false }); return;
+  }
   if (u.pathname === '/season') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
   if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, rooms: [...ROOMS.values()].map((R) => ({ name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
