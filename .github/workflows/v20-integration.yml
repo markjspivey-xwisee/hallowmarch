@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [headless, companies, season, performance, visuals, shaders, phone, soak]
+        check: [headless, companies, season, performance, visuals, shaders, phone, soak, water]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,7 +86,7 @@ jobs:
           check() { python tools/ci/run_check.py "$@"; }
           case "$CHECK" in
             headless)
-              node --test tools/tests/companies_regression.mjs
+              node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
@@ -106,6 +106,10 @@ jobs:
               check python3 tools/tests/touch_flows.py only=net,stores,season
               ;;
             soak) check python3 tools/soak.py 10 ;;
+            water)
+              check python3 tools/tests/water.py
+              check python3 tools/tests/water2.py
+              ;;
           esac
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}

@@ -55,9 +55,10 @@ export function makeField(SEASON, ROOMS, send, regionOf, WORLD, STATS) {
     if (!ok() || !m || !Number.isInteger(m.id) || !m.rep || typeof m.rep !== 'object') return;
     const h = F.held.get(m.id);
     if (!h || h.c !== c) { F.stats.refused++; return; }
-    const rep = { n: Number.isFinite(m.rep.n) ? m.rep.n : undefined, p: Number.isFinite(m.rep.p) ? m.rep.p : undefined, state: m.rep.state === 'siege' ? 'siege' : undefined, done: typeof m.rep.done === 'string' ? m.rep.done.slice(0, 12) : '', fold: !!m.rep.fold };
-    SEASON.M.realmSimFieldReport(SEASON.RS, m.id, rep, h.who);
-    if (rep.fold || rep.done) F.held.delete(m.id);
+    const rep = { n: Number.isFinite(m.rep.n) ? m.rep.n : undefined, p: Number.isFinite(m.rep.p) ? m.rep.p : undefined, state: m.rep.state === 'siege' ? 'siege' : undefined, done: ['taken', 'fallen', 'beaten', 'raided', 'caught', 'home'].includes(m.rep.done) ? m.rep.done : '', fold: !!m.rep.fold };
+    if (!SEASON.M.realmSimFieldReport(SEASON.RS, m.id, rep, h.who)) { F.stats.refused++; return; }
+    const A = SEASON.RS.armies.find((x) => x.id === m.id);
+    if (!A || !A.onField || A.onField.who !== h.who) F.held.delete(m.id);
     F.stats.reports++; SEASON.dirty = true;
   };
   // a page gone: its armies folded back where they last stood

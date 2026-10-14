@@ -11,7 +11,7 @@ usage: python3 tools/tests/perf.py [high|medium|low ...] [views=town,keep,...] [
 (js: only the JS costs; render: only the draw counts; shots [shotq=low,medium]: a picture of each view; audio: a click
 first, so the sound runs: without a gesture there is no AudioContext and updateAudio does nothing)
 Writes tools/out/perf_<tag>.json and prints a table."""
-import asyncio, json, sys, time, pathlib
+import asyncio, json, sys, time, pathlib, subprocess
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
 from playwright.async_api import async_playwright
@@ -272,4 +272,39 @@ async def main():
     pathlib.Path(OUT + f'perf_{TAG}.json').write_text(json.dumps(res, indent=1))
     if 'budget' in ARGS and (res.get('over') or res.get('errors')): sys.exit(1)
 
-asyncio.run(main())
+
+def run_isolated_qualities():
+    """Each quality starts with the same seeded world and scene fixtures.
+
+    Siege fires, ruined houses and masons advance the world. Reusing that world
+    for the next quality compared different scenes and inflated later budgets.
+    Keep every requested view and the existing budget limits.
+    """
+    parts, codes = [], []
+    for q in QUALS:
+        tag = TAG + "_" + q
+        args = [a for a in ARGS if a not in ('low', 'medium', 'high') and not a.startswith('tag=')]
+        code = subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *args, q, "tag=" + tag]).returncode
+        result = pathlib.Path(OUT + "perf_" + tag + ".json")
+        codes.append(code)
+        if not result.exists():
+            print("FAIL: " + q + " produced no performance report", flush=True)
+            codes.append(1)
+            continue
+        parts.append(json.loads(result.read_text()))
+    if parts:
+        merged = dict(parts[-1])
+        merged.update(tag=TAG, views={}, over=[], errors=[])
+        for part in parts:
+            for view, qualities in part.get('views', {}).items():
+                merged['views'].setdefault(view, {}).update(qualities)
+            merged['over'].extend(part.get('over', []))
+            merged['errors'].extend(part.get('errors', []))
+        merged['bootByQuality'] = {q: part.get('boot', {}) for q, part in zip(QUALS, parts)}
+        pathlib.Path(OUT + "perf_" + TAG + ".json").write_text(json.dumps(merged, indent=1))
+    sys.exit(1 if any(codes) else 0)
+
+if len(QUALS) > 1:
+    run_isolated_qualities()
+else:
+    asyncio.run(main())

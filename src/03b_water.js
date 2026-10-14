@@ -230,7 +230,9 @@ const WATER_MESHES = [];
 function buildWater() {
   uploadWaterMap();
   const G = WATERGRID, ext = G.ext, S = G.surf;
-  const CH = 8, CELLS = 64;
+  // Larger batches retain the same grid cells, vertices and flow/ice data while
+  // reducing submissions for the many small water patches visible in one view.
+  const CH = 4, CELLS = 128;
   for (let cj = 0; cj < CH; cj++) for (let ci = 0; ci < CH; ci++) {
     const vid = new Map(), pos = [], aw = [], idx = [];
     let minY = Infinity, maxY = -Infinity;
