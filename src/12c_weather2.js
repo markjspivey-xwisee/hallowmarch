@@ -829,6 +829,25 @@ if (typeof LOADING_TIPS !== 'undefined') LOADING_TIPS.push(
 /* ================================================================== */
 /* shelter: no snow or rain under a roof                                */
 /* ================================================================== */
+// the herald's word on the sky (10_ui.js openHerald): what is coming over the town, and the weather in the realms' towns
+const _wxHq = {};
+function wxHeraldText() {
+  if (wxHeld()) return '';
+  const P = GAME.player; if (!P || inDungeon(P)) return '';
+  const towns = SITES.filter((S) => S.kind === 'town');
+  const said = [];
+  for (const S of towns) {
+    const w = weatherAt(S.x, S.z, _wxHq);
+    if (w.kind === 'clear' || w.kind === 'cloudy') continue;
+    said.push(`${w.kind === 'storm' ? (w.snowing > 0.3 ? 'a blizzard' : 'a storm') : w.kind === 'mist' ? 'mist' : w.snowing > 0.3 ? 'snow' : 'rain'} over ${esc(S.name)}`);
+  }
+  const f = wxForecast(P.x, P.z), wind = wxCompass(-wxWindVec().x, -wxWindVec().z);
+  let t = `The wind is from the ${wind}.`;
+  if (f) t += ` ${f.what === 'storm' ? 'A storm' : f.what === 'snow' ? 'Snow' : 'Rain'} is coming in from the ${f.from}: find a roof, or keep your fires covered.`;
+  else t += ' Nothing foul is coming our way for a while.';
+  if (said.length) t += ` Riders tell of ${said.slice(0, 3).join(', ')}.`;
+  return `<p>${t}</p>`;
+}
 // The shelter map (1 m texels over the land, U.uShelter): over each texel the height of the highest roof, room or floor
 // standing over it (world y), or far below where the sky is open. Every shader's snowHere (02d_season.js), the ground's
 // snow and wet film (03_terrain.js) and the drops of rain and snow (05e_weather.js) read it; wxShelterY / wxSheltered
@@ -961,7 +980,7 @@ function hookWeather2() {
   if (WX.hooked || !window.__hm || !window.__hm.fn) return;
   WX.hooked = true;
   window.__hm.weather2 = {
-    WX, WXR, WXS, WX_KINDS, WX_Q, weatherAt, wxForecast, wxForecastText, wxShelterBuild, wxShelterKey, wxShelterY, wxSheltered, wxsRoof, wxFieldAt, wxHeld, wxLive, wxMake, wxSave, wxLoad, wxGridAt, wxRainAt, wxStormAt, wxSnowingAt, wxPrecipAt, wxWetAt, wxOvercastAt,
+    WX, WXR, WXS, WX_KINDS, WX_Q, weatherAt, wxForecast, wxForecastText, wxHeraldText, wxShelterBuild, wxShelterKey, wxShelterY, wxSheltered, wxsRoof, wxFieldAt, wxHeld, wxLive, wxMake, wxSave, wxLoad, wxGridAt, wxRainAt, wxStormAt, wxSnowingAt, wxPrecipAt, wxWetAt, wxOvercastAt,
     updateWeather2, wxCloudFlash, wxBoltVisual, wxStrikeStep, wxCloudsFrame, wxCloudsScreen, wxBuildClouds,
     precip: () => ({ rain: rainMesh, snow: snowMesh }),
     sites: SITES, TRACKS,

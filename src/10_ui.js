@@ -789,6 +789,7 @@ function openHerald() {
   }
   if (prog.level >= 14) body += campaignHeraldText(); // [campaign] campaigns and commanding (08g_campaign.js)
   body += late3HeraldText(); // [late3] the way beneath the Hollow King's hall (10m_deep.js)
+  if (typeof wxHeraldText === 'function') body += wxHeraldText(); // [weather2] the sky over the March (12c_weather2.js)
   acts.push(['Farewell', closeDialog]);
   $('dlg-body').innerHTML = body;
   const box = $('dlg-actions');

@@ -176,6 +176,10 @@ async def main():
               H.teleport(c.x - 600, c.z); W2T.cam(P.x, P.y + 6, P.z + 8, P.x, P.y, P.z); H.simulate(20); out.wetAfter = +P.wet.toFixed(2);
               // the grass's dryness and a fire's damp
               out.natUnder = +X.wxGridAt('wet', c.x, c.z).toFixed(2); out.natAway = +X.wxGridAt('wet', c.x - 600, c.z).toFixed(2);
+              // the shaders' wet film: the grid's wetness in the texture (wetHere, 02d_season.js), on while live
+              { const U = H.dbg.U, T = U.uWxWet.value, D = T.image && T.image.data, n = T.image ? T.image.width : 0;
+                const at = (x, z) => { if (!D || !n) return -1; const i = Math.max(0, Math.min(n - 1, Math.floor((x + 512) / 1024 * n))), j = Math.max(0, Math.min(n - 1, Math.floor((z + 512) / 1024 * n))); return D[j * n + i] / 255; };
+                H.frame(1 / 30); out.wetTex = [U.uWxWetOn.value, +at(c.x, c.z).toFixed(2), +at(c.x - 600, c.z).toFixed(2)]; }
               out.precipUnder = +X.wxPrecipAt(c.x, c.z).toFixed(2); out.precipAway = +X.wxPrecipAt(c.x - 600, c.z).toFixed(2);
               // two beds: one under it, one away; a minute of growing
               const a = H.farm.till(c.x + 20, c.z + 20), b = H.farm.till(c.x - 600, c.z + 30), A = H.farm.plot(a), B = H.farm.plot(b);
@@ -187,10 +191,20 @@ async def main():
               return out; })()""")
             check(r['wetUnder'] > 0.3, f"a body under the storm gets wet ({r['wetUnder']})")
             check(r['wetAfter'] < r['wetUnder'], f"and dries out of it ({r['wetAfter']})")
+            check(r['wetTex'][0] == 1 and r['wetTex'][1] > r['wetTex'][2] + 0.2, f"the shaders' wet film follows the place: on, wet under the storm and dry beside it ({r['wetTex']})")
             check(r['natUnder'] > r['natAway'] + 0.2, f"the ground under the storm is wet, beside it dry ({r['natUnder']} / {r['natAway']})")
             if 'bedUnder' in r: check(r['bedUnder'] > r['bedAway'] + 0.01, f"a bed under the rain is watered, one away is not ({r['bedUnder']} / {r['bedAway']})")
             check(r['strikes'] > 0, f"the storm's lightning strikes ({r['strikes']})")
             check(r['strikesOff'] == 0, f"only under the storm ({r['strikesOff']} strikes off it)")
+            # the forecast: a storm upwind of the player, on its way over: the war panel's line and the herald's word say so
+            r = await ev(page, 'forecast', """(() => { const X = W2T.X, WX = X.WX, H = __hm, P = W2T.P(); W2T.live(); H.farm.setSeason(0.4); H.teleport(P.x, P.z);
+              WX.wind.from = WX.wind.toFrom = 270 * Math.PI / 180; WX.wind.s = WX.wind.toS = 7; WX.wind.next = 1e9;
+              const v = { x: -Math.sin(WX.wind.from), z: Math.cos(WX.wind.from) };
+              const c = X.wxMake('storm', P.x - v.x * 700, P.z - v.z * 700, { age: 100 }); c.life = 1e4;
+              const f = X.wxForecast(P.x, P.z), herald = X.wxHeraldText(), clear = (() => { X.calm(); return X.wxHeraldText(); })();
+              return { f, herald, clear }; })()""")
+            check(bool(r['f']) and r['f']['what'] == 'storm' and r['f']['from'] == 'west', f"a storm upwind is forecast, from the west ({r['f']})")
+            check('coming in from the west' in r['herald'] and 'Nothing foul' in r['clear'], f"the herald says what is coming, and when nothing is ({r['herald'][:120]} / {r['clear'][:80]})")
             # winter: snow falls and lies under a snow cloud in Thule, not beside it
             r = await ev(page, 'snow', """(() => { const X = W2T.X, WX = X.WX, H = __hm; W2T.live(); WX.wind.s = 0.01; WX.wind.toS = 0.01;
               H.farm.setSeason(0.88); H.seasons.seasonSettle();
@@ -344,17 +358,17 @@ async def main():
                 print('  shot', name, f'[{time.time() - T0:.0f}s]', flush=True)
             setup_js = "(() => { W2T.live(); __hm.farm.setSeason(0.4); __hm.fn.weatherAdvance(5); return 0; })()"
             await page.evaluate(setup_js)
-            # a front coming in over a keep, seen from its wall walk
+            # a front coming in over a keep, seen from its wall walk (toward the open land: no mountain before it)
             await shot('front_keep', """(() => { const H = __hm, X = W2T.X, K = H.weather2.sites.find((s) => s.kind === 'keep' && s.realm === 0); H.setTod(0.55);
-              const v = { x: -Math.sin(X.WX.wind.from), z: Math.cos(X.WX.wind.from) };
-              const c = X.wxMake('front', K.x - v.x * 1400, K.z - v.z * 1400, { age: 220 }); c.sp = 0;
-              X.wxMake('shower', K.x - v.x * 700 + v.z * 300, K.z - v.z * 700 - v.x * 300, { age: 120 }).sp = 0;
-              W2T.cam(K.x, K.y + 9, K.z, K.x - v.x * 300, K.y + 60, K.z - v.z * 300); __hm.fn.weatherAdvance(5); return 0; })()""")
-            # a storm over the frontier from a town
+              const o = W2T.openDir(K.x, K.z, K.y + 9);
+              const c = X.wxMake('front', K.x + o.x * 1500, K.z + o.z * 1500, { age: 220, ang: Math.atan2(o.z, o.x) + Math.PI / 2 }); c.sp = 0;
+              X.wxMake('shower', K.x + o.x * 800 - o.z * 250, K.z + o.z * 800 + o.x * 250, { age: 120 }).sp = 0;
+              W2T.cam(K.x, K.y + 9, K.z, K.x + o.x * 300, K.y + 45, K.z + o.z * 300); __hm.fn.weatherAdvance(5); return 0; })()""")
+            # a storm over the frontier from a town, at golden hour
             await shot('storm_frontier', """(() => { const H = __hm, X = W2T.X; W2T.live(); const T = H.weather2.sites.find((s) => s.kind === 'town' && s.realm === 1); H.setTod(1.05);
-              const dx = -T.x, dz = -T.z, L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
-              const c = X.wxMake('storm', T.x + ux * 900, T.z + uz * 900, { age: 150 }); c.sp = 0;
-              W2T.cam(T.x, T.y + 8, T.z, T.x + ux * 300, T.y + 70, T.z + uz * 300); __hm.fn.weatherAdvance(5); return 0; })()""")
+              const o = W2T.openDir(T.x, T.z, T.y + 8);
+              const c = X.wxMake('storm', T.x + o.x * 1300, T.z + o.z * 1300, { age: 150 }); c.sp = 0;
+              W2T.cam(T.x, T.y + 8, T.z, T.x + o.x * 300, T.y + 40, T.z + o.z * 300); __hm.fn.weatherAdvance(5); return 0; })()""")
             # the moon between clouds
             await shot('moon_clouds', """(() => { const H = __hm, X = W2T.X, P = W2T.P(); W2T.live(); H.setTod(2.0); H.frame(1 / 30);
               const M = H.dbg.skyU.uMoonDir.value, cy = P.y + 3, t = (330 - cy) / Math.max(M.y, 0.05);
@@ -366,13 +380,15 @@ async def main():
               const c = X.wxMake('shower', P.x + 600, P.z + 200, { age: 200 }); c.sp = 0; X.WX.grid.wet.fill(0.8); W2T.W.wet = 0.8;
               W2T.cam(P.x, P.y + 4, P.z, P.x + 100, P.y + 25, P.z + 30); __hm.fn.weatherAdvance(5); return 0; })()""")
             # rain under its cloud, clear beside it, seen from the side
-            await shot('rain_edge', """(() => { const H = __hm, X = W2T.X, P = W2T.P(); W2T.live(); H.setTod(0.45);
-              const c = X.wxMake('storm', P.x + 520, P.z - 120, { age: 160 }); c.sp = 0;
-              W2T.cam(P.x - 150, P.y + 10, P.z, P.x + 400, P.y + 40, P.z - 100); __hm.fn.weatherAdvance(5); return 0; })()""")
-            # mist lying in a valley at dawn
-            await shot('mist_valley', """(() => { const H = __hm, X = W2T.X, P = W2T.P(); W2T.live(); H.setTod(2.85);
-              const c = X.wxMake('mist', P.x, P.z, { age: 120 }); c.sp = 0; c.life = 1e6;
-              W2T.cam(P.x - 40, P.y + 14, P.z - 40, P.x + 120, P.y, P.z + 120); __hm.fn.weatherAdvance(12); return 0; })()""")
+            await shot('rain_edge', """(() => { const H = __hm, X = W2T.X; W2T.live(); const T = H.weather2.sites.find((s) => s.kind === 'town' && s.realm === 0); H.setTod(0.45);
+              const o = W2T.openDir(T.x, T.z, T.y + 12);
+              const c = X.wxMake('storm', T.x + o.x * 700 + o.z * 250, T.z + o.z * 700 - o.x * 250, { age: 160 }); c.sp = 0;
+              W2T.cam(T.x, T.y + 12, T.z, T.x + o.x * 300, T.y + 30, T.z + o.z * 300); __hm.fn.weatherAdvance(5); return 0; })()""")
+            # mist lying in the low ground at dawn, from above a town
+            await shot('mist_valley', """(() => { const H = __hm, X = W2T.X; W2T.live(); const T = H.weather2.sites.find((s) => s.kind === 'town' && s.realm === 1); H.setTod(2.85);
+              const o = W2T.openDir(T.x, T.z, T.y + 25);
+              const c = X.wxMake('mist', T.x + o.x * 250, T.z + o.z * 250, { age: 120 }); c.sp = 0; c.life = 1e6;
+              W2T.cam(T.x, T.y + 25, T.z, T.x + o.x * 300, T.y + 5, T.z + o.z * 300); __hm.fn.weatherAdvance(12); return 0; })()""")
             # inside a house in a blizzard
             await shot('inside_blizzard', """(() => { const H = __hm, Q = H.HOUSES.find((h) => !h.keepHall && h.state === 'whole' && !h.round && h.w > 4.5); H.setTod(0.45);
               W2T.cam(Q.x - Q.s * 0.3, Q.y + 1.6, Q.z - Q.c * 0.3, Q.x + Q.s * 3, Q.y + 0.6, Q.z + Q.c * 3); W2T.winterSnow(true); return 0; })()""")
