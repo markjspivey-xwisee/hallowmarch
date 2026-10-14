@@ -43,7 +43,7 @@ const CFG = {
   seasonPush: +process.env.HM_SEASON_PUSH || 10000,
 };
 fs.mkdirSync(path.join(CFG.data, 'saves'), { recursive: true });
-const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0, regionChanges: 0, worldTold: 0 };
+const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0, regionChanges: 0, worldTold: 0, thinned: 0 };
 
 /* ------------------------------------------------------------------ */
 /* the March's ground: the sites and the walkable land (src/01_world.js) */
@@ -314,7 +314,12 @@ function onFast(c, d) {
       return true;
     });
     STATS.evDropped += evs.length - mine.length;
-    const near = !o.pos || dist(o.pos, c.pos) < CFG.interest || (c.party && o.party === c.party);
+    const dd = o.pos ? dist(o.pos, c.pos) : 0, mate = c.party && o.party === c.party;
+    const near = !o.pos || dd < CFG.interest || mate;
+    // a phone's budget: a body near at the sender's own pace (10 a second), farther ones less often (60 m: 5, 140 m: 2.5),
+    // a moment always at once; the reader's own interpolation draws them between
+    let gap = mate || dd < 60 ? 0 : dd < 140 ? 190 : 390;
+    if (near && gap && !mine.length) { o.nearAt = o.nearAt || new Map(); if (now - (o.nearAt.get(c.peer) || 0) < gap) { STATS.thinned++; continue; } o.nearAt.set(c.peer, now); }
     if (near) { send(o, { t: 'peer', peer: c.peer, fast: { ...d, ev: mine } }); STATS.relayed++; }
     else {
       if (mine.length) { send(o, { t: 'ev', peer: c.peer, ev: mine }); STATS.evRelayed += mine.length; }
@@ -430,7 +435,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
-    for (const o of R.clients.values()) send(o, { t: 'left', peer: c.peer });
+    for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
   });
