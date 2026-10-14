@@ -299,6 +299,7 @@ function chronSeason() {
     <div class="acts">${gold}</div><ul class="gd-aims season-proj">${projs}</ul>
     <h3>Season points</h3><p>Each hour of the war a realm's own keep counts ${RSM.sp.own}, a keep taken ${RSM.sp.won}, an enemy hallow in its temple ${RSM.sp.hallow}. A work finished ${RSM.sp.project} (a tier of walls ${RSM.sp.tier}), an offensive that takes its keep ${RSM.sp.offensive} (beaten off, ${Math.round(RSM.sp.offensive * 0.6)} to the defender), a battle won ${RSM.sp.battle}, every ${RSM.sp.units} units delivered one. A realm behind works harder and its walls stand stronger, and the others turn on the leader.</p>
     <h3>Offensives</h3><p>An offensive is announced about two days ahead: the realm marches with everything it trained and every engine it stockpiled. Defend the keep named: raise its walls, fill its stores, be there.</p>${aims}
+    <h3>The season's length</h3><p>This season lasts ${sum.days} days. The next: ${[7, 21, 42].map((d) => `<button type="button" class="btn season-btn" data-season="len:${d}"${(RS.nextLen || RS.len) === d * 86400 ? ' aria-pressed="true"' : ''}>${d / 7} week${d > 7 ? 's' : ''}</button>`).join(' ')}</p>
     <h3>What each work wants</h3><ul class="plain">${wants}</ul>
     <h3>The season's news</h3><ul class="plain season-news">${news || '<li>Nothing yet.</li>'}</ul>
     ${past ? `<h3>Seasons past</h3><ul class="plain">${past}</ul>` : ''}`;
@@ -337,6 +338,7 @@ queueMicrotask(() => $('menu-body').addEventListener('click', (ev) => { // ($ is
   if (act === 'proj') ok = seasonVote(id);
   else if (act === 'gold') ok = seasonGiveGold(+id);
   else if (act === 'aim') ok = seasonAim(+id);
+  else if (act === 'len' && SEASONP.rs) { const d = clamp(+id || 42, 7, 84); SEASONP.rs.nextLen = d * 86400; uiToast(`The next season will last ${d} days.`); saveSoon(); ok = true; }
   if (ok) { sfx('click'); renderChronicle($('menu-body'), true); }
 }));
 

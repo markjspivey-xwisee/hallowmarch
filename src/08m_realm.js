@@ -84,7 +84,7 @@ function realmSimInit(seed, opts = {}) {
   const homes = Array.isArray(opts.keeps) && opts.keeps.length ? opts.keeps.map((h) => rsmClamp(h | 0, 0, 2)) : [0, 0, 1, 1, 2, 2];
   const RS = {
     v: RSM_V, seed: seed >>> 0, rs: (seed >>> 0) || 1, n: rsmNum(opts.n, 1, 1, 1e6) | 0,
-    t: 0, len: days * rsmDay, phase: 'muster', winner: null, t0: rsmNum(opts.t0, 0, 0, 1e14), live: false,
+    t: 0, len: days * rsmDay, nextLen: 0, phase: 'muster', winner: null, t0: rsmNum(opts.t0, 0, 0, 1e14), live: false,
     names: { realms: ['Logres', 'Ériu', 'Thule'], keeps: homes.map((h, i) => `the ${['Logres', 'Ériu', 'Thule'][h]} keep ${i % 2 ? 'east' : 'west'}`) },
     realms: [0, 1, 2].map((r) => ({
       s: RSM.target.map((v) => Math.round(v * 0.8)), bank: [0, 0, 0, 0, 0, 0, 0, 0], lev: 12, sp: 0, del: 0, work: 0, proj: { walls: 0, granary: 0, yard: 0, smithy: 0, engines: 0 },
@@ -178,6 +178,7 @@ function rsmNewSeason(RS) {
   while (RS.past.length > 12) RS.past.shift();
   RS.n++; RS.t = 0; RS.phase = 'muster'; RS.winner = null; RS.armies = []; RS.offs = [];
   RS.t0 += RS.len * 1000;
+  if (RS.nextLen) { RS.len = RS.nextLen; RS.nextLen = 0; } // (a length chosen for the next season)
   for (const K of RS.keeps) Object.assign(K, { h: K.home, g: RSM.garrison, tier: Math.min(K.tier, 1), gate: 1, siege: null });
   RS.hallows = [0, 1, 2];
   for (const R of RS.realms) {
@@ -610,6 +611,7 @@ function realmSimSanitize(o, opts = {}) {
   if (Array.isArray(o.hallowAt)) o.hallowAt.slice(0, 3).forEach((h, i) => { RS.hallowAt[i] = rsmNum(h, 0, 0, RS.len); });
   RS.nextArmy = rsmNum(o.nextArmy, 1, 1, 1e9) | 0;
   RS.ln = rsmNum(o.ln, 0, 0, 1e12);
+  RS.nextLen = rsmNum(o.nextLen, 0, 0, 400 * rsmDay);
   const KINDS = ['raid', 'hallow', 'assault', 'offensive'];
   if (Array.isArray(o.armies)) for (const A of o.armies.slice(0, 40)) {
     if (!A || typeof A !== 'object' || !KINDS.includes(A.kind)) continue;
