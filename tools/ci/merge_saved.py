@@ -19,6 +19,12 @@ ALLOWED = {
             "  else if (m.t === 'sarmyrep') FIELD.report(c, m); // [season2]",
         ),
     },
+    "tools/tests/net.py": {
+        (
+            "PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'companies')] or ['room']",
+            "PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'weather')] or ['room']  # [perf3] weather: the host's sky on every page",
+        ),
+    },
     "src/14p_netws.js": {
         (
             "      else if (m.t === 'company' || m.t === 'co') coMsg(m); // [companies] the companies (14r_companies.js)",
@@ -38,6 +44,8 @@ for name in paths:
         a, b = match.group(1).rstrip("\n"), match.group(2).rstrip("\n")
         if (a, b) not in pairs:
             raise ValueError("unreviewed conflict in " + name)
+        if name == "tools/tests/net.py":
+            return "PARTS = [a for a in ARGS if a in ('room', 'server', 'phone', 'perf', 'season', 'deployed', 'companies', 'weather')] or ['room']\n"
         return a + "\n" + b + "\n"
     try:
         out, n = pattern.subn(resolve, src)
