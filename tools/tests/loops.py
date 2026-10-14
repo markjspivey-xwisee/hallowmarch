@@ -435,6 +435,112 @@ async def main():
             check(r['a']['iron'] >= 33 and r['a']['stone'] == 21, f"the stores read back ({r['a']['size']} bytes)")
             check(r['b']['iron'] == r['a']['iron'] and r['c']['ok'], f"an old save changes nothing, a damaged part loads sane ({r['c']})")
 
+        if want('season'):
+            print('SEASON', flush=True)
+            # headless first: whole seasons stepped through 08m_realm.js alone in Node
+            import subprocess
+            nd = subprocess.run(['node', str(pathlib.Path(__file__).resolve().parent / 'loops_season.js'), 'seeds=6'], capture_output=True, text=True, timeout=1500)
+            print(nd.stdout, flush=True)
+            check(nd.returncode == 0, 'the season headless in Node (loops_season.js) passes')
+            await ev(page, "__lt.quiet(); __lt.calm(); __hm.simulate(2); 0")
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), P = H.GAME.player;
+              const sum = S.summary(0);
+              const hud = H.loops.loopsHudLine();
+              return { has: !!RS, phase: RS.phase, n: RS.n, keeps: RS.keeps.map((K) => K.h), live: RS.live, hud: hud.includes('season-hud') && /Season 1/.test(hud), clock: sum.clock, days: sum.days, json: JSON.stringify(RS).length };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['has'] and r['phase'] == 'muster' and r['live'] and r['keeps'] == [0, 0, 1, 1, 2, 2] and r['days'] == 42, f"a new game begins a season of 42 days in its muster, every keep its own ({r['clock']})")
+            check(r['hud'], 'the war panel tells the season, its clock and the standing')
+            # the muster's skirmishes: a keep taken in the live war is not taken in the season
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), K = H.WAR.keeps[2];
+              H.fn.captureKeep(K, 0, null); H.simulate(1);
+              const a = RS.keeps[2].h, live = K.realm;
+              return { a, live };
+            })()""")
+            check(r['a'] == 1 and r['live'] == 0, f"in the muster a keep taken in the field stays its own in the season ({r})")
+            # a delivery counts season points; a vote; gold given
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), L = H.loops, fn = H.fn;
+              const sp0 = RS.realms[0].sp;
+              fn.goodsAdd('stone', 60);
+              const d = L.loopsDeliver('stone');
+              const sp1 = RS.realms[0].sp;
+              H.INV.gold = 1000;
+              const g = S.seasonGiveGold(500), sp2 = RS.realms[0].sp, gold = H.INV.gold;
+              const v = S.seasonVote('smithy'), votes = RS.realms[0].votes.smithy || 0, act = RS.realms[0].act;
+              return { d: !!d, sp0, sp1, sp2, g, gold, v, votes, act };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['d'] and r['sp1'] > r['sp0'], f"a delivery to the quartermaster counts season points ({r['sp0']:.2f} to {r['sp1']:.2f})")
+            check(r['g'] and r['gold'] == 500 and r['sp2'] > r['sp1'], 'gold given to the treasury counts too')
+            check(r['v'] and (r['votes'] > 0 or r['act'] == 'smithy'), f"a voice for the next work is counted ({r['votes']}, at work {r['act']})")
+            # the Chronicle's Season page and its buttons by a click
+            r = await ev(page, r"""(async () => {
+              const H = __hm; H.LORE.openChronicle('season');
+              await new Promise((res) => setTimeout(res, 200));
+              const body = document.getElementById('menu-body'), html = body.innerHTML;
+              const btn = body.querySelector('[data-season^="gold:100"]');
+              const g0 = H.INV.gold; if (btn) btn.click();
+              await new Promise((res) => setTimeout(res, 100));
+              const vb = body.querySelector('[data-season^="proj:"]');
+              const ok = { page: /season of 42 days/.test(html) && html.includes('season-stand'), gold: g0 - H.INV.gold, vote: !!vb, wide: body.scrollWidth <= body.clientWidth + 2 };
+              H.UI.modal = null; document.getElementById('menu').hidden = true;
+              return ok;
+            })()""")
+            print('  ', r, flush=True)
+            check(r['page'] and r['gold'] == 100 and r['vote'], f"the Chronicle's Season page, its gold given by a click, its votes ({r})")
+            # the war: the season stepped on as if nobody had played eight days
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, sum = S.away(8 * 86400), RS = S.rs();
+              H.simulate(1);
+              const live = H.WAR.keeps.map((K) => K.realm), rs = RS.keeps.map((K) => K.h);
+              return { phase: RS.phase, lines: sum.lines.length, first: sum.lines[1] || '', live, rs, ms: S.SEASONP.stats.offlineMs, food: H.loops.LOOPS.r[0].food, rsFood: RS.realms[0].s[0] };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['phase'] == 'war' and r['lines'] >= 2, f"eight days away: the war has begun, and you are told what happened ({r['lines'] - 1} lines, {r['ms']:.0f} ms)")
+            check(r['live'] == r['rs'], f"the keeps in the field are as the season holds them ({r['live']})")
+            check(abs(r['food'] - r['rsFood']) < 1, 'the stores are the season\'s')
+            # in the war a keep taken in the field is taken in the season, and stays its taker's at the battle's end
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), fn = H.fn;
+              const k = H.WAR.keeps.findIndex((K) => K.realm !== 0);
+              const K = H.WAR.keeps[k], was = K.realm;
+              fn.captureKeep(K, 0, null); H.simulate(1);
+              const a = RS.keeps[k].h, stays = S.seasonKeepStays(K) || K.orig === 0;
+              // the season's offensive in the field: its realm's bands go for the keep it named
+              RS.offs.push({ r: 1, k: H.WAR.keeps.findIndex((Q) => Q.realm !== 1), at: RS.t, ann: RS.t - 86400, state: 'live', army: 0, res: '', liveUntil: RS.t + 3600 });
+              const kk = RS.offs[RS.offs.length - 1].k, KK = H.WAR.keeps[kk];
+              const C = [{ s: 10, o: { type: 'attack', keep: KK }, why: 'gate' }];
+              S.seasonChoose({}, 1, C, { x: KK.site.x + 100, z: KK.site.z });
+              const C2 = []; S.seasonChoose({}, KK.realm, C2, { x: 0, z: 0 });
+              return { k, was, a, stays, s: C[0].s, why: C[0].why, brace: C2.length && C2[0].why };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['a'] == 0 and r['stays'], f"in the war a keep taken in the field is the taker's in the season ({r['k']}: {r['was']} to {r['a']})")
+            check(r['why'] == 'offensive' and r['s'] >= 40 and r['brace'] == 'brace', "an offensive under way sends its realm's bands at the keep it named, and its holder's to brace it")
+            # saved, an absence of three days, loaded: stepped on and told; the title says it too
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, fn = H.fn;
+              const d = JSON.parse(JSON.stringify(fn.savePartsData('world').realm));
+              const t0 = d.rs.t; d.real -= 3 * 86400 * 1000;
+              const title = S.seasonTitleText({ char: { realm: 0 }, world: { x: { realm: d } } });
+              fn.savePartsLoad('world', Object.assign(fn.savePartsData('world'), { realm: d }));
+              H.simulate(1);
+              const RS = S.rs(), away = S.SEASONP.away;
+              return { size: JSON.stringify(d).length, dt: RS.t - t0, told: !!away && away.el > 2.9 * 86400, title };
+            })()""")
+            print('  ', r, flush=True)
+            check(r['dt'] > 2.9 * 86400 and r['told'], f"a save read back three days later runs the season on three days and tells it ({r['size']} bytes)")
+            check('While you were away' in r['title'] and 'Season' in r['title'], f"the title tells the season and the time away ({r['title'][:140]})")
+            r = await ev(page, r"""(() => { const H = __hm, fn = H.fn;
+              fn.savePartsLoad('world', { realm: { rs: { v: 1, realms: 'x', keeps: [] }, real: 'q' } }); H.simulate(1);
+              const a = H.season.rs(); const ok1 = !!a && a.phase === 'muster' && a.keeps.length === 6;
+              fn.savePartsLoad('world', {}); H.simulate(1);
+              const b = H.season.rs(); return { ok1, ok2: !!b && b.keeps.length === 6, errors: H.errors.slice(0, 3) }; })()""")
+            check(r['ok1'] and r['ok2'] and not r['errors'], f"a damaged season loads as a fresh one, an old save (none) too ({r})")
+
         if want('ui'):
             print('UI', flush=True)
             r = await ev(page, r"""(() => {

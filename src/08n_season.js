@@ -7,7 +7,7 @@
 const SEASONP = {
   rs: null, pend: undefined, ln: 0, mute: false, away: null, said: {},
   days: RSM.days, maxAway: 21 * 86400,
-  you: { pts: 0, gold: 0, votes: 0, n: 0 },                      // the player's part (saved with the character)
+  you: { pts: 0, gold: 0, votes: 0, n: 0, won: 0, last: 0 },   // (won: seasons your realm won; last: the season last reckoned with you)                      // the player's part (saved with the character)
   stats: { applied: 0, liveCaps: 0, battles: 0, offline: 0, offlineS: 0, offlineMs: 0, aims: 0, braces: 0, relayed: 0, gave: 0 },
 };
 const seasonMe = () => (GAME.player ? GAME.player.faction : 0);
@@ -48,6 +48,10 @@ function seasonAway(el) {
   realmSimStep(RS, el);
   seasonCopyOut(RS);
   SEASONP.stats.offline++; SEASONP.stats.offlineS += el; SEASONP.stats.offlineMs += performance.now() - t0;
+  seasonApplyKeeps();
+  // a reckoning passed while away: the season's winner told (and paid, if yours)
+  if (RS.phase === 'reckon' && RS.winner != null) seasonReckoned(RS.n, RS.winner, true);
+  for (const p of RS.past) if (p.n > SEASONP.you.last && p.n < RS.n) seasonReckoned(p.n, p.w, true);
   const sum = realmSimSummary(RS, me, since);
   SEASONP.away = { el, since, at: GAME.t, sum };
   const text = seasonAwayText(sum, el);
@@ -120,6 +124,21 @@ function seasonChoose(wb, r, C, L) {
     SEASONP.stats.braces++;
   }
 }
+// the reckoning: your realm's season won pays its people and is a deed of the veteran's (the name 'of the Long War')
+function seasonReckoned(n, w, quiet) {
+  const P = GAME.player, prog = GAME.prog, Y = SEASONP.you;
+  if (!P || !prog || Y.last >= n) return;
+  Y.last = n;
+  if (w !== P.faction) { if (!quiet) uiLog(`The ${ordinalWord(n)} season went to ${REALMS[w].name}. The next will be won by holding and preparing.`, 'realm', w); return; }
+  Y.won++;
+  const L = prog.level, rp = 2500 + 60 * L, gold = 300 + 20 * L;
+  addRP(rp); addGold(gold);
+  if (typeof late2Deed === 'function' && LATE2.d.season != null) late2Deed('season');
+  const txt = `${REALMS[w].name} has won the ${ordinalWord(n)} season! Your share: ${fmtInt(rp)} realm points and ${fmtInt(gold)} gold.`;
+  uiLog(txt, 'rp');
+  if (!quiet) uiBanner(txt, w);
+  saveSoon();
+}
 // the realm's catch-up and its yard in the live work (08m_loops.js loopsProduce)
 function seasonProdK(r, g) {
   const RS = SEASONP.rs;
@@ -134,8 +153,11 @@ function updateSeason(dt) {
   if (!RS) return;
   seasonCopyIn(RS);
   RS.live = true;
+  const ph = RS.phase;
   realmSimStep(RS, dt);
   seasonCopyOut(RS);
+  if (ph !== RS.phase) seasonApplyKeeps(); // (the war begins: the muster's skirmishes are over, the keeps as the season holds them)
+  if (ph === 'war' && RS.phase === 'reckon' && RS.winner != null) seasonReckoned(RS.n, RS.winner, false);
   // the season's own news: told as the war's
   if ((RS.ln || 0) > SEASONP.ln) {
     const n = Math.min(RS.ln - SEASONP.ln, RS.log.length);
@@ -153,6 +175,7 @@ function updateSeason(dt) {
 /* ------------------------------------------------------------------ */
 // a delivery at the quartermaster or a keep's hall (08m_loops.js loopsDeliver): it counts for the realm's season
 function seasonDelivered(r, g, units) {
+  seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !(units > 0)) return 0;
   const pts = realmSimContribute(RS, r, g, units, P ? P.name : 'you');
@@ -160,6 +183,7 @@ function seasonDelivered(r, g, units) {
   return pts;
 }
 function seasonGiveGold(n) {
+  seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P || !(n > 0) || INV.gold < n) return false;
   if (!spendGold(n)) return false;
@@ -171,6 +195,7 @@ function seasonGiveGold(n) {
 }
 function seasonRank() { return GAME.prog ? realmRank(GAME.prog.rp || 0) : 1; }
 function seasonVote(id) {
+  seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P) return false;
   const ok = realmSimOrder(RS, P.faction, { type: 'project', id }, { name: P.name, rank: seasonRank() });
@@ -178,6 +203,7 @@ function seasonVote(id) {
   return ok;
 }
 function seasonAim(k) {
+  seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P) return false;
   const ok = realmSimOrder(RS, P.faction, { type: 'target', keep: k }, { name: P.name, rank: seasonRank() });
@@ -190,6 +216,7 @@ function seasonAim(k) {
 /* ------------------------------------------------------------------ */
 // the war panel's line: the season's clock and standing, an offensive near (08m_loops.js loopsHudLine)
 function seasonHudLine() {
+  seasonInit();
   const RS = SEASONP.rs;
   if (!RS || !GAME.player) return '';
   const me = seasonMe(), sum = realmSimSummary(RS, me);
@@ -201,6 +228,7 @@ function seasonHudLine() {
 }
 // a sentence for the herald and the war table
 function seasonWarText(r) {
+  seasonInit();
   const RS = SEASONP.rs;
   if (!RS) return '';
   const sum = realmSimSummary(RS, r);
@@ -215,6 +243,7 @@ const SEASON_PROJ_X = {
   engines: 'Siege engines stockpiled for the offensive: the realm marches with them on its announced day.',
 };
 function chronSeason() {
+  seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P) return '<p class="lead">The season begins once you are in the March.</p>';
   const me = P.faction, sum = realmSimSummary(RS, me, SEASONP.away ? SEASONP.away.since : -1), R = RS.realms[me];
@@ -236,10 +265,10 @@ function chronSeason() {
     <div class="now"><p><b>${seasonClockText(sum)}</b></p><ol class="plain season-stand">${stand}</ol>
     ${SEASONP.away ? `<p><b>While you were away (${rsmDur(SEASONP.away.el)}):</b> ${esc(SEASONP.away.sum.lines.filter((x) => !/^While/.test(x)).slice(-4).join(' '))}</p>` : ''}</div>
     <h3>Season points</h3><p>Each hour of the war a realm's own keep counts ${RSM.sp.own}, a keep taken from another ${RSM.sp.won}, an enemy hallow in its temple ${RSM.sp.hallow}. A project finished counts ${RSM.sp.project} (a tier of walls ${RSM.sp.tier}), an offensive that takes its keep ${RSM.sp.offensive} (beaten off, ${Math.round(RSM.sp.offensive * 0.6)} to the defender), a battle won in the field ${RSM.sp.battle}, and every ${RSM.sp.units} units delivered to the stores one. A realm that falls behind works harder and holds its walls the stronger, and the others turn on the leader.</p>
-    <h3>Offensives</h3>${off}<p>An offensive is announced about two days ahead: the realm marches with everything it has trained and every engine it stockpiled. Defend the keep named, raise its walls, fill its stores.</p>
-    <h3>The realm's work</h3><p>${REALMS[me].name} pours its stores into one project at a time. ${officer ? 'You are an officer: your word sets it.' : 'Vote for the next: the most voices win when the work at hand is done.'}</p><ul class="gd-aims season-proj">${projs}</ul>
-    <h3>Your part</h3><p>Everything you deliver to the quartermaster or a keep's stores counts for the season; gold goes to the treasury, which buys what the work lacks at the border fairs. ${y.pts ? `You have given ${REALMS[me].name} ${y.pts.toFixed(1)} season points${y.gold ? ` (${fmtInt(y.gold)} gold)` : ''}.` : ''}</p>${gold}
-    <h3>The next offensive</h3>${aims}
+    <h3 data-cf-open>Offensives</h3>${off}<p>An offensive is announced about two days ahead: the realm marches with everything it has trained and every engine it stockpiled. Defend the keep named, raise its walls, fill its stores.</p>
+    <h3 data-cf-open>The realm's work</h3><p>${REALMS[me].name} pours its stores into one project at a time. ${officer ? 'You are an officer: your word sets it.' : 'Vote for the next: the most voices win when the work at hand is done.'}</p><ul class="gd-aims season-proj">${projs}</ul>
+    <h3 data-cf-open>Your part</h3><p>Everything you deliver to the quartermaster or a keep's stores counts for the season; gold goes to the treasury, which buys what the work lacks at the border fairs. ${y.pts ? `You have given ${REALMS[me].name} ${y.pts.toFixed(1)} season points${y.gold ? ` (${fmtInt(y.gold)} gold)` : ''}.` : ''}</p>${gold}
+    <h3 data-cf-open>The next offensive</h3>${aims}
     <h3>The season's news</h3><ul class="plain season-news">${news || '<li>Nothing yet.</li>'}</ul>
     ${past ? `<h3>Seasons past</h3><ul class="plain">${past}</ul>` : ''}`;
 }
@@ -251,8 +280,8 @@ registerSavePart('world', 'realm', {
   key: (d) => (d && d.rs ? [d.rs.n, d.rs.phase, Math.floor((d.rs.t || 0) / 3600), (d.rs.keeps || []).map((K) => K.h), (d.rs.realms || []).map((R) => [Math.round((R.sp || 0) / 10), R.act, Math.round((R.prog || 0) * 20)])] : null),
 });
 registerSavePart('char', 'season', {
-  save() { const y = SEASONP.you; return y.n || y.gold || y.votes ? { p: Math.round(y.pts * 10) / 10, g: Math.round(y.gold), v: y.votes, n: y.n } : null; },
-  load(d) { const o = d && typeof d === 'object' ? d : {}, n = (v, c) => (Number.isFinite(+v) ? clamp(+v, 0, c) : 0); SEASONP.you = { pts: n(o.p, 1e7), gold: n(o.g, 1e10), votes: n(o.v, 1e6) | 0, n: n(o.n, 1e7) | 0 }; },
+  save() { const y = SEASONP.you; return y.n || y.gold || y.votes || y.last ? { p: Math.round(y.pts * 10) / 10, g: Math.round(y.gold), v: y.votes, n: y.n, w: y.won, l: y.last } : null; },
+  load(d) { const o = d && typeof d === 'object' ? d : {}, n = (v, c) => (Number.isFinite(+v) ? clamp(+v, 0, c) : 0); SEASONP.you = { pts: n(o.p, 1e7), gold: n(o.g, 1e10), votes: n(o.v, 1e6) | 0, n: n(o.n, 1e7) | 0, won: n(o.w, 1e6) | 0, last: n(o.l, 1e6) | 0 }; },
   key: (d) => (d ? [Math.round(d.p), d.g, d.v] : null),
 });
 
@@ -283,6 +312,13 @@ queueMicrotask(() => $('menu-body').addEventListener('click', (ev) => { // ($ is
 
 queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADING_TIPS are declared by later modules)
   chronAdd('season', 'Season', 'war', chronSeason, 'stores');
+  // the veteran's deed and name for a season won (10l_late.js, 04_l3device.js)
+  if (typeof LATE2 !== 'undefined' && !LATE2_DEEDS.season) {
+    LATE2_DEEDS.season = 'Seasons won with your realm'; LATE2.d.season = 0;
+    const N = { id: 'longwar', t: 'of the Long War', deed: 'season', n: 1, rp: 2500, k: { rp: 0.08 }, gift: 'You win 8% more realm points.' };
+    LATE2_NAMES.push(N); LATE2_BY_ID[N.id] = N;
+    if (typeof L3_DEVICE_OF !== 'undefined') L3_DEVICE_OF.season = 4;
+  }
   if (typeof G2_SEE !== 'undefined') G2_SEE.season = ['stores', 'war'];
   Object.assign(FIELD_NOTES, {
     lseason: { t: 'A season of weeks', x: (R) => `The war is fought over a season of ${SEASONP.days} days: the muster (no keep can fall), the war, the reckoning. Keeps and hallows held, projects built and goods delivered win it; the realms live on while you are away. The Chronicle's Season page.` },
@@ -296,9 +332,9 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP and LOADI
 queueMicrotask(() => {
   if (!window.__hm) return;
   window.__hm.season = {
-    SEASONP, RSM, rs: () => SEASONP.rs, summary: (r) => (SEASONP.rs ? realmSimSummary(SEASONP.rs, r == null ? seasonMe() : r) : null),
+    SEASONP, RSM, rs: () => { seasonInit(); return SEASONP.rs; }, summary: (r) => (SEASONP.rs ? realmSimSummary(SEASONP.rs, r == null ? seasonMe() : r) : null),
     // tests: the season run on as if nobody had played for `sec` (RS alone)
     away: (sec) => { if (!SEASONP.rs) seasonInit(); if (SEASONP.rs) seasonAway(sec); return SEASONP.away ? SEASONP.away.sum : null; },
-    apply: seasonApplyKeeps, seasonGiveKeep, seasonKeepStays, seasonDelivered, seasonGiveGold, seasonVote, seasonAim, seasonHudLine, seasonWarText, seasonTitleText, chronSeason, seasonProdK, seasonChoose, updateSeason, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive,
+    apply: seasonApplyKeeps, seasonGiveKeep, seasonKeepStays, seasonDelivered, seasonReckoned, seasonGiveGold, seasonVote, seasonAim, seasonHudLine, seasonWarText, seasonTitleText, chronSeason, seasonProdK, seasonChoose, updateSeason, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive,
   };
 });

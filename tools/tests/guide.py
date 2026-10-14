@@ -262,7 +262,7 @@ async def phone(p):
       __hm.fn.newCharacter(); const v = F.validSave(JSON.parse(JSON.stringify(s))); F.startGame({ ...v.char });
       return __hm.LORE.progress(); })()""")
     check(all(k in r['done'] for k in ('cook', 'craft', 'climb')) and not any(k in r['done'] for k in ('command', 'keep', 'gift', 'dragon', 'master', 'campaign')), f'an old save gains the new early steps quietly and keeps the late ones ahead ({r["done"]})')
-    check(await ev(page, "__hm.GAME.prog.lore.pv") == 2, 'and its path is now of version 2')
+    check(await ev(page, "__hm.GAME.prog.lore.pv") >= 2, 'and its path is now of version 2 or later')  # [loops] version 3: the stores' steps
     errs = await ev(page, "__hm.errors")
     check(errs == [], f'no errors ({errs[:2]})')
     for l in logs[-5:]: print('  ', l)

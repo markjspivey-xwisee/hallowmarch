@@ -13,7 +13,7 @@ plays a new player's first steps by touch).
 (`only=housescaf`). [late2] the Chronicle's Deeds page: a tap wears a name (`only=deeds`).
 [late3] break the seal beneath the Hollow King's hall and the Deep Barrow's cracked wall with Use, and raise a standard struck down (`only=deep`).
 [audio2] set the sound by taps: the menu's Settings, Effects Low, Ambience High, Volume Off and back (`only=sound`).
-[loops] give timber to the realm's stores by a tap on Use at the quartermaster and a tap on Give (`only=stores`).
+[loops] give timber to the realm's stores by a tap on Use at the quartermaster and a tap on Give (`only=stores`); the Chronicle's Season page: a vote and gold given by taps (`only=season`).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -386,6 +386,26 @@ async def main():
             check(ok and ok2 and dl['modal'] == 'dialog' and st['logs'] == 0 and st['t'] >= r['t'] + 12 and st['rp'] > r['rp'], f"stores: a tap on Use at the quartermaster ({r['label']}) and a tap on Give hands the timber over ({json.dumps(dl)}; {json.dumps(st)})")
             await page.evaluate("__hm.fn.closeDialog(); 0")
 
+        if want('season'):
+            # [loops] the Chronicle's Season page by touch: the menu's Chronicle, the Season page in its row, a vote for the
+            # realm's next work and gold given to its treasury, each a tap (08n_season.js)
+            await page.evaluate("""(() => { const H = TF.H; if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); H.UI.modal = null; TF.calm(); H.INV.gold = Math.max(H.INV.gold, 600);
+              H.LORE.openChronicle('path'); return 0; })()""")
+            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"season\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()")
+            okg = await tap(page, '.chron-nav [data-grp="war"]')
+            await page.evaluate("(() => { const b = document.querySelector('.chron-nav [data-sec=\"season\"]'); if (b) b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' }); return 0; })()")
+            ok1 = okg and await tap(page, '.chron-nav [data-sec="season"]')
+            g0 = await page.evaluate("__hm.INV.gold")
+            await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate("TF.see('#menu-body [data-season=\"gold:100\"]')")
+            ok2 = await tap(page, '#menu-body [data-season="gold:100"]')
+            sel = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-season^=\"proj:\"]'); return b ? b.dataset.season : null; })()")
+            if sel: await page.evaluate("__hm.frame(1/30); 0"); await page.evaluate(f"TF.see('#menu-body [data-season=\"{sel}\"]')")
+            box = await page.evaluate("(() => { const b = document.querySelector('#menu-body [data-season^=\"proj:\"]'); if (!b) return null; const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()")
+            ok3 = await tap(page, f'#menu-body [data-season="{sel}"]') if sel else False
+            r = await page.evaluate("(() => { const H = TF.H, RS = H.season.rs(), R = RS.realms[H.GAME.player.faction]; return { sec: H.LORE.state.chronSec, gold: H.INV.gold, act: R.act, votes: Object.keys(R.votes), you: H.season.SEASONP.you }; })()")
+            pid = sel.split(':')[1] if sel else None
+            check(ok1 and ok2 and ok3 and r['sec'] == 'season' and g0 - r['gold'] == 100 and (r['act'] == pid or pid in r['votes']) and box and box[1] >= 40, f"season: taps open the Season page, give 100 gold and vote for {pid} ({r}, button {box})")
+            await page.evaluate("(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); return 0; })()")
         if want('wartable'):
             r = await page.evaluate("""(() => { const H = TF.H, h = H.fn.halls().find((q) => q.realm === 0 && q.state !== 'ruin'), sp = h.hallSpots.table; const dx = h.x - sp.x, dz = h.z - sp.z, d = Math.hypot(dx, dz) || 1; const x = sp.x + dx / d * 1.1, z = sp.z + dz / d * 1.1;
               if (h.door && h.door.leaf) H.fn.setHouseDoor && H.fn.setHouseDoor(h, true);
