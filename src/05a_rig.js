@@ -687,7 +687,7 @@ const OAR_GRIP = 0.59, OAR_LOCK = { x: 0.698, y: 0.33, z: 0.48 };
 // (13y_motion5.js SHOVE_U: 0.95 of the way to her end, the shover 0.45 m beyond it), and the fist's middle over the gunwale
 const SHOVE_A_W = '0.580', SHOVE_X_W = '0.060', SHOVE_FIST = '0.008';
 // [anim2] how far a body lying dead is let down after its fall (its back, its heels and the back of its head on the floor)
-const A2_DEAD_DROP = 0.0;
+const A2_DEAD_DROP = 0.0; // [anim2] how far a body lying dead is let down onto the floor beyond its back's own depth (none: measured on it)
 const A2_ARROW = 0.3; // [anim2] how far out to the bow hand's side the drawn arrow is built (in rest)
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
@@ -1499,7 +1499,7 @@ function humanVS(depth) {
     // [anim2] laid along the ground: flat (1.5 rad left the head 12 cm over the heels), down onto the floor (P.y + 0.14 held
     // the body 22 to 25 cm over it), and along the floor's slope under it from the feet to the head (humanSlopeYaw reads
     // it under a body lying dead)
-    if (death > 0.0) { rotP(rotX(-1.56 * d2), vec3(0.0, 0.0, -0.12)); P.y -= (${A2_DEAD_DROP.toFixed(3)} + 0.03 * max(bulk, 0.0)) * d2; if (slopeK != 0.0) rotP(rotX(-atan(slopeK) * d2), vec3(0.0)); }
+    if (death > 0.0) { rotP(rotX(-1.56 * d2), vec3(0.0, 0.0, -0.12)); P.y -= (${A2_DEAD_DROP.toFixed(3)} + 0.03 * clamp(bulk, 0.0, 0.5)) * d2; if (slopeK != 0.0) rotP(rotX(-atan(slopeK) * d2), vec3(0.0)); }
     // [v18] a robe's hem stays on the floor's side of it (a runner's bob and a kneel took it 7 cm and more into the ground):
     // on the slope along the body, as the feet are (slopeK); not lying dead, in the water or in a saddle
     if (aBit > 10.5 && int(aBit + 0.5) == ${WBIT.robe} && death <= 0.0 && swimPitch == 0.0 && mounted < 0.5) P.y = max(P.y, slopeK * P.z + 0.025);

@@ -5,12 +5,22 @@ The search (`war`, `duels`, `player`): every body drawn near the camera, every f
 (14a_anim2.js's probe: each foot's lowest sole point, each instance by its number): a foot well off the floor under it
 (over what its swing reaches at its pace, and at least 20 cm) while the body stands or walks and is not in the air, or a
 body standing still with both feet off the floor, is written down with what the body was doing, grouped by its kind and
-action. `war`: a running war, the camera over its biggest fight, at 30 steps a second; `duels`: every pair of callings,
-skilled and simple, at 20 and 50, at 60 steps a second; `player`: the player's own doings by the keys, at 60 and at 20
-frames a second (stops, turns on the spot, a jump and its landing, knocked back, stunned, a fall from a wall walk, a
-ladder on and off, mounting and dismounting, swimming out, kneeling, dying and released). Bodies lying dead are measured
-too (the lowest point of the body over the floor, its feet's highest).
-usage: python3 tools/tests/anim2.py [only=war,duels,player,dead] [min=4] [q=low] [fps=30]"""
+action, and how long each body stayed so (episodes: the longest, how many lasted over 0.3 s and over 1 s). `war`: a
+running war, the camera over its biggest fight, at FPS steps a second; `duels`: every pair of callings, skilled at 20 and
+simple at 50, at 60 steps a second; `player`: the player's own doings by the keys, at 60 and at 20 frames a second
+(stops at every point of the stride, turns on the spot, a jump and its landing, stunned in a run, mounting and
+dismounting, kneeling). Fails on any episode over 1 s, and on the player's over 0.5 s.
+`dead`: each calling of each realm and the camps' beasts struck down and lying: the lowest point of each over the floor
+under it and its highest (nothing stands up off a body lying dead).
+`dragon`: Cinderwing killed at its perch and lying: no vertex more than 15 cm under the ground, its neck, head and tail
+down along the ground, its wings over it (not standing up like sails), its spade on its tail.
+`weapons`: each calling of each realm (14a_anim2.js's a2GearMeasure, from what the shaders draw): the strike's blade in
+the fist, at its fastest as the blow lands, its edge leading; the bow at full draw upright, its string's middle and the
+arrow's nock at the drawing fingers, the arrow along the facing; the staff upright in a cast; the shield's face to the
+foe in the guard.
+`shots`: pictures at 960x540 (tools/out/anim2_*.png): Cinderwing dead from its side, from behind and from above, its
+scales up close in daylight, people dead, the archer drawing, the guard, the mage casting, the strike.
+usage: python3 tools/tests/anim2.py [only=war,duels,player,dead,dragon,weapons,shots] [min=4] [q=low] [fps=30]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from hmlib import setup, OUT
@@ -19,7 +29,7 @@ from playwright.async_api import async_playwright
 ARGS = sys.argv[1:]
 def arg(k, d):
     return next((a.split('=', 1)[1] for a in ARGS if a.startswith(k + '=')), d)
-ONLY = arg('only', 'war,duels,player,dead').split(',')
+ONLY = arg('only', 'war,duels,player,dead,dragon,weapons').split(',')
 MIN = float(arg('min', '4'))
 Q = arg('q', 'low')
 FPS = int(arg('fps', '30'))
@@ -135,6 +145,90 @@ window.A2T = {
     K.clear();
     return 0;
   },
+  // an open stretch with no tree within r m of it or of a camera 7 m off it (for pictures and the gear)
+  open(r = 12) {
+    const H = this.H, P = H.GAME.player, T = H.seasons.treesNear;
+    for (let d = 0; d < 420; d += 25) for (let k = 0; k < 12; k++) {
+      const a = k / 12 * 6.283, L = this.lane(P.x + 40 + Math.sin(a) * d, P.z - 40 + Math.cos(a) * d, 6, 4);
+      if (L && T(L.x, L.z, r).length === 0 && T(L.x + L.ux * 7, L.z + L.uz * 7, 9).length === 0 && !H.water.waterAt(L.x + L.ux * 7, L.z + L.uz * 7)) return L;
+    }
+    return null;
+  },
+  // each calling of each realm, and the camps' beasts, struck down where they stand: after 2.5 s lying, each one's
+  // lowest point over the floor under it, its highest, and its feet's highest
+  dead(keep) {
+    const H = this.H, F = this.F, A = this.A; this.calm(); this.clear();
+    const Ln = this.open(14); if (!Ln) return { err: 'no open ground' };
+    for (let i = -8; i <= 8; i += 1.5) for (let j = -8; j <= 8; j += 1.5) H.nature.natureCut(Ln.x + i, Ln.z + j, 1.2, 1, false);
+    const es = [], cls = ['warrior', 'archer', 'mage', 'priest'];
+    for (let r = 0; r < 3; r++) cls.forEach((c, i) => es.push(this.person(Ln.x + Ln.sx * (i * 2.6 - 3.9) + Ln.ux * (r * 2.6 - 2.6), Ln.z + Ln.sz * (i * 2.6 - 3.9) + Ln.uz * (r * 2.6 - 2.6), Math.atan2(Ln.ux, Ln.uz), c, r)));
+    for (const type of ['wolf', 'boar', 'bear', 'skeleton', 'troll']) {
+      const camp = H.CAMPS.find((c) => c.type === type); if (!camp) continue;
+      const b = F.spawnMob(camp), k = es.length - 12;
+      b.x = b.prevX = Ln.x + Ln.sx * (k * 3.2 - 6.4) + Ln.ux * 6.5; b.z = b.prevZ = Ln.z + Ln.sz * (k * 3.2 - 6.4) + Ln.uz * 6.5; b.y = F.heightAt(b.x, b.z); b.home = { x: b.x, z: b.z, r: 1 }; this.made.push(b); es.push(b);
+    }
+    this.over(Ln.x + Ln.ux * 2, Ln.z + Ln.uz * 2, 10, 8);
+    for (let k = 0; k < 10; k++) A.a2Step(1 / 30, {});
+    for (const e of es) { F.killEnt(e, null); e.removeAt = Infinity; }
+    for (let k = 0; k < 75; k++) A.a2Step(1 / 30, {});
+    const res = A.a2Step(1 / 30, {}), out = [];
+    for (const R of res) if (R.deadLo !== undefined && es.includes(R.e)) out.push({ who: R.e.cls ? R.e.cls + ' ' + R.e.faction : (R.e.mobType || R.e.kind), kind: R.kind, lo: +R.deadLo.toFixed(3), top: +R.deadTop.toFixed(3), feet: +(R.deadHi ?? 0).toFixed(3) });
+    window.__a2dead = { Ln, es };
+    if (!keep) this.clear();
+    return out;
+  },
+  // Cinderwing killed at a perch and lying (the pose it eases into, skinned here): how much of it is under the ground,
+  // how high its neck and head, its tail's end and its wings stand, and whether every vertex out past its tail's end
+  // (the spade) hangs on the tail's last bone
+  dragon(perch = 0, yaw = 0.7) {
+    const H = this.H, F = H.fn, D = H.dbg.DRAGON, AD = H.anim2.dragon, B = AD.DBI; this.calm();
+    const P0 = D.perches[perch], e = D.e; if (!e || !P0) return { err: 'no dragon' };
+    e.alive = true; e.hp = e.maxHp; e.x = P0.x; e.z = P0.z; e.y = F.heightAt(e.x, e.z); e.yaw = yaw; e.fixedY = null; H.dbg.setDragonState('perch'); D.act = null;
+    const P = H.GAME.player; P.x = P.prevX = P0.x + 30; P.z = P.prevZ = P0.z + 30; P.y = F.heightAt(P.x, P.z);
+    for (let i = 0; i < 30; i++) F.dragonAnimate(1 / 30);
+    e.removeAt = Infinity; F.killEnt(e, P); e.removeAt = Infinity; e.fixedY = null; e.y = F.heightAt(e.x, e.z);
+    for (let i = 0; i < 150; i++) F.dragonAnimate(1 / 30);
+    AD.a2DragonPoseAt(D.pose, e);
+    const G = AD.a2DragonGroups(), top = (ns) => +Math.max(...ns.flatMap((n) => (G[B[n]] || []).map((v) => AD.a2DragonH(v)))).toFixed(2);
+    let under = 0, low = 1e9, spadeOff = 0;
+    for (let v = 0; v < D.kit.n; v++) {
+      const h = AD.a2DragonH(v); if (h < low) low = h; if (h < -0.15) under++;
+      if (D.bindP[v * 3 + 2] < -9.2) { let b = -1, w = 0; for (let k = 0; k < 4; k++) if (D.bw[v * 4 + k] > w) { w = D.bw[v * 4 + k]; b = D.bi[v * 4 + k]; } if (b !== B.tail4) spadeOff++; }
+    }
+    return { st: D.state, under, low: +low.toFixed(3), head: top(['neck3', 'head', 'jaw']), back: top(['hips', 'chest']), tail: top(['tail3', 'tail4']), wings: top(['wlF1', 'wlF2', 'wlF3', 'wlF4', 'wrF1', 'wrF2', 'wrF3', 'wrF4']), spadeOff, solve: AD.A2D.stats, x: e.x, z: e.z, y: e.y, yaw: e.yaw };
+  },
+  // each calling of each realm in the open, their gear measured through the strike, the draw, a cast and the guard
+  gear() {
+    const H = this.H, A = this.A; this.calm(); this.clear();
+    const Ln = this.open(12); if (!Ln) return { err: 'no open ground' };
+    const es = [], cls = ['warrior', 'archer', 'mage', 'priest'];
+    for (let r = 0; r < 3; r++) cls.forEach((c, i) => es.push(this.person(Ln.x + Ln.sx * (i * 2.5 - 3.75) + Ln.ux * (r * 2.5 - 2.5), Ln.z + Ln.sz * (i * 2.5 - 3.75) + Ln.uz * (r * 2.5 - 2.5), Math.atan2(Ln.ux, Ln.uz), c, r)));
+    this.over(Ln.x, Ln.z, 8, 6);
+    for (let k = 0; k < 10; k++) A.a2Step(1 / 30, {});
+    const out = A.gear.a2GearMeasure(es, { n: 40 });
+    this.clear();
+    return out;
+  },
+  // pictures: the camera at a place, looking at a point (the HUD hidden)
+  cam(px, py, pz, lx, ly, lz, fov = 40) { const H = this.H; H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; const hud = document.getElementById('hud'); if (hud) hud.style.visibility = 'hidden'; H.camera.fov = fov; H.camera.updateProjectionMatrix(); H.camera.position.set(px, py, pz); H.camera.lookAt(lx, ly, lz); H.camera.updateMatrixWorld(); return 0; },
+  // the callings side by side in the open, held at a point of an action (the clock stopped), facing along the row (side)
+  // or toward the camera (front); the camera d m off
+  pose(cls, act, at, view = 'side', d = 6.5, realm = 0) {
+    const H = this.H, F = this.F, A = this.A;
+    if (!this._pose || this._pose.key !== cls.join() + realm) {
+      this.clear(); const Ln = this.open(16);
+      for (let i = -5; i <= 5; i += 1.5) for (let j = -8; j <= 8; j += 1.5) H.nature.natureCut(Ln.x + i, Ln.z + j, 1.2, 1, false);
+      const es = cls.map((c, i) => this.person(Ln.x + Ln.sx * (i - (cls.length - 1) / 2) * 1.9, Ln.z + Ln.sz * (i - (cls.length - 1) / 2) * 1.9, 0, c, realm));
+      this._pose = { key: cls.join() + realm, Ln, es };
+      for (let k = 0; k < 10; k++) A.a2Step(1 / 30, {});
+    }
+    const { Ln, es } = this._pose, yaw = view === 'front' ? Math.atan2(Ln.ux, Ln.uz) : Math.atan2(Ln.sx, Ln.sz);
+    for (const e of es) { e.yaw = e.prevYaw = yaw; e.anim.act = act; e.anim.actDur = 1000; e.anim.actT = at * 1000; }
+    for (let k = 0; k < 2; k++) A.a2Step(1 / 60, {});
+    for (const e of es) e.anim.actT = at * 1000;
+    const gy = F.heightAt(Ln.x, Ln.z);
+    return this.cam(Ln.x + Ln.ux * d, gy + 1.3, Ln.z + Ln.uz * d, Ln.x, gy + 1.1, Ln.z);
+  },
   // n frames of the search at dt, the camera following a place (a function giving x, z)
   run(n, dt, follow, tag) {
     for (let i = 0; i < n; i++) { if (follow && i % 15 === 0) { const f = follow(); if (f) this.over(f.x, f.z); } this.A.a2Step(dt, { tag }); }
@@ -144,14 +238,20 @@ window.A2T = {
 0;
 """
 
-def summary(r, label):
+def summary(r, label, maxEp=1.0):
     st = r['stats']
     print("hist", json.dumps(dict(sorted(r.get("hist", {}).items()))), flush=True)
     print(f"{label}: frames {st['frames']}, bodies on their feet looked at {st['bodies']} (all looked at {st['looked']})", flush=True)
-    for s in r['sigs'][:30]:
+    for s in r['sigs'][:20]:
         print(f"  {s['n']:6d}  {s['sig']}", flush=True)
-        for ex in s['ex'][:3]:
-            print('          ', json.dumps(ex)[:600], flush=True)
+        for ex in s['ex'][:2]:
+            print('          ', json.dumps(ex)[:500], flush=True)
+    worst = 0
+    for k, E in sorted(r.get('ep', {}).items(), key=lambda kv: -kv[1]['max']):
+        print(f"  episodes {k}: {E['n']}, longest {E['max']} s (body {E['id']} at {E['at']} s), over 0.3 s {E['over03']}, over 1 s {E['over1']}, highest {E['hi']} m", flush=True)
+        if E.get('ex') and E['max'] > 0.6: print('           a second in:', json.dumps(E['ex'])[:700], flush=True)
+        worst = max(worst, E['max'])
+    check(worst <= maxEp, f"{label}: no foot left in the air longer than {maxEp} s (longest {worst} s)")
 
 async def main():
     res = {}
@@ -170,8 +270,96 @@ async def main():
                 if k % 3 == 0: print(f'  round {k + 1}/{rounds}: fight {f} [{time.time() - T0:.0f}s]', flush=True)
             r = await ev(page, "__hm.anim2.a2Report()")
             summary(r, 'war'); res['war'] = r
+            check(r['stats']['bodies'] > 1000, f"the war's bodies looked at ({r['stats']['bodies']})")
+        need = any(k in ONLY for k in ('duels', 'player', 'dead', 'dragon', 'weapons', 'shots'))
+        if need and 'war' not in ONLY:
+            await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 20 }); A2T.calm(); __hm.setTod(0.45); __hm.simulate(20); 0")
+        if 'duels' in ONLY:
+            for lvl, kind in ((20, 'skilled'), (50, 'simple')):
+                await ev(page, "__hm.anim2.a2Reset(); 0")
+                n = await ev(page, f"A2T.duels({lvl}, '{kind}', {MIN * 15}, 1 / 60, 'duel{lvl}')")
+                r = await ev(page, "__hm.anim2.a2Report()")
+                print(f'duels at {lvl}, {kind}: {n} duels [{time.time() - T0:.0f}s]', flush=True)
+                summary(r, f'duels {lvl} {kind}'); res[f'duels{lvl}'] = r
+        if 'player' in ONLY:
+            for fps in (60, 20):
+                await ev(page, "__hm.anim2.a2Reset(); 0")
+                await ev(page, f"A2T.player({1 / fps}, 'p{fps}')")
+                r = await ev(page, "__hm.anim2.a2Report()")
+                print(f'player at {fps} frames a second [{time.time() - T0:.0f}s]', flush=True)
+                summary(r, f'player {fps}', 0.5); res[f'player{fps}'] = r
+            await ev(page, "(() => { const K = __hm.INPUT.keys; K.clear(); return 0; })()")
+        if 'dead' in ONLY:
+            r = await ev(page, "A2T.dead()", 'dead')
+            res['dead'] = r
+            if isinstance(r, list):
+                for d in r: print('  ', json.dumps(d), flush=True)
+                hum = [d for d in r if d['kind'] == 'human' and d['who'][-1].isdigit()]; oth = [d for d in r if d['kind'] == 'human' and not d['who'][-1].isdigit()]; bst = [d for d in r if d['kind'] != 'human']
+                check(len(hum) == 12, f'twelve people lying dead measured ({len(hum)})')
+                check(all(-0.08 <= d['lo'] <= 0.1 for d in hum), 'each person lies on the floor (its lowest point within -8 and 10 cm of it): ' + ', '.join(f"{d['who']} {d['lo']}" for d in hum))
+                check(all(d['top'] < 0.5 for d in hum), 'nothing stands up off a person lying dead (its highest point under 0.5 m): ' + ', '.join(f"{d['who']} {d['top']}" for d in hum))
+                check(len(bst) >= 3 and all(-0.12 <= d['lo'] <= 0.12 for d in bst + oth), 'each beast, the dead and a troll lie on the floor: ' + ', '.join(f"{d['who']} {d['lo']}" for d in bst + oth))
+        if 'dragon' in ONLY:
+            r = await ev(page, "A2T.dragon()", 'dragon')
+            res['dragon'] = r
+            check(r.get('st') == 'dead', 'Cinderwing dead')
+            check(r.get('under', 1) == 0 and r.get('low', -1) > -0.15, f"none of it more than 15 cm under the ground (lowest {r.get('low')} m, {r.get('under')} vertices)")
+            check(r.get('head', 9) < 1.6, f"its neck and head down along the ground (their highest {r.get('head')} m)")
+            check(r.get('tail', 9) < 1.4, f"its tail down along the ground (its end's highest {r.get('tail')} m)")
+            check(r.get('wings', 9) < 2.4, f"its wings over the ground, not standing up (their fingers' highest {r.get('wings')} m)")
+            check(r.get('spadeOff', 1) == 0, f"the spade hangs on the tail's end ({r.get('spadeOff')} of its vertices on another bone)")
+            r2 = await ev(page, "A2T.dragon(1, 2.6)", 'dragon, a second perch')
+            check(r2.get('under', 1) == 0 and r2.get('head', 9) < 1.6 and r2.get('tail', 9) < 1.4 and r2.get('wings', 9) < 2.4, 'and at a second perch, turned another way')
+        if 'weapons' in ONLY:
+            r = await ev(page, "A2T.gear()")
+            res['weapons'] = r
+            for g in r: print('  ', json.dumps(g), flush=True)
+            st = [g for g in r if g.get('strike')]
+            check(len(st) >= 6 and all(abs(g['strike']['peakAt'] - g['strike']['landsAt']) < 0.06 for g in st), 'each blow at its fastest as it lands: ' + ', '.join(f"{g['cls']}{g['realm']} {g['strike']['peakAt']}" for g in st))
+            check(all(g['strike']['gripDrift'] < 0.005 for g in st), 'each weapon stays in its fist through the swing')
+            ed = [g for g in st if g['strike']['edgeLead'] is not None]
+            check(len(ed) >= 3 and all(g['strike']['edgeLead'] > 0.75 for g in ed), 'a blade or an axe cuts edge first: ' + ', '.join(f"{g['cls']}{g['realm']} {g['strike']['edgeLead']}" for g in ed))
+            dr = [g for g in r if g.get('draw')]
+            check(len(dr) == 3 and all(g['draw']['staveUp'] > 0.9 for g in dr), 'a drawn bow stands upright: ' + ', '.join(str(g['draw']['staveUp']) for g in dr))
+            check(all((g['draw']['stringToFist'] or 9) < 0.09 and (g['draw']['nockToFist'] or 9) < 0.07 for g in dr), 'the string and the arrow at the drawing fingers: ' + ', '.join(f"{g['draw']['stringToFist']}/{g['draw']['nockToFist']}" for g in dr))
+            check(all((g['draw']['arrowFwd'] or 0) > 0.75 for g in dr), 'the arrow along the facing: ' + ', '.join(str(g['draw']['arrowFwd']) for g in dr))
+            cs = [g for g in r if g.get('cast')]
+            check(len(cs) == 3 and all(g['cast']['staffUp'] > 0.85 for g in cs), 'a staff upright as it is cast: ' + ', '.join(str(g['cast']['staffUp']) for g in cs))
+            hm = [g for g in r if g.get('hem')]
+            check(len(hm) >= 3 and all(g['hem']['reach'] < 0.75 for g in hm), "a robe's hem carried no farther than 0.75 m from the body in any action: " + ', '.join(f"{g['cls']}{g['realm']} {g['hem']['reach']} (act {g['hem']['act']})" for g in hm))
+            gd = [g for g in r if g.get('guard')]
+            check(len(gd) >= 3 and all(g['guard']['shieldFaces'] > 0.5 for g in gd), 'a shield in the guard faces the foe: ' + ', '.join(f"{g['cls']}{g['realm']} {g['guard']['shieldFaces']}" for g in gd))
+        if 'shots' in ONLY:
+            await page.set_viewport_size({'width': 960, 'height': 540})
+            async def shot(name, js):
+                await ev(page, js)
+                await ev(page, "__hm.frame(); __hm.frame(); 0")
+                await page.screenshot(path=str(pathlib.Path(OUT) / f'anim2_{name}.png'), timeout=300000)
+                print(f'  shot anim2_{name}.png [{time.time() - T0:.0f}s]', flush=True)
+            await ev(page, "__hm.setTod(0.42); 0")
+            d = await ev(page, "A2T.dragon()")
+            if d.get('st') == 'dead':
+                x, z, y, yw = d['x'], d['z'], d['y'], d['yaw']
+                import math
+                def around(a, dist, h, ly=1.0): return f"A2T.cam({x + math.sin(yw + a) * dist}, {y + h}, {z + math.cos(yw + a) * dist}, {x}, {y + ly}, {z})"
+                await shot('dragon_dead_side', around(1.25, 17, 5))
+                await shot('dragon_dead_behind', around(3.6, 13, 3.5, 0.6))
+                await shot('dragon_dead_above', around(0.9, 15, 13))
+                await shot('dragon_scales', around(1.6, 5.5, 1.8, 1.2))
+            await ev(page, "A2T.dead(true); 0")
+            await shot('dead_people', "(() => { const { Ln } = window.__a2dead, gy = __hm.fn.heightAt(Ln.x, Ln.z); return A2T.cam(Ln.x + Ln.ux * 7 + Ln.sx * 5, gy + 2.6, Ln.z + Ln.uz * 7 + Ln.sz * 5, Ln.x, gy + 0.2, Ln.z); })()")
+            await shot('dead_close', "(() => { const e = window.__a2dead.es[3], fx = Math.sin(e.yaw), fz = Math.cos(e.yaw); return A2T.cam(e.x - fx * 0.9 + fz * 2.6, e.y + 1.0, e.z - fz * 0.9 - fx * 2.6, e.x - fx * 0.9, e.y + 0.1, e.z - fz * 0.9); })()")
+            await ev(page, "A2T.clear(); A2T._pose = null; 0")
+            for at in (0.3, 0.45, 0.6):
+                await shot(f'strike_{int(at * 100)}', f"A2T.pose(['warrior', 'priest'], 1, {at}, 'side', 4)")
+            await shot('guard_front', "A2T.pose(['warrior', 'priest'], 10, 0.6, 'front', 3.6)")
+            await ev(page, "A2T.clear(); A2T._pose = null; 0")
+            await shot('draw_side', "A2T.pose(['archer', 'mage'], 2, 0.75, 'side', 3.4)")
+            await shot('draw_front', "A2T.pose(['archer', 'mage'], 2, 0.75, 'front', 3.4)")
+            await shot('cast_side', "(() => { A2T._pose.es[1].anim.act = 3; return A2T.pose(['archer', 'mage'], 3, 0.6, 'side', 3.4); })()")
+            await page.set_viewport_size({'width': 640, 'height': 360})
         errs = await ev(page, "__hm.errors.slice(0, 5)")
-        print('errors', errs, flush=True)
+        check(not errs, f'no runtime errors ({errs})')
         await b.close()
     (pathlib.Path(OUT) / 'anim2_search.json').write_text(json.dumps(res, indent=1))
     print(f'done [{time.time() - T0:.0f}s]', 'FAILS: ' + '; '.join(FAILS) if FAILS else '', flush=True)

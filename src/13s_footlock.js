@@ -211,12 +211,16 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
           // [motion3] beyond what the leg can hold (in under the body past its limit, or too far off), or about to be by the
           // next step: it steps (a cut at a sprint or a hard shove dragged the foot along the ground 10 cm and more)
           // ([motion3] from where it is drawn: brought in to FL_MAX first, it jumped over the ground, 10 cm in a sharp cut)
+          // ([anim2] and one standing on a floor half a metre and more above or below the body's: the body slid down into a
+          // crater's bowl, one foot left planted on its rim, 0.8 m up, for as long as it stood drawing its bow)
           o.hop = 1e-4; o.hx = clamp(cx, loH, hiH); o.hz = cz; cx = o.hx; cz = o.hz; o.hwx = o.wx; o.hwz = o.wz; // (and the place it leaves, on the ground: footLockSlot)
-        } else if (still && o.human && m > FL_SETTLE * (e.scale || 1) && GAME.t - (e._a2go ?? 0) > FL_SETTLE_T && !L.some((q) => q && q !== o && (q.hop > 0 || (q.down && !q.fresh && Math.hypot(q.cx, q.cz) > m)))) {
+        } else if (still && o.human && (m > FL_SETTLE * (e.scale || 1) || (o.h != null && Math.abs(o.h - e.y) > 0.45 * (e.scale || 1))) && GAME.t - (e._a2go ?? 0) > FL_SETTLE_T && !L.some((q) => q && q !== o && (q.hop > 0 || (q.down && !q.fresh && Math.hypot(q.cx, q.cz) > m)))) {
           // [anim2] standing still in a stride the straight legs cannot stand in: a body stopped dead mid-stride kept its
           // feet where they came down (one 0.62 m ahead of the hip and the other 0.3 behind), and the farther one hung 26
           // cm in the air for as long as it stood. Once it has stood a moment it brings that foot in by a quick step, one
           // foot at a time, the farther first (the other waits for it to land), as a person does who stops
+          // ([anim2] and one standing on a floor half a metre and more above or below the body's: the body slid down into a
+          // crater's bowl, one foot left planted on its rim, 0.8 m up, for as long as it stood drawing its bow)
           o.hop = 1e-4; o.hx = clamp(cx, loH, hiH); o.hz = cz; cx = o.hx; cz = o.hz; o.hwx = o.wx; o.hwz = o.wz;
           A2FL.settle++;
         }

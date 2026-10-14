@@ -285,10 +285,10 @@ function motionMeasure(samples, opt = {}) {
 function humanSlopeYaw(e, y, near) {
   const yaw = clamp(Math.atan2(Math.sin(e.yaw), Math.cos(e.yaw)), -3.1414, 3.1414); // (never half a turn: the shader rounds the turns)
   let s = 0;
-  if (near && (e.alive || e.anim.death > 0) && !e.mount && !e.seat && e.onGround !== false && !(e.swimK > 0.05) && !inDungeon(e)) {
+  if (near && (e.alive || e.anim.death > 0) && !e.mount && !e.seat && e.onGround !== false && !(e.swimK > 0.05) && !inDungeon(e)) { // [anim2] and a body lying dead
     const sc = e.scale || 1, r = 0.35 * sc, fx = Math.sin(yaw) * r, fz = Math.cos(yaw) * r;
     // (a drop beyond a step, off the edge of a wall walk or a deck, is no slope: the foot stays on what it stands on)
-    const at = (x, z) => { const h = floorAt(x, z, y + 0.05); return Math.abs(h - y) > (e.alive ? 0.65 : 1.0) ? y : h; };
+    const at = (x, z) => { const h = floorAt(x, z, y + 0.05); return Math.abs(h - y) > (e.alive ? 0.65 : 1.0) ? y : h; }; // [anim2] (1 m for the dead)
     // [anim2] a body lying dead lies along the slope from its feet to its head, 1.75 m behind them (05a_rig.js)
     if (!e.alive) s = clamp((at(e.x, e.z) - at(e.x - fx * 5, e.z - fz * 5)) / (5 * r), -1, 1);
     else s = clamp((at(e.x + fx, e.z + fz) - at(e.x - fx, e.z - fz)) / (2 * r), -1, 1);

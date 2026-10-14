@@ -87,10 +87,10 @@ function a2Parts(crowd, kind) {
   // (one vertex for each rest place: the probe finds a vertex by its place, and two sharing one wrote to one slot)
   const seen = new Set(), uniq = (ids) => ids.filter((i) => { const k = pos[i * 3].toFixed(5) + ',' + pos[i * 3 + 1].toFixed(5) + ',' + pos[i * 3 + 2].toFixed(5); if (seen.has(k)) return false; seen.add(k); return true; });
   const Q = { feet: P.feet.map((g) => uniq(g).slice(0, kind === 'human' ? 5 : 4)), body: [] };
-  if (kind === 'human') {
+  {
     // the skin's extremes bone by bone (up, down, ahead, behind, out to each side): where a body lying dead meets the floor
     const skin = (i) => (!bit || bit[i] < -0.5);
-    for (const b of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    for (let b = 0; b <= (kind === 'human' ? 10 : 24); b++) {
       const ids = [];
       for (let i = 0; i < n; i++) if (Math.round(bone[i]) === b && skin(i)) ids.push(i);
       if (!ids.length) continue;
@@ -100,7 +100,7 @@ function a2Parts(crowd, kind) {
         if (!Q.body.includes(best) && uniq([best]).length) Q.body.push(best);
       }
     }
-    Q.body = Q.body.slice(0, A2.W - 10);
+    Q.body = Q.body.slice(0, A2.W - Q.feet.flat().length);
   }
   crowd._a2Parts[kind] = Q;
   return Q;
@@ -143,7 +143,7 @@ function a2Scan(opt = {}) {
   for (const [kind, c] of motionCrowds()) {
     if (!c.n) continue;
     if (kind !== 'human' && !(BEASTS[kind] && BEASTS[kind].front)) continue;
-    const Q = a2Parts(c, kind), feet = Q.feet, fv = feet.flat(), vids = kind === 'human' ? fv.concat(Q.body) : fv;
+    const Q = a2Parts(c, kind), feet = Q.feet, fv = feet.flat(), vids = fv.concat(Q.body);
     const ip = c.attrs[0].array;
     let rows = null;
     for (let i = 0; i < c.n; i++) {
@@ -153,22 +153,24 @@ function a2Scan(opt = {}) {
       const row = rows[i];
       A2.stats.looked++;
       // each foot's lowest point over the floor under it
-      const fh = [];
+      // (and for standing on it, its lowest point against the highest floor under its sole: a sole held flat across a
+      // crater's wall touches it at its uphill end, the ground under its lowest point 10 cm lower: no foot off the floor)
+      const fh = [], fs = [];
       let k = 0;
       for (const g of feet) {
-        let lo = null;
-        for (let q = 0; q < g.length; q++, k++) { const p = row[k]; if (!p) continue; const h = p[1] - a2Floor(p[0], p[2], e.y); if (lo === null || h < lo) lo = h; }
-        fh.push(lo);
+        let lo = null, py = Infinity, fy = -Infinity;
+        for (let q = 0; q < g.length; q++, k++) { const p = row[k]; if (!p) continue; const f = a2Floor(p[0], p[2], e.y), h = p[1] - f; if (lo === null || h < lo) lo = h; py = Math.min(py, p[1]); fy = Math.max(fy, f); }
+        fh.push(lo); fs.push(lo === null ? null : py - fy);
       }
       const R = { e, kind, fh };
-      if (kind === 'human' && !e.alive && e.anim.death >= 1 && !(e.removeAt < Infinity && GAME.t > e.removeAt - 2.5)) {
+      if (!e.alive && e.anim.death >= 1 && !(e.removeAt < Infinity && GAME.t > e.removeAt - 2.5)) {
         let lo = Infinity, hi = -Infinity, top = -Infinity;
         const bone = c.geo.attributes.aBone.array, byB = {};
         for (let q = fv.length; q < vids.length; q++) { const p = row[q]; if (!p) continue; const h = p[1] - motionFloor(p[0], p[2], e.y); lo = Math.min(lo, h); top = Math.max(top, h); const b = Math.round(bone[vids[q]]); byB[b] = Math.min(byB[b] ?? 9, +h.toFixed(3)); }
         R.deadTop = top; R.deadBones = byB;
         for (const h of fh) if (h !== null) hi = Math.max(hi, h);
         R.deadLo = lo; R.deadHi = hi;
-        if (A2.dead.length < 400) A2.dead.push({ id: e.id, role: e.role, lo: +lo.toFixed(3), feetHi: +hi.toFixed(3), x: +e.x.toFixed(1), z: +e.z.toFixed(1) });
+        if (A2.dead.length < 400) A2.dead.push({ id: e.id, kind, role: e.role, lo: +lo.toFixed(3), top: +top.toFixed(3), feetHi: +hi.toFixed(3), x: +e.x.toFixed(1), z: +e.z.toFixed(1) });
       }
       res.push(R);
       if (!a2OnFeet(e)) continue;
@@ -176,7 +178,7 @@ function a2Scan(opt = {}) {
       // standing still with both feet off the floor
       const lift = kind === 'human' ? a2LiftOf(e) : 0.12 * (e.scale || 1) * (1 + clamp(e.anim.amt, 0, 2));
       const lim = Math.max(opt.lim ?? 0.2, 1.25 * lift + 0.08);
-      const hiF = Math.max(...fh.map((h) => h ?? -1)), loF = Math.min(...fh.map((h) => h ?? 9));
+      const hiF = Math.max(...fh.map((h) => h ?? -1)), loF = Math.min(...fs.map((h) => h ?? 9));
       const stand = e.anim.amt < 0.03 && !(e.anim.turn > 0.05);
       const bad = hiF > lim ? 'high' : stand && loF > (opt.hover ?? 0.1) && loF < 9 ? 'hover' : null; // (hover: a flat sole on a hillside stands on its highest point, as the foot lock reads its floor, and its lowest point is a few centimetres over the ground under it)
       A2.stats.bodies++;
@@ -189,6 +191,8 @@ function a2Scan(opt = {}) {
       const w = a2What(e), sig = `${kind}|${bad}|act${w.act}|av${w.av}${w.stun ? '|stun' : ''}${w.cast ? '|cast' : ''}${stand ? '|still' : ''}`;
       if (!e._a2ep) e._a2ep = { t0: t, sig, hi: 0 };
       e._a2ep.t1 = t; e._a2ep.hi = Math.max(e._a2ep.hi, hiF);
+      // (what the body was like a second into a long one: for the report)
+      if (t - e._a2ep.t0 > 0.9 && !e._a2ep.ex) e._a2ep.ex = { fh: fh.map((h) => (h === null ? null : +h.toFixed(3))), fs: fs.map((h) => (h === null ? null : +h.toFixed(3))), y: +e.y.toFixed(2), ground: +heightAt(e.x, e.z).toFixed(2), floor: +motionFloor(e.x, e.z, e.y).toFixed(2), x: +e.x.toFixed(1), z: +e.z.toFixed(1), ...a2What(e), motion: e.motion ? e.motion.kind : null, fl: e._fl ? e._fl.map((o) => o ? { down: o.down ? 1 : 0, hop: +(o.hop || 0).toFixed(2), air: o.air ? 1 : 0, frozen: o.frozen ? 1 : 0, w: +(o.w ?? 0).toFixed(2), dy: +(o.dy ?? 0).toFixed(2), h: o.h == null ? null : +o.h.toFixed(2) } : null) : null };
       const S = A2.sig.get(sig) || { sig, n: 0, ex: [] };
       S.n++;
       if (S.ex.length < A2.keep) {
@@ -214,7 +218,7 @@ function a2Step(dt, opt = {}) {
 function a2EpEnd(e, t) {
   const E = e._a2ep; e._a2ep = null;
   const d = (E.t1 ?? t) - E.t0, k = E.sig.replace(/\|cast|\|still/g, ''), R = A2.ep[k] || (A2.ep[k] = { n: 0, max: 0, over03: 0, over1: 0, hi: 0, id: null, at: 0 });
-  R.n++; if (d > R.max) { R.max = +d.toFixed(2); R.id = e.id; R.at = +E.t0.toFixed(1); } if (d > 0.3) R.over03++; if (d > 1) R.over1++; R.hi = Math.max(R.hi, +E.hi.toFixed(2));
+  R.n++; if (d > R.max) { R.max = +d.toFixed(2); R.id = e.id; R.at = +E.t0.toFixed(1); R.ex = E.ex || null; } if (d > 0.3) R.over03++; if (d > 1) R.over1++; R.hi = Math.max(R.hi, +E.hi.toFixed(2));
 }
 function a2Report() {
   for (const e of ENT) if (e._a2ep) a2EpEnd(e, GAME.t);
@@ -458,6 +462,10 @@ function a2GearParts(crowd) {
     const ids = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT[k] && Math.round(mt[i]) === AM.shieldFace && one(i)) ids.push(i);
     if (ids.length > 3) { const c = ids.reduce((a, i) => a.map((x, j) => x + V(i)[j] / ids.length), [0, 0, 0]); const a = far(ids, c), b = far(ids, V(a)); const cc = far(ids.filter((i) => i !== a && i !== b), [(V(a)[0] + V(b)[0]) / 2, (V(a)[1] + V(b)[1]) / 2, (V(a)[2] + V(b)[2]) / 2]); G[k] = { face: [a, b, cc] }; }
   }
+  // a robe's hem: eight points round its lowest ring (how far it is carried out from the body in each action)
+  { const rb = []; let lo = Infinity; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT.robe && one(i) && Math.round(bone[i]) !== 3 && Math.round(bone[i]) !== 4 && Math.round(bone[i]) !== 5 && Math.round(bone[i]) !== 6) { rb.push(i); lo = Math.min(lo, pos[i * 3 + 1]); }
+    const hem = rb.filter((i) => pos[i * 3 + 1] < lo + 0.03).sort((a, b) => Math.atan2(pos[a * 3], pos[a * 3 + 2]) - Math.atan2(pos[b * 3], pos[b * 3 + 2]));
+    if (hem.length) G.robe = { hem: Array.from({ length: Math.min(8, hem.length) }, (_, k) => hem[Math.floor(k * hem.length / Math.min(8, hem.length))]) }; }
   const bw = []; for (let i = 0; i < n; i++) if (Math.round(bit[i]) === WBIT.bow && one(i)) bw.push(i);
   if (bw.length) {
     const str = bw.filter((i) => Math.round(mt[i]) === AM.string && pos[i * 3] < SK.fist[0] + 0.1), arr = bw.filter((i) => pos[i * 3] > SK.fist[0] + A2_ARROW * 0.5);
@@ -475,7 +483,7 @@ function a2GearAt(es, act, at) {
   motionDraw();
   const crowd = crowdHuman, G = a2GearParts(crowd), ids = [], put = (v) => { if (v >= 0 && !ids.includes(v)) ids.push(v); };
   for (const v of [...G.fR, ...G.fL]) put(v);
-  for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow']) if (G[k]) for (const v of Object.values(G[k]).flat()) put(v);
+  for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow', 'robe']) if (G[k]) for (const v of Object.values(G[k]).flat()) put(v);
   const rows = a2Probe(crowd, ids.slice(0, A2.W)), ip = crowd.attrs[0].array, out = [];
   const avg = (vs, row) => { const ps = vs.map((v) => row[ids.indexOf(v)]).filter(Boolean); return ps.length ? [0, 1, 2].map((j) => ps.reduce((a, p) => a + p[j], 0) / ps.length) : null; };
   for (const e of es) {
@@ -483,7 +491,7 @@ function a2GearAt(es, act, at) {
     for (let i = 0; i < crowd.n; i++) if (ip[i * 4] === Math.fround(e.x) && ip[i * 4 + 2] === Math.fround(e.z)) { j = i; break; }
     if (j < 0) { out.push(null); continue; }
     const row = rows[j], P = (v) => (v >= 0 ? row[ids.indexOf(v)] : null), o = { fR: avg(G.fR, row), fL: avg(G.fL, row) };
-    for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow']) if (G[k]) { o[k] = {}; for (const [n2, v] of Object.entries(G[k])) o[k][n2] = Array.isArray(v) ? v.map(P) : P(v); }
+    for (const k of ['sword', 'axe', 'mace', 'staff', 'shield', 'shieldRound', 'bow', 'robe']) if (G[k]) { o[k] = {}; for (const [n2, v] of Object.entries(G[k])) o[k][n2] = Array.isArray(v) ? v.map(P) : P(v); }
     out.push(o);
   }
   return out;
@@ -518,6 +526,13 @@ function a2GearMeasure(es, opt = {}) {
     }
     out[i].strike = { weapon: w, peakAt: +peakAt.toFixed(3), peak: +peak.toFixed(2), landsAt: +(0.26 / 0.6).toFixed(3), edgeLead: lw ? +(lead / lw).toFixed(3) : null, gripDrift: +grip.toFixed(4) };
   });
+  // a robe's hem through every action of the arms and the body (a blow, the draw, a cast, the guard, a parry, a kneel, a
+  // flinch, a reach): how far its farthest point is carried out from the body's middle (a hem stretched 2.9 m out at a run
+  // in version 17; 0.68 m from version 18)
+  for (const act of [1, 2, 3, 4, 5, 8, 10, 11, 12]) for (const at of [0.2, 0.45, 0.7]) {
+    const R = a2GearAt(es, act, at);
+    es.forEach((e, i) => { const h = R[i] && R[i].robe && R[i].robe.hem; if (!h) return; for (const p of h) if (p) { const d = Math.hypot(p[0] - e.x, p[2] - e.z); const o = out[i]; if (!o.hem || d > o.hem.reach) o.hem = { reach: +d.toFixed(3), act, at }; } });
+  }
   // the bow at full draw, the staff in a cast, the shield in the guard
   const D = a2GearAt(es, 2, 0.75), C = a2GearAt(es, 3, 0.6), Gd = a2GearAt(es, 10, 0.6);
   es.forEach((e, i) => {
