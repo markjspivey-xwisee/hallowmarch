@@ -1,0 +1,109 @@
+name: Version 20 branch verification
+
+on:
+  push:
+    branches: [feature/v20-validation-20261014]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/v20-validation.yml'
+      - 'tools/ci/**'
+      - 'tools/lint.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v20-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  branch:
+    name: ${{ matrix.work }} at saved head
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - work: companies
+            ref: 8c20b399164ccd95984b5f3f7c3116eae6b99557
+          - work: season2
+            ref: d9539934d435d642f34bc3f338dc050a1da91ad9
+          - work: perf3
+            ref: 20a7b35669e8bbe17bb8806d1b4eb1e3e062e713
+          - work: look7
+            ref: 364a714ef09c8494045c2185ca668053beafcef2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: verification
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          path: game
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        working-directory: game
+        run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and enforce lint exit status
+        working-directory: game
+        run: |
+          cp ../verification/tools/lint.sh tools/lint.sh
+          bash tools/lint.sh 80
+      - name: Headless server and algorithm checks
+        if: ${{ !cancelled() }}
+        working-directory: game
+        env:
+          WORK: ${{ matrix.work }}
+        run: |
+          case "$WORK" in
+            companies) node tools/tests/net_companies.mjs ;;
+            season2) node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json ;;
+            perf3) node tools/tests/wasm_lp.js n=4000 seed=1 time ;;
+          esac
+      - name: Feature browser checks
+        if: ${{ !cancelled() }}
+        working-directory: game
+        env:
+          WORK: ${{ matrix.work }}
+        run: |
+          check() { python ../verification/tools/ci/run_check.py "$@"; }
+          case "$WORK" in
+            companies) check python3 tools/tests/net.py companies ;;
+            season2) check python3 tools/tests/season2.py ;;
+            perf3)
+              check python3 tools/tests/perf3.py only=wasm,net tag=v20
+              check python3 tools/tests/net.py weather
+              ;;
+            look7) check python3 tools/tests/look.py views=l7_yard,l7_cart,l7_woodcutter,l7_quarry,l7_moon,l7_dead,l7_weapons,l7_inside_storm q=low v=day tag=v20 ;;
+          esac
+      - name: Compile shaders at all qualities
+        if: ${{ !cancelled() }}
+        working-directory: game
+        run: python ../verification/tools/ci/run_check.py python3 tools/tests/shaders.py
+      - name: Phone layout
+        if: ${{ !cancelled() }}
+        working-directory: game
+        run: python ../verification/tools/ci/run_check.py python3 tools/tests/phone.py
+      - name: War soak
+        if: ${{ !cancelled() }}
+        working-directory: game
+        run: python ../verification/tools/ci/run_check.py python3 tools/soak.py 10
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: v20-${{ matrix.work }}-evidence
+          path: game/tools/out/
+          retention-days: 14

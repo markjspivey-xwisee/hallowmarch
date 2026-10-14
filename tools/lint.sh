@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the page, pull out its module script and lint it with eslint 8.
 # usage: tools/lint.sh [lines-of-output]   (needs `npm install` in tools/ once)
-set -e
+set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
 python3 "$root/build.py"
