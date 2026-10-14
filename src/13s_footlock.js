@@ -186,7 +186,7 @@ function footLockFeet(e, L, n, gait, still, dt, vx, vz) {
         if (o.air && o.lwx != null) {
           const ax = (o.lwx - e.x) * c - (o.lwz - e.z) * s, az = (o.lwx - e.x) * s + (o.lwz - e.z) * c;
           o.hop = FL_HOP_LIFT * 2.5; o.fresh = false; o.land = false; o.hwx = o.lwx; o.hwz = o.lwz; o.wx = o.lwx; o.wz = o.lwz;
-          o.hx = clamp(ax - x0, loH, hiH); o.hz = az - along; o.h = o.hT ?? o.h; o.yw = o.ywL ?? e.yaw; o.ywL = null;
+          o.hx = clamp(ax - x0, loH, hiH); o.hz = az - along; o.h = o.hT ?? o.h; o.hEp = A2FL.ground; o.yw = o.ywL ?? e.yaw; o.ywL = null; // [anim2] (hEp)
         } else { o.fresh = true; o.hop = 0; o.land = !!o.useA; } // ([motion3] o.land: set down where the swing held it, footLockSlot)
         o.air = false;
       }
@@ -305,7 +305,7 @@ function footLockSlot(e, horse) {
         o.fresh = false; o.land = false; o.yw = yw; o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; o.hEp = A2FL.ground;
       } else {
         o.wx = e.x + lx * c + lz * s; o.wz = e.z - lx * s + lz * c; o.fresh = false; o.land = false; o.yw = yw; // ([motion3] and its heading)
-        o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread;
+        o.h = flFloor(e, o.wx, o.wz); o.tread = _flTread; o.hEp = A2FL.ground; // [anim2] (the ground as it is now: read again only when it changes)
       }
     }
     // [anim2] and again when the ground has moved under it since (a crater pressed in, softening or undone): a foot planted
