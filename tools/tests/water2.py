@@ -275,7 +275,7 @@ async def main():
             r = await ev(page, 'burn', """((i) => { const H = __hm, Wt = H.water, Bt = Wt.boats, P = H.GAME.player; W2.safe();
               const B = Wt.boats.BOATS.list[i]; const inBoat = !!P.boat;
               Bt.ignite(i); const out = { inBoat, after: !!P.boat, swim: !!P.swim };
-              for (let k = 0; k < 50 && B.st === 'burning'; k++) H.simulate(1);
+              for (let k = 0; k < 120 && B.st === 'burning'; k++) H.simulate(1); // [weather2] (a shower over the jetty slows the fire: wait for it, not 50 s)
               out.st = B.st; out.char = B.char;
               // rebuild: planks and a hammer, a few seconds' work
               H.fn.goodsAdd('plank', 6, true); H.fn.goodsAdd('tool_hammer', 1, true);
