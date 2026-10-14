@@ -217,6 +217,7 @@ function dealDamage(src, dst, amount, opts = {}) {
   if (dst.kind === 'door') {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
     amount *= opts.siege ? 1 : 0.5;
+    amount *= seasonGateK(dst); // [loops] a keep's walls raised a tier in the season: its gate holds the longer (08n_season.js)
   }
   if (!opts.dot && src && src !== dst && src.x !== undefined && towerSightBlocked(src, dst)) return 0; // [keeps] no blow through a tower's floor, a shut hatch or its wall (04m_ladders.js)
   amount *= giftHarmMult(src, dst, opts); // [gifts] Steadfast Lines, Cold-blooded, Wound-fury (06c_gifts.js)

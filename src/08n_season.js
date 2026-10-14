@@ -85,6 +85,19 @@ function seasonApplyKeeps() {
   const RS = SEASONP.rs;
   if (!RS || RS.phase !== 'war') return;
   for (const K of WAR.keeps) { const Q = RS.keeps[K.id]; if (Q && Q.h !== K.realm) seasonGiveKeep(K, Q.h); }
+  // the hallows resting in a temple: where the season has them
+  let moved = false;
+  for (const rel of WAR.relics) {
+    const d = RS.hallows[rel.realm];
+    if (rel.state !== 'temple' || d == null || rel.at === d) continue;
+    rel.at = d; rel.from = d; rel.slot = d === rel.realm ? 'home' : freeTrophySlot(WAR.temples[d]); moved = true;
+  }
+  if (moved) updateRelicBonuses();
+}
+// a hallow placed in a temple in the field, told to the season (in its war)
+function seasonHallowsIn(RS) {
+  if (RS.phase !== 'war') return;
+  for (const rel of WAR.relics) if (rel.state === 'temple' && RS.hallows[rel.realm] !== rel.at) realmSimLive(RS, { type: 'hallow', hallow: rel.realm, holder: rel.at });
 }
 // the peace of a battle in the war: a keep the season holds for its taker stays its (08g_campaign.js restoreKeep, 08l_war4.js war4HandBack)
 function seasonKeepStays(K) {
@@ -139,6 +152,13 @@ function seasonReckoned(n, w, quiet) {
   if (!quiet) uiBanner(txt, w);
   saveSoon();
 }
+// a keep's walls raised a tier in the season: its gate and walls take a fifth less from each tier (07_entities.js
+// dealDamage, 04g_castles.js castleSiegeHit)
+function seasonGateK(door) {
+  const RS = SEASONP.rs, K = door && door.keepRef;
+  if (!RS || !K || !RS.keeps[K.id]) return 1;
+  return 1 / (1 + 0.25 * RS.keeps[K.id].tier);
+}
 // the realm's catch-up and its yard in the live work (08m_loops.js loopsProduce)
 function seasonProdK(r, g) {
   const RS = SEASONP.rs;
@@ -158,6 +178,8 @@ function updateSeason(dt) {
   seasonCopyOut(RS);
   if (ph !== RS.phase) seasonApplyKeeps(); // (the war begins: the muster's skirmishes are over, the keeps as the season holds them)
   if (ph === 'war' && RS.phase === 'reckon' && RS.winner != null) seasonReckoned(RS.n, RS.winner, false);
+  SEASONP.hallowT = (SEASONP.hallowT || 0) + dt;
+  if (SEASONP.hallowT >= 1) { SEASONP.hallowT = 0; seasonHallowsIn(RS); }
   // the season's own news: told as the war's
   if ((RS.ln || 0) > SEASONP.ln) {
     const n = Math.min(RS.ln - SEASONP.ln, RS.log.length);
@@ -342,6 +364,6 @@ queueMicrotask(() => {
     SEASONP, RSM, rs: () => { seasonInit(); return SEASONP.rs; }, summary: (r) => (SEASONP.rs ? realmSimSummary(SEASONP.rs, r == null ? seasonMe() : r) : null),
     // tests: the season run on as if nobody had played for `sec` (RS alone)
     away: (sec) => { if (!SEASONP.rs) seasonInit(); if (SEASONP.rs) seasonAway(sec); return SEASONP.away ? SEASONP.away.sum : null; },
-    apply: seasonApplyKeeps, seasonGiveKeep, seasonKeepStays, seasonDelivered, seasonReckoned, seasonGiveGold, seasonVote, seasonAim, seasonHudLine, seasonWarText, seasonTitleText, chronSeason, seasonProdK, seasonChoose, updateSeason, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive,
+    apply: seasonApplyKeeps, seasonHallowsIn, seasonGiveKeep, seasonKeepStays, seasonDelivered, seasonReckoned, seasonGiveGold, seasonVote, seasonAim, seasonHudLine, seasonWarText, seasonTitleText, chronSeason, seasonProdK, seasonGateK, seasonChoose, updateSeason, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive,
   };
 });

@@ -520,6 +520,17 @@ async def main():
             print('  ', r, flush=True)
             check(r['a'] == 0 and r['stays'], f"in the war a keep taken in the field is the taker's in the season ({r['k']}: {r['was']} to {r['a']})")
             check(r['why'] == 'offensive' and r['s'] >= 40 and r['brace'] == 'brace', "an offensive under way sends its realm's bands at the keep it named, and its holder's to brace it")
+            r = await ev(page, r"""(() => {
+              const H = __hm, S = H.season, RS = S.rs(), rel = H.WAR.relics[1];
+              rel.state = 'temple'; rel.at = 0; rel.from = 0; rel.slot = 't0'; H.simulate(1.5);
+              const a = RS.hallows[1];
+              RS.hallows[1] = 1; S.apply();
+              return { phase: RS.phase, a, back: rel.at, slot: rel.slot };
+            })()""")
+            check(r['a'] == 0 and r['back'] == 1 and r['slot'] == 'home', f"a hallow placed in a temple in the field is the season's, and the season's hallows are put where it holds them ({r})")
+            r = await ev(page, r"""(() => { const H = __hm, S = H.season, RS = S.rs(), K = H.WAR.keeps[1], t0 = RS.keeps[1].tier;
+              RS.keeps[1].tier = 2; const k2 = S.seasonGateK(K.door); RS.keeps[1].tier = t0; return { k2, k0: S.seasonGateK(K.door) }; })()""")
+            check(abs(r['k2'] - 1 / 1.5) < 1e-6 and r['k0'] <= 1, f"walls raised two tiers in the season: the keep's gate and walls take a third less in the field ({r})")
             # saved, an absence of three days, loaded: stepped on and told; the title says it too
             r = await ev(page, r"""(() => {
               const H = __hm, S = H.season, fn = H.fn;
