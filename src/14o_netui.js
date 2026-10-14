@@ -177,6 +177,7 @@ function netSheetRender() {
   if (NET.party) { const pb = btn('Say to your party', 'say', ''); pb.dataset.ch = 'p'; acts.appendChild(pb); }
   chat.appendChild(acts);
   body.appendChild(chat);
+  netAcctRender(); // (drawn again only when the account changes: what you type stays)
 }
 
 /* ------------------------------------------------------------------ */
@@ -302,6 +303,7 @@ function netUiFrame() {
   if (!NETUI.on || !GAME.started || !GAME.player) return;
   const P = GAME.player;
   if ((UI.frame & 7) === 0) netSheetBadge();
+  if (NETUI.open && (UI.frame & 31) === 0) netAcctRender(); // the server's link may come up while the sheet is open
   // the party's frames
   const pp = $('netparty');
   if (pp && (UI.frame & 3) === 0) {

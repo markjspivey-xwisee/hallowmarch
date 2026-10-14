@@ -448,8 +448,9 @@ async def server_part(p):
         # accounts: the guest's account named from the Players sheet (it keeps its character), a wrong password refused,
         # and the account signed in from another browser (another device): the page loads again with that character
         await start(A2, 0, 'priest', 30, 'Aldwin', tx + 4, tz + 10)
-        ok = await until([A2], A2, "NT.st().state === 'on' && NT.st().kind === 'ws'", 10)
+        ok = await until([A2], A2, "NT.st().state === 'on' && NT.st().kind === 'ws'", 30)
         await A2.evaluate("__hm.net.sheet(true); 0")
+        await until([A2], A2, "(__hm.frame(1/30), !!document.getElementById('netacct-name'))", 10)
         has = await A2.evaluate("!!document.getElementById('netacct-name') && !document.getElementById('netsheet-acct').hidden")
         check(ok and has, f'the Players sheet offers to name the account (linked {ok}, fields {has})')
         await A2.fill('#netacct-name', 'Aldwinsson'); await A2.fill('#netacct-pass', 'hallow-pass-1')
@@ -464,8 +465,10 @@ async def server_part(p):
         ctx2 = await b.new_context(viewport={'width': W, 'height': H})
         A3 = await boot(ctx2, {**cfg, 'user': 'uSrvB'}, 'A3')
         await start(A3, 1, 'archer', 30, 'Strangely', tx + 6, tz + 10)
-        ok = await until([A3], A3, "NT.st().state === 'on' && NT.st().kind === 'ws'", 10)
+        ok = await until([A3], A3, "NT.st().state === 'on' && NT.st().kind === 'ws'", 30)
         await A3.evaluate("__hm.net.sheet(true); 0")
+        ok = await until([A3], A3, "(__hm.frame(1/30), !!document.getElementById('netacct-name'))", 10) and ok
+        check(ok, 'another browser, linked to the server, is offered to sign in')
         await A3.fill('#netacct-name', 'aldwinsson'); await A3.fill('#netacct-pass', 'hallow-pass-1')
         await A3.evaluate("document.querySelector('#netsheet-acct button[data-act=\"acct-login\"]').click(); 0")
         try:
