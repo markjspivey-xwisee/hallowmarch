@@ -12,6 +12,7 @@
 const MAX_MEMBERS = 30, MAX_CHAT = 60, MAX_INVITES = 24, MAX_INV_ACCT = 6, MAX_COS = 600;
 export const CO_DEVICES = 10; // the veteran's devices (src/04_l3device.js L3_DEVICE_NAMES)
 export const CO_TINCTURES = 5; // a realm's colour, its light, its dark, gold, silver (14r_companies.js CO_TINCT)
+const coDict = () => Object.create(null); // account and company keys must never resolve inherited properties
 const GENERIC = ['hallowmarch', 'admin', 'moderator', 'official', 'server', 'herald', 'quartermaster', 'keeper', 'developer', 'anthropic', 'claude', 'system', 'cinderwing', 'hollowking', 'ashcrowned', 'vorlach', 'gamemaster', 'support'];
 const norm = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 // what a player types, as text: no control, format or invisible characters, one space at a time
@@ -48,6 +49,11 @@ export function makeCompanies(cfg, store, stats, hooks) {
   const D = sanitize(store.read('companies.json', null));
   const C = { D, dirty: false, stats: { founded: 0, joined: 0, left: 0, removed: 0, invites: 0, refused: 0, said: 0, pledged: 0, pledgeMoved: 0, pledgeVoted: 0, captures: 0, musters: 0 } };
   const byAcct = new Map(); // account id -> company id
+  const clearInvites = (acct) => {
+    // Keep both indexes in step when an invitee joins or founds any company.
+    for (const co of Object.values(D.list)) delete co.inv[acct];
+    delete D.inv[acct];
+  };
   const reindex = () => { byAcct.clear(); for (const co of Object.values(D.list)) for (const id of Object.keys(co.mem)) byAcct.set(id, co.id); };
   reindex();
   let timer = null;
@@ -60,7 +66,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
   // the company's tally for this season (a new season begins it afresh)
   const tally = (co) => {
     const n = hooks.seasonN() || 1;
-    if (!co.s || co.s.n !== n) co.s = { n, pts: 0, u: 0, caps: 0, by: {}, pl: {} };
+    if (!co.s || co.s.n !== n) co.s = { n, pts: 0, u: 0, caps: 0, by: coDict(), pl: coDict() };
     return co.s;
   };
   const day = () => Math.floor(Date.now() / 86400e3);
@@ -68,7 +74,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
 
   C.found = (A, realm, name, dev, col) => {
     if (!A || A.guest) return no('Name your account first (the Players sheet): a guest cannot found a company');
-    if (!(realm >= 0 && realm <= 2)) return no('No realm yet');
+    if (!Number.isInteger(realm) || realm < 0 || realm > 2) return no('No realm yet');
     if (C.of(A.id)) return no('You are in a company already: leave it first');
     if (Object.keys(D.list).length >= MAX_COS) return no('The March holds no more companies');
     const now = Date.now();
@@ -82,9 +88,9 @@ export function makeCompanies(cfg, store, stats, hooks) {
     let c1 = Array.isArray(col) && Number.isInteger(col[1]) && col[1] >= 0 && col[1] < CO_TINCTURES ? col[1] : 3;
     if (c1 === c0) c1 = (c0 + 3) % CO_TINCTURES;
     const id = 'c' + (++D.seq).toString(36) + Math.random().toString(36).slice(2, 6);
-    const co = { id, name: n, key, realm, dev, col: [c0, c1], cap: A.id, mem: { [A.id]: { role: 'cap', j: now } }, notice: { x: '', by: '', at: 0 }, chat: [], pledge: '', inv: {}, created: now };
+    const co = { id, name: n, key, realm, dev, col: [c0, c1], cap: A.id, mem: Object.assign(coDict(), { [A.id]: { role: 'cap', j: now } }), notice: { x: '', by: '', at: 0 }, chat: [], pledge: '', inv: coDict(), created: now };
     D.list[id] = co; byAcct.set(A.id, id); A.coFoundAt = now;
-    delete D.inv[A.id];
+    clearInvites(A.id);
     line(co, '', `${A.name} founds ${n}.`);
     C.stats.founded++; C.save();
     return { ok: true, id };
@@ -124,7 +130,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
     if (realm !== co.realm) return no(`${co.name} is of another realm`);
     if (Object.keys(co.mem).length >= MAX_MEMBERS) return no(`${co.name} is full`);
     co.mem[A.id] = { role: 'mem', j: Date.now() }; byAcct.set(A.id, co.id);
-    delete D.inv[A.id];
+    clearInvites(A.id);
     line(co, '', `${A.name} joins the company.`);
     C.stats.joined++; C.save();
     return { ok: true, co: co.id };
@@ -252,10 +258,10 @@ export function makeCompanies(cfg, store, stats, hooks) {
 
 // read back as untrusted: everything checked, bounded, every string cleaned
 function sanitize(o) {
-  const D = { v: 1, seq: 0, list: {}, inv: {} };
+  const D = { v: 1, seq: 0, list: coDict(), inv: coDict() };
   if (!o || typeof o !== 'object') return D;
   D.seq = Number.isFinite(o.seq) ? Math.max(0, Math.min(1e9, o.seq | 0)) : 0;
-  const ok = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{2,40}$/.test(id);
+  const ok = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{2,40}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
   const keys = new Set();
   for (const [id, c] of Object.entries(o.list && typeof o.list === 'object' ? o.list : {}).slice(0, MAX_COS)) {
     if (!ok(id) || !c || typeof c !== 'object') continue;
@@ -263,7 +269,7 @@ function sanitize(o) {
     if (name.length < 3 || realm < 0) continue;
     const key = norm(name);
     if (keys.has(realm + ':' + key)) continue;
-    const mem = {};
+    const mem = coDict();
     for (const [a, M] of Object.entries(c.mem && typeof c.mem === 'object' ? c.mem : {}).slice(0, MAX_MEMBERS)) if (ok(a) && M && typeof M === 'object') mem[a] = { role: M.role === 'cap' || M.role === 'off' ? M.role : 'mem', j: Number.isFinite(M.j) ? M.j : 0 };
     if (!Object.keys(mem).length) continue;
     let cap = ok(c.cap) && mem[c.cap] ? c.cap : Object.keys(mem)[0];
@@ -271,12 +277,12 @@ function sanitize(o) {
     mem[cap].role = 'cap';
     const col = Array.isArray(c.col) ? c.col.slice(0, 2).map((v) => (Number.isInteger(v) && v >= 0 && v < CO_TINCTURES ? v : 0)) : [0, 3];
     if (col.length < 2) col.push(3);
-    const s = c.s && typeof c.s === 'object' && Number.isFinite(c.s.n) ? { n: c.s.n | 0, pts: num(c.s.pts, 1e9), u: num(c.s.u, 1e12), caps: num(c.s.caps, 1e6) | 0, by: {}, pl: {} } : null;
+    const s = c.s && typeof c.s === 'object' && Number.isFinite(c.s.n) ? { n: c.s.n | 0, pts: num(c.s.pts, 1e9), u: num(c.s.u, 1e12), caps: num(c.s.caps, 1e6) | 0, by: coDict(), pl: coDict() } : null;
     if (s) {
       for (const [a, b] of Object.entries(c.s.by && typeof c.s.by === 'object' ? c.s.by : {}).slice(0, 200)) if (ok(a) && b && typeof b === 'object') s.by[a] = { u: num(b.u, 1e12), c: num(b.c, 1e6) | 0, d: num(b.d, 1e7) | 0, du: num(b.du, 1e12) };
       for (const [p, u] of Object.entries(c.s.pl && typeof c.s.pl === 'object' ? c.s.pl : {}).slice(0, 12)) if (/^[a-z]{2,16}$/.test(p)) s.pl[p] = num(u, 1e12);
     }
-    const inv = {};
+    const inv = coDict();
     for (const [a, t] of Object.entries(c.inv && typeof c.inv === 'object' ? c.inv : {}).slice(0, MAX_INVITES)) if (ok(a) && !mem[a]) inv[a] = num(t, 1e15);
     D.list[id] = {
       id, name, key, realm, dev: Number.isInteger(c.dev) && c.dev >= 0 && c.dev < CO_DEVICES ? c.dev : 0, col, cap, mem, inv,
@@ -291,9 +297,20 @@ function sanitize(o) {
   const seen = new Set();
   for (const co of Object.values(D.list)) for (const a of Object.keys(co.mem)) { if (seen.has(a)) { delete co.mem[a]; if (co.cap === a) { const k = Object.keys(co.mem)[0]; if (k) { co.cap = k; co.mem[k].role = 'cap'; } } } seen.add(a); }
   for (const [id, co] of Object.entries(D.list)) if (!Object.keys(co.mem).length) delete D.list[id];
+  // The account-side invitations are the source of truth. Rebuild the company
+  // index so stale entries cannot fill a company's invite limit after a restart.
+  for (const co of Object.values(D.list)) co.inv = coDict();
   for (const [a, L] of Object.entries(o.inv && typeof o.inv === 'object' ? o.inv : {}).slice(0, 20000)) {
-    if (!ok(a) || !Array.isArray(L)) continue;
-    const l = L.slice(0, MAX_INV_ACCT).filter((I) => I && typeof I === 'object' && D.list[I.co] && !seen.has(a)).map((I) => ({ co: I.co, by: coText(I.by, 24), at: num(I.at, 1e15) }));
+    if (!ok(a) || !Array.isArray(L) || seen.has(a)) continue;
+    const l = [], used = new Set();
+    for (const I of L.slice(0, MAX_INV_ACCT)) {
+      if (!I || typeof I !== 'object' || !ok(I.co) || used.has(I.co)) continue;
+      const co = D.list[I.co];
+      if (!co || Object.keys(co.inv).length >= MAX_INVITES) continue;
+      const at = num(I.at, 1e15);
+      l.push({ co: I.co, by: coText(I.by, 24), at });
+      co.inv[a] = at; used.add(I.co);
+    }
     if (l.length) D.inv[a] = l;
   }
   return D;
@@ -307,7 +324,7 @@ export { sanitize as coSanitize, norm as coNorm };
 export function coPledgeApply(S, realm, proj, good, units) {
   const M = S && S.M, RS = S && S.RS;
   if (!M || !RS || !M.RSM || !M.RSM_GOODS || !RS.realms || !RS.realms[realm]) return { moved: 0, voted: 0 };
-  const R = RS.realms[realm], P = M.RSM.projects[proj], g = M.RSM_GOODS.indexOf(good);
+  const R = RS.realms[realm], P = Object.hasOwn(M.RSM.projects, proj) ? M.RSM.projects[proj] : null, g = M.RSM_GOODS.indexOf(good);
   if (!P || !Array.isArray(R.s) || !Array.isArray(R.bank) || !R.proj) return { moved: 0, voted: 0 };
   if (proj !== 'walls' && R.proj[proj] >= P.max) return { moved: 0, voted: 0, built: 1 };
   if (R.act === proj) {

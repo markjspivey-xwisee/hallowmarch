@@ -78,6 +78,13 @@ async function main() {
   // a slow profile that claims a company is not stamped with it
   const capPeerSeen = off.last((m) => m.t === 'peer' && m.slow && m.slow.n === 'Corwen');
   check(capPeerSeen && !capPeerSeen.slow.co, 'a company a page claims for itself is not relayed');
+  // Malformed identifiers arrive through the public socket and must be refused
+  // without terminating the server or damaging the company's membership maps.
+  for (const id of ['constructor', '__proto__', 'toString']) {
+    await pause();
+    const bad = await cap.ask('answer', { id, yes: true });
+    check(bad && !bad.ok, `an inherited company key is refused without losing the connection (${id})`);
+  }
   // names refused
   let r = await guest.ask('found', { name: 'Wayfarers', dev: 2, col: [0, 3] });
   check(r && !r.ok && /guest/i.test(r.why), `a guest cannot found a company (${r && r.why})`);
