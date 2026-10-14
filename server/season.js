@@ -10,12 +10,63 @@ export function loadRealmModule(srcDir, hereDir) {
     let code;
     try { code = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
     try {
-      const M = new Function(code + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null};')();
-      if (FNS.every((k) => typeof M[k] === 'function')) { M.file = path.basename(f); return M; }
+      const M = new Function(code + '\nreturn {' + FNS.join(',') + ', realmSimCapture: typeof realmSimCapture === "function" ? realmSimCapture : null, realmSimLive: typeof realmSimLive === "function" ? realmSimLive : null, RSM: typeof RSM === "object" ? RSM : null, RSM_GOODS: typeof RSM_GOODS !== "undefined" ? RSM_GOODS : null, RSM_GEO: typeof RSM_GEO !== "undefined" ? RSM_GEO : null};')();
+      if (FNS.every((k) => typeof M[k] === 'function')) { M.file = path.basename(f); return M.RSM && M.RSM_GOODS ? loopsAdapt(M) : M; }
       console.warn('season: ' + f + ' lacks the contract\'s functions');
     } catch (e) { console.warn('season: ' + f + ' did not load: ' + e.message); }
   }
   return null;
+}
+
+// [v19] loops's src/08m_realm.js (the real module) under the stand-in's shape: what the server and the pages (14q_netseason.js
+// netsRead) speak is the stand-in's (realm_stub.js); loops's RS is kept as it is and only its ways in and out are mapped here
+function loopsAdapt(L) {
+  const G = L.RSM_GOODS, RSM = L.RSM, GEO = L.RSM_GEO, day = 86400;
+  const PROJ = {
+    walls: ['Raise the walls a tier', "a keep's walls and gate take a fifth less (the keep an offensive names first)"],
+    granary: ['Build a granary', 'the stores hold more food'],
+    yard: ['A horse-breeding yard', 'more horses for the captains'],
+    smithy: ['A smithy', 'the levies better armed'],
+    engines: ['Siege engines', 'stockpiled for the offensive'],
+  };
+  const PHASE = { muster: 'build', war: 'war', reckon: 'over' };
+  const pos = (A) => { const from = GEO.muster[A.r], to = A.k >= 0 ? GEO.keep[A.k] : A.q >= 0 ? (A.kind === 'hallow' ? GEO.temple[A.q] : GEO.muster[A.q]) : from; const p = A.state === 'siege' ? 1 : Math.max(0, Math.min(1, A.p || 0)); return [from[0] + (to[0] - from[0]) * p, from[1] + (to[1] - from[1]) * p]; };
+  return {
+    ...L, loops: true,
+    realmSimInit: (seed, o = {}) => L.realmSimInit(seed, { days: (o.len || 28 * day) / day, n: o.season || 1, t0: Date.now(), keeps: Array.isArray(o.keeps) ? o.keeps.map((k) => (typeof k === 'object' ? k.home | 0 : k | 0)) : undefined, names: Array.isArray(o.keeps) ? { realms: ['Logres', 'Ériu', 'Thule'], keeps: o.keeps.map((k, i) => (k && k.name) || 'keep ' + (i + 1)) } : undefined }),
+    realmSimSanitize: (o) => (o && o.v === 1 && Array.isArray(o.realms) && o.realms[0] && Array.isArray(o.realms[0].s) ? L.realmSimSanitize(o) : null),
+    // everything brought is taken (the stores up to their cap, the rest kept for the realm's works): the units
+    realmSimContribute: (RS, realm, kind, n, who) => { L.realmSimContribute(RS, realm, kind, n, who); return G.includes(kind) ? n : 0; },
+    realmSimOrder: (RS, realm, o, acct) => {
+      const rank = o.w >= 3 ? 5 : 1;
+      if (o.kind === 'target' && rank < 5) return { ok: false, why: 'Only an officer of the realm (rank 5) names the keep it marches on' };
+      if (o.kind === 'muster' && RS.phase !== 'war') return { ok: false, why: 'No muster before the war' };
+      const ok = L.realmSimOrder(RS, realm, { type: o.kind, id: o.id, keep: o.keep }, { name: o.by || acct, rank });
+      return ok ? { ok: true } : { ok: false, why: 'Not now' };
+    },
+    realmSimCapture: (RS, keep, realm) => L.realmSimLive(RS, { type: 'keep', keep, holder: realm }),
+    realmSimSummary: (RS, realm, since) => {
+      const R = realm >= 0 ? RS.realms[realm] : null, ph = PHASE[RS.phase] || 'war';
+      const s = {
+        n: RS.n, t: RS.t, len: RS.len, day: Math.floor(RS.t / day) + 1, days: Math.round(RS.len / day), phase: ph, over: ph === 'over' ? 1 : 0, winner: RS.winner == null ? -1 : RS.winner,
+        pts: RS.realms.map((q) => Math.round(q.sp)),
+        keeps: RS.keeps.map((K, i) => ({ i, r: K.h, g: Math.round(K.g), gate: K.gate > 0.5 ? 1 : 0, siege: K.siege ? 1 : 0, tier: K.tier })),
+        armies: RS.armies.filter((A) => A.state !== 'gone').slice(0, 24).map((A) => { const [x, z] = pos(A); return { r: A.r, n: Math.round(A.n), to: A.k, st: A.state === 'siege' ? 'siege' : 'march', x: Math.round(x), z: Math.round(z) }; }),
+        news: RS.log.filter((L2) => L2.t > since && (realm < 0 || L2.r === realm || L2.r === -1 || L2.k === 'big')).slice(-12).map((L2) => [Math.round(L2.t), L2.r, L2.x]),
+        target: R ? R.aim : -1, levyIn: R ? Math.max(0, Math.round(R.levyAt - RS.t)) : 0,
+      };
+      if (R) {
+        s.st = Object.fromEntries(G.slice(0, 7).map((g, i) => [g, Math.round(R.s[i])]));
+        s.built = Object.keys(R.proj).filter((id) => R.proj[id] > 0);
+        s.proj = Object.keys(RSM.projects).map((id) => {
+          const P = RSM.projects[id], need = {}, have = {};
+          P.cost.forEach((c, i) => { if (c > 0 && i < 7) { need[G[i]] = c; have[G[i]] = Math.round(Math.min(c, R.s[i] + R.bank[i])); } });
+          return { id, label: (PROJ[id] || [P.name])[0], did: `${(PROJ[id] || ['', P.name])[1]}${R.act === id ? ` (at work: ${Math.round(R.prog * 100)}%)` : ''}`, built: R.proj[id] >= P.max && id !== 'walls', votes: Math.round(R.votes[id] || 0), need, have };
+        });
+      }
+      return s;
+    },
+  };
 }
 
 // what one account may plausibly bring in (a bucket each good: it fills at a gatherer's best pace and holds a long trip's
@@ -104,7 +155,7 @@ export function makeSeason(cfg, store, stats) {
     else S.RS.keeps[keep].r = realm; // (the contract's shape: a keep's holder)
     stats.liveCaptures++; S.dirty = true;
   };
-  S.keepsOf = () => (S.RS && Array.isArray(S.RS.keeps) ? S.RS.keeps.map((K) => (K && (K.r ?? K.holder ?? K.owner))) : null);
+  S.keepsOf = () => (S.RS && Array.isArray(S.RS.keeps) ? S.RS.keeps.map((K) => (K && (K.r ?? K.h ?? K.holder ?? K.owner))) : null);
   S.summary = (realm, since) => {
     if (!S.RS) return null;
     const s = S.M.realmSimSummary(S.RS, realm, since);

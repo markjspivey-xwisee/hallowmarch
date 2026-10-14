@@ -23,8 +23,10 @@ function seasonCopyOut(RS) {
   for (let r = 0; r < 3; r++) for (let g = 0; g < 7; g++) LOOPS.r[r][LOOPS_R[g]] = Math.max(0, RS.realms[r].s[g]);
 }
 
+// [v19] linked to the March's server (14p_netws.js): the server keeps the season (14q_netseason.js), not this page
+const seasonServer = () => typeof NETWS !== 'undefined' && !!NETWS.url;
 function seasonInit() {
-  if (SEASONP.rs || !WAR.keeps.length || !GAME.player) return;
+  if (SEASONP.rs || seasonServer() || !WAR.keeps.length || !GAME.player) return;
   const names = seasonNames(), homes = WAR.keeps.map((K) => K.orig);
   const d = SEASONP.pend;
   SEASONP.pend = undefined;
@@ -271,6 +273,7 @@ const SEASON_PROJ_X = {
   engines: 'the realm marches with them on its offensive\'s day',
 };
 function chronSeason() {
+  if (seasonServer() && typeof netsChronSeason === 'function') return netsChronSeason();
   seasonInit();
   const RS = SEASONP.rs, P = GAME.player;
   if (!RS || !P) return '<p class="lead">The season begins once you are in the March.</p>';

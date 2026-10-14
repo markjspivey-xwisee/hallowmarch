@@ -410,7 +410,7 @@ const server = http.createServer((req, res) => {
     const got = String(req.headers['x-hm-admin'] || '');
     if (!key || got.length !== key.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key))) { give(403, { ok: false }); return; }
     const op = u.searchParams.get('op'), i = +u.searchParams.get('i'), r = +u.searchParams.get('r');
-    if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; give(200, { ok: true, keeps: SEASON.keepsOf() }); return; }
+    if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('h' in K) K.h = r; else if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; give(200, { ok: true, keeps: SEASON.keepsOf() }); return; }
     if (op === 'reset' && SEASON.M) { SEASON.RS = SEASON.M.realmSimInit(CFG.seasonSeed + Date.now() % 1000, { keeps: CFG.keeps, len: CFG.seasonLen, season: (SEASON.RS && SEASON.RS.n || 0) + 1 }); SEASON.roster = {}; SEASON.chat = [[], [], []]; for (const A of Object.values(ACCOUNTS)) delete A.votes; accountsSave(); SEASON.save(); give(200, { ok: true, n: SEASON.RS.n }); return; }
     if (op === 'save') { SEASON.save(); give(200, { ok: true }); return; }
     give(400, { ok: false }); return;

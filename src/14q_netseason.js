@@ -11,7 +11,6 @@
 // loops's own deliveries at a quartermaster: told to the server, which takes what one could have gathered) and votes (a
 // work, a target, an officer's muster), the war panel's line, the Season page of the Chronicle, a field note, help and
 // tips. Alone (no server) none of it runs and the page plays exactly as before.
-/* global LOOPS, LOOPS_WORTH, loopsDeliver */ // loops's (08m_loops.js), asked behind typeof: drop this line when the branches meet
 const NETS = { s: null, roster: null, k: null, at: 0, first: false, away: -1, q: 0, waits: new Map(), given: {}, chat: [], busy: false, noted: false, told: false, stats: { msgs: 0, keepsApplied: 0, stores: 0, contribs: 0, took: 0, refused: 0, orders: 0 } };
 const NETS_PHASE = { build: 'Building', war: 'War', final: 'The final week', over: 'Over' };
 // what a carried good is worth to the realm's stores (loops's own table when it is here)
@@ -189,7 +188,8 @@ queueMicrotask(netsWrapLoops);
 /* ------------------------------------------------------------------ */
 /* the Season page of the Chronicle                                    */
 /* ------------------------------------------------------------------ */
-function chronSeason() {
+// [v19] the Season page while linked to the server (08n_season.js chronSeason hands it here; alone, loops's own page)
+function netsChronSeason() {
   const P = GAME.player;
   if (!netsOn() || !P) {
     return `<h2>The season</h2><p class="lead">On the March's own server the three realms live on day and night: their stores fill and empty, their works are built, their armies march and lay siege by the numbers while nobody is there, and a season lasts weeks. Players of a realm come and go when they can, bring what they gathered, vote for the realm's works and its targets, and fight its battles when they meet.</p><p>${typeof NETWS !== 'undefined' && NETWS.state === 'on' ? 'This server keeps no season.' : 'You are playing alone: this March is yours, and its war runs only while you play. Open the March from its server to join the season.'}</p>`;
@@ -235,7 +235,6 @@ $('menu-body').addEventListener('click', async (ev) => {
   NETS.said = msg;
   setTimeout(() => { netsRender(); const e = document.getElementById('ns-said'); if (e) e.textContent = NETS.said; }, 400);
 });
-chronAdd('season', 'Season', 'war', chronSeason, 'war');
 if (typeof G2_SEE !== 'undefined') G2_SEE.season = ['war', 'orders'];
 
 /* ------------------------------------------------------------------ */
@@ -246,4 +245,4 @@ Object.assign(FIELD_NOTES, {
 });
 GUIDE_HELP.push(() => `<h3>The season</h3><p>On the March's own server a season lasts weeks, and the realms live on while nobody plays: their stores fill from their towns and the keeps they hold, the works their players voted for are built, their armies muster, march and lay siege by the numbers. You help your realm when you can: bring what you gathered to its stores (the Season page of the Chronicle: Bring), vote for its next work and the keep it marches on, and fight beside whoever of your realm is on. Every keep held earns its realm points through the season, twice in the final week; the realm with the most at the season's end holds the March. When you come back you are told what happened while you were away.</p>`);
 LOADING_TIPS.push('On the March\'s server the season goes on while you are away: the Season page tells what your realm did, and what it needs.');
-window.__hm.season = { NETS, msg: netSeasonMsg, give: netsGive, giveAll: netsGiveAll, vote: netsVote, hud: netSeasonHudHTML, carried: netsCarried, render: netsRender };
+window.__hm.netseason = { NETS, msg: netSeasonMsg, give: netsGive, giveAll: netsGiveAll, vote: netsVote, hud: netSeasonHudHTML, carried: netsCarried, render: netsRender };
