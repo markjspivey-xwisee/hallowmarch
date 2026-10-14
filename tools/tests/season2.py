@@ -162,7 +162,7 @@ async def main():
             logs += logs2
             await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
-            await ev(page, r"""(() => { const H = __hm, S = H.season; H.fn.setQuality('medium'); S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.armies.length = 0; __s2.calm(); RS.realms[2].lev = 40; RS.realms[2].aim = 0; S.realmSimOrder(RS, 2, { type: 'muster' }, { name: 'test', rank: 9 }); __s2.keepNear(0, 70); __s2.step(3); return 0; })()""")
+            await ev(page, r"""(() => { const H = __hm, S = H.season; H.fn.setQuality('medium'); S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.keeps.forEach((K) => { K.h = K.home; K.siege = null; K.g = 8; }); S.apply(); RS.armies.length = 0; RS.offs.length = 0; __s2.calm(); RS.realms[2].lev = 40; RS.realms[2].aim = 0; S.realmSimOrder(RS, 2, { type: 'muster' }, { name: 'test', rank: 9 }); __s2.keepNear(0, 70); __s2.step(3); return 0; })()""")
             # the band marching in, seen from behind the player toward it
             await ev(page, r"""(() => { const H = __hm, fn = H.fn, P = H.GAME.player; for (let i = 0; i < 20; i++) H.simulate(1); const B = [...H.season2.S2.bands.values()][0], L = fn.wbLeader(B.wb); const y = Math.atan2(L.x - P.x, L.z - P.z); H.look(y + Math.PI, 0.18, 9); H.setTod(0.42); for (let i = 0; i < 4; i++) H.frame(); return 0; })()""")
             await page.screenshot(path=str(OUT / 'season2_band.png'), timeout=300000)

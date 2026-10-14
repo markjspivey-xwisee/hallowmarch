@@ -913,7 +913,7 @@ async def weather_part(p):
     log('follower before', json.dumps(own0))
     # a storm on the host's page, 220 m from the town
     sid = await H_.evaluate(f"(() => {{ const c = WXT.W.wxMake('storm', {tx + 220}, {tz}, {{ age: 120 }}); c.life = Math.max(c.life, 700); return c.id; }})()")
-    ok = await until(pages, F_, f"WXT.st({sid}).c !== null", 40, 0.25)
+    ok = await until(pages, F_, f"(() => {{ const c = WXT.st({sid}).c; return !!c && !!c.net; }})()", 40, 0.25)
     check(ok, f'the follower has the host\'s storm (id {sid})')
     trail = []
     for i in range(36):

@@ -35,6 +35,21 @@ function netWxObj() {
   NWX.stats.sent++;
   return NWX.snap;
 }
+// A bounded, detached snapshot survives the generic profile decoder. Never
+// resolve inherited weather-kind names or retain arbitrary peer properties.
+function netWxRead(d) {
+  if (!d || typeof d !== 'object' || d.v !== 1 || !Array.isArray(d.c)) return null;
+  const cells = [];
+  for (const r of d.c.slice(0, 28)) {
+    if (!Array.isArray(r) || r.length !== 12 || !Number.isInteger(r[0]) || r[0] < 1 || r[0] > 1e9
+      || typeof r[1] !== 'string' || !Object.hasOwn(WX_KINDS, r[1]) || !r.slice(2).every(Number.isFinite)) continue;
+    cells.push(r.slice());
+  }
+  const out = { v: 1, k: Math.round(netNum(d.k, 0, 1e9)), c: cells };
+  if (Array.isArray(d.w) && d.w.length === 4 && d.w.every(Number.isFinite)) out.w = d.w.slice();
+  if (Array.isArray(d.o) && d.o.length === 2 && d.o.every(Number.isFinite)) out.o = d.o.slice();
+  return out;
+}
 // a follower takes the host's word (resume: the first host of a session taking the kept sky: placed at once, its own)
 function netWxTake(d, resume = false) {
   const now = performance.now();
@@ -58,7 +73,7 @@ function netWxTake(d, resume = false) {
   const seen = new Set();
   let maxId = 0;
   for (const r of d.c.slice(0, 40)) {
-    if (!Array.isArray(r) || !WX_KINDS[r[1]]) continue;
+    if (!Array.isArray(r) || !Object.hasOwn(WX_KINDS, r[1])) continue;
     const id = num(r[0], 1, 1e9, 0) | 0, x = num(r[2], -4000, 4000, NaN), z = num(r[3], -4000, 4000, NaN);
     if (!id || !isFinite(x) || !isFinite(z) || seen.has(id)) continue;
     seen.add(id); maxId = Math.max(maxId, id);
