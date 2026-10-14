@@ -91,7 +91,7 @@ if (typeof deepWaterMat !== 'undefined') {
           float behind = smoothstep(0.0, -0.6, along) * exp(along * 0.35);
           float arm = abs(abs(across) - (-along) * 0.34);
           float w = (1.0 - smoothstep(0.0, 0.35 + (-along) * 0.05, arm)) * behind * min(sp, 1.6) * 0.6;
-          g += vec2(-Dw.y, Dw.x) * sign(across) * sin(-along * 9.0 + t * 6.0) * w * 0.5;
+          g += vec2(-Dw.y, Dw.x) * clamp(across / 0.18, -1.0, 1.0) * sin(-along * 9.0 + t * 6.0) * w * 0.5; // [look7] eased across the line behind the swimmer (sign() flipped the water's slope there: a dark stroke trailed every swimmer)
           stir += w * 0.35;
         }
       }

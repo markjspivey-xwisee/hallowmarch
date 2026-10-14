@@ -52,6 +52,8 @@ async def setup(p, w, h, touch=False):
     ctx = await b.new_context(viewport={'width': w, 'height': h}, has_touch=touch, is_mobile=touch)
     page = await ctx.new_page()
     await page.add_init_script(HOLD)
+    # [look7] others in the March: the stand-in room (00n_netstub.js), so look7's views can draw remote players (net_fake.js)
+    if 'net' in FLAGS: await page.add_init_script("window.__HM_NET = { room: 'look7' };")
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
     three = hm.THREE_LOCAL.read_text()
@@ -76,6 +78,7 @@ async def start(page):
     await page.evaluate(VIEWS_JS.read_text() + '\n;0')
     # the war gets going and the towns wake up, then the world holds still between the views
     await page.evaluate("LK.boot(); 0")
+    if 'net' in FLAGS: await page.evaluate(pathlib.Path(__file__).with_name('net_fake.js').read_text() + '\n;0')  # [look7] players without pages (l7_others)
 
 async def serve():
     cmd = OUT_DIR = pathlib.Path(str(OUT)) / 'look_cmd'

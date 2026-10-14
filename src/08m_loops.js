@@ -728,6 +728,7 @@ function loopsCartFree(c) {
   const K = c.cart;
   if (!K) return;
   for (const m of K.meshes) shadowDrop(m);
+  look7CartFree(K); // [look7] the wheel that came off
   K.root.removeFromParent();
   c.cart = null;
 }
@@ -785,6 +786,7 @@ function loopsDraw(dt) {
     let top = null, tq = 0;
     for (const g of LOOPS_K) if ((c.load[g] || 0) > tq) { tq = c.load[g]; top = g; }
     for (const g of LOOPS_K) K.loads[g].visible = g === top && tq >= 1;
+    look7CartPose(c, K, dt, horse); // [look7] a horseless cart on its shafts' tips, a wreck on its side with a wheel off (14r_look7.js): it was rolled into the road with its shafts out level in the air
     // burnt
     if (c.state === 'wreck') {
       K.burn = Math.min(1, K.burn + dt / 30);
@@ -1091,6 +1093,7 @@ function loopsYardInit() {
     if (COVER.tex) coverMarkBox(bx, bz, YARD_BOX.hx, YARD_BOX.hz, sp.yaw, 0.4);
     R.lyard = Y;
     LOOPS.yards.push(Y);
+    look7YardGround(Y); // [look7] its ground trodden bare and a path to it past the quartermaster (14r_look7.js): it stood on a carpet of bare turf
   }
 }
 // the stacks a store shows: none under a tenth of its target, then one for each third, three at most

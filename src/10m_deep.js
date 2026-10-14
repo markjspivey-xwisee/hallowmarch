@@ -609,7 +609,7 @@ function late3BuildDeep() {
     deepTrench(b, 30, 54, 35, 41, pits);
     deepTrench(b, 30, 54, 57, 63, pits);
     const M = deepM(23.5, DEEP_Y, 48.5);
-    b.add(G.box, lm(M, 0, 0.3, 0, 0, 7.2, 0.6, 11.2), MAT.stone, darker(DEEP_STONE, 1.05), DEEP_Y, 1);
+    b.add(G.box, lm(M, 0, 0.28, 0, 0, 7.2, 0.56, 11.2), MAT.stone, darker(DEEP_STONE, 1.05), DEEP_Y, 1); // [look7] its top 4 cm under the floor's dais cells (-17.4): it lay in their plane and hid the ground's marks there (the lord's stamp and cleave on his dais)
     b.add(G.box, lm(M, 3.75, 0.15, 0, 0, 0.9, 0.3, 9.6), MAT.stone, darker(DEEP_STONE, 1.0), DEEP_Y, 1);
     // a throne of black stone for a king twice a man's height, embers in its carved runes
     const T2 = deepM(21.6, -17.4, 48.5, Math.PI / 2);
@@ -631,7 +631,7 @@ function late3BuildDeep() {
     for (const [u, v, fu, fv] of [[20.2, 37, 1, 0], [20.2, 60, 1, 0], [55.8, 37, -1, 0], [55.8, 60, -1, 0], [36, 34.2, 0, 1], [48, 34.2, 0, 1], [36, 63.8, 0, -1], [48, 63.8, 0, -1]]) deepTorch(b, u, v, [fu, fv]);
     DUN.lights.push({ x: deepX(42), y: DEEP_PIT + 0.9, z: deepZ(38), r: 12, c: [1.2, 0.42, 0.1], pulse: 1 });
     DUN.lights.push({ x: deepX(42), y: DEEP_PIT + 0.9, z: deepZ(60), r: 12, c: [1.2, 0.42, 0.1], pulse: 1 });
-    DUN.lights.push({ x: deepX(27), y: DEEP_Y + 6, z: deepZ(48.5), r: 24, c: [1.0, 0.4, 0.12], pulse: 1 }); // [look6] the throne's glow reaching down the aisle (at 14 m it lost its place among four lights at low to the torches by the door, and from the door the throne and its king were black)
+    DUN.lights.push({ x: deepX(27), y: DEEP_Y + 6, z: deepZ(48.5), r: 24, c: [1.0, 0.4, 0.12], pulse: 1, pri: 12 }); // [look6] the throne's glow reaching down the aisle (at 14 m it lost its place among four lights at low to the torches by the door, and from the door the throne and its king were black); [look7] and taken before the near torches (pri, 05d_fire.js gatherLights): at 24 m it still lost to them at low, and the throne stood black from the door
     for (let k = 0; k < 5; k++) deepBones(b, 30 + rnd() * 24, 43 + rnd() * 11, 0.5, 5, rnd);
   }
   const root = new THREE.Group();

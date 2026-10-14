@@ -110,6 +110,7 @@ function buildCoverMask() {
   mtnCoverAll(); // [land] nor up through a crag (03c_land.js)
   boatsCover(); // [water2] no grass through the hull of a boat drawn up on the shore (07e_boats.js)
   lookCoverAll(); // [look] the towns' trodden green, tofts and paths (13t_look.js)
+  look7CoverAll(); // [look7] the stores yards' trodden ground and paths (14r_look7.js)
   look3CoverAll(); // [look3] and the keeps' halls' paths (13v_look3.js)
   COVER.tex.needsUpdate = true;
   COVER.built = true;

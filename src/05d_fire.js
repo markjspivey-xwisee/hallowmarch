@@ -19,10 +19,10 @@ const _plc = [];
 function gatherLights(camX, camY, camZ) {
   _plc.length = 0;
   const night = U.uNight.value, t = renderTime;
-  const add = (x, y, z, r, cr, cg, cb) => {
+  const add = (x, y, z, r, cr, cg, cb, pri = 0) => { // [look7] pri: a light that carries a whole hall's view (taken before the near torches)
     const d = Math.sqrt((x - camX) ** 2 + (y - camY) ** 2 + (z - camZ) ** 2);
     if (d > r + 85 || cr + cg + cb < 0.02) return;
-    _plc.push({ x, y, z, r, cr, cg, cb, s: Math.max(0, d - r) - (cr + cg + cb) * 2 });
+    _plc.push({ x, y, z, r, cr, cg, cb, s: Math.max(0, d - r) - (cr + cg + cb) * 2 - pri });
   };
   for (const f of FIRES) {
     if (f.until < GAME.t) continue;
@@ -72,7 +72,7 @@ function gatherLights(camX, camY, camZ) {
   if (INDOOR.on) {
     for (const L of DUN.lights) {
       const k = L.pulse ? 0.82 + 0.18 * Math.sin(t * 1.3) * Math.sin(t * 0.71 + 1.0) : 1;
-      add(L.x, L.y, L.z, L.r, L.c[0] * k, L.c[1] * k, L.c[2] * k);
+      add(L.x, L.y, L.z, L.r, L.c[0] * k, L.c[1] * k, L.c[2] * k, L.pri && Math.hypot(L.x - camX, L.z - camZ) < 45 ? L.pri : 0);
     }
     if (Pl && Pl.alive) add(Pl.x, Pl.y + 2.4, Pl.z, 7.5, 0.34, 0.27, 0.19);
   }
