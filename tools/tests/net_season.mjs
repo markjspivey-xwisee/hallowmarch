@@ -54,10 +54,11 @@ try {
   ok(c4 && !c4.ok, 'a good that is not the realm\'s refused', JSON.stringify(c4));
   const s1 = await A.ask();
   ok(s1 && s1.s.st.food >= food0 + 100 && s1.s.st.iron >= iron0 + c2.took - 5, 'the realm\'s stores grew by what was brought', `food ${food0} -> ${s1 && s1.s.st.food}, iron ${iron0} -> ${s1 && s1.s.st.iron}`);
-  const o1 = await A.order({ kind: 'project', id: 'forge' });
+  const work = (s1.s.proj.find((p) => !p.built) || { id: 'forge' }).id; // a work the realm has not built yet (a long-lived server's season may have built some)
+  const o1 = await A.order({ kind: 'project', id: work });
   ok(o1 && o1.ok, 'a vote for a work', JSON.stringify(o1));
   await sleep(2600);
-  const o2 = await A.order({ kind: 'project', id: 'forge' });
+  const o2 = await A.order({ kind: 'project', id: work });
   ok(o2 && !o2.ok, 'one vote an account', JSON.stringify(o2));
   await sleep(2600);
   const enemy = s1.s.keeps.find((K) => K.r !== 1);
@@ -67,7 +68,7 @@ try {
   const o4 = await A.order({ kind: 'muster' });
   ok(o4 && !o4.ok, 'a muster called by one who is no officer refused', JSON.stringify(o4));
   const s2 = await A.ask();
-  ok(s2 && (s2.s.proj.find((p) => p.id === 'forge').votes >= 1 || s2.s.built.includes('forge')) && s2.s.target === enemy.i, 'the votes in the season', `forge votes ${s2 && s2.s.proj.find((p) => p.id === 'forge').votes}, target ${s2 && s2.s.target}`);
+  ok(s2 && (s2.s.proj.find((p) => p.id === work).votes >= 1 || s2.s.built.includes(work)) && s2.s.target === enemy.i, 'the votes in the season', `${work} votes ${s2 && s2.s.proj.find((p) => p.id === work).votes}, target ${s2 && s2.s.target}`);
   A.say('Bring iron to the forge, all of you');
   await sleep(500);
   // a second player, of Logres: it sees Ériu's player, not Ériu's stores
@@ -90,7 +91,7 @@ try {
   const sA = await A2.profile({ realm: 1, name: 'Aeda', cls: 'archer', level: 24 });
   ok(sA && sA.s.t > t0, 'the season went on', `t ${t0} -> ${sA && sA.s.t}`);
   ok(sA && sA.away > 0 && Array.isArray(sA.s.news), 'a returning player told how long it was away and the news', `away ${sA && sA.away} s, news ${sA && sA.s.news.length}: ${sA && JSON.stringify(sA.s.news.slice(-2))}`);
-  ok(sA && (sA.s.proj.find((p) => p.id === 'forge').votes >= 1 || sA.s.built.includes('forge')), 'its vote kept (or the work it voted for built)', JSON.stringify(sA && sA.s.built));
+  ok(sA && (sA.s.proj.find((p) => p.id === work).votes >= 1 || sA.s.built.includes(work)), 'its vote kept (or the work it voted for built)', JSON.stringify(sA && sA.s.built));
   ok(sA && (sA.chat || []).some((l) => /forge/.test(l[2])), 'its realm\'s chat kept', JSON.stringify(sA && (sA.chat || []).slice(-1)));
   ok(sA && sA.roster.list.find((x) => x.n === 'Aeda').g >= 120, 'what it gave today on the roster', JSON.stringify(sA && sA.roster.list.find((x) => x.n === 'Aeda')));
   const pub = await http('/season');
