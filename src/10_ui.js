@@ -233,7 +233,7 @@ function updateWarPanel() {
     const rel = WAR.relics.filter((x) => x.state === 'temple' && x.at === R.id).map((x) => `<i style="--rc:${REALMS[x.realm].color}" title="${REALMS[x.realm].hallow}"></i>`).join('');
     return `<div class="row ${R.id === P.faction ? 'me' : ''}" style="--rc:${R.color}"><span class="sw"></span><span>${R.name}</span><span class="k" title="Keeps held">${keeps} keeps</span><span class="rel">${rel}</span></div>`;
   }).join('');
-  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
+  const html = rows + campaignHudHTML() /* [campaign] 08g_campaign.js */ + guideWarAimHTML() /* [guide2] your own aim, a tap from the Aims page (10f_guide2.js) */ + netSeasonHudHTML() /* [net] the season on the server (14q_netseason.js) */ + `<div class="tod"><span>${SEASON.name /* [farming] the season (08h_farming.js) */} · ${todPhaseName(tod.p)}${WEATHER.kind !== 'clear' ? ' · ' + WEATHER.label : ''}</span><span class="todm">${tod.mode === 'cycle' ? 'Day cycle' : 'Fixed'}</span></div>`;
   const w = $('war');
   if (w._h !== html) { w.innerHTML = html; w._h = html; }
 }

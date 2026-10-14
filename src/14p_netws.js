@@ -71,7 +71,7 @@ function netWsOpen() {
       if (m.t === 'welcome') {
         clearTimeout(fail);
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.acct = m.acct; NETWS.world = m.world || null;
-        NET.self = m.peer; NET.srvWorld = m.world || null;
+        NET.self = m.peer; NET.srvWorld = m.world || null; NETWS.season = m.season || null;
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(NETWS.host, m.token); }
         NET.slowKey = ''; NET.fastKey = ''; // everything again, to whoever is there now
         resolve(true);
@@ -82,6 +82,7 @@ function netWsOpen() {
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
+      else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') netSeasonMsg(m); // the season (14q_netseason.js)
     };
     ws.onclose = () => {
       clearTimeout(fail);
