@@ -5,7 +5,7 @@ was won (keeps, hallows or renown) with the raid and siege counters.
 is going (its leader nearer its next waypoint), waited on purpose (holding a keep, defending, on watch, by its working
 engine) or stood still; a band still for 30 s or more is written down (its order, phase, where its leader stands, what
 is round it), and so is every band that gives its order back after 150 s without getting anywhere (`bandStalls`).
-usage: python3 tools/campaign_soak.py [minutes=60] [low|medium|high (band count)] [chunk-seconds=300] [json=PATH] [quiet]"""
+usage: python3 tools/campaign_soak.py [minutes=60] [low|medium|high (band count)] [chunk-seconds=300] [json=PATH] [quiet] [realm=0|1|2]"""
 import json, asyncio, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from hmlib import setup
@@ -17,6 +17,7 @@ MINS = int(nums[0]) if nums else 60
 CHUNK = int(nums[1]) if len(nums) > 1 else 300
 QUALITY = next((a for a in ARGS if a in ('low', 'medium', 'high')), 'low')
 JSON_OUT = next((a[5:] for a in ARGS if a.startswith('json=')), None)
+REALM = int(next((a[6:] for a in ARGS if a.startswith('realm=')), '0'))  # [loops] the player's realm (its town is the one in sight)
 QUIET = 'quiet' in ARGS
 T0 = time.time()
 
@@ -148,7 +149,7 @@ async def main():
         b, page, logs = await setup(p, w=320, h=180)
         page.set_default_timeout(3000000)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = 'menu'; return 0; })()")
+        await page.evaluate(f"(() => {{ __hm.start({{ realm: {REALM}, cls: 'warrior', level: 20 }}); __hm.UI.modal = 'menu'; return 0; }})()")  # [loops] realm=
         await page.evaluate(WATCH_JS)
         print(f'soak {MINS} min, {QUALITY} band count, booted in {time.time() - T0:.0f}s', flush=True)
         last = None

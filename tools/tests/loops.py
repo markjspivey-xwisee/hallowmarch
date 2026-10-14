@@ -41,7 +41,7 @@ QUALITY = next((a[2:] for a in ARGS if a.startswith('q=')), 'low')
 FAILS = []
 T0 = time.time()
 
-def want(k): return (ONLY is None and k != 'shots') or (ONLY is not None and k in ONLY) or (k == 'shots' and ONLY is None and not NOSHOTS)
+def want(k): return (ONLY is None and k not in ('shots', 'phone')) or (ONLY is not None and k in ONLY) or (k in ('shots', 'phone') and ONLY is None and not NOSHOTS)
 def check(cond, what):
     print(('  ok   ' if cond else '  FAIL ') + what, flush=True)
     if not cond: FAILS.append(what)
@@ -451,6 +451,34 @@ async def main():
             })()""")
             print('  ', {k: (v[:120] if isinstance(v, str) else v) for k, v in r.items()}, flush=True)
             check('short of food' in r['line'] and r['page'], 'the war panel says a realm is short of food, and the Chronicle has its Stores page')
+
+        if want('phone'):
+            print('PHONE (390x780, touch)', flush=True)
+            await b.close()
+            b, page, logs = await setup(p, touch=True, w=390, h=780)
+            await ev(page, "(() => { __hm.start({ realm: 0, cls: 'priest', level: 14 }); __hm.UI.modal = null; return 0; })()")
+            await ev(page, HELP)
+            await ev(page, r"""(() => { const H = __hm, L = H.loops, LO = L.LOOPS, fn = H.fn, P = H.GAME.player, Q = H.REALMS[0].quartermaster; __lt.calm(); __lt.quiet();
+              P.x = P.prevX = Q.x + 1.5; P.z = P.prevZ = Q.z; P.y = fn.heightAt(P.x, P.z);
+              fn.goodsAdd('log', 20, true); fn.goodsAdd('stone', 12, true); fn.goodsAdd('bread', 9, true); fn.goodsAdd('wool', 6, true);
+              LO.r[0].timber = 8; LO.r[0].iron = 2; H.simulate(0.5); return 0; })()""")
+            # Use on the pad opens the quartermaster's stores (as touch_flows.py's stores flow taps it)
+            await ev(page, "(() => { __hm.fn.playerInteract(); return 0; })()")
+            await ev(page, "(() => { for (let i = 0; i < 3; i++) __hm.frame(1/30); return 0; })()")
+            r = await ev(page, r"""(() => { const d = document.getElementById('dialog'), box = d ? d.getBoundingClientRect() : null, btns = [...document.querySelectorAll('#dlg-actions button')];
+              const small = btns.filter((b) => { const q = b.getBoundingClientRect(); return q.height < 40 || q.width < 40; }).map((b) => b.textContent);
+              const wide = [...document.querySelectorAll('#dialog *')].filter((e) => { const q = e.getBoundingClientRect(); return q.width > 0 && (q.right > innerWidth + 1 || q.left < -1); }).length;
+              return { title: document.getElementById('dlg-title').textContent, box: box && [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)], btns: btns.map((b) => b.textContent), small, wide, scroll: document.getElementById('dlg-body').scrollWidth > document.getElementById('dlg-body').clientWidth + 1 }; })()""")
+            print('  ', r, flush=True)
+            check('stores' in r['title'] and not r['small'] and not r['wide'] and not r['scroll'], f"the stores' dialog on an upright phone: every button 40 px, nothing past the screen's edge ({r['box']}, {len(r['btns'])} buttons)")
+            if not NOSHOTS: await page.screenshot(path=OUT + 'loops_phone_stores.png', timeout=300000)
+            await ev(page, "(() => { const b = document.querySelector('#dlg-actions button[data-lgive=\"timber\"]'); if (b) b.click(); __hm.fn.closeDialog && __hm.fn.closeDialog(); const d = document.getElementById('dialog'); if (d) d.hidden = true; __hm.UI.modal = null; return 0; })()")
+            r = await ev(page, r"""(() => { const H = __hm; H.LORE.openChronicle('stores'); for (let i = 0; i < 3; i++) H.frame(1/30); const body = document.getElementById('menu-body');
+              const wide = [...body.querySelectorAll('*')].filter((e) => { const q = e.getBoundingClientRect(); return q.width > 0 && q.right > innerWidth + 1; }).length;
+              return { h: body.scrollHeight, sheet: body.clientHeight, wide, folds: body.querySelectorAll('details').length }; })()""")
+            print('  ', r, flush=True)
+            check(r['wide'] == 0, f"the Chronicle's Stores page fits an upright phone's width ({r['h']} px tall on a sheet of {r['sheet']}, {r['folds']} folds)")
+            if not NOSHOTS: await page.screenshot(path=OUT + 'loops_phone_chron.png', timeout=300000)
 
         if want('shots'):
             print('SHOTS', flush=True)

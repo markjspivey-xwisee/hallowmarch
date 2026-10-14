@@ -37,6 +37,7 @@ window.HL = {
     if (hb) { H.teleport(hb.x - 0.9, hb.z); P.yaw = Math.PI / 2; H.CAM.yaw = P.yaw; }
     for (const e of H.ENT) if (e !== P && e.alive && e.kind !== 'door' && F.isEnemy(P, e) && Math.hypot(e.x - P.x, e.z - P.z) < 80) { e.alive = false; e.removeAt = H.GAME.t; }
     P.hp = P.maxHp; P.buffs.length = 0;
+    if (H.loops) { const L = H.loops.LOOPS; L.r[0].food = 10; L.r[0].iron = 1; L.r[2].timber = 5; } // [loops] the war panel with its stores line (two realms short)
     // two companions
     const A = H.animals;
     if (A.anCompanions().length < 2) for (let i = A.anCompanions().length; i < 2; i++) A.anSpawn(A.anRecord('hound', { owner: 'player', cmd: 'follow' }), P.x + 1.5 + i, P.z + 1);

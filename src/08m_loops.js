@@ -42,7 +42,7 @@ const LOOPS = {
     keepCap: 2.5,
     start: 0.8,               // a new world's stores, a share of the targets
     // the town's work out of sight, a game minute (what the visible workers do when the town is near: the same rates)
-    prod: { food: 16, timber: 5.5, stone: 2, iron: 2.6, hides: 1.2, wool: 0.8, horses: 0.85 },
+    prod: { food: 20, timber: 7, stone: 2, iron: 3.2, hides: 1.5, wool: 0.8, horses: 1.5 },
     // a keep's own land (its fields and woods round its walls), a minute, to whoever holds it
     keepProd: { food: 1.5, timber: 0.6, stone: 0.3 },
     keepLost: 0.2,             // a share of the town's work lost for each of its realm's own keeps in other hands
@@ -217,7 +217,7 @@ function loopsWork(K, kind, dt, T) {
   const share = dt / Math.max(1, T), want = {};
   for (const g in need) want[g] = need[g] * share;
   const fr = loopsKeepTake(K, want, true);
-  if (fr >= 0.999) return 1;
+  if (fr >= 0.999 || !loopsInWar()) return 1; // (in the peace the realms' own masons mend for the next campaign whatever is short)
   // what the keep lacks, the realm's stores send on the next cart; meanwhile the work drags
   LOOPS.stats.slowWork += dt;
   if (fr < 0.5) loopsSay(K.realm, 'w' + K.id, `${K.site.name} has not the ${Object.keys(need).join(' and ')} to mend its walls: the work drags until a cart comes.`);
@@ -231,7 +231,7 @@ function loopsHouseWork(H, dt) {
   const share = dt / HOUSE_TIME.scaffold, want = {};
   for (const g in LT.work.house) want[g] = LT.work.house[g] * share;
   const fr = loopsTake(r, want, true);
-  if (fr >= 0.999) return 1;
+  if (fr >= 0.999 || !loopsInWar()) return 1;
   LOOPS.stats.slowWork += dt;
   return LT.slow + (1 - LT.slow) * fr;
 }
