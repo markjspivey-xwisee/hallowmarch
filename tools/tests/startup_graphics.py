@@ -144,15 +144,20 @@ SNAPSHOT = """() => {
 
 async def context_loss(page, errors, console_errors, navigations):
     before = await page.evaluate(SNAPSHOT)
-    stored_before = before['stored']
     counts_before = before['lifecycle']
-    supported = await page.evaluate("""() => {
+    marker = await page.evaluate("""() => {
       window.__hmTestLossExtension = __hm.dbg.renderer.getContext().getExtension('WEBGL_lose_context');
-      if (!window.__hmTestLossExtension) return false;
+      if (!window.__hmTestLossExtension) return {supported:false};
+      const previous = JSON.parse(localStorage.getItem('hallowmarch.save.v1'));
+      // Leave this progress unsaved: only the context-loss handler may persist it.
+      __hm.GAME.prog.xp += 17;
+      const expectedXP = Math.round(__hm.GAME.prog.xp);
       window.__hmTestLossExtension.loseContext();
-      return true;
+      return {supported:true, previousXP:previous.char.xp, expectedXP};
     }""")
-    check(supported, 'software browser supports actual context-loss injection')
+    check(marker['supported'], 'software browser supports actual context-loss injection')
+    check(marker['expectedXP'] != marker['previousXP'],
+          'context-loss test begins with unsaved character progress')
     await page.wait_for_function('window.__hmGraphicsTest.lost > 0', timeout=30000)
     panel = page.locator('#nogl')
     await expect(panel).to_be_visible()
@@ -174,7 +179,18 @@ async def context_loss(page, errors, console_errors, navigations):
           'lost context is never reported ready')
     check(stopped['lifecycle']['lost'] > counts_before['lost'],
           'test observed an actual WebGL context-loss event')
-    check(stopped['stored'] == stored_before, 'context loss preserves the latest saved game')
+    stored_after_loss = await page.evaluate("""async () => {
+      await __hm.SAVE.chain;
+      return localStorage.getItem('hallowmarch.save.v1');
+    }""")
+    saved_after_loss = json.loads(stored_after_loss)
+    check(saved_after_loss['char']['xp'] == marker['expectedXP'],
+          'context loss saves unsaved progress before clearing readiness')
+    previous_save = json.loads(before['stored'])
+    check(saved_after_loss['char']['name'] == previous_save['char']['name'] and
+          saved_after_loss['char']['level'] == previous_save['char']['level'] and
+          saved_after_loss['settings'] == previous_save['settings'],
+          'loss save preserves the character and explicit graphics preference')
     await page.screenshot(path=str(hm.OUT / 'startup-context-lost.png'), timeout=120000)
     await page.evaluate('window.__hmTestLossExtension.restoreContext()')
     await page.wait_for_function('window.__hmGraphicsTest.restored > 0', timeout=30000)
@@ -194,7 +210,7 @@ async def context_loss(page, errors, console_errors, navigations):
     check((len(errors), len(console_errors), len(later['errors'])) == settled_counts,
           'context loss does not cause repeated runtime errors')
     check(len(navigations) == 1, 'restoration does not automatically reload the page')
-    check(later['stored'] == stored_before, 'restoration preserves saved game data')
+    check(later['stored'] == stored_after_loss, 'restoration preserves the loss-handler save')
 
 
 async def safe_boot(browser):
