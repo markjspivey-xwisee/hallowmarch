@@ -515,7 +515,7 @@ function resetMarch() {
   CAMPAIGN.longSaid = false;
   CAMPAIGN.seen = { keeps: [], doors: new Map(), relics: [] };
   for (const wb of WAR.warbands) if (wb.order && wb.order.home) wb.order = null;
-  news(`Horns across the March: the ${ordinalWord(CAMPAIGN.n)} campaign begins. Every keep and hallow is back with its own realm.`, -1, 'big');
+  news(`Horns across the March: the ${ordinalWord(CAMPAIGN.n)} campaign begins. ${seasonKeepsHeld() ? 'The keeps and hallows stand as the season\'s war has left them.' : 'Every keep and hallow is back with its own realm.'}`, -1, 'big'); // [loops] in the season's war (08n_season.js)
   sfx('horn');
   saveSoon(800);
 }

@@ -12,7 +12,8 @@ const DAY = 86400;
 // one season: hourly steps of 60 s sub-steps; `work(RS, day, hour)` is what the players do
 function season(seed, work, opts = {}) {
   const RS = M.realmSimInit(seed, opts);
-  const trace = { leaders: [], placeAt: {}, keepsAtWar: null, spAtWar: null, changes: 0 };
+  const trace = { leaders: [], placeAt: {}, keepsAtWar: null, spAtWar: null, changes: 0, noKeep: 0 };
+  const run = [0, 0, 0];
   let lastLead = -1;
   const days = Math.round(RS.len / DAY);
   for (let d = 0; d < days; d++) {
@@ -23,6 +24,7 @@ function season(seed, work, opts = {}) {
       M.realmSimStep(RS, 3600);
       if (ph === 'muster' && RS.phase === 'war') { trace.keepsAtWar = RS.keeps.map((K) => K.h); trace.spAtWar = RS.realms.map((R) => R.sp); }
       if (RS.phase === 'war') {
+        for (let r = 0; r < 3; r++) { run[r] = RS.keeps.some((K) => K.h === r) ? 0 : run[r] + 1; trace.noKeep = Math.max(trace.noKeep, run[r]); }
         const lead = [0, 1, 2].sort((a, b) => RS.realms[b].sp - RS.realms[a].sp)[0];
         if (lastLead >= 0 && lead !== lastLead && h === 12) trace.changes++;
         if (h === 12) lastLead = lead;
@@ -65,6 +67,8 @@ const margins = prev.map((p) => { const s = p.sp.slice().sort((a, b) => b - a); 
 console.log('winning margins', margins.map((m) => (m * 100).toFixed(0) + '%').join(' '));
 check(margins.filter((m) => m < 0.25).length >= SEEDS / 2, 'most seasons are close at the top (the winner within a quarter of the second)');
 
+const noKeep = runs.map((t) => t.noKeep);
+check(noKeep.every((h) => h < 72), `no realm is ground into nothing: its longest spell without a keep under three days (${noKeep.join(' ')} hours)`);
 // a realm whose players give nothing still lives and fights
 check(runs.every((t) => t.RS.realms.every((R) => R.stats.trained > 50 && R.stats.offensives >= 3 && R.stats.made >= 3)), 'every realm trains, builds and announces offensives with no player at all');
 // the war's draw on the stores

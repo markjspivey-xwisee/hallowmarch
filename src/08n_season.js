@@ -105,6 +105,7 @@ function seasonKeepStays(K) {
   return !!RS && RS.phase === 'war' && !!RS.keeps[K.id] && RS.keeps[K.id].h === K.realm && K.realm !== K.orig;
 }
 function seasonAfterReset() { seasonApplyKeeps(); }
+function seasonKeepsHeld() { const RS = SEASONP.rs; return !!RS && RS.phase === 'war'; }
 // the live war's news into the season
 function seasonOnCapture(K, realm) {
   const RS = SEASONP.rs;
@@ -127,10 +128,12 @@ function seasonLiveOff(r) { const RS = SEASONP.rs; return RS ? RS.offs.find((O) 
 function seasonChoose(wb, r, C, L) {
   const RS = SEASONP.rs;
   if (!RS || RS.phase !== 'war' || CAMPAIGN.state !== 'war') return;
-  const O = seasonLiveOff(r);
-  if (O) for (const c of C) if (c.o.type === 'attack' && c.o.keep.id === O.k) { c.s += 30; c.why = 'offensive'; SEASONP.stats.aims++; }
-  for (const Q of RS.offs) {
-    if (Q.state !== 'live' || Q.r === r) continue;
+  // an offensive whose day has come, or a siege the season's armies were laying while nobody played: its keep
+  const O = seasonLiveOff(r), sieges = RS.armies.filter((A) => A.state === 'siege' && A.r === r).map((A) => A.k);
+  for (const c of C) if (c.o.type === 'attack' && ((O && c.o.keep.id === O.k) || sieges.includes(c.o.keep.id))) { c.s += O && c.o.keep.id === O.k ? 30 : 20; c.why = 'offensive'; SEASONP.stats.aims++; }
+  const against = RS.offs.filter((Q) => Q.state === 'live').map((Q) => ({ r: Q.r, k: Q.k })).concat(RS.armies.filter((A) => A.state === 'siege').map((A) => ({ r: A.r, k: A.k })));
+  for (const Q of against) {
+    if (Q.r === r) continue;
     const K = WAR.keeps[Q.k];
     if (!K || K.realm !== r) continue;
     if (WAR.warbands.some((w) => !w.dead && w.realm === r && w.order && w.order.keep === K && w.order.type === 'defend')) continue;

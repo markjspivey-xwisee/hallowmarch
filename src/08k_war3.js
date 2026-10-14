@@ -394,7 +394,7 @@ function w3PeaceStep(dt) {
   let Pz = W3.peace;
   if (!Pz) {
     Pz = W3.peace = { t0: now, eng: SIEGE.engines.filter((E) => !E.gone).map((E) => E.id), back: false };
-    news('The truce holds: the crews break up their engines, the masons mend the walls, and the keeps go back to their own realms before the next campaign.', -1, 'normal');
+    news(seasonKeepsHeld() ? 'The truce holds: the crews break up their engines and the masons mend the walls. In the season\'s war the keeps taken stay with their takers.' : 'The truce holds: the crews break up their engines, the masons mend the walls, and the keeps go back to their own realms before the next campaign.', -1, 'normal'); // [loops] seasonKeepsHeld (08n_season.js)
     W3.pact = null; W3.press = [null, null, null]; W3.rally = [null, null, null];
   }
   // one engine every second and a half, broken up where it stands (its crew go home with their band)

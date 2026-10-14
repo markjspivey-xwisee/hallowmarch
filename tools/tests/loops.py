@@ -654,7 +654,7 @@ async def main():
                 await page.wait_for_timeout(1500)
                 await page.screenshot(path=OUT + name + '_hud.png', timeout=300000)
                 await ev(page, "(() => { __hm.LORE.openChronicle('season'); return 0; })()")
-                await page.wait_for_timeout(800)
+                await page.wait_for_timeout(2500) # (the sheet fades in on the wall clock)
                 await page.screenshot(path=OUT + name + '_page.png', timeout=300000)
                 await ev(page, "(() => { const b = document.querySelector('#menu-body .season-proj'); if (b) b.scrollIntoView({ block: 'start', behavior: 'instant' }); return 0; })()")
                 await page.wait_for_timeout(400)
