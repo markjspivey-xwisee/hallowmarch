@@ -655,7 +655,9 @@ async def main():
                 await page.wait_for_timeout(1500)
                 await page.screenshot(path=OUT + name + '_hud.png', timeout=300000)
                 vis = await ev(page, "(() => { const w = document.getElementById('war'); return !!w && w.offsetParent !== null && !w.classList.contains('hl-off'); })()")
-                if vis: await page.locator('#war').screenshot(path=OUT + name + '_war.png', timeout=300000)
+                if vis:
+                    bx = await ev(page, "(() => { const r = document.getElementById('war').getBoundingClientRect(); return { x: Math.max(0, r.x - 4), y: Math.max(0, r.y - 4), width: r.width + 8, height: r.height + 8 }; })()")
+                    await page.screenshot(path=OUT + name + '_war.png', clip=bx, timeout=300000)
                 await ev(page, "(() => { __hm.LORE.openChronicle('season'); return 0; })()")
                 await page.wait_for_timeout(2500) # (the sheet fades in on the wall clock)
                 await page.screenshot(path=OUT + name + '_page.png', timeout=300000)

@@ -283,7 +283,7 @@ function chronSeason() {
   const projs = RSM_PROJ.map((id) => {
     const P0 = RSM.projects[id], built = R.proj[id], act = R.act === id;
     const full = id !== 'walls' && built >= P0.max;
-    return `<li${act ? ' class="on"' : ''}><b>${capFirst(P0.name)}</b>${built ? ` (${built})` : ''}${act ? `<span class="l2-tag">At work: ${sum.project.prog}%</span>` : full ? '<span class="l2-tag">Done</span>' : `<button type="button" class="btn season-btn" data-season="proj:${id}">${officer ? 'Set the realm to it' : 'Vote for it'}${R.votes[id] ? ` (${Math.round(R.votes[id])})` : ''}</button>`}</li>`;
+    return `<li${act ? ' class="on"' : ''}><b>${capFirst(P0.name)}${built ? ` · built ${built}` : ''}</b>${act ? `<span class="l2-tag">At work: ${sum.project.prog}%</span>` : full ? '<span class="l2-tag">Done</span>' : `<button type="button" class="btn season-btn" data-season="proj:${id}">${officer ? 'Set the realm to it' : 'Vote for it'}${R.votes[id] ? ` (${Math.round(R.votes[id])})` : ''}</button>`}</li>`;
   }).join('');
   const wants = RSM_PROJ.map((id) => `<li><b>${capFirst(RSM.projects[id].name)}</b>: ${SEASON_PROJ_X[id]}. It wants ${RSM.projects[id].cost.map((v, g) => (v ? `${fmtInt(v)} ${RSM_GOODS[g]}` : '')).filter(Boolean).join(', ')}</li>`).join('');
   const aims = officer ? `<div class="acts">${RS.keeps.map((K, k) => (K.h !== me ? `<button type="button" class="btn season-btn" data-season="aim:${k}">${R.aim === k ? 'Named: ' : 'Name '}${esc(WAR.keeps[k].site.name)}</button>` : '')).join('')}</div>` : '<p>From realm rank 5 you are an officer of the realm: you set its work and name the keep for its next offensive.</p>';
