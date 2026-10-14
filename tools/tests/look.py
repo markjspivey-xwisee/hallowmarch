@@ -78,6 +78,7 @@ async def start(page):
     await page.evaluate(VIEWS_JS.read_text() + '\n;0')
     # the war gets going and the towns wake up, then the world holds still between the views
     await page.evaluate("LK.boot(); 0")
+    if 'net' in FLAGS: await page.evaluate(pathlib.Path(__file__).with_name('net_fake.js').read_text() + '\n;0')  # [look7] players without pages (l7_others)
 
 async def serve():
     cmd = OUT_DIR = pathlib.Path(str(OUT)) / 'look_cmd'
