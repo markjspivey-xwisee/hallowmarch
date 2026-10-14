@@ -41,6 +41,7 @@ jobs:
           check() { python tools/ci/run_check.py "$@"; }
           case "$CHECK" in
             headless)
+              python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time

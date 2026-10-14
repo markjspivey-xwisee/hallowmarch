@@ -13,7 +13,7 @@ The four saved version 20 branches are integrated: persistent companies, live se
 
 An authenticated welcome sends the realm profile before actions, fixing company operations immediately after reconnect. Realm delivery points saturate at 35 per day at 1,500 units: the original 12 seeds and 24 held-out seeds retain participation benefit and keep the roster advantage within the existing test's 35% limit. These are simulation results, rather than a claim of balance across a live player population.
 
-The WASM test compares 4,000 seeded grids and 80 live paths, including parents. A live sample measured 12.2 ms in JavaScript and 6.9 ms in WASM (1.77 times faster for these searches); it establishes a benefit to the path kernel, not to overall FPS. A forced WASM memory failure also returns the original JavaScript result and disables the broken module.
+The WASM test compares 4,000 seeded grids and 82 live paths, including parents. A live sample measured 7.7 ms in JavaScript and 3.6 ms in WASM (2.14 times faster for these searches); it establishes a benefit to the path kernel, not to overall FPS. A forced WASM memory failure also returns the original JavaScript result and disables the broken module.
 
 ## Verification evidence
 
@@ -27,9 +27,13 @@ The integrated run's original water measurement failed because nearby combat kil
 
 The draw benchmark now starts each quality in an independent seeded world. Earlier qualities' siege fires, rubble and masons advanced and changed the world used for later qualities. A controlled version 19/version 20 comparison showed identical draw counts before this isolation change. Water render chunks are larger, preserving grid coverage, positions and flow/ice values while reducing submissions. All original draw and memory limits remain in place.
 
+[Final parser and water screenshot review](https://github.com/markjspivey-xwisee/hallowmarch/actions/runs/38608679162) passed all six parser regressions, replayed the complete clean water2 output and exported four original high-quality screenshots for manual inspection. The underwater surface, lake and river boats, and ice views show no visible batching regression.
+
 The CI wrapper turns printed failures into a failed job even when a diagnostic script returns zero. Lint uses pipefail so its output cannot hide an ESLint failure. The permanent workflow has read-only repository permission and tests checked-out source without merging or pushing branches.
 
-Final performance and water results are recorded when their runs finish.
+All low, medium and high render views pass the original budgets. Forest: low 164 calls and 739,000 triangles; medium 204 calls and 1.56 million triangles. Over the hour-long war, from minute 10 to minute 60, heap growth is 4.1 MB, ArrayBuffers 2.3 MB, scene objects 26, geometries 53 and textures zero; all remain within the original limits. No simulation errors or non-finite positions were recorded.
+
+The water follow-up produced no failed assertions and no runtime errors, including diving, ice, boats and tracks. Its job was initially marked failed because the CI wrapper read the elapsed label in `errors [164s] []` as malformed error data. The parser now removes only a numeric elapsed label, while retaining rejection of nonempty or malformed errors, printed failures and failing process exits. Unit fixtures and replay of the exact captured water output verify this correction. The source test's assertions were not changed.
 
 ## Rollout and remaining work
 
