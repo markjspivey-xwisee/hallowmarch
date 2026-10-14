@@ -53,6 +53,7 @@ function setupTitle(save) {
     const c = save.char;
     $('continue').hidden = false;
     $('continue-desc').textContent = `${c.name}, level ${c.level} ${CLASSES[c.cls].name} of ${REALMS[c.realm].name}. Realm rank ${realmRank(c.rp || 0)}.`;
+    if ($('season-title')) $('season-title').textContent = seasonTitleText(save); // [loops] the season, and what happened while you were away (08n_season.js)
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);

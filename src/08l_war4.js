@@ -360,6 +360,7 @@ function war4GateWord(K) {
 // a keep handed back (from w3PeaceStep): its takers go home (as restoreKeep's do), its own lord takes his seat, and a
 // column of its own marches in from the realm's nearest keep or muster (not its garrison set at its posts at once)
 function war4HandBack(K) {
+  if (seasonKeepStays(K)) return; // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
   K.guards.clear();
   const Lr = getEnt(K.lord);

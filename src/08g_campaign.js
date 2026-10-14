@@ -84,7 +84,7 @@ function orderPhrase(wb, O) {
     case 'attack': {
       const K = O.keep;
       if (O.byPlayer) return `marches on ${K.site.name}${you}`;
-      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March`, pact: `in common cause against ${REALMS[K.realm].name}`, regain: K.orig === wb.realm ? `to win it back: ${R.name} is down to its last keep` : `to win a keep: ${R.name} has lost all but one` }[O.why] || 'to break its gate'; // [war3] pact, regain (08k_war3.js)
+      const why = { breach: 'while its gate lies broken', wall: 'through the breach in its walls', retake: `to win it back for ${R.name}`, claim: 'to win the March', break: `to break ${possessive(REALMS[K.realm].name)} hold on the March`, pact: `in common cause against ${REALMS[K.realm].name}`, offensive: 'in its announced offensive', /* [loops] */ regain: K.orig === wb.realm ? `to win it back: ${R.name} is down to its last keep` : `to win a keep: ${R.name} has lost all but one` }[O.why] || 'to break its gate'; // [war3] pact, regain (08k_war3.js)
       return `marches on ${K.site.name} ${why}`;
     }
     case 'defend': return O.byPlayer ? `marches to hold ${O.keep.site.name}${you}` : O.why === 'engines' ? `marches to break the siege engines before ${O.keep.site.name}` : `marches to lift the siege of ${O.keep.site.name}`; // [siege]
@@ -448,6 +448,7 @@ function campaignVictory(r, how) {
     uiLog(`Victory! Your share of the spoils: ${fmtInt(rp)} realm points, ${fmtInt(gold)} gold${xp ? `, ${fmtInt(xp)} experience` : ''} and ${it.name}.`, 'rp');
   }
   CAMPAIGN.history.push(rec);
+  seasonOnBattle(r); // [loops] a battle won counts for the season (08n_season.js)
   while (CAMPAIGN.history.length > 12) CAMPAIGN.history.shift();
   const howTxt = how === 'keeps' ? 'by its hold on the keeps' : how === 'hallows' ? 'holding both enemy hallows' : 'with the most renown when the elders called the war';
   news(`${R.name} has won the ${ordinalWord(rec.n)} campaign for the March, ${howTxt}! The armies go home.`, r, 'big');
@@ -474,6 +475,7 @@ function cwFanfare(win) {
 }
 // after the peace every keep and hallow goes home and a new campaign begins
 function restoreKeep(K) {
+  if (seasonKeepStays(K)) { fillGarrison(K, true); K.underSiegeUntil = -99; setDoorState(K.door, true, 1); return; } // [loops] in the season's war a keep taken stays its taker's (08n_season.js)
   if (K.realm !== K.orig) {
     for (const id of K.guards) { const g = getEnt(id); if (g) { FX.burst(g.x, g.y + 1.2, g.z, 14, [0.5, 1.1, 1.8], 2.5, 0.8, 0.16, 0.5); removeEnt(g); } }
     K.guards.clear();
@@ -493,6 +495,7 @@ function restoreKeep(K) {
 function resetMarch() {
   war3Reset(); // [war3] the engines gone, the walls whole (08k_war3.js)
   for (const K of WAR.keeps) restoreKeep(K);
+  seasonAfterReset(); // [loops] the keeps as the season holds them (08n_season.js)
   for (const rel of WAR.relics) {
     const c = rel.carrier != null ? getEnt(rel.carrier) : null;
     if (c) c.carrying = null;

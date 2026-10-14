@@ -387,6 +387,7 @@ function simStep(dt) {
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
   updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
   updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
+  updateSeason(dt); // [loops] the season of weeks: its clock, points, projects and offensives (08n_season.js)
 }
 function tick(dt) {
   renderer.info.reset();

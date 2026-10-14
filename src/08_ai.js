@@ -361,6 +361,7 @@ function captureKeep(K, realm, killer) {
   for (let i = 0; i < 6; i++) later(i * 0.25, () => FX.burst(S.x + (Math.random() - 0.5) * 20, S.y + 10 + Math.random() * 6, S.z + (Math.random() - 0.5) * 20, 30, REALMS[realm].rgb.map((v) => v * 2 + 0.4), 7, 1.0, 0.25, 3));
   news(`${S.name} has been captured by ${REALMS[realm].name}!`, realm, 'big');
   loopsOnCapture(K, realm, old); // [loops] the keep's stores are the taker's (08m_loops.js)
+  seasonOnCapture(K, realm); // [loops] taken in the season's war too (08n_season.js)
   war3OnCapture(K, realm, old, gateDown); // [war3] held by the band that took it, garrisoned by a column from the muster (08k_war3.js)
   if (GAME.player && GAME.player.faction === realm && dist(GAME.player.x, GAME.player.z, S.x, S.z) < 70) { addRP(250); }
   sfx('horn');

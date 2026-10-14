@@ -41,11 +41,12 @@ const RSM = {
   catchUp: 0.35,            // a realm behind gets up to this much more work and its walls stand that much stronger
   maxLog: 80,
   projects: {
-    walls: { cost: [0, 600, 1500, 120, 0, 0, 0, 0], days: 3, max: 3, name: "raise a keep's walls a tier" },
-    granary: { cost: [0, 800, 600, 0, 0, 0, 0, 0], days: 2, max: 2, name: 'build a granary' },
-    yard: { cost: [1000, 600, 0, 0, 300, 0, 0, 0], days: 2.5, max: 2, name: 'a horse-breeding yard' },
-    smithy: { cost: [0, 400, 500, 400, 0, 0, 0, 0], days: 3, max: 2, name: 'a smithy to arm the levies' },
-    engines: { cost: [0, 300, 60, 40, 30, 0, 0, 0], days: 0.75, max: 4, name: 'siege engines for the offensive' },
+    // (days: the quickest it can be done; the realm's stores above a reserve set the pace, so what players deliver speeds it)
+    walls: { cost: [0, 1200, 3000, 240, 0, 0, 0, 0], days: 1, max: 3, name: "raise a keep's walls a tier" },
+    granary: { cost: [0, 1600, 1200, 0, 0, 0, 0, 0], days: 1, max: 2, name: 'build a granary' },
+    yard: { cost: [2000, 1200, 0, 0, 600, 0, 0, 0], days: 1, max: 2, name: 'a horse-breeding yard' },
+    smithy: { cost: [0, 800, 1000, 800, 0, 0, 0, 0], days: 1, max: 2, name: 'a smithy to arm the levies' },
+    engines: { cost: [0, 600, 120, 80, 60, 0, 0, 0], days: 0.4, max: 4, name: 'siege engines for the offensive' },
   },
 };
 const RSM_PROJ = ['walls', 'granary', 'yard', 'smithy', 'engines'];
@@ -82,12 +83,12 @@ function realmSimInit(seed, opts = {}) {
   const homes = Array.isArray(opts.keeps) && opts.keeps.length ? opts.keeps.map((h) => rsmClamp(h | 0, 0, 2)) : [0, 0, 1, 1, 2, 2];
   const RS = {
     v: RSM_V, seed: seed >>> 0, rs: (seed >>> 0) || 1, n: rsmNum(opts.n, 1, 1, 1e6) | 0,
-    t: 0, len: days * rsmDay, phase: 'muster', t0: rsmNum(opts.t0, 0, 0, 1e14), live: false,
+    t: 0, len: days * rsmDay, phase: 'muster', winner: null, t0: rsmNum(opts.t0, 0, 0, 1e14), live: false,
     names: { realms: ['Logres', 'Ériu', 'Thule'], keeps: homes.map((h, i) => `the ${['Logres', 'Ériu', 'Thule'][h]} keep ${i % 2 ? 'east' : 'west'}`) },
     realms: [0, 1, 2].map((r) => ({
-      s: RSM.target.map((v) => Math.round(v * 0.8)), lev: 12, sp: 0, del: 0, work: 0, proj: { walls: 0, granary: 0, yard: 0, smithy: 0, engines: 0 },
+      s: RSM.target.map((v) => Math.round(v * 0.8)), bank: [0, 0, 0, 0, 0, 0, 0, 0], lev: 12, sp: 0, del: 0, work: 0, proj: { walls: 0, granary: 0, yard: 0, smithy: 0, engines: 0 },
       act: 'granary', prog: 0, votes: {}, aim: -1, short: [], hungry: 0, by: {}, raidAt: 0, decideAt: 0, levyAt: 0, refillAt: 0,
-      stats: { trained: 0, lost: 0, taken: 0, raids: 0, made: 0, ate: 0, offensives: 0, won: 0 },
+      stats: { trained: 0, lost: 0, taken: 0, raids: 0, made: 0, ate: 0, offensives: 0, won: 0, hungryH: 0, poured: 0 },
     })),
     keeps: homes.map((h) => ({ h, home: h, g: RSM.garrison, tier: 0, gate: 1, siege: null })),
     hallows: [0, 1, 2],     // where each realm's hallow stands (in whose temple)
@@ -112,6 +113,7 @@ function rsmDur(s) {
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
 }
 function rsmLog(RS, r, text, kind = 'news') {
+  RS.ln = (RS.ln || 0) + 1; // (how many lines ever: a reader keeps its place in a log trimmed at its head)
   RS.log.push({ t: Math.round(RS.t), r, k: kind, x: String(text).slice(0, 300) });
   if (RS.log.length > RSM.maxLog) RS.log.splice(0, RS.log.length - RSM.maxLog);
 }
@@ -189,7 +191,7 @@ function rsmNewSeason(RS) {
 function rsmEconomy(RS, r, R, hr) {
   const land = rsmLandK(RS, r), up = 1 + RSM.catchUp * rsmBehind(RS, r);
   for (let g = 0; g < 8; g++) {
-    let p = RSM.prod[g] * (g === 6 ? 1 + 0.6 * R.proj.yard : land * up);
+    let p = RSM.prod[g] * (g === 6 ? 1 + 0.6 * R.proj.yard : land * up) * (R.pk ? R.pk[g] : 1); // (R.pk: a test's or a server's knob on a realm's work)
     for (const K of RS.keeps) if (K.h === r) p += RSM.keepProd[g];
     rsmAdd(R, g, p * hr);
   }
@@ -200,7 +202,7 @@ function rsmEconomy(RS, r, R, hr) {
   const want = mouths * RSM.eat * hr;
   R.stats.ate += Math.min(want, R.s[0]);
   if (R.s[0] >= want) { R.s[0] -= want; R.hungry = Math.max(0, R.hungry - hr); }
-  else { R.s[0] = 0; R.hungry = Math.min(48, R.hungry + hr); }
+  else { R.s[0] = 0; R.hungry = Math.min(48, R.hungry + hr); R.stats.hungryH += hr; }
   // levies trained from the town (food and gear a soldier) up to the realm's strength
   if (RS.t >= R.levyAt) {
     R.levyAt = RS.t + RSM.levyEvery * 3600;
@@ -229,13 +231,15 @@ function rsmProject(RS, r, R, hr) {
   const id = R.act, P = RSM.projects[id];
   if (!P) return;
   if (R.proj[id] >= P.max) { rsmNextProject(RS, r, R); return; }
-  const tot = P.cost.reduce((a, b) => a + b, 0) || 1;
-  const pace = hr / (P.days * 24) * (1 + Math.min(3, R.work / 20)); // the players' work (hours given) quickens it
+  const banked = P.cost.reduce((a, c, g) => (c > 0 ? Math.min(a, R.bank[g] / c) : a), 1);
+  const pace = hr / (P.days * 24) * (1 + Math.min(3, R.work / 20) + 4 * banked); // the players' work (hours given) and goods brought quicken it
   let got = 1;
-  for (let g = 0; g < 8; g++) if (P.cost[g] > 0) got = Math.min(got, R.s[g] / (P.cost[g] * pace + 1e-9));
+  // (it draws only above a reserve of half the target: the war's own needs come first)
+  // (the goods the players brought for the works, R.bank, first)
+  for (let g = 0; g < 8; g++) if (P.cost[g] > 0) got = Math.min(got, (Math.max(0, R.s[g] - RSM.target[g] * 0.5) + R.bank[g]) / (P.cost[g] * pace + 1e-9));
   got = rsmClamp(got, 0, 1);
   if (got <= 0) return;
-  for (let g = 0; g < 8; g++) R.s[g] = Math.max(0, R.s[g] - P.cost[g] * pace * got);
+  for (let g = 0; g < 8; g++) { const n = P.cost[g] * pace * got, b = Math.min(R.bank[g], n); R.bank[g] -= b; R.s[g] = Math.max(0, R.s[g] - (n - b)); R.stats.poured += n; }
   R.prog += pace * got;
   R.work = Math.max(0, R.work - hr * 4);
   if (R.prog >= 1) {
@@ -301,7 +305,7 @@ function rsmDecide(RS, r, R) {
     const lead = RSM.lead * RS.len;
     const at = Math.max(RS.t + lead, rsmWarAt(RS) + 3600 * (2 + 8 * rsmRand(RS)));
     if (k >= 0 && at < rsmReckonAt(RS) - 12 * 3600) {
-      RS.offs.push({ r, k, at: Math.round(at), ann: Math.round(RS.t), state: 'planned', army: 0, res: '' });
+      RS.offs.push({ r, k, at: Math.round(at), ann: Math.round(RS.t), state: 'planned', army: 0, res: '', liveUntil: 0 });
       R.stats.offensives++;
       rsmLog(RS, r, `${rsmRN(RS, r)} announces its offensive: it will march on ${rsmKN(RS, k)} (held by ${rsmRN(RS, RS.keeps[k].h)}) in ${rsmDur(at - RS.t)}. Both realms prepare.`, 'big');
     }
@@ -474,7 +478,11 @@ function realmSimContribute(RS, realm, kind, amount, who) {
   if (kind === 'work') { R.work = Math.min(200, R.work + amount); pts = amount * RSM.sp.work; }
   else if (RSM_G[kind] != null) {
     const g = RSM_G[kind];
-    rsmAdd(R, g, amount);
+    // into the stores up to their cap; the rest is kept for the realm's works (up to twice what its project wants)
+    const room = Math.max(0, rsmCap(R, g) - R.s[g]), into = Math.min(room, amount);
+    rsmAdd(R, g, into);
+    const P = RSM.projects[R.act];
+    R.bank[g] = Math.min(R.bank[g] + amount - into, Math.max(2 * (P ? P.cost[g] : 0), RSM.target[g]));
     const worth = g === 7 ? amount / 4 : g === 6 ? amount * 40 : g === 3 ? amount * 4 : amount;
     R.del += worth;
     pts = worth / RSM.sp.units;
@@ -567,11 +575,12 @@ function realmSimSanitize(o, opts = {}) {
   base.log = [];
   const RS = base;
   RS.rs = (o.rs | 0) || 1; RS.n = rsmNum(o.n, 1, 1, 1e6) | 0; RS.t = rsmNum(o.t, 0, 0, RS.len); RS.t0 = rsmNum(o.t0, 0, 0, 1e14);
-  RS.phase = rsmPhaseOf(RS); RS.winner = o.winner >= 0 && o.winner < 3 ? o.winner | 0 : null;
+  RS.phase = rsmPhaseOf(RS); RS.winner = Number.isInteger(o.winner) && o.winner >= 0 && o.winner < 3 ? o.winner : null;
   o.realms.forEach((q, r) => {
     if (!q || typeof q !== 'object') return;
     const R = RS.realms[r];
     if (Array.isArray(q.s)) for (let g = 0; g < 8; g++) R.s[g] = rsmNum(q.s[g], R.s[g], 0, rsmCap({ proj: { granary: 2, yard: 2 } }, g));
+    if (Array.isArray(q.bank)) for (let g = 0; g < 8; g++) R.bank[g] = rsmNum(q.bank[g], 0, 0, 1e5);
     R.lev = rsmNum(q.lev, R.lev, 0, RSM.levyMax * 2); R.sp = rsmNum(q.sp, 0, 0, 1e7); R.del = rsmNum(q.del, 0, 0, 1e9); R.work = rsmNum(q.work, 0, 0, 200);
     if (q.proj && typeof q.proj === 'object') for (const id of RSM_PROJ) R.proj[id] = rsmNum(q.proj[id], 0, 0, RSM.projects[id].max) | 0;
     R.act = RSM.projects[q.act] ? q.act : q.act === '' ? '' : 'granary'; R.prog = rsmNum(q.prog, 0, 0, 1);
@@ -591,12 +600,15 @@ function realmSimSanitize(o, opts = {}) {
   if (Array.isArray(o.hallows)) o.hallows.slice(0, 3).forEach((h, i) => { RS.hallows[i] = rsmClamp(h | 0, 0, 2); });
   if (Array.isArray(o.hallowAt)) o.hallowAt.slice(0, 3).forEach((h, i) => { RS.hallowAt[i] = rsmNum(h, 0, 0, RS.len); });
   RS.nextArmy = rsmNum(o.nextArmy, 1, 1, 1e9) | 0;
+  RS.ln = rsmNum(o.ln, 0, 0, 1e12);
   const KINDS = ['raid', 'hallow', 'assault', 'offensive'];
   if (Array.isArray(o.armies)) for (const A of o.armies.slice(0, 40)) {
     if (!A || typeof A !== 'object' || !KINDS.includes(A.kind)) continue;
     const r = rsmClamp(A.r | 0, 0, 2), k = rsmNum(A.k, -1, -1, RS.keeps.length - 1) | 0;
     if ((A.kind === 'assault' || A.kind === 'offensive') && k < 0) continue;
-    RS.armies.push({ id: A.id | 0, r, n: rsmNum(A.n, 0, 0, 200), n0: rsmNum(A.n0, 1, 1, 200), kind: A.kind, k, q: rsmNum(A.q, -1, -1, 2) | 0, eng: rsmNum(A.eng, 0, 0, 4) | 0, p: rsmNum(A.p, 0, 0, 1), len: rsmNum(A.len, 100, 60, 2000), state: A.state === 'siege' ? 'siege' : 'march', t0: rsmNum(A.t0, 0, 0, RS.len), siegeH: rsmNum(A.siegeH, 0, 0, 1000), hungry: A.hungry ? 1 : 0, arm: rsmNum(A.arm, 1, 1, 1.5) });
+    const q = rsmNum(A.q, -1, -1, 2) | 0;
+    if ((A.kind === 'raid' || A.kind === 'hallow') && (q < 0 || q === r)) continue;
+    RS.armies.push({ id: A.id | 0, r, n: rsmNum(A.n, 0, 0, 200), n0: rsmNum(A.n0, 1, 1, 200), kind: A.kind, k, q, eng: rsmNum(A.eng, 0, 0, 4) | 0, p: rsmNum(A.p, 0, 0, 2), len: rsmNum(A.len, 100, 60, 2000), state: A.state === 'siege' ? 'siege' : 'march', t0: rsmNum(A.t0, 0, 0, RS.len), siegeH: rsmNum(A.siegeH, 0, 0, 1000), hungry: A.hungry ? 1 : 0, arm: rsmNum(A.arm, 1, 1, 1.5) });
   }
   const ST = ['planned', 'march', 'siege', 'live', 'done'];
   if (Array.isArray(o.offs)) for (const O of o.offs.slice(-30)) {
@@ -612,5 +624,6 @@ function realmSimSanitize(o, opts = {}) {
   return RS;
 }
 
+/* global module */
 // Node: export the contract (the page concatenates this file into one module; there `module` is undefined)
 if (typeof module !== 'undefined' && module && module.exports) module.exports = { RSM, RSM_V, RSM_GOODS, RSM_PROJ, realmSimInit, realmSimStep, realmSimContribute, realmSimOrder, realmSimSummary, realmSimSanitize, realmSimLive };

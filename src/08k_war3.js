@@ -375,7 +375,7 @@ function war3Choose(wb, r, C, L) {
     const K = WAR.keeps[P.keep];
     if (!K || K.realm !== r || busy(K, (O) => O.type === 'defend')) continue;
     C.push({ s: 92 - dist(L.x, L.z, K.site.x, K.site.z) / 16, o: { type: 'defend', keep: K, since: now + 90, foe: q }, why: 'brace' }); // (the keep that would give the foe its claim: one band, before anything else)
-  }
+  }  seasonChoose(wb, r, C, L); // [loops] the season's announced offensives (08n_season.js)
 }
 // the commanders' orders that need words of their own
 function war3OrderPhrase(wb, O) {

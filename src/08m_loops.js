@@ -285,6 +285,7 @@ function loopsProduce(dt) {
       // a realm whose fields were burnt or trampled harvests less (the town fields' state: farming)
       if (g === 'food') k *= loopsFieldsK(r);
       if (g !== 'horses') k *= lk;
+      k *= seasonProdK(r, g); // the season: a realm behind works harder, a yard breeds more horses (08n_season.js)
       // the woods' and the quarry's work while you are by is brought in by the woodcutters and the quarryman as they
       // fell and break (loopsBring): the same in all, seen or not; what waits more than four minutes comes in anyway
       if (g === 'timber' || g === 'stone' || g === 'iron') {
@@ -1008,6 +1009,8 @@ function loopsDeliver(g, K = null) {
   if (typeof CAMPAIGN !== 'undefined' && CAMPAIGN.state === 'war') { LOOPS.renownAcc = (LOOPS.renownAcc || 0) + units; const pts = Math.floor(LOOPS.renownAcc / LT.renownPer); if (pts > 0) { LOOPS.renownAcc -= pts * LT.renownPer; CAMPAIGN.renown[r] += pts; } }
   uiLog(`You give ${Math.round(units)} ${LOOPS_LABEL[g]} to ${K ? K.site.name + "'s" : possessive(REALMS[r].name)} stores: ${fmtInt(pay.rp)} realm points and ${fmtInt(pay.gold)} gold.`, 'rp');
   if (typeof GUIDE !== 'undefined') GUIDE.made.push('deliver');
+  const sp = seasonDelivered(r, g, units); // for the season (08n_season.js)
+  if (sp >= 0.05) uiLog(`It counts ${sp.toFixed(1)} season points for ${REALMS[r].name}.`, 'rp');
   saveSoon();
   return { units, ...pay };
 }
@@ -1204,7 +1207,9 @@ function loopsOffers(P, offer) {
 /* ------------------------------------------------------------------ */
 // what each realm lacks now, one line (the war panel, 08g_campaign.js): yours first
 function loopsHudLine() {
-  if (!LOOPS.on || !GAME.player) return '';
+  if (!GAME.player) return '';
+  const sl = seasonHudLine(); // the season's clock and standing (08n_season.js)
+  if (!LOOPS.on) return sl;
   const me = GAME.player.faction, parts = [];
   for (const r of [me, ...[0, 1, 2].filter((q) => q !== me)]) {
     const s = LOOPS_R.filter((g) => loopsShort(r, g) && g !== 'wool' && g !== 'hides');
@@ -1212,12 +1217,12 @@ function loopsHudLine() {
     if (!s.length) { const low = LOOPS_R.filter((g) => loopsFill(r, g) < 0.5 && g !== 'wool' && g !== 'hides'); if (low.length) parts.push(`<span style="--rc:${REALMS[r].color}">${REALMS[r].name} low on ${low.slice(0, 2).join(', ')}</span>`); continue; }
     parts.push(`<span class="short" style="--rc:${REALMS[r].color}">${REALMS[r].name} short of ${s.slice(0, 2).join(', ')}</span>`);
   }
-  return parts.length ? `<div class="loops-hud">${parts.slice(0, 2).join(' · ')}</div>` : '';
+  return sl + (parts.length ? `<div class="loops-hud">${parts.slice(0, 2).join(' · ')}</div>` : '');
 }
 // a sentence for the war table (04k_hall.js) and the herald: what the realm's stores lack
 function loopsWarText(r) {
   const s = LOOPS_R.filter((g) => loopsFill(r, g) < 0.35);
-  return s.length ? `${REALMS[r].name}'s stores run low on ${s.join(', ')}: the quartermaster in ${REALMS[r].townName} pays well for them.` : `${REALMS[r].name}'s stores are well stocked.`;
+  return (s.length ? `${REALMS[r].name}'s stores run low on ${s.join(', ')}: the quartermaster in ${REALMS[r].townName} pays well for them.` : `${REALMS[r].name}'s stores are well stocked.`) + ' ' + seasonWarText(r);
 }
 
 /* ------------------------------------------------------------------ */
