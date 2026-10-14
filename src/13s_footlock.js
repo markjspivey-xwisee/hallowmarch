@@ -42,9 +42,11 @@ const FL_SETTLE = 0.3, FL_SETTLE_T = 0.06;
 const a2Unsettled = (e, o, m) => {
   const sc = e.scale || 1;
   if (m > FL_SETTLE * sc) return true;
-  // (and once it has stood A2_SETTLE_LATE s, a foot 0.2 m off its rest place or turned 0.6 rad off the body's heading: an
-  // archer drawing an aimed shot stood 5 s with a foot crossed 0.27 m out and turned 0.85 rad, drawn 27 cm off the ground)
-  if (GAME.t - (e._a2go ?? 0) > A2_SETTLE_LATE && (m > 0.2 * sc || (o.yw != null && Math.abs(angDiff(e.yaw, o.yw)) > 0.6))) return true;
+  // (and once it has stood A2_SETTLE_LATE s, a foot turned 0.6 rad off the body's heading and 0.2 m off its rest place: an
+  // archer drawing an aimed shot stood 5 s with a foot 0.27 m out and turned 0.85 rad, drawn 27 cm off the ground. Not by
+  // the distance alone: a body stopped straight with a foot 0.2 m off rolled the other foot from heel to toe as its hips
+  // rose, 1.6 to 2.7 cm over the ground, as it stepped)
+  if (GAME.t - (e._a2go ?? 0) > A2_SETTLE_LATE && m > 0.2 * sc && o.yw != null && Math.abs(angDiff(e.yaw, o.yw)) > 0.6) return true;
   if (o.h == null || Math.abs(o.h - e.y) <= A2_SETTLE_H * sc) return false;
   if (Math.abs(o.h - e.y) > 0.45 * sc || !o.g) return true;
   // (from A2_SETTLE_H on, only where its rest place stands nearer the body's floor: a step that would land as far off again,
