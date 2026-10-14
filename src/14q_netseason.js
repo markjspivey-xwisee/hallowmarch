@@ -41,6 +41,7 @@ function netSeasonMsg(m) {
   if (!s) return;
   NETS.s = s; NETS.at = performance.now();
   NETS.roster = netsRoster(m.roster);
+  if (m.wx && typeof m.wx === 'object' && JSON.stringify(m.wx).length < 4000) NETS.wx = m.wx; // weather2's systems from the server (kept, not read yet: for the integrator)
   if (m.first) { NETS.first = true; NETS.away = netNum(m.away, -1, 1e9); }
   if (Array.isArray(m.chat)) NETS.chat = m.chat.slice(-20).filter((L) => Array.isArray(L) && L.length === 3).map((L) => [netNum(L[0], 0, 1e15), netStr(L[1], 24), netStr(L[2], 140)]);
   if (GAME.started) netsApply(m.first);
@@ -100,6 +101,11 @@ function netsApply(first) {
 }
 // a line on the war panel (10_ui.js updateWarPanel)
 function netSeasonHudHTML() {
+  // the server's state shown plainly: linked (the season's line), reconnecting, or not reached (playing alone)
+  if (typeof NETWS !== 'undefined' && NETWS.url && !netsOn()) {
+    if (NETWS.state === 'on') return '';
+    return NETWS.stats.opens && (NETWS.stats.drops || NETWS.link) ? '<div class="ns-line ns-off">The March\'s server: reconnecting…</div>' : '<div class="ns-line ns-off">Playing alone: the March\'s server cannot be reached</div>';
+  }
   if (!netsOn()) return '';
   const s = NETS.s, P = GAME.player, ro = NETS.roster;
   const left = Math.max(0, s.len - s.t);

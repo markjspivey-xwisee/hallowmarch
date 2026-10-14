@@ -341,6 +341,8 @@ function seasonTell(c, away, first) {
   const online = [...c.room.clients.values()].filter((o) => o.realm === c.realm).map((o) => o.acct.id);
   for (const R of ROOMS.values()) if (R !== c.room) for (const o of R.clients.values()) if (o.realm === c.realm) online.push(o.acct.id);
   const o = { t: 'season', s, roster: SEASON.rosterOf(c.realm, online), first: first ? 1 : 0, away: away >= 0 ? Math.round(away) : -1, speed: SEASON.speed };
+  // weather2's weather systems on the map, when the season's module keeps them (RS.weather): a slot the pages will read
+  if (SEASON.RS.weather && typeof SEASON.RS.weather === 'object') o.wx = SEASON.RS.weather;
   if (first) o.chat = (SEASON.chat[c.realm] || []).slice(-20);
   send(c, o); STATS.seasonPushes++;
 }

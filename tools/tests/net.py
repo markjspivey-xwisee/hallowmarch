@@ -509,7 +509,8 @@ async def season_part(p):
             except Exception: await asyncio.sleep(0.25)
         b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
         ctx = await b.new_context(viewport={'width': W, 'height': H})
-        A = await boot(ctx, {'room': 'srv', 'user': 'uSeasonA', 'noRoom': True, 'server': url}, 'A')
+        tctx = await b.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # the page of Ériu is a phone: its taps are taps
+        A = await boot(tctx, {'room': 'srv', 'user': 'uSeasonA', 'noRoom': True, 'server': url}, 'A')
         town = await A.evaluate('(() => { const T = __hm.REALMS[1].town; return [T.x, T.z]; })()')
         await start(A, 1, 'archer', 30, 'Eithne', town[0] + 4, town[1] + 10)
         ok = await until([A], A, "!!__hm.season.NETS.s", 20)
@@ -533,12 +534,13 @@ async def season_part(p):
         has = await A.evaluate("(() => [...document.querySelectorAll('.chron [data-ns]')].map((b) => b.dataset.ns))()")
         check('give:timber' in has and 'give:food' in has and any(h.startswith('project:') for h in has), f'the Season page offers to bring goods and vote ({has[:6]})')
         c0 = http_json(base + '/stats')['contribs']
-        await A.evaluate("document.querySelector('.chron [data-ns=\"give:timber\"]').click(); 0")
+        await A.tap('.chron [data-ns="give:timber"]', timeout=60000)
         ok = await until([A], A, "__hm.season.NETS.stats.contribs >= 1 && !__hm.season.NETS.busy", 15)
         logs = await A.evaluate("__hm.fn.goodsCount('log')")
         said = await A.evaluate("JSON.stringify([__hm.season.NETS.said, __hm.season.NETS.stats, __hm.season.NETS.s.st])")
         check(ok and http_json(base + '/stats')['contribs'] > c0 and logs == 0, f'timber brought from the packs to the realm by a tap (logs left {logs}; {said})')
-        await A.evaluate("document.querySelector('.chron [data-ns=\"project:walls\"]').click(); 0")
+        await asyncio.sleep(1.0); await A.evaluate("__hm.LORE.openChronicle('season'); 0"); await asyncio.sleep(1.0)
+        await A.tap('.chron [data-ns="project:walls"]', timeout=60000)
         ok = await until([A], A, "__hm.season.NETS.stats.orders >= 1 && !__hm.season.NETS.busy", 15)
         pub = http_json(base + '/stats')
         check(ok and pub['orders'] >= 1, f"a vote for a work by a tap ({pub['orders']} orders)")
@@ -593,7 +595,6 @@ async def season_part(p):
             await A.evaluate("__hm.season.msg({ t: 'season', s: __hm.season.NETS.s && { ...JSON.parse(JSON.stringify(__hm.season.NETS.s)) } }); 0")
             info = await A.evaluate("(() => { const b = document.getElementById('menu-body'); const c = b.querySelector('.chron'); return [b.innerHTML.length, c ? c.innerHTML.length : -1, b.scrollHeight, b.clientHeight, (c ? c.textContent : b.textContent).slice(0, 200)]; })()")
             log('season page', info)
-            await A.set_viewport_size({'width': 960, 'height': 540})
             await A.evaluate("__hm.LORE.openChronicle('season'); 0")
             await asyncio.sleep(1.5)  # the page fades in by the wall clock
             await shot(A, 'season_page')
