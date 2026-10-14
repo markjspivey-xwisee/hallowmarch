@@ -1143,7 +1143,10 @@ function humanVS(depth) {
     // the feet (stepZ: the hips forward, or back for a flinch, and a little down) while each foot stays where the gait and
     // the lock have it: the lunge was posed by the legs' own angles and stepZ moved the whole body, feet and all, so every
     // blow slid the planted feet 10 cm over the ground (and the Charge's landing blow 10 cm)
-    if ((atype > 0.5 && atype < 1.5) || (atype > 3.5 && atype < 5.5) || (atype > 7.5 && atype < 8.5) || (atype > 10.5 && atype < 11.5)) {
+    // [anim2] and the bow's draw and a cast (2, 3): the draw set the thighs 0.15 rad apart by their angles, so each foot left
+    // the place the lock held it by 13 cm, and on a crater's wall the ground fell away under it (an archer drawing a Deadeye
+    // stood with its feet 0.4 to 0.7 m over the ground for 2 s)
+    if ((atype > 0.5 && atype < 5.5) || (atype > 7.5 && atype < 8.5) || (atype > 10.5 && atype < 11.5)) {
       crouch += 0.4 * abs(stepZ);
       vec2 wL = legIK(fL.x - stepZ, (fL.y + hL - 0.845 + crouch - bob) / cos(abL)), wR = legIK(fR.x - stepZ, (fR.y + hR - 0.845 + crouch - bob) / cos(abR));
       thL = wL.x; shL = wL.y; thR = wR.x; shR = wR.y;

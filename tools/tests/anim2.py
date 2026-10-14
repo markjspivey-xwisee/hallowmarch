@@ -245,6 +245,10 @@ window.A2T = {
   dragon(perch = 0, yaw = 0.7) {
     const H = this.H, F = H.fn, D = H.dbg.DRAGON, AD = H.anim2.dragon, B = AD.DBI; this.calm();
     const P0 = D.perches[perch], e = D.e; if (!e || !P0) return { err: 'no dragon' };
+    // (the perch's ground whole: the war's and the duels' craters before it left one under a perch, where it lay across the
+    // bowl on its rims, its back 3.65 m over the bowl's floor: what this measures, its height over the ground under each part,
+    // means nothing there)
+    try { H.bal5.flattenCraters(); } catch (err) {}
     e.alive = true; e.hp = e.maxHp; e.x = P0.x; e.z = P0.z; e.y = F.heightAt(e.x, e.z); e.yaw = yaw; e.fixedY = null; H.dbg.setDragonState('perch'); D.act = null;
     const P = H.GAME.player; P.x = P.prevX = P0.x + 30; P.z = P.prevZ = P0.z + 30; P.y = F.heightAt(P.x, P.z);
     for (let i = 0; i < 30; i++) F.dragonAnimate(1 / 30);
