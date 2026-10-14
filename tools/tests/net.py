@@ -528,6 +528,10 @@ async def season_part(p):
         await N1.cmd({'cmd': 'hello', 'name': 'Nuala', 'realm': 1, 'cls': 'priest', 'x': town[0] - 200, 'z': town[1]})
         ok = await until([A], A, "!!(__hm.season.NETS.roster && __hm.season.NETS.roster.list.some((x) => x.n === 'Nuala' && x.on))", 30)
         check(ok, 'another player of the realm on the roster, on now')
+        await A.evaluate("__hm.net.sheet(true); 0")
+        sh = await A.evaluate("document.getElementById('netsheet').textContent")
+        check('Nuala' in sh and 'today' in sh and 'The season' in sh, f"the Players sheet tells the realm's roster today ({sh[sh.find('today') - 30:sh.find('today') + 60]!r})")
+        await A.evaluate("__hm.net.sheet(false); 0")
         # the Season page: bring timber, vote for a work
         await A.evaluate("__hm.fn.goodsAdd('log', 30, true); __hm.fn.goodsAdd('grain', 50, true); __hm.LORE.openChronicle('season'); 0")
         await A.evaluate('__hm.frame(1/30); 0')

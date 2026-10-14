@@ -45,7 +45,8 @@ function netSeasonMsg(m) {
   if (m.first) { NETS.first = true; NETS.away = netNum(m.away, -1, 1e9); }
   if (Array.isArray(m.chat)) NETS.chat = m.chat.slice(-20).filter((L) => Array.isArray(L) && L.length === 3).map((L) => [netNum(L[0], 0, 1e15), netStr(L[1], 24), netStr(L[2], 140)]);
   if (GAME.started) netsApply(m.first);
-  if (UI.modal === 'menu' && typeof LORE !== 'undefined' && LORE.chronSec === 'season' && !NETS.busy && (UI.frame & 1) === 0) netsRender();
+  // (the Season page is drawn when it is opened and after the player's own deliveries and votes: drawn again at every
+  // telling it faded in anew and lost its scroll)
 }
 // everything the server says is read and bounded (a season's news from the server is text, set as text)
 function netsRead(o) {

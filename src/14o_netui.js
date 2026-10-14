@@ -56,6 +56,7 @@ function netUiOn() {
       else if (act === 'leave') netPartyLeave();
       else if (act === 'tgt') { const g = netGhost(peer); if (g) { setPlayerTarget(g); netSheetToggle(false); } }
       else if (act === 'say') { netSheetToggle(false); netChatOpen(b.dataset.ch || 'r'); }
+      else if (act === 'season') { netSheetToggle(false); openChronicle('season'); return; } // [net] the season's page (14q_netseason.js)
       else if (act === 'acct-claim' || act === 'acct-login' || act === 'acct-out') { netAcctClick(act); return; }
       netSheetRender();
     });
@@ -163,6 +164,15 @@ function netSheetRender() {
     if (R.ghost) acts.appendChild(btn('Target', 'tgt', R.peer));
     if (s.r === P.faction && !(s.pt && s.pt === NET.party) && (!NET.party || mates.length + 1 < NET.partyMax)) acts.appendChild(btn('Invite', 'inv', R.peer));
     row.appendChild(acts);
+    body.appendChild(row);
+  }
+  // the season's roster of your realm (14q_netseason.js): who is on now (here or in another shard) and who was on today
+  if (typeof NETS !== 'undefined' && NETS.roster && NETS.roster.list.length) {
+    const ro = NETS.roster;
+    body.appendChild(el('h3', '', `${REALMS[P.faction].name} today: ${ro.now} on now, ${ro.day} today`));
+    const row = el('div', 'net-row'); row.style.setProperty('--rc', REALMS[P.faction].color);
+    row.appendChild(el('span', 'net-nm', ro.list.slice(0, 16).map((x) => `${x.n}${x.on ? ' (on)' : ''}${x.g ? ` brought ${x.g}` : ''}`).join(' · ')));
+    const acts = el('span', 'net-acts'); acts.appendChild(btn('The season', 'season', '')); row.appendChild(acts);
     body.appendChild(row);
   }
   // the chat
