@@ -7,7 +7,7 @@ const WASM = {
   lp: true, // the switch (tests turn it off and on: a measure, both ways)
   mods: {}, failed: {},
   L: { N: 0, cap: 0, TW: 0, TH: 0, pB: 0, pGs: 0, pFrom: 0, pStamp: 0, pShut: 0, pHf: 0, pHk: 0, pHt: 0, gen: 0, u8: null, buf: null },
-  stats: { lpWasm: 0, lpJs: 0, lpHeap: 0, compileMs: 0, grows: 0, tables: 0 },
+  stats: { lpWasm: 0, lpJs: 0, lpHeap: 0, lpErrors: 0, compileMs: 0, grows: 0, tables: 0 },
 };
 function wasmModule(name) {
   if (WASM.mods[name] || WASM.failed[name]) return WASM.mods[name] || null;
@@ -43,15 +43,23 @@ function lpSearch(W, Hh, N, s, g) {
   if (WASM.rec && WASM.rec.length < 400) WASM.rec.push({ W, Hh, N, s, g, b: LP.blocked.slice(0, N) }); // (tests: the searches of a running war, to replay both ways)
   const M = WASM.lp && wasmModule('lp_astar');
   if (!M) { WASM.stats.lpJs++; return lpSearchJS(W, Hh, N, s, g); }
-  wasmLpLayout(M, N, W, Hh);
-  const L = WASM.L;
-  L.u8.set(LP.blocked.subarray(0, N), L.pB);
-  L.gen = (L.gen + 1) >>> 0;
-  if (!L.gen) { L.u8.fill(0, L.pStamp, L.pShut + L.N * 4); L.gen = 1; }
-  const r = M.search(W, Hh, s, g, L.gen | 0, L.pB, L.pGs, L.pFrom, L.pStamp, L.pShut, L.pHf, L.pHk, L.cap, L.pHt, L.TW);
-  if (r === -2) { WASM.stats.lpHeap++; return lpSearchJS(W, Hh, N, s, g); }
-  WASM.stats.lpWasm++;
-  LP.fromV = new Int32Array(L.buf, L.pFrom, N);
-  return r === 1;
+  try {
+    wasmLpLayout(M, N, W, Hh);
+    const L = WASM.L;
+    L.u8.set(LP.blocked.subarray(0, N), L.pB);
+    L.gen = (L.gen + 1) >>> 0;
+    if (!L.gen) { L.u8.fill(0, L.pStamp, L.pShut + L.N * 4); L.gen = 1; }
+    const r = M.search(W, Hh, s, g, L.gen | 0, L.pB, L.pGs, L.pFrom, L.pStamp, L.pShut, L.pHf, L.pHk, L.cap, L.pHt, L.TW);
+    if (r === -2) { WASM.stats.lpHeap++; WASM.stats.lpJs++; return lpSearchJS(W, Hh, N, s, g); }
+    WASM.stats.lpWasm++;
+    LP.fromV = new Int32Array(L.buf, L.pFrom, N);
+    return r === 1;
+  } catch (e) {
+    // Memory limits and runtime failures preserve navigation through the JS path.
+    WASM.failed.lp_astar = String(e && e.message || e);
+    delete WASM.mods.lp_astar;
+    WASM.stats.lpErrors++; WASM.stats.lpJs++;
+    return lpSearchJS(W, Hh, N, s, g);
+  }
 }
 if (typeof window !== "undefined") setTimeout(() => { if (window.__hm) window.__hm.wasm = { WASM, wasmModule, lpSearch, lpSearchJS, LP }; }, 0); // test hooks

@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: v20-integration
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   assemble:

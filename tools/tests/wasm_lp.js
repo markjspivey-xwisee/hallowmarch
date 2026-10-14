@@ -52,4 +52,27 @@ if ('time' in OPT || process.argv.includes('time')) {
   const timeIt = (on) => { WASM.lp = on; const t = performance.now(); for (const k of cases) { LP.blocked.set(k.bl); lpSearch(k.W, k.H, k.N, k.s, k.g); } return performance.now() - t; };
   for (let r = 0; r < 3; r++) console.log(`round ${r + 1}: js ${timeIt(false).toFixed(0)} ms, wasm ${timeIt(true).toFixed(0)} ms (the same ${n} searches)`);
 }
+// A browser can refuse memory growth after compilation. Exercise that fallback.
+{
+  const W = 12, H = 12, N = grid(W, H), s = 0, g = N - 1;
+  LP.blocked.fill(0, 0, N);
+  WASM.lp = false;
+  const expected = lpSearch(W, H, N, s, g);
+  const parents = Array.from(LP.fromV.subarray(0, N));
+  const errors = WASM.stats.lpErrors;
+  WASM.mods.lp_astar = {
+    mem: { buffer: new ArrayBuffer(0), grow() { throw new RangeError('test memory limit'); } },
+    search() { throw new Error('search must not run after failed layout'); },
+  };
+  WASM.lp = true;
+  const actual = lpSearch(W, H, N, s, g);
+  const okay = expected === actual && parents.every((v, i) => v === LP.fromV[i])
+    && WASM.stats.lpErrors === errors + 1 && !WASM.mods.lp_astar;
+  if (!okay) { diff++; console.log('FAIL memory-limit fallback'); }
+  else console.log('ok memory-limit fallback preserves the JS path');
+  const again = lpSearch(W, H, N, s, g);
+  if (again !== expected || WASM.stats.lpErrors !== errors + 1) {
+    diff++; console.log('FAIL broken module must stay disabled');
+  }
+}
 process.exit(diff ? 1 : 0);

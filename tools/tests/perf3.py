@@ -120,9 +120,10 @@ async def main():
             if hasw:
                 # the searches a running war asks for, recorded
                 await page.evaluate("__hm.wasm.WASM.rec = []; __hm.wasm.WASM.lp = false; 0")
-                for _ in range(40):
-                    n = await page.evaluate("(() => { __hm.simulate(3); return __hm.wasm.WASM.rec.length; })()")
-                    if n >= 300: break
+                # Keep the >20-search assertion and sample quiet openings too.
+                for _ in range(240):
+                    n = await page.evaluate("(() => { __hm.simulate(5); return __hm.wasm.WASM.rec.length; })()")
+                    if n >= 80: break
                 rep = await page.evaluate(r"""(() => {
                   const M = __hm.wasm, LP = M.LP, rec = M.WASM.rec; M.WASM.rec = null;
                   const path = (s, g, N) => { const p = []; for (let k = g; k !== -1 && p.length <= N; k = k === s ? -1 : LP.fromV[k]) p.push(k); return p.join(','); };

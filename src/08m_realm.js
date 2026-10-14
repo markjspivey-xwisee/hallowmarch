@@ -46,8 +46,8 @@ const RSM = {
   field: { stale: 180 },
   // [season2] a realm's deliveries earn season points by the day, saturating: P(D) = max (1 - e^(-D / full)) points for
   // D units of worth delivered that day (D: every player of the realm together; work counts as RSM.sp.work points an hour
-  // worth): one player's hour (about 800 units) earns about 16, a crowd no more than `max` a day. The goods all go in.
-  delivery: { max: 40, full: 1500 },
+  // worth): one player's hour (about 800 units) earns about 13, a crowd no more than `max` a day. The goods all go in.
+  delivery: { max: 32, full: 1500 },
   // [season2] an offensive's keep, warned two days ahead: the holder may bring its garrison to `room` x a full one, with
   // up to `share` of the attackers' number from its levy (an assault or a retake: 1.5 and 0.35)
   brace: { room: 1.5, share: 0.35, feed: 0 },

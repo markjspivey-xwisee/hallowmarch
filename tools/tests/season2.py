@@ -47,7 +47,7 @@ async def main():
         await ev(page, HELP)
         await ev(page, "__hm.simulate(1); 0")
         # the season into its war (the muster is its first week), the live war quiet, the player a hardy one
-        r = await ev(page, r"""(() => { const H = __hm, S = H.season; S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.armies.length = 0; RS.offs.length = 0; __s2.calm(); return { phase: RS.phase, live: RS.live, war: H.CW.CAMPAIGN.state }; })()""")
+        r = await ev(page, r"""(() => { const H = __hm, S = H.season; S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.keeps.forEach((K) => { K.h = K.home; K.siege = null; K.g = 8; }); S.apply(); RS.armies.length = 0; RS.offs.length = 0; __s2.calm(); return { phase: RS.phase, live: RS.live, war: H.CW.CAMPAIGN.state }; })()""")
         print('boot', round(time.time() - T0), 's', r, flush=True)
         check(r['phase'] == 'war' and r['live'], f"the season is at war and the page lives it ({r})")
 
