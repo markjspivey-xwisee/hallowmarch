@@ -689,6 +689,7 @@ const SHOVE_A_W = '0.580', SHOVE_X_W = '0.060', SHOVE_FIST = '0.008';
 // [anim2] how far a body lying dead is let down after its fall (its back, its heels and the back of its head on the floor)
 const A2_DEAD_DROP = 0.0; // [anim2] how far a body lying dead is let down onto the floor beyond its back's own depth (none: measured on it)
 const A2_ARROW = 0.3; // [anim2] how far out to the bow hand's side the drawn arrow is built (in rest)
+const A2_BEND_Z = '0.085', A2_BEND_Y = '0.032'; // [anim2] how far a drawn bow's tips come back toward the string and in (m)
 const HUMAN_GAIT = /* glsl */`
   // one step (half a gait cycle) of a person moving at v m/s, in their own size
   float humanStep(float v){ return clamp(min(0.40 + 0.20 * v + 0.006 * v * v, v / 1.6), 0.03, 2.2); } // [motion] short steps when slow, never slow-motion ones
@@ -822,6 +823,9 @@ function humanVS(depth) {
     // [anim2] the drawn arrow shows from the nocking to the loose (its points: the bow's bit, out beyond the bow)
     bool a2Arrow = aBit > -0.5 && int(aBit + 0.5) == ${WBIT.bow} && position.x > ${(SK.fist[0] + A2_ARROW * 0.5).toFixed(3)};
     float a2Nock = (atype > 1.5 && atype < 2.5 && death <= 0.0) ? smoothstep(0.12, 0.28, at) * (1.0 - smoothstep(0.82, 0.86, at)) : 0.0;
+    // [anim2] how far the bow is bent by the string drawn back (the draw's own pace, 0.2 to 0.75 of the action; it springs
+    // straight as the string goes): its limbs come back toward the string and in, as a stave does (they stood unbent)
+    float a2Bend = a2Nock * smoothstep(0.2, 0.75, at);
     if (a2Arrow && a2Nock < 0.5) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }
     // [motion5] a boat shoved off (action 19): the progress in 256 steps and the gunwale's height over the floor in 2 cm
     // steps, packed by motion5ActValue (13y_motion5.js)
@@ -1349,6 +1353,7 @@ function humanVS(depth) {
       if (isBow || isStaff) {
         mat3 Ch = rotX(-chestX) * rotY(-chestY), S;
         vec3 fc;
+        if (isBow && a2Bend > 0.0 && !a2Arrow && m != ${AM.string}) { float bs = clamp((P.y - ${SK.fist[1].toFixed(4)}) / ${(Math.sin(0.9) * 0.66).toFixed(4)}, -1.0, 1.0); P.z -= ${A2_BEND_Z} * bs * bs * a2Bend; P.y -= ${A2_BEND_Y} * bs * abs(bs) * a2Bend; } // [anim2] the limbs bent
         if (isBow) { S = rotX(-uaL) * rotZ(-uaLz); if (uaLy != 0.0) S = S * rotY(-uaLy); a2C = rotX(-faL) * S * Ch; fc = ${glv(SK.fist)}; a2W = smoothstep(0.0, 0.25, at) * (1.0 - smoothstep(0.88, 1.0, at)); }
         else { S = rotX(-uaR) * rotZ(-uaRz); if (uaRy != 0.0) S = S * rotY(-uaRy); a2C = rotX(-faR) * S * Ch * rotX(0.35 * smoothstep(0.86, 1.0, at)); fc = ${glv([-SK.fist[0], SK.fist[1], SK.fist[2]])}; a2W = smoothstep(0.0, 0.3, at); }
         P = mix(P, fc + a2C * (P - fc), a2W); Nn = normalize(mix(Nn, a2C * Nn, a2W));
@@ -1391,6 +1396,7 @@ function humanVS(depth) {
       } else {
         float ty = ${Math.sin(0.9) * 0.66}, sy = clamp((position.y - ${SK.fist[1].toFixed(4)}) / ty, -1.0, 1.0);
         vec3 c0 = vec3(${(SK.fist[0] + 0.005).toFixed(4)}, position.y, ${(SK.fist[2] + (Math.cos(0.9) - 1) * 0.66 + 0.035).toFixed(4)}), e0 = vec3(c0.x, ${SK.fist[1].toFixed(4)} + sign(sy) * ty, c0.z);
+        e0 += vec3(0.0, -sign(sy) * ${A2_BEND_Y}, -${A2_BEND_Z}) * a2Bend; // [anim2] the string's ends with the bent limbs' tips
         c0 = mix(c0, fc + a2C * (c0 - fc), a2W); e0 = mix(e0, fc + a2C * (e0 - fc), a2W);
         P = mix(c0, mix(e0, Q, 1.0 - abs(sy)), a2Nock) + (P - c0);
       }

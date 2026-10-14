@@ -24,7 +24,7 @@ BEASTS.sheep = {
   haunch: [0.09, 0.62, -0.33, 0.08, 0.12, 0.1],
   tail: { pts: [[-0.5, 0.67], [-0.55, 0.61], [-0.58, 0.53], [-0.59, 0.47]], r: [0.04, 0.045, 0.04, 0.02] },
   fur: { shag: 0.026, ruff: 0, saddle: 0, belly: 0, sock: 0.9, strand: 0.7 },
-  paw: 'hoof', eye: [0.62, 0.48, 0.18], stride: [0.3, 0.85], deadLift: 0.12, grazes: true,
+  paw: 'hoof', eye: [0.62, 0.48, 0.18], stride: [0.3, 0.85], deadLift: 0.17, /* [anim2] (0.12: 6.6 cm of it in the ground) */ grazes: true,
   farm: { wool: 1, face: true },
 };
 BEASTS.sheepShorn = { ...BEASTS.sheep, body: BEASTS.sheep.body.map(([z, t, b, w]) => [z, t - 0.05, b + 0.03, w * 0.78]), fur: { ...BEASTS.sheep.fur, shag: 0.006 }, farm: { wool: 0.2, face: true } };
@@ -44,7 +44,7 @@ BEASTS.cattle = {
   haunch: [0.17, 1.1, -0.65, 0.14, 0.3, 0.22],
   tail: { pts: [[-0.86, 1.3], [-0.92, 1.2], [-0.95, 0.97], [-0.96, 0.72], [-0.965, 0.52]], r: [0.05, 0.034, 0.027, 0.024, 0.05] },
   fur: { shag: 0.004, ruff: 0, saddle: 0, belly: 0.25, sock: 0, strand: 1.6 },
-  paw: 'hoof', eye: [0.07, 0.045, 0.03], stride: [0.78, 2.1], deadLift: 0.38, grazes: true, hairTail: true,
+  paw: 'hoof', eye: [0.07, 0.045, 0.03], stride: [0.78, 2.1], deadLift: 0.26, /* [anim2] (0.38: lying dead its side 13 cm over the ground, anim2.py dead) */ grazes: true, hairTail: true,
   farm: { horns: 1, udder: true, face: false },
 };
 BEASTS.bull = { ...BEASTS.cattle, neck: BEASTS.cattle.neck.map(([z, y, w, h]) => [z, y + 0.02, w * 1.18, h * 1.12]), farm: { horns: 1.35, udder: false, face: false } };

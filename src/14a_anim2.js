@@ -385,10 +385,8 @@ function a2DragonSolve(e) {
 function a2DragonFlatten(e, P) {
   if (typeof natureCut !== 'function') return;
   a2DragonPoseAt(P, e);
-  const D = DRAGON, seen = new Set();
-  let n = 0;
-  for (let v = 0; v < D.kit.n; v += 3) {
-    const bp = D.bindP, bi = D.bi, bw = D.bw;
+  const D = DRAGON, seen = new Set(), N = D.kit.n, Wp = new Float32Array(N * 3), bp = D.bindP, bi = D.bi, bw = D.bw;
+  for (let v = 0; v < N; v++) {
     let px = 0, py = 0, pz = 0;
     for (let k = 0; k < 4; k++) {
       const w = bw[v * 4 + k];
@@ -396,10 +394,28 @@ function a2DragonFlatten(e, P) {
       const m = D.world[bi[v * 4 + k]].elements, x = bp[v * 3], y = bp[v * 3 + 1], z = bp[v * 3 + 2];
       px += w * (m[0] * x + m[4] * y + m[8] * z + m[12]); py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]); pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
     }
-    if (py - heightAt(px, pz) > 0.9) continue;
+    Wp[v * 3] = px; Wp[v * 3 + 1] = py; Wp[v * 3 + 2] = pz;
+  }
+  let n = 0;
+  const cut = (px, py, pz) => {
+    if (py - heightAt(px, pz) > 0.9) return;
     const k = Math.round(px) + ',' + Math.round(pz);
-    if (seen.has(k)) continue;
+    if (seen.has(k)) return;
     seen.add(k); natureCut(Math.round(px), Math.round(pz), 0.75, 0.9, false); n++;
+  };
+  for (let v = 0; v < N; v += 3) cut(Wp[v * 3], Wp[v * 3 + 1], Wp[v * 3 + 2]);
+  // (and across the big triangles: a wing's membrane spans metres between its fingers, with no vertex in its middle, and
+  // the blades stood up through it there)
+  const I = D.kit.idx;
+  for (let t = 0; t + 2 < I.length; t += 3) {
+    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const L = Math.max(Math.hypot(Wp[a] - Wp[b], Wp[a + 2] - Wp[b + 2]), Math.hypot(Wp[a] - Wp[c], Wp[a + 2] - Wp[c + 2]), Math.hypot(Wp[b] - Wp[c], Wp[b + 2] - Wp[c + 2]));
+    if (L < 1.2) continue;
+    const S = Math.min(24, Math.ceil(L / 0.7));
+    for (let u = 0; u <= S; u++) for (let w = 0; w <= S - u; w++) {
+      const fu = u / S, fw = w / S, f0 = 1 - fu - fw;
+      cut(f0 * Wp[a] + fu * Wp[b] + fw * Wp[c], f0 * Wp[a + 1] + fu * Wp[b + 1] + fw * Wp[c + 1], f0 * Wp[a + 2] + fu * Wp[b + 2] + fw * Wp[c + 2]);
+    }
   }
   A2D.stats.flat = n;
 }

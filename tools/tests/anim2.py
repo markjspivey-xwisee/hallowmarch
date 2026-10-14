@@ -223,7 +223,13 @@ window.A2T = {
       const b = F.spawnMob(camp), k = es.length - 12;
       b.x = b.prevX = Ln.x + Ln.sx * (k * 3.2 - 6.4) + Ln.ux * 6.5; b.z = b.prevZ = Ln.z + Ln.sz * (k * 3.2 - 6.4) + Ln.uz * 6.5; b.y = F.heightAt(b.x, b.z); b.home = { x: b.x, z: b.z, r: 1 }; this.made.push(b); es.push(b);
     }
-    this.over(Ln.x + Ln.ux * 2, Ln.z + Ln.uz * 2, 10, 8);
+    // (and the deer, a horse and the farm beasts, made as motion.py makes them: a second row behind the camps')
+    ['deer', 'horse', 'sheep', 'cattle', 'pig', 'hound'].forEach((kind, k) => {
+      const x = Ln.x + Ln.sx * (k * 3.2 - 8) + Ln.ux * 10.5, z = Ln.z + Ln.sz * (k * 3.2 - 8) + Ln.uz * 10.5;
+      const b = F.makeEnt({ kind, faction: 4, role: 'test', name: 'anim2 ' + kind, level: 5, x, z, y: F.heightAt(x, z), radius: 0.4, look: { colA: [0.45, 0.43, 0.4], colB: [0.3, 0.28, 0.26] }, scale: 1 });
+      b.yaw = Math.atan2(Ln.sx, Ln.sz); b.prevX = b.x; b.prevZ = b.z; b.testMo = true; this.made.push(b); es.push(b);
+    });
+    this.over(Ln.x + Ln.ux * 4, Ln.z + Ln.uz * 4, 12, 9);
     for (let k = 0; k < 10; k++) A.a2Step(1 / 30, {});
     for (const e of es) { F.killEnt(e, null); e.removeAt = Infinity; }
     for (let k = 0; k < 75; k++) A.a2Step(1 / 30, {});
@@ -371,7 +377,7 @@ async def main():
                 check(len(hum) == 12, f'twelve people lying dead measured ({len(hum)})')
                 check(all(-0.08 <= d['lo'] <= 0.1 for d in hum), 'each person lies on the floor (its lowest point within -8 and 10 cm of it): ' + ', '.join(f"{d['who']} {d['lo']}" for d in hum))
                 check(all(d['top'] < 0.5 for d in hum), 'nothing stands up off a person lying dead (its highest point under 0.5 m): ' + ', '.join(f"{d['who']} {d['top']}" for d in hum))
-                check(len(bst) >= 3 and all(-0.12 <= d['lo'] <= 0.12 for d in bst + oth), 'each beast, the dead and a troll lie on the floor: ' + ', '.join(f"{d['who']} {d['lo']}" for d in bst + oth))
+                check(len(bst) >= 9 and all(-0.12 <= d['lo'] <= 0.12 for d in bst + oth), 'each beast (the camps\', the deer, a horse, the farm beasts), the dead and a troll lie on the floor: ' + ', '.join(f"{d['who']} {d['lo']}" for d in bst + oth))
         if 'dragon' in ONLY:
             r = await ev(page, "A2T.dragon()", 'dragon')
             res['dragon'] = r
