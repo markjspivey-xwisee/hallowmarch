@@ -13,7 +13,7 @@ window.NF = {
     F.slow = { v: 1, on: 1, since: o.since ?? 1, n: o.name, dn: o.name, r: o.realm ?? 0, c: o.cls || 'warrior', l: o.level || 30, rr: 1, pt: o.party || '' };
     F.state = () => {
       const x = F.o.x, z = F.o.z, y = H.fn.heightAt(x, z);
-      return { s: ++F.seq, t: Math.round(performance.now()), p: [+x.toFixed(2), +y.toFixed(2), +z.toFixed(2)], y: +(F.o.yaw || 0).toFixed(3), v: [+(F.o.vx || 0).toFixed(2), +(F.o.vz || 0).toFixed(2)], a: F.o.a || 0, h: F.o.h ?? 1, m: 2000, d: 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '', ev: F.ev.slice(-20) };
+      return { s: ++F.seq, t: Math.round(performance.now()), p: [+x.toFixed(2), +y.toFixed(2), +z.toFixed(2)], y: +(F.o.yaw || 0).toFixed(3), v: [+(F.o.vx || 0).toFixed(2), +(F.o.vz || 0).toFixed(2)], a: F.o.a || 0, h: F.o.d ? 0 : F.o.h ?? 1, m: 2000, d: F.o.d ? 1 : 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '', ev: F.ev.slice(-20) };
     };
     F.send = () => {
       ch.postMessage(JSON.stringify({ type: 'pres', from: peer, by: F.by, room: '', p: { hm: F.slow } }));

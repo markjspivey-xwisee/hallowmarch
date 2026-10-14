@@ -199,8 +199,8 @@ async def room_part(p):
     if SHOTS:
         await B.evaluate("(() => { const g = NT.ghostOf('Aldwin'); const P = NT.P; P.yaw = Math.atan2(g.x - P.x, g.z - P.z); __hm.CAM.yaw = P.yaw + 0.55; __hm.CAM.pitch = 0.2; __hm.CAM.dist = __hm.CAM.targetDist = 5; NT.P.target = g.id; return 0; })()")
         await A.evaluate("__hm.net.chat('r', 'For Logres!'); 0")
-        await step(pages, 0.1, 6)
-        await shot(B, 'room_ally')
+        await until(pages, B, "NT.logHas('For Logres!')", 4)
+        await shot(B, 'room_ally')  # at once: the line over his head lasts 7 s of the wall clock, a few steps here
         await A.evaluate("__hm.net.sheet(true); 0")
         await shot(A, 'room_sheet')
         await A.evaluate("__hm.net.sheet(false); 0")
@@ -502,4 +502,5 @@ async def main():
     for f in FAILS: print('  FAIL', f)
     sys.exit(1 if FAILS else 0)
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
