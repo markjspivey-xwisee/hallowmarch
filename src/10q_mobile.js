@@ -72,6 +72,9 @@ function mobileModalChanged(value) {
   }
   queueMicrotask(() => {
     if (UI.modal !== value) return;
+    // A sheet can hand off to chat in the same click. Keep the new text field's
+    // focus instead of returning it to the control that opened the old sheet.
+    if (!value && typing() && document.activeElement.getClientRects().length) return;
     const focus = value === 'kit' ? $('kit-close') : value === 'map' ? $('btn-mapclose') : !value ? MOBILE_UI.focus : null;
     if (focus && focus.isConnected && !focus.closest('[hidden]')) focus.focus({ preventScroll: true });
   });
