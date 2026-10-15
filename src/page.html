@@ -1282,6 +1282,8 @@
   body.touch #mobile-tray { top: var(--mobile-sheet-top, 0px); height: var(--mobile-sheet-vh, 100dvh); padding: 0; }
   body.touch #mobile-tray .mobile-sheet { height: min(720px, calc(var(--mobile-sheet-vh, 100dvh) - var(--safe-t) - 8px)); max-height: calc(var(--mobile-sheet-vh, 100dvh) - var(--safe-t) - 8px); }
   body.touch #mobile-tray-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #mobile-tray .mobile-sheet-head h2 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: clamp(20px, 5.5vw, 26px); }
+  #mobile-tray-close { flex: none; }
   #mobile-tray[data-section="character"] #mobile-tray-panel > section[aria-label="Ability descriptions"] { order: -1; }
   body.touch #mapside #btn-mapclose { grid-row: 1; position: sticky; top: 0; z-index: 1; background: #202630; }
   body.touch #kit .kithead { position: sticky; top: -12px; z-index: 3; margin: -12px -12px 0; padding: 12px; background: #171b22; border-bottom: 1px solid var(--line); }
