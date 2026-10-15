@@ -74,6 +74,14 @@ function mobileInteractionLabel(label) {
   if (/^(pick up|take)\b/i.test(label)) return 'Take';
   return label.trim().split(/\s+/)[0].replace(/[^a-z]/gi, '') || 'Use';
 }
+function mobileAbilityLabel(name) {
+  const short = { 'Bulwark': 'Bul\u200bwark', 'Deadeye': 'Dead\u200beye', 'Meteor': 'Me\u200bteor',
+    'Cleave': 'Wide cut', 'Charge': 'Rush', 'Tumble': 'Roll', 'Renewal': 'Re\u200bnew',
+    'Rallying Cry': 'Rally', 'Whirlwind': 'Whirl', 'Crippling Arrow': 'Slow arrow', 'Piercing Shot': 'Pierce',
+    'Arcane Ward': 'Ward', 'Chain Lightning': 'Chain bolt', 'Blizzard': 'Ice storm', 'Sanctuary': 'Haven',
+    'Mass Renewal': 'Group renew', 'Pillar of Dawn': 'Dawn pillar' };
+  return short[name] || name;
+}
 function mobileNameplateEligible(e, P) {
   if (P.target === e.id || MOBILE_PREFS.names === 'all') return true;
   const d = Math.hypot(e.x - P.x, e.z - P.z);
@@ -202,11 +210,7 @@ function mobileBuild() {
     const A = ABILITIES[CLASSES[P.cls].abilities[+s.dataset.slot]];
     s.classList.toggle('locked', A.level > P.level);
     const label = document.createElement('span'); label.className = 'mobile-label';
-    const short = { 'Bulwark': 'Bul\u200bwark', 'Deadeye': 'Dead\u200beye',
-      'Rallying Cry': 'Rally', 'Whirlwind': 'Whirl', 'Crippling Arrow': 'Slow arrow', 'Piercing Shot': 'Pierce',
-      'Arcane Ward': 'Ward', 'Chain Lightning': 'Chain bolt', 'Blizzard': 'Ice storm', 'Sanctuary': 'Refuge',
-      'Mass Renewal': 'Group renew', 'Pillar of Dawn': 'Dawn pillar' };
-    label.textContent = short[A.name] || A.name; s.appendChild(label);
+    label.textContent = mobileAbilityLabel(A.name); s.appendChild(label);
     (+s.dataset.slot === 0 ? main : skills).appendChild(s);
   }
   primary.append(main, skills);
@@ -271,8 +275,9 @@ function mobileSync() {
     const D = GIFT_DEF[P.faction].ult;
     $('mobile-tray-abilities').innerHTML = CLASSES[P.cls].abilities.map((id, i) => {
       const A = ABILITIES[id], locked = A.level > P.level;
+      const label = mobileAbilityLabel(A.name).replace(/\u200b/g, '');
       return '<details data-mobile-ability="' + i + '" data-locked="' + locked + '"><summary>' +
-        '<span>' + esc(A.name) + '</span><small>' + (locked ? 'Level ' + A.level : 'Learned') +
+        '<span>' + esc(A.name) + (label !== A.name ? ' (' + esc(label) + ')' : '') + '</span><small>' + (locked ? 'Level ' + A.level : 'Learned') +
         '</small></summary><p>' + esc(A.desc) + '</p><p>' + A.cost + ' power · ' +
         (A.cast ? A.cast + ' s cast' : 'Instant') + (A.cd ? ' · ' + A.cd + ' s cooldown' : '') + '</p></details>';
     }).join('') + '<details class="mobile-gift-info"><summary><span>' + esc(D.name) +
