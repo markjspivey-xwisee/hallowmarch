@@ -59,29 +59,11 @@ async def fixture(url, mode, token='', save=None):
     return json.loads(out)
 
 OBSERVE = r"""(() => {
- const Native = window.WebSocket;
- const stats = window.__hmNetTest = {created:0,opened:0,closed:0,live:0,maxLive:0,welcomes:0,stalls:0,sent:[]};
- window.WebSocket = class extends Native {
-  constructor(...args) {
-   super(...args); stats.created++;
-   this.addEventListener('open',()=>{
-    stats.opened++;stats.live++;stats.maxLive=Math.max(stats.maxLive,stats.live);
-    if(stats.opened===1)setTimeout(()=>{
-      // A CPU stall delays the real handshake timer, as an expensive boot can.
-      const end=performance.now()+1500;
-      while(performance.now()<end) {}
-      stats.stalls++;
-    },6500);
-   });
-   this.addEventListener('close',()=>{stats.closed++;stats.live=Math.max(0,stats.live-1);});
-   this.addEventListener('message',event=>{
-    try {if(JSON.parse(event.data).t==='welcome')stats.welcomes++;}catch{}
-   });
-  }
-  send(data) {
-   try {const m=JSON.parse(data);stats.sent.push({t:m.t,name:m.t==='slow'?m.d?.n:undefined});}catch{}
-   return super.send(data);
-  }
+ window.__hmNetTest = {stalls:0,stallScheduled:false};
+ window.__hmNetTest.stall = () => {
+  const end=performance.now()+1500;
+  while(performance.now()<end) {}
+  window.__hmNetTest.stalls++;
  };
 })();"""
 
@@ -89,8 +71,14 @@ SNAPSHOT = r"""() => ({
  ready:__hm.ready,started:__hm.GAME.started,name:__hm.GAME.player?.name,
  xp:__hm.GAME.prog?.xp,backend:__hm.SAVE.backend,ref:!!__hm.SAVE.ref,
  loaded:__hm.SAVE.loaded?.char?.name,network:__hm.net.state(),
- socket:{state:__hm.net.NETWS.state,account:__hm.net.NETWS.acct?.id},
- stats:{...window.__hmNetTest,sent:[...window.__hmNetTest.sent]},
+ socket:{
+  state:__hm.net.NETWS.state,account:__hm.net.NETWS.acct?.id,
+  readyState:__hm.net.NETWS.ws?.readyState,lastFailure:__hm.net.NETWS.lastFailure,
+  lastClose:__hm.net.NETWS.lastClose,generation:__hm.net.NETWS.generation,
+  opening:!!__hm.net.NETWS.openP,linking:!!__hm.net.NETWS.linkP,
+  connecting:!!__hm.net.NET.connectP
+ },
+ stalls:window.__hmNetTest.stalls,
  errors:[...__hm.errors],stored:localStorage.getItem('hallowmarch.save.v1')
 })"""
 
@@ -110,34 +98,83 @@ async def recover_local_game(browser, url, host, seeded):
     ctx,page,errors,console_errors,navigations = await direct_page(browser,640,360,init=init)
     gate = {'allow':False}
     blocked, wire = [], []
-    async def route_socket(ws):
-        if not gate['allow']:
-            blocked.append(ws)
-            ws.on_message(lambda message: None)  # an open transport whose welcome never arrives
-            return
-        server = ws.connect_to_server()
+    routes = {'created':0,'closed':0,'live':0,'maxLive':0,'welcomes':0}
+    first_closed = asyncio.Event()
+    route_tasks,route_task_errors=set(),[]
+    def schedule(coroutine):
+        task=asyncio.create_task(coroutine)
+        route_tasks.add(task)
+        def done(completed):
+            route_tasks.discard(completed)
+            if not completed.cancelled():
+                error=completed.exception()
+                if error: route_task_errors.append(str(error))
+        task.add_done_callback(done)
+    def route_socket(ws):
+        entry = {'closed':False,'first':routes['created']==0}
+        routes['created']+=1
+        routes['live']+=1
+        routes['maxLive']=max(routes['maxLive'],routes['live'])
+        server = ws.connect_to_server() if gate['allow'] else None
+        def mark_closed():
+            if not entry['closed']:
+                entry['closed']=True
+                routes['closed']+=1
+                routes['live']-=1
+                if entry['first']: first_closed.set()
+        def client_closed(code, reason):
+            mark_closed()
+            if server:
+                server.close(code=code,reason=reason)
+        ws.on_close(client_closed)
         def client_message(message):
             try:
                 m=json.loads(message)
                 wire.append({'t':m.get('t'),'name':m.get('d',{}).get('n') if m.get('t')=='slow' else None})
+                if entry['first'] and m.get('t')=='hello':
+                    schedule(page.evaluate("""() => {
+                      if(!window.__hmNetTest.stallScheduled) {
+                        window.__hmNetTest.stallScheduled=true;
+                        setTimeout(window.__hmNetTest.stall,6500);
+                      }
+                    }"""))
             except (ValueError,TypeError,AttributeError):
                 pass
-            server.send(message)
+            if server: server.send(message)
         ws.on_message(client_message)
-        server.on_message(lambda message: ws.send(message))
+        if server:
+            def server_message(message):
+                try:
+                    if json.loads(message).get('t')=='welcome': routes['welcomes']+=1
+                except (ValueError,TypeError,AttributeError):
+                    pass
+                ws.send(message)
+            def server_closed(code, reason):
+                mark_closed()
+                schedule(ws.close(code=code,reason=reason))
+            server.on_message(server_message)
+            server.on_close(server_closed)
+        else:
+            blocked.append((ws,entry,mark_closed))
     await page.route_web_socket(url, route_socket)
     try:
         target = ORIGIN + '/?' + urlencode({'safe':'1','server':url,'shard':'late-reconnect'})
         await page.goto(target,wait_until='commit',timeout=120000)
         await page.wait_for_function('window.__hm && window.__hm.ready',timeout=180000,polling=500)
-        await page.wait_for_function('window.__hmNetTest.closed >= 1',timeout=45000,polling=250)
+        # Observe the application's failed attempt and the routed close itself.
+        # Playwright installs its own WebSocket constructor, so no constructor wrapper is used.
+        await page.wait_for_function('__hm.net.NETWS.lastFailure === "welcome timeout"',timeout=45000,polling=250)
+        await asyncio.wait_for(first_closed.wait(),5)
         before = await page.evaluate(SNAPSHOT)
+        check(before['socket']['lastFailure']=='welcome timeout' and routes['closed']>=1,
+              'the real initial handshake deadline fails and retires its transport')
         check(before['backend']=='local' and not before['ref'] and before['loaded']=='Local Aldwin',
               'failed initial handshake loads the existing local character')
-        check(before['stats']['welcomes']==0 and before['socket']['state']!='on',
+        check(routes['welcomes']==0 and before['socket']['state']!='on',
               'opening a transport without server welcome never claims authentication')
         check(before['stored']==local_text,'cold connection failure preserves the existing local save')
-        check(before['stats']['stalls']==1,'real browser handshake deadline survives a CPU startup stall')
+        check(before['stalls']==1,'real browser handshake deadline survives a CPU startup stall')
+        check(not route_task_errors,'socket route helper operations complete without errors')
         await expect(page.locator('#btn-continue')).to_be_visible()
         await page.locator('#btn-continue').evaluate('button=>button.click()')
         await page.wait_for_function('__hm.GAME.started && __hm.GAME.player?.name === "Local Aldwin"',timeout=30000)
@@ -146,22 +183,23 @@ async def recover_local_game(browser, url, host, seeded):
               'Continue starts the selected local character before multiplayer recovers')
         gate['allow']=True
         # Release an outstanding retry, if boot completed while its welcome was still pending.
-        for ws in blocked:
-            try:
+        for ws,entry,mark_closed in blocked:
+            if not entry['closed']:
                 await ws.close(code=1013,reason='initial connection unavailable')
-            except Exception:
-                pass
+                mark_closed()  # a route-initiated close need not call its client on_close observer
         await page.wait_for_function('__hm.net.state().state === "on" && __hm.net.state().kind === "ws"',timeout=60000,polling=250)
-        await page.wait_for_function('window.__hmNetTest.sent.some(m=>m.t==="slow"&&m.name==="Local Aldwin")',timeout=15000)
+        for _ in range(60):
+            if any(m['t']=='slow' and m['name']=='Local Aldwin' for m in wire): break
+            await asyncio.sleep(.25)
         recovered = await page.evaluate(SNAPSHOT)
         check(recovered['socket']['account']==seeded['id'],
               'late reconnect authenticates the original host-specific account')
-        check(recovered['network']['state']=='on' and recovered['stats']['welcomes']==1,
+        check(recovered['network']['state']=='on' and routes['welcomes']==1,
               'the real server welcome attaches the resumed game exactly once')
         check(recovered['name']=='Local Aldwin' and recovered['loaded']=='Local Aldwin' and
               recovered['backend']=='local' and not recovered['ref'],
               'late presence reconnect leaves the running character and save backend local')
-        check(recovered['stats']['live']==1 and recovered['stats']['maxLive']==1,
+        check(routes['live']==1 and routes['maxLive']==1,
               'cold failures and recovery keep one live socket')
         check(any(m['t']=='slow' and m['name']=='Local Aldwin' for m in wire),
               'the resumed local character publishes its profile to the actual server')
@@ -177,17 +215,30 @@ async def recover_local_game(browser, url, host, seeded):
               'reconnect preserves credentials belonging to another server')
         remote = await fixture(url,'load',seeded['token'])
         check(remote['id']==seeded['id'] and remote['save']==seeded['save'],
-              'the preexisting server character remains byte-for-byte unchanged')
+              'the preexisting server character remains structurally unchanged')
+        created_after_recovery=routes['created']
         await page.wait_for_timeout(2000)
         final = await page.evaluate(SNAPSHOT)
-        check(final['stats']['created']==saved['stats']['created'] and final['stats']['live']==1,
+        check(routes['created']==created_after_recovery and routes['live']==1,
               'a recovered connection does not keep retrying in the background')
-        check(not final['errors'] and not errors,
+        check(not final['errors'] and not errors and not route_task_errors,
               'cold timeout and successful late reconnect produce no runtime errors')
         check(len(navigations)==1,'multiplayer recovery requires no reload or navigation')
         await page.screenshot(path=str(hm.OUT/'net-cold-reconnect.png'),timeout=120000)
+    except Exception:
+        evidence={'routes':dict(routes),'wire':list(wire),'pageErrors':list(errors),'consoleErrors':list(console_errors),
+                  'navigations':list(navigations),'routeTaskErrors':list(route_task_errors)}
+        try: evidence['state']=await page.evaluate(SNAPSHOT)
+        except Exception as diagnostic_error: evidence['diagnosticError']=str(diagnostic_error)
+        (hm.OUT/'net-cold-reconnect-failure.json').write_text(json.dumps(evidence,indent=2),encoding='utf-8')
+        print('network failure diagnostics',json.dumps(evidence),flush=True)
+        try: await page.screenshot(path=str(hm.OUT/'net-cold-reconnect-failure.png'),timeout=30000)
+        except Exception: pass
+        raise
     finally:
         await ctx.close()
+        if route_tasks:
+            await asyncio.wait_for(asyncio.gather(*list(route_tasks),return_exceptions=True),5)
 
 async def main():
     import urllib.request
