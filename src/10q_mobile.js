@@ -131,12 +131,14 @@ function mobileTray(open = UI.modal !== 'mobile', focus = true, section = 'world
   if (open && UI.modal && UI.modal !== 'mobile') return;
   if (open) {
     mobileSync();
-    mobileSection(section);
     MOBILE_UI.focus = document.activeElement;
     mobileStopInput();
     UI.modal = 'mobile';
   } else if (UI.modal === 'mobile') UI.modal = null;
   $('mobile-tray').hidden = !open;
+  // Reset after the sheet is visible: hidden scrollers can retain their old
+  // offset when switching from a long Skills page to the shorter Explore page.
+  if (open) mobileSection(section);
   document.body.classList.toggle('mobile-tray-open', open);
   $('mobile-menu-toggle').setAttribute('aria-expanded', String(open));
   HUDL.k = 0;
@@ -155,7 +157,14 @@ function mobileBind() {
     get() { return modal; }, set(value) { if (modal !== value) { modal = value; mobileModalChanged(value); } } });
   mobileModalChanged(modal);
   mobilePreferences();
+  mobileBindNoZoom();
   mobileSection('world');
+  $('mobile-nav').addEventListener('click', (e) => {
+    const button = e.target.closest('button');
+    // iOS does not always focus a tapped button; keep the return destination
+    // explicit before the modal makes its invoker inert.
+    if (button) button.focus({ preventScroll: true });
+  }, true);
   $('mobile-menu-toggle').onclick = () => mobileTray();
   $('mobile-inventory').onclick = () => { if (!UI.modal) openKit('kit'); };
   $('mobile-skills').onclick = () => mobileTray(true, true, 'character');

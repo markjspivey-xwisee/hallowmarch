@@ -890,6 +890,12 @@ WXJS = r"""window.WXT = {
     return { follow: !!WX.follow, n: WX.cells.length, net: WX.cells.filter((q) => q.net).length, own: WX.cells.filter((q) => !q.net && !q.gone).length, held: this.W.wxHeld(),
       c: c ? { x: c.x, z: c.z, s: c.s, fin: c.fin, age: c.age, net: !!c.net } : null, made: WX.stats.made, nwx: this.H.netwx ? this.H.netwx.NWX.stats : null }; },
   at(x, z) { const o = this.W.weatherAt(x, z, {}); return { storm: o.storm, rain: o.rain, cover: o.cover }; },
+  publication() {
+    const N = this.H.netwx.NWX, s = N.snap, ids = (cells) => cells.map((c) => c.id).sort((a, b) => a - b);
+    return { live: ids(this.W.WX.cells), activeNet: ids(this.W.WX.cells.filter((c) => c.net && !c.gone)),
+      received: N.last, snapshot: s ? { ids: s.c.map((c) => c[0]).sort((a, b) => a - b),
+        word: s.k + ':' + s.c.length + ':' + (s.c[0] ? s.c[0][2] : '') } : null };
+  },
 };
 0"""
 
@@ -943,6 +949,24 @@ async def weather_part(p):
     check(wa['storm'] > 0.4 and abs(wa['storm'] - wb['storm']) < 0.1 and abs(wa['rain'] - wb['rain']) < 0.12, f"the weather under it the same on both: storm {wa['storm']:.2f} / {wb['storm']:.2f}, rain {wa['rain']:.2f} / {wb['rain']:.2f}")
     fl = await F_.evaluate('WXT.st()')
     for _ in range(40): await step(pages, 0.5)
+    # The simulation can advance 20 s before the profile's real-time send gate
+    # opens. Wait for the actual current publication, without advancing weather
+    # or changing the production clocks, rather than comparing different words.
+    publication_at = time.monotonic()
+    deadline = publication_at + 12
+    applied = False
+    while time.monotonic() < deadline:
+        for pg in pages: await pg.evaluate('__hm.net.pump(0); 0')
+        host_word = await H_.evaluate('WXT.publication()')
+        follower_word = await F_.evaluate('WXT.publication()')
+        snapshot = host_word['snapshot']
+        applied = bool(snapshot and snapshot['ids'] == host_word['live']
+                       and follower_word['received'] == snapshot['word']
+                       and follower_word['activeNet'] == host_word['live'])
+        if applied: break
+        await asyncio.sleep(0.05)
+    check(applied, f'the follower receives the current host publication within 12 real seconds '
+          f'({time.monotonic() - publication_at:.2f}s): host {json.dumps(host_word)}, follower {json.dumps(follower_word)}')
     fl2 = await F_.evaluate('WXT.st()')
     check(fl2['own'] == 0, f"the follower's own systems gone, faded out ({own0['own']} at first, {fl2['own']} now), {fl2['net']} of the host's")
     hs = await H_.evaluate('WXT.st()')

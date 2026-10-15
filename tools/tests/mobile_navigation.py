@@ -135,13 +135,15 @@ async def geometry(page, tag):
 
 
 async def double_tap(page):
-    """Two fast trusted taps must activate a control without browser zoom."""
+    """Two genuine taps retain two activations while the fallback cancels zoom."""
     before = await page.evaluate(r"""()=>{
       const target=document.getElementById('t-target');
-      const audit={clicks:[]};
+      const audit={clicks:[],ends:[]};
       const handler=e=>audit.clicks.push({trusted:e.isTrusted,pointerType:e.pointerType});
+      const end=e=>audit.ends.push({trusted:e.isTrusted,prevented:e.defaultPrevented,cancelable:e.cancelable});
       target.addEventListener('click',handler);
-      window.__mobileDoubleTapAudit={audit,handler,target};
+      window.addEventListener('touchend',end,{passive:true});
+      window.__mobileDoubleTapAudit={audit,handler,end,target};
       return {scale:visualViewport.scale,x:scrollX,y:scrollY,
         box:MN.box(target),meta:document.querySelector('meta[name="viewport"]').content,
         touch:{html:getComputedStyle(document.documentElement).touchAction,
@@ -166,10 +168,13 @@ async def double_tap(page):
         await page.touchscreen.tap(box['cx'], box['cy'])
         await page.wait_for_timeout(350)  # allow the browser's tap/zoom recognizer to settle
         after = await page.evaluate(r"""()=>({scale:visualViewport.scale,x:scrollX,y:scrollY,
-          clicks:window.__mobileDoubleTapAudit.audit.clicks,input:MN.input(),
+          clicks:window.__mobileDoubleTapAudit.audit.clicks,ends:window.__mobileDoubleTapAudit.audit.ends,input:MN.input(),
           inventory:MN.box(document.getElementById('mobile-inventory'))})""")
-        check(len(after['clicks']) == 2 and all(e['trusted'] for e in after['clicks']),
-              'two quick genuine taps both activate Target ' + json.dumps(after['clicks']))
+        check(len(after['clicks']) == 2 and after['clicks'][0]['trusted'] and not after['clicks'][1]['trusted'],
+              'two genuine taps produce one native and exactly one replacement Target activation ' + json.dumps(after['clicks']))
+        check(len(after['ends']) == 2 and all(e['trusted'] for e in after['ends']) and
+              not after['ends'][0]['prevented'] and after['ends'][1]['prevented'],
+              'the fallback cancels only the second genuine tap default ' + json.dumps(after['ends']))
         check(abs(after['scale'] - before['scale']) < 1e-6 and
               after['x'] == before['x'] and after['y'] == before['y'],
               'a real double tap preserves viewport scale and page scroll ' +
@@ -181,8 +186,74 @@ async def double_tap(page):
     finally:
         await page.evaluate(r"""()=>{
           const a=window.__mobileDoubleTapAudit;
-          if(a)a.target.removeEventListener('click',a.handler);
+          if(a){a.target.removeEventListener('click',a.handler);window.removeEventListener('touchend',a.end);}
           delete window.__mobileDoubleTapAudit;
+        }""")
+
+
+async def touch_fallback_exclusions(page):
+    """Actual drag, multiple fingers, long press, cancel and forms stay native."""
+    at = await page.evaluate(r"""()=>{
+      const probe=document.createElement('div');probe.id='mobile-doubletap-probe';
+      probe.style.cssText='position:fixed;left:12px;top:160px;z-index:100000;background:#15191f;padding:8px';
+      probe.innerHTML='<button id="mobile-doubletap-button" type="button" style="width:164px;height:48px">Gesture test</button><form><button id="mobile-doubletap-native" type="button" style="width:164px;height:48px">Native form</button></form>';
+      document.body.appendChild(probe);
+      const audit={ends:[],clicks:[]};
+      const end=e=>{if(probe.contains(e.target))audit.ends.push({id:e.target.id,prevented:e.defaultPrevented,trusted:e.isTrusted});};
+      const click=e=>audit.clicks.push({id:e.target.id,trusted:e.isTrusted});
+      window.addEventListener('touchend',end,{passive:true});probe.addEventListener('click',click);
+      window.__mobileGestureAudit={probe,audit,end,click};
+      const b=MN.box(document.getElementById('mobile-doubletap-button')),f=MN.box(document.getElementById('mobile-doubletap-native'));
+      return {button:{x:b.cx,y:b.cy,id:1},form:{x:f.cx,y:f.cy,id:1}};
+    }""")
+    if not hasattr(page, '_mobile_navigation_cdp'):
+        page._mobile_navigation_cdp = await page.context.new_cdp_session(page)
+    cdp = page._mobile_navigation_cdp
+    point = at['button']
+
+    async def audit_case(name):
+        result = await page.evaluate('window.__mobileGestureAudit.audit')
+        check(bool(result['ends']) and all(e['trusted'] and not e['prevented'] for e in result['ends']) and
+              all(e['trusted'] for e in result['clicks']),
+              name + ': touch defaults remain native and no replacement click leaks ' + json.dumps(result))
+        await page.evaluate('window.__mobileGestureAudit.audit.ends.length=0;window.__mobileGestureAudit.audit.clicks.length=0;0')
+
+    try:
+        await page.touchscreen.tap(point['x'], point['y'])
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [point]})
+        moved = {**point, 'x': point['x'] + 22}
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [moved]})
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        await page.touchscreen.tap(point['x'], point['y'])
+        await audit_case('A drag exceeding 10px resets the double-tap pair')
+
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart',
+                       'touchPoints': [point, {**point, 'x': point['x'] + 20, 'id': 2}]})
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        await page.touchscreen.tap(point['x'], point['y'])
+        await audit_case('A two-finger gesture resets the double-tap pair')
+
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [point]})
+        await page.wait_for_timeout(325)  # exceeds the fallback's short-tap duration
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        await page.touchscreen.tap(point['x'], point['y'])
+        await audit_case('A long press resets the double-tap pair')
+
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [point]})
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchCancel', 'touchPoints': []})
+        await page.touchscreen.tap(point['x'], point['y'])
+        await audit_case('A canceled touch resets the double-tap pair')
+
+        native = at['form']
+        await page.touchscreen.tap(native['x'], native['y'])
+        await page.wait_for_timeout(60)
+        await page.touchscreen.tap(native['x'], native['y'])
+        await audit_case('Two quick taps inside a native form are excluded')
+    finally:
+        await page.evaluate(r"""()=>{
+          const a=window.__mobileGestureAudit;
+          if(a){window.removeEventListener('touchend',a.end);a.probe.removeEventListener('click',a.click);a.probe.remove();}
+          delete window.__mobileGestureAudit;
         }""")
 
 
@@ -304,6 +375,7 @@ async def main():
                 await geometry(page, tag)
                 if (w, h) == SIZES[0]:
                     await double_tap(page)
+                    await touch_fallback_exclusions(page)
                 await direct_destination(page, '#mobile-inventory', '#kit', 'kit', '#kit-close',
                                          tag + ' Inventory', '#kit .kithead')
                 await direct_destination(page, '#mobile-skills', '#mobile-tray', 'mobile', '#mobile-tray-close',
