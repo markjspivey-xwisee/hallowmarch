@@ -355,7 +355,7 @@ function lifeRun(e, dt) {
     case 'farm': return farmLifeStep(e, st, plan, dt, next); // [farming] tilling, sowing, weeding, harvesting a strip (08h_farming.js)
     case 'beat': return houseBeatStep(e, st, plan, dt, next); // [war2] beating out a house's fire (08j_war2.js)
     case 'scaf': return look5ScafStep(e, st, plan, dt, next); // [look5] up a house's scaffold to work from its boards (13z_look5.js)
-    case 'lchop': case 'lquarry': return loopsLifeStep(e, st, plan, dt, next); // [loops] felling a tree, breaking stone (08m_loops.js)
+    case 'lchop': case 'lquarry': case 'lunload': return loopsLifeStep(e, st, plan, dt, next); // [loops] felling a tree, breaking stone (08m_loops.js)
     default: next(); return true;
   }
 }

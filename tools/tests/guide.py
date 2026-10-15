@@ -181,10 +181,9 @@ async def phone(p):
     check(r['fightNote'], 'a note about the fight (on fire) shows in it')
     check(r['after'], f'the held note shows once the fight is over ({r["banners"]})')
     await ev(page, "GD.lay(); 0")
-    n0 = await ev(page, "document.querySelectorAll('#banners .lore-note').length")
-    check(await tap(page, '#banners .lore-note:not(.hl-old):last-child'), 'a note is tapped')
-    n1 = await ev(page, "document.querySelectorAll('#banners .lore-note').length")
-    check(n1 < n0, f'a tap dismisses it ({n0} then {n1})')
+    check(await ev(page, "document.querySelectorAll('#banners .lore-note').length") == 0, 'mobile collects field notes without a popup')
+    check(await tap(page, '#mobile-notes'), 'Notes opens on request')
+    check(await ev(page, "__hm.UI.modal === 'menu' && document.querySelector('#menu-body').textContent.includes('Food and water')"), 'collected notes can be read in the Chronicle')
     # every new note's watch, through the world's own state
     await ev(page, "(() => { if (!document.getElementById('menu').hidden) document.getElementById('btn-resume').click(); __hm.UI.modal = null; return 0; })()")  # a tap on a note shrunk to its title opens the Chronicle
     r = await ev(page, """(() => { const H = __hm, G = H.guide, P = GD.P(), seen = () => H.LORE.progress().seen, out = {};

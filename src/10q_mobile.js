@@ -171,6 +171,7 @@ function mobileBind() {
   $('mobile-menu-toggle').onclick = () => mobileTray();
   $('mobile-inventory').onclick = () => { if (!UI.modal) openKit('kit'); };
   $('mobile-skills').onclick = () => mobileTray(true, true, 'character');
+  $('mobile-notes').onclick = () => { if (!UI.modal) openChronicle('notes'); };
   $('mobile-map').onclick = () => { if (!UI.modal) toggleMap(); };
   $('mobile-tray-close').onclick = () => mobileTray(false);
   $('mobile-character').onclick = () => { mobileTray(false, false); openMenu('char'); };

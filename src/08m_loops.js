@@ -824,6 +824,7 @@ function loopsSpawnWorkers() {
 function loopsLife(e, dt) {
   const J = e.ai.lj;
   if (!J || !LOOPS.on) return false;
+  if (J.haul) { lifePlan(e, loopsHaulSteps(e)); return lifeRun(e, dt); }
   if (GAME.t < J.next) return false;
   const T = REALMS[J.realm].town;
   if (J.job === 'wood') {
@@ -873,13 +874,19 @@ function loopsRockFor(T, e) {
 // the steps of a worker's plan (lifeRun, 08f_townlife.js)
 function loopsLifeStep(e, st, plan, dt, next) {
   const J = e.ai.lj;
+  if (st.k === 'lunload') {
+    // Keep the load through the set-down animation, then leave empty.
+    if (plan.t < 0.1 + dt) setAct(e, 5, 1.2);
+    if (plan.t >= 1.2) { J.haul = null; J.next = GAME.t + 12 + Math.random() * 15; next(); }
+    return true;
+  }
   if (st.k === 'lchop') {
     const t = st.tree;
     const done = () => { if (t) t.lClaim = null; loopsTool(e, false); next(); return true; };
     if (!t) return done();
     // the tree down and lying still: to the log, cut it up and carry it off (the stump grows again in its time)
     if (st.ph === 'split') {
-      if (!t.log) { loopsBring(J.realm, 'timber'); LOOPS.stats.felled++; return done(); }
+      if (!t.log) { loopsBring(J.realm, 'timber'); LOOPS.stats.felled++; loopsStartHaul(e, plan); return done(); }
       if (!st.at2) {
         const len = TREE_DIM[t.kind].trunk * natS(t), along = Math.min(len * 0.5, 2.4), side = (e.id % 2 ? 1 : -1) * (TREE_DIM[t.kind].r * natS(t) + 0.8);
         st.lx = t.x + t.fall.ux * along + t.fall.uz * side; st.lz = t.z + t.fall.uz * along - t.fall.ux * side;
@@ -945,6 +952,7 @@ function loopsLifeStep(e, st, plan, dt, next) {
       loopsBring(J.realm, 'stone');
       if (Math.random() < 0.35) loopsBring(J.realm, 'iron');
       LOOPS.stats.quarried++;
+      loopsStartHaul(e, plan);
       const R = CRAFT.rocks.get(st.rock) || { n: 3, until: 0 };
       R.n--; if (R.n <= 0) R.until = GAME.t + 900;
       CRAFT.rocks.set(st.rock, R);
@@ -954,6 +962,20 @@ function loopsLifeStep(e, st, plan, dt, next) {
     return true;
   }
   return false;
+}
+// A successful work cycle returns with a visible load. Store accounting remains
+// in loopsBring; these steps describe the worker's trip, not a second delivery.
+function loopsHaulSteps(e) {
+  const R = REALMS[e.ai.lj.realm], Y = R.lyard;
+  // Stand in front of the stacks' collision box, on the yard's open apron.
+  const a = Y ? Y.yaw : 0, x = Y ? Y.x + Math.sin(a) * 4.2 : R.town.x,
+    z = Y ? Y.z + Math.cos(a) * 4.2 : R.town.z;
+  const path = localPath(e.x, e.z, x, z, 0.5, 190);
+  return [houseGo(x, z, { T: 180, loose: true, path }), lifeStep('lunload')];
+}
+function loopsStartHaul(e, plan) {
+  e.ai.lj.haul = e.ai.lj.job;
+  plan.steps.splice(plan.i + 1, 0, ...loopsHaulSteps(e));
 }
 // the axe (or the pick: the axe's bit) in hand while at work, and put away after
 function loopsTool(e, on) {

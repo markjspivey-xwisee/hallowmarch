@@ -295,7 +295,7 @@ window.__hm.lod = { LOD, updateLod, terrainLodGeo, TERRAIN_LOD_D, TREE_LOD_D, ph
   const pick = phoneQualityPick();
   if (pick && pick !== quality.level) { quality.level = pick; Object.assign(quality, QUALITY_PRESETS[pick]); }
 }
-window.__hm.hud = { HUDL, hudLayout, npSeen, uiToast: (t) => uiToast(t), note: (id) => { loreNote(id); showNextNote(); return 0; } }; // [phones] 10p_hud.js
+window.__hm.hud = { HUDL, hudLayout, npSeen, uiToast: (t) => uiToast(t), note: (id) => { loreNote(id); showNextNote(true); return 0; } }; // [phones] 10p_hud.js
 // craters reshape the land: the far blocks over them are rebuilt when next drawn
 {
   const ntu = natTerrainUpdate;

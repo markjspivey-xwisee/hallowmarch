@@ -272,7 +272,9 @@ async def main():
             print('  sent', json.dumps(r), flush=True)
             check(r['ok'] and r['route'] >= 5 and r['ents'] == ['carthorse', 'carter', 'escort', 'escort'], f"a cart sent with its horse, carter and escort along {r['route']} road points")
             t = 0; st = None
-            while t < 240:
+            loaded, unloaded = set(), set()
+            await ev(page, "window.__haulSeen = new Set(); window.__haulDone = new Set(); 0")
+            while t < 360:
                 st = await ev(page, r"""(() => { __hm.simulate(5); const c = __lc, h = __hm.fn.getEnt(c.horse), K = __hm.WAR.keeps[0]; return { state: c.state, back: c.back, i: c.i, n: c.route.length, d: h ? Math.round(Math.hypot(h.x - K.nav.gate.x, h.z - K.nav.gate.z)) : -1, cart: c.ax != null ? Math.round(Math.hypot(c.ax - h.x, c.az - h.z) * 10) / 10 : null, food: Math.round(__hm.loops.keep(0).food) }; })()""")
                 t += 5
                 if st['back'] or st['state'] != 'road': break
@@ -392,13 +394,18 @@ async def main():
             felled0 = await ev(page, "__hm.loops.LOOPS.stats.felled")
             q0 = await ev(page, "__hm.loops.LOOPS.stats.quarried")
             t = 0
-            while t < 240:
-                s = await ev(page, "(() => { __hm.simulate(6); const S = __hm.loops.LOOPS.stats; return { felled: S.felled, quarried: S.quarried }; })()")
-                t += 6
-                if s['felled'] > felled0 and s['quarried'] > q0: break
+            loaded, unloaded = set(), set()
+            await ev(page, "window.__haulSeen = new Set(); window.__haulDone = new Set(); 0")
+            while t < 360:
+                s = await ev(page, """(() => { __hm.simulate(2); const L=__hm.loops.LOOPS,S=L.stats; for(const id of L.workers) { const e=__hm.fn.getEnt(id); if(!e||e.ai.lj.realm!==0)continue; const J=e.ai.lj; if(J.haul) __haulSeen.add(e.id); else if(__haulSeen.has(e.id)) __haulDone.add(e.id); } return { felled:S.felled,quarried:S.quarried,loaded:[...__haulSeen].map(id=>__hm.fn.getEnt(id).ai.lj.job),unloaded:[...__haulDone].map(id=>__hm.fn.getEnt(id).ai.lj.job),workers:L.workers.map(id=>__hm.fn.getEnt(id)).filter(e=>e&&e.ai.lj.realm===0).map(e=>({id:e.id,job:e.ai.lj.job,haul:e.ai.lj.haul,x:e.x,z:e.z,plan:e.ai.plan&&{i:e.ai.plan.i,t:e.ai.plan.t,k:e.ai.plan.steps[e.ai.plan.i]?.k,x:e.ai.plan.steps[e.ai.plan.i]?.x,z:e.ai.plan.steps[e.ai.plan.i]?.z}})) }; })()""")
+                t += 2
+                loaded, unloaded = set(s['loaded']), set(s['unloaded'])
+                if loaded == {'wood', 'stone'} and unloaded == loaded: break
             print(f"   after {t} s: {s}", flush=True)
             check(s['felled'] > felled0, f"a woodcutter of Brackenford felled a tree in {t} s")
             check(s['quarried'] > q0, f"the quarryman broke stone from a rock in {t} s")
+            check(loaded == {'wood', 'stone'}, f'both trades carry loads after gathering ({loaded})')
+            check(unloaded == {'wood', 'stone'}, f'both trades return and unload at the storeyard ({unloaded})')
 
         if want('draw'):
             print('DRAW (ten minutes of war)', flush=True)

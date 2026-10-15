@@ -7,7 +7,7 @@ const HB = { pelvis: 0, chest: 1, head: 2, uarmL: 3, farmL: 4, uarmR: 5, farmR: 
 const AM = {
   skin: 0, tabard: 1, mail: 2, leather: 3, boots: 4, wood: 5, steel: 6, hair: 7, cape: 8, glow: 9, cloth: 10,
   fur: 11, furDark: 12, ivory: 13, eye: 14, gold: 15, robe: 16, plate: 17, string: 18, shieldFace: 19,
-  torso: 20, arms: 21, legs: 22, hands: 23, fletch: 24, nose: 25, mane: 26, hoof: 27, mouth: 28, armor: 2,
+  torso: 20, arms: 21, legs: 22, hands: 23, fletch: 24, nose: 25, mane: 26, hoof: 27, mouth: 28, stone: 29, armor: 2,
 };
 // optional parts: one visibility bit each (iMisc.y holds the mask)
 const WB = {
@@ -16,6 +16,7 @@ const WB = {
   beard: 1 << 15, shieldRound: 1 << 16, skirt: 1 << 17, belt: 1 << 18, circlet: 1 << 19,
   torch: 1 << 20, // a burning brand held in the left hand (09d_brand.js)
   beater: 1 << 21, // [look4] a fire beater (a leather flap on an ash pole) in the right hand while beating out flames (action 21)
+  timberLoad: 1 << 23, stoneLoad: 1 << 24, // workers returning to the town storeyard
   hammer: 1 << 22, // [motion5] a mallet in the right hand while hammering at a wall (action 23: builders and masons)
 };
 const WBIT = {};
@@ -533,6 +534,22 @@ function buildHumanoid(lod) {
     }
   }
 
+  /* Workers' strapped loads follow the torso, including every crowd LOD. */
+  {
+    const cargo = (geo, pos, rot, material, bit) => kitGeo(K, geo, M4(pos, rot), { bone: B.chest, w: 1, mat: material, bit });
+    for (const [x, y, z] of [[0, 1.21, -0.26], [0, 1.4, -0.26], [0, 1.3, -0.42]]) {
+      cargo(new THREE.CylinderGeometry(0.09, 0.11, 1.1, hi ? 9 : 5), [x, y, z], [0, 0, Math.PI / 2], mat.wood, WBIT.timberLoad);
+    }
+    for (const x of [-0.3, 0.3]) cargo(new THREE.BoxGeometry(0.035, 0.42, 0.37), [x, 1.3, -0.31], [0, 0, 0], mat.leather, WBIT.timberLoad);
+    cargo(new THREE.BoxGeometry(0.48, 0.48, 0.32), [0, 1.15, -0.29], [0, 0, 0], mat.wood, WBIT.stoneLoad);
+    for (const [x, y, z] of [[-0.13, 1.44, -0.29], [0.11, 1.47, -0.3], [0, 1.4, -0.43]]) {
+      cargo(new THREE.DodecahedronGeometry(0.14, 0), [x, y, z], [0.2, x * 4, 0.1], mat.stone, WBIT.stoneLoad);
+    }
+    for (const bit of [WBIT.timberLoad, WBIT.stoneLoad]) for (const x of [-0.12, 0.12]) {
+      cargo(new THREE.BoxGeometry(0.035, 0.52, 0.035), [x, 1.3, 0.12], [0, 0, x], mat.leather, bit);
+    }
+  }
+
   /* --- weapons and shields, authored in grip space then placed in the fist --- */
   const gripR = [-SK.fist[0], SK.fist[1], SK.fist[2]], gripL = [SK.fist[0], SK.fist[1], SK.fist[2]];
   const inHand = (grip, tilt, m) => new THREE.Matrix4().compose(new THREE.Vector3(...grip), new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, 0, 0)), new THREE.Vector3(1, 1, 1)).multiply(m);
@@ -795,7 +812,7 @@ function humanVS(depth) {
     int bone = int(aBone + 0.5);
     int m = int(aMat + 0.5);
     float fem = mod(iStyle.z, 2.0), bulk = iStyle.w; // [polish] (above the bit: the motion's direction and bend, below)
-    bool gear = m == 5 || m == 6 || m == 9 || m == 15 || m == 18 || m == 19 || m == 24 || m == 14;
+    bool gear = m == 5 || m == 6 || m == 9 || m == 15 || m == 18 || m == 19 || m == 24 || m == 14 || m == 29;
     bool torso = bone <= 1 || bone == 11;
     bool arm = bone >= 3 && bone <= 6;
     // body shape: female proportions, burly trolls, the lean dead
@@ -1661,6 +1678,8 @@ const humanoidMat = mat({
         alb = vec3(0.42, 0.28, 0.16) * (0.78 + 0.25 * sin(vUV.y * 120.0 + vnoise(vUV * 25.0) * 5.0)); rough = 0.65;
       } else if (m == 6) {
         alb = vec3(0.78, 0.8, 0.84) * (0.92 + 0.08 * vnoise(vec2(vUV.x * 3.0, vUV.y * 300.0))); rough = 0.22; metal = 1.0;
+      } else if (m == 29) {
+        alb = vec3(0.52, 0.5, 0.46) * (0.82 + 0.24 * vnoise(vO.xy * 38.0 + vO.z * 19.0)); rough = 0.96;
       } else if (m == 7) {
         float strands = fineMix(vnoise(vec2(vUV.x * 170.0, vUV.y * 7.0)), 0.5, vec2(vUV.x * 170.0, vUV.y * 7.0));
         alb = hair * (0.68 + 0.45 * strands); rough = 0.42; sss = 0.2;

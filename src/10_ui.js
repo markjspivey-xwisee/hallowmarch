@@ -790,6 +790,7 @@ function renderMenu(tab) {
 }
 $('menu-tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) renderMenu(b.dataset.tab); });
 $('btn-resume').onclick = () => closeMenu();
+$('menu-close').onclick = () => closeMenu();
 $('btn-newchar').onclick = () => {
   if (!UI.confirmNew) { UI.confirmNew = true; $('btn-newchar').textContent = 'Press again to start over'; return; }
   closeMenu();

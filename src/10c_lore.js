@@ -1162,7 +1162,7 @@ function loreNote(id) {
   if (!LORE.queue.includes(id)) LORE.queue.push(id);
   return true;
 }
-function showNextNote() {
+function showNextNote(announce = !IS_TOUCH) {
   const prog = GAME.prog, P = GAME.player;
   const qi = guideNoteIndex(); // [guide] first steps first, not over a fight, only where it means something
   if (qi < 0) return;
@@ -1171,6 +1171,9 @@ function showNextNote() {
   const N = FIELD_NOTES[id];
   if (!N || prog.lore.seen.includes(id)) return;
   prog.lore.seen.push(id);
+  // Touch players collect the same notes without interrupting the world.
+  // The Notes destination reads the complete, saved text on demand.
+  if (!announce) { saveSoon(); return; }
   const R = REALMS[P.faction], text = N.x(R);
   const host = $('banners');
   const d = document.createElement('div');
