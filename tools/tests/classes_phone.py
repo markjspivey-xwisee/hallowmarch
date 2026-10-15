@@ -41,10 +41,11 @@ async def main():
             if ov['shown'] or not ov['inTray']: fails.append(f'{cls}: class details do not wait in More during play')
             # Open the actual sheet and measure the same class panel there, including its real hit target.
             await page.tap('#mobile-menu-toggle', timeout=60000)
+            await page.tap('#mobile-tray-tabs [data-mobile-tab="character"]', timeout=60000)
             await page.locator('#cls').scroll_into_view_if_needed(timeout=60000)
             detail = await page.evaluate("""(() => { const el = document.getElementById('cls'), r = el.getBoundingClientRect(), sheet = document.querySelector('#mobile-tray .sheet').getBoundingClientRect();
               const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-              return { open: __hm.UI.modal === 'mobile', fits: r.width > 120 && r.left >= sheet.left && r.right <= sheet.right && r.top >= sheet.top && r.bottom <= sheet.bottom,
+              return { open: __hm.UI.modal === 'mobile', category: document.getElementById('mobile-tray').dataset.section === 'character' && document.querySelector('[data-mobile-tab="character"]').getAttribute('aria-selected') === 'true', fits: r.width > 120 && r.left >= sheet.left && r.right <= sheet.right && r.top >= sheet.top && r.bottom <= sheet.bottom,
                 top: !!hit && (hit === el || el.contains(hit)) }; })()""")
             print('  class details', json.dumps(detail))
             if not all(detail.values()): fails.append(f'{cls}: class details are not visible and reachable in More ({detail})')

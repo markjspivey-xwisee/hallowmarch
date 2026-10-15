@@ -1,6 +1,6 @@
 """Mobile game control ergonomics, real touch flows, and persistent accessibility options.
 
-Run after build.py: python tools/tests/mobile_ergonomics.py [quick] [noshots]
+Run after build.py: python tools/tests/mobile_ergonomics.py [quick|flowsonly] [noshots] [classes=mage] [sizes=360x640]
 Screenshots without a notch suffix use the actual zero-inset browser viewport.
 The existing mobile_hud.py suite separately checks all callings, levels, and legacy flows.
 """
@@ -16,6 +16,7 @@ from hmlib import setup, OUT
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
+OPT = dict(a.split('=', 1) for a in ARGS if '=' in a)
 QUICK = 'quick' in ARGS
 SHOTS = 'noshots' not in ARGS
 FAILS = []
@@ -41,6 +42,8 @@ window.ME = {
       return {id:e.id||(e.dataset.slot!==undefined?'skill-'+e.dataset.slot:e.className),slot:e.dataset.slot!==undefined?+e.dataset.slot:null,x:r.x,y:r.y,w:r.width,h:r.height,
         hit:!!h&&(h===e||e.contains(h)),label:e.getAttribute('aria-label')||e.textContent.trim(),
         text:label.textContent.trim(),font:parseFloat(s.fontSize),
+        fontFamily:s.fontFamily,lineHeight:s.lineHeight,clientW:label.clientWidth,clientH:label.clientHeight,
+        scrollW:label.scrollWidth,scrollH:label.scrollHeight,
         clipped:label.scrollWidth>label.clientWidth+1||label.scrollHeight>label.clientHeight+1};
     });
     const gaps=[];
@@ -89,6 +92,14 @@ async def shot(page, name):
         await page.screenshot(path=OUT + name + '.png', timeout=300000)
 
 
+async def touch_cdp(page):
+    # Retain one input session until browser close. Detaching an emulation session
+    # can clear Chromium's touch capability override before a navigation.
+    if not hasattr(page,'_mobile_ergonomics_cdp'):
+        page._mobile_ergonomics_cdp=await page.context.new_cdp_session(page)
+    return page._mobile_ergonomics_cdp
+
+
 async def touch_move_and_hold(page, left):
     """Dispatches two genuine touch points in the selected movement/action hands."""
     at = await page.evaluate(r"""left=>{
@@ -96,7 +107,7 @@ async def touch_move_and_hold(page, left):
       return {hold:{x:r.x+r.width/2,y:r.y+r.height/2,id:2},
         move:{x:innerWidth*(left?.85:.15),y:innerHeight*.78,id:1}};
     }""", left)
-    cdp = await page.context.new_cdp_session(page)
+    cdp = await touch_cdp(page)
     move, hold = at['move'], at['hold']
     try:
         await cdp.send('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[move]})
@@ -108,7 +119,6 @@ async def touch_move_and_hold(page, left):
               f'{"left" if left else "right"} action hand: movement and Block work with two fingers {st}')
     finally:
         await cdp.send('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
-        await cdp.detach()
     st = await page.evaluate('({joy:!!__hm.INPUT.joy,held:__hm.cls.CLS.hold,block:__hm.cls.state().block})')
     check(not st['joy'] and not st['held'] and not st['block'],f'both fingers release without stuck input {st}')
 
@@ -125,7 +135,7 @@ async def touch_camera(page, left):
     if not at:
         return
     before=await page.evaluate('({yaw:__hm.CAM.yaw,pitch:__hm.CAM.pitch})')
-    cdp=await page.context.new_cdp_session(page)
+    cdp=await touch_cdp(page)
     try:
         await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[at]})
         await cdp.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{**at,'x':at['x']+18,'y':at['y']+12}]})
@@ -135,7 +145,6 @@ async def touch_camera(page, left):
               f'{"left" if left else "right"} action hand camera gesture rotates view without starting movement {after}')
     finally:
         await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
-        await cdp.detach()
 
 
 async def menu_flows(page):
@@ -171,6 +180,8 @@ async def menu_flows(page):
         if tab_y is None:
             tab_y = state['tabY']
         check(abs(state['tabY']-tab_y)<=1,f'{section} tab navigation stays in the same screen position {state["tabY"]}')
+        if section=='options':
+            await shot(page,'mobile_ergonomics_menu_options_393x660')
     # Native select controls use Playwright's standard selection action; no game/debug setter is used.
     preferences={'mobile-pref-hand':'left','mobile-pref-size':'large','mobile-pref-text':'large','mobile-pref-names':'relevant'}
     option_geometry=await page.evaluate(r"""()=>[...document.querySelectorAll('#mobile-tray select')].filter(e=>MH.shown(e)).map(e=>{
@@ -211,6 +222,9 @@ async def menu_flows(page):
       hand:document.body.classList.contains('mobile-left-handed'),
       size:document.body.classList.contains('mobile-large-ui'),
       text:document.body.classList.contains('mobile-large-text'),
+      body:document.body.className,prefs:__hm.mobile.prefs,bound:__hm.mobile.state.bound,
+      hud:__hm.UI.hudBound,player:!!__hm.GAME.player,control:document.getElementById('mobile-pref-hand')?.value,
+      coarse:matchMedia('(pointer: coarse)').matches,maxTouchPoints:navigator.maxTouchPoints,ontouchstart:'ontouchstart' in window,
       stored:JSON.parse(localStorage.getItem('hm_mobile_controls_v1'))})""")
     check(restored['hand'] and restored['size'] and restored['text'] and restored['stored']==state['stored'],
           'handedness, control size, text size and name settings survive a real reload '+json.dumps(restored))
@@ -227,23 +241,31 @@ async def main():
         try:
             sizes=[(360,640),(393,660),(390,780),(844,390)]
             scenes=[('warrior',1),('warrior',50),('archer',50),('mage',50),('priest',50)]
-            modes=[('right','standard'),('left','standard'),('right','large'),('left','large')]
+            modes=[(hand,size,text) for hand in ('right','left') for size in ('standard','large') for text in ('standard','large')]
             if QUICK:
                 sizes=[(360,640),(844,390)]
-                scenes=[('warrior',50),('priest',50)]
-                modes=[('right','standard'),('left','large')]
+                scenes=[('mage',50),('priest',50)]
+                modes=[('right','standard','standard'),('left','large','standard'),('right','standard','large'),('left','large','large')]
+            if 'sizes' in OPT:
+                sizes=[tuple(map(int,s.split('x'))) for s in OPT['sizes'].split(',')]
+            if 'classes' in OPT:
+                scenes=[s for s in scenes if s[0] in OPT['classes'].split(',')]
+            if 'flowsonly' in ARGS:
+                sizes=[]
+                await page.evaluate("MH.scene('warrior',50);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
+                await hud.frame(page)
             for w,h in sizes:
                 await page.set_viewport_size({'width':w,'height':h})
                 # No invented notch padding in the actual-viewport proof screenshots.
                 await page.evaluate("const s=document.documentElement.style; for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px'); dispatchEvent(new Event('resize'));0")
                 for cls,level in scenes:
                     await page.evaluate('([c,l])=>MH.scene(c,l)',[cls,level])
-                    for hand,size in modes:
-                        await page.evaluate('p=>ME.prefs(p)',{'hand':hand,'size':size,'text':'large' if size=='large' else 'standard','names':'relevant'})
+                    for hand,size,text in modes:
+                        await page.evaluate('p=>ME.prefs(p)',{'hand':hand,'size':size,'text':text,'names':'relevant'})
                         await hud.frame(page)
                         await page.evaluate("document.getElementById('zonetoast').classList.remove('on');0")
                         m=await page.evaluate('ME.geometry()')
-                        tag=f'{w}x{h} {cls} lv{level} {hand} {size}'
+                        tag=f'{w}x{h} {cls} lv{level} {hand} {size} text-{text}'
                         RESULTS.append({'tag':tag,**m})
                         check(not m['measure']['off'],tag+': safe viewport bounds '+json.dumps(m['measure']['off']))
                         check(not m['measure']['overlaps'],tag+': no unrelated HUD collisions '+json.dumps(m['measure']['overlaps']))
@@ -258,10 +280,12 @@ async def main():
                         learned=8 if level==50 else 1
                         check(len(m['secondary'])==learned-1,tag+': every learned secondary ability remains directly available')
                         labels=[r for r in m['controls'] if r['slot'] is not None]
-                        check(all(r['font']>=12 and r['text'] and not r['clipped'] for r in labels),tag+': learned ability labels are readable and complete '+json.dumps(labels))
+                        bad_labels=[r for r in labels if r['font']<12 or not r['text'] or r['clipped']]
+                        check(not bad_labels,tag+': learned ability labels are readable and complete '+json.dumps(bad_labels))
                         check(m['measure']['centerClear']>=.85,tag+': at least 85% of central play area stays clear')
                         if cls=='warrior' and (level==1 or size=='large' and hand=='left'):
-                            await shot(page,f'mobile_ergonomics_{w}x{h}_{cls}_lv{level}_{hand}_{size}')
+                            suffix='_textlarge' if text=='large' else ''
+                            await shot(page,f'mobile_ergonomics_{w}x{h}_{cls}_lv{level}_{hand}_{size}'+suffix)
             # Notch/inset simulation is explicit and separate from proof of the real browser viewport.
             await page.set_viewport_size({'width':844,'height':390})
             await page.evaluate("const s=document.documentElement.style;s.setProperty('--safe-l','44px');s.setProperty('--safe-r','44px');s.setProperty('--safe-t','0px');s.setProperty('--safe-b','20px');dispatchEvent(new Event('resize'));0")

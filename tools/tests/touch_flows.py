@@ -682,6 +682,7 @@ async def main():
             await tap(page, '#netsheet-close')
             for _ in range(6): await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
             await tap(page, '#mobile-menu-toggle')
+            await tap(page, '#mobile-tray-tabs [data-mobile-tab="social"]')
             await page.evaluate("TF.see", '#netparty .net-pm')
             # Measure while the sheet is open. Targeting a party member closes More, after which its hidden
             # zero-sized rectangle would say nothing about whether the player could see and tap the frames.

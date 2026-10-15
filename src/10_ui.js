@@ -587,7 +587,8 @@ function updateNameplates() {
         el._mobileW = rect.width; el._mobileH = rect.height;
       }
       const r = { l: s.x - el._mobileW / 2, r: s.x + el._mobileW / 2, t: s.y - el._mobileH, b: s.y };
-      if (!sel && mobileRects.some((a) => r.l < a.r + 6 && r.r > a.l - 6 && r.t < a.b + 4 && r.b > a.t - 4)) {
+      if (!sel && (r.l < 8 || r.r > view.w - 8 || r.t < 8 || r.b > view.h - 8 ||
+          mobileRects.some((a) => r.l < a.r + 6 && r.r > a.l - 6 && r.t < a.b + 4 && r.b > a.t - 4))) {
         el.style.display = 'none'; continue;
       }
       mobileRects.push(r);

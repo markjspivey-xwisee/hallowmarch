@@ -715,6 +715,11 @@ async def companies_part(p):
         check(badge[0] and badge[1], f'the Players button shows and glows for it ({badge})')
         await B.tap('#mobile-menu-toggle', timeout=60000)
         check(await B.evaluate("__hm.UI.modal === 'mobile' && !document.getElementById('mobile-tray').hidden"), 'More opens the phone tools before Players is tapped')
+        await B.tap('#mobile-tray-tabs [data-mobile-tab="social"]', timeout=60000)
+        check(await B.evaluate("""__hm.UI.modal === 'mobile' && !document.getElementById('mobile-tray').hidden &&
+          document.getElementById('mobile-tray').dataset.section === 'social' &&
+          document.querySelector('[data-mobile-tab="social"]').getAttribute('aria-selected') === 'true'"""),
+          'the Social tab opens by touch and keeps More visible before Players is tapped')
         await B.locator('#btn-net').scroll_into_view_if_needed(timeout=60000)
         await B.tap('#btn-net', timeout=60000)
         await until([B], B, "(__hm.frame(1/30), !!document.querySelector('#netsheet-co button[data-co=\"answer\"]'))", 10)

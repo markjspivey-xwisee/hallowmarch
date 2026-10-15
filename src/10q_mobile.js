@@ -204,7 +204,7 @@ function mobileBuild() {
     const label = document.createElement('span'); label.className = 'mobile-label';
     const short = { 'Bulwark': 'Bul\u200bwark', 'Deadeye': 'Dead\u200beye',
       'Rallying Cry': 'Rally', 'Whirlwind': 'Whirl', 'Crippling Arrow': 'Slow arrow', 'Piercing Shot': 'Pierce',
-      'Chain Lightning': 'Chain bolt', 'Blizzard': 'Ice storm', 'Sanctuary': 'Refuge',
+      'Arcane Ward': 'Ward', 'Chain Lightning': 'Chain bolt', 'Blizzard': 'Ice storm', 'Sanctuary': 'Refuge',
       'Mass Renewal': 'Group renew', 'Pillar of Dawn': 'Dawn pillar' };
     label.textContent = short[A.name] || A.name; s.appendChild(label);
     (+s.dataset.slot === 0 ? main : skills).appendChild(s);
