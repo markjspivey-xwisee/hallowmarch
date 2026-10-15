@@ -1,6 +1,6 @@
 """Mobile game control ergonomics, real touch flows, and persistent accessibility options.
 
-Run after build.py: python tools/tests/mobile_ergonomics.py [quick|flowsonly] [noshots] [classes=mage] [sizes=360x640]
+Run after build.py: python tools/tests/mobile_ergonomics.py [quick|flowsonly|notchonly] [noshots] [classes=mage] [sizes=360x640]
 Screenshots without a notch suffix use the actual zero-inset browser viewport.
 The existing mobile_hud.py suite separately checks all callings, levels, and legacy flows.
 """
@@ -21,6 +21,7 @@ QUICK = 'quick' in ARGS
 SHOTS = 'noshots' not in ARGS
 FAILS = []
 RESULTS = []
+NOTCH_RESULTS = []
 
 
 def check(ok, message):
@@ -248,6 +249,37 @@ async def menu_flows(page):
           'handedness, control size, text size and name settings survive a real reload '+json.dumps(restored))
 
 
+async def notch_cases(page):
+    """Both conservative host insets and a landscape home-indicator viewport."""
+    await page.set_viewport_size({'width':844,'height':390})
+    await page.evaluate("MH.scene('priest',50);0")
+    patterns=[('t24_b20_l44_r44',{'t':24,'b':20,'l':44,'r':44}),
+              ('t0_b34_l44_r44',{'t':0,'b':34,'l':44,'r':44})]
+    for name,insets in patterns:
+        await page.evaluate("insets=>{const s=document.documentElement.style;for(const [k,v]of Object.entries(insets))s.setProperty('--safe-'+k,v+'px');dispatchEvent(new Event('resize'));return 0}",insets)
+        for hand in ('right','left'):
+            for size in ('standard','large'):
+                for text in ('standard','large'):
+                    await page.evaluate('p=>ME.prefs(p)',{'hand':hand,'size':size,'text':text,'names':'relevant'})
+                    await hud.frame(page)
+                    await page.evaluate("document.getElementById('zonetoast').classList.remove('on');0")
+                    m=await page.evaluate('ME.geometry()')
+                    tag=f'844x390 inset simulation {name} priest lv50 {hand} {size} text-{text}'
+                    NOTCH_RESULTS.append({'tag':tag,'insets':insets,**m})
+                    check(not m['measure']['off'],tag+': all controls within safe viewport '+json.dumps(m['measure']['off']))
+                    check(not m['measure']['overlaps'],tag+': no unrelated HUD collisions '+json.dumps(m['measure']['overlaps']))
+                    check(m['measure']['centerClear']>=.85,tag+f': at least 85% of central play area clear ({m["measure"]["centerClear"]:.3f})')
+                    check(m['avatar']['inView'] and not m['avatar']['covered'],tag+': avatar body and feet clear '+json.dumps({'body':m['avatar']['body'],'covered':m['avatar']['covered']}))
+                    small=[r for r in m['controls'] if r['w']<47.5 or r['h']<47.5 or not r['hit']]
+                    check(not small,tag+': 48px visible hit-testable controls '+json.dumps(small))
+                    check(not m['gaps'],tag+': controls separated by at least 8px '+json.dumps(m['gaps']))
+                    check(bool(m['primary'] and m['primary']['w']>=63.5 and m['primary']['h']>=63.5),tag+': primary action remains at least 64px')
+                    target=52 if size=='large' else 48
+                    secondary=[r for r in m['controls'] if r['slot'] is not None and r['slot']>0]
+                    check(len(m['secondary'])==7 and len(secondary)==7 and all(r['w']>=target-.5 and r['h']>=target-.5 for r in secondary),tag+f': all seven learned secondary controls available at {target}px')
+                    await shot(page,f'mobile_ergonomics_844x390_inset_simulation_{name}_{hand}_{size}_text{text}')
+
+
 async def main():
     async with async_playwright() as p:
         b,page,logs = await setup(p,touch=True,w=393,h=660)
@@ -268,7 +300,7 @@ async def main():
                 sizes=[tuple(map(int,s.split('x'))) for s in OPT['sizes'].split(',')]
             if 'classes' in OPT:
                 scenes=[s for s in scenes if s[0] in OPT['classes'].split(',')]
-            if 'flowsonly' in ARGS:
+            if 'flowsonly' in ARGS or 'notchonly' in ARGS:
                 sizes=[]
                 await page.evaluate("MH.scene('warrior',50);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
                 await hud.frame(page)
@@ -306,20 +338,16 @@ async def main():
                         if (QUICK and h>w and cls=='priest') or (cls=='warrior' and (level==1 or size=='large' and hand=='left')):
                             suffix='_textlarge' if text=='large' else ''
                             await shot(page,f'mobile_ergonomics_{w}x{h}_{cls}_lv{level}_{hand}_{size}'+suffix)
-            # Notch/inset simulation is explicit and separate from proof of the real browser viewport.
-            await page.set_viewport_size({'width':844,'height':390})
-            await page.evaluate("const s=document.documentElement.style;s.setProperty('--safe-l','44px');s.setProperty('--safe-r','44px');s.setProperty('--safe-t','0px');s.setProperty('--safe-b','20px');dispatchEvent(new Event('resize'));0")
-            await hud.frame(page)
-            notch=await page.evaluate('ME.geometry()')
-            check(not notch['measure']['off'],'landscape notch simulation keeps controls within 44px side and 20px bottom insets '+json.dumps(notch['measure']['off']))
-            await shot(page,'mobile_ergonomics_844x390_notch_simulation')
-            await page.set_viewport_size({'width':393,'height':660})
-            await page.evaluate("const s=document.documentElement.style;for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px');dispatchEvent(new Event('resize'));0")
-            await page.evaluate("MH.scene('warrior',1);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
-            await hud.frame(page)
-            await touch_move_and_hold(page,False)
-            await touch_camera(page,False)
-            await menu_flows(page)
+            if 'flowsonly' not in ARGS:
+                await notch_cases(page)
+            if 'notchonly' not in ARGS:
+                await page.set_viewport_size({'width':393,'height':660})
+                await page.evaluate("const s=document.documentElement.style;for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px');dispatchEvent(new Event('resize'));0")
+                await page.evaluate("MH.scene('warrior',1);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
+                await hud.frame(page)
+                await touch_move_and_hold(page,False)
+                await touch_camera(page,False)
+                await menu_flows(page)
             errors=await page.evaluate('__hm.errors')
             check(not errors and not logs,f'no browser/game errors {errors[:2]} {logs[:2]}')
         except Exception as exc:
@@ -328,7 +356,7 @@ async def main():
             raise
         finally:
             await b.close()
-            pathlib.Path(OUT,'mobile_ergonomics.json').write_text(json.dumps({'results':RESULTS,'failures':FAILS},indent=2))
+            pathlib.Path(OUT,'mobile_ergonomics.json').write_text(json.dumps({'results':RESULTS,'notch_results':NOTCH_RESULTS,'failures':FAILS},indent=2))
     print(f'{len(FAILS)} failures',flush=True)
     if FAILS:
         sys.exit(1)

@@ -1226,10 +1226,14 @@
     body.touch.mobile-left-handed #tpad .mobile-skills { justify-self: stretch; }
   }
   @media (orientation: landscape) and (max-height: 520px) and (min-width: 601px) {
+    body.touch.mobile-large-ui { --mobile-main: 64px; }
+    body.touch #hud #lore-path, body.touch #hud #lore-path button.st, body.touch #hud #lore-path .step { min-height: 48px; }
+    body.touch #hud #lore-path button.st { min-width: 48px; }
+    body.touch #hud #lore-path .tog { width: 48px; height: 48px; flex: 0 0 48px; }
     body.touch #hud #topright { width: calc(var(--mobile-target) + 72px); grid-template-columns: var(--mobile-target) 64px; }
     body.touch #hud #tpad { width: calc(7 * var(--mobile-target) + var(--mobile-main) + 7 * var(--mobile-gap)); grid-template-columns: minmax(0, 1fr) var(--mobile-main); grid-template-rows: auto var(--mobile-main); }
-    body.touch #tpad .mobile-skills { display: grid; width: calc((100vw - var(--safe-l) - var(--safe-r)) / 2 - 24px); justify-self: end; grid-template-columns: repeat(auto-fit, var(--mobile-target)); grid-column: 1 / -1; grid-row: 1; justify-content: end; }
-    body.touch.mobile-left-handed #tpad .mobile-skills { justify-self: start; }
+    body.touch #tpad .mobile-skills { display: flex; flex-direction: row-reverse; flex-wrap: wrap-reverse; width: calc(4 * var(--mobile-target) + 3 * var(--mobile-gap)); justify-self: end; grid-column: 1 / -1; grid-row: 1; justify-content: flex-start; }
+    body.touch.mobile-left-handed #tpad .mobile-skills { flex-direction: row; justify-self: start; justify-content: flex-start; }
     body.touch #tpad .mobile-utility { grid-column: 1; grid-row: 2; justify-content: start; align-self: end; }
     body.touch #tpad .mobile-class { grid-column: 1; grid-row: 2; justify-content: end; align-self: end; }
     body.touch #hud #tpad .mobile-main-action { grid-column: 2; grid-row: 2; }
