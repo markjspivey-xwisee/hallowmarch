@@ -284,6 +284,65 @@ async def touch_fallback_exclusions(page):
         }""")
 
 
+async def map_double_tap(page):
+    """Rapid map taps retain both coordinate-bearing canvas click events."""
+    await tap(page, '#mobile-map', 'Map rapid taps')
+    before = await page.evaluate(r"""()=>{
+      const target=document.getElementById('mapcanvas'),r=target.getBoundingClientRect();
+      const x=r.left+r.width*.43,y=r.top+r.height*.47;
+      const audit={clicks:[],ends:[]};
+      const click=e=>audit.clicks.push({trusted:e.isTrusted,x:e.clientX,y:e.clientY,
+        modal:__hm.UI.modal});
+      const end=e=>{if(e.target===target)audit.ends.push({trusted:e.isTrusted,
+        prevented:e.defaultPrevented});};
+      target.addEventListener('click',click);
+      window.addEventListener('touchend',end,{passive:true});
+      window.__mobileMapTapAudit={target,audit,click,end};
+      return {x,y,hit:document.elementFromPoint(x,y)===target,
+        scale:visualViewport.scale,scrollX,scrollY};
+    }""")
+    check(before['hit'], 'Map canvas is directly reachable for rapid touch input')
+    try:
+        if not before['hit']:
+            raise AssertionError('cannot reach map canvas for rapid-tap regression')
+        if not hasattr(page, '_mobile_navigation_cdp'):
+            page._mobile_navigation_cdp = await page.context.new_cdp_session(page)
+        cdp = page._mobile_navigation_cdp
+        base = time.time()
+        point = {'x': before['x'], 'y': before['y'], 'id': 1}
+        for kind, offset in [('touchStart', 0), ('touchEnd', .04),
+                             ('touchStart', .10), ('touchEnd', .14)]:
+            await cdp.send('Input.dispatchTouchEvent', {
+                'type': kind, 'touchPoints': [point] if kind == 'touchStart' else [],
+                'timestamp': base + offset})
+        await page.wait_for_timeout(350)
+        after = await page.evaluate(r"""()=>({
+          ...window.__mobileMapTapAudit.audit,scale:visualViewport.scale,
+          scrollX,scrollY,input:MN.input()})""")
+        clicks = after['clicks']
+        check(len(clicks) == 2 and clicks[0]['trusted'] and not clicks[1]['trusted'],
+              'two rapid map taps deliver one native and one replacement canvas click ' + json.dumps(clicks))
+        check(len(clicks) == 2 and all(abs(e['x'] - before['x']) <= 1.5 and
+              abs(e['y'] - before['y']) <= 1.5 and e['modal'] == 'map' for e in clicks),
+              'both map clicks preserve the tapped coordinates for campaign orders ' + json.dumps(clicks))
+        check(len(after['ends']) == 2 and all(e['trusted'] for e in after['ends']) and
+              not after['ends'][0]['prevented'] and after['ends'][1]['prevented'],
+              'map rapid taps cancel only the second native default ' + json.dumps(after['ends']))
+        check(abs(after['scale'] - before['scale']) < 1e-6 and
+              after['scrollX'] == before['scrollX'] and after['scrollY'] == before['scrollY'] and
+              after['input']['modal'] == 'map' and not after['input']['keys'] and
+              not after['input']['joy'] and not after['input']['look'],
+              'map rapid taps preserve viewport scale and keep gameplay input clear')
+    finally:
+        await page.evaluate(r"""()=>{
+          const a=window.__mobileMapTapAudit;
+          if(a){a.target.removeEventListener('click',a.click);window.removeEventListener('touchend',a.end);}
+          delete window.__mobileMapTapAudit;
+        }""")
+        await tap(page, '#btn-mapclose', 'Map rapid taps')
+        await hud.frame(page)
+
+
 async def modal_gesture(page, selector, tag):
     # Swiping a panel title must never send movement/camera input to the world.
     at = await page.locator(selector).evaluate(r"""e=>{
@@ -403,6 +462,7 @@ async def main():
                 if (w, h) == SIZES[0]:
                     await double_tap(page)
                     await touch_fallback_exclusions(page)
+                    await map_double_tap(page)
                 await direct_destination(page, '#mobile-inventory', '#kit', 'kit', '#kit-close',
                                          tag + ' Inventory', '#kit .kithead')
                 await direct_destination(page, '#mobile-skills', '#mobile-tray', 'mobile', '#mobile-tray-close',

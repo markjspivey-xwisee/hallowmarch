@@ -44,14 +44,23 @@ function mobileBindNoZoom() {
     if (!last || interval < 0 || interval > 350 || Math.hypot(p.clientX - last.x, p.clientY - last.y) > 28 || !e.cancelable || e.defaultPrevented) return;
     // Cancel only the second tap's native click/zoom default, then replace that
     // click once. Ability buttons already act on pointerdown; clicking them
-    // adds no extra cast. Canvas targeting already happened on pointerup.
+    // adds no extra cast. World targeting already happened on pointerup.
     e.preventDefault();
     if (!e.defaultPrevented) return;
     S.blocked++;
     S.last = null;
     const control = tap.target && tap.target.closest('button, summary, [role="button"]');
-    if (control && control.isConnected && !control.matches(':disabled, [aria-disabled="true"]') && !control.closest('[inert]')) {
-      control.click(); S.clicks++;
+    if (control) {
+      if (control.isConnected && !control.matches(':disabled, [aria-disabled="true"]') && !control.closest('[inert]')) {
+        control.click(); S.clicks++;
+      }
+    } else if (tap.target && tap.target !== canvas && tap.target.isConnected && !tap.target.closest('[inert]')) {
+      // Map selections and other delegated UI clicks need the finger's actual
+      // coordinates. The world canvas has already handled its pointerup.
+      tap.target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true,
+        view: window, clientX: p.clientX, clientY: p.clientY, screenX: p.screenX, screenY: p.screenY,
+        button: 0, buttons: 0, detail: 1 }));
+      S.clicks++;
     }
   }, { passive: false });
 }
