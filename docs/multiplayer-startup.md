@@ -15,7 +15,7 @@ Late multiplayer recovery does not reload a character or change the selected `SA
 ## Verification
 
 - `node --test tools/tests/net_reconnect.mjs` exercises the actual client source with controlled socket events and timers, including initial and established retries, uncertain credentials, stale callbacks, account changes, explicit close and overlapping requests whose old socket delays its close event.
-- `python tools/tests/net_reconnect.py` runs Chromium against a temporary real March server. It withholds the initial welcome, resumes an existing local character, permits later connection, and verifies that new local progress does not change an existing server save.
+- `python tools/tests/net_reconnect.py` runs Chromium against a temporary real March server. It withholds the initial welcome, resumes an existing local character, permits later connection, exchanges presence and movement with a second real peer, and verifies that new local progress does not change an existing server save.
 - Both run in CI. Existing graphics, phone, gameplay, shader and long-run checks remain enabled.
 
 For diagnosis, read the plain CPU fields `NETWS.state`, `NETWS.lastFailure`, `NETWS.lastClose` and connection counters. A solo banner identifies the session's failed connection; it does not by itself establish a server outage. No credentials need to be logged.
