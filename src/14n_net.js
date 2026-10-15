@@ -21,6 +21,7 @@
 // With no room (no runtime, a signed-out viewer, a public link) none of this runs: the page plays alone as before.
 const NET = {
   state: 'off', // off: not tried; connecting; on: in a room; alone: no room to be had
+  connectP: null, retryAt: 0, retryDelay: 1000,
   link: null, self: '', since: Date.now(), peers: new Map(),
   fastAt: 0, slowAt: 0, slowKey: '', fastKey: '', seq: 0, lastFast: null,
   out: [], evSeq: 0, inbox: [],
@@ -36,7 +37,7 @@ const netNum = (v, lo, hi, d = 0) => (typeof v === 'number' && Number.isFinite(v
 // what another page sent is shown only as text, never as markup: no control, format or invisible characters
 const netStr = (s, n) => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufffb]/g, '').trim().slice(0, n) : '');
 const netR2 = (v) => Math.round(v * 100) / 100, netR3 = (v) => Math.round(v * 1000) / 1000;
-const netOn = () => NET.state === 'on' && !!NET.link;
+const netOn = () => NET.state === 'on' && !!NET.link && (typeof NET.link.connected !== 'function' || NET.link.connected());
 const netPeerOf = (e) => (e && e.role === 'remote' ? e.netPeer : '');
 const netGhost = (peer) => { const R = NET.peers.get(peer); return R && R.ghost && !R.ghost.removed ? R.ghost : null; };
 function netNote(s) { if (NET.log.length > 60) NET.log.shift(); NET.log.push([Math.round(performance.now()), s]); }
@@ -54,8 +55,9 @@ async function netLinkRoom() {
   if (!room) return null;
   let fast = null;
   try { fast = await withTimeout(room.join('march'), 9000); } catch (e) { fast = null; } // named rooms not offered: the lobby carries both
-  const L = { kind: 'room', room, fast, mine: {}, unsub: [], conn: true };
+  const L = { kind: 'room', room, fast, mine: {}, unsub: [], conn: true, closed: false };
   const take = (ch, which) => {
+    if (L.closed) return;
     for (const p of ch.peers) {
       if (p.isMe && p.sameTab) { NET.self = p.peer; continue; }
       if (p.isMe && !p.sameTab) continue; // your other tab is not another player (it would be your own body twice)
@@ -67,12 +69,12 @@ async function netLinkRoom() {
     }
     for (const p of ch.left) if (!(p.isMe && p.sameTab)) { if (which === 'lobby') netPeerLeft(p.peer); else netPeerFastGone(p.peer); }
   };
-  L.unsub.push(room.onPeers((ch) => take(ch, 'lobby'), (e) => { NET.stats.linkErr++; netNote('lobby ' + (e && e.code)); }));
-  if (fast) L.unsub.push(fast.onPeers((ch) => take(ch, 'fast'), (e) => { NET.stats.linkErr++; netNote('march ' + (e && e.code)); }));
-  if (typeof room.onConnection === 'function') L.unsub.push(room.onConnection((c) => { L.conn = c; }));
-  L.setSlow = (o) => room.presence({ hm: o }).catch((e) => { NET.stats.refused++; netNote('slow ' + (e && e.code)); });
-  L.setFast = (o) => (fast || room).presence({ f: o }).catch((e) => { NET.stats.refused++; netNote('fast ' + (e && e.code)); });
-  L.connected = () => (typeof room.connected === 'function' ? room.connected() : true) && L.conn;
+  L.unsub.push(room.onPeers((ch) => take(ch, 'lobby'), (e) => { if (L.closed) return; NET.stats.linkErr++; netNote('lobby ' + (e && e.code)); }));
+  if (fast) L.unsub.push(fast.onPeers((ch) => take(ch, 'fast'), (e) => { if (L.closed) return; NET.stats.linkErr++; netNote('march ' + (e && e.code)); }));
+  if (typeof room.onConnection === 'function') L.unsub.push(room.onConnection((c) => { if (!L.closed) L.conn = c; }));
+  L.setSlow = (o) => !L.closed && room.presence({ hm: o }).catch((e) => { NET.stats.refused++; netNote('slow ' + (e && e.code)); });
+  L.setFast = (o) => !L.closed && (fast || room).presence({ f: o }).catch((e) => { NET.stats.refused++; netNote('fast ' + (e && e.code)); });
+  L.connected = () => !L.closed && (typeof room.connected === 'function' ? room.connected() : true) && L.conn;
   // the shared war kept in the artifact's db (written by the host: netWorldKeep), taken by the first host of a session
   try {
     const db = await withTimeout(C.use('db').catch(() => null), 6000);
@@ -83,22 +85,36 @@ async function netLinkRoom() {
       if (d && d.v === 1 && d.w && typeof d.w === 'object' && Date.now() - netNum(d.at, 0, 1e15) < 14 * 86400e3) NET.srvWorld = d.w;
     }
   } catch (e) { /* no db: the war lives while someone is here */ }
-  L.close = () => { for (const u of L.unsub) { try { u(); } catch (e) { /* gone */ } } if (fast) fast.leave().catch(() => {}); };
+  L.close = () => { if (L.closed) return; L.closed = true; L.conn = false; for (const u of L.unsub) { try { u(); } catch (e) { /* gone */ } } if (fast) fast.leave().catch(() => {}); };
   return L;
 }
-async function netConnect() {
-  if (NET.state !== 'off') return;
+function netConnect() {
+  if (NET.connectP) return NET.connectP;
+  if (NET.state !== 'off' && NET.state !== 'alone') return Promise.resolve();
   NET.state = 'connecting';
-  let L = null;
-  try {
-    if (netServerUrl()) L = await netLinkWS(); // rung 2: the March's own server (14p_netws.js)
-    if (!L) L = await netLinkRoom();
-  } catch (e) { reportError(e); L = null; }
-  if (!L) { NET.state = 'alone'; netNote('no room'); return; }
-  NET.link = L; NET.state = 'on'; NET.linkedAt = performance.now();
-  netNote('linked ' + L.kind);
-  NET.slowKey = ''; NET.fastKey = '';
-  netUiOn(); // the Players button, the chat (14o_netui.js)
+  const p = (async () => {
+    let L = null;
+    try {
+      if (netServerUrl()) L = await netLinkWS(); // the save's boot attempt may have failed while the page was busy
+      if (!L) L = await netLinkRoom();
+    } catch (e) { reportError(e); L = null; }
+    if (!L) {
+      NET.state = 'alone';
+      NET.retryAt = performance.now() + NET.retryDelay;
+      NET.retryDelay = Math.min(15000, NET.retryDelay * 2);
+      netNote('no room');
+      return;
+    }
+    NET.link = L; NET.state = 'on'; NET.linkedAt = performance.now();
+    NET.retryAt = 0; NET.retryDelay = 1000;
+    netNote('linked ' + L.kind);
+    NET.slowKey = ''; NET.fastKey = '';
+    netUiOn(); // the Players button, the chat (14o_netui.js)
+  })();
+  NET.connectP = p;
+  const clear = () => { if (NET.connectP === p) NET.connectP = null; };
+  p.then(clear, clear);
+  return p;
 }
 
 /* ------------------------------------------------------------------ */
@@ -328,7 +344,9 @@ function netEvent(kind, to, data) {
   NET.fastAt = Math.min(NET.fastAt, performance.now() - 1000 / NET.cfg.fastHz + 30); // out within a few hundredths
 }
 function netPump(dt) {
-  if (NET.state === 'off' && GAME.ready) netConnect();
+  // Retry initial server failures only after boot. A valid room link keeps its
+  // own transport; recovery does not replace it or change the save backend.
+  if (GAME.ready && !NETWS.closed && !NETWS.reload && (NET.state === 'off' || (NET.state === 'alone' && netServerUrl() && performance.now() >= NET.retryAt))) netConnect();
   if (!netOn()) return;
   const now = performance.now();
   netHostElect();
