@@ -8,6 +8,7 @@ import asyncio
 import json
 import pathlib
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -138,12 +139,20 @@ async def double_tap(page):
     """Two genuine taps retain two activations while the fallback cancels zoom."""
     before = await page.evaluate(r"""()=>{
       const target=document.getElementById('t-target');
-      const audit={clicks:[],ends:[]};
-      const handler=e=>audit.clicks.push({trusted:e.isTrusted,pointerType:e.pointerType});
-      const end=e=>audit.ends.push({trusted:e.isTrusted,prevented:e.defaultPrevented,cancelable:e.cancelable});
+      const snapshot=()=>{
+        const s=__hm.mobile.touchNoZoom;
+        return s?{bound:s.bound,blocked:s.blocked,clicks:s.clicks,last:s.last,
+          active:s.active?{id:s.active.id,at:s.active.at,x:s.active.x,y:s.active.y}:null}:null;
+      };
+      const audit={clicks:[],starts:[],ends:[]};
+      const handler=e=>audit.clicks.push({trusted:e.isTrusted,pointerType:e.pointerType,stamp:e.timeStamp,handledAt:performance.now()});
+      const start=e=>audit.starts.push({trusted:e.isTrusted,stamp:e.timeStamp,handledAt:performance.now(),state:snapshot()});
+      const end=e=>audit.ends.push({trusted:e.isTrusted,stamp:e.timeStamp,handledAt:performance.now(),
+        prevented:e.defaultPrevented,cancelable:e.cancelable,state:snapshot()});
       target.addEventListener('click',handler);
+      window.addEventListener('touchstart',start,{passive:true});
       window.addEventListener('touchend',end,{passive:true});
-      window.__mobileDoubleTapAudit={audit,handler,end,target};
+      window.__mobileDoubleTapAudit={audit,handler,start,end,target};
       return {scale:visualViewport.scale,x:scrollX,y:scrollY,
         box:MN.box(target),meta:document.querySelector('meta[name="viewport"]').content,
         touch:{html:getComputedStyle(document.documentElement).touchAction,
@@ -163,13 +172,31 @@ async def double_tap(page):
     try:
         if not box or not box['hit']:
             raise AssertionError('cannot reach Target for double-tap regression')
-        await page.touchscreen.tap(box['cx'], box['cy'])
-        await page.wait_for_timeout(60)  # intentionally within the double-tap gesture window
-        await page.touchscreen.tap(box['cx'], box['cy'])
+        if not hasattr(page, '_mobile_navigation_cdp'):
+            page._mobile_navigation_cdp = await page.context.new_cdp_session(page)
+        cdp = page._mobile_navigation_cdp
+        # Replay a genuine input gesture with 40ms taps and a 60ms gap. CDP's
+        # physical input timestamps keep renderer/transport delays from turning
+        # this rapid gesture into an unrelated pair of slow taps. The browser
+        # still delivers trusted TouchEvents and its normal native click path.
+        base = time.time()
+        point = {'x': box['cx'], 'y': box['cy'], 'id': 1}
+        for kind, offset in [('touchStart', 0), ('touchEnd', .04),
+                             ('touchStart', .10), ('touchEnd', .14)]:
+            await cdp.send('Input.dispatchTouchEvent', {
+                'type': kind, 'touchPoints': [point] if kind == 'touchStart' else [],
+                'timestamp': base + offset})
         await page.wait_for_timeout(350)  # allow the browser's tap/zoom recognizer to settle
         after = await page.evaluate(r"""()=>({scale:visualViewport.scale,x:scrollX,y:scrollY,
-          clicks:window.__mobileDoubleTapAudit.audit.clicks,ends:window.__mobileDoubleTapAudit.audit.ends,input:MN.input(),
+          clicks:window.__mobileDoubleTapAudit.audit.clicks,starts:window.__mobileDoubleTapAudit.audit.starts,
+          ends:window.__mobileDoubleTapAudit.audit.ends,input:MN.input(),
           inventory:MN.box(document.getElementById('mobile-inventory'))})""")
+        print('TOUCH TIMING ' + json.dumps({k: after[k] for k in ('starts', 'ends', 'clicks')}), flush=True)
+        check(len(after['starts']) == 2 and len(after['ends']) == 2 and
+              all(0 <= end['stamp'] - start['stamp'] <= 300
+                  for start, end in zip(after['starts'], after['ends'])) and
+              0 <= after['ends'][1]['stamp'] - after['ends'][0]['stamp'] <= 350,
+              'trusted input timestamps describe two short taps inside the double-tap window')
         check(len(after['clicks']) == 2 and after['clicks'][0]['trusted'] and not after['clicks'][1]['trusted'],
               'two genuine taps produce one native and exactly one replacement Target activation ' + json.dumps(after['clicks']))
         check(len(after['ends']) == 2 and all(e['trusted'] for e in after['ends']) and
@@ -186,7 +213,7 @@ async def double_tap(page):
     finally:
         await page.evaluate(r"""()=>{
           const a=window.__mobileDoubleTapAudit;
-          if(a){a.target.removeEventListener('click',a.handler);window.removeEventListener('touchend',a.end);}
+          if(a){a.target.removeEventListener('click',a.handler);window.removeEventListener('touchstart',a.start);window.removeEventListener('touchend',a.end);}
           delete window.__mobileDoubleTapAudit;
         }""")
 

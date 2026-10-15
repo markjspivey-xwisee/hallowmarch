@@ -15,11 +15,13 @@ function mobileBindNoZoom() {
   };
   const point = (list, id) => Array.from(list).find((p) => p.identifier === id);
   const moved = (p, tap) => Math.hypot(p.clientX - tap.x, p.clientY - tap.y) > 10;
+  // Event time measures the gesture itself, even when rendering delays delivery.
+  const stamp = (e) => Number.isFinite(e.timeStamp) ? e.timeStamp : performance.now();
 
   document.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1 || native(e.target)) { reset(); return; }
     const p = e.touches[0];
-    S.active = { id: p.identifier, x: p.clientX, y: p.clientY, at: performance.now(), target: element(e.target) };
+    S.active = { id: p.identifier, x: p.clientX, y: p.clientY, at: stamp(e), target: element(e.target) };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     const tap = S.active;
@@ -29,15 +31,17 @@ function mobileBindNoZoom() {
   }, { passive: true });
   document.addEventListener('touchcancel', reset, { passive: true });
   document.addEventListener('touchend', (e) => {
-    const tap = S.active, now = performance.now();
+    const tap = S.active, now = stamp(e);
     S.active = null;
     const p = tap && point(e.changedTouches, tap.id);
-    if (!tap || !p || e.touches.length || native(e.target) || now - tap.at > 300 || moved(p, tap)) {
+    const duration = tap ? now - tap.at : -1;
+    if (!tap || !p || e.touches.length || native(e.target) || duration < 0 || duration > 300 || moved(p, tap)) {
       S.last = null; return;
     }
     const last = S.last;
     S.last = { x: p.clientX, y: p.clientY, at: now };
-    if (!last || now - last.at > 350 || Math.hypot(p.clientX - last.x, p.clientY - last.y) > 28 || !e.cancelable || e.defaultPrevented) return;
+    const interval = last ? now - last.at : -1;
+    if (!last || interval < 0 || interval > 350 || Math.hypot(p.clientX - last.x, p.clientY - last.y) > 28 || !e.cancelable || e.defaultPrevented) return;
     // Cancel only the second tap's native click/zoom default, then replace that
     // click once. Ability buttons already act on pointerdown; clicking them
     // adds no extra cast. Canvas targeting already happened on pointerup.

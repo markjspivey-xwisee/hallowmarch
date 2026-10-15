@@ -365,5 +365,5 @@ function mobileHUD(dt) {
 }
 queueMicrotask(() => {
   if (window.__hm) window.__hm.mobile = { show: mobileTray, sync: mobileSync, build: mobileBuild, state: MOBILE_UI,
-    prefs: MOBILE_PREFS, applyPrefs: mobileApplyPrefs, section: mobileSection };
+    prefs: MOBILE_PREFS, applyPrefs: mobileApplyPrefs, section: mobileSection, touchNoZoom: MOBILE_TOUCH_NO_ZOOM };
 });
