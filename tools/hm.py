@@ -10,7 +10,7 @@ THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.j
 THREE_LOCAL = pathlib.Path(os.environ.get('HM_THREE', HERE / 'node_modules/three/build/three.module.min.js'))
 OUT = pathlib.Path(os.environ.get('HM_OUT', HERE / 'out')); OUT.mkdir(exist_ok=True)
 
-SKELETON = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+SKELETON = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=auto">
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}body{margin:0;font:14px system-ui;background:#fafafa}img{max-width:100%}[hidden]{display:none!important}</style>
 </head><body>%s</body></html>"""
 
