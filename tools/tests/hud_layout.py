@@ -1,8 +1,9 @@
-"""The HUD on every screen: every panel showing at once (needs bars and gift marks in the player frame, the class
+"""The HUD on every screen: every gameplay panel showing at once (on a desk, needs and gift marks in the player frame, the class
 panel, the companion bar with two companions, the builder's bar, the plant card, a target, the path tracker, a toast
 and a field note), measured for overlaps, boxes off the screen or under the notch (safe areas emulated), and touch
 targets under 40 px, at 390x780, 360x640, 844x390 and 667x375 with touch and at 1280x720, 960x540 and 1920x1080 on a
-desk. Each calling's class panel is tried at each size. One screenshot per size (tools/out/hud_<w>x<h>.png).
+desk. Touch details remain hidden in More (classes_phone.py tests that sheet). Each calling is tried at each size.
+One screenshot per size (tools/out/hud_<w>x<h>.png).
 usage: python3 tools/tests/hud_layout.py [touch|desk] [noshots] [sizes=390x780,...] [notch] [all] [cls=warrior,...]
 (all: every calling at every size; by default every calling at the first size of each kind, one at the others)"""
 import asyncio, json, sys, pathlib
@@ -73,7 +74,7 @@ window.HL = {
     return r.width > 2 && r.height > 2;
   },
   // the panels a player reads or touches
-  PANELS: ['#pf', '#tf', '#mmwrap', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#netparty', '#buildbar', '#farmcard', '#castbar', '#breath', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
+  PANELS: ['#pf', '#tf', '#mmwrap', '#mobile-menu-toggle', '#topright > .iconbtns', '#war', '#bounty', '#log', '#lore-path', '#cls', '#petbar', '#netparty', '#buildbar', '#farmcard', '#castbar', '#breath', '#prompt', '#hotbar', '#tpad', '#banners > .banner', '#zonetoast', '#error', '#joyhint'],
   measure() {
     this.H.hud.HUDL.k = 0; this.H.hud.hudLayout(0); // the layout pass looks four times a second: look now
     const out = [], W = innerWidth, Hh = innerHeight;

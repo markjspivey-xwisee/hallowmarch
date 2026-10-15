@@ -69,6 +69,13 @@ window.TF = {
 
 async def tap(page, sel, frames=2):
     """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
+    # Secondary controls are reached through More. Use its real hit-tested tap path, then bring the requested
+    # control into the sheet's visible scroll area before measuring it; never invoke its handler by script.
+    in_tray = await page.evaluate("""(sel) => { const el = document.querySelector(sel); return !!(el && el.closest('#mobile-tray')); }""", sel)
+    if in_tray:
+        if await page.evaluate("document.getElementById('mobile-tray').hidden"):
+            if not await tap(page, '#mobile-menu-toggle', frames): return False
+        await page.evaluate("TF.see", sel)
     # [guide2] laid out now, then held still as a finger comes down (the page's own frames ran a layout pass between
     # the measure and the tap now and then, and the tap landed where a panel had been: G2.tap, 10f_guide2.js); first the
     # last tap's click lands (on a slow machine it came after the next measure and let the layout go on under it)
@@ -665,10 +672,14 @@ async def main():
             check(ok1 and sheet and ok2 and party, f'net: a tap on the Players button opens who is here, a tap on Invite makes a party with Brisa ({ok1}, {sheet}, {ok2}, {party})')
             await tap(page, '#netsheet-close')
             for _ in range(6): await page.evaluate("__hm.simulate(0.1); __hm.frame(1/30); 0")
+            await tap(page, '#mobile-menu-toggle')
+            await page.evaluate("TF.see", '#netparty .net-pm')
+            # Measure while the sheet is open. Targeting a party member closes More, after which its hidden
+            # zero-sized rectangle would say nothing about whether the player could see and tap the frames.
+            clear = await page.evaluate("""(() => { const el = document.getElementById('netparty'), r = el.getBoundingClientRect(), sheet = document.querySelector('#mobile-tray .sheet').getBoundingClientRect(); const hit = [...document.querySelectorAll('#mobile-tray-nav, #mobile-tray-utilities > *')].filter((q) => q !== el && !q.hidden && q.getClientRects().length).filter((q) => { const b = q.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left < r.right - 1 && r.left < b.right - 1 && b.top < r.bottom - 1 && r.top < b.bottom - 1; }).map((q) => '#' + q.id); return { hit, on: r.width > 2 && r.height > 2 && r.left >= sheet.left && r.top >= sheet.top && r.right <= sheet.right && r.bottom <= sheet.bottom && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, off: el.classList.contains('hl-off') }; })()""")
             ok3 = await tap(page, '#netparty .net-pm')
             tgt = await page.evaluate("(() => { const g = __hm.net.ghost(__hm.net.state().peers.find((q) => q.name === 'Brisa').peer); return !!g && __hm.GAME.player.target === g.id; })()")
-            clear = await page.evaluate("(() => { const el = document.getElementById('netparty'), r = el.getBoundingClientRect(), L = __hm.hud.HUDL; const hit = L.placed.filter((q) => q.sel !== '#netparty' && q.x < r.right - 1 && r.left < q.x + q.w - 1 && q.y < r.bottom - 1 && r.top < q.y + q.h - 1).map((q) => q.sel); return { hit, on: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, off: el.classList.contains('hl-off') }; })()")
-            check(ok3 and tgt and not clear['hit'] and clear['on'], f"net: the party's frames show Brisa, clear of the other panels, and a tap targets her ({ok3}, {tgt}, {json.dumps(clear)})")
+            check(ok3 and tgt and not clear['hit'] and clear['on'] and not clear['off'], f"net: the party's frames show Brisa in More, clear of the other panels, and a tap targets her ({ok3}, {tgt}, {json.dumps(clear)})")
             await tap(page, '#btn-net')
             ok4 = await tap(page, '#netsheet button[data-act="say"][data-ch="p"]')
             await page.keyboard.type('Hold the line')

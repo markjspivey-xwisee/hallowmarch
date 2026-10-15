@@ -1160,7 +1160,7 @@ function buildOnStart(save) {
     b.setAttribute('aria-label', 'Build (G)'); b.setAttribute('aria-pressed', 'false');
     b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M13 10.5l-8 8.5 1.6 1.6 8.5-8"/><path d="M11 6.5l4-3 6 6-3 4z"/></svg>';
     b.onclick = () => { buildToggle(); sfx('click'); };
-    const host = document.querySelector('#topright .iconbtns');
+    const host = ($('btn-map') && $('btn-map').parentElement);
     if (host) host.insertBefore(b, $('btn-menu'));
   }
   if (BUILD.mode) buildToggle(false);

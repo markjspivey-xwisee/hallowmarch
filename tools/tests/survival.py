@@ -377,7 +377,7 @@ async def shots(page):
 
 async def phone(p):
         if True:
-            # the crafting book and the needs on a phone
+            # The crafting book and food/water controls reached through More on a phone.
             b, page, logs = await setup(p, touch=True, w=390, h=844)
             await page.evaluate(SLOW_RAF)
             await page.evaluate("__hm.start({ realm: 1, cls: 'mage', level: 14 }); __hm.UI.modal = null; 0")
@@ -385,8 +385,15 @@ async def phone(p):
             await page.evaluate("""(() => { const S = T.S, H = T.H; const t = H.REALMS[1].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'loom').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); S.SURV.hunger = 0.7; S.SURV.thirst = 0.18; T.F.goodsAdd('fibre', 9, true); T.F.goodsAdd('linen', 2, true); H.fn.setQuality('low'); })();0""")
             for _ in range(3): await page.evaluate('__hm.frame(0.1);0') # the path tracker settles under the taller player frame
             await page.screenshot(path=OUT + 'survival_phone_hud.png', timeout=600000); print('saved phone hud', flush=True)
-            r = await ev(page, 'phonehud', """(() => { const H = T.H, P = T.P(); const foe = H.ENT.filter((e) => e !== P && e.alive && e.kind === 'humanoid').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; P.target = foe ? foe.id : null; H.UI.frame = 30; H.frame(0.05); const pf = document.getElementById('pf').getBoundingClientRect(), tf = document.getElementById('tf').getBoundingClientRect(), nd = document.getElementById('needs').getBoundingClientRect(); P.target = null; return { pfBottom: pf.bottom, tfTop: tf.top, needs: [nd.width, nd.height], inside: nd.bottom <= pf.bottom + 1 }; })()""")
-            check(r['tfTop'] >= r['pfBottom'] - 1 and r['inside'] and r['needs'][0] > 120, f'on a phone the needs row fits in the player frame and the target frame sits below it {r}')
+            r = await ev(page, 'phonehud', """(() => { const H = T.H, P = T.P(); const foe = H.ENT.filter((e) => e !== P && e.alive && e.kind === 'humanoid').sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0]; P.target = foe ? foe.id : null; H.UI.frame = 30; H.frame(0.05); const pf = document.getElementById('pf').getBoundingClientRect(), tf = document.getElementById('tf').getBoundingClientRect(), nd = document.getElementById('needs'); P.target = null; T.F.goodsAdd('water', 1, true); return { pfBottom: pf.bottom, tfTop: tf.top, inTray: !!nd.closest('#mobile-tray'), needsHidden: !nd.getClientRects().length, thirsty: !document.getElementById('mobile-needs-alert').hidden, thirst: T.S.SURV.thirst }; })()""")
+            check(r['tfTop'] >= r['pfBottom'] - 1 and r['inTray'] and r['needsHidden'] and r['thirsty'], f'on a phone the target sits below compact status, needs wait in More, and thirst is signalled {r}')
+            await page.tap('#mobile-menu-toggle', timeout=60000)
+            await page.locator('#needs').scroll_into_view_if_needed(timeout=60000)
+            needs = await ev(page, 'phoneneeds', """(() => { const el = document.getElementById('needs'), nd = el.getBoundingClientRect(), sheet = document.querySelector('#mobile-tray .sheet').getBoundingClientRect(); const hit = document.elementFromPoint(nd.left + nd.width / 2, nd.top + nd.height / 2); return { open: T.H.UI.modal === 'mobile', fits: nd.width > 120 && nd.height >= 44 && nd.left >= sheet.left && nd.right <= sheet.right && nd.top >= sheet.top && nd.bottom <= sheet.bottom, top: !!hit && (hit === el || el.contains(hit)) }; })()""")
+            check(all(needs.values()), f'food and water bars fit and are reachable in More {needs}')
+            await page.tap('#needs', timeout=60000)
+            after = await ev(page, 'phonedrink', "({ thirst: T.S.SURV.thirst, modal: T.H.UI.modal })")
+            check(after['thirst'] > r['thirst'] and after['modal'] is None, f'a tap on the relocated needs row drinks from the packs and returns to play {after}')
             r = await ev(page, 'phone', """(() => { const S = T.S; const pr = document.getElementById('prompt-t').textContent; document.getElementById('t-use').click(); const open = T.H.UI.modal === 'craft'; const card = document.getElementById('craft-card').getBoundingClientRect(), list = document.getElementById('craft-list').getBoundingClientRect(); const sheet = document.querySelector('#craft .sheet').getBoundingClientRect(); return { pr, open, fits: sheet.width <= 390 && list.width > 300, stacked: card.top >= list.bottom - 1 }; })()""")
             check(r['open'] and r['fits'] and r['stacked'], f'on a phone the Use button opens the loom\'s book, one column that fits ({r["pr"]})')
             await page.screenshot(path=OUT + 'survival_phone_craft.png', timeout=600000); print('saved phone craft', flush=True)

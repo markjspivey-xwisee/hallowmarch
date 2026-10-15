@@ -222,7 +222,7 @@ function guideAims() {
 /* ------------------------------------------------------------------ */
 // `fight`: may show in a fight (it is about the fight); `ok`: shows only while it still means something here
 Object.assign(FIELD_NOTES, {
-  needs: { t: 'Food and water', x: () => `The two bars under your health are food and water. ${IS_TOUCH ? 'Tap them' : 'Press V or click them'} to eat or drink the best thing in your packs. Drink at any well, trough, lake or river (${IS_TOUCH ? 'Use' : 'E'}), and cook meat at any fire. You never starve, but hungry or thirsty you heal slowly.` },
+  needs: { t: 'Food and water', x: () => `${IS_TOUCH ? 'Open More to find the food and water bars. Tap them' : 'The two bars under your health are food and water. Press V or click them'} to eat or drink the best thing in your packs. Drink at any well, trough, lake or river (${IS_TOUCH ? 'Use' : 'E'}), and cook meat at any fire. You never starve, but hungry or thirsty you heal slowly.` },
   stones: { t: 'The portal stones', x: () => `The ring of stones in the square carries you to your realm's muster on the frontier, and back. Below level 14 the frontier will kill you quickly: grow strong at home first.`, ok: () => GAME.prog.level < 14 },
   station: { t: 'A workstation', x: () => `${IS_TOUCH ? 'Use' : 'E'} opens its recipes. Each town has a forge, a workbench, a tanning rack, a loom, a bakehouse and an alchemy table: tan a hide into leather, or steep woundwort into a healing draught. ${IS_TOUCH ? 'Crafting in your Kit' : 'C'} shows what you can make by hand.` },
   ladder: { t: 'Ladders and hatches', x: () => `Walk into a ladder's foot to climb, or ${IS_TOUCH ? 'tap Use' : 'press E'}. A shut hatch is pushed open as you come up to it; ${IS_TOUCH ? 'Use' : 'E'} by a hatch opens or shuts it. On the rungs you fight one-handed: no shield, bow or long spell, and a heavy blow knocks you off.`, fight: true },
@@ -332,13 +332,13 @@ function guideKeysHTML() {
   if (IS_TOUCH) return `<div class="keys">
     <kbd>Left thumb</kbd><span>Drag on the left to walk; to the edge to run.</span>
     <kbd>Right thumb</kbd><span>Drag to look around. Tap a creature, soldier or gate to target it.</span>
-    <kbd>Ability buttons</kbd><span>Your calling's eight abilities: they open as you level, and grow a rank every ten levels past 20.</span>
+    <kbd>Ability buttons</kbd><span>Learned abilities stay beside your right thumb. More shows all eight, including what you unlock next.</span>
     <kbd>Use</kbd><span>Does what the prompt over the buttons says (a door, a ladder, a fire, a boat, water). Tap the prompt itself too.</span>
-    <kbd>Target · Jump · Ride</kbd><span>The next foe in front · jump (Dive and Up in deep water) · your horse.</span>
-    <kbd>Potion · Kit</kbd><span>A healing draught · your gear, bags, crafting and goods.</span>
-    <kbd>Food and water bars</kbd><span>Under your health: tap to eat or drink the best you carry.</span>
+    <kbd>Target · Jump · Ride</kbd><span>Target and Jump stay in the dock (Rise in deep water). Open More to ride your horse.</span>
+    <kbd>Potion · Kit</kbd><span>Potion stays in the dock. Open More, then Kit &amp; bags, for gear, crafting and goods.</span>
+    <kbd>Food and water</kbd><span>Open More and tap your food and water bars to eat or drink the best you carry. A warning appears when you need them.</span>
     <kbd>Your path</kbd><span>Under your frame: the next step and which way (the gold gem on the minimap). Tap to unfold it.</span>
-    <kbd>Buttons under the minimap</kbd><span>The map (and your warbands' orders), kit, log, building, and the menu with the Chronicle.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
+    <kbd>More</kbd><span>Beside the minimap: Map, Kit, Animals, Build, Players, Chronicle and Settings. Tap your name for Character, or the minimap for Map.</span>${classHelpKeys() /* [classes] 10d_classes_ui.js */}
     <kbd>Gift</kbd><span>The round gift button: your realm's great gift, from realm rank 5 or level 30.</span></div>`; // [guide2] each in a line or two on a phone
   return `<div class="keys">
     <kbd>W A S D</kbd><span>Move, relative to the camera. Shift to run, Space to jump.</span>

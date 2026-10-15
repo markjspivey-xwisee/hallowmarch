@@ -216,7 +216,7 @@ async def phone(p):
     check(ok and 'Engines' in r['t'] and 'Towers and ladders' in r['t'] and 'Breaches' in r['t'] and r['o'] <= 1, f'the Sieges page has the engines, breaches and towers (overflow {r["o"]})')
     check(await tap(page, '#menu-tabs [data-tab="help"]'), 'How to play is tapped')
     r = await ev(page, "({ t: document.getElementById('menu-body').textContent, o: GD.overflow() })")
-    want = ['Left thumb', 'Use', 'Food and water bars', 'Your path', 'Keeps, towers and sieges', 'Water', 'Food, water and crafting', 'Animals', 'Keep halls and building']
+    want = ['Left thumb', 'Use', 'Food and water', 'Your path', 'Keeps, towers and sieges', 'Water', 'Food, water and crafting', 'Animals', 'Keep halls and building']
     check(all(w in r['t'] for w in want) and r['o'] <= 1, f'How to play gives a phone\'s controls and every system\'s lines ({[w for w in want if w not in r["t"]]})')
     check('press E' not in r['t'] and 'Press V' not in r['t'], 'and speaks of taps, not keys')
     await shot(page, 'guide_phone_help')

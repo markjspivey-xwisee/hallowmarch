@@ -89,6 +89,7 @@ function bindHUD() {
   $('btn-log').onclick = () => toggleLog();
   $('prompt').onclick = () => playerInteract();
   UI.hudBound = true;
+  mobileBind();
 }
 function buildHUD() {
   if (!UI.hudBound) bindHUD();
@@ -102,6 +103,7 @@ function buildHUD() {
 function buildHotbar() {
   const P = GAME.player;
   if (!P) return;
+  if (IS_TOUCH && CLS.hold) classHold(false);
   const abil = CLASSES[P.cls].abilities;
   const rank = abilityRank(P.level), rn = RANK_NUMERAL[rank];
   const slotHTML = (k, i, keyLabel) => {
@@ -116,6 +118,7 @@ function buildHotbar() {
   updatePotionSlot();
   giftHotbar(); // [gifts] the realm gift on key 9 and on the phone pad, the passive marks (06c_gifts.js)
   classHotbar(); // [classes] the class panel, and the technique and hold buttons on the phone pad (10d_classes_ui.js)
+  mobileBuild();
 }
 function flashSlot(i) { for (const s of UI.slots || []) if (+s.dataset.slot === i) { s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash'); } }
 function toggleLog() { const l = $('log'); if (IS_TOUCH) l.classList.toggle('show'); else l.classList.toggle('hidden'); }
@@ -210,6 +213,14 @@ function updateHUD(dt) {
   const it = currentInteraction();
   const pr = $('prompt');
   if (it && P.alive && !UI.modal) { pr.classList.add('on'); setT($('prompt-t'), it.label); } else pr.classList.remove('on');
+  if (IS_TOUCH && $('t-use')) {
+    const label = it && P.alive ? it.label : 'Use';
+    const words = label.trim().split(/\s+/);
+    const short = words.slice(0, 2).join(' ');
+    setT($('t-use'), short.length > 14 ? words[0] : short);
+    $('t-use').setAttribute('aria-label', label);
+    $('t-use').title = label;
+  }
   // carrying
   const ca = $('carry');
   if (P.carrying != null) { const R = REALMS[P.carrying]; ca.classList.add('on'); ca.style.setProperty('--rcol', R.color); setT(ca, `Carrying ${R.hallow}. Bring it to your temple gate: the ${REALMS[P.faction].templeName}.`); }
@@ -226,6 +237,7 @@ function updateHUD(dt) {
   if (UI.frame % 3 === 1) drawMinimap();
   updateNameplates();
   updateFloaters(dt);
+  mobileHUD(dt);
 }
 function updateWarPanel() {
   const P = GAME.player;
@@ -686,6 +698,7 @@ function hideJoystick() { $('joy').classList.remove('on'); }
 /* menus                                                               */
 /* ------------------------------------------------------------------ */
 function onEscape() {
+  if (UI.modal === 'mobile') { mobileTray(false); return; }
   if (UI.modal === 'map') { toggleMap(false); return; }
   if (UI.modal === 'kit') { closeKit(); return; }
   if (UI.modal === 'dialog') { closeDialog(); return; }

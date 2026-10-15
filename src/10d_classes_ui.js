@@ -48,7 +48,7 @@ function classHotbar() {
   tech.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); classTechniqueUI(); });
   hold.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); try { hold.setPointerCapture(e.pointerId); } catch (err) { /* synthetic */ } classHold(true, 'touch'); hold.classList.add('on'); });
   const up = (e) => { e.preventDefault(); if (CLS.holdSrc === 'touch') classHold(false); hold.classList.remove('on'); };
-  hold.addEventListener('pointerup', up); hold.addEventListener('pointercancel', up);
+  hold.addEventListener('pointerup', up); hold.addEventListener('pointercancel', up); hold.addEventListener('lostpointercapture', up);
   UI.slots = (UI.slots || []).filter((s) => !s.classList.contains('cls-btn'));
 }
 function classLabels(P) {

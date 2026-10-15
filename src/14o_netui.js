@@ -11,7 +11,7 @@ const NETUI = { on: false, open: false, chan: 'r', bubbles: [], lines: [], sayAt
 function netUiOn() {
   if (NETUI.on) return;
   NETUI.on = true;
-  const host = document.querySelector('#topright .iconbtns');
+  const host = ($('btn-map') && $('btn-map').parentElement);
   if (host && !$('btn-net')) {
     const b = document.createElement('button');
     b.id = 'btn-net'; b.type = 'button'; b.className = 'iconbtn panel'; b.hidden = true;

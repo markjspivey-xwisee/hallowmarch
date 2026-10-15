@@ -908,6 +908,170 @@
   #netsheet-co .net-msg.bad { color: #f0a090; }
   .np .co { display: block; font-size: 10.5px; line-height: 1.1; color: var(--cc, #e8dcc0); opacity: 0.92; text-align: center; text-shadow: 0 1px 2px #000; letter-spacing: 0.02em; }
   .chron .co-st { list-style: none; }
+
+  /* Mobile play: the world is the canvas, with status at the top and a thumb dock below.
+     Secondary tools and ability descriptions live in the March sheet instead of covering the view. */
+  #mobile-character, #mobile-menu-toggle, #mobile-needs-alert { display: none; }
+  #mobile-tray { z-index: 32; align-items: end; padding: 0; height: 100%; height: var(--mobile-vh, 100dvh); bottom: auto; }
+  #mobile-tray .mobile-sheet { width: min(560px, 100%); max-height: calc(100% - var(--safe-t) - 12px); max-height: calc(var(--mobile-vh, 100dvh) - var(--safe-t) - 12px); margin: 0 auto; padding: 0 16px calc(16px + var(--safe-b)); border-radius: 18px 18px 0 0; gap: 16px; overscroll-behavior: contain; touch-action: pan-y; background: #171a20; box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.5); }
+  #mobile-tray .mobile-sheet-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 -16px; padding: 14px 16px 10px; background: #171a20; border-bottom: 1px solid var(--line); }
+  #mobile-tray .mobile-sheet-head h2 { font-size: 26px; }
+  #mobile-tray-close { min-width: 64px; min-height: 44px; }
+  #mobile-tray section { display: grid; gap: 8px; min-width: 0; }
+  #mobile-tray h3 { margin: 0; font-size: 12px; letter-spacing: 0.12em; }
+  #mobile-tray-nav, #mobile-tray-utilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  #mobile-tray-nav > .iconbtns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-column: 1 / -1; width: 100%; gap: 8px; margin: 0; }
+  #mobile-extra-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  #mobile-tray .btn, #mobile-tray .iconbtn, #mobile-tray summary { min-height: 48px; min-width: 44px; font-size: 14px; }
+  #mobile-tray .btn, #mobile-tray .iconbtn { width: auto; padding: 8px; gap: 6px; }
+  #mobile-tray .iconbtn { display: flex; justify-content: center; }
+  #mobile-tray .mobile-nav-label { min-width: 0; font-size: 13px; line-height: 1.15; }
+  #mobile-tray button svg { width: 20px; height: 20px; flex: none; }
+  #mobile-tray #btn-animals { display: flex; }
+  #mobile-tray #cls, #mobile-tray #needs, #mobile-tray #petbar, #mobile-tray #netparty, #mobile-tray #war, #mobile-tray #bounty { position: static !important; inset: auto !important; grid-column: 1 / -1; width: 100% !important; min-width: 0; max-width: none !important; transform: none !important; margin: 0; }
+  #mobile-tray #cls { justify-items: start; padding: 10px; pointer-events: auto; }
+  #mobile-tray #cls .cls-row { flex-wrap: wrap; gap: 8px; }
+  #mobile-tray #cls .cls-stances button, #mobile-tray #cls .cls-holy { min-width: 44px; min-height: 44px; width: 44px; height: 44px; justify-content: center; }
+  #mobile-tray #cls .cls-quiver, #mobile-tray #cls .cls-el { width: auto; min-width: 44px; min-height: 44px; }
+  #mobile-tray #cls .cls-quiver::after { content: none; }
+  #mobile-tray #cls .cls-cue { max-width: 100%; }
+  #mobile-tray #petbar { grid-auto-flow: row; gap: 8px; padding: 10px; }
+  #mobile-tray #petbar .pb-pets { grid-auto-flow: row; grid-auto-columns: auto; gap: 6px; }
+  #mobile-tray #petbar .pb-cmds { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  #mobile-tray #petbar .pb-cmds button, #mobile-tray #petbar .pb-pet, #mobile-tray #netparty .net-pm { min-height: 44px; }
+  #mobile-tray #war { padding: 10px; font-size: 13px; }
+  #mobile-tray #war .g2-aim { min-height: 44px; font-size: 12px; }
+  #mobile-tray #needs { grid-column: 1 / -1; width: 100%; padding: 10px 12px; min-height: 48px; border: 1px solid var(--line); border-radius: 6px; background: rgba(0, 0, 0, 0.2); }
+  #mobile-tray #needs .nds { font-size: 12px; }
+  #mobile-tray #needs::after { content: none; }
+  #mobile-tray-abilities { display: grid; gap: 7px; }
+  #mobile-tray-abilities details { border: 1px solid var(--line); border-radius: 7px; background: rgba(0, 0, 0, 0.18); overflow: hidden; }
+  #mobile-tray-abilities summary { display: flex; align-items: center; gap: 9px; padding: 10px 12px; cursor: pointer; list-style: none; }
+  #mobile-tray-abilities summary::-webkit-details-marker { display: none; }
+  #mobile-tray-abilities summary::after { content: '+'; margin-left: auto; color: var(--bronze-hi); font-size: 20px; }
+  #mobile-tray-abilities details[open] summary::after { content: '−'; }
+  #mobile-tray-abilities summary svg { width: 22px; height: 22px; color: var(--bronze-hi); flex: none; }
+  #mobile-tray-abilities summary small { margin-left: auto; color: var(--ink-dim); font-size: 12px; }
+  #mobile-tray-abilities details > :not(summary) { padding: 0 12px 12px; color: var(--ink-dim); font-size: 14px; line-height: 1.4; }
+  #mobile-tray-abilities .locked summary, #mobile-tray-abilities [data-locked="true"] summary { color: var(--ink-dim); }
+  #mobile-tray-abilities .locked summary svg, #mobile-tray-abilities [data-locked="true"] summary svg { color: var(--ink-faint); }
+
+  body.touch { --pad: 8px; }
+  body.touch #hud { height: 100%; height: var(--mobile-vh, 100dvh); }
+  body.touch #hud #pf { width: clamp(156px, calc(100vw - var(--safe-l) - var(--safe-r) - 166px), 194px); top: calc(8px + var(--safe-t)); padding: 7px 8px; gap: 3px; border-radius: 8px; background: rgba(12, 15, 19, 0.8); }
+  body.touch #pf .head { min-height: 16px; line-height: 16px; }
+  body.touch #pf .head .nm { font-size: 13px; }
+  body.touch #pf .head .lv { font-size: 11px; }
+  body.touch #pf > .sub, body.touch #pf > .xpline, body.touch #pf > #pf-gifts, body.touch #pf > #needs { display: none; }
+  body.touch #pf > .bar { height: 13px; }
+  body.touch #pf > .bar.power { height: 10px; }
+  body.touch #pf > .bar.endurance { height: 4px; }
+  body.touch #pf > .bar.experience { height: 2px; }
+  body.touch #pf .bar span { font-size: 10px; }
+  body.touch #pf-buffs:empty { display: none; }
+  body.touch #pf-buffs .buff { width: 18px; height: 18px; }
+  body.touch #mobile-needs-alert { display: block; color: #ffbd7d; font-size: 10px; line-height: 12px; }
+  body.touch #mobile-character { display: block; position: absolute; inset: 0; z-index: 1; width: 100%; min-height: 44px; border: 0; border-radius: inherit; padding: 0; cursor: pointer; background: transparent; }
+  body.touch #mobile-character:active { background: rgba(223, 193, 136, 0.08); }
+  body.touch #hud #topright { top: calc(8px + var(--safe-t)); right: 8px; width: 132px; grid-template-columns: 44px 82px; gap: 6px; align-items: start; }
+  body.touch #hud #mmwrap { width: 82px; height: 82px; grid-column: 2; grid-row: 1; border-radius: 10px; }
+  body.touch #mmzone { font-size: 10px; padding: 2px; }
+  body.touch #mobile-menu-toggle { display: flex; position: relative; flex-direction: column; align-items: center; justify-content: center; gap: 1px; grid-column: 1; grid-row: 1; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line-strong); color: var(--ink); font: 600 10px/1 var(--caps); cursor: pointer; }
+  body.touch #mobile-menu-toggle svg { width: 22px; height: 22px; }
+  #mobile-notice { display: none; position: absolute; top: -4px; right: -4px; min-width: 15px; height: 15px; padding: 2px 3px; border: 1px solid #171a20; border-radius: 10px; background: #c35e41; color: #fff5dc; font: 700 10px/10px var(--ui); pointer-events: none; }
+  #mobile-notice:empty { min-width: 8px; height: 8px; padding: 0; }
+  #mobile-menu-toggle.mobile-notice #mobile-notice { display: block; }
+  body.touch #hud #topright > .iconbtns { display: none; }
+  body.touch #hud #war, body.touch #hud #bounty, body.touch #hud #petbar { display: none; }
+  body.touch #hud #tf { width: min(194px, calc(100vw - var(--safe-l) - var(--safe-r) - 32px)); padding: 6px 8px; gap: 3px; }
+  body.touch #tf .sub, body.touch #tf-buffs:empty { display: none; }
+  body.touch #tf .head .nm { font-size: 12px; }
+  body.touch #tf .bar { height: 9px; }
+  body.touch #hud #lore-path { max-width: min(220px, calc(100vw - 32px)); min-height: 44px; padding: 0 6px 0 10px; gap: 0; align-content: center; border-radius: 8px; }
+  body.touch #hud #lore-path .st { font-size: 12px; }
+  body.touch #hud #lore-path button.st { min-width: 44px; min-height: 44px; align-self: stretch; }
+  body.touch #hud #lore-path .tog { width: 44px; height: 44px; border: 0; background: transparent; }
+  body.touch #hud #lore-path .tog::after { content: none; }
+  body.touch #hud #lore-path .step { min-height: 44px; align-content: center; }
+  body.touch #hud #lore-path .hint, body.touch #hud #lore-path .meter, body.touch #hud #lore-path .rw, body.touch #hud #lore-path .lbl, body.touch #hud #lore-path .gd-where, body.touch #hud #lore-path .w2-path { display: none; }
+  body.touch #hud #cls { max-width: 194px; padding: 4px 6px; }
+  body.touch #cls .cls-row { gap: 5px; }
+  body.touch #cls .cls-stances button, body.touch #cls .cls-quiver, body.touch #cls .cls-el, body.touch #cls .cls-holy { min-width: 44px; min-height: 44px; }
+  body.touch #cls .cls-cue { font-size: 11px; max-width: 182px; }
+  body.touch #hud #tpad { width: 210px; right: 8px; bottom: calc(8px + var(--safe-b)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; pointer-events: none; }
+  body.touch #tpad .mobile-primary, body.touch #tpad .mobile-utility { display: grid; grid-column: 1; grid-template-columns: repeat(4, 48px); gap: 6px; min-width: 0; pointer-events: none; }
+  body.touch #tpad .mobile-primary { grid-row: 2; }
+  body.touch #tpad .mobile-primary .slot.locked { display: none; }
+  body.touch #tpad .mobile-utility { grid-row: 3; }
+  body.touch #tpad .mobile-class { grid-column: 1; grid-row: 1; display: flex; justify-content: flex-end; gap: 6px; min-height: 44px; pointer-events: none; }
+  body.touch #hud #tpad .slot { width: 48px; height: 48px; border-radius: 9px; pointer-events: auto; touch-action: none; }
+  body.touch #hud #tpad .slot::after { content: none; }
+  body.touch #tpad .slot svg { width: 23px; height: 23px; margin-top: -9px; }
+  body.touch #tpad .slot .cost, body.touch #tpad .slot .key, body.touch #tpad .slot .tip { display: none; }
+  body.touch #tpad .slot .rk { top: 1px; right: 2px; font-size: 8px; }
+  body.touch #tpad .mobile-label { position: absolute; bottom: 4px; left: 2px; right: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 10px/1 var(--ui); color: var(--ink); text-align: center; pointer-events: none; }
+  body.touch #tpad .mobile-utility .btn { width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 3px 1px; font-size: 11px; border-radius: 9px; background: rgba(12, 15, 19, 0.82); pointer-events: auto; touch-action: none; }
+  body.touch #hud #tpad .mobile-class .cls-btn, body.touch #hud #tpad .mobile-class .gslot { position: relative; inset: auto; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; margin: 0; pointer-events: auto; }
+  body.touch #tpad .mobile-class .gslot.locked { display: none; }
+  body.touch #tpad .mobile-class .cls-btn svg, body.touch #tpad .mobile-class .gslot svg { width: 21px; height: 21px; }
+  body.touch #tpad .mobile-class .cls-btn span { font-size: 9px; }
+  body.touch #tpad .mobile-class .gslot .tip { display: none; }
+  body.touch #tpad .mobile-class .gslot .mobile-label { bottom: 3px; font-size: 8px; }
+  body.touch #joyhint { width: 96px; height: 96px; left: 14px; bottom: calc(20px + var(--safe-b)); font-size: 10px; background: rgba(8, 12, 14, 0.08); }
+  body.touch #hud #bottom { width: min(300px, calc(100vw - var(--safe-l) - var(--safe-r) - 24px)); bottom: calc(174px + var(--safe-b)); gap: 5px; }
+  body.touch #hud #prompt { display: none !important; }
+  body.touch #castbar { max-width: 100%; }
+  /* Sheets are single-column grids. Their tracks must be allowed to shrink to the phone,
+     including the kit's bags and long equipment names, rather than their minimum content width. */
+  body.touch .overlay { padding-left: calc(8px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
+  body.touch .sheet { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+  body.touch #kit .sheet { max-width: 100%; padding: 12px; }
+  body.touch #kit .sheet > *, body.touch #kit .kitbody > section { min-width: 0; max-width: 100%; }
+  body.touch #kit .kithead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+  body.touch #kit-title { grid-column: 1; grid-row: 1; font-size: 26px; line-height: 1.05; }
+  body.touch #kit-gold { grid-column: 1; grid-row: 2; font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
+  body.touch #kit-close { grid-column: 2; grid-row: 1 / span 2; align-self: start; min-width: 58px; min-height: 44px; padding: 8px 10px; }
+  body.touch #kit .kitbody { grid-template-columns: minmax(0, 1fr); }
+  body.touch #kit .eqgrid, body.touch #kit .statsum, body.touch #kit .bagrid { min-width: 0; }
+  body.touch #kit .eqslot { min-height: 48px; }
+  body.touch #kit button { min-width: 44px; }
+  body.touch #kit .bagslot { min-width: 0; min-height: 44px; width: 100%; }
+  body.touch #kit .statsum .gs-cell { min-height: 44px; }
+  body.touch #kit-card { min-width: 0; overflow-wrap: anywhere; }
+  body.touch #kit-card.has-x { padding-right: 60px; }
+  body.touch #kit-card .gs-x { width: 44px; height: 44px; }
+  body.touch .overlay .btn, body.touch .overlay .seg button { min-height: 44px; }
+  body.touch #hud #banners > .banner { max-width: min(290px, calc(100vw - 24px)); padding: 7px 10px; font-size: 12px; }
+  body.touch #hud #banners .lore-note { min-height: 44px; max-height: 66px; overflow: hidden; }
+  body.touch #hud #banners .lore-note b { font-size: 15px; }
+  body.touch #hud #banners .lore-note span { font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+  body.touch #hud #banners .lore-note small { font-size: 9px; }
+  body.touch #hud #error { font-size: 13px; bottom: calc(220px + var(--safe-b)); }
+  body.touch #netchat input, body.touch #netsheet-acct input { font-size: 16px; }
+  @media (max-width: 359px) { body.touch #kit .bagrid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+  @media (orientation: landscape) and (max-height: 520px) {
+    body.touch #hud #pf { width: 176px; }
+    body.touch #hud #topright { width: 114px; grid-template-columns: 44px 64px; }
+    body.touch #hud #mmwrap { width: 64px; height: 64px; }
+    body.touch #hud #tpad { width: min(394px, calc(100vw - var(--safe-l) - var(--safe-r) - 156px)); grid-template-columns: minmax(0, 1fr) 194px; gap: 6px; }
+    body.touch #tpad .mobile-primary { grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(8, 44px); justify-content: end; }
+    body.touch #tpad .mobile-class { grid-column: 1; grid-row: 2; justify-content: flex-end; }
+    body.touch #tpad .mobile-utility { grid-column: 2; grid-row: 2; grid-template-columns: repeat(4, 44px); }
+    body.touch #hud #tpad .slot, body.touch #tpad .mobile-utility .btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+    body.touch #tpad .mobile-label { font-size: 9px; }
+    body.touch #joyhint { bottom: calc(12px + var(--safe-b)); width: 88px; height: 88px; }
+    body.touch #hud #bottom { width: min(270px, calc(100vw - 210px)); bottom: calc(112px + var(--safe-b)); }
+    body.touch #hud #banners > .banner { max-width: min(280px, 42vw); }
+    #mobile-tray .mobile-sheet { width: min(680px, 100%); padding-left: max(16px, var(--safe-l)); padding-right: max(16px, var(--safe-r)); }
+    #mobile-tray-nav, #mobile-tray-nav > .iconbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (orientation: landscape) and (max-height: 520px) and (max-width: 600px) {
+    body.touch #hud #tpad { width: 194px; grid-template-columns: minmax(0, 1fr); }
+    body.touch #tpad .mobile-class { grid-column: 1; grid-row: 1; }
+    body.touch #tpad .mobile-primary { grid-column: 1; grid-row: 2; grid-template-columns: repeat(4, 44px); }
+    body.touch #tpad .mobile-utility { grid-column: 1; grid-row: 3; }
+    body.touch #hud #bottom { bottom: calc(210px + var(--safe-b)); }
+  }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
@@ -958,14 +1122,16 @@
 
 <div id="hud" hidden>
   <div class="frame panel" id="pf">
+    <button id="mobile-character" type="button" aria-label="Open character and full status"></button>
     <div class="head"><span class="nm" id="pf-name"></span><span class="lv" id="pf-lv"></span></div>
     <div class="sub" id="pf-sub"></div>
     <div class="bar" style="--c: var(--hp)"><i class="lag" id="pf-hpl"></i><i id="pf-hp"></i><span id="pf-hpt"></span></div>
-    <div class="bar" style="--c: var(--power)"><i id="pf-pw"></i><span id="pf-pwt"></span></div>
-    <div class="bar thin" style="--c: var(--end)"><i id="pf-en"></i></div>
-    <div class="bar thin" style="--c: var(--xp)"><i id="pf-xp"></i></div>
+    <div class="bar power" style="--c: var(--power)"><i id="pf-pw"></i><span id="pf-pwt"></span></div>
+    <div class="bar thin endurance" style="--c: var(--end)"><i id="pf-en"></i></div>
+    <div class="bar thin experience" style="--c: var(--xp)"><i id="pf-xp"></i></div>
     <div class="xpline"><span id="pf-xpt"></span><span id="pf-rpt"></span></div>
     <div class="buffs" id="pf-buffs"></div>
+    <span id="mobile-needs-alert" hidden role="status"></span>
   </div>
   <div class="frame panel" id="tf" hidden>
     <div class="head"><span class="con" id="tf-con"></span><span class="nm" id="tf-name"></span><span class="lv" id="tf-lv"></span></div>
@@ -975,6 +1141,7 @@
     <div class="buffs" id="tf-buffs"></div>
   </div>
   <div id="topright">
+    <button class="panel" id="mobile-menu-toggle" type="button" aria-label="Open more tools and abilities" aria-controls="mobile-tray" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg><span>More</span><span id="mobile-notice" aria-hidden="true"></span></button>
     <div class="panel" id="mmwrap"><canvas id="minimap" width="186" height="186"></canvas><div id="mmzone"></div></div>
     <div class="iconbtns">
       <button class="iconbtn panel" id="btn-map" type="button" aria-label="Open the map (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14"/></svg></button>
@@ -1002,6 +1169,15 @@
     <div id="joyhint">Drag to move</div>
     <div id="joy"><i></i></div>
     <div id="tpad"></div>
+  </div>
+</div>
+
+<div class="overlay" id="mobile-tray" hidden>
+  <div class="sheet panel mobile-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-tray-title">
+    <div class="mobile-sheet-head"><h2 id="mobile-tray-title">The March</h2><button class="btn" id="mobile-tray-close" type="button">Close</button></div>
+    <section aria-label="March tools"><div id="mobile-tray-nav"></div></section>
+    <section aria-label="Supplies and travel"><h3>Supplies &amp; travel</h3><div id="mobile-tray-utilities"></div></section>
+    <section aria-label="Ability descriptions"><h3>Your abilities</h3><div id="mobile-tray-abilities"></div></section>
   </div>
 </div>
 

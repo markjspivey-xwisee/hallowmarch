@@ -1,4 +1,4 @@
-"""The callings on a phone: the class panel and the technique and hold buttons at 390x780 with touch input,
+"""The callings on a phone: combat controls at 390x780 and class details reached through More,
 for each calling (screenshots cls_phone_<class>.png), plus a check that holding the touch button blocks or draws."""
 import asyncio, sys, pathlib, json
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -28,17 +28,27 @@ async def main():
             await frames(page, 2)
             await page.screenshot(path=OUT + f'cls_phone_{cls}.png', timeout=300000)
             await page.evaluate("""(() => { const b = document.querySelector('#tpad .cls-btn.hold'); b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'touch' })); return 0; })()""")
-            # overlaps: the class panel must not cover the pad, the frames or the minimap
+            # The class details wait in More, leaving the pad, frames and minimap clear during play.
             ov = await page.evaluate("""(() => { const r = (s) => { const e = document.querySelector(s); if (!e || e.hidden || !e.offsetParent) return null; return e.getBoundingClientRect(); };
               const hit = (a, b) => a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
               const c = r('#cls'); const out = {};
               for (const s of ['#tpad', '#pf', '#tf', '#topright', '#tpad .cls-btn.tech', '#tpad .cls-btn.hold', '#tpad .gslot']) out[s] = hit(c, r(s));
               out.cls = c && [Math.round(c.left), Math.round(c.top), Math.round(c.width), Math.round(c.height)];
-              out.vw = innerWidth; out.fits = c ? c.left >= 0 && c.right <= innerWidth : false; return out; })()""")
+              out.vw = innerWidth; out.inTray = !!document.querySelector('#mobile-tray #cls'); out.shown = !!c; return out; })()""")
             print('  layout', json.dumps(ov))
             for k, v in ov.items():
                 if k.startswith('#') and v: fails.append(f'{cls}: class panel overlaps {k}')
-            if not ov['fits']: fails.append(f'{cls}: class panel runs off the screen')
+            if ov['shown'] or not ov['inTray']: fails.append(f'{cls}: class details do not wait in More during play')
+            # Open the actual sheet and measure the same class panel there, including its real hit target.
+            await page.tap('#mobile-menu-toggle', timeout=60000)
+            await page.locator('#cls').scroll_into_view_if_needed(timeout=60000)
+            detail = await page.evaluate("""(() => { const el = document.getElementById('cls'), r = el.getBoundingClientRect(), sheet = document.querySelector('#mobile-tray .sheet').getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return { open: __hm.UI.modal === 'mobile', fits: r.width > 120 && r.left >= sheet.left && r.right <= sheet.right && r.top >= sheet.top && r.bottom <= sheet.bottom,
+                top: !!hit && (hit === el || el.contains(hit)) }; })()""")
+            print('  class details', json.dumps(detail))
+            if not all(detail.values()): fails.append(f'{cls}: class details are not visible and reachable in More ({detail})')
+            await page.tap('#mobile-tray-close', timeout=60000)
         errs = await page.evaluate("__hm.errors.slice(0, 3)")
         if errs: fails.append(f'errors {errs}')
         await b.close()

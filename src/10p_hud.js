@@ -108,7 +108,7 @@ function hudLayout(dt) {
   // what stays put
   const placed = [];
   const fixed = (sel) => { const el = document.querySelector(sel); if (el && hudShown(el)) placed.push({ ...hudRect(el), sel }); };
-  ['#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar'].forEach(fixed);
+  ['#pf', '#mmwrap', '#mobile-menu-toggle', '#topright > .iconbtns', '#hotbar'].forEach(fixed);
   const lg = $('log'), hb = $('hotbar'), bb = $('buildbar'), cl = $('cls');
   if (!touch) {
     // [v9] on a desk the class panel sits over the hotbar, the builder's bar over both, and the prompt and the cast bar
@@ -183,7 +183,7 @@ function hudLayout(dt) {
   const noteUp = mode !== 'desk' && !!document.querySelector('#banners > .lore-note:not(.hl-old)'); // [guide]
   for (const sel of mode === 'desk' ? HUD_ORDER_DESK : noteUp ? (mode === 'wide' ? HUD_ORDER_NOTE_WIDE : HUD_ORDER_NOTE) : mode === 'tall' ? HUD_ORDER_TALL : HUD_ORDER) { // [look5] HUD_ORDER_TALL
     const el = document.querySelector(sel);
-    if (!el || !hudShown(el)) continue;
+    if (!el || !hudShown(el) || (touch && el.closest('#mobile-tray'))) continue;
     if (sel === '#cls' && !touch) continue; // over the hotbar on a desk, in the bottom's own flow (placed above)
     if (sel === '#buildbar' && !touch) continue;
     if (sel === '#banners' && !el.children.length) continue;
@@ -258,7 +258,7 @@ function hudLayout(dt) {
 // button under the one aimed at); it gives the room back once its height has held that long.
 const HUDL5 = { ro: null, mo: null, dirty: true, wake: Infinity, passes: 0, hold: new Map(), held: 0, why: '', whys: [] };
 const HUD_HOLD = new Set(['#tf', '#cls', '#lore-path', '#petbar', '#netparty', '#war', '#bounty', '#farmcard']), HUD_HOLD_T = 6;
-const HUD_WATCH = [...HUD_ORDER, '#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#tpad', '#joyhint', '#prompt', '#castbar', '#log', '#bottom'];
+const HUD_WATCH = [...HUD_ORDER, '#mobile-menu-toggle', '#pf', '#mmwrap', '#topright > .iconbtns', '#hotbar', '#tpad', '#joyhint', '#prompt', '#castbar', '#log', '#bottom'];
 function hudWatch() {
   if (HUDL5.ro !== null || typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return;
   const els = HUD_WATCH.map((s) => document.querySelector(s)).filter(Boolean);
