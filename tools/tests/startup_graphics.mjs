@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 const root = new URL('../../', import.meta.url);
 const read = name => readFileSync(new URL('src/' + name, root), 'utf8');
@@ -179,4 +180,40 @@ test('a context lost while a boot step yields prevents subsequent world allocati
   paint();
   await assert.rejects(pending,/Graphics stopped during Controlled allocation/);
   assert.equal(b.ctx.BOOT_STEPS.length,0,'an interrupted allocation is not counted as complete');
+});
+
+function selectedSky(safe) {
+  const source=read('02_render.js');
+  const start=source.indexOf('const RECOVERY_SKY_FRAGMENT');
+  const end=source.indexOf('scene.add(skyMesh);',start);
+  assert.ok(start>=0&&end>start);
+  const ctx={
+    BOOT_SAFE:safe,skyU:{},fsTriGeo:{},
+    GLSL_COMMON:'COMMON_SENTINEL',GLSL_ATMOS:'ATMOS_SENTINEL',GLSL_CLOUDS:'CLOUDS_SENTINEL',
+    scene:{add(){}},mat:options=>({...options}),
+    THREE:{Mesh:class{constructor(geometry,material){this.geometry=geometry;this.material=material;}}},
+  };
+  vm.createContext(ctx);
+  vm.runInContext(source.slice(start,end+'scene.add(skyMesh);'.length)+'\nglobalThis.material=skyMesh.material;',ctx);
+  return ctx.material;
+}
+
+test('recovery actually selects a small sky fragment without procedural compiler input',()=>{
+  const material=selectedSky(true);
+  assert.equal(material.name,'Recovery sky');
+  assert.ok(material.fragmentShader.length<1600,'selected input is the short recovery fragment');
+  assert.match(material.fragmentShader,/uniform vec3 uSunDir, uMoonDir/);
+  assert.match(material.fragmentShader,/gl_FragColor/);
+  assert.doesNotMatch(material.fragmentShader,/SENTINEL|sampler|texture|fbm|hash|cloud|fwidth|dFdx|dFdy|floatBitsToUint|\buint\b|\bfor\s*\(|\bwhile\s*\(/i);
+});
+
+test('normal sky fragment and both sky vertices preserve their earlier compiler input',()=>{
+  const normal=selectedSky(false),recovery=selectedSky(true);
+  const hash=value=>createHash('sha256').update(value).digest('hex');
+  // Verified against the earlier startup-fix source. Sentinels replace only
+  // unchanged shared chunks so the digest pins the actual normal template.
+  assert.equal(hash(normal.fragmentShader),'7a3db51d7dbd1db5d8f9c6d183f1f87807835d627be99fcef637012c8ad84a60');
+  assert.equal(hash(normal.vertexShader),'c0f96cb3c6162ed6cfe1884f11c35fb8f31d3663268dfbcebf98f34cd178619b');
+  assert.equal(recovery.vertexShader,normal.vertexShader);
+  assert.notEqual(recovery.fragmentShader,normal.fragmentShader);
 });

@@ -11,3 +11,9 @@ Before the trail stage, family draws sample a neutral one-pixel trail texture; t
 The stages separate a simple cube, the byte scene target and composite, the actual scene families, offscreen helpers, and the combined view. A failed stage narrows the rendering family; it does not by itself prove a particular shader expression or driver defect. A successful diagnostic is also not a hardware gameplay soak.
 
 The existing normal and reduced launches remain available. Do not label the recovery fixed until the affected browser can render the game and then still render the independent WebGL2 test.
+
+## Native sky result and targeted recovery
+
+On the affected Edge session, the direct cube completed in 20 ms and the cube through the game target/composite completed in 77 ms. The next isolated sky batch failed shader linking after 8,222 ms, then lost and restored its context. The failed batch contained one draw: the main fullscreen sky, material 6, geometry 3, three vertices, no indices. Terrain, grass and actors had not been submitted. Program and shader logs were empty, so this identifies the failing program family without establishing a particular driver/compiler defect.
+
+The reduced launch now selects a separate small sky fragment at JavaScript material construction. Its compiler input omits shared procedural chunks entirely; a runtime false cloud branch in the previous shader still left those chunks in its source. The replacement uses the existing camera reconstruction and live sky uniforms for the horizon, daylight/night colors, sun, moon and underwater tint. The ordinary sky fragment and vertex shader remain unchanged. Native verification of the replacement and the remaining stages is still required.

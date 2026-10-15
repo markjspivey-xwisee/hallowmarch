@@ -680,6 +680,30 @@ const skyU = {
 const fsTriGeo = new THREE.BufferGeometry();
 fsTriGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
 fsTriGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
+// The affected native GPU completed the cube and composite batches, then failed
+// linking this fullscreen sky material. A runtime false cloud branch still
+// supplied every procedural helper to the compiler. Recovery supplies a separate
+// small fragment; the normal fragment below is kept unchanged.
+const RECOVERY_SKY_FRAGMENT = /* glsl */`
+  uniform vec3 uZenith, uHorizon, uSunGlow, uGlowDir;
+  uniform vec3 uSunDir, uMoonDir;
+  uniform float uSunVis, uMoonVis;
+  uniform vec4 uUnder;
+  uniform vec3 uUnderCol;
+  varying vec3 vDir;
+  void main(){
+    vec3 dir = vDir * inversesqrt(max(dot(vDir, vDir), 1e-8));
+    float height = smoothstep(-0.03, 0.52, clamp(dir.y, -0.2, 1.0));
+    vec3 col = mix(uHorizon, uZenith, height);
+    float warmHorizon = smoothstep(0.1, 0.95, dot(dir, uGlowDir)) * (1.0 - height);
+    col += uSunGlow * warmHorizon * 0.12;
+    float sun = smoothstep(0.99960, 0.99983, dot(dir, uSunDir)) * clamp(uSunVis, 0.0, 1.0);
+    float moon = smoothstep(0.99952, 0.99976, dot(dir, uMoonDir)) * clamp(uMoonVis, 0.0, 1.0);
+    col = mix(col, vec3(1.65, 1.6, 1.5), sun);
+    col = mix(col, vec3(0.80, 0.83, 0.90), moon);
+    if (uUnder.x > 0.5) col = mix(col, uUnderCol, 0.7);
+    gl_FragColor = vec4(clamp(col, 0.0, 8.0), 0.0);
+  }`;
 const skyMesh = new THREE.Mesh(fsTriGeo, mat({
   uniforms: skyU, depthWrite: false, depthTest: false,
   vertexShader: /* glsl */`
@@ -690,7 +714,7 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
       vDir = p.xyz / (abs(p.w) > 1e-6 ? p.w : 1e-6) - cameraPosition;
       gl_Position = vec4(position.xy, 1.0, 1.0);
     }`,
-  fragmentShader: /* glsl */`
+  fragmentShader: BOOT_SAFE ? RECOVERY_SKY_FRAGMENT : /* glsl */`
     ${GLSL_COMMON}
     ${GLSL_ATMOS}
     ${GLSL_CLOUDS}
@@ -764,6 +788,7 @@ const skyMesh = new THREE.Mesh(fsTriGeo, mat({
       gl_FragColor = vec4(safeColor(col), 0.0);
     }`,
 }));
+if (BOOT_SAFE) skyMesh.material.name = 'Recovery sky';
 skyMesh.frustumCulled = false;
 skyMesh.renderOrder = -100;
 scene.add(skyMesh);

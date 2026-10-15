@@ -274,6 +274,122 @@ async def safe_boot(browser):
     finally:
         await ctx.close()
 
+async def recovery_sky_render(page, errors, console_errors):
+    result = await page.evaluate("""async threeURL => {
+      const THREE = await import(threeURL);
+      const renderer = __hm.dbg.renderer, gl = renderer.getContext();
+      let sky;
+      __hm.dbg.scene.traverse(object => {
+        if (object.material && object.material.name === 'Recovery sky') sky = object;
+      });
+      if (!sky) throw new Error('The actual recovery sky material was not selected.');
+      const material = sky.material, fragment = material.fragmentShader;
+      const heavy = /sampler|texture|fbm|hash|cloud|fwidth|dFdx|dFdy|floatBitsToUint|for\\s*\\(|while\\s*\\(/i;
+      if (fragment.length >= 1600 || heavy.test(fragment)) {
+        throw new Error('Recovery sky still supplies heavy fragment compiler input.');
+      }
+      if (!gl.getExtension('EXT_color_buffer_float')) {
+        throw new Error('Float color readback is required to test finite sky output.');
+      }
+      const target = new THREE.WebGLRenderTarget(16,16,{
+        type:THREE.FloatType,format:THREE.RGBAFormat,depthBuffer:false,stencilBuffer:false,
+        minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,
+      });
+      const isolated = new THREE.Scene(), mesh = sky.clone(false);
+      mesh.visible = true; mesh.frustumCulled = false; isolated.add(mesh);
+      const saved = {
+        target:renderer.getRenderTarget(),color:renderer.getClearColor(new THREE.Color()).clone(),
+        alpha:renderer.getClearAlpha(),autoClear:renderer.autoClear,
+        viewport:renderer.getViewport(new THREE.Vector4()).clone(),
+        scissor:renderer.getScissor(new THREE.Vector4()).clone(),
+        scissorTest:renderer.getScissorTest(),
+        shaderError:renderer.debug.onShaderError,checkShaderErrors:renderer.debug.checkShaderErrors,
+      };
+      const samples = [];
+      const waitForGpu = async () => {
+        const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);
+        if (!sync) throw new Error('Sky readback completion fence could not be created.');
+        gl.flush();
+        const started = performance.now();
+        try {
+          while (true) {
+            if (gl.isContextLost()) throw new Error('Sky render lost its WebGL context.');
+            const status = gl.clientWaitSync(sync,0,0);
+            if (status===gl.ALREADY_SIGNALED || status===gl.CONDITION_SATISFIED) return;
+            if (status===gl.WAIT_FAILED || performance.now()-started>15000) {
+              throw new Error('Sky render did not complete its GPU fence.');
+            }
+            await new Promise(resolve=>setTimeout(resolve,10));
+          }
+        } finally { if (!gl.isContextLost()) gl.deleteSync(sync); }
+      };
+      renderer.debug.checkShaderErrors = true;
+      renderer.debug.onShaderError = (context,program,vertex,fragmentShader) => {
+        throw new Error('Recovery sky shader failure: '+context.getProgramInfoLog(program)+' / '+
+                        context.getShaderInfoLog(vertex)+' / '+context.getShaderInfoLog(fragmentShader));
+      };
+      try {
+        for (const [name,time] of [['day',0.3],['night',2.1]]) {
+          __hm.fn.applyTimeOfDay(time);
+          renderer.setRenderTarget(target);renderer.setViewport(0,0,16,16);
+          renderer.setScissorTest(false);renderer.setClearColor(0,0);renderer.clear(true,true,false);
+          renderer.render(isolated,__hm.camera);
+          await waitForGpu();
+          const pixels = new Float32Array(16*16*4);
+          renderer.readRenderTargetPixels(target,0,0,16,16,pixels);
+          const error = gl.getError();
+          if (error!==gl.NO_ERROR) throw new Error(name+' sky GL error: 0x'+error.toString(16));
+          const rgb = [];
+          for (let n=0;n<pixels.length;n+=4) rgb.push(pixels[n],pixels[n+1],pixels[n+2]);
+          samples.push({name,finite:rgb.every(Number.isFinite),min:Math.min(...rgb),max:Math.max(...rgb),
+                        mean:rgb.reduce((sum,x)=>sum+x,0)/rgb.length,
+                        firstPixels:Array.from(pixels.slice(0,16)),fenceComplete:true});
+        }
+        const compilerSources = [];
+        for (const entry of renderer.info.programs) {
+          if (!entry.program) continue;
+          for (const shader of gl.getAttachedShaders(entry.program) || []) {
+            if (gl.getShaderParameter(shader,gl.SHADER_TYPE)!==gl.FRAGMENT_SHADER) continue;
+            const text = gl.getShaderSource(shader) || '';
+            if (text.includes('warmHorizon')) {
+              compilerSources.push({length:text.length,source:text,
+                                    linked:!!gl.getProgramParameter(entry.program,gl.LINK_STATUS)});
+            }
+          }
+        }
+        return {name:material.name,fragmentLength:fragment.length,compilerSources,samples,
+                unchanged:material.fragmentShader===fragment,lost:gl.isContextLost()};
+      } finally {
+        renderer.debug.onShaderError = saved.shaderError;
+        renderer.debug.checkShaderErrors = saved.checkShaderErrors;
+        __hm.fn.applyTimeOfDay(__hm.tod.p);
+        renderer.autoClear = saved.autoClear;
+        if (!gl.isContextLost()) {
+          renderer.setRenderTarget(saved.target);renderer.setClearColor(saved.color,saved.alpha);
+          renderer.setViewport(saved.viewport);renderer.setScissor(saved.scissor);
+          renderer.setScissorTest(saved.scissorTest);target.dispose();
+        }
+      }
+    }""",hm.THREE_URL)
+    check(result['name']=='Recovery sky' and result['fragmentLength']<1600 and result['unchanged'],
+          'real sky render uses the selected small production recovery fragment')
+    check(result['compilerSources'] and
+          all(row['linked'] and row['length']<8192 and
+              not any(token in row['source'] for token in
+                      ('floatBitsToUint','cloudScreen','fbm(','hash12('))
+              for row in result['compilerSources']),
+          'actual linked sky compiler input excludes heavy procedural chunks')
+    for sample in result['samples']:
+        check(sample['fenceComplete'] and sample['finite'] and
+              sample['min']>=0 and sample['max']<=8.01 and sample['mean']>0,
+              sample['name']+' recovery sky renders finite nonblack float pixels')
+    check(abs(result['samples'][0]['mean']-result['samples'][1]['mean'])>0.0001,
+          'production time-of-day uniforms produce distinct day and night skies')
+    check(not result['lost'] and not errors and not console_errors,
+          'day and night recovery sky rendering has no shader, GL or runtime errors')
+    (hm.OUT/'recovery-sky-day-night.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+
+
 DIAGNOSTIC_SNAPSHOT = """() => {
  const d = window.__hmGpuDiagnostic;
  return {
@@ -352,6 +468,7 @@ async def staged_diagnostic(browser):
         check(final['lost']==0 and final['restored']==0 and not final['errors'] and
               not errors and not console_errors, 'diagnostic has no context loss or runtime errors')
         check(len(navigations)==1, 'diagnostic never reloads or navigates automatically')
+        await recovery_sky_render(page,errors,console_errors)
         (hm.OUT/'gpu-diagnostic-results.json').write_text(json.dumps(final,indent=2),encoding='utf-8')
         await page.screenshot(path=str(hm.OUT/'gpu-diagnostic-desktop.png'),timeout=120000)
         target_before = final['startup']['target']
