@@ -42,6 +42,7 @@ function mobileSection(section = 'world', focus = false) {
   const tabs = [...document.querySelectorAll('[data-mobile-tab]')];
   if (!tabs.some((tab) => tab.dataset.mobileTab === section)) return;
   MOBILE_UI.section = section;
+  $('mobile-tray-title').textContent = { world: 'Game menu', character: 'Skills & character', social: 'Players & realm', options: 'Options' }[section];
   $('mobile-tray').dataset.section = section;
   const sheet = $('mobile-tray').querySelector('.mobile-sheet');
   if (sheet) sheet.scrollTop = 0;
@@ -56,7 +57,10 @@ function mobileSection(section = 'world', focus = false) {
   }
 }
 function mobileModalChanged(value) {
-  if (value) mobileStopInput();
+  if (value) {
+    if ($('hud').contains(document.activeElement)) MOBILE_UI.focus = document.activeElement;
+    mobileStopInput();
+  }
   document.body.classList.toggle('mobile-modal-open', !!value);
   $('hud').inert = !!value;
   // All sheets share UI.modal. Close a superseded More sheet in the same event,
@@ -66,6 +70,11 @@ function mobileModalChanged(value) {
     document.body.classList.remove('mobile-tray-open');
     $('mobile-menu-toggle').setAttribute('aria-expanded', 'false');
   }
+  queueMicrotask(() => {
+    if (UI.modal !== value) return;
+    const focus = value === 'kit' ? $('kit-close') : value === 'map' ? $('btn-mapclose') : !value ? MOBILE_UI.focus : null;
+    if (focus && focus.isConnected && !focus.closest('[hidden]')) focus.focus({ preventScroll: true });
+  });
 }
 function mobileInteractionLabel(label) {
   if (/^(speak|talk)\b/i.test(label)) return 'Talk';
@@ -78,8 +87,9 @@ function mobileAbilityLabel(name) {
   const short = { 'Bulwark': 'Bul\u200bwark', 'Deadeye': 'Dead\u200beye', 'Meteor': 'Me\u200bteor',
     'Cleave': 'Wide cut', 'Charge': 'Rush', 'Tumble': 'Roll', 'Renewal': 'Re\u200bnew',
     'Rallying Cry': 'Rally', 'Whirlwind': 'Whirl', 'Crippling Arrow': 'Slow arrow', 'Piercing Shot': 'Pierce',
-    'Arcane Ward': 'Ward', 'Chain Lightning': 'Chain bolt', 'Blizzard': 'Ice storm', 'Sanctuary': 'Haven',
-    'Mass Renewal': 'Group renew', 'Pillar of Dawn': 'Dawn pillar' };
+    'Frost Lance': 'Ice lance', 'Flame Nova': 'Nova', 'Divine Shield': 'Shield',
+    'Arcane Ward': 'Ward', 'Chain Lightning': 'Bolt', 'Blizzard': 'Ice', 'Sanctuary': 'Haven',
+    'Mass Renewal': 'Heal all', 'Pillar of Dawn': 'Dawn pillar' };
   return short[name] || name;
 }
 function mobileNameplateEligible(e, P) {
@@ -102,16 +112,26 @@ function mobileStopInput() {
 }
 function mobileViewport() {
   if (!IS_TOUCH) return;
-  const h = Math.round(window.visualViewport ? window.visualViewport.height : innerHeight);
-  document.documentElement.style.setProperty('--mobile-vh', h + 'px');
+  // A normal browser tab already supplies a safe viewport. Reserve notch/home
+  // insets only when the page actually extends behind them in immersive mode.
+  const immersive = !!document.fullscreenElement || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  const viewport = document.querySelector('meta[name="viewport"]');
+  const content = 'width=device-width, initial-scale=1, viewport-fit=' + (immersive ? 'cover' : 'auto');
+  if (viewport && viewport.content !== content) viewport.content = content;
+  // World, projection and HUD share the layout viewport. The keyboard can make
+  // the visual viewport smaller; only open sheets follow that smaller rectangle.
+  const root = document.documentElement.style, vv = window.visualViewport;
+  root.setProperty('--mobile-vh', innerHeight + 'px');
+  root.setProperty('--mobile-sheet-vh', Math.round(vv ? vv.height : innerHeight) + 'px');
+  root.setProperty('--mobile-sheet-top', Math.round(vv ? vv.offsetTop : 0) + 'px');
   HUDL.k = 0;
 }
-function mobileTray(open = UI.modal !== 'mobile', focus = true) {
+function mobileTray(open = UI.modal !== 'mobile', focus = true, section = 'world') {
   if (!IS_TOUCH || !$('mobile-tray')) return;
   if (open && UI.modal && UI.modal !== 'mobile') return;
   if (open) {
     mobileSync();
-    mobileSection('world');
+    mobileSection(section);
     MOBILE_UI.focus = document.activeElement;
     mobileStopInput();
     UI.modal = 'mobile';
@@ -137,6 +157,9 @@ function mobileBind() {
   mobilePreferences();
   mobileSection('world');
   $('mobile-menu-toggle').onclick = () => mobileTray();
+  $('mobile-inventory').onclick = () => { if (!UI.modal) openKit('kit'); };
+  $('mobile-skills').onclick = () => mobileTray(true, true, 'character');
+  $('mobile-map').onclick = () => { if (!UI.modal) toggleMap(); };
   $('mobile-tray-close').onclick = () => mobileTray(false);
   $('mobile-character').onclick = () => { mobileTray(false, false); openMenu('char'); };
   const map = $('mmwrap');
@@ -176,6 +199,17 @@ function mobileBind() {
     else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !['kit', 'map'].includes(UI.modal)) return;
+    const panel = UI.modal === 'kit' ? $('kit') : $('mapov');
+    const fs = [...panel.querySelectorAll('button, input, select, a[href], [tabindex="0"]')]
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+    if (!fs.length) return;
+    const first = fs[0], last = fs[fs.length - 1];
+    if (!panel.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   const extra = document.createElement('div');
   extra.id = 'mobile-extra-actions'; extra.className = 'mobile-extra-actions';
   extra.innerHTML = '<button type="button" class="btn" data-mobile-action="chronicle" data-mobile-section="world">Chronicle</button>' +
@@ -191,7 +225,12 @@ function mobileBind() {
   addEventListener('pointerup', release, true); addEventListener('pointercancel', release, true);
   pad.addEventListener('lostpointercapture', release, true);
   addEventListener('resize', mobileViewport);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', mobileViewport);
+  document.addEventListener('fullscreenchange', mobileViewport);
+  matchMedia('(display-mode: standalone), (display-mode: fullscreen)').addEventListener('change', mobileViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', mobileViewport);
+    window.visualViewport.addEventListener('scroll', mobileViewport);
+  }
   addEventListener('blur', () => { if (UI.modal === 'mobile') mobileStopInput(); });
   mobileViewport();
 }
@@ -248,7 +287,7 @@ function mobileSync() {
   const nav = $('mobile-tray-nav'), util = $('mobile-tray-utilities');
   const host = $('btn-map') && $('btn-map').parentElement;
   if (host && host.parentElement !== nav) nav.appendChild(host);
-  const labels = { 'btn-map': 'Map', 'btn-kit': 'Kit & bags', 'btn-menu': 'Character', 'btn-log': 'Event log',
+  const labels = { 'btn-map': 'Map', 'btn-kit': 'Inventory', 'btn-menu': 'Character', 'btn-log': 'Event log',
     'btn-build': 'Build', 'btn-animals': 'Animals', 'btn-net': 'Players & chat' };
   if (host) for (const b of host.querySelectorAll('button')) {
     b.dataset.mobileSection = ['btn-kit', 'btn-menu'].includes(b.id) ? 'character' : b.id === 'btn-net' ? 'social' : 'world';

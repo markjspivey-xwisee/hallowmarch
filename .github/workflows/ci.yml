@@ -59,6 +59,7 @@ jobs:
               check python3 tools/tests/phone.py
               check python3 tools/tests/mobile_hud.py
               check python3 tools/tests/mobile_ergonomics.py
+              check python3 tools/tests/mobile_navigation.py noshots
               check python3 tools/tests/touch_flows.py only=net,stores,season
               ;;
             soak) check python3 tools/soak.py 10 ;;

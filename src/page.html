@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=auto">
 <title>The Hallowmarch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,10 +22,10 @@
   }
   [hidden] { display: none !important; }
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { height: 100%; }
+  html, body { height: 100%; touch-action: manipulation; }
   body { margin: 0; overflow: hidden; background: var(--void); color: var(--ink); font: 15px/1.35 var(--ui); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
-  button { font: inherit; color: inherit; }
+  button { font: inherit; color: inherit; touch-action: manipulation; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--bronze-hi); outline-offset: 2px; }
   .panel { background: var(--slate); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .caps { font-family: var(--caps); letter-spacing: 0.06em; }
@@ -1250,6 +1250,51 @@
     body.touch .slot.flash { animation: none; box-shadow: 0 0 0 3px #fff0c8; }
     body.touch .bar i, body.touch .banner, body.touch #error { transition: none; animation: none; }
   }
+  /* Mobile navigation and viewport: one safe rectangle in browser tabs, with
+     essential destinations visible instead of nested inside the game menu. */
+  #mobile-nav { display: none; }
+  body.touch { --mobile-nav-h: 48px; --mobile-nav-space: calc(var(--mobile-nav-h) + 16px); }
+  body.touch #scene { height: var(--mobile-vh, 100dvh); }
+  body.touch #hud #pf { top: calc(8px + var(--safe-t)); padding: 5px 8px; gap: 2px; width: min(184px, calc(100vw - var(--safe-l) - var(--safe-r) - 100px)); }
+  body.touch #pf .head .nm { font-size: 13px; }
+  body.touch #pf .head .lv { font-size: 12px; }
+  body.touch #pf > .bar, body.touch #pf > .bar.power { height: 12px; }
+  body.touch #pf > .bar.endurance { height: 3px; }
+  body.touch #hud #topright { top: calc(8px + var(--safe-t)); right: 8px; width: 64px; grid-template-columns: 64px; }
+  body.touch #hud #mmwrap { grid-column: 1; width: 64px; height: 64px; }
+  body.touch #mmzone { font-size: 10px; }
+  body.touch #mobile-nav {
+    position: absolute; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+    left: 8px; right: 8px; bottom: calc(8px + var(--safe-b)); width: auto; max-width: 560px;
+    margin-inline: auto; height: var(--mobile-nav-h); pointer-events: auto;
+  }
+  body.touch #mobile-nav > button, body.touch #mobile-nav #mobile-menu-toggle {
+    position: relative; inset: auto; grid-column: auto; grid-row: auto; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px; width: 100%; height: var(--mobile-nav-h);
+    min-width: 0; min-height: 48px; padding: 3px 1px; border: 1px solid #a68d65; border-radius: 10px;
+    color: #fff3db; background: #15191ff2; font: 700 var(--mobile-small-text)/1.1 var(--ui); touch-action: manipulation;
+  }
+  body.touch #mobile-nav svg { width: 20px; height: 20px; flex: none; }
+  body.touch #hud #tpad { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
+  body.touch #joyhint { bottom: calc(var(--mobile-nav-space) + var(--safe-b)); }
+  body.touch.mobile-modal-open #mobile-nav { visibility: hidden; pointer-events: none; }
+  body.touch .overlay { top: var(--mobile-sheet-top, 0px); bottom: auto; height: var(--mobile-sheet-vh, 100dvh); padding-top: max(8px, var(--safe-t)); padding-bottom: max(8px, var(--safe-b)); }
+  body.touch #mobile-tray { top: var(--mobile-sheet-top, 0px); height: var(--mobile-sheet-vh, 100dvh); padding: 0; }
+  body.touch #mobile-tray .mobile-sheet { height: min(720px, calc(var(--mobile-sheet-vh, 100dvh) - var(--safe-t) - 8px)); max-height: calc(var(--mobile-sheet-vh, 100dvh) - var(--safe-t) - 8px); }
+  body.touch #mobile-tray-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #mobile-tray[data-section="character"] #mobile-tray-panel > section[aria-label="Ability descriptions"] { order: -1; }
+  body.touch #mapside #btn-mapclose { grid-row: 1; position: sticky; top: 0; z-index: 1; background: #202630; }
+  body.touch #kit .kithead { position: sticky; top: -12px; z-index: 3; margin: -12px -12px 0; padding: 12px; background: #171b22; border-bottom: 1px solid var(--line); }
+  body.touch #hud #bottom { bottom: calc(252px + var(--mobile-nav-space) + var(--safe-b)); }
+  body.touch #hud #error { bottom: calc(264px + var(--mobile-nav-space) + var(--safe-b)); }
+  @media (orientation: landscape) and (max-height: 520px) and (min-width: 601px) {
+    body.touch { --mobile-status-w: clamp(132px, calc(100vw - var(--safe-l) - var(--safe-r) - 312px), 184px); }
+    body.touch #hud #pf { width: var(--mobile-status-w); }
+    body.touch #mobile-nav { top: calc(8px + var(--safe-t)); bottom: auto; left: calc(var(--mobile-status-w) + 16px); right: 80px; width: auto; max-width: 320px; margin-inline: auto; transform: none; }
+    body.touch #hud #tpad, body.touch #joyhint { bottom: calc(8px + var(--safe-b)); }
+    body.touch #hud #bottom { bottom: calc(136px + var(--safe-b)); }
+    body.touch #hud #error { bottom: calc(148px + var(--safe-b)); }
+  }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
@@ -1319,7 +1364,6 @@
     <div class="buffs" id="tf-buffs"></div>
   </div>
   <div id="topright">
-    <button class="panel" id="mobile-menu-toggle" type="button" aria-label="Open more tools and abilities" aria-controls="mobile-tray" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg><span>More</span><span id="mobile-notice" aria-hidden="true"></span></button>
     <div class="panel" id="mmwrap"><canvas id="minimap" width="186" height="186"></canvas><div id="mmzone"></div></div>
     <div class="iconbtns">
       <button class="iconbtn panel" id="btn-map" type="button" aria-label="Open the map (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14"/></svg></button>
@@ -1348,6 +1392,12 @@
     <div id="joy"><i></i></div>
     <div id="tpad"></div>
   </div>
+  <nav id="mobile-nav" aria-label="Game screens">
+    <button class="panel" id="mobile-inventory" type="button" aria-label="Open inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 8h8l3 12H5L8 8Z M9 8V6a3 3 0 0 1 6 0v2"/></svg><span>Inventory</span></button>
+    <button class="panel" id="mobile-skills" type="button" aria-label="Open skills" aria-controls="mobile-tray"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"/></svg><span>Skills</span></button>
+    <button class="panel" id="mobile-map" type="button" aria-label="Open map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z M9 4v14 M15 6v14"/></svg><span>Map</span></button>
+    <button class="panel" id="mobile-menu-toggle" type="button" aria-label="Open game menu" aria-controls="mobile-tray" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg><span>Menu</span><span id="mobile-notice" aria-hidden="true"></span></button>
+  </nav>
 </div>
 
 <div class="overlay" id="mobile-tray" data-section="world" hidden>
@@ -1356,7 +1406,7 @@
       <div class="mobile-sheet-head"><h2 id="mobile-tray-title">The March</h2><button class="btn" id="mobile-tray-close" type="button">Close</button></div>
       <div id="mobile-tray-tabs" role="tablist" aria-label="More tools">
         <button type="button" role="tab" id="mobile-tab-world" data-mobile-tab="world" aria-selected="true" aria-controls="mobile-tray-panel">Explore</button>
-        <button type="button" role="tab" id="mobile-tab-character" data-mobile-tab="character" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Character</button>
+        <button type="button" role="tab" id="mobile-tab-character" data-mobile-tab="character" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Skills</button>
         <button type="button" role="tab" id="mobile-tab-social" data-mobile-tab="social" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Social</button>
         <button type="button" role="tab" id="mobile-tab-options" data-mobile-tab="options" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Options</button>
       </div>
@@ -1367,14 +1417,14 @@
         <div id="mobile-tray-utilities"></div>
       </section>
       <section aria-label="March tools"><div id="mobile-tray-nav"></div></section>
-      <section aria-label="Ability descriptions" data-mobile-section="character"><h3>Your abilities</h3><div id="mobile-tray-abilities"></div></section>
+      <section aria-label="Ability descriptions" data-mobile-section="character"><h3>Your abilities</h3><p>Abilities unlock as you level. Learned abilities appear on your combat controls.</p><div id="mobile-tray-abilities"></div></section>
       <section aria-label="Touch preferences" data-mobile-section="options"><div id="mobile-tray-preferences"></div></section>
     </div>
   </div>
 </div>
 
 <div class="overlay" id="mapov" hidden>
-  <div class="mapbox">
+  <div class="mapbox" role="dialog" aria-modal="true" aria-label="World map">
     <canvas id="mapcanvas" width="1024" height="1024"></canvas>
     <div class="panel" id="mapside"></div>
   </div>
@@ -1393,7 +1443,7 @@
   </div>
 </div>
 <div class="overlay" id="kit" hidden>
-  <div class="sheet panel" role="dialog" aria-labelledby="kit-title">
+  <div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="kit-title">
     <div class="kithead"><h2 id="kit-title">Kit</h2><span class="goldtag" id="kit-gold"></span><button class="btn" id="kit-close" type="button">Close</button></div>
     <div class="kitbody"><section id="kit-left"></section><section id="kit-right"></section></div>
     <div id="kit-card"></div>

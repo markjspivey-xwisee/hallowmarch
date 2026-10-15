@@ -53,7 +53,7 @@ function renderKit() {
   if ($('kit').hidden) return;
   const P = GAME.player;
   const shop = UI.kitMode === 'shop' && UI.kitShop;
-  $('kit-title').textContent = shop ? `${UI.kitShop.merchant.name}'s stall` : `${P.name}'s kit`;
+  $('kit-title').textContent = shop ? `${UI.kitShop.merchant.name}'s stall` : IS_TOUCH ? 'Inventory' : `${P.name}'s kit`;
   $('kit-gold').innerHTML = `${iconSvg('coin', 16)}${fmtInt(INV.gold)} gold`;
   let left = '';
   if (shop) {

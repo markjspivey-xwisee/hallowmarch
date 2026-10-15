@@ -1,0 +1,334 @@
+"""Focused phone navigation regression: edge use, direct destinations, and modal input.
+
+Run after build.py: python3 tools/tests/mobile_navigation.py [noshots]
+One scene is reused while resizing between a short browser tab, a tall phone,
+a small phone, and landscape. Every navigation action uses a real touch.
+"""
+import asyncio
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import mobile_hud as hud
+from mobile_ergonomics import wait_for_viewport
+from hmlib import OUT, setup
+from playwright.async_api import async_playwright
+
+SHOTS = 'noshots' not in sys.argv[1:]
+SIZES = [(393, 668), (393, 852), (320, 568), (852, 393)]
+FAILS = []
+RESULTS = []
+NAV = {
+    'mobile-inventory': 'Inventory',
+    'mobile-skills': 'Skills',
+    'mobile-map': 'Map',
+    'mobile-menu-toggle': 'Menu',
+}
+
+
+def check(ok, message):
+    print(('PASS ' if ok else 'FAIL ') + message, flush=True)
+    if not ok:
+        FAILS.append(message)
+
+
+HELP = r"""
+window.MN = {
+  input() {
+    const H=__hm,P=H.GAME.player;
+    return {keys:H.INPUT.keys.size,joy:!!H.INPUT.joy,look:!!H.INPUT.look,
+      pointers:H.INPUT.pointers.size,hold:!!H.cls.CLS.hold,
+      modal:H.UI.modal,x:P.x,z:P.z};
+  },
+  box(el) {
+    if(!MH.shown(el))return null;
+    const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+    const hit=document.elementFromPoint(x,y),label=el.querySelector('span:last-of-type')||el;
+    return {x:r.x,y:r.y,w:r.width,h:r.height,cx:x,cy:y,
+      hit:!!hit&&(hit===el||el.contains(hit)),text:el.textContent.trim(),
+      clipped:label.scrollWidth>label.clientWidth+1||label.scrollHeight>label.clientHeight+1};
+  },
+  geometry() {
+    MH.lay();
+    const root=document.documentElement,probe=document.createElement('div');
+    probe.style.cssText='position:fixed;visibility:hidden;padding:var(--safe-t,0px) var(--safe-r,0px) var(--safe-b,0px) var(--safe-l,0px)';
+    document.body.appendChild(probe);
+    const css=getComputedStyle(probe),n=k=>parseFloat(css[k])||0;
+    const safe={t:n('paddingTop'),r:n('paddingRight'),b:n('paddingBottom'),l:n('paddingLeft')};
+    probe.remove();
+    const canvas=__hm.dbg.renderer.domElement.getBoundingClientRect();
+    const nav=this.box(document.getElementById('mobile-nav'));
+    const pf=this.box(document.getElementById('pf'));
+    const buttons=[...document.querySelectorAll('#mobile-nav button')].map(e=>({id:e.id,...this.box(e)}));
+    const actionRects=[...document.querySelectorAll('#tpad button')].filter(e=>MH.shown(e)).map(e=>this.box(e));
+    return {w:innerWidth,h:innerHeight,vw:visualViewport.width,vh:visualViewport.height,safe,
+      canvas:{x:canvas.x,y:canvas.y,w:canvas.width,h:canvas.height},nav,pf,buttons,actionRects,
+      scrollX:Math.max(root.scrollWidth,document.body.scrollWidth)-innerWidth,
+      scrollY:Math.max(root.scrollHeight,document.body.scrollHeight)-innerHeight,
+      viewportMeta:document.querySelector('meta[name="viewport"]').content,
+      immersive:!!document.fullscreenElement||matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches,
+      uiViewport:parseFloat(getComputedStyle(root).getPropertyValue('--mobile-vh'))};
+  }
+};0;
+"""
+
+
+async def shot(page, name):
+    if SHOTS:
+        await page.screenshot(path=OUT + name + '.png', timeout=300000)
+
+
+async def tap(page, selector, tag):
+    # No scroll_into_view: the navigation bar, tabs, and close buttons must
+    # already be on screen, including on the 320px and landscape viewports.
+    box = await page.evaluate('s=>MN.box(document.querySelector(s))', selector)
+    good = bool(box and box['hit'] and box['w'] >= 47.5 and box['h'] >= 47.5)
+    check(good, f'{tag}: reachable 48px target {selector} ' + json.dumps(box))
+    if not good:
+        raise AssertionError(f'{tag}: cannot touch {selector}')
+    await page.touchscreen.tap(box['cx'], box['cy'])
+    await page.wait_for_function(
+        '!(window.__hm.guide2 && __hm.guide2.G2.tap.pending)', timeout=15000)
+
+
+async def geometry(page, tag):
+    m = await page.evaluate('MN.geometry()')
+    RESULTS.append({'tag': tag, **m})
+    safe, nav, pf = m['safe'], m['nav'], m['pf']
+    c = m['canvas']
+    check(abs(c['x']) <= 1 and abs(c['y']) <= 1 and
+          abs(c['w'] - m['vw']) <= 1 and abs(c['h'] - m['vh']) <= 1,
+          tag + ': game canvas fills the visible browser viewport ' + json.dumps(c))
+    check(m['scrollX'] <= 1 and m['scrollY'] <= 1,
+          tag + ': page has no horizontal or vertical overflow')
+    check(abs(m['uiViewport'] - m['vh']) <= 1,
+          tag + ': HUD uses the current visual viewport height')
+    check(not m['immersive'] and 'viewport-fit=auto' in m['viewportMeta'],
+          tag + ': the actual browser tab uses viewport-fit=auto ' + m['viewportMeta'])
+    check(bool(pf and safe['t'] - 1 <= pf['y'] <= safe['t'] + 16),
+          tag + ': player HUD starts near the usable top edge ' + json.dumps(pf))
+    landscape_nav = m['w'] > 600 and m['w'] > m['h'] and m['h'] <= 520
+    edge_gap = nav['y'] - safe['t'] if landscape_nav and nav else (
+        m['h'] - safe['b'] - nav['y'] - nav['h'] if nav else None)
+    edge = 'top' if landscape_nav else 'bottom'
+    check(edge_gap is not None and 0 <= edge_gap <= 16,
+          tag + ': navigation uses the usable ' + edge + ' edge without extra padding ' + json.dumps(nav))
+    buttons = m['buttons']
+    check({b['id'] for b in buttons} == set(NAV),
+          tag + ': Inventory, Skills, Map and Menu are present in permanent navigation')
+    bad = [b for b in buttons if not b.get('hit') or b.get('w', 0) < 47.5 or
+           b.get('h', 0) < 47.5 or b.get('clipped') or NAV.get(b['id'], '') not in b.get('text', '') or
+           b['x'] < safe['l'] - 1 or b['x'] + b['w'] > m['w'] - safe['r'] + 1 or
+           b['y'] < safe['t'] - 1 or b['y'] + b['h'] > m['h'] - safe['b'] + 1]
+    check(not bad, tag + ': all four labelled destinations fit and accept a touch ' + json.dumps(bad))
+    ordered = sorted(buttons, key=lambda b: b.get('x', 0))
+    gaps = [b['x'] - a['x'] - a['w'] for a, b in zip(ordered, ordered[1:])]
+    check(len(gaps) == 3 and min(gaps) >= 7.5,
+          tag + ': destination buttons have at least 8px separation ' + json.dumps(gaps))
+    collisions = [r for r in m['actionRects'] if nav and
+                  min(r['x'] + r['w'], nav['x'] + nav['w']) > max(r['x'], nav['x']) + 1 and
+                  min(r['y'] + r['h'], nav['y'] + nav['h']) > max(r['y'], nav['y']) + 1]
+    check(not collisions, tag + ': combat controls leave permanent navigation clear ' + json.dumps(collisions))
+    await shot(page, 'mobile_navigation_' + tag.replace(' ', '_'))
+
+
+async def double_tap(page):
+    """Two fast trusted taps must activate a control without browser zoom."""
+    before = await page.evaluate(r"""()=>{
+      const target=document.getElementById('t-target');
+      const audit={clicks:[]};
+      const handler=e=>audit.clicks.push({trusted:e.isTrusted,pointerType:e.pointerType});
+      target.addEventListener('click',handler);
+      window.__mobileDoubleTapAudit={audit,handler,target};
+      return {scale:visualViewport.scale,x:scrollX,y:scrollY,
+        box:MN.box(target),meta:document.querySelector('meta[name="viewport"]').content,
+        touch:{html:getComputedStyle(document.documentElement).touchAction,
+          body:getComputedStyle(document.body).touchAction,
+          navigation:getComputedStyle(document.getElementById('mobile-inventory')).touchAction,
+          target:getComputedStyle(target).touchAction}};
+    }""")
+    touch = before['touch']
+    check(touch['html'] == 'manipulation' and touch['body'] == 'manipulation' and
+          touch['navigation'] == 'manipulation' and touch['target'] in ('none', 'manipulation'),
+          'double-tap zoom is disabled on the page and touch controls ' + json.dumps(touch))
+    check('maximum-scale' not in before['meta'].lower() and
+          'user-scalable=no' not in before['meta'].lower().replace(' ', ''),
+          'viewport metadata keeps pinch zoom available without a maximum-scale restriction')
+    box = before['box']
+    check(bool(box and box['hit']), 'Target is directly reachable for the real double tap')
+    try:
+        if not box or not box['hit']:
+            raise AssertionError('cannot reach Target for double-tap regression')
+        await page.touchscreen.tap(box['cx'], box['cy'])
+        await page.wait_for_timeout(60)  # intentionally within the double-tap gesture window
+        await page.touchscreen.tap(box['cx'], box['cy'])
+        await page.wait_for_timeout(350)  # allow the browser's tap/zoom recognizer to settle
+        after = await page.evaluate(r"""()=>({scale:visualViewport.scale,x:scrollX,y:scrollY,
+          clicks:window.__mobileDoubleTapAudit.audit.clicks,input:MN.input(),
+          inventory:MN.box(document.getElementById('mobile-inventory'))})""")
+        check(len(after['clicks']) == 2 and all(e['trusted'] for e in after['clicks']),
+              'two quick genuine taps both activate Target ' + json.dumps(after['clicks']))
+        check(abs(after['scale'] - before['scale']) < 1e-6 and
+              after['x'] == before['x'] and after['y'] == before['y'],
+              'a real double tap preserves viewport scale and page scroll ' +
+              json.dumps({'before': {k: before[k] for k in ('scale', 'x', 'y')},
+                          'after': {k: after[k] for k in ('scale', 'x', 'y')}}))
+        check(not after['input']['modal'] and not after['input']['joy'] and
+              not after['input']['look'] and bool(after['inventory'] and after['inventory']['hit']),
+              'double tapping leaves gameplay input clear and navigation reachable')
+    finally:
+        await page.evaluate(r"""()=>{
+          const a=window.__mobileDoubleTapAudit;
+          if(a)a.target.removeEventListener('click',a.handler);
+          delete window.__mobileDoubleTapAudit;
+        }""")
+
+
+async def modal_gesture(page, selector, tag):
+    # Swiping a panel title must never send movement/camera input to the world.
+    at = await page.locator(selector).evaluate(r"""e=>{
+      const r=e.getBoundingClientRect();return {x:r.x+Math.min(r.width*.2,45),y:r.y+r.height/2,id:1};
+    }""")
+    before = await page.evaluate('MN.input()')
+    if not hasattr(page, '_mobile_navigation_cdp'):
+        page._mobile_navigation_cdp = await page.context.new_cdp_session(page)
+    cdp = page._mobile_navigation_cdp
+    try:
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [at]})
+        await cdp.send('Input.dispatchTouchEvent', {
+            'type': 'touchMove', 'touchPoints': [{**at, 'x': at['x'] + 18, 'y': at['y'] + 12}]})
+        during = await page.evaluate('MN.input()')
+        check(not during['keys'] and not during['joy'] and not during['look'] and
+              not during['pointers'] and not during['hold'] and during['modal'] == before['modal'],
+              tag + ': touching the open panel cannot activate world input ' + json.dumps(during))
+    finally:
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        # Keep the CDP session attached: detaching can clear touch emulation.
+    await hud.frame(page)
+    after = await page.evaluate('MN.input()')
+    check(abs(after['x'] - before['x']) < 1e-6 and abs(after['z'] - before['z']) < 1e-6,
+          tag + ': the character stays still behind the panel')
+
+
+async def direct_destination(page, button, panel, modal, close, tag, gesture=None):
+    await page.keyboard.down('w')
+    try:
+        check(await page.evaluate('__hm.INPUT.keys.has("KeyW")'),
+              tag + ': held movement is active before opening the panel')
+        await tap(page, button, tag)
+        check(await page.locator(panel).is_visible(), tag + ': one tap opens the destination')
+        if modal in ('kit', 'map'):
+            active = await page.evaluate('document.activeElement.id')
+            check(active == close.removeprefix('#'),
+                  tag + ': focus enters the panel on its Close control ' + active)
+        state = await page.evaluate('MN.input()')
+        check(state['modal'] == modal and not state['keys'] and not state['joy'] and
+              not state['look'] and not state['pointers'] and not state['hold'],
+              tag + ': opening the panel immediately clears held world input ' + json.dumps(state))
+    finally:
+        await page.keyboard.up('w')
+    # Fresh movement keys also belong to the modal, rather than the character.
+    await page.keyboard.down('w')
+    check(not await page.evaluate('__hm.INPUT.keys.size'),
+          tag + ': movement pressed while the panel is open is ignored')
+    await page.keyboard.up('w')
+    if gesture:
+        await modal_gesture(page, gesture, tag)
+    if modal == 'mobile':
+        state = await page.evaluate(r"""()=>({
+          section:document.getElementById('mobile-tray').dataset.section,
+          selected:[...document.querySelectorAll('[data-mobile-tab][aria-selected="true"]')].map(e=>e.dataset.mobileTab),
+          skills:[...document.querySelectorAll('#mobile-tray-abilities [data-mobile-ability]')].length,
+          title:document.getElementById('mobile-tray-title').textContent})""")
+        check(state['section'] == 'character' and state['selected'] == ['character'] and
+              state['skills'] == 8 and 'Skills' in state['title'],
+              tag + ': direct Skills opens the complete class catalogue ' + json.dumps(state))
+    await tap(page, close, tag)
+    await hud.frame(page)
+    state = await page.evaluate('MN.input()')
+    check(not await page.locator(panel).is_visible() and not state['modal'] and
+          not state['keys'] and not state['joy'] and not state['hold'],
+          tag + ': close returns to play without stuck movement')
+    if modal in ('kit', 'map'):
+        active = await page.evaluate('document.activeElement.id')
+        check(active == button.removeprefix('#'),
+              tag + ': close restores focus to its navigation button ' + active)
+
+
+async def menu_tabs(page, tag):
+    await tap(page, '#mobile-menu-toggle', tag)
+    check(await page.locator('#mobile-tray').get_attribute('data-section') == 'world',
+          tag + ': Menu opens Explore')
+    tab_y = None
+    for section in ('world', 'character', 'social', 'options'):
+        await tap(page, f'#mobile-tray-tabs [data-mobile-tab="{section}"]', tag)
+        state = await page.evaluate(r"""()=>{
+          const tray=document.getElementById('mobile-tray'),tabs=[...tray.querySelectorAll('[data-mobile-tab]')];
+          return {section:tray.dataset.section,selected:tabs.filter(e=>e.getAttribute('aria-selected')==='true').map(e=>e.dataset.mobileTab),
+            y:tabs[0].getBoundingClientRect().y,labelledBy:document.getElementById('mobile-tray-panel').getAttribute('aria-labelledby'),
+            modal:__hm.UI.modal,joy:!!__hm.INPUT.joy};
+        }""")
+        check(state['section'] == section and state['selected'] == [section] and
+              state['labelledBy'] == 'mobile-tab-' + section and state['modal'] == 'mobile' and not state['joy'],
+              tag + ': touch selects the ' + section + ' section without closing Menu')
+        if tab_y is None:
+            tab_y = state['y']
+        check(abs(state['y'] - tab_y) <= 1, tag + ': section navigation remains in a fixed reachable position')
+    await shot(page, 'mobile_navigation_menu_' + tag)
+    await tap(page, '#mobile-tray-close', tag)
+    await hud.frame(page)
+
+
+async def resize(page, w, h):
+    await page.set_viewport_size({'width': w, 'height': h})
+    await wait_for_viewport(page)
+    await hud.frame(page)
+    await page.evaluate("document.getElementById('zonetoast').classList.remove('on');0")
+
+
+async def main():
+    async with async_playwright() as p:
+        browser, page, logs = await setup(p, touch=True, w=SIZES[0][0], h=SIZES[0][1])
+        page.set_default_timeout(15000)
+        await page.emulate_media(reduced_motion='reduce')
+        try:
+            await page.evaluate(hud.HELP)
+            await page.evaluate(HELP)
+            await page.evaluate("MH.scene('warrior',1);__hm.quality.scale=.5;dispatchEvent(new Event('resize'));0")
+            await wait_for_viewport(page)
+            for w, h in SIZES:
+                await resize(page, w, h)
+                tag = f'{w}x{h}'
+                await geometry(page, tag)
+                if (w, h) == SIZES[0]:
+                    await double_tap(page)
+                await direct_destination(page, '#mobile-inventory', '#kit', 'kit', '#kit-close',
+                                         tag + ' Inventory', '#kit .kithead')
+                await direct_destination(page, '#mobile-skills', '#mobile-tray', 'mobile', '#mobile-tray-close',
+                                         tag + ' Skills', '#mobile-tray .mobile-sheet-head')
+                await direct_destination(page, '#mobile-map', '#mapov', 'map', '#btn-mapclose', tag + ' Map')
+                await menu_tabs(page, tag)
+            # Returning from landscape and the browser chrome consuming/releasing
+            # vertical space must not preserve an obsolete tall-phone offset.
+            for h in (852, 668, 852):
+                await resize(page, 393, h)
+                await geometry(page, f'393x{h}_resize')
+            errors = await page.evaluate('__hm.errors')
+            check(not errors and not logs, 'no browser/game errors ' + json.dumps({'game': errors[:2], 'browser': logs[:2]}))
+        except Exception as exc:
+            FAILS.append(f'{type(exc).__name__}: {exc}')
+            await shot(page, 'mobile_navigation_failure')
+            raise
+        finally:
+            await browser.close()
+            pathlib.Path(OUT, 'mobile_navigation.json').write_text(
+                json.dumps({'results': RESULTS, 'failures': FAILS}, indent=2))
+    print(f'{len(FAILS)} failures', flush=True)
+    if FAILS:
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

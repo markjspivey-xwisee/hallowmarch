@@ -23,7 +23,7 @@ You can also build the game yourself and open `hallowmarch.html` in a browser. A
 | M · L · H · Esc | Map · log · help · menu |
 | P · U | Players and companies · dive while swimming |
 
-On phones and tablets the game shows a thumb joystick and touch buttons.
+On phones and tablets, drag on the movement side to walk and use the opposite thumb for combat. **Inventory**, **Skills**, **Map**, and **Menu** are always visible: at the bottom in portrait and between the status panel and minimap in wide landscape. Inventory opens your gear and bags directly; Skills opens your learned abilities, upcoming unlocks and class controls. Menu has Explore, Skills, Social and Options tabs, including handedness and larger controls/text. Browser tabs use the browser's safe viewport; installed/fullscreen play retains notch and home-indicator insets.
 
 On the server, sign in to keep your character across devices. The Players panel includes persistent companies within your realm: membership, ranks, chat, notices and support for shared works. The season's armies enter the live war near players and their losses return to the season; deliveries help your realm without letting a large roster alone decide the result.
 
@@ -58,6 +58,7 @@ python3 tools/tests/perf2.py long minutes=60       # heap, buffers and scene gro
 python3 tools/tests/shaders.py                    # compile every shader at every quality level
 python3 tools/tests/barrow.py                     # the dungeon, end to end
 python3 tools/tests/phone.py                      # phone HUD screenshots -> tools/out/
+python3 tools/tests/mobile_navigation.py          # real touch navigation, dialogs and browser viewport sizing
 python3 tools/soak.py 10                          # ten minutes of simulated war
 python3 tools/hm.py '{"script":[["eval","__hm.start({realm:0,cls:\"warrior\",level:20})"],["shot","hello"]]}'
 ```

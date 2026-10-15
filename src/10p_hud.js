@@ -108,7 +108,7 @@ function hudLayout(dt) {
   // what stays put
   const placed = [];
   const fixed = (sel) => { const el = document.querySelector(sel); if (el && hudShown(el)) placed.push({ ...hudRect(el), sel }); };
-  ['#pf', '#mmwrap', '#mobile-menu-toggle', '#topright > .iconbtns', '#hotbar'].forEach(fixed);
+  ['#pf', '#mmwrap', '#mobile-nav', '#topright > .iconbtns', '#hotbar'].forEach(fixed);
   const lg = $('log'), hb = $('hotbar'), bb = $('buildbar'), cl = $('cls');
   if (!touch) {
     // [v9] on a desk the class panel sits over the hotbar, the builder's bar over both, and the prompt and the cast bar
