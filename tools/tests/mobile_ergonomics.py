@@ -77,7 +77,10 @@ window.ME = {
         return dx>.5&&dy>.5;
       });
     }
-    return {controls:rects,gaps,avatar:{inView,body,points,covered},primary:p?{slot:+primary.dataset.slot,x:p.x,y:p.y,w:p.width,h:p.height,label:primary.getAttribute('aria-label')}:null,
+    const rendered=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
+    return {controls:rects,gaps,avatar:{inView,body,points,covered},
+      viewport:{w:innerWidth,h:innerHeight,renderW:rendered.x,renderH:rendered.y,aspect:__hm.camera.aspect,fov:__hm.camera.fov},
+      primary:p?{slot:+primary.dataset.slot,x:p.x,y:p.y,w:p.width,h:p.height,label:primary.getAttribute('aria-label')}:null,
       secondary:secondary.map(e=>+e.dataset.slot),utilities:utilities.map(e=>e.id),
       left:document.body.classList.contains('mobile-left-handed'),large:document.body.classList.contains('mobile-large-ui'),
       measure:MH.measure()};
@@ -89,6 +92,17 @@ window.ME = {
 };
 0;
 """
+
+
+async def wait_for_viewport(page):
+    # The game's resize handler is debounced. Simulated frames do not advance
+    # that browser timer, so wait for its renderer/projection update explicitly.
+    # RAF polling cannot run while this suite holds the game's animation loop.
+    await page.wait_for_function(r"""()=>{
+      const size=__hm.dbg.renderer.getSize({set(x,y){this.x=x;this.y=y;return this;}});
+      return size.x===innerWidth&&size.y===innerHeight&&
+        Math.abs(__hm.camera.aspect-innerWidth/innerHeight)<1e-9;
+    }""",polling=20,timeout=15000)
 
 
 async def tap(page, selector, tag=''):
@@ -252,6 +266,7 @@ async def menu_flows(page):
 async def notch_cases(page):
     """Both conservative host insets and a landscape home-indicator viewport."""
     await page.set_viewport_size({'width':844,'height':390})
+    await wait_for_viewport(page)
     await page.evaluate("MH.scene('priest',50);0")
     patterns=[('t24_b20_l44_r44',{'t':24,'b':20,'l':44,'r':44}),
               ('t0_b34_l44_r44',{'t':0,'b':34,'l':44,'r':44})]
@@ -288,6 +303,7 @@ async def main():
         await page.evaluate(hud.HELP)
         await page.evaluate(HELP)
         await page.evaluate("__hm.quality.scale=.5; dispatchEvent(new Event('resize')); 0")
+        await wait_for_viewport(page)
         try:
             sizes=[(360,640),(393,660),(390,780),(844,390)]
             scenes=[('warrior',1),('warrior',50),('archer',50),('mage',50),('priest',50)]
@@ -308,6 +324,7 @@ async def main():
                 await page.set_viewport_size({'width':w,'height':h})
                 # No invented notch padding in the actual-viewport proof screenshots.
                 await page.evaluate("const s=document.documentElement.style; for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px'); dispatchEvent(new Event('resize'));0")
+                await wait_for_viewport(page)
                 for cls,level in scenes:
                     await page.evaluate('([c,l])=>MH.scene(c,l)',[cls,level])
                     for hand,size,text in modes:
@@ -343,6 +360,7 @@ async def main():
             if 'notchonly' not in ARGS:
                 await page.set_viewport_size({'width':393,'height':660})
                 await page.evaluate("const s=document.documentElement.style;for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px');dispatchEvent(new Event('resize'));0")
+                await wait_for_viewport(page)
                 await page.evaluate("MH.scene('warrior',1);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
                 await hud.frame(page)
                 await touch_move_and_hold(page,False)
