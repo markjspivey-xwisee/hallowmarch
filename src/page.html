@@ -1110,9 +1110,11 @@
   body.touch #tpad .mobile-primary { display: contents; }
   body.touch #tpad .mobile-primary .slot.locked { display: none; }
   body.touch #tpad .mobile-skills {
-    display: grid; grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(4, var(--mobile-target));
-    justify-content: end; gap: var(--mobile-gap); min-width: 0; pointer-events: none;
+    display: flex; flex-direction: row-reverse; flex-wrap: wrap-reverse; grid-column: 1 / -1; grid-row: 1;
+    width: calc(2 * var(--mobile-target) + var(--mobile-gap)); justify-self: end; justify-content: flex-start;
+    gap: var(--mobile-gap); min-width: 0; pointer-events: none;
   }
+  body.touch #tpad .mobile-skills > .slot { flex: 0 0 var(--mobile-target); }
   body.touch #tpad .mobile-skills:empty { display: none; }
   body.touch #tpad .mobile-class {
     grid-column: 1; grid-row: 2; display: flex; justify-content: flex-end; align-items: end;
@@ -1168,6 +1170,7 @@
   body.touch.mobile-left-handed #hud #tpad { grid-template-columns: var(--mobile-main) minmax(0, 1fr); }
   body.touch.mobile-left-handed #hud #tpad .mobile-main-action { grid-column: 1; }
   body.touch.mobile-left-handed #tpad .mobile-skills, body.touch.mobile-left-handed #tpad .mobile-utility { justify-content: start; }
+  body.touch.mobile-left-handed #tpad .mobile-skills { flex-direction: row; justify-self: start; }
   body.touch.mobile-left-handed #joyhint { left: auto; right: 14px; }
   body.touch.mobile-modal-open #touch,
   body.touch.mobile-modal-open #mobile-character, body.touch.mobile-modal-open #mobile-menu-toggle,
@@ -1218,10 +1221,15 @@
   @media (max-width: 359px) {
     body.touch #kit .bagrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
+  @media (orientation: landscape) and (max-height: 520px) and (max-width: 600px) {
+    body.touch #tpad .mobile-skills { display: grid; width: auto; justify-self: stretch; grid-template-columns: repeat(4, var(--mobile-target)); justify-content: end; }
+    body.touch.mobile-left-handed #tpad .mobile-skills { justify-self: stretch; }
+  }
   @media (orientation: landscape) and (max-height: 520px) and (min-width: 601px) {
     body.touch #hud #topright { width: calc(var(--mobile-target) + 72px); grid-template-columns: var(--mobile-target) 64px; }
-    body.touch #hud #tpad { width: calc(7 * var(--mobile-target) + var(--mobile-main) + 7 * var(--mobile-gap)); grid-template-columns: minmax(0, 1fr) var(--mobile-main); grid-template-rows: var(--mobile-target) var(--mobile-main); }
-    body.touch #tpad .mobile-skills { grid-template-columns: repeat(7, var(--mobile-target)); grid-column: 1 / -1; grid-row: 1; }
+    body.touch #hud #tpad { width: calc(7 * var(--mobile-target) + var(--mobile-main) + 7 * var(--mobile-gap)); grid-template-columns: minmax(0, 1fr) var(--mobile-main); grid-template-rows: auto var(--mobile-main); }
+    body.touch #tpad .mobile-skills { display: grid; width: calc((100vw - var(--safe-l) - var(--safe-r)) / 2 - 24px); justify-self: end; grid-template-columns: repeat(auto-fit, var(--mobile-target)); grid-column: 1 / -1; grid-row: 1; justify-content: end; }
+    body.touch.mobile-left-handed #tpad .mobile-skills { justify-self: start; }
     body.touch #tpad .mobile-utility { grid-column: 1; grid-row: 2; justify-content: start; align-self: end; }
     body.touch #tpad .mobile-class { grid-column: 1; grid-row: 2; justify-content: end; align-self: end; }
     body.touch #hud #tpad .mobile-main-action { grid-column: 2; grid-row: 2; }

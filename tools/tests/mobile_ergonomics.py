@@ -58,7 +58,25 @@ window.ME = {
     const p=primary?.getBoundingClientRect();
     const secondary=[...document.querySelectorAll('#tpad .mobile-skills [data-slot]')].filter(visible);
     const utilities=[...document.querySelectorAll('#tpad .mobile-utility button')].filter(visible);
-    return {controls:rects,gaps,primary:p?{slot:+primary.dataset.slot,x:p.x,y:p.y,w:p.width,h:p.height,label:primary.getAttribute('aria-label')}:null,
+    // Project a standing body's head, torso and feet, including 0.35m on each
+    // camera-facing side. A broad empty-screen percentage can hide body occlusion.
+    const P=__hm.GAME.player,points=[],matrix=__hm.camera.matrixWorld.elements;
+    if(P)for(const height of [2,1,.1])for(const side of [-1,0,1]){
+      points.push(__hm.fn.screenOf(P.x+matrix[0]*.35*side,P.y+height+matrix[1]*.35*side,P.z+matrix[2]*.35*side));
+    }
+    const inView=points.length===9&&points.every(q=>q&&q.x>=0&&q.x<=innerWidth&&q.y>=0&&q.y<=innerHeight);
+    let body=null,covered=[];
+    if(inView){
+      const xs=points.map(q=>q.x),ys=points.map(q=>q.y),x=Math.min(...xs)-2,y=Math.min(...ys)-2;
+      body={x,y,w:Math.max(...xs)+2-x,h:Math.max(...ys)+2-y};
+      covered=rects.filter((r,i)=>{
+        if(!controls[i].closest('#tpad'))return false;
+        const dx=Math.min(body.x+body.w,r.x+r.w)-Math.max(body.x,r.x);
+        const dy=Math.min(body.y+body.h,r.y+r.h)-Math.max(body.y,r.y);
+        return dx>.5&&dy>.5;
+      });
+    }
+    return {controls:rects,gaps,avatar:{inView,body,points,covered},primary:p?{slot:+primary.dataset.slot,x:p.x,y:p.y,w:p.width,h:p.height,label:primary.getAttribute('aria-label')}:null,
       secondary:secondary.map(e=>+e.dataset.slot),utilities:utilities.map(e=>e.id),
       left:document.body.classList.contains('mobile-left-handed'),large:document.body.classList.contains('mobile-large-ui'),
       measure:MH.measure()};
@@ -269,6 +287,8 @@ async def main():
                         RESULTS.append({'tag':tag,**m})
                         check(not m['measure']['off'],tag+': safe viewport bounds '+json.dumps(m['measure']['off']))
                         check(not m['measure']['overlaps'],tag+': no unrelated HUD collisions '+json.dumps(m['measure']['overlaps']))
+                        check(m['avatar']['inView'],tag+': projected avatar head, torso and feet remain visible')
+                        check(m['avatar']['inView'] and not m['avatar']['covered'],tag+': combat controls leave the avatar body and feet clear '+json.dumps({'body':m['avatar']['body'],'covered':m['avatar']['covered']}))
                         bad=[r for r in m['controls'] if r['w']<47.5 or r['h']<47.5 or not r['hit']]
                         check(not bad,tag+': visible controls are 48px and hit-testable '+json.dumps(bad))
                         check(not m['gaps'],tag+': controls have at least 8px separation '+json.dumps(m['gaps']))
@@ -283,7 +303,7 @@ async def main():
                         bad_labels=[r for r in labels if r['font']<12 or not r['text'] or r['clipped']]
                         check(not bad_labels,tag+': learned ability labels are readable and complete '+json.dumps(bad_labels))
                         check(m['measure']['centerClear']>=.85,tag+': at least 85% of central play area stays clear')
-                        if cls=='warrior' and (level==1 or size=='large' and hand=='left'):
+                        if (QUICK and h>w and cls=='priest') or (cls=='warrior' and (level==1 or size=='large' and hand=='left')):
                             suffix='_textlarge' if text=='large' else ''
                             await shot(page,f'mobile_ergonomics_{w}x{h}_{cls}_lv{level}_{hand}_{size}'+suffix)
             # Notch/inset simulation is explicit and separate from proof of the real browser viewport.
