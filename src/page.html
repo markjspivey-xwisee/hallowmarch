@@ -1072,6 +1072,172 @@
     body.touch #tpad .mobile-utility { grid-column: 1; grid-row: 3; }
     body.touch #hud #bottom { bottom: calc(210px + var(--safe-b)); }
   }
+  /* Mobile ergonomics: one prominent combat action, deliberate spacing, and readable
+     labels. Every learned action stays in the dock; menus contain secondary systems. */
+  body.touch {
+    --mobile-target: 48px; --mobile-main: 64px; --mobile-gap: 8px;
+    --mobile-dock: calc(3 * var(--mobile-target) + var(--mobile-main) + 3 * var(--mobile-gap));
+    --mobile-four: calc(4 * var(--mobile-target) + 3 * var(--mobile-gap));
+    --mobile-joy-hint: clamp(48px, calc(100vw - var(--safe-l) - var(--safe-r) - var(--mobile-dock) - 32px), 96px);
+    --mobile-action-text: 13px; --mobile-small-text: 12px;
+  }
+  body.touch.mobile-large-ui {
+    --mobile-target: 52px; --mobile-main: 72px; --mobile-action-text: 14px; --mobile-small-text: 13px;
+  }
+  body.touch.mobile-large-text { --mobile-action-text: 14px; --mobile-small-text: 13px; font-size: 16px; }
+  body.touch.mobile-large-text .overlay, body.touch.mobile-large-text #mobile-tray .mobile-nav-label,
+  body.touch.mobile-large-text #mobile-tray summary, body.touch.mobile-large-text #mobile-tray-preferences label,
+  body.touch.mobile-large-text .overlay :is(p, li, .fineprint) { font-size: 16px; }
+  body.touch #hud #pf { background: #15191f; width: clamp(156px, calc(100vw - var(--safe-l) - var(--safe-r) - 172px), 194px); }
+  body.touch #pf .head .nm, body.touch #tf .head .nm { font-size: 14px; }
+  body.touch #pf .head .lv, body.touch #pf .bar span, body.touch #tf .bar span { font-size: var(--mobile-small-text); }
+  body.touch #pf > .bar, body.touch #pf > .bar.power { height: 14px; }
+  body.touch #mobile-needs-alert { font-size: var(--mobile-small-text); line-height: 1.2; color: #ffcb9d; }
+  body.touch #mobile-character { min-height: var(--mobile-target); }
+  body.touch #hud #topright { width: calc(var(--mobile-target) + 90px); grid-template-columns: var(--mobile-target) 82px; gap: var(--mobile-gap); }
+  body.touch #mobile-menu-toggle { width: var(--mobile-target); height: var(--mobile-target); font: 700 var(--mobile-small-text)/1 var(--ui); color: #fff3db; background: #171b22; border-color: #a98b59; }
+  body.touch #mmzone { font-size: var(--mobile-small-text); background: #15191fe8; }
+  body.touch #hud #lore-path, body.touch #hud #lore-path button.st, body.touch #hud #lore-path .step { min-height: var(--mobile-target); }
+  body.touch #hud #lore-path button.st { min-width: var(--mobile-target); }
+  body.touch #hud #lore-path { gap: 8px; }
+  body.touch #hud #lore-path .st { font-size: 13px; }
+  body.touch #hud #lore-path .tog { width: var(--mobile-target); height: var(--mobile-target); flex: 0 0 var(--mobile-target); }
+  body.touch #hud #tpad {
+    right: 8px; left: auto; bottom: calc(8px + var(--safe-b)); width: var(--mobile-dock);
+    grid-template-columns: minmax(0, 1fr) var(--mobile-main); grid-template-rows: auto var(--mobile-main) var(--mobile-target);
+    gap: var(--mobile-gap); align-items: end; pointer-events: none;
+  }
+  body.touch #tpad .mobile-primary { display: contents; }
+  body.touch #tpad .mobile-primary .slot.locked { display: none; }
+  body.touch #tpad .mobile-skills {
+    display: grid; grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(4, var(--mobile-target));
+    justify-content: end; gap: var(--mobile-gap); min-width: 0; pointer-events: none;
+  }
+  body.touch #tpad .mobile-skills:empty { display: none; }
+  body.touch #tpad .mobile-class {
+    grid-column: 1; grid-row: 2; display: flex; justify-content: flex-end; align-items: end;
+    gap: var(--mobile-gap); min-height: var(--mobile-target); width: auto; pointer-events: none;
+  }
+  body.touch #tpad .mobile-utility {
+    grid-column: 1 / -1; grid-row: 3; grid-template-columns: repeat(4, var(--mobile-target));
+    justify-content: end; gap: var(--mobile-gap); pointer-events: none;
+  }
+  body.touch #hud #tpad .slot, body.touch #tpad .mobile-utility .btn,
+  body.touch #hud #tpad .mobile-class .cls-btn, body.touch #hud #tpad .mobile-class .gslot {
+    width: var(--mobile-target); height: var(--mobile-target); min-width: var(--mobile-target); min-height: var(--mobile-target);
+    margin: 0; padding: 0; border: 1px solid #a68d65; border-radius: 12px; background: #171b22;
+    color: #f5dbab; box-shadow: 0 2px 8px #0008; touch-action: none; pointer-events: auto;
+  }
+  body.touch #hud #tpad .mobile-class .cls-btn, body.touch #hud #tpad .mobile-class .gslot { flex: 0 0 var(--mobile-target); }
+  body.touch #tpad .slot svg, body.touch #tpad .mobile-class .cls-btn svg, body.touch #tpad .mobile-class .gslot svg { position: absolute; top: 2px; width: 18px; height: 18px; margin: 0; }
+  body.touch #tpad .mobile-label, body.touch #tpad .mobile-class .gslot .mobile-label {
+    bottom: 1px; left: 2px; right: 2px; height: calc(2 * var(--mobile-action-text)); display: flex; justify-content: center; align-items: center;
+    font: 700 var(--mobile-action-text)/1 var(--ui); color: #fff3db; white-space: normal; overflow-wrap: anywhere; text-shadow: none; text-overflow: clip;
+  }
+  body.touch #tpad .mobile-class .cls-btn span { font: 700 var(--mobile-small-text)/1 var(--ui); color: #fff3db; bottom: 5px; }
+  body.touch.mobile-large-text #tpad .mobile-skills .slot svg,
+  body.touch.mobile-large-text #tpad .mobile-class .cls-btn svg,
+  body.touch.mobile-large-text #tpad .mobile-class .gslot svg { width: 16px; height: 16px; }
+  body.touch #tpad .mobile-utility .btn { font: 700 var(--mobile-action-text)/1.1 var(--ui); padding: 3px 1px; color: #fff3db; }
+  body.touch #tpad .slot .rk { display: none; }
+  body.touch #hud #tpad .mobile-main-action {
+    grid-column: 2; grid-row: 2; width: var(--mobile-main); height: var(--mobile-main); min-width: var(--mobile-main); min-height: var(--mobile-main);
+    display: grid; place-items: center; pointer-events: none;
+  }
+  body.touch #hud #tpad .mobile-main-action > .slot {
+    width: var(--mobile-main); height: var(--mobile-main); min-width: var(--mobile-main); min-height: var(--mobile-main);
+    border: 2px solid #fff0c8; border-radius: 50%; color: #20170c; background: #dfc188;
+    box-shadow: 0 3px 14px #0009, inset 0 0 0 3px #aa8248;
+  }
+  body.touch #tpad .mobile-main-action svg { top: 5px; width: 24px; height: 24px; margin: 0; }
+  body.touch #tpad .mobile-main-action .mobile-label { color: #20170c; bottom: 1px; height: 28px; line-height: 14px; font-size: 14px; white-space: normal; }
+  body.touch #tpad .slot .cdt, body.touch #tpad .gslot .cdt { inset: 1px 0 auto; height: 20px; font-size: 14px; }
+  body.touch #tpad .mobile-main-action .cdt { top: 5px; height: 24px; font-size: 16px; }
+  body.touch #tpad .slot:active, body.touch #tpad .slot.is-pressed,
+  body.touch #tpad .mobile-utility .btn:active, body.touch #tpad .mobile-utility .btn.is-pressed,
+  body.touch #tpad .mobile-class .cls-btn:active, body.touch #tpad .mobile-class .cls-btn.is-pressed,
+  body.touch #tpad .mobile-class .gslot:active, body.touch #tpad .mobile-class .gslot.is-pressed,
+  body.touch #mobile-menu-toggle:active {
+    filter: brightness(1.2); outline: 3px solid #fff1cb; outline-offset: 2px;
+  }
+  body.touch #hud #tpad .cls-btn.hold.on { border-color: #fff2cc; background: #755321; box-shadow: 0 0 0 3px #fff0c8; }
+  body.touch :is(button, summary, [role="button"], input):focus-visible { outline: 3px solid #fff1cb; outline-offset: 3px; }
+  body.touch #joyhint { left: 14px; right: auto; bottom: calc(8px + var(--safe-b)); width: var(--mobile-joy-hint); height: var(--mobile-joy-hint); padding: 4px; font: 600 12px/1.1 var(--ui); letter-spacing: 0; color: #fff3db; border-color: #ac9773; background: #11161d80; }
+  body.touch.mobile-left-handed #hud #tpad { left: 8px; right: auto; }
+  body.touch.mobile-left-handed #tpad .mobile-class { grid-column: 2; justify-content: flex-start; }
+  body.touch.mobile-left-handed #hud #tpad { grid-template-columns: var(--mobile-main) minmax(0, 1fr); }
+  body.touch.mobile-left-handed #hud #tpad .mobile-main-action { grid-column: 1; }
+  body.touch.mobile-left-handed #tpad .mobile-skills, body.touch.mobile-left-handed #tpad .mobile-utility { justify-content: start; }
+  body.touch.mobile-left-handed #joyhint { left: auto; right: 14px; }
+  body.touch.mobile-modal-open #touch,
+  body.touch.mobile-modal-open #mobile-character, body.touch.mobile-modal-open #mobile-menu-toggle,
+  body.touch.mobile-modal-open #mmwrap, body.touch.mobile-modal-open #lore-path { visibility: hidden; pointer-events: none !important; }
+  body.touch #hud #bottom { bottom: calc(252px + var(--safe-b)); }
+  body.touch #hud #error { bottom: calc(264px + var(--safe-b)); }
+  body.touch #hud #banners .lore-note small { font-size: 12px; }
+  body.touch .np .n { padding: 3px 5px; border-radius: 4px; background: #11161ded; color: var(--nc, #fff3db); font-size: 14px; text-shadow: none; }
+  body.touch .np.sel .n { box-shadow: 0 0 0 1px #dfc188; }
+  body.touch .overlay .btn, body.touch .overlay .seg button, body.touch #kit button,
+  body.touch #kit .bagslot, body.touch #kit .statsum .gs-cell { min-height: var(--mobile-target); }
+  body.touch #kit button, body.touch #kit .bagslot { min-width: var(--mobile-target); }
+  body.touch #kit-close { min-height: var(--mobile-target); min-width: 64px; }
+  body.touch #kit-card .gs-x { width: var(--mobile-target); height: var(--mobile-target); }
+  body.touch #kit .bagrid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  body.touch #kit .eqgrid, body.touch #kit .kitbody, body.touch .overlay .seg { gap: 8px; }
+  body.touch .overlay .btn, body.touch .overlay .seg button { font-size: 15px; }
+  body.touch .overlay input, body.touch .overlay select { min-height: var(--mobile-target); font-size: 16px; }
+  #mobile-tray .mobile-sheet { height: min(720px, calc(var(--mobile-vh, 100dvh) - var(--safe-t) - 8px)); max-height: calc(var(--mobile-vh, 100dvh) - var(--safe-t) - 8px); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; gap: 16px; color: #fff3db; background: #171b22; }
+  #mobile-tray .mobile-sheet-header { position: sticky; top: 0; z-index: 3; margin: 0 -16px; padding: 0 16px 12px; background: #171b22; border-bottom: 1px solid #78664a; }
+  #mobile-tray .mobile-sheet-head { position: static; margin: 0; padding: 12px 0; border: 0; background: transparent; }
+  #mobile-tray-close { min-height: var(--mobile-target, 48px); }
+  #mobile-tray-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  #mobile-tray-tabs button { min-width: 0; min-height: var(--mobile-target, 48px); padding: 5px 2px; border: 1px solid #78664a; border-radius: 8px; background: #202630; font: 700 14px/1.1 var(--ui); color: #e6ddcb; }
+  #mobile-tray-tabs [aria-selected="true"] { color: #20170c; background: #dfc188; border-color: #ffefca; text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 2px; }
+  #mobile-tray-panel { display: grid; align-content: start; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; outline-offset: -3px; }
+  #mobile-tray h3 { font: 700 15px/1.2 var(--ui); letter-spacing: 0.02em; color: #f4d9a5; }
+  #mobile-tray .btn, #mobile-tray .iconbtn, #mobile-tray summary { min-height: var(--mobile-target, 48px); min-width: 48px; color: #fff3db; }
+  #mobile-tray .mobile-nav-label { font-size: 14px; }
+  #mobile-tray-nav, #mobile-tray-nav > .iconbtns, #mobile-extra-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #mobile-tray #cls .cls-stances button, #mobile-tray #cls .cls-holy,
+  #mobile-tray #cls .cls-quiver, #mobile-tray #cls .cls-el,
+  #mobile-tray #petbar .pb-cmds button, #mobile-tray #petbar .pb-pet,
+  #mobile-tray #netparty .net-pm, #mobile-tray #war .g2-aim { min-height: var(--mobile-target, 48px); min-width: 48px; }
+  #mobile-tray #cls .cls-stances button, #mobile-tray #cls .cls-holy { width: var(--mobile-target, 48px); height: var(--mobile-target, 48px); }
+  #mobile-tray #cls .cls-stances, #mobile-tray #netparty { gap: 8px; }
+  #mobile-tray #needs .nds { font-size: 14px; }
+  #mobile-tray #petbar .pb-cmds, #mobile-tray #petbar .pb-pets, #mobile-tray-abilities { gap: 8px; }
+  #mobile-tray-abilities summary small, #mobile-tray-abilities details > :not(summary) { color: #d9d2c3; }
+  #mobile-tray-abilities summary small { font-size: 13px; }
+  #mobile-tray-preferences { display: grid; gap: 12px; }
+  #mobile-tray-preferences label { display: flex; align-items: center; gap: 12px; min-height: var(--mobile-target, 48px); padding: 8px 10px; border: 1px solid #78664a; border-radius: 8px; font-size: 15px; }
+  #mobile-tray-preferences input[type="checkbox"] { width: 24px; height: 24px; min-height: 24px; margin: 0; accent-color: #dfc188; }
+  #mobile-tray[data-section="world"] [data-mobile-section]:not([data-mobile-section~="world"]),
+  #mobile-tray[data-section="character"] [data-mobile-section]:not([data-mobile-section~="character"]),
+  #mobile-tray[data-section="social"] [data-mobile-section]:not([data-mobile-section~="social"]),
+  #mobile-tray[data-section="options"] [data-mobile-section]:not([data-mobile-section~="options"]) { display: none !important; }
+  @media (max-width: 359px) {
+    body.touch #kit .bagrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (orientation: landscape) and (max-height: 520px) and (min-width: 601px) {
+    body.touch #hud #topright { width: calc(var(--mobile-target) + 72px); grid-template-columns: var(--mobile-target) 64px; }
+    body.touch #hud #tpad { width: calc(7 * var(--mobile-target) + var(--mobile-main) + 7 * var(--mobile-gap)); grid-template-columns: minmax(0, 1fr) var(--mobile-main); grid-template-rows: var(--mobile-target) var(--mobile-main); }
+    body.touch #tpad .mobile-skills { grid-template-columns: repeat(7, var(--mobile-target)); grid-column: 1 / -1; grid-row: 1; }
+    body.touch #tpad .mobile-utility { grid-column: 1; grid-row: 2; justify-content: start; align-self: end; }
+    body.touch #tpad .mobile-class { grid-column: 1; grid-row: 2; justify-content: end; align-self: end; }
+    body.touch #hud #tpad .mobile-main-action { grid-column: 2; grid-row: 2; }
+    body.touch #hud #bottom { bottom: calc(136px + var(--safe-b)); }
+    body.touch #hud #error { bottom: calc(148px + var(--safe-b)); }
+    body.touch.mobile-left-handed #hud #tpad { grid-template-columns: var(--mobile-main) minmax(0, 1fr); }
+    body.touch.mobile-left-handed #tpad .mobile-utility { grid-column: 2; justify-content: end; }
+    body.touch.mobile-left-handed #tpad .mobile-class { grid-column: 2; justify-content: start; }
+    body.touch.mobile-left-handed #hud #tpad .mobile-main-action { grid-column: 1; }
+    #mobile-tray .mobile-sheet { padding-left: 16px; padding-right: 16px; }
+    #mobile-tray-nav, #mobile-tray-nav > .iconbtns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.touch .slot.flash { animation: none; box-shadow: 0 0 0 3px #fff0c8; }
+    body.touch .bar i, body.touch .banner, body.touch #error { transition: none; animation: none; }
+  }
 </style>
 
 <canvas id="scene" aria-label="Hallowmarch, a 3D world of three realms at war" role="img"></canvas>
@@ -1172,12 +1338,26 @@
   </div>
 </div>
 
-<div class="overlay" id="mobile-tray" hidden>
+<div class="overlay" id="mobile-tray" data-section="world" hidden>
   <div class="sheet panel mobile-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-tray-title">
-    <div class="mobile-sheet-head"><h2 id="mobile-tray-title">The March</h2><button class="btn" id="mobile-tray-close" type="button">Close</button></div>
-    <section aria-label="March tools"><div id="mobile-tray-nav"></div></section>
-    <section aria-label="Supplies and travel"><h3>Supplies &amp; travel</h3><div id="mobile-tray-utilities"></div></section>
-    <section aria-label="Ability descriptions"><h3>Your abilities</h3><div id="mobile-tray-abilities"></div></section>
+    <div class="mobile-sheet-header">
+      <div class="mobile-sheet-head"><h2 id="mobile-tray-title">The March</h2><button class="btn" id="mobile-tray-close" type="button">Close</button></div>
+      <div id="mobile-tray-tabs" role="tablist" aria-label="More tools">
+        <button type="button" role="tab" id="mobile-tab-world" data-mobile-tab="world" aria-selected="true" aria-controls="mobile-tray-panel">Explore</button>
+        <button type="button" role="tab" id="mobile-tab-character" data-mobile-tab="character" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Character</button>
+        <button type="button" role="tab" id="mobile-tab-social" data-mobile-tab="social" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Social</button>
+        <button type="button" role="tab" id="mobile-tab-options" data-mobile-tab="options" aria-selected="false" aria-controls="mobile-tray-panel" tabindex="-1">Options</button>
+      </div>
+    </div>
+    <div id="mobile-tray-panel" role="tabpanel" aria-labelledby="mobile-tab-world" tabindex="0">
+      <section aria-label="Status and supplies" data-mobile-section="world character social options">
+        <h3 data-mobile-section="world">Supplies &amp; travel</h3><h3 data-mobile-section="character">Your class</h3><h3 data-mobile-section="social">Party &amp; war</h3>
+        <div id="mobile-tray-utilities"></div>
+      </section>
+      <section aria-label="March tools"><div id="mobile-tray-nav"></div></section>
+      <section aria-label="Ability descriptions" data-mobile-section="character"><h3>Your abilities</h3><div id="mobile-tray-abilities"></div></section>
+      <section aria-label="Touch preferences" data-mobile-section="options"><div id="mobile-tray-preferences"></div></section>
+    </div>
   </div>
 </div>
 

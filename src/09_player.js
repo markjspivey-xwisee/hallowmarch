@@ -34,18 +34,21 @@ function createPlayer(save) {
 /* ------------------------------------------------------------------ */
 /* input                                                               */
 /* ------------------------------------------------------------------ */
-const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
+const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable); };
 window.addEventListener('keydown', (e) => {
-  if (typing()) return;
   const k = e.code;
+  if (k === 'Escape' && GAME.started && !e.repeat) { e.preventDefault(); onEscape(); return; }
+  if (typing()) return;
+  if (!e.repeat && GAME.started) {
+    if (k === 'KeyM') { toggleMap(); return; }
+    if (k === 'KeyI' || k === 'KeyB') { if (!UI.modal || UI.modal === 'kit') toggleKit(); return; }
+  }
+  // Dialogs own navigation and activation keys; they must never become movement input.
+  if (UI.modal) return;
   if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k) && GAME.started) e.preventDefault();
   if (e.repeat && !['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(k)) return;
   INPUT.keys.add(k);
   if (!GAME.started) return;
-  if (k === 'Escape') { onEscape(); return; }
-  if (k === 'KeyM') { toggleMap(); return; }
-  if (k === 'KeyI' || k === 'KeyB') { if (!UI.modal || UI.modal === 'kit') toggleKit(); return; }
-  if (UI.modal) return;
   if (k.startsWith('Digit')) { const n = parseInt(k.slice(5), 10); if (n >= 1 && n <= 8) playerUseSlot(n - 1); }
   if (k === 'Tab') cycleTarget(e.shiftKey);
   if (k === 'KeyF') { setPlayerTarget(GAME.player); }
@@ -61,11 +64,12 @@ const keyDown = (...codes) => codes.some((c) => INPUT.keys.has(c));
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
+  if (UI.modal) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released */ }
   audioUnlock();
-  if (e.pointerType === 'touch' && GAME.started && !UI.modal) {
-    // left part of the screen: movement stick
-    if (!INPUT.joy && e.clientX < view.w * 0.42 && e.clientY > view.h * 0.35) {
+  if (e.pointerType === 'touch' && GAME.started) {
+    // The movement side follows the player's selected handedness and safe viewport.
+    if (!INPUT.joy && mobileMovementZone(e.clientX, e.clientY)) {
       INPUT.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY, dx: 0, dy: 0 };
       showJoystick(e.clientX, e.clientY, 0, 0);
       return;
@@ -74,6 +78,7 @@ canvas.addEventListener('pointerdown', (e) => {
   INPUT.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: 0, t: performance.now(), type: e.pointerType });
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (UI.modal) return;
   if (INPUT.joy && e.pointerId === INPUT.joy.id) {
     let dx = e.clientX - INPUT.joy.ox, dy = e.clientY - INPUT.joy.oy;
     const l = Math.hypot(dx, dy), max = 56;
@@ -103,7 +108,8 @@ function endPointer(e) {
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('wheel', (e) => { e.preventDefault(); CAM.targetDist = clamp(CAM.targetDist * (1 + Math.sign(e.deltaY) * 0.12), 3.2, 22); }, { passive: false });
+canvas.addEventListener('lostpointercapture', endPointer);
+canvas.addEventListener('wheel', (e) => { if (UI.modal) return; e.preventDefault(); CAM.targetDist = clamp(CAM.targetDist * (1 + Math.sign(e.deltaY) * 0.12), 3.2, 22); }, { passive: false });
 
 /* ------------------------------------------------------------------ */
 /* targeting                                                           */

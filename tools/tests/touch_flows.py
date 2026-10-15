@@ -71,11 +71,20 @@ async def tap(page, sel, frames=2):
     """a finger on the middle of what the screen shows for sel (it must be the topmost thing there)"""
     # Secondary controls are reached through More. Use its real hit-tested tap path, then bring the requested
     # control into the sheet's visible scroll area before measuring it; never invoke its handler by script.
-    in_tray = await page.evaluate("""(sel) => { const el = document.querySelector(sel); return !!(el && el.closest('#mobile-tray')); }""", sel)
-    if in_tray:
+    tray_target = await page.evaluate(r"""(sel) => {
+      const el=document.querySelector(sel), section=el && el.closest('[data-mobile-section]');
+      return {inside:!!(el && el.closest('#mobile-tray')),
+        sections:section ? section.dataset.mobileSection.split(/\s+/) : [],
+        tab:!!(el && el.hasAttribute('data-mobile-tab'))};
+    }""", sel)
+    if tray_target['inside']:
         if await page.evaluate("document.getElementById('mobile-tray').hidden"):
             if not await tap(page, '#mobile-menu-toggle', frames): return False
-        await page.evaluate("TF.see", sel)
+        sections=tray_target['sections']
+        if sections and await page.locator('#mobile-tray').get_attribute('data-section') not in sections:
+            if not await tap(page, f'#mobile-tray-tabs [data-mobile-tab="{sections[0]}"]', frames): return False
+        if not tray_target['tab']:
+            await page.evaluate("TF.see", sel)
     # [guide2] laid out now, then held still as a finger comes down (the page's own frames ran a layout pass between
     # the measure and the tap now and then, and the tap landed where a panel had been: G2.tap, 10f_guide2.js); first the
     # last tap's click lands (on a slow machine it came after the next measure and let the layout go on under it)

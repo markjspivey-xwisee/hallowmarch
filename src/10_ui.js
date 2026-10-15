@@ -215,9 +215,8 @@ function updateHUD(dt) {
   if (it && P.alive && !UI.modal) { pr.classList.add('on'); setT($('prompt-t'), it.label); } else pr.classList.remove('on');
   if (IS_TOUCH && $('t-use')) {
     const label = it && P.alive ? it.label : 'Use';
-    const words = label.trim().split(/\s+/);
-    const short = words.slice(0, 2).join(' ');
-    setT($('t-use'), short.length > 14 ? words[0] : short);
+    setT($('t-use'), mobileInteractionLabel(label));
+    $('t-use').classList.toggle('has-context', !!it && P.alive);
     $('t-use').setAttribute('aria-label', label);
     $('t-use').title = label;
   }
@@ -545,6 +544,7 @@ function updateNameplates() {
     if (e.kind === 'door') { if (!e.alive || e.hp >= e.maxHp * 0.999 && P.target !== e.id) continue; }
     else if (!e.alive && P.target !== e.id) continue;
     const d = dist(e.x, e.z, camX, camZ);
+    if (IS_TOUCH && !mobileNameplateEligible(e, P)) continue;
     if (d > (P.target === e.id ? 70 : e.kind === 'dragon' ? 110 : e.l2risen ? 62 : 36)) continue; // [late4] a risen champion's name reads farther (10o_late4.js)
     if (e.tame && P.target !== e.id && (e.tame.owner !== 'player' || d > 16)) continue; // [animals] names over your own animals close by, not over every sheep (08h_animals.js)
     // under the barrow, names do not show through solid rock
@@ -553,7 +553,8 @@ function updateNameplates() {
     list.push([d, e]);
   }
   list.sort((a, b) => (b[1].id === P.target) - (a[1].id === P.target) || a[0] - b[0]); // [v13] the chosen one's name first: in a crowd it was cut with the farthest
-  const max = IS_TOUCH ? 10 : 18;
+  const max = IS_TOUCH ? (MOBILE_PREFS.names === 'all' ? 10 : 4) : 18;
+  const mobileRects = [];
   let used = 0;
   for (const [d, e] of list) {
     if (used >= max) break;
@@ -576,6 +577,21 @@ function updateNameplates() {
     el._hb.style.display = showBar ? '' : 'none';
     if (showBar) { el._b.style.width = (clamp(e.hp / e.maxHp, 0, 1) * 100).toFixed(1) + '%'; el.style.setProperty('--hc', e.faction === P.faction ? '#5fbf5f' : 'var(--hp)'); }
     el.style.opacity = clamp(1.4 - d / 40, 0.45, 1);
+    if (IS_TOUCH) {
+      // Measure once when this pooled plate's content changes. Selected targets
+      // are sorted first; lower priority names are omitted when they collide.
+      const measureKey = el.textContent + ':' + showBar + ':' + MOBILE_PREFS.text;
+      if (el._mobileMeasure !== measureKey) {
+        el._mobileMeasure = measureKey;
+        const rect = el.getBoundingClientRect();
+        el._mobileW = rect.width; el._mobileH = rect.height;
+      }
+      const r = { l: s.x - el._mobileW / 2, r: s.x + el._mobileW / 2, t: s.y - el._mobileH, b: s.y };
+      if (!sel && mobileRects.some((a) => r.l < a.r + 6 && r.r > a.l - 6 && r.t < a.b + 4 && r.b > a.t - 4)) {
+        el.style.display = 'none'; continue;
+      }
+      mobileRects.push(r);
+    }
     used++;
   }
   for (let i = used; i < UI.npPool.length; i++) UI.npPool[i].style.display = 'none';

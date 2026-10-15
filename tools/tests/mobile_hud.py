@@ -97,7 +97,7 @@ window.MH = {
       if(cx<0||cy<0||cx>innerWidth||cy>innerHeight)continue;
       controls.push({id:el.id,label:el.getAttribute('aria-label')||el.textContent.trim().slice(0,30),w:r.width,h:r.height,top:!!hit&&(hit===el||el.contains(hit))});
     }
-    return {w:innerWidth,h:innerHeight,graphics,safe,boxes,off,overlaps,controls,coverage:occupied/Math.ceil(innerWidth/2)/Math.ceil(innerHeight/2),centerClear:1-centerHit/centerN,slots:[...document.querySelectorAll('#tpad [data-slot]')].filter(e=>this.shown(e)).map(e=>({slot:+e.dataset.slot,locked:e.classList.contains('locked'),label:e.getAttribute('aria-label')}))};
+    return {w:innerWidth,h:innerHeight,graphics,safe,boxes,off,overlaps,controls,coverage:occupied/Math.ceil(innerWidth/2)/Math.ceil(innerHeight/2),centerClear:1-centerHit/centerN,slots:[...document.querySelectorAll('#tpad [data-slot]')].filter(e=>this.shown(e)).map(e=>({slot:+e.dataset.slot,locked:e.classList.contains('locked'),label:e.getAttribute('aria-label')})),primary:[...document.querySelectorAll('#tpad .mobile-main-action .mobile-label')].filter(e=>this.shown(e)).map(e=>e.textContent)};
   },
 };
 window.__mobileRafHold = true;
@@ -131,6 +131,20 @@ async def tap(page, selector):
     return True
 
 
+async def more_tab(page, section):
+    """Category changes use the same real, hit-tested taps as gameplay controls."""
+    await tap(page, f'#mobile-tray-tabs [data-mobile-tab="{section}"]')
+    state = await page.evaluate(r"""() => {
+      const tray=document.getElementById('mobile-tray'),tabs=[...tray.querySelectorAll('[data-mobile-tab]')];
+      return {visible:MH.shown(tray),section:tray.dataset.section,
+        selected:tabs.filter(e=>e.getAttribute('aria-selected')==='true').map(e=>e.dataset.mobileTab),
+        labelledBy:document.getElementById('mobile-tray-panel').getAttribute('aria-labelledby')};
+    }""")
+    check(state['visible'] and state['section']==section and state['selected']==[section]
+          and state['labelledBy']=='mobile-tab-'+section,
+          f'More category {section} remains open with one selected tab and its labelled panel {state}')
+
+
 async def shot(page, name):
     if SHOTS:
         await page.screenshot(path=OUT + name + '.png', timeout=300000)
@@ -159,11 +173,14 @@ async def multitouch(page):
 
 
 async def drawer_swipe(page, tag):
-    """The sheet must scroll with a finger, while the world ignores that gesture."""
+    """The content panel must scroll with a finger, while the header and world stay still."""
     at=await page.evaluate(r"""(() => {
-      const el=document.querySelector('#mobile-tray .mobile-sheet'),r=el.getBoundingClientRect();
-      return {x:r.x+r.width/2,y:r.bottom-60,end:r.top+90,scroll:el.scrollTop};
+      const el=document.getElementById('mobile-tray-panel'),r=el.getBoundingClientRect();
+      const head=document.querySelector('#mobile-tray .mobile-sheet-header').getBoundingClientRect();
+      return {x:r.x+r.width/2,y:r.top+r.height*.82,end:r.top+r.height*.18,
+        scroll:el.scrollTop,overflow:el.scrollHeight-el.clientHeight,headerTop:head.top};
     })()""")
+    check(at['overflow']>20,tag+': Character content exceeds its scroll panel before the finger swipe '+json.dumps(at))
     cdp=await page.context.new_cdp_session(page)
     try:
         await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':at['x'],'y':at['y'],'id':1}]})
@@ -176,8 +193,8 @@ async def drawer_swipe(page, tag):
         await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
         await cdp.detach()
     await page.wait_for_timeout(100)
-    st=await page.evaluate('({scroll:document.querySelector("#mobile-tray .mobile-sheet").scrollTop,joy:!!__hm.INPUT.joy,modal:__hm.UI.modal})')
-    check(st['scroll']>at['scroll']+20 and not st['joy'] and st['modal']=='mobile',tag+': a real finger swipe scrolls the drawer without moving the character '+json.dumps(st))
+    st=await page.evaluate('({scroll:document.getElementById("mobile-tray-panel").scrollTop,headerTop:document.querySelector("#mobile-tray .mobile-sheet-header").getBoundingClientRect().top,joy:!!__hm.INPUT.joy,modal:__hm.UI.modal})')
+    check(st['scroll']>at['scroll']+20 and abs(st['headerTop']-at['headerTop'])<1 and not st['joy'] and st['modal']=='mobile',tag+': a real finger swipe scrolls drawer content while keeping its header fixed and the character still '+json.dumps(st))
 
 
 async def kit_geometry(page, tag):
@@ -201,14 +218,17 @@ async def flows(page, tag):
     check(await page.locator('#mobile-needs-alert').is_visible(),tag+': low needs remain visible in the compact player frame')
     check(await tap(page,'#mobile-menu-toggle'),tag+': controls drawer opens by touch')
     check(await page.locator('#mobile-tray').is_visible(),tag+': controls drawer visible')
+    check(await page.locator('#mobile-tray').get_attribute('data-section')=='world',tag+': More opens on Explore with supplies immediately available')
     check(await page.locator('#needs').is_visible(),tag+': live needs control remains available in the drawer')
     needs=await page.evaluate(r"""(() => {
-      const e=document.getElementById('needs'),r=e.getBoundingClientRect(),head=document.querySelector('.mobile-sheet-head').getBoundingClientRect();
+      const e=document.getElementById('needs'),r=e.getBoundingClientRect(),head=document.querySelector('.mobile-sheet-header').getBoundingClientRect();
       const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
       return {w:r.width,h:r.height,top:r.top,bottom:r.bottom,header:head.bottom,inView:r.top>=head.bottom&&r.bottom<=innerHeight-20,hit:!!hit&&(e===hit||e.contains(hit))};
     })()""")
     check(needs['inView'] and needs['hit'] and needs['w']>=44 and needs['h']>=44,tag+': food and water are immediately reachable on opening More '+json.dumps(needs))
     await shot(page,'mobile_controls_'+tag.replace(' ','_'))
+    await more_tab(page,'character')
+    check(not await page.locator('#needs').is_visible(),tag+': needs stay in Explore rather than crowding Character')
     await drawer_swipe(page,tag)
     # Every skill has a readable details item, including future unlocks.
     catalog=await page.evaluate(r"""(() => {
@@ -234,8 +254,9 @@ async def flows(page, tag):
     await tap(page,'#mobile-character')
     check(await page.locator('#menu').is_visible(),tag+': compact character frame opens the full character sheet')
     await tap(page,'#btn-resume')
-    for control,panel,close in [('#btn-map','#mapov','#btn-mapclose'),('#btn-kit','#kit','#kit-close'),('#btn-menu','#menu','#btn-resume')]:
+    for section,control,panel,close in [('world','#btn-map','#mapov','#btn-mapclose'),('character','#btn-kit','#kit','#kit-close'),('character','#btn-menu','#menu','#btn-resume')]:
         await tap(page,'#mobile-menu-toggle')
+        await more_tab(page,section)
         await page.locator(control).scroll_into_view_if_needed()
         await tap(page,control)
         check(await page.locator(panel).is_visible() and not await page.locator('#mobile-tray').is_visible(),tag+': '+control+' opens its real screen and closes the drawer')
@@ -312,12 +333,15 @@ async def main():
                             # Priests begin with both Mend and Smite; the other callings begin with one skill.
                             expected=8 if level==50 else (2 if cls=='priest' else 1)
                             check(len(m['slots'])==expected,tag+': all learned abilities available directly in combat')
+                            primary_label={'warrior':'Slash','archer':'Quick Shot','mage':'Firebolt','priest':'Smite'}[cls]
+                            check(m['primary']==[primary_label],tag+': the primary action displays its full ability name '+json.dumps(m['primary']))
                             main=m['controls']
                             check(all(c['w']>=43.5 and c['h']>=43.5 and c['top'] for c in main),tag+': primary controls have unobscured 44px tap targets '+json.dumps([c for c in main if c['w']<43.5 or c['h']<43.5 or not c['top']]))
                         if cls=='warrior':
                             await shot(page,f'mobile_{"baseline" if BASELINE else "hud"}_{w}x{h}_lv{level}')
                             if KIT_ONLY:
                                 await tap(page,'#mobile-menu-toggle')
+                                await more_tab(page,'character')
                                 await page.locator('#btn-kit').scroll_into_view_if_needed()
                                 await tap(page,'#btn-kit')
                                 await kit_geometry(page,f'{w}x{h}')
