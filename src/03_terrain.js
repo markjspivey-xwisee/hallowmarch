@@ -635,7 +635,10 @@ const trailMat = new THREE.ShaderMaterial({
       gl_FragColor = clamp(finite4(vec4(push * 0.5 + 0.5, press, glow)), 0.0, 1.0);
     }`,
 });
-pass(trailClearMat, trailA); pass(trailClearMat, trailB);
+// The opt-in diagnostic submits this clear in its fenced trail stage.
+if (new URLSearchParams(location.search).get('gpuDiag') !== '1') {
+  pass(trailClearMat, trailA); pass(trailClearMat, trailB);
+}
 const trailSegs = [];
 function trailStamp(x0, z0, x1, z1, r) {
   if (trailSegs.length >= TRAIL.maxSegs) return;

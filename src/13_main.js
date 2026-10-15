@@ -16,7 +16,7 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
 function resize() {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || graphicsDiagnosticActive()) return;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
@@ -112,6 +112,8 @@ async function boot() {
   applyTimeOfDay(tod.p);
   updateCamera(0.016);
   camera.updateMatrixWorld();
+  // Isolation owns every draw and never enters ordinary compilation or the game loop.
+  if (await graphicsRunDiagnostic()) return;
   if (!BOOT_SAFE) { graphicsCheckpoint('Compiling world shaders'); perf2Compile(false); }
   await loadStep(0.84, 'Drawing the map', () => { buildMapImage(); buildDungeonMap(); });
   await loadStep(0.9, 'Lighting the sky', () => {

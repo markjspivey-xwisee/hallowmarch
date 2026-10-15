@@ -274,6 +274,115 @@ async def safe_boot(browser):
     finally:
         await ctx.close()
 
+DIAGNOSTIC_SNAPSHOT = """() => {
+ const d = window.__hmGpuDiagnostic;
+ return {
+  active:d.active,index:d.index,running:d.running,stopped:d.stopped,complete:d.complete,
+  error:d.error,stages:d.stages,results:d.results,
+  ready:__hm.ready,gameReady:__hm.GAME.ready,started:__hm.GAME.started,t:__hm.GAME.t,
+  animationCallbacks:window.__hmGraphicsTest.animationCallbacks,
+  lost:window.__hmGraphicsTest.lost,restored:window.__hmGraphicsTest.restored,
+  errors:[...__hm.errors],startup:__hm.startup(),
+  stored:localStorage.getItem('hallowmarch.save.v1')
+ };
+}"""
+
+
+async def staged_diagnostic(browser):
+    saved = {'v':1,'char':{'name':'Preserve Me','realm':0,'cls':'warrior','level':8,'xp':123},
+             'settings':{'quality':'high','auto':True},'world':None,
+             'diagnosticSentinel':'preserve-existing-progress'}
+    original = json.dumps(saved,separators=(',',':'))
+    init = 'localStorage.setItem("hallowmarch.save.v1", '+json.dumps(original)+');'
+    ctx,page,errors,console_errors,navigations = await direct_page(browser,800,450,init=init)
+    try:
+        await page.goto(ORIGIN+'/?safe=1&gpuDiag=1&server=',wait_until='commit',timeout=120000)
+        await page.wait_for_function('window.__hmGpuDiagnostic && window.__hmGpuDiagnostic.active',
+                                     timeout=180000,polling=250)
+        initial = await page.evaluate(DIAGNOSTIC_SNAPSHOT)
+        check(not initial['stopped'] and not initial['running'] and initial['index']==0 and
+              len(initial['results'])==0, 'diagnostic waits before its first selected stage')
+        check(not initial['ready'] and not initial['gameReady'] and not initial['started'],
+              'diagnostic never starts or reports the normal game ready')
+        check(initial['startup']['proactivePrograms']==0,
+              'diagnostic begins without whole-scene shader prewarming')
+        await expect(page.locator('#gpu-diag')).to_be_visible()
+        button = page.locator('#gpu-diag-next')
+        await expect(button).to_be_enabled()
+        await page.wait_for_timeout(1000)
+        waiting = await page.evaluate(DIAGNOSTIC_SNAPSHOT)
+        check(waiting['index']==0 and len(waiting['results'])==0 and
+              waiting['t']==initial['t'] and
+              waiting['animationCallbacks']==initial['animationCallbacks'],
+              'diagnostic submits no automatic stage or game animation')
+        expected = ['cube-default','cube-post','sky','terrain','grass','flowers','trees','water',
+                    'structures','crowds','other','trail','decal','combined']
+        check([row['id'] for row in initial['stages']]==expected,
+              'diagnostic exposes all ordered pipeline and material families')
+        for index, stage in enumerate(initial['stages']):
+            await button.click(timeout=180000)
+            await page.wait_for_function(
+                'n => {const d=window.__hmGpuDiagnostic;return !d.running && (d.stopped || d.results.length>=n);}',
+                arg=index+1,timeout=180000,polling=100)
+            current = await page.evaluate(DIAGNOSTIC_SNAPSHOT)
+            check(not current['stopped'], 'diagnostic stage '+stage['id']+' reports no failure: '+str(current['error']))
+            check(current['index']==index+1 and len(current['results'])==index+1,
+                  'manual stage '+stage['id']+' advances exactly once')
+            receipt = current['results'][-1]
+            check(receipt['id']==stage['id'] and receipt['completed'] and receipt['fenceComplete'],
+                  stage['id']+' has a real completed GPU fence receipt')
+            check(receipt['exercised']==(receipt['workCalls']>0),
+                  stage['id']+' distinguishes family work from an empty successful fence')
+            if stage['id'] in ('cube-default','cube-post','combined'):
+                check(receipt['exercised'], stage['id']+' actually draws')
+            check(not current['ready'] and not current['gameReady'] and not current['started'] and
+                  current['t']==initial['t'], stage['id']+' keeps the game paused')
+            check(current['stored']==original, stage['id']+' leaves existing saved data unchanged')
+            await page.wait_for_timeout(100)
+            idle = await page.evaluate(DIAGNOSTIC_SNAPSHOT)
+            check(idle['index']==current['index'] and len(idle['results'])==len(current['results']) and
+                  idle['animationCallbacks']==current['animationCallbacks'],
+                  stage['id']+' does not automatically run another stage or frame')
+        final = await page.evaluate(DIAGNOSTIC_SNAPSHOT)
+        check(final['complete'] and not final['running'] and not final['stopped'],
+              'diagnostic completes all selections without treating success as failure')
+        await expect(button).to_be_disabled()
+        check(not await page.evaluate('window.__hmGpuDiagnostic.runNext()'),
+              'completed diagnostic refuses any further batch')
+        check(final['lost']==0 and final['restored']==0 and not final['errors'] and
+              not errors and not console_errors, 'diagnostic has no context loss or runtime errors')
+        check(len(navigations)==1, 'diagnostic never reloads or navigates automatically')
+        (hm.OUT/'gpu-diagnostic-results.json').write_text(json.dumps(final,indent=2),encoding='utf-8')
+        await page.screenshot(path=str(hm.OUT/'gpu-diagnostic-desktop.png'),timeout=120000)
+        target_before = final['startup']['target']
+        await page.set_viewport_size({'width':390,'height':844})
+        await page.wait_for_timeout(300)
+        phone = await page.evaluate("""() => {
+          const panel=document.getElementById('gpu-diag'),rect=panel.getBoundingClientRect();
+          return {
+            width:innerWidth,left:rect.left,right:rect.right,height:rect.height,
+            scrollWidth:panel.scrollWidth,clientWidth:panel.clientWidth,
+            scrollHeight:panel.scrollHeight,clientHeight:panel.clientHeight,
+            overflow:getComputedStyle(panel).overflowY,target:__hm.startup().target,
+            children:['gpu-diag-next','gpu-diag-status','gpu-diag-results'].map(id=>{
+              const r=document.getElementById(id).getBoundingClientRect();
+              return {id,left:r.left,right:r.right,width:r.width};
+            })
+          };
+        }""")
+        check(phone['width']==390 and phone['left']>=0 and phone['right']<=390 and phone['height']<=844,
+              'diagnostic panel fits a phone viewport')
+        check(phone['scrollWidth']<=phone['clientWidth']+1 and
+              all(row['width']>0 and row['left']>=phone['left'] and row['right']<=phone['right']
+                  for row in phone['children']), 'diagnostic controls, status and results fit horizontally')
+        check(phone['overflow'] in ('auto','scroll') and phone['scrollHeight']>phone['clientHeight'],
+              'long diagnostic results remain vertically scrollable on a phone')
+        check(phone['target']==target_before, 'paused diagnostic resize submits no target reallocation')
+        await page.screenshot(path=str(hm.OUT/'gpu-diagnostic-phone.png'),timeout=120000)
+    finally:
+        await ctx.close()
+
+
 async def main():
     hm.OUT.mkdir(parents=True, exist_ok=True)
     async with async_playwright() as p:
@@ -281,6 +390,7 @@ async def main():
         try:
             await failed_creation(browser,'desktop',1280,720)
             await failed_creation(browser,'phone',390,844,True)
+            await staged_diagnostic(browser)
             await safe_boot(browser)
         finally:
             await browser.close()
