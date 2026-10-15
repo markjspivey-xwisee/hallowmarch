@@ -67,11 +67,22 @@ function setupTitle(save) {
 /* ------------------------------------------------------------------ */
 function bindHUD() {
   $('hotbar').addEventListener('click', (e) => { const b = e.target.closest('.slot'); if (!b) return; e.preventDefault(); if (b.dataset.potion) usePotion(); else playerUseSlot(+b.dataset.slot); });
-  // abilities fire on touch-down for speed; the other buttons wait for a full tap
+  // Abilities and Jump act on pointer-down, including a second finger while
+  // the movement stick remains held. Route Jump through its normal click path
+  // so its swimming/boat action and keyboard activation remain the same.
   $('tpad').addEventListener('pointerdown', (e) => {
+    const jump = e.target.closest('#t-jump');
+    if (jump && !jump.disabled && !UI.modal) { e.preventDefault(); jump.click(); return; }
     const b = e.target.closest('.slot');
     if (b) { e.preventDefault(); if (b.dataset.potion) usePotion(); else playerUseSlot(+b.dataset.slot); }
   });
+  // Capture above the pad's water-action listener: a pointer already activated
+  // Jump/Dive on down, while detail-zero keyboard clicks still activate once.
+  $('hud').addEventListener('click', (e) => {
+    if (e.target.closest('#t-jump') && (e.detail > 0 || e.pointerType === 'touch' || e.pointerType === 'pen')) {
+      e.preventDefault(); e.stopImmediatePropagation();
+    }
+  }, true);
   $('tpad').addEventListener('click', (e) => {
     const P = GAME.player;
     if (!P || UI.modal) return;
@@ -113,7 +124,7 @@ function buildHotbar() {
   };
   const potHTML = (key) => `<button class="slot potion" type="button" data-potion="1" aria-label="Drink a healing draught">${iconSvg('potion', 26)}<span class="key">${key}</span><span class="cnt"></span><span class="cd"></span><span class="cdt"></span><span class="tip panel"><b>Healing draught</b><em>Instant · ${POTION.cd} s cooldown</em>Restores 40% of your health. Merchants in the towns sell them.</span></button>`;
   $('hotbar').innerHTML = abil.map((k, i) => slotHTML(k, i, i + 1)).join('') + '<span class="sep"></span>' + potHTML('Q');
-  $('tpad').innerHTML = abil.map((k, i) => slotHTML(k, i, '')).join('') + `<div class="wide"><button class="btn" type="button" id="t-target">Target</button><button class="btn" type="button" id="t-use">Use</button><button class="btn" type="button" id="t-jump">Jump</button><button class="btn" type="button" id="t-ride">Ride</button><button class="btn" type="button" id="t-potion">Potion</button><button class="btn" type="button" id="t-kit">Kit</button></div>`;
+  $('tpad').innerHTML = abil.map((k, i) => slotHTML(k, i, '')).join('') + `<div class="wide"><button class="btn" type="button" id="t-target">Target</button><button class="btn" type="button" id="t-use">Use</button><button class="btn" type="button" id="t-jump" data-pointer-action>Jump</button><button class="btn" type="button" id="t-ride">Ride</button><button class="btn" type="button" id="t-potion">Potion</button><button class="btn" type="button" id="t-kit">Kit</button></div>`;
   UI.slots = [...document.querySelectorAll('#hotbar .slot:not(.potion)'), ...document.querySelectorAll('#tpad .slot:not(.potion)')];
   updatePotionSlot();
   giftHotbar(); // [gifts] the realm gift on key 9 and on the phone pad, the passive marks (06c_gifts.js)

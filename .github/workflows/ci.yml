@@ -57,6 +57,7 @@ jobs:
             shaders) check python3 tools/tests/shaders.py ;;
             phone)
               check python3 tools/tests/phone.py
+              check python3 tools/tests/mobile_multitouch.py
               check python3 tools/tests/mobile_hud.py
               check python3 tools/tests/mobile_ergonomics.py
               check python3 tools/tests/mobile_navigation.py noshots

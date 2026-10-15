@@ -59,6 +59,7 @@ python3 tools/tests/shaders.py                    # compile every shader at ever
 python3 tools/tests/barrow.py                     # the dungeon, end to end
 python3 tools/tests/phone.py                      # phone HUD screenshots -> tools/out/
 python3 tools/tests/mobile_navigation.py          # real touch navigation, dialogs and browser viewport sizing
+python3 tools/tests/mobile_multitouch.py           # hold movement and jump with a second finger, both hands/orientations
 python3 tools/soak.py 10                          # ten minutes of simulated war
 python3 tools/hm.py '{"script":[["eval","__hm.start({realm:0,cls:\"warrior\",level:20})"],["shot","hello"]]}'
 ```

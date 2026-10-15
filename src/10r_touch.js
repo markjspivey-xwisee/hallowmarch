@@ -51,7 +51,8 @@ function mobileBindNoZoom() {
     S.last = null;
     const control = tap.target && tap.target.closest('button, summary, [role="button"]');
     if (control) {
-      if (control.isConnected && !control.matches(':disabled, [aria-disabled="true"]') && !control.closest('[inert]')) {
+      // Pointer actions have already activated, including a non-primary finger.
+      if (control.isConnected && !control.matches(':disabled, [aria-disabled="true"], [data-pointer-action]') && !control.closest('[inert]')) {
         control.click(); S.clicks++;
       }
     } else if (tap.target && tap.target !== canvas && tap.target.isConnected && !tap.target.closest('[inert]')) {
