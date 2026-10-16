@@ -25,6 +25,8 @@ import { configuredGamingStore } from './gaming/provider.js';
 import { prepareGamingEnvironment } from './gaming/bootstrap.js';
 import { configuredServiceMonitoring } from './gaming/service-monitoring.js';
 import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js';
+import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
+import { createNativeCapabilityComposition } from './gaming/native-capability-publication.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
@@ -203,6 +205,35 @@ const GAMING = createGamingRuntime({ store: gamingStore,
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
 const gamingHttp = createAgentHttp({ gaming: GAMING });
+let gamingCapabilities = null, gamingCapabilitiesBusy = false, gamingCapabilityAttempts = 0;
+let gamingCapabilityState = { state: 'initializing', verified: false };
+const gamingCapabilityStatus = () => gamingCapabilities?.status() || gamingCapabilityState;
+const performanceResourceHttp = createPerformanceResourceHttp({
+  title: 'Hallowmarch resources', nativeScope: { graphIri: 'urn:graph:hallowmarch:performance-support', resourceNamespace: 'urn:hallowmarch:resource:' },
+  catalog: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-resources.json'), 'utf8')),
+  alignment: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-consulting-alignment.json'), 'utf8')),
+  publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : process.env.NODE_ENV !== 'production' ? `http://localhost:${CFG.port}` : undefined),
+  ownership: () => gamingStore ? { did: gamingEnvironment.HM_GAMING_NATIVE_OWNER, podUrl: gamingEnvironment.HM_GAMING_NATIVE_POD_URL } : null,
+  publication: gamingCapabilityStatus,
+});
+async function publishGamingCapabilities() {
+  if (gamingCapabilitiesBusy || gamingCapabilityAttempts >= 5 || gamingCapabilityStatus().verified || gamingCapabilityStatus().state === 'refused') return;
+  if (!gamingStore?.publicationIdentity) { gamingCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return; }
+  gamingCapabilitiesBusy = true; gamingCapabilityAttempts++;
+  try {
+    if (!gamingCapabilities) {
+      const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      gamingCapabilities = createNativeCapabilityComposition({ identity, credentialsProvider, publicData: true,
+        catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
+        ...performanceResourceHttp.nativeComposition(), maxPolls: 10 });
+    }
+    await gamingCapabilities.publish();
+  } catch { gamingCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
+  finally { gamingCapabilitiesBusy = false; }
+}
+// Content discovery is a background composition, independent of the live room.
+setTimeout(() => { void publishGamingCapabilities(); }, 1000).unref();
+setInterval(() => { void publishGamingCapabilities(); }, 30000).unref();
 let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
 async function initializeGamingMonitor() {
   if (!gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
@@ -544,10 +575,11 @@ function onMsg(c, raw) {
 /* ------------------------------------------------------------------ */
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
+  if (performanceResourceHttp(req, res, u)) return;
   if (gamingHttp(req, res, u.pathname)) return;
   if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
-  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(GAMING.manifest())); return; }
-  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: GAMING.manifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
+  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus() })); return; }
+  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: GAMING.manifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, nativeDiscovery: gamingCapabilityStatus(), humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
   if (u.pathname === '/health') { const ok = process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled; res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season

@@ -15,6 +15,7 @@ function fixture(options = {}) {
     assert.equal(payload.did, identity.credentialDid);
     assert.ok(verify(null, Buffer.from(payload.nonce), createPublicKey({ key: keyJwk, format: 'jwk' }), Buffer.from(payload.signature, 'base64url')));
     return Response.json(transform({ userId: identity.userId, did: identity.owner,
+      webId: 'https://identity.interego.xwisee.com/users/' + identity.userId + '/profile#me',
       agentDid: 'did:web:identity.interego.xwisee.com:agents:hallowmarch-game-' + identity.userId,
       podUrl: 'http://css.railway.internal:3456/' + identity.userId + '/', token: 'game-only-bearer-' + String(counter).padStart(32, '0'),
       expiresAt: new Date(clock + 3_600_000).toISOString(), scope: 'ReadWrite' }));
@@ -31,7 +32,14 @@ test('game service signs a real nonce and accepts only its credential-derived is
   const metadata = await f.identity.metadata();
   assert.equal(metadata.token, undefined);
   assert.equal(metadata.owner, f.identity.owner);
+  assert.equal(metadata.ownerWebId, 'https://identity.interego.xwisee.com/users/' + f.identity.userId + '/profile#me');
+  assert.equal(metadata.podAliases[0], metadata.podUrl);
   assert.equal(f.calls.length, 2);
+});
+
+test('publication metadata never binds a different returned owner profile', async () => {
+  const f = fixture(); f.transform(value => ({ ...value, webId: 'https://identity.interego.xwisee.com/users/another/profile#me' }));
+  await assert.rejects(f.identity.metadata(), /another owner profile/);
 });
 
 test('service renewal is cached, single-flight and refreshes before expiry', async () => {

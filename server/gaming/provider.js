@@ -27,9 +27,15 @@ export async function configuredGamingStore(env = process.env, modules) {
   const native = modules?.native || await import('@interego/pgsl');
   const core = modules?.core || await import('@interego/core');
   const senderKeyPair = core.deriveEncryptionKeyPair(settings.PRIVATE_KEY, settings.OWNER);
-  return createInteregoStore({ native, namespace: 'hallowmarch-shared-expedition-v1',
+  const store = createInteregoStore({ native, namespace: 'hallowmarch-shared-expedition-v1',
     scope: { pod: pod.href, owner: settings.OWNER, headUrl: env.HM_GAMING_NATIVE_HEAD_URL || new URL('gaming/head', pod).href,
       artifactContainer: env.HM_GAMING_NATIVE_ARTIFACT_CONTAINER || new URL('gaming/artifacts/', pod).href },
     senderKeyPair, ownerPublicKey: settings.OWNER_PUBLIC_KEY, recipientPublicKeys: [...new Set([settings.OWNER_PUBLIC_KEY, senderKeyPair.publicKey])],
     credentialsProvider: serviceIdentity ? () => serviceIdentity.credentials() : async () => ({ Authorization: `Bearer ${env.HM_GAMING_NATIVE_CAPABILITY}` }) });
+  if (serviceIdentity) Object.defineProperty(store, 'publicationIdentity', { value: async () => {
+    const metadata = await serviceIdentity.metadata();
+    return { owner: metadata.owner, ownerWebId: metadata.ownerWebId, agentDid: metadata.agentDid, userId: metadata.userId, podUrl: metadata.podUrl, podAliases: metadata.podAliases,
+      credentialsProvider: () => serviceIdentity.credentials(), graphDigest: core.canonicalGraphDigest };
+  } });
+  return store;
 }

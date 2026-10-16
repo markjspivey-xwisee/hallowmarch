@@ -34,6 +34,10 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Build and lint
         run: bash tools/lint.sh 80
+      - name: Verify authored resource projections
+        run: |
+          npm --prefix tools run resources:check
+          npm --prefix tools run resources:test
       - name: Run check
         env:
           CHECK: ${{ matrix.check }}

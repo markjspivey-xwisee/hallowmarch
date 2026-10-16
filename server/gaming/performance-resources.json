@@ -1,0 +1,3097 @@
+{
+  "schemaVersion": 1,
+  "description": "Game-authored performance support and instructional content. Reading a resource does not enroll a learner or establish achievement.",
+  "sources": [
+    {
+      "path": "src/04g_blaze.js",
+      "digest": "sha256:e2ebf1d2515cb8a427a263bf5b17c6683b1868c992d8618acb7e2ddf3870ea1a"
+    },
+    {
+      "path": "src/05k_seasons.js",
+      "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434"
+    },
+    {
+      "path": "src/07b_swim.js",
+      "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf"
+    },
+    {
+      "path": "src/08h_animals.js",
+      "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb"
+    },
+    {
+      "path": "src/08k_war3.js",
+      "digest": "sha256:850ddd5217d614842661ddbe90b9559caf8a8f1fc1a154ddc1c3fb9f0d3922c5"
+    },
+    {
+      "path": "src/08l_war4.js",
+      "digest": "sha256:5d22b9d12202084a4e17333264cd087c09cf0b403ece35bb1a66010e9ee88c99"
+    },
+    {
+      "path": "src/08m_loops.js",
+      "digest": "sha256:6610eabb347dcf93aca12bd6f4b88d4c11e4c1d18c49ccebe5ba578d6ce47c30"
+    },
+    {
+      "path": "src/08n_season.js",
+      "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073"
+    },
+    {
+      "path": "src/08o_season2.js",
+      "digest": "sha256:d4951a60c4a5fab5975ecb4236bd4eeb071f15af61ec54170926acb602048247"
+    },
+    {
+      "path": "src/10_ui.js",
+      "digest": "sha256:561f7e918048d5cec9b0725023bf28b8be83c45273002a449baf90cf29a7c08f"
+    },
+    {
+      "path": "src/10c_lore.js",
+      "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430"
+    },
+    {
+      "path": "src/10e_guide.js",
+      "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471"
+    },
+    {
+      "path": "src/10f_guide2.js",
+      "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c"
+    },
+    {
+      "path": "src/10g_gearstats.js",
+      "digest": "sha256:300120e6931990cc0401687d49052f7e5c4d6674928e8f16f02c31a595a2618b"
+    },
+    {
+      "path": "src/10l_late.js",
+      "digest": "sha256:b5043c7ff6886cba55d2dffdbdab80bf9cb6cfafd8f1379b562990966de1ae43"
+    },
+    {
+      "path": "src/10m_deep.js",
+      "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6"
+    },
+    {
+      "path": "src/10n_veteran.js",
+      "digest": "sha256:6575174290f4905ace71a5e53e13c17024a96817dfbb2dd214fa7ebd36f5294e"
+    },
+    {
+      "path": "src/10o_late4.js",
+      "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f"
+    },
+    {
+      "path": "src/12c_weather2.js",
+      "digest": "sha256:12259e289c110099069a04f2397773af291d1e0b1f4aa2a7b1f415f70a4393de"
+    },
+    {
+      "path": "src/13z_look5.js",
+      "digest": "sha256:474d5e69970835af6bd5534c5898d02db249e74e06c4f138bbdd5e6ed719fc3f"
+    },
+    {
+      "path": "src/14o_netui.js",
+      "digest": "sha256:c49af38b689834f429dba3afaecde8aae5825239c0e30fac4dff889a5900fc49"
+    },
+    {
+      "path": "src/14q_netseason.js",
+      "digest": "sha256:a9411201c61e140c5fe6fce384338ffc143e52a0bc69a18545cb92482a6b9e19"
+    },
+    {
+      "path": "src/14r_companies.js",
+      "digest": "sha256:b45bb0ff6357d86f70fe3ceb2e63811360b83e87f92b55ab0fbf610a23892736"
+    }
+  ],
+  "resources": [
+    {
+      "id": "field-note:bands",
+      "kind": "job-aid",
+      "title": "Warbands",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.bands",
+        "lines": {
+          "start": 237,
+          "end": 237
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "bands",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:7714a41620200109ffc554ef1c48581c4f9b5022405ac30362c8f96f66e28a8b"
+    },
+    {
+      "id": "field-note:barrow",
+      "kind": "job-aid",
+      "title": "The Hollow Barrow",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.barrow",
+        "lines": {
+          "start": 430,
+          "end": 430
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The dead here wake together, so take one pack at a time. The Burning Gallery breathes fire in bursts: cross between them. The gate of the Well of Souls opens only when its warden falls. The stair by the mouth leads back up."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "barrow",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:98d6ce443100778504e5c2338a2358006d06cfc992d52def8adc2b00aa68bcea"
+    },
+    {
+      "id": "field-note:battered",
+      "kind": "job-aid",
+      "title": "Stones on houses",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.battered",
+        "lines": {
+          "start": 182,
+          "end": 182
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "A siege stone cracks a house it strikes and holes its roof (the rain comes in), and enough of them bring it down to rubble. Its town builds it back once the fighting moves on."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "battered",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:214fea42cf7371cc7c999d5676a8632b968d2ed3357daf0b3b0a036cbc11cc88"
+    },
+    {
+      "id": "field-note:boat",
+      "kind": "job-aid",
+      "title": "At the oars",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.boat",
+        "lines": {
+          "start": 128,
+          "end": 128
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "boat",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:2e79f15e31484f13fc658e7fc807ba7e29f872c303753369b9b0a6dc2a0b0f4f"
+    },
+    {
+      "id": "field-note:brand",
+      "kind": "job-aid",
+      "title": "A burning brand",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.brand",
+        "lines": {
+          "start": 234,
+          "end": 234
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "brand",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:304bc1ef514d0a5c699f248448abda4cc460c51fe8a5c7943e4de8fc7d9595f3"
+    },
+    {
+      "id": "field-note:breach",
+      "kind": "job-aid",
+      "title": "A breach",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.breach",
+        "lines": {
+          "start": 230,
+          "end": 230
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Siege stones have brought a wall or a tower down. The rubble is a way in for the attackers, and the garrison fights to hold it. In peace the keep rebuilds it behind scaffolding."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "breach",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:d68394599292a2f290f4acc96f264ba29c1ae7d7943c2da1bcca093e91fc2fb4"
+    },
+    {
+      "id": "field-note:breed",
+      "kind": "job-aid",
+      "title": "Young on the way",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08h_animals.js",
+        "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb",
+        "selector": "FIELD_NOTES.breed",
+        "lines": {
+          "start": 1541,
+          "end": 1541
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The young take after both parents, a little better or worse in each trait. Breed the best to raise better stock."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "breed",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:8a45dd48b58feb4e63ef827c6c2993b7ab688ea679c9df4a415c7be9d817edf0"
+    },
+    {
+      "id": "field-note:burning",
+      "kind": "job-aid",
+      "title": "You are on fire",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.burning",
+        "lines": {
+          "start": 235,
+          "end": 235
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Get into water, or out of the flames and let it burn out. Frost puts fire out too."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "burning",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:569435355649e4e0ee9773cc425f201d00e5d2226e63af948fa43a900318069e"
+    },
+    {
+      "id": "field-note:campaign",
+      "kind": "job-aid",
+      "title": "The campaign is over",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.campaign",
+        "lines": {
+          "start": 438,
+          "end": 438
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "After a short peace every keep and hallow goes back to its own realm and a new campaign begins. The Chronicle keeps the record of each."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "campaign",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:36a2e9795a7ab2c0133f84bcf1a398ddcc99457b5365228df0c9d915c8d674ad"
+    },
+    {
+      "id": "field-note:carry",
+      "kind": "job-aid",
+      "title": "Hallow-bearer",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.carry",
+        "lines": {
+          "start": 435,
+          "end": 435
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "carry",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a0ce639cd71bd85e9d621b17c6c7c9febf7e192029b3d0bd94a16117276c2b9b"
+    },
+    {
+      "id": "field-note:champion",
+      "kind": "job-aid",
+      "title": "A borderland champion",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.champion",
+        "lines": {
+          "start": 238,
+          "end": 238
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Named, tough and with friends around it. A champion drops two pieces of good gear and a trophy for the crafters, and comes back five to seven minutes after it falls."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "champion",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:b5ccb0721392338a92141f8ec42f4d11876d54e8d1315f48c8301c4012ebf5e0"
+    },
+    {
+      "id": "field-note:charge",
+      "kind": "job-aid",
+      "title": "Charge",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.charge",
+        "lines": {
+          "start": 185,
+          "end": 185
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "runtime-game-context"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "charge",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:d306c5228abdb2fff9b67370d6acb26b353fad7f9de75656f2a62bf982196237"
+    },
+    {
+      "id": "field-note:chilled",
+      "kind": "job-aid",
+      "title": "Chilled",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.chilled",
+        "lines": {
+          "start": 189,
+          "end": 189
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Frost slows you, and the third chill freezes you solid for a moment. Fire, a storm or a heavy blow breaks the ice."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "chilled",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:5a6336dded6b93c9912990be41956833674aff8b50e6947d59cb45d76a9f4912"
+    },
+    {
+      "id": "field-note:claim",
+      "kind": "job-aid",
+      "title": "A claim on the March",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.claim",
+        "lines": {
+          "start": 437,
+          "end": 437
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "A realm holds four keeps, or both enemy hallows. If it keeps them long enough it wins the campaign: watch the countdown under the minimap, and break the hold if it is not yours."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "claim",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e18e5f4db6cb7deb1fe19d7d3717645e5f000a9527973d7d9db78dc7f7a70d69"
+    },
+    {
+      "id": "field-note:command",
+      "kind": "job-aid",
+      "title": "Command",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.command",
+        "lines": {
+          "start": 436,
+          "end": 436
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device",
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "command",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:2f00bd56d808f1ac27c578f54c8a874256e0973fe6826b8079266ebc997fa702"
+    },
+    {
+      "id": "field-note:crops",
+      "kind": "job-aid",
+      "title": "Your crops",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.crops",
+        "lines": {
+          "start": 242,
+          "end": 242
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Frost bites a crop below the cold it can stand, and a hard frost kills it; a dry spell wilts it. Snow lying on a bed keeps the frost off. Keep the seed of the plants that come through: their strain grows hardier."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "crops",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:08eba287e4c089715033da71b074c7bb98e8123c6846d8ecea33a3b61f54cea9"
+    },
+    {
+      "id": "field-note:current",
+      "kind": "job-aid",
+      "title": "The current",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.current",
+        "lines": {
+          "start": 123,
+          "end": 123
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Rivers run down into the lakes, fastest where they fall and run white. The current carries a swimmer downstream: swim across it, or let it take you."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "current",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:340ac2f8426189520596aa1c5781b619466364f8c069b6492b41b37959f7613b"
+    },
+    {
+      "id": "field-note:dark",
+      "kind": "job-aid",
+      "title": "Night",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.dark",
+        "lines": {
+          "start": 244,
+          "end": 244
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Night falls over the March. Torches and hearths light the towns and keeps; carry a burning brand from any fire to light your way."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "dark",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a8782c656499d41842992cd2e071f390acb59a5fbb1a7b444538cb8581ffc353"
+    },
+    {
+      "id": "field-note:dazzle",
+      "kind": "job-aid",
+      "title": "Dazzled",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.dazzle",
+        "lines": {
+          "start": 187,
+          "end": 187
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Holy light: for a few seconds some of your weapon blows go wide, and you cannot read a blow coming to parry it. Step off a priest's hallowed ground."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "dazzle",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e59efda548fbc1f9e595e0ab8a6097518051aed1a320337ee02baa2a48d10853"
+    },
+    {
+      "id": "field-note:death",
+      "kind": "job-aid",
+      "title": "Death",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.death",
+        "lines": {
+          "start": 439,
+          "end": 439
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "death",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:2daa7b6e806ee4ce130f281ac6cda154618d462aa5647a22cd76474257b2b5f5"
+    },
+    {
+      "id": "field-note:dive",
+      "kind": "job-aid",
+      "title": "Under the water",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.dive",
+        "lines": {
+          "start": 125,
+          "end": 125
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "dive",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:61c27eea624426ab1a22b424544d229e2f8d0c6f234b10d79026d55f6d96c65f"
+    },
+    {
+      "id": "field-note:divechest",
+      "kind": "job-aid",
+      "title": "A sunken chest",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.divechest",
+        "lines": {
+          "start": 126,
+          "end": 126
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Chests go down with boats and careless carters now and then, mostly in the deep middles of the lakes. Others will wash in, in time."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "divechest",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:fa83b73529ef598140faf889a9d9c2f9985015a2d6c0ee6cc03bea79b0522a9d"
+    },
+    {
+      "id": "field-note:dragon",
+      "kind": "job-aid",
+      "title": "Cinderwing",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.dragon",
+        "lines": {
+          "start": 433,
+          "end": 433
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The great red dragon. It lands on high ground to fight: keep out of the line of its fire and away from its tail, and do not take it on alone unless you are far stronger."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "dragon",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:f245b7e48c10a56a8cd69db0aba69641a26c16401f7c27987489a82bccb6d1f4"
+    },
+    {
+      "id": "field-note:engine",
+      "kind": "job-aid",
+      "title": "Siege engines",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.engine",
+        "lines": {
+          "start": 231,
+          "end": 231
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "engine",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:c008a8410ea079daba229bb93bf7ac70ccdefe9f8614dab3fe6a25591f39bd6b"
+    },
+    {
+      "id": "field-note:farmers",
+      "kind": "job-aid",
+      "title": "The farmers",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.farmers",
+        "lines": {
+          "start": 177,
+          "end": 177
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "farmers",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:326f6a326bfa8ea77b7462a9c4abcb0979cbb2063a5ea1f333f56b7b8097b655"
+    },
+    {
+      "id": "field-note:firewall",
+      "kind": "job-aid",
+      "title": "Fire on the walls",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/04g_blaze.js",
+        "digest": "sha256:e2ebf1d2515cb8a427a263bf5b17c6683b1868c992d8618acb7e2ddf3870ea1a",
+        "selector": "FIELD_NOTES.firewall",
+        "lines": {
+          "start": 889,
+          "end": 889
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "firewall",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e08745e03b4f73b757064351a2ce1a81a86466b261e3694a1ce0d7f077c61960"
+    },
+    {
+      "id": "field-note:fish",
+      "kind": "job-aid",
+      "title": "Fishing",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.fish",
+        "lines": {
+          "start": 241,
+          "end": 241
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "fish",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:c3cde51d6642a50ef4f8b20d33d3aaae0af79debba36f542da9cf4e31a5f8618"
+    },
+    {
+      "id": "field-note:frontier",
+      "kind": "job-aid",
+      "title": "The frontier",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.frontier",
+        "lines": {
+          "start": 426,
+          "end": 426
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "frontier",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:563b307325ecf0de097d89c4740dd375053fb38bef8c48b2d01b8b49911e3e8f"
+    },
+    {
+      "id": "field-note:gatemend",
+      "kind": "job-aid",
+      "title": "A gate being hung",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08l_war4.js",
+        "digest": "sha256:5d22b9d12202084a4e17333264cd087c09cf0b403ece35bb1a66010e9ee88c99",
+        "selector": "FIELD_NOTES.gatemend",
+        "lines": {
+          "start": 453,
+          "end": 453
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Masons work on a scaffold in the gateway and two guards hang the new leaves. In a quiet minute or so the gate stands again at its full strength; foes about the keep stop the work."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "gatemend",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:7a08c5733fb046f4d2051646000dd47c36ca162af72509fb60edb2478239efc2"
+    },
+    {
+      "id": "field-note:gear",
+      "kind": "job-aid",
+      "title": "Your gear lives",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.gear",
+        "lines": {
+          "start": 233,
+          "end": 233
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "gear",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:f89947ebeb02bc681b622d3db0afd2dd81de9cf83053a40dba5bcffe4043e370"
+    },
+    {
+      "id": "field-note:gearstats",
+      "kind": "job-aid",
+      "title": "What your gear gives",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10g_gearstats.js",
+        "digest": "sha256:300120e6931990cc0401687d49052f7e5c4d6674928e8f16f02c31a595a2618b",
+        "selector": "FIELD_NOTES.gearstats",
+        "lines": {
+          "start": 146,
+          "end": 146
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "runtime-game-context"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "gearstats",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:78e263aae0ecdecf88c9f87fba09763305d1ee475f4fe1cdff9125e5afb73ce2"
+    },
+    {
+      "id": "field-note:gift",
+      "kind": "job-aid",
+      "title": "Your realm's gift",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.gift",
+        "lines": {
+          "start": 239,
+          "end": 239
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "gift",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:4c5b2a89c005459159e2a4fc364a0d1b9e331fb8ee43694fda0e77f2b13b2636"
+    },
+    {
+      "id": "field-note:hall",
+      "kind": "job-aid",
+      "title": "A keep's great hall",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.hall",
+        "lines": {
+          "start": 176,
+          "end": 176
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "hall",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:db32af4e4250e55016ec55fefb64e62579a596dda1dd0c1b94e9de896589bb06"
+    },
+    {
+      "id": "field-note:herb",
+      "kind": "job-aid",
+      "title": "An unfamiliar plant",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.herb",
+        "lines": {
+          "start": 179,
+          "end": 179
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "herb",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a1da5385c1ba4f560075c646db77418cbf14ea32b584f9f1a77c72bd14391094"
+    },
+    {
+      "id": "field-note:housefire",
+      "kind": "job-aid",
+      "title": "A house on fire",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.housefire",
+        "lines": {
+          "start": 364,
+          "end": 364
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "housefire",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:0c2cd60faaff336323a8b4661bb10c61bd09e7964dea4fe6310b287b48425ac6"
+    },
+    {
+      "id": "field-note:keep",
+      "kind": "job-aid",
+      "title": "An enemy keep",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.keep",
+        "lines": {
+          "start": 427,
+          "end": 427
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Its gates shut against you. Break the gate (or storm a breach), then slay the lord inside and the keep is your realm's. Archers on the walls and towers shoot at anyone close, so come with a warband."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "keep",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:5f17f7c988f3fda8e1fe351a8ce4b9f0ce5cf2fd349ac400a845fd72f7bb90fe"
+    },
+    {
+      "id": "field-note:keepheld",
+      "kind": "job-aid",
+      "title": "A keep must be held",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08k_war3.js",
+        "digest": "sha256:850ddd5217d614842661ddbe90b9559caf8a8f1fc1a154ddc1c3fb9f0d3922c5",
+        "selector": "FIELD_NOTES.keepheld",
+        "lines": {
+          "start": 676,
+          "end": 676
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The band that took it holds its court while a column marches from the nearest keep or the muster to garrison it, and its masons hang a new gate behind a scaffold. Help them hold it a few minutes and it stands; leave it bare and it is soon lost again."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "keepheld",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:10f6260f0774495f4369f8f1f2f87307c42800fb21db06a68cc8a0f439bcd36c"
+    },
+    {
+      "id": "field-note:l2name",
+      "kind": "job-aid",
+      "title": "A name of your own",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10l_late.js",
+        "digest": "sha256:b5043c7ff6886cba55d2dffdbdab80bf9cb6cfafd8f1379b562990966de1ae43",
+        "selector": "FIELD_NOTES.l2name",
+        "lines": {
+          "start": 860,
+          "end": 860
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l2name",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:b5edafb12c9c9c802e89ac16abc8d19bcc6b6f1af222492de92851353f78ee05"
+    },
+    {
+      "id": "field-note:l2risen",
+      "kind": "job-aid",
+      "title": "The risen of the borderlands",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10l_late.js",
+        "digest": "sha256:b5043c7ff6886cba55d2dffdbdab80bf9cb6cfafd8f1379b562990966de1ae43",
+        "selector": "FIELD_NOTES.l2risen",
+        "lines": {
+          "start": 861,
+          "end": 861
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Risen champions who keep pace with you hold the farthest borderland camps now. When the ground about one glows, step out of the ring, or stun it as it rears. At half its strength it calls its pack."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l2risen",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:9932d073fef88d96ee0b824cf9353576a59b9e12b8f67221a6a88522c1fa8e47"
+    },
+    {
+      "id": "field-note:l2std",
+      "kind": "job-aid",
+      "title": "The standard of your name",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10l_late.js",
+        "digest": "sha256:b5043c7ff6886cba55d2dffdbdab80bf9cb6cfafd8f1379b562990966de1ae43",
+        "selector": "FIELD_NOTES.l2std",
+        "lines": {
+          "start": 862,
+          "end": 862
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l2std",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:9113382575b1857ebd728132d61797c4c1f8e82123c63c0092a828db824aa2f8"
+    },
+    {
+      "id": "field-note:l2vet",
+      "kind": "job-aid",
+      "title": "Veterancy",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10l_late.js",
+        "digest": "sha256:b5043c7ff6886cba55d2dffdbdab80bf9cb6cfafd8f1379b562990966de1ae43",
+        "selector": "FIELD_NOTES.l2vet",
+        "lines": {
+          "start": 863,
+          "end": 863
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l2vet",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:aa72d2eca3a98020e4fd5b97d7bc240cbabfa1e358ff37ae1fc49ec553053bbe"
+    },
+    {
+      "id": "field-note:l3bard",
+      "kind": "job-aid",
+      "title": "Your horse's barding",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10n_veteran.js",
+        "digest": "sha256:6575174290f4905ace71a5e53e13c17024a96817dfbb2dd214fa7ebd36f5294e",
+        "selector": "FIELD_NOTES.l3bard",
+        "lines": {
+          "start": 173,
+          "end": 173
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "runtime-game-context"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3bard",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:51f76d4635904b915297743aa233527831afea2345fecaf3b85475aab2fe17be"
+    },
+    {
+      "id": "field-note:l3deep",
+      "kind": "job-aid",
+      "title": "The Deep Barrow",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3deep",
+        "lines": {
+          "start": 1646,
+          "end": 1646
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The halls of the first kings: water that rises, pitch that burns, floors that break. The dead here are a little above you, and their king above them. The Chronicle's Deep page tells of them."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3deep",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:920f0eb8bb30e34f900bea4213266ef600be932c6e5c3eac728f597154d6cd02"
+    },
+    {
+      "id": "field-note:l3flood",
+      "kind": "job-aid",
+      "title": "The water rises",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3flood",
+        "lines": {
+          "start": 1649,
+          "end": 1649
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "In deep water you swim: no spell, no shot. The water puts out a fire on you. Keep to the walkways, or swim for it."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3flood",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:fcac7ac15d14ca78ca070f30b13c64491d8928f3ad10b096b0d3a417d4813c75"
+    },
+    {
+      "id": "field-note:l3lord",
+      "kind": "job-aid",
+      "title": "The Ash-Crowned",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3lord",
+        "lines": {
+          "start": 1650,
+          "end": 1650
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Break his Ember Word: a stun or a bash, Holy Fire, a storm, a blunt arrow, a mace. Parry, shield or step out of his cleave, and off the slabs when they crack."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3lord",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:db6fecbd4ca58b1a79102295d51035252656f75a22bad76ea1cc179910fa0796"
+    },
+    {
+      "id": "field-note:l3mantle",
+      "kind": "job-aid",
+      "title": "The mantle of your name",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10n_veteran.js",
+        "digest": "sha256:6575174290f4905ace71a5e53e13c17024a96817dfbb2dd214fa7ebd36f5294e",
+        "selector": "FIELD_NOTES.l3mantle",
+        "lines": {
+          "start": 171,
+          "end": 171
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "runtime-game-context"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3mantle",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e46c9ca7f1956c2f7bb451e3820c8ea9fbd9d37eaefdc91b9c59176e0dcc9216"
+    },
+    {
+      "id": "field-note:l3pitch",
+      "kind": "job-aid",
+      "title": "Pitch",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3pitch",
+        "lines": {
+          "start": 1648,
+          "end": 1648
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Pitch runs in the channels. Fire spreads along it and burns whoever stands in it: a fire spell lights it under your foes; break a pyre-keeper's Kindle before it lights it under you."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3pitch",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a9c46e657a16d7d76822ef8a6aaf189c6005fd91cd15fcf083e7662b9a02e9f7"
+    },
+    {
+      "id": "field-note:l3seal",
+      "kind": "job-aid",
+      "title": "A sealed stair",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3seal",
+        "lines": {
+          "start": 1645,
+          "end": 1645
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3seal",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:68d7ae3cd49044c2e7dd79cc3d74c91749cc45c10334667d848cb4b1f3a505b7"
+    },
+    {
+      "id": "field-note:l3slab",
+      "kind": "job-aid",
+      "title": "A floor that breaks",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10m_deep.js",
+        "digest": "sha256:c999649cbc6fc6ea60e0f20184da60fa2b926901b900bed70166a6f5e6bc67a6",
+        "selector": "FIELD_NOTES.l3slab",
+        "lines": {
+          "start": 1647,
+          "end": 1647
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "These slabs lie over a pit of embers. Stand on one too long and it cracks and falls: keep moving. If you fall, you climb out burnt."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3slab",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:9321d03649417ac018aee6e8c956bddbc1ec409d05a6c9a5bdf6c25160c9be24"
+    },
+    {
+      "id": "field-note:l3stdfall",
+      "kind": "job-aid",
+      "title": "A standard struck down",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10n_veteran.js",
+        "digest": "sha256:6575174290f4905ace71a5e53e13c17024a96817dfbb2dd214fa7ebd36f5294e",
+        "selector": "FIELD_NOTES.l3stdfall",
+        "lines": {
+          "start": 172,
+          "end": 172
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l3stdfall",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:386d3972ba24d40f9a86a2e150a41654d0489d4b22b45fc9630ee727b4d17099"
+    },
+    {
+      "id": "field-note:l4host",
+      "kind": "job-aid",
+      "title": "A host on the road",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10o_late4.js",
+        "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f",
+        "selector": "FIELD_NOTES.l4host",
+        "lines": {
+          "start": 836,
+          "end": 836
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "A host of the risen walks these borderlands from camp to camp and falls on whatever it meets. Its leader is a risen champion: bring it down, and the March tells of it."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l4host",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:50b84bc79a6313e87b33346d3f91aeaeb7726a49884aa49e394e1ec119f15d3d"
+    },
+    {
+      "id": "field-note:l4second",
+      "kind": "job-aid",
+      "title": "A risen champion at bay",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10o_late4.js",
+        "digest": "sha256:1826b06af305bef9be3fdef3463c143455515b894b290d3b87ceef40f210f43f",
+        "selector": "FIELD_NOTES.l4second",
+        "lines": {
+          "start": 837,
+          "end": 837
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Past half its strength a risen champion fights another way besides: a maul, a pounce, a charge, the grave's hands, a fire flask, a boulder, a lure. A ring on the ground warns of each: step out of it."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l4second",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:8b05bdc5734d307792ecc56ba28269eb2cdfe29173764ad274d69fae3e1b987a"
+    },
+    {
+      "id": "field-note:l5fold",
+      "kind": "job-aid",
+      "title": "The Chronicle folds",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/13z_look5.js",
+        "digest": "sha256:474d5e69970835af6bd5534c5898d02db249e74e06c4f138bbdd5e6ed719fc3f",
+        "selector": "FIELD_NOTES.l5fold",
+        "lines": {
+          "start": 251,
+          "end": 251
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "l5fold",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:5a05ec7a5b3d2d8ac1e5ceec9f5a9e01f4cf77468a36943a840bd3dd65a1ff28"
+    },
+    {
+      "id": "field-note:ladder",
+      "kind": "job-aid",
+      "title": "Ladders and hatches",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.ladder",
+        "lines": {
+          "start": 228,
+          "end": 228
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "ladder",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:ae25afeab3398f9180db3cfa8086f703284ef95a542053a59095984705049041"
+    },
+    {
+      "id": "field-note:lakeice",
+      "kind": "job-aid",
+      "title": "The lakes freeze",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/05k_seasons.js",
+        "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434",
+        "selector": "FIELD_NOTES.lakeice",
+        "lines": {
+          "start": 339,
+          "end": 339
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lakeice",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:3be5c5785f86b507e4fc21cef59c97150a284c2c0def9f7d7e147df77e7871f0"
+    },
+    {
+      "id": "field-note:lcart",
+      "kind": "job-aid",
+      "title": "A cart on the road",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08m_loops.js",
+        "digest": "sha256:6610eabb347dcf93aca12bd6f4b88d4c11e4c1d18c49ccebe5ba578d6ce47c30",
+        "selector": "FIELD_NOTES.lcart",
+        "lines": {
+          "start": 1408,
+          "end": 1408
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Carts carry food, timber, stone and iron from the town to the keeps. The other realms fall on them. Walk beside one of yours to its keep and see it safe; one of theirs taken is lost to them."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lcart",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:80fd651f51d0952ef71cd01b98f70d7022bd51c82f187999ef9e8e1fe7f5bc56"
+    },
+    {
+      "id": "field-note:loffensive",
+      "kind": "job-aid",
+      "title": "An offensive is coming",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08n_season.js",
+        "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073",
+        "selector": "FIELD_NOTES.loffensive",
+        "lines": {
+          "start": 363,
+          "end": 363
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "loffensive",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:8b64f897f4821aa4548501c96811e152e23fdc394003df2b3279e0fec4a3864c"
+    },
+    {
+      "id": "field-note:loot",
+      "kind": "job-aid",
+      "title": "Loot",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.loot",
+        "lines": {
+          "start": 429,
+          "end": 429
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "loot",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:1d13fbf3ba50042a07304568660236b2ac235c2e6812fc3ab845b2c6797a97a3"
+    },
+    {
+      "id": "field-note:lowhp",
+      "kind": "job-aid",
+      "title": "Badly hurt",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.lowhp",
+        "lines": {
+          "start": 434,
+          "end": 434
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lowhp",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:bf618469c762760548437162fdd66ca81d8d9ca161b7a5ef45182b3e5a6f156d"
+    },
+    {
+      "id": "field-note:lseason",
+      "kind": "job-aid",
+      "title": "A season of weeks",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08n_season.js",
+        "digest": "sha256:1d62e6b717c7edffda6cbf75b842d9b0cdef1b6c0cb615a6030953e3e1e14073",
+        "selector": "FIELD_NOTES.lseason",
+        "lines": {
+          "start": 362,
+          "end": 362
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lseason",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:1131dec13c60f91753ca0eb151849e428ec0520a183caf7330e4b91da91e64df"
+    },
+    {
+      "id": "field-note:lshort",
+      "kind": "job-aid",
+      "title": "Your realm runs short",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08m_loops.js",
+        "digest": "sha256:6610eabb347dcf93aca12bd6f4b88d4c11e4c1d18c49ccebe5ba578d6ce47c30",
+        "selector": "FIELD_NOTES.lshort",
+        "lines": {
+          "start": 1409,
+          "end": 1409
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lshort",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e714589a6ecb6cef2375816cd2a384e093de5006424175408d77537f54e2125a"
+    },
+    {
+      "id": "field-note:lstores",
+      "kind": "job-aid",
+      "title": "The realm's stores",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08m_loops.js",
+        "digest": "sha256:6610eabb347dcf93aca12bd6f4b88d4c11e4c1d18c49ccebe5ba578d6ce47c30",
+        "selector": "FIELD_NOTES.lstores",
+        "lines": {
+          "start": 1407,
+          "end": 1407
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "lstores",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:bdb1f227ec54eeefda867510cd04ffc47d06d99985f0df85b255db85ba80be9f"
+    },
+    {
+      "id": "field-note:mount",
+      "kind": "job-aid",
+      "title": "On horseback",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.mount",
+        "lines": {
+          "start": 428,
+          "end": 428
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "mount",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:67a2cbd6e3921c4a3c0b7d7b24df203919255bb73f2f73004b3aaf68dca28c7d"
+    },
+    {
+      "id": "field-note:needs",
+      "kind": "job-aid",
+      "title": "Food and water",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.needs",
+        "lines": {
+          "start": 225,
+          "end": 225
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "needs",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:808f4cf548d0e5d1a49ac9f54770a35ef52abddb813903469ee5f52af5c895a9"
+    },
+    {
+      "id": "field-note:netcompany",
+      "kind": "job-aid",
+      "title": "Companies",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/14r_companies.js",
+        "digest": "sha256:b45bb0ff6357d86f70fe3ceb2e63811360b83e87f92b55ab0fbf610a23892736",
+        "selector": "FIELD_NOTES.netcompany",
+        "lines": {
+          "start": 359,
+          "end": 359
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "netcompany",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:91d55f35aaeb840b6a8a0212aed023c097d284e50b517fc51bc8330493085299"
+    },
+    {
+      "id": "field-note:netothers",
+      "kind": "job-aid",
+      "title": "Others in the March",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/14o_netui.js",
+        "digest": "sha256:c49af38b689834f429dba3afaecde8aae5825239c0e30fac4dff889a5900fc49",
+        "selector": "FIELD_NOTES.netothers",
+        "lines": {
+          "start": 404,
+          "end": 404
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "netothers",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:f98f2e67b1c2c7d4752e9f795d46637a18969c268c42de281d1e66f8a40de53f"
+    },
+    {
+      "id": "field-note:netseason",
+      "kind": "job-aid",
+      "title": "The season",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/14q_netseason.js",
+        "digest": "sha256:a9411201c61e140c5fe6fce384338ffc143e52a0bc69a18545cb92482a6b9e19",
+        "selector": "FIELD_NOTES.netseason",
+        "lines": {
+          "start": 246,
+          "end": 246
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "netseason",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:cf5f1dc665ad3a8606659b4918ab7c2f66cc901e83b5216c77ee3767af88f49f"
+    },
+    {
+      "id": "field-note:news",
+      "kind": "job-aid",
+      "title": "New: the Chronicle",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.news",
+        "lines": {
+          "start": 425,
+          "end": 425
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "news",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:22db350d2f800bbed83a90dd2bc7ce15f0d9902d2cc45d847521b6f74170b714"
+    },
+    {
+      "id": "field-note:pathnew",
+      "kind": "job-aid",
+      "title": "New on your path",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.pathnew",
+        "lines": {
+          "start": 243,
+          "end": 243
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "pathnew",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:b5728b77f31780071fb81492e746ab4cf53b7eef89e84fb5ac69f88a0615a896"
+    },
+    {
+      "id": "field-note:pen",
+      "kind": "job-aid",
+      "title": "A paddock",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08h_animals.js",
+        "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb",
+        "selector": "FIELD_NOTES.pen",
+        "lines": {
+          "start": 1540,
+          "end": 1540
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Fill the rack with grain when there is no grazing, keep the trough full, and muck it out for manure. The shed shelters them from snow and storm."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "pen",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:58a37ec9ae0317dfe311c0bc76d682924d1642bf2367dbe34f9c810cf7aad608"
+    },
+    {
+      "id": "field-note:pets",
+      "kind": "job-aid",
+      "title": "A companion",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08h_animals.js",
+        "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb",
+        "selector": "FIELD_NOTES.pets",
+        "lines": {
+          "start": 1538,
+          "end": 1538
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "It follows you now. The bar under your health gives orders: follow, stay, guard, attack, call. Feed it from its card (E beside it, K for the list)."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "pets",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:66e082f0b68bf824c5ec784d72795c3990bd2a609b1cf0417ede70a12a389937"
+    },
+    {
+      "id": "field-note:presses",
+      "kind": "job-aid",
+      "title": "One keep from the March",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08k_war3.js",
+        "digest": "sha256:850ddd5217d614842661ddbe90b9559caf8a8f1fc1a154ddc1c3fb9f0d3922c5",
+        "selector": "FIELD_NOTES.presses",
+        "lines": {
+          "start": 677,
+          "end": 677
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "A realm with three keeps presses for a fourth, and the keep is ringed on the map. Four keeps held long enough win the campaign; the realms behind may make common cause against it. The war panel says who is close."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "presses",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:5ec45d422597415d690ea3596bf8a5f88d1db069ea26dfc723dff89694046657"
+    },
+    {
+      "id": "field-note:rain",
+      "kind": "job-aid",
+      "title": "Rain",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.rain",
+        "lines": {
+          "start": 431,
+          "end": 431
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Rain sweeps across the March and soaks the land, and storms bring thunder and lightning. The weather turns every few minutes."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "rain",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:40a5662479c4210adc080c33cd63b532e8fa0e13fe084f517d295f3da3ea0d7c"
+    },
+    {
+      "id": "field-note:ranks",
+      "kind": "job-aid",
+      "title": "Ranks",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.ranks",
+        "lines": {
+          "start": 240,
+          "end": 240
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Every ten levels past 20 all your abilities grow a rank stronger: II at 30, III at 40, IV at 50. Realm rank grows with realm points and adds health and damage."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "ranks",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:886519d87f9eb7f054fe082902de04b22e60febbceca1a219e282894d1293300"
+    },
+    {
+      "id": "field-note:renew",
+      "kind": "job-aid",
+      "title": "Renewal on yourself",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.renew",
+        "lines": {
+          "start": 183,
+          "end": 183
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "runtime-game-context"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "renew",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:82d7b4021f17aebe0d364d9db05b61916d27d85aa6a78e2f6f9fbe57a4b38f6f"
+    },
+    {
+      "id": "field-note:ripe",
+      "kind": "job-aid",
+      "title": "A ripe bed",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.ripe",
+        "lines": {
+          "start": 178,
+          "end": 178
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "ripe",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:6668baad48e0636544a5de16fa364211647d69272d5715292bafc785da40f139"
+    },
+    {
+      "id": "field-note:s2battle",
+      "kind": "job-aid",
+      "title": "An offensive to join",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08o_season2.js",
+        "digest": "sha256:d4951a60c4a5fab5975ecb4236bd4eeb071f15af61ec54170926acb602048247",
+        "selector": "FIELD_NOTES.s2battle",
+        "lines": {
+          "start": 310,
+          "end": 310
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "An offensive of the season marches now, or within the hour: the war panel says on which keep. Go there to hold it or to take it: the battle counts in the season."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "s2battle",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:51c9d6d52a7ad754b77e8b5f4bfe4cadf083da9599aa2f3143cb8b4ade3ddf74"
+    },
+    {
+      "id": "field-note:s2field",
+      "kind": "job-aid",
+      "title": "An army of the season",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08o_season2.js",
+        "digest": "sha256:d4951a60c4a5fab5975ecb4236bd4eeb071f15af61ec54170926acb602048247",
+        "selector": "FIELD_NOTES.s2field",
+        "lines": {
+          "start": 309,
+          "end": 309
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device",
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "s2field",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:2118156c75bcdbfeca10c61ba57109cc683751ae8442728f47dea3431dd2a0f5"
+    },
+    {
+      "id": "field-note:scaffold",
+      "kind": "job-aid",
+      "title": "Scaffolds and masons",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.scaffold",
+        "lines": {
+          "start": 180,
+          "end": 180
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "scaffold",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:003ecd5040f20b62a4a50d7c675967859fb9a52cb67fde3f8eda5d5b08bd3705"
+    },
+    {
+      "id": "field-note:setwall",
+      "kind": "job-aid",
+      "title": "Timber burns",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.setwall",
+        "lines": {
+          "start": 181,
+          "end": 181
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "setwall",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:b6b3b1b779477b59bd749720aec7d3f7bff6d5cb92893936b590693dc61888db"
+    },
+    {
+      "id": "field-note:snow",
+      "kind": "job-aid",
+      "title": "Snow",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.snow",
+        "lines": {
+          "start": 432,
+          "end": 432
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "In Thule and up on the passes the rain falls as snow. It settles on the ground and the roofs, and melts when the weather turns."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "snow",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:18d336c7a52c937adf3c408998d69d8da149ade57b83bd6c1138a9fb499f1ff4"
+    },
+    {
+      "id": "field-note:snowlies",
+      "kind": "job-aid",
+      "title": "Snow on the land",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/05k_seasons.js",
+        "digest": "sha256:4e12ab5b2e2349a07442aa5309b94f0932f2014469a301a9b4d4ab2b334eb434",
+        "selector": "FIELD_NOTES.snowlies",
+        "lines": {
+          "start": 338,
+          "end": 338
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Snow lies where the air is below freezing: all winter in Thule and on the high ground, on cold winter nights in the south, gone again by day. It settles on roofs and boughs, slows the grazing herds and chills you without a fire or a roof."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "snowlies",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a7bf2dbe8167f5565f88a8259a2b8d1f73a9e82ddd6c00848f1910b36b66af2b"
+    },
+    {
+      "id": "field-note:start",
+      "kind": "job-aid",
+      "title": "First steps",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "FIELD_NOTES.start",
+        "lines": {
+          "start": 424,
+          "end": 424
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "start",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:fc786f3558e594745c984be92ba50fd65bbb591e35032ed70757de0c3df227e4"
+    },
+    {
+      "id": "field-note:station",
+      "kind": "job-aid",
+      "title": "A workstation",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.station",
+        "lines": {
+          "start": 227,
+          "end": 227
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "station",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:e2b64154002da88cf5e26103562a68538d9cb37c301f91c3602bc32538e7bc3d"
+    },
+    {
+      "id": "field-note:stock",
+      "kind": "job-aid",
+      "title": "Your own stock",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08h_animals.js",
+        "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb",
+        "selector": "FIELD_NOTES.stock",
+        "lines": {
+          "start": 1539,
+          "end": 1539
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Open its card to lead it away, or keep it in the common. Fed, watered and content animals give wool, milk and eggs, and breed."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "stock",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:de0062d807ac140d9e58a6567dcfab8e253f19e463ba5828c7146cfca2ea3b86"
+    },
+    {
+      "id": "field-note:stones",
+      "kind": "job-aid",
+      "title": "The portal stones",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.stones",
+        "lines": {
+          "start": 226,
+          "end": 226
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "The ring of stones in the square carries you to your realm's muster on the frontier, and back. Below level 14 the frontier will kill you quickly: grow strong at home first."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "stones",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:a603e8c8ca3712621a36a9a6de9c1179d9c1fa779ada0693715186972534858d"
+    },
+    {
+      "id": "field-note:storm",
+      "kind": "job-aid",
+      "title": "Thunderstorms",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.storm",
+        "lines": {
+          "start": 236,
+          "end": 236
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Lightning strikes the tallest thing near it: trees, towers, a rider on a hilltop. It sets roofs and trees alight. Get under a roof, or keep off the high ground."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "storm",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:9d41e2a9238d1ccb0c91ecc6fe4a5ab1a08c717a752ae3cc90f0ba4b671b20fd"
+    },
+    {
+      "id": "field-note:swim",
+      "kind": "job-aid",
+      "title": "Swimming",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.swim",
+        "lines": {
+          "start": 122,
+          "end": 122
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device"
+      ],
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "swim",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:0ccf56b483d243466f45fa8eb6e92e0101abf6b02c9f48cbdc3550bd5bd1b16a"
+    },
+    {
+      "id": "field-note:tame",
+      "kind": "job-aid",
+      "title": "Winning trust",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/08h_animals.js",
+        "digest": "sha256:78316232afb55f9877f8fc855f3449727b2670dad0b304c2271dd2a4423f1efb",
+        "selector": "FIELD_NOTES.tame",
+        "lines": {
+          "start": 1537,
+          "end": 1537
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Keep coming back calmly with food. Stand still while it settles; never sprint or ride at it, and never strike it."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "tame",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:d1502fb6ade556fa5510023be6db220f40fedaf8f2bdf59891e29719841f6277"
+    },
+    {
+      "id": "field-note:tower",
+      "kind": "job-aid",
+      "title": "Inside a tower",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.tower",
+        "lines": {
+          "start": 229,
+          "end": 229
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Store room, rooms above and a fighting top: ladders join them through hatches, and doors at the walls' height open onto the walks. Shoot out through the slits; stand on a shut hatch and a foe below must heave at it."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "tower",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:d21588b483739215c512112a039816a9869bab46ec145768436f6c961742e595"
+    },
+    {
+      "id": "field-note:tracks",
+      "kind": "job-aid",
+      "title": "Tracks",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/07b_swim.js",
+        "digest": "sha256:295ee3f98d439530e0c52a2ee9a16aa35bb3219c228094e567d422c75608ddbf",
+        "selector": "FIELD_NOTES.tracks",
+        "lines": {
+          "start": 127,
+          "end": 127
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Feet leave prints in lying snow, in the mud after rain and on the wet sand at the water's edge: boots, hooves, paws, the arrows of birds' feet. Fresh snow fills them and fine weather dries them away, so a clear track is a fresh one."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "tracks",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:3c2b19c3c1c15ec9ceb7b456a92f6140b5c00a2a114ae95f5726e7ddc4f05d76"
+    },
+    {
+      "id": "field-note:w2coming",
+      "kind": "job-aid",
+      "title": "Weather on the way",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/12c_weather2.js",
+        "digest": "sha256:12259e289c110099069a04f2397773af291d1e0b1f4aa2a7b1f415f70a4393de",
+        "selector": "FIELD_NOTES.w2coming",
+        "lines": {
+          "start": 827,
+          "end": 827
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Weather crosses the March on the wind: rain off the western sea over Ériu, snow out of Thule, fair skies over Logres. A storm is seen coming long before it breaks; the war panel says what comes and from where. Under a roof you stay dry."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "w2coming",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:30a901b0dedc82f2d10cd53f90cb9e9faea650161152f9cd732254e994fd3f0d"
+    },
+    {
+      "id": "field-note:walls",
+      "kind": "job-aid",
+      "title": "Walls stop what flies",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10e_guide.js",
+        "digest": "sha256:0787c2a05d3227c81e5c0e810041b8be977978594cd69beb34bea524a6457471",
+        "selector": "FIELD_NOTES.walls",
+        "lines": {
+          "start": 232,
+          "end": 232
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Arrows stick in timber and thatch and glance off stone; spells burst on the wall they meet. Shoot through a crenel, a slit, an open door or window, or find a clear line."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "walls",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:6509cdf1626181ce8f0a8bf70182fb107abdc6ad7f18defe08ee1adb41eb2201"
+    },
+    {
+      "id": "field-note:ward",
+      "kind": "job-aid",
+      "title": "Your Arcane Ward",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.ward",
+        "lines": {
+          "start": 184,
+          "end": 184
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "While it holds, a stun breaks on it, and so does a blow that would break your spell (\"Warded\"): each costs the ward some of its strength. Raise it before a long spell, or before a warrior leaps in."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "ward",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:34c681c718bfe169bd8bce5bf8a04c390b03046d5f59e059d0049e24caa1fab3"
+    },
+    {
+      "id": "field-note:wounded",
+      "kind": "job-aid",
+      "title": "Wounded",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10f_guide2.js",
+        "digest": "sha256:b354c412a30965553a691fa5d66bea6d35ff7756c56b62db41613a501459ff9c",
+        "selector": "FIELD_NOTES.wounded",
+        "lines": {
+          "start": 188,
+          "end": 188
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "A broadhead or a crippling arrow has opened a wound: healing on you takes less until it closes, in a few seconds."
+      },
+      "ui": {
+        "destination": "Chronicle → Your path → Field notes",
+        "note": "wounded",
+        "availability": "Collected in the game when relevant"
+      },
+      "revisionDigest": "sha256:b21eae8b6e271ca2718d2560ccab1379974dfe260ad584024998109a48e08da5"
+    },
+    {
+      "id": "lore:1",
+      "kind": "concept",
+      "title": "The Hallowmarch",
+      "purpose": "instruction",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "prologuePages()[0]",
+        "lines": {
+          "start": 876,
+          "end": 879
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "At the heart of the world rises a green hill, and on the hill stands a single tree older than any kingdom. Around it lies the Hallowmarch: open downs, old roads and broken walls, ringed by mountains with three passes through them.\n\nBeyond each pass lies a realm. **Logres**, of stone keeps and wheat fields. **Ériu**, of green glens and standing stones. **Thule**, of pine forests and long winters. Each calls the March its birthright, and none of them will share it."
+      },
+      "ui": {
+        "destination": "Chronicle → The March → Replay the prologue",
+        "page": 1
+      },
+      "revisionDigest": "sha256:c1b94e3d8e4f8055ed5d6fba39d10931d74521c723dba09d32e00a5b32328c2e"
+    },
+    {
+      "id": "lore:2",
+      "kind": "concept",
+      "title": "The Three Hallows",
+      "purpose": "instruction",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "prologuePages()[1]",
+        "lines": {
+          "start": 880,
+          "end": 884
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Long ago one king ruled the whole March from a hall beneath the hill. He gathered three hallows, **the Grail**, the stone **Lia Fáil** and the ring **Draupnir**, and tried to bind their power to himself so that he would never die.\n\nHis three captains would not let him. They carried the hallows away through the passes, sealed the king and his court in his barrow, and each founded a realm of their own. Under the Lone Tree they swore to share the March in peace, and the oath held for a hundred years.\n\nThen came a winter that would not end, and each realm crossed the passes to take what the others had. The war has not stopped since."
+      },
+      "ui": {
+        "destination": "Chronicle → The March → Replay the prologue",
+        "page": 2
+      },
+      "revisionDigest": "sha256:a7fd0774134ae28b3c9e97ffaac412315afeb81a7f51a184b1e31a7648569d54"
+    },
+    {
+      "id": "lore:3",
+      "kind": "concept",
+      "title": "Keeps and Gates",
+      "purpose": "instruction",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "prologuePages()[2]",
+        "lines": {
+          "start": 885,
+          "end": 889
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "Each realm guards its side of the March with two keeps and the temple that holds its hallow. Warbands gather at the muster by the portal stones and march wherever their commander sends them.\n\nTo take a keep, break its gate (or bring its walls down with siege engines and storm the breach) and slay its lord. A temple cannot be harmed while its realm holds both of its keeps, but once one falls the temple lies open: break its gate, take the hallow and carry it home. Every foreign hallow in your temple makes each soldier of your realm strike a tenth harder.\n\nGates are rebuilt and keeps are taken back, and a dropped hallow finds its way home. The war is a tide, and every soldier moves it."
+      },
+      "ui": {
+        "destination": "Chronicle → The March → Replay the prologue",
+        "page": 3
+      },
+      "revisionDigest": "sha256:e189a7854a04cea911e4ea9db932c777e862dd48b0db4b4d95c3d7265a74cb88"
+    },
+    {
+      "id": "lore:4",
+      "kind": "concept",
+      "title": "Older Than the War",
+      "purpose": "instruction",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "prologuePages()[3]",
+        "lines": {
+          "start": 890,
+          "end": 894
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "**Cinderwing**, a great red dragon, circles above the March and comes down to rest on high ground. It is a fight for the strong, or for many.\n\nEast of the Lone Tree stands the old king's barrow. He got his wish: he never died. The **Hollow King** waits on his throne at its far end, with his court of the dead and the richest hoard in the land.\n\nBeasts, outlaws and the restless dead roam the wilds of every realm, led on the borderlands by named champions. And over all of it the weather turns: rain and mist, snow in the north and on the passes, and storms that shake the sky."
+      },
+      "ui": {
+        "destination": "Chronicle → The March → Replay the prologue",
+        "page": 4
+      },
+      "revisionDigest": "sha256:1f3f61f51c9bbbc416c71012fca957fbb0694fe00fa56169f23a6bcb9fde3dbe"
+    },
+    {
+      "id": "lore:5",
+      "kind": "concept",
+      "title": "Your Road",
+      "purpose": "instruction",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10c_lore.js",
+        "digest": "sha256:6d43b3136f9afe556e2b641dd03f02dfb9e63c3c3c70b5e9bc81f10e891fe430",
+        "selector": "prologuePages()[4]",
+        "lines": {
+          "start": 895,
+          "end": 899
+        }
+      },
+      "requiresContext": true,
+      "contextRequirements": [
+        "input-device",
+        "player-state",
+        "realm"
+      ],
+      "ui": {
+        "destination": "Chronicle → The March → Replay the prologue",
+        "page": 5
+      },
+      "revisionDigest": "sha256:7a6af865cc3dc37960a8106d948c2a24882999f7ea3f77c1bd5826d708851756"
+    },
+    {
+      "id": "map:legend",
+      "kind": "reference",
+      "title": "Map legend",
+      "purpose": "performance-support",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "source": {
+        "path": "src/10_ui.js",
+        "digest": "sha256:561f7e918048d5cec9b0725023bf28b8be83c45273002a449baf90cf29a7c08f",
+        "selector": "drawWorldMap(): .legend",
+        "lines": {
+          "start": 523,
+          "end": 525
+        }
+      },
+      "requiresContext": false,
+      "content": {
+        "mediaType": "text/markdown",
+        "text": "- Keep (colour shows the holder)\n- Temple of a hallow\n- Muster and portal\n- A hallow"
+      },
+      "ui": {
+        "destination": "Map"
+      },
+      "revisionDigest": "sha256:54bdfe81ccb6157c154c3b1e926f1399717d29f4333c3773c6c203b8decaeb9b"
+    }
+  ],
+  "courses": [
+    {
+      "id": "course:lore-prologue",
+      "kind": "course-outline",
+      "title": "The Hallowmarch",
+      "audience": [
+        "human",
+        "agent"
+      ],
+      "resources": [
+        "lore:1",
+        "lore:2",
+        "lore:3",
+        "lore:4",
+        "lore:5"
+      ],
+      "publicationStatus": "unpublished-outline",
+      "assessment": null
+    }
+  ],
+  "revisionDigest": "sha256:3c7414f54e1d0784d7bf9362cc8b4660c58208686887c1742efb6dccf9cdb768"
+}

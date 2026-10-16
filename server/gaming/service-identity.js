@@ -51,15 +51,18 @@ export function createGameServiceIdentity({ identityOrigin = 'https://identity.i
     const signature = sign(null, Buffer.from(challenge.nonce, 'utf8'), privateKey).toString('base64url');
     const result = await post('/auth/did', { did: credentialDid, nonce: challenge.nonce, signature, publicKeyMultibase, name: 'Hallowmarch Game Service', surfaceAgent });
     const expiry = Date.parse(result.expiresAt);
+    const ownerWebId = result.webId;
+    if (ownerWebId !== undefined && ownerWebId !== origin + '/users/' + userId + '/profile#me') throw new Error('Game identity returned another owner profile.');
     let returnedPod;
     try { returnedPod = new URL(result.podUrl); } catch { throw new Error('Game identity returned an invalid pod.'); }
     if (result.userId !== userId || result.did !== owner || result.agentDid !== 'did:web:' + new URL(origin).host + ':agents:' + surfaceAgent + '-' + userId
-      || returnedPod.pathname !== '/' + userId + '/' || returnedPod.search || returnedPod.hash || returnedPod.username || returnedPod.password
+      || !['http:', 'https:'].includes(returnedPod.protocol) || returnedPod.pathname !== '/' + userId + '/' || returnedPod.search || returnedPod.hash || returnedPod.username || returnedPod.password
       || typeof result.token !== 'string' || result.token.length < 32 || /[\r\n]/.test(result.token) || !Number.isFinite(expiry) || expiry <= now() + 30_000
       || result.scope !== 'ReadWrite') throw new Error('Game identity response does not match its isolated owner.');
     // The identity server returns its private CSS spelling; deployment supplies the HTTPS
     // gate spelling. Only the credential-derived pod path is accepted in either form.
-    cached = { token: result.token, expiresAt: expiry, userId, owner, agentDid: result.agentDid, credentialDid, podUrl: pinnedPod?.href ?? result.podUrl };
+    cached = { token: result.token, expiresAt: expiry, userId, owner, ...(ownerWebId ? { ownerWebId } : {}), agentDid: result.agentDid, credentialDid,
+      podUrl: pinnedPod?.href ?? returnedPod.href, podAliases: [...new Set([returnedPod.href, pinnedPod?.href].filter(Boolean))] };
     return cached;
   }
   async function session() {
