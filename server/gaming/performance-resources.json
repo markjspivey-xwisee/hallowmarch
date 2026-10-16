@@ -40,7 +40,7 @@
     },
     {
       "path": "src/10_ui.js",
-      "digest": "sha256:561f7e918048d5cec9b0725023bf28b8be83c45273002a449baf90cf29a7c08f"
+      "digest": "sha256:357524356bfb65b6d35275e32f2dec08c8ff274fb258573e2b3bc5cc9bf3d79b"
     },
     {
       "path": "src/10c_lore.js",
@@ -84,7 +84,7 @@
     },
     {
       "path": "src/14o_netui.js",
-      "digest": "sha256:c49af38b689834f429dba3afaecde8aae5825239c0e30fac4dff889a5900fc49"
+      "digest": "sha256:760c49c42a2f323df8b33399227884370dcddba2c156a18aeab56ea384c2d350"
     },
     {
       "path": "src/14q_netseason.js",
@@ -2020,11 +2020,11 @@
       ],
       "source": {
         "path": "src/14o_netui.js",
-        "digest": "sha256:c49af38b689834f429dba3afaecde8aae5825239c0e30fac4dff889a5900fc49",
+        "digest": "sha256:760c49c42a2f323df8b33399227884370dcddba2c156a18aeab56ea384c2d350",
         "selector": "FIELD_NOTES.netothers",
         "lines": {
-          "start": 404,
-          "end": 404
+          "start": 409,
+          "end": 409
         }
       },
       "requiresContext": true,
@@ -2036,7 +2036,7 @@
         "note": "netothers",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:f98f2e67b1c2c7d4752e9f795d46637a18969c268c42de281d1e66f8a40de53f"
+      "revisionDigest": "sha256:695a0d23a5eecb4c7c5d6efb2ab8731efb173f711a80b09a7ce5584d3ffc58dd"
     },
     {
       "id": "field-note:netseason",
@@ -3055,11 +3055,11 @@
       ],
       "source": {
         "path": "src/10_ui.js",
-        "digest": "sha256:561f7e918048d5cec9b0725023bf28b8be83c45273002a449baf90cf29a7c08f",
+        "digest": "sha256:357524356bfb65b6d35275e32f2dec08c8ff274fb258573e2b3bc5cc9bf3d79b",
         "selector": "drawWorldMap(): .legend",
         "lines": {
-          "start": 523,
-          "end": 525
+          "start": 524,
+          "end": 526
         }
       },
       "requiresContext": false,
@@ -3070,7 +3070,7 @@
       "ui": {
         "destination": "Map"
       },
-      "revisionDigest": "sha256:54bdfe81ccb6157c154c3b1e926f1399717d29f4333c3773c6c203b8decaeb9b"
+      "revisionDigest": "sha256:d836c77f096bfa9c5ca45e86a0d2aff12d0c4c9e594b362c0d67fa9d1c5c6533"
     }
   ],
   "courses": [
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:3c7414f54e1d0784d7bf9362cc8b4660c58208686887c1742efb6dccf9cdb768"
+  "revisionDigest": "sha256:c2cbafd041f6ba76ddf047b035001bb32277e66412e8383855c5201b8036040c"
 }

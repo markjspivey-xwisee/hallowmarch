@@ -45,7 +45,7 @@ export function coNameWhy(name, reserved) {
 }
 
 export function makeCompanies(cfg, store, stats, hooks) {
-  // hooks: { acct(id), acctByName(name), seasonN(), season (the SEASON object), reserved: [...] }
+  // hooks: { acct(id), acctByName(name), seasonN(), canParticipate(account)?, reserved: [...] }
   const D = sanitize(store.read('companies.json', null));
   const C = { D, dirty: false, stats: { founded: 0, joined: 0, left: 0, removed: 0, invites: 0, refused: 0, said: 0, pledged: 0, pledgeMoved: 0, pledgeVoted: 0, captures: 0, musters: 0 } };
   const byAcct = new Map(); // account id -> company id
@@ -59,6 +59,13 @@ export function makeCompanies(cfg, store, stats, hooks) {
   let timer = null;
   C.save = (now) => { clearTimeout(timer); const w = () => { store.write('companies.json', D); C.dirty = false; stats.coSaves = (stats.coSaves || 0) + 1; }; if (now) w(); else timer = setTimeout(w, 1200); C.dirty = true; };
   const no = (why) => { C.stats.refused++; return { ok: false, why }; };
+  // Eligibility is supplied by the authenticated host. Native participation
+  // must not rename a guest, create a password, or turn a binding into proof.
+  C.canParticipate = (A) => {
+    if (!A) return false;
+    try { return typeof hooks.canParticipate === 'function' ? hooks.canParticipate(A) === true : !A.guest; }
+    catch { return false; }
+  };
   C.of = (acct) => { const id = byAcct.get(acct); return id ? D.list[id] || null : null; };
   const roleOf = (co, acct) => (co && co.mem[acct] ? co.mem[acct].role : '');
   const canLead = (co, acct) => { const r = roleOf(co, acct); return r === 'cap' || r === 'off'; };
@@ -73,7 +80,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
   const line = (co, name, text) => { co.chat.push([Date.now(), String(name).slice(0, 24), text]); if (co.chat.length > MAX_CHAT) co.chat.splice(0, co.chat.length - MAX_CHAT); };
 
   C.found = (A, realm, name, dev, col) => {
-    if (!A || A.guest) return no('Name your account first (the Players sheet): a guest cannot found a company');
+    if (!C.canParticipate(A)) return no('Connect Interego or use a named account to found a company');
     if (!Number.isInteger(realm) || realm < 0 || realm > 2) return no('No realm yet');
     if (C.of(A.id)) return no('You are in a company already: leave it first');
     if (Object.keys(D.list).length >= MAX_COS) return no('The March holds no more companies');
@@ -125,7 +132,7 @@ export function makeCompanies(cfg, store, stats, hooks) {
     C.save();
     if (!I || !co) return no('That invitation is no longer open');
     if (!yes) { line(co, '', `${A.name} declines the company's invitation.`); return { ok: true, co: co.id }; }
-    if (A.guest) return no('Name your account first');
+    if (!C.canParticipate(A)) return no('Connect Interego or use a named account to join a company');
     if (C.of(A.id)) return no('You are in a company already');
     if (realm !== co.realm) return no(`${co.name} is of another realm`);
     if (Object.keys(co.mem).length >= MAX_MEMBERS) return no(`${co.name} is full`);
@@ -240,7 +247,8 @@ export function makeCompanies(cfg, store, stats, hooks) {
   // what a player is told: its company (roster with who is on, what each did today and this season), its chat, its
   // notice, its pledge, its tally; else its invitations; and the realm's companies' standing
   C.stateFor = (A, realm, online) => {
-    const co = C.of(A.id), o = { guest: !!A.guest, standing: realm >= 0 ? C.standing(realm) : [], max: MAX_MEMBERS };
+    const co = C.of(A.id), o = { guest: !C.canParticipate(A), standing: realm >= 0 ? C.standing(realm) : [], max: MAX_MEMBERS };
+    if (o.guest) return o;
     if (!co) { o.invites = C.invitesOf(A.id); return o; }
     const T = tally(co), now = Date.now(), dd = day();
     o.co = {

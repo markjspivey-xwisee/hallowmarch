@@ -57,7 +57,8 @@ function setupTitle(save) {
     UI.realm = c.realm; UI.cls = c.cls;
   } else $('continue').hidden = true;
   $('name-input').value = randomName(UI.realm);
-  $('save-note').textContent = SAVE.backend === 'db' ? 'Progress saves automatically to your account.' : 'Progress saves automatically in this browser.';
+  $('save-note').textContent = nativePlayerSaveMessage();
+  nativePlayerRender();
   syncTitle();
   $('title').hidden = false;
 }

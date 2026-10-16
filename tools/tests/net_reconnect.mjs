@@ -8,8 +8,10 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const source = ['12_save.js', '14n_net.js', '14p_netws.js']
-  .map(name => fs.readFileSync(path.join(root, 'src', name), 'utf8')).join('\n');
+const sourceParts = ['12_save.js', '14n_net.js', '14p_netws.js']
+  .map(name => fs.readFileSync(path.join(root, 'src', name), 'utf8'));
+const source = sourceParts.join('\n');
+const nativeSource = fs.readFileSync(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
 const HOST = 'march.test', URL_WS = 'wss://' + HOST + '/ws';
 const deferred = () => {
   let resolve, reject;
@@ -67,8 +69,13 @@ function harness(options = {}) {
     emitClose() { this.readyState = 3; this.onclose?.({ code: 1006 }); }
   }
   const GAME = { ready: false, started: false, player: null, prog: null };
+  const buttons = new Map(['btn-begin', 'btn-continue', 'save-note'].map(id => [id, { disabled: false, textContent: '' }]));
+  const binding = { subjectDid: 'did:web:identity.test:users:u-owner', podUrl: 'https://pod.test/u-owner/' };
+  const nativeProfile = options.nativeProfile || { connect: async () => {}, get: async () => ({ exists: false }),
+    status: () => ({ keyPresent: true, hasRecord: false }), set: async () => {}, close() {} };
+  const requests = [];
   const context = vm.createContext({
-    console, URL, URLSearchParams, Map, Set, Object, Array, JSON, Math,
+    console, URL, URLSearchParams, Map, Set, Object, Array, JSON, Math, AbortSignal,
     performance: { now: () => now },
     Date: class extends Date { static now() { return 1700000000000 + now; } },
     setTimeout: clock.setTimeout, clearTimeout: clock.clear,
@@ -83,21 +90,40 @@ function harness(options = {}) {
     },
     location: { search: '?server=' + encodeURIComponent(URL_WS) + '&shard=regression', reload: () => failures.push('unexpected reload') },
     window: { claude: options.claude, addEventListener() {} },
-    document: { addEventListener() {}, hidden: false },
+    document: { addEventListener() {}, querySelector: () => null, hidden: false },
+    $: id => buttons.get(id) || null,
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      if (url.endsWith('/gaming/manifest')) return options.manifestResponse ? options.manifestResponse() : {
+        ok: true, status: 200, json: async () => options.manifest || { playerIdentity: { enabled: true } },
+      };
+      assert.equal(url, '/gaming/identity/status');
+      return { ok: options.statusCode !== 503, status: options.statusCode || 200,
+        json: async () => options.nativeStatus || { enabled: true, bound: true, verified: true, binding, recordLinks: {} } };
+    },
     reportError: error => failures.push(String(error)),
     netUiOn() {}, netSeasonMsg() {}, coMsg() {}, season2ServerMsg() {},
     savePartsKey: x => x, landKey: x => x,
+    // The native owner port is tested separately from the legacy WS transport.
+    nativePlayerSaveRef: async () => options.nativeSave || null,
+    NATIVE_PLAYER: { state: 'ready' }, nativePlayerRender() {},
   });
-  vm.runInContext(source + '\n' + [
+  const bootOrderSource = options.earlyBoot ? sourceParts[0] + '\nglobalThis.earlyLoading=loadSave(); earlyLoading.catch(()=>{});\n' + sourceParts.slice(1).join('\n') : source;
+  vm.runInContext(bootOrderSource + '\n' + (options.nativePolicy ? nativeSource : '') + '\n' + [
     'netHostElect = netInbox = netGhosts = netDeathWatch = netWorldKeep = () => {};',
     'netPeerLeft = (peer) => NET.peers.delete(peer);',
     'netSlowObj = () => ({on:1,n:GAME.player?.name || "",r:0,c:"warrior",l:1});',
     'netFastObj = () => ({p:[0,0,0],y:0,v:0,a:0,h:100});',
     'globalThis.fixtureSave = {v:1,char:null,settings:{},world:null};',
     'buildSave = () => JSON.parse(JSON.stringify(globalThis.fixtureSave));',
-    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow};',
+    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender,netWsTokenForget};',
   ].join('\n'), context);
+  if (options.nativePolicy) {
+    context.fixtureNativeProfile = nativeProfile; context.fixtureNativeBinding = binding;
+    vm.runInContext('NATIVE_PLAYER.module=Promise.resolve({createPlayerPodProfile:()=>fixtureNativeProfile}); NATIVE_PLAYER.cache={list:async()=>[{...fixtureNativeBinding,ownerDid:fixtureNativeBinding.subjectDid,relayUrl:"https://relay.test"}],get:async()=>({credential:{kind:"relay-oauth-bearer",accessToken:"browser-only-fixture-token"}})}; H.NATIVE_PLAYER=NATIVE_PLAYER;', context);
+  }
   const H = context.H;
+  if (options.nativeSave) H.SAVE.native = true;
   const welcome = (socket, peer = 'peer-new') => socket.message({
     t: 'welcome', v: 1, peer, token: 'server-issued-token',
     acct: { id: 'account-one', guest: true }, world: { k: [] },
@@ -123,7 +149,7 @@ function harness(options = {}) {
     assert.equal(sockets.length, count + 1, 'one new socket opens within capped retry delay');
     return sockets.at(-1);
   }
-  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket };
+  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, earlyLoading: context.earlyLoading };
 }
 
 test('cold handshake failure is shared, clears its promise, and reconnects after a stalled boot', async () => {
@@ -446,4 +472,203 @@ test('RPC timeout retires a CLOSING socket immediately and rejects every overlap
   await h.drive(3000);
   assert.equal(h.sockets.length, 2, 'old close and old RPC timers cannot duplicate recovery');
   assert.deepEqual(h.failures, []);
+});
+
+test('native unread saves never substitute another browser character or write a central fallback', async () => {
+  const original = JSON.stringify({ v: 1, char: null, settings: { owner: 'other-browser-session' } });
+  let writes = 0;
+  const nativeSave = { native: true, get: async () => { throw { code: 'cannot_decrypt' }; },
+    set: async () => { writes++; throw { code: 'key_required' }; } };
+  const h = harness({ nativeSave, storage: { 'hallowmarch.save.v1': original } });
+  assert.equal(await h.H.loadSave(), null);
+  assert.equal(h.H.SAVE.ref, nativeSave);
+  assert.equal(h.H.SAVE.backend, 'pod');
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 1 } };
+  await h.H.saveNow();
+  assert.equal(writes, 1);
+  assert.equal(h.H.SAVE.lastBody, '', 'failed pod writes must remain retryable');
+  assert.equal(h.H.SAVE.pending.settings.progress, 1);
+  assert.equal(h.storage.get('hallowmarch.save.v1'), original);
+  assert.equal(h.sockets.length, 0, 'the native port sends no legacy save RPC');
+});
+
+test('native pending writes retry identical progress and become saved only after confirmation', async () => {
+  let writes = 0;
+  const nativeSave = { native: true, get: async () => ({ exists: false }),
+    set: async () => { if (++writes === 1) throw { code: 'pod_pending' }; } };
+  const h = harness({ nativeSave }); await h.H.loadSave();
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 2 } };
+  await h.H.saveNow();
+  assert.equal(h.H.SAVE.lastBody, ''); assert.ok(h.H.SAVE.pending);
+  await h.H.saveNow();
+  assert.equal(writes, 2); assert.match(h.H.SAVE.lastBody, /progress/);
+  assert.equal(h.H.SAVE.pending, null); assert.equal(h.storage.size, 0);
+});
+
+test('an older native acknowledgement cannot discard newer queued progress', async () => {
+  const first = deferred(), bodies = [];
+  const nativeSave = { native: true, get: async () => ({ exists: false }),
+    set: async save => { bodies.push(save); if (bodies.length === 1) await first.promise; } };
+  const h = harness({ nativeSave }); await h.H.loadSave();
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 3 } };
+  const a = h.H.saveNow(); await flush();
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 4 } };
+  const b = h.H.saveNow(); assert.equal(h.H.SAVE.pending.settings.progress, 4);
+  first.resolve(); await a; await b;
+  assert.deepEqual(bodies.map(save => save.settings.progress), [3, 4]);
+  assert.match(h.H.SAVE.lastBody, /"progress":4/); assert.equal(h.H.SAVE.pending, null);
+  assert.equal(h.storage.size, 0);
+});
+
+const previousLocal = { v: 1, char: { name: 'Other browser character', realm: 0, cls: 'warrior', level: 3 }, settings: {}, world: null };
+const ownNative = { ...previousLocal, char: { ...previousLocal.char, name: 'Owner pod character' } };
+async function nativeWelcome(h) { await flush(); await h.sockets[0].open(); await flush(); h.welcome(h.sockets[0]); await flush(); }
+
+test('actual native policy waits past the old 12 s fallback for a delayed owner welcome', async () => {
+  const profile = { connect: async () => {}, get: async () => ({ exists: true, data: () => ownNative }),
+    status: () => ({ keyPresent: true, hasRecord: true }), close() {} };
+  const h = harness({ nativePolicy: true, nativeProfile: profile, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  let settled = false; const loading = h.H.loadSave().then(value => { settled = true; return value; });
+  await flush(); await h.sockets[0].open(); await flush(); await h.clock.advance(18000);
+  assert.equal(settled, false); assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.loaded, null);
+  h.welcome(h.sockets[0]); const save = await loading;
+  assert.equal(save.char.name, ownNative.char.name); assert.equal(h.H.SAVE.readConfirmed, true);
+  assert.equal(h.H.SAVE.backend, 'pod'); assert.equal(JSON.parse(h.storage.get('hallowmarch.save.v1')).char.name, previousLocal.char.name);
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
+});
+
+test('early boot starts its save read before native and transport constants initialize', async () => {
+  const h = harness({ nativePolicy: true, earlyBoot: true, manifest: { schemaVersion: 1 }, throwOpen: true,
+    storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const save = await h.earlyLoading;
+  assert.equal(save.char.name, previousLocal.char.name); assert.equal(h.H.SAVE.native, false);
+  assert.equal(h.H.SAVE.backend, 'local'); assert.equal(h.H.SAVE.loaded.char.name, previousLocal.char.name);
+});
+
+test('an expired native initialization cannot select a local character or mutate selection after a late legacy manifest', async () => {
+  const manifest = deferred();
+  const h = harness({ nativePolicy: true, manifestResponse: () => manifest.promise, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const loading = h.H.loadSave(); await flush(); await h.clock.advance(45000);
+  assert.equal(await loading, null); assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.readConfirmed, false);
+  manifest.resolve({ ok: true, status: 200, json: async () => ({ schemaVersion: 1 }) }); await flush();
+  assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.backend, 'pod'); assert.equal(h.H.SAVE.loaded, null);
+  assert.equal(h.H.SAVE.ref, null); assert.equal(h.sockets.length, 0);
+  h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+});
+
+test('confirmed legacy policy preserves offline browser play without late promotion', async () => {
+  const h = harness({ nativePolicy: true, manifest: { schemaVersion: 1 }, throwOpen: true, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const save = await h.H.loadSave();
+  assert.equal(save.char.name, previousLocal.char.name); assert.equal(h.H.SAVE.native, false);
+  assert.equal(h.H.SAVE.backend, 'local'); assert.equal(h.H.SAVE.ref, null); assert.equal(h.H.SAVE.server, false);
+  h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+  assert.equal(h.requests[0].init.credentials, 'omit'); assert.equal(h.requests[0].init.headers?.Authorization, undefined);
+});
+
+for (const mode of ['unavailable', 'disabled', 'unbound']) test('advertised native ' + mode + ' owner state blocks entry and all generic fallback', async () => {
+  const h = harness({ nativePolicy: true, statusCode: mode === 'unavailable' ? 503 : 200,
+    nativeStatus: { enabled: mode !== 'disabled', bound: mode !== 'unbound', verified: false, binding: null, recordLinks: {} },
+    storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
+  assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.readConfirmed, false); assert.equal(h.H.SAVE.backend, 'pod');
+  h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
+});
+
+test('initial private read timeout with no server pointer cannot enable entry or accept its late character', async () => {
+  const read = deferred();
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: () => read.promise,
+    status: () => ({ keyPresent: true, hasRecord: true }), close() {} }, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); await h.clock.advance(45000);
+  assert.equal(await loading, null); assert.equal(h.H.SAVE.readConfirmed, false);
+  read.resolve({ exists: true, data: () => ownNative }); await flush(); h.H.nativePlayerRender();
+  assert.equal(h.H.SAVE.loaded, null); assert.equal(h.H.SAVE.readConfirmed, false);
+  assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+});
+
+test('a confirmed absent native character needs its encryption key before entry', async () => {
+  let keyPresent = false;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: async () => ({ exists: false }),
+    status: () => ({ keyPresent, hasRecord: false }), close() {} } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
+  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true);
+  keyPresent = true; h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+});
+
+test('a native reference refuses account switches before any owner-pod write', async () => {
+  let writes = 0;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: async () => ({ exists: false }),
+    status: () => ({ keyPresent: true, hasRecord: false }), set: async () => { writes++; }, close() {} } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); await loading;
+  h.H.NETWS.acct = { id: 'different-account', nativeBound: true };
+  await assert.rejects(h.H.SAVE.ref.set(ownNative), error => error.code === 'revoked');
+  assert.equal(writes, 0);
+});
+
+test('explicit title token recovery clears only the refused host proof and preserves native/browser data', async () => {
+  let privateData = { other: 'preserved', tokens: { [HOST]: 'refused-proof', 'other.test': 'other-proof' } }, writes = 0;
+  const ref = { get: async () => ({ exists: true, data: () => structuredClone(privateData) }), set: async data => { privateData = data; writes++; } };
+  const claude = { use: async name => name === 'db' ? { doc: () => ref } : { id: async () => 'fixture-user' } };
+  const h = harness({ claude, storage: { ['hallowmarch.token.' + HOST]: 'refused-proof', 'hallowmarch.token.other.test': 'other-proof', 'native-key-fixture': 'kept' } });
+  h.H.NETWS.host = HOST; h.H.NETWS.token = 'refused-proof';
+  await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof'), /current character/);
+  await h.H.netWsTokenForget(HOST, 'refused-proof', () => true);
+  assert.equal(writes, 1); assert.deepEqual(JSON.parse(JSON.stringify(privateData)), { other: 'preserved', tokens: { 'other.test': 'other-proof' } });
+  assert.equal(h.storage.has('hallowmarch.token.' + HOST), false);
+  assert.equal(h.storage.get('hallowmarch.token.other.test'), 'other-proof'); assert.equal(h.storage.get('native-key-fixture'), 'kept');
+  assert.equal(h.H.NETWS.token, 'refused-proof', 'Token deletion cannot silently promote another account');
+});
+
+test('title token recovery refuses active play, pending progress and newer local or private credentials', async () => {
+  for (const guard of ['started', 'pending', 'flight', 'new-local', 'new-private']) {
+    let writes = 0;
+    const h = harness({ storage: { ['hallowmarch.token.' + HOST]: guard === 'new-local' ? 'new-proof' : 'refused-proof' },
+      claude: { use: async name => name === 'db' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ tokens: { [HOST]: 'new-proof' } }) }), set: async () => { writes++; } }) } : { id: async () => 'fixture-user' } } });
+    h.H.NETWS.host = HOST; h.H.NETWS.token = 'refused-proof';
+    if (guard === 'started') h.H.GAME.started = true;
+    if (guard === 'pending') h.H.SAVE.pending = { progress: 'kept' };
+    if (guard === 'flight') h.H.SAVE.nativeFlight = Promise.resolve();
+    await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /current character|Another game session/);
+    assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), guard === 'new-local' ? 'new-proof' : 'refused-proof');
+  }
+});
+
+test('private token recovery rechecks a refreshed grant before writing and refuses unreadable storage', async () => {
+  for (const cause of ['refresh', 'unavailable']) {
+    let reads = 0, writes = 0;
+    const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+      get: async () => { if (cause === 'unavailable') throw Error('fixture private store offline'); return { exists: true, data: () => ({ tokens: { [HOST]: ++reads === 1 ? 'refused-proof' : 'fresh-proof' } }) }; },
+      set: async () => { writes++; },
+    }) } : { id: async () => 'fixture-user' } } });
+    h.H.NETWS.host = HOST;
+    await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /Another game session|offline/);
+    assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
+  }
+});
+
+test('timed-out private recovery quarantines its late read and never clears a token or opens a socket', async () => {
+  const reading = deferred(); let writes = 0;
+  const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+    get: () => reading.promise, set: async () => { writes++; },
+  }) } : { id: async () => 'fixture-user' } } });
+  h.H.NETWS.host = HOST;
+  const rejected = assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /did not confirm in time/);
+  await flush(); await h.clock.advance(8000); await rejected;
+  reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await flush();
+  assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof'); assert.equal(h.sockets.length, 0);
+});
+
+test('private recovery stops when gameplay progress appears during its storage read', async () => {
+  const reading = deferred(); let writes = 0;
+  const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+    get: () => reading.promise, set: async () => { writes++; },
+  }) } : { id: async () => 'fixture-user' } } });
+  h.H.NETWS.host = HOST;
+  const rejected = assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /current character/); await flush();
+  h.H.SAVE.pending = { privateProgress: 'kept' };
+  reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await rejected;
+  assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
 });

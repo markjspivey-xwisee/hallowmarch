@@ -50,10 +50,12 @@ ws.on('error',()=>{console.error('fixture socket failed');process.exit(1);});
 PROXY = r"""
 import {pathToFileURL} from 'node:url';
 import readline from 'node:readline';
+import http from 'node:http';
+import https from 'node:https';
 const [modulePath,port,backend]=process.argv.slice(1);
 const {default:WebSocket}=await import(pathToFileURL(modulePath).href);
 const WebSocketServer=WebSocket.WebSocketServer||WebSocket.Server;
-const stats={created:0,closed:0,live:0,maxLive:0,welcomes:0,forwarded:0};
+const stats={created:0,closed:0,live:0,maxLive:0,welcomes:0,forwarded:0,manifests:0};
 const clients=new Set();
 let allowed=false;
 function emit(event,extra={}){process.stdout.write(JSON.stringify({event,...extra,stats:{...stats}})+'\n');}
@@ -63,7 +65,22 @@ function closePeer(socket,code=1000){
  if(code===1005||code===1006||code===1015)socket.close();
  else socket.close(code,'proxy peer closed');
 }
-const listener=new WebSocketServer({host:'127.0.0.1',port:Number(port)});
+// The browser reads this origin's public participation policy before opening a
+// socket. Forward the real backend response and CORS headers; only the WS
+// welcome is intentionally withheld. An invented policy would hide app bugs.
+const publicHttp=http.createServer((req,res)=>{
+ if(req.method!=='GET'||req.url!=='/gaming/manifest'){res.writeHead(404);res.end();return;}
+ const target=new URL(backend);target.protocol=target.protocol==='wss:'?'https:':'http:';
+ target.pathname='/gaming/manifest';target.search='';target.hash='';
+ const upstream=(target.protocol==='https:'?https:http).get(target,{headers:{Accept:'application/json'}},response=>{
+  res.writeHead(response.statusCode,response.headers);response.pipe(res);
+  response.on('end',()=>{stats.manifests++;emit('manifest',{status:response.statusCode});});
+ });
+ upstream.setTimeout(5000,()=>upstream.destroy());
+ upstream.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end();});
+});
+const listener=new WebSocketServer({server:publicHttp});
+publicHttp.listen(Number(port),'127.0.0.1');
 listener.on('listening',()=>emit('ready'));
 listener.on('error',()=>{emit('error',{why:'proxy listener failed'});process.exit(1);});
 listener.on('connection',client=>{
@@ -123,7 +140,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 });
 process.on('SIGTERM',()=>{
  for(const entry of clients){entry.client.terminate();entry.upstream?.terminate();}
- listener.close(()=>process.exit(0));
+ listener.close(()=>publicHttp.close(()=>process.exit(0)));
  setTimeout(()=>process.exit(0),1000).unref();
 });
 """
@@ -299,6 +316,7 @@ async def recover_local_game(browser, backend, seeded):
         target=ORIGIN+'/?'+urlencode({'safe':'1','server':url,'shard':'late-reconnect'})
         await page.goto(target,wait_until='commit',timeout=120000)
         await asyncio.wait_for(proxy.first_hello.wait(),10)
+        check(proxy.stats.get('manifests',0)>0,'proxy forwards the actual public policy before withholding welcome')
         # Delay the actual browser event loop during its real welcome wait.
         await page.evaluate('setTimeout(window.__hmNetTest.stall,6500)')
         await page.wait_for_function('window.__hm && window.__hm.ready',timeout=180000,polling=500)

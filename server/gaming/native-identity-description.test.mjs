@@ -1,0 +1,65 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { nativeIdentityDescription } from './native-identity-description.js';
+
+test('the owned capability exports all four native-discoverable actions with matching HTTP and schema references', () => {
+  const value = nativeIdentityDescription({ publicOrigin: 'https://app.example', allowOwnerBrowserHandoff: true });
+  const operations = value.description['hydra:supportedOperation'];
+  assert.equal(operations.length, 4);
+  assert.deepEqual(operations.map(op => [op['iep:action']['@id'], op['hydra:method'], op['hydra:target']]), [
+    ['urn:interego:identity:owner:start', 'POST', 'https://app.example/gaming/identity/start'],
+    ['urn:interego:identity:owner:status', 'GET', 'https://app.example/gaming/identity/status'],
+    ['urn:interego:identity:owner:claim', 'POST', 'https://app.example/gaming/identity/claim'],
+    ['urn:interego:identity:owner:recordLink', 'POST', 'https://app.example/gaming/identity/record-link'],
+  ]);
+  for (const op of operations) {
+    assert(value.graphContent.includes(`iep:action <${op['iep:action']['@id']}>`));
+    assert(value.graphContent.includes(`hydra:target <${op['hydra:target']}>`));
+    for (const field of ['hydra:expects', 'hydra:returns']) if (op[field]) {
+      const name = op[field]['@id'].split('#').at(-1);
+      assert(value.schemas.$defs[name]); assert(value.graphContent.includes(`<${op[field]['@id']}> a schema:CreativeWork`));
+    }
+    assert(op['dct:requires'].length > 0);
+  }
+  assert.equal(value.manifest.capability, value.id); assert.equal(value.manifest.ownerBrowserWriteHandoff, true);
+  assert.equal(value.manifest.nativePublication, 'requires-verified-owned-descriptor');
+  assert(value.graphContent.includes('sh:name "ownerPodWriteAccess" ; sh:datatype xsd:boolean'));
+});
+
+test('schemas preserve explicit browser write consent and permit no refresh token in handoff output', () => {
+  const value = nativeIdentityDescription({ publicOrigin: 'https://app.example' });
+  const defs = value.schemas.$defs;
+  assert.equal(defs.StartRequest.properties.ownerPodWriteAccess.default, false);
+  assert.match(defs.ClaimRequest.description, /required again/);
+  const native = defs.ClaimResponse.properties.nativeSession;
+  assert.equal(native.additionalProperties, false); assert.equal(native.properties.refreshToken, undefined);
+  assert.equal(native.properties.accessToken.maxLength, 16384);
+  assert.equal(defs.RecordLinkRequest.properties.kind.const, 'character');
+  assert.equal(defs.RecordLinkRequest.properties.graphIri.maxLength, 1024);
+  assert.match(defs.RecordLinkRequest.description, /no save body/);
+  assert.equal(defs.RecordLinkResponse.properties.pointer.additionalProperties, false);
+  assert.deepEqual(defs.StatusResponse.properties.saveAuthority.enum, ['player-pod', 'legacy-server']);
+  assert.equal(value.manifest.nativeTeamMigration, false); assert.equal(value.manifest.nativeAgentDelegation, false);
+  assert.equal(Object.isFrozen(defs.ClaimResponse.properties.nativeSession), true);
+});
+
+test('public metadata carries transport prerequisites and truthful migration and pointer limits without player instances', () => {
+  const value = nativeIdentityDescription({ publicOrigin: 'https://app.example' });
+  const graph = value.graphContent;
+  for (const required of ['Secure HttpOnly SameSite=Lax', 'S256 PKCE', 'at most 30 seconds', 'pod-wide grant',
+    'at most one hour', 'Learning export requires', 'not migrated', 'Does not fetch the descriptor', 'not a signed descriptor']) {
+    // Authorship is described as publisher work, rather than a local claim.
+    assert(graph.includes(required) || (required === 'not a signed descriptor' && graph.includes('only after a native publisher signs')));
+  }
+  assert(!graph.includes('css.railway.internal')); assert(!graph.includes('u-pk-')); assert(!graph.includes('access_token='));
+  assert(!graph.includes('hallowmarch')); assert(!graph.includes('native-access-secret'));
+});
+
+test('description origins and custom routes cannot inject RDF or redirect credential forms', () => {
+  for (const publicOrigin of ['http://app.example', 'https://name:secret@app.example', 'https://app.example/path', 'https://app.example/?x=1']) {
+    assert.throws(() => nativeIdentityDescription({ publicOrigin }));
+  }
+  for (const paths of [{ start: '//evil.example/path' }, { start: '/bad>route' }, { claim: '/gaming/identity/start' }, { status: '/identity/../other' }]) {
+    assert.throws(() => nativeIdentityDescription({ publicOrigin: 'https://app.example', paths }));
+  }
+});

@@ -34,6 +34,13 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Build and lint
         run: bash tools/lint.sh 80
+      - name: Build pinned native SDK proof dependencies
+        if: ${{ matrix.check == 'networking' }}
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
+        run: |
+          node tools/setup-native-sdk.mjs
+          echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
       - name: Verify authored resource projections
         run: |
           npm --prefix tools run resources:check
@@ -55,6 +62,10 @@ jobs:
             startup) check python3 tools/tests/startup_graphics.py ;;
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
+              node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/browser.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/access-cache.browser.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/identity-ui.browser.test.mjs
               python3 tools/tests/gaming_client.py
               node tools/tests/gaming_browser.mjs
               HM_GAMING_TEST_REALTIME=1 node tools/tests/gaming_browser.mjs

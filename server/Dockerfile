@@ -48,6 +48,7 @@ RUN mkdir -p server/node_modules/@interego \
     && node --input-type=module -e "const n=await import('/opt/interego/packages/pgsl/dist/index.js');const c=await import('/opt/interego/packages/core/dist/index.js');const s=await import('/opt/interego/packages/solid/dist/index.js');if(typeof s.digestedGraphRegion!=='function'||typeof s.parseAuthorshipProofFromDescriptorTurtle!=='function'||typeof s.parseDistributionFromDescriptorTurtle!=='function'||typeof n.NativeCommitStore!=='function'||typeof n.createNativeByteArtifact!=='function'||typeof n.readNativeByteArtifact!=='function'||typeof c.deriveEncryptionKeyPair!=='function')throw Error('Native SDK contract unavailable')"
 COPY server/*.js ./server/
 COPY server/gaming ./server/gaming
+COPY client/native-pod ./client/native-pod
 # the sites (00_util.js, 01_world.js) and the season's realm module (08m_realm.js once loops's lands; server/realm_stub.js until then)
 COPY src ./src
 COPY --from=page /app/hallowmarch.html ./hallowmarch.html
