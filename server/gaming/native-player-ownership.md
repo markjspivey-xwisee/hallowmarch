@@ -13,6 +13,13 @@ the caller cannot provide its own trusted DID. A Hallowmarch-owned native ledger
 retains participation and the reference to the player's private record. Returning
 with the same native identity restores the same participation account.
 
+The encrypted character and its encrypted discovery index belong to that player
+in the player's pod. A fresh browser discovers the owner index before following
+any game-held reference; recovery also requires the player's correct encryption
+key. The game-held reference is a repairable hint, not the authority for finding
+or replacing the player's character. Uncertain index publication keeps the same
+pending operation and cannot authorize another character or replacement key.
+
 The access grant reaches only the initiating browser through a one-use,
 cookie/account/session-bound claim. No native token appears in a URL, game
 account file or game session token. Refresh tokens are discarded. An access
@@ -54,8 +61,13 @@ visible during an outage, so unresolved ownership cannot select a browser save.
 at the server: unverified accounts cannot send world updates, enter the shared
 expedition or write central personal files. The sign-in transport remains usable.
 
-This is a private-character and identity bridge. The bounded shared expedition
-remains separate from the legacy main-world simulation. Native agent proof,
-player-authorized autonomous writes, team/realm/season ownership migration and
-signed cross-owner authoritative outcome receipts require their own composed
-contracts. This change does not claim those migrations or MMO-scale capacity.
+This is a private-character and identity bridge over the hosted native provider.
+The bounded shared expedition remains separate from main-world combat, which
+uses elected page/region keepers. Game-owned world/season persistence and native
+companion authority have their own [checkpoint](progressive-owned-state.md) and
+[delegation](native-agent-authority.md) contracts. Enable those composed paths
+only after their deployment and live proof gates pass. Team/realm ownership and
+permissions and signed cross-owner authoritative outcomes remain outside this migration. Native
+sign-in and gameplay delegation do not grant learning consent or configure the
+trusted subject delivery path; personal learning export remains unavailable.
+This change does not establish MMO-scale capacity.

@@ -64,11 +64,12 @@ function fixture(options = {}) {
       const captured = () => popup.captureReceipt({ code: options.badCapture ? 'DO_NOT_LOG' : 'capture_complete', status: 200,
         redirectHash: options.mismatchedCapture ? 'f'.repeat(64) : createHash('sha256').update(redirect).digest('hex') });
       if (options.captureFirst) captured();
-      response(popup, '/oauth/verify', { method: 'POST', body: options.verifyBody ?? { redirect },
+      response(popup, '/oauth/verify', { method: 'POST', status: options.verifyStatus ?? 200, body: options.verifyBody ?? { redirect },
         requestBody: { pending_id: 'a'.repeat(32), method: intent.register ? 'webauthn-register' : 'webauthn-authenticate',
           response: { id: options.foreignCredential ? 'dW5yZWxhdGVk' : id, rawId: options.foreignCredential ? 'dW5yZWxhdGVk' : id } } });
       if (options.capture && !options.captureFirst) captured();
       if (options.duplicateCapture) captured();
+      if (options.verifyStatus && options.verifyStatus !== 200) return;
       if (options.pending && counts.starts === 1) { deferred = () => finish(popup, popup.state); return; }
       finish(popup, popup.state, { callback: options.callbackFailure && counts.starts === 1 ? 504 : 303,
         callbackState: options.wrongState ? 'foreign-state' : popup.state,
@@ -97,6 +98,15 @@ test('a timeout resumes the original pending popup without another proof, start 
   assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' });
   const resumed = f.controller.run(); await tick(); f.finish(); assert.deepEqual(await resumed, owner);
   assert.equal(f.popups.length, 1); assert.equal(f.counts.proofs, 1); assert.equal(f.counts.registrations, 1);
+});
+test('an exact native verification refusal fails promptly without a callback, claim or replacement ceremony', async () => {
+  const f = fixture({ register: false, verifyStatus: 401, timeoutMs: 180000 });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_native_proof_refused' });
+  const report = f.controller.status();
+  assert.equal(report.verifyStatus, 401); assert.equal(report.phase, 'native-proof-refused');
+  assert.equal(report.claimRequests, 0); assert.equal(report.callbackStatus, null); assert.equal(report.canRetrySameOwner, false);
+  assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' });
+  assert.equal(f.counts.starts, 1); assert.equal(f.counts.registrations, 0); f.controller.close();
 });
 test('definitive callback failure permits only an explicit same-passkey usernameless sign-in', async () => {
   const f = fixture({ callbackFailure: true }); await assert.rejects(f.controller.run(), { code: 'qa_oauth_callback_refused' });

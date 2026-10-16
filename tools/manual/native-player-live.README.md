@@ -200,6 +200,11 @@ the browser-close backstop.
   In-memory CDP
   transfer of **this test's own virtual passkey only** simulates passkey sync so
   it can authenticate the same owner; it does not register a second identity.
+  The exact credential ID, key, relying party and user handle stay bound while
+  actual CDP assertion events advance its retained signature counter. The
+  runner waits for that proof's credential event before reading or copying it;
+  reusing the old registration counter after a retry is refused. A definitive
+  native verification HTTP refusal fails promptly, without another ceremony.
   Native encryption keys are not copied. The runner deliberately omits the
   Hallowmarch pointer, discovers the owner's existing index, and verifies that a
   replacement key is refused and reading requires recovery. It then imports the

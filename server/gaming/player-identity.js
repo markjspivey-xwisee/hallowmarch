@@ -139,6 +139,9 @@ function parseMcp(raw) {
  * status() exposes counts only; close() removes pending ceremonies/handoffs.
  * Federated providers can supply metadataUrl, resourceMetadataUrl,
  * identityOrigin and trusted storeBases; callers cannot select endpoints.
+ * bindingTimeoutMs independently bounds the host's native binding persistence
+ * (100–30,000 ms). It defaults to requestTimeoutMs for existing compositions;
+ * increasing it does not change provider request deadlines or handoff leases.
  */
 export function createPlayerIdentityBridge(options = {}) {
   if (typeof options.authorizeGameAccount !== 'function' || typeof options.onVerified !== 'function') {
@@ -170,6 +173,7 @@ export function createPlayerIdentityBridge(options = {}) {
   const maxPending = bounded(options.maxPending, 256, 1, 4096, 'maxPending');
   const maxPerAccount = bounded(options.maxPerAccount, 2, 1, 16, 'maxPerAccount');
   const requestTimeoutMs = bounded(options.requestTimeoutMs, 15_000, 100, 30_000, 'requestTimeoutMs');
+  const bindingTimeoutMs = bounded(options.bindingTimeoutMs, requestTimeoutMs, 100, 30_000, 'bindingTimeoutMs');
   const now = options.now ?? Date.now;
   const fetcher = options.fetch ?? globalThis.fetch;
   const pending = new Map(), handoffs = new Map(), active = new Set();
@@ -331,7 +335,7 @@ export function createPlayerIdentityBridge(options = {}) {
             startedAt: new Date(record.startedAt).toISOString(), ownerPodWriteAccess: record.write, signal: hostAbort.signal }))),
           new Promise((_, reject) => { hostTimer = setTimeout(() => {
             hostAbort.abort(); reject(new IdentityError('identity_binding_timeout', 504));
-          }, requestTimeoutMs); }),
+          }, bindingTimeoutMs); }),
         ]);
         if (hostResult?.appSession !== undefined) {
           const encoded = JSON.stringify(hostResult.appSession);

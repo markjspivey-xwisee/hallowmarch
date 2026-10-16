@@ -13,7 +13,7 @@ const codec = {
   createNativeByteArtifact: value => ({ ...value, bytes: Buffer.from(value.bytes).toString('base64') }),
   readNativeByteArtifact: value => ({ ...value, bytes: Buffer.from(value.bytes, 'base64') }),
 };
-function nativeFixture() {
+function nativeFixture({ worldDelayMs = 70, bindingDelayMs = 180 } = {}) {
   let revision = null, sequence = 0; const records = new Map(), calls = [];
   let entered; const firstEntered = new Promise(resolve => { entered = resolve; });
   const snapshot = () => ({ revision, records: new Map(records) });
@@ -22,7 +22,8 @@ function nativeFixture() {
     async commit({ expected, changes, operationId }) {
       const stream = JSON.parse(Buffer.from(changes[0].artifact.bytes, 'base64')).streamId;
       calls.push(stream); if (stream === 'world') entered();
-      await wait(stream === 'world' ? 70 : 180);
+      const delay = stream === 'world' ? worldDelayMs : bindingDelayMs;
+      if (delay) await wait(delay);
       if (expected.revision !== revision) throw Object.assign(new Error('Native fixture stale head'), { name: 'NativeCommitConflictError', status: 412 });
       for (const change of changes) records.set(change.key, structuredClone(change.artifact));
       revision = 'sha256:' + createHash('sha256').update(String(++sequence)).digest('hex');
@@ -30,7 +31,7 @@ function nativeFixture() {
     },
   };
 }
-async function hostFixture(t, store) {
+async function hostFixture(t, store, options = {}) {
   const origin = 'https://game.example', relay = 'https://relay.interego.xwisee.com';
   const account = { id: 'qa-account', name: 'Synthetic player', guest: true }; let issued = 0;
   const fetch = async (input, init) => {
@@ -51,6 +52,7 @@ async function hostFixture(t, store) {
     } } });
   };
   const host = createPlayerAccountHost({ store, publicOrigin: origin, fetch, requestTimeoutMs: 300, allowOwnerBrowserHandoff: true,
+    ...options,
     tokenClaims: value => value === 'fixture-game-session' ? { id: account.id, exp: Date.now() + 3600000 } : null,
     getAccount: id => id === account.id ? account : null, restoreAccount: () => account, readLegacySave: () => null,
     issueAppSession: () => { issued++; return { token: 'new-app-fixture', acct: { id: account.id } }; },
@@ -162,4 +164,33 @@ test('the actual callback cancellation removes a not-yet-started native binding 
   const response = await retry.callback(); assert.equal(response.status, 303, await response.clone().text());
   assert.equal((await retry.claim()).status, 200); assert.equal(f.issued(), 1);
   assert.deepEqual(native.calls, ['world', 'player-bindings-v1']);
+});
+
+test('the 30s host allowance still cancels queued binding work without releasing the active native permit', async t => {
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), started = new Promise(resolve => { entered = resolve; });
+  const native = nativeFixture({ worldDelayMs: 0, bindingDelayMs: 0 }), original = native.commit.bind(native);
+  native.commit = async request => { if (!release.done) { release.done = true; entered(); await gate; } return original(request); };
+  const store = new InteregoGamingStore({ nativeClient: native, artifactCodec: codec,
+    owner: 'urn:game:binding-deadline', namespace: 'binding-deadline' });
+  const f = await hostFixture(t, store, { requestTimeoutMs: 15_000, bindingTimeoutMs: 30_000 });
+  const world = store.commit('world', { expectedVersion: 0, state: {}, idempotencyKey: 'held-world' }); await started;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const active = f.callback();
+  try {
+    for (let i = 0; i < 20 && store.commitAdmissionStatus().queued === 0; i++) await new Promise(setImmediate);
+    assert.equal(store.commitAdmissionStatus().queued, 1, 'binding is waiting behind the actual native world write');
+    t.mock.timers.tick(15_001);
+    assert.equal(store.commitAdmissionStatus().queued, 1, 'binding remains eligible beyond the former deadline');
+    t.mock.timers.tick(14_999); const response = await active;
+    assert.equal(response.status, 504); assert.equal((await response.json()).error, 'identity_binding_timeout');
+    assert.deepEqual(store.commitAdmissionStatus(), { active: true, queued: 0, capacity: 64, settlementFailed: false });
+    assert.equal(store.performanceStatus().cancelled, 1);
+    assert.equal(f.issued(), 0); assert.equal(f.host.status().readyHandoffs, 0);
+    assert((await f.claim()).status >= 400);
+  } finally { release(); await world; }
+  assert.equal((await store.load('player-bindings-v1')).version, 0, 'cancelled binding never reaches the native head');
+  const retry = await f.startCeremony();
+  assert.equal((await retry.callback()).status, 303); assert.equal((await retry.claim()).status, 200);
+  assert.equal(f.issued(), 1); assert.deepEqual(native.calls, ['world', 'player-bindings-v1']);
 });

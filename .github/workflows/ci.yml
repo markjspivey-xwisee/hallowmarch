@@ -67,6 +67,7 @@ jobs:
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/access-cache.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/identity-ui.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/owner-agent-grant.browser.test.mjs
+              HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/manual/native-virtual-passkey.test.mjs tools/manual/native-virtual-passkey.browser.test.mjs tools/manual/native-oauth-ceremony.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node tools/tests/native_companion_ui.browser.mjs
               python3 tools/tests/gaming_client.py
               node tools/tests/gaming_browser.mjs

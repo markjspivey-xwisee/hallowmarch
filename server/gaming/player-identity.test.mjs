@@ -398,6 +398,57 @@ test('a host binding write that never settles times out, aborts its context, and
   assert((await f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie })).status >= 400);
 });
 
+test('the host binding deadline can exceed 15s without widening native requests or the one-use claim', async t => {
+  let announce, release, context;
+  const entered = new Promise(resolve => { announce = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, { allowOwnerBrowserHandoff: true, bindingTimeoutMs: 30_000,
+    onVerified: async (_binding, _accountId, value) => { context = value; announce(); await blocked; } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flow = await f.start(), active = f.callback(flow); await entered;
+  t.mock.timers.tick(15_001);
+  assert.equal(context.signal.aborted, false, 'the native binding survives the former 15s deadline');
+  release(); const response = await active;
+  assert.equal(response.status, 303); assert.equal(f.bridge.status().callbackFailures.identity_binding_timeout, 0);
+  const claim = () => f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie });
+  assert.equal((await claim()).status, 200); assert.equal((await claim()).status, 404);
+  assert.equal((await f.callback(flow)).status, 401, 'the original OAuth callback remains one-use');
+});
+
+test('a 30s binding allowance leaves the provider request deadline at 15s', async t => {
+  const f = await fixture(t, { bindingTimeoutMs: 30_000 }); let release;
+  f.blockToken(new Promise(resolve => { release = resolve; })); t.after(() => release());
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flow = await f.start(), active = f.callback(flow); await f.tokenEntered;
+  t.mock.timers.tick(14_999); assert.equal(tokenRequests(f)[0].signal.aborted, false);
+  t.mock.timers.tick(1); const response = await active;
+  assert.equal(response.status, 504); assert.equal((await response.json()).error, 'identity_service_timeout');
+  assert.equal(tokenRequests(f)[0].signal.aborted, true); assert.equal(f.verified.length, 0);
+  assert.deepEqual(f.bridge.status().callbackFailures, { identity_service_timeout: 1, identity_binding_timeout: 0, identity_binding_rejected: 0 });
+});
+
+test('the separate binding allowance aborts at 30s and a late host completion cannot disclose credentials', async t => {
+  let announce, release, context;
+  const entered = new Promise(resolve => { announce = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, { allowOwnerBrowserHandoff: true, bindingTimeoutMs: 30_000,
+    onVerified: async (_binding, _accountId, value) => { context = value; announce(); await blocked; } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flow = await f.start(), active = f.callback(flow); await entered;
+  t.mock.timers.tick(29_999); assert.equal(context.signal.aborted, false);
+  t.mock.timers.tick(1); const response = await active;
+  assert.equal(response.status, 504); assert.equal((await response.json()).error, 'identity_binding_timeout');
+  assert.equal(context.signal.aborted, true); release();
+  assert.equal((await f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie })).status, 404);
+  assert.equal(f.bridge.status().readyHandoffs, 0); assert.equal((await f.callback(flow)).status, 401);
+});
+
+test('binding deadlines reject values outside the bounded host allowance', async t => {
+  for (const bindingTimeoutMs of [0, 99, 30_001, 15_000.5, NaN, '30000']) {
+    await assert.rejects(fixture(t, { bindingTimeoutMs }), /Invalid bindingTimeoutMs/);
+  }
+});
+
 test('a native transport ignoring abort still times out and releases active ceremony capacity', async t => {
   const f = await fixture(t, { requestTimeoutMs: 100, maxPending: 1, maxPerAccount: 1 }); let release;
   f.blockToken(new Promise(resolve => { release = resolve; })); t.after(() => release());

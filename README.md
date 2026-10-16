@@ -6,7 +6,7 @@ Everything is made in code: the terrain, castles, towns, people, beasts, sky and
 
 ## Play
 
-[Play the persistent March](https://march-production-f6d9.up.railway.app/). The server runs the realm season while players are away and keeps accounts, saves and companies. Choose a realm and a calling, then help your realm through fighting, deliveries and shared works.
+[Play the persistent March](https://march-production-f6d9.up.railway.app/). The server runs the realm season while players are away and keeps participation accounts and companies. Native players' encrypted character saves and discovery indexes live in their own Interego pods. Choose a realm and a calling, then help your realm through fighting, deliveries and shared works.
 
 You can also build the game yourself and open `hallowmarch.html` in a browser. A standalone page runs its own world and saves in browser storage. It needs a network connection, because three.js and the fonts load from a CDN. The separately published Claude artifact remains version 19 until it is republished.
 
@@ -25,16 +25,25 @@ You can also build the game yourself and open `hallowmarch.html` in a browser. A
 
 On phones and tablets, drag on the movement side to walk and use the opposite thumb for combat. **Inventory**, **Skills**, **Map**, and **Menu** are always visible: at the bottom in portrait and between the status panel and minimap in wide landscape. Inventory opens your gear and bags directly; Skills opens your learned abilities, upcoming unlocks and class controls. Menu has Explore, Skills, Social and Options tabs, including handedness and larger controls/text. Browser tabs use the browser's safe viewport; installed/fullscreen play retains notch and home-indicator insets.
 
-On the server, sign in to keep your character across devices. The Players panel includes persistent companies within your realm: membership, ranks, chat, notices and support for shared works. The season's armies enter the live war near players and their losses return to the season; deliveries help your realm without letting a large roster alone decide the result.
+On the server, sign in with Interego to recover your character across devices; a new browser also needs your encrypted recovery file and passphrase. The Players panel includes persistent companies within your realm: membership, ranks, chat, notices and support for shared works. Team and realm ownership and permissions have not migrated to their own pods. The season's armies enter the live war near players and their losses return to the season; deliveries help your realm without letting a large roster alone decide the result.
 
 The Claude artifact uses its private per-player database. A plain file uses browser storage.
 
-The [Interego gaming package](server/gaming/README.md) adds a reusable native-storage
-authority, scoped companion agents, Foxxi activity/learning export, I2IDL vocabulary
-mappings, and a bounded Hallowmarch shared expedition. The Docker image includes
-the pinned native SDK; explicit deployment flags generate isolated service keys
-on the persistent data volume. The expedition has a mobile encounter view and
-replayable guardian fights. Existing world simulation remains on its earlier path.
+The [Interego gaming package](server/gaming/README.md) composes native persistence,
+player ownership, discoverable performance resources and a bounded shared
+expedition with a mobile encounter view and replayable guardian fights. This
+release includes game-owned world/season checkpoints when native world
+persistence is configured, and scoped, revocable native companion grants. Enable
+native companions only after complete live admission, command, renewal and
+revocation proof in that deployment. The main world's combat uses elected
+page/region keepers, and this hosted provider bridge has not established
+MMO-scale capacity.
+
+Foxxi operational monitoring uses a separate service identity. Personal learning
+export remains unavailable until a trusted delivery path for the verified subject
+and exact purpose, recipient, session and expiry consent are composed. Gameplay
+grants do not grant learning consent. I2IDL-X mappings support performance
+consulting and job aids; they do not define game identities, rules or worlds.
 
 ## Build
 
@@ -82,7 +91,7 @@ python3 tools/hm.py '{"script":[["eval","__hm.start({realm:0,cls:\"warrior\",lev
 | `src/06–08*.js` | Game data, items, entities and combat, war AI, wildlife, the dragon, and the Barrow's monsters |
 | `src/09–13*.js` | Player, horses, loot, UI, kit screen, audio, saves, and the main loop |
 | `src/14*.js` | Multiplayer, accounts, realm season, companies and shared weather |
-| `server/` | Persistent accounts, saves, companies, season and WebSocket service |
+| `server/` | Participation accounts, owner-pod bridge, game checkpoints, companies and WebSocket service |
 | `tools/` | Test harness, tests, lint, war soak and a world-map dump |
 | `CLAUDE.md` | Working notes for developers and AI agents: architecture, conventions, rules and roadmap |
 

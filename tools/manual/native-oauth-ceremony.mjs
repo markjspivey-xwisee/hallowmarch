@@ -65,6 +65,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   const changed = attempt => { attempt.wake?.(); attempt.wake = null; };
   const registrationReady = () => { try { return !!originalCredentialId && retainedCredentialId(getPasskey()) === originalCredentialId; }
     catch { return false; } };
+  const passkeyPresent = () => { try { return !!getPasskey(); } catch { return false; } };
   const canRetry = () => !closed && !running && !!current && current.callbackStatus >= 400 && current.claimRequests === 0
     && current.jobs.size === 0 && current.verifySucceeded && current.redirectHash === current.callbackHash && !current.invalid
     && !completeOwner && !!registrationReady() && attempts.length < 4;
@@ -111,7 +112,9 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
         && body.response.id === retainedCredentialId(getPasskey()), 'qa_oauth_registration_provenance');
       if (originalCredentialId) ensure(body.response.id === originalCredentialId, 'qa_oauth_owner_mismatch');
       attempt.verifyStatus = numericStatus(response.status()); attempt.phase = 'native-proof-response';
-      if (!response.ok()) return;
+      if (!response.ok()) {
+        attempt.phase = 'native-proof-refused'; throw error('qa_oauth_native_proof_refused');
+      }
       ensure(attempt.verifyStatus === 200, 'qa_oauth_verify_status_refused');
       // Request/key matching and HTTP acceptance are retained before a browser
       // navigation can evict Playwright's response body. Neither grants authority.
@@ -232,7 +235,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   }
   const api = Object.freeze({
     status() { return { kind: 'native_qa_oauth', phase: current?.phase || 'not-started', busy: !!running, complete: !!completeOwner,
-      attempts: attempts.length, registrationAttempted, hasOriginalCredential: !!originalCredentialId, hasPasskey: !!getPasskey(),
+      attempts: attempts.length, registrationAttempted, hasOriginalCredential: !!originalCredentialId, hasPasskey: passkeyPresent(),
       callbackStatus: current?.callbackStatus || null, callbackCode: current?.callbackCode || null,
       startStatus: current?.startStatus || null,
       verifyStatus: current?.verifyStatus || null, finishStatus: current?.finishStatus || null, finishCode: current?.finishCode || null,
@@ -286,6 +289,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
 }
 
 const codes = new Set(['qa_oauth_configuration', 'qa_oauth_passkey_required', 'qa_oauth_registration_provenance', 'qa_oauth_response_refused',
+  'qa_oauth_passkey_sync_refused', 'qa_oauth_passkey_event_pending', 'qa_oauth_native_proof_refused',
   'qa_oauth_owner_mismatch', 'qa_oauth_callback_provenance', 'qa_oauth_claim_provenance', 'qa_oauth_start_provenance',
   'qa_registration_retry_refused', 'qa_oauth_callback_refused', 'qa_oauth_claim_refused', 'qa_oauth_popup_closed',
   'qa_oauth_finish_refused', 'qa_oauth_pending', 'qa_oauth_closed', 'qa_oauth_retry_refused', 'qa_oauth_popup_mismatch']);

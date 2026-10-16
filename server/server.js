@@ -231,6 +231,9 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN
     ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'https://march-production-f6d9.up.railway.app'),
   clientName: 'hallowmarch', allowOwnerBrowserHandoff: true, successPath: '/gaming/identity/finish',
+  // Binding shares the native head with world checkpoints. Allow its queued
+  // commit and verified readback to settle; provider requests retain 15s.
+  bindingTimeoutMs: 30_000,
   tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
   reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
   restoreAccount: record => {

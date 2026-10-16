@@ -1,9 +1,11 @@
 # Interego gaming vertical — initial shared-authority slice
 
-This package separates reusable game authority, human-owned agent delegation,
-Interego-native persistence, and Foxxi learning evidence from the Hallowmarch
-domain adapter. It is an initial bounded shared expedition, not a migration of
-the existing Hallowmarch world to a complete authoritative MMO.
+This package composes reusable game authority, player-owned records, scoped agent
+delegation, Interego-native persistence and optional Foxxi delivery with the
+Hallowmarch domain adapter. The shared expedition has bounded server authority;
+the main world retains elected page/region keepers for combat. This is a hosted
+provider bridge with no MMO-scale capacity claim. Team and realm ownership and
+permissions remain outside the native migration.
 
 ## Implemented
 
@@ -18,18 +20,32 @@ the existing Hallowmarch world to a complete authoritative MMO.
   legacy browser-owned character inventory. Claim the reward and start the next
   encounter, or wait thirty seconds to reset an abandoned reward. Fallen bodies
   can be recovered by their human owner.
-- Human-owned companion grants for teammate, pet and coach roles. Opaque
-  capabilities have exact room/body/actions, expiry, rate limits and revocation.
-  Agents use the same authoritative rules and cannot award loot or alter state.
+- Native players keep encrypted character saves and their discovery indexes in
+  their own pods. The game retains a verified participation binding and a record
+  reference; it does not receive the private character body or encryption key.
+- When native world persistence is configured, game-owned progressive
+  world/season checkpoints use a distinct stream in Hallowmarch's own pod. See
+  [the migration and rollback contract](progressive-owned-state.md).
+- Scoped native companion grants bind the owner, agent, application, room, body,
+  actions, expiry and rate. Locally verified command proofs follow native
+  admission and renewal; local and owner-pod revocation are distinct steps. See
+  [the native authority contract](native-agent-authority.md). Enabling this path
+  requires complete live admission, command, renewal and revocation proof in the
+  target deployment; implementation and fixture tests alone do not establish it.
+  Legacy opaque bearer grants remain available only for separately configured
+  legacy integrations.
 - `projectGamingEvents`: attributed player, actor, team, realm and game activity
   metrics, plus timing observations. Counts do not establish competence.
 - `createFoxxiSink` and `createLearningOutbox`: signed own-subject xAPI activity,
   verified DID bindings, per-session consent, exact durable receipts, and
-  recoverable retries. NPC activity cannot become a human learning record.
+  recoverable retries. The serving game's personal learning export is unavailable
+  until a trusted subject delivery path and exact consent are configured. NPC
+  activity cannot become a human learning record.
 - Generic and Hallowmarch JSON-LD profiles reference canonical I2IDL concepts
   from glossary snapshot v0.0.89 with related mappings. They do not replace
   definitions, claim equivalence, or claim that these application URNs are
-  already published I2IDL ontology terms.
+  already published I2IDL ontology terms. These mappings support performance
+  consulting and job aids; they do not define the game's identity or rules.
 
 ## Running and configuration
 
@@ -40,8 +56,9 @@ The Shared expedition menu appears only after the native service opens and its
 first real durable world commit succeeds. Missing storage never enables a
 test store in production.
 
-The game Dockerfile builds `@interego/core` and `@interego/pgsl` from reviewed
-Interego commit `87ee71626c015af3c1e7b9dac5579eff6899e8c1`, the merge of PR 626.
+The game Dockerfile builds `@interego/core`, `@interego/solid` and `@interego/pgsl`
+from reviewed Interego commit `aeabd6f2fe95524993ef94d7579debd26e39eac7`
+([PR 631](https://github.com/markjspivey-xwisee/interego/pull/631)).
 Its committed npm lockfile pins the SDK's transitive dependencies. The native
 commit store, artifact codec and encryption exports are checked during the image
 build. The build uses the public source repository and needs no private registry,
@@ -109,8 +126,9 @@ a dedicated game pod is the required isolation boundary. Importing this package
 alone does not provision an identity; the explicit bootstrap flag does.
 No unrelated Foxxi/LRS service restart or migration is part of this change.
 
-The transport derives a human principal from the existing authenticated game
-connection. External agents receive only the capability deliberately granted by
+For separately configured legacy integrations, the transport derives a human
+principal from the existing authenticated game connection. External agents receive
+only the capability deliberately granted by
 that human. They may POST to `/gaming/agent/observe` or `/gaming/agent/command`
 with that bearer capability and the advertised JSON body. They can also use
 `gaming` WebSocket operations. Tokens are returned once, never persisted in
@@ -118,14 +136,18 @@ browser storage, and cleared from the sheet on close or connection change.
 Replaying a grant does not disclose its secret again; revoke and regrant if its
 initial response was lost.
 
-The agent DID on a grant is an owner-declared label. Possession of the scoped
-bearer capability authorizes commands; this version does not cryptographically
-prove that the caller controls that DID. Foxxi export separately requires a
-verified subject binding and does not treat this label as identity proof.
+The agent DID on a legacy bearer grant is an owner-declared label. Possession of
+the scoped bearer capability authorizes commands; this path does not cryptographically
+prove that the caller controls that DID. Native-required deployments instead use
+the verified owner/agent proof flow in [native-agent-authority.md](native-agent-authority.md).
+Foxxi export separately requires a verified subject binding and does not treat a
+legacy label or a gameplay grant as identity proof or learning consent.
 
-Personal learning export remains unconfigured by default. A game account is not automatically
-an Interego DID. Enable export only after a genuine linked-identity flow verifies
-the subject and a human grants purpose/recipient/session/expiry-specific consent.
+Personal learning export remains unavailable in the serving deployment. Native
+sign-in alone does not configure delivery or grant consent. Enable export only
+after a trusted composition proves delivery for the verified subject and the
+human grants exact purpose/recipient/session/expiry-specific consent. Recheck
+that same subject, destination and current captured consent before each delivery.
 `createGamingRuntime({learningSink})` accepts a sink built from a freshly
 discovered Foxxi signed-write affordance, signer and consent callbacks.
 `flushLearning()` processes the durable queue in bounded pages and records verified
@@ -157,8 +179,10 @@ processes, add a leader/lease and cross-process live subscriptions and verify
 that every process receives the same authoritative sequence. Native CAS alone
 does not provide that live delivery path.
 
-The current native SDK enumerates the scope index. Strict mode persists a full
-state snapshot per accepted command; realtime mode coalesces pending commands
+The pinned native SDK supports verified selected-record reads, which the game
+adapter uses for each stream and exact operation receipt instead of enumerating
+the whole scope index. Strict mode persists a full state snapshot per accepted
+command; realtime mode coalesces pending commands
 into full checkpoint snapshots outside the gameplay queue. Native operation history grows; room replay
 responses retain 1,024 commands and recent event metrics cover a 256-event window.
 The game transport retains at most 512 immutable ciphertext responses and 8 MiB
@@ -167,8 +191,8 @@ Mutable heads and every write still go to native storage; the first verification
 read after a write also goes to storage. A new process starts with an empty cache.
 This bounded encounter still does not establish an MMO tick rate or player
 capacity. Live action latency, checkpoint lag and cold recovery require separate
-measurements. Further work includes version-bound native record lookup, fixed
-simulation ticks, interpolation, room-leader coordination and load/fan-out
+measurements. Further work includes native history compaction, fixed simulation
+ticks, interpolation, room-leader coordination and load/fan-out
 benchmarks. Never advertise MMO-scale throughput from local fixture timings.
 
 For a real private-scope benchmark, configure the native SDK and a dedicated
@@ -207,8 +231,9 @@ can overlap and must not be summed as unique lifetime activity. The exporter
 whitelists fields and excludes account ids, actor ids, team/realm membership,
 chat, capabilities and raw game events. The subject is the game-monitor service,
 with an explicit operational or software-verification purpose; no human learning
-or competency is asserted. Individual player learning remains disabled until
-verified identity binding and explicit session consent are implemented.
+or competency is asserted. Individual player learning remains unavailable until
+a trusted delivery path for the verified subject and exact current consent are
+composed; service monitoring does not establish either.
 
 The software-verification receipt in
 `evidence/foxxi-monitor-native-verification-20261016.json` records one actual

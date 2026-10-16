@@ -238,9 +238,11 @@ extraction of the world status affordance. These are bridge/host tests, not a li
 CSS authorization or deployment benchmark.
 
 Snapshot memory is bounded; native artifact/operation history is not compacted by
-this bridge. The current SDK enumerates a scope index on `readHead`. Checkpoint
-cadence, scope size and eventual native history compaction need measurement for
-long-running worlds. A crash can lose the gap between live and confirmed state;
+this bridge. The pinned native SDK provides verified selected-record reads; the
+game adapter follows the requested stream and exact operation receipt rather
+than enumerating every record in the scope. Checkpoint cadence, scope size and
+eventual native history compaction need measurement for long-running worlds. A
+crash can lose the gap between live and confirmed state;
 the bridge offers progressive persistence, not a synchronous durable action log.
 
 This moves persistence authority only when integrated. It does not make the main
