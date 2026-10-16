@@ -40,6 +40,8 @@ test('mutating commands serialize without queuing; status remains available and 
   assert.equal(invalid, 2); assert.equal(errors, 0);
   release(); await tick(); input.write('companion-restart-admission\n'); await tick();
   assert.deepEqual(seen, ['retry', 'status', 'companion-restart-admission']);
+  release(); await tick(); input.write('oauth-retry-same-owner\n'); await tick();
+  assert.equal(seen.at(-1), 'oauth-retry-same-owner');
   input.write('finish\n'); await reader.waitForClose();
   assert.equal(closed, 1); assert.equal(reader.status().closed, true); release(); input.destroy();
 });

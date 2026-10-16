@@ -8,6 +8,7 @@ import { retainedGameBoot, verifiedContextHandoff, qaPageInventory, boundedPageS
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
+import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -50,7 +51,8 @@ const observations = { requests: [], console: [], gameAuthorization: [], startAu
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
 let input = null, broker = null, companion = null, finishRequested = false, cleaning = false;
-let privatePrivacyVerified = false, completeReported = false;
+let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
+const oauthControllers = [], oauthByPage = new WeakMap();
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
 const contexts = [], retainedPages = [];
 let syntheticPasskey = null, encryptedRecovery = null;
@@ -63,9 +65,6 @@ function reportComplete() {
   console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.');
   if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
 }
-// A later failed stage can close a page with outstanding listeners. Handle the
-// orphan rejection without ever letting Playwright dump a sensitive raw error.
-function watched(promise) { promise.catch(() => {}); return promise; }
 async function enableVirtualAuthenticator(page, credential = null) {
   // Reviewed pattern: Interego 87ee716, deploy/mcp-relay/tests/passkey-oauth.spec.ts.
   const client = await page.context().newCDPSession(page);
@@ -115,48 +114,50 @@ const freshBoot = retainedGameBoot({ createContext: context, url: gameOrigin + '
   onContext: value => { freshContext = value; }, onPage: page => { fresh = page; },
   onStep: value => { boot = 'fresh'; bootStep = value; } });
 async function oauth(page, { register, userId } = {}) {
-  if (register && registrationAttempted) throw Object.assign(new Error('Registration is never replayed.'), { code: 'qa_registration_retry_refused' });
-  const startResponse = watched(page.waitForResponse(response => new URL(response.url()).origin === gameOrigin
-    && new URL(response.url()).pathname === '/gaming/identity/start' && response.request().method() === 'POST'));
-  const popupPromise = watched(page.waitForEvent('popup'));
-  await page.locator('#title .native-player button').first().click();
-  const popup = await popupPromise;
-  const start = await startResponse, advertised = await start.json();
-  const authorize = new URL(advertised.authorizationUrl);
-  ensure(start.ok() && advertised.ownerPodWriteAccess === true && authorize.origin === relayOrigin
-    && authorize.searchParams.get('scope') === 'mcp:write' && authorize.searchParams.get('response_type') === 'code'
-    && authorize.searchParams.get('code_challenge_method') === 'S256'
-    && /^[A-Za-z0-9_-]{43}$/.test(authorize.searchParams.get('code_challenge') || '')
-    && authorize.searchParams.get('redirect_uri') === gameOrigin + '/gaming/identity/callback', 'advertised-pkce');
-  observations.oauthWritePkce = true;
-  await popup.waitForURL(url => url.origin === relayOrigin, { timeout: 60_000 });
-  await enableVirtualAuthenticator(popup, register ? null : syntheticPasskey);
-  const claimed = watched(popup.waitForResponse(response => new URL(response.url()).origin === gameOrigin
-    && new URL(response.url()).pathname === '/gaming/identity/claim' && response.request().method() === 'POST', { timeout: 180_000 }));
-  const closed = watched(popup.waitForEvent('close', { timeout: 180_000 }));
-  if (register) {
-    if (registrationAttempted) throw Object.assign(new Error('Registration is never replayed.'), { code: 'qa_registration_retry_refused' });
-    await popup.locator('#pk-name').fill(displayName);
-    // Exactly one registration attempt. Failure never registers a replacement.
-    registrationAttempted = true;
-    await popup.getByRole('button', { name: /^Register new$/i }).click();
-  } else {
-    ensure(syntheticPasskey?.privateKey && syntheticPasskey.isResidentCredential, 'synthetic-passkey-sync');
-    await popup.locator('#uid-userid').fill(userId);
-    await popup.getByRole('button', { name: /^Sign in with this userId$/i }).click();
+  let controller = oauthByPage.get(page);
+  if (!controller) {
+    ensure(register || (owner && userId === owner.userId), 'same-owner');
+    controller = createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner: register ? null : owner,
+      getPasskey: () => syntheticPasskey,
+      start: ({ onPopup }) => retainedNativeOAuthPopup({ page, gameOrigin, onPopup }),
+      async prove(popup, intent) {
+        await popup.waitForURL(url => url.origin === relayOrigin, { timeout: 60_000 });
+        await enableVirtualAuthenticator(popup, intent.register ? null : syntheticPasskey);
+        if (intent.register) {
+          ensure(!registrationAttempted, 'qa_registration_retry_refused');
+          await popup.locator('#pk-name').fill(displayName);
+          registrationAttempted = true;
+          await popup.getByRole('button', { name: /^Register new$/i }).click();
+        } else {
+          ensure(syntheticPasskey?.privateKey && syntheticPasskey.isResidentCredential, 'synthetic-passkey-sync');
+          if (intent.userId) {
+            await popup.locator('#uid-userid').fill(intent.userId);
+            await popup.getByRole('button', { name: /^Sign in with this userId$/i }).click();
+          } else {
+            // This new authenticator contains only the original run's resident
+            // credential. Native credential lookup chooses its canonical owner.
+            await popup.getByRole('button', { name: /^Sign in$/i }).click();
+          }
+        }
+      },
+      inspectFinish: popup => popup.locator('#status').textContent({ timeout: 1000 }),
+      async verifyOwner() {
+        await page.waitForFunction(() => window.__hm?.ready && window.__hm.net?.NETWS?.acct?.nativeBound
+          && window.__hm.SAVE.native, undefined, { timeout: 180_000 });
+        return page.evaluate(async () => {
+          const token = localStorage.getItem('hallowmarch.token.' + location.host);
+          const response = await fetch('/gaming/identity/status', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
+          if (!response.ok) throw new Error('status');
+          const status = await response.json();
+          if (!status.bound || !status.verified || !status.binding?.subjectDid || !status.binding?.podUrl) throw new Error('binding');
+          return { userId: status.binding.userId, subjectDid: status.binding.subjectDid, podUrl: status.binding.podUrl, accountId: status.account.id };
+        });
+      },
+    });
+    oauthByPage.set(page, controller); oauthControllers.push(controller);
   }
-  ensure((await claimed).ok(), 'claim');
-  await closed;
-  await page.waitForFunction(() => window.__hm?.ready && window.__hm.net?.NETWS?.acct?.nativeBound
-    && window.__hm.SAVE.native, undefined, { timeout: 180_000 });
-  return page.evaluate(async () => {
-    const token = localStorage.getItem('hallowmarch.token.' + location.host);
-    const response = await fetch('/gaming/identity/status', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
-    if (!response.ok) throw new Error('status');
-    const status = await response.json();
-    if (!status.bound || !status.verified || !status.binding?.subjectDid || !status.binding?.podUrl) throw new Error('binding');
-    return { userId: status.binding.userId, subjectDid: status.binding.subjectDid, podUrl: status.binding.podUrl, accountId: status.account.id };
-  });
+  activeOAuth = controller;
+  const result = await controller.run(); observations.oauthWritePkce = true; return result;
 }
 async function verifiedRead(page, expected) {
   return page.evaluate(async ({ expected, relayOrigin }) => {
@@ -243,6 +244,7 @@ async function reportRetainedStatus(diagnose) {
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (broker) console.log(JSON.stringify(broker.status()));
+  for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({ ...oauthControllers[i].status(), ceremonyIndex: i + 1 }));
   const inventory = qaPageInventory(retainedPages, { gameOrigin, relayOrigin });
   console.log(JSON.stringify(inventory));
   for (const entry of inventory.pages) if (!entry.closed && entry.originClass === 'game') {
@@ -251,7 +253,7 @@ async function reportRetainedStatus(diagnose) {
   }
 }
 
-const failureCode = error => nativeCompanionFailureCode(error) || nativeFailureCode(error);
+const failureCode = error => nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
 const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true);
 async function advanceQa(all) {
   ensure(!finishRequested, 'qa_session_closed');
@@ -267,7 +269,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, companion-restart-admission, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, oauth-retry-same-owner, companion-restart-admission, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -287,6 +289,10 @@ function startInput() {
           console.log(JSON.stringify(companion.restartAdmission())); return;
         }
         if (!plan) { console.log('No retained QA plan is available.'); return; }
+        if (action === 'oauth-retry-same-owner') {
+          ensure(activeOAuth && ['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth'].includes(plan.status().stage), 'qa_oauth_retry_refused');
+          activeOAuth.requestSameOwnerRetry();
+        }
         await advanceQa(action === 'continue');
         if (allComplete()) { process.exitCode = 0; reportComplete(); }
         else console.log(JSON.stringify({ kind: 'native_qa_stage_advanced', ...plan.status(),
@@ -431,9 +437,7 @@ try {
     } },
     { name: 'privacy-and-single-owner-invariants', async run() {
       ensure(observations.oauthWritePkce && observations.registerCount === 1 && !observations.refreshUsed
-        && !observations.bridgeBodyLeak && observations.startAuthorization.length === 2
-        && observations.claimAuthorization.length === 2
-        && observations.startAuthorization.every((value, index) => value && value === observations.claimAuthorization[index])
+        && !observations.bridgeBodyLeak && nativeOAuthPrivacy(oauthControllers, observations)
         && firstHandoff.status().privacyVerified && firstHandoff.status().closed
         && await privacy(fresh), 'privacy-invariants');
       passed('one registration; no refresh use, native bearer URL/localStorage/log/game-bridge leakage, or private game-bridge body');
@@ -452,11 +456,12 @@ try {
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (!finishRequested && syntheticPasskey && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, companion-restart-admission, finish. Registration is never replayed.');
+    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
     await startInput().waitForClose();
   }
 } finally {
   cleaning = true; broker?.close(); companion?.close(); input?.close();
+  for (const controller of oauthControllers) controller.close();
   syntheticPasskey = null; encryptedRecovery = null;
   for (const value of contexts) {
     try {

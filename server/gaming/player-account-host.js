@@ -208,7 +208,8 @@ export function createPlayerAccountHost(options = {}) {
     metadataGraph() { return contract.graphContent; },
     manifest() { return { ...contract.manifest, enabled: enabled() }; },
     status() { prune(); return { enabled: enabled(), status: closed ? 'closed' : enabled() ? 'ready' : 'unavailable',
-      pending: bridge.status().pending, readyHandoffs: bridge.status().readyHandoffs }; },
+      pending: bridge.status().pending, readyHandoffs: bridge.status().readyHandoffs,
+      callbackFailures: bridge.status().callbackFailures }; },
     isBound(accountId) { return enabled() && !!recordFor(accountId); },
     // Privileged host ports: wire callers never choose a DID or pod to trust.
     bindingForAccount(accountId) { return enabled() && recordFor(accountId) ? publicBinding(recordFor(accountId).binding) : null; },

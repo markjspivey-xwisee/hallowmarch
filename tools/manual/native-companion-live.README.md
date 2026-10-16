@@ -209,6 +209,9 @@ accepts only the fixed commands below; it never evaluates or echoes input.
 - `retry`: retry only the failed retained stage. Successful private stages and
   owner registration are never replayed.
 - `continue`: run the failed stage and remaining private/companion stages.
+- `oauth-retry-same-owner`: during a private OAuth stage only, explicitly retry
+  a definitively failed pre-claim callback with the original retained resident
+  passkey. It cannot register another identity or replay a consumed claim.
 - `companion-restart-admission`: explicitly discard an expired/uncertain
   ephemeral admission only at its allowed proof/command stage, preserving the
   owner, public grant UUID and body. Then use `continue` for a new challenge.

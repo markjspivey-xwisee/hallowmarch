@@ -87,13 +87,46 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
 - `diagnose`: the same state plus read-only held-key/registration booleans.
 - `retry`: retry only the failed stage using its existing closure and owner.
 - `continue`: retry the failed stage and proceed through remaining stages.
+- `oauth-retry-same-owner`: after a definitively failed callback **before any
+  claim request**, explicitly start a new sign-in with only the original
+  retained resident passkey. This cannot register a replacement owner.
 - `companion-restart-admission`: when optional companion QA is selected, reset
   only its expired/uncertain ephemeral admission at the permitted proof stage.
 - `finish`: forget access cache and close the retained browsers.
 
 A completed stage is never rerun. Registration has an additional irreversible
-attempt guard: a failed registration ceremony cannot be replayed by either
-command. First-save retries reuse a locally created key if recipient registration
+attempt guard: the registration click cannot be replayed by any command.
+OAuth timeouts retain the original popup, listeners and ceremony: ordinary
+`retry` resumes their pending result without another start, proof submission or
+callback/code reload. A missing claim response is uncertain, even if a request
+was sent; it cannot authorize a replacement ceremony. Fixed OAuth diagnostics
+include phase, numeric HTTP statuses, allowlisted callback/finish error codes,
+claim-request counts and a bounded ceremony history. They never include URLs,
+codes, states, credential IDs, user IDs, keys or authorization values.
+
+The explicit `oauth-retry-same-owner` command is available only at an OAuth
+stage after a validated native proof and a definitive callback HTTP error,
+with no claim request and the exact original passkey still held. Resolve the
+application callback failure before invoking it. The old popup is closed; a
+fresh S256 ceremony uses the provider's discoverable **Sign in** flow with only
+that resident credential installed. No userId/DID argument, identity lookup,
+second registration or alternate passkey is accepted. At most four total
+ceremonies can be retained for one logical sign-in stage.
+
+The running native relay's `/oauth/verify` response exposes only `{redirect}`;
+it does **not** expose a response-derived userId. The helper binds its success
+to the original request's credential ID, the retained CDP credential and the
+exact advertised callback/state, all in RAM. As a consistency check only, it
+uses Interego revision `5fe8edb9c3d341c73cdca356a22aa211c350a6cb`'s documented
+`deploy/identity/derive-userid.ts` invariant: SHA-256 over the base64url credential
+ID **string**, first 12 hex digits with `u-pk-`. This local derivation grants no
+authority. WebAuthn, the native callback and authenticated Hallow status must
+verify the actual owner, matching any prior canonical binding. Final privacy
+checks still require exactly two successful claims; any additional start must
+have the separately recorded, explicitly superseded pre-claim failure and the
+same initiating game authorization. Unaccounted starts or claims fail the suite.
+
+First-save retries reuse a locally created key if recipient registration
 failed and preserve outstanding native operation IDs for confirmation. They do
 not create a replacement profile while an acknowledgement is uncertain. A
 definitively refused publication may be retried by the original profile adapter.

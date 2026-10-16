@@ -96,8 +96,8 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
     || [head, artifacts].some(url => url.origin !== pod.origin || !url.pathname.startsWith(pod.pathname))) {
     fail('Native resources must share an authorized pod scope.', 'INVALID_CONFIGURATION', 500);
   }
-  const cache = new Map();
-  let cachedBytes = 0, writeEpoch = 0;
+  const cache = new Map(), actualWrites = new Set();
+  let cachedBytes = 0, writeEpoch = 0, writeSettlementUnknown = false;
   const removeCached = key => { const entry = cache.get(key); if (entry) { cache.delete(key); cachedBytes -= entry.size; } };
   const detached = entry => new Response(Buffer.from(entry.bytes), { status: 200, statusText: entry.statusText, headers: entry.headers });
   const immutableDigest = url => {
@@ -105,7 +105,7 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
     const match = url.href.slice(artifacts.href.length).match(/^(?:artifact|commit)-([a-f0-9]{64})\.json$/);
     return match ? 'sha256:' + match[1] : null;
   };
-  return async (target, init = {}) => {
+  const fetch = async (target, init = {}) => {
     const url = checkedUrl(String(target));
     if (url.href !== String(target) || url.origin !== pod.origin || !url.pathname.startsWith(pod.pathname)) {
       fail('Native request escaped its authorized pod.', 'INVALID_CONFIGURATION', 500);
@@ -119,11 +119,11 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
     // cache behind that write and hide the SDK's first verification GET.
     if (method === 'PUT') { writeEpoch++; removeCached(url.href); }
     const controller = new AbortController();
-    let timer;
+    let timer, actual, expired = false, dispatched = false;
     try {
       const operation = async () => {
         const credentials = await credentialsProvider({ url: url.href, method });
-        if (controller.signal.aborted) fail('Native service transport timed out.', 'DURABILITY_UNAVAILABLE', 503);
+        if (expired) fail('Native service transport timed out.', 'DURABILITY_UNAVAILABLE', 503);
         if (init.signal?.aborted) fail('Native service transport was cancelled.', 'DURABILITY_UNAVAILABLE', 503);
         const auth = new Headers(credentials), headers = new Headers(init.headers);
         let credentialCount = 0;
@@ -142,8 +142,14 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
           return detached(cached);
         }
         const startedEpoch = writeEpoch;
+        // A caller deadline cannot cancel an already-launched CAS: aborting
+        // fetch only stops our response, and does not prove remote quiescence.
+        // Reads remain abortable; PUTs retain their real response task.
+        dispatched = true;
+        if (method === 'PUT') actualWrites.add(actual);
         const response = await transport(url.href, { ...init, method, headers, redirect: 'manual',
-          signal: init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal });
+          signal: method === 'PUT' ? undefined
+            : init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal });
         // Keep the deadline through the response body, not just the headers.
         // NativeCommitStore also checks its tighter per-artifact/receipt limits.
         const reader = response.body?.getReader(), chunks = [];
@@ -179,9 +185,19 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
           { status: response.status, statusText: response.statusText, headers: response.headers });
       };
       const timeout = new Promise((resolve, reject) => {
-        timer = setTimeout(() => { controller.abort(); reject(new DurableStoreError('Native service transport timed out.')); }, timeoutMs);
+        timer = setTimeout(() => { expired = true; if (method !== 'PUT') controller.abort();
+          reject(new DurableStoreError('Native service transport timed out.')); }, timeoutMs);
       });
-      return await Promise.race([operation(), timeout]);
+      actual = operation();
+      if (method === 'PUT') {
+        actual.then(() => actualWrites.delete(actual), () => {
+          // A connection/body failure after dispatch leaves the remote outcome
+          // unknowable. Do not let later work race a possibly surviving CAS.
+          if (dispatched) writeSettlementUnknown = true;
+          actualWrites.delete(actual);
+        });
+      }
+      return await Promise.race([actual, timeout]);
     } catch (error) {
       if (error instanceof DurableStoreError) throw error;
       // Never expose credential-provider/transport exception text in game logs.
@@ -191,6 +207,17 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
       if (method === 'PUT') { writeEpoch++; removeCached(url.href); }
     }
   };
+  // A deadline does not prove that a launched PUT has stopped. The
+  // store's commit permit stays occupied until the actual task settles, even
+  // when its caller has already received an uncertain-operation response.
+  Object.defineProperty(fetch, 'whenWritesSettled', { value: async ({ operationConfirmed = false } = {}) => {
+    while (actualWrites.size) await Promise.allSettled([...actualWrites]);
+    // Only the adapter's verified immutable receipt can resolve a lost response.
+    // Absence at one read cannot exclude a still-surviving remote CAS.
+    if (writeSettlementUnknown && !operationConfirmed) fail('Native write settlement requires recovery.', 'NATIVE_COMMIT_FENCED', 503);
+    if (operationConfirmed) writeSettlementUnknown = false;
+  } });
+  return fetch;
 }
 
 /** Production composition point: native must be the deployed @interego/pgsl SDK. */
@@ -204,23 +231,73 @@ export function createInteregoStore(options) {
   const nativeClient = new native.NativeCommitStore({ scope, senderKeyPair, ownerPublicKey, recipientPublicKeys, fetch,
     ...(options.storageDomain === undefined ? {} : { storageDomain: options.storageDomain }),
     ...(options.maxArtifactBytes === undefined ? {} : { maxArtifactBytes: options.maxArtifactBytes }) });
-  return new InteregoGamingStore({ ...options, nativeClient, artifactCodec: native, owner: scope.owner });
+  return new InteregoGamingStore({ ...options, nativeClient, artifactCodec: native, owner: scope.owner,
+    waitForNativeWrites: fetch.whenWritesSettled });
 }
 
 export class InteregoGamingStore {
   constructor({ nativeClient, artifactCodec, owner, namespace, maxStateBytes = 512 * 1024,
-    maxEventBytes = 64 * 1024, maxRecordBytes = 1024 * 1024, conflictRetries = 3 } = {}) {
+    maxEventBytes = 64 * 1024, maxRecordBytes = 1024 * 1024, conflictRetries = 3,
+    maxPendingCommits = 64, waitForNativeWrites = async () => {} } = {}) {
     if (!nativeClient || !['ready', 'readHead', 'readArtifact', 'commit'].every(method => typeof nativeClient[method] === 'function')
       || !artifactCodec || !['createNativeByteArtifact', 'readNativeByteArtifact'].every(method => typeof artifactCodec[method] === 'function')) {
       fail('An encrypted native commit client and artifact codec are required.', 'INVALID_CONFIGURATION', 500);
     }
     identifier(owner, 'native owner', 4096); identifier(namespace, 'gaming namespace', 128);
     if (![maxStateBytes, maxEventBytes, maxRecordBytes].every(limit => Number.isSafeInteger(limit) && limit > 0 && limit <= 1024 * 1024)
-      || !Number.isSafeInteger(conflictRetries) || conflictRetries < 0 || conflictRetries > 8) {
+      || !Number.isSafeInteger(conflictRetries) || conflictRetries < 0 || conflictRetries > 8
+      || !Number.isSafeInteger(maxPendingCommits) || maxPendingCommits < 1 || maxPendingCommits > 1024
+      || typeof waitForNativeWrites !== 'function') {
       fail('Invalid gaming storage limits.', 'INVALID_CONFIGURATION', 500);
     }
-    Object.assign(this, { nativeClient, artifactCodec, owner, namespace, maxStateBytes, maxEventBytes, maxRecordBytes, conflictRetries });
+    Object.assign(this, { nativeClient, artifactCodec, owner, namespace, maxStateBytes, maxEventBytes, maxRecordBytes, conflictRetries,
+      maxPendingCommits, waitForNativeWrites });
+    this.commitQueue = []; this.pendingCommits = 0; this.activeCommit = false; this.commitSettlementFailed = false;
   }
+  /** One native head per store: local streams must not race the same CAS. */
+  admitCommit(operation, signal) {
+    if (signal !== undefined && (!signal || typeof signal.aborted !== 'boolean'
+      || typeof signal.addEventListener !== 'function' || typeof signal.removeEventListener !== 'function')) {
+      fail('Invalid commit cancellation signal.', 'INVALID_INPUT', 400);
+    }
+    if (signal?.aborted) fail('Queued native operation was cancelled.', 'OPERATION_ABORTED', 499);
+    if (this.commitSettlementFailed) fail('Native write settlement requires recovery.', 'NATIVE_COMMIT_FENCED', 503);
+    if (this.pendingCommits >= this.maxPendingCommits) fail('Native commit admission is at capacity.', 'NATIVE_COMMIT_CAPACITY', 503);
+    return new Promise((resolve, reject) => {
+      const task = { operation, resolve, reject, signal };
+      task.cancel = () => {
+        const position = this.commitQueue.indexOf(task);
+        if (position < 0) return; // Running operations retain their permit.
+        this.commitQueue.splice(position, 1); this.pendingCommits--;
+        signal.removeEventListener('abort', task.cancel);
+        reject(new DurableStoreError('Queued native operation was cancelled.', 'OPERATION_ABORTED', 499));
+      };
+      this.pendingCommits++; this.commitQueue.push(task);
+      signal?.addEventListener('abort', task.cancel, { once: true });
+      this.runNextCommit();
+    });
+  }
+  runNextCommit() {
+    if (this.activeCommit || this.commitSettlementFailed || !this.commitQueue.length) return;
+    const task = this.commitQueue.shift();
+    task.signal?.removeEventListener('abort', task.cancel);
+    this.activeCommit = true;
+    // Once running, cancellation suppresses a caller acknowledgement in its
+    // own layer; it cannot release this native permit or undo a durable write.
+    let operationConfirmed = false;
+    Promise.resolve().then(task.operation).then(value => { operationConfirmed = true; task.resolve(value); }, task.reject)
+      .then(() => this.waitForNativeWrites({ operationConfirmed })).then(() => {
+      this.pendingCommits--; this.activeCommit = false; this.runNextCommit();
+    }, () => {
+      this.commitSettlementFailed = true;
+      for (const queued of this.commitQueue.splice(0)) {
+        queued.signal?.removeEventListener('abort', queued.cancel); this.pendingCommits--;
+        queued.reject(new DurableStoreError('Native write settlement requires recovery.', 'NATIVE_COMMIT_FENCED', 503));
+      }
+    });
+  }
+  commitAdmissionStatus() { return { active: this.activeCommit, queued: this.pendingCommits - (this.activeCommit ? 1 : 0),
+    capacity: this.maxPendingCommits, settlementFailed: this.commitSettlementFailed }; }
   keys(streamId, idempotencyKey) {
     identifier(streamId, 'stream ID');
     const stream = 'gaming:' + hash(canonical([this.namespace, streamId]));
@@ -270,7 +347,10 @@ export class InteregoGamingStore {
       : { version: 0, state: null, events: [], nativeRevision: revision, replayed: false };
   }
   /** Capability/read check only. First real commit must establish write authority. */
-  async ready() { await this.nativeClient.ready(); await this.snapshot(); }
+  async ready() {
+    if (this.commitSettlementFailed) fail('Native write settlement requires recovery.', 'NATIVE_COMMIT_FENCED', 503);
+    await this.nativeClient.ready(); await this.snapshot();
+  }
   async load(streamId) {
     const keys = this.keys(streamId), snapshot = await this.snapshot();
     return this.view(this.streamRecord(await this.record(snapshot, keys.stream), streamId), snapshot.revision);
@@ -289,7 +369,7 @@ export class InteregoGamingStore {
     if (!result || result.operationId !== keys.operationId) fail('Native operation result is malformed.', 'CORRUPT_DURABLE_STATE', 503);
     return this.view(result, snapshot.revision, true);
   }
-  async commit(streamId, { expectedVersion, state, event = null, idempotencyKey } = {}) {
+  async commit(streamId, { expectedVersion, state, event = null, idempotencyKey, signal } = {}) {
     if (!integer(expectedVersion) || expectedVersion === Number.MAX_SAFE_INTEGER || !plain(state)) fail('A finite stream version and object state are required.', 'INVALID_INPUT', 400);
     const keys = this.keys(streamId, identifier(idempotencyKey, 'idempotency key', 512));
     // Capture caller input before the first await, so later mutation cannot alter it.
@@ -301,6 +381,7 @@ export class InteregoGamingStore {
     const receipt = { schema: RECEIPT_SCHEMA, namespace: this.namespace, streamId, operationId: keys.operationId, inputDigest, result: next };
     // Check both records' bounds before making any native writes.
     boundedBytes(next, this.maxRecordBytes, 'Gaming stream'); boundedBytes(receipt, this.maxRecordBytes, 'Gaming receipt');
+    return this.admitCommit(async () => {
     for (let attempt = 0; attempt <= this.conflictRetries; attempt++) {
       const snapshot = await this.snapshot(), replayed = await this.replay(snapshot, keys, streamId, inputDigest);
       if (replayed) return replayed;
@@ -333,5 +414,6 @@ export class InteregoGamingStore {
       }
     }
     fail('Native gaming commit did not complete.', 'DURABILITY_UNAVAILABLE', 503);
+    }, signal);
   }
 }

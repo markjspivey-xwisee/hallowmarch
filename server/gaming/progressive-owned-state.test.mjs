@@ -227,7 +227,7 @@ test('composes actual InteregoGamingStore and NativeCommitStore with real crypto
   const senderKeyPair = core.deriveEncryptionKeyPair('a'.repeat(64), owner), rows = new Map(), writes = [];
   const sha = bytes => 'sha256:' + createHash('sha256').update(bytes).digest('hex');
   const scope = { pod: 'https://pod.example/game/', owner, headUrl: 'https://pod.example/game/world/head', artifactContainer: 'https://pod.example/game/world/artifacts/' };
-  let sequence = 0, loseAck = false;
+  let sequence = 0, loseAck = false, headConflicts = 0;
   const transport = async (url, init) => {
     if (init.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'Accept-Put': native.NATIVE_COMMIT_MEDIA_TYPE, 'Interego-Native-Commit': '1' } });
     if (init.method === 'GET') {
@@ -236,7 +236,10 @@ test('composes actual InteregoGamingStore and NativeCommitStore with real crypto
     }
     assert.equal(new Headers(init.headers).get('Content-Type'), native.NATIVE_COMMIT_MEDIA_TYPE);
     const command = JSON.parse(init.body), old = rows.get(url);
-    if ((command.expectedRevision === null && old) || (command.expectedRevision !== null && old?.revision !== command.expectedRevision)) return new Response(null, { status: 412 });
+    if ((command.expectedRevision === null && old) || (command.expectedRevision !== null && old?.revision !== command.expectedRevision)) {
+      if (url === scope.headUrl) headConflicts++;
+      return new Response(null, { status: 412 });
+    }
     const bytes = Buffer.from(command.bodyBase64, 'base64'), revision = sha(url + ':' + (++sequence) + ':' + sha(bytes));
     rows.set(url, { bytes, revision }); writes.push(bytes.toString('utf8'));
     if (url === scope.headUrl && loseAck) { loseAck = false; throw new Error('lost test acknowledgement'); }
@@ -255,4 +258,12 @@ test('composes actual InteregoGamingStore and NativeCommitStore with real crypto
   const cold = createProgressiveOwnedState({ store: create(), streamId: 'world' });
   assert.deepEqual(await cold.start({ seed: () => assert.fail('native checkpoint exists') }), { world: 'private-state-marker', season: 2 });
   assert.equal(cold.status().confirmedLiveVersion, 2);
+  const shared = create(), before = headConflicts;
+  const parallel = await Promise.all([
+    shared.commit('player-bindings-fixture', { expectedVersion: 0, state: { bindings: [] }, idempotencyKey: 'same-scope-control-plane' }),
+    shared.commit('another-world-fixture', { expectedVersion: 0, state: { season: 3 }, idempotencyKey: 'same-scope-world' }),
+  ]);
+  assert.deepEqual(parallel.map(value => value.version), [1, 1]);
+  assert.equal(headConflicts, before, 'actual native crypto/PGSL commits in one adapter do not race their shared head');
+  assert.equal((await shared.load('world')).state.value.season, 2, 'unrelated admitted native commits preserve the original world');
 });

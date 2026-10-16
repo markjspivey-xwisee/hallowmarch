@@ -2,7 +2,7 @@
  * fixed command awaits a native operation; input is never evaluated or echoed. */
 import { createInterface } from 'node:readline';
 
-const commands = new Set(['status', 'diagnose', 'retry', 'continue', 'companion-restart-admission']);
+const commands = new Set(['status', 'diagnose', 'retry', 'continue', 'oauth-retry-same-owner', 'companion-restart-admission']);
 export function createNativeLiveInput({ input, acceptProtocolLine = () => false, onCommand,
   onClose = () => {}, onInvalid = () => {}, onBusy = () => {}, onError = () => {} } = {}) {
   if (!input || typeof onCommand !== 'function') throw new TypeError('Manual input ports are required.');
