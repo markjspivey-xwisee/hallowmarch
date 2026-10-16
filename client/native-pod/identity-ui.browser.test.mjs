@@ -44,9 +44,9 @@ const fixtureMemory={v:1,char:{name:'Kept in-memory character',n:9,inventory:['u
 const SAVE={native:${bound || cold},backend:'local',loaded:null,pending:${live} ? structuredClone(fixtureMemory):null,readConfirmed:${bound},chain:Promise.resolve(),nativeFlight:null,nativePaused:false,lastBody:'',lastCore:'',ref:null};
 const GAME={started:${live},ready:true,player:${live}?{name:fixtureMemory.char.name}:null};
 const NET={link:{kind:'ws'},peers:new Map(),party:null};const UI={modal:null};const BUILD={mode:false};
-const identityCalls={retry:0,save:0,reauthenticate:0,saved:[],links:[],hellos:[],reloadMarker:crypto.randomUUID()};
+const identityCalls={retry:0,save:0,load:0,reauthenticate:0,saved:[],links:[],hellos:[],reloadMarker:crypto.randomUUID()};
 let resumeRelease=null,resumeGate=null,writeRelease=null,writeGate=null,reauthConflict=false;
-const typing=()=>true,validSave=value=>value;
+const typing=()=>true,validSave=value=>value,loadSave=async()=>{identityCalls.load++;SAVE.readConfirmed=true};
 ${cold ? `window.__HM_NET_SERVER='ws://'+location.host+'/ws';
 const netNote=()=>{},netStr=(value,n)=>String(value).slice(0,n);
 window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this.readyState=1;this.onopen?.({})})}
@@ -347,9 +347,11 @@ try {
     await page.evaluate(()=>{SAVE.readConfirmed=false;NATIVE_PLAYER.state='key_required';nativePlayerRender()});
     assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
     assert.equal(await page.locator('#title .native-player button').filter({hasText:'Retry connection'}).count(),1);
-    const navigation=page.waitForEvent('framenavigated',frame=>frame===page.mainFrame());
-    await page.locator('#title .native-player button').filter({hasText:'Retry pod save'}).click();await navigation;
-    await page.waitForFunction(()=>window.identityTest?.ready);assert.deepEqual(await page.evaluate(()=>({retry:identityCalls.retry,save:identityCalls.save})),{retry:0,save:0});
+    const before=await page.evaluate(()=>identityCalls.reloadMarker);
+    await page.locator('#title .native-player button').filter({hasText:'Retry pod save'}).click();
+    await page.waitForFunction(()=>identityCalls.load===1);
+    assert.equal(await page.evaluate(()=>identityCalls.reloadMarker),before,'startup retry must retain the browser and its held key');
+    assert.deepEqual(await page.evaluate(()=>({retry:identityCalls.retry,save:identityCalls.save,load:identityCalls.load})),{retry:0,save:0,load:1});
     await context.close();
   });
   await check('playing retry preserves pending progress and never reloads the page',async()=>{

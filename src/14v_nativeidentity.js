@@ -31,14 +31,14 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   NATIVE_PLAYER.status = { enabled: true, bound: false, verified: false, recordLinks: {} };
   NATIVE_PLAYER.state = 'identity_unconfirmed';
   const active = () => initialization.active;
-  const blocked = { native: true,
+  const blocked = { native: true, blocked: true,
     get: async () => { throw nativePlayerError('native_signin_required', 'Connect your identity to open this private character.'); },
     set: async () => { throw nativePlayerError('native_signin_required', 'Reconnect your identity to save this character.'); },
     delete: async () => { throw nativePlayerError('native_signin_required', 'Reconnect your identity before changing this character.'); } };
   try {
     const url = new URL(server); url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
     url.pathname = '/gaming/manifest'; url.search = ''; url.hash = '';
-    const response = await fetch(url.href, { credentials: 'omit', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(4000) });
+    const response = await fetch(url.href, { credentials: 'omit', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(18000) });
     let legacy = response.status === 404;
     if (!legacy) {
       if (!response.ok) throw nativePlayerError('identity_unconfirmed', 'The game could not confirm its identity service.');
@@ -56,11 +56,12 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   if (!await netLinkWS()) return active() ? blocked : null;
   if (!active()) return null;
   const owner = NETWS.acct?.id, host = NETWS.host;
+  initialization.owner = owner; initialization.host = host;
   let status;
-  try { status = await nativePlayerRequest('/gaming/identity/status', { timeoutMs: 4000 }); }
+  try { status = await nativePlayerRequest('/gaming/identity/status'); }
   catch (error) { return active() ? blocked : null; }
   if (!active()) return null;
-  if (!owner || NETWS.acct?.id !== owner || NETWS.host !== host) return blocked;
+  if (!owner || NETWS.acct?.id !== owner || NETWS.host !== host || (status.account?.id && status.account.id !== owner)) return blocked;
   NATIVE_PLAYER.status = { ...status, enabled: true };
   if (!status.enabled || !status.bound || !status.verified || !status.binding) {
     NATIVE_PLAYER.state = status.enabled && !status.bound ? 'native_identity_required' : 'native_signin_required';
@@ -77,7 +78,8 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
     // The cache API returns the access credential; no native bearer goes to request().
     const credential = cached.credential || cached;
     const profile = module.createPlayerPodProfile({ binding: status.binding, credential, relayUrl: match.relayUrl,
-      request: nativePlayerRequest, pointer: status.recordLinks?.character || null, onState: nativePlayerChanged });
+      request: nativePlayerRequest, pointer: status.recordLinks?.character || null,
+      onState: info => { if (NATIVE_PLAYER.profile === profile && NETWS.acct?.id === owner && NETWS.host === host && !NETWS.reload) nativePlayerChanged(info); } });
     NATIVE_PLAYER.profile = profile;
     const owned = () => {
       if (NETWS.acct?.id !== owner || NETWS.host !== host || NETWS.reload) {
@@ -86,13 +88,18 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
     };
     let opening;
     return { native: true,
-      get: async () => { owned(); if (!opening) opening = profile.connect(); await opening; owned(); const result = await profile.get(); owned(); return result; },
+      get: async () => {
+        owned();
+        if (!opening) opening = profile.connect().catch(error => { opening = null; throw error; });
+        await opening; owned(); const result = await profile.get(); owned(); return result;
+      },
       set: async save => { owned(); await profile.set(save); owned(); },
       delete: async () => { owned(); await profile.delete(); owned(); } };
   } catch (error) { if (!active()) return null; NATIVE_PLAYER.state = error.code || 'unavailable'; return blocked; }
 }
 function nativePlayerSaveMessage() {
   if (!SAVE.native) return SAVE.backend === 'db' ? 'Progress saves automatically to your game account.' : 'Progress saves automatically in this browser.';
+  if (SAVE.loading && !SAVE.loading.settled) return 'Opening your private character from your pod… Keep this game open while it is confirmed.';
   if (!SAVE.readConfirmed && !['key_required', 'native_identity_required', 'native_signin_required'].includes(NATIVE_PLAYER.state)) return 'Your private character is not confirmed. Retry the connection before choosing a character.';
   if (NATIVE_PLAYER.state === 'saved') return 'Private character saved and verified in your pod.';
   if (NATIVE_PLAYER.state === 'saving') return 'Saving your private character to your pod…';
@@ -111,7 +118,7 @@ function nativePlayerRender() {
       box = document.createElement('section'); box.className = 'native-player';
       if (target.classList.contains('card-body')) target.prepend(box); else target.appendChild(box);
     }
-    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, SAVE.readConfirmed, !!SAVE.loaded, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.message, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed()]);
+    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, SAVE.readConfirmed, !!SAVE.loaded, SAVE.loading?.settled, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.message, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed()]);
     if (box._nativeKey === renderKey) continue;
     box._nativeKey = renderKey;
     const sameOwner = box._nativeOwner === NETWS.acct?.id;
@@ -128,7 +135,7 @@ function nativePlayerRender() {
     };
     action(status.bound ? 'Reconnect identity' : 'Connect identity', nativePlayerConnect);
     if (target.classList.contains('card-body') && nativePlayerFreshAllowed()) action('Start a fresh sign-in', () => nativePlayerConnect(true));
-    if (SAVE.native && !SAVE.readConfirmed && !GAME.started) action('Retry connection', () => location.reload());
+    if (SAVE.native && !SAVE.readConfirmed && !GAME.started) action('Retry connection', () => nativePlayerTask(nativePlayerRetryLoad));
     const profile = NATIVE_PLAYER.profile;
     if (profile) {
       const pass = document.createElement('input'); pass.type = 'password'; pass.autocomplete = 'new-password';
@@ -141,7 +148,7 @@ function nativePlayerRender() {
       action('Restore recovery file', () => file.click());
       file.onchange = () => { if (file.files[0]) nativePlayerRestore(file.files[0], pass.value); };
       action('Retry pod save', () => nativePlayerTask(async () => {
-        if (!GAME.started && !SAVE.readConfirmed) { location.reload(); return; }
+        if (!GAME.started && !SAVE.readConfirmed) { await nativePlayerRetryLoad(); return; }
         await profile.retry(); if (SAVE.pending) await saveNow();
       }));
       if (!profile.status().hasRecord && status.legacyImportAvailable) action('Import my previous character', nativePlayerImport);
@@ -154,6 +161,11 @@ function nativePlayerRender() {
   const profileStatus = NATIVE_PLAYER.profile?.status();
   const blocked = SAVE.native && (!status?.verified || !SAVE.readConfirmed || !profileStatus?.keyPresent || (profileStatus.hasRecord && !SAVE.loaded));
   for (const id of ['btn-begin', 'btn-continue']) if ($(id)) $(id).disabled = !!blocked;
+}
+async function nativePlayerRetryLoad() {
+  if (GAME.started || SAVE.pending || SAVE.nativeFlight) return;
+  await loadSave({ retry: true });
+  nativePlayerRender();
 }
 async function nativePlayerTask(run) {
   if (NATIVE_PLAYER.busy) return;
@@ -293,7 +305,7 @@ function nativePlayerRestore(file, passphrase) {
   return nativePlayerTask(async () => {
     if (file.size > 32768) throw new Error('That recovery file is too large.');
     await NATIVE_PLAYER.profile.restoreRecovery(JSON.parse(await file.text()), passphrase);
-    location.reload();
+    if (!GAME.started) await nativePlayerRetryLoad();
   });
 }
 function nativePlayerImport() {
@@ -305,3 +317,12 @@ function nativePlayerImport() {
     location.reload();
   });
 }
+// Fixed-shape diagnostics expose no owner identifiers, record bodies or grants.
+if (window.__hm) window.__hm.nativePlayerStatus = () => {
+  const profile = NATIVE_PLAYER.profile?.status();
+  return { state: NATIVE_PLAYER.state, readConfirmed: SAVE.readConfirmed === true, loaded: !!SAVE.loaded,
+    started: GAME.started === true, loading: !!SAVE.loading && !SAVE.loading.settled, loadPhase: SAVE.loading?.phase,
+    refPresent: !!SAVE.ref, refBlocked: SAVE.ref?.blocked === true, profilePresent: !!profile,
+    profileStatus: profile ? { state: profile.state, keyPresent: profile.keyPresent === true, hasRecord: profile.hasRecord === true,
+      pending: profile.pending === true, indexed: profile.indexed === true, linked: profile.linked === true } : null };
+};

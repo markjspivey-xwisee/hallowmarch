@@ -234,6 +234,7 @@ const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evalu
   return { ready: !!h?.ready, native: !!h?.SAVE?.native,
     netOn: n?.state === 'on', nativeBound: !!n?.acct?.nativeBound,
     hasAccessSession: !!localStorage.getItem('hallowmarch.token.' + location.host),
+    nativePlayer: typeof h?.nativePlayerStatus === 'function' ? h.nativePlayerStatus() : null,
     nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
 }, diagnose) });
 const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async () => {

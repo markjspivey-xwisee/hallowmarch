@@ -4,6 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { NativeAgentAuthorityError } from './native-agent-authority.js';
 const fail = code => { throw new NativeAgentAuthorityError(code); };
 const finite = (v, min, max) => Number.isFinite(v) && v >= min && v <= max;
+// One maximum native grant can issue 20 inputs/second for one hour. Keep its
+// exact receipts through the proof session, including renewals; an LRU would
+// let an old logical ID execute again when re-signed with a fresh sequence.
+const MAX_OWNER_COMMAND_RECEIPTS = 80_000;
 export function createMainWorldAgentTransport({ principalFor, send, now = Date.now } = {}) {
   const owners = new Map(), pending = new Map();
   function frame(c, input) {
@@ -36,7 +40,8 @@ export function createMainWorldAgentTransport({ principalFor, send, now = Date.n
         x: item.x, y: item.y, z: item.z, hp: item.hp, maxHp: item.maxHp });
     }
     owners.set(c.acct.id, { client: c, ownerDid: owner, roomId: c.room.name, at: now(), paused: input.paused !== false,
-      connectionId: c.peer, bodies, targets, commands: previous?.client === c ? previous.commands : new Map() });
+      connectionId: c.peer, bodies, targets, commands: previous?.client === c ? previous.commands : new Map(),
+      commandSessions: previous?.client === c ? previous.commandSessions : new Map() });
     if (input.paused !== false || !bodies.some(b => b.allowed)) stop(c.acct.id);
     return true;
   }
@@ -51,11 +56,20 @@ export function createMainWorldAgentTransport({ principalFor, send, now = Date.n
   function dispatch(accountId, command, authorization) {
     const current = view(accountId, command.roomId, command.entityId), owner = owners.get(accountId);
     if (!current) fail('native_owner_page_unavailable');
+    if (typeof authorization.sessionId !== 'string' || typeof authorization.isSessionActive !== 'function'
+      || !command.commandId.startsWith(authorization.sessionId + ':') || !authorization.isSessionActive()) fail('native_agent_session_unavailable');
+    // Consult the authority's actual session state, not the lease snapshot in
+    // an old input: a native renewal can extend an otherwise idle session.
+    // Expired/revoked session IDs cannot be reused in a newly admitted session.
+    for (const [id, session] of owner.commandSessions) if (!session.isActive()) {
+      for (const commandId of session.commandIds) owner.commands.delete(commandId);
+      owner.commandSessions.delete(id);
+    }
     if (command.type === 'attack' && !owner.targets.some(t => t.id === command.targetId && t.hp > 0)) fail('native_target_unavailable');
     const digest = createHash('sha256').update(JSON.stringify([authorization.grantId, command])).digest('hex');
     const old = owner.commands.get(command.commandId);
     if (old) { if (old.digest !== digest) fail('native_command_id_conflict'); return old.promise; }
-    if (owner.commands.size >= 512 || pending.size >= 64) fail('native_world_command_capacity');
+    if (owner.commands.size >= MAX_OWNER_COMMAND_RECEIPTS || pending.size >= 64) fail('native_world_command_capacity');
     const requestId = randomUUID(), expiresAt = Math.min(authorization.expiresAt, now() + 1500);
     if (expiresAt <= now()) fail('native_agent_session_unavailable');
     let resolve, reject;
@@ -63,8 +77,11 @@ export function createMainWorldAgentTransport({ principalFor, send, now = Date.n
     const timer = setTimeout(() => { pending.delete(requestId); reject(new NativeAgentAuthorityError('native_execution_unconfirmed')); }, expiresAt - now());
     pending.set(requestId, { client: owner.client, accountId, grantId: authorization.grantId, resolve, reject, timer });
     owner.commands.set(command.commandId, { digest, promise });
-    // The deduplication receipt lives for this owner connection. The authority
-    // binds proof sessions to that connection, so reconnects cannot replay it.
+    let session = owner.commandSessions.get(authorization.sessionId);
+    if (!session) owner.commandSessions.set(authorization.sessionId, session = { isActive: authorization.isSessionActive, commandIds: new Set() });
+    session.commandIds.add(command.commandId);
+    // Receipts live until this proof session is inactive or its owner connection
+    // closes. Renewing a session never discards its prior logical command IDs.
     send(owner.client, { t: 'world-agent', op: 'command', requestId, grantId: authorization.grantId, expiresAt, command });
     return promise;
   }
@@ -84,5 +101,11 @@ export function createMainWorldAgentTransport({ principalFor, send, now = Date.n
     }
   }
   function close(c) { const owner = owners.get(c.acct?.id); if (owner?.client === c) { stop(c.acct.id); owners.delete(c.acct.id); } }
-  return { frame, view, dispatch, stop, result, close };
+  function status() {
+    let retainedCommandReceipts = 0, commandSessions = 0;
+    for (const owner of owners.values()) { retainedCommandReceipts += owner.commands.size; commandSessions += owner.commandSessions.size; }
+    return { owners: owners.size, pending: pending.size, retainedCommandReceipts, commandSessions,
+      maxOwnerCommandReceipts: MAX_OWNER_COMMAND_RECEIPTS };
+  }
+  return { frame, view, dispatch, stop, result, close, status };
 }

@@ -49,6 +49,7 @@ RUN mkdir -p server/node_modules/@interego \
 COPY server/*.js ./server/
 COPY server/gaming ./server/gaming
 COPY client/native-pod ./client/native-pod
+COPY client/world-agent-client.mjs ./client/world-agent-client.mjs
 # the sites (00_util.js, 01_world.js) and the season's realm module (08m_realm.js once loops's lands; server/realm_stub.js until then)
 COPY src ./src
 COPY --from=page /app/hallowmarch.html ./hallowmarch.html

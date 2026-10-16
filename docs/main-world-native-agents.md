@@ -31,6 +31,8 @@ are not established by this change.
 
 `/gaming/manifest` advertises `mainWorldAgents`; `/world/native-agents` describes
 the actual owner-reference and agent operations using Hydra action affordances.
+Its `agentClient` entry advertises the reusable WebCrypto/fetch client at
+`/world/agent-client.mjs`; see [the integration guide](main-world-agent-client.md).
 The player-ownership publication composes that description in Hallowmarch's pod.
 The bridge's registration/admission/revocation stream is separate from player
 pods and from the existing world/season checkpoint stream. No identity or key

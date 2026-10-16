@@ -110,3 +110,24 @@ test('status whitelists only booleans and bounded counts, never browser strings 
   const failed = boundedPageStatus({ evaluate: async () => { throw new Error(secret); } });
   assert.deepEqual(await failed({}), { inFlight: false, timedOut: false, unavailable: true });
 });
+test('startup diagnostics expose only fixed native states and profile/read confirmation flags', async () => {
+  const secret = 'Bearer private-body private-key https://private.example/owner';
+  const inspect = boundedPageStatus({ evaluate: async () => ({ nativePlayer: {
+    state: 'key_required', readConfirmed: false, loaded: false, started: false, loading: true, loadPhase: 'read',
+    refPresent: true, refBlocked: false, profilePresent: true, ownerDid: secret, credential: secret,
+    profileStatus: { state: 'ready', keyPresent: true, hasRecord: true, pending: false, indexed: true, linked: false,
+      profileGraphIri: secret, record: secret, privateJwk: secret },
+  } }) });
+  assert.deepEqual((await inspect({})).state.nativePlayer, {
+    state: 'key_required', loadPhase: 'read', readConfirmed: false, loaded: false, started: false, loading: true,
+    refPresent: true, refBlocked: false, profilePresent: true,
+    profileStatus: { state: 'ready', keyPresent: true, hasRecord: true, pending: false, indexed: true, linked: false },
+  });
+  const malicious = boundedPageStatus({ evaluate: async () => ({ nativePlayer: {
+    state: secret, loadPhase: secret, readConfirmed: secret, profileStatus: { state: secret, keyPresent: secret, record: secret },
+  } }) });
+  const result = (await malicious({})).state.nativePlayer;
+  assert.equal(result.state, null); assert.equal(result.loadPhase, null); assert.equal(result.readConfirmed, false);
+  assert.equal(result.profileStatus.state, null); assert.equal(result.profileStatus.keyPresent, false);
+  assert(!JSON.stringify(result).includes(secret));
+});

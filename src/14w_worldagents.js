@@ -251,14 +251,38 @@ function mainWorldAgentRender() {
   $('world-agent-note').textContent = state.note || (state.paused ? 'Agent control paused.' : 'Agent control resumes when this panel closes.');
   for (const button of box.querySelectorAll('form button,#world-agent-load')) button.disabled = state.busy;
   const records = $('world-agent-records');
-  const recordKey = JSON.stringify([state.busy, [...state.records.values()].map(r =>
-    [r.reference.grantId, r.grant?.role, !!r.grant?.revoked, !!r.localRevoked, r.phase || ''])]);
+  const recordKey = JSON.stringify([state.busy, location.origin, window.__HM_GAMING.mainWorldAgents.applicationId,
+    [...state.records.values()].map(r => [r.reference.grantId, r.grant?.role, r.grant?.actor, r.grant?.roomId, r.grant?.entityId,
+      r.grant?.applicationId, r.grant?.audience, r.grant?.expiresAt, !!r.registered, !!r.grant?.revoked, !!r.localRevoked,
+      Date.parse(r.grant?.expiresAt) > Date.now(), r.phase || ''])]);
   // Polling must not replace a focused Revoke/Confirm button every 500 ms.
   if (records.dataset.recordKey === recordKey) return;
   records.dataset.recordKey = recordKey; records.replaceChildren();
   for (const record of state.records.values()) {
     const row = document.createElement('p'); row.textContent = `${record.grant?.revoked ? 'Revoked' : record.localRevoked ? 'Stopped here · finish pod revocation' : record.phase || 'Access confirmed'} · ${record.grant?.role || 'Grant'} · ${record.reference.grantId}`;
-    const link = document.createElement('a'); link.href = window.__HM_GAMING.mainWorldAgents.affordances; link.textContent = ' Agent discovery'; row.appendChild(link);
+    const link = document.createElement('a'); link.href = window.__HM_GAMING.mainWorldAgents.affordances; link.target = '_blank'; link.rel = 'noopener'; link.textContent = ' Agent discovery'; row.appendChild(link);
+    if (record.registered && !record.phase && !record.localRevoked && !record.grant?.revoked
+      && Date.parse(record.grant?.expiresAt) > Date.now() && record.grant.audience === location.origin
+      && record.grant.applicationId === window.__HM_GAMING.mainWorldAgents.applicationId) {
+      const details = document.createElement('details'), summary = document.createElement('summary');
+      summary.textContent = 'Agent connection details'; summary.style.minHeight = '44px'; details.appendChild(summary);
+      const help = document.createElement('p');
+      help.textContent = 'Share these public connection details with your agent’s tool host. Your agent signs as its own identity. Keep the game open and close this panel to resume control.';
+      details.appendChild(help);
+      const connection = JSON.stringify({ origin: location.origin, applicationId: record.grant.applicationId,
+        agentDid: record.grant.actor, grantId: record.reference.grantId, roomId: record.grant.roomId,
+        entityId: record.grant.entityId, module: location.origin + '/world/agent-client.mjs' }, null, 2);
+      const field = document.createElement('textarea'); field.readOnly = true; field.rows = 9; field.value = connection;
+      field.setAttribute('aria-label', 'Public agent connection details'); field.style.cssText = 'width:100%;box-sizing:border-box;font:12px monospace;min-height:160px';
+      details.appendChild(field);
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn'; copy.style.minHeight = '44px'; copy.textContent = 'Copy connection details';
+      copy.onclick = async () => {
+        try { await navigator.clipboard.writeText(connection); state.note = 'Public agent connection details copied.'; }
+        catch { field.focus(); field.select(); state.note = 'Connection details selected. Copy the selected text for your agent.'; }
+        mainWorldAgentRender();
+      };
+      details.appendChild(copy); row.appendChild(details);
+    }
     if (!record.grant?.revoked) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.style.minHeight = '44px'; button.disabled = state.busy;
       button.textContent = record.phase || record.localRevoked ? 'Confirm pending change' : 'Revoke access';

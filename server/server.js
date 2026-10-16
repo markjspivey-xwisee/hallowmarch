@@ -29,6 +29,7 @@ import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
+import { createWorldAgentAssets } from './gaming/world-agent-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
 import { createNativeCapabilityComposition, createNativeCapabilityPublication } from './gaming/native-capability-publication.js';
 import { openHallowmarchWorldState, hallowmarchWorldDescription } from './gaming/hallowmarch-world-state.js';
@@ -259,6 +260,7 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
 await PLAYER_ACCOUNTS.ready;
 const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
+const worldAgentAssets = createWorldAgentAssets({ clientFile: path.join(ROOT, 'client', 'world-agent-client.mjs') });
 const nativePlayerConfigured = gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1';
 const nativePlayersRequired = nativePlayerConfigured && gamingEnvironment.HM_NATIVE_PLAYER_REQUIRED === '1';
 const GAMING = createGamingRuntime({ store: gamingStore,
@@ -762,6 +764,7 @@ function onMsg(c, raw) {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (playerBrowserAssets(req, res, u.pathname)) return;
+  if (worldAgentAssets(req, res, u.pathname)) return;
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (await nativeAgentHost.handle(req, res, u.pathname)) return;
   if (await worldAgentHost.handle(req, res, u.pathname)) return;

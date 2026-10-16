@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
@@ -32,37 +32,77 @@ function validSave(s) {
   if (s.world && s.world.x && (typeof s.world.x !== 'object' || Array.isArray(s.world.x))) delete s.world.x;
   return s;
 }
-async function loadSave() {
+function saveLoadOwned(load) {
+  return SAVE.loading === load && !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !SAVE.wiping
+    && (!load.server || netServerUrl() === load.server)
+    && (!load.owner || (NETWS.acct?.id === load.owner && NETWS.host === load.host && !NETWS.reload));
+}
+function saveLoadTitle(load) {
+  if (!saveLoadOwned(load)) return;
+  // The bounded boot wait may finish before the native read. Retain that exact
+  // read and hydrate only the title; never replace a character already playing.
+  if (!GAME.ready) { load.titleTimer = setTimeout(() => saveLoadTitle(load), 100); return; }
+  if (SAVE.loaded) { applySettings(SAVE.loaded.settings); applyWorldSave(SAVE.loaded.world); }
+  setupTitle(SAVE.loaded);
+}
+async function loadSave({ retry = false } = {}) {
   // boot starts in 13_main before the later native/transport constants exist.
   await null;
+  const previous = SAVE.loading;
+  if (previous && !previous.settled && saveLoadOwned(previous)) return withTimeout(previous.promise, 45000);
+  if (GAME.started || SAVE.pending || SAVE.nativeFlight) return SAVE.loaded;
+  // A failed read keeps the same profile, key and outstanding native operation.
+  // Only an uninitialized/blocked reference may rediscover the identity ports.
+  const reusable = retry && previous && saveLoadOwned(previous) && previous.ref?.native && !previous.ref.blocked;
+  if (previous?.titleTimer) clearTimeout(previous.titleTimer);
+  const initialization = { settled: false, server: netServerUrl(), owner: reusable ? previous.owner : null,
+    host: reusable ? previous.host : null, phase: 'identity', detached: retry, ref: reusable ? previous.ref : null,
+    get active() { return saveLoadOwned(this); } };
+  SAVE.loading = initialization;
   SAVE.readConfirmed = false;
-  const initialization = { active: true };
   // Native policy is selected synchronously before its first network wait. Its
   // bounded welcome/status read must finish before choosing any character.
-  const initializing = initSaveBackend(initialization);
-  let ref;
-  try { ref = await withTimeout(initializing, SAVE.native ? 45000 : 12000); }
-  finally { initialization.active = false; }
-  let remote = null, remoteOk = false;
-  if (ref) {
+  initialization.promise = (async () => {
+    let ref = initialization.ref;
     try {
-      const snap = await withTimeout(ref.get(), ref.native ? 45000 : 12000);
-      if (snap && typeof snap.exists === 'boolean') {
-        if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data()));
-        remoteOk = true;
+      if (!ref) {
+        const initializing = initSaveBackend(initialization);
+        ref = SAVE.native ? await initializing : await withTimeout(initializing, 12000);
       }
-    } catch (e) { /* unreadable: keep this session's progress in the browser instead */ }
-  }
-  // only write to the account copy once it has been read, so an existing save is never overwritten blind
-  SAVE.ref = remoteOk || ref?.native ? ref : null;
-  SAVE.readConfirmed = remoteOk;
-  SAVE.server = !!(remoteOk && ref?.server);
-  SAVE.backend = SAVE.native ? 'pod' : remoteOk ? 'db' : 'local';
-  const local = SAVE.native ? null : readLocal();
-  const s = validSave(remote || local);
-  SAVE.loaded = s;
-  if (s) { SAVE.lastBody = JSON.stringify({ ...s, savedAt: 0 }); SAVE.lastCore = coreKey(s); }
-  return s;
+      if (!initialization.active) return null;
+      initialization.ref = ref;
+      initialization.phase = 'read';
+      let remote = null, remoteOk = false;
+      if (ref) {
+        try {
+          const snap = ref.native ? await ref.get() : await withTimeout(ref.get(), 12000);
+          if (!initialization.active) return null;
+          if (snap && typeof snap.exists === 'boolean') {
+            if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data()));
+            remoteOk = true;
+          }
+        } catch (e) { /* An unread native profile stays closed, with its exact reference retained. */ }
+      }
+      // Never write an existing account copy before its private read succeeds.
+      if (!initialization.active) return null;
+      SAVE.ref = remoteOk || ref?.native ? ref : null;
+      SAVE.readConfirmed = remoteOk;
+      SAVE.server = !!(remoteOk && ref?.server);
+      SAVE.backend = SAVE.native ? 'pod' : remoteOk ? 'db' : 'local';
+      const local = SAVE.native ? null : readLocal();
+      const s = validSave(remote || local);
+      SAVE.loaded = s;
+      if (s) { SAVE.lastBody = JSON.stringify({ ...s, savedAt: 0 }); SAVE.lastCore = coreKey(s); }
+      initialization.phase = remoteOk ? 'confirmed' : 'blocked';
+      return s;
+    } finally {
+      initialization.settled = true;
+      if (initialization.active && initialization.detached) saveLoadTitle(initialization);
+    }
+  })();
+  const result = await withTimeout(initialization.promise, SAVE.native ? 45000 : 24000);
+  if (!initialization.settled) initialization.detached = true;
+  return result;
 }
 
 function graphicsSaveSettings() {

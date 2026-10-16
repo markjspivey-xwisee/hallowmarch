@@ -45,10 +45,11 @@ export function nativeAgentAffordances({ publicOrigin, applicationId, enabled = 
 export function nativeAgentMetadataGraph(document) {
   const literal = value => JSON.stringify(value), subject = document['@id'];
   return '@prefix hydra: <http://www.w3.org/ns/hydra/core#> .\n@prefix schema: <https://schema.org/> .\n'
-    + '@prefix iep: <https://markjspivey-xwisee.github.io/interego/ns/iep#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n'
+    + '@prefix iep: <https://markjspivey-xwisee.github.io/interego/ns/iep#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix dct: <http://purl.org/dc/terms/> .\n'
     + `<${subject}> a hydra:ApiDocumentation ; rdf:value ${literal(JSON.stringify(document))}^^rdf:JSON .\n`
+    + Object.values(document.performanceSupport || {}).filter(value => typeof value === 'string' && /^https:\/\//.test(value)).map(value => `<${subject}> dct:relation <${value}> .\n`).join('')
     + Object.values(document.schemas).map(shape => `<${shape.$id}> a schema:CreativeWork ; schema:encodingFormat "application/schema+json" ; schema:text ${literal(JSON.stringify(shape))} .\n`).join('')
-    + document.operations.map(op => `<${subject}> hydra:supportedOperation <${op['@id']}> .\n<${op['@id']}> a hydra:Operation ; iep:action <${op['iep:action']['@id']}> ; hydra:method "POST" ; hydra:target <${op['hydra:target']}> ; ${op['hydra:expects'] ? `hydra:expects <${op['hydra:expects']['@id']}> ; ` : ''}schema:description ${literal(op.description)} .\n`).join('');
+    + document.operations.map(op => `<${subject}> hydra:supportedOperation <${op['@id']}> .\n<${op['@id']}> a hydra:Operation ; iep:action <${op['iep:action']['@id']}> ; hydra:method ${literal(op['hydra:method'])} ; hydra:target <${op['hydra:target']}> ; ${op['hydra:expects'] ? `hydra:expects <${op['hydra:expects']['@id']}> ; ` : ''}schema:description ${literal(op.description)} .\n`).join('');
 }
 
 /** Async HTTP handler. A timeout never releases the backend concurrency permit

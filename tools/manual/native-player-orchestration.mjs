@@ -72,9 +72,23 @@ const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input
   'tool_error', 'manifest_incomplete', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
   'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
 const numericCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599) || (value >= -32700 && value <= -32000)) ? value : null;
+const profileStates = new Set(['idle', 'identity_unconfirmed', 'native_identity_required', 'native_signin_required',
+  'connecting', 'ready', 'key_required', 'saving', 'uncertain', 'index_pending', 'link_pending', 'saved', 'closed']);
+const profileState = value => profileStates.has(value) || fixedCodes.has(value) ? value : null;
 function publicState(value) {
   const result = {};
   for (const key of ['ready', 'native', 'netOn', 'nativeBound', 'hasAccessSession']) result[key] = value?.[key] === true;
+  result.nativePlayer = null;
+  if (value?.nativePlayer && typeof value.nativePlayer === 'object') {
+    const source = value.nativePlayer, player = result.nativePlayer = { state: profileState(source.state),
+      loadPhase: ['identity', 'read', 'confirmed', 'blocked'].includes(source.loadPhase) ? source.loadPhase : null };
+    for (const key of ['readConfirmed', 'loaded', 'started', 'loading', 'refPresent', 'refBlocked', 'profilePresent']) player[key] = source[key] === true;
+    player.profileStatus = null;
+    if (source.profileStatus && typeof source.profileStatus === 'object') {
+      player.profileStatus = { state: profileState(source.profileStatus.state) };
+      for (const key of ['keyPresent', 'hasRecord', 'pending', 'indexed', 'linked']) player.profileStatus[key] = source.profileStatus[key] === true;
+    }
+  }
   result.nativeQa = null;
   if (value?.nativeQa && typeof value.nativeQa === 'object') {
     result.nativeQa = {};
