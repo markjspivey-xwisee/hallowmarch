@@ -8,6 +8,7 @@
 function houseLife(e, dt) {
   if (e.role !== 'villager' || !HOUSES.length) return false;
   const ai = e.ai;
+  boatFisherApproachExpired(e);
   if (ai.house === undefined) houseAssign(e);
   const H = ai.house;
   if (!H) return false;

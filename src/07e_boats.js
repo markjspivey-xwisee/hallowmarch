@@ -686,12 +686,35 @@ function fisherMorning() { const p = tod.p; return (p > 2.62 || p < 0.42) && (WE
 // [v12] to the jetty's foot: out of the house by its door first, then the walk with the time it takes
 function boatWalkPlan(e, J) {
   const H = e.ai.house, inside = H && houseIntact(H) && houseHas(H, e.x, e.z, -0.1);
-  const far = Math.hypot(J.land.x - e.x, J.land.z - e.z);
-  return [...(inside ? houseLeavePlan(e, H) : []), houseGo(J.land.x, J.land.z, { T: 16 + far / 1.2 })];
+  const start = inside ? H.door.out2 : e;
+  const route = localPath(start.x, start.z, J.land.x, J.land.z, 0.5, 190);
+  const path = route && route.length ? route : null;
+  let far = 0, last = start;
+  for (const p of path || [J.land]) { far += Math.hypot(p.x - last.x, p.z - last.z); last = p; }
+  return [...(inside ? houseLeavePlan(e, H) : []), houseGo(J.land.x, J.land.z, { T: 16 + far / 1.2, path })];
+}
+function boatFisherDone(e) {
+  const ai = e.ai, F = ai.fisher;
+  if (!F) return;
+  if (e.boat) { e.boat = null; e.seat = null; e.rowK = undefined; }
+  if (F.B.rider === e.id) F.B.rider = null;
+  e.fixedY = null; e.fishing = false;
+  if (F.J.fisher === e.id) F.J.fisher = null;
+  if (ai.plan && ai.plan.fisher === F) ai.plan = null;
+  ai.fisher = null; ai.fishWait = GAME.t + 600;
+}
+// The approach's life plan runs before boatLife, so its deadline must also be
+// checked by houseLife. A blocked walk must release its boat and jetty.
+function boatFisherApproachExpired(e) {
+  const F = e.ai.fisher;
+  if (!F || F.st !== 'walk' || GAME.t < F.until) return false;
+  boatFisherDone(e);
+  return true;
 }
 // 08f_townlife.js asks for every villager before its own day: true while the boat has it
 function boatLife(e, dt) {
   const ai = e.ai;
+  if (boatFisherApproachExpired(e)) return false;
   let F = ai.fisher;
   if (!F) {
     if (!BOATS.built || !fisherMorning() || e.role !== 'villager' || (ai.fishWait || 0) > GAME.t) return false;
@@ -704,12 +727,12 @@ function boatLife(e, dt) {
     if (!B) return false;
     J.fisher = e.id;
     F = ai.fisher = { st: 'walk', J, B, t: 0, until: GAME.t + 200 + Math.random() * 120 };
-    lifePlan(e, boatWalkPlan(e, J));
+    lifePlan(e, boatWalkPlan(e, J), { fisher: F });
     return true;
   }
   const J = F.J, B = F.B;
   F.t += dt;
-  const done = () => { if (e.boat) { e.boat = null; e.seat = null; e.rowK = undefined; } if (B.rider === e.id) B.rider = null; e.fixedY = null; e.fishing = false; J.fisher = null; ai.fisher = null; ai.fishWait = GAME.t + 600; };
+  const done = () => boatFisherDone(e);
   // the boat burnt, or someone else took it: give it up
   if ((B.rider != null && B.rider !== e.id) || B.st === 'burning' || B.st === 'burnt') {
     if (e.boat) { const w = waterAt(e.x, e.z, _bW); e.boat = null; e.seat = null; e.fixedY = null; if (w) { const L = boatLanding(B) || J.land; e.x = e.prevX = L.x; e.z = e.prevZ = L.z; e.y = heightAt(L.x, L.z); } }
@@ -720,7 +743,7 @@ function boatLife(e, dt) {
     if (!jettyAt(e.x, e.z, 0.5) && dist2(e.x, e.z, J.land.x, J.land.z) > 5 * 5) {
       F.tries = (F.tries || 0) + 1;
       if (F.tries > 3) { done(); return false; }
-      lifePlan(e, boatWalkPlan(e, J));
+      lifePlan(e, boatWalkPlan(e, J), { fisher: F });
       return true;
     }
     const step = J.steps[J.boats.indexOf(B)] || J.end;

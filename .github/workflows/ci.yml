@@ -43,7 +43,7 @@ jobs:
             headless)
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs
-              node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
+              node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
