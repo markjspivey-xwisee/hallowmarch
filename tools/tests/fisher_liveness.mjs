@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = process.env.HM_FISHER_SOURCE_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const town = fs.readFileSync(path.join(root, 'src/08f_townlife.js'), 'utf8');
 const boats = fs.readFileSync(path.join(root, 'src/07e_boats.js'), 'utf8');
+const loops = fs.readFileSync(path.join(root, 'src/08m_loops.js'), 'utf8');
 function part(source, from, to) { const start = source.indexOf(from), end = source.indexOf(to, start); assert(start >= 0 && end > start, 'Source fixture boundaries must exist'); return source.slice(start, end); }
 const code = [
   part(town, 'function houseLife(e, dt) {', '// [v10] the way round'),
@@ -20,6 +21,9 @@ const code = [
   part(town, 'function lifeRun(e, dt) {', '// walking about the town'),
   part(boats, 'function fisherMorning()', '// 08f_townlife.js asks'),
   part(boats, 'function boatLife(e, dt) {', '/* ------------------------------------------------------------------ */\n/* a hull is solid'),
+  part(loops, 'function loopsLife(e, dt) {', "// a 'go' step"),
+  part(loops, 'function loopsLifeStep(e, st, plan, dt, next) {', '// A successful work cycle'),
+  part(loops, 'function loopsHaulSteps(e) {', 'function loopsStartHaul'),
   'function lpSearch(...args) { return lpSearchJS(...args); }',
 ].join('\n');
 function fixture({ blocked = false, wall = true } = {}) {
@@ -110,4 +114,33 @@ test('a fisher inside its house plans the outdoor route from the door exit', () 
   const steps = F.run('boatWalkPlan(actor,J)');
   assert.equal(steps[0].room, F.H); assert.equal(steps.at(-2).x, F.H.door.out2.x);
   assert(steps.at(-1).path?.length > 1); assert(steps.at(-1).path.some(p => Math.abs(p.z) > 1.5));
+});
+
+function prepareHauler(F, x, z, targetX, targetZ) {
+  F.actor.x = x; F.actor.z = z;
+  F.actor.ai.fishWait = 1e9;
+  F.actor.ai.lj = { realm: 0, job: 'wood', haul: 'wood', next: 0 };
+  F.context.LOOPS = { on: true };
+  F.context.REALMS = [{ town: { x: targetX, z: targetZ }, lyard: { x: targetX, z: targetZ - 4.2, yaw: 0 } }];
+}
+
+test('a hauler already at the yard consumes an empty localPath and actually unloads', () => {
+  const F = fixture({ wall: false }); prepareHauler(F, .8, .8, .8, .8);
+  F.run('houseLife(actor,.1)');
+  assert.equal(F.actor.ai.plan.steps[0].path.length, 0, 'The actual localPath returns no waypoints in the same grid cell');
+  assert.equal(F.actor.ai.plan.i, 1, 'Arrival advances to the unloading step');
+  assert.equal(F.actor.ai.lj.haul, 'wood', 'Arrival alone does not discard the carried load');
+  F.step(2);
+  assert.equal(F.actor.ai.lj.haul, null, 'The existing unloading animation finishes the delivery');
+});
+
+test('an empty same-cell route still walks to the exact goal before unloading', () => {
+  const F = fixture({ wall: false }); prepareHauler(F, .1, .1, .8, .8);
+  F.run('houseLife(actor,.1)');
+  assert.equal(F.actor.ai.plan.steps[0].path.length, 0);
+  assert.equal(F.actor.ai.plan.i, 0, 'Sharing a grid cell does not establish arrival within the stop radius');
+  assert(F.actor.x > .1 && F.actor.z > .1, 'The runner moves toward the original goal');
+  for (let i = 0; i < 10 && F.actor.ai.plan.i === 0; i++) F.step(.1);
+  assert.equal(F.actor.ai.plan.i, 1);
+  assert(Math.hypot(F.actor.x - .8, F.actor.z - .8) <= .6, 'The existing loose-go arrival radius still applies');
 });
