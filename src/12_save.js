@@ -56,7 +56,7 @@ async function loadSave({ retry = false } = {}) {
   const reusable = retry && previous && saveLoadOwned(previous) && previous.ref?.native && !previous.ref.blocked;
   if (previous?.titleTimer) clearTimeout(previous.titleTimer);
   const initialization = { settled: false, server: netServerUrl(), owner: reusable ? previous.owner : null,
-    host: reusable ? previous.host : null, phase: 'identity', detached: retry, ref: reusable ? previous.ref : null,
+    host: reusable ? previous.host : null, phase: 'identity', detached: retry, timedOut: false, ref: reusable ? previous.ref : null,
     get active() { return saveLoadOwned(this); } };
   SAVE.loading = initialization;
   SAVE.readConfirmed = false;
@@ -101,7 +101,7 @@ async function loadSave({ retry = false } = {}) {
     }
   })();
   const result = await withTimeout(initialization.promise, SAVE.native ? 45000 : 24000);
-  if (!initialization.settled) initialization.detached = true;
+  if (!initialization.settled) { initialization.detached = true; initialization.timedOut = true; }
   return result;
 }
 

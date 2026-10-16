@@ -571,6 +571,17 @@ test('confirmed legacy policy preserves offline browser play without late promot
   assert.equal(h.requests[0].init.credentials, 'omit'); assert.equal(h.requests[0].init.headers?.Authorization, undefined);
 });
 
+test('an explicit new title retry may confirm legacy policy afresh without accepting the timed-out response', async () => {
+  const delayed = deferred(); let manifests = 0;
+  const legacy = { ok: true, status: 200, json: async () => ({ schemaVersion: 1 }) };
+  const h = harness({ nativePolicy: true, throwOpen: true, manifestResponse: () => ++manifests === 1 ? delayed.promise : Promise.resolve(legacy),
+    storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+  const first = h.H.loadSave(); await flush(); await h.clock.advance(45000); assert.equal(await first, null);
+  delayed.resolve(legacy); await flush(); assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.loaded, null);
+  const selected = await h.H.loadSave({ retry: true });
+  assert.equal(manifests, 2); assert.equal(selected.char.name, previousLocal.char.name); assert.equal(h.H.SAVE.native, false);
+});
+
 for (const mode of ['unavailable', 'disabled', 'unbound']) test('advertised native ' + mode + ' owner state blocks entry and all generic fallback', async () => {
   const h = harness({ nativePolicy: true, statusCode: mode === 'unavailable' ? 503 : 200,
     nativeStatus: { enabled: mode !== 'disabled', bound: mode !== 'unbound', verified: false, binding: null, recordLinks: {} },
