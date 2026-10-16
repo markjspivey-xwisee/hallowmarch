@@ -8,8 +8,9 @@ export const ownerDid = 'did:web:identity.example:users:alice', webId = 'https:/
 export const pod = 'https://pod.example/alice/', agentDid = 'did:web:identity.example:agents:browser-alice';
 export const binding = { subjectDid: ownerDid, webId, podUrl: pod };
 const names = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context'];
-export function publicRecordFixture() {
+export function publicRecordFixture({ css } = {}) {
   const heads = new Map(), records = new Map(), calls = [], publicCalls = [];
+  const storagePod = css ? css + 'alice/' : pod;
   let count = 0, mode = 'normal', delayed = null, mutate = value => value, forked = false, afterRead = () => {};
   function makeRecord(args) {
     const descriptorUrl = pod + 'context-graphs/' + (++count) + '.ttl', graphUrl = pod + 'graphs/' + count + '.trig';
@@ -31,13 +32,13 @@ export function publicRecordFixture() {
   const apply = record => { heads.set(record.args.graph_iri, record.selected); records.set(record.selected.descriptorUrl, record); };
   async function dispatch(name, args) {
     calls.push({ name, args: structuredClone(args) });
-    if (name === 'get_pod_status') return { pod, userId: 'alice', identity: { did: ownerDid }, sessionAgent: { did: agentDid } };
+    if (name === 'get_pod_status') return { pod, ...(css ? { css } : {}), userId: 'alice', identity: { did: ownerDid }, sessionAgent: { did: agentDid } };
     if (name === 'get_current_head') {
       const selected = heads.get(args.urn) || null;
       if (!selected && mode === 'empty-head-no-forked') return { urn: args.urn, podUrl: pod, head: null, message: 'No descriptor on this pod describes the requested urn.' };
       if (!selected && mode === 'missing-head') return { urn: args.urn, podUrl: pod, message: 'No descriptor on this pod describes the requested urn.' };
       if (!selected && mode === 'contradictory-head') return { urn: args.urn, podUrl: pod, head: null, heads: [{ descriptorUrl: pod + 'context-graphs/elsewhere.ttl', cid: 'elsewhere' }] };
-      return { urn: args.urn, podUrl: pod, head: selected, forked };
+      return { urn: args.urn, podUrl: storagePod, head: selected, forked };
     }
     if (name === 'get_descriptor') {
       const record = records.get(args.url); if (!record) return { error: 'not found', code: 404 };
@@ -52,7 +53,7 @@ export function publicRecordFixture() {
       if (mode === 'fork') forked = true;
       if (mode === 'throw-after') throw Error('Explicit fixture lost acknowledgement');
       return { published: true, status: mode === 'pending' ? 'pending' : 'committed', descriptorUrl: record.selected.descriptorUrl,
-        owner: webId, agent: agentDid, pod, visibility: 'public', encrypted: false,
+        owner: webId, agent: agentDid, pod: storagePod, visibility: 'public', encrypted: false,
         ...(before ? { previousHeadCid: before.cid, precondition: { passed: true, observedCid: before.cid } } : {}) };
     }
     throw Error('Unexpected native fixture tool');

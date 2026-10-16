@@ -53,6 +53,31 @@ test('actual native null-head absence without forked permits initial publication
     assert.equal(broken.calls.filter(call => call.name === 'publish_context').length, 0);
   }
 });
+test('native owner status authenticates the relay CSS alias when OAuth pod and named-head roots differ', async () => {
+  const f = publicRecordFixture({ css: 'http://css.railway.internal:3456/' }), client = f.client(); await client.connect();
+  assert.equal(await client.currentHead(input), null);
+  const saved = await client.create(input); assert.equal(saved.saved, true);
+  assert.equal((await client.load(input)).receipt.ownerDid, ownerDid);
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
+});
+test('CSS alias proof never admits an unadvertised host, different owner path or malformed storage base', async () => {
+  const css = 'http://css.railway.internal:3456/';
+  for (const alienPod of ['https://foreign.example/alice/', css + 'someone-else/']) {
+    const f = publicRecordFixture({ css });
+    const tx = { connect: async names => ({ granted: names }), callTool: async (name, args) => {
+      const value = await f.dispatch(name, args);
+      return name === 'get_current_head' ? { ...value, podUrl: alienPod } : value;
+    } };
+    const client = f.client({ transport: tx }); await client.connect();
+    await assert.rejects(client.currentHead(input), { code: 'owner_mismatch' });
+    await assert.rejects(client.create(input), { code: 'owner_mismatch' });
+    assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 0);
+  }
+  for (const invalidCss of [css + 'some-prefix/', 'https://css.example/?token=unsafe', 'https://css.example/#foreign']) {
+    const f = publicRecordFixture({ css: invalidCss }), client = f.client();
+    await assert.rejects(client.connect()); assert.equal(client.status().connected, false);
+  }
+});
 test('initial concurrent fork and stale updates fail closed without false publication acknowledgement', async () => {
   const f = publicRecordFixture(), client = f.client(); await client.connect(); f.setMode('fork');
   const result = await client.create(input); assert.equal(result.saved, false); assert.equal(result.status, 'uncertain');

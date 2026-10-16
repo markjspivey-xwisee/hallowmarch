@@ -63,9 +63,16 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
       room = candidate; failure = '';
       const guardedSink = deliveryConfigured ? { descriptor: learningSink.descriptor,
         async publish(events, context) {
-          const consent = (await room.learningContext(1)).consent[context.actorId];
-          if (!room.learningDeliveryAvailable({ ...context, actorDid: consent?.actorDid,
-            recipient: consent?.recipient, now: clock(), phase: 'delivery' })) {
+          const fresh = await room.learningContext(512), consent = fresh.consent[context.actorId], now = clock();
+          const entries = new Map(fresh.outbox.map(entry => [entry.event.id, entry]));
+          const fields = ['enabled', 'expiresAt', 'recipient', 'actorDid', 'sessionId'];
+          if (consent?.enabled !== true || !Number.isSafeInteger(now) || !Number.isSafeInteger(consent.expiresAt)
+            || consent.expiresAt <= now || consent.sessionId !== context.sessionId || consent.recipient !== context.recipient
+            || !events.every(event => {
+              const entry = entries.get(event.id);
+              return entry?.event.actorId === context.actorId && fields.every(field => entry.consent?.[field] === consent[field]);
+            }) || !room.learningDeliveryAvailable({ ...context, actorDid: consent.actorDid,
+              recipient: consent.recipient, now, phase: 'delivery' })) {
             return { ok: false, reason: 'owner-pod-delivery-unavailable', exported: 0 };
           }
           return learningSink.publish(events, context);

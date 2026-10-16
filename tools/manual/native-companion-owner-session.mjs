@@ -4,6 +4,13 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
   const target = globalThis;
   const failure = code => Object.assign(new Error('Manual companion owner QA refused.'), { code });
   const check = (value, code) => { if (!value) throw failure(code); };
+  const nativeCodes = new Set(['invalid_native_url', 'invalid_graph', 'record_capacity', 'invalid_relay', 'invalid_identity',
+    'invalid_credential', 'not_connected', 'native_unavailable', 'needs_reauth', 'native_contract', 'capability_missing',
+    'owner_mismatch', 'record_outside_owner_pod', 'conflict', 'native_refused', 'public_readback_unavailable',
+    'invalid_descriptor', 'invalid_proof', 'public_distribution_required', 'graph_scope_mismatch',
+    'public_readback_mismatch', 'unknown_operation', 'confirmation_required', 'head_required',
+    'public_disclosure_required', 'invalid_game_identity', 'invalid_game_audience', 'invalid_grant',
+    'invalid_grant_time', 'invalid_grant_reference', 'grant_not_found']);
   const { enabled, run, owner, gameOrigin, relayOrigin, agentDid, agentPodUrl } = config || {};
   check(enabled === true && typeof run === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(run), 'qa_companion_opt_in');
   const origin = value => { let url; try { url = new URL(value); } catch { throw failure('qa_companion_origin'); }
@@ -13,7 +20,8 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
   check(Number.isInteger(requestTimeoutMs) && requestTimeoutMs >= 10 && requestTimeoutMs <= 60000, 'qa_companion_scope');
   check(gameOrigin === location.origin && gameOrigin !== relayOrigin && owner?.accountId && owner?.subjectDid && owner?.podUrl
     && /^did:web:[^\s]+:agents:[^\s]+$/.test(agentDid || '') && /^https:\/\/[^\s]+\/$/.test(agentPodUrl || ''), 'qa_companion_scope');
-  const scopeKey = JSON.stringify([run, owner.accountId, owner.subjectDid, owner.podUrl, gameOrigin, relayOrigin, agentDid, agentPodUrl]);
+  const publicReferenceDiagnostics = config.publicReferenceDiagnostics === true;
+  const scopeKey = JSON.stringify([run, owner.accountId, owner.subjectDid, owner.podUrl, gameOrigin, relayOrigin, agentDid, agentPodUrl, publicReferenceDiagnostics]);
   if (target.__hmNativeCompanionQa) {
     check(target.__hmNativeCompanionQa.matches(scopeKey), 'qa_companion_scope'); return target.__hmNativeCompanionQa.status();
   }
@@ -25,12 +33,15 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
   const reference = { grantId: 'urn:uuid:' + nativeUuid, graphIri: 'urn:graph:interego:gaming:owner-agent-grant:' + nativeUuid };
   let client = null, nativeConnected = false, binding = null, manifest = null, description = null, actions = null, body = null, ws = null, welcome = null;
   let publicAttempted = false, publication = null, publicSaved = false, registered = false, localRevoked = false, podRevoked = false;
-  let closed = false, busy = false, lastError = null, step = 'installed', serial = 0, snapshot = null, spawnCommand = null;
+  let closed = false, busy = false, lastError = null, lastNativeCode = null, step = 'installed', serial = 0, snapshot = null, spawnCommand = null;
   let requestFlight = null, requestController = null;
   const pending = new Map();
-  const status = () => ({ kind: 'native_companion_owner_qa', step, busy, closed, code: lastError,
+  const boundedPending = value => Number.isSafeInteger(value) && value >= 0 && value <= 8 ? value : null;
+  const status = () => ({ kind: 'native_companion_owner_qa', step, busy, closed, code: lastError, nativeCode: lastNativeCode,
     connected: !!ws && ws.readyState === 1, requestPending: !!requestFlight, bodyPresent: !!body, publicationAttempted: publicAttempted,
-    publicationPending: !!publication?.operationId && !publicSaved, publicSaved, registered, localRevoked, podRevoked });
+    publicationPending: !!publication?.operationId && !publicSaved, publicSaved, registered, localRevoked, podRevoked,
+    nativePendingCount: boundedPending(client?.status?.().pending), nativePendingGrants: boundedPending(client?.status?.().pendingGrants),
+    ...(publicReferenceDiagnostics && publicAttempted ? { publicReference: { ...reference } } : {}) });
   const appToken = () => { const token = localStorage.getItem('hallowmarch.token.' + location.host); check(!!token, 'qa_companion_owner_session'); return token; };
   function sameOriginUrl(value) {
     let url; try { url = new URL(value); } catch { throw failure('qa_companion_description'); }
@@ -90,8 +101,9 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
   }
   async function guarded(name, run) {
     check(!closed && !busy, closed ? 'qa_companion_closed' : 'qa_companion_busy'); busy = true; step = name;
-    try { const result = await run(); lastError = null; return result; }
-    catch (error) { lastError = /^qa_companion_[a-z_]+$/.test(error?.code || '') ? error.code : 'qa_companion_owner_operation_failed'; throw failure(lastError); }
+    try { const result = await run(); lastError = null; lastNativeCode = null; return result; }
+    catch (error) { lastNativeCode = nativeCodes.has(error?.code) ? error.code : null;
+      lastError = /^qa_companion_[a-z_]+$/.test(error?.code || '') ? error.code : 'qa_companion_owner_operation_failed'; throw failure(lastError); }
     finally { busy = false; }
   }
   async function socketConnect() {

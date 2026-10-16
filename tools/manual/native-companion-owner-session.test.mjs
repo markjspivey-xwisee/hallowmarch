@@ -14,6 +14,7 @@ async function fixture(options, run) {
   const count = { clients: 0, connects: 0, publish: 0, confirms: 0, revokes: 0, spawn: 0, register: 0, localRevoke: 0, sockets: 0 };
   const posts = [], slow = [], socketMessages = [], current = { grant: null, reference: null };
   let connectFailure = options.connectFailure, pendingPublication = options.pendingPublication, pendingRevoke = options.pendingRevoke;
+  let publishFailure = options.publishFailure, nativePending = 0;
   let socketOpen = false;
   const entities = { [owner.accountId]: { id: owner.accountId, kind: 'player', ownerPlayerId: owner.accountId, x: 0, z: 0 } };
   if (options.foreignPlayer) entities.other = { id: 'other', kind: 'player', ownerPlayerId: 'other' };
@@ -28,15 +29,18 @@ async function fixture(options, run) {
         count.publish++; const uuid = input.crypto.randomUUID();
         current.reference = { grantId: 'urn:uuid:' + uuid, graphIri: 'urn:graph:interego:gaming:owner-agent-grant:' + uuid };
         current.grant = { ...scope, id: current.reference.grantId, issuer: owner.subjectDid, applicationId, audience: gameOrigin, revoked: false };
-        if (pendingPublication) { pendingPublication = false; return { reference: current.reference, saved: false, operationId: 'retained-public-op' }; }
+        if (publishFailure) { const code = publishFailure; publishFailure = null; throw Object.assign(new Error('PRIVATE_NATIVE_ERROR'), { code }); }
+        if (pendingPublication) { pendingPublication = false; nativePending = 1; return { reference: current.reference, saved: false, operationId: 'retained-public-op' }; }
         return { reference: current.reference, saved: true, receipt: receipt() };
       },
       async confirm(operationId) { count.confirms++; assert(['retained-public-op', 'retained-revoke-op'].includes(operationId));
+        nativePending = 0;
         return { saved: true, reference: current.reference, receipt: receipt() }; },
       async load(ref) { assert.deepEqual(ref, current.reference); return { reference: current.reference, grant: structuredClone(current.grant), receipt: receipt() }; },
       async revoke(ref) { count.revokes++; assert.deepEqual(ref, current.reference); current.grant.revoked = true;
         if (pendingRevoke) { pendingRevoke = false; return { saved: false, reference: ref, operationId: 'retained-revoke-op' }; }
         return { saved: true, reference: ref, receipt: receipt() }; },
+      status: () => ({ pending: nativePending, pendingGrants: nativePending, ownerDid: 'DO_NOT_RETURN' }),
       close() {},
     };
   } }];
@@ -101,9 +105,31 @@ test('uncertain public publication/revocation retry confirms the same retained o
   await installNativeCompanionOwnerQaSession(config, f.modules); const qa = globalThis.__hmNativeCompanionQa;
   await qa.enterAndSpawn(); await assert.rejects(qa.publish(), { code: 'qa_companion_publication_pending' });
   const reference = { ...f.current.reference }; assert(qa.status().publicationPending);
+  assert.equal(qa.status().nativePendingCount, 1); assert.equal(qa.status().nativePendingGrants, 1);
   await qa.publish(); assert.deepEqual(f.current.reference, reference); assert.equal(f.count.publish, 1); assert.equal(f.count.confirms, 1);
+  assert.equal(qa.status().nativePendingCount, 0);
   await qa.register(); await qa.localRevoke(); await assert.rejects(qa.ownerPodRevoke(), { code: 'qa_companion_publication_pending' });
   await qa.ownerPodRevoke(); assert.equal(f.count.revokes, 1); assert.equal(f.count.confirms, 2); assert(qa.status().podRevoked);
+}));
+for (const nativeCode of ['owner_mismatch', 'invalid_grant', 'PRIVATE_NATIVE_ERROR']) test('native publication error diagnostic is bounded: ' + nativeCode, async () => fixture({ publishFailure: nativeCode }, async f => {
+  await installNativeCompanionOwnerQaSession(config, f.modules); const qa = globalThis.__hmNativeCompanionQa;
+  await qa.enterAndSpawn(); await assert.rejects(qa.publish(), { code: 'qa_companion_owner_operation_failed' });
+  const failed = qa.status(); assert.equal(failed.nativeCode, nativeCode === 'PRIVATE_NATIVE_ERROR' ? null : nativeCode);
+  assert.equal(failed.publicationAttempted, true); assert.equal(failed.publicationPending, false);
+  assert.equal(failed.nativePendingCount, 0); assert(!JSON.stringify(failed).includes('PRIVATE'));
+  assert.equal(Object.hasOwn(failed, 'publicReference'), false);
+  const originalReference = { ...f.current.reference };
+  // Simulates a thrown post-commit parse acknowledgement. Retry only reads and
+  // verifies that exact retained owner reference; it cannot publish a new UUID.
+  await qa.publish(); assert.equal(f.count.publish, 1); assert.deepEqual(f.current.reference, originalReference);
+  assert.equal(qa.status().nativeCode, null); assert.equal(qa.status().publicSaved, true);
+}));
+test('public reference diagnosis requires explicit opt-in and an accepted publication attempt', async () => fixture({}, async f => {
+  await installNativeCompanionOwnerQaSession({ ...config, publicReferenceDiagnostics: true }, f.modules);
+  const qa = globalThis.__hmNativeCompanionQa; assert.equal(Object.hasOwn(qa.status(), 'publicReference'), false);
+  await qa.enterAndSpawn(); assert.equal(Object.hasOwn(qa.status(), 'publicReference'), false);
+  await qa.publish(); assert.deepEqual(qa.status().publicReference, f.current.reference);
+  assert(!JSON.stringify(qa.status()).includes('PRIVATE'));
 }));
 test('connect failures retain the same native client and replacement scope is refused', async () => fixture({ connectFailure: true }, async f => {
   await installNativeCompanionOwnerQaSession(config, f.modules); const qa = globalThis.__hmNativeCompanionQa;

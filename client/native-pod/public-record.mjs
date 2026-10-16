@@ -69,6 +69,16 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
       || !/^did:web:[^\s]+:agents:[^\s]+$/.test(status.sessionAgent?.did || '')) fail('owner_mismatch');
     // An alias is accepted only from this authenticated owner's pod status.
     if (!roots.some(root => root.href === authenticatedRoot.href)) roots.push(authenticatedRoot);
+    // OAuth's identity-server pod URL and the relay's named-pod storage base
+    // can be different aliases. get_current_head {pod_name} and publish_context
+    // use this authenticated CSS base, not status.pod. Bind ONLY that base to
+    // this already verified owner slug; arbitrary read-result hosts stay refused.
+    if (status.css !== undefined) {
+      const css = url(status.css);
+      if (css.pathname !== '/') fail('native_contract');
+      const storageRoot = url(css.href + podName + '/', { root: true });
+      if (!roots.some(root => root.href === storageRoot.href)) roots.push(storageRoot);
+    }
     sessionAgent = status.sessionAgent.did; connected = true;
     return { ownerDid, podUrl: pod.href, publicRecords: true, proofAuthority: 'relay-attestation' };
   }

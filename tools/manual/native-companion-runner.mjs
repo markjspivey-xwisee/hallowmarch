@@ -12,7 +12,8 @@ export function nativeCompanionRunnerConfig(env = process.env) {
   let pod; try { pod = new URL(agentPodUrl); } catch { fail('qa_companion_agent_configuration'); }
   if (pod.protocol !== 'https:' || pod.href !== agentPodUrl || !pod.pathname.endsWith('/') || pod.username || pod.password
     || pod.search || pod.hash) fail('qa_companion_agent_configuration');
-  return Object.freeze({ agentDid, agentPodUrl });
+  return Object.freeze({ agentDid, agentPodUrl,
+    ...(env.HM_NATIVE_COMPANION_DIAGNOSTIC_PUBLIC_REFERENCE === '1' ? { publicReferenceDiagnostics: true } : {}) });
 }
 
 export function createNativeCompanionRunner({ config, run, gameOrigin, relayOrigin, getOwner, getPage,
@@ -29,6 +30,11 @@ export function createNativeCompanionRunner({ config, run, gameOrigin, relayOrig
       if (!value) return result;
       for (const key of ['busy', 'closed', 'connected', 'requestPending', 'bodyPresent', 'publicationAttempted',
         'publicationPending', 'publicSaved', 'registered', 'localRevoked', 'podRevoked']) result[key] = value[key] === true;
+      result.nativeCode = nativeCodes.has(value.nativeCode) ? value.nativeCode : null;
+      for (const key of ['nativePendingCount', 'nativePendingGrants']) result[key] = Number.isSafeInteger(value[key]) && value[key] >= 0 && value[key] <= 8 ? value[key] : null;
+      const ref = value.publicReference;
+      if (config.publicReferenceDiagnostics === true && result.publicationAttempted && /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ref?.grantId || '')
+        && ref.graphIri === 'urn:graph:interego:gaming:owner-agent-grant:' + ref.grantId.slice(9)) result.publicReference = { grantId: ref.grantId, graphIri: ref.graphIri };
       result.step = ['installed', 'actual-game-body', 'owner-binding', 'native-agent-discovery', 'owner-access-cache',
         'owner-native-connect', 'public-scoped-grant', 'owner-public-readback', 'game-reference-register',
         'game-local-revoke', 'owner-pod-revoke'].includes(value.step) ? value.step : null;
@@ -96,3 +102,10 @@ const codes = new Set(['qa_companion_private_qa_required', 'qa_companion_agent_c
   'qa_companion_socket_uncertain', 'qa_companion_socket_closed', 'qa_companion_socket_timeout', 'qa_companion_domain_refused',
   'qa_companion_room', 'qa_companion_room_not_isolated', 'qa_companion_publication_uncertain', 'qa_companion_publication_pending']);
 export const nativeCompanionFailureCode = error => codes.has(error?.code) ? error.code : null;
+const nativeCodes = new Set(['invalid_native_url', 'invalid_graph', 'record_capacity', 'invalid_relay', 'invalid_identity',
+  'invalid_credential', 'not_connected', 'native_unavailable', 'needs_reauth', 'native_contract', 'capability_missing',
+  'owner_mismatch', 'record_outside_owner_pod', 'conflict', 'native_refused', 'public_readback_unavailable',
+  'invalid_descriptor', 'invalid_proof', 'public_distribution_required', 'graph_scope_mismatch',
+  'public_readback_mismatch', 'unknown_operation', 'confirmation_required', 'head_required',
+  'public_disclosure_required', 'invalid_game_identity', 'invalid_game_audience', 'invalid_grant',
+  'invalid_grant_time', 'invalid_grant_reference', 'grant_not_found']);

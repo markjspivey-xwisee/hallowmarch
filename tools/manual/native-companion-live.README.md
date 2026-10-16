@@ -217,6 +217,12 @@ accepts only the fixed commands below; it never evaluates or echoes input.
   owner, public grant UUID and body. Then use `continue` for a new challenge.
 - `finish`: close the retained session. EOF has the same cleanup meaning.
 
+Owner diagnostics include only fixed native error codes and bounded native
+pending counts. `HM_NATIVE_COMPANION_DIAGNOSTIC_PUBLIC_REFERENCE=1` additionally
+prints the retained public grant UUID/graph reference after the explicit public
+publication attempt. It never prints an owner identity, credential, private
+record or arbitrary native error. This option is off by default.
+
 On failure with `HM_NATIVE_RETAIN_FAILED_SESSION=1`, the page/client/QA/broker
 instances remain in RAM for those commands. A complete-suite PASS requires the
 private checks and the selected companion scenario to finish. On explicit

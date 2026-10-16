@@ -315,3 +315,33 @@ test('loss of composed owner-pod delivery retains queued evidence without invoki
   assert.equal(deliveries, 1); assert.equal(runtime.room.current.outbox.length, 0);
   await runtime.shutdown();
 });
+
+test('withdrawal during the final delivery consent read cannot invoke the configured sink', async () => {
+  let deliveries = 0;
+  const consent = { actorDid: 'did:example:alice', recipient: 'https://learning.example/signed', sessionId: 's', expiresAt: 110000 };
+  const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000,
+    verifiedDidFor: () => consent.actorDid, learningDeliveryAvailable: () => true,
+    learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: consent.recipient },
+      async publish(events, context) { deliveries++; return { ok: true, exported: events.length,
+        receipts: projectGamingEvents(events, context).evidence.map(e => ({ statementId: e.id, persisted: true })) }; } } });
+  try {
+    await runtime.ready; const alice = client('alice');
+    await runtime.handle(alice, request('enter'));
+    await runtime.handle(alice, request('consent', { ...consent, enabled: true }));
+    await runtime.handle(alice, cmd('knowledge.consulted', { resourceId: 'https://example.org/aid' }));
+    assert.equal(runtime.room.current.outbox.length, 1);
+    const readContext = runtime.room.learningContext.bind(runtime.room); let reads = 0;
+    runtime.room.learningContext = async limit => {
+      // Outbox entries and initial consent have already been read. Withdraw
+      // before the guard obtains its final fresh context, retaining the old
+      // field values so a recipient-only availability check cannot authorize.
+      if (++reads === 3) await runtime.handle(alice, request('consent', { ...consent, enabled: false }));
+      return readContext(limit);
+    };
+    const report = await runtime.flushLearning();
+    assert.equal(runtime.room.current.consent.alice.enabled, false);
+    assert.equal(runtime.room.current.outbox.length, 0, 'explicit withdrawal cancels undelivered entries');
+    assert.equal(deliveries, 0, 'a delivery proof is not fresh learning consent');
+    assert.equal(report.exported, 0);
+  } finally { await runtime.shutdown(); }
+});
