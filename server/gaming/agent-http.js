@@ -29,6 +29,7 @@ export function createAgentHttp({ gaming, now = Date.now, maxConcurrent = 16, ma
     if (!['/gaming/agent/observe', '/gaming/agent/command'].includes(pathname)) return false;
     const reply = (status, body) => { if (res.writableEnded || res.destroyed) return; res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     if (req.method !== 'POST') { reply(405, { error: 'method_not_allowed' }); return true; }
+    if (gaming.manifest().nativeAgentsRequired) { reply(403, { error: 'native_agent_proof_required', affordance: '/gaming/native-agents' }); return true; }
     if (!gaming.manifest().enabled) { reply(503, { error: 'native_service_unavailable' }); return true; }
     const header = req.headers.authorization;
     if (typeof header !== 'string' || !/^Bearer hmca_[A-Za-z0-9_-]{43}$/.test(header)) { reply(401, { error: 'companion_capability_required' }); return true; }

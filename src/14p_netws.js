@@ -3,7 +3,28 @@
 /* ================================================================== */
 // The save's early request and the multiplayer pump share one attempt. A failed
 // boot request is retryable after GAME.ready; reconnecting never reloads a save.
-const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+// World/season admission and the owner's character save are separate. Keep a
+// pause visible across disconnects; only a fresh server status can clear it.
+function netWsWorldStatus(value, entry = false) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.scope !== 'world-and-season') return;
+  const paused = value.fenced === true || ['conflict', 'recovering', 'closing', 'closed', 'closed-unconfirmed'].includes(value.state);
+  const running = value.fenced === false && value.mode === 'native' && value.enabled === true
+    && ['confirmed', 'pending', 'delayed'].includes(value.state) && Number.isSafeInteger(value.confirmedVersion) && value.confirmedVersion > 0;
+  const legacyEntry = entry && value.mode === 'legacy' && value.enabled === false;
+  if (!paused && !running && !legacyEntry) return;
+  NETWS.worldPersistence = { state: netStr(value.state, 32), mode: netStr(value.mode, 16),
+    confirmedVersion: Number.isSafeInteger(value.confirmedVersion) ? value.confirmedVersion : null };
+  const wasPaused = !!NETWS.worldPauseReason;
+  NETWS.worldPauseReason = paused ? 'World and season changes paused until recovery.' : '';
+  if (paused === wasPaused) return;
+  const message = paused ? 'World and season changes are paused while the server recovers.' : 'World and season updates have resumed.';
+  netNote(paused ? 'world and season paused' : 'world and season resumed');
+  uiLog(message, 'sys');
+  if (GAME.started) uiToast(message, 'hint');
+  if (typeof NETUI !== 'undefined' && NETUI.open) netSheetRender();
+}
+netWsWorldStatus(window.__HM_GAMING && window.__HM_GAMING.worldAuthority, true);
 function netServerUrl() {
   try {
     const q = new URLSearchParams(location.search).get('server');
@@ -172,6 +193,7 @@ function netWsOpen() {
       if (m.t === 'welcome') {
         if (settled || NETWS.state !== 'opening') return;
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
+        netWsWorldStatus(m.worldAuthority, true);
         NET.self = m.peer; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(host, m.token); }
         NET.slowKey = ''; NET.fastKey = '';
@@ -180,6 +202,7 @@ function netWsOpen() {
         finish(true);
       } else if (m.t === 'denied') { netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied'); }
       else if (NETWS.state !== 'on') return;
+      else if (m.t === 'world-status') netWsWorldStatus(m.persistence);
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
@@ -187,7 +210,7 @@ function netWsOpen() {
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }
-      else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') netSeasonMsg(m);
+      else if (m.t === 'season' || m.t === 'contrib' || m.t === 'order') { if (m.persistence) netWsWorldStatus(m.persistence); netSeasonMsg(m); }
       else if (m.t === 'company' || m.t === 'co') coMsg(m);
       else if (m.t === 'sarmy' || m.t === 'sarmyfold') season2ServerMsg(m);
       else if (m.t === 'hosts' && m.h && typeof m.h === 'object' && Array.isArray(m.kr)) {

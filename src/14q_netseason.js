@@ -123,6 +123,7 @@ function netsWorldMap(ctx, S) {
 }
 // a line on the war panel (10_ui.js updateWarPanel)
 function netSeasonHudHTML() {
+  if (typeof NETWS !== 'undefined' && NETWS.worldPauseReason) return `<div class="ns-line ns-off" role="status">${esc(NETWS.worldPauseReason)}</div>`;
   // the server's state shown plainly: linked (the season's line), reconnecting, or not reached (playing alone)
   if (typeof NETWS !== 'undefined' && NETWS.url && !netsOn()) {
     if (NETWS.state === 'on') return '';

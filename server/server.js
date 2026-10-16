@@ -19,17 +19,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { makeSeason } from './season.js';
+import { makeSeason, loadRealmModule } from './season.js';
 import { createGamingRuntime } from './gaming/runtime.js';
 import { configuredGamingStore } from './gaming/provider.js';
 import { prepareGamingEnvironment } from './gaming/bootstrap.js';
 import { configuredServiceMonitoring } from './gaming/service-monitoring.js';
 import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js';
+import { configuredNativeAgentHost } from './gaming/native-agent-host.js';
 import { createPlayerAccountHost } from './gaming/player-account-host.js';
 import { createGameSessionTokens } from './gaming/game-session.js';
 import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
 import { createNativeCapabilityComposition, createNativeCapabilityPublication } from './gaming/native-capability-publication.js';
+import { openHallowmarchWorldState, hallowmarchWorldDescription } from './gaming/hallowmarch-world-state.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
@@ -81,10 +83,29 @@ const WORLD = loadWorld();
 /* ------------------------------------------------------------------ */
 /* the store: files, written whole and renamed into place              */
 /* ------------------------------------------------------------------ */
-const store = {
+const fileStore = {
   read(name, d) { try { return JSON.parse(fs.readFileSync(path.join(CFG.data, name), 'utf8')); } catch (e) { return d; } },
   write(name, obj) { const f = path.join(CFG.data, name), t = f + '.tmp' + process.pid; fs.writeFileSync(t, JSON.stringify(obj)); fs.renameSync(t, f); },
 };
+const worldPersistenceMode = process.env.HM_WORLD_PERSISTENCE_MODE
+  || (process.env.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1' ? 'native' : 'legacy');
+if (!['native', 'legacy'].includes(worldPersistenceMode)) throw new Error('Invalid world persistence configuration.');
+let gamingStore = null, gamingEnvironment = { ...process.env };
+try { gamingEnvironment = await prepareGamingEnvironment(process.env); gamingStore = await configuredGamingStore(gamingEnvironment); }
+catch {
+  if (worldPersistenceMode === 'native') throw new Error('Native world authority is unavailable; world startup refused.');
+  console.warn('gaming: native service configuration unavailable; shared expeditions disabled');
+}
+// Recover the game's own canonical world before constructors can advance it.
+// Legacy mode is an explicit deployment choice, never an outage fallback.
+const WORLD_STATE = worldPersistenceMode === 'native' ? await openHallowmarchWorldState({
+  nativeStore: gamingStore, files: fileStore, dataDir: CFG.data, keepCount: WORLD.keepCount,
+  realmModule: loadRealmModule(CFG.src, CFG.here),
+  checkpointIntervalMs: +(gamingEnvironment.HM_WORLD_CHECKPOINT_MS || 1000),
+}) : null;
+const store = WORLD_STATE?.store || fileStore;
+const worldPersistenceStatus = () => WORLD_STATE?.status() || { enabled: false, mode: 'legacy',
+  scope: 'world-and-season', teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false };
 let SECRET = process.env.HM_SECRET;
 if (!SECRET) { SECRET = store.read('secret.json', null); if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); store.write('secret.json', SECRET); } }
 const ACCOUNTS = store.read('accounts.json', {});
@@ -106,12 +127,19 @@ const COMP = makeCompanies(CFG, store, STATS, {
   unitsPerPoint: () => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.sp && SEASON.M.RSM.sp.units) || 40,
   projects: () => (SEASON.M && SEASON.M.RSM ? Object.keys(SEASON.M.RSM.projects) : ((SEASON.summary(0, 0) || {}).proj || []).map((p) => p.id)),
   projectName: (id) => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.projects[id] ? SEASON.M.RSM.projects[id].name : id),
-  pledgeApply: (realm, proj, good, units) => coPledgeApply(SEASON, realm, proj, good, units),
+  pledgeApply: (realm, proj, good, units) => {
+    WORLD_STATE?.assertMutable();
+    const result = coPledgeApply(SEASON, realm, proj, good, units);
+    WORLD_STATE?.capture(); return result;
+  },
   reserved: reservedNames(WORLD),
 });
 SEASON.coOf = (id) => { const co = COMP.of(id); return co ? co.name : ''; }; // [companies] the realm's roster names each one's company
 let worldTimer = null;
-const worldsSave = () => { clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; }, 1500); };
+const worldsSave = () => {
+  if (WORLD_STATE) { WORLD_STATE.capture(); return; }
+  clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; }, 1500);
+};
 
 /* ------------------------------------------------------------------ */
 /* accounts and tokens                                                 */
@@ -196,9 +224,7 @@ function regionOf(x, z) {
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
 const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS); // [season2] (server/fieldarmies.js)
-let gamingStore = null, gamingEnvironment = { ...process.env };
-try { gamingEnvironment = await prepareGamingEnvironment(process.env); gamingStore = await configuredGamingStore(gamingEnvironment); }
-catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
+WORLD_STATE?.attach({ worlds: WORLDS, season: SEASON, field: FIELD, rooms: ROOMS });
 // This is a Hallowmarch-owned participation ledger, not a copy of a player's
 // character. Personal saves remain in their owner's client-sealed pod record.
 const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
@@ -237,7 +263,11 @@ const GAMING = createGamingRuntime({ store: gamingStore,
   requireVerifiedPlayers: nativePlayersRequired,
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
+const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS, environment: gamingEnvironment });
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(),
+  worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
+  ...(nativePlayerConfigured || gamingEnvironment.HM_NATIVE_AGENT_ENABLED === '1'
+    ? { nativeAgents: { ...nativeAgentHost.manifest(), nativePublication: playerCapabilityStatus() } } : {}),
   ...(nativePlayerConfigured ? { playerIdentity: { ...PLAYER_ACCOUNTS.manifest(), required: nativePlayersRequired,
     nativePublication: playerCapabilityStatus() } } : {}) });
 const gamingHttp = createAgentHttp({ gaming: GAMING });
@@ -286,7 +316,7 @@ async function publishPlayerCapabilities() {
       const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
       playerCapabilities = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
         catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
-        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph(), maxPolls: 10 });
+        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph() + '\n' + nativeAgentHost.metadataGraph(), maxPolls: 10 });
     }
     await playerCapabilities.publish();
   } catch { playerCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
@@ -294,6 +324,29 @@ async function publishPlayerCapabilities() {
 }
 setTimeout(() => { void publishPlayerCapabilities(); }, 2000).unref();
 setInterval(() => { void publishPlayerCapabilities(); }, 30000).unref();
+let worldCapability = null, worldCapabilityBusy = false, worldCapabilityAttempts = 0;
+let worldCapabilityState = { state: WORLD_STATE ? 'waiting' : 'disabled', verified: false };
+const worldCapabilityStatus = () => worldCapability?.status() || worldCapabilityState;
+const worldDescription = () => hallowmarchWorldDescription(gamingEnvironment.HM_PUBLIC_ORIGIN
+  || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'http://localhost:' + CFG.port));
+async function publishWorldCapability() {
+  if (!WORLD_STATE || worldCapabilityBusy || worldCapabilityAttempts >= 5 || worldCapabilityStatus().verified || worldCapabilityStatus().state === 'refused') return;
+  if (!gamingStore?.publicationIdentity) { worldCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return; }
+  if (gamingCapabilitiesBusy || playerCapabilitiesBusy || !gamingCapabilityStatus().verified) return;
+  worldCapabilityBusy = true; worldCapabilityAttempts++;
+  try {
+    if (!worldCapability) {
+      const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      const { graphIri, graphContent } = worldDescription();
+      worldCapability = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
+        catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools', graphIri, graphContent, maxPolls: 10 });
+    }
+    await worldCapability.publish();
+  } catch { worldCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
+  finally { worldCapabilityBusy = false; }
+}
+setTimeout(() => { void publishWorldCapability(); }, 3000).unref();
+setInterval(() => { void publishWorldCapability(); }, 30000).unref();
 let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
 async function initializeGamingMonitor() {
   if (!gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
@@ -340,11 +393,13 @@ function regionsTell(R, force) {
 // the live war taken in the season (a change between two of one keeper's reports, not its first word)
 // the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
 function worldNow(R) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
   const w = WORLDS[R.name] || null, sk = SEASON.keepsOf();
   if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && R.clients.size <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
   return w;
 }
 function worldReport(c, raw) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   const w = worldCheck(raw);
   if (!w) return;
   const R = c.room, H = roomHost(R), hosts = R.regions || {};
@@ -370,12 +425,14 @@ function worldReport(c, raw) {
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
 function keepWx(R, wx) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   if (!wx || typeof wx !== 'object' || wx.v !== 1 || !Array.isArray(wx.c)) return;
   const s = JSON.stringify(wx);
   if (s.length > 4000) { STATS.wxRefused = (STATS.wxRefused || 0) + 1; return; }
   const w = WORLDS[R.name] || (WORLDS[R.name] = {});
   w.wx = { ...JSON.parse(s), at: Date.now() };
   STATS.wxKept = (STATS.wxKept || 0) + 1;
+  if (WORLD_STATE) { WORLD_STATE.capture(); return; }
   if (!R.wxSavedAt || Date.now() - R.wxSavedAt > 60000) { R.wxSavedAt = Date.now(); worldsSave(); }
 }
 const legitJump = (p) => p.x > 1000 || WORLD.ports.some(([x, z]) => Math.hypot(p.x - x, p.z - z) < 45);
@@ -406,7 +463,7 @@ function onHello(c, h) {
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
   send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
     token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
-    room: R.name, world, interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
+    room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
 // the account, from a page already in: a guest names its own (`claim`: name and password set on it, so it keeps its
@@ -499,6 +556,7 @@ function onFast(c, d) {
 // what a player of a realm is told: the season's summary for its realm (with the news since `away` s ago on the first
 // telling: what a returning player missed), its realm's roster, and (the first time) its realm's chat
 function seasonTell(c, away, first) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   if (!SEASON.RS || !(c.realm >= 0)) return;
   const since = away >= 0 ? SEASON.RS.t - away * SEASON.speed : first ? SEASON.RS.t - 3600 : c.seasonT || SEASON.RS.t - 60;
   const s = SEASON.summary(c.realm, since);
@@ -630,6 +688,10 @@ function onMsg(c, raw) {
   if (m.t === 'gaming') { void GAMING.handle(c, m); return; }
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
+  if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
+    send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
+      why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
+  }
   if (nativePlayersRequired && !PLAYER_ACCOUNTS.principalFor(c) && !['acct', 'ping'].includes(m.t)) {
     if (m.t === 'load') send(c, { t: 'save', d: null, error: 'native_identity_required' });
     else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
@@ -681,13 +743,20 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (playerBrowserAssets(req, res, u.pathname)) return;
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
+  if (await nativeAgentHost.handle(req, res, u.pathname)) return;
   if (performanceResourceHttp(req, res, u)) return;
   if (gamingHttp(req, res, u.pathname)) return;
-  if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
+  if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(nativePlayersRequired
+    ? { nativeAgentsRequired: true, ...nativeAgentHost.manifest() } : gamingAgentAffordances())); return; }
   if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(gamingManifest())); return; }
-  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: gamingManifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, playerIdentity: PLAYER_ACCOUNTS.status(), nativeDiscovery: gamingCapabilityStatus(), humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
+  if (u.pathname === '/gaming/world-state') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(worldPersistenceStatus())); return; }
+  if (u.pathname === '/gaming/world-state/descriptor') {
+    res.writeHead(200, { 'content-type': 'application/ld+json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(worldDescription().description)); return;
+  }
+  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: gamingManifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, playerIdentity: PLAYER_ACCOUNTS.status(), nativeDiscovery: gamingCapabilityStatus(), humanLearning: GAMING.manifest().learningExport })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
-  if (u.pathname === '/health') { const ok = process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled; res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status })); return; }
+  if (u.pathname === '/health') { const ok = (process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled) && (!WORLD_STATE || WORLD_STATE.canMutate()); res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status, worldAuthority: worldPersistenceStatus() })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
   // would set it (tests: the season's own capture told to the pages), a new season, the season saved now
   if (u.pathname === '/admin' && req.method === 'POST') {
@@ -695,13 +764,26 @@ const server = http.createServer(async (req, res) => {
     const got = String(req.headers['x-hm-admin'] || '');
     if (!key || got.length !== key.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key))) { give(403, { ok: false }); return; }
     const op = u.searchParams.get('op'), i = +u.searchParams.get('i'), r = +u.searchParams.get('r');
-    if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('h' in K) K.h = r; else if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; give(200, { ok: true, keeps: SEASON.keepsOf() }); return; }
+    if (op === 'world-recover' && WORLD_STATE) {
+      try {
+        const persistence = await WORLD_STATE.recover();
+        for (const ws of wss.clients) ws.close(1012, 'World recovered; reconnect');
+        give(200, { ok: true, persistence });
+      } catch { give(503, { ok: false, persistence: worldPersistenceStatus() }); }
+      return;
+    }
+    if (WORLD_STATE && !WORLD_STATE.canMutate()) { give(503, { ok: false, persistence: worldPersistenceStatus() }); return; }
+    if (op === 'world-checkpoint' && WORLD_STATE) {
+      try { WORLD_STATE.capture(); await WORLD_STATE.checkpoint(); give(200, { ok: true, persistence: worldPersistenceStatus() }); }
+      catch { give(503, { ok: false, persistence: worldPersistenceStatus() }); } return;
+    }
+    if (op === 'keep' && SEASON.RS && SEASON.RS.keeps[i] && r >= 0 && r <= 2) { const K = SEASON.RS.keeps[i]; if ('h' in K) K.h = r; else if ('r' in K) K.r = r; else K.holder = r; SEASON.dirty = true; WORLD_STATE?.capture(); give(200, { ok: true, keeps: SEASON.keepsOf(), persistence: worldPersistenceStatus() }); return; }
     if (op === 'reset' && SEASON.M) { SEASON.RS = SEASON.M.realmSimInit(CFG.seasonSeed + Date.now() % 1000, { keeps: CFG.keeps, len: CFG.seasonLen, season: (SEASON.RS && SEASON.RS.n || 0) + 1 }); SEASON.roster = {}; SEASON.chat = [[], [], []]; for (const A of Object.values(ACCOUNTS)) delete A.votes; accountsSave(); SEASON.save(); give(200, { ok: true, n: SEASON.RS.n }); return; }
-    if (op === 'step' && SEASON.RS) { const s = Math.max(0, Math.min(90 * 86400, +(u.searchParams.get('s')) || 0)); SEASON.M.realmSimStep(SEASON.RS, s); SEASON.dirty = true; give(200, { ok: true, t: SEASON.RS.t, phase: SEASON.RS.phase }); return; }
-    if (op === 'save') { SEASON.save(); give(200, { ok: true }); return; }
+    if (op === 'step' && SEASON.RS) { const s = Math.max(0, Math.min(90 * 86400, +(u.searchParams.get('s')) || 0)); SEASON.M.realmSimStep(SEASON.RS, s); SEASON.dirty = true; WORLD_STATE?.capture(); give(200, { ok: true, t: SEASON.RS.t, phase: SEASON.RS.phase, persistence: worldPersistenceStatus() }); return; }
+    if (op === 'save') { SEASON.save(); give(200, { ok: true, persistence: worldPersistenceStatus() }); return; }
     give(400, { ok: false }); return;
   }
-  if (u.pathname === '/season') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
+  if (u.pathname === '/season') { const fenced = WORLD_STATE && !WORLD_STATE.canMutate(); res.writeHead(fenced ? 503 : 200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(fenced ? { ok: false, persistence: worldPersistenceStatus() } : SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
   if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
@@ -723,7 +805,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
-    FIELD.left(c); // [season2] its armies back to the season
+    if (!WORLD_STATE || WORLD_STATE.canMutate()) FIELD.left(c); // [season2] its armies back to the season
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
@@ -733,26 +815,28 @@ wss.on('connection', (ws) => {
 setInterval(() => { for (const ws of wss.clients) { if (ws._dead) { ws.terminate(); continue; } ws._dead = true; ws.ping(); } }, 15000);
 wss.on('connection', (ws) => ws.on('pong', () => { ws._dead = false; }));
 // the season goes on while nobody is here: stepped by the server's clock, told to each realm's players, kept
+const worldTimers = [];
 if (SEASON.RS) {
-  setInterval(() => { try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep);
-  setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush);
-  setInterval(() => { if (SEASON.dirty) SEASON.save(); }, 30000);
-  setInterval(() => { try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000); // [season2]
+  worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep));
+  worldTimers.push(setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush));
+  worldTimers.push(setInterval(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save(); }, 30000));
+  worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000)); // [season2]
 }
 let closing = false;
 const shutdown = async () => {
   if (closing) return; closing = true;
-  server.close(); PLAYER_ACCOUNTS.close();
-  try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); }
+  server.close(); nativeAgentHost.close(); PLAYER_ACCOUNTS.close();
+  for (const timer of worldTimers) clearInterval(timer);
+  try { if (!WORLD_STATE || WORLD_STATE.canMutate()) { SEASON.step(); for (const R of ROOMS.values()) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); }
   catch (e) { console.warn('shutdown', e.message); }
   // Existing sockets cannot introduce new actions while the final checkpoint is
   // draining. A crash may recover only the last confirmed checkpoint.
   for (const ws of wss.clients) ws.close(1012, 'Server restarting');
   const deadline = new Promise((_, reject) => { setTimeout(() => reject(new Error('checkpoint timeout')), 15000).unref(); });
-  try { await Promise.race([GAMING.shutdown(), deadline]); }
+  try { await Promise.race([Promise.all([GAMING.shutdown(), WORLD_STATE?.shutdown({ timeoutMs: 14000 })]), deadline]); }
   catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
   process.exit(0);
 };
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
-export { server, STATS, CFG, SEASON, COMP };
+export { server, STATS, CFG, SEASON, COMP, WORLD_STATE };

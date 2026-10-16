@@ -38,11 +38,22 @@ const own = (map, key) => map && Object.hasOwn(map, key) ? map[key] : undefined;
 export class AuthoritativeRoom {
   constructor({ roomId, store, domain, clock = Date.now, maxPlayers = 64, onCommitted = null,
     persistenceMode = 'strict', checkpointIntervalMs = 1000, maxPendingCommands = 128,
-    maxPendingAgeMs = 30000, durableWaitMs = 30000 }) {
+    maxPendingAgeMs = 30000, durableWaitMs = 30000, learningDeliveryAvailable = null }) {
     requireGame(validId(roomId), 'invalid_room', 'Invalid room identity.');
     requireGame(store?.load && store?.commit, 'storage_required', 'A durable store is required.');
     this.id = roomId; this.store = store; this.domain = domain; this.clock = clock;
     this.maxPlayers = maxPlayers; this.onCommitted = onCommitted;
+    // A trusted composition must prove current, owner-pod-safe delivery. Merely
+    // linking a game identity or accepting an OAuth grant does not enable it.
+    this.learningDeliveryAvailable = context => {
+      try {
+        const result = typeof learningDeliveryAvailable === 'function' && learningDeliveryAvailable(context);
+        // A mistaken async port cannot become permission or leak a rejection.
+        if (result && typeof result.then === 'function') { void Promise.resolve(result).catch(() => {}); return false; }
+        return result === true;
+      }
+      catch { return false; }
+    };
     this.current = null; this.version = 0; this.queue = Promise.resolve(); this.listeners = new Set();
     requireGame(['strict', 'realtime'].includes(persistenceMode)
       && Number.isSafeInteger(checkpointIntervalMs) && checkpointIntervalMs >= 1 && checkpointIntervalMs <= 30000
@@ -209,7 +220,37 @@ export class AuthoritativeRoom {
     } finally { clearTimeout(timer); }
   }
   async close() { this.closed = true; if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; } return this.flushPersistence(); }
-  execute(principal, command) {
+  execute(principal, command) { return this.#enqueue(principal, command); }
+  /** Privileged server ports, never dispatch these from caller supplied proof
+   * labels. The native bridge verifies the owner pod and agent first. */
+  admitNativeCompanion(principal, receipt, commandId) {
+    return this.#enqueue(principal, { type: 'admitNativeCompanion', commandId }, { receipt });
+  }
+  executeNativeAgent(token, command, proof) {
+    return this.#enqueue({ kind: 'agent', token }, command, { proof });
+  }
+  nativePermitReceipt(token, receipt) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const current = Object.values(this.current?.companions.grants || {}).find(grant => grant.tokenHash === tokenHash);
+    const saved = current && this.durableState?.companions.grants[current.id];
+    if (!current?.nativeReceipt || !saved?.nativeReceipt || current.revokedAt !== null || current.expiresAt <= this.clock()
+      || digest(current.nativeReceipt) !== digest(receipt) || digest(saved.nativeReceipt) !== digest(receipt)
+      || own(this.current.companions.nativeReferences, receipt.grantId)?.revoked !== false) return null;
+    return { roomId: this.id, version: this.durableSequence, durable: true };
+  }
+  #authorizeAgent(state, principal, command, now, native) {
+    const authorization = authorizeCompanion(state, principal.token, command, now);
+    const receipt = state.companions.grants[authorization.grantId]?.nativeReceipt;
+    if (receipt) {
+      const proof = native?.proof, reference = own(state.companions.nativeReferences, receipt.grantId);
+      requireGame(reference && !reference.revoked && proof && proof.expiresAt > now
+        && proof.grantId === receipt.grantId && proof.agentDid === receipt.agentDid && proof.ownerDid === receipt.ownerDid
+        && proof.receiptRef?.grantDigest === receipt.grantDigest && digest(proof.scope) === digest(receipt.scope),
+      'native_agent_proof_required', 'A current native agent proof is required.');
+    } else requireGame(!native?.proof, 'native_agent_receipt_required', 'A durable native admission receipt is required.');
+    return authorization;
+  }
+  #enqueue(principal, command, native = null) {
     const enqueued = performance.now();
     // Capture once before queueing: callers cannot mutate a pending command's
     // authenticated actor or payload while another durable write is in flight.
@@ -218,17 +259,17 @@ export class AuthoritativeRoom {
       requireGame(plain(command), 'invalid_command', 'A command object is required.');
       const encoded = canonical(command);
       requireGame(Buffer.byteLength(encoded) <= 8192, 'command_too_large', 'Command exceeds 8 KiB.');
-      input = JSON.parse(encoded); actor = structuredClone(principal);
+      input = JSON.parse(encoded); actor = structuredClone(principal); native = native ? structuredClone(native) : null;
     } catch (error) { return Promise.reject(error); }
-    const task = this.queue.then(() => this.#execute(actor, input, enqueued));
+    const task = this.queue.then(() => this.#execute(actor, input, enqueued, native));
     this.queue = task.catch(() => {});
     return task.then(async result => {
       if (this.persistenceMode !== 'realtime') return result;
-      if (['claimLoot', 'grantCompanion', 'revokeCompanion', 'learningConsent'].includes(input.type)) await this.#waitForDurability(result.version);
+      if (['claimLoot', 'grantCompanion', 'revokeCompanion', 'learningConsent', 'registerNativeCompanion', 'admitNativeCompanion', 'revokeNativeCompanion'].includes(input.type)) await this.#waitForDurability(result.version);
       return { ...result, ...this.#metadata(result.version) };
     });
   }
-  async #execute(principal, command, enqueued) {
+  async #execute(principal, command, enqueued, native) {
     const started = performance.now();
     this.stats.commands++;
     try {
@@ -246,7 +287,7 @@ export class AuthoritativeRoom {
       await this.#refresh();
       const seen = own(this.current.receipts, key);
       if (seen) {
-        if (!human(principal)) authorizeCompanion(structuredClone(this.current), principal.token, command, this.clock());
+        if (!human(principal)) this.#authorizeAgent(structuredClone(this.current), principal, command, this.clock(), native);
         requireGame(seen.fingerprint === fingerprint, 'idempotency_conflict', 'commandId was reused for different content.');
         // A grant token is deliberately never retained or replayed to a new caller.
         return this.#replayResult(key, seen);
@@ -257,7 +298,7 @@ export class AuthoritativeRoom {
         requireGame(Number.isSafeInteger(now), 'invalid_clock', 'A trusted server clock is required.');
         let actorId = principal.playerId, entityId = command.entityId || actorId, normalized = { ...command }, authorization;
         if (!human(principal)) {
-          authorization = authorizeCompanion(state, principal.token, command, now);
+          authorization = this.#authorizeAgent(state, principal, command, now, native);
           normalized = { ...authorization.command, commandId: command.commandId };
           actorId = authorization.ownerPlayerId; entityId = authorization.entityId;
         }
@@ -278,7 +319,42 @@ export class AuthoritativeRoom {
           state.sessions[actorId] = { joinedAt: now };
         } else {
           requireGame(own(state.entities, actorId)?.kind === 'player', 'not_joined', 'Enter the expedition first.');
-          if (normalized.type === 'grantCompanion') {
+          if (normalized.type === 'registerNativeCompanion') {
+            requireGame(human(principal) && typeof principal.verifiedDid === 'string', 'native_identity_required', 'A verified native owner is required.');
+            requireGame(/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized.grantId)
+              && /^urn:graph:[A-Za-z0-9:._/-]{1,1000}$/.test(normalized.graphIri), 'invalid_native_reference', 'A native grant reference is required.');
+            state.companions.nativeReferences ||= {};
+            const previous = own(state.companions.nativeReferences, normalized.grantId);
+            requireGame(!previous || (previous.ownerPlayerId === actorId && previous.ownerDid === principal.verifiedDid && previous.graphIri === normalized.graphIri),
+              'native_reference_conflict', 'This native grant reference is already bound.');
+            requireGame(previous || Object.keys(state.companions.nativeReferences).length < 256, 'native_reference_capacity', 'Native reference capacity reached.');
+            const reference = previous || { grantId: normalized.grantId, graphIri: normalized.graphIri, ownerPlayerId: actorId,
+              ownerDid: principal.verifiedDid, registeredAt: new Date(now).toISOString(), revoked: false };
+            state.companions.nativeReferences[normalized.grantId] = reference;
+            emit('companion.nativeReferenceRegistered', { reference }); result = { reference };
+          } else if (normalized.type === 'admitNativeCompanion') {
+            const receipt = native?.receipt, reference = own(state.companions.nativeReferences, receipt?.grantId);
+            requireGame(human(principal) && receipt && reference && !reference.revoked && reference.ownerPlayerId === actorId
+              && principal.verifiedDid === receipt.ownerDid && reference.ownerDid === receipt.ownerDid
+              && receipt.ownerRecord?.graphIri === reference.graphIri && receipt.scope?.roomId === this.id,
+            'native_admission_rejected', 'A verified owner-pod grant is required.');
+            // A restarted bridge cannot recover an old private permit. Rotate
+            // that UUID's old permits rather than accumulating unusable grants.
+            for (const old of Object.values(state.companions.grants)) if (old.nativeReceipt?.grantId === receipt.grantId) old.revokedAt = now;
+            const scope = receipt.scope, created = grantCompanion(state, principal, { agentId: receipt.agentDid, role: scope.role,
+              roomId: scope.roomId, entityId: scope.entityId, scopes: scope.actions, maxCommandsPerSecond: scope.maxCommandsPerSecond,
+              expiresAt: Date.parse(receipt.grantExpiresAt) }, now);
+            const grant = state.companions.grants[created.grant.id]; grant.nativeReceipt = structuredClone(receipt);
+            emit('companion.nativeAdmitted', { receipt: structuredClone(receipt), ownerPlayerId: actorId });
+            result = { receipt: structuredClone(receipt), token: created.token };
+          } else if (normalized.type === 'revokeNativeCompanion') {
+            const reference = own(state.companions.nativeReferences, normalized.grantId);
+            requireGame(human(principal) && reference && reference.ownerPlayerId === actorId && principal.verifiedDid === reference.ownerDid,
+              'native_owner_required', 'Only the verified owner can revoke this relationship.');
+            reference.revoked = true;
+            for (const grant of Object.values(state.companions.grants)) if (grant.nativeReceipt?.grantId === normalized.grantId) grant.revokedAt = now;
+            emit('companion.nativeRevoked', { grantId: normalized.grantId }); result = { grantId: normalized.grantId, revoked: true };
+          } else if (normalized.type === 'grantCompanion') {
             requireGame(human(principal), 'human_required', 'Only the human owner can grant access.');
             const grant = grantCompanion(state, principal, normalized.request, now);
             emit('companion.granted', { grant: grant.event.grant });
@@ -293,8 +369,13 @@ export class AuthoritativeRoom {
               'invalid_consent', 'Consent must explicitly expire within 24 hours.');
             requireGame(!normalized.enabled || (typeof normalized.recipient === 'string' && normalized.recipient.startsWith('https://') && typeof normalized.actorDid === 'string' && normalized.actorDid.startsWith('did:')),
               'invalid_consent', 'A verified actor identity and concrete learning recipient are required.');
+            requireGame(!normalized.enabled || (typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0 && normalized.sessionId.length <= 128 && until > now),
+              'invalid_consent', 'An unexpired learning session is required.');
             // The transport must bind this DID to the authenticated player before enabling export.
             requireGame(!normalized.enabled || principal.verifiedDid === normalized.actorDid, 'identity_unverified', 'Link your verified learning identity before enabling export.');
+            requireGame(!normalized.enabled || this.learningDeliveryAvailable({ actorId, actorDid: normalized.actorDid,
+              recipient: normalized.recipient, sessionId: normalized.sessionId, now, phase: 'consent' }),
+            'learning_unavailable', 'Personal activity export is unavailable. You can keep playing.');
             state.consent[actorId] = { enabled: normalized.enabled, expiresAt: until, recipient: normalized.recipient || '', actorDid: normalized.actorDid || '', sessionId: normalized.sessionId || '' };
             // Changing or withdrawing consent cancels undelivered records for
             // that actor; old recipient/session consent cannot authorize them.
@@ -313,8 +394,16 @@ export class AuthoritativeRoom {
           state.events.push(event);
           const consent = state.consent[event.actorId];
           if (consent?.enabled && consent.expiresAt > now && !['consent.changed', 'companion.granted'].includes(event.kind)) {
-            requireGame(state.outbox.length < 512, 'learning_queue_full', 'Learning export is delayed. Disable export or try again later.');
-            state.outbox.push({ event, consent: structuredClone(consent) });
+            const available = principal.verifiedDid === consent.actorDid && this.learningDeliveryAvailable({ actorId: event.actorId,
+              actorDid: consent.actorDid, recipient: consent.recipient, sessionId: consent.sessionId, eventKind: event.kind, now, phase: 'capture' });
+            if (available && state.outbox.length < 512) state.outbox.push({ event, consent: structuredClone(consent) });
+            else {
+              // Optional export cannot stop a command or grow an unbounded queue.
+              // Retain old entries and make omitted coverage explicit and durable.
+              const old = state.learningCaptureGaps?.total;
+              state.learningCaptureGaps = { total: Math.min(Number.MAX_SAFE_INTEGER, (Number.isSafeInteger(old) && old >= 0 ? old : 0) + 1),
+                lastAt: new Date(now).toISOString(), lastReason: available ? 'outbox-full' : 'delivery-unavailable' };
+            }
           }
         }
         state.events = state.events.slice(-256);
@@ -332,7 +421,7 @@ export class AuthoritativeRoom {
           const receipt = await this.store.commit(this.id, { expectedVersion: this.version, state, event, idempotencyKey: key });
           if (receipt.replayed) {
             await this.#refresh();
-            if (!human(principal)) authorizeCompanion(structuredClone(this.current), principal.token, command, this.clock());
+            if (!human(principal)) this.#authorizeAgent(structuredClone(this.current), principal, command, this.clock(), native);
             const accepted = own(receipt.state?.receipts, key);
             requireGame(accepted?.fingerprint === fingerprint, 'idempotency_conflict', 'A different command already used this identity.');
             return this.#replayResult(key, accepted);
@@ -353,7 +442,7 @@ export class AuthoritativeRoom {
           await this.#refresh();
           const repeated = own(this.current.receipts, key);
           if (repeated) {
-            if (!human(principal)) authorizeCompanion(structuredClone(this.current), principal.token, command, this.clock());
+            if (!human(principal)) this.#authorizeAgent(structuredClone(this.current), principal, command, this.clock(), native);
             requireGame(repeated.fingerprint === fingerprint, 'idempotency_conflict', 'commandId conflicts with a committed command.');
             return this.#replayResult(key, repeated);
           }
@@ -427,6 +516,11 @@ export class AuthoritativeRoom {
     this.queue = task.catch(() => {});
     return task;
   }
+  observeNativeAgent(token, entityId, proof) {
+    const actor = { kind: 'agent', token, entityId }, native = { proof: structuredClone(proof) };
+    const task = this.queue.then(async () => { await this.#refresh(); return this.#observe(actor, native); });
+    this.queue = task.catch(() => {}); return task;
+  }
   /** Human subscription fan-out needs no storage read per connection. In strict
    * mode this is a committed view; realtime mode explicitly includes the live
    * sequence and durability lag. Agent authorization uses the sole live owner
@@ -436,16 +530,19 @@ export class AuthoritativeRoom {
     requireGame(human(principal), 'human_required', 'Only authenticated human subscriptions use committed snapshots.');
     return this.#observe(structuredClone(principal));
   }
-  #observe(principal) {
+  #observe(principal, native) {
     requireGame(this.current, 'not_ready', 'The world is not ready.');
     if (principal?.kind === 'agent') {
       // Validate against a disposable clone: observing does not mutate canonical rate state.
-      const grant = authorizeCompanion(structuredClone(this.current), principal.token, { type: 'observe', roomId: this.id, entityId: principal.entityId }, this.clock());
+      const grant = this.#authorizeAgent(structuredClone(this.current), principal, { type: 'observe', roomId: this.id, entityId: principal.entityId }, this.clock(), native);
       return redactObservation({ roomId: this.id, version: this.version, ...this.#metadata(), ...this.domain.observe(this.current, grant.ownerPlayerId) }, grant);
     }
     requireGame(human(principal) && own(this.current.entities, principal.playerId)?.kind === 'player', 'not_joined', 'Enter the expedition first.');
     return { roomId: this.id, version: this.version, ...this.#metadata(), ...this.domain.observe(this.current, principal.playerId),
-      grants: Object.values(this.current.companions.grants).filter(g => g.ownerPlayerId === principal.playerId).map(g => { const { tokenHash, commandTimes, ...safe } = g; return structuredClone(safe); }),
+      grants: Object.values(this.current.companions.grants).filter(g => g.ownerPlayerId === principal.playerId && !g.nativeReceipt).map(g => { const { tokenHash, commandTimes, ...safe } = g; return structuredClone(safe); }),
+      nativeCompanions: Object.values(this.current.companions.grants).filter(g => g.ownerPlayerId === principal.playerId && g.nativeReceipt)
+        .map(g => ({ ...structuredClone(g.nativeReceipt), revoked: g.revokedAt !== null })),
+      nativeReferences: Object.values(this.current.companions.nativeReferences || {}).filter(ref => ref.ownerPlayerId === principal.playerId).map(ref => structuredClone(ref)),
       consent: structuredClone(this.current.consent[principal.playerId] || { enabled: false }), storage: 'interego-native' };
   }
 }

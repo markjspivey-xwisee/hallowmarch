@@ -7,7 +7,9 @@ export function createPlayerBrowserAssets({ clientRoot = new URL('../../client/n
   const types = { 'finish.html': 'text/html; charset=utf-8', 'finish.css': 'text/css; charset=utf-8',
     'finish.mjs': 'text/javascript; charset=utf-8', 'profile.mjs': 'text/javascript; charset=utf-8',
     'client.mjs': 'text/javascript; charset=utf-8', 'access-cache.mjs': 'text/javascript; charset=utf-8',
-    'vendor/interego-browser.mjs': 'text/javascript; charset=utf-8' };
+    'public-record.mjs': 'text/javascript; charset=utf-8', 'owner-agent-grant.mjs': 'text/javascript; charset=utf-8',
+    'owner-agent-grant-schema.mjs': 'text/javascript; charset=utf-8',
+    'vendor/interego-browser.mjs': 'text/javascript; charset=utf-8', 'vendor/interego-public-browser.mjs': 'text/javascript; charset=utf-8' };
   return function handle(req, res, pathname) {
     const name = pathname === '/gaming/identity/finish' ? 'finish.html'
       : pathname.startsWith('/gaming/identity/assets/') ? pathname.slice('/gaming/identity/assets/'.length) : null;

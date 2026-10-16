@@ -48,6 +48,26 @@ test('a browser import failure emits only its fixed stage, never the raw module 
   assert.equal(result.stdout, ''); assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
   assert(!result.stderr.includes('this-module-must-never-be-imported'));
 });
+test('companion opt-in requires the existing public agent scope before any browser import', () => {
+  const configured = { HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_COMPANION_LIVE_TEST: '1',
+    HM_NATIVE_ORIGIN: 'https://game.example', HM_NATIVE_RELAY_ORIGIN: 'https://relay.example',
+    HM_NATIVE_COMPANION_AGENT_DID: 'did:web:identity.example:agents:fixture',
+    HM_NATIVE_COMPANION_AGENT_POD_URL: 'https://pods.example/fixture/' };
+  for (const extra of [
+    { HM_NATIVE_COMPANION_AGENT_DID: undefined }, { HM_NATIVE_COMPANION_AGENT_POD_URL: undefined },
+    { HM_NATIVE_COMPANION_AGENT_POD_URL: 'http://private.internal/fixture/' },
+    { HM_NATIVE_COMPANION_AGENT_POD_URL: 'https://user:DO_NOT_LOG@pods.example/fixture/' },
+  ]) {
+    const result = invoke({ ...configured, ...extra });
+    assert.equal(result.status, 2); assert.match(result.stderr, /^FAIL: configuration\./);
+    assert(!result.stderr.includes('DO_NOT_LOG')); assert.equal(result.stdout, '');
+  }
+  const selected = invoke(configured);
+  assert.equal(selected.status, 1); assert.match(selected.stderr, /^FAIL: native live QA at load-browser \[stage_failed\]\./);
+  assert.equal(selected.stdout, '');
+  const inactive = invoke({ ...configured, HM_NATIVE_COMPANION_LIVE_TEST: '0', HM_NATIVE_COMPANION_AGENT_POD_URL: 'invalid' });
+  assert.equal(inactive.status, 1); assert.match(inactive.stderr, /load-browser/);
+});
 test('failed boot reports its retained page without secrets and stalled cleanup cannot block context close', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hm-qa-offline-'));
   const fixture = join(directory, 'fake-browser.mjs');

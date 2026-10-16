@@ -84,11 +84,11 @@
     },
     {
       "path": "src/14o_netui.js",
-      "digest": "sha256:760c49c42a2f323df8b33399227884370dcddba2c156a18aeab56ea384c2d350"
+      "digest": "sha256:b99d3d0ac66e62fb33a122f4d403d5d3addaee0d85f74810a4ad492988df665b"
     },
     {
       "path": "src/14q_netseason.js",
-      "digest": "sha256:a9411201c61e140c5fe6fce384338ffc143e52a0bc69a18545cb92482a6b9e19"
+      "digest": "sha256:727739ce5f800d9f8c7a36f37f933e002b0192b8c8c31ae0b91285d670d83982"
     },
     {
       "path": "src/14r_companies.js",
@@ -2020,11 +2020,11 @@
       ],
       "source": {
         "path": "src/14o_netui.js",
-        "digest": "sha256:760c49c42a2f323df8b33399227884370dcddba2c156a18aeab56ea384c2d350",
+        "digest": "sha256:b99d3d0ac66e62fb33a122f4d403d5d3addaee0d85f74810a4ad492988df665b",
         "selector": "FIELD_NOTES.netothers",
         "lines": {
-          "start": 409,
-          "end": 409
+          "start": 412,
+          "end": 412
         }
       },
       "requiresContext": true,
@@ -2036,7 +2036,7 @@
         "note": "netothers",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:695a0d23a5eecb4c7c5d6efb2ab8731efb173f711a80b09a7ce5584d3ffc58dd"
+      "revisionDigest": "sha256:0b5c47187d44f4b7ff99edd25a388d854822c78f17b22f959475a3787e643b78"
     },
     {
       "id": "field-note:netseason",
@@ -2049,11 +2049,11 @@
       ],
       "source": {
         "path": "src/14q_netseason.js",
-        "digest": "sha256:a9411201c61e140c5fe6fce384338ffc143e52a0bc69a18545cb92482a6b9e19",
+        "digest": "sha256:727739ce5f800d9f8c7a36f37f933e002b0192b8c8c31ae0b91285d670d83982",
         "selector": "FIELD_NOTES.netseason",
         "lines": {
-          "start": 246,
-          "end": 246
+          "start": 247,
+          "end": 247
         }
       },
       "requiresContext": true,
@@ -2065,7 +2065,7 @@
         "note": "netseason",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:cf5f1dc665ad3a8606659b4918ab7c2f66cc901e83b5216c77ee3767af88f49f"
+      "revisionDigest": "sha256:68aab6508fd263fcb09deb94b580d19aa99bd820aedf9219fb5b5b0372d83d0d"
     },
     {
       "id": "field-note:news",
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:c2cbafd041f6ba76ddf047b035001bb32277e66412e8383855c5201b8036040c"
+  "revisionDigest": "sha256:c6178532abc36d234723aa61e0e7b59e4051dab6a339f7a53613ae71a1777c5b"
 }

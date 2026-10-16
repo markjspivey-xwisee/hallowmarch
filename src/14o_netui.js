@@ -139,6 +139,7 @@ function netSheetRender() {
   body.textContent = '';
   const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
   const btn = (label, act, peer, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; if (peer) b.dataset.peer = peer; return b; };
+  if (NETWS.worldPauseReason) body.appendChild(el('p', 'net-quiet', NETWS.worldPauseReason));
   // invites to answer
   for (const I of NET.invites) {
     const R = NET.peers.get(I.peer);
@@ -308,12 +309,14 @@ function netSheetBadge() {
   const b = $('btn-net');
   if (!b) return;
   const n = netPeopleCount();
+  const worldPaused = typeof NETWS !== 'undefined' && !!NETWS.worldPauseReason;
   const coI = typeof coInvited === 'function' && coInvited(); // [companies] the company is there with nobody else in the March; an invitation to one
-  b.hidden = !netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted()));
-  const t = NET.invites.length || coI ? '!' : n ? String(n) : '';
+  b.hidden = !worldPaused && (!netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted())));
+  const t = worldPaused || NET.invites.length || coI ? '!' : n ? String(n) : '';
   const s = b.querySelector('.net-n');
   if (s && s.textContent !== t) s.textContent = t;
-  b.classList.toggle("net-glow", NET.invites.length > 0 || coI);
+  b.classList.toggle("net-glow", worldPaused || NET.invites.length > 0 || coI);
+  b.setAttribute('aria-label', worldPaused ? NETWS.worldPauseReason + ' Open Players for details.' : 'Players in the March: party and chat (P)');
 }
 function netUiFrame() {
   if (!NETUI.on || !GAME.started || !GAME.player) return;

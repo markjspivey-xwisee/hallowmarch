@@ -30,6 +30,9 @@ async function fixture(t, enabled = false, required = false) {
   const child = spawn(process.execPath, [path.join(root, 'server', 'server.js')], { cwd: root,
     env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data, HM_SECRET: secret,
       HM_PUBLIC_ORIGIN: 'https://game.example', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: enabled ? '1' : '0',
+      // These tests isolate unavailable player ownership. Native world startup
+      // has its own fail-closed server integration tests.
+      HM_WORLD_PERSISTENCE_MODE: 'legacy',
       HM_NATIVE_PLAYER_REQUIRED: required ? '1' : '0' },
     stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output = (output + bytes).slice(-8000); });
@@ -93,6 +96,7 @@ test('real server preserves native game credentials and prevents personal-file s
   assert.equal(manifestResponse.headers.get('access-control-allow-origin'), '*', 'public entry policy is readable by an external game client');
   const manifest = await manifestResponse.json();
   assert.equal(manifest.playerIdentity, undefined, 'intentionally unconfigured legacy servers advertise no native entry policy');
+  assert.equal(manifest.nativeAgents, undefined, 'an intentionally legacy deployment retains its companion bridge policy');
 });
 
 test('configured native ownership outage blocks unknown-account central writes without touching old files', async t => {

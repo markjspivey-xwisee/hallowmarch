@@ -40,7 +40,7 @@ The Shared expedition menu appears only after the native service opens and its
 first real durable world commit succeeds. Missing storage never enables a
 test store in production.
 
-The game Dockerfile builds `@interego/core`, `@interego/solid` and `@interego/pgsl` from reviewed
+The game Dockerfile builds `@interego/core` and `@interego/pgsl` from reviewed
 Interego commit `87ee71626c015af3c1e7b9dac5579eff6899e8c1`, the merge of PR 626.
 Its committed npm lockfile pins the SDK's transitive dependencies. The native
 commit store, artifact codec and encryption exports are checked during the image
@@ -49,23 +49,6 @@ credential or runtime key. Source metadata is recorded in `interego-sdk.json`.
 Local native benchmarks need those same built packages available to Node.
 Native storage availability and live game latency still require independent
 deployment checks; shipping the SDK does not establish either.
-
-Networking CI builds that exact source revision and lockfile before enabling
-the existing real-SDK tests. Local setup uses the same workspace install/build
-flags and links the built packages into `server/node_modules`:
-
-```sh
-npm ci --prefix server
-export INTEREGO_SDK_TEST_ROOT=/absolute/dedicated/interego-pinned
-node tools/setup-native-sdk.mjs
-node --test server/gaming/native-capability-publication.test.mjs
-```
-
-The setup command creates the dedicated checkout if absent and refuses another
-revision, changed reviewed source/lockfile or package links to another SDK.
-To use an already built pinned checkout without changing local dependencies,
-set `INTEREGO_SDK_TEST_ROOT` and run the tests directly. These are local proof
-and serialization tests; they create no live identity and write to no live pod.
 
 For a deployment with a persistent `HM_DATA` volume, use only public flags:
 

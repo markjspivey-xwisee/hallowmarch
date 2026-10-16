@@ -87,6 +87,8 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
 - `diagnose`: the same state plus read-only held-key/registration booleans.
 - `retry`: retry only the failed stage using its existing closure and owner.
 - `continue`: retry the failed stage and proceed through remaining stages.
+- `companion-restart-admission`: when optional companion QA is selected, reset
+  only its expired/uncertain ephemeral admission at the permitted proof stage.
 - `finish`: forget access cache and close the retained browsers.
 
 A completed stage is never rerun. Registration has an additional irreversible
@@ -99,6 +101,16 @@ The complete-suite PASS is emitted only after every proof check passes. EOF
 or process termination also closes the retained session. The existing browser
 keys/access cache remain available in the retained context until it closes.
 After a resumed suite passes, the retained command loop stays open until `finish`.
+
+Optional companion verification uses `HM_NATIVE_COMPANION_LIVE_TEST=1`, plus the
+existing native agent's independently verified public DID and HTTPS home pod in
+`HM_NATIVE_COMPANION_AGENT_DID` and `HM_NATIVE_COMPANION_AGENT_POD_URL`. It starts
+only after all ten private stages and privacy checks pass and reuses the single
+recovered game page. One stdin router is already listening when its signing
+stage emits a public `interego.sign_request` request. Feed only the matching
+public signed envelope back; never a connector credential. See
+[`native-companion-live.README.md`](./native-companion-live.README.md) for the exact
+protocol, optional flags, retained retries and explicit admission restart.
 Boot diagnostics include fixed substeps and an inventory of every observed page,
 including closed pages and game/relay/blank/other origin classes, with counts.
 They never print page URLs. Browser status evaluation has a two-second bound;

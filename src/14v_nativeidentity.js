@@ -266,6 +266,7 @@ async function nativePlayerReconnect(expected, notification) {
   nativePlayerRender();
 }
 async function nativePlayerForget() {
+  if (typeof gamingNativeForget === 'function') gamingNativeForget();
   NATIVE_PLAYER.profile?.close();
   if (!NATIVE_PLAYER.cache) {
     try { NATIVE_PLAYER.cache = (await import('/gaming/identity/assets/access-cache.mjs')).createBrowserAccessCache(); }

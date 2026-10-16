@@ -210,6 +210,14 @@ export function createPlayerAccountHost(options = {}) {
     status() { prune(); return { enabled: enabled(), status: closed ? 'closed' : enabled() ? 'ready' : 'unavailable',
       pending: bridge.status().pending, readyHandoffs: bridge.status().readyHandoffs }; },
     isBound(accountId) { return enabled() && !!recordFor(accountId); },
+    // Privileged host ports: wire callers never choose a DID or pod to trust.
+    bindingForAccount(accountId) { return enabled() && recordFor(accountId) ? publicBinding(recordFor(accountId).binding) : null; },
+    async ownerForRequest(req) {
+      await requireReady();
+      const { claims, account } = authenticated(req), subjectDid = freshDid(claims, account.id);
+      if (!subjectDid) fail('native_signin_required', 403);
+      return { accountId: account.id, binding: publicBinding(recordFor(account.id).binding) };
+    },
     principalFor(client) {
       if (!enabled() || !client?.acct?.id || options.getAccount(client.acct.id)?.id !== client.acct.id) return null;
       return freshDid(client.authClaims, client.acct.id);

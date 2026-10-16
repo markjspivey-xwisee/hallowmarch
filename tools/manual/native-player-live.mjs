@@ -1,11 +1,13 @@
 /** Manual, mutating QA only. Never import from CI or an automatic test suite. */
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { createInterface } from 'node:readline';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
 import { retainedGameBoot, verifiedContextHandoff, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { createNativeLiveInput } from './native-live-input.mjs';
+import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
+import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -18,14 +20,15 @@ function origin(value) {
     || parsed.search || parsed.hash) throw new Error('configuration');
   return parsed.origin;
 }
-let gameOrigin, relayOrigin;
+let gameOrigin, relayOrigin, companionConfig;
 try {
   gameOrigin = origin(process.env.HM_NATIVE_ORIGIN);
   relayOrigin = origin(process.env.HM_NATIVE_RELAY_ORIGIN);
   if (gameOrigin === relayOrigin) throw new Error('configuration');
   if (process.env.DEBUG || process.env.PWDEBUG || process.env.PW_TEST_TRACE || process.env.NODE_DEBUG) throw new Error('configuration');
+  companionConfig = nativeCompanionRunnerConfig(process.env);
 } catch {
-  console.error('FAIL: configuration. Supply separate HTTPS HM_NATIVE_ORIGIN and HM_NATIVE_RELAY_ORIGIN; unset browser/debug tracing.');
+  console.error('FAIL: configuration. Supply separate HTTPS game/relay origins; companion opt-in additionally requires the existing agent DID and HTTPS public pod. Unset browser/debug tracing.');
   process.exit(2);
 }
 
@@ -46,12 +49,20 @@ const expectedSave = {
 const observations = { requests: [], console: [], gameAuthorization: [], startAuthorization: [], claimAuthorization: [],
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
+let input = null, broker = null, companion = null, finishRequested = false, cleaning = false;
+let privatePrivacyVerified = false, completeReported = false;
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
 const contexts = [], retainedPages = [];
 let syntheticPasskey = null, encryptedRecovery = null;
 const ensure = (condition, code) => { if (!condition) throw Object.assign(new Error('A native QA condition failed.'), { code }); };
 function passed(label) { console.log('PASS: ' + label); }
-function reportComplete() { console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.'); }
+function reportComplete() {
+  if (!allComplete() || finishRequested) return;
+  if (completeReported) return;
+  completeReported = true;
+  console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.');
+  if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
+}
 // A later failed stage can close a page with outstanding listeners. Handle the
 // orphan rejection without ever letting Playwright dump a sensitive raw error.
 function watched(promise) { promise.catch(() => {}); return promise; }
@@ -217,6 +228,7 @@ const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evalu
     nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
 }, diagnose) });
 const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async () => {
+  await window.__hmNativeCompanionQa?.close();
   await window.__hmNativeQaSession?.close();
   window.__hmNativeQaRecovery?.profile.close();
   await window.__hmNativeQaRecovery?.cache.close();
@@ -228,12 +240,61 @@ const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async ()
 const closeBrowserResource = boundedPageStatus({ evaluate: value => value.close() });
 async function reportRetainedStatus(diagnose) {
   console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep }));
+  if (companion) console.log(JSON.stringify(companion.status()));
+  if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
+  if (broker) console.log(JSON.stringify(broker.status()));
   const inventory = qaPageInventory(retainedPages, { gameOrigin, relayOrigin });
   console.log(JSON.stringify(inventory));
   for (const entry of inventory.pages) if (!entry.closed && entry.originClass === 'game') {
     console.log(JSON.stringify({ kind: 'retained_browser_status', pageIndex: entry.pageIndex,
       ...await inspectPage(retainedPages[entry.pageIndex - 1].page, diagnose) }));
   }
+}
+
+const failureCode = error => nativeCompanionFailureCode(error) || nativeFailureCode(error);
+const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true);
+async function advanceQa(all) {
+  ensure(!finishRequested, 'qa_session_closed');
+  if (!plan?.status().complete) {
+    if (all) await plan.remaining(); else await plan.next();
+    if (!all) return;
+  }
+  if (companion) {
+    if (all) await companion.remaining(); else await companion.next();
+  }
+}
+function startInput() {
+  if (input) return input;
+  input = createNativeLiveInput({ input: process.stdin,
+    acceptProtocolLine: line => broker?.acceptLine(line) === true,
+    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, companion-restart-admission, finish.'),
+    onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
+    onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
+    async onClose() {
+      finishRequested = true;
+      const active = plan?.status().busy || companion?.status().busy;
+      broker?.close(); companion?.close();
+      // Explicit finish/EOF can release a stalled renderer. Ordinary cleanup
+      // first closes the owner helper and cache before its context/browser.
+      if (!cleaning && active && browser) await closeBrowserResource(browser);
+    },
+    async onCommand(action) {
+      if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
+      if (plan?.status().busy || companion?.status().busy) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
+      try {
+        if (action === 'companion-restart-admission') {
+          if (!companion) throw Object.assign(new Error('Companion QA is not selected.'), { code: 'qa_companion_restart_refused' });
+          console.log(JSON.stringify(companion.restartAdmission())); return;
+        }
+        if (!plan) { console.log('No retained QA plan is available.'); return; }
+        await advanceQa(action === 'continue');
+        if (allComplete()) { process.exitCode = 0; reportComplete(); }
+        else console.log(JSON.stringify({ kind: 'native_qa_stage_advanced', ...plan.status(),
+          ...(companion ? { companion: companion.status() } : {}) }));
+      } catch (error) { console.error('FAIL: native live QA at ' + stage + ' [' + failureCode(error) + ']. Raw details were not emitted.'); }
+    },
+  });
+  return input;
 }
 
 try {
@@ -247,6 +308,14 @@ try {
     ...(network.proxy ? { proxy: network.proxy } : {}),
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', ...network.args] });
   console.log('QA owner display name: ' + displayName);
+  if (companionConfig) {
+    broker = createNativeCompanionSigningBroker({ enabled: true, ...companionConfig,
+      writePublicRequest: value => console.log(JSON.stringify(value)) });
+    companion = createNativeCompanionRunner({ config: companionConfig, run, gameOrigin, relayOrigin,
+      getOwner: () => owner, getPage: () => fresh,
+      privateQaComplete: () => plan?.status().complete === true && privatePrivacyVerified,
+      signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; } });
+  }
   plan = nativeLiveStages([
     { name: 'initial-game-boot', async run() {
       await firstBoot.open();
@@ -368,35 +437,26 @@ try {
         && firstHandoff.status().privacyVerified && firstHandoff.status().closed
         && await privacy(fresh), 'privacy-invariants');
       passed('one registration; no refresh use, native bearer URL/localStorage/log/game-bridge leakage, or private game-bridge body');
+      privatePrivacyVerified = true;
     } }
-  ], name => { stage = name; });
-  await plan.remaining();
+  ], name => { ensure(!finishRequested, 'qa_session_closed'); stage = name; });
+  // One reader must already be listening when a companion stage awaits the
+  // root connector's public signed envelope. Never add a competing consumer.
+  if (companion) startInput();
+  await advanceQa(true);
   reportComplete();
 } catch (cause) {
   // Playwright errors can contain request URLs or payloads. Print our own stage only.
-  console.error('FAIL: native live QA at ' + stage + ' [' + nativeFailureCode(cause) + ']. Raw browser/error details were intentionally not emitted.');
+  console.error('FAIL: native live QA at ' + stage + ' [' + failureCode(cause) + ']. Raw browser/error details were intentionally not emitted.');
   if (bootStep && bootStep !== 'complete') console.log(JSON.stringify({
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
-  if (syntheticPasskey && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose (read-only), retry (failed stage), continue (remaining stages), finish. Registration is never replayed.');
-    const commands = createInterface({ input: process.stdin, terminal: false });
-    for await (const command of commands) {
-      const action = command.trim();
-      if (action === 'finish') { commands.close(); break; }
-      if (action === 'status' || action === 'diagnose') {
-        await reportRetainedStatus(action === 'diagnose');
-      } else if (action === 'retry' || action === 'continue') {
-        if (!plan) { console.log('No retained QA plan is available.'); continue; }
-        try {
-          if (action === 'retry') await plan.next(); else await plan.remaining();
-          if (plan.status().complete) { process.exitCode = 0; reportComplete(); }
-          else console.log(JSON.stringify({ kind: 'native_qa_stage_advanced', ...plan.status() }));
-        } catch (error) { console.error('FAIL: native live QA at ' + stage + ' [' + nativeFailureCode(error) + ']. Raw details were not emitted.'); }
-      } else console.log('Commands: status, diagnose, retry, continue, finish.');
-    }
+  if (!finishRequested && syntheticPasskey && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
+    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, companion-restart-admission, finish. Registration is never replayed.');
+    await startInput().waitForClose();
   }
 } finally {
+  cleaning = true; broker?.close(); companion?.close(); input?.close();
   syntheticPasskey = null; encryptedRecovery = null;
   for (const value of contexts) {
     try {

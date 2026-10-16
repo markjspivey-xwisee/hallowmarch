@@ -92,7 +92,7 @@ export function grantCompanion(state, principal, request, now, options = {}) {
     createdAt: now, expiresAt, maxCommandsPerSecond, revokedAt: null, tokenHash, commandTimes: [],
   };
   // Compact ended grants; durable room history retains their grant/revoke events.
-  const next = { grants: {}, tokenIndex: {} };
+  const next = { ...current, grants: {}, tokenIndex: {} };
   for (const item of [...active, grant]) {
     next.grants[item.id] = item;
     next.tokenIndex[item.tokenHash] = item.id;

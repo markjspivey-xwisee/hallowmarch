@@ -51,7 +51,8 @@ test('two authenticated clients receive confirmed snapshots; payload owner canno
 
 test('native actor identity is supplied only by the trusted current-session port', async () => {
   let currentDid = null;
-  const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000, verifiedDidFor: () => currentDid });
+  const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000, verifiedDidFor: () => currentDid, learningDeliveryAvailable: () => true,
+    learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' }, publish() {} } });
   await runtime.ready;
   const alice = client('alice'); alice.verifiedDid = 'did:example:claimed'; alice.acct.verifiedDid = alice.verifiedDid;
   await runtime.handle(alice, request('enter'));
@@ -63,6 +64,10 @@ test('native actor identity is supplied only by the trusted current-session port
   await runtime.handle(alice, consent()); assert.equal(alice.received.at(-1).ok, true);
   currentDid = null;
   await runtime.handle(alice, consent()); assert.equal(alice.received.at(-1).error.code, 'identity_unverified');
+  await runtime.handle(alice, cmd('knowledge.consulted', { resourceId: 'https://example.org/aid' }));
+  assert.equal(alice.received.at(-1).ok, true, 'missing optional evidence identity does not block play');
+  assert.equal(runtime.room.current.outbox.length, 0, 'old consent does not replace current proof');
+  assert.equal(runtime.room.current.learningCaptureGaps.lastReason, 'delivery-unavailable');
   runtime.close(alice);
 });
 
@@ -151,7 +156,7 @@ test('real server snapshots are accepted by the actual browser adapter during en
 test('injected domain identity is used by outbox projection and durable acknowledgement', async () => {
   const custom = { ...createHallowmarchDomain(), id: 'custom.shared.v1', evidenceDomain: 'custom-game' };
   let observedDomain;
-  const runtime = createGamingRuntime({ store: new TestStore(), domain: custom, clock: () => 100000, send,
+  const runtime = createGamingRuntime({ store: new TestStore(), domain: custom, clock: () => 100000, send, learningDeliveryAvailable: () => true,
     learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' },
       async publish(events, context) { observedDomain = context.domain; return { ok: true, exported: events.length,
         receipts: projectGamingEvents(events, context).evidence.map(e => ({ statementId: e.id, persisted: true })) }; } } });
@@ -253,5 +258,60 @@ test('realtime snapshot fan-out coalesces input bursts without slowing command r
   assert.equal(snapshots.length, before + 1);
   assert.equal(snapshots.at(-1).state.entities['burst-alice'].z, 6);
   assert.equal(runtime.manifest().transport.maxSnapshotHz, 50);
+  await runtime.shutdown();
+});
+
+test('personal export is unavailable without both a composed proof port and a configured sink', async () => {
+  const sink = { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' }, publish() {} };
+  for (const options of [{}, { learningSink: sink }, { learningDeliveryAvailable: () => true },
+    { learningSink: sink, learningDeliveryAvailable: () => false }]) {
+    let now = 100000;
+    const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => now, verifiedDidFor: () => 'did:example:alice', ...options });
+    await runtime.ready; const alice = client('alice'); await runtime.handle(alice, request('enter'));
+    assert.equal(runtime.manifest().learningExportConfigured, !!(options.learningSink && options.learningDeliveryAvailable));
+    if (!runtime.manifest().learningExportConfigured) assert.equal(runtime.manifest().learningExport, 'unavailable');
+    await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: sink.descriptor.target, sessionId: 's', expiresAt: 110000 }));
+    assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
+    now += 1000;
+    await runtime.handle(alice, cmd('move', { x: 0, z: 1 }));
+    assert.equal(alice.received.at(-1).ok, true); assert.equal(runtime.room.current.outbox.length, 0);
+    await runtime.shutdown();
+  }
+});
+
+test('configured delivery cannot authorize a caller-selected recipient or asynchronous availability claim', async () => {
+  for (const availability of [() => true, async () => true, () => { throw new Error('private failure'); }]) {
+    const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000, verifiedDidFor: () => 'did:example:alice',
+      learningDeliveryAvailable: availability,
+      learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' }, publish() {} } });
+    await runtime.ready; const alice = client('alice'); await runtime.handle(alice, request('enter'));
+    await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://another.example/signed', sessionId: 's', expiresAt: 110000 }));
+    assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
+    if (availability.constructor.name === 'AsyncFunction') {
+      await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://learning.example/signed', sessionId: 's', expiresAt: 110000 }));
+      assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
+    }
+    assert.equal(runtime.room.current.outbox.length, 0); await runtime.shutdown();
+  }
+});
+
+test('loss of composed owner-pod delivery retains queued evidence without invoking a configured sink', async () => {
+  let available = true, deliveries = 0;
+  const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000, verifiedDidFor: () => 'did:example:alice',
+    learningDeliveryAvailable: () => available,
+    learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' },
+      async publish(events, context) { deliveries++; return { ok: true, exported: events.length,
+        receipts: projectGamingEvents(events, context).evidence.map(e => ({ statementId: e.id, persisted: true })) }; } } });
+  await runtime.ready; const alice = client('alice'); await runtime.handle(alice, request('enter'));
+  await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://learning.example/signed', sessionId: 's', expiresAt: 110000 }));
+  await runtime.handle(alice, cmd('knowledge.consulted', { resourceId: 'https://example.org/aid' }));
+  const id = runtime.room.current.outbox[0].event.id;
+  available = false;
+  const delayed = await runtime.flushLearning();
+  assert.equal(delayed.exported, 0); assert.equal(delayed.retained, 1); assert.equal(deliveries, 0);
+  assert.equal(runtime.room.current.outbox[0].event.id, id);
+  available = true;
+  assert.equal((await runtime.flushLearning()).exported, 1);
+  assert.equal(deliveries, 1); assert.equal(runtime.room.current.outbox.length, 0);
   await runtime.shutdown();
 });
