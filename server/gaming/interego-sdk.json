@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/markjspivey-xwisee/interego",
-  "revision": "87ee71626c015af3c1e7b9dac5579eff6899e8c1",
-  "review": "https://github.com/markjspivey-xwisee/interego/pull/626",
+  "revision": "aeabd6f2fe95524993ef94d7579debd26e39eac7",
+  "review": "https://github.com/markjspivey-xwisee/interego/pull/631",
   "packages": {
     "@interego/core": "0.2.0",
     "@interego/solid": "0.2.0",

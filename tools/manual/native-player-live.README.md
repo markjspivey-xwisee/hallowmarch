@@ -104,6 +104,26 @@ include phase, numeric HTTP statuses, allowlisted callback/finish error codes,
 claim-request counts and a bounded ceremony history. They never include URLs,
 codes, states, credential IDs, user IDs, keys or authorization values.
 
+Before the proof click, the owned native popup receives a narrow fetch wrapper
+for the exact relay `POST /oauth/verify`. It clones at most 8 KiB of that
+response, validates its exact `{redirect}` shape, callback origin/path/query and
+this ceremony's state, then acknowledges only a SHA-256 digest to the runner
+before returning the original, unchanged Response to the provider. The binding
+accepts only that popup's main frame at the relay authorization page and one
+receipt for the retained attempt. No redirect, OAuth code, state or native
+credential crosses this diagnostic port.
+
+The independent runner observer still verifies the actual native request,
+original retained passkey and HTTP 200. If immediate cross-origin navigation
+evicts Playwright's body, only the validated browser receipt can supply its
+response digest. The callback URL must match that exact digest; readable Node
+and browser evidence must agree. HTTP acceptance alone cannot permit a retry.
+Fixed `verifyBodyCode`, `captureCode` and `redirectEvidence` fields distinguish
+an unavailable body, malformed response and valid pre-navigation capture. A
+malformed readable response, foreign/stale/duplicate receipt, or unknown claim
+result still refuses replacement. The receipt can arrive before or after the
+independent HTTP observer; both checks must finish before granting authority.
+
 The explicit `oauth-retry-same-owner` command is available only at an OAuth
 stage after a validated native proof and a definitive callback HTTP error,
 with no claim request and the exact original passkey still held. Resolve the
@@ -245,7 +265,9 @@ node --test tools/manual/native-player-live.guard.test.mjs
 node --test tools/manual/native-player-orchestration.test.mjs
 node --test tools/manual/native-browser-network.test.mjs
 node --test tools/manual/native-live-stages.test.mjs tools/manual/native-owner-qa-session.test.mjs
+node --test tools/manual/native-oauth-ceremony.test.mjs tools/manual/native-oauth-redirect-capture.test.mjs
 HM_PLAYWRIGHT_MODULE=/ABSOLUTE/playwright/index.mjs node --test tools/manual/native-owner-qa-session.browser.test.mjs
+HM_PLAYWRIGHT_MODULE=/ABSOLUTE/playwright/index.mjs node --test tools/manual/native-oauth-redirect-capture.browser.test.mjs
 ```
 
 These offline checks use a fixture for failure/retry orchestration and actual

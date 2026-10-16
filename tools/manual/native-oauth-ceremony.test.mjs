@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthCredentialUserId, nativeOAuthFinishCode, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
 
 const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example';
@@ -18,7 +19,11 @@ function fixture(options = {}) {
       headers: () => authorization ? { authorization } : {} };
     popup.emit('request', request);
     popup.emit('response', { url: () => url, status: () => status, ok: () => status >= 200 && status < 300,
-      json: async () => body, request: () => request });
+      json: async () => {
+        if (path === '/oauth/verify' && options.nodeBodyUnavailable) throw Error('Protocol response body unavailable');
+        if (path === '/oauth/verify' && options.nodeJsonMalformed) throw new SyntaxError('FIXTURE_NOT_LOGGED');
+        return body;
+      }, request: () => request });
     if (path === '/gaming/identity/claim') observations.claimAuthorization.push(authorization);
   }
   function finish(popup, state, { callback = 303, callbackState = state, claim = 200, claimAuthorization = 'Bearer game-session', close = true } = {}) {
@@ -35,6 +40,7 @@ function fixture(options = {}) {
   }
   const controller = createRetainedNativeOAuth({ register: options.register ?? true, gameOrigin, relayOrigin,
     expectedOwner: options.register === false ? owner : null, getPasskey: () => heldKey, timeoutMs: options.timeoutMs || 30,
+    async prepareCapture(popup, { onReceipt }) { popup.captureReceipt = onReceipt; },
     async start({ onPopup }) {
       counts.starts++; const popup = new EventEmitter(); popup.closed = false;
       popup.close = async () => { if (!popup.closed) {
@@ -54,9 +60,15 @@ function fixture(options = {}) {
     },
     async prove(popup, intent) {
       counts.proofs++; intents.push(intent); if (intent.register) counts.registrations++;
-      response(popup, '/oauth/verify', { method: 'POST', body: { redirect: gameOrigin + '/gaming/identity/callback?code=RAM_ONLY_CODE&state=' + popup.state },
+      const redirect = gameOrigin + '/gaming/identity/callback?code=RAM_ONLY_CODE&state=' + popup.state;
+      const captured = () => popup.captureReceipt({ code: options.badCapture ? 'DO_NOT_LOG' : 'capture_complete', status: 200,
+        redirectHash: options.mismatchedCapture ? 'f'.repeat(64) : createHash('sha256').update(redirect).digest('hex') });
+      if (options.captureFirst) captured();
+      response(popup, '/oauth/verify', { method: 'POST', body: options.verifyBody ?? { redirect },
         requestBody: { pending_id: 'a'.repeat(32), method: intent.register ? 'webauthn-register' : 'webauthn-authenticate',
           response: { id: options.foreignCredential ? 'dW5yZWxhdGVk' : id, rawId: options.foreignCredential ? 'dW5yZWxhdGVk' : id } } });
+      if (options.capture && !options.captureFirst) captured();
+      if (options.duplicateCapture) captured();
       if (options.pending && counts.starts === 1) { deferred = () => finish(popup, popup.state); return; }
       finish(popup, popup.state, { callback: options.callbackFailure && counts.starts === 1 ? 504 : 303,
         callbackState: options.wrongState ? 'foreign-state' : popup.state,
@@ -150,4 +162,57 @@ test('finish and error diagnostics accept fixed known strings only', () => {
   assert.equal(nativeOAuthFinishCode('secret arbitrary error'), null);
   assert.equal(nativeOAuthFailureCode({ code: 'qa_oauth_callback_refused' }), 'qa_oauth_callback_refused');
   assert.equal(nativeOAuthFailureCode({ code: 'qa_oauth_SECRET' }), null);
+});
+test('pre-navigation response hash survives Node body eviction without losing same-owner retry', async () => {
+  for (const captureFirst of [false, true]) {
+    const f = fixture({ callbackFailure: true, nodeBodyUnavailable: true, capture: true, captureFirst });
+    await assert.rejects(f.controller.run(), { code: 'qa_oauth_callback_refused' });
+    const status = f.controller.status();
+    assert.equal(status.hasOriginalCredential, true); assert.equal(status.canRetrySameOwner, true);
+    assert.equal(status.verifyBodyCode, 'verify_body_unavailable'); assert.equal(status.captureCode, 'capture_complete');
+    assert.equal(status.redirectEvidence, 'browser-response');
+    f.controller.requestSameOwnerRetry(); assert.deepEqual(await f.controller.run(), owner);
+    assert.equal(f.counts.registrations, 1); assert.equal(f.controller.audit(f.observations.startAuthorization, f.observations.claimAuthorization), true);
+  }
+});
+test('native HTTP acceptance without either exact response hash cannot authorize a retry', async () => {
+  const f = fixture({ callbackFailure: true, nodeBodyUnavailable: true });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_verify_body_unavailable' });
+  assert.equal(f.controller.status().hasOriginalCredential, true); assert.equal(f.controller.status().canRetrySameOwner, false);
+  assert.equal(f.controller.status().redirectEvidence, 'unconfirmed');
+  assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' }); f.controller.close();
+});
+test('mismatched, duplicate or unrecognized captures refuse with fixed diagnostics', async () => {
+  for (const options of [{ capture: true, mismatchedCapture: true }, { capture: true, duplicateCapture: true }, { capture: true, badCapture: true }]) {
+    const f = fixture(options); await assert.rejects(f.controller.run());
+    assert.equal(f.controller.status().complete, false); assert.equal(f.controller.status().canRetrySameOwner, false);
+    assert(!JSON.stringify(f.controller.status()).includes('DO_NOT_LOG')); f.controller.close();
+  }
+});
+test('a malformed independently readable native response cannot be rescued by a browser receipt', async () => {
+  for (const options of [{ nodeJsonMalformed: true }, { verifyBody: { redirect: 'not-a-url' } },
+    { verifyBody: { redirect: gameOrigin + '/gaming/identity/callback?code=OFFLINE&state=foreign' } }]) {
+    const f = fixture({ callbackFailure: true, capture: true, ...options }); await assert.rejects(f.controller.run());
+    assert.equal(f.controller.status().canRetrySameOwner, false);
+    assert.match(f.controller.status().code, /^qa_oauth_verify_(json_invalid|url_refused|state_refused)$/);
+    assert(!JSON.stringify(f.controller.status()).includes('FIXTURE_NOT_LOGGED')); f.controller.close();
+  }
+});
+test('late duplicate or superseded receipts invalidate the final privacy audit', async () => {
+  const first = fixture({ capture: true }); await first.controller.run();
+  assert.equal(first.controller.audit(first.observations.startAuthorization, first.observations.claimAuthorization), true);
+  first.popups[0].captureReceipt({ code: 'capture_complete', status: 200, redirectHash: 'a'.repeat(64) });
+  assert.equal(first.controller.audit(first.observations.startAuthorization, first.observations.claimAuthorization), false);
+  const second = fixture({ callbackFailure: true }); await assert.rejects(second.controller.run());
+  second.controller.requestSameOwnerRetry(); await second.controller.run();
+  second.popups[0].captureReceipt({ code: 'capture_complete', status: 200, redirectHash: 'a'.repeat(64) });
+  assert.equal(second.controller.audit(second.observations.startAuthorization, second.observations.claimAuthorization), false);
+});
+test('a captured response with an unknown claim result still cannot authorize another sign-in', async () => {
+  const f = fixture({ capture: true, nodeBodyUnavailable: true, missingClaimResponse: true });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_pending' });
+  assert.equal(f.controller.status().redirectEvidence, 'browser-response'); assert.equal(f.controller.status().claimRequests, 1);
+  assert.equal(f.controller.status().canRetrySameOwner, false);
+  assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' });
+  assert.equal(f.counts.starts, 1); f.controller.close();
 });

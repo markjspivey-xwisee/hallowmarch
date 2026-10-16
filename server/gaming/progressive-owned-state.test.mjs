@@ -248,8 +248,19 @@ test('composes actual InteregoGamingStore and NativeCommitStore with real crypto
       bodyDigest: sha(bytes), contentType: 'application/json', pod: 'css', path: url, size: bytes.length, updatedAt: Date.now(), topUri: nativeUri, opaqueUri: nativeUri }),
     { headers: { 'Content-Type': 'application/json', ETag: '"' + revision + '-json"' } });
   };
-  const create = () => createInteregoStore({ native, scope, senderKeyPair, ownerPublicKey: senderKeyPair.publicKey,
-    recipientPublicKeys: [senderKeyPair.publicKey], namespace: 'test-progressive-world', credentialsProvider: async () => ({ Authorization: 'Bearer explicit-test' }), transport });
+  const create = () => {
+    const store = createInteregoStore({ native, scope, senderKeyPair, ownerPublicKey: senderKeyPair.publicKey,
+      recipientPublicKeys: [senderKeyPair.publicKey], namespace: 'test-progressive-world', credentialsProvider: async () => ({ Authorization: 'Bearer explicit-test' }), transport });
+    assert.equal(typeof store.nativeClient.readHeadRecords, 'function', 'reviewed SDK must provide selected native proofs');
+    store.nativeClient.readHead = () => assert.fail('actual game adapter must not enumerate full native history');
+    const commit = store.nativeClient.commit.bind(store.nativeClient);
+    store.nativeClient.commit = request => {
+      assert.equal(request.resultRecordKeys.length, 2, 'stream and immutable operation receipt paths are requested');
+      assert.deepEqual([...request.resultRecordKeys].sort(), request.expected.selectedRecordKeys);
+      return commit(request);
+    };
+    return store;
+  };
   const b = createProgressiveOwnedState({ store: create(), streamId: 'world', checkpointIntervalMs: 60000 });
   await b.start({ seed: () => ({ world: 'private-state-marker', season: 1 }) });
   b.capture({ world: 'private-state-marker', season: 2 }); loseAck = true; await b.checkpoint();

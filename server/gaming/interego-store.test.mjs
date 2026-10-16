@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync, openSync, fsyncSync, closeSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInteregoStore, createNativeTransport, DurableStoreConflictError } from './interego-store.js';
+import { InteregoGamingStore, createInteregoStore, createNativeTransport, DurableStoreConflictError } from './interego-store.js';
 
 /*
  * LOCAL CONTRACT FIXTURE ONLY. It implements the native HTTP command, CAS
@@ -123,6 +123,44 @@ const artifactCodec = {
   createNativeByteArtifact(input) { return { owner: input.owner, contentType: input.contentType, bytes: Buffer.from(input.bytes).toString('base64') }; },
   readNativeByteArtifact(artifact) { return { ...artifact, bytes: Buffer.from(artifact.bytes, 'base64') }; },
 };
+
+test('selected adapter readiness and absence use exact detached coverage without complete-index reads', async () => {
+  const requests = [], native = { ready: async () => {}, readHead: () => assert.fail('selected client must not enumerate full native index'),
+    readArtifact: () => assert.fail('confirmed absence has no artifact'), commit: () => assert.fail('readiness must never write'),
+    async readHeadRecords(keys) { requests.push([...keys]); return { revision: null, records: new Map(), selectedRecordKeys: [...keys] }; } };
+  const store = new InteregoGamingStore({ nativeClient: native, artifactCodec, owner: 'urn:test:owner', namespace: 'selected-test' });
+  await store.ready(); assert.deepEqual(requests, [[]]);
+  assert.equal((await store.load('stream')).version, 0); assert.deepEqual(requests[1], [store.keys('stream').stream]);
+  assert.equal(store.performanceStatus().snapshotMode, 'selected-records');
+  assert.equal(store.performanceStatus().snapshotReads, 2);
+  await assert.rejects(store.record({ selectedRecordKeys: [], records: new Map() }, 'unrequested'), { code: 'CORRUPT_DURABLE_STATE' });
+  native.readHeadRecords = async keys => { keys.length = 0; return { revision: null, records: new Map(), selectedRecordKeys: [] }; };
+  await assert.rejects(store.load('must-be-covered'), { code: 'CORRUPT_DURABLE_STATE' });
+  for (const coverage of [undefined, [], ['foreign'], [store.keys('stream').stream, 'extra']]) {
+    native.readHeadRecords = async () => ({ revision: null, records: new Map(), selectedRecordKeys: coverage });
+    await assert.rejects(store.load('stream'), { code: 'CORRUPT_DURABLE_STATE' });
+  }
+  native.readHeadRecords = async keys => ({ revision: null, records: new Map([['foreign', {}]]), selectedRecordKeys: keys });
+  await assert.rejects(store.load('stream'), { code: 'CORRUPT_DURABLE_STATE' });
+});
+
+test('selected commit/recovery/result requests cover only stream and operation, and result selection cannot erase expected coverage', async () => {
+  const records = new Map(), requests = []; let revision = null;
+  const native = { ready: async () => {}, readHead: () => assert.fail('selected client must not enumerate full native index'),
+    readArtifact: async value => value,
+    async readHeadRecords(keys) { requests.push([...keys]); return { revision, records: new Map([...records].filter(([key]) => keys.includes(key))), selectedRecordKeys: [...keys] }; },
+    async commit(input) {
+      assert.deepEqual([...input.resultRecordKeys].sort(), input.expected.selectedRecordKeys);
+      for (const change of input.changes) records.set(change.key, change.artifact);
+      revision = 'sha256:' + 'a'.repeat(64); input.resultRecordKeys.length = 0;
+      return { operationId: input.operationId, head: { revision }, snapshot: { revision, records: new Map(), selectedRecordKeys: [] } };
+    } };
+  const store = new InteregoGamingStore({ nativeClient: native, artifactCodec, owner: 'urn:test:owner', namespace: 'selected-test' });
+  const result = await store.commit('stream', { expectedVersion: 0, state: { own: true }, idempotencyKey: 'op' });
+  assert.equal(result.version, 1); assert.equal(result.replayed, true, 'bad result coverage requires independent verified operation readback');
+  const keys = store.keys('stream', 'op'); assert.deepEqual(requests, [[keys.stream, keys.operation].sort(), [keys.stream, keys.operation].sort()]);
+  assert.equal((await store.load('stream')).state.own, true);
+});
 
 class FixtureNativeClient {
   constructor({ scope, fetch }) { this.scope = scope; this.fetch = fetch; }

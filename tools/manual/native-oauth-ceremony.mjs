@@ -1,5 +1,6 @@
 /** Manual QA ceremony retention. No top-level browser, network or credential I/O. */
 import { createHash } from 'node:crypto';
+import { prepareNativeOAuthRedirectCapture, nativeOAuthCaptureCode } from './native-oauth-redirect-capture.mjs';
 
 const error = code => Object.assign(new Error('Retained native OAuth QA refused.'), { code });
 const ensure = (value, code) => { if (!value) throw error(code); };
@@ -52,8 +53,8 @@ export async function retainedNativeOAuthPopup({ page, gameOrigin, onPopup }) {
 }
 
 export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner = null,
-  getPasskey, start, prove, verifyOwner, inspectFinish = async () => null, timeoutMs = 180000 } = {}) {
-  ensure(typeof register === 'boolean' && [getPasskey, start, prove, verifyOwner, inspectFinish].every(value => typeof value === 'function')
+  getPasskey, start, prove, verifyOwner, inspectFinish = async () => null, prepareCapture = prepareNativeOAuthRedirectCapture, timeoutMs = 180000 } = {}) {
+  ensure(typeof register === 'boolean' && [getPasskey, start, prove, verifyOwner, inspectFinish, prepareCapture].every(value => typeof value === 'function')
     && Number.isInteger(timeoutMs) && timeoutMs >= 10 && timeoutMs <= 180000, 'qa_oauth_configuration');
   for (const origin of [gameOrigin, relayOrigin]) { let u; try { u = new URL(origin); } catch { throw error('qa_oauth_configuration'); }
     ensure(u.protocol === 'https:' && u.origin === origin, 'qa_oauth_configuration'); }
@@ -67,6 +68,13 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   const canRetry = () => !closed && !running && !!current && current.callbackStatus >= 400 && current.claimRequests === 0
     && current.jobs.size === 0 && current.verifySucceeded && current.redirectHash === current.callbackHash && !current.invalid
     && !completeOwner && !!registrationReady() && attempts.length < 4;
+  function updateRedirectEvidence(attempt) {
+    if (attempt.nodeRedirectHash && attempt.browserRedirectHash && attempt.nodeRedirectHash !== attempt.browserRedirectHash) {
+      attempt.invalid = 'qa_oauth_redirect_evidence_mismatch'; return;
+    }
+    attempt.redirectHash = attempt.browserRedirectHash || attempt.nodeRedirectHash || null;
+    attempt.verifySucceeded = attempt.proofAccepted && !!attempt.redirectHash && !attempt.invalid;
+  }
   function attach(attempt, popup) {
     ensure(!attempt.popup || attempt.popup === popup, 'qa_oauth_popup_mismatch');
     if (attempt.popup) return;
@@ -94,6 +102,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   async function observe(attempt, response) {
     const url = new URL(response.url()), request = response.request(), method = request.method();
     if (url.origin === relayOrigin && url.pathname === '/oauth/verify' && method === 'POST') {
+      ensure(!url.search && !url.hash, 'qa_oauth_registration_provenance');
       ensure(++attempt.verifyResponses === 1, 'qa_oauth_registration_provenance');
       let body; try { body = JSON.parse(request.postData() || ''); } catch { throw error('qa_oauth_registration_provenance'); }
       ensure(Object.keys(body).sort().join(',') === 'method,pending_id,response' && /^[a-f0-9]{32}$/.test(body.pending_id || '')
@@ -103,16 +112,28 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
       if (originalCredentialId) ensure(body.response.id === originalCredentialId, 'qa_oauth_owner_mismatch');
       attempt.verifyStatus = numericStatus(response.status()); attempt.phase = 'native-proof-response';
       if (!response.ok()) return;
-      const value = await response.json();
-      ensure(value && Object.keys(value).join(',') === 'redirect' && typeof value.redirect === 'string', 'qa_oauth_response_refused');
-      const redirect = new URL(value.redirect);
-      ensure(redirect.origin === gameOrigin && redirect.pathname === '/gaming/identity/callback' && !redirect.username && !redirect.password
-        && !redirect.hash && redirect.searchParams.getAll('state').length === 1 && redirect.searchParams.get('state') === attempt.state
-        && redirect.searchParams.getAll('code').length === 1 && !!redirect.searchParams.get('code')
-        && [...redirect.searchParams.keys()].sort().join(',') === 'code,state', 'qa_oauth_response_refused');
+      ensure(attempt.verifyStatus === 200, 'qa_oauth_verify_status_refused');
+      // Request/key matching and HTTP acceptance are retained before a browser
+      // navigation can evict Playwright's response body. Neither grants authority.
       originalCredentialId ||= body.response.id;
-      attempt.redirectHash = createHash('sha256').update(redirect.href).digest('hex');
-      attempt.verifySucceeded = true; attempt.phase = 'callback'; return;
+      attempt.proofAccepted = true; updateRedirectEvidence(attempt);
+      let value;
+      try { value = await response.json(); }
+      catch (cause) {
+        attempt.verifyBodyCode = cause?.name === 'SyntaxError' ? 'verify_json_invalid' : 'verify_body_unavailable';
+        if (cause?.name === 'SyntaxError') throw error('qa_oauth_verify_json_invalid');
+        updateRedirectEvidence(attempt); return;
+      }
+      ensure(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join(',') === 'redirect'
+        && typeof value.redirect === 'string', 'qa_oauth_verify_shape_refused');
+      let redirect; try { redirect = new URL(value.redirect); } catch { throw error('qa_oauth_verify_url_refused'); }
+      ensure(redirect.origin === gameOrigin && !redirect.username && !redirect.password, 'qa_oauth_verify_origin_refused');
+      ensure(redirect.pathname === '/gaming/identity/callback' && !redirect.hash, 'qa_oauth_verify_path_refused');
+      ensure(redirect.searchParams.getAll('state').length === 1 && redirect.searchParams.get('state') === attempt.state, 'qa_oauth_verify_state_refused');
+      ensure(redirect.searchParams.getAll('code').length === 1 && !!redirect.searchParams.get('code')
+        && [...redirect.searchParams.keys()].sort().join(',') === 'code,state', 'qa_oauth_verify_query_refused');
+      attempt.nodeRedirectHash = createHash('sha256').update(redirect.href).digest('hex');
+      attempt.verifyBodyCode = 'verify_body_read'; updateRedirectEvidence(attempt); attempt.phase = 'callback'; return;
     }
     if (url.origin !== gameOrigin) return;
     if (url.pathname === '/gaming/identity/callback' && method === 'GET') {
@@ -153,6 +174,21 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
       && /^[A-Za-z0-9_-]{43}$/.test(authorize.searchParams.get('state') || '')
       && authorize.searchParams.get('redirect_uri') === gameOrigin + '/gaming/identity/callback', 'qa_oauth_start_provenance');
     attempt.state = authorize.searchParams.get('state'); attempt.pkce = true; attempt.phase = 'proof';
+    try { await prepareCapture(attempt.popup, { gameOrigin, relayOrigin, state: attempt.state, onReceipt: receipt => {
+      if (closed) return;
+      if (attempt.captureCode) { attempt.invalid = 'qa_oauth_capture_duplicate'; updateRedirectEvidence(attempt); changed(attempt); return; }
+      const code = nativeOAuthCaptureCode(receipt?.code);
+      if (current !== attempt || !code || (code === 'capture_complete'
+        && (receipt.status !== 200 || !/^[a-f0-9]{64}$/.test(receipt.redirectHash)))) {
+        attempt.captureCode = 'capture_receipt_refused'; attempt.invalid = 'qa_oauth_capture_refused';
+      } else {
+        attempt.captureCode = code;
+        if (code === 'capture_complete') attempt.browserRedirectHash = receipt.redirectHash;
+        else if (!['capture_body_unavailable', 'capture_native_refused'].includes(code)) attempt.invalid = 'qa_oauth_capture_refused';
+      }
+      updateRedirectEvidence(attempt); changed(attempt);
+    } }); }
+    catch { throw error('qa_oauth_capture_refused'); }
     if (attempt.register) { ensure(!registrationAttempted, 'qa_registration_retry_refused'); registrationAttempted = true; }
     try { await prove(attempt.popup, { register: attempt.register,
       // Explicit recovery is usernameless: only the original resident passkey
@@ -166,6 +202,9 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
     while (!closed) {
       await Promise.all([...attempt.jobs]);
       if (attempt.invalid) throw error(attempt.invalid);
+      if (attempt.callbackStatus && attempt.proofAccepted && !attempt.redirectHash && attempt.verifyBodyCode === 'verify_body_unavailable') {
+        throw error('qa_oauth_verify_body_unavailable');
+      }
       if (attempt.callbackStatus >= 400) {
         ensure(attempt.verifySucceeded && attempt.redirectHash === attempt.callbackHash, 'qa_oauth_callback_provenance');
         attempt.phase = 'callback-refused'; throw error('qa_oauth_callback_refused');
@@ -197,11 +236,15 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
       callbackStatus: current?.callbackStatus || null, callbackCode: current?.callbackCode || null,
       startStatus: current?.startStatus || null,
       verifyStatus: current?.verifyStatus || null, finishStatus: current?.finishStatus || null, finishCode: current?.finishCode || null,
+      verifyBodyCode: current?.verifyBodyCode || null, captureCode: current?.captureCode || null,
+      redirectEvidence: current?.browserRedirectHash ? current.nodeRedirectHash ? 'node-and-browser' : 'browser-response'
+        : current?.nodeRedirectHash ? 'node-response' : 'unconfirmed',
       claimStatus: current?.claimStatus || null, claimRequests: current?.claimRequests || 0, code: lastCode,
       popupOpen: !!current?.popup && !current.popupClosed, canRetrySameOwner: !!canRetry(),
       successfulClaims: attempts.filter(value => value.completed).length, failedCeremonies: attempts.filter(value => value.superseded).length,
       history: attempts.map(value => ({ mode: value.register ? 'register' : 'same-owner-signin', phase: value.phase,
         verifyStatus: value.verifyStatus, callbackStatus: value.callbackStatus, callbackCode: value.callbackCode,
+        verifyBodyCode: value.verifyBodyCode || null, captureCode: value.captureCode || null,
         finishStatus: value.finishStatus, finishCode: value.finishCode, claimStatus: value.claimStatus,
         claimRequests: value.claimRequests, complete: value.completed, explicitlySuperseded: value.superseded })) }; },
     run() {
@@ -232,7 +275,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
     requestSameOwnerRetry() { ensure(canRetry(), 'qa_oauth_retry_refused'); retryApproved = true; },
     audit(starts, claims) {
       return !!completeOwner && starts.length === attempts.length && claims.length === 1
-        && attempts.every((attempt, index) => attempt.pkce && attempt.verifySucceeded && attempt.redirectHash === attempt.callbackHash
+        && attempts.every((attempt, index) => !attempt.invalid && attempt.pkce && attempt.verifySucceeded && attempt.redirectHash === attempt.callbackHash
           && starts[index] === attempt.startAuthorization
           && (attempt.completed ? attempt.claimStatus === 200 && attempt.claimRequests === 1 && claims[0] === attempt.claimAuthorization
             : attempt.superseded && attempt.callbackStatus >= 400 && attempt.claimRequests === 0));
@@ -246,6 +289,10 @@ const codes = new Set(['qa_oauth_configuration', 'qa_oauth_passkey_required', 'q
   'qa_oauth_owner_mismatch', 'qa_oauth_callback_provenance', 'qa_oauth_claim_provenance', 'qa_oauth_start_provenance',
   'qa_registration_retry_refused', 'qa_oauth_callback_refused', 'qa_oauth_claim_refused', 'qa_oauth_popup_closed',
   'qa_oauth_finish_refused', 'qa_oauth_pending', 'qa_oauth_closed', 'qa_oauth_retry_refused', 'qa_oauth_popup_mismatch']);
+for (const code of ['qa_oauth_capture_refused', 'qa_oauth_capture_duplicate', 'qa_oauth_redirect_evidence_mismatch',
+  'qa_oauth_verify_status_refused', 'qa_oauth_verify_json_invalid', 'qa_oauth_verify_body_unavailable', 'qa_oauth_verify_shape_refused',
+  'qa_oauth_verify_url_refused', 'qa_oauth_verify_origin_refused', 'qa_oauth_verify_path_refused', 'qa_oauth_verify_state_refused',
+  'qa_oauth_verify_query_refused']) codes.add(code);
 export const nativeOAuthFailureCode = cause => codes.has(cause?.code) ? cause.code : null;
 export function nativeOAuthPrivacy(controllers, observations) {
   if (controllers.length !== 2) return false;
