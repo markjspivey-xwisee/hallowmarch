@@ -4,6 +4,16 @@ import { nativeLiveStages } from './native-live-stages.mjs';
 import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage } from '../../server/gaming/native-agent-proof.js';
 
 const names = ['register', 'challenge', 'complete', 'renew', 'command', 'observe', 'revoke'];
+// Exact public error codes from the native agent HTTP/authority/proof adapters.
+// Never retain an arbitrary response string, nested error, payload or message.
+const httpCodes = new Set(['native_admission_expired', 'native_admission_uncertain', 'stale_native_proof',
+  'native_proof_unavailable', 'agent_challenge_unavailable', 'agent_challenge_mismatch',
+  'owner_grant_expired', 'owner_grant_revoked', 'owner_grant_rejected', 'native_grant_unavailable',
+  'native_agent_session_unavailable', 'agent_session_unavailable', 'agent_renewal_rejected', 'agent_renewal_in_progress',
+  'agent_command_expired', 'agent_scope_rejected', 'agent_sequence_rejected', 'invalid_session_signature',
+  'invalid_native_signature', 'invalid_proof_shape', 'invalid_proof_time', 'invalid_session_key',
+  'native_agent_rejected', 'native_agent_key_unproven', 'native_agent_unavailable', 'native_game_unavailable',
+  'native_grant_rate_limited', 'agent_rate_limited', 'native_agent_busy', 'native_request_timeout']);
 const fail = code => { throw Object.assign(new Error('Manual companion QA condition failed.'), { code }); };
 const ensure = (value, code) => { if (!value) fail(code); };
 const clone = value => structuredClone(value);
@@ -26,6 +36,7 @@ export function createNativeCompanionLiveQa({ enabled, gameOrigin, relayOrigin, 
   let manifest = null, description = null, routes = null, body = null, published = null, nativeGrant = null;
   let key = null, challenge = null, envelope = null, admission = null, completeAttempted = false, sequence = 0, phase = 0, closed = false;
   let lastCommand = null, completedCommand = null, nativeCounterMeasured = false, counterBefore = null, compoundStep = 'not-started';
+  let lastHttpStatus = null, lastHttpCode = null;
   const stopped = new AbortController();
   const commandId = 'qa-native-companion-move:' + randomUUID();
   const observations = { negative: [], fastCommandAccepted: false, renewed: false, observed: false, localRevoked: false, ownerPodRevoked: false };
@@ -35,13 +46,16 @@ export function createNativeCompanionLiveQa({ enabled, gameOrigin, relayOrigin, 
   }
   async function call(url, payload) {
     ensure(!closed, 'qa_companion_closed'); const selected = target(url); let response;
+    lastHttpStatus = null; lastHttpCode = null;
     try { response = await request(selected, { method: payload ? 'POST' : 'GET', redirect: 'error', credentials: 'omit', cache: 'no-store',
       headers: { Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json' } : {}) },
       ...(payload ? { body: JSON.stringify(payload) } : {}), signal: AbortSignal.any([stopped.signal, AbortSignal.timeout(45000)]) }); }
     catch { fail('qa_companion_http_uncertain'); }
     ensure(!closed, 'qa_companion_closed');
+    lastHttpStatus = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
     ensure(!response.url || response.url === selected, 'qa_companion_description');
     let value; try { value = await response.json(); } catch { fail('qa_companion_response'); }
+    if (!(response.ok && value?.ok === true) && httpCodes.has(value?.error)) lastHttpCode = value.error;
     return { status: response.status, ok: response.ok, value };
   }
   const accepted = result => { ensure(result.ok && result.value?.ok === true && result.value.result, 'qa_companion_http_refused'); return result.value.result; };
@@ -179,7 +193,7 @@ export function createNativeCompanionLiveQa({ enabled, gameOrigin, relayOrigin, 
       const after = await ownerPort.readback(); ensure(after.grant?.revoked === true && after.grant.id === nativeGrant.id, 'qa_companion_public_readback'); observations.ownerPodRevoked = true;
     } },
   ], name => { ensure(!closed, 'qa_companion_closed'); onStage(name); });
-  const status = () => ({ kind: 'native_companion_qa', ...stages.status(), compoundStep, closed,
+  const status = () => ({ kind: 'native_companion_qa', ...stages.status(), compoundStep, closed, lastHttpStatus, lastHttpCode,
     hasKey: !!key, hasAdmission: !!admission, admissionLive: !!admission && admission.expiresAt > now(),
     publicGrantRetained: !!published, ownBodyRetained: !!body, nextSequence: sequence + 1,
     ...clone(observations), nativeCounterMeasured, nativeCounterAvailable: description?.proof?.counterObservationAdvertised === true,

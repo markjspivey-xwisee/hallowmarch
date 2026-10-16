@@ -85,6 +85,7 @@ async function fixture(t, options = {}) {
       const payload = JSON.parse(init.body);
       if (name === 'complete') count.complete++;
       if (name === 'command') count.command++;
+      const injected = options.httpResponse?.(name); if (injected) return injected;
       const result = await authority[name](payload);
       if (name === 'complete' && lostComplete) { lostComplete = false; throw Object.assign(new Error('fixture lost ack'), { uncertain: true }); }
       if (name === 'command' && result.ok && lostCommand) { lostCommand = false; throw Object.assign(new Error('fixture lost ack'), { uncertain: true }); }
@@ -121,6 +122,33 @@ test('the complete native companion scenario leaves a previously durable foreign
   const moves = f.store.value.state.events.filter(event => event.kind === 'movement.applied');
   assert.equal(moves.length, 1); assert.equal(moves[0].payload.entityId, f.body().entityId);
   assert.equal(f.store.value.state.events.some(event => ['damage', 'loot.granted', 'encounter.started', 'entity.recovered'].includes(event.kind)), false);
+});
+test('an actual public proof expiry code is retained without replaying uncertain admission', async t => {
+  const f = await fixture(t, { httpResponse: name => name === 'complete'
+    ? Response.json({ error: 'native_admission_expired' }, { status: 403 }) : null });
+  await assert.rejects(f.qa.remaining(), { code: 'qa_companion_http_refused' });
+  const report = f.qa.status();
+  assert.equal(report.compoundStep, 'native-admission'); assert.equal(report.lastHttpStatus, 403);
+  assert.equal(report.lastHttpCode, 'native_admission_expired'); assert.equal(f.count.complete, 1);
+  await assert.rejects(f.qa.remaining(), { code: 'qa_companion_admission_uncertain' });
+  assert.equal(f.count.complete, 1); assert.equal(f.count.publish, 1); assert.equal(f.count.spawn, 1);
+});
+test('unknown and malicious HTTP errors cannot enter retained diagnostics', async t => {
+  for (const error of ['https://private.example/?token=DO_NOT_CAPTURE', 'native_admission_expired\nDO_NOT_CAPTURE',
+    { code: 'native_admission_expired', privateKey: 'DO_NOT_CAPTURE' }, ['stale_native_proof'], null]) {
+    const f = await fixture(t, { httpResponse: name => name === 'complete'
+      ? Response.json({ error, message: 'DO_NOT_CAPTURE', token: 'DO_NOT_CAPTURE' }, { status: 503 }) : null });
+    await assert.rejects(f.qa.remaining(), { code: 'qa_companion_http_refused' });
+    const report = f.qa.status(); assert.equal(report.lastHttpStatus, 503); assert.equal(report.lastHttpCode, null);
+    assert.equal(JSON.stringify(report).includes('DO_NOT_CAPTURE'), false);
+    assert.equal(f.count.complete, 1);
+  }
+});
+test('an unreadable HTTP response retains its numeric status without retaining the body', async t => {
+  const f = await fixture(t, { httpResponse: name => name === 'complete' ? new Response('DO_NOT_CAPTURE', { status: 502 }) : null });
+  await assert.rejects(f.qa.remaining(), { code: 'qa_companion_response' });
+  assert.equal(f.qa.status().lastHttpStatus, 502); assert.equal(f.qa.status().lastHttpCode, null);
+  assert.equal(JSON.stringify(f.qa.status()).includes('DO_NOT_CAPTURE'), false);
 });
 test('uncertain publication retains stage cursor and original owner body/scope without re-running completed stages', async t => {
   const f = await fixture(t, { publishPending: true });
