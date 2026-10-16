@@ -251,7 +251,7 @@ async function reportRetainedStatus(diagnose) {
   console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep }));
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
-  if (mainWorld) console.log(JSON.stringify(mainWorld.status()));
+  if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
   if (broker) console.log(JSON.stringify(broker.status()));
   for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
     ...(diagnose ? await oauthControllers[i].diagnose() : oauthControllers[i].status()), ceremonyIndex: i + 1 }));
@@ -296,6 +296,7 @@ function startInput() {
       if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
       if (plan?.status().busy || companion?.status().busy) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
+        if (action === 'main-world-revoke') { if (!mainWorld) throw new Error('Main-world QA is not selected.'); await mainWorld.revoke(); return; }
         if (action === 'companion-restart-admission') {
           if (mainWorld) { console.log(JSON.stringify(await mainWorld.restartAdmission())); return; }
           if (!companion) throw Object.assign(new Error('Companion QA is not selected.'), { code: 'qa_companion_restart_refused' });

@@ -6,7 +6,7 @@ const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world
 export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onStage = () => {} } = {}) {
   let page, description, routes, ownerBody, reference, key, challenge, envelope, admission, sequence = 0;
   let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, lastHttp = null;
-  let movement = null, commandAttempted = false, needAdmission = false;
+  let movement = null, commandAttempted = false, commandConfirmed = false, movementBefore = null, needAdmission = false;
   const results = { normalGame: false, signedAdmission: false, mainWorldMoved: false, peerSawMovement: false, renewed: false, negative: [] };
   async function call(target, body) {
     check(!stopped && new URL(target).origin === pageOrigin(), 'qa_world_scope');
@@ -47,6 +47,23 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         && admission.receipt.scope.roomId === ownerBody.roomId && admission.expiresAt > Date.now(), 'qa_world_admission_expired');
       results.signedAdmission = true;
       needAdmission = false;
+  }
+  async function revokeAccess() {
+      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+      const row = page.locator('#world-agent-records p').filter({ hasText: reference.grantId });
+      await row.getByRole('button', { name: 'Revoke access', exact: true }).click();
+      await page.waitForFunction(id => window.__hm.worldAgents.state.records.get(id)?.localRevoked === true, reference.grantId, { timeout: 90000 }); localRevoked = true;
+      const denied = await call(routes.challenge, { grantId: reference.grantId, sessionPublicKeyJwk: key.publicKey.export({ format: 'jwk' }) });
+      check(denied.status === 403 && denied.value.error === 'native_grant_unavailable', 'qa_world_local_revocation');
+      await page.waitForFunction(id => !window.__hm.worldAgents.state.busy && window.__hm.worldAgents.state.records.get(id)?.grant?.revoked === true, reference.grantId, { timeout: 150000 });
+      const final = await page.evaluate(async id => {
+        const s = window.__hm.worldAgents.state, record = s.records.get(id), read = await s.client.load(record.reference);
+        return { reference: read.reference, head: read.head, revoked: read.grant.revoked };
+      }, reference.grantId);
+      check(final.revoked === true, 'qa_world_pod_revocation'); podRevoked = true;
+      console.log(JSON.stringify({ kind: 'main_world_qa_revoked_reference', ...final }));
+      await page.evaluate(() => window.__mainWorldQaPeer?.socket?.close());
+      await page.locator('#netsheet-close').click();
   }
   const stages = nativeLiveStages([
     { name: 'actual-main-game-entry', async run() {
@@ -108,16 +125,18 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       await admitNative();
     } },
     { name: 'actual-main-game-movement-and-peer', async run() {
-      check(!commandAttempted, 'qa_world_command_uncertain');
-      const before = await page.evaluate(() => ({ x: window.__hm.GAME.player.x, z: window.__hm.GAME.player.z, peerSeen: window.__mainWorldQaPeer.seen }));
+      check(!commandAttempted || commandConfirmed, 'qa_world_command_uncertain');
+      const before = movementBefore ||= await page.evaluate(() => ({ x: window.__hm.GAME.player.x, z: window.__hm.GAME.player.z, peerSeen: window.__mainWorldQaPeer.seen }));
       movement ||= { type: 'move', commandId: admission.sessionId + ':' + randomUUID(), roomId: ownerBody.roomId, entityId: ownerBody.id, dx: 1, dz: 0, durationMs: 500 };
-      const proof = signed(movement); commandAttempted = true;
-      const applied = accepted(await call(routes.command, proof)); sequence++;
-      await refuse('replay', proof, 'agent_sequence_rejected');
-      check(applied.execution === 'owner-page-input-applied', 'qa_world_input_unconfirmed');
-      await page.waitForFunction(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z) > .05, before, { timeout: 5000 });
+      if (!commandConfirmed) {
+        const proof = signed(movement); commandAttempted = true;
+        const applied = accepted(await call(routes.command, proof)); sequence++;
+        check(applied.execution === 'owner-page-input-applied', 'qa_world_input_unconfirmed'); commandConfirmed = true;
+        await refuse('replay', proof, 'agent_sequence_rejected');
+      }
+      await page.waitForFunction(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z) > .05, before, { polling: 100, timeout: 15000 });
       await page.waitForFunction(before => { const p = window.__mainWorldQaPeer.position;
-        return window.__mainWorldQaPeer.seen > before.peerSeen && p && Math.hypot(p[0] - before.x, p[2] - before.z) > .05; }, before, { timeout: 10000 });
+        return window.__mainWorldQaPeer.seen > before.peerSeen && p && Math.hypot(p[0] - before.x, p[2] - before.z) > .05; }, before, { polling: 100, timeout: 15000 });
       const moved = await page.evaluate(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z), before);
       check(moved > .05 && moved < 6, 'qa_world_physics'); results.mainWorldMoved = true; results.peerSawMovement = true;
       console.log(JSON.stringify({ kind: 'main_world_qa_movement', movedMeters: Math.round(moved * 1000) / 1000, secondAuthenticatedPeer: true, sameOwnerMultiConnection: true }));
@@ -140,25 +159,17 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       check(read.state?.body?.id === ownerBody.id && !/private-native-qa-|accessToken|refreshToken|inventory|chat|recovery/.test(JSON.stringify(read)), 'qa_world_observation_privacy');
     } },
     { name: 'actual-main-game-owner-revocation', async run() {
-      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
-      const row = page.locator('#world-agent-records p').filter({ hasText: reference.grantId });
-      await row.getByRole('button', { name: 'Revoke access', exact: true }).click();
-      await page.waitForFunction(id => window.__hm.worldAgents.state.records.get(id)?.localRevoked === true, reference.grantId, { timeout: 90000 }); localRevoked = true;
-      const denied = await call(routes.challenge, { grantId: reference.grantId, sessionPublicKeyJwk: key.publicKey.export({ format: 'jwk' }) });
-      check(denied.status === 403 && denied.value.error === 'native_grant_unavailable', 'qa_world_local_revocation');
-      await page.waitForFunction(id => !window.__hm.worldAgents.state.busy && window.__hm.worldAgents.state.records.get(id)?.grant?.revoked === true, reference.grantId, { timeout: 150000 });
-      const final = await page.evaluate(async id => {
-        const s = window.__hm.worldAgents.state, record = s.records.get(id), read = await s.client.load(record.reference);
-        return { reference: read.reference, head: read.head, revoked: read.grant.revoked };
-      }, reference.grantId);
-      check(final.revoked === true, 'qa_world_pod_revocation'); podRevoked = true;
-      console.log(JSON.stringify({ kind: 'main_world_qa_revoked_reference', ...final }));
-      await page.evaluate(() => window.__mainWorldQaPeer?.socket?.close());
-      await page.locator('#netsheet-close').click();
+      await revokeAccess();
     } },
   ], onStage);
   return Object.freeze({
     status() { return { kind: 'main_world_qa', ...stages.status(), ...results, publicReference: reference || null, localRevoked, podRevoked, lastHttp }; },
+    async diagnose() { if (!page || page.isClosed()) return { pageAvailable: false }; return page.evaluate(() => {
+      const h = window.__hm, p = h?.GAME.player, peer = window.__mainWorldQaPeer;
+      return { t: h?.GAME.t, position: p ? { x:p.x, y:p.y, z:p.z, alive:p.alive } : null, modal:h?.UI.modal,
+        paused:h?.worldAgents.state.paused, hasIntent:!!h?.worldAgents.state.intent, humanKeys:h ? [...h.INPUT.keys].filter(k=>/^Key[WASD]$|^Arrow/.test(k)) : [],
+        gameErrors:h?.errors.length, peerSeen:peer?.seen, peerPosition:peer?.position, network:h?.net.state().state, fastSent:h?.net.NET.stats.fastSent }; }); },
+    revoke: () => revokeAccess(),
     next: async () => { if (needAdmission) await admitNative(); return stages.next(); }, remaining: async () => { if (needAdmission) await admitNative(); return stages.remaining(); },
     restartAdmission() { check(!stopped && reference && completeAttempted && !localRevoked
       && (admission ? admission.expiresAt <= Date.now() : challenge?.expiresAt <= Date.now()), 'qa_world_restart_refused');

@@ -15,10 +15,18 @@ window.__mainAgentFixture = {
     MAIN_WORLD_AGENTS.lastGeneration=1;
     netWsSend=value=>{window.__fixturePackets.push(structuredClone(value));return true};
     MAIN_WORLD_AGENTS.paused=false; MAIN_WORLD_AGENTS.allowed.add('fixture-owner');
-    MAIN_WORLD_AGENTS.records.set('fixture-grant',{registered:true,grant:{roomId:'march',entityId:'fixture-owner',
+    MAIN_WORLD_AGENTS.records.set('fixture-grant',{reference:{grantId:'fixture-grant'},registered:true,grant:{roomId:'march',entityId:'fixture-owner',
       role:'teammate',actions:['observe','move','attack'],expiresAt:new Date(Date.now()+600000).toISOString(),revoked:false}});
   }
 }; window.__fixturePackets=[];
+window.__mainAgentFixture.focusCheck=()=>{
+  window.__HM_GAMING={mainWorldAgents:{enabled:true,affordances:'https://game.test/world/native-agents'}};
+  netUiOn();netSheetToggle(true);mainWorldAgentRender();const button=document.querySelector('#world-agent-records button');
+  if(!button)return {same:false,focused:false,started:GAME.started,count:MAIN_WORLD_AGENTS.records.size,sheet:!!document.querySelector('#netsheet .sheet'),enabled:window.__HM_GAMING?.mainWorldAgents?.enabled};
+  button.focus();
+  mainWorldAgentRender();mainWorldAgentRender();
+  return {same:button===document.querySelector('#world-agent-records button'),focused:document.activeElement===button};
+};
 """
 async def main():
     html = hm.HTML.read_text()
@@ -71,6 +79,9 @@ async def main():
             assert result['humanOverride'] and result['paused'],result
             assert not result['errors'] and not errors,{'engine':result['errors'],'browser':errors}
             print('PASS native input uses real movement/ground physics; human input and pause immediately override it',flush=True)
+            focus=await page.evaluate('__mainAgentFixture.focusCheck()')
+            assert focus['same'] and focus['focused'],focus
+            print('PASS access polling preserves the current revoke button and keyboard focus',flush=True)
             await page.screenshot(path=str(hm.OUT/'main-world-agents.png'),timeout=300000)
             print(json.dumps(result),flush=True)
         finally:await browser.close()

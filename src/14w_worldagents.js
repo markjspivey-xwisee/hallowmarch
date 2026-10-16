@@ -250,14 +250,21 @@ function mainWorldAgentRender() {
   }
   $('world-agent-note').textContent = state.note || (state.paused ? 'Agent control paused.' : 'Agent control resumes when this panel closes.');
   for (const button of box.querySelectorAll('form button,#world-agent-load')) button.disabled = state.busy;
-  const records = $('world-agent-records'); records.replaceChildren();
+  const records = $('world-agent-records');
+  const recordKey = JSON.stringify([state.busy, [...state.records.values()].map(r =>
+    [r.reference.grantId, r.grant?.role, !!r.grant?.revoked, !!r.localRevoked, r.phase || ''])]);
+  // Polling must not replace a focused Revoke/Confirm button every 500 ms.
+  if (records.dataset.recordKey === recordKey) return;
+  records.dataset.recordKey = recordKey; records.replaceChildren();
   for (const record of state.records.values()) {
     const row = document.createElement('p'); row.textContent = `${record.grant?.revoked ? 'Revoked' : record.localRevoked ? 'Stopped here · finish pod revocation' : record.phase || 'Access confirmed'} · ${record.grant?.role || 'Grant'} · ${record.reference.grantId}`;
     const link = document.createElement('a'); link.href = window.__HM_GAMING.mainWorldAgents.affordances; link.textContent = ' Agent discovery'; row.appendChild(link);
     if (!record.grant?.revoked) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.style.minHeight = '44px'; button.disabled = state.busy;
       button.textContent = record.phase || record.localRevoked ? 'Confirm pending change' : 'Revoke access';
-      button.onclick = () => mainWorldAgentRun(context => record.phase || record.localRevoked ? mainWorldAgentRetry(context, record) : mainWorldAgentRevoke(context, record)); row.appendChild(button);
+      button.onclick = () => mainWorldAgentRun(context => { const current = state.records.get(record.reference.grantId);
+        if (!current) throw new Error('Check your current access before changing it.');
+        return current.phase || current.localRevoked ? mainWorldAgentRetry(context, current) : mainWorldAgentRevoke(context, current); }); row.appendChild(button);
     }
     records.appendChild(row);
   }
