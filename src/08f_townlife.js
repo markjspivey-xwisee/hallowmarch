@@ -271,7 +271,9 @@ function lifeRun(e, dt) {
       // in a room the way goes round the furniture
       if (st.room && !st.path) st.path = houseRoute(st.room, e.x, e.z, st.x, st.z) || [{ x: st.x, z: st.z }];
       let tx = st.x, tz = st.z, last = true;
-      if (st.path) {
+      // A same-cell localPath has no waypoints; still check the original goal
+      // with moveToward below, since sharing a cell does not mean arrival.
+      if (st.path && st.path.length) {
         while (st.path.length > 1 && dist2(e.x, e.z, st.path[0].x, st.path[0].z) < 0.3 * 0.3) st.path.shift();
         tx = st.path[0].x; tz = st.path[0].z; last = st.path.length === 1;
       }
