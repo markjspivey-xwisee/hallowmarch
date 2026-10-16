@@ -41,6 +41,19 @@ test('known debug/tracing flags are refused before a live browser can start', ()
     assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
   }
 });
+test('human coaching smoke requires its exact explicit flag and the main-world QA scope before browser import', () => {
+  const configured = { HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example', HM_NATIVE_RELAY_ORIGIN: 'https://relay.example' };
+  for (const extra of [{ HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: '1' }, { HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: 'true' },
+    { HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: '0' }]) {
+    const result = invoke({ ...configured, ...extra });
+    assert.equal(result.status, 2); assert.match(result.stderr, /^FAIL: configuration\./);
+    assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND')); assert.equal(result.stdout, '');
+  }
+  const scoped = invoke({ ...configured, HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: '1', HM_NATIVE_MAIN_WORLD_LIVE_TEST: '1',
+    HM_NATIVE_COMPANION_AGENT_DID: 'did:web:identity.example:agents:fixture', HM_NATIVE_COMPANION_AGENT_POD_URL: 'https://pods.example/fixture/' });
+  assert.equal(scoped.status, 1); assert.match(scoped.stderr, /^FAIL: native live QA at load-browser \[stage_failed\]\./);
+  assert.equal(scoped.stdout, '');
+});
 test('a browser import failure emits only its fixed stage, never the raw module error', () => {
   const result = invoke({ HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example',
     HM_NATIVE_RELAY_ORIGIN: 'https://relay.example' });

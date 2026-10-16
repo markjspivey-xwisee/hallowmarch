@@ -176,6 +176,64 @@ stage emits a public `interego.sign_request` request. Feed only the matching
 public signed envelope back; never a connector credential. See
 [`native-companion-live.README.md`](./native-companion-live.README.md) for the exact
 protocol, optional flags, retained retries and explicit admission restart.
+
+### Optional human coaching smoke
+
+`HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST=1` explicitly adds a manual coaching smoke
+after all ten native-owner stages and all six main-world stages pass. It also
+requires `HM_NATIVE_LIVE_TEST=1` and `HM_NATIVE_MAIN_WORLD_LIVE_TEST=1`, the explicit
+HTTPS game/relay origins, and the existing public agent scope required by the
+main-world suite. Supplying this flag without that scope, or using a value other
+than exactly `1`, is refused before browser import. This flag does not supply
+user authorization: authenticated relay/pod activity must be specifically
+authorized before anyone launches the suite.
+
+The smoke uses the same labelled synthetic human owner and the ordinary Players
+sheet. It enters the fixed goal “Validate coaching workflow on this synthetic QA
+character,” describes an explicitly synthetic integration test, reviews the real
+owner-browser observations, checks both task-scoped consent boxes, and clicks
+**Request my plan** once. A page-local observer counts only delivery attempts for
+that advertised Foxxi action; it forwards every request unchanged. Successful
+verification requires exactly one observed `act` delivery attempt, a displayed
+response attributed to the actual Foxxi descriptor/session delegate, and an
+independent authenticated private readback of that exact plan and observation.
+
+The click-attempt flag is retained before clicking. An uncertain response never
+causes an automatic resend, a new request, or another consent grant. A later
+manual continuation can only wait for the original result and read it back.
+Concurrent continuations share one in-flight helper operation, independently
+of the UI button’s busy state. Private readback rechecks the original page,
+origin, game account/session and native owner binding after the read and before
+accepting proof; changing the owner during readback cannot produce a PASS.
+The original owner/session is pinned before any connection or review UI waits.
+Each consent and request click rechecks that pinned native binding and requires
+the preview to identify that exact human performer and reviewed synthetic task.
+The final check and real DOM click share one browser turn; an owner switch
+during connection or review cannot silently redirect the QA request.
+If that cannot establish the result, the smoke stays failed and the operator
+must stop; unknown delivery is never a PASS. Only pending native storage
+confirmation has the product’s separate existing confirmation control.
+
+The synthetic report is a transport test, not evidence of learning or better
+gameplay. Verification requires `not-assessed`, unvalidated-effect provenance,
+no competency claims, and no Foxxi personal learning record. Console output
+contains fixed stages, booleans and bounded actual owner-browser measurements.
+Private plans, task bodies, encryption keys, native credentials and signed
+envelopes remain in browser/process memory and are never dumped or exported.
+Context cleanup removes the temporary request observer and its memory.
+
+The public run label `20261016221141372-61d93afc` records a blocked attempt, **not
+a live PASS**. Its last successful status was `initial-game-boot`, 0 of 10 native
+stages, with no observed OAuth controller or confirmed native binding. Automatic
+approval review then rejected continuation of the authenticated external
+relay/pod test. The safe finish attempt reported that its process handle was
+unavailable; cleanup could not be independently confirmed. No equivalent live
+flow was retried after that rejection. No live credentials or private records
+were retained as checkpoint artifacts.
+Subsequent cleanup-only process inventory found no runner with this worktree’s
+script/cwd visible in the available runtime. Browser descendant cleanup remains
+unconfirmed; no namespace workaround or further authenticated flow was attempted.
+
 Boot diagnostics include fixed substeps and an inventory of every observed page,
 including closed pages and game/relay/blank/other origin classes, with counts.
 They never print page URLs. Browser status evaluation has a two-second bound;
