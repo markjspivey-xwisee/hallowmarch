@@ -8,7 +8,7 @@ import { createLearningOutbox } from './outbox.js';
  * this capability disabled; it never substitutes local files or human pod keys.
  */
 export function createGamingRuntime({ store = null, send, clock = Date.now, domain = createHallowmarchDomain(), roomId = 'march-proof', learningSink = null,
-  persistenceMode = 'strict', checkpointIntervalMs = 1000, broadcastIntervalMs = 50 } = {}) {
+  persistenceMode = 'strict', checkpointIntervalMs = 1000, broadcastIntervalMs = 50, verifiedDidFor = () => null } = {}) {
   if (!Number.isSafeInteger(broadcastIntervalMs) || broadcastIntervalMs < 1 || broadcastIntervalMs > 1000) throw new TypeError('Bounded snapshot interval required.');
   let room = null, failure = store ? 'initializing' : 'native-service-unconfigured', stopping = false;
   const evidenceDomain = domain.evidenceDomain || domain.id;
@@ -22,7 +22,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
       ...(persistenceMode === 'realtime' ? { maxSnapshotHz: 1000 / broadcastIntervalMs } : {}) },
     ...(room ? { version: room.version } : {}) });
   const snapshot = async (client, refresh = false) => {
-    const principal = clients.get(client);
+    const principal = clients.has(client) ? principalOf(client) : null;
     if (principal && client.ws?.readyState === 1) {
       const state = refresh ? await room.observe(principal) : room.observeCommitted(principal);
       send(client, { t: 'gaming', op: 'snapshot', roomId: state.roomId, version: state.version,
@@ -57,7 +57,9 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
   function principalOf(c) {
     if (!c.acct?.id) throw new GameCommandError('unauthenticated', 'Sign in to enter the expedition.');
     if (![0, 1, 2].includes(c.realm)) throw new GameCommandError('realm_required', 'Start your character first.');
-    return { playerId: c.acct.id, realmId: String(c.realm), name: c.slow?.dn || c.slow?.n || c.acct.name || 'Traveller' };
+    const verifiedDid = verifiedDidFor(c);
+    return { playerId: c.acct.id, realmId: String(c.realm), name: c.slow?.dn || c.slow?.n || c.acct.name || 'Traveller',
+      ...(typeof verifiedDid === 'string' && verifiedDid.startsWith('did:') ? { verifiedDid } : {}) };
   }
   async function handle(c, message) {
     const requestId = typeof message.requestId === 'string' && message.requestId.length <= 128 ? message.requestId : '';

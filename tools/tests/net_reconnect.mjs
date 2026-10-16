@@ -87,6 +87,9 @@ function harness(options = {}) {
     reportError: error => failures.push(String(error)),
     netUiOn() {}, netSeasonMsg() {}, coMsg() {}, season2ServerMsg() {},
     savePartsKey: x => x, landKey: x => x,
+    // The native owner port is tested separately from the legacy WS transport.
+    nativePlayerSaveRef: async () => options.nativeSave || null,
+    NATIVE_PLAYER: { state: 'ready' }, nativePlayerRender() {},
   });
   vm.runInContext(source + '\n' + [
     'netHostElect = netInbox = netGhosts = netDeathWatch = netWorldKeep = () => {};',
@@ -98,6 +101,7 @@ function harness(options = {}) {
     'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow};',
   ].join('\n'), context);
   const H = context.H;
+  if (options.nativeSave) H.SAVE.native = true;
   const welcome = (socket, peer = 'peer-new') => socket.message({
     t: 'welcome', v: 1, peer, token: 'server-issued-token',
     acct: { id: 'account-one', guest: true }, world: { k: [] },
@@ -446,4 +450,53 @@ test('RPC timeout retires a CLOSING socket immediately and rejects every overlap
   await h.drive(3000);
   assert.equal(h.sockets.length, 2, 'old close and old RPC timers cannot duplicate recovery');
   assert.deepEqual(h.failures, []);
+});
+
+test('native unread saves never substitute another browser character or write a central fallback', async () => {
+  const original = JSON.stringify({ v: 1, char: null, settings: { owner: 'other-browser-session' } });
+  let writes = 0;
+  const nativeSave = { native: true, get: async () => { throw { code: 'cannot_decrypt' }; },
+    set: async () => { writes++; throw { code: 'key_required' }; } };
+  const h = harness({ nativeSave, storage: { 'hallowmarch.save.v1': original } });
+  assert.equal(await h.H.loadSave(), null);
+  assert.equal(h.H.SAVE.ref, nativeSave);
+  assert.equal(h.H.SAVE.backend, 'pod');
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 1 } };
+  await h.H.saveNow();
+  assert.equal(writes, 1);
+  assert.equal(h.H.SAVE.lastBody, '', 'failed pod writes must remain retryable');
+  assert.equal(h.H.SAVE.pending.settings.progress, 1);
+  assert.equal(h.storage.get('hallowmarch.save.v1'), original);
+  assert.equal(h.sockets.length, 0, 'the native port sends no legacy save RPC');
+});
+
+test('native pending writes retry identical progress and become saved only after confirmation', async () => {
+  let writes = 0;
+  const nativeSave = { native: true, get: async () => ({ exists: false }),
+    set: async () => { if (++writes === 1) throw { code: 'pod_pending' }; } };
+  const h = harness({ nativeSave }); await h.H.loadSave();
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 2 } };
+  await h.H.saveNow();
+  assert.equal(h.H.SAVE.lastBody, ''); assert.ok(h.H.SAVE.pending);
+  await h.H.saveNow();
+  assert.equal(writes, 2); assert.match(h.H.SAVE.lastBody, /progress/);
+  assert.equal(h.H.SAVE.pending, null); assert.equal(h.storage.size, 0);
+});
+
+test('an older native acknowledgement cannot discard newer queued progress', async () => {
+  const first = deferred(), bodies = [];
+  const nativeSave = { native: true, get: async () => ({ exists: false }),
+    set: async save => { bodies.push(save); if (bodies.length === 1) await first.promise; } };
+  const h = harness({ nativeSave }); await h.H.loadSave();
+  h.H.GAME.ready = true; h.H.GAME.player = {};
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 3 } };
+  const a = h.H.saveNow(); await flush();
+  h.context.fixtureSave = { v: 1, char: null, settings: { progress: 4 } };
+  const b = h.H.saveNow(); assert.equal(h.H.SAVE.pending.settings.progress, 4);
+  first.resolve(); await a; await b;
+  assert.deepEqual(bodies.map(save => save.settings.progress), [3, 4]);
+  assert.match(h.H.SAVE.lastBody, /"progress":4/); assert.equal(h.H.SAVE.pending, null);
+  assert.equal(h.storage.size, 0);
 });

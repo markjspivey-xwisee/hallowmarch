@@ -1,10 +1,12 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend() {
+  const native = await nativePlayerSaveRef();
+  if (native) return native;
   try { const srv = await netServerSaveRef(); if (srv) { SAVE.server = true; return srv; } } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
@@ -34,14 +36,14 @@ async function loadSave() {
   let remote = null, remoteOk = false;
   if (ref) {
     try {
-      const snap = await withTimeout(ref.get(), 12000);
+      const snap = await withTimeout(ref.get(), ref.native ? 45000 : 12000);
       if (snap) { remoteOk = true; if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data())); }
     } catch (e) { /* unreadable: keep this session's progress in the browser instead */ }
   }
   // only write to the account copy once it has been read, so an existing save is never overwritten blind
-  SAVE.ref = remoteOk ? ref : null;
-  SAVE.backend = remoteOk ? 'db' : 'local';
-  const local = readLocal();
+  SAVE.ref = remoteOk || ref?.native ? ref : null;
+  SAVE.backend = SAVE.native ? 'pod' : remoteOk ? 'db' : 'local';
+  const local = SAVE.native ? null : readLocal();
   const s = validSave(remote || local);
   SAVE.loaded = s;
   if (s) { SAVE.lastBody = JSON.stringify({ ...s, savedAt: 0 }); SAVE.lastCore = coreKey(s); }
@@ -125,17 +127,29 @@ function saveNow() {
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
   if (body === SAVE.lastBody) return Promise.resolve();
-  SAVE.lastBody = body;
-  SAVE.lastCore = coreKey(s);
+  if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
+  else SAVE.pending = s;
   s.savedAt = Date.now();
   // one write at a time: queue behind any write still in flight
   SAVE.chain = SAVE.chain.then(async () => {
     if (SAVE.ref) {
-      try { await SAVE.ref.set(s); return; } catch (e) {
+      try {
+        await SAVE.ref.set(s);
+        if (SAVE.native) {
+          SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
+          if (SAVE.pending === s) SAVE.pending = null;
+        }
+        return;
+      } catch (e) {
+        if (SAVE.native) {
+          NATIVE_PLAYER.state = e.code || 'uncertain'; nativePlayerRender();
+          return;
+        }
         if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) { SAVE.ref = null; SAVE.backend = 'local'; }
         else { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
       }
     }
+    if (SAVE.native) { NATIVE_PLAYER.state = 'native_signin_required'; nativePlayerRender(); return; }
     try { localStorage.setItem(SAVE.lsKey, JSON.stringify(s)); } catch (e) { /* storage may be blocked */ }
   });
   return SAVE.chain;
@@ -153,7 +167,7 @@ function wipeSave() {
   SAVE.wiping = true;
   clearTimeout(SAVE.timer);
   SAVE.lastBody = ''; SAVE.lastCore = '';
-  try { localStorage.removeItem(SAVE.lsKey); } catch (e) { /* ignore */ }
+  if (!SAVE.native) try { localStorage.removeItem(SAVE.lsKey); } catch (e) { /* ignore */ }
   SAVE.chain = SAVE.chain.then(async () => { if (SAVE.ref) { try { await SAVE.ref.delete(); } catch (e) { /* ignore */ } } }).finally(() => { SAVE.wiping = false; });
   return SAVE.chain;
 }

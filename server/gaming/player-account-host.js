@@ -1,0 +1,192 @@
+/**
+ * Compose a game's authenticated account session with the native owner ledger.
+ * The game retains its own short-lived session credentials; native credentials
+ * are handled only by the OAuth bridge and the consenting owner's browser.
+ */
+import { createHash } from 'node:crypto';
+import { createPlayerBindingLedger, PlayerBindingError } from './player-bindings.js';
+import { createPlayerIdentityBridge } from './player-identity.js';
+import { nativeIdentityDescription } from './native-identity-description.js';
+
+const PROOF_TTL_MS = 300_000;
+const FRESH_NATIVE_MS = 3_600_000;
+const MAX_SESSION_PROOFS = 256;
+const hash = value => createHash('sha256').update(value).digest('hex');
+const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+
+class HostError extends Error {
+  constructor(code, status = 400) { super(code); this.code = code; this.status = status; }
+}
+const fail = (code, status) => { throw new HostError(code, status); };
+const aborted = signal => { if (signal?.aborted) fail('identity_binding_aborted', 503); };
+function json(res, status, value, mediaType = 'application/json') {
+  res.writeHead(status, { 'Content-Type': mediaType + '; charset=utf-8', 'Cache-Control': 'no-store',
+    Pragma: 'no-cache', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' });
+  res.end(JSON.stringify(value));
+}
+function accountSummary(account) {
+  const letters = Array.from(typeof account.name === 'string' ? account.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : 'Traveller');
+  while (Buffer.byteLength(letters.join('')) > 128) letters.pop();
+  return { id: account.id, name: letters.join('') || 'Traveller', guest: account.guest === true };
+}
+function publicBinding(binding) {
+  const result = {};
+  for (const key of ['subjectDid', 'podUrl', 'webId', 'userId', 'authenticatedAgentDid', 'authenticatedAgentId', 'verifiedAt', 'issuer', 'verificationMethod']) {
+    if (typeof binding?.[key] === 'string') result[key] = binding[key];
+  }
+  return result;
+}
+async function readBody(req) {
+  if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) fail('json_body_required', 415);
+  let size = 0; const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length; if (size > 4096) fail('request_body_too_large', 413); chunks.push(chunk);
+  }
+  let body;
+  try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail('invalid_request_body'); }
+  if (!plain(body)) fail('invalid_request_body');
+  return body;
+}
+
+export function createPlayerAccountHost(options = {}) {
+  for (const port of ['tokenClaims', 'issueAppSession', 'getAccount', 'restoreAccount', 'readLegacySave']) {
+    if (typeof options[port] !== 'function') throw new TypeError(`Player account host requires ${port}`);
+  }
+  const publicUrl = new URL(options.publicOrigin);
+  if (publicUrl.protocol !== 'https:' || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/'
+    || publicUrl.search || publicUrl.hash) throw new TypeError('Player account host requires a public HTTPS origin');
+  const now = options.now ?? Date.now;
+  const ledger = createPlayerBindingLedger({ ...(options.ledgerOptions ?? {}), store: options.store, now,
+    ...(options.storeBases ? { storeBases: options.storeBases } : {}) });
+  const proofs = new Map(); let closed = false, readyOk = false;
+  const ready = Promise.resolve(ledger.ready).then(() => { readyOk = ledger.enabled === true; }, () => { readyOk = false; });
+  const routes = Object.freeze({ status: '/gaming/identity/status', legacyImport: '/gaming/identity/legacy-import', recordLink: '/gaming/identity/record-link' });
+  const prune = () => { for (const [key, proof] of proofs) if (proof.expiresAt <= now()) proofs.delete(key); };
+  const recordFor = accountId => ledger.bindingForAccount(accountId);
+  const enabled = () => !closed && readyOk && ledger.enabled === true;
+  async function requireReady() { await ready; if (!enabled()) fail('native_identity_unavailable', 503); }
+  function authenticated(req) {
+    const authorization = req.headers.authorization;
+    if (typeof authorization !== 'string' || authorization.length > 8192) fail('game_account_required', 401);
+    const match = /^Bearer ([^\s]+)$/.exec(authorization);
+    if (!match) fail('game_account_required', 401);
+    let claims;
+    try { claims = options.tokenClaims(match[1]); } catch { fail('game_account_required', 401); }
+    if (!plain(claims) || typeof claims.id !== 'string' || !claims.id || claims.id.length > 256
+      || !Number.isFinite(claims.exp) || claims.exp <= now()) fail('game_account_required', 401);
+    const account = options.getAccount(claims.id);
+    if (!account || account.id !== claims.id) fail('game_account_required', 401);
+    return { claims, account, sessionId: hash(match[1]) };
+  }
+  function freshDid(claims, accountId) {
+    const record = recordFor(accountId);
+    if (!record || !plain(claims) || claims.id !== accountId || claims.nativeDid !== record.binding.subjectDid
+      || !Number.isFinite(claims.exp) || claims.exp <= now() || !Number.isFinite(claims.nativeVerifiedAt)
+      || claims.nativeVerifiedAt > now() || claims.nativeVerifiedAt <= now() - FRESH_NATIVE_MS) return null;
+    return record.binding.subjectDid;
+  }
+  async function authorizeGameAccount(req, body) {
+    await requireReady(); prune();
+    const auth = authenticated(req), sessionBinding = hash(auth.sessionId);
+    if (new URL(req.url, publicUrl).pathname === bridge.paths.start) {
+      if (!proofs.has(sessionBinding) && proofs.size >= MAX_SESSION_PROOFS) fail('identity_ceremony_limit', 429);
+      proofs.set(sessionBinding, { accountId: auth.account.id, claims: { ...auth.claims },
+        expiresAt: Math.min(auth.claims.exp, now() + PROOF_TTL_MS) });
+    }
+    return { accountId: auth.account.id, sessionId: auth.sessionId, ownerPodWriteAccess: body?.ownerPodWriteAccess === true };
+  }
+  async function onVerified(binding, requestedAccountId, context) {
+    await requireReady(); prune(); aborted(context.signal);
+    const proof = proofs.get(context.sessionBinding), initiatingAccount = options.getAccount(requestedAccountId);
+    if (!proof || proof.accountId !== requestedAccountId || proof.claims.id !== requestedAccountId
+      || proof.claims.exp <= now() || proof.expiresAt <= now() || !initiatingAccount || initiatingAccount.id !== requestedAccountId) {
+      fail('game_account_required', 401);
+    }
+    const operationId = 'player-bind:' + hash(context.sessionBinding + ':' + binding.subjectDid);
+    const result = await ledger.bindVerified(binding, requestedAccountId, { operationId,
+      accountSummary: accountSummary(initiatingAccount), signal: context.signal });
+    aborted(context.signal);
+    let account = options.getAccount(result.accountId);
+    if (!account) {
+      account = await options.restoreAccount(recordFor(result.accountId));
+      if (!account || account.id !== result.accountId) fail('account_restore_failed', 503);
+    }
+    aborted(context.signal);
+    const appSession = await options.issueAppSession(result.accountId, result.binding);
+    aborted(context.signal);
+    if (!plain(appSession) || typeof appSession.token !== 'string' || !appSession.token || appSession.token.length > 8192
+      || !plain(appSession.acct) || appSession.acct.id !== result.accountId || Buffer.byteLength(JSON.stringify(appSession)) > 16_384) {
+      fail('app_session_unavailable', 503);
+    }
+    proofs.delete(context.sessionBinding);
+    return { appSession };
+  }
+  const bridge = createPlayerIdentityBridge({ ...options, authorizeGameAccount, onVerified });
+  const contract = nativeIdentityDescription({ publicOrigin: publicUrl.origin,
+    paths: { ...bridge.paths, ...routes }, allowOwnerBrowserHandoff: options.allowOwnerBrowserHandoff === true });
+  const publicRoutes = { '/gaming/identity/affordances': ['application/ld+json', contract.description],
+    '/gaming/identity/schemas': ['application/schema+json', contract.schemas] };
+  async function statusResponse(req, res) {
+    const { account, claims } = authenticated(req), record = recordFor(account.id), verified = !!freshDid(claims, account.id);
+    const legacyImportAvailable = verified && (await options.readLegacySave(account.id)) != null;
+    json(res, 200, { enabled: true, status: record && !verified ? 'native_signin_required' : verified ? 'verified' : 'native_identity_required',
+      account: accountSummary(account), bound: !!record, verified, binding: verified ? publicBinding(record.binding) : null,
+      recordLinks: verified ? structuredClone(record.records ?? {}) : {}, legacyImportAvailable,
+      saveAuthority: record ? 'player-pod' : 'legacy-server' });
+  }
+  return Object.freeze({ ready,
+    // Native publication is owned by the injected host service. This immutable
+    // public graph contains contracts only; it is not a signed descriptor.
+    metadataGraph() { return contract.graphContent; },
+    manifest() { return { ...contract.manifest, enabled: enabled() }; },
+    status() { prune(); return { enabled: enabled(), status: closed ? 'closed' : enabled() ? 'ready' : 'unavailable',
+      pending: bridge.status().pending, readyHandoffs: bridge.status().readyHandoffs }; },
+    isBound(accountId) { return enabled() && !!recordFor(accountId); },
+    principalFor(client) {
+      if (!enabled() || !client?.acct?.id || options.getAccount(client.acct.id)?.id !== client.acct.id) return null;
+      return freshDid(client.authClaims, client.acct.id);
+    },
+    close() { closed = true; proofs.clear(); bridge.close(); },
+    async handle(req, res) {
+      let url;
+      try { url = new URL(req.url, publicUrl); } catch { return false; }
+      const route = Object.entries(routes).find(([, target]) => target === url.pathname)?.[0];
+      const native = Object.values(bridge.paths).includes(url.pathname);
+      const documentation = publicRoutes[url.pathname];
+      if (!route && !native && !documentation) return false;
+      try {
+        if (req.headers.host !== publicUrl.host || url.origin !== publicUrl.origin) fail('invalid_identity_origin', 403);
+        if (documentation) {
+          if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); fail('method_not_allowed', 405); }
+          json(res, 200, documentation[1], documentation[0]); return true;
+        }
+        await requireReady();
+        if (native) return await bridge.handle(req, res);
+        const method = route === 'recordLink' ? 'POST' : 'GET';
+        if (req.method !== method) { res.setHeader('Allow', method); fail('method_not_allowed', 405); }
+        if (method === 'POST' && req.headers.origin !== publicUrl.origin) fail('invalid_identity_origin', 403);
+        if (route === 'status') await statusResponse(req, res);
+        else {
+          const auth = authenticated(req), subjectDid = freshDid(auth.claims, auth.account.id);
+          if (!subjectDid) fail('native_signin_required', 403);
+          if (route === 'legacyImport') json(res, 200, { save: await options.readLegacySave(auth.account.id),
+            source: 'legacy-local-import', authoritative: false });
+          else {
+            const body = await readBody(req);
+            const pointer = Object.fromEntries(['kind', 'graphIri', 'descriptorUrl', 'cid'].filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]]));
+            const result = await ledger.linkRecord(auth.account.id, subjectDid, pointer,
+              { operationId: 'player-record:' + hash(auth.account.id + ':' + JSON.stringify(pointer)) });
+            json(res, 200, { ok: true, pointer: result.pointer, version: result.version });
+          }
+        }
+      } catch (error) {
+        const known = error instanceof HostError ? error : error instanceof PlayerBindingError
+          ? new HostError('native_record_rejected', [400, 403, 409, 413].includes(error.status) ? error.status : 503)
+          : new HostError('native_identity_unavailable', 503);
+        if (!res.headersSent) json(res, known.status, { error: known.code }); else res.end();
+      }
+      return true;
+    },
+  });
+}

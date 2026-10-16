@@ -25,8 +25,11 @@ import { configuredGamingStore } from './gaming/provider.js';
 import { prepareGamingEnvironment } from './gaming/bootstrap.js';
 import { configuredServiceMonitoring } from './gaming/service-monitoring.js';
 import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js';
+import { createPlayerAccountHost } from './gaming/player-account-host.js';
+import { createGameSessionTokens } from './gaming/game-session.js';
+import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
-import { createNativeCapabilityComposition } from './gaming/native-capability-publication.js';
+import { createNativeCapabilityComposition, createNativeCapabilityPublication } from './gaming/native-capability-publication.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
@@ -94,7 +97,10 @@ const SEASON = makeSeason(CFG, store, STATS);
 // [companies] the companies of the realms (server/companies.js): kept beside the season, told to their members
 const COMP = makeCompanies(CFG, store, STATS, {
   acct: (id) => ACCOUNTS[id] || null,
-  acctByName: (n) => (n ? accountByName(n) : null),
+  acctByName: (n) => (n ? accountByName(n) || (ACCOUNTS[n]?.nativeBound === true ? ACCOUNTS[n] : null) : null),
+  // Native-bound participation needs this socket's current verified proof;
+  // an old game bearer cannot borrow another socket's native authentication.
+  canParticipate: A => A.nativeBound === true ? A.nativeParticipant === true : !A.guest,
   realmOf: (id) => (SEASON.roster[id] && (SEASON.roster[id].r === 0 || SEASON.roster[id].r === 1 || SEASON.roster[id].r === 2) ? SEASON.roster[id].r : -1),
   seasonN: () => (SEASON.RS && SEASON.RS.n) || 1,
   unitsPerPoint: () => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.sp && SEASON.M.RSM.sp.units) || 40,
@@ -110,19 +116,9 @@ const worldsSave = () => { clearTimeout(worldTimer); worldTimer = setTimeout(() 
 /* ------------------------------------------------------------------ */
 /* accounts and tokens                                                 */
 /* ------------------------------------------------------------------ */
-const b64u = (b) => Buffer.from(b).toString('base64url');
-function tokenFor(id) {
-  const body = b64u(JSON.stringify({ id, exp: Date.now() + 1000 * 3600 * 24 * 180 }));
-  return body + '.' + crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
-}
-function tokenRead(tok) {
-  if (typeof tok !== 'string' || tok.length > 600) return null;
-  const [body, sig] = tok.split('.');
-  if (!body || !sig) return null;
-  const want = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
-  if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
-  try { const o = JSON.parse(Buffer.from(body, 'base64url').toString()); return o && typeof o.id === 'string' && o.exp > Date.now() ? o.id : null; } catch (e) { return null; }
-}
+const GAME_SESSIONS = createGameSessionTokens({ secret: SECRET });
+const tokenFor = id => GAME_SESSIONS.issueLegacy(id);
+const tokenRead = token => GAME_SESSIONS.read(token)?.id || null;
 const cleanName = (s) => (typeof s === 'string' ? s.replace(/[^A-Za-z0-9 _'-]/g, '').trim().slice(0, 20) : '');
 function accountNew(name, guest, pass) {
   const id = (guest ? 'g' : 'a') + crypto.randomBytes(9).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x');
@@ -200,10 +196,41 @@ const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, ST
 let gamingStore = null, gamingEnvironment = { ...process.env };
 try { gamingEnvironment = await prepareGamingEnvironment(process.env); gamingStore = await configuredGamingStore(gamingEnvironment); }
 catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
+// This is a Hallowmarch-owned participation ledger, not a copy of a player's
+// character. Personal saves remain in their owner's client-sealed pod record.
+const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
+  publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN
+    ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'https://march-production-f6d9.up.railway.app'),
+  clientName: 'hallowmarch', allowOwnerBrowserHandoff: true, successPath: '/gaming/identity/finish',
+  tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
+  restoreAccount: record => {
+    if (!record?.accountId) return null;
+    if (!ACCOUNTS[record.accountId]) {
+      const summary = record.accountSummary || {};
+      ACCOUNTS[record.accountId] = { id: record.accountId, name: cleanName(summary.name) || 'Traveller',
+        guest: summary.guest !== false, nativeBound: true, created: Date.now(), last: Date.now() };
+      accountsSave();
+    }
+    return ACCOUNTS[record.accountId];
+  },
+  issueAppSession: (accountId, binding) => {
+    const account = ACCOUNTS[accountId];
+    if (!account) throw new Error('Game participation account is unavailable.');
+    // Disposable participation marker protects old personal files during a pod
+    // outage; no DID, native credential or new personal save is written here.
+    account.nativeBound = true; accountsSave();
+    const session = GAME_SESSIONS.issueNative(accountId, binding.subjectDid);
+    return { token: session.token, acct: { id: account.id, name: account.name, guest: account.guest, nativeBound: true }, nativeVerifiedUntil: session.expiresAt };
+  },
+  readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
+await PLAYER_ACCOUNTS.ready;
+const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
 const GAMING = createGamingRuntime({ store: gamingStore,
   persistenceMode: gamingEnvironment.HM_GAMING_PERSISTENCE_MODE === 'strict' ? 'strict' : 'realtime',
+  verifiedDidFor: client => PLAYER_ACCOUNTS.principalFor(client),
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
+const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), playerIdentity: { ...PLAYER_ACCOUNTS.manifest(), nativePublication: playerCapabilityStatus() } });
 const gamingHttp = createAgentHttp({ gaming: GAMING });
 let gamingCapabilities = null, gamingCapabilitiesBusy = false, gamingCapabilityAttempts = 0;
 let gamingCapabilityState = { state: 'initializing', verified: false };
@@ -234,6 +261,30 @@ async function publishGamingCapabilities() {
 // Content discovery is a background composition, independent of the live room.
 setTimeout(() => { void publishGamingCapabilities(); }, 1000).unref();
 setInterval(() => { void publishGamingCapabilities(); }, 30000).unref();
+let playerCapabilities = null, playerCapabilitiesBusy = false, playerCapabilityAttempts = 0;
+let playerCapabilityState = { state: 'waiting', verified: false };
+const playerCapabilityStatus = () => playerCapabilities?.status() || playerCapabilityState;
+async function publishPlayerCapabilities() {
+  if (playerCapabilitiesBusy || playerCapabilityAttempts >= 5 || playerCapabilityStatus().verified || playerCapabilityStatus().state === 'refused') return;
+  if (!gamingStore?.publicationIdentity || !PLAYER_ACCOUNTS.status().enabled) {
+    playerCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return;
+  }
+  // Serialize bootstrap discovery publication with the other owned catalog.
+  if (!gamingCapabilityStatus().verified) return;
+  playerCapabilitiesBusy = true; playerCapabilityAttempts++;
+  try {
+    if (!playerCapabilities) {
+      const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      playerCapabilities = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
+        catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
+        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph(), maxPolls: 10 });
+    }
+    await playerCapabilities.publish();
+  } catch { playerCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
+  finally { playerCapabilitiesBusy = false; }
+}
+setTimeout(() => { void publishPlayerCapabilities(); }, 2000).unref();
+setInterval(() => { void publishPlayerCapabilities(); }, 30000).unref();
 let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
 async function initializeGamingMonitor() {
   if (!gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
@@ -336,12 +387,17 @@ function onHello(c, h) {
   const R = roomFor(h.room);
   if (!R) { send(c, { t: 'denied', why: 'The March is full' }); c.ws.close(); return; }
   c.acct = r.A; c.acct.last = Date.now(); accountsSave();
+  c.authClaims = GAME_SESSIONS.read(h.token);
+  if (c.authClaims?.id !== c.acct.id) c.authClaims = null;
   c.room = R; c.peer = crypto.randomBytes(8).toString('hex'); c.since = Date.now();
   R.clients.set(c.peer, c);
   STATS.hellos++;
   const world = worldNow(R); // the season decides who holds the keeps while nobody is here
   c.lastSeen = (SEASON.roster[c.acct.id] && SEASON.roster[c.acct.id].last) || 0;
-  send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest }, token: tokenFor(c.acct.id), room: R.name, world, interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
+  const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
+  send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
+    token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
+    room: R.name, world, interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
 // the account, from a page already in: a guest names its own (`claim`: name and password set on it, so it keeps its
@@ -349,6 +405,7 @@ function onHello(c, h) {
 // nothing the page saves before it reloads lands on the named account); six tries a minute a socket
 function onAcct(c, m) {
   const now = Date.now(), no = (why) => send(c, { t: 'acct', ok: false, why });
+  if (m.op === 'claim' && companyAccount(c).nativeBound) { no('Use your native owner sign-in for this account'); return; }
   c.acctTries = (c.acctTries || []).filter((t) => now - t < 60000);
   if (c.acctTries.length >= 6) { STATS.acctRefused++; no('Too many tries: wait a minute'); return; }
   c.acctTries.push(now);
@@ -374,7 +431,7 @@ function onSlow(c, d) {
   d.since = c.since; // the server's clock decides who was here first (the host)
   c.slow = d;
   c.realm = d.r === 0 || d.r === 1 || d.r === 2 ? d.r : -1;
-  { const tag = c.realm >= 0 && !c.acct.guest ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
+  { const tag = c.realm >= 0 && COMP.canParticipate(companyAccount(c)) ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
   if (d.w) worldReport(c, d.w);
@@ -452,7 +509,7 @@ function onContrib(c, m) {
   c.cWin.push(now);
   if (!(c.realm >= 0)) { send(c, { t: 'contrib', ok: false, why: 'No realm yet', q: m.q }); return; }
   const r = SEASON.RS ? SEASON.contribute(c.acct.id, c.realm, String(m.k || ''), m.n) : { ok: false, why: 'No season here' };
-  if (r.ok && r.took > 0) { const cr = COMP.delivered(c.acct.id, c.realm, String(m.k || ''), r.took); if (cr) { r.co = cr; coTellCo(cr.co); } } // [companies] counted for the company (and its pledge)
+  if (r.ok && r.took > 0 && COMP.canParticipate(companyAccount(c))) { const cr = COMP.delivered(c.acct.id, c.realm, String(m.k || ''), r.took); if (cr) { r.co = cr; coTellCo(cr.co); } } // [companies] counted for the company (and its pledge)
   send(c, { t: 'contrib', q: m.q, k: m.k, ...r });
 }
 function onOrder(c, m) {
@@ -475,12 +532,17 @@ function onOrder(c, m) {
 /* [companies] the companies: asked, answered, told (server/companies.js) */
 /* ------------------------------------------------------------------ */
 const coClients = function* () { for (const R of ROOMS.values()) yield* R.clients.values(); };
-const coOnline = () => { const s = new Set(); for (const o of coClients()) if (o.acct) s.add(o.acct.id); return s; };
+function companyAccount(c) {
+  if (!c?.acct) return null;
+  return { ...c.acct, nativeBound: c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id),
+    nativeParticipant: !!PLAYER_ACCOUNTS.principalFor(c) };
+}
+const coOnline = () => { const s = new Set(); for (const o of coClients()) if (o.acct && COMP.canParticipate(companyAccount(o))) s.add(o.acct.id); return s; };
 // a player told its company (or its invitations) and the realm's companies' standing; the first telling a session carries
 // when it was last here, so the page tells it what was said in the company meanwhile
 function coTell(c, first) {
   if (!c.acct) return;
-  const o = { t: 'company', s: COMP.stateFor(c.acct, c.realm, coOnline()) };
+  const o = { t: 'company', s: COMP.stateFor(companyAccount(c), c.realm, coOnline()) };
   if (first) { o.first = 1; o.seen = c.lastSeen || 0; }
   send(c, o); STATS.coTold = (STATS.coTold || 0) + 1;
 }
@@ -491,7 +553,7 @@ function coCaptured(R, i, r) {
   const K = WORLD.keeps && WORLD.keeps[i];
   if (!K) return;
   const accts = [];
-  for (const o of R.clients.values()) if (o.realm === r && o.pos && Math.hypot(o.pos.x - K.x, o.pos.z - K.z) < 160 && !o.acct.guest) accts.push(o.acct.id);
+  for (const o of R.clients.values()) if (o.realm === r && o.pos && Math.hypot(o.pos.x - K.x, o.pos.z - K.z) < 160 && COMP.canParticipate(companyAccount(o))) accts.push(o.acct.id);
   for (const id of COMP.captured(accts, r)) coTellCo(id);
 }
 function onCo(c, m) {
@@ -500,7 +562,8 @@ function onCo(c, m) {
   if (m.op === 'say') c.coSayAt = now; else c.coAt = now;
   if (m.op === 'get') { coTell(c, false); reply({ ok: true }); return; }
   if (!(c.realm >= 0)) { reply({ ok: false, why: 'No realm yet' }); return; }
-  const A = c.acct, before = COMP.of(A.id);
+  const A = companyAccount(c), before = COMP.of(A.id);
+  if (!COMP.canParticipate(A)) { reply({ ok: false, why: A.nativeBound ? 'Sign in to your native owner identity first' : 'Name your account first' }); return; }
   let r;
   if (m.op === 'found') r = COMP.found(A, c.realm, m.name, m.dev, m.col);
   else if (m.op === 'invite') r = COMP.invite(A, m.name);
@@ -512,14 +575,14 @@ function onCo(c, m) {
   else if (m.op === 'pledge') r = COMP.pledge(A, typeof m.id === 'string' ? m.id.slice(0, 16) : '');
   else if (m.op === 'say') {
     r = COMP.say(A, m.text);
-    if (r.ok) { const mem = new Set(COMP.membersOf(r.co)); for (const o of coClients()) if (o.acct && mem.has(o.acct.id)) send(o, { t: 'company', say: r.line, co: r.co }); }
+    if (r.ok) { const mem = new Set(COMP.membersOf(r.co)); for (const o of coClients()) if (o.acct && mem.has(o.acct.id) && COMP.canParticipate(companyAccount(o))) send(o, { t: 'company', say: r.line, co: r.co }); }
     reply({ ok: r.ok, why: r.why }); return;
   } else if (m.op === 'muster') {
     // the company's members here now, the nearest first, form one party with the one who called it (six at most)
     const co = COMP.of(A.id);
     if (!co || (co.mem[A.id].role !== 'cap' && co.mem[A.id].role !== 'off')) { reply({ ok: false, why: 'Only the captain and the officers muster the company' }); return; }
     if (now - (co.musAt || 0) < 20000) { reply({ ok: false, why: 'The company mustered a moment ago' }); return; }
-    const mem = new Set(Object.keys(co.mem)), here = [...c.room.clients.values()].filter((o) => o !== c && o.acct && mem.has(o.acct.id) && o.realm === co.realm && o.slow && o.slow.on === 1);
+    const mem = new Set(Object.keys(co.mem)), here = [...c.room.clients.values()].filter((o) => o !== c && o.acct && mem.has(o.acct.id) && COMP.canParticipate(companyAccount(o)) && o.realm === co.realm && o.slow && o.slow.on === 1);
     here.sort((a, b) => (a.pos && c.pos ? Math.hypot(a.pos.x - c.pos.x, a.pos.z - c.pos.z) : 9e9) - (b.pos && c.pos ? Math.hypot(b.pos.x - c.pos.x, b.pos.z - c.pos.z) : 9e9));
     if (!here.length) { reply({ ok: false, why: 'No one of the company is in the March with you now' }); return; }
     co.musAt = now; COMP.stats.musters++;
@@ -530,12 +593,13 @@ function onCo(c, m) {
   } else r = { ok: false, why: 'Unknown' };
   reply({ ok: r.ok, why: r.why, name: r.name });
   if (!r.ok) return;
+  if (m.op === 'found') c.acct.coFoundAt = A.coFoundAt;
   // told: everyone of the company (and of the one it was before), an invitee or the one removed
   const after = COMP.of(A.id);
   if (after) coTellCo(after.id);
   if (before && before !== after) coTellCo(before.id);
   coTell(c, false);
-  if (r.to) { coTellAcct(r.to); for (const o of coClients()) if (o.acct && o.acct.id === r.to) send(o, { t: 'company', invited: { by: A.name, co: after ? after.name : '' } }); }
+  if (r.to) { coTellAcct(r.to); for (const o of coClients()) if (o.acct && o.acct.id === r.to && COMP.canParticipate(companyAccount(o))) send(o, { t: 'company', invited: { by: A.name, co: after ? after.name : '' } }); }
   if (r.who) coTellAcct(r.who);
   if (m.op === 'answer' && r.co) coTellCo(r.co);
   // the stamp on the profile: a member's company on its frame and nameplate to the others at once
@@ -563,23 +627,47 @@ function onMsg(c, raw) {
   else if (m.t === 'co') onCo(c, m); // [companies]
   else if (m.t === 'sarmyrep') FIELD.report(c, m); // [season2]
   else if (m.t === 'save') {
+    if (c.acct.nativeBound || c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id)) {
+      send(c, { t: 'saved', ok: false, error: 'nativepodsave_required' }); return;
+    }
+    if ((gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1') && !PLAYER_ACCOUNTS.status().enabled) {
+      send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
+    }
     if (!m.d || typeof m.d !== 'object' || m.d.v !== 1) { send(c, { t: 'saved', ok: false }); return; }
     store.write(path.join('saves', c.acct.id + '.json'), m.d); STATS.saves++;
     send(c, { t: 'saved', ok: true, at: now });
-  } else if (m.t === 'load') { STATS.loads++; send(c, { t: 'save', d: store.read(path.join('saves', c.acct.id + '.json'), null) }); }
-  else if (m.t === 'wipe') { try { fs.unlinkSync(path.join(CFG.data, 'saves', c.acct.id + '.json')); } catch (e) { /* none */ } send(c, { t: 'saved', ok: true, at: now }); }
+  } else if (m.t === 'load') {
+    if (c.acct.nativeBound || c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id)) {
+      send(c, { t: 'save', d: null, error: 'nativepodsave_required' }); return;
+    }
+    if ((gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1') && !PLAYER_ACCOUNTS.status().enabled) {
+      send(c, { t: 'save', d: null, error: 'native_ownership_unavailable' }); return;
+    }
+    STATS.loads++; send(c, { t: 'save', d: store.read(path.join('saves', c.acct.id + '.json'), null) });
+  } else if (m.t === 'wipe') {
+    if (c.acct.nativeBound || c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id)) {
+      send(c, { t: 'saved', ok: false, error: 'nativepodsave_required' }); return;
+    }
+    if ((gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1') && !PLAYER_ACCOUNTS.status().enabled) {
+      send(c, { t: 'saved', ok: false, error: 'native_ownership_unavailable' }); return;
+    }
+    try { fs.unlinkSync(path.join(CFG.data, 'saves', c.acct.id + '.json')); } catch (e) { /* none */ }
+    send(c, { t: 'saved', ok: true, at: now });
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* HTTP: health, the numbers, the game itself                          */
 /* ------------------------------------------------------------------ */
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
+  if (playerBrowserAssets(req, res, u.pathname)) return;
+  if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (performanceResourceHttp(req, res, u)) return;
   if (gamingHttp(req, res, u.pathname)) return;
   if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
-  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus() })); return; }
-  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: GAMING.manifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, nativeDiscovery: gamingCapabilityStatus(), humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
+  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(gamingManifest())); return; }
+  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: gamingManifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, playerIdentity: PLAYER_ACCOUNTS.status(), nativeDiscovery: gamingCapabilityStatus(), humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
   if (u.pathname === '/health') { const ok = process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled; res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
@@ -601,7 +689,7 @@ const server = http.createServer((req, res) => {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
     // the page served from here connects back here
-    html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=auto"><script>window.__HM_GAMING=' + JSON.stringify(GAMING.manifest()).replace(/</g, '\\u003c') + ';window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>' + html + '</body></html>';
+    html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=auto"><script>window.__HM_GAMING=' + JSON.stringify(gamingManifest()).replace(/</g, '\\u003c') + ';window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>' + html + '</body></html>';
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }); res.end(html); return;
   }
   res.writeHead(404); res.end();
@@ -636,7 +724,7 @@ if (SEASON.RS) {
 let closing = false;
 const shutdown = async () => {
   if (closing) return; closing = true;
-  server.close();
+  server.close(); PLAYER_ACCOUNTS.close();
   try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); }
   catch (e) { console.warn('shutdown', e.message); }
   // Existing sockets cannot introduce new actions while the final checkpoint is

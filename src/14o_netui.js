@@ -93,13 +93,17 @@ function netAcctRender(msg, bad) {
   const A = NETWS.acct;
   if (!NET.link || NET.link.kind !== 'ws' || !A) { box.hidden = true; return; }
   box.hidden = false;
-  if (box._k !== A.id + ':' + A.guest) {
-    box._k = A.id + ':' + A.guest;
+  const nativeBound = !!NATIVE_PLAYER.status?.bound;
+  if (box._k !== A.id + ':' + A.guest + ':' + nativeBound) {
+    box._k = A.id + ':' + A.guest + ':' + nativeBound;
     box.textContent = '';
     const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
     const btn = (label, act, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; return b; };
     box.appendChild(el('h3', '', `Your account on ${NETWS.host}`));
-    if (A.guest) {
+    if (nativeBound) {
+      box.appendChild(el('p', 'net-quiet', 'Your Interego identity owns your private character. The March keeps its own participation and world records.'));
+      const acts = el('div', 'net-acts'); acts.appendChild(btn('Sign out', 'acct-out')); box.appendChild(acts);
+    } else if (A.guest) {
       box.appendChild(el('p', 'net-quiet', 'You play as a guest of this server: your character is kept for this browser (and, inside the artifact, for your claude.ai account). Give your account a name and a password to come back to it from anywhere, or sign in to one you have.'));
       const f = el('div', 'net-fields');
       const n = el('input'); n.id = 'netacct-name'; n.type = 'text'; n.maxLength = 20; n.placeholder = 'Name (3 to 20 letters)'; n.autocomplete = 'username'; n.spellcheck = false;
@@ -114,6 +118,7 @@ function netAcctRender(msg, bad) {
   }
   const m = box.querySelector('.net-msg');
   if (m && msg !== undefined) { m.textContent = msg; m.classList.toggle('bad', !!bad); }
+  nativePlayerRender();
 }
 async function netAcctClick(act) {
   if (act === 'acct-out') { netAcctRender('Signing out: the page loads again as a new guest.'); await netAcctOut(); return; }

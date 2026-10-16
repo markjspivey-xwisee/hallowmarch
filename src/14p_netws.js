@@ -231,6 +231,7 @@ async function netAcctDo(op, name, pass) {
   return r;
 }
 async function netAcctOut() {
+  await nativePlayerForget();
   NETWS.reload = true;
   try { localStorage.removeItem('hallowmarch.token.' + NETWS.host); } catch (e) { /* storage blocked */ }
   try {

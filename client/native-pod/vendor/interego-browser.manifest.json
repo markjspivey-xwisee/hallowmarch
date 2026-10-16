@@ -1,0 +1,134 @@
+{
+  "source": "https://github.com/markjspivey-xwisee/interego",
+  "revision": "87ee71626c015af3c1e7b9dac5579eff6899e8c1",
+  "esbuild": "0.28.0",
+  "target": "browser-es2022-esm",
+  "bundle": "interego-browser.mjs",
+  "bytes": 76931,
+  "sha256": "99767d34921142c24fc8afde2f505b25f905b14348a168c2d66eda1c48c211e6",
+  "entrypoints": {
+    "@interego/core/crypto/client-vault": "packages/core/src/crypto/client-vault.ts",
+    "@interego/core/rdf/graph-digest": "packages/core/src/rdf/graph-digest.ts",
+    "@interego/core/relay": "packages/core/src/relay/index.ts",
+    "@interego/core/rdf": "packages/core/src/rdf/index.ts"
+  },
+  "dependencyLockSha256": "feac8965373c74c20148236a3cb041c3cb69008564fdeea951631ca4088f416d",
+  "dependencies": [
+    {
+      "name": "@noble/hashes",
+      "version": "2.2.0",
+      "license": "MIT",
+      "integrity": "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="
+    },
+    {
+      "name": "tweetnacl-util",
+      "version": "0.15.1",
+      "license": "Unlicense",
+      "integrity": "sha512-RKJBIj8lySrShN4w6i/BonWp2Z/uxwC3h4y7xsRrpP59ZboCd0GpEVsOnMDYLMmKBpYhb5TgHzZXy7wTfYFBRw=="
+    },
+    {
+      "name": "tweetnacl",
+      "version": "1.0.3",
+      "license": "Unlicense",
+      "integrity": "sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw=="
+    }
+  ],
+  "inputs": [
+    {
+      "source": "(disabled):crypto",
+      "disabledByBrowserMap": true
+    },
+    {
+      "source": "node_modules/@noble/hashes/_md.js",
+      "sha256": "8227b9b5cabf078a9d7f7317f7a1ace6e46627539aa9364667aec724e1636f14"
+    },
+    {
+      "source": "node_modules/@noble/hashes/_u64.js",
+      "sha256": "766b91a693a798f9d3cde97b25db4a6d0cef66b2ca21153d3d42424d37878870"
+    },
+    {
+      "source": "node_modules/@noble/hashes/sha2.js",
+      "sha256": "0fb8e3c3f2c73a890be2524ac5d2542aaed4decff69e561231a86131203b3973"
+    },
+    {
+      "source": "node_modules/@noble/hashes/utils.js",
+      "sha256": "e2adfc13c846487feff0410bd5508a1d66f5ebadc3188f3a40a6b55449981e2f"
+    },
+    {
+      "source": "node_modules/tweetnacl-util/nacl-util.js",
+      "sha256": "8ee674c29b10a199dd30913cfdac498ac405e6f94d8cbd5853b8b0b7b54b206c"
+    },
+    {
+      "source": "node_modules/tweetnacl/nacl-fast.js",
+      "sha256": "6bcd37a3b20dce913f82d4b23e4e2b661058b4b953df8a3f8c45d56ac4f72447"
+    },
+    {
+      "source": "packages/core/src/crypto/client-vault.ts",
+      "sha256": "a6feb3d9eec415cb297ac323922975683a3acab6a1b0546953a1de6634774099"
+    },
+    {
+      "source": "packages/core/src/crypto/encryption.ts",
+      "sha256": "cc7ab783f9529b9c894c092894ab90f492be68d497d4f7ca4dd79dcf76da9e29"
+    },
+    {
+      "source": "packages/core/src/model/delegate.ts",
+      "sha256": "a30a91b98a7f18f97d8a75aa934552303da4d8f5630eb7bda05edf0f7c922638"
+    },
+    {
+      "source": "packages/core/src/rdf/alternate-turtle.ts",
+      "sha256": "38b145e876718d6a2546197cc4597c687f89c3620c8df24ca8b9815b7b828a10"
+    },
+    {
+      "source": "packages/core/src/rdf/escape.ts",
+      "sha256": "c3cb19a65c559100c9845f37cbbf030833d05577808177fc1db03c54865fc633"
+    },
+    {
+      "source": "packages/core/src/rdf/graph-digest.ts",
+      "sha256": "405c680a09f87ea114aa5280c0ac2a90197b0d4de20513954efbcffa6621a541"
+    },
+    {
+      "source": "packages/core/src/rdf/index.ts",
+      "sha256": "b4e291845ad407e949fe22fdd6477d5fdc230dbaa3e8e1e53778d6bebf6eadca"
+    },
+    {
+      "source": "packages/core/src/rdf/jsonld.ts",
+      "sha256": "011fa3857692eb01235b3463bd0f65a570bd2f7b57efd5129d3638b48d9ed12b"
+    },
+    {
+      "source": "packages/core/src/rdf/namespaces.ts",
+      "sha256": "297c178d9cf57047de40b4c4b773bd61a4d0d50cbb10cc1c8c11c6e5de95ba44"
+    },
+    {
+      "source": "packages/core/src/rdf/rdf12.ts",
+      "sha256": "3a29b7a40e26f2a308894bd0c20e8a63a77e4168029b3e62332ec563c1737894"
+    },
+    {
+      "source": "packages/core/src/rdf/serializer.ts",
+      "sha256": "b9ce64dabdf6df0149dcc98cd7768e57efd60f0aef3cbe91c398c3892802a7f1"
+    },
+    {
+      "source": "packages/core/src/rdf/system-ontology.ts",
+      "sha256": "c3378016bb9aa4e32f06b3ec57563839a057478e7d39ed99320949690ef083b9"
+    },
+    {
+      "source": "packages/core/src/rdf/turtle-parser.ts",
+      "sha256": "31ac464a696e431fcfbc169846b135dc364aa56905741d85bc369ed0109b5fc6"
+    },
+    {
+      "source": "packages/core/src/relay/client.ts",
+      "sha256": "48809cf6293e6dbf45e4b95c1586113c4e79c2b252d664f3d1eb4e1ce3a42f15"
+    },
+    {
+      "source": "packages/core/src/relay/index.ts",
+      "sha256": "13c1b3dd01e9f936be271c35d805b1c115bcc4b3c1db41995d67825b05ae7187"
+    },
+    {
+      "source": "packages/core/src/relay/transport.ts",
+      "sha256": "2cd8e0756e22f714ed22976a677d3d49617a2b7ad0eb4743ce80ec9770f118fc"
+    },
+    {
+      "source": "packages/core/src/validation/shacl-shapes.ts",
+      "sha256": "7b274a529b72aa4d78e896799376e3dc7fec24355662c7914b7be57e9a986ac4"
+    }
+  ]
+}
