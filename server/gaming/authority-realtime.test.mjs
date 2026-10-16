@@ -37,7 +37,7 @@ const command = (type, fields = {}) => ({ type, commandId: `realtime-${++number}
 async function fixture(t, overrides = {}) {
   const store = new CheckpointFixture(); let now = 100000;
   const options = { roomId: 'live-proof', store, domain: createHallowmarchDomain({ monsterHp: 10 }), clock: () => now,
-    persistenceMode: 'realtime', checkpointIntervalMs: 30000, ...overrides };
+    persistenceMode: 'realtime', checkpointIntervalMs: 30000, learningDeliveryAvailable: () => true, ...overrides };
   const room = await new AuthoritativeRoom(options).open();
   t.after(() => room.close().catch(() => {}));
   await room.execute(person, command('join')); await room.flushPersistence();
@@ -141,7 +141,7 @@ test('grants reveal tokens only after durable save, and pending revocation is im
 test('only durable learning events leave the room and acknowledgement checkpoints preserve concurrent live movement', async t => {
   const f = await fixture(t), principal = { ...person, verifiedDid: 'did:example:alice' };
   await f.room.execute(principal, command('learningConsent', { enabled: true, expiresAt: 150000, actorDid: principal.verifiedDid, recipient: 'https://foxxi.example/write', sessionId: 'session-1' }));
-  await f.room.execute(person, command('knowledge.consulted', { resourceId: 'https://example.org/notes' }));
+  await f.room.execute(principal, command('knowledge.consulted', { resourceId: 'https://example.org/notes' }));
   assert.equal((await f.room.learningContext()).outbox.length, 0);
   await f.room.flushPersistence(); assert.equal((await f.room.learningContext()).outbox.length, 1);
   const sink = { descriptor: { action: 'urn:iep:action:foxxi:write-xapi-statements-signed', method: 'POST', target: 'https://foxxi.example/write' },
@@ -149,7 +149,7 @@ test('only durable learning events leave the room and acknowledgement checkpoint
   const outbox = createLearningOutbox({ sink, domain: 'hallowmarch', gameId: f.room.id, now: () => 100000,
     getEntries: async () => (await f.room.learningContext()).outbox, getConsent: async ({ actorId }) => (await f.room.learningContext()).consent[actorId], acknowledge: data => f.room.acknowledgeLearning(data) });
   const block = f.store.blockNext(), flush = outbox.flush(); await block.started; f.advance();
-  await f.room.execute(person, command('move', { x: 0, z: 2 }));
+  await f.room.execute(principal, command('move', { x: 0, z: 2 }));
   block.release(); assert.equal((await flush).exported, 1); await f.room.flushPersistence();
   const restarted = await new AuthoritativeRoom(f.options).open(); t.after(() => restarted.close());
   assert.equal(restarted.current.entities.alice.z, 2); assert.equal(restarted.current.outbox.length, 1);
@@ -221,7 +221,7 @@ test('durable learning acknowledgements also replay after a strict rollback rese
   const f = await fixture(t), principal = { ...person, verifiedDid: 'did:example:alice' };
   await f.room.execute(principal, command('learningConsent', { enabled: true, expiresAt: 150000, actorDid: principal.verifiedDid,
     recipient: 'https://foxxi.example/write', sessionId: 'epoch-session' }));
-  for (let i = 0; i < 8; i++) await f.room.execute(person, command('knowledge.consulted', { resourceId: `https://example.org/learning-epoch/${i}` }));
+  for (let i = 0; i < 8; i++) await f.room.execute(principal, command('knowledge.consulted', { resourceId: `https://example.org/learning-epoch/${i}` }));
   await f.room.flushPersistence(); let exactAck;
   const sink = { descriptor: { action: 'urn:iep:action:foxxi:write-xapi-statements-signed', method: 'POST', target: 'https://foxxi.example/write' },
     async publish(events) { return { ok: true, exported: events.length, receipts: projectGamingEvents(events, { domain: 'hallowmarch', gameId: f.room.id }).evidence.map(item => ({ statementId: item.id, persisted: true })) }; } };

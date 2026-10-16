@@ -93,6 +93,9 @@ test('real server preserves native game credentials and prevents personal-file s
   assert.equal(manifestResponse.headers.get('access-control-allow-origin'), '*', 'public entry policy is readable by an external game client');
   const manifest = await manifestResponse.json();
   assert.equal(manifest.playerIdentity, undefined, 'intentionally unconfigured legacy servers advertise no native entry policy');
+  assert.deepEqual((await (await fetch(f.base + '/gaming/status')).json()).nativeStore, { enabled: false });
+  const status = await (await fetch(f.base + '/gaming/status')).json();
+  assert.equal(status.humanLearning, 'unavailable'); assert.equal(status.manifest.learningExportConfigured, false);
 });
 
 test('configured native ownership outage blocks unknown-account central writes without touching old files', async t => {

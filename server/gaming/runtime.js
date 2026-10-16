@@ -1,21 +1,31 @@
 import { randomUUID } from 'node:crypto';
 import { AuthoritativeRoom, GameCommandError } from './authority.js';
 import { createHallowmarchDomain } from './hallowmarch.js';
-import { projectGamingEvents } from './learning.js';
+import { projectGamingEvents, isFoxxiXapiAction } from './learning.js';
 import { createLearningOutbox } from './outbox.js';
 
 /** Bind a domain to the existing authenticated transport. An absent store leaves
  * this capability disabled; it never substitutes local files or human pod keys.
  */
 export function createGamingRuntime({ store = null, send, clock = Date.now, domain = createHallowmarchDomain(), roomId = 'march-proof', learningSink = null,
-  persistenceMode = 'strict', checkpointIntervalMs = 1000, broadcastIntervalMs = 50, verifiedDidFor = () => null, requireVerifiedPlayers = false } = {}) {
+  persistenceMode = 'strict', checkpointIntervalMs = 1000, broadcastIntervalMs = 50, verifiedDidFor = () => null, requireVerifiedPlayers = false,
+  learningDeliveryAvailable = null } = {}) {
   if (!Number.isSafeInteger(broadcastIntervalMs) || broadcastIntervalMs < 1 || broadcastIntervalMs > 1000) throw new TypeError('Bounded snapshot interval required.');
   let room = null, failure = store ? 'initializing' : 'native-service-unconfigured', stopping = false;
   const evidenceDomain = domain.evidenceDomain || domain.id;
+  // Supplied only by a trusted, verified owner-pod composition; a transport or
+  // OAuth identity alone is insufficient. This port must be synchronous/local:
+  // game commands never await a learning service's availability probe.
+  const deliveryConfigured = typeof learningDeliveryAvailable === 'function' && typeof learningSink?.publish === 'function'
+    && isFoxxiXapiAction(learningSink?.descriptor?.action) && learningSink.descriptor.method === 'POST'
+    && typeof learningSink.descriptor.target === 'string' && /^https:\/\//.test(learningSink.descriptor.target) && !/[{}]/.test(learningSink.descriptor.target);
+  const deliveryAvailable = context => deliveryConfigured && context.recipient === learningSink.descriptor.target
+    && learningDeliveryAvailable(context);
   const clients = new Map(), pending = new Map(); let outbox = null, broadcastTimer = null;
   const manifest = () => ({ schemaVersion: 1, enabled: !!room, status: room ? 'ready' : failure,
     domain: domain.id, roomId, scope: 'shared-expedition', worldMigration: false, requiresVerifiedPlayers: requireVerifiedPlayers === true,
-    learningExport: 'requires-verified-identity-and-session-consent',
+    learningExport: deliveryConfigured ? 'requires-verified-owner-pod-delivery-and-session-consent' : 'unavailable',
+    learningExportConfigured: deliveryConfigured,
     companionRoles: ['teammate', 'pet', 'coach'], vocabulary: '/gaming/vocabulary', domainVocabulary: '/gaming/hallowmarch-vocabulary',
     resources: { catalog: '/gaming/resources', descriptor: '/gaming/resources/descriptor.ttl', useDoesNotEstablishMastery: true },
     transport: { websocket: '/ws', messageType: 'gaming', commandAuthority: 'server', persistenceMode,
@@ -46,10 +56,27 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
     if (!store) return;
     try {
       await store.ready?.();
-      const candidate = await new AuthoritativeRoom({ roomId, store, domain, clock, persistenceMode, checkpointIntervalMs }).open();
+      const candidate = await new AuthoritativeRoom({ roomId, store, domain, clock, persistenceMode, checkpointIntervalMs,
+        learningDeliveryAvailable: deliveryAvailable }).open();
       candidate.subscribe(scheduleBroadcast);
       room = candidate; failure = '';
-      outbox = createLearningOutbox({ sink: learningSink, domain: evidenceDomain, gameId: roomId, now: clock,
+      const guardedSink = deliveryConfigured ? { descriptor: learningSink.descriptor,
+        async publish(events, context) {
+          const fresh = await room.learningContext(512), consent = fresh.consent[context.actorId], now = clock();
+          const entries = new Map(fresh.outbox.map(entry => [entry.event.id, entry]));
+          const fields = ['enabled', 'expiresAt', 'recipient', 'actorDid', 'sessionId'];
+          if (consent?.enabled !== true || !Number.isSafeInteger(now) || !Number.isSafeInteger(consent.expiresAt)
+            || consent.expiresAt <= now || consent.sessionId !== context.sessionId || consent.recipient !== context.recipient
+            || !events.every(event => {
+              const entry = entries.get(event.id);
+              return entry?.event.actorId === context.actorId && fields.every(field => entry.consent?.[field] === consent[field]);
+            }) || !room.learningDeliveryAvailable({ ...context, actorDid: consent.actorDid,
+              recipient: consent.recipient, now, phase: 'delivery' })) {
+            return { ok: false, reason: 'owner-pod-delivery-unavailable', exported: 0 };
+          }
+          return learningSink.publish(events, context);
+        } } : null;
+      outbox = createLearningOutbox({ sink: guardedSink, domain: evidenceDomain, gameId: roomId, now: clock,
         getEntries: async ({ limit }) => (await room.learningContext(limit)).outbox,
         getConsent: async ({ actorId }) => (await room.learningContext(1)).consent[actorId],
         acknowledge: data => room.acknowledgeLearning(data) });
@@ -114,6 +141,8 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
     flushPersistence() { return room?.flushPersistence ? room.flushPersistence() : Promise.resolve({ durable: !!room }); },
     flushLearning() { return outbox ? outbox.flush() : Promise.resolve({ ok: false, reason: 'native-service-unavailable' }); }, close(c) { clients.delete(c); pending.delete(c); },
     metrics() { return room ? { ...room.stats, version: room.version, playerConnections: clients.size, eventWindow: room.current.events.length,
+      learningExport: { configured: deliveryConfigured, pending: room.current.outbox.length,
+        captureGaps: structuredClone(room.current.learningCaptureGaps || { total: 0 }) },
       ...(room.persistenceStatus ? { persistence: room.persistenceStatus() } : {}),
       performance: projectGamingEvents(room.current.events, { domain: evidenceDomain, gameId: roomId }).scopes.game } : null; },
     get room() { return room; } };
