@@ -280,19 +280,35 @@ test('personal export is unavailable without both a composed proof port and a co
 });
 
 test('configured delivery cannot authorize a caller-selected recipient or asynchronous availability claim', async () => {
-  for (const availability of [() => true, async () => true, () => { throw new Error('private failure'); }]) {
+  for (const { availability, accepted } of [
+    { availability: () => true, accepted: true }, { availability: async () => true, accepted: false },
+    { availability: () => { throw new Error('private failure'); }, accepted: false },
+    { availability: () => Promise.reject(new Error('private failure')), accepted: false },
+    { availability: () => 'true', accepted: false },
+  ]) {
     const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000, verifiedDidFor: () => 'did:example:alice',
       learningDeliveryAvailable: availability,
       learningSink: { descriptor: { action: FOXXI_XAPI_ACTION, method: 'POST', target: 'https://learning.example/signed' }, publish() {} } });
     await runtime.ready; const alice = client('alice'); await runtime.handle(alice, request('enter'));
     await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://another.example/signed', sessionId: 's', expiresAt: 110000 }));
     assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
-    if (availability.constructor.name === 'AsyncFunction') {
-      await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://learning.example/signed', sessionId: 's', expiresAt: 110000 }));
-      assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
-    }
+    await runtime.handle(alice, request('consent', { enabled: true, actorDid: 'did:example:alice', recipient: 'https://learning.example/signed', sessionId: 's', expiresAt: 110000 }));
+    if (accepted) assert.equal(alice.received.at(-1).ok, true);
+    else assert.equal(alice.received.at(-1).error.code, 'learning_unavailable');
     assert.equal(runtime.room.current.outbox.length, 0); await runtime.shutdown();
   }
+});
+
+test('learning UI never treats restored consent or identity alone as an available delivery composition', () => {
+  const context = { window: { __HM_GAMING: { enabled: false }, __hm: {} }, Map, Set };
+  vm.createContext(context);
+  vm.runInContext(readFileSync(new URL('../../src/14u_gaming.js', import.meta.url), 'utf8'), context);
+  vm.runInContext('GAMING.snapshot = { consent: { enabled: true } }', context);
+  assert.equal(vm.runInContext('gamingLearningStatus()', context), 'Personal learning export is unavailable. You can keep playing.');
+  context.window.__HM_GAMING.learningExportConfigured = true;
+  assert.match(vm.runInContext('gamingLearningStatus()', context), /^Learning export consent is on/);
+  vm.runInContext('GAMING.snapshot.consent.enabled = false', context);
+  assert.match(vm.runInContext('gamingLearningStatus()', context), /^Personal learning export is off/);
 });
 
 test('loss of composed owner-pod delivery retains queued evidence without invoking a configured sink', async () => {

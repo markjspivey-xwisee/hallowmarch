@@ -133,7 +133,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#gaming-native-note').textContent.includes('stopped here and revoked in your pod'));
   assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 2);
   assert.equal(await page.evaluate(() => window.legacyCalls.length), 0); assert.equal(await page.locator('#gaming-token').inputValue(), '');
-  assert.equal(await page.locator('#gaming-learning').textContent(), 'Learning export is unavailable on this server.');
+  assert.equal(await page.locator('#gaming-learning').textContent(), 'Personal learning export is unavailable. You can keep playing.');
   poisoned = true; await page.locator('#gaming-native-refresh').click(); await page.waitForFunction(() => document.querySelector('#gaming-status').textContent.includes('unavailable'));
   assert(!gameRequests.some(value => JSON.stringify(value).includes('fixture-owner-bearer')));
   assert(!gameRequests.some(value => value.body && Object.keys(value.body).some(key => !['grantId', 'graphIri'].includes(key))));
