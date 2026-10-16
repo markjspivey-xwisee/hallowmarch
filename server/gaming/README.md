@@ -14,7 +14,9 @@ the existing Hallowmarch world to a complete authoritative MMO.
   head CAS. No independent SQL primary or volatile production fallback.
 - `createHallowmarchDomain`: two or more players share one guardian, health total,
   retaliation, death and loot outcome. Expedition rewards do not change the
-  legacy browser-owned character inventory.
+  legacy browser-owned character inventory. Claim the reward and start the next
+  encounter, or wait thirty seconds to reset an abandoned reward. Fallen bodies
+  can be recovered by their human owner.
 - Human-owned companion grants for teammate, pet and coach roles. Opaque
   capabilities have exact room/body/actions, expiry, rate limits and revocation.
   Agents use the same authoritative rules and cannot award loot or alter state.
@@ -37,19 +39,39 @@ The Shared expedition menu appears only after the native service opens and its
 first real durable world commit succeeds. Missing storage never enables a
 test store in production.
 
-The host must supply pinned built `@interego/core` and `@interego/pgsl` packages
-from a reviewed Interego revision that exposes `NativeCommitStore`. These are
-private workspace packages; the current game image does not assume they are
-available from public npm. Native storage prerequisite work must be released
-and verified independently of this game change.
+The game Dockerfile builds `@interego/core` and `@interego/pgsl` from reviewed
+Interego commit `87ee71626c015af3c1e7b9dac5579eff6899e8c1`, the merge of PR 626.
+Its committed npm lockfile pins the SDK's transitive dependencies. The native
+commit store, artifact codec and encryption exports are checked during the image
+build. The build uses the public source repository and needs no private registry,
+credential or runtime key. Source metadata is recorded in `interego-sdk.json`.
+Local native benchmarks need those same built packages available to Node.
+Native storage availability and live game latency still require independent
+deployment checks; shipping the SDK does not establish either.
 
-Provision a dedicated game service identity/pod and stable game-owned keys.
-Configure `HM_GAMING_ENABLED=1` and these separate service settings:
+For a deployment with a persistent `HM_DATA` volume, use only public flags:
+
+```
+HM_GAMING_BOOTSTRAP=1
+HM_GAMING_ENABLED=1
+HM_GAMING_MONITOR_ENABLED=1
+```
+
+`prepareGamingEnvironment()` generates fresh identity, encryption and monitoring
+keys inside the serving process and atomically saves them as
+`HM_DATA/gaming-service-identity.json`, owned by the service with mode 600. No
+private key needs to be sent through deployment tools. Restarts reuse that file;
+it must stay with the data volume. Bootstrap creates isolated service pods and
+rejects invalid existing keys rather than replacing the identity. It cannot be
+combined with manually configured identity keys.
+
+Alternatively, provision a dedicated service identity/pod and configure:
 
 ```
 HM_GAMING_NATIVE_POD_URL
 HM_GAMING_NATIVE_OWNER
-HM_GAMING_NATIVE_CAPABILITY
+HM_GAMING_SERVICE_IDENTITY_KEY_JSON   # renewable Ed25519 service identity
+HM_GAMING_NATIVE_CAPABILITY          # only for manually managed static credentials
 HM_GAMING_NATIVE_PRIVATE_KEY
 HM_GAMING_NATIVE_OWNER_PUBLIC_KEY
 HM_GAMING_NATIVE_HEAD_URL             # optional within service pod
@@ -58,8 +80,8 @@ HM_GAMING_NATIVE_ARTIFACT_CONTAINER   # optional within service pod
 
 Do not reuse an operator write secret, a human's entire-pod token, or Foxxi's
 service key. The current gate enforces pod scope, not individual game-head scope;
-a dedicated game pod is the required isolation boundary. No service identity,
-production key or new permission is provisioned by importing this package.
+a dedicated game pod is the required isolation boundary. Importing this package
+alone does not provision an identity; the explicit bootstrap flag does.
 No unrelated Foxxi/LRS service restart or migration is part of this change.
 
 The transport derives a human principal from the existing authenticated game
@@ -76,7 +98,7 @@ bearer capability authorizes commands; this version does not cryptographically
 prove that the caller controls that DID. Foxxi export separately requires a
 verified subject binding and does not treat this label as identity proof.
 
-Foxxi export remains unconfigured by default. A game account is not automatically
+Personal learning export remains unconfigured by default. A game account is not automatically
 an Interego DID. Enable export only after a genuine linked-identity flow verifies
 the subject and a human grants purpose/recipient/session/expiry-specific consent.
 `createGamingRuntime({learningSink})` accepts a sink built from a freshly
@@ -93,7 +115,15 @@ Run `node --test server/gaming/*.test.mjs` and
 labelled local HTTP contract fixture; they are not an actual CSS/PGSL deployment
 or cryptographic interoperability benchmark. Room tests include a disk restart,
 two writers, one shared kill/loot, failed storage, revocation and outbox recovery.
-Client tests run the actual module with protocol/DOM doubles, not a physical phone.
+The protocol tests run the actual module with DOM doubles. The enabled Chromium
+test (`node tools/tests/gaming_browser.mjs`) uses real DOM/WebSocket clients at
+four mobile/landscape sizes; a full built Three.js page was also exercised. These
+are browser checks, not physical iPhone verification.
+
+`evidence/runtime-bootstrap-native-verification-20261016.json` records an actual
+fresh runtime bootstrap, empty-pod native world/join/command commits and exact
+cold-store recovery with persisted keys. Its identities are software-verification
+identities, separate from those generated inside the production service.
 
 Enable this initial runtime with a single active serving process. Native CAS
 arbitrates competing writes, but snapshot broadcasts currently reach only the
@@ -105,6 +135,10 @@ that delivery path. Otherwise remote changes appear only after an explicit read.
 The current native SDK enumerates the scope index and this room persists a full
 state snapshot per accepted command. Native operation history grows; room replay
 responses retain 1,024 commands and recent event metrics cover a 256-event window.
+The game transport retains at most 512 immutable ciphertext responses and 8 MiB
+including their metadata, keyed by the native SHA-256 artifact/commit URL.
+Mutable heads and every write still go to native storage; the first verification
+read after a write also goes to storage. A new process starts with an empty cache.
 That supports a bounded proof, not a measured MMO tick rate. The next performance
 work is version-bound native record lookup, short atomic command batches,
 room-leader coordination and actual latency/fan-out/recovery benchmarks. Do not
@@ -119,10 +153,44 @@ node server/gaming/benchmark.mjs --authorize-native-writes --commands=100
 ```
 
 This makes actual durable software-verification records, reports p50/p95/p99
-command latency, and verifies a fresh native read. It does not measure the
+command latency, and verifies recovery through a new SDK/store with an empty
+ciphertext cache. It does not measure the
 player's phone/network RTT. Missing prerequisites fail explicitly.
 
 The existing world NPCs, armies, inventory, quests, trade and PvP are still on
 the earlier architecture. This package must not be described as having migrated
 those systems. Extending the authoritative domain and client rendering remains
 separate work after the native authority and performance gates pass.
+
+Service operational monitoring composes the live Foxxi own-subject xAPI
+operation advertised by `https://foxxi-bridge.interego.xwisee.com/affordances`.
+It uses a separately provisioned game-monitor wallet and pod, with
+`HM_GAMING_MONITOR_ENABLED=1`, `HM_GAMING_MONITOR_DID`,
+`HM_GAMING_MONITOR_PRIVATE_KEY` and `HM_GAMING_MONITOR_POD_URL`.
+Neither a human credential nor the game-native encryption identity is reused.
+The native game store durably queues each sanitized observation before delivery;
+Foxxi must acknowledge every exact statement id as persisted before the queue is
+acknowledged in native storage. Failed or uncertain delivery retains the same
+statement ids and content across process restarts.
+
+Sample at most once every 30 seconds and run it outside the gameplay command
+path. The sample contains process counters, timing gauges, connection counts,
+committed room version and counts from the bounded recent event window. Windows
+can overlap and must not be summed as unique lifetime activity. The exporter
+whitelists fields and excludes account ids, actor ids, team/realm membership,
+chat, capabilities and raw game events. The subject is the game-monitor service,
+with an explicit operational or software-verification purpose; no human learning
+or competency is asserted. Individual player learning remains disabled until
+verified identity binding and explicit session consent are implemented.
+
+The software-verification receipt in
+`evidence/foxxi-monitor-native-verification-20261016.json` records one actual
+native-queued service snapshot, Foxxi's persisted receipt, exact signed LRS
+read-back digest and native queue acknowledgement (version 2, pending 0).
+It used isolated test service identities and makes no claim about the production
+identity, human learning or game latency. The first 30-second delivery timed out;
+retrying the same statement id reconciled the accepted write and confirmed its
+receipt. Background delivery therefore has a 90-second deadline and preserves
+pending observations after uncertainty. Fresh production identities are generated
+inside the serving process by `HM_GAMING_BOOTSTRAP=1`; their private keys stay on
+the existing persistent data volume and are never sent through deployment tools.

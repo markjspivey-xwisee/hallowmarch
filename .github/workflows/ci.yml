@@ -52,6 +52,7 @@ jobs:
             networking)
               node --test server/gaming/*.test.mjs
               python3 tools/tests/gaming_client.py
+              node tools/tests/gaming_browser.mjs
               check python3 tools/tests/net_reconnect.py
               ;;
             companies) check python3 tools/tests/net.py companies ;;

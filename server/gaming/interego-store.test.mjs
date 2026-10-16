@@ -17,6 +17,108 @@ import { createInteregoStore, createNativeTransport, DurableStoreConflictError }
  */
 const MEDIA = 'application/vnd.interego.native-commit+json';
 const digest = bytes => 'sha256:' + createHash('sha256').update(bytes).digest('hex');
+
+function immutableTransportFixture(overrides = {}) {
+  const scope = { pod: 'https://native.example/game/', headUrl: 'https://native.example/game/head',
+    artifactContainer: 'https://native.example/game/artifacts/', owner: 'urn:game:test' };
+  const calls = [], rows = new Map(), controls = { credentials: true, status: 200, tamperDigest: false };
+  function add(value, kind = 'artifact') {
+    const bytes = Buffer.from(JSON.stringify(value)), url = scope.artifactContainer + kind + '-' + digest(bytes).slice(7) + '.json';
+    rows.set(url, bytes); return url;
+  }
+  const response = url => {
+    const bytes = rows.get(url) || Buffer.from('{}'), revision = digest('test-revision');
+    return new Response(bytes, { status: controls.status, headers: { 'Content-Type': 'application/json',
+      ETag: '"' + revision + '-json"', 'Interego-Revision': revision,
+      'Interego-Body-Digest': controls.tamperDigest ? digest('wrong') : digest(bytes) } });
+  };
+  const options = { scope, credentialsProvider: async () => controls.credentials ? { Authorization: 'Bearer own-pod-test' } : {},
+    transport: async (url, init) => { calls.push([init.method, url]); return response(url); }, ...overrides };
+  return { scope, calls, rows, controls, add, response, options, create: extra => createNativeTransport({ ...options, ...extra }) };
+}
+
+test('immutable native cache detaches bodies, preserves credentials and cold reads; heads and OPTIONS always use network', async () => {
+  const f = immutableTransportFixture(), url = f.add({ ciphertext: 'verified bytes' }), get = f.create();
+  const first = await get(url); first.headers.set('Interego-Body-Digest', 'mutated');
+  new Uint8Array(await first.arrayBuffer()).fill(0);
+  assert.deepEqual(await (await get(url)).json(), { ciphertext: 'verified bytes' });
+  assert.equal(f.calls.length, 1);
+  assert.equal((await get(url)).headers.get('Interego-Body-Digest'), digest(f.rows.get(url)));
+  await get(f.scope.headUrl); await get(f.scope.headUrl);
+  await get(url, { method: 'OPTIONS' }); await get(url, { method: 'OPTIONS' });
+  assert.equal(f.calls.length, 5);
+  f.controls.credentials = false;
+  await assert.rejects(get(url), /credentials are unavailable/);
+  assert.equal(f.calls.length, 5, 'a cached ciphertext never bypasses credential resolution');
+  f.controls.credentials = true;
+  await f.create()(url);
+  assert.equal(f.calls.length, 6, 'a new transport proves recovery through a fresh network read');
+});
+
+test('cache accepts only exact native immutable URL, body SHA-256 and read metadata', async () => {
+  const f = immutableTransportFixture(), url = f.add({ ciphertext: 'original' }), get = f.create();
+  f.controls.tamperDigest = true;
+  await get(url); await get(url); assert.equal(f.calls.length, 2);
+  f.controls.tamperDigest = false;
+  const wrongUrl = f.scope.artifactContainer + 'artifact-' + 'a'.repeat(64) + '.json';
+  f.rows.set(wrongUrl, f.rows.get(url));
+  await get(wrongUrl); await get(wrongUrl); assert.equal(f.calls.length, 4);
+  const lookalike = f.scope.artifactContainer + 'nested/' + url.split('/').at(-1);
+  f.rows.set(lookalike, f.rows.get(url));
+  await get(lookalike); await get(lookalike); assert.equal(f.calls.length, 6);
+  f.controls.status = 401;
+  assert.equal((await get(url)).status, 401); assert.equal((await get(url)).status, 401);
+  assert.equal(f.calls.length, 8, 'native authorization failures are never cached');
+  f.controls.status = 200;
+  await get(url); await get(url); assert.equal(f.calls.length, 9);
+});
+
+test('every PUT and its first verification GET remain live, including failed CAS', async () => {
+  const f = immutableTransportFixture(), url = f.add({ ciphertext: 'persisted' }, 'commit'), get = f.create();
+  await get(url); await get(url); assert.equal(f.calls.length, 1);
+  await get(url, { method: 'PUT', body: '{}' }); assert.equal(f.calls.length, 2);
+  await get(url); assert.equal(f.calls.length, 3);
+  await get(url); assert.equal(f.calls.length, 3);
+  f.controls.status = 412;
+  assert.equal((await get(url, { method: 'PUT', body: '{}' })).status, 412);
+  f.controls.status = 200;
+  await get(url); assert.equal(f.calls.length, 5, 'a failed native CAS cannot preserve a readback shortcut');
+});
+
+test('immutable cache enforces LRU entry and total byte budgets', async () => {
+  const f = immutableTransportFixture(), a = f.add({ a: 1 }), b = f.add({ b: 2 }), c = f.add({ c: 3 });
+  const get = f.create({ cacheMaxEntries: 2 });
+  await get(a); await get(b); await get(a); await get(c); await get(a);
+  assert.equal(f.calls.length, 3);
+  await get(b); assert.equal(f.calls.length, 4, 'least recently used b was evicted');
+  const tiny = f.create({ cacheMaxBytes: 1 });
+  await tiny(a); await tiny(a); assert.equal(f.calls.length, 6, 'oversized entries never exceed a byte budget');
+  const disabled = f.create({ cacheMaxEntries: 0 });
+  await disabled(a); await disabled(a); assert.equal(f.calls.length, 8);
+  const entrySize = url => f.rows.get(url).length + Buffer.byteLength(JSON.stringify([...f.response(url).headers]) + url);
+  const byteBound = f.create({ cacheMaxBytes: Math.max(entrySize(a), entrySize(b)) + 1 });
+  await byteBound(a); await byteBound(b); await byteBound(a);
+  assert.equal(f.calls.length, 11, 'total ciphertext and metadata bytes also evict older entries');
+  assert.throws(() => f.create({ cacheMaxBytes: -1 }), /bounded timeout/);
+});
+
+test('read begun before a concurrent PUT cannot populate its verification cache', async () => {
+  const f = immutableTransportFixture(), url = f.add({ ciphertext: 'same immutable bytes' });
+  let release, started;
+  const firstStarted = new Promise(resolve => { started = resolve; });
+  const pending = new Promise(resolve => { release = resolve; });
+  let first = true;
+  const get = f.create({ transport: async (target, init) => {
+    f.calls.push([init.method, target]);
+    if (init.method === 'GET' && first) { first = false; started(); await pending; }
+    return f.response(target);
+  } });
+  const earlierRead = get(url); await firstStarted;
+  await get(url, { method: 'PUT', body: '{}' });
+  release(); await earlierRead;
+  await get(url); assert.equal(f.calls.length, 3, 'first post-write verification reached native storage');
+  await get(url); assert.equal(f.calls.length, 3);
+});
 const artifactCodec = {
   createNativeByteArtifact(input) { return { owner: input.owner, contentType: input.contentType, bytes: Buffer.from(input.bytes).toString('base64') }; },
   readNativeByteArtifact(artifact) { return { ...artifact, bytes: Buffer.from(artifact.bytes, 'base64') }; },

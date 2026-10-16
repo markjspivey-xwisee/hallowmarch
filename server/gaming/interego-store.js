@@ -78,10 +78,17 @@ function checkedUrl(value) {
   return url;
 }
 
-/** Credentials are resolved per request; redirects can never forward them. */
-export function createNativeTransport({ scope, credentialsProvider, transport = globalThis.fetch, timeoutMs = 10000 }) {
+/** Credentials are resolved per request; redirects can never forward them.
+ * Only native immutable ciphertext is cached, under its exact SHA-256 URL.
+ * Mutable heads, capability discovery, writes and first write readback stay live.
+ * This bounded disposable cache is never an acknowledged primary state store.
+ */
+export function createNativeTransport({ scope, credentialsProvider, transport = globalThis.fetch, timeoutMs = 10000,
+  cacheMaxEntries = 512, cacheMaxBytes = 8 * 1024 * 1024 }) {
   if (typeof credentialsProvider !== 'function' || typeof transport !== 'function'
-    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) {
+    || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000
+    || !Number.isSafeInteger(cacheMaxEntries) || cacheMaxEntries < 0 || cacheMaxEntries > 4096
+    || !Number.isSafeInteger(cacheMaxBytes) || cacheMaxBytes < 0 || cacheMaxBytes > 64 * 1024 * 1024) {
     fail('Native credentials, transport, and bounded timeout are required.', 'INVALID_CONFIGURATION', 500);
   }
   const pod = checkedUrl(scope?.pod), head = checkedUrl(scope?.headUrl), artifacts = checkedUrl(scope?.artifactContainer);
@@ -89,6 +96,15 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
     || [head, artifacts].some(url => url.origin !== pod.origin || !url.pathname.startsWith(pod.pathname))) {
     fail('Native resources must share an authorized pod scope.', 'INVALID_CONFIGURATION', 500);
   }
+  const cache = new Map();
+  let cachedBytes = 0, writeEpoch = 0;
+  const removeCached = key => { const entry = cache.get(key); if (entry) { cache.delete(key); cachedBytes -= entry.size; } };
+  const detached = entry => new Response(Buffer.from(entry.bytes), { status: 200, statusText: entry.statusText, headers: entry.headers });
+  const immutableDigest = url => {
+    if (!cacheMaxEntries || !cacheMaxBytes || url.href === head.href || !url.href.startsWith(artifacts.href)) return null;
+    const match = url.href.slice(artifacts.href.length).match(/^(?:artifact|commit)-([a-f0-9]{64})\.json$/);
+    return match ? 'sha256:' + match[1] : null;
+  };
   return async (target, init = {}) => {
     const url = checkedUrl(String(target));
     if (url.href !== String(target) || url.origin !== pod.origin || !url.pathname.startsWith(pod.pathname)) {
@@ -99,12 +115,16 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
     if (init.body !== undefined && (typeof init.body !== 'string' || Buffer.byteLength(init.body) > MAX_NATIVE_COMMAND_BYTES)) {
       fail('Native command exceeds capacity.', 'PAYLOAD_TOO_LARGE', 413);
     }
+    // A concurrent read started before/during a write must not repopulate the
+    // cache behind that write and hide the SDK's first verification GET.
+    if (method === 'PUT') { writeEpoch++; removeCached(url.href); }
     const controller = new AbortController();
     let timer;
     try {
       const operation = async () => {
         const credentials = await credentialsProvider({ url: url.href, method });
         if (controller.signal.aborted) fail('Native service transport timed out.', 'DURABILITY_UNAVAILABLE', 503);
+        if (init.signal?.aborted) fail('Native service transport was cancelled.', 'DURABILITY_UNAVAILABLE', 503);
         const auth = new Headers(credentials), headers = new Headers(init.headers);
         let credentialCount = 0;
         for (const [key, value] of auth) {
@@ -114,6 +134,14 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
           if (value) { headers.set(key, value); credentialCount++; }
         }
         if (!credentialCount) fail('Native service credentials are unavailable.', 'DURABILITY_UNAVAILABLE', 503);
+        const expectedDigest = method === 'GET' && init.body === undefined
+          && !['range', 'if-match', 'if-none-match', 'if-modified-since', 'if-unmodified-since'].some(name => headers.has(name))
+          ? immutableDigest(url) : null;
+        if (expectedDigest && cache.has(url.href)) {
+          const cached = cache.get(url.href); cache.delete(url.href); cache.set(url.href, cached);
+          return detached(cached);
+        }
+        const startedEpoch = writeEpoch;
         const response = await transport(url.href, { ...init, method, headers, redirect: 'manual',
           signal: init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal });
         // Keep the deadline through the response body, not just the headers.
@@ -130,7 +158,24 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
             }
           } finally { reader.releaseLock(); }
         }
-        return new Response([204, 205, 304].includes(response.status) ? null : Buffer.concat(chunks),
+        const bytes = Buffer.concat(chunks);
+        // Match the pinned SDK's exact immutable URL and native read metadata.
+        // Its own decrypt/PGSL closure checks still run on every returned body.
+        const revision = response.headers.get('Interego-Revision');
+        const etagRevision = response.headers.get('ETag')?.match(/^"(sha256:[a-f0-9]{64})(?:-[^"\r\n]{1,200})?"$/)?.[1];
+        if (expectedDigest && response.status === 200 && startedEpoch === writeEpoch
+          && response.headers.get('Content-Type')?.split(';')[0]?.trim() === 'application/json'
+          && revision && REVISION.test(revision) && etagRevision === revision
+          && response.headers.get('Interego-Body-Digest') === expectedDigest
+          && 'sha256:' + hash(bytes) === expectedDigest) {
+          const entry = { bytes: Buffer.from(bytes), headers: [...response.headers], statusText: response.statusText };
+          entry.size = bytes.length + Buffer.byteLength(JSON.stringify(entry.headers) + url.href + entry.statusText);
+          if (entry.size <= cacheMaxBytes) {
+            removeCached(url.href); cache.set(url.href, entry); cachedBytes += entry.size;
+            while (cache.size > cacheMaxEntries || cachedBytes > cacheMaxBytes) removeCached(cache.keys().next().value);
+          }
+        }
+        return new Response([204, 205, 304].includes(response.status) ? null : bytes,
           { status: response.status, statusText: response.statusText, headers: response.headers });
       };
       const timeout = new Promise((resolve, reject) => {
@@ -141,7 +186,10 @@ export function createNativeTransport({ scope, credentialsProvider, transport = 
       if (error instanceof DurableStoreError) throw error;
       // Never expose credential-provider/transport exception text in game logs.
       fail('Native service transport is unavailable.', 'DURABILITY_UNAVAILABLE', 503);
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+      if (method === 'PUT') { writeEpoch++; removeCached(url.href); }
+    }
   };
 }
 

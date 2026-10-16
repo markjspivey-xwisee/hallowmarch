@@ -22,6 +22,8 @@ import { WebSocketServer } from 'ws';
 import { makeSeason } from './season.js';
 import { createGamingRuntime } from './gaming/runtime.js';
 import { configuredGamingStore } from './gaming/provider.js';
+import { prepareGamingEnvironment } from './gaming/bootstrap.js';
+import { configuredServiceMonitoring } from './gaming/service-monitoring.js';
 import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
@@ -193,11 +195,38 @@ function regionOf(x, z) {
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
 const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS); // [season2] (server/fieldarmies.js)
-let gamingStore = null;
-try { gamingStore = await configuredGamingStore(); } catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
+let gamingStore = null, gamingEnvironment = { ...process.env };
+try { gamingEnvironment = await prepareGamingEnvironment(process.env); gamingStore = await configuredGamingStore(gamingEnvironment); }
+catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
 const GAMING = createGamingRuntime({ store: gamingStore, send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
 const gamingHttp = createAgentHttp({ gaming: GAMING });
+let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
+async function initializeGamingMonitor() {
+  if (!gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
+  gamingMonitorInitializing = true;
+  try {
+    if (gamingEnvironment.HM_GAMING_MONITOR_BOOTSTRAP_STATUS) gamingEnvironment = await prepareGamingEnvironment(process.env);
+    gamingMonitor = await configuredServiceMonitoring({ store: gamingStore, env: gamingEnvironment });
+  } catch { console.warn('gaming: operational monitoring unavailable; durable game service remains independent'); }
+  finally { gamingMonitorInitializing = false; }
+}
+await initializeGamingMonitor();
+async function sampleGamingService() {
+  if (!gamingMonitor || gamingMonitorBusy) return;
+  gamingMonitorBusy = true;
+  try {
+    try { await gamingMonitor.record(GAMING.metrics()); }
+    catch { console.warn('gaming: operational sample pending; retrying retained observations'); }
+    await gamingMonitor.flush();
+  }
+  catch { console.warn('gaming: operational monitoring delivery pending'); }
+  finally { gamingMonitorBusy = false; }
+}
+if (process.env.HM_GAMING_MONITOR_ENABLED === '1') {
+  setTimeout(() => { void sampleGamingService(); }, 5000).unref();
+  setInterval(() => { void initializeGamingMonitor().then(sampleGamingService); }, 30000).unref();
+}
 function regionHosts(R) {
   const h = {};
   for (const c of R.clients.values()) {
@@ -516,8 +545,9 @@ const server = http.createServer((req, res) => {
   if (gamingHttp(req, res, u.pathname)) return;
   if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
   if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(GAMING.manifest())); return; }
+  if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: GAMING.manifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
-  if (u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok: true, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000) })); return; }
+  if (u.pathname === '/health') { const ok = process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled; res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
   // would set it (tests: the season's own capture told to the pages), a new season, the season saved now
   if (u.pathname === '/admin' && req.method === 'POST') {

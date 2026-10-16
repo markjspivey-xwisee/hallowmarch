@@ -31,9 +31,10 @@ The Claude artifact uses its private per-player database. A plain file uses brow
 
 The [Interego gaming package](server/gaming/README.md) adds a reusable native-storage
 authority, scoped companion agents, Foxxi activity/learning export, I2IDL vocabulary
-mappings, and a bounded Hallowmarch shared expedition. It is disabled by default
-pending a dedicated service identity, pinned native SDK and live performance
-verification; it does not migrate the existing world simulation.
+mappings, and a bounded Hallowmarch shared expedition. The Docker image includes
+the pinned native SDK; explicit deployment flags generate isolated service keys
+on the persistent data volume. The expedition has a mobile encounter view and
+replayable guardian fights. Existing world simulation remains on its earlier path.
 
 ## Build
 

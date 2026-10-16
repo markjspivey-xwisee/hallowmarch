@@ -261,6 +261,14 @@ export class AuthoritativeRoom {
     this.queue = task.catch(() => {});
     return task;
   }
+  /** Local fan-out after a confirmed commit needs no extra native read per
+   * connection. This human-only view never authorizes a delegated capability;
+   * external observations and agent commands still refresh the native head.
+   */
+  observeCommitted(principal) {
+    requireGame(human(principal), 'human_required', 'Only authenticated human subscriptions use committed snapshots.');
+    return this.#observe(structuredClone(principal));
+  }
   #observe(principal) {
     requireGame(this.current, 'not_ready', 'The world is not ready.');
     if (principal?.kind === 'agent') {

@@ -16,10 +16,10 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
     companionRoles: ['teammate', 'pet', 'coach'], vocabulary: '/gaming/vocabulary', domainVocabulary: '/gaming/hallowmarch-vocabulary',
     transport: { websocket: '/ws', messageType: 'gaming', commandAuthority: 'server', durableAcknowledgements: true },
     ...(room ? { version: room.version } : {}) });
-  const snapshot = async client => {
+  const snapshot = async (client, refresh = false) => {
     const principal = clients.get(client);
     if (principal && client.ws?.readyState === 1) {
-      const state = await room.observe(principal);
+      const state = refresh ? await room.observe(principal) : room.observeCommitted(principal);
       send(client, { t: 'gaming', op: 'snapshot', roomId: state.roomId, version: state.version, state });
     }
   };
@@ -64,7 +64,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
         } else if (message.op === 'leave') { clients.delete(c); result = { left: true }; }
         else {
           if (!clients.has(c)) throw new GameCommandError('not_joined', 'Enter the expedition first.');
-          if (message.op === 'observe') { await snapshot(c); result = { version: room.version }; }
+          if (message.op === 'observe') { await snapshot(c, true); result = { version: room.version }; }
           else {
             if (message.op === 'command') command = message.command;
             else if (message.op === 'grant') command = { type: 'grantCompanion', request: message.request, commandId: message.commandId || requestId };

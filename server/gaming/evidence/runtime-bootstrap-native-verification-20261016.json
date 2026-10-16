@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "purpose": "software-verification",
+  "freshPod": true,
+  "manualProbesBeforeReady": false,
+  "coldStoreRecovered": true,
+  "version": 3,
+  "identityStable": true,
+  "owner": "did:web:identity.interego.xwisee.com:users:u-did-b2bf50427b5a",
+  "podUrl": "https://gate.interego.xwisee.com/u-did-b2bf50427b5a/",
+  "monitorDid": "did:ethr:0x23C6742EBD6278905ECD5EC5B19867f0f18C6dA6",
+  "monitorPodUrl": "https://gate.interego.xwisee.com/u-eth-23c6742ebd62/",
+  "samples": {
+    "fresh-volume-credentials-prepared": 8876,
+    "game-identity-proven": 204,
+    "empty-native-pod-ready": 7286,
+    "native-world-created": 2611,
+    "observer-joined": 3110,
+    "software-verification-command-committed": 2987,
+    "same-volume-credentials-reloaded": 5565,
+    "cold-native-world-recovered": 7786
+  },
+  "totalMs": 38424
+}

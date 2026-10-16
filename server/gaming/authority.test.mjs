@@ -63,6 +63,43 @@ test('independent room writers reload CAS winner instead of losing another playe
   assert.equal(restarted.version, 3);
 });
 
+test('shared encounters can be replayed without erasing rewards or duplicating kill identity', async t => {
+  const f = await fixture(t, 20), a = person('alice'); await f.room.execute(a, command('join'));
+  await assert.rejects(f.room.execute(a, command('resetEncounter')), { code: 'encounter_active' });
+  const killIds = [];
+  for (let run = 1; run <= 2; run++) {
+    f.advance(1000); await f.room.execute(a, command('move', { x: 0, z: 3 }));
+    await f.room.execute(a, command('attack', { targetId: 'march-guardian' })); f.advance(1000);
+    const kill = await f.room.execute(a, command('attack', { targetId: 'march-guardian' })); killIds.push(kill.result.killId);
+    await assert.rejects(f.room.execute(a, command('resetEncounter')), { code: 'reward_pending' });
+    await f.room.execute(a, command('claimLoot', { targetId: 'march-guardian' }));
+    if (run === 1) {
+      await f.room.execute(a, command('resetEncounter'));
+      const view = await f.room.observe(a); assert.equal(view.encounter.sequence, 2); assert.equal(view.entities['march-guardian'].hp, 20);
+      assert.equal(view.entities.alice.hp, 100); assert.equal(view.entities.alice.z, 0); assert.equal(view.loot.length, 0);
+    }
+  }
+  assert.notEqual(killIds[0], killIds[1]);
+  const restarted = await new AuthoritativeRoom(f.options).open();
+  assert.equal((await restarted.observe(a)).rewards['guardian-token'], 2);
+  assert.equal(projectGamingEvents(restarted.current.events, { domain: 'hallowmarch' }).scopes.game.metrics.kills, 2);
+});
+
+test('abandoned rewards expire for a new encounter and fallen owners can recover', async t => {
+  const f = await fixture(t, 10), a = person('alice'); await f.room.execute(a, command('join')); f.advance(1000);
+  await f.room.execute(a, command('move', { x: 0, z: 3 })); await f.room.execute(a, command('attack', { targetId: 'march-guardian' }));
+  f.advance(30000); await f.room.execute(a, command('resetEncounter'));
+  assert.equal((await f.room.observe(a)).encounter.sequence, 2);
+  const g = await fixture(t, 1000); await g.room.execute(a, command('join')); g.advance(1000);
+  await g.room.execute(a, command('move', { x: 0, z: 3 }));
+  for (let hit = 0; hit < 20; hit++) { g.advance(1000); await g.room.execute(a, command('attack', { targetId: 'march-guardian' })); }
+  assert.equal((await g.room.observe(a)).entities.alice.hp, 0);
+  await assert.rejects(g.room.execute(a, command('move', { x: 0, z: 1 })), { code: 'entity_dead' });
+  await g.room.execute(a, command('recover'));
+  const recovered = (await g.room.observe(a)).entities.alice; assert.equal(recovered.hp, 100); assert.equal(recovered.z, 0);
+  await assert.rejects(g.room.execute(a, command('recover')), { code: 'entity_alive' });
+});
+
 test('command replay survives restart; changed content cannot reuse commandId', async t => {
   const f = await fixture(t), a = person('alice'), join = command('join');
   const first = await f.room.execute(a, join); const restarted = await new AuthoritativeRoom(f.options).open();

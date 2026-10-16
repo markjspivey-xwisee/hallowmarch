@@ -69,6 +69,22 @@ test('HTTP affordance uses human-issued capability, redacts private state, and h
   assert(manifest.affordances.every(a => a.target.startsWith('https://game.example/gaming/agent/')));
 });
 
+test('confirmed snapshot fan-out does not add a native read for every player connection', async () => {
+  const store = new TestStore(); let reads = 0, now = 100000;
+  const load = store.load.bind(store); store.load = (...args) => { reads++; return load(...args); };
+  const runtime = createGamingRuntime({ store, send, clock: () => now }); await runtime.ready;
+  const players = Array.from({ length: 12 }, (_, i) => client(`subscriber-${i}`));
+  for (const player of players) await runtime.handle(player, request('enter'));
+  const before = reads; now += 1000;
+  await runtime.handle(players[0], cmd('move', { x: 0, z: 2 })); await runtime.room.queue;
+  // One canonical command refresh and the fixture's commit readback; fan-out
+  // reuses the just-confirmed snapshot instead of adding twelve remote reads.
+  assert.equal(reads - before, 2);
+  for (const player of players) assert.equal(player.received.filter(m => m.op === 'snapshot').at(-1).state.entities['subscriber-0'].z, 2);
+  const refreshed = reads; await runtime.handle(players[0], request('observe')); assert.equal(reads - refreshed, 1);
+  assert.throws(() => runtime.room.observeCommitted({ kind: 'agent', token: 'anything' }), { code: 'human_required' });
+});
+
 test('real server snapshots are accepted by the actual browser adapter during entry, movement and combat', async () => {
   let now = 100000, api;
   const human = client('alice');

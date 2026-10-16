@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-16T02:06:20.028Z",
+  "purpose": "software-verification",
+  "statementId": "586a53a6-cd3d-885e-bfd8-95a0aaa3351d",
+  "nativeAcknowledgedVersion": 2,
+  "nativePendingAfter": 0,
+  "nativeReceipt": {
+    "digest": "6643dcfd835037a61912278d21f5d3b0b130ce6405cb0f3bd303b5613a245759",
+    "persisted": true,
+    "recipient": "https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/write",
+    "statementId": "586a53a6-cd3d-885e-bfd8-95a0aaa3351d"
+  },
+  "read": {
+    "status": 200,
+    "exactBodyDigest": true,
+    "storedAssigned": true,
+    "authorityAssigned": true
+  },
+  "humanLearningClaims": false,
+  "productionIdentity": false,
+  "foxxiReceipt": {
+    "durable": true,
+    "persisted": true,
+    "statementId": "586a53a6-cd3d-885e-bfd8-95a0aaa3351d",
+    "descriptorUrl": "https://gate.interego.xwisee.com/eth-e5a46aeadb5c/foxxi-lattice/holon-71605a211ccb0a1918aca32d.ttl",
+    "holonUri": "https://relay.interego.xwisee.com/ns/pgsl/fragment/4a9b4d5c99008c7f2fd9fc418d75a21364b4b44f"
+  }
+}

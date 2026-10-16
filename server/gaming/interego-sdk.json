@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/markjspivey-xwisee/interego",
+  "revision": "87ee71626c015af3c1e7b9dac5579eff6899e8c1",
+  "review": "https://github.com/markjspivey-xwisee/interego/pull/626",
+  "packages": {
+    "@interego/core": "0.2.0",
+    "@interego/pgsl": "0.2.0"
+  },
+  "packageLockGitBlob": "e5c160b5dead36e25ce93617642e80327beca577",
+  "nativeMediaType": "application/vnd.interego.native-commit+json",
+  "license": "MIT"
+}

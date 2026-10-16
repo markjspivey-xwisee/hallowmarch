@@ -16,7 +16,7 @@ export function createHallowmarchDomain({ origin = { x: 0, z: 0 }, monsterHp = 1
   return {
     id: 'hallowmarch.shared-expedition.v1', evidenceDomain: 'hallowmarch',
     initialState(roomId) {
-      return { domain: 'hallowmarch', entities: { 'march-guardian': { id: 'march-guardian', name: 'March guardian', kind: 'npc',
+      return { domain: 'hallowmarch', encounter: { sequence: 1, defeatedAt: null }, entities: { 'march-guardian': { id: 'march-guardian', name: 'March guardian', kind: 'npc',
         ...point(0, 5), hp: monsterHp, maxHp: monsterHp, damage: 5, realmId: 'wild', teamId: 'wild', lastAttackAt: 0 } }, loot: {}, rewards: {}, domainEvents: 0 };
     },
     join(state, principal, { actorId, now, emit }) {
@@ -34,6 +34,27 @@ export function createHallowmarchDomain({ origin = { x: 0, z: 0 }, monsterHp = 1
     apply(state, cmd, { actorId, entityId, now, emit, authorization }) {
       const e = entity(state, entityId);
       requireGame(e && e.ownerPlayerId === actorId && e.kind !== 'npc', 'entity_forbidden', 'You cannot control that entity.');
+      if (cmd.type === 'resetEncounter') {
+        requireGame(!authorization, 'human_required', 'Only a human player can start the next encounter.');
+        const guardian = entity(state, 'march-guardian');
+        requireGame(guardian && !alive(guardian), 'encounter_active', 'Defeat the guardian before starting the next encounter.');
+        const unclaimed = Object.values(state.loot).some(drop => !drop.claimedBy);
+        requireGame(!unclaimed || now - (state.encounter?.defeatedAt ?? now) >= 30000, 'reward_pending', 'Claim the guardian reward first, or wait thirty seconds for the next encounter.');
+        state.encounter = { sequence: (state.encounter?.sequence || 1) + 1, defeatedAt: null };
+        state.loot = {};
+        Object.assign(guardian, point(0, 5), { hp: monsterHp, maxHp: monsterHp, lastAttackAt: 0 });
+        for (const body of Object.values(state.entities)) if (body.kind !== 'npc') {
+          Object.assign(body, point(body.kind === 'companion' ? 1 : 0, 0), { hp: body.maxHp, lastMoveAt: now, lastAttackAt: 0 });
+        }
+        emit('encounter.started', { sequence: state.encounter.sequence });
+        return { encounter: structuredClone(state.encounter) };
+      }
+      if (cmd.type === 'recover') {
+        requireGame(!authorization, 'human_required', 'Only the human owner can recover a fallen companion or body.');
+        requireGame(!alive(e), 'entity_alive', 'This body is already ready.');
+        Object.assign(e, point(0, 0), { hp: e.maxHp, lastMoveAt: now, lastAttackAt: now });
+        emit('entity.recovered', { entityId }); return { entityId, hp: e.hp };
+      }
       if (cmd.type === 'spawnCompanion') {
         requireGame(!authorization, 'human_required', 'Only the human creates a companion.');
         requireGame(Object.values(state.entities).filter(x => x.kind === 'companion' && x.ownerPlayerId === actorId).length < 2, 'companion_limit', 'Two companions per player are supported.');
@@ -57,9 +78,12 @@ export function createHallowmarchDomain({ origin = { x: 0, z: 0 }, monsterHp = 1
         requireGame(now - e.lastAttackAt >= 700, 'cooldown', 'The attack is still recovering.');
         e.lastAttackAt = now;
         const amount = Math.min(e.damage, target.hp); target.hp -= amount;
-        const killId = target.hp <= 0 ? `${state.roomId}:${target.id}:defeated` : null;
+        const killId = target.hp <= 0 ? `${state.roomId}:${target.id}:encounter-${state.encounter?.sequence || 1}:defeated` : null;
         emit('damage', { sourceId: entityId, targetId: target.id, amount, dead: target.hp <= 0, ...(killId ? { killId } : {}) });
-        if (killId && !state.loot[killId]) state.loot[killId] = { id: killId, targetId: target.id, itemId: 'guardian-token', quantity: 1, claimedBy: null, eligiblePlayers: [...new Set(Object.values(state.entities).filter(x => x.kind === 'player' && distance(x, target) <= 20).map(x => x.id))] };
+        if (killId && !state.loot[killId]) {
+          state.encounter ||= { sequence: 1 }; state.encounter.defeatedAt = now;
+          state.loot[killId] = { id: killId, targetId: target.id, itemId: 'guardian-token', quantity: 1, claimedBy: null, eligiblePlayers: [...new Set(Object.values(state.entities).filter(x => x.kind === 'player' && distance(x, target) <= 20).map(x => x.id))] };
+        }
         // One server-owned retaliation per cooldown, independent of client claims.
         if (target.hp > 0 && now - target.lastAttackAt >= 1000) {
           target.lastAttackAt = now; const retaliation = Math.min(e.hp, target.damage); e.hp -= retaliation;
@@ -84,7 +108,7 @@ export function createHallowmarchDomain({ origin = { x: 0, z: 0 }, monsterHp = 1
       requireGame(false, 'unknown_command', 'Unsupported expedition command.');
     },
     observe(state, actorId) {
-      return { domain: state.domain, entities: structuredClone(state.entities), loot: Object.values(state.loot).map(x => ({ id: x.id, targetId: x.targetId, claimedBy: x.claimedBy, itemId: x.itemId })), rewards: structuredClone(state.rewards[actorId] || {}) };
+      return { domain: state.domain, encounter: structuredClone(state.encounter || { sequence: 1, defeatedAt: null }), entities: structuredClone(state.entities), loot: Object.values(state.loot).map(x => ({ id: x.id, targetId: x.targetId, claimedBy: x.claimedBy, itemId: x.itemId })), rewards: structuredClone(state.rewards[actorId] || {}) };
     },
   };
 }
