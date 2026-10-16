@@ -95,7 +95,8 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
     for (const [id, r] of rates) if (now() - r.at >= 1000) rates.delete(id);
     const rate = rates.get(authorization.grantId) || { at: now(), n: 0 };
     if (++rate.n > authorization.scope.maxCommandsPerSecond) fail('native_grant_rate_limited'); rates.set(authorization.grantId, rate);
-    if (!ref.admission || ref.admission.grantDigest !== authorization.receiptRef.grantDigest) fail('native_admission_uncertain');
+    const saved = confirmedRecords.references[authorization.grantId];
+    if (!saved || saved.revoked || saved.admission?.grantDigest !== authorization.receiptRef.grantDigest) fail('native_admission_uncertain');
     return { ref, authorization };
   }
   return Object.freeze({
@@ -113,8 +114,13 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
       const prior = records.references[body.grantId];
       if (prior && (prior.ownerPlayerId !== who.accountId || prior.ownerDid !== who.binding.subjectDid || prior.graphIri !== body.graphIri || prior.revoked)) fail('native_grant_unavailable');
       if (!prior && Object.keys(records.references).length >= 512) fail('native_reference_capacity');
-      const persistence = await save(next => { next.references[body.grantId] ||= { ...body,
-        ownerPlayerId: who.accountId, ownerDid: who.binding.subjectDid, revoked: false }; });
+      const persistence = await save(next => {
+        principal(owner); const current = next.references[body.grantId];
+        if (current && (current.ownerPlayerId !== who.accountId || current.ownerDid !== who.binding.subjectDid
+          || current.graphIri !== body.graphIri || current.revoked)) fail('native_grant_unavailable');
+        if (!current && Object.keys(next.references).length >= 512) fail('native_reference_capacity');
+        next.references[body.grantId] ||= { ...body, ownerPlayerId: who.accountId, ownerDid: who.binding.subjectDid, revoked: false };
+      });
       return { reference: copy(records.references[body.grantId]), authority: { scope: 'main-world', durable: true, version: persistence.confirmedVersion } };
     },
     challenge(body) { reference(body?.grantId); return proof.challenge(body); },
@@ -124,7 +130,7 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
         const ref = currentScope(result.receipt.grantId, result.receipt.ownerDid, result.receipt.scope);
         const ownerSession = view(ref.ownerPlayerId, result.receipt.scope.roomId, result.receipt.scope.entityId)?.ownerSession;
         const id = result.receipt.grantId, digest = result.receipt.grantDigest;
-        if (records.references[id].admission?.grantDigest !== digest) await save(next => {
+        if (confirmedRecords.references[id]?.admission?.grantDigest !== digest) await save(next => {
           const ref = next.references[id]; if (ref.revoked) fail('native_grant_unavailable');
           ref.admission = { grantDigest: digest, receiptDigest: fingerprint(result.receipt), scope: copy(result.receipt.scope) };
         });

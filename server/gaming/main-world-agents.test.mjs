@@ -141,6 +141,18 @@ test('a blocked durable admission cannot return a usable proof lease after expir
   f.store.hook = null; const before = f.store.commits, q = await f.prepare();
   const fresh = await f.authority.complete(q.body); assert(fresh.authority.durable); assert.equal(f.store.commits, before);
 });
+test('concurrent native completions both wait for a real confirmed permission receipt', async t => {
+  const f = await setup(t); await f.register(); const first = await f.prepare(), second = await f.prepare();
+  let release, entered;
+  const waiting = new Promise(resolve => { release = resolve; }), started = new Promise(resolve => { entered = resolve; });
+  f.store.hook = async () => { entered(); await waiting; };
+  let completed = 0;
+  const a = f.authority.complete(first.body).then(value => { completed++; return value; });
+  await started;
+  const b = f.authority.complete(second.body).then(value => { completed++; return value; });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(completed, 0);
+  release(); const replies = await Promise.all([a, b]); assert(replies.every(r => r.authority.durable));
+});
 test('main-world discovery advertises existing-body input and owner reference reads', () => {
   const d = mainWorldAgentAffordances({ publicOrigin: 'https://game.example', applicationId, enabled: true });
   assert.equal(d.scope, 'main-world'); assert.equal(d['@id'], 'https://game.example/world/native-agents');

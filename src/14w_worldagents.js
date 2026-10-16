@@ -1,7 +1,7 @@
 /* Native agents operate the real character and owned animals. The ordinary
  * player/pet controllers retain collision, range, cooldowns and damage rules. */
 const MAIN_WORLD_AGENTS = { client: null, ownerKey: '', records: new Map(), allowed: new Set(), paused: true,
-  busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1 };
+  busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1, reservedUuid: null };
 const mainWorldAgentBodies = () => !GAME.started || !GAME.player || !NETWS.acct ? [] : [
   { id: NETWS.acct.id, name: 'Your character', entity: GAME.player },
   ...anCompanions().slice(0, 16).map(e => ({ id: NETWS.acct.id + ':animal:' + e.tame.aid, name: e.tame.name, entity: e })),
@@ -130,7 +130,10 @@ async function mainWorldAgentContext() {
     if (!held?.credential || held.credential.refreshToken || held.credential.expiresAt <= Date.now()) throw new Error('Reconnect your identity to access your pod.');
     const module = await import('/gaming/identity/assets/owner-agent-grant.mjs'); current();
     const client = module.createOwnerAgentGrants({ binding: status.binding, applicationId: advertised.applicationId,
-      audience: location.origin, relayUrl: match.relayUrl, credential: held.credential });
+      audience: location.origin, relayUrl: match.relayUrl, credential: held.credential,
+      crypto: { subtle: crypto.subtle, getRandomValues: crypto.getRandomValues.bind(crypto), randomUUID: () => {
+        const reserved = MAIN_WORLD_AGENTS.reservedUuid; MAIN_WORLD_AGENTS.reservedUuid = null; return reserved || crypto.randomUUID();
+      } } });
     try { await client.connect(); current(); MAIN_WORLD_AGENTS.client = client; } catch (e) { client.close(); throw e; }
   }
   return { request, current, actions, advertised, client: MAIN_WORLD_AGENTS.client };
@@ -151,11 +154,15 @@ async function mainWorldAgentRun(run) {
   finally { state.busy = false; mainWorldAgentRender(); }
 }
 async function mainWorldAgentRegister(context, record) {
+  const read = await context.client.load(record.reference); context.current();
+  if (!read || read.grant.revoked || Date.parse(read.grant.expiresAt) <= Date.now()
+    || record.grant && ['actor', 'role', 'entityId', 'roomId'].some(k => record.grant[k] !== read.grant[k])
+    || record.grant && JSON.stringify(record.grant.actions) !== JSON.stringify(read.grant.actions)) throw new Error('Your pod did not confirm the exact active access you selected.');
   const response = await context.request(context.actions.register, record.reference);
   if (response.ok !== true || response.result?.authority?.durable !== true
-    || response.result.reference.grantId !== record.reference.grantId || response.result.reference.revoked) throw new Error('The game has not confirmed this grant. Retry registration.');
-  const read = await context.client.load(record.reference); context.current();
-  if (!read || read.grant.revoked) throw new Error('Your pod did not confirm active access.');
+    || response.result.reference.grantId !== record.reference.grantId || response.result.reference.graphIri !== record.reference.graphIri
+    || response.result.reference.ownerPlayerId !== NETWS.acct.id || response.result.reference.ownerDid !== NATIVE_PLAYER.status.binding.subjectDid
+    || response.result.reference.revoked) throw new Error('The game has not confirmed this grant. Retry registration.');
   Object.assign(record, read, { registered: true, phase: '' });
   MAIN_WORLD_AGENTS.note = 'Access confirmed. Resume agent control below, close this panel, and share the grant ID and discovery link with your agent.';
 }
@@ -166,22 +173,36 @@ async function mainWorldAgentPublish(context) {
   const body = mainWorldAgentBodies().find(b => b.id === $('world-agent-body').value);
   if (!body) throw new Error('Choose your character or one of your existing companions.');
   const role = $('world-agent-role').value;
+  const actor = $('world-agent-did').value.trim();
+  if (!/^did:web:[^\s]+:agents:[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(actor) || !['teammate', 'pet', 'coach'].includes(role)) throw new Error('Enter your agent’s native Agent DID and choose a role.');
   if (role === 'pet' && body.entity === GAME.player) throw new Error('Choose one of your existing animal companions for the pet role.');
-  const issued = await context.client.publish({ publicDisclosureAccepted: true, actor: $('world-agent-did').value.trim(),
-    role, entityId: body.id, roomId: NETWS.worldRoom, actions: role === 'coach' ? ['observe'] : ['observe', 'move', 'attack'],
-    maxCommandsPerSecond: 5, lifetimeMs: 900000 }); context.current();
+  const expected = { actor, role, entityId: body.id, roomId: NETWS.worldRoom, actions: role === 'coach' ? ['observe'] : ['observe', 'move', 'attack'] };
+  const id = crypto.randomUUID(), reference = { grantId: 'urn:uuid:' + id, graphIri: 'urn:graph:interego:gaming:owner-agent-grant:' + id };
+  const record = { reference, grant: expected, operationId: null, phase: 'publish', registered: false };
+  state.records.set(reference.grantId, record); state.reservedUuid = id;
+  let issued;
+  try { issued = await context.client.publish({ publicDisclosureAccepted: true, ...expected, maxCommandsPerSecond: 5, lifetimeMs: 900000 }); }
+  finally { state.reservedUuid = null; }
+  context.current();
+  if (issued.reference.grantId !== reference.grantId || issued.reference.graphIri !== reference.graphIri) throw new Error('The pod returned a different grant reference. Keep the pending operation open.');
   $('world-agent-public').checked = false;
-  const record = { reference: issued.reference, operationId: issued.operationId, phase: issued.saved ? 'register' : 'publish', registered: false };
-  state.records.set(issued.reference.grantId, record);
+  record.operationId = issued.operationId; record.phase = issued.saved ? 'register' : 'publish';
   if (issued.saved) await mainWorldAgentRegister(context, record);
   else state.note = 'Your pod publication is pending. Keep this page open and confirm it; do not create another grant.';
 }
 async function mainWorldAgentRetry(context, record) {
   if (record.phase === 'publish' || record.phase === 'pod-revoke-pending') {
+    if (!record.operationId) {
+      const read = await context.client.load(record.reference); context.current();
+      if (!read) throw new Error('The exact pending grant is not confirmed in your pod yet. It has not been republished.');
+      if (record.phase === 'publish') record.phase = 'register';
+      else { if (!read.grant.revoked) throw new Error('The exact pod revocation is not confirmed yet.'); record.grant = read.grant; record.phase = ''; return; }
+    } else {
     const result = await context.client.confirm(record.operationId); context.current();
     if (!result.saved) throw new Error('The same pod operation is still awaiting confirmation.');
     record.phase = record.phase === 'publish' ? 'register' : '';
     if (!record.phase) { record.grant.revoked = true; return; }
+    }
   }
   if (record.phase === 'register') return mainWorldAgentRegister(context, record);
   if (record.phase === 'stop' || record.phase === 'pod-revoke' || record.localRevoked && !record.grant?.revoked) return mainWorldAgentRevoke(context, record);

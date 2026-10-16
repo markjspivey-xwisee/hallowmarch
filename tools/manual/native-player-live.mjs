@@ -11,6 +11,7 @@ import { createNativeCompanionSigningBroker } from './native-companion-signing.m
 import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
 import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
+import { createMainWorldLiveQa } from './main-world-live.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -23,7 +24,7 @@ function origin(value) {
     || parsed.search || parsed.hash) throw new Error('configuration');
   return parsed.origin;
 }
-let gameOrigin, relayOrigin, identityOrigin, companionConfig;
+let gameOrigin, relayOrigin, identityOrigin, companionConfig, mainWorldConfig;
 try {
   gameOrigin = origin(process.env.HM_NATIVE_ORIGIN);
   relayOrigin = origin(process.env.HM_NATIVE_RELAY_ORIGIN);
@@ -31,6 +32,10 @@ try {
   if (gameOrigin === relayOrigin) throw new Error('configuration');
   if (process.env.DEBUG || process.env.PWDEBUG || process.env.PW_TEST_TRACE || process.env.NODE_DEBUG) throw new Error('configuration');
   companionConfig = nativeCompanionRunnerConfig(process.env);
+  if (process.env.HM_NATIVE_MAIN_WORLD_LIVE_TEST === '1') {
+    if (companionConfig) throw new Error('Select main-world QA or the isolated companion diagnostic, not both.');
+    mainWorldConfig = nativeCompanionRunnerConfig({ ...process.env, HM_NATIVE_COMPANION_LIVE_TEST: '1' });
+  }
 } catch {
   console.error('FAIL: configuration. Supply separate HTTPS game/relay origins; companion opt-in additionally requires the existing agent DID and HTTPS public pod. Unset browser/debug tracing.');
   process.exit(2);
@@ -53,7 +58,7 @@ const expectedSave = {
 const observations = { requests: [], console: [], gameAuthorization: [], startAuthorization: [], claimAuthorization: [],
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
-let input = null, broker = null, companion = null, finishRequested = false, cleaning = false;
+let input = null, broker = null, companion = null, mainWorld = null, finishRequested = false, cleaning = false;
 let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
 const oauthControllers = [], oauthByPage = new WeakMap();
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
@@ -68,6 +73,7 @@ function reportComplete() {
   completeReported = true;
   console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.');
   if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
+  if (mainWorld) console.log('PASS: actual main-world QA complete. Normal 3D entry, native control, real movement, second authenticated peer, scoped proofs and both revocations verified.');
 }
 async function context() {
   const value = await browser.newContext({ viewport: { width: 1024, height: 768 }, acceptDownloads: false });
@@ -245,6 +251,7 @@ async function reportRetainedStatus(diagnose) {
   console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep }));
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
+  if (mainWorld) console.log(JSON.stringify(mainWorld.status()));
   if (broker) console.log(JSON.stringify(broker.status()));
   for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
     ...(diagnose ? await oauthControllers[i].diagnose() : oauthControllers[i].status()), ceremonyIndex: i + 1 }));
@@ -257,7 +264,8 @@ async function reportRetainedStatus(diagnose) {
 }
 
 const failureCode = error => nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
-const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true);
+const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true)
+  && (!mainWorld || mainWorld.status().complete === true);
 async function advanceQa(all) {
   ensure(!finishRequested, 'qa_session_closed');
   if (!plan?.status().complete) {
@@ -267,6 +275,7 @@ async function advanceQa(all) {
   if (companion) {
     if (all) await companion.remaining(); else await companion.next();
   }
+  if (mainWorld) { if (all) await mainWorld.remaining(); else await mainWorld.next(); }
 }
 function startInput() {
   if (input) return input;
@@ -278,7 +287,7 @@ function startInput() {
     async onClose() {
       finishRequested = true;
       const active = plan?.status().busy || companion?.status().busy;
-      broker?.close(); companion?.close();
+      broker?.close(); companion?.close(); mainWorld?.close();
       // Explicit finish/EOF can release a stalled renderer. Ordinary cleanup
       // first closes the owner helper and cache before its context/browser.
       if (!cleaning && active && browser) await closeBrowserResource(browser);
@@ -288,6 +297,7 @@ function startInput() {
       if (plan?.status().busy || companion?.status().busy) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
         if (action === 'companion-restart-admission') {
+          if (mainWorld) { console.log(JSON.stringify(await mainWorld.restartAdmission())); return; }
           if (!companion) throw Object.assign(new Error('Companion QA is not selected.'), { code: 'qa_companion_restart_refused' });
           console.log(JSON.stringify(companion.restartAdmission())); return;
         }
@@ -323,6 +333,12 @@ try {
     companion = createNativeCompanionRunner({ config: companionConfig, run, gameOrigin, relayOrigin,
       getOwner: () => owner, getPage: () => fresh,
       privateQaComplete: () => plan?.status().complete === true && privatePrivacyVerified,
+      signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; } });
+  }
+  if (mainWorldConfig) {
+    broker = createNativeCompanionSigningBroker({ enabled: true, ...mainWorldConfig,
+      writePublicRequest: value => console.log(JSON.stringify(value)) });
+    mainWorld = createMainWorldLiveQa({ config: mainWorldConfig, getPage: () => fresh,
       signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; } });
   }
   plan = nativeLiveStages([
@@ -449,7 +465,7 @@ try {
   ], name => { ensure(!finishRequested, 'qa_session_closed'); stage = name; });
   // One reader must already be listening when a companion stage awaits the
   // root connector's public signed envelope. Never add a competing consumer.
-  if (companion) startInput();
+  if (companion || mainWorld) startInput();
   await advanceQa(true);
   reportComplete();
 } catch (cause) {
@@ -463,7 +479,7 @@ try {
     await startInput().waitForClose();
   }
 } finally {
-  cleaning = true; broker?.close(); companion?.close(); input?.close();
+  cleaning = true; broker?.close(); companion?.close(); mainWorld?.close(); input?.close();
   for (const controller of oauthControllers) controller.close();
   qaPasskey.close(); encryptedRecovery = null;
   for (const value of contexts) {
