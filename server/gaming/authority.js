@@ -38,11 +38,22 @@ const own = (map, key) => map && Object.hasOwn(map, key) ? map[key] : undefined;
 export class AuthoritativeRoom {
   constructor({ roomId, store, domain, clock = Date.now, maxPlayers = 64, onCommitted = null,
     persistenceMode = 'strict', checkpointIntervalMs = 1000, maxPendingCommands = 128,
-    maxPendingAgeMs = 30000, durableWaitMs = 30000 }) {
+    maxPendingAgeMs = 30000, durableWaitMs = 30000, learningDeliveryAvailable = null }) {
     requireGame(validId(roomId), 'invalid_room', 'Invalid room identity.');
     requireGame(store?.load && store?.commit, 'storage_required', 'A durable store is required.');
     this.id = roomId; this.store = store; this.domain = domain; this.clock = clock;
     this.maxPlayers = maxPlayers; this.onCommitted = onCommitted;
+    // A trusted composition must prove current, owner-pod-safe delivery. Merely
+    // linking a game identity or accepting an OAuth grant does not enable it.
+    this.learningDeliveryAvailable = context => {
+      try {
+        const result = typeof learningDeliveryAvailable === 'function' && learningDeliveryAvailable(context);
+        // A mistaken async port cannot become permission or leak a rejection.
+        if (result && typeof result.then === 'function') { void Promise.resolve(result).catch(() => {}); return false; }
+        return result === true;
+      }
+      catch { return false; }
+    };
     this.current = null; this.version = 0; this.queue = Promise.resolve(); this.listeners = new Set();
     requireGame(['strict', 'realtime'].includes(persistenceMode)
       && Number.isSafeInteger(checkpointIntervalMs) && checkpointIntervalMs >= 1 && checkpointIntervalMs <= 30000
@@ -293,8 +304,13 @@ export class AuthoritativeRoom {
               'invalid_consent', 'Consent must explicitly expire within 24 hours.');
             requireGame(!normalized.enabled || (typeof normalized.recipient === 'string' && normalized.recipient.startsWith('https://') && typeof normalized.actorDid === 'string' && normalized.actorDid.startsWith('did:')),
               'invalid_consent', 'A verified actor identity and concrete learning recipient are required.');
+            requireGame(!normalized.enabled || (typeof normalized.sessionId === 'string' && normalized.sessionId.length > 0 && normalized.sessionId.length <= 128 && until > now),
+              'invalid_consent', 'An unexpired learning session is required.');
             // The transport must bind this DID to the authenticated player before enabling export.
             requireGame(!normalized.enabled || principal.verifiedDid === normalized.actorDid, 'identity_unverified', 'Link your verified learning identity before enabling export.');
+            requireGame(!normalized.enabled || this.learningDeliveryAvailable({ actorId, actorDid: normalized.actorDid,
+              recipient: normalized.recipient, sessionId: normalized.sessionId, now, phase: 'consent' }),
+            'learning_unavailable', 'Personal activity export is unavailable. You can keep playing.');
             state.consent[actorId] = { enabled: normalized.enabled, expiresAt: until, recipient: normalized.recipient || '', actorDid: normalized.actorDid || '', sessionId: normalized.sessionId || '' };
             // Changing or withdrawing consent cancels undelivered records for
             // that actor; old recipient/session consent cannot authorize them.
@@ -313,8 +329,16 @@ export class AuthoritativeRoom {
           state.events.push(event);
           const consent = state.consent[event.actorId];
           if (consent?.enabled && consent.expiresAt > now && !['consent.changed', 'companion.granted'].includes(event.kind)) {
-            requireGame(state.outbox.length < 512, 'learning_queue_full', 'Learning export is delayed. Disable export or try again later.');
-            state.outbox.push({ event, consent: structuredClone(consent) });
+            const available = principal.verifiedDid === consent.actorDid && this.learningDeliveryAvailable({ actorId: event.actorId,
+              actorDid: consent.actorDid, recipient: consent.recipient, sessionId: consent.sessionId, eventKind: event.kind, now, phase: 'capture' });
+            if (available && state.outbox.length < 512) state.outbox.push({ event, consent: structuredClone(consent) });
+            else {
+              // Optional export cannot stop a command or grow an unbounded queue.
+              // Retain old entries and make omitted coverage explicit and durable.
+              const old = state.learningCaptureGaps?.total;
+              state.learningCaptureGaps = { total: Math.min(Number.MAX_SAFE_INTEGER, (Number.isSafeInteger(old) && old >= 0 ? old : 0) + 1),
+                lastAt: new Date(now).toISOString(), lastReason: available ? 'outbox-full' : 'delivery-unavailable' };
+            }
           }
         }
         state.events = state.events.slice(-256);

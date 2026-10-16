@@ -30,7 +30,8 @@ const command = (type, fields = {}) => ({ commandId: `test-${++commandN}`, type,
 async function fixture(t, monsterHp = 100) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'gaming-authority-')); t.after(() => rm(dir, { recursive: true, force: true }));
   const store = new DiskFixture(dir); let now = 100000;
-  const options = { roomId: 'march-proof', store, domain: createHallowmarchDomain({ monsterHp }), clock: () => now };
+  // Tests that exercise export explicitly supply a trusted delivery proof seam.
+  const options = { roomId: 'march-proof', store, domain: createHallowmarchDomain({ monsterHp }), clock: () => now, learningDeliveryAvailable: () => true };
   const room = await new AuthoritativeRoom(options).open();
   return { room, store, options, advance: ms => { now += ms; } };
 }
@@ -141,11 +142,11 @@ test('companion control uses the same durable rules and revocation is immediate'
 });
 
 test('learning exports require verified identity and explicit bounded consent', async t => {
-  const f = await fixture(t), a = person('alice'); await f.room.execute(a, command('join'));
+  const f = await fixture(t), a = { ...person('alice'), verifiedDid: 'did:example:alice' }; await f.room.execute(a, command('join'));
   await f.room.execute(a, command('knowledge.consulted', { resourceId: 'https://example.org/field-notes' }));
   assert.equal(f.room.current.outbox.length, 0);
   const consent = command('learningConsent', { enabled: true, expiresAt: 110000, actorDid: 'did:example:alice', recipient: 'https://foxxi.example/write', sessionId: 'session-1' });
-  await assert.rejects(f.room.execute(a, consent), { code: 'identity_unverified' });
+  await assert.rejects(f.room.execute(person('alice'), consent), { code: 'identity_unverified' });
   await f.room.execute({ ...a, verifiedDid: 'did:example:alice' }, consent);
   await f.room.execute(a, command('knowledge.consulted', { resourceId: 'https://example.org/field-notes' }));
   assert.equal(f.room.current.outbox.length, 1);
@@ -275,4 +276,42 @@ test('world creation is attributed to the system rather than a human player', as
   assert.equal(projection.scopes.actors.server.eventCount, 1);
   assert.equal(projection.scopes.players.server, undefined);
   assert.equal(projection.scopes.game.eventCount, 1);
+});
+
+// Legacy consent may survive a restart while its delivery composition is absent.
+test('unavailable personal learning cannot enable consent or obstruct gameplay with restored consent', async t => {
+  const f = await fixture(t), a = { ...person('alice'), verifiedDid: 'did:example:alice' };
+  await f.room.execute(a, command('join'));
+  await f.room.execute(a, command('learningConsent', { enabled: true, actorDid: a.verifiedDid, recipient: 'https://foxxi.example/write', sessionId: 's', expiresAt: 110000 }));
+  await f.room.execute(a, command('knowledge.consulted', { resourceId: 'https://example.org/aid' }));
+  const priorId = f.room.current.outbox[0].event.id;
+  const restarted = await new AuthoritativeRoom({ ...f.options, learningDeliveryAvailable: undefined }).open();
+  await assert.rejects(restarted.execute(a, command('learningConsent', { enabled: true, actorDid: a.verifiedDid, recipient: 'https://foxxi.example/write', sessionId: 's', expiresAt: 110000 })), { code: 'learning_unavailable' });
+  f.advance(1000);
+  await restarted.execute(a, command('move', { x: 0, z: 1 }));
+  assert.equal(restarted.current.entities.alice.z, 1);
+  assert.equal(restarted.current.outbox.length, 1);
+  assert.equal(restarted.current.outbox[0].event.id, priorId, 'existing evidence remains intact');
+  assert.equal(restarted.current.learningCaptureGaps.total, 1);
+  assert.equal(restarted.current.learningCaptureGaps.lastReason, 'delivery-unavailable');
+  const readback = await new AuthoritativeRoom({ ...f.options, learningDeliveryAvailable: undefined }).open();
+  assert.equal(readback.current.learningCaptureGaps.total, 1);
+  await readback.execute(a, command('learningConsent', { enabled: false }));
+  assert.equal(readback.current.consent.alice.enabled, false, 'revocation never requires a delivery connection');
+});
+
+test('a saturated optional learning queue preserves old evidence while the game advances', async t => {
+  const f = await fixture(t), a = { ...person('alice'), verifiedDid: 'did:example:alice' };
+  await f.room.execute(a, command('join'));
+  await f.room.execute(a, command('learningConsent', { enabled: true, actorDid: a.verifiedDid, recipient: 'https://foxxi.example/write', sessionId: 's', expiresAt: 110000 }));
+  for (let i = 0; i < 513; i++) await f.room.execute(a, command('knowledge.consulted', { resourceId: 'https://example.org/aid' }));
+  assert.equal(f.room.current.outbox.length, 512);
+  assert.equal(f.room.current.learningCaptureGaps.total, 1);
+  assert.equal(f.room.current.learningCaptureGaps.lastReason, 'outbox-full');
+  const before = f.room.current.outbox.map(e => e.event.id);
+  f.advance(1000);
+  await f.room.execute(a, command('move', { x: 0, z: 1 }));
+  assert.equal(f.room.current.entities.alice.z, 1);
+  assert.deepEqual(f.room.current.outbox.map(e => e.event.id), before);
+  assert.equal(f.room.current.learningCaptureGaps.total, 2);
 });

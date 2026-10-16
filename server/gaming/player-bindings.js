@@ -198,9 +198,12 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
       if (!next.state) return next.result;
       try {
         await store.commit(streamId, { expectedVersion: current.version, state: next.state, event: next.event,
-          idempotencyKey: 'player-binding-v1:' + kind + ':' + hash(operationId) });
+          idempotencyKey: 'player-binding-v1:' + kind + ':' + hash(operationId), signal });
       } catch (error) {
         if (error?.code === 'VERSION_CONFLICT' && attempt < conflictRetries) continue;
+        // These admission refusals prove this operation never entered native
+        // work. Keep the last verified ledger usable for a later ceremony.
+        if (['OPERATION_ABORTED', 'NATIVE_COMMIT_CAPACITY'].includes(error?.code)) throw error;
         // Do not promote the proposed state to cache on an uncertain write.
         healthy = false; snapshot = null; lastError = error;
         throw error;

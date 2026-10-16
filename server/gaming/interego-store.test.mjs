@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync, openSync, fsyncSync, closeSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInteregoStore, createNativeTransport, DurableStoreConflictError } from './interego-store.js';
+import { InteregoGamingStore, createInteregoStore, createNativeTransport, DurableStoreConflictError } from './interego-store.js';
 
 /*
  * LOCAL CONTRACT FIXTURE ONLY. It implements the native HTTP command, CAS
@@ -123,6 +123,44 @@ const artifactCodec = {
   createNativeByteArtifact(input) { return { owner: input.owner, contentType: input.contentType, bytes: Buffer.from(input.bytes).toString('base64') }; },
   readNativeByteArtifact(artifact) { return { ...artifact, bytes: Buffer.from(artifact.bytes, 'base64') }; },
 };
+
+test('selected adapter readiness and absence use exact detached coverage without complete-index reads', async () => {
+  const requests = [], native = { ready: async () => {}, readHead: () => assert.fail('selected client must not enumerate full native index'),
+    readArtifact: () => assert.fail('confirmed absence has no artifact'), commit: () => assert.fail('readiness must never write'),
+    async readHeadRecords(keys) { requests.push([...keys]); return { revision: null, records: new Map(), selectedRecordKeys: [...keys] }; } };
+  const store = new InteregoGamingStore({ nativeClient: native, artifactCodec, owner: 'urn:test:owner', namespace: 'selected-test' });
+  await store.ready(); assert.deepEqual(requests, [[]]);
+  assert.equal((await store.load('stream')).version, 0); assert.deepEqual(requests[1], [store.keys('stream').stream]);
+  assert.equal(store.performanceStatus().snapshotMode, 'selected-records');
+  assert.equal(store.performanceStatus().snapshotReads, 2);
+  await assert.rejects(store.record({ selectedRecordKeys: [], records: new Map() }, 'unrequested'), { code: 'CORRUPT_DURABLE_STATE' });
+  native.readHeadRecords = async keys => { keys.length = 0; return { revision: null, records: new Map(), selectedRecordKeys: [] }; };
+  await assert.rejects(store.load('must-be-covered'), { code: 'CORRUPT_DURABLE_STATE' });
+  for (const coverage of [undefined, [], ['foreign'], [store.keys('stream').stream, 'extra']]) {
+    native.readHeadRecords = async () => ({ revision: null, records: new Map(), selectedRecordKeys: coverage });
+    await assert.rejects(store.load('stream'), { code: 'CORRUPT_DURABLE_STATE' });
+  }
+  native.readHeadRecords = async keys => ({ revision: null, records: new Map([['foreign', {}]]), selectedRecordKeys: keys });
+  await assert.rejects(store.load('stream'), { code: 'CORRUPT_DURABLE_STATE' });
+});
+
+test('selected commit/recovery/result requests cover only stream and operation, and result selection cannot erase expected coverage', async () => {
+  const records = new Map(), requests = []; let revision = null;
+  const native = { ready: async () => {}, readHead: () => assert.fail('selected client must not enumerate full native index'),
+    readArtifact: async value => value,
+    async readHeadRecords(keys) { requests.push([...keys]); return { revision, records: new Map([...records].filter(([key]) => keys.includes(key))), selectedRecordKeys: [...keys] }; },
+    async commit(input) {
+      assert.deepEqual([...input.resultRecordKeys].sort(), input.expected.selectedRecordKeys);
+      for (const change of input.changes) records.set(change.key, change.artifact);
+      revision = 'sha256:' + 'a'.repeat(64); input.resultRecordKeys.length = 0;
+      return { operationId: input.operationId, head: { revision }, snapshot: { revision, records: new Map(), selectedRecordKeys: [] } };
+    } };
+  const store = new InteregoGamingStore({ nativeClient: native, artifactCodec, owner: 'urn:test:owner', namespace: 'selected-test' });
+  const result = await store.commit('stream', { expectedVersion: 0, state: { own: true }, idempotencyKey: 'op' });
+  assert.equal(result.version, 1); assert.equal(result.replayed, true, 'bad result coverage requires independent verified operation readback');
+  const keys = store.keys('stream', 'op'); assert.deepEqual(requests, [[keys.stream, keys.operation].sort(), [keys.stream, keys.operation].sort()]);
+  assert.equal((await store.load('stream')).state.own, true);
+});
 
 class FixtureNativeClient {
   constructor({ scope, fetch }) { this.scope = scope; this.fetch = fetch; }
@@ -266,6 +304,100 @@ test('scope contention can retry an unrelated stream without overwriting the win
   assert.equal((await f.store().load('two')).state.hp, 2);
 });
 
+test('same-store unrelated stream commits enter native CAS in FIFO order without avoidable scope conflicts', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const firstEntered = new Promise(resolve => { entered = resolve; });
+  let puts = 0;
+  const store = f.store({ transport: async (url, init) => {
+    if (init.method === 'PUT' && ++puts === 1) { entered(); await gate; }
+    return fetch(url, init);
+  } });
+  const first = store.commit('world', { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'world' });
+  first.catch(() => {}); await firstEntered;
+  const second = store.commit('player-bindings', { expectedVersion: 0, state: { bindings: [] }, idempotencyKey: 'bindings' });
+  second.catch(() => {});
+  try {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(puts, 1, 'another local stream must wait for the original native head transaction');
+  } finally { release(); await Promise.allSettled([first, second]); }
+  assert.equal((await first).version, 1); assert.equal((await second).version, 1);
+  assert.equal(f.counts.put, 2, 'local admission avoids a redundant native CAS attempt');
+});
+
+test('a timed-out native PUT keeps normal abort-honoring fetch alive and retains its permit until the response settles', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const firstEntered = new Promise(resolve => { entered = resolve; });
+  let puts = 0;
+  const store = f.store({ timeoutMs: 100, transport: async (url, init) => {
+    if (init.method === 'PUT' && ++puts === 1) {
+      entered(); await gate;
+      assert.equal(init.signal, undefined, 'a caller deadline must not abort a launched native CAS');
+      return fetch(url, init);
+    }
+    return fetch(url, init);
+  } });
+  const input = { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'late-world' };
+  const first = store.commit('world', input); first.catch(() => {});
+  await Promise.race([firstEntered, first.then(() => assert.fail('the blocked write cannot already be confirmed'))]);
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  const next = store.commit('bindings', { expectedVersion: 0, state: { bindings: [] }, idempotencyKey: 'after-late-world' });
+  next.catch(() => {});
+  try {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(puts, 1, 'an expired response is not proof that its actual native write ended');
+  } finally { release(); await Promise.allSettled([next]); }
+  assert.equal((await next).version, 1);
+  const replayed = await store.commit('world', input);
+  assert.equal(replayed.version, 1); assert.equal(replayed.replayed, true);
+  assert.equal(f.counts.put, 2, 'the uncertain original operation is recovered without a duplicate native write');
+});
+
+test('a dispatched PUT connection failure without confirmed native readback fences queued and later commits', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; }); let puts = 0;
+  const store = f.store({ transport: async (url, init) => {
+    if (init.method !== 'PUT' || ++puts !== 1) return fetch(url, init);
+    entered(); await gate;
+    // An actual network rejection cannot establish whether the remote accepted
+    // the request. This explicit transport fault leaves no confirmed receipt.
+    throw new Error('connection lost after dispatch with private transport details');
+  } });
+  const input = { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'unknown-world' };
+  const first = store.commit('world', input); first.catch(() => {}); await started;
+  const queued = store.commit('bindings', { expectedVersion: 0, state: {}, idempotencyKey: 'queued' }); queued.catch(() => {});
+  release();
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  await assert.rejects(queued, { code: 'NATIVE_COMMIT_FENCED' });
+  assert.deepEqual(store.commitAdmissionStatus(), { active: true, queued: 0, capacity: 64, settlementFailed: true });
+  await assert.rejects(store.commit('later', { expectedVersion: 0, state: {}, idempotencyKey: 'later' }), { code: 'NATIVE_COMMIT_FENCED' });
+  await assert.rejects(store.ready(), { code: 'NATIVE_COMMIT_FENCED' });
+  assert.equal(puts, 1, 'unknowable dispatched failure cannot release another write in this adapter');
+  const fresh = f.store();
+  assert.equal((await fresh.commit('world', input)).version, 1, 'fresh recovery reuses the exact operation key');
+  assert.equal(f.counts.put, 1);
+});
+
+test('a credential deadline before PUT dispatch releases admission and cannot launch a delayed write', async t => {
+  const f = await fixture(t); let release, entered, firstPut = true;
+  const credentials = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const store = f.store({ timeoutMs: 300, credentialsProvider: async ({ method }) => {
+    if (method === 'PUT' && firstPut) { firstPut = false; entered(); return credentials; }
+    return { Authorization: 'Bearer local-fixture-only' };
+  } });
+  const input = { expectedVersion: 0, state: {}, idempotencyKey: 'credential-deadline' };
+  const first = store.commit('world', input); first.catch(() => {});
+  await Promise.race([started, first.then(() => assert.fail('the missing credentials cannot confirm a write'))]);
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  assert.equal((await store.commit('after', { expectedVersion: 0, state: {}, idempotencyKey: 'after' })).version, 1);
+  release({ Authorization: 'Bearer local-fixture-only' }); await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(f.counts.put, 1); assert.equal((await store.load('world')).version, 0);
+  assert.equal((await store.commit('world', input)).version, 1, 'the refused original operation can reuse its exact idempotency key');
+});
+
 test('replayed operation survives later commits; changing its content is rejected', async t => {
   const f = await fixture(t), store = f.store();
   const command = { expectedVersion: 0, state: { loot: ['stone'] }, event: { type: 'loot' }, idempotencyKey: 'loot-1' };
@@ -286,8 +418,11 @@ test('lost commit acknowledgement recovers by durable idempotency record', async
     if (init.method === 'PUT' && response.ok && lose) { lose = false; await response.arrayBuffer(); throw new Error('lost response'); }
     return response;
   };
-  const result = await f.store({ transport }).commit('room', { expectedVersion: 0, state: { loot: 1 }, idempotencyKey: 'unique-loot' });
+  const store = f.store({ transport });
+  const result = await store.commit('room', { expectedVersion: 0, state: { loot: 1 }, idempotencyKey: 'unique-loot' });
   assert.equal(result.version, 1); assert.equal(result.replayed, true); assert.equal(f.counts.put, 1);
+  assert.equal((await store.commit('other', { expectedVersion: 0, state: {}, idempotencyKey: 'after-proven-recovery' })).version, 1,
+    'exact verified operation readback resolves a lost response before admitting a later write');
 });
 
 test('unconfirmed storage failure never acknowledges or creates volatile state', async t => {

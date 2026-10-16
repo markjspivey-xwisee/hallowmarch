@@ -10,6 +10,10 @@ const gamingSelf = () => typeof NETWS !== 'undefined' ? NETWS.acct?.id || '' : '
 const gamingSessionCurrent = () => gamingConnected() && GAMING.session?.socket === NETWS.ws && GAMING.session?.accountId === gamingSelf() && GAMING.session?.generation === NETWS.generation;
 const gamingList = value => Array.isArray(value) ? value : Object.values(value || {});
 const gamingError = error => String(error?.message || error || 'The expedition could not complete that action.').slice(0, 240);
+const gamingLearningStatus = () => window.__HM_GAMING?.learningExportConfigured !== true ?
+  'Personal learning export is unavailable. You can keep playing.' : GAMING.snapshot?.consent?.enabled ?
+    'Learning export consent is on. Activity is recorded only while owner-pod delivery is available.' :
+    'Personal learning export is off. Your explicit session consent is required.';
 
 function gamingRequest(op, payload = {}) {
   if (!gamingEnabled()) return Promise.reject(new Error('Shared expeditions are not available on this server.'));
@@ -328,9 +332,7 @@ function gamingRender() {
     card.appendChild(gamingNode('small', `Access expires ${new Date(grant.expiresAt).toLocaleTimeString()}`));
     card.appendChild(gamingButton('Revoke access', () => gamingRevoke(grant.id))); grants.appendChild(card);
   }
-  $('gaming-learning').textContent = GAMING.snapshot?.consent?.enabled ?
-    'Learning export is linked. Your existing consent applies to expedition activity.' :
-    'Personal learning export is off. Link a verified learning identity before sharing activity with Foxxi.';
+  $('gaming-learning').textContent = gamingLearningStatus();
 }
 
 function gamingToggle(open = !GAMING.open) {

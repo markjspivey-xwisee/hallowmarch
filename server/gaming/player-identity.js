@@ -173,6 +173,7 @@ export function createPlayerIdentityBridge(options = {}) {
   const now = options.now ?? Date.now;
   const fetcher = options.fetch ?? globalThis.fetch;
   const pending = new Map(), handoffs = new Map(), active = new Set();
+  const callbackFailures = { identity_service_timeout: 0, identity_binding_timeout: 0, identity_binding_rejected: 0 };
   let discovery, discoveryUntil = 0, discoveryFlight, closed = false;
   const release = (map, key) => { const record = map.get(key); if (record) clearTimeout(record.timer); map.delete(key); return record; };
   function prune() {
@@ -375,7 +376,7 @@ export function createPlayerIdentityBridge(options = {}) {
       token_endpoint_auth_method: 'none' };
   }
   return Object.freeze({ paths, clientMetadata,
-    status() { prune(); return { pending: pending.size, readyHandoffs: handoffs.size }; },
+    status() { prune(); return { pending: pending.size, readyHandoffs: handoffs.size, callbackFailures: { ...callbackFailures } }; },
     close() { closed = true; for (const map of [pending, handoffs]) for (const key of map.keys()) release(map, key); discovery = undefined; },
     async handle(req, res, suppliedBody) {
       let url;
@@ -395,6 +396,11 @@ export function createPlayerIdentityBridge(options = {}) {
         else await claim(req, res, await bodyOf(req, suppliedBody));
       } catch (error) {
         const known = error instanceof IdentityError ? error : new IdentityError('identity_service_unavailable', 502);
+        // Fixed aggregate counters distinguish provider and host deadlines.
+        // No ceremony, owner, credential, URL, request or exception is retained.
+        if (route === 'callback' && Object.hasOwn(callbackFailures, known.code)) {
+          callbackFailures[known.code] = Math.min(Number.MAX_SAFE_INTEGER, callbackFailures[known.code] + 1);
+        }
         if (!res.headersSent) json(res, known.status, { error: known.code });
         else res.end();
       }
