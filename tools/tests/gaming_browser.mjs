@@ -78,13 +78,13 @@ try {
     if (fullPage && name === 'alice') await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js', route => route.fulfill({ contentType: 'application/javascript', body: readFileSync(process.env.HM_THREE_MODULE || path.join(ROOT, 'tools/node_modules/three/build/three.module.min.js'), 'utf8') }));
     await page.route('https://fonts.googleapis.com/**', route => route.fulfill({ contentType: 'text/css', body: '' }));
     if (name === 'alice' && !fullPage) await page.addInitScript(() => { window.GAME = { started: false, player: null }; });
-    await page.goto(`${base}/?name=${name}&expedition=1`);
+    await page.goto(`${base}/?name=${name}&integrationTest=expedition`);
     if (name === 'alice' && !fullPage) {
       await page.waitForFunction(() => typeof NETWS !== 'undefined' && NETWS.state === 'on');
       await page.waitForTimeout(1100);
       assert.equal(await page.locator('#gaming-sheet').evaluate(el => el.hidden), true, 'Deep link must not cover fresh character creation');
       await page.evaluate(() => { window.GAME.started = true; window.GAME.player = { id: 'local-fixture-player' }; });
-      console.log('PASS deep link waits for a started character before opening the expedition');
+      console.log('PASS explicit diagnostic waits for a started character before opening its test encounter');
     }
     if (fullPage && name === 'alice') {
       await page.waitForFunction(() => window.__hm?.ready, undefined, { timeout: 180000 });

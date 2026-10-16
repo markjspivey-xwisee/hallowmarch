@@ -29,6 +29,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
   }
   async function refuse(name, payload, code) { const r = await call(routes.command, payload); check(r.status === 403 && r.value.error === code, 'qa_world_negative_failed'); if (!results.negative.includes(name)) results.negative.push(name); }
   async function admitNative() {
+      if (admission?.expiresAt > Date.now() && results.signedAdmission) return;
       description ||= (await call(pageOrigin() + '/world/native-agents')).value;
       check(description.enabled && description.scope === 'main-world' && description.audience === pageOrigin(), 'qa_world_description');
       routes ||= Object.fromEntries(['challenge', 'complete', 'renew', 'command', 'observe'].map(name => {
@@ -112,6 +113,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       movement ||= { type: 'move', commandId: admission.sessionId + ':' + randomUUID(), roomId: ownerBody.roomId, entityId: ownerBody.id, dx: 1, dz: 0, durationMs: 500 };
       const proof = signed(movement); commandAttempted = true;
       const applied = accepted(await call(routes.command, proof)); sequence++;
+      await refuse('replay', proof, 'agent_sequence_rejected');
       check(applied.execution === 'owner-page-input-applied', 'qa_world_input_unconfirmed');
       await page.waitForFunction(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z) > .05, before, { timeout: 5000 });
       await page.waitForFunction(before => { const p = window.__mainWorldQaPeer.position;
@@ -119,7 +121,6 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       const moved = await page.evaluate(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z), before);
       check(moved > .05 && moved < 6, 'qa_world_physics'); results.mainWorldMoved = true; results.peerSawMovement = true;
       console.log(JSON.stringify({ kind: 'main_world_qa_movement', movedMeters: Math.round(moved * 1000) / 1000, secondAuthenticatedPeer: true, sameOwnerMultiConnection: true }));
-      await refuse('replay', proof, 'agent_sequence_rejected');
     } },
     { name: 'actual-main-game-scope-renewal-and-observation', async run() {
       const at = Date.now(), next = sequence + 1;
