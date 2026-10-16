@@ -8,10 +8,12 @@
     ".": "./authority.js",
     "./companions": "./companions.js",
     "./interego-store": "./interego-store.js",
+    "./native-capabilities": "./native-capability-publication.js",
+    "./performance-resources": "./performance-resource-model.js",
     "./learning": "./learning.js",
     "./hallowmarch": "./hallowmarch.js"
   },
   "engines": { "node": ">=22" },
-  "peerDependencies": { "@interego/core": "*", "@interego/pgsl": "*" },
-  "peerDependenciesMeta": { "@interego/core": { "optional": true }, "@interego/pgsl": { "optional": true } }
+  "peerDependencies": { "@interego/core": "*", "@interego/solid": "*", "@interego/pgsl": "*" },
+  "peerDependenciesMeta": { "@interego/core": { "optional": true }, "@interego/solid": { "optional": true }, "@interego/pgsl": { "optional": true } }
 }

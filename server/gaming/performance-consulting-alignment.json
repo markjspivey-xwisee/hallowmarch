@@ -1,0 +1,41 @@
+{
+  "scope": "performance-consulting",
+  "description": "I2IDL-X alignment for performance support, instruction and evaluation around play. This profile does not model the game, its world, combat, economy or seasons.",
+  "canonicalSource": {
+    "iri": "https://id.i2idl.org/scheme",
+    "representation": "https://id.i2idl.org/glossary.jsonld",
+    "publicationVersion": "v0.0.90",
+    "semanticProfileVersion": "0.4.0",
+    "verificationDate": "2026-10-16"
+  },
+  "mappingStatus": "proposed-application-annotation",
+  "method": "Review the actual instructional content; preserve canonical concept identifiers and definitions; express aboutness without equivalence or mastery claims.",
+  "localResourceRoles": {
+    "job-aid": { "function": "Support execution of a task during play", "exactCanonicalEquivalent": null },
+    "reference": { "function": "Provide information needed at the point of performance", "exactCanonicalEquivalent": null },
+    "concept": { "function": "Content that can be composed into instruction", "exactCanonicalEquivalent": null }
+  },
+  "resourceAnnotations": {
+    "field-note:keep": [{ "relation": "http://purl.org/dc/terms/subject", "concept": "https://id.i2idl.org/concepts/procedural-knowledge", "rationale": "The job aid explains the sequence for taking a keep and the need for a warband." }],
+    "field-note:keepheld": [{ "relation": "http://purl.org/dc/terms/subject", "concept": "https://id.i2idl.org/concepts/procedural-knowledge", "rationale": "The job aid explains what to do after capture so a keep can be garrisoned." }],
+    "lore:3": [{ "relation": "http://purl.org/dc/terms/subject", "concept": "https://id.i2idl.org/concepts/conceptual-knowledge", "rationale": "As instruction, the page explains relationships between keep control, temple vulnerability and hallow effects." }]
+  },
+  "consultingConcepts": {
+    "instructionalResource": "https://id.i2idl.org/concepts/digital-learning-materials",
+    "taskKnowledge": "https://id.i2idl.org/concepts/procedural-knowledge",
+    "explanatoryKnowledge": "https://id.i2idl.org/concepts/conceptual-knowledge",
+    "trackedExperience": "https://id.i2idl.org/concepts/activity",
+    "authorizedRecord": "https://id.i2idl.org/concepts/learning-record",
+    "evaluation": "https://id.i2idl.org/concepts/assessment",
+    "demonstratedTaskEvaluation": "https://id.i2idl.org/concepts/performance-based-assessment",
+    "definedCapability": "https://id.i2idl.org/concepts/competency"
+  },
+  "evidencePolicy": {
+    "automaticPopupIsConsultation": false,
+    "resourceReadEstablishesLearning": false,
+    "pageCompletionEstablishesMastery": false,
+    "gameLevelIsTransferableCompetency": false,
+    "assessmentRequiresDefinedTaskCriteriaAndEvidence": true,
+    "individualRecordsRequireVerifiedIdentityAndAuthorization": true
+  }
+}

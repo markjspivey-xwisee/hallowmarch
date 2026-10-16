@@ -16,6 +16,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
   const manifest = () => ({ schemaVersion: 1, enabled: !!room, status: room ? 'ready' : failure,
     domain: domain.id, roomId, scope: 'shared-expedition', worldMigration: false, learningExport: 'requires-verified-identity-and-session-consent',
     companionRoles: ['teammate', 'pet', 'coach'], vocabulary: '/gaming/vocabulary', domainVocabulary: '/gaming/hallowmarch-vocabulary',
+    resources: { catalog: '/gaming/resources', descriptor: '/gaming/resources/descriptor.ttl', useDoesNotEstablishMastery: true },
     transport: { websocket: '/ws', messageType: 'gaming', commandAuthority: 'server', persistenceMode,
       durableAcknowledgements: persistenceMode !== 'realtime', progressivePersistence: persistenceMode === 'realtime',
       ...(persistenceMode === 'realtime' ? { maxSnapshotHz: 1000 / broadcastIntervalMs } : {}) },
