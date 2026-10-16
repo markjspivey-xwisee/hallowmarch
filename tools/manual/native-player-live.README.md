@@ -3,7 +3,7 @@
 `native-player-live.mjs` is a **mutating, opt-in live QA runner**. It is not a CI
 test and is not invoked by a package script or workflow. Without
 `HM_NATIVE_LIVE_TEST=1` it exits before importing Playwright or contacting a host.
-No live run has been performed while preparing this runner.
+Editing or testing this runner does not launch a live test.
 
 ## Prerequisites
 
@@ -48,6 +48,57 @@ HAR, screenshots, storage-state export, or request-body logging. The runner
 refuses the listed debug environment variables. It prints only a non-secret QA
 display name and fixed stage results. Failure output intentionally omits raw
 Playwright errors, URLs, response bodies, and browser console messages.
+
+For a trusted executor that requires its configured outbound proxy and CA, add
+these explicit flags. They are off by default:
+
+```sh
+HM_NATIVE_PROXY_FROM_ENV=1 HM_NATIVE_CA_FROM_ENV=1 \
+HM_NATIVE_RETAIN_FAILED_SESSION=1 \
+HM_NATIVE_LIVE_TEST=1 \
+HM_NATIVE_ORIGIN='https://YOUR-DEPLOYED-HALLOWMARCH-HOST' \
+HM_NATIVE_RELAY_ORIGIN='https://YOUR-CONFIGURED-INTEREGO-RELAY' \
+node tools/manual/native-player-live.mjs
+```
+
+Proxy opt-in uses `HTTPS_PROXY`/`https_proxy`, then `HTTP_PROXY`/`http_proxy`, as a
+structured Playwright proxy. It accepts HTTP/HTTPS proxy origins only; credentials
+are kept in structured memory and never printed. CA opt-in reads
+`NODE_EXTRA_CA_CERTS`, falling back to `SSL_CERT_FILE`, and requires an absolute
+path containing exactly one currently valid CA certificate. It derives that
+configured certificate's public SPKI SHA-256 pin for Chromium. It does not use
+`ignoreHTTPSErrors`, a blanket certificate-error flag, a checked-in executor CA,
+or a caller-supplied arbitrary pin. Do not use an unrelated CA or a bundle of
+public roots for this option.
+
+Failures print the fixed stage plus an allowlisted code such as
+`err_empty_response`, `err_cert_authority_invalid`, `browser_timeout`, or
+`native_operation_failed`. First-save failures additionally print a bounded
+report containing only fixed connect, registry, registration, publication,
+index, bridge-link and readback step names; allowlisted error codes; numeric
+HTTP/JSON-RPC codes; and booleans/counts. Native messages, subjects, graph IRIs,
+keys, requests and response bodies are not printed. If a synthetic passkey has been created and
+`HM_NATIVE_RETAIN_FAILED_SESSION=1`, the failed process keeps its ephemeral
+browser contexts, the original client/profile and pending operation maps,
+expected synthetic save, encrypted recovery and that same test passkey in RAM.
+It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
+
+- `status`: redacted browser state, fixed plan cursor and local native QA state.
+- `diagnose`: the same state plus read-only held-key/registration booleans.
+- `retry`: retry only the failed stage using its existing closure and owner.
+- `continue`: retry the failed stage and proceed through remaining stages.
+- `finish`: forget access cache and close the retained browsers.
+
+A completed stage is never rerun. Registration has an additional irreversible
+attempt guard: a failed registration ceremony cannot be replayed by either
+command. First-save retries reuse a locally created key if recipient registration
+failed and preserve outstanding native operation IDs for confirmation. They do
+not create a replacement profile while an acknowledgement is uncertain. A
+definitively refused publication may be retried by the original profile adapter.
+The complete-suite PASS is emitted only after every proof check passes. EOF
+or process termination also closes the retained session. The existing browser
+keys/access cache remain available in the retained context until it closes.
+After a resumed suite passes, the retained command loop stays open until `finish`.
 
 ## What it does
 
@@ -131,4 +182,12 @@ Offline guard verification (does not contact live hosts):
 ```sh
 node --check tools/manual/native-player-live.mjs
 node --test tools/manual/native-player-live.guard.test.mjs
+node --test tools/manual/native-browser-network.test.mjs
+node --test tools/manual/native-live-stages.test.mjs tools/manual/native-owner-qa-session.test.mjs
+HM_PLAYWRIGHT_MODULE=/ABSOLUTE/playwright/index.mjs node --test tools/manual/native-owner-qa-session.browser.test.mjs
 ```
+
+These offline checks use a fixture for failure/retry orchestration and actual
+allowlisted SDK modules for Chromium serialization/import. They create no native
+identity, exercise no live pod, and do not establish that a deployed native save
+passes. The live command remains a separate, explicitly authorized operation.

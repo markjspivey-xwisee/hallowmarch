@@ -81,6 +81,7 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     fail('invalid_credential', 'An explicitly granted browser-only relay access token is required. Refresh tokens are not retained.');
   }
   const tx = transport || new RelayMcpTransport(relay.origin, { ...credential }, globalThis.fetch.bind(globalThis));
+  let currentCredential = { ...credential };
   // Scope is stable across browsers and relay sessions so encrypted recovery works.
   const scope = JSON.stringify(['interego-client-key/v1', relay.origin, ownerDid, podName]);
   const vault = new ClientKeyVault(scope, keyStorage, crypto);
@@ -111,13 +112,41 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     connected = true;
     return { ownerDid, podUrl: status.pod, keyPresent: !!await vault.publicKey(), keyRegistered: false };
   }
+  function reauthenticate({ credential: next } = {}) {
+    return serialized(async () => {
+      if (closed) fail('not_connected', 'This Interego connection is closed.');
+      if (next?.kind !== 'relay-oauth-bearer' || typeof next.accessToken !== 'string' || !next.accessToken
+        || next.refreshToken || !Number.isFinite(next.expiresAt) || next.expiresAt <= now()
+        || typeof tx.setCredential !== 'function') fail('invalid_credential', 'An unexpired browser-only access grant is required.');
+      const previous = currentCredential, wasRegistered = registered || recipientId !== null;
+      connected = false; registered = false;
+      try {
+        tx.setCredential({ ...next });
+        const result = await connect();
+        if (closed) fail('not_connected', 'This Interego connection is closed.');
+        if (wasRegistered) {
+          const publicKey = await vault.publicKey();
+          if (!publicKey || !recipientId || await registryKey(recipientId) !== publicKey) fail('recipient_conflict', 'The original browser encryption recipient changed.');
+          registered = true;
+        }
+        currentCredential = { ...next };
+        return { ...result, keyRegistered: registered };
+      } catch (cause) {
+        tx.setCredential(closed ? { kind: 'relay-oauth-bearer', accessToken: '', method: previous.method, expiresAt: now(), refreshToken: null } : previous);
+        connected = false; registered = false;
+        throw cause;
+      }
+    });
+  }
   async function agentFor(publicKey) {
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(publicKey)));
     const suffix = [...digest].map(x => x.toString(16).padStart(2, '0')).join('');
     return podUrl + 'agents#browser-encryption-' + suffix;
   }
   async function registryKey(agent) {
-    const result = await tool('get_descriptor', { url: podUrl + 'agents' });
+    // The agent registry is mutable. SDK cache:false does not bypass the relay's
+    // descriptor-body cache, which can still hold its pre-registration body.
+    const result = await tool('get_descriptor', { url: podUrl + 'agents', bypass_cache: true });
     const document = parseTrig(result.turtle || result.graph?.content || result.content || '');
     const matches = document.subjects.filter(node => (node.properties.get(IEP + 'agentIdentity') || []).some(term => term.kind === 'iri' && term.iri === agent));
     if (matches.length > 1) fail('recipient_conflict', 'The registered browser recipient is ambiguous.');
@@ -234,6 +263,7 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     async restoreRecovery(recovery, passphrase) { active(); await vault.restore(recovery, passphrase); return registerKey(); },
     // First publication uses a fresh, unguessable graph identity. The relay has
     // no compare-with-absence primitive; never describe this as initial CAS.
+    reauthenticate,
     create({ record }) { const graphIri = 'urn:graph:client-owned:' + crypto.randomUUID(); return serialized(() => publish({ graphIri, record, creating: true })); },
     // Named creation supports owner discovery records. There is NO atomic
     // absence CAS: preflight refuses existing heads, readback refuses forks.

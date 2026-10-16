@@ -43,6 +43,52 @@ async function netWsTokenKeep(host, t) {
     }
   } catch (e) { /* a viewer who may not write keeps it in this browser */ }
 }
+// Explicit title recovery removes only the refused app-session proof. Native
+// owner grants, encryption keys and private characters belong to other ports.
+async function netWsTokenForget(host, rejectedToken, allowed = () => false) {
+  const deadline = Date.now() + 8000; let valid = true, timer;
+  const active = () => {
+    if (!valid || Date.now() >= deadline || !allowed() || GAME.started || SAVE.pending || SAVE.nativeFlight || NETWS.host !== host || !rejectedToken
+      || (NETWS.token && NETWS.token !== rejectedToken)) throw new Error('Keep the current character open; its connection cannot be replaced.');
+    const stored = localStorage.getItem('hallowmarch.token.' + host);
+    if (stored && stored !== rejectedToken) throw new Error('Another game session arrived. Retry its connection before signing in again.');
+    return stored;
+  };
+  const clearing = (async () => {
+    active();
+    const C = window.claude;
+    if (C && typeof C.use === 'function') {
+      const [db, user] = await Promise.all([C.use('db'), C.use('user')]); active();
+      if (!db || !user || typeof user.id !== 'function') throw new Error('The previous game session storage is unavailable. Retry the connection.');
+      const uid = await user.id(); active();
+      if (!uid) throw new Error('The previous game session storage is not confirmed. Retry the connection.');
+      const ref = db.doc('data/users/' + uid + '/server');
+      const read = async () => {
+        const snap = await ref.get(); active();
+        if (!snap || typeof snap.exists !== 'boolean') throw new Error('The previous game session storage is not confirmed. Retry the connection.');
+        const data = snap.exists ? snap.data() : {}, token = data?.tokens?.[host];
+        if (!data || typeof data !== 'object' || Array.isArray(data)
+          || (data.tokens !== undefined && (!data.tokens || typeof data.tokens !== 'object' || Array.isArray(data.tokens)))
+          || (token && token !== rejectedToken)) throw new Error('Another game session arrived. Retry its connection before signing in again.');
+        return data;
+      };
+      const data = await read(); active();
+      if (data.tokens?.[host]) {
+        const latest = await read(); active();
+        const tokens = { ...(latest.tokens || {}) }; delete tokens[host];
+        await ref.set({ ...latest, tokens }); active();
+        if ((await read()).tokens?.[host]) throw new Error('The previous game session was not cleared. Retry the connection.');
+      }
+    }
+    if (active()) localStorage.removeItem('hallowmarch.token.' + host);
+    if (active()) throw new Error('The previous game session was not cleared. Retry the connection.');
+  })();
+  try {
+    await Promise.race([clearing, new Promise((resolve, reject) => { timer = setTimeout(() => {
+      valid = false; reject(new Error('The previous game session storage did not confirm in time. Retry the connection.'));
+    }, 8000); })]);
+  } finally { valid = false; clearTimeout(timer); }
+}
 function netWsSend(o, ws = NETWS.ws) {
   if (!ws || ws !== NETWS.ws || NETWS.state === 'off' || ws.readyState !== 1) return false;
   try {

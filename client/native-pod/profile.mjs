@@ -39,7 +39,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
   const ownerDid = binding.subjectDid;
   const client = createClient({ relayUrl, credential, ownerDid, podUrl: binding.podUrl });
   let current = null, pending = null, pendingIndex = null, latest = null, state = 'connecting', keyPresent = false;
-  let chain = Promise.resolve(), linked = !!pointer, closed = false, connected = false;
+  let chain = Promise.resolve(), linked = !!pointer, closed = false, connected = false, readConfirmed = false;
   let indexGraphIri = null, indexHead = null, indexSeen = false, indexVerified = false, profileGraphIri = null;
   const hasRecord = () => !!(indexSeen || current || pointer || pending || pendingIndex);
   const change = (next, detail = '') => { state = next; onState({ state, detail, keyPresent,
@@ -104,7 +104,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
     }
     validatePlayerProfile(result.record, ownerDid);
     if (profileGraphIri && result.graphIri !== profileGraphIri) throw error('profile_index_conflict', 'The character differs from your owner index.');
-    current = result; pending = null;
+    current = result; pending = null; readConfirmed = true;
     linked = pointer?.graphIri === current.graphIri && pointer?.cid === current.head.cid;
     if (latest && JSON.stringify(latest) === JSON.stringify(result.record.save)) latest = null;
   }
@@ -149,12 +149,12 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       const indexedTarget = await readIndex();
       if (pendingIndex) await ensureIndexed();
       const target = indexedTarget || profileGraphIri || current?.graphIri || pointer?.graphIri;
-      if (!target) return { exists: false, data: () => null };
+      if (!target) { readConfirmed = true; return { exists: false, data: () => null }; }
       if (!keyPresent) keyRequired();
       const found = await client.load({ graphIri: target }); active();
       if (!found) throw error('missing_record', 'The private character could not be found in your pod.');
       const save = validatePlayerProfile(found.record, ownerDid);
-      current = found;
+      current = found; readConfirmed = true;
       // A legacy game hint can seed the owner index only after native private
       // readback verifies its owner/schema/game. An unread index always wins.
       await ensureIndexed(); active();
@@ -187,6 +187,39 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
   }
   function serialized(run) { const next = chain.then(run); chain = next.catch(() => {}); return next; }
   return Object.freeze({ connect, get: () => serialized(read), native: true,
+    reauthenticate({ credential } = {}) { return serialized(async () => {
+      active();
+      if (!readConfirmed && !current && !pending) throw error('unread_record', 'Open this private character before resuming it.');
+      try {
+        const result = await client.reauthenticate({ credential }); active();
+        connected = true; keyPresent = result.keyPresent;
+        if (!keyPresent) keyRequired();
+        // Preserve the exact original operation receipts, including a profile
+        // committed before its owner-index acknowledgement was lost.
+        if (pending) acceptedProfile(await client.confirm(pending.operationId));
+        if (pendingIndex) acceptedIndex(await client.confirm(pendingIndex.operationId));
+        const selected = await client.currentHead({ graphIri: indexGraphIri }); active();
+        if (indexSeen && !selected) throw error('missing_profile_index', 'The original owner index could not be confirmed.');
+        if (selected) {
+          if (!indexHead || selected.cid !== indexHead.cid || selected.descriptorUrl !== indexHead.descriptorUrl) {
+            throw error('profile_index_conflict', 'The owner index changed while reconnecting. Your progress remains in this game.');
+          }
+          const foundIndex = await client.load({ graphIri: indexGraphIri }); active();
+          if (!foundIndex || foundIndex.head.cid !== indexHead.cid || foundIndex.head.descriptorUrl !== indexHead.descriptorUrl
+            || validatePlayerProfileIndex(foundIndex.record, ownerDid) !== (current?.graphIri || profileGraphIri)) {
+            throw error('profile_index_conflict', 'The owner index points to another character.');
+          }
+        }
+        if (current) {
+          const found = await client.load({ graphIri: current.graphIri }); active();
+          if (!found || found.head.cid !== current.head.cid || found.head.descriptorUrl !== current.head.descriptorUrl) {
+            throw error('conflict', 'The private character changed elsewhere. Your progress remains in this game.');
+          }
+          validatePlayerProfile(found.record, ownerDid);
+        } else if (pointer || profileGraphIri || selected) throw error('unread_record', 'The existing private character has not been read.');
+        change('ready'); return { keyPresent, readConfirmed: true, hasRecord: hasRecord() };
+      } catch (cause) { if (!closed) change(cause.code || 'unavailable'); throw cause; }
+    }); },
     set(save) { validatePlayerProfile(record(save), ownerDid); latest = copy(save); return serialized(persist); },
     retry() { return serialized(persist); },
     createKey() { return serialized(async () => {

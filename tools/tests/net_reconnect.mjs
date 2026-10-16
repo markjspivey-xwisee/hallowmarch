@@ -116,7 +116,7 @@ function harness(options = {}) {
     'netFastObj = () => ({p:[0,0,0],y:0,v:0,a:0,h:100});',
     'globalThis.fixtureSave = {v:1,char:null,settings:{},world:null};',
     'buildSave = () => JSON.parse(JSON.stringify(globalThis.fixtureSave));',
-    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender};',
+    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender,netWsTokenForget};',
   ].join('\n'), context);
   if (options.nativePolicy) {
     context.fixtureNativeProfile = nativeProfile; context.fixtureNativeBinding = binding;
@@ -606,4 +606,69 @@ test('a native reference refuses account switches before any owner-pod write', a
   h.H.NETWS.acct = { id: 'different-account', nativeBound: true };
   await assert.rejects(h.H.SAVE.ref.set(ownNative), error => error.code === 'revoked');
   assert.equal(writes, 0);
+});
+
+test('explicit title token recovery clears only the refused host proof and preserves native/browser data', async () => {
+  let privateData = { other: 'preserved', tokens: { [HOST]: 'refused-proof', 'other.test': 'other-proof' } }, writes = 0;
+  const ref = { get: async () => ({ exists: true, data: () => structuredClone(privateData) }), set: async data => { privateData = data; writes++; } };
+  const claude = { use: async name => name === 'db' ? { doc: () => ref } : { id: async () => 'fixture-user' } };
+  const h = harness({ claude, storage: { ['hallowmarch.token.' + HOST]: 'refused-proof', 'hallowmarch.token.other.test': 'other-proof', 'native-key-fixture': 'kept' } });
+  h.H.NETWS.host = HOST; h.H.NETWS.token = 'refused-proof';
+  await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof'), /current character/);
+  await h.H.netWsTokenForget(HOST, 'refused-proof', () => true);
+  assert.equal(writes, 1); assert.deepEqual(JSON.parse(JSON.stringify(privateData)), { other: 'preserved', tokens: { 'other.test': 'other-proof' } });
+  assert.equal(h.storage.has('hallowmarch.token.' + HOST), false);
+  assert.equal(h.storage.get('hallowmarch.token.other.test'), 'other-proof'); assert.equal(h.storage.get('native-key-fixture'), 'kept');
+  assert.equal(h.H.NETWS.token, 'refused-proof', 'Token deletion cannot silently promote another account');
+});
+
+test('title token recovery refuses active play, pending progress and newer local or private credentials', async () => {
+  for (const guard of ['started', 'pending', 'flight', 'new-local', 'new-private']) {
+    let writes = 0;
+    const h = harness({ storage: { ['hallowmarch.token.' + HOST]: guard === 'new-local' ? 'new-proof' : 'refused-proof' },
+      claude: { use: async name => name === 'db' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ tokens: { [HOST]: 'new-proof' } }) }), set: async () => { writes++; } }) } : { id: async () => 'fixture-user' } } });
+    h.H.NETWS.host = HOST; h.H.NETWS.token = 'refused-proof';
+    if (guard === 'started') h.H.GAME.started = true;
+    if (guard === 'pending') h.H.SAVE.pending = { progress: 'kept' };
+    if (guard === 'flight') h.H.SAVE.nativeFlight = Promise.resolve();
+    await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /current character|Another game session/);
+    assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), guard === 'new-local' ? 'new-proof' : 'refused-proof');
+  }
+});
+
+test('private token recovery rechecks a refreshed grant before writing and refuses unreadable storage', async () => {
+  for (const cause of ['refresh', 'unavailable']) {
+    let reads = 0, writes = 0;
+    const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+      get: async () => { if (cause === 'unavailable') throw Error('fixture private store offline'); return { exists: true, data: () => ({ tokens: { [HOST]: ++reads === 1 ? 'refused-proof' : 'fresh-proof' } }) }; },
+      set: async () => { writes++; },
+    }) } : { id: async () => 'fixture-user' } } });
+    h.H.NETWS.host = HOST;
+    await assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /Another game session|offline/);
+    assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
+  }
+});
+
+test('timed-out private recovery quarantines its late read and never clears a token or opens a socket', async () => {
+  const reading = deferred(); let writes = 0;
+  const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+    get: () => reading.promise, set: async () => { writes++; },
+  }) } : { id: async () => 'fixture-user' } } });
+  h.H.NETWS.host = HOST;
+  const rejected = assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /did not confirm in time/);
+  await flush(); await h.clock.advance(8000); await rejected;
+  reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await flush();
+  assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof'); assert.equal(h.sockets.length, 0);
+});
+
+test('private recovery stops when gameplay progress appears during its storage read', async () => {
+  const reading = deferred(); let writes = 0;
+  const h = harness({ storage: { ['hallowmarch.token.' + HOST]: 'refused-proof' }, claude: { use: async name => name === 'db' ? { doc: () => ({
+    get: () => reading.promise, set: async () => { writes++; },
+  }) } : { id: async () => 'fixture-user' } } });
+  h.H.NETWS.host = HOST;
+  const rejected = assert.rejects(h.H.netWsTokenForget(HOST, 'refused-proof', () => true), /current character/); await flush();
+  h.H.SAVE.pending = { privateProgress: 'kept' };
+  reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await rejected;
+  assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
 });

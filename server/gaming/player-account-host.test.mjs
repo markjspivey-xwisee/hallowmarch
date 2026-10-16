@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createPlayerAccountHost } from './player-account-host.js';
 import { createPlayerBindingLedger } from './player-bindings.js';
+import { createGameSessionTokens } from './game-session.js';
 
 const ORIGIN = 'https://game.example';
 const RELAY = 'https://relay.interego.xwisee.com';
@@ -48,9 +49,11 @@ async function fixture(t, overrides = {}) {
     ['guest-a', { id: 'guest-a', name: 'Alice', guest: true, pass: { secret: 'NEVER_IN_NATIVE_LEDGER' } }],
     ['guest-b', { id: 'guest-b', name: 'Bob', guest: true }],
   ]);
+  const gameTokens = createGameSessionTokens({ secret: 'synthetic-signed-host-test-secret', now: () => clock });
   const claims = new Map(), issued = [], restored = [], legacyReads = [], faults = [], remote = [];
   const token = (id, fields = {}) => {
-    const value = `game-session-${id}-${claims.size}`; claims.set(value, { id, exp: clock + 7_200_000, ...fields }); return value;
+    const value = overrides.realTokens ? (fields.nativeDid ? gameTokens.issueNative(id, fields.nativeDid).token : gameTokens.issueLegacy(id)) : `game-session-${id}-${claims.size}`;
+    claims.set(value, overrides.realTokens ? gameTokens.read(value) : { id, exp: clock + 7_200_000, ...fields }); return value;
   };
   const aliceToken = token('guest-a'), bobToken = token('guest-b');
   const fetcher = async (input, init) => {
@@ -73,7 +76,8 @@ async function fixture(t, overrides = {}) {
     } } });
   };
   const host = createPlayerAccountHost({ store, publicOrigin: ORIGIN, now: () => clock, fetch: fetcher,
-    tokenClaims: value => claims.has(value) ? { ...claims.get(value) } : null,
+    tokenClaims: value => overrides.realTokens ? gameTokens.read(value) : claims.has(value) ? { ...claims.get(value) } : null,
+    ...(overrides.realTokens ? { reauthenticationClaims: value => gameTokens.readForReauthentication(value) } : {}),
     getAccount: id => accounts.get(id) ?? null,
     restoreAccount: record => { restored.push(structuredClone(record)); const account = { ...record.accountSummary }; accounts.set(account.id, account); return account; },
     issueAppSession: (id, binding) => {
@@ -113,7 +117,7 @@ async function fixture(t, overrides = {}) {
     assert.equal((await callback(flow)).status, 303); const response = await claim(flow, body);
     assert.equal(response.status, 200); return { flow, payload: await response.json() };
   };
-  return { host, store, accounts, claims, issued, restored, legacyReads, remote, request, start, callback, claim, connect, token,
+  return { host, store, accounts, claims, gameTokens, issued, restored, legacyReads, remote, request, start, callback, claim, connect, token,
     aliceToken, bobToken, advance(ms) { clock += ms; }, nativeUser(value) { userId = value; }, clock: () => clock };
 }
 
@@ -357,4 +361,99 @@ test('public owner capability documents remain discoverable without bearer or na
   assert.equal((await f.request('/gaming/identity/affordances', { method: 'POST', body: {} })).status, 405);
   assert.equal((await f.request('/gaming/identity/schemas', { hostname: 'evil.example', session: null })).status, 403);
   noNativeCredentials(document); assert.equal(f.store, null); assert.equal(f.issued.length, 0);
+});
+
+
+test('expired signed native app credential can only reauthenticate its original owner before a fresh session is issued', async t => {
+  const f = await fixture(t, { realTokens: true, allowOwnerBrowserHandoff: true });
+  const first = await f.connect(f.aliceToken, { ownerPodWriteAccess: true });
+  const old = first.payload.appSession.token, oldClaims = f.claims.get(old);
+  f.advance(3_600_001);
+  assert.equal(f.gameTokens.read(old), null);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: oldClaims }), null);
+  for (const route of ['/gaming/identity/status', '/gaming/identity/legacy-import']) assert.equal((await f.request(route, { session: old })).status, 401);
+  assert.equal((await f.request('/gaming/identity/record-link', { method: 'POST', session: old, body: characterPointer })).status, 401);
+  const before = structuredClone(f.store.commits);
+  const flow = await f.start(old, { ownerPodWriteAccess: true, accountId: 'guest-b', nativeDid: nativeOwner('u-pk-other').subjectDid });
+  assert.equal(flow.response.status, 200);
+  assert.deepEqual(f.store.commits, before); assert.equal(f.issued.length, 1, 'start confers no game session or ledger mutation');
+  assert.equal((await f.callback(flow)).status, 303);
+  const response = await f.claim(flow, { ownerPodWriteAccess: true }); assert.equal(response.status, 200);
+  const renewed = await response.json();
+  assert.equal(renewed.appSession.acct.id, 'guest-a'); assert.equal(renewed.binding.subjectDid, nativeOwner().subjectDid);
+  assert.notEqual(renewed.appSession.token, old); assert.equal(renewed.nativeSession.accessToken, 'native-access-secret');
+  assert.equal(f.issued.length, 2);
+  assert.equal((await f.request('/gaming/identity/status', { session: renewed.appSession.token })).status, 200);
+  assert.equal(f.gameTokens.read(old), null, 'renewal never revives the expired game credential');
+  const renewalOnly = f.gameTokens.readForReauthentication(renewed.appSession.token);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: renewalOnly }), null, 'purpose-only recovery output is not game authority even before expiry');
+  noNativeCredentials(f.issued); noNativeCredentials(f.store.commits);
+});
+
+test('a native ceremony started before expiry can finish after expiry without weakening ordinary requests', async t => {
+  const f = await fixture(t, { realTokens: true });
+  const first = await f.connect(), old = first.payload.appSession.token; f.advance(3_599_900);
+  const flow = await f.start(old); assert.equal(flow.response.status, 200); f.advance(101);
+  assert.equal((await f.request('/gaming/identity/status', { session: old })).status, 401);
+  assert.equal((await f.callback(flow)).status, 303);
+  assert.equal((await f.claim(flow)).status, 200); assert.equal(f.issued.length, 2);
+});
+
+test('expired native recovery rejects foreign OAuth owner before host mutation and never trusts body labels', async t => {
+  const f = await fixture(t, { realTokens: true });
+  const first = await f.connect(), old = first.payload.appSession.token; f.advance(3_600_001);
+  const before = structuredClone(f.store.commits); f.nativeUser('u-pk-other');
+  const flow = await f.start(old, { accountId: 'guest-b', nativeDid: nativeOwner('u-pk-other').subjectDid });
+  assert.equal(flow.response.status, 200);
+  const callback = await f.callback(flow); assert.equal(callback.status, 403);
+  assert.equal((await callback.json()).error, 'native_owner_mismatch');
+  assert.deepEqual(f.store.commits, before); assert.equal(f.issued.length, 1); assert.equal(f.host.status().readyHandoffs, 0);
+  assert.equal((await f.claim(flow)).status, 404);
+});
+
+test('forged, foreign-bound and over-age native recovery credentials cannot start or claim', async t => {
+  const f = await fixture(t, { realTokens: true });
+  const first = await f.connect(), old = first.payload.appSession.token; f.advance(3_600_001);
+  const foreign = f.gameTokens.issueNative('guest-a', nativeOwner('u-pk-other').subjectDid).token;
+  const forBob = f.gameTokens.issueNative('guest-b', nativeOwner().subjectDid).token;
+  const calls = f.remote.length;
+  for (const token of ['forged', old.slice(0, -1) + '!', foreign, forBob]) {
+    assert.equal((await f.start(token, { accountId: 'guest-a', nativeDid: nativeOwner().subjectDid })).response.status, 401);
+  }
+  assert.equal(f.remote.length, calls); assert.equal(f.issued.length, 1);
+  const flow = await f.start(old); assert.equal(flow.response.status, 200);
+  assert.equal((await f.callback(flow)).status, 303);
+  assert.equal((await f.claim(flow, {}, foreign)).status, 401);
+  assert.equal((await f.claim(flow, {}, f.bobToken)).status, 403);
+  assert.equal((await f.claim(flow)).status, 200, 'wrong-session claims do not consume the original browser handoff');
+  f.advance(86_400_000);
+  assert.equal((await f.start(old)).response.status, 401);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.gameTokens.readForReauthentication(old) }), null);
+});
+
+test('a fresh disposable game transport restores an existing native owner after the old HMAC recovery deadline', async t => {
+  const f = await fixture(t, { realTokens: true, allowOwnerBrowserHandoff: true });
+  const first = await f.connect(f.aliceToken, { ownerPodWriteAccess: true });
+  const old = first.payload.appSession.token, originalAccount = first.payload.appSession.acct.id;
+  assert.equal(originalAccount, 'guest-a');
+  f.advance(3_600_000 + 86_400_001);
+  assert.equal(f.gameTokens.read(old), null); assert.equal(f.gameTokens.readForReauthentication(old), null);
+  assert.equal((await f.start(old)).response.status, 401);
+  const baseline = structuredClone(f.store.commits), disposableBefore = structuredClone(f.accounts.get('guest-b'));
+  // A fresh ordinary game session names no native identity and has no pod access.
+  const disposable = f.token('guest-b');
+  assert.equal(f.gameTokens.read(disposable).nativeDid, undefined);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-b'), authClaims: f.gameTokens.read(disposable) }), null);
+  const flow = await f.start(disposable, { ownerPodWriteAccess: true, accountId: 'guest-b', nativeDid: 'did:example:caller-label' });
+  assert.equal(flow.response.status, 200); assert.deepEqual(f.store.commits, baseline);
+  assert.equal((await f.callback(flow)).status, 303);
+  const response = await f.claim(flow, { ownerPodWriteAccess: true }); assert.equal(response.status, 200);
+  const recovered = await response.json();
+  assert.equal(recovered.appSession.acct.id, originalAccount);
+  assert.equal(recovered.binding.subjectDid, nativeOwner().subjectDid);
+  assert.deepEqual(f.accounts.get('guest-b'), disposableBefore, 'the disposable transport is not rebound to the returning owner');
+  assert.deepEqual(f.store.commits, baseline, 'existing owner discovery creates no second native identity or participation binding');
+  assert.equal(f.host.isBound('guest-b'), false); assert.equal(f.host.isBound(originalAccount), true);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get(originalAccount), authClaims: f.gameTokens.read(recovered.appSession.token) }), nativeOwner().subjectDid);
+  noNativeCredentials(f.store.commits); noNativeCredentials(f.issued);
 });

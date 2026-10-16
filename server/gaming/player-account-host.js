@@ -116,41 +116,58 @@ export function createPlayerAccountHost(options = {}) {
     if (!enabled()) await recover();
     if (!enabled()) fail('native_identity_unavailable', 503);
   }
-  function authenticated(req) {
+  function authenticated(req, { reauthentication = false } = {}) {
     const authorization = req.headers.authorization;
     if (typeof authorization !== 'string' || authorization.length > 8192) fail('game_account_required', 401);
     const match = /^Bearer ([^\s]+)$/.exec(authorization);
     if (!match) fail('game_account_required', 401);
     let claims;
     try { claims = options.tokenClaims(match[1]); } catch { fail('game_account_required', 401); }
-    if (!plain(claims) || typeof claims.id !== 'string' || !claims.id || claims.id.length > 256
-      || !Number.isFinite(claims.exp) || claims.exp <= now()) fail('game_account_required', 401);
+    let recovery = null;
+    if (reauthentication && typeof options.reauthenticationClaims === 'function') {
+      try { recovery = options.reauthenticationClaims(match[1]); } catch { fail('game_account_required', 401); }
+      if (recovery != null) {
+        if (!plain(recovery) || recovery.purpose !== 'native-reauthentication-only'
+          || typeof recovery.nativeDid !== 'string' || !recovery.nativeDid.startsWith('did:')
+          || !Number.isSafeInteger(recovery.exp) || !Number.isSafeInteger(recovery.reauthenticationUntil)
+          || recovery.reauthenticationUntil <= now() || recovery.reauthenticationUntil > recovery.exp + 86_400_000
+          || (claims && (claims.id !== recovery.id || claims.nativeDid !== recovery.nativeDid))) fail('game_account_required', 401);
+        claims = recovery;
+      }
+    }
+    if (!plain(claims) || (!reauthentication && claims.purpose !== undefined) || typeof claims.id !== 'string' || !claims.id || claims.id.length > 256
+      || !Number.isFinite(claims.exp) || (!recovery && claims.exp <= now())) fail('game_account_required', 401);
     const account = options.getAccount(claims.id);
     if (!account || account.id !== claims.id) fail('game_account_required', 401);
-    return { claims, account, sessionId: hash(match[1]) };
+    if (reauthentication && claims.nativeDid && recordFor(account.id)?.binding.subjectDid !== claims.nativeDid) fail('game_account_required', 401);
+    return { claims, account, sessionId: hash(match[1]), authorizationUntil: recovery ? recovery.reauthenticationUntil : claims.exp };
   }
   function freshDid(claims, accountId) {
     const record = recordFor(accountId);
-    if (!record || !plain(claims) || claims.id !== accountId || claims.nativeDid !== record.binding.subjectDid
+    if (!record || !plain(claims) || claims.purpose !== undefined || claims.id !== accountId || claims.nativeDid !== record.binding.subjectDid
       || !Number.isFinite(claims.exp) || claims.exp <= now() || !Number.isFinite(claims.nativeVerifiedAt)
       || claims.nativeVerifiedAt > now() || claims.nativeVerifiedAt <= now() - FRESH_NATIVE_MS) return null;
     return record.binding.subjectDid;
   }
   async function authorizeGameAccount(req, body) {
     await requireReady(); prune();
-    const auth = authenticated(req), sessionBinding = hash(auth.sessionId);
+    // This authority is intentionally restricted to the existing OAuth ceremony.
+    // All ordinary account, record and companion operations keep strict expiry.
+    const auth = authenticated(req, { reauthentication: true }), sessionBinding = hash(auth.sessionId);
+    const expectedSubjectDid = recordFor(auth.account.id)?.binding.subjectDid;
     if (new URL(req.url, publicUrl).pathname === bridge.paths.start) {
       if (!proofs.has(sessionBinding) && proofs.size >= MAX_SESSION_PROOFS) fail('identity_ceremony_limit', 429);
       proofs.set(sessionBinding, { accountId: auth.account.id, claims: { ...auth.claims },
-        expiresAt: Math.min(auth.claims.exp, now() + PROOF_TTL_MS) });
+        expectedSubjectDid, expiresAt: Math.min(auth.authorizationUntil, now() + PROOF_TTL_MS) });
     }
-    return { accountId: auth.account.id, sessionId: auth.sessionId, ownerPodWriteAccess: body?.ownerPodWriteAccess === true };
+    return { accountId: auth.account.id, sessionId: auth.sessionId, expectedSubjectDid, ownerPodWriteAccess: body?.ownerPodWriteAccess === true };
   }
   async function onVerified(binding, requestedAccountId, context) {
     await requireReady(); prune(); aborted(context.signal);
     const proof = proofs.get(context.sessionBinding), initiatingAccount = options.getAccount(requestedAccountId);
     if (!proof || proof.accountId !== requestedAccountId || proof.claims.id !== requestedAccountId
-      || proof.claims.exp <= now() || proof.expiresAt <= now() || !initiatingAccount || initiatingAccount.id !== requestedAccountId) {
+      || proof.expiresAt <= now() || !initiatingAccount || initiatingAccount.id !== requestedAccountId
+      || (proof.expectedSubjectDid && binding.subjectDid !== proof.expectedSubjectDid)) {
       fail('game_account_required', 401);
     }
     const operationId = 'player-bind:' + hash(context.sessionBinding + ':' + binding.subjectDid);

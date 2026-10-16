@@ -75,7 +75,10 @@ async function fixture(t, options = {}) {
   };
   const bridge = createPlayerIdentityBridge({
     publicOrigin: PUBLIC_ORIGIN, fetch: remoteFetch, now: () => clock,
-    authorizeGameAccount: async (_req, body) => authorizationFor(body),
+    authorizeGameAccount: async (_req, body) => {
+      const account = authorizationFor(body);
+      return account && { ...account, ...(options.expectedSubjectDid !== undefined ? { expectedSubjectDid: options.expectedSubjectDid } : {}) };
+    },
     onVerified: async (...args) => { verified.push(args); },
     ...options,
   });
@@ -439,4 +442,15 @@ test('claim rechecks host pod-access permission and concurrent claims disclose c
   const responses = await Promise.all([claim(), claim()]);
   assert.deepEqual(responses.map(response => response.status).sort(), [200, 404]);
   assert.equal(f.bridge.status().readyHandoffs, 0);
+});
+
+test('a host-pinned reconnect owner is enforced before onVerified or any credential handoff', async t => {
+  const same = await fixture(t, { expectedSubjectDid: playerStatus().identity.did, allowOwnerBrowserHandoff: true });
+  const accepted = await same.start(); assert.equal((await same.callback(accepted)).status, 303); assert.equal(same.verified.length, 1);
+  const foreign = await fixture(t, { expectedSubjectDid: 'did:web:identity.interego.xwisee.com:users:u-pk-original', allowOwnerBrowserHandoff: true });
+  const rejected = await foreign.start({ ...proofBody, expectedSubjectDid: playerStatus().identity.did });
+  const response = await foreign.callback(rejected); assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, 'native_owner_mismatch');
+  assert.equal(foreign.verified.length, 0, 'the host is never asked to persist a foreign reconnect');
+  assert.equal(foreign.bridge.status().readyHandoffs, 0); assertNoTokens(foreign.bridge.status());
 });

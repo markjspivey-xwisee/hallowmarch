@@ -1,14 +1,14 @@
 /* Owner identity and private character saves, composed through native ports. */
-const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, channel: null };
+const NATIVE_PLAYER = { status: null, profile: null, cache: null, module: null, state: 'idle', message: '', busy: false, channel: null, authRefusal: null };
 const nativePlayerError = (code, message) => Object.assign(new Error(message), { code });
-async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs = 18000 } = {}) {
-  if (!NETWS.token) throw nativePlayerError('account_required', 'Connect to the March before signing in.');
+async function nativePlayerRequest(url, { method = 'GET', body, timeoutMs = 18000, token = NETWS.token } = {}) {
+  if (!token) throw nativePlayerError('account_required', 'Connect to the March before signing in.');
   const response = await fetch(url, { method, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs),
-    headers: { Authorization: 'Bearer ' + NETWS.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}) });
   if (!response.ok) {
     let code = 'unavailable'; try { code = (await response.json()).error || code; } catch (e) { /* response may be unavailable */ }
-    throw nativePlayerError(response.status === 404 ? 'not_available' : code, 'The identity service could not confirm this request. Try again.');
+    throw Object.assign(nativePlayerError(response.status === 404 ? 'not_available' : code, 'The identity service could not confirm this request. Try again.'), { httpStatus: response.status });
   }
   return response.json();
 }
@@ -111,7 +111,7 @@ function nativePlayerRender() {
       box = document.createElement('section'); box.className = 'native-player';
       if (target.classList.contains('card-body')) target.prepend(box); else target.appendChild(box);
     }
-    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, SAVE.readConfirmed, !!SAVE.loaded, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.message, NATIVE_PLAYER.profile?.status()]);
+    const renderKey = JSON.stringify([NETWS.acct?.id, status.bound, SAVE.readConfirmed, !!SAVE.loaded, NATIVE_PLAYER.state, NATIVE_PLAYER.busy, NATIVE_PLAYER.message, NATIVE_PLAYER.profile?.status(), nativePlayerFreshAllowed()]);
     if (box._nativeKey === renderKey) continue;
     box._nativeKey = renderKey;
     const sameOwner = box._nativeOwner === NETWS.acct?.id;
@@ -127,6 +127,7 @@ function nativePlayerRender() {
       b.onclick = () => run(); return b;
     };
     action(status.bound ? 'Reconnect identity' : 'Connect identity', nativePlayerConnect);
+    if (target.classList.contains('card-body') && nativePlayerFreshAllowed()) action('Start a fresh sign-in', () => nativePlayerConnect(true));
     if (SAVE.native && !SAVE.readConfirmed && !GAME.started) action('Retry connection', () => location.reload());
     const profile = NATIVE_PLAYER.profile;
     if (profile) {
@@ -161,27 +162,108 @@ async function nativePlayerTask(run) {
   catch (error) { NATIVE_PLAYER.message = error.message || 'Your pod did not confirm the operation. Try again.'; }
   finally { NATIVE_PLAYER.busy = false; nativePlayerRender(); }
 }
-function nativePlayerConnect() {
+function nativePlayerFreshAllowed() {
+  return !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !NATIVE_PLAYER.profile?.status().pending
+    && !!NATIVE_PLAYER.authRefusal && NATIVE_PLAYER.authRefusal.host === NETWS.host;
+}
+function nativePlayerConnect(fresh = false) {
   if (NATIVE_PLAYER.busy) return;
+  if (fresh && !nativePlayerFreshAllowed()) {
+    NATIVE_PLAYER.message = 'Keep the current character open. Reconnect its original identity without replacing the session.'; nativePlayerRender(); return;
+  }
+  const expected = GAME.started ? { accountId: NETWS.acct?.id, ownerDid: NATIVE_PLAYER.status?.binding?.subjectDid,
+    podUrl: NATIVE_PLAYER.status?.binding?.podUrl, host: NETWS.host, profile: NATIVE_PLAYER.profile } : null;
+  if (expected && (!expected.accountId || !expected.ownerDid || !expected.podUrl || !expected.profile || !SAVE.readConfirmed)) {
+    NATIVE_PLAYER.message = 'Your current character is still in memory. Confirm its original identity before reconnecting.'; nativePlayerRender(); return;
+  }
   const popup = window.open('about:blank', 'hallowmarch-identity', 'popup,width=520,height=760');
   if (!popup) { NATIVE_PLAYER.message = 'Allow this sign-in window, then connect again.'; nativePlayerRender(); return; }
-  nativePlayerTask(async () => {
+  let starting;
+  starting = nativePlayerTask(async () => {
+    const host = NETWS.host;
+    if (fresh) {
+      try {
+        if (!nativePlayerFreshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
+        SAVE.readConfirmed = false; nativePlayerRender();
+        await netWsTokenForget(host, NATIVE_PLAYER.authRefusal.token, nativePlayerFreshAllowed);
+        if (!nativePlayerFreshAllowed()) throw new Error('Keep the current character open. Its session cannot be replaced.');
+        NATIVE_PLAYER.authRefusal = null;
+        if (NETWS.link) NETWS.link.close();
+        else if (NETWS.ws) netWsRetire(NETWS.ws, 'explicit title sign-in');
+        NETWS.token = ''; NETWS.acct = null;
+        if (!await netLinkWS() || GAME.started || SAVE.pending || SAVE.nativeFlight) throw new Error('The fresh game session is unavailable. Retry the connection.');
+      } catch (error) { popup.close(); throw error; }
+    }
+    // A refused expired session has no welcome account or active token. Its
+    // stored opaque proof may still authorize the server's bounded sign-in
+    // ceremony, but must never become a multiplayer session by itself.
+    const token = NETWS.token || (!GAME.started && host ? await netWsToken(host) : '');
+    if (typeof token !== 'string' || !token || NETWS.host !== host || (GAME.started && !expected)) {
+      popup.close(); throw nativePlayerError('account_required', 'The previous game session could not be confirmed. Retry the connection.');
+    }
     const channelName = 'hallowmarch-owner-' + crypto.randomUUID();
-    const ceremony = { channel: channelName, token: NETWS.token, host: NETWS.host, expiresAt: Date.now() + 10 * 60 * 1000 };
+    const ceremony = { channel: channelName, token, host, expiresAt: Date.now() + 10 * 60 * 1000,
+      ...(expected ? { expectedAccountId: expected.accountId, expectedOwnerDid: expected.ownerDid, expectedPodUrl: expected.podUrl } : {}) };
     popup.sessionStorage.setItem('hallowmarch.identity.ceremony.v1', JSON.stringify(ceremony));
     NATIVE_PLAYER.channel?.close();
     const channel = NATIVE_PLAYER.channel = new BroadcastChannel(channelName);
     channel.onmessage = event => {
       if (event.data?.type !== 'hallowmarch-native-connected') return;
       channel.close(); NATIVE_PLAYER.channel = null;
-      NETWS.reload = true; location.reload();
+      if (!GAME.started) { NETWS.reload = true; location.reload(); return; }
+      void Promise.resolve(starting).then(() => nativePlayerTask(() => nativePlayerReconnect(expected, event.data)));
     };
     try {
-      const result = await nativePlayerRequest('/gaming/identity/start', { method: 'POST', body: { ownerPodWriteAccess: true } });
+      const result = await nativePlayerRequest('/gaming/identity/start', { method: 'POST', token, body: { ownerPodWriteAccess: true } });
+      NATIVE_PLAYER.authRefusal = null;
       popup.location.replace(result.authorizationUrl);
       NATIVE_PLAYER.message = 'Complete sign-in in the identity window, then return here.';
-    } catch (error) { popup.close(); channel.close(); throw error; }
+    } catch (error) {
+      if (error.httpStatus === 401 && error.code === 'game_account_required' && !GAME.started && !SAVE.pending && !SAVE.nativeFlight && !NATIVE_PLAYER.profile?.status().pending) {
+        NATIVE_PLAYER.authRefusal = { host, token };
+        error.message = 'The previous game session has expired or was refused. Start a fresh sign-in, then choose your existing identity.';
+      }
+      popup.close(); channel.close(); throw error;
+    }
   });
+}
+async function nativePlayerReconnect(expected, notification) {
+  const sameSession = () => expected && GAME.started && NETWS.acct?.id === expected.accountId && NETWS.host === expected.host
+    && NATIVE_PLAYER.profile === expected.profile && NATIVE_PLAYER.status?.binding?.subjectDid === expected.ownerDid
+    && NATIVE_PLAYER.status?.binding?.podUrl === expected.podUrl && !NETWS.reload;
+  SAVE.nativePaused = true;
+  if (!sameSession() || notification.accountId !== expected.accountId) throw nativePlayerError('owner_mismatch', 'Reconnect the original identity. Your current progress remains in this game.');
+  const token = localStorage.getItem('hallowmarch.token.' + expected.host);
+  if (!token) throw nativePlayerError('account_required', 'The new game session is not available. Your progress remains in memory.');
+  const status = await nativePlayerRequest('/gaming/identity/status', { token });
+  if (!sameSession() || status.enabled !== true || status.verified !== true || status.bound !== true
+    || status.account?.id !== expected.accountId || status.binding?.subjectDid !== expected.ownerDid || status.binding?.podUrl !== expected.podUrl) {
+    throw nativePlayerError('owner_mismatch', 'The new connection belongs to another identity. Your current progress has not been moved.');
+  }
+  await nativePlayerModules();
+  const matches = (await NATIVE_PLAYER.cache.list({})).filter(item => item.ownerDid === expected.ownerDid && item.podUrl === expected.podUrl);
+  if (matches.length !== 1) throw nativePlayerError('native_signin_required', 'Reconnect the original identity before saving this character.');
+  const cached = await NATIVE_PLAYER.cache.get(matches[0]);
+  if (!sameSession() || !cached?.credential) throw nativePlayerError('native_signin_required', 'The refreshed identity grant is unavailable. Your progress remains in memory.');
+  // Let the one active save settle. Pending operation IDs remain inside this
+  // same profile and must be confirmed against its original native CAS head.
+  if (!await withTimeout(SAVE.chain.then(() => true), 45000)) throw nativePlayerError('pod_pending', 'A save is still awaiting confirmation. Keep this game open and retry.');
+  if (!sameSession() || typeof expected.profile.reauthenticate !== 'function') throw nativePlayerError('native_signin_required', 'This character connection cannot be resumed safely. Keep this game open.');
+  await expected.profile.reauthenticate({ credential: cached.credential });
+  if (!sameSession()) throw nativePlayerError('owner_mismatch', 'The game identity changed while reconnecting. Your progress remains in memory.');
+  NETWS.token = token;
+  if (NETWS.ws) netWsRetire(NETWS.ws, 'identity refreshed');
+  if (!await netLinkWS() || NETWS.acct?.id !== expected.accountId || NETWS.host !== expected.host) {
+    if (NETWS.ws) netWsRetire(NETWS.ws, 'identity confirmation failed');
+    throw nativePlayerError('native_signin_required', 'The game session could not confirm your original account. Your progress remains in memory.');
+  }
+  NATIVE_PLAYER.status = status;
+  SAVE.nativePaused = false;
+  // Readback confirms the old baseline; it never replaces the live character.
+  // Build the newest live state now, including progress made during sign-in.
+  await saveNow();
+  NATIVE_PLAYER.message = SAVE.pending ? 'Reconnected. Your latest progress is still awaiting pod confirmation.' : 'Reconnected. Your current character stayed in this game.';
+  nativePlayerRender();
 }
 async function nativePlayerForget() {
   NATIVE_PLAYER.profile?.close();

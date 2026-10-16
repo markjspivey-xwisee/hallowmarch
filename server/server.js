@@ -143,6 +143,9 @@ function accountResolve(h) {
   }
   const id = tokenRead(h.token);
   if (id && ACCOUNTS[id]) return { A: ACCOUNTS[id] };
+  // A rejected saved credential must never silently replace an active native
+  // account with a new guest. Reauthentication uses its own HTTP-only verifier.
+  if (typeof h.token === 'string' && h.token) return { err: 'Your sign-in expired. Reconnect your account to continue.', code: 'native_signin_required' };
   return { A: accountNew('Guest', true, null) };
 }
 
@@ -203,6 +206,7 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
     ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'https://march-production-f6d9.up.railway.app'),
   clientName: 'hallowmarch', allowOwnerBrowserHandoff: true, successPath: '/gaming/identity/finish',
   tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
+  reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
   restoreAccount: record => {
     if (!record?.accountId) return null;
     if (!ACCOUNTS[record.accountId]) {
@@ -388,7 +392,7 @@ function evFor(c, o, ev) {
 /* ------------------------------------------------------------------ */
 function onHello(c, h) {
   const r = accountResolve(h);
-  if (r.err) { send(c, { t: 'denied', why: r.err }); return; }
+  if (r.err) { send(c, { t: 'denied', why: r.err, ...(r.code ? { code: r.code } : {}) }); return; }
   const R = roomFor(h.room);
   if (!R) { send(c, { t: 'denied', why: 'The March is full' }); c.ws.close(); return; }
   c.acct = r.A; c.acct.last = Date.now(); accountsSave();

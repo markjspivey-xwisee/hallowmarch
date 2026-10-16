@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
@@ -134,6 +134,29 @@ function saveSoon(delay = 2500) {
   clearTimeout(SAVE.timer);
   SAVE.timer = setTimeout(() => saveNow(), delay);
 }
+// Native saves retain one active publication and the latest unsaved state. A
+// stalled grant cannot queue an unbounded list of complete character copies.
+function nativeSavePending() {
+  if (SAVE.nativeFlight) return SAVE.nativeFlight;
+  if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
+  const flight = SAVE.chain.catch(() => {}).then(async () => {
+    while (SAVE.pending && !SAVE.nativePaused) {
+      const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
+      try {
+        if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
+        await SAVE.ref.set(s);
+        SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
+        if (SAVE.pending === s) SAVE.pending = null;
+      } catch (error) {
+        NATIVE_PLAYER.state = error.code || 'uncertain'; nativePlayerRender();
+        break; // Keep the latest progress; a later explicit retry resumes it.
+      }
+    }
+  });
+  SAVE.nativeFlight = flight; SAVE.chain = flight;
+  void flight.then(() => { if (SAVE.nativeFlight === flight) SAVE.nativeFlight = null; }, () => { if (SAVE.nativeFlight === flight) SAVE.nativeFlight = null; });
+  return flight;
+}
 function saveNow() {
   clearTimeout(SAVE.timer);
   // nothing to keep until a character is in the world (and never overwrite one from the title screen)
@@ -141,10 +164,11 @@ function saveNow() {
   if (CAPTURE.on) return Promise.resolve(); // [capture] nothing is saved while the capture build stages its shots (14_capture.js)
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
-  if (body === SAVE.lastBody) return Promise.resolve();
+  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending)) return Promise.resolve();
   if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
   else SAVE.pending = s;
   s.savedAt = Date.now();
+  if (SAVE.native) return nativeSavePending();
   // one write at a time: queue behind any write still in flight
   SAVE.chain = SAVE.chain.then(async () => {
     if (SAVE.ref) {

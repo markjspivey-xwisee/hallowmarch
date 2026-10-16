@@ -14,6 +14,7 @@ function keys() {
 }
 function fixture() {
   const owners = ['alice', 'bob']; const maps = Object.fromEntries(owners.map(owner => [owner, { agents: new Map(), heads: new Map(), records: new Map() }]));
+  const registryBodies = new Map();
   const calls = []; let n = 0, delayed = null, mode = 'normal', tamper = false, forked = false, badHash = false, forkAfterPublish = false;
   const ownerDid = owner => 'did:web:identity.example:users:' + owner;
   const podUrl = owner => 'https://pod.example/' + owner + '/';
@@ -23,7 +24,13 @@ function fixture() {
     if (name === 'get_pod_status') return { pod: podUrl(owner), userId: owner, identity: { did: ownerDid(owner) }, sessionAgent: { did: 'did:web:identity.example:agents:session-' + owner } };
     if (name === 'get_current_head') return { urn: args.urn, podUrl: podUrl(owner), head: state.heads.get(args.urn) || null, forked, message: 'Native contract fixture head.' };
     if (name === 'register_agent') { state.agents.set(args.agent_id, args.encryption_public_key); return { agent: args.agent_id, scope: args.scope, registered: true }; }
-    if (name === 'get_descriptor' && args.url === podUrl(owner) + 'agents') return { turtle: '@prefix iep: <' + IEP + '> .\n' + [...state.agents].map(([agent, key], i) => `<#agent-${i}> a iep:AuthorizedAgent ; iep:agentIdentity <${agent}> ; iep:encryptionPublicKey "${key}" .`).join('\n') };
+    if (name === 'get_descriptor' && args.url === podUrl(owner) + 'agents') {
+      // Match the actual relay's separate five-minute Turtle body cache. SDK
+      // cache:false alone cannot make this mutable document fresh after writes.
+      if (!args.bypass_cache && registryBodies.has(owner)) return { turtle: registryBodies.get(owner) };
+      const turtle = '@prefix iep: <' + IEP + '> .\n' + [...state.agents].map(([agent, key], i) => `<#agent-${i}> a iep:AuthorizedAgent ; iep:agentIdentity <${agent}> ; iep:encryptionPublicKey "${key}" .`).join('\n');
+      registryBodies.set(owner, turtle); return { turtle };
+    }
     if (name === 'publish_context') {
       const current = state.heads.get(args.graph_iri);
       if (args.if_match && args.if_match !== current?.cid) return { error: 'precondition_failed', code: 412 };
@@ -65,6 +72,7 @@ function fixture() {
       transport: new RelayMcpTransport('https://relay.example', credential, fetch), keyStorage: storage, crypto: webcrypto });
   }
   return { client, maps, calls, setMode: next => { mode = next; }, setTamper: value => { tamper = value; },
+    primeEmptyRegistryBody: owner => registryBodies.set(owner, '@prefix iep: <' + IEP + '> .\n'),
     setForkAfterPublish: value => { forkAfterPublish = value; },
     setForked: value => { forked = value; }, setBadHash: value => { badHash = value; }, release: () => { delayed?.(); delayed = null; } };
 }
@@ -115,6 +123,21 @@ test('a public-key registration conflict preserves the existing recipient and se
   await assert.rejects(alice.registerKey(), { code: 'recipient_conflict' });
   assert.equal(f.calls.filter(call => call.name === 'register_agent').length, before);
   assert.equal(f.maps.alice.agents.get(key.agentId), 'Q'.repeat(43) + '=');
+});
+test('mutable recipient registry readback bypasses the relay body cache before and after registration', async () => {
+  const f = fixture(), alice = f.client('alice'); await alice.connect();
+  f.primeEmptyRegistryBody('alice');
+  const key = await alice.createKey();
+  assert.equal((await alice.keyStatus()).keyRegistered, true);
+  const reads = f.calls.filter(call => call.name === 'get_descriptor' && call.args.url.endsWith('/agents'));
+  assert.equal(reads.length, 2); assert(reads.every(call => call.args.bypass_cache === true));
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, 1);
+  assert.equal(f.maps.alice.agents.get(key.agentId), key.publicKey);
+  await alice.registerKey();
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, 1, 'fresh confirmed registration must not mint or replace another recipient');
+  f.maps.alice.agents.set(key.agentId, 'Q'.repeat(43) + '=');
+  await assert.rejects(alice.registerKey(), { code: 'recipient_conflict' });
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, 1, 'fresh foreign-key conflict is preserved rather than overwritten');
 });
 test('save before native key registration is refused; missing browser keys never mint a replacement on read', async () => {
   const f = fixture(), alice = f.client('alice'); await alice.connect();
@@ -179,4 +202,26 @@ test('named lost acknowledgement confirms the original operation; a concurrent f
   await assert.rejects(alice.confirm(fork.operationId), { code: 'conflict' });
   await assert.rejects(alice.currentHead({ graphIri: fork.graphIri }), { code: 'conflict' });
   assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 2);
+});
+
+test('same-owner reauthentication preserves an uncertain operation and performs no publication or key registration', async () => {
+  const f = fixture(), alice = f.client('alice'); await alice.connect(); await alice.createKey();
+  f.setMode('throw-after'); const pending = await alice.create({ record: { private: 'unconfirmed original' } });
+  const writes = f.calls.filter(call => ['publish_context', 'register_agent'].includes(call.name)).length;
+  await alice.reauthenticate({ credential: { kind: 'relay-oauth-bearer', accessToken: 'alice', method: 'webauthn', expiresAt: Date.now() + 3600000 } });
+  assert.equal(alice.status().pending, 1);
+  assert.equal((await alice.confirm(pending.operationId)).record.private, 'unconfirmed original');
+  assert.equal(f.calls.filter(call => ['publish_context', 'register_agent'].includes(call.name)).length, writes);
+});
+
+test('a foreign refreshed credential cannot claim the owner or destroy pending operations; the correct owner can retry', async () => {
+  const f = fixture(), alice = f.client('alice'); await alice.connect(); await alice.createKey();
+  f.setMode('throw-after'); const pending = await alice.create({ record: { original: true } });
+  const grant = owner => ({ kind: 'relay-oauth-bearer', accessToken: owner, method: 'webauthn', expiresAt: Date.now() + 3600000 });
+  await assert.rejects(alice.reauthenticate({ credential: grant('bob') }), { code: 'owner_mismatch' });
+  assert.equal(alice.status().pending, 1); assert.equal(alice.status().connected, false);
+  await assert.rejects(alice.confirm(pending.operationId), { code: 'not_connected' });
+  await alice.reauthenticate({ credential: grant('alice') });
+  assert.equal((await alice.confirm(pending.operationId)).saved, true);
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
 });

@@ -63,9 +63,9 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
   const schemas = { $schema: DRAFT, $id: uri('schemas'), $defs: Object.fromEntries(Object.entries(rawSchemas)
     .map(([name, value]) => [name, { $anchor: name, ...value }])) };
   const requirements = {
-    account: 'A valid host application Bearer session authenticates the initiating account. A claimed DID, pod URL or account label is never owner proof.',
+    account: 'A host application Bearer session authenticates the initiating account. Only start and claim may accept a host-HMAC-verified native credential expired by at most 24 hours, exclusively to reauthenticate its existing account and native owner. It grants no game, pod, companion or learning authority. A claimed DID, pod URL or account label is never owner proof.',
     origin: 'Mutating requests require the configured HTTPS Host and exact same Origin. No cross-origin bearer or credential CORS surface is advertised.',
-    ceremony: 'The same initiating account/session and Secure HttpOnly SameSite=Lax origin-bound cookie are required. OAuth state is single-use and the provider code uses S256 PKCE.',
+    ceremony: 'The same initiating account/session and Secure HttpOnly SameSite=Lax origin-bound cookie are required. OAuth state is single-use and the provider code uses S256 PKCE. A reconnect must freshly authenticate the exact existing native owner before any binding or application-session change.',
     native: 'Fresh host-signed native proof must match the confirmed native owner ledger. The server derives the owner and account; the caller cannot select either.',
   };
   const operation = (name, method, input, output, auth, description) => ({

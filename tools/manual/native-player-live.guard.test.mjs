@@ -41,7 +41,7 @@ test('known debug/tracing flags are refused before a live browser can start', ()
 test('a browser import failure emits only its fixed stage, never the raw module error', () => {
   const result = invoke({ HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example',
     HM_NATIVE_RELAY_ORIGIN: 'https://relay.example' });
-  assert.equal(result.status, 1); assert.match(result.stderr, /^FAIL: native live QA at load-browser\./);
+  assert.equal(result.status, 1); assert.match(result.stderr, /^FAIL: native live QA at load-browser \[stage_failed\]\./);
   assert.equal(result.stdout, ''); assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
   assert(!result.stderr.includes('this-module-must-never-be-imported'));
 });

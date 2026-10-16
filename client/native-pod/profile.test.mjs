@@ -23,6 +23,7 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
   if (ownerIndex) records.set(INDEX, observed(INDEX, ownerIndex));
   const native = {
     connect: async () => { calls.push({ op: 'connect' }); return { keyPresent }; },
+    reauthenticate: async () => { calls.push({ op: 'reauthenticate' }); return { keyPresent }; },
     currentHead: async ({ graphIri }) => { calls.push({ op: 'currentHead', graphIri });
       if (metadataError) throw Object.assign(Error('Fixture metadata unavailable'), { code: metadataError });
       if (forked) throw Object.assign(Error('Fixture native fork'), { code: 'conflict' });
@@ -96,6 +97,41 @@ test('existing profile is read and validated before a CAS update; bridge receive
   assert.equal(f.calls.filter(call => call.op === 'create').length, 0);
   assert.equal(f.calls.filter(call => call.op === 'save').length, 1);
   assert.equal(f.profile.status().state, 'saved'); assert.equal(f.requests.length, 1);
+});
+
+test('reauthentication confirms pending character and index operations without publishing or losing latest progress', async () => {
+  for (const options of [{ mode: 'uncertain' }, { indexMode: 'uncertain' }]) {
+    const f = fixture(options); await f.profile.connect(); await f.profile.get();
+    await assert.rejects(f.profile.set({ v: 1, n: 2 }));
+    const writes = f.calls.filter(c => ['create', 'createAt', 'save', 'registerKey'].includes(c.op)).length;
+    await f.profile.reauthenticate({ credential: { fixture: 'new-owner-grant' } });
+    assert.equal(f.profile.status().pending, false);
+    assert.equal(f.calls.filter(c => ['create', 'createAt', 'save', 'registerKey'].includes(c.op)).length, writes);
+    await f.profile.set({ v: 1, n: 3 });
+    assert.equal((await f.profile.get()).data().n, 3);
+    assert.equal(f.calls.filter(c => c.op === 'create').length, 1);
+  }
+});
+
+test('reauthentication refuses another device head without adopting it as the next save baseline', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.get(); await f.profile.set({ v: 1, n: 1 });
+  const graph = f.profile.status().profileGraphIri, first = f.records.get(graph);
+  f.records.set(graph, { ...first, head: { ...first.head, cid: 'foreign-new-head' }, record: profileRecord({ v: 1, n: 99 }) });
+  const writes = f.calls.filter(c => ['create', 'createAt', 'save'].includes(c.op)).length;
+  await assert.rejects(f.profile.reauthenticate({ credential: {} }), { code: 'conflict' });
+  assert.equal(f.calls.filter(c => ['create', 'createAt', 'save'].includes(c.op)).length, writes);
+  assert.equal(f.records.get(graph).record.save.n, 99);
+});
+
+test('reauthentication refuses a changed owner index or an unread initial character without publishing', async () => {
+  const unread = fixture(); await unread.profile.connect();
+  await assert.rejects(unread.profile.reauthenticate({ credential: {} }), { code: 'unread_record' });
+  const f = fixture(); await f.profile.connect(); await f.profile.get(); await f.profile.set({ v: 1, n: 1 });
+  const original = f.records.get(INDEX);
+  f.records.set(INDEX, { ...original, head: { ...original.head, cid: 'foreign-index-head' } });
+  const writes = f.calls.filter(c => ['create', 'createAt', 'save'].includes(c.op)).length;
+  await assert.rejects(f.profile.reauthenticate({ credential: {} }), { code: 'profile_index_conflict' });
+  assert.equal(f.calls.filter(c => ['create', 'createAt', 'save'].includes(c.op)).length, writes);
 });
 
 test('wrong owner, schema, game and save shape are refused without native publication', async () => {

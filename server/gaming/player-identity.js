@@ -125,6 +125,7 @@ function parseMcp(raw) {
 /**
  * Required ports:
  *   authorizeGameAccount(req, body) -> { accountId, sessionId,
+ *     expectedSubjectDid?: previously verified owner to require on reconnect,
  *     ownerPodWriteAccess?: true } or null. Prove the existing game session;
  *     never derive these fields from unverified account/identity labels.
  *   onVerified(binding, accountId, context) -> Promise<void | { appSession }>.
@@ -234,7 +235,10 @@ export function createPlayerIdentityBridge(options = {}) {
     try { value = await options.authorizeGameAccount(req, body); } catch { fail('game_account_required', 401); }
     if (!value || typeof value.accountId !== 'string' || !value.accountId || value.accountId.length > 256
       || typeof value.sessionId !== 'string' || !value.sessionId || value.sessionId.length > 4096) fail('game_account_required', 401);
+    if (value.expectedSubjectDid !== undefined && (typeof value.expectedSubjectDid !== 'string'
+      || !/^did:[a-z0-9]+:[^\s<>"'\\]{1,1000}$/.test(value.expectedSubjectDid))) fail('game_account_required', 401);
     return { accountId: value.accountId, sessionHash: hash(value.sessionId),
+      ...(value.expectedSubjectDid ? { expectedSubjectDid: value.expectedSubjectDid } : {}),
       write: options.allowOwnerBrowserHandoff === true && value.ownerPodWriteAccess === true };
   }
   function verifyOwner(status, provider) {
@@ -309,6 +313,9 @@ export function createPlayerIdentityBridge(options = {}) {
         'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_pod_status', arguments: {} } }) }));
       const binding = verifyOwner(status, provider);
+      // Supplied only by the host's authenticated ceremony port, never a body
+      // label. Refuse a foreign OAuth owner before any host binding/session work.
+      if (record.expectedSubjectDid && binding.subjectDid !== record.expectedSubjectDid) fail('native_owner_mismatch', 403);
       if (closed) fail('identity_bridge_closed', 503);
       let nativeSession;
       if (record.write) nativeSession = { accessToken: token.access_token, tokenType: 'Bearer', scope: scopes.join(' '),

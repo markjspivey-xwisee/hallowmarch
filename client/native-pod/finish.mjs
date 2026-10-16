@@ -14,7 +14,17 @@ try {
   if (!result.binding?.subjectDid || !result.appSession?.token || !result.nativeSession?.accessToken
     || typeof result.appSession.acct?.id !== 'string' || !result.appSession.acct.id
     || result.appSession.acct.id.length > 256) throw new Error('The owner pod grant is incomplete. Return to the game and connect again.');
-  const relayUrl = new URL(result.nativeSession.mcpUrl).origin;
+  if ((ceremony.expectedAccountId !== undefined || ceremony.expectedOwnerDid !== undefined || ceremony.expectedPodUrl !== undefined)
+    && (typeof ceremony.expectedAccountId !== 'string' || typeof ceremony.expectedOwnerDid !== 'string' || typeof ceremony.expectedPodUrl !== 'string'
+      || result.appSession.acct.id !== ceremony.expectedAccountId || result.binding.subjectDid !== ceremony.expectedOwnerDid
+      || result.binding.podUrl !== ceremony.expectedPodUrl)) {
+    throw new Error('This game is playing another identity’s character. Reconnect its original identity; your current progress has not been moved.');
+  }
+  const mcp = new URL(result.nativeSession.mcpUrl);
+  if (mcp.protocol !== 'https:' || mcp.username || mcp.password || mcp.search || mcp.hash || mcp.href !== mcp.origin + '/mcp') {
+    throw new Error('This identity relay needs a compatible browser credential bridge.');
+  }
+  const relayUrl = mcp.origin;
   // The reviewed relay credential contract binds these provisioned namespaces
   // to its two authentication methods. Unknown providers need their own bridge.
   const method = result.binding.userId?.startsWith('u-pk-') ? 'webauthn'
@@ -28,7 +38,8 @@ try {
   // Game account token is opaque app authentication, never an Interego bearer.
   localStorage.setItem('hallowmarch.token.' + ceremony.host, result.appSession.token);
   const channel = new BroadcastChannel(ceremony.channel);
-  channel.postMessage({ type: 'hallowmarch-native-connected', accountId: result.appSession.acct.id });
+  channel.postMessage({ type: 'hallowmarch-native-connected', accountId: result.appSession.acct.id,
+    ownerDid: result.binding.subjectDid, podUrl: result.binding.podUrl });
   setTimeout(() => channel.close(), 1000);
   status.textContent = 'Connected. Your game can now open your private pod.';
   button.hidden = false; button.onclick = () => { window.close(); location.replace('/'); };
