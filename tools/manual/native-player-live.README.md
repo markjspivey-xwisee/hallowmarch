@@ -99,6 +99,15 @@ The complete-suite PASS is emitted only after every proof check passes. EOF
 or process termination also closes the retained session. The existing browser
 keys/access cache remain available in the retained context until it closes.
 After a resumed suite passes, the retained command loop stays open until `finish`.
+Boot diagnostics include fixed substeps and an inventory of every observed page,
+including closed pages and game/relay/blank/other origin classes, with counts.
+They never print page URLs. Browser status evaluation has a two-second bound;
+one stalled evaluation per page is retained so repeated commands cannot queue
+more renderer work. Known native phase names, error codes and bounded tool
+history remain visible through strict allowlists. Cleanup evaluation is also
+bounded and cannot prevent the subsequent context-close attempt. Final context
+and browser close attempts are bounded too, so a stuck context cannot prevent
+the browser-close backstop.
 
 ## What it does
 
@@ -117,7 +126,13 @@ After a resumed suite passes, the retained command loop stays open until `finish
   canonical RDF digest, decrypts locally, and compares the exact character body.
   It reloads the actual game and checks `SAVE.loaded` against that same body and
   both native heads/digests, using the unexpired encrypted access-session cache.
-- Opens a fresh isolated browser context with empty storage. In-memory CDP
+- After the same-browser reload and exact native-head equality, records a
+  successful privacy check and closes that entire first context. Only then
+  opens a fresh isolated browser context with empty storage, keeping one full
+  SwiftShader game context active at a time. Failed boots retain their page
+  before navigation and reuse it on retry. The final privacy invariant uses
+  the first context's recorded proof and a live check of the fresh context.
+  In-memory CDP
   transfer of **this test's own virtual passkey only** simulates passkey sync so
   it can authenticate the same owner; it does not register a second identity.
   Native encryption keys are not copied. The runner deliberately omits the
@@ -182,6 +197,7 @@ Offline guard verification (does not contact live hosts):
 ```sh
 node --check tools/manual/native-player-live.mjs
 node --test tools/manual/native-player-live.guard.test.mjs
+node --test tools/manual/native-player-orchestration.test.mjs
 node --test tools/manual/native-browser-network.test.mjs
 node --test tools/manual/native-live-stages.test.mjs tools/manual/native-owner-qa-session.test.mjs
 HM_PLAYWRIGHT_MODULE=/ABSOLUTE/playwright/index.mjs node --test tools/manual/native-owner-qa-session.browser.test.mjs

@@ -4,6 +4,7 @@
   "review": "https://github.com/markjspivey-xwisee/interego/pull/626",
   "packages": {
     "@interego/core": "0.2.0",
+    "@interego/solid": "0.2.0",
     "@interego/pgsl": "0.2.0"
   },
   "packageLockGitBlob": "e5c160b5dead36e25ce93617642e80327beca577",

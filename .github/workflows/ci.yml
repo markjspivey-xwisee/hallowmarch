@@ -34,6 +34,13 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Build and lint
         run: bash tools/lint.sh 80
+      - name: Build pinned native SDK proof dependencies
+        if: ${{ matrix.check == 'networking' }}
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
+        run: |
+          node tools/setup-native-sdk.mjs
+          echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
       - name: Verify authored resource projections
         run: |
           npm --prefix tools run resources:check

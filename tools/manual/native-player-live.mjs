@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
+import { retainedGameBoot, verifiedContextHandoff, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -44,9 +45,9 @@ const expectedSave = {
 };
 const observations = { requests: [], console: [], gameAuthorization: [], startAuthorization: [], claimAuthorization: [],
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
-let browser, stage = 'load-browser', plan;
+let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
-const contexts = [];
+const contexts = [], retainedPages = [];
 let syntheticPasskey = null, encryptedRecovery = null;
 const ensure = (condition, code) => { if (!condition) throw Object.assign(new Error('A native QA condition failed.'), { code }); };
 function passed(label) { console.log('PASS: ' + label); }
@@ -73,6 +74,7 @@ async function context() {
   const value = await browser.newContext({ viewport: { width: 1024, height: 768 }, acceptDownloads: false });
   contexts.push(value);
   value.on('page', page => {
+    retainedPages.push({ page, contextIndex: contexts.indexOf(value) + 1 });
     // Capture only in memory. Never print raw page errors, responses or URLs.
     page.on('console', message => observations.console.push(message.text()));
     page.on('pageerror', error => observations.console.push(error.message));
@@ -95,14 +97,12 @@ async function context() {
   });
   return value;
 }
-async function openGame(value) {
-  const page = await value.newPage();
-  await page.goto(gameOrigin + '/?safe=1&shard=' + room, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => window.__hm?.ready && window.__hm.net?.NETWS?.state === 'on'
-    && !!window.__hm.net.NETWS.token, undefined, { timeout: 180_000 });
-  await page.locator('#title .native-player button').first().waitFor({ timeout: 30_000 });
-  return page;
-}
+const firstBoot = retainedGameBoot({ createContext: context, url: gameOrigin + '/?safe=1&shard=' + room,
+  onContext: value => { firstContext = value; }, onPage: page => { first = page; },
+  onStep: value => { boot = 'initial'; bootStep = value; } });
+const freshBoot = retainedGameBoot({ createContext: context, url: gameOrigin + '/?safe=1&shard=' + room,
+  onContext: value => { freshContext = value; }, onPage: page => { fresh = page; },
+  onStep: value => { boot = 'fresh'; bootStep = value; } });
 async function oauth(page, { register, userId } = {}) {
   if (register && registrationAttempted) throw Object.assign(new Error('Registration is never replayed.'), { code: 'qa_registration_retry_refused' });
   const startResponse = watched(page.waitForResponse(response => new URL(response.url()).origin === gameOrigin
@@ -197,6 +197,45 @@ async function privacy(page) {
   }, { relayOrigin, observed: { requests: observations.requests, console: observations.console, gameAuthorization: observations.gameAuthorization } });
 }
 
+const firstHandoff = verifiedContextHandoff({
+  async verify() {
+    await first.reload({ waitUntil: 'domcontentloaded' });
+    await first.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
+      && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 });
+    ensure(await first.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'game-reload-body');
+    const reloadedHead = await verifiedRead(first, expectedSave);
+    ensure(JSON.stringify(reloadedHead) === JSON.stringify(initialHead), 'reload-head-digest');
+  },
+  privacy: () => privacy(first),
+  close: () => firstContext.close(),
+});
+const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evaluate(async diagnose => {
+  const h = window.__hm, n = h?.net?.NETWS;
+  return { ready: !!h?.ready, native: !!h?.SAVE?.native,
+    netOn: n?.state === 'on', nativeBound: !!n?.acct?.nativeBound,
+    hasAccessSession: !!localStorage.getItem('hallowmarch.token.' + location.host),
+    nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
+}, diagnose) });
+const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async () => {
+  await window.__hmNativeQaSession?.close();
+  window.__hmNativeQaRecovery?.profile.close();
+  await window.__hmNativeQaRecovery?.cache.close();
+  const { createBrowserAccessCache } = await import('/gaming/identity/assets/access-cache.mjs');
+  const cache = createBrowserAccessCache(); await cache.forgetAll(); await cache.close();
+}) });
+// The same bounded, rejection-sanitizing wrapper also protects final close
+// attempts; a stuck context must not prevent the browser-close backstop.
+const closeBrowserResource = boundedPageStatus({ evaluate: value => value.close() });
+async function reportRetainedStatus(diagnose) {
+  console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep }));
+  const inventory = qaPageInventory(retainedPages, { gameOrigin, relayOrigin });
+  console.log(JSON.stringify(inventory));
+  for (const entry of inventory.pages) if (!entry.closed && entry.originClass === 'game') {
+    console.log(JSON.stringify({ kind: 'retained_browser_status', pageIndex: entry.pageIndex,
+      ...await inspectPage(retainedPages[entry.pageIndex - 1].page, diagnose) }));
+  }
+}
+
 try {
   const module = process.env.HM_PLAYWRIGHT_MODULE
     ? pathToFileURL(process.env.HM_PLAYWRIGHT_MODULE).href : new URL('../node_modules/playwright/index.mjs', import.meta.url).href;
@@ -210,7 +249,7 @@ try {
   console.log('QA owner display name: ' + displayName);
   plan = nativeLiveStages([
     { name: 'initial-game-boot', async run() {
-      firstContext = await context(); first = await openGame(firstContext);
+      await firstBoot.open();
     } },
     { name: 'single-owner-passkey-oauth', async run() {
       owner = await oauth(first, { register: true });
@@ -233,16 +272,14 @@ try {
       passed('browser-sealed character and owner index; native heads/digests and exact private body');
     } },
     { name: 'same-browser-reload', async run() {
-      await first.reload({ waitUntil: 'domcontentloaded' });
-      await first.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
-        && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 });
-      ensure(await first.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'game-reload-body');
-      const reloadedHead = await verifiedRead(first, expectedSave);
-      ensure(JSON.stringify(reloadedHead) === JSON.stringify(initialHead), 'reload-head-digest');
-      passed('same browser reload resumes unexpired encrypted access and opens the exact native character');
+      await firstHandoff.run();
+      passed('same browser reload opens the exact native character; privacy verified and first game context closed');
     } },
     { name: 'fresh-browser-same-owner-oauth', async run() {
-      if (!fresh) { freshContext = await context(); fresh = await openGame(freshContext); }
+      firstHandoff.requireClosed();
+      // A failed boot retains its page before navigation. Its retry cannot
+      // create another SwiftShader game context or replay owner registration.
+      if (boot !== 'fresh' || bootStep !== 'complete') await freshBoot.open();
       const sameOwner = await oauth(fresh, { register: false, userId: owner.userId });
       ensure(sameOwner.subjectDid === owner.subjectDid && sameOwner.podUrl === owner.podUrl
         && sameOwner.accountId === owner.accountId && observations.registerCount === 1, 'same-owner');
@@ -328,7 +365,8 @@ try {
         && !observations.bridgeBodyLeak && observations.startAuthorization.length === 2
         && observations.claimAuthorization.length === 2
         && observations.startAuthorization.every((value, index) => value && value === observations.claimAuthorization[index])
-        && await privacy(first) && await privacy(fresh), 'privacy-invariants');
+        && firstHandoff.status().privacyVerified && firstHandoff.status().closed
+        && await privacy(fresh), 'privacy-invariants');
       passed('one registration; no refresh use, native bearer URL/localStorage/log/game-bridge leakage, or private game-bridge body');
     } }
   ], name => { stage = name; });
@@ -337,6 +375,8 @@ try {
 } catch (cause) {
   // Playwright errors can contain request URLs or payloads. Print our own stage only.
   console.error('FAIL: native live QA at ' + stage + ' [' + nativeFailureCode(cause) + ']. Raw browser/error details were intentionally not emitted.');
+  if (bootStep && bootStep !== 'complete') console.log(JSON.stringify({
+    ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (syntheticPasskey && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
     console.log('QA session retained in RAM. Commands: status, diagnose (read-only), retry (failed stage), continue (remaining stages), finish. Registration is never replayed.');
@@ -345,19 +385,7 @@ try {
       const action = command.trim();
       if (action === 'finish') { commands.close(); break; }
       if (action === 'status' || action === 'diagnose') {
-        console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status() }));
-        for (const value of contexts) for (const page of value.pages()) {
-          try {
-            if (page.isClosed() || new URL(page.url()).origin !== gameOrigin) continue;
-            console.log(JSON.stringify(await page.evaluate(async diagnose => {
-              const h = window.__hm, n = h?.net?.NETWS;
-              return { kind: 'retained_browser_status', ready: !!h?.ready, native: !!h?.SAVE?.native,
-                netOn: n?.state === 'on', nativeBound: !!n?.acct?.nativeBound,
-                hasAccessSession: !!localStorage.getItem('hallowmarch.token.' + location.host),
-                nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
-            }, action === 'diagnose')));
-          } catch { console.log('Retained browser status unavailable.'); }
-        }
+        await reportRetainedStatus(action === 'diagnose');
       } else if (action === 'retry' || action === 'continue') {
         if (!plan) { console.log('No retained QA plan is available.'); continue; }
         try {
@@ -373,15 +401,10 @@ try {
   for (const value of contexts) {
     try {
       for (const page of value.pages()) if (!page.isClosed() && new URL(page.url()).origin === gameOrigin) {
-        await page.evaluate(async () => {
-          await window.__hmNativeQaSession?.close();
-          window.__hmNativeQaRecovery?.profile.close();
-          await window.__hmNativeQaRecovery?.cache.close();
-          const { createBrowserAccessCache } = await import('/gaming/identity/assets/access-cache.mjs');
-          const cache = createBrowserAccessCache(); await cache.forgetAll(); await cache.close(); }).catch(() => {});
+        await cleanupPage(page);
       }
-      await value.close();
-    } catch { /* Ephemeral browser process is also closed below. */ }
+    } catch { /* A stalled page must not prevent context/process closure. */ }
+    finally { await closeBrowserResource(value); }
   }
-  if (browser) await browser.close().catch(() => {});
+  if (browser) await closeBrowserResource(browser);
 }
