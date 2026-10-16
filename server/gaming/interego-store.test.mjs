@@ -266,6 +266,100 @@ test('scope contention can retry an unrelated stream without overwriting the win
   assert.equal((await f.store().load('two')).state.hp, 2);
 });
 
+test('same-store unrelated stream commits enter native CAS in FIFO order without avoidable scope conflicts', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const firstEntered = new Promise(resolve => { entered = resolve; });
+  let puts = 0;
+  const store = f.store({ transport: async (url, init) => {
+    if (init.method === 'PUT' && ++puts === 1) { entered(); await gate; }
+    return fetch(url, init);
+  } });
+  const first = store.commit('world', { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'world' });
+  first.catch(() => {}); await firstEntered;
+  const second = store.commit('player-bindings', { expectedVersion: 0, state: { bindings: [] }, idempotencyKey: 'bindings' });
+  second.catch(() => {});
+  try {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(puts, 1, 'another local stream must wait for the original native head transaction');
+  } finally { release(); await Promise.allSettled([first, second]); }
+  assert.equal((await first).version, 1); assert.equal((await second).version, 1);
+  assert.equal(f.counts.put, 2, 'local admission avoids a redundant native CAS attempt');
+});
+
+test('a timed-out native PUT keeps normal abort-honoring fetch alive and retains its permit until the response settles', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const firstEntered = new Promise(resolve => { entered = resolve; });
+  let puts = 0;
+  const store = f.store({ timeoutMs: 100, transport: async (url, init) => {
+    if (init.method === 'PUT' && ++puts === 1) {
+      entered(); await gate;
+      assert.equal(init.signal, undefined, 'a caller deadline must not abort a launched native CAS');
+      return fetch(url, init);
+    }
+    return fetch(url, init);
+  } });
+  const input = { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'late-world' };
+  const first = store.commit('world', input); first.catch(() => {});
+  await Promise.race([firstEntered, first.then(() => assert.fail('the blocked write cannot already be confirmed'))]);
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  const next = store.commit('bindings', { expectedVersion: 0, state: { bindings: [] }, idempotencyKey: 'after-late-world' });
+  next.catch(() => {});
+  try {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(puts, 1, 'an expired response is not proof that its actual native write ended');
+  } finally { release(); await Promise.allSettled([next]); }
+  assert.equal((await next).version, 1);
+  const replayed = await store.commit('world', input);
+  assert.equal(replayed.version, 1); assert.equal(replayed.replayed, true);
+  assert.equal(f.counts.put, 2, 'the uncertain original operation is recovered without a duplicate native write');
+});
+
+test('a dispatched PUT connection failure without confirmed native readback fences queued and later commits', async t => {
+  const f = await fixture(t); let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; }); let puts = 0;
+  const store = f.store({ transport: async (url, init) => {
+    if (init.method !== 'PUT' || ++puts !== 1) return fetch(url, init);
+    entered(); await gate;
+    // An actual network rejection cannot establish whether the remote accepted
+    // the request. This explicit transport fault leaves no confirmed receipt.
+    throw new Error('connection lost after dispatch with private transport details');
+  } });
+  const input = { expectedVersion: 0, state: { season: 1 }, idempotencyKey: 'unknown-world' };
+  const first = store.commit('world', input); first.catch(() => {}); await started;
+  const queued = store.commit('bindings', { expectedVersion: 0, state: {}, idempotencyKey: 'queued' }); queued.catch(() => {});
+  release();
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  await assert.rejects(queued, { code: 'NATIVE_COMMIT_FENCED' });
+  assert.deepEqual(store.commitAdmissionStatus(), { active: true, queued: 0, capacity: 64, settlementFailed: true });
+  await assert.rejects(store.commit('later', { expectedVersion: 0, state: {}, idempotencyKey: 'later' }), { code: 'NATIVE_COMMIT_FENCED' });
+  await assert.rejects(store.ready(), { code: 'NATIVE_COMMIT_FENCED' });
+  assert.equal(puts, 1, 'unknowable dispatched failure cannot release another write in this adapter');
+  const fresh = f.store();
+  assert.equal((await fresh.commit('world', input)).version, 1, 'fresh recovery reuses the exact operation key');
+  assert.equal(f.counts.put, 1);
+});
+
+test('a credential deadline before PUT dispatch releases admission and cannot launch a delayed write', async t => {
+  const f = await fixture(t); let release, entered, firstPut = true;
+  const credentials = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const store = f.store({ timeoutMs: 300, credentialsProvider: async ({ method }) => {
+    if (method === 'PUT' && firstPut) { firstPut = false; entered(); return credentials; }
+    return { Authorization: 'Bearer local-fixture-only' };
+  } });
+  const input = { expectedVersion: 0, state: {}, idempotencyKey: 'credential-deadline' };
+  const first = store.commit('world', input); first.catch(() => {});
+  await Promise.race([started, first.then(() => assert.fail('the missing credentials cannot confirm a write'))]);
+  await assert.rejects(first, error => ['COMMIT_UNCERTAIN', 'DURABILITY_UNAVAILABLE'].includes(error.code));
+  assert.equal((await store.commit('after', { expectedVersion: 0, state: {}, idempotencyKey: 'after' })).version, 1);
+  release({ Authorization: 'Bearer local-fixture-only' }); await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(f.counts.put, 1); assert.equal((await store.load('world')).version, 0);
+  assert.equal((await store.commit('world', input)).version, 1, 'the refused original operation can reuse its exact idempotency key');
+});
+
 test('replayed operation survives later commits; changing its content is rejected', async t => {
   const f = await fixture(t), store = f.store();
   const command = { expectedVersion: 0, state: { loot: ['stone'] }, event: { type: 'loot' }, idempotencyKey: 'loot-1' };
@@ -286,8 +380,11 @@ test('lost commit acknowledgement recovers by durable idempotency record', async
     if (init.method === 'PUT' && response.ok && lose) { lose = false; await response.arrayBuffer(); throw new Error('lost response'); }
     return response;
   };
-  const result = await f.store({ transport }).commit('room', { expectedVersion: 0, state: { loot: 1 }, idempotencyKey: 'unique-loot' });
+  const store = f.store({ transport });
+  const result = await store.commit('room', { expectedVersion: 0, state: { loot: 1 }, idempotencyKey: 'unique-loot' });
   assert.equal(result.version, 1); assert.equal(result.replayed, true); assert.equal(f.counts.put, 1);
+  assert.equal((await store.commit('other', { expectedVersion: 0, state: {}, idempotencyKey: 'after-proven-recovery' })).version, 1,
+    'exact verified operation readback resolves a lost response before admitting a later write');
 });
 
 test('unconfirmed storage failure never acknowledges or creates volatile state', async t => {

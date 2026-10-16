@@ -393,6 +393,7 @@ test('a host binding write that never settles times out, aborts its context, and
     onVerified: async (_binding, _accountId, value) => { context = value; await new Promise(() => {}); } });
   const flow = await f.start(); const response = await f.callback(flow);
   assert.equal(response.status, 504); assert(context.signal instanceof AbortSignal); assert.equal(context.signal.aborted, true);
+  assert.deepEqual(f.bridge.status().callbackFailures, { identity_service_timeout: 0, identity_binding_timeout: 1, identity_binding_rejected: 0 });
   assertNoTokens(await response.text()); assert.equal(f.bridge.status().readyHandoffs, 0);
   assert((await f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie })).status >= 400);
 });
@@ -404,6 +405,7 @@ test('a native transport ignoring abort still times out and releases active cere
   assert.equal((await f.start()).response.status, 429);
   const response = await active;
   assert.equal(response.status, 504); assert.equal(tokenRequests(f)[0].signal.aborted, true);
+  assert.deepEqual(f.bridge.status().callbackFailures, { identity_service_timeout: 1, identity_binding_timeout: 0, identity_binding_rejected: 0 });
   assertNoTokens(await response.text()); assert.equal(f.verified.length, 0); assert.equal(f.bridge.status().readyHandoffs, 0);
   // The first injected transport is still blocked: the HTTP timeout, rather
   // than cooperation from that transport, must release ceremony capacity.
