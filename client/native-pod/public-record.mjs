@@ -87,9 +87,12 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
     const root = url(value.podUrl, { root: true });
     if (!roots.some(candidate => candidate.href === root.href) || value.urn !== graphIri) fail('owner_mismatch');
     if (value.forked === true || (Array.isArray(value.heads) && value.heads.length > 1)) fail('conflict');
-    // The actual native absent-head reply omits `forked`. Absence is the
-    // explicit null head, never a missing field or a contradictory head list.
-    if (Object.hasOwn(value, 'head') && value.head === null
+    // The handler returns head:null, but native MCP toStructuredContent removes
+    // null-valued keys. Accept that projection ONLY with the handler's exact
+    // no-descriptor finding, after owner/URN validation and without any fork.
+    const absent = value.head === null || (!Object.hasOwn(value, 'head')
+      && value.message === 'No descriptor on this pod describes the requested urn.');
+    if (absent
       && [undefined, false].includes(value.forked) && (value.heads === undefined || Array.isArray(value.heads) && value.heads.length === 0)) return null;
     if (value.forked !== false) fail('conflict');
     if (!plain(value.head) || typeof value.head.cid !== 'string' || !value.head.cid) fail('native_contract');

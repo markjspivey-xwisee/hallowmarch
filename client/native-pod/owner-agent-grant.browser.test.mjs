@@ -7,9 +7,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { publicRecordFixture, binding } from './public-record.fixture.mjs';
 if (!process.env.HM_PLAYWRIGHT_MODULE) throw Error('Set HM_PLAYWRIGHT_MODULE to installed Playwright.');
 const { chromium } = await import(pathToFileURL(process.env.HM_PLAYWRIGHT_MODULE));
+const sdk = process.env.INTEREGO_SDK_TEST_ROOT ? await import(pathToFileURL(path.resolve(process.env.INTEREGO_SDK_TEST_ROOT, 'packages/core/dist/index.js'))) : null;
 // Match native OAuth/get_current_head asymmetry: status.pod is identity's
 // canonical URL, while named-head and publish use the relay's authenticated CSS.
-const root = path.dirname(fileURLToPath(import.meta.url)), fixture = publicRecordFixture({ css: 'http://css.railway.internal:3456/' }), requests = [];
+const root = path.dirname(fileURLToPath(import.meta.url)), fixture = publicRecordFixture({ css: 'http://css.railway.internal:3456/',
+  ...(sdk ? { projectMcpResult: sdk.toStructuredContent } : {}) }), requests = [];
 const input = { publicDisclosureAccepted: true, actor: 'did:web:identity.example:agents:companion', roomId: 'expedition', entityId: 'body-pet-alice',
   role: 'pet', actions: ['observe', 'move', 'attack'], maxCommandsPerSecond: 10, lifetimeMs: 600_000 };
 const server = http.createServer(async (req, res) => {

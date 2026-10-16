@@ -8,7 +8,7 @@ export const ownerDid = 'did:web:identity.example:users:alice', webId = 'https:/
 export const pod = 'https://pod.example/alice/', agentDid = 'did:web:identity.example:agents:browser-alice';
 export const binding = { subjectDid: ownerDid, webId, podUrl: pod };
 const names = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context'];
-export function publicRecordFixture({ css } = {}) {
+export function publicRecordFixture({ css, projectMcpResult = value => value } = {}) {
   const heads = new Map(), records = new Map(), calls = [], publicCalls = [];
   const storagePod = css ? css + 'alice/' : pod;
   let count = 0, mode = 'normal', delayed = null, mutate = value => value, forked = false, afterRead = () => {};
@@ -36,8 +36,9 @@ export function publicRecordFixture({ css } = {}) {
     if (name === 'get_current_head') {
       const selected = heads.get(args.urn) || null;
       if (!selected && mode === 'empty-head-no-forked') return { urn: args.urn, podUrl: pod, head: null, message: 'No descriptor on this pod describes the requested urn.' };
-      if (!selected && mode === 'missing-head') return { urn: args.urn, podUrl: pod, message: 'No descriptor on this pod describes the requested urn.' };
+      if (!selected && mode === 'missing-head') return { urn: args.urn, podUrl: pod, message: 'Native head reply is unreadable.' };
       if (!selected && mode === 'contradictory-head') return { urn: args.urn, podUrl: pod, head: null, heads: [{ descriptorUrl: pod + 'context-graphs/elsewhere.ttl', cid: 'elsewhere' }] };
+      if (!selected) return { urn: args.urn, podUrl: storagePod, head: null, message: 'No descriptor on this pod describes the requested urn.' };
       return { urn: args.urn, podUrl: storagePod, head: selected, forked };
     }
     if (name === 'get_descriptor') {
@@ -60,8 +61,12 @@ export function publicRecordFixture({ css } = {}) {
   }
   const mcpFetch = async (_url, init) => {
     const request = JSON.parse(init.body);
-    const result = request.method === 'tools/list' ? { tools: names.map(name => ({ name })) }
-      : { structuredContent: await dispatch(request.params.name, request.params.arguments || {}) };
+    let result;
+    if (request.method === 'tools/list') result = { tools: names.map(name => ({ name })) };
+    else {
+      const payload = await dispatch(request.params.name, request.params.arguments || {});
+      result = { structuredContent: projectMcpResult(payload), content: [{ type: 'text', text: JSON.stringify(payload) }] };
+    }
     const body = JSON.stringify({ jsonrpc: '2.0', id: request.id, result });
     return new Response(calls.length % 2 ? 'event: message\ndata: ' + body + '\n\n' : body,
       { headers: { 'Content-Type': calls.length % 2 ? 'text/event-stream' : 'application/json' } });

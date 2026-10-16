@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createNativePublicRecordClient } from './public-record.mjs';
 import { computeCid } from './vendor/interego-public-browser.mjs';
 import { publicRecordFixture, webId, ownerDid } from './public-record.fixture.mjs';
 const input = { graphIri: 'urn:graph:public:test', graphContent: '<urn:graph:public:test> <urn:relation> "public relationship" .\n', publicData: true };
+const sdk = process.env.INTEREGO_SDK_TEST_ROOT ? await import(pathToFileURL(resolve(process.env.INTEREGO_SDK_TEST_ROOT, 'packages/core/dist/index.js'))) : null;
 
 test('public SDK bundle provenance pins unchanged Solid declaration closure and real CID primitive', async () => {
   const manifest = JSON.parse(await readFile(new URL('./vendor/interego-public-browser.manifest.json', import.meta.url)));
@@ -44,13 +47,38 @@ test('pending and lost acknowledgement require native confirmation with same ope
   assert.equal((await client.confirm(uncertain.operationId)).saved, true);
   assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 2);
 });
-test('actual native null-head absence without forked permits initial publication; missing or contradictory heads never imply absence', async () => {
+test('native null-head absence permits creation; arbitrary missing or contradictory heads do not', async () => {
   const f = publicRecordFixture(), client = f.client(); await client.connect(); f.setMode('empty-head-no-forked');
   assert.equal(await client.currentHead(input), null); assert.equal((await client.create(input)).saved, true);
   for (const mode of ['missing-head', 'contradictory-head']) {
     const broken = publicRecordFixture(), reader = broken.client(); await reader.connect(); broken.setMode(mode);
     await assert.rejects(reader.currentHead(input)); await assert.rejects(reader.create(input));
     assert.equal(broken.calls.filter(call => call.name === 'publish_context').length, 0);
+  }
+});
+test('actual native MCP structured-content projection may omit the explicit null head', { skip: !sdk }, async () => {
+  const nativeAbsence = { urn: input.graphIri, podUrl: 'https://pod.example/alice/', head: null,
+    message: 'No descriptor on this pod describes the requested urn.' };
+  assert.equal(Object.hasOwn(sdk.toStructuredContent(nativeAbsence), 'head'), false);
+  const f = publicRecordFixture({ projectMcpResult: sdk.toStructuredContent }), client = f.client(); await client.connect();
+  assert.equal(await client.currentHead(input), null);
+  const created = await client.create(input); assert.equal(created.saved, true);
+  assert.equal((await client.load(input)).head.cid, created.head.cid);
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
+});
+test('projected absence refuses missing or contradictory native evidence before any publication', { skip: !sdk }, async () => {
+  for (const mutation of [
+    value => { delete value.message; },
+    value => { value.message = 'Native head reply is unreadable.'; },
+    value => { value.message = 'All descriptors describing this urn are superseded; no current head.'; value.forked = false; },
+    value => { value.forked = true; },
+    value => { value.heads = [{ descriptorUrl: 'https://pod.example/alice/context-graphs/other.ttl', cid: 'other-head' }]; },
+  ]) {
+    const f = publicRecordFixture({ projectMcpResult(raw) {
+      const projected = sdk.toStructuredContent(raw); if (raw.urn === input.graphIri) mutation(projected); return projected;
+    } }), client = f.client(); await client.connect();
+    await assert.rejects(client.currentHead(input)); await assert.rejects(client.create(input));
+    assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 0);
   }
 });
 test('native owner status authenticates the relay CSS alias when OAuth pod and named-head roots differ', async () => {

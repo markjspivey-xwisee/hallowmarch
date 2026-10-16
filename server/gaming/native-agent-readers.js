@@ -153,19 +153,26 @@ export function createNativeAgentProofReaders(options = {}) {
     && typeof proof.verificationMethod === 'string' && same(proof.verificationMethod, signerDid) && await verification(message, proof);
   function inWindow(from, until) { const time = now(); if (iso(from) > time || (until !== undefined && iso(until) <= time)) fail('native_delegation_expired'); }
   async function delegation(agentDid, sourceOwner, signal) {
-    const expected = normalize(sourceOwner.podUrl), result = await invoke('verify_agent', { agent_id: agentDid, pod_url: expected }, signal);
+    const expected = normalize(sourceOwner.podUrl);
+    const publicFetch = async (url, init = {}) => {
+      const target = normalize(String(url)); if (!target.startsWith(expected)) fail('native_delegation_outside_pod');
+      if (init.method && init.method !== 'GET') fail('native_read_only');
+      return request(target, { method: 'GET', headers: { Accept: init.headers?.Accept ?? 'application/json' } }, 131_072, signal);
+    };
+    // These public reads depend only on the already bound source owner. Await
+    // every result before checking their common identity, scope and signer. The
+    // caller's original observation timestamp still bounds all evidence age.
+    const [result, registry, vc] = await Promise.all([
+      invoke('verify_agent', { agent_id: agentDid, pod_url: expected }, signal),
+      solid.readAgentRegistry(expected, { fetch: publicFetch }),
+      solid.readDelegationCredential(expected, agentDid, { fetch: publicFetch }),
+    ]);
     if (normalize(result.subjectPodUrl) !== expected || normalize(result.subject_pod_url) !== expected || result.owner !== sourceOwner.webId
       || result.agent !== agentDid || result.valid !== true || result.verified !== true || result.trustLevel !== 'CryptographicallyVerified'
       || result.chainLength !== 1 || result.delegationChain?.anchored !== true || result.delegationChain.owner !== sourceOwner.webId
       || result.delegationChain.agent !== agentDid || result.delegationChain.length !== 1
       || result.signing?.credentialAgentId !== agentDid || result.signing.canSignDelegatedRequests !== true
       || !same(String(result.signing.relayAnchor), signerAddress) || !same(String(result.signing.credentialAnchor), signerAddress)) fail('native_delegation_rejected');
-    const publicFetch = async (url, init = {}) => {
-      const target = normalize(String(url)); if (!target.startsWith(expected)) fail('native_delegation_outside_pod');
-      if (init.method && init.method !== 'GET') fail('native_read_only');
-      return request(target, { method: 'GET', headers: { Accept: init.headers?.Accept ?? 'application/json' } }, 131_072, signal);
-    };
-    const [registry, vc] = await Promise.all([solid.readAgentRegistry(expected, { fetch: publicFetch }), solid.readDelegationCredential(expected, agentDid, { fetch: publicFetch })]);
     const rows = registry?.authorizedAgents?.filter(row => row.agentId === agentDid);
     if (registry?.webId !== sourceOwner.webId || rows?.length !== 1 || rows[0].delegatedBy !== sourceOwner.webId
       || rows[0].revoked || !Object.hasOwn(SCOPES, rows[0].scope) || result.scope !== rows[0].scope || result.delegationChain.scope !== rows[0].scope) fail('native_delegation_rejected');

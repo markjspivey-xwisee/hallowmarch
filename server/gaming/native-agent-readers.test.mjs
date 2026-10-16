@@ -171,6 +171,37 @@ test('owner and distinct agent scopes remain separate during parallel native pro
   assert(checked.some(row => row.agent_id === AGENT && row.pod_url === agent.podUrl));
 });
 
+test('relay, current registry and credential reads dispatch independently before any settles', async t => {
+  const f = await fixture();
+  const targets = new Set([TARGETS.verify_agent, STORE + 'agent-a/agents',
+    STORE + 'agent-a/credentials/' + encodeURIComponent(AGENT) + '.jsonld']);
+  const entered = new Set(), settled = new Set();
+  let release, allEntered;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const dispatched = new Promise(resolve => { allEntered = resolve; });
+  const readers = createNativeAgentProofReaders({ ...f.settings, fetch: async (url, init) => {
+    const target = String(url);
+    if (!targets.has(target)) return f.settings.fetch(url, init);
+    entered.add(target); if (entered.size === targets.size) allEntered();
+    await barrier;
+    const response = await f.settings.fetch(url, init); settled.add(target); return response;
+  } });
+  t.after(() => { release(); readers.close(); });
+  await readers.ready;
+  const started = f.clock(); let completed = false;
+  const resolving = readers.resolveAgentProof({ agentDid: AGENT, signatureSigner: PIN }).then(value => { completed = true; return value; });
+  let timer;
+  try {
+    await Promise.race([dispatched, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('All three independent reads must dispatch before release')), 2000); })]);
+    assert.deepEqual(entered, targets); assert.equal(settled.size, 0); assert.equal(completed, false);
+    f.advance(750); release();
+    const result = await resolving;
+    assert.equal(result.observedAt, started, 'parallel read completion must not reset evidence freshness');
+    assert.equal(result.expiresAt, started + 30_000, 'identity expiry remains anchored to the original observation');
+    assert.equal(settled.size, targets.size); assert.equal(result.agentDid, AGENT);
+  } finally { clearTimeout(timer); release(); }
+});
+
 test('native authority observations remain anchored before slow proof reads and aborted callers fail closed', async () => {
   const f = await fixture();
   const slow = createNativeAgentProofReaders({ ...f.settings, fetch: async (url, init) => {

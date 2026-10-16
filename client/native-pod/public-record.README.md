@@ -10,6 +10,13 @@ A confirmed receipt requires a current unforked owner-pod head, real descriptor 
 
 Updates send the previous native head CID as `if_match`. Initial creation checks confirmed absence and reads back a sole head; the native relay does not expose atomic compare-with-absence. A concurrent initial fork is refused. A pending, failed or lost acknowledgement never means saved. The caller retains the operation ID and uses `confirm`, which checks the exact native descriptor operation ID and graph digest without republishing. Unconfirmed operations are bounded in memory; closing discards that memory and clears the transport credential. A fresh browser can read the native primary directly.
 
+Native MCP projects tool payloads through `toStructuredContent`, which removes
+null-valued keys. A missing `head` therefore proves absence only when accompanied
+by the handler's exact no-descriptor finding, verified owner/graph scope, and no
+fork or contradictory head list. Other incomplete replies fail closed. Set
+`INTEREGO_SDK_TEST_ROOT` to the built pinned SDK to exercise this actual projection
+in Node and Chromium; the networking CI job supplies it.
+
 The public validators are a separate lazy SDK bundle, preserving the existing small private-key bundle. `tools/build-native-public-client.mjs` requires the reviewed Interego revision, pinned esbuild and TypeScript, validates source and dependency versions against the committed SDK lock, and records source/declaration hashes. The Solid declaration slice is copied unchanged at build time with its complete dependency closure; it avoids importing unrelated Node-only core modules into browsers. The public CID primitive uses the actual SDK implementation and its licensed dependencies.
 
 Node tests and the Chromium owner-grant test exercise actual SDK transport, parsing, hashing and browser execution against explicit native storage/authorship contract fixtures. They do not establish live pod interoperability, production deployment, independently issued signatures or player identity creation.
