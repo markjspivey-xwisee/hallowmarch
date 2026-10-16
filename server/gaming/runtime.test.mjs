@@ -158,3 +158,65 @@ test('HTTP response timeout retains backend concurrency until the durable handle
   const accepted = await post(); assert.equal(accepted.status, 200); await accepted.arrayBuffer();
   assert.equal(calls, 2, 'the slot becomes available only after actual completion');
 });
+
+test('realtime transport advances both players while a native checkpoint is blocked, then recovers saved state', async () => {
+  const store = new TestStore(); let now = 100000, releaseWrite, writeStarted;
+  const gate = new Promise(resolve => { releaseWrite = resolve; });
+  const started = new Promise(resolve => { writeStarted = resolve; });
+  const commit = store.commit.bind(store); let blocking = false;
+  store.commit = async (...args) => { if (blocking) { writeStarted(); await gate; } return commit(...args); };
+  const runtime = createGamingRuntime({ store, send, clock: () => now, persistenceMode: 'realtime' });
+  await runtime.ready;
+  assert.equal(runtime.manifest().transport.durableAcknowledgements, false);
+  assert.equal(runtime.manifest().transport.progressivePersistence, true);
+  const alice = client('live-alice'), bob = client('live-bob');
+  await runtime.handle(alice, request('enter')); await runtime.handle(bob, request('enter'));
+  blocking = true;
+  const saving = runtime.flushPersistence(); await started;
+  now += 1000;
+  // A blocked remote write must not occupy the authoritative command queue.
+  const actions = (async () => {
+    await runtime.handle(alice, cmd('move', { x: 0, z: 2 }));
+    await runtime.handle(alice, cmd('attack', { targetId: 'march-guardian' }));
+  })();
+  let timeout;
+  try { await Promise.race([actions, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Gameplay waited for persistence')), 1000); })]); }
+  finally { clearTimeout(timeout); }
+  await new Promise(resolve => setTimeout(resolve, 80));
+  const snapshot = bob.received.filter(m => m.op === 'snapshot').at(-1);
+  assert.equal(snapshot.state.entities['live-alice'].z, 2);
+  assert.equal(snapshot.state.entities['march-guardian'].hp, 90);
+  assert.equal(snapshot.version, snapshot.liveSequence);
+  assert(snapshot.liveSequence > snapshot.durableSequence);
+  assert.equal(snapshot.persistence.mode, 'realtime');
+  releaseWrite();
+  await saving; blocking = false; await runtime.flushPersistence();
+  const durable = runtime.metrics().persistence;
+  assert.equal(durable.liveSequence, durable.durableSequence);
+  const restarted = createGamingRuntime({ store, send, clock: () => now, persistenceMode: 'realtime' });
+  await restarted.ready;
+  assert.equal(restarted.room.current.entities['live-alice'].z, 2);
+  assert.equal(restarted.room.current.entities['march-guardian'].hp, 90);
+  assert.equal(restarted.metrics().persistence.liveSequence, durable.durableSequence);
+  await runtime.shutdown(); await restarted.shutdown();
+  await runtime.handle(alice, request('enter'));
+  assert.equal(alice.received.at(-1).error.code, 'restarting');
+});
+
+test('realtime snapshot fan-out coalesces input bursts without slowing command responses', async () => {
+  let now = 100000; const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => now,
+    persistenceMode: 'realtime', broadcastIntervalMs: 20 });
+  await runtime.ready;
+  const alice = client('burst-alice'), bob = client('burst-bob');
+  await runtime.handle(alice, request('enter')); await runtime.handle(bob, request('enter'));
+  const before = bob.received.filter(m => m.op === 'snapshot').length;
+  for (let z = 1; z <= 6; z++) { now += 500; await runtime.handle(alice, cmd('move', { x: 0, z })); }
+  assert.equal(bob.received.filter(m => m.op === 'snapshot').length, before);
+  assert.equal(alice.received.filter(m => m.op === 'result' && m.ok).length, 7);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  const snapshots = bob.received.filter(m => m.op === 'snapshot');
+  assert.equal(snapshots.length, before + 1);
+  assert.equal(snapshots.at(-1).state.entities['burst-alice'].z, 6);
+  assert.equal(runtime.manifest().transport.maxSnapshotHz, 50);
+  await runtime.shutdown();
+});

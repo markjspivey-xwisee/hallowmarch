@@ -8,8 +8,9 @@ the existing Hallowmarch world to a complete authoritative MMO.
 ## Implemented
 
 - `AuthoritativeRoom`: server-derived actors, serialized validated commands,
-  conditional durable commits, logical command replay, competing-writer recovery,
-  and confirmed snapshots. No acknowledged primary state is memory-only.
+  logical command replay and authoritative live snapshots. The serving game uses
+  a fast in-memory layer with bounded background native checkpoints. The reusable
+  room also retains an explicit strict mode that waits for every durable commit.
 - `createInteregoStore`: encrypted `@interego/pgsl` native artifacts and atomic
   head CAS. No independent SQL primary or volatile production fallback.
 - `createHallowmarchDomain`: two or more players share one guardian, health total,
@@ -56,6 +57,30 @@ HM_GAMING_BOOTSTRAP=1
 HM_GAMING_ENABLED=1
 HM_GAMING_MONITOR_ENABLED=1
 ```
+
+The serving game uses `realtime` persistence. `HM_GAMING_PERSISTENCE_MODE=strict`
+selects the diagnostic, commit-per-command path. Library callers retain strict
+mode unless they pass `persistenceMode: 'realtime'` to `createGamingRuntime()` or
+`AuthoritativeRoom` explicitly.
+
+In realtime mode, movement and combat acknowledge the server's current live
+sequence immediately. Shared snapshots coalesce input bursts and broadcast at
+most twenty times per second, independently of command responses. A single background writer coalesces state into native
+checkpoints. Snapshots distinguish `liveSequence`, `durableSequence` and
+`durableVersion`; the manifest sets `durableAcknowledgements: false` and
+`progressivePersistence: true`. An immediate action acknowledgement is never a
+claim that the slower layer has saved it. Rewards remain marked as saving until
+their checkpoint is confirmed, and capability/consent operations retain explicit
+durability confirmation. The client displays Saved, Saving, Save delayed or
+Saving paused from the checkpoint status.
+
+Unsaved work is bounded by count and age. A prolonged outage pauses mutation;
+an unexpected competing room writer blocks the authority rather than merging
+divergent live state. A restart recovers the last confirmed native checkpoint,
+so a crash can lose the explicitly unsaved tail. Graceful shutdown stops new
+commands and drains checkpoints for up to fifteen seconds. This is one serving
+process per room; a multi-process room needs a leader/lease and cross-process
+live subscriptions before adding replicas.
 
 `prepareGamingEnvironment()` generates fresh identity, encryption and monitoring
 keys inside the serving process and atomically saves them as
@@ -126,24 +151,25 @@ cold-store recovery with persisted keys. Its identities are software-verificatio
 identities, separate from those generated inside the production service.
 
 Enable this initial runtime with a single active serving process. Native CAS
-arbitrates competing writes, but snapshot broadcasts currently reach only the
-clients connected to the committing process. Before serving one room from
-multiple processes, add cross-process committed-state subscriptions and verify
-that every process broadcasts those updates; native CAS alone does not provide
-that delivery path. Otherwise remote changes appear only after an explicit read.
+detects competing checkpoint writers, but snapshot broadcasts reach only clients
+connected to the authoritative process. Before serving one room from multiple
+processes, add a leader/lease and cross-process live subscriptions and verify
+that every process receives the same authoritative sequence. Native CAS alone
+does not provide that live delivery path.
 
-The current native SDK enumerates the scope index and this room persists a full
-state snapshot per accepted command. Native operation history grows; room replay
+The current native SDK enumerates the scope index. Strict mode persists a full
+state snapshot per accepted command; realtime mode coalesces pending commands
+into full checkpoint snapshots outside the gameplay queue. Native operation history grows; room replay
 responses retain 1,024 commands and recent event metrics cover a 256-event window.
 The game transport retains at most 512 immutable ciphertext responses and 8 MiB
 including their metadata, keyed by the native SHA-256 artifact/commit URL.
 Mutable heads and every write still go to native storage; the first verification
 read after a write also goes to storage. A new process starts with an empty cache.
-That supports a bounded proof, not a measured MMO tick rate. The next performance
-work is version-bound native record lookup, short atomic command batches,
-room-leader coordination and actual latency/fan-out/recovery benchmarks. Do not
-enable high-frequency movement against the current persistence path or advertise
-MMO-scale throughput based on local fixture timings.
+This bounded encounter still does not establish an MMO tick rate or player
+capacity. Live action latency, checkpoint lag and cold recovery require separate
+measurements. Further work includes version-bound native record lookup, fixed
+simulation ticks, interpolation, room-leader coordination and load/fan-out
+benchmarks. Never advertise MMO-scale throughput from local fixture timings.
 
 For a real private-scope benchmark, configure the native SDK and a dedicated
 benchmark pod, then run:
@@ -175,7 +201,8 @@ statement ids and content across process restarts.
 
 Sample at most once every 30 seconds and run it outside the gameplay command
 path. The sample contains process counters, timing gauges, connection counts,
-committed room version and counts from the bounded recent event window. Windows
+room sequence and counts from the bounded recent event window. These are live
+operational observations, not a claim that every observed action is durable. Windows
 can overlap and must not be summed as unique lifetime activity. The exporter
 whitelists fields and excludes account ids, actor ids, team/realm membership,
 chat, capabilities and raw game events. The subject is the game-monitor service,

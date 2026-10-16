@@ -121,6 +121,44 @@ async function join() {
   await assert.rejects(timeout, /did not confirm/);
   console.log('PASS pending requests and timeout handling are bounded');
 
+  const realtime = (liveSequence, durableSequence, { version = 4, status = 'pending', nested = false, pendingRewards = false, x = 2 } = {}) => {
+    const view = snapshot(version);
+    view.state.entities.alice.x = x;
+    const metadata = { liveSequence, durableSequence, durableVersion: 3,
+      persistence: { mode: 'realtime', status, pendingCommands: liveSequence - durableSequence, pendingRewards,
+        privateError: 'internal-only' } };
+    Object.assign(nested ? view.state : view, metadata); return view;
+  };
+  api.msg(realtime(10, 3));
+  assert.equal(api.state.liveSequence, 10); assert.equal(api.state.durableSequence, 3);
+  assert.equal(api.state.snapshot.entities[0].x, 2);
+  assert.equal(vm.runInContext('gamingSaveText()', context), 'Live · Saving…');
+  api.msg(realtime(11, 3, { x: 3 }));
+  assert.equal(api.state.snapshot.entities[0].x, 3, 'new live actions advance while the durable version stays unchanged');
+  const liveMove = api.command({ type: 'move', x: 4, z: 0 }); const liveRequest = sent.at(-1);
+  reply(liveRequest, { liveSequence: 12, durableSequence: 3, persistence: { status: 'pending' } });
+  await liveMove; assert.equal(api.state.pending, 0, 'accepted movement does not wait for background save completion');
+  api.msg(realtime(11, 11, { status: 'saved', x: 3 }));
+  assert.equal(api.state.durableSequence, 11);
+  assert.equal(vm.runInContext('gamingSaveText()', context), 'Live · Saved');
+  api.msg(realtime(10, 10, { status: 'saved', x: 0 }));
+  api.msg(realtime(11, 3, { x: 0 }));
+  api.msg(snapshot(100));
+  assert.equal(api.state.liveSequence, 11); assert.equal(api.state.snapshot.entities[0].x, 3,
+    'stale live state, stale save acknowledgements, and missing realtime metadata cannot roll state back');
+  api.msg(realtime(12, 11, { nested: true, pendingRewards: true, status: 'degraded', x: 4 }));
+  assert.equal(api.state.liveSequence, 12); assert.equal(api.state.persistence.pendingRewards, true);
+  assert.equal(vm.runInContext('gamingSaveText()', context), 'Live · Save delayed');
+  assert.ok(!JSON.stringify(api.state).includes('internal-only'));
+  const malformed = realtime(13, 14); api.msg(malformed); assert.equal(api.state.liveSequence, 12);
+  api.msg(realtime(12, 11, { status: 'blocked', pendingRewards: true, x: 4 }));
+  assert.equal(vm.runInContext('gamingSaveText()', context), 'Live · Saving paused');
+  const reward = api.command({ type: 'claimLoot', targetId: 'guardian' }); const rewardRequest = sent.at(-1);
+  api.msg({ t: 'gaming', op: 'result', requestId: rewardRequest.requestId, ok: false,
+    error: { code: 'durability_pending', message: 'internal native storage error' } });
+  await assert.rejects(reward, error => error.code === 'durability_pending' && /action is live.*save is delayed.*Refresh/.test(error.message));
+  console.log('PASS live sequence advances independently of background saves; acknowledgements, delayed rewards, and save warnings stay explicit');
+
   nodes.set('gaming-sheet', { hidden: false }); nodes.set('gaming-token', { value: 'one-time-secret' });
   nodes.set('gaming-token-wrap', { hidden: false });
   api.show(false); assert.equal(nodes.get('gaming-token').value, ''); assert.equal(nodes.get('gaming-token-wrap').hidden, true);

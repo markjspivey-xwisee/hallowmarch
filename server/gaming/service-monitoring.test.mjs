@@ -23,6 +23,28 @@ test('service sample drops identities and labels counters and overlapping event 
   assert.throws(() => sanitizeServiceMetrics({ lastCommitMs: Infinity })); assert.throws(() => sanitizeServiceMetrics({ playerConnections: 1.1 }));
 });
 
+test('live service measurements distinguish authoritative activity from durable checkpoints', async () => {
+  const measured = { ...metrics, persistence: { liveSequence: 9, durableSequence: 6, durableVersion: 3, pendingCommands: 3, oldestPendingMs: 1250,
+    error: 'private transport detail', ownerId: 'private-owner' } };
+  const safe = sanitizeServiceMetrics(measured);
+  assert.equal(safe.snapshot.liveSequence, 9); assert.equal(safe.snapshot.durableSequence, 6);
+  assert.equal(safe.timings.oldestPendingMs, 1250);
+  assert.equal(safe.recentEventWindow.semantics, 'bounded-overlapping-authoritative-live-events');
+  assert(!JSON.stringify(safe).includes('private-'));
+  const first = factory(); await first.monitor.ready; await first.monitor.record(measured, { sampleId: 'realtime' });
+  const restart = factory({ store: first.store }); await restart.monitor.ready;
+  assert.equal((await restart.monitor.flush()).exported, 1);
+});
+
+test('a new sample does not hide an unconfirmed Foxxi delivery diagnostic', async () => {
+  const { monitor } = factory({ transport: async () => ({ status: 500, body: { error: 'private server details' } }) });
+  await monitor.ready; await monitor.record(metrics, { sampleId: 'one' }); await monitor.flush();
+  await monitor.record(metrics, { sampleId: 'two' });
+  const status = monitor.status(); assert.equal(status.state, 'delivery-unconfirmed');
+  assert.equal(status.lastHttpStatus, 500); assert.equal(status.lastDeliveryReason, 'foxxi-durable-ack-required');
+  assert(!JSON.stringify(status).includes('private server details')); assert.equal(status.pending, 2);
+});
+
 test('sample is native-queued before export and records only own service operational evidence', async () => {
   const { monitor, store, calls } = factory(); await monitor.ready;
   const staged = await monitor.record(metrics, { sampleId: 's1' }); assert.equal(staged.durable, true); assert.equal(calls.length, 0); assert.equal(store.value.state.pending.length, 1);

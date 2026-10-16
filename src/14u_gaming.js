@@ -1,7 +1,7 @@
 /* A deliberately separate shared expedition. Enabled only by a ready server;
  * legacy world entities, local combat and the character's inventory stay outside
  * this adapter. Every displayed encounter outcome comes from the room service. */
-const GAMING = { status: 'idle', roomId: '', version: -1, snapshot: null, pending: new Map(),
+const GAMING = { status: 'idle', roomId: '', version: -1, liveSequence: -1, durableSequence: -1, durableVersion: -1, persistence: null, snapshot: null, pending: new Map(),
   request: 0, updatedAt: 0, lastError: '', open: false, focus: null, socket: null, session: null, timer: 0,
   attackingUntil: 0, movingUntil: 0, moving: false, lastAttackVersion: -1, autoOpened: false };
 const gamingEnabled = () => window.__HM_GAMING?.enabled === true;
@@ -17,11 +17,12 @@ function gamingRequest(op, payload = {}) {
   if (op !== 'enter' && !gamingSessionCurrent()) return Promise.reject(new Error('The expedition connection changed. Enter again to resume.'));
   if (GAMING.pending.size >= 8) return Promise.reject(new Error('Wait for the pending expedition actions to finish.'));
   const requestId = `gaming-${Date.now()}-${++GAMING.request}`;
+  const durableAction = ['grant', 'revoke'].includes(op) || ['claimLoot', 'grantCompanion', 'revokeCompanion', 'learningConsent'].includes(payload.command?.type);
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       GAMING.pending.delete(requestId);
       reject(new Error('The expedition did not confirm this action. Refresh its state before trying again.'));
-    }, 15000);
+    }, durableAction ? 35000 : 15000);
     GAMING.pending.set(requestId, { resolve, reject, timeout, op, socket: NETWS.ws, accountId: gamingSelf(), generation: NETWS.generation });
     if (!netWsSend({ ...payload, t: 'gaming', op, requestId })) {
       clearTimeout(timeout); GAMING.pending.delete(requestId);
@@ -37,7 +38,7 @@ async function gamingEnter() {
   if (!gamingEnabled()) throw new Error('Shared expeditions are not available on this server.');
   if (GAMING.status === 'entering') throw new Error('Your expedition entry is awaiting confirmation.');
   if (GAMING.status === 'joined' && gamingSessionCurrent()) return gamingObserve();
-  GAMING.roomId = ''; GAMING.version = -1; GAMING.snapshot = null;
+  GAMING.roomId = ''; GAMING.version = -1; GAMING.liveSequence = -1; GAMING.durableSequence = -1; GAMING.durableVersion = -1; GAMING.persistence = null; GAMING.snapshot = null;
   GAMING.session = gamingConnected() ? { socket: NETWS.ws, accountId: gamingSelf(), generation: NETWS.generation } : null;
   GAMING.socket = GAMING.session?.socket || null;
   GAMING.status = 'entering'; GAMING.lastError = ''; gamingRender();
@@ -52,7 +53,7 @@ async function gamingEnter() {
 }
 async function gamingLeave() {
   const result = await gamingRequest('leave', { roomId: GAMING.roomId });
-  GAMING.status = 'idle'; GAMING.roomId = ''; GAMING.version = -1; GAMING.snapshot = null; GAMING.session = null;
+  GAMING.status = 'idle'; GAMING.roomId = ''; GAMING.version = -1; GAMING.liveSequence = -1; GAMING.durableSequence = -1; GAMING.durableVersion = -1; GAMING.persistence = null; GAMING.snapshot = null; GAMING.session = null;
   gamingClearToken(); gamingRender(); return result;
 }
 function gamingCommand(command) {
@@ -105,16 +106,47 @@ function gamingPublicState(value) {
   }
   return safe;
 }
+// A shared server update can be newer than its background save. Sequence ordering
+// follows live state; a save acknowledgement may update the same live sequence.
+function gamingPersistence(message) {
+  const state = message.state;
+  const live = message.liveSequence ?? state.liveSequence;
+  const durable = message.durableSequence ?? state.durableSequence;
+  const version = message.durableVersion ?? state.durableVersion;
+  const persistence = message.persistence ?? state.persistence;
+  if (live === undefined && durable === undefined && version === undefined && persistence === undefined) {
+    if (GAMING.persistence?.mode === 'realtime') return null;
+    return { liveSequence: message.version, durableSequence: message.version, durableVersion: message.version,
+      persistence: { mode: 'strict', status: 'saved', pendingCommands: 0, pendingRewards: false } };
+  }
+  if (!Number.isSafeInteger(live) || live < 0 || !Number.isSafeInteger(durable) || durable < 0 || durable > live ||
+      !Number.isSafeInteger(version) || version < 0 || !persistence || typeof persistence !== 'object' ||
+      !['strict', 'realtime'].includes(persistence.mode) || !['saved', 'pending', 'degraded', 'blocked'].includes(persistence.status) ||
+      !Number.isSafeInteger(persistence.pendingCommands) || persistence.pendingCommands < 0 ||
+      !(typeof persistence.pendingRewards === 'boolean' || Number.isSafeInteger(persistence.pendingRewards) && persistence.pendingRewards >= 0)) return null;
+  return { liveSequence: live, durableSequence: durable, durableVersion: version,
+    persistence: { mode: persistence.mode, status: persistence.status === 'saved' && durable < live ? 'pending' : persistence.status,
+      pendingCommands: persistence.pendingCommands, pendingRewards: !!persistence.pendingRewards } };
+}
+function gamingSaveText() {
+  if (GAMING.status !== 'joined' || !GAMING.persistence) return '';
+  const prefix = GAMING.persistence.mode === 'realtime' ? 'Live · ' : '';
+  const status = GAMING.persistence.status;
+  return prefix + (status === 'degraded' ? 'Save delayed' : status === 'blocked' ? 'Saving paused' :
+    GAMING.durableSequence < GAMING.liveSequence || status === 'pending' ? 'Saving…' : 'Saved');
+}
 function gamingSnapshot(message) {
   if (!['entering', 'joined'].includes(GAMING.status) || typeof message.roomId !== 'string' ||
       !message.roomId.length || message.roomId.length > 128 || !Number.isSafeInteger(message.version) || message.version < 0 ||
       !message.state || typeof message.state !== 'object' || Array.isArray(message.state) || !gamingSessionCurrent()) return;
   if (GAMING.roomId && message.roomId !== GAMING.roomId) return;
   if (message.state.roomId !== undefined && message.state.roomId !== message.roomId) return;
-  if (message.version < GAMING.version) return;
+  const persistence = gamingPersistence(message);
+  if (!persistence || persistence.liveSequence < GAMING.liveSequence || persistence.durableSequence < GAMING.durableSequence) return;
   const snapshot = gamingPublicState(message.state);
   if (!snapshot) return;
   GAMING.roomId = message.roomId; GAMING.version = message.version;
+  Object.assign(GAMING, persistence);
   GAMING.snapshot = snapshot; GAMING.updatedAt = performance.now();
   gamingRender();
 }
@@ -130,7 +162,7 @@ function gamingMsg(message) {
   }
   if (message.ok === true) pending.resolve(message.result || {});
   else {
-    const error = new Error(gamingError(message.error));
+    const error = new Error(message.error?.code === 'durability_pending' ? 'That action is live, but its save is delayed. Refresh its status before trying again.' : gamingError(message.error));
     if (message.error?.code) error.code = message.error.code;
     pending.reject(error);
   }
@@ -165,10 +197,12 @@ function gamingStatus() {
   const connected = gamingConnected(), age = GAMING.updatedAt ? Math.max(0, Math.floor((performance.now() - GAMING.updatedAt) / 1000)) : null;
   const ping = connected && NETWS.stats.rtt > 0 ? ` Connection round trip: ${NETWS.stats.rtt} ms.` : '';
   status.textContent = GAMING.lastError || (GAMING.status === 'joined' ?
-    `${connected ? 'In the shared expedition.' : 'Connection lost.'}${age === null ? ' Awaiting shared state.' : ` State confirmed ${age}s ago.`}${ping}` :
+    `${connected ? 'In the shared expedition.' : 'Connection lost.'}${age === null ? ' Awaiting shared state.' : ` Shared state updated ${age}s ago.`}${ping}` :
     GAMING.status === 'entering' ? 'Waiting for expedition entry to be confirmed…' :
       connected ? 'Ready to enter a shared expedition.' : 'Connect to the March to enter a shared expedition.');
   status.classList.toggle('gaming-failure', !!GAMING.lastError || GAMING.status === 'disconnected');
+  const save = $('gaming-save-status');
+  if (save) { save.textContent = gamingSaveText(); save.hidden = !save.textContent; save.classList.toggle('gaming-failure', ['degraded', 'blocked'].includes(GAMING.persistence?.status)); }
 }
 function gamingEntitySelect() {
   const select = $('gaming-entity');
@@ -271,14 +305,17 @@ function gamingRender() {
     }
     entities.appendChild(card);
   }
-  const rewardTotal = $('gaming-reward-total'); if (rewardTotal) rewardTotal.textContent = Object.entries(GAMING.snapshot?.rewards || {}).map(([item, quantity]) => `${quantity} ${item}`).join(' · ') || 'No expedition rewards claimed yet.';
+  const rewardTotal = $('gaming-reward-total'); if (rewardTotal) {
+    const rewards = Object.entries(GAMING.snapshot?.rewards || {}).map(([item, quantity]) => `${quantity} ${item}`).join(' · ');
+    rewardTotal.textContent = rewards ? `${rewards}${GAMING.persistence?.pendingRewards ? ' · Latest reward saving…' : ''}` : 'No expedition rewards claimed yet.';
+  }
   const loot = $('gaming-loot'); loot.replaceChildren();
   const drops = gamingList(GAMING.snapshot?.loot);
   if (!drops.length) loot.appendChild(gamingNode('p', 'Defeat the guardian to reveal the expedition reward.'));
   for (const drop of drops.slice(0, 128)) {
     const card = gamingNode('div', undefined, 'gaming-card');
     card.appendChild(gamingNode('span', drop.itemId || 'Expedition reward'));
-    if (drop.claimedBy) card.appendChild(gamingNode('small', drop.claimedBy === gamingSelf() ? 'Claimed by you' : 'Claimed by another player'));
+    if (drop.claimedBy) card.appendChild(gamingNode('small', `${drop.claimedBy === gamingSelf() ? 'Claimed by you' : 'Claimed by another player'}${GAMING.persistence?.pendingRewards ? ' · saving…' : ''}`));
     else card.appendChild(gamingButton('Claim reward', () => gamingCommand({ type: 'claimLoot', entityId: gamingSelectedEntity()?.id, targetId: drop.targetId })));
     loot.appendChild(card);
   }
@@ -316,10 +353,10 @@ function gamingToggle(open = !GAMING.open) {
 function gamingInit() {
   if (!gamingEnabled() || $('gaming-sheet')) return;
   const style = gamingNode('style');
-  style.textContent = `#gaming-sheet .sheet{width:min(680px,100%);box-sizing:border-box;gap:12px}#gaming-sheet{z-index:42}#gaming-sheet #gaming-status{font-size:12px;line-height:1.3;min-height:16px}#gaming-sheet #gaming-arena{position:relative;min-height:230px;overflow:hidden;touch-action:manipulation;border:1px solid #85704b;border-radius:14px;background:radial-gradient(ellipse at 50% 42%,#535740 0,#202b27 45%,#101917 100%);isolation:isolate}#gaming-sheet #gaming-arena:before{content:"";position:absolute;inset:0;opacity:.18;background-image:linear-gradient(#d2b379 1px,transparent 1px),linear-gradient(90deg,#d2b379 1px,transparent 1px);background-size:5% 8%}#gaming-sheet .gaming-marker{position:absolute;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:1px;min-width:50px;max-width:96px;pointer-events:none;text-align:center;color:#eee3c4;font-size:10px;line-height:1.2}#gaming-sheet .gaming-body{font-size:26px;line-height:30px;color:#78c3d5;text-shadow:0 2px 8px #000}#gaming-sheet .gaming-marker[data-kind=npc] .gaming-body{font-size:42px;color:#f4a475}#gaming-sheet .gaming-marker[data-kind=companion] .gaming-body{color:#b6adf1}#gaming-sheet .gaming-marker[data-dead=true]{opacity:.45}#gaming-sheet .gaming-selected .gaming-body{filter:drop-shadow(0 0 5px #fff)}#gaming-sheet .gaming-health{display:block;width:46px;height:5px;background:#321d1b;border:1px solid #100d0b;border-radius:4px;overflow:hidden}#gaming-sheet .gaming-health>span{display:block;height:100%;background:#84b58d}#gaming-sheet .gaming-marker[data-kind=npc] .gaming-health>span{background:#d46c54}#gaming-sheet #gaming-arena-hint{font-size:12px;line-height:1.4;min-height:34px}#gaming-sheet .gaming-controls{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:12px;align-items:center}#gaming-sheet #gaming-attack{border-radius:50%;width:104px;min-height:104px;background:#be9e62;color:#15140f;font-weight:700;font-size:18px}#gaming-sheet details{border-top:1px solid var(--line);padding-top:10px;min-width:0}#gaming-sheet summary{min-height:44px;cursor:pointer;color:var(--bronze-hi);display:flex;align-items:center;font-size:15px}#gaming-sheet details[open]>section{margin-top:10px}#gaming-sheet #gaming-reward-total{font-size:13px;color:#dbc181}#gaming-mobile-open{width:100%;min-height:48px}#gaming-sheet #gaming-live{gap:12px}#gaming-sheet .gaming-head{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:-20px;background:var(--slate-2);z-index:2;padding-block:8px}#gaming-sheet .gaming-head h2{font-size:24px}#gaming-sheet #gaming-close{width:46px;min-width:46px;padding:4px;font-size:26px;line-height:1}#gaming-sheet .btn{min-height:46px;touch-action:manipulation;white-space:normal}#gaming-sheet input,#gaming-sheet select{min-width:0;max-width:100%;box-sizing:border-box;min-height:46px;font-size:16px}#gaming-sheet label{display:grid;gap:6px}#gaming-sheet section,#gaming-sheet form,#gaming-live{display:grid;gap:10px;min-width:0}#gaming-sheet [hidden]{display:none!important}#gaming-sheet .gaming-card{display:grid;gap:6px;border:1px solid var(--line);padding:10px;overflow-wrap:anywhere}#gaming-sheet .gaming-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#gaming-sheet .gaming-move{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}#gaming-sheet .gaming-move button:first-child{grid-column:2}#gaming-sheet .gaming-move button:nth-child(2){grid-column:1}#gaming-sheet .gaming-move button:nth-child(3){grid-column:3}#gaming-sheet .gaming-move button:last-child{grid-column:2}#gaming-sheet .gaming-failure{color:#f4b29c}#gaming-token{width:100%;overflow-wrap:anywhere}#gaming-menu-open{margin-block:8px}@media(max-height:740px){#gaming-sheet #gaming-arena{min-height:170px}#gaming-sheet .gaming-head h2{font-size:20px}#gaming-sheet .gaming-move{gap:5px}#gaming-sheet .gaming-controls{gap:8px}}@media(max-height:600px){#gaming-sheet #gaming-arena{min-height:140px}#gaming-sheet .sheet{gap:8px}#gaming-sheet #gaming-live,#gaming-sheet section{gap:7px}}@media(max-width:420px){#gaming-sheet .sheet{padding:12px}#gaming-sheet .gaming-head{top:-12px}#gaming-sheet .gaming-grid{grid-template-columns:minmax(0,1fr)}}`;
+  style.textContent = `#gaming-sheet .sheet{width:min(680px,100%);box-sizing:border-box;gap:12px}#gaming-sheet{z-index:42}#gaming-sheet #gaming-status{font-size:12px;line-height:1.3;min-height:16px;overflow-wrap:anywhere}#gaming-sheet #gaming-save-status{font-size:12px;line-height:1.3;margin-top:-5px;color:#b9d8bd;overflow-wrap:anywhere}#gaming-sheet #gaming-save-status.gaming-failure{color:#f4b29c}#gaming-sheet #gaming-arena{position:relative;min-height:230px;overflow:hidden;touch-action:manipulation;border:1px solid #85704b;border-radius:14px;background:radial-gradient(ellipse at 50% 42%,#535740 0,#202b27 45%,#101917 100%);isolation:isolate}#gaming-sheet #gaming-arena:before{content:"";position:absolute;inset:0;opacity:.18;background-image:linear-gradient(#d2b379 1px,transparent 1px),linear-gradient(90deg,#d2b379 1px,transparent 1px);background-size:5% 8%}#gaming-sheet .gaming-marker{position:absolute;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:1px;min-width:50px;max-width:96px;pointer-events:none;text-align:center;color:#eee3c4;font-size:10px;line-height:1.2}#gaming-sheet .gaming-body{font-size:26px;line-height:30px;color:#78c3d5;text-shadow:0 2px 8px #000}#gaming-sheet .gaming-marker[data-kind=npc] .gaming-body{font-size:42px;color:#f4a475}#gaming-sheet .gaming-marker[data-kind=companion] .gaming-body{color:#b6adf1}#gaming-sheet .gaming-marker[data-dead=true]{opacity:.45}#gaming-sheet .gaming-selected .gaming-body{filter:drop-shadow(0 0 5px #fff)}#gaming-sheet .gaming-health{display:block;width:46px;height:5px;background:#321d1b;border:1px solid #100d0b;border-radius:4px;overflow:hidden}#gaming-sheet .gaming-health>span{display:block;height:100%;background:#84b58d}#gaming-sheet .gaming-marker[data-kind=npc] .gaming-health>span{background:#d46c54}#gaming-sheet #gaming-arena-hint{font-size:12px;line-height:1.4;min-height:34px}#gaming-sheet .gaming-controls{display:grid;grid-template-columns:minmax(0,1fr) 110px;gap:12px;align-items:center}#gaming-sheet #gaming-attack{border-radius:50%;width:104px;min-height:104px;background:#be9e62;color:#15140f;font-weight:700;font-size:18px}#gaming-sheet details{border-top:1px solid var(--line);padding-top:10px;min-width:0}#gaming-sheet summary{min-height:44px;cursor:pointer;color:var(--bronze-hi);display:flex;align-items:center;font-size:15px}#gaming-sheet details[open]>section{margin-top:10px}#gaming-sheet #gaming-reward-total{font-size:13px;color:#dbc181}#gaming-mobile-open{width:100%;min-height:48px}#gaming-sheet #gaming-live{gap:12px}#gaming-sheet .gaming-head{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:-20px;background:var(--slate-2);z-index:2;padding-block:8px}#gaming-sheet .gaming-head h2{font-size:24px}#gaming-sheet #gaming-close{width:46px;min-width:46px;padding:4px;font-size:26px;line-height:1}#gaming-sheet .btn{min-height:46px;touch-action:manipulation;white-space:normal}#gaming-sheet input,#gaming-sheet select{min-width:0;max-width:100%;box-sizing:border-box;min-height:46px;font-size:16px}#gaming-sheet label{display:grid;gap:6px}#gaming-sheet section,#gaming-sheet form,#gaming-live{display:grid;gap:10px;min-width:0}#gaming-sheet [hidden]{display:none!important}#gaming-sheet .gaming-card{display:grid;gap:6px;border:1px solid var(--line);padding:10px;overflow-wrap:anywhere}#gaming-sheet .gaming-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}#gaming-sheet .gaming-move{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}#gaming-sheet .gaming-move button:first-child{grid-column:2}#gaming-sheet .gaming-move button:nth-child(2){grid-column:1}#gaming-sheet .gaming-move button:nth-child(3){grid-column:3}#gaming-sheet .gaming-move button:last-child{grid-column:2}#gaming-sheet .gaming-failure{color:#f4b29c}#gaming-token{width:100%;overflow-wrap:anywhere}#gaming-menu-open{margin-block:8px}@media(max-height:740px){#gaming-sheet #gaming-arena{min-height:170px}#gaming-sheet .gaming-head h2{font-size:20px}#gaming-sheet .gaming-move{gap:5px}#gaming-sheet .gaming-controls{gap:8px}}@media(max-height:600px){#gaming-sheet #gaming-arena{min-height:140px}#gaming-sheet .sheet{gap:8px}#gaming-sheet #gaming-live,#gaming-sheet section{gap:7px}}@media(max-width:420px){#gaming-sheet .sheet{padding:12px}#gaming-sheet .gaming-head{top:-12px}#gaming-sheet .gaming-grid{grid-template-columns:minmax(0,1fr)}}`;
   document.head.appendChild(style);
   const overlay = gamingNode('div'); overlay.id = 'gaming-sheet'; overlay.className = 'overlay'; overlay.hidden = true;
-  overlay.innerHTML = '<div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="gaming-title"><div class="gaming-head"><h2 id="gaming-title">Shared expedition</h2><button class="btn" id="gaming-close" type="button" aria-label="Close shared expedition">×</button></div><p id="gaming-intro">Fight the guardian together. Each move and strike is confirmed by the shared server.</p><p id="gaming-status" role="status" aria-live="polite"></p><button class="btn primary" id="gaming-enter" type="button">Enter shared expedition</button><div id="gaming-live" hidden><section><div id="gaming-arena" role="img" tabindex="0" aria-label="Shared encounter arena"></div><p id="gaming-arena-hint"></p><div class="gaming-controls"><div class="gaming-move" aria-label="Move one pace"><button class="btn" type="button" data-gaming-dx="0" data-gaming-dz="1" aria-label="Move forward">↑</button><button class="btn" type="button" data-gaming-dx="-1" data-gaming-dz="0" aria-label="Move left">←</button><button class="btn" type="button" data-gaming-dx="1" data-gaming-dz="0" aria-label="Move right">→</button><button class="btn" type="button" data-gaming-dx="0" data-gaming-dz="-1" aria-label="Move back">↓</button></div><button class="btn" type="button" id="gaming-attack">⚔ Strike</button></div><label>Control body<select id="gaming-entity"></select></label><button class="btn" type="button" id="gaming-recover" hidden>Recover fallen body</button><button class="btn" type="button" id="gaming-reset" hidden>Start another encounter · heal party</button></section><section><h3>Expedition rewards</h3><p id="gaming-reward-total"></p><div id="gaming-loot"></div></section><details><summary>Party &amp; confirmed positions</summary><section><div id="gaming-entities" class="gaming-grid"></div><button class="btn" type="button" id="gaming-refresh">Refresh shared state</button></section></details><details><summary>Bring your agent · teammate, pet or coach</summary><section><h3>Your agent companions</h3><p>Create a companion, select its body above, then issue access. The Agent DID is an owner-provided label; the capability authorizes access. Coach access is observation only. Access expires after 15 minutes and can be revoked at any time.</p><button class="btn" type="button" id="gaming-spawn">Create companion body</button><form id="gaming-grant-form"><label>Agent DID<input id="gaming-agent" maxlength="512" placeholder="did:…" autocomplete="off" autocapitalize="off" spellcheck="false" required></label><label>Companion role<select id="gaming-role"><option value="teammate">Teammate</option><option value="pet">Pet</option><option value="coach">Coach · observe only</option></select></label><button class="btn" type="submit">Grant access to selected body</button></form><div id="gaming-token-wrap" hidden><label>One-time agent capability<input id="gaming-token" readonly autocomplete="off" spellcheck="false"></label><p>Give your chosen agent this capability and its discovery URL: <a id="gaming-agent-discovery" target="_blank" rel="noopener noreferrer"></a>. The agent sends the capability in its Authorization: Bearer header and follows the allowed actions in that descriptor. The capability is cleared when this sheet closes.</p><button class="btn" id="gaming-token-copy" type="button">Copy capability</button><button class="btn" id="gaming-token-clear" type="button">Clear capability</button></div><div id="gaming-grants"></div></section></details><details><summary>Learning &amp; activity</summary><section><p id="gaming-learning"></p></section></details><p>Expedition rewards stay here and do not change your main-world inventory.</p></div><button class="btn" id="gaming-leave" type="button" hidden>Leave expedition</button></div>';
+  overlay.innerHTML = '<div class="sheet panel" role="dialog" aria-modal="true" aria-labelledby="gaming-title"><div class="gaming-head"><h2 id="gaming-title">Shared expedition</h2><button class="btn" id="gaming-close" type="button" aria-label="Close shared expedition">×</button></div><p id="gaming-intro">Fight the guardian together. Each move and strike is confirmed by the shared server.</p><p id="gaming-status" role="status" aria-live="polite"></p><p id="gaming-save-status" role="status" aria-live="polite" hidden></p><button class="btn primary" id="gaming-enter" type="button">Enter shared expedition</button><div id="gaming-live" hidden><section><div id="gaming-arena" role="img" tabindex="0" aria-label="Shared encounter arena"></div><p id="gaming-arena-hint"></p><div class="gaming-controls"><div class="gaming-move" aria-label="Move one pace"><button class="btn" type="button" data-gaming-dx="0" data-gaming-dz="1" aria-label="Move forward">↑</button><button class="btn" type="button" data-gaming-dx="-1" data-gaming-dz="0" aria-label="Move left">←</button><button class="btn" type="button" data-gaming-dx="1" data-gaming-dz="0" aria-label="Move right">→</button><button class="btn" type="button" data-gaming-dx="0" data-gaming-dz="-1" aria-label="Move back">↓</button></div><button class="btn" type="button" id="gaming-attack">⚔ Strike</button></div><label>Control body<select id="gaming-entity"></select></label><button class="btn" type="button" id="gaming-recover" hidden>Recover fallen body</button><button class="btn" type="button" id="gaming-reset" hidden>Start another encounter · heal party</button></section><section><h3>Expedition rewards</h3><p id="gaming-reward-total"></p><div id="gaming-loot"></div></section><details><summary>Party &amp; confirmed positions</summary><section><div id="gaming-entities" class="gaming-grid"></div><button class="btn" type="button" id="gaming-refresh">Refresh shared state</button></section></details><details><summary>Bring your agent · teammate, pet or coach</summary><section><h3>Your agent companions</h3><p>Create a companion, select its body above, then issue access. The Agent DID is an owner-provided label; the capability authorizes access. Coach access is observation only. Access expires after 15 minutes and can be revoked at any time.</p><button class="btn" type="button" id="gaming-spawn">Create companion body</button><form id="gaming-grant-form"><label>Agent DID<input id="gaming-agent" maxlength="512" placeholder="did:…" autocomplete="off" autocapitalize="off" spellcheck="false" required></label><label>Companion role<select id="gaming-role"><option value="teammate">Teammate</option><option value="pet">Pet</option><option value="coach">Coach · observe only</option></select></label><button class="btn" type="submit">Grant access to selected body</button></form><div id="gaming-token-wrap" hidden><label>One-time agent capability<input id="gaming-token" readonly autocomplete="off" spellcheck="false"></label><p>Give your chosen agent this capability and its discovery URL: <a id="gaming-agent-discovery" target="_blank" rel="noopener noreferrer"></a>. The agent sends the capability in its Authorization: Bearer header and follows the allowed actions in that descriptor. The capability is cleared when this sheet closes.</p><button class="btn" id="gaming-token-copy" type="button">Copy capability</button><button class="btn" id="gaming-token-clear" type="button">Clear capability</button></div><div id="gaming-grants"></div></section></details><details><summary>Learning &amp; activity</summary><section><p id="gaming-learning"></p></section></details><p>Expedition rewards stay here and do not change your main-world inventory.</p></div><button class="btn" id="gaming-leave" type="button" hidden>Leave expedition</button></div>';
   document.body.appendChild(overlay);
   $('gaming-close').onclick = () => gamingToggle(false);
   $('gaming-enter').onclick = () => gamingRun(gamingEnter, $('gaming-enter'));
@@ -401,6 +438,7 @@ function gamingInit() {
 if (window.__hm) window.__hm.gaming = {
   get enabled() { return gamingEnabled(); },
   get state() { return { status: GAMING.status, roomId: GAMING.roomId, version: GAMING.version,
+    liveSequence: GAMING.liveSequence, durableSequence: GAMING.durableSequence, durableVersion: GAMING.durableVersion, persistence: structuredClone(GAMING.persistence),
     snapshot: structuredClone(GAMING.snapshot), pending: GAMING.pending.size, error: GAMING.lastError }; },
   enter: gamingEnter, leave: gamingLeave, observe: gamingObserve, command: gamingCommand,
   grant: gamingGrant, revoke: gamingRevoke, show: gamingToggle, msg: gamingMsg,

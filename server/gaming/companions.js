@@ -156,6 +156,20 @@ export function redactObservation(observation, authorization) {
     const value = observation[key];
     if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) result[key] = value;
   }
+  for (const key of ['liveSequence', 'durableSequence', 'durableVersion']) {
+    const value = observation[key];
+    if (Number.isSafeInteger(value) && value >= 0) result[key] = value;
+  }
+  if (typeof observation.durable === 'boolean') result.durable = observation.durable;
+  const persistence = observation.persistence;
+  if (persistence && ['strict', 'realtime'].includes(persistence.mode) && ['saved', 'pending', 'degraded', 'blocked'].includes(persistence.status)) {
+    result.persistence = { mode: persistence.mode, status: persistence.status };
+    for (const key of ['liveSequence', 'durableSequence', 'durableVersion', 'pendingCommands', 'oldestPendingMs']) {
+      const value = persistence[key];
+      if (Number.isSafeInteger(value) && value >= 0) result.persistence[key] = value;
+    }
+    if (typeof persistence.pendingRewards === 'boolean') result.persistence.pendingRewards = persistence.pendingRewards;
+  }
   const entities = Array.isArray(observation.entities) ? observation.entities : Object.values(observation.entities || {});
   result.entities = entities.filter(entity => entity && typeof entity === 'object').map(entity => {
     const safe = {};

@@ -11,16 +11,18 @@ export function gamingAgentAffordances(base = '') {
     authentication: { scheme: 'Bearer', permissions: 'Exact room, body, actions, expiry and rate from the human grant.' },
     affordances: [
       { action: 'urn:interego:gaming:observe', target: `${base}/gaming/agent/observe`, method: 'POST',
-        input: { roomId: 'march-proof', entityId: 'the-granted-body' }, returns: 'A redacted, confirmed shared-world snapshot.' },
+        input: { roomId: 'march-proof', entityId: 'the-granted-body' }, returns: 'A redacted authoritative live snapshot with explicit liveSequence, durableSequence and persistence status.' },
       { action: 'urn:interego:gaming:command', target: `${base}/gaming/agent/command`, method: 'POST',
         input: { command: { commandId: 'unique-request-id', type: 'move|attack|claimLoot', roomId: 'march-proof', entityId: 'the-granted-body', x: 'number for move', z: 'number for move', targetId: 'enemy for attack or loot' } },
-        returns: 'A durable command result or refusal; retries reuse the exact commandId and body.' },
+        returns: 'An authoritative command result or refusal. Movement and combat may return durable:false while a background checkpoint saves. claimLoot waits for durable confirmation. Retries reuse the exact commandId and body.' },
     ],
+    persistence: { live: 'Immediate server authority', saved: 'durableSequence confirms the saved prefix',
+      uncertainty: 'A durability_pending refusal can mean an action is applied but unconfirmed; observe before retrying.' },
     learning: { export: 'disabled without a separately verified subject identity and current session consent', competencyClaims: false },
   };
 }
 
-export function createAgentHttp({ gaming, now = Date.now, maxConcurrent = 16, maxBody = 8192, timeoutMs = 10000 } = {}) {
+export function createAgentHttp({ gaming, now = Date.now, maxConcurrent = 16, maxBody = 8192, timeoutMs = 35000 } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) throw new TypeError('Agent HTTP timeout must be 1..60000 milliseconds.');
   let active = 0; const rate = new Map();
   return function handle(req, res, pathname) {

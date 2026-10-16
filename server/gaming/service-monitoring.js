@@ -11,8 +11,9 @@ const canonical = v => Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']'
 const hash = v => createHash('sha256').update(typeof v === 'string' ? v : canonical(v)).digest('hex');
 const uuid = v => { const h = hash(v).slice(0, 32).split(''); h[12] = '8'; h[16] = ((parseInt(h[16], 16) & 3) | 8).toString(16); const s = h.join(''); return `${s.slice(0,8)}-${s.slice(8,12)}-${s.slice(12,16)}-${s.slice(16,20)}-${s.slice(20)}`; };
 const copy = v => structuredClone(v);
-const countFields = ['commands', 'refused', 'commits', 'conflicts', 'version', 'playerConnections', 'eventWindow'];
-const timeFields = ['maxCommandMs', 'lastCommitMs'];
+const snapshotFields = ['version', 'playerConnections', 'eventWindow', 'liveSequence', 'durableSequence', 'durableVersion', 'pendingCommands'];
+const countFields = ['commands', 'refused', 'commits', 'conflicts', ...snapshotFields];
+const timeFields = ['maxCommandMs', 'lastCommitMs', 'oldestPendingMs'];
 const eventKinds = ['world.created', 'player.joined', 'movement.applied', 'damage', 'loot.granted', 'companion.spawned', 'companion.granted', 'companion.revoked', 'consent.changed', 'encounter.started', 'entity.recovered', 'knowledge.consulted', 'teaching.delivered', 'resource.gathered'];
 function number(v, name, integer = false) { if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > Number.MAX_SAFE_INTEGER || integer && !Number.isSafeInteger(v)) throw new TypeError('Invalid operational measurement: ' + name); return v; }
 function descriptor(value) {
@@ -27,9 +28,14 @@ function descriptor(value) {
  */
 export function sanitizeServiceMetrics(metrics) {
   if (!metrics || typeof metrics !== 'object') throw new TypeError('Operational metrics required');
-  const processCounters = {}, timings = {}, snapshot = {}, recentEventWindow = { semantics: 'bounded-overlapping-committed-events', byKind: {} };
-  for (const k of countFields) if (metrics[k] !== undefined) (['version', 'playerConnections', 'eventWindow'].includes(k) ? snapshot : processCounters)[k] = number(metrics[k], k, true);
-  for (const k of timeFields) if (metrics[k] !== undefined) timings[k] = number(metrics[k], k);
+  const measured = { ...metrics };
+  for (const k of ['liveSequence', 'durableSequence', 'durableVersion', 'pendingCommands', 'oldestPendingMs']) {
+    if (measured[k] === undefined && metrics.persistence?.[k] !== undefined) measured[k] = metrics.persistence[k];
+  }
+  const processCounters = {}, timings = {}, snapshot = {}, recentEventWindow = {
+    semantics: measured.liveSequence === undefined ? 'bounded-overlapping-committed-events' : 'bounded-overlapping-authoritative-live-events', byKind: {} };
+  for (const k of countFields) if (measured[k] !== undefined) (snapshotFields.includes(k) ? snapshot : processCounters)[k] = number(measured[k], k, true);
+  for (const k of timeFields) if (measured[k] !== undefined) timings[k] = number(measured[k], k);
   const byKind = metrics.performance?.byKind;
   if (byKind && typeof byKind === 'object') for (const k of eventKinds) if (byKind[k] !== undefined) recentEventWindow.byKind[k] = number(byKind[k], 'event kind', true);
   return { processCounters, timings, snapshot, recentEventWindow };
@@ -61,7 +67,7 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
         timestamp: s.timestamp, context: { extensions: { [NS + 'measurements']: safe, [NS + 'purpose']: e[NS + 'purpose'], [NS + 'processRunId']: e[NS + 'processRunId'], [NS + 'scope']: 'game-service', [NS + 'epistemicStatus']: 'observed-operational-snapshot', [NS + 'competencyStatus']: 'not-assessed', [NS + 'humanRecordsExported']: false } } };
       if (!['operational', 'software-verification'].includes(e[NS + 'purpose']) || !/^[a-zA-Z0-9._:-]{1,100}$/.test(e[NS + 'processRunId']) || canonical(s) !== canonical(expected)) throw new Error('Unexpected persisted monitoring content');
     }
-    last = { ...last, pending: state.pending.length, state: state.pending.length ? 'pending' : 'ready' };
+    last = { ...last, pending: state.pending.length, state: state.pending.length ? (last.lastDeliveryState || 'pending') : 'ready' };
     return { version: current.version, state: copy(state) };
   };
   const update = async (operationId, apply) => {
@@ -101,11 +107,15 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
     const statements = batch.map(x => x.statement), envelope = await signRequest({ statements });
     let signed; try { signed = JSON.parse(envelope?._signed_payload); } catch { throw new Error('Invalid service signature envelope'); }
     if (typeof envelope?._signature !== 'string' || signed.agent_id !== serviceDid || canonical(signed.statements) !== canonical(statements)) throw new Error('Service signature identity or statement mismatch');
-    let response; try { response = await transport({ url: target.target, method: 'POST', body: envelope }); } catch { last.state = 'delivery-uncertain'; return { ok: false, reason: 'foxxi-transport-uncertain', exported: 0 }; }
+    last.lastAttemptAt = new Date(now()).toISOString();
+    let response; try { response = await transport({ url: target.target, method: 'POST', body: envelope }); }
+    catch { last.state = last.lastDeliveryState = 'delivery-uncertain'; last.lastDeliveryReason = 'foxxi-transport-uncertain'; return { ok: false, reason: last.lastDeliveryReason, exported: 0 }; }
     const body = response?.body, expected = batch.map(x => x.statementId).sort();
     const exact = values => Array.isArray(values) && canonical([...values].sort()) === canonical(expected);
     if (response?.status !== 200 || body?.ok !== true || body.durable !== true || body.lrsAccepted !== true || !exact(body.statementIds) || !Array.isArray(body.receipts) || !exact(body.receipts.map(x => x.statementId)) || !body.receipts.every(x => x.persisted === true)) {
-      last.state = 'delivery-unconfirmed'; return { ok: false, reason: 'foxxi-durable-ack-required', exported: 0 };
+      last.state = last.lastDeliveryState = 'delivery-unconfirmed'; last.lastDeliveryReason = 'foxxi-durable-ack-required';
+      if (Number.isInteger(response?.status)) last.lastHttpStatus = response.status;
+      return { ok: false, reason: last.lastDeliveryReason, exported: 0 };
     }
     await update('ack:' + hash(expected), current => {
       const ids = new Set(expected), pending = current.pending.filter(x => ids.has(x.statementId));
@@ -115,7 +125,8 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
       current.receipts.push(...pending.map(x => ({ statementId: x.statementId, digest: x.digest, persisted: true, recipient: target.target })));
       current.receipts = current.receipts.slice(-64);
     });
-    last = { ...last, state: 'ready', exported: last.exported + batch.length, lastStatementIds: expected, lastConfirmedAt: new Date(now()).toISOString() };
+    last = { ...last, state: 'ready', lastDeliveryState: null, lastDeliveryReason: null, lastHttpStatus: response.status,
+      exported: last.exported + batch.length, lastStatementIds: expected, lastConfirmedAt: new Date(now()).toISOString() };
     return { ok: true, durable: true, exported: batch.length, receipts: body.receipts };
   }); }
   return { ready, record, flush, status: () => copy({ ...last, serviceDid, recipient: target.target, humanLearning: 'disabled-until-verified-binding-and-consent' }) };

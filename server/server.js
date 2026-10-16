@@ -198,7 +198,9 @@ const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, ST
 let gamingStore = null, gamingEnvironment = { ...process.env };
 try { gamingEnvironment = await prepareGamingEnvironment(process.env); gamingStore = await configuredGamingStore(gamingEnvironment); }
 catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
-const GAMING = createGamingRuntime({ store: gamingStore, send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
+const GAMING = createGamingRuntime({ store: gamingStore,
+  persistenceMode: gamingEnvironment.HM_GAMING_PERSISTENCE_MODE === 'strict' ? 'strict' : 'realtime',
+  send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
 const gamingHttp = createAgentHttp({ gaming: GAMING });
 let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
@@ -600,7 +602,19 @@ if (SEASON.RS) {
   setInterval(() => { try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000); // [season2]
 }
 let closing = false;
-const shutdown = () => { if (closing) return; closing = true; try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); } catch (e) { console.warn('shutdown', e.message); } process.exit(0); };
+const shutdown = async () => {
+  if (closing) return; closing = true;
+  server.close();
+  try { SEASON.step(); SEASON.save(); COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); store.write('worlds.json', WORLDS); }
+  catch (e) { console.warn('shutdown', e.message); }
+  // Existing sockets cannot introduce new actions while the final checkpoint is
+  // draining. A crash may recover only the last confirmed checkpoint.
+  for (const ws of wss.clients) ws.close(1012, 'Server restarting');
+  const deadline = new Promise((_, reject) => { setTimeout(() => reject(new Error('checkpoint timeout')), 15000).unref(); });
+  try { await Promise.race([GAMING.shutdown(), deadline]); }
+  catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
+  process.exit(0);
+};
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
 export { server, STATS, CFG, SEASON, COMP };

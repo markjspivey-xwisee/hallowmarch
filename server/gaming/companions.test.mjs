@@ -157,3 +157,21 @@ test('durable events replay grants, command limits and revocation exactly withou
   assert.deepEqual(replay, state, 'compaction is deterministic in journal replay');
   authorizeCompanion(replay, later.token, command, NOW + 5);
 });
+
+test('agent observations retain bounded live and durable progress while dropping arbitrary persistence details', () => {
+  const state = world(), { token } = grantCompanion(state, human, request, NOW);
+  const auth = authorizeCompanion(state, token, { type: 'observe' }, NOW);
+  const observation = { roomId: 'room-a', version: 12, liveSequence: 12, durableSequence: 8, durableVersion: 3, durable: false,
+    persistence: { mode: 'realtime', status: 'pending', liveSequence: 12, durableSequence: 8, durableVersion: 3,
+      pendingCommands: 4, oldestPendingMs: 120, pendingRewards: true, token, owner: human, lastError: 'secret native exception' }, entities: {} };
+  const safe = redactObservation(observation, auth);
+  assert.deepEqual(safe, { roomId: 'room-a', version: 12, liveSequence: 12, durableSequence: 8, durableVersion: 3, durable: false,
+    persistence: { mode: 'realtime', status: 'pending', liveSequence: 12, durableSequence: 8, durableVersion: 3,
+      pendingCommands: 4, oldestPendingMs: 120, pendingRewards: true }, entities: [] });
+  assert(!JSON.stringify(safe).includes(token)); assert(!JSON.stringify(safe).includes('secret'));
+  const malformed = redactObservation({ ...observation, liveSequence: Infinity, durableVersion: -1,
+    persistence: { ...observation.persistence, pendingCommands: -1, oldestPendingMs: 1.5, pendingRewards: token } }, auth);
+  assert.equal(malformed.liveSequence, undefined); assert.equal(malformed.durableVersion, undefined);
+  assert.equal(malformed.persistence.pendingCommands, undefined); assert.equal(malformed.persistence.oldestPendingMs, undefined);
+  assert.equal(malformed.persistence.pendingRewards, undefined);
+});

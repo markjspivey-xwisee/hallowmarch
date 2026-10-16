@@ -19,9 +19,18 @@ const playwrightModule = process.env.HM_PLAYWRIGHT_MODULE || 'playwright';
 const { chromium } = await import(playwrightModule.startsWith('/') ? pathToFileURL(playwrightModule).href : playwrightModule);
 const fixture = await fs.mkdtemp(path.join(tmpdir(), 'hm-gaming-browser-'));
 const stateFile = path.join(fixture, 'state.json');
+const realtime = process.env.HM_GAMING_TEST_REALTIME === '1';
+let checkpointGate = null, releaseCheckpoint = () => {};
+function holdCheckpoint() {
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const held = new Promise(resolve => { releaseCheckpoint = resolve; });
+  checkpointGate = { entered, held }; return started;
+}
 class DiskFixture {
   async load() { try { return JSON.parse(await fs.readFile(stateFile, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return { version: 0, state: null }; throw error; } }
   async commit(id, request) {
+    if (checkpointGate) { const gate = checkpointGate; checkpointGate = null; gate.entered(); await gate.held; }
     const previous = await this.load();
     if (previous.version !== request.expectedVersion) throw Object.assign(new Error('fixture conflict'), { code: 'VERSION_CONFLICT' });
     const next = { version: previous.version + 1, state: request.state };
@@ -29,7 +38,7 @@ class DiskFixture {
     return this.load();
   }
 }
-const runtime = createGamingRuntime({ store: new DiskFixture(), send: (client, message) => { if (client.ws.readyState === 1) client.ws.send(JSON.stringify(message)); } });
+const runtime = createGamingRuntime({ store: new DiskFixture(), persistenceMode: realtime ? 'realtime' : 'strict', send: (client, message) => { if (client.ws.readyState === 1) client.ws.send(JSON.stringify(message)); } });
 await runtime.ready;
 assert.equal(runtime.manifest().enabled, true);
 const styles = readFileSync(path.join(ROOT, 'src/page.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
@@ -105,15 +114,44 @@ try {
     console.log(`PASS expedition ${width}x${height}: no horizontal clipping; reachable close${height > width ? ' and strike' : ''}`);
   }
   await alice.setViewportSize({ width: 393, height: 852 }); await alice.locator('#gaming-sheet .sheet').evaluate(el => { el.scrollTop = 0; });
-  for (let i = 1; i <= 2; i++) { await alice.locator('[data-gaming-dz="1"]').click(); await alice.waitForFunction(z => window.__hm.gaming.state.snapshot.entities.find(e => e.id === 'alice').z === z, i); await alice.waitForTimeout(190); }
+  let movementCheckpoint;
+  if (realtime) { await runtime.room.flushPersistence(); movementCheckpoint = holdCheckpoint(); }
+  for (let i = 1; i <= 2; i++) {
+    await alice.locator('[data-gaming-dz="1"]').click();
+    await alice.waitForFunction(z => window.__hm.gaming.state.snapshot.entities.find(e => e.id === 'alice').z === z, i);
+    if (realtime) {
+      await alice.waitForFunction(() => window.__hm.gaming.state.pending === 0 && window.__hm.gaming.state.liveSequence > window.__hm.gaming.state.durableSequence);
+      await bob.waitForFunction(z => window.__hm.gaming.state.snapshot.entities.find(e => e.id === 'alice').z === z, i);
+      assert.equal(await alice.locator('#gaming-save-status').innerText(), 'Live · Saving…');
+      if (i === 1) await movementCheckpoint;
+    }
+    await alice.waitForTimeout(190);
+  }
+  if (realtime) {
+    releaseCheckpoint();
+    await alice.waitForFunction(() => window.__hm.gaming.state.liveSequence === window.__hm.gaming.state.durableSequence);
+    assert.equal(await alice.locator('#gaming-save-status').innerText(), 'Live · Saved');
+    console.log('PASS two players receive live movement while a background save is held; saved status follows its checkpoint');
+  }
   await alice.locator('#gaming-arena').focus(); await alice.keyboard.press('Space');
   await bob.waitForFunction(() => window.__hm.gaming.state.snapshot.entities.find(e => e.kind === 'npc').hp === 90);
   await alice.waitForFunction(() => window.__hm.gaming.state.snapshot.entities.find(e => e.kind === 'npc').hp === 90);
   assert.equal(await alice.locator('.gaming-marker[data-kind="npc"] small').innerText(), '90/100');
   console.log('PASS real DOM actions and WebSocket snapshots agree across two browser players');
   for (let hp = 80; hp >= 0; hp -= 10) { await alice.waitForTimeout(720); await alice.locator('#gaming-attack').click(); await bob.waitForFunction(hp => window.__hm.gaming.state.snapshot.entities.find(e => e.kind === 'npc').hp === hp, hp); }
+  let rewardCheckpoint;
+  if (realtime) { await runtime.room.flushPersistence(); rewardCheckpoint = holdCheckpoint(); }
   await alice.getByRole('button', { name: 'Claim reward', exact: true }).click();
   await alice.waitForFunction(() => window.__hm.gaming.state.snapshot.rewards['guardian-token'] === 1);
+  if (realtime) {
+    await rewardCheckpoint;
+    assert.match(await alice.locator('#gaming-reward-total').innerText(), /saving/);
+    assert.equal(await alice.evaluate(() => window.__hm.gaming.state.persistence.pendingRewards), true);
+    releaseCheckpoint();
+    await alice.waitForFunction(() => !window.__hm.gaming.state.persistence.pendingRewards && window.__hm.gaming.state.pending === 0);
+    assert.equal(await alice.locator('#gaming-reward-total').innerText(), '1 guardian-token');
+    console.log('PASS reward preview remains labelled as saving until the durable checkpoint confirms it');
+  }
   await alice.locator('#gaming-reset').click();
   await bob.waitForFunction(() => window.__hm.gaming.state.snapshot.entities.find(e => e.kind === 'npc').hp === 100 && window.__hm.gaming.state.snapshot.encounter.sequence === 2);
   assert.equal(await alice.locator('#gaming-reward-total').innerText(), '1 guardian-token');
@@ -134,5 +172,6 @@ try {
   console.log('PASS human companion grant flow returns a capability and closing clears it');
   assert.deepEqual(errors, []); console.log('PASS no browser errors (native storage outside this fixture check)');
 } finally {
+  releaseCheckpoint();
   await Promise.all(contexts.map(context => context.close())); await Promise.all(browsers.map(browser => browser.close())); wss.close(); await new Promise(resolve => server.close(resolve)); await fs.rm(fixture, { recursive: true, force: true });
 }
