@@ -52,9 +52,25 @@ export async function retainedNativeOAuthPopup({ page, gameOrigin, onPopup }) {
     startAuthorization: response.request().headers().authorization };
 }
 
+const proofSteps = new Set(['relay-document', 'authenticator-attach', 'display-name', 'register-click', 'signin-click',
+  'passkey-event', 'passkey-sync', 'proof-submitted']);
+const uiCodes = new Set(['idle', 'challenge_requested', 'waiting_passkey', 'challenge_refused', 'native_refused', 'browser_refused', 'unknown_error']);
+const credentialErrors = new Set(['NotAllowedError', 'AbortError', 'SecurityError', 'InvalidStateError', 'NotSupportedError', 'UnknownError']);
+function safeProofDiagnostics(value) {
+  if (!value || typeof value !== 'object') return null;
+  const result = {};
+  for (const key of ['challengeInFlight', 'credentialInFlight', 'uidFieldPresent', 'signInPresent']) result[key] = value[key] === true;
+  result.challengeRequests = Number.isInteger(value.challengeRequests) && value.challengeRequests >= 0 && value.challengeRequests <= 16 ? value.challengeRequests : null;
+  result.challengeStatus = numericStatus(value.challengeStatus);
+  result.credentialError = credentialErrors.has(value.credentialError) ? value.credentialError : null;
+  result.uiCode = uiCodes.has(value.uiCode) ? value.uiCode : null;
+  return result;
+}
+
 export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner = null,
-  getPasskey, start, prove, verifyOwner, inspectFinish = async () => null, prepareCapture = prepareNativeOAuthRedirectCapture, timeoutMs = 180000 } = {}) {
-  ensure(typeof register === 'boolean' && [getPasskey, start, prove, verifyOwner, inspectFinish, prepareCapture].every(value => typeof value === 'function')
+  getPasskey, start, prove, verifyOwner, inspectFinish = async () => null, prepareCapture = prepareNativeOAuthRedirectCapture,
+  prepareProof = async () => {}, inspectProof = async () => null, timeoutMs = 180000 } = {}) {
+  ensure(typeof register === 'boolean' && [getPasskey, start, prove, verifyOwner, inspectFinish, prepareCapture, prepareProof, inspectProof].every(value => typeof value === 'function')
     && Number.isInteger(timeoutMs) && timeoutMs >= 10 && timeoutMs <= 180000, 'qa_oauth_configuration');
   for (const origin of [gameOrigin, relayOrigin]) { let u; try { u = new URL(origin); } catch { throw error('qa_oauth_configuration'); }
     ensure(u.protocol === 'https:' && u.origin === origin, 'qa_oauth_configuration'); }
@@ -62,6 +78,19 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   const attempts = [];
   let current = null, completeOwner = null, running = null, closed = false, retryApproved = false, registrationAttempted = false;
   let originalCredentialId = null, lastCode = null;
+  let diagnosticFlight = null;
+  async function diagnoseProof(attempt) {
+    if (!attempt?.popup || attempt.popupClosed) return null;
+    if (diagnosticFlight) return { timedOut: true, inFlight: true };
+    const task = Promise.resolve().then(() => inspectProof(attempt.popup)).then(value => {
+      const safe = safeProofDiagnostics(value); if (current === attempt) attempt.proofDiagnostics = safe; return safe;
+    }).catch(() => null);
+    diagnosticFlight = task;
+    task.finally(() => { if (diagnosticFlight === task) diagnosticFlight = null; });
+    let timer;
+    try { return await Promise.race([task, new Promise(resolve => { timer = setTimeout(() => resolve({ timedOut: true, inFlight: true }), 2000); })]); }
+    finally { clearTimeout(timer); }
+  }
   const changed = attempt => { attempt.wake?.(); attempt.wake = null; };
   const registrationReady = () => { try { return !!originalCredentialId && retainedCredentialId(getPasskey()) === originalCredentialId; }
     catch { return false; } };
@@ -83,6 +112,9 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
     attempt.onRequest = request => {
       try {
         const url = new URL(request.url());
+        if (url.origin === relayOrigin && url.pathname === '/oauth/verify' && request.method() === 'POST') {
+          ensure(++attempt.verifyRequests === 1, 'qa_oauth_registration_provenance'); changed(attempt); return;
+        }
         if (url.origin !== gameOrigin || url.pathname !== '/gaming/identity/claim' || request.method() !== 'POST') return;
         ensure(++attempt.claimRequests === 1, 'qa_oauth_claim_provenance');
         attempt.claimAuthorization = request.headers().authorization;
@@ -161,6 +193,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
   async function launch() {
     const attempt = { register: register && attempts.length === 0, popup: null, popupClosed: false, jobs: new Set(),
       phase: 'opening', state: null, pkce: false, verifyResponses: 0, verifyStatus: null, verifySucceeded: false,
+      verifyRequests: 0, proofStep: null, proveCode: null, proofDiagnostics: null,
       callbackStatus: null, callbackCode: null, finishStatus: null, finishCode: null, claimStatus: null,
       claimRequests: 0, superseded: false, completed: false, invalid: null };
     current = attempt; attempts.push(attempt);
@@ -193,12 +226,17 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
     } }); }
     catch { throw error('qa_oauth_capture_refused'); }
     if (attempt.register) { ensure(!registrationAttempted, 'qa_registration_retry_refused'); registrationAttempted = true; }
-    try { await prove(attempt.popup, { register: attempt.register,
+    try { await prepareProof(attempt.popup); await prove(attempt.popup, { register: attempt.register,
       // Explicit recovery is usernameless: only the original resident passkey
       // is installed. No caller supplies an identity or guessed userId.
-      userId: attempts.length === 1 && !register ? expectedOwner.userId : null }); }
-    catch { /* A navigation/click timeout can have completed native proof. Resume its original popup below. */ }
-    if (attempt.phase === 'proof') attempt.phase = 'callback';
+      userId: null, onStep: value => { if (proofSteps.has(value)) attempt.proofStep = value; } }); }
+    catch (cause) {
+      // A click timeout can have completed native proof. Preserve only a fixed
+      // diagnosis and keep observing this original popup; never replay it.
+      attempt.proveCode = nativeOAuthFailureCode(cause) || (cause?.name === 'TimeoutError' ? 'qa_oauth_browser_timeout' : 'qa_oauth_proof_failed');
+      await diagnoseProof(attempt);
+    }
+    if (attempt.phase === 'proof') attempt.phase = attempt.proveCode ? 'proof-unconfirmed' : 'callback';
   }
   async function wait() {
     const attempt = current, deadline = Date.now() + timeoutMs;
@@ -238,6 +276,8 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
       attempts: attempts.length, registrationAttempted, hasOriginalCredential: !!originalCredentialId, hasPasskey: passkeyPresent(),
       callbackStatus: current?.callbackStatus || null, callbackCode: current?.callbackCode || null,
       startStatus: current?.startStatus || null,
+      verifyRequests: current?.verifyRequests || 0, proofStep: current?.proofStep || null,
+      proveCode: current?.proveCode || null, proofDiagnostics: current?.proofDiagnostics || null,
       verifyStatus: current?.verifyStatus || null, finishStatus: current?.finishStatus || null, finishCode: current?.finishCode || null,
       verifyBodyCode: current?.verifyBodyCode || null, captureCode: current?.captureCode || null,
       redirectEvidence: current?.browserRedirectHash ? current.nodeRedirectHash ? 'node-and-browser' : 'browser-response'
@@ -250,6 +290,7 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
         verifyBodyCode: value.verifyBodyCode || null, captureCode: value.captureCode || null,
         finishStatus: value.finishStatus, finishCode: value.finishCode, claimStatus: value.claimStatus,
         claimRequests: value.claimRequests, complete: value.completed, explicitlySuperseded: value.superseded })) }; },
+    async diagnose() { const proof = await diagnoseProof(current); return { ...api.status(), ...(proof?.timedOut ? { diagnosticTimedOut: true } : {}) }; },
     run() {
       if (closed) return Promise.reject(error('qa_oauth_closed'));
       if (running) return running;
@@ -290,6 +331,8 @@ export function createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, e
 
 const codes = new Set(['qa_oauth_configuration', 'qa_oauth_passkey_required', 'qa_oauth_registration_provenance', 'qa_oauth_response_refused',
   'qa_oauth_passkey_sync_refused', 'qa_oauth_passkey_event_pending', 'qa_oauth_native_proof_refused',
+  'qa_oauth_browser_timeout', 'qa_oauth_proof_failed',
+  'qa_oauth_proof_diagnostics_unavailable',
   'qa_oauth_owner_mismatch', 'qa_oauth_callback_provenance', 'qa_oauth_claim_provenance', 'qa_oauth_start_provenance',
   'qa_registration_retry_refused', 'qa_oauth_callback_refused', 'qa_oauth_claim_refused', 'qa_oauth_popup_closed',
   'qa_oauth_finish_refused', 'qa_oauth_pending', 'qa_oauth_closed', 'qa_oauth_retry_refused', 'qa_oauth_popup_mismatch']);

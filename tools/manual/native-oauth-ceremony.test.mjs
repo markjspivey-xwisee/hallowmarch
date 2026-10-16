@@ -59,7 +59,9 @@ function fixture(options = {}) {
         advertised: { ownerPodWriteAccess: true, authorizationUrl: authorize.href } };
     },
     async prove(popup, intent) {
-      counts.proofs++; intents.push(intent); if (intent.register) counts.registrations++;
+      counts.proofs++; intents.push({ register: intent.register, userId: intent.userId }); if (intent.register) counts.registrations++;
+      if (options.proofStep) intent.onStep(options.proofStep);
+      if (options.proveError) throw options.proveError;
       const redirect = gameOrigin + '/gaming/identity/callback?code=RAM_ONLY_CODE&state=' + popup.state;
       const captured = () => popup.captureReceipt({ code: options.badCapture ? 'DO_NOT_LOG' : 'capture_complete', status: 200,
         redirectHash: options.mismatchedCapture ? 'f'.repeat(64) : createHash('sha256').update(redirect).digest('hex') });
@@ -77,6 +79,7 @@ function fixture(options = {}) {
     },
     async verifyOwner() { counts.ownerReads++; return options.foreignOwner ? { ...owner, userId: 'u-pk-000000000000' } : owner; },
     inspectFinish: async () => 'Finishing your identity connection…',
+    inspectProof: options.inspectProof || (async () => options.proofDiagnostics || null),
   });
   return { controller, counts, popups, intents, observations, finish: () => deferred(), loseKey() { heldKey = null; } };
 }
@@ -107,6 +110,42 @@ test('an exact native verification refusal fails promptly without a callback, cl
   assert.equal(report.claimRequests, 0); assert.equal(report.callbackStatus, null); assert.equal(report.canRetrySameOwner, false);
   assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' });
   assert.equal(f.counts.starts, 1); assert.equal(f.counts.registrations, 0); f.controller.close();
+});
+test('the first fresh-browser sign-in is usernameless while the resulting owner still must match exactly', async () => {
+  const f = fixture({ register: false }); await f.controller.run();
+  assert.deepEqual(f.intents, [{ register: false, userId: null }]);
+  assert.equal(f.counts.registrations, 0); assert.equal(f.counts.ownerReads, 1);
+  const foreign = fixture({ register: false, foreignOwner: true });
+  await assert.rejects(foreign.controller.run(), { code: 'qa_oauth_owner_mismatch' }); foreign.controller.close();
+});
+test('pre-verification failures retain only fixed proof steps, error codes and sanitized provider diagnostics', async () => {
+  const f = fixture({ register: false, timeoutMs: 10, proofStep: 'signin-click', proveError: new Error('PRIVATE raw selector URL'),
+    proofDiagnostics: { challengeRequests: 1, challengeStatus: 503, challengeInFlight: false, credentialInFlight: false,
+      credentialError: 'PRIVATE', uiCode: 'challenge_refused', uidFieldPresent: true, signInPresent: true, privateKey: 'PRIVATE' } });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_pending' });
+  const report = await f.controller.diagnose();
+  assert.equal(report.proofStep, 'signin-click'); assert.equal(report.proveCode, 'qa_oauth_proof_failed');
+  assert.equal(report.verifyRequests, 0); assert.equal(report.proofDiagnostics.challengeStatus, 503);
+  assert.equal(report.proofDiagnostics.credentialError, null); assert.equal(report.proofDiagnostics.uiCode, 'challenge_refused');
+  assert.equal(JSON.stringify(report).includes('PRIVATE'), false);
+  assert.equal(report.canRetrySameOwner, false, 'a pre-proof failure cannot use the callback-only retry port');
+  assert.throws(() => f.controller.requestSameOwnerRetry(), { code: 'qa_oauth_retry_refused' }); f.controller.close();
+});
+test('a Playwright timeout stays distinguishable without exposing its exception text', async () => {
+  const f = fixture({ register: false, timeoutMs: 10, proofStep: 'passkey-event',
+    proveError: Object.assign(new Error('PRIVATE timeout selector'), { name: 'TimeoutError' }) });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_pending' });
+  const report = f.controller.status(); assert.equal(report.proveCode, 'qa_oauth_browser_timeout');
+  assert.equal(report.proofStep, 'passkey-event'); assert.equal(JSON.stringify(report).includes('PRIVATE'), false); f.controller.close();
+});
+test('stalled provider diagnostics are bounded and cannot queue repeated browser reads', async t => {
+  let reads = 0;
+  const f = fixture({ pending: true, timeoutMs: 10, inspectProof: () => { reads++; return new Promise(() => {}); } });
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_pending' });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const diagnosis = f.controller.diagnose(); await tick(); t.mock.timers.tick(2000);
+  assert.equal((await diagnosis).diagnosticTimedOut, true); assert.equal(reads, 1);
+  assert.equal((await f.controller.diagnose()).diagnosticTimedOut, true); assert.equal(reads, 1); f.controller.close();
 });
 test('definitive callback failure permits only an explicit same-passkey usernameless sign-in', async () => {
   const f = fixture({ callbackFailure: true }); await assert.rejects(f.controller.run(), { code: 'qa_oauth_callback_refused' });
@@ -165,7 +204,7 @@ test('two successful ceremonies can include a proven failed callback, but no una
   assert.equal(nativeOAuthPrivacy([first.controller, second.controller], observations), true);
   assert.equal(nativeOAuthPrivacy([first.controller, second.controller], { ...observations, startAuthorization: [...observations.startAuthorization, 'Bearer UNKNOWN'] }), false);
   assert.equal(nativeOAuthPrivacy([first.controller, second.controller], { ...observations, claimAuthorization: [...observations.claimAuthorization, 'Bearer UNKNOWN'] }), false);
-  assert.equal(second.counts.registrations, 0); assert.equal(second.intents[0].userId, owner.userId);
+  assert.equal(second.counts.registrations, 0); assert.equal(second.intents[0].userId, null);
 });
 test('finish and error diagnostics accept fixed known strings only', () => {
   assert.equal(nativeOAuthFinishCode('The sign-in window expired. Return to the game and connect again.'), 'finish_expired');

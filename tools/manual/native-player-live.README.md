@@ -83,8 +83,12 @@ browser contexts, the original client/profile and pending operation maps,
 expected synthetic save, encrypted recovery and that same test passkey in RAM.
 It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
 
-- `status`: redacted browser state, fixed plan cursor and local native QA state.
-- `diagnose`: the same state plus read-only held-key/registration booleans.
+- `status`: redacted browser state, fixed plan cursor, local native QA state,
+  proof substep, fixed proof-error code and native verification-request count.
+- `diagnose`: the same state plus read-only held-key/registration booleans and
+  bounded provider challenge HTTP status, pending-action flags and fixed UI
+  classifications. Unknown error text, user identifiers and response bodies
+  never appear. A stalled provider inspection cannot queue more browser reads.
 - `retry`: retry only the failed stage using its existing closure and owner.
 - `continue`: retry the failed stage and proceed through remaining stages.
 - `oauth-retry-same-owner`: after a definitively failed callback **before any
@@ -220,8 +224,13 @@ The virtual authenticator pattern is taken from reviewed Interego revision
 `87ee71626c015af3c1e7b9dac5579eff6899e8c1`,
 `deploy/mcp-relay/tests/passkey-oauth.spec.ts`: CTAP2/internal, resident key,
 verified user, automatic presence. Registration uses `#pk-name` / **Register
-new**; reauthentication uses the relay's `#uid-userid` / **Sign in with this
-userId** UI. No user password, wallet, invite, existing user passkey, or existing
+new**; every reauthentication uses the relay's canonical **Sign in** UI with
+only this run's exact resident credential installed. The authenticated owner,
+pod and game account must still match the original verified binding. The
+optional known-user-ID lookup is not exercised by this runner. Read-only
+challenge diagnostics default to the reviewed Interego identity origin;
+`HM_NATIVE_IDENTITY_ORIGIN` can explicitly select another HTTPS identity origin.
+No user password, wallet, invite, existing user passkey, or existing
 user credential is needed or read.
 
 ## Custody, retained state, and limits

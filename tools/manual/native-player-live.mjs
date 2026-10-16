@@ -10,6 +10,7 @@ import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompani
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
 import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
 import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
+import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -22,10 +23,11 @@ function origin(value) {
     || parsed.search || parsed.hash) throw new Error('configuration');
   return parsed.origin;
 }
-let gameOrigin, relayOrigin, companionConfig;
+let gameOrigin, relayOrigin, identityOrigin, companionConfig;
 try {
   gameOrigin = origin(process.env.HM_NATIVE_ORIGIN);
   relayOrigin = origin(process.env.HM_NATIVE_RELAY_ORIGIN);
+  identityOrigin = origin(process.env.HM_NATIVE_IDENTITY_ORIGIN || 'https://identity.interego.xwisee.com');
   if (gameOrigin === relayOrigin) throw new Error('configuration');
   if (process.env.DEBUG || process.env.PWDEBUG || process.env.PW_TEST_TRACE || process.env.NODE_DEBUG) throw new Error('configuration');
   companionConfig = nativeCompanionRunnerConfig(process.env);
@@ -107,33 +109,38 @@ async function oauth(page, { register, userId } = {}) {
     controller = createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner: register ? null : owner,
       getPasskey: () => qaPasskey.credential(),
       start: ({ onPopup }) => retainedNativeOAuthPopup({ page, gameOrigin, onPopup }),
+      prepareProof: popup => popup.evaluate(installNativeOAuthProofDiagnostics, { identityOrigin }),
+      inspectProof: popup => popup.evaluate(() => window.__hmNativeProofDiagnostics?.status() || null),
       async prove(popup, intent) {
+        intent.onStep('relay-document');
         await popup.waitForURL(url => url.origin === relayOrigin, { timeout: 60_000 });
+        intent.onStep('authenticator-attach');
         const authenticator = await qaPasskey.attach(popup, { register: intent.register });
         if (intent.register) {
           ensure(!registrationAttempted, 'qa_registration_retry_refused');
+          intent.onStep('display-name');
           await popup.locator('#pk-name').fill(displayName);
           registrationAttempted = true;
+          intent.onStep('register-click');
           await popup.getByRole('button', { name: /^Register new$/i }).click();
         } else {
           ensure(qaPasskey.credential()?.isResidentCredential, 'synthetic-passkey-sync');
-          if (intent.userId) {
-            await popup.locator('#uid-userid').fill(intent.userId);
-            await popup.getByRole('button', { name: /^Sign in with this userId$/i }).click();
-          } else {
-            // This new authenticator contains only the original run's resident
-            // credential. Native credential lookup chooses its canonical owner.
-            await popup.getByRole('button', { name: /^Sign in$/i }).click();
-          }
+          // Only this run's exact resident key is installed. Native credential
+          // lookup chooses its canonical owner for every sign-in attempt.
+          intent.onStep('signin-click');
+          await popup.getByRole('button', { name: /^Sign in$/i }).click();
         }
         // The click may return while its asynchronous native challenge is
         // pending. Read CDP storage only after this exact proof's key event.
+        intent.onStep('passkey-event');
         await authenticator.waitForCredential();
         // If the callback closes the popup first, its assertion
         // event already retained the exact updated credential. Never replace it
         // with the registration snapshot or infer a counter value.
+        intent.onStep('passkey-sync');
         if (!popup.isClosed()) await authenticator.sync();
         qaPasskey.credential();
+        intent.onStep('proof-submitted');
       },
       inspectFinish: popup => popup.locator('#status').textContent({ timeout: 1000 }),
       async verifyOwner() {
@@ -239,7 +246,8 @@ async function reportRetainedStatus(diagnose) {
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (broker) console.log(JSON.stringify(broker.status()));
-  for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({ ...oauthControllers[i].status(), ceremonyIndex: i + 1 }));
+  for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
+    ...(diagnose ? await oauthControllers[i].diagnose() : oauthControllers[i].status()), ceremonyIndex: i + 1 }));
   const inventory = qaPageInventory(retainedPages, { gameOrigin, relayOrigin });
   console.log(JSON.stringify(inventory));
   for (const entry of inventory.pages) if (!entry.closed && entry.originClass === 'game') {
