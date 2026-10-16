@@ -54,24 +54,32 @@ export function nativeAgentMetadataGraph(document) {
 /** Async HTTP handler. A timeout never releases the backend concurrency permit
  * while a non-cancellable native read/commit is still in flight. */
 export function createNativeAgentHttp({ authority, accounts, publicOrigin, applicationId, now = Date.now,
-  maxConcurrent = 16, maxBody = 16384, timeoutMs = 35000 } = {}) {
+  maxConcurrent = 16, maxBody = 16384, timeoutMs = 35000, paths = NATIVE_AGENT_PATHS,
+  metadataPath = '/gaming/native-agents', describe = nativeAgentAffordances } = {}) {
   const origin = new URL(publicOrigin).origin;
   nativeAgentAffordances({ publicOrigin, applicationId });
   if (typeof accounts?.ownerForRequest !== 'function' || !Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 64
     || !Number.isInteger(maxBody) || maxBody < 1024 || maxBody > 65536 || !Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) throw new TypeError('Bounded native agent HTTP and owner account ports required');
   let active = 0; const rates = new Map();
-  const document = () => nativeAgentAffordances({ publicOrigin, applicationId, enabled: !!authority?.status().enabled,
+  const document = () => describe({ publicOrigin, applicationId, enabled: !!authority?.status().enabled,
     leaseMs: authority?.status().leaseMs ?? 10000 });
   return Object.freeze({ metadataGraph() { return nativeAgentMetadataGraph(document()); },
-    manifest() { return { enabled: !!authority?.status().enabled, applicationId, audience: origin, affordances: origin + '/gaming/native-agents',
+    manifest() { return { enabled: !!authority?.status().enabled, applicationId, audience: origin, affordances: origin + metadataPath,
       authentication: 'native-owner-grant-and-agent-signature', perCommandNativeReads: 0,
       nativeReadScope: 'owner-grant-and-agent-proof-control-plane', leaseMs: authority?.status().leaseMs ?? 10000 }; },
     async handle(req, res, pathname) {
-      const operation = Object.entries(NATIVE_AGENT_PATHS).find(([, path]) => path === pathname)?.[0];
-      if (!operation && pathname !== '/gaming/native-agents') return false;
+      const operation = Object.entries(paths).find(([, path]) => path === pathname)?.[0];
+      const ownerList = pathname === metadataPath + '/owner' && typeof authority?.references === 'function';
+      if (!operation && pathname !== metadataPath && !ownerList) return false;
       const reply = (status, body) => { if (res.writableEnded || res.destroyed) return; res.writeHead(status,
         { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' }); res.end(JSON.stringify(body)); };
       if (req.headers.host !== new URL(publicOrigin).host || (req.headers.origin && req.headers.origin !== origin)) { reply(403, { error: 'invalid_native_agent_origin' }); return true; }
+      if (ownerList) {
+        if (req.method !== 'GET') { reply(405, { error: 'method_not_allowed' }); return true; }
+        try { reply(200, { ok: true, result: { references: authority.references(await accounts.ownerForRequest(req)) } }); }
+        catch { reply(403, { error: 'native_owner_required' }); }
+        return true;
+      }
       if (!operation) { if (req.method !== 'GET') reply(405, { error: 'method_not_allowed' }); else reply(200, document()); return true; }
       if (req.method !== 'POST') { reply(405, { error: 'method_not_allowed' }); return true; }
       if (!authority?.status().enabled) { reply(503, { error: 'native_agent_unavailable' }); return true; }

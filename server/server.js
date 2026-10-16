@@ -32,6 +32,7 @@ import { createPlayerBrowserAssets } from './gaming/player-browser-assets.js';
 import { createPerformanceResourceHttp } from './gaming/performance-resource-http.js';
 import { createNativeCapabilityComposition, createNativeCapabilityPublication } from './gaming/native-capability-publication.js';
 import { openHallowmarchWorldState, hallowmarchWorldDescription } from './gaming/hallowmarch-world-state.js';
+import { createMainWorldAgentTransport } from './gaming/main-world-agent-transport.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
@@ -267,7 +268,11 @@ const GAMING = createGamingRuntime({ store: gamingStore,
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
 const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS, environment: gamingEnvironment });
+const worldAgentTransport = createMainWorldAgentTransport({ principalFor: c => (!WORLD_STATE || WORLD_STATE.canMutate()) && PLAYER_ACCOUNTS.principalFor(c), send });
+const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS,
+  environment: gamingEnvironment, worldControl: { store: gamingStore, ...worldAgentTransport } });
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(),
+  mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
   worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
   ...(nativePlayerConfigured || gamingEnvironment.HM_NATIVE_AGENT_ENABLED === '1'
     ? { nativeAgents: { ...nativeAgentHost.manifest(), nativePublication: playerCapabilityStatus() } } : {}),
@@ -319,7 +324,7 @@ async function publishPlayerCapabilities() {
       const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
       playerCapabilities = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
         catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
-        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph() + '\n' + nativeAgentHost.metadataGraph(), maxPolls: 10 });
+        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph() + '\n' + nativeAgentHost.metadataGraph() + '\n' + worldAgentHost.metadataGraph(), maxPolls: 10 });
     }
     await playerCapabilities.publish();
   } catch { playerCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
@@ -365,7 +370,12 @@ async function sampleGamingService() {
   if (!gamingMonitor || gamingMonitorBusy) return;
   gamingMonitorBusy = true;
   try {
-    try { await gamingMonitor.record(GAMING.metrics(), { skipIfPending: true }); }
+    try { await gamingMonitor.record({ ...GAMING.metrics(), mainWorld: {
+      rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + [...R.clients.values()].filter(c => c.slow?.on === 1).length, 0),
+      receivedMessages: STATS.msgs, relayedMovementPackets: STATS.relayed + STATS.farRelayed,
+      refusedMovementPackets: STATS.paceDropped, refusedFarHits: STATS.hitsFar, refusedMessages: STATS.badMsgs + STATS.rateDropped,
+      worldWrites: STATS.worldWrites, seasonSteps: STATS.seasonSteps, contributions: STATS.contribs, orders: STATS.orders, captures: STATS.liveCaptures,
+    } }, { skipIfPending: true }); }
     catch { console.warn('gaming: operational sample pending; retrying retained observations'); }
     await gamingMonitor.flush();
   }
@@ -700,6 +710,13 @@ function onMsg(c, raw) {
     else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
     return;
   }
+  if (m.t === 'world-agent') {
+    if (!WORLD_STATE || WORLD_STATE.canMutate()) {
+      if (m.op === 'frame') worldAgentTransport.frame(c, m);
+      else if (m.op === 'result') worldAgentTransport.result(c, m);
+    }
+    return;
+  }
   if (m.t === 'slow') onSlow(c, m.d);
   else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
@@ -747,6 +764,7 @@ const server = http.createServer(async (req, res) => {
   if (playerBrowserAssets(req, res, u.pathname)) return;
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (await nativeAgentHost.handle(req, res, u.pathname)) return;
+  if (await worldAgentHost.handle(req, res, u.pathname)) return;
   if (performanceResourceHttp(req, res, u)) return;
   if (gamingHttp(req, res, u.pathname)) return;
   if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(nativePlayersRequired
@@ -804,7 +822,7 @@ wss.on('connection', (ws) => {
   const helloTimer = setTimeout(() => { if (!c.acct && !c.gamingAgent) ws.close(4001, 'no hello'); }, 10000);
   ws.on('message', (data) => { try { onMsg(c, String(data)); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
   ws.on('close', () => {
-    clearTimeout(helloTimer); GAMING.close(c);
+    clearTimeout(helloTimer); GAMING.close(c); worldAgentTransport.close(c);
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
@@ -829,6 +847,7 @@ let closing = false;
 const shutdown = async () => {
   if (closing) return; closing = true;
   server.close(); nativeAgentHost.close(); PLAYER_ACCOUNTS.close();
+  const worldAgentsClosing = worldAgentHost.close();
   for (const timer of worldTimers) clearInterval(timer);
   try { if (!WORLD_STATE || WORLD_STATE.canMutate()) { SEASON.step(); for (const R of ROOMS.values()) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); }
   catch (e) { console.warn('shutdown', e.message); }
@@ -836,7 +855,7 @@ const shutdown = async () => {
   // draining. A crash may recover only the last confirmed checkpoint.
   for (const ws of wss.clients) ws.close(1012, 'Server restarting');
   const deadline = new Promise((_, reject) => { setTimeout(() => reject(new Error('checkpoint timeout')), 15000).unref(); });
-  try { await Promise.race([Promise.all([GAMING.shutdown(), WORLD_STATE?.shutdown({ timeoutMs: 14000 })]), deadline]); }
+  try { await Promise.race([Promise.all([GAMING.shutdown(), WORLD_STATE?.shutdown({ timeoutMs: 14000 }), worldAgentsClosing]), deadline]); }
   catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
   process.exit(0);
 };

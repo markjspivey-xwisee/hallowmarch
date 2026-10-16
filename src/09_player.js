@@ -285,6 +285,11 @@ function updatePlayer(dt) {
     if (keyDown('KeyD', 'ArrowRight')) s += 1;
     if (keyDown('KeyA', 'ArrowLeft')) s -= 1;
     if (INPUT.joy) { f += -INPUT.joy.dy; s += INPUT.joy.dx; }
+    if (!f && !s && typeof mainWorldAgentMovement === 'function') {
+      const intent = mainWorldAgentMovement();
+      if (intent) { f = intent.dx * Math.sin(CAM.yaw) + intent.dz * Math.cos(CAM.yaw);
+        s = -intent.dx * Math.cos(CAM.yaw) + intent.dz * Math.sin(CAM.yaw); }
+    }
   }
   const mag = Math.min(1, Math.hypot(f, s));
   if (water2Steer(P, dt, f, s, mag)) { GAME.prog.played += dt; return; } // [water2] at the oars or under the water (07d_dive.js, 07e_boats.js)

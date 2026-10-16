@@ -15,6 +15,8 @@ const copy = v => structuredClone(v);
 const snapshotFields = ['version', 'playerConnections', 'eventWindow', 'liveSequence', 'durableSequence', 'durableVersion', 'pendingCommands'];
 const countFields = ['commands', 'refused', 'commits', 'conflicts', ...snapshotFields];
 const timeFields = ['maxCommandMs', 'lastCommitMs', 'oldestPendingMs'];
+const mainWorldFields = ['rooms', 'players', 'receivedMessages', 'relayedMovementPackets', 'refusedMovementPackets',
+  'refusedFarHits', 'refusedMessages', 'worldWrites', 'seasonSteps', 'contributions', 'orders', 'captures'];
 const eventKinds = ['world.created', 'player.joined', 'movement.applied', 'damage', 'loot.granted', 'companion.spawned', 'companion.granted', 'companion.revoked', 'consent.changed', 'encounter.started', 'entity.recovered', 'knowledge.consulted', 'teaching.delivered', 'resource.gathered'];
 function number(v, name, integer = false) { if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > Number.MAX_SAFE_INTEGER || integer && !Number.isSafeInteger(v)) throw new TypeError('Invalid operational measurement: ' + name); return v; }
 function descriptor(value) {
@@ -39,7 +41,13 @@ export function sanitizeServiceMetrics(metrics) {
   for (const k of timeFields) if (measured[k] !== undefined) timings[k] = number(measured[k], k);
   const byKind = metrics.performance?.byKind;
   if (byKind && typeof byKind === 'object') for (const k of eventKinds) if (byKind[k] !== undefined) recentEventWindow.byKind[k] = number(byKind[k], 'event kind', true);
-  return { processCounters, timings, snapshot, recentEventWindow };
+  const result = { processCounters, timings, snapshot, recentEventWindow };
+  if (metrics.mainWorld !== undefined) {
+    if (!metrics.mainWorld || typeof metrics.mainWorld !== 'object' || Array.isArray(metrics.mainWorld)) throw new TypeError('Main-world service counters required');
+    result.mainWorld = {};
+    for (const field of mainWorldFields) if (metrics.mainWorld[field] !== undefined) result.mainWorld[field] = number(metrics.mainWorld[field], 'mainWorld.' + field, true);
+  }
+  return result;
 }
 
 /** Store must be the native gaming store. Test fixtures do not establish physical
@@ -61,7 +69,8 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
       if (!s || row.statementId !== s.id || row.digest !== hash(s) || s.actor?.account?.name !== serviceDid || s.actor?.account?.homePage !== NS + 'services' || s.actor?.objectType !== 'Agent'
         || s.verb?.id !== NS + 'verbs/observed-service-snapshot' || s.object?.id !== NS + 'services/' + encodeURIComponent(gameId) || !Number.isFinite(Date.parse(s.timestamp))
         || e?.[NS + 'scope'] !== 'game-service' || e?.[NS + 'humanRecordsExported'] !== false || e?.[NS + 'competencyStatus'] !== 'not-assessed' || !m) throw new Error('Invalid persisted monitoring observation');
-      const safe = sanitizeServiceMetrics({ ...m.processCounters, ...m.timings, ...m.snapshot, performance: { byKind: m.recentEventWindow?.byKind } });
+      const safe = sanitizeServiceMetrics({ ...m.processCounters, ...m.timings, ...m.snapshot, performance: { byKind: m.recentEventWindow?.byKind },
+        ...(m.mainWorld === undefined ? {} : { mainWorld: m.mainWorld }) });
       const expected = { id: s.id, actor: { objectType: 'Agent', account: { homePage: NS + 'services', name: serviceDid } },
         verb: { id: NS + 'verbs/observed-service-snapshot', display: { en: 'observed game service snapshot' } },
         object: { objectType: 'Activity', id: NS + 'services/' + encodeURIComponent(gameId), definition: { type: NS + 'OperationalGameService', name: { en: gameId + ' game service' } } },

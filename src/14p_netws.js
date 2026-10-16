@@ -194,7 +194,7 @@ function netWsOpen() {
         if (settled || NETWS.state !== 'opening') return;
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
         netWsWorldStatus(m.worldAuthority, true);
-        NET.self = m.peer; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
+        NET.self = m.peer; NETWS.worldRoom = m.room; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(host, m.token); }
         NET.slowKey = ''; NET.fastKey = '';
         // Profile precedes a reconnecting player's first company/season action.
@@ -207,6 +207,7 @@ function netWsOpen() {
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
       else if (m.t === 'gaming') gamingMsg(m);
+      else if (m.t === 'world-agent' && typeof mainWorldAgentMessage === 'function') mainWorldAgentMessage(m);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }

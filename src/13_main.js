@@ -378,6 +378,7 @@ function simStep(dt) {
   GAME.dt = dt;
   rebuildGrid();
   runLater();
+  if (typeof mainWorldAgentTick === 'function') mainWorldAgentTick();
   if (GAME.player) updatePlayer(dt);
   updateNPCs(dt);
   updateWar(dt);

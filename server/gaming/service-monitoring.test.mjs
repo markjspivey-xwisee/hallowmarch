@@ -13,6 +13,17 @@ const serviceDid = 'did:ethr:0x1111111111111111111111111111111111111111';
 const descriptor = { action: FOXXI_XAPI_ACTION_PUBLISHED, method: 'POST', target: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/write' };
 const metrics = { commands: 5, refused: 1, commits: 4, conflicts: 0, maxCommandMs: 24.1, lastCommitMs: 12, version: 4, playerConnections: 2, eventWindow: 4,
   acct: 'private-human', performance: { actors: { 'private-human': {} }, byKind: { 'movement.applied': 2, damage: 1, 'alice-secret-event': 1 } } };
+
+test('actual main-world operational counts survive native outbox readback without player or character data', async () => {
+  const input = { ...metrics, mainWorld: { players: 2, rooms: 1, receivedMessages: 20, relayedMovementPackets: 12,
+    refusedMovementPackets: 1, seasonSteps: 4, captures: 0, playerDid: 'private-owner', inventory: ['private-item'] } };
+  const { monitor, calls } = factory(); await monitor.ready;
+  await monitor.record(input); await monitor.flush();
+  const data = calls[0][0].context.extensions['urn:interego:gaming:measurements'];
+  assert.equal(data.mainWorld.relayedMovementPackets, 12); assert.equal(data.mainWorld.players, 2);
+  assert(!JSON.stringify(calls).includes('private-owner')); assert(!JSON.stringify(calls).includes('private-item'));
+  assert.throws(() => sanitizeServiceMetrics({ mainWorld: { players: NaN } }));
+});
 const receipt = statements => ({ status: 200, body: { ok: true, durable: true, lrsAccepted: true, statementIds: statements.map(s => s.id), receipts: statements.map(s => ({ statementId: s.id, persisted: true })) } });
 function factory(options = {}) { let calls = []; const store = options.store || new FixtureStore(); const monitor = createServiceMonitoring({ store, serviceDid, descriptor, now: () => 100000, runId: 'run1', signRequest: async ({ statements }) => ({ _signed_payload: JSON.stringify({ agent_id: serviceDid, statements }), _signature: 'fixture-signature' }), transport: async ({ body }) => { const statements = JSON.parse(body._signed_payload).statements; calls.push(statements); return receipt(statements); }, ...options }); return { store, monitor, calls }; }
 

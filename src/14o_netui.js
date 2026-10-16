@@ -194,6 +194,7 @@ function netSheetRender() {
   chat.appendChild(acts);
   body.appendChild(chat);
   netAcctRender(); // (drawn again only when the account changes: what you type stays)
+  if (typeof mainWorldAgentRender === 'function') mainWorldAgentRender();
 }
 
 /* ------------------------------------------------------------------ */
