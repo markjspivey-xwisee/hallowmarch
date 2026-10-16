@@ -42,7 +42,7 @@ function toolBody(value) {
   }
   throw failure('invalid_tool_response');
 }
-async function boundedJson(response, maxBytes) {
+async function boundedText(response, maxBytes) {
   let text = '', size = 0;
   if (response.body?.getReader) {
     const reader = response.body.getReader(), decoder = new TextDecoder();
@@ -59,7 +59,11 @@ async function boundedJson(response, maxBytes) {
     text = await response.text();
     if (Buffer.byteLength(text) > maxBytes) throw failure('response_too_large');
   }
-  try { return JSON.parse(text); } catch { throw failure('invalid_json_response'); }
+  return text;
+}
+async function boundedJson(response, maxBytes) {
+  try { return JSON.parse(await boundedText(response, maxBytes)); }
+  catch (error) { if (error.code) throw error; throw failure('invalid_json_response'); }
 }
 
 /** identity is verified upstream, not a caller-claimed DID. ownerWebId is the
@@ -89,6 +93,15 @@ export function createNativeCapabilityPublication({ identity, credentialsProvide
     const url = checkedUrl(value, false);
     if (!pods.some(base => url.origin === base.origin && url.pathname.startsWith(base.pathname) && url.pathname !== base.pathname)) throw failure('foreign_descriptor');
     return url.href;
+  };
+  const publicResource = value => {
+    const url = new URL(knownResource(value));
+    const base = pods.find(base => url.origin === base.origin && url.pathname.startsWith(base.pathname));
+    // Only the identity ceremony's same-owner pod aliases may be projected.
+    // Preserve the exact resource suffix; a relay response cannot choose a host.
+    const result = new URL(pod.href);
+    result.pathname = pod.pathname + url.pathname.slice(base.pathname.length);
+    return result.href;
   };
   let state = { state: 'idle', verified: false, graphIri }, inflight = null, tools = null, sdk = core, podSdk = solid, expectedDigest;
   const set = (phase, extra = {}) => { state = { state: phase, verified: false, graphIri, ...(expectedDigest ? { graphDigest: expectedDigest } : {}), ...extra }; };
@@ -150,6 +163,15 @@ export function createNativeCapabilityPublication({ identity, credentialsProvide
     knownResource(answer.head.descriptorUrl);
     return answer.head;
   }
+  async function publicRead(url, accept) {
+    let response;
+    try {
+      response = await transport(url, { method: 'GET', headers: { accept }, redirect: 'error',
+        signal: AbortSignal.timeout(requestTimeoutMs) });
+      if (!response.ok) throw failure('public_readback_unavailable');
+      return await boundedText(response, maxResponseBytes);
+    } catch { throw failure('public_readback_unavailable'); }
+  }
   async function verify(url, matchExpected = true) {
     knownResource(url);
     const read = await invoke('get_descriptor', { url });
@@ -168,7 +190,20 @@ export function createNativeCapabilityPublication({ identity, credentialsProvide
     if (!region.ok || region.graphIri !== graphIri) throw failure('graph_scope_mismatch');
     const actualDigest = sdk.canonicalGraphDigest(region.turtle);
     if (!actualDigest || actualDigest !== proof.contentHash || (matchExpected && actualDigest !== expectedDigest)) throw failure('graph_digest_mismatch');
-    return { descriptorUrl: url, graphUrl: read.graph.url, graphDigest: actualDigest, authorship: {
+    const descriptorUrl = publicResource(url), graphUrl = publicResource(read.graph.url);
+    const publicTurtle = await publicRead(descriptorUrl, 'text/turtle');
+    // Byte-identical descriptor readback carries the exact owner, authorship
+    // proof and distribution which the relay just verified. Do not rewrite RDF.
+    if (publicTurtle !== read.turtle) throw failure('public_readback_mismatch');
+    const publicGraph = await publicRead(graphUrl, 'application/trig, text/turtle');
+    let publicRegion, publicDigest;
+    try {
+      publicRegion = podSdk.digestedGraphRegion({ graphContent: publicGraph, descriptorTurtle: publicTurtle });
+      if (publicRegion?.ok) publicDigest = sdk.canonicalGraphDigest(publicRegion.turtle);
+    }
+    catch { throw failure('public_readback_mismatch'); }
+    if (!publicRegion?.ok || publicRegion.graphIri !== graphIri || publicDigest !== actualDigest) throw failure('public_readback_mismatch');
+    return { descriptorUrl, graphUrl, graphDigest: actualDigest, authorship: {
       verified: true, authority: 'relay-attestation', ownerWebId: proof.ownerWebId, agentDid: proof.issuer,
       contentBinding: auth.contentBinding, descriptorBinding: auth.descriptorBinding.basis,
       effectiveTrustLevel: auth.effectiveTrustLevel || null } };
@@ -225,13 +260,13 @@ export function createNativeCapabilityPublication({ identity, credentialsProvide
             cas: before ? 'matched-prior-head' : 'initial-head-absent', confirmedAt: new Date(now()).toISOString() });
           return copy(state);
         } catch (error) {
-          if (!['tool_refused', 'transport_unavailable', 'relay_http_failure', 'descriptor_readback_mismatch', 'public_graph_readback_required'].includes(error.code)) throw error;
+          if (!['tool_refused', 'transport_unavailable', 'relay_http_failure', 'descriptor_readback_mismatch', 'public_graph_readback_required', 'public_readback_unavailable', 'public_readback_mismatch'].includes(error.code)) throw error;
           if (attempt + 1 < maxPolls) await wait(pollIntervalMs);
         }
       }
       set('unconfirmed', { reason: 'durable_readback_unconfirmed' });
     } catch (error) {
-      set(['transport_unavailable', 'relay_http_failure', 'publication_receipt_unconfirmed'].includes(error.code) ? 'unconfirmed' : 'refused', { reason: error.code || 'native_publication_unavailable' });
+      set(['transport_unavailable', 'relay_http_failure', 'publication_receipt_unconfirmed', 'public_readback_unavailable', 'public_readback_mismatch'].includes(error.code) ? 'unconfirmed' : 'refused', { reason: error.code || 'native_publication_unavailable' });
     }
     return copy(state);
   }

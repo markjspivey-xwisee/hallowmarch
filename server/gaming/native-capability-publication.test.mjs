@@ -36,6 +36,8 @@ const identity = { owner: 'did:web:identity.example:users:u-service', ownerWebId
   podAliases: ['http://css.internal:3456/u-service/'] };
 const descriptorUrl = 'http://css.internal:3456/u-service/context-graphs/next.ttl';
 const graphUrl = 'http://css.internal:3456/u-service/context-graphs/next-graph.trig';
+const publicDescriptorUrl = identity.podUrl + 'context-graphs/next.ttl';
+const publicGraphUrl = identity.podUrl + 'context-graphs/next-graph.trig';
 function catalog() {
   const schemas = {
     get_current_head: { type: 'object', properties: { urn: { type: 'string' }, pod_url: { type: 'string' } }, required: ['urn', 'pod_url'] },
@@ -66,6 +68,15 @@ function fixture(options = {}) {
   const fetch = async (url, init) => {
     const body = init.body ? JSON.parse(init.body) : undefined;
     calls.push({ url, ...init, body });
+    if (url.startsWith(identity.podUrl)) {
+      if (options.publicThrow) throw new Error('sensitive public transport detail');
+      const nativeUrl = url.replace(identity.podUrl, identity.podAliases[0]);
+      const record = records.get(nativeUrl) || [...records.values()].find(read => read.graph.url === nativeUrl);
+      let text = nativeUrl.endsWith('.ttl') ? record?.turtle : record?.graph.content;
+      const mutate = nativeUrl.endsWith('.ttl') ? options.mutatePublicDescriptor : options.mutatePublicGraph;
+      if (mutate) text = mutate(text);
+      return new Response(text, { status: options.publicStatus || 200 });
+    }
     let answer;
     if (url === relay + '/tools') answer = options.catalog || catalog();
     else if (url.endsWith('/get_current_head')) answer = { urn: graphIri, podUrl: identity.podAliases[0], head, ...(options.headOverride || {}),
@@ -100,13 +111,17 @@ function fixture(options = {}) {
 test('discover then publish only explicit public data and confirm owner, content and current head', async () => {
   const { publisher, calls } = fixture();
   const receipt = await publisher.publish();
-  assert.equal(receipt.verified, true); assert.equal(receipt.state, 'verified'); assert.equal(receipt.descriptorUrl, descriptorUrl);
+  assert.equal(receipt.verified, true); assert.equal(receipt.state, 'verified'); assert.equal(receipt.descriptorUrl, publicDescriptorUrl);
+  assert.equal(receipt.graphUrl, publicGraphUrl);
   assert.equal(receipt.cas, 'initial-head-absent'); assert.equal(receipt.authorship.authority, 'relay-attestation');
   const publication = calls.find(c => c.url.endsWith('/publish_context'));
   assert.deepEqual(publication.body, { graph_iri: graphIri, graph_content: graphContent, pod_name: identity.userId, visibility: 'public', sign_authorship: true, agent_did: identity.agentDid, auto_supersede_prior: false });
-  assert(calls.every(c => c.url.startsWith(relay + '/')));
+  const relayCalls = calls.filter(c => c.url.startsWith(relay + '/'));
+  const publicCalls = calls.filter(c => !c.url.startsWith(relay + '/'));
+  assert.deepEqual(publicCalls.map(c => c.url), [publicDescriptorUrl, publicGraphUrl]);
+  assert(publicCalls.every(c => c.method === 'GET' && c.headers.Authorization === undefined && c.redirect === 'error'));
   assert.equal(calls[0].headers.Authorization, undefined);
-  assert(calls.slice(1).every(c => c.headers.Authorization === 'Bearer service-secret' && c.redirect === 'error'));
+  assert(relayCalls.slice(1).every(c => c.headers.Authorization === 'Bearer service-secret' && c.redirect === 'error'));
   assert(!JSON.stringify(receipt).includes('service-secret'));
 });
 
@@ -115,6 +130,50 @@ test('same durable content is reused without another publication', async () => {
   const result = await publisher.publish();
   assert.equal(result.verified, true); assert.equal(result.unchanged, true);
   assert(!calls.some(c => c.url.endsWith('/publish_context')));
+});
+
+test('public alias readback must confirm the exact verified descriptor and graph before exposing URLs', async () => {
+  for (const options of [
+    { publicThrow: true }, { publicStatus: 403 }, { publicStatus: 302 },
+    { mutatePublicDescriptor: text => text.replace(identity.ownerWebId, 'https://identity.example/users/other/profile#me') },
+    { mutatePublicDescriptor: text => text.replace(identity.agentDid, 'did:web:identity.example:agents:other') },
+    { mutatePublicGraph: text => text.replace('Service capabilities', 'Changed public capabilities') },
+  ]) {
+    const { publisher, calls } = fixture(options);
+    const result = await publisher.publish();
+    assert.equal(result.verified, false); assert.equal(result.state, 'unconfirmed');
+    assert.equal(result.descriptorUrl, undefined); assert.equal(result.graphUrl, undefined);
+    assert.equal(calls.filter(c => c.url.endsWith('/publish_context')).length, 1);
+    assert(!JSON.stringify(result).includes('sensitive'));
+  }
+});
+
+test('an inaccessible public old head is retained without rewriting or republishing it', async () => {
+  const { publisher, calls } = fixture({ initialHead: { descriptorUrl, cid: 'bafkold' }, publicStatus: 503 });
+  const result = await publisher.publish();
+  assert.equal(result.state, 'unconfirmed'); assert.equal(result.reason, 'public_readback_unavailable');
+  assert.equal(result.descriptorUrl, undefined);
+  assert(!calls.some(c => c.url.endsWith('/publish_context')));
+});
+
+test('trusted alias projection preserves the exact owner path and encoded resource suffix', async () => {
+  const suffix = 'context-graphs/part%20one.ttl';
+  const { publisher, calls } = fixture({ initialHead: { descriptorUrl: identity.podAliases[0] + suffix, cid: 'bafkold' } });
+  const result = await publisher.publish();
+  assert.equal(result.verified, true); assert.equal(result.descriptorUrl, identity.podUrl + suffix);
+  assert.equal(result.graphUrl, identity.podUrl + suffix.replace('.ttl', '-graph.trig'));
+  assert(calls.filter(c => c.method === 'GET' && c.url !== relay + '/tools').every(c => c.url.startsWith(identity.podUrl)));
+  const foreign = fixture({ mutateRead: read => ({ ...read, graph: { ...read.graph, url: 'https://untrusted.example/u-service/context-graphs/next-graph.trig' } }) });
+  assert.equal((await foreign.publisher.publish()).reason, 'foreign_descriptor');
+  assert(foreign.calls.every(c => c.url.startsWith(relay + '/')));
+});
+
+test('anonymous public reads keep the response-size bound and fail closed without credentials', async () => {
+  const { publisher, calls } = fixture({ factory: { maxResponseBytes: 4096 }, mutatePublicDescriptor: text => text + 'x'.repeat(5000) });
+  const result = await publisher.publish();
+  assert.equal(result.state, 'unconfirmed'); assert.equal(result.verified, false);
+  assert.equal(result.descriptorUrl, undefined);
+  assert(calls.filter(c => c.url.startsWith(identity.podUrl)).every(c => c.headers.Authorization === undefined));
 });
 
 test('an intact prior version is updated using its exact CAS token', async () => {
@@ -240,6 +299,10 @@ function compositionFixture() {
     try {
       const body = init.body ? JSON.parse(init.body) : undefined;
       calls.push({ url, body }); let value;
+      if (url.startsWith(identity.podUrl)) {
+        const record = records.get(url) || [...records.values()].find(read => read.graph.url === url);
+        return new Response(url.endsWith('.ttl') ? record?.turtle : record?.graph.content, { status: 200 });
+      }
       if (url.endsWith('/tools')) value = catalog();
       else if (url.endsWith('/get_current_head')) value = { urn: body.urn, podUrl: identity.podUrl, head: heads.get(body.urn) || null };
       else if (url.endsWith('/get_descriptor')) value = records.get(body.url);
