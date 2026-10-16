@@ -43,10 +43,17 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/') {
       res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<!doctype html><title>Native owner client verification</title><script type="module">
 import {createNativePodClient} from './client.mjs';
+import {createPlayerPodProfile} from './profile.mjs';
 import {RelayMcpTransport} from './vendor/interego-browser.mjs';
 const credential={kind:'relay-oauth-bearer',accessToken:'fixture-alice',method:'webauthn',expiresAt:Date.now()+3600000,refreshToken:null,clientId:'fixture'};
 window.client=createNativePodClient({relayUrl:'https://relay.example',credential,ownerDid:${JSON.stringify(ownerDid)},podUrl:${JSON.stringify(pod)},transport:new RelayMcpTransport(location.origin,credential,fetch.bind(window))});
 window.ready=client.connect();
+window.bridgeRequests=[];
+window.makeProfile=(options={})=>createPlayerPodProfile({binding:{subjectDid:${JSON.stringify(ownerDid)},podUrl:${JSON.stringify(pod)}},
+relayUrl:'https://relay.example',credential,createClient:args=>createNativePodClient({...args,transport:new RelayMcpTransport(location.origin,credential,fetch.bind(window))}),
+request:async(url,init)=>{if(options.noGameBridge)throw Error('Fixture game cache is unavailable');
+if(url!=='/gaming/identity/record-link'||Object.keys(init.body).sort().join(',')!=='cid,descriptorUrl,graphIri,kind')throw Error('Private body reached game bridge');
+window.bridgeRequests.push({url,...init});return{linked:true}}});
 </script>`); return;
     }
     const filename = path.resolve(root, '.' + req.url);
@@ -81,7 +88,33 @@ try {
   assert.equal((await restored.evaluate(() => ready)).keyPresent, false);
   assert.equal((await restored.evaluate(backup => client.restoreRecovery(backup, 'browser verification passphrase'), backup)).publicKey, key.publicKey);
   assert.equal((await restored.evaluate(graphIri => client.load({ graphIri }), saved.graphIri)).record.v, 1);
+  const profile = await page.evaluate(async () => {
+    window.profile=makeProfile(); await profile.connect();
+    await profile.set({v:1,char:{name:'private browser record in profile',level:1},n:17});
+    return profile.status();
+  });
+  assert.equal(profile.indexed,true);assert(heads.has(profile.indexGraphIri));assert(heads.has(profile.profileGraphIri));
+  const indexHead=heads.get(profile.indexGraphIri),graphCount=heads.size;
+  const wireIndex=records.get(indexHead.descriptorUrl);assert.equal(wireIndex.sealed_payload,true);
+  assert(!wireIndex.graph_content.includes(profile.profileGraphIri),'profile discovery target is also client-sealed');
+  await page.reload();await page.waitForFunction(()=>window.ready);
+  assert.equal(await page.evaluate(async()=>{window.profile=makeProfile({noGameBridge:true});const result=await profile.connect();
+    const found=await profile.get();return result.hasRecord&&found.exists&&found.data().n===17&&bridgeRequests.length===0}),true);
+  assert.deepEqual(heads.get(profile.indexGraphIri),indexHead);assert.equal(heads.size,graphCount,'reload never rewrites the index');
+  const empty=await browser.newContext(), recoveryPage=await empty.newPage();
+  await recoveryPage.goto('http://127.0.0.1:'+server.address().port);await recoveryPage.waitForFunction(()=>window.ready);
+  const beforeRecovery=await recoveryPage.evaluate(async()=>{
+    window.profile=makeProfile({noGameBridge:true});const connected=await profile.connect();let getCode,keyCode;
+    try{await profile.get()}catch(error){getCode=error.code}try{await profile.createKey()}catch(error){keyCode=error.code}
+    return{hasRecord:connected.hasRecord,keyPresent:connected.keyPresent,getCode,keyCode};
+  });
+  assert.deepEqual(beforeRecovery,{hasRecord:true,keyPresent:false,getCode:'key_required',keyCode:'recovery_required'});
+  assert.equal(await recoveryPage.evaluate(async backup=>{
+    await profile.restoreRecovery(backup,'browser verification passphrase');const found=await profile.get();
+    return found.exists&&found.data().n===17&&found.data().char.name==='private browser record in profile'&&bridgeRequests.length===0;
+  },backup),true);
+  assert.deepEqual(heads.get(profile.indexGraphIri),indexHead);assert.equal(heads.size,graphCount);
   assert.deepEqual(errors, []);
-  console.log('PASS Chromium: real IndexedDB CryptoKey custody, sealed native record, reload, encrypted recovery in a fresh profile. Relay storage/authorship are explicit fixtures.');
+  console.log('PASS Chromium: real IndexedDB CryptoKey custody, sealed profile + owner index, no-hint reload/discovery, key-required fresh browser, encrypted recovery without a game cache. Relay storage/authorship are explicit fixtures.');
 } catch (error) { if (fixtureErrors.length) console.error('Contract fixture errors:', fixtureErrors); throw error; }
 finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

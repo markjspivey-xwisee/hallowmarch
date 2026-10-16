@@ -19,9 +19,13 @@ const characterPointer = { kind: 'character', graphIri: 'urn:graph:hallowmarch:c
 // physical durability claim or a production memory-primary fallback.
 class NativeStoreFixture {
   streams = new Map(); receipts = new Map(); commits = []; fail = false;
-  async ready() { if (this.fail) throw new Error('private native store details'); }
+  readyCalls = 0; loadCalls = 0; uncertainCommit = false; loadGate = null; readOverride = undefined;
+  async ready() { this.readyCalls++; if (this.fail) throw new Error('private native store details'); }
   async load(id) {
+    this.loadCalls++;
+    if (this.loadGate) await this.loadGate;
     if (this.fail) throw new Error('private native store details');
+    if (this.readOverride !== undefined) return structuredClone(this.readOverride);
     return structuredClone(this.streams.get(id) ?? { version: 0, state: null });
   }
   async commit(id, request) {
@@ -32,6 +36,7 @@ class NativeStoreFixture {
     if (request.expectedVersion !== current.version) throw Object.assign(new Error('conflict'), { code: 'VERSION_CONFLICT' });
     const result = { version: current.version + 1, state: structuredClone(request.state) };
     this.streams.set(id, result); this.receipts.set(key, result); this.commits.push(structuredClone(request));
+    if (this.uncertainCommit) throw new Error('private native acknowledgement lost');
     return structuredClone(result);
   }
 }
@@ -196,6 +201,108 @@ test('native store failure never promotes a proposed binding or issues a fresh a
   const response = await f.callback(flow); assert(response.status >= 400); assert.equal(f.issued.length, 0); assert.equal(f.store.commits.length, 0);
   const text = await response.text(); assert(!text.includes('private native store details')); noNativeCredentials(text);
   assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(f.aliceToken) }), null);
+});
+
+test('a failed native startup recovers through a fresh native readiness/readback without restarting the host', async t => {
+  const store = new NativeStoreFixture(); store.fail = true;
+  const f = await fixture(t, { store }); assert.equal(f.host.status().enabled, false);
+  store.fail = false;
+  const response = await f.request('/gaming/identity/status'); assert.equal(response.status, 200);
+  assert.equal((await response.json()).bound, false); assert.equal(f.host.status().enabled, true);
+  assert.equal(store.readyCalls, 2); assert.equal(store.loadCalls, 1);
+  await f.connect(); assert.equal(store.commits.length, 1);
+});
+
+test('the bounded background retry can restore native discovery readiness without an identity request', async t => {
+  const store = new NativeStoreFixture(); store.fail = true;
+  const f = await fixture(t, { store, recoveryCooldownMs: 100 }); assert.equal(f.host.manifest().enabled, false);
+  store.fail = false;
+  const until = Date.now() + 2000;
+  while (!f.host.manifest().enabled && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(f.host.manifest().enabled, true); assert.equal(store.readyCalls, 2); assert.equal(store.loadCalls, 1);
+  assert.equal(store.commits.length, 0); assert.equal(f.issued.length, 0);
+});
+
+test('an uncertain committed binding is recovered by readback and reused without a second native write', async t => {
+  const f = await fixture(t); f.store.uncertainCommit = true;
+  const flow = await f.start(); assert((await f.callback(flow)).status >= 400);
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 0); assert.equal(f.host.status().enabled, false);
+  f.store.uncertainCommit = false;
+  const status = await f.request('/gaming/identity/status'); assert.equal(status.status, 200);
+  const body = await status.json(); assert.equal(body.bound, true); assert.equal(body.verified, false); noNativeCredentials(body);
+  assert.equal(body.binding, null); assert.deepEqual(body.recordLinks, {});
+  const { payload } = await f.connect(); assert.equal(payload.appSession.acct.id, 'guest-a');
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+});
+
+test('recovery requests coalesce and keep native ownership disabled until their one readback completes', async t => {
+  const f = await fixture(t); const { payload } = await f.connect();
+  f.store.fail = true;
+  assert((await f.request('/gaming/identity/record-link', { method: 'POST', session: payload.appSession.token, body: characterPointer })).status >= 400);
+  f.store.fail = false;
+  let release; f.store.loadGate = new Promise(resolve => { release = resolve; });
+  const before = f.store.loadCalls, readiness = f.store.readyCalls;
+  const requests = Array.from({ length: 3 }, () => f.request('/gaming/identity/status', { session: payload.appSession.token }));
+  while (f.store.loadCalls === before) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.host.status().enabled, false); assert.equal(f.host.isBound('guest-a'), false);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(payload.appSession.token) }), null);
+  release(); const responses = await Promise.all(requests);
+  assert(responses.every(response => response.status === 200)); assert.equal(f.store.loadCalls, before + 1);
+  assert.equal(f.store.readyCalls, readiness + 1); assert.equal(f.host.status().enabled, true);
+  assert.equal(f.host.principalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(payload.appSession.token) }), nativeOwner().subjectDid);
+});
+
+test('failed recovery uses its cooldown before another native attempt and then restores service', async t => {
+  const f = await fixture(t, { recoveryCooldownMs: 1000 }); const flow = await f.start(); f.store.fail = true;
+  assert((await f.callback(flow)).status >= 400);
+  assert.equal((await f.request('/gaming/identity/status')).status, 503);
+  const attempts = f.store.readyCalls; f.store.fail = false;
+  assert.equal((await f.request('/gaming/identity/status')).status, 503); assert.equal(f.store.readyCalls, attempts);
+  f.advance(1001);
+  assert.equal((await f.request('/gaming/identity/status')).status, 200); assert.equal(f.store.readyCalls, attempts + 1);
+});
+
+test('a timed-out native read cannot pile up recovery flights or enable ownership from a late result', async t => {
+  const f = await fixture(t, { recoveryTimeoutMs: 20, recoveryCooldownMs: 100 });
+  const flow = await f.start(); f.store.fail = true; assert((await f.callback(flow)).status >= 400);
+  f.store.fail = false;
+  let release; f.store.loadGate = new Promise(resolve => { release = resolve; });
+  const before = f.store.loadCalls;
+  const response = await f.request('/gaming/identity/status'); assert.equal(response.status, 503);
+  assert.equal(f.host.status().enabled, false); assert.equal(f.store.loadCalls, before + 1);
+  f.advance(101);
+  assert.equal((await f.request('/gaming/identity/status')).status, 503); assert.equal(f.store.loadCalls, before + 1);
+  f.store.loadGate = null; release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.host.status().enabled, false, 'Late completion is not a new proof of readiness');
+  f.advance(101);
+  assert.equal((await f.request('/gaming/identity/status')).status, 200); assert.equal(f.store.loadCalls, before + 2);
+});
+
+test('recovery preserves native high-water and same-version equivocation refusal before accepting repaired reads', async t => {
+  const f = await fixture(t, { recoveryCooldownMs: 100 }); const { payload } = await f.connect();
+  f.store.fail = true;
+  assert((await f.request('/gaming/identity/record-link', { method: 'POST', session: payload.appSession.token, body: characterPointer })).status >= 400);
+  f.store.fail = false;
+  for (const stale of [{ version: 0, state: null }, { version: 1, state: { schema: 'urn:interego:gaming:player-bindings:v1', bindings: [] } }]) {
+    f.store.readOverride = stale; f.advance(101);
+    assert.equal((await f.request('/gaming/identity/status', { session: payload.appSession.token })).status, 503);
+    assert.equal(f.host.status().enabled, false); assert.equal(f.host.isBound('guest-a'), false);
+  }
+  f.store.readOverride = undefined; f.advance(101);
+  const response = await f.request('/gaming/identity/status', { session: payload.appSession.token });
+  assert.equal(response.status, 200); assert.equal((await response.json()).verified, true);
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+});
+
+test('closing the host releases a waiting recovery response and late reads cannot reopen it', async t => {
+  const f = await fixture(t); const flow = await f.start(); f.store.fail = true;
+  assert((await f.callback(flow)).status >= 400); f.store.fail = false;
+  let release; f.store.loadGate = new Promise(resolve => { release = resolve; });
+  const before = f.store.loadCalls, response = f.request('/gaming/identity/status');
+  while (f.store.loadCalls === before) await new Promise(resolve => setImmediate(resolve));
+  f.host.close(); assert.equal((await response).status, 503);
+  f.store.loadGate = null; release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.host.status().enabled, false); assert.equal(f.host.status().status, 'closed');
 });
 
 test('disabled native persistence rejects only owned identity routes and leaves finish/assets for its host', async t => {

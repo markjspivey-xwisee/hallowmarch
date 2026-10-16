@@ -14,7 +14,7 @@ function keys() {
 }
 function fixture() {
   const owners = ['alice', 'bob']; const maps = Object.fromEntries(owners.map(owner => [owner, { agents: new Map(), heads: new Map(), records: new Map() }]));
-  const calls = []; let n = 0, delayed = null, mode = 'normal', tamper = false, forked = false, badHash = false;
+  const calls = []; let n = 0, delayed = null, mode = 'normal', tamper = false, forked = false, badHash = false, forkAfterPublish = false;
   const ownerDid = owner => 'did:web:identity.example:users:' + owner;
   const podUrl = owner => 'https://pod.example/' + owner + '/';
   const apply = (owner, args, selected) => { const state = maps[owner]; state.heads.set(args.graph_iri, selected); state.records.set(selected.descriptorUrl, args); };
@@ -32,6 +32,7 @@ function fixture() {
       if (mode === 'throw-before') throw Error('fixture network outage');
       if (mode === 'pending') delayed = () => apply(owner, args, selected);
       else apply(owner, args, selected);
+      if (forkAfterPublish) forked = true;
       if (mode === 'throw-after') throw Error('fixture response lost');
       return { published: true, descriptorUrl: selected.descriptorUrl, status: mode === 'pending' ? 'pending' : 'published' };
     }
@@ -64,6 +65,7 @@ function fixture() {
       transport: new RelayMcpTransport('https://relay.example', credential, fetch), keyStorage: storage, crypto: webcrypto });
   }
   return { client, maps, calls, setMode: next => { mode = next; }, setTamper: value => { tamper = value; },
+    setForkAfterPublish: value => { forkAfterPublish = value; },
     setForked: value => { forked = value; }, setBadHash: value => { badHash = value; }, release: () => { delayed?.(); delayed = null; } };
 }
 
@@ -146,4 +148,35 @@ test('encrypted recovery restores exact key across browser storage and refuses w
   await assert.rejects(bob.restoreRecovery(backup, 'a long test recovery passphrase'));
   assert.equal((await bob.keyStatus()).keyPresent, false);
   alice.close(); await assert.rejects(alice.load({ graphIri: saved.graphIri }), { code: 'not_connected' });
+});
+test('explicit named creation and keyless metadata remain owner-pod scoped and never overwrite an existing head', async () => {
+  const f = fixture(), alice = f.client('alice'), bob = f.client('bob'), graphIri = 'urn:graph:fixture:owner-index';
+  await alice.connect(); await bob.connect();
+  assert.equal(await alice.currentHead({ graphIri }), null);
+  await alice.createKey();
+  const result = await alice.createAt({ graphIri, record: { schema: 'fixture-owner-index/v1', target: 'urn:graph:fixture:private-profile' } });
+  assert.equal(result.saved, true); assert.equal(result.graphIri, graphIri);
+  const keyless = f.client('alice'); await keyless.connect();
+  assert.deepEqual(await keyless.currentHead({ graphIri }), result.head);
+  assert.equal((await keyless.keyStatus()).keyPresent, false);
+  await assert.rejects(keyless.load({ graphIri }), { code: 'key_required' });
+  assert.equal(await bob.currentHead({ graphIri }), null, 'another owner does not see this index head in their pod');
+  const before = f.calls.filter(call => call.name === 'publish_context').length;
+  await assert.rejects(alice.createAt({ graphIri, record: { replace: true } }), { code: 'conflict' });
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, before);
+  assert.equal((await alice.load({ graphIri })).record.schema, 'fixture-owner-index/v1');
+});
+test('named lost acknowledgement confirms the original operation; a concurrent fork is never reported saved', async () => {
+  const f = fixture(), alice = f.client('alice'); await alice.connect(); await alice.createKey();
+  f.setMode('throw-after');
+  const uncertain = await alice.createAt({ graphIri: 'urn:graph:fixture:lost-index', record: { ownerIndex: true } });
+  assert.equal(uncertain.saved, false); assert.equal(uncertain.status, 'uncertain');
+  assert.equal((await alice.confirm(uncertain.operationId)).saved, true);
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
+  f.setMode('normal'); f.setForkAfterPublish(true);
+  const fork = await alice.createAt({ graphIri: 'urn:graph:fixture:forked-index', record: { ownerIndex: true } });
+  assert.equal(fork.saved, false);
+  await assert.rejects(alice.confirm(fork.operationId), { code: 'conflict' });
+  await assert.rejects(alice.currentHead({ graphIri: fork.graphIri }), { code: 'conflict' });
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 2);
 });

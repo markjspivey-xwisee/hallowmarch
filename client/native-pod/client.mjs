@@ -225,6 +225,9 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
   }
   function serialized(run) { const next = queue.then(run); queue = next.catch(() => {}); return next; }
   return Object.freeze({ connect, load, registerKey, confirm,
+    // Metadata can be read before decryption-key recovery. It checks the
+    // authenticated owner/pod and refuses forks; no plaintext is returned.
+    currentHead({ graphIri }) { return head(graphIri); },
     async keyStatus() { active(); return { keyPresent: !!await vault.publicKey(), keyRegistered: registered, agentId: recipientId }; },
     async createKey() { active(); await vault.create(); return registerKey(); },
     async exportRecovery(passphrase) { active(); return vault.backup(passphrase); },
@@ -232,6 +235,9 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     // First publication uses a fresh, unguessable graph identity. The relay has
     // no compare-with-absence primitive; never describe this as initial CAS.
     create({ record }) { const graphIri = 'urn:graph:client-owned:' + crypto.randomUUID(); return serialized(() => publish({ graphIri, record, creating: true })); },
+    // Named creation supports owner discovery records. There is NO atomic
+    // absence CAS: preflight refuses existing heads, readback refuses forks.
+    createAt({ graphIri, record }) { return serialized(() => publish({ graphIri, record, creating: true })); },
     save(input) { if (!input?.expectedHead) fail('head_required', 'Updates require the previously read native head.'); return serialized(() => publish(input)); },
     status() { return { connected: connected && !closed, ownerDid, podUrl, recipientId, pending: pending.size }; },
     close() { closed = true; connected = false; registered = false; tx.setCredential?.({ kind: 'relay-oauth-bearer', accessToken: '', method: credential?.method || 'webauthn', expiresAt: now(), refreshToken: null, clientId: null }); },

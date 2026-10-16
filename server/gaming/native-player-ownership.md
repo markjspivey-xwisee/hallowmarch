@@ -46,8 +46,13 @@ committed ciphertext, not progress that never reached the pod.
 Old personal save files are retained read-only for an explicit owner import.
 Importing preserves their player-authored provenance and does not turn currency,
 loot or local war snapshots into signed authoritative multiplayer outcomes.
-Native-bound accounts reject central personal save/load/wipe operations. Ordinary
-legacy accounts remain a compatibility path until deliberately connected.
+Native-bound accounts reject central personal save/load/wipe operations. A server
+without a configured native bridge retains its existing legacy behavior and does
+not advertise a native entry policy. A configured native bridge keeps its contract
+visible during an outage, so unresolved ownership cannot select a browser save.
+`HM_NATIVE_PLAYER_REQUIRED=1` additionally enforces verified native participation
+at the server: unverified accounts cannot send world updates, enter the shared
+expedition or write central personal files. The sign-in transport remains usable.
 
 This is a private-character and identity bridge. The bounded shared expedition
 remains separate from the legacy main-world simulation. Native agent proof,

@@ -33,14 +33,15 @@ async function fixturePage(view) {
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Native identity UI verification</title><style>${styles}</style><body class="touch">${title}<div id="hud" hidden></div><script>
 const $=id=>document.getElementById(id),IS_TOUCH=true;
 const NETWS={token:${JSON.stringify(GAME_TOKEN)},host:location.host,acct:{id:'fixture-account',guest:false,name:'Fixture player',nativeBound:${bound}}};
-const SAVE={native:${bound},backend:'local',loaded:null,pending:false};const GAME={started:false,player:null};
+const SAVE={native:${bound},backend:'local',loaded:null,pending:false,readConfirmed:${bound}};const GAME={started:false,player:null};
 const NET={link:{kind:'ws'},peers:new Map(),party:null};const UI={modal:null};const BUILD={mode:false};
-const typing=()=>true,netServerUrl=()=>location.origin,netLinkWS=async()=>true,saveNow=async()=>{},validSave=value=>value;
+const identityCalls={retry:0,save:0};
+const typing=()=>true,netServerUrl=()=>location.origin,netLinkWS=async()=>true,saveNow=async()=>{identityCalls.save++},validSave=value=>value;
 ${players}
 ${native}
 ${logout}
 NATIVE_PLAYER.status={enabled:true,bound:${bound},verified:${bound},recordLinks:{},binding:${JSON.stringify(owner)}};
-if(${bound}&&${JSON.stringify(view)}!=='players-uninitialized')NATIVE_PLAYER.profile={status:()=>({hasRecord:false,keyPresent:true,pending:false,linked:false}),retry:async()=>{},exportRecovery:async()=>({}),close:()=>{}};
+if(${bound}&&${JSON.stringify(view)}!=='players-uninitialized')NATIVE_PLAYER.profile={status:()=>({hasRecord:false,keyPresent:true,pending:false,linked:false}),retry:async()=>{identityCalls.retry++},exportRecovery:async()=>({}),close:()=>{}};
 netUiOn();netAcctRender();nativePlayerRender();
 if(${JSON.stringify(view)}.startsWith('players')){$('title').hidden=true;$('netsheet').hidden=false;NETUI.open=true;UI.modal='net'}
 window.identityTest={ready:true,render(){nativePlayerRender()},changed(){NATIVE_PLAYER.state='saving';NATIVE_PLAYER.message='Native save status updated';nativePlayerRender()},
@@ -168,6 +169,24 @@ try {
     assert(geometry.scroll<=geometry.width+1,JSON.stringify(geometry));assert(geometry.box<=390);assert(geometry.buttons.every(button=>button.height>=44&&button.width>=44));assert(geometry.inputSize>=16,'recovery input must avoid iOS focus zoom');
     await page.evaluate(()=>identityTest.render());assert.equal(await box.locator('input[type=password]').inputValue(),'a private recovery phrase');
     await page.evaluate(()=>identityTest.changed());assert.equal(await box.locator('input[type=password]').inputValue(),'a private recovery phrase','normal save-status refresh must preserve entered recovery text');
+    await context.close();
+  });
+  await check('unread private character blocks both entry buttons and offers a safe connection retry',async()=>{
+    const context=await contextForMobile(),page=await openFixture(context,'title');
+    await page.evaluate(()=>{SAVE.readConfirmed=false;NATIVE_PLAYER.state='key_required';nativePlayerRender()});
+    assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
+    assert.equal(await page.locator('#title .native-player button').filter({hasText:'Retry connection'}).count(),1);
+    const navigation=page.waitForEvent('framenavigated',frame=>frame===page.mainFrame());
+    await page.locator('#title .native-player button').filter({hasText:'Retry pod save'}).click();await navigation;
+    await page.waitForFunction(()=>window.identityTest?.ready);assert.deepEqual(await page.evaluate(()=>identityCalls),{retry:0,save:0});
+    await context.close();
+  });
+  await check('playing retry preserves pending progress and never reloads the page',async()=>{
+    const context=await contextForMobile(),page=await openFixture(context,'players');
+    await page.evaluate(()=>{GAME.started=true;GAME.player={};SAVE.pending={privateProgress:'retained-in-memory'};NATIVE_PLAYER.state='pod_pending';nativePlayerRender()});
+    const url=page.url();await page.locator('#netsheet .native-player button').filter({hasText:'Retry pod save'}).click();
+    await page.waitForFunction(()=>identityCalls.retry===1&&identityCalls.save===1);
+    assert.equal(page.url(),url);assert.equal(await page.evaluate(()=>SAVE.pending.privateProgress),'retained-in-memory');
     await context.close();
   });
   await check('explicit logout clears an existing cache before profile/cache UI initialization',async()=>{

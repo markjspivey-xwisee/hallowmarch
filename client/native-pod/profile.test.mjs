@@ -1,24 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPlayerPodProfile, validatePlayerProfile } from './profile.mjs';
+import { webcrypto } from 'node:crypto';
+import { createPlayerPodProfile, validatePlayerProfile, validatePlayerProfileIndex, playerProfileIndexGraphIri } from './profile.mjs';
 
 const OWNER = 'did:web:identity.example:users:alice';
 const binding = { subjectDid: OWNER, podUrl: 'https://pod.example/alice/' };
 const copy = value => JSON.parse(JSON.stringify(value));
 const profileRecord = save => ({ schema: 'hallowmarch.player-profile/v1', ownerDid: OWNER, game: 'urn:game:hallowmarch', save });
+const INDEX = await playerProfileIndexGraphIri(OWNER, webcrypto);
+const indexRecord = graphIri => ({ schema: 'hallowmarch.player-profile-index/v1', ownerDid: OWNER, game: 'urn:game:hallowmarch', profileGraphIri: graphIri });
+let fixtureVersion = 0;
 function gate() { let release, entered; return { ready: new Promise(resolve => { entered = resolve; }),
   hold: new Promise(resolve => { release = resolve; }), entered: () => entered(), release: () => release() }; }
-function fixture({ pointer = null, initial = null, mode = 'saved', linkFailures = 0, createGate = null, linkGate = null, loadGate = null } = {}) {
-  const calls = [], requests = [], states = [], records = new Map(), operations = new Map();
-  let version = 0, clientClosed = false, confirms = 0;
+function fixture({ pointer = null, initial = null, initialGraph = null, ownerIndex = null, sharedRecords = null,
+  keyPresent = true, mode = 'saved', indexMode = 'saved', indexFailures = 0, forked = false, metadataError = null,
+  linkFailures = 0, createGate = null, linkGate = null, loadGate = null } = {}) {
+  const calls = [], requests = [], states = [], records = sharedRecords || new Map(), operations = new Map();
+  let clientClosed = false, confirms = 0, indexConfirms = 0;
   const observed = (graphIri, record) => ({ saved: true, status: 'saved', graphIri, head: {
-    cid: 'fixture-cid-' + (++version), descriptorUrl: binding.podUrl + 'context-graphs/' + version + '.ttl' }, record: copy(record) });
-  if (initial) records.set(pointer.graphIri, observed(pointer.graphIri, initial));
+    cid: 'fixture-cid-' + (++fixtureVersion), descriptorUrl: binding.podUrl + 'context-graphs/' + fixtureVersion + '.ttl' }, record: copy(record) });
+  if (initial) { const graph = initialGraph || pointer.graphIri; records.set(graph, observed(graph, initial)); }
+  if (ownerIndex) records.set(INDEX, observed(INDEX, ownerIndex));
   const native = {
-    connect: async () => { calls.push({ op: 'connect' }); return { keyPresent: true }; },
+    connect: async () => { calls.push({ op: 'connect' }); return { keyPresent }; },
+    currentHead: async ({ graphIri }) => { calls.push({ op: 'currentHead', graphIri });
+      if (metadataError) throw Object.assign(Error('Fixture metadata unavailable'), { code: metadataError });
+      if (forked) throw Object.assign(Error('Fixture native fork'), { code: 'conflict' });
+      return records.get(graphIri)?.head || null; },
     registerKey: async () => { calls.push({ op: 'registerKey' }); },
-    createKey: async () => { calls.push({ op: 'createKey' }); },
-    restoreRecovery: async () => {}, exportRecovery: async () => ({}),
+    createKey: async () => { calls.push({ op: 'createKey' }); keyPresent = true; },
+    restoreRecovery: async () => { keyPresent = true; }, exportRecovery: async () => ({}),
     load: async ({ graphIri }) => { calls.push({ op: 'load', graphIri }); const value = records.get(graphIri) || null;
       if (loadGate) { loadGate.entered(); await loadGate.hold; } return value; },
     create: async ({ record }) => {
@@ -31,10 +42,25 @@ function fixture({ pointer = null, initial = null, mode = 'saved', linkFailures 
       if (mode === 'uncertain') records.set(graphIri, result);
       return { saved: false, status: mode, operationId: 'fixture-op-1', graphIri };
     },
+    createAt: async ({ graphIri, record }) => {
+      calls.push({ op: 'createAt', graphIri, record: copy(record) }); assert.equal(graphIri, INDEX);
+      if (indexFailures-- > 0) throw Object.assign(Error('Fixture index publication refused'), { code: 'native_refused' });
+      assert(!records.has(graphIri), 'named creation must never overwrite an unread index');
+      const result = observed(graphIri, record);
+      if (indexMode === 'saved') { records.set(graphIri, result); return result; }
+      operations.set('fixture-index-op-1', result);
+      if (indexMode === 'uncertain') records.set(graphIri, result);
+      return { saved: false, status: indexMode, operationId: 'fixture-index-op-1', graphIri };
+    },
     confirm: async operationId => {
-      calls.push({ op: 'confirm', operationId }); confirms++;
-      if (mode === 'pending-twice' && confirms === 1) return { saved: false, status: 'pending', operationId };
+      calls.push({ op: 'confirm', operationId });
+      if (operationId === 'fixture-index-op-1') {
+        indexConfirms++; if (indexMode === 'pending-twice' && indexConfirms === 1) return { saved: false, status: 'pending', operationId };
+      } else { confirms++; if (mode === 'pending-twice' && confirms === 1) return { saved: false, status: 'pending', operationId }; }
       const result = operations.get(operationId); assert(result, 'confirmation must identify a real fixture operation');
+      if (operationId === 'fixture-index-op-1' && records.has(INDEX) && records.get(INDEX).head.cid !== result.head.cid) {
+        return { saved: false, status: 'conflict', operationId };
+      }
       records.set(result.graphIri, result); return copy(result);
     },
     save: async ({ graphIri, expectedHead, record }) => {
@@ -45,7 +71,7 @@ function fixture({ pointer = null, initial = null, mode = 'saved', linkFailures 
     close: () => { clientClosed = true; calls.push({ op: 'close' }); },
   };
   const profile = createPlayerPodProfile({ binding, credential: { kind: 'fixture-only' }, relayUrl: 'https://relay.example', pointer,
-    createClient: () => native, onState: next => states.push(next),
+    createClient: () => native, crypto: webcrypto, onState: next => states.push(next),
     request: async (url, options) => {
       requests.push({ url, ...copy(options) });
       assert.equal(url, '/gaming/identity/record-link');
@@ -159,4 +185,169 @@ test('closing during an existing private record load refuses its late plaintext 
   const loading = f.profile.get(); await held.ready; f.profile.close(); held.release();
   await assert.rejects(loading, { code: 'revoked' });
   assert.equal(f.profile.status().state, 'closed');
+});
+
+test('owner index naming is stable across game authorities and distinct for another owner', async () => {
+  assert.match(INDEX, /^urn:graph:hallowmarch:player-profile-index:[0-9a-f]{64}$/);
+  assert.equal(await playerProfileIndexGraphIri(OWNER, webcrypto), INDEX);
+  assert.notEqual(await playerProfileIndexGraphIri('did:web:identity.example:users:bob', webcrypto), INDEX);
+  assert.equal(validatePlayerProfileIndex(indexRecord('urn:graph:fixture:profile'), OWNER), 'urn:graph:fixture:profile');
+});
+
+test('confirmed owner index is published before the game hint and is not rewritten per character save', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.set({ v: 1, n: 1 });
+  assert.equal(f.profile.status().indexed, true); assert.equal(f.profile.status().indexGraphIri, INDEX);
+  const profile = f.calls.find(call => call.op === 'create'), index = f.calls.find(call => call.op === 'createAt');
+  assert(index); assert.equal(index.record.schema, 'hallowmarch.player-profile-index/v1');
+  assert.deepEqual(Object.keys(index.record).sort(), ['game', 'ownerDid', 'profileGraphIri', 'schema']);
+  assert.equal(index.record.profileGraphIri, f.requests[0].body.graphIri);
+  assert(!JSON.stringify(index.record).includes('fixture-cid'), 'the native profile head is followed, not pinned in the index');
+  assert(f.calls.indexOf(profile) < f.calls.indexOf(index));
+  await f.profile.set({ v: 1, n: 2 });
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 1);
+});
+
+for (const indexMode of ['pending', 'uncertain', 'pending-twice']) test(indexMode + ' owner-index acknowledgement confirms before another profile write; never duplicates profile/index', async () => {
+  const f = fixture({ indexMode }); await f.profile.connect();
+  await assert.rejects(f.profile.set({ v: 1, n: 1 }), { code: 'pod_index_pending' });
+  assert.equal(f.profile.status().pending, true); assert.equal(f.profile.status().state, 'index_pending');
+  assert.equal(f.profile.status().indexed, false); assert.equal(f.requests.length, 0);
+  assert(!f.states.some(value => value.state === 'saved'));
+  if (indexMode === 'pending-twice') await assert.rejects(f.profile.retry(), { code: 'pod_index_pending' });
+  await f.profile.set({ v: 1, n: 2 });
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 1);
+  assert.equal(f.calls.find(call => call.op === 'save').record.save.n, 2);
+  const confirm = f.calls.findIndex(call => call.op === 'confirm' && call.operationId === 'fixture-index-op-1');
+  assert(confirm >= 0 && confirm < f.calls.findIndex(call => call.op === 'save'));
+  assert.equal(f.profile.status().state, 'saved'); assert.equal(f.profile.status().pending, false);
+});
+
+test('index publication refusal retains the original private profile and cannot claim saved or create a duplicate', async () => {
+  const f = fixture({ indexFailures: 1 }); await f.profile.connect();
+  await assert.rejects(f.profile.set({ v: 1, n: 1 }), { code: 'native_refused' });
+  assert.equal(f.requests.length, 0); assert.equal(f.profile.status().indexed, false);
+  assert(!f.states.some(value => value.state === 'saved'));
+  await f.profile.retry();
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 2);
+  assert.equal(f.profile.status().state, 'saved');
+});
+
+test('empty browser with no game hint discovers existing owner index, requires recovery, then reads exact profile', async () => {
+  const original = fixture({ linkFailures: 1 }); await original.profile.connect();
+  await assert.rejects(original.profile.set({ v: 1, private: 'private fixture save', n: 7 }), { code: 'pod_link_pending' });
+  const originalGraph = original.profile.status().profileGraphIri;
+  const fresh = fixture({ sharedRecords: original.records, keyPresent: false });
+  const connected = await fresh.profile.connect(); assert.equal(connected.hasRecord, true);
+  assert.equal(fresh.profile.status().hasRecord, true); assert.equal(fresh.profile.status().keyPresent, false);
+  await assert.rejects(fresh.profile.createKey(), { code: 'recovery_required' });
+  await assert.rejects(fresh.profile.get(), { code: 'key_required' });
+  assert.equal(fresh.calls.filter(call => call.op === 'createKey').length, 0);
+  await fresh.profile.restoreRecovery({ fixture: 'encrypted recovery only' }, 'fixture passphrase');
+  const found = await fresh.profile.get(); assert.equal(found.exists, true); assert.equal(found.data().n, 7);
+  assert.equal(fresh.profile.status().profileGraphIri, originalGraph); assert.equal(fresh.profile.status().indexed, true);
+  assert.equal(fresh.requests.length, 0, 'reading owner discovery does not require a game-cache write');
+  assert.equal(fresh.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length, 0);
+});
+
+test('an owner index overrides a stale game hint and is read before any profile can be changed', async () => {
+  const graph = 'urn:graph:fixture:canonical-owner-profile';
+  const f = fixture({ initialGraph: graph, initial: profileRecord({ v: 1, n: 9 }), ownerIndex: indexRecord(graph),
+    pointer: { graphIri: 'urn:graph:fixture:stale-hallow-hint' } });
+  await f.profile.connect(); await assert.rejects(f.profile.set({ v: 1, n: 10 }), { code: 'unread_record' });
+  assert.equal((await f.profile.get()).data().n, 9);
+  assert.deepEqual(f.calls.filter(call => call.op === 'load').map(call => call.graphIri), [INDEX, graph]);
+  assert.equal(f.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length, 0);
+});
+
+test('verified legacy game hint migrates into an absent owner index without duplicating its profile', async () => {
+  const graph = 'urn:graph:fixture:verified-legacy-profile';
+  const f = fixture({ pointer: { graphIri: graph }, initial: profileRecord({ v: 1, n: 4 }) });
+  await f.profile.connect(); assert.equal((await f.profile.get()).data().n, 4);
+  assert(f.calls.findIndex(call => call.op === 'load' && call.graphIri === graph)
+    < f.calls.findIndex(call => call.op === 'createAt'));
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 0);
+  assert.equal(f.records.get(INDEX).record.profileGraphIri, graph);
+});
+
+test('corrupt, wrong-owner and wrong-game owner indices block hint fallback, new keys and every publication', async () => {
+  const graph = 'urn:graph:fixture:hint';
+  for (const invalid of [{ ...indexRecord(graph), ownerDid: 'did:web:identity.example:users:bob' },
+    { ...indexRecord(graph), schema: 'other-index/v1' }, { ...indexRecord(graph), game: 'urn:game:other' },
+    { ...indexRecord(graph), profileGraphIri: 'https://not-a-profile.example/' }, { ...indexRecord(graph), cid: 'forbidden-pinned-head' }]) {
+    const f = fixture({ pointer: { graphIri: graph }, initial: profileRecord({ v: 1 }), ownerIndex: invalid });
+    await f.profile.connect();
+    await assert.rejects(f.profile.get(), { code: 'invalid_profile_index' });
+    await assert.rejects(f.profile.createKey(), { code: 'recovery_required' });
+    await assert.rejects(f.profile.set({ v: 1, n: 2 }), { code: 'unread_record' });
+    assert.equal(f.calls.filter(call => ['create', 'createAt', 'save', 'createKey'].includes(call.op)).length, 0);
+  }
+});
+
+test('native index fork and a failed metadata read cannot authorize a new key or character', async () => {
+  const f = fixture({ keyPresent: false, forked: true });
+  await assert.rejects(f.profile.connect(), { code: 'conflict' });
+  await assert.rejects(f.profile.createKey(), { code: 'conflict' });
+  await assert.rejects(f.profile.get(), { code: 'conflict' });
+  assert.equal(f.calls.filter(call => ['create', 'createAt', 'save', 'createKey'].includes(call.op)).length, 0);
+});
+
+test('a fresh confirmed-absent index permits one key; a held key is never replaced', async () => {
+  const f = fixture({ keyPresent: false }); await f.profile.connect();
+  assert.equal((await f.profile.get()).exists, false); await f.profile.createKey();
+  await assert.rejects(f.profile.createKey(), { code: 'key_exists' });
+  assert.equal(f.calls.filter(call => call.op === 'createKey').length, 1);
+});
+
+test('resubmitting identical progress during index confirmation does not mint a redundant character version', async () => {
+  const f = fixture({ indexMode: 'pending' }); await f.profile.connect();
+  await assert.rejects(f.profile.set({ v: 1, n: 1 }), { code: 'pod_index_pending' });
+  await f.profile.set({ v: 1, n: 1 });
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
+  assert.equal(f.profile.status().state, 'saved');
+});
+
+test('a competing native index after a lost acknowledgement cannot be overwritten or cause duplicate character creation', async () => {
+  const f = fixture({ indexMode: 'uncertain' }); await f.profile.connect();
+  await assert.rejects(f.profile.set({ v: 1, n: 1 }), { code: 'pod_index_pending' });
+  f.records.set(INDEX, { ...f.records.get(INDEX), head: { cid: 'competing-native-cid', descriptorUrl: binding.podUrl + 'competing.ttl' },
+    record: indexRecord('urn:graph:fixture:competing-character') });
+  await assert.rejects(f.profile.retry(), { code: 'profile_index_conflict' });
+  await assert.rejects(f.profile.retry(), { code: 'profile_index_conflict' });
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 0); assert.equal(f.requests.length, 0);
+  assert(!f.states.some(value => value.state === 'saved'));
+});
+
+test('index creation by another browser between connect and key creation requires recovery', async () => {
+  const records = new Map(), empty = fixture({ sharedRecords: records, keyPresent: false }); await empty.profile.connect();
+  const other = fixture({ sharedRecords: records }); await other.profile.connect(); await other.profile.set({ v: 1, n: 1 });
+  await assert.rejects(empty.profile.createKey(), { code: 'recovery_required' });
+  assert.equal(empty.profile.status().hasRecord, true);
+  assert.equal(empty.calls.filter(call => call.op === 'createKey').length, 0);
+});
+
+test('metadata outage never counts as index absence or permits key creation', async () => {
+  const f = fixture({ keyPresent: false, metadataError: 'native_unavailable' });
+  await assert.rejects(f.profile.connect(), { code: 'native_unavailable' });
+  await assert.rejects(f.profile.createKey(), { code: 'native_unavailable' });
+  assert.equal(f.calls.filter(call => call.op === 'createKey').length, 0);
+});
+
+test('reconnecting invalidates a cached index body when its native head changed', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.set({ v: 1, n: 1 });
+  f.records.set(INDEX, { ...f.records.get(INDEX), head: { cid: 'replacement-index-head', descriptorUrl: binding.podUrl + 'replacement-index.ttl' },
+    record: indexRecord('urn:graph:fixture:replacement-profile') });
+  await f.profile.connect(); assert.equal(f.profile.status().indexed, false);
+  await assert.rejects(f.profile.get(), { code: 'profile_index_conflict' });
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
 });

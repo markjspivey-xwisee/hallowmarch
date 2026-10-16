@@ -225,12 +225,17 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
 await PLAYER_ACCOUNTS.ready;
 const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(ROOT, 'client', 'native-pod') });
+const nativePlayerConfigured = gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1';
+const nativePlayersRequired = nativePlayerConfigured && gamingEnvironment.HM_NATIVE_PLAYER_REQUIRED === '1';
 const GAMING = createGamingRuntime({ store: gamingStore,
   persistenceMode: gamingEnvironment.HM_GAMING_PERSISTENCE_MODE === 'strict' ? 'strict' : 'realtime',
   verifiedDidFor: client => PLAYER_ACCOUNTS.principalFor(client),
+  requireVerifiedPlayers: nativePlayersRequired,
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
-const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), playerIdentity: { ...PLAYER_ACCOUNTS.manifest(), nativePublication: playerCapabilityStatus() } });
+const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(),
+  ...(nativePlayerConfigured ? { playerIdentity: { ...PLAYER_ACCOUNTS.manifest(), required: nativePlayersRequired,
+    nativePublication: playerCapabilityStatus() } } : {}) });
 const gamingHttp = createAgentHttp({ gaming: GAMING });
 let gamingCapabilities = null, gamingCapabilitiesBusy = false, gamingCapabilityAttempts = 0;
 let gamingCapabilityState = { state: 'initializing', verified: false };
@@ -563,7 +568,11 @@ function onCo(c, m) {
   if (m.op === 'get') { coTell(c, false); reply({ ok: true }); return; }
   if (!(c.realm >= 0)) { reply({ ok: false, why: 'No realm yet' }); return; }
   const A = companyAccount(c), before = COMP.of(A.id);
-  if (!COMP.canParticipate(A)) { reply({ ok: false, why: A.nativeBound ? 'Sign in to your native owner identity first' : 'Name your account first' }); return; }
+  if (!COMP.canParticipate(A)) {
+    COMP.stats.refused++;
+    reply({ ok: false, why: A.nativeBound ? 'Sign in to your native owner identity first'
+      : 'Name your account first (the Players sheet): a guest cannot found a company' }); return;
+  }
   let r;
   if (m.op === 'found') r = COMP.found(A, c.realm, m.name, m.dev, m.col);
   else if (m.op === 'invite') r = COMP.invite(A, m.name);
@@ -617,6 +626,11 @@ function onMsg(c, raw) {
   if (m.t === 'gaming') { void GAMING.handle(c, m); return; }
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
+  if (nativePlayersRequired && !PLAYER_ACCOUNTS.principalFor(c) && !['acct', 'ping'].includes(m.t)) {
+    if (m.t === 'load') send(c, { t: 'save', d: null, error: 'native_identity_required' });
+    else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
+    return;
+  }
   if (m.t === 'slow') onSlow(c, m.d);
   else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
@@ -666,7 +680,7 @@ const server = http.createServer(async (req, res) => {
   if (performanceResourceHttp(req, res, u)) return;
   if (gamingHttp(req, res, u.pathname)) return;
   if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
-  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(gamingManifest())); return; }
+  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(gamingManifest())); return; }
   if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: gamingManifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, playerIdentity: PLAYER_ACCOUNTS.status(), nativeDiscovery: gamingCapabilityStatus(), humanLearning: 'requires-verified-identity-and-session-consent' })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
   if (u.pathname === '/health') { const ok = process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled; res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status })); return; }

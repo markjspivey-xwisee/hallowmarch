@@ -15,7 +15,7 @@ async function freePort() {
   const server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port;
 }
-async function fixture(t, enabled = false) {
+async function fixture(t, enabled = false, required = false) {
   const data = await mkdtemp(path.join(tmpdir(), 'hallowmarch-native-account-test-'));
   const saves = path.join(data, 'saves');
   const { mkdir } = await import('node:fs/promises'); await mkdir(saves);
@@ -29,7 +29,8 @@ async function fixture(t, enabled = false) {
   const tokens = createGameSessionTokens({ secret });
   const child = spawn(process.execPath, [path.join(root, 'server', 'server.js')], { cwd: root,
     env: { PATH: process.env.PATH, NODE_ENV: 'test', PORT: String(port), HM_DATA: data, HM_SECRET: secret,
-      HM_PUBLIC_ORIGIN: 'https://game.example', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: enabled ? '1' : '0' },
+      HM_PUBLIC_ORIGIN: 'https://game.example', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_ENABLED: enabled ? '1' : '0',
+      HM_NATIVE_PLAYER_REQUIRED: required ? '1' : '0' },
     stdio: ['ignore', 'pipe', 'pipe'] });
   let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => { output = (output + bytes).slice(-8000); });
   const sockets = [];
@@ -85,9 +86,10 @@ test('real server preserves native game credentials and prevents personal-file s
   bob.send({ t: 'save', d: { v: 1, player: { name: 'Legacy Bob' } } }); assert.equal((await bob.receive('saved')).ok, true);
   assert.equal(JSON.parse(await readFile(f.file('bob'), 'utf8')).player.name, 'Legacy Bob');
   assert.equal((await fetch(f.base + '/gaming/identity/finish')).status, 200);
-  const manifest = await (await fetch(f.base + '/gaming/manifest')).json();
-  assert.equal(manifest.playerIdentity.affordances, 'https://game.example/gaming/identity/affordances');
-  assert.equal(manifest.playerIdentity.enabled, false);
+  const manifestResponse = await fetch(f.base + '/gaming/manifest');
+  assert.equal(manifestResponse.headers.get('access-control-allow-origin'), '*', 'public entry policy is readable by an external game client');
+  const manifest = await manifestResponse.json();
+  assert.equal(manifest.playerIdentity, undefined, 'intentionally unconfigured legacy servers advertise no native entry policy');
 });
 
 test('configured native ownership outage blocks unknown-account central writes without touching old files', async t => {
@@ -96,6 +98,23 @@ test('configured native ownership outage blocks unknown-account central writes w
   const saved = await bob.receive('saved'); assert.equal(saved.ok, false); assert.equal(saved.error, 'native_ownership_unavailable');
   bob.send({ t: 'load' }); const loaded = await bob.receive('save');
   assert.equal(loaded.error, 'native_ownership_unavailable'); assert.equal(loaded.d, null);
+  await assert.rejects(readFile(f.file('bob')), { code: 'ENOENT' });
+  assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
+  const manifest = await (await fetch(f.base + '/gaming/manifest')).json();
+  assert.equal(manifest.playerIdentity.affordances, 'https://game.example/gaming/identity/affordances');
+  assert.equal(manifest.playerIdentity.enabled, false, 'a configured outage retains the native entry contract');
+});
+
+test('native-required deployment rejects legacy participation and personal-file writes before owner verification', async t => {
+  const f = await fixture(t, true, true), bob = await f.connect(f.tokens.issueLegacy('bob'));
+  const manifest = await (await fetch(f.base + '/gaming/manifest')).json();
+  assert.equal(manifest.playerIdentity.required, true); assert.equal(manifest.requiresVerifiedPlayers, true);
+  for (const message of [{ t: 'save', d: { v: 1, char: null } }, { t: 'wipe' }]) {
+    bob.send(message); const result = await bob.receive('saved');
+    assert.equal(result.ok, false); assert.equal(result.error, 'native_identity_required');
+  }
+  bob.send({ t: 'load' }); assert.equal((await bob.receive('save')).error, 'native_identity_required');
+  bob.send({ t: 'ping', c: 42 }); assert.equal((await bob.receive('pong')).c, 42, 'sign-in transport remains usable');
   await assert.rejects(readFile(f.file('bob')), { code: 'ENOENT' });
   assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
 });

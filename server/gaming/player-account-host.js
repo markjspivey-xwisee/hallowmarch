@@ -57,15 +57,65 @@ export function createPlayerAccountHost(options = {}) {
   if (publicUrl.protocol !== 'https:' || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/'
     || publicUrl.search || publicUrl.hash) throw new TypeError('Player account host requires a public HTTPS origin');
   const now = options.now ?? Date.now;
+  const recoveryTimeoutMs = options.recoveryTimeoutMs ?? 15_000;
+  const recoveryCooldownMs = options.recoveryCooldownMs ?? 5_000;
+  if (!Number.isSafeInteger(recoveryTimeoutMs) || recoveryTimeoutMs < 10 || recoveryTimeoutMs > 30_000
+    || !Number.isSafeInteger(recoveryCooldownMs) || recoveryCooldownMs < 100 || recoveryCooldownMs > 60_000) {
+    throw new TypeError('Bounded native ownership recovery timing is required');
+  }
   const ledger = createPlayerBindingLedger({ ...(options.ledgerOptions ?? {}), store: options.store, now,
     ...(options.storeBases ? { storeBases: options.storeBases } : {}) });
-  const proofs = new Map(); let closed = false, readyOk = false;
-  const ready = Promise.resolve(ledger.ready).then(() => { readyOk = ledger.enabled === true; }, () => { readyOk = false; });
+  const proofs = new Map(); let closed = false, readyOk = false, initialReadySettled = false;
+  let recoveryFlight = null, recoverAfter = 0;
+  const ready = Promise.resolve(ledger.ready).then(() => { readyOk = ledger.enabled === true; }, () => { readyOk = false; })
+    .finally(() => { initialReadySettled = true; });
   const routes = Object.freeze({ status: '/gaming/identity/status', legacyImport: '/gaming/identity/legacy-import', recordLink: '/gaming/identity/record-link' });
   const prune = () => { for (const [key, proof] of proofs) if (proof.expiresAt <= now()) proofs.delete(key); };
   const recordFor = accountId => ledger.bindingForAccount(accountId);
   const enabled = () => !closed && readyOk && ledger.enabled === true;
-  async function requireReady() { await ready; if (!enabled()) fail('native_identity_unavailable', 503); }
+  function recover() {
+    if (closed || !options.store || !initialReadySettled) return Promise.resolve(false);
+    if (enabled()) return Promise.resolve(true);
+    if (recoveryFlight) return recoveryFlight.result;
+    if (now() < recoverAfter) return Promise.resolve(false);
+    // A recovered view comes only from the ledger's native readback, including
+    // its existing version/equivocation guards. Never revive a saved cache.
+    readyOk = false;
+    const attempt = { expired: false, timer: null, stop: null, result: null };
+    const task = Promise.resolve().then(async () => {
+      await options.store.ready();
+      if (closed || attempt.expired) return false;
+      await ledger.refresh();
+      return ledger.enabled === true;
+    }).catch(() => false);
+    const deadline = new Promise(resolve => {
+      attempt.stop = () => { attempt.expired = true; recoverAfter = now() + recoveryCooldownMs; resolve(false); };
+      attempt.timer = setTimeout(attempt.stop, recoveryTimeoutMs);
+    });
+    attempt.result = Promise.race([task, deadline]).then(confirmed => {
+      if (confirmed && !attempt.expired && !closed) readyOk = true;
+      if (!enabled()) recoverAfter = now() + recoveryCooldownMs;
+      return enabled();
+    });
+    recoveryFlight = attempt;
+    // A transport may ignore cancellation. Keep its flight occupied until the
+    // underlying read settles, so timed-out HTTP requests cannot pile up reads.
+    void task.finally(() => {
+      clearTimeout(attempt.timer);
+      if (recoveryFlight === attempt) {
+        recoveryFlight = null;
+        if (!enabled()) recoverAfter = Math.max(recoverAfter, now() + recoveryCooldownMs);
+      }
+    });
+    return attempt.result;
+  }
+  const recoveryTimer = options.store ? setInterval(() => { if (!enabled()) void recover(); }, recoveryCooldownMs) : null;
+  recoveryTimer?.unref?.();
+  async function requireReady() {
+    await ready;
+    if (!enabled()) await recover();
+    if (!enabled()) fail('native_identity_unavailable', 503);
+  }
   function authenticated(req) {
     const authorization = req.headers.authorization;
     if (typeof authorization !== 'string' || authorization.length > 8192) fail('game_account_required', 401);
@@ -147,7 +197,11 @@ export function createPlayerAccountHost(options = {}) {
       if (!enabled() || !client?.acct?.id || options.getAccount(client.acct.id)?.id !== client.acct.id) return null;
       return freshDid(client.authClaims, client.acct.id);
     },
-    close() { closed = true; proofs.clear(); bridge.close(); },
+    close() {
+      closed = true; readyOk = false; proofs.clear(); bridge.close();
+      clearInterval(recoveryTimer);
+      if (recoveryFlight) { clearTimeout(recoveryFlight.timer); recoveryFlight.stop(); }
+    },
     async handle(req, res) {
       let url;
       try { url = new URL(req.url, publicUrl); } catch { return false; }

@@ -1,13 +1,14 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
-async function initSaveBackend() {
-  const native = await nativePlayerSaveRef();
+async function initSaveBackend(initialization) {
+  const native = await nativePlayerSaveRef(initialization);
+  if (!initialization.active) return null;
   if (native) return native;
-  try { const srv = await netServerSaveRef(); if (srv) { SAVE.server = true; return srv; } } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
+  try { const srv = await netServerSaveRef(); if (!initialization.active) return null; if (srv) return { ...srv, server: true }; } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
     if (!C || typeof C.use !== 'function') return null;
@@ -15,7 +16,7 @@ async function initSaveBackend() {
     if (!db || !user) return null;
     const uid = await user.id();
     if (!uid) return null;
-    return db.doc('data/users/' + uid + '/save');
+    return initialization.active ? db.doc('data/users/' + uid + '/save') : null;
   } catch (e) { return null; }
 }
 function readLocal() {
@@ -32,16 +33,30 @@ function validSave(s) {
   return s;
 }
 async function loadSave() {
-  const ref = await withTimeout(initSaveBackend(), 12000);
+  // boot starts in 13_main before the later native/transport constants exist.
+  await null;
+  SAVE.readConfirmed = false;
+  const initialization = { active: true };
+  // Native policy is selected synchronously before its first network wait. Its
+  // bounded welcome/status read must finish before choosing any character.
+  const initializing = initSaveBackend(initialization);
+  let ref;
+  try { ref = await withTimeout(initializing, SAVE.native ? 45000 : 12000); }
+  finally { initialization.active = false; }
   let remote = null, remoteOk = false;
   if (ref) {
     try {
       const snap = await withTimeout(ref.get(), ref.native ? 45000 : 12000);
-      if (snap) { remoteOk = true; if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data())); }
+      if (snap && typeof snap.exists === 'boolean') {
+        if (snap.exists) remote = JSON.parse(JSON.stringify(snap.data()));
+        remoteOk = true;
+      }
     } catch (e) { /* unreadable: keep this session's progress in the browser instead */ }
   }
   // only write to the account copy once it has been read, so an existing save is never overwritten blind
   SAVE.ref = remoteOk || ref?.native ? ref : null;
+  SAVE.readConfirmed = remoteOk;
+  SAVE.server = !!(remoteOk && ref?.server);
   SAVE.backend = SAVE.native ? 'pod' : remoteOk ? 'db' : 'local';
   const local = SAVE.native ? null : readLocal();
   const s = validSave(remote || local);

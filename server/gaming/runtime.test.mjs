@@ -66,6 +66,24 @@ test('native actor identity is supplied only by the trusted current-session port
   runtime.close(alice);
 });
 
+test('native-required rooms refuse claimed identity and recheck the trusted proof for every action', async () => {
+  let currentDid = null;
+  const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000,
+    verifiedDidFor: () => currentDid, requireVerifiedPlayers: true });
+  await runtime.ready; const alice = client('alice');
+  alice.acct.verifiedDid = 'did:example:forged';
+  await runtime.handle(alice, request('enter', { verifiedDid: 'did:example:forged' }));
+  assert.equal(alice.received.at(-1).error.code, 'native_identity_required');
+  assert.equal(runtime.room.current.entities.alice, undefined);
+  currentDid = 'did:example:alice';
+  await runtime.handle(alice, request('enter')); assert.equal(alice.received.at(-1).ok, true);
+  currentDid = null;
+  await runtime.handle(alice, cmd('move', { x: 0, z: 3 }));
+  assert.equal(alice.received.at(-1).error.code, 'native_identity_required');
+  assert.equal(runtime.room.current.entities.alice.z, 0);
+  runtime.close(alice);
+});
+
 test('HTTP affordance uses human-issued capability, redacts private state, and honors revocation', async t => {
   const runtime = createGamingRuntime({ store: new TestStore(), send, clock: () => 100000 }); await runtime.ready;
   const alice = client('alice'); await runtime.handle(alice, request('enter'));

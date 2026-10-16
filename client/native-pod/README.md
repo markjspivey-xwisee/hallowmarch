@@ -16,8 +16,8 @@ implemented here and refresh tokens are refused. The host must reconnect when
 the access grant expires. Do not log credentials or persistence bodies.
 
 Serve `client.mjs` and `vendor/interego-browser.mjs` as same-origin JavaScript;
-load the module only when native persistence is requested. This change does not
-add a server route or connect the game save pipeline.
+load the module only when native persistence is requested. Hallowmarch's bridge
+serves these assets and connects its save pipeline through `profile.mjs`.
 
 ```js
 import { createNativePodClient } from '/client/native-pod/client.mjs';
@@ -62,7 +62,9 @@ and checks owner/graph binding. There is no server decryption fallback.
 IndexedDB holds only encryption-key custody: an encrypted NaCl secret and a
 non-extractable WebCrypto AES wrapping key. Both remain in the browser. Same-origin
 malicious script is outside that isolation boundary; this is not hardware key
-isolation. No game records or OAuth tokens are written to IndexedDB/localStorage.
+isolation. This adapter writes no game records or OAuth tokens to browser storage.
+The separate access cache stores an unexpired OAuth access credential only as
+SDK-sealed ciphertext; it never accepts refresh tokens.
 Encrypted recovery uses the existing SDK PBKDF2-SHA256 (600,000 iterations) and
 AES-GCM contract, tied to the exact owner/relay scope. Its passphrase is a human
 choice; no passphrase or recovery file is uploaded by the adapter.
@@ -70,7 +72,14 @@ choice; no passphrase or recovery file is uploaded by the adapter.
 Updates require the previously read native CID and use native CAS. A new graph
 uses a freshly generated UUID: the current relay has no atomic compare-with-
 absence precondition, so first creation is **not** described as initial CAS.
-The host must retain the returned graph reference through its owner-side index.
+`profile.mjs` maintains the sealed, stable owner index at
+`urn:graph:hallowmarch:player-profile-index:<sha256-owner-did>`. It validates and
+opens that index before following the current profile head; the game service's
+pointer is an optional hint. Existing index metadata requires key recovery even
+when the game has no pointer. Named index creation checks absence and sole-head
+readback, but also has no atomic compare-with-absence guarantee. Index conflicts
+fail closed. A crash after profile creation and before confirmed index creation
+does not establish discoverable recovery.
 
 Only fresh native head plus exact local decrypt/digest readback returns
 `saved: true`. Pending or lost acknowledgements return `saved: false` and an
