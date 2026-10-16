@@ -27,6 +27,8 @@ export function mainWorldAgentAffordances(options) {
     resourcesDescriptor: new URL('/gaming/resources/descriptor.ttl', doc.audience).href,
     consultingDescriptor: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance',
     methodologyCatalog: 'https://foxxi-bridge.interego.xwisee.com/performance/methods',
+    agentSessionModule: new URL('/gaming/identity/assets/agent-own-session.mjs', doc.audience).href,
+    agentSessionGuide: 'https://github.com/markjspivey-xwisee/hallowmarch/blob/main/client/native-pod/agent-own-session.README.md',
     subjectPolicy: 'Consult using the performer’s own authenticated Interego identity and pod with task-scoped consent. A game control grant does not authorize personal consultation or access to the player’s journal.',
     observationPolicy: 'Only the granted body’s public observation is available to a game agent. Label it owner-page observation; it is not a verified combat, learning or competency outcome.',
   };

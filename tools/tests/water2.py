@@ -292,19 +292,34 @@ async def main():
               const R = H.REALMS[0], J = Bt.jetties()[0];
               for (const B of Wt.boats.BOATS.list) if (B.home) Bt.restore(Wt.boats.BOATS.list.indexOf(B));
               H.teleport(J.land.x - 6, J.land.z - 6); H.setTod(2.8);
-              const t0 = H.GAME.t; let fisher = null, out = null, track = [];
-              for (let k = 0; k < 420; k++) { H.simulate(0.5); const jj = Bt.jetties()[0]; if (jj.fisher != null && fisher == null) fisher = jj.fisher;
+              const t0 = H.GAME.t, step = 0.5; let fisher = null, attempt = null, out = null, track = [], lost = false;
+              let deadline = t0 + 210, approachDeadline = null, origin = null, moved = 0, rowed = false;
+              for (let k = 0; H.GAME.t < deadline; k++) { H.simulate(step); const jj = Bt.jetties()[0];
+                if (jj.fisher != null && fisher == null) {
+                  fisher = jj.fisher; attempt = H.fn.getEnt(fisher)?.ai.fisher;
+                  if (!attempt || !Number.isFinite(attempt.until)) { lost = true; break; }
+                  // boatLife grants this actual approach 200–320 s, then at most
+                  // 70 s outbound. A single 210 s budget truncated legal walks.
+                  approachDeadline = attempt.until - t0; deadline = attempt.until + 70 + step;
+                  const berth = attempt.J.berths[attempt.J.boats.indexOf(attempt.B)] || attempt.J.berths[0]; origin = { x: berth.x, z: berth.z };
+                }
                 const e = fisher != null ? H.fn.getEnt(fisher) : null; const F = e && e.ai.fisher;
+                if (fisher != null && (jj.fisher !== fisher || F !== attempt || !e.alive)) { lost = true; break; }
                 if (k % 20 === 0) track.push([Math.round(H.GAME.t - t0), F ? F.st : null]);
-                if (F && F.st === 'fish') { out = { st: F.st, boat: Bt.state(Wt.boats.BOATS.list.indexOf(F.B)), e: { x: e.x, z: e.z, y: e.y, fishing: !!e.fishing } }; break; } }
+                if (F && (F.st === 'out' || F.st === 'fish')) {
+                  moved = Math.max(moved, Math.hypot(F.B.x - origin.x, F.B.z - origin.z));
+                  rowed = rowed || (F.st === 'out' && F.B.rider === e.id && e.boat === F.B && F.B.eff > 0.05);
+                }
+                if (F && F.st === 'fish' && e.fishing) { out = { st: F.st, boat: Bt.state(Wt.boats.BOATS.list.indexOf(F.B)), e: { x: e.x, z: e.z, y: e.y, fishing: !!e.fishing } }; break; } }
               // the line comes in: back to the jetty, the catch into the town's stores
               const g0 = H.farm.FARM.granary.fish_raw || 0; let home = null;
               const e = fisher != null ? H.fn.getEnt(fisher) : null;
-              if (e && e.ai.fisher) { e.ai.fisher.dur = 0; for (let k = 0; k < 300 && e.ai.fisher; k++) { H.simulate(0.5); if (e.ai.fisher && e.ai.fisher.st === 'ashore' && !home) home = { t: k * 0.5, boat: Bt.state(Wt.boats.BOATS.list.indexOf(e.ai.fisher.B)).st }; } }
+              if (out && !lost && e && e.ai.fisher === attempt) { e.ai.fisher.dur = 0; for (let k = 0; k < 300 && e.ai.fisher; k++) { H.simulate(0.5); if (e.ai.fisher && e.ai.fisher.st === 'ashore' && !home) home = { t: k * 0.5, boat: Bt.state(Wt.boats.BOATS.list.indexOf(e.ai.fisher.B)).st }; } }
               const g1 = H.farm.FARM.granary.fish_raw || 0;
               H.setTod(0.45);
-              return { fisher, out, track, home, g0, g1, errors: H.errors.slice(0, 3) }; })()""")
-            check(r['fisher'] is not None and r['out'] is not None, 'a townsman rows out to fish in the morning (%s)' % r['track'])
+              return { fisher, out, track, lost, approachDeadline, moved, rowed, home, g0, g1, errors: H.errors.slice(0, 3) }; })()""")
+            check(r['fisher'] is not None and r['out'] is not None and not r['lost'], 'a townsman reaches fishing within his own approach and outbound deadlines (%s)' % r['track'])
+            check(r['rowed'] and r['moved'] > 1 and r['out'] is not None and r['out']['e']['fishing'], 'he rows the boat away from its berth and actually fishes (%.1f m)' % r['moved'])
             check(r['home'] is not None and r['home']['boat'] == 'moored' and r['g1'] > r['g0'], 'and rows back, ties up and brings the catch to the stores (%s, fish %d -> %d)' % (r['home'], r['g0'], r['g1']))
 
         if want('tracks'):

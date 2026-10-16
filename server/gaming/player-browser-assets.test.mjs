@@ -8,7 +8,7 @@ function request(pathname, method = 'GET') {
   return { handled, ...result };
 }
 test('owner companion compositions expose fixed JavaScript assets and never a directory or test surface', () => {
-  for (const name of ['public-record.mjs', 'owner-agent-grant.mjs', 'owner-agent-grant-schema.mjs', 'performance-consultation.mjs', 'vendor/interego-public-browser.mjs']) {
+  for (const name of ['public-record.mjs', 'owner-agent-grant.mjs', 'owner-agent-grant-schema.mjs', 'performance-consultation.mjs', 'foxxi-consulting.mjs', 'agent-own-session.mjs', 'vendor/interego-public-browser.mjs']) {
     const result = request('/gaming/identity/assets/' + name); assert.equal(result.status, 200);
     assert.match(result.headers['Content-Type'], /javascript/); assert.equal(result.headers['Cache-Control'], 'no-store');
     assert.equal(request('/gaming/identity/assets/' + name, 'HEAD').body, undefined);

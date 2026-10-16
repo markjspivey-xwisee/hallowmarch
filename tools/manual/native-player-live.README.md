@@ -159,6 +159,14 @@ or process termination also closes the retained session. The existing browser
 keys/access cache remain available in the retained context until it closes.
 After a resumed suite passes, the retained command loop stays open until `finish`.
 
+Fresh-browser verification retains its one reload and verifies that the document
+changed. Stage `retry` then observes that same page and private read instead of
+reloading again. If that stage has failed and the original owner's title is
+still open, `native-startup-retry` clicks its existing **Retry connection** button.
+It refuses a different owner/host, active gameplay, pending writes, or a busy
+stage. Follow it with `diagnose`, then `retry` or `continue` to verify the exact
+native character. This action does not start OAuth or recreate the owner/key.
+
 Optional companion verification uses `HM_NATIVE_COMPANION_LIVE_TEST=1`, plus the
 existing native agent's independently verified public DID and HTTPS home pod in
 `HM_NATIVE_COMPANION_AGENT_DID` and `HM_NATIVE_COMPANION_AGENT_POD_URL`. It starts

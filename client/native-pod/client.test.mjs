@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash, webcrypto } from 'node:crypto';
 globalThis.self = globalThis; // The browser bundle uses the browser CSPRNG port.
 const { createNativePodClient } = await import('./client.mjs');
+const { createOwnerPerformanceConsultation } = await import('./performance-consultation.mjs');
 const { RelayMcpTransport } = await import('./vendor/interego-browser.mjs');
 const IEP = 'https://markjspivey-xwisee.github.io/interego/ns/iep#';
 const tools = ['get_pod_status', 'get_current_head', 'get_descriptor', 'get_encrypted_graph', 'register_agent', 'publish_context'];
@@ -103,6 +104,22 @@ test('real client-held encryption, local readback and CAS update over SDK JSON/S
   const requests = f.calls.filter(call => call.name === 'publish_context'); assert.equal(requests[1].args.if_match, result.head.cid);
   await assert.rejects(alice.save({ graphIri: result.graphIri, record: { count: 9 }, expectedHead: result.head }), { code: 'conflict' });
   assert.equal(requests.length, 2);
+});
+test('consultation rollover and native history readback retain client encryption for the index and every archive page', async () => {
+  const f = fixture(), storage = keys(), bootstrap = f.client('alice', storage); await bootstrap.connect(); await bootstrap.createKey();
+  const ownerDid = 'did:web:identity.example:users:alice', podUrl = 'https://pod.example/alice/', taskId = 'urn:uuid:encrypted-journal-task';
+  const journal = createOwnerPerformanceConsultation({ binding: { subjectDid: ownerDid, podUrl }, sessionId: 'encrypted-journal-session',
+    createClient: () => f.client('alice', storage), crypto: webcrypto });
+  await journal.connect(); await journal.grantConsent({ accepted: true, purpose: 'retain-observations', recipient: podUrl, taskId, lifetimeMs: 900000 });
+  for (let i = 0; i < 17; i++) await journal.appendObservation({ task: { id: taskId, desiredResult: 'Private desired result', observedResult: 'Encrypted private observation ' + i, workContext: 'Own character in the real March' },
+    evidence: [{ kind: 'owner-browser-observation', performerDid: ownerDid, at: new Date().toISOString(), metrics: { healthPercent: 50 + i } }] });
+  const active = await journal.read(), archive = await journal.readArchive(active.archiveHead);
+  assert.equal(active.observations.length, 1); assert.equal(archive.record.observations.length, 17);
+  assert.equal(archive.record.observations[0].task.observedResult, 'Encrypted private observation 0');
+  assert.equal(f.maps.alice.heads.size, 2);
+  const publications = f.calls.filter(call => call.name === 'publish_context');
+  assert(publications.every(call => call.args.sealed_payload === true && call.args.visibility === 'private'));
+  assert(publications.every(call => !JSON.stringify(call.args).includes('Encrypted private observation') && !JSON.stringify(call.args).includes('Private desired result')));
 });
 test('ciphertext tampering and two-owner key isolation fail closed', async () => {
   const f = fixture(), alice = f.client('alice'), bob = f.client('bob');

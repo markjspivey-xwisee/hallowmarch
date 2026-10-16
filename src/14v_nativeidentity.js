@@ -47,6 +47,10 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
       legacy = !Object.hasOwn(manifest, 'playerIdentity');
     }
     if (!active()) return null;
+    // Once the bounded boot wait exposed a native-blocked title, a late
+    // legacy response cannot downgrade its storage policy or select a local
+    // character. An explicit new title retry must confirm that policy afresh.
+    if (legacy && initialization.detached) return blocked;
     if (legacy) {
       SAVE.native = false; SAVE.lsKey = 'hallowmarch.save.v1';
       NATIVE_PLAYER.status = null; NATIVE_PLAYER.state = 'idle';

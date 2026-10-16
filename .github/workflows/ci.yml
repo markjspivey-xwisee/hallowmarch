@@ -62,7 +62,7 @@ jobs:
             startup) check python3 tools/tests/startup_graphics.py ;;
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
-              node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting.test.mjs
+              node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting.test.mjs client/native-pod/agent-own-session.test.mjs
               node --test client/world-agent-client.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/world-agent-client.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/browser.test.mjs
@@ -78,6 +78,7 @@ jobs:
               HM_GAMING_TEST_REALTIME=1 node tools/tests/gaming_browser.mjs
               check python3 tools/tests/net_reconnect.py
               check python3 tools/tests/main_world_agents.py
+              check python3 tools/tests/main_world_consulting.py
               ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;

@@ -60,3 +60,12 @@ test('finish and EOF close a pending signer without waiting on the manual comman
     await tick(); assert.equal(errors, 1); input.destroy();
   }
 });
+test('native startup retry is a fixed serialized command and remains distinct from stage retry', async () => {
+  const input = new PassThrough(), seen = []; let release, busy = 0;
+  const reader = createNativeLiveInput({ input, async onCommand(value) { seen.push(value);
+    if (value === 'native-startup-retry') await new Promise(resolve => { release = resolve; }); }, onBusy: () => busy++ });
+  input.write('native-startup-retry\n'); await tick(); assert.equal(reader.status().commandBusy, true);
+  input.write('retry\nstatus\n'); await tick(); assert.equal(busy, 1); assert.deepEqual(seen, ['native-startup-retry', 'status']);
+  release(); await tick(); input.write('retry\n'); await tick(); assert.deepEqual(seen, ['native-startup-retry', 'status', 'retry']);
+  input.write('finish\n'); await reader.waitForClose(); input.destroy();
+});

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { retainedGameBoot, verifiedContextHandoff, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import vm from 'node:vm';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
 
 function fakeGame({ failNavigation = false, failReady = false } = {}) {
   const calls = { contexts: 0, pages: 0, navigations: 0, ready: 0 }, events = [];
@@ -130,4 +131,50 @@ test('startup diagnostics expose only fixed native states and profile/read confi
   assert.equal(result.state, null); assert.equal(result.loadPhase, null); assert.equal(result.readConfirmed, false);
   assert.equal(result.profileStatus.state, null); assert.equal(result.profileStatus.keyPresent, false);
   assert(!JSON.stringify(result).includes(secret));
+});
+test('fresh verification retries retain the one changed document and its pending private read', async () => {
+  const calls = { before: 0, prepare: 0, reload: 0, document: 0, wait: 0, exact: 0 }; let pending = true;
+  const reload = retainedNativeReload({ verifyBeforeReload: async () => { calls.before++; }, prepareReload: async () => { calls.prepare++; },
+    reload: async () => { calls.reload++; }, waitForNewDocument: async () => { calls.document++; },
+    waitForSave: async () => { calls.wait++; if (pending) throw Error('native read still pending'); }, verifyLoaded: async () => { calls.exact++; } });
+  await assert.rejects(reload.run()); await assert.rejects(reload.run());
+  assert.deepEqual(reload.status(), { beforeVerified: true, prepared: true, reloadAttempted: true, documentConfirmed: true, complete: false });
+  pending = false; await reload.run(); await reload.run();
+  assert.deepEqual(calls, { before: 1, prepare: 1, reload: 1, document: 1, wait: 3, exact: 1 }); assert.equal(reload.status().complete, true);
+});
+test('a thrown reload is never replayed and an unchanged document cannot prove recovery', async () => {
+  let reloads = 0, changed = false, waits = 0;
+  const reload = retainedNativeReload({ verifyBeforeReload: async () => {}, prepareReload: async () => {},
+    reload: async () => { reloads++; throw Error('navigation timeout after request'); },
+    waitForNewDocument: async () => { if (!changed) throw Error('same document'); },
+    waitForSave: async () => { waits++; }, verifyLoaded: async () => {} });
+  await assert.rejects(reload.run()); await assert.rejects(reload.run()); assert.equal(reloads, 1); assert.equal(waits, 0);
+  changed = true; await reload.run(); assert.equal(reloads, 1); assert.equal(waits, 1); assert.equal(reload.status().complete, true);
+});
+function startupPage() {
+  let clicks = 0;
+  const h = { ready: true, GAME: { started: false }, SAVE: { native: true, readConfirmed: false },
+    net: { NETWS: { acct: { id: 'fixture-owner', nativeBound: true } } }, nativePlayerStatus: () => ({ profileStatus: { pending: false } }) };
+  const button = { textContent: 'Retry connection', disabled: false, click: () => { clicks++; } };
+  const location = { origin: 'https://game.example' };
+  const page = { isClosed: () => false, evaluate: async (fn, input) => vm.runInNewContext('(' + fn.toString() + ')(input)',
+    { window: { __hm: h }, location, document: { querySelectorAll: () => [button] }, input }) };
+  return { h, button, location, page, clicks: () => clicks };
+}
+test('startup retry clicks only the original owner title button and confirmed reads need no click', async () => {
+  const f = startupPage(), args = { page: f.page, expectedAccountId: 'fixture-owner', gameOrigin: f.location.origin };
+  assert.deepEqual(await retryNativeStartup(args), { kind: 'native_startup_retry', clicked: true, alreadyConfirmed: false }); assert.equal(f.clicks(), 1);
+  f.h.SAVE.readConfirmed = true;
+  assert.deepEqual(await retryNativeStartup(args), { kind: 'native_startup_retry', clicked: false, alreadyConfirmed: true }); assert.equal(f.clicks(), 1);
+});
+test('startup retry refuses another owner, host, running game, pending writes and disabled controls', async () => {
+  for (const change of [f => { f.h.net.NETWS.acct.id = 'another-owner'; }, f => { f.location.origin = 'https://another.example'; },
+    f => { f.h.GAME.started = true; }, f => { f.h.SAVE.pending = { private: 'live progress' }; },
+    f => { f.h.SAVE.nativeFlight = Promise.resolve(); }, f => { f.h.SAVE.wiping = true; },
+    f => { f.h.nativePlayerStatus = () => ({ profileStatus: { pending: true } }); },
+    f => { f.h.net.NETWS.reload = true; }, f => { f.button.disabled = true; }, f => { f.page.isClosed = () => true; }]) {
+    const f = startupPage(); change(f);
+    await assert.rejects(retryNativeStartup({ page: f.page, expectedAccountId: 'fixture-owner', gameOrigin: 'https://game.example' }), { code: 'qa_startup_retry_refused' });
+    assert.equal(f.clicks(), 0);
+  }
 });

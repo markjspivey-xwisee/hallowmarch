@@ -10,6 +10,7 @@ export function createPlayerBrowserAssets({ clientRoot = new URL('../../client/n
     'public-record.mjs': 'text/javascript; charset=utf-8', 'owner-agent-grant.mjs': 'text/javascript; charset=utf-8',
     'owner-agent-grant-schema.mjs': 'text/javascript; charset=utf-8',
     'foxxi-consulting.mjs': 'text/javascript; charset=utf-8',
+    'agent-own-session.mjs': 'text/javascript; charset=utf-8',
     'performance-consultation.mjs': 'text/javascript; charset=utf-8',
     'vendor/interego-browser.mjs': 'text/javascript; charset=utf-8', 'vendor/interego-public-browser.mjs': 'text/javascript; charset=utf-8' };
   return function handle(req, res, pathname) {

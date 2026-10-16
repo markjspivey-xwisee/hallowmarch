@@ -14,6 +14,10 @@ DID, and publishes the limited access in their own pod. They resume control and
 close the panel. The public grant UUID, room and entity IDs describe this
 relationship; they are not keys. The agent must already have its own native
 identity and current delegation. This client does not register new identities.
+Agent hosts that need their own native identity and private consulting can use
+the [host-owned native session adapter](../client/native-pod/agent-own-session.README.md).
+The host supplies its separate wallet and durable native encryption keystore;
+the adapter verifies the agent's own pod and keeps player and agent records separate.
 For a confirmed active grant, expand **Agent connection details** and copy its
 public configuration to the agent's tool host. The panel supplies the actual
 origin, game and agent DIDs, grant UUID, room, selected body, and module URL.

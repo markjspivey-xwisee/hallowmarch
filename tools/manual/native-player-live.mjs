@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
-import { retainedGameBoot, verifiedContextHandoff, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
@@ -229,6 +229,24 @@ const firstHandoff = verifiedContextHandoff({
   privacy: () => privacy(first),
   close: async () => { qaPasskey.credential(); await firstContext.close(); },
 });
+let freshReloadMarker = null;
+const freshNativeReload = retainedNativeReload({
+  async verifyBeforeReload() {
+    const restoredHead = await verifiedRead(fresh, expectedSave);
+    ensure(JSON.stringify(restoredHead) === JSON.stringify(initialHead), 'recovery-head-digest');
+  },
+  async prepareReload() {
+    freshReloadMarker = await fresh.evaluate(() => { const marker = crypto.randomUUID(); window.__hmNativeReloadDocument = marker; return marker; });
+  },
+  reload: () => fresh.reload({ waitUntil: 'domcontentloaded' }),
+  waitForNewDocument: () => fresh.waitForFunction(marker => window.__hmNativeReloadDocument !== marker,
+    freshReloadMarker, { timeout: 30_000 }),
+  waitForSave: () => fresh.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
+    && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 }),
+  async verifyLoaded() {
+    ensure(await fresh.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'fresh-game-reload-body');
+  },
+});
 const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evaluate(async diagnose => {
   const h = window.__hm, n = h?.net?.NETWS;
   return { ready: !!h?.ready, native: !!h?.SAVE?.native,
@@ -249,7 +267,7 @@ const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async ()
 // attempts; a stuck context must not prevent the browser-close backstop.
 const closeBrowserResource = boundedPageStatus({ evaluate: value => value.close() });
 async function reportRetainedStatus(diagnose) {
-  console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep }));
+  console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep, freshReload: freshNativeReload.status() }));
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
@@ -282,7 +300,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, oauth-retry-same-owner, companion-restart-admission, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -297,6 +315,11 @@ function startInput() {
       if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
       if (plan?.status().busy || companion?.status().busy) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
+        if (action === 'native-startup-retry') {
+          ensure(plan?.status().stage === 'fresh-browser-native-verification' && !plan.status().busy
+            && freshNativeReload.status().reloadAttempted, 'qa_startup_retry_refused');
+          console.log(JSON.stringify(await retryNativeStartup({ page: fresh, expectedAccountId: owner?.accountId, gameOrigin }))); return;
+        }
         if (action === 'main-world-revoke') { if (!mainWorld) throw new Error('Main-world QA is not selected.'); await mainWorld.revoke(); return; }
         if (action === 'companion-restart-admission') {
           if (mainWorld) { console.log(JSON.stringify(await mainWorld.restartAdmission())); return; }
@@ -420,12 +443,7 @@ try {
       }, { recovery: encryptedRecovery, passphrase, relayOrigin, expected: expectedSave });
     } },
     { name: 'fresh-browser-native-verification', async run() {
-      const restoredHead = await verifiedRead(fresh, expectedSave);
-      ensure(JSON.stringify(restoredHead) === JSON.stringify(initialHead), 'recovery-head-digest');
-      await fresh.reload({ waitUntil: 'domcontentloaded' });
-      await fresh.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
-        && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 });
-      ensure(await fresh.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'fresh-game-reload-body');
+      await freshNativeReload.run();
       passed('fresh browser discovers owner index without a game hint, requires recovery, then opens identical native heads/body');
     } },
     { name: 'native-bound-central-write-rejection', async run() {
@@ -477,7 +495,7 @@ try {
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (!finishRequested && qaPasskey.status().present && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
+    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
     await startInput().waitForClose();
   }
 } finally {

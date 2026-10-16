@@ -41,6 +41,42 @@ export function verifiedContextHandoff({ verify, privacy, close }) {
   });
 }
 
+/** Retain one real reload, even if a later private-read wait times out. */
+export function retainedNativeReload({ verifyBeforeReload, prepareReload, reload, waitForNewDocument, waitForSave, verifyLoaded }) {
+  let beforeVerified = false, prepared = false, reloadAttempted = false, documentConfirmed = false, complete = false;
+  const status = () => ({ beforeVerified, prepared, reloadAttempted, documentConfirmed, complete });
+  return Object.freeze({ status, async run() {
+    if (complete) return;
+    if (!beforeVerified) { await verifyBeforeReload(); beforeVerified = true; }
+    if (!prepared) { await prepareReload(); prepared = true; }
+    // A thrown navigation can still finish later. Never initiate another one
+    // while retrying this stage; require proof that its document did change.
+    if (!reloadAttempted) { reloadAttempted = true; await reload(); }
+    if (!documentConfirmed) { await waitForNewDocument(); documentConfirmed = true; }
+    await waitForSave(); await verifyLoaded(); complete = true;
+  } });
+}
+
+/** Click only the existing owner's real title retry control. No native I/O. */
+export async function retryNativeStartup({ page, expectedAccountId, gameOrigin }) {
+  const refused = () => { throw Object.assign(new Error('The retained title cannot be retried safely.'), { code: 'qa_startup_retry_refused' }); };
+  if (!page || page.isClosed() || typeof expectedAccountId !== 'string' || !expectedAccountId) refused();
+  const result = await page.evaluate(({ expectedAccountId, gameOrigin }) => {
+    const h = window.__hm, save = h?.SAVE, n = h?.net?.NETWS;
+    if (location.origin !== gameOrigin || !h?.ready || !save?.native || !h?.GAME || h.GAME.started
+      || save.pending || save.nativeFlight || save.wiping || n?.acct?.id !== expectedAccountId || !n.acct.nativeBound
+      || n.reload || h.nativePlayerStatus?.().profileStatus?.pending) return { refused: true };
+    if (save.readConfirmed) return { alreadyConfirmed: true };
+    const button = [...document.querySelectorAll('#title .native-player button')].find(button => button.textContent === 'Retry connection');
+    if (!button || button.disabled) return { refused: true };
+    // Eligibility and click share one browser turn; account/game entry cannot
+    // change between a remote preflight and this exact existing UI handler.
+    button.click(); return { clicked: true };
+  }, { expectedAccountId, gameOrigin });
+  if (result?.clicked !== true && result?.alreadyConfirmed !== true) refused();
+  return { kind: 'native_startup_retry', clicked: result.clicked === true, alreadyConfirmed: result.alreadyConfirmed === true };
+}
+
 export function qaPageInventory(entries, { gameOrigin, relayOrigin }) {
   const pages = entries.map(({ page, contextIndex }, index) => {
     let originClass = 'other', closed = false;

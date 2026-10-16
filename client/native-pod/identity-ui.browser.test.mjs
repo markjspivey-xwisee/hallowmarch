@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createPlayerBrowserAssets } from '../../server/gaming/player-browser-assets.js';
+import { retryNativeStartup } from '../../tools/manual/native-player-orchestration.mjs';
 if (!process.env.HM_PLAYWRIGHT_MODULE) throw new Error('Set HM_PLAYWRIGHT_MODULE to the installed Playwright entry point.');
 const { chromium } = await import(pathToFileURL(process.env.HM_PLAYWRIGHT_MODULE));
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -360,6 +361,16 @@ try {
     const url=page.url();await page.locator('#netsheet .native-player button').filter({hasText:'Retry pod save'}).click();
     await page.waitForFunction(()=>identityCalls.retry===1&&identityCalls.save===1);
     assert.equal(page.url(),url);assert.equal(await page.evaluate(()=>SAVE.pending.privateProgress),'retained-in-memory');
+    await context.close();
+  });
+  await check('retained QA startup action uses the real owner title retry without navigation or private publication',async()=>{
+    const context=await contextForMobile(),page=await openFixture(context,'title');
+    await page.evaluate(()=>{SAVE.readConfirmed=false;window.__hm={ready:true,GAME,SAVE,net:{NETWS},nativePlayerStatus:()=>({profileStatus:{pending:false}})};nativePlayerRender()});
+    const marker=await page.evaluate(()=>identityCalls.reloadMarker);
+    assert.deepEqual(await retryNativeStartup({page,expectedAccountId:'fixture-account',gameOrigin:base}),{kind:'native_startup_retry',clicked:true,alreadyConfirmed:false});
+    await page.waitForFunction(()=>identityCalls.load===1);
+    assert.equal(await page.evaluate(()=>identityCalls.reloadMarker),marker);
+    assert.deepEqual(await page.evaluate(()=>({loads:identityCalls.load,writes:identityCalls.save,retries:identityCalls.retry})),{loads:1,writes:0,retries:0});
     await context.close();
   });
   await check('explicit logout clears an existing cache before profile/cache UI initialization',async()=>{

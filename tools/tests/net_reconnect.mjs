@@ -73,7 +73,7 @@ function harness(options = {}) {
   const binding = { subjectDid: 'did:web:identity.test:users:u-owner', podUrl: 'https://pod.test/u-owner/' };
   const nativeProfile = options.nativeProfile || { connect: async () => {}, get: async () => ({ exists: false }),
     status: () => ({ keyPresent: true, hasRecord: false }), set: async () => {}, close() {} };
-  const requests = [];
+  const requests = [], titleUpdates = [], settingUpdates = [], worldUpdates = [];
   const context = vm.createContext({
     console, URL, URLSearchParams, Map, Set, Object, Array, JSON, Math, AbortSignal,
     performance: { now: () => now },
@@ -104,6 +104,7 @@ function harness(options = {}) {
     reportError: error => failures.push(String(error)),
     netUiOn() {}, netSeasonMsg() {}, coMsg() {}, season2ServerMsg() {},
     savePartsKey: x => x, landKey: x => x,
+    setupTitle: save => titleUpdates.push(save), fixtureSettingUpdates: settingUpdates, fixtureWorldUpdates: worldUpdates,
     // The native owner port is tested separately from the legacy WS transport.
     nativePlayerSaveRef: async () => options.nativeSave || null,
     NATIVE_PLAYER: { state: 'ready' }, nativePlayerRender() {},
@@ -116,6 +117,7 @@ function harness(options = {}) {
     'netFastObj = () => ({p:[0,0,0],y:0,v:0,a:0,h:100});',
     'globalThis.fixtureSave = {v:1,char:null,settings:{},world:null};',
     'buildSave = () => JSON.parse(JSON.stringify(globalThis.fixtureSave));',
+    'applySettings = settings => fixtureSettingUpdates.push(settings); applyWorldSave = world => fixtureWorldUpdates.push(world);',
     'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender,netWsTokenForget};',
   ].join('\n'), context);
   if (options.nativePolicy) {
@@ -149,7 +151,7 @@ function harness(options = {}) {
     assert.equal(sockets.length, count + 1, 'one new socket opens within capped retry delay');
     return sockets.at(-1);
   }
-  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, earlyLoading: context.earlyLoading };
+  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, titleUpdates, settingUpdates, worldUpdates, earlyLoading: context.earlyLoading };
 }
 
 test('cold handshake failure is shared, clears its promise, and reconnects after a stalled boot', async () => {
@@ -548,14 +550,15 @@ test('early boot starts its save read before native and transport constants init
   assert.equal(h.H.SAVE.backend, 'local'); assert.equal(h.H.SAVE.loaded.char.name, previousLocal.char.name);
 });
 
-test('an expired native initialization cannot select a local character or mutate selection after a late legacy manifest', async () => {
+test('a timed-out native discovery cannot downgrade the exposed title after a late legacy manifest', async () => {
   const manifest = deferred();
   const h = harness({ nativePolicy: true, manifestResponse: () => manifest.promise, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
   const loading = h.H.loadSave(); await flush(); await h.clock.advance(45000);
   assert.equal(await loading, null); assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.readConfirmed, false);
   manifest.resolve({ ok: true, status: 200, json: async () => ({ schemaVersion: 1 }) }); await flush();
   assert.equal(h.H.SAVE.native, true); assert.equal(h.H.SAVE.backend, 'pod'); assert.equal(h.H.SAVE.loaded, null);
-  assert.equal(h.H.SAVE.ref, null); assert.equal(h.sockets.length, 0);
+  assert.equal(h.H.SAVE.ref?.native, true); assert.equal(h.H.SAVE.ref?.blocked, true); assert.equal(h.sockets.length, 0);
+  assert.equal(JSON.parse(h.storage.get('hallowmarch.save.v1')).char.name, previousLocal.char.name);
   h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
 });
 
@@ -578,15 +581,38 @@ for (const mode of ['unavailable', 'disabled', 'unbound']) test('advertised nati
   assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
-test('initial private read timeout with no server pointer cannot enable entry or accept its late character', async () => {
-  const read = deferred();
-  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: () => read.promise,
-    status: () => ({ keyPresent: true, hasRecord: true }), close() {} }, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
+test('initial private read timeout retains the same owner read and opens its exact late character only on the title', async () => {
+  const read = deferred(); let reads = 0, closes = 0;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: () => { reads++; return read.promise; },
+    status: () => ({ keyPresent: true, hasRecord: true }), close() { closes++; } }, storage: { 'hallowmarch.save.v1': JSON.stringify(previousLocal) } });
   const loading = h.H.loadSave(); await nativeWelcome(h); await h.clock.advance(45000);
   assert.equal(await loading, null); assert.equal(h.H.SAVE.readConfirmed, false);
+  h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+  const profile = h.H.NATIVE_PLAYER.profile; h.H.GAME.ready = true;
   read.resolve({ exists: true, data: () => ownNative }); await flush(); h.H.nativePlayerRender();
-  assert.equal(h.H.SAVE.loaded, null); assert.equal(h.H.SAVE.readConfirmed, false);
-  assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.H.SAVE.loaded)), ownNative); assert.equal(h.H.SAVE.readConfirmed, true);
+  assert.equal(reads, 1); assert.equal(closes, 0); assert.equal(h.H.NATIVE_PLAYER.profile, profile);
+  assert.equal(h.titleUpdates.length, 1); assert.equal(h.titleUpdates[0], h.H.SAVE.loaded);
+  assert.equal(h.settingUpdates.length, 1); assert.equal(h.worldUpdates.length, 1);
+  assert.equal(h.buttons.get('btn-begin').disabled, false); assert.equal(h.buttons.get('btn-continue').disabled, false);
+  assert.equal(JSON.parse(h.storage.get('hallowmarch.save.v1')).char.name, previousLocal.char.name);
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
+});
+
+for (const changed of ['account', 'host', 'started']) test('a late private read cannot replace progress after ' + changed + ' changes', async () => {
+  const read = deferred(); let closes = 0;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: () => read.promise,
+    status: () => ({ keyPresent: true, hasRecord: true }), close() { closes++; } } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); await h.clock.advance(45000); await loading;
+  h.H.GAME.ready = true;
+  if (changed === 'account') h.H.NETWS.acct = { id: 'another-owner' };
+  if (changed === 'host') h.H.NETWS.host = 'another.test';
+  if (changed === 'started') { h.H.GAME.started = true; h.H.GAME.player = { name: 'Live in-memory progress' }; }
+  read.resolve({ exists: true, data: () => ownNative }); await flush();
+  assert.equal(h.H.SAVE.loaded, null); assert.equal(h.H.SAVE.readConfirmed, false); assert.equal(h.titleUpdates.length, 0);
+  assert.equal(h.settingUpdates.length, 0); assert.equal(h.worldUpdates.length, 0); assert.equal(closes, changed === 'started' ? 0 : 1);
+  if (changed === 'started') assert.equal(h.H.GAME.player.name, 'Live in-memory progress');
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
 test('a confirmed absent native character needs its encryption key before entry', async () => {

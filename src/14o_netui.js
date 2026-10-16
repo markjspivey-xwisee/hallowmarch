@@ -323,6 +323,7 @@ function netUiFrame() {
   if (!NETUI.on || !GAME.started || !GAME.player) return;
   const P = GAME.player;
   if ((UI.frame & 7) === 0) netSheetBadge();
+  if (typeof marchConsultingStep === 'function') marchConsultingStep();
   if (NETUI.open && (UI.frame & 31) === 0) netAcctRender(); // the server's link may come up while the sheet is open
   // the party's frames
   const pp = $('netparty');

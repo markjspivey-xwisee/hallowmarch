@@ -3,7 +3,8 @@ import { createNativePodClient, NativePodError } from './client.mjs';
 
 const SCHEMA = 'interego.owner-performance-consultation/v1';
 const PURPOSES = ['retain-observations', 'request-consultation'];
-const MAX_LIFETIME = 15 * 60 * 1000, MAX_RECORDS = 24;
+const MAX_LIFETIME = 15 * 60 * 1000, MAX_RECORDS = 32;
+const PAGE_WATERMARK = 16, PAGE_BYTES = 190 * 1024;
 const fail = (code, message) => { throw new NativePodError(code, message); };
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -39,6 +40,12 @@ function target(value) {
 function subject(value) {
   if (typeof value !== 'string' || !/^did:[a-z0-9]+:[^\s<>"{}|^`\\]+$/.test(value) || value.length > 1024) fail('invalid_owner', 'An authenticated native subject is required.');
   return value;
+}
+function archiveReference(value) {
+  if (value === null || value === undefined) return null;
+  exact(value, ['graphIri', 'descriptorUrl', 'cid']);
+  if (typeof value.graphIri !== 'string' || !/^urn:graph:[^\s<>"{}|^`\\]+$/.test(value.graphIri)) fail('invalid_consultation', 'A private native archive graph is required.');
+  target(value.descriptorUrl); text(value.cid, 1024); return clone(value);
 }
 function taskRecord(value) {
   exact(value, ['id', 'desiredResult', 'observedResult', 'workContext', 'constraints']);
@@ -78,11 +85,11 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
   if (!crypto?.randomUUID) fail('crypto_unavailable', 'Native private consultation requires browser cryptography.');
   const client = createClient({ ...clientOptions, relayUrl, credential, ownerDid, podUrl, crypto, now });
   const denied = new Set();
-  let graphIri = null, current = null, pending = null, connected = false, keyPresent = false, closed = false, seen = false, chain = Promise.resolve();
+  let graphIri = null, current = null, pending = null, stagedPage = null, rotationAfterPending = null, connected = false, keyPresent = false, closed = false, seen = false, chain = Promise.resolve();
   const key = (purpose, recipient, taskId) => JSON.stringify([purpose, recipient, taskId]);
   const active = () => { if (closed) fail('revoked', 'This consultation connection is closed.'); };
   const ready = () => { active(); if (!connected) fail('not_connected', 'Connect the performer identity before consulting.'); };
-  const empty = () => ({ schema: SCHEMA, ownerDid, applicationId, consents: [], observations: [], consultations: [], evaluations: [] });
+  const empty = () => ({ schema: SCHEMA, ownerDid, applicationId, consents: [], observations: [], consultations: [], evaluations: [], archiveHead: null });
   function purposeRecipient(purpose, recipient, taskId) {
     text(taskId, 512);
     if (!PURPOSES.includes(purpose)) fail('invalid_consent_scope', 'Choose an advertised consultation purpose.');
@@ -90,8 +97,9 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
     if (purpose === 'retain-observations' && recipient !== podUrl) fail('invalid_recipient', 'Private observation retention belongs only to this authenticated pod.');
   }
   function validate(record) {
-    exact(record, ['schema', 'ownerDid', 'applicationId', 'consents', 'observations', 'consultations', 'evaluations']);
+    exact(record, ['schema', 'ownerDid', 'applicationId', 'consents', 'observations', 'consultations', 'evaluations', 'archiveHead']);
     if (record.schema !== SCHEMA || record.ownerDid !== ownerDid || record.applicationId !== applicationId) fail('owner_mismatch', 'The consultation index belongs to a different subject or application.');
+    archiveReference(record.archiveHead);
     if (!Array.isArray(record.consents) || record.consents.length > 8 || !Array.isArray(record.observations) || record.observations.length > MAX_RECORDS
       || !Array.isArray(record.consultations) || record.consultations.length > MAX_RECORDS
       || !Array.isArray(record.evaluations) || record.evaluations.length > MAX_RECORDS) fail('consultation_capacity', 'The private consultation index exceeds its bounded capacity.');
@@ -133,7 +141,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
     return json(record, 350 * 1024);
   }
   async function refresh() {
-    ready(); if (pending) fail('pod_pending', 'Confirm the outstanding private consultation write first.');
+    ready(); if (pending || stagedPage) fail('pod_pending', 'Confirm the outstanding private consultation write first.');
     const found = await client.load({ graphIri }); active();
     if (!found && seen) fail('missing_record', 'The existing private consultation index could not be opened.');
     if (found) { if (found.graphIri !== graphIri) fail('owner_mismatch', 'The native consultation graph changed.'); validate(found.record); seen = true; }
@@ -147,14 +155,103 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       pending = result; fail('pod_pending', 'Your pod has not confirmed this consultation write.');
     }
     if (result.graphIri !== graphIri) fail('owner_mismatch', 'The confirmed consultation write identifies another graph.');
-    validate(result.record); current = result; seen = true; pending = null;
+    validate(result.record); current = result; seen = true; pending = null; stagedPage = null;
     return { saved: true, reference: { graphIri, descriptorUrl: result.head.descriptorUrl, cid: result.head.cid } };
   }
-  async function persist(record, guard = () => {}) {
+  async function readArchive(input) {
+    ready(); const ref = archiveReference(input || current?.record.archiveHead);
+    if (!ref) return null;
+    if (ref.graphIri === graphIri) fail('invalid_archive', 'The private index cannot be its own archive.');
+    const result = await client.load({ graphIri: ref.graphIri }); active();
+    if (!result || result.graphIri !== ref.graphIri || result.head.cid !== ref.cid || result.head.descriptorUrl !== ref.descriptorUrl) fail('archive_changed', 'The immutable private archive no longer matches its verified native reference.');
+    const record = validate(result.record);
+    if (record.archiveHead?.graphIri === ref.graphIri || record.archiveHead?.graphIri === graphIri) fail('invalid_archive', 'The private archive chain contains a cycle.');
+    return { reference: ref, record, next: archiveReference(record.archiveHead) };
+  }
+  async function findRecord(kind, predicate) {
+    const local = current?.record[kind].findLast(predicate); if (local) return clone(local);
+    const visited = new Set(); let ref = current?.record.archiveHead;
+    while (ref) {
+      if (visited.has(ref.graphIri)) fail('invalid_archive', 'The private archive chain contains a cycle.'); visited.add(ref.graphIri);
+      const page = await readArchive(ref), found = page.record[kind].findLast(predicate);
+      if (found) return clone(found); ref = page.next;
+    }
+    return null;
+  }
+  function include(record, kind, item) {
+    const existing = record[kind].find(value => value.id === item.id);
+    if (existing && !same(existing, item)) fail('conflict', 'The private history contains competing records with the same identity.');
+    if (!existing) record[kind].push(clone(item));
+  }
+  function focused(record, focus) {
+    const next = { ...empty(), consents: clone(record.consents), archiveHead: stagedPage.reference };
+    for (const kind of ['observations', 'consultations', 'evaluations']) next[kind] = record[kind].filter(item => focus[kind]?.includes(item.id));
+    return validate(next);
+  }
+  async function finishPage() {
+    ready(); const stage = stagedPage;
+    if (stage.operationId) {
+      const result = await client.confirm(stage.operationId); active();
+      if (!result?.saved) {
+        if (result?.status === 'conflict') { stagedPage = null; fail('conflict', 'The private archive has competing native heads.'); }
+        fail('pod_pending', 'The private history page is awaiting its original native confirmation.');
+      }
+      validate(result.record);
+      if (!same(result.record, stage.record)) fail('invalid_archive', 'The confirmed private archive differs from the original draft.');
+      stage.reference = archiveReference({ graphIri: result.graphIri, ...result.head }); stage.operationId = null;
+    }
+    const next = focused(stage.record, stage.focus);
+    try { return accepted(await client.save({ graphIri, expectedHead: stage.expectedHead, record: next })); }
+    catch (cause) {
+      if (cause.code === 'conflict') {
+        // The immutable page remains private and intact. Expose its real
+        // receipt for explicit reconciliation; never replace another head.
+        cause.archiveReference = clone(stage.reference); stagedPage = null;
+      }
+      throw cause;
+    }
+  }
+  async function persist(record, guard = () => {}, focus = null) {
     ready(); if (!keyPresent) fail('key_required', 'Restore your existing browser recovery key before recording consultation.');
     validate(record);
     await client.registerKey(); active(); guard();
+    if (focus && current && (['observations', 'consultations', 'evaluations'].some(kind => record[kind].length > PAGE_WATERMARK)
+      || new TextEncoder().encode(JSON.stringify(record)).length > PAGE_BYTES)) {
+      // First CAS the full draft into its original owner index. A concurrent
+      // withdrawal therefore rejects the new content before any archive copy.
+      // Only already-confirmed data is copied during subsequent maintenance.
+      rotationAfterPending = { record: clone(record), focus };
+      try { accepted(await client.save({ graphIri, expectedHead: current.head, record })); }
+      catch (cause) { if (cause.code !== 'pod_pending') rotationAfterPending = null; throw cause; }
+      rotationAfterPending = null; return beginPage(record, focus);
+    }
     return accepted(current ? await client.save({ graphIri, expectedHead: current.head, record }) : await client.createAt({ graphIri, record }));
+  }
+  async function beginPage(record, focus) {
+    stagedPage = { record: clone(record), focus, expectedHead: clone(current.head), reference: null, operationId: null };
+    let result;
+    try { result = await client.create({ record }); active(); }
+    catch (cause) { stagedPage = null; throw cause; }
+    if (!result?.saved) {
+      if (!result?.operationId) { stagedPage = null; fail('native_contract', 'The private archive write has no confirmable operation.'); }
+      stagedPage.operationId = result.operationId; fail('pod_pending', 'The complete private history page is awaiting confirmation.');
+    }
+    validate(result.record);
+    if (!same(result.record, record)) fail('invalid_archive', 'The saved private history page differs from its original draft.');
+    stagedPage.reference = archiveReference({ graphIri: result.graphIri, ...result.head });
+    return finishPage();
+  }
+  async function retryPending() {
+    ready();
+    if (pending) {
+      const rotation = rotationAfterPending;
+      let result;
+      try { result = accepted(await client.confirm(pending.operationId)); }
+      catch (cause) { if (cause.code !== 'pod_pending') rotationAfterPending = null; throw cause; }
+      rotationAfterPending = null;
+      return rotation ? beginPage(rotation.record, rotation.focus) : result;
+    }
+    return stagedPage ? finishPage() : { saved: true, pending: false };
   }
   const serialize = run => { const result = chain.then(run); chain = result.catch(() => {}); return result; };
   function permission(record, purpose, recipient, taskId) {
@@ -175,7 +272,21 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       if (selected && !keyPresent) fail('key_required', 'Restore the existing browser recovery key to open consultation.');
       await refresh(); return api.status();
     },
-    read: () => serialize(refresh),
+    read: () => serialize(async () => {
+      const record = await refresh();
+      // Preserve the current UI's last-plan entry point even when a new task's
+      // observation rotated an unfinished plan into an immutable history page.
+      if (!record.consultations.length && record.archiveHead) {
+        const last = await findRecord('consultations', () => true);
+        if (last) {
+          const baseline = await findRecord('observations', item => item.id === last.observationId);
+          if (!baseline) fail('invalid_archive', 'The archived plan has no self-attributed task observation.');
+          include(record, 'observations', baseline); include(record, 'consultations', last);
+        }
+      }
+      return clone(record);
+    }),
+    readArchive: reference => serialize(() => readArchive(reference)),
     authorize: input => serialize(() => authorize(input)),
     assertAuthorized(token) { return serialize(async () => {
       if (!plain(token) || token.ownerDid !== ownerDid || token.sessionId !== sessionId) fail('cross_subject_denied', 'This consent token belongs to another performer or session.');
@@ -203,7 +314,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
         ready();
         // A prior grant may already have reached the pod. Confirm that exact
         // operation before writing its withdrawal; never mint a replacement.
-        if (pending) accepted(await client.confirm(pending.operationId));
+        if (pending || stagedPage) await retryPending();
         const record = await refresh(), found = record.consents.find(c => c.purpose === purpose && c.recipient === recipient && c.taskId === taskId);
         if (!found || found.revoked) return { saved: true, alreadyRevoked: true };
         found.revoked = true; found.revision++;
@@ -216,49 +327,50 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       const capturedEvidence = evidence.map(item => evidenceRecord(item, ownerDid));
       return serialize(async () => {
         const record = await refresh(); permission(record, 'retain-observations', podUrl, capturedTask.id);
-        const previous = record.observations.find(o => o.task.id === capturedTask.id);
+        const previous = await findRecord('observations', o => o.task.id === capturedTask.id);
         if (previous && !sameTask(previous.task, capturedTask)) fail('task_scope_changed', 'Choose a new task identity and consent when the goal or work context changes.');
-        if (record.observations.length >= MAX_RECORDS) fail('consultation_capacity', 'The private consultation journal is full. Existing evidence was preserved.');
         const observation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, performerKind, at: new Date(now()).toISOString(), task: capturedTask,
           evidence: capturedEvidence, epistemicStatus: 'reported-task-and-client-observation', competencyStatus: 'not-assessed' };
         record.observations.push(observation);
-        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id)); return { ...result, observation: clone(observation) };
+        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id), { observations: [observation.id] }); return { ...result, observation: clone(observation) };
       });
     },
     appendConsultation({ observationId, service, response } = {}) {
       exact(service, ['action', 'target']); text(service.action, 1024); target(service.target);
       const capturedService = clone(service), capturedResponse = json(response);
       return serialize(async () => {
-        const record = await refresh(), observation = record.observations.find(o => o.id === observationId);
+        const record = await refresh(), observation = await findRecord('observations', o => o.id === observationId);
         if (!observation) fail('unknown_observation', 'Open this performer’s recorded task before retaining its consultation.');
         const capturedTask = observation.task; permission(record, 'retain-observations', podUrl, capturedTask.id);
-        if (record.consultations.length >= MAX_RECORDS) fail('consultation_capacity', 'The private consultation journal is full. Existing responses were preserved.');
+        include(record, 'observations', observation);
         const consultation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, at: new Date(now()).toISOString(), observationId,
           service: capturedService, response: capturedResponse, epistemicStatus: 'service-response-unvalidated-effect', competencyStatus: 'not-assessed' };
         record.consultations.push(consultation);
-        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id)); return { ...result, consultation: clone(consultation) };
+        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id), { observations: [observationId], consultations: [consultation.id] }); return { ...result, consultation: clone(consultation) };
       });
     },
     appendEvaluation({ consultationId, observationId, playerReport } = {}) {
       text(playerReport, 2048);
       return serialize(async () => {
         const record = await refresh();
-        const consultation = record.consultations.find(c => c.id === consultationId);
-        const before = record.observations.find(o => o.id === consultation?.observationId), after = record.observations.find(o => o.id === observationId);
+        const consultation = await findRecord('consultations', c => c.id === consultationId);
+        const before = consultation && await findRecord('observations', o => o.id === consultation.observationId), after = await findRecord('observations', o => o.id === observationId);
         if (!consultation || !before || !after || before.id === after.id || before.task.id !== after.task.id
           || Date.parse(after.at) < Date.parse(consultation.at)) fail('invalid_evaluation', 'Record a later observation of this same task before evaluating its consultation.');
         const capturedTask = before.task; permission(record, 'retain-observations', podUrl, capturedTask.id);
-        if (record.evaluations.length >= MAX_RECORDS) fail('consultation_capacity', 'The private consultation journal is full. Existing evaluations were preserved.');
+        include(record, 'observations', before); include(record, 'observations', after); include(record, 'consultations', consultation);
         const evaluation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, at: new Date(now()).toISOString(), consultationId, observationId,
           playerReport, comparison: comparison(before, after), epistemicStatus: 'observed-before-after-no-causal-claim', competencyStatus: 'not-assessed' };
         record.evaluations.push(evaluation);
-        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id)); return { ...result, evaluation: clone(evaluation) };
+        const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id),
+          { observations: [before.id, after.id], consultations: [consultationId], evaluations: [evaluation.id] }); return { ...result, evaluation: clone(evaluation) };
       });
     },
-    retry: () => serialize(async () => { ready(); return pending ? accepted(await client.confirm(pending.operationId)) : { saved: true, pending: false }; }),
-    status: () => ({ connected: connected && !closed, ownerDid, podUrl, applicationId, graphIri, keyPresent, pending: !!pending,
+    retry: () => serialize(retryPending),
+    status: () => ({ connected: connected && !closed, ownerDid, podUrl, applicationId, graphIri, keyPresent, pending: !!(pending || stagedPage),
+      archiveHead: clone(current?.record.archiveHead || null), archiving: !!stagedPage,
       observations: current?.record.observations.length || 0, consultations: current?.record.consultations.length || 0, evaluations: current?.record.evaluations.length || 0 }),
-    close() { closed = true; connected = false; current = null; denied.clear(); client.close(); },
+    close() { closed = true; connected = false; current = null; stagedPage = null; rotationAfterPending = null; denied.clear(); client.close(); },
   };
   return Object.freeze(api);
 }
