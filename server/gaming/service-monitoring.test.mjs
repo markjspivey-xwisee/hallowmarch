@@ -85,6 +85,46 @@ test('outbox capacity and sample identity conflicts fail explicitly and retain s
   await assert.rejects(monitor.record(metrics, { sampleId: 's2' }), { code: 'MONITORING_CAPACITY' });
 });
 
+test('a full retained backlog drains in batches of two without changing ids or uncertain retry bodies', async () => {
+  const store = new FixtureStore(), original = factory({ store }); await original.monitor.ready;
+  for (let i = 0; i < 16; i++) await original.monitor.record({ ...metrics, version: i + 1 }, { sampleId: `backlog-${i}` });
+  const retained = structuredClone(store.value.state.pending), version = store.value.version;
+  const skipped = await original.monitor.record({ ...metrics, version: 100 }, { sampleId: 'periodic-gauge', skipIfPending: true });
+  assert.deepEqual(skipped, { ok: true, durable: false, coalesced: true, pending: 16 });
+  assert.equal(store.value.version, version, 'a skipped gauge performs no native write');
+  assert.deepEqual(store.value.state.pending, retained, 'retained observations are never replaced by newer gauges');
+  const attempted = [];
+  const uncertain = factory({ store, transport: async ({ body }) => {
+    const statements = JSON.parse(body._signed_payload).statements; attempted.push(statements);
+    throw new Error('response deadline expired after possible persistence');
+  } }); await uncertain.monitor.ready;
+  assert.equal((await uncertain.monitor.flush()).ok, false);
+  assert.deepEqual(attempted[0], retained.slice(0, 2).map(row => row.statement));
+  assert.deepEqual(store.value.state.pending, retained);
+  const restarted = factory({ store, runId: 'new-process' }); await restarted.monitor.ready;
+  for (let remaining = 14; remaining >= 0; remaining -= 2) {
+    const flushed = await restarted.monitor.flush(); assert.equal(flushed.exported, 2);
+    assert.equal(restarted.monitor.status().pending, remaining);
+    assert.equal(restarted.monitor.status().state, remaining ? 'pending' : 'ready');
+  }
+  assert.deepEqual(restarted.calls[0], attempted[0], 'uncertain statements retry with the same ids and exact content after restart');
+  assert(restarted.calls.every(batch => batch.length === 2));
+  assert.deepEqual(restarted.calls.flat(), retained.map(row => row.statement), 'every retained observation is confirmed in original order');
+  assert.equal(store.value.state.receipts.length, 16);
+  const fresh = await restarted.monitor.record({ ...metrics, version: 101 }, { sampleId: 'drained-gauge', skipIfPending: true });
+  assert.equal(fresh.durable, true); assert.equal(store.value.state.pending.length, 1);
+});
+
+test('operational sampling coalescing preserves identity checks and does not suppress explicit verification records', async () => {
+  const { monitor, store } = factory(); await monitor.ready;
+  const staged = await monitor.record(metrics, { sampleId: 'operational' });
+  assert.deepEqual(await monitor.record(metrics, { sampleId: 'operational', skipIfPending: true }), staged);
+  await assert.rejects(monitor.record({ ...metrics, version: 100 }, { sampleId: 'operational', skipIfPending: true }), /identity conflict/);
+  const verification = await monitor.record(metrics, { sampleId: 'verification', purpose: 'software-verification', skipIfPending: true });
+  assert.equal(verification.durable, true); assert.equal(store.value.state.pending.length, 2);
+  await assert.rejects(monitor.record(metrics, { sampleId: 'invalid-policy', skipIfPending: 'yes' }), /sampling policy/);
+});
+
 test('live capability extraction rejects action lookalikes and external credential targets', async () => {
   const ttl = `<${descriptor.action}> a iep:Affordance ;\n hydra:method "POST" ;\n hydra:target <${descriptor.target}> .\n\n<urn:next> a iep:Affordance .`;
   const discovered = await discoverFoxxiMonitoringDescriptor(async () => new Response(ttl)); assert.equal(discovered.target, descriptor.target);

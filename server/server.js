@@ -218,7 +218,7 @@ async function sampleGamingService() {
   if (!gamingMonitor || gamingMonitorBusy) return;
   gamingMonitorBusy = true;
   try {
-    try { await gamingMonitor.record(GAMING.metrics()); }
+    try { await gamingMonitor.record(GAMING.metrics(), { skipIfPending: true }); }
     catch { console.warn('gaming: operational sample pending; retrying retained observations'); }
     await gamingMonitor.flush();
   }

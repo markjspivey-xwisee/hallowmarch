@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isFoxxiXapiAction } from './learning.js';
 
 export const FOXXI_MONITOR_DESCRIPTOR = 'https://foxxi-bridge.interego.xwisee.com/affordances';
+const DELIVERY_BATCH_SIZE = 2;
 const NS = 'urn:interego:gaming:';
 const canonical = v => Array.isArray(v) ? '[' + v.map(canonical).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}' : JSON.stringify(v);
 const hash = v => createHash('sha256').update(typeof v === 'string' ? v : canonical(v)).digest('hex');
@@ -82,8 +83,9 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
     }
   };
   const ready = serial(async () => { await load(); return true; });
-  function record(metrics, { sampleId = randomUUID(), observedAt = new Date(now()).toISOString(), purpose = 'operational' } = {}) {
+  function record(metrics, { sampleId = randomUUID(), observedAt = new Date(now()).toISOString(), purpose = 'operational', skipIfPending = false } = {}) {
     if (!['operational', 'software-verification'].includes(purpose)) return Promise.reject(new TypeError('Explicit monitoring observation purpose required'));
+    if (typeof skipIfPending !== 'boolean') return Promise.reject(new TypeError('Explicit operational sampling policy required'));
     if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(sampleId) || !Number.isFinite(Date.parse(observedAt)) || Math.abs(Date.parse(observedAt) - now()) > 300000) return Promise.reject(new TypeError('Fresh observed sample identity required'));
     const measurements = sanitizeServiceMetrics(metrics);
     const statement = { id: uuid([serviceDid, gameId, sampleId]), actor: { objectType: 'Agent', account: { homePage: NS + 'services', name: serviceDid } },
@@ -92,17 +94,26 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
       timestamp: observedAt, context: { extensions: { [NS + 'measurements']: measurements, [NS + 'purpose']: purpose, [NS + 'processRunId']: runId, [NS + 'scope']: 'game-service', [NS + 'epistemicStatus']: 'observed-operational-snapshot', [NS + 'competencyStatus']: 'not-assessed', [NS + 'humanRecordsExported']: false } } };
     const digest = hash(statement);
     return serial(async () => {
+      let coalesced = false;
       await update('record:' + sampleId, state => {
         const existing = [...state.pending, ...state.receipts].find(x => x.statementId === statement.id);
         if (existing) { if (existing.digest !== digest) throw new Error('Monitoring sample identity conflict'); return false; }
+        // Periodic gauges may skip a sampling interval while retained evidence
+        // drains. Never mutate an already staged statement: an uncertain send
+        // must retain its exact id and body. Verification samples are explicit
+        // records and are not subject to this operational sampling policy.
+        if (skipIfPending && purpose === 'operational' && state.pending.length) { coalesced = true; return false; }
         if (state.pending.length >= maxPending) throw Object.assign(new Error('Native monitoring outbox is full'), { code: 'MONITORING_CAPACITY' });
         state.pending.push({ statementId: statement.id, digest, statement });
       });
+      if (coalesced) return { ok: true, durable: false, coalesced: true, pending: last.pending };
       return { ok: true, durable: true, statementId: statement.id };
     });
   }
   function flush() { return serial(async () => {
-    const { state } = await load(), batch = state.pending.slice(0, 20);
+    // Foxxi persists each statement individually. Keep one HTTP attempt bounded
+    // so a retained backlog cannot repeatedly exhaust the transport deadline.
+    const { state } = await load(), batch = state.pending.slice(0, DELIVERY_BATCH_SIZE);
     if (!batch.length) return { ok: true, durable: true, exported: 0, receipts: [] };
     const statements = batch.map(x => x.statement), envelope = await signRequest({ statements });
     let signed; try { signed = JSON.parse(envelope?._signed_payload); } catch { throw new Error('Invalid service signature envelope'); }
@@ -125,7 +136,7 @@ export function createServiceMonitoring({ store, serviceDid, descriptor: discove
       current.receipts.push(...pending.map(x => ({ statementId: x.statementId, digest: x.digest, persisted: true, recipient: target.target })));
       current.receipts = current.receipts.slice(-64);
     });
-    last = { ...last, state: 'ready', lastDeliveryState: null, lastDeliveryReason: null, lastHttpStatus: response.status,
+    last = { ...last, state: last.pending ? 'pending' : 'ready', lastDeliveryState: null, lastDeliveryReason: null, lastHttpStatus: response.status,
       exported: last.exported + batch.length, lastStatementIds: expected, lastConfirmedAt: new Date(now()).toISOString() };
     return { ok: true, durable: true, exported: batch.length, receipts: body.receipts };
   }); }
