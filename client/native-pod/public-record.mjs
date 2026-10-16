@@ -90,8 +90,8 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
     // The handler returns head:null, but native MCP toStructuredContent removes
     // null-valued keys. Accept that projection ONLY with the handler's exact
     // no-descriptor finding, after owner/URN validation and without any fork.
-    const absent = value.head === null || (!Object.hasOwn(value, 'head')
-      && value.message === 'No descriptor on this pod describes the requested urn.');
+    const absent = (value.head === null || !Object.hasOwn(value, 'head'))
+      && value.message === 'No descriptor on this pod describes the requested urn.';
     if (absent
       && [undefined, false].includes(value.forked) && (value.heads === undefined || Array.isArray(value.heads) && value.heads.length === 0)) return null;
     if (value.forked !== false) fail('conflict');

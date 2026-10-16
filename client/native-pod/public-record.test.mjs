@@ -66,6 +66,15 @@ test('actual native MCP structured-content projection may omit the explicit null
   assert.equal((await client.load(input)).head.cid, created.head.cid);
   assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
 });
+test('an explicit null head proves initial absence only with the native no-descriptor finding', async () => {
+  for (const message of [undefined, 'Native head reply is unreadable.', 'All descriptors describing this urn are superseded; no current head.']) {
+    const f = publicRecordFixture({ projectMcpResult(raw) {
+      return raw.urn === input.graphIri ? { ...raw, head: null, forked: false, message } : raw;
+    } }), client = f.client(); await client.connect();
+    await assert.rejects(client.currentHead(input)); await assert.rejects(client.create(input));
+    assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 0);
+  }
+});
 test('projected absence refuses missing or contradictory native evidence before any publication', { skip: !sdk }, async () => {
   for (const mutation of [
     value => { delete value.message; },
