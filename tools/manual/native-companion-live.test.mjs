@@ -34,6 +34,11 @@ async function fixture(t, options = {}) {
   const count = { spawn: 0, publish: 0, confirm: 0, register: 0, localRevoke: 0, podRevoke: 0, sign: 0, complete: 0, ownerReads: 0, agentReads: 0, command: 0 };
   const store = new Store(), principal = { playerId: owner.accountId, verifiedDid: owner.subjectDid, realmId: '0', name: 'QA Owner' };
   const gaming = createGamingRuntime({ store, roomId: 'room-qa', send() {}, domain: createHallowmarchDomain(), clock: () => clock }); await gaming.ready;
+  let foreignBefore = null;
+  if (options.retainedForeignPlayer) {
+    await gaming.room.execute({ playerId: 'retained-foreign-player', realmId: '1', name: 'Other player' }, { type: 'join', commandId: 'prior-player-join' });
+    foreignBefore = structuredClone(store.value.state.entities['retained-foreign-player']);
+  }
   const authority = createNativeAgentAuthority({ gaming, accounts: { bindingForAccount: id => id === owner.accountId ? binding : null },
     applicationId, audience: gameOrigin, now: () => clock, nativeCore: sdk || { recoverMessageSigner: () => signerDid.slice('did:ethr:'.length) },
     readOwnerGrantHead: async () => {
@@ -94,7 +99,7 @@ async function fixture(t, options = {}) {
   const qa = createNativeCompanionLiveQa({ enabled: true, gameOrigin, relayOrigin, expectedOwner: owner, agentDid, agentPodUrl, ownerPort,
     signNativeRequest, request, now: () => clock, readProofCounters: async () => count.ownerReads + count.agentReads });
   t.after(async () => { qa.close(); authority.close(); await gaming.shutdown(); });
-  return { qa, count, store, calls, authority, gaming, body: () => body, advance(ms) { clock += ms; } };
+  return { qa, count, store, calls, authority, gaming, foreignBefore, body: () => body, advance(ms) { clock += ms; } };
 }
 test('manual scenario runs actual authority with signature/negative/revocation checks and zero proof reads for fast commands', async t => {
   const f = await fixture(t); const result = await f.qa.remaining(), report = f.qa.status();
@@ -105,6 +110,17 @@ test('manual scenario runs actual authority with signature/negative/revocation c
   assert.equal(f.gaming.room.current.entities[f.body().entityId].x, f.body().x + 0.1);
   const outward = JSON.stringify(report);
   for (const denied of ['accessToken', 'refreshToken', 'privateKey', '_signed_payload', '_signature', 'hmca_']) assert(!outward.includes(denied));
+});
+test('the complete native companion scenario leaves a previously durable foreign player unchanged', async t => {
+  const f = await fixture(t, { retainedForeignPlayer: true }); await f.qa.remaining();
+  assert.equal(f.qa.status().complete, true);
+  assert.deepEqual(f.gaming.room.current.entities['retained-foreign-player'], f.foreignBefore);
+  assert.deepEqual(f.store.value.state.entities['retained-foreign-player'], f.foreignBefore);
+  const companion = f.gaming.room.current.entities[f.body().entityId];
+  assert.equal(companion.ownerPlayerId, owner.accountId); assert.equal(companion.x, f.body().x + 0.1);
+  const moves = f.store.value.state.events.filter(event => event.kind === 'movement.applied');
+  assert.equal(moves.length, 1); assert.equal(moves[0].payload.entityId, f.body().entityId);
+  assert.equal(f.store.value.state.events.some(event => ['damage', 'loot.granted', 'encounter.started', 'entity.recovered'].includes(event.kind)), false);
 });
 test('uncertain publication retains stage cursor and original owner body/scope without re-running completed stages', async t => {
   const f = await fixture(t, { publishPending: true });

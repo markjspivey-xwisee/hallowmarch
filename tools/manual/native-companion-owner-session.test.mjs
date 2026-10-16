@@ -18,6 +18,8 @@ async function fixture(options, run) {
   let socketOpen = false;
   const entities = { [owner.accountId]: { id: owner.accountId, kind: 'player', ownerPlayerId: owner.accountId, x: 0, z: 0 } };
   if (options.foreignPlayer) entities.other = { id: 'other', kind: 'player', ownerPlayerId: 'other' };
+  if (options.missingOwner) delete entities[owner.accountId];
+  if (options.ownerMismatch) Object.assign(entities[owner.accountId], options.ownerMismatch);
   const modules = [{ createBrowserAccessCache: () => ({
     get: async () => ({ credential: { kind: 'relay-oauth-bearer', accessToken: 'NATIVE_PRIVATE_BEARER', method: 'webauthn', expiresAt: Date.now() + 60000 }, expiresAt: Date.now() + 60000 }),
     close: async () => {},
@@ -56,7 +58,7 @@ async function fixture(options, run) {
       if (message.t === 'slow') { slow.push(message.d); return; }
       assert.equal(message.t, 'gaming');
       let result = {};
-      if (message.op === 'enter') result = { entityId: owner.accountId };
+      if (message.op === 'enter') result = { entityId: options.enteredEntityId || owner.accountId };
       else if (message.op === 'command') {
         assert.equal(message.command.type, 'spawnCompanion');
         if (!entities.companion) { count.spawn++; entities.companion = { id: 'companion', kind: 'companion', ownerPlayerId: owner.accountId, x: 1, z: 0 }; }
@@ -82,7 +84,7 @@ async function fixture(options, run) {
       return Response.json({ ok: true, result: { grantId: body.grantId, revoked: true, authority: { durable: true, roomId: 'room-qa', version: 3 } } }); }
     throw new Error('Unexpected fixture target');
   };
-  try { await run({ modules, count, posts, slow, socketMessages, socketOpen: () => socketOpen, current }); }
+  try { await run({ modules, count, posts, slow, socketMessages, socketOpen: () => socketOpen, current, entities }); }
   finally {
     await globalThis.__hmNativeCompanionQa?.close(); delete globalThis.__hmNativeCompanionQa;
     for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete globalThis[name]; else globalThis[name] = value; }
@@ -138,10 +140,23 @@ test('connect failures retain the same native client and replacement scope is re
   await assert.rejects(installNativeCompanionOwnerQaSession({ ...config, agentDid: 'did:web:identity.example:agents:other' }, f.modules), { code: 'qa_companion_scope' });
   assert.equal((await installNativeCompanionOwnerQaSession(config, f.modules)).bodyPresent, true);
 }));
-test('another player in the authoritative test room prevents spawn and publication', async () => fixture({ foreignPlayer: true }, async f => {
+test('a retained foreign player remains unchanged while spawn and grant target only the verified owner body', async () => fixture({ foreignPlayer: true }, async f => {
+  const foreign = structuredClone(f.entities.other);
   await installNativeCompanionOwnerQaSession(config, f.modules);
-  await assert.rejects(globalThis.__hmNativeCompanionQa.enterAndSpawn(), { code: 'qa_companion_room_not_isolated' });
+  const qa = globalThis.__hmNativeCompanionQa; const body = await qa.enterAndSpawn(); await qa.publish();
+  assert.deepEqual(f.entities.other, foreign); assert.equal(body.accountId, owner.accountId);
+  const commands = f.socketMessages.filter(message => message.t === 'gaming' && message.op === 'command');
+  assert.equal(commands.length, 1); assert.equal(commands[0].command.type, 'spawnCompanion');
+  assert.equal(commands[0].command.entityId, owner.accountId); assert.equal(commands[0].command.roomId, 'room-qa');
+  assert.equal(f.current.grant.entityId, body.entityId); assert.deepEqual(f.current.grant.actions, ['observe', 'move']);
+}));
+for (const [name, options] of [['missing own player', { missingOwner: true }], ['mismatched own id', { ownerMismatch: { id: 'other' } }],
+  ['mismatched owner', { ownerMismatch: { ownerPlayerId: 'other' } }], ['wrong own kind', { ownerMismatch: { kind: 'companion' } }],
+  ['foreign entered entity', { enteredEntityId: 'other' }]]) test(name + ' refuses before companion spawn or public grant', async () => fixture(options, async f => {
+  await installNativeCompanionOwnerQaSession(config, f.modules);
+  await assert.rejects(globalThis.__hmNativeCompanionQa.enterAndSpawn(), { code: 'qa_companion_owner_binding' });
   assert.equal(f.count.spawn, 0); assert.equal(f.count.publish, 0);
+  assert.equal(f.socketMessages.some(message => message.op === 'command'), false);
 }));
 test('explicit close refuses all subsequent game or pod mutation', async () => fixture({}, async f => {
   await installNativeCompanionOwnerQaSession(config, f.modules); const qa = globalThis.__hmNativeCompanionQa; await qa.close();

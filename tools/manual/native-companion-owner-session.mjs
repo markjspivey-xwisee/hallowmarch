@@ -158,14 +158,21 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
       await initialize(); check(!closed, 'qa_companion_closed'); if (body && ws?.readyState === 1) return { ...body };
       await socketConnect(); const entered = await gaming('enter');
       check(entered.roomId === manifest.roomId && typeof entered.result?.entityId === 'string', 'qa_companion_room');
+      check(entered.result.entityId === owner.accountId, 'qa_companion_owner_binding');
       await gaming('observe');
-      check(snapshot?.roomId === entered.roomId && Object.values(snapshot.entities || {}).filter(entity => entity.kind === 'player')
-        .every(entity => entity.id === owner.accountId), 'qa_companion_room_not_isolated');
+      check(snapshot?.roomId === entered.roomId, 'qa_companion_room');
+      // The authoritative expedition persists earlier players independently of
+      // legacy WebSocket rooms and live subscriptions. Verify only our exact
+      // owned body; never infer that another durable body is stale or remove it.
+      const player = snapshot.entities?.[entered.result.entityId];
+      check(player?.kind === 'player' && player.id === owner.accountId && player.ownerPlayerId === owner.accountId,
+        'qa_companion_owner_binding');
       if (!spawnCommand) spawnCommand = { type: 'spawnCompanion', name: 'QA Native Companion ' + run.slice(-8),
         entityId: entered.result.entityId, roomId: entered.roomId, commandId: 'qa-native-companion-spawn:' + run };
       const spawned = await gaming('command', { command: spawnCommand }); await gaming('observe');
       const entity = snapshot?.entities?.[spawned.result?.entityId];
-      check(entity?.kind === 'companion' && entity.ownerPlayerId === owner.accountId && Number.isFinite(entity.x) && Number.isFinite(entity.z), 'qa_companion_body');
+      check(entity?.kind === 'companion' && entity.id === spawned.result.entityId && entity.ownerPlayerId === owner.accountId
+        && Number.isFinite(entity.x) && Number.isFinite(entity.z), 'qa_companion_body');
       body = { accountId: owner.accountId, roomId: entered.roomId, entityId: entity.id, x: entity.x, z: entity.z };
       return { ...body };
     }),

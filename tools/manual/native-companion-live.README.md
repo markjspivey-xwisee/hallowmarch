@@ -5,8 +5,13 @@ mutating, opt-in**, never a package script or CI live test. Importing them makes
 no network request, creates no browser, registers no identity and writes no file.
 The implementation and offline tests do not establish that a deployment passed.
 
-Use only the explicitly selected preview and its dedicated game-owned pod, with
-no other authoritative-room players. First finish the existing private profile,
+Use only the explicitly selected preview and its dedicated game-owned pod.
+The authoritative expedition retains earlier player bodies after disconnect;
+the per-run WebSocket room does not create a separate authoritative expedition.
+The scenario verifies the exact current owner/player/companion relationship,
+then only observes and moves that owner's companion by 0.1 units. It never
+classifies other players as stale, removes them, attacks, grants rewards or
+resets the encounter. First finish the existing private profile,
 owner index, reload, same-owner OAuth, encryption recovery and privacy checks.
 Only then run companion gameplay; its public QA presence and game-owned room
 state are additional durable test data. Keep **one recovered game page** open;
@@ -60,7 +65,7 @@ The retained browser object is `window.__hmNativeCompanionQa`, with these ports:
 
 | Port | Behavior |
 | --- | --- |
-| `enterAndSpawn()` | Actual same-owner WSS hello, synthetic QA realm/profile presence, game enter and stable-ID `spawnCompanion`; derive body/account/room from real server replies/snapshot. Refuse another room player. |
+| `enterAndSpawn()` | Actual same-owner WSS hello, synthetic QA realm/profile presence, game enter and stable-ID `spawnCompanion`; verify exact entered player ownership and returned companion ownership. Preserve every other player/body. |
 | `publish()` | Publish one explicit **public** owner grant: existing native agent, exact game application/audience/room/body, pet role, observe+move, rate 5/s, 15 minutes. Retain UUID/operation and confirm uncertainty rather than recreate. |
 | `readback()` | Actual owner-side SDK current-head/descriptor/authorship/digest/public readback; return only the public relationship and receipt. |
 | `register()` | Resolve the described native action and send only `{grantId,graphIri}` with browser-held fresh game session. Require durable own-game reference receipt. |
