@@ -20,6 +20,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { makeSeason } from './season.js';
+import { createGamingRuntime } from './gaming/runtime.js';
+import { configuredGamingStore } from './gaming/provider.js';
+import { createAgentHttp, gamingAgentAffordances } from './gaming/agent-http.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 
@@ -190,6 +193,11 @@ function regionOf(x, z) {
 }
 const KEEP_REGION = (WORLD.keeps || []).map((k) => regionOf(k.x, k.z));
 const FIELD = makeField(SEASON, ROOMS, (c, o) => send(c, o), regionOf, WORLD, STATS); // [season2] (server/fieldarmies.js)
+let gamingStore = null;
+try { gamingStore = await configuredGamingStore(); } catch { console.warn('gaming: native service configuration unavailable; shared expeditions disabled'); }
+const GAMING = createGamingRuntime({ store: gamingStore, send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
+await GAMING.ready;
+const gamingHttp = createAgentHttp({ gaming: GAMING });
 function regionHosts(R) {
   const h = {};
   for (const c of R.clients.values()) {
@@ -480,6 +488,7 @@ function onMsg(c, raw) {
   let m;
   try { m = JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
   if (!m || typeof m.t !== 'string') return;
+  if (m.t === 'gaming') { void GAMING.handle(c, m); return; }
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
   if (m.t === 'slow') onSlow(c, m.d);
@@ -504,6 +513,10 @@ function onMsg(c, raw) {
 /* ------------------------------------------------------------------ */
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
+  if (gamingHttp(req, res, u.pathname)) return;
+  if (u.pathname === '/gaming/agents') { res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(JSON.stringify(gamingAgentAffordances())); return; }
+  if (u.pathname === '/gaming/manifest') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(GAMING.manifest())); return; }
+  if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
   if (u.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok: true, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000) })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
   // would set it (tests: the season's own capture told to the pages), a new season, the season saved now
@@ -524,7 +537,7 @@ const server = http.createServer((req, res) => {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
     // the page served from here connects back here
-    html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=auto"><script>window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>' + html + '</body></html>';
+    html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=auto"><script>window.__HM_GAMING=' + JSON.stringify(GAMING.manifest()).replace(/</g, '\\u003c') + ';window.__HM_NET_SERVER=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws";</script></head><body>' + html + '</body></html>';
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }); res.end(html); return;
   }
   res.writeHead(404); res.end();
@@ -533,10 +546,10 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: CFG.maxSave +
 wss.on('connection', (ws) => {
   STATS.conns++;
   const c = { ws, acct: null, room: null, peer: '', slow: null, fast: null, pos: null, posT: 0, winT: 0, winN: 0 };
-  const helloTimer = setTimeout(() => { if (!c.acct) ws.close(4001, 'no hello'); }, 10000);
+  const helloTimer = setTimeout(() => { if (!c.acct && !c.gamingAgent) ws.close(4001, 'no hello'); }, 10000);
   ws.on('message', (data) => { try { onMsg(c, String(data)); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
   ws.on('close', () => {
-    clearTimeout(helloTimer);
+    clearTimeout(helloTimer); GAMING.close(c);
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);

@@ -137,6 +137,7 @@ function netWsOpen() {
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
+      else if (m.t === 'gaming') gamingMsg(m);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
       else if (m.t === 'save' || m.t === 'saved') { const w = NETWS.waits.shift(); if (w) w(m); }
       else if (m.t === 'acct') { const w = NETWS.acctWait; NETWS.acctWait = null; if (w) w(m); }

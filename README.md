@@ -29,6 +29,12 @@ On the server, sign in to keep your character across devices. The Players panel 
 
 The Claude artifact uses its private per-player database. A plain file uses browser storage.
 
+The [Interego gaming package](server/gaming/README.md) adds a reusable native-storage
+authority, scoped companion agents, Foxxi activity/learning export, I2IDL vocabulary
+mappings, and a bounded Hallowmarch shared expedition. It is disabled by default
+pending a dedicated service identity, pinned native SDK and live performance
+verification; it does not migrate the existing world simulation.
+
 ## Build
 
 ```sh
@@ -49,6 +55,8 @@ pip install playwright && python3 -m playwright install chromium   # once, if Ch
 bash tools/lint.sh                                # build, then eslint the module script
 node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs
 node tools/tests/net_companies.mjs                # actual socket and persistence checks
+node --test server/gaming/*.test.mjs               # gaming authority, delegation, native contract and learning
+python3 tools/tests/gaming_client.py               # gated shared expedition client protocol
 node tools/tests/wasm_lp.js n=4000 seed=1 time      # JS/WASM paths and fallback
 node tools/tests/loops_season.js seeds=12          # season participation measures
 python3 tools/tests/net.py companies weather       # browser/server flows

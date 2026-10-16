@@ -1,0 +1,61 @@
+{
+  "@context": {
+    "hm": "urn:hallowmarch:gaming:",
+    "gaming": "urn:interego:gaming:",
+    "i2idl": "https://id.i2idl.org/concepts/",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "owl": "http://www.w3.org/2002/07/owl#",
+    "dct": "http://purl.org/dc/terms/"
+  },
+  "@graph": [
+    {
+      "@id": "hm:profile", "@type": "owl:Ontology",
+      "dct:title": "Hallowmarch gaming application profile",
+      "owl:versionInfo": "0.1.0",
+      "dct:isPartOf": { "@id": "gaming:profile" },
+      "dct:description": "Hallowmarch domain extension over generic gaming activity. Class, realm, combat and resource actions are game facts; game levels, rewards and wins are not real-world credentials or automatic evidence of competence.",
+      "dct:source": { "@id": "https://id.i2idl.org/scheme" },
+      "gaming:glossaryPublicationVersion": "v0.0.89",
+      "gaming:mappingStatus": "proposed-application-annotation"
+    },
+    {
+      "@id": "hm:Realm", "@type": "owl:Class",
+      "rdfs:comment": "A Hallowmarch faction, whose id scopes measured activity independently from player and company membership."
+    },
+    { "@id": "hm:Logres", "@type": "hm:Realm", "rdfs:label": "Logres" },
+    { "@id": "hm:Eriu", "@type": "hm:Realm", "rdfs:label": "Ériu" },
+    { "@id": "hm:Thule", "@type": "hm:Realm", "rdfs:label": "Thule" },
+    {
+      "@id": "hm:CombatAction", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:CommittedGameActivity" },
+      "rdfs:comment": "Server-accepted damage with one source, target, amount and optional kill id. Defeating a monster does not automatically establish a transferable competency."
+    },
+    {
+      "@id": "hm:LootGrant", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:CommittedGameActivity" },
+      "rdfs:comment": "One committed item grant to a claimant tied to a specific kill, so retries cannot mint another grant."
+    },
+    {
+      "@id": "hm:ResourceGathering", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:CommittedGameActivity" },
+      "dct:subject": { "@id": "i2idl:activity" },
+      "rdfs:comment": "An accepted resource quantity gathered into the authoritative game state; not an observation inferred from a worker's animation."
+    },
+    {
+      "@id": "hm:FieldNotesConsultation", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:VoluntaryKnowledgeConsultation" },
+      "rdfs:comment": "Explicit consultation of Hallowmarch field notes. Receiving an automatic popup is not a voluntary consultation or a learning achievement."
+    },
+    {
+      "@id": "hm:Companion", "@type": "owl:Class",
+      "rdfs:comment": "A player-owned embodied agent with explicit revocable capabilities, shared game rules and no access to unobserved world state. Teaching and combat are distinct delegations."
+    },
+    {
+      "@id": "hm:RealmCooperation", "@type": "skos:Concept",
+      "skos:prefLabel": "Realm cooperation",
+      "skos:relatedMatch": { "@id": "i2idl:distributed-simulation" },
+      "gaming:mappingStatus": "proposed-application-annotation"
+    }
+  ]
+}

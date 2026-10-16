@@ -16,6 +16,7 @@ ENV NODE_ENV=production PORT=8787 HM_DATA=/data HM_SRC=/app/src HM_PAGE=/app/hal
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 COPY server/*.js ./server/
+COPY server/gaming ./server/gaming
 # the sites (00_util.js, 01_world.js) and the season's realm module (08m_realm.js once loops's lands; server/realm_stub.js until then)
 COPY src ./src
 COPY --from=page /app/hallowmarch.html ./hallowmarch.html

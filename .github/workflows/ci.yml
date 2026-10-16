@@ -49,7 +49,11 @@ jobs:
               node tools/tests/loops_season.js seeds=12 json=tools/out/season2.json
               ;;
             startup) check python3 tools/tests/startup_graphics.py ;;
-            networking) check python3 tools/tests/net_reconnect.py ;;
+            networking)
+              node --test server/gaming/*.test.mjs
+              python3 tools/tests/gaming_client.py
+              check python3 tools/tests/net_reconnect.py
+              ;;
             companies) check python3 tools/tests/net.py companies ;;
             season) check python3 tools/tests/season2.py ;;
             performance) echo 'Performance checks run in the following steps.' ;;

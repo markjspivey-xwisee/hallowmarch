@@ -1,0 +1,86 @@
+{
+  "@context": {
+    "gaming": "urn:interego:gaming:",
+    "i2idl": "https://id.i2idl.org/concepts/",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "owl": "http://www.w3.org/2002/07/owl#",
+    "dct": "http://purl.org/dc/terms/",
+    "prov": "http://www.w3.org/ns/prov#"
+  },
+  "@graph": [
+    {
+      "@id": "urn:interego:gaming:profile",
+      "@type": "owl:Ontology",
+      "dct:title": "Interego gaming activity and performance profile",
+      "owl:versionInfo": "0.1.0",
+      "dct:description": "Application profile for authoritative committed game activity, measured performance and voluntary knowledge or teaching actions. Local URN identifiers are not claims of a published namespace. I2IDL remains canonical; these application annotations do not modify its concepts, definitions or governance.",
+      "dct:source": { "@id": "https://id.i2idl.org/scheme" },
+      "gaming:glossaryPublicationVersion": "v0.0.89",
+      "gaming:mappingStatus": "proposed-application-annotation"
+    },
+    {
+      "@id": "gaming:CommittedGameActivity", "@type": "owl:Class",
+      "rdfs:label": "Committed game activity",
+      "rdfs:subClassOf": { "@id": "prov:Activity" },
+      "dct:subject": { "@id": "i2idl:activity" },
+      "rdfs:comment": "An action accepted and durably committed by an authoritative game service. A client animation or intention alone is not this evidence."
+    },
+    {
+      "@id": "gaming:ActivityEvidence", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "prov:Entity" },
+      "dct:subject": [{ "@id": "i2idl:learning-record" }, { "@id": "i2idl:evidence-based-decision-making" }],
+      "rdfs:comment": "An attributed projection with an event id, authoritative stream version, observed timestamp and measured values; not an inferred competency."
+    },
+    {
+      "@id": "gaming:PerformanceProjection", "@type": "owl:Class",
+      "dct:subject": { "@id": "i2idl:learning-analytics" },
+      "rdfs:comment": "Rebuildable player, team, realm or game aggregates of accepted actions. Counts do not establish learning, causation or proficiency."
+    },
+    {
+      "@id": "gaming:CompetencyAssessment", "@type": "owl:Class",
+      "dct:subject": { "@id": "i2idl:competency" },
+      "rdfs:comment": "Reserved for a separately authorized assessment with a defined task, rubric, evidence and evaluator. Ordinary gameplay projections never instantiate this class."
+    },
+    {
+      "@id": "gaming:PedagogicalCompanionRole", "@type": "owl:Class",
+      "dct:subject": { "@id": "i2idl:pedagogical-agent" },
+      "rdfs:comment": "An agent's optional teaching role, distinct from combat control or pet embodiment and bounded by the human owner's delegation."
+    },
+    {
+      "@id": "gaming:VoluntaryKnowledgeConsultation", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:CommittedGameActivity" },
+      "dct:subject": [{ "@id": "i2idl:procedural-knowledge" }, { "@id": "i2idl:conceptual-knowledge" }],
+      "rdfs:comment": "A player explicitly consulting a guide or knowledge source. The observation establishes consultation, not understanding or retention."
+    },
+    {
+      "@id": "gaming:VoluntaryTeachingAction", "@type": "owl:Class",
+      "rdfs:subClassOf": { "@id": "gaming:CommittedGameActivity" },
+      "dct:subject": { "@id": "i2idl:ai-assisted-teaching" },
+      "rdfs:comment": "An explicitly requested teaching action delivered by a player or agent. Delivery alone does not establish another player's learning."
+    },
+    {
+      "@id": "gaming:simulation", "@type": "skos:Concept",
+      "skos:prefLabel": "Shared game simulation",
+      "skos:relatedMatch": [{ "@id": "i2idl:distributed-simulation" }, { "@id": "i2idl:simulation" }],
+      "gaming:mappingStatus": "proposed-application-annotation"
+    },
+    {
+      "@id": "gaming:scopes", "@type": "skos:Collection",
+      "skos:member": [{ "@id": "gaming:player" }, { "@id": "gaming:team" }, { "@id": "gaming:realm" }, { "@id": "gaming:game" }]
+    },
+    { "@id": "gaming:player", "@type": "skos:Concept", "skos:prefLabel": "Player" },
+    { "@id": "gaming:team", "@type": "skos:Concept", "skos:prefLabel": "Team" },
+    { "@id": "gaming:realm", "@type": "skos:Concept", "skos:prefLabel": "Realm" },
+    { "@id": "gaming:game", "@type": "skos:Concept", "skos:prefLabel": "Game" },
+    {
+      "@id": "gaming:ExportConsent", "@type": "owl:Class",
+      "rdfs:comment": "Server-side authorization for one session, actor, verified subject DID, exact recipient and expiry. Local metrics do not imply permission to export individual evidence."
+    },
+    {
+      "@id": "gaming:foxxiTransport", "@type": "prov:Entity",
+      "dct:identifier": "urn:iep:action:foxxi:write-xapi-statements-signed",
+      "rdfs:comment": "A verified source contract, not a discovered deployment: Foxxi's signed own-lens xAPI adapter. Runtime configuration must provide an advertised concrete target and authorized signing transport; no endpoint is inferred from this profile."
+    }
+  ]
+}

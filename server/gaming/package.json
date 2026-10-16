@@ -1,0 +1,17 @@
+{
+  "name": "@interego/gaming",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative gaming rooms, native Interego state, Foxxi evidence and human-owned companion agents",
+  "exports": {
+    ".": "./authority.js",
+    "./companions": "./companions.js",
+    "./interego-store": "./interego-store.js",
+    "./learning": "./learning.js",
+    "./hallowmarch": "./hallowmarch.js"
+  },
+  "engines": { "node": ">=22" },
+  "peerDependencies": { "@interego/core": "*", "@interego/pgsl": "*" },
+  "peerDependenciesMeta": { "@interego/core": { "optional": true }, "@interego/pgsl": { "optional": true } }
+}
