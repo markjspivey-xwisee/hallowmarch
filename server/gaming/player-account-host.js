@@ -11,6 +11,23 @@ import { nativeIdentityDescription } from './native-identity-description.js';
 const PROOF_TTL_MS = 300_000;
 const FRESH_NATIVE_MS = 3_600_000;
 const MAX_SESSION_PROOFS = 256;
+const VERIFICATION_STAGES = ['ready-proof', 'ledger-bind', 'account-restore', 'issue-app-session'];
+// Fixed public diagnostics only. Native stores and injected host ports can throw
+// arbitrary exceptions; their messages, properties and identities stay private.
+const VERIFICATION_CODES = new Set(['native_identity_unavailable', 'game_account_required', 'identity_binding_aborted',
+  'account_restore_failed', 'app_session_unavailable', 'INVALID_PLAYER_BINDING', 'NATIVE_BINDINGS_UNAVAILABLE',
+  'OPERATION_ABORTED', 'PLAYER_BINDING_CONFLICT', 'BINDING_CAPACITY', 'VERSION_CONFLICT', 'CORRUPT_DURABLE_STATE',
+  'COMMIT_UNCERTAIN', 'INVALID_INPUT', 'PAYLOAD_TOO_LARGE', 'INVALID_CONFIGURATION', 'DURABILITY_UNAVAILABLE',
+  'NATIVE_COMMIT_FENCED', 'NATIVE_COMMIT_CAPACITY', 'FENCED', 'IDEMPOTENCY_CONFLICT', 'NATIVE_CONTENTION']);
+const diagnosticCode = value => typeof value === 'string' && VERIFICATION_CODES.has(value) ? value : 'other';
+function failureCode(error) {
+  try {
+    // Do not invoke a foreign exception's getter while reporting its failure.
+    const code = Object.getOwnPropertyDescriptor(error, 'code');
+    return code && Object.hasOwn(code, 'value') ? diagnosticCode(code.value) : 'other';
+  } catch { return 'other'; }
+}
+const increment = (value, key) => { value[key] = Math.min(Number.MAX_SAFE_INTEGER, (value[key] || 0) + 1); };
 const hash = value => createHash('sha256').update(value).digest('hex');
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -66,6 +83,18 @@ export function createPlayerAccountHost(options = {}) {
   const ledger = createPlayerBindingLedger({ ...(options.ledgerOptions ?? {}), store: options.store, now,
     ...(options.storeBases ? { storeBases: options.storeBases } : {}) });
   const proofs = new Map(); let closed = false, readyOk = false, initialReadySettled = false;
+  const verificationDiagnostics = { attempts: 0, succeeded: 0, failed: 0, inFlight: 0, lastFailure: null,
+    stages: Object.fromEntries(VERIFICATION_STAGES.map(stage => [stage, { entered: 0, failed: 0, codes: {} }])) };
+  function verificationStatus() {
+    return { attempts: verificationDiagnostics.attempts, succeeded: verificationDiagnostics.succeeded,
+      failed: verificationDiagnostics.failed, inFlight: verificationDiagnostics.inFlight,
+      lastFailure: verificationDiagnostics.lastFailure ? { ...verificationDiagnostics.lastFailure } : null,
+      stages: Object.fromEntries(VERIFICATION_STAGES.map(stage => { const value = verificationDiagnostics.stages[stage];
+        return [stage, { entered: value.entered, failed: value.failed, codes: { ...value.codes } }]; })),
+      // Do not call ledger.status(): its retained foreign error may have a code
+      // accessor. Public polling must never evaluate an exception's properties.
+      ledger: { configured: Boolean(options.store), ready: ledger.enabled === true } };
+  }
   let recoveryFlight = null, recoverAfter = 0;
   const ready = Promise.resolve(ledger.ready).then(() => { readyOk = ledger.enabled === true; }, () => { readyOk = false; })
     .finally(() => { initialReadySettled = true; });
@@ -163,31 +192,45 @@ export function createPlayerAccountHost(options = {}) {
     return { accountId: auth.account.id, sessionId: auth.sessionId, expectedSubjectDid, ownerPodWriteAccess: body?.ownerPodWriteAccess === true };
   }
   async function onVerified(binding, requestedAccountId, context) {
-    await requireReady(); prune(); aborted(context.signal);
-    const proof = proofs.get(context.sessionBinding), initiatingAccount = options.getAccount(requestedAccountId);
-    if (!proof || proof.accountId !== requestedAccountId || proof.claims.id !== requestedAccountId
-      || proof.expiresAt <= now() || !initiatingAccount || initiatingAccount.id !== requestedAccountId
-      || (proof.expectedSubjectDid && binding.subjectDid !== proof.expectedSubjectDid)) {
-      fail('game_account_required', 401);
-    }
-    const operationId = 'player-bind:' + hash(context.sessionBinding + ':' + binding.subjectDid);
-    const result = await ledger.bindVerified(binding, requestedAccountId, { operationId,
-      accountSummary: accountSummary(initiatingAccount), signal: context.signal });
-    aborted(context.signal);
-    let account = options.getAccount(result.accountId);
-    if (!account) {
-      account = await options.restoreAccount(recordFor(result.accountId));
-      if (!account || account.id !== result.accountId) fail('account_restore_failed', 503);
-    }
-    aborted(context.signal);
-    const appSession = await options.issueAppSession(result.accountId, result.binding);
-    aborted(context.signal);
-    if (!plain(appSession) || typeof appSession.token !== 'string' || !appSession.token || appSession.token.length > 8192
-      || !plain(appSession.acct) || appSession.acct.id !== result.accountId || Buffer.byteLength(JSON.stringify(appSession)) > 16_384) {
-      fail('app_session_unavailable', 503);
-    }
-    proofs.delete(context.sessionBinding);
-    return { appSession };
+    let stage = 'ready-proof';
+    const enter = next => { stage = next; increment(verificationDiagnostics.stages[stage], 'entered'); };
+    increment(verificationDiagnostics, 'attempts'); increment(verificationDiagnostics, 'inFlight'); enter(stage);
+    try {
+      await requireReady(); prune(); aborted(context.signal);
+      const proof = proofs.get(context.sessionBinding), initiatingAccount = options.getAccount(requestedAccountId);
+      if (!proof || proof.accountId !== requestedAccountId || proof.claims.id !== requestedAccountId
+        || proof.expiresAt <= now() || !initiatingAccount || initiatingAccount.id !== requestedAccountId
+        || (proof.expectedSubjectDid && binding.subjectDid !== proof.expectedSubjectDid)) {
+        fail('game_account_required', 401);
+      }
+      const operationId = 'player-bind:' + hash(context.sessionBinding + ':' + binding.subjectDid);
+      enter('ledger-bind');
+      const result = await ledger.bindVerified(binding, requestedAccountId, { operationId,
+        accountSummary: accountSummary(initiatingAccount), signal: context.signal });
+      aborted(context.signal);
+      enter('account-restore');
+      let account = options.getAccount(result.accountId);
+      if (!account) {
+        account = await options.restoreAccount(recordFor(result.accountId));
+        if (!account || account.id !== result.accountId) fail('account_restore_failed', 503);
+      }
+      aborted(context.signal);
+      enter('issue-app-session');
+      const appSession = await options.issueAppSession(result.accountId, result.binding);
+      aborted(context.signal);
+      if (!plain(appSession) || typeof appSession.token !== 'string' || !appSession.token || appSession.token.length > 8192
+        || !plain(appSession.acct) || appSession.acct.id !== result.accountId || Buffer.byteLength(JSON.stringify(appSession)) > 16_384) {
+        fail('app_session_unavailable', 503);
+      }
+      proofs.delete(context.sessionBinding);
+      increment(verificationDiagnostics, 'succeeded');
+      return { appSession };
+    } catch (error) {
+      const code = failureCode(error), counters = verificationDiagnostics.stages[stage];
+      increment(verificationDiagnostics, 'failed'); increment(counters, 'failed'); increment(counters.codes, code);
+      verificationDiagnostics.lastFailure = { stage, code };
+      throw error;
+    } finally { verificationDiagnostics.inFlight = Math.max(0, verificationDiagnostics.inFlight - 1); }
   }
   const bridge = createPlayerIdentityBridge({ ...options, authorizeGameAccount, onVerified });
   const contract = nativeIdentityDescription({ publicOrigin: publicUrl.origin,
@@ -209,7 +252,7 @@ export function createPlayerAccountHost(options = {}) {
     manifest() { return { ...contract.manifest, enabled: enabled() }; },
     status() { prune(); return { enabled: enabled(), status: closed ? 'closed' : enabled() ? 'ready' : 'unavailable',
       pending: bridge.status().pending, readyHandoffs: bridge.status().readyHandoffs,
-      callbackFailures: bridge.status().callbackFailures }; },
+      callbackFailures: bridge.status().callbackFailures, verificationDiagnostics: verificationStatus() }; },
     isBound(accountId) { return enabled() && !!recordFor(accountId); },
     // Privileged host ports: wire callers never choose a DID or pod to trust.
     bindingForAccount(accountId) { return enabled() && recordFor(accountId) ? publicBinding(recordFor(accountId).binding) : null; },

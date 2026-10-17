@@ -198,6 +198,106 @@ test('expired initiating game sessions cannot finish native identity binding', a
   const f = await fixture(t); f.claims.set(f.aliceToken, { id: 'guest-a', exp: f.clock() + 1000 });
   const flow = await f.start(); f.advance(1001); const response = await f.callback(flow);
   assert(response.status >= 400); assert.equal(f.store.commits.length, 0); assert.equal(f.issued.length, 0); noNativeCredentials(await response.text());
+  assert.deepEqual(f.host.status().verificationDiagnostics.lastFailure, { stage: 'ready-proof', code: 'game_account_required' });
+});
+
+test('host verification diagnostics expose bounded fixed stage counters and a detached safe ledger snapshot', async t => {
+  const f = await fixture(t);
+  const before = f.host.status().verificationDiagnostics;
+  assert.equal(before.attempts, 0); assert.equal(before.failed, 0); assert.equal(before.inFlight, 0); assert.equal(before.lastFailure, null);
+  assert.deepEqual(Object.keys(before.stages), ['ready-proof', 'ledger-bind', 'account-restore', 'issue-app-session']);
+  await f.connect();
+  const status = f.host.status(), diagnostics = status.verificationDiagnostics;
+  assert.equal(diagnostics.attempts, 1); assert.equal(diagnostics.succeeded, 1); assert.equal(diagnostics.failed, 0); assert.equal(diagnostics.inFlight, 0);
+  for (const stage of Object.values(diagnostics.stages)) assert.deepEqual(stage, { entered: 1, failed: 0, codes: {} });
+  assert.deepEqual(diagnostics.ledger, { configured: true, ready: true });
+  for (const value of ['guest-a', nativeOwner().subjectDid, nativeOwner().podUrl, 'native-access-secret', 'native-refresh-secret', 'player-bind:', 'operationId', 'timestamp', 'stack']) {
+    assert(!JSON.stringify(diagnostics).includes(value));
+  }
+  diagnostics.stages['ledger-bind'].codes.native_refused = 777; diagnostics.ledger.ready = false; diagnostics.attempts = 999;
+  const fresh = f.host.status().verificationDiagnostics;
+  assert.equal(fresh.attempts, 1); assert.deepEqual(fresh.stages['ledger-bind'].codes, {}); assert.equal(fresh.ledger.ready, true);
+  const accountStatus = await (await f.request('/gaming/identity/status')).json();
+  assert.equal(accountStatus.verificationDiagnostics, undefined, 'per-account wire response remains unchanged');
+});
+
+test('native ledger failures retain the OAuth 409 response and report only fixed code and host stage', async t => {
+  for (const code of ['VERSION_CONFLICT', 'NATIVE_COMMIT_FENCED', 'NATIVE_COMMIT_CAPACITY', 'COMMIT_UNCERTAIN', 'FENCED']) {
+    await t.test(code, async st => {
+      const f = await fixture(st, { ledgerOptions: { conflictRetries: 0 } }); const flow = await f.start();
+      let attempts = 0;
+      f.store.commit = async () => { attempts++; throw Object.assign(new Error('PRIVATE_STORE_MESSAGE https://secret.example/owner'), { code }); };
+      const response = await f.callback(flow), body = await response.text();
+      assert.equal(response.status, 409); assert(body.includes('identity_binding_rejected')); assert(!body.includes('PRIVATE_STORE_MESSAGE'));
+      assert.equal(attempts, 1); assert.equal(f.issued.length, 0); assert.equal(f.store.commits.length, 0);
+      const diagnostic = f.host.status().verificationDiagnostics;
+      assert.deepEqual(diagnostic.lastFailure, { stage: 'ledger-bind', code });
+      assert.equal(diagnostic.stages['ledger-bind'].codes[code], 1); assert.equal(diagnostic.failed, 1); assert.equal(diagnostic.inFlight, 0);
+      assert(!JSON.stringify(diagnostic).includes('PRIVATE_STORE_MESSAGE')); assert(!JSON.stringify(diagnostic).includes('secret.example'));
+      assert.equal(f.host.status().callbackFailures.identity_binding_rejected, 1);
+    });
+  }
+});
+
+test('unknown native ledger codes and error details never escape status diagnostics', async t => {
+  const f = await fixture(t); const flow = await f.start();
+  const secret = 'PRIVATE_TOKEN_OWNER_URL_OPERATION_ID';
+  f.store.commit = async () => { throw Object.assign(new Error(secret), { code: secret, accountId: secret, token: secret, operationId: secret }); };
+  assert.equal((await f.callback(flow)).status, 409);
+  const diagnostics = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostics.lastFailure, { stage: 'ledger-bind', code: 'other' });
+  assert.deepEqual(diagnostics.ledger, { configured: true, ready: false }); assert(!JSON.stringify(f.host.status()).includes(secret));
+});
+
+test('status polling never evaluates a foreign code getter retained by the native binding ledger', async t => {
+  const f = await fixture(t), flow = await f.start(); let codeReads = 0;
+  const error = new Error('PRIVATE_RETAINED_STORE_MESSAGE');
+  Object.defineProperty(error, 'code', { get() { codeReads++; return 'PRIVATE_RETAINED_STORE_CODE'; } });
+  f.store.commit = async () => { throw error; };
+  assert.equal((await f.callback(flow)).status, 409);
+  const afterCallback = codeReads;
+  const first = f.host.status(), second = f.host.status();
+  assert.equal(codeReads, afterCallback, 'diagnostic reads must not add to existing ledger error handling');
+  assert.deepEqual(first.verificationDiagnostics.lastFailure, { stage: 'ledger-bind', code: 'other' });
+  assert.deepEqual(second.verificationDiagnostics.ledger, { configured: true, ready: false });
+  assert(!JSON.stringify([first, second]).includes('PRIVATE_RETAINED'));
+});
+
+test('canonical account restoration failure is distinct from binding and does not issue a session or rewrite the binding', async t => {
+  const store = new NativeStoreFixture(), seed = createPlayerBindingLedger({ store }); await seed.ready;
+  await seed.bindVerified(nativeOwner(), 'original-account', { operationId: 'seed-canonical',
+    accountSummary: { id: 'original-account', name: 'Original Traveller', guest: false } });
+  const f = await fixture(t, { store, restoreAccount: () => null }), before = structuredClone(store.commits);
+  const flow = await f.start(), response = await f.callback(flow);
+  assert.equal(response.status, 409); assert((await response.text()).includes('identity_binding_rejected'));
+  assert.deepEqual(f.host.status().verificationDiagnostics.lastFailure, { stage: 'account-restore', code: 'account_restore_failed' });
+  assert.deepEqual(store.commits, before); assert.equal(f.issued.length, 0);
+});
+
+test('app session validation failure retains the confirmed ledger and cannot create a handoff', async t => {
+  const f = await fixture(t, { issueAppSession: () => ({ token: 'PRIVATE_BAD_SESSION', acct: { id: 'wrong-account' } }) });
+  const flow = await f.start(), response = await f.callback(flow);
+  assert.equal(response.status, 409); assert((await response.text()).includes('identity_binding_rejected'));
+  const diagnostics = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostics.lastFailure, { stage: 'issue-app-session', code: 'app_session_unavailable' });
+  assert.equal(f.store.commits.length, 1); assert.equal(f.host.status().readyHandoffs, 0);
+  assert(!JSON.stringify(f.host.status()).includes('PRIVATE_BAD_SESSION'));
+});
+
+test('foreign exception getters are not evaluated by diagnostics and in-flight counts settle on rejection', async t => {
+  let reject, entered, codeReads = 0;
+  const started = new Promise(resolve => { entered = resolve; }), blocked = new Promise((_, no) => { reject = no; });
+  const f = await fixture(t, { issueAppSession: async () => { entered(); return blocked; } });
+  const flow = await f.start(), callback = f.callback(flow); await started;
+  const active = f.host.status().verificationDiagnostics;
+  assert.equal(active.inFlight, 1); assert.equal(active.stages['issue-app-session'].entered, 1); assert.equal(active.failed, 0);
+  const error = new Error('PRIVATE_FOREIGN_MESSAGE');
+  Object.defineProperty(error, 'code', { get() { codeReads++; return 'PRIVATE_FOREIGN_CODE'; } });
+  reject(error);
+  const response = await callback; assert.equal(response.status, 409); assert.equal(codeReads, 0);
+  const final = f.host.status().verificationDiagnostics;
+  assert.equal(final.inFlight, 0); assert.deepEqual(final.lastFailure, { stage: 'issue-app-session', code: 'other' });
+  assert(!JSON.stringify(f.host.status()).includes('PRIVATE_FOREIGN'));
 });
 
 test('native store failure never promotes a proposed binding or issues a fresh application session', async t => {
