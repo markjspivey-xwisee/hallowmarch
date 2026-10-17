@@ -211,6 +211,42 @@ async def kit_geometry(page, tag):
     await shot(page,'mobile_kit_'+tag)
 
 
+async def approach_herald(page, tag):
+    """Arrange clear approach ground, preserving every nearby actor and real interaction priority."""
+    scene = await page.evaluate(r"""() => {
+      const H=__hm,P=H.GAME.player,R=H.REALMS[P.faction],herald=R.herald;
+      const actors=H.ENT.filter(e=>e!==P&&e!==herald&&e.alive&&!e.removed&&e.kind!=='door'&&Math.abs(e.y-herald.y)<1.5);
+      const candidates=[];
+      for(const radius of [1.25,1.65,2.1])for(let i=0;i<16;i++){
+        const angle=i*Math.PI/8,x=herald.x+Math.cos(angle)*radius,z=herald.z+Math.sin(angle)*radius;
+        if(!H.fn.isWalkable(x,z)||Math.abs(H.fn.heightAt(x,z)-herald.y)>1.2)continue;
+        const gap=Math.min(10,...actors.map(e=>Math.hypot(e.x-x,e.z-z)-((e.radius||.45)*(e.scale||1)+P.radius*(P.scale||1))));
+        if(gap<.3||radius<(herald.radius*(herald.scale||1)+P.radius*(P.scale||1))+.2)continue;
+        candidates.push({x,z,score:Math.min(gap,3)-radius/4});
+      }
+      candidates.sort((a,b)=>b.score-a.score);
+      return {expected:`Speak with the ${R.name} Herald`,candidates:candidates.slice(0,12)};
+    }""")
+    state = None
+    for at in scene['candidates']:
+        await page.evaluate(r"""({x,z})=>{
+          const H=__hm,P=H.GAME.player,R=H.REALMS[P.faction];
+          H.teleport(x,z);P.yaw=H.CAM.yaw=Math.atan2(R.herald.x-P.x,R.herald.z-P.z);
+          H.simulate(.05);return 0;
+        }""", at)
+        await frame(page)
+        state = await page.evaluate(r"""()=>{
+          const H=__hm,P=H.GAME.player,R=H.REALMS[P.faction];
+          return {prompt:document.getElementById('prompt-t').textContent,use:document.getElementById('t-use').getAttribute('aria-label'),
+            distance:Math.hypot(P.x-R.herald.x,P.z-R.herald.z),
+            actors:H.ENT.filter(e=>e!==P&&e.alive&&!e.removed&&Math.hypot(e.x-P.x,e.z-P.z)<5).map(e=>({name:e.name,role:e.role,x:e.x,z:e.z}))};
+        }""")
+        if state['prompt'] == scene['expected'] and state['use'] == scene['expected']:
+            check(True,tag+': clear herald approach exposes the exact herald prompt before Use '+json.dumps(state))
+            return
+    raise AssertionError(tag+': no clear herald approach exposed the expected interaction '+json.dumps(state))
+
+
 async def flows(page, tag):
     """Only scene setup uses the debug API; every user action below is an actual touch."""
     await page.evaluate('__hm.surv.SURV.hunger=.25; __hm.surv.SURV.thirst=.25; __hm.mobile.state.t=0; 0')
@@ -287,13 +323,16 @@ async def flows(page, tag):
     strike=await page.evaluate('(hp)=>({damage:hp-window.__mobileFoe.hp,cooldown:__hm.GAME.player.cds.slash>__hm.GAME.t})',hp)
     check(strike['damage']>0 and strike['cooldown'],tag+': learned ability tap damages the selected enemy '+json.dumps(strike))
     await page.evaluate(r"""(() => {
-      const H=__hm,P=H.GAME.player,R=H.REALMS[P.faction];
+      const H=__hm,P=H.GAME.player;
       H.fn.removeEnt(window.__mobileFoe); P.target=null; P.combatUntil=0;
-      H.teleport(R.herald.x+.2,R.herald.z); H.simulate(.05); return 0;
+      return 0;
     })()""")
-    await frame(page)
+    # The former +.2m placement overlapped the herald's body. Separation and
+    # wandering seed sellers could legitimately change which interaction won.
+    await approach_herald(page,tag)
     await tap(page,'#t-use')
-    check(await page.locator('#dialog').is_visible() and 'Herald' in await page.locator('#dlg-title').inner_text(),tag+': Use tap speaks with the nearby herald')
+    title=await page.locator('#dlg-title').inner_text()
+    check(await page.locator('#dialog').is_visible() and 'Herald' in title,tag+': Use tap speaks with the nearby herald '+json.dumps({'title':title}))
     await page.locator('#dlg-actions button:last-child').scroll_into_view_if_needed()
     await tap(page,'#dlg-actions button:last-child')
     await multitouch(page)
