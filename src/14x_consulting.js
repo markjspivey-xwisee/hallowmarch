@@ -1,7 +1,7 @@
 /* Contextual coaching follows observed gameplay. Private game activity is
  * separate from an explicitly enabled, bounded live Foxxi connection. */
 const MARCH_CONSULTING = { ownerKey: '', sessionId: '', journal: null, consultant: null,
-  current: null, openConsultant: null, busy: false, note: '', reviewed: null, result: null,
+  current: null, openConsultant: null, openLearning: null, busy: false, note: '', reviewed: null, result: null,
   observationId: null, consultationId: null, baseline: null, evaluation: null, rendering: false, enabled: false, coachUntil: 0, epoch: 0, snoozeUntil: 0,
   lastRequestAt: 0, lastEvidence: '', baselineFocus: null, tried: null, lastTip: '' };
 const marchConsultingCopy = value => JSON.parse(JSON.stringify(value));
@@ -36,9 +36,10 @@ function marchConsultingOwnerKey() {
 }
 
 function marchConsultingClose() {
+  if (typeof marchLearningClose === 'function') marchLearningClose();
   MARCH_CONSULTING.enabled = false; MARCH_CONSULTING.coachUntil = 0; MARCH_CONSULTING.epoch++;
   MARCH_CONSULTING.consultant?.close?.(); MARCH_CONSULTING.journal?.close?.();
-  Object.assign(MARCH_CONSULTING, { journal: null, consultant: null, current: null, openConsultant: null, reviewed: null,
+  Object.assign(MARCH_CONSULTING, { journal: null, consultant: null, current: null, openConsultant: null, openLearning: null, reviewed: null,
     result: null, observationId: null, consultationId: null, baseline: null, sessionId: '', evaluation: null,
     tried: null, baselineFocus: null, lastEvidence: '', lastRequestAt: 0 });
 }
@@ -127,7 +128,11 @@ async function marchConsultingOpenHistory() {
     if (!journal.status().keyPresent) throw new Error('Restore your character’s recovery key before keeping private coaching history.');
     const history = await journal.read(); current();
     if (MARCH_COACH_DELIVERY.pending && history.consultations.some(item => item.response?.response?.plan?.situationId === MARCH_COACH_DELIVERY.pending.id)) marchConsultingCloseDelivery('completed');
-    Object.assign(state, { ownerKey, sessionId, journal, current, openConsultant: () => {
+    Object.assign(state, { ownerKey, sessionId, journal, current, openLearning: async options => {
+      current(); const module = await import('/gaming/identity/assets/gameplay-learning-delivery.mjs'); current();
+      return module.createOwnerGameplayLearningDelivery({ ...options, binding, credential: cached.credential,
+        relayUrl: matches[0].relayUrl, journal, sessionId });
+    }, openConsultant: () => {
       current(); return liveModule.createFoxxiConsultant({ binding, credential: cached.credential, relayUrl: matches[0].relayUrl, journal, sessionId, subjectKind: 'human' });
     } });
     const last = history.consultations?.at(-1), baseline = history.observations?.find(item => item.id === last?.observationId);
@@ -381,6 +386,7 @@ function marchConsultingCreate(parent) {
   }); dismiss.id = 'march-coach-close-pending'; privacy.append(dismiss);
   const preview = marchConsultingNode('details'); preview.append(marchConsultingNode('summary', 'Current sharing details'));
   const pre = marchConsultingNode('pre'); pre.id = 'march-coach-preview'; pre.style.cssText = 'white-space:pre-wrap;font-size:12px'; preview.append(pre); privacy.append(preview);
+  if (typeof marchLearningMount === 'function') marchLearningMount(privacy);
   box.append(privacy); parent.append(box); return box;
 }
 function marchConsultingRender() {
@@ -454,6 +460,7 @@ function marchConsultingRender() {
     $('march-coach-continue').hidden = !s.reviewed || s.reviewed.cancelled || !s.enabled;
     $('march-coach-close-pending').hidden = !MARCH_COACH_DELIVERY.pending && !MARCH_COACH_DELIVERY.blocked && !s.reviewed;
     $('march-coach-preview').textContent = JSON.stringify(s.reviewed?.prepared?.payload || { sharing: s.enabled ? 'Current milestone and owner-browser gameplay summary' : 'off' }, null, 2);
+    if (typeof marchLearningRender === 'function') marchLearningRender();
   } finally { s.rendering = false; }
 }
 function marchConsultingStep() {

@@ -4,6 +4,13 @@ The public [Profile](https://march-production-f6d9.up.railway.app/gaming/activit
 
 A player's activity history belongs in the player's encrypted native pod and uses the original owner key and recovery path. Public discovery describes the contract; it does not expose personal activity, scores, a private index or decryption keys. Retained own-pod statements are activity records. Their existence is not a claim that a conformant Learning Record Store accepted them.
 
+Ordinary play retains bounded detail and cumulative totals in the private character.
+Optional Foxxi recording keeps a bounded encrypted current performance profile in
+that same owner's pod: cumulative observations and a rolling hour of recent xAPI
+detail. Its coverage reports any shortened detail window. This personal activity
+window is distinct from a complete historical LRS. Permanent raw-page exports
+are explicit diagnostics rather than an automatic background operation.
+
 ## Identity and evidence
 
 The statement actor is always the authenticated **observing owner**, represented as an xAPI `Agent`: `account.homePage` is `https://identity.interego.xwisee.com` and `account.name` is that owner's DID. This includes observations involving a verified agent controller. It does not prove the owner manually performed an action: `human-input`, `agent`, `unattributed` and `companion-autonomy` remain distinct controller facts. The context extension records the concrete body, verified controller DID and grant when available; unknown control remains `unattributed`. A native agent identity must be verified before attributing control to it. These owner-browser records do not create the agent's independent performance profile, and a human session delegate must not be relabeled as the human performer.

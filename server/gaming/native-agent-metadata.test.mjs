@@ -33,6 +33,12 @@ test('main-world discovery separates an AI party body from player possession and
   assert.equal(support.activityProfile, 'https://game.example/gaming/activity-profile.jsonld');
   assert.equal(support.activityProfileCanonical, GAMEPLAY_ACTIVITY_PROFILE); assert.equal(support.activityProfileVersion, GAMEPLAY_ACTIVITY_PROFILE_VERSION);
   assert.equal(support.activityArchiveModule, 'https://game.example/gaming/identity/assets/gameplay-activity-archive.mjs');
+  assert.equal(support.learningDelivery.module, 'https://game.example/gaming/identity/assets/gameplay-learning-delivery.mjs');
+  assert.equal(support.learningDelivery.authority, 'encrypted-performer-own-pod');
+  assert.match(support.learningDelivery.consent, /Separate optional 15-minute/);
+  assert.ok(graph.includes(`dct:relation <${support.learningDelivery.descriptor}>`));
+  assert.ok(graph.includes(`dct:relation <${doc.agentClient.stdioMcpHost.guide}>`));
+  assert.deepEqual(doc.agentClient.stdioMcpHost.tools, ['march_connect', 'march_observe', 'march_move', 'march_attack', 'march_renew', 'march_status', 'march_disconnect']);
   assert.equal(support.activity.storage, 'encrypted-observing-owner-pod'); assert.equal(support.activity.actor, 'authenticated-observing-owner');
   assert.equal(support.activity.controllerIdentity, 'context-only'); assert.equal(support.activity.competencyStatus, 'not-assessed');
   assert.equal(support.activity.lrsConformanceClaim, false);

@@ -13,7 +13,7 @@ async function body(file, name) {
   assert(start >= 0 && end > start); return source.slice(start, end);
 }
 async function adapter({ native = false, started = true, capture = false, initialize = true, deferred = false, browserCrypto = webcrypto } = {}) {
-  const source = await readFile(new URL('src/14y_activity.js', root), 'utf8'), parts = {}, saves = [], timers = [];
+  const source = await readFile(new URL('src/14y_activity.js', root), 'utf8'), parts = {}, saves = [], timers = [], learning = [];
   let moduleLoads = 0, releaseModule;
   const moduleGate = deferred ? new Promise(resolve => { releaseModule = resolve; }) : null;
   const P = { id: 1, name: 'Fixture', cls: 'warrior', faction: 0, alive: true }, pet = { id: 2, alive: true, role: 'companion' };
@@ -27,13 +27,14 @@ async function adapter({ native = false, started = true, capture = false, initia
     SAVE: { native }, NATIVE_PLAYER: { status: native ? { verified: true, binding: { subjectDid: 'did:web:identity.example:users:owner', podUrl: 'https://pod.example/owner/' } } : null, profile: null }, NETWS: { acct: { id: 'character-fixture' }, generation: 1, token: 'not-exported' },
     NET: { party: '' }, mainWorldAgentBodies: () => [{ id: 'character-fixture:companion:fixture', entity: pet }], anOwned: () => false,
     registerSavePart: (where, key, part) => { parts[key] = part; }, saveSoon: delay => { saves.push(delay); }, saveNow: async () => {},
+    marchLearningObserve: result => learning.push(copy(result)),
     pathNext: () => ({ id: 'canonical-path', title: 'Existing path objective' }), __loadActivityModule: async () => {
       moduleLoads++; if (moduleGate) await moduleGate; return wrapped;
     } });
   vm.runInContext(source.replace("import('/gaming/identity/assets/gameplay-activity.mjs')", '__loadActivityModule()'), context);
   if (initialize && started && !capture) context.window.__hm.activity.snapshot();
   await tick(); await tick();
-  return { context, parts, saves, timers, P, pet, api: context.window.__hm.activity,
+  return { context, parts, saves, timers, learning, P, pet, api: context.window.__hm.activity,
     moduleLoads: () => moduleLoads, releaseModule: async () => { releaseModule?.(); await tick(); await tick(); },
     evaluate: code => vm.runInContext(code, context) };
 }
@@ -105,6 +106,14 @@ test('verified native command intent records owned companion and contextual agen
   assert(!Object.hasOwn(statement.result, 'completion')); const trajectory = f.api.trajectory();
   assert.equal(trajectory.agentDid, 'did:web:identity.example:users:owner'); assert.equal(trajectory.steps.length, 1);
   assert(!JSON.stringify(trajectory).includes('not-exported')); assert(!JSON.stringify(trajectory).includes('grantId'));
+});
+
+test('the activity delivery hook receives actual validated events before private archival can prune them', async () => {
+  const f = await adapter({ native: true });
+  f.api.record('resource.gathered', 'stone', 2, { success: true }); f.api.interventionStart('one-foe-practice');
+  assert.equal(f.learning.length, 2); assert.equal(f.learning[0].event.ordinal, 1); assert.equal(f.learning[0].event.type, 'resource.gathered');
+  assert.equal(f.learning[1].event.ordinal, 2); assert.equal(f.learning[1].event.type, 'intervention.started');
+  assert.equal(f.learning[0].recorded, true); assert.equal(f.learning[0].retained, true);
 });
 
 test('missing owner, capture mode, foreign bodies and observer faults never affect gameplay', async () => {

@@ -11,7 +11,7 @@ import { createMainWorldAgentTransport } from '../server/gaming/main-world-agent
 const origin = 'https://game.example', applicationId = 'did:web:identity.example:users:march';
 const agentDid = 'did:ethr:0x' + 'a'.repeat(40), ownerDid = 'did:web:identity.example:users:alice';
 const grantId = 'urn:uuid:1647775c-22c7-4a79-8a45-d55cfe101b41';
-const config = { grantId, roomId: 'march', entityId: 'alice' };
+const config = { grantId, roomId: 'march', entityId: 'alice:companion:2fd428f0-d768-4ec7-9c52-f6c4e1cadce0' };
 const graphIri = 'urn:graph:interego:gaming:owner-agent-grant:' + grantId.slice(9);
 const clone = value => structuredClone(value);
 async function fixture(t) {
@@ -26,7 +26,7 @@ async function fixture(t) {
       }
     } });
   const frame = () => transport.frame(owner, { paused,
-    bodies: [{ id: 'alice', name: 'Fixture character', x: 1, y: 0, z: 2, hp: 100, maxHp: 100, allowed: true }],
+    bodies: [{ id: config.entityId, name: 'Fixture companion', x: 1, y: 0, z: 2, hp: 100, maxHp: 100, allowed: true }],
     targets: [{ id: 'foe:42', name: 'Fixture target', x: 1, y: 0, z: 3, hp: 40, maxHp: 40 }] });
   frame();
   const accounts = { bindingForAccount: id => id === 'alice' ? binding : null };
@@ -43,7 +43,7 @@ async function fixture(t) {
     nativeCore: { recoverMessageSigner(message, signature) { assert.match(message, /^sha256:[a-f0-9]{64}$/);
       assert.equal(signature, '0x' + 'b'.repeat(130)); return agentDid.slice(9); } },
     readOwnerGrantHead: async () => { nativeReads++; return { grant: { schema: 'interego.gaming.owner-agent-grant/v1', id: grantId,
-      issuer: ownerDid, actor: agentDid, applicationId, audience: origin, roomId: 'march', entityId: 'alice', role: 'teammate',
+      issuer: ownerDid, actor: agentDid, applicationId, audience: origin, roomId: 'march', entityId: config.entityId, role: 'teammate',
       actions: ['observe', 'move', 'attack'], maxCommandsPerSecond: 20, revoked: false,
       notBefore: '2026-10-16T11:59:59.000Z', expiresAt: '2026-10-16T12:30:00.000Z' }, ownerPodUrl: binding.podUrl,
     descriptorUrl: binding.podUrl + 'context-graphs/head.ttl', graphIri, cid: 'bafy-explicit-fixture', contentDigest: 'a'.repeat(64), observedAt: time }; },

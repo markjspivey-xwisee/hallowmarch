@@ -14,6 +14,7 @@ export function createPlayerBrowserAssets({ clientRoot = new URL('../../client/n
     'performance-consultation.mjs': 'text/javascript; charset=utf-8',
     'gameplay-activity.mjs': 'text/javascript; charset=utf-8',
     'gameplay-activity-archive.mjs': 'text/javascript; charset=utf-8',
+    'gameplay-learning-delivery.mjs': 'text/javascript; charset=utf-8',
     'vendor/interego-browser.mjs': 'text/javascript; charset=utf-8', 'vendor/interego-public-browser.mjs': 'text/javascript; charset=utf-8' };
   return function handle(req, res, pathname) {
     const name = pathname === '/gaming/identity/finish' ? 'finish.html'

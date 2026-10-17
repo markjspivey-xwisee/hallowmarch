@@ -22,6 +22,11 @@ the adapter verifies the agent's own pod and keeps player and agent records sepa
 For a confirmed active grant, expand **Agent connection details** and copy its
 public configuration to the agent's tool host. The panel supplies the actual
 origin, game and agent DIDs, grant UUID, room, selected body, and module URL.
+For a ready stdio MCP process exposing `march_connect`, `march_observe`, bounded
+movement/attack, renewal, status and disconnect tools, see the
+[companion MCP host setup](companion-mcp-host.md). Its reviewed local native
+signer callback keeps signing in the agent host; tool arguments cannot choose
+a different grant, actor, game or human character.
 
 ```js
 // Import the reviewed module into your agent tool host. Browser hosts may use

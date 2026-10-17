@@ -55,10 +55,24 @@ private archive is not presented as a conformant LRS.
 
 The versioned save part preserves aggregate outcome/quantity counters, stable
 UUID event IDs, fresh session IDs and sequence checkpoints, recent sixteen
-events, up to sixty-four unarchived events, eight intervention attempts, an
+events, up to sixty-four pending detail events, eight intervention attempts, an
 archive head and explicit dropped-detail counts within 64 KiB. Initial observed
 milestones remain available after the recent window advances. Completed initial
 milestones fall back to repeatable practice rather than declaring mastery.
+New actual observations continuously replace the oldest pending detail; a full
+queue never freezes current coaching or later optional learning delivery.
+Every removed pending observation increments the explicit detail-gap count.
+Older detail also yields to current observations when the byte ceiling is
+tighter than the count ceiling, while cumulative counters and milestone evidence
+remain available. Per-body event types retain their latest real evidence point.
+Snapshot coverage reports the actual first/last retained ordinal and timestamp,
+and never labels a pruned window as a complete history.
+
+Automatic permanent raw-page archiving is disabled. Ordinary play retains the
+bounded recent/pending detail and aggregate profile in the private character.
+Optional Foxxi recording keeps cumulative totals and a rolling hour of details
+in one bounded encrypted own-pod checkpoint. An explicit archive export remains
+available for diagnostics; it is not part of a recurring gameplay timer.
 
 `gameplay-activity-archive.mjs` reuses the existing owner encryption key and
 publishes immutable private pages of up to sixty-four events and 48 KiB. A page
@@ -68,6 +82,10 @@ operations retain their original receipt and draft. Unknown writes stop, rather
 than blindly create another page. Readback verifies owner, schema, exact head,
 content and sequence continuity. A confirmed page advances only the unchanged
 pending prefix, preserving new outcomes that arrived while it was written.
+Automatic archive publication is disabled. This legacy adapter remains available
+only while its original complete session prefix exists; a missing or evicted
+prefix fails closed instead of inventing a partial archive chain. An in-flight
+page whose selected prefix was evicted cannot advance the profile's archive head.
 
 The confirmed archive head is then persisted through the original native
 character save before the next page advances. If the archive is unavailable,

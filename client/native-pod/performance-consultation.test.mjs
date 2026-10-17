@@ -84,6 +84,17 @@ test('native reread refuses consent withdrawn by another owner device after sign
   await assert.rejects(first.journal.assertAuthorized(token), { code: 'consultation_consent_required' });
 });
 
+test('gameplay LRS delivery has its own recipient/session/purpose permission and never follows coaching consent implicitly', async () => {
+  const f = fixture(); await f.journal.connect(); await f.consent(scope('request-consultation', TARGET));
+  const delivery = scope('record-gameplay-activity', 'https://foxxi.example/agent/xapi-statements/own-subject/write', 'hallowmarch-activity:char:session');
+  await assert.rejects(f.journal.authorize(delivery), { code: 'consultation_consent_required' });
+  await f.consent(delivery); const token = await f.journal.authorize(delivery);
+  assert.equal(token.purpose, 'record-gameplay-activity'); assert.equal(token.recipient, delivery.recipient);
+  await f.journal.revokeConsent(delivery);
+  await assert.rejects(f.journal.assertAuthorized(token), { code: 'consultation_consent_required' });
+  assert.equal((await f.journal.authorize(scope('request-consultation', TARGET))).purpose, 'request-consultation');
+});
+
 test('a new native session can read history while restored consent cannot authorize new sends', async () => {
   const first = fixture(); await first.journal.connect(); await first.consent();
   const { observation } = await first.journal.appendObservation({ task: task(), evidence: first.evidence() });

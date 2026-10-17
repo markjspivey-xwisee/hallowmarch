@@ -48,7 +48,8 @@ function activityEnsure() {
   return state.profile;
 }
 function activityCommit(input) {
-  try { const result = GAME_ACTIVITY.profile.record(input); if (result.recorded) saveSoon(5000); return result; }
+  try { const result = GAME_ACTIVITY.profile.record(input); if (result.recorded) saveSoon(5000);
+    if (typeof marchLearningObserve === 'function') marchLearningObserve(result); return result; }
   catch { GAME_ACTIVITY.code = 'activity_event_refused'; return null; }
 }
 function activityOwnedBody(entity) {
@@ -100,7 +101,8 @@ function activitySnapshot() {
 function activityInterventionStart(id) {
   const profile = activityEnsure(), scope = activityScope(); if (!profile || !scope) return null;
   try { const result = profile.interventionStart(id, { body: activityOwnedBody(GAME.player), actor: { kind: 'human-input' },
-    context: { realm: GAME.player.faction, level: GAME.prog.level, party: !!NET.party } }); saveSoon(5000); return result; }
+    context: { realm: GAME.player.faction, level: GAME.prog.level, party: !!NET.party } }); saveSoon(5000);
+    if (typeof marchLearningObserve === 'function') marchLearningObserve(result); return result; }
   catch { GAME_ACTIVITY.code = 'activity_intervention_refused'; return null; }
 }
 async function activityArchiveFlush() {
@@ -141,7 +143,9 @@ registerSavePart('char', 'activity', { save: () => GAME_ACTIVITY.profile?.save()
     GAME_ACTIVITY.archive?.close(); GAME_ACTIVITY.archive = null; GAME_ACTIVITY.archivePage = null; GAME_ACTIVITY.archiveNeedsSave = false;
     GAME_ACTIVITY.profile = null; GAME_ACTIVITY.stored = value; GAME_ACTIVITY.scope = null; GAME_ACTIVITY.blocked = false; GAME_ACTIVITY.code = null; GAME_ACTIVITY.queue = []; GAME_ACTIVITY.preloadDropped = 0;
   }, key: value => value ? [value.schema, value.revision, value.eventCount, value.archiveHead] : null });
-setInterval(() => { void activityArchiveFlush(); }, 30000);
+// Ordinary play keeps bounded detail and cumulative totals in the character.
+// Optional Foxxi recording uses a rolling-hour CAS profile; permanent raw
+// archive pages are an explicit diagnostic/export operation only.
 window.addEventListener('pagehide', () => { GAME_ACTIVITY.archive?.close(); });
 window.__hm.activity = Object.freeze({ snapshot: activitySnapshot, record: activityRecord, interventionStart: activityInterventionStart,
   observeCriterion: criterion => activityEnsure()?.observeCriterion(criterion) || null,

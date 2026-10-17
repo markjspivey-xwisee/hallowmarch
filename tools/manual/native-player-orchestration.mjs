@@ -1,4 +1,14 @@
 /** Offline-testable orchestration only; no browser import or native I/O. */
+/** A successful opt-in QA episode may keep its original owner and keys in RAM
+ * for a later release check. Waiting grants no additional operation or retry. */
+export async function retainCompletedNativeQa({ enabled, complete, finishRequested, waitForClose, announce } = {}) {
+  if (enabled !== true || complete !== true || finishRequested === true) return false;
+  if (typeof waitForClose !== 'function' || typeof announce !== 'function') throw new TypeError('Explicit retained QA ports are required.');
+  announce();
+  await waitForClose();
+  return true;
+}
+
 export function retainedGameBoot({ createContext, url, onContext = () => {}, onPage = () => {}, onStep = () => {} }) {
   let context, page;
   return Object.freeze({

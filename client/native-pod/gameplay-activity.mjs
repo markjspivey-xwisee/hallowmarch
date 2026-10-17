@@ -178,7 +178,11 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
     bodyObservations: [], bodyHistory: { unknownHistoricalEvents: 0, unassignedEvents: 0 }, lastMeaningfulContext: null } : validateState(state, ownerDid, characterId);
   if (profile.pending.some(item => item.sessionId === sessionId) && profile.pending.at(-1)?.sessionId !== sessionId) fail('activity_scope');
   const add = (value, amount = 1) => Math.min(Number.MAX_SAFE_INTEGER, (value || 0) + amount);
-  const pruneSessions = value => { const used = new Set([...value.pending, ...value.recent].map(item => item.sessionId)); value.sessions = value.sessions.filter(item => used.has(item.id)); };
+  const pruneSessions = value => {
+    const cursors = new Map();
+    for (const event of [...value.pending, ...value.recent]) cursors.set(event.sessionId, Math.max(cursors.get(event.sessionId) || 0, event.sequence));
+    value.sessions = [...cursors].map(([id, sequence]) => ({ id, sequence }));
+  };
   function record(input) {
     exact(input, ['type', 'body', 'actor', 'object', 'result', 'context', 'id']);
     const id = input.id || 'urn:uuid:' + nextUuid(), stamp = now();
@@ -202,21 +206,34 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
       if (event.result.quantity !== undefined) body.quantities[event.type] = add(body.quantities[event.type], event.result.quantity);
       body.controllerCounts[event.actor.kind] = add(body.controllerCounts[event.actor.kind]);
       body.evidenceIds = [...body.evidenceIds.slice(-3), event.id]; body.lastEventAt = event.observedAt;
-      body.evidenceByType[event.type] = [...(body.evidenceByType[event.type] || []).slice(-1), { id: event.id, ordinal: event.ordinal }];
+      body.evidenceByType[event.type] = [{ id: event.id, ordinal: event.ordinal }];
     } else next.bodyHistory.unassignedEvents = add(next.bodyHistory.unassignedEvents);
     if (meaningful(event.type)) next.lastMeaningfulContext = contextEvent(event);
-    let retained = next.pending.length < GAMEPLAY_ACTIVITY_LIMITS.pending;
-    if (retained) {
-      next.pending.push(event); next.recent = [...next.recent, event].slice(-GAMEPLAY_ACTIVITY_LIMITS.recent);
-      next.sessions = next.sessions.filter(item => item.id !== sessionId); next.sessions.push({ id: sessionId, sequence });
-      pruneSessions(next);
-    } else next.historyGaps.detailsDropped = add(next.historyGaps.detailsDropped);
+    // Retain the newest actual observations continuously. Automatic archive
+    // publication is optional, so an old full queue must never freeze coaching
+    // or make subsequent activity disappear from the current detail window.
+    next.pending.push(event); next.recent = [...next.recent, event].slice(-GAMEPLAY_ACTIVITY_LIMITS.recent);
+    const dropPending = () => { next.pending.shift(); next.historyGaps.detailsDropped = add(next.historyGaps.detailsDropped); };
+    while (next.pending.length > GAMEPLAY_ACTIVITY_LIMITS.pending) dropPending();
     for (const attempt of next.attempts) if (meaningful(event.type) && next.eventCount > attempt.baselineEventCount
       && Date.parse(event.observedAt) - Date.parse(attempt.startedAt) <= 15 * 60 * 1000) attempt.evidenceIds = [...attempt.evidenceIds, event.id].slice(-4);
-    // Large records retain aggregates and explicitly report a detail gap.
-    try { bounded(next); } catch { if (!retained) throw Object.assign(new Error('Activity aggregate capacity exceeded.'), { code: 'activity_capacity' });
-      next.pending.pop(); next.recent = copy(profile.recent); next.sessions = copy(profile.sessions); next.historyGaps.detailsDropped = add(profile.historyGaps.detailsDropped); retained = false; bounded(next); }
-    profile = next; return { recorded: true, retained, event: retained ? copy(event) : null };
+    // Preserve aggregates and the latest event before older detail when the
+    // byte ceiling is tighter than the count ceiling. The pending-prefix guard
+    // makes an in-flight archive of evicted detail fail closed on confirmation.
+    const fits = () => { pruneSessions(next); try { bounded(next); return true; } catch { return false; } };
+    while (!fits()) {
+      if (next.pending.length > 1) dropPending();
+      // Legacy profiles may keep two points for every event type and body.
+      // Keep their latest real point while preserving every aggregate counter.
+      else if (next.bodyObservations.some(item => Object.values(item.evidenceByType).some(points => points.length > 1))) {
+        for (const item of next.bodyObservations) for (const [type, points] of Object.entries(item.evidenceByType)) item.evidenceByType[type] = points.slice(-1);
+      }
+      else if (next.recent.length) next.recent.shift();
+      else if (next.pending.length) dropPending();
+      else throw Object.assign(new Error('Activity aggregate capacity exceeded.'), { code: 'activity_capacity' });
+    }
+    const retained = next.pending.some(item => item.id === event.id);
+    profile = next; return { recorded: true, retained, event: copy(event) };
   }
   function snapshot() {
     const milestones = GAMEPLAY_MILESTONES.map(item => {
@@ -238,6 +255,7 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
     const current = failure ? { ...failure, current: 0, target: 1, evidenceIds: [last.id], interventions: failure.resources.map(id => copy(resourceById.get(id))) } : selected || repeatable;
     const nextType = { 'combat.died': 'character.respawned', 'ability.refused': 'ability.executed', 'craft.refused': 'craft.completed' }[last?.type];
     const body = failure && profile.bodyObservations.find(item => item.bodyId === last.body.id);
+    const detail = [...new Map([...profile.pending, ...profile.recent].map(event => [event.id, event])).values()].sort((a, b) => a.ordinal - b.ordinal);
     return { schema: GAMEPLAY_ACTIVITY_SCHEMA, revision: profile.revision, eventCount: profile.eventCount, lastEventAt: profile.lastEventAt, milestones,
       current: { id: current.id, title: current.title, desiredResult: current.description,
         observedResult: failure ? 'The game observed ' + last.type.replace('.', ' ') + (last.reason ? ' (' + last.reason + ')' : '') + '. A performance cause has not been established.'
@@ -251,7 +269,11 @@ export function createGameplayActivityProfile({ ownerDid, characterId, sessionId
       history: { recent: copy(profile.recent), archivedEvents: profile.archivedEvents, pendingEvents: profile.pending.length,
         archiveHead: copy(profile.archiveHead), detailsDropped: profile.historyGaps.detailsDropped, captureUnavailable: profile.historyGaps.captureUnavailable,
         complete: profile.historyGaps.detailsDropped === 0 && profile.historyGaps.captureUnavailable === 0,
-        description: 'Recent detail plus an encrypted native page chain; aggregate counters survive detail-window changes. This is not a conformant LRS.' },
+        coverage: { kind: 'bounded-rolling-detail', retainedEvents: detail.length,
+          firstOrdinal: detail[0]?.ordinal || null, lastOrdinal: detail.at(-1)?.ordinal || null,
+          from: detail[0]?.observedAt || null, until: detail.at(-1)?.observedAt || null,
+          maxPendingEvents: GAMEPLAY_ACTIVITY_LIMITS.pending, maxRecentEvents: GAMEPLAY_ACTIVITY_LIMITS.recent },
+        description: 'Bounded recent observations with durable aggregate counters. Existing archive references and explicit detail gaps are preserved; a complete historical LRS is not claimed.' },
       summary: { counters: copy(profile.counters), quantities: copy(profile.quantities), attempts: copy(profile.attempts),
         bodyObservations: profile.bodyObservations.map(item => ({ ...copy(item), observationAuthority: 'owner-browser-observation', competencyStatus: 'not-assessed' })),
         bodyHistory: { ...copy(profile.bodyHistory), complete: profile.bodyHistory.unknownHistoricalEvents === 0 && profile.bodyHistory.unassignedEvents === 0 },

@@ -37,7 +37,7 @@ class Store {
 }
 async function setup(t, existingStore = null, options = {}) {
   let at = Date.parse('2026-10-16T12:00:00Z'), ownerReads = 0, agentReads = 0;
-  const selectedBody = options.entityId || 'alice';
+  const selectedBody = options.entityId || 'alice:companion:2fd428f0-d768-4ec7-9c52-f6c4e1cadce0';
   const store = existingStore || new Store(), messages = [], alice = { acct: { id: 'alice' }, room: { name: 'march' }, peer: 'first-owner-page', ws: { readyState: 1 }, native: true };
   const bob = { acct: { id: 'bob' }, room: alice.room, peer: 'bob-page', ws: { readyState: 1 }, native: true };
   const transport = createMainWorldAgentTransport({ now: () => at,
@@ -119,6 +119,22 @@ test('actual native proof binds the separate companion and cannot substitute the
   await f.authority.revoke(f.owner('alice'), { grantId });
   await assert.rejects(f.authority.command(f.command(s, 4, { commandId: s.sessionId + ':after-revoke' })));
   assert.equal(f.messages.filter(row => row.message.op === 'command').length, 1);
+});
+test('a custom owner frame and valid native human-body grant cannot admit character possession', async t => {
+  const f = await setup(t, null, { entityId: 'alice' });
+  // A real authenticated page may publish its human pose, but that does not
+  // turn the human body into an admissible agent companion.
+  assert.equal(f.transport.view('alice', 'march', 'alice').body.kind, 'player');
+  await f.register();
+  await assert.rejects(f.prepare(), { code: 'native_proof_unavailable' });
+  assert.equal(f.messages.filter(row => row.message.op === 'command').length, 0);
+});
+test('companion-only admission retains the owner animal path', async t => {
+  const f = await setup(t, null, { entityId: 'alice:animal:17' });
+  f.transform(grant => ({ ...grant, role: 'pet' }));
+  const s = await f.session();
+  assert.equal(s.receipt.scope.role, 'pet');
+  assert.equal((await f.settle(f.authority.command(f.command(s)))).accepted, true);
 });
 test('teleports, wrong bodies/rooms, forged signatures and private loot mutations are refused', async t => {
   const f = await setup(t), s = await f.session();

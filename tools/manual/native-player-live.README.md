@@ -127,6 +127,12 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
   only its expired/uncertain ephemeral admission at the permitted proof stage.
 - `finish`: forget access cache and close the retained browsers.
 
+The same `HM_NATIVE_RETAIN_FAILED_SESSION=1` opt-in also retains a fully
+successful episode until `finish` or EOF. The original owner, passkey and native
+keys remain only in that process's memory and original browser. Status reads do
+not replay completed stages, grant consent or create another owner. This hold
+does not itself reload a new release or authorize an additional delivery.
+
 A completed stage is never rerun. Registration has an additional irreversible
 attempt guard: the registration click cannot be replayed by any command.
 OAuth timeouts retain the original popup, listeners and ceremony: ordinary

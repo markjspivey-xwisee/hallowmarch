@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa } from './native-player-orchestration.mjs';
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
@@ -527,6 +527,9 @@ try {
   if (companion || mainWorld) startInput();
   await advanceQa(true);
   reportComplete();
+  await retainCompletedNativeQa({ enabled: process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1', complete: allComplete(), finishRequested,
+    announce: () => console.log('QA complete; original owner and keys retained in RAM. Read-only status/diagnose or finish remain available. Completed stages are never replayed.'),
+    waitForClose: () => startInput().waitForClose() });
 } catch (cause) {
   // Playwright errors can contain request URLs or payloads. Print our own stage only.
   console.error('FAIL: native live QA at ' + stage + ' [' + failureCode(cause) + ']. Raw browser/error details were intentionally not emitted.');

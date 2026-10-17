@@ -1,7 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa } from './native-player-orchestration.mjs';
+
+test('success retention is opt-in, requires completion and never waits after finish', async () => {
+  for (const input of [{ enabled: false, complete: true }, { enabled: '1', complete: true },
+    { enabled: true, complete: false }, { enabled: true, complete: true, finishRequested: true }]) {
+    assert.equal(await retainCompletedNativeQa(input), false);
+  }
+});
+test('successful retention holds the existing episode until the original input closes', async () => {
+  const events = []; let close;
+  const closed = new Promise(resolve => { close = resolve; });
+  let finished = false;
+  const hold = retainCompletedNativeQa({ enabled: true, complete: true, finishRequested: false,
+    announce: () => events.push('retained'), waitForClose: () => { events.push('original-input'); return closed; } });
+  void hold.then(() => { finished = true; });
+  await Promise.resolve();
+  assert.equal(finished, false); assert.deepEqual(events, ['retained', 'original-input']);
+  close(); assert.equal(await hold, true); assert.equal(finished, true);
+  assert.deepEqual(events, ['retained', 'original-input']);
+});
 
 function fakeGame({ failNavigation = false, failReady = false } = {}) {
   const calls = { contexts: 0, pages: 0, navigations: 0, ready: 0 }, events = [];

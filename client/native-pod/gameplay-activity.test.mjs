@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { createGameplayActivityProfile, gameplayActivityStatement, GAMEPLAY_MILESTONES } from './gameplay-activity.mjs';
+import { createGameplayActivityProfile, gameplayActivityStatement, GAMEPLAY_MILESTONES, GAMEPLAY_ACTIVITY_LIMITS, GAMEPLAY_EVENT_TYPES } from './gameplay-activity.mjs';
 import { createOwnerGameplayActivityArchive } from './gameplay-activity-archive.mjs';
 
 const OWNER = 'did:web:identity.example:users:alice', CHARACTER = 'alice-character';
@@ -45,17 +45,69 @@ test('restored counters, detail accounting, times and session cursors cannot con
   }
 });
 
-test('a full detail queue keeps outcomes in aggregates and resumes contiguous retained sequences', () => {
+test('a full detail queue rolls forward with actual fresh outcomes and contiguous retained sequences', () => {
   const f = fixture();
   for (let index = 0; index < 64; index++) assert.equal(f.profile.record(f.outcome()).retained, true);
-  assert.equal(f.profile.record(f.outcome()).retained, false);
+  assert.equal(f.profile.record(f.outcome()).retained, true);
   let snapshot = f.profile.snapshot(); assert.equal(snapshot.eventCount, 65);
   assert.equal(snapshot.summary.counters['resource.gathered'], 65); assert.equal(snapshot.summary.quantities['resource.gathered'], 130);
   assert.equal(snapshot.history.pendingEvents, 64); assert.equal(snapshot.history.detailsDropped, 1); assert.equal(snapshot.history.complete, false);
-  const archived = f.profile.nextArchivePage(); f.profile.archiveConfirmed(archived, reference('a'));
-  const after = f.profile.record(f.outcome()); assert.equal(after.event.sequence, 65); assert.equal(after.event.ordinal, 66);
+  const archived = f.profile.nextArchivePage(); assert.equal(archived.events[0].sequence, 2); f.profile.archiveConfirmed(archived, reference('a'));
+  const after = f.profile.record(f.outcome()); assert.equal(after.event.sequence, 66); assert.equal(after.event.ordinal, 66);
   snapshot = f.profile.snapshot(); assert.equal(snapshot.history.archivedEvents, 64); assert.equal(snapshot.history.pendingEvents, 1);
-  assert.equal(f.profile.nextArchivePage().events[0].sequence, 65);
+  assert.equal(f.profile.nextArchivePage().events[0].sequence, 66);
+});
+
+test('hundreds of unarchived actions preserve milestones and keep fresh bounded detail available for coaching and xAPI', () => {
+  const f = fixture(); const early = f.profile.record(f.outcome('craft.completed')).event;
+  for (let index = 0; index < 255; index++) { f.advance(1000); const result = f.profile.record(f.outcome());
+    assert(result.retained); assert.equal(result.event.ordinal, index + 2); }
+  const snapshot = f.profile.snapshot(), saved = f.profile.save();
+  assert.equal(snapshot.eventCount, 256); assert.equal(saved.pending.length, 64); assert.equal(saved.recent.length, 16);
+  assert.equal(saved.pending[0].ordinal, 193); assert.equal(saved.pending.at(-1).ordinal, 256);
+  assert.equal(saved.recent[0].ordinal, 241); assert.equal(saved.recent.at(-1).ordinal, 256);
+  assert.equal(snapshot.summary.counters['resource.gathered'], 255); assert.equal(snapshot.summary.quantities['resource.gathered'], 510);
+  const craft = snapshot.milestones.find(item => item.id === 'craft-one'); assert(craft.completed); assert.deepEqual(craft.evidenceIds, [early.id]);
+  assert.equal(snapshot.history.detailsDropped, 192); assert.equal(snapshot.history.complete, false);
+  assert.deepEqual(snapshot.history.coverage, { kind: 'bounded-rolling-detail', retainedEvents: 64, firstOrdinal: 193, lastOrdinal: 256,
+    from: saved.pending[0].observedAt, until: saved.pending.at(-1).observedAt, maxPendingEvents: 64, maxRecentEvents: 16 });
+  assert(new TextEncoder().encode(JSON.stringify(saved)).length <= GAMEPLAY_ACTIVITY_LIMITS.bytes);
+  const latest = gameplayActivityStatement(saved.recent.at(-1), OWNER);
+  assert.equal(latest.result.extensions['urn:interego:gaming:activity:observation'].historyOrdinal, 256);
+  assert.equal(latest.timestamp, saved.pending.at(-1).observedAt); assert.equal(latest.actor.account.name, OWNER);
+  const restored = fixture({ state: saved, sessionId: NEXT }); restored.advance(256000);
+  const next = restored.profile.record(restored.outcome('craft.refused', { result: { success: false, reason: 'requirements' } }));
+  assert.equal(next.event.ordinal, 257); assert.equal(restored.profile.snapshot().current.id, 'craft-readiness');
+  assert.equal(restored.profile.snapshot().milestones.find(item => item.id === 'craft-one').completed, true);
+});
+
+test('evicted in-flight archive prefixes cannot confirm or erase a newer rolling window', () => {
+  const f = fixture(); f.profile.record(f.outcome()); const original = f.profile.nextArchivePage();
+  for (let index = 0; index < 128; index++) f.profile.record(f.outcome());
+  const before = f.profile.save();
+  assert.throws(() => f.profile.archiveConfirmed(original, reference('a')), { code: 'activity_archive_changed' });
+  assert.deepEqual(f.profile.save(), before); assert.equal(before.pending.at(-1).ordinal, 129);
+  const available = f.profile.nextArchivePage(); f.profile.archiveConfirmed(available, reference('b'));
+  const snapshot = f.profile.snapshot(); assert.equal(snapshot.history.archivedEvents, 64);
+  assert.equal(snapshot.history.detailsDropped, 65); assert.equal(snapshot.history.complete, false);
+});
+
+test('all bounded bodies and event types keep cumulative counts and current evidence under the byte ceiling', () => {
+  const f = fixture(); let count = 0, latest;
+  for (let round = 0; round < 3; round++) for (let body = 0; body < GAMEPLAY_ACTIVITY_LIMITS.bodies; body++) for (const type of GAMEPLAY_EVENT_TYPES) {
+    const result = f.profile.record(f.outcome(type, { body: { id: 'unit-'.repeat(24) + String(body), kind: 'owned-unit' },
+      object: { id: 'x'.repeat(128), kind: 'task' } })); count++; latest = result.event;
+    assert(result.retained, 'the latest actual observation remains available under aggregate pressure');
+  }
+  const saved = f.profile.save(), restored = fixture({ state: saved, sessionId: NEXT });
+  assert.equal(saved.eventCount, count); assert.equal(saved.pending.at(-1).ordinal, count);
+  assert.equal(saved.pending.at(-1).id, latest.id); assert(saved.pending.length <= 64); assert(saved.recent.length <= 16);
+  assert(new TextEncoder().encode(JSON.stringify(saved)).length <= GAMEPLAY_ACTIVITY_LIMITS.bytes);
+  for (const type of GAMEPLAY_EVENT_TYPES) assert.equal(restored.profile.snapshot().summary.counters[type], GAMEPLAY_ACTIVITY_LIMITS.bodies * 3);
+  for (const body of restored.profile.snapshot().summary.bodyObservations) for (const type of GAMEPLAY_EVENT_TYPES) {
+    assert.equal(body.counters[type], 3); assert.equal(body.evidenceByType[type].length, 1);
+  }
+  assert.equal(saved.archivedEvents + saved.pending.length + saved.historyGaps.detailsDropped, count);
 });
 
 test('unavailable capture is preserved as an explicit historical gap without invented events', () => {
@@ -91,7 +143,7 @@ test('archive batches are contiguous front runs and never remove an intervening 
 
 test('legal mixed-size detail queues produce pages accepted by the native archive byte bound', async () => {
   const f = fixture();
-  for (let index = 0; index < 39; index++) f.profile.record(f.outcome('resource.gathered', {
+  for (let index = 0; index < 35; index++) f.profile.record(f.outcome('resource.gathered', {
     body: { id: 'x'.repeat(128), kind: 'character' }, actor: { kind: 'agent', id: 'did:web:' + 'x'.repeat(490) },
     object: { id: 'x'.repeat(128), kind: 'resource' }, result: { quantity: 1, success: true, reason: 'x'.repeat(64) },
   }));

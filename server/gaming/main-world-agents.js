@@ -31,6 +31,15 @@ export function mainWorldAgentAffordances(options) {
     activityProfileVersion: GAMEPLAY_ACTIVITY_PROFILE_VERSION,
     activityModule: new URL('/gaming/identity/assets/gameplay-activity.mjs', doc.audience).href,
     activityArchiveModule: new URL('/gaming/identity/assets/gameplay-activity-archive.mjs', doc.audience).href,
+    learningDelivery: {
+      module: new URL('/gaming/identity/assets/gameplay-learning-delivery.mjs', doc.audience).href,
+      descriptor: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject/affordance',
+      authority: 'encrypted-performer-own-pod',
+      retention: 'Cumulative observed totals and a bounded rolling hour of detailed activity in one encrypted native checkpoint; no automatic permanent raw archive.',
+      consent: 'Separate optional 15-minute record sharing for future observations. A game-control grant and live coaching do not enable it.',
+      attribution: 'The authenticated observing owner is the actor; a known companion controller remains context. Independent agents use their own authenticated pod.',
+      recovery: 'Confirm the private delivery intent before sending; reconcile unchanged statement identities after an uncertain response. Expired unknown detail requires an explicit close without resending.',
+    },
     consultingDescriptor: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance',
     methodologyCatalog: 'https://foxxi-bridge.interego.xwisee.com/performance/methods',
     agentSessionModule: new URL('/gaming/identity/assets/agent-own-session.mjs', doc.audience).href,
@@ -44,6 +53,9 @@ export function mainWorldAgentAffordances(options) {
       evidencePolicy: 'Game progress and started support do not establish learning, mastery or an intervention effect.' },
   };
   doc.agentClient = { module: doc.audience + '/world/agent-client.mjs', export: 'createWorldAgentClient',
+    stdioMcpHost: { entrypoint: 'tools/agents/world-agent-mcp.mjs',
+      guide: 'https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/companion-mcp-host.md',
+      tools: ['march_connect', 'march_observe', 'march_move', 'march_attack', 'march_renew', 'march_status', 'march_disconnect'] },
     runtime: 'WebCrypto Ed25519 and fetch; Node 22+ or same-origin trusted browser host',
     nativeSigning: 'Caller-supplied sign_request({payload}) returns only the native signed envelope; never a human bearer.',
     integrationGuide: 'https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/main-world-agent-client.md', testedProviders: [],
@@ -93,7 +105,13 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
   }
   function currentScope(id, ownerDid, scope) {
     const ref = reference(id); binding(ref);
-    if (ref.ownerDid !== ownerDid || !view(ref.ownerPlayerId, scope.roomId, scope.entityId)) fail('native_body_forbidden');
+    const selected = view(ref.ownerPlayerId, scope.roomId, scope.entityId);
+    // The page cannot turn a grant for its human account into agent possession.
+    // The transport independently derives these companion/animal namespaces
+    // from the authenticated account before exposing a body here.
+    if (ref.ownerDid !== ownerDid || scope.entityId === ref.ownerPlayerId || selected?.body?.kind !== 'companion'
+      || selected.body.id !== scope.entityId || !(scope.entityId.startsWith(ref.ownerPlayerId + ':companion:')
+        || scope.entityId.startsWith(ref.ownerPlayerId + ':animal:'))) fail('native_body_forbidden');
     return ref;
   }
   async function save(mutator) {

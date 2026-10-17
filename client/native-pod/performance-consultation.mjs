@@ -2,7 +2,7 @@
 import { createNativePodClient, NativePodError } from './client.mjs';
 
 const SCHEMA = 'interego.owner-performance-consultation/v1';
-const PURPOSES = ['retain-observations', 'request-consultation'];
+const PURPOSES = ['retain-observations', 'request-consultation', 'record-gameplay-activity'];
 const MAX_LIFETIME = 15 * 60 * 1000, MAX_RECORDS = 32;
 const PAGE_WATERMARK = 16, PAGE_BYTES = 190 * 1024;
 const fail = (code, message) => { throw new NativePodError(code, message); };
