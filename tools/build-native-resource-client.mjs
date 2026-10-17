@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
-const revision = 'dd258b5f01ed66d1ef566855802aa6b0f485ed30';
+const revision = 'c7096d765be57fa9afe2c33e8abf2b40782a9b04';
 const esbuildVersion = '0.28.0';
 const source = 'packages/pgsl/src/browser-native-resource.ts';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

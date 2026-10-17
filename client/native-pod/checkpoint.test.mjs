@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 globalThis.self = globalThis;
 const { ClientKeyVault, canonicalGraphDigest } = await import('./vendor/interego-browser.mjs');
-const { createOwnerCheckpointStore, checkpointResourceUrl } = await import('./checkpoint.mjs');
+const { createOwnerCheckpointStore, checkpointResourceUrl, CHECKPOINT_DIAGNOSTIC_STAGES } = await import('./checkpoint.mjs');
 const OWNER = 'did:web:identity.example:users:alice', POD = 'https://pod.example/alice/';
 const GRAPH = 'urn:graph:fixture:character', MODE = 'hallowmarch-character/v1';
 function keyStorage() { const map = new Map(); return { load: async key => map.get(key) || null,
@@ -158,4 +158,36 @@ test('authenticated owner, graph, resource, key, mode and payload digest substit
   }
   f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode('{}') });
   await assert.rejects(f.store().load(GRAPH, MODE), { code: 'invalid_checkpoint_sender' });
+});
+
+test('validation diagnostics expose only a fixed stage and never the private record, ciphertext or owner key', async () => {
+  const f = await fixture(); await f.store().save({ graphIri: GRAPH, mode: MODE, creating: true, record: { marker: 'PRIVATE DIAGNOSTIC FIXTURE' } });
+  const resourceUrl = await checkpointResourceUrl(POD, GRAPH, webcrypto), original = f.resources.get(resourceUrl);
+  const envelope = JSON.parse(new TextDecoder().decode(original.body)), body = JSON.parse(await f.vault.open(envelope));
+  const rejectedAt = async expected => {
+    await assert.rejects(f.store().load(GRAPH, MODE), cause => {
+      assert.equal(cause.checkpointStage, expected); assert(CHECKPOINT_DIAGNOSTIC_STAGES.includes(cause.checkpointStage));
+      const diagnostic = JSON.stringify(cause);
+      for (const privateValue of ['PRIVATE DIAGNOSTIC FIXTURE', envelope.content.ciphertext, envelope.wrappedKeys[0].recipientPublicKey]) assert(!diagnostic.includes(privateValue));
+      assert.deepEqual(Object.keys(cause).sort(), ['checkpointStage', 'code']); return true;
+    });
+  };
+  f.resources.set(resourceUrl, { ...original, revision: null }); await rejectedAt('headers');
+  f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode('invalid JSON') }); await rejectedAt('envelope');
+  const sender = structuredClone(envelope); sender.wrappedKeys[0].senderPublicKey = 'foreign';
+  f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode(JSON.stringify(sender)) }); await rejectedAt('owner-key');
+  const tamper = structuredClone(envelope); tamper.content.ciphertext = 'A' + tamper.content.ciphertext.slice(1);
+  if (tamper.content.ciphertext === envelope.content.ciphertext) tamper.content.ciphertext = 'B' + tamper.content.ciphertext.slice(1);
+  f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode(JSON.stringify(tamper)) }); await rejectedAt('decrypt');
+  for (const [expected, mutate] of [
+    ['body-scope', value => { value.ownerDid = 'did:foreign'; }],
+    ['record-digest', value => { value.record.marker = 'changed'; }],
+    ['binding-plan', value => { value.bindingPlan.digest = 'changed'; }],
+    ['budget', value => { value.budget[0].bytes = -1; }],
+    ['history', value => { value.history.push({ at: body.at, operationId: body.operationId, recordCid: 'changed', record: body.record }); }],
+  ]) {
+    const changed = structuredClone(body); mutate(changed);
+    f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode(JSON.stringify(await f.vault.seal(JSON.stringify(changed)))) });
+    await rejectedAt(expected);
+  }
 });

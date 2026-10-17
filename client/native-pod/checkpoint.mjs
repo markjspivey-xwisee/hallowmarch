@@ -5,6 +5,8 @@ export const CHECKPOINT_BINDING_SCHEMA = 'interego.client-owned-checkpoint-bindi
 const SCHEMA = 'interego.client-owned-checkpoint/v1';
 const MODES = new Set(['hallowmarch-character/v1', 'hallowmarch-performance-consultation/v1']);
 export const CHECKPOINT_MAX_BYTES = 4 * 1024 * 1024;
+export const CHECKPOINT_DIAGNOSTIC_STAGES = Object.freeze(['protocol-discovery', 'native-read', 'headers', 'envelope',
+  'owner-key', 'decrypt', 'body-scope', 'record-digest', 'binding-plan', 'budget', 'history']);
 const MAX_PLAIN = 2 * 1024 * 1024, HOUR = 3600000, WRITE_BUDGET = 128 * 1024 * 1024;
 const HISTORY_BYTES = 32 * 1024, HISTORY_INTERVAL = 5 * 60000;
 const ATTRIBUTED = 'http://www.w3.org/ns/prov#wasAttributedTo';
@@ -13,6 +15,13 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const encode = value => new TextEncoder().encode(JSON.stringify(value));
 function failure(code, message, extra = {}) { return Object.assign(new Error(message), { code, ...extra }); }
 function check(condition, code = 'invalid_checkpoint', message = 'The private checkpoint did not authenticate.') { if (!condition) throw failure(code, message); }
+function stageError(cause, checkpointStage) {
+  // Only this fixed stage leaves the validation path. Never attach the value,
+  // ciphertext, key, parsed body or failing predicate's caller-controlled text.
+  if (!CHECKPOINT_DIAGNOSTIC_STAGES.includes(checkpointStage)) return failure('invalid_checkpoint', 'The private checkpoint did not authenticate.');
+  if (cause instanceof Error) { cause.checkpointStage = checkpointStage; return cause; }
+  return failure('invalid_checkpoint', 'The private checkpoint did not authenticate.', { checkpointStage });
+}
 export function checkpointMode(value) { check(MODES.has(value), 'invalid_checkpoint_mode'); return value; }
 export function sameNativeHead(a, b) {
   return !!a && !!b && a.cid === b.cid && a.descriptorUrl === b.descriptorUrl
@@ -43,47 +52,61 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
       port = { client, ready: client.ready() }; resourceClients.set(resourceUrl, port);
       port.ready.catch(() => { if (resourceClients.get(resourceUrl) === port) resourceClients.delete(resourceUrl); });
     }
-    await port.ready; active();
+    try { await port.ready; } catch (cause) { throw stageError(cause, 'protocol-discovery'); }
+    active();
     return { resourceUrl, client: port.client };
   }
   async function open(graphIri, mode, read, resourceUrl) {
+    let stage = 'headers';
+    try {
     check(read.body instanceof Uint8Array && typeof read.revision === 'string' && read.revision.length > 0);
     check(read.contentType === 'application/json');
     check(read.body.byteLength <= CHECKPOINT_MAX_BYTES, 'record_capacity');
+    stage = 'envelope';
     let envelope;
     try { envelope = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(read.body)); } catch { throw failure('invalid_checkpoint'); }
+    stage = 'owner-key';
     const key = await vault.publicKey();
     check(key, 'key_required', 'Restore this identity’s encryption key before opening its checkpoint.');
     check(envelope.version === 1 && envelope.algorithm === 'X25519-XSalsa20-Poly1305'
       && envelope.content?.algorithm === 'XSalsa20-Poly1305' && envelope.wrappedKeys?.length === 1
       && envelope.wrappedKeys[0].recipientPublicKey === key && envelope.wrappedKeys[0].senderPublicKey === key,
     'invalid_checkpoint_sender', 'A checkpoint must have exactly one owner-key-authenticated recipient.');
+    stage = 'decrypt';
     let body;
     try {
       const plaintext = await vault.open(envelope);
       check(new TextEncoder().encode(plaintext).length <= MAX_PLAIN, 'record_capacity');
       body = JSON.parse(plaintext);
     } catch (cause) { if (cause.code === 'record_capacity') throw cause; throw failure('cannot_decrypt', 'The owner key could not authenticate this private checkpoint.'); }
+    stage = 'body-scope';
     check(body.schema === SCHEMA && body.ownerDid === ownerDid && body.podUrl === podUrl && body.graphIri === graphIri
       && body.resourceUrl === resourceUrl && body.mode === mode && body.vaultPublicKey === key
       && typeof body.operationId === 'string' && (body.previousRevision === null || typeof body.previousRevision === 'string')
       && Number.isSafeInteger(body.at) && body.at >= 0 && Array.isArray(body.history) && body.history.length <= 12 && encode(body.history).byteLength <= HISTORY_BYTES
       && Array.isArray(body.budget) && body.budget.length <= 61 && body.binding?.schema === CHECKPOINT_BINDING_SCHEMA);
+    stage = 'record-digest';
     validateRecord(body.record);
     check(body.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: body.operationId, record: body.record }));
+    stage = 'binding-plan';
     const expected = { schema: CHECKPOINT_BINDING_SCHEMA, ownerDid, podUrl, graphIri, resourceUrl, mode, vaultPublicKey: key };
     check(JSON.stringify(body.binding) === JSON.stringify(expected));
     check(typeof body.bindingDigest === 'string' && body.bindingPlan?.args?.graph_iri === graphIri
       && body.bindingPlan.digest === body.bindingDigest && body.bindingPlan.record
       && JSON.stringify(body.bindingPlan.record) === JSON.stringify(expected));
+    stage = 'budget';
     for (const item of body.budget) check(Number.isSafeInteger(item.minute) && Number.isSafeInteger(item.bytes) && item.bytes > 0 && item.bytes <= WRITE_BUDGET);
+    stage = 'history';
     for (const item of body.history) check(Number.isSafeInteger(item.at) && typeof item.operationId === 'string'
       && typeof item.recordCid === 'string' && item.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: item.operationId, record: validateRecord(item.record) }));
     return { body, revision: read.revision, resourceUrl };
+    } catch (cause) { throw stageError(cause, stage); }
   }
   async function inspect(graphIri, mode) {
     active(); checkpointMode(mode); const { client, resourceUrl } = await resource(graphIri);
-    const raw = await client.read(); active();
+    let raw;
+    try { raw = await client.read(); } catch (cause) { throw stageError(cause, 'native-read'); }
+    active();
     if (raw.body === null) {
       check(raw.revision === null);
       const selected = await nativeHead(graphIri);

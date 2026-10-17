@@ -107,7 +107,7 @@ test('strict checkpoint binding refuses non-relay authority while later delegati
 
 test('unsupported native protocol fails before any fixed-resource or graph write', async () => {
   const f = fixture(), c = f.client(); await c.connect(); await c.createKey(); f.setSupported(false);
-  await assert.rejects(c.createAt({ graphIri: GRAPH, checkpoint: MODE, record: { v: 1 } }), { code: 'UNSUPPORTED' });
+  await assert.rejects(c.createAt({ graphIri: GRAPH, checkpoint: MODE, record: { v: 1 } }), { code: 'UNSUPPORTED', checkpointStage: 'protocol-discovery' });
   assert(!f.http.some(call => call.method === 'PUT')); assert(!f.calls.some(call => call.name === 'publish_context'));
 });
 
