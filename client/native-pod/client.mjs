@@ -202,8 +202,10 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
           && descriptorUrl.pathname.startsWith(root.pathname) && descriptorUrl.pathname !== root.pathname)) fail('owner_mismatch', 'The checkpoint descriptor is outside the authenticated owner pod.');
       const proof = parseAuthorshipProofFromDescriptorTurtle(descriptor.turtle || ''), auth = descriptor.authorship;
       const ownerWebId = ownerDid.startsWith('did:web:') ? 'https://' + ownerDid.slice(8).split(':').map(decodeURIComponent).join('/') + '/profile#me' : null;
+      // Native proofs always identify the issuer; agentDid is an optional
+      // duplicate stamp and must agree when the publisher includes it.
       if (computeCid(descriptor.turtle || '') !== selected.cid || !proof || proof.ownerWebId !== ownerWebId
-        || proof.agentDid !== proof.issuer || !/^did:web:[^\s]+:agents:[^\s]+$/.test(proof.issuer || '')
+        || proof.agentDid !== undefined && proof.agentDid !== proof.issuer || !/^did:web:[^\s]+:agents:[^\s]+$/.test(proof.issuer || '')
         || auth.signatureAuthority !== 'relay'
         || auth.signedBy !== proof.issuer || !['bound', 'declared'].includes(auth.contentBinding)
         || !['exact-url', 'slug-and-owner'].includes(auth.descriptorBinding?.basis)) fail('invalid_proof', 'The checkpoint binding is not a verified native relay attestation.');

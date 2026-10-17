@@ -15,7 +15,7 @@ const MODE = 'hallowmarch-character/v1', WEBID = 'https://identity.example/users
 const sha = bytes => 'sha256:' + createHash('sha256').update(bytes).digest('hex');
 function keys() { const map = new Map(); return { load: async key => map.get(key) || null,
   create: async (key, value) => { if (!map.has(key)) map.set(key, value); return map.get(key); } }; }
-function fixture() {
+function fixture({ proofAgentDid } = {}) {
   const resources = new Map(), heads = new Map(), records = new Map(), agents = new Map(), calls = [], http = [], storage = keys();
   let clock = Date.parse('2026-10-17T12:00:00Z'), count = 0, lost = false, supported = true, authority = 'relay', trust = 'CryptographicallyVerified';
   const credential = token => ({ kind: 'relay-oauth-bearer', accessToken: token, refreshToken: null, expiresAt: clock + 3600000 });
@@ -23,7 +23,9 @@ function fixture() {
     const url = POD + 'context-graphs/' + args.descriptor_id.slice(9) + '.ttl';
     const turtle = `@prefix iep: <${IEP}> .\n<> iep:describes <${args.graph_iri}> ; iep:authorshipProof [ iep:issuer <${AGENT}> ; iep:verificationMethod <did:ethr:0xfixture> ;\n`
       + `iep:signerAddress "0xfixture" ; iep:created "2026-10-17T12:00:00.000Z" ; iep:ownerWebId <${WEBID}> ;\n`
-      + `iep:descriptorId <${args.descriptor_id}> ; iep:agentDid "${AGENT}" ; iep:contentHash "${args.content_digest}" ; iep:proofValue "explicit-native-contract-fixture" ] .\n`;
+      // Native buildAuthorshipProofBlock omits this optional redundant field
+      // unless supplied; the signed issuer and verified signedBy remain required.
+      + `iep:descriptorId <${args.descriptor_id}> ; ${proofAgentDid === undefined ? '' : `iep:agentDid "${proofAgentDid}" ; `}iep:contentHash "${args.content_digest}" ; iep:proofValue "explicit-native-contract-fixture" ] .\n`;
     return { url, turtle, head: { descriptorUrl: url, cid: computeCid(turtle) }, args: structuredClone(args) };
   }
   const transport = {
@@ -103,6 +105,22 @@ test('strict checkpoint binding refuses non-relay authority while later delegati
   f.setAuthority('relay'); f.setTrust('Unverified');
   assert.deepEqual((await f.client().connect()).ownerDid, OWNER);
   assert.deepEqual((await c.load({ graphIri: GRAPH, checkpoint: MODE })).record, { v: 1 });
+});
+
+test('native-shaped checkpoint proofs accept an omitted agentDid but reject a stamp different from the verified issuer', async () => {
+  for (const proofAgentDid of [undefined, AGENT, 'did:web:identity.example:agents:foreign']) {
+    const f = fixture({ proofAgentDid }), c = f.client(); await c.connect(); await c.createKey();
+    const created = await c.createAt({ graphIri: GRAPH, checkpoint: MODE, record: { v: 1, secret: 'original owner record' } });
+    if (proofAgentDid !== undefined && proofAgentDid !== AGENT) {
+      assert.equal(created.saved, false);
+      await assert.rejects(c.load({ graphIri: GRAPH, checkpoint: MODE }), { code: 'invalid_proof' });
+    } else {
+      assert.equal(created.saved, true);
+      const reopened = f.client(); await reopened.connect(); await reopened.registerKey();
+      assert.deepEqual((await reopened.load({ graphIri: GRAPH, checkpoint: MODE })).record, { v: 1, secret: 'original owner record' });
+    }
+    assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1);
+  }
 });
 
 test('unsupported native protocol fails before any fixed-resource or graph write', async () => {
