@@ -13,6 +13,7 @@ import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 import { createMainWorldLiveQa } from './main-world-live.mjs';
 import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
+import { createPersonalActivityLiveQa } from './personal-activity-live.mjs';
 import { createNativeQaEpisode, validateNativeQaEpisodeFile } from './native-qa-episode.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
@@ -29,6 +30,7 @@ function origin(value) {
 let gameOrigin, relayOrigin, identityOrigin, companionConfig, mainWorldConfig, episodeFile;
 const humanConsultingSelected = process.env.HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST === '1';
 const automaticFollowup = process.env.HM_NATIVE_COACH_FOLLOWUP_LIVE_TEST === '1';
+const personalActivitySelected = process.env.HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST === '1';
 try {
   gameOrigin = origin(process.env.HM_NATIVE_ORIGIN);
   relayOrigin = origin(process.env.HM_NATIVE_RELAY_ORIGIN);
@@ -45,6 +47,7 @@ try {
     episodeFile = validateNativeQaEpisodeFile(process.env.HM_NATIVE_QA_EPISODE_FILE);
   }
   if (automaticFollowup && !humanConsultingSelected) throw new Error('Automatic follow-up requires explicit human coaching proof.');
+  if (personalActivitySelected && !humanConsultingSelected) throw new Error('Personal activity proof requires the completed human coaching episode.');
 } catch {
   console.error('FAIL: configuration. Supply separate HTTPS game/relay origins; companion opt-in additionally requires the existing agent DID and HTTPS public pod. Unset browser/debug tracing.');
   process.exit(2);
@@ -68,7 +71,7 @@ const observations = { requests: [], console: [], gameAuthorization: [], startAu
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
 let input = null, broker = null, companion = null, mainWorld = null, humanConsulting = null, episode = null,
-  mainWorldEpisodeMarked = false, coachingEpisodeMarked = false, finishRequested = false, cleaning = false;
+  personalActivity = null, mainWorldEpisodeMarked = false, coachingEpisodeMarked = false, personalActivityEpisodeMarked = false, finishRequested = false, cleaning = false;
 let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
 const oauthControllers = [], oauthByPage = new WeakMap();
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
@@ -85,6 +88,7 @@ function reportComplete() {
   if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
   if (mainWorld) console.log('PASS: actual main-world QA complete. Normal 3D entry, native control, real movement, second authenticated peer, scoped proofs and both revocations verified.');
   if (humanConsulting) console.log('PASS: observed human coaching QA complete. Explicit Enable, attributed live response, exact encrypted private readback and Stop verified.');
+  if (personalActivity) console.log('PASS: future personal activity QA complete. One genuine human ability input, exact private xAPI readback, confirmed native checkpoint and Stop without automatic resend verified.');
 }
 async function context() {
   const value = await browser.newContext({ viewport: { width: 1024, height: 768 }, acceptDownloads: false });
@@ -283,6 +287,7 @@ async function reportRetainedStatus(diagnose) {
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
   if (humanConsulting) console.log(JSON.stringify(humanConsulting.status()));
+  if (personalActivity) console.log(JSON.stringify(personalActivity.status()));
   if (episode) console.log(JSON.stringify(episode.status()));
   if (broker) console.log(JSON.stringify(broker.status()));
   for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
@@ -297,8 +302,9 @@ async function reportRetainedStatus(diagnose) {
 
 const failureCode = error => nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
 const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true)
-  && (!mainWorld || mainWorld.status().complete === true) && (!humanConsulting || humanConsulting.status().complete && coachingEpisodeMarked);
-const qaBusy = () => plan?.status().busy || companion?.status().busy || mainWorld?.status().busy || humanConsulting?.status().busy;
+  && (!mainWorld || mainWorld.status().complete === true) && (!humanConsulting || humanConsulting.status().complete && coachingEpisodeMarked)
+  && (!personalActivity || personalActivity.status().complete && personalActivityEpisodeMarked);
+const qaBusy = () => plan?.status().busy || companion?.status().busy || mainWorld?.status().busy || humanConsulting?.status().busy || personalActivity?.status().busy;
 async function advanceQa(all) {
   ensure(!finishRequested, 'qa_session_closed');
   if (!plan?.status().complete) {
@@ -322,6 +328,12 @@ async function advanceQa(all) {
       'qa_human_followup_unconfirmed'); }
     ensure(await privacy(fresh), 'privacy-invariants');
     if (humanConsulting.status().complete && !coachingEpisodeMarked) { await episode.mark('coaching-complete'); coachingEpisodeMarked = true; }
+  }
+  if (personalActivity) {
+    ensure(coachingEpisodeMarked && humanConsulting.status().complete && humanConsulting.status().stopped && episode, 'qa_activity_prior_episode');
+    stage = 'actual-personal-activity-delivery'; await personalActivity.run();
+    ensure(await privacy(fresh), 'privacy-invariants');
+    if (personalActivity.status().complete && !personalActivityEpisodeMarked) { await episode.mark('activity-complete'); personalActivityEpisodeMarked = true; }
   }
 }
 function startInput() {
@@ -405,6 +417,11 @@ try {
     gameOrigin, relayOrigin, run, automaticFollowup,
     checkpoint: async value => { ensure(mainWorldEpisodeMarked && ['coaching-delivery-intent', 'coaching-followup-intent'].includes(value?.kind), 'qa_human_episode_scope');
       await episode.mark(value.kind); } });
+  if (personalActivitySelected) personalActivity = createPersonalActivityLiveQa({ getPage: () => fresh, getOwner: () => owner,
+    gameOrigin, relayOrigin, checkpoint: async value => {
+      ensure(coachingEpisodeMarked && ['activity-delivery-intent', 'activity-input-intent'].includes(value?.kind), 'qa_activity_episode_scope');
+      await episode.mark(value.kind);
+    } });
   plan = nativeLiveStages([
     { name: 'initial-game-boot', async run() {
       await firstBoot.open();

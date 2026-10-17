@@ -5,7 +5,8 @@ import { open } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 
 const SCHEMA = 'hallowmarch.manual-qa-episode/v1';
-const KINDS = ['main-world-complete', 'coaching-delivery-intent', 'coaching-followup-intent', 'coaching-complete'];
+const KINDS = ['main-world-complete', 'coaching-delivery-intent', 'coaching-followup-intent', 'coaching-complete',
+  'activity-delivery-intent', 'activity-input-intent', 'activity-complete'];
 const fail = code => { throw Object.assign(new Error('The manual QA episode fence is unavailable.'), { code }); };
 const origin = value => { try { const u = new URL(value); return u.protocol === 'https:' && u.origin === value; } catch { return false; } };
 export function validateNativeQaEpisodeFile(value) {
@@ -39,7 +40,11 @@ export async function createNativeQaEpisode({ file, run, gameOrigin, relayOrigin
         if (kind !== 'main-world-complete' && !stages.has('main-world-complete')
           || kind === 'coaching-followup-intent' && !stages.has('coaching-delivery-intent')
           || kind === 'coaching-complete' && !stages.has('coaching-delivery-intent')
-          || stages.has('coaching-complete')) fail('qa_episode_stage_refused');
+          || kind.startsWith('activity-') && !stages.has('coaching-complete')
+          || kind === 'activity-input-intent' && !stages.has('activity-delivery-intent')
+          || kind === 'activity-complete' && !stages.has('activity-input-intent')
+          || stages.has('coaching-complete') && !kind.startsWith('activity-')
+          || stages.has('activity-complete')) fail('qa_episode_stage_refused');
         await append({ kind, at: new Date().toISOString() }); stages.add(kind);
         return { confirmed: true, kind };
       }); chain = task.catch(() => {}); return task;

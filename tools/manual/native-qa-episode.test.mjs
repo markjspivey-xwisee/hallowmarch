@@ -36,3 +36,23 @@ test('main-world completion cannot clear, replace or replay the independent coac
     await assert.rejects(createNativeQaEpisode({ ...scope, file }), { code: 'qa_episode_exists_or_unreadable' });
   } finally { await ledger?.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('personal activity has independent ordered durable fences after coaching and cannot replay completed intent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hm-episode-')), file = join(directory, 'episode.jsonl'); let ledger;
+  try {
+    ledger = await createNativeQaEpisode({ ...scope, file });
+    await ledger.mark('main-world-complete');
+    await assert.rejects(ledger.mark('activity-delivery-intent'), { code: 'qa_episode_stage_refused' });
+    await ledger.mark('coaching-delivery-intent'); await ledger.mark('coaching-complete');
+    await assert.rejects(ledger.mark('activity-input-intent'), { code: 'qa_episode_stage_refused' });
+    await ledger.mark('activity-delivery-intent');
+    await assert.rejects(ledger.mark('activity-delivery-intent'), { code: 'qa_episode_stage_refused' });
+    await assert.rejects(ledger.mark('activity-complete'), { code: 'qa_episode_stage_refused' });
+    await ledger.mark('activity-input-intent'); await ledger.mark('activity-complete');
+    await assert.rejects(ledger.mark('activity-input-intent'), { code: 'qa_episode_stage_refused' });
+    await ledger.close();
+    const lines = (await readFile(file, 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.deepEqual(lines.slice(-3).map(row => row.kind), ['activity-delivery-intent', 'activity-input-intent', 'activity-complete']);
+    await assert.rejects(createNativeQaEpisode({ ...scope, file }), { code: 'qa_episode_exists_or_unreadable' });
+  } finally { await ledger?.close(); await rm(directory, { recursive: true, force: true }); }
+});

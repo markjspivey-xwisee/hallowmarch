@@ -41,6 +41,15 @@ test('known debug/tracing flags are refused before a live browser can start', ()
     assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
   }
 });
+test('personal activity opt-in cannot bypass the original native main-world and human coaching episode', () => {
+  const base = { HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example', HM_NATIVE_RELAY_ORIGIN: 'https://relay.example',
+    HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST: '1' };
+  const refused = invoke(base);
+  assert.equal(refused.status, 2); assert.match(refused.stderr, /^FAIL: configuration\./);
+  assert(!refused.stderr.includes('ERR_MODULE_NOT_FOUND'));
+  const inactive = invoke({ ...base, HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST: '0' });
+  assert.equal(inactive.status, 1); assert.match(inactive.stderr, /at load-browser \[stage_failed\]/);
+});
 test('a browser import failure emits only its fixed stage, never the raw module error', () => {
   const result = invoke({ HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example',
     HM_NATIVE_RELAY_ORIGIN: 'https://relay.example' });

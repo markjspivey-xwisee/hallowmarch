@@ -28,6 +28,23 @@ the original helper and never click Enable again after an uncertain result.
 The ledger contains only the synthetic run label, public origins, fixed stage
 names and times. It contains no identity, credentials, keys or private records.
 
+`HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST=1` additionally verifies optional personal
+activity delivery after the main-world and human coaching checks. The original
+owner clicks **Record new activity · 15 minutes** once, after an independent
+durable `activity-delivery-intent` fence. A separate `activity-input-intent`
+fence precedes exactly one ordinary ability key. The helper waits for the real
+human-body outcome and the product's ordinary delivery timer; it never records
+an event, changes a clock, flushes a fabricated batch or replays a delivery.
+It stops the session once, independently reopens the encrypted character and
+consent journal, and reads each exact statement through Foxxi's discovered
+private own-subject read action. It verifies the native digest, confirmed
+delivery checkpoint, future-only observation IDs, actual xAPI bodies, bounded
+consent and withdrawal. A further 35 seconds of real browser elapsed time checks
+that Stop leaves the write count unchanged. Expiry and uncertain-ack recovery
+remain covered by isolated protocol tests; this live check does not fake them.
+An unknown input or write stays with this helper and ledger and is never retried
+by creating another identity. Details are in `personal-activity-live.mjs`.
+
 `HM_NATIVE_COACH_FOLLOWUP_LIVE_TEST=1` additionally selects the helper's bounded
 ongoing-coaching proof: one Enable session, actual elapsed waiting, one genuine
 ability input and an automatically triggered second plan before Stop. It never

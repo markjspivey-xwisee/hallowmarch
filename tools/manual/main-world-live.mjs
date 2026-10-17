@@ -5,6 +5,11 @@ import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage
 const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world live verification refused.'), { code }); };
 const companionId = (ownerId, bodyId) => typeof ownerId === 'string' && typeof bodyId === 'string'
   && bodyId.startsWith(ownerId + ':companion:') && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bodyId.slice((ownerId + ':companion:').length));
+export function mainWorldAdmissionCanRestart({ stopped, reference, localRevoked, completeAttempted, admission, challenge, envelope, now = Date.now() }) {
+  return !stopped && !!reference && !localRevoked && (admission
+    ? completeAttempted === true && admission.expiresAt <= now
+    : !!challenge && challenge.expiresAt <= now && (completeAttempted === true || !envelope));
+}
 export function mainWorldLiveMotionEvidence(value) {
   check(value && companionId(value.ownerId, value.bodyId) && value.ownerId !== value.bodyId, 'qa_world_separate_body');
   check(value.confirmedCommands === 8 && value.elapsedMs >= 4000 && value.elapsedMs < 90000
@@ -294,8 +299,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         gameErrors:h?.errors.length, peerSeen:peer?.seen, peerPosition:peer?.position, network:h?.net.state().state, fastSent:h?.net.NET.stats.fastSent }; }); },
     revoke: () => revokeAccess(),
     next: async () => { if (needAdmission) await admitNative(); return stages.next(); }, remaining: async () => { if (needAdmission) await admitNative(); return stages.remaining(); },
-    restartAdmission() { check(!stopped && reference && completeAttempted && !localRevoked
-      && (admission ? admission.expiresAt <= Date.now() : challenge?.expiresAt <= Date.now()), 'qa_world_restart_refused');
+    restartAdmission() { check(mainWorldAdmissionCanRestart({ stopped, reference, completeAttempted, localRevoked, admission, challenge, envelope }), 'qa_world_restart_refused');
       key = challenge = envelope = admission = null; completeAttempted = false; sequence = 0; needAdmission = true; return this.status(); },
     close() { stopped = true; key = envelope = null; },
   });
