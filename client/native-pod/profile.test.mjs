@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { createPlayerPodProfile, validatePlayerProfile, validatePlayerProfileIndex, playerProfileIndexGraphIri } from './profile.mjs';
+import { createPlayerPodProfile, validatePlayerProfile, validatePlayerProfileIndex, playerProfileIndexGraphIri, playerProfileGraphIri } from './profile.mjs';
 
 const OWNER = 'did:web:identity.example:users:alice';
 const binding = { subjectDid: OWNER, podUrl: 'https://pod.example/alice/' };
@@ -24,18 +24,18 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
   const native = {
     connect: async () => { calls.push({ op: 'connect' }); return { keyPresent }; },
     reauthenticate: async () => { calls.push({ op: 'reauthenticate' }); return { keyPresent }; },
-    currentHead: async ({ graphIri }) => { calls.push({ op: 'currentHead', graphIri });
+    currentHead: async ({ graphIri, checkpoint }) => { calls.push({ op: 'currentHead', graphIri, checkpoint });
       if (metadataError) throw Object.assign(Error('Fixture metadata unavailable'), { code: metadataError });
       if (forked) throw Object.assign(Error('Fixture native fork'), { code: 'conflict' });
       return records.get(graphIri)?.head || null; },
     registerKey: async () => { calls.push({ op: 'registerKey' }); },
     createKey: async () => { calls.push({ op: 'createKey' }); keyPresent = true; },
     restoreRecovery: async () => { keyPresent = true; }, exportRecovery: async () => ({}),
-    load: async ({ graphIri }) => { calls.push({ op: 'load', graphIri }); const value = records.get(graphIri) || null;
+    load: async ({ graphIri, checkpoint }) => { calls.push({ op: 'load', graphIri, checkpoint }); const value = records.get(graphIri) || null;
       if (loadGate) { loadGate.entered(); await loadGate.hold; } return value; },
-    create: async ({ record }) => {
-      calls.push({ op: 'create', record: copy(record) });
-      const graphIri = 'urn:graph:fixture:private-character-' + calls.filter(call => call.op === 'create').length;
+    create: async ({ record, graphIri: requestedGraph, checkpoint }) => {
+      calls.push({ op: 'create', graphIri: requestedGraph, checkpoint, record: copy(record) });
+      const graphIri = requestedGraph || 'urn:graph:fixture:private-character-' + calls.filter(call => call.op === 'create').length;
       const result = observed(graphIri, record);
       if (createGate) { createGate.entered(); await createGate.hold; }
       if (mode === 'saved') { records.set(graphIri, result); return result; }
@@ -43,8 +43,8 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
       if (mode === 'uncertain') records.set(graphIri, result);
       return { saved: false, status: mode, operationId: 'fixture-op-1', graphIri };
     },
-    createAt: async ({ graphIri, record }) => {
-      calls.push({ op: 'createAt', graphIri, record: copy(record) }); assert.equal(graphIri, INDEX);
+    createAt: async ({ graphIri, record, checkpoint }) => {
+      calls.push({ op: 'createAt', graphIri, checkpoint, record: copy(record) }); assert.equal(graphIri, INDEX);
       if (indexFailures-- > 0) throw Object.assign(Error('Fixture index publication refused'), { code: 'native_refused' });
       assert(!records.has(graphIri), 'named creation must never overwrite an unread index');
       const result = observed(graphIri, record);
@@ -64,8 +64,8 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
       }
       records.set(result.graphIri, result); return copy(result);
     },
-    save: async ({ graphIri, expectedHead, record }) => {
-      calls.push({ op: 'save', graphIri, expectedHead: copy(expectedHead), record: copy(record) });
+    save: async ({ graphIri, expectedHead, record, checkpoint }) => {
+      calls.push({ op: 'save', graphIri, checkpoint, expectedHead: copy(expectedHead), record: copy(record) });
       assert.equal(expectedHead.cid, records.get(graphIri)?.head.cid, 'CAS must follow the confirmed/read predecessor');
       const result = observed(graphIri, record); records.set(graphIri, result); return result;
     },
@@ -97,6 +97,36 @@ test('existing profile is read and validated before a CAS update; bridge receive
   assert.equal(f.calls.filter(call => call.op === 'create').length, 0);
   assert.equal(f.calls.filter(call => call.op === 'save').length, 1);
   assert.equal(f.profile.status().state, 'saved'); assert.equal(f.requests.length, 1);
+});
+
+test('character opt-in is explicit while the one-time owner index remains immutable', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.get();
+  await f.profile.set({ v: 1, count: 1 }); await f.profile.set({ v: 1, count: 2 });
+  const graphIri = await playerProfileGraphIri(OWNER, webcrypto);
+  assert.equal(f.calls.find(call => call.op === 'create').graphIri, graphIri);
+  for (const call of f.calls.filter(call => ['create', 'save', 'load'].includes(call.op) && call.graphIri !== INDEX)) assert.equal(call.checkpoint, 'hallowmarch-character/v1');
+  for (const call of f.calls.filter(call => call.graphIri === INDEX)) assert.equal(call.checkpoint, undefined);
+});
+
+test('fresh browser discovers the first deterministic character after an index publication failed without creating another character', async () => {
+  const first = fixture({ indexFailures: 1 }); await first.profile.connect(); await first.profile.get();
+  await assert.rejects(first.profile.set({ v: 1, marker: 'first save without owner index' }));
+  assert.equal(first.records.has(INDEX), false);
+  const fresh = fixture({ sharedRecords: first.records }); await fresh.profile.connect();
+  assert.equal((await fresh.profile.get()).data().marker, 'first save without owner index');
+  assert(!fresh.calls.some(call => call.op === 'create'));
+  assert.equal(fresh.calls.filter(call => call.op === 'createAt').length, 1);
+});
+
+test('reauthentication detects a changed checkpoint revision even when the binding descriptor CID is stable', async () => {
+  const graphIri = 'urn:graph:fixture:stable-binding', pointer = { graphIri, descriptorUrl: 'original', cid: 'original' };
+  const f = fixture({ pointer, initial: profileRecord({ v: 1, count: 1 }) });
+  const stored = f.records.get(graphIri); stored.head.nativeRevision = 'revision-one'; stored.head.recordCid = 'record-one';
+  await f.profile.connect(); await f.profile.get();
+  f.records.set(graphIri, { ...stored, head: { ...stored.head, nativeRevision: 'revision-two', recordCid: 'record-two' } });
+  const writes = f.calls.filter(call => ['create', 'save'].includes(call.op)).length;
+  await assert.rejects(f.profile.reauthenticate({ credential: { fixture: true } }), { code: 'conflict' });
+  assert.equal(f.calls.filter(call => ['create', 'save'].includes(call.op)).length, writes);
 });
 
 test('reauthentication confirms pending character and index operations without publishing or losing latest progress', async () => {

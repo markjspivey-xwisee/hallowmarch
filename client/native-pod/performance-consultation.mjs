@@ -5,6 +5,9 @@ const SCHEMA = 'interego.owner-performance-consultation/v1';
 const PURPOSES = ['retain-observations', 'request-consultation', 'record-gameplay-activity'];
 const MAX_LIFETIME = 15 * 60 * 1000, MAX_RECORDS = 32;
 const PAGE_WATERMARK = 16, PAGE_BYTES = 190 * 1024;
+export const HALLOWMARCH_CONSULTATION_CHECKPOINT = 'hallowmarch-performance-consultation/v1';
+const DETAIL_WINDOW = 60 * 60 * 1000, DETAIL_BYTES = 192 * 1024;
+const RECORD_KINDS = ['observations', 'consultations', 'evaluations'];
 const fail = (code, message) => { throw new NativePodError(code, message); };
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -78,9 +81,12 @@ export async function performanceConsultationGraphIri(ownerDid, applicationId = 
  * credential/pod; a player cannot choose an agent DID here. No learning sink or
  * Foxxi URL is inferred. Existing browser recovery keys are reused, never minted. */
 export function createOwnerPerformanceConsultation({ binding, credential, relayUrl, sessionId,
-  applicationId = 'urn:game:hallowmarch', createClient = createNativePodClient,
+  applicationId = 'urn:game:hallowmarch', checkpoint = applicationId === 'urn:game:hallowmarch' ? HALLOWMARCH_CONSULTATION_CHECKPOINT : undefined,
+  createClient = createNativePodClient,
   crypto = globalThis.crypto, now = Date.now, ...clientOptions } = {}) {
   const ownerDid = subject(binding?.subjectDid), podUrl = target(binding?.podUrl);
+  if (checkpoint !== undefined && checkpoint !== HALLOWMARCH_CONSULTATION_CHECKPOINT) fail('invalid_consultation', 'The consultation checkpoint mode is not supported.');
+  const checkpointOptions = checkpoint ? { checkpoint } : {};
   text(sessionId, 256); text(applicationId, 1024);
   if (!crypto?.randomUUID) fail('crypto_unavailable', 'Native private consultation requires browser cryptography.');
   const client = createClient({ ...clientOptions, relayUrl, credential, ownerDid, podUrl, crypto, now });
@@ -97,7 +103,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
     if (purpose === 'retain-observations' && recipient !== podUrl) fail('invalid_recipient', 'Private observation retention belongs only to this authenticated pod.');
   }
   function validate(record) {
-    exact(record, ['schema', 'ownerDid', 'applicationId', 'consents', 'observations', 'consultations', 'evaluations', 'archiveHead']);
+    exact(record, ['schema', 'ownerDid', 'applicationId', 'consents', 'observations', 'consultations', 'evaluations', 'archiveHead', 'coverage']);
     if (record.schema !== SCHEMA || record.ownerDid !== ownerDid || record.applicationId !== applicationId) fail('owner_mismatch', 'The consultation index belongs to a different subject or application.');
     archiveReference(record.archiveHead);
     if (!Array.isArray(record.consents) || record.consents.length > 8 || !Array.isArray(record.observations) || record.observations.length > MAX_RECORDS
@@ -138,14 +144,80 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
         || !same(item.comparison, comparison(before, after))) fail('invalid_consultation', 'An evaluation must preserve this performer’s actual before and after observations.');
       ids.add(item.id);
     }
+    if (record.coverage !== undefined) validateCoverage(record);
     return json(record, 350 * 1024);
+  }
+  function validateCoverage(record) {
+    const coverage = record.coverage;
+    exact(coverage, ['mode', 'windowMs', 'detailLimitPerKind', 'detailByteLimit', 'counts', 'pruned', 'firstAt', 'lastAt', 'legacyHistoryUnknown', 'saturated']);
+    if (coverage.mode !== HALLOWMARCH_CONSULTATION_CHECKPOINT || coverage.windowMs !== DETAIL_WINDOW || coverage.detailLimitPerKind !== MAX_RECORDS
+      || coverage.detailByteLimit !== DETAIL_BYTES || typeof coverage.legacyHistoryUnknown !== 'boolean' || typeof coverage.saturated !== 'boolean') fail('invalid_consultation', 'The bounded consultation coverage is invalid.');
+    exact(coverage.counts, RECORD_KINDS); exact(coverage.pruned, RECORD_KINDS);
+    for (const kind of RECORD_KINDS) {
+      if (!Number.isSafeInteger(coverage.counts[kind]) || coverage.counts[kind] < record[kind].length
+        || !Number.isSafeInteger(coverage.pruned[kind]) || coverage.pruned[kind] < 0
+        || coverage.pruned[kind] !== coverage.counts[kind] - record[kind].length) fail('invalid_consultation', 'The consultation totals do not describe the retained detail.');
+    }
+    for (const field of ['firstAt', 'lastAt']) if (coverage[field] !== null) timestamp(coverage[field]);
+    if ((coverage.firstAt === null) !== (coverage.lastAt === null) || coverage.firstAt !== null && Date.parse(coverage.firstAt) > Date.parse(coverage.lastAt)) fail('invalid_consultation', 'The consultation coverage timestamps are invalid.');
+  }
+  function boundedRecord(input, focus = null) {
+    const record = clone(input), cutoff = now() - DETAIL_WINDOW;
+    if (!record.coverage) {
+      const times = RECORD_KINDS.flatMap(kind => record[kind].map(item => item.at)).sort();
+      record.coverage = { mode: HALLOWMARCH_CONSULTATION_CHECKPOINT, windowMs: DETAIL_WINDOW, detailLimitPerKind: MAX_RECORDS, detailByteLimit: DETAIL_BYTES,
+        counts: Object.fromEntries(RECORD_KINDS.map(kind => [kind, record[kind].length])), pruned: Object.fromEntries(RECORD_KINDS.map(kind => [kind, 0])),
+        firstAt: times[0] || null, lastAt: times.at(-1) || null, legacyHistoryUnknown: !!record.archiveHead, saturated: false };
+    }
+    // Consent is a short-lived purpose choice, not an agent delegation or
+    // permanent security tombstone. Older expired choices need no history page.
+    record.consents = record.consents.filter(item => Date.parse(item.expiresAt) > cutoff);
+    const protectedIds = new Set(RECORD_KINDS.flatMap(kind => focus?.[kind] || []));
+    const newestPlan = record.consultations.findLast(item => Date.parse(item.at) > cutoff);
+    if (newestPlan) { protectedIds.add(newestPlan.id); protectedIds.add(newestPlan.observationId); }
+    for (const kind of RECORD_KINDS) record[kind] = record[kind].filter(item => Date.parse(item.at) > cutoff);
+    function dependencies() {
+      const observations = new Set(record.observations.map(item => item.id));
+      record.consultations = record.consultations.filter(item => observations.has(item.observationId));
+      const consultations = new Set(record.consultations.map(item => item.id));
+      record.evaluations = record.evaluations.filter(item => observations.has(item.observationId) && consultations.has(item.consultationId));
+    }
+    function coverage() { for (const kind of RECORD_KINDS) record.coverage.pruned[kind] = record.coverage.counts[kind] - record[kind].length; }
+    dependencies(); coverage();
+    // Removing a baseline also removes dependent plans and evaluations; a
+    // retained evaluation can never imply that a pruned comparison is present.
+    while (RECORD_KINDS.some(kind => record[kind].length > MAX_RECORDS) || new TextEncoder().encode(JSON.stringify(record)).length > DETAIL_BYTES) {
+      const over = RECORD_KINDS.filter(kind => record[kind].length > MAX_RECORDS);
+      const candidates = (over.length ? over : ['evaluations', 'consultations', 'observations']).flatMap(kind => record[kind].filter(item => !protectedIds.has(item.id)).map(item => ({ kind, item })));
+      candidates.sort((a, b) => Date.parse(a.item.at) - Date.parse(b.item.at));
+      const next = candidates[0];
+      if (!next) fail('consultation_capacity', 'The current consultation bundle exceeds its bounded detail capacity.');
+      record[next.kind] = record[next.kind].filter(item => item.id !== next.item.id); dependencies(); coverage();
+    }
+    return record;
+  }
+  function countAppend(record, kind, at) {
+    if (!checkpoint) return;
+    const coverage = record.coverage;
+    if (coverage.counts[kind] < Number.MAX_SAFE_INTEGER) coverage.counts[kind]++; else coverage.saturated = true;
+    coverage.firstAt ||= at; coverage.lastAt = at;
+    coverage.pruned[kind] = coverage.counts[kind] - record[kind].length;
+  }
+  function bindingPending(cause) {
+    if (checkpoint && cause?.code === 'checkpoint_binding_pending' && cause.operationId) {
+      pending = { operationId: cause.operationId, checkpointBinding: true };
+      fail('pod_pending', 'The original private checkpoint binding needs confirmation. Use Retry to reconcile that exact operation.');
+    }
+    throw cause;
   }
   async function refresh() {
     ready(); if (pending || stagedPage) fail('pod_pending', 'Confirm the outstanding private consultation write first.');
-    const found = await client.load({ graphIri }); active();
+    let found; try { found = await client.load({ graphIri, ...checkpointOptions }); } catch (cause) { bindingPending(cause); } active();
     if (!found && seen) fail('missing_record', 'The existing private consultation index could not be opened.');
     if (found) { if (found.graphIri !== graphIri) fail('owner_mismatch', 'The native consultation graph changed.'); validate(found.record); seen = true; }
-    current = found; return clone(found?.record || empty());
+    current = found;
+    if (checkpoint && current) current.record = boundedRecord(current.record);
+    return checkpoint ? boundedRecord(found?.record || empty()) : clone(found?.record || empty());
   }
   function accepted(result) {
     active();
@@ -155,8 +227,12 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       pending = result; fail('pod_pending', 'Your pod has not confirmed this consultation write.');
     }
     if (result.graphIri !== graphIri) fail('owner_mismatch', 'The confirmed consultation write identifies another graph.');
-    validate(result.record); current = result; seen = true; pending = null; stagedPage = null;
-    return { saved: true, reference: { graphIri, descriptorUrl: result.head.descriptorUrl, cid: result.head.cid } };
+    validate(result.record); current = result; if (checkpoint) current.record = boundedRecord(current.record); seen = true; pending = null; stagedPage = null;
+    if (checkpoint && (result.head.proofKind !== 'owner-key-authenticated-checkpoint' || result.head.bindingCid !== result.head.cid
+      || typeof result.head.nativeRevision !== 'string' || !result.head.nativeRevision || typeof result.head.recordCid !== 'string' || !result.head.recordCid)) fail('native_contract', 'The private checkpoint has no distinct verified binding and record revision.');
+    const reference = { graphIri, descriptorUrl: result.head.descriptorUrl, cid: result.head.cid };
+    if (checkpoint) Object.assign(reference, { bindingCid: result.head.bindingCid, nativeRevision: result.head.nativeRevision, recordCid: result.head.recordCid, proofKind: 'owner-key-authenticated-checkpoint' });
+    return { saved: true, reference };
   }
   async function readArchive(input) {
     ready(); const ref = archiveReference(input || current?.record.archiveHead);
@@ -170,6 +246,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
   }
   async function findRecord(kind, predicate) {
     const local = current?.record[kind].findLast(predicate); if (local) return clone(local);
+    if (checkpoint) return null;
     const visited = new Set(); let ref = current?.record.archiveHead;
     while (ref) {
       if (visited.has(ref.graphIri)) fail('invalid_archive', 'The private archive chain contains a cycle.'); visited.add(ref.graphIri);
@@ -213,9 +290,10 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
   }
   async function persist(record, guard = () => {}, focus = null) {
     ready(); if (!keyPresent) fail('key_required', 'Restore your existing browser recovery key before recording consultation.');
+    if (checkpoint) record = boundedRecord(record, focus);
     validate(record);
     await client.registerKey(); active(); guard();
-    if (focus && current && (['observations', 'consultations', 'evaluations'].some(kind => record[kind].length > PAGE_WATERMARK)
+    if (!checkpoint && focus && current && (['observations', 'consultations', 'evaluations'].some(kind => record[kind].length > PAGE_WATERMARK)
       || new TextEncoder().encode(JSON.stringify(record)).length > PAGE_BYTES)) {
       // First CAS the full draft into its original owner index. A concurrent
       // withdrawal therefore rejects the new content before any archive copy.
@@ -225,7 +303,8 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       catch (cause) { if (cause.code !== 'pod_pending') rotationAfterPending = null; throw cause; }
       rotationAfterPending = null; return beginPage(record, focus);
     }
-    return accepted(current ? await client.save({ graphIri, expectedHead: current.head, record }) : await client.createAt({ graphIri, record }));
+    try { return accepted(current ? await client.save({ graphIri, expectedHead: current.head, record, ...checkpointOptions }) : await client.createAt({ graphIri, record, ...checkpointOptions })); }
+    catch (cause) { bindingPending(cause); }
   }
   async function beginPage(record, focus) {
     stagedPage = { record: clone(record), focus, expectedHead: clone(current.head), reference: null, operationId: null };
@@ -241,10 +320,16 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
     stagedPage.reference = archiveReference({ graphIri: result.graphIri, ...result.head });
     return finishPage();
   }
-  async function retryPending() {
+  async function retryPending(explicit = false) {
     ready();
     if (pending) {
       const rotation = rotationAfterPending;
+      if (pending.checkpointBinding) {
+        let confirmation;
+        try { confirmation = await client.confirm(pending.operationId); } catch (cause) { if (cause.code !== 'checkpoint_binding_pending') throw cause; }
+        if (!confirmation?.saved && explicit && typeof client.reconcileCheckpoint === 'function') confirmation = await client.reconcileCheckpoint({ graphIri, ...checkpointOptions });
+        return accepted(confirmation || pending);
+      }
       let result;
       try { result = accepted(await client.confirm(pending.operationId)); }
       catch (cause) { if (cause.code !== 'pod_pending') rotationAfterPending = null; throw cause; }
@@ -268,7 +353,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       if (result.ownerDid !== undefined && result.ownerDid !== ownerDid) fail('owner_mismatch', 'The native consultation identity changed.');
       keyPresent = result.keyPresent === true; connected = true;
       graphIri = await performanceConsultationGraphIri(ownerDid, applicationId, crypto); active();
-      const selected = await client.currentHead({ graphIri }); active(); seen ||= !!selected;
+      let selected; try { selected = await client.currentHead({ graphIri, ...checkpointOptions }); } catch (cause) { bindingPending(cause); } active(); seen ||= !!selected;
       if (selected && !keyPresent) fail('key_required', 'Restore the existing browser recovery key to open consultation.');
       await refresh(); return api.status();
     },
@@ -276,7 +361,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
       const record = await refresh();
       // Preserve the current UI's last-plan entry point even when a new task's
       // observation rotated an unfinished plan into an immutable history page.
-      if (!record.consultations.length && record.archiveHead) {
+      if (!checkpoint && !record.consultations.length && record.archiveHead) {
         const last = await findRecord('consultations', () => true);
         if (last) {
           const baseline = await findRecord('observations', item => item.id === last.observationId);
@@ -331,7 +416,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
         if (previous && !sameTask(previous.task, capturedTask)) fail('task_scope_changed', 'Choose a new task identity and consent when the goal or work context changes.');
         const observation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, performerKind, at: new Date(now()).toISOString(), task: capturedTask,
           evidence: capturedEvidence, epistemicStatus: 'reported-task-and-client-observation', competencyStatus: 'not-assessed' };
-        record.observations.push(observation);
+        record.observations.push(observation); countAppend(record, 'observations', observation.at);
         const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id), { observations: [observation.id] }); return { ...result, observation: clone(observation) };
       });
     },
@@ -345,7 +430,7 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
         include(record, 'observations', observation);
         const consultation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, at: new Date(now()).toISOString(), observationId,
           service: capturedService, response: capturedResponse, epistemicStatus: 'service-response-unvalidated-effect', competencyStatus: 'not-assessed' };
-        record.consultations.push(consultation);
+        record.consultations.push(consultation); countAppend(record, 'consultations', consultation.at);
         const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id), { observations: [observationId], consultations: [consultation.id] }); return { ...result, consultation: clone(consultation) };
       });
     },
@@ -361,14 +446,14 @@ export function createOwnerPerformanceConsultation({ binding, credential, relayU
         include(record, 'observations', before); include(record, 'observations', after); include(record, 'consultations', consultation);
         const evaluation = { id: 'urn:uuid:' + crypto.randomUUID(), ownerDid, at: new Date(now()).toISOString(), consultationId, observationId,
           playerReport, comparison: comparison(before, after), epistemicStatus: 'observed-before-after-no-causal-claim', competencyStatus: 'not-assessed' };
-        record.evaluations.push(evaluation);
+        record.evaluations.push(evaluation); countAppend(record, 'evaluations', evaluation.at);
         const result = await persist(record, () => permission(record, 'retain-observations', podUrl, capturedTask.id),
           { observations: [before.id, after.id], consultations: [consultationId], evaluations: [evaluation.id] }); return { ...result, evaluation: clone(evaluation) };
       });
     },
-    retry: () => serialize(retryPending),
+    retry: () => serialize(() => retryPending(true)),
     status: () => ({ connected: connected && !closed, ownerDid, podUrl, applicationId, graphIri, keyPresent, pending: !!(pending || stagedPage),
-      archiveHead: clone(current?.record.archiveHead || null), archiving: !!stagedPage,
+      archiveHead: clone(current?.record.archiveHead || null), archiving: !!stagedPage, checkpoint: checkpoint || null, coverage: clone(current?.record.coverage || null),
       observations: current?.record.observations.length || 0, consultations: current?.record.consultations.length || 0, evaluations: current?.record.evaluations.length || 0 }),
     close() { closed = true; connected = false; current = null; stagedPage = null; rotationAfterPending = null; denied.clear(); client.close(); },
   };

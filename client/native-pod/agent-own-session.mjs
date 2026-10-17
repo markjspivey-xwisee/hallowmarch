@@ -4,9 +4,11 @@ import { RelayMcpTransport } from './vendor/interego-browser.mjs';
 import { createNativePodClient } from './client.mjs';
 import { createOwnerPerformanceConsultation } from './performance-consultation.mjs';
 import { createFoxxiConsultant } from './foxxi-consulting.mjs';
+import { createOwnerGameplayLearningDelivery } from './gameplay-learning-delivery.mjs';
+import { createNativeSigningDelegation } from './signing-delegation.mjs';
 
 export const AGENT_OWN_SESSION_SURFACE = 'interego-delegate';
-const REQUIRED = ['get_pod_status', 'sign_request'];
+const REQUIRED = ['get_pod_status', 'sign_request', 'verify_agent', 'register_agent'];
 class AgentOwnSessionError extends Error { constructor(code, message) { super(message); this.name = 'AgentOwnSessionError'; this.code = code; } }
 const fail = (code, message) => { throw new AgentOwnSessionError(code, message); };
 const copy = value => structuredClone(value);
@@ -48,7 +50,7 @@ function credential(value, now) {
 export function createAgentOwnSession({ walletAddress, signMessage, nativeSignInWithWallet,
   humanBinding, relayUrl, identityOrigin, redirectUri,
   createTransport = (relay, grant) => new RelayMcpTransport(relay, grant, globalThis.fetch.bind(globalThis)),
-  crypto = globalThis.crypto, now = Date.now } = {}) {
+  crypto = globalThis.crypto, now = Date.now, fetch: nativeFetch = globalThis.fetch?.bind(globalThis) } = {}) {
   if (typeof walletAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)
     || typeof signMessage !== 'function' || typeof nativeSignInWithWallet !== 'function' || typeof createTransport !== 'function'
     || typeof now !== 'function' || typeof humanBinding?.subjectDid !== 'string') throw new TypeError('A separate host-held agent wallet, native sign-in function and verified player binding are required.');
@@ -63,7 +65,17 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
     || redirect.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(redirect.hostname))) fail('invalid_agent_host', 'Use the native host’s HTTPS or loopback OAuth callback.');
   const binding = Object.freeze({ subjectDid: ownerDid, authenticatedAgentDid: agentDid,
     podUrl: new URL('/' + userId + '/', playerPod).href });
-  let closed = false, connected = false, epoch = 0, opening = null, tx = null;
+  let closed = false, connected = false, epoch = 0, opening = null, tx = null, nativeCredential = null, signingTransport = null;
+  const signingDelegation = createNativeSigningDelegation({ ownerDid, podUrl: binding.podUrl, agentDid, now,
+    async callTool(name, input) {
+      const native = signingTransport || tx, selected = epoch;
+      if (closed || !native) fail('agent_session_closed', 'The original agent host session is closed.');
+      const result = await native.callTool(name, input, { cache: false, signal: AbortSignal.timeout(35000) });
+      if (closed || selected !== epoch) fail('agent_session_closed', 'The original agent host session is closed.');
+      if (!plain(result) || result.error) fail('agent_authentication_failed', 'Native signing delegation was not confirmed.');
+      return result;
+    },
+  });
   const children = new Set(), podAliases = new Set([binding.podUrl]);
   function check(selected = epoch) {
     if (closed || selected !== epoch) fail('agent_session_closed', 'The original agent host session is closed.');
@@ -74,7 +86,7 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
   }
   function disconnect() {
     connected = false; epoch++;
-    for (const child of children) child.close(); children.clear(); clearTransport(tx); tx = null;
+    for (const child of children) child.close(); children.clear(); clearTransport(tx); tx = null; nativeCredential = null; signingTransport = null;
   }
   async function verify(port, selected) {
     let result;
@@ -98,19 +110,22 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
   async function connect() {
     if (closed) fail('agent_session_closed', 'The agent host connection is closed.');
     if (opening) return opening;
-    if (connected) { await verify(tx, epoch); return status(); }
+    if (connected) { const selected = epoch; await verify(tx, selected); await signingDelegation.ensure(); check(selected); return status(); }
     const selected = ++epoch;
     const run = (async () => {
       let native;
       try {
         const issued = await nativeSignInWithWallet(relay, identity, address, signMessage, redirect.href, AGENT_OWN_SESSION_SURFACE);
         if (closed || selected !== epoch) fail('agent_session_closed', 'The agent host connection closed during sign-in.');
-        native = createTransport(relay, credential(issued, now));
+        const ownCredential = credential(issued, now);
+        native = createTransport(relay, ownCredential);
         if (!native || typeof native.connect !== 'function' || typeof native.callTool !== 'function') throw new TypeError('Native MCP transport required.');
         const capabilities = await native.connect(REQUIRED, 'get_pod_status');
         if (!REQUIRED.every(name => capabilities?.granted?.includes(name))) fail('agent_capability_missing', 'The agent native session lacks identity or signing capabilities.');
-        await verify(native, selected); tx = native; connected = true; return status();
-      } catch (error) { clearTransport(native); if (error instanceof AgentOwnSessionError) throw error; fail('agent_authentication_failed', 'Native agent sign-in did not complete.'); }
+        await verify(native, selected); signingTransport = native; await signingDelegation.ensure();
+        if (closed || selected !== epoch) fail('agent_session_closed', 'The original agent host session is closed.');
+        signingTransport = null; tx = native; nativeCredential = ownCredential; connected = true; return status();
+      } catch (error) { signingTransport = null; clearTransport(native); if (error instanceof AgentOwnSessionError || error?.name === 'NativeSigningDelegationError') throw error; fail('agent_authentication_failed', 'Native agent sign-in did not complete.'); }
     })();
     opening = run;
     try { return await run; } finally { if (opening === run) opening = null; }
@@ -133,7 +148,7 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
         if (new TextEncoder().encode(encoded).length > 16384) throw Error('oversized');
         if (canonical(payload) !== canonical(JSON.parse(encoded))) throw Error('non-JSON');
       } catch { fail('invalid_agent_request', 'The native request must be bounded finite JSON.'); }
-      const selected = epoch; await verify(tx, selected); check(selected);
+      const selected = epoch; await verify(tx, selected); await signingDelegation.ensure(); check(selected);
       let result;
       try { result = await tx.callTool('sign_request', { payload }, { cache: false, signal: AbortSignal.timeout(35000) }); }
       catch { fail('agent_signing_unavailable', 'Native agent signing did not complete.'); }
@@ -148,18 +163,27 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
     },
     createPodProfile({ keyStorage } = {}) {
       check(); if (!keyStorage || typeof keyStorage.load !== 'function' || typeof keyStorage.create !== 'function') throw new TypeError('The agent host must supply its own durable encryption-key storage.');
-      const profile = createNativePodClient({ relayUrl: relay, ownerDid, podUrl: binding.podUrl, transport: port(), keyStorage, crypto, now });
+      const profile = createNativePodClient({ relayUrl: relay, ownerDid, podUrl: binding.podUrl, credential: nativeCredential, transport: port(), keyStorage, crypto, now, fetch: nativeFetch });
       children.add(profile); return profile;
     },
     createJournal({ sessionId, keyStorage } = {}) {
       check(); if (!keyStorage || typeof keyStorage.load !== 'function' || typeof keyStorage.create !== 'function') throw new TypeError('The agent host must supply its own durable encryption-key storage.');
-      const journal = createOwnerPerformanceConsultation({ binding, relayUrl: relay, sessionId, transport: port(), keyStorage, crypto, now });
+      const journal = createOwnerPerformanceConsultation({ binding, relayUrl: relay, sessionId, checkpoint: 'hallowmarch-performance-consultation/v1', credential: nativeCredential, transport: port(), keyStorage, crypto, now, fetch: nativeFetch });
       children.add(journal); return journal;
     },
     createConsultant({ sessionId, journal } = {}) {
       check();
       const consultant = createFoxxiConsultant({ binding, relayUrl: relay, sessionId, journal, subjectKind: 'agent', transport: port(), now });
       children.add(consultant); return consultant;
+    },
+    createLearningDelivery(options = {}) {
+      check();
+      // Credential, subject, transport and recipient authority stay in this
+      // verified native session; callers supply only their bounded local state.
+      const { sessionId, journal, gameplaySessionId, characterId, startAfterOrdinal, state, commitState, assertCurrent } = options;
+      const delivery = createOwnerGameplayLearningDelivery({ binding, relayUrl: relay, sessionId, journal,
+        gameplaySessionId, characterId, startAfterOrdinal, state, commitState, assertCurrent, transport: port(), now });
+      children.add(delivery); return delivery;
     },
     close() {
       if (closed) return; closed = true; disconnect();

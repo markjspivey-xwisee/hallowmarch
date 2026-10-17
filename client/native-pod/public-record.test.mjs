@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createNativePublicRecordClient } from './public-record.mjs';
 import { computeCid } from './vendor/interego-public-browser.mjs';
-import { publicRecordFixture, webId, ownerDid } from './public-record.fixture.mjs';
+import { publicRecordFixture, webId, ownerDid, agentDid } from './public-record.fixture.mjs';
 const input = { graphIri: 'urn:graph:public:test', graphContent: '<urn:graph:public:test> <urn:relation> "public relationship" .\n', publicData: true };
 const sdk = process.env.INTEREGO_SDK_TEST_ROOT ? await import(pathToFileURL(resolve(process.env.INTEREGO_SDK_TEST_ROOT, 'packages/core/dist/index.js'))) : null;
 
@@ -36,6 +36,30 @@ test('explicit public consent, native owner status, signed public readback, sole
   assert(f.publicCalls.length >= 4);
   for (const read of f.publicCalls) { assert.equal(read.init.credentials, 'omit'); assert.equal(read.init.redirect, 'error'); assert(!read.init.headers.Authorization); }
   assert(!f.calls.some(call => call.name === 'register_agent'));
+});
+test('publisher prepares only its current missing credential through the advertised repair-only mode', async () => {
+  const f = publicRecordFixture({ nativeSigning: 'missing', repairAck: 'lost-after' }), client = f.client();
+  await client.connect(); assert.equal((await client.create(input)).saved, true);
+  await client.connect();
+  assert.deepEqual(f.calls.filter(call => call.name === 'register_agent').map(call => call.args), [{ agent_id: agentDid, pod_name: 'alice', repair_only: true }]);
+  assert(f.calls.findIndex(call => call.name === 'verify_agent') < f.calls.findIndex(call => call.name === 'register_agent'));
+});
+test('publisher refuses unsupported or unresolved repair without publishing or repeating the credential write', async () => {
+  const old = publicRecordFixture({ nativeSigning: 'missing', repairCapability: false }), unavailable = old.client();
+  await assert.rejects(unavailable.connect(), { code: 'native_signing_repair_unavailable' });
+  assert(!old.calls.some(call => ['register_agent', 'publish_context'].includes(call.name)));
+  const f = publicRecordFixture({ nativeSigning: 'missing', repairAck: 'lost-before' }), client = f.client();
+  await assert.rejects(client.connect(), { code: 'native_signing_repair_pending' });
+  await assert.rejects(client.connect(), { code: 'native_signing_repair_pending' });
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, 1);
+  assert(!f.calls.some(call => call.name === 'publish_context'));
+});
+test('native relay attestation remains verifiable with an aggregate SelfAsserted trust report', async () => {
+  const f = publicRecordFixture(), client = f.client(); await client.connect();
+  const saved = await client.create(input); assert.equal(saved.saved, true);
+  const actual = f.records.get(saved.head.descriptorUrl).read.authorship;
+  assert.equal(actual.effectiveTrustLevel, 'SelfAsserted'); assert.equal(actual.signatureAuthority, 'relay');
+  assert.equal((await client.load(input)).receipt.authorship.authority, 'relay-attestation');
 });
 test('pending and lost acknowledgement require native confirmation with same operation and payload', async () => {
   const f = publicRecordFixture(), client = f.client(); await client.connect();
@@ -124,6 +148,9 @@ test('initial concurrent fork and stale updates fail closed without false public
 for (const [label, mutate] of [
   ['wrong owner', value => ({ ...value, turtle: value.turtle.replace(webId, 'https://identity.example/users/bob/profile#me') })],
   ['unsigned relay report', value => ({ ...value, authorship: { ...value.authorship, authorshipVerified: false } })],
+  ['missing relay authority despite optimistic aggregate trust', value => ({ ...value, authorship: { ...value.authorship, signatureAuthority: undefined, effectiveTrustLevel: 'CryptographicallyVerified' } })],
+  ['unclassified signer despite optimistic aggregate trust', value => ({ ...value, authorship: { ...value.authorship, signatureAuthority: 'unclassified', effectiveTrustLevel: 'CryptographicallyVerified' } })],
+  ['foreign signer authority', value => ({ ...value, authorship: { ...value.authorship, signatureAuthority: 'agent' } })],
   ['unbound content', value => ({ ...value, authorship: { ...value.authorship, contentBinding: 'unbound' } })],
   ['slug-only location', value => ({ ...value, authorship: { ...value.authorship, descriptorBinding: { bound: true, basis: 'slug-only' } } })],
   ['private distribution', value => ({ ...value, turtle: value.turtle.replace('visibility "public"', 'visibility "private"') })],

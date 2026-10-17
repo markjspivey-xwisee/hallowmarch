@@ -122,7 +122,7 @@ async function marchConsultingOpenHistory() {
     import('/gaming/identity/assets/performance-consultation.mjs'), import('/gaming/identity/assets/foxxi-consulting.mjs'),
   ]); current();
   const sessionId = crypto.randomUUID();
-  const journal = privateModule.createOwnerPerformanceConsultation({ binding, credential: cached.credential, relayUrl: matches[0].relayUrl, sessionId });
+  const journal = privateModule.createOwnerPerformanceConsultation({ binding, credential: cached.credential, relayUrl: matches[0].relayUrl, sessionId, checkpoint: 'hallowmarch-performance-consultation/v1' });
   try {
     await journal.connect(); current();
     if (!journal.status().keyPresent) throw new Error('Restore your character’s recovery key before keeping private coaching history.');

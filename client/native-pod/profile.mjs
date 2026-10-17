@@ -1,9 +1,11 @@
 /** Hallowmarch's private profile and discovery index both belong to its owner. */
 import { createNativePodClient } from './client.mjs';
+import { sameNativeHead } from './checkpoint.mjs';
 
 const PROFILE_SCHEMA = 'hallowmarch.player-profile/v1';
 const INDEX_SCHEMA = 'hallowmarch.player-profile-index/v1';
 const GAME = 'urn:game:hallowmarch';
+const CHECKPOINT = 'hallowmarch-character/v1';
 const copy = value => JSON.parse(JSON.stringify(value));
 const error = (code, message) => Object.assign(new Error(message), { code });
 export function validatePlayerProfile(value, ownerDid) {
@@ -31,6 +33,10 @@ export async function playerProfileIndexGraphIri(ownerDid, crypto = globalThis.c
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ownerDid)));
   return 'urn:graph:hallowmarch:player-profile-index:' + [...digest].map(value => value.toString(16).padStart(2, '0')).join('');
 }
+/** New characters are discoverable even if their first index acknowledgement is lost. */
+export async function playerProfileGraphIri(ownerDid, crypto = globalThis.crypto) {
+  return (await playerProfileIndexGraphIri(ownerDid, crypto)).replace(':player-profile-index:', ':player-profile:');
+}
 
 /** Neither a local cache nor a game-owned pointer is the discovery primary. */
 export function createPlayerPodProfile({ binding, credential, relayUrl, request,
@@ -40,8 +46,8 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
   const client = createClient({ relayUrl, credential, ownerDid, podUrl: binding.podUrl });
   let current = null, pending = null, pendingIndex = null, latest = null, state = 'connecting', keyPresent = false;
   let chain = Promise.resolve(), linked = !!pointer, closed = false, connected = false, readConfirmed = false;
-  let indexGraphIri = null, indexHead = null, indexSeen = false, indexVerified = false, profileGraphIri = null;
-  const hasRecord = () => !!(indexSeen || current || pointer || pending || pendingIndex);
+  let indexGraphIri = null, indexHead = null, indexSeen = false, indexVerified = false, profileGraphIri = null, defaultProfileGraphIri = null, checkpointSeen = false;
+  const hasRecord = () => !!(indexSeen || checkpointSeen || current || pointer || pending || pendingIndex);
   const change = (next, detail = '') => { state = next; onState({ state, detail, keyPresent,
     hasRecord: hasRecord(), pending: !!(pending || pendingIndex) }); };
   const active = () => { if (closed) throw error('revoked', 'This identity connection is closed.'); };
@@ -76,6 +82,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
     try {
       const result = await client.connect(); active(); keyPresent = result.keyPresent; connected = true;
       indexGraphIri = await playerProfileIndexGraphIri(ownerDid, crypto); active();
+      defaultProfileGraphIri = await playerProfileGraphIri(ownerDid, crypto); active();
       const selected = await probeIndex();
       if (selected) {
         if (indexHead?.cid !== selected.cid || indexHead?.descriptorUrl !== selected.descriptorUrl) indexVerified = false;
@@ -148,11 +155,13 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       if (pending) throw error('pod_pending', 'Confirm the outstanding private save before opening it.');
       const indexedTarget = await readIndex();
       if (pendingIndex) await ensureIndexed();
-      const target = indexedTarget || profileGraphIri || current?.graphIri || pointer?.graphIri;
-      if (!target) { readConfirmed = true; return { exists: false, data: () => null }; }
-      if (!keyPresent) keyRequired();
-      const found = await client.load({ graphIri: target }); active();
+      const knownTarget = indexedTarget || profileGraphIri || current?.graphIri || pointer?.graphIri;
+      const target = knownTarget || defaultProfileGraphIri;
+      if (knownTarget && !keyPresent) keyRequired();
+      const found = await client.load({ graphIri: target, checkpoint: CHECKPOINT }); active();
+      if (!found && !knownTarget) { readConfirmed = true; return { exists: false, data: () => null }; }
       if (!found) throw error('missing_record', 'The private character could not be found in your pod.');
+      checkpointSeen = true;
       const save = validatePlayerProfile(found.record, ownerDid);
       current = found; readConfirmed = true;
       // A legacy game hint can seed the owner index only after native private
@@ -161,13 +170,24 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       linked = pointer?.graphIri === target && pointer?.cid === found.head.cid;
       change(linked ? 'ready' : 'link_pending');
       return { exists: true, data: () => copy(save) };
-    } catch (cause) { if (!closed && !['pod_pending', 'pod_index_pending'].includes(cause.code)) change(cause.code || 'unavailable'); throw cause; }
+    } catch (cause) {
+      if (cause.code === 'checkpoint_binding_pending') {
+        checkpointSeen = true; pending = { operationId: cause.operationId, graphIri: cause.graphIri, checkpointBinding: true };
+        change('pod_pending'); throw error('pod_pending', 'Reconcile the original private character binding before saving again.');
+      }
+      if (cause.code === 'key_required') checkpointSeen = true;
+      if (!closed && !['pod_pending', 'pod_index_pending'].includes(cause.code)) change(cause.code || 'unavailable'); throw cause;
+    }
   }
-  async function persist() {
+  async function persist(reconcileBinding = false) {
     ready();
     try {
       if (!keyPresent) keyRequired();
-      if (pending) acceptedProfile(await client.confirm(pending.operationId));
+      if (pending) {
+        let result = await client.confirm(pending.operationId);
+        if (!result.saved && reconcileBinding && pending.checkpointBinding) result = await client.reconcileCheckpoint({ graphIri: pending.graphIri, checkpoint: CHECKPOINT });
+        acceptedProfile(result);
+      }
       if (current) await ensureIndexed();
       // A caller can resubmit the same progress while the index acknowledgement
       // is pending. Confirmation must not turn that retry into another version.
@@ -179,11 +199,17 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       if (!current && await readIndex()) throw error('unread_record', 'Open the existing private character before changing it.');
       const save = latest; change('saving');
       acceptedProfile(current
-        ? await client.save({ graphIri: current.graphIri, expectedHead: current.head, record: record(save) })
-        : await client.create({ record: record(save) }));
+        ? await client.save({ graphIri: current.graphIri, expectedHead: current.head, record: record(save), checkpoint: CHECKPOINT })
+        : await client.create({ graphIri: defaultProfileGraphIri, record: record(save), checkpoint: CHECKPOINT }));
       await ensureIndexed();
       await finishRelationship();
-    } catch (cause) { if (!closed && !['pod_pending', 'pod_index_pending', 'pod_link_pending'].includes(cause.code)) change(cause.code || 'unavailable'); throw cause; }
+    } catch (cause) {
+      if (cause.code === 'checkpoint_binding_pending') {
+        checkpointSeen = true; pending = { operationId: cause.operationId, graphIri: cause.graphIri, checkpointBinding: true };
+        change('pod_pending'); throw error('pod_pending', 'Reconcile the original private character binding before saving again.');
+      }
+      if (!closed && !['pod_pending', 'pod_index_pending', 'pod_link_pending'].includes(cause.code)) change(cause.code || 'unavailable'); throw cause;
+    }
   }
   function serialized(run) { const next = chain.then(run); chain = next.catch(() => {}); return next; }
   return Object.freeze({ connect, get: () => serialized(read), native: true,
@@ -211,8 +237,8 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
           }
         }
         if (current) {
-          const found = await client.load({ graphIri: current.graphIri }); active();
-          if (!found || found.head.cid !== current.head.cid || found.head.descriptorUrl !== current.head.descriptorUrl) {
+          const found = await client.load({ graphIri: current.graphIri, checkpoint: CHECKPOINT }); active();
+          if (!found || !sameNativeHead(found.head, current.head)) {
             throw error('conflict', 'The private character changed elsewhere. Your progress remains in this game.');
           }
           validatePlayerProfile(found.record, ownerDid);
@@ -221,9 +247,13 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       } catch (cause) { if (!closed) change(cause.code || 'unavailable'); throw cause; }
     }); },
     set(save) { validatePlayerProfile(record(save), ownerDid); latest = copy(save); return serialized(persist); },
-    retry() { return serialized(persist); },
+    retry() { return serialized(() => persist(true)); },
     createKey() { return serialized(async () => {
       ready(); await probeIndex();
+      if (!hasRecord()) {
+        try { if (await client.currentHead({ graphIri: defaultProfileGraphIri, checkpoint: CHECKPOINT })) checkpointSeen = true; }
+        catch (cause) { if (['key_required', 'checkpoint_binding_pending'].includes(cause.code)) checkpointSeen = true; else throw cause; }
+      }
       if (hasRecord()) throw error('recovery_required', 'Restore the existing character key instead of replacing it.');
       if (keyPresent) throw error('key_exists', 'This browser already holds a character key.');
       await client.createKey(); active(); keyPresent = true; change('ready');

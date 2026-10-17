@@ -9,7 +9,7 @@ export function createPersonalActivityLiveQa({ getPage, getOwner, relayOrigin, g
   let step = 'not-started', opened = false, enabled = false, inputAttempted = false, stopped = false, complete = false, flight = null;
   const flags = { genuineHumanOutcome: false, futureActivityOnly: false, intentConfirmedBeforeDelivery: false,
     exactPrivateCheckpoint: false, verifiedNativeDigest: false, exactPrivateLrsReadback: false,
-    boundedExactConsent: false, sharingStopped: false, noAutomaticResend: false, noAchievementClaims: false };
+    ownerKeyAuthenticatedCheckpoint: false, boundedExactConsent: false, sharingStopped: false, noAutomaticResend: false, noAchievementClaims: false };
   const ensure = (ok, code) => { if (!ok) throw Object.assign(new Error('Personal activity live verification refused.'), { code }); };
   const show = async page => {
     if (!await page.locator('#menu').isVisible()) await page.locator('#btn-menu').click();
@@ -197,7 +197,12 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     await native.connect(); current();
     const indexIri = await profileModule.playerProfileIndexGraphIri(owner.subjectDid), index = await native.load({ graphIri: indexIri }); current();
     const characterIri = profileModule.validatePlayerProfileIndex(index.record, owner.subjectDid);
-    const opened = await native.load({ graphIri: characterIri }); current(); const after = await native.currentHead({ graphIri: characterIri }); current();
+    const checkpoint = 'hallowmarch-character/v1';
+    const opened = await native.load({ graphIri: characterIri, checkpoint }); current(); const after = await native.currentHead({ graphIri: characterIri, checkpoint }); current();
+    // A normal owner save may advance this graph between the two reads. Only
+    // that known read race may poll again; it never authorizes another input or
+    // external write and does not turn substituted content into a valid proof.
+    if (opened?.head && !same(opened.head, after)) return { sharingStopped: false };
     const saved = opened?.record?.save?.char?.x, state = saved?.learningDelivery, events = t.memo.events;
     const body = h.activity.snapshot()?.summary?.bodyObservations?.find(item => item.bodyId === owner.accountId && item.kind === 'character');
     const changed = !!t.inputAttempted && !!t.before && ((body?.counters?.['ability.executed'] || 0) > t.before.executed
@@ -211,7 +216,10 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     const exactPrivateCheckpoint = !!state && state.ownerDid === owner.subjectDid && state.characterId === owner.accountId
       && state.pending === null && state.throughOrdinal >= events.at(-1).ordinal && state.acknowledgedCount >= events.length
       && same(t.memo.payload.statements, expected) && t.memo.payload.subject_did === owner.subjectDid && t.memo.payload.purpose === 'personal-performance';
-    const verifiedNativeDigest = !!opened && /^graph-nquads-sha256:[0-9a-f]{64}$/.test(opened.digest)
+    const ownerKeyAuthenticatedCheckpoint = opened?.proofKind === 'owner-key-authenticated-checkpoint'
+      && opened.head.proofKind === opened.proofKind && opened.head.cid === opened.head.bindingCid
+      && opened.head.recordCid === opened.digest && typeof opened.head.nativeRevision === 'string' && opened.head.nativeRevision.length > 0;
+    const verifiedNativeDigest = ownerKeyAuthenticatedCheckpoint && /^graph-nquads-sha256:[0-9a-f]{64}$/.test(opened.digest)
       && opened.record.ownerDid === owner.subjectDid && same(opened.head, after);
     journal = journalModule.createOwnerPerformanceConsultation({ binding, credential: held.credential, relayUrl: relayOrigin,
       sessionId: crypto.randomUUID(), createClient: readOnlyNative });
@@ -221,7 +229,7 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     const boundedExactConsent = !!consent && history.ownerDid === owner.subjectDid && consent.taskId === 'hallowmarch-activity:' + state?.characterId + ':' + consent.sessionId
       && Date.parse(consent.expiresAt) > Date.parse(consent.issuedAt) && Date.parse(consent.expiresAt) - Date.parse(consent.issuedAt) <= 900000;
     if (!consent?.revoked) return { genuineHumanOutcome, futureActivityOnly, intentConfirmedBeforeDelivery: t.memo.intentConfirmed,
-      exactPrivateCheckpoint, verifiedNativeDigest, exactPrivateLrsReadback: false, boundedExactConsent, sharingStopped: false, noAchievementClaims: false };
+      exactPrivateCheckpoint, verifiedNativeDigest, ownerKeyAuthenticatedCheckpoint, exactPrivateLrsReadback: false, boundedExactConsent, sharingStopped: false, noAchievementClaims: false };
     tx = new transportModule.RelayMcpTransport(relayOrigin, { ...held.credential }, globalThis.fetch.bind(globalThis));
     await tx.connect(['get_pod_status', 'dereference', 'sign_request', 'act'], 'get_pod_status'); current();
     const status = await tx.callTool('get_pod_status', {}, { cache: false }); current();
@@ -248,7 +256,7 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     const noAchievementClaims = expected.every(statement => statement.result?.extensions?.['urn:interego:gaming:activity:observation']?.competencyStatus === 'not-assessed'
       && statement.result.extensions['urn:interego:gaming:activity:observation'].authority === 'owner-browser-observation');
     return { genuineHumanOutcome, futureActivityOnly, intentConfirmedBeforeDelivery: t.memo.intentConfirmed === true,
-      exactPrivateCheckpoint, verifiedNativeDigest, exactPrivateLrsReadback, boundedExactConsent,
+      exactPrivateCheckpoint, verifiedNativeDigest, ownerKeyAuthenticatedCheckpoint, exactPrivateLrsReadback, boundedExactConsent,
       sharingStopped: boundedExactConsent && consent.revoked === true && !h.learningDelivery.status.enabled,
       noAchievementClaims };
   } finally {

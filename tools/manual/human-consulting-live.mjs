@@ -11,11 +11,11 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
   let firstVerified = false, followupAttempted = false, secondVerified = false;
   const flags = { automaticObservedContext: false, attributedLiveResponse: false, exactPrivatePlan: false,
     exactObservation: false, verifiedNativeDigest: false, boundedExactConsent: false, noAchievementClaims: false,
-    singleDeliveryAttempt: false, intentConfirmedBeforeDelivery: false, sharingStopped: false };
+    ownerKeyAuthenticatedCheckpoint: false, singleDeliveryAttempt: false, intentConfirmedBeforeDelivery: false, sharingStopped: false };
   if (automaticFollowup) Object.assign(flags, { realElapsedFollowup: false, changedOutcome: false, automaticFollowup: false,
     distinctSituation: false, exactSecondPrivatePlan: false, twoDeliveries: false });
   const baseFlags = ['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
-    'verifiedNativeDigest', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'];
+    'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'];
   const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Manual human coaching verification refused.'), { code }); };
   async function runOnce() {
     if (complete) return status();
@@ -345,9 +345,10 @@ export async function readHumanConsultingPlan({ owner, relayOrigin, gameOrigin, 
     const graphIri = journal.status().graphIri;
     const native = readOnlyClient({ ownerDid: owner.subjectDid, podUrl: owner.podUrl, credential: held.credential, relayUrl: relayOrigin });
     await native.connect(); current();
-    const selected = await native.currentHead({ graphIri }); current();
-    const opened = await native.load({ graphIri }); current();
-    const after = await native.currentHead({ graphIri }); current();
+    const checkpoint = 'hallowmarch-performance-consultation/v1';
+    const selected = await native.currentHead({ graphIri, checkpoint }); current();
+    const opened = await native.load({ graphIri, checkpoint }); current();
+    const after = await native.currentHead({ graphIri, checkpoint }); current();
     await verifyBinding();
     if (!selected || !opened) fail('qa_human_readback_changed');
     if (!equal(selected, opened.head) || !equal(selected, after) || !equal(opened.record, history)) {
@@ -404,7 +405,10 @@ export async function readHumanConsultingPlan({ owner, relayOrigin, gameOrigin, 
       && scopes.every(item => Number.isFinite(Date.parse(item.issuedAt)) && Date.parse(item.expiresAt) > Date.parse(item.issuedAt)
         && Date.parse(item.expiresAt) - Date.parse(item.issuedAt) <= 900000 && typeof item.revoked === 'boolean')
       && (withdrawn || scopes.every(item => item.revoked === false && Date.parse(item.expiresAt) > Date.now()));
-    const verifiedNativeDigest = opened.graphIri === graphIri && opened.record.ownerDid === owner.subjectDid
+    const ownerKeyAuthenticatedCheckpoint = opened.proofKind === 'owner-key-authenticated-checkpoint'
+      && opened.head.proofKind === opened.proofKind && opened.head.cid === opened.head.bindingCid
+      && opened.head.recordCid === opened.digest && typeof opened.head.nativeRevision === 'string' && opened.head.nativeRevision.length > 0;
+    const verifiedNativeDigest = ownerKeyAuthenticatedCheckpoint && opened.graphIri === graphIri && opened.record.ownerDid === owner.subjectDid
         && /^graph-nquads-sha256:[0-9a-f]{64}$/.test(opened.digest) && typeof opened.operationId === 'string' && !!opened.operationId,
       noAchievementClaims = observation.competencyStatus === 'not-assessed' && consultation.competencyStatus === 'not-assessed'
         && consultation.epistemicStatus === 'service-response-unvalidated-effect' && displayed.foxxiPersonalRecordCreated === false
@@ -412,7 +416,7 @@ export async function readHumanConsultingPlan({ owner, relayOrigin, gameOrigin, 
     const intentConfirmedBeforeDelivery = planIndex === 0 ? trace.intentConfirmed === true
       : trace.intents?.length === 2 && trace.intents.every(value => value === true);
     const allProofs = automaticObservedContext && attributedLiveResponse && exactPrivatePlan && exactObservation
-      && verifiedNativeDigest && boundedExactConsent && noAchievementClaims && intentConfirmedBeforeDelivery;
+      && verifiedNativeDigest && ownerKeyAuthenticatedCheckpoint && boundedExactConsent && noAchievementClaims && intentConfirmedBeforeDelivery;
     if (planIndex === 0 && allProofs && trace.deliveries === 1) trace.verifiedFirst ||= {
       taskId: observation.task.id, observationId: observation.id, consultationId: consultation.id,
       situationId: memo.payload.situation.id, sessionId: retention.sessionId,
@@ -426,7 +430,7 @@ export async function readHumanConsultingPlan({ owner, relayOrigin, gameOrigin, 
     const secondHumanOutcome = memo.humanOutcome;
     const changedOutcome = planIndex === 1 && followup?.changedOutcome === true && !!followup.before
       && (secondHumanOutcome?.executed > followup.before.executed || secondHumanOutcome?.refused > followup.before.refused);
-    return { automaticObservedContext, attributedLiveResponse, exactPrivatePlan, exactObservation, verifiedNativeDigest,
+    return { automaticObservedContext, attributedLiveResponse, exactPrivatePlan, exactObservation, verifiedNativeDigest, ownerKeyAuthenticatedCheckpoint,
       boundedExactConsent: !!boundedExactConsent, noAchievementClaims,
       singleDeliveryAttempt: trace.deliveries === 1, intentConfirmedBeforeDelivery: trace.intentConfirmed === true,
       ...(planIndex === 1 ? { intentConfirmedBeforeDelivery, realElapsedFollowup: Number.isFinite(followup?.elapsed) && followup.elapsed >= 120000,

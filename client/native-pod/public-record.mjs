@@ -2,8 +2,9 @@
 import { RelayMcpTransport, canonicalGraphDigest, turtleIriRef } from './vendor/interego-browser.mjs';
 import { computeCid, digestedGraphRegion, parseAuthorshipProofFromDescriptorTurtle,
   parseDistributionFromDescriptorTurtle } from './vendor/interego-public-browser.mjs';
+import { createNativeSigningDelegation } from './signing-delegation.mjs';
 
-const REQUIRED = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context'];
+const REQUIRED = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context', 'verify_agent', 'register_agent'];
 const MAX_BYTES = 32 * 1024, MAX_READ_BYTES = 256 * 1024;
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 export class NativePublicRecordError extends Error {
@@ -43,7 +44,7 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
   if (!transport && (credential?.kind !== 'relay-oauth-bearer' || typeof credential.accessToken !== 'string'
     || !credential.accessToken || credential.refreshToken)) fail('invalid_credential');
   const tx = transport || new RelayMcpTransport(relay.origin, { ...credential }, globalThis.fetch.bind(globalThis));
-  const roots = [pod], pending = new Map(); let connected = false, closed = false, sessionAgent = null, queue = Promise.resolve();
+  const roots = [pod], pending = new Map(); let connected = false, closed = false, sessionAgent = null, queue = Promise.resolve(), signingDelegation = null;
   const open = () => { if (closed || !connected) fail('not_connected'); };
   function normalize(value) {
     const candidate = url(value), base = roots.find(root => candidate.origin === root.origin && candidate.pathname.startsWith(root.pathname));
@@ -79,7 +80,11 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
       const storageRoot = url(css.href + podName + '/', { root: true });
       if (!roots.some(root => root.href === storageRoot.href)) roots.push(storageRoot);
     }
-    sessionAgent = status.sessionAgent.did; connected = true;
+    if (sessionAgent !== status.sessionAgent.did) signingDelegation = null;
+    sessionAgent = status.sessionAgent.did;
+    signingDelegation ||= createNativeSigningDelegation({ ownerDid, podUrl: pod.href, agentDid: sessionAgent, callTool: tool, now });
+    await signingDelegation.ensure();
+    if (closed) fail('not_connected'); connected = true;
     return { ownerDid, podUrl: pod.href, publicRecords: true, proofAuthority: 'relay-attestation' };
   }
   async function currentHead({ graphIri }) {
@@ -121,7 +126,7 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
     if (!proof || proof.ownerWebId !== webId || !/^did:web:[^\s]+:agents:[^\s]+$/.test(proof.issuer)
       || proof.agentDid !== proof.issuer || (expectedAgent && proof.issuer !== expectedAgent)
       || auth?.authorshipVerified !== true || auth.contentBinding !== 'bound' || auth.signedBy !== proof.issuer
-      || auth.effectiveTrustLevel !== 'CryptographicallyVerified' || auth.descriptorBinding?.bound !== true
+      || auth.signatureAuthority !== 'relay' || auth.descriptorBinding?.bound !== true
       || !['exact-url', 'slug-and-owner'].includes(auth.descriptorBinding.basis)) fail('invalid_proof');
     const distribution = parseDistributionFromDescriptorTurtle(read.turtle);
     if (!read.graph || read.graph.encrypted !== false || typeof read.graph.content !== 'string'
@@ -164,6 +169,7 @@ export function createNativePublicRecordClient({ relayUrl, credential, ownerDid,
   }
   async function publish({ graphIri, graphContent, expectedHead, publicData: publicWrite, creating = false }) {
     open(); if (publicWrite !== true) fail('public_disclosure_required'); graph(graphIri); const digest = content(graphContent);
+    await signingDelegation.ensure(); open();
     if (pending.size >= 8 || [...pending.values()].some(operation => operation.graphIri === graphIri)) fail('confirmation_required');
     const before = await currentHead({ graphIri });
     if (creating ? before !== null : !sameHead(before, expectedHead)) fail('conflict');

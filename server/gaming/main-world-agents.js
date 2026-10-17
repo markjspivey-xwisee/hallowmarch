@@ -31,6 +31,14 @@ export function mainWorldAgentAffordances(options) {
     activityProfileVersion: GAMEPLAY_ACTIVITY_PROFILE_VERSION,
     activityModule: new URL('/gaming/identity/assets/gameplay-activity.mjs', doc.audience).href,
     activityArchiveModule: new URL('/gaming/identity/assets/gameplay-activity-archive.mjs', doc.audience).href,
+    privateRecords: {
+      checkpointModule: new URL('/gaming/identity/assets/checkpoint.mjs', doc.audience).href,
+      storage: 'fixed-encrypted-performer-own-pod-checkpoint',
+      binding: 'One native signed graph binding pins the owner, browser key and fixed resource. Later private revisions authenticate the owner-held key and native CAS receipt; they are not separately signed publication descriptors.',
+      retention: 'Current character state remains primary. Sparse recent backups are capped by age and bytes; journal details keep a bounded recent hour plus cumulative observed counts. No automatic new archive-page graphs.',
+      recovery: 'Restore the original owner key. Read and reconcile the exact pending operation before an explicit retry; missing or corrupt checkpoints do not fall back to an older character.',
+      security: 'Native agent grants, delegations and durable revocations remain separate from private checkpoint rollback.',
+    },
     learningDelivery: {
       module: new URL('/gaming/identity/assets/gameplay-learning-delivery.mjs', doc.audience).href,
       descriptor: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject/affordance',

@@ -5,15 +5,16 @@ import { spawnSync } from 'node:child_process';
 import { createHumanConsultingLiveQa, guardHumanConsultingOwner, installHumanConsultingObserver,
   disposeHumanConsultingObserver, readHumanConsultingPlan, inspectHumanConsultingFollowup } from './human-consulting-live.mjs';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION } from '../../client/native-pod/foxxi-consulting.mjs';
+import { signingDelegationFixture } from '../../client/native-pod/signing-delegation.fixture.mjs';
 
 // All accounts, plans, native ports and pages in this file are isolated test
 // fixtures. No browser, network, credential store or live service is invoked.
 const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example';
-const owner = { accountId: 'owner', subjectDid: 'did:example:owner', podUrl: 'https://pods.example/owner/' };
+const owner = { accountId: 'owner', subjectDid: 'did:web:identity.example:users:owner', podUrl: 'https://pods.example/owner/' };
 const descriptor = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance';
 const action = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/contextualize-and-plan-signed';
 const passFlags = () => Object.fromEntries(['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
-  'verifiedNativeDigest', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'].map(key => [key, true]));
+  'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'].map(key => [key, true]));
 
 const followupFlags = () => Object.fromEntries(['realElapsedFollowup', 'changedOutcome', 'automaticFollowup',
   'distinctSituation', 'exactSecondPrivatePlan', 'twoDeliveries'].map(key => [key, true]));
@@ -133,7 +134,7 @@ for (const fault of ['unknownKey', 'outcomeFailure', 'secondFailure']) test('unc
 });
 
 function browserFixture({ observed = true } = {}) {
-  const clicks = [], status = { bound: true, verified: true, account: { id: owner.accountId }, binding: { subjectDid: owner.subjectDid, podUrl: owner.podUrl, authenticatedAgentDid: 'did:example:human-delegate' } };
+  const clicks = [], status = { bound: true, verified: true, account: { id: owner.accountId }, binding: { subjectDid: owner.subjectDid, podUrl: owner.podUrl, authenticatedAgentDid: 'did:web:identity.example:agents:human-delegate-owner' } };
   const snapshot = { current: { id: 'milestone:combat', title: 'Survive a first fight', desiredResult: 'Complete an observed fight safely', observedResult: 'No fight outcome observed',
     workContext: 'Actual owner-browser gameplay observations for milestone:combat.', interventions: [{ id: 'combat-guide', title: 'Read the combat guide' }] }, revision: 1 };
   const metrics = { healthPercent: 100, level: 1, creatureDefeats: 0, deaths: 0, activePlaySeconds: 1, nearbyHostiles: 0, ownedCompanions: 0 };
@@ -309,18 +310,21 @@ async function readFixture() {
       expectedObservedResult: f.payload.situation.observed, constraints: f.constraints, observedContext: f.contextObservation } });
   f.elements.set('#march-consulting-result', { dataset: { resultKey: JSON.stringify(response.response) } });
   f.game.consulting.status.enabled = true;
-  const head = { descriptorUrl: owner.podUrl + 'context-graphs/fixture.ttl', cid: 'bafyfixture' }, graphIri = 'urn:graph:interego:performance-consultation:fixture';
+  const digest = 'graph-nquads-sha256:' + 'a'.repeat(64);
+  const head = { descriptorUrl: owner.podUrl + 'context-graphs/fixture.ttl', cid: 'bafyfixture', bindingCid: 'bafyfixture',
+    recordCid: digest, nativeRevision: 'fixture-native-revision-1', proofKind: 'owner-key-authenticated-checkpoint' }, graphIri = 'urn:graph:interego:performance-consultation:fixture';
   const clients = [], tools = []; let mutate = null;
   const modules = [
     { createBrowserAccessCache: () => ({ get: async () => ({ credential: { accessToken: 'PRIVATE-NATIVE-TOKEN', expiresAt: Date.now() + 900000 } }), close: async () => {} }) },
     { createOwnerPerformanceConsultation: options => { const client = options.createClient({}); return { connect: () => client.connect(), read: async () => structuredClone(history), status: () => ({ graphIri }), close() {} }; } },
     { FOXXI_PLANNER_DESCRIPTOR: descriptor, FOXXI_PLANNER_ACTION: action },
-    { createNativePodClient: options => { const client = { connect: async () => {}, currentHead: async () => structuredClone(head),
-      load: async () => { mutate?.(); return { graphIri, head: structuredClone(head), record: structuredClone(history), digest: 'graph-nquads-sha256:' + 'a'.repeat(64), operationId: 'fixture-native-operation' }; }, close() {} };
+    { createNativePodClient: options => { const client = { connect: async () => {}, currentHead: async ({ checkpoint }) => { assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1'); return structuredClone(head); },
+      load: async ({ checkpoint }) => { assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1'); mutate?.(); return { graphIri, head: structuredClone(head), record: structuredClone(history), digest,
+        proofKind: 'owner-key-authenticated-checkpoint', operationId: 'fixture-native-operation' }; }, close() {} };
       clients.push({ client, transport: options.transport }); return client; } },
     { RelayMcpTransport: class { async connect() { return {}; } setCredential() {} async callTool(name) { tools.push(name); return {}; } } },
   ];
-  return { ...f, history, response, clients, tools, modules, mutate(fn) { mutate = fn; },
+  return { ...f, head, history, response, clients, tools, modules, mutate(fn) { mutate = fn; },
     invoke(withdrawn = false, planIndex = 0) { return f.read({ owner, relayOrigin, gameOrigin, withdrawn, planIndex }, modules); } };
 }
 test('independent native readback verifies exact human observation, response, digest and two scoped consents using read-only ports', async () => {
@@ -392,6 +396,9 @@ for (const [name, mutate, flag] of [
   ['different consent session', f => { f.history.consents[0].sessionId = 'other'; }, 'boundedExactConsent'],
   ['achievement claim', f => { f.response.competencyClaims.push({ achieved: true }); }, 'noAchievementClaims'],
   ['missing native intent', f => { f.c.window.__hmNativeHumanConsultingTrace.intentConfirmed = false; }, 'intentConfirmedBeforeDelivery'],
+  ['stable binding CID without revision', f => { delete f.head.nativeRevision; }, 'ownerKeyAuthenticatedCheckpoint'],
+  ['substituted record CID', f => { f.head.recordCid = 'graph-nquads-sha256:' + 'b'.repeat(64); }, 'verifiedNativeDigest'],
+  ['a different proof kind', f => { f.head.proofKind = 'per-save-published-signature'; }, 'ownerKeyAuthenticatedCheckpoint'],
 ]) test('native readback refuses to pass ' + name, async () => { const f = await readFixture(); mutate(f); assert.equal((await f.invoke())[flag], false); });
 test('native scope changing during readback never yields successful verification', async () => {
   const f = await readFixture(); f.mutate(() => { f.game.net.NETWS.generation++; });
@@ -404,19 +411,42 @@ test('changed native head permits only withdrawal read polling; initial plan ver
   await assert.rejects(f.invoke(), { code: 'qa_human_readback_changed' });
   assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke(true))), { sharingStopped: false });
 });
+test('stable binding CID with changed native revision cannot pass independent journal verification', async () => {
+  const f = await readFixture(); let reads = 0;
+  f.modules[3].createNativePodClient = () => ({ connect: async () => {},
+    currentHead: async ({ checkpoint }) => {
+      assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1');
+      return { ...structuredClone(f.head), nativeRevision: ++reads % 2 ? 'fixture-native-revision-1' : 'fixture-native-revision-2' };
+    },
+    load: async ({ checkpoint }) => {
+      assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1');
+      return { graphIri: 'fixture', head: structuredClone(f.head), record: structuredClone(f.history),
+        digest: f.head.recordCid, proofKind: f.head.proofKind, operationId: 'fixture-native-operation' };
+    }, close() {} });
+  await assert.rejects(f.invoke(), { code: 'qa_human_readback_changed' });
+  reads = 0;
+  assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke(true))), { sharingStopped: false });
+});
 test('actual Foxxi adapter strict focus mapping agrees with passive helper capture and stable private task', async () => {
   const f = browserFixture({ observed: false });
+  const nativeCalls = [], signing = signingDelegationFixture({ ownerDid: owner.subjectDid,
+    agentDid: f.status.binding.authenticatedAgentDid, podUrl: owner.podUrl });
   const client = createFoxxiConsultant({ binding: f.status.binding, relayUrl: relayOrigin, sessionId: 'fixture-session',
     journal: { authorize() {}, assertAuthorized() {} }, transport: {
       async connect(required) { return { granted: required }; },
-      async callTool(name) {
-        if (name === 'get_pod_status') return { identity: { did: owner.subjectDid }, sessionAgent: { did: f.status.binding.authenticatedAgentDid }, pod: owner.podUrl, userId: 'owner' };
+      async callTool(name, args) {
+        nativeCalls.push({ name, args: structuredClone(args) });
+        if (name === 'get_pod_status') return structuredClone(signing.status);
+        if (name === 'verify_agent') return structuredClone(signing.verified);
         if (name === 'dereference') return { status: 'ok', affordances: [{ action: FOXXI_PLANNER_ACTION, method: 'POST', target: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan' }] };
         throw Error('This contract test must not sign or deliver.');
       },
     } });
   try {
     await client.connect();
+    assert.deepEqual(nativeCalls.find(call => call.name === 'verify_agent').args,
+      { agent_id: f.status.binding.authenticatedAgentDid, pod_url: owner.podUrl });
+    assert(!nativeCalls.some(call => ['register_agent', 'sign_request', 'act'].includes(call.name)));
     const focus = Object.fromEntries(['id', 'title', 'desiredResult', 'workContext'].map(key => [key, f.snapshot.current[key]]));
     const task = { id: 'urn:hallowmarch:play-session:fixture-session', desiredResult: 'Develop effective play through observed Hallowmarch activity and practical support.',
       workContext: 'Hallowmarch play-session coaching for the authenticated player and their separate party companion.', observedResult: f.payload.situation.observed, constraints: f.constraints };

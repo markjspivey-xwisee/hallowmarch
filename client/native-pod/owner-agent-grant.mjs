@@ -19,7 +19,8 @@ export function ownerAgentGrantGraph({ graphIri, grant }) {
 }
 
 /** Public disclosure is an explicit choice for each grant. This composes a
- * scoped game relationship; it never calls register_agent or delegates storage. */
+ * scoped game relationship. Its publisher may repair its own signing credential
+ * through native repair-only setup; it never delegates storage to the grantee. */
 export function createOwnerAgentGrants({ binding, applicationId, audience, relayUrl, credential,
   createClient = createNativePublicRecordClient, crypto = globalThis.crypto, now = Date.now, ...clientOptions } = {}) {
   if (!/^did:[a-z0-9]+:[^\s]{1,500}$/.test(applicationId || '') || !binding?.subjectDid || !crypto?.randomUUID) fail('invalid_game_identity');

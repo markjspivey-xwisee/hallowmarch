@@ -1,16 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION, FOXXI_PLANNER_DESCRIPTOR } from './foxxi-consulting.mjs';
+import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
 const binding = { subjectDid: 'did:web:identity.example:users:u-pk-alice', authenticatedAgentDid: 'did:web:identity.example:agents:hallowmarch-u-pk-alice', podUrl: 'https://pod.example/u-pk-alice/' };
 const target = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan';
 const clock = Date.parse('2026-10-16T22:00:00Z');
 const task = () => ({ id: 'real-player-session-1', workContext: 'Survive the forest encounter', observedResult: 'I ran out of health while attacking.', desiredResult: 'Notice the enemy attack and retreat before defeat.', constraints: ['Touch controls', 'No companion healer'] });
-function fixture(options = {}) {
+function fixture({ missingSigning = false, ...options } = {}) {
   const calls = []; let revoked = false, mode = 'normal', owner = binding.subjectDid;
+  let signingReady = !missingSigning;
+  const signing = signingDelegationFixture({ ownerDid: binding.subjectDid, agentDid: binding.authenticatedAgentDid, podUrl: binding.podUrl, statusPod: 'http://css.railway.internal:3456/u-pk-alice/' });
   const transport = { async connect(required) { return { granted: required }; }, async callTool(name, args) {
     calls.push({ name, args: structuredClone(args) });
-    if (name === 'get_pod_status') return { pod: 'http://css.railway.internal:3456/u-pk-alice/', userId: 'u-pk-alice', identity: { did: owner }, sessionAgent: { did: binding.authenticatedAgentDid } };
+    if (name === 'get_pod_status') return { ...structuredClone(signing.status), identity: { ...signing.status.identity, did: owner } };
+    if (name === 'verify_agent') return structuredClone(signingReady ? signing.verified : signing.missing);
+    if (name === 'register_agent' && missingSigning) { signingReady = true; return { registered: true }; }
     if (name === 'dereference') return { status: 'ok', affordances: [{ action: FOXXI_PLANNER_ACTION, method: 'POST', target: mode === 'recipient-drift' ? target + '-new' : target }] };
     if (name === 'sign_request') {
       const payload = { ...structuredClone(args.payload), agent_id: binding.authenticatedAgentDid, subject_pod_url: binding.podUrl, timestamp: new Date(clock).toISOString() };
@@ -37,6 +42,12 @@ function fixture(options = {}) {
   return { client, calls, setMode(value) { mode = value; }, setOwner(value) { owner = value; } };
 }
 
+test('coaching setup repairs only the authenticated owner delegate before service discovery without sending observations', async () => {
+  const f = fixture({ missingSigning: true }); await f.client.connect(); await f.client.connect();
+  assert.deepEqual(f.calls.filter(call => call.name === 'register_agent').map(call => call.args), [{ agent_id: binding.authenticatedAgentDid, pod_name: 'u-pk-alice', repair_only: true }]);
+  assert(f.calls.findIndex(call => call.name === 'register_agent') < f.calls.findIndex(call => call.name === 'dereference'));
+  assert(!f.calls.some(call => ['sign_request', 'act'].includes(call.name)));
+});
 test('live planner discovery, frozen preview, delegated signer and consent recheck preserve exact human DTO', async () => {
   const f = fixture(); await f.client.connect();
   assert.equal(f.client.status().recipient, target);

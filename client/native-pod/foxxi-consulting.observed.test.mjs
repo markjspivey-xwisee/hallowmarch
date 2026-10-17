@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION } from './foxxi-consulting.mjs';
+import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
 const binding = { subjectDid: 'did:web:identity.example:users:u-pk-alice', authenticatedAgentDid: 'did:web:identity.example:agents:hallowmarch-u-pk-alice', podUrl: 'https://pod.example/u-pk-alice/' };
 const target = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan';
@@ -16,7 +17,8 @@ function fixture({ mutateResponse, afterSign, afterAuthorize, rawResponse } = {}
   const calls = []; let time = clock, revoked = false;
   const transport = { async connect(required) { return { granted: required }; }, async callTool(name, args) {
     calls.push({ name, args: structuredClone(args) });
-    if (name === 'get_pod_status') return { pod: binding.podUrl, userId: 'u-pk-alice', identity: { did: binding.subjectDid }, sessionAgent: { did: binding.authenticatedAgentDid } };
+    if (name === 'get_pod_status') return signingDelegationFixture({ ownerDid: binding.subjectDid, agentDid: binding.authenticatedAgentDid, podUrl: binding.podUrl }).status;
+    if (name === 'verify_agent') return signingDelegationFixture({ ownerDid: binding.subjectDid, agentDid: binding.authenticatedAgentDid, podUrl: binding.podUrl }).verified;
     if (name === 'dereference') return { status: 'ok', affordances: [{ action: FOXXI_PLANNER_ACTION, method: 'POST', target }] };
     if (name === 'sign_request') {
       const payload = { ...structuredClone(args.payload), agent_id: binding.authenticatedAgentDid, subject_pod_url: binding.podUrl, timestamp: new Date(time).toISOString() };

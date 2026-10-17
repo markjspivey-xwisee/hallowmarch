@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAgentOwnSession, AGENT_OWN_SESSION_SURFACE } from './agent-own-session.mjs';
 import { FOXXI_PLANNER_ACTION, FOXXI_PLANNER_DESCRIPTOR } from './foxxi-consulting.mjs';
+import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
 const address = '0x1234567890abcdef1234567890abcdef12345678', id = 'u-eth-1234567890ab';
 const ownerDid = 'did:web:identity.example:users:' + id;
@@ -9,14 +10,21 @@ const agentDid = 'did:web:identity.example:agents:interego-delegate-' + id;
 const player = { subjectDid: 'did:web:identity.example:users:u-pk-player', podUrl: 'https://pod.example/u-pk-player/' };
 const clock = Date.parse('2026-10-17T12:00:00Z');
 const target = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan';
-function fixture(overrides = {}) {
+function fixture({ missingSigning = false, repairAck = 'normal', ...overrides } = {}) {
   const calls = []; let identity = ownerDid, selectedAgent = agentDid, selectedPod = 'http://css.railway.internal:3456/' + id + '/', phase = 'normal';
+  let signingReady = !missingSigning;
   const signMessage = async message => { calls.push({ name: 'host-sign', message }); return 'native-host-signature'; };
   const transport = {
     async connect(required) { calls.push({ name: 'connect', required }); return { granted: required }; },
     async callTool(name, args) {
       calls.push({ name, args: structuredClone(args) });
-      if (name === 'get_pod_status') return { userId: id, identity: { did: identity }, sessionAgent: { did: selectedAgent }, pod: selectedPod };
+      if (name === 'get_pod_status') { const signing = signingDelegationFixture({ ownerDid, agentDid, podUrl: 'https://pod.example/' + id + '/', statusPod: selectedPod }); return { ...signing.status, identity: { ...signing.status.identity, did: identity }, sessionAgent: { did: selectedAgent } }; }
+      if (name === 'verify_agent') { const signing = signingDelegationFixture({ ownerDid, agentDid, podUrl: 'https://pod.example/' + id + '/' }); return signingReady ? signing.verified : signing.missing; }
+      if (name === 'register_agent' && missingSigning) {
+        if (repairAck !== 'lost-before') signingReady = true;
+        if (repairAck !== 'normal') throw Error('Explicit fixture lost repair acknowledgement');
+        return { registered: true };
+      }
       if (name === 'get_current_head') return { urn: args.urn, podUrl: 'https://pod.example/' + id + '/', head: null };
       if (name === 'dereference') return { status: 'ok', affordances: [{ action: FOXXI_PLANNER_ACTION, method: 'POST', target }] };
       if (name === 'sign_request') return { _signature: 'native-envelope-signature', _signed_payload: JSON.stringify({ ...args.payload,
@@ -33,6 +41,7 @@ function fixture(overrides = {}) {
     kind: 'relay-oauth-bearer', method: 'siwe', accessToken: 'private-native-token', refreshToken: 'private-native-refresh', clientId: 'native-client', expiresAt: clock + 3600000 }; };
   const host = createAgentOwnSession({ walletAddress: address, signMessage, nativeSignInWithWallet, humanBinding: player,
     relayUrl: 'https://relay.example', identityOrigin: 'https://identity.example', redirectUri: 'http://127.0.0.1:43210/callback', now: () => clock,
+    fetch: async (url, init) => { calls.push({ name: 'own-pod-resource-read', url, method: init.method, authenticated: new Headers(init.headers).get('Authorization') === 'Bearer private-native-token' }); return init.method === 'OPTIONS' ? new Response(null, { status: 204, headers: { 'Interego-Native-Commit': '1', 'Accept-Put': 'application/vnd.interego.native-commit+json' } }) : new Response(null, { status: 404 }); },
     createTransport: (relay, credential) => { calls.push({ name: 'transport', relay, credential }); return transport; }, ...overrides });
   return { host, calls, transport, signMessage, setOwner(value) { identity = value; }, setAgent(value) { selectedAgent = value; }, setPod(value) { selectedPod = value; }, setPhase(value) { phase = value; } };
 }
@@ -52,6 +61,19 @@ test('the player wallet cannot be relabeled as an independent agent', () => {
   assert.throws(() => fixture({ humanBinding: { ...player, podUrl: 'https://pod.example/' + id + '/' } }), { code: 'separate_agent_identity_required' });
   assert.throws(() => fixture({ humanBinding: { subjectDid: 'did:ethr:' + address, podUrl: 'https://pod.example/eth-1234567890ab/' } }), { code: 'separate_agent_identity_required' });
 });
+test('native host repairs only its own current credential and reconnect confirms without a second write', async () => {
+  const f = fixture({ missingSigning: true, repairAck: 'lost-after' });
+  await f.host.connect(); await f.host.reconnect();
+  assert.deepEqual(f.calls.filter(call => call.name === 'register_agent').map(call => call.args), [{ agent_id: agentDid, pod_name: id, repair_only: true }]);
+  assert(!JSON.stringify(f.calls.filter(call => call.name === 'register_agent')).includes(player.subjectDid));
+});
+test('native host retains an unresolved repair fence across explicit sign-in retry', async () => {
+  const f = fixture({ missingSigning: true, repairAck: 'lost-before' });
+  await assert.rejects(f.host.connect(), { code: 'native_signing_repair_pending' });
+  await assert.rejects(f.host.reconnect(), { code: 'native_signing_repair_pending' });
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, 1);
+  assert.equal(f.host.status().connected, false);
+});
 for (const field of ['owner', 'agent', 'pod']) test('native ' + field + ' substitution fails before any consultation or signature', async () => {
   const f = fixture();
   if (field === 'owner') f.setOwner(player.subjectDid);
@@ -65,8 +87,10 @@ test('agent-owned private journal opens read-only with host key storage; no wall
   const journal = f.host.createJournal({ sessionId: 'agent-work-1', keyStorage: {
     async load(scope) { loads.push(scope); return null; }, async create() { throw Error('Unexpected key mint'); } } });
   await journal.connect(); assert(loads.length > 0); assert(loads.every(scope => scope.includes(ownerDid) && !scope.includes(player.subjectDid)));
-  assert.equal(journal.status().ownerDid, ownerDid);
+  assert.equal(journal.status().ownerDid, ownerDid); assert.equal(journal.status().checkpoint, 'hallowmarch-performance-consultation/v1');
+  const reads = f.calls.filter(call => call.name === 'own-pod-resource-read'); assert(reads.length > 0); assert(reads.every(call => ['GET', 'OPTIONS'].includes(call.method) && call.authenticated && call.url.startsWith('https://pod.example/' + id + '/hallowmarch/checkpoints/')));
   assert.equal(f.calls.some(c => ['register_agent', 'publish_context', 'act'].includes(c.name)), false);
+  assert(reads.some(call => call.method === 'GET'));
   f.host.close(); await assert.rejects(journal.read());
 });
 test('a brought agent consults as its own performer through the existing journal consent and live Foxxi adapter', async () => {

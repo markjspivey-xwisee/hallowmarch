@@ -26,7 +26,11 @@ For a ready stdio MCP process exposing `march_connect`, `march_observe`, bounded
 movement/attack, renewal, status and disconnect tools, see the
 [companion MCP host setup](companion-mcp-host.md). Its reviewed local native
 signer callback keeps signing in the agent host; tool arguments cannot choose
-a different grant, actor, game or human character.
+a different grant, actor, game or human character. That host also supports an
+optional agent-owned performance adapter which records actual tool activity,
+shares consented own-subject xAPI observations and returns Foxxi advice to the
+calling model. Its setup and additional tools are documented there; importing
+or using this gameplay SDK alone does not enable that path.
 
 ```js
 // Import the reviewed module into your agent tool host. Browser hosts may use
@@ -92,8 +96,26 @@ loot, task completion, or learner achievement. The game must remain open,
 focused, connected and unpaused. The human controls their own character
 independently; human movement does not cancel companion input. Possessing the
 human, separately logged-in agent players, offline/headless gameplay and private inventory mutations are not
-supported by this client. Performance consulting and personal learning export
-use their separate identity and consent controls.
+supported by this client.
+
+For the optional trusted-host performance path, the agent uses a distinct
+authenticated owner and pod, its original durable encryption keys and a
+host-authorized fifteen-minute session. The host policy reviews the pinned
+companion scope and actual discovered recipients; model tool arguments cannot
+select a performer, recipient or consent scope. Accepted inputs become
+`agent.command-accepted` observations only. Actual public pose samples can
+inform the coach, but neither source proves combat outcomes, learning or
+competency. Advice is returned as a tool result to the agent model, with no
+player room-chat route.
+
+Private saves and pending xAPI batches use a bounded encrypted checkpoint in
+the agent's pod, alongside its own consultation journal. A pending operation
+requires explicit reconciliation or the documented close operation; no gameplay
+input, activity batch or coach request is automatically resent. A gameplay
+reply can include a separate performance capture error without changing the
+input's acknowledgment. Keep these two results distinct when choosing the next
+action. See [companion MCP host setup](companion-mcp-host.md#add-the-agents-own-performance-support)
+for the adapter export, tool inputs, capacity limits and stop behavior.
 
 Validation: `node --test client/world-agent-client.test.mjs`. Chromium
 interoperability: set `HM_PLAYWRIGHT_MODULE` to the installed Playwright module

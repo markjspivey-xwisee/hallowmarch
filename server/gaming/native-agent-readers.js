@@ -224,7 +224,9 @@ export function createNativeAgentProofReaders(options = {}) {
       if (typeof turtle !== 'string' || normalize(descriptor.url) !== current.descriptorUrl || String(core.computeCid(turtle)) !== current.cid
         || descriptor.graph?.encrypted !== false || typeof descriptor.graph.content !== 'string') fail('native_grant_descriptor_rejected');
       const report = descriptor.authorship;
-      if (report?.authorshipVerified !== true || report.contentBinding !== 'bound' || report.effectiveTrustLevel !== 'CryptographicallyVerified'
+      // This verifies the relay attestation. Current publisher delegation is
+      // independently anchored to the pinned signer and checked below.
+      if (report?.authorshipVerified !== true || report.contentBinding !== 'bound' || report.signatureAuthority !== 'relay'
         || report.descriptorBinding?.bound !== true || !['exact-url', 'slug-and-owner'].includes(report.descriptorBinding.basis)) fail('native_grant_authorship_rejected');
       const proof = solid.parseAuthorshipProofFromDescriptorTurtle(turtle), region = solid.digestedGraphRegion({ descriptorTurtle: turtle, graphContent: descriptor.graph.content });
       if (!proof || proof.ownerWebId !== reference.owner.webId || report.signedBy !== proof.issuer || region.ok !== true || region.graphIri !== reference.graphIri) fail('native_grant_owner_rejected');

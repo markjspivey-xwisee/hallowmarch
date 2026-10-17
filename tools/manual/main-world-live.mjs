@@ -1,6 +1,7 @@
 /** Explicit mutating manual QA of the real 3D world. No import-time I/O. */
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { nativeLiveStages } from './native-live-stages.mjs';
+import { readMainWorldGrant, safeMainWorldGrantRead, publicMainWorldGrantReference } from './main-world-grant-diagnostics.mjs';
 import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage } from '../../server/gaming/native-agent-proof.js';
 const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world live verification refused.'), { code }); };
 const companionId = (ownerId, bodyId) => typeof ownerId === 'string' && typeof bodyId === 'string'
@@ -9,6 +10,24 @@ export function mainWorldAdmissionCanRestart({ stopped, reference, localRevoked,
   return !stopped && !!reference && !localRevoked && (admission
     ? completeAttempted === true && admission.expiresAt <= now
     : !!challenge && challenge.expiresAt <= now && (completeAttempted === true || !envelope));
+}
+export function mainWorldPauseCanRecover({ stage, busy, failed, stopped, reference, localRevoked, podRevoked, paused,
+  signedAdmission, mainWorldMoved, humanMoved, peerSawMovement, renewed, movementInputs }) {
+  return stage === 'actual-main-game-owner-revocation' && !busy && failed === true && !stopped && !!reference
+    && !localRevoked && !podRevoked && !paused && signedAdmission === true && mainWorldMoved === true && humanMoved === true
+    && peerSawMovement === true && renewed === true
+    && Array.isArray(movementInputs) && movementInputs.length === 8 && movementInputs.every(input => input.attempted === true && input.confirmed === true);
+}
+/** Used by both ordinary proof and explicit recovery. A current, positively
+ * refreshed lease must cover the UI pause and its immediate negative probe.
+ * No movement retry port is available to this orchestration. */
+export async function mainWorldPauseProof({ resume, refresh, pause, probe, now = Date.now }) {
+  if (resume) await resume();
+  const lease = await refresh();
+  check(Number.isSafeInteger(lease?.expiresAt) && lease.expiresAt - now() >= 3500, 'qa_world_pause_lease_short');
+  await pause();
+  check(lease.expiresAt > now(), 'qa_world_pause_lease_expired');
+  await probe();
 }
 export function mainWorldLiveMotionEvidence(value) {
   check(value && companionId(value.ownerId, value.bodyId) && value.ownerId !== value.bodyId, 'qa_world_separate_body');
@@ -28,6 +47,8 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
   let page, description, routes, ownerBody, reference, key, challenge, envelope, admission, sequence = 0;
   let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, revokeClicked = false, lastHttp = null;
   let movement = null, movementBefore = null, needAdmission = false, companionCreateClicked = false, reloadAttempted = false, reloadDocument = null, reloadContinueClicked = false;
+  let pauseFailed = false, pauseRecovering = false;
+  let pendingReference = null, lastGrantRead = null;
   const movementInputs = [];
   const results = { normalGame: false, separateCompanion: false, nativeCompanionSave: false, signedAdmission: false,
     mainWorldMoved: false, humanMoved: false, peerSawMovement: false, renewed: false, paused: false, companionReloaded: false, negative: [] };
@@ -50,7 +71,9 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
     return { sessionId: admission.sessionId, sequence: seq, at, command,
       signature: sign(null, Buffer.from(agentCommandMessage(admission.sessionId, request)), key.privateKey).toString('base64url') };
   }
-  async function refuse(name, payload, code) { const r = await call(routes.command, payload); check(r.status === 403 && r.value.error === code, 'qa_world_negative_failed'); if (!results.negative.includes(name)) results.negative.push(name); }
+  async function refuse(name, payload, code) { const r = await call(routes.command, payload); check(r.status === 403
+    && (Array.isArray(code) ? code.includes(r.value.error) : r.value.error === code), 'qa_world_negative_failed');
+    if (!results.negative.includes(name)) results.negative.push(name); }
   async function admitNative() {
       if (admission?.expiresAt > Date.now() && results.signedAdmission) return;
       description ||= (await call(pageOrigin() + '/world/native-agents')).value;
@@ -70,6 +93,61 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         && admission.receipt.scope.roomId === ownerBody.roomId && admission.expiresAt > Date.now(), 'qa_world_admission_expired');
       results.signedAdmission = true;
       needAdmission = false;
+  }
+  async function refreshPauseLease(allowReadmission) {
+    check(!stopped && !localRevoked && !podRevoked && routes && key, 'qa_world_pause_refresh_refused');
+    if (!admission || admission.expiresAt <= Date.now()) {
+      check(allowReadmission && mainWorldAdmissionCanRestart({ stopped, reference, localRevoked, completeAttempted, admission, challenge, envelope }), 'qa_world_admission_expired');
+      // Expired proof only: keep the original owner, native relationship and
+      // eight confirmed input receipts. Never replay their movement commands.
+      key = challenge = envelope = admission = null; completeAttempted = false; sequence = 0; needAdmission = true;
+      await admitNative();
+      return admission;
+    }
+    const at = Date.now(), next = sequence + 1;
+    const renewed = accepted(await call(routes.renew, { sessionId: admission.sessionId, sequence: next, at,
+      signature: sign(null, Buffer.from(agentRenewalMessage(admission.sessionId, { sequence: next, at })), key.privateKey).toString('base64url') }));
+    sequence = next; admission.expiresAt = renewed.expiresAt;
+    return admission;
+  }
+  async function resumeForPauseRecovery() {
+    const bound = await page.evaluate(({ ownerId, bodyId, grantId, actor }) => {
+      const h = window.__hm, record = h?.worldAgents.state.records.get(grantId);
+      return h?.net.NETWS.acct?.id === ownerId && h.worldAgents.bodies().some(body => body.id === bodyId && body.entity !== h.GAME.player)
+        && record?.registered && !record.localRevoked && record.grant?.revoked === false && record.grant.actor === actor;
+    }, { ownerId: ownerBody.ownerId, bodyId: ownerBody.id, grantId: reference.grantId, actor: config.agentDid });
+    check(bound, 'qa_world_pause_owner_changed');
+    if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+    await page.locator('#world-agent-resume').click();
+    const previousFrame = await page.evaluate(() => window.__hm.worldAgents.state.lastFrame);
+    await page.locator('#netsheet-close').click(); await page.bringToFront();
+    await page.waitForFunction(({ bodyId, previousFrame }) => {
+      const h = window.__hm, state = h?.worldAgents.state;
+      return h?.GAME.started && h.net.NETWS.state === 'on' && !h.UI.modal && document.hasFocus()
+        && !state.paused && state.allowed.has(bodyId) && state.lastFrame > previousFrame;
+    }, { bodyId: ownerBody.id, previousFrame }, { timeout: 10000 });
+  }
+  async function proveOwnerPause(recover = false) {
+    await mainWorldPauseProof({ ...(recover ? { resume: resumeForPauseRecovery } : {}),
+      refresh: () => refreshPauseLease(recover),
+      pause: async () => {
+        if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+        await page.locator('#world-agent-pause').click();
+        const previousFrame = await page.evaluate(() => window.__hm.worldAgents.state.lastFrame);
+        // Confirm the explicit Pause remains set after closing Players, with a
+        // fresh paused owner frame rather than spending the lease on a delay.
+        await page.locator('#netsheet-close').click();
+        await page.waitForFunction(previousFrame => {
+          const h = window.__hm, state = h?.worldAgents.state;
+          return !h?.UI.modal && state?.paused && !state.intent && state.lastFrame > previousFrame;
+        }, previousFrame, { timeout: 10000 });
+      },
+      probe: () => refuse('owner-pause', signed({ ...movement, commandId: admission.sessionId + ':' + randomUUID() }),
+        // A paused owner frame may win first, or its live page may refuse a
+        // dispatch already in flight. Session expiry is never pause evidence.
+        ['native_body_forbidden', 'native_owner_input_refused']),
+    });
+    results.paused = true;
   }
   async function revokeAccess() {
       check(reference && routes && key, 'qa_world_revoke_unavailable');
@@ -172,6 +250,12 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         const read = await window.__hm.worldAgents.state.client.load(record.reference);
         return { ...read, registered: record.registered };
       });
+      const candidate = publicMainWorldGrantReference(state?.reference);
+      if (candidate) {
+        check(!pendingReference || pendingReference.grantId === candidate.grantId && pendingReference.graphIri === candidate.graphIri,
+          'qa_world_grant_pending');
+        pendingReference ||= candidate;
+      }
       check(state?.registered && !state.pending && state.grant?.actor === config.agentDid && !state.grant.revoked
         && state.grant.entityId === ownerBody.id && state.grant.roomId === ownerBody.roomId, 'qa_world_grant_pending');
       reference = state.reference;
@@ -249,15 +333,9 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
     } },
     { name: 'actual-main-game-owner-revocation', async run() {
       if (!results.paused) {
-        if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
-        await page.locator('#world-agent-pause').click();
-        await page.waitForFunction(() => window.__hm.worldAgents.state.paused && !window.__hm.worldAgents.state.intent, null, { timeout: 10000 });
-        // Opening Players also pauses dispatch. The explicit product Pause
-        // must remain in force once the panel is closed.
-        await page.locator('#netsheet-close').click();
-        await page.waitForTimeout(700);
-        await refuse('owner-pause', signed({ ...movement, commandId: admission.sessionId + ':' + randomUUID() }), 'native_body_forbidden');
-        results.paused = true;
+        check(!pauseFailed, 'qa_world_pause_recovery_required');
+        try { await proveOwnerPause(); }
+        catch (error) { pauseFailed = true; throw error; }
       }
       await revokeAccess();
     } },
@@ -290,7 +368,20 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
     } },
   ], onStage);
   return Object.freeze({
-    status() { return { kind: 'main_world_qa', ...stages.status(), ...results, publicReference: reference || null, localRevoked, podRevoked, reloadAttempted, lastHttp }; },
+    status() { return { kind: 'main_world_qa', ...stages.status(), busy: stages.status().busy || pauseRecovering,
+      ...results, pauseFailed, pauseRecovering, confirmedMovementInputs: movementInputs.filter(item => item.confirmed).length,
+      publicationClicked, publicReference: reference || null, lastGrantRead, localRevoked, podRevoked, reloadAttempted, lastHttp }; },
+    async readGrant() {
+      const state = stages.status();
+      check(state.stage === 'actual-main-game-public-grant' && !state.busy && publicationClicked && !stopped
+        && !admission && !completeAttempted && page && !page.isClosed() && ownerBody, 'qa_world_grant_read_refused');
+      const read = safeMainWorldGrantRead(await page.evaluate(readMainWorldGrant, {
+        ownerId: ownerBody.ownerId, bodyId: ownerBody.id, roomId: ownerBody.roomId, actor: config.agentDid, reference: pendingReference,
+      }));
+      if (read.reference) pendingReference ||= read.reference;
+      lastGrantRead = read;
+      return read;
+    },
     async diagnose() { if (!page || page.isClosed()) return { pageAvailable: false }; return page.evaluate(() => {
       const h = window.__hm, p = h?.GAME.player, peer = window.__mainWorldQaPeer;
         return { t: h?.GAME.t, position: p ? { x:p.x, y:p.y, z:p.z, alive:p.alive } : null,
@@ -298,6 +389,14 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         paused:h?.worldAgents.state.paused, hasIntent:!!h?.worldAgents.state.intent, humanKeys:h ? [...h.INPUT.keys].filter(k=>/^Key[WASD]$|^Arrow/.test(k)) : [],
         gameErrors:h?.errors.length, peerSeen:peer?.seen, peerPosition:peer?.position, network:h?.net.state().state, fastSent:h?.net.NET.stats.fastSent }; }); },
     revoke: () => revokeAccess(),
+    async recoverPause() {
+      check(mainWorldPauseCanRecover({ ...stages.status(), failed: pauseFailed, stopped, reference, localRevoked, podRevoked,
+        ...results, movementInputs }), 'qa_world_pause_recovery_refused');
+      check(!pauseRecovering, 'qa_world_pause_recovery_refused'); pauseRecovering = true;
+      try { await proveOwnerPause(true); pauseFailed = false; }
+      finally { pauseRecovering = false; }
+      return this.status();
+    },
     next: async () => { if (needAdmission) await admitNative(); return stages.next(); }, remaining: async () => { if (needAdmission) await admitNative(); return stages.remaining(); },
     restartAdmission() { check(mainWorldAdmissionCanRestart({ stopped, reference, completeAttempted, localRevoked, admission, challenge, envelope }), 'qa_world_restart_refused');
       key = challenge = envelope = admission = null; completeAttempted = false; sequence = 0; needAdmission = true; return this.status(); },

@@ -2,7 +2,7 @@
 
 This is a reusable gaming vertical over `public-record.mjs`; Hallowmarch supplies its native service DID, exact public origin, authoritative room, and companion body. It does not define the game with a performance consulting vocabulary.
 
-`createOwnerAgentGrants({binding,applicationId,audience,relayUrl,credential,...})` uses the already verified player's binding (`subjectDid`, `webId`, `podUrl`). The application ID is the native game service DID. The audience is the exact HTTPS game origin. `connect()` verifies the native owner connection. Native access credentials and keys never enter a game request.
+`createOwnerAgentGrants({binding,applicationId,audience,relayUrl,credential,...})` uses the already verified player's binding (`subjectDid`, `webId`, `podUrl`). The application ID is the native game service DID. The audience is the exact HTTPS game origin. `connect()` verifies the native owner connection and the publisher's current signed delegation. Fresh registry-only publishers can obtain only their own missing signing credential through the advertised native repair-only setup described in `public-record.README.md`; the grantee receives no storage authority. Native access credentials and keys never enter a game request.
 
 ```js
 const grants = createOwnerAgentGrants({ binding, applicationId, audience, relayUrl, credential });

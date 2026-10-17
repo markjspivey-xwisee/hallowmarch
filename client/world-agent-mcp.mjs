@@ -16,6 +16,13 @@ const tools = [
   ['march_status', 'Show public local connection status without keys, credentials, native envelopes or private character data.', noArgs],
   ['march_disconnect', 'Close this host’s local companion connection and drop its ephemeral key reference. The owner separately pauses or revokes access in the game and pod.', noArgs],
 ].map(([name, description, inputSchema]) => Object.freeze({ name, description, inputSchema }));
+const performanceTools = [
+  ['march_performance_start', 'Activate the trusted host’s separately authorized 15-minute agent-own performance session. Gameplay access does not grant this consent.', noArgs],
+  ['march_performance_status', 'Flush already-consented captured performance within the bounded 30-second budget, then show RAM/confirmed counts and unknown-delivery status. May update this agent’s own pod and performance recipient.', noArgs],
+  ['march_performance_stop', 'Immediately stop agent performance capture and fence pending continuations; attempt own-pod consent withdrawal. Gameplay control remains separate.', noArgs],
+  ['march_coach', 'Consult from actual bounded companion observations as the independent agent; receive the actual coach reply here. Never replay an uncertain request.', noArgs],
+  ['march_performance_reconcile', 'Explicit recovery only: confirm private saves, read outstanding activity IDs, or close an unknown batch/consultation without resending.', schema({ operation: { type: 'string', enum: ['private-save', 'activity-read', 'activity-close', 'consultation-close'] } })],
+].map(([name, description, inputSchema]) => Object.freeze({ name, description, inputSchema }));
 
 export function validateWorldAgentConnection(value) {
   if (!plain(value) || !['origin', 'applicationId', 'agentDid', 'grantId', 'roomId', 'entityId'].every(k => Object.hasOwn(value, k))
@@ -33,26 +40,35 @@ export function validateWorldAgentConnection(value) {
   return Object.freeze(Object.fromEntries(['origin', 'applicationId', 'agentDid', 'grantId', 'roomId', 'entityId'].map(k => [k, value[k]])));
 }
 
-export function createWorldAgentMcpHost({ connection, sign_request, createClient = createWorldAgentClient } = {}) {
+export function createWorldAgentMcpHost({ connection, sign_request, createClient = createWorldAgentClient, performance } = {}) {
   const config = validateWorldAgentConnection(connection);
   if (typeof sign_request !== 'function' || typeof createClient !== 'function') throw TypeError('native_signing_callback_required');
+  if (performance && !['start', 'stop', 'status', 'flush', 'beginCapture', 'capture', 'coach', 'reconcile', 'close'].every(name => typeof performance[name] === 'function')) throw TypeError('trusted_performance_port_required');
+  if (performance && ['origin', 'applicationId', 'agentDid', 'grantId', 'roomId', 'entityId'].some(key => performance.status()[key] !== config[key])) throw TypeError('performance_scope_mismatch');
+  const availableTools = performance ? [...tools, ...performanceTools] : tools;
   let client = null, closed = false, initialized = false, negotiated = false;
   const status = () => client?.status() || { connected: false, closed, applicationId: config.applicationId, audience: config.origin, agentDid: config.agentDid };
   const result = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: { result: value } });
   const toolFailure = error => ({ isError: true, content: [{ type: 'text', text: JSON.stringify({
     error: error instanceof WorldAgentClientError ? error.code : 'agent_tool_failed',
     uncertain: error?.uncertain === true,
+    ...(performance ? { performance: performance.status() } : {}),
     ...(error?.uncertain === true ? { nextStep: 'Observe current state after explicit reconnection. Do not automatically resend the prior input.' } : {}),
   }) }] });
   const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
   async function call(name, args) {
-    const descriptor = tools.find(tool => tool.name === name);
+    const descriptor = availableTools.find(tool => tool.name === name);
     if (!descriptor) return { isError: true, content: [{ type: 'text', text: '{"error":"unknown_agent_tool"}' }] };
     const fields = Object.keys(descriptor.inputSchema.properties);
     if (!exact(args, fields)) return { isError: true, content: [{ type: 'text', text: '{"error":"invalid_agent_arguments"}' }] };
     try {
       if (name === 'march_status') return result(status());
-      if (name === 'march_disconnect') { client?.close(); client = null; return result(status()); }
+      if (name === 'march_performance_status') return result(await performance.flush());
+      if (name === 'march_performance_stop') return result(await performance.stop());
+      if (name === 'march_performance_reconcile') return result(await performance.reconcile(args.operation));
+      if (name === 'march_disconnect') { client?.close(); client = null; Promise.resolve(performance?.stop()).catch(() => {}); return result(status()); }
+      if (name === 'march_performance_start') { if (!client?.status().connected) throw new WorldAgentClientError('agent_connection_required'); return result(await performance.start()); }
+      if (name === 'march_coach') return result(await performance.coach());
       if (name === 'march_connect') {
         client?.close(); const held = createClient({ origin: config.origin, applicationId: config.applicationId, agentDid: config.agentDid, sign_request });
         client = held;
@@ -60,7 +76,24 @@ export function createWorldAgentMcpHost({ connection, sign_request, createClient
       }
       if (!client) throw new WorldAgentClientError('agent_connection_required');
       const method = { march_observe: 'observe', march_move: 'move', march_attack: 'attack', march_renew: 'renew' }[name];
-      return result(await client[method](...(fields.length ? [args] : [])));
+      // Consent eligibility belongs to the invocation, not a late world ACK.
+      let ticket; try { ticket = performance?.beginCapture(); } catch { /* Gameplay remains available if capture setup fails. */ }
+      let value;
+      try { value = await client[method](...(fields.length ? [args] : [])); }
+      catch (error) {
+        if (performance && error?.uncertain === true) { try { Promise.resolve(performance.capture({ ticket, action: method, uncertain: true })).catch(() => {}); } catch { /* Preserve gameplay uncertainty; never replay input. */ } }
+        throw error;
+      }
+      if (performance && ['observe', 'move', 'attack'].includes(method)) {
+        let performanceStatus; try {
+          const captured = performance.capture({ ticket, action: method, result: value });
+          if (captured && typeof captured.then === 'function') { Promise.resolve(captured).catch(() => {}); performanceStatus = performance.status(); }
+          else performanceStatus = captured;
+        }
+        catch { performanceStatus = { ...performance.status(), code: 'agent_performance_unconfirmed' }; }
+        return result({ ...value, performance: performanceStatus });
+      }
+      return result(value);
     } catch (error) { return toolFailure(error); }
   }
   return Object.freeze({
@@ -83,12 +116,12 @@ export function createWorldAgentMcpHost({ connection, sign_request, createClient
       }
       if (message.method === 'ping') return { jsonrpc: '2.0', id, result: {} };
       if (!initialized) return rpcError(id, -32000, 'Initialize the MCP session first');
-      if (message.method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools } };
+      if (message.method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: availableTools } };
       if (message.method !== 'tools/call') return rpcError(id, -32601, 'Method not found');
       if (!plain(message.params) || typeof message.params.name !== 'string'
         || Object.keys(message.params).some(k => !['name', 'arguments', '_meta'].includes(k))) return rpcError(id, -32602, 'Invalid tool call');
       return { jsonrpc: '2.0', id, result: await call(message.params.name, message.params.arguments ?? {}) };
     },
-    close() { if (closed) return; closed = true; client?.close(); client = null; },
+    close() { if (closed) return; closed = true; client?.close(); client = null; Promise.resolve(performance?.close()).catch(() => {}); },
   });
 }

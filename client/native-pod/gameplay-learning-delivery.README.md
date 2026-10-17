@@ -5,7 +5,13 @@ the owner's own browser session and Foxxi's advertised own-subject xAPI action.
 The game server never receives the browser bearer, decrypts the activity record,
 signs a personal learning statement, or substitutes its service identity.
 
-Connecting the module is read-only. The player separately enables
+Connecting verifies the exact owner's current signed delegation and discovers
+the live service. A registry-only bootstrap can obtain only its existing
+delegate's missing credential through the relay's advertised `repair_only: true`
+setup; it never changes registry authority or scope, grants consent or sends
+activity. An already verified signer requires no repair write, and unsupported,
+revoked or narrowed authority is refused. A lost repair acknowledgement is
+confirmed by reads without another repair from that adapter. The player separately enables
 `record-gameplay-activity` for the exact current session, character task and live
 Foxxi write recipient. The existing encrypted consultation journal retains that
 choice for at most fifteen minutes; choosing coaching does not enable learning

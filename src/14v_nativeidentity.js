@@ -152,7 +152,10 @@ function nativePlayerRender() {
       action('Restore recovery file', () => file.click());
       file.onchange = () => { if (file.files[0]) nativePlayerRestore(file.files[0], pass.value); };
       action('Retry pod save', () => nativePlayerTask(async () => {
-        if (!GAME.started && !SAVE.readConfirmed) { await nativePlayerRetryLoad(); return; }
+        if (!GAME.started && !SAVE.readConfirmed) {
+          if (profile.status().pending) await profile.retry();
+          await nativePlayerRetryLoad(); return;
+        }
         await profile.retry(); if (SAVE.pending) await saveNow();
       }));
       if (!profile.status().hasRecord && status.legacyImportAvailable) action('Import my previous character', nativePlayerImport);

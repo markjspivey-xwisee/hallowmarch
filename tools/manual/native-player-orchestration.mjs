@@ -107,7 +107,8 @@ export function qaPageInventory(entries, { gameOrigin, relayOrigin }) {
 const fixedSteps = new Set(['binding-check', 'access-cache', 'profile-connect', 'recipient-register-resume', 'browser-key-create',
   'encrypted-recovery-export', 'profile-confirmation-retry', 'profile-set', 'exact-profile-readback', 'game-pointer-link',
   'native-connect', 'owner-index-head', 'profile-head', 'recipient-registry-read', 'signed-descriptor-readback',
-  'recipient-register', 'owner-index-publish', 'profile-publish', 'encrypted-readback', 'native-capability']);
+  'recipient-register', 'owner-index-publish', 'profile-publish', 'encrypted-readback', 'native-capability',
+  'native-checkpoint-options', 'native-checkpoint-get', 'native-checkpoint-put', 'native-checkpoint-read']);
 const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input', 'invalid_record', 'invalid_identity', 'invalid_owner', 'invalid_relay',
   'invalid_credential', 'record_capacity', 'key_storage_unavailable', 'not_connected', 'native_unavailable',
   'capability_missing', 'owner_mismatch', 'native_contract', 'key_required', 'key_exists', 'recipient_conflict',
@@ -116,7 +117,28 @@ const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input
   'invalid_profile', 'invalid_profile_index', 'missing_profile_index', 'profile_index_conflict', 'pod_pending',
   'pod_index_pending', 'pod_link_pending', 'unread_record', 'missing_record', 'recovery_required', 'revoked',
   'tool_error', 'manifest_incomplete', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
-  'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
+  'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout',
+  'checkpoint_binding_pending', 'checkpoint_binding_conflict', 'checkpoint_write_budget', 'missing_checkpoint',
+  'invalid_checkpoint', 'invalid_checkpoint_mode', 'invalid_checkpoint_sender', 'INVALID_ARGUMENT', 'UNSUPPORTED',
+  'TRANSPORT', 'TIMEOUT', 'HTTP', 'INTEGRITY', 'LIMIT', 'CONFLICT', 'qa_checkpoint_recovery_refused',
+  'qa_checkpoint_digest_changed', 'qa_checkpoint_key_changed', 'qa_checkpoint_write_refused']);
+const checkpointStages = new Set(['protocol-discovery', 'native-read', 'headers', 'envelope', 'owner-key', 'decrypt',
+  'body-scope', 'record-digest', 'binding-plan', 'budget', 'history']);
+const checkpointChecks = new Set(['schema', 'owner', 'pod', 'graph', 'resource', 'mode', 'key', 'operation', 'previous-revision',
+  'time', 'history-shape', 'budget-shape', 'binding-schema', 'record-digest', 'binding-value', 'binding-digest', 'binding-graph',
+  'binding-plan-digest', 'binding-record', 'binding-record-value', 'budget-entry', 'history-entry']);
+/** No body, credential, arbitrary code or browser string is emitted. */
+export function nativeCheckpointReadResult(value) {
+  return { ok: value?.ok === true, found: value?.found === true, checkpointVerified: value?.checkpointVerified === true,
+    hasNativeRevision: value?.hasNativeRevision === true, code: fixedCodes.has(value?.code) ? value.code : null,
+    numericCode: numericCode(value?.numericCode), checkpointStage: checkpointStages.has(value?.checkpointStage) ? value.checkpointStage : null,
+    checkpointCheck: checkpointChecks.has(value?.checkpointCheck) ? value.checkpointCheck : null,
+    ...(value?.knownCommitted === true && /^sha256:[0-9a-f]{64}$/.test(value.cipherDigest || '')
+      && /^sha256:[0-9a-f]{64}$/.test(value.nativeRevision || '') && /^[0-9a-f]{64}$/.test(value.recipientKeyHash || '')
+      && Number.isSafeInteger(value.storedBytes) && value.storedBytes > 0 && value.storedBytes <= 4194304
+      ? { knownCommitted: true, originalWriteMatched: value.originalWriteMatched === true, cipherDigest: value.cipherDigest,
+        nativeRevision: value.nativeRevision, recipientKeyHash: value.recipientKeyHash, storedBytes: value.storedBytes } : {}) };
+}
 const numericCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599) || (value >= -32700 && value <= -32000)) ? value : null;
 const profileStates = new Set(['idle', 'identity_unconfirmed', 'native_identity_required', 'native_signin_required',
   'connecting', 'ready', 'key_required', 'saving', 'uncertain', 'index_pending', 'link_pending', 'saved', 'closed']);
@@ -144,8 +166,12 @@ function publicState(value) {
     }
     const count = value.nativeQa.nativePendingCount;
     if (Number.isSafeInteger(count) && count >= 0 && count <= 4096) result.nativeQa.nativePendingCount = count;
+    if (Number.isSafeInteger(value.nativeQa.checkpointWriteCount) && value.nativeQa.checkpointWriteCount >= 0 && value.nativeQa.checkpointWriteCount <= 4096) result.nativeQa.checkpointWriteCount = value.nativeQa.checkpointWriteCount;
     result.nativeQa.step = fixedSteps.has(value.nativeQa.step) ? value.nativeQa.step : null;
     result.nativeQa.code = fixedCodes.has(value.nativeQa.code) ? value.nativeQa.code : null;
+    result.nativeQa.numericCode = numericCode(value.nativeQa.numericCode);
+    result.nativeQa.checkpointStage = checkpointStages.has(value.nativeQa.checkpointStage) ? value.nativeQa.checkpointStage : null;
+    result.nativeQa.checkpointCheck = checkpointChecks.has(value.nativeQa.checkpointCheck) ? value.nativeQa.checkpointCheck : null;
     result.nativeQa.keyStatusCode = fixedCodes.has(value.nativeQa.keyStatusCode) ? value.nativeQa.keyStatusCode : null;
     result.nativeQa.profileState = ['connecting', 'ready', 'key_required', 'saving', 'uncertain', 'index_pending', 'link_pending', 'saved', 'closed']
       .includes(value.nativeQa.profileState) ? value.nativeQa.profileState : null;
@@ -153,6 +179,7 @@ function publicState(value) {
       step: fixedSteps.has(entry?.step) ? entry.step : null,
       outcome: ['returned', 'refused', 'threw'].includes(entry?.outcome) ? entry.outcome : null,
       code: fixedCodes.has(entry?.code) ? entry.code : null, numericCode: numericCode(entry?.numericCode),
+      ...(Number.isSafeInteger(entry?.elapsedMs) && entry.elapsedMs >= 0 && entry.elapsedMs <= 120000 ? { elapsedMs: entry.elapsedMs } : {}),
     })) : [];
   }
   return result;

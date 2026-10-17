@@ -3,13 +3,14 @@
  * A game service identity never signs, transports or owns personal statements. */
 import { RelayMcpTransport } from './vendor/interego-browser.mjs';
 import { gameplayActivityStatement, validateGameplayActivityEvent } from './gameplay-activity.mjs';
+import { createNativeSigningDelegation } from './signing-delegation.mjs';
 
 export const GAMEPLAY_LEARNING_DESCRIPTOR = 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject/affordance';
 export const GAMEPLAY_LEARNING_WRITE_ACTION = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/write-own-subject-xapi-statements-signed';
 export const GAMEPLAY_LEARNING_READ_ACTION = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/read-own-subject-xapi-statements-signed';
 export const GAMEPLAY_LEARNING_PURPOSE = 'record-gameplay-activity';
 export const GAMEPLAY_LEARNING_SCHEMA = 'hallowmarch.gameplay-learning-delivery/v1';
-const REQUIRED = ['get_pod_status', 'dereference', 'sign_request', 'act'];
+const REQUIRED = ['get_pod_status', 'dereference', 'sign_request', 'act', 'verify_agent', 'register_agent'];
 const MAX_BYTES = 64 * 1024, MAX_BATCH = 20, DETAIL_RETENTION_MS = 60 * 60 * 1000;
 const copy = value => JSON.parse(JSON.stringify(value));
 const plain = value => value && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -103,6 +104,7 @@ export function createOwnerGameplayLearningDelivery({ binding, credential, relay
       || status.userId !== ownerPod.pathname.slice(1, -1)) fail('owner_mismatch', 'The current native session belongs to another performer.');
     aliases.add(reported.href);
   }
+  const signingDelegation = createNativeSigningDelegation({ ownerDid, podUrl: ownerPod.href, agentDid: delegateDid, callTool: tool, now });
   async function discover() {
     const result = await tool('dereference', { iri: GAMEPLAY_LEARNING_DESCRIPTOR });
     if (result.status !== 'ok' || !Array.isArray(result.affordances)) fail('learning_delivery_contract', 'The own-subject learning service did not advertise its live contract.');
@@ -134,7 +136,7 @@ export function createOwnerGameplayLearningDelivery({ binding, credential, relay
     return token;
   }
   async function signedRequest(input, selected, operation, token) {
-    await verifyOwner(); active();
+    await verifyOwner(); await signingDelegation.ensure(); active();
     if (!same(await discover(), selected)) fail('learning_delivery_contract_changed', 'The learning recipient changed. Review its new destination before sending.');
     const signed = await tool('sign_request', { payload: input }); active(); let decoded;
     try { decoded = JSON.parse(signed._signed_payload); } catch { fail('learning_delivery_signature', 'The signed activity request is unreadable.'); }
@@ -178,7 +180,7 @@ export function createOwnerGameplayLearningDelivery({ binding, credential, relay
       if (closed) fail('learning_delivery_disconnected', 'This delivery connection is closed.');
       let manifest; try { manifest = await tx.connect(REQUIRED, 'get_pod_status'); } catch { fail('learning_delivery_unavailable', 'The native activity transport is unavailable.'); }
       currentScope(); if (!REQUIRED.every(name => manifest.granted?.includes(name))) fail('learning_delivery_unavailable', 'The native transport does not grant activity delivery.');
-      await verifyOwner(); contract = await discover(); connected = true; return api.status();
+      await verifyOwner(); await signingDelegation.ensure(); contract = await discover(); connected = true; return api.status();
     },
     status() { return { connected: connected && !closed, ownerDid, characterId, sessionId, taskId,
       recipient: contract?.write.target || null, descriptorUrl: contract?.descriptorUrl || null, purpose: GAMEPLAY_LEARNING_PURPOSE,
@@ -230,7 +232,7 @@ export function createOwnerGameplayLearningDelivery({ binding, credential, relay
         if (response.status === 404 || response.status === 410) return { delivered: false, pending: true,
           ...(response.status === 410 ? { expired: true } : {}), missingStatementId: statement.id };
         if (response.status !== 200 || body.ok !== true || body.durable !== true || body.subjectDid !== ownerDid || !plain(body.statement)) fail('learning_delivery_unconfirmed', 'The owner LRS did not confirm this exact statement in its durable private record.');
-        const { authority, stored, version, ...actual } = body.statement;
+        const { authority, stored, version: _version, ...actual } = body.statement;
         if (!same(actual, statement) || !plain(authority) || !iso(stored)) fail('learning_delivery_conflict', 'The LRS statement differs from the original observed activity.');
       }
       return acknowledge(pending);
