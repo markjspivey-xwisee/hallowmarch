@@ -7,6 +7,10 @@ const MODES = new Set(['hallowmarch-character/v1', 'hallowmarch-performance-cons
 export const CHECKPOINT_MAX_BYTES = 4 * 1024 * 1024;
 export const CHECKPOINT_DIAGNOSTIC_STAGES = Object.freeze(['protocol-discovery', 'native-read', 'headers', 'envelope',
   'owner-key', 'decrypt', 'body-scope', 'record-digest', 'binding-plan', 'budget', 'history']);
+export const CHECKPOINT_DIAGNOSTIC_CHECKS = Object.freeze(['schema', 'owner', 'pod', 'graph', 'resource', 'mode', 'key',
+  'operation', 'previous-revision', 'time', 'history-shape', 'budget-shape', 'binding-schema', 'record-digest',
+  'binding-value', 'binding-digest', 'binding-graph', 'binding-plan-digest', 'binding-record', 'binding-record-value',
+  'budget-entry', 'history-entry']);
 const MAX_PLAIN = 2 * 1024 * 1024, HOUR = 3600000, WRITE_BUDGET = 128 * 1024 * 1024;
 const HISTORY_BYTES = 32 * 1024, HISTORY_INTERVAL = 5 * 60000;
 const ATTRIBUTED = 'http://www.w3.org/ns/prov#wasAttributedTo';
@@ -15,6 +19,9 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const encode = value => new TextEncoder().encode(JSON.stringify(value));
 function failure(code, message, extra = {}) { return Object.assign(new Error(message), { code, ...extra }); }
 function check(condition, code = 'invalid_checkpoint', message = 'The private checkpoint did not authenticate.') { if (!condition) throw failure(code, message); }
+function checkField(condition, checkpointCheck) {
+  if (!condition) throw failure('invalid_checkpoint', 'The private checkpoint did not authenticate.', { checkpointCheck });
+}
 function stageError(cause, checkpointStage) {
   // Only this fixed stage leaves the validation path. Never attach the value,
   // ciphertext, key, parsed body or failing predicate's caller-controlled text.
@@ -80,25 +87,35 @@ export function createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, no
       body = JSON.parse(plaintext);
     } catch (cause) { if (cause.code === 'record_capacity') throw cause; throw failure('cannot_decrypt', 'The owner key could not authenticate this private checkpoint.'); }
     stage = 'body-scope';
-    check(body.schema === SCHEMA && body.ownerDid === ownerDid && body.podUrl === podUrl && body.graphIri === graphIri
-      && body.resourceUrl === resourceUrl && body.mode === mode && body.vaultPublicKey === key
-      && typeof body.operationId === 'string' && (body.previousRevision === null || typeof body.previousRevision === 'string')
-      && Number.isSafeInteger(body.at) && body.at >= 0 && Array.isArray(body.history) && body.history.length <= 12 && encode(body.history).byteLength <= HISTORY_BYTES
-      && Array.isArray(body.budget) && body.budget.length <= 61 && body.binding?.schema === CHECKPOINT_BINDING_SCHEMA);
+    checkField(body.schema === SCHEMA, 'schema');
+    checkField(body.ownerDid === ownerDid, 'owner');
+    checkField(body.podUrl === podUrl, 'pod');
+    checkField(body.graphIri === graphIri, 'graph');
+    checkField(body.resourceUrl === resourceUrl, 'resource');
+    checkField(body.mode === mode, 'mode');
+    checkField(body.vaultPublicKey === key, 'key');
+    checkField(typeof body.operationId === 'string', 'operation');
+    checkField(body.previousRevision === null || typeof body.previousRevision === 'string', 'previous-revision');
+    checkField(Number.isSafeInteger(body.at) && body.at >= 0, 'time');
+    checkField(Array.isArray(body.history) && body.history.length <= 12 && encode(body.history).byteLength <= HISTORY_BYTES, 'history-shape');
+    checkField(Array.isArray(body.budget) && body.budget.length <= 61, 'budget-shape');
+    checkField(body.binding?.schema === CHECKPOINT_BINDING_SCHEMA, 'binding-schema');
     stage = 'record-digest';
     validateRecord(body.record);
-    check(body.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: body.operationId, record: body.record }));
+    checkField(body.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: body.operationId, record: body.record }), 'record-digest');
     stage = 'binding-plan';
     const expected = { schema: CHECKPOINT_BINDING_SCHEMA, ownerDid, podUrl, graphIri, resourceUrl, mode, vaultPublicKey: key };
-    check(JSON.stringify(body.binding) === JSON.stringify(expected));
-    check(typeof body.bindingDigest === 'string' && body.bindingPlan?.args?.graph_iri === graphIri
-      && body.bindingPlan.digest === body.bindingDigest && body.bindingPlan.record
-      && JSON.stringify(body.bindingPlan.record) === JSON.stringify(expected));
+    checkField(JSON.stringify(body.binding) === JSON.stringify(expected), 'binding-value');
+    checkField(typeof body.bindingDigest === 'string', 'binding-digest');
+    checkField(body.bindingPlan?.args?.graph_iri === graphIri, 'binding-graph');
+    checkField(body.bindingPlan.digest === body.bindingDigest, 'binding-plan-digest');
+    checkField(!!body.bindingPlan.record, 'binding-record');
+    checkField(JSON.stringify(body.bindingPlan.record) === JSON.stringify(expected), 'binding-record-value');
     stage = 'budget';
-    for (const item of body.budget) check(Number.isSafeInteger(item.minute) && Number.isSafeInteger(item.bytes) && item.bytes > 0 && item.bytes <= WRITE_BUDGET);
+    for (const item of body.budget) checkField(Number.isSafeInteger(item.minute) && Number.isSafeInteger(item.bytes) && item.bytes > 0 && item.bytes <= WRITE_BUDGET, 'budget-entry');
     stage = 'history';
-    for (const item of body.history) check(Number.isSafeInteger(item.at) && typeof item.operationId === 'string'
-      && typeof item.recordCid === 'string' && item.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: item.operationId, record: validateRecord(item.record) }));
+    for (const item of body.history) checkField(Number.isSafeInteger(item.at) && typeof item.operationId === 'string'
+      && typeof item.recordCid === 'string' && item.recordCid === checkpointRecordDigest({ ownerDid, graphIri, operationId: item.operationId, record: validateRecord(item.record) }), 'history-entry');
     return { body, revision: read.revision, resourceUrl };
     } catch (cause) { throw stageError(cause, stage); }
   }

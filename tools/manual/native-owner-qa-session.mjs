@@ -11,8 +11,18 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     'invalid_profile', 'invalid_profile_index', 'missing_profile_index', 'profile_index_conflict', 'pod_pending',
     'pod_index_pending', 'pod_link_pending', 'unread_record', 'missing_record', 'recovery_required', 'revoked',
     'tool_error', 'manifest_incomplete', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
-    'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
+    'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout',
+    'checkpoint_binding_pending', 'checkpoint_binding_conflict', 'checkpoint_write_budget', 'missing_checkpoint',
+    'invalid_checkpoint', 'invalid_checkpoint_mode', 'invalid_checkpoint_sender', 'INVALID_ARGUMENT', 'UNSUPPORTED',
+    'TRANSPORT', 'TIMEOUT', 'HTTP', 'INTEGRITY', 'LIMIT', 'CONFLICT']);
   const safeCode = value => fixedCodes.has(value) ? value : 'operation_failed';
+  const checkpointStages = new Set(['protocol-discovery', 'native-read', 'headers', 'envelope', 'owner-key', 'decrypt',
+    'body-scope', 'record-digest', 'binding-plan', 'budget', 'history']);
+  const safeCheckpointStage = value => checkpointStages.has(value) ? value : null;
+  const checkpointChecks = new Set(['schema', 'owner', 'pod', 'graph', 'resource', 'mode', 'key', 'operation', 'previous-revision',
+    'time', 'history-shape', 'budget-shape', 'binding-schema', 'record-digest', 'binding-value', 'binding-digest', 'binding-graph',
+    'binding-plan-digest', 'binding-record', 'binding-record-value', 'budget-entry', 'history-entry']);
+  const safeCheckpointCheck = value => checkpointChecks.has(value) ? value : null;
   const numberCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599)
     || (value >= -32700 && value <= -32000)) ? value : null;
   const failure = code => Object.assign(new Error('Manual native QA condition failed.'), { code });
@@ -26,7 +36,7 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     import('/gaming/identity/assets/access-cache.mjs'), import('/gaming/identity/assets/client.mjs'),
     import('/gaming/identity/assets/profile.mjs'), import('/gaming/identity/assets/vendor/interego-browser.mjs'),
   ]);
-  const [{ createBrowserAccessCache }, { createNativePodClient }, { createPlayerPodProfile }, { RelayMcpTransport }] = modules;
+  const [{ createBrowserAccessCache }, { createNativePodClient }, { createPlayerPodProfile, playerProfileGraphIri }, { RelayMcpTransport }] = modules;
   let step = 'access-cache', lastError = null, profile = null, native = null, transport = null;
   let connected = false, freshChecked = false, freshRefused = false, keyStarted = false, keyReady = false, setStarted = false;
   let recovery = null, complete = false, closed = false, busy = false;
@@ -35,6 +45,8 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     && nextOwner.subjectDid === owner.subjectDid && nextOwner.podUrl === owner.podUrl && nextOwner.accountId === owner.accountId;
   const recordTool = entry => { history.push(entry); if (history.length > 32) history.shift(); };
   const status = () => ({ kind: 'native_qa_session', step, code: lastError?.code || null,
+    checkpointStage: lastError?.checkpointStage || null, checkpointCheck: lastError?.checkpointCheck || null,
+    numericCode: lastError?.numericCode ?? null,
     complete, busy, connected, keyStarted, keyReady, setStarted, recoveryPresent: !!recovery,
     profilePresent: !!profile, pending: !!profile?.status().pending,
     hasRecord: !!profile?.status().hasRecord, indexed: !!profile?.status().indexed,
@@ -67,6 +79,28 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     if (name === 'get_encrypted_graph') return 'encrypted-readback';
     return 'native-capability';
   }
+  const checkpointFetch = async (url, init = {}) => {
+    // Preserve the actual request/response. Record only a bounded method,
+    // HTTP status, and fixed failure code, never headers, bytes or errors.
+    const method = init.method || 'GET', toolStep = {
+      OPTIONS: 'native-checkpoint-options', GET: 'native-checkpoint-get', PUT: 'native-checkpoint-put',
+    }[method];
+    const parsed = new URL(url), pod = new URL(owner.podUrl);
+    if (!toolStep || parsed.origin !== pod.origin || parsed.search || parsed.hash
+      || !parsed.pathname.startsWith(pod.pathname + 'hallowmarch/checkpoints/')
+      || !/\/[0-9a-f]{64}\.json$/.test(parsed.pathname)) throw failure('qa_scope_mismatch');
+    step = toolStep; const startedAt = performance.now();
+    const elapsedMs = () => Math.max(0, Math.min(120000, Math.round(performance.now() - startedAt)));
+    try {
+      const response = await fetch(url, init);
+      recordTool({ step: toolStep, outcome: response.ok || response.status === 404 ? 'returned' : 'refused',
+        code: null, numericCode: numberCode(response.status), elapsedMs: elapsedMs() });
+      return response;
+    } catch (error) {
+      recordTool({ step: toolStep, outcome: 'threw', code: safeCode(error?.code), numericCode: numberCode(error?.status), elapsedMs: elapsedMs() });
+      throw error;
+    }
+  };
   async function initialize() {
     if (profile) return;
     step = 'binding-check'; const binding = await request('/gaming/identity/status');
@@ -90,7 +124,7 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
       }
     };
     profile = createPlayerPodProfile({ binding: binding.binding, credential: held.credential, relayUrl: relayOrigin, request,
-      createClient: input => { native = createNativePodClient({ ...input, transport }); return native; } });
+      createClient: input => { native = createNativePodClient({ ...input, transport, fetch: checkpointFetch }); return native; } });
   }
   const api = Object.freeze({ matches, status,
     async ensureSaved({ confirmationMs = 180000 } = {}) {
@@ -131,7 +165,9 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
         }
         lastError = null; busy = false; return { ok: true, ...status() };
       } catch (error) {
-        lastError = { code: safeCode(error?.code) }; busy = false; return { ok: false, ...status() };
+        lastError = { code: safeCode(error?.code), checkpointStage: safeCheckpointStage(error?.checkpointStage),
+          checkpointCheck: safeCheckpointCheck(error?.checkpointCheck),
+          numericCode: numberCode(error?.status) }; busy = false; return { ok: false, ...status() };
       } finally { busy = false; }
     },
     async diagnose() {
@@ -142,6 +178,24 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
         catch (error) { report.keyStatusCode = safeCode(error?.code); }
       }
       return report;
+    },
+    async checkpointRead() {
+      // Explicit retained command only: currentHead performs native reads and
+      // authentication. It never confirms by resending a CAS or publishes a
+      // missing binding, even when the original operation remains pending.
+      if (closed || busy || !native || !connected || typeof playerProfileGraphIri !== 'function') {
+        return { ok: false, code: closed ? 'revoked' : busy ? 'operation_busy' : 'not_connected' };
+      }
+      busy = true;
+      try {
+        const graphIri = await playerProfileGraphIri(owner.subjectDid);
+        step = 'native-checkpoint-read';
+        const head = await native.currentHead({ graphIri, checkpoint: 'hallowmarch-character/v1' });
+        return { ok: true, found: !!head, checkpointVerified: head?.proofKind === 'owner-key-authenticated-checkpoint',
+          hasNativeRevision: typeof head?.nativeRevision === 'string' && !!head.nativeRevision };
+      } catch (error) { return { ok: false, code: safeCode(error?.code), numericCode: numberCode(error?.status),
+        checkpointStage: safeCheckpointStage(error?.checkpointStage), checkpointCheck: safeCheckpointCheck(error?.checkpointCheck) }; }
+      finally { busy = false; }
     },
     encryptedRecovery() { if (!complete || !recovery) throw failure('qa_readback'); return recovery; },
     async close() { closed = true; profile?.close(); await cache.close(); recovery = null; },

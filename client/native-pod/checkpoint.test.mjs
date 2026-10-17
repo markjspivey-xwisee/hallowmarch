@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 globalThis.self = globalThis;
 const { ClientKeyVault, canonicalGraphDigest } = await import('./vendor/interego-browser.mjs');
-const { createOwnerCheckpointStore, checkpointResourceUrl, CHECKPOINT_DIAGNOSTIC_STAGES } = await import('./checkpoint.mjs');
+const { createOwnerCheckpointStore, checkpointResourceUrl, CHECKPOINT_DIAGNOSTIC_STAGES, CHECKPOINT_DIAGNOSTIC_CHECKS } = await import('./checkpoint.mjs');
 const OWNER = 'did:web:identity.example:users:alice', POD = 'https://pod.example/alice/';
 const GRAPH = 'urn:graph:fixture:character', MODE = 'hallowmarch-character/v1';
 function keyStorage() { const map = new Map(); return { load: async key => map.get(key) || null,
@@ -164,12 +164,14 @@ test('validation diagnostics expose only a fixed stage and never the private rec
   const f = await fixture(); await f.store().save({ graphIri: GRAPH, mode: MODE, creating: true, record: { marker: 'PRIVATE DIAGNOSTIC FIXTURE' } });
   const resourceUrl = await checkpointResourceUrl(POD, GRAPH, webcrypto), original = f.resources.get(resourceUrl);
   const envelope = JSON.parse(new TextDecoder().decode(original.body)), body = JSON.parse(await f.vault.open(envelope));
-  const rejectedAt = async expected => {
+  const rejectedAt = async (expected, expectedCheck) => {
     await assert.rejects(f.store().load(GRAPH, MODE), cause => {
       assert.equal(cause.checkpointStage, expected); assert(CHECKPOINT_DIAGNOSTIC_STAGES.includes(cause.checkpointStage));
+      if (expectedCheck) assert.equal(cause.checkpointCheck, expectedCheck);
+      if (cause.checkpointCheck) assert(CHECKPOINT_DIAGNOSTIC_CHECKS.includes(cause.checkpointCheck));
       const diagnostic = JSON.stringify(cause);
       for (const privateValue of ['PRIVATE DIAGNOSTIC FIXTURE', envelope.content.ciphertext, envelope.wrappedKeys[0].recipientPublicKey]) assert(!diagnostic.includes(privateValue));
-      assert.deepEqual(Object.keys(cause).sort(), ['checkpointStage', 'code']); return true;
+      assert.deepEqual(Object.keys(cause).sort(), cause.checkpointCheck ? ['checkpointCheck', 'checkpointStage', 'code'] : ['checkpointStage', 'code']); return true;
     });
   };
   f.resources.set(resourceUrl, { ...original, revision: null }); await rejectedAt('headers');
@@ -179,15 +181,32 @@ test('validation diagnostics expose only a fixed stage and never the private rec
   const tamper = structuredClone(envelope); tamper.content.ciphertext = 'A' + tamper.content.ciphertext.slice(1);
   if (tamper.content.ciphertext === envelope.content.ciphertext) tamper.content.ciphertext = 'B' + tamper.content.ciphertext.slice(1);
   f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode(JSON.stringify(tamper)) }); await rejectedAt('decrypt');
-  for (const [expected, mutate] of [
-    ['body-scope', value => { value.ownerDid = 'did:foreign'; }],
-    ['record-digest', value => { value.record.marker = 'changed'; }],
-    ['binding-plan', value => { value.bindingPlan.digest = 'changed'; }],
-    ['budget', value => { value.budget[0].bytes = -1; }],
-    ['history', value => { value.history.push({ at: body.at, operationId: body.operationId, recordCid: 'changed', record: body.record }); }],
+  for (const [expected, expectedCheck, mutate] of [
+    ['body-scope', 'schema', value => { value.schema = 'foreign'; }],
+    ['body-scope', 'owner', value => { value.ownerDid = 'did:foreign'; }],
+    ['body-scope', 'pod', value => { value.podUrl = 'https://foreign.example/'; }],
+    ['body-scope', 'graph', value => { value.graphIri = 'urn:foreign'; }],
+    ['body-scope', 'resource', value => { value.resourceUrl = 'https://foreign.example/'; }],
+    ['body-scope', 'mode', value => { value.mode = 'foreign'; }],
+    ['body-scope', 'key', value => { value.vaultPublicKey = 'foreign'; }],
+    ['body-scope', 'operation', value => { value.operationId = null; }],
+    ['body-scope', 'previous-revision', value => { value.previousRevision = 7; }],
+    ['body-scope', 'time', value => { value.at = -1; }],
+    ['body-scope', 'history-shape', value => { value.history = {}; }],
+    ['body-scope', 'budget-shape', value => { value.budget = {}; }],
+    ['body-scope', 'binding-schema', value => { value.binding.schema = 'foreign'; }],
+    ['record-digest', 'record-digest', value => { value.record.marker = 'changed'; }],
+    ['binding-plan', 'binding-value', value => { value.binding.resourceUrl = 'https://foreign.example/'; }],
+    ['binding-plan', 'binding-digest', value => { value.bindingDigest = null; }],
+    ['binding-plan', 'binding-graph', value => { value.bindingPlan.args.graph_iri = 'urn:foreign'; }],
+    ['binding-plan', 'binding-plan-digest', value => { value.bindingPlan.digest = 'changed'; }],
+    ['binding-plan', 'binding-record', value => { value.bindingPlan.record = null; }],
+    ['binding-plan', 'binding-record-value', value => { value.bindingPlan.record.resourceUrl = 'https://foreign.example/'; }],
+    ['budget', 'budget-entry', value => { value.budget[0].bytes = -1; }],
+    ['history', 'history-entry', value => { value.history.push({ at: body.at, operationId: body.operationId, recordCid: 'changed', record: body.record }); }],
   ]) {
     const changed = structuredClone(body); mutate(changed);
     f.resources.set(resourceUrl, { ...original, body: new TextEncoder().encode(JSON.stringify(await f.vault.seal(JSON.stringify(changed)))) });
-    await rejectedAt(expected);
+    await rejectedAt(expected, expectedCheck);
   }
 });

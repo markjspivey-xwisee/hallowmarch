@@ -121,9 +121,11 @@ Failures print the fixed stage plus an allowlisted code such as
 `err_empty_response`, `err_cert_authority_invalid`, `browser_timeout`, or
 `native_operation_failed`. First-save failures additionally print a bounded
 report containing only fixed connect, registry, registration, publication,
-index, bridge-link and readback step names; allowlisted error codes; numeric
-HTTP/JSON-RPC codes; and booleans/counts. Native messages, subjects, graph IRIs,
-keys, requests and response bodies are not printed. If a synthetic passkey has been created and
+index, bridge-link and checkpoint OPTIONS/GET/PUT step names; allowlisted error
+codes and checkpoint stages; numeric HTTP/JSON-RPC codes and bounded elapsed
+milliseconds; and booleans/counts. Native messages, keys, requests and response
+bodies are not printed. Public owner/graph/resource identifiers are printed
+only by the explicit `native-checkpoint-read` diagnostic below. If a synthetic passkey has been created and
 `HM_NATIVE_RETAIN_FAILED_SESSION=1`, the failed process keeps its ephemeral
 browser contexts, the original client/profile and pending operation maps,
 expected synthetic save, encrypted recovery and that same test passkey in RAM.
@@ -135,6 +137,13 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
   bounded provider challenge HTTP status, pending-action flags and fixed UI
   classifications. Unknown error text, user identifiers and response bodies
   never appear. A stalled provider inspection cannot queue more browser reads.
+- `native-checkpoint-read`: only at the retained initial profile-create stage,
+  authenticate the existing character checkpoint through `currentHead` using
+  the original owner and key. This permits OPTIONS/GET and native metadata
+  reads, never CAS replay, binding publication, registration or key creation.
+  It emits fixed error/stage/status fields and the pinned public owner DID,
+  pod URL, deterministic graph IRI and resource URL. It does not expose the
+  record, ciphertext, native revision, credential or arbitrary error message.
 - `retry`: retry only the failed stage using its existing closure and owner.
 - `continue`: retry the failed stage and proceed through remaining stages.
 - `oauth-retry-same-owner`: after a definitively failed callback **before any

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa, nativeCheckpointReadResult } from './native-player-orchestration.mjs';
+
+test('native checkpoint read output admits only fixed proof booleans, codes and numeric status', () => {
+  assert.deepEqual(nativeCheckpointReadResult({ ok: true, found: true, checkpointVerified: true, hasNativeRevision: true,
+    code: 'INTEGRITY', numericCode: 403, checkpointStage: 'headers', checkpointCheck: 'resource', privateBody: 'PRIVATE_BODY', accessToken: 'PRIVATE_TOKEN', nativeRevision: 'PRIVATE_REVISION' }),
+  { ok: true, found: true, checkpointVerified: true, hasNativeRevision: true, code: 'INTEGRITY', numericCode: 403, checkpointStage: 'headers', checkpointCheck: 'resource' });
+  assert.deepEqual(nativeCheckpointReadResult({ ok: 'PRIVATE', found: 1, code: 'PRIVATE_BODY', numericCode: 99999, checkpointStage: 'PRIVATE', checkpointCheck: 'PRIVATE_VALUE' }),
+    { ok: false, found: false, checkpointVerified: false, hasNativeRevision: false, code: null, numericCode: null, checkpointStage: null, checkpointCheck: null });
+});
 
 test('success retention is opt-in, requires completion and never waits after finish', async () => {
   for (const input of [{ enabled: false, complete: true }, { enabled: '1', complete: true },

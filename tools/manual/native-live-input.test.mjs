@@ -69,6 +69,14 @@ test('native startup retry is a fixed serialized command and remains distinct fr
   release(); await tick(); input.write('retry\n'); await tick(); assert.deepEqual(seen, ['native-startup-retry', 'status', 'retry']);
   input.write('finish\n'); await reader.waitForClose(); input.destroy();
 });
+test('native checkpoint read is a fixed serialized command and does not allow concurrent stage replay', async () => {
+  const input = new PassThrough(), seen = []; let release, busy = 0;
+  const reader = createNativeLiveInput({ input, async onCommand(value) { seen.push(value);
+    if (value === 'native-checkpoint-read') await new Promise(resolve => { release = resolve; }); }, onBusy: () => busy++ });
+  input.write('native-checkpoint-read\n'); await tick(); assert.equal(reader.status().commandBusy, true);
+  input.write('retry\nstatus\n'); await tick(); assert.equal(busy, 1); assert.deepEqual(seen, ['native-checkpoint-read', 'status']);
+  release(); await tick(); input.write('finish\n'); await reader.waitForClose(); input.destroy();
+});
 test('manual pause recovery is a fixed serialized command while status and signing replies remain routable', async () => {
   const input = new PassThrough(), seen = []; let release, busy = 0, protocol = 0;
   const reader = createNativeLiveInput({ input,

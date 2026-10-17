@@ -1,10 +1,10 @@
 /** Manual, mutating QA only. Never import from CI or an automatic test suite. */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa, nativeCheckpointReadResult } from './native-player-orchestration.mjs';
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
@@ -347,7 +347,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -362,6 +362,16 @@ function startInput() {
       if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
       if (qaBusy()) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
+        if (action === 'native-checkpoint-read') {
+          ensure(owner && first && !first.isClosed() && plan?.status().stage === 'sealed-profile-create-and-link', 'qa_checkpoint_read_refused');
+          const graphIri = 'urn:graph:hallowmarch:player-profile:' + createHash('sha256').update(owner.subjectDid).digest('hex');
+          const resourceUrl = owner.podUrl + 'hallowmarch/checkpoints/' + createHash('sha256').update(graphIri).digest('hex') + '.json';
+          const result = await first.evaluate(() => window.__hmNativeQaSession?.checkpointRead());
+          // Public identifiers originate from the already pinned Node owner,
+          // never from a response/body or arbitrary browser diagnostic string.
+          console.log(JSON.stringify({ kind: 'native_checkpoint_read', ownerDid: owner.subjectDid,
+            podUrl: owner.podUrl, graphIri, resourceUrl, ...nativeCheckpointReadResult(result) })); return;
+        }
         if (action === 'native-startup-retry') {
           const freshRecovery = plan?.status().stage === 'fresh-browser-native-verification' && !plan.status().busy
             && freshNativeReload.status().reloadAttempted;
@@ -565,7 +575,7 @@ try {
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (!finishRequested && qaPasskey.status().present && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
+    console.log('QA session retained in RAM. Commands: status, diagnose, native-checkpoint-read, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
     await startInput().waitForClose();
   }
 } finally {
