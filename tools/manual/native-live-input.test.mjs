@@ -42,6 +42,8 @@ test('mutating commands serialize without queuing; status remains available and 
   assert.deepEqual(seen, ['retry', 'status', 'companion-restart-admission']);
   release(); await tick(); input.write('oauth-retry-same-owner\n'); await tick();
   assert.equal(seen.at(-1), 'oauth-retry-same-owner');
+  release(); await tick(); input.write('oauth-restart-unproved-start\n'); await tick();
+  assert.equal(seen.at(-1), 'oauth-restart-unproved-start');
   input.write('finish\n'); await reader.waitForClose();
   assert.equal(closed, 1); assert.equal(reader.status().closed, true); release(); input.destroy();
 });

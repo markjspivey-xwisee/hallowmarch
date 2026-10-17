@@ -94,6 +94,12 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
 - `oauth-retry-same-owner`: after a definitively failed callback **before any
   claim request**, explicitly start a new sign-in with only the original
   retained resident passkey. This cannot register a replacement owner.
+- `oauth-restart-unproved-start`: explicitly cancel a later start that has not
+  attached capture/proof or sent any verification/callback/claim, after this
+  controller's original registration was accepted. It verifies the same initiating
+  game account using the exact observed start bearer, closes the original popup,
+  rechecks all no-proof/no-claim conditions, and starts a usernameless sign-in with
+  the original passkey. Pending observer jobs or any uncertain proof forbid it.
 - `companion-restart-admission`: when optional companion QA is selected, reset
   only its expired/uncertain ephemeral admission at the permitted proof stage.
 - `finish`: forget access cache and close the retained browsers.
@@ -136,6 +142,26 @@ fresh S256 ceremony uses the provider's discoverable **Sign in** flow with only
 that resident credential installed. No userId/DID argument, identity lookup,
 second registration or alternate passkey is accepted. At most four total
 ceremonies can be retained for one logical sign-in stage.
+
+Before capture or proof, each observed `/start` bearer is checked by a read-only
+same-origin `/gaming/identity/status` request using that exact bearer. The first
+initiating game account is pinned for that controller, and later starts must
+resolve to the same account. A WebSocket reconnect may rotate the guest bearer;
+that rotation is accepted only after independent same-account verification.
+Each individual ceremony still requires exact start-to-claim bearer equality.
+The fresh browser's initiating guest account is distinct from the canonical
+native account restored after a successful claim; final native owner checks
+remain separate and unchanged. A cancelled unproved start remains in the privacy
+audit and never counts as a successful proof or callback.
+
+The corrected fixture `20261017004027730-354fc8e1` stopped before its first
+successful claim. Its registration proof and one same-owner proof each received
+HTTP 200, but both callbacks returned HTTP 409 `identity_binding_rejected`.
+After the diagnostic-only preview restart, `/start` returned HTTP 200 but the
+older loaded harness rejected its rotated guest bearer before submitting any
+native proof (`qa_oauth_start_provenance`). No private profile, agent grant or
+coaching delivery occurred in that fixture. The new account verifier and fixed
+unproved-start command cannot hotload into that older retained process.
 
 The running native relay's `/oauth/verify` response exposes only `{redirect}`;
 it does **not** expose a response-derived userId. The helper binds its success

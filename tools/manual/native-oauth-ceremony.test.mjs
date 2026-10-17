@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
-import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthCredentialUserId, nativeOAuthFinishCode, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
+import { createRetainedNativeOAuth, retainedNativeOAuthPopup, verifyNativeOAuthStartAccount, nativeOAuthCredentialUserId, nativeOAuthFinishCode, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
+import vm from 'node:vm';
 
 const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example';
 const id = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
@@ -12,7 +13,10 @@ const owner = { userId: 'u-pk-eb9f16800c90', subjectDid: 'did:web:identity.examp
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(options = {}) {
   const counts = { starts: 0, proofs: 0, registrations: 0, closes: 0, ownerReads: 0 }, popups = [], intents = [];
-  let heldKey = credential, deferred = null, observations = { startAuthorization: [], claimAuthorization: [] };
+  let heldKey = options.initialCredential ?? (options.register === false ? credential : null), deferred = null,
+    observations = { startAuthorization: [], claimAuthorization: [] };
+  const accountChecks = [], failedAccountChecks = new Set();
+  const setup = { captures: 0, proofAttachments: 0 };
   function response(popup, path, { status = 200, body = {}, method = 'GET', requestBody, authorization, query = '' } = {}) {
     const url = (path === '/oauth/verify' ? relayOrigin : gameOrigin) + path + query;
     const request = { url: () => url, method: () => method, postData: () => requestBody ? JSON.stringify(requestBody) : null,
@@ -26,13 +30,13 @@ function fixture(options = {}) {
       }, request: () => request });
     if (path === '/gaming/identity/claim') observations.claimAuthorization.push(authorization);
   }
-  function finish(popup, state, { callback = 303, callbackState = state, claim = 200, claimAuthorization = 'Bearer game-session', close = true } = {}) {
+  function finish(popup, state, { callback = 303, callbackState = state, claim = 200, claimAuthorization = popup.authorization, close = true } = {}) {
     response(popup, '/gaming/identity/callback', { status: callback, query: '?code=RAM_ONLY_CODE&state=' + callbackState,
       body: { error: callback >= 400 ? 'identity_binding_timeout' : null } });
     if (callback >= 400) return;
     response(popup, '/gaming/identity/finish');
     if (options.missingClaimResponse) {
-      popup.emit('request', { url: () => gameOrigin + '/gaming/identity/claim', method: () => 'POST', headers: () => ({ authorization: 'Bearer game-session' }) });
+      popup.emit('request', { url: () => gameOrigin + '/gaming/identity/claim', method: () => 'POST', headers: () => ({ authorization: popup.authorization }) });
       return;
     }
     response(popup, '/gaming/identity/claim', { status: claim, method: 'POST', authorization: claimAuthorization });
@@ -40,28 +44,45 @@ function fixture(options = {}) {
   }
   const controller = createRetainedNativeOAuth({ register: options.register ?? true, gameOrigin, relayOrigin,
     expectedOwner: options.register === false ? owner : null, getPasskey: () => heldKey, timeoutMs: options.timeoutMs || 30,
-    async prepareCapture(popup, { onReceipt }) { popup.captureReceipt = onReceipt; },
+    async prepareCapture(popup, { onReceipt }) { setup.captures++; popup.captureReceipt = onReceipt;
+      if (options.captureGateAtStart === counts.starts) await options.setupGate;
+      if (options.captureInstallFailureAt === counts.starts) throw Error('PRIVATE capture install failed after attachment'); },
+    async prepareProof() { setup.proofAttachments++;
+      if (options.proofGateAtStart === counts.starts) await options.setupGate; },
+    async verifyStartAccount({ gameOrigin: suppliedOrigin, startAuthorization }) {
+      assert.equal(suppliedOrigin, gameOrigin); assert.equal(startAuthorization, popups.at(-1).authorization);
+      accountChecks.push(startAuthorization);
+      if (options.accountGateAtCheck === accountChecks.length) await options.accountGate;
+      if (options.failStartAccountAt?.includes(counts.starts) && !failedAccountChecks.has(counts.starts)) {
+        failedAccountChecks.add(counts.starts); throw Object.assign(Error('PRIVATE account read failure'), { code: 'qa_oauth_start_account_refused' });
+      }
+      return options.startAccountIds?.[counts.starts - 1] ?? 'qa-initiating-guest';
+    },
     async start({ onPopup }) {
       counts.starts++; const popup = new EventEmitter(); popup.closed = false;
       popup.close = async () => { if (!popup.closed) {
-        if (options.closeEmitsClaim && counts.starts === 1) {
+        if ((options.closeEmitsClaim && counts.starts === 1) || options.closeEmitsClaimAt === counts.starts) {
           await tick();
-          popup.emit('request', { url: () => gameOrigin + '/gaming/identity/claim', method: () => 'POST', headers: () => ({ authorization: 'Bearer game-session' }) });
+          popup.emit('request', { url: () => gameOrigin + '/gaming/identity/claim', method: () => 'POST', headers: () => ({ authorization: popup.authorization }) });
         }
+        if (options.closeEmitsProofAt === counts.starts) popup.emit('request', {
+          url: () => relayOrigin + '/oauth/verify', method: () => 'POST' });
         popup.closed = true; counts.closes++; popup.emit('close');
       } };
       popups.push(popup); onPopup(popup);
       const state = 's'.repeat(42) + counts.starts, authorize = new URL(relayOrigin + '/authorize');
       for (const [key, value] of Object.entries({ scope: 'mcp:write', response_type: 'code', code_challenge_method: 'S256',
         code_challenge: 'c'.repeat(43), state, redirect_uri: gameOrigin + '/gaming/identity/callback' })) authorize.searchParams.set(key, value);
-      popup.state = state; observations.startAuthorization.push('Bearer game-session');
-      return { popup, startStatus: 200, startAuthorization: 'Bearer game-session',
+      popup.state = state; popup.authorization = options.rotateBearer ? 'Bearer game-session-' + counts.starts : 'Bearer game-session';
+      observations.startAuthorization.push(popup.authorization);
+      return { popup, startStatus: 200, startAuthorization: popup.authorization,
         advertised: { ownerPodWriteAccess: true, authorizationUrl: authorize.href } };
     },
     async prove(popup, intent) {
       counts.proofs++; intents.push({ register: intent.register, userId: intent.userId }); if (intent.register) counts.registrations++;
       if (options.proofStep) intent.onStep(options.proofStep);
-      if (options.proveError) throw options.proveError;
+      if (options.proveError || options.proveErrorAt === counts.starts) throw options.proveError || Error('PRIVATE proof failure');
+      if (intent.register) heldKey = credential;
       const redirect = gameOrigin + '/gaming/identity/callback?code=RAM_ONLY_CODE&state=' + popup.state;
       const captured = () => popup.captureReceipt({ code: options.badCapture ? 'DO_NOT_LOG' : 'capture_complete', status: 200,
         redirectHash: options.mismatchedCapture ? 'f'.repeat(64) : createHash('sha256').update(redirect).digest('hex') });
@@ -75,13 +96,16 @@ function fixture(options = {}) {
       if (options.pending && counts.starts === 1) { deferred = () => finish(popup, popup.state); return; }
       finish(popup, popup.state, { callback: options.callbackFailure && counts.starts === 1 ? 504 : 303,
         callbackState: options.wrongState ? 'foreign-state' : popup.state,
-        claimAuthorization: options.foreignClaim ? 'Bearer FOREIGN_NOT_LOGGED' : 'Bearer game-session' });
+        claimAuthorization: options.foreignClaim ? 'Bearer FOREIGN_NOT_LOGGED' : popup.authorization });
     },
-    async verifyOwner() { counts.ownerReads++; return options.foreignOwner ? { ...owner, userId: 'u-pk-000000000000' } : owner; },
+    async verifyOwner() { counts.ownerReads++; if (options.ownerGate) await options.ownerGate;
+      return options.foreignOwner ? { ...owner, userId: 'u-pk-000000000000' } : owner; },
     inspectFinish: async () => 'Finishing your identity connection…',
     inspectProof: options.inspectProof || (async () => options.proofDiagnostics || null),
   });
-  return { controller, counts, popups, intents, observations, finish: () => deferred(), loseKey() { heldKey = null; } };
+  return { controller, counts, popups, intents, observations, accountChecks, setup, finish: () => deferred(), loseKey() { heldKey = null; },
+    changeKey() { heldKey = { ...credential, credentialId: Buffer.from('foreign-fixture-key').toString('base64') }; },
+    queueReadObservation() { response(popups.at(-1), '/unrelated-read'); } };
 }
 
 test('QA consistency derivation matches the native frozen string-hash vector', () => {
@@ -157,6 +181,144 @@ test('definitive callback failure permits only an explicit same-passkey username
   assert.deepEqual(f.intents[1], { register: false, userId: null });
   assert.equal(f.controller.audit(f.observations.startAuthorization, f.observations.claimAuthorization), true);
   assert.equal(f.controller.status().failedCeremonies, 1);
+});
+test('a rotated start bearer is accepted only after exact-bearer verification of the same initiating account', async () => {
+  const f = fixture({ callbackFailure: true, rotateBearer: true }); await assert.rejects(f.controller.run());
+  f.controller.requestSameOwnerRetry(); assert.deepEqual(await f.controller.run(), owner);
+  assert.notEqual(f.observations.startAuthorization[0], f.observations.startAuthorization[1]);
+  assert.deepEqual(f.accountChecks, f.observations.startAuthorization);
+  assert.equal(f.controller.audit(f.observations.startAuthorization, f.observations.claimAuthorization), true);
+  assert.equal(f.counts.registrations, 1); assert.equal(f.counts.proofs, 2);
+});
+test('a switched initiating game account is rejected before another proof even with the original resident passkey', async () => {
+  const f = fixture({ callbackFailure: true, rotateBearer: true, startAccountIds: ['first-guest', 'another-guest'] });
+  await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry();
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_start_account_mismatch' });
+  assert.equal(f.counts.proofs, 1); assert.equal(f.counts.registrations, 1); assert.equal(f.controller.status().complete, false);
+  assert.equal(f.controller.audit(f.observations.startAuthorization, f.observations.claimAuthorization), false); f.controller.close();
+});
+test('per-attempt claim bearer equality remains strict after independently verified token rotation', async () => {
+  const f = fixture({ callbackFailure: true, rotateBearer: true, foreignClaim: true });
+  await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry();
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_claim_provenance' });
+  assert.equal(f.controller.status().complete, false); f.controller.close();
+});
+test('an explicit unproved-start restart retains the original registered passkey and accounts for its cancelled start', async () => {
+  const f = fixture({ callbackFailure: true, rotateBearer: true, failStartAccountAt: [2] });
+  await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry();
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_start_account_refused' });
+  assert.equal(f.controller.status().canRestartUnprovedStart, true); assert.equal(f.counts.proofs, 1);
+  f.controller.requestUnprovedStartRestart(); assert.deepEqual(await f.controller.run(), owner);
+  assert.equal(f.counts.starts, 3); assert.equal(f.counts.proofs, 2); assert.equal(f.counts.registrations, 1);
+  assert.equal(f.controller.status().history[1].cancelledUnproved, true);
+  assert.equal(f.controller.audit(f.observations.startAuthorization, f.observations.claimAuthorization), true);
+});
+test('unproved-start restart refuses missing registration, attached proof, lost passkey and a claim racing popup close', async () => {
+  const first = fixture({ failStartAccountAt: [1] }); await assert.rejects(first.controller.run());
+  assert.throws(() => first.controller.requestUnprovedStartRestart(), { code: 'qa_oauth_unproved_restart_refused' }); first.controller.close();
+  const attached = fixture({ callbackFailure: true, proveErrorAt: 2, timeoutMs: 10 }); await assert.rejects(attached.controller.run());
+  attached.controller.requestSameOwnerRetry(); await assert.rejects(attached.controller.run());
+  assert.throws(() => attached.controller.requestUnprovedStartRestart(), { code: 'qa_oauth_unproved_restart_refused' }); attached.controller.close();
+  for (const loseKey of [true, false]) {
+    const f = fixture({ callbackFailure: true, failStartAccountAt: [2], closeEmitsClaimAt: loseKey ? undefined : 2 });
+    await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry(); await assert.rejects(f.controller.run());
+    if (loseKey) { f.loseKey(); assert.throws(() => f.controller.requestUnprovedStartRestart(), { code: 'qa_oauth_unproved_restart_refused' }); }
+    else { f.controller.requestUnprovedStartRestart(); await assert.rejects(f.controller.run(), { code: 'qa_oauth_unproved_restart_refused' }); }
+    assert.equal(f.counts.starts, 2); assert.equal(f.counts.registrations, 1); f.controller.close();
+  }
+});
+test('unproved-start restart cannot cross pending observer jobs or a native proof arriving while closing', async () => {
+  for (const proofDuringClose of [false, true]) {
+    const f = fixture({ callbackFailure: true, failStartAccountAt: [2], closeEmitsProofAt: proofDuringClose ? 2 : undefined });
+    await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry(); await assert.rejects(f.controller.run());
+    if (proofDuringClose) {
+      f.controller.requestUnprovedStartRestart(); await assert.rejects(f.controller.run(), { code: 'qa_oauth_unproved_restart_refused' });
+      assert.equal(f.controller.status().verifyRequests, 1);
+    } else {
+      f.queueReadObservation();
+      assert.throws(() => f.controller.requestUnprovedStartRestart(), { code: 'qa_oauth_unproved_restart_refused' });
+      await tick(); assert.equal(f.controller.status().canRestartUnprovedStart, true);
+    }
+    assert.equal(f.counts.starts, 2); assert.equal(f.counts.registrations, 1); f.controller.close();
+  }
+});
+test('capture attachment is retained before its await and a partial install can never use unproved-start restart', async () => {
+  const f = fixture({ callbackFailure: true, captureInstallFailureAt: 2 });
+  await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry();
+  await assert.rejects(f.controller.run(), { code: 'qa_oauth_capture_refused' });
+  assert.equal(f.controller.status().verifyRequests, 0); assert.equal(f.popups[1].captureReceipt instanceof Function, true);
+  assert.equal(f.controller.status().canRestartUnprovedStart, false);
+  assert.throws(() => f.controller.requestUnprovedStartRestart(), { code: 'qa_oauth_unproved_restart_refused' });
+  assert.equal(f.counts.starts, 2); assert.equal(f.counts.proofs, 1); assert.equal(f.counts.registrations, 1); f.controller.close();
+});
+test('closing while account verification is pending prevents all later capture/proof/registration work', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const f = fixture({ accountGateAtCheck: 1, accountGate: gate }), pending = f.controller.run();
+  while (f.accountChecks.length < 1) await tick();
+  f.controller.close(); release(); await assert.rejects(pending, { code: 'qa_oauth_closed' });
+  assert.equal(f.counts.starts, 1); assert.equal(f.counts.proofs, 0); assert.equal(f.counts.registrations, 0);
+  assert.equal(f.setup.captures, 0); assert.equal(f.setup.proofAttachments, 0);
+});
+test('closing while unproved cancellation verifies its exact bearer cannot start another ceremony', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const f = fixture({ callbackFailure: true, failStartAccountAt: [2], accountGateAtCheck: 3, accountGate: gate });
+  await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry(); await assert.rejects(f.controller.run());
+  f.controller.requestUnprovedStartRestart(); const pending = f.controller.run();
+  while (f.accountChecks.length < 3) await tick();
+  f.controller.close(); release(); await assert.rejects(pending, { code: 'qa_oauth_closed' });
+  assert.equal(f.counts.starts, 2); assert.equal(f.counts.proofs, 1); assert.equal(f.counts.registrations, 1);
+});
+test('closing during capture or proof attachment never submits a later native proof', async () => {
+  for (const during of ['capture', 'proof']) {
+    let release; const gate = new Promise(resolve => { release = resolve; });
+    const f = fixture({ callbackFailure: true, setupGate: gate,
+      captureGateAtStart: during === 'capture' ? 2 : undefined, proofGateAtStart: during === 'proof' ? 2 : undefined });
+    await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry(); const pending = f.controller.run();
+    while (during === 'capture' ? f.setup.captures < 2 : f.setup.proofAttachments < 2) await tick();
+    f.controller.close(); release(); await assert.rejects(pending);
+    assert.equal(f.counts.starts, 2); assert.equal(f.counts.proofs, 1); assert.equal(f.counts.registrations, 1);
+  }
+});
+test('loss or replacement of the retained passkey during start-account verification stops before capture or proof', async () => {
+  for (const fresh of [false, true]) for (const lost of [false, true]) {
+    let release; const gate = new Promise(resolve => { release = resolve; });
+    const f = fixture({ register: fresh ? false : true, callbackFailure: !fresh, accountGateAtCheck: fresh ? 1 : 2, accountGate: gate });
+    if (!fresh) { await assert.rejects(f.controller.run()); f.controller.requestSameOwnerRetry(); }
+    const pending = f.controller.run(); while (f.accountChecks.length < (fresh ? 1 : 2)) await tick();
+    if (lost) f.loseKey(); else f.changeKey(); release();
+    await assert.rejects(pending, { code: lost ? 'qa_oauth_passkey_required' : 'qa_oauth_owner_mismatch' });
+    assert.equal(f.counts.proofs, fresh ? 0 : 1); assert.equal(f.counts.registrations, fresh ? 0 : 1);
+    assert.equal(f.setup.captures, fresh ? 0 : 1); f.controller.close();
+  }
+});
+test('a fresh controller rejects a retained passkey belonging to another expected owner before any start', () => {
+  assert.throws(() => fixture({ register: false, initialCredential: { ...credential, credentialId: Buffer.from('foreign-fixture-key').toString('base64') } }),
+    { code: 'qa_oauth_owner_mismatch' });
+});
+test('closing during final owner verification cannot retain or return a successful owner', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const f = fixture({ ownerGate: gate }), pending = f.controller.run(); while (f.counts.ownerReads < 1) await tick();
+  f.controller.close(); release(); await assert.rejects(pending, { code: 'qa_oauth_closed' });
+  assert.equal(f.controller.status().complete, false);
+});
+test('missing or refusing start-account verification fails closed before any native proof', async () => {
+  assert.throws(() => createRetainedNativeOAuth({ register: true, gameOrigin, relayOrigin,
+    getPasskey() {}, start() {}, prove() {}, verifyOwner() {} }), { code: 'qa_oauth_configuration' });
+  for (const options of [{ startAccountIds: [false] }, { failStartAccountAt: [1] }]) {
+    const f = fixture(options); await assert.rejects(f.controller.run(), { code: 'qa_oauth_start_account_refused' });
+    assert.equal(f.counts.proofs, 0); assert.equal(f.counts.registrations, 0); f.controller.close();
+  }
+});
+test('browser start-account port sends only the exact observed bearer to the same-origin read endpoint', async () => {
+  const calls = [], context = vm.createContext({ location: { origin: gameOrigin }, AbortSignal, Error, Object,
+    fetch: async (path, init) => { calls.push({ path, init }); return { ok: true, json: async () => ({ account: { id: 'verified-initiating-account' } }) }; } });
+  const verify = vm.runInContext('(' + verifyNativeOAuthStartAccount.toString() + ')', context);
+  assert.equal(await verify({ gameOrigin, startAuthorization: 'Bearer EXACT_OBSERVED_START' }), 'verified-initiating-account');
+  assert.equal(calls[0].path, '/gaming/identity/status'); assert.equal(calls[0].init.headers.Authorization, 'Bearer EXACT_OBSERVED_START');
+  assert.equal(calls[0].init.redirect, 'error'); assert.equal(calls[0].init.cache, 'no-store'); assert.equal(calls[0].init.method, 'GET');
+  context.location.origin = 'https://another.example';
+  await assert.rejects(verify({ gameOrigin, startAuthorization: 'Bearer EXACT_OBSERVED_START' }), { code: 'qa_oauth_start_account_refused' });
+  assert.equal(calls.length, 1);
 });
 test('a claim request without its response cannot authorize a replacement ceremony', async () => {
   const f = fixture({ missingClaimResponse: true }); await assert.rejects(f.controller.run(), { code: 'qa_oauth_pending' });

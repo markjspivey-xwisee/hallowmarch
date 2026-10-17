@@ -8,7 +8,7 @@ import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNa
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
-import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
+import { createRetainedNativeOAuth, retainedNativeOAuthPopup, verifyNativeOAuthStartAccount, nativeOAuthFailureCode, nativeOAuthPrivacy } from './native-oauth-ceremony.mjs';
 import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 import { createMainWorldLiveQa } from './main-world-live.mjs';
@@ -120,6 +120,7 @@ async function oauth(page, { register, userId } = {}) {
     controller = createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner: register ? null : owner,
       getPasskey: () => qaPasskey.credential(),
       start: ({ onPopup }) => retainedNativeOAuthPopup({ page, gameOrigin, onPopup }),
+      verifyStartAccount: config => page.evaluate(verifyNativeOAuthStartAccount, config),
       prepareProof: popup => popup.evaluate(installNativeOAuthProofDiagnostics, { identityOrigin }),
       inspectProof: popup => popup.evaluate(() => window.__hmNativeProofDiagnostics?.status() || null),
       async prove(popup, intent) {
@@ -308,7 +309,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, oauth-restart-unproved-start, companion-restart-admission, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -336,9 +337,10 @@ function startInput() {
           console.log(JSON.stringify(companion.restartAdmission())); return;
         }
         if (!plan) { console.log('No retained QA plan is available.'); return; }
-        if (action === 'oauth-retry-same-owner') {
+        if (action === 'oauth-retry-same-owner' || action === 'oauth-restart-unproved-start') {
           ensure(activeOAuth && ['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth'].includes(plan.status().stage), 'qa_oauth_retry_refused');
-          activeOAuth.requestSameOwnerRetry();
+          if (action === 'oauth-restart-unproved-start') activeOAuth.requestUnprovedStartRestart();
+          else activeOAuth.requestSameOwnerRetry();
         }
         await advanceQa(action === 'continue');
         if (allComplete()) { process.exitCode = 0; reportComplete(); }
@@ -475,7 +477,7 @@ try {
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (!finishRequested && qaPasskey.status().present && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
+    console.log('QA session retained in RAM. Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, oauth-restart-unproved-start, companion-restart-admission, finish. Registration is never replayed.');
     await startInput().waitForClose();
   }
 } finally {
