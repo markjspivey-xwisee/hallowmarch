@@ -13,6 +13,7 @@ import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 import { createMainWorldLiveQa } from './main-world-live.mjs';
 import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
+import { recoverNativeOwnerQa } from './native-recovery-session.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -257,13 +258,14 @@ const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evalu
     netOn: n?.state === 'on', nativeBound: !!n?.acct?.nativeBound,
     hasAccessSession: !!localStorage.getItem('hallowmarch.token.' + location.host),
     nativePlayer: typeof h?.nativePlayerStatus === 'function' ? h.nativePlayerStatus() : null,
+    nativeRecovery: window.__hmNativeQaRecovery?.status?.() || null,
     nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
 }, diagnose) });
 const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async () => {
   await window.__hmNativeCompanionQa?.close();
   await window.__hmNativeQaSession?.close();
-  window.__hmNativeQaRecovery?.profile.close();
-  await window.__hmNativeQaRecovery?.cache.close();
+  window.__hmNativeQaRecovery?.profile?.close();
+  await window.__hmNativeQaRecovery?.cache?.close();
   const { createBrowserAccessCache } = await import('/gaming/identity/assets/access-cache.mjs');
   const cache = createBrowserAccessCache(); await cache.forgetAll(); await cache.close();
 }) });
@@ -413,43 +415,12 @@ try {
         && sameOwner.accountId === owner.accountId && observations.registerCount === 1, 'same-owner');
     } },
     { name: 'fresh-browser-encrypted-key-recovery', async run() {
-      await fresh.evaluate(async ({ recovery, passphrase, relayOrigin, expected }) => {
-        const [{ createBrowserAccessCache }, { createPlayerPodProfile }] = await Promise.all([
-          import('/gaming/identity/assets/access-cache.mjs'), import('/gaming/identity/assets/profile.mjs'),
-        ]);
-        const appToken = localStorage.getItem('hallowmarch.token.' + location.host);
-        const request = async (path, init = {}) => {
-          const response = await fetch(path, { method: init.method || 'GET', cache: 'no-store',
-            headers: { Authorization: 'Bearer ' + appToken, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
-            ...(init.body ? { body: JSON.stringify(init.body) } : {}) });
-          if (!response.ok) throw new Error('bridge-refused'); return response.json();
-        };
-        const status = await request('/gaming/identity/status'), cache = createBrowserAccessCache();
-        const held = await cache.get({ relayUrl: relayOrigin, ownerDid: status.binding.subjectDid, podUrl: status.binding.podUrl });
-        if (!held) throw new Error('native-owner');
-        // Deliberately omit the Hallow pointer: recovery/discovery belongs to the
-        // owner pod even when a different game authority has no participation hint.
-        let retained = window.__hmNativeQaRecovery;
-        if (!retained) {
-          const profile = createPlayerPodProfile({ binding: status.binding, credential: held.credential, relayUrl: relayOrigin, request });
-          retained = window.__hmNativeQaRecovery = { profile, cache, checked: false, complete: false };
-        } else { await cache.close(); }
-        const profile = retained.profile;
-        if (retained.complete) return;
-        if (!retained.checked) {
-          const connected = await profile.connect(); if (connected.keyPresent || !connected.hasRecord) throw new Error('fresh-browser-owner-index');
-          let keyReplacementBlocked = false;
-          try { await profile.createKey(); } catch (error) { keyReplacementBlocked = error.code === 'recovery_required'; }
-          if (!keyReplacementBlocked) throw new Error('existing-index-key-replacement');
-          let blocked = false; try { await profile.get(); } catch (error) { blocked = error.code === 'key_required'; }
-          if (!blocked) throw new Error('recovery-not-required');
-          retained.checked = true;
-        }
-          await profile.restoreRecovery(recovery, passphrase);
-          const read = await profile.get();
-          if (!read.exists || JSON.stringify(read.data()) !== JSON.stringify(expected)) throw new Error('recovery-readback');
-          retained.complete = true;
-      }, { recovery: encryptedRecovery, passphrase, relayOrigin, expected: expectedSave });
+      const report = await fresh.evaluate(recoverNativeOwnerQa,
+        { run, owner, recovery: encryptedRecovery, passphrase, relayOrigin, expected: expectedSave });
+      if (!report.ok) {
+        console.log(JSON.stringify({ kind: 'native_qa_recovery', ...report }));
+        throw Object.assign(new Error('Retained native recovery failed.'), { code: 'qa_native_step_failed' });
+      }
     } },
     { name: 'fresh-browser-native-verification', async run() {
       await freshNativeReload.run();

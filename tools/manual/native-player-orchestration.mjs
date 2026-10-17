@@ -105,7 +105,7 @@ const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input
   'key_registration_required', 'confirmation_required', 'needs_reauth', 'native_refused', 'crypto_unavailable',
   'invalid_profile', 'invalid_profile_index', 'missing_profile_index', 'profile_index_conflict', 'pod_pending',
   'pod_index_pending', 'pod_link_pending', 'unread_record', 'missing_record', 'recovery_required', 'revoked',
-  'tool_error', 'manifest_incomplete', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
+  'tool_error', 'manifest_incomplete', 'server_unavailable', 'upstream_error', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
   'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
 const numericCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599) || (value >= -32700 && value <= -32000)) ? value : null;
 const profileStates = new Set(['idle', 'identity_unconfirmed', 'native_identity_required', 'native_signin_required',
@@ -126,6 +126,26 @@ function publicState(value) {
     }
   }
   result.nativeQa = null;
+  result.nativeRecovery = null;
+  if (value?.nativeRecovery && typeof value.nativeRecovery === 'object') {
+    const source = value.nativeRecovery;
+    result.nativeRecovery = {
+      step: ['binding-check', 'access-cache', 'profile-connect', 'key-replacement-rejection', 'pre-recovery-read',
+        'recovery-readiness', 'key-restore', 'exact-profile-readback', 'complete'].includes(source.step) ? source.step : null,
+      code: fixedCodes.has(source.code) || ['qa_recovery_initial_state', 'qa_key_replacement_not_blocked',
+        'qa_recovery_not_required', 'qa_recovery_not_ready', 'qa_recovery_registration_required'].includes(source.code) ? source.code : null,
+      profileState: profileState(source.profileState),
+    };
+    for (const key of ['busy', 'checked', 'complete', 'profilePresent', 'keyPresent', 'hasRecord', 'pending', 'connected']) {
+      result.nativeRecovery[key] = source[key] === true;
+    }
+    result.nativeRecovery.tools = Array.isArray(source.tools) ? source.tools.slice(-32).map(entry => ({
+      step: fixedSteps.has(entry?.step) ? entry.step : null,
+      outcome: ['returned', 'refused', 'threw'].includes(entry?.outcome) ? entry.outcome : null,
+      code: fixedCodes.has(entry?.code) || entry?.code === 'qa_recovery_registration_required' ? entry.code : null,
+      numericCode: numericCode(entry?.numericCode), timeout: entry?.timeout === true,
+    })) : [];
+  }
   if (value?.nativeQa && typeof value.nativeQa === 'object') {
     result.nativeQa = {};
     for (const key of ['complete', 'busy', 'connected', 'keyStarted', 'keyReady', 'setStarted', 'recoveryPresent',

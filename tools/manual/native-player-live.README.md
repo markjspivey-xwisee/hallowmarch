@@ -167,6 +167,27 @@ It refuses a different owner/host, active gameplay, pending writes, or a busy
 stage. Follow it with `diagnose`, then `retry` or `continue` to verify the exact
 native character. This action does not start OAuth or recreate the owner/key.
 
+The recovery stage retains a separate browser-only diagnostic helper. Its reports
+contain fixed recovery phases, allowlisted native error codes, native tool
+outcomes/numeric codes, and profile/readiness flags. They never include a request,
+credential, key, recovery file, private record, owner identifier or raw error.
+Before restoring the original key it checks the original game session/native
+binding and the existing client's local readiness. The transport permits only
+native reads during recovery: a missing original encryption recipient is a
+failure, not permission to register another recipient or publish a version.
+Retried recovery preserves the same profile, key and expected record; it never
+starts OAuth. Diagnostic changes apply only to a newly loaded runner, not to an
+already retained process.
+
+The authorized preview run `20261017002434624-3a018eb7` passed the first six native
+stages, including one owner registration, exact private-body verification,
+same-browser reload and fresh-context same-owner sign-in. It stopped at
+`fresh-browser-encrypted-key-recovery` with the old runner's generic
+`native_operation_failed`. A bounded same-stage retry at
+`2026-10-17T00:36:26.881Z` also failed within one second. No main-world grant or
+coaching delivery occurred in that run. The older loaded runner cannot expose
+the new phase/code probe; these diagnostic changes do not establish a live PASS.
+
 Optional companion verification uses `HM_NATIVE_COMPANION_LIVE_TEST=1`, plus the
 existing native agent's independently verified public DID and HTTPS home pod in
 `HM_NATIVE_COMPANION_AGENT_DID` and `HM_NATIVE_COMPANION_AGENT_POD_URL`. It starts

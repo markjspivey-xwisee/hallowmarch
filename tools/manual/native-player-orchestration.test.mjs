@@ -132,6 +132,24 @@ test('startup diagnostics expose only fixed native states and profile/read confi
   assert.equal(result.profileStatus.state, null); assert.equal(result.profileStatus.keyPresent, false);
   assert(!JSON.stringify(result).includes(secret));
 });
+test('recovery diagnostics retain fixed failure phases/codes while removing private and unexpected fields', async () => {
+  const secret = 'Bearer PRIVATE-BODY KEY RECOVERY https://private.example/owner';
+  const inspect = boundedPageStatus({ evaluate: async () => ({ nativeRecovery: {
+    step: 'key-restore', code: 'registration_pending', profileState: 'native_refused', checked: true, connected: true,
+    keyPresent: true, privateBody: secret, passphrase: secret, tools: [{ step: 'recipient-registry-read', outcome: 'refused',
+      code: 'native_refused', numericCode: 403, timeout: false, raw: secret }],
+  } }) });
+  const result = (await inspect({})).state.nativeRecovery;
+  assert.equal(result.step, 'key-restore'); assert.equal(result.code, 'registration_pending');
+  assert.equal(result.profileState, 'native_refused'); assert.equal(result.checked, true); assert.equal(result.connected, true);
+  assert.deepEqual(result.tools, [{ step: 'recipient-registry-read', outcome: 'refused', code: 'native_refused', numericCode: 403, timeout: false }]);
+  assert(!JSON.stringify(result).includes(secret)); assert(!JSON.stringify(result).includes('passphrase'));
+  const malicious = boundedPageStatus({ evaluate: async () => ({ nativeRecovery: { step: secret, code: secret,
+    profileState: secret, checked: secret, tools: [{ step: secret, code: secret, numericCode: secret, timeout: secret }] } }) });
+  const rejected = (await malicious({})).state.nativeRecovery;
+  assert.equal(rejected.step, null); assert.equal(rejected.code, null); assert.equal(rejected.profileState, null);
+  assert.equal(rejected.checked, false); assert(!JSON.stringify(rejected).includes(secret));
+});
 test('fresh verification retries retain the one changed document and its pending private read', async () => {
   const calls = { before: 0, prepare: 0, reload: 0, document: 0, wait: 0, exact: 0 }; let pending = true;
   const reload = retainedNativeReload({ verifyBeforeReload: async () => { calls.before++; }, prepareReload: async () => { calls.prepare++; },
