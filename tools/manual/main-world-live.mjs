@@ -1,6 +1,7 @@
 /** Explicit mutating manual QA of the real 3D world. No import-time I/O. */
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { nativeLiveStages } from './native-live-stages.mjs';
+import { readMainWorldGrant, safeMainWorldGrantRead, publicMainWorldGrantReference } from './main-world-grant-diagnostics.mjs';
 import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage } from '../../server/gaming/native-agent-proof.js';
 const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world live verification refused.'), { code }); };
 const companionId = (ownerId, bodyId) => typeof ownerId === 'string' && typeof bodyId === 'string'
@@ -47,6 +48,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
   let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, revokeClicked = false, lastHttp = null;
   let movement = null, movementBefore = null, needAdmission = false, companionCreateClicked = false, reloadAttempted = false, reloadDocument = null, reloadContinueClicked = false;
   let pauseFailed = false, pauseRecovering = false;
+  let pendingReference = null, lastGrantRead = null;
   const movementInputs = [];
   const results = { normalGame: false, separateCompanion: false, nativeCompanionSave: false, signedAdmission: false,
     mainWorldMoved: false, humanMoved: false, peerSawMovement: false, renewed: false, paused: false, companionReloaded: false, negative: [] };
@@ -248,6 +250,12 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         const read = await window.__hm.worldAgents.state.client.load(record.reference);
         return { ...read, registered: record.registered };
       });
+      const candidate = publicMainWorldGrantReference(state?.reference);
+      if (candidate) {
+        check(!pendingReference || pendingReference.grantId === candidate.grantId && pendingReference.graphIri === candidate.graphIri,
+          'qa_world_grant_pending');
+        pendingReference ||= candidate;
+      }
       check(state?.registered && !state.pending && state.grant?.actor === config.agentDid && !state.grant.revoked
         && state.grant.entityId === ownerBody.id && state.grant.roomId === ownerBody.roomId, 'qa_world_grant_pending');
       reference = state.reference;
@@ -362,7 +370,18 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
   return Object.freeze({
     status() { return { kind: 'main_world_qa', ...stages.status(), busy: stages.status().busy || pauseRecovering,
       ...results, pauseFailed, pauseRecovering, confirmedMovementInputs: movementInputs.filter(item => item.confirmed).length,
-      publicReference: reference || null, localRevoked, podRevoked, reloadAttempted, lastHttp }; },
+      publicationClicked, publicReference: reference || null, lastGrantRead, localRevoked, podRevoked, reloadAttempted, lastHttp }; },
+    async readGrant() {
+      const state = stages.status();
+      check(state.stage === 'actual-main-game-public-grant' && !state.busy && publicationClicked && !stopped
+        && !admission && !completeAttempted && page && !page.isClosed() && ownerBody, 'qa_world_grant_read_refused');
+      const read = safeMainWorldGrantRead(await page.evaluate(readMainWorldGrant, {
+        ownerId: ownerBody.ownerId, bodyId: ownerBody.id, roomId: ownerBody.roomId, actor: config.agentDid, reference: pendingReference,
+      }));
+      if (read.reference) pendingReference ||= read.reference;
+      lastGrantRead = read;
+      return read;
+    },
     async diagnose() { if (!page || page.isClosed()) return { pageAvailable: false }; return page.evaluate(() => {
       const h = window.__hm, p = h?.GAME.player, peer = window.__mainWorldQaPeer;
         return { t: h?.GAME.t, position: p ? { x:p.x, y:p.y, z:p.z, alive:p.alive } : null,

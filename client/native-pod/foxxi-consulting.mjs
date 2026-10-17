@@ -3,10 +3,11 @@
  * bound by authenticated pod status. This path retains no Foxxi learner record.
  */
 import { RelayMcpTransport } from './vendor/interego-browser.mjs';
+import { createNativeSigningDelegation } from './signing-delegation.mjs';
 
 export const FOXXI_PLANNER_DESCRIPTOR = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance';
 export const FOXXI_PLANNER_ACTION = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/contextualize-and-plan-signed';
-const REQUIRED = ['get_pod_status', 'dereference', 'sign_request', 'act'];
+const REQUIRED = ['get_pod_status', 'dereference', 'sign_request', 'act', 'verify_agent', 'register_agent'];
 const FACTORS = ['information', 'instrumentation', 'incentives', 'knowledgeSkill', 'capacity', 'motives'];
 const METRICS = ['healthPercent', 'level', 'creatureDefeats', 'deaths', 'activePlaySeconds', 'nearbyHostiles', 'ownedCompanions'];
 const METHODS = ['classify-first', 'apply-practice', 'gap-analysis', 'dispositional-read', 'stabilise-first'];
@@ -152,6 +153,7 @@ export function createFoxxiConsultant({ binding, credential, relayUrl, journal, 
     if (!plain(result) || result.error) fail('consulting_refused', 'The coaching service refused this operation.');
     return result;
   }
+  const signingDelegation = createNativeSigningDelegation({ ownerDid, podUrl: ownerPod.href, agentDid: delegateDid, callTool: tool, now });
   async function verifyOwner() {
     const status = await tool('get_pod_status', {}), reported = pod(status.pod);
     // Storage aliases come only from this relay's authenticated status. Pod slug
@@ -175,7 +177,7 @@ export function createFoxxiConsultant({ binding, credential, relayUrl, journal, 
     if (closed) fail('consultant_disconnected', 'This coaching connection is closed.');
     let manifest; try { manifest = await tx.connect(REQUIRED, 'get_pod_status'); } catch { fail('consulting_unavailable', 'Interego coaching capabilities are unavailable.'); }
     if (!REQUIRED.every(name => manifest.granted?.includes(name))) fail('consulting_capability_missing', 'Interego did not grant the coaching transport.');
-    await verifyOwner(); operation = await discover(); connected = true; return status();
+    await verifyOwner(); await signingDelegation.ensure(); operation = await discover(); connected = true; return status();
   }
   function status() { return { connected: connected && !closed, ownerDid, delegateDid, performerKind: subjectKind,
     sessionId, recipient: operation?.target || null, descriptorUrl: operation?.descriptorUrl || null, action: operation?.action || null }; }
@@ -206,7 +208,7 @@ export function createFoxxiConsultant({ binding, credential, relayUrl, journal, 
   }
   async function requestPlan(prepared) {
     active(); if (!preparedRequests.has(prepared)) fail('consultation_preview_required', 'Preview this connection’s exact coaching request before sending it.');
-    await verifyOwner(); const current = await discover(); active();
+    await verifyOwner(); await signingDelegation.ensure(); const current = await discover(); active();
     if (canonical(current) !== canonical(operation)) fail('consulting_contract_changed', 'The live coaching recipient changed. Preview and consent again.');
     const token = await journal.authorize({ recipient: operation.target, purpose: 'request-consultation', taskId: prepared.taskId }); active();
     if (token?.ownerDid !== ownerDid || token?.sessionId !== sessionId || token?.recipient !== operation.target || token?.purpose !== 'request-consultation' || token?.taskId !== prepared.taskId

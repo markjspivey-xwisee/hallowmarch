@@ -8,7 +8,7 @@ export function createPlayerBrowserAssets({ clientRoot = new URL('../../client/n
     'finish.mjs': 'text/javascript; charset=utf-8', 'profile.mjs': 'text/javascript; charset=utf-8',
     'client.mjs': 'text/javascript; charset=utf-8', 'checkpoint.mjs': 'text/javascript; charset=utf-8',
     'access-cache.mjs': 'text/javascript; charset=utf-8',
-    'public-record.mjs': 'text/javascript; charset=utf-8', 'owner-agent-grant.mjs': 'text/javascript; charset=utf-8',
+    'public-record.mjs': 'text/javascript; charset=utf-8', 'signing-delegation.mjs': 'text/javascript; charset=utf-8', 'owner-agent-grant.mjs': 'text/javascript; charset=utf-8',
     'owner-agent-grant-schema.mjs': 'text/javascript; charset=utf-8',
     'foxxi-consulting.mjs': 'text/javascript; charset=utf-8',
     'agent-own-session.mjs': 'text/javascript; charset=utf-8',

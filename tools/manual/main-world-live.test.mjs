@@ -27,6 +27,12 @@ test('constructing the fixed companion proof plan performs no I/O or live mutati
   assert.equal(qa.status().separateCompanion, false); assert.equal(qa.status().nativeCompanionSave, false);
   assert.equal(qa.status().companionReloaded, false); qa.close();
 });
+test('public grant read refuses before the one original publication without opening a page', async () => {
+  let pages = 0;
+  const qa = createMainWorldLiveQa({ config: {}, getPage() { pages++; throw Error('must remain lazy'); } });
+  await assert.rejects(qa.readGrant(), { code: 'qa_world_grant_read_refused' });
+  assert.equal(pages, 0); assert.equal(qa.status().publicationClicked, false); assert.equal(qa.status().lastGrantRead, null); qa.close();
+});
 
 test('movement evidence distinguishes simultaneous real human and companion bodies with peer projection', () => {
   const result = mainWorldLiveMotionEvidence(observation());

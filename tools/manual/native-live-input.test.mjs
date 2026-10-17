@@ -77,6 +77,14 @@ test('native checkpoint read is a fixed serialized command and does not allow co
   input.write('retry\nstatus\n'); await tick(); assert.equal(busy, 1); assert.deepEqual(seen, ['native-checkpoint-read', 'status']);
   release(); await tick(); input.write('finish\n'); await reader.waitForClose(); input.destroy();
 });
+test('main-world public grant read is serialized while status stays available and never aliases stage retry', async () => {
+  const input = new PassThrough(), seen = []; let release, busy = 0;
+  const reader = createNativeLiveInput({ input, async onCommand(value) { seen.push(value);
+    if (value === 'main-world-grant-read') await new Promise(resolve => { release = resolve; }); }, onBusy: () => busy++ });
+  input.write('main-world-grant-read\n'); await tick(); assert.equal(reader.status().commandBusy, true);
+  input.write('retry\nstatus\n'); await tick(); assert.equal(busy, 1); assert.deepEqual(seen, ['main-world-grant-read', 'status']);
+  release(); await tick(); input.write('finish\n'); await reader.waitForClose(); input.destroy();
+});
 test('manual pause recovery is a fixed serialized command while status and signing replies remain routable', async () => {
   const input = new PassThrough(), seen = []; let release, busy = 0, protocol = 0;
   const reader = createNativeLiveInput({ input,

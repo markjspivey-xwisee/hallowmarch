@@ -351,7 +351,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-grant-read, main-world-recover-pause, main-world-revoke, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -422,6 +422,10 @@ function startInput() {
             && !mainWorld.status().busy && mainWorld.status().reloadAttempted;
           ensure(freshRecovery || companionReload, 'qa_startup_retry_refused');
           console.log(JSON.stringify(await retryNativeStartup({ page: fresh, expectedAccountId: owner?.accountId, gameOrigin }))); return;
+        }
+        if (action === 'main-world-grant-read') {
+          ensure(mainWorld, 'qa_world_grant_read_refused');
+          console.log(JSON.stringify(await mainWorld.readGrant())); return;
         }
         if (action === 'main-world-revoke') { if (!mainWorld) throw new Error('Main-world QA is not selected.'); await mainWorld.revoke(); return; }
         if (action === 'main-world-recover-pause') {

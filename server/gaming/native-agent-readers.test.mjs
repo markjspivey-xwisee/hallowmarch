@@ -110,7 +110,7 @@ async function fixture(options = {}) {
         return Response.json(descriptorTransform({ url: state.descriptorUrl, turtle: state.turtle,
           graph: { url: OWNER_POD + 'graphs/grant.trig', content: state.graph, encrypted: false },
           authorship: { authorshipVerified: true, contentBinding: 'bound', descriptorBinding: { bound: true, basis: 'slug-and-owner' },
-            effectiveTrustLevel: 'CryptographicallyVerified', signedBy: PUBLISHER, verificationMethod: PIN } }));
+            signatureAuthority: 'relay', effectiveTrustLevel: 'SelfAsserted', signedBy: PUBLISHER, verificationMethod: PIN } }));
       }
       const ownerId = args.agent_id === PUBLISHER ? 'owner-a' : args.agent_id === AGENT ? 'agent-a' : null;
       assert(ownerId, 'only requested native identity is examined');
@@ -300,6 +300,22 @@ test('raw signed bytes control trust rather than optimistic relay verification l
   });
   await t.test('a signed owner document cannot issue a grant for a different owner', async () => {
     const f = await fixture(); f.state.grant.issuer = 'did:web:identity.example:users:other-owner'; await f.rebuild(); await rejects(f.read);
+  });
+});
+
+test('relay attestation accepts aggregate SelfAsserted only with all independent native proof and delegation checks', async t => {
+  const f = await fixture();
+  assert.equal((await f.read()).grant.id, GRANT_ID);
+  for (const signatureAuthority of [undefined, 'unclassified', 'agent']) await t.test('refuses non-relay authority ' + String(signatureAuthority), async () => {
+    const broken = await fixture();
+    broken.descriptor(value => ({ ...value, authorship: { ...value.authorship, signatureAuthority, effectiveTrustLevel: 'CryptographicallyVerified' } }));
+    await assert.rejects(broken.read(), { code: 'native_grant_authorship_rejected' });
+  });
+  await t.test('aggregate report cannot replace the publisher signed delegation chain', async () => {
+    const broken = await fixture();
+    broken.verification(value => ({ ...value, verified: false, valid: false, trustLevel: 'SelfAsserted', chainLength: 0,
+      delegationChain: null, signing: { ...value.signing, canSignDelegatedRequests: false } }));
+    await assert.rejects(broken.read(), { code: 'native_delegation_rejected' });
   });
 });
 

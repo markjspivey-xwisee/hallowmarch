@@ -167,6 +167,13 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
   retained resident passkey. This cannot register a replacement owner.
 - `companion-restart-admission`: when optional companion QA is selected, reset
   only its expired/uncertain ephemeral admission at the permitted proof stage.
+- `main-world-grant-read`: only after the one original public-grant submission
+  has stopped at its retained grant stage, read that exact owner/companion/agent
+  relationship through the existing native client. Emit its public reference,
+  fixed pending phase and known read error code. Account, native binding,
+  transport generation, client and grant scope must remain identical across
+  the read. This does not confirm, publish, register, revoke or admit anything;
+  `retry` remains a separate command and never submits a replacement grant.
 - `main-world-recover-pause`: only after the main-world owner-revocation phase
   fails before proving Pause, with exactly eight positively acknowledged inputs
   and completed movement/peer/scope checks. Resume the original owner through

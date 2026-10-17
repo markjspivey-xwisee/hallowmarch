@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createGameplayActivityProfile, gameplayActivityStatement } from './gameplay-activity.mjs';
 import { createOwnerGameplayLearningDelivery, GAMEPLAY_LEARNING_DESCRIPTOR, GAMEPLAY_LEARNING_WRITE_ACTION,
   GAMEPLAY_LEARNING_READ_ACTION, GAMEPLAY_LEARNING_PURPOSE } from './gameplay-learning-delivery.mjs';
+import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
 const owner = 'did:web:identity.example:users:alice', delegate = 'did:web:identity.example:agents:hallowmarch-alice';
 const podUrl = 'https://pod.example/alice/', characterId = 'char-alice';
@@ -20,12 +21,17 @@ function observations(count = 2, overrides = {}) {
     actor: index ? { kind: 'agent', id: 'did:web:identity.example:agents:companion', grantId: 'urn:uuid:7cd0d0b7-9755-4c02-92fd-d60809cbb3b3' } : { kind: 'human-input' },
     object: { id: index ? 'move' : 'planks', kind: index ? 'agent-command' : 'craft' }, result: { success: true }, context: { party: true }, ...overrides }).event);
 }
-function fixture(options = {}) {
+function fixture({ missingSigning = false, repairCapability = true, ...options } = {}) {
   const calls = [], records = options.records || new Map(); let mode = '', revoked = false, currentOwner = owner, currentDelegate = delegate;
   let time = clock, commitResult = true, afterCommit = null, durableState = options.state || null;
+  let signingReady = !missingSigning;
+  const signing = signingDelegationFixture({ ownerDid: owner, agentDid: delegate, podUrl, statusPod: 'http://css.railway.internal:3456/alice/' });
+  signing.status.capabilities.register_agent_repair_only = repairCapability;
   const transport = { async connect(required) { return { granted: required }; }, async callTool(name, args) {
     calls.push({ name, args: copy(args) });
-    if (name === 'get_pod_status') return { pod: 'http://css.railway.internal:3456/alice/', userId: 'alice', identity: { did: currentOwner }, sessionAgent: { did: currentDelegate } };
+    if (name === 'get_pod_status') return { ...copy(signing.status), identity: { ...signing.status.identity, did: currentOwner }, sessionAgent: { did: currentDelegate } };
+    if (name === 'verify_agent') return copy(signingReady ? signing.verified : signing.missing);
+    if (name === 'register_agent' && missingSigning) { signingReady = true; return { registered: true }; }
     if (name === 'dereference') return { status: 'ok', affordances: [
       { action: GAMEPLAY_LEARNING_WRITE_ACTION, method: 'POST', target: writeTarget + (mode === 'contract-drift' ? '-other' : '') },
       { action: GAMEPLAY_LEARNING_READ_ACTION, method: 'POST', target: readTarget }] };
@@ -78,6 +84,14 @@ test('opening discovers current own-subject contract without signing or sending 
   assert.equal(f.client.status().purpose, GAMEPLAY_LEARNING_PURPOSE); assert.equal(f.client.status().recipient, writeTarget);
   assert.equal(f.client.status().taskId, 'hallowmarch-activity:' + characterId + ':' + sessionId);
   assert(!f.calls.some(call => ['sign_request', 'act', 'commitState', 'authorize'].includes(call.name)));
+});
+test('activity-first setup repairs only its missing current signer without sending activity or changing consent', async () => {
+  const f = fixture({ missingSigning: true }); await f.client.connect(); await f.client.connect();
+  assert.deepEqual(f.calls.filter(call => call.name === 'register_agent').map(call => call.args), [{ agent_id: delegate, pod_name: 'alice', repair_only: true }]);
+  assert(!f.calls.some(call => ['sign_request', 'act', 'commitState', 'authorize'].includes(call.name)));
+  const unavailable = fixture({ missingSigning: true, repairCapability: false });
+  await assert.rejects(unavailable.client.connect(), { code: 'native_signing_repair_unavailable' });
+  assert(!unavailable.calls.some(call => ['register_agent', 'sign_request', 'act', 'commitState'].includes(call.name)));
 });
 
 test('only explicitly enabled current session events become eligible and the canonical mapper preserves companion attribution', async () => {

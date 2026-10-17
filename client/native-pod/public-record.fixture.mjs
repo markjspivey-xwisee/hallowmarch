@@ -3,14 +3,18 @@ import { webcrypto } from 'node:crypto';
 import { RelayMcpTransport, canonicalGraphDigest } from './vendor/interego-browser.mjs';
 import { computeCid } from './vendor/interego-public-browser.mjs';
 import { createNativePublicRecordClient } from './public-record.mjs';
+import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
 export const ownerDid = 'did:web:identity.example:users:alice', webId = 'https://identity.example/users/alice/profile#me';
 export const pod = 'https://pod.example/alice/', agentDid = 'did:web:identity.example:agents:browser-alice';
 export const binding = { subjectDid: ownerDid, webId, podUrl: pod };
-const names = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context'];
-export function publicRecordFixture({ css, projectMcpResult = value => value } = {}) {
+const names = ['get_pod_status', 'get_current_head', 'get_descriptor', 'publish_context', 'verify_agent', 'register_agent'];
+export function publicRecordFixture({ css, projectMcpResult = value => value, nativeSigning = 'verified', repairAck = 'normal', repairCapability = true } = {}) {
   const heads = new Map(), records = new Map(), calls = [], publicCalls = [];
   const storagePod = css ? css + 'alice/' : pod;
+  const signing = signingDelegationFixture({ ownerDid, agentDid, podUrl: pod });
+  signing.status.capabilities.register_agent_repair_only = repairCapability;
+  let signingReady = nativeSigning === 'verified';
   let count = 0, mode = 'normal', delayed = null, mutate = value => value, forked = false, afterRead = () => {};
   function makeRecord(args) {
     const descriptorUrl = pod + 'context-graphs/' + (++count) + '.ttl', graphUrl = pod + 'graphs/' + count + '.trig';
@@ -25,14 +29,20 @@ export function publicRecordFixture({ css, projectMcpResult = value => value } =
     const graphContent = prefixes.join('\n') + '\n' + `<${args.graph_iri}> {\n` + body.map(line => '    ' + line).join('\n') + '\n}\n';
     const selected = { descriptorUrl, cid: computeCid(turtle) };
     const read = { url: descriptorUrl, turtle, graph: { url: graphUrl, encrypted: false, content: graphContent },
-      authorship: { authorshipVerified: true, signedBy: agentDid, contentBinding: 'bound', effectiveTrustLevel: 'CryptographicallyVerified',
+      authorship: { authorshipVerified: true, signedBy: agentDid, signatureAuthority: 'relay', contentBinding: 'bound', effectiveTrustLevel: 'SelfAsserted',
         descriptorBinding: { bound: true, basis: 'slug-and-owner' } } };
     return { selected, read, args: structuredClone(args) };
   }
   const apply = record => { heads.set(record.args.graph_iri, record.selected); records.set(record.selected.descriptorUrl, record); };
   async function dispatch(name, args) {
     calls.push({ name, args: structuredClone(args) });
-    if (name === 'get_pod_status') return { pod, ...(css ? { css } : {}), userId: 'alice', identity: { did: ownerDid }, sessionAgent: { did: agentDid } };
+    if (name === 'get_pod_status') return { ...structuredClone(signing.status), ...(css ? { css } : {}) };
+    if (name === 'verify_agent') return structuredClone(signingReady ? signing.verified : signing.missing);
+    if (name === 'register_agent' && nativeSigning === 'missing') {
+      if (repairAck !== 'lost-before') signingReady = true;
+      if (repairAck !== 'normal') throw Error('Explicit fixture lost repair acknowledgement');
+      return { registered: true };
+    }
     if (name === 'get_current_head') {
       const selected = heads.get(args.urn) || null;
       if (!selected && mode === 'empty-head-no-forked') return { urn: args.urn, podUrl: pod, head: null, message: 'No descriptor on this pod describes the requested urn.' };

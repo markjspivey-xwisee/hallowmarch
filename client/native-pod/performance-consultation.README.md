@@ -4,6 +4,8 @@
 
 Construct `createOwnerPerformanceConsultation({ binding, credential, relayUrl, sessionId, checkpoint: 'hallowmarch-performance-consultation/v1' })` from the current verified native owner connection. Use a random session identifier distinct from all bearer credentials. `connect()` and `read()` are read-only and never create an encryption key or consent. A missing existing key requires the ordinary native profile recovery flow; this module cannot replace it.
 
+The separate `createFoxxiConsultant` setup verifies the current owner's session delegate before discovering or signing a coaching request. A fresh registry-only bootstrap may need its existing delegate's signing credential. Setup uses only the explicitly advertised native `repair_only: true` mode, checks exact owner/pod/agent and current write eligibility, and requires complete signed-chain readback. It never changes scope or registry authority. Already verified credentials require no setup write. Revoked, narrowed, foreign or otherwise invalid authority fails closed. Lost acknowledgements allow readback only from that consultant. Neither signing setup nor service discovery sends observations or grants consultation consent. Generic private journal reads and key recovery remain independent of signing authority.
+
 The journal represents exactly `binding.subjectDid`. The relay client verifies that DID against its authenticated own pod. It does not substitute the OAuth signing delegate for the owner, accept a performer selector, or let a player write an agent's personal performance record. An agent uses its own authenticated connection and pod. `performerKind` classifies the self-attributed observation; the field never grants authority.
 
 ## Consent and delivery

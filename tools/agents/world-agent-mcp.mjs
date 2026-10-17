@@ -22,7 +22,7 @@ if (args.length !== 4 || args[0] !== '--connection' || args[2] !== '--signer-mod
     const { validateWorldAgentConnection } = await import('../../client/world-agent-mcp.mjs');
     validateWorldAgentConnection(connection);
     const signer = await import(pathToFileURL(resolve(args[3])).href);
-    host = createWorldAgentMcpHost({ connection, sign_request: signer.sign_request });
+    host = createWorldAgentMcpHost({ connection, sign_request: signer.sign_request, performance: signer.performance });
   } catch {
     process.stderr.write('Hallowmarch tool host could not load its public connection and reviewed native signing callback. No agent admission was attempted.\n');
     process.exitCode = 1;
