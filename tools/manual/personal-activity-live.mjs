@@ -198,6 +198,10 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     const indexIri = await profileModule.playerProfileIndexGraphIri(owner.subjectDid), index = await native.load({ graphIri: indexIri }); current();
     const characterIri = profileModule.validatePlayerProfileIndex(index.record, owner.subjectDid);
     const opened = await native.load({ graphIri: characterIri }); current(); const after = await native.currentHead({ graphIri: characterIri }); current();
+    // A normal owner save may advance this graph between the two reads. Only
+    // that known read race may poll again; it never authorizes another input or
+    // external write and does not turn substituted content into a valid proof.
+    if (opened?.head && !same(opened.head, after)) return { sharingStopped: false };
     const saved = opened?.record?.save?.char?.x, state = saved?.learningDelivery, events = t.memo.events;
     const body = h.activity.snapshot()?.summary?.bodyObservations?.find(item => item.bodyId === owner.accountId && item.kind === 'character');
     const changed = !!t.inputAttempted && !!t.before && ((body?.counters?.['ability.executed'] || 0) > t.before.executed

@@ -127,6 +127,11 @@ test('independent reader verifies exact native checkpoint, own consent and actua
   assert.equal(f.calls.filter(name => name === 'act').length, 1);
   assert.deepEqual(f.calls, ['get_pod_status', 'dereference', 'sign_request', 'act']);
 });
+test('a concurrently advanced native character head requests only read polling before any LRS call', async () => {
+  const f = readFixture(); f.opened.head = { ...f.opened.head, cid: 'a-new-owner-save' };
+  const result = await f.read(); assert.deepEqual(Object.keys(result), ['sharingStopped']); assert.equal(result.sharingStopped, false);
+  assert.deepEqual(f.calls, []);
+});
 for (const [label, mutate, flag] of [
   ['another body', f => { f.trace.memo.events[0].body.id = 'other-player'; }, 'genuineHumanOutcome'],
   ['older activity', f => { f.trace.startOrdinal = 1; }, 'futureActivityOnly'],
