@@ -11,12 +11,13 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     'invalid_profile', 'invalid_profile_index', 'missing_profile_index', 'profile_index_conflict', 'pod_pending',
     'pod_index_pending', 'pod_link_pending', 'unread_record', 'missing_record', 'recovery_required', 'revoked',
     'tool_error', 'manifest_incomplete', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
-    'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
+    'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout', 'qa_checkpoint_unavailable', 'qa_checkpoint_failed']);
   const safeCode = value => fixedCodes.has(value) ? value : 'operation_failed';
   const numberCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599)
     || (value >= -32700 && value <= -32000)) ? value : null;
   const failure = code => Object.assign(new Error('Manual native QA condition failed.'), { code });
-  const { run, owner, relayOrigin, expected, passphrase } = config;
+  const { run, owner, relayOrigin, expected, passphrase, checkpointEnabled = false } = config;
+  if (checkpointEnabled && typeof target.__hmNativeQaCheckpoint !== 'function') throw failure('qa_checkpoint_unavailable');
   if (!run || expected?.qa?.run !== run || !owner?.subjectDid || !owner?.podUrl || !owner?.accountId) throw failure('qa_scope_mismatch');
   if (target.__hmNativeQaSession) {
     if (!target.__hmNativeQaSession.matches(run, owner, relayOrigin)) throw failure('qa_scope_mismatch');
@@ -29,7 +30,11 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
   const [{ createBrowserAccessCache }, { createNativePodClient }, { createPlayerPodProfile }, { RelayMcpTransport }] = modules;
   let step = 'access-cache', lastError = null, profile = null, native = null, transport = null;
   let connected = false, freshChecked = false, freshRefused = false, keyStarted = false, keyReady = false, setStarted = false;
-  let recovery = null, complete = false, closed = false, busy = false;
+  let recovery = null, recoveryCheckpointed = false, checkpointFailed = false, complete = false, closed = false, busy = false;
+  const checkpoint = async event => {
+    try { if ((await target.__hmNativeQaCheckpoint(event))?.ok !== true) throw failure('qa_checkpoint_failed'); }
+    catch { checkpointFailed = true; throw failure('qa_checkpoint_failed'); }
+  };
   const history = [], cache = createBrowserAccessCache();
   const matches = (nextRun, nextOwner, nextRelay) => nextRun === run && nextRelay === relayOrigin
     && nextOwner.subjectDid === owner.subjectDid && nextOwner.podUrl === owner.podUrl && nextOwner.accountId === owner.accountId;
@@ -79,6 +84,9 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
     transport.callTool = async (name, input, options) => {
       const toolStep = nativeStep(name, input); step = toolStep;
       try {
+        if (checkpointEnabled && name === 'publish_context') await checkpoint({ kind: 'publication',
+          recordKind: toolStep === 'owner-index-publish' ? 'index' : 'profile', graphIri: input.graph_iri,
+          operationId: input.descriptor_id?.replace(/^urn:uuid:/, ''), digest: input.content_digest });
         const result = await call(name, input, options);
         recordTool({ step: toolStep, outcome: result?.error ? 'refused' : 'returned',
           code: result?.error ? safeCode(result.error) : null, numericCode: numberCode(result?.code) });
@@ -97,6 +105,7 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
       if (closed || busy) return { ok: false, ...status(), code: closed ? 'revoked' : 'operation_busy' };
       busy = true;
       try {
+        if (checkpointFailed) throw failure('qa_checkpoint_failed');
         if (freshRefused) throw failure('qa_owner_not_fresh');
         await initialize();
         if (!connected) {
@@ -115,12 +124,19 @@ export async function installNativeOwnerQaSession(config, suppliedModules) {
           keyReady = true;
         }
         if (!recovery) { step = 'encrypted-recovery-export'; recovery = await profile.exportRecovery(passphrase); }
+        if (checkpointEnabled && !recoveryCheckpointed) {
+          await checkpoint({ kind: 'recovery', recovery }); recoveryCheckpointed = true;
+        }
         if (!complete) {
           step = setStarted ? 'profile-confirmation-retry' : 'profile-set';
           const persist = setStarted ? () => profile.retry() : () => { setStarted = true; return profile.set(expected); };
-          try { await persist(); } catch (error) { if (!['pod_pending', 'pod_index_pending', 'pod_link_pending'].includes(error?.code)) throw error; }
+          try { await persist(); } catch (error) {
+            if (checkpointFailed) throw failure('qa_checkpoint_failed');
+            if (!['pod_pending', 'pod_index_pending', 'pod_link_pending'].includes(error?.code)) throw error;
+          }
           const deadline = Date.now() + Math.min(Math.max(confirmationMs, 0), 180000);
           while (profile.status().state !== 'saved') {
+            if (checkpointFailed) throw failure('qa_checkpoint_failed');
             if (Date.now() >= deadline) throw failure('qa_confirmation_timeout');
             await new Promise(resolve => setTimeout(resolve, 1500));
             try { await profile.retry(); } catch (error) { if (!['pod_pending', 'pod_index_pending', 'pod_link_pending'].includes(error?.code)) throw error; }

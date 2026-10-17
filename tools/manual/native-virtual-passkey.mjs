@@ -1,5 +1,5 @@
-/** Manual QA only. This test's resident passkey stays in RAM; no files or I/O
- * occur until attach is explicitly given its owned browser page. */
+/** Manual QA only. RAM by default; an explicit synthetic checkpoint hook may
+ * durably retain only its allowlisted virtual passkey fields. No import-time I/O. */
 const fail = () => { throw Object.assign(new Error('Manual QA passkey synchronization refused.'), { code: 'qa_oauth_passkey_sync_refused' }); };
 const immutable = ['credentialId', 'privateKey', 'rpId', 'userHandle', 'isResidentCredential'];
 const valid = value => value && typeof value === 'object' && !Array.isArray(value)
@@ -9,7 +9,8 @@ const valid = value => value && typeof value === 'object' && !Array.isArray(valu
   && value.isResidentCredential === true && Number.isSafeInteger(value.signCount)
   && value.signCount >= 0 && value.signCount <= 0xffffffff;
 
-export function createNativeQaPasskey() {
+export function createNativeQaPasskey({ restoredCredential = null, onCredential = () => {} } = {}) {
+  if (typeof onCredential !== 'function') fail();
   let held = null, failed = false, registrationAttached = false, closed = false, assertions = 0;
   const listeners = [];
   function update(value, asserted = false) {
@@ -17,10 +18,16 @@ export function createNativeQaPasskey() {
       || value.signCount < held.signCount || (asserted && value.signCount === held.signCount)))) {
       failed = true; fail();
     }
-    held = structuredClone(value);
+    const next = structuredClone(value);
+    // A configured synthetic-fixture checkpoint must durably acknowledge this
+    // exact key/counter before the helper resolves its native credential event.
+    try { onCredential(Object.fromEntries([...immutable, 'signCount'].map(key => [key, next[key]]))); }
+    catch { failed = true; fail(); }
+    held = next;
     if (asserted) assertions++;
   }
   const credential = () => { if (closed || failed) fail(); return held ? structuredClone(held) : null; };
+  if (restoredCredential) { update(restoredCredential); registrationAttached = true; }
   return Object.freeze({ credential,
     status: () => ({ present: !!held, assertions, failed }),
     async attach(page, { register = false } = {}) {

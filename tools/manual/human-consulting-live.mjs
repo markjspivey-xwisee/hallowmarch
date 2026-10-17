@@ -1,7 +1,7 @@
 /** Opt-in manual smoke of the actual Players UI and native private coaching.
  * The goal/report are synthetic test inputs; measurements come from this game.
  * No import-time I/O, learner statements, achievements, or independent-agent claim. */
-export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, gameOrigin, run } = {}) {
+export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, gameOrigin, run, checkpoint = async () => {} } = {}) {
   const goal = 'Validate coaching workflow on this synthetic QA character';
   const observed = 'Actual game open; this synthetic task has no plan yet';
   const desired = 'An attributed returned plan is displayed and saved privately';
@@ -67,6 +67,7 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
         await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, action: 'retain' });
         await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, action: 'share' });
         // One real click only. Lost delivery is never an automatic resend.
+        await checkpoint({ kind: 'coaching-delivery-intent' });
         requestClicked = true; step = 'request-once'; await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, action: 'request' });
       }
       step = 'private-plan-confirmation';

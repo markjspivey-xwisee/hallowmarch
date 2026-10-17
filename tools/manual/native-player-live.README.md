@@ -293,6 +293,113 @@ the browser-close backstop.
 
 ## What it does
 
+### Explicit private synthetic checkpoint
+
+The default remains RAM-only. The full main-world runner can explicitly retain
+its generated synthetic fixture outside the repository and Library:
+
+```sh
+export HM_NATIVE_QA_CHECKPOINT_DIR='/tmp/hallowmarch-synthetic-qa-unique-label'
+export HM_NATIVE_QA_CHECKPOINT_MODE=new
+```
+
+Then use the already-authorized full live/main-world command with its exact
+origins, agent scope and opt-in flags.
+
+Set both variables or neither; there is no default directory. `new` refuses an
+existing checkpoint. The directory must be a private absolute temporary path
+(0700), with private owned files (0600), no symlinks/repository/Library path, and
+one exclusive writer. Writes use a private temporary file, file fsync, atomic
+rename and directory fsync. Any checkpoint failure blocks further native writes.
+
+The strict versioned file contains only this generated test's virtual passkey
+and counter, public run/owner scope, fake expected save, encrypted profile-key
+recovery plus synthetic passphrase, and safe publication/grant pointers and
+intent markers. Optional CDP metadata is not stored. Native OAuth bearers, game
+tokens, signed envelopes, real user credentials, private coaching responses,
+HAR, logs and browser-storage dumps are never checkpointed. Never print, upload,
+commit, or add this directory to Library. It is a private test credential store.
+
+Registration intent is persisted before its one click; each captured/updated
+passkey is acknowledged before its event resolves. The verified owner is retained
+after the native claim. Encrypted key recovery is durably acknowledged before
+`profile.set`; graph/operation/digest intent is acknowledged before each actual
+native publication. Grant and coaching-delivery intent is recorded before its
+real UI click, so interruption cannot cause another grant or coaching request.
+
+After independently confirming the prior runner **and** browser are gone, use
+the exact same scope/directory with `HM_NATIVE_QA_CHECKPOINT_MODE=resume`.
+Clean shutdown releases `writer.lock`. A process crash may leave that lock:
+never break it based on age or an unknown process handle. Only after independent
+process inventory proves the previous writer/browser stopped, remove that single
+stale `writer.lock`; keep `checkpoint.json` untouched and private. Do not dump its
+contents to inspect it. Concurrent writers, changed files/locks, wrong modes,
+unsafe permissions, or missing/corrupt state are refused before browser launch.
+
+Resume requires the original captured passkey, verified owner and encrypted
+recovery. An interruption before any required capture is explicitly unrecoverable;
+the runner never registers a replacement identity or creates a replacement key.
+It signs in with the original resident passkey and obtains fresh native proof.
+The five-stage resumed lane uses direct native `currentHead`/`load` behind a
+read-only transport, comparing both original graph/operation/digest entries,
+owner index target, exact fake body and provenance. It does not call the profile
+adapter's potentially writing `get`, restore a transaction map, repair a missing
+index, resend a publication, or count persisted PASS flags as evidence. Missing
+or uncertain native records stop the run. Only fresh successful readback permits
+normal title reload/privacy checks and previously unstarted optional gameplay.
+Any prior grant/coaching intent blocks automatic resume, including uncertain
+delivery or a grant later marked revoked; native readback/revocation needs a
+separate reviewed continuation.
+
+There is one explicit pre-registration continuation: `resume-unregistered`
+reopens the exact saved fixture only when registration intent is false, the
+credential/owner/recovery are all absent, publication intents are empty, and
+every grant/coaching lifecycle field is empty or false. It reuses the original
+run, synthetic passphrase and fake expected save in the normal first-registration
+lane. Any partial registration, key, record or lifecycle state is refused;
+ordinary `resume` retains its owner-known, read-only recovery rules. This mode
+does not reset state or choose a new identity after an uncertain registration.
+
+`resume-current-owner-save` is a separate explicit owner-known continuation for
+a character that legitimately autosaved after the initial exact-body proof.
+It keeps the original owner/pod/account/key, recovery, expected save and
+publication baseline. Native reads must prove the exact original owner-index
+operation/digest and its original profile graph, then authenticate that graph's
+current player-authored save with the same unique character name/realm/class.
+Both native heads and the current owner binding are rechecked. Only a save hash,
+public heads and bounded verification flags leave the browser; no current body
+is returned or written over the original checkpoint. After one real reload the
+title must independently prove the same save hash and fresh owner binding.
+A same-account token may rotate across that reload; each in-flight check pins
+its own token/generation. This proves the current gameplay save, not a repeat
+of the initial fake-body proof. Missing or foreign records and any prior
+grant/coaching intent still block continuation. The exact original passkey's
+monotonic assertion counter remains durably synchronized; no native record is
+published by this verification lane and no lifecycle intent is created by it.
+
+Run `20261017010249256-747db867` lost its process handle during environment refresh.
+Read-only inventory found no remaining runner/browser. Only its launch label was
+observed; registration and later progress are unknown. It had no checkpoint and
+is explicitly unrecoverable, with no live PASS claimed.
+
+Fixture `20261017015232831-92e59157` passed all ten native/private stages on
+preview `802d180`, after an initial pre-registration startup timeout and a
+separate startup-only check that reached readiness in 50.49 seconds. Its private
+party setup later timed out before chat messages, agent grants or coaching
+requests. The retained process handle was then lost; orderly finish was not
+confirmed. Independent process inventory found no runner/browser, and its
+private checkpoint remains untouched with its stale writer lock. Normal game
+autosave may have advanced the private profile; no later live PASS is claimed.
+
+The main-world lane also checks private chat after reconnect and before its
+public agent grant. It uses the existing second authenticated QA socket in the
+unique QA room, forms a real party through the game protocol, sends one synthetic
+message through the owner's real input/button and one reply from that peer, and
+requires both actual wire events plus the owner's displayed reply. Membership
+and channel are checked in the same browser turn as the send click; a missing
+party stops the check before chat can fall back to the global realm channel.
+An uncertain attempt is never replayed. It does not contact real players.
+
 - Creates **one** new Interego owner with display name
   `Hallowmarch QA native E2E <unique run>`, using the real Hallowmarch start route
   and real relay PKCE passkey ceremony. It verifies an explicit `mcp:write` grant
@@ -349,9 +456,11 @@ user credential is needed or read.
 ## Custody, retained state, and limits
 
 All access credentials stay in browser memory or the real encrypted browser
-cache. The synthetic passkey transfer, encrypted recovery object, and random
-recovery passphrase exist only in the runner/browser processes. No credential
-files, traces, screenshots, raw logs, or recovery files are written. Browser
+cache. By default the synthetic passkey transfer, encrypted recovery object,
+and random recovery passphrase exist only in the runner/browser processes.
+The explicit checkpoint opt-in above retains only the generated fixture's
+allowlisted state in its private directory. No traces, screenshots, raw logs,
+or browser-storage dumps are written. Browser
 contexts are ephemeral and closed on completion/failure; the runner also tries
 to forget access-cache entries before closing them. The actual OAuth code
 travels through the normal PKCE callback URL, but is never printed or saved.
@@ -368,9 +477,11 @@ and game-owned participation/pointer metadata remain in native pods. The game
 also creates the usual guest app session before each identity handoff; both
 handoffs must resolve to the same canonical native-bound game account. This
 runner does not claim to delete durable pod history or revoke the test's native
-credentials. The QA passkey/recovery are discarded when it exits, so keep the
-printed label for administrative identification. Each explicit invocation can
-create one new QA owner; a failed run is not automatically repeated.
+credentials. The QA passkey/recovery leave RAM when it exits; an explicitly
+enabled private checkpoint remains available for the guarded same-owner resume.
+Keep the printed label for administrative identification. A `new` invocation can
+create one QA owner; a failed run is not automatically repeated, and `resume`
+never registers another owner.
 
 The stable named owner index uses an absence preflight and native fork/readback
 checks; the current substrate has no atomic compare-with-absence creation

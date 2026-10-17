@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, currentOwnerSaveHash as currentOwnerSaveHashFromReport } from './native-player-orchestration.mjs';
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
@@ -14,6 +14,11 @@ import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnos
 import { createMainWorldLiveQa } from './main-world-live.mjs';
 import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
 import { recoverNativeOwnerQa } from './native-recovery-session.mjs';
+import { openNativeQaCheckpoint, nativeQaCheckpointFailureCode } from './native-qa-checkpoint.mjs';
+import { installNativeQaCheckpointBinding } from './native-qa-checkpoint-binding.mjs';
+import { readNativeQaCheckpoint } from './native-qa-resume.mjs';
+import { verifyNativePrivateChat } from './native-private-chat.mjs';
+import { readNativeQaCurrentOwnerSave, verifyNativeQaCurrentTitle } from './native-qa-current-save.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -45,37 +50,63 @@ try {
   process.exit(2);
 }
 
-const run = new Date().toISOString().replace(/[-:.TZ]/g, '') + '-' + randomBytes(4).toString('hex');
-const displayName = 'Hallowmarch QA native E2E ' + run;
-const characterName = 'QA Native ' + run.slice(-8);
-const passphrase = randomBytes(32).toString('base64url');
-const privateMarker = 'private-native-qa-' + randomBytes(24).toString('hex');
-const room = 'native-qa-' + run.slice(-8);
-const expectedSave = {
+const generatedRun = new Date().toISOString().replace(/[-:.TZ]/g, '') + '-' + randomBytes(4).toString('hex');
+let fixture = { run: generatedRun, displayName: 'Hallowmarch QA native E2E ' + generatedRun,
+  characterName: 'QA Native ' + generatedRun.slice(-8), room: 'native-qa-' + generatedRun.slice(-8),
+  gameOrigin, relayOrigin, identityOrigin, agentDid: (mainWorldConfig || companionConfig)?.agentDid,
+  agentPodUrl: (mainWorldConfig || companionConfig)?.agentPodUrl, passphrase: randomBytes(32).toString('base64url'), expectedSave: {
   v: 1,
-  char: { name: characterName, realm: 0, cls: 'warrior', level: 1, xp: 0, rp: 0,
+  char: { name: 'QA Native ' + generatedRun.slice(-8), realm: 0, cls: 'warrior', level: 1, xp: 0, rp: 0,
     kills: 0, realmKills: 0, deaths: 0, played: 0, bounty: null, pos: null,
     gold: 0, potions: 0, bag: [], eq: {}, lore: null, gift: {}, x: {} },
   settings: { quality: 'low', auto: false, tod: 'morning', sound: false, weather: 'clear' },
-  qa: { run, privateMarker, purpose: 'Synthetic owner-pod persistence verification', authoritativeGameOutcome: false },
-};
+  qa: { run: generatedRun, privateMarker: 'private-native-qa-' + randomBytes(24).toString('hex'),
+    purpose: 'Synthetic owner-pod persistence verification', authoritativeGameOutcome: false },
+} };
+let checkpoint = null, checkpointState = null, checkpointMode = null;
+try {
+  const directory = process.env.HM_NATIVE_QA_CHECKPOINT_DIR, mode = process.env.HM_NATIVE_QA_CHECKPOINT_MODE;
+  if ((directory === undefined) !== (mode === undefined)) throw Object.assign(Error('Explicit checkpoint scope required.'), { code: 'qa_checkpoint_configuration' });
+  if (directory !== undefined) {
+    if (!mainWorldConfig) throw Object.assign(Error('Checkpoint lifecycle scope requires the main-world suite.'), { code: 'qa_checkpoint_configuration' });
+    checkpointMode = mode;
+    checkpoint = openNativeQaCheckpoint({ directory, mode, ...(mode === 'new' ? { fixture } : {}),
+      expectedScope: { gameOrigin, relayOrigin, identityOrigin, agentDid: fixture.agentDid, agentPodUrl: fixture.agentPodUrl } });
+    checkpointState = checkpoint.snapshot(); fixture = checkpointState.fixture;
+  }
+} catch (error) {
+  console.error('FAIL: private QA checkpoint [' + (nativeQaCheckpointFailureCode(error) || 'qa_checkpoint_configuration') + ']. No browser or identity was opened.');
+  process.exit(2);
+}
+const { run, displayName, characterName, room, passphrase, expectedSave } = fixture;
+const privateMarker = expectedSave.qa.privateMarker;
+const ownerKnownResume = checkpointMode === 'resume' || checkpointMode === 'resume-current-owner-save';
 const observations = { requests: [], console: [], gameAuthorization: [], startAuthorization: [], claimAuthorization: [],
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
 let input = null, broker = null, companion = null, mainWorld = null, humanConsulting = null, finishRequested = false, cleaning = false;
 let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
 const oauthControllers = [], oauthByPage = new WeakMap();
-let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
+let firstContext, first, owner = ownerKnownResume ? checkpointState.owner : undefined,
+  initialHead, freshContext, fresh, registrationAttempted = false, resumeNativeVerified = false, currentOwnerSaveHash = null;
 const contexts = [], retainedPages = [];
-const qaPasskey = createNativeQaPasskey();
-let encryptedRecovery = null;
+let qaPasskey;
+try { qaPasskey = createNativeQaPasskey({ restoredCredential: ownerKnownResume ? checkpointState.credential : null,
+  onCredential: value => checkpoint?.recordCredential(value) }); }
+catch { checkpoint?.close(); console.error('FAIL: private QA checkpoint [qa_checkpoint_unrecoverable]. No browser or identity was opened.'); process.exit(2); }
+let encryptedRecovery = ownerKnownResume ? checkpointState.recovery : null;
 const ensure = (condition, code) => { if (!condition) throw Object.assign(new Error('A native QA condition failed.'), { code }); };
 function passed(label) { console.log('PASS: ' + label); }
 function reportComplete() {
   if (!allComplete() || finishRequested) return;
   if (completeReported) return;
   completeReported = true;
-  console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.');
+  console.log(checkpointMode === 'resume-current-owner-save'
+    ? 'PASS: current-owner save continuation complete. Fresh original-owner sign-in, original key/index and current private gameplay save hash/title/privacy verified; the initial fake-body proof was not replayed.'
+    : checkpointMode === 'resume'
+    ? 'PASS: resumed native QA complete. Fresh original-owner sign-in, read-only private recovery, title load and privacy verified; historical stages were not replayed.'
+    : 'PASS: native live QA complete. The labelled synthetic owner and private pod record remain.'
+      + (checkpoint ? ' The explicit private synthetic-fixture checkpoint remains; OAuth and game tokens were never checkpointed.' : ' No local credential artifacts were written.'));
   if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
   if (mainWorld) console.log('PASS: actual main-world QA complete. Normal 3D entry, native control, real movement, second authenticated peer, scoped proofs and both revocations verified.');
   if (humanConsulting) console.log('PASS: synthetic human coaching request returned an attributed live Foxxi plan with exact private native readback and no achievement claims.');
@@ -132,6 +163,7 @@ async function oauth(page, { register, userId } = {}) {
           ensure(!registrationAttempted, 'qa_registration_retry_refused');
           intent.onStep('display-name');
           await popup.locator('#pk-name').fill(displayName);
+          checkpoint?.recordRegistrationIntent();
           registrationAttempted = true;
           intent.onStep('register-click');
           await popup.getByRole('button', { name: /^Register new$/i }).click();
@@ -171,7 +203,11 @@ async function oauth(page, { register, userId } = {}) {
     oauthByPage.set(page, controller); oauthControllers.push(controller);
   }
   activeOAuth = controller;
-  const result = await controller.run(); observations.oauthWritePkce = true; return result;
+  const result = await controller.run();
+  if (checkpointMode === 'resume-current-owner-save') ensure(['userId', 'subjectDid', 'podUrl', 'accountId']
+    .every(key => result[key] === checkpointState.owner[key]), 'same-owner');
+  else checkpoint?.recordOwner(result);
+  observations.oauthWritePkce = true; return result;
 }
 async function verifiedRead(page, expected) {
   return page.evaluate(async ({ expected, relayOrigin }) => {
@@ -238,6 +274,7 @@ const firstHandoff = verifiedContextHandoff({
 let freshReloadMarker = null;
 const freshNativeReload = retainedNativeReload({
   async verifyBeforeReload() {
+    if (ownerKnownResume) { ensure(resumeNativeVerified && (checkpointMode !== 'resume-current-owner-save' || currentOwnerSaveHash), 'qa_native_step_failed'); return; }
     const restoredHead = await verifiedRead(fresh, expectedSave);
     ensure(JSON.stringify(restoredHead) === JSON.stringify(initialHead), 'recovery-head-digest');
   },
@@ -247,10 +284,17 @@ const freshNativeReload = retainedNativeReload({
   reload: () => fresh.reload({ waitUntil: 'domcontentloaded' }),
   waitForNewDocument: () => fresh.waitForFunction(marker => window.__hmNativeReloadDocument !== marker,
     freshReloadMarker, { timeout: 30_000 }),
-  waitForSave: () => fresh.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
-    && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 }),
+  waitForSave: () => checkpointMode === 'resume-current-owner-save'
+    ? fresh.waitForFunction(name => window.__hm?.ready && window.__hm.SAVE.native
+      && window.__hm.SAVE.loaded?.char?.name === name, characterName, { timeout: 180_000 })
+    : fresh.waitForFunction(run => window.__hm?.ready && window.__hm.SAVE.native
+      && window.__hm.SAVE.loaded?.qa?.run === run, run, { timeout: 180_000 }),
   async verifyLoaded() {
-    ensure(await fresh.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'fresh-game-reload-body');
+    if (checkpointMode === 'resume-current-owner-save') {
+      const result = await fresh.evaluate(verifyNativeQaCurrentTitle, { owner, gameOrigin, saveHash: currentOwnerSaveHash });
+      console.log(JSON.stringify({ kind: 'native_qa_current_owner_title', ...result }));
+      ensure(result.ok === true && result.complete === true, 'qa_native_step_failed');
+    } else ensure(await fresh.evaluate(expected => JSON.stringify(window.__hm.SAVE.loaded) === JSON.stringify(expected), expectedSave), 'fresh-game-reload-body');
   },
 });
 const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evaluate(async diagnose => {
@@ -274,7 +318,7 @@ const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async ()
 // attempts; a stuck context must not prevent the browser-close backstop.
 const closeBrowserResource = boundedPageStatus({ evaluate: value => value.close() });
 async function reportRetainedStatus(diagnose) {
-  console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), boot, bootStep, freshReload: freshNativeReload.status() }));
+  console.log(JSON.stringify({ kind: 'native_qa_plan', ...plan?.status(), checkpointMode, boot, bootStep, freshReload: freshNativeReload.status() }));
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
@@ -290,9 +334,14 @@ async function reportRetainedStatus(diagnose) {
   }
 }
 
-const failureCode = error => nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
+const failureCode = error => nativeQaCheckpointFailureCode(error) || nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
 const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true)
   && (!mainWorld || mainWorld.status().complete === true) && (!humanConsulting || humanConsulting.status().complete === true);
+function checkpointLifecycle(event) {
+  if (checkpointMode === 'resume-current-owner-save') ensure(plan?.status().complete === true
+    && privatePrivacyVerified && resumeNativeVerified && currentOwnerSaveHash, 'qa_native_step_failed');
+  checkpoint?.recordLifecycle(event);
+}
 async function advanceQa(all) {
   ensure(!finishRequested, 'qa_session_closed');
   if (!plan?.status().complete) {
@@ -338,7 +387,7 @@ function startInput() {
         }
         if (!plan) { console.log('No retained QA plan is available.'); return; }
         if (action === 'oauth-retry-same-owner' || action === 'oauth-restart-unproved-start') {
-          ensure(activeOAuth && ['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth'].includes(plan.status().stage), 'qa_oauth_retry_refused');
+          ensure(activeOAuth && ['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth', 'resumed-same-owner-oauth'].includes(plan.status().stage), 'qa_oauth_retry_refused');
           if (action === 'oauth-restart-unproved-start') activeOAuth.requestUnprovedStartRestart();
           else activeOAuth.requestSameOwnerRetry();
         }
@@ -363,6 +412,7 @@ try {
     ...(network.proxy ? { proxy: network.proxy } : {}),
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', ...network.args] });
   console.log('QA owner display name: ' + displayName);
+  if (checkpointMode === 'resume-unregistered') console.log('QA continuation: exact original fixture; no registration intent or private operation previously began.');
   if (companionConfig) {
     broker = createNativeCompanionSigningBroker({ enabled: true, ...companionConfig,
       writePublicRequest: value => console.log(JSON.stringify(value)) });
@@ -375,11 +425,54 @@ try {
     broker = createNativeCompanionSigningBroker({ enabled: true, ...mainWorldConfig,
       writePublicRequest: value => console.log(JSON.stringify(value)) });
     mainWorld = createMainWorldLiveQa({ config: mainWorldConfig, getPage: () => fresh,
-      signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; } });
+      signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; }, checkpoint: checkpointLifecycle,
+      verifyPrivateChat: async () => { const chat = await verifyNativePrivateChat({ page: fresh, run, gameOrigin });
+        console.log(JSON.stringify({ kind: 'native_private_chat_qa', ...chat }));
+        ensure(chat.ok === true && chat.privateParty === true && chat.ownerUiSend === true && chat.peerReceivedOwnerFastSay === true
+          && chat.ownerReceivedPeerFastSay === true && chat.ownerDisplayedPeerReply === true && chat.cleanupConfirmed === true,
+        'qa_private_chat_unconfirmed');
+        passed('two synthetic private party messages reached the actual peer and owner UI after native reconnect'); } });
     if (process.env.HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST === '1') humanConsulting = createHumanConsultingLiveQa({
-      getPage: () => fresh, getOwner: () => owner, relayOrigin, gameOrigin, run });
+      getPage: () => fresh, getOwner: () => owner, relayOrigin, gameOrigin, run, checkpoint: checkpointLifecycle });
   }
-  plan = nativeLiveStages([
+  plan = nativeLiveStages(ownerKnownResume ? [
+    { name: 'resumed-game-boot', async run() { await freshBoot.open(); } },
+    { name: 'resumed-same-owner-oauth', async run() {
+      const original = owner;
+      const sameOwner = await oauth(fresh, { register: false, userId: original.userId });
+      ensure(['userId', 'subjectDid', 'podUrl', 'accountId'].every(key => sameOwner[key] === original[key])
+        && observations.registerCount === 0, 'same-owner');
+      passed('resumed original synthetic owner signs in with its retained passkey; no registration replay');
+    } },
+    { name: checkpointMode === 'resume-current-owner-save' ? 'resumed-current-owner-save-readback' : 'resumed-private-native-readback', async run() {
+      const report = await fresh.evaluate(checkpointMode === 'resume-current-owner-save' ? readNativeQaCurrentOwnerSave : readNativeQaCheckpoint,
+        { owner, relayOrigin, gameOrigin, recovery: encryptedRecovery,
+        passphrase, expected: expectedSave, publications: checkpointState.publications });
+      if (checkpointMode === 'resume-current-owner-save') {
+        console.log(JSON.stringify({ kind: 'native_qa_current_owner_save', ...report }));
+        currentOwnerSaveHash = currentOwnerSaveHashFromReport(report); resumeNativeVerified = true;
+        passed('original owner/key/index and current authenticated gameplay save hash verified through native reads only'); return;
+      }
+      if (!report.ok) {
+        console.log(JSON.stringify({ kind: 'native_qa_resume', ...report }));
+        throw Object.assign(Error('Original checkpoint private record could not be read.'), { code: 'qa_native_step_failed' });
+      }
+      resumeNativeVerified = true;
+      passed('original checkpoint key, native profile/index operations and exact synthetic body verified through native reads only');
+    } },
+    { name: 'fresh-browser-native-verification', async run() {
+      await freshNativeReload.run(); passed(checkpointMode === 'resume-current-owner-save'
+        ? 'current authenticated gameplay save hash and fresh original-owner binding verified after one real title reload'
+        : 'resumed original private character opens in the normal game title after one real reload');
+    } },
+    { name: 'resumed-privacy-verification', async run() {
+      ensure(observations.oauthWritePkce && observations.registerCount === 0 && !observations.refreshUsed && !observations.bridgeBodyLeak
+        && oauthControllers.length === 1 && oauthControllers[0].audit(observations.startAuthorization, observations.claimAuthorization)
+        && await privacy(fresh), 'privacy-invariants');
+      privatePrivacyVerified = true;
+      passed('resumed run has fresh proof/claim/privacy evidence; no historical PASS flags or private write replay');
+    } },
+  ] : [
     { name: 'initial-game-boot', async run() {
       await firstBoot.open();
     } },
@@ -389,7 +482,8 @@ try {
       passed('one labelled QA owner; real PKCE/write grant and one-use Hallow claim');
     } },
     { name: 'sealed-profile-create-and-link', async run() {
-      await first.evaluate(installNativeOwnerQaSession, { run, owner, relayOrigin, expected: expectedSave, passphrase });
+      if (checkpoint) await installNativeQaCheckpointBinding({ page: first, gameOrigin, checkpoint });
+      await first.evaluate(installNativeOwnerQaSession, { run, owner, relayOrigin, expected: expectedSave, passphrase, checkpointEnabled: !!checkpoint });
           const report = await first.evaluate(() => window.__hmNativeQaSession.ensureSaved());
           if (!report.ok) {
             console.log(JSON.stringify(report));
@@ -493,4 +587,5 @@ try {
     finally { await closeBrowserResource(value); }
   }
   if (browser) await closeBrowserResource(browser);
+  checkpoint?.close();
 }

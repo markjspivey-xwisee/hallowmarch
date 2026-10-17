@@ -5,12 +5,13 @@ import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
 const owner = { subjectDid: 'did:example:qa', podUrl: 'https://pods.example/u-pk-qa/', accountId: 'qa-account' };
 const config = { run: 'qa-run', owner, relayOrigin: 'https://relay.example', expected: { v: 1, qa: { run: 'qa-run', privateMarker: 'PRIVATE_BODY' } }, passphrase: 'PRIVATE_PASSPHRASE' };
 function fixture({ registerFailure = false, lostAck = false, notFresh = false } = {}) {
-  const count = { clients: 0, profiles: 0, keyCreates: 0, registrations: 0, exports: 0, sets: 0, publishes: 0, confirms: 0, links: 0 };
+  const count = { clients: 0, profiles: 0, keyCreates: 0, registrations: 0, exports: 0, sets: 0, publishes: 0, forwards: 0, confirms: 0, links: 0 };
   let keyPresent = false, keyRegistered = false, saved = false, pending = false, linked = false, heldSave;
   class Transport {
     async callTool(name) {
       if (name === 'get_descriptor' && registerFailure) { registerFailure = false; return { error: 'PRIVATE_REASON_URL_TOKEN', code: 403 }; }
       if (name === 'register_agent') count.registrations++;
+      if (name === 'publish_context') count.forwards++;
       return {};
     }
   }
@@ -28,7 +29,9 @@ function fixture({ registerFailure = false, lostAck = false, notFresh = false } 
       },
       async createKey() { count.keyCreates++; keyPresent = true; await this.registerKey(); },
       async keyStatus() { return { keyPresent, keyRegistered }; },
-      async publish() { count.publishes++; await transport.callTool('publish_context', { graph_iri: 'urn:graph:profile' }); },
+      async publish() { count.publishes++; await transport.callTool('publish_context', { graph_iri: 'urn:graph:profile',
+        descriptor_id: 'urn:uuid:11111111-1111-4111-8111-111111111111', content_digest: 'graph-nquads-sha256:' + 'a'.repeat(64),
+        graph_content: 'SEALED_BODY_MUST_NOT_CROSS_CHECKPOINT', sealed_payload: true }); },
       status: () => ({ pending: pending ? 1 : 0 }), close() {},
     };
   };
@@ -54,7 +57,8 @@ function fixture({ registerFailure = false, lostAck = false, notFresh = false } 
   return { modules, count };
 }
 async function withBrowserEnvironment(run) {
-  const original = { fetch: globalThis.fetch, location: globalThis.location, localStorage: globalThis.localStorage };
+  const original = { fetch: globalThis.fetch, location: globalThis.location, localStorage: globalThis.localStorage,
+    __hmNativeQaCheckpoint: globalThis.__hmNativeQaCheckpoint };
   globalThis.location = { host: 'game.example' }; globalThis.localStorage = { getItem: () => 'APP_TOKEN' };
   globalThis.fetch = async (path, init) => {
     if (init.body) { assert(!init.body.includes('PRIVATE_BODY')); assert.equal(Object.keys(JSON.parse(init.body)).length, 4); }
@@ -91,4 +95,26 @@ test('an existing owner record blocks this fresh-owner fixture permanently on re
   const { modules, count } = fixture({ notFresh: true }); await installNativeOwnerQaSession(config, modules);
   for (let i = 0; i < 2; i++) assert.equal((await globalThis.__hmNativeQaSession.ensureSaved()).code, 'qa_owner_not_fresh');
   assert.deepEqual([count.keyCreates, count.sets, count.publishes], [0, 0, 0]);
+}));
+test('recovery checkpoint acknowledgement blocks private set and safe publication intent precedes native forwarding', async () => withBrowserEnvironment(async () => {
+  let release; const barrier = new Promise(resolve => { release = resolve; }), events = [];
+  globalThis.__hmNativeQaCheckpoint = async event => { events.push(structuredClone(event)); if (event.kind === 'recovery') await barrier; return { ok: true }; };
+  const { modules, count } = fixture(); await installNativeOwnerQaSession({ ...config, checkpointEnabled: true }, modules);
+  const saving = globalThis.__hmNativeQaSession.ensureSaved();
+  while (!events.length) await new Promise(setImmediate);
+  assert.equal(events[0].kind, 'recovery'); assert.equal(count.sets, 0); assert.equal(count.forwards, 0);
+  release(); assert.equal((await saving).ok, true); assert.equal(count.forwards, 1);
+  assert.deepEqual(events[1], { kind: 'publication', recordKind: 'profile', graphIri: 'urn:graph:profile',
+    operationId: '11111111-1111-4111-8111-111111111111', digest: 'graph-nquads-sha256:' + 'a'.repeat(64) });
+  assert(!JSON.stringify(events[1]).includes('SEALED_BODY')); assert(!JSON.stringify(events[1]).includes('PRIVATE_'));
+}));
+test('checkpoint failure before recovery or publication forwarding stops without native publication or confirmation retries', async () => withBrowserEnvironment(async () => {
+  for (const refusedKind of ['recovery', 'publication']) {
+    globalThis.__hmNativeQaCheckpoint = async event => ({ ok: event.kind !== refusedKind });
+    const { modules, count } = fixture(); await installNativeOwnerQaSession({ ...config, checkpointEnabled: true }, modules);
+    const report = await globalThis.__hmNativeQaSession.ensureSaved();
+    assert.equal(report.ok, false); assert.equal(report.code, 'qa_checkpoint_failed'); assert.equal(count.forwards, 0); assert.equal(count.confirms, 0);
+    await globalThis.__hmNativeQaSession.ensureSaved(); assert.equal(count.forwards, 0); assert.equal(count.confirms, 0);
+    await globalThis.__hmNativeQaSession.close(); delete globalThis.__hmNativeQaSession;
+  }
 }));

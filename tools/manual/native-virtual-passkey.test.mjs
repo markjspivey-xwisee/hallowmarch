@@ -77,3 +77,22 @@ test('closing the retained passkey immediately releases a pending event wait', a
   keeper.close(); await stopped;
   assert.deepEqual(keeper.status(), { present: false, assertions: 0, failed: false });
 });
+test('checkpoint acknowledgement precedes the event wait and projects only the six restorable credential fields', async () => {
+  const captured = [], keeper = createNativeQaPasskey({ onCredential: value => captured.push(structuredClone(value)) });
+  const f = pageFixture(), attached = await keeper.attach(f.page, { register: true });
+  f.emit({ ...sample(), backupEligibility: true, backupState: false, largeBlob: 'NEVER_CHECKPOINT_EXTRA' });
+  await attached.waitForCredential();
+  assert.deepEqual(Object.keys(captured[0]).sort(), ['credentialId', 'isResidentCredential', 'privateKey', 'rpId', 'signCount', 'userHandle']);
+  assert(!JSON.stringify(captured).includes('NEVER_CHECKPOINT_EXTRA')); assert.equal(captured[0].signCount, 1);
+  const restored = createNativeQaPasskey({ restoredCredential: captured[0], onCredential: value => captured.push(value) });
+  await assert.rejects(restored.attach(pageFixture().page, { register: true }), { code: 'qa_oauth_passkey_sync_refused' });
+  const next = pageFixture(), signing = await restored.attach(next.page); next.emit({ ...sample(), signCount: 2 }, true);
+  await signing.waitForCredential(); assert.equal(captured.at(-1).signCount, 2); assert.equal(restored.credential().privateKey, sample().privateKey);
+  keeper.close(); restored.close();
+});
+test('a failed checkpoint acknowledgement cannot resolve or expose the captured credential', async () => {
+  const keeper = createNativeQaPasskey({ onCredential() { throw Error('PRIVATE filesystem detail'); } });
+  const f = pageFixture(), attached = await keeper.attach(f.page, { register: true }), waiting = attached.waitForCredential();
+  f.emit(sample()); await assert.rejects(waiting, { code: 'qa_oauth_passkey_sync_refused' });
+  assert.throws(keeper.credential, { code: 'qa_oauth_passkey_sync_refused' }); keeper.close();
+});

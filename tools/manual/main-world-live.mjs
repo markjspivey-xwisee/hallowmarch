@@ -3,7 +3,7 @@ import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage } from '../../server/gaming/native-agent-proof.js';
 const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world live verification refused.'), { code }); };
-export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onStage = () => {} } = {}) {
+export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onStage = () => {}, checkpoint = async () => {}, verifyPrivateChat = async () => {} } = {}) {
   let page, description, routes, ownerBody, reference, key, challenge, envelope, admission, sequence = 0;
   let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, lastHttp = null;
   let movement = null, commandAttempted = false, commandConfirmed = false, movementBefore = null, needAdmission = false;
@@ -94,11 +94,13 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         return { id: n.acct.id, roomId: n.worldRoom, x: H.GAME.player.x, z: H.GAME.player.z };
       });
       check(ownerBody.id && ownerBody.roomId, 'qa_world_body'); results.normalGame = true;
+      await verifyPrivateChat();
     } },
     { name: 'actual-main-game-public-grant', async run() {
       if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
       await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
       if (!publicationClicked) {
+        await checkpoint({ kind: 'main-world-grant-intent' });
         await page.locator('#world-agent-body').selectOption(ownerBody.id);
         await page.locator('#world-agent-did').fill(config.agentDid);
         await page.locator('#world-agent-role').selectOption('teammate');
@@ -116,6 +118,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       check(state?.registered && !state.pending && state.grant?.actor === config.agentDid && !state.grant.revoked
         && state.grant.entityId === ownerBody.id && state.grant.roomId === ownerBody.roomId, 'qa_world_grant_pending');
       reference = state.reference;
+      await checkpoint({ kind: 'main-world-grant-reference', reference: { grantId: reference.grantId, graphIri: reference.graphIri } });
       console.log(JSON.stringify({ kind: 'main_world_qa_public_reference', ...reference, head: state.head }));
       await page.locator('#world-agent-resume').click(); await page.locator('#netsheet-close').click();
       await page.bringToFront();
@@ -160,6 +163,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
     } },
     { name: 'actual-main-game-owner-revocation', async run() {
       await revokeAccess();
+      await checkpoint({ kind: 'main-world-revoked', reference: { grantId: reference.grantId, graphIri: reference.graphIri } });
     } },
   ], onStage);
   return Object.freeze({

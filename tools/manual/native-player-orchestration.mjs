@@ -1,4 +1,11 @@
 /** Offline-testable orchestration only; no browser import or native I/O. */
+export function currentOwnerSaveHash(report) {
+  if (report?.ok !== true || report.complete !== true || report.readOnly !== true || report.currentOwnerSave !== true
+    || report.indexVerified !== true || report.profileVerified !== true || report.currentHeadsVerified !== true
+    || !/^[0-9a-f]{64}$/.test(report.saveHash)) throw Object.assign(new Error('Current owner save was not verified.'), { code: 'qa_native_step_failed' });
+  return report.saveHash;
+}
+
 export function retainedGameBoot({ createContext, url, onContext = () => {}, onPage = () => {}, onStep = () => {} }) {
   let context, page;
   return Object.freeze({
@@ -106,7 +113,7 @@ const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input
   'invalid_profile', 'invalid_profile_index', 'missing_profile_index', 'profile_index_conflict', 'pod_pending',
   'pod_index_pending', 'pod_link_pending', 'unread_record', 'missing_record', 'recovery_required', 'revoked',
   'tool_error', 'manifest_incomplete', 'server_unavailable', 'upstream_error', 'qa_owner_not_fresh', 'qa_scope_mismatch', 'qa_access_cache',
-  'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout']);
+  'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout', 'qa_checkpoint_unavailable', 'qa_checkpoint_failed']);
 const numericCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599) || (value >= -32700 && value <= -32000)) ? value : null;
 const profileStates = new Set(['idle', 'identity_unconfirmed', 'native_identity_required', 'native_signin_required',
   'connecting', 'ready', 'key_required', 'saving', 'uncertain', 'index_pending', 'link_pending', 'saved', 'closed']);
