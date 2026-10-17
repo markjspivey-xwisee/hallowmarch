@@ -142,8 +142,24 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
   the original owner and key. This permits OPTIONS/GET and native metadata
   reads, never CAS replay, binding publication, registration or key creation.
   It emits fixed error/stage/status fields and the pinned public owner DID,
-  pod URL, deterministic graph IRI and resource URL. It does not expose the
-  record, ciphertext, native revision, credential or arbitrary error message.
+  pod URL, deterministic graph IRI and resource URL. For a committed resource,
+  it also verifies and emits the opaque ciphertext digest, byte count, native
+  revision and public recipient-key hash, comparing these with the one original
+  initial PUT intent. It never exposes record bytes, ciphertext, a credential or
+  arbitrary error text.
+- `native-checkpoint-recover-release`: only for that known committed initial
+  save, with one pending operation, no index/link and no later QA actions.
+  Recheck the original owner, existing key and unchanged ciphertext, then reload
+  the same page once to load a released client fix. Its existing browser key
+  store, account, passkey and original expected save remain in scope. Recovery
+  cannot create a key, call `profile.set`, register a recipient or PUT checkpoint
+  bytes. Every checkpoint GET must match the pinned digest/revision. One
+  explicit profile retry reconciles the original sealed binding plan; only its
+  private character binding and owner index may be published. Exact save
+  readback is required before index/link and successful completion/recovery
+  export. An expired grant may use one retained same-owner passkey sign-in;
+  failed/uncertain navigation is never repeated on command retry. A failed
+  recovery keeps the new document and original operation for explicit review.
 - `retry`: retry only the failed stage using its existing closure and owner.
 - `continue`: retry the failed stage and proceed through remaining stages.
 - `oauth-retry-same-owner`: after a definitively failed callback **before any

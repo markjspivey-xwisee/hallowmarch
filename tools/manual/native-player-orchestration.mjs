@@ -120,18 +120,24 @@ const fixedCodes = new Set(['operation_failed', 'operation_busy', 'invalid_input
   'qa_bridge_refused', 'qa_bridge_body', 'qa_binding', 'qa_readback', 'qa_confirmation_timeout',
   'checkpoint_binding_pending', 'checkpoint_binding_conflict', 'checkpoint_write_budget', 'missing_checkpoint',
   'invalid_checkpoint', 'invalid_checkpoint_mode', 'invalid_checkpoint_sender', 'INVALID_ARGUMENT', 'UNSUPPORTED',
-  'TRANSPORT', 'TIMEOUT', 'HTTP', 'INTEGRITY', 'LIMIT', 'CONFLICT']);
+  'TRANSPORT', 'TIMEOUT', 'HTTP', 'INTEGRITY', 'LIMIT', 'CONFLICT', 'qa_checkpoint_recovery_refused',
+  'qa_checkpoint_digest_changed', 'qa_checkpoint_key_changed', 'qa_checkpoint_write_refused']);
 const checkpointStages = new Set(['protocol-discovery', 'native-read', 'headers', 'envelope', 'owner-key', 'decrypt',
   'body-scope', 'record-digest', 'binding-plan', 'budget', 'history']);
 const checkpointChecks = new Set(['schema', 'owner', 'pod', 'graph', 'resource', 'mode', 'key', 'operation', 'previous-revision',
   'time', 'history-shape', 'budget-shape', 'binding-schema', 'record-digest', 'binding-value', 'binding-digest', 'binding-graph',
   'binding-plan-digest', 'binding-record', 'binding-record-value', 'budget-entry', 'history-entry']);
-/** No body, revision, credential, arbitrary code or browser string is emitted. */
+/** No body, credential, arbitrary code or browser string is emitted. */
 export function nativeCheckpointReadResult(value) {
   return { ok: value?.ok === true, found: value?.found === true, checkpointVerified: value?.checkpointVerified === true,
     hasNativeRevision: value?.hasNativeRevision === true, code: fixedCodes.has(value?.code) ? value.code : null,
     numericCode: numericCode(value?.numericCode), checkpointStage: checkpointStages.has(value?.checkpointStage) ? value.checkpointStage : null,
-    checkpointCheck: checkpointChecks.has(value?.checkpointCheck) ? value.checkpointCheck : null };
+    checkpointCheck: checkpointChecks.has(value?.checkpointCheck) ? value.checkpointCheck : null,
+    ...(value?.knownCommitted === true && /^sha256:[0-9a-f]{64}$/.test(value.cipherDigest || '')
+      && /^sha256:[0-9a-f]{64}$/.test(value.nativeRevision || '') && /^[0-9a-f]{64}$/.test(value.recipientKeyHash || '')
+      && Number.isSafeInteger(value.storedBytes) && value.storedBytes > 0 && value.storedBytes <= 4194304
+      ? { knownCommitted: true, originalWriteMatched: value.originalWriteMatched === true, cipherDigest: value.cipherDigest,
+        nativeRevision: value.nativeRevision, recipientKeyHash: value.recipientKeyHash, storedBytes: value.storedBytes } : {}) };
 }
 const numericCode = value => Number.isInteger(value) && ((value >= 100 && value <= 599) || (value >= -32700 && value <= -32000)) ? value : null;
 const profileStates = new Set(['idle', 'identity_unconfirmed', 'native_identity_required', 'native_signin_required',
@@ -160,6 +166,7 @@ function publicState(value) {
     }
     const count = value.nativeQa.nativePendingCount;
     if (Number.isSafeInteger(count) && count >= 0 && count <= 4096) result.nativeQa.nativePendingCount = count;
+    if (Number.isSafeInteger(value.nativeQa.checkpointWriteCount) && value.nativeQa.checkpointWriteCount >= 0 && value.nativeQa.checkpointWriteCount <= 4096) result.nativeQa.checkpointWriteCount = value.nativeQa.checkpointWriteCount;
     result.nativeQa.step = fixedSteps.has(value.nativeQa.step) ? value.nativeQa.step : null;
     result.nativeQa.code = fixedCodes.has(value.nativeQa.code) ? value.nativeQa.code : null;
     result.nativeQa.numericCode = numericCode(value.nativeQa.numericCode);

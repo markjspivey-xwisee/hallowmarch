@@ -15,6 +15,7 @@ import { createMainWorldLiveQa } from './main-world-live.mjs';
 import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
 import { createPersonalActivityLiveQa } from './personal-activity-live.mjs';
 import { createNativeQaEpisode, validateNativeQaEpisodeFile } from './native-qa-episode.mjs';
+import { checkpointRecoveryEligible, retainedCheckpointReleaseRecovery } from './native-checkpoint-recovery.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -75,6 +76,7 @@ let input = null, broker = null, companion = null, mainWorld = null, humanConsul
 let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
 const oauthControllers = [], oauthByPage = new WeakMap();
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
+let checkpointEvidence = null, checkpointReleaseRecovery = null, checkpointReauthStarted = false;
 const contexts = [], retainedPages = [];
 const qaPasskey = createNativeQaPasskey();
 let encryptedRecovery = null;
@@ -123,8 +125,9 @@ const firstBoot = retainedGameBoot({ createContext: context, url: gameOrigin + '
 const freshBoot = retainedGameBoot({ createContext: context, url: gameOrigin + '/?safe=1&shard=' + room,
   onContext: value => { freshContext = value; }, onPage: page => { fresh = page; },
   onStep: value => { boot = 'fresh'; bootStep = value; } });
-async function oauth(page, { register, userId } = {}) {
-  let controller = oauthByPage.get(page);
+async function oauth(page, { register, userId, renew = false } = {}) {
+  ensure(!renew || register === false && owner && userId === owner.userId, 'same-owner');
+  let controller = renew ? null : oauthByPage.get(page);
   if (!controller) {
     ensure(register || (owner && userId === owner.userId), 'same-owner');
     controller = createRetainedNativeOAuth({ register, gameOrigin, relayOrigin, expectedOwner: register ? null : owner,
@@ -296,6 +299,7 @@ async function reportRetainedStatus(diagnose) {
   if (humanConsulting) console.log(JSON.stringify(humanConsulting.status()));
   if (personalActivity) console.log(JSON.stringify(personalActivity.status()));
   if (episode) console.log(JSON.stringify(episode.status()));
+  if (checkpointReleaseRecovery) console.log(JSON.stringify(checkpointReleaseRecovery.status()));
   if (broker) console.log(JSON.stringify(broker.status()));
   for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
     ...(diagnose ? await oauthControllers[i].diagnose() : oauthControllers[i].status()), ceremonyIndex: i + 1 }));
@@ -347,7 +351,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -367,10 +371,49 @@ function startInput() {
           const graphIri = 'urn:graph:hallowmarch:player-profile:' + createHash('sha256').update(owner.subjectDid).digest('hex');
           const resourceUrl = owner.podUrl + 'hallowmarch/checkpoints/' + createHash('sha256').update(graphIri).digest('hex') + '.json';
           const result = await first.evaluate(() => window.__hmNativeQaSession?.checkpointRead());
+          const safe = nativeCheckpointReadResult(result);
+          if (safe.knownCommitted && safe.originalWriteMatched) {
+            const next = { ...safe, graphIri, resourceUrl };
+            ensure(!checkpointEvidence || checkpointEvidence.cipherDigest === next.cipherDigest
+              && checkpointEvidence.nativeRevision === next.nativeRevision && checkpointEvidence.recipientKeyHash === next.recipientKeyHash, 'qa_checkpoint_recovery_refused');
+            checkpointEvidence ||= next;
+          }
           // Public identifiers originate from the already pinned Node owner,
           // never from a response/body or arbitrary browser diagnostic string.
           console.log(JSON.stringify({ kind: 'native_checkpoint_read', ownerDid: owner.subjectDid,
-            podUrl: owner.podUrl, graphIri, resourceUrl, ...nativeCheckpointReadResult(result) })); return;
+            podUrl: owner.podUrl, graphIri, resourceUrl, ...safe })); return;
+        }
+        if (action === 'native-checkpoint-recover-release') {
+          ensure(owner && first && !first.isClosed() && checkpointEvidence, 'qa_checkpoint_recovery_refused');
+          if (!checkpointReleaseRecovery) checkpointReleaseRecovery = retainedCheckpointReleaseRecovery({
+            async eligible() {
+              const session = await first.evaluate(() => window.__hmNativeQaSession?.status());
+              return checkpointRecoveryEligible({ plan: plan?.status(), session, evidence: checkpointEvidence, episode: episode?.status(),
+                laterStarted: !!(mainWorld?.status().completed || companion?.status().completed || humanConsulting?.status().enableClicked || personalActivity?.status().enabled) });
+            },
+            async preflight() {
+              let result = await first.evaluate(evidence => window.__hmNativeQaSession.recoveryPreflight(evidence), checkpointEvidence);
+              if (result?.code === 'needs_reauth') {
+                const renew = !checkpointReauthStarted; checkpointReauthStarted = true;
+                const renewed = await oauth(first, { register: false, userId: owner.userId, renew });
+                ensure(['userId', 'subjectDid', 'podUrl', 'accountId'].every(key => renewed[key] === owner[key]), 'same-owner');
+                result = await first.evaluate(evidence => window.__hmNativeQaSession.recoveryPreflight(evidence), checkpointEvidence);
+              }
+              ensure(result?.ok === true, 'qa_checkpoint_recovery_refused');
+            },
+            markDocument: () => first.evaluate(() => { const marker = crypto.randomUUID(); window.__hmCheckpointRecoveryDocument = marker; return marker; }),
+            reload: () => first.reload({ waitUntil: 'domcontentloaded' }),
+            waitDocument: marker => first.waitForFunction(({ marker, accountId }) => window.__hmCheckpointRecoveryDocument !== marker
+              && window.__hm?.ready && window.__hm.net?.NETWS?.acct?.id === accountId && window.__hm.net.NETWS.acct.nativeBound,
+            { marker, accountId: owner.accountId }, { timeout: 180000 }),
+            async recover() {
+              await first.evaluate(installNativeOwnerQaSession, { run, owner, relayOrigin, expected: expectedSave, passphrase,
+                recoverCommittedBootstrap: checkpointEvidence });
+              const report = await first.evaluate(() => window.__hmNativeQaSession.ensureSaved());
+              if (!report.ok) { console.log(JSON.stringify(report)); throw Object.assign(new Error('Original checkpoint recovery is unconfirmed.'), { code: 'qa_native_step_failed' }); }
+            },
+          });
+          console.log(JSON.stringify(await checkpointReleaseRecovery.run())); return;
         }
         if (action === 'native-startup-retry') {
           const freshRecovery = plan?.status().stage === 'fresh-browser-native-verification' && !plan.status().busy
@@ -392,7 +435,8 @@ function startInput() {
         }
         if (!plan) { console.log('No retained QA plan is available.'); return; }
         if (action === 'oauth-retry-same-owner') {
-          ensure(activeOAuth && ['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth'].includes(plan.status().stage), 'qa_oauth_retry_refused');
+          ensure(activeOAuth && (['single-owner-passkey-oauth', 'fresh-browser-same-owner-oauth'].includes(plan.status().stage)
+            || checkpointReauthStarted && plan.status().stage === 'sealed-profile-create-and-link'), 'qa_oauth_retry_refused');
           activeOAuth.requestSameOwnerRetry();
         }
         await advanceQa(action === 'continue');
@@ -575,7 +619,7 @@ try {
     ...qaPageInventory(retainedPages, { gameOrigin, relayOrigin }), kind: 'native_qa_boot', boot, bootStep }));
   process.exitCode = 1;
   if (!finishRequested && qaPasskey.status().present && process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1') {
-    console.log('QA session retained in RAM. Commands: status, diagnose, native-checkpoint-read, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
+    console.log('QA session retained in RAM. Commands: status, diagnose, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish. Registration is never replayed.');
     await startInput().waitForClose();
   }
 } finally {

@@ -10,6 +10,13 @@ test('native checkpoint read output admits only fixed proof booleans, codes and 
   assert.deepEqual(nativeCheckpointReadResult({ ok: 'PRIVATE', found: 1, code: 'PRIVATE_BODY', numericCode: 99999, checkpointStage: 'PRIVATE', checkpointCheck: 'PRIVATE_VALUE' }),
     { ok: false, found: false, checkpointVerified: false, hasNativeRevision: false, code: null, numericCode: null, checkpointStage: null, checkpointCheck: null });
 });
+test('committed checkpoint evidence exposes only bounded public digests and sizes', () => {
+  const metadata = { knownCommitted: true, originalWriteMatched: true, cipherDigest: 'sha256:' + 'a'.repeat(64),
+    nativeRevision: 'sha256:' + 'b'.repeat(64), recipientKeyHash: 'c'.repeat(64), storedBytes: 7942 };
+  assert.deepEqual(Object.fromEntries(Object.entries(nativeCheckpointReadResult({ ...metadata, key: 'PRIVATE_KEY', ciphertext: 'PRIVATE_BYTES' }))
+    .filter(([key]) => key in metadata)), metadata);
+  assert.equal('cipherDigest' in nativeCheckpointReadResult({ ...metadata, storedBytes: 4194305 }), false);
+});
 
 test('success retention is opt-in, requires completion and never waits after finish', async () => {
   for (const input of [{ enabled: false, complete: true }, { enabled: '1', complete: true },

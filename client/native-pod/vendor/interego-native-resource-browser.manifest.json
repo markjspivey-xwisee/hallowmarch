@@ -1,16 +1,16 @@
 {
   "source": "https://github.com/markjspivey-xwisee/interego",
-  "revision": "c7096d765be57fa9afe2c33e8abf2b40782a9b04",
+  "revision": "adf33612e6a959f0140ee3fc8e08109064bf8e6c",
   "esbuild": "0.28.0",
   "target": "browser-es2022-esm",
   "bundle": "interego-native-resource-browser.mjs",
-  "bytes": 6834,
-  "sha256": "b8c55e62ed86184bea1d99d392205973780db629f423435875a634ae99fefb50",
+  "bytes": 6877,
+  "sha256": "2cb389b5ef78a75d43ea833d80b191684233e8e8d5f9c4c9480d7b547925c4ed",
   "entrypoint": "packages/pgsl/src/browser-native-resource.ts",
   "inputs": [
     {
       "source": "packages/pgsl/src/browser-native-resource.ts",
-      "sha256": "5dc741a7dd452c8ba8cb116d1cc00a43cbc0b9c2e382afd8030fe17f4b9b4920"
+      "sha256": "4e882a00aa082b9e864b85f5494b87f2cc970b44f5772b7eff03a44bbdcc73ca"
     }
   ]
 }
