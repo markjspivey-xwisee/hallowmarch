@@ -112,9 +112,9 @@ export function makeSeason(cfg, store, stats) {
     if (away > 1) { const t0 = performance.now(); M.realmSimStep(S.RS, away); console.log(`season: ${Math.round(away)} s caught up in ${Math.round(performance.now() - t0)} ms`); }
     console.log(`season: kept (${M.file}), day ${Math.floor(S.RS.t / 86400) + 1}`);
   }
-  S.save = () => {
+  S.save = ({ background = false } = {}) => {
     if (!S.RS) return;
-    store.write('season.json', { ...S.RS, savedAt: Date.now() });
+    store.write('season.json', { ...S.RS, savedAt: Date.now() }, { background });
     store.write('roster.json', S.roster);
     store.write('chat.json', S.chat);
     S.dirty = false; stats.seasonSaves++;

@@ -215,10 +215,11 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     return doc.checkpoints.filter(p => p.at >= now - MULTIPLAYER_HISTORY_MS).map(p => ({ at: p.at,
       version: p.streams.find(r => r.streamId === WORLD)?.version ?? 0 })).filter(p => p.version > 0);
   }
-  async restoreWorldAt(at, { idempotencyKey } = {}) {
+  async restoreWorldAt(at, { idempotencyKey, beforeRestore } = {}) {
     const now = this.now();
     if (!Number.isSafeInteger(at) || at < 0) error('Rollback requires a valid checkpoint time.', 'INVALID_INPUT', 400);
     if (idempotencyKey === undefined) error('Rollback requires an idempotency key.', 'INVALID_INPUT', 400);
+    if (beforeRestore !== undefined && typeof beforeRestore !== 'function') error('Invalid rollback drain callback.', 'INVALID_INPUT', 400);
     const operationId = this.keys(WORLD, idempotencyKey).operationId;
     const outcome = (version, nativeRevision, replayed) => ({ version, nativeRevision, replayed, targetAt: at });
     const replay = ({ doc, revision }) => {
@@ -228,13 +229,20 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
       return outcome(receipt.version, revision, true);
     };
     const loaded = await this.read(), known = replay(loaded);
-    if (known) return known;
+    if (known) { await beforeRestore?.(); return known; }
     if (!Number.isSafeInteger(at) || at < now - MULTIPLAYER_HISTORY_MS || at > now) error('Rollback target is outside the rolling hour.', 'ROLLBACK_EXPIRED', 410);
-    const { doc } = loaded, current = doc.streams.find(r => r.streamId === WORLD);
-    const checkpoint = [...doc.checkpoints].reverse().find(p => p.at <= at && p.at >= now - MULTIPLAYER_HISTORY_MS);
+    const { doc } = loaded;
+    const checkpoint = doc.checkpoints.find(p => p.at === at && p.at >= now - MULTIPLAYER_HISTORY_MS);
     const prior = checkpoint?.streams.find(r => r.streamId === WORLD);
-    if (!current || !prior) error('No retained multiplayer checkpoint exists at that time.', 'ROLLBACK_EXPIRED', 410);
+    if (!prior) error('That exact multiplayer checkpoint is no longer retained.', 'ROLLBACK_EXPIRED', 410);
+    // Pin the verified selected snapshot before the host drains newer local
+    // work, which may replace this minute's advertised checkpoint in the head.
     const state = copy(prior.state);
+    await beforeRestore?.();
+    const fresh = await this.read(), confirmed = replay(fresh);
+    if (confirmed) return confirmed;
+    const current = fresh.doc.streams.find(r => r.streamId === WORLD);
+    if (!current) error('Current multiplayer world is unavailable.');
     if (state.owner !== this.owner || state.schema !== 'urn:bridge:owned-state-checkpoint:v1' || !plain(state.value)
       || state.digest !== 'sha256:' + hash(canonical(state.value)) || !Number.isSafeInteger(current.state.liveVersion)
       || current.state.liveVersion < 1 || current.state.liveVersion >= Number.MAX_SAFE_INTEGER) error('Invalid retained world ownership.');

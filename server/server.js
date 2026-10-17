@@ -864,7 +864,7 @@ const worldTimers = [];
 if (SEASON.RS) {
   worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep));
   worldTimers.push(setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush));
-  worldTimers.push(setInterval(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save(); }, 30000));
+  worldTimers.push(setInterval(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save({ background: true }); }, 30000));
   worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000)); // [season2]
 }
 let closing = false;

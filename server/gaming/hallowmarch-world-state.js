@@ -117,8 +117,8 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     if (name === 'worlds.json') return structuredClone(initial.worlds);
     if (name === 'season.json') return structuredClone(initial.season);
     return files.read(name, fallback);
-  }, write(name, value) {
-    if (name === 'worlds.json' || name === 'season.json') { assertMutable(); capture({ background: name === 'season.json' }); return; }
+  }, write(name, value, { background = false } = {}) {
+    if (name === 'worlds.json' || name === 'season.json') { assertMutable(); capture({ background: name === 'season.json' && background === true }); return; }
     files.write(name, value);
   } };
   function attach({ worlds, season, field, rooms }) {
@@ -159,10 +159,11 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     if (!attached || !canMutate() || typeof nativeStore?.restoreWorldAt !== 'function') invalid();
     // Pause all world mutations before draining the last pending checkpoint.
     // Restore durably first, then reuse verified host recovery for every room.
-    capture(); rollingBack = true;
+    rollingBack = true;
     try {
-      await bridge.checkpoint(); await bridge.checkpoint();
-      const result = await nativeStore.restoreWorldAt(at, options);
+      const result = await nativeStore.restoreWorldAt(at, { ...options, beforeRestore: async () => {
+        capture(); await bridge.checkpoint(); await bridge.checkpoint();
+      } });
       await recover();
       rollingBack = false;
       return { ...result, persistence: status() };

@@ -64,7 +64,7 @@ test('empty world background ticks coalesce for five minutes while player mutati
   await bridge.checkpoint(); const baseline = commits;
   for (let elapsed = 2000; elapsed < 300000; elapsed += 2000) {
     now += 2000; strategic.step(); field.step();
-    if (elapsed % 30000 === 0) bridge.store.write('season.json', strategic.RS);
+    if (elapsed % 30000 === 0) bridge.store.write('season.json', strategic.RS, { background: true });
   }
   assert.equal(bridge.status().backgroundCaptureDeferred, true); assert.equal(bridge.status().durable, false);
   await bridge.checkpoint(); assert.equal(commits, baseline, 'diagnostic sockets do not turn idle ticks into native writes');
@@ -87,7 +87,8 @@ test('shared rollback pauses mutations, restores every room through recovery and
     async commit(id, input) { assert.equal(input.expectedVersion, saved.version);
       saved = { version: saved.version + 1, state: structuredClone(input.state) }; return structuredClone(saved); },
     async rollbackCheckpoints() { return [{ at: 1000, version: 1 }]; },
-    async restoreWorldAt(at) {
+    async restoreWorldAt(at, options) {
+      await options.beforeRestore();
       assert.equal(at, 1000); assert.equal(bridge.canMutate(), false);
       assert.throws(() => bridge.assertMutable(), { code: 'WORLD_FENCED' });
       if (failRestore) throw new Error('uncertain native rollback');

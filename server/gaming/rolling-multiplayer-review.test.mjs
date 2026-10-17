@@ -277,3 +277,27 @@ test('concurrent writers share one persisted byte budget and cannot spend the la
   assert.equal((await f.make().load('other')).state.accepted, true);
   assert.equal(f.control.commits, 64);
 });
+
+test('rollback pins the advertised checkpoint before a same-minute drain replaces it', async () => {
+  const f = fixture(), store = f.make();
+  await store.commit(WORLD, { expectedVersion: 0, state: worldState('selected'), idempotencyKey: 'selected' });
+  const selected = (await store.rollbackCheckpoints())[0];
+  f.advance(1000);
+  const result = await store.restoreWorldAt(selected.at, { idempotencyKey: 'pinned-rollback', beforeRestore: async () => {
+    await store.commit(WORLD, { expectedVersion: 1, state: worldState('drained-later', 2), idempotencyKey: 'drain' });
+    assert.ok(!(await store.rollbackCheckpoints()).some(p => p.at === selected.at));
+  } });
+  assert.equal(result.version, 3);
+  assert.equal((await f.make().load(WORLD)).state.value.worlds.label, 'selected');
+});
+
+test('an unavailable exact checkpoint never silently selects an earlier world', async () => {
+  const f = fixture(), store = f.make();
+  await store.commit(WORLD, { expectedVersion: 0, state: worldState('earlier'), idempotencyKey: 'earlier' });
+  f.advance(60000);
+  await store.commit(WORLD, { expectedVersion: 1, state: worldState('selected', 2), idempotencyKey: 'selected' });
+  const selected = (await store.rollbackCheckpoints()).at(-1); f.advance(1000);
+  await store.commit(WORLD, { expectedVersion: 2, state: worldState('later', 3), idempotencyKey: 'later' });
+  await assert.rejects(store.restoreWorldAt(selected.at, { idempotencyKey: 'missing-selected' }), { code: 'ROLLBACK_EXPIRED' });
+  assert.equal((await store.load(WORLD)).state.value.worlds.label, 'later');
+});
