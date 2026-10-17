@@ -1,7 +1,11 @@
 /* Real gameplay observations stay with the character's private save. Optional
  * coaching receives a separate disclosed summary through its own consent path. */
 const GAME_ACTIVITY = { module: null, loading: null, profile: null, stored: undefined, scope: null, blocked: false,
-  queue: [], preloadDropped: 0, sessionId: crypto.randomUUID(), archive: null, archivePage: null, archiveFlight: null, archiveNeedsSave: false, lastArchiveAt: 0, code: null };
+  queue: [], preloadDropped: 0, sessionId: null, archive: null, archivePage: null, archiveFlight: null, archiveNeedsSave: false, lastArchiveAt: 0, code: null };
+function activityHasSecureCrypto() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return true;
+  GAME_ACTIVITY.blocked = true; GAME_ACTIVITY.code = 'activity_secure_context_required'; return false;
+}
 function activityScope() {
   const P = GAME.player; if (!GAME.started || !P || !GAME.prog || CAPTURE.on) return null;
   const native = SAVE.native, binding = NATIVE_PLAYER.status?.binding;
@@ -15,6 +19,10 @@ function activityCurrent(scope) {
     && (!scope.native || current.profile === scope.profile && current.token === scope.token && current.generation === scope.generation);
 }
 function activityModules() {
+  // Static graphics diagnostics and the title do not have a character scope.
+  // Wait for actual, non-capture gameplay before requesting browser assets.
+  if (!activityScope()) return Promise.resolve(null);
+  if (!activityHasSecureCrypto()) return Promise.resolve(null);
   if (!GAME_ACTIVITY.loading) GAME_ACTIVITY.loading = import('/gaming/identity/assets/gameplay-activity.mjs').then(module => {
     GAME_ACTIVITY.module = module; GAME_ACTIVITY.code = null; activityEnsure(); return module;
   }).catch(() => { GAME_ACTIVITY.code = 'activity_module_unavailable'; GAME_ACTIVITY.loading = null; return null; });
@@ -22,13 +30,15 @@ function activityModules() {
 }
 function activityEnsure() {
   const state = GAME_ACTIVITY, scope = activityScope(); if (!scope || state.blocked) return null;
+  if (!activityHasSecureCrypto()) return null;
   if (!state.module) { void activityModules(); return null; }
   if (state.scope && state.scope.identity !== scope.identity) {
     state.archive?.close(); state.archive = null; state.archivePage = null; state.archiveNeedsSave = false; state.profile = null;
     state.blocked = true; state.code = 'activity_owner_changed'; return null;
   }
   if (!state.profile) {
-    try { state.profile = state.module.createGameplayActivityProfile({ ownerDid: scope.ownerDid, characterId: scope.characterId,
+    try { state.sessionId ||= globalThis.crypto.randomUUID();
+      state.profile = state.module.createGameplayActivityProfile({ ownerDid: scope.ownerDid, characterId: scope.characterId,
       sessionId: state.sessionId, state: state.stored }); state.scope = scope; }
     catch { state.blocked = true; state.code = 'activity_record_unreadable'; return null; }
   }
@@ -55,12 +65,13 @@ function activityRecord(type, objectId, quantity = 1, options = {}) {
   try {
   const scope = activityScope(), entity = options.entity || GAME.player, body = activityOwnedBody(entity);
   if (!scope || !body) return null;
+  if (!activityHasSecureCrypto()) return null;
   const input = { type, body, actor: options.actor || { kind: 'unattributed' },
     object: { id: String(objectId || type).slice(0, 128), kind: options.kind || type.split('.')[0] },
     result: { ...(quantity !== null ? { quantity: Math.max(0, Math.min(1e9, +quantity || 0)) } : {}),
       ...(options.success !== undefined ? { success: !!options.success } : {}), ...(options.reason ? { reason: options.reason } : {}) },
     context: { realm: GAME.player.faction, level: GAME.prog.level, party: !!NET.party,
-      ...(['ability.executed', 'ability.refused', 'craft.completed', 'craft.refused'].includes(type) ? { attemptId: crypto.randomUUID() } : {}) } };
+      ...(['ability.executed', 'ability.refused', 'craft.completed', 'craft.refused'].includes(type) ? { attemptId: globalThis.crypto.randomUUID() } : {}) } };
   const profile = activityEnsure();
   if (!profile) {
     if (!GAME_ACTIVITY.blocked && GAME_ACTIVITY.queue.length < 64) GAME_ACTIVITY.queue.push({ identity: scope.identity, body: scope.body, input });
@@ -144,4 +155,3 @@ window.__hm.activity = Object.freeze({ snapshot: activitySnapshot, record: activ
       return { verb: statement.verb.id, object: { id: statement.object.id, name: event.object.id }, at: event.observedAt, eventId: event.id };
     }) };
   } });
-void activityModules();

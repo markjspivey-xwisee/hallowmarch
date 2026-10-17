@@ -12,25 +12,78 @@ async function body(file, name) {
   const start = source.indexOf('function ' + name + '('), end = source.indexOf('\n}', start) + 2;
   assert(start >= 0 && end > start); return source.slice(start, end);
 }
-async function adapter({ native = false } = {}) {
+async function adapter({ native = false, started = true, capture = false, initialize = true, deferred = false, browserCrypto = webcrypto } = {}) {
   const source = await readFile(new URL('src/14y_activity.js', root), 'utf8'), parts = {}, saves = [], timers = [];
+  let moduleLoads = 0, releaseModule;
+  const moduleGate = deferred ? new Promise(resolve => { releaseModule = resolve; }) : null;
   const P = { id: 1, name: 'Fixture', cls: 'warrior', faction: 0, alive: true }, pet = { id: 2, alive: true, role: 'companion' };
   const wrapped = { ...activity, createGameplayActivityProfile(options) {
     const profile = activity.createGameplayActivityProfile(copy(options));
     return Object.fromEntries(Object.entries(profile).map(([key, value]) => [key,
       typeof value === 'function' ? (...args) => Reflect.apply(value, profile, args.map(arg => arg === undefined ? undefined : copy(arg))) : value]));
   } };
-  const context = vm.createContext({ console, Date, JSON, URL, crypto: webcrypto, setInterval: fn => { timers.push(fn); },
-    window: { __hm: {}, addEventListener() {} }, GAME: { started: true, player: P, prog: { level: 1, lore: {} } }, CAPTURE: { on: false },
+  const context = vm.createContext({ console, Date, JSON, URL, crypto: browserCrypto, setInterval: fn => { timers.push(fn); },
+    window: { __hm: {}, addEventListener() {} }, GAME: { started, player: P, prog: { level: 1, lore: {} } }, CAPTURE: { on: capture },
     SAVE: { native }, NATIVE_PLAYER: { status: native ? { verified: true, binding: { subjectDid: 'did:web:identity.example:users:owner', podUrl: 'https://pod.example/owner/' } } : null, profile: null }, NETWS: { acct: { id: 'character-fixture' }, generation: 1, token: 'not-exported' },
     NET: { party: '' }, mainWorldAgentBodies: () => [{ id: 'character-fixture:companion:fixture', entity: pet }], anOwned: () => false,
     registerSavePart: (where, key, part) => { parts[key] = part; }, saveSoon: delay => { saves.push(delay); }, saveNow: async () => {},
-    pathNext: () => ({ id: 'canonical-path', title: 'Existing path objective' }), __loadActivityModule: async () => wrapped });
+    pathNext: () => ({ id: 'canonical-path', title: 'Existing path objective' }), __loadActivityModule: async () => {
+      moduleLoads++; if (moduleGate) await moduleGate; return wrapped;
+    } });
   vm.runInContext(source.replace("import('/gaming/identity/assets/gameplay-activity.mjs')", '__loadActivityModule()'), context);
+  if (initialize && started && !capture) context.window.__hm.activity.snapshot();
   await tick(); await tick();
   return { context, parts, saves, timers, P, pet, api: context.window.__hm.activity,
+    moduleLoads: () => moduleLoads, releaseModule: async () => { releaseModule?.(); await tick(); await tick(); },
     evaluate: code => vm.runInContext(code, context) };
 }
+
+test('title, static diagnostics and capture mode never import activity assets or archive data', async () => {
+  for (const options of [{ started: false }, { capture: true }]) {
+    let uuidCalls = 0;
+    const f = await adapter({ ...options, browserCrypto: { randomUUID() { uuidCalls++; return webcrypto.randomUUID(); } } });
+    assert.equal(f.moduleLoads(), 0, 'evaluating the game script must not fetch an activity module');
+    f.api.snapshot(); f.api.record('resource.gathered', 'stone', 1); await f.api.archive();
+    await f.evaluate('activityModules()');
+    for (const timer of f.timers) await timer();
+    assert.equal(f.moduleLoads(), 0); assert.equal(uuidCalls, 0); assert.equal(f.parts.activity.save(), null); assert.equal(f.saves.length, 0);
+  }
+});
+
+test('ordinary insecure HTTP without randomUUID cannot crash gameplay or fetch activity assets', async () => {
+  for (const browserCrypto of [{}, undefined]) {
+    // Use null for a missing browser crypto object; undefined would otherwise
+    // select this fixture's normal secure-context default.
+    const f = await adapter({ browserCrypto: browserCrypto ?? null, initialize: false });
+    assert.equal(f.evaluate('GAME.started'), true); assert.equal(f.evaluate('GAME_ACTIVITY.sessionId'), null);
+    assert.doesNotThrow(() => f.api.record('ability.refused', 'strike', 1, { success: false }));
+    assert.doesNotThrow(() => f.api.record('craft.completed', 'tool', 1, { success: true }));
+    assert.doesNotThrow(() => f.api.record('resource.gathered', 'stone', 2));
+    const snapshot = f.api.snapshot(); await f.api.archive(); await f.evaluate('activityModules()');
+    assert.equal(snapshot.eventCount, 0); assert.equal(snapshot.code, 'activity_secure_context_required');
+    assert.equal(f.moduleLoads(), 0); assert.equal(f.evaluate('GAME_ACTIVITY.sessionId'), null);
+    assert.equal(f.evaluate('GAME_ACTIVITY.queue.length'), 0); assert.equal(f.saves.length, 0);
+  }
+});
+
+test('first real hooks lazily load once and preserve both pending events and existing saved history', async () => {
+  const original = await adapter(); original.api.record('combat.healed', 'mend', 4, { success: true });
+  const saved = copy(original.parts.activity.save());
+  const f = await adapter({ initialize: false, deferred: true });
+  assert.equal(f.moduleLoads(), 0); f.parts.activity.load(saved);
+  assert.equal(f.evaluate('GAME_ACTIVITY.sessionId'), null);
+  assert.equal(f.moduleLoads(), 0, 'hydrating a save does not eagerly request assets');
+  assert.equal(f.api.record('resource.gathered', 'stone', 2, { success: true }), null);
+  assert.equal(f.api.record('craft.completed', 'tool', 1, { success: true }), null);
+  assert.equal(f.moduleLoads(), 1); assert.equal(f.api.snapshot().available, false);
+  assert.equal(f.evaluate('GAME_ACTIVITY.sessionId'), null, 'A pending import cannot mint the session identity');
+  await f.releaseModule();
+  const snapshot = f.api.snapshot(); assert.equal(snapshot.available, true); assert.equal(snapshot.eventCount, 3);
+  assert.equal(snapshot.summary.quantities['combat.healed'], 4); assert.equal(snapshot.summary.quantities['resource.gathered'], 2);
+  assert.equal(snapshot.summary.counters['craft.completed'], 1); assert.equal(snapshot.canonicalPath.id, 'canonical-path');
+  assert.equal(f.moduleLoads(), 1); assert.equal(f.parts.activity.save().eventCount, 3);
+  assert.match(f.evaluate('GAME_ACTIVITY.sessionId'), /^[0-9a-f-]{36}$/);
+});
 
 test('adapter automatically records actual body events in existing save part and preserves the canonical path', async () => {
   const f = await adapter(); f.api.record('resource.gathered', 'stone', 2, { success: true });
