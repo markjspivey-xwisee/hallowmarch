@@ -54,7 +54,8 @@ async function fixture(options, run) {
     message(value) { queueMicrotask(() => this.emit('message', { data: JSON.stringify(value) })); }
     send(encoded) {
       const message = JSON.parse(encoded); socketMessages.push(message);
-      if (message.t === 'hello') { assert.equal(message.token, 'GAME_PRIVATE_HMAC'); this.message({ t: 'welcome', acct: { id: owner.accountId, nativeBound: true } }); return; }
+      if (message.t === 'hello') { assert.equal(message.token, 'GAME_PRIVATE_HMAC'); assert(message.room.length <= 32);
+        this.message({ t: 'welcome', room: options.roomFallback ? 'march' : message.room, acct: { id: owner.accountId, nativeBound: true } }); return; }
       if (message.t === 'slow') { slow.push(message.d); return; }
       assert.equal(message.t, 'gaming');
       let result = {};
@@ -102,6 +103,13 @@ test('owner helper keeps credentials in browser and sends only public references
   const summary = JSON.stringify(qa.status()); assert(!summary.includes('PRIVATE')); assert(!summary.includes('credential'));
   assert.equal(f.slow.length, 1); assert.deepEqual(Object.keys(f.slow[0]).sort(), ['c', 'dn', 'l', 'n', 'on', 'pt', 'r', 'rr']);
   assert.equal(f.count.publish, 1); assert.equal(f.count.revokes, 1);
+}));
+test('companion QA refuses a canonical-room fallback before publishing a profile or entering gameplay', async () => fixture({ roomFallback: true }, async f => {
+  await installNativeCompanionOwnerQaSession({ ...config, run: 'Long-Retained-QA-Run-1234567890ABCDEF' }, f.modules);
+  await assert.rejects(globalThis.__hmNativeCompanionQa.enterAndSpawn(), { code: 'qa_companion_room_binding' });
+  const hello = f.socketMessages.find(message => message.t === 'hello');
+  assert.match(hello.room, /^native-companion-qa-[a-z0-9-]+$/); assert(hello.room.length <= 32);
+  assert.equal(f.slow.length, 0); assert.equal(f.count.spawn, 0); assert.equal(f.count.publish, 0);
 }));
 test('uncertain public publication/revocation retry confirms the same retained operations without a second write', async () => fixture({ pendingPublication: true, pendingRevoke: true }, async f => {
   await installNativeCompanionOwnerQaSession(config, f.modules); const qa = globalThis.__hmNativeCompanionQa;

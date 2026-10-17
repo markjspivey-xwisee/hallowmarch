@@ -260,7 +260,7 @@ function bountyOnKill(e) {
   if (b && b.risen) { late2BountyKill(e, b); return; } // [late2] a risen champion's bounty is that champion (10l_late.js)
   if (!b || e.mobType !== b.type || e.camp == null) return;
   b.have = Math.min(b.need, b.have + 1);
-  if (b.have >= b.need && !b.done) { b.done = true; uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare'); }
+  if (b.have >= b.need && !b.done) { b.done = true; activityRecord('bounty.completed', b.type || 'bounty', 1, { success: true }); uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare'); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -425,6 +425,7 @@ function updateCamera(dt) {
 function onPlayerDeath(killer) {
   const P = GAME.player;
   GAME.prog.deaths++;
+  activityRecord('combat.died', killer?.mobType || killer?.role || 'environment', 1, { success: false });
   P.target = null;
   INPUT.keys.clear();
   sfx('death');
@@ -438,6 +439,7 @@ function releasePlayer() {
     P.alive = true; P.hp = P.maxHp; P.power = P.maxPower; P.endurance = 100;
     P.buffs.length = 0; P.casting = null; P.threat = null; P.damagers = null; P.mount = null; P.removeAt = 0;
     leaveBarrow(true);
+    activityRecord('character.respawned', 'barrow-release', 1, { success: true });
     return;
   }
   const inFrontier = Math.hypot(P.x, P.z) < R_RING;
@@ -453,5 +455,6 @@ function releasePlayer() {
   CAM.yaw = P.yaw;
   FX.burst(P.x, P.y + 1, P.z, 40, [0.5, 1.4, 1.8], 3, 0.8, 0.2, -1);
   sfx('portal');
+  activityRecord('character.respawned', 'release', 1, { success: true });
   saveSoon();
 }

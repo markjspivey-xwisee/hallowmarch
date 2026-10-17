@@ -481,6 +481,7 @@ function farmHarvest(P, quiet = false) {
     sfx('loot');
   }
   out.got = got;
+  activityRecord('resource.harvested', 'ripe-bed', out.n, { success: true });
   FARM.drawDirty = true;
   saveSoon();
   return out;
@@ -813,7 +814,8 @@ function farmLearn(k, quiet = false) {
 function farmGatherHerb(H, quiet = false) {
   if (!H || H.gone > 0 || farmHerbGrowth(H) < 0.25) return 0;
   const n = farmHerbGrowth(H) > 0.7 && Math.random() < 0.5 * H.s ? 2 : 1;
-  goodsAdd(H.k, n, quiet);
+  const gathered = goodsAdd(H.k, n, quiet);
+  if (gathered > 0) activityRecord('resource.gathered', H.k, gathered, { success: true });
   H.regrow = 480;
   FARM.drawDirty = true;
   return n;

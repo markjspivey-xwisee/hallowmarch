@@ -8,6 +8,10 @@ The implementation and offline tests do not establish that a deployment passed.
 Use only the explicitly selected preview and its dedicated game-owned pod.
 The authoritative expedition retains earlier player bodies after disconnect;
 the per-run WebSocket room does not create a separate authoritative expedition.
+Its reserved diagnostic room name is at most 31 characters, and the helper
+refuses a mismatched welcome before publishing presence or entering gameplay.
+These rooms do not join the shared realm season, roster, stored realm chat or
+season armies. Existing historical records are preserved.
 The scenario verifies the exact current owner/player/companion relationship,
 then only observes and moves that owner's companion by 0.1 units. It never
 classifies other players as stale, removes them, attacks, grants rewards or

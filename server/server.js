@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { makeSeason, loadRealmModule } from './season.js';
+import { makeSeason, loadRealmModule, seasonRoomPolicy } from './season.js';
 import { createGamingRuntime } from './gaming/runtime.js';
 import { configuredGamingStore } from './gaming/provider.js';
 import { prepareGamingEnvironment } from './gaming/bootstrap.js';
@@ -123,7 +123,7 @@ const COMP = makeCompanies(CFG, store, STATS, {
   acctByName: (n) => (n ? accountByName(n) || (ACCOUNTS[n]?.nativeBound === true ? ACCOUNTS[n] : null) : null),
   // Native-bound participation needs this socket's current verified proof;
   // an old game bearer cannot borrow another socket's native authentication.
-  canParticipate: A => A.nativeBound === true ? A.nativeParticipant === true : !A.guest,
+  canParticipate: A => A.diagnostic !== true && (A.nativeBound === true ? A.nativeParticipant === true : !A.guest),
   realmOf: (id) => (SEASON.roster[id] && (SEASON.roster[id].r === 0 || SEASON.roster[id].r === 1 || SEASON.roster[id].r === 2) ? SEASON.roster[id].r : -1),
   seasonN: () => (SEASON.RS && SEASON.RS.n) || 1,
   unitsPerPoint: () => (SEASON.M && SEASON.M.RSM && SEASON.M.RSM.sp && SEASON.M.RSM.sp.units) || 40,
@@ -183,12 +183,12 @@ function accountResolve(h) {
 /* rooms (shards of the March)                                         */
 /* ------------------------------------------------------------------ */
 const ROOMS = new Map();
-function roomFor(want) {
-  let base = typeof want === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(want) ? want : 'march';
+function roomFor(policy) {
+  const { base, diagnostic } = policy;
   for (let i = 1; i < 100; i++) {
     const name = i === 1 ? base : `${base}-${i}`;
     let R = ROOMS.get(name);
-    if (!R) { R = { name, clients: new Map() }; ROOMS.set(name, R); }
+    if (!R) { R = { name, diagnostic, clients: new Map() }; ROOMS.set(name, R); }
     if (R.clients.size < CFG.roomCap) return R;
   }
   return null;
@@ -288,6 +288,7 @@ const performanceResourceHttp = createPerformanceResourceHttp({
   title: 'Hallowmarch resources', nativeScope: { graphIri: 'urn:graph:hallowmarch:performance-support', resourceNamespace: 'urn:hallowmarch:resource:' },
   catalog: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-resources.json'), 'utf8')),
   alignment: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'performance-consulting-alignment.json'), 'utf8')),
+  activityProfile: JSON.parse(fs.readFileSync(path.join(HERE, 'gaming', 'gameplay-activity-profile.jsonld'), 'utf8')),
   publicOrigin: gamingEnvironment.HM_PUBLIC_ORIGIN || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : process.env.NODE_ENV !== 'production' ? `http://localhost:${CFG.port}` : undefined),
   ownership: () => gamingStore ? { did: gamingEnvironment.HM_GAMING_NATIVE_OWNER, podUrl: gamingEnvironment.HM_GAMING_NATIVE_POD_URL } : null,
   publication: gamingCapabilityStatus,
@@ -409,7 +410,7 @@ function regionsTell(R, force) {
 // the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
 function worldNow(R) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
-  const w = WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  const w = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
   if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && R.clients.size <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
   return w;
 }
@@ -418,7 +419,7 @@ function worldReport(c, raw) {
   const w = worldCheck(raw);
   if (!w) return;
   const R = c.room, H = roomHost(R), hosts = R.regions || {};
-  const cur = WORLDS[R.name] || { ...w };
+  const cur = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || { ...w };
   const merged = { ...cur, k: (cur.k || w.k).slice(), g: (cur.g || w.g).slice() };
   if (H === c) { merged.td = w.td; merged.tm = w.tm; merged.cn = w.cn; merged.cl = w.cl; }
   let changed = false;
@@ -429,13 +430,14 @@ function worldReport(c, raw) {
     if (keeper !== c.peer) return;
     // the keeper's last word on it, or the shard's (a new keeper was handed the merged war with its hosts: `world` init)
     const last = R.rep[i] && R.rep[i].peer === c.peer ? R.rep[i].r : cur.k ? cur.k[i] : r;
-    if (last !== r && sk && sk[i] !== r) { SEASON.capture(i, r, c.acct.name); coCaptured(R, i, r); } // [companies] the companies about it count it
+    if (!R.diagnostic && last !== r && sk && sk[i] !== r) { SEASON.capture(i, r, c.acct.name); coCaptured(R, i, r); } // [companies] the companies about it count it
     R.rep[i] = { peer: c.peer, r };
     if (merged.k[i] !== r) { merged.k[i] = r; changed = true; }
     merged.g[i] = w.g[i];
   });
   merged.at = Date.now();
-  WORLDS[R.name] = merged; worldsSave();
+  if (R.diagnostic) R.diagnosticWorld = merged;
+  else { WORLDS[R.name] = merged; worldsSave(); }
   if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged }); }
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
@@ -444,9 +446,11 @@ function keepWx(R, wx) {
   if (!wx || typeof wx !== 'object' || wx.v !== 1 || !Array.isArray(wx.c)) return;
   const s = JSON.stringify(wx);
   if (s.length > 4000) { STATS.wxRefused = (STATS.wxRefused || 0) + 1; return; }
-  const w = WORLDS[R.name] || (WORLDS[R.name] = {});
+  const w = R.diagnostic ? R.diagnosticWorld || (R.diagnosticWorld = structuredClone(WORLDS[R.name] || {}))
+    : WORLDS[R.name] || (WORLDS[R.name] = {});
   w.wx = { ...JSON.parse(s), at: Date.now() };
   STATS.wxKept = (STATS.wxKept || 0) + 1;
+  if (R.diagnostic) return;
   if (WORLD_STATE) { WORLD_STATE.capture(); return; }
   if (!R.wxSavedAt || Date.now() - R.wxSavedAt > 60000) { R.wxSavedAt = Date.now(); worldsSave(); }
 }
@@ -463,9 +467,11 @@ function evFor(c, o, ev) {
 /* the connection                                                      */
 /* ------------------------------------------------------------------ */
 function onHello(c, h) {
+  const policy = seasonRoomPolicy(h.room);
+  if (!policy) { send(c, { t: 'denied', why: 'The requested room is invalid.', code: 'invalid_room' }); return; }
   const r = accountResolve(h);
   if (r.err) { send(c, { t: 'denied', why: r.err, ...(r.code ? { code: r.code } : {}) }); return; }
-  const R = roomFor(h.room);
+  const R = roomFor(policy);
   if (!R) { send(c, { t: 'denied', why: 'The March is full' }); c.ws.close(); return; }
   c.acct = r.A; c.acct.last = Date.now(); accountsSave();
   c.authClaims = GAME_SESSIONS.read(h.token);
@@ -478,7 +484,7 @@ function onHello(c, h) {
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
   send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
     token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
-    room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
+    room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: !R.diagnostic && SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
 }
 // the account, from a page already in: a guest names its own (`claim`: name and password set on it, so it keeps its
@@ -517,7 +523,7 @@ function onSlow(c, d) {
   const R = c.room;
   if (d.w) worldReport(c, d.w);
   if (d.wx && roomHost(R) === c) keepWx(R, d.wx); // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
-  if (c.realm >= 0) {
+  if (c.realm >= 0 && !R.diagnostic) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
     if (!c.toldSeason || c.toldRealm !== c.realm) { c.toldSeason = true; c.toldRealm = c.realm; seasonTell(c, c.lastSeen ? (Date.now() - c.lastSeen) / 1000 : -1, true); coTell(c, true); } // [companies] and its company
@@ -540,7 +546,7 @@ function onFast(c, d) {
   // the moments new since this sender's last (over a socket nothing is lost: each is sent once)
   const evs = Array.isArray(d.ev) ? d.ev.filter((e) => Array.isArray(e) && e.length >= 3 && Number.isFinite(e[0]) && e[0] > (c.evSeq || 0) && typeof e[1] === 'string').slice(-40) : [];
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
-  for (const e of evs) if (e[1] === 'say' && Array.isArray(e[3]) && e[3][0] === 'r' && typeof e[3][1] === 'string' && c.realm >= 0) { SEASON.chatIn(c.realm, c.acct.name === 'Guest' && c.slow ? cleanName(c.slow.n) || 'Guest' : c.acct.name, e[3][1].replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')); STATS.chatKept++; }
+  for (const e of evs) if (!c.room.diagnostic && e[1] === 'say' && Array.isArray(e[3]) && e[3][0] === 'r' && typeof e[3][1] === 'string' && c.realm >= 0) { SEASON.chatIn(c.realm, c.acct.name === 'Guest' && c.slow ? cleanName(c.slow.n) || 'Guest' : c.acct.name, e[3][1].replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')); STATS.chatKept++; }
   c.fast = { ...d, ev: [] };
   const R = c.room;
   for (const o of R.clients.values()) {
@@ -572,12 +578,12 @@ function onFast(c, d) {
 // telling: what a returning player missed), its realm's roster, and (the first time) its realm's chat
 function seasonTell(c, away, first) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
-  if (!SEASON.RS || !(c.realm >= 0)) return;
+  if (c.room.diagnostic || !SEASON.RS || !(c.realm >= 0)) return;
   const since = away >= 0 ? SEASON.RS.t - away * SEASON.speed : first ? SEASON.RS.t - 3600 : c.seasonT || SEASON.RS.t - 60;
   const s = SEASON.summary(c.realm, since);
   c.seasonT = SEASON.RS.t;
   const online = [...c.room.clients.values()].filter((o) => o.realm === c.realm).map((o) => o.acct.id);
-  for (const R of ROOMS.values()) if (R !== c.room) for (const o of R.clients.values()) if (o.realm === c.realm) online.push(o.acct.id);
+  for (const R of ROOMS.values()) if (R !== c.room && !R.diagnostic) for (const o of R.clients.values()) if (o.realm === c.realm) online.push(o.acct.id);
   const o = { t: 'season', s, roster: SEASON.rosterOf(c.realm, online), first: first ? 1 : 0, away: away >= 0 ? Math.round(away) : -1, speed: SEASON.speed };
   // weather2's weather systems on the map, when the season's module keeps them (RS.weather): a slot the pages will read
   if (SEASON.RS.weather && typeof SEASON.RS.weather === 'object') o.wx = SEASON.RS.weather;
@@ -585,6 +591,7 @@ function seasonTell(c, away, first) {
   send(c, o); STATS.seasonPushes++;
 }
 function onContrib(c, m) {
+  if (c.room.diagnostic) { send(c, { t: 'contrib', q: m.q, ok: false, why: 'No shared season in this room' }); return; }
   const now = Date.now();
   c.cWin = (c.cWin || []).filter((t) => now - t < 1000);
   if (c.cWin.length >= 4) { send(c, { t: 'contrib', ok: false, why: 'Too fast', q: m.q }); return; }
@@ -595,6 +602,7 @@ function onContrib(c, m) {
   send(c, { t: 'contrib', q: m.q, k: m.k, ...r });
 }
 function onOrder(c, m) {
+  if (c.room.diagnostic) { send(c, { t: 'order', q: m.q, ok: false, why: 'No shared season in this room' }); return; }
   const now = Date.now();
   if (now - (c.orderAt || 0) < 2500) { STATS.ordersRefused++; send(c, { t: 'order', ok: false, why: 'One order at a time', q: m.q }); return; }
   c.orderAt = now;
@@ -613,17 +621,17 @@ function onOrder(c, m) {
 /* ------------------------------------------------------------------ */
 /* [companies] the companies: asked, answered, told (server/companies.js) */
 /* ------------------------------------------------------------------ */
-const coClients = function* () { for (const R of ROOMS.values()) yield* R.clients.values(); };
+const coClients = function* () { for (const R of ROOMS.values()) if (!R.diagnostic) yield* R.clients.values(); };
 function companyAccount(c) {
   if (!c?.acct) return null;
-  return { ...c.acct, nativeBound: c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id),
+  return { ...c.acct, diagnostic: c.room?.diagnostic === true, nativeBound: c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id),
     nativeParticipant: !!PLAYER_ACCOUNTS.principalFor(c) };
 }
 const coOnline = () => { const s = new Set(); for (const o of coClients()) if (o.acct && COMP.canParticipate(companyAccount(o))) s.add(o.acct.id); return s; };
 // a player told its company (or its invitations) and the realm's companies' standing; the first telling a session carries
 // when it was last here, so the page tells it what was said in the company meanwhile
 function coTell(c, first) {
-  if (!c.acct) return;
+  if (!c.acct || c.room.diagnostic) return;
   const o = { t: 'company', s: COMP.stateFor(companyAccount(c), c.realm, coOnline()) };
   if (first) { o.first = 1; o.seen = c.lastSeen || 0; }
   send(c, o); STATS.coTold = (STATS.coTold || 0) + 1;
@@ -640,6 +648,7 @@ function coCaptured(R, i, r) {
 }
 function onCo(c, m) {
   const now = Date.now(), reply = (r) => send(c, { t: 'co', q: m.q, op: m.op, ...r });
+  if (c.room.diagnostic) { reply({ ok: false, why: 'No shared company in this room' }); return; }
   if (m.op === 'say' ? now - (c.coSayAt || 0) < 1000 : now - (c.coAt || 0) < 350) { COMP.stats.refused++; reply({ ok: false, why: 'Not so fast' }); return; }
   if (m.op === 'say') c.coSayAt = now; else c.coAt = now;
   if (m.op === 'get') { coTell(c, false); reply({ ok: true }); return; }
@@ -727,7 +736,7 @@ function onMsg(c, raw) {
   else if (m.t === 'order') onOrder(c, m);
   else if (m.t === 'season') seasonTell(c, -1, false);
   else if (m.t === 'co') onCo(c, m); // [companies]
-  else if (m.t === 'sarmyrep') FIELD.report(c, m); // [season2]
+  else if (m.t === 'sarmyrep' && !c.room.diagnostic) FIELD.report(c, m); // [season2]
   else if (m.t === 'save') {
     if (c.acct.nativeBound || c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id)) {
       send(c, { t: 'saved', ok: false, error: 'nativepodsave_required' }); return;
@@ -829,7 +838,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
-    if (!WORLD_STATE || WORLD_STATE.canMutate()) FIELD.left(c); // [season2] its armies back to the season
+    if (!R.diagnostic && (!WORLD_STATE || WORLD_STATE.canMutate())) FIELD.left(c); // [season2] its armies back to the season
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
@@ -852,7 +861,7 @@ const shutdown = async () => {
   server.close(); nativeAgentHost.close(); PLAYER_ACCOUNTS.close();
   const worldAgentsClosing = worldAgentHost.close();
   for (const timer of worldTimers) clearInterval(timer);
-  try { if (!WORLD_STATE || WORLD_STATE.canMutate()) { SEASON.step(); for (const R of ROOMS.values()) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); }
+  try { if (!WORLD_STATE || WORLD_STATE.canMutate()) { SEASON.step(); for (const R of ROOMS.values()) if (!R.diagnostic) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); }
   catch (e) { console.warn('shutdown', e.message); }
   // Existing sockets cannot introduce new actions while the final checkpoint is
   // draining. A crash may recover only the last confirmed checkpoint.

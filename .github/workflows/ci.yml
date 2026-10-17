@@ -54,6 +54,8 @@ jobs:
             headless)
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
+              node --test tools/tests/gameplay_activity_profile.test.mjs
+              node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time
@@ -62,7 +64,8 @@ jobs:
             startup) check python3 tools/tests/startup_graphics.py ;;
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
-              node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting.test.mjs client/native-pod/agent-own-session.test.mjs
+              node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
+              node --test client/native-pod/gameplay-activity*.test.mjs
               node --test client/world-agent-client.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test client/world-agent-client.browser.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node client/native-pod/browser.test.mjs
@@ -72,6 +75,7 @@ jobs:
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/manual/native-virtual-passkey.test.mjs tools/manual/native-virtual-passkey.browser.test.mjs tools/manual/native-oauth-ceremony.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node --test tools/manual/native-oauth-proof-diagnostics.test.mjs tools/manual/native-oauth-proof-diagnostics.browser.test.mjs
               node --test tools/manual/native-companion-live.test.mjs
+              node --test tools/manual/main-world-live.test.mjs tools/manual/human-consulting-live.test.mjs tools/manual/native-qa-episode.test.mjs tools/manual/native-player-live.guard.test.mjs
               HM_PLAYWRIGHT_MODULE="$PWD/tools/node_modules/playwright/index.mjs" node tools/tests/native_companion_ui.browser.mjs
               python3 tools/tests/gaming_client.py
               node tools/tests/gaming_browser.mjs

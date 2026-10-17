@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 import { createPerformanceResourceHttp } from './performance-resource-http.js';
 
+const activityProfile = JSON.parse(await readFile(new URL('./gameplay-activity-profile.jsonld', import.meta.url), 'utf8'));
+const profilePath = '/gaming/activity-profile.jsonld', versionPath = profilePath + '/versions/1.0.0';
+const sdk = process.env.INTEREGO_SDK_TEST_ROOT ? await import(pathToFileURL(resolve(process.env.INTEREGO_SDK_TEST_ROOT, 'packages/core/dist/index.js'))) : null;
+
 const resource = { id: 'field-note:keep', kind: 'job-aid', title: '<Keep & gate>', purpose: 'performance-support',
-  audience: ['human', 'agent'], source: { path: 'src/10c_lore.js', digest: 'sha256:abc' }, revisionDigest: 'sha256:123',
+  audience: ['human', 'agent'], source: { path: 'src/10c_lore.js', digest: 'sha256:abc', selector: 'synthetic-field-note' }, revisionDigest: 'sha256:123',
   content: { mediaType: 'text/markdown', text: 'Break the gate. <script>unsafe()</script>' }, requiresContext: false, ui: { destination: 'Chronicle → Field notes' } };
 const contextual = { ...resource, id: 'map:live', kind: 'reference', title: 'Your map', content: undefined, requiresContext: true, ui: { destination: 'Map' } };
 const catalog = { schemaVersion: 1, resources: [resource, contextual], courses: [{ id: 'course:lore-prologue', title: 'Lore', publicationStatus: 'unpublished-outline' }] };
@@ -16,8 +22,88 @@ async function fixture(t, options = {}) {
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const base = `http://127.0.0.1:${server.address().port}/gaming/resources`;
   handler = createPerformanceResourceHttp({ catalog, publicOrigin: new URL(base).origin, ...options });
-  return { get: (path = '', init) => fetch(base + path, init), post: body => fetch(base + '/query', { method: 'POST', body: JSON.stringify(body) }) };
+  return { get: (path = '', init) => fetch(base + path, init), request: (path, init) => fetch(new URL(path, base), init),
+    post: body => fetch(base + '/query', { method: 'POST', body: JSON.stringify(body) }) };
 }
+
+test('configured Profile and immutable version have exact read-only GET/HEAD routes', async t => {
+  const configured = structuredClone(activityProfile), expected = JSON.stringify(configured);
+  const { request, get } = await fixture(t, { activityProfile: configured });
+  configured.id = 'https://changed.example'; configured.versions[0].id = 'https://changed.example/v2';
+  for (const path of [profilePath, versionPath]) {
+    const response = await request(path, { headers: { host: 'untrusted.example' } });
+    assert.equal(response.status, 200); assert.equal(await response.text(), expected);
+    assert.equal(response.headers.get('content-type'), 'application/ld+json; charset=utf-8');
+    assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    const head = await request(path, { method: 'HEAD' }); assert.equal(head.status, 200); assert.equal(await head.text(), '');
+    for (const name of ['content-type', 'cache-control', 'x-content-type-options', 'referrer-policy']) assert.equal(head.headers.get(name), response.headers.get(name));
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const refused = await request(path, { method, body: '{"recorded":true}' });
+      assert.equal(refused.status, 405); assert.equal(refused.headers.get('allow'), 'GET, HEAD');
+      assert.deepEqual(await refused.json(), { error: 'method_not_allowed' });
+    }
+  }
+  for (const path of [profilePath + '/', profilePath + '/versions/2.0.0', '/gaming/activity-profile.jsonld-extra']) assert.equal((await request(path)).status, 404);
+  const index = await (await get()).json();
+  assert.equal(index.activity.version, activityProfile.versions[0].id);
+  assert.equal(index.activity.storage, 'encrypted-observing-owner-pod'); assert.equal(index.activity.actor, 'authenticated-observing-owner');
+  assert.equal(index.activity.controllerIdentity, 'context-only'); assert.equal(index.activity.lrsConformanceClaim, false);
+});
+
+test('unconfigured Profile and origin do not advertise invented public records or URLs', async t => {
+  const missing = await fixture(t);
+  for (const path of [profilePath, versionPath]) {
+    const response = await missing.request(path); assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'activity_profile_unconfigured' });
+    assert.equal(await (await missing.request(path, { method: 'HEAD' })).text(), '');
+  }
+  assert.equal((await (await missing.get()).json()).activity, undefined);
+  const { get } = await fixture(t, { activityProfile, publicOrigin: undefined });
+  assert.equal((await (await get()).json()).activity.profile, null);
+  for (const change of [
+    { id: 'https://example.org/> <urn:injected>' }, { versions: [{ id: activityProfile.id + '/versions/2.0.0' }] },
+    { conformsTo: activityProfile.versions[0].id }
+  ]) assert.throws(() => createPerformanceResourceHttp({ catalog, activityProfile: { ...activityProfile, ...change } }), /fixed observed activity Profile/);
+});
+
+test('native composition retains the exact Profile in its own identified version part', () => {
+  const rootIri = 'urn:graph:hallowmarch:performance-support', options = { catalog: { ...catalog, courses: [] }, activityProfile,
+    publicOrigin: 'https://game.example', nativeScope: { graphIri: rootIri, resourceNamespace: 'urn:hallowmarch:resource:' } };
+  const bridge = createPerformanceResourceHttp(options), version = activityProfile.versions[0].id;
+  const standalone = bridge.nativeDescription(), composition = bridge.nativeComposition();
+  const part = composition.parts.find(p => p.graphIri.includes(':activity-profile:'));
+  assert.equal(composition.parts.length, 2); assert.ok(part);
+  assert.ok(composition.root.graphContent.includes(`<${rootIri}> dct:hasPart <${part.graphIri}>`));
+  assert.ok(part.graphContent.includes(`<${part.graphIri}> a gaming:ActivityProfilePublication ; dct:isPartOf <${rootIri}> ; dct:subject <${version}>`));
+  const exactBody = 'schema:text ' + JSON.stringify(JSON.stringify(activityProfile));
+  assert.ok(part.graphContent.includes(exactBody)); assert.ok(standalone.graphContent.includes(exactBody));
+  assert.equal(composition.root.graphContent.includes('schema:text'), false);
+  assert.equal(composition.root.graphContent.includes(`dct:conformsTo <${version}>`), false);
+  assert.ok(part.graphContent.includes(`dct:hasVersion <${version}>`));
+  assert.ok(part.graphContent.includes(`dct:isVersionOf <${activityProfile.id}> ; dct:conformsTo <${activityProfile.conformsTo}>`));
+  assert.ok(part.graphContent.includes(`<https://game.example${versionPath}#distribution> a dcat:Distribution ; dcat:accessURL <https://game.example${versionPath}> ; dcat:mediaType "application/ld+json"`));
+  assert.equal(part.graphContent.includes(`dcat:distribution <${activityProfile.id}>`), false);
+  const otherOrigin = createPerformanceResourceHttp({ ...options, publicOrigin: 'https://other.example' }).nativeComposition();
+  assert.notEqual(otherOrigin.parts.at(-1).graphIri, part.graphIri, 'part identity binds its actual distribution content');
+  const without = createPerformanceResourceHttp({ ...options, activityProfile: null });
+  assert.equal(without.nativeComposition().parts.length, 1); assert.equal(without.nativeDescription().graphContent.includes(activityProfile.id), false);
+});
+
+test('actual native SDK parses and digests every public composition graph and its Profile links', { skip: !sdk }, async () => {
+  const actualCatalog = JSON.parse(await readFile(new URL('./performance-resources.json', import.meta.url), 'utf8'));
+  const bridge = createPerformanceResourceHttp({ catalog: actualCatalog, activityProfile, publicOrigin: 'https://game.example',
+    nativeScope: { graphIri: 'urn:graph:hallowmarch:performance-support', resourceNamespace: 'urn:hallowmarch:resource:' } });
+  const composition = bridge.nativeComposition();
+  for (const graph of [composition.root, ...composition.parts, bridge.nativeDescription()]) {
+    const parsed = sdk.parseTrig(graph.graphContent); assert.ok(parsed.subjects.length);
+    assert.ok(sdk.canonicalGraphDigest(graph.graphContent));
+  }
+  const part = composition.parts.at(-1), parsed = sdk.parseTrig(part.graphContent);
+  assert.ok(parsed.subjects.some(s => s.subject === part.graphIri));
+  const version = parsed.subjects.find(s => s.subject === activityProfile.versions[0].id);
+  assert.deepEqual(version.properties.get('http://purl.org/dc/terms/conformsTo'), [{ kind: 'iri', iri: activityProfile.conformsTo }]);
+});
 
 test('human and agent views resolve the same content and revision without recording learning', async t => {
   const { get, post } = await fixture(t);

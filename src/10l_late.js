@@ -622,6 +622,7 @@ function late2HeraldBounty() {
 function late2BountyKill(e, b) {
   if (!e.l2risen || e.camp !== b.camp || b.done) return;
   b.have = b.need; b.done = true;
+  activityRecord('bounty.completed', e.mobType || e.role || 'risen-bounty', 1, { success: true });
   uiToast('Bounty complete. Return to the herald.', 'quest'); sfx('fanfare');
 }
 // a soldier, a guard or a townsman of your realm you pass hails you by the name you wear, now and then

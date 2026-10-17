@@ -37,20 +37,21 @@ class Store {
 }
 async function setup(t, existingStore = null, options = {}) {
   let at = Date.parse('2026-10-16T12:00:00Z'), ownerReads = 0, agentReads = 0;
+  const selectedBody = options.entityId || 'alice';
   const store = existingStore || new Store(), messages = [], alice = { acct: { id: 'alice' }, room: { name: 'march' }, peer: 'first-owner-page', ws: { readyState: 1 }, native: true };
   const bob = { acct: { id: 'bob' }, room: alice.room, peer: 'bob-page', ws: { readyState: 1 }, native: true };
   const transport = createMainWorldAgentTransport({ now: () => at,
     principalFor: c => c.native && c.ws.readyState === 1 ? binding(c.acct.id).subjectDid : null,
     send: (client, message) => messages.push({ client, message }) });
   const frame = (c = alice, options = {}) => transport.frame(c, { paused: false,
-    bodies: [{ id: c.acct.id, x: 1, y: 0, z: 2, hp: 100, maxHp: 100, allowed: true }],
+    bodies: [{ id: c === alice ? selectedBody : c.acct.id, x: 1, y: 0, z: 2, hp: 100, maxHp: 100, allowed: true }],
     targets: [{ id: '42', name: 'A real main-world foe', x: 1, y: 0, z: 3, hp: 40, maxHp: 40 }], ...options });
   frame();
   const accounts = { bindingForAccount: id => ['alice', 'bob'].includes(id) ? binding(id) : null };
   const owner = id => ({ accountId: id, binding: binding(id) });
   let transform = x => x, ownerReadHook = null;
   const grant = () => transform({ schema: 'interego.gaming.owner-agent-grant/v1', id: grantId, issuer: binding('alice').subjectDid,
-    actor, applicationId, audience: 'https://game.example', roomId: 'march', entityId: 'alice', role: 'teammate',
+    actor, applicationId, audience: 'https://game.example', roomId: 'march', entityId: selectedBody, role: 'teammate',
     actions: ['observe', 'move', 'attack'], maxCommandsPerSecond: 20, revoked: false,
     notBefore: '2026-10-16T11:59:59.000Z', expiresAt: '2026-10-16T12:30:00.000Z' });
   const authority = await createMainWorldAgents({ store, accounts, applicationId, audience: 'https://game.example', nativeCore: core,
@@ -72,7 +73,7 @@ async function setup(t, existingStore = null, options = {}) {
   };
   const session = async () => { await register(); const p = await prepare(); return { ...(await authority.complete(p.body)), key: p.key }; };
   const command = (session, sequence = 1, override = {}) => {
-    const command = { type: 'move', roomId: 'march', entityId: 'alice', commandId: session.sessionId + ':move-1', dx: 1, dz: 0, durationMs: 200, ...override };
+    const command = { type: 'move', roomId: 'march', entityId: selectedBody, commandId: session.sessionId + ':move-1', dx: 1, dz: 0, durationMs: 200, ...override };
     const request = { sequence, at, method: 'POST', path: WORLD_AGENT_PATHS.command, action: command.type,
       roomId: command.roomId, entityId: command.entityId, body: { command } };
     return { sessionId: session.sessionId, sequence, at, command,
@@ -104,6 +105,20 @@ test('signed input reaches only the live owner page, with zero command-plane nat
   assert.equal(f.transport.result(f.bob, { requestId: sent.message.requestId, ok: true }), false);
   const result = await f.settle(task); assert.equal(result.execution, 'owner-page-input-applied'); assert.deepEqual(f.reads(), before);
   await assert.rejects(f.authority.command(f.command(s)), { code: 'agent_sequence_rejected' });
+});
+test('actual native proof binds the separate companion and cannot substitute the human or another owner body', async t => {
+  const entityId = 'alice:companion:2fd428f0-d768-4ec7-9c52-f6c4e1cadce0';
+  const f = await setup(t, null, { entityId }), s = await f.session();
+  assert.equal(f.transport.view('alice', 'march', 'alice'), null);
+  const result = await f.settle(f.authority.command(f.command(s)));
+  assert.equal(result.execution, 'owner-page-input-applied');
+  assert.equal(f.messages.findLast(row => row.message.op === 'command').message.command.entityId, entityId);
+  await assert.rejects(f.authority.command(f.command(s, 2, { entityId: 'alice' })));
+  await assert.rejects(f.authority.command(f.command(s, 3, { entityId: entityId.replace('alice:', 'bob:') })));
+  assert.equal(f.messages.filter(row => row.message.op === 'command').length, 1);
+  await f.authority.revoke(f.owner('alice'), { grantId });
+  await assert.rejects(f.authority.command(f.command(s, 4, { commandId: s.sessionId + ':after-revoke' })));
+  assert.equal(f.messages.filter(row => row.message.op === 'command').length, 1);
 });
 test('teleports, wrong bodies/rooms, forged signatures and private loot mutations are refused', async t => {
   const f = await setup(t), s = await f.session();
@@ -217,6 +232,8 @@ test('concurrent native completions both wait for a real confirmed permission re
 });
 test('main-world discovery advertises existing-body input and owner reference reads', () => {
   const d = mainWorldAgentAffordances({ publicOrigin: 'https://game.example', applicationId, enabled: true });
+  assert.deepEqual(d.bodySelection.options, ['separate-owned-party-unit', 'owned-animal']);
+  assert.match(d.agentClient.scope, /human character remains player-controlled/);
   assert.equal(d.scope, 'main-world'); assert.equal(d['@id'], 'https://game.example/world/native-agents');
   assert(d.operations.some(o => o['hydra:method'] === 'GET' && o['hydra:target'].endsWith('/owner')));
   assert(!JSON.stringify(d).includes('/gaming/native-agent/')); assert.equal(d.migrationBoundaries.mainWorldServerAuthority, false);

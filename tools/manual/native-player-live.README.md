@@ -5,6 +5,35 @@ test and is not invoked by a package script or workflow. Without
 `HM_NATIVE_LIVE_TEST=1` it exits before importing Playwright or contacting a host.
 Editing or testing this runner does not launch a live test.
 
+The actual 3D party proof is selected with `HM_NATIVE_MAIN_WORLD_LIVE_TEST=1`
+and the existing `HM_NATIVE_COMPANION_AGENT_DID` and
+`HM_NATIVE_COMPANION_AGENT_POD_URL` public signing scope. It creates one separate
+companion through Players, confirms its native character save, and grants that
+companion UUID. Eight distinct bounded native inputs run while a real browser W
+key is held. The proof requires separate human and companion pose changes,
+ordinary elapsed game/wall time, and the companion projection at a second
+authenticated socket. It also checks Pause, scoped negatives, renewal, both
+revocations and persistence after an actual reload. This is a QA controller;
+it does not prove an independently hosted LLM is connected.
+
+Optional observed human coaching runs only after that main-world proof:
+`HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST=1` additionally requires
+`HM_NATIVE_QA_EPISODE_FILE=/absolute/new-episode.jsonl`. Its parent directory must
+already exist. The runner exclusively creates and fsyncs this secret-free
+episode ledger before importing a browser or creating an identity. Every
+existing or unreadable episode is refused. Main-world completion and coaching
+delivery intent are separate append-only markers; completion of the world proof
+cannot clear an unknown coaching delivery. Same-process retained retries keep
+the original helper and never click Enable again after an uncertain result.
+The ledger contains only the synthetic run label, public origins, fixed stage
+names and times. It contains no identity, credentials, keys or private records.
+
+`HM_NATIVE_COACH_FOLLOWUP_LIVE_TEST=1` additionally selects the helper's bounded
+ongoing-coaching proof: one Enable session, actual elapsed waiting, one genuine
+ability input and an automatically triggered second plan before Stop. It never
+changes a game clock, fabricates an activity event, presses Ask, or enables a
+second session. Omit this flag for the one-plan/private-readback/Stop proof.
+
 ## Prerequisites
 
 1. Deploy the Hallowmarch owner-browser persistence slice. The HTTPS game origin

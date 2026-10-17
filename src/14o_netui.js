@@ -151,8 +151,13 @@ function netSheetRender() {
   }
   // your party
   const mates = netPartyPeers();
+  const companion = typeof partyCompanionMember === 'function' && partyCompanionMember();
+  if (companion) {
+    body.appendChild(el('h3', '', 'Your companion'));
+    body.appendChild(el('p', 'net-quiet', `${P.name} · your character. ${companion.name} · party companion · ${companion.entity.alive ? Math.round(companion.entity.hp / companion.entity.maxHp * 100) + '% health' : 'down'}. Its party role and agent connection are below.`));
+  }
   if (NET.party) {
-    body.appendChild(el('h3', '', `Your party (${mates.length + 1} of ${NET.partyMax})`));
+    body.appendChild(el('h3', '', `Players in your party (${mates.length + 1} of ${NET.partyMax})`));
     const row = el('div', 'net-row'); row.appendChild(el('span', 'net-nm', mates.length ? mates.map((R) => R.slow.dn).join(', ') : 'Only you, for now.')); const acts = el('span', 'net-acts'); acts.appendChild(btn('Party chat', 'say', '', '')); acts.lastChild.dataset.ch = 'p'; acts.appendChild(btn('Leave', 'leave', '')); row.appendChild(acts); body.appendChild(row);
   }
   // everyone here
@@ -312,7 +317,8 @@ function netSheetBadge() {
   const n = netPeopleCount();
   const worldPaused = typeof NETWS !== 'undefined' && !!NETWS.worldPauseReason;
   const coI = typeof coInvited === 'function' && coInvited(); // [companies] the company is there with nobody else in the March; an invitation to one
-  b.hidden = !worldPaused && (!netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted())));
+  const aiAvailable = !!window.__HM_GAMING?.mainWorldAgents?.enabled;
+  b.hidden = !worldPaused && !aiAvailable && (!netOn() || (n === 0 && !NET.party && !NET.invites.length && !(typeof coWanted === 'function' && coWanted())));
   const t = worldPaused || NET.invites.length || coI ? '!' : n ? String(n) : '';
   const s = b.querySelector('.net-n');
   if (s && s.textContent !== t) s.textContent = t;
@@ -329,13 +335,22 @@ function netUiFrame() {
   const pp = $('netparty');
   if (pp && (UI.frame & 3) === 0) {
     const mates = netPartyPeers();
-    if (!mates.length) { if (!pp.hidden) pp.hidden = true; }
+    const companion = typeof partyCompanionMember === 'function' && partyCompanionMember();
+    if (!mates.length && !companion) { if (!pp.hidden) pp.hidden = true; }
     else {
-      const key = mates.map((R) => `${R.peer}:${R.slow.dn}:${R.slow.l}:${R.fast ? Math.round(R.fast.h * 40) + ':' + R.fast.d : '-'}:${R.ghost && P.target === R.ghost.id ? 1 : 0}`).join('|');
+      const key = mates.map((R) => `${R.peer}:${R.slow.dn}:${R.slow.l}:${R.fast ? Math.round(R.fast.h * 40) + ':' + R.fast.d : '-'}:${R.ghost && P.target === R.ghost.id ? 1 : 0}:${R.slow.pc?.n}:${R.fast?.pc?.h}:${R.fast?.pc?.d}`).join('|')
+        + (companion ? `|ai:${companion.name}:${companion.entity.level}:${Math.round(companion.entity.hp / companion.entity.maxHp * 40)}:${companion.entity.alive}:${MAIN_WORLD_AGENTS.companionPaused}` : '');
       if (pp._k !== key) {
         pp._k = key;
         pp.textContent = '';
         const h = document.createElement('div'); h.className = 'net-ph'; h.textContent = 'Party'; pp.appendChild(h);
+        const companionRow = (name, level, health, down, paused = false) => {
+          const row = document.createElement('div'); row.className = 'net-pm' + (down ? ' dead' : '');
+          const nm = document.createElement('span'); nm.className = 'net-pn'; nm.textContent = name + ' · AI'; row.appendChild(nm);
+          const lv = document.createElement('span'); lv.className = 'net-pl'; lv.textContent = down ? 'down' : paused ? 'paused' : `Lv ${level}`; row.appendChild(lv);
+          const bar = document.createElement('i'); bar.className = 'net-hb'; const fill = document.createElement('b'); fill.style.width = `${Math.round(health * 100)}%`; bar.appendChild(fill); row.appendChild(bar); pp.appendChild(row);
+        };
+        if (companion) companionRow(companion.name, companion.entity.level, companion.entity.hp / companion.entity.maxHp, !companion.entity.alive, MAIN_WORLD_AGENTS.companionPaused);
         for (const R of mates) {
           const row = document.createElement('div');
           row.className = 'net-pm' + (R.ghost && P.target === R.ghost.id ? ' sel' : '') + (R.fast && R.fast.d ? ' dead' : '');
@@ -344,6 +359,7 @@ function netUiFrame() {
           const lv = document.createElement('span'); lv.className = 'net-pl'; lv.textContent = R.fast && R.fast.d ? 'fallen' : `Lv ${R.slow.l}`; row.appendChild(lv);
           const bar = document.createElement('i'); bar.className = 'net-hb'; const fill = document.createElement('b'); fill.style.width = `${Math.round((R.fast ? R.fast.h : 1) * 100)}%`; bar.appendChild(fill); row.appendChild(bar);
           pp.appendChild(row);
+          if (R.slow.pc && R.fast?.pc?.id === R.slow.pc.id) companionRow(R.slow.pc.n, R.slow.pc.l, R.fast.pc.h, !!R.fast.pc.d);
         }
       }
       if (pp.hidden) { pp.hidden = false; try { HUDL.k = 0; } catch (e) { /* not up yet */ } }

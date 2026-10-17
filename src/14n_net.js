@@ -38,7 +38,7 @@ const netNum = (v, lo, hi, d = 0) => (typeof v === 'number' && Number.isFinite(v
 const netStr = (s, n) => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufffb]/g, '').trim().slice(0, n) : '');
 const netR2 = (v) => Math.round(v * 100) / 100, netR3 = (v) => Math.round(v * 1000) / 1000;
 const netOn = () => NET.state === 'on' && !!NET.link && (typeof NET.link.connected !== 'function' || NET.link.connected());
-const netPeerOf = (e) => (e && e.role === 'remote' ? e.netPeer : '');
+const netPeerOf = (e) => (e && e.role === 'remote' && !e.netCompanion ? e.netPeer : '');
 const netGhost = (peer) => { const R = NET.peers.get(peer); return R && R.ghost && !R.ghost.removed ? R.ghost : null; };
 function netNote(s) { if (NET.log.length > 60) NET.log.shift(); NET.log.push([Math.round(performance.now()), s]); }
 
@@ -128,6 +128,13 @@ function netRecFor(peer) {
 function netPeerUpdate(peer, info) {
   if (!peer || peer === NET.self) return;
   const R = netRecFor(peer);
+  if (R.by && info.by && R.by !== info.by) {
+    netCompanionDrop(R);
+    // An owner change must not rebuild a companion from the previous owner's
+    // retained profile/pose when this packet supplies only one new channel.
+    if (R.slow) R.slow = { ...R.slow, pc: null };
+    if (R.fast) R.fast = { ...R.fast, pc: null };
+  }
   R.by = info.by || R.by; R.kind = info.kind || R.kind; R.seenAt = performance.now();
   if (info.srv) R.srv = true;
   if (info.slow !== undefined && info.slow !== R.slowRef) { R.slowRef = info.slow; R.slow = netSlowRead(info.slow); NET.stats.slowRecv++; NET.stats.downBytes += netSize(info.slow); }
@@ -152,10 +159,11 @@ function netPeerEvents(peer, evs) {
   for (const ev of evs.slice(-NET.cfg.ringMax - 4)) if (Array.isArray(ev) && ev.length >= 3 && Number.isFinite(ev[0]) && typeof ev[1] === 'string' && ev[0] > R.lastEv) { R.lastEv = ev[0]; NET.inbox.push([peer, ev]); }
   if (netOn() && NET.link.kind === 'ws' && GAME.started && GAME.player) netInbox(true);
 }
-function netPeerFastGone(peer) { const R = NET.peers.get(peer); if (R) { R.fast = null; R.buf.length = 0; } }
+function netPeerFastGone(peer) { const R = NET.peers.get(peer); if (R) { R.fast = null; R.buf.length = 0; netCompanionDrop(R); } }
 function netPeerLeft(peer) {
   const R = NET.peers.get(peer);
   if (!R) return;
+  netCompanionDrop(R);
   if (R.ghost) netGhostDrop(R);
   NET.peers.delete(peer);
   if (R.slow && R.slow.on && R.slow.n) uiLog(`${R.slow.dn || R.slow.n} has left the March.`, 'sys', R.slow.r);
@@ -178,6 +186,7 @@ function netSlowRead(o) {
   const wx = netWxRead(o.wx); if (wx) s.wx = wx; // retain the host's validated weather snapshot
   // [companies] a member's company (stamped by the March's server only: a page in the shared room cannot claim one)
   if (NET.link && NET.link.kind === 'ws' && Array.isArray(o.co) && o.co.length === 4 && netStr(o.co[0], 24)) s.co = [netStr(o.co[0], 24), Math.round(netNum(o.co[1], 0, 9)), Math.round(netNum(o.co[2], 0, 4)), Math.round(netNum(o.co[3], 0, 4))];
+  s.pc = netCompanionRead(o.pc, false);
   return s;
 }
 function netFastRead(o) {
@@ -187,7 +196,45 @@ function netFastRead(o) {
   if (Array.isArray(o.sw) && o.sw.length === 2) { f.sk = netNum(o.sw[0], 0, 1); f.sa = netNum(o.sw[1], 0, 2); }
   if (Array.isArray(o.cs) && o.cs.length === 2 && ABILITIES[o.cs[0]]) f.cs = [o.cs[0], netNum(o.cs[1], 0, 1)];
   if (Array.isArray(o.ev)) f.ev = o.ev.filter((e) => Array.isArray(e) && e.length >= 3 && Number.isFinite(e[0]) && typeof e[1] === 'string').slice(-NET.cfg.ringMax - 4);
+  f.pc = netCompanionRead(o.pc, true);
   return f;
+}
+// One public party body per human. The peer is its owner; this is neither a
+// second player identity nor an authority frame or a private character save.
+function netCompanionRead(o, fast) {
+  if (!o || typeof o !== 'object' || Array.isArray(o) || typeof o.id !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(o.id)) return null;
+  if (!fast) {
+    if (!Object.hasOwn(CLASSES, o.c) || !Number.isInteger(o.l) || o.l < 1 || o.l > LEVEL_CAP) return null;
+    const n = netStr(o.n, 40); if (!n) return null;
+    const profile = { id: o.id, n, c: o.c, l: o.l };
+    if (Array.isArray(o.lk) && o.lk.length === 15) profile.lk = netSlowRead({ lk: o.lk }).lk;
+    return profile;
+  }
+  if (!Array.isArray(o.p) || o.p.length !== 3 || !o.p.every(v => Number.isFinite(v) && Math.abs(v) <= 4000)
+    || !Number.isFinite(o.y) || Math.abs(o.y) > 50 || !Number.isFinite(o.a) || o.a < 0 || o.a >= 64
+    || !Number.isFinite(o.h) || o.h < 0 || o.h > 1 || !Number.isFinite(o.m) || o.m < 1 || o.m > 1e6
+    || ![0, 1].includes(o.d)) return null;
+  return { id: o.id, x: o.p[0], y: o.p[1], z: o.p[2], yaw: o.y, a: o.a, h: o.h, m: o.m, d: o.d,
+    vx: 0, vz: 0, ph: 0, sk: 0, sa: 0, st: 0, fl: 0, cs: null, tg: '' };
+}
+function netCompanionDrop(R) {
+  if (R.companion) netGhostDrop(R.companion);
+  R.companion = null;
+}
+function netCompanionSync(R) {
+  const s = R.slow?.pc, f = R.fast?.pc, P = GAME.player;
+  if (!GAME.started || !R.slow?.on || !s || !f || s.id !== f.id
+    || P && dist2(f.x, f.z, P.x, P.z) >= NET.cfg.ghostR * NET.cfg.ghostR && !(R.slow.pt && R.slow.pt === NET.party)) {
+    netCompanionDrop(R); return;
+  }
+  if (R.companion?.id !== s.id) netCompanionDrop(R);
+  const C = R.companion || (R.companion = { id: s.id, peer: R.peer, ghost: null, buf: [], off: Infinity, offT: 0, lastFS: -1 });
+  C.slow = { n: s.n, dn: s.n + ' · AI companion', c: s.c, l: s.l, r: R.slow.r, lk: s.lk };
+  C.fast = { ...f, s: R.fast.s, t: R.fast.t };
+  if (C.lastFS !== R.fast.s) { C.lastFS = R.fast.s; netBufPush(C, C.fast); }
+  if (!C.ghost || C.ghost.removed) { netGhostMake(C); C.ghost.netCompanion = s.id; }
+  netGhostLook(C);
 }
 // one snapshot more in a remote body's buffer, with the sender's clock: the offset to ours is the least seen (the
 // quickest delivery), creeping up slowly when deliveries slow down for good
@@ -246,7 +293,7 @@ function netGhostLook(R) {
 }
 // each step, from updateNPCs: where the body was a moment ago on its own page, a little ahead when the news is late
 function netRemoteStep(e, dt) {
-  const R = NET.peers.get(e.netPeer);
+  const owner = NET.peers.get(e.netPeer), R = e.netCompanion ? owner?.companion : owner;
   if (!R || !R.fast || !R.buf.length) { e.prevX = e.x; e.prevZ = e.z; updateAnim(e, dt); return; }
   const now = performance.now(), b = R.buf, rt = now - R.off - NET.cfg.delay;
   let x, y, z, yaw, a, ph, sk, sa, st;
@@ -304,6 +351,14 @@ function netSlowObj() {
     if (P.mount) o.hz = [...P.mount.coat.map(netR3), ...P.mount.cloth.map(netR3), P.mount.crowd || '', P.mount.crowd ? P.mount.visCode || 0 : 0];
     o.wr = [P.wet || 0, P.snow || 0, P.dirt || 0, P.blood || 0, P.batter || 0].map((v) => Math.round(clamp(v, 0, 1) * 20) / 20);
     if (NET.party) { o.pt = NET.party; o.pl = NET.partyLead ? 1 : 0; }
+    const companion = typeof partyCompanionBodies === 'function' && partyCompanionBodies()[0];
+    if (companion) {
+      const e = companion.entity, look = e.look;
+      o.pc = { id: companion.id.slice(companion.id.lastIndexOf(':') + 1), n: netStr(companion.name, 40), c: e.cls, l: e.level,
+        lk: [...look.tabard.map(netR3), ...look.armor.map(netR3), netR3(look.skin), netR3(look.hair),
+          look.mask & ~(WB.torch | WB.beater | WB.hammer), look.flags || 0, netR3(look.scale || 1), look.outfit ?? 0,
+          look.emblem ?? 3, look.fem ? 1 : 0, netR3(look.bulk || 0)] };
+    }
   }
   if (NET.isHost || netKeepsMine()) o.w = netWorldObj(); // [net] the shard's host, or a region's keeper (its keeps)
   if (NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
@@ -331,6 +386,13 @@ function netFastObj(now) {
   if (P.casting && P.casting.id !== 'summon' && ABILITIES[P.casting.id]) o.cs = [P.casting.id, netR2(clamp(P.casting.t / P.casting.total, 0, 1))];
   const t = getEnt(P.target);
   if (t && t.role === 'remote') o.tg = t.netPeer;
+  const companion = typeof partyCompanionBodies === 'function' && partyCompanionBodies()[0];
+  if (companion) {
+    const e = companion.entity;
+    o.pc = { id: companion.id.slice(companion.id.lastIndexOf(':') + 1), p: [netR2(e.x), netR2(e.y), netR2(e.z)],
+      y: netR3(((e.yaw % TAU) + TAU) % TAU), a: netR3(animActValue(e)), h: netR3(clamp(e.hp / e.maxHp, 0, 1)),
+      m: Math.round(e.maxHp), d: e.alive ? 0 : 1 };
+  }
   return o;
 }
 // the ring of moments: each read once by its number; kept a few seconds, so a page that hears every few updates still has them
@@ -394,7 +456,7 @@ function netSendFast(now) {
     : now - x.t <= x.k);
   while (NET.out.length > NET.cfg.ringMax) NET.out.shift();
   const o = netFastObj(now);
-  const key = JSON.stringify([o.p, o.y, o.v, o.a, o.h, o.m, o.d, o.mo, o.ph, o.sw, o.st, o.cs, o.fl, o.tg, NET.evSeq]);
+  const key = JSON.stringify([o.p, o.y, o.v, o.a, o.h, o.m, o.d, o.mo, o.ph, o.sw, o.st, o.cs, o.fl, o.tg, o.pc, NET.evSeq]);
   if (key !== NET.fastKey) {
     NET.fastKey = key;
     o.s = ++NET.seq;
@@ -439,6 +501,7 @@ function netWorldKeep(now) {
 function netGhosts() {
   const P = GAME.player;
   for (const R of NET.peers.values()) {
+    netCompanionSync(R);
     const want = R.slow && R.slow.on && R.fast && GAME.started && (!P || dist2(R.fast.x, R.fast.z, P.x, P.z) < NET.cfg.ghostR * NET.cfg.ghostR || (R.slow.pt && R.slow.pt === NET.party));
     if (want && !R.ghost) netGhostMake(R);
     else if (!want && R.ghost) netGhostDrop(R);
@@ -452,7 +515,7 @@ function netGhosts() {
 // own bodies leave it alone: each page's war is its own (isEnemy, 07_entities.js)
 function netIsEnemy(a, b) {
   const P = GAME.player;
-  if (!P) return false;
+  if (!P || a.netCompanion || b.netCompanion) return false;
   if (a.role === 'remote' && b.role === 'remote') return false;
   const me = a.role === 'remote' ? b : a, o = a.role === 'remote' ? a : b;
   if (me !== P && !(me.tame && me.tame.owner === 'player')) return false;
@@ -466,7 +529,7 @@ function netIsEnemy(a, b) {
 // drives what follows on your own side (momentum, the hit's flash and sound)
 function netOutHit(src, dst, amount, opts) {
   const P = GAME.player;
-  if (!src || !P || !(src === P || (src.tame && src.tame.owner === 'player')) || !dst.alive || !netOn()) return 0;
+  if (!src || !P || dst.netCompanion || !(src === P || (src.tame && src.tame.owner === 'player')) || !dst.alive || !netOn()) return 0;
   const est = amount * (1 - (opts.pierce === true ? 0 : dst.drBase * (1 - (+opts.pierce || 0))));
   netEvent('hit', dst.netPeer, { a: Math.round(amount * 10) / 10, c: opts.crit ? 1 : 0, k: typeof opts.kind === 'string' ? opts.kind.slice(0, 12) : 'melee', pi: opts.pierce === true ? 1 : +opts.pierce || 0, dt: opts.dot ? 1 : 0, ab: typeof opts.ability === 'string' ? opts.ability.slice(0, 16) : '', ar: typeof opts.arrow === 'string' ? opts.arrow.slice(0, 10) : '', el: opts.elem === 'fire' ? 'fire' : '', pet: src !== P ? 1 : 0 });
   NET.stats.hitsOut++;
@@ -478,7 +541,7 @@ function netOutHit(src, dst, amount, opts) {
 function netOutBuff(e, kind, value, dur, src, extra) {
   const P = GAME.player;
   const fake = { kind, value, until: GAME.t + dur, src, tick: GAME.t };
-  if (!P || src !== P.id || !netOn()) return fake;
+  if (!P || e.netCompanion || src !== P.id || !netOn()) return fake;
   if (!NET_BUFFS[kind]) return fake;
   netEvent('buf', e.netPeer, [kind, netR3(+value || 0), netR2(+dur || 0)]);
   NET.stats.buffsOut++;
@@ -486,7 +549,7 @@ function netOutBuff(e, kind, value, dur, src, extra) {
 }
 function netOutHeal(src, dst, amount) {
   const P = GAME.player;
-  if (!P || src !== P || !netOn() || !(amount > 0) || dst.faction !== P.faction) return 0;
+  if (!P || dst.netCompanion || src !== P || !netOn() || !(amount > 0) || dst.faction !== P.faction) return 0;
   netEvent('heal', dst.netPeer, Math.round(amount));
   return Math.min(amount, dst.maxHp - dst.hp);
 }

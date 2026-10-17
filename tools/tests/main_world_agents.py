@@ -9,14 +9,17 @@ from playwright.async_api import async_playwright
 
 HOOK = r"""
 window.__mainAgentFixture = {
+  renderParty(){UI.frame=0;netUiOn();netUiFrame();return document.querySelector('#netparty')?.textContent||'';},
   bind(){
     NETWS.state='on'; NETWS.acct={id:'fixture-owner'}; NETWS.worldRoom='march'; NETWS.generation=1;
     NATIVE_PLAYER.status={verified:true,binding:{subjectDid:'did:example:fixture-owner'}};
     MAIN_WORLD_AGENTS.lastGeneration=1;
     netWsSend=value=>{window.__fixturePackets.push(structuredClone(value));return true};
-    MAIN_WORLD_AGENTS.paused=false; MAIN_WORLD_AGENTS.allowed.add('fixture-owner');
-    MAIN_WORLD_AGENTS.records.set('fixture-grant',{reference:{grantId:'fixture-grant'},registered:true,grant:{roomId:'march',entityId:'fixture-owner',
-      role:'teammate',actions:['observe','move','attack'],expiresAt:new Date(Date.now()+600000).toISOString(),revoked:false}});
+    const companion=partyCompanionCreate('Test teammate'); const body=partyCompanionBodies()[0];
+    window.__fixtureCompanion=companion;window.__fixtureBodyId=body.id;
+    MAIN_WORLD_AGENTS.paused=false;MAIN_WORLD_AGENTS.companionPaused=false; MAIN_WORLD_AGENTS.allowed.add(body.id);
+    MAIN_WORLD_AGENTS.records.set('fixture-grant',{reference:{grantId:'fixture-grant'},registered:true,grant:{roomId:'march',entityId:body.id,
+      actor:'did:web:identity.example:agents:test-companion',role:'teammate',actions:['observe','move','attack'],expiresAt:new Date(Date.now()+600000).toISOString(),revoked:false}});
   }
 }; window.__fixturePackets=[];
 window.__mainAgentFixture.focusCheck=()=>{
@@ -51,7 +54,10 @@ async def main():
             await page.locator('#name-input').fill('Main game regression')
             await page.locator('#btn-begin').click()
             await page.wait_for_function('window.__hm.GAME.started && window.__hm.GAME.player',timeout=30000)
-            await page.get_by_role('button',name='Skip the prologue',exact=True).click(timeout=30000)
+            # Freeze rendered frames for this controller regression; subsequent movement
+            # uses the real simulation step with its ordinary collision/combat code.
+            await page.evaluate('window.__holdFrame=true')
+            await page.get_by_role('button',name='Skip the prologue',exact=True).click(timeout=60000)
             await page.wait_for_function("window.__hm.UI.modal !== 'prologue'",timeout=10000)
             assert await page.locator('#gaming-menu-open').count()==0
             assert await page.locator('#gaming-mobile-open').count()==0
@@ -61,24 +67,31 @@ async def main():
               const H=__hm,P=H.GAME.player; window.__holdFrame=true; H.UI.modal=null;
               for(const id of ['prologue','menu','dialog']){const e=document.getElementById(id);if(e)e.hidden=true}
               __mainAgentFixture.bind();
-              const before={x:P.x,y:P.y,z:P.z};
+              const C=window.__fixtureCompanion,body=window.__fixtureBodyId;
+              const before={x:C.x,y:C.y,z:C.z},humanBefore={x:P.x,z:P.z};
               H.worldAgents.message({op:'command',requestId:'fixture-input',grantId:'fixture-grant',expiresAt:Date.now()+1500,
-                command:{type:'move',entityId:'fixture-owner',roomId:'march',dx:1,dz:0,durationMs:500}});
-              H.simulate(.05);
-              const distance=Math.hypot(P.x-before.x,P.z-before.z);
+                command:{type:'move',entityId:body,roomId:'march',dx:1,dz:0,durationMs:500}});
+              H.INPUT.keys.add('KeyW');H.simulate(.05);H.INPUT.keys.clear();
+              const distance=Math.hypot(C.x-before.x,C.z-before.z);
+              const humanDistance=Math.hypot(P.x-humanBefore.x,P.z-humanBefore.z);
               const input=window.__fixturePackets.find(p=>p.requestId==='fixture-input');
-              H.INPUT.keys.add('KeyS');H.simulate(.05);H.INPUT.keys.clear();
-              const humanOverride=H.worldAgents.state.intent===null;
-              H.worldAgents.message({op:'command',requestId:'fixture-input-2',grantId:'fixture-grant',expiresAt:Date.now()+1500,
-                command:{type:'move',entityId:'fixture-owner',roomId:'march',dx:0,dz:1,durationMs:500}});
+              const simultaneous=H.worldAgents.state.intent?.entity===C;
+              H.worldAgents.message({op:'command',requestId:'fixture-possession',grantId:'fixture-grant',expiresAt:Date.now()+1500,
+                command:{type:'move',entityId:'fixture-owner',roomId:'march',dx:1,dz:0,durationMs:500}});
+              const possessionRefused=window.__fixturePackets.find(p=>p.requestId==='fixture-possession')?.ok===false;
               H.worldAgents.pause(); const paused=H.worldAgents.state.intent===null;
-              return {distance,y:P.y,inputApplied:input?.ok===true,humanOverride,paused,errors:H.errors.slice()};
+              const roster=__mainAgentFixture.renderParty();
+              const save=H.fn.buildSave(); const savedId=save.char.x.partyCompanion.id;
+              return {distance,humanDistance,y:C.y,inputApplied:input?.ok===true,simultaneous,possessionRefused,paused,
+                separate:C!==P&&C.role==='companion',stableBody:body.endsWith(savedId),roster,errors:H.errors.slice()};
             }""")
             assert result['inputApplied'],result
             assert 0 < result['distance'] < 2,result
-            assert result['humanOverride'] and result['paused'],result
+            assert result['humanDistance'] > 0 and result['simultaneous'] and result['paused'],result
+            assert result['separate'] and result['possessionRefused'] and result['stableBody'],result
+            assert 'Test teammate' in result['roster'],result
             assert not result['errors'] and not errors,{'engine':result['errors'],'browser':errors}
-            print('PASS native input uses real movement/ground physics; human input and pause immediately override it',flush=True)
+            print('PASS separate companion uses real movement beside human; possession refused and pause stops companion',flush=True)
             focus=await page.evaluate('__mainAgentFixture.focusCheck()')
             assert focus['same'] and focus['focused'],focus
             print('PASS access polling preserves the current revoke button and keyboard focus',flush=True)

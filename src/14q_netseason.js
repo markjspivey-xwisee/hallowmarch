@@ -122,12 +122,19 @@ function netsWorldMap(ctx, S) {
   ctx.restore();
 }
 // a line on the war panel (10_ui.js updateWarPanel)
+function netsConnectionText() {
+  if (typeof NETWS === 'undefined' || !NETWS.url) return 'You are playing alone: this March is yours, and its war runs only while you play. Open the March from its server to join the season.';
+  if (NETWS.state === 'on') return NETWS.season ? 'Waiting for the server’s latest season update.' : 'This server keeps no season.';
+  if (NETWS.state === 'opening') return 'Connecting to the March’s server… Shared season updates are unavailable until connected.';
+  if (NETWS.link && !NETWS.closed && !NETWS.reload) return 'Connection to the March’s server interrupted. Reconnecting…';
+  return 'The March’s server cannot be reached. Shared season updates are unavailable.';
+}
 function netSeasonHudHTML() {
   if (typeof NETWS !== 'undefined' && NETWS.worldPauseReason) return `<div class="ns-line ns-off" role="status">${esc(NETWS.worldPauseReason)}</div>`;
-  // the server's state shown plainly: linked (the season's line), reconnecting, or not reached (playing alone)
+  // A disconnected server session is not an independently chosen solo game.
   if (typeof NETWS !== 'undefined' && NETWS.url && !netsOn()) {
     if (NETWS.state === 'on') return '';
-    return NETWS.stats.opens && (NETWS.stats.drops || NETWS.link) ? '<div class="ns-line ns-off">The March\'s server: reconnecting…</div>' : '<div class="ns-line ns-off">Playing alone: the March\'s server cannot be reached</div>';
+    return `<div class="ns-line ns-off" role="status">${esc(netsConnectionText())}</div>`;
   }
   if (!netsOn()) return '';
   const s = NETS.s, P = GAME.player, ro = NETS.roster;
@@ -194,7 +201,7 @@ queueMicrotask(netsWrapLoops);
 function netsChronSeason() {
   const P = GAME.player;
   if (!netsOn() || !P) {
-    return `<h2>The season</h2><p class="lead">On the March's own server the three realms live on day and night: their stores fill and empty, their works are built, their armies march and lay siege by the numbers while nobody is there, and a season lasts weeks. Players of a realm come and go when they can, bring what they gathered, vote for the realm's works and its targets, and fight its battles when they meet.</p><p>${typeof NETWS !== 'undefined' && NETWS.state === 'on' ? 'This server keeps no season.' : 'You are playing alone: this March is yours, and its war runs only while you play. Open the March from its server to join the season.'}</p>`;
+    return `<h2>The season</h2><p class="lead">On the March's own server the three realms live on day and night: their stores fill and empty, their works are built, their armies march and lay siege by the numbers while nobody is there, and a season lasts weeks. Players of a realm come and go when they can, bring what they gathered, vote for the realm's works and its targets, and fight its battles when they meet.</p><p role="status">${esc(typeof NETWS !== 'undefined' && NETWS.worldPauseReason || netsConnectionText())}</p>`;
   }
   const s = NETS.s, r = P.faction, R = REALMS[r], ro = NETS.roster;
   const goodsRow = (o) => Object.entries(o).map(([g, n]) => `${fmtInt(n)} ${g}`).join(', ');

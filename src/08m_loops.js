@@ -1029,6 +1029,7 @@ function loopsDeliver(g, K = null) {
   addRP(pay.rp); addGold(pay.gold);
   LOOPS.you.units += units; LOOPS.you.n++; LOOPS.you.rp += pay.rp; LOOPS.you.gold += pay.gold;
   LOOPS.stats.delivered += units; LOOPS.stats.deliveries++;
+  activityRecord('supply.delivered', g, units, { success: true });
   // the campaign remembers who fed the war
   if (typeof CAMPAIGN !== 'undefined' && CAMPAIGN.state === 'war') { LOOPS.renownAcc = (LOOPS.renownAcc || 0) + units; const pts = Math.floor(LOOPS.renownAcc / LT.renownPer); if (pts > 0) { LOOPS.renownAcc -= pts * LT.renownPer; CAMPAIGN.renown[r] += pts; } }
   uiLog(`You give ${Math.round(units)} ${LOOPS_LABEL[g]} to ${K ? K.site.name + "'s" : possessive(REALMS[r].name)} stores: ${fmtInt(pay.rp)} realm points and ${fmtInt(pay.gold)} gold.`, 'rp');

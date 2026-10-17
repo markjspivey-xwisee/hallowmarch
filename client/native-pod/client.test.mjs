@@ -5,6 +5,8 @@ import { createHash, webcrypto } from 'node:crypto';
 globalThis.self = globalThis; // The browser bundle uses the browser CSPRNG port.
 const { createNativePodClient } = await import('./client.mjs');
 const { createOwnerPerformanceConsultation } = await import('./performance-consultation.mjs');
+const { createOwnerGameplayActivityArchive } = await import('./gameplay-activity-archive.mjs');
+const { createGameplayActivityProfile } = await import('./gameplay-activity.mjs');
 const { RelayMcpTransport } = await import('./vendor/interego-browser.mjs');
 const IEP = 'https://markjspivey-xwisee.github.io/interego/ns/iep#';
 const tools = ['get_pod_status', 'get_current_head', 'get_descriptor', 'get_encrypted_graph', 'register_agent', 'publish_context'];
@@ -120,6 +122,42 @@ test('consultation rollover and native history readback retain client encryption
   const publications = f.calls.filter(call => call.name === 'publish_context');
   assert(publications.every(call => call.args.sealed_payload === true && call.args.visibility === 'private'));
   assert(publications.every(call => !JSON.stringify(call.args).includes('Encrypted private observation') && !JSON.stringify(call.args).includes('Private desired result')));
+});
+test('gameplay pages reuse the existing owner key, encrypt through the actual SDK and reconcile without another publication', async () => {
+  const f = fixture(), storage = keys(), bootstrap = f.client('alice', storage);
+  await bootstrap.connect(); const key = await bootstrap.createKey(); // Synthetic fixture enrollment only.
+  const ownerDid = 'did:web:identity.example:users:alice', podUrl = 'https://pod.example/alice/';
+  const registrations = f.calls.filter(call => call.name === 'register_agent').length;
+  const profile = createGameplayActivityProfile({ ownerDid, characterId: 'private-gameplay-character',
+    sessionId: 'a737ee30-f554-4fd9-a180-c82ef02af95e', uuid: () => webcrypto.randomUUID(), now: () => Date.parse('2026-10-17T15:30:00.000Z') });
+  for (const type of ['resource.gathered', 'craft.completed']) profile.record({ type,
+    body: { id: 'private-gameplay-character', kind: 'character' }, actor: { kind: 'unattributed' },
+    object: { id: 'private-gameplay-outcome-' + type, kind: 'resource' }, result: { success: true, quantity: 4 }, context: { party: false } });
+  const createArchive = () => createOwnerGameplayActivityArchive({ binding: { subjectDid: ownerDid, podUrl },
+    crypto: webcrypto, createClient: args => {
+      assert.equal(args.ownerDid, ownerDid); assert.equal(args.podUrl, podUrl);
+      return f.client('alice', storage);
+    } });
+  const archive = createArchive(); await archive.connect();
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, registrations, 'Existing recipient registration is read back without replacement');
+  const page = profile.nextArchivePage(), saved = await archive.appendPage(page);
+  assert.equal(saved.saved, true); const opened = await archive.readPage(saved.reference);
+  assert.deepEqual(opened.record.events, page.events); assert.equal(opened.record.ownerDid, ownerDid);
+  const publications = f.calls.filter(call => call.name === 'publish_context'); assert.equal(publications.length, 1);
+  const args = publications[0].args;
+  assert.equal(args.sealed_payload, true); assert.equal(args.visibility, 'private'); assert.equal(args.sign_authorship, true);
+  assert.equal(args.auto_supersede_prior, false); assert(!Object.hasOwn(args, 'if_match'));
+  for (const plaintext of ['private-gameplay-character', 'private-gameplay-outcome', 'resource.gathered', 'craft.completed', page.events[0].id]) {
+    assert(!JSON.stringify(args).includes(plaintext), 'The publication arguments contain only sealed gameplay content');
+  }
+  const envelope = JSON.parse(args.graph_content); assert.equal(envelope.wrappedKeys.length, 1);
+  assert.equal(envelope.wrappedKeys[0].recipientPublicKey, key.publicKey);
+  archive.close(); const reopened = createArchive(); await reopened.connect();
+  assert.deepEqual(await reopened.appendPage(page), saved); assert.deepEqual((await reopened.readPage(saved.reference)).record.events, page.events);
+  assert.equal(f.calls.filter(call => call.name === 'publish_context').length, 1, 'Fresh-instance exact reconciliation does not publish a duplicate page');
+  assert.equal(f.calls.filter(call => call.name === 'register_agent').length, registrations); assert.equal(f.maps.alice.heads.size, 1);
+  profile.archiveConfirmed(page, saved.reference); assert.equal(profile.snapshot().history.archivedEvents, 2);
+  assert.equal(profile.snapshot().history.pendingEvents, 0); reopened.close(); bootstrap.close();
 });
 test('ciphertext tampering and two-owner key isolation fail closed', async () => {
   const f = fixture(), alice = f.client('alice'), bob = f.client('bob');

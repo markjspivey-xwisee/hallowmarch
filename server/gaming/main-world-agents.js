@@ -6,6 +6,7 @@ import { createProgressiveOwnedState } from './progressive-owned-state.js';
 import { createNativeAgentProofAdapter } from './native-agent-proof.js';
 import { NativeAgentAuthorityError } from './native-agent-authority.js';
 import { nativeAgentAffordances } from './native-agent-http.js';
+import { GAMEPLAY_ACTIVITY_PROFILE, GAMEPLAY_ACTIVITY_PROFILE_VERSION, GAMEPLAY_MILESTONES, GAMEPLAY_INTERVENTIONS } from '../../client/native-pod/gameplay-activity.mjs';
 
 export const WORLD_AGENT_PATHS = Object.freeze(Object.fromEntries(
   ['register', 'challenge', 'complete', 'renew', 'command', 'observe', 'revoke'].map(op => [op, '/world/native-agent/' + op])));
@@ -25,18 +26,33 @@ export function mainWorldAgentAffordances(options) {
   doc.scope = 'main-world';
   doc.performanceSupport = {
     resourcesDescriptor: new URL('/gaming/resources/descriptor.ttl', doc.audience).href,
+    activityProfile: new URL('/gaming/activity-profile.jsonld', doc.audience).href,
+    activityProfileCanonical: GAMEPLAY_ACTIVITY_PROFILE,
+    activityProfileVersion: GAMEPLAY_ACTIVITY_PROFILE_VERSION,
+    activityModule: new URL('/gaming/identity/assets/gameplay-activity.mjs', doc.audience).href,
+    activityArchiveModule: new URL('/gaming/identity/assets/gameplay-activity-archive.mjs', doc.audience).href,
     consultingDescriptor: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance',
     methodologyCatalog: 'https://foxxi-bridge.interego.xwisee.com/performance/methods',
     agentSessionModule: new URL('/gaming/identity/assets/agent-own-session.mjs', doc.audience).href,
     agentSessionGuide: 'https://github.com/markjspivey-xwisee/hallowmarch/blob/main/client/native-pod/agent-own-session.README.md',
     subjectPolicy: 'Consult using the performer’s own authenticated Interego identity and pod with task-scoped consent. A game control grant does not authorize personal consultation or access to the player’s journal.',
     observationPolicy: 'Only the granted body’s public observation is available to a game agent. Label it owner-page observation; it is not a verified combat, learning or competency outcome.',
+    activity: { storage: 'encrypted-observing-owner-pod', source: 'owner-browser-observation', actor: 'authenticated-observing-owner',
+      controllerIdentity: 'context-only', competencyStatus: 'not-assessed', lrsConformanceClaim: false,
+      scope: 'Observed gameplay, game milestone counts and support attempts. A control grant does not create an independent agent performance record or authorize private history access.' },
+    milestoneCatalog: { scope: 'observed-game-progress', milestones: copy(GAMEPLAY_MILESTONES), interventions: copy(GAMEPLAY_INTERVENTIONS),
+      evidencePolicy: 'Game progress and started support do not establish learning, mastery or an intervention effect.' },
   };
   doc.agentClient = { module: doc.audience + '/world/agent-client.mjs', export: 'createWorldAgentClient',
     runtime: 'WebCrypto Ed25519 and fetch; Node 22+ or same-origin trusted browser host',
     nativeSigning: 'Caller-supplied sign_request({payload}) returns only the native signed envelope; never a human bearer.',
     integrationGuide: 'https://github.com/markjspivey-xwisee/hallowmarch/blob/main/docs/main-world-agent-client.md', testedProviders: [],
-    scope: 'Existing owner-selected character or animal companion; no independent avatar or offline owner-page execution.' };
+    scope: 'Owner-selected separate AI party unit or owned animal. The human character remains player-controlled. The owner page must remain connected and active.' };
+  doc.bodySelection = { default: 'separate-owned-party-unit',
+    options: ['separate-owned-party-unit', 'owned-animal'],
+    selection: 'Players → Your AI party member; Connect an AI agent · advanced host setup',
+    humanPriority: 'The human keeps their own character. Human input, pause, focus and revocation retain priority over native control.',
+    execution: 'Ordinary owner-page game physics and combat; no independent avatar or offline owner-page execution.' };
   doc.inputs = { move: { dx: 'world-space direction -1..1', dz: 'world-space direction -1..1', durationMs: '50..500; human input takes priority' },
     attack: { targetId: 'visible hostile entity from the current owner-page observation' }, claimLoot: 'unavailable; private inventory stays owner-controlled' };
   doc.execution = 'The live owner page applies ordinary collision, speed, targeting and combat rules. Replies distinguish accepted input from completed execution. Offline, paused or stale pages refuse control.';

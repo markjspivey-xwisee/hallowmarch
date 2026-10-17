@@ -4,6 +4,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// These room namespaces are reserved for the explicit manual QA runners. Room
+// provenance is server metadata; a player's display name never classifies it.
+export function seasonRoomPolicy(want) {
+  const diagnostic = typeof want === 'string' && /^\s*(?:native-qa(?:-|$)|native-companion-qa(?:-|$))/i.test(want);
+  const valid = typeof want === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(want);
+  if (diagnostic && (!valid || !/^(?:native-qa-|native-companion-qa-)[a-z0-9][a-z0-9_-]*$/.test(want))) return null;
+  return { base: valid ? want : 'march', diagnostic };
+}
+
 const FNS = ['realmSimInit', 'realmSimStep', 'realmSimContribute', 'realmSimOrder', 'realmSimSummary', 'realmSimSanitize'];
 export function loadRealmModule(srcDir, hereDir) {
   for (const f of [path.join(srcDir, '08m_realm.js'), path.join(hereDir, 'realm_stub.js')]) {

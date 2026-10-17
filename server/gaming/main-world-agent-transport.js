@@ -15,10 +15,14 @@ export function createMainWorldAgentTransport({ principalFor, send, now = Date.n
     if (!owner || !c.acct?.id || !c.room?.name || !input || !Array.isArray(input.bodies) || input.bodies.length > 17) return false;
     // The namespace is derived from the authenticated account, not supplied by
     // a frame. A pet reference cannot claim another player's body.
-    const bodies = [];
+    const bodies = []; let partyCompanions = 0;
     for (const item of input.bodies) {
+      const companionPrefix = c.acct.id + ':companion:';
+      const companion = typeof item?.id === 'string' && item.id.startsWith(companionPrefix)
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(item.id.slice(companionPrefix.length));
       if (!item || typeof item.id !== 'string' || (item.id !== c.acct.id
-        && !(item.id.startsWith(c.acct.id + ':animal:') && /^[0-9]{1,9}$/.test(item.id.slice((c.acct.id + ':animal:').length))))) return false;
+        && !companion && !(item.id.startsWith(c.acct.id + ':animal:') && /^[0-9]{1,9}$/.test(item.id.slice((c.acct.id + ':animal:').length))))) return false;
+      if (companion && ++partyCompanions > 1) return false;
       if (![item.x, item.y, item.z].every(v => finite(v, -4000, 4000)) || !finite(item.hp, 0, 1e7)
         || !finite(item.maxHp, 1, 1e7) || typeof item.allowed !== 'boolean') return false;
       if (bodies.some(b => b.id === item.id)) return false;

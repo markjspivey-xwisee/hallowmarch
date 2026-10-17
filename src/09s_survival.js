@@ -482,6 +482,7 @@ function forageTake(p) {
   if (Math.random() < sk / 120) n++;
   if (K.knife && goodsHave('tool_knife')) n++;
   const got = goodsAdd(K.good, n, true);
+  if (got > 0) activityRecord('resource.gathered', K.good, got, { success: true });
   if (got) uiLog(`You pick ${got} ${goodName(K.good, got).toLowerCase()} from the ${K.name}.`, 'loot');
   // a feather caught in the brambles, a seed or two in the nettles
   if (p.k === 'bush' && Math.random() < 0.18) { goodsAdd('feather', 1, true); uiLog('A feather caught in the twigs comes away too.', 'loot'); }
@@ -811,6 +812,7 @@ function stepFishing(dt) {
   } else if (F.phase === 'reel' && F.t >= 0.9) {
     const C = F.catch;
     const got = goodsAdd('fish_raw', C.n, true);
+    if (got > 0) activityRecord('resource.gathered', 'fish_raw', got, { success: true });
     uiLog(`You catch ${/^[aeiou]/.test(C.name) ? 'an' : 'a'} ${C.name} of ${C.kg} kg${got ? `: ${got} raw fish` : ''}.`, 'loot');
     uiFloatAt(P.x, P.y + 2.2, P.z, `${capFirst(C.name)} · ${C.kg} kg`, 'xp');
     skillGain('fish', 0.8 + Math.min(1.5, C.kg / 3));
@@ -1246,7 +1248,7 @@ registerSavePart('world', 'forage', {
 function natSplitGoods(t) {
   const axe = goodsHave('tool_axe');
   const got = [];
-  const give = (id, n) => { const k = goodsAdd(id, n, true); if (k) got.push(`${k} ${goodName(id, k).toLowerCase()}`); };
+  const give = (id, n) => { const k = goodsAdd(id, n, true); if (k) { got.push(`${k} ${goodName(id, k).toLowerCase()}`); activityRecord('resource.gathered', id, k, { success: true }); } };
   give('firewood', 2 + (axe ? 1 : 0) + (t.kind === 'oak' ? 1 : 0));
   give('log', 1);
   give('stick', 2);

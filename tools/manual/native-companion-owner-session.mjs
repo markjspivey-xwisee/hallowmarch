@@ -127,9 +127,11 @@ export async function installNativeCompanionOwnerQaSession(config, suppliedModul
       socket.addEventListener('error', () => { clearTimeout(timer); reject(failure('qa_companion_socket_closed')); }, { once: true });
     });
     const response = wait('welcome');
-    socket.send(JSON.stringify({ t: 'hello', v: 1, token: appToken(), room: 'native-companion-qa-' + run.slice(-24) }));
+    const room = 'native-companion-qa-' + run.slice(-12).toLowerCase();
+    socket.send(JSON.stringify({ t: 'hello', v: 1, token: appToken(), room }));
     const joined = await response;
     check(joined.acct?.id === owner.accountId && joined.acct?.nativeBound === true, 'qa_companion_owner_binding');
+    check(joined.room === room, 'qa_companion_room_binding');
     socket.send(JSON.stringify({ t: 'slow', d: { r: 0, on: 1, n: 'QA Companion ' + run.slice(-8), dn: 'QA Companion ' + run.slice(-8),
       c: 'warrior', l: 1, rr: 0, pt: '' } }));
   }
