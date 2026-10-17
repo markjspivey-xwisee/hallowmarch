@@ -48,7 +48,7 @@ function credential(value, now) {
 export function createAgentOwnSession({ walletAddress, signMessage, nativeSignInWithWallet,
   humanBinding, relayUrl, identityOrigin, redirectUri,
   createTransport = (relay, grant) => new RelayMcpTransport(relay, grant, globalThis.fetch.bind(globalThis)),
-  crypto = globalThis.crypto, now = Date.now } = {}) {
+  crypto = globalThis.crypto, now = Date.now, fetch: nativeFetch = globalThis.fetch?.bind(globalThis) } = {}) {
   if (typeof walletAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)
     || typeof signMessage !== 'function' || typeof nativeSignInWithWallet !== 'function' || typeof createTransport !== 'function'
     || typeof now !== 'function' || typeof humanBinding?.subjectDid !== 'string') throw new TypeError('A separate host-held agent wallet, native sign-in function and verified player binding are required.');
@@ -63,7 +63,7 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
     || redirect.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(redirect.hostname))) fail('invalid_agent_host', 'Use the native host’s HTTPS or loopback OAuth callback.');
   const binding = Object.freeze({ subjectDid: ownerDid, authenticatedAgentDid: agentDid,
     podUrl: new URL('/' + userId + '/', playerPod).href });
-  let closed = false, connected = false, epoch = 0, opening = null, tx = null;
+  let closed = false, connected = false, epoch = 0, opening = null, tx = null, nativeCredential = null;
   const children = new Set(), podAliases = new Set([binding.podUrl]);
   function check(selected = epoch) {
     if (closed || selected !== epoch) fail('agent_session_closed', 'The original agent host session is closed.');
@@ -74,7 +74,7 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
   }
   function disconnect() {
     connected = false; epoch++;
-    for (const child of children) child.close(); children.clear(); clearTransport(tx); tx = null;
+    for (const child of children) child.close(); children.clear(); clearTransport(tx); tx = null; nativeCredential = null;
   }
   async function verify(port, selected) {
     let result;
@@ -105,11 +105,12 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
       try {
         const issued = await nativeSignInWithWallet(relay, identity, address, signMessage, redirect.href, AGENT_OWN_SESSION_SURFACE);
         if (closed || selected !== epoch) fail('agent_session_closed', 'The agent host connection closed during sign-in.');
-        native = createTransport(relay, credential(issued, now));
+        const ownCredential = credential(issued, now);
+        native = createTransport(relay, ownCredential);
         if (!native || typeof native.connect !== 'function' || typeof native.callTool !== 'function') throw new TypeError('Native MCP transport required.');
         const capabilities = await native.connect(REQUIRED, 'get_pod_status');
         if (!REQUIRED.every(name => capabilities?.granted?.includes(name))) fail('agent_capability_missing', 'The agent native session lacks identity or signing capabilities.');
-        await verify(native, selected); tx = native; connected = true; return status();
+        await verify(native, selected); tx = native; nativeCredential = ownCredential; connected = true; return status();
       } catch (error) { clearTransport(native); if (error instanceof AgentOwnSessionError) throw error; fail('agent_authentication_failed', 'Native agent sign-in did not complete.'); }
     })();
     opening = run;
@@ -148,12 +149,12 @@ export function createAgentOwnSession({ walletAddress, signMessage, nativeSignIn
     },
     createPodProfile({ keyStorage } = {}) {
       check(); if (!keyStorage || typeof keyStorage.load !== 'function' || typeof keyStorage.create !== 'function') throw new TypeError('The agent host must supply its own durable encryption-key storage.');
-      const profile = createNativePodClient({ relayUrl: relay, ownerDid, podUrl: binding.podUrl, transport: port(), keyStorage, crypto, now });
+      const profile = createNativePodClient({ relayUrl: relay, ownerDid, podUrl: binding.podUrl, credential: nativeCredential, transport: port(), keyStorage, crypto, now, fetch: nativeFetch });
       children.add(profile); return profile;
     },
     createJournal({ sessionId, keyStorage } = {}) {
       check(); if (!keyStorage || typeof keyStorage.load !== 'function' || typeof keyStorage.create !== 'function') throw new TypeError('The agent host must supply its own durable encryption-key storage.');
-      const journal = createOwnerPerformanceConsultation({ binding, relayUrl: relay, sessionId, transport: port(), keyStorage, crypto, now });
+      const journal = createOwnerPerformanceConsultation({ binding, relayUrl: relay, sessionId, checkpoint: 'hallowmarch-performance-consultation/v1', credential: nativeCredential, transport: port(), keyStorage, crypto, now, fetch: nativeFetch });
       children.add(journal); return journal;
     },
     createConsultant({ sessionId, journal } = {}) {

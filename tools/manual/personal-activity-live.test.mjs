@@ -12,7 +12,7 @@ import { createGameplayActivityProfile, gameplayActivityStatement } from '../../
 const owner = { accountId: 'fixture-owner', subjectDid: 'did:example:owner', podUrl: 'https://pods.example/fixture-owner/' };
 const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example';
 const flags = () => Object.fromEntries(['genuineHumanOutcome', 'futureActivityOnly', 'intentConfirmedBeforeDelivery',
-  'exactPrivateCheckpoint', 'verifiedNativeDigest', 'exactPrivateLrsReadback', 'boundedExactConsent', 'sharingStopped', 'noAchievementClaims'].map(key => [key, true]));
+  'exactPrivateCheckpoint', 'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'exactPrivateLrsReadback', 'boundedExactConsent', 'sharingStopped', 'noAchievementClaims'].map(key => [key, true]));
 
 function pageFixture({ unknownKey = false, failedRead = false, failedFence = false } = {}) {
   const events = []; let open = true, elapsed = 0, readFailed = failedRead;
@@ -81,8 +81,10 @@ function readFixture() {
   const contract = { descriptorUrl: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject/affordance',
     write: { action: 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/write-own-subject-xapi-statements-signed', target: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject', method: 'POST' },
     read: { action: 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/read-own-subject-xapi-statements-signed', target: 'https://foxxi-bridge.interego.xwisee.com/agent/xapi-statements/own-subject/read', method: 'POST' } };
-  const head = { cid: 'fixture-cid', descriptorUrl: 'https://pods.example/fixture.ttl' };
-  const opened = { head, digest: 'graph-nquads-sha256:' + 'a'.repeat(64), record: { ownerDid: owner.subjectDid,
+  const digest = 'graph-nquads-sha256:' + 'a'.repeat(64);
+  const head = { cid: 'fixture-cid', bindingCid: 'fixture-cid', descriptorUrl: 'https://pods.example/fixture.ttl',
+    recordCid: digest, nativeRevision: 'fixture-native-revision-1', proofKind: 'owner-key-authenticated-checkpoint' };
+  const opened = { head, digest, proofKind: 'owner-key-authenticated-checkpoint', record: { ownerDid: owner.subjectDid,
     save: { char: { x: { activity: profile.save(), learningDelivery: { schema: 'hallowmarch.gameplay-learning-delivery/v1', ownerDid: owner.subjectDid,
       characterId: owner.accountId, throughOrdinal: event.ordinal, acknowledgedCount: 1, pending: null } } } } } };
   const history = { ownerDid: owner.subjectDid, consents: [{ purpose: 'record-gameplay-activity', recipient: contract.write.target,
@@ -110,8 +112,10 @@ function readFixture() {
   }
   const modules = [{ createBrowserAccessCache: () => ({ get: async () => ({ expiresAt: Date.now() + 3600000,
     credential: { kind: 'relay-oauth-bearer', accessToken: 'PRIVATE-BEARER', refreshToken: null } }), close: async () => {} }) },
-  { createNativePodClient: () => ({ connect: async () => {}, load: async ({ graphIri }) => graphIri === 'urn:index' ? { record: {} } : opened,
-    currentHead: async () => head, close() {} }) },
+  { createNativePodClient: () => ({ connect: async () => {}, load: async ({ graphIri, checkpoint }) => {
+    if (graphIri === 'urn:index') { assert.equal(checkpoint, undefined); return { record: {} }; }
+    assert.equal(checkpoint, 'hallowmarch-character/v1'); return opened;
+  }, currentHead: async ({ checkpoint }) => { assert.equal(checkpoint, 'hallowmarch-character/v1'); return head; }, close() {} }) },
   { playerProfileIndexGraphIri: async () => 'urn:index', validatePlayerProfileIndex: () => 'urn:character' },
   { createOwnerPerformanceConsultation: () => ({ connect: async () => {}, read: async () => history, close() {} }) },
   { gameplayActivityStatement }, { RelayMcpTransport }];
@@ -127,12 +131,24 @@ test('independent reader verifies exact native checkpoint, own consent and actua
   assert.equal(f.calls.filter(name => name === 'act').length, 1);
   assert.deepEqual(f.calls, ['get_pod_status', 'dereference', 'sign_request', 'act']);
 });
+test('a concurrently advanced native character head requests only read polling before any LRS call', async () => {
+  const f = readFixture(); f.opened.head = { ...f.opened.head, cid: 'a-new-owner-save' };
+  const result = await f.read(); assert.deepEqual(Object.keys(result), ['sharingStopped']); assert.equal(result.sharingStopped, false);
+  assert.deepEqual(f.calls, []);
+});
+test('unchanged binding CID cannot hide a changed native revision during readback', async () => {
+  const f = readFixture(); f.opened.head = { ...f.opened.head, nativeRevision: 'a-new-revision-under-same-binding' };
+  const result = await f.read(); assert.equal(result.sharingStopped, false); assert.deepEqual(f.calls, []);
+});
 for (const [label, mutate, flag] of [
   ['another body', f => { f.trace.memo.events[0].body.id = 'other-player'; }, 'genuineHumanOutcome'],
   ['older activity', f => { f.trace.startOrdinal = 1; }, 'futureActivityOnly'],
   ['unconfirmed intent', f => { f.trace.memo.intentConfirmed = false; }, 'intentConfirmedBeforeDelivery'],
   ['pending private marker', f => { f.opened.record.save.char.x.learningDelivery.pending = {}; }, 'exactPrivateCheckpoint'],
   ['unsigned native digest', f => { f.opened.digest = 'not-native'; }, 'verifiedNativeDigest'],
+  ['binding CID without native revision', f => { delete f.opened.head.nativeRevision; }, 'ownerKeyAuthenticatedCheckpoint'],
+  ['wrong record digest under stable binding', f => { f.opened.head.recordCid = 'graph-nquads-sha256:' + 'b'.repeat(64); }, 'verifiedNativeDigest'],
+  ['another proof kind', f => { f.opened.proofKind = 'per-save-published-signature'; }, 'ownerKeyAuthenticatedCheckpoint'],
   ['another LRS statement', f => { f.lrs.object.id = 'urn:other'; }, 'exactPrivateLrsReadback'],
   ['broader consent', f => { f.history.consents[0].expiresAt = new Date(Date.now() + 1800000).toISOString(); }, 'boundedExactConsent'],
   ['not withdrawn', f => { f.history.consents[0].revoked = false; }, 'sharingStopped'],

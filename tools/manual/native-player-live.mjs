@@ -200,18 +200,25 @@ async function verifiedRead(page, expected) {
       ownerDid: status.binding.subjectDid, podUrl: status.binding.podUrl });
     try {
       await client.connect(); await client.registerKey();
-      // load performs actual head lookup, authenticated descriptor verification,
-      // sealed graph retrieval, local decrypt and signed canonical RDF digest check.
+      // The owner index remains an immutable native record. Character state is
+      // owner-key authenticated under its signed native binding; each save is
+      // verified by local record digest and native CAS revision, not a fresh
+      // published descriptor signature.
       const indexGraphIri = await playerProfileIndexGraphIri(status.binding.subjectDid);
       const index = await client.load({ graphIri: indexGraphIri });
       if (!index?.digest) throw new Error('owner-index');
       const graphIri = validatePlayerProfileIndex(index.record, status.binding.subjectDid);
-      const found = await client.load({ graphIri });
-      if (!found?.digest || JSON.stringify(found.record.save) !== JSON.stringify(expected)
+      const checkpoint = 'hallowmarch-character/v1', found = await client.load({ graphIri, checkpoint });
+      const after = await client.currentHead({ graphIri, checkpoint });
+      if (!found?.digest || found.proofKind !== 'owner-key-authenticated-checkpoint' || found.head.proofKind !== found.proofKind
+        || found.head.cid !== found.head.bindingCid || found.head.recordCid !== found.digest
+        || typeof found.head.nativeRevision !== 'string' || !found.head.nativeRevision
+        || JSON.stringify(found.head) !== JSON.stringify(after) || JSON.stringify(found.record.save) !== JSON.stringify(expected)
         || found.record.schema !== 'hallowmarch.player-profile/v1' || found.record.ownerDid !== status.binding.subjectDid
         || found.record.provenance.authority !== 'player-authored' || found.record.provenance.importedProgressIsAuthoritative !== false) throw new Error('readback');
       return { indexGraphIri, indexCid: index.head.cid, indexDigest: index.digest,
-        graphIri: found.graphIri, cid: found.head.cid, digest: found.digest };
+        graphIri: found.graphIri, cid: found.head.cid, bindingCid: found.head.bindingCid,
+        nativeRevision: found.head.nativeRevision, recordCid: found.head.recordCid, proofKind: found.proofKind, digest: found.digest };
     } finally { client.close(); await cache.close(); }
   }, { expected, relayOrigin });
 }
@@ -340,7 +347,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-recover-pause, main-world-revoke, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -364,6 +371,10 @@ function startInput() {
           console.log(JSON.stringify(await retryNativeStartup({ page: fresh, expectedAccountId: owner?.accountId, gameOrigin }))); return;
         }
         if (action === 'main-world-revoke') { if (!mainWorld) throw new Error('Main-world QA is not selected.'); await mainWorld.revoke(); return; }
+        if (action === 'main-world-recover-pause') {
+          ensure(mainWorld, 'qa_world_pause_recovery_refused');
+          console.log(JSON.stringify(await mainWorld.recoverPause())); return;
+        }
         if (action === 'companion-restart-admission') {
           if (mainWorld) { console.log(JSON.stringify(await mainWorld.restartAdmission())); return; }
           if (!companion) throw Object.assign(new Error('Companion QA is not selected.'), { code: 'qa_companion_restart_refused' });

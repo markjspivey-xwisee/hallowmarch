@@ -1,6 +1,9 @@
 /** Owner-side Interego records. No game engine, bearer persistence or server decryption. */
 import { ClientKeyVault, RelayMcpTransport, canonicalGraphDigest, parseTrig,
   turtleIriRef, escapeTurtleLiteral } from './vendor/interego-browser.mjs';
+import { computeCid, parseAuthorshipProofFromDescriptorTurtle } from './vendor/interego-public-browser.mjs';
+import { createNativeResourceClient } from './vendor/interego-native-resource-browser.mjs';
+import { createOwnerCheckpointStore, CHECKPOINT_BINDING_SCHEMA, CHECKPOINT_MAX_BYTES } from './checkpoint.mjs';
 
 const IEP = 'https://markjspivey-xwisee.github.io/interego/ns/iep#';
 const RDF_VALUE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#value';
@@ -70,7 +73,8 @@ export function indexedDbKeyStorage({ indexedDB = globalThis.indexedDB, name = '
 }
 
 export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, transport,
-  keyStorage = indexedDbKeyStorage(), crypto = globalThis.crypto, now = Date.now } = {}) {
+  keyStorage = indexedDbKeyStorage(), crypto = globalThis.crypto, now = Date.now,
+  fetch: nativeFetch = globalThis.fetch?.bind(globalThis), resourceClientFactory = createNativeResourceClient } = {}) {
   const relay = new URL(relayUrl);
   if (relay.protocol !== 'https:' || relay.username || relay.password || relay.search || relay.hash || relay.pathname !== '/') {
     fail('invalid_relay', 'An HTTPS Interego relay origin is required.');
@@ -82,6 +86,7 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
   }
   const tx = transport || new RelayMcpTransport(relay.origin, { ...credential }, globalThis.fetch.bind(globalThis));
   let currentCredential = { ...credential };
+  const authenticatedRoots = [new URL(podUrl)];
   // Scope is stable across browsers and relay sessions so encrypted recovery works.
   const scope = JSON.stringify(['interego-client-key/v1', relay.origin, ownerDid, podName]);
   const vault = new ClientKeyVault(scope, keyStorage, crypto);
@@ -109,6 +114,14 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     }
     sessionAgent = status.sessionAgent?.did;
     if (!sessionAgent) fail('native_contract', 'Interego did not identify the authenticated publishing agent.');
+    const authenticatedPod = new URL(status.pod);
+    if (!authenticatedRoots.some(root => root.href === authenticatedPod.href)) authenticatedRoots.push(authenticatedPod);
+    if (status.css !== undefined) {
+      const css = new URL(status.css);
+      if (css.pathname !== '/' || css.username || css.password || css.search || css.hash || !['http:', 'https:'].includes(css.protocol)) fail('native_contract', 'The authenticated storage alias is invalid.');
+      const root = new URL(podName + '/', css);
+      if (!authenticatedRoots.some(value => value.href === root.href)) authenticatedRoots.push(root);
+    }
     connected = true;
     return { ownerDid, podUrl: status.pod, keyPresent: !!await vault.publicKey(), keyRegistered: false };
   }
@@ -176,17 +189,39 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     if (!result.head?.descriptorUrl || !result.head.cid) fail('native_contract', 'The private record head is unreadable.');
     return { descriptorUrl: result.head.descriptorUrl, cid: result.head.cid };
   }
-  async function readAt(graphIri, selected) {
+  async function readAt(graphIri, selected, strictBinding = false) {
     if (!await vault.publicKey()) fail('key_required', 'Restore this identity’s encryption key before opening its records.');
     const descriptor = await tool('get_descriptor', { url: selected.descriptorUrl });
     if (descriptor.authorship?.authorshipVerified !== true || descriptor.authorship?.descriptorBinding?.bound !== true) {
       fail('invalid_proof', 'The native record descriptor did not verify.');
     }
+    if (strictBinding) {
+      const descriptorUrl = new URL(selected.descriptorUrl);
+      if (descriptorUrl.username || descriptorUrl.password || descriptorUrl.search || descriptorUrl.hash
+        || /[%\\]/.test(descriptorUrl.href) || !authenticatedRoots.some(root => descriptorUrl.origin === root.origin
+          && descriptorUrl.pathname.startsWith(root.pathname) && descriptorUrl.pathname !== root.pathname)) fail('owner_mismatch', 'The checkpoint descriptor is outside the authenticated owner pod.');
+      const proof = parseAuthorshipProofFromDescriptorTurtle(descriptor.turtle || ''), auth = descriptor.authorship;
+      const ownerWebId = ownerDid.startsWith('did:web:') ? 'https://' + ownerDid.slice(8).split(':').map(decodeURIComponent).join('/') + '/profile#me' : null;
+      if (computeCid(descriptor.turtle || '') !== selected.cid || !proof || proof.ownerWebId !== ownerWebId
+        || proof.agentDid !== proof.issuer || !/^did:web:[^\s]+:agents:[^\s]+$/.test(proof.issuer || '')
+        || auth.signatureAuthority !== 'relay'
+        || auth.signedBy !== proof.issuer || !['bound', 'declared'].includes(auth.contentBinding)
+        || !['exact-url', 'slug-and-owner'].includes(auth.descriptorBinding?.basis)) fail('invalid_proof', 'The checkpoint binding is not a verified native relay attestation.');
+    }
     const encrypted = await tool('get_encrypted_graph', { url: selected.descriptorUrl });
     if (encrypted.encrypted !== true || encrypted.url !== selected.descriptorUrl || typeof encrypted.envelope !== 'string') fail('invalid_record', 'A client-sealed native record is required.');
     if (encrypted.envelope.length > 2 * MAX_RECORD_BYTES) fail('record_capacity', 'The encrypted record exceeds its bounded capacity.');
     let plaintext;
-    try { plaintext = await vault.open(JSON.parse(encrypted.envelope)); }
+    try {
+      const envelope = JSON.parse(encrypted.envelope);
+      if (strictBinding) {
+        const key = await vault.publicKey();
+        if (envelope.version !== 1 || envelope.algorithm !== 'X25519-XSalsa20-Poly1305'
+          || envelope.content?.algorithm !== 'XSalsa20-Poly1305' || envelope.wrappedKeys?.length !== 1
+          || envelope.wrappedKeys[0].senderPublicKey !== key || envelope.wrappedKeys[0].recipientPublicKey !== key) fail('invalid_proof', 'The signed binding must use the original owner key only.');
+      }
+      plaintext = await vault.open(envelope);
+    }
     catch { fail('cannot_decrypt', 'This browser could not authenticate the encrypted record. Restore the correct recovery key.'); }
     if (plaintext.length > MAX_RECORD_BYTES + 16384) fail('record_capacity', 'The opened record exceeds its bounded capacity.');
     const digest = canonicalGraphDigest(plaintext);
@@ -197,10 +232,69 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     if (nodes.length !== 1 || nodes[0].subject !== graphIri || singleton(nodes[0], ATTRIBUTED, 'iri') !== ownerDid) fail('owner_mismatch', 'The encrypted record belongs to another owner or graph.');
     const record = JSON.parse(singleton(nodes[0], RDF_VALUE, 'literal'));
     if (record.schema !== SCHEMA || record.owner !== ownerDid || record.graphIri !== graphIri || typeof record.operationId !== 'string') fail('owner_mismatch', 'The private record binding is invalid.');
-    return { graphIri, head: selected, record: jsonRecord(record.record), operationId: record.operationId, digest };
+    const found = { graphIri, head: selected, record: jsonRecord(record.record), operationId: record.operationId, digest };
+    if (strictBinding && found.record.schema !== CHECKPOINT_BINDING_SCHEMA) fail('invalid_proof', 'The native record is not a checkpoint binding.');
+    return found;
   }
-  async function load({ graphIri }) { const selected = await head(graphIri); return selected ? readAt(graphIri, selected) : null; }
+  const checkpoints = createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, now, active,
+    validateRecord: jsonRecord, nativeHead: head, readBinding: readAt,
+    registered() { if (!registered) fail('key_registration_required', 'Register this browser’s public encryption key before saving.'); },
+    resourceClient(resourceUrl) {
+      if (typeof nativeFetch !== 'function') fail('native_unavailable', 'Native private checkpoint access is unavailable.');
+      return resourceClientFactory({ resourceUrl, podUrl, maxBytes: CHECKPOINT_MAX_BYTES, crypto,
+        fetch: async (url, init = {}) => {
+          active();
+          if (url !== resourceUrl || !resourceUrl.startsWith(podUrl)) fail('owner_mismatch', 'The native resource is outside this owner pod.');
+          if (currentCredential.kind !== 'relay-oauth-bearer' || !currentCredential.accessToken
+            || Number.isFinite(currentCredential.expiresAt) && currentCredential.expiresAt <= now()) fail('needs_reauth', 'Reconnect this owner before accessing its private checkpoint.');
+          const headers = new Headers(init.headers); headers.set('Authorization', 'Bearer ' + currentCredential.accessToken);
+          return nativeFetch(url, { ...init, headers, credentials: 'omit', redirect: 'error', cache: 'no-store' });
+        } });
+    },
+    async prepareBinding({ graphIri, record, expectedHead }) {
+      const operationId = crypto.randomUUID();
+      const value = { schema: SCHEMA, owner: ownerDid, graphIri, operationId, record: jsonRecord(record) };
+      const plaintext = `${iri(graphIri)} ${iri(ATTRIBUTED)} ${iri(ownerDid)} ;\n  ${iri(RDF_VALUE)} "${escapeTurtleLiteral(JSON.stringify(value))}" .\n`;
+      const digest = canonicalGraphDigest(plaintext), envelope = await vault.seal(plaintext);
+      const args = { pod_name: podName, graph_iri: graphIri, descriptor_id: 'urn:uuid:' + operationId,
+        graph_content: JSON.stringify(envelope), sealed_payload: true, content_digest: digest,
+        cleartext_mirror: expectedHead ? `${iri(graphIri)} ${iri(IEP + 'supersedes')} ${iri(expectedHead.descriptorUrl)} .` : '',
+        visibility: 'private', sign_authorship: true, auto_supersede_prior: !!expectedHead,
+        ...(expectedHead ? { if_match: expectedHead.cid } : {}), sync: true };
+      return { args, digest, expectedHead: expectedHead || null, record };
+    },
+    async publishBinding(plan) {
+      const args = plan?.args;
+      const planKeys = ['args', 'digest', 'expectedHead', 'record'];
+      const argumentKeys = ['pod_name', 'graph_iri', 'descriptor_id', 'graph_content', 'sealed_payload', 'content_digest',
+        'cleartext_mirror', 'visibility', 'sign_authorship', 'auto_supersede_prior', 'if_match', 'sync'];
+      if (!args || args.pod_name !== podName || args.graph_iri !== plan.record?.graphIri
+        || Object.keys(plan).some(key => !planKeys.includes(key)) || Object.keys(args).some(key => !argumentKeys.includes(key))
+        || args.content_digest !== plan.digest || args.sealed_payload !== true || args.visibility !== 'private'
+        || args.sign_authorship !== true || args.sync !== true || args.auto_supersede_prior !== !!plan.expectedHead
+        || args.if_match !== plan.expectedHead?.cid || !/^urn:uuid:[0-9a-f-]{36}$/i.test(args.descriptor_id || '')) fail('invalid_checkpoint', 'The original binding plan is invalid.');
+      const expectedMirror = plan.expectedHead ? `${iri(args.graph_iri)} ${iri(IEP + 'supersedes')} ${iri(plan.expectedHead.descriptorUrl)} .` : '';
+      if (args.cleartext_mirror !== expectedMirror) fail('invalid_checkpoint', 'The original binding relation changed.');
+      const envelope = JSON.parse(args.graph_content), key = await vault.publicKey();
+      if (envelope.version !== 1 || envelope.algorithm !== 'X25519-XSalsa20-Poly1305'
+        || envelope.content?.algorithm !== 'XSalsa20-Poly1305' || envelope.wrappedKeys?.length !== 1
+        || envelope.wrappedKeys[0].senderPublicKey !== key || envelope.wrappedKeys[0].recipientPublicKey !== key) fail('invalid_checkpoint', 'The binding plan changed recipients.');
+      const plaintext = await vault.open(envelope);
+      if (canonicalGraphDigest(plaintext) !== plan.digest) fail('invalid_checkpoint', 'The original binding digest changed.');
+      const nodes = parseTrig(plaintext).subjects;
+      if (nodes.length !== 1 || nodes[0].subject !== args.graph_iri || singleton(nodes[0], ATTRIBUTED, 'iri') !== ownerDid) fail('invalid_checkpoint', 'The original binding owner changed.');
+      const value = JSON.parse(singleton(nodes[0], RDF_VALUE, 'literal'));
+      if (value.schema !== SCHEMA || value.owner !== ownerDid || value.graphIri !== args.graph_iri
+        || 'urn:uuid:' + value.operationId !== args.descriptor_id || JSON.stringify(value.record) !== JSON.stringify(plan.record)) fail('invalid_checkpoint', 'The original binding payload changed.');
+      return tool('publish_context', args);
+    },
+  });
+  async function load({ graphIri, checkpoint }) {
+    if (checkpoint) return checkpoints.load(graphIri, checkpoint);
+    const selected = await head(graphIri); return selected ? readAt(graphIri, selected) : null;
+  }
   async function confirm(operationId) {
+    if (checkpoints.hasPending(operationId)) return checkpoints.confirm(operationId);
     active(); const operation = pending.get(operationId);
     if (!operation) fail('unknown_operation', 'This browser has no unconfirmed publication with that operation ID.');
     const current = await head(operation.graphIri);
@@ -256,7 +350,8 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
   return Object.freeze({ connect, load, registerKey, confirm,
     // Metadata can be read before decryption-key recovery. It checks the
     // authenticated owner/pod and refuses forks; no plaintext is returned.
-    currentHead({ graphIri }) { return head(graphIri); },
+    currentHead({ graphIri, checkpoint }) { return checkpoint ? checkpoints.currentHead(graphIri, checkpoint) : head(graphIri); },
+    reconcileCheckpoint({ graphIri, checkpoint }) { return serialized(() => checkpoints.reconcile(graphIri, checkpoint)); },
     async keyStatus() { active(); return { keyPresent: !!await vault.publicKey(), keyRegistered: registered, agentId: recipientId }; },
     async createKey() { active(); await vault.create(); return registerKey(); },
     async exportRecovery(passphrase) { active(); return vault.backup(passphrase); },
@@ -264,12 +359,13 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     // First publication uses a fresh, unguessable graph identity. The relay has
     // no compare-with-absence primitive; never describe this as initial CAS.
     reauthenticate,
-    create({ record }) { const graphIri = 'urn:graph:client-owned:' + crypto.randomUUID(); return serialized(() => publish({ graphIri, record, creating: true })); },
+    create({ record, graphIri = 'urn:graph:client-owned:' + crypto.randomUUID(), checkpoint }) {
+      return serialized(() => checkpoint ? checkpoints.save({ graphIri, record, mode: checkpoint, creating: true }) : publish({ graphIri, record, creating: true })); },
     // Named creation supports owner discovery records. There is NO atomic
     // absence CAS: preflight refuses existing heads, readback refuses forks.
-    createAt({ graphIri, record }) { return serialized(() => publish({ graphIri, record, creating: true })); },
-    save(input) { if (!input?.expectedHead) fail('head_required', 'Updates require the previously read native head.'); return serialized(() => publish(input)); },
-    status() { return { connected: connected && !closed, ownerDid, podUrl, recipientId, pending: pending.size }; },
+    createAt({ graphIri, record, checkpoint }) { return serialized(() => checkpoint ? checkpoints.save({ graphIri, record, mode: checkpoint, creating: true }) : publish({ graphIri, record, creating: true })); },
+    save(input) { if (!input?.expectedHead) fail('head_required', 'Updates require the previously read native head.'); return serialized(() => input.checkpoint ? checkpoints.save({ ...input, mode: input.checkpoint }) : publish(input)); },
+    status() { return { connected: connected && !closed, ownerDid, podUrl, recipientId, pending: pending.size + checkpoints.pendingCount() }; },
     close() { closed = true; connected = false; registered = false; tx.setCredential?.({ kind: 'relay-oauth-bearer', accessToken: '', method: credential?.method || 'webauthn', expiresAt: now(), refreshToken: null, clientId: null }); },
   });
 }

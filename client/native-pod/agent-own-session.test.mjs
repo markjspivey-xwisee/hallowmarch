@@ -33,6 +33,7 @@ function fixture(overrides = {}) {
     kind: 'relay-oauth-bearer', method: 'siwe', accessToken: 'private-native-token', refreshToken: 'private-native-refresh', clientId: 'native-client', expiresAt: clock + 3600000 }; };
   const host = createAgentOwnSession({ walletAddress: address, signMessage, nativeSignInWithWallet, humanBinding: player,
     relayUrl: 'https://relay.example', identityOrigin: 'https://identity.example', redirectUri: 'http://127.0.0.1:43210/callback', now: () => clock,
+    fetch: async (url, init) => { calls.push({ name: 'own-pod-resource-read', url, method: init.method, authenticated: new Headers(init.headers).get('Authorization') === 'Bearer private-native-token' }); return init.method === 'OPTIONS' ? new Response(null, { status: 204, headers: { 'Interego-Native-Commit': '1', 'Accept-Put': 'application/vnd.interego.native-commit+json' } }) : new Response(null, { status: 404 }); },
     createTransport: (relay, credential) => { calls.push({ name: 'transport', relay, credential }); return transport; }, ...overrides });
   return { host, calls, transport, signMessage, setOwner(value) { identity = value; }, setAgent(value) { selectedAgent = value; }, setPod(value) { selectedPod = value; }, setPhase(value) { phase = value; } };
 }
@@ -65,8 +66,10 @@ test('agent-owned private journal opens read-only with host key storage; no wall
   const journal = f.host.createJournal({ sessionId: 'agent-work-1', keyStorage: {
     async load(scope) { loads.push(scope); return null; }, async create() { throw Error('Unexpected key mint'); } } });
   await journal.connect(); assert(loads.length > 0); assert(loads.every(scope => scope.includes(ownerDid) && !scope.includes(player.subjectDid)));
-  assert.equal(journal.status().ownerDid, ownerDid);
+  assert.equal(journal.status().ownerDid, ownerDid); assert.equal(journal.status().checkpoint, 'hallowmarch-performance-consultation/v1');
+  const reads = f.calls.filter(call => call.name === 'own-pod-resource-read'); assert(reads.length > 0); assert(reads.every(call => ['GET', 'OPTIONS'].includes(call.method) && call.authenticated && call.url.startsWith('https://pod.example/' + id + '/hallowmarch/checkpoints/')));
   assert.equal(f.calls.some(c => ['register_agent', 'publish_context', 'act'].includes(c.name)), false);
+  assert(reads.some(call => call.method === 'GET'));
   f.host.close(); await assert.rejects(journal.read());
 });
 test('a brought agent consults as its own performer through the existing journal consent and live Foxxi adapter', async () => {

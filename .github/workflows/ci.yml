@@ -65,6 +65,7 @@ jobs:
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
               node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
+              node --test client/native-pod/checkpoint*.test.mjs
               node --test client/native-pod/gameplay-activity*.test.mjs
               node --test client/native-pod/gameplay-learning-delivery*.test.mjs
               node --test client/world-agent-client.test.mjs client/world-agent-mcp.test.mjs

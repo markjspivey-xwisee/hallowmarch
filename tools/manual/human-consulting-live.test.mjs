@@ -13,7 +13,7 @@ const owner = { accountId: 'owner', subjectDid: 'did:example:owner', podUrl: 'ht
 const descriptor = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance';
 const action = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/contextualize-and-plan-signed';
 const passFlags = () => Object.fromEntries(['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
-  'verifiedNativeDigest', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'].map(key => [key, true]));
+  'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'].map(key => [key, true]));
 
 const followupFlags = () => Object.fromEntries(['realElapsedFollowup', 'changedOutcome', 'automaticFollowup',
   'distinctSituation', 'exactSecondPrivatePlan', 'twoDeliveries'].map(key => [key, true]));
@@ -309,18 +309,21 @@ async function readFixture() {
       expectedObservedResult: f.payload.situation.observed, constraints: f.constraints, observedContext: f.contextObservation } });
   f.elements.set('#march-consulting-result', { dataset: { resultKey: JSON.stringify(response.response) } });
   f.game.consulting.status.enabled = true;
-  const head = { descriptorUrl: owner.podUrl + 'context-graphs/fixture.ttl', cid: 'bafyfixture' }, graphIri = 'urn:graph:interego:performance-consultation:fixture';
+  const digest = 'graph-nquads-sha256:' + 'a'.repeat(64);
+  const head = { descriptorUrl: owner.podUrl + 'context-graphs/fixture.ttl', cid: 'bafyfixture', bindingCid: 'bafyfixture',
+    recordCid: digest, nativeRevision: 'fixture-native-revision-1', proofKind: 'owner-key-authenticated-checkpoint' }, graphIri = 'urn:graph:interego:performance-consultation:fixture';
   const clients = [], tools = []; let mutate = null;
   const modules = [
     { createBrowserAccessCache: () => ({ get: async () => ({ credential: { accessToken: 'PRIVATE-NATIVE-TOKEN', expiresAt: Date.now() + 900000 } }), close: async () => {} }) },
     { createOwnerPerformanceConsultation: options => { const client = options.createClient({}); return { connect: () => client.connect(), read: async () => structuredClone(history), status: () => ({ graphIri }), close() {} }; } },
     { FOXXI_PLANNER_DESCRIPTOR: descriptor, FOXXI_PLANNER_ACTION: action },
-    { createNativePodClient: options => { const client = { connect: async () => {}, currentHead: async () => structuredClone(head),
-      load: async () => { mutate?.(); return { graphIri, head: structuredClone(head), record: structuredClone(history), digest: 'graph-nquads-sha256:' + 'a'.repeat(64), operationId: 'fixture-native-operation' }; }, close() {} };
+    { createNativePodClient: options => { const client = { connect: async () => {}, currentHead: async ({ checkpoint }) => { assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1'); return structuredClone(head); },
+      load: async ({ checkpoint }) => { assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1'); mutate?.(); return { graphIri, head: structuredClone(head), record: structuredClone(history), digest,
+        proofKind: 'owner-key-authenticated-checkpoint', operationId: 'fixture-native-operation' }; }, close() {} };
       clients.push({ client, transport: options.transport }); return client; } },
     { RelayMcpTransport: class { async connect() { return {}; } setCredential() {} async callTool(name) { tools.push(name); return {}; } } },
   ];
-  return { ...f, history, response, clients, tools, modules, mutate(fn) { mutate = fn; },
+  return { ...f, head, history, response, clients, tools, modules, mutate(fn) { mutate = fn; },
     invoke(withdrawn = false, planIndex = 0) { return f.read({ owner, relayOrigin, gameOrigin, withdrawn, planIndex }, modules); } };
 }
 test('independent native readback verifies exact human observation, response, digest and two scoped consents using read-only ports', async () => {
@@ -392,6 +395,9 @@ for (const [name, mutate, flag] of [
   ['different consent session', f => { f.history.consents[0].sessionId = 'other'; }, 'boundedExactConsent'],
   ['achievement claim', f => { f.response.competencyClaims.push({ achieved: true }); }, 'noAchievementClaims'],
   ['missing native intent', f => { f.c.window.__hmNativeHumanConsultingTrace.intentConfirmed = false; }, 'intentConfirmedBeforeDelivery'],
+  ['stable binding CID without revision', f => { delete f.head.nativeRevision; }, 'ownerKeyAuthenticatedCheckpoint'],
+  ['substituted record CID', f => { f.head.recordCid = 'graph-nquads-sha256:' + 'b'.repeat(64); }, 'verifiedNativeDigest'],
+  ['a different proof kind', f => { f.head.proofKind = 'per-save-published-signature'; }, 'ownerKeyAuthenticatedCheckpoint'],
 ]) test('native readback refuses to pass ' + name, async () => { const f = await readFixture(); mutate(f); assert.equal((await f.invoke())[flag], false); });
 test('native scope changing during readback never yields successful verification', async () => {
   const f = await readFixture(); f.mutate(() => { f.game.net.NETWS.generation++; });
@@ -402,6 +408,22 @@ test('changed native head permits only withdrawal read polling; initial plan ver
   f.modules[3].createNativePodClient = () => ({ connect: async () => {}, currentHead: async () => ({ descriptorUrl: 'head-one', cid: 'one' }),
     load: async () => ({ graphIri: 'fixture', head: { descriptorUrl: 'head-two', cid: 'two' }, record: structuredClone(f.history) }), close() {} });
   await assert.rejects(f.invoke(), { code: 'qa_human_readback_changed' });
+  assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke(true))), { sharingStopped: false });
+});
+test('stable binding CID with changed native revision cannot pass independent journal verification', async () => {
+  const f = await readFixture(); let reads = 0;
+  f.modules[3].createNativePodClient = () => ({ connect: async () => {},
+    currentHead: async ({ checkpoint }) => {
+      assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1');
+      return { ...structuredClone(f.head), nativeRevision: ++reads % 2 ? 'fixture-native-revision-1' : 'fixture-native-revision-2' };
+    },
+    load: async ({ checkpoint }) => {
+      assert.equal(checkpoint, 'hallowmarch-performance-consultation/v1');
+      return { graphIri: 'fixture', head: structuredClone(f.head), record: structuredClone(f.history),
+        digest: f.head.recordCid, proofKind: f.head.proofKind, operationId: 'fixture-native-operation' };
+    }, close() {} });
+  await assert.rejects(f.invoke(), { code: 'qa_human_readback_changed' });
+  reads = 0;
   assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke(true))), { sharingStopped: false });
 });
 test('actual Foxxi adapter strict focus mapping agrees with passive helper capture and stable private task', async () => {

@@ -69,3 +69,16 @@ test('native startup retry is a fixed serialized command and remains distinct fr
   release(); await tick(); input.write('retry\n'); await tick(); assert.deepEqual(seen, ['native-startup-retry', 'status', 'retry']);
   input.write('finish\n'); await reader.waitForClose(); input.destroy();
 });
+test('manual pause recovery is a fixed serialized command while status and signing replies remain routable', async () => {
+  const input = new PassThrough(), seen = []; let release, busy = 0, protocol = 0;
+  const reader = createNativeLiveInput({ input,
+    acceptProtocolLine: line => { if (line === 'fixture-signing-reply') { protocol++; return true; } return false; },
+    async onCommand(value) { seen.push(value); if (value === 'main-world-recover-pause') await new Promise(resolve => { release = resolve; }); },
+    onBusy: () => busy++ });
+  input.write('main-world-recover-pause\n'); await tick(); assert.equal(reader.status().commandBusy, true);
+  input.write('continue\nstatus\nfixture-signing-reply\n'); await tick();
+  assert.equal(busy, 1); assert.equal(protocol, 1); assert.deepEqual(seen, ['main-world-recover-pause', 'status']);
+  release(); await tick(); input.write('continue\n'); await tick();
+  assert.deepEqual(seen, ['main-world-recover-pause', 'status', 'continue']);
+  input.write('finish\n'); await reader.waitForClose(); input.destroy();
+});

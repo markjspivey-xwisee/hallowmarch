@@ -110,7 +110,7 @@ test('real client-held encryption, local readback and CAS update over SDK JSON/S
 test('consultation rollover and native history readback retain client encryption for the index and every archive page', async () => {
   const f = fixture(), storage = keys(), bootstrap = f.client('alice', storage); await bootstrap.connect(); await bootstrap.createKey();
   const ownerDid = 'did:web:identity.example:users:alice', podUrl = 'https://pod.example/alice/', taskId = 'urn:uuid:encrypted-journal-task';
-  const journal = createOwnerPerformanceConsultation({ binding: { subjectDid: ownerDid, podUrl }, sessionId: 'encrypted-journal-session',
+  const journal = createOwnerPerformanceConsultation({ binding: { subjectDid: ownerDid, podUrl }, sessionId: 'encrypted-journal-session', applicationId: 'urn:game:legacy-test',
     createClient: () => f.client('alice', storage), crypto: webcrypto });
   await journal.connect(); await journal.grantConsent({ accepted: true, purpose: 'retain-observations', recipient: podUrl, taskId, lifetimeMs: 900000 });
   for (let i = 0; i < 17; i++) await journal.appendObservation({ task: { id: taskId, desiredResult: 'Private desired result', observedResult: 'Encrypted private observation ' + i, workContext: 'Own character in the real March' },

@@ -142,6 +142,20 @@ It accepts these exact commands, with no arbitrary JavaScript or URL arguments:
   retained resident passkey. This cannot register a replacement owner.
 - `companion-restart-admission`: when optional companion QA is selected, reset
   only its expired/uncertain ephemeral admission at the permitted proof stage.
+- `main-world-recover-pause`: only after the main-world owner-revocation phase
+  fails before proving Pause, with exactly eight positively acknowledged inputs
+  and completed movement/peer/scope checks. Resume the original owner through
+  Players, close the panel and wait for a fresh active frame. Renew the retained
+  lease or, only once its proof has expired, re-admit the same agent and grant.
+  Then use the actual Pause button and immediately test a current signed input
+  is refused. The command never replays the eight movement inputs or creates
+  another owner, companion or grant. After successful recovery, `continue`
+  performs the remaining revocation and reload phases. Ordinary `retry` cannot
+  silently recover a failed pause proof; expired sessions do not count as Pause
+  evidence. Recovery itself is serialized, while status and signing replies
+  remain available.
+- `main-world-revoke`: stop the retained game relationship and confirm its pod
+  revocation without replaying movement or treating the episode as complete.
 - `finish`: forget access cache and close the retained browsers.
 
 The same `HM_NATIVE_RETAIN_FAILED_SESSION=1` opt-in also retains a fully
@@ -251,8 +265,11 @@ the browser-close backstop.
   the latest native character head. Only pointer metadata goes to Hallowmarch.
   Pending native character/index acknowledgements are
   confirmed through the profile's retry path, without replaying creation.
-- Loads the native head, verifies authenticated descriptor binding and signed
-  canonical RDF digest, decrypts locally, and compares the exact character body.
+- Opens the explicit `hallowmarch-character/v1` native checkpoint, verifies its
+  authenticated descriptor binding and owner-key canonical RDF digest, decrypts
+  locally, and compares the exact character body. The binding descriptor CID is
+  stable; full head equality also requires the native revision and record CID.
+  Each checkpoint save does not publish a new signed descriptor.
   It reloads the actual game and checks `SAVE.loaded` against that same body and
   both native heads/digests, using the unexpired encrypted access-session cache.
 - After the same-browser reload and exact native-head equality, records a

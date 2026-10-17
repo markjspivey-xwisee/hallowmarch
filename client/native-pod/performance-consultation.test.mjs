@@ -9,34 +9,39 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const scope = (purpose = 'retain-observations', recipient = POD, taskId = TASK) => ({ purpose, recipient, taskId });
 const task = overrides => ({ id: TASK, desiredResult: 'Return safely from the fight', observedResult: 'I lost too much health', workContext: 'Hallowmarch main world', ...overrides });
 function gate() { let enter, release; return { entered: new Promise(r => { enter = r; }), wait: new Promise(r => { release = r; }), enter: () => enter(), release: () => release() }; }
-function fixture({ ownerDid = OWNER, podUrl = POD, sessionId = 'test-session', records = new Map(), keyPresent = true, initialClock = Date.parse('2026-10-16T21:30:00.000Z'), pendingWrite = 0 } = {}) {
+function fixture({ ownerDid = OWNER, podUrl = POD, sessionId = 'test-session', records = new Map(), keyPresent = true, initialClock = Date.parse('2026-10-16T21:30:00.000Z'), pendingWrite = 0, bounded = false, applicationId = bounded ? 'urn:game:hallowmarch' : 'urn:game:legacy-test' } = {}) {
   const calls = [], operations = new Map(); let clock = initialClock, version = 0, writes = 0, registrationGate = null, loadGate = null, archiveGate = null;
-  const stored = (graphIri, record) => ({ status: 'saved', saved: true, graphIri, record: copy(record), head: { cid: 'test-cid-' + ++version,
-    descriptorUrl: podUrl + 'context-graphs/' + version + '.ttl' } });
+  const stored = (graphIri, record, checkpoint) => {
+    const revision = ++version, bindingCid = 'test-binding-cid';
+    return { status: 'saved', saved: true, graphIri, record: copy(record), head: checkpoint
+      ? { cid: bindingCid, bindingCid, descriptorUrl: podUrl + 'context-graphs/binding.ttl', nativeRevision: 'native-revision-' + revision, recordCid: 'record-cid-' + revision, proofKind: 'owner-key-authenticated-checkpoint' }
+      : { cid: 'test-cid-' + revision, descriptorUrl: podUrl + 'context-graphs/' + revision + '.ttl' } };
+  };
   const client = {
     connect: async () => { calls.push({ op: 'connect' }); return { ownerDid, podUrl, keyPresent }; },
-    currentHead: async ({ graphIri }) => { calls.push({ op: 'currentHead', graphIri }); return records.get(graphIri)?.head || null; },
-    load: async ({ graphIri }) => { calls.push({ op: 'load', graphIri }); const found = records.get(graphIri); if (loadGate) { loadGate.enter(); await loadGate.wait; } return found ? copy(found) : null; },
+    currentHead: async ({ graphIri, checkpoint }) => { calls.push({ op: 'currentHead', graphIri, checkpoint }); return records.get(graphIri)?.head || null; },
+    load: async ({ graphIri, checkpoint }) => { calls.push({ op: 'load', graphIri, checkpoint }); const found = records.get(graphIri); if (loadGate) { loadGate.enter(); await loadGate.wait; } return found ? copy(found) : null; },
     registerKey: async () => { calls.push({ op: 'registerKey' }); if (registrationGate) { registrationGate.enter(); await registrationGate.wait; } },
-    createAt: async ({ graphIri, record }) => { assert(!records.has(graphIri), 'named creation may not replace an unread index'); return publish(graphIri, record); },
-    create: async ({ record }) => { const result = publish('urn:graph:test-archive:' + webcrypto.randomUUID(), record);
+    createAt: async ({ graphIri, record, checkpoint }) => { calls.push({ op: 'createAt', graphIri, checkpoint }); assert(!records.has(graphIri), 'named creation may not replace an unread index'); return publish(graphIri, record, checkpoint); },
+    create: async ({ record }) => { calls.push({ op: 'createArchive' }); const result = publish('urn:graph:test-archive:' + webcrypto.randomUUID(), record);
       if (archiveGate) { archiveGate.enter(); await archiveGate.wait; } return result; },
-    save: async ({ graphIri, expectedHead, record }) => {
-      if (expectedHead.cid !== records.get(graphIri)?.head.cid) throw Object.assign(Error('test CAS conflict'), { code: 'conflict' });
-      return publish(graphIri, record);
+    save: async ({ graphIri, expectedHead, record, checkpoint }) => {
+      calls.push({ op: 'save', graphIri, expectedHead: copy(expectedHead), checkpoint });
+      if (JSON.stringify(expectedHead) !== JSON.stringify(records.get(graphIri)?.head)) throw Object.assign(Error('test CAS conflict'), { code: 'conflict' });
+      return publish(graphIri, record, checkpoint);
     },
     confirm: async operationId => { calls.push({ op: 'confirm', operationId }); const result = operations.get(operationId); assert(result); records.set(result.graphIri, result); return copy(result); },
     close: () => { calls.push({ op: 'close' }); },
   };
-  function publish(graphIri, record) {
+  function publish(graphIri, record, checkpoint) {
     writes++; calls.push({ op: 'write', graphIri, record: copy(record) });
-    const result = stored(graphIri, record); records.set(graphIri, result);
+    const result = stored(graphIri, record, checkpoint); records.set(graphIri, result);
     if (writes === pendingWrite) { const operationId = 'test-operation-' + writes; operations.set(operationId, result); return { status: 'uncertain', saved: false, graphIri, operationId }; }
     return copy(result);
   }
   const journal = createOwnerPerformanceConsultation({ binding: { subjectDid: ownerDid, podUrl }, credential: { testOnly: true }, relayUrl: 'https://relay.example/',
-    sessionId, createClient: () => client, crypto: webcrypto, now: () => clock });
-  return { journal, calls, records, clock: () => clock, advance: ms => { clock += ms; }, stored,
+    sessionId, applicationId, createClient: () => client, crypto: webcrypto, now: () => clock });
+  return { journal, client, calls, records, clock: () => clock, advance: ms => { clock += ms; }, stored,
     holdRegistration: value => { registrationGate = value; }, holdLoad: value => { loadGate = value; }, holdArchive: value => { archiveGate = value; },
     evidence: (metrics = { healthPercent: 40, deaths: 2 }) => [{ kind: 'owner-browser-observation', performerDid: ownerDid, at: new Date(clock).toISOString(), metrics }],
     consent: (chosen = scope(), lifetimeMs = 900_000) => journal.grantConsent({ ...chosen, accepted: true, lifetimeMs }),
@@ -328,4 +333,139 @@ test('an existing full 24-observation v1 journal continues into native history w
   const reopened = fixture({ records: f.records }); await reopened.journal.connect();
   await reopened.journal.appendObservation({ task: task({ observedResult: 'Continued after old limit' }), evidence: reopened.evidence() });
   const history = await allHistory(reopened.journal); assert.equal(history.records.observations.size, 25); assert.equal(history.pages, 1);
+});
+
+
+test('Hallowmarch defaults to fixed checkpoint storage and more than 600 consultations mutations create no archive graph', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent();
+  const baseline = await f.journal.appendObservation({ task: task(), evidence: f.evidence() });
+  const plan = await f.journal.appendConsultation({ observationId: baseline.observation.id, service: { action: 'urn:foxxi:plan', target: TARGET }, response: { support: 'An untested route suggestion' } });
+  let previous = { observations: 1, consultations: 1, evaluations: 0 };
+  for (let i = 0; i < 310; i++) {
+    f.advance(1000);
+    const after = await f.journal.appendObservation({ task: task({ observedResult: 'Real bounded attempt ' + i }), evidence: f.evidence({ healthPercent: i % 100, deaths: 2 }) });
+    await f.journal.appendEvaluation({ consultationId: plan.consultation.id, observationId: after.observation.id, playerReport: 'A real comparison without a causal claim.' });
+    const record = await f.journal.read();
+    for (const kind of ['observations', 'consultations', 'evaluations']) {
+      assert(record.coverage.counts[kind] >= previous[kind]); previous[kind] = record.coverage.counts[kind];
+      assert(record[kind].length <= 32); assert.equal(record.coverage.pruned[kind], record.coverage.counts[kind] - record[kind].length);
+    }
+    assert(Buffer.byteLength(JSON.stringify(record)) <= 192 * 1024);
+  }
+  const record = await f.journal.read();
+  assert.deepEqual(record.coverage.counts, { observations: 311, consultations: 1, evaluations: 310 });
+  assert(record.coverage.pruned.observations > 270); assert(record.coverage.pruned.evaluations > 270);
+  assert.equal(record.archiveHead, null); assert.equal(f.records.size, 1); assert.equal(f.writeCount(), 623);
+  assert(!f.calls.some(call => call.op === 'createArchive'));
+  assert(f.calls.filter(call => ['load', 'currentHead', 'createAt', 'save'].includes(call.op)).every(call => call.checkpoint === 'hallowmarch-performance-consultation/v1'));
+  assert(record.evaluations.every(item => item.competencyStatus === 'not-assessed'));
+});
+
+test('bounded detail expires after one hour, keeps cumulative coverage and never revives old plan dependencies', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent();
+  const baseline = await f.journal.appendObservation({ task: task(), evidence: f.evidence() });
+  const plan = await f.journal.appendConsultation({ observationId: baseline.observation.id, service: { action: 'urn:foxxi:plan', target: TARGET }, response: { plan: ['Untested support'] } });
+  f.advance(60 * 60 * 1000);
+  const writes = f.writeCount(), expired = await f.journal.read();
+  assert.equal(f.writeCount(), writes); assert.equal(expired.observations.length, 0); assert.equal(expired.consultations.length, 0);
+  assert.deepEqual(expired.coverage.counts, { observations: 1, consultations: 1, evaluations: 0 });
+  assert.deepEqual(expired.coverage.pruned, { observations: 1, consultations: 1, evaluations: 0 });
+  await assert.rejects(f.journal.authorize(scope()), { code: 'consultation_consent_required' });
+  await f.consent();
+  await assert.rejects(f.journal.appendConsultation({ observationId: baseline.observation.id, service: { action: 'urn:foxxi:plan', target: TARGET }, response: {} }), { code: 'unknown_observation' });
+  f.advance(1);
+  const after = await f.journal.appendObservation({ task: task({ observedResult: 'A new real observation' }), evidence: f.evidence() });
+  await assert.rejects(f.journal.appendEvaluation({ consultationId: plan.consultation.id, observationId: after.observation.id, playerReport: 'No preserved baseline to compare.' }), { code: 'invalid_evaluation' });
+  const current = await f.journal.read(); assert.equal(current.coverage.counts.observations, 2); assert.equal(current.coverage.pruned.observations, 1);
+  assert.equal(current.coverage.legacyHistoryUnknown, false); assert.equal(f.records.size, 1);
+});
+
+test('bounded byte pressure drops whole dependent detail without truncating plans or freezing lifetime use', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent();
+  const baseline = await f.journal.appendObservation({ task: task(), evidence: f.evidence() });
+  const response = { untested: 'A response retained exactly, with no assumed benefit. '.repeat(540) };
+  let latest;
+  for (let i = 0; i < 50; i++) {
+    latest = await f.journal.appendConsultation({ observationId: baseline.observation.id, service: { action: 'urn:foxxi:plan', target: TARGET }, response: { ...response, attempt: i } });
+    assert.deepEqual(latest.consultation.response, { ...response, attempt: i });
+  }
+  const record = await f.journal.read(); assert.equal(record.coverage.counts.consultations, 50); assert(record.consultations.length < 10);
+  assert(record.consultations.some(item => item.id === latest.consultation.id)); assert.equal(record.observations[0].id, baseline.observation.id);
+  assert(Buffer.byteLength(JSON.stringify(record)) <= 192 * 1024); assert.equal(f.records.size, 1);
+});
+
+test('bounded pending original observation stays fenced through aging and never auto-resends or prunes its uncertain operation', async () => {
+  const f = fixture({ bounded: true, pendingWrite: 2 }); await f.journal.connect(); await f.consent();
+  await assert.rejects(f.journal.appendObservation({ task: task(), evidence: f.evidence() }), { code: 'pod_pending' });
+  f.advance(2 * 60 * 60 * 1000);
+  await assert.rejects(f.journal.read(), { code: 'pod_pending' });
+  await assert.rejects(f.journal.authorize(scope()), { code: 'pod_pending' });
+  await assert.rejects(f.journal.appendObservation({ task: task(), evidence: f.evidence() }), { code: 'pod_pending' });
+  assert.equal(f.writeCount(), 2); assert.equal(f.journal.status().pending, true);
+  await f.journal.retry(); assert.equal(f.writeCount(), 2); assert.equal(f.calls.filter(call => call.op === 'confirm').length, 1);
+  const record = await f.journal.read(); assert.equal(record.observations.length, 0); assert.equal(record.coverage.counts.observations, 1); assert.equal(record.coverage.pruned.observations, 1);
+  assert.equal(f.journal.status().pending, false);
+});
+
+test('bounded consent roundtrips, withdrawal and a new session never restore delivery permission', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent(scope('request-consultation', TARGET));
+  const token = await f.journal.authorize(scope('request-consultation', TARGET));
+  const peer = fixture({ bounded: true, records: f.records }); await peer.journal.connect();
+  await peer.journal.assertAuthorized(token); await peer.journal.revokeConsent(scope('request-consultation', TARGET));
+  await assert.rejects(f.journal.assertAuthorized(token), { code: 'consultation_consent_required' });
+  const next = fixture({ bounded: true, records: f.records, sessionId: 'another-native-session' }); await next.journal.connect();
+  await assert.rejects(next.journal.authorize(scope('request-consultation', TARGET)), { code: 'consultation_consent_required' });
+  await next.consent(scope('request-consultation', TARGET));
+  await assert.rejects(f.journal.authorize(scope('request-consultation', TARGET)), { code: 'consultation_consent_required' });
+  assert.equal(f.records.size, 1); assert.equal(next.records.size, 1);
+});
+
+test('bounded migration keeps an existing archive pointer read-only with honest unknown historical counts', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent();
+  const graph = f.journal.status().graphIri, original = f.records.get(graph), legacy = copy(original.record); delete legacy.coverage;
+  const archiveIri = 'urn:graph:legacy-verified-page', archiveRecord = copy(legacy);
+  archiveRecord.observations = [{ id: 'urn:uuid:older-observation', ownerDid: OWNER, performerKind: 'human', at: new Date(f.clock()).toISOString(), task: task(), evidence: f.evidence(), epistemicStatus: 'reported-task-and-client-observation', competencyStatus: 'not-assessed' }];
+  const archived = f.stored(archiveIri, archiveRecord); f.records.set(archiveIri, archived);
+  legacy.archiveHead = { graphIri: archiveIri, ...archived.head }; f.records.set(graph, { ...original, record: legacy });
+  const next = fixture({ bounded: true, records: f.records }); await next.journal.connect();
+  const before = await next.journal.read(); assert.equal(before.coverage.legacyHistoryUnknown, true); assert.equal(before.coverage.counts.observations, 0);
+  await assert.rejects(next.journal.appendConsultation({ observationId: 'urn:uuid:older-observation', service: { action: 'urn:foxxi:plan', target: TARGET }, response: {} }), { code: 'unknown_observation' });
+  await next.journal.appendObservation({ task: task(), evidence: next.evidence() });
+  const current = await next.journal.read(); assert.deepEqual(current.archiveHead, legacy.archiveHead); assert.equal(current.coverage.counts.observations, 1);
+  const writes = next.writeCount(), page = await next.journal.readArchive(); assert.equal(page.record.observations[0].id, 'urn:uuid:older-observation'); assert.equal(next.writeCount(), writes);
+  assert(!next.calls.some(call => call.op === 'createArchive')); assert.equal(next.records.size, 2);
+});
+
+
+test('unconfirmed checkpoint bootstrap is read-fenced and only explicit Retry can reconcile its original binding', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); await f.consent(scope('request-consultation', TARGET));
+  const original = copy(f.records.get(f.journal.status().graphIri));
+  let confirmed = false, reconciliations = 0, confirmations = 0;
+  const ordinaryLoad = f.client.load;
+  f.client.load = async input => { if (!confirmed) throw Object.assign(Error('Original binding is uncertain'), { code: 'checkpoint_binding_pending', operationId: 'original-binding-operation', graphIri: input.graphIri }); return ordinaryLoad(input); };
+  f.client.confirm = async operationId => { assert.equal(operationId, 'original-binding-operation'); confirmations++; return confirmed ? { ...copy(original), saved: true } : { saved: false, status: 'uncertain', operationId, graphIri: original.graphIri, checkpointBinding: true }; };
+  f.client.reconcileCheckpoint = async input => { assert.deepEqual(input, { graphIri: original.graphIri, checkpoint: 'hallowmarch-performance-consultation/v1' }); reconciliations++; confirmed = true; return { ...copy(original), saved: true }; };
+  await assert.rejects(f.journal.read(), { code: 'pod_pending' });
+  await assert.rejects(f.journal.authorize(scope('request-consultation', TARGET)), { code: 'pod_pending' });
+  await assert.rejects(f.journal.revokeConsent(scope('request-consultation', TARGET)), { code: 'pod_pending' });
+  assert.equal(reconciliations, 0); assert.equal(f.writeCount(), 1); assert.equal(f.journal.status().pending, true);
+  await f.journal.retry(); assert.equal(reconciliations, 1); assert.equal(confirmations, 2); assert.equal(f.writeCount(), 1);
+  assert.equal(f.journal.status().pending, false);
+  await assert.rejects(f.journal.authorize(scope('request-consultation', TARGET)), { code: 'consultation_consent_required' });
+  await f.journal.revokeConsent(scope('request-consultation', TARGET));
+  assert.equal(f.writeCount(), 2); assert.equal((await f.journal.read()).consents[0].revoked, true);
+});
+
+
+test('checkpoint receipts separate one stable binding from each dynamic native revision and record digest', async () => {
+  const f = fixture({ bounded: true }); await f.journal.connect(); const grant = await f.consent();
+  const first = await f.journal.appendObservation({ task: task(), evidence: f.evidence() });
+  const second = await f.journal.appendObservation({ task: task({ observedResult: 'A later exact observation' }), evidence: f.evidence() });
+  assert.equal(first.reference.cid, grant.reference.cid); assert.equal(second.reference.cid, first.reference.cid);
+  assert.equal(first.reference.bindingCid, first.reference.cid); assert.equal(second.reference.bindingCid, second.reference.cid);
+  assert.notEqual(second.reference.nativeRevision, first.reference.nativeRevision); assert.notEqual(second.reference.recordCid, first.reference.recordCid);
+  assert.equal(second.reference.proofKind, 'owner-key-authenticated-checkpoint');
+  const writes = f.calls.filter(call => call.op === 'save');
+  assert.equal(writes.at(-1).expectedHead.nativeRevision, first.reference.nativeRevision);
+  assert.equal(writes.at(-1).expectedHead.recordCid, first.reference.recordCid);
 });
