@@ -47,7 +47,10 @@ const [core, solid, pgsl] = await Promise.all(['core', 'solid', 'pgsl'].map(name
 if (typeof core.createSignedDelegationCredential !== 'function' || typeof core.verifySignedAuthorship !== 'function'
   || typeof solid.digestedGraphRegion !== 'function' || typeof solid.parseAuthorshipProofFromDescriptorTurtle !== 'function'
   || typeof solid.wrapAsTriG !== 'function' || typeof pgsl.NativeCommitStore !== 'function'
-  || typeof pgsl.NativeCommitStore.prototype.readHeadRecords !== 'function') {
+  || typeof pgsl.NativeCommitStore.prototype.readHeadRecords !== 'function'
+  || typeof pgsl.NativeCommitStore.prototype.readAtomicCheckpoint !== 'function'
+  || typeof pgsl.NativeCommitStore.prototype.commitAtomicCheckpoint !== 'function'
+  || typeof pgsl.NativeCommitStore.prototype.atomicCheckpointSize !== 'function') {
   throw new Error('Pinned native proof dependencies do not expose the required contracts.');
 }
 console.log('Pinned Interego core/solid/pgsl proof dependencies built and linked: ' + pin.revision);

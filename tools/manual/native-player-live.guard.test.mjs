@@ -41,6 +41,15 @@ test('known debug/tracing flags are refused before a live browser can start', ()
     assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
   }
 });
+test('personal activity opt-in cannot bypass the original native main-world and human coaching episode', () => {
+  const base = { HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example', HM_NATIVE_RELAY_ORIGIN: 'https://relay.example',
+    HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST: '1' };
+  const refused = invoke(base);
+  assert.equal(refused.status, 2); assert.match(refused.stderr, /^FAIL: configuration\./);
+  assert(!refused.stderr.includes('ERR_MODULE_NOT_FOUND'));
+  const inactive = invoke({ ...base, HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST: '0' });
+  assert.equal(inactive.status, 1); assert.match(inactive.stderr, /at load-browser \[stage_failed\]/);
+});
 test('a browser import failure emits only its fixed stage, never the raw module error', () => {
   const result = invoke({ HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_ORIGIN: 'https://game.example',
     HM_NATIVE_RELAY_ORIGIN: 'https://relay.example' });
@@ -67,6 +76,31 @@ test('companion opt-in requires the existing public agent scope before any brows
   assert.equal(selected.stdout, '');
   const inactive = invoke({ ...configured, HM_NATIVE_COMPANION_LIVE_TEST: '0', HM_NATIVE_COMPANION_AGENT_POD_URL: 'invalid' });
   assert.equal(inactive.status, 1); assert.match(inactive.stderr, /load-browser/);
+});
+test('human coaching requires explicit main-world mode and a new exclusive secret-free episode file', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hm-coaching-guard-'));
+  const base = { HM_NATIVE_LIVE_TEST: '1', HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: '1',
+    HM_NATIVE_ORIGIN: 'https://game.example', HM_NATIVE_RELAY_ORIGIN: 'https://relay.example',
+    HM_NATIVE_COMPANION_AGENT_DID: 'did:web:identity.example:agents:fixture',
+    HM_NATIVE_COMPANION_AGENT_POD_URL: 'https://pods.example/fixture/' };
+  try {
+    for (const extra of [{}, { HM_NATIVE_MAIN_WORLD_LIVE_TEST: '1' },
+      { HM_NATIVE_MAIN_WORLD_LIVE_TEST: '1', HM_NATIVE_QA_EPISODE_FILE: 'relative-file' }]) {
+      const result = invoke({ ...base, ...extra }); assert.equal(result.status, 2); assert.equal(result.stdout, '');
+      assert.match(result.stderr, /^FAIL: configuration\./); assert(!result.stderr.includes('ERR_MODULE_NOT_FOUND'));
+    }
+    const existing = join(directory, 'prior.jsonl');
+    writeFileSync(existing, JSON.stringify({ kind: 'main-world-complete' }) + '\n' + JSON.stringify({ kind: 'coaching-delivery-intent' }) + '\n');
+    const blocked = invoke({ ...base, HM_NATIVE_MAIN_WORLD_LIVE_TEST: '1', HM_NATIVE_QA_EPISODE_FILE: existing });
+    assert.equal(blocked.status, 1); assert.equal(blocked.stdout, '');
+    assert.match(blocked.stderr, /^FAIL: native live QA at manual-qa-episode \[stage_failed\]\./);
+    assert(!blocked.stderr.includes('ERR_MODULE_NOT_FOUND')); assert(!blocked.stderr.includes(existing));
+    const fresh = join(directory, 'fresh.jsonl');
+    const selected = invoke({ ...base, HM_NATIVE_MAIN_WORLD_LIVE_TEST: '1', HM_NATIVE_QA_EPISODE_FILE: fresh });
+    assert.equal(selected.status, 1); assert.equal(selected.stdout, ''); assert.match(selected.stderr, /at load-browser \[stage_failed\]/);
+    const noHuman = invoke({ ...base, HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST: '0', HM_NATIVE_COACH_FOLLOWUP_LIVE_TEST: '1' });
+    assert.equal(noHuman.status, 2); assert.equal(noHuman.stdout, ''); assert.match(noHuman.stderr, /^FAIL: configuration\./);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 test('failed boot reports its retained page without secrets and stalled cleanup cannot block context close', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hm-qa-offline-'));

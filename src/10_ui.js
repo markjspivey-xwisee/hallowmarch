@@ -766,7 +766,8 @@ function renderMenu(tab) {
       </div>
       ${gsCharHTML() /* [gearstats] the stats in a fight and what they do (10g_gearstats.js) */}
       <p>${nextRR !== null ? `${fmtInt(nextRR - prog.rp)} realm points to rank ${rr + 1}.` : 'You hold the highest realm rank.'} Each rank adds 1.5% health and damage. Each foreign hallow your realm holds adds 10% damage for everyone in it.</p>
-      <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>`;
+      <p>Played for ${mins} minute${mins === 1 ? '' : 's'}.</p>
+      <div class="acts"><button type="button" class="btn" data-lore="sec:coach">Your progress &amp; coach</button><button type="button" class="btn" data-lore="sec:path">Your path &amp; next steps</button></div>`;
     gsCharWire(body); // [gearstats] the kit and the Gear page a tap away
   } else if (tab === 'settings') {
     const q = quality.level, m = tod.mode;
@@ -800,12 +801,17 @@ $('btn-newchar').onclick = () => {
 bgClose('menu', () => closeMenu());
 
 function uiDeath(by) {
+  // Players and chat can be open while the world continues. Their dynamically
+  // appended overlays must not cover the recovery choice or retain its focus.
+  if (typeof netSheetToggle === 'function') netSheetToggle(false);
+  if (typeof netChatClose === 'function') netChatClose();
   UI.modal = 'death';
   $('death').hidden = false;
   $('death-by').textContent = `Slain by ${by}.`;
   const P = GAME.player;
   const inFrontier = Math.hypot(P.x, P.z) < R_RING;
   $('btn-release').textContent = inDungeon(P) ? 'Release to the barrow mouth' : buildBedSpot(inFrontier) ? 'Release to your bed' : `Release to ${inFrontier ? REALMS[P.faction].name + ' Muster' : REALMS[P.faction].townName}`; // [building]
+  $('btn-release').focus({ preventScroll: true });
 }
 $('btn-release').onclick = () => { $('death').hidden = true; UI.modal = null; releasePlayer(); };
 
@@ -822,7 +828,7 @@ function openHerald() {
   const l2b = b ? null : late2HeraldBounty(); // [late2] past 40, a risen champion's bounty (10l_late.js)
   if (b && b.done) {
     body += `<p>You have done what was asked. Take this for your trouble.</p>`;
-    acts.push(['Claim reward', () => { addXP(b.reward); addRP(Math.round(b.reward * 0.1)); addGold(10 + prog.level * 5); uiLog(`The herald pays you ${10 + prog.level * 5} gold.`, 'loot'); prog.bounty = null; sfx('fanfare'); closeDialog(); saveSoon(); }]);
+    acts.push(['Claim reward', () => { addXP(b.reward); addRP(Math.round(b.reward * 0.1)); addGold(10 + prog.level * 5); uiLog(`The herald pays you ${10 + prog.level * 5} gold.`, 'loot'); activityRecord('bounty.claimed', b.type || 'bounty', 1, { success: true }); prog.bounty = null; sfx('fanfare'); closeDialog(); saveSoon(); }]);
   } else if (b) {
     const c = CAMPS[b.camp];
     body += b.risen ? `<p>Your bounty: bring down ${esc(b.name)} in the far borderlands, circled on your map.</p>` /* [late2] */ : `<p>Your bounty: slay ${b.need} ${pluralName(b.name)} near the marked place on your map. ${b.have} done so far.</p>`;

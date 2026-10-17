@@ -308,7 +308,7 @@ function mineYield(i, pick) {
   const r = W.rocks[i];
   const rocky = sampleGrid(W.rock, r.x, r.z) > 0.25 || r.y > 12;
   const got = [];
-  const give = (id, n) => { const k = goodsAdd(id, n, true); if (k) got.push(`${k} ${goodName(id, k).toLowerCase()}`); };
+  const give = (id, n) => { const k = goodsAdd(id, n, true); if (k) { got.push(`${k} ${goodName(id, k).toLowerCase()}`); activityRecord('resource.gathered', id, k, { success: true }); } };
   give('stone', pick ? 2 + (Math.random() < 0.5 ? 1 : 0) : 1 + (Math.random() < 0.4 ? 1 : 0));
   if (Math.random() < (pick ? 0.38 : 0.1)) give('flint', 1);
   if (pick && Math.random() < (rocky ? 0.5 : 0.28)) give('iron_ore', 1 + (rocky && Math.random() < 0.3 ? 1 : 0));
@@ -365,7 +365,7 @@ function craftGear(rec) {
 }
 function survCraftOnce(rec, ctx = {}) {
   const why = craftBlock(rec, ctx);
-  if (why) { if (!ctx.silent) uiError(why); return false; }
+  if (why) { activityRecord('craft.refused', rec.id || 'recipe', null, { success: false, reason: 'requirements' }); if (!ctx.silent) uiError(why); return false; }
   const P = GAME.player;
   if (!goodsTakeAll(rec.need)) return false;
   const skins = rec.need.reduce((n, q) => n + (q[0] === 'water' ? q[1] : 0), 0);
@@ -398,6 +398,7 @@ function survCraftOnce(rec, ctx = {}) {
     msg = `You bottle a healing draught (${INV.potions} / ${POTION.max}).`;
   }
   skillGain(key, rec.diff || 1);
+  activityRecord('craft.completed', rec.id || rec.act || 'recipe', 1, { success: true });
   guideMade(rec); // [guide] a meal cooked or a thing made takes its step on your path (10e_guide.js)
   if (msg && !ctx.quiet) uiLog(msg, 'loot');
   GOODS_UI.dirty = true;
@@ -409,7 +410,7 @@ const CRAFT_MOTION = { forge: [1, 'clink', 0.95], workbench: [1, 'saw', 1.0], ta
 function craftStart(rec, n, ctx) {
   const P = GAME.player;
   const why = craftBlock(rec, ctx);
-  if (why) { uiError(why); return false; }
+  if (why) { activityRecord('craft.refused', rec.id || 'recipe', null, { success: false, reason: 'requirements' }); uiError(why); return false; }
   if (P.mount) dismount(P);
   const st = rec.st, at = ctx.station || ctx.fire;
   const yaw = at ? Math.atan2(at.x - P.x, at.z - P.z) : P.yaw;

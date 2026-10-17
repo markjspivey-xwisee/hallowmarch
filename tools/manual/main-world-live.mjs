@@ -3,11 +3,34 @@ import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { agentCommandMessage, agentRenewalMessage, agentSessionPossessionMessage } from '../../server/gaming/native-agent-proof.js';
 const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Main-world live verification refused.'), { code }); };
+const companionId = (ownerId, bodyId) => typeof ownerId === 'string' && typeof bodyId === 'string'
+  && bodyId.startsWith(ownerId + ':companion:') && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bodyId.slice((ownerId + ':companion:').length));
+export function mainWorldAdmissionCanRestart({ stopped, reference, localRevoked, completeAttempted, admission, challenge, envelope, now = Date.now() }) {
+  return !stopped && !!reference && !localRevoked && (admission
+    ? completeAttempted === true && admission.expiresAt <= now
+    : !!challenge && challenge.expiresAt <= now && (completeAttempted === true || !envelope));
+}
+export function mainWorldLiveMotionEvidence(value) {
+  check(value && companionId(value.ownerId, value.bodyId) && value.ownerId !== value.bodyId, 'qa_world_separate_body');
+  check(value.confirmedCommands === 8 && value.elapsedMs >= 4000 && value.elapsedMs < 90000
+    && value.gameElapsed > 0 && value.humanInputObserved && value.overlappingInputObserved, 'qa_world_ordinary_input');
+  check(Number.isFinite(value.companionMeters) && value.companionMeters > .05 && value.companionMeters < 30
+    && Number.isFinite(value.humanMeters) && value.humanMeters > .05 && value.humanMeters < 60, 'qa_world_physics');
+  check(value.peerBodyId === value.bodyId.split(':').at(-1) && value.peerSeen > 0
+    && Number.isFinite(value.peerCompanionMeters) && value.peerCompanionMeters > .05, 'qa_world_peer_projection');
+  return { distinctCompanion: true, humanInput: true, simultaneousInput: true, ordinaryClock: true,
+    confirmedCommands: value.confirmedCommands, movedMeters: Math.round(value.companionMeters * 1000) / 1000,
+    humanMovedMeters: Math.round(value.humanMeters * 1000) / 1000,
+    elapsedMs: value.elapsedMs, gameElapsed: value.gameElapsed,
+    secondAuthenticatedPeer: true, sameOwnerMultiConnection: true };
+}
 export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onStage = () => {} } = {}) {
   let page, description, routes, ownerBody, reference, key, challenge, envelope, admission, sequence = 0;
-  let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, lastHttp = null;
-  let movement = null, commandAttempted = false, commandConfirmed = false, movementBefore = null, needAdmission = false;
-  const results = { normalGame: false, signedAdmission: false, mainWorldMoved: false, peerSawMovement: false, renewed: false, negative: [] };
+  let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, revokeClicked = false, lastHttp = null;
+  let movement = null, movementBefore = null, needAdmission = false, companionCreateClicked = false, reloadAttempted = false, reloadDocument = null, reloadContinueClicked = false;
+  const movementInputs = [];
+  const results = { normalGame: false, separateCompanion: false, nativeCompanionSave: false, signedAdmission: false,
+    mainWorldMoved: false, humanMoved: false, peerSawMovement: false, renewed: false, paused: false, companionReloaded: false, negative: [] };
   async function call(target, body) {
     check(!stopped && new URL(target).origin === pageOrigin(), 'qa_world_scope');
     const result = await page.evaluate(async ({ target, body }) => {
@@ -49,9 +72,12 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       needAdmission = false;
   }
   async function revokeAccess() {
+      check(reference && routes && key, 'qa_world_revoke_unavailable');
+      if (podRevoked) return;
       if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
-      const row = page.locator('#world-agent-records p').filter({ hasText: reference.grantId });
-      await row.getByRole('button', { name: 'Revoke access', exact: true }).click();
+      // This fixture publishes exactly one access relationship. Public IDs are
+      // intentionally hidden behind the product's advanced details.
+      if (!revokeClicked) { revokeClicked = true; await page.locator('#world-agent-records').getByRole('button', { name: 'Revoke access', exact: true }).click(); }
       await page.waitForFunction(id => window.__hm.worldAgents.state.records.get(id)?.localRevoked === true, reference.grantId, { timeout: 90000 }); localRevoked = true;
       const denied = await call(routes.challenge, { grantId: reference.grantId, sessionPublicKeyJwk: key.publicKey.export({ format: 'jwk' }) });
       check(denied.status === 403 && denied.value.error === 'native_grant_unavailable', 'qa_world_local_revocation');
@@ -77,7 +103,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         // A second authenticated socket observes the existing March protocol;
         // its app proof stays in the owner browser and never leaves this page.
         if (!window.__mainWorldQaPeer) {
-          const probe = window.__mainWorldQaPeer = { position: null, seen: 0, socket: null };
+          const probe = window.__mainWorldQaPeer = { position: null, seen: 0, socket: null, bodyId: null, companion: null, companionSeen: 0, companionMax: 0 };
           await new Promise((resolve, reject) => {
             const socket = probe.socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
             const timer = setTimeout(() => reject(Error('peer-timeout')), 15000);
@@ -87,17 +113,50 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
               const m = JSON.parse(event.data);
               if (m.t === 'welcome') { clearTimeout(timer); resolve(); }
               if (m.t === 'denied') { clearTimeout(timer); reject(Error('peer-refused')); }
-              if (m.t === 'peer' && m.peer === H.net.NET.self && Array.isArray(m.fast?.p)) { probe.position = m.fast.p; probe.seen++; }
+              if (m.t === 'peer' && m.peer === H.net.NET.self) {
+                if (Array.isArray(m.fast?.p)) { probe.position = m.fast.p; probe.seen++; }
+                if (m.fast?.pc?.id === probe.bodyId && Array.isArray(m.fast.pc.p)) {
+                  probe.companion = m.fast.pc.p; probe.companionSeen++;
+                  if (probe.before) probe.companionMax = Math.max(probe.companionMax, Math.hypot(probe.companion[0] - probe.before.x, probe.companion[2] - probe.before.z));
+                }
+              }
             };
           });
         }
-        return { id: n.acct.id, roomId: n.worldRoom, x: H.GAME.player.x, z: H.GAME.player.z };
+        return { ownerId: n.acct.id, roomId: n.worldRoom };
       });
-      check(ownerBody.id && ownerBody.roomId, 'qa_world_body'); results.normalGame = true;
+      check(ownerBody.ownerId && ownerBody.roomId, 'qa_world_body'); results.normalGame = true;
+    } },
+    { name: 'actual-party-companion-native-save', async run() {
+      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+      await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
+      if (!companionCreateClicked) {
+        check(await page.evaluate(() => window.__hm.worldAgents.bodies().length === 0), 'qa_world_existing_body');
+        await page.locator('#world-agent-companion-name').fill('Synthetic QA companion');
+        companionCreateClicked = true;
+        await page.locator('#world-agent-create').click();
+      }
+      await page.waitForFunction(() => !window.__hm.worldAgents.state.busy && window.__hm.worldAgents.bodies().length === 1
+        && !window.__hm.SAVE.pending && !window.__hm.SAVE.nativeFlight, null, { timeout: 150000 });
+      const body = await page.evaluate(() => {
+        const h = window.__hm, b = h.worldAgents.bodies()[0], saved = JSON.parse(h.SAVE.lastBody)?.char?.x?.partyCompanion;
+        return b && saved ? { id: b.id, separate: b.entity !== h.GAME.player, alive: b.entity.alive,
+          uuid: saved.id, confirmed: h.SAVE.native && h.SAVE.readConfirmed && !h.SAVE.pending && !h.SAVE.nativeFlight } : null;
+      });
+      check(body?.confirmed && body.separate && body.alive && companionId(ownerBody.ownerId, body.id)
+        && body.id.endsWith(':' + body.uuid), 'qa_world_companion_save');
+      ownerBody = { ...ownerBody, id: body.id, uuid: body.uuid };
+      // A guard role prevents ordinary follow behaviour from being mistaken
+      // for agent movement while the human walks independently.
+      await page.locator('#world-agent-party-role').selectOption('guard');
+      await page.evaluate(() => window.__hm.fn.saveNow());
+      await page.waitForFunction(() => !window.__hm.SAVE.pending && !window.__hm.SAVE.nativeFlight, null, { timeout: 150000 });
+      results.separateCompanion = true; results.nativeCompanionSave = true;
     } },
     { name: 'actual-main-game-public-grant', async run() {
       if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
       await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
+      if (!await page.locator('#world-agent-advanced').evaluate(element => element.open)) await page.locator('#world-agent-advanced > summary').click();
       if (!publicationClicked) {
         await page.locator('#world-agent-body').selectOption(ownerBody.id);
         await page.locator('#world-agent-did').fill(config.agentDid);
@@ -125,21 +184,51 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       await admitNative();
     } },
     { name: 'actual-main-game-movement-and-peer', async run() {
-      check(!commandAttempted || commandConfirmed, 'qa_world_command_uncertain');
-      const before = movementBefore ||= await page.evaluate(() => ({ x: window.__hm.GAME.player.x, z: window.__hm.GAME.player.z, peerSeen: window.__mainWorldQaPeer.seen }));
-      movement ||= { type: 'move', commandId: admission.sessionId + ':' + randomUUID(), roomId: ownerBody.roomId, entityId: ownerBody.id, dx: 1, dz: 0, durationMs: 500 };
-      if (!commandConfirmed) {
-        const proof = signed(movement); commandAttempted = true;
-        const applied = accepted(await call(routes.command, proof)); sequence++;
-        check(applied.execution === 'owner-page-input-applied', 'qa_world_input_unconfirmed'); commandConfirmed = true;
-        await refuse('replay', proof, 'agent_sequence_rejected');
-      }
-      await page.waitForFunction(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z) > .05, before, { polling: 100, timeout: 15000 });
-      await page.waitForFunction(before => { const p = window.__mainWorldQaPeer.position;
-        return window.__mainWorldQaPeer.seen > before.peerSeen && p && Math.hypot(p[0] - before.x, p[2] - before.z) > .05; }, before, { polling: 100, timeout: 15000 });
-      const moved = await page.evaluate(before => Math.hypot(window.__hm.GAME.player.x - before.x, window.__hm.GAME.player.z - before.z), before);
-      check(moved > .05 && moved < 6, 'qa_world_physics'); results.mainWorldMoved = true; results.peerSawMovement = true;
-      console.log(JSON.stringify({ kind: 'main_world_qa_movement', movedMeters: Math.round(moved * 1000) / 1000, secondAuthenticatedPeer: true, sameOwnerMultiConnection: true }));
+      check(!movementInputs.some(item => item.attempted && !item.confirmed), 'qa_world_command_uncertain');
+      movementBefore ||= await page.evaluate(bodyId => {
+        const h = window.__hm, b = h.worldAgents.bodies().find(b => b.id === bodyId), peer = window.__mainWorldQaPeer;
+        if (!b || b.entity === h.GAME.player) throw Error('separate-body');
+        const before = { x: b.entity.x, z: b.entity.z, humanX: h.GAME.player.x, humanZ: h.GAME.player.z, gameTime: h.GAME.t, at: Date.now() };
+        peer.bodyId = bodyId.split(':').at(-1); peer.before = before; peer.companionMax = 0; peer.companionSeen = 0;
+        const probe = window.__mainWorldQaMotion = { companionMax: 0, humanMax: 0, humanInputObserved: false, overlappingInputObserved: false, before, timer: null };
+        // Passive observation only: neither the game clock nor simulation
+        // state, animation frames or movement functions are replaced.
+        probe.timer = setInterval(() => {
+          const b = h.worldAgents.bodies().find(b => b.id === bodyId), held = h.INPUT.keys.has('KeyW');
+          probe.humanInputObserved ||= held;
+          probe.humanMax = Math.max(probe.humanMax, Math.hypot(h.GAME.player.x - before.humanX, h.GAME.player.z - before.humanZ));
+          if (b && h.worldAgents.state.intent?.entity === b.entity) {
+            probe.companionMax = Math.max(probe.companionMax, Math.hypot(b.entity.x - before.x, b.entity.z - before.z));
+            probe.overlappingInputObserved ||= held;
+          }
+        }, 25);
+        return before;
+      }, ownerBody.id);
+      movement ||= { type: 'move', roomId: ownerBody.roomId, entityId: ownerBody.id, dx: 1, dz: 0, durationMs: 500 };
+      await page.bringToFront(); await page.keyboard.down('w');
+      try {
+        for (let index = 0; index < 8; index++) {
+          const item = movementInputs[index] ||= { command: { ...movement, commandId: admission.sessionId + ':' + randomUUID() }, attempted: false, confirmed: false };
+          if (item.confirmed) continue;
+          const proof = signed(item.command); item.attempted = true;
+          const applied = accepted(await call(routes.command, proof)); sequence++;
+          check(applied.execution === 'owner-page-input-applied', 'qa_world_input_unconfirmed'); item.confirmed = true;
+          if (index === 0) await refuse('replay', proof, 'agent_sequence_rejected');
+          await page.waitForTimeout(550);
+        }
+      } finally { await page.keyboard.up('w'); }
+      await page.waitForFunction(() => window.__mainWorldQaPeer.companionMax > .05, null, { polling: 100, timeout: 15000 });
+      const sampled = await page.evaluate(() => {
+        const h = window.__hm, p = window.__mainWorldQaMotion, peer = window.__mainWorldQaPeer;
+        clearInterval(p.timer); p.timer = null;
+        return { companionMeters: p.companionMax, humanMeters: p.humanMax, humanInputObserved: p.humanInputObserved,
+          overlappingInputObserved: p.overlappingInputObserved, elapsedMs: Date.now() - p.before.at,
+          gameElapsed: h.GAME.t - p.before.gameTime, peerBodyId: peer.bodyId, peerSeen: peer.companionSeen, peerCompanionMeters: peer.companionMax };
+      });
+      const evidence = mainWorldLiveMotionEvidence({ ...sampled, ownerId: ownerBody.ownerId, bodyId: ownerBody.id,
+        confirmedCommands: movementInputs.filter(item => item.confirmed).length });
+      results.mainWorldMoved = true; results.humanMoved = true; results.peerSawMovement = true;
+      console.log(JSON.stringify({ kind: 'main_world_qa_movement', ...evidence }));
     } },
     { name: 'actual-main-game-scope-renewal-and-observation', async run() {
       const at = Date.now(), next = sequence + 1;
@@ -159,20 +248,58 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       check(read.state?.body?.id === ownerBody.id && !/private-native-qa-|accessToken|refreshToken|inventory|chat|recovery/.test(JSON.stringify(read)), 'qa_world_observation_privacy');
     } },
     { name: 'actual-main-game-owner-revocation', async run() {
+      if (!results.paused) {
+        if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+        await page.locator('#world-agent-pause').click();
+        await page.waitForFunction(() => window.__hm.worldAgents.state.paused && !window.__hm.worldAgents.state.intent, null, { timeout: 10000 });
+        // Opening Players also pauses dispatch. The explicit product Pause
+        // must remain in force once the panel is closed.
+        await page.locator('#netsheet-close').click();
+        await page.waitForTimeout(700);
+        await refuse('owner-pause', signed({ ...movement, commandId: admission.sessionId + ':' + randomUUID() }), 'native_body_forbidden');
+        results.paused = true;
+      }
       await revokeAccess();
+    } },
+    { name: 'actual-party-companion-reload-persistence', async run() {
+      if (!reloadAttempted) {
+        await page.evaluate(() => window.__hm.fn.saveNow());
+        await page.waitForFunction(() => !window.__hm.SAVE.pending && !window.__hm.SAVE.nativeFlight, null, { timeout: 150000 });
+        const saved = await page.evaluate(uuid => {
+          const h = window.__hm, s = JSON.parse(h.SAVE.lastBody)?.char?.x?.partyCompanion;
+          return !!(h.SAVE.native && s?.id === uuid && s.role === 'guard');
+        }, ownerBody.uuid);
+        check(saved, 'qa_world_companion_save');
+        reloadDocument = randomUUID(); await page.evaluate(marker => { window.__mainWorldQaReloadDocument = marker; }, reloadDocument);
+        reloadAttempted = true; await page.reload({ waitUntil: 'domcontentloaded' });
+      }
+      await page.waitForFunction(({ marker, ownerId, uuid }) => {
+        const h = window.__hm;
+        return window.__mainWorldQaReloadDocument !== marker && h?.ready && h.SAVE.native
+          && h.net.NETWS.acct?.id === ownerId && h.SAVE.loaded?.char?.x?.partyCompanion?.id === uuid;
+      }, { marker: reloadDocument, ownerId: ownerBody.ownerId, uuid: ownerBody.uuid }, { timeout: 180000 });
+      if (!await page.evaluate(() => window.__hm.GAME.started) && !reloadContinueClicked) {
+        reloadContinueClicked = true; await page.locator('#btn-continue').click();
+      }
+      await page.waitForFunction(({ id, uuid }) => {
+        const h = window.__hm, b = h?.worldAgents?.bodies().find(b => b.id === id);
+        return h?.GAME.started && b?.entity !== h.GAME.player && b?.id.endsWith(':' + uuid)
+          && h.SAVE.loaded.char.x.partyCompanion.role === 'guard';
+      }, { id: ownerBody.id, uuid: ownerBody.uuid }, { timeout: 60000 });
+      results.companionReloaded = true;
     } },
   ], onStage);
   return Object.freeze({
-    status() { return { kind: 'main_world_qa', ...stages.status(), ...results, publicReference: reference || null, localRevoked, podRevoked, lastHttp }; },
+    status() { return { kind: 'main_world_qa', ...stages.status(), ...results, publicReference: reference || null, localRevoked, podRevoked, reloadAttempted, lastHttp }; },
     async diagnose() { if (!page || page.isClosed()) return { pageAvailable: false }; return page.evaluate(() => {
       const h = window.__hm, p = h?.GAME.player, peer = window.__mainWorldQaPeer;
-      return { t: h?.GAME.t, position: p ? { x:p.x, y:p.y, z:p.z, alive:p.alive } : null, modal:h?.UI.modal,
+        return { t: h?.GAME.t, position: p ? { x:p.x, y:p.y, z:p.z, alive:p.alive } : null,
+        companionCount:h?.worldAgents.bodies().length, modal:h?.UI.modal,
         paused:h?.worldAgents.state.paused, hasIntent:!!h?.worldAgents.state.intent, humanKeys:h ? [...h.INPUT.keys].filter(k=>/^Key[WASD]$|^Arrow/.test(k)) : [],
         gameErrors:h?.errors.length, peerSeen:peer?.seen, peerPosition:peer?.position, network:h?.net.state().state, fastSent:h?.net.NET.stats.fastSent }; }); },
     revoke: () => revokeAccess(),
     next: async () => { if (needAdmission) await admitNative(); return stages.next(); }, remaining: async () => { if (needAdmission) await admitNative(); return stages.remaining(); },
-    restartAdmission() { check(!stopped && reference && completeAttempted && !localRevoked
-      && (admission ? admission.expiresAt <= Date.now() : challenge?.expiresAt <= Date.now()), 'qa_world_restart_refused');
+    restartAdmission() { check(mainWorldAdmissionCanRestart({ stopped, reference, completeAttempted, localRevoked, admission, challenge, envelope }), 'qa_world_restart_refused');
       key = challenge = envelope = admission = null; completeAttempted = false; sequence = 0; needAdmission = true; return this.status(); },
     close() { stopped = true; key = envelope = null; },
   });

@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { loadRealmModule } from '../season.js';
-import { checkedWorldSnapshot, hallowmarchWorldDescription } from './hallowmarch-world-state.js';
+import { openHallowmarchWorldState, checkedWorldSnapshot, hallowmarchWorldDescription } from './hallowmarch-world-state.js';
 
 const root = new URL('../../', import.meta.url).pathname;
 const realmModule = loadRealmModule(root + 'src', root + 'server');
@@ -41,4 +44,71 @@ test('actual pinned Interego affordance extraction discovers the composed world 
   const actions = core.extractAffordancesFromTurtle(value.graphContent, 'https://game.example/gaming/world-state/descriptor');
   assert.equal(actions.length, 1); assert.equal(actions[0].action, 'urn:hallowmarch:world:status');
   assert.equal(actions[0].method, 'GET'); assert.equal(actions[0].target, 'https://game.example/gaming/world-state');
+});
+
+
+test('empty world background ticks coalesce for five minutes while player mutations capture immediately', async t => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'world-idle-budget-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let now = 1000000, commits = 0, saved = { version: 0, state: null };
+  const nativeStore = { owner: 'urn:world:budget', async load() { return structuredClone(saved); },
+    async commit(id, input) { assert.equal(input.expectedVersion, saved.version); commits++;
+      saved = { version: saved.version + 1, state: structuredClone(input.state) }; return structuredClone(saved); } };
+  const bridge = await openHallowmarchWorldState({ nativeStore, dataDir: directory,
+    files: { read: (name, fallback) => fallback, write() {} }, ...options, clock: () => now });
+  const strategic = { RS: season(), M: realmModule, lastStep: now,
+    step() { this.RS.t += 2; this.lastStep = now; }, order() { this.RS.t += 1; } };
+  const room = { diagnostic: true, clients: new Map([['qa', {}]]) };
+  const field = { step() {}, report() {}, left() {} };
+  bridge.attach({ worlds: {}, season: strategic, field, rooms: new Map([['qa', room]]) });
+  await bridge.checkpoint(); const baseline = commits;
+  for (let elapsed = 2000; elapsed < 300000; elapsed += 2000) {
+    now += 2000; strategic.step(); field.step();
+    if (elapsed % 30000 === 0) bridge.store.write('season.json', strategic.RS, { background: true });
+  }
+  assert.equal(bridge.status().backgroundCaptureDeferred, true); assert.equal(bridge.status().durable, false);
+  await bridge.checkpoint(); assert.equal(commits, baseline, 'diagnostic sockets do not turn idle ticks into native writes');
+  now += 2000; strategic.step(); await bridge.checkpoint(); assert.equal(commits, baseline + 1);
+  assert.equal(bridge.status().backgroundCaptureDeferred, false); assert.equal(bridge.status().durable, true);
+  strategic.order(); await bridge.checkpoint(); assert.equal(commits, baseline + 2, 'explicit mutations bypass idle delay');
+  room.diagnostic = false; now += 2000; strategic.step(); await bridge.checkpoint();
+  assert.equal(commits, baseline + 3, 'occupied world captures every simulation update for normal checkpoint coalescing');
+  room.diagnostic = true; now += 2000; strategic.step();
+  assert.equal(bridge.status().backgroundCaptureDeferred, true);
+  await bridge.shutdown(); assert.equal(commits, baseline + 4, 'shutdown captures deferred background state before draining');
+  assert.equal(saved.state.value.season.t, strategic.RS.t);
+});
+
+test('shared rollback pauses mutations, restores every room through recovery and fences uncertain outcomes', async t => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'world-rollback-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let saved = { version: 0, state: null }, original, bridge, failRestore = false;
+  const nativeStore = { owner: 'urn:world:rollback', async load() { return structuredClone(saved); },
+    async commit(id, input) { assert.equal(input.expectedVersion, saved.version);
+      saved = { version: saved.version + 1, state: structuredClone(input.state) }; return structuredClone(saved); },
+    async rollbackCheckpoints() { return [{ at: 1000, version: 1 }]; },
+    async restoreWorldAt(at, options) {
+      await options.beforeRestore();
+      assert.equal(at, 1000); assert.equal(bridge.canMutate(), false);
+      assert.throws(() => bridge.assertMutable(), { code: 'WORLD_FENCED' });
+      if (failRestore) throw new Error('uncertain native rollback');
+      saved = { version: saved.version + 1, state: structuredClone(original.state) };
+      return { version: saved.version, targetAt: at, replayed: false };
+    } };
+  bridge = await openHallowmarchWorldState({ nativeStore, dataDir: directory,
+    files: { read: (name, fallback) => fallback, write() {} }, ...options });
+  const worlds = { march: { cn: 3 } }, strategic = { RS: season(), M: realmModule, speed: 1, lastStep: Date.now() };
+  const client = { toldSeason: true, seasonT: 12 }, room = { clients: new Map([['one', client]]), rep: [1], wxSavedAt: 50 };
+  const field = { held: new Map([['keep', 1]]) };
+  bridge.attach({ worlds, season: strategic, field, rooms: new Map([['march', room]]) });
+  await bridge.checkpoint(); original = structuredClone(saved);
+  worlds.march.cn = 9; bridge.capture();
+  assert.deepEqual(await bridge.rollbackCheckpoints(), [{ at: 1000, version: 1 }]);
+  const result = await bridge.rollback(1000, { idempotencyKey: 'rollback-command' });
+  assert.equal(result.persistence.fenced, false); assert.equal(bridge.canMutate(), true);
+  assert.equal(worlds.march.cn, 3); assert.equal(field.held.size, 0); assert.deepEqual(room.rep, []);
+  assert.equal(client.toldSeason, false); assert.equal(client.seasonT, 0);
+  failRestore = true;
+  await assert.rejects(bridge.rollback(1000, { idempotencyKey: 'uncertain-command' }));
+  assert.equal(bridge.canMutate(), false);
 });

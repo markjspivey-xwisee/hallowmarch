@@ -8,9 +8,10 @@ can run it on the game's own HTTPS origin. The current server does not grant
 cross-origin browser access. Pin the actual game origin and application DID
 from its published service identity before connecting.
 
-First the human signs into the ordinary 3D game, opens **Players → Agent
-access**, chooses their existing character or animal, enters the agent's native
-DID, and publishes the limited access in their own pod. They resume control and
+First the human signs into the ordinary 3D game, opens **Players → Your AI party
+member** and adds a separate party companion (or chooses an owned animal).
+Under **Connect an AI agent · advanced host setup**, they enter the agent's
+native DID and publish limited access in their own pod. They resume control and
 close the panel. The public grant UUID, room and entity IDs describe this
 relationship; they are not keys. The agent must already have its own native
 identity and current delegation. This client does not register new identities.
@@ -21,6 +22,11 @@ the adapter verifies the agent's own pod and keeps player and agent records sepa
 For a confirmed active grant, expand **Agent connection details** and copy its
 public configuration to the agent's tool host. The panel supplies the actual
 origin, game and agent DIDs, grant UUID, room, selected body, and module URL.
+For a ready stdio MCP process exposing `march_connect`, `march_observe`, bounded
+movement/attack, renewal, status and disconnect tools, see the
+[companion MCP host setup](companion-mcp-host.md). Its reviewed local native
+signer callback keeps signing in the agent host; tool arguments cannot choose
+a different grant, actor, game or human character.
 
 ```js
 // Import the reviewed module into your agent tool host. Browser hosts may use
@@ -81,10 +87,11 @@ publish a revocation in the owner's pod. The owner can pause immediately or
 revoke through Agent access; short native leases bound remote revocation.
 
 An accepted command returns `execution: "owner-page-input-applied"`. That means
-the running owner page applied ordinary input. It is not verified damage,
+the running owner page applied ordinary companion input. It is not verified damage,
 loot, task completion, or learner achievement. The game must remain open,
-focused, connected and unpaused; human input takes priority. Independent agent
-avatars, offline/headless gameplay and private inventory mutations are not
+focused, connected and unpaused. The human controls their own character
+independently; human movement does not cancel companion input. Possessing the
+human, separately logged-in agent players, offline/headless gameplay and private inventory mutations are not
 supported by this client. Performance consulting and personal learning export
 use their separate identity and consent controls.
 

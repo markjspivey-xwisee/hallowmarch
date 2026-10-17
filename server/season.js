@@ -4,6 +4,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// These room namespaces are reserved for the explicit manual QA runners. Room
+// provenance is server metadata; a player's display name never classifies it.
+export function seasonRoomPolicy(want) {
+  const diagnostic = typeof want === 'string' && /^\s*(?:native-qa(?:-|$)|native-companion-qa(?:-|$))/i.test(want);
+  const valid = typeof want === 'string' && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(want);
+  if (diagnostic && (!valid || !/^(?:native-qa-|native-companion-qa-)[a-z0-9][a-z0-9_-]*$/.test(want))) return null;
+  return { base: valid ? want : 'march', diagnostic };
+}
+
 const FNS = ['realmSimInit', 'realmSimStep', 'realmSimContribute', 'realmSimOrder', 'realmSimSummary', 'realmSimSanitize'];
 export function loadRealmModule(srcDir, hereDir) {
   for (const f of [path.join(srcDir, '08m_realm.js'), path.join(hereDir, 'realm_stub.js')]) {
@@ -103,9 +112,9 @@ export function makeSeason(cfg, store, stats) {
     if (away > 1) { const t0 = performance.now(); M.realmSimStep(S.RS, away); console.log(`season: ${Math.round(away)} s caught up in ${Math.round(performance.now() - t0)} ms`); }
     console.log(`season: kept (${M.file}), day ${Math.floor(S.RS.t / 86400) + 1}`);
   }
-  S.save = () => {
+  S.save = ({ background = false } = {}) => {
     if (!S.RS) return;
-    store.write('season.json', { ...S.RS, savedAt: Date.now() });
+    store.write('season.json', { ...S.RS, savedAt: Date.now() }, { background });
     store.write('roster.json', S.roster);
     store.write('chat.json', S.chat);
     S.dirty = false; stats.seasonSaves++;

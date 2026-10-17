@@ -1,40 +1,61 @@
-/* Native agents operate the real character and owned animals. The ordinary
- * player/pet controllers retain collision, range, cooldowns and damage rules. */
+/* Native agents operate their own party companion or an owned animal beside
+ * the human. Ordinary controllers retain collision, range and combat rules. */
+/* global activityRecord */
 const MAIN_WORLD_AGENTS = { client: null, ownerKey: '', records: new Map(), allowed: new Set(), paused: true,
-  busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1, reservedUuid: null };
+  companionPaused: false, busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1, reservedUuid: null };
 const mainWorldAgentBodies = () => !GAME.started || !GAME.player || !NETWS.acct ? [] : [
-  { id: NETWS.acct.id, name: 'Your character', entity: GAME.player },
+  ...partyCompanionBodies(),
   ...anCompanions().slice(0, 16).map(e => ({ id: NETWS.acct.id + ':animal:' + e.tame.aid, name: e.tame.name, entity: e })),
 ];
 function mainWorldAgentStop(grantId = null) {
   const state = MAIN_WORLD_AGENTS;
   for (const key of ['intent', 'attack']) {
     const held = state[key]; if (!held || grantId && held.grantId !== grantId) continue;
-    if (held.entity && held.entity !== GAME.player && anOwned(held.entity)) anCommand(held.entity, 'stay');
+    if (partyCompanionOwned(held.entity)) partyCompanionStop(held.entity);
+    else if (held.entity && held.entity !== GAME.player && anOwned(held.entity)) anCommand(held.entity, 'stay');
     if (key === 'attack' && held.entity?.target === held.targetId) held.entity.target = held.previousTarget;
     state[key] = null;
   }
 }
 function mainWorldAgentPause() {
-  MAIN_WORLD_AGENTS.paused = true; mainWorldAgentStop(); mainWorldAgentFrame(true); mainWorldAgentRender();
+  MAIN_WORLD_AGENTS.paused = true; MAIN_WORLD_AGENTS.companionPaused = true; mainWorldAgentStop();
+  partyCompanionStop(); mainWorldAgentFrame(true); mainWorldAgentRender();
 }
 function mainWorldAgentCanRun() {
   return GAME.started && !!GAME.player?.alive && NETWS.state === 'on' && !NETWS.worldPauseReason
     && !NETWS.reload && NATIVE_PLAYER.status?.verified && !MAIN_WORLD_AGENTS.paused && !UI.modal;
 }
 function mainWorldAgentMovement() {
-  const held = MAIN_WORLD_AGENTS.intent;
-  if (!held || held.entity !== GAME.player || !mainWorldAgentCanRun() || held.until <= Date.now()) return null;
-  return { dx: held.dx, dz: held.dz };
+  // The human always owns their character input. Kept for older controller
+  // callers; native party access never supplies movement to GAME.player.
+  return null;
 }
 function mainWorldAgentTick() {
-  const state = MAIN_WORLD_AGENTS, manual = INPUT.joy || ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].some(k => INPUT.keys.has(k));
-  if (!mainWorldAgentCanRun() || manual) { mainWorldAgentStop(); return; }
+  const state = MAIN_WORLD_AGENTS;
+  if (!mainWorldAgentCanRun()) {
+    mainWorldAgentStop();
+    partyCompanionTick(GAME.dt, { paused: state.companionPaused || NETWS.state !== 'on' || !!NETWS.worldPauseReason
+      || NETWS.reload || !NATIVE_PLAYER.status?.verified }); return;
+  }
   for (const key of ['intent', 'attack']) if (state[key] && state[key].until <= Date.now()) {
     const held = state[key];
-    if (held.entity !== GAME.player && anOwned(held.entity)) anCommand(held.entity, 'stay');
+    if (partyCompanionOwned(held.entity)) partyCompanionStop(held.entity);
+    else if (held.entity !== GAME.player && anOwned(held.entity)) anCommand(held.entity, 'stay');
     if (key === 'attack' && held.entity?.target === held.targetId) held.entity.target = held.previousTarget;
     state[key] = null;
+  }
+  const intent = state.intent, attack = state.attack;
+  const held = new Set([intent?.entity, attack?.entity].filter(Boolean));
+  partyCompanionTick(GAME.dt, { held });
+  if (intent && partyCompanionOwned(intent.entity) && intent.entity.alive
+    && !intent.entity.motion && !intent.entity.casting && !isStunned(intent.entity)) {
+    partyCompanionMove(intent.entity, intent.dx, intent.dz, GAME.dt);
+  }
+  if (attack && partyCompanionOwned(attack.entity)) {
+    const target = getEnt(attack.targetId), e = attack.entity;
+    if (!e.alive || !target?.alive || target.role === 'remote' || !isEnemy(e, target)
+      || dist(e.x, e.z, target.x, target.z) > 30) { mainWorldAgentStop(attack.grantId); return; }
+    if (!e.motion && !e.casting && !isStunned(e)) fightTarget(e, target, GAME.dt);
   }
 }
 function mainWorldAgentFrame(force = false) {
@@ -42,7 +63,7 @@ function mainWorldAgentFrame(force = false) {
   const state = MAIN_WORLD_AGENTS;
   if (!force && (Date.now() - state.lastFrame < 500 || !state.allowed.size)) return;
   state.lastFrame = Date.now();
-  const bodies = mainWorldAgentBodies().filter(b => b.entity === GAME.player || state.allowed.has(b.id));
+  const bodies = mainWorldAgentBodies().filter(b => state.allowed.has(b.id));
   const targets = [];
   state.targets.clear();
   for (const e of ENT) {
@@ -63,9 +84,9 @@ function mainWorldAgentMessage(message) {
   const command = message.command, record = MAIN_WORLD_AGENTS.records.get(message.grantId);
   const body = mainWorldAgentBodies().find(b => b.id === command?.entityId);
   let accepted = false;
-  if (mainWorldAgentCanRun() && record?.registered && !record.grant?.revoked && body?.entity?.alive
+  if (mainWorldAgentCanRun() && record?.registered && !record.localRevoked && !record.grant?.revoked && body?.entity?.alive && !body.entity.removed
     && MAIN_WORLD_AGENTS.allowed.has(command.entityId) && record.grant?.roomId === NETWS.worldRoom
-    && record.grant.entityId === command.entityId && record.grant.actions.includes(command.type)
+    && record.grant.entityId === command.entityId && command.roomId === NETWS.worldRoom && record.grant.actions.includes(command.type)
     && Date.parse(record.grant.expiresAt) > Date.now() && message.expiresAt > Date.now()) {
     const entity = body.entity;
     if (command.type === 'move' && [command.dx, command.dz].every(Number.isFinite)
@@ -73,7 +94,7 @@ function mainWorldAgentMessage(message) {
       mainWorldAgentStop();
       MAIN_WORLD_AGENTS.intent = { entity, grantId: message.grantId, dx: command.dx, dz: command.dz,
         until: Math.min(message.expiresAt, Date.now() + command.durationMs) };
-      if (entity !== GAME.player) {
+      if (!partyCompanionOwned(entity)) {
         anCommand(entity, 'stay'); entity.tame.stay = { x: entity.x + command.dx * 8, z: entity.z + command.dz * 8 };
       }
       accepted = true;
@@ -84,9 +105,18 @@ function mainWorldAgentMessage(message) {
         MAIN_WORLD_AGENTS.attack = { entity, grantId: message.grantId, targetId: target.id, previousTarget: entity.target,
           until: Math.min(message.expiresAt, Date.now() + 500) };
         entity.target = target.id;
-        if (entity !== GAME.player) { entity.tame.prevCmd = entity.tame.cmd; entity.tame.cmd = 'attack'; }
+        if (!partyCompanionOwned(entity)) { entity.tame.prevCmd = entity.tame.cmd; entity.tame.cmd = 'attack'; }
         accepted = true;
       }
+    }
+  }
+  if (accepted) {
+    record.lastCommandAt = Date.now();
+    // Observation must not turn an already-applied gameplay input into a lost ACK.
+    if (typeof activityRecord === 'function') {
+      try { activityRecord('agent.command-accepted', command.type, 1,
+        { entity: body.entity, actor: { kind: 'agent', id: record.grant.actor, grantId: message.grantId }, success: true }); }
+      catch (error) { reportError(error); }
     }
   }
   netWsSend({ t: 'world-agent', op: 'result', requestId: message.requestId, ok: accepted });
@@ -156,6 +186,7 @@ async function mainWorldAgentRun(run) {
 async function mainWorldAgentRegister(context, record) {
   const read = await context.client.load(record.reference); context.current();
   if (!read || read.grant.revoked || Date.parse(read.grant.expiresAt) <= Date.now()
+    || !mainWorldAgentBodies().some(body => body.id === read.grant.entityId && body.entity !== GAME.player && body.entity.alive && !body.entity.removed)
     || record.grant && ['actor', 'role', 'entityId', 'roomId'].some(k => record.grant[k] !== read.grant[k])
     || record.grant && JSON.stringify(record.grant.actions) !== JSON.stringify(read.grant.actions)) throw new Error('Your pod did not confirm the exact active access you selected.');
   const response = await context.request(context.actions.register, record.reference);
@@ -164,18 +195,22 @@ async function mainWorldAgentRegister(context, record) {
     || response.result.reference.ownerPlayerId !== NETWS.acct.id || response.result.reference.ownerDid !== NATIVE_PLAYER.status.binding.subjectDid
     || response.result.reference.revoked) throw new Error('The game has not confirmed this grant. Retry registration.');
   Object.assign(record, read, { registered: true, phase: '' });
-  MAIN_WORLD_AGENTS.note = 'Access confirmed. Resume agent control below, close this panel, and share the grant ID and discovery link with your agent.';
+  MAIN_WORLD_AGENTS.note = 'Companion access is ready; waiting for your agent host to connect. Copy its connection details, resume agent control and close this panel.';
 }
 async function mainWorldAgentPublish(context) {
   const state = MAIN_WORLD_AGENTS;
   if ([...state.records.values()].some(r => r.phase)) throw new Error('Finish the pending grant change first.');
   if (!$('world-agent-public').checked) throw new Error('Choose to publish this limited relationship in your pod first.');
   const body = mainWorldAgentBodies().find(b => b.id === $('world-agent-body').value);
-  if (!body) throw new Error('Choose your character or one of your existing companions.');
+  if (!body || body.entity === GAME.player) throw new Error('Add your AI party companion or choose an owned animal. Your agent never controls your character.');
+  if (!body.entity.alive) throw new Error('This companion is down and cannot accept agent control.');
+  if (SAVE.native && (SAVE.pending || SAVE.nativeFlight || !SAVE.readConfirmed)) throw new Error('Confirm your companion’s private character save before granting access.');
+  if ([...state.records.values()].some(r => r.grant?.entityId === body.id && !r.grant.revoked && !r.localRevoked
+    && Date.parse(r.grant.expiresAt) > Date.now())) throw new Error('Revoke this companion’s current access before connecting another agent.');
   const role = $('world-agent-role').value;
   const actor = $('world-agent-did').value.trim();
   if (!/^did:web:[^\s]+:agents:[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(actor) || !['teammate', 'pet', 'coach'].includes(role)) throw new Error('Enter your agent’s native Agent DID and choose a role.');
-  if (role === 'pet' && body.entity === GAME.player) throw new Error('Choose one of your existing animal companions for the pet role.');
+  if (role === 'pet' && partyCompanionOwned(body.entity)) throw new Error('Choose an owned animal for the animal companion role.');
   const expected = { actor, role, entityId: body.id, roomId: NETWS.worldRoom, actions: role === 'coach' ? ['observe'] : ['observe', 'move', 'attack'] };
   const id = crypto.randomUUID(), reference = { grantId: 'urn:uuid:' + id, graphIri: 'urn:graph:interego:gaming:owner-agent-grant:' + id };
   const record = { reference, grant: expected, operationId: null, phase: 'publish', registered: false };
@@ -221,28 +256,98 @@ async function mainWorldAgentRevoke(context, record) {
   if (result.saved && record.grant) record.grant.revoked = true;
   MAIN_WORLD_AGENTS.note = result.saved ? 'Access revoked here and confirmed revoked in your pod.' : 'Access is stopped here. Your pod revocation is awaiting confirmation.';
 }
+function mainWorldAgentAccessStatus(record, body) {
+  if (record.grant?.revoked) return 'Access revoked';
+  if (record.phase) return ({ publish: 'Waiting for pod confirmation', register: 'Waiting for game confirmation',
+    stop: 'Stopping access · confirmation needed', 'pod-revoke': 'Stopped here · confirm pod revocation',
+    'pod-revoke-pending': 'Stopped here · confirm pod revocation' })[record.phase] || 'Access change needs confirmation';
+  if (record.localRevoked) return 'Stopped here · confirm pod revocation';
+  if (!record.registered) return 'Access is not confirmed';
+  if (!(Date.parse(record.grant?.expiresAt) > Date.now())) return 'Access expired · connect again for a new session';
+  if (record.grant.audience !== location.origin || record.grant.applicationId !== window.__HM_GAMING.mainWorldAgents.applicationId
+    || record.grant.roomId !== NETWS.worldRoom) return 'Access unavailable in this March';
+  if (!body) return 'Previous companion · access unavailable';
+  if (!body.entity.alive) return 'Companion fallen · access unavailable';
+  if (body.entity.removed) return 'Companion unavailable';
+  if (NETWS.worldPauseReason) return 'World recovery · agent control paused';
+  if (NETWS.reload) return 'Account reconnecting · agent control paused';
+  if (NETWS.state !== 'on') return 'Connection interrupted · agent control paused';
+  if (!NATIVE_PLAYER.status?.verified) return 'Reconnect your identity · agent control paused';
+  if (!GAME.player.alive) return 'Your character has fallen · agent control paused';
+  const input = record.lastCommandAt ? 'Agent input received' : 'Access ready · waiting for agent input';
+  return input + (MAIN_WORLD_AGENTS.paused || !MAIN_WORLD_AGENTS.allowed.has(body.id) ? ' · control paused' : UI.modal ? ' · close this panel to allow input' : '');
+}
 function mainWorldAgentRender() {
   const parent = $('netsheet')?.querySelector('.sheet');
   if (!parent || !GAME.started || !window.__HM_GAMING?.mainWorldAgents?.enabled) return;
   let box = $('world-agent-controls');
   if (!box) {
     box = document.createElement('section'); box.id = 'world-agent-controls'; box.style.cssText = 'border-top:1px solid #806f4d;padding-top:12px;display:grid;gap:10px';
-    box.innerHTML = '<h3>Agent access</h3><p>Your agent can operate your real character or an existing animal companion while this game is open. Human movement takes priority. Menus pause control. Private saves and personal learning stay private.</p><button class="btn" id="world-agent-load">Check access in my pod</button><form id="world-agent-form" style="display:grid;gap:10px"><label>Control<select id="world-agent-body"></select></label><label>Agent DID<input id="world-agent-did" autocomplete="off" spellcheck="false" required placeholder="did:…"></label><label>Role<select id="world-agent-role"><option value="teammate">Teammate</option><option value="pet">Animal companion</option><option value="coach">Coach · observe only</option></select></label><label style="display:flex;gap:10px;align-items:center"><input id="world-agent-public" type="checkbox">Publish this agent relationship, selected body and limited access in my pod for 15 minutes.</label><button class="btn" type="submit">Grant access</button></form><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="world-agent-resume">Resume agent control</button><button class="btn" id="world-agent-pause">Pause immediately</button></div><p id="world-agent-note" role="status" aria-live="polite"></p><div id="world-agent-records" style="overflow-wrap:anywhere"></div>';
+    box.innerHTML = `<h3>Your companion</h3><p>First, add a separate party member and choose its party role. It can follow, guard or support you without an external model. Your character stays yours.</p><p>To play alongside your own AI, connect its tool host in step 2 below. Adding a companion alone does not connect a model. Keep this game open; menus and Pause immediately stop companion control.</p><div style="display:grid;gap:10px"><label>Companion nickname<input id="world-agent-companion-name" maxlength="32" value="AI companion"></label><button class="btn" id="world-agent-create">1. Add companion</button><p id="world-agent-party" role="status"></p><label>Party role<select id="world-agent-party-role"><option value="follow">Follow me</option><option value="guard">Guard this position</option><option value="support">Support my target</option></select></label><button class="btn" id="world-agent-dismiss">Dismiss companion</button></div><p id="world-agent-connection" role="status"></p><details id="world-agent-advanced"><summary style="min-height:44px">2. Connect your AI agent · host setup</summary><p>Your agent needs a trusted tool host with its own native signing identity. This sets up limited access; a live agent must still connect and send its own inputs.</p><button class="btn" id="world-agent-load">Check access in my pod</button><form id="world-agent-form" style="display:grid;gap:10px"><label>Companion<select id="world-agent-body"></select></label><label>Agent DID<input id="world-agent-did" autocomplete="off" spellcheck="false" required placeholder="did:…"></label><label>Agent access mode<select id="world-agent-role"><option value="teammate">Party teammate</option><option value="pet">Animal companion</option><option value="coach">Observe companion only</option></select></label><label style="display:flex;gap:10px;align-items:center"><input id="world-agent-public" type="checkbox">Publish this agent relationship, selected companion and limited access in my pod for 15 minutes.</label><button class="btn" type="submit">Connect agent to companion</button></form></details><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="world-agent-resume">Resume agent control</button><button class="btn" id="world-agent-pause">Pause immediately</button></div><p id="world-agent-note" role="status" aria-live="polite"></p><div id="world-agent-records" style="overflow-wrap:anywhere"></div>`
     parent.appendChild(box);
     for (const n of box.querySelectorAll('button,input,select')) n.style.minHeight = '44px';
+    for (const label of box.querySelectorAll('label')) if (!label.querySelector('input[type="checkbox"]')) {
+      label.style.display = 'grid'; label.style.gap = '6px';
+    }
+    for (const n of box.querySelectorAll('input:not([type="checkbox"]),select')) { n.style.width = '100%'; n.style.minWidth = '0'; n.style.boxSizing = 'border-box'; n.style.fontSize = '16px'; }
     $('world-agent-form').onsubmit = event => { event.preventDefault(); void mainWorldAgentRun(mainWorldAgentPublish); };
     $('world-agent-load').onclick = () => mainWorldAgentRun(mainWorldAgentLoad);
+    $('world-agent-create').onclick = () => mainWorldAgentRun(async context => {
+      partyCompanionCreate($('world-agent-companion-name').value, GAME.player.cls);
+      await saveNow(); context.current();
+      if (SAVE.pending || SAVE.nativeFlight) throw new Error('Your party member is here. Confirm its pending private save before connecting an agent.');
+      MAIN_WORLD_AGENTS.note = 'Your companion is saved with your character and uses its party role. To connect your own AI, open step 2 below.';
+    });
+    $('world-agent-party-role').onchange = () => {
+      partyCompanionSetRole($('world-agent-party-role').value); mainWorldAgentStop();
+      MAIN_WORLD_AGENTS.note = 'Party role updated. Your human character’s controls are unchanged.'; mainWorldAgentRender();
+    };
+    $('world-agent-dismiss').onclick = () => mainWorldAgentRun(async context => {
+      if ([...MAIN_WORLD_AGENTS.records.values()].some(record => record.phase)) throw new Error('Confirm the pending access change before dismissing your companion.');
+      await mainWorldAgentLoad(context); context.current();
+      const body = partyCompanionMember();
+      if (!body) throw new Error('No companion is present to dismiss.');
+      for (const record of MAIN_WORLD_AGENTS.records.values()) if (record.grant?.entityId === body.id && !record.grant.revoked) {
+        await mainWorldAgentRevoke(context, record); context.current();
+        if (!record.grant.revoked) throw new Error('Confirm this companion’s pending pod revocation before dismissing it.');
+      }
+      partyCompanionDismiss(); await saveNow(); context.current();
+      MAIN_WORLD_AGENTS.note = SAVE.pending ? 'Companion dismissed here. Confirm the pending private save.' : 'Companion dismissed and saved privately.';
+    });
     $('world-agent-pause').onclick = mainWorldAgentPause;
     $('world-agent-resume').onclick = () => {
       MAIN_WORLD_AGENTS.allowed.clear();
       for (const r of MAIN_WORLD_AGENTS.records.values()) if (r.registered && !r.localRevoked && !r.grant?.revoked
-        && Date.parse(r.grant?.expiresAt) > Date.now() && r.grant.roomId === NETWS.worldRoom) MAIN_WORLD_AGENTS.allowed.add(r.grant.entityId);
+        && Date.parse(r.grant?.expiresAt) > Date.now() && r.grant.roomId === NETWS.worldRoom
+        && mainWorldAgentBodies().some(body => body.id === r.grant.entityId && body.entity.alive && body.entity !== GAME.player)) MAIN_WORLD_AGENTS.allowed.add(r.grant.entityId);
       MAIN_WORLD_AGENTS.paused = MAIN_WORLD_AGENTS.allowed.size === 0;
-      MAIN_WORLD_AGENTS.note = MAIN_WORLD_AGENTS.paused ? 'No current confirmed grant is available for this character or its companions.'
+      MAIN_WORLD_AGENTS.companionPaused = false;
+      MAIN_WORLD_AGENTS.note = MAIN_WORLD_AGENTS.paused ? 'Companion party role resumed. Connect its agent host to enable agent commands.'
         : 'Ready. Close this panel to resume agent access in the March.'; mainWorldAgentFrame(true); mainWorldAgentRender();
     };
   }
   const state = MAIN_WORLD_AGENTS, selector = $('world-agent-body'), bodies = mainWorldAgentBodies(), key = JSON.stringify(bodies.map(b => [b.id, b.name]));
+  const party = partyCompanionMember();
+  $('world-agent-create').disabled = state.busy || !!party;
+  $('world-agent-create').hidden = !!party;
+  $('world-agent-companion-name').disabled = state.busy || !!party;
+  $('world-agent-companion-name').parentElement.hidden = !!party;
+  if (party) $('world-agent-companion-name').value = party.name;
+  const partyRole = party && { follow: 'Follow me', guard: 'Guard this position', support: 'Support my target' }[PARTY_COMPANION.record.role];
+  $('world-agent-party').textContent = party ? party.entity.alive ? `${party.name} · ${partyRole} · ${CLASSES[party.entity.cls].name}`
+    : `${party.name} has fallen. Revival is not available. Dismiss this companion to add a new one; dismissal first confirms that its agent access is revoked. Your character is kept.`
+    : 'Step 1: add one companion to your party.';
+  const partyAccess = party && [...state.records.values()].filter(r => r.grant?.entityId === party.id && !r.grant.revoked);
+  const latestAccess = partyAccess?.at(-1);
+  $('world-agent-connection').textContent = !party || !party.entity.alive ? '' : latestAccess
+    ? 'Your AI connection: ' + mainWorldAgentAccessStatus(latestAccess, party) + '.'
+    : 'Step 2: connect your own AI using the host setup below. No agent access is set up for this companion on this page.';
+  $('world-agent-party-role').parentElement.hidden = !party;
+  $('world-agent-party-role').disabled = state.busy || !party || !party.entity.alive;
+  if (party) $('world-agent-party-role').value = PARTY_COMPANION.record.role;
+  $('world-agent-dismiss').hidden = !party; $('world-agent-dismiss').disabled = state.busy;
+  $('world-agent-resume').textContent = party ? 'Resume companion' : 'Resume agent control';
+  $('world-agent-resume').disabled = state.busy || !GAME.player.alive || !bodies.some(body => body.entity.alive && !body.entity.removed);
   if (selector.dataset.bodyKey !== key) {
     const selected = selector.value; selector.replaceChildren(); selector.dataset.bodyKey = key;
     for (const body of bodies) { const option = document.createElement('option'); option.value = body.id; option.textContent = body.name; selector.appendChild(option); }
@@ -251,21 +356,27 @@ function mainWorldAgentRender() {
   $('world-agent-note').textContent = state.note || (state.paused ? 'Agent control paused.' : 'Agent control resumes when this panel closes.');
   for (const button of box.querySelectorAll('form button,#world-agent-load')) button.disabled = state.busy;
   const records = $('world-agent-records');
+  const rows = [...state.records.values()].map(record => {
+    const body = bodies.find(b => b.id === record.grant?.entityId) || (party?.id === record.grant?.entityId ? party : null);
+    return { record, body, status: mainWorldAgentAccessStatus(record, body) };
+  });
   const recordKey = JSON.stringify([state.busy, location.origin, window.__HM_GAMING.mainWorldAgents.applicationId,
-    [...state.records.values()].map(r => [r.reference.grantId, r.grant?.role, r.grant?.actor, r.grant?.roomId, r.grant?.entityId,
+    rows.map(({ record: r, body, status }) => [r.reference.grantId, r.grant?.role, r.grant?.actor, r.grant?.roomId, r.grant?.entityId,
       r.grant?.applicationId, r.grant?.audience, r.grant?.expiresAt, !!r.registered, !!r.grant?.revoked, !!r.localRevoked,
-      Date.parse(r.grant?.expiresAt) > Date.now(), r.phase || ''])]);
+      Date.parse(r.grant?.expiresAt) > Date.now(), r.phase || '', !!r.lastCommandAt, body?.name, !!body?.entity.alive,
+      !!body?.entity.removed, status])]);
   // Polling must not replace a focused Revoke/Confirm button every 500 ms.
   if (records.dataset.recordKey === recordKey) return;
   records.dataset.recordKey = recordKey; records.replaceChildren();
-  for (const record of state.records.values()) {
-    const row = document.createElement('p'); row.textContent = `${record.grant?.revoked ? 'Revoked' : record.localRevoked ? 'Stopped here · finish pod revocation' : record.phase || 'Access confirmed'} · ${record.grant?.role || 'Grant'} · ${record.reference.grantId}`;
-    const link = document.createElement('a'); link.href = window.__HM_GAMING.mainWorldAgents.affordances; link.target = '_blank'; link.rel = 'noopener'; link.textContent = ' Agent discovery'; row.appendChild(link);
+  for (const { record, body: currentBody, status } of rows) {
+    const row = document.createElement('p'); row.textContent = `${currentBody?.name || 'Previous companion'} · ${status}`;
     if (record.registered && !record.phase && !record.localRevoked && !record.grant?.revoked
       && Date.parse(record.grant?.expiresAt) > Date.now() && record.grant.audience === location.origin
-      && record.grant.applicationId === window.__HM_GAMING.mainWorldAgents.applicationId) {
+      && record.grant.applicationId === window.__HM_GAMING.mainWorldAgents.applicationId && record.grant.roomId === NETWS.worldRoom
+      && currentBody?.entity.alive && !currentBody.entity.removed) {
       const details = document.createElement('details'), summary = document.createElement('summary');
       summary.textContent = 'Agent connection details'; summary.style.minHeight = '44px'; details.appendChild(summary);
+      const link = document.createElement('a'); link.href = window.__HM_GAMING.mainWorldAgents.affordances; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Agent discovery'; details.appendChild(link);
       const help = document.createElement('p');
       help.textContent = 'Share these public connection details with your agent’s tool host. Your agent signs as its own identity. Keep the game open and close this panel to resume control.';
       details.appendChild(help);
@@ -295,7 +406,7 @@ function mainWorldAgentRender() {
 }
 setInterval(() => {
   if (MAIN_WORLD_AGENTS.lastGeneration !== NETWS.generation) {
-    MAIN_WORLD_AGENTS.lastGeneration = NETWS.generation; MAIN_WORLD_AGENTS.paused = true; mainWorldAgentStop();
+    MAIN_WORLD_AGENTS.lastGeneration = NETWS.generation; MAIN_WORLD_AGENTS.paused = true; MAIN_WORLD_AGENTS.companionPaused = true; mainWorldAgentStop(); partyCompanionStop();
   }
   mainWorldAgentFrame(); if (typeof NETUI !== 'undefined' && NETUI.open) mainWorldAgentRender();
 }, 500);

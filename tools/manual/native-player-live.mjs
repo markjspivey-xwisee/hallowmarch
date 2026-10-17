@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { nativeBrowserNetwork, nativeFailureCode } from './native-browser-network.mjs';
 import { nativeLiveStages } from './native-live-stages.mjs';
 import { installNativeOwnerQaSession } from './native-owner-qa-session.mjs';
-import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus } from './native-player-orchestration.mjs';
+import { retainedGameBoot, verifiedContextHandoff, retainedNativeReload, retryNativeStartup, qaPageInventory, boundedPageStatus, retainCompletedNativeQa } from './native-player-orchestration.mjs';
 import { createNativeLiveInput } from './native-live-input.mjs';
 import { nativeCompanionRunnerConfig, createNativeCompanionRunner, nativeCompanionFailureCode } from './native-companion-runner.mjs';
 import { createNativeCompanionSigningBroker } from './native-companion-signing.mjs';
@@ -12,6 +12,9 @@ import { createRetainedNativeOAuth, retainedNativeOAuthPopup, nativeOAuthFailure
 import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 import { createMainWorldLiveQa } from './main-world-live.mjs';
+import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
+import { createPersonalActivityLiveQa } from './personal-activity-live.mjs';
+import { createNativeQaEpisode, validateNativeQaEpisodeFile } from './native-qa-episode.mjs';
 
 // Check the opt-in before importing a browser, resolving a service or making I/O.
 if (process.env.HM_NATIVE_LIVE_TEST !== '1') {
@@ -24,7 +27,10 @@ function origin(value) {
     || parsed.search || parsed.hash) throw new Error('configuration');
   return parsed.origin;
 }
-let gameOrigin, relayOrigin, identityOrigin, companionConfig, mainWorldConfig;
+let gameOrigin, relayOrigin, identityOrigin, companionConfig, mainWorldConfig, episodeFile;
+const humanConsultingSelected = process.env.HM_NATIVE_HUMAN_CONSULTING_LIVE_TEST === '1';
+const automaticFollowup = process.env.HM_NATIVE_COACH_FOLLOWUP_LIVE_TEST === '1';
+const personalActivitySelected = process.env.HM_NATIVE_PERSONAL_ACTIVITY_LIVE_TEST === '1';
 try {
   gameOrigin = origin(process.env.HM_NATIVE_ORIGIN);
   relayOrigin = origin(process.env.HM_NATIVE_RELAY_ORIGIN);
@@ -36,6 +42,12 @@ try {
     if (companionConfig) throw new Error('Select main-world QA or the isolated companion diagnostic, not both.');
     mainWorldConfig = nativeCompanionRunnerConfig({ ...process.env, HM_NATIVE_COMPANION_LIVE_TEST: '1' });
   }
+  if (humanConsultingSelected) {
+    if (!mainWorldConfig || companionConfig) throw new Error('Coaching proof requires the completed real main-world episode.');
+    episodeFile = validateNativeQaEpisodeFile(process.env.HM_NATIVE_QA_EPISODE_FILE);
+  }
+  if (automaticFollowup && !humanConsultingSelected) throw new Error('Automatic follow-up requires explicit human coaching proof.');
+  if (personalActivitySelected && !humanConsultingSelected) throw new Error('Personal activity proof requires the completed human coaching episode.');
 } catch {
   console.error('FAIL: configuration. Supply separate HTTPS game/relay origins; companion opt-in additionally requires the existing agent DID and HTTPS public pod. Unset browser/debug tracing.');
   process.exit(2);
@@ -58,7 +70,8 @@ const expectedSave = {
 const observations = { requests: [], console: [], gameAuthorization: [], startAuthorization: [], claimAuthorization: [],
   bridgeBodyLeak: false, refreshUsed: false, registerCount: 0, oauthWritePkce: false };
 let browser, stage = 'load-browser', plan, boot = null, bootStep = null;
-let input = null, broker = null, companion = null, mainWorld = null, finishRequested = false, cleaning = false;
+let input = null, broker = null, companion = null, mainWorld = null, humanConsulting = null, episode = null,
+  personalActivity = null, mainWorldEpisodeMarked = false, coachingEpisodeMarked = false, personalActivityEpisodeMarked = false, finishRequested = false, cleaning = false;
 let privatePrivacyVerified = false, completeReported = false, activeOAuth = null;
 const oauthControllers = [], oauthByPage = new WeakMap();
 let firstContext, first, owner, initialHead, freshContext, fresh, registrationAttempted = false;
@@ -74,6 +87,8 @@ function reportComplete() {
   console.log('PASS: native live QA complete. The labelled synthetic owner and private pod record remain; no local credential artifacts were written.');
   if (companion) console.log('PASS: native companion QA complete. Scoped public grant, native admission, local commands and both revocations verified; labelled game-owned QA records remain.');
   if (mainWorld) console.log('PASS: actual main-world QA complete. Normal 3D entry, native control, real movement, second authenticated peer, scoped proofs and both revocations verified.');
+  if (humanConsulting) console.log('PASS: observed human coaching QA complete. Explicit Enable, attributed live response, exact encrypted private readback and Stop verified.');
+  if (personalActivity) console.log('PASS: future personal activity QA complete. One genuine human ability input, exact private xAPI readback, confirmed native checkpoint and Stop without automatic resend verified.');
 }
 async function context() {
   const value = await browser.newContext({ viewport: { width: 1024, height: 768 }, acceptDownloads: false });
@@ -271,6 +286,9 @@ async function reportRetainedStatus(diagnose) {
   if (companion) console.log(JSON.stringify(companion.status()));
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
+  if (humanConsulting) console.log(JSON.stringify(humanConsulting.status()));
+  if (personalActivity) console.log(JSON.stringify(personalActivity.status()));
+  if (episode) console.log(JSON.stringify(episode.status()));
   if (broker) console.log(JSON.stringify(broker.status()));
   for (let i = 0; i < oauthControllers.length; i++) console.log(JSON.stringify({
     ...(diagnose ? await oauthControllers[i].diagnose() : oauthControllers[i].status()), ceremonyIndex: i + 1 }));
@@ -284,7 +302,9 @@ async function reportRetainedStatus(diagnose) {
 
 const failureCode = error => nativeOAuthFailureCode(error) || nativeCompanionFailureCode(error) || nativeFailureCode(error);
 const allComplete = () => plan?.status().complete === true && (!companion || companion.status().complete === true)
-  && (!mainWorld || mainWorld.status().complete === true);
+  && (!mainWorld || mainWorld.status().complete === true) && (!humanConsulting || humanConsulting.status().complete && coachingEpisodeMarked)
+  && (!personalActivity || personalActivity.status().complete && personalActivityEpisodeMarked);
+const qaBusy = () => plan?.status().busy || companion?.status().busy || mainWorld?.status().busy || humanConsulting?.status().busy || personalActivity?.status().busy;
 async function advanceQa(all) {
   ensure(!finishRequested, 'qa_session_closed');
   if (!plan?.status().complete) {
@@ -294,7 +314,27 @@ async function advanceQa(all) {
   if (companion) {
     if (all) await companion.remaining(); else await companion.next();
   }
-  if (mainWorld) { if (all) await mainWorld.remaining(); else await mainWorld.next(); }
+  if (mainWorld && !mainWorld.status().complete) {
+    if (all) await mainWorld.remaining(); else await mainWorld.next();
+    if (!all) return;
+  }
+  if (humanConsulting) {
+    ensure(mainWorld?.status().complete && privatePrivacyVerified && episode, 'qa_human_prior_episode');
+    if (!mainWorldEpisodeMarked) { await episode.mark('main-world-complete'); mainWorldEpisodeMarked = true; }
+    stage = 'actual-human-observed-coaching'; await humanConsulting.run();
+    if (automaticFollowup) { const proof = humanConsulting.status();
+      ensure(proof.automaticFollowup === true && proof.realElapsedFollowup === true && proof.changedOutcome === true
+        && proof.distinctSituation === true && proof.exactSecondPrivatePlan === true && proof.twoDeliveries === true,
+      'qa_human_followup_unconfirmed'); }
+    ensure(await privacy(fresh), 'privacy-invariants');
+    if (humanConsulting.status().complete && !coachingEpisodeMarked) { await episode.mark('coaching-complete'); coachingEpisodeMarked = true; }
+  }
+  if (personalActivity) {
+    ensure(coachingEpisodeMarked && humanConsulting.status().complete && humanConsulting.status().stopped && episode, 'qa_activity_prior_episode');
+    stage = 'actual-personal-activity-delivery'; await personalActivity.run();
+    ensure(await privacy(fresh), 'privacy-invariants');
+    if (personalActivity.status().complete && !personalActivityEpisodeMarked) { await episode.mark('activity-complete'); personalActivityEpisodeMarked = true; }
+  }
 }
 function startInput() {
   if (input) return input;
@@ -305,7 +345,7 @@ function startInput() {
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
       finishRequested = true;
-      const active = plan?.status().busy || companion?.status().busy;
+      const active = qaBusy();
       broker?.close(); companion?.close(); mainWorld?.close();
       // Explicit finish/EOF can release a stalled renderer. Ordinary cleanup
       // first closes the owner helper and cache before its context/browser.
@@ -313,11 +353,14 @@ function startInput() {
     },
     async onCommand(action) {
       if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
-      if (plan?.status().busy || companion?.status().busy) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
+      if (qaBusy()) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
         if (action === 'native-startup-retry') {
-          ensure(plan?.status().stage === 'fresh-browser-native-verification' && !plan.status().busy
-            && freshNativeReload.status().reloadAttempted, 'qa_startup_retry_refused');
+          const freshRecovery = plan?.status().stage === 'fresh-browser-native-verification' && !plan.status().busy
+            && freshNativeReload.status().reloadAttempted;
+          const companionReload = plan?.status().complete && mainWorld?.status().stage === 'actual-party-companion-reload-persistence'
+            && !mainWorld.status().busy && mainWorld.status().reloadAttempted;
+          ensure(freshRecovery || companionReload, 'qa_startup_retry_refused');
           console.log(JSON.stringify(await retryNativeStartup({ page: fresh, expectedAccountId: owner?.accountId, gameOrigin }))); return;
         }
         if (action === 'main-world-revoke') { if (!mainWorld) throw new Error('Main-world QA is not selected.'); await mainWorld.revoke(); return; }
@@ -342,6 +385,10 @@ function startInput() {
 }
 
 try {
+  // A previous/unknown coaching intent refuses this process before browser
+  // import, identity creation or any remote I/O. The ledger holds no secrets.
+  if (episodeFile) { stage = 'manual-qa-episode'; episode = await createNativeQaEpisode({ file: episodeFile, run, gameOrigin, relayOrigin }); }
+  stage = 'load-browser';
   const module = process.env.HM_PLAYWRIGHT_MODULE
     ? pathToFileURL(process.env.HM_PLAYWRIGHT_MODULE).href : new URL('../node_modules/playwright/index.mjs', import.meta.url).href;
   const { chromium } = await import(module);
@@ -366,6 +413,15 @@ try {
     mainWorld = createMainWorldLiveQa({ config: mainWorldConfig, getPage: () => fresh,
       signNativeRequest: broker.signNativeRequest, onStage: name => { stage = name; } });
   }
+  if (humanConsultingSelected) humanConsulting = createHumanConsultingLiveQa({ getPage: () => fresh, getOwner: () => owner,
+    gameOrigin, relayOrigin, run, automaticFollowup,
+    checkpoint: async value => { ensure(mainWorldEpisodeMarked && ['coaching-delivery-intent', 'coaching-followup-intent'].includes(value?.kind), 'qa_human_episode_scope');
+      await episode.mark(value.kind); } });
+  if (personalActivitySelected) personalActivity = createPersonalActivityLiveQa({ getPage: () => fresh, getOwner: () => owner,
+    gameOrigin, relayOrigin, checkpoint: async value => {
+      ensure(coachingEpisodeMarked && ['activity-delivery-intent', 'activity-input-intent'].includes(value?.kind), 'qa_activity_episode_scope');
+      await episode.mark(value.kind);
+    } });
   plan = nativeLiveStages([
     { name: 'initial-game-boot', async run() {
       await firstBoot.open();
@@ -488,6 +544,9 @@ try {
   if (companion || mainWorld) startInput();
   await advanceQa(true);
   reportComplete();
+  await retainCompletedNativeQa({ enabled: process.env.HM_NATIVE_RETAIN_FAILED_SESSION === '1', complete: allComplete(), finishRequested,
+    announce: () => console.log('QA complete; original owner and keys retained in RAM. Read-only status/diagnose or finish remain available. Completed stages are never replayed.'),
+    waitForClose: () => startInput().waitForClose() });
 } catch (cause) {
   // Playwright errors can contain request URLs or payloads. Print our own stage only.
   console.error('FAIL: native live QA at ' + stage + ' [' + failureCode(cause) + ']. Raw browser/error details were intentionally not emitted.');
@@ -511,4 +570,5 @@ try {
     finally { await closeBrowserResource(value); }
   }
   if (browser) await closeBrowserResource(browser);
+  await episode?.close();
 }

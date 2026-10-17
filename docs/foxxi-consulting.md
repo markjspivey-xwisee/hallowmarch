@@ -1,5 +1,15 @@
 # Own-subject performance consulting
 
+The player opens **Character → Progress & coach**. Normal play supplies the observations; there is no assessment form. The page shows the current focus, observed milestone counts, and practical support buttons. **Continue your path** opens the existing game progression rather than replacing it with an assessment system.
+
+Local support and the private activity journal work without a remote consultation. **Coach connection & privacy** contains an explicit 15-minute live-coaching switch, a stop action, and sharing details. Enabling permits bounded summaries of meaningful new observations, at most once every two minutes automatically. Combat, menus, hidden pages, a downed player, and **Quiet for 10 minutes** suppress automatic requests. No popup interrupts combat. Stop invalidates in-flight authorization before an external request can start; already-sent work may finish externally but is never resent automatically.
+
+Each remote request first confirms its intent in the native character save. An uncertain response or private acknowledgment remains visible for exact reconciliation; reloading cannot silently issue it again. Players can close an unconfirmed request without resending, then explicitly start a fresh session. A planner outage leaves prior private guidance and ordinary gameplay available.
+
+The coaching task keeps a stable play-session scope. A separate bounded focus carries the current game criterion and, where available, the observed body. Choosing an intervention records a choice, not completed practice. Comparisons require later evidence for the same focus and body, tied to the same consultation and intervention attempt. Missing attribution stays unknown; one observation does not establish mastery or prove that advice caused improvement.
+
+An external agent acts through its own party companion. Human input remains independent. The authenticated owner is the observer of private gameplay records; a known controller is context, not permission to assign every later outcome to that agent. The portable xAPI profile and encrypted native archive are documented in [gameplay-activity-profile.md](gameplay-activity-profile.md); this is not a claim of LRS certification.
+
 `client/native-pod/foxxi-consulting.mjs` follows Foxxi's live planning descriptor:
 
 - Descriptor: <https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance>

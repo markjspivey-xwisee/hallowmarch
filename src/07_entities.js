@@ -270,6 +270,7 @@ function healEnt(src, dst, amount, quiet = false) {
   amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
   dst.hp = Math.min(dst.maxHp, dst.hp + amount);
   const h = dst.hp - before;
+  if (h > 0) activityEntityEvent('combat.healed', src, dst, h, { success: true });
   if (BAL.tap && h > 0) BAL.tap(src, dst, -h, 0, quiet ? TAP_TICK : null); // [balance3] and every heal [balance4] a renewal's or holy ground's tick told apart
   classOnHeal(src, dst, h); // [classes] healing builds a priest's devotion (07b_classes.js)
   if (h > 0.5) {
@@ -283,6 +284,7 @@ function healEnt(src, dst, amount, quiet = false) {
 }
 function killEnt(e, killer) {
   if (!e.alive || e.role === 'remote') return; // [net] another page's player dies on its own page (14n_net.js)
+  if (e !== GAME.player) activityEntityEvent('combat.died', e, killer, 1, { success: false });
   e.alive = false;
   e.hp = 0;
   e.deadAt = GAME.t;
@@ -295,6 +297,7 @@ function killEnt(e, killer) {
   if (e.carrying != null) dropRelic(e);
   deathEffects(e);
   const P = GAME.player;
+  if (killer !== P && !(P && e.damagers?.has(P.id))) activityEntityEvent('combat.defeated', killer, e, 1, { success: true });
   if (P && e !== P && e.damagers && e.damagers.has(P.id)) grantKillRewards(e);
   onEntityKilled(e, killer);
 }
@@ -510,7 +513,7 @@ function canUse(e, id, target, ignoreCd = false) {
 }
 function useAbility(e, id, target) {
   const why = canUse(e, id, target);
-  if (why) return why;
+  if (why) { activityEntityEvent('ability.refused', e, { id }, null, { success: false, reason: why }); return why; }
   const A = ABILITIES[id];
   const t = resolveTarget(e, A, target);
   if (t && t !== e) faceToward(e, t.x, t.z);
@@ -545,6 +548,7 @@ function executeAbility(e, A, t, cast = null) {
   const rk = rankMult(e.level);
   e.power -= A.cost;
   e.cds[A.id] = now + A.cd;
+  activityEntityEvent('ability.executed', e, { id: A.id }, 1, { success: true });
   if (e.role === 'player') e.gcdUntil = now + 0.6;
   e.combatUntil = Math.max(e.combatUntil, A.friendly || A.self ? e.combatUntil : now + 6);
   if (A.anim) setAct(e, A.anim, A.anim === 2 ? 0.55 : A.anim === 8 ? 0.7 : 0.5, cast && A.anim === 2 ? 0.8 : 0);
@@ -997,6 +1001,7 @@ function grantKillRewards(e) {
   const prog = GAME.prog, P = GAME.player;
   if (!prog || !P) return;
   if (e.kind === 'door') return;
+  activityEntityEvent('combat.defeated', P, e, 1, { success: true });
   const ci = conIndex(e.level, prog.level);
   rollLoot(e);
   huntOnKill(e); // [survival] meat, hides and bone from a hunt (09s_survival.js)

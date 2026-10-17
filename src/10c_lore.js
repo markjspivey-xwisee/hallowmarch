@@ -402,6 +402,7 @@ function pathComplete(S, silent = false) {
   LORE.hudKey = '';
   if (silent) return;
   const got = pathPay(S);
+  activityRecord('path.completed', S.id, 1, { success: true });
   const host = $('banners');
   const d = document.createElement('div');
   d.className = 'banner panel lore-step';

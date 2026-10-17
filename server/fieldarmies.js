@@ -18,7 +18,7 @@ export function makeField(SEASON, ROOMS, send, regionOf, WORLD, STATS) {
   const d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
   // is this page the keeper of the army's region (or of its keep's), with its player near the army or its keep?
   const fits = (c, A, q) => {
-    if (!c || !c.pos || !(c.realm >= 0) || c.ws.readyState !== 1) return false;
+    if (!c || c.room?.diagnostic || !c.pos || !(c.realm >= 0) || c.ws.readyState !== 1) return false;
     const H = (c.room && c.room.regions) || {}, rg = regionOf(q.x, q.z), kr = A.k >= 0 && keeps[A.k] ? regionOf(keeps[A.k].x, keeps[A.k].z) : '';
     if (H[rg] !== c.peer && H[kr] !== c.peer) return false;
     return d(c.pos, q) < REACH || (A.k >= 0 && keeps[A.k] && d(c.pos, keeps[A.k]) < REACH_K);
@@ -52,7 +52,7 @@ export function makeField(SEASON, ROOMS, send, regionOf, WORLD, STATS) {
   };
   // what a page tells of an army it holds
   F.report = (c, m) => {
-    if (!ok() || !m || !Number.isInteger(m.id) || !m.rep || typeof m.rep !== 'object') return;
+    if (c?.room?.diagnostic || !ok() || !m || !Number.isInteger(m.id) || !m.rep || typeof m.rep !== 'object') return;
     const h = F.held.get(m.id);
     if (!h || h.c !== c) { F.stats.refused++; return; }
     const rep = { n: Number.isFinite(m.rep.n) ? m.rep.n : undefined, p: Number.isFinite(m.rep.p) ? m.rep.p : undefined, state: m.rep.state === 'siege' ? 'siege' : undefined, done: ['taken', 'fallen', 'beaten', 'raided', 'caught', 'home'].includes(m.rep.done) ? m.rep.done : '', fold: !!m.rep.fold };

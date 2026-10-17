@@ -11,7 +11,7 @@ const markdown = text => String(text).split(/\n\n+/).map(block => {
 const term = 'urn:interego:gaming:';
 const iri = value => typeof value === 'string' && /^(https:\/\/|did:)/.test(value) && !/[\s<>"{}|^`\\]/.test(value);
 
-export function createPerformanceResourceHttp({ catalog, alignment = null, ownership = () => null, publication = () => null, publicOrigin,
+export function createPerformanceResourceHttp({ catalog, alignment = null, activityProfile = null, ownership = () => null, publication = () => null, publicOrigin,
   title = 'Performance resources', nativeScope = null, basePath = '/gaming/resources', maxBody = 1024 } = {}) {
   if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.resources) || !Array.isArray(catalog.courses)) throw new TypeError('A versioned authored resource catalog is required.');
   if (!/^\/[a-z0-9/-]+$/.test(basePath) || basePath.endsWith('/')) throw new TypeError('A fixed local resource path is required.');
@@ -30,6 +30,17 @@ export function createPerformanceResourceHttp({ catalog, alignment = null, owner
   }
   if (alignment && (alignment.scope !== 'performance-consulting' || Object.keys(alignment.resourceAnnotations || {}).some(id => !resources.has(id)))) throw new TypeError('Performance consulting annotations must reference actual resources.');
   const alignmentRevision = alignment ? 'sha256:' + createHash('sha256').update(JSON.stringify(alignment)).digest('hex') : null;
+  const profilePath = '/gaming/activity-profile.jsonld', versionPath = profilePath + '/versions/1.0.0';
+  if (activityProfile) {
+    const safeProfileIri = value => typeof value === 'string' && /^https:\/\//.test(value) && !/[\s<>"{}|^`\\]/.test(value);
+    if (activityProfile.type !== 'Profile' || !safeProfileIri(activityProfile.id)
+      || activityProfile.conformsTo !== 'https://w3id.org/xapi/profiles#1.0'
+      || !Array.isArray(activityProfile.versions) || activityProfile.versions.length !== 1
+      || activityProfile.versions[0]?.id !== activityProfile.id + '/versions/1.0.0') throw new TypeError('The fixed observed activity Profile version 1.0.0 is required.');
+    // HTTP and native publication must retain the same immutable configuration.
+    activityProfile = JSON.parse(JSON.stringify(activityProfile));
+  }
+  const profileBody = activityProfile ? JSON.stringify(activityProfile) : null;
   const link = id => `${basePath}/view?id=${encodeURIComponent(id)}`;
   const project = resource => ({ ...resource, humanReadUrl: link(resource.id),
     ...(alignment?.resourceAnnotations?.[resource.id] ? { performanceConsulting: { scope: alignment.scope, status: alignment.mappingStatus,
@@ -39,6 +50,9 @@ export function createPerformanceResourceHttp({ catalog, alignment = null, owner
     return owner && iri(owner.did) && iri(owner.podUrl) ? { did: owner.did, podUrl: owner.podUrl, verification: 'deployment-configured' } : null;
   };
   const index = () => ({ ...catalog, resources: catalog.resources.map(project), ownership: identity(),
+    ...(activityProfile ? { activity: { profile: origin ? absolute(profilePath) : null, version: activityProfile.versions[0].id,
+      storage: 'encrypted-observing-owner-pod', source: 'owner-browser-observation', actor: 'authenticated-observing-owner',
+      controllerIdentity: 'context-only', competencyStatus: 'not-assessed', lrsConformanceClaim: false } } : {}),
     nativePublication: publication(),
     ...(alignment ? { performanceConsulting: { scope: alignment.scope, profile: `${basePath}/alignment.json`, canonicalSource: alignment.canonicalSource, revisionDigest: alignmentRevision } } : {}),
     descriptorUrl: origin ? absolute(`${basePath}/descriptor.ttl`) : null, evidencePolicy: 'Consultation is resource use, not proof of learning or mastery.',
@@ -65,6 +79,7 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
   dct:description "Authored performance resource bridge. Native publication is verified through its separate receipt; resource use does not establish achievement." ;
   dcat:endpointURL <${absolute(basePath)}> ;
   ${alignment ? `dct:relation <${absolute(`${basePath}/alignment.json`)}> ;` : ''}
+  ${activityProfile ? `dct:relation <${absolute(profilePath)}> ; gaming:activityProfile <${activityProfile.id}> ; gaming:activityProfileVersion <${activityProfile.versions[0].id}> ;` : ''}
   ${owner ? `prov:wasAttributedTo <${owner.did}> ; gaming:ownerPod <${owner.podUrl}> ;` : ''}
   iep:affordance [ a iep:Affordance, hydra:Operation ;
     iep:action <${term}resources:query> ; hydra:method "POST" ;
@@ -84,7 +99,7 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
 `;
   const handle = function handle(req, res, url) {
     const path = url.pathname;
-    if (path !== basePath && ![`${basePath}/query`, `${basePath}/item`, `${basePath}/view`, `${basePath}/descriptor.ttl`, `${basePath}/shapes.ttl`, `${basePath}/query.schema.json`, `${basePath}/alignment.json`].includes(path)) return false;
+    if (path !== basePath && ![profilePath, versionPath, `${basePath}/query`, `${basePath}/item`, `${basePath}/view`, `${basePath}/descriptor.ttl`, `${basePath}/shapes.ttl`, `${basePath}/query.schema.json`, `${basePath}/alignment.json`].includes(path)) return false;
     const reply = (status, body, mediaType = 'application/json') => {
       if (res.writableEnded || res.destroyed) return;
       res.writeHead(status, { 'content-type': `${mediaType}; charset=utf-8`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -98,6 +113,12 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
       if (!resource) { reply(404, { error: 'resource_not_found' }); return; }
       reply(200, project(resource));
     };
+    if (path === profilePath || path === versionPath) {
+      if (!['GET', 'HEAD'].includes(req.method)) { res.setHeader('Allow', 'GET, HEAD'); reply(405, { error: 'method_not_allowed' }); }
+      else if (!activityProfile) reply(404, { error: 'activity_profile_unconfigured' });
+      else { res.writeHead(200, { 'content-type': 'application/ld+json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }); res.end(req.method === 'HEAD' ? undefined : profileBody); }
+      return true;
+    }
     if (path === `${basePath}/query`) {
       if (req.method !== 'POST') { reply(405, { error: 'method_not_allowed' }); return true; }
       let size = 0, body = '', done = false;
@@ -165,7 +186,14 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
   };
   handle.nativeDescription = () => {
     const { graphIri, rootLines, resourceRows } = nativeDocument();
-    return { graphIri, graphContent: [...rootLines, ...resourceRows.flat()].join('\n') };
+    return { graphIri, graphContent: [...rootLines, ...resourceRows.flat(), ...(activityProfile ? [profileTriples(graphIri)] : [])].join('\n') };
+  };
+  const profileTriples = graphIri => {
+    const version = activityProfile.versions[0].id, distribution = absolute(versionPath) + '#distribution';
+    return `<${graphIri}> dcat:servesDataset <${activityProfile.id}> .\n`
+      + `<${activityProfile.id}> a dcat:Dataset ; dct:hasVersion <${version}> .\n`
+      + `<${version}> a dcat:Dataset ; dct:isVersionOf <${activityProfile.id}> ; dct:conformsTo <${activityProfile.conformsTo}> ; dcat:distribution <${distribution}> ; schema:text ${JSON.stringify(profileBody)} .\n`
+      + `<${distribution}> a dcat:Distribution ; dcat:accessURL <${absolute(versionPath)}> ; dcat:mediaType "application/ld+json" .`;
   };
   handle.nativeComposition = ({ resourcesPerPart = 12 } = {}) => {
     if (!Number.isSafeInteger(resourcesPerPart) || resourcesPerPart < 1 || resourcesPerPart > 16) throw new TypeError('A bounded resource composition is required.');
@@ -175,6 +203,12 @@ ${subject} a dcat:DataService ; dct:title ${JSON.stringify(title)} ;
       const content = resourceRows.slice(i, i + resourcesPerPart).flat().join('\n');
       const partIri = graphIri + ':resources:' + createHash('sha256').update(content).digest('hex');
       parts.push({ graphIri: partIri, graphContent: [...prefixes, `<${partIri}> a gaming:ResourceCollection ; dct:isPartOf <${graphIri}> .`, content].join('\n') });
+      rootLines.push(`<${graphIri}> dct:hasPart <${partIri}> .`);
+    }
+    if (activityProfile) {
+      const content = profileTriples(graphIri), partIri = graphIri + ':activity-profile:' + createHash('sha256').update(content).digest('hex');
+      parts.push({ graphIri: partIri, graphContent: [...prefixes,
+        `<${partIri}> a gaming:ActivityProfilePublication ; dct:isPartOf <${graphIri}> ; dct:subject <${activityProfile.versions[0].id}> .`, content].join('\n') });
       rootLines.push(`<${graphIri}> dct:hasPart <${partIri}> .`);
     }
     return { root: { graphIri, graphContent: rootLines.join('\n') }, parts };

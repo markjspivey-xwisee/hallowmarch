@@ -155,6 +155,18 @@ publication. The manifest states that snapshot ownership has migrated while the
 main-world realtime authority still uses elected page/region keepers and has no
 authoritative combat added by this bridge.
 
+With the bounded multiplayer provider, authenticated operators can list retained
+world checkpoints using `POST /admin?op=world-rollback-checkpoints`, then restore
+one using `POST /admin?op=world-rollback&at=<epoch-milliseconds>` with a stable
+`Idempotency-Key` header. Both require `x-hm-admin: <HM_ADMIN>`. A successful rollback
+pauses shared mutation, drains pending state, confirms a new native version,
+restores the world/season pair and reconnects all clients. Current access grants
+are preserved. Repeat the same target and key after an uncertain response; do not
+invent a new key. Choose an exact timestamp from the checkpoint list. The selected verified snapshot is
+pinned before pending local saves drain, including later saves in the same minute.
+Expired or replaced exact targets return 410 rather than choosing another world. The operator should call
+`world-recover` if an uncertain outcome leaves world persistence fenced.
+
 The existing authenticated operator `POST /admin` door accepts
 `op=world-checkpoint` to await an explicit confirmed checkpoint and
 `op=world-recover` to discard pending local state, restore fresh confirmed native
