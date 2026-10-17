@@ -11,7 +11,8 @@
 import { createHash } from 'node:crypto';
 
 const SCHEMA = 'urn:interego:gaming:stream:v1';
-const RECEIPT_SCHEMA = 'urn:interego:gaming:operation:v1';
+const LEGACY_RECEIPT_SCHEMA = 'urn:interego:gaming:operation:v1';
+const RECEIPT_SCHEMA = 'urn:interego:gaming:operation:v2';
 const CONTENT_TYPE = 'application/vnd.interego.gaming-state+json';
 const REVISION = /^sha256:[a-f0-9]{64}$/;
 const MAX_NATIVE_BYTES = 8 * 1024 * 1024;
@@ -396,13 +397,17 @@ export class InteregoGamingStore {
     return this.artifactCodec.createNativeByteArtifact({ owner: this.owner, contentType: CONTENT_TYPE,
       bytes: boundedBytes(value, this.maxRecordBytes, 'Gaming record') });
   }
-  async replay(snapshot, keys, streamId, inputDigest) {
+  async replay(snapshot, keys, streamId, inputDigest, submitted) {
     const prior = await this.record(snapshot, keys.operation);
     if (!prior) return null;
-    if (prior.schema !== RECEIPT_SCHEMA || prior.streamId !== streamId || prior.operationId !== keys.operationId
+    if (![RECEIPT_SCHEMA, LEGACY_RECEIPT_SCHEMA].includes(prior.schema) || prior.streamId !== streamId || prior.operationId !== keys.operationId
       || typeof prior.inputDigest !== 'string') fail('Native operation record is malformed.', 'CORRUPT_DURABLE_STATE', 503);
     if (prior.inputDigest !== inputDigest) fail('Idempotency key was already used for a different gaming operation.', 'IDEMPOTENCY_CONFLICT', 409);
-    const result = this.streamRecord(prior.result, streamId);
+    // The caller supplies exactly the input bound by the durable digest. Rebuild
+    // its result rather than retaining another complete state in every receipt.
+    if (prior.schema === RECEIPT_SCHEMA && (prior.resultVersion !== submitted.version
+      || prior.resultDigest !== hash(canonical(submitted)))) fail('Native operation result binding is invalid.', 'CORRUPT_DURABLE_STATE', 503);
+    const result = this.streamRecord(prior.schema === LEGACY_RECEIPT_SCHEMA ? prior.result : submitted, streamId);
     if (!result || result.operationId !== keys.operationId) fail('Native operation result is malformed.', 'CORRUPT_DURABLE_STATE', 503);
     return this.view(result, snapshot.revision, true);
   }
@@ -415,13 +420,13 @@ export class InteregoGamingStore {
     const inputDigest = hash(canonical({ expectedVersion, state: cleanState, event: cleanEvent }));
     const next = { schema: SCHEMA, namespace: this.namespace, streamId, version: expectedVersion + 1,
       state: cleanState, event: cleanEvent, operationId: keys.operationId };
-    const receipt = { schema: RECEIPT_SCHEMA, namespace: this.namespace, streamId, operationId: keys.operationId, inputDigest, result: next };
+    const receipt = { schema: RECEIPT_SCHEMA, namespace: this.namespace, streamId, operationId: keys.operationId, inputDigest, resultVersion: next.version, resultDigest: hash(canonical(next)) };
     const selectedKeys = Object.freeze([keys.stream, keys.operation].sort()), selected = typeof this.nativeClient.readHeadRecords === 'function';
     // Check both records' bounds before making any native writes.
     boundedBytes(next, this.maxRecordBytes, 'Gaming stream'); boundedBytes(receipt, this.maxRecordBytes, 'Gaming receipt');
     return this.admitCommit(async () => {
     for (let attempt = 0; attempt <= this.conflictRetries; attempt++) {
-      const snapshot = await this.snapshot(selectedKeys), replayed = await this.replay(snapshot, keys, streamId, inputDigest);
+      const snapshot = await this.snapshot(selectedKeys), replayed = await this.replay(snapshot, keys, streamId, inputDigest, next);
       if (replayed) return replayed;
       const current = this.streamRecord(await this.record(snapshot, keys.stream), streamId);
       if ((current?.version ?? 0) !== expectedVersion) throw new DurableStoreConflictError(expectedVersion, current?.version ?? 0);
@@ -433,7 +438,7 @@ export class InteregoGamingStore {
           fail('Native gaming receipt is not bound to this operation.', 'COMMIT_UNCERTAIN', 503);
         }
         this.checkedSnapshot(committed.snapshot, selected ? selectedKeys : undefined);
-        const confirmed = await this.replay(committed.snapshot, keys, streamId, inputDigest);
+        const confirmed = await this.replay(committed.snapshot, keys, streamId, inputDigest, next);
         if (!confirmed) fail('Native gaming operation lacks durable readback.', 'COMMIT_UNCERTAIN', 503);
         return { ...confirmed, replayed: Boolean(committed.replayed) };
       } catch (error) {
@@ -442,7 +447,7 @@ export class InteregoGamingStore {
         let recoveredSnapshot;
         try { recoveredSnapshot = await this.snapshot(selectedKeys); }
         catch { fail('Gaming commit outcome is uncertain; retry the same idempotency key.', 'COMMIT_UNCERTAIN', 503); }
-        const recovered = await this.replay(recoveredSnapshot, keys, streamId, inputDigest);
+        const recovered = await this.replay(recoveredSnapshot, keys, streamId, inputDigest, next);
         if (recovered) return recovered;
         const latest = this.streamRecord(await this.record(recoveredSnapshot, keys.stream), streamId);
         if ((latest?.version ?? 0) !== expectedVersion) throw new DurableStoreConflictError(expectedVersion, latest?.version ?? 0);

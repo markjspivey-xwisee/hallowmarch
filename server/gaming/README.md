@@ -57,7 +57,7 @@ first real durable world commit succeeds. Missing storage never enables a
 test store in production.
 
 The game Dockerfile builds `@interego/core`, `@interego/solid` and `@interego/pgsl`
-from reviewed Interego commit `aeabd6f2fe95524993ef94d7579debd26e39eac7`
+from reviewed Interego commit `4f3c537713da8636672fd6fe3c207142e2e142c4`
 ([PR 631](https://github.com/markjspivey-xwisee/interego/pull/631)).
 Its committed npm lockfile pins the SDK's transitive dependencies. The native
 commit store, artifact codec and encryption exports are checked during the image
@@ -183,7 +183,43 @@ The pinned native SDK supports verified selected-record reads, which the game
 adapter uses for each stream and exact operation receipt instead of enumerating
 the whole scope index. Strict mode persists a full state snapshot per accepted
 command; realtime mode coalesces pending commands
-into full checkpoint snapshots outside the gameplay queue. Native operation history grows; room replay
+into full checkpoint snapshots outside the gameplay queue. The main world/season
+bridge defaults to a 30-second native checkpoint cadence (`HM_WORLD_CHECKPOINT_MS`
+can override it). Empty-world background ticks capture at most once per five
+minutes; the simulation continues and recovery catches up from `savedAt`. Player
+and admin mutations still capture immediately for the next checkpoint, and
+shutdown drains the latest state. A crash can therefore lose up to the pending
+checkpoint window, or approximately five minutes plus the checkpoint interval of background simulation.
+Status marks background captures as deferred rather than claiming they are durable.
+
+The configured multiplayer provider now keeps current streams, compact operation
+receipts and one checkpoint per minute for a rolling hour inside one encrypted,
+revision-guarded native resource. It creates no permanent per-operation artifact
+or commit files. Current streams survive history expiry. Rollback restores only
+the shared world/season stream at a new version; current player bindings and
+agent grants remain current. Rollback does not restore browser-owned characters
+or turn elected-keeper combat into an authoritative server simulation.
+
+The envelope is bound to its owner, namespace and exact head URL; the SDK also
+binds ciphertext to the full native scope. Limits are 61 checkpoints, 16,384 current
+streams, 16,384 hourly receipts, 384 KiB compressed JSON and 1 MiB encrypted native
+bytes. Successful saves share a persisted 64 MiB encrypted-write budget per
+rolling hour, retained conservatively through 61 minute buckets. Exact retries
+do not charge twice; concurrent writers share the same CAS-bound reservations.
+The SDK refuses any write larger than its reserved encrypted bytes before PUT. Capacity failures preserve the confirmed head and report an error rather
+than silently shortening the rollback window or dropping active streams. Retries
+require the exact original operation input, and historical idempotency receipts
+expire after one hour. Status reports the bounded mode and checkpoint count.
+
+Startup verifies and migrates every current legacy stream with one CAS on the
+existing head. The rolling window starts at cutover; previous immutable artifacts
+are not silently treated as a complete prior hour. Old-format clients refuse the
+new head. Do not roll back to an old binary after cutover without a verified
+reverse migration. Retire old `/gaming/artifacts/` resources only after a verified
+cutover and owner-scoped preview. Shared-store collection must still reclaim
+superseded physical nodes; one resource bounds live history, not the database's
+physical bytes between collector runs. Deploy the collector's pagination and
+bounded-memory fixes before relying on collection. Room replay
 responses retain 1,024 commands and recent event metrics cover a 256-event window.
 The game transport retains at most 512 immutable ciphertext responses and 8 MiB
 including their metadata, keyed by the native SHA-256 artifact/commit URL.
@@ -191,7 +227,7 @@ Mutable heads and every write still go to native storage; the first verification
 read after a write also goes to storage. A new process starts with an empty cache.
 This bounded encounter still does not establish an MMO tick rate or player
 capacity. Live action latency, checkpoint lag and cold recovery require separate
-measurements. Further work includes native history compaction, fixed simulation
+measurements. Further work includes measured physical collection cadence, fixed simulation
 ticks, interpolation, room-leader coordination and load/fan-out
 benchmarks. Never advertise MMO-scale throughput from local fixture timings.
 

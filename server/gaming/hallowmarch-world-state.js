@@ -68,7 +68,7 @@ export function checkedWorldSnapshot(value, { keepCount, realmModule } = {}) {
 /** Domain composition only: no personal saves, credentials, roster, chat or
  * company files enter the snapshot. Call open before makeSeason or makeField. */
 export async function openHallowmarchWorldState({ nativeStore, files, dataDir, keepCount, realmModule,
-  checkpointIntervalMs = 1000, clock = Date.now } = {}) {
+  checkpointIntervalMs = 30000, clock = Date.now } = {}) {
   if (!files || !['read', 'write'].every(method => typeof files[method] === 'function') || !realmModule
     || typeof realmModule.realmSimSanitize !== 'function') invalid();
   const validate = value => checkedWorldSnapshot(value, { keepCount, realmModule });
@@ -78,16 +78,27 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     catch (error) { if (error.code === 'ENOENT') return fallback; invalid(); }
   }
   const initial = validate(await bridge.start({ seed: () => validate({ worlds: strictRead('worlds.json', {}), season: strictRead('season.json', null) }) }));
-  let attached = null, captureFailure = false, closing = false;
-  const status = () => ({ ...bridge.status(), enabled: true, mode: 'native', scope: 'world-and-season',
+  let attached = null, captureFailure = false, closing = false, rollingBack = false, backgroundCaptureDeferred = false, lastCaptureAt = clock();
+  const idleCaptureIntervalMs = 5 * 60 * 1000;
+  const status = () => ({ ...bridge.status(), backgroundCaptureDeferred,
+    ...(backgroundCaptureDeferred ? { durable: false } : {}), enabled: true, mode: 'native', scope: 'world-and-season',
     snapshotOwnershipMigrated: true, realtimeAuthority: 'elected-page-region-keepers', authoritativeCombat: false,
     teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false,
-    fenced: captureFailure || ['conflict', 'recovering'].includes(bridge.status().state),
+    fenced: rollingBack || captureFailure || ['conflict', 'recovering'].includes(bridge.status().state),
     ...(captureFailure ? { durable: false, error: 'WORLD_SNAPSHOT_REJECTED' } : {}) });
   const canMutate = () => !closing && !status().fenced;
   function assertMutable() { if (!canMutate()) throw new OwnedStateError('WORLD_FENCED', 'World persistence needs recovery before play can continue.'); }
-  function capture() {
+  function capture({ background = false } = {}) {
     if (!attached) invalid();
+    // The season keeps simulating while empty, but its deterministic background
+    // ticks do not need a new encrypted snapshot every few seconds. A crash
+    // catches up from savedAt; explicit player/admin mutations still capture.
+    const occupied = [...attached.rooms.values()].some(room => !room.diagnostic && room.clients.size > 0);
+    if (background && !occupied && clock() - lastCaptureAt < idleCaptureIntervalMs) {
+      backgroundCaptureDeferred = true; return { changed: false, deferred: true };
+    }
+    backgroundCaptureDeferred = false;
+    lastCaptureAt = clock();
     try {
       return bridge.capture(validate({ worlds: attached.worlds,
         season: attached.season.RS ? { ...attached.season.RS, savedAt: attached.season.lastStep } : null }));
@@ -99,7 +110,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     target[name] = function (...args) {
       assertMutable();
       try { return original.apply(this, args); }
-      finally { capture(); }
+      finally { capture({ background: name === 'step' }); }
     };
   }
   const store = { read(name, fallback) {
@@ -107,7 +118,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     if (name === 'season.json') return structuredClone(initial.season);
     return files.read(name, fallback);
   }, write(name, value) {
-    if (name === 'worlds.json' || name === 'season.json') { assertMutable(); capture(); return; }
+    if (name === 'worlds.json' || name === 'season.json') { assertMutable(); capture({ background: name === 'season.json' }); return; }
     files.write(name, value);
   } };
   function attach({ worlds, season, field, rooms }) {
@@ -140,8 +151,26 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     captureFailure = false; capture();
     return status();
   }
-  async function shutdown(options) { closing = true; return bridge.shutdown(options); }
-  return { store, attach, capture, canMutate, assertMutable, recover, shutdown, status, checkpoint: bridge.checkpoint };
+  async function shutdown(options) {
+    if (!closing && attached) capture();
+    closing = true; return bridge.shutdown(options);
+  }
+  async function rollback(at, options) {
+    if (!attached || !canMutate() || typeof nativeStore?.restoreWorldAt !== 'function') invalid();
+    // Pause all world mutations before draining the last pending checkpoint.
+    // Restore durably first, then reuse verified host recovery for every room.
+    capture(); rollingBack = true;
+    try {
+      await bridge.checkpoint(); await bridge.checkpoint();
+      const result = await nativeStore.restoreWorldAt(at, options);
+      await recover();
+      rollingBack = false;
+      return { ...result, persistence: status() };
+    } catch (error) { if (![400, 410, 413].includes(error.status)) captureFailure = true; throw error; }
+    finally { rollingBack = false; }
+  }
+  return { store, attach, capture, canMutate, assertMutable, recover, rollback,
+    rollbackCheckpoints: () => nativeStore?.rollbackCheckpoints?.() ?? [], shutdown, status, checkpoint: bridge.checkpoint };
 }
 
 /** Read-only bridge discovery; snapshot bodies remain encrypted in the game pod. */

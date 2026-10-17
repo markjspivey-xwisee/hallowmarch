@@ -17,9 +17,9 @@ FROM node:22-slim AS interego
 WORKDIR /opt/interego
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN git init . && git remote add origin https://github.com/markjspivey-xwisee/interego.git \
-    && git fetch --depth 1 origin aeabd6f2fe95524993ef94d7579debd26e39eac7 \
+    && git fetch --depth 1 origin 4f3c537713da8636672fd6fe3c207142e2e142c4 \
     && git checkout --detach FETCH_HEAD \
-    && test "$(git rev-parse HEAD)" = aeabd6f2fe95524993ef94d7579debd26e39eac7
+    && test "$(git rev-parse HEAD)" = 4f3c537713da8636672fd6fe3c207142e2e142c4
 RUN npm ci --workspace @interego/core --workspace @interego/solid --workspace @interego/pgsl --include-workspace-root=false --ignore-scripts --no-audit --no-fund \
     && npm run build --workspace @interego/core \
     && npm run build --workspace @interego/solid \
@@ -45,7 +45,7 @@ RUN mkdir -p server/node_modules/@interego \
     && ln -s /opt/interego/packages/core server/node_modules/@interego/core \
     && ln -s /opt/interego/packages/solid server/node_modules/@interego/solid \
     && ln -s /opt/interego/packages/pgsl server/node_modules/@interego/pgsl \
-    && node --input-type=module -e "const n=await import('/opt/interego/packages/pgsl/dist/index.js');const c=await import('/opt/interego/packages/core/dist/index.js');const s=await import('/opt/interego/packages/solid/dist/index.js');if(typeof s.digestedGraphRegion!=='function'||typeof s.parseAuthorshipProofFromDescriptorTurtle!=='function'||typeof s.parseDistributionFromDescriptorTurtle!=='function'||typeof n.NativeCommitStore!=='function'||typeof n.NativeCommitStore.prototype.readHeadRecords!=='function'||typeof n.createNativeByteArtifact!=='function'||typeof n.readNativeByteArtifact!=='function'||typeof c.deriveEncryptionKeyPair!=='function')throw Error('Native SDK contract unavailable')"
+    && node --input-type=module -e "const n=await import('/opt/interego/packages/pgsl/dist/index.js');const c=await import('/opt/interego/packages/core/dist/index.js');const s=await import('/opt/interego/packages/solid/dist/index.js');if(typeof s.digestedGraphRegion!=='function'||typeof s.parseAuthorshipProofFromDescriptorTurtle!=='function'||typeof s.parseDistributionFromDescriptorTurtle!=='function'||typeof n.NativeCommitStore!=='function'||typeof n.NativeCommitStore.prototype.readHeadRecords!=='function'||typeof n.NativeCommitStore.prototype.commitAtomicCheckpoint!=='function'||typeof n.NativeCommitStore.prototype.atomicCheckpointSize!=='function'||typeof n.NativeCommitStore.prototype.readAtomicCheckpoint!=='function'||typeof n.createNativeByteArtifact!=='function'||typeof n.readNativeByteArtifact!=='function'||typeof c.deriveEncryptionKeyPair!=='function')throw Error('Native SDK contract unavailable')"
 COPY server/*.js ./server/
 COPY server/gaming ./server/gaming
 COPY client/native-pod ./client/native-pod

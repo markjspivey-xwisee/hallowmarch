@@ -480,3 +480,33 @@ test('transport deadline bounds stalled credentials and body reads; errors do no
   await assert.rejects(bodyWait(f.scope.headUrl), error => error.code === 'DURABILITY_UNAVAILABLE' && !error.message.includes('secret-value'));
   assert.equal(cancelled, true);
 });
+
+
+test('compact receipts avoid payload duplication and cold replay authenticates the exact historical input', async t => {
+  const f = await fixture(t), store = f.store();
+  const input = { expectedVersion: 0, state: { payload: 'large-state-marker'.repeat(4000) }, event: { type: 'checkpoint' }, idempotencyKey: 'large-first' };
+  const first = await store.commit('world', input), keys = store.keys('world', input.idempotencyKey);
+  const snapshot = await store.snapshot([keys.operation]);
+  const receipt = await store.record(snapshot, keys.operation);
+  assert.equal(receipt.schema, 'urn:interego:gaming:operation:v2');
+  assert.equal(Object.hasOwn(receipt, 'result'), false);
+  assert.ok(JSON.stringify(receipt).length < 1000, 'operation proof does not grow with snapshot payload');
+  await store.commit('world', { expectedVersion: 1, state: { payload: 'new' }, idempotencyKey: 'second' });
+  const replayed = await f.store().commit('world', input);
+  assert.equal(replayed.version, first.version); assert.deepEqual(replayed.state, input.state);
+  assert.deepEqual(replayed.events, [input.event]); assert.equal(replayed.replayed, true);
+  await assert.rejects(f.store().commit('world', { ...input, event: { type: 'changed' } }), { code: 'IDEMPOTENCY_CONFLICT' });
+});
+
+test('legacy full-result operation receipts remain replayable after the compact receipt upgrade', async t => {
+  const f = await fixture(t), store = f.store(), input = { expectedVersion: 0, state: { keep: 3 }, idempotencyKey: 'legacy' };
+  await store.commit('world', input);
+  const keys = store.keys('world', input.idempotencyKey), snapshot = await store.snapshot([keys.stream, keys.operation]);
+  const receipt = await store.record(snapshot, keys.operation), stream = await store.record(snapshot, keys.stream);
+  const legacy = { ...receipt, schema: 'urn:interego:gaming:operation:v1', result: stream };
+  delete legacy.resultVersion; delete legacy.resultDigest;
+  await store.nativeClient.commit({ operationId: 'fixture-upgrade-history', expected: snapshot,
+    changes: [{ key: keys.operation, artifact: store.artifact(legacy) }] });
+  const replayed = await f.store().commit('world', input);
+  assert.equal(replayed.replayed, true); assert.equal(replayed.version, 1); assert.deepEqual(replayed.state, input.state);
+});

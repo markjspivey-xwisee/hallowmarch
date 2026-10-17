@@ -1,4 +1,4 @@
-import { createInteregoStore } from './interego-store.js';
+import { createRollingMultiplayerStore } from './rolling-multiplayer-store.js';
 import { createGameServiceIdentity } from './service-identity.js';
 
 /** Deployment composition only. Dedicated service settings must be provisioned;
@@ -27,7 +27,7 @@ export async function configuredGamingStore(env = process.env, modules) {
   const native = modules?.native || await import('@interego/pgsl');
   const core = modules?.core || await import('@interego/core');
   const senderKeyPair = core.deriveEncryptionKeyPair(settings.PRIVATE_KEY, settings.OWNER);
-  const store = createInteregoStore({ native, namespace: 'hallowmarch-shared-expedition-v1',
+  const store = createRollingMultiplayerStore({ native, namespace: 'hallowmarch-shared-expedition-v1',
     scope: { pod: pod.href, owner: settings.OWNER, headUrl: env.HM_GAMING_NATIVE_HEAD_URL || new URL('gaming/head', pod).href,
       artifactContainer: env.HM_GAMING_NATIVE_ARTIFACT_CONTAINER || new URL('gaming/artifacts/', pod).href },
     senderKeyPair, ownerPublicKey: settings.OWNER_PUBLIC_KEY, recipientPublicKeys: [...new Set([settings.OWNER_PUBLIC_KEY, senderKeyPair.publicKey])],

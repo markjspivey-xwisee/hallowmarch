@@ -103,7 +103,7 @@ catch {
 const WORLD_STATE = worldPersistenceMode === 'native' ? await openHallowmarchWorldState({
   nativeStore: gamingStore, files: fileStore, dataDir: CFG.data, keepCount: WORLD.keepCount,
   realmModule: loadRealmModule(CFG.src, CFG.here),
-  checkpointIntervalMs: +(gamingEnvironment.HM_WORLD_CHECKPOINT_MS || 1000),
+  checkpointIntervalMs: +(gamingEnvironment.HM_WORLD_CHECKPOINT_MS || 30000),
 }) : null;
 const store = WORLD_STATE?.store || fileStore;
 const worldPersistenceStatus = () => WORLD_STATE?.status() || { enabled: false, mode: 'legacy',
@@ -797,6 +797,18 @@ const server = http.createServer(async (req, res) => {
     const got = String(req.headers['x-hm-admin'] || '');
     if (!key || got.length !== key.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key))) { give(403, { ok: false }); return; }
     const op = u.searchParams.get('op'), i = +u.searchParams.get('i'), r = +u.searchParams.get('r');
+    if (op === 'world-rollback-checkpoints' && WORLD_STATE) {
+      try { give(200, { ok: true, checkpoints: await WORLD_STATE.rollbackCheckpoints() }); }
+      catch { give(503, { ok: false }); } return;
+    }
+    if (op === 'world-rollback' && WORLD_STATE) {
+      try {
+        const result = await WORLD_STATE.rollback(Number(u.searchParams.get('at')), { idempotencyKey: req.headers['idempotency-key'] });
+        for (const ws of wss.clients) ws.close(1012, 'Shared world restored; reconnect');
+        give(200, { ok: true, ...result });
+      } catch (error) { give(error.status || 503, { ok: false, error: error.code || 'ROLLBACK_UNCONFIRMED', persistence: worldPersistenceStatus() }); }
+      return;
+    }
     if (op === 'world-recover' && WORLD_STATE) {
       try {
         const persistence = await WORLD_STATE.recover();
