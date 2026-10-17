@@ -53,7 +53,7 @@ jobs:
           case "$CHECK" in
             headless)
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
-              node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs
+              node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
               node tools/tests/wasm_lp.js n=4000 seed=1 time

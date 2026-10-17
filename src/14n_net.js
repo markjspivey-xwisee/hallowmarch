@@ -24,7 +24,7 @@ const NET = {
   connectP: null, retryAt: 0, retryDelay: 1000,
   link: null, self: '', since: Date.now(), peers: new Map(),
   fastAt: 0, slowAt: 0, slowKey: '', fastKey: '', seq: 0, lastFast: null,
-  out: [], evSeq: 0, inbox: [],
+  out: [], evSeq: 0, inbox: [], socialTimer: 0, socialScope: null,
   party: '', partyLead: false, invites: [], partyMax: 6,
   host: '', isHost: false, applyingWorld: false, srvWorld: null, srvWorldDone: false, worldKey: '', worldT: 0, capAsked: new Map(), regions: null, // [net] the regions' keepers (14p_netws.js)
   vel: { x: 0, z: 0, px: 0, pz: 0, t: 0 },
@@ -141,6 +141,7 @@ function netPeerUpdate(peer, info) {
       if (f.s !== R.lastFS) { R.lastFS = f.s; netBufPush(R, f); }
       if (f.ev) for (const ev of f.ev) if (ev[0] > R.lastEv) { R.lastEv = ev[0]; NET.inbox.push([peer, ev]); }
       if (NET.inbox.length > 400) NET.inbox.splice(0, NET.inbox.length - 400);
+      if (netOn() && NET.link.kind === 'ws' && GAME.started && GAME.player) netInbox(true);
     } else if (info.fast === null || info.fast === undefined) R.fast = null;
   }
 }
@@ -149,6 +150,7 @@ function netPeerEvents(peer, evs) {
   const R = NET.peers.get(peer);
   if (!R || !Array.isArray(evs)) return;
   for (const ev of evs.slice(-NET.cfg.ringMax - 4)) if (Array.isArray(ev) && ev.length >= 3 && Number.isFinite(ev[0]) && typeof ev[1] === 'string' && ev[0] > R.lastEv) { R.lastEv = ev[0]; NET.inbox.push([peer, ev]); }
+  if (netOn() && NET.link.kind === 'ws' && GAME.started && GAME.player) netInbox(true);
 }
 function netPeerFastGone(peer) { const R = NET.peers.get(peer); if (R) { R.fast = null; R.buf.length = 0; } }
 function netPeerLeft(peer) {
@@ -336,12 +338,76 @@ function netFastObj(now) {
 // stays in the ring longer than a blow's: a page busy for a few seconds (a long frame, a phone in a pocket) still finds it
 // in the latest state it reads, which is all presence keeps
 const NET_EV_KEEP = { inv: 9000, pa: 9000, say: 9000, die: 9000, cap: 9000, land: 6000 };
+const netSocialKind = (kind) => kind === 'inv' || kind === 'pa' || kind === 'say';
+const netSocialPending = () => NET.out.some((x) => x.social && x.sentAt === null && netSocialCurrent(x.social));
+const netSocialCurrent = (scope) => scope && scope.link === NET.link && scope.generation === NETWS.generation && scope.socket === NETWS.ws && scope.player === GAME.player && scope.realm === GAME.player?.faction && (scope.party == null || scope.party === NET.party);
+// Social actions must reach the socket without waiting for a rendered frame.
+// Use the same bounded fast-state ring and sequence; no separate protocol or replay.
+function netSocialSoon() {
+  if (!netOn() || NET.link.kind !== 'ws' || !GAME.started || !GAME.player) return;
+  if (NET.socialTimer && netSocialCurrent(NET.socialScope)) return;
+  clearTimeout(NET.socialTimer);
+  const scope = NET.socialScope = { link: NET.link, generation: NETWS.generation, socket: NETWS.ws, player: GAME.player, realm: GAME.player.faction };
+  NET.socialTimer = setTimeout(() => {
+    if (NET.socialScope !== scope) return; // a replaced timer cannot clear its successor
+    NET.socialTimer = 0; NET.socialScope = null;
+    if (!netSocialCurrent(scope) || !netOn() || !GAME.started || !netSocialPending()) return;
+    const now = performance.now();
+    if (now - NET.fastAt < 1000 / NET.cfg.fastHz) { netSocialSoon(); return; }
+    try {
+      const ready = netSendSlow(now, true); // realm and party metadata precede the event they scope
+      if (ready !== false && netSocialCurrent(scope) && netOn()) netSendFast(now);
+    } catch (error) { reportError(error); }
+  }, Math.max(0, NET.fastAt + 1000 / NET.cfg.fastHz - performance.now()));
+}
 function netEvent(kind, to, data) {
   if (!netOn()) return;
+  const now = performance.now(), social = NET.link.kind === 'ws' && netSocialKind(kind);
   NET.evSeq++;
-  NET.out.push({ e: [NET.evSeq, kind, to || 0, data], t: performance.now(), k: NET_EV_KEEP[kind] || NET.cfg.ringT });
+  NET.out.push({ e: [NET.evSeq, kind, to || 0, data], t: now, k: NET_EV_KEEP[kind] || NET.cfg.ringT,
+    ...(social ? { social: { link: NET.link, generation: NETWS.generation, socket: NETWS.ws, player: GAME.player, realm: GAME.player?.faction,
+      party: kind === 'say' ? (Array.isArray(data) && data[0] === 'p' ? data[2] : null) : NET.party }, sentAt: null } : {}) });
   NET.stats.evOut++;
-  NET.fastAt = Math.min(NET.fastAt, performance.now() - 1000 / NET.cfg.fastHz + 30); // out within a few hundredths
+  if (social) {
+    while (NET.out.length > NET.cfg.ringMax) { NET.out.shift(); NET.stats.sizeTrim++; }
+    netSocialSoon();
+  } else NET.fastAt = Math.min(NET.fastAt, now - 1000 / NET.cfg.fastHz + 30);
+}
+function netSendSlow(now, force = false) {
+  if (!force && now - NET.slowAt <= NET.cfg.slowEvery * 1000) return true;
+  NET.slowAt = now;
+  const o = netSlowObj(), k = JSON.stringify(o);
+  if (k !== NET.slowKey) {
+    NET.stats.slowSent++; NET.stats.upBytes += k.length;
+    if (NET.link.setSlow(o) === false) { NET.slowKey = ''; return false; }
+    NET.slowKey = k;
+  }
+  return true;
+}
+function netSendFast(now) {
+  if (!GAME.player || !GAME.started || now - NET.fastAt < 1000 / NET.cfg.fastHz) return;
+  NET.fastAt = now;
+  // An unsent social action cannot expire during its first long frame. Once
+  // attempted, keep the usual short dedup ring; never carry it to another socket.
+  if (NET.out.length) NET.out = NET.out.filter((x) => x.social
+    ? netSocialCurrent(x.social) && (x.sentAt === null || now - x.sentAt <= x.k)
+    : now - x.t <= x.k);
+  while (NET.out.length > NET.cfg.ringMax) NET.out.shift();
+  const o = netFastObj(now);
+  const key = JSON.stringify([o.p, o.y, o.v, o.a, o.h, o.m, o.d, o.mo, o.ph, o.sw, o.st, o.cs, o.fl, o.tg, NET.evSeq]);
+  if (key !== NET.fastKey) {
+    NET.fastKey = key;
+    o.s = ++NET.seq;
+    o.ev = NET.out.map((x) => x.e);
+    let s = JSON.stringify(o);
+    while (s.length > 3700 && o.ev.length) { o.ev.shift(); NET.out.shift(); NET.stats.sizeTrim++; s = JSON.stringify(o); }
+    // Mark before invoking the transport: a thrown/unknown send is not a new
+    // pending action, and must not cause a second event sequence on reconnect.
+    for (const x of NET.out) if (x.social && x.sentAt === null) x.sentAt = now;
+    NET.stats.fastSent++; NET.stats.upBytes += s.length;
+    NET.lastFast = o;
+    NET.link.setFast(o);
+  }
 }
 function netPump(dt) {
   // Retry initial server failures only after boot. A valid room link keeps its
@@ -352,31 +418,7 @@ function netPump(dt) {
   netHostElect();
   netInbox();
   netGhosts();
-  const P = GAME.player;
-  // the profile when it has changed (looked at once a second)
-  if (now - NET.slowAt > NET.cfg.slowEvery * 1000) {
-    NET.slowAt = now;
-    const o = netSlowObj(), k = JSON.stringify(o);
-    if (k !== NET.slowKey) { NET.slowKey = k; NET.stats.slowSent++; NET.stats.upBytes += k.length; NET.link.setSlow(o); }
-  }
-  // the fast state ten times a second while anything changes
-  if (P && GAME.started && now - NET.fastAt >= 1000 / NET.cfg.fastHz) {
-    NET.fastAt = now;
-    if (NET.out.length) NET.out = NET.out.filter((x) => now - x.t <= x.k);
-    while (NET.out.length > NET.cfg.ringMax) NET.out.shift();
-    const o = netFastObj(now);
-    const key = JSON.stringify([o.p, o.y, o.v, o.a, o.h, o.m, o.d, o.mo, o.ph, o.sw, o.st, o.cs, o.fl, o.tg, NET.evSeq]);
-    if (key !== NET.fastKey) {
-      NET.fastKey = key;
-      o.s = ++NET.seq;
-      o.ev = NET.out.map((x) => x.e);
-      let s = JSON.stringify(o);
-      while (s.length > 3700 && o.ev.length) { o.ev.shift(); NET.out.shift(); NET.stats.sizeTrim++; s = JSON.stringify(o); } // presence holds 4 KiB
-      NET.stats.fastSent++; NET.stats.upBytes += s.length;
-      NET.lastFast = o;
-      NET.link.setFast(o);
-    }
-  }
+  if (netSendSlow(now, netSocialPending()) !== false) netSendFast(now);
   netDeathWatch();
   netWorldKeep(now);
 }
@@ -498,10 +540,11 @@ function netCaptureHeld(K, realm) {
 /* ------------------------------------------------------------------ */
 /* what they do to you                                                 */
 /* ------------------------------------------------------------------ */
-function netInbox() {
+function netInbox(socialOnly = false) {
   if (!NET.inbox.length) return;
   const list = NET.inbox.splice(0, NET.inbox.length);
   for (const [peer, ev] of list) {
+    if (socialOnly && !netSocialKind(ev[1])) { NET.inbox.push([peer, ev]); continue; }
     const to = ev[2];
     if (to && to !== NET.self) continue;
     const R = NET.peers.get(peer);
