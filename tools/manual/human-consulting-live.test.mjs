@@ -5,11 +5,12 @@ import { spawnSync } from 'node:child_process';
 import { createHumanConsultingLiveQa, guardHumanConsultingOwner, installHumanConsultingObserver,
   disposeHumanConsultingObserver, readHumanConsultingPlan, inspectHumanConsultingFollowup } from './human-consulting-live.mjs';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION } from '../../client/native-pod/foxxi-consulting.mjs';
+import { signingDelegationFixture } from '../../client/native-pod/signing-delegation.fixture.mjs';
 
 // All accounts, plans, native ports and pages in this file are isolated test
 // fixtures. No browser, network, credential store or live service is invoked.
 const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example';
-const owner = { accountId: 'owner', subjectDid: 'did:example:owner', podUrl: 'https://pods.example/owner/' };
+const owner = { accountId: 'owner', subjectDid: 'did:web:identity.example:users:owner', podUrl: 'https://pods.example/owner/' };
 const descriptor = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance';
 const action = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/contextualize-and-plan-signed';
 const passFlags = () => Object.fromEntries(['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
@@ -133,7 +134,7 @@ for (const fault of ['unknownKey', 'outcomeFailure', 'secondFailure']) test('unc
 });
 
 function browserFixture({ observed = true } = {}) {
-  const clicks = [], status = { bound: true, verified: true, account: { id: owner.accountId }, binding: { subjectDid: owner.subjectDid, podUrl: owner.podUrl, authenticatedAgentDid: 'did:example:human-delegate' } };
+  const clicks = [], status = { bound: true, verified: true, account: { id: owner.accountId }, binding: { subjectDid: owner.subjectDid, podUrl: owner.podUrl, authenticatedAgentDid: 'did:web:identity.example:agents:human-delegate-owner' } };
   const snapshot = { current: { id: 'milestone:combat', title: 'Survive a first fight', desiredResult: 'Complete an observed fight safely', observedResult: 'No fight outcome observed',
     workContext: 'Actual owner-browser gameplay observations for milestone:combat.', interventions: [{ id: 'combat-guide', title: 'Read the combat guide' }] }, revision: 1 };
   const metrics = { healthPercent: 100, level: 1, creatureDefeats: 0, deaths: 0, activePlaySeconds: 1, nearbyHostiles: 0, ownedCompanions: 0 };
@@ -428,17 +429,24 @@ test('stable binding CID with changed native revision cannot pass independent jo
 });
 test('actual Foxxi adapter strict focus mapping agrees with passive helper capture and stable private task', async () => {
   const f = browserFixture({ observed: false });
+  const nativeCalls = [], signing = signingDelegationFixture({ ownerDid: owner.subjectDid,
+    agentDid: f.status.binding.authenticatedAgentDid, podUrl: owner.podUrl });
   const client = createFoxxiConsultant({ binding: f.status.binding, relayUrl: relayOrigin, sessionId: 'fixture-session',
     journal: { authorize() {}, assertAuthorized() {} }, transport: {
       async connect(required) { return { granted: required }; },
-      async callTool(name) {
-        if (name === 'get_pod_status') return { identity: { did: owner.subjectDid }, sessionAgent: { did: f.status.binding.authenticatedAgentDid }, pod: owner.podUrl, userId: 'owner' };
+      async callTool(name, args) {
+        nativeCalls.push({ name, args: structuredClone(args) });
+        if (name === 'get_pod_status') return structuredClone(signing.status);
+        if (name === 'verify_agent') return structuredClone(signing.verified);
         if (name === 'dereference') return { status: 'ok', affordances: [{ action: FOXXI_PLANNER_ACTION, method: 'POST', target: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan' }] };
         throw Error('This contract test must not sign or deliver.');
       },
     } });
   try {
     await client.connect();
+    assert.deepEqual(nativeCalls.find(call => call.name === 'verify_agent').args,
+      { agent_id: f.status.binding.authenticatedAgentDid, pod_url: owner.podUrl });
+    assert(!nativeCalls.some(call => ['register_agent', 'sign_request', 'act'].includes(call.name)));
     const focus = Object.fromEntries(['id', 'title', 'desiredResult', 'workContext'].map(key => [key, f.snapshot.current[key]]));
     const task = { id: 'urn:hallowmarch:play-session:fixture-session', desiredResult: 'Develop effective play through observed Hallowmarch activity and practical support.',
       workContext: 'Hallowmarch play-session coaching for the authenticated player and their separate party companion.', observedResult: f.payload.situation.observed, constraints: f.constraints };
