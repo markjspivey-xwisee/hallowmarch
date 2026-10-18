@@ -77,10 +77,11 @@ test('actual Agent access UI exposes only confirmed public connection fields and
   const record = { registered: true, reference: { grantId }, grant: { actor, applicationId, audience: origin, roomId: 'march', entityId,
     role: 'teammate', actions: ['observe', 'move', 'attack'], revoked: false, expiresAt: new Date(Date.now() + 600000).toISOString() } };
   const styles = (await readFile(new URL('../src/page.html', import.meta.url), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
-  const html = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>${styles}</style><div id="netsheet" class="overlay"><div class="sheet"></div></div><script>
+  const html = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><style>${styles}</style><div id="menu" class="overlay"><div class="sheet"><div id="menu-body"><div id="world-agent-mount"></div></div></div></div><script>
     window.__HM_GAMING=${JSON.stringify({ mainWorldAgents: { enabled: true, applicationId, audience: origin, affordances: origin + '/world/native-agents' } })};
-    window.__hm={};const GAME={started:true,player:{alive:true}},NETWS={acct:{id:'alice'},state:'on',worldRoom:'march',generation:1},UI={modal:'net'};
-    const NATIVE_PLAYER={status:{verified:true}},$=id=>document.getElementById(id),anCompanions=()=>[];
+    window.__hm={};const GAME={started:true,player:{alive:true}},NETWS={acct:{id:'alice'},state:'on',worldRoom:'march',generation:1},UI={modal:'menu',menuTab:'companion'};
+    const NATIVE_PLAYER={status:{bound:true,verified:true}},SAVE={native:true,readConfirmed:true},$=id=>document.getElementById(id),anCompanions=()=>[];
+    const openPlayerIdentity=()=>{throw Error('No identity setup is allowed in this fixture')};
     const CLASSES={warrior:{name:'Warrior'}},PARTY_COMPANION={record:{role:'follow'}};
     let party={id:${JSON.stringify(entityId)},name:'Rowan',entity:{alive:true,cls:'warrior',removed:false}};
     const partyCompanionMember=()=>party,partyCompanionBodies=()=>party&&!party.entity.removed?[party]:[],partyCompanionStop=()=>{};
@@ -104,7 +105,7 @@ test('actual Agent access UI exposes only confirmed public connection fields and
   assert.equal(await page.getByRole('link', { name: 'Agent discovery', exact: true }).getAttribute('target'), '_blank');
   const value = JSON.parse(await details.locator('textarea').inputValue());
   assert.deepEqual(value, { origin, applicationId, agentDid: actor, grantId, roomId: 'march', entityId, module: origin + '/world/agent-client.mjs' });
-  await details.getByRole('button', { name: 'Copy connection details', exact: true }).click();
+  await details.getByRole('button', { name: 'Copy raw connection details', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => JSON.parse(window.copied)), value);
   const focused = await page.evaluate(() => {
     const button = [...document.querySelectorAll('#world-agent-records button')].find(b => b.textContent === 'Revoke access');
@@ -113,7 +114,8 @@ test('actual Agent access UI exposes only confirmed public connection fields and
   });
   assert.equal(focused, true);
   assert.equal(await page.locator('#world-agent-advanced').getAttribute('open'), null);
-  assert.match(await page.locator('#world-agent-controls').innerText(), /Adding a companion alone does not connect a model/);
+  assert.match(await page.locator('#world-agent-controls').innerText(), /These built-in behaviors work without an LLM/);
+  assert.match(await page.locator('#world-agent-advanced').textContent(), /Granting access does not connect a subscription or start an agent/);
   assert.match(await page.locator('#world-agent-connection').innerText(), /Access ready.*control paused/);
   for (const width of [320, 390, 844]) {
     await page.setViewportSize({ width, height: 844 });
@@ -161,7 +163,7 @@ test('actual Agent access UI exposes only confirmed public connection fields and
   await page.evaluate(({ grantId }) => { fixture.state.records.get(grantId).localRevoked = true; fixture.render(); }, { grantId });
   assert.equal(await details.count(), 0);
   await page.evaluate(() => fixture.noParty());
-  assert.match(await page.locator('#world-agent-party').innerText(), /Step 1: add/);
+  assert.equal(await page.locator('#world-agent-party').innerText(), 'No companion yet. Add one to get started.');
   assert.equal(await page.locator('#world-agent-resume').isDisabled(), true);
   assert.deepEqual(errors, []);
 });
