@@ -13,10 +13,7 @@ export function createPersonalActivityLiveQa({ getPage, getOwner, relayOrigin, g
   const ensure = (ok, code) => { if (!ok) throw Object.assign(new Error('Personal activity live verification refused.'), { code }); };
   const show = async page => {
     if (!await page.locator('#menu').isVisible()) await page.locator('#btn-menu').click();
-    await page.locator('#menu-tabs [data-tab="chronicle"]').click();
-    await page.locator('.chron-nav [data-grp="you"]').click();
-    await page.locator('.chron-nav [data-sec="coach"]').click();
-    if (await page.locator('#march-coach-options').getAttribute('open') === null) await page.locator('#march-coach-options > summary').click();
+    await page.locator('#menu-tabs [data-tab="progress"]').click();
     await page.locator('#march-learning-record').waitFor({ state: 'visible', timeout: 15000 });
   };
   async function runOnce() {

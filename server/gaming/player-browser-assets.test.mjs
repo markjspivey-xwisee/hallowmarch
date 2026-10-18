@@ -33,3 +33,19 @@ test('activity modules expose exact authored bytes with fixed security headers a
     assert.equal(request('/gaming/identity/assets/' + name).status, 404);
   }
 });
+
+test('agent directory is an exact read-only JavaScript asset without neighboring file access', () => {
+  const path = '/gaming/identity/assets/agent-directory.mjs', response = request(path);
+  assert.equal(response.handled, true); assert.equal(response.status, 200);
+  assert.deepEqual(response.body, readFileSync(new URL('../../client/native-pod/agent-directory.mjs', import.meta.url)));
+  assert.equal(response.headers['Content-Type'], 'text/javascript; charset=utf-8');
+  assert.equal(response.headers['Cache-Control'], 'no-store');
+  assert.equal(response.headers['Referrer-Policy'], 'no-referrer');
+  assert.equal(response.headers['X-Content-Type-Options'], 'nosniff');
+  const head = request(path, 'HEAD');
+  assert.equal(head.status, 200); assert.deepEqual(head.headers, response.headers); assert.equal(head.body, undefined);
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) assert.equal(request(path, method).status, 404);
+  for (const name of ['agent-directory.test.mjs', 'agent-directory.fixture.mjs', 'agent-directory.mjs/anything', '../agent-directory.mjs', '%2e%2e/agent-directory.mjs']) {
+    assert.equal(request('/gaming/identity/assets/' + name).status, 404);
+  }
+});

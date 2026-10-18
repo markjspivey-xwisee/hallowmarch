@@ -57,6 +57,9 @@ test('one future ability follows durable enable/input fences, then Stop, exact r
     'control:input', 'key:1', 'control:stop', 'private-read', 'control:stopped', 'dispose'];
   let position = -1; for (const event of ordered) { const next = f.events.indexOf(event); assert(next > position, event); position = next; }
   assert.equal(f.events.filter(e => e === 'one-second').length, 35);
+  assert.equal(f.events.filter(e => e === 'click:#menu-tabs [data-tab="progress"]').length, 3);
+  assert(!f.events.some(e => /chron-nav|data-tab="chronicle"|march-coach-options/.test(e)),
+    'the personal record card is directly available in Progress without opening Foxxi guidance privacy');
   const count = f.events.length; await f.qa.run(); assert.equal(f.events.length, count);
   assert(!JSON.stringify(f.qa.status()).includes(owner.subjectDid));
 });

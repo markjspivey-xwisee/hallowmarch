@@ -214,6 +214,7 @@
   .seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); flex-wrap: wrap; }
   .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 999px; cursor: pointer; color: var(--ink-dim); font-weight: 500; }
   .seg button[aria-checked="true"] { background: var(--bronze-hi); color: #1b140b; }
+  #menu-tabs button { min-height: 44px; }
   .setrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
   .keys kbd { font: 700 12px var(--ui); padding: 2px 7px; border-radius: 3px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.4); white-space: nowrap; }
@@ -1440,6 +1441,8 @@
     <div class="menu-heading"><h2 id="menu-title">Hallowmarch</h2><button type="button" class="btn" id="menu-close" aria-label="Close menu">Close ×</button></div>
     <div class="seg" role="tablist" id="menu-tabs">
       <button type="button" data-tab="char" aria-checked="true">Character</button>
+      <button type="button" data-tab="companion" aria-checked="false">Companion</button>
+      <button type="button" data-tab="progress" aria-checked="false">Progress</button>
       <button type="button" data-tab="chronicle" aria-checked="false">Chronicle</button>
       <button type="button" data-tab="settings" aria-checked="false">Settings</button>
       <button type="button" data-tab="help" aria-checked="false">How to play</button>

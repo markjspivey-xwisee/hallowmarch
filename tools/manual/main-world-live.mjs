@@ -43,6 +43,23 @@ export function mainWorldLiveMotionEvidence(value) {
     elapsedMs: value.elapsedMs, gameElapsed: value.gameElapsed,
     secondAuthenticatedPeer: true, sameOwnerMultiConnection: true };
 }
+/** Navigate through the canonical Companion menu without opening Players.
+ * The fixture uses its independent existing agent, so select manual entry
+ * explicitly instead of borrowing the owner's browser delegate. */
+export async function openMainWorldCompanionControls(page, { advanced = false, manualAgent = false } = {}) {
+  if (!await page.locator('#world-agent-controls').isVisible()) {
+    if (!await page.locator('#menu').isVisible()) await page.locator('#btn-menu').click();
+    await page.locator('#menu-tabs [data-tab="companion"]').click();
+  }
+  await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
+  if ((advanced || manualAgent) && !await page.locator('#world-agent-advanced').evaluate(element => element.open)) {
+    await page.locator('#world-agent-advanced > summary').click();
+  }
+  if (manualAgent) await page.locator('#world-agent-choice').selectOption('manual');
+  if (manualAgent && !await page.locator('#world-agent-manual').evaluate(element => element.open)) {
+    await page.locator('#world-agent-manual > summary').click();
+  }
+}
 export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onStage = () => {} } = {}) {
   let page, description, routes, ownerBody, reference, key, challenge, envelope, admission, sequence = 0;
   let publicationClicked = false, completeAttempted = false, stopped = false, localRevoked = false, podRevoked = false, revokeClicked = false, lastHttp = null;
@@ -117,10 +134,10 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         && record?.registered && !record.localRevoked && record.grant?.revoked === false && record.grant.actor === actor;
     }, { ownerId: ownerBody.ownerId, bodyId: ownerBody.id, grantId: reference.grantId, actor: config.agentDid });
     check(bound, 'qa_world_pause_owner_changed');
-    if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+    await openMainWorldCompanionControls(page);
     await page.locator('#world-agent-resume').click();
     const previousFrame = await page.evaluate(() => window.__hm.worldAgents.state.lastFrame);
-    await page.locator('#netsheet-close').click(); await page.bringToFront();
+    await page.locator('#btn-resume').click(); await page.bringToFront();
     await page.waitForFunction(({ bodyId, previousFrame }) => {
       const h = window.__hm, state = h?.worldAgents.state;
       return h?.GAME.started && h.net.NETWS.state === 'on' && !h.UI.modal && document.hasFocus()
@@ -131,12 +148,12 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
     await mainWorldPauseProof({ ...(recover ? { resume: resumeForPauseRecovery } : {}),
       refresh: () => refreshPauseLease(recover),
       pause: async () => {
-        if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+        await openMainWorldCompanionControls(page);
         await page.locator('#world-agent-pause').click();
         const previousFrame = await page.evaluate(() => window.__hm.worldAgents.state.lastFrame);
-        // Confirm the explicit Pause remains set after closing Players, with a
+        // Confirm the explicit Pause remains set after closing the Companion menu, with a
         // fresh paused owner frame rather than spending the lease on a delay.
-        await page.locator('#netsheet-close').click();
+        await page.locator('#btn-resume').click();
         await page.waitForFunction(previousFrame => {
           const h = window.__hm, state = h?.worldAgents.state;
           return !h?.UI.modal && state?.paused && !state.intent && state.lastFrame > previousFrame;
@@ -152,7 +169,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
   async function revokeAccess() {
       check(reference && routes && key, 'qa_world_revoke_unavailable');
       if (podRevoked) return;
-      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
+      await openMainWorldCompanionControls(page, { advanced: true });
       // This fixture publishes exactly one access relationship. Public IDs are
       // intentionally hidden behind the product's advanced details.
       if (!revokeClicked) { revokeClicked = true; await page.locator('#world-agent-records').getByRole('button', { name: 'Revoke access', exact: true }).click(); }
@@ -167,7 +184,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       check(final.revoked === true, 'qa_world_pod_revocation'); podRevoked = true;
       console.log(JSON.stringify({ kind: 'main_world_qa_revoked_reference', ...final }));
       await page.evaluate(() => window.__mainWorldQaPeer?.socket?.close());
-      await page.locator('#netsheet-close').click();
+      await page.locator('#btn-resume').click();
   }
   const stages = nativeLiveStages([
     { name: 'actual-main-game-entry', async run() {
@@ -206,8 +223,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       check(ownerBody.ownerId && ownerBody.roomId, 'qa_world_body'); results.normalGame = true;
     } },
     { name: 'actual-party-companion-native-save', async run() {
-      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
-      await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
+      await openMainWorldCompanionControls(page);
       if (!companionCreateClicked) {
         check(await page.evaluate(() => window.__hm.worldAgents.bodies().length === 0), 'qa_world_existing_body');
         await page.locator('#world-agent-companion-name').fill('Synthetic QA companion');
@@ -232,9 +248,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
       results.separateCompanion = true; results.nativeCompanionSave = true;
     } },
     { name: 'actual-main-game-public-grant', async run() {
-      if (!await page.locator('#world-agent-controls').isVisible()) await page.locator('#btn-net').click();
-      await page.locator('#world-agent-controls').waitFor({ state: 'visible', timeout: 30000 });
-      if (!await page.locator('#world-agent-advanced').evaluate(element => element.open)) await page.locator('#world-agent-advanced > summary').click();
+      await openMainWorldCompanionControls(page, { manualAgent: true });
       if (!publicationClicked) {
         await page.locator('#world-agent-body').selectOption(ownerBody.id);
         await page.locator('#world-agent-did').fill(config.agentDid);
@@ -260,7 +274,7 @@ export function createMainWorldLiveQa({ config, getPage, signNativeRequest, onSt
         && state.grant.entityId === ownerBody.id && state.grant.roomId === ownerBody.roomId, 'qa_world_grant_pending');
       reference = state.reference;
       console.log(JSON.stringify({ kind: 'main_world_qa_public_reference', ...reference, head: state.head }));
-      await page.locator('#world-agent-resume').click(); await page.locator('#netsheet-close').click();
+      await page.locator('#world-agent-resume').click(); await page.locator('#btn-resume').click();
       await page.bringToFront();
       await page.waitForFunction(() => window.__hm.worldAgents.state.lastFrame > 0 && !window.__hm.UI.modal, null, { timeout: 10000 });
     } },

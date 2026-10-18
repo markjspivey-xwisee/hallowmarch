@@ -84,11 +84,11 @@ test('construction requires explicit safe scope and never calls page/owner ports
   }
   assert.equal(createHumanConsultingLiveQa(base).status().complete, false); assert.equal(calls, 0);
 });
-test('fakePage follows real Chronicle selectors, local guidance, exact disclosure, fence, one enable and native readback before stop', async () => {
+test('fakePage follows the canonical Progress menu, local guidance, exact disclosure, fence, one enable and native readback before stop', async () => {
   const f = fakePage(); await f.qa.run();
   assert.equal(f.qa.status().complete, true); assert.equal(f.qa.status().localGuidance, true);
-  const expected = ['guard:check', 'observe', 'visible:#netsheet', 'visible:#menu', 'click:#btn-menu', 'click:#menu-tabs [data-tab="chronicle"]',
-    'click:.chron-nav [data-grp="you"]', 'click:.chron-nav [data-sec="coach"]', 'wait:#march-coach-milestones', 'wait:activity',
+  const expected = ['guard:check', 'observe', 'visible:#netsheet', 'visible:#menu', 'click:#btn-menu', 'click:#menu-tabs [data-tab="progress"]',
+    'wait:#march-coach-milestones', 'wait:activity',
     'guard:local', 'click:#march-coach-options > summary', 'guard:disclosure', 'checkpoint', 'guard:enable',
     'wait:plan', 'visible:#march-consulting-result', 'guard:check', 'read:false', 'guard:withdraw', 'read:true', 'dispose'];
   assert.deepEqual(f.events, expected); await f.qa.run(); assert.deepEqual(f.events, expected, 'completed run does not act again');
@@ -166,12 +166,12 @@ function browserFixture({ observed = true } = {}) {
     net: { NETWS: { acct: { id: owner.accountId, nativeBound: true }, token: 'PRIVATE-APP-TOKEN', generation: 1, reload: false } },
     consulting: { status: { enabled: false, connected: false, privateHistoryOpen: false, reviewed: false, busy: false } },
     activity: { snapshot: () => structuredClone(snapshot) }, fn: { buildSave: () => ({ char: { x: { coachDelivery: { pending: null } } } }) } };
-  const disclosure = 'Live Foxxi coaching shares only your current milestone and a small gameplay summary. Chat, inventory contents and other players’ private records are excluded. Enable a 15-minute live coaching session to keep its plans privately in your pod. You can stop sharing at any time.';
+  const disclosure = 'Shares your current milestone and a small gameplay summary with Foxxi. Chat, inventory contents and other players’ private records are excluded. Enable a 15-minute guidance session to keep its plans privately in your pod. You can stop sharing at any time.';
   const elements = new Map([
     ['#menu', { hidden: false }],
     ['#march-coach-milestones', { textContent: snapshot.current.title }], ['#march-coach-interventions', { querySelector: () => ({}) }],
     ['#march-coach-options', { open: true, textContent: disclosure }], ['#march-coach-preview', { textContent: JSON.stringify(payload) }],
-    ['#march-consulting-connect', { disabled: false, hidden: false, textContent: 'Enable live coaching · 15 minutes', click() { clicks.push('enable'); game.consulting.status.enabled = true; } }],
+    ['#march-consulting-connect', { disabled: false, hidden: false, textContent: 'Enable Foxxi guidance · 15 minutes', click() { clicks.push('enable'); game.consulting.status.enabled = true; } }],
     ['#march-consulting-withdraw', { disabled: false, hidden: false, click() { clicks.push('withdraw'); game.consulting.status.enabled = false; } }],
   ]);
   let afterFetch = null, fetchCalls = 0, disconnected = false, elapsed = 0, focused = true;

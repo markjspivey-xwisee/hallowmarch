@@ -1,4 +1,4 @@
-/** Explicit manual QA of Chronicle → Progress & coach. No import-time I/O,
+/** Explicit manual QA of the Progress menu. No import-time I/O,
  * identity creation, synthetic observation/clock changes or delivery retry.
  * Optional followup performs one ordinary game input after a durable fence. */
 export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, gameOrigin, run,
@@ -37,14 +37,12 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
     check(page && !page.isClosed() && owner?.accountId && owner.subjectDid && owner.podUrl, 'qa_human_owner');
     const showCoach = async () => {
       if (!await page.locator('#menu').isVisible()) await page.locator('#btn-menu').click();
-      await page.locator('#menu-tabs [data-tab="chronicle"]').click();
-      await page.locator('.chron-nav [data-grp="you"]').click();
-      await page.locator('.chron-nav [data-sec="coach"]').click();
+      await page.locator('#menu-tabs [data-tab="progress"]').click();
       await page.locator('#march-coach-milestones').waitFor({ state: 'visible', timeout: 15000 });
     };
     await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, initialize: true, action: 'check' });
     if (!opened) {
-      step = 'open-chronicle';
+      step = 'open-progress';
       if (!observerInstalled) { await page.evaluate(installHumanConsultingObserver, { relayOrigin, automaticFollowup }); observerInstalled = true; }
       if (await page.locator('#netsheet').isVisible()) await page.locator('#netsheet-close').click();
       await showCoach();
@@ -188,10 +186,10 @@ export async function guardHumanConsultingOwner({ owner, gameOrigin, initialize 
   }
   if (['disclosure', 'enable'].includes(action)) {
     const privacy = document.querySelector('#march-coach-options'), button = document.getElementById('march-consulting-connect');
-    if (!privacy?.open || !privacy.textContent.includes('Live Foxxi coaching shares only your current milestone and a small gameplay summary.')
+    if (!privacy?.open || !privacy.textContent.includes('Shares your current milestone and a small gameplay summary with Foxxi.')
       || !privacy.textContent.includes('Chat, inventory contents and other players’ private records are excluded.')
-      || !privacy.textContent.includes('15-minute live coaching session') || !privacy.textContent.includes('keep its plans privately in your pod')
-      || !privacy.textContent.includes('stop sharing at any time') || button?.textContent !== 'Enable live coaching · 15 minutes') fail('qa_human_disclosure');
+      || !privacy.textContent.includes('15-minute guidance session') || !privacy.textContent.includes('keep its plans privately in your pod')
+      || !privacy.textContent.includes('stop sharing at any time') || button?.textContent !== 'Enable Foxxi guidance · 15 minutes') fail('qa_human_disclosure');
   }
   if (action === 'enable' || action === 'withdraw') {
     if (!trace || action === 'enable' && (!trace.localVerified || trace.enableClicked)) fail('qa_human_single_click');

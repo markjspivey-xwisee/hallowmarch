@@ -739,10 +739,24 @@ function onEscape() {
   openMenu('char');
 }
 function openMenu(tab = 'char') {
+  if (UI.modal === 'net' && typeof netSheetToggle === 'function') netSheetToggle(false);
   if (UI.modal && UI.modal !== 'menu') return;
   UI.modal = 'menu';
   $('menu').hidden = false;
   renderMenu(tab);
+}
+function openCompanion() {
+  if (typeof netSheetToggle === 'function') netSheetToggle(false);
+  openMenu('companion');
+}
+function openPlayerIdentity() {
+  if (UI.modal === 'menu') closeMenu();
+  if (typeof netUiOn === 'function') netUiOn();
+  if (typeof netSheetToggle !== 'function') return;
+  netSheetToggle(true);
+  if ($('netsheet')?.hidden) return;
+  const connect = $('netsheet-acct')?.querySelector('.native-player button');
+  if (connect) { connect.scrollIntoView({ block: 'nearest' }); connect.focus({ preventScroll: true }); }
 }
 function closeMenu() { $('menu').hidden = true; UI.modal = null; UI.confirmNew = false; $('btn-newchar').textContent = 'New character'; }
 function renderMenu(tab) {
@@ -750,7 +764,13 @@ function renderMenu(tab) {
   document.querySelectorAll('#menu-tabs button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.tab === tab)));
   const P = GAME.player, prog = GAME.prog;
   const body = $('menu-body');
-  if (tab === 'char') {
+  if (tab === 'companion') {
+    body.innerHTML = '<div id="world-agent-mount"></div>';
+    queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'companion' && typeof mainWorldAgentRender === 'function') mainWorldAgentRender(); });
+  } else if (tab === 'progress') {
+    body.innerHTML = '<div id="march-coach-mount"></div>';
+    queueMicrotask(() => { if (UI.modal === 'menu' && UI.menuTab === 'progress' && typeof marchConsultingRender === 'function') marchConsultingRender(); });
+  } else if (tab === 'char') {
     const rr = realmRank(prog.rp);
     const nextRR = REALM_RANKS[rr] ?? null;
     const mins = Math.floor(prog.played / 60);

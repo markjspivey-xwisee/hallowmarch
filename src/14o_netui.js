@@ -57,6 +57,8 @@ function netUiOn() {
       else if (act === 'tgt') { const g = netGhost(peer); if (g) { setPlayerTarget(g); netSheetToggle(false); } }
       else if (act === 'say') { netSheetToggle(false); netChatOpen(b.dataset.ch || 'r'); }
       else if (act === 'season') { netSheetToggle(false); openChronicle('season'); return; } // [net] the season's page (14q_netseason.js)
+      else if (act === 'companion') { openCompanion(); return; }
+      else if (act === 'progress') { netSheetToggle(false); openMenu('progress'); return; }
       else if (act === 'acct-claim' || act === 'acct-login' || act === 'acct-out') { netAcctClick(act); return; }
       netSheetRender();
     });
@@ -78,6 +80,7 @@ function netSheetToggle(force) {
   const o = $('netsheet');
   if (!o) return;
   const open = force === undefined ? o.hidden : force;
+  if (open && UI.modal === 'menu') closeMenu();
   if (open && UI.modal && UI.modal !== 'net') return;
   o.hidden = !open;
   UI.modal = open ? 'net' : UI.modal === 'net' ? null : UI.modal;
@@ -91,7 +94,7 @@ function netAcctRender(msg, bad) {
   const box = $('netsheet-acct');
   if (!box) return;
   const A = NETWS.acct;
-  if (!NET.link || NET.link.kind !== 'ws' || !A) { box.hidden = true; return; }
+  if ((NET.link?.kind !== 'ws' && NETWS.link?.kind !== 'ws') || !A) { box.hidden = true; return; }
   box.hidden = false;
   const nativeBound = !!NATIVE_PLAYER.status?.bound;
   if (box._k !== A.id + ':' + A.guest + ':' + nativeBound) {
@@ -140,6 +143,10 @@ function netSheetRender() {
   const el = (tag, cls, txt) => { const d = document.createElement(tag); if (cls) d.className = cls; if (txt != null) d.textContent = txt; return d; };
   const btn = (label, act, peer, extra) => { const b = el('button', 'btn' + (extra || ''), label); b.type = 'button'; b.dataset.act = act; if (peer) b.dataset.peer = peer; return b; };
   if (NETWS.worldPauseReason) body.appendChild(el('p', 'net-quiet', NETWS.worldPauseReason));
+  const navigation = el('div', 'net-acts');
+  navigation.appendChild(btn('Companion', 'companion', ''));
+  navigation.appendChild(btn('Progress', 'progress', ''));
+  body.appendChild(navigation);
   // invites to answer
   for (const I of NET.invites) {
     const R = NET.peers.get(I.peer);
@@ -151,11 +158,6 @@ function netSheetRender() {
   }
   // your party
   const mates = netPartyPeers();
-  const companion = typeof partyCompanionMember === 'function' && partyCompanionMember();
-  if (companion) {
-    body.appendChild(el('h3', '', 'Your companion'));
-    body.appendChild(el('p', 'net-quiet', `${P.name} · your character. ${companion.name} · party companion · ${companion.entity.alive ? Math.round(companion.entity.hp / companion.entity.maxHp * 100) + '% health' : 'down'}. Its party role and agent connection are below.`));
-  }
   if (NET.party) {
     body.appendChild(el('h3', '', `Players in your party (${mates.length + 1} of ${NET.partyMax})`));
     const row = el('div', 'net-row'); row.appendChild(el('span', 'net-nm', mates.length ? mates.map((R) => R.slow.dn).join(', ') : 'Only you, for now.')); const acts = el('span', 'net-acts'); acts.appendChild(btn('Party chat', 'say', '', '')); acts.lastChild.dataset.ch = 'p'; acts.appendChild(btn('Leave', 'leave', '')); row.appendChild(acts); body.appendChild(row);
@@ -199,7 +201,6 @@ function netSheetRender() {
   chat.appendChild(acts);
   body.appendChild(chat);
   netAcctRender(); // (drawn again only when the account changes: what you type stays)
-  if (typeof mainWorldAgentRender === 'function') mainWorldAgentRender();
 }
 
 /* ------------------------------------------------------------------ */
