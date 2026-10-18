@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION } from './foxxi-consulting.mjs';
 import { signingDelegationFixture } from './signing-delegation.fixture.mjs';
 
@@ -127,4 +128,60 @@ test('stop or expiry during signing prevents the external action even after init
     assert.equal(f.calls.filter(x => x.name === 'sign_request').length, 1);
     assert.equal(f.calls.filter(x => x.name === 'act').length, 0);
   }
+});
+
+const producerFixtures = JSON.parse(readFileSync(new URL('./fixtures/foxxi-methodology-responses.json', import.meta.url), 'utf8'));
+test('all five actual Foxxi producer responses preserve every public methodology and plan field', async () => {
+  assert.deepEqual(producerFixtures.responses.map(entry => entry.method).sort(),
+    ['classify-first', 'apply-practice', 'gap-analysis', 'dispositional-read', 'stabilise-first'].sort());
+  for (const { method, body } of producerFixtures.responses) {
+    const f = fixture({ rawResponse: () => JSON.stringify(body) }); await f.client.connect();
+    const result = await f.client.requestPlan(f.client.preparePlan(observed()));
+    assert.equal(result.response.diagnosis.method, method); assert.deepEqual(result.response, body);
+    assert(Object.isFrozen(result.response.plan.consultingProcess));
+    assert(result.response.plan.paradigm.every(option => Object.isFrozen(option.methodology)));
+    assert(result.response.plan.selected.every(option => Object.isFrozen(option.methodology)));
+    assert.equal(f.calls.filter(call => call.name === 'act').length, 1);
+  }
+});
+
+test('public MethodReference exception rejects foreign, mismatched, extended and misplaced tokens', async () => {
+  const source = producerFixtures.responses.find(entry => entry.method === 'gap-analysis').body;
+  const changes = [
+    body => { body.plan.paradigm[0].methodology.token = 'private-opaque-value'; },
+    body => { body.plan.paradigm[0].methodology.token = 'reference'; },
+    body => { body.plan.paradigm[0].methodology['@id'] = 'https://attacker.example/InstructionalDesign'; },
+    body => { body.plan.paradigm[0].methodology.version = '1.0.1'; },
+    body => { body.plan.paradigm[0].methodology.extra = 'private'; },
+    body => { body.plan.paradigm[0].methodology.accessToken = 'private'; },
+    body => { body.plan.paradigm[0].type = 'reference'; },
+    body => { body.plan.paradigm[0].methodology.Token = body.plan.paradigm[0].methodology.token; delete body.plan.paradigm[0].methodology.token; },
+    body => { body.plan.consultingProcess = structuredClone(body.plan.paradigm[0].methodology); },
+    body => { body.extra = structuredClone(body.plan.consultingProcess); },
+    body => { body.plan.extra = { methodology: structuredClone(body.plan.paradigm[0].methodology) }; },
+    body => { body['plan.paradigm.0.methodology'] = structuredClone(body.plan.paradigm[0].methodology); },
+    body => { body['plan/selected/0/methodology'] = structuredClone(body.plan.paradigm[0].methodology); },
+    body => { body.plan.paradigm = { 0: structuredClone(body.plan.paradigm[0]) }; },
+    body => { body.plan.selected = { 0: structuredClone(body.plan.paradigm[0]) }; },
+    body => { body.plan.selected.push({ type: 'reference', methodology: { ...body.plan.consultingProcess } }); },
+    body => { body.plan.selected.push({ type: 'instruction', methodology: { ...body.plan.paradigm[0].methodology, refresh_token: 'private' } }); },
+  ];
+  for (const change of changes) {
+    const body = structuredClone(source); change(body);
+    const f = fixture({ rawResponse: () => JSON.stringify(body) }); await f.client.connect();
+    await assert.rejects(f.client.requestPlan(f.client.preparePlan(observed())), { code: 'consulting_contract' });
+  }
+});
+
+test('methodology getters and nonenumerable extra fields cannot use the public token exception', async () => {
+  let accessed = false;
+  for (const change of [
+    ref => { Object.defineProperty(ref, 'token', { enumerable: true, get() { accessed = true; return 'instruction'; } }); },
+    ref => { Object.defineProperty(ref, 'private', { value: 'private', enumerable: false }); },
+  ]) {
+    const body = structuredClone(producerFixtures.responses[0].body); change(body.plan.paradigm[0].methodology);
+    const f = fixture({ rawResponse: () => body }); await f.client.connect();
+    await assert.rejects(f.client.requestPlan(f.client.preparePlan(observed())), { code: 'consulting_contract' });
+  }
+  assert.equal(accessed, false);
 });

@@ -2,7 +2,7 @@
  * fixed command awaits a native operation; input is never evaluated or echoed. */
 import { createInterface } from 'node:readline';
 
-const commands = new Set(['status', 'diagnose', 'native-checkpoint-read', 'native-checkpoint-recover-release', 'retry', 'continue', 'native-startup-retry', 'oauth-retry-same-owner', 'companion-restart-admission', 'main-world-grant-read', 'main-world-recover-pause', 'main-world-revoke']);
+const commands = new Set(['status', 'diagnose', 'consulting-status', 'consulting-recover', 'native-checkpoint-read', 'native-checkpoint-recover-release', 'retry', 'continue', 'native-startup-retry', 'oauth-retry-same-owner', 'companion-restart-admission', 'main-world-grant-read', 'main-world-recover-pause', 'main-world-revoke']);
 export function createNativeLiveInput({ input, acceptProtocolLine = () => false, onCommand,
   onClose = () => {}, onInvalid = () => {}, onBusy = () => {}, onError = () => {} } = {}) {
   if (!input || typeof onCommand !== 'function') throw new TypeError('Manual input ports are required.');
@@ -20,7 +20,7 @@ export function createNativeLiveInput({ input, acceptProtocolLine = () => false,
     const action = line.trim();
     if (action === 'finish') { reader.close(); return; }
     if (!commands.has(action)) { safe(onInvalid); return; }
-    const diagnostic = action === 'status' || action === 'diagnose';
+    const diagnostic = action === 'status' || action === 'diagnose' || action === 'consulting-status';
     if (diagnostic ? diagnosticRunning : running) { safe(onBusy); return; }
     if (diagnostic) diagnosticRunning = true; else running = true;
     Promise.resolve().then(() => onCommand(action)).catch(() => safe(onError)).finally(() => {

@@ -109,7 +109,33 @@ function normalizeFocus(value) {
 function responseRecord(value) {
   const seen = new Set(); let nodes = 0;
   const forbidden = /^(?:authorization|cookie|setcookie|password|passphrase|secret|credential|credentials|token|apikey|accesstoken|refreshtoken|idtoken|bearertoken|privatekey|encryptionkey|recoverykey|recoveryfile|signedpayload|signature)$/;
-  const visit = (item, depth = 0) => {
+  // AGP's published MethodReference.token is a public ontology identifier.
+  // Keep credential rejection everywhere else, including any extended,
+  // foreign, mismatched or newly versioned reference. Source: agp-methods.ttl.
+  const methodNamespace = 'https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#';
+  const methods = { consulting: 'PerformanceConsultingCycle', instruction: 'InstructionalDesign',
+    'performance-support': 'InFlowSupport', reference: 'ReferenceDesign', practice: 'PracticeDesign',
+    assessment: 'AssessmentDesign', coaching: 'CoachingProcess', probe: 'BoundedProbe',
+    'environmental-fix': 'EnvironmentChange', 'no-intervention': 'MonitorWithoutIntervention' };
+  const publicMethodReference = (item, path, parent) => {
+    const plan = Object.getOwnPropertyDescriptor(value, 'plan')?.value;
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return false;
+    const consulting = path.length === 2 && path[0] === 'plan' && path[1] === 'consultingProcess'
+      && parent === plan && Object.getOwnPropertyDescriptor(plan, 'consultingProcess')?.value === item;
+    const container = path.length === 4 ? Object.getOwnPropertyDescriptor(plan, path[1])?.value : null;
+    const intervention = path.length === 4 && path[0] === 'plan' && ['paradigm', 'selected'].includes(path[1])
+      && /^(?:0|[1-9][0-9]*)$/.test(path[2]) && path[3] === 'methodology' && Array.isArray(container)
+      && Object.getOwnPropertyDescriptor(container, path[2])?.value === parent
+      && Object.getOwnPropertyDescriptor(parent, 'methodology')?.value === item;
+    if (!consulting && !intervention || Reflect.ownKeys(item).length !== 3) return false;
+    const properties = Object.getOwnPropertyDescriptors(item);
+    if (!['@id', 'token', 'version'].every(key => properties[key]?.enumerable && 'value' in properties[key])) return false;
+    const token = properties.token.value;
+    return typeof token === 'string' && Object.hasOwn(methods, token) && properties.version.value === '1.0.0'
+      && properties['@id'].value === methodNamespace + methods[token]
+      && (consulting ? token === 'consulting' : token !== 'consulting' && Object.getOwnPropertyDescriptor(parent, 'type')?.value === token);
+  };
+  const visit = (item, depth = 0, path = [], parent = null) => {
     if (++nodes > 4096 || depth > 12) fail('consulting_contract', 'The returned coaching plan exceeds its bounded record contract.');
     if (item === null || typeof item === 'boolean' || typeof item === 'number' && Number.isFinite(item)) return;
     if (typeof item === 'string') {
@@ -124,8 +150,8 @@ function responseRecord(value) {
       if (Array.isArray(item) && key === 'length') continue;
       const property = Object.getOwnPropertyDescriptor(item, key);
       if (typeof key !== 'string' || !property?.enumerable || !('value' in property) || key.length > 128
-        || forbidden.test(key.replace(/[^a-z0-9]/gi, '').toLowerCase())) fail('consulting_contract', 'The returned coaching plan contains unsupported private fields.');
-      visit(property.value, depth + 1);
+        || forbidden.test(key.replace(/[^a-z0-9]/gi, '').toLowerCase()) && !(key === 'token' && publicMethodReference(item, path, parent))) fail('consulting_contract', 'The returned coaching plan contains unsupported private fields.');
+      visit(property.value, depth + 1, [...path, key], item);
     }
     seen.delete(item);
   };

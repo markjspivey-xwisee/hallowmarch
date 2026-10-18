@@ -2,11 +2,12 @@
  * identity creation, synthetic observation/clock changes or delivery retry.
  * Optional followup performs one ordinary game input after a durable fence. */
 export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, gameOrigin, run,
-  checkpoint = async () => {}, automaticFollowup = false } = {}) {
+  checkpoint = async () => {}, automaticFollowup = false, diagnose = null, onDiagnostic = null } = {}) {
   const origin = value => { try { const url = new URL(value); return url.protocol === 'https:' && url.origin === value; } catch { return false; } };
   if (typeof getPage !== 'function' || typeof getOwner !== 'function' || !origin(gameOrigin) || !origin(relayOrigin)
     || gameOrigin === relayOrigin || typeof run !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(run)
-    || typeof automaticFollowup !== 'boolean') throw new TypeError('Explicit manual coaching QA configuration is required.');
+    || typeof automaticFollowup !== 'boolean' || diagnose !== null && typeof diagnose !== 'function'
+    || onDiagnostic !== null && typeof onDiagnostic !== 'function') throw new TypeError('Explicit manual coaching QA configuration is required.');
   let step = 'not-started', opened = false, observerInstalled = false, localGuidance = false, enableClicked = false, stopped = false, complete = false, flight = null;
   let firstVerified = false, followupAttempted = false, secondVerified = false;
   const flags = { automaticObservedContext: false, attributedLiveResponse: false, exactPrivatePlan: false,
@@ -17,6 +18,19 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
   const baseFlags = ['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
     'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'];
   const check = (ok, code) => { if (!ok) throw Object.assign(new Error('Manual human coaching verification refused.'), { code }); };
+  async function observedWait(wait) {
+    if (!diagnose || !onDiagnostic) return wait();
+    let pending = null;
+    const report = () => {
+      if (pending) return pending;
+      const next = Promise.resolve().then(diagnose).then(onDiagnostic, () => onDiagnostic({ kind: 'human_consulting_diagnostic', unavailable: true }));
+      pending = next; void next.finally(() => { if (pending === next) pending = null; }).catch(() => {}); return next;
+    };
+    void report().catch(() => {});
+    const timer = setInterval(() => { void report().catch(() => {}); }, 15000);
+    try { return await wait(); }
+    finally { clearInterval(timer); if (pending) await pending.catch(() => {}); await report().catch(() => {}); }
+  }
   async function runOnce() {
     if (complete) return status();
     const page = getPage(), owner = getOwner();
@@ -52,8 +66,8 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
       }
       if (!firstVerified) {
       step = 'private-plan-confirmation';
-      await page.waitForFunction(() => window.__hm?.consulting?.status.hasPrivatePlan && !window.__hm.consulting.status.busy
-        && !!window.__hmNativeHumanConsultingTrace?.memo, null, { timeout: 240000 });
+      await observedWait(() => page.waitForFunction(() => window.__hm?.consulting?.status.hasPrivatePlan && !window.__hm.consulting.status.busy
+        && !!window.__hmNativeHumanConsultingTrace?.memo, null, { timeout: 240000 }));
       check(await page.locator('#march-consulting-result').isVisible(), 'qa_human_plan_display');
       await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, action: 'check' });
       step = 'native-private-readback';
@@ -80,11 +94,11 @@ export function createHumanConsultingLiveQa({ getPage, getOwner, relayOrigin, ga
           await page.keyboard.press('1');
         }
         step = 'automatic-followup-confirmation';
-        await page.waitForFunction(() => {
+        await observedWait(() => page.waitForFunction(() => {
           const trace = window.__hmNativeHumanConsultingTrace;
           if (trace?.ambiguous || trace?.deliveries > 2) throw Error('Unexpected coaching delivery.');
           return trace?.deliveries === 2 && trace.memos?.length === 2 && !window.__hm.consulting.status.busy;
-        }, null, { timeout: 240000 });
+        }, null, { timeout: 240000 }));
         await page.evaluate(inspectHumanConsultingFollowup, { owner, gameOrigin, action: 'outcome' });
         await showCoach();
         await page.evaluate(guardHumanConsultingOwner, { owner, gameOrigin, action: 'check' });

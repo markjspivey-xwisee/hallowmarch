@@ -19,7 +19,8 @@ const passFlags = () => Object.fromEntries(['automaticObservedContext', 'attribu
 const followupFlags = () => Object.fromEntries(['realElapsedFollowup', 'changedOutcome', 'automaticFollowup',
   'distinctSituation', 'exactSecondPrivatePlan', 'twoDeliveries'].map(key => [key, true]));
 function fakePage({ failedRead = false, checkpointFailure = false, automaticFollowup = false, unknownKey = false,
-  followupFenceFailure = false, outcomeFailure = false, secondFailure = false } = {}) {
+  followupFenceFailure = false, outcomeFailure = false, secondFailure = false, planWaitFailure = false,
+  diagnose = null, onDiagnostic = null } = {}) {
   const events = []; let menuOpen = false, privacyOpen = false, readFails = failedRead, failCheckpoint = checkpointFailure, elapsed = 0;
   const page = { isClosed: () => false,
     locator(selector) { return {
@@ -48,13 +49,14 @@ function fakePage({ failedRead = false, checkpointFailure = false, automaticFoll
       }
       throw Error('Unexpected browser evaluation.');
     },
-    async waitForFunction(predicate) { events.push(predicate.toString().includes('hasPrivatePlan') ? 'wait:plan' : 'wait:activity'); },
+    async waitForFunction(predicate) { const plan = predicate.toString().includes('hasPrivatePlan'); events.push(plan ? 'wait:plan' : 'wait:activity');
+      if (plan && planWaitFailure) throw Error('PRIVATE timeout detail'); },
     async waitForTimeout(ms) { assert.ok(ms <= 1000); elapsed += ms; events.push('read-only-wait'); },
     async bringToFront() { events.push('focus'); },
     keyboard: { async press(key) { assert.equal(key, '1'); events.push('key:1'); if (unknownKey) throw Error('Unknown input acknowledgement.'); } },
   };
   const qa = createHumanConsultingLiveQa({ getPage: () => page, getOwner: () => owner, gameOrigin, relayOrigin, run: 'existing-fixture',
-    automaticFollowup,
+    automaticFollowup, diagnose, onDiagnostic,
     async checkpoint(value) { assert.ok(['coaching-delivery-intent', 'coaching-followup-intent'].includes(value.kind)); events.push(value.kind === 'coaching-delivery-intent' ? 'checkpoint' : 'checkpoint:followup');
       if (value.kind === 'coaching-followup-intent' && followupFenceFailure || failCheckpoint) { failCheckpoint = false; throw Error('checkpoint unavailable'); } } });
   return { qa, events };
@@ -106,6 +108,17 @@ test('failed durable intent checkpoint never enables; retained local retry does 
 test('concurrent callers share the same retained helper flight', async () => {
   const f = fakePage(); const one = f.qa.run(), two = f.qa.run(); assert.equal(one, two); await one;
   assert.equal(f.events.filter(x => x === 'guard:enable').length, 1);
+});
+test('failed plan wait emits immediate and final read-only diagnostics before stopping without any second enable', async () => {
+  const reports = []; let reads = 0;
+  const f = fakePage({ planWaitFailure: true, diagnose: async () => ({ kind: 'human_consulting_diagnostic', hasPlan: false,
+    noteCategory: ++reads === 1 ? 'reviewing' : 'response_contract_refused' }), onDiagnostic: value => reports.push(value) });
+  await assert.rejects(f.qa.run(), { code: 'qa_human_stage_failed' });
+  assert.equal(reports.length, 2); assert.equal(reports[0].noteCategory, 'reviewing');
+  assert.equal(reports[1].noteCategory, 'response_contract_refused');
+  assert.equal(f.qa.status().stopped, true); assert.equal(f.qa.status().complete, false);
+  assert.equal(f.events.filter(value => value === 'guard:enable').length, 1);
+  assert.equal(f.events.filter(value => value === 'guard:withdraw').length, 1);
 });
 test('optional fakePage followup waits 120 one-second chunks, fences before Resume, inputs once, reads second then withdraws', async () => {
   const f = fakePage({ automaticFollowup: true }); await f.qa.run();

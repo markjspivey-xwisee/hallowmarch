@@ -98,3 +98,12 @@ test('manual pause recovery is a fixed serialized command while status and signi
   assert.deepEqual(seen, ['main-world-recover-pause', 'status', 'continue']);
   input.write('finish\n'); await reader.waitForClose(); input.destroy();
 });
+test('consulting diagnostic remains available during a stage and recovery cannot run concurrently', async () => {
+  const input = new PassThrough(), seen = []; let release, busy = 0;
+  const reader = createNativeLiveInput({ input, async onCommand(value) { seen.push(value);
+    if (value === 'continue') await new Promise(resolve => { release = resolve; }); }, onBusy: () => busy++ });
+  input.write('continue\n'); await tick(); input.write('consulting-status\nconsulting-recover\n'); await tick();
+  assert.deepEqual(seen, ['continue', 'consulting-status']); assert.equal(busy, 1);
+  release(); await tick(); input.write('consulting-recover\n'); await tick();
+  assert.equal(seen.at(-1), 'consulting-recover'); input.write('finish\n'); await reader.waitForClose(); input.destroy();
+});
