@@ -91,16 +91,25 @@ export function createPersonalActivityLiveQa({ getPage, getOwner, relayOrigin, g
 export function installPersonalActivityObserver({ owner, relayOrigin, gameOrigin }) {
   const fail = () => { throw Object.assign(Error('Personal activity observer refused.'), { code: 'qa_activity_observer' }); };
   const h = window.__hm, p = window.__hmNativeHumanConsultingOwner;
+  const consultingTrace = window.__hmNativeHumanConsultingTrace, consultingProof = consultingTrace?.verifiedFirst;
   if (window.__hmNativePersonalActivityTrace || location.origin !== gameOrigin || !p || p.game !== h
     || p.accountId !== owner.accountId || p.subjectDid !== owner.subjectDid || p.podUrl !== owner.podUrl
     || !h?.learningDelivery || h.learningDelivery.status.enabled || h.learningDelivery.status.pending || h.learningDelivery.status.busy
-    || !h.SAVE.native || !h.SAVE.readConfirmed || h.SAVE.pending || h.SAVE.nativeFlight || h.consulting.status.enabled) fail();
+    || !h.SAVE.native || !h.SAVE.readConfirmed || h.SAVE.pending || h.SAVE.nativeFlight || h.consulting.status.enabled
+    || !h.consulting.status.privateHistoryOpen || h.consulting.status.busy || !consultingProof
+    || typeof consultingProof.sessionId !== 'string' || !consultingProof.sessionId || consultingProof.sessionId.length > 256
+    || consultingProof.taskId !== 'urn:hallowmarch:play-session:' + consultingProof.sessionId) fail();
   const disclosure = document.getElementById('march-learning-record')?.textContent || '';
   if (!disclosure.includes('15 minutes') || !disclosure.includes('own pod') || !disclosure.includes('Chat') || !disclosure.includes('inventory')) fail();
   const saved = h.activity.snapshot(), gameplaySessionId = saved?.history?.recent?.at(-1)?.sessionId;
   if (!Number.isSafeInteger(saved?.eventCount) || !gameplaySessionId) fail();
   const trace = { owner, gameOrigin, relayOrigin, prior: globalThis.fetch, observed: null, writes: 0, ambiguous: false,
     memo: null, enabled: false, inputAttempted: false, stopped: false, startOrdinal: saved.eventCount, gameplaySessionId,
+    // This sequential QA follows the verified coach in the same open journal.
+    // The product's openLearning closure retains that consulting session; its
+    // consent session is different from the gameplay events' session below.
+    consultingTrace, consultingProof, consentSessionId: consultingProof.sessionId,
+    consentTaskId: 'hallowmarch-activity:' + owner.accountId + ':' + consultingProof.sessionId,
     pinned: p, before: null };
   trace.observed = function (...args) {
     try {
@@ -111,7 +120,10 @@ export function installPersonalActivityObserver({ owner, relayOrigin, gameOrigin
         && input?.action_iri === 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/write-own-subject-xapi-statements-signed') {
         trace.writes++;
         const signed = JSON.parse(input.payload?._signed_payload || 'null'), pending = JSON.parse(h.SAVE.lastBody || 'null')?.char?.x?.learningDelivery?.pending;
-        if (trace.writes !== 1 || !trace.enabled || !trace.inputAttempted || trace.stopped || !signed || !pending?.events?.length) trace.ambiguous = true;
+        if (trace.writes !== 1 || !trace.enabled || !trace.inputAttempted || trace.stopped || !signed || !pending?.events?.length
+          || window.__hmNativeHumanConsultingTrace !== trace.consultingTrace || trace.consultingTrace?.verifiedFirst !== trace.consultingProof
+          || trace.consultingProof.sessionId !== trace.consentSessionId || trace.consultingProof.taskId !== 'urn:hallowmarch:play-session:' + trace.consentSessionId
+          || !h.consulting.status.privateHistoryOpen) trace.ambiguous = true;
         else trace.memo = { payload: { subject_did: signed.subject_did, purpose: signed.purpose, statements: signed.statements },
           events: JSON.parse(JSON.stringify(pending.events)), contract: JSON.parse(JSON.stringify(pending.contract)),
           signer: signed.agent_id, intentConfirmed: h.SAVE.native && h.SAVE.readConfirmed && !h.SAVE.pending && !h.SAVE.nativeFlight };
@@ -125,11 +137,15 @@ export function installPersonalActivityObserver({ owner, relayOrigin, gameOrigin
 export function personalActivityControl({ action, owner, gameOrigin }) {
   const t = window.__hmNativePersonalActivityTrace, h = window.__hm, p = t?.pinned, n = h?.net?.NETWS;
   const fail = () => { throw Object.assign(Error('Personal activity control refused.'), { code: 'qa_activity_scope' }); };
-  if (!t || t.ambiguous || location.origin !== gameOrigin || p !== window.__hmNativeHumanConsultingOwner || p?.game !== h
+  const stopping = action === 'stop';
+  if (!t || (!stopping && t.ambiguous) || location.origin !== gameOrigin || p !== window.__hmNativeHumanConsultingOwner || p?.game !== h
     || p.accountId !== owner.accountId || p.subjectDid !== owner.subjectDid || p.podUrl !== owner.podUrl
     || n !== p.transport || n.token !== p.token || n.generation !== p.generation || n.reload || n.acct?.id !== owner.accountId
-    || !n.acct.nativeBound || !h.GAME.started || h.GAME.player !== p.player || !p.player.alive
-    || !h.SAVE.native || !h.SAVE.readConfirmed) fail();
+    || !n.acct.nativeBound || !h.GAME.started || h.GAME.player !== p.player || (!stopping && !p.player.alive)
+    || !h.SAVE.native || !h.SAVE.readConfirmed || !h.consulting.status.privateHistoryOpen
+    || window.__hmNativeHumanConsultingTrace !== t.consultingTrace || t.consultingTrace?.verifiedFirst !== t.consultingProof
+    || t.consultingProof?.sessionId !== t.consentSessionId || t.consultingProof?.taskId !== 'urn:hallowmarch:play-session:' + t.consentSessionId
+    || t.consentTaskId !== 'hallowmarch-activity:' + owner.accountId + ':' + t.consentSessionId) fail();
   const s = h.learningDelivery.status;
   if (action === 'enable') {
     const control = document.getElementById('march-learning-enable');
@@ -144,8 +160,9 @@ export function personalActivityControl({ action, owner, gameOrigin }) {
     t.before = { executed: body?.counters?.['ability.executed'] || 0, refused: body?.counters?.['ability.refused'] || 0 }; t.inputAttempted = true;
   } else if (action === 'stop') {
     const control = document.getElementById('march-learning-stop');
-    if (t.stopped) fail(); t.stopped = true; t.stoppedAt = performance.now();
-    if (s.enabled || s.busy) { if (!control || control.disabled || control.hidden) fail(); control.click(); }
+    if (t.stopped || (s.enabled || s.busy) && (!control || control.disabled || control.hidden)) fail();
+    t.stopped = true; t.stoppedAt = performance.now();
+    if (s.enabled || s.busy) control.click();
   } else if (action === 'stopped') {
     if (!t.stopped || s.enabled || s.busy || t.writes !== 1) fail();
     return { ready: Number.isFinite(t.stoppedAt) && performance.now() - t.stoppedAt >= 35000 };
@@ -168,8 +185,11 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
       || window.__hm !== h || p !== window.__hmNativeHumanConsultingOwner || p?.game !== h
       || p.accountId !== owner.accountId || p.subjectDid !== owner.subjectDid || p.podUrl !== owner.podUrl
       || h.net.NETWS !== p.transport || h.net.NETWS.token !== p.token || h.net.NETWS.generation !== p.generation
-      || h.net.NETWS.reload || !h.GAME.started || h.GAME.player !== p.player
-      || !h.SAVE.native || !h.SAVE.readConfirmed || h.learningDelivery.status.enabled) fail();
+      || h.net.NETWS.reload || !h.GAME.started || h.GAME.player !== p.player || !p.player.alive
+      || !h.SAVE.native || !h.SAVE.readConfirmed || h.learningDelivery.status.enabled || !h.consulting.status.privateHistoryOpen
+      || window.__hmNativeHumanConsultingTrace !== t.consultingTrace || t.consultingTrace?.verifiedFirst !== t.consultingProof
+      || t.consultingProof?.sessionId !== t.consentSessionId || t.consultingProof?.taskId !== 'urn:hallowmarch:play-session:' + t.consentSessionId
+      || t.consentTaskId !== 'hallowmarch-activity:' + owner.accountId + ':' + t.consentSessionId) fail();
   };
   current();
   const [cacheModule, nativeModule, profileModule, journalModule, activityModule, transportModule] = suppliedModules || await Promise.all([
@@ -224,11 +244,13 @@ export async function readPersonalActivityProof({ owner, relayOrigin, gameOrigin
     journal = journalModule.createOwnerPerformanceConsultation({ binding, credential: held.credential, relayUrl: relayOrigin,
       sessionId: crypto.randomUUID(), createClient: readOnlyNative });
     await journal.connect(); current(); const history = await journal.read(); current();
-    const scopes = history.consents.filter(item => item.purpose === 'record-gameplay-activity' && item.recipient === t.memo.contract.write.target);
+    const scopes = history.consents.filter(item => item.purpose === 'record-gameplay-activity' && item.recipient === t.memo.contract.write.target
+      && item.taskId === t.consentTaskId && item.sessionId === t.consentSessionId);
     const consent = scopes.length === 1 ? scopes[0] : null;
-    const boundedExactConsent = !!consent && history.ownerDid === owner.subjectDid && consent.taskId === 'hallowmarch-activity:' + state?.characterId + ':' + consent.sessionId
+    const boundedExactConsent = !!consent && history.ownerDid === owner.subjectDid && consent.sessionId === t.consentSessionId
+      && consent.taskId === 'hallowmarch-activity:' + state?.characterId + ':' + t.consentSessionId && typeof consent.revoked === 'boolean'
       && Date.parse(consent.expiresAt) > Date.parse(consent.issuedAt) && Date.parse(consent.expiresAt) - Date.parse(consent.issuedAt) <= 900000;
-    if (!consent?.revoked) return { genuineHumanOutcome, futureActivityOnly, intentConfirmedBeforeDelivery: t.memo.intentConfirmed,
+    if (!boundedExactConsent || consent.revoked !== true) return { genuineHumanOutcome, futureActivityOnly, intentConfirmedBeforeDelivery: t.memo.intentConfirmed,
       exactPrivateCheckpoint, verifiedNativeDigest, ownerKeyAuthenticatedCheckpoint, exactPrivateLrsReadback: false, boundedExactConsent, sharingStopped: false, noAchievementClaims: false };
     tx = new transportModule.RelayMcpTransport(relayOrigin, { ...held.credential }, globalThis.fetch.bind(globalThis));
     await tx.connect(['get_pod_status', 'dereference', 'sign_request', 'act'], 'get_pod_status'); current();

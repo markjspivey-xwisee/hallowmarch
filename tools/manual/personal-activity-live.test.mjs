@@ -91,10 +91,14 @@ function readFixture() {
     taskId: 'hallowmarch-activity:' + owner.accountId + ':' + consentSession, sessionId: consentSession,
     issuedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 899000).toISOString(), revoked: true }] };
   const transport = { acct: { id: owner.accountId, nativeBound: true }, token: 'PRIVATE-BEARER', generation: 1, reload: false };
-  const player = {}, game = { GAME: { started: true, player }, net: { NETWS: transport }, SAVE: { native: true, readConfirmed: true },
-    activity: { snapshot: () => profile.snapshot() }, learningDelivery: { status: { enabled: false } } };
+  const player = { alive: true }, game = { GAME: { started: true, player }, net: { NETWS: transport }, SAVE: { native: true, readConfirmed: true },
+    activity: { snapshot: () => profile.snapshot() }, consulting: { status: { privateHistoryOpen: true, enabled: false, busy: false } },
+    learningDelivery: { status: { enabled: false } } };
   const pinned = { game, player, transport, token: transport.token, generation: 1, ...owner, binding };
+  const consultingProof = { sessionId: consentSession, taskId: 'urn:hallowmarch:play-session:' + consentSession };
+  const consultingTrace = { verifiedFirst: consultingProof };
   const trace = { pinned, owner, writes: 1, stopped: true, ambiguous: false, startOrdinal: 0, gameplaySessionId: sessionId,
+    consultingTrace, consultingProof, consentSessionId: consentSession, consentTaskId: 'hallowmarch-activity:' + owner.accountId + ':' + consentSession,
     inputAttempted: true, before: { executed: 0, refused: 0 }, memo: { payload: { subject_did: owner.subjectDid, purpose: 'personal-performance', statements: [statement] },
       events: [event], contract, signer: delegateDid, intentConfirmed: true } };
   const lrs = { ...structuredClone(statement), authority: { objectType: 'Agent', name: 'fixture-LRS' }, stored: new Date().toISOString(), version: '1.0.3' };
@@ -119,11 +123,12 @@ function readFixture() {
   { playerProfileIndexGraphIri: async () => 'urn:index', validatePlayerProfileIndex: () => 'urn:character' },
   { createOwnerPerformanceConsultation: () => ({ connect: async () => {}, read: async () => history, close() {} }) },
   { gameplayActivityStatement }, { RelayMcpTransport }];
-  const context = vm.createContext({ window: { __hm: game, __hmNativeHumanConsultingOwner: pinned, __hmNativePersonalActivityTrace: trace },
+  const context = vm.createContext({ window: { __hm: game, __hmNativeHumanConsultingOwner: pinned, __hmNativePersonalActivityTrace: trace,
+      __hmNativeHumanConsultingTrace: consultingTrace },
     location: { origin: gameOrigin }, AbortSignal, Date, JSON, Number, Object, Array, Set, crypto: { randomUUID: () => 'read-only-session' },
     fetch: async () => ({ ok: true, json: async () => ({ bound: true, verified: true, account: { id: owner.accountId }, binding }) }) });
   const read = vm.runInContext('(' + readPersonalActivityProof.toString() + ')', context);
-  return { trace, event, lrs, opened, history, game, pinned, calls, read: () => read({ owner, relayOrigin, gameOrigin }, modules) };
+  return { trace, event, lrs, opened, history, game, pinned, calls, context, read: () => read({ owner, relayOrigin, gameOrigin }, modules) };
 }
 test('independent reader verifies exact native checkpoint, own consent and actual LRS body without writes', async () => {
   const f = readFixture(), result = await f.read();
@@ -139,6 +144,110 @@ test('a concurrently advanced native character head requests only read polling b
 test('unchanged binding CID cannot hide a changed native revision during readback', async () => {
   const f = readFixture(); f.opened.head = { ...f.opened.head, nativeRevision: 'a-new-revision-under-same-binding' };
   const result = await f.read(); assert.equal(result.sharingStopped, false); assert.deepEqual(f.calls, []);
+});
+test('consent read selects the captured coaching task/session among historical revoked sessions and other scopes', async () => {
+  const f = readFixture(), current = f.history.consents[0];
+  const earlier = { ...current, taskId: 'hallowmarch-activity:' + owner.accountId + ':earlier-coach-session', sessionId: 'earlier-coach-session',
+    issuedAt: new Date(Date.now() - 600000).toISOString(), expiresAt: new Date(Date.now() - 300000).toISOString() };
+  const gameplay = { ...current, taskId: 'hallowmarch-activity:' + owner.accountId + ':' + f.trace.gameplaySessionId,
+    sessionId: f.trace.gameplaySessionId, revoked: false };
+  f.history.consents.unshift(earlier, gameplay, { ...current, purpose: 'request-consultation' });
+  f.history.consents.push({ ...current, recipient: 'https://other.example/own-subject' });
+  const result = await f.read(); assert.equal(result.boundedExactConsent, true); assert.equal(result.sharingStopped, true);
+  assert.equal(result.exactPrivateLrsReadback, true); assert.equal(f.calls.filter(name => name === 'act').length, 1);
+});
+for (const [label, mutate] of [
+  ['duplicate exact current scope', f => { f.history.consents.push({ ...f.history.consents[0] }); }],
+  ['historical session only', f => { f.history.consents[0].sessionId = 'historical-session'; f.history.consents[0].taskId = 'hallowmarch-activity:' + owner.accountId + ':historical-session'; }],
+  ['same task with wrong session', f => { f.history.consents[0].sessionId = 'other-session'; }],
+  ['same session with wrong task', f => { f.history.consents[0].taskId += ':other'; }],
+  ['wrong current recipient', f => { f.history.consents[0].recipient += '/other'; }],
+  ['wrong current purpose', f => { f.history.consents[0].purpose = 'request-consultation'; }],
+  ['wrong history owner', f => { f.history.ownerDid = 'did:example:other-owner'; }],
+  ['invalid timestamp bounds', f => { f.history.consents[0].issuedAt = 'unknown'; }],
+  ['nonboolean withdrawal', f => { f.history.consents[0].revoked = 'true'; }],
+]) test('current consent proof refuses ' + label + ' before any LRS read', async () => {
+  const f = readFixture(); mutate(f); const result = await f.read();
+  assert.equal(result.boundedExactConsent, false); assert.equal(result.sharingStopped, false); assert.deepEqual(f.calls, []);
+});
+test('a revoked historical consent cannot substitute for unrevoked current consent', async () => {
+  const f = readFixture(); f.history.consents.push({ ...f.history.consents[0], sessionId: 'earlier', taskId: 'hallowmarch-activity:' + owner.accountId + ':earlier' });
+  f.history.consents[0].revoked = false; const result = await f.read();
+  assert.equal(result.boundedExactConsent, true); assert.equal(result.sharingStopped, false); assert.deepEqual(f.calls, []);
+});
+
+function controlFixture() {
+  const f = readFixture(), priorMemo = f.trace.memo, clicks = [], elements = new Map();
+  delete f.context.window.__hmNativePersonalActivityTrace;
+  Object.assign(f.game.SAVE, { pending: null, nativeFlight: null,
+    lastBody: JSON.stringify({ char: { x: { learningDelivery: { pending: { events: [f.event], contract: priorMemo.contract } } } } }) });
+  Object.assign(f.game.GAME, { t: 100 }); f.game.UI = { modal: null }; f.pinned.player.combatUntil = 0;
+  Object.assign(f.game.learningDelivery.status, { enabled: false, pending: false, busy: false });
+  elements.set('march-learning-record', { textContent: 'Record for 15 minutes in your own pod. Chat and inventory are excluded.' });
+  elements.set('menu', { hidden: true });
+  elements.set('march-learning-enable', { hidden: false, disabled: false, click() { clicks.push('enable'); f.game.learningDelivery.status.enabled = true; } });
+  elements.set('march-learning-stop', { hidden: false, disabled: false, click() { clicks.push('stop'); f.game.learningDelivery.status.enabled = false; } });
+  f.context.document = { getElementById: id => elements.get(id), activeElement: { tagName: 'BODY' },
+    hidden: false, hasFocus: () => true };
+  f.context.performance = { now: () => 12345 }; f.context.URL = URL; f.context.location.href = gameOrigin + '/';
+  const install = vm.runInContext('(' + installPersonalActivityObserver.toString() + ')', f.context);
+  const control = vm.runInContext('(' + personalActivityControl.toString() + ')', f.context);
+  install({ owner, gameOrigin, relayOrigin });
+  const trace = f.context.window.__hmNativePersonalActivityTrace;
+  return { ...f, trace, clicks, elements, control: action => control({ action, owner, gameOrigin }),
+    write() { return f.context.fetch(relayOrigin + '/mcp', { body: JSON.stringify({ method: 'tools/call', params: { name: 'act', arguments: {
+      descriptor_url: priorMemo.contract.descriptorUrl, action_iri: priorMemo.contract.write.action,
+      payload: { _signed_payload: JSON.stringify({ ...priorMemo.payload, agent_id: priorMemo.signer }) },
+    } } }) }); },
+  };
+}
+test('real observer captures the verified consulting session separately from gameplay session', () => {
+  const f = controlFixture(); assert.equal(f.trace.consentSessionId, 'coaching-session');
+  assert.notEqual(f.trace.consentSessionId, f.trace.gameplaySessionId);
+  assert.equal(f.trace.consentTaskId, 'hallowmarch-activity:' + owner.accountId + ':coaching-session');
+  f.control('enable'); f.control('input'); assert.deepEqual(f.clicks, ['enable']); assert.equal(f.trace.inputAttempted, true);
+});
+test('real Stop still clicks once after an unexpected second write and death without accepting the ambiguous proof', async () => {
+  const f = controlFixture(); f.control('enable'); f.control('input'); await f.write(); await f.write();
+  assert.equal(f.trace.writes, 2); assert.equal(f.trace.ambiguous, true); f.pinned.player.alive = false;
+  f.control('stop'); assert.deepEqual(f.clicks, ['enable', 'stop']); assert.equal(f.trace.stopped, true);
+  assert.equal(f.game.learningDelivery.status.enabled, false);
+  assert.throws(() => f.control('stop'), { code: 'qa_activity_scope' });
+  assert.throws(() => f.control('stopped'), { code: 'qa_activity_scope' });
+  const read = vm.runInContext('(' + readPersonalActivityProof.toString() + ')', f.context);
+  await assert.rejects(read({ owner, relayOrigin, gameOrigin }, []), { code: 'qa_activity_readback' });
+  assert.equal(f.trace.writes, 2); assert.deepEqual(f.calls, []);
+});
+for (const [name, mutate] of [
+  ['owner', f => { f.pinned.accountId = 'other-owner'; }],
+  ['token', f => { f.game.net.NETWS.token = 'other-token'; }],
+  ['generation', f => { f.game.net.NETWS.generation++; }],
+  ['player identity', f => { f.game.GAME.player = { alive: true }; }],
+  ['coaching proof identity', f => { f.trace.consultingTrace.verifiedFirst = { ...f.trace.consultingProof }; }],
+  ['coaching session', f => { f.trace.consultingProof.sessionId = 'other-session'; }],
+  ['closed journal', f => { f.game.consulting.status.privateHistoryOpen = false; }],
+]) test('cleanup Stop refuses changed ' + name + ' even with ambiguous observations', () => {
+  const f = controlFixture(); f.control('enable'); f.trace.ambiguous = true; mutate(f);
+  assert.throws(() => f.control('stop'), { code: 'qa_activity_scope' });
+  assert.deepEqual(f.clicks, ['enable']); assert.equal(f.trace.stopped, false);
+});
+for (const action of ['enable', 'input']) for (const fault of ['ambiguous', 'dead']) {
+  test('real ' + action + ' remains strict after ' + fault, () => {
+    const f = controlFixture(); if (action === 'input') f.control('enable');
+    if (fault === 'ambiguous') f.trace.ambiguous = true; else f.pinned.player.alive = false;
+    assert.throws(() => f.control(action), { code: 'qa_activity_scope' });
+    assert.equal(f.trace.inputAttempted, false); assert.deepEqual(f.clicks, action === 'input' ? ['enable'] : []);
+  });
+}
+test('unavailable Stop does not latch a false stop before its single click can happen', () => {
+  const f = controlFixture(); f.control('enable'); f.elements.get('march-learning-stop').hidden = true;
+  assert.throws(() => f.control('stop'), { code: 'qa_activity_scope' }); assert.equal(f.trace.stopped, false);
+  f.elements.get('march-learning-stop').hidden = false; f.control('stop');
+  assert.deepEqual(f.clicks, ['enable', 'stop']); assert.throws(() => f.control('stop'), { code: 'qa_activity_scope' });
+});
+test('independent proof remains strict for a dead player', async () => {
+  const f = readFixture(); f.pinned.player.alive = false;
+  await assert.rejects(f.read(), { code: 'qa_activity_readback' }); assert.deepEqual(f.calls, []);
 });
 for (const [label, mutate, flag] of [
   ['another body', f => { f.trace.memo.events[0].body.id = 'other-player'; }, 'genuineHumanOutcome'],
