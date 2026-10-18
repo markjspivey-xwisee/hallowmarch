@@ -376,7 +376,17 @@ export async function readHumanConsultingPlan({ owner, relayOrigin, gameOrigin, 
     if (consultations.length !== 1) fail('qa_human_plan_ambiguous'); const consultation = consultations[0];
     const observations = history.observations.filter(item => item.id === consultation.observationId);
     if (observations.length !== 1) fail('qa_human_observation_ambiguous'); const observation = observations[0], displayed = consultation.response;
-    const actualDisplay = JSON.parse(document.querySelector('#march-consulting-result').dataset.resultKey);
+    // The product render cache is [response, evaluationId], not the response
+    // itself. Check each slot without treating its evaluation label as proof
+    // of learning or assuming it belongs to the current plan.
+    let displayTuple;
+    try { displayTuple = JSON.parse(document.querySelector('#march-consulting-result')?.dataset.resultKey); }
+    catch { fail('qa_human_display_shape'); }
+    if (!Array.isArray(displayTuple) || displayTuple.length !== 2 || !displayTuple[0]
+      || typeof displayTuple[0] !== 'object' || Array.isArray(displayTuple[0])) fail('qa_human_display_shape');
+    const [actualDisplay, displayedEvaluationId] = displayTuple;
+    if (displayedEvaluationId !== null && (typeof displayedEvaluationId !== 'string' || !displayedEvaluationId.trim()
+      || displayedEvaluationId.length > 128 || /[\u0000-\u001f\u007f]/.test(displayedEvaluationId))) fail('qa_human_display_shape');
     const stableTask = { desiredResult: 'Develop effective play through observed Hallowmarch activity and practical support.',
       workContext: 'Hallowmarch play-session coaching for the authenticated player and their separate party companion.' };
     const exactObservation = observation.ownerDid === owner.subjectDid && observation.performerKind === 'human'

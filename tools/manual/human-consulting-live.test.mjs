@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createHumanConsultingLiveQa, guardHumanConsultingOwner, installHumanConsultingObserver,
   disposeHumanConsultingObserver, readHumanConsultingPlan, inspectHumanConsultingFollowup } from './human-consulting-live.mjs';
 import { createFoxxiConsultant, FOXXI_PLANNER_ACTION } from '../../client/native-pod/foxxi-consulting.mjs';
@@ -13,6 +14,8 @@ const gameOrigin = 'https://game.example', relayOrigin = 'https://relay.example'
 const owner = { accountId: 'owner', subjectDid: 'did:web:identity.example:users:owner', podUrl: 'https://pods.example/owner/' };
 const descriptor = 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan/affordance';
 const action = 'https://relay.interego.xwisee.com/ns/iep/action/foxxi/contextualize-and-plan-signed';
+const producerResponse = JSON.parse(readFileSync(new URL('../../client/native-pod/fixtures/foxxi-methodology-responses.json', import.meta.url), 'utf8'))
+  .responses.find(entry => entry.method === 'classify-first').body;
 const passFlags = () => Object.fromEntries(['automaticObservedContext', 'attributedLiveResponse', 'exactPrivatePlan', 'exactObservation',
   'verifiedNativeDigest', 'ownerKeyAuthenticatedCheckpoint', 'boundedExactConsent', 'noAchievementClaims', 'singleDeliveryAttempt', 'intentConfirmedBeforeDelivery'].map(key => [key, true]));
 
@@ -306,9 +309,14 @@ test('optional observer refuses an unsolicited second situation before the durab
 async function readFixture() {
   const f = browserFixture(); await f.pin();
   const taskId = 'urn:hallowmarch:play-session:fixture-session';
+  // Preserve the actual producer's rich response shape; only the synthetic
+  // test owner/delegate and situation bindings are adapted to this fixture.
+  const body = structuredClone(producerResponse);
+  body.classifiedBy = f.status.binding.authenticatedAgentDid;
+  body.diagnosis.situationId = body.plan.situationId = body.plan.diagnosis.situationId = f.payload.situation.id;
   const response = { source: { descriptorUrl: descriptor, performerDid: owner.subjectDid, performerKind: 'human', signatureAuthority: 'relay-delegated' },
     service: { action, target: 'https://foxxi-bridge.interego.xwisee.com/agent/contextualize-and-plan' },
-    response: { classifiedBy: f.status.binding.authenticatedAgentDid, diagnosis: { situationId: f.payload.situation.id }, plan: { situationId: f.payload.situation.id, summary: 'An isolated fixture plan', selected: [] } },
+    response: body,
     competencyClaims: [], foxxiPersonalRecordCreated: false };
   const observation = { id: 'observation-fixture', ownerDid: owner.subjectDid, performerKind: 'human', competencyStatus: 'not-assessed',
     task: { id: taskId, observedResult: f.payload.situation.observed, desiredResult: 'Develop effective play through observed Hallowmarch activity and practical support.',
@@ -321,7 +329,7 @@ async function readFixture() {
   Object.assign(f.c.window.__hmNativeHumanConsultingTrace, { localVerified: true, enableClicked: true, deliveries: 1, intentConfirmed: true,
     memo: { payload: f.payload, focus: Object.fromEntries(['id', 'title', 'desiredResult', 'workContext'].map(key => [key, f.snapshot.current[key]])),
       expectedObservedResult: f.payload.situation.observed, constraints: f.constraints, observedContext: f.contextObservation } });
-  f.elements.set('#march-consulting-result', { dataset: { resultKey: JSON.stringify(response.response) } });
+  f.elements.set('#march-consulting-result', { dataset: { resultKey: JSON.stringify([response.response, null]) } });
   f.game.consulting.status.enabled = true;
   const digest = 'graph-nquads-sha256:' + 'a'.repeat(64);
   const head = { descriptorUrl: owner.podUrl + 'context-graphs/fixture.ttl', cid: 'bafyfixture', bindingCid: 'bafyfixture',
@@ -362,9 +370,10 @@ async function secondReadFixture() {
   observation.evidence[0].at = second.observedContext.capturedAt;
   const consultation = structuredClone(f.history.consultations[0]); consultation.id = 'consultation-second'; consultation.observationId = observation.id;
   consultation.response.response.plan.situationId = second.payload.situation.id; consultation.response.response.diagnosis.situationId = second.payload.situation.id;
+  consultation.response.response.plan.diagnosis.situationId = second.payload.situation.id;
   consultation.response.response.plan.summary = 'A distinct isolated second plan';
   f.history.observations.push(observation); f.history.consultations.push(consultation);
-  f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify(consultation.response.response);
+  f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify([consultation.response.response, null]);
   return { ...f, trace, second, observation, consultation };
 }
 test('actual readback independently verifies second distinct encrypted-journal fixture record in the same broad task and consent session', async () => {
@@ -376,6 +385,48 @@ test('actual readback independently verifies second distinct encrypted-journal f
   f.game.consulting.status.enabled = false; for (const scope of f.history.consents) scope.revoked = true;
   assert.equal((await f.invoke(true, 1)).sharingStopped, true);
 });
+for (const planIndex of [0, 1]) {
+  test('producer-compatible ' + (planIndex ? 'followup' : 'initial') + ' response uses only tuple response slot while checking evaluation id separately', async () => {
+    const f = planIndex ? await secondReadFixture() : await readFixture();
+    const body = planIndex ? f.consultation.response.response : f.response.response;
+    const expected = structuredClone(body);
+    f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify([body, 'urn:uuid:36a071a2-7aa3-44cb-92e8-da223248fb12']);
+    const result = await f.invoke(false, planIndex);
+    assert.equal(result.exactPrivatePlan, true); assert.equal(result.attributedLiveResponse, true);
+    assert.equal(result.verifiedNativeDigest, true); assert.equal(result.noAchievementClaims, true);
+    if (planIndex) assert.equal(result.exactSecondPrivatePlan, true);
+    assert.deepEqual(body, expected, 'readback does not change or normalize the producer response');
+    assert.deepEqual(f.tools, [], 'only native reads are available; no act or new delivery');
+  });
+  for (const [name, tuple] of [
+    ['bare response', response => response],
+    ['one slot', response => [response]],
+    ['three slots', response => [response, null, 'extra']],
+    ['object with numeric keys', response => ({ 0: response, 1: null })],
+    ['null tuple', () => null],
+    ['null response', () => [null, null]],
+    ['array response', () => [[], null]],
+    ['primitive response', () => ['not a response', null]],
+    ['boolean evaluation id', response => [response, true]],
+    ['numeric evaluation id', response => [response, 42]],
+    ['object evaluation id', response => [response, { id: 'label' }]],
+    ['empty evaluation id', response => [response, '']],
+    ['whitespace evaluation id', response => [response, '   ']],
+    ['overlong evaluation id', response => [response, 'x'.repeat(129)]],
+    ['control in evaluation id', response => [response, 'evaluation\nlabel']],
+  ]) test((planIndex ? 'followup' : 'initial') + ' readback refuses malformed product display: ' + name, async () => {
+    const f = planIndex ? await secondReadFixture() : await readFixture();
+    const body = planIndex ? f.consultation.response.response : f.response.response;
+    f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify(tuple(body));
+    await assert.rejects(f.invoke(false, planIndex), { code: 'qa_human_display_shape' });
+    assert.equal(f.c.window.__hmNativeHumanConsultingTrace.deliveries, planIndex + 1);
+    assert.deepEqual(f.tools, []);
+  });
+}
+test('unreadable product display cache returns only a fixed QA code', async () => {
+  const f = await readFixture(); f.elements.get('#march-consulting-result').dataset.resultKey = '{private unparseable details';
+  await assert.rejects(f.invoke(), error => error.code === 'qa_human_display_shape' && !error.message.includes('private unparseable'));
+});
 for (const [name, change, flag] of [
   ['other broad task', f => { f.observation.task.id += ':other'; for (const scope of f.history.consents) scope.taskId = f.observation.task.id; }, 'automaticFollowup'],
   ['other consent session', f => { for (const scope of f.history.consents) scope.sessionId = 'other-session'; }, 'automaticFollowup'],
@@ -383,7 +434,7 @@ for (const [name, change, flag] of [
   ['too-short elapsed', f => { f.trace.followup.elapsed = 119999; }, 'realElapsedFollowup'],
   ['no actual human outcome delta', f => { f.second.humanOutcome.executed = 0; }, 'changedOutcome'],
   ['missing second native intent', f => { f.trace.intents[1] = false; }, 'intentConfirmedBeforeDelivery'],
-  ['first response relabeled second', f => { f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify(f.response.response); }, 'exactSecondPrivatePlan'],
+  ['first response relabeled second', f => { f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify([f.response.response, null]); }, 'exactSecondPrivatePlan'],
   ['first native record disappeared', f => { f.history.consultations.shift(); }, 'exactSecondPrivatePlan'],
   ['first native observation changed', f => { f.history.observations[0].task.observedResult = 'Different retained outcome'; }, 'exactSecondPrivatePlan'],
 ]) test('second native readback cannot pass ' + name, async () => {
@@ -402,7 +453,7 @@ test('native withdrawal readback requires both exact consents revoked and live s
   assert.equal((await f.invoke(true)).sharingStopped, true);
 });
 for (const [name, mutate, flag] of [
-  ['wrong displayed plan', f => { f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify({ plan: { summary: 'different' } }); }, 'exactPrivatePlan'],
+  ['wrong displayed plan', f => { f.elements.get('#march-consulting-result').dataset.resultKey = JSON.stringify([{ plan: { summary: 'different' } }, null]); }, 'exactPrivatePlan'],
   ['wrong native delegate', f => { f.response.response.classifiedBy = 'did:example:independent-agent'; }, 'attributedLiveResponse'],
   ['agent relabeled human', f => { f.history.observations[0].performerKind = 'agent'; }, 'exactObservation'],
   ['unbounded consent', f => { f.history.consents[0].expiresAt = new Date(Date.now() + 1800000).toISOString(); }, 'boundedExactConsent'],
