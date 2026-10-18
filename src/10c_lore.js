@@ -1061,6 +1061,10 @@ function placePathHud() {
   if (top > 0 && top !== LORE.top) { el.style.top = top + 'px'; LORE.top = top; }
 }
 function openChronicle(sec) {
+  if ((sec || LORE.chronSec) === 'coach') {
+    if (LORE.chronSec === 'coach') LORE.chronSec = 'path';
+    openMenu('progress'); return;
+  }
   if (sec) LORE.chronSec = sec;
   if (UI.modal === 'menu') renderMenu('chronicle');
   else openMenu('chronicle');
@@ -1214,6 +1218,7 @@ function deathNote() {
 /* ------------------------------------------------------------------ */
 const CHRON_SECTIONS = [['march', 'The March'], ['realms', 'Realms'], ['callings', 'Callings'], ['gifts', 'Realm gifts'], ['war', 'The war'], ['orders', 'Orders'], ['halls', 'Keep halls'], ['wilds', 'Creatures'], ['dragon', 'Cinderwing'], ['barrow', 'The Barrow'], ['water', 'Water'], ['living', 'Living off the land'], ['fields', 'Fields'], ['herbal', 'Herbal'], ['animals', 'Animals'], ['building', 'Building'], ['path', 'Your path']]; // [gifts] chronGifts in 06c_gifts.js; [classes] chronClasses in 10d_classes_ui.js; [water] chronWater in 07b_swim.js; [survival] chronLiving in 09s_survival.js; [farming] chronFields, chronHerbal in 08h_farming.js; [animals] chronAnimals in 08h_animals.js; [building] chronHalls, chronBuilding in 06k_build.js
 function renderChronicle(body, fromNav = false) {
+  if (LORE.chronSec === 'coach') { LORE.chronSec = 'path'; renderMenu('progress'); return; }
   if (!CHRON_SECTIONS.some(([k]) => k === LORE.chronSec)) LORE.chronSec = 'march';
   const sec = LORE.chronSec;
   const fn = { march: chronMarch, realms: chronRealms, callings: chronClasses, gifts: chronGifts, war: chronWar, orders: chronOrders, halls: chronHalls, wilds: chronWilds, dragon: chronDragon, barrow: chronBarrow, water: chronWater, living: chronLiving, fields: chronFields, herbal: chronHerbal, animals: chronAnimals, building: chronBuilding, path: chronPath, ...CHRON_FN }[sec]; // [guide] CHRON_FN: pages added with chronAdd
@@ -1258,12 +1263,16 @@ const chronGroupOf = (k) => CHRON_GROUPS.find((g) => g[2].includes(k)) || CHRON_
 const chronLink = (k, label) => `<button type="button" class="btn" data-lore="sec:${k}">${label}</button>`; // [guide]
 $('menu-body').addEventListener('click', (e) => {
   const s = e.target.closest('.chron-nav [data-sec]');
-  if (s) { LORE.chronSec = s.dataset.sec; renderChronicle($('menu-body'), true); sfx('click'); return; }
+  if (s) {
+    if (s.dataset.sec === 'coach') openChronicle('coach');
+    else { LORE.chronSec = s.dataset.sec; renderChronicle($('menu-body'), true); }
+    sfx('click'); return;
+  }
   const g = e.target.closest('.chron-nav [data-grp]');
   if (g) { const G = CHRON_GROUPS.find((q) => q[0] === g.dataset.grp); if (G && chronGroupOf(LORE.chronSec) !== G) { LORE.chronSec = G[2][0]; renderChronicle($('menu-body'), true); sfx('click'); } return; }
-  const a = e.target.closest('.chron [data-lore]');
+  const a = e.target.closest('[data-lore]');
   if (a && a.dataset.lore === 'prologue') openPrologue(true);
-  else if (a && a.dataset.lore.startsWith('sec:')) { LORE.chronSec = a.dataset.lore.slice(4); renderChronicle($('menu-body')); sfx('click'); } // [guide] a page's link to another (chronLink)
+  else if (a && a.dataset.lore.startsWith('sec:')) { openChronicle(a.dataset.lore.slice(4)); sfx('click'); } // [guide] a page's link to another (chronLink)
 });
 
 function chronMarch() {

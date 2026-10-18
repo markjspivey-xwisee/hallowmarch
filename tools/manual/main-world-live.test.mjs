@@ -1,12 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMainWorldLiveQa, mainWorldLiveMotionEvidence, mainWorldAdmissionCanRestart,
-  mainWorldPauseCanRecover, mainWorldPauseProof } from './main-world-live.mjs';
+  mainWorldPauseCanRecover, mainWorldPauseProof, openMainWorldCompanionControls } from './main-world-live.mjs';
 
 const uuid = 'b311cc62-f50a-471a-965d-413c36954669';
 const observation = () => ({ ownerId: 'owner-1', bodyId: 'owner-1:companion:' + uuid, confirmedCommands: 8,
   elapsedMs: 5100, gameElapsed: 1.4, humanInputObserved: true, overlappingInputObserved: true,
   companionMeters: .69, humanMeters: .42, peerBodyId: uuid, peerSeen: 3, peerCompanionMeters: .68 });
+
+test('Companion navigation chooses the independent fixture agent through explicit manual entry', async () => {
+  const calls = [], open = new Set();
+  const page = { locator(selector) {
+    assert.notEqual(selector, '#btn-net', 'Players is not the agent setup surface');
+    return {
+      async isVisible() { return open.has(selector); },
+      async click() { calls.push('click:' + selector);
+        if (selector === '#btn-menu') open.add('#menu');
+        if (selector === '#menu-tabs [data-tab="companion"]') open.add('#world-agent-controls');
+        if (selector.endsWith(' > summary')) open.add(selector.slice(0, -' > summary'.length));
+      },
+      async waitFor(options) { assert.deepEqual(options, { state: 'visible', timeout: 30000 }); assert(open.has(selector)); },
+      async evaluate(predicate) { return predicate({ open: open.has(selector) }); },
+      async selectOption(value) { calls.push('select:' + selector + ':' + value); },
+    };
+  } };
+  await openMainWorldCompanionControls(page, { manualAgent: true });
+  assert.deepEqual(calls, ['click:#btn-menu', 'click:#menu-tabs [data-tab="companion"]',
+    'click:#world-agent-advanced > summary', 'select:#world-agent-choice:manual', 'click:#world-agent-manual > summary']);
+  calls.length = 0;
+  await openMainWorldCompanionControls(page, { advanced: true });
+  assert.deepEqual(calls, [], 'an open scope view does not change the selected actor or re-toggle details');
+});
 
 test('expired unsigned native challenges can restart without replaying an admission attempt', () => {
   const base = { stopped: false, reference: {}, localRevoked: false, completeAttempted: false,

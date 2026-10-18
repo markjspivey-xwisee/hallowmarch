@@ -1,4 +1,4 @@
-"""Actual built Chronicle Coach UI with explicit native/Foxxi fixtures.
+"""Actual built Progress/Coach UI with explicit native/Foxxi fixtures.
 
 The game activity module, character save queue, Coach state machine and DOM are
 real source. Private pod and planner ports are fixtures; this is not live proof.
@@ -44,10 +44,15 @@ window.__consultingFixture={
       if(f.characterUnconfirmed)throw Object.assign(Error('fixture unknown character ACK'),{code:'pod_pending'});
     }};
     if(restore&&this.character){SAVE_PARTS.char.coachDelivery.load(this.character.char.x.coachDelivery);SAVE_PARTS.char.activity.load(this.character.char.x.activity);SAVE.loaded=structuredClone(this.character);SAVE.lastBody=JSON.stringify({...this.character,savedAt:0});}
+    // A configured server exposes Players even while this fixture has no peers.
+    // Start its real UI lifecycle: the held game frame cannot do it for us.
+    window.__HM_GAMING={...window.__HM_GAMING,mainWorldAgents:{enabled:true,applicationId:'did:example:hallowmarch-fixture',audience:location.origin,affordances:location.origin+'/world/native-agents'}};
     netWsSend=()=>true;NETUI.lines=[{who:'Private chat',text:'DO-NOT-EXPORT-CHAT',c:'#fff',ch:'r'}];GAME.player.privateInventory='DO-NOT-EXPORT-INVENTORY';
+    netUiOn();UI.frame=0;netUiFrame();
     await activityModules();activityEnsure();
   },
   open(){openChronicle('coach');marchConsultingRender()},
+  setupReady(value){NATIVE_PLAYER.status.verified=value;marchConsultingRender()},
   leave(){closeMenu();if(NETUI.open)netSheetToggle(false)},
   advance(ms){this.clock+=ms},step(){marchConsultingStep()},
   record(type='resource.gathered',object='fixture-ore'){return activityRecord(type,object,1,{actor:{kind:'human-input'},success:!type.endsWith('.refused'),...(type.endsWith('.refused')?{reason:'range'}:{})})},
@@ -110,7 +115,7 @@ window.__consultingFixture={
 
 async def main():
     base=hm.HTML.read_text();position=base.rfind('</script>');assert position>0
-    persisted=None
+    persisted=None;port_writes=[]
     async with async_playwright() as p:
         browser=await p.chromium.launch(executable_path=os.environ.get('HM_CHROMIUM_EXECUTABLE') or None,
             args=['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'])
@@ -123,6 +128,9 @@ async def main():
             await page.route('https://fonts.gstatic.com/**',lambda route:route.fulfill(body=''))
             async def route_game(route):
                 path=route.request.url.split('?',1)[0]
+                if route.request.method not in ('GET','HEAD','OPTIONS'):
+                    port_writes.append({'method':route.request.method,'url':path})
+                    return await route.fulfill(status=503,content_type='application/json',body='{"error":"unconfigured-fixture-write"}')
                 if path.endswith('/performance-consultation.mjs'):
                     return await route.fulfill(content_type='application/javascript',body='export const createOwnerPerformanceConsultation=x=>window.__consultingFixture.makeJournal(x);')
                 if path.endswith('/foxxi-consulting.mjs'):
@@ -143,13 +151,71 @@ async def main():
             await page.evaluate('window.__holdFrame=true')
             await page.get_by_role('button',name='Skip the prologue',exact=True).click(timeout=60000)
             await page.evaluate('__consultingFixture.bind()')
-            await page.keyboard.press('j')
-            await page.locator('.chron-nav [data-grp="you"]').click()
-            await page.locator('.chron-nav [data-sec="coach"]').click()
+
+            async def destination(tab):
+                state=await page.evaluate(r"""() => ({tab:__hm.UI.menuTab,modal:__hm.UI.modal,
+                  overlays:[...document.querySelectorAll('.overlay')].filter(e=>!e.hidden&&e.getClientRects().length).map(e=>e.id),
+                  selected:[...document.querySelectorAll('#menu-tabs [aria-checked="true"]')].map(e=>e.dataset.tab)})""")
+                assert state=={'tab':tab,'modal':'menu','overlays':['menu'],'selected':[tab]},state
+
+            async def navigation_only():
+                state=await page.evaluate(r"""() => ({external:__consultingFixture.external,requests:__consultingFixture.requests,
+                  journalCreations:__consultingFixture.journalCreations,enabled:__hm.consulting.status.enabled,
+                  writes:__consultingFixture.calls.filter(x=>x.startsWith('consent:')||x==='foxxi-delivery'||x==='observation'||x==='consultation')})""")
+                assert state=={'external':0,'requests':0,'journalCreations':0,'enabled':False,'writes':[]},state
+                assert not port_writes,port_writes
+
+            # These Character links live outside .chron. Exercise their real
+            # click handlers so an inert shortcut cannot pass via a direct API.
+            await page.locator('#btn-menu').click()
+            await page.locator('#menu-body [data-lore="sec:coach"]').click()
+            await destination('progress')
             await page.wait_for_selector('#march-coach-mount #march-consulting')
+            assert await page.locator('#menu-body .chron-nav').count()==0
+            assert await page.locator('#march-coach-mount').count()==1
+            await navigation_only()
+            await page.locator('#menu-tabs [data-tab="char"]').click()
+            await page.locator('#menu-body [data-lore="sec:path"]').click()
+            await destination('chronicle')
+            assert await page.evaluate('__hm.LORE.state.chronSec')=='path'
+            assert await page.locator('.chron-nav [data-sec="path"][aria-current="true"]').is_visible()
+            await navigation_only()
+            # Existing callers keep their public route, but it must select the
+            # dedicated Progress tab rather than a nested Chronicle section.
+            await page.evaluate('__hm.LORE.openChronicle("coach")')
+            await destination('progress')
+            assert await page.locator('#menu-body .chron-nav').count()==0
+            await page.wait_for_selector('#march-coach-mount #march-consulting')
+            await navigation_only()
+            await page.locator('#menu-close').click()
+            await page.locator('#btn-net').click()
+            assert await page.locator('#netsheet').is_visible()
+            assert not await page.locator('#menu').is_visible()
+            await page.locator('#netsheet [data-act="progress"]').click()
+            await destination('progress')
+            assert not await page.locator('#netsheet').is_visible()
+            await navigation_only()
+            print('PASS Character progress/path links and Players→Progress use real routes without stacked panels, automatic Enable, consent or delivery',flush=True)
             await page.wait_for_function('__hm.activity.snapshot().current',timeout=30000)
             assert await page.locator('#march-consulting input,#march-consulting textarea,#march-consulting form').count()==0
             assert await page.locator('#march-coach-interventions button').count()>=2
+            assert 'No LLM setup or API key is needed.' in await page.locator('#march-consulting').inner_text()
+            assert await page.get_by_role('heading',name='Foxxi guidance',exact=True).is_visible()
+            assert await page.get_by_role('heading',name='Private learning record',exact=True).is_visible()
+            assert await page.evaluate('document.getElementById("march-learning-record").parentElement===document.getElementById("march-coach-guidance").parentElement&&!document.getElementById("march-coach-options").contains(document.getElementById("march-learning-record"))')
+            assert await page.locator('#march-learning-enable').is_visible()
+            assert not await page.locator('#march-consulting-request').is_visible()
+            assert not await page.locator('#march-consulting-withdraw').is_visible()
+            assert not await page.locator('#march-coach-recovery').is_visible()
+            assert not await page.locator('#march-learning-recovery').is_visible()
+            await page.evaluate('__consultingFixture.setupReady(false)')
+            assert await page.locator('#march-progress-prerequisite').is_visible()
+            assert await page.locator('#march-consulting-connect').is_disabled()
+            assert await page.locator('#march-learning-enable').is_disabled()
+            await page.evaluate('__consultingFixture.setupReady(true)')
+            assert not await page.locator('#march-progress-prerequisite').is_visible()
+            assert await page.locator('#march-learning-enable').is_enabled()
+            await navigation_only()
             await page.screenshot(path=str(QA_OUT/'coach-desktop.png'),timeout=300000)
             await page.set_viewport_size({'width':390,'height':844})
             layout=await page.locator('#march-consulting').evaluate('(e)=>({width:e.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth,taps:[...e.querySelectorAll("button,summary")].filter(b=>!b.hidden&&b.getClientRects().length).map(b=>b.getBoundingClientRect().height)})')
@@ -158,19 +224,21 @@ async def main():
             await page.set_viewport_size({'width':960,'height':720})
             assert not await page.locator('#march-coach-options').evaluate('(e)=>e.open')
             assert not await page.locator('#march-coach-preview').is_visible()
-            discover=page.get_by_role('button',name='Connect a live coach',exact=True)
-            assert await discover.is_enabled()
+            discover=page.locator('#march-coach-options > summary')
+            assert await discover.inner_text()=='Set up Foxxi guidance'
             await discover.click()
             assert await page.locator('#march-coach-options').evaluate('(e)=>e.open')
-            assert await page.locator('#march-consulting-connect').evaluate('(e)=>e===document.activeElement')
+            assert await page.get_by_role('button',name='Enable Foxxi guidance · 15 minutes',exact=True).is_visible()
+            assert not await page.locator('#march-coach-preview').is_visible()
+            assert await page.locator('#march-learning-enable').is_visible()
             assert await page.evaluate("__consultingFixture.external===0&&__consultingFixture.requests===0&&__consultingFixture.journalCreations===0&&!__consultingFixture.calls.some(x=>x.startsWith('consent:')||x==='foxxi-delivery')")
             await page.locator('#march-coach-options').evaluate('(e)=>e.open=false')
             await page.get_by_role('button',name='Find materials nearby',exact=True).click()
             assert await page.evaluate('__hm.activity.snapshot().summary.counters["intervention.started"]')==1
             assert await page.evaluate('__consultingFixture.external===0&&__consultingFixture.requests===0')
-            await page.locator('.chron-nav [data-grp="you"]').click()
-            await page.locator('.chron-nav [data-sec="coach"]').click()
-            print('PASS actual Chronicle Coach shows observed milestones and a working local action card without forms, consent or planner I/O',flush=True)
+            await page.locator('#menu-tabs [data-tab="progress"]').click()
+            await destination('progress')
+            print('PASS actual Progress tab shows observed milestones and a working local action card without forms, consent or planner I/O',flush=True)
 
             async def options():
                 await page.locator('#march-coach-options').evaluate('(e)=>e.open=true')
@@ -182,6 +250,12 @@ async def main():
                 await page.evaluate('__consultingFixture.reset();__consultingFixture.bind().then(()=>__consultingFixture.open())')
                 await page.wait_for_function('__hm.activity.snapshot().current&&!__hm.consulting.status.busy')
             await enable();await page.wait_for_function('__hm.consulting.status.hasPrivatePlan&&!__hm.consulting.status.busy')
+            await page.locator('#march-coach-options').evaluate('(e)=>e.open=false')
+            assert await page.locator('#march-consulting-withdraw').is_visible()
+            assert await page.get_by_role('button',name='Stop Foxxi sharing',exact=True).is_enabled()
+            assert await page.locator('#march-consulting-request').is_visible()
+            assert await page.locator('#march-learning-enable').is_visible()
+            assert not await page.locator('#march-coach-recovery').is_visible()
             evidence=await page.evaluate('__consultingFixture.info()')
             assert evidence['external']==1 and evidence['requests']==1
             assert len(evidence['history']['observations'])==1 and len(evidence['history']['consultations'])==1
@@ -231,6 +305,7 @@ async def main():
             for kind in ['observation','consultation']:
                 await reset();await page.evaluate('(kind)=>__consultingFixture.pendingKind=kind',kind);await enable()
                 await page.wait_for_function('__consultingFixture.pending&&!__hm.consulting.status.busy')
+                assert await page.locator('#march-coach-recovery').is_visible()
                 before=await page.evaluate('__consultingFixture.external')
                 await page.locator('#march-consulting-retry').click();await settled()
                 await page.locator('#march-coach-continue').click()

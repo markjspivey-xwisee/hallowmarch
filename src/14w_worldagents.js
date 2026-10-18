@@ -2,7 +2,8 @@
  * the human. Ordinary controllers retain collision, range and combat rules. */
 /* global activityRecord */
 const MAIN_WORLD_AGENTS = { client: null, ownerKey: '', records: new Map(), allowed: new Set(), paused: true,
-  companionPaused: false, busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1, reservedUuid: null };
+  companionPaused: false, busy: false, note: '', loaded: false, intent: null, attack: null, targets: new Map(), lastFrame: 0, lastGeneration: -1, reservedUuid: null,
+  directory: null, directoryCurrent: null, directoryAgents: [], directoryKey: '', directoryNote: '' };
 const mainWorldAgentBodies = () => !GAME.started || !GAME.player || !NETWS.acct ? [] : [
   ...partyCompanionBodies(),
   ...anCompanions().slice(0, 16).map(e => ({ id: NETWS.acct.id + ':animal:' + e.tame.aid, name: e.tame.name, entity: e })),
@@ -208,8 +209,17 @@ async function mainWorldAgentPublish(context) {
   if ([...state.records.values()].some(r => r.grant?.entityId === body.id && !r.grant.revoked && !r.localRevoked
     && Date.parse(r.grant.expiresAt) > Date.now())) throw new Error('Revoke this companion’s current access before connecting another agent.');
   const role = $('world-agent-role').value;
-  const actor = $('world-agent-did').value.trim();
-  if (!/^did:web:[^\s]+:agents:[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(actor) || !['teammate', 'pet', 'coach'].includes(role)) throw new Error('Enter your agent’s native Agent DID and choose a role.');
+  const choice = $('world-agent-choice').value;
+  let actor = $('world-agent-did').value.trim();
+  if (choice !== 'manual') {
+    if (!choice || !state.directory || !state.directoryAgents.some(agent => agent.did === choice)) throw new Error('Choose your registered agent, or enter an agent ID in advanced setup.');
+    state.directoryCurrent();
+    const verified = await state.directory.verify(choice); context.current(); state.directoryCurrent();
+    if (!verified.verified || verified.agent.did !== choice) throw new Error('This agent could not be verified. Refresh your agent list before granting access.');
+    actor = choice;
+  }
+  if (!/^did:web:[^\s]+:agents:[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(actor) || !['teammate', 'pet', 'coach'].includes(role)) throw new Error('Choose an Interego agent and its permissions.');
+  if (actor === NATIVE_PLAYER.status.binding?.authenticatedAgentDid) throw new Error('Use your AI app’s agent identity, not this game browser’s identity.');
   if (role === 'pet' && partyCompanionOwned(body.entity)) throw new Error('Choose an owned animal for the animal companion role.');
   const expected = { actor, role, entityId: body.id, roomId: NETWS.worldRoom, actions: role === 'coach' ? ['observe'] : ['observe', 'move', 'attack'] };
   const id = crypto.randomUUID(), reference = { grantId: 'urn:uuid:' + id, graphIri: 'urn:graph:interego:gaming:owner-agent-grant:' + id };
@@ -277,26 +287,137 @@ function mainWorldAgentAccessStatus(record, body) {
   const input = record.lastCommandAt ? 'Agent input received' : 'Access ready · waiting for agent input';
   return input + (MAIN_WORLD_AGENTS.paused || !MAIN_WORLD_AGENTS.allowed.has(body.id) ? ' · control paused' : UI.modal ? ' · close this panel to allow input' : '');
 }
+function mainWorldAgentDirectoryClose() {
+  const state = MAIN_WORLD_AGENTS;
+  state.directory?.close(); state.directory = null; state.directoryCurrent = null;
+  state.directoryAgents = []; state.directoryKey = ''; state.directoryNote = '';
+}
+async function mainWorldAgentDirectoryLoad() {
+  const state = MAIN_WORLD_AGENTS; if (state.busy) return;
+  state.busy = true; state.directoryNote = 'Looking up your registered agents…'; mainWorldAgentRender();
+  const accountId = NETWS.acct?.id, token = NETWS.token, generation = NETWS.generation;
+  const original = { ...NATIVE_PLAYER.status?.binding };
+  const sameOwner = binding => ['subjectDid', 'podUrl', 'webId', 'authenticatedAgentDid'].every(key => original[key] && binding?.[key] === original[key]);
+  const current = () => {
+    if (!accountId || !token || NETWS.acct?.id !== accountId || NETWS.token !== token || NETWS.generation !== generation
+      || NETWS.reload || !NATIVE_PLAYER.status?.bound || !NATIVE_PLAYER.status?.verified
+      || !sameOwner(NATIVE_PLAYER.status.binding)) throw new Error('Reconnect your identity before choosing an agent.');
+  };
+  let directory;
+  try {
+    current(); const status = await nativePlayerRequest('/gaming/identity/status'); current();
+    if (!status.verified || !status.bound || status.account?.id !== accountId
+      || !sameOwner(status.binding)) throw new Error('Your owner identity could not be confirmed.');
+    await nativePlayerModules(); current();
+    const matches = await NATIVE_PLAYER.cache.list({}); current();
+    const match = matches.find(item => item.ownerDid === status.binding.subjectDid && item.podUrl === status.binding.podUrl && item.expiresAt > Date.now());
+    const held = match && await NATIVE_PLAYER.cache.get(match); current();
+    if (!held?.credential || held.credential.refreshToken || held.credential.expiresAt <= Date.now()) throw new Error('Reconnect your identity to see your agents.');
+    const module = await import('/gaming/identity/assets/agent-directory.mjs'); current();
+    directory = module.createOwnerAgentDirectory({ binding: status.binding, credential: held.credential, relayUrl: match.relayUrl });
+    const result = await directory.list(); current();
+    if (result.ownerDid !== status.binding.subjectDid || result.podUrl !== status.binding.podUrl) throw new Error('Your agent list belongs to a different identity.');
+    mainWorldAgentDirectoryClose(); state.directory = directory; state.directoryCurrent = current;
+    state.directoryAgents = result.agents.filter(agent => agent.did !== status.binding.authenticatedAgentDid);
+    state.directoryKey = JSON.stringify(state.directoryAgents);
+    state.directoryNote = state.directoryAgents.length ? 'Choose the agent you use in your AI app. Nothing is connected or authorized yet.'
+      : 'No other registered agents were found. Connect Interego in your AI app first, then refresh this list.';
+    directory = null;
+  } catch (error) {
+    mainWorldAgentDirectoryClose(); state.directoryNote = error?.message || 'Your agents could not be read. Reconnect your identity and try again.';
+  } finally { directory?.close(); state.busy = false; mainWorldAgentRender(); }
+}
+function mainWorldAgentChoice() {
+  const choice = $('world-agent-choice'), field = $('world-agent-did'), manual = $('world-agent-manual');
+  const entered = choice.value === 'manual';
+  manual.open = entered; field.required = entered;
+  if (entered && field.dataset.fromPicker) { field.value = ''; delete field.dataset.fromPicker; }
+  if (!entered) { field.value = choice.value; field.dataset.fromPicker = 'true'; }
+}
+async function mainWorldAgentCopy(text, fallback, message) {
+  try { await navigator.clipboard.writeText(text); MAIN_WORLD_AGENTS.note = message; }
+  catch {
+    for (let parent = fallback.parentElement; parent; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true;
+    fallback.hidden = false; fallback.value = text; fallback.focus(); fallback.select();
+    MAIN_WORLD_AGENTS.note = 'Text selected. Copy it, then paste it into your AI app.';
+  }
+  mainWorldAgentRender();
+}
 function mainWorldAgentRender() {
-  const parent = $('netsheet')?.querySelector('.sheet');
-  if (!parent || !GAME.started || !window.__HM_GAMING?.mainWorldAgents?.enabled) return;
+  const parent = $('world-agent-mount');
+  if (!parent || !GAME.started) return;
+  if (!window.__HM_GAMING?.mainWorldAgents?.enabled) { parent.textContent = 'Companion setup is unavailable on this server.'; return; }
   let box = $('world-agent-controls');
   if (!box) {
     box = document.createElement('section'); box.id = 'world-agent-controls'; box.style.cssText = 'border-top:1px solid #806f4d;padding-top:12px;display:grid;gap:10px';
-    box.innerHTML = `<h3>Your companion</h3><p>First, add a separate party member and choose its party role. It can follow, guard or support you without an external model. Your character stays yours.</p><p>To play alongside your own AI, connect its tool host in step 2 below. Adding a companion alone does not connect a model. Keep this game open; menus and Pause immediately stop companion control.</p><div style="display:grid;gap:10px"><label>Companion nickname<input id="world-agent-companion-name" maxlength="32" value="AI companion"></label><button class="btn" id="world-agent-create">1. Add companion</button><p id="world-agent-party" role="status"></p><label>Party role<select id="world-agent-party-role"><option value="follow">Follow me</option><option value="guard">Guard this position</option><option value="support">Support my target</option></select></label><button class="btn" id="world-agent-dismiss">Dismiss companion</button></div><p id="world-agent-connection" role="status"></p><details id="world-agent-advanced"><summary style="min-height:44px">2. Connect your AI agent · host setup</summary><p>Your agent needs a trusted tool host with its own native signing identity. This sets up limited access; a live agent must still connect and send its own inputs.</p><button class="btn" id="world-agent-load">Check access in my pod</button><form id="world-agent-form" style="display:grid;gap:10px"><label>Companion<select id="world-agent-body"></select></label><label>Agent DID<input id="world-agent-did" autocomplete="off" spellcheck="false" required placeholder="did:…"></label><label>Agent access mode<select id="world-agent-role"><option value="teammate">Party teammate</option><option value="pet">Animal companion</option><option value="coach">Observe companion only</option></select></label><label style="display:flex;gap:10px;align-items:center"><input id="world-agent-public" type="checkbox">Publish this agent relationship, selected companion and limited access in my pod for 15 minutes.</label><button class="btn" type="submit">Connect agent to companion</button></form></details><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="world-agent-resume">Resume agent control</button><button class="btn" id="world-agent-pause">Pause immediately</button></div><p id="world-agent-note" role="status" aria-live="polite"></p><div id="world-agent-records" style="overflow-wrap:anywhere"></div>`
+    box.innerHTML = `
+      <h2>Your companion</h2>
+      <p>Add a party member that follows, guards or supports you. These built-in behaviors work without an LLM.</p>
+      <div id="world-agent-prerequisite"><p>Connect your identity and open your private character to save and manage a companion.</p><button type="button" class="btn" id="world-agent-identity">Open identity settings</button></div>
+      <div style="display:grid;gap:10px">
+        <label>Companion name<input id="world-agent-companion-name" maxlength="32" value="Companion"></label>
+        <button class="btn" id="world-agent-create">Add companion</button>
+        <p id="world-agent-party" role="status"></p>
+        <label>Companion behavior<select id="world-agent-party-role"><option value="follow">Follow me</option><option value="guard">Guard this position</option><option value="support">Support my target</option></select></label>
+        <button class="btn" id="world-agent-dismiss">Dismiss companion</button>
+      </div>
+      <details id="world-agent-advanced">
+        <summary style="min-height:44px">Use my own AI agent</summary>
+        <p>Your AI app runs the model. Hallowmarch gives it limited access to a companion. Granting access does not connect a subscription or start an agent.</p>
+        <details id="world-agent-model-help"><summary>Using ChatGPT or Claude</summary>
+          <p>This game does not yet offer a one-click ChatGPT or Claude connection. Your AI app needs a compatible game tool connection and an Interego identity. A configured desktop or self-hosted agent can use the supplied game adapter; a cloud chat app needs a hosted connection.</p>
+          <p>Keep the game open while playing together. A chat subscription alone does not keep an agent running in the background.</p>
+        </details>
+        <h3>1. Choose your agent</h3>
+        <p>An agent has a name and an Interego identity. Look up the agents already registered with your identity; you do not need to invent an ID.</p>
+        <button class="btn" type="button" id="world-agent-find">Find my registered agents</button>
+        <p id="world-agent-directory-status" role="status" aria-live="polite"></p>
+        <form id="world-agent-form" style="display:grid;gap:10px">
+          <label>My agent<select id="world-agent-choice" required><option value="">Choose an agent</option><option value="manual">Use an agent ID from another app…</option></select></label>
+          <details id="world-agent-manual"><summary>Advanced: enter an agent ID</summary>
+            <p>In your AI app, connect Interego and ask it to show its current agent identity. Use that app’s agent ID, not the game browser’s identity or your human identity.</p>
+            <button class="btn" type="button" id="world-agent-copy-identity">Copy a request for my AI app</button>
+            <textarea id="world-agent-identity-request" hidden readonly rows="4" aria-label="Request for my AI app" style="width:100%;box-sizing:border-box"></textarea>
+            <label>Interego agent ID (DID)<input id="world-agent-did" autocomplete="off" spellcheck="false" placeholder="did:web:…:agents:…"></label>
+          </details>
+          <h3>2. Give limited access</h3>
+          <label>Companion<select id="world-agent-body"></select></label>
+          <label>Agent permissions<select id="world-agent-role"><option value="teammate">Move and fight alongside me</option><option value="pet">Control my animal companion</option><option value="coach">Read-only observer</option></select></label>
+          <label style="display:flex;gap:10px;align-items:center"><input id="world-agent-public" type="checkbox">Publish this agent relationship, selected companion and limited access in my pod for 15 minutes.</label>
+          <button class="btn" type="submit">Grant companion access · 15 minutes</button>
+        </form>
+        <h3>3. Connect it from your AI app</h3>
+        <p>After access is confirmed, copy the setup instructions below into your compatible agent host. It must connect and prove its own identity before it can play.</p>
+        <button class="btn" id="world-agent-load">Check existing access</button>
+      </details>
+      <p id="world-agent-connection" role="status"></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="world-agent-resume">Resume companion</button><button class="btn" id="world-agent-pause">Pause immediately</button></div>
+      <p id="world-agent-note" role="status" aria-live="polite"></p>
+      <div id="world-agent-records" style="overflow-wrap:anywhere"></div>`;
     parent.appendChild(box);
-    for (const n of box.querySelectorAll('button,input,select')) n.style.minHeight = '44px';
+    for (const n of box.querySelectorAll('button,input,select,summary')) n.style.minHeight = '44px';
     for (const label of box.querySelectorAll('label')) if (!label.querySelector('input[type="checkbox"]')) {
       label.style.display = 'grid'; label.style.gap = '6px';
     }
     for (const n of box.querySelectorAll('input:not([type="checkbox"]),select')) { n.style.width = '100%'; n.style.minWidth = '0'; n.style.boxSizing = 'border-box'; n.style.fontSize = '16px'; }
     $('world-agent-form').onsubmit = event => { event.preventDefault(); void mainWorldAgentRun(mainWorldAgentPublish); };
+    $('world-agent-identity').onclick = openPlayerIdentity;
+    $('world-agent-find').onclick = () => { void mainWorldAgentDirectoryLoad(); };
+    $('world-agent-choice').onchange = mainWorldAgentChoice;
+    $('world-agent-manual').ontoggle = () => {
+      if ($('world-agent-manual').open && $('world-agent-choice').value !== 'manual') {
+        $('world-agent-choice').value = 'manual'; mainWorldAgentChoice();
+      }
+    };
+    $('world-agent-copy-identity').onclick = () => { void mainWorldAgentCopy(
+      'Using your connected Interego account, read get_pod_status and show the active sessionAgent.did, its label and the pod it belongs to. Do not register a new agent or change permissions. I need this agent identity for Hallowmarch.',
+      $('world-agent-identity-request'), 'Identity request copied. Paste it into your AI app with Interego connected.'); };
     $('world-agent-load').onclick = () => mainWorldAgentRun(mainWorldAgentLoad);
     $('world-agent-create').onclick = () => mainWorldAgentRun(async context => {
       partyCompanionCreate($('world-agent-companion-name').value, GAME.player.cls);
       await saveNow(); context.current();
       if (SAVE.pending || SAVE.nativeFlight) throw new Error('Your party member is here. Confirm its pending private save before connecting an agent.');
-      MAIN_WORLD_AGENTS.note = 'Your companion is saved with your character and uses its party role. To connect your own AI, open step 2 below.';
+      MAIN_WORLD_AGENTS.note = 'Your companion is saved and ready to use its built-in behavior. Choose Resume companion and close this menu to play.';
     });
     $('world-agent-party-role').onchange = () => {
       partyCompanionSetRole($('world-agent-party-role').value); mainWorldAgentStop();
@@ -327,8 +448,21 @@ function mainWorldAgentRender() {
     };
   }
   const state = MAIN_WORLD_AGENTS, selector = $('world-agent-body'), bodies = mainWorldAgentBodies(), key = JSON.stringify(bodies.map(b => [b.id, b.name]));
+  const ready = SAVE.native && SAVE.readConfirmed && NATIVE_PLAYER.status?.bound && NATIVE_PLAYER.status?.verified;
+  $('world-agent-prerequisite').hidden = ready;
+  const agentSelector = $('world-agent-choice');
+  if (agentSelector.dataset.directoryKey !== state.directoryKey) {
+    const selected = agentSelector.value; agentSelector.replaceChildren(); agentSelector.dataset.directoryKey = state.directoryKey;
+    for (const agent of [{ did: '', label: 'Choose an agent' }, ...state.directoryAgents, { did: 'manual', label: 'Use an agent ID from another app…' }]) {
+      const option = document.createElement('option'); option.value = agent.did;
+      option.textContent = agent.label + (agent.surface ? ' · ' + agent.surface : ''); agentSelector.appendChild(option);
+    }
+    if (selected === 'manual' || state.directoryAgents.some(agent => agent.did === selected)) agentSelector.value = selected;
+  }
+  $('world-agent-directory-status').textContent = state.directoryNote;
+  $('world-agent-find').disabled = state.busy || !ready;
   const party = partyCompanionMember();
-  $('world-agent-create').disabled = state.busy || !!party;
+  $('world-agent-create').disabled = state.busy || !!party || !ready;
   $('world-agent-create').hidden = !!party;
   $('world-agent-companion-name').disabled = state.busy || !!party;
   $('world-agent-companion-name').parentElement.hidden = !!party;
@@ -336,25 +470,25 @@ function mainWorldAgentRender() {
   const partyRole = party && { follow: 'Follow me', guard: 'Guard this position', support: 'Support my target' }[PARTY_COMPANION.record.role];
   $('world-agent-party').textContent = party ? party.entity.alive ? `${party.name} · ${partyRole} · ${CLASSES[party.entity.cls].name}`
     : `${party.name} has fallen. Revival is not available. Dismiss this companion to add a new one; dismissal first confirms that its agent access is revoked. Your character is kept.`
-    : 'Step 1: add one companion to your party.';
+    : 'No companion yet. Add one to get started.';
   const partyAccess = party && [...state.records.values()].filter(r => r.grant?.entityId === party.id && !r.grant.revoked);
   const latestAccess = partyAccess?.at(-1);
   $('world-agent-connection').textContent = !party || !party.entity.alive ? '' : latestAccess
     ? 'Your AI connection: ' + mainWorldAgentAccessStatus(latestAccess, party) + '.'
-    : 'Step 2: connect your own AI using the host setup below. No agent access is set up for this companion on this page.';
+    : 'Built-in companion behavior is ready. No external AI agent is connected.';
   $('world-agent-party-role').parentElement.hidden = !party;
-  $('world-agent-party-role').disabled = state.busy || !party || !party.entity.alive;
+  $('world-agent-party-role').disabled = state.busy || !ready || !party || !party.entity.alive;
   if (party) $('world-agent-party-role').value = PARTY_COMPANION.record.role;
-  $('world-agent-dismiss').hidden = !party; $('world-agent-dismiss').disabled = state.busy;
+  $('world-agent-dismiss').hidden = !party; $('world-agent-dismiss').disabled = state.busy || !ready;
   $('world-agent-resume').textContent = party ? 'Resume companion' : 'Resume agent control';
-  $('world-agent-resume').disabled = state.busy || !GAME.player.alive || !bodies.some(body => body.entity.alive && !body.entity.removed);
+  $('world-agent-resume').disabled = state.busy || !ready || !GAME.player.alive || !bodies.some(body => body.entity.alive && !body.entity.removed);
   if (selector.dataset.bodyKey !== key) {
     const selected = selector.value; selector.replaceChildren(); selector.dataset.bodyKey = key;
     for (const body of bodies) { const option = document.createElement('option'); option.value = body.id; option.textContent = body.name; selector.appendChild(option); }
     if (bodies.some(b => b.id === selected)) selector.value = selected;
   }
   $('world-agent-note').textContent = state.note || (state.paused ? 'Agent control paused.' : 'Agent control resumes when this panel closes.');
-  for (const button of box.querySelectorAll('form button,#world-agent-load')) button.disabled = state.busy;
+  for (const button of box.querySelectorAll('form button,#world-agent-load')) button.disabled = state.busy || !ready;
   const records = $('world-agent-records');
   const rows = [...state.records.values()].map(record => {
     const body = bodies.find(b => b.id === record.grant?.entityId) || (party?.id === record.grant?.entityId ? party : null);
@@ -386,7 +520,10 @@ function mainWorldAgentRender() {
       const field = document.createElement('textarea'); field.readOnly = true; field.rows = 9; field.value = connection;
       field.setAttribute('aria-label', 'Public agent connection details'); field.style.cssText = 'width:100%;box-sizing:border-box;font:12px monospace;min-height:160px';
       details.appendChild(field);
-      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn'; copy.style.minHeight = '44px'; copy.textContent = 'Copy connection details';
+      const setup = document.createElement('button'); setup.type = 'button'; setup.className = 'btn'; setup.style.minHeight = '44px'; setup.textContent = 'Copy setup instructions for my agent';
+      setup.onclick = () => { void mainWorldAgentCopy('Connect to my Hallowmarch companion using these public connection details. Use your own Interego signing identity and the game’s advertised native admission flow. If you do not have a compatible game tool host, explain what connection is missing; do not claim to be connected or invent commands. Do not register another identity or widen this grant. Only the listed companion is authorized.\n\n' + connection, field, 'Agent setup instructions copied. Paste them into your compatible AI app or agent host.'); };
+      row.appendChild(setup);
+      const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn'; copy.style.minHeight = '44px'; copy.textContent = 'Copy raw connection details';
       copy.onclick = async () => {
         try { await navigator.clipboard.writeText(connection); state.note = 'Public agent connection details copied.'; }
         catch { field.focus(); field.select(); state.note = 'Connection details selected. Copy the selected text for your agent.'; }
@@ -406,11 +543,12 @@ function mainWorldAgentRender() {
 }
 setInterval(() => {
   if (MAIN_WORLD_AGENTS.lastGeneration !== NETWS.generation) {
+    mainWorldAgentDirectoryClose();
     MAIN_WORLD_AGENTS.lastGeneration = NETWS.generation; MAIN_WORLD_AGENTS.paused = true; MAIN_WORLD_AGENTS.companionPaused = true; mainWorldAgentStop(); partyCompanionStop();
   }
-  mainWorldAgentFrame(); if (typeof NETUI !== 'undefined' && NETUI.open) mainWorldAgentRender();
+  mainWorldAgentFrame(); if (UI.modal === 'menu' && UI.menuTab === 'companion') mainWorldAgentRender();
 }, 500);
 addEventListener('blur', mainWorldAgentPause);
-addEventListener('pagehide', () => { mainWorldAgentPause(); MAIN_WORLD_AGENTS.client?.close(); });
+addEventListener('pagehide', () => { mainWorldAgentPause(); MAIN_WORLD_AGENTS.client?.close(); mainWorldAgentDirectoryClose(); });
 if (window.__hm) window.__hm.worldAgents = { state: MAIN_WORLD_AGENTS, frame: mainWorldAgentFrame, message: mainWorldAgentMessage,
   pause: mainWorldAgentPause, bodies: mainWorldAgentBodies };

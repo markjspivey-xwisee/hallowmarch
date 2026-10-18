@@ -151,28 +151,38 @@ async function marchLearningFlush() {
 }
 function marchLearningMount(parent) {
   const box = marchConsultingNode('section'); box.id = 'march-learning-record';
-  box.append(marchConsultingNode('h3', 'Your performance profile'), marchConsultingNode('p',
-    'Optionally record what you did and what happened in your own pod using xAPI. Your performance profile keeps activity totals. Recent details are limited and kept for up to one hour. This is separate from live coaching. Observed actions are not skill scores. Chat, inventory contents and other players’ private records are excluded.'));
+  box.style.cssText = 'display:grid;gap:10px;min-width:0;border:1px solid #806f4d;border-radius:10px;padding:14px';
+  box.append(marchConsultingNode('h3', 'Private learning record'), marchConsultingNode('p',
+    'Optionally add new gameplay activity to your own learning record. Your ordinary progress already saves with your character.'));
   const status = marchConsultingNode('p'); status.id = 'march-learning-status'; status.setAttribute('role', 'status'); box.append(status);
   const enable = marchConsultingButton('Record new activity · 15 minutes', () => { void marchLearningRun(marchLearningEnable); }); enable.id = 'march-learning-enable';
   const stop = marchConsultingButton('Stop activity recording', () => { void marchLearningStop().catch(error => {
     MARCH_LEARNING.note = error?.message || 'Activity recording is stopped. Consent withdrawal could not be confirmed.';
   }).finally(marchLearningRender); marchLearningRender(); }); stop.id = 'march-learning-stop';
+  box.append(enable, stop);
+  const privacy = marchConsultingNode('details'); privacy.append(marchConsultingNode('summary', 'Recording privacy'));
+  privacy.append(marchConsultingNode('p', 'Records new observations for 15 minutes in your own pod using xAPI, without an LLM. Totals remain in your performance profile; recent details are kept for up to one hour. Observed actions are not skill scores. Chat, inventory contents and other players’ private records are excluded.'),
+    marchConsultingNode('small', 'Recording stops when this page is hidden or your player connection changes. You can stop recording at any time.'));
+  box.append(privacy);
+  const recovery = marchConsultingNode('section'); recovery.id = 'march-learning-recovery'; recovery.hidden = true;
+  recovery.append(marchConsultingNode('h4', 'Recording needs attention'),
+    marchConsultingNode('small', 'Checking an unconfirmed record looks up its existing IDs; it does not send it again.'));
   const check = marchConsultingButton('Check unconfirmed activity record', () => { void marchLearningRun(marchLearningReconcile); }); check.id = 'march-learning-check';
   const close = marchConsultingButton('Close unconfirmed record without resending', () => { void marchLearningRun(marchLearningCloseUnconfirmed); }); close.id = 'march-learning-close';
-  box.append(enable, stop, check, close, marchConsultingNode('small', 'Recording stops when this page is hidden or your player connection changes. Checking an unconfirmed record looks up its existing IDs; it does not send it again.'));
+  recovery.append(check, close); box.append(recovery);
   parent.append(box);
 }
 function marchLearningRender() {
   const state = MARCH_LEARNING, node = $('march-learning-status'); if (!node) return;
   const live = state.enabledUntil > Date.now(), status = state.delivery?.status(), pending = status?.pending || !!state.stored?.pending;
-  node.textContent = state.note || (pending ? 'An earlier record is unconfirmed. It has not been sent again.' : live ? 'New activity recording is on.' : 'Activity recording is off. Your private journal and coach remain available.');
+  node.textContent = state.note || (pending ? 'An earlier record is unconfirmed. It has not been sent again.' : live ? 'On · recording new activity for this 15-minute session.' : 'Off · your ordinary progress still saves.');
   const confirmed = status?.acknowledgedCount ?? state.stored?.acknowledgedCount;
   if (Number.isSafeInteger(confirmed) && confirmed > 0) node.textContent += ' ' + confirmed + ' observed actions confirmed in your performance profile.';
   $('march-learning-enable').hidden = live;
-  $('march-learning-enable').disabled = state.busy || state.blocked || !!pending;
+  $('march-learning-enable').disabled = state.busy || state.blocked || !!pending || !marchConsultingSetupReady();
   $('march-learning-stop').hidden = !live && !state.busy;
   $('march-learning-stop').disabled = false;
+  $('march-learning-recovery').hidden = !pending && !state.blocked;
   $('march-learning-check').hidden = !pending;
   $('march-learning-check').disabled = state.busy || state.blocked;
   $('march-learning-close').hidden = !pending;
