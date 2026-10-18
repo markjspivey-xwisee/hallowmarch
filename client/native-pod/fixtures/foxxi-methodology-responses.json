@@ -1,0 +1,1056 @@
+{
+  "source": {
+    "repository": "https://github.com/markjspivey-xwisee/interego",
+    "revision": "5e5c66471a211ba4bc103969e2caa0712405d766",
+    "responseProjection": "applications/agentic-performance-practice/compatibility/foxxi-performance-routes.ts POST /agent/contextualize-and-plan",
+    "generation": "Offline actual producer functions, assembled with the route response projection, followed by a JSON stringify/parse wire roundtrip. No HTTP, relay, identity, or private-evidence operations. Example identities and observations are synthetic test inputs; this fixture is not live gameplay evidence.",
+    "command": "node --import tsx /path/to/generate-foxxi-methodology-responses.mjs /path/to/interego-checkout",
+    "inputs": {
+      "situation": {
+        "id": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+        "performer": {
+          "id": "did:web:identity.example:users:u-pk-alice",
+          "kind": "human"
+        },
+        "competency": "Observe one completed craft after this refused attempt.",
+        "observed": "An actual craft attempt was refused.",
+        "workContext": "Use the recipe and tool references before a new real attempt.",
+        "frequency": "frequent",
+        "criticality": "moderate",
+        "modalStatus": "Hypothetical",
+        "provenance": "owner-browser-observed-gameplay"
+      },
+      "author": {
+        "id": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "kind": "agent",
+        "role": "performance consultant (self, delegated)"
+      },
+      "base": "https://foxxi-bridge.interego.xwisee.com",
+      "domains": [
+        null,
+        "Evident",
+        "Knowable",
+        "Emergent",
+        "Turbulent"
+      ],
+      "calibrationRecords": [],
+      "privateEvidence": false,
+      "privateReview": false
+    },
+    "methods": [
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+        "token": "consulting",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+        "token": "instruction",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+        "token": "performance-support",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+        "token": "reference",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+        "token": "practice",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+        "token": "assessment",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+        "token": "coaching",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+        "token": "probe",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+        "token": "environmental-fix",
+        "version": "1.0.0"
+      },
+      {
+        "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+        "token": "no-intervention",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "method": "classify-first",
+      "body": {
+        "classifiedBy": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "diagnosis": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "regimeSource": "unclassified",
+          "method": "classify-first",
+          "rootCauses": [
+            "unclassified — no regime signal was supplied; refusing to assume one"
+          ],
+          "skillDeficiency": false,
+          "reasoning": [
+            "No work-regime signal was supplied: no asserted situation.domain, no trajectory to read a disposition from, and no gap-intent evidence (no exemplary state, no factor evidence, no answer to the discriminating question). The system refuses to default a situation into the Knowable regime and silently gap-plan it.",
+            "Classify the situation first — choose one: (a) assert situation.domain when the regime is genuinely known; (b) supply trajectories for the performer — human or agent — so the disposition is read from signal (the honest path); or (c) supply gap-intent evidence (exemplary + factorEvidence) to contextualize it into the Knowable gap frame."
+          ],
+          "caveat": "This situation has NOT been classified into a work regime, so no intervention is recommended. Supplying neither an asserted regime, nor a trajectory, nor gap-intent evidence does not make a situation Knowable — it makes it unclassified. Classify it (assert / trajectory / gap-evidence), then re-plan."
+        },
+        "plan": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "diagnosis": {
+            "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+            "regimeSource": "unclassified",
+            "method": "classify-first",
+            "rootCauses": [
+              "unclassified — no regime signal was supplied; refusing to assume one"
+            ],
+            "skillDeficiency": false,
+            "reasoning": [
+              "No work-regime signal was supplied: no asserted situation.domain, no trajectory to read a disposition from, and no gap-intent evidence (no exemplary state, no factor evidence, no answer to the discriminating question). The system refuses to default a situation into the Knowable regime and silently gap-plan it.",
+              "Classify the situation first — choose one: (a) assert situation.domain when the regime is genuinely known; (b) supply trajectories for the performer — human or agent — so the disposition is read from signal (the honest path); or (c) supply gap-intent evidence (exemplary + factorEvidence) to contextualize it into the Knowable gap frame."
+            ],
+            "caveat": "This situation has NOT been classified into a work regime, so no intervention is recommended. Supplying neither an asserted regime, nor a trajectory, nor gap-intent evidence does not make a situation Knowable — it makes it unclassified. Classify it (assert / trajectory / gap-evidence), then re-plan."
+          },
+          "paradigm": [
+            {
+              "type": "instruction",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+                "token": "instruction",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "performance-support",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+                "token": "performance-support",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "practice",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+                "token": "practice",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence.",
+              "ruledOutBecause": "The situation is unclassified — no work regime has been established. No intervention can be designed until it is classified: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not selected."
+            }
+          ],
+          "consultingProcess": {
+            "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+            "token": "consulting",
+            "version": "1.0.0"
+          },
+          "selected": [],
+          "contentWarranted": false,
+          "direction": "A2H",
+          "summary": "Content is NOT the answer for this situation — no intervention selected. The situation is unclassified — no work regime was established, so nothing can be designed yet. Classify it first: assert a regime, supply an agent trajectory, or supply gap-intent evidence."
+        },
+        "scaffold": {
+          "contentWarranted": false,
+          "toAuthor": [],
+          "note": "The diagnosis selected only non-content interventions — nothing to author. This is the system working as intended: content is an outcome of diagnosis, never an assumption."
+        },
+        "calibration": {
+          "verdict": "untested",
+          "message": "Calibration tracks the Knowable regime's cause→intervention recommendations. The undefined regime does not name a cause — there is no cause analysis here to hold to its track record."
+        },
+        "note": "Classification attributed to your verified delegation. diagnosis.regimeSource is the provenance — supply trajectories to DERIVE the regime from signal (the honest, calibratable path); asserted/gap-intent carry no calibration authority. Compose your situation descriptor + the regime-appropriate intervention on your OWN pod from this."
+      }
+    },
+    {
+      "method": "apply-practice",
+      "body": {
+        "classifiedBy": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "diagnosis": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "domain": "Evident",
+          "regimeSource": "asserted",
+          "method": "apply-practice",
+          "rootCauses": [
+            "not applicable — the Evident regime applies a known, established response"
+          ],
+          "skillDeficiency": false,
+          "reasoning": [
+            "The work sits in the Evident regime — the relationship between act and outcome is self-evident. There is no cause to analyse and no gap to close: recognise the situation and apply the established practice."
+          ]
+        },
+        "plan": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "diagnosis": {
+            "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+            "domain": "Evident",
+            "regimeSource": "asserted",
+            "method": "apply-practice",
+            "rootCauses": [
+              "not applicable — the Evident regime applies a known, established response"
+            ],
+            "skillDeficiency": false,
+            "reasoning": [
+              "The work sits in the Evident regime — the relationship between act and outcome is self-evident. There is no cause to analyse and no gap to close: recognise the situation and apply the established practice."
+            ]
+          },
+          "paradigm": [
+            {
+              "type": "instruction",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+                "token": "instruction",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "performance-support",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+                "token": "performance-support",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The Evident regime applies a known, established response. Make that response available where the work happens — a reference / SOP, looked up, not taught. No cause analysis, no course.",
+              "authoring": {
+                "affordance": "foxxi.author_reference",
+                "direction": "A2H"
+              }
+            },
+            {
+              "type": "practice",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+                "token": "practice",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap.",
+              "ruledOutBecause": "not indicated — the Evident regime applies an established practice; it does not analyse a cause or close a gap."
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not selected."
+            }
+          ],
+          "consultingProcess": {
+            "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+            "token": "consulting",
+            "version": "1.0.0"
+          },
+          "selected": [
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The Evident regime applies a known, established response. Make that response available where the work happens — a reference / SOP, looked up, not taught. No cause analysis, no course.",
+              "authoring": {
+                "affordance": "foxxi.author_reference",
+                "direction": "A2H"
+              }
+            }
+          ],
+          "contentWarranted": true,
+          "direction": "A2H",
+          "summary": "Content IS warranted for this situation — reference. An agent authors a job aid / micro-lesson for a human, typically in the flow of their work."
+        },
+        "scaffold": {
+          "contentWarranted": true,
+          "direction": "A2H",
+          "toAuthor": [
+            {
+              "interventionType": "reference",
+              "affordance": "foxxi.author_reference",
+              "competency": "Observe one completed craft after this refused attempt.",
+              "guidance": "Author reference content for the competency."
+            }
+          ],
+          "note": "1 content artifact(s) to author, an agent authors a job aid / micro-lesson for a human, typically in the flow of their work."
+        },
+        "calibration": {
+          "verdict": "untested",
+          "message": "The Evident regime here was ASSERTED by the caller. Only a DERIVED regime (read from trajectory signal) carries calibration authority — caller-framed classifications are excluded from the reflexive loop. Supply trajectories so the regime is read from evidence to earn a calibrated read."
+        },
+        "note": "Classification attributed to your verified delegation. diagnosis.regimeSource is the provenance — supply trajectories to DERIVE the regime from signal (the honest, calibratable path); asserted/gap-intent carry no calibration authority. Compose your situation descriptor + the regime-appropriate intervention on your OWN pod from this."
+      }
+    },
+    {
+      "method": "gap-analysis",
+      "body": {
+        "classifiedBy": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "diagnosis": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "domain": "Knowable",
+          "regimeSource": "asserted",
+          "method": "gap-analysis",
+          "factors": {
+            "information": {
+              "factor": "Information — expectations, guidance, feedback",
+              "category": "environmental",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "performance-support"
+            },
+            "instrumentation": {
+              "factor": "Instrumentation — tools, resources, processes",
+              "category": "environmental",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "environmental-fix"
+            },
+            "incentives": {
+              "factor": "Incentives — consequences, rewards, alignment",
+              "category": "environmental",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "environmental-fix"
+            },
+            "knowledgeSkill": {
+              "factor": "Knowledge & Skill — what the performer knows / can do",
+              "category": "individual",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "instruction"
+            },
+            "capacity": {
+              "factor": "Capacity — fit between performer and task demands",
+              "category": "individual",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "environmental-fix"
+            },
+            "motives": {
+              "factor": "Motives — does the performer want to perform",
+              "category": "individual",
+              "adequate": true,
+              "evidence": "no deficiency evidence supplied — assumed adequate.",
+              "impliesIntervention": "coaching"
+            }
+          },
+          "rootCauses": [
+            "no deficiency isolated — the gap may be acceptable variance, or the exemplary state may be mis-stated."
+          ],
+          "skillDeficiency": false,
+          "reasoning": [
+            "The work sits in the Knowable regime — cause and effect are knowable through analysis. Here, and only here, the situation is framed as a gap: an exemplary performance is established, the observed performance is compared to it, and a cause-factor analysis isolates why they differ.",
+            "Discriminating question not answered directly; inferring from the Knowledge & Skill factor (adequate)."
+          ],
+          "caveat": "No deficiency was isolated. Before building anything, re-check that the gap is real (assessment) and that the exemplary performance is correctly stated."
+        },
+        "plan": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "diagnosis": {
+            "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+            "domain": "Knowable",
+            "regimeSource": "asserted",
+            "method": "gap-analysis",
+            "factors": {
+              "information": {
+                "factor": "Information — expectations, guidance, feedback",
+                "category": "environmental",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "performance-support"
+              },
+              "instrumentation": {
+                "factor": "Instrumentation — tools, resources, processes",
+                "category": "environmental",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "environmental-fix"
+              },
+              "incentives": {
+                "factor": "Incentives — consequences, rewards, alignment",
+                "category": "environmental",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "environmental-fix"
+              },
+              "knowledgeSkill": {
+                "factor": "Knowledge & Skill — what the performer knows / can do",
+                "category": "individual",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "instruction"
+              },
+              "capacity": {
+                "factor": "Capacity — fit between performer and task demands",
+                "category": "individual",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "environmental-fix"
+              },
+              "motives": {
+                "factor": "Motives — does the performer want to perform",
+                "category": "individual",
+                "adequate": true,
+                "evidence": "no deficiency evidence supplied — assumed adequate.",
+                "impliesIntervention": "coaching"
+              }
+            },
+            "rootCauses": [
+              "no deficiency isolated — the gap may be acceptable variance, or the exemplary state may be mis-stated."
+            ],
+            "skillDeficiency": false,
+            "reasoning": [
+              "The work sits in the Knowable regime — cause and effect are knowable through analysis. Here, and only here, the situation is framed as a gap: an exemplary performance is established, the observed performance is compared to it, and a cause-factor analysis isolates why they differ.",
+              "Discriminating question not answered directly; inferring from the Knowledge & Skill factor (adequate)."
+            ],
+            "caveat": "No deficiency was isolated. Before building anything, re-check that the gap is real (assessment) and that the exemplary performance is correctly stated."
+          },
+          "paradigm": [
+            {
+              "type": "instruction",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+                "token": "instruction",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "No genuine skill deficiency in a frequent task was found — instruction is not warranted.",
+              "ruledOutBecause": "No genuine skill deficiency in a frequent task was found — instruction is not warranted."
+            },
+            {
+              "type": "performance-support",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+                "token": "performance-support",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "Not indicated by the analysis.",
+              "ruledOutBecause": "Not indicated by the analysis."
+            },
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "The analysis did not isolate a look-it-up knowledge need.",
+              "ruledOutBecause": "The analysis did not isolate a look-it-up knowledge need."
+            },
+            {
+              "type": "practice",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+                "token": "practice",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "Not indicated by the analysis.",
+              "ruledOutBecause": "Not indicated by the analysis."
+            },
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The situation is still Hypothetical — measure it before investing in any intervention. An assessment promotes the claim to Asserted (or dismisses it).",
+              "authoring": {
+                "affordance": "foxxi.author_assessment",
+                "direction": "A2H"
+              }
+            },
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "Not indicated by the analysis.",
+              "ruledOutBecause": "Not indicated by the analysis."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "Probes are an Emergent-regime tool; this work is Knowable, where a cause can be analysed directly.",
+              "ruledOutBecause": "Probes are an Emergent-regime tool; this work is Knowable, where a cause can be analysed directly."
+            },
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "Not indicated by the analysis.",
+              "ruledOutBecause": "Not indicated by the analysis."
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "No deficiency was isolated. The gap may be acceptable variance or the exemplary state mis-stated. Building content here would be waste."
+            }
+          ],
+          "consultingProcess": {
+            "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+            "token": "consulting",
+            "version": "1.0.0"
+          },
+          "selected": [
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The situation is still Hypothetical — measure it before investing in any intervention. An assessment promotes the claim to Asserted (or dismisses it).",
+              "authoring": {
+                "affordance": "foxxi.author_assessment",
+                "direction": "A2H"
+              }
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "No deficiency was isolated. The gap may be acceptable variance or the exemplary state mis-stated. Building content here would be waste."
+            }
+          ],
+          "contentWarranted": true,
+          "direction": "A2H",
+          "summary": "Content IS warranted for this situation — assessment + no-intervention. An agent authors a job aid / micro-lesson for a human, typically in the flow of their work."
+        },
+        "scaffold": {
+          "contentWarranted": true,
+          "direction": "A2H",
+          "toAuthor": [
+            {
+              "interventionType": "assessment",
+              "affordance": "foxxi.author_assessment",
+              "competency": "Observe one completed craft after this refused attempt.",
+              "guidance": "Author assessment-item fragments that measure the competency; these promote the gap from Hypothetical to Asserted."
+            }
+          ],
+          "note": "1 content artifact(s) to author, an agent authors a job aid / micro-lesson for a human, typically in the flow of their work."
+        },
+        "calibration": {
+          "verdict": "untested",
+          "message": "The Knowable regime here was ASSERTED by the caller. Only a DERIVED regime (read from trajectory signal) carries calibration authority — caller-framed classifications are excluded from the reflexive loop. Supply trajectories so the regime is read from evidence to earn a calibrated read."
+        },
+        "note": "Classification attributed to your verified delegation. diagnosis.regimeSource is the provenance — supply trajectories to DERIVE the regime from signal (the honest, calibratable path); asserted/gap-intent carry no calibration authority. Compose your situation descriptor + the regime-appropriate intervention on your OWN pod from this."
+      }
+    },
+    {
+      "method": "dispositional-read",
+      "body": {
+        "classifiedBy": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "diagnosis": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "domain": "Emergent",
+          "regimeSource": "asserted",
+          "method": "dispositional-read",
+          "rootCauses": [
+            "not applicable — the Emergent regime has no single fixable root cause"
+          ],
+          "skillDeficiency": false,
+          "reasoning": [
+            "The work sits in the Emergent regime — a complex, adaptive system has dispositions and propensities, not a fixable gap. There is no exemplary state to idealise and close toward, so a gap analysis does not apply.",
+            "Composing agent-disposition.ts: read the disposition and the vector of change, not a score against an ideal."
+          ],
+          "caveat": "The work is Emergent. Do NOT idealise a future state or build instruction toward one. Run safe-to-fail probes (agent-disposition.buildProbe), sense which cohere, and steer by vector."
+        },
+        "plan": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "diagnosis": {
+            "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+            "domain": "Emergent",
+            "regimeSource": "asserted",
+            "method": "dispositional-read",
+            "rootCauses": [
+              "not applicable — the Emergent regime has no single fixable root cause"
+            ],
+            "skillDeficiency": false,
+            "reasoning": [
+              "The work sits in the Emergent regime — a complex, adaptive system has dispositions and propensities, not a fixable gap. There is no exemplary state to idealise and close toward, so a gap analysis does not apply.",
+              "Composing agent-disposition.ts: read the disposition and the vector of change, not a score against an ideal."
+            ],
+            "caveat": "The work is Emergent. Do NOT idealise a future state or build instruction toward one. Run safe-to-fail probes (agent-disposition.buildProbe), sense which cohere, and steer by vector."
+          },
+          "paradigm": [
+            {
+              "type": "instruction",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+                "token": "instruction",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "You cannot instruct your way through the Emergent regime — instruction presumes a knowable exemplary state, which a complex, adaptive system does not have.",
+              "ruledOutBecause": "You cannot instruct your way through the Emergent regime — instruction presumes a knowable exemplary state, which a complex, adaptive system does not have."
+            },
+            {
+              "type": "performance-support",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+                "token": "performance-support",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not the primary lever for an Emergent-regime disposition — probes and coaching come first.",
+              "ruledOutBecause": "not the primary lever for an Emergent-regime disposition — probes and coaching come first."
+            },
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not the primary lever for an Emergent-regime disposition — probes and coaching come first.",
+              "ruledOutBecause": "not the primary lever for an Emergent-regime disposition — probes and coaching come first."
+            },
+            {
+              "type": "practice",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+                "token": "practice",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not the primary lever for an Emergent-regime disposition — probes and coaching come first.",
+              "ruledOutBecause": "not the primary lever for an Emergent-regime disposition — probes and coaching come first."
+            },
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "A score-vs-exemplary assessment imports the gap frame the Emergent regime rejects.",
+              "ruledOutBecause": "A score-vs-exemplary assessment imports the gap frame the Emergent regime rejects."
+            },
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "A feedback loop steers an Emergent system by vector. Coaching reads the disposition with the performer rather than prescribing a target."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The Emergent regime calls for safe-to-fail constraint probes — change a constraint, observe, steer. Compose agent-disposition.buildProbe; amplify what coheres."
+            },
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not the primary lever for an Emergent-regime disposition — probes and coaching come first.",
+              "ruledOutBecause": "not the primary lever for an Emergent-regime disposition — probes and coaching come first."
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not selected."
+            }
+          ],
+          "consultingProcess": {
+            "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+            "token": "consulting",
+            "version": "1.0.0"
+          },
+          "selected": [
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "A feedback loop steers an Emergent system by vector. Coaching reads the disposition with the performer rather than prescribing a target."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "The Emergent regime calls for safe-to-fail constraint probes — change a constraint, observe, steer. Compose agent-disposition.buildProbe; amplify what coheres."
+            }
+          ],
+          "contentWarranted": false,
+          "direction": "A2H",
+          "summary": "Content is NOT the answer for this situation — coaching + probe. The Emergent regime calls for probes, not courses."
+        },
+        "scaffold": {
+          "contentWarranted": false,
+          "toAuthor": [],
+          "note": "The diagnosis selected only non-content interventions — nothing to author. This is the system working as intended: content is an outcome of diagnosis, never an assumption."
+        },
+        "calibration": {
+          "verdict": "untested",
+          "message": "The Emergent regime here was ASSERTED by the caller. Only a DERIVED regime (read from trajectory signal) carries calibration authority — caller-framed classifications are excluded from the reflexive loop. Supply trajectories so the regime is read from evidence to earn a calibrated read."
+        },
+        "note": "Classification attributed to your verified delegation. diagnosis.regimeSource is the provenance — supply trajectories to DERIVE the regime from signal (the honest, calibratable path); asserted/gap-intent carry no calibration authority. Compose your situation descriptor + the regime-appropriate intervention on your OWN pod from this."
+      }
+    },
+    {
+      "method": "stabilise-first",
+      "body": {
+        "classifiedBy": "did:web:identity.example:agents:hallowmarch-u-pk-alice",
+        "diagnosis": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "domain": "Turbulent",
+          "regimeSource": "asserted",
+          "method": "stabilise-first",
+          "rootCauses": [
+            "instability — there is no patterned behaviour to read"
+          ],
+          "skillDeficiency": false,
+          "reasoning": [
+            "The work sits in the Turbulent regime — behaviour is not yet patterned. No method can be applied until the situation is stabilised."
+          ],
+          "caveat": "Act first to stabilise (act, then sense), THEN re-contextualize. Idealising a target state now would aim at one that does not yet exist."
+        },
+        "plan": {
+          "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+          "diagnosis": {
+            "situationId": "urn:hallowmarch:consultation:fd1aecae-550e-4cec-a5cd-04482f7b9167",
+            "domain": "Turbulent",
+            "regimeSource": "asserted",
+            "method": "stabilise-first",
+            "rootCauses": [
+              "instability — there is no patterned behaviour to read"
+            ],
+            "skillDeficiency": false,
+            "reasoning": [
+              "The work sits in the Turbulent regime — behaviour is not yet patterned. No method can be applied until the situation is stabilised."
+            ],
+            "caveat": "Act first to stabilise (act, then sense), THEN re-contextualize. Idealising a target state now would aim at one that does not yet exist."
+          },
+          "paradigm": [
+            {
+              "type": "instruction",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InstructionalDesign",
+                "token": "instruction",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "performance-support",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#InFlowSupport",
+                "token": "performance-support",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "reference",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#ReferenceDesign",
+                "token": "reference",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "practice",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PracticeDesign",
+                "token": "practice",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "assessment",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#AssessmentDesign",
+                "token": "assessment",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "coaching",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#CoachingProcess",
+                "token": "coaching",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "probe",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#BoundedProbe",
+                "token": "probe",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "premature — the situation is not yet patterned enough to design this intervention against.",
+              "ruledOutBecause": "premature — the situation is not yet patterned enough to design this intervention against."
+            },
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "Turbulent work must be stabilised by a decisive act before any intervention can be designed."
+            },
+            {
+              "type": "no-intervention",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#MonitorWithoutIntervention",
+                "token": "no-intervention",
+                "version": "1.0.0"
+              },
+              "selected": false,
+              "rationale": "not selected."
+            }
+          ],
+          "consultingProcess": {
+            "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#PerformanceConsultingCycle",
+            "token": "consulting",
+            "version": "1.0.0"
+          },
+          "selected": [
+            {
+              "type": "environmental-fix",
+              "methodology": {
+                "@id": "https://markjspivey-xwisee.github.io/interego/applications/agentic-performance-practice/agp#EnvironmentChange",
+                "token": "environmental-fix",
+                "version": "1.0.0"
+              },
+              "selected": true,
+              "rationale": "Turbulent work must be stabilised by a decisive act before any intervention can be designed."
+            }
+          ],
+          "contentWarranted": false,
+          "direction": "A2H",
+          "summary": "Content is NOT the answer for this situation — environmental-fix. Turbulent work must be stabilised before anything can be designed."
+        },
+        "scaffold": {
+          "contentWarranted": false,
+          "toAuthor": [],
+          "note": "The diagnosis selected only non-content interventions — nothing to author. This is the system working as intended: content is an outcome of diagnosis, never an assumption."
+        },
+        "calibration": {
+          "verdict": "untested",
+          "message": "The Turbulent regime here was ASSERTED by the caller. Only a DERIVED regime (read from trajectory signal) carries calibration authority — caller-framed classifications are excluded from the reflexive loop. Supply trajectories so the regime is read from evidence to earn a calibrated read."
+        },
+        "note": "Classification attributed to your verified delegation. diagnosis.regimeSource is the provenance — supply trajectories to DERIVE the regime from signal (the honest, calibratable path); asserted/gap-intent carry no calibration authority. Compose your situation descriptor + the regime-appropriate intervention on your OWN pod from this."
+      }
+    }
+  ]
+}

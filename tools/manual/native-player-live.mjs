@@ -13,6 +13,7 @@ import { createNativeQaPasskey } from './native-virtual-passkey.mjs';
 import { installNativeOAuthProofDiagnostics } from './native-oauth-proof-diagnostics.mjs';
 import { createMainWorldLiveQa } from './main-world-live.mjs';
 import { createHumanConsultingLiveQa } from './human-consulting-live.mjs';
+import { createHumanConsultingDiagnostics } from './human-consulting-diagnostics.mjs';
 import { createPersonalActivityLiveQa } from './personal-activity-live.mjs';
 import { createNativeQaEpisode, validateNativeQaEpisodeFile } from './native-qa-episode.mjs';
 import { checkpointRecoveryEligible, retainedCheckpointReleaseRecovery } from './native-checkpoint-recovery.mjs';
@@ -280,6 +281,7 @@ const inspectPage = boundedPageStatus({ evaluate: (page, diagnose) => page.evalu
     nativePlayer: typeof h?.nativePlayerStatus === 'function' ? h.nativePlayerStatus() : null,
     nativeQa: window.__hmNativeQaSession ? (diagnose ? await window.__hmNativeQaSession.diagnose() : window.__hmNativeQaSession.status()) : null };
 }, diagnose) });
+const consultingDiagnostics = createHumanConsultingDiagnostics({ getPage: () => fresh, getOwner: () => owner, gameOrigin });
 const cleanupPage = boundedPageStatus({ evaluate: page => page.evaluate(async () => {
   await window.__hmNativeCompanionQa?.close();
   await window.__hmNativeQaSession?.close();
@@ -297,6 +299,7 @@ async function reportRetainedStatus(diagnose) {
   if (companion) console.log(JSON.stringify(await companion.ownerStatus()));
   if (mainWorld) { console.log(JSON.stringify(mainWorld.status())); if (diagnose) console.log(JSON.stringify({kind:'main_world_diagnosis', ...await mainWorld.diagnose()})); }
   if (humanConsulting) console.log(JSON.stringify(humanConsulting.status()));
+  if (humanConsulting && diagnose) console.log(JSON.stringify(await consultingDiagnostics.diagnose()));
   if (personalActivity) console.log(JSON.stringify(personalActivity.status()));
   if (episode) console.log(JSON.stringify(episode.status()));
   if (checkpointReleaseRecovery) console.log(JSON.stringify(checkpointReleaseRecovery.status()));
@@ -351,7 +354,7 @@ function startInput() {
   if (input) return input;
   input = createNativeLiveInput({ input: process.stdin,
     acceptProtocolLine: line => broker?.acceptLine(line) === true,
-    onInvalid: () => console.log('Commands: status, diagnose, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-grant-read, main-world-recover-pause, main-world-revoke, finish.'),
+    onInvalid: () => console.log('Commands: status, diagnose, consulting-status, consulting-recover, native-checkpoint-read, native-checkpoint-recover-release, retry, continue, native-startup-retry, oauth-retry-same-owner, companion-restart-admission, main-world-grant-read, main-world-recover-pause, main-world-revoke, finish.'),
     onBusy: () => console.log('A manual command is still running. Signing replies and finish remain available.'),
     onError: () => console.error('FAIL: manual QA command [stage_failed]. Raw details were not emitted.'),
     async onClose() {
@@ -364,8 +367,13 @@ function startInput() {
     },
     async onCommand(action) {
       if (action === 'status' || action === 'diagnose') { await reportRetainedStatus(action === 'diagnose'); return; }
+      if (action === 'consulting-status') { console.log(JSON.stringify(await consultingDiagnostics.diagnose())); return; }
       if (qaBusy()) { console.log('The QA stage is still running. Signing replies and finish remain available.'); return; }
       try {
+        if (action === 'consulting-recover') {
+          ensure(humanConsulting && !humanConsulting.status().stopped && !humanConsulting.status().complete, 'qa_human_recovery_refused');
+          console.log(JSON.stringify(await consultingDiagnostics.recover())); return;
+        }
         if (action === 'native-checkpoint-read') {
           ensure(owner && first && !first.isClosed() && plan?.status().stage === 'sealed-profile-create-and-link', 'qa_checkpoint_read_refused');
           const graphIri = 'urn:graph:hallowmarch:player-profile:' + createHash('sha256').update(owner.subjectDid).digest('hex');
@@ -484,6 +492,7 @@ try {
   }
   if (humanConsultingSelected) humanConsulting = createHumanConsultingLiveQa({ getPage: () => fresh, getOwner: () => owner,
     gameOrigin, relayOrigin, run, automaticFollowup,
+    diagnose: () => consultingDiagnostics.diagnose(), onDiagnostic: value => console.log(JSON.stringify(value)),
     checkpoint: async value => { ensure(mainWorldEpisodeMarked && ['coaching-delivery-intent', 'coaching-followup-intent'].includes(value?.kind), 'qa_human_episode_scope');
       await episode.mark(value.kind); } });
   if (personalActivitySelected) personalActivity = createPersonalActivityLiveQa({ getPage: () => fresh, getOwner: () => owner,
