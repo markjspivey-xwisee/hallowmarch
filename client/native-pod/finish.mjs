@@ -1,12 +1,34 @@
 import { createBrowserAccessCache } from './access-cache.mjs';
 const status = document.querySelector('#status'), button = document.querySelector('#return');
 const key = 'hallowmarch.identity.ceremony.v1';
+const failure = document.querySelector('meta[name="hallowmarch-identity-error"]');
+if (failure && ['native_owner_mismatch', 'identity_authorization_declined', 'identity_connection_failed'].includes(failure.content)) {
+  history.replaceState(null, '', '/gaming/identity/finish');
+}
 try {
   const ceremony = JSON.parse(sessionStorage.getItem(key) || 'null');
   sessionStorage.removeItem(key);
   if (typeof ceremony?.token !== 'string' || !ceremony.token || typeof ceremony.channel !== 'string'
     || !/^[A-Za-z0-9_-]{12,128}$/.test(ceremony.channel) || ceremony.host !== location.host
     || !Number.isFinite(ceremony.expiresAt) || ceremony.expiresAt < Date.now()) throw new Error('The sign-in window expired. Return to the game and connect again.');
+  if (failure) {
+    const messages = {
+      native_owner_mismatch: 'This sign-in belongs to a different account. Your current character has not been switched. Return to the game to reconnect its original identity, or use “Sign in with a different account” from the title screen.',
+      identity_authorization_declined: 'Sign-in was cancelled. Return to the game and connect again when you are ready.',
+      identity_connection_failed: 'The identity connection could not be confirmed. Your current character has not been switched. Return to the game and connect again.',
+    };
+    const proof = document.querySelector('meta[name="hallowmarch-identity-ceremony"]')?.content;
+    // Only the server's consumed, cookie-verified callback can confirm this
+    // popup's ceremony. A query string or an unrelated failure cannot switch
+    // accounts, claim a grant, or touch the retained browser credential.
+    if (!Object.hasOwn(messages, failure.content) || !/^[A-Za-z0-9_-]{43}$/.test(proof || '')
+      || proof !== ceremony.browserCeremony) throw new Error('The sign-in window expired. Return to the game and connect again.');
+    const channel = new BroadcastChannel(ceremony.channel);
+    channel.postMessage({ type: 'hallowmarch-native-failed', error: failure.content,
+      browserCeremony: proof, host: ceremony.host });
+    setTimeout(() => channel.close(), 1000);
+    throw new Error(messages[failure.content]);
+  }
   const response = await fetch('/gaming/identity/claim', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { Authorization: 'Bearer ' + ceremony.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerPodWriteAccess: true }) });
   if (!response.ok) throw new Error('The connection could not be confirmed. Return to the game and connect again.');

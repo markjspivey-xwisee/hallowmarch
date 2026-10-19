@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createPlayerBrowserAssets } from '../../server/gaming/player-browser-assets.js';
+import { createPlayerIdentityBridge } from '../../server/gaming/player-identity.js';
 import { retryNativeStartup } from '../../tools/manual/native-player-orchestration.mjs';
 if (!process.env.HM_PLAYWRIGHT_MODULE) throw new Error('Set HM_PLAYWRIGHT_MODULE to the installed Playwright entry point.');
 const { chromium } = await import(pathToFileURL(process.env.HM_PLAYWRIGHT_MODULE));
@@ -14,12 +15,45 @@ const GUEST_TOKEN = 'fixture-explicit-fresh-transport-token';
 const INVALID_TOKEN = 'fixture-invalid-old-game-proof';
 const APP_TOKEN = 'fixture-native-game-app-session-token';
 const NATIVE_TOKEN = 'fixture-native-relay-access-token-kept-only-in-browser-987654321';
+const BROWSER_CEREMONY = 'browser-ceremony-fixture'.padEnd(43, 'x');
+const CALLBACK_ORIGIN = 'https://identity-ui.test';
 const owner = { userId: 'u-pk-fixture001', subjectDid: 'did:web:identity.example:users:u-pk-fixture001', podUrl: 'https://pod.example/u-pk-fixture001/' };
 const calls = [], urls = [], consoleMessages = [], broadcastMessages = [];
 let claimMode = 'success', startHold = null;
 function gate() { let enter, release; return { entered: new Promise(resolve => { enter = resolve; }),
   wait: new Promise(resolve => { release = resolve; }), enter: () => enter(), release: () => release() }; }
 const assets = createPlayerBrowserAssets();
+const callbackBridge = createPlayerIdentityBridge({
+  publicOrigin: CALLBACK_ORIGIN, identityOrigin: 'https://identity.example',
+  metadataUrl: 'https://relay.example/.well-known/oauth-authorization-server',
+  storeBases: ['https://pod.example/'], allowOwnerBrowserHandoff: true,
+  successPath: '/gaming/identity/finish',
+  authorizeGameAccount: async req => {
+    const fresh = req.headers.authorization === 'Bearer ' + GUEST_TOKEN;
+    assert(fresh || req.headers.authorization === 'Bearer ' + GAME_TOKEN);
+    return { accountId: fresh ? 'fixture-fresh-guest' : 'fixture-account', sessionId: fresh ? GUEST_TOKEN : GAME_TOKEN,
+      ownerPodWriteAccess: true, ...(!fresh ? { expectedSubjectDid: owner.subjectDid + '-previous' } : {}) };
+  },
+  onVerified: async () => ({ appSession: { token: APP_TOKEN, acct: { id: 'fixture-native-account' } } }),
+  fetch: async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/.well-known/oauth-authorization-server')) return Response.json({
+      issuer: 'https://relay.example/', authorization_endpoint: 'https://relay.example/authorize', token_endpoint: 'https://relay.example/token',
+      response_types_supported: ['code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'],
+      client_id_metadata_document_supported: true, scopes_supported: ['mcp:read', 'mcp:write'],
+    });
+    if (url.endsWith('/.well-known/oauth-protected-resource')) return Response.json({
+      authorization_servers: ['https://relay.example/'], affordances: [{ action: 'urn:iep:action:mcp:invoke', target: 'https://relay.example/mcp', method: 'POST' }],
+    });
+    if (url.endsWith('/token')) return Response.json({ token_type: 'Bearer', access_token: NATIVE_TOKEN, scope: 'mcp:write', expires_in: 600 });
+    assert.equal(url, 'https://relay.example/mcp'); assert.equal(new Headers(init.headers).get('authorization'), 'Bearer ' + NATIVE_TOKEN);
+    return Response.json({ jsonrpc: '2.0', id: 1, result: { structuredContent: {
+      identity: { userId: owner.userId, did: owner.subjectDid, webId: 'https://identity.example/users/' + owner.userId + '/profile#me' },
+      pod: owner.podUrl, registry: { owner: 'https://identity.example/users/' + owner.userId + '/profile#me' },
+      sessionAgent: { id: 'hallowmarch-' + owner.userId, did: 'did:web:identity.example:agents:hallowmarch-' + owner.userId, scope: 'ReadWrite' },
+    } } });
+  },
+});
 async function fixturePage(view) {
   // Use actual game CSS, title markup, Players account renderer and native UI.
   const page = await fs.readFile(path.join(root, 'src/page.html'), 'utf8');
@@ -80,11 +114,18 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/' || url.pathname === '/fixture-ui') {
       res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(await fixturePage(url.searchParams.get('view') || 'connect')); return;
     }
+    if (claimMode.startsWith('callback-') && url.pathname === '/gaming/identity/callback') {
+      await callbackBridge.handle(req, res); return;
+    }
     if (['/gaming/identity/start', '/gaming/identity/claim'].includes(url.pathname)) {
       let body = ''; for await (const chunk of req) body += chunk;
       calls.push({ pathname: url.pathname, method: req.method, authorization: req.headers.authorization, body: JSON.parse(body) });
       assert.equal(req.method, 'POST');
       assert.deepEqual(JSON.parse(body), { ownerPodWriteAccess: true });
+      if (claimMode.startsWith('callback-')) {
+        if (url.pathname.endsWith('/start') && startHold) { startHold.enter(); await startHold.wait; }
+        await callbackBridge.handle(req, res, JSON.parse(body)); return;
+      }
       if (claimMode.startsWith('fresh-') && req.headers.authorization !== 'Bearer ' + GUEST_TOKEN) {
         assert.equal(url.pathname,'/gaming/identity/start');
         assert.equal(req.headers.authorization,'Bearer '+(claimMode==='fresh-invalid'?INVALID_TOKEN:GAME_TOKEN));
@@ -94,7 +135,7 @@ const server = http.createServer(async (req, res) => {
       if (url.pathname.endsWith('/start')) {
         if (startHold) { startHold.enter(); await startHold.wait; }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ authorizationUrl: 'http://127.0.0.1:' + server.address().port + '/gaming/identity/finish' })); return;
+        res.end(JSON.stringify({ authorizationUrl: 'http://127.0.0.1:' + server.address().port + '/gaming/identity/finish', browserCeremony: BROWSER_CEREMONY })); return;
       }
       if (claimMode === 'denied') { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'fixture_claim_denied' })); return; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -139,6 +180,28 @@ async function openFixture(context, view) {
   const page = await context.newPage(); await page.goto(base + '/fixture-ui?view=' + view);
   await page.waitForFunction(() => window.identityTest?.ready,undefined,{timeout:5000}); return page;
 }
+async function callbackFixture(view) {
+  const context = await contextForMobile();
+  context.setDefaultTimeout(10000);
+  await context.route(CALLBACK_ORIGIN + '/**', async route => {
+    const request = route.request(), url = new URL(request.url());
+    const response = await route.fetch({ url: base + url.pathname + url.search, maxRedirects: 0,
+      headers: { ...request.headers(), host: new URL(CALLBACK_ORIGIN).host } });
+    if (response.status() === 303) {
+      // A routed fixture uses a new navigation instead of letting Chromium
+      // follow a fulfilled redirect outside the local HTTPS route.
+      const headers = { ...response.headers(), 'content-type': 'text/html' }; delete headers['content-length'];
+      await route.fulfill({ status: 200, headers, body: '<script>location.replace(' + JSON.stringify(new URL(headers.location, request.url()).href) + ')</script>' }); return;
+    }
+    await route.fulfill({ response });
+  });
+  await context.route('https://relay.example/authorize**', async route => {
+    const state = new URL(route.request().url()).searchParams.get('state');
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<script>location.replace(' + JSON.stringify(CALLBACK_ORIGIN + '/gaming/identity/callback?state=' + state + '&code=fixture-selected-existing-owner') + ')</script>' });
+  });
+  const page = await context.newPage(); await page.goto(CALLBACK_ORIGIN + '/fixture-ui?view=' + view);
+  await page.waitForFunction(() => window.identityTest?.ready); return { context, page };
+}
 async function cached(page) {
   return page.evaluate(async owner => {
     const {createBrowserAccessCache}=await import('/gaming/identity/assets/access-cache.mjs');const cache=createBrowserAccessCache();
@@ -160,6 +223,64 @@ async function reconnectPopup(page) {
   await page.locator('#netsheet .native-player button').filter({hasText:'Reconnect identity'}).click();return popup;
 }
 try {
+  await check('verified foreign-owner callback explains refusal and only an explicit title action restores the selected existing owner', async () => {
+    claimMode='callback-mismatch';const {context,page}=await callbackFixture('connect-expired');await prepareLive(page);await page.evaluate(()=>identityTest.coldBoot());
+    await page.evaluate(()=>{SAVE.readConfirmed=true;SAVE.loaded={v:1,char:{name:'Original loaded character'}};window.originalLoaded=SAVE.loaded;
+      NATIVE_PLAYER.profile={status:()=>({pending:false,keyPresent:true,hasRecord:true})};window.originalProfile=NATIVE_PLAYER.profile;
+      NATIVE_PLAYER.status={...NATIVE_PLAYER.status,bound:true,verified:true};nativePlayerRender()});
+    const claims=calls.filter(call=>call.pathname==='/gaming/identity/claim').length;
+    const callback=context.waitForEvent('response',response=>new URL(response.url()).pathname==='/gaming/identity/callback');
+    const opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'Reconnect identity'}).click();const popup=await opening;
+    const response=await callback;assert.equal(response.status(),403);assert.equal(response.headers()['cache-control'],'no-store');
+    await popup.locator('#return:not([hidden])').waitFor();await page.waitForFunction(()=>NATIVE_PLAYER.authRefusal?.reason==='native_owner_mismatch');
+    assert.match(await popup.locator('#status').innerText(),/different account/);assert.equal(popup.url(),CALLBACK_ORIGIN+'/gaming/identity/finish');
+    assert(!/fixture-selected-existing-owner|fixture-native-relay|u-pk-fixture001/.test(await response.text()));
+    assert.equal(calls.filter(call=>call.pathname==='/gaming/identity/claim').length,claims);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),GAME_TOKEN);
+    assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
+    assert.deepEqual(await page.evaluate(()=>({hellos:identityCalls.hellos.length,sameLoaded:SAVE.loaded===originalLoaded,sameProfile:NATIVE_PLAYER.profile===originalProfile})),
+      {hellos:1,sameLoaded:true,sameProfile:true});
+    startHold=gate();const fresh=page.locator('#title .native-player button').filter({hasText:'Sign in with a different account'});await fresh.waitFor();
+    await fresh.click();await startHold.entered;
+    assert.deepEqual(await page.evaluate(()=>({token:NETWS.token,acct:NETWS.acct.id,read:SAVE.readConfirmed,switching:NATIVE_PLAYER.switching,
+      sameLoaded:SAVE.loaded===originalLoaded,sameProfile:NATIVE_PLAYER.profile===originalProfile,begin:document.querySelector('#btn-begin').disabled,continue:document.querySelector('#btn-continue').disabled})),
+      {token:GUEST_TOKEN,acct:'fixture-fresh-guest',read:false,switching:true,sameLoaded:true,sameProfile:true,begin:true,continue:true});
+    assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
+    await page.evaluate(()=>{SAVE.readConfirmed=true;nativePlayerRender()});
+    assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
+    assert.equal(await page.locator('button').filter({hasText:'Download recovery file'}).count(),0);
+    const closing=popup.waitForEvent('close');startHold.release();startHold=null;await closing;await page.waitForFunction(()=>window.identityTest?.ready);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),APP_TOKEN);
+    assert.equal((await cached(page)).result.credential.accessToken,NATIVE_TOKEN);assert.equal((await cached(page)).result.ownerDid,owner.subjectDid);
+    await context.close();
+  });
+  await check('verified owner mismatch during gameplay retains the character, save, key and app session without a switch action',async()=>{
+    claimMode='callback-mismatch';const {context,page}=await callbackFixture('players-reauth');await prepareLive(page);
+    const before=await page.evaluate(()=>identityTest.status()),opening=page.waitForEvent('popup');
+    await page.locator('#netsheet .native-player button').filter({hasText:'Reconnect identity'}).click();const popup=await opening;
+    await popup.locator('#return:not([hidden])').waitFor();await page.waitForFunction(()=>NATIVE_PLAYER.message.includes('different account'));
+    const after=await page.evaluate(()=>identityTest.status());assert.deepEqual(after.pending,before.pending);assert.deepEqual(after.memory,before.memory);
+    assert.equal(after.token,GAME_TOKEN);assert.equal(after.calls.reloadMarker,before.calls.reloadMarker);assert.equal(after.calls.reauthenticate,0);
+    assert.equal(await page.evaluate(()=>NATIVE_PLAYER.authRefusal),null);assert.equal(await page.evaluate(()=>NATIVE_PLAYER.switching),false);
+    assert.equal(await page.locator('button').filter({hasText:'Sign in with a different account'}).count(),0);
+    assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');await context.close();
+  });
+  for(const field of ['host','browserCeremony','expiresAt'])await check('callback failure with tampered '+field+' cannot notify the game or enable account switching',async()=>{
+    claimMode='callback-mismatch';const {context,page}=await callbackFixture('connect-expired');await prepareLive(page);await page.evaluate(()=>identityTest.coldBoot());
+    await context.addInitScript(field=>{if(location.pathname==='/gaming/identity/callback'){
+      const key='hallowmarch.identity.ceremony.v1',ceremony=JSON.parse(sessionStorage.getItem(key));
+      ceremony[field]=field==='expiresAt'?0:field==='host'?'other-game.example':'x'.repeat(43);sessionStorage.setItem(key,JSON.stringify(ceremony));
+    }},field);
+    const before=broadcastMessages.length,opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();const popup=await opening;
+    await popup.waitForFunction(()=>document.querySelector('#status')?.textContent.includes('expired'));
+    assert.match(await popup.locator('#status').innerText(),/expired/);
+    assert.equal(popup.url(),CALLBACK_ORIGIN+'/gaming/identity/finish');
+    assert.equal(await page.evaluate(()=>NATIVE_PLAYER.authRefusal),null);assert.equal(await page.evaluate(()=>NATIVE_PLAYER.switching),false);
+    assert.equal(broadcastMessages.slice(before).filter(message=>message.direction==='sent').length,0);
+    assert.equal(await page.locator('button').filter({hasText:'Sign in with a different account'}).count(),0);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),GAME_TOKEN);
+    assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');await context.close();
+  });
   await check('same-owner popup reauthentication preserves live memory and resumes only its latest save without reload',async()=>{
     claimMode='success';const context=await contextForMobile(),page=await openFixture(context,'players-reauth');await prepareLive(page);
     const before=await page.evaluate(()=>identityTest.status());await page.evaluate(()=>identityTest.holdResume());
@@ -285,6 +406,39 @@ try {
     assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),GAME_TOKEN);
     await context.close();
   });
+  await check('fresh sign-in refuses an unresolved load and rechecks state while token forgetting is held',async()=>{
+    claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
+    await page.evaluate(()=>identityTest.coldBoot());
+    const refused=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
+    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refused;
+    for(const blocked of ['loading','pending','nativeFlight','profilePending','wiping','started']){
+      await page.evaluate(blocked=>{
+        nativePlayerRender();
+        if(blocked==='profilePending')NATIVE_PLAYER.profile={status:()=>({pending:true,keyPresent:true,hasRecord:true})};
+        else if(blocked==='started')GAME.started=true;
+        else SAVE[blocked]=blocked==='loading'?{settled:false}:{};
+        nativePlayerConnect(true);
+      },blocked);
+      assert.deepEqual(await page.evaluate(()=>({token:localStorage.getItem('hallowmarch.token.'+location.host),hellos:identityCalls.hellos.length,switching:NATIVE_PLAYER.switching})),
+        {token:GAME_TOKEN,hellos:1,switching:false});
+      await page.evaluate(()=>{GAME.started=false;SAVE.loading=null;SAVE.pending=null;SAVE.nativeFlight=null;SAVE.wiping=false;NATIVE_PLAYER.profile=null;nativePlayerRender()});
+    }
+    await page.evaluate(()=>{window.privateReads=0;window.privateWrites=0;window.claude={use:async name=>name==='db'?{doc:()=>({
+      get:()=>{privateReads++;return new Promise(resolve=>{window.releasePrivateRead=()=>resolve({exists:true,data:()=>({tokens:{[location.host]:'fixture-initiating-game-account-token'}})})})},
+      set:async()=>{privateWrites++},
+    })}:{id:async()=> 'fixture-user'}}});
+    const opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'Start a fresh sign-in'}).click();const popup=await opening;
+    await page.waitForFunction(()=>privateReads===1);
+    await page.evaluate(()=>{SAVE.readConfirmed=true;SAVE.pending={char:{name:'Late current character'}};nativePlayerRender()});
+    assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
+    const closing=popup.waitForEvent('close');await page.evaluate(()=>releasePrivateRead());await closing;
+    await page.waitForFunction(()=>!NATIVE_PLAYER.busy);
+    assert.deepEqual(await page.evaluate(()=>({writes:privateWrites,hellos:identityCalls.hellos.length,token:localStorage.getItem('hallowmarch.token.'+location.host),pending:SAVE.pending.char.name,switching:NATIVE_PLAYER.switching})),
+      {writes:0,hellos:1,token:GAME_TOKEN,pending:'Late current character',switching:true});
+    assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
+    const loads=await page.evaluate(()=>identityCalls.load);await page.evaluate(()=>{SAVE.pending=null;nativePlayerRetryLoad();nativePlayerRecovery('fixture-passphrase');nativePlayerRestore({size:1},'fixture-passphrase');nativePlayerImport()});
+    assert.equal(await page.evaluate(()=>identityCalls.load),loads);assert(await page.locator('#btn-begin').isDisabled());await context.close();
+  });
   await check('stalled private token recovery closes its popup and quarantines the late storage result',async()=>{
     claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
     await page.evaluate(()=>{NETWS.token='';NETWS.acct=null});await page.evaluate(()=>identityTest.coldBoot());
@@ -387,4 +541,4 @@ try {
   assert(!urls.some(url=>/refresh_token|grant_type=refresh_token/.test(url)));
   if(failures.length)throw Error(JSON.stringify(failures));
   console.log('PASS native bearer absent from URLs/localStorage/console; no refresh exchange or live identity provisioning.');
-} finally { await browser.close();await new Promise(resolve=>server.close(resolve)); }
+} finally { callbackBridge.close();await browser.close();await new Promise(resolve=>server.close(resolve)); }

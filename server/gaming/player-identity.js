@@ -67,6 +67,39 @@ function json(res, status, value) {
     Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
   res.end(JSON.stringify(value));
 }
+function acceptsHtml(req) {
+  if (typeof req.headers.accept !== 'string') return false;
+  return req.headers.accept.split(',').some(item => {
+    const [type, ...parameters] = item.toLowerCase().split(';').map(part => part.trim());
+    if (type !== 'text/html') return false;
+    const quality = parameters.filter(part => /^q\s*=/.test(part));
+    if (!quality.length) return true;
+    if (quality.length !== 1) return false;
+    const match = /^q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.exec(quality[0]);
+    return !!match && Number(match[1]) > 0;
+  });
+}
+function browserFailure(res, status, code, browserCeremony) {
+  const safeCode = ['native_owner_mismatch', 'identity_authorization_declined'].includes(code)
+    ? code : 'identity_connection_failed';
+  // Only fixed copy, allowlisted codes and a server-generated public correlation
+  // nonce enter this page. OAuth values, owner data and internal errors do not.
+  const evidence = /^[A-Za-z0-9_-]{43}$/.test(browserCeremony ?? '')
+    ? `<meta name="hallowmarch-identity-ceremony" content="${browserCeremony}">` : '';
+  const message = safeCode === 'native_owner_mismatch'
+    ? 'This sign-in belongs to a different identity. Your character has not been switched. Return to the game and choose your original identity.'
+    : safeCode === 'identity_authorization_declined'
+      ? 'Identity sign-in was declined. Return to the game to try again.'
+      : 'The identity connection could not be completed. Return to the game to try again.';
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Pragma: 'no-cache',
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" });
+  res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
+    + '<meta name="color-scheme" content="dark"><meta name="hallowmarch-identity-error" content="' + safeCode + '">' + evidence
+    + '<title>Return to Hallowmarch</title><link rel="stylesheet" href="/gaming/identity/assets/finish.css"><main><h1>Identity connection incomplete</h1>'
+    + '<p id="status" role="status">' + message + '</p><button id="return" type="button">Return to the game</button></main>'
+    + '<script type="module" src="/gaming/identity/assets/finish.mjs"></script></html>');
+}
 async function bodyOf(req, supplied) {
   if (supplied !== undefined) {
     if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)
@@ -277,23 +310,24 @@ export function createPlayerIdentityBridge(options = {}) {
       fail('identity_ceremony_limit', 429);
     }
     if (owner.write && !provider.supportsWrite) fail('owner_pod_access_unavailable', 502);
-    const state = random(), ceremony = random(), verifier = random();
-    retain(pending, hash(state), { ...owner, provider, verifier, cookieHash: hash(ceremony), startedAt: now() }, ttlMs);
+    const state = random(), ceremony = random(), verifier = random(), browserCeremony = random();
+    retain(pending, hash(state), { ...owner, provider, verifier, browserCeremony, cookieHash: hash(ceremony), startedAt: now() }, ttlMs);
     const authorize = new URL(provider.authorize);
     const scope = owner.write ? 'mcp:write' : 'mcp:read';
     for (const [name, value] of Object.entries({ response_type: 'code', client_id: clientId, redirect_uri: callbackUrl,
       scope, state, code_challenge: hashBase64(verifier), code_challenge_method: 'S256' })) authorize.searchParams.set(name, value);
     setCookie(res, cookieName, ceremony, ttlMs);
     json(res, 200, { authorizationUrl: authorize.href, expiresAt: new Date(now() + ttlMs).toISOString(),
-      ownerPodWriteAccess: owner.write });
+      ownerPodWriteAccess: owner.write, browserCeremony });
   }
-  async function callback(req, res, url) {
+  async function callback(req, res, url, evidence) {
     for (const key of ['state', 'code', 'error']) if (url.searchParams.getAll(key).length > 1) fail('invalid_identity_callback');
     const state = url.searchParams.get('state'), ceremony = cookie(req, cookieName);
     if (!state || !/^[A-Za-z0-9_-]{43}$/.test(state) || !ceremony) fail('invalid_identity_ceremony', 401);
     const key = hash(state), record = pending.get(key);
     if (!record || record.expiresAt <= now() || !same(record.cookieHash, hash(ceremony))) fail('invalid_identity_ceremony', 401);
     release(pending, key); // one use, before any asynchronous token exchange
+    evidence.browserCeremony = record.browserCeremony;
     active.add(record);
     try {
       setCookie(res, cookieName, '', 0);
@@ -387,6 +421,7 @@ export function createPlayerIdentityBridge(options = {}) {
       try { url = new URL(req.url, publicUrl); } catch { return false; }
       const route = Object.entries(paths).find(([, value]) => value === url.pathname)?.[0];
       if (!route) return false;
+      const callbackEvidence = {};
       try {
         if (closed) fail('identity_bridge_closed', 503);
         if (req.headers.host !== publicUrl.host || url.origin !== publicUrl.origin) fail('invalid_identity_origin', 403);
@@ -395,7 +430,7 @@ export function createPlayerIdentityBridge(options = {}) {
         if (method === 'POST' && req.headers.origin !== publicUrl.origin) fail('invalid_identity_origin', 403);
         prune();
         if (route === 'clientMetadata') json(res, 200, clientMetadata());
-        else if (route === 'callback') await callback(req, res, url);
+        else if (route === 'callback') await callback(req, res, url, callbackEvidence);
         else if (route === 'start') await start(req, res, await bodyOf(req, suppliedBody));
         else await claim(req, res, await bodyOf(req, suppliedBody));
       } catch (error) {
@@ -405,7 +440,9 @@ export function createPlayerIdentityBridge(options = {}) {
         if (route === 'callback' && Object.hasOwn(callbackFailures, known.code)) {
           callbackFailures[known.code] = Math.min(Number.MAX_SAFE_INTEGER, callbackFailures[known.code] + 1);
         }
-        if (!res.headersSent) json(res, known.status, { error: known.code });
+        if (!res.headersSent && route === 'callback' && acceptsHtml(req)) {
+          browserFailure(res, known.status, known.code, callbackEvidence.browserCeremony);
+        } else if (!res.headersSent) json(res, known.status, { error: known.code });
         else res.end();
       }
       return true;

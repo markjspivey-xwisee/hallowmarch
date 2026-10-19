@@ -103,9 +103,10 @@ async function fixture(t, options = {}) {
   const local = `http://127.0.0.1:${server.address().port}`;
   // Node's built-in fetch rewrites Host to the loopback transport origin.
   // Raw HTTP lets the fixture exercise production Host validation unchanged.
-  const request = (path, { method = 'GET', body, cookie, host = 'game.example', origin = PUBLIC_ORIGIN } = {}) => new Promise((resolve, reject) => {
+  const request = (path, { method = 'GET', body, cookie, host = 'game.example', origin = PUBLIC_ORIGIN, accept } = {}) => new Promise((resolve, reject) => {
     const req = http.request(local + path, {
-      method, headers: { Host: host, ...(method === 'POST' ? { Origin: origin, 'content-type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+      method, headers: { Host: host, ...(method === 'POST' ? { Origin: origin, 'content-type': 'application/json' } : {}),
+        ...(cookie ? { Cookie: cookie } : {}), ...(accept !== undefined ? { Accept: accept } : {}) },
     }, res => {
       const chunks = []; res.on('data', chunk => chunks.push(chunk)); res.on('error', reject);
       res.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode, headers: res.headers })));
@@ -118,9 +119,9 @@ async function fixture(t, options = {}) {
     return { response, payload, authorization: payload.authorizationUrl ? new URL(payload.authorizationUrl) : null,
       cookie: response.headers.get('set-cookie')?.split(';')[0] };
   };
-  const callback = (started, fields = {}) => {
+  const callback = (started, fields = {}, requestOptions = {}) => {
     const query = new URLSearchParams({ code: 'issued-code', state: started.authorization.searchParams.get('state'), ...fields });
-    return request(bridge.paths.callback + '?' + query, { cookie: started.cookie });
+    return request(bridge.paths.callback + '?' + query, { cookie: started.cookie, ...requestOptions });
   };
   return { bridge, requests, verified, request, start, callback, tokenEntered, advance(ms) { clock += ms; },
     metadata(fn) { metadataTransform = fn; }, resource(fn) { resourceTransform = fn; }, status(fn) { statusTransform = fn; },
@@ -149,6 +150,10 @@ test('public client metadata and discovery produce a bound authorization code fl
   assert.equal(q.get('client_id'), client.client_id); assert.equal(q.get('redirect_uri'), client.redirect_uris[0]);
   assert.equal(q.get('response_type'), 'code'); assert.equal(q.get('scope'), 'mcp:read'); assert.equal(q.get('code_challenge_method'), 'S256');
   assert.match(q.get('state'), /^[A-Za-z0-9_-]{32,}$/); assert.match(q.get('code_challenge'), /^[A-Za-z0-9_-]{43}$/);
+  assert.match(flow.payload.browserCeremony, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(flow.payload.browserCeremony, q.get('state'));
+  assert.notEqual(flow.payload.browserCeremony, q.get('code_challenge'));
+  assert(!flow.authorization.href.includes(flow.payload.browserCeremony));
   assert.match(flow.cookie, new RegExp('^' + COOKIE_NAME + '='));
   const cookie = flow.response.headers.get('set-cookie');
   for (const attribute of ['Secure', 'HttpOnly', 'SameSite=Lax', 'Path=/']) assert(cookie.includes(attribute));
@@ -506,4 +511,94 @@ test('a host-pinned reconnect owner is enforced before onVerified or any credent
   assert.equal((await response.json()).error, 'native_owner_mismatch');
   assert.equal(foreign.verified.length, 0, 'the host is never asked to persist a foreign reconnect');
   assert.equal(foreign.bridge.status().readyHandoffs, 0); assertNoTokens(foreign.bridge.status());
+});
+
+function assertBrowserFailureHeaders(response) {
+  assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('pragma'), 'no-cache');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.headers.get('content-security-policy'),
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+}
+
+test('a browser owner mismatch returns a bound error page without host binding, credentials, or a replayable handoff', async t => {
+  const f = await fixture(t, { expectedSubjectDid: 'did:web:identity.interego.xwisee.com:users:u-pk-original', allowOwnerBrowserHandoff: true });
+  const flow = await f.start();
+  const code = '<script>private-callback-code</script>';
+  const response = await f.callback(flow, { code }, { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8' });
+  assert.equal(response.status, 403); assertBrowserFailureHeaders(response);
+  const html = await response.text();
+  assert(html.includes('<meta name="hallowmarch-identity-error" content="native_owner_mismatch">'));
+  assert(html.includes('<meta name="hallowmarch-identity-ceremony" content="' + flow.payload.browserCeremony + '">'));
+  assert(html.includes('Your character has not been switched.'));
+  assert(html.includes('href="/gaming/identity/assets/finish.css"'));
+  assert.deepEqual(html.match(/<script[^>]*>/g), ['<script type="module" src="/gaming/identity/assets/finish.mjs">']);
+  for (const privateValue of [code, flow.authorization.searchParams.get('state'), flow.cookie, 'local-alice', 'u-pk-original', 'u-pk-player', PUBLIC_ORIGIN, RELAY_ORIGIN]) {
+    assert(!html.includes(privateValue), 'browser page does not disclose callback, account or owner data');
+  }
+  assertNoTokens(html); assertNoTokens(Object.fromEntries(response.headers));
+  assert.equal(f.verified.length, 0); assert.equal(f.bridge.status().pending, 0); assert.equal(f.bridge.status().readyHandoffs, 0);
+  assert.equal((await f.request(f.bridge.paths.claim, { method: 'POST', body: proofBody, cookie: flow.cookie })).status, 404);
+  const replay = await f.callback(flow, {}, { accept: 'text/html' });
+  assert.equal(replay.status, 401); assertBrowserFailureHeaders(replay);
+  assert(!(await replay.text()).includes('hallowmarch-identity-ceremony'));
+  assert.equal(tokenRequests(f).length, 1);
+});
+
+test('browser declines are allowlisted while unexpected native failures use fixed generic copy', async t => {
+  const declined = await fixture(t); const declinedFlow = await declined.start();
+  const refusal = await declined.callback(declinedFlow, { error: '<script>provider-private-refusal</script>' }, { accept: 'text/html;q=0.5' });
+  assert.equal(refusal.status, 403); assertBrowserFailureHeaders(refusal);
+  const refusalHtml = await refusal.text();
+  assert(refusalHtml.includes('content="identity_authorization_declined"'));
+  assert(refusalHtml.includes('content="' + declinedFlow.payload.browserCeremony + '"'));
+  assert(!refusalHtml.includes('provider-private-refusal'));
+  assert.equal(tokenRequests(declined).length, 0); assert.equal(declined.verified.length, 0);
+
+  const failed = await fixture(t, { allowOwnerBrowserHandoff: true }); const failedFlow = await failed.start();
+  failed.token(() => { throw new Error('private upstream exception <script>unexpected-owner-detail</script>'); });
+  const failure = await failed.callback(failedFlow, {}, { accept: 'TEXT/HTML; charset=utf-8; q=1' });
+  assert.equal(failure.status, 502); assertBrowserFailureHeaders(failure);
+  const failureHtml = await failure.text();
+  assert(failureHtml.includes('content="identity_connection_failed"'));
+  assert(failureHtml.includes('content="' + failedFlow.payload.browserCeremony + '"'));
+  for (const detail of ['identity_service_unavailable', 'private upstream exception', 'unexpected-owner-detail']) assert(!failureHtml.includes(detail));
+  assertNoTokens(failureHtml); assert.equal(failed.verified.length, 0); assert.equal(failed.bridge.status().readyHandoffs, 0);
+});
+
+test('invalid browser callbacks never disclose ceremony evidence or consume the valid pending flow', async t => {
+  const f = await fixture(t); const flow = await f.start();
+  const state = flow.authorization.searchParams.get('state');
+  const query = new URLSearchParams({ code: 'private-code', state });
+  for (const [callbackPath, options, status] of [
+    [f.bridge.paths.callback + '?' + query, {}, 401],
+    [f.bridge.paths.callback + '?' + query, { cookie: COOKIE_NAME + '=' + 'A'.repeat(43) }, 401],
+    [f.bridge.paths.callback + '?' + query + '&state=' + state, { cookie: flow.cookie }, 400],
+    [f.bridge.paths.callback + '?' + query, { cookie: flow.cookie, host: 'foreign.example' }, 403],
+  ]) {
+    const response = await f.request(callbackPath, { accept: 'text/html', ...options });
+    assert.equal(response.status, status); assertBrowserFailureHeaders(response);
+    const html = await response.text();
+    assert(html.includes('content="identity_connection_failed"'));
+    assert(!html.includes('hallowmarch-identity-ceremony')); assert(!html.includes(flow.payload.browserCeremony));
+    assert(!html.includes('private-code')); assert(!html.includes(state));
+  }
+  assert.equal(f.bridge.status().pending, 1); assert.equal(tokenRequests(f).length, 0); assert.equal(f.verified.length, 0);
+  f.advance(300_001);
+  const expired = await f.callback(flow, {}, { accept: 'text/html' });
+  assert.equal(expired.status, 401); assert(!(await expired.text()).includes('hallowmarch-identity-ceremony'));
+  assert.equal(tokenRequests(f).length, 0);
+});
+
+test('callbacks retain exact JSON errors unless HTML is explicitly accepted with nonzero quality', async t => {
+  const f = await fixture(t, { expectedSubjectDid: 'did:web:identity.interego.xwisee.com:users:u-pk-original' });
+  for (const accept of [undefined, '*/*', 'application/json', 'text/html;q=0, */*;q=1', 'text/html;q=invalid', 'text/html;q=1;q=0']) {
+    const flow = await f.start(); const response = await f.callback(flow, {}, { accept });
+    assert.equal(response.status, 403); assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
+    assert.deepEqual(await response.json(), { error: 'native_owner_mismatch' });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  assert.equal(f.verified.length, 0); assert.equal(f.bridge.status().readyHandoffs, 0);
 });
