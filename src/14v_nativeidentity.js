@@ -213,7 +213,7 @@ function nativePlayerConnect(fresh = false) {
         SAVE.readConfirmed = false;
         NATIVE_PLAYER.authRefusal = null;
         if (NETWS.link) NETWS.link.close();
-        else if (NETWS.ws) netWsRetire(NETWS.ws, 'explicit title sign-in');
+        else netWsRetire(NETWS.ws, 'explicit title sign-in');
         NETWS.token = ''; NETWS.acct = null;
         if (!await netLinkWS() || !nativePlayerSwitchIdle()) throw new Error('The fresh game session is unavailable. Retry the connection.');
       } catch (error) { popup.close(); throw error; }

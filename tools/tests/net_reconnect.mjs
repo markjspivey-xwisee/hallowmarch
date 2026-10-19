@@ -118,7 +118,7 @@ function harness(options = {}) {
     'globalThis.fixtureSave = {v:1,char:null,settings:{},world:null};',
     'buildSave = () => JSON.parse(JSON.stringify(globalThis.fixtureSave));',
     'applySettings = settings => fixtureSettingUpdates.push(settings); applyWorldSave = world => fixtureWorldUpdates.push(world);',
-    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender,netWsTokenForget};',
+    'globalThis.H = {NET,NETWS,SAVE,GAME,netLinkWS,netConnect,netPump,netWsOpen,netWsRetire,netWsReconnect,netWsAcct,netAcctDo,netServerSaveRef,loadSave,saveNow,nativePlayerRender,netWsTokenForget};',
   ].join('\n'), context);
   if (options.nativePolicy) {
     context.fixtureNativeProfile = nativeProfile; context.fixtureNativeBinding = binding;
@@ -195,6 +195,83 @@ test('cold handshake failure is shared, clears its promise, and reconnects after
   assert.ok(current.sent.some(m => m.t === 'slow' && m.d.n === 'Local Aldwin'), 'welcome resumes the running character profile');
   assert.equal(h.sockets.filter(s => s.readyState !== 3).length, 1);
   assert.deepEqual(h.failures, []);
+});
+
+for (const phase of ['connecting', 'awaiting welcome']) test('explicit title retirement releases an old ' + phase + ' attempt before a fresh guest handshake', async () => {
+  const h = harness({ delayedClose: true, storage: { ['hallowmarch.token.' + HOST]: 'retained-old-account-proof' } });
+  const first = h.H.netLinkWS(); await flush();
+  const old = h.sockets[0], oldMessage = old.onmessage, oldClose = old.onclose;
+  if (phase === 'awaiting welcome') { await old.open(); await flush(); assert.equal(old.sent[0].token, 'retained-old-account-proof'); }
+  assert.equal(h.H.NETWS.link, null, 'the room link has not been established');
+  assert.equal(h.H.netWsRetire(old, 'explicit title sign-in'), true);
+  h.H.NETWS.token = ''; h.H.NETWS.acct = null; h.storage.delete('hallowmarch.token.' + HOST);
+  const second = h.H.netLinkWS();
+  assert.notEqual(second, first, 'the explicit action must not reuse the retired link promise');
+  await flush();
+  assert.equal(await first, null, 'retirement settles every caller sharing the old opening');
+  assert.equal(h.sockets.length, 2, 'a replacement socket opens without waiting for the old deadline');
+  const current = h.sockets[1];
+  old.open(); oldMessage({ data: JSON.stringify({ t: 'welcome', peer: 'stale-peer', token: 'stale-proof', acct: { id: 'old-owner' } }) });
+  oldClose({ code: 1006 }); await flush();
+  assert.equal(h.H.NETWS.ws, current); assert.equal(h.H.NETWS.acct, null); assert.equal(h.H.NETWS.token, '');
+  await current.open(); await flush();
+  assert.equal(current.sent[0].t, 'hello'); assert.equal(current.sent[0].token, undefined, 'fresh guest hello never forwards the old account proof');
+  h.welcome(current, 'fresh-peer'); assert.ok(await second); await flush();
+  await h.clock.advance(60000);
+  assert.equal(h.H.NETWS.ws, current); assert.equal(h.H.NETWS.state, 'on'); assert.equal(h.H.NET.self, 'fresh-peer');
+  assert.equal(h.sockets.length, 2); assert.deepEqual(h.failures, []);
+});
+
+test('retirement after welcome but before link installation cannot install the old transport', async () => {
+  const h = harness({ delayedClose: true });
+  const first = h.H.netLinkWS(); await flush();
+  const old = h.sockets[0]; await old.open(); await flush();
+  h.welcome(old, 'retired-welcome');
+  assert.equal(h.H.NETWS.state, 'on'); assert.equal(h.H.NETWS.link, null);
+  h.H.netWsRetire(old, 'explicit title sign-in');
+  const second = h.H.netLinkWS(); await flush();
+  assert.equal(await first, null, 'a superseded welcome cannot produce a retained room link');
+  assert.equal(h.H.NETWS.link, null); assert.equal(h.sockets.length, 2);
+  const current = h.sockets[1]; await current.open(); await flush(); h.welcome(current, 'current-welcome');
+  const link = await second; assert.equal(link, h.H.NETWS.link); assert.equal(link.connected(), true);
+  assert.equal(h.H.NETWS.ws, current); assert.deepEqual(h.failures, []);
+});
+
+test('explicit title retirement cancels a private token lookup before any socket exists', async () => {
+  const lookup = deferred(); let reads = 0;
+  const h = harness({ claude: { use: async name => name === 'db' ? { doc: () => ({
+    get: () => ++reads === 1 ? lookup.promise : Promise.resolve({ exists: false }), set: async () => {},
+  }) } : { id: async () => 'known-existing-owner' } } });
+  const first = h.H.netLinkWS(); await flush();
+  assert.equal(h.sockets.length, 0); assert.ok(h.H.NETWS.openP); assert.equal(h.H.NETWS.ws, null);
+  assert.equal(h.H.netWsRetire(null, 'explicit title sign-in'), true);
+  const second = h.H.netLinkWS(); assert.notEqual(second, first); await flush();
+  assert.equal(await first, null); assert.equal(h.sockets.length, 1);
+  const current = h.sockets[0]; await current.open(); await flush();
+  assert.equal(current.sent[0].token, undefined, 'confirmed fresh absence authorizes the guest hello');
+  h.welcome(current, 'fresh-after-lookup'); assert.ok(await second);
+  lookup.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'retired-private-account-proof' } }) }); await flush();
+  await h.clock.advance(30000);
+  assert.equal(h.sockets.length, 1); assert.equal(h.H.NETWS.ws, current); assert.equal(h.H.NET.self, 'fresh-after-lookup');
+  assert.equal(h.H.NETWS.token, 'server-issued-token'); assert.deepEqual(h.failures, []);
+});
+
+test('closing an established link releases a shared reconnect before an immediate fresh attempt', async () => {
+  const h = harness({ delayedClose: true });
+  const old = await h.healthy(), link = h.H.NETWS.link;
+  old.emitClose(); await h.clock.advance(1000);
+  const reconnecting = h.H.netLinkWS(); await flush();
+  assert.equal(h.sockets.length, 2); assert.ok(h.H.NETWS.openP); assert.equal(h.H.NETWS.link, link);
+  const retired = h.sockets[1]; link.close();
+  h.H.NETWS.token = ''; h.H.NETWS.acct = null; h.storage.delete('hallowmarch.token.' + HOST);
+  const fresh = h.H.netLinkWS(); assert.notEqual(fresh, reconnecting); await flush();
+  assert.equal(await reconnecting, null); assert.equal(h.sockets.length, 3);
+  const current = h.sockets[2]; await current.open(); await flush(); assert.equal(current.sent[0].token, undefined);
+  h.welcome(current, 'fresh-after-reconnect'); const currentLink = await fresh;
+  retired.open(); retired.message({ t: 'welcome', peer: 'stale-reconnect', token: 'stale-proof', acct: { id: 'old-owner' } }); retired.emitClose();
+  await h.clock.advance(30000);
+  assert.equal(h.H.NETWS.link, currentLink); assert.equal(currentLink.connected(), true); assert.equal(h.H.NETWS.ws, current);
+  assert.equal(h.H.NET.self, 'fresh-after-reconnect'); assert.equal(h.sockets.length, 3); assert.deepEqual(h.failures, []);
 });
 
 test('repeated cold failures use one bounded backoff and recover without an unauthenticated link', async () => {
@@ -528,6 +605,41 @@ test('an older native acknowledgement cannot discard newer queued progress', asy
 const previousLocal = { v: 1, char: { name: 'Other browser character', realm: 0, cls: 'warrior', level: 3 }, settings: {}, world: null };
 const ownNative = { ...previousLocal, char: { ...previousLocal.char, name: 'Owner pod character' } };
 async function nativeWelcome(h) { await flush(); await h.sockets[0].open(); await flush(); h.welcome(h.sockets[0]); await flush(); }
+
+for (const keyPresent of [true, false]) test('recovered native binding after transport retirement ' + (keyPresent ? 'hydrates its retained character and enables entry' : 'keeps the retained character closed without its key'), async () => {
+  let reads = 0, writes = 0;
+  const profile = { connect: async () => {}, get: async () => {
+    reads++;
+    if (!keyPresent) throw { code: 'key_required' };
+    return { exists: true, data: () => ownNative };
+  }, status: () => ({ keyPresent, hasRecord: true }), set: async () => { writes++; }, close() {} };
+  const nativeStatus = { enabled: true, bound: true, verified: true, account: { id: 'retained-native-account' }, binding: null, recordLinks: {} };
+  const h = harness({ nativePolicy: true, nativeProfile: profile, nativeStatus, storage: {
+    ['hallowmarch.token.' + HOST]: 'retired-account-proof', 'hallowmarch.save.v1': JSON.stringify(previousLocal), 'native-key-fixture': 'retained-key-material',
+  } });
+  nativeStatus.binding = h.context.fixtureNativeBinding;
+  const original = h.H.netLinkWS(); await flush(); const old = h.sockets[0]; await old.open(); await flush();
+  h.H.netWsRetire(old, 'explicit title sign-in'); h.H.NETWS.token = ''; h.storage.delete('hallowmarch.token.' + HOST);
+  const recovered = h.H.netLinkWS(); await flush(); assert.equal(await original, null);
+  const current = h.sockets[1]; await current.open(); await flush(); assert.equal(current.sent[0].token, undefined);
+  // The OAuth callback/claim is independently covered by the browser suite.
+  // This welcomed owner and status model the subsequent page's restored app
+  // session; exercise its actual native save initialization and read policy.
+  current.message({ t: 'welcome', v: 1, peer: 'restored-native-peer', token: 'restored-native-app-proof',
+    acct: { id: 'retained-native-account', nativeBound: true, guest: false }, world: { k: [] } });
+  assert.ok(await recovered); old.message({ t: 'welcome', peer: 'late-old-peer', token: 'stale-proof', acct: { id: 'old-owner' } });
+  const loaded = await h.H.loadSave(); h.H.nativePlayerRender();
+  assert.equal(h.H.SAVE.backend, 'pod'); assert.equal(h.H.SAVE.native, true); assert.equal(reads, 1); assert.equal(writes, 0);
+  assert.equal(h.H.NETWS.acct.id, 'retained-native-account'); assert.equal(h.H.NETWS.token, 'restored-native-app-proof');
+  assert.equal(h.H.NATIVE_PLAYER.profile, profile); assert.equal(h.storage.get('native-key-fixture'), 'retained-key-material');
+  assert.equal(JSON.parse(h.storage.get('hallowmarch.save.v1')).char.name, previousLocal.char.name);
+  assert.equal(h.H.SAVE.readConfirmed, keyPresent); assert.equal(h.buttons.get('btn-begin').disabled, !keyPresent); assert.equal(h.buttons.get('btn-continue').disabled, !keyPresent);
+  if (keyPresent) {
+    assert.equal(loaded.char.name, ownNative.char.name); assert.equal(h.H.SAVE.loaded.char.name, ownNative.char.name);
+  } else { assert.equal(loaded, null); assert.equal(h.H.SAVE.loaded, null); }
+  assert(h.sockets.every(socket => !socket.sent.some(message => ['load', 'save', 'wipe'].includes(message.t))));
+  assert.deepEqual(h.failures, []);
+});
 
 test('actual native policy waits past the old 12 s fallback for a delayed owner welcome', async () => {
   const profile = { connect: async () => {}, get: async () => ({ exists: true, data: () => ownNative }),

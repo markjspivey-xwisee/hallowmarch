@@ -131,8 +131,12 @@ function netWsRetryLater() {
 // A timed-out FIFO request makes every outstanding reply ambiguous. Retire the
 // identity before closing: native close events may arrive after queued messages.
 function netWsRetire(ws, why) {
-  if (!ws || NETWS.ws !== ws) return false;
+  if (NETWS.ws !== ws || (!ws && !NETWS.openP)) return false;
   const was = NETWS.state;
+  if (NETWS.cancelOpen) NETWS.cancelOpen();
+  // A caller may request a fresh transport in this same turn, before the old
+  // link promise's cleanup microtask runs. It must not inherit that attempt.
+  NETWS.linkP = null;
   ++NETWS.generation; NETWS.ws = null; NETWS.state = 'off'; NETWS.lastFailure = why;
   netWsPendingFail();
   if (was === 'on') {
@@ -140,7 +144,7 @@ function netWsRetire(ws, why) {
     for (const peer of [...NET.peers.keys()]) netPeerLeft(peer);
     netWsRetryLater();
   }
-  try { ws.close(); } catch (e) { /* already retired */ }
+  if (ws) try { ws.close(); } catch (e) { /* already retired */ }
   return true;
 }
 function netWsOpen() {
@@ -253,8 +257,10 @@ function netLinkWS(url) {
     if (NETWS.url && NETWS.url !== u && NETWS.link) NETWS.link.close();
     if (NETWS.host && NETWS.host !== host) { NETWS.token = ''; NETWS.acct = null; }
     NETWS.url = u; NETWS.host = host; NETWS.closed = false;
-    const ok = await netWsOpen();
-    if (!ok) { netNote('server unreachable'); return null; }
+    const opening = netWsOpen(), generation = NETWS.generation;
+    const ok = await opening;
+    if (!ok || generation !== NETWS.generation || NETWS.closed || NETWS.reload
+      || NETWS.state !== 'on' || NETWS.ws?.readyState !== 1) { netNote('server unreachable'); return null; }
     if (NETWS.link) return NETWS.link;
     const L = NETWS.link = {
       kind: 'ws',
@@ -267,6 +273,7 @@ function netLinkWS(url) {
         clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
         clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
         if (NETWS.cancelOpen) NETWS.cancelOpen();
+        NETWS.linkP = null;
         ++NETWS.generation;
         const ws = NETWS.ws; NETWS.ws = null; NETWS.state = 'off';
         if (ws) try { ws.close(); } catch (e) { /* gone */ }

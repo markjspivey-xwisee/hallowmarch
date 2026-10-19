@@ -81,11 +81,12 @@ const GAME={started:${live},ready:true,player:${live}?{name:fixtureMemory.char.n
 const NET={link:{kind:'ws'},peers:new Map(),party:null};const UI={modal:null};const BUILD={mode:false};
 const identityCalls={retry:0,save:0,load:0,reauthenticate:0,saved:[],links:[],hellos:[],reloadMarker:crypto.randomUUID()};
 let resumeRelease=null,resumeGate=null,writeRelease=null,writeGate=null,reauthConflict=false;
+let coldHelloHold=false;const coldHelloReplies=[];
 const typing=()=>true,validSave=value=>value,loadSave=async()=>{identityCalls.load++;SAVE.readConfirmed=true};
 ${cold ? `window.__HM_NET_SERVER='ws://'+location.host+'/ws';
 const netNote=()=>{},netStr=(value,n)=>String(value).slice(0,n);
 window.WebSocket=class {constructor(){this.readyState=0;queueMicrotask(()=>{this.readyState=1;this.onopen?.({})})}
-send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);queueMicrotask(()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})}))}
+send(raw){const message=JSON.parse(raw);if(message.t!=='hello')return;identityCalls.hellos.push(message);const reply=()=>this.onmessage?.({data:JSON.stringify(message.token?{t:'denied',why:'native_signin_required'}:{t:'welcome',v:1,peer:'fixture-fresh-peer',token:${JSON.stringify(GUEST_TOKEN)},acct:{id:'fixture-fresh-guest',guest:true},world:{k:[]}})});if(message.token&&coldHelloHold)coldHelloReplies.push(reply);else queueMicrotask(reply)}
 close(){this.readyState=3;this.onclose?.({code:1008,reason:'native_signin_required'})}};` : `const netServerUrl=()=>location.origin,netLinkWS=async()=>{identityCalls.links.push(NETWS.token);return true};`}
 const CAPTURE={on:false},buildSave=()=>structuredClone(fixtureMemory),coreKey=value=>JSON.stringify(value),withTimeout=(promise,ms)=>Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve(null),ms))]);
 ${nativeSaves}
@@ -102,6 +103,7 @@ netUiOn();netAcctRender();nativePlayerRender();
 if(${JSON.stringify(view)}.startsWith('players')){$('title').hidden=true;$('netsheet').hidden=false;NETUI.open=true;UI.modal='net'}
 window.identityTest={ready:true,render(){nativePlayerRender()},changed(){NATIVE_PLAYER.state='saving';NATIVE_PLAYER.message='Native save status updated';nativePlayerRender()},
 async coldBoot(token=${JSON.stringify(GAME_TOKEN)}){localStorage.setItem('hallowmarch.token.'+location.host,token);return netLinkWS()},
+holdColdHello(){coldHelloHold=true},releaseColdHellos(){coldHelloHold=false;for(const reply of coldHelloReplies.splice(0))reply()},
 status:()=>(${live}?{cacheInitialized:!!NATIVE_PLAYER.cache,profileInitialized:!!NATIVE_PLAYER.profile,calls:identityCalls,memory:fixtureMemory,pending:SAVE.pending,paused:SAVE.nativePaused,token:NETWS.token,reload:NETWS.reload||false,message:NATIVE_PLAYER.message}:{cacheInitialized:!!NATIVE_PLAYER.cache,profileInitialized:!!NATIVE_PLAYER.profile}),
 holdResume(){resumeGate=new Promise(resolve=>{resumeRelease=resolve})},releaseResume(){resumeRelease?.();resumeGate=null},conflict(){reauthConflict=true},
 holdWrite(){writeGate=new Promise(resolve=>{writeRelease=resolve})},releaseWrite(){writeRelease?.();writeGate=null},progress(n){fixtureMemory.char.n=n;return saveNow()}};
@@ -240,8 +242,21 @@ try {
     assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
     assert.deepEqual(await page.evaluate(()=>({hellos:identityCalls.hellos.length,sameLoaded:SAVE.loaded===originalLoaded,sameProfile:NATIVE_PLAYER.profile===originalProfile})),
       {hellos:1,sameLoaded:true,sameProfile:true});
+    // A background retry may still be waiting for the refused transport's
+    // welcome when the user explicitly switches accounts. Exercise the actual
+    // opening promise rather than replacing netLinkWS with a test shortcut.
+    await page.evaluate(()=>{identityTest.holdColdHello();void identityTest.coldBoot()});
+    await page.waitForFunction(()=>identityCalls.hellos.length===2&&NETWS.state==='opening');
+    const starts=calls.filter(call=>call.pathname==='/gaming/identity/start').length;
     startHold=gate();const fresh=page.locator('#title .native-player button').filter({hasText:'Sign in with a different account'});await fresh.waitFor();
-    await fresh.click();await startHold.entered;
+    await fresh.click();
+    await page.waitForFunction(()=>NETWS.acct?.id==='fixture-fresh-guest',undefined,{timeout:2500});
+    await startHold.entered;
+    assert.equal(calls.filter(call=>call.pathname==='/gaming/identity/start').length,starts+1,'the explicit switch starts a second identity ceremony');
+    assert.deepEqual(await page.evaluate(()=>identityCalls.hellos.map(hello=>hello.token||null)),[GAME_TOKEN,GAME_TOKEN,null]);
+    await page.evaluate(()=>identityTest.releaseColdHellos());
+    assert.deepEqual(await page.evaluate(()=>({state:NETWS.state,token:NETWS.token,acct:NETWS.acct?.id})),
+      {state:'on',token:GUEST_TOKEN,acct:'fixture-fresh-guest'},'the retired transport reply cannot revoke the fresh session');
     assert.deepEqual(await page.evaluate(()=>({token:NETWS.token,acct:NETWS.acct.id,read:SAVE.readConfirmed,switching:NATIVE_PLAYER.switching,
       sameLoaded:SAVE.loaded===originalLoaded,sameProfile:NATIVE_PLAYER.profile===originalProfile,begin:document.querySelector('#btn-begin').disabled,continue:document.querySelector('#btn-continue').disabled})),
       {token:GUEST_TOKEN,acct:'fixture-fresh-guest',read:false,switching:true,sameLoaded:true,sameProfile:true,begin:true,continue:true});
