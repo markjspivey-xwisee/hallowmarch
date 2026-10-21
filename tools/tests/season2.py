@@ -49,7 +49,7 @@ async def main():
         b, page, logs = await setup(p, w=640, h=360)
         await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
         idle = await page.evaluate("""() => { const H = __hm, t = H.GAME.t;
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F24', bubbles: true }));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F8', bubbles: true }));
           H.simulate(1); return { before: t, after: H.GAME.t }; }""")
         check(idle['after'] == idle['before'], 'programmatic start and synthetic input leave the simulation asleep')
         await human_play(page)
