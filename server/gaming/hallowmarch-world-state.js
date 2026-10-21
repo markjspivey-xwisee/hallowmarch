@@ -68,11 +68,11 @@ export function checkedWorldSnapshot(value, { keepCount, realmModule } = {}) {
 /** Domain composition only: no personal saves, credentials, roster, chat or
  * company files enter the snapshot. Call open before makeSeason or makeField. */
 export async function openHallowmarchWorldState({ nativeStore, files, dataDir, keepCount, realmModule,
-  checkpointIntervalMs = 30000, clock = Date.now } = {}) {
+  checkpointIntervalMs = 30000, clock = Date.now, active = true, liveOnly = active === false } = {}) {
   if (!files || !['read', 'write'].every(method => typeof files[method] === 'function') || !realmModule
     || typeof realmModule.realmSimSanitize !== 'function') invalid();
   const validate = value => checkedWorldSnapshot(value, { keepCount, realmModule });
-  const bridge = createProgressiveOwnedState({ store: nativeStore, streamId: 'hallowmarch-world-season-v1', checkpointIntervalMs, clock });
+  const bridge = createProgressiveOwnedState({ store: nativeStore, streamId: 'hallowmarch-world-season-v1', checkpointIntervalMs, clock, active });
   function strictRead(name, fallback) {
     try { return JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return fallback; invalid(); }
@@ -136,7 +136,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
       if (!restored.season) invalid();
       const next = season.M.realmSimSanitize(restored.season);
       if (!next) invalid();
-      const now = clock(), away = Math.max(0, Math.min(7 * 86400, ((now - (restored.season.savedAt ?? now)) / 1000) * season.speed));
+      const now = clock(), away = liveOnly ? 0 : Math.max(0, Math.min(7 * 86400, ((now - (restored.season.savedAt ?? now)) / 1000) * season.speed));
       if (away > 1) season.M.realmSimStep(next, away);
       validate({ worlds: restored.worlds, season: { ...next, savedAt: now } });
       for (const name of Object.keys(worlds)) delete worlds[name];
@@ -151,8 +151,13 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     captureFailure = false; capture();
     return status();
   }
+  function setActive(value) {
+    if (value === true && attached?.season) attached.season.lastStep = clock();
+    return bridge.setActive(value);
+  }
+  async function suspend(options) { return bridge.suspend(options); }
   async function shutdown(options) {
-    if (!closing && attached) capture();
+    if (options?.checkpoint !== false && !closing && attached) capture();
     closing = true; return bridge.shutdown(options);
   }
   async function rollback(at, options) {
@@ -170,7 +175,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     } catch (error) { if (![400, 410, 413].includes(error.status)) captureFailure = true; throw error; }
     finally { rollingBack = false; }
   }
-  return { store, attach, capture, canMutate, assertMutable, recover, rollback,
+  return { store, attach, capture, canMutate, assertMutable, recover, rollback, setActive, suspend,
     rollbackCheckpoints: () => nativeStore?.rollbackCheckpoints?.() ?? [], shutdown, status, checkpoint: bridge.checkpoint };
 }
 

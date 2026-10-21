@@ -81,7 +81,7 @@ async function localServer(t) {
 test('real server separates QA presence, chat, season writes and captures without erasing historical records', async t => {
   const f = await localServer(t), ordinary = await f.connect('march'), welcome = await ordinary.receive('welcome');
   const profile = (name, w) => ({ t: 'slow', d: { r: 0, on: 1, n: name, dn: name, c: 'warrior', l: 3, rr: 0, ...(w ? { w } : {}) } });
-  ordinary.send(profile('Native QA fan'));
+  ordinary.send({ ...profile('Native QA fan'), d: { ...profile('Native QA fan').d, humanLive: 1, humanActivity: 1 } });
   const first = await ordinary.receive('season'); assert(first.roster.list.some(x => x.n === 'Native QA fan'));
   assert(first.roster.list.some(x => x.n === f.historical.historical.name), 'Display names never classify diagnostic participation');
   const before = await f.json('/season'), counters = await f.json('/stats');
@@ -89,34 +89,41 @@ test('real server separates QA presence, chat, season writes and captures withou
     { reg: { name: 'SyntheticQa', pass: 'synthetic-local-fixture-pass' } }), qaWelcome = await qa.receive('welcome');
   assert.equal(qaWelcome.room, qaRoom); assert.equal(qaWelcome.season, null);
   assert.equal(qaWelcome.acct.guest, false, 'Diagnostic exclusion is independent of named/native account authority');
-  qa.send(profile('Sol', welcome.world));
   const changed = { ...welcome.world, k: welcome.world.k.map((r, i) => i === 0 ? (r + 1) % 3 : r) };
-  qa.send(profile('Sol', changed));
-  qa.send({ ...profile('Sol'), d: { ...profile('Sol').d, wx: { v: 1, c: [] } } });
   qa.send({ t: 'fast', d: { p: [0, 30, 0], ev: [[1, 'say', 0, ['r', 'Synthetic fixture line']]] } });
-  qa.send({ t: 'contrib', q: 1, k: 'food', n: 120 }); assert.equal((await qa.receive('contrib')).ok, false);
-  qa.send({ t: 'order', q: 2, o: { kind: 'target', keep: 2 } }); assert.equal((await qa.receive('order')).ok, false);
-  for (const op of ['get', 'found', 'notice', 'pledge', 'say', 'muster', 'leave', 'invite', 'answer', 'remove', 'rank']) {
+  qa.send({ t: 'contrib', q: 1, k: 'food', n: 120 });
+  qa.send({ t: 'order', q: 2, o: { kind: 'target', keep: 2 } });
+  for (const op of ['get', 'found', 'notice', 'pledge', 'say', 'muster', 'leave', 'invite', 'answer', 'remove', 'rank'])
     qa.send({ t: 'co', q: 10, op, name: 'Synthetic Company', text: 'Synthetic line', id: 'smithy' });
-    assert.equal((await qa.receive('co')).ok, false, op);
-  }
-  qa.send({ t: 'season' }); qa.send({ t: 'ping', c: 1 }); await qa.receive('pong');
-  assert.equal(qa.messages.some(m => m.t === 'season'), false);
+  qa.send({ t: 'season' }); qa.send({ t: 'ping', c: 1 }); assert.equal((await qa.receive('pong')).c, 1);
+  assert.equal(qa.messages.some(m => ['season', 'contrib', 'order', 'co', 'company'].includes(m.t)), false,
+    'Diagnostic packets never enter shared gameplay or persistence');
+  const closed = once(qa.ws, 'close');
+  qa.send({ ...profile('Sol', changed), d: { ...profile('Sol', changed).d,
+    humanLive: 1, humanActivity: 1, wx: { v: 1, c: [] } } });
+  assert.equal((await qa.receive('world-status')).standby, true);
+  assert.equal((await closed)[0], 4000, 'A diagnostic frame cannot acquire a human lease');
   ordinary.send({ t: 'season' }); const later = await ordinary.receive('season');
   assert.equal(later.roster.list.some(x => x.n === 'Sol'), false);
   assert.equal(later.roster.now, 1); assert.equal(ordinary.messages.some(m => m.t === 'peer' && m.slow?.dn === 'Sol'), false);
   const qaSecond = await f.connect(qaRoom), secondWelcome = await qaSecond.receive('welcome');
-  assert.equal(secondWelcome.room, qaRoom); assert.deepEqual(secondWelcome.world.k, changed.k);
-  assert.equal(secondWelcome.world.wx.v, 1, 'Diagnostic weather remains in its own live room');
+  assert.equal(secondWelcome.room, qaRoom); assert.deepEqual(secondWelcome.world?.k, qaWelcome.world?.k,
+    'Diagnostic frames cannot change even an in-memory world');
+  assert.equal(secondWelcome.world?.wx, undefined, 'Diagnostic weather does not start a simulation');
+  const qaThird = await f.connect(qaRoom);
+  assert.equal((await qaThird.receive('welcome')).room, qaRoom, 'The closed diagnostic socket releases its room slot');
   const overflow = await f.connect(qaRoom), overflowWelcome = await overflow.receive('welcome');
   assert.equal(overflowWelcome.room, qaRoom + '-2'); assert.equal(overflowWelcome.season, null);
-  overflow.send(profile('Overflow'));
-  overflow.send({ t: 'contrib', q: 3, k: 'food', n: 120 }); assert.equal((await overflow.receive('contrib')).ok, false);
+  overflow.send({ t: 'contrib', q: 3, k: 'food', n: 120 });
+  overflow.send({ t: 'ping', c: 2 }); assert.equal((await overflow.receive('pong')).c, 2);
+  assert.equal(overflow.messages.some(m => m.t === 'contrib'), false);
   const after = await f.json('/season'), stats = await f.json('/stats');
   assert.deepEqual(after.keeps, before.keeps); assert.deepEqual(after.news, before.news);
   for (const key of ['contribs', 'orders', 'liveCaptures', 'chatKept']) assert.equal(stats[key], counters[key], key);
   assert.equal(stats.companies.n, counters.companies.n);
   assert.equal(qa.messages.some(m => m.t === 'company'), false);
+  const liveHealth = await f.json('/health');
+  assert.equal(liveHealth.livePlay.players, 1, 'Only the explicit ordinary human actor counts');
   const invalid = await f.connect('native-companion-qa-' + 'x'.repeat(24));
   assert.equal((await invalid.receive('denied')).code, 'invalid_room');
   assert.equal((await f.json('/stats')).accounts, stats.accounts, 'Rejected diagnostic names create no account');

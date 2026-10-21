@@ -38,7 +38,7 @@ async def direct_page(browser, w, h, touch=False, init=None):
     return ctx, page, errors, console_errors, navigations
 
 TEST_LIFECYCLE = r"""(() => {
- window.__hmGraphicsTest = {lost:0, restored:0, creation:[], animationCallbacks:0};
+ window.__hmGraphicsTest = {lost:0, restored:0, creation:[], animationCallbacks:0, renderedFrames:0};
  window.addEventListener('webglcontextlost', (event) => {
   if (event.target && event.target.id === 'scene') window.__hmGraphicsTest.lost++;
  }, true);
@@ -222,6 +222,13 @@ async def safe_boot(browser):
     try:
         await page.goto(ORIGIN + '/?safe=1&server=', wait_until='commit', timeout=120000)
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
+        await page.evaluate("""() => {
+          const renderer = __hm.dbg.renderer, render = renderer.render;
+          renderer.render = function(...args) {
+            window.__hmGraphicsTest.renderedFrames++;
+            return render.apply(this, args);
+          };
+        }""")
         st = await page.evaluate(SNAPSHOT)
         check(await page.evaluate("document.characterSet === 'UTF-8'"), 'standalone title uses UTF-8')
         check(st['level']=='low' and st['auto'] is False and st['msaa']==0, 'safe startup selects low without MSAA')
@@ -235,19 +242,24 @@ async def safe_boot(browser):
         await expect(page.locator('#title')).to_be_visible()
         await page.wait_for_function("document.getElementById('loading').hidden || getComputedStyle(document.getElementById('loading')).display === 'none'", timeout=30000)
         await page.screenshot(path=str(hm.OUT / 'startup-safe-title-4k.png'), timeout=120000)
+        idle_before = await page.evaluate(SNAPSHOT)
         await page.wait_for_timeout(30000)
         stable = await page.evaluate(SNAPSHOT)
         bounded_recovery(stable, 'safe startup after 30 seconds')
         check(stable['ready'] and stable['gameReady'] and not stable['lost'] and
-              stable['t'] > st['t'] and
-              stable['lifecycle']['animationCallbacks'] > st['lifecycle']['animationCallbacks'],
-              'safe startup sustains rendered frames for 30 seconds')
+              stable['t'] == idle_before['t'] and
+              stable['lifecycle']['renderedFrames'] == idle_before['lifecycle']['renderedFrames'],
+              'safe title remains healthy without simulation or rendering for 30 seconds')
+        check(stable['stored'] == text, 'idle title does not rewrite the previous save')
         check(stable['lifecycle']['lost'] == 0 and stable['lifecycle']['restored'] == 0,
               'safe startup has no context loss or restoration during observation')
         check(not stable['errors'] and not errors and not console_errors,
               '30-second safe startup observation has no runtime errors')
         (hm.OUT / 'startup-safe-30s.json').write_text(json.dumps(stable, indent=2), encoding='utf-8')
-        await page.evaluate("__hm.start(); __hm.fn.openMenu('settings')")
+        await page.evaluate("__hm.start()")
+        await page.bring_to_front()
+        await page.keyboard.press('Shift')
+        await page.evaluate("__hm.fn.openMenu('settings')")
         persisted = await page.evaluate("""async () => {
           await __hm.fn.saveNow();
           const saved = JSON.parse(localStorage.getItem('hallowmarch.save.v1'));
@@ -270,6 +282,8 @@ async def safe_boot(browser):
         bounded_recovery(await page.evaluate(SNAPSHOT), 'manual quality change in recovery')
         check(not await page.evaluate('__hm.errors') and not errors and not console_errors, 'manual quality change has no runtime errors')
         check(len(navigations)==1, 'safe startup has no automatic navigation')
+        await page.bring_to_front()
+        await page.keyboard.press('Shift')
         await context_loss(page, errors, console_errors, navigations)
     finally:
         await ctx.close()

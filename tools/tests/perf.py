@@ -13,7 +13,7 @@ first, so the sound runs: without a gesture there is no AudioContext and updateA
 Writes tools/out/perf_<tag>.json and prints a table."""
 import asyncio, json, sys, time, pathlib, subprocess
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -172,6 +172,8 @@ window.PV = {
 """
 
 async def ev(page, js):
+    # An explicit benchmark step models a present test operator.
+    await human_play(page)
     return await page.evaluate(js)
 
 # [perf2] the budgets (CLAUDE.md, Phones and performance): triangles and draw calls a frame, both passes, in every view;

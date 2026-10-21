@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadRealmModule } from '../season.js';
 import { openHallowmarchWorldState, checkedWorldSnapshot, hallowmarchWorldDescription } from './hallowmarch-world-state.js';
 
-const root = new URL('../../', import.meta.url).pathname;
+const root = fileURLToPath(new URL('../../', import.meta.url));
 const realmModule = loadRealmModule(root + 'src', root + 'server');
 const season = () => ({ ...realmModule.realmSimInit(19, { season: 1 }), savedAt: Date.now() });
 const options = { keepCount: 6, realmModule };

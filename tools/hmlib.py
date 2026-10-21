@@ -24,3 +24,14 @@ async def setup(p, touch=False, w=800, h=450, init=None):
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
     return b, page, logs
+
+async def human_play(page):
+    """Give an active-play fixture one real, trusted browser interaction.
+
+    Call this after programmatic character/scene setup and before active simulation
+    workloads. Pressing and releasing Shift provides real input without moving or attacking. There
+    is no repeating input or product override: title, menu, hidden and idle checks
+    should keep using page.evaluate without this explicit test-operator action.
+    """
+    await page.bring_to_front()
+    await page.keyboard.press('Shift')

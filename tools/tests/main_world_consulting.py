@@ -8,6 +8,7 @@ private record, consent, service call or gameplay improvement is claimed.
 import asyncio, json, os, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 QA_OUT=pathlib.Path(os.environ.get('HM_COACH_QA_OUT',str(hm.OUT)))
@@ -270,7 +271,13 @@ async def main():
             assert await page.get_by_text('Fixture coach: use the current field guide, then try one legal task.',exact=True).is_visible()
             print('PASS one explicit Enable persists exact private delivery intent before one fixture Foxxi plan and exact private history',flush=True)
 
-            await page.evaluate('__consultingFixture.leave();__consultingFixture.record();__consultingFixture.advance(120001);__consultingFixture.step()')
+            # Closing a fixture menu does not count as human activity. Use a
+            # trusted browser gesture before each automatic scheduling scenario.
+            async def resume_play():
+                await page.evaluate('__consultingFixture.leave()')
+                await human_play(page)
+            await resume_play()
+            await page.evaluate('__consultingFixture.record();__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_function('__consultingFixture.external===2&&!__hm.consulting.status.busy')
             assert await page.evaluate('__consultingFixture.lastInput.focus.title')=='Complete a recipe'
             assert await page.evaluate('__consultingFixture.history.observations.length')==2
@@ -281,7 +288,8 @@ async def main():
             await page.wait_for_timeout(50);assert await page.evaluate('__consultingFixture.external')==2
             await page.evaluate('__hm.GAME.player.combatUntil=-1;__consultingFixture.open()')
             await page.get_by_role('button',name='Quiet for 10 minutes',exact=True).click()
-            await page.evaluate('__consultingFixture.leave();__consultingFixture.advance(120001);__consultingFixture.step()')
+            await resume_play()
+            await page.evaluate('__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_timeout(50);assert await page.evaluate('__consultingFixture.external')==2
             print('PASS later observed milestone schedules a new bounded plan; archive-only revisions, combat and snooze suppress automatic requests (fixture clock only)',flush=True)
 
@@ -292,7 +300,8 @@ async def main():
             await page.get_by_role('button',name='Review your calling',exact=True).click()
             await page.evaluate('__consultingFixture.record("ability.executed","human-only-ability")')
             assert await page.evaluate('__consultingFixture.criterionCurrent()')==0
-            await page.evaluate('__consultingFixture.recordUnit("ability.executed");__consultingFixture.record("resource.gathered","fixture-ore");__consultingFixture.leave();__consultingFixture.advance(120001);__consultingFixture.step()')
+            await resume_play()
+            await page.evaluate('__consultingFixture.recordUnit("ability.executed");__consultingFixture.record("resource.gathered","fixture-ore");__consultingFixture.advance(120001);__consultingFixture.step()')
             await page.wait_for_function('__consultingFixture.history.evaluations.length===1&&!__hm.consulting.status.busy')
             comparison=await page.evaluate('__consultingFixture.history.evaluations[0]')
             assert comparison['consultationId']==before['plan']
@@ -362,6 +371,7 @@ async def main():
             assert await page.evaluate('!__consultingFixture.info().privateIntent&&!__hm.consulting.status.enabled')
             print('PASS actual page reload retains unknown delivery intent, never resends it automatically, and explicit close retires it without replay',flush=True)
 
+            await resume_play()
             assert await page.evaluate('__consultingFixture.changeOwner()')
             assert await page.evaluate('!__hm.consulting.status.hasPlan&&!__hm.consulting.status.enabled&&!__hm.consulting.status.reviewed')
             assert not errors,errors

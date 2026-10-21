@@ -341,8 +341,9 @@ const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!water
 /* telling the others                                                  */
 /* ------------------------------------------------------------------ */
 function netSlowObj() {
-  const P = GAME.player, prog = GAME.prog;
-  const o = { v: 1, on: GAME.started && P ? 1 : 0, since: NET.since };
+  const P = GAME.player, prog = GAME.prog, live = netHumanLive();
+  const o = { v: 1, on: live ? 1 : 0, since: NET.since,
+    humanLive: live ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
   if (P && prog) {
     const L = P.look;
     o.n = P.name.slice(0, 24); o.dn = late2Named(P).slice(0, 56); o.r = P.faction; o.c = P.cls; o.l = prog.level; o.rr = realmRank(prog.rp);
@@ -472,6 +473,9 @@ function netSendFast(now) {
   }
 }
 function netPump(dt) {
+  netHumanSync();
+  if (!netHumanLive()) return;
+  if (NETWS.link && NETWS.state === 'off' && !NETWS.retryTimer && !NETWS.closed && !NETWS.reload) void netWsReconnect();
   // Retry initial server failures only after boot. A valid room link keeps its
   // own transport; recovery does not replace it or change the save backend.
   if (GAME.ready && !NETWS.closed && !NETWS.reload && (NET.state === 'off' || (NET.state === 'alone' && netServerUrl() && performance.now() >= NET.retryAt))) netConnect();

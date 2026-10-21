@@ -124,7 +124,34 @@ function netWsPendingFail() {
   const w = NETWS.acctWait; NETWS.acctWait = null;
   if (w) w({ ok: false, why: 'The server disconnected' });
 }
+function netWsSuspendHuman() {
+  clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
+  clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
+  // An established owner transport can remain completely silent. Keeping its
+  // generation preserves private owner contexts while a menu is open; it grants
+  // no live-play lease and sends no keepalive or reconnect traffic in standby.
+  if (NETWS.state === 'on' && NETWS.ws?.readyState === 1 && NETWS.acct?.id && NETWS.token) {
+    NETWS.humanSuspended = true;
+    return true;
+  }
+  // An unconfirmed opening has no established owner context to preserve.
+  NETWS.humanSuspended = false;
+  netWsRetire(NETWS.ws, 'human session paused');
+  return false;
+}
+function netWsStartHumanPing() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
+  NETWS.humanSuspended = false;
+  if (NETWS.pingTimer) return;
+  NETWS.pingTimer = setInterval(() => {
+    if (typeof netHumanLive === 'function' && !netHumanLive()) {
+      netWsSuspendHuman(); return;
+    }
+    if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() });
+  }, 10000);
+}
 function netWsRetryLater() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.retryTimer || NETWS.closed || NETWS.reload || !NETWS.link) return;
   NETWS.retryTimer = setTimeout(() => { NETWS.retryTimer = 0; netWsReconnect(); }, NETWS.backoff * 1000);
 }
@@ -242,8 +269,10 @@ function netWsOpen() {
   return p;
 }
 async function netWsReconnect() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.state !== 'off' || !NETWS.link || NETWS.closed || NETWS.reload) return;
   const ok = await netWsOpen();
+  if (ok && (typeof netHumanLive !== 'function' || netHumanLive())) netWsStartHumanPing();
   if (!ok && !NETWS.closed && !NETWS.reload) { NETWS.backoff = Math.min(15, NETWS.backoff * 2); netWsRetryLater(); }
 }
 // Only pending requests are shared: a rejected or null result must not be cached.
@@ -281,7 +310,7 @@ function netLinkWS(url) {
         if (NET.link === L) { NET.link = null; NET.state = 'alone'; }
       },
     };
-    if (!NETWS.pingTimer) NETWS.pingTimer = setInterval(() => { if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() }); }, 10000);
+    netWsStartHumanPing();
     return L;
   })();
   NETWS.linkP = p;
@@ -344,7 +373,7 @@ async function netServerSaveRef() {
   });
   return {
     get: async () => { const m = await ask({ t: 'load' }); if (!m) throw { code: 'unavailable' }; return { exists: !!m.d, data: () => m.d }; },
-    set: async (s) => { const m = await ask({ t: 'save', d: s }); if (!m || !m.ok) throw { code: 'unavailable' }; },
+    set: async (s, { final = false } = {}) => { const m = await ask({ t: 'save', d: s, ...(final ? { final: 1 } : {}) }); if (!m || !m.ok) throw { code: 'unavailable' }; },
     delete: async () => { const m = await ask({ t: 'wipe' }); if (!m || !m.ok) throw { code: 'unavailable' }; },
   };
 }

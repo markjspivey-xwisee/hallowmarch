@@ -64,7 +64,11 @@ async function fixture(t, enabled = false, required = false) {
     };
     ws.send(JSON.stringify({ t: 'hello', token }));
     const reply = await receive(replyType);
-    return { ws, receive, [replyType]: reply, send: message => ws.send(JSON.stringify(message)) };
+    const send = message => ws.send(JSON.stringify(message)); let humanActivity = 0;
+    return { ws, receive, messages, [replyType]: reply, send, async play(profile = {}) {
+      send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++humanActivity, ...profile } });
+      send({ t: 'ping', c: humanActivity }); await receive('pong');
+    } };
   }
   return { base, connect, tokens, original, accountsFile: path.join(data, 'accounts.json'),
     nativeTokenAt: time => createGameSessionTokens({ secret, now: () => time }).issueNative('alice', 'did:example:alice').token,
@@ -75,6 +79,7 @@ test('real server preserves native game credentials and prevents personal-file s
   const f = await fixture(t), native = f.tokens.issueNative('alice', 'did:example:alice');
   const alice = await f.connect(native.token);
   assert.equal(alice.welcome.token, native.token); assert.equal(alice.welcome.acct.nativeBound, true);
+  await alice.play();
   alice.send({ t: 'save', d: { v: 1, player: { name: 'Must not overwrite' } } });
   assert.equal((await alice.receive('saved')).error, 'nativepodsave_required');
   alice.send({ t: 'wipe' }); assert.equal((await alice.receive('saved')).error, 'nativepodsave_required');
@@ -83,12 +88,13 @@ test('real server preserves native game credentials and prevents personal-file s
   assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
   alice.send({ t: 'acct', op: 'claim', name: 'Legacy Password Bypass', pass: 'must-not-create-this' });
   assert.equal((await alice.receive('acct')).ok, false);
-  alice.send({ t: 'slow', d: { r: 0, on: 1, nativeParticipant: true } });
+  await alice.play({ nativeParticipant: true });
   assert.equal((await alice.receive('company')).s.guest, true);
   alice.send({ t: 'co', op: 'found', name: 'Copper Watch', nativeParticipant: true });
   const refusedCompany = await alice.receive('co'); assert.equal(refusedCompany.ok, false); assert.match(refusedCompany.why, /native owner/);
   const bob = await f.connect(f.tokens.issueLegacy('bob'));
   assert.equal(f.tokens.read(bob.welcome.token).nativeDid, undefined);
+  await bob.play();
   bob.send({ t: 'save', d: { v: 1, player: { name: 'Legacy Bob' } } }); assert.equal((await bob.receive('saved')).ok, true);
   assert.equal(JSON.parse(await readFile(f.file('bob'), 'utf8')).player.name, 'Legacy Bob');
   assert.equal((await fetch(f.base + '/gaming/identity/finish')).status, 200);
@@ -102,8 +108,25 @@ test('real server preserves native game credentials and prevents personal-file s
   assert.equal(status.humanLearning, 'unavailable'); assert.equal(status.manifest.learningExportConfigured, false);
 });
 
+test('idle native and legacy sockets receive bounded save/wipe refusals without creating or replacing files', async t => {
+  const f = await fixture(t);
+  for (const token of [f.tokens.issueNative('alice', 'did:example:alice').token, f.tokens.issueLegacy('bob')]) {
+    const idle = await f.connect(token);
+    for (const message of [{ t: 'save', d: { v: 1, player: { name: 'Idle must never persist' } } }, { t: 'wipe' }]) {
+      const started = Date.now(); idle.send(message); const result = await idle.receive('saved');
+      assert.equal(result.ok, false); assert.equal(result.error, 'human_play_required');
+      assert.ok(Date.now() - started < 1500, 'Idle persistence refusal is bounded');
+    }
+  }
+  const health = await (await fetch(f.base + '/health')).json();
+  assert.equal(health.livePlay.players, 0); assert.equal(health.livePlay.mode, 'standby');
+  assert.equal(await readFile(f.file('alice'), 'utf8'), f.original);
+  await assert.rejects(readFile(f.file('bob')), { code: 'ENOENT' });
+});
+
 test('configured native ownership outage blocks unknown-account central writes without touching old files', async t => {
   const f = await fixture(t, true), bob = await f.connect(f.tokens.issueLegacy('bob'));
+  await bob.play();
   bob.send({ t: 'save', d: { v: 1, player: { name: 'Must remain local pending native authority' } } });
   const saved = await bob.receive('saved'); assert.equal(saved.ok, false); assert.equal(saved.error, 'native_ownership_unavailable');
   bob.send({ t: 'load' }); const loaded = await bob.receive('save');

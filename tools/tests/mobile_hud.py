@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -111,6 +111,8 @@ if (!window.__mobileRafWrapped) {
 
 
 async def frame(page):
+    # Scene setup alone must not authorize simulation; use a real operator input.
+    await human_play(page)
     # The scene target and the camera both settle after a viewport/orientation change.
     for _ in range(2):
         await page.evaluate('__hm.frame(1/30); MH.lay(); 0')

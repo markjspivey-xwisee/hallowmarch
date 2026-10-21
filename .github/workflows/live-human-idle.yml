@@ -1,0 +1,47 @@
+name: Live human idle lifecycle
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: live-human-idle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  idle-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix server
+      - name: Build pinned native SDK proof dependencies
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
+        run: node tools/setup-native-sdk.mjs
+      - name: Verify human leases, cold startup and persistence suspension
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
+        run: |
+          node --test \
+            tools/tests/live_play_activity.test.mjs \
+            tools/tests/departing_save.test.mjs \
+            tools/tests/idle_client_network.test.mjs \
+            tools/tests/net_reconnect.mjs \
+            tools/tests/net_social_delivery.mjs \
+            tools/tests/human_play_gate.test.mjs \
+            tools/tests/server_human_lifecycle.test.mjs \
+            server/gaming/idle-persistence.test.mjs \
+            server/gaming/live-only-server.test.mjs \
+            server/gaming/progressive-owned-state.test.mjs \
+            server/gaming/authority.test.mjs \
+            server/gaming/authority-realtime.test.mjs \
+            server/gaming/runtime.test.mjs \
+            server/gaming/hallowmarch-world-state.test.mjs \
+            server/gaming/hallowmarch-world-server.test.mjs \
+            server/gaming/player-server.test.mjs \
+            server/gaming/diagnostic-rooms.test.mjs \
+            server/gaming/service-monitoring.test.mjs \
+            server/gaming/native-agent-authority.test.mjs \
+            server/gaming/main-world-agents.test.mjs
