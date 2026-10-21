@@ -38,7 +38,7 @@ function fixture({ playing = true, focused = true } = {}) {
       timers.delete(ready[0]); ready[1].fn();
     }
   }
-  return { H: context.H, GAME, UI, document, player, sent, timers, input, event, advance };
+  return { H: context.H, context, GAME, UI, document, player, sent, timers, input, event, advance };
 }
 
 test('a page, socket, loaded character and synthetic input cannot start the human lease', async () => {
@@ -175,4 +175,35 @@ test('new trusted input renews near the server deadline without waiting for a re
   f.advance(1000); assert.equal(f.H.netHumanLive(), true);
   for (let n=0; n<100; n++) await f.input('pointermove', {movementX:1});
   assert.equal(f.sent.length, 3, 'input renewals coalesce to one publication per second');
+});
+
+
+test('the actual identity settings route stays in standby while trusted owner controls are used', async () => {
+  const f = fixture(), c = f.context;
+  const nodes = {
+    netsheet: { hidden: true }, menu: { hidden: false }, 'btn-newchar': { textContent: '' },
+    'netsheet-acct': { querySelector: () => null }
+  };
+  Object.assign(c, { $: id => nodes[id], NETUI: { open: false },
+    netUiOn() {}, netSheetRender() {}, netAcctRender() {} });
+  const menu = readFileSync(new URL('src/10_ui.js', root), 'utf8');
+  const netui = readFileSync(new URL('src/14o_netui.js', root), 'utf8');
+  vm.runInContext(menu.slice(menu.indexOf('function openPlayerIdentity()'), menu.indexOf('function renderMenu(')) +
+    netui.slice(netui.indexOf('function netSheetToggle('), netui.indexOf('// your account on')), c);
+  await f.input();
+  f.UI.modal = 'menu'; f.H.netHumanSync();
+  const withdrawn = f.sent.length;
+  c.openPlayerIdentity();
+  assert.equal(f.UI.modal, 'net'); assert.equal(nodes.netsheet.hidden, false);
+  for (let n = 0; n < 3; n++) await f.input('pointerdown');
+  assert.equal(f.H.netHumanLive(), false);
+  assert.equal(f.sent.length, withdrawn, 'settings input cannot publish an active profile');
+  assert.equal(f.timers.size, 0, 'settings keep no human activity timer alive');
+
+  c.netSheetToggle(false); f.H.netHumanSync();
+  assert.equal(f.H.netHumanLive(), false, 'settings gestures cannot linger into a programmatic close');
+  await f.input();
+  assert.equal(f.H.netHumanLive(), true, 'fresh input back in play resumes the existing character');
+  c.netSheetToggle(true); await f.input();
+  assert.equal(f.H.netHumanLive(), true, 'ordinary Players social play keeps its existing behavior');
 });

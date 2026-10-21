@@ -82,6 +82,7 @@ function netSheetToggle(force) {
   const open = force === undefined ? o.hidden : force;
   if (open && UI.modal === 'menu') closeMenu();
   if (open && UI.modal && UI.modal !== 'net') return;
+  UI.identitySettings = false;
   o.hidden = !open;
   UI.modal = open ? 'net' : UI.modal === 'net' ? null : UI.modal;
   NETUI.open = open;

@@ -11,7 +11,8 @@ const NET_HUMAN_PLAY = { activity: 0, pendingAt: null, acceptedAt: null, player:
 function netHumanEligible() {
   return !!(GAME.started && GAME.player && !document.hidden && NET_HUMAN_PLAY.focused
     && typeof document.hasFocus === 'function' && document.hasFocus()
-    && UI.modal !== 'menu' && UI.modal !== 'prologue');
+    && UI.modal !== 'menu' && UI.modal !== 'prologue'
+    && !(UI.modal === 'net' && UI.identitySettings));
 }
 function netHumanLive() {
   const h = NET_HUMAN_PLAY, now = performance.now();
@@ -49,7 +50,10 @@ function netHumanSync() {
   if (h.player !== GAME.player) { h.player = GAME.player; h.acceptedAt = null; }
   if (eligible && h.pendingAt !== null && now >= h.pendingAt && now - h.pendingAt <= NET_HUMAN_START_MS) {
     h.acceptedAt = h.pendingAt; h.pendingAt = null;
-  } else if (!eligible) h.acceptedAt = null;
+  } else if (!eligible) {
+    h.acceptedAt = null;
+    if (UI.modal === 'net' && UI.identitySettings) h.pendingAt = null;
+  }
   if (h.pendingAt !== null && now - h.pendingAt > NET_HUMAN_START_MS) h.pendingAt = null;
   if (h.timer !== null) clearTimeout(h.timer);
   h.timer = null;
