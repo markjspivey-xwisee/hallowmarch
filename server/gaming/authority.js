@@ -244,7 +244,7 @@ export class AuthoritativeRoom {
       requireGame(sequence <= this.durableSequence, 'durability_pending', 'That action is live, but its save is delayed. Check its status before trying again.');
     } finally { clearTimeout(timer); }
   }
-  async close({ checkpoint = true } = {}) { this.closed = true; if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; } return checkpoint ? this.flushPersistence() : this.persistenceStatus(); }
+  async close({ checkpoint = this.activityActive } = {}) { this.closed = true; if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; } return checkpoint ? this.flushPersistence({ allowInactive: true }) : this.persistenceStatus(); }
   execute(principal, command) { return this.#enqueue(principal, command); }
   /** Privileged server ports, never dispatch these from caller supplied proof
    * labels. The native bridge verifies the owner pod and agent first. */

@@ -345,6 +345,6 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
       revoking.delete(body.grantId);
       return { grantId: body.grantId, revoked: true, ownerPodRevocation: 'requires-owner-publication', authority: { scope: 'main-world', durable: true, version: persistence.confirmedVersion } };
     },
-    async close({ checkpoint = true } = {}) { closed = true; proof.close(); rates.clear(); sessions.clear(); revoking.clear(); await chain; return owned.shutdown({ timeoutMs: 14000, checkpoint }); },
+    async close({ checkpoint = activityActive } = {}) { closed = true; proof.close(); rates.clear(); sessions.clear(); revoking.clear(); await chain; return owned.shutdown({ timeoutMs: 14000, checkpoint }); },
   });
 }

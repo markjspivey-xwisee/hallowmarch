@@ -208,9 +208,14 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
       })]);
     } finally { clearTimeout(deadline); }
   }
-  async function shutdown({ timeoutMs = 15000, checkpoint: save = true } = {}) {
+  async function shutdown({ timeoutMs = 15000, checkpoint: save = activityActive } = {}) {
     if (!positive(timeoutMs) || timeoutMs > 60000) fail('INVALID_CONFIGURATION', 'A bounded shutdown deadline is required.');
-    if (!save || !activityActive) { clearTimer(); stopping = true; closed = true; return status(); }
+    if (closed) return status();
+    if (!save) { clearTimer(); stopping = true; closed = true; return status(); }
+    if (!activityActive) {
+      try { return await suspend({ checkpoint: true, timeoutMs }); }
+      finally { stopping = true; clearTimer(); closed = true; }
+    }
     if (starting || recovering || !started) fail('NOT_READY', 'Owned state must finish startup or recovery before draining.');
     if (closed) return status();
     stopping = true; clearTimer();

@@ -111,3 +111,22 @@ test('the separate main-world agent ledger neither seeds nor retries while suspe
   await ledger.suspend({checkpoint:false}); await ledger.close({checkpoint:false});
   assert.equal(f.calls, 0); assert.equal(reads, 0);
 });
+
+test('explicit live shutdown preserves its final capture after the human gate turns inactive', async () => {
+  const f = fixture(), bridge = createProgressiveOwnedState({ store: f.store, streamId: 'shutdown-live',
+    active: false, checkpointIntervalMs: 10 });
+  await bridge.start({ seed: () => ({ value: 0 }) }); bridge.setActive(true); await bridge.checkpoint();
+  bridge.capture({ value: 3 }); bridge.setActive(false);
+  await bridge.shutdown({ checkpoint: true, timeoutMs: 1000 });
+  assert.equal((await f.store.load()).state.value.value, 3);
+  const count=f.calls; await wait(35); assert.equal(f.calls, count);
+});
+
+test('explicit live expedition shutdown drains accepted commands after suspension', async () => {
+  const f = fixture(), room = await new AuthoritativeRoom({ roomId:'live-shutdown', store:f.store,
+    domain:createHallowmarchDomain(), persistenceMode:'realtime', checkpointIntervalMs:10 }).open();
+  await room.execute({playerId:'human-1',realmId:'0',name:'Human'}, {type:'join',commandId:'join'});
+  room.setActive(false); await room.close({checkpoint:true});
+  assert.ok((await f.store.load()).state.entities['human-1']);
+  assert.equal(room.persistenceStatus().pendingCommands, 0);
+});
