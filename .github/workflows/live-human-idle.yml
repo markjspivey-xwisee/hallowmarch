@@ -34,6 +34,9 @@ jobs:
             server/gaming/authority-realtime.test.mjs \
             server/gaming/runtime.test.mjs \
             server/gaming/hallowmarch-world-state.test.mjs \
+            server/gaming/hallowmarch-world-server.test.mjs \
+            server/gaming/player-server.test.mjs \
+            server/gaming/diagnostic-rooms.test.mjs \
             server/gaming/service-monitoring.test.mjs \
             server/gaming/native-agent-authority.test.mjs \
             server/gaming/main-world-agents.test.mjs
