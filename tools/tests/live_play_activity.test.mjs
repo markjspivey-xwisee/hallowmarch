@@ -7,10 +7,10 @@ const root = new URL('../../', import.meta.url);
 const source = readFileSync(new URL('src/14m_liveplay.js', root), 'utf8');
 const netSource = readFileSync(new URL('src/14n_net.js', root), 'utf8');
 const slowSource = netSource.slice(netSource.indexOf('function netSlowObj()'), netSource.indexOf('function netFastObj('));
-function fixture({ playing = true } = {}) {
+function fixture({ playing = true, focused = true } = {}) {
   let now = 1000, nextTimer = 1;
   const timers = new Map(), documentEvents = new Map(), windowEvents = new Map(), sent = [];
-  const document = { hidden: false, focused: true, hasFocus() { return this.focused; },
+  const document = { hidden: false, focused, hasFocus() { return this.focused; },
     addEventListener(type, fn) { documentEvents.set(type, fn); } };
   const window = { addEventListener(type, fn) { windowEvents.set(type, fn); } };
   const player = {}, GAME = { started: playing, player: playing ? player : null, prog: null }, UI = { modal: null };
@@ -153,4 +153,15 @@ test('continuous trusted pointer input is coalesced into the ordinary slow-profi
   await f.event('blur', { focused: false });
   assert.equal(f.sent.length, 2);
   assert.equal(f.sent.at(-1).humanLive, 0, 'withdrawal still bypasses the normal cadence immediately');
+});
+
+test('trusted input repairs focus cached before document activation; synthetic input and focus alone cannot', async () => {
+  const f=fixture({focused:false});
+  assert.equal(f.H.NET_HUMAN_PLAY.focused,false);
+  f.document.focused=true; // Browser activation can omit a later window focus event.
+  f.H.netHumanSync(); assert.equal(f.H.netHumanLive(),false);
+  await f.input('keydown',{isTrusted:false});
+  assert.equal(f.H.NET_HUMAN_PLAY.focused,false); assert.equal(f.H.netHumanLive(),false);
+  await f.input('keydown'); assert.equal(f.H.NET_HUMAN_PLAY.focused,true);
+  assert.equal(f.H.netHumanLive(),true); assert.equal(f.H.NET_HUMAN_PLAY.activity,1);
 });

@@ -59,8 +59,11 @@ function netHumanSuspend() {
   h.timer = null; netHumanPublish();
 }
 function netHumanInput(event) {
-  if (event.isTrusted !== true || document.hidden || !NET_HUMAN_PLAY.focused
+  if (event.isTrusted !== true || document.hidden
     || typeof document.hasFocus !== 'function' || !document.hasFocus()) return;
+  // Startup/activation can change document focus without a window focus event.
+  // Only current, trusted input may repair this cached flag; focus alone cannot wake play.
+  NET_HUMAN_PLAY.focused = true;
   if (event.type === 'pointermove' && !event.buttons && !event.movementX && !event.movementY) return;
   const h = NET_HUMAN_PLAY;
   if (h.activity >= Number.MAX_SAFE_INTEGER) { netHumanSuspend(); return; }
