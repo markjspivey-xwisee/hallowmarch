@@ -21,6 +21,8 @@ jobs:
           INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
         run: node tools/setup-native-sdk.mjs
       - name: Verify human leases, cold startup and persistence suspension
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
         run: |
           node --test \
             tools/tests/live_play_activity.test.mjs \
