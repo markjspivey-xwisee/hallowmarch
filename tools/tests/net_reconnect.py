@@ -309,7 +309,11 @@ async def recover_local_game(browser, backend, seeded):
         'v':1,
         'char':{'name':'Local Aldwin','realm':0,'cls':'warrior','level':3,'xp':29,'rp':0,
                 'kills':0,'realmKills':0,'deaths':0,'played':31,'gold':42,'potions':3,'bag':[],'eq':{}},
-        'settings':{'quality':'high','auto':True},'world':None,
+        # Use the complete canonical settings shape: normal saves also carry audio,
+        # weather and time-of-day defaults, even when an older save omitted them.
+        'settings':{'quality':'high','auto':True,'tod':'night','sound':False,
+                    'weather':'clear','music':0.25,'master':0.7,'effects':0.8,'ambience':0.6},
+        'world':None,
     }
     local_text=json.dumps(local,separators=(',',':'))
     proxy=NativeProxy(free_port(),backend)
