@@ -38,10 +38,10 @@ const own = (map, key) => map && Object.hasOwn(map, key) ? map[key] : undefined;
 export class AuthoritativeRoom {
   constructor({ roomId, store, domain, clock = Date.now, maxPlayers = 64, onCommitted = null,
     persistenceMode = 'strict', checkpointIntervalMs = 1000, maxPendingCommands = 128,
-    maxPendingAgeMs = 30000, durableWaitMs = 30000, learningDeliveryAvailable = null }) {
+    maxPendingAgeMs = 30000, durableWaitMs = 30000, learningDeliveryAvailable = null, active = true }) {
     requireGame(validId(roomId), 'invalid_room', 'Invalid room identity.');
     requireGame(store?.load && store?.commit, 'storage_required', 'A durable store is required.');
-    this.id = roomId; this.store = store; this.domain = domain; this.clock = clock;
+    this.id = roomId; this.store = store; this.domain = domain; this.clock = clock; this.activityActive = active === true; this.unpersistedGenesis = false;
     this.maxPlayers = maxPlayers; this.onCommitted = onCommitted;
     // A trusted composition must prove current, owner-pod-safe delivery. Merely
     // linking a game identity or accepting an OAuth grant does not enable it.
@@ -79,16 +79,23 @@ export class AuthoritativeRoom {
     this.current = structuredClone(state); this.version = this.persistenceMode === 'realtime' ? (state.authoritySequence || saved.version) : saved.version;
     this.durableVersion = saved.version; this.durableSequence = this.version; this.durableState = structuredClone(state);
   }
-  async #refresh() { if (this.persistenceMode !== 'realtime') this.#accept(await this.store.load(this.id)); }
+  async #refresh() {
+    if (!this.activityActive) return;
+    if (this.unpersistedGenesis) { await this.open(); return; }
+    if (this.persistenceMode !== 'realtime') this.#accept(await this.store.load(this.id));
+  }
   async open() {
     const saved = await this.store.load(this.id);
-    if (saved.state) { this.#accept(saved); return this; }
+    if (saved.state) { this.#accept(saved); this.unpersistedGenesis = false; return this; }
     requireGame(saved.version === 0, 'corrupt_state', 'An existing expedition cannot have an empty state.');
     const state = { ...this.domain.initialState(this.id), roomId: this.id, schemaVersion: 1, domainId: this.domain.id,
       companions: { grants: {}, tokenIndex: {} }, sessions: {}, consent: {}, receipts: {}, events: [], outbox: [] };
     const event = { id: randomUUID(), streamId: this.id, version: 1, kind: 'world.created', actorId: 'server', actorKind: 'system', humanSubject: false,
       at: new Date(this.clock()).toISOString(), payload: { domain: this.domain.id } };
     state.events.push(event);
+    if (!this.activityActive) {
+      this.current = state; this.durableState = structuredClone(state); this.unpersistedGenesis = true; return this;
+    }
     try {
       const receipt = await this.store.commit(this.id, { expectedVersion: 0, state, event, idempotencyKey: `bootstrap:${this.id}` });
       if (receipt.replayed) this.#accept(await this.store.load(this.id));
@@ -98,7 +105,23 @@ export class AuthoritativeRoom {
       if (!winner.state) throw error;
       this.#accept(winner);
     }
+    this.unpersistedGenesis = false;
     return this;
+  }
+  setActive(value) {
+    this.activityActive = value === true;
+    if (!this.activityActive && this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; }
+    if (this.activityActive) this.#scheduleCheckpoint();
+    return this.persistenceStatus();
+  }
+  async suspend({ checkpoint = true, timeoutMs = 10000 } = {}) {
+    requireGame(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 60000, 'invalid_persistence', 'A bounded suspension deadline is required.');
+    this.setActive(false);
+    if (!checkpoint) return this.persistenceStatus();
+    let timer;
+    try { return await Promise.race([this.flushPersistence({ allowInactive: true }), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new GameCommandError('durability_pending', 'Only the last confirmed checkpoint is recoverable.')), timeoutMs); timer.unref?.();
+    })]); } finally { clearTimeout(timer); }
   }
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   persistenceStatus() {
@@ -126,7 +149,8 @@ export class AuthoritativeRoom {
       ? Math.min(seen.result.version, this.durableSequence) : seen.result.version;
     return structuredClone({ ...seen.result, version, replayed: true });
   }
-  #capacity() {
+   #capacity() {
+    requireGame(this.activityActive, 'human_play_required', 'The world is asleep until a human is actively playing.');
     requireGame(!this.closed, 'room_closed', 'This expedition is shutting down.');
     requireGame(this.persistenceStatus().status !== 'blocked', 'durability_backlog', 'Saving is delayed. The expedition is paused until its checkpoint is safe.');
   }
@@ -143,7 +167,7 @@ export class AuthoritativeRoom {
     return this.#metadata();
   }
   #scheduleCheckpoint() {
-    if (this.checkpointTimer || this.checkpointPromise || this.persistenceBlocked || this.closed || !this.pendingCheckpoints.length) return;
+    if (!this.activityActive || this.checkpointTimer || this.checkpointPromise || this.persistenceBlocked || this.closed || !this.pendingCheckpoints.length) return;
     this.checkpointTimer = setTimeout(() => { this.checkpointTimer = null; void this.flushPersistence().catch(() => {}); }, this.checkpointIntervalMs);
     this.checkpointTimer.unref?.();
   }
@@ -192,7 +216,8 @@ export class AuthoritativeRoom {
       this.#notify(); throw error;
     }
   }
-  async flushPersistence() {
+  async flushPersistence({ allowInactive = false } = {}) {
+    if (!this.activityActive && !allowInactive) return this.persistenceStatus();
     if (this.persistenceMode !== 'realtime') { await this.queue; return this.persistenceStatus(); }
     if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; }
     // A flush covers the accepted prefix at invocation. New actions can keep
@@ -219,7 +244,7 @@ export class AuthoritativeRoom {
       requireGame(sequence <= this.durableSequence, 'durability_pending', 'That action is live, but its save is delayed. Check its status before trying again.');
     } finally { clearTimeout(timer); }
   }
-  async close() { this.closed = true; if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; } return this.flushPersistence(); }
+  async close({ checkpoint = true } = {}) { this.closed = true; if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; } return checkpoint ? this.flushPersistence() : this.persistenceStatus(); }
   execute(principal, command) { return this.#enqueue(principal, command); }
   /** Privileged server ports, never dispatch these from caller supplied proof
    * labels. The native bridge verifies the owner pod and agent first. */
@@ -273,6 +298,7 @@ export class AuthoritativeRoom {
     const started = performance.now();
     this.stats.commands++;
     try {
+      requireGame(this.activityActive, 'human_play_required', 'The world is asleep until a human is actively playing.');
       requireGame(this.current, 'not_ready', 'The world is not ready.');
       requireGame(command && typeof command === 'object' && !Array.isArray(command), 'invalid_command', 'A command object is required.');
       requireGame(validId(command.commandId), 'command_id_required', 'A stable commandId is required.');
@@ -418,6 +444,7 @@ export class AuthoritativeRoom {
         if (Object.hasOwn(state, 'authoritySequence')) state.authoritySequence = version;
         const beforeCommit = performance.now();
         try {
+          requireGame(this.activityActive, 'human_play_required', 'The world is asleep until a human is actively playing.');
           const receipt = await this.store.commit(this.id, { expectedVersion: this.version, state, event, idempotencyKey: key });
           if (receipt.replayed) {
             await this.#refresh();
@@ -500,6 +527,7 @@ export class AuthoritativeRoom {
         }
         if (Object.hasOwn(state, 'authoritySequence')) state.authoritySequence = receipt.version;
         try {
+          requireGame(this.activityActive, 'human_play_required', 'The world is asleep until a human is actively playing.');
           this.#accept(await this.store.commit(this.id, { expectedVersion: this.version, state, event: { id: randomUUID(), kind: 'learning.delivery', payload: receipt }, idempotencyKey: key }));
           return { durable: true, ...receipt };
         } catch (error) { if (error.code !== 'VERSION_CONFLICT' && error.code !== 'version_conflict' && error.code !== 'IDEMPOTENCY_CONFLICT') throw error; if (attempt === 2) throw error; }

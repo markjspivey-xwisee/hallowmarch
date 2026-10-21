@@ -38,7 +38,7 @@ function canonical(value, depth = 0, active = new Set()) {
  * capture() copies bounded JSON synchronously; it performs no durable I/O.
  */
 export function createProgressiveOwnedState({ store, streamId, owner = store?.owner,
-  checkpointIntervalMs = 1000, retryIntervalMs = 5000, maxSnapshotBytes = 480 * 1024, clock = Date.now } = {}) {
+  checkpointIntervalMs = 1000, retryIntervalMs = 5000, maxSnapshotBytes = 480 * 1024, clock = Date.now, active = true } = {}) {
   if (!store || !['load', 'commit'].every(method => typeof store[method] === 'function')
     || typeof owner !== 'string' || !owner || owner.length > 4096 || (store.owner !== undefined && store.owner !== owner)
     || typeof streamId !== 'string' || !streamId || streamId.length > 1024
@@ -48,7 +48,7 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
   }
   let started = false, starting = null, recovering = false, stopping = false, closed = false, conflict = false;
   let live = null, confirmed = null, confirmedVersion = 0, latest = null, attempt = null, inFlight = null, timer = null;
-  let lastError = null, lastConfirmedAt = null;
+  let lastError = null, lastConfirmedAt = null, activityActive = active === true;
 
   function bounded(value) {
     const text = canonical(value);
@@ -92,7 +92,7 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
   }
   function clearTimer() { if (timer) clearTimeout(timer); timer = null; }
   function schedule(delay = checkpointIntervalMs) {
-    if (timer || stopping || closed || conflict || recovering || !started) return;
+    if (!activityActive || timer || stopping || closed || conflict || recovering || !started) return;
     timer = setTimeout(() => { timer = null; void checkpoint().catch(() => {}); }, delay);
     timer.unref?.();
   }
@@ -131,8 +131,9 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
       fail(lastError, conflict ? 'Owned state changed; explicit recovery is required.' : 'Checkpoint is not durably confirmed.');
     }
   }
-  function checkpoint() {
+  function checkpoint({ allowInactive = false } = {}) {
     if (inFlight) return inFlight;
+    if (!activityActive && !allowInactive) return Promise.resolve(status());
     if (closed) return Promise.reject(new OwnedStateError('CLOSED', 'Owned state is closed.'));
     if (conflict) return Promise.reject(new OwnedStateError('VERSION_CONFLICT', 'Explicit owned-state recovery is required.'));
     if ((!started && !starting) || recovering) return Promise.reject(new OwnedStateError('NOT_READY', 'Owned state is not ready.'));
@@ -157,6 +158,7 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
         if (restored) { adopt(result, restored); return structuredClone(restored.value); }
         if (typeof seed !== 'function') fail('SEED_REQUIRED', 'Confirmed absence requires an explicit migration seed.');
         live = envelope(await seed(), 1); latest = live;
+        if (!activityActive) { started = true; return structuredClone(live.value); }
       }
       // First migration is itself confirmed before any legacy constructors run.
       await checkpoint(); started = true;
@@ -182,8 +184,33 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
       fail('RECOVERY_UNCONFIRMED', 'Native recovery or host restoration failed; simulation must remain paused.');
     } finally { recovering = false; }
   }
-  async function shutdown({ timeoutMs = 15000 } = {}) {
+  function setActive(value) {
+    activityActive = value === true;
+    if (!activityActive) clearTimer();
+    else if (attempt || latest) schedule();
+    return status();
+  }
+  async function suspend({ checkpoint: save = true, timeoutMs = 10000 } = {}) {
+    if (!positive(timeoutMs) || timeoutMs > 60000) fail('INVALID_CONFIGURATION', 'A bounded suspension deadline is required.');
+    setActive(false);
+    if (!save || (!attempt && !latest && !inFlight)) return status();
+    let deadline;
+    try {
+      // Settle an already dispatched write, then save the latest accepted state once.
+      // A failed dispatch is retained exactly and never retried while idle.
+      const drain = async () => {
+        if (inFlight) await inFlight;
+        return attempt || latest ? checkpoint({ allowInactive: true }) : status();
+      };
+      return await Promise.race([drain(), new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new OwnedStateError('SUSPEND_UNCONFIRMED', 'Only the last confirmed checkpoint is recoverable.')), timeoutMs);
+        deadline.unref?.();
+      })]);
+    } finally { clearTimeout(deadline); }
+  }
+  async function shutdown({ timeoutMs = 15000, checkpoint: save = true } = {}) {
     if (!positive(timeoutMs) || timeoutMs > 60000) fail('INVALID_CONFIGURATION', 'A bounded shutdown deadline is required.');
+    if (!save || !activityActive) { clearTimer(); stopping = true; closed = true; return status(); }
     if (starting || recovering || !started) fail('NOT_READY', 'Owned state must finish startup or recovery before draining.');
     if (closed) return status();
     stopping = true; clearTimer();
@@ -208,5 +235,5 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
     finally { expired = true; clearTimeout(deadlineTimer); clearTimeout(retryTimer); finishRetry?.(); closed = true; }
     return status();
   }
-  return { start, capture, checkpoint, recover, shutdown, status };
+  return { start, capture, checkpoint, recover, shutdown, status, setActive, suspend };
 }
