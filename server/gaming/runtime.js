@@ -34,6 +34,7 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
       ...(persistenceMode === 'realtime' ? { maxSnapshotHz: 1000 / broadcastIntervalMs } : {}) },
     ...(room ? { version: room.version } : {}) });
   const snapshot = async (client, refresh = false) => {
+    if (!activityActive || stopping) return;
     const principal = clients.has(client) ? principalOf(client) : null;
     if (principal && client.ws?.readyState === 1) {
       const state = refresh ? await room.observe(principal) : room.observeCommitted(principal);
@@ -44,9 +45,11 @@ export function createGamingRuntime({ store = null, send, clock = Date.now, doma
   };
   const broadcast = () => {
     broadcastTimer = null;
+    if (!activityActive || stopping) return;
     for (const client of clients.keys()) void snapshot(client).catch(() => clients.delete(client));
   };
   const scheduleBroadcast = () => {
+    if (!activityActive || stopping) return;
     if (persistenceMode !== 'realtime') { broadcast(); return; }
     // Coalesce a burst of inputs into one latest-state packet per client. The
     // simulation and action response never wait for this bounded fan-out rate.

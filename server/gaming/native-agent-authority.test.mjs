@@ -249,10 +249,11 @@ test('HTTP timeout retains backend capacity while an unabortable native operatio
 
 test('explicit verified native owner can register and revoke while runtime remains asleep', async t => {
   const f=await fixture(t,{persistenceMode:'realtime'});f.gaming.setActive(false);
-  const before=f.reads();await f.register();
+  const before=f.reads(), packets=Object.fromEntries(Object.entries(f.clients).map(([id,c])=>[id,c.received.length]));await f.register();
   assert.equal(f.gaming.room.activityActive,false);assert.equal(f.gaming.room.checkpointTimer,null);
   await f.authority.revoke(f.owner('alice'),{grantId});
   assert.equal(f.gaming.room.current.companions.nativeReferences[grantId].revoked,true);
   assert.equal(f.gaming.room.activityActive,false);assert.equal(f.gaming.room.checkpointTimer,null);
   assert.deepEqual(f.reads(),before);
+  for (const [id,c] of Object.entries(f.clients)) assert.equal(c.received.length,packets[id]);
 });
