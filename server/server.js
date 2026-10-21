@@ -65,6 +65,7 @@ const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, b
 
 // Passive HTTP readiness is available in standby; only a live human lease wakes work.
 let humanWorkRunning = false, humanWorkClosing = false, humanWorkAbort = new AbortController();
+let humanWorkSuspension = Promise.resolve();
 const LIVE_CONNECTIONS = new Set(), liveWorkTimers = new Set();
 const HUMAN_PLAY = createHumanPlayGate({ onChange: setHumanWorkActive, onSessionEnd: endHumanSession });
 const hasLiveHumans = () => !humanWorkClosing && HUMAN_PLAY.count() > 0;
@@ -140,7 +141,7 @@ let SECRET = process.env.HM_SECRET;
 if (!SECRET) { SECRET = store.read('secret.json', null); if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); store.write('secret.json', SECRET); } }
 const ACCOUNTS = store.read('accounts.json', {});
 let accTimer = null;
-const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => store.write('accounts.json', ACCOUNTS), 400); };
+const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => { store.write('accounts.json', ACCOUNTS); accTimer = null; }, 400); };
 const WORLDS = store.read('worlds.json', {});
 // The season advances only during a live human session.
 CFG.keeps = WORLD.keeps;
@@ -168,7 +169,7 @@ SEASON.coOf = (id) => { const co = COMP.of(id); return co ? co.name : ''; }; // 
 let worldTimer = null;
 const worldsSave = () => {
   if (WORLD_STATE) { WORLD_STATE.capture(); return; }
-  clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; }, 1500);
+  clearTimeout(worldTimer); worldTimer = setTimeout(() => { store.write('worlds.json', WORLDS); STATS.worldWrites++; worldTimer = null; }, 1500);
 };
 
 /* ------------------------------------------------------------------ */
@@ -948,6 +949,26 @@ function stopLiveTasks() {
   for (const timer of liveWorkTimers) { clearInterval(timer); clearTimeout(timer); }
   liveWorkTimers.clear();
 }
+function captureAcceptedFiles() {
+  // Flush the departing session's pending files once before standby.
+  // Cold startup has no dirty files and never enters the live-to-idle edge.
+  if (accTimer) {
+    clearTimeout(accTimer);
+    try { store.write('accounts.json', ACCOUNTS); accTimer = null; }
+    catch (error) { console.warn('final accounts checkpoint', error.message); }
+  }
+  if (worldTimer && (!WORLD_STATE || WORLD_STATE.canMutate())) {
+    clearTimeout(worldTimer);
+    try { store.write('worlds.json', WORLDS); STATS.worldWrites++; worldTimer = null; }
+    catch (error) { console.warn('final world checkpoint', error.message); }
+  }
+  if (COMP.dirty) {
+    try { COMP.save(true); } catch (error) { console.warn('final company checkpoint', error.message); }
+  }
+  if (SEASON.dirty && (!WORLD_STATE || WORLD_STATE.canMutate())) {
+    try { SEASON.save(); } catch (error) { console.warn('final season checkpoint', error.message); }
+  }
+}
 function endHumanSession(c) {
   try {
     if (c.room && !c.room.diagnostic && (!WORLD_STATE || WORLD_STATE.canMutate())) FIELD.left(c);
@@ -985,7 +1006,8 @@ function setHumanWorkActive(active) {
   worldAgentHost.setActive?.(active); nativeAgentHost.setActive?.(active);
   if (!active) {
     if (!humanWorkClosing) {
-      void Promise.all([
+      captureAcceptedFiles();
+      humanWorkSuspension = Promise.all([
         WORLD_STATE?.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
         GAMING.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
         worldAgentHost.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
@@ -1019,17 +1041,24 @@ const shutdown = async () => {
   if (closing) return; closing = true;
   const wasLive = liveWorkAllowed();
   server.close(); nativeAgentHost.close(); PLAYER_ACCOUNTS.close();
-  const worldAgentsClosing = worldAgentHost.close();
   stopLiveTasks();
-  try { if (wasLive && (!WORLD_STATE || WORLD_STATE.canMutate())) { SEASON.step(); for (const R of ROOMS.values()) if (!R.diagnostic) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } if (wasLive) { COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); } }
+  try { if (wasLive && (!WORLD_STATE || WORLD_STATE.canMutate())) { SEASON.step(); for (const R of ROOMS.values()) if (!R.diagnostic) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } }
   catch (e) { console.warn('shutdown', e.message); }
+  captureAcceptedFiles();
   humanWorkClosing = true; HUMAN_PLAY.close();
   clearTimeout(accTimer); clearTimeout(worldTimer);
   // Existing sockets cannot introduce new actions while the final checkpoint is
   // draining. A crash may recover only the last confirmed checkpoint.
   for (const ws of wss.clients) ws.close(1012, 'Server restarting');
   const deadline = new Promise((_, reject) => { setTimeout(() => reject(new Error('checkpoint timeout')), 15000).unref(); });
-  try { await Promise.race([Promise.all([GAMING.shutdown({ checkpoint: wasLive }), WORLD_STATE?.shutdown({ timeoutMs: 14000, checkpoint: wasLive }), worldAgentsClosing]), deadline]); }
+  const drain = async () => {
+    // Departure may already be saving an accepted prefix. Settle that bounded
+    // save before inactive shutdown closes its native state bridges.
+    await humanWorkSuspension;
+    return Promise.all([GAMING.shutdown({ checkpoint: wasLive }),
+      WORLD_STATE?.shutdown({ timeoutMs: 14000, checkpoint: wasLive }), worldAgentHost.close()]);
+  };
+  try { await Promise.race([drain(), deadline]); }
   catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
   process.exit(0);
 };

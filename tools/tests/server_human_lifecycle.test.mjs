@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../../server/server.js', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('function liveTask('), source.indexOf('let closing = false;'));
+const shutdownSource = source.slice(source.indexOf('let closing = false;'), source.indexOf("process.on('SIGTERM'"));
 function fixture({ monitor = '1' } = {}) {
   let now = 1000, nextId = 1, humans = 0;
   const timers = new Map(), calls = [], connections = new Set();
@@ -12,19 +13,23 @@ function fixture({ monitor = '1' } = {}) {
     timers.set(timer, timer); return timer;
   }
   const record = name => (...args) => { calls.push({ name, args, at: now }); };
-  const world = { canMutate: () => true, setActive: record('world-active'), suspend: async (...a) => record('world-final')(...a) };
-  const gaming = { setActive: record('gaming-active'), suspend: async (...a) => record('gaming-final')(...a) };
-  const season = { RS: {}, lastStep: now, dirty: true, step: record('season-step'), save: record('season-save') };
+  const world = { canMutate: () => true, setActive: record('world-active'), suspend: async (...a) => record('world-final')(...a), shutdown: async (...a) => record('world-shutdown')(...a) };
+  const gaming = { setActive: record('gaming-active'), suspend: async (...a) => record('gaming-final')(...a), shutdown: async (...a) => record('gaming-shutdown')(...a) };
+  const season = { RS: {}, lastStep: now, dirty: true, step: record('season-step'), save() { record('season-save')(); this.dirty = false; } };
   const context = vm.createContext({
     Date: { now: () => now }, Promise, console: { warn: record('warning') },
-    process: { env: { HM_GAMING_MONITOR_ENABLED: monitor } },
-    humanWorkRunning: false, humanWorkClosing: false, humanWorkAbort: new AbortController(), AbortController,
+    process: { env: { HM_GAMING_MONITOR_ENABLED: monitor }, exit: record('process-exit') },
+    server: { close: record('server-close') }, PLAYER_ACCOUNTS: { close: record('accounts-close') }, wss: { clients: new Set() },
+    HUMAN_PLAY: { count: () => humans, close() { humans = 0; context.api.setHumanWorkActive(false); } },
+    humanWorkRunning: false, humanWorkClosing: false, humanWorkAbort: new AbortController(), humanWorkSuspension: Promise.resolve(), AbortController,
     liveWorkTimers: new Set(), LIVE_CONNECTIONS: connections,
     hasLiveHumans: () => humans > 0, isHumanPlaying: c => c.live === true,
+    accTimer: null, worldTimer: null, ACCOUNTS: {}, WORLDS: {}, STATS: { worldWrites: 0 },
+    store: { write: record('file-save') }, COMP: { dirty: false, save() { record('company-save')(); this.dirty = false; } },
     WORLD_STATE: world, GAMING: gaming, SEASON: season, FIELD: { step: record('field-step'), left: record('field-left') },
     worldAgentTransport: { close: record('agent-stop') },
-    worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a) },
-    nativeAgentHost: { setActive: record('native-agent-active') },
+    worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a), close: async () => record('agent-close')() },
+    nativeAgentHost: { setActive: record('native-agent-active'), close: record('native-agent-close') },
     send: record('send'), regionsTell: record('regions'), worldNow: () => ({k:[0,1,2]}),
     CFG: { seasonStep: 5000, seasonPush: 10000 }, ROOMS: new Map(),
     publishGamingCapabilities: record('publish-gaming'), publishPlayerCapabilities: record('publish-player'),
@@ -35,7 +40,7 @@ function fixture({ monitor = '1' } = {}) {
     clearInterval: timer => timers.delete(timer), clearTimeout: timer => timers.delete(timer),
   });
   vm.runInContext('const liveWorkAllowed = () => humanWorkRunning && hasLiveHumans();\n' + lifecycle +
-    '\nglobalThis.api = { setHumanWorkActive, endHumanSession, resumeHumanSession };', context);
+    '\n' + shutdownSource + '\nglobalThis.api = { setHumanWorkActive, endHumanSession, resumeHumanSession, shutdown };', context);
   async function advance(ms) {
     const target = now + ms;
     for (;;) {
@@ -122,4 +127,33 @@ test('live resume clears omitted departed peers then sends one current snapshot 
   assert.equal(messages.find(m=>m.t==='peer').fast.ev.length,0);
   assert.equal(messages.filter(m=>m.t==='world').length,1);
   assert.equal(owner.pausedPeerIds,null);assert.equal(f.timers.size,0);
+});
+
+test('last withdrawal flushes accepted files once before native suspension', async () => {
+  const f = fixture();
+  f.active(1); f.context.accTimer = {}; f.context.worldTimer = {}; f.context.COMP.dirty = true;
+  f.active(0); await Promise.resolve();
+  assert.equal(f.counts('company-save'), 1);
+  assert.equal(f.counts('file-save'), 2);
+  assert.equal(f.counts('season-save'), 1);
+  assert.equal(f.context.accTimer, null); assert.equal(f.context.worldTimer, null);
+  assert.equal(f.context.COMP.dirty, false);
+  assert.ok(f.calls.findIndex(c => c.name === 'company-save') < f.calls.findIndex(c => c.name === 'world-final'));
+  const before = f.calls.length;
+  f.active(0); await f.advance(7 * 86400000);
+  assert.equal(f.calls.length, before);
+});
+test('immediate shutdown waits for departure save before closing native bridges', async () => {
+  const f = fixture();
+  let confirm;
+  f.context.WORLD_STATE.suspend = () => new Promise(resolve => { confirm = resolve; });
+  f.active(1); f.active(0);
+  const closing = f.context.api.shutdown();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.counts('world-shutdown'), 0); assert.equal(f.counts('gaming-shutdown'), 0);
+  assert.equal(f.counts('agent-close'), 0); assert.equal(f.counts('process-exit'), 0);
+  confirm({ durable: true }); await closing;
+  assert.equal(f.counts('world-shutdown'), 1); assert.equal(f.counts('gaming-shutdown'), 1);
+  assert.equal(f.counts('agent-close'), 1); assert.equal(f.counts('process-exit'), 1);
+  assert.equal(f.calls.find(call => call.name === 'world-shutdown').args[0].checkpoint, false);
 });
