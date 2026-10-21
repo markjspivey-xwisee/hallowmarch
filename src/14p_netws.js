@@ -124,7 +124,24 @@ function netWsPendingFail() {
   const w = NETWS.acctWait; NETWS.acctWait = null;
   if (w) w({ ok: false, why: 'The server disconnected' });
 }
+function netWsSuspendHuman() {
+  clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
+  clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
+  // Retire callbacks and pending opens without selecting a different account.
+  netWsRetire(NETWS.ws, 'human session paused');
+}
+function netWsStartHumanPing() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
+  if (NETWS.pingTimer) return;
+  NETWS.pingTimer = setInterval(() => {
+    if (typeof netHumanLive === 'function' && !netHumanLive()) {
+      netWsSuspendHuman(); return;
+    }
+    if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() });
+  }, 10000);
+}
 function netWsRetryLater() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.retryTimer || NETWS.closed || NETWS.reload || !NETWS.link) return;
   NETWS.retryTimer = setTimeout(() => { NETWS.retryTimer = 0; netWsReconnect(); }, NETWS.backoff * 1000);
 }
@@ -242,8 +259,10 @@ function netWsOpen() {
   return p;
 }
 async function netWsReconnect() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.state !== 'off' || !NETWS.link || NETWS.closed || NETWS.reload) return;
   const ok = await netWsOpen();
+  if (ok && (typeof netHumanLive !== 'function' || netHumanLive())) netWsStartHumanPing();
   if (!ok && !NETWS.closed && !NETWS.reload) { NETWS.backoff = Math.min(15, NETWS.backoff * 2); netWsRetryLater(); }
 }
 // Only pending requests are shared: a rejected or null result must not be cached.
@@ -281,7 +300,7 @@ function netLinkWS(url) {
         if (NET.link === L) { NET.link = null; NET.state = 'alone'; }
       },
     };
-    if (!NETWS.pingTimer) NETWS.pingTimer = setInterval(() => { if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() }); }, 10000);
+    netWsStartHumanPing();
     return L;
   })();
   NETWS.linkP = p;

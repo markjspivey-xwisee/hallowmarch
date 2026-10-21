@@ -5,6 +5,7 @@ import { createProgressiveOwnedState } from './progressive-owned-state.js';
 import { AuthoritativeRoom } from './authority.js';
 import { createHallowmarchDomain } from './hallowmarch.js';
 import { createGamingRuntime } from './runtime.js';
+import { createMainWorldAgents } from './main-world-agents.js';
 import { makeSeason } from '../season.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,4 +96,18 @@ test('the bounded final checkpoint includes changes accepted behind an in-flight
   release(); await dispatched; await final;
   assert.equal(saved.state.value.value, 2); assert.equal(calls, 3);
   await wait(35); assert.equal(calls, 3); await bridge.shutdown({ checkpoint: false });
+});
+
+test('the separate main-world agent ledger neither seeds nor retries while suspended', async () => {
+  const f = fixture(); let reads = 0;
+  const ledger = await createMainWorldAgents({ store: f.store, active: false,
+    accounts: { bindingForAccount: () => null }, applicationId: 'urn:test:world-agent', audience: 'https://game.example',
+    nativeCore: { recoverMessageSigner() { throw new Error('No proof should run'); } },
+    readOwnerGrantHead: async () => { reads++; throw new Error('No idle read'); },
+    resolveAgentProof: async () => { reads++; throw new Error('No idle read'); },
+    view() {}, dispatch() {}, stop() {} });
+  await wait(35); assert.equal(f.calls, 0); assert.equal(reads, 0);
+  await assert.rejects(ledger.register({accountId:'human'}, {})); assert.equal(f.calls, 0);
+  await ledger.suspend({checkpoint:false}); await ledger.close({checkpoint:false});
+  assert.equal(f.calls, 0); assert.equal(reads, 0);
 });

@@ -170,9 +170,9 @@ function coreKey(s) {
   return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore, savePartsKey(c.x, 'char')], s.settings, w]);
 }
 function saveSoon(delay = 2500) {
-  if (SAVE.wiping) return;
+  if (SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   clearTimeout(SAVE.timer);
-  SAVE.timer = setTimeout(() => saveNow(), delay);
+  SAVE.timer = setTimeout(() => { if (typeof netHumanLive !== 'function' || netHumanLive()) void saveNow(); }, delay);
 }
 // Native saves retain one active publication and the latest unsaved state. A
 // stalled grant cannot queue an unbounded list of complete character copies.
@@ -180,7 +180,9 @@ function nativeSavePending() {
   if (SAVE.nativeFlight) return SAVE.nativeFlight;
   if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
-    while (SAVE.pending && !SAVE.nativePaused) {
+    let first = true;
+    while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive())) {
+      first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
       try {
         if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
@@ -235,12 +237,11 @@ function saveNow() {
 }
 // a slow heartbeat: writes only when something meaningful changed since the last write
 setInterval(() => {
-  if (!GAME.ready || !GAME.player || SAVE.wiping) return;
+  if (!GAME.ready || !GAME.player || SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   const s = buildSave();
   if (coreKey(s) !== SAVE.lastCore) saveNow();
 }, 40000);
-window.addEventListener('pagehide', () => { if (GAME.player) saveNow(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && GAME.player) saveNow(); });
+// netHumanPublish owns the single final save when a live session pauses.
 
 function wipeSave() {
   SAVE.wiping = true;

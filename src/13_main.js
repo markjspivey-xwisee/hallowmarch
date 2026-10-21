@@ -374,6 +374,7 @@ function drawRelicsAndPortals() {
 /* ------------------------------------------------------------------ */
 let lastNow = 0, renderTime = 0, treeTick = 0, treeCamX = 0, treeCamZ = 0;
 function simStep(dt) {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   GAME.t += dt;
   GAME.dt = dt;
   rebuildGrid();
@@ -413,6 +414,8 @@ function simStep(dt) {
 }
 function tick(dt) {
   if (GRAPHICS_CONTEXT_LOST) return;
+  if (typeof netHumanSync === 'function') netHumanSync();
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
   renderer.info.reset();
   renderTime += dt;

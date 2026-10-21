@@ -36,6 +36,7 @@ import { openHallowmarchWorldState, hallowmarchWorldDescription } from './gaming
 import { createMainWorldAgentTransport } from './gaming/main-world-agent-transport.js';
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
+import { createHumanPlayGate } from './human-play.js';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(HERE, '..');
@@ -57,9 +58,35 @@ const CFG = {
   seasonLen: (+process.env.HM_SEASON_DAYS || 28) * 86400,
   seasonSeed: +process.env.HM_SEASON_SEED || 19,
   seasonPush: +process.env.HM_SEASON_PUSH || 10000,
+  seasonLiveOnly: true,
 };
 fs.mkdirSync(path.join(CFG.data, 'saves'), { recursive: true });
 const STATS = { started: Date.now(), conns: 0, hellos: 0, msgs: 0, bytesIn: 0, bytesOut: 0, relayed: 0, farRelayed: 0, evRelayed: 0, evDropped: 0, hitsFar: 0, paceDropped: 0, rateDropped: 0, kicked: 0, saves: 0, loads: 0, worldWrites: 0, badMsgs: 0, claims: 0, logins: 0, acctRefused: 0, seasonSteps: 0, seasonSaves: 0, seasons: 0, contribs: 0, contribClipped: 0, orders: 0, ordersRefused: 0, liveCaptures: 0, seasonPushes: 0, chatKept: 0, regionChanges: 0, worldTold: 0, thinned: 0 };
+
+// Passive HTTP readiness is available in standby; only a live human lease wakes work.
+let humanWorkRunning = false, humanWorkClosing = false, humanWorkAbort = new AbortController();
+const LIVE_CONNECTIONS = new Set(), liveWorkTimers = new Set();
+const HUMAN_PLAY = createHumanPlayGate({ onChange: setHumanWorkActive, onSessionEnd: endHumanSession });
+const hasLiveHumans = () => !humanWorkClosing && HUMAN_PLAY.count() > 0;
+const isHumanPlaying = c => !humanWorkClosing && HUMAN_PLAY.isPlaying(c);
+const liveWorkAllowed = () => humanWorkRunning && hasLiveHumans();
+const standbyTransportError = () => Object.assign(new Error('Live human work is suspended.'), { code: 'transport_unavailable' });
+function liveFetch(input, options = {}) {
+  if (!liveWorkAllowed()) return Promise.reject(standbyTransportError());
+  return globalThis.fetch(input, { ...options,
+    signal: options.signal ? AbortSignal.any([options.signal, humanWorkAbort.signal]) : humanWorkAbort.signal });
+}
+function liveWait(ms) {
+  if (!liveWorkAllowed()) return Promise.reject(standbyTransportError());
+  const signal = humanWorkAbort.signal;
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(standbyTransportError()); return; }
+    let timer;
+    const stop = () => { clearTimeout(timer); reject(standbyTransportError()); };
+    timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve(); }, ms);
+    timer.unref?.(); signal.addEventListener('abort', stop, { once: true });
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* the March's ground: the sites and the walkable land (src/01_world.js) */
@@ -103,6 +130,7 @@ catch {
 const WORLD_STATE = worldPersistenceMode === 'native' ? await openHallowmarchWorldState({
   nativeStore: gamingStore, files: fileStore, dataDir: CFG.data, keepCount: WORLD.keepCount,
   realmModule: loadRealmModule(CFG.src, CFG.here),
+  active: false,
   checkpointIntervalMs: +(gamingEnvironment.HM_WORLD_CHECKPOINT_MS || 30000),
 }) : null;
 const store = WORLD_STATE?.store || fileStore;
@@ -114,7 +142,7 @@ const ACCOUNTS = store.read('accounts.json', {});
 let accTimer = null;
 const accountsSave = () => { clearTimeout(accTimer); accTimer = setTimeout(() => store.write('accounts.json', ACCOUNTS), 400); };
 const WORLDS = store.read('worlds.json', {});
-// the season: the realms' strategic state, stepped while nobody is here (server/season.js)
+// The season advances only during a live human session.
 CFG.keeps = WORLD.keeps;
 const SEASON = makeSeason(CFG, store, STATS);
 // [companies] the companies of the realms (server/companies.js): kept beside the season, told to their members
@@ -195,7 +223,7 @@ function roomFor(policy) {
 }
 function roomHost(R) {
   let best = null;
-  for (const c of R.clients.values()) if (c.slow && c.slow.on === 1 && (!best || c.since < best.since || (c.since === best.since && c.peer < best.peer))) best = c;
+  for (const c of R.clients.values()) if (isHumanPlaying(c) && c.slow && c.slow.on === 1 && (!best || c.since < best.since || (c.since === best.since && c.peer < best.peer))) best = c;
   return best;
 }
 const send = (c, o) => { if (c.ws.readyState !== 1) return; const s = JSON.stringify(o); STATS.bytesOut += s.length; c.ws.send(s); };
@@ -263,16 +291,16 @@ const playerBrowserAssets = createPlayerBrowserAssets({ clientRoot: path.join(RO
 const worldAgentAssets = createWorldAgentAssets({ clientFile: path.join(ROOT, 'client', 'world-agent-client.mjs') });
 const nativePlayerConfigured = gamingEnvironment.HM_GAMING_ENABLED === '1' || process.env.HM_GAMING_BOOTSTRAP === '1';
 const nativePlayersRequired = nativePlayerConfigured && gamingEnvironment.HM_NATIVE_PLAYER_REQUIRED === '1';
-const GAMING = createGamingRuntime({ store: gamingStore,
+const GAMING = createGamingRuntime({ store: gamingStore, active: false,
   persistenceMode: gamingEnvironment.HM_GAMING_PERSISTENCE_MODE === 'strict' ? 'strict' : 'realtime',
   verifiedDidFor: client => PLAYER_ACCOUNTS.principalFor(client),
   requireVerifiedPlayers: nativePlayersRequired,
   send: (c, o) => c.gamingReply ? c.gamingReply(o) : send(c, o) });
 await GAMING.ready;
-const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS, environment: gamingEnvironment });
-const worldAgentTransport = createMainWorldAgentTransport({ principalFor: c => (!WORLD_STATE || WORLD_STATE.canMutate()) && PLAYER_ACCOUNTS.principalFor(c), send });
+const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS, environment: gamingEnvironment, active: false });
+const worldAgentTransport = createMainWorldAgentTransport({ principalFor: c => isHumanPlaying(c) && (!WORLD_STATE || WORLD_STATE.canMutate()) && PLAYER_ACCOUNTS.principalFor(c), send });
 const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS,
-  environment: gamingEnvironment, worldControl: { store: gamingStore, ...worldAgentTransport } });
+  environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
   worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
@@ -294,28 +322,27 @@ const performanceResourceHttp = createPerformanceResourceHttp({
   publication: gamingCapabilityStatus,
 });
 async function publishGamingCapabilities() {
-  if (gamingCapabilitiesBusy || gamingCapabilityAttempts >= 5 || gamingCapabilityStatus().verified || gamingCapabilityStatus().state === 'refused') return;
+  if (!liveWorkAllowed() || gamingCapabilitiesBusy || gamingCapabilityAttempts >= 5 || gamingCapabilityStatus().verified || gamingCapabilityStatus().state === 'refused') return;
   if (!gamingStore?.publicationIdentity) { gamingCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return; }
   gamingCapabilitiesBusy = true; gamingCapabilityAttempts++;
   try {
     if (!gamingCapabilities) {
       const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      if (!liveWorkAllowed()) return;
       gamingCapabilities = createNativeCapabilityComposition({ identity, credentialsProvider, publicData: true,
         catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
-        ...performanceResourceHttp.nativeComposition(), maxPolls: 10 });
+        ...performanceResourceHttp.nativeComposition(), maxPolls: 10, fetch: liveFetch, wait: liveWait });
     }
-    await gamingCapabilities.publish();
+    if (liveWorkAllowed()) await gamingCapabilities.publish();
   } catch { gamingCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
   finally { gamingCapabilitiesBusy = false; }
 }
-// Content discovery is a background composition, independent of the live room.
-setTimeout(() => { void publishGamingCapabilities(); }, 1000).unref();
-setInterval(() => { void publishGamingCapabilities(); }, 30000).unref();
+// Publication is scheduled by the human activity lifecycle below.
 let playerCapabilities = null, playerCapabilitiesBusy = false, playerCapabilityAttempts = 0;
 let playerCapabilityState = { state: 'waiting', verified: false };
 const playerCapabilityStatus = () => playerCapabilities?.status() || playerCapabilityState;
 async function publishPlayerCapabilities() {
-  if (playerCapabilitiesBusy || playerCapabilityAttempts >= 5 || playerCapabilityStatus().verified || playerCapabilityStatus().state === 'refused') return;
+  if (!liveWorkAllowed() || playerCapabilitiesBusy || playerCapabilityAttempts >= 5 || playerCapabilityStatus().verified || playerCapabilityStatus().state === 'refused') return;
   if (!gamingStore?.publicationIdentity || !PLAYER_ACCOUNTS.status().enabled) {
     playerCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return;
   }
@@ -325,52 +352,53 @@ async function publishPlayerCapabilities() {
   try {
     if (!playerCapabilities) {
       const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      if (!liveWorkAllowed()) return;
       playerCapabilities = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
         catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools',
-        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph() + '\n' + nativeAgentHost.metadataGraph() + '\n' + worldAgentHost.metadataGraph(), maxPolls: 10 });
+        graphIri: 'urn:graph:hallowmarch:player-ownership', graphContent: PLAYER_ACCOUNTS.metadataGraph() + '\n' + nativeAgentHost.metadataGraph() + '\n' + worldAgentHost.metadataGraph(), maxPolls: 10, fetch: liveFetch, wait: liveWait });
     }
-    await playerCapabilities.publish();
+    if (liveWorkAllowed()) await playerCapabilities.publish();
   } catch { playerCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
   finally { playerCapabilitiesBusy = false; }
 }
-setTimeout(() => { void publishPlayerCapabilities(); }, 2000).unref();
-setInterval(() => { void publishPlayerCapabilities(); }, 30000).unref();
+
 let worldCapability = null, worldCapabilityBusy = false, worldCapabilityAttempts = 0;
 let worldCapabilityState = { state: WORLD_STATE ? 'waiting' : 'disabled', verified: false };
 const worldCapabilityStatus = () => worldCapability?.status() || worldCapabilityState;
 const worldDescription = () => hallowmarchWorldDescription(gamingEnvironment.HM_PUBLIC_ORIGIN
   || (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN ? 'https://' + gamingEnvironment.RAILWAY_PUBLIC_DOMAIN : 'http://localhost:' + CFG.port));
 async function publishWorldCapability() {
-  if (!WORLD_STATE || worldCapabilityBusy || worldCapabilityAttempts >= 5 || worldCapabilityStatus().verified || worldCapabilityStatus().state === 'refused') return;
+  if (!liveWorkAllowed() || !WORLD_STATE || worldCapabilityBusy || worldCapabilityAttempts >= 5 || worldCapabilityStatus().verified || worldCapabilityStatus().state === 'refused') return;
   if (!gamingStore?.publicationIdentity) { worldCapabilityState = { state: 'disabled', verified: false, reason: 'native-service-identity-unavailable' }; return; }
   if (gamingCapabilitiesBusy || playerCapabilitiesBusy || !gamingCapabilityStatus().verified) return;
   worldCapabilityBusy = true; worldCapabilityAttempts++;
   try {
     if (!worldCapability) {
       const { credentialsProvider, ...identity } = await gamingStore.publicationIdentity();
+      if (!liveWorkAllowed()) return;
       const { graphIri, graphContent } = worldDescription();
       worldCapability = createNativeCapabilityPublication({ identity, credentialsProvider, publicData: true,
-        catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools', graphIri, graphContent, maxPolls: 10 });
+        catalogUrl: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG || 'https://relay.interego.xwisee.com/tools', graphIri, graphContent, maxPolls: 10, fetch: liveFetch, wait: liveWait });
     }
-    await worldCapability.publish();
+    if (liveWorkAllowed()) await worldCapability.publish();
   } catch { worldCapabilityState = { state: 'unconfirmed', verified: false, reason: 'native-publication-unavailable' }; }
   finally { worldCapabilityBusy = false; }
 }
-setTimeout(() => { void publishWorldCapability(); }, 3000).unref();
-setInterval(() => { void publishWorldCapability(); }, 30000).unref();
+
 let gamingMonitor = null, gamingMonitorBusy = false, gamingMonitorInitializing = false;
 async function initializeGamingMonitor() {
-  if (!gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
+  if (!liveWorkAllowed() || !gamingStore || !GAMING.manifest().enabled || gamingMonitor || gamingMonitorInitializing) return;
   gamingMonitorInitializing = true;
   try {
     if (gamingEnvironment.HM_GAMING_MONITOR_BOOTSTRAP_STATUS) gamingEnvironment = await prepareGamingEnvironment(process.env);
-    gamingMonitor = await configuredServiceMonitoring({ store: gamingStore, env: gamingEnvironment });
+    if (!liveWorkAllowed()) return;
+    gamingMonitor = await configuredServiceMonitoring({ store: gamingStore, env: gamingEnvironment, fetch: liveFetch });
   } catch { console.warn('gaming: operational monitoring unavailable; durable game service remains independent'); }
   finally { gamingMonitorInitializing = false; }
 }
-await initializeGamingMonitor();
+
 async function sampleGamingService() {
-  if (!gamingMonitor || gamingMonitorBusy) return;
+  if (!liveWorkAllowed() || !gamingMonitor || gamingMonitorBusy) return;
   gamingMonitorBusy = true;
   try {
     try { await gamingMonitor.record({ ...GAMING.metrics(), mainWorld: {
@@ -380,19 +408,16 @@ async function sampleGamingService() {
       worldWrites: STATS.worldWrites, seasonSteps: STATS.seasonSteps, contributions: STATS.contribs, orders: STATS.orders, captures: STATS.liveCaptures,
     } }, { skipIfPending: true }); }
     catch { console.warn('gaming: operational sample pending; retrying retained observations'); }
-    await gamingMonitor.flush();
+    if (liveWorkAllowed()) await gamingMonitor.flush();
   }
   catch { console.warn('gaming: operational monitoring delivery pending'); }
   finally { gamingMonitorBusy = false; }
 }
-if (process.env.HM_GAMING_MONITOR_ENABLED === '1') {
-  setTimeout(() => { void sampleGamingService(); }, 5000).unref();
-  setInterval(() => { void initializeGamingMonitor().then(sampleGamingService); }, 30000).unref();
-}
+// Monitoring is scheduled only while a human is live.
 function regionHosts(R) {
   const h = {};
   for (const c of R.clients.values()) {
-    if (!c.region || !c.slow || c.slow.on !== 1) continue;
+    if (!isHumanPlaying(c) || !c.region || !c.slow || c.slow.on !== 1) continue;
     const o = h[c.region] && R.clients.get(h[c.region]);
     if (!o || c.since < o.since || (c.since === o.since && c.peer < o.peer)) h[c.region] = c.peer;
   }
@@ -415,6 +440,7 @@ function worldNow(R) {
   return w;
 }
 function worldReport(c, raw) {
+  if (!isHumanPlaying(c)) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   const w = worldCheck(raw);
   if (!w) return;
@@ -442,6 +468,7 @@ function worldReport(c, raw) {
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
 function keepWx(R, wx) {
+  if (!liveWorkAllowed()) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   if (!wx || typeof wx !== 'object' || wx.v !== 1 || !Array.isArray(wx.c)) return;
   const s = JSON.stringify(wx);
@@ -514,6 +541,7 @@ function onAcct(c, m) {
   } else no('Unknown');
 }
 function onSlow(c, d) {
+  if (!isHumanPlaying(c)) return;
   if (!d || typeof d !== 'object' || Array.isArray(d)) return;
   d.since = c.since; // the server's clock decides who was here first (the host)
   c.slow = d;
@@ -532,6 +560,7 @@ function onSlow(c, d) {
   if (c.region && !c.regionTold) { c.regionTold = true; regionsTell(R); }
 }
 function onFast(c, d) {
+  if (!isHumanPlaying(c)) return;
   if (!d || typeof d !== 'object' || !Array.isArray(d.p) || d.p.length !== 3 || !d.p.every(Number.isFinite)) { STATS.badMsgs++; return; }
   const now = Date.now(), p = { x: d.p[0], z: d.p[2] };
   if (Math.abs(p.x) > 4000 || Math.abs(p.z) > 4000) { STATS.badMsgs++; return; }
@@ -577,6 +606,7 @@ function onFast(c, d) {
 // what a player of a realm is told: the season's summary for its realm (with the news since `away` s ago on the first
 // telling: what a returning player missed), its realm's roster, and (the first time) its realm's chat
 function seasonTell(c, away, first) {
+  if (!isHumanPlaying(c)) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
   if (c.room.diagnostic || !SEASON.RS || !(c.realm >= 0)) return;
   const since = away >= 0 ? SEASON.RS.t - away * SEASON.speed : first ? SEASON.RS.t - 3600 : c.seasonT || SEASON.RS.t - 60;
@@ -709,9 +739,27 @@ function onMsg(c, raw) {
   let m;
   try { m = JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
   if (!m || typeof m.t !== 'string') return;
-  if (m.t === 'gaming') { void GAMING.handle(c, m); return; }
+  if (m.t === 'gaming') {
+    if (['agent.command', 'agent.observe'].includes(m.op)) {
+      c.humanAgentMode = true; HUMAN_PLAY.forget(c);
+    }
+    if (liveWorkAllowed()) void GAMING.handle(c, m);
+    else send(c, { t: 'gaming', q: m.q, ok: false, error: 'human_play_required' });
+    return;
+  }
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
+  if (m.t === 'slow') {
+    const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.principalFor(c);
+    const playing = HUMAN_PLAY.update(c, principalVerified ? m.d : null);
+    if (!playing) {
+      c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };
+      send(c, { t: 'world-status', ok: true, standby: true, why: 'Live play is paused. Interact with the game to resume.' });
+      c.ws.close(4000, 'Human session idle'); return;
+    }
+    clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
+  }
+  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
     send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
       why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
@@ -774,6 +822,10 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (playerBrowserAssets(req, res, u.pathname)) return;
   if (worldAgentAssets(req, res, u.pathname)) return;
+  if (!hasLiveHumans() && /^(?:\/gaming\/agent\/|\/gaming\/native-agent\/|\/world\/native-agent\/)/.test(u.pathname)) {
+    res.writeHead(409, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ ok: false, error: 'human_play_required', standby: true })); return;
+  }
   if (await PLAYER_ACCOUNTS.handle(req, res)) return;
   if (await nativeAgentHost.handle(req, res, u.pathname)) return;
   if (await worldAgentHost.handle(req, res, u.pathname)) return;
@@ -789,7 +841,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (u.pathname === '/gaming/status') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ manifest: gamingManifest(), metrics: GAMING.metrics(), monitoring: gamingMonitor?.status() || { enabled: false }, playerIdentity: PLAYER_ACCOUNTS.status(), nativeStore: gamingStore ? { enabled: true, ...gamingStore.commitAdmissionStatus?.(), ...gamingStore.performanceStatus?.() } : { enabled: false }, nativeDiscovery: gamingCapabilityStatus(), humanLearning: GAMING.manifest().learningExport })); return; }
   if (u.pathname === '/gaming/vocabulary' || u.pathname === '/gaming/hallowmarch-vocabulary') { const file = u.pathname.endsWith('/vocabulary') ? 'vocabulary.jsonld' : 'hallowmarch-vocabulary.jsonld'; res.writeHead(200, { 'content-type': 'application/ld+json' }); res.end(fs.readFileSync(path.join(HERE, 'gaming', file))); return; }
-  if (u.pathname === '/health') { const ok = (process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled) && (!WORLD_STATE || WORLD_STATE.canMutate()); res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: [...ROOMS.values()].reduce((n, R) => n + R.clients.size, 0), up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status, worldAuthority: worldPersistenceStatus() })); return; }
+  if (u.pathname === '/health') { const ok = (process.env.HM_GAMING_ENABLED !== '1' || GAMING.manifest().enabled) && (!WORLD_STATE || !hasLiveHumans() || WORLD_STATE.canMutate()); res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify({ ok, rooms: ROOMS.size, players: HUMAN_PLAY.count(), connections: LIVE_CONNECTIONS.size, up: Math.round((Date.now() - STATS.started) / 1000), gaming: GAMING.manifest().status, worldAuthority: worldPersistenceStatus(), livePlay: HUMAN_PLAY.status() })); return; }
   // the keeper's door (HM_ADMIN set in Railway's variables, never in the repository): a keep's holder set as the season
   // would set it (tests: the season's own capture told to the pages), a new season, the season saved now
   if (u.pathname === '/admin' && req.method === 'POST') {
@@ -843,46 +895,108 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: CFG.maxSave +
 wss.on('connection', (ws) => {
   STATS.conns++;
   const c = { ws, acct: null, room: null, peer: '', slow: null, fast: null, pos: null, posT: 0, winT: 0, winN: 0 };
+  LIVE_CONNECTIONS.add(c);
+  c.inactiveTimer = setTimeout(() => { if (!isHumanPlaying(c)) ws.close(4000, 'Human play not started'); }, 15000);
+  c.inactiveTimer.unref?.();
   const helloTimer = setTimeout(() => { if (!c.acct && !c.gamingAgent) ws.close(4001, 'no hello'); }, 10000);
   ws.on('message', (data) => { try { onMsg(c, String(data)); } catch (e) { STATS.badMsgs++; console.warn('message', e.message); } });
   ws.on('close', () => {
-    clearTimeout(helloTimer); GAMING.close(c); worldAgentTransport.close(c);
+    clearTimeout(helloTimer); clearTimeout(c.inactiveTimer);
+    HUMAN_PLAY.forget(c); LIVE_CONNECTIONS.delete(c);
+    GAMING.close(c); worldAgentTransport.close(c);
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
-    if (!R.diagnostic && (!WORLD_STATE || WORLD_STATE.canMutate())) FIELD.left(c); // [season2] its armies back to the season
+    // Human session departure already returned its field armies before suspension.
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
     if (!R.clients.size && R.name !== 'march') ROOMS.delete(R.name);
   });
 });
-// a heartbeat: a socket that stops answering is closed (its body leaves the others' worlds)
-setInterval(() => { for (const ws of wss.clients) { if (ws._dead) { ws.terminate(); continue; } ws._dead = true; ws.ping(); } }, 15000);
+// No permanent background timers run in standby.
 wss.on('connection', (ws) => ws.on('pong', () => { ws._dead = false; }));
-// the season goes on while nobody is here: stepped by the server's clock, told to each realm's players, kept
-const worldTimers = [];
-if (SEASON.RS) {
-  worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { SEASON.step(); } catch (e) { console.warn('season step', e.message); } }, CFG.seasonStep));
-  worldTimers.push(setInterval(() => { for (const R of ROOMS.values()) for (const c of R.clients.values()) if (c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush));
-  worldTimers.push(setInterval(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save({ background: true }); }, 30000));
-  worldTimers.push(setInterval(() => { if (WORLD_STATE && !WORLD_STATE.canMutate()) return; try { FIELD.step(); } catch (e) { console.warn('field step', e.message); } }, 2000)); // [season2]
+function liveTask(fn, everyMs, firstMs = everyMs) {
+  function run() {
+    if (!liveWorkAllowed()) return;
+    try { Promise.resolve(fn()).catch(error => console.warn('live work', error.message)); }
+    catch (error) { console.warn('live work', error.message); }
+  }
+  const interval = setInterval(run, everyMs); interval.unref?.(); liveWorkTimers.add(interval);
+  if (firstMs !== everyMs) {
+    const first = setTimeout(() => { liveWorkTimers.delete(first); run(); }, firstMs);
+    first.unref?.(); liveWorkTimers.add(first);
+  }
+}
+function stopLiveTasks() {
+  for (const timer of liveWorkTimers) { clearInterval(timer); clearTimeout(timer); }
+  liveWorkTimers.clear();
+}
+function endHumanSession(c) {
+  try {
+    if (c.room && !c.room.diagnostic && (!WORLD_STATE || WORLD_STATE.canMutate())) FIELD.left(c);
+  } catch (error) { console.warn('human departure', error.message); }
+  worldAgentTransport.close(c);
+  if (c.slow) c.slow = { ...c.slow, on: 0, humanLive: 0 };
+}
+function setHumanWorkActive(active) {
+  active = active && !humanWorkClosing;
+  if (humanWorkRunning === active) return;
+  humanWorkRunning = active;
+  if (!active) humanWorkAbort.abort(); else humanWorkAbort = new AbortController();
+  stopLiveTasks();
+  // Rebase wall clocks on both edges; standby time is never simulated later.
+  SEASON.lastStep = Date.now();
+  WORLD_STATE?.setActive?.(active); GAMING.setActive?.(active);
+  worldAgentHost.setActive?.(active); nativeAgentHost.setActive?.(active);
+  if (!active) {
+    if (!humanWorkClosing) {
+      void Promise.all([
+        WORLD_STATE?.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
+        GAMING.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
+        worldAgentHost.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
+      ]).catch(error => console.warn('idle checkpoint', error.message));
+    }
+    for (const c of LIVE_CONNECTIONS) c.ws.close(4000, 'No live human players');
+    return;
+  }
+  liveTask(publishGamingCapabilities, 30000, 1000);
+  liveTask(publishPlayerCapabilities, 30000, 2000);
+  liveTask(publishWorldCapability, 30000, 3000);
+  if (process.env.HM_GAMING_MONITOR_ENABLED === '1')
+    liveTask(() => initializeGamingMonitor().then(sampleGamingService), 30000, 5000);
+  liveTask(() => {
+    for (const c of LIVE_CONNECTIONS) if (isHumanPlaying(c)) {
+      if (c.ws._dead) c.ws.terminate();
+      else { c.ws._dead = true; c.ws.ping(); }
+    }
+  }, 15000);
+  if (SEASON.RS) {
+    liveTask(() => { if (!WORLD_STATE || WORLD_STATE.canMutate()) SEASON.step(); }, CFG.seasonStep);
+    liveTask(() => { for (const R of ROOMS.values()) for (const c of R.clients.values())
+      if (isHumanPlaying(c) && c.realm >= 0) seasonTell(c, -1, false); }, CFG.seasonPush);
+    liveTask(() => { if ((!WORLD_STATE || WORLD_STATE.canMutate()) && SEASON.dirty) SEASON.save({ background: true }); }, 30000);
+    liveTask(() => { if (!WORLD_STATE || WORLD_STATE.canMutate()) FIELD.step(); }, 2000);
+  }
 }
 let closing = false;
 const shutdown = async () => {
   if (closing) return; closing = true;
+  const wasLive = liveWorkAllowed();
   server.close(); nativeAgentHost.close(); PLAYER_ACCOUNTS.close();
   const worldAgentsClosing = worldAgentHost.close();
-  for (const timer of worldTimers) clearInterval(timer);
-  try { if (!WORLD_STATE || WORLD_STATE.canMutate()) { SEASON.step(); for (const R of ROOMS.values()) if (!R.diagnostic) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); }
+  stopLiveTasks();
+  try { if (wasLive && (!WORLD_STATE || WORLD_STATE.canMutate())) { SEASON.step(); for (const R of ROOMS.values()) if (!R.diagnostic) for (const c of R.clients.values()) FIELD.left(c); SEASON.save(); store.write('worlds.json', WORLDS); } if (wasLive) { COMP.save(true); /* [companies] */ store.write('accounts.json', ACCOUNTS); } }
   catch (e) { console.warn('shutdown', e.message); }
+  humanWorkClosing = true; HUMAN_PLAY.close();
+  clearTimeout(accTimer); clearTimeout(worldTimer);
   // Existing sockets cannot introduce new actions while the final checkpoint is
   // draining. A crash may recover only the last confirmed checkpoint.
   for (const ws of wss.clients) ws.close(1012, 'Server restarting');
   const deadline = new Promise((_, reject) => { setTimeout(() => reject(new Error('checkpoint timeout')), 15000).unref(); });
-  try { await Promise.race([Promise.all([GAMING.shutdown(), WORLD_STATE?.shutdown({ timeoutMs: 14000 }), worldAgentsClosing]), deadline]); }
+  try { await Promise.race([Promise.all([GAMING.shutdown({ checkpoint: wasLive }), WORLD_STATE?.shutdown({ timeoutMs: 14000, checkpoint: wasLive }), worldAgentsClosing]), deadline]); }
   catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
   process.exit(0);
 };
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
-export { server, STATS, CFG, SEASON, COMP, WORLD_STATE };
+export { server, STATS, CFG, SEASON, COMP, WORLD_STATE, HUMAN_PLAY };
