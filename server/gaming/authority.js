@@ -119,7 +119,8 @@ export class AuthoritativeRoom {
     this.setActive(false);
     if (!checkpoint) return this.persistenceStatus();
     let timer;
-    try { return await Promise.race([this.flushPersistence({ allowInactive: true }), new Promise((_, reject) => {
+    const deadline = performance.now() + timeoutMs;
+    try { return await Promise.race([this.flushPersistence({ allowInactive: true, deadline }), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new GameCommandError('durability_pending', 'Only the last confirmed checkpoint is recoverable.')), timeoutMs); timer.unref?.();
     })]); } finally { clearTimeout(timer); }
   }
@@ -171,7 +172,8 @@ export class AuthoritativeRoom {
     this.checkpointTimer = setTimeout(() => { this.checkpointTimer = null; void this.flushPersistence().catch(() => {}); }, this.checkpointIntervalMs);
     this.checkpointTimer.unref?.();
   }
-  async #checkpointOnce() {
+  async #checkpointOnce(canDispatch) {
+    if (!canDispatch()) return;
     if (!this.checkpoint) {
       // Snapshot capture occupies the command queue only for its synchronous
       // clone. The network commit never holds up another validated game action.
@@ -189,6 +191,8 @@ export class AuthoritativeRoom {
       this.checkpoint = await capture;
       if (!this.checkpoint) return;
     }
+    // Capture waits behind accepted commands. Recheck after that await before any native I/O.
+    if (!canDispatch()) return;
     const batch = this.checkpoint, started = performance.now();
     try {
       let receipt;
@@ -197,6 +201,7 @@ export class AuthoritativeRoom {
         if (['conflict', 'version_conflict', 'VERSION_CONFLICT', 'IDEMPOTENCY_CONFLICT'].includes(error.code) || error.name === 'DurableStoreConflictError') {
           // An uncertain response may have reached native storage. Recognize
           // our exact immutable checkpoint; a different writer freezes this owner.
+          if (!canDispatch()) throw error;
           const saved = await this.store.load(this.id);
           if (saved.version === batch.expectedVersion + 1 && digest(saved.state) === digest(batch.state)) receipt = saved;
           else { this.persistenceBlocked = true; this.stats.conflicts++; throw new GameCommandError('checkpoint_conflict', 'Another authority changed this room.'); }
@@ -216,18 +221,24 @@ export class AuthoritativeRoom {
       this.#notify(); throw error;
     }
   }
-  async flushPersistence({ allowInactive = false } = {}) {
-    if (!this.activityActive && !allowInactive) return this.persistenceStatus();
+  async flushPersistence({ allowInactive = false, deadline = Infinity } = {}) {
+    const canDispatch = () => {
+      requireGame(performance.now() < deadline, 'durability_pending', 'Only the last confirmed checkpoint is recoverable.');
+      return this.activityActive || allowInactive;
+    };
+    if (!canDispatch()) return this.persistenceStatus();
     if (this.persistenceMode !== 'realtime') { await this.queue; return this.persistenceStatus(); }
     if (this.checkpointTimer) { clearTimeout(this.checkpointTimer); this.checkpointTimer = null; }
     // A flush covers the accepted prefix at invocation. New actions can keep
     // running; they are captured by the next bounded checkpoint.
     await this.queue;
+    if (!canDispatch()) return this.persistenceStatus();
     const target = this.version;
     while (this.durableSequence < target) {
+      if (!canDispatch()) return this.persistenceStatus();
       requireGame(!this.persistenceBlocked, 'checkpoint_conflict', 'Another authority changed this room.');
       if (!this.checkpointPromise) {
-        this.checkpointPromise = this.#checkpointOnce().finally(() => { this.checkpointPromise = null; this.#scheduleCheckpoint(); });
+        this.checkpointPromise = this.#checkpointOnce(canDispatch).finally(() => { this.checkpointPromise = null; this.#scheduleCheckpoint(); });
       }
       await this.checkpointPromise;
     }

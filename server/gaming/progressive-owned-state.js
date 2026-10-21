@@ -194,16 +194,27 @@ export function createProgressiveOwnedState({ store, streamId, owner = store?.ow
     if (!positive(timeoutMs) || timeoutMs > 60000) fail('INVALID_CONFIGURATION', 'A bounded suspension deadline is required.');
     setActive(false);
     if (!save || (!attempt && !latest && !inFlight)) return status();
-    let deadline;
+    let deadline, expired = false;
+    const expiresAt = performance.now() + timeoutMs;
+    const requireDeadline = () => {
+      if (expired || performance.now() >= expiresAt) {
+        expired = true;
+        fail('SUSPEND_UNCONFIRMED', 'Only the last confirmed checkpoint is recoverable.');
+      }
+    };
     try {
-      // Settle an already dispatched write, then save the latest accepted state once.
-      // A failed dispatch is retained exactly and never retried while idle.
+      // An old dispatch may finish after the deadline. Its completion can update
+      // confirmation, but cannot authorize a later write while the world sleeps.
       const drain = async () => {
         if (inFlight) await inFlight;
+        requireDeadline();
         return attempt || latest ? checkpoint({ allowInactive: true }) : status();
       };
       return await Promise.race([drain(), new Promise((_, reject) => {
-        deadline = setTimeout(() => reject(new OwnedStateError('SUSPEND_UNCONFIRMED', 'Only the last confirmed checkpoint is recoverable.')), timeoutMs);
+        deadline = setTimeout(() => {
+          expired = true;
+          reject(new OwnedStateError('SUSPEND_UNCONFIRMED', 'Only the last confirmed checkpoint is recoverable.'));
+        }, timeoutMs);
         deadline.unref?.();
       })]);
     } finally { clearTimeout(deadline); }

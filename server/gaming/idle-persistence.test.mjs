@@ -170,3 +170,31 @@ test('main-world explicit owner register/Stop remain bounded in standby; agents 
   const count=writes;await wait(35);assert.equal(writes,count);assert.equal(proofReads,0);
   await ledger.close({checkpoint:false});assert.equal(writes,count);
 });
+
+test('an expired idle drain never dispatches newer state after its held write eventually confirms', async () => {
+  let saved = { version: 0, state: null }, calls = 0, release;
+  const store = { owner: 'urn:test:expired-leave', async load() { return structuredClone(saved); },
+    async commit(id, input) {
+      calls++;
+      if (calls === 2) await new Promise(resolve => { release = resolve; });
+      assert.equal(input.expectedVersion, saved.version);
+      saved = { version: saved.version + 1, state: structuredClone(input.state) };
+      return structuredClone(saved);
+    } };
+  const bridge = createProgressiveOwnedState({ store, streamId: 'expired-leave',
+    active: false, checkpointIntervalMs: 10 });
+  await bridge.start({ seed: () => ({ value: 0 }) });
+  bridge.setActive(true); await bridge.checkpoint();
+  bridge.capture({ value: 1 }); const oldWrite = bridge.checkpoint();
+  bridge.capture({ value: 2 });
+  // The production deadline is unref'd; keep this isolated test alive past it.
+  await Promise.all([assert.rejects(bridge.suspend({ checkpoint: true, timeoutMs: 10 }),
+    { code: 'SUSPEND_UNCONFIRMED' }), wait(20)]);
+  assert.equal(calls, 2); release(); await oldWrite; await wait(35);
+  assert.equal(calls, 2, 'Confirmation after the idle deadline must not dispatch another write');
+  assert.equal(saved.state.value.value, 1);
+  assert.equal(bridge.status().durable, false, 'The newer accepted state remains pending');
+  bridge.setActive(true); await bridge.checkpoint();
+  assert.equal(calls, 3); assert.equal(saved.state.value.value, 2);
+  await bridge.shutdown({ checkpoint: false });
+});

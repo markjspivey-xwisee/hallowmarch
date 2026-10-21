@@ -27,16 +27,26 @@ const [modulePath,url,mode,token,json] = process.argv.slice(1);
 const {default:WebSocket}=await import(pathToFileURL(modulePath).href);
 const ws=new WebSocket(url);
 const timeout=setTimeout(()=>{console.error('fixture protocol timed out');process.exit(1);},15000);
-let accountToken='',accountId='',done=false;
+let accountToken='',accountId='',done=false,seedReady=false;
 ws.on('open',()=>ws.send(JSON.stringify({t:'hello',v:1,token:token||undefined,room:'late-reconnect'})));
 ws.on('message',data=>{
  const m=JSON.parse(String(data));
  if(m.t==='denied')throw Error('fixture hello denied');
  if(m.t==='welcome'){
   accountToken=m.token;accountId=m.acct.id;
-  ws.send(JSON.stringify(mode==='seed'?{t:'save',d:JSON.parse(json)}:{t:'load'}));
+  if(mode==='seed'){
+   const char=JSON.parse(json).char;
+   // This setup actor explicitly plays once before its authorized seed save.
+   // Load-only inspection below remains idle and does not publish a live lease.
+   ws.send(JSON.stringify({t:'slow',d:{v:1,on:1,humanLive:1,humanActivity:1,since:0,
+    n:char.name,dn:char.name,r:char.realm,c:char.cls,l:char.level,rr:1}}));
+   ws.send(JSON.stringify({t:'ping',n:1}));
+  }else ws.send(JSON.stringify({t:'load'}));
+ }else if(m.t==='pong'&&mode==='seed'&&!seedReady){
+  seedReady=true;
+  ws.send(JSON.stringify({t:'save',d:JSON.parse(json)}));
  }else if(m.t==='saved'&&mode==='seed'){
-  if(!m.ok)throw Error('fixture save refused');
+  if(!m.ok)throw Error('fixture save refused: '+String(m.code||m.error||'unknown'));
   ws.send(JSON.stringify({t:'load'}));
  }else if(m.t==='save'&&!done){
   done=true;clearTimeout(timeout);
@@ -234,7 +244,7 @@ async def peer_traffic(page, backend):
         peer_id=welcome['peer']
         position=await page.evaluate('()=>{const p=__hm.GAME.player;return [p.x+4,p.y,p.z]}')
         await send({'cmd':'raw','m':{'t':'slow','d':{
-            'v':1,'on':1,'since':0,'n':'Peer Nodric','dn':'Peer Nodric',
+            'v':1,'on':1,'humanLive':1,'humanActivity':1,'since':0,'n':'Peer Nodric','dn':'Peer Nodric',
             'r':0,'c':'warrior','l':3,'rr':1}}})
         await send({'cmd':'raw','m':{'t':'fast','d':{
             's':1,'t':1,'p':position,'y':0,'v':[0,0],'a':0,'h':1,'m':200,
@@ -315,11 +325,22 @@ async def recover_local_game(browser, backend, seeded):
         await proxy.start()
         target=ORIGIN+'/?'+urlencode({'safe':'1','server':url,'shard':'late-reconnect'})
         await page.goto(target,wait_until='commit',timeout=120000)
+        await page.wait_for_function('window.__hm && window.__hm.ready',timeout=180000,polling=500)
+        idle=await page.evaluate(SNAPSHOT)
+        check(idle['stored']==local_text,'idle startup preserves the existing local save exactly')
+        check(proxy.stats['created']==0,'the idle title creates no multiplayer socket')
+        await expect(page.locator('#btn-continue')).to_be_visible()
+        await page.locator('#btn-continue').click()
+        await page.wait_for_function('__hm.GAME.started && __hm.GAME.player?.name === "Local Aldwin"',timeout=30000)
+        await page.bring_to_front()
+        await page.keyboard.press('Shift')
+        started=await page.evaluate(SNAPSHOT)
+        check(started['name']=='Local Aldwin' and started['xp']>=29,
+              'Continue starts the selected local character before multiplayer recovers')
         await asyncio.wait_for(proxy.first_hello.wait(),10)
         check(proxy.stats.get('manifests',0)>0,'proxy forwards the actual public policy before withholding welcome')
         # Delay the actual browser event loop during its real welcome wait.
         await page.evaluate('setTimeout(window.__hmNetTest.stall,6500)')
-        await page.wait_for_function('window.__hm && window.__hm.ready',timeout=180000,polling=500)
         await page.wait_for_function('__hm.net.NETWS.lastFailure === "welcome timeout"',timeout=45000,polling=250)
         await asyncio.wait_for(proxy.first_closed.wait(),5)
         before=await page.evaluate(SNAPSHOT)
@@ -329,15 +350,14 @@ async def recover_local_game(browser, backend, seeded):
               'failed initial handshake loads the existing local character')
         check(proxy.stats['welcomes']==0 and before['socket']['state']!='on' and proxy.stats['forwarded']==0,
               'the proxy withholds initial welcome and opening alone never claims authentication')
-        check(before['stored']==local_text,'cold connection failure preserves the existing local save')
+        cold_saved=json.loads(before['stored'])
+        check(cold_saved['char']['name']=='Local Aldwin' and cold_saved['char']['xp']>=29 and
+              cold_saved['settings']==local['settings'],
+              'cold connection failure preserves the selected local character and settings')
         check(before['stalls']==1,'real browser handshake deadline survives a CPU startup stall')
-        await expect(page.locator('#btn-continue')).to_be_visible()
-        await page.locator('#btn-continue').evaluate('button=>button.click()')
-        await page.wait_for_function('__hm.GAME.started && __hm.GAME.player?.name === "Local Aldwin"',timeout=30000)
-        started=await page.evaluate(SNAPSHOT)
-        check(started['name']=='Local Aldwin' and started['xp']>=29,
-              'Continue starts the selected local character before multiplayer recovers')
         await proxy.allow()
+        await page.bring_to_front()
+        await page.keyboard.press('Shift')
         await page.wait_for_function('__hm.net.state().state === "on" && __hm.net.state().kind === "ws"',timeout=60000,polling=250)
         for _ in range(60):
             if any(m['t']=='slow' and m['name']=='Local Aldwin' for m in proxy.wire): break
@@ -356,6 +376,8 @@ async def recover_local_game(browser, backend, seeded):
               'the resumed local character publishes its profile to the actual server')
         check(not any(m['t'] in ('load','save','wipe') for m in proxy.wire),
               'presence recovery performs no account save read, upload or wipe')
+        await page.bring_to_front()
+        await page.keyboard.press('Shift')
         await peer_traffic(page,backend)
         await page.evaluate('async()=>{__hm.GAME.prog.xp+=17;await __hm.fn.saveNow();await __hm.SAVE.chain;}')
         saved=await page.evaluate(SNAPSHOT)
