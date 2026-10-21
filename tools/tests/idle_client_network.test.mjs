@@ -255,3 +255,80 @@ test('an idle room profile withdraws its body and hands the unchanged sky to a l
   context.H.netHostElect();
   assert.equal(context.NET.host, 'server'); assert.equal(context.NET.isHost, false);
 });
+
+function coldTownFixture(walkable = () => true) {
+  const ai = read('08_ai.js'), world = read('01_world.js'), houses = read('04e_houses.js');
+  const helperAt = ai.indexOf('function townVillagerSpawn(');
+  const spawn = (helperAt < 0 ? '' : between(ai, 'function townVillagerSpawn(', 'function initTowns()')) +
+    between(ai, 'function initTowns()', '/* ------------------------------------------------------------------ */\n/* keeps, temples, relics');
+  const source = between(read('07_entities.js'), 'function makeEnt(o)', 'function removeEnt(') +
+    between(world, 'const _cn = [];', '// is the straight segment clear') +
+    between(houses, 'function collCovers(c, x, z, r)', '// a place to stand inside') + spawn;
+  const prop = { type: 'box', x: 6, z: 0, hx: 1.55, hz: 1.05, cos: 1, sin: 0,
+    tag: 'prop', active: true, baseY: 3, h: 2.2 };
+  let randomCalls = 0, walkCalls = 0;
+  const math = Object.create(Math);
+  math.random = () => { randomCalls++; return 0; };
+  const context = vm.createContext({
+    Math: math, TAU: Math.PI * 2, ENT: [], ENT_BY_ID: new Map(), ENT_NEXT: 1,
+    GAME: { player: null, started: false, t: 0 }, FACTION_MONSTER: 3, FACTION_NEUTRAL: 4,
+    REALMS: [{ id: 0, name: 'Test', town: { x: 0, z: 0, yaw: 0 }, musterSite: { yaw: 0 } }],
+    WB: {}, OUTFIT: {}, VILLAGER_NAMES: ['Villager'],
+    heightAt: () => 3, isWalkable(x, z) { walkCalls++; return walkable(x, z); },
+    clamp: (v, lo, hi) => Math.max(lo, Math.min(hi, v)),
+    dist2: (ax, az, bx, bz) => (ax - bx) ** 2 + (az - bz) ** 2,
+    collidersNear(x, z, r, out) { out.length = 0; out.push(prop); return out; },
+    siteWorld: () => ({ x: 0, z: 0 }), classLook: () => ({}), villagerLook: () => ({}),
+    setupStats() {}, pick: (random, names) => names[0], warUnitLevel: () => 1,
+    spawnRealmUnit: () => ({ ai: {} })
+  });
+  vm.runInContext(source + '\nglobalThis.H={initTowns,collCovers};', context);
+  context.H.initTowns();
+  return { context, prop, randomCalls, walkCalls };
+}
+
+test('cold initial villagers avoid prop colliders and unwalkable ground without player or world ticks', () => {
+  // The first collision-resolved landing is deliberately unwalkable. A bounded,
+  // deterministic alternate must be chosen without consuming the world's RNG.
+  const walkable = (x, z) => !(Math.abs(x - 6) < 0.01 && z > 1.4 && z < 1.5);
+  const { context, prop, randomCalls, walkCalls } = coldTownFixture(walkable);
+  const villagers = context.ENT.filter(e => e.role === 'villager');
+  assert.equal(villagers.length, 6);
+  for (const e of villagers) {
+    assert.equal(context.H.collCovers(prop, e.x, e.z, e.radius * 0.9 - 1e-4), false);
+    assert.equal(walkable(e.x, e.z), true);
+    assert.equal(e.y, 3); assert.equal(e.prevX, e.x); assert.equal(e.prevZ, e.z);
+  }
+  assert.ok(walkCalls > 6);
+  assert.equal(randomCalls, 26); // unchanged positions/looks/entity initialization draws
+  assert.equal(context.GAME.player, null); assert.equal(context.GAME.started, false); assert.equal(context.GAME.t, 0);
+});
+
+test('cold initial villager search is bounded and does not place a body when no ground is walkable', () => {
+  const { context, walkCalls } = coldTownFixture(() => false);
+  assert.equal(context.ENT.filter(e => e.role === 'villager').length, 0);
+  assert.equal(walkCalls, 6 * 24);
+  assert.equal(context.GAME.t, 0); assert.equal(context.GAME.player, null);
+});
+
+
+test('a native save held in the queue past the final window stays pending until live resume', async () => {
+  const source = between(read('12_save.js'), 'function nativeSavePending()', 'function saveNow()');
+  let now = 0, live = false, release;
+  const writes = [], pending = { character: 'accepted-history' };
+  const SAVE = { nativeFlight: null, nativePaused: false, pending,
+    chain: new Promise(resolve => { release = resolve; }) };
+  const context = vm.createContext({ SAVE, netHumanLive: () => live, performance: { now: () => now },
+    coreKey: () => 'core', NATIVE_PLAYER: {}, nativePlayerRender() {},
+    nativePlayerError: () => new Error('unexpected'), Promise,
+  });
+  SAVE.ref = { async set(value) { writes.push(value); } };
+  vm.runInContext(source + '\nglobalThis.flush=nativeSavePending;', context);
+  const held = context.flush();
+  now = 10001; release(); await held;
+  assert.equal(writes.length, 0, 'an expired queued call cannot dispatch in standby');
+  assert.equal(SAVE.pending, pending, 'the accepted body is retained without replacement');
+  live = true; await context.flush();
+  assert.equal(writes.length, 1); assert.equal(writes[0], pending);
+  assert.equal(SAVE.pending, null);
+});

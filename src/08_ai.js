@@ -111,6 +111,24 @@ function villagerLook(realm) {
   const dyes = [[0.55, 0.42, 0.28], [0.36, 0.42, 0.3], [0.5, 0.3, 0.24], [0.62, 0.56, 0.42], [0.32, 0.36, 0.46], [0.44, 0.24, 0.3]];
   return { tabard: pick(r, dyes), armor: [0.4, 0.33, 0.25], skin: r() * 0.8, hair: r(), mask: WB.skirt | WB.belt | hairAndBeard(r, fem, realm) | (fem && r() < 0.5 ? WB.robe : 0), flags: 0, scale: 0.9 + r() * 0.1, outfit: OUTFIT.villager, emblem: 3, fem, bulk: r() < 0.3 ? 0.35 : 0 };
 }
+// A cold world has no title-screen ticks to free an unlucky spawn from a prop.
+function townVillagerSpawn(x, z) {
+  const radius = 0.45 * 0.9, near = [];
+  for (let i = 0; i < 24; i++) {
+    const a = i * 2.399, d = i ? 0.75 * Math.sqrt(i) : 0;
+    const p = { x: x + Math.cos(a) * d, z: z + Math.sin(a) * d };
+    resolveCollisions(p, radius, heightAt(p.x, p.z), FACTION_NEUTRAL);
+    if (!isWalkable(p.x, p.z)) continue;
+    const y = heightAt(p.x, p.z);
+    collidersNear(p.x, p.z, radius + 2, near);
+    if (near.some((c) => c.active && !(c.tag === 'door' && c.owner === FACTION_NEUTRAL)
+      && (c.vert ? !(y > (c.y0 ?? c.baseY) + c.h - 0.55 || y + 1.7 < (c.y0 ?? c.baseY))
+        : y <= c.baseY + c.h + 0.5)
+      && collCovers(c, p.x, p.z, radius - 1e-4))) continue;
+    return p;
+  }
+  return null;
+}
 function initTowns() {
   for (const R of REALMS) {
     const S = R.town;
@@ -121,7 +139,9 @@ function initTowns() {
     R.herald = herald;
     for (let i = 0; i < 6; i++) {
       const a = Math.random() * TAU, rr = 6 + Math.random() * 12;
-      const x = S.x + Math.cos(a) * rr, z = S.z + Math.sin(a) * rr;
+      const p = townVillagerSpawn(S.x + Math.cos(a) * rr, S.z + Math.sin(a) * rr);
+      if (!p) continue;
+      const { x, z } = p;
       const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: pick(Math.random, VILLAGER_NAMES), x, z, y: heightAt(x, z), look: villagerLook(R.id), home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
       v.maxHp = v.hp = 300;
     }

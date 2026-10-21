@@ -207,10 +207,18 @@ async def main():
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tf-' + str(int(time.time())) + '", user: "uTouch", noDb: true };' if want('net') else None)
         cdp = await page.context.new_cdp_session(page)
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
-        await human_play(page)
         await page.evaluate(HELP)
         # the loading veil fades on the wall clock: the first tap waits for it
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
+        # Quartermasters are initialized by the first live world step. A cold
+        # title screen has done no simulation, and a trusted gesture alone does
+        # not guarantee that an animation frame ran before the first flow.
+        await human_play(page)
+        live_start = await page.evaluate("""(() => { const H = __hm, t = H.GAME.t;
+          H.simulate(0.1); return { advanced: H.GAME.t - t,
+            quartermasters: H.REALMS.filter(R => R.quartermaster && R.quartermaster.alive).length }; })()""")
+        check(live_start['advanced'] >= 0.099 and live_start['quartermasters'] == 3,
+              f"trusted start advances the world and initializes the three quartermasters ({live_start})")
         touch = await page.evaluate("document.body.classList.contains('touch')")
         check(touch, 'the phone plays by touch (the pad shows)')
 

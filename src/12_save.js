@@ -182,9 +182,15 @@ function saveSoon(delay = 2500) {
 function nativeSavePending() {
   if (SAVE.nativeFlight) return SAVE.nativeFlight;
   if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
+  const now = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() : Date.now();
+  const idleUntil = now() + 10000;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
     let first = true;
     while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive())) {
+      // A queued explicit/final save cannot become a fresh idle write long
+      // after its request. Keep the exact pending body for the next live session.
+      if (first && typeof netHumanLive === 'function' && !netHumanLive() && now() >= idleUntil) break;
       first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
       try {
