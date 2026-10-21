@@ -153,3 +153,52 @@ test('an authenticated dormant socket has no timers or reconnects and preserves 
   assert.equal(context.H.marchConsultingOwnerKey(), key);
   assert.equal(context.H.activityCurrent(scope), true);
 });
+
+test('trusted live resume republishes one unchanged standing pose on the same dormant socket', async () => {
+  const net = read('14n_net.js');
+  const source = read('14m_liveplay.js') +
+    between(net, 'function netSendFast(now)', 'function netPump(dt)') +
+    between(net, 'function netPump(dt)', 'function netWorldKeep(');
+  let now = 1000, serverPose = null;
+  const frames = [], documentEvents = new Map(), windowEvents = new Map(), timers = new Map();
+  let nextTimer = 1;
+  const socket = { readyState: 1 };
+  const pose = { p: [10, 2, 20], y: 0, v: [0, 0], a: 0, h: 1, m: 100,
+    d: 0, mo: 0, ph: 0, sw: 0, st: 0, cs: 0, fl: 0, tg: '' };
+  const context = vm.createContext({
+    document: { hidden: false, hasFocus: () => true, addEventListener(type, fn) { documentEvents.set(type, fn); } },
+    window: { addEventListener(type, fn) { windowEvents.set(type, fn); } },
+    GAME: { ready: true, started: true, player: {} }, UI: { modal: null },
+    NET: { state: 'on', slowKey: '', slowAt: 0, fastKey: '', fastAt: -Infinity,
+      out: [], cfg: { fastHz: 10, ringMax: 20 }, evSeq: 0, seq: 0,
+      stats: { fastSent: 0, upBytes: 0 }, link: { kind: 'ws',
+        setFast(frame) { frames.push(frame); serverPose = frame; } } },
+    NETWS: { state: 'on', ws: socket, generation: 7, closed: false, reload: false },
+    performance: { now: () => now }, queueMicrotask,
+    setTimeout(fn) { const id = nextTimer++; timers.set(id, fn); return id; },
+    clearTimeout: id => timers.delete(id),
+    netOn: () => true, netSendSlow: () => true, netSocialPending: () => false,
+    netFastObj: () => ({ ...pose, p: pose.p.slice(), v: pose.v.slice() }),
+    netWsSuspendHuman() { serverPose = null; },
+    netWsStartHumanPing() {}, saveNow: async () => {},
+    netHostElect() {}, netInbox() {}, netGhosts() {}, netDeathWatch() {}, netWorldKeep() {}
+  });
+  vm.runInContext(source + '\nglobalThis.H={netHumanSync,netHumanLive,netPump};', context);
+  async function input() {
+    documentEvents.get('keydown')({ type: 'keydown', isTrusted: true });
+    await Promise.resolve();
+  }
+  await input(); context.H.netPump(0.1);
+  assert.equal(frames.length, 1); assert.ok(serverPose);
+  now += 1000; context.UI.modal = 'menu'; context.H.netHumanSync();
+  assert.equal(context.H.netHumanLive(), false); assert.equal(serverPose, null);
+  context.H.netPump(0.1); assert.equal(frames.length, 1, 'standby cannot resend the pose');
+  context.UI.modal = null; context.H.netHumanSync(); context.H.netPump(0.1);
+  assert.equal(frames.length, 1, 'closing the menu without trusted input cannot resume');
+  await input(); context.H.netPump(0.1);
+  assert.equal(frames.length, 2, 'resume must republish even an unchanged standing pose');
+  assert.ok(serverPose); assert.deepEqual(Array.from(serverPose.p), pose.p);
+  assert.equal(context.NETWS.ws, socket); assert.equal(context.NETWS.generation, 7);
+  now += 1000; await input(); context.H.netPump(0.1);
+  assert.equal(frames.length, 2, 'ordinary live input keeps standing-pose deduplication');
+});

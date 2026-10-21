@@ -26,6 +26,11 @@ function netHumanPublish() {
     return;
   }
   h.reportedLive = live; h.reportedActivity = h.activity;
+  if (live && !wasLive) {
+    // The server drops our last pose in standby. Republish it once on resume,
+    // even when the human is still standing in exactly the same place.
+    NET.fastKey = ''; NET.fastAt = -Infinity;
+  }
   // One final save belongs to the departing live session. Never retry it from
   // an idle heartbeat; unsaved native progress keeps its existing pending record.
   if (wasLive && !live && GAME.player && typeof saveNow === 'function') {
