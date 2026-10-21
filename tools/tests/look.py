@@ -17,7 +17,7 @@ usage: python3 tools/tests/look.py [views=a,b,...|group] [q=high,medium,low] [v=
 import json, asyncio, sys, time, pathlib, base64, io, os
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
-from hmlib import OUT
+from hmlib import OUT, human_play
 from playwright.async_api import async_playwright
 try:
     from PIL import Image
@@ -68,6 +68,7 @@ async def setup(p, w, h, touch=False):
     return b, page, logs
 
 async def grab(page, path, frames=2):
+    await human_play(page)
     url = await page.evaluate(f"(() => {{ for (let i = 0; i < {frames}; i++) __hm.frame(1/30); return __hm.dbg.renderer.domElement.toDataURL('image/png'); }})()")
     data = base64.b64decode(url.split(',', 1)[1])
     if Image: Image.open(io.BytesIO(data)).convert('RGB').save(path)
@@ -75,6 +76,7 @@ async def grab(page, path, frames=2):
 
 async def start(page):
     await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
+    await human_play(page)
     await page.evaluate(VIEWS_JS.read_text() + '\n;0')
     # the war gets going and the towns wake up, then the world holds still between the views
     await page.evaluate("LK.boot(); 0")
@@ -148,6 +150,7 @@ async def main():
                 await page.evaluate(f"__hm.fn.setQuality('{q}'); 0")
                 for v in views:
                     for var in VARIANTS:
+                        await human_play(page)
                         try:
                             info = await page.evaluate(f"LK.set('{v}', '{var}')")
                         except Exception as e:

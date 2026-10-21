@@ -19,6 +19,7 @@ usage: python3 tools/tests/net.py [room] [three] [lossy] [phone] [server] [compa
 import asyncio, json, sys, pathlib, time, os, random, subprocess, socket
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -59,6 +60,11 @@ window.NT = {
 
 async def boot(ctx, cfg, name):
     page = await ctx.new_page()
+    # Each multiplayer fixture page represents a different person's foreground
+    # browser. Keep that focus model local to these pages; trusted input is still
+    # required, and idle/diagnostic clients receive no automatic live lease.
+    page._hm_human_focus = await ctx.new_cdp_session(page)
+    await page._hm_human_focus.send('Emulation.setFocusEmulationEnabled', {'enabled': True})
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
     page.on('console', lambda m: logs.append(f'[{m.type}] {m.text}') if m.type in ('error',) else (print('   ', name, m.text, flush=True) if m.text.startswith('NETLOG') else None))
@@ -83,12 +89,14 @@ async def boot(ctx, cfg, name):
 
 async def start(page, realm, cls, level, name, x=None, z=None):
     await page.evaluate(f"""(() => {{ __hm.start({{ realm: {realm}, cls: '{cls}', level: {level}, name: '{name}' }}); __hm.UI.modal = null; for (const id of ['prologue', 'menu', 'dialog']) {{ const el = document.getElementById(id); if (el) el.hidden = true; }} return 0; }})()""")
+    await human_play(page)
     if x is not None: await page.evaluate(f'__hm.teleport({x}, {z}); NT.calm(); 0')
 
 async def step(pages, sec=0.1, n=1, frame=False):
     """each page a step at a time, in turn: the room's messages pass between the evaluates as in play"""
     for _ in range(n):
         for p in pages:
+            await human_play(p)
             await p.evaluate(f'__hm.simulate({sec}); {"__hm.frame(" + str(sec) + ");" if frame else ""} 0')
         await asyncio.sleep(0.02)
 
@@ -102,6 +110,7 @@ async def until(pages, js_page, js, limit=20.0, sec=0.1):
     return bool(await js_page.evaluate(js))
 
 async def shot(page, name):
+    await human_play(page)
     await page.evaluate('__hm.UI.modal = __hm.UI.modal; __hm.frame(1/30); __hm.frame(1/30); 0')
     path = OUT / f'net_{name}.png'
     await page.screenshot(path=str(path), timeout=300000)
@@ -317,7 +326,7 @@ async def room_part(p):
     await b.close()
 
 class NodeClient:
-    """a headless player (net_client.mjs) driven by JSON lines"""
+    """A scripted human protocol actor; diagnostic clients stay inactive by default."""
     def __init__(self, name): self.name = name; self.lines = []; self.proc = None
     async def start(self, url, token=''):
         self.proc = await asyncio.create_subprocess_exec('node', str(pathlib.Path(__file__).parent / 'net_client.mjs'), url, token, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
@@ -329,6 +338,7 @@ class NodeClient:
             try: self.lines.append(json.loads(l))
             except Exception: pass
     async def cmd(self, o):
+        if o.get('cmd') == 'hello': o = {**o, 'human': True}
         self.proc.stdin.write((json.dumps(o) + '\n').encode()); await self.proc.stdin.drain()
     async def wait(self, key, limit=8.0):
         t = time.time()
@@ -849,6 +859,7 @@ async def perf_part(p):
     # each frame's JS apart from SwiftShader's drawing: the GPU drained first by a readPixels (as perf2.py does)
     ONE = "(() => { const H = __hm, gl = H.dbg.renderer.getContext(), px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t0 = performance.now(); H.simulate(0.05); const t1 = performance.now(); H.frame(1/30); const t2 = performance.now(); return [t1 - t0, t2 - t1]; })()"
     async def MEAS_RUN():
+        await human_play(A)
         await A.evaluate("(() => { const H = __hm; H.CAM.yaw = 0; H.CAM.pitch = 0.3; H.CAM.dist = H.CAM.targetDist = 9; return 0; })()")
         for _ in range(8): await A.evaluate(ONE); await asyncio.sleep(0.03)
         sims, frs, ri = [], [], []

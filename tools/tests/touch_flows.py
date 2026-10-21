@@ -19,7 +19,7 @@ plays a new player's first steps by touch).
 usage: python3 tools/tests/touch_flows.py [only=fish,build,...]"""
 import asyncio, json, sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -139,6 +139,7 @@ async def company_flow(p):
         url = f'ws://127.0.0.1:{port}/ws'
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tfco", user: "uTouchCo", noRoom: true, server: "' + url + '" };')
         await page.evaluate("__hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await human_play(page)
         await page.evaluate(HELP)
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
         await page.evaluate("TF.calm(); 0")
@@ -206,6 +207,7 @@ async def main():
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tf-' + str(int(time.time())) + '", user: "uTouch", noDb: true };' if want('net') else None)
         cdp = await page.context.new_cdp_session(page)
         await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await human_play(page)
         await page.evaluate(HELP)
         # the loading veil fades on the wall clock: the first tap waits for it
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)

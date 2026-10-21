@@ -182,7 +182,10 @@ function accountNew(name, guest, pass) {
   const id = (guest ? 'g' : 'a') + crypto.randomBytes(9).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x');
   const A = { id, name: name || 'Guest', guest: !!guest, created: Date.now(), last: Date.now() };
   if (pass) { const salt = crypto.randomBytes(16).toString('hex'); A.pass = { salt, hash: crypto.scryptSync(pass, salt, 32).toString('hex') }; }
-  ACCOUNTS[id] = A; accountsSave();
+  ACCOUNTS[id] = A;
+  // A title/legacy/diagnostic socket may discover a guest identity without
+  // creating a durable account. Explicit named registration remains bounded.
+  if (!guest) accountsSave();
   return A;
 }
 function accountByName(name) { const n = name.toLowerCase(); return Object.values(ACCOUNTS).find((A) => !A.guest && A.name.toLowerCase() === n) || null; }
@@ -500,7 +503,7 @@ function onHello(c, h) {
   if (r.err) { send(c, { t: 'denied', why: r.err, ...(r.code ? { code: r.code } : {}) }); return; }
   const R = roomFor(policy);
   if (!R) { send(c, { t: 'denied', why: 'The March is full' }); c.ws.close(); return; }
-  c.acct = r.A; c.acct.last = Date.now(); accountsSave();
+  c.acct = r.A; c.acct.last = Date.now(); c.pendingAccountSave = true;
   c.authClaims = GAME_SESSIONS.read(h.token);
   if (c.authClaims?.id !== c.acct.id) c.authClaims = null;
   c.room = R; c.peer = crypto.randomBytes(8).toString('hex'); c.since = Date.now();
@@ -762,6 +765,7 @@ function onMsg(c, raw) {
     }
     const resuming = c.humanDormant === true;
     c.humanDormant = false; c.hasPlayedLive = true; c.ws._dead = false;
+    if (c.pendingAccountSave) { c.pendingAccountSave = false; accountsSave(); }
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
     if (resuming) resumeHumanSession(c);
   }
