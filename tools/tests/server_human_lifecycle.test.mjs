@@ -25,7 +25,7 @@ function fixture({ monitor = '1' } = {}) {
     worldAgentTransport: { close: record('agent-stop') },
     worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a) },
     nativeAgentHost: { setActive: record('native-agent-active') },
-    send: record('send'), regionsTell: record('regions'),
+    send: record('send'), regionsTell: record('regions'), worldNow: () => ({k:[0,1,2]}),
     CFG: { seasonStep: 5000, seasonPush: 10000 }, ROOMS: new Map(),
     publishGamingCapabilities: record('publish-gaming'), publishPlayerCapabilities: record('publish-player'),
     publishWorldCapability: record('publish-world'), seasonTell: record('season-push'),
@@ -35,7 +35,7 @@ function fixture({ monitor = '1' } = {}) {
     clearInterval: timer => timers.delete(timer), clearTimeout: timer => timers.delete(timer),
   });
   vm.runInContext('const liveWorkAllowed = () => humanWorkRunning && hasLiveHumans();\n' + lifecycle +
-    '\nglobalThis.api = { setHumanWorkActive, endHumanSession };', context);
+    '\nglobalThis.api = { setHumanWorkActive, endHumanSession, resumeHumanSession };', context);
   async function advance(ms) {
     const target = now + ms;
     for (;;) {
@@ -107,4 +107,19 @@ test('standby HTTP exceptions name only explicit owner relationship controls', (
     assert.equal(allowed.test(prefix+'/native-agent/revoke'), true);
     for (const action of ['challenge','complete','renew','command','observe']) assert.equal(allowed.test(prefix+'/native-agent/'+action), false);
   }
+});
+
+test('live resume clears omitted departed peers then sends one current snapshot without starting its own timer', () => {
+  const f=fixture(), owner={peer:'owner',pausedPeerIds:['departed','still-live'],slow:{on:1}},
+    other={peer:'still-live',acct:{id:'other'},live:true,slow:{on:1},fast:{ev:[['old-event']]}},
+    dormant={peer:'asleep',acct:{id:'asleep'},live:false,slow:{on:0}};
+  owner.room={clients:new Map([['owner',owner],['still-live',other],['asleep',dormant]])};
+  f.context.api.resumeHumanSession(owner);
+  const messages=f.calls.filter(call=>call.name==='send').map(call=>call.args[1]);
+  assert.equal(messages.filter(m=>m.t==='left').length,2);
+  assert.equal(messages.filter(m=>m.t==='peer').length,1);
+  assert.equal(messages.find(m=>m.t==='peer').peer,'still-live');
+  assert.equal(messages.find(m=>m.t==='peer').fast.ev.length,0);
+  assert.equal(messages.filter(m=>m.t==='world').length,1);
+  assert.equal(owner.pausedPeerIds,null);assert.equal(f.timers.size,0);
 });

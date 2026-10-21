@@ -5,11 +5,11 @@ import { createServer } from 'node:net';
 import { mkdtemp, mkdir, writeFile, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as wait } from 'node:timers/promises';
 
 test('real empty server performs no tick, outbound request or save across old timer boundaries and idle shutdown',
-  { timeout: 20000 }, async () => {
+  { timeout: 20000 }, async t => {
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const scratch = await mkdtemp(path.join(tmpdir(), 'hallowmarch-human-idle-'));
   const data = path.join(scratch, 'data'), log = path.join(scratch, 'unexpected-fetch.log'), shim = path.join(scratch, 'deny-fetch.mjs');
@@ -20,7 +20,7 @@ test('real empty server performs no tick, outbound request or save across old ti
   const listener = createServer(); await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = listener.address().port; await new Promise(resolve => listener.close(resolve));
   let output = '', exited = false;
-  const child = spawn(process.execPath, ['--import', shim, path.join(root, 'server/server.js')], {
+  const child = spawn(process.execPath, ['--import', pathToFileURL(shim).href, path.join(root, 'server/server.js')], {
     cwd: root, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), HM_DATA: data,
       HM_SRC: path.join(root, 'src'), HM_SECRET: 'idle-integration-test-only',
       HM_GAMING_ENABLED: '0', HM_GAMING_BOOTSTRAP: '0', HM_GAMING_MONITOR_ENABLED: '0',
@@ -51,7 +51,10 @@ test('real empty server performs no tick, outbound request or save across old ti
       'empty server must not poll or publish external services');
     child.kill('SIGTERM');
     const stopped = await Promise.race([exit, wait(5000).then(() => { throw new Error('Idle shutdown did not finish: '+output); })]);
-    assert.equal(stopped.code, 0, output);
+    // Windows TerminateProcess does not deliver the POSIX shutdown handler.
+    // Linux CI enforces graceful idle exit; both platforms verify zero writes.
+    if (process.platform === 'win32') t.diagnostic('Cold standby checked on Windows; graceful SIGTERM is checked in Linux CI.');
+    else assert.equal(stopped.code, 0, output);
     assert.deepEqual(await readdir(data), ['saves'], 'idle restart must not create a final save');
   } finally {
     if (!exited) { child.kill('SIGKILL'); await exit; }

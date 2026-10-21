@@ -9,13 +9,17 @@ concurrency:
 jobs:
   idle-lifecycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm ci --prefix server
+      - name: Build pinned native SDK proof dependencies
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/hallowmarch-interego-sdk
+        run: node tools/setup-native-sdk.mjs
       - name: Verify human leases, cold startup and persistence suspension
         run: |
           node --test \

@@ -763,14 +763,7 @@ function onMsg(c, raw) {
     const resuming = c.humanDormant === true;
     c.humanDormant = false; c.hasPlayedLive = true; c.ws._dead = false;
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
-    if (resuming) {
-      // One current snapshot replaces the traffic intentionally omitted in standby.
-      c.toldSeason = false; c.regionTold = false;
-      for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o) && o.slow)
-        send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
-      const currentWorld = worldNow(c.room); if (currentWorld) send(c, { t: 'world', w: currentWorld, init: 1 });
-      regionsTell(c.room, true);
-    }
+    if (resuming) resumeHumanSession(c);
   }
   if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
@@ -953,11 +946,22 @@ function endHumanSession(c) {
   if (c.slow) c.slow = { ...c.slow, on: 0, humanLive: 0 };
   c.humanDormant = true; c.fast = null; c.pos = null; c.region = null; c.regionTold = false;
   if (c.room) {
+    c.pausedPeerIds = [...c.room.clients.keys()].filter(peer => peer !== c.peer);
+    c.nearAt?.clear(); c.farAt?.clear();
     for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o)) {
       send(o, { t: 'left', peer: c.peer }); o.nearAt?.delete(c.peer); o.farAt?.delete(c.peer);
     }
     regionsTell(c.room);
   }
+}
+function resumeHumanSession(c) {
+  // Omitted standby traffic cannot leave departed peers frozen on this page.
+  for (const peer of c.pausedPeerIds || []) send(c, { t: 'left', peer });
+  c.pausedPeerIds = null; c.toldSeason = false; c.regionTold = false;
+  for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o) && o.slow)
+    send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
+  const currentWorld = worldNow(c.room); if (currentWorld) send(c, { t: 'world', w: currentWorld, init: 1 });
+  regionsTell(c.room, true);
 }
 function setHumanWorkActive(active) {
   active = active && !humanWorkClosing;
