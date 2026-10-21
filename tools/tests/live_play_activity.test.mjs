@@ -58,7 +58,7 @@ test('actual trusted input activates the emitted slow profile and frames cannot 
   assert.equal(f.H.netHumanLive(), true);
   assert.equal(f.H.netSlowObj().humanLive, 1);
   assert.equal(f.H.netSlowObj().humanActivity, 1);
-  for (let n = 0; n < 89; n++) { f.advance(1000); f.H.netHumanSync(); }
+  for (let n = 0; n < 87; n++) { f.advance(1000); f.H.netHumanSync(); }
   assert.equal(f.H.netHumanLive(), true);
   assert.equal(f.H.NET_HUMAN_PLAY.activity, 1);
   f.advance(1000);
@@ -80,7 +80,7 @@ test('only new trusted input extends the live lease and advances its counter', a
   assert.equal(f.H.netHumanLive(), true);
   await f.input('pointermove', { movementX: 0, movementY: 0, buttons: 0 });
   assert.equal(f.H.NET_HUMAN_PLAY.activity, count);
-  f.advance(80000);
+  f.advance(78000);
   assert.equal(f.H.netHumanLive(), false);
 });
 
@@ -164,4 +164,15 @@ test('trusted input repairs focus cached before document activation; synthetic i
   assert.equal(f.H.NET_HUMAN_PLAY.focused,false); assert.equal(f.H.netHumanLive(),false);
   await f.input('keydown'); assert.equal(f.H.NET_HUMAN_PLAY.focused,true);
   assert.equal(f.H.netHumanLive(),true); assert.equal(f.H.NET_HUMAN_PLAY.activity,1);
+});
+
+test('new trusted input renews near the server deadline without waiting for a render frame', async () => {
+  const f = fixture(); await f.input();
+  f.advance(87900); await f.input();
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.at(-1).humanLive, 1);
+  assert.equal(f.sent.at(-1).humanActivity, 2);
+  f.advance(1000); assert.equal(f.H.netHumanLive(), true);
+  for (let n=0; n<100; n++) await f.input('pointermove', {movementX:1});
+  assert.equal(f.sent.length, 3, 'input renewals coalesce to one publication per second');
 });

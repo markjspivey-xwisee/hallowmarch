@@ -1,11 +1,12 @@
 /* A live human session is an input lease, never a socket or animation heartbeat.
  * This is an idle-work signal; server identity and agent admission stay separate.
  */
-const NET_HUMAN_PLAY_MS = 90000;
+// The server keeps a 90-second lease; leave two seconds for publication latency.
+const NET_HUMAN_PLAY_MS = 88000;
 const NET_HUMAN_START_MS = 5000;
 const NET_HUMAN_PLAY = { activity: 0, pendingAt: null, acceptedAt: null, player: null,
   focused: typeof document.hasFocus === 'function' && document.hasFocus(), timer: null,
-  reportedLive: false, reportedActivity: 0 };
+  reportedLive: false, reportedActivity: 0, renewedAt: -Infinity };
 
 function netHumanEligible() {
   return !!(GAME.started && GAME.player && !document.hidden && NET_HUMAN_PLAY.focused
@@ -20,12 +21,11 @@ function netHumanLive() {
 function netHumanPublish() {
   const h = NET_HUMAN_PLAY, live = netHumanLive(), wasLive = h.reportedLive;
   if (live === wasLive) {
-    // Continuous mouse/key input only advances the counter. The ordinary
-    // one-second slow-profile cadence carries it without flooding the server.
-    if (live) h.reportedActivity = h.activity;
-    return;
+    // Trusted input renews at most once a second, even if rendering is stalled.
+    // The client expires before the server, leaving a publication margin.
+    if (!live || h.activity === h.reportedActivity || performance.now() - h.renewedAt < 1000) return;
   }
-  h.reportedLive = live; h.reportedActivity = h.activity;
+  h.reportedLive = live; h.reportedActivity = h.activity; h.renewedAt = performance.now();
   if (live && !wasLive) {
     // The server drops our last pose in standby. Republish it once on resume,
     // even when the human is still standing in exactly the same place.
@@ -34,7 +34,7 @@ function netHumanPublish() {
   // One final save belongs to the departing live session. Never retry it from
   // an idle heartbeat; unsaved native progress keeps its existing pending record.
   if (wasLive && !live && GAME.player && typeof saveNow === 'function') {
-    void Promise.resolve(saveNow()).catch(() => {});
+    void Promise.resolve(saveNow({ final: true })).catch(() => {});
   }
   // Withdraw before suspending the transport, including when rendering stops.
   if (typeof netOn === 'function' && netOn()) {

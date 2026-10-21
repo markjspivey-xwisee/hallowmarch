@@ -616,8 +616,8 @@ function seasonTell(c, away, first) {
   const since = away >= 0 ? SEASON.RS.t - away * SEASON.speed : first ? SEASON.RS.t - 3600 : c.seasonT || SEASON.RS.t - 60;
   const s = SEASON.summary(c.realm, since);
   c.seasonT = SEASON.RS.t;
-  const online = [...c.room.clients.values()].filter((o) => o.realm === c.realm).map((o) => o.acct.id);
-  for (const R of ROOMS.values()) if (R !== c.room && !R.diagnostic) for (const o of R.clients.values()) if (o.realm === c.realm) online.push(o.acct.id);
+  const online = [...c.room.clients.values()].filter((o) => isHumanPlaying(o) && o.realm === c.realm).map((o) => o.acct.id);
+  for (const R of ROOMS.values()) if (R !== c.room && !R.diagnostic) for (const o of R.clients.values()) if (isHumanPlaying(o) && o.realm === c.realm) online.push(o.acct.id);
   const o = { t: 'season', s, roster: SEASON.rosterOf(c.realm, online), first: first ? 1 : 0, away: away >= 0 ? Math.round(away) : -1, speed: SEASON.speed };
   // weather2's weather systems on the map, when the season's module keeps them (RS.weather): a slot the pages will read
   if (SEASON.RS.weather && typeof SEASON.RS.weather === 'object') o.wx = SEASON.RS.weather;
@@ -661,7 +661,7 @@ function companyAccount(c) {
   return { ...c.acct, diagnostic: c.room?.diagnostic === true, nativeBound: c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id),
     nativeParticipant: !!PLAYER_ACCOUNTS.principalFor(c) };
 }
-const coOnline = () => { const s = new Set(); for (const o of coClients()) if (o.acct && COMP.canParticipate(companyAccount(o))) s.add(o.acct.id); return s; };
+const coOnline = () => { const s = new Set(); for (const o of coClients()) if (isHumanPlaying(o) && o.acct && COMP.canParticipate(companyAccount(o))) s.add(o.acct.id); return s; };
 // a player told its company (or its invitations) and the realm's companies' standing; the first telling a session carries
 // when it was last here, so the page tells it what was said in the company meanwhile
 function coTell(c, first) {
@@ -765,12 +765,13 @@ function onMsg(c, raw) {
       return;
     }
     const resuming = c.humanDormant === true;
-    c.humanDormant = false; c.hasPlayedLive = true; c.ws._dead = false;
+    c.humanDormant = false; c.hasPlayedLive = true; c.finalSaveUntil = 0; c.ws._dead = false;
     if (c.pendingAccountSave) { c.pendingAccountSave = false; accountsSave(); }
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
     if (resuming) resumeHumanSession(c);
   }
-  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) {
+  const departingSave = m.t === 'save' && m.final === 1 && c.hasPlayedLive && c.finalSaveUntil > now;
+  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c) && !departingSave) {
     // Explicit writes receive one bounded refusal; an idle save never becomes
     // an ambiguous timeout or a durable side effect.
     if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false,
@@ -803,6 +804,7 @@ function onMsg(c, raw) {
   else if (m.t === 'co') onCo(c, m); // [companies]
   else if (m.t === 'sarmyrep' && !c.room.diagnostic) FIELD.report(c, m); // [season2]
   else if (m.t === 'save') {
+    if (departingSave) c.finalSaveUntil = 0; // Consume once, including a refused payload.
     if (c.acct.nativeBound || c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id)) {
       send(c, { t: 'saved', ok: false, error: 'nativepodsave_required' }); return;
     }
@@ -970,6 +972,8 @@ function captureAcceptedFiles() {
   }
 }
 function endHumanSession(c) {
+  // Only an established live session earns one bounded, explicit departing save.
+  c.finalSaveUntil = c.hasPlayedLive ? Date.now() + 10000 : 0;
   try {
     if (c.room && !c.room.diagnostic && (!WORLD_STATE || WORLD_STATE.canMutate())) FIELD.left(c);
   } catch (error) { console.warn('human departure', error.message); }

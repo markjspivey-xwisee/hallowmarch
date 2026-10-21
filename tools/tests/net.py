@@ -657,7 +657,9 @@ async def companies_part(p):
         await srv_up()
         b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
         ctx = await b.new_context(viewport={'width': W, 'height': H})
-        tctx = await b.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # Edda plays on a phone: her taps are taps
+        # Separate browser instances represent two humans with independent focus.
+        phone_browser = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+        tctx = await phone_browser.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # Edda plays on a phone: her taps are taps
         A = await boot(ctx, {'room': 'srv', 'user': 'uCoA', 'noRoom': True, 'server': url}, 'A')
         town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
         await start(A, 0, 'warrior', 30, 'Corwen', town[0] + 4, town[1] + 10)
@@ -812,6 +814,7 @@ async def companies_part(p):
             errs = await pg.evaluate('__hm.errors.slice()')
             check(not errs, f'{pg._name}: no errors ({errs[:2]})')
         await N1.quit(); await G.quit()
+        await phone_browser.close()
         await b.close()
     finally:
         srv.terminate()

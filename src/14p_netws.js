@@ -373,7 +373,7 @@ async function netServerSaveRef() {
   });
   return {
     get: async () => { const m = await ask({ t: 'load' }); if (!m) throw { code: 'unavailable' }; return { exists: !!m.d, data: () => m.d }; },
-    set: async (s) => { const m = await ask({ t: 'save', d: s }); if (!m || !m.ok) throw { code: 'unavailable' }; },
+    set: async (s, { final = false } = {}) => { const m = await ask({ t: 'save', d: s, ...(final ? { final: 1 } : {}) }); if (!m || !m.ok) throw { code: 'unavailable' }; },
     delete: async () => { const m = await ask({ t: 'wipe' }); if (!m || !m.ok) throw { code: 'unavailable' }; },
   };
 }

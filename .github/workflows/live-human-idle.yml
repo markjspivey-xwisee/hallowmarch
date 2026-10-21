@@ -24,6 +24,7 @@ jobs:
         run: |
           node --test \
             tools/tests/live_play_activity.test.mjs \
+            tools/tests/departing_save.test.mjs \
             tools/tests/idle_client_network.test.mjs \
             tools/tests/net_reconnect.mjs \
             tools/tests/net_social_delivery.mjs \

@@ -203,22 +203,26 @@ function nativeSavePending() {
   return flight;
 }
 function saveNow() {
+  const final = arguments[0]?.final === true;
   clearTimeout(SAVE.timer);
   // nothing to keep until a character is in the world (and never overwrite one from the title screen)
   if (SAVE.wiping || !GAME.ready || !GAME.player) return Promise.resolve();
   if (CAPTURE.on) return Promise.resolve(); // [capture] nothing is saved while the capture build stages its shots (14_capture.js)
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
-  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending)) return Promise.resolve();
+  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending) && !(final && SAVE.server)) return Promise.resolve();
   if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
   else SAVE.pending = s;
   s.savedAt = Date.now();
   if (SAVE.native) return nativeSavePending();
+  // One departing legacy save may follow its withdrawal, within the same bounded
+  // final-save window. An old queue must never dispatch it later from standby.
+  const finalUntil = final ? Date.now() + 10000 : 0;
   // one write at a time: queue behind any write still in flight
   SAVE.chain = SAVE.chain.then(async () => {
-    if (SAVE.ref) {
+    if (SAVE.ref && (final ? Date.now() <= finalUntil : typeof netHumanLive !== 'function' || netHumanLive())) {
       try {
-        await SAVE.ref.set(s);
+        await SAVE.ref.set(s, { final });
         if (SAVE.native) {
           SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
           if (SAVE.pending === s) SAVE.pending = null;
@@ -230,7 +234,7 @@ function saveNow() {
           return;
         }
         if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) { SAVE.ref = null; SAVE.backend = 'local'; }
-        else { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
+        else if (!final && (typeof netHumanLive !== 'function' || netHumanLive())) { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); if (typeof netHumanLive !== 'function' || netHumanLive()) try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
       }
     }
     if (SAVE.native) { NATIVE_PLAYER.state = 'native_signin_required'; nativePlayerRender(); return; }
