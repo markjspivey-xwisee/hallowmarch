@@ -392,10 +392,8 @@ test('local save fallback remains local after late authenticated multiplayer rec
     ['hallowmarch.token.' + HOST]: 'existing-account-token',
     'hallowmarch.token.other.test': 'other-host-token',
   } });
-  const loading = h.H.loadSave();
-  await flush(); await h.sockets[0].open(); await flush();
-  await h.clock.advance(12000);
-  const loaded = await loading;
+  const loaded = await h.H.loadSave();
+  assert.equal(h.sockets.length, 0, 'the idle title retains its local character without a presence socket');
   assert.equal(loaded.char.name, local.char.name);
   assert.equal(h.H.SAVE.ref, null);
   assert.equal(h.H.SAVE.backend, 'local');

@@ -8,6 +8,9 @@ async function initSaveBackend(initialization) {
   const native = await nativePlayerSaveRef(initialization);
   if (!initialization.active) return null;
   if (native) return native;
+  // A confirmed legacy policy must not open a presence socket merely to probe
+  // another account when this browser already has a valid local character.
+  if (validSave(readLocal())?.char) return null;
   try { const srv = await netServerSaveRef(); if (!initialization.active) return null; if (srv) return { ...srv, server: true }; } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
