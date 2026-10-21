@@ -226,7 +226,7 @@ function roomHost(R) {
   for (const c of R.clients.values()) if (isHumanPlaying(c) && c.slow && c.slow.on === 1 && (!best || c.since < best.since || (c.since === best.since && c.peer < best.peer))) best = c;
   return best;
 }
-const send = (c, o) => { if (c.ws.readyState !== 1) return; const s = JSON.stringify(o); STATS.bytesOut += s.length; c.ws.send(s); };
+const send = (c, o) => { if (c.ws.readyState !== 1 || (c.humanDormant && !['world-status', 'acct', 'save', 'saved'].includes(o.t))) return; const s = JSON.stringify(o); STATS.bytesOut += s.length; c.ws.send(s); };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 // the war's shared state as a host reports it, checked: keeps' owners and gates (one a keep), the hour, the campaign
@@ -436,7 +436,7 @@ function regionsTell(R, force) {
 function worldNow(R) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
   const w = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
-  if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && R.clients.size <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
+  if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && [...R.clients.values()].filter(isHumanPlaying).length <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
   return w;
 }
 function worldReport(c, raw) {
@@ -673,7 +673,7 @@ function coCaptured(R, i, r) {
   const K = WORLD.keeps && WORLD.keeps[i];
   if (!K) return;
   const accts = [];
-  for (const o of R.clients.values()) if (o.realm === r && o.pos && Math.hypot(o.pos.x - K.x, o.pos.z - K.z) < 160 && COMP.canParticipate(companyAccount(o))) accts.push(o.acct.id);
+  for (const o of R.clients.values()) if (isHumanPlaying(o) && o.realm === r && o.pos && Math.hypot(o.pos.x - K.x, o.pos.z - K.z) < 160 && COMP.canParticipate(companyAccount(o))) accts.push(o.acct.id);
   for (const id of COMP.captured(accts, r)) coTellCo(id);
 }
 function onCo(c, m) {
@@ -755,9 +755,22 @@ function onMsg(c, raw) {
     if (!playing) {
       c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };
       send(c, { t: 'world-status', ok: true, standby: true, why: 'Live play is paused. Interact with the game to resume.' });
-      c.ws.close(4000, 'Human session idle'); return;
+      // An established owner connection can sleep without traffic or timers.
+      // Never-played/title sockets retain their short admission deadline.
+      if (!c.hasPlayedLive) c.ws.close(4000, 'Human play not started');
+      return;
     }
+    const resuming = c.humanDormant === true;
+    c.humanDormant = false; c.hasPlayedLive = true; c.ws._dead = false;
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
+    if (resuming) {
+      // One current snapshot replaces the traffic intentionally omitted in standby.
+      c.toldSeason = false; c.regionTold = false;
+      for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o) && o.slow)
+        send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
+      const currentWorld = worldNow(c.room); if (currentWorld) send(c, { t: 'world', w: currentWorld, init: 1 });
+      regionsTell(c.room, true);
+    }
   }
   if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) return;
   if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
@@ -822,7 +835,8 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (playerBrowserAssets(req, res, u.pathname)) return;
   if (worldAgentAssets(req, res, u.pathname)) return;
-  if (!hasLiveHumans() && /^(?:\/gaming\/agent\/|\/gaming\/native-agent\/|\/world\/native-agent\/)/.test(u.pathname)) {
+  const explicitOwnerControl = /^(?:\/gaming|\/world)\/native-agent\/(?:register|revoke)$/.test(u.pathname);
+  if (!hasLiveHumans() && !explicitOwnerControl && /^(?:\/gaming\/agent\/|\/gaming\/native-agent\/|\/world\/native-agent\/)/.test(u.pathname)) {
     res.writeHead(409, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ ok: false, error: 'human_play_required', standby: true })); return;
   }
@@ -937,6 +951,13 @@ function endHumanSession(c) {
   } catch (error) { console.warn('human departure', error.message); }
   worldAgentTransport.close(c);
   if (c.slow) c.slow = { ...c.slow, on: 0, humanLive: 0 };
+  c.humanDormant = true; c.fast = null; c.pos = null; c.region = null; c.regionTold = false;
+  if (c.room) {
+    for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o)) {
+      send(o, { t: 'left', peer: c.peer }); o.nearAt?.delete(c.peer); o.farAt?.delete(c.peer);
+    }
+    regionsTell(c.room);
+  }
 }
 function setHumanWorkActive(active) {
   active = active && !humanWorkClosing;
@@ -956,7 +977,8 @@ function setHumanWorkActive(active) {
         worldAgentHost.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
       ]).catch(error => console.warn('idle checkpoint', error.message));
     }
-    for (const c of LIVE_CONNECTIONS) c.ws.close(4000, 'No live human players');
+    for (const c of LIVE_CONNECTIONS) if (!c.hasPlayedLive || c.humanAgentMode || c.room?.diagnostic)
+      c.ws.close(4000, 'No live human players');
     return;
   }
   liveTask(publishGamingCapabilities, 30000, 1000);

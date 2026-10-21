@@ -127,11 +127,21 @@ function netWsPendingFail() {
 function netWsSuspendHuman() {
   clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
   clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
-  // Retire callbacks and pending opens without selecting a different account.
+  // An established owner transport can remain completely silent. Keeping its
+  // generation preserves private owner contexts while a menu is open; it grants
+  // no live-play lease and sends no keepalive or reconnect traffic in standby.
+  if (NETWS.state === 'on' && NETWS.ws?.readyState === 1 && NETWS.acct?.id && NETWS.token) {
+    NETWS.humanSuspended = true;
+    return true;
+  }
+  // An unconfirmed opening has no established owner context to preserve.
+  NETWS.humanSuspended = false;
   netWsRetire(NETWS.ws, 'human session paused');
+  return false;
 }
 function netWsStartHumanPing() {
   if (typeof netHumanLive === 'function' && !netHumanLive()) return;
+  NETWS.humanSuspended = false;
   if (NETWS.pingTimer) return;
   NETWS.pingTimer = setInterval(() => {
     if (typeof netHumanLive === 'function' && !netHumanLive()) {

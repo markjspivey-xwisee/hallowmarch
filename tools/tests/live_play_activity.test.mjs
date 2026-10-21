@@ -141,3 +141,16 @@ test('unfocused or hidden input never creates a live lease', async () => {
   await f.input();
   assert.equal(f.H.NET_HUMAN_PLAY.activity, 0);
 });
+
+test('continuous trusted pointer input is coalesced into the ordinary slow-profile cadence', async () => {
+  const f = fixture();
+  await f.input('pointerdown');
+  assert.equal(f.sent.length, 1);
+  for (let n = 0; n < 120; n++) await f.input('pointermove', { movementX: 1 });
+  assert.equal(f.H.NET_HUMAN_PLAY.activity, 121);
+  assert.equal(f.H.netSlowObj().humanActivity, 121);
+  assert.equal(f.sent.length, 1, 'renewal counter changes do not force a full profile on every pointer event');
+  await f.event('blur', { focused: false });
+  assert.equal(f.sent.length, 2);
+  assert.equal(f.sent.at(-1).humanLive, 0, 'withdrawal still bypasses the normal cadence immediately');
+});

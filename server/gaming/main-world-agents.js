@@ -97,7 +97,9 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
     || Array.isArray(records.references) || Object.keys(records.references).length > 512
     || (records.reclaimCursor !== undefined && (!Number.isInteger(records.reclaimCursor) || records.reclaimCursor < 0 || records.reclaimCursor >= 512))) fail('native_world_authority_corrupt');
   let confirmedRecords = copy(records), closed = false, activityActive = active === true, chain = Promise.resolve(), retirementRead = null; const rates = new Map(), sessions = new Map(), revoking = new Set();
-  const running = () => { const s = owned.status(); if (!activityActive || closed || s.error || ['conflict', 'recovering', 'closing', 'closed'].includes(s.state)) fail('native_world_authority_unavailable'); };
+  const activityAllowed = (ownerAction = false) => { if (closed || (!activityActive && !ownerAction)) fail('native_world_authority_unavailable'); };
+  const running = (ownerAction = false) => { activityAllowed(ownerAction); const s = owned.status();
+    if (s.error || ['conflict', 'recovering', 'closing', 'closed'].includes(s.state)) fail('native_world_authority_unavailable'); };
   function reference(id) {
     running(); const ref = Object.hasOwn(records.references, id) ? records.references[id] : null;
     if (!ref || ref.revoked || revoking.has(id)) fail('native_grant_unavailable'); return ref;
@@ -122,17 +124,17 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
         || scope.entityId.startsWith(ref.ownerPlayerId + ':animal:'))) fail('native_body_forbidden');
     return ref;
   }
-  async function save(mutator) {
+  async function save(mutator, { ownerAction = false } = {}) {
     const task = chain.then(async () => {
-      running();
+      activityAllowed(ownerAction);
       // A permission request may retry an exact retained operation after an
       // unknown native acknowledgement. No gameplay input retries a write.
-      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint();
-      running(); const next = copy(records); await mutator(next); running(); records = next;
+      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint({ allowInactive: ownerAction });
+      running(ownerAction); const next = copy(records); await mutator(next); running(ownerAction); records = next;
       const selected = owned.capture(records).liveVersion;
       // Strict permission acknowledgements: reuse the retained native attempt
       // after an unknown acknowledgement, never manufacture a replacement write.
-      while (owned.status().confirmedLiveVersion < selected) { running(); await owned.checkpoint(); }
+      while (owned.status().confirmedLiveVersion < selected) { running(ownerAction); await owned.checkpoint({ allowInactive: ownerAction }); }
       confirmedRecords = copy(records);
       return owned.status();
     }); chain = task.catch(() => {}); return task;
@@ -251,14 +253,15 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
     lookupOwnerGrant({ grantId }) {
       // Native readback must also reach stopped grants to confirm their owner's
       // pod publication. Proof admission separately enforces reference().
-      running(); const ref = records.references[grantId]; if (!ref) fail('native_grant_unavailable');
+      activityAllowed(true); const ref = records.references[grantId]; if (!ref) fail('native_grant_unavailable');
       return { binding: copy(binding(ref)), graphIri: ref.graphIri };
     },
-    status() { return { ...proof.status(), enabled: !closed && !owned.status().error, scope: 'main-world', leaseMs, persistence: owned.status(),
+    status() { return { ...proof.status(), enabled: !closed && (!owned.status().error || owned.status().error === 'CHECKPOINT_UNCONFIRMED'), scope: 'main-world', leaseMs, persistence: owned.status(),
       privateCharacterIncluded: false, combatAuthority: 'owner-page' }; },
     async register(owner, body) {
-      running(); const who = principal(owner);
-      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint();
+      activityAllowed(true); const who = principal(owner);
+      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint({ allowInactive: true });
+      running(true);
       if (!exact(body, ['grantId', 'graphIri']) || !uuid(body.grantId)
         || body.graphIri !== 'urn:graph:interego:gaming:owner-agent-grant:' + body.grantId.slice(9)) fail('native_reference_only');
       const prior = records.references[body.grantId];
@@ -273,7 +276,7 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
           || current.graphIri !== body.graphIri || current.revoked)) fail('native_grant_unavailable');
         if (!current && Object.keys(next.references).length >= 512) { atCapacity = true; return; }
         next.references[body.grantId] ||= { ...body, ownerPlayerId: who.accountId, ownerDid: who.binding.subjectDid, revoked: false };
-      });
+      }, { ownerAction: true });
       if (reclaimed) revoking.delete(reclaimed);
       if (atCapacity) fail('native_reference_capacity');
       return { reference: copy(records.references[body.grantId]), authority: { scope: 'main-world', durable: true, version: persistence.confirmedVersion } };
@@ -326,10 +329,10 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
       return { roomId: body.roomId, entityId: body.entityId, state: copy(state), authority: 'owner-page-observation' };
     },
     async revoke(owner, body) {
-      const who = principal(owner); if (!exact(body, ['grantId'])) fail('native_reference_only');
-      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint();
+      activityAllowed(true); const who = principal(owner); if (!exact(body, ['grantId'])) fail('native_reference_only');
+      if (owned.status().error === 'CHECKPOINT_UNCONFIRMED') await owned.checkpoint({ allowInactive: true });
       if (!uuid(body.grantId)) fail('native_reference_only');
-      running();
+      running(true);
       const ref = records.references[body.grantId] || await archivedRevocation(body.grantId);
       if (!ref) fail('native_grant_unavailable');
       if (ref.ownerPlayerId !== who.accountId || ref.ownerDid !== who.binding.subjectDid) fail('native_owner_required');
@@ -337,11 +340,11 @@ export async function createMainWorldAgents({ store, accounts, applicationId, au
       // one-hour tombstones. Existing leases stop now; pending completions are
       // refused by reference/currentScope before they can return authority.
       blockGrant(body.grantId, who.accountId);
-      if (records.references[body.grantId]) await save(next => { const current = next.references[body.grantId]; if (current) current.revoked = true; });
+      if (records.references[body.grantId]) await save(next => { const current = next.references[body.grantId]; if (current) current.revoked = true; }, { ownerAction: true });
       const persistence = await save(async next => {
         const current = next.references[body.grantId];
         if (current) await archiveRevocation(current);
-      });
+      }, { ownerAction: true });
       revoking.delete(body.grantId);
       return { grantId: body.grantId, revoked: true, ownerPodRevocation: 'requires-owner-publication', authority: { scope: 'main-world', durable: true, version: persistence.confirmedVersion } };
     },

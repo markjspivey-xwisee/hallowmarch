@@ -130,3 +130,43 @@ test('explicit live expedition shutdown drains accepted commands after suspensio
   assert.ok((await f.store.load()).state.entities['human-1']);
   assert.equal(room.persistenceStatus().pendingCommands, 0);
 });
+
+for (const mode of ['strict', 'realtime']) test(mode + ': explicit verified owner controls save while paused without waking gameplay', async () => {
+  const f = fixture(), room = await new AuthoritativeRoom({roomId:'owner-controls-'+mode,store:f.store,
+    domain:createHallowmarchDomain(),persistenceMode:mode,checkpointIntervalMs:10}).open();
+  const owner = {playerId:'human-1',realmId:'0',name:'Human',verifiedDid:'did:web:identity.example:human'};
+  await room.execute(owner,{type:'join',commandId:'join'}); await room.flushPersistence(); room.setActive(false);
+  const grantId='urn:uuid:1647775c-22c7-4a79-8a45-d55cfe101b41';
+  await room.executeOwnerControl(owner,{type:'registerNativeCompanion',commandId:'register',grantId,
+    graphIri:'urn:graph:interego:gaming:owner-agent-grant:1647775c-22c7-4a79-8a45-d55cfe101b41'});
+  assert.equal(room.activityActive,false); assert.equal(room.checkpointTimer,null);
+  await assert.rejects(room.executeOwnerControl(owner,{type:'move',commandId:'not-settings'}),{code:'native_owner_required'});
+  await assert.rejects(room.execute(owner,{type:'move',commandId:'still-paused'}),{code:'human_play_required'});
+  await assert.rejects(room.executeOwnerControl({...owner,verifiedDid:undefined},{type:'revokeNativeCompanion',commandId:'unverified',grantId}),{code:'native_owner_required'});
+  await room.executeOwnerControl(owner,{type:'revokeNativeCompanion',commandId:'revoke',grantId});
+  assert.equal((await f.store.load()).state.companions.nativeReferences[grantId].revoked,true);
+  const count=f.calls; await wait(35); assert.equal(f.calls,count); assert.equal(room.activityActive,false);
+  await room.close({checkpoint:false});
+});
+test('main-world explicit owner register/Stop remain bounded in standby; agents cannot use the exception', async () => {
+  const saved = new Map(); let writes=0, proofReads=0, stops=0;
+  const store = {owner:'urn:test:owner-control', async load(id){return structuredClone(saved.get(id)||{version:0,state:null});},
+    async commit(id,input){writes++;const prior=saved.get(id)||{version:0,state:null};assert.equal(input.expectedVersion,prior.version);
+      const next={version:prior.version+1,state:structuredClone(input.state)};saved.set(id,next);return structuredClone(next);}};
+  const binding={subjectDid:'did:web:identity.example:human',podUrl:'https://pods.example/human/'};
+  const owner={accountId:'human',binding}, grantId='urn:uuid:1647775c-22c7-4a79-8a45-d55cfe101b41';
+  const ledger=await createMainWorldAgents({store,active:false,
+    accounts:{bindingForAccount:id=>id==='human'?binding:null},applicationId:'urn:test:world-agent',audience:'https://game.example',
+    nativeCore:{recoverMessageSigner(){throw new Error('No agent proof should run');}},
+    readOwnerGrantHead:async()=>{proofReads++;throw new Error('No standby agent reads');},
+    resolveAgentProof:async()=>{proofReads++;throw new Error('No standby agent reads');},
+    view(){},dispatch(){throw new Error('No standby dispatch');},stop(){stops++;}});
+  await ledger.register(owner,{grantId,graphIri:'urn:graph:interego:gaming:owner-agent-grant:1647775c-22c7-4a79-8a45-d55cfe101b41'});
+  assert.equal(ledger.references(owner)[0].grantId,grantId);
+  assert.throws(()=>ledger.challenge({grantId}),{code:'native_world_authority_unavailable'});
+  await assert.rejects(ledger.register({accountId:'intruder',binding},{grantId,graphIri:'x'}),{code:'native_owner_required'});
+  await ledger.revoke(owner,{grantId});
+  assert.equal(ledger.references(owner)[0].revoked,true);assert.ok(stops>0);
+  const count=writes;await wait(35);assert.equal(writes,count);assert.equal(proofReads,0);
+  await ledger.close({checkpoint:false});assert.equal(writes,count);
+});

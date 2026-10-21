@@ -113,3 +113,43 @@ test('automatic coaching and learning flush return before owner context or netwo
   vm.runInContext(learning + '\nglobalThis.flush=marchLearningFlush;', l);
   await assert.doesNotReject(() => l.flush());
 });
+
+test('an authenticated dormant socket has no timers or reconnects and preserves private owner scopes across live resume', async () => {
+  const s = read('14p_netws.js');
+  const helpers = between(s, 'function netWsSuspendHuman()', '// A timed-out FIFO') +
+    between(s, 'async function netWsReconnect()', '// Only pending requests');
+  const ownerKey = between(read('14x_consulting.js'), 'function marchConsultingOwnerKey()', 'function marchConsultingClose()');
+  const activityScope = between(read('14y_activity.js'), 'function activityScope()', 'function activityModules()');
+  let live = false, opens = 0, sends = 0, retired = 0, next = 1;
+  const timeouts = new Map(), intervals = new Map();
+  const socket = { readyState: 1 };
+  const context = vm.createContext({
+    NETWS: { state: 'on', link: {}, closed: false, reload: false, retryTimer: 11, pingTimer: 12,
+      backoff: 1, ws: socket, acct: { id: 'owner' }, token: 'same-owner-token', generation: 7 },
+    GAME: { started: true, player: { name: 'Owner', faction: 0, cls: 'warrior' }, prog: {} }, SAVE: { native: true }, CAPTURE: { on: false },
+    NATIVE_PLAYER: { profile: {}, status: { verified: true, binding: { subjectDid: 'did:example:owner', podUrl: 'https://pod.example/owner/' } } },
+    netHumanLive: () => live, netWsOpen: async () => { opens++; return true; }, netWsSend: () => sends++,
+    netWsRetire: () => { retired++; context.NETWS.generation++; context.NETWS.state = 'off'; },
+    performance: { now: () => 10 }, setTimeout(fn) { const id = next++; timeouts.set(id, fn); return id; },
+    clearTimeout: id => timeouts.delete(id), setInterval(fn) { const id = next++; intervals.set(id, fn); return id; },
+    clearInterval: id => intervals.delete(id)
+  });
+  timeouts.set(11, () => { throw Error('idle retry leaked'); });
+  intervals.set(12, () => { throw Error('idle keepalive leaked'); });
+  vm.runInContext(helpers + ownerKey + activityScope +
+    '\nglobalThis.H={netWsSuspendHuman,netWsRetryLater,netWsReconnect,netWsStartHumanPing,marchConsultingOwnerKey,activityScope,activityCurrent};', context);
+  const key = context.H.marchConsultingOwnerKey(), scope = context.H.activityScope();
+  assert.equal(context.H.netWsSuspendHuman(), true);
+  assert.equal(context.NETWS.state, 'on'); assert.equal(context.NETWS.ws, socket);
+  assert.equal(context.NETWS.generation, 7); assert.equal(retired, 0);
+  assert.equal(timeouts.size, 0); assert.equal(intervals.size, 0);
+  context.H.netWsRetryLater(); await context.H.netWsReconnect();
+  assert.equal(opens, 0); assert.equal(sends, 0); assert.equal(timeouts.size, 0);
+  assert.equal(context.H.marchConsultingOwnerKey(), key);
+  assert.equal(context.H.activityCurrent(scope), true);
+  live = true; context.H.netWsStartHumanPing();
+  assert.equal(intervals.size, 1); [...intervals.values()][0]();
+  assert.equal(sends, 1); assert.equal(context.NETWS.generation, 7);
+  assert.equal(context.H.marchConsultingOwnerKey(), key);
+  assert.equal(context.H.activityCurrent(scope), true);
+});

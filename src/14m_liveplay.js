@@ -19,19 +19,25 @@ function netHumanLive() {
 }
 function netHumanPublish() {
   const h = NET_HUMAN_PLAY, live = netHumanLive(), wasLive = h.reportedLive;
-  if (live === wasLive && (!live || h.activity === h.reportedActivity)) return;
+  if (live === wasLive) {
+    // Continuous mouse/key input only advances the counter. The ordinary
+    // one-second slow-profile cadence carries it without flooding the server.
+    if (live) h.reportedActivity = h.activity;
+    return;
+  }
   h.reportedLive = live; h.reportedActivity = h.activity;
   // One final save belongs to the departing live session. Never retry it from
   // an idle heartbeat; unsaved native progress keeps its existing pending record.
   if (wasLive && !live && GAME.player && typeof saveNow === 'function') {
     void Promise.resolve(saveNow()).catch(() => {});
   }
-  // Withdraw before closing the socket, including when rendering is suspended.
+  // Withdraw before suspending the transport, including when rendering stops.
   if (typeof netOn === 'function' && netOn()) {
     NET.slowKey = ''; NET.slowAt = -Infinity;
     if (typeof netSendSlow === 'function') netSendSlow(performance.now(), true);
   }
   if (wasLive && !live && typeof netWsSuspendHuman === 'function') netWsSuspendHuman();
+  else if (live && typeof netWsStartHumanPing === 'function') netWsStartHumanPing();
 }
 function netHumanSync() {
   const h = NET_HUMAN_PLAY, now = performance.now(), eligible = netHumanEligible();

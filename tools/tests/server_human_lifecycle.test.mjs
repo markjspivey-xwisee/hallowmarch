@@ -25,6 +25,7 @@ function fixture({ monitor = '1' } = {}) {
     worldAgentTransport: { close: record('agent-stop') },
     worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a) },
     nativeAgentHost: { setActive: record('native-agent-active') },
+    send: record('send'), regionsTell: record('regions'),
     CFG: { seasonStep: 5000, seasonPush: 10000 }, ROOMS: new Map(),
     publishGamingCapabilities: record('publish-gaming'), publishPlayerCapabilities: record('publish-player'),
     publishWorldCapability: record('publish-world'), seasonTell: record('season-push'),
@@ -72,16 +73,38 @@ test('resuming rebases wall-clock time instead of advancing the empty season', a
   assert.equal(f.counts('season-step'), before);
   await f.advance(5000); assert.equal(f.counts('season-step'), before + 1);
 });
-test('heartbeat reaches live humans only and stops in standby', async () => {
+test('heartbeat stops while an established owner socket sleeps without timers', async () => {
   const f = fixture(); let humanPings = 0, idlePings = 0, closes = 0;
-  f.connections.add({ live: true, ws: { ping() { humanPings++; }, close() { closes++; }, terminate() {} } });
+  f.connections.add({ live: true, hasPlayedLive: true, ws: { ping() { humanPings++; }, close() { closes++; }, terminate() {} } });
   f.connections.add({ live: false, ws: { ping() { idlePings++; }, close() { closes++; }, terminate() {} } });
   f.active(1); await f.advance(15000);
   assert.equal(humanPings, 1); assert.equal(idlePings, 0);
-  f.active(0); assert.equal(closes, 2);
+  f.active(0); assert.equal(closes, 1);
   await f.advance(60000); assert.equal(humanPings, 1); assert.equal(f.timers.size, 0);
 });
 test('monitor disabled by deployment never initializes or flushes during play', async () => {
   const f = fixture({ monitor: '0' }); f.active(1); await f.advance(120000);
   assert.equal(f.counts('monitor-initialize'), 0); assert.equal(f.counts('monitor-sample'), 0);
+});
+
+test('departure releases region ownership and tells active peers once without retiring the owner socket', () => {
+  const f = fixture(), other = { live: true, nearAt: new Map([['owner-peer', 1]]), farAt: new Map([['owner-peer', 1]]) };
+  const owner = { peer: 'owner-peer', slow: {on:1}, region:'h0', regionTold:true, fast:{}, pos:{},
+    ws:{ close() { throw new Error('Dormant owner transport must remain established'); } } };
+  owner.room = {clients:new Map([['owner-peer', owner], ['other', other]])};
+  f.context.api.endHumanSession(owner);
+  assert.equal(owner.humanDormant, true); assert.equal(owner.slow.on, 0);
+  assert.equal(owner.region, null); assert.equal(owner.pos, null);
+  assert.equal(other.nearAt.has('owner-peer'), false); assert.equal(other.farAt.has('owner-peer'), false);
+  assert.equal(f.counts('send'), 1); assert.equal(f.counts('regions'), 1);
+});
+test('standby HTTP exceptions name only explicit owner relationship controls', () => {
+  const definition = source.split('\n').find(line => line.includes('const explicitOwnerControl = '));
+  assert.ok(definition); const regexText = definition.slice(definition.indexOf('= ') + 2, definition.lastIndexOf('.test'));
+  const allowed = vm.runInNewContext(regexText);
+  for (const prefix of ['/gaming', '/world']) {
+    assert.equal(allowed.test(prefix+'/native-agent/register'), true);
+    assert.equal(allowed.test(prefix+'/native-agent/revoke'), true);
+    for (const action of ['challenge','complete','renew','command','observe']) assert.equal(allowed.test(prefix+'/native-agent/'+action), false);
+  }
 });
