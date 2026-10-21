@@ -341,9 +341,9 @@ const stepOkForGhost = (x, z) => inDungeon({ x }) || isWalkable(x, z) || !!water
 /* telling the others                                                  */
 /* ------------------------------------------------------------------ */
 function netSlowObj() {
-  const P = GAME.player, prog = GAME.prog;
-  const o = { v: 1, on: GAME.started && P ? 1 : 0, since: NET.since,
-    humanLive: netHumanLive() ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
+  const P = GAME.player, prog = GAME.prog, live = netHumanLive();
+  const o = { v: 1, on: live ? 1 : 0, since: NET.since,
+    humanLive: live ? 1 : 0, humanActivity: NET_HUMAN_PLAY.activity };
   if (P && prog) {
     const L = P.look;
     o.n = P.name.slice(0, 24); o.dn = late2Named(P).slice(0, 56); o.r = P.faction; o.c = P.cls; o.l = prog.level; o.rr = realmRank(prog.rp);

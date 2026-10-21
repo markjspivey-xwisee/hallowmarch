@@ -202,3 +202,56 @@ test('trusted live resume republishes one unchanged standing pose on the same do
   now += 1000; await input(); context.H.netPump(0.1);
   assert.equal(frames.length, 2, 'ordinary live input keeps standing-pose deduplication');
 });
+
+test('an idle room profile withdraws its body and hands the unchanged sky to a live follower', () => {
+  const net = read('14n_net.js'), weather = read('14r_netwx.js');
+  const source = between(net, 'function netSlowObj()', 'function netFastObj(') +
+    between(net, 'function netSlowRead(o)', 'function netFastRead(') +
+    between(net, 'function netHostElect()', 'function netWorldObj(') +
+    between(weather, 'function netWxObj()', '// A bounded, detached snapshot') +
+    between(weather, 'function netWxUnfollow()', '// the first host of a session');
+  let live = true;
+  const context = vm.createContext({
+    GAME: { started: true, player: {}, prog: null }, NET_HUMAN_PLAY: { activity: 7 },
+    NET: { self: 'follower', since: 2, host: '', isHost: false, peers: new Map(), regions: null },
+    WX: { follow: 50, cells: [], wind: { from: 0, s: 1, toFrom: 0, toS: 1, next: 300 }, off: { x: 0, z: 0 } },
+    NWX: { snap: null, snapAt: 0, snapKey: '', seq: 0, last: 'old-host-word',
+      EVERY: 6000, stats: { sent: 0, unfollows: 0 } },
+    performance: { now: () => 100 }, netHumanLive: () => live, netKeepsMine: () => false,
+    netWorldObj: () => ({}), wxHeld: () => false, nwxR: (v, k) => Math.round(v * k) / k,
+    netNum: (v, lo, hi, d = 0) => typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d,
+    netStr: (v, n) => typeof v === 'string' ? v.slice(0, n) : '', NET_REALM_OK: r => r >= 0 && r <= 2,
+    CLASSES: { warrior: {} }, LEVEL_CAP: 60, netWxRead: () => null, netCompanionRead: () => null,
+    netWorldTake() {}, netWxTake() {}, netNote() {}, uiLog() {}
+  });
+  vm.runInContext(source + '\nglobalThis.H={netSlowObj,netSlowRead,netHostElect};', context);
+  function remoteProfile(active) {
+    live = active; context.NET.since = 1; context.NET.isHost = false;
+    const profile = context.H.netSlowObj();
+    context.NET.since = 2; live = true;
+    return profile;
+  }
+  const playing = remoteProfile(true);
+  assert.equal(playing.on, 1); assert.equal(playing.humanLive, 1);
+  context.NET.peers.set('host', { peer: 'host', slow: context.H.netSlowRead(playing) });
+  context.H.netHostElect();
+  assert.equal(context.NET.host, 'host'); assert.equal(context.NET.isHost, false);
+
+  // The same character remains loaded in its menu, title transition, hidden tab
+  // or expired input lease. Its single withdrawal must stop advertising a body.
+  const paused = remoteProfile(false);
+  assert.equal(paused.on, 0); assert.equal(paused.humanLive, 0);
+  assert.equal(paused.humanActivity, playing.humanActivity);
+  context.NET.peers.set('host', { peer: 'host', slow: context.H.netSlowRead(paused) });
+  context.H.netHostElect();
+  assert.equal(context.NET.isHost, true); assert.equal(context.NET.host, 'follower');
+  assert.equal(context.WX.follow, 50);
+  context.H.netSlowObj();
+  assert.equal(context.WX.follow, 0); assert.equal(context.NWX.stats.unfollows, 1);
+  assert.equal(context.NWX.stats.sent, 1);
+
+  // An admitted authoritative server retains its established host precedence.
+  context.NET.peers.set('server', { peer: 'server', srv: true, slow: { on: 1 } });
+  context.H.netHostElect();
+  assert.equal(context.NET.host, 'server'); assert.equal(context.NET.isHost, false);
+});
