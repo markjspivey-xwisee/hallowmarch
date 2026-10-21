@@ -1007,11 +1007,14 @@ function setHumanWorkActive(active) {
   if (!active) {
     if (!humanWorkClosing) {
       captureAcceptedFiles();
-      humanWorkSuspension = Promise.all([
+      humanWorkSuspension = Promise.allSettled([
         WORLD_STATE?.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
         GAMING.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
         worldAgentHost.suspend?.({ checkpoint: true, timeoutMs: 10000 }),
-      ]).catch(error => console.warn('idle checkpoint', error.message));
+      ]).then(results => {
+        for (const result of results) if (result.status === 'rejected')
+          console.warn('idle checkpoint', result.reason?.message || 'Checkpoint is not confirmed.');
+      });
     }
     for (const c of LIVE_CONNECTIONS) if (!c.hasPlayedLive || c.humanAgentMode || c.room?.diagnostic)
       c.ws.close(4000, 'No live human players');

@@ -157,3 +157,19 @@ test('immediate shutdown waits for departure save before closing native bridges'
   assert.equal(f.counts('agent-close'), 1); assert.equal(f.counts('process-exit'), 1);
   assert.equal(f.calls.find(call => call.name === 'world-shutdown').args[0].checkpoint, false);
 });
+
+test('one failed departure save cannot close another bridge before its bounded save settles', async () => {
+  const f=fixture();let confirm;
+  f.context.WORLD_STATE.suspend=async()=>{throw new Error('One checkpoint failed');};
+  f.context.GAMING.suspend=()=>new Promise(resolve=>{confirm=resolve;});
+  f.active(1);f.active(0);
+  const closing=f.context.api.shutdown();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.counts('world-shutdown'),0);assert.equal(f.counts('gaming-shutdown'),0);
+  assert.equal(f.counts('agent-close'),0);assert.equal(f.counts('process-exit'),0);
+  assert.equal(f.counts('warning'),0,'failure reporting must not release the aggregate suspension early');
+  confirm({durable:true});await closing;
+  assert.equal(f.counts('warning'),1);
+  assert.equal(f.counts('world-shutdown'),1);assert.equal(f.counts('gaming-shutdown'),1);
+  assert.equal(f.counts('agent-close'),1);assert.equal(f.counts('process-exit'),1);
+});
