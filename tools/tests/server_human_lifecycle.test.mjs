@@ -173,3 +173,18 @@ test('one failed departure save cannot close another bridge before its bounded s
   assert.equal(f.counts('world-shutdown'),1);assert.equal(f.counts('gaming-shutdown'),1);
   assert.equal(f.counts('agent-close'),1);assert.equal(f.counts('process-exit'),1);
 });
+
+test('one failed live shutdown cannot exit before another accepted final save settles', async () => {
+  const f = fixture(); let confirm;
+  f.context.GAMING.shutdown = async () => { throw new Error('One final checkpoint failed'); };
+  f.context.WORLD_STATE.shutdown = () => new Promise(resolve => { confirm = resolve; });
+  f.active(1);
+  const closing = f.context.api.shutdown();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.counts('process-exit'), 0);
+  assert.equal(f.counts('warning'), 0, 'the aggregate shutdown must await its remaining saves');
+  confirm({ durable: true }); await closing;
+  assert.equal(f.counts('agent-close'), 1);
+  assert.equal(f.counts('warning'), 1);
+  assert.equal(f.counts('process-exit'), 1);
+});

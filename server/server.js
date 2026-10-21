@@ -1058,8 +1058,9 @@ const shutdown = async () => {
     // Departure may already be saving an accepted prefix. Settle that bounded
     // save before inactive shutdown closes its native state bridges.
     await humanWorkSuspension;
-    return Promise.all([GAMING.shutdown({ checkpoint: wasLive }),
+    const results = await Promise.allSettled([GAMING.shutdown({ checkpoint: wasLive }),
       WORLD_STATE?.shutdown({ timeoutMs: 14000, checkpoint: wasLive }), worldAgentHost.close()]);
+    if (results.some(result => result.status === 'rejected')) throw new Error('Final checkpoint is not confirmed.');
   };
   try { await Promise.race([drain(), deadline]); }
   catch { console.warn('gaming: restart will recover the last confirmed checkpoint'); }
