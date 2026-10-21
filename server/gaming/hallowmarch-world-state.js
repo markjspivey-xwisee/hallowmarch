@@ -84,7 +84,8 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     ...(backgroundCaptureDeferred ? { durable: false } : {}), enabled: true, mode: 'native', scope: 'world-and-season',
     snapshotOwnershipMigrated: true, realtimeAuthority: 'elected-page-region-keepers', authoritativeCombat: false,
     teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false,
-    fenced: rollingBack || captureFailure || ['conflict', 'recovering'].includes(bridge.status().state),
+    fenced: rollingBack || captureFailure || bridge.status().error === 'CHECKPOINT_UNCONFIRMED'
+      || ['conflict', 'recovering'].includes(bridge.status().state),
     ...(captureFailure ? { durable: false, error: 'WORLD_SNAPSHOT_REJECTED' } : {}) });
   const canMutate = () => !closing && !status().fenced;
   function assertMutable() { if (!canMutate()) throw new OwnedStateError('WORLD_FENCED', 'World persistence needs recovery before play can continue.'); }

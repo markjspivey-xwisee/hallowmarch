@@ -210,3 +210,33 @@ test('real server rejects an invalid confirmed native world without falling back
   assert.doesNotMatch(result.output(), /season: (kept|a new)/);
   assert.equal(JSON.parse(await readFile(path.join(f.data, 'worlds.json'), 'utf8')).march.cn, 3);
 });
+
+test('real server fences known checkpoint outages before accepting further season mutations and recovers natively', async t => {
+  const f = await fixture(t), server = await f.start(), actor = await server.connect({ live: true });
+  await server.admin('world-checkpoint');
+  const before = (await f.readDurable()).streams['hallowmarch-world-season-v1'];
+  await f.setControl({ commitError: true });
+  assert.equal((await server.admin('keep&i=0&r=1')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).status, 503);
+  const blocked = await server.status();
+  assert.equal(blocked.error, 'CHECKPOINT_UNCONFIRMED');
+  assert.equal(blocked.fenced, true);
+  assert.equal(blocked.durable, false);
+  assert.equal((await server.admin('keep&i=0&r=2')).status, 503);
+  assert.equal((await fetch(server.base + '/season')).status, 503);
+  actor.send({ t: 'contrib', q: 481, k: 'food', n: 1 });
+  const contribution = await actor.receive('contrib');
+  assert.equal(contribution.ok, false); assert.equal(contribution.q, 481);
+  actor.send({ t: 'order', q: 482, o: { kind: 'target', keep: 0 } });
+  const order = await actor.receive('order');
+  assert.equal(order.ok, false); assert.equal(order.q, 482);
+  assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'], before,
+    'failed storage never advances the confirmed native snapshot');
+  await f.setControl({});
+  const recovered = await server.admin('world-recover');
+  assert.equal(recovered.status, 200); assert.equal(recovered.body.persistence.fenced, false);
+  await server.connect({ live: true });
+  assert.equal((await server.admin('keep&i=0&r=2')).status, 200);
+  assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
+  assert.equal((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.season.keeps[0].h, 2);
+});
