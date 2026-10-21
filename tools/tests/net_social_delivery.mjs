@@ -19,6 +19,8 @@ function client(name = 'owner', realm = 0) {
   const sends = [], received = [], logs = [], errors = [];
   const player = { name, faction: realm, x: 0, y: 30, z: 0, prevX: 0, prevZ: 0, yaw: 0, hp: 100, maxHp: 100, alive: true, buffs: [] };
   const context = vm.createContext({
+    // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
+    netHumanSync() {}, netHumanLive: () => true, NET_HUMAN_PLAY: { activity: 1 },
     setTimeout(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
     performance: { now: () => now }, Date, Map, Set, Math, Number, Object, Array, JSON,

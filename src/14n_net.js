@@ -475,7 +475,7 @@ function netSendFast(now) {
 function netPump(dt) {
   netHumanSync();
   if (!netHumanLive()) return;
-  if (NETWS.link && NETWS.state === 'off' && !NETWS.closed && !NETWS.reload) void netWsReconnect();
+  if (NETWS.link && NETWS.state === 'off' && !NETWS.retryTimer && !NETWS.closed && !NETWS.reload) void netWsReconnect();
   // Retry initial server failures only after boot. A valid room link keeps its
   // own transport; recovery does not replace it or change the save backend.
   if (GAME.ready && !NETWS.closed && !NETWS.reload && (NET.state === 'off' || (NET.state === 'alone' && netServerUrl() && performance.now() >= NET.retryAt))) netConnect();

@@ -75,6 +75,8 @@ function harness(options = {}) {
     status: () => ({ keyPresent: true, hasRecord: false }), set: async () => {}, close() {} };
   const requests = [], titleUpdates = [], settingUpdates = [], worldUpdates = [];
   const context = vm.createContext({
+    // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
+    netHumanSync() {}, netHumanLive: () => true, NET_HUMAN_PLAY: { activity: 1 },
     console, URL, URLSearchParams, Map, Set, Object, Array, JSON, Math, AbortSignal,
     performance: { now: () => now },
     Date: class extends Date { static now() { return 1700000000000 + now; } },
