@@ -5,7 +5,7 @@ mins = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 chunk = min(30, int(sys.argv[2]) if len(sys.argv) > 2 else 300)  # bounded active-play work between trusted inputs
 script = [["eval","__hm.fn.setQuality('low')"],["eval","__hm.start({realm:0, cls:'warrior', level:15})"]]
 for i in range(mins * 60 // chunk):
-    script.append(['key', 'F8'])  # explicit test operator; no synthetic DOM event or idle bypass
+    script.append(['key', 'Shift'])  # explicit test operator; no synthetic DOM event or idle bypass
     script.append(["eval", f"(()=>{{const t0=performance.now(); const s=__hm.simulate({chunk}); const all=__hm.WAR.news.map(n=>Math.round(n.t)+' '+n.text); s.news=all.slice(-14); s.ms=Math.round(performance.now()-t0); delete s.roles; s.b8=__hm.bal8?Object.assign({{}}, __hm.bal8.BAL8.stats):null; s.walls=__hm.walls?Object.assign({{}}, __hm.walls.WALLS.stats):null; s.lines=__hm.lines?Object.assign({{}}, __hm.lines.LINE.stats):null; s.s2=__hm.siege2?Object.assign({{}}, __hm.siege2.SIEGE2.stats, {{ pal: __hm.palisade.PAL.stats, bat: __hm.batter.BATTER.stats }}):null; s.bz=__hm.blaze?Object.assign({{}}, __hm.blaze.BLAZE.stats):null; return s}})()"])  # [walls] what the walls stopped; [siege3] what burnt
 r = subprocess.run(['python3', HM,json.dumps({"w":320,"h":180,"script":script})],capture_output=True,text=True,timeout=3000)
 for line in r.stdout.splitlines():
