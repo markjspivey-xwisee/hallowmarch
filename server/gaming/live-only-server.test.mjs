@@ -51,7 +51,11 @@ test('real empty server performs no tick, outbound request or save across old ti
         socket.once('error', reject);
         socket.once('open', () => socket.send(JSON.stringify({t:'hello',v:1,room})));
         socket.on('message', data => {
-          const message=JSON.parse(String(data)); if (message.t !== 'welcome') return;
+          const message=JSON.parse(String(data));
+          if (message.t === 'welcome') socket.send(JSON.stringify({t:'save',d:{idle:true}}));
+          if (message.t !== 'saved') return;
+          try { assert.equal(message.ok,false); assert.equal(message.error,'human_play_required'); }
+          catch(error) { reject(error); return; }
           socket.send(JSON.stringify({t:'slow',d:{on:room==='march'?0:1,humanLive:1,humanActivity:1}}));
           resolve();
         });

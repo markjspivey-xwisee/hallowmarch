@@ -769,7 +769,13 @@ function onMsg(c, raw) {
     clearTimeout(c.inactiveTimer); c.inactiveTimer = null;
     if (resuming) resumeHumanSession(c);
   }
-  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) return;
+  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c)) {
+    // Explicit writes receive one bounded refusal; an idle save never becomes
+    // an ambiguous timeout or a durable side effect.
+    if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false,
+      error: nativePlayersRequired && !PLAYER_ACCOUNTS.principalFor(c) ? 'native_identity_required' : 'human_play_required' });
+    return;
+  }
   if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
     send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
       why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
