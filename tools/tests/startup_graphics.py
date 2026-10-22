@@ -218,7 +218,7 @@ async def context_loss(page, errors, console_errors, navigations):
 
 
 async def title_canvas_pixels(page):
-    snapshot = '({...window.__hmStartup, hidden:document.hidden, gameReady:__hm.GAME.ready})'
+    snapshot = '({...window.__hmStartup, hidden:document.hidden, gameReady:__hm.GAME.ready, errors:[...__hm.errors]})'
     before = await page.evaluate(snapshot)
     receipt_path = hm.OUT / 'startup-safe-title-receipt.json'
     receipt_path.write_text(json.dumps({'before':before}, indent=2), encoding='utf-8')
@@ -273,10 +273,11 @@ async def safe_boot(browser):
     try:
         await page.goto(ORIGIN + '/?safe=1&server=', wait_until='commit', timeout=120000)
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
-        ready_receipt = await page.evaluate('({...window.__hmStartup, hidden:document.hidden})')
+        ready_receipt = await page.evaluate('({...window.__hmStartup, hidden:document.hidden, errors:[...__hm.errors]})')
         (hm.OUT / 'startup-safe-first-ready.json').write_text(json.dumps(ready_receipt, indent=2), encoding='utf-8')
         print('first Ready title receipt', json.dumps(ready_receipt), flush=True)
-        check(ready_receipt['titleCompleted'] > 0 and not ready_receipt['stopped'],
+        check(ready_receipt['titleCompleted'] > 0 and not ready_receipt['stopped'] and
+              math.isfinite(ready_receipt['titleFenceWaitMs']) and ready_receipt['titleFenceWaitMs'] >= 0,
               'first Ready follows at least one completed title GPU fence: '+json.dumps(ready_receipt))
         await page.evaluate("""() => {
           const renderer = __hm.dbg.renderer, render = renderer.render;
