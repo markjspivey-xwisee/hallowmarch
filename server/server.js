@@ -305,7 +305,7 @@ const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accoun
 const worldAgentTransport = createMainWorldAgentTransport({ principalFor: c => isHumanPlaying(c) && (!WORLD_STATE || WORLD_STATE.canMutate()) && PLAYER_ACCOUNTS.principalFor(c), send });
 const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS,
   environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
-const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: SEASON.RS.n });
+const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: Number.isSafeInteger(SEASON.RS?.n) && SEASON.RS.n > 0 ? SEASON.RS.n : 1 });
 const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
 function sendWorldInit(c) {
   const w = worldNow(c.room); if (!w) return;
@@ -449,7 +449,7 @@ function worldNow(R) {
   const kept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
   // A new room has a complete authoritative baseline; a retained private save
   // must never supply its first keep, gate or campaign state.
-  const w = { k: sk?.slice() || WORLD.keeps.map(k => k.home), g: new Array(WORLD.keepCount).fill(1),
+  const w = { k: sk?.slice() || (WORLD.keeps?.map(k => k.home) || new Array(WORLD.keepCount).fill(0)), g: new Array(WORLD.keepCount).fill(1),
     td: 0, tm: 0, cn: 1, cl: [[0, 0], [0, 0], [0, 0]], ...(kept || {}) };
   if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && [...R.clients.values()].filter(isHumanPlaying).length <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
   return w;
@@ -528,7 +528,7 @@ function onHello(c, h) {
   const world = worldNow(R); // the season decides who holds the keeps while nobody is here
   c.lastSeen = (SEASON.roster[c.acct.id] && SEASON.roster[c.acct.id].last) || 0;
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
-  c.worldAdmission = worldAdmission();
+  c.worldAdmission = world ? worldAdmission() : null;
   send(c, { t: 'welcome', v: 1, peer: c.peer, worldAdmission: c.worldAdmission, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
     token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
     room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: !R.diagnostic && SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
