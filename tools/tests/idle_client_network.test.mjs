@@ -83,9 +83,13 @@ test('a native final save cannot drain additional queued character snapshots aft
 
 test('actual simulation and rendering tick return before NPC, weather, clock, agent or network work when idle', () => {
   const s = read('13_main.js'), source = between(s, 'function simStep(dt)', 'function frame(now)');
-  const context = vm.createContext({ GRAPHICS_CONTEXT_LOST: false, netHumanSync() {}, netHumanLive: () => false });
+  const context = vm.createContext({ GRAPHICS_CONTEXT_LOST: false, GRAPHICS_STARTUP: { stopped: false }, netHumanSync() {}, netHumanLive: () => false });
   vm.runInContext(source + '\nglobalThis.H={simStep,tick};', context);
   assert.doesNotThrow(() => context.H.simStep(100));
+  assert.doesNotThrow(() => context.H.tick(100));
+  context.GRAPHICS_STARTUP.stopped = true;
+  context.netHumanSync = () => { throw Error('stopped graphics must not synchronize human activity'); };
+  context.netHumanLive = () => { throw Error('stopped graphics must not reach human admission'); };
   assert.doesNotThrow(() => context.H.tick(100));
 });
 

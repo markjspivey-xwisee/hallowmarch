@@ -3,6 +3,7 @@
 /* ================================================================== */
 quality.auto = !BOOT_SAFE;
 GAME.ready = false;
+let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false, TITLE_NEUTRAL_TRAIL = null;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -16,7 +17,7 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
 function resize() {
-  if (GRAPHICS_CONTEXT_LOST || graphicsDiagnosticActive()) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || graphicsDiagnosticActive()) return;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
@@ -33,6 +34,7 @@ function resize() {
   U.uFoliageCut.value = quality.msaa > 0 ? 0.01 : 0.5;
   const focal = (view.h * quality.dprActual) / (2 * Math.tan((camera.fov * DEG) / 2));
   for (const m of [fxAdd.mesh.material, fxAlpha.mesh.material, glowMesh.material, fireflyMat]) m.uniforms.uFocal.value = focal;
+  if (!GAME.started && (GAME.ready || GRAPHICS_STARTUP.titleSubmitted > 0)) void renderTitleFrame().catch(reportError);
 }
 function setQuality(level, auto = false) {
   if (!QUALITY_PRESETS[level]) return;
@@ -75,6 +77,92 @@ function adaptQuality(dt) {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
+// A title is a frozen view, not a live player. Submit it once per explicit
+// layout request; no simulation, time advance, save, network or human lease.
+function renderTitleFrame() {
+  if (!GAME.built || GAME.started || GRAPHICS_CONTEXT_LOST || TITLE_FRAME_FAILED || document.hidden || graphicsDiagnosticActive()) return Promise.resolve(false);
+  TITLE_FRAME_DIRTY = true;
+  if (TITLE_FRAME_PROMISE) return TITLE_FRAME_PROMISE;
+  TITLE_FRAME_PROMISE = (async () => {
+    while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !document.hidden && !graphicsDiagnosticActive()) {
+      TITLE_FRAME_DIRTY = false;
+      graphicsAssertActive();
+      if (!TITLE_NEUTRAL_TRAIL) {
+        TITLE_NEUTRAL_TRAIL = new THREE.DataTexture(new Uint8Array([128, 128, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+        TITLE_NEUTRAL_TRAIL.minFilter = TITLE_NEUTRAL_TRAIL.magFilter = THREE.NearestFilter;
+        TITLE_NEUTRAL_TRAIL.needsUpdate = true;
+      }
+      const oldTrail = U.uTrail.value, debug = renderer.debug;
+      const oldShaderError = debug && debug.onShaderError, oldShaderCheck = debug && debug.checkShaderErrors;
+      U.uTrail.value = TITLE_NEUTRAL_TRAIL;
+      try {
+        const priorErrors = gpuDiagGlErrors(gl);
+        if (priorErrors.length) throw new Error('GL errors before the title draw: ' + priorErrors.join(', '));
+        if (debug) {
+          debug.checkShaderErrors = true;
+          debug.onShaderError = (context, program) => {
+            const detail = context.isContextLost() ? 'Context lost.' : String(context.getProgramInfoLog(program) || '').slice(0, 600);
+            throw new Error('Title shader could not link. ' + detail);
+          };
+        }
+        gpuDiagPrepareView({ weatherGpu: false });
+        renderer.info.reset();
+        renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
+        GRAPHICS_STARTUP.titleSubmitted++;
+        renderer.render(scene, camera); renderPost();
+      } finally {
+        U.uTrail.value = oldTrail;
+        if (debug) { debug.onShaderError = oldShaderError; debug.checkShaderErrors = oldShaderCheck; }
+      }
+      // Restore shared CPU state before yielding; a real user may start play
+      // while this bounded completion receipt is pending.
+      const receipt = await gpuDiagWaitForFence(gl);
+      graphicsAssertActive();
+      const errors = gpuDiagGlErrors(gl);
+      if (errors.length) throw new Error('GL errors after the title draw: ' + errors.join(', '));
+      GRAPHICS_STARTUP.titleCompleted++;
+      GRAPHICS_STARTUP.titleFenceWaitMs = receipt.waitMs;
+    }
+    return true;
+  })().catch(error => {
+    TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
+    GRAPHICS_STARTUP.stopped = true; GRAPHICS_STARTUP.titleError = String(error.message || error); GAME.ready = false;
+    if (window.__hm) window.__hm.ready = false;
+    graphicsRememberRecovery();
+    graphicsCheckpoint('Title graphics stopped', error.message || error);
+    graphicsStartFailure(error, 'Graphics stopped');
+    throw error;
+  }).finally(() => { TITLE_FRAME_PROMISE = null; });
+  return TITLE_FRAME_PROMISE;
+}
+function waitForTitleVisibility() {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', visible);
+      canvas.removeEventListener('webglcontextlost', lost);
+    };
+    const visible = () => { if (!document.hidden) { cleanup(); resolve(); } };
+    const lost = () => { cleanup(); reject(new Error('Graphics stopped before the title became visible.')); };
+    document.addEventListener('visibilitychange', visible);
+    canvas.addEventListener('webglcontextlost', lost);
+    if (GRAPHICS_CONTEXT_LOST) lost(); else visible();
+  });
+}
+async function renderFirstTitleFrame() {
+  while (GRAPHICS_STARTUP.titleCompleted === 0) {
+    await waitForTitleVisibility();
+    graphicsAssertActive();
+    if (GRAPHICS_STARTUP.stopped) throw new Error('Title graphics are stopped.');
+    await renderTitleFrame();
+    // A visibility change between wake and submission may defer this draw.
+    // Wait for the next visible event rather than polling or declaring Ready.
+    if (!document.hidden && GRAPHICS_STARTUP.titleCompleted === 0) throw new Error('The first title draw did not complete.');
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
+});
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
@@ -126,11 +214,12 @@ async function boot() {
     }
   });
   if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
-  await loadStep(0.97, 'Drawing the first view', () => tick(0.016));
+  await loadStep(0.97, 'Drawing the first view', () => renderFirstTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
   setupTitle(save);
+  graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');
   L.style.opacity = 0;
@@ -144,7 +233,7 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   $('title').hidden = true;
   const P = createPlayer(save);
   savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
@@ -413,7 +502,7 @@ function simStep(dt) {
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   if (typeof netHumanSync === 'function') netHumanSync();
   if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
@@ -522,7 +611,7 @@ function tick(dt) {
   adaptQuality(dt);
 }
 function frame(now) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   requestAnimationFrame(frame);
   let dt = (now - lastNow) / 1000;
   lastNow = now;
