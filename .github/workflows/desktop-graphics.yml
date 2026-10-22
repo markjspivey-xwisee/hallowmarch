@@ -4,6 +4,7 @@ on:
     paths:
       - src/02_render.js
       - src/13_main.js
+      - src/13p_perf.js
       - src/13y_gpu_diagnostic.js
       - tools/tests/startup_graphics.mjs
       - tools/tests/startup_graphics.py
