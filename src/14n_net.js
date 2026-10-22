@@ -361,8 +361,14 @@ function netSlowObj() {
           look.emblem ?? 3, look.fem ? 1 : 0, netR3(look.bulk || 0)] };
     }
   }
-  if (NET.isHost || netKeepsMine()) o.w = netWorldObj(); // [net] the shard's host, or a region's keeper (its keeps)
-  if (NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
+  const worldReady = typeof netSharedWorldReady !== 'function' || netSharedWorldReady();
+  if (worldReady && (NET.isHost || netKeepsMine())) {
+    o.w = netWorldObj();
+    if (typeof netCurrentWorldAdmission === 'function') {
+      const admission = netCurrentWorldAdmission(); if (admission) o.worldAdmission = admission;
+    }
+  }
+  if (worldReady && NET.isHost) { const wx = netWxObj(); if (wx) o.wx = wx; } // [perf3] the host's sky (14r_netwx.js)
   return o;
 }
 function netFastObj(now) {
@@ -747,7 +753,32 @@ function netDeathWatch() {
 /* ------------------------------------------------------------------ */
 /* the shared war: a host, its word on the keeps and the sky           */
 /* ------------------------------------------------------------------ */
+function netSharedWorldReady() {
+  if (typeof netSharedWorldRequired !== 'function' || !netSharedWorldRequired()) return true;
+  if (NETWS.worldReloadRequired) return false;
+  if (NETWS.worldInitialized) return true;
+  const admission = netCurrentWorldAdmission(), w = NETWS.worldInit;
+  if (!GAME.started || !admission || !w || typeof w !== 'object'
+    || !Array.isArray(w.k) || w.k.length !== WAR.keeps.length || !w.k.every(NET_REALM_OK)
+    || !Array.isArray(w.g) || w.g.length !== WAR.keeps.length || !w.g.every(v => v === 0 || v === 1)
+    || !Number.isSafeInteger(w.cn) || w.cn < 1
+    || !Array.isArray(w.cl) || w.cl.length !== 3 || !w.cl.every(pair => Array.isArray(pair) && pair.length === 2
+      && pair.every(v => Number.isFinite(v) && v >= 0 && v <= 1e5))
+    || !Number.isFinite(w.td) || w.td < 0 || w.td > 3 || ![0, 1].includes(w.tm)) {
+    if (GAME.started && GAME.player) netWorldAdmissionNotice("Waiting for the server's current shared world before publishing world changes.");
+    return false;
+  }
+  // Apply the complete authoritative snapshot before the very first host report.
+  // A late private-character read cannot replace this scene afterward.
+  netWorldTake(netWorldRead(w), 'initialize');
+  NETWS.activeWorldAdmission = { ...admission };
+  NETWS.worldInitialized = true; NETWS.worldInit = null;
+  NET.srvWorldDone = true; NET.slowKey = ''; NET.worldKey = '';
+  if (NETWS.worldPauseReason === "Waiting for the server's current shared world before publishing world changes.") NETWS.worldPauseReason = '';
+  return true;
+}
 function netHostElect() {
+  if (typeof netSharedWorldReady === 'function' && !netSharedWorldReady()) { NET.isHost = false; return; }
   let best = null, bs = Infinity, bp = '';
   const me = GAME.started && GAME.player;
   if (me) { best = NET.self || 'me'; bs = NET.since; bp = NET.self; }
@@ -787,6 +818,11 @@ function netWorldTake(w, part = '') {
       captureKeep(K, r, null);
       NET.stats.keepsApplied++;
     });
+    if (part === 'initialize') {
+      WAR.keeps.forEach((K, i) => setDoorState(K.door, w.g[i] === 1, w.g[i] === 1 ? 1 : 0));
+      CAMPAIGN.n = w.cn;
+      CAMPAIGN.claims.forEach((c, i) => Object.assign(c, { k: w.cl[i][0], h: w.cl[i][1], kOn: false, hOn: false, warned: 0 }));
+    }
     // the claims on the March, while it is the same campaign: one war panel for everyone here
     if (part === 'keeps' || part === 'keepsall') return;
     if (w.cl && w.cn === (CAMPAIGN.n || 0)) CAMPAIGN.claims.forEach((c, i) => { const h = w.cl[i]; if (Math.abs(c.k - h[0]) > 3) c.k = h[0]; if (Math.abs(c.h - h[1]) > 3) c.h = h[1]; });

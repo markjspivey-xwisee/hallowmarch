@@ -305,7 +305,14 @@ const nativeAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accoun
 const worldAgentTransport = createMainWorldAgentTransport({ principalFor: c => isHumanPlaying(c) && (!WORLD_STATE || WORLD_STATE.canMutate()) && PLAYER_ACCOUNTS.principalFor(c), send });
 const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, accounts: PLAYER_ACCOUNTS,
   environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
-const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(),
+const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: Number.isSafeInteger(SEASON.RS?.n) && SEASON.RS.n > 0 ? SEASON.RS.n : 1 });
+const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
+function sendWorldInit(c) {
+  const w = worldNow(c.room); if (!w) return;
+  c.worldAdmission = worldAdmission();
+  send(c, { t: 'world', w, init: 1, worldAdmission: c.worldAdmission });
+}
+const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), worldAdmission: worldAdmission(),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
   worldAuthority: { ...worldPersistenceStatus(), status: '/gaming/world-state', descriptor: '/gaming/world-state/descriptor', nativePublication: worldCapabilityStatus() },
   ...(nativePlayerConfigured || gamingEnvironment.HM_NATIVE_AGENT_ENABLED === '1'
@@ -439,15 +446,22 @@ function regionsTell(R, force) {
 // the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
 function worldNow(R) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
-  const w = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  const kept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  // A new room has a complete authoritative baseline; a retained private save
+  // must never supply its first keep, gate or campaign state.
+  const w = { k: sk?.slice() || (WORLD.keeps?.map(k => k.home) || new Array(WORLD.keepCount).fill(0)), g: new Array(WORLD.keepCount).fill(1),
+    td: 0, tm: 0, cn: 1, cl: [[0, 0], [0, 0], [0, 0]], ...(kept || {}) };
   if (sk && sk.length === WORLD.keepCount && sk.every((r) => r === 0 || r === 1 || r === 2) && !Object.keys(R.regions || {}).length && [...R.clients.values()].filter(isHumanPlaying).length <= 1) return { ...(w || { g: new Array(sk.length).fill(1), td: 0, tm: 0, cn: 0 }), k: sk.slice(), at: Date.now() };
   return w;
 }
-function worldReport(c, raw) {
-  if (!isHumanPlaying(c)) return;
-  if (WORLD_STATE && !WORLD_STATE.canMutate()) return;
+function worldReport(c, raw, admission) {
+  if (!isHumanPlaying(c)) return false;
+  if (WORLD_STATE && !WORLD_STATE.canMutate()) return false;
+  // A connection must first receive this server's current world initialization.
+  // Old pages and cross-origin/private snapshots cannot seed the shared shard.
+  if (!sameWorldAdmission(admission, worldAdmission()) || !sameWorldAdmission(c.worldAdmission, admission)) return false;
   const w = worldCheck(raw);
-  if (!w) return;
+  if (!w) return false;
   const R = c.room, H = roomHost(R), hosts = R.regions || {};
   const cur = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || { ...w };
   const merged = { ...cur, k: (cur.k || w.k).slice(), g: (cur.g || w.g).slice() };
@@ -468,7 +482,8 @@ function worldReport(c, raw) {
   merged.at = Date.now();
   if (R.diagnostic) R.diagnosticWorld = merged;
   else { WORLDS[R.name] = merged; worldsSave(); }
-  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged }); }
+  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged, worldAdmission: worldAdmission() }); }
+  return true;
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
 function keepWx(R, wx) {
@@ -513,7 +528,8 @@ function onHello(c, h) {
   const world = worldNow(R); // the season decides who holds the keeps while nobody is here
   c.lastSeen = (SEASON.roster[c.acct.id] && SEASON.roster[c.acct.id].last) || 0;
   const nativeBound = c.acct.nativeBound === true || !!c.authClaims?.nativeDid || PLAYER_ACCOUNTS.isBound(c.acct.id);
-  send(c, { t: 'welcome', v: 1, peer: c.peer, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
+  c.worldAdmission = world ? worldAdmission() : null;
+  send(c, { t: 'welcome', v: 1, peer: c.peer, worldAdmission: c.worldAdmission, acct: { id: c.acct.id, name: c.acct.name, guest: c.acct.guest, nativeBound },
     token: c.authClaims?.nativeDid ? h.token : tokenFor(c.acct.id), nativeBound,
     room: R.name, world, worldAuthority: worldPersistenceStatus(), interest: CFG.interest, season: !R.diagnostic && SEASON.RS ? { file: SEASON.M.file, speed: SEASON.speed } : null });
   for (const o of R.clients.values()) if (o !== c && o.slow) send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
@@ -553,8 +569,11 @@ function onSlow(c, d) {
   { const tag = c.realm >= 0 && COMP.canParticipate(companyAccount(c)) ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
-  if (d.w) worldReport(c, d.w);
-  if (d.wx && roomHost(R) === c) keepWx(R, d.wx); // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
+  if (d.w && !worldReport(c, d.w, d.worldAdmission)) delete d.w;
+  if (d.wx) {
+    if (sameWorldAdmission(d.worldAdmission, worldAdmission()) && sameWorldAdmission(c.worldAdmission, d.worldAdmission) && roomHost(R) === c) keepWx(R, d.wx);
+    else delete d.wx;
+  } // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
   if (c.realm >= 0 && !R.diagnostic) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
@@ -575,7 +594,7 @@ function onFast(c, d) {
   }
   c.pos = p; c.posT = now;
   const rg = regionOf(p.x, p.z);
-  if (rg !== c.region) { const first = !c.region; c.region = rg; regionsTell(c.room); if (first) { send(c, { t: 'hosts', h: c.room.regions || {}, kr: KEEP_REGION, you: rg }); const w = worldNow(c.room); if (w) send(c, { t: 'world', w, init: 1 }); } }
+  if (rg !== c.region) { const first = !c.region; c.region = rg; regionsTell(c.room); if (first) { send(c, { t: 'hosts', h: c.room.regions || {}, kr: KEEP_REGION, you: rg }); sendWorldInit(c); } }
   // the moments new since this sender's last (over a socket nothing is lost: each is sent once)
   const evs = Array.isArray(d.ev) ? d.ev.filter((e) => Array.isArray(e) && e.length >= 3 && Number.isFinite(e[0]) && e[0] > (c.evSeq || 0) && typeof e[1] === 'string').slice(-40) : [];
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
@@ -995,7 +1014,7 @@ function resumeHumanSession(c) {
   c.pausedPeerIds = null; c.toldSeason = false; c.regionTold = false;
   for (const o of c.room.clients.values()) if (o !== c && isHumanPlaying(o) && o.slow)
     send(c, { t: 'peer', peer: o.peer, by: o.acct.id, slow: o.slow, fast: o.fast ? { ...o.fast, ev: [] } : undefined });
-  const currentWorld = worldNow(c.room); if (currentWorld) send(c, { t: 'world', w: currentWorld, init: 1 });
+  sendWorldInit(c);
   regionsTell(c.room, true);
 }
 function setHumanWorkActive(active) {
