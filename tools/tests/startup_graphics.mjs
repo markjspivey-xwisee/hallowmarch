@@ -270,23 +270,40 @@ function titleFixture() {
   const main=read('13_main.js');
   const declaration=main.split('\n').find(line=>line.startsWith('let TITLE_FRAME_PROMISE ='));
   assert.ok(declaration,'test executes the actual title helper state');
-  const events=[], fences=[], glErrors=[], originalTrail={name:'live-trail'}, originalShaderError=()=>{};
+  const events=[], staticCalls=[], fences=[], glErrors=[], originalTrail={name:'live-trail'}, originalShaderError=()=>{};
   const documentListeners=new Map(),canvasListeners=new Map();
   const listeners=map=>({
     addEventListener(name,fn){if(!map.has(name))map.set(name,new Set());map.get(name).add(fn);},
     removeEventListener(name,fn){map.get(name)?.delete(fn);},
   });
+  const titleMath=Object.create(Math);
+  titleMath.random=()=>{throw Error('title must not consume gameplay randomness');};
+  const point=()=>({x:0,y:0,set(x,y){this.x=x;this.y=y;}});
+  const grassCenter=point(),grassCamera=point(),flowerCenter=point(),flowerCamera=point();
   const ctx={
-    Promise,Uint8Array,Math,
+    Promise,Uint8Array,Math:titleMath,
     GAME:{built:true,started:false,ready:true,t:27,player:null},
     GRAPHICS_CONTEXT_LOST:false,GRAPHICS_STARTUP:{stopped:false,titleSubmitted:0,titleCompleted:0},
     document:{hidden:false,...listeners(documentListeners)},canvas:listeners(canvasListeners),window:{__hm:{ready:true}},
     diagnostic:false,graphicsDiagnosticActive(){return ctx.diagnostic;},
     graphicsAssertActive(){if(ctx.GRAPHICS_CONTEXT_LOST)throw Error('lost');},
-    THREE:{RGBAFormat:1,UnsignedByteType:2,NearestFilter:3,
-      DataTexture:class {constructor(data,w,h){this.image={data,width:w,height:h};}}},
-    U:{uTrail:{value:originalTrail}},
-    sceneRT:{name:'scene-target'},scene:{name:'world-scene'},camera:{name:'title-camera'},gl:{},
+    THREE:{DataTexture:class {constructor(){throw Error('title must not allocate a texture');}}},
+    U:{uTrail:{value:originalTrail},uCloudDomeOn:{value:{x:1}},uCloudSh:{value:{w:1}},uCloudScrP:{value:{z:1}}},
+    trailA:{texture:{name:'already-cleared-neutral-trail'}},
+    sceneRT:{name:'scene-target'},scene:{name:'world-scene'},gl:{},
+    tod:{p:0.3},_fwd:{x:0,z:0},direction:{x:3,z:4},
+    camera:{name:'title-camera',position:{x:10,z:20},projectionMatrix:{},matrixWorldInverse:{},
+      updateMatrixWorld(){staticCalls.push('camera');},
+      getWorldDirection(out){Object.assign(out,ctx.direction);staticCalls.push('direction');}},
+    projView:{multiplyMatrices(a,b){assert.equal(a,ctx.camera.projectionMatrix);assert.equal(b,ctx.camera.matrixWorldInverse);staticCalls.push('projection');}},
+    frustum:{setFromProjectionMatrix(value){assert.equal(value,ctx.projView);staticCalls.push('frustum');}},
+    skyU:{uInvVP:{value:{copy(value){assert.equal(value,ctx.projView);return this;},invert(){staticCalls.push('inverse');return this;}}}},
+    grassMeshes:[{userData:{layer:{ahead:10}},material:{uniforms:{uCenter:{value:grassCenter},uCam2:{value:grassCamera}}}}],
+    flowerMeshes:[{material:{uniforms:{uCenter:{value:flowerCenter},uCam2:{value:flowerCamera}}}}],
+    applyTimeOfDay(value){assert.equal(value,0.3);events.push('prepare');staticCalls.push('time');},
+    applyWeather(){staticCalls.push('weather');},applyIndoor(){staticCalls.push('indoor');},
+    updateTreeVisibility(x,z){assert.equal(x,10);assert.equal(z,20);staticCalls.push('trees');},
+    updateMountains(){staticCalls.push('mountains');},
     renderer:{
       debug:{onShaderError:originalShaderError,checkShaderErrors:false},
       info:{reset(){events.push('reset');}},
@@ -294,13 +311,13 @@ function titleFixture() {
       setClearColor(){},clear(){events.push('clear');},
       render(scene,camera){
         assert.equal(scene,ctx.scene); assert.equal(camera,ctx.camera);
-        assert.deepEqual(Array.from(ctx.U.uTrail.value.image.data),[128,128,0,0]);
+        assert.equal(ctx.U.uTrail.value,ctx.trailA.texture,'reuse the neutral boot texture without allocation');
         events.push('scene');
         if(ctx.failShader) ctx.renderer.debug.onShaderError({isContextLost:()=>false,getProgramInfoLog:()=> 'controlled link failure'},{});
       },
     },
     gpuDiagGlErrors(){return glErrors.shift() || [];},
-    gpuDiagPrepareView(options){assert.equal(options.weatherGpu,false);events.push('prepare');},
+    gpuDiagPrepareView(){throw Error('title must not prepare the dynamic diagnostic scene');},
     renderPost(){events.push('post');},
     gpuDiagWaitForFence(){events.push('fence');return new Promise((resolve,reject)=>fences.push({resolve,reject}));},
     graphicsRememberRecovery(){events.push('remember');},
@@ -316,14 +333,24 @@ function titleFixture() {
     requestAnimationFrame(){throw Error('stopped graphics must not schedule a frame');},
     reportError(error){throw error;},
   };
+  for(const name of [
+    'updateAmbientLife','drawTownLife','drawAnimals','drawActors','drawFires','drawNature',
+    'drawHouses','updateFireflies','updateNearTrees','updateGrassCenters','gatherLights',
+    'stepTrail','renderDecals','updateWeather','simStep','netPump','saveNow',
+  ]) ctx[name]=()=>{throw Error('title must not invoke dynamic helper '+name);};
   vm.createContext(ctx);
-  vm.runInContext(declaration+'\n'+['renderTitleFrame','waitForTitleVisibility','renderFirstTitleFrame','tick','frame','resize','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
-  return {ctx,events,fences,glErrors,documentListeners,canvasListeners,originalTrail,originalShaderError,run:()=>vm.runInContext('renderTitleFrame()',ctx)};
+  vm.runInContext(declaration+'\n'+['prepareTitleView','renderTitleFrame','waitForTitleVisibility','renderFirstTitleFrame','tick','frame','resize','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
+  return {ctx,events,staticCalls,grassCenter,grassCamera,flowerCenter,flowerCamera,fences,glErrors,documentListeners,canvasListeners,originalTrail,originalShaderError,run:()=>vm.runInContext('renderTitleFrame()',ctx)};
 }
 test('actual frozen title submits one scene and post frame and waits for completion without play',async()=>{
   const f=titleFixture(), pending=f.run();
   assert.deepEqual(f.events,['prepare','reset','target','clear','scene','post','fence']);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,1);
+  assert.deepEqual(f.staticCalls,['time','weather','indoor','camera','projection','frustum','inverse','direction','trees','mountains']);
+  assert.deepEqual([f.grassCenter.x,f.grassCenter.y,f.grassCamera.x,f.grassCamera.y],[16,28,10,20]);
+  assert.ok(Math.abs(f.flowerCenter.x-18.4)<1e-9);assert.ok(Math.abs(f.flowerCenter.y-31.2)<1e-9);
+  assert.deepEqual([f.flowerCamera.x,f.flowerCamera.y],[10,20]);
+  assert.equal(f.ctx.U.uCloudDomeOn.value.x,0);assert.equal(f.ctx.U.uCloudSh.value.w,0);assert.equal(f.ctx.U.uCloudScrP.value.z,0);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0,'submission is not GPU completion');
   assert.equal(f.ctx.U.uTrail.value,f.originalTrail,'shared uniform is restored before the asynchronous fence');
   assert.equal(f.ctx.renderer.debug.onShaderError,f.originalShaderError);

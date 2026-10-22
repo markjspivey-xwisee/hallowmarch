@@ -3,7 +3,7 @@
 /* ================================================================== */
 quality.auto = !BOOT_SAFE;
 GAME.ready = false;
-let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false, TITLE_NEUTRAL_TRAIL = null;
+let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -77,6 +77,36 @@ function adaptQuality(dt) {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
+// A title prepares existing environment meshes and uniforms only. Even dt=0
+// gameplay draw helpers can move ambient actors, advance timer state or consume
+// the shared random stream; leave those paths for actual human play.
+function prepareTitleView() {
+  applyTimeOfDay(tod.p);
+  applyWeather();
+  applyIndoor();
+  U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; U.uCloudScrP.value.z = 0;
+  camera.updateMatrixWorld();
+  projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(projView);
+  skyU.uInvVP.value.copy(projView).invert();
+  camera.getWorldDirection(_fwd);
+  const length = Math.hypot(_fwd.x, _fwd.z) || 1;
+  const fx = _fwd.x / length, fz = _fwd.z / length;
+  const x = camera.position.x, z = camera.position.z;
+  // updateGrassCenters also builds canopy/AO textures lazily. Position only the
+  // already-built grass/flower uniforms here, without allocating new resources.
+  for (const mesh of grassMeshes) {
+    const ahead = mesh.userData.layer.ahead;
+    mesh.material.uniforms.uCenter.value.set(x + fx * ahead, z + fz * ahead);
+    mesh.material.uniforms.uCam2.value.set(x, z);
+  }
+  for (const mesh of flowerMeshes) {
+    mesh.material.uniforms.uCenter.value.set(x + fx * 14, z + fz * 14);
+    mesh.material.uniforms.uCam2.value.set(x, z);
+  }
+  updateTreeVisibility(x, z);
+  updateMountains();
+}
 // A title is a frozen view, not a live player. Submit it once per explicit
 // layout request; no simulation, time advance, save, network or human lease.
 function renderTitleFrame() {
@@ -87,14 +117,9 @@ function renderTitleFrame() {
     while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !document.hidden && !graphicsDiagnosticActive()) {
       TITLE_FRAME_DIRTY = false;
       graphicsAssertActive();
-      if (!TITLE_NEUTRAL_TRAIL) {
-        TITLE_NEUTRAL_TRAIL = new THREE.DataTexture(new Uint8Array([128, 128, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
-        TITLE_NEUTRAL_TRAIL.minFilter = TITLE_NEUTRAL_TRAIL.magFilter = THREE.NearestFilter;
-        TITLE_NEUTRAL_TRAIL.needsUpdate = true;
-      }
       const oldTrail = U.uTrail.value, debug = renderer.debug;
       const oldShaderError = debug && debug.onShaderError, oldShaderCheck = debug && debug.checkShaderErrors;
-      U.uTrail.value = TITLE_NEUTRAL_TRAIL;
+      U.uTrail.value = trailA.texture; // already cleared to neutral during ordinary boot
       try {
         const priorErrors = gpuDiagGlErrors(gl);
         if (priorErrors.length) throw new Error('GL errors before the title draw: ' + priorErrors.join(', '));
@@ -105,7 +130,7 @@ function renderTitleFrame() {
             throw new Error('Title shader could not link. ' + detail);
           };
         }
-        gpuDiagPrepareView({ weatherGpu: false });
+        prepareTitleView();
         renderer.info.reset();
         renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
         GRAPHICS_STARTUP.titleSubmitted++;
