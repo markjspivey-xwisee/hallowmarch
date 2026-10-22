@@ -135,6 +135,31 @@ function renderTitleFrame() {
   }).finally(() => { TITLE_FRAME_PROMISE = null; });
   return TITLE_FRAME_PROMISE;
 }
+function waitForTitleVisibility() {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', visible);
+      canvas.removeEventListener('webglcontextlost', lost);
+    };
+    const visible = () => { if (!document.hidden) { cleanup(); resolve(); } };
+    const lost = () => { cleanup(); reject(new Error('Graphics stopped before the title became visible.')); };
+    document.addEventListener('visibilitychange', visible);
+    canvas.addEventListener('webglcontextlost', lost);
+    if (GRAPHICS_CONTEXT_LOST) lost(); else visible();
+  });
+}
+async function renderFirstTitleFrame() {
+  while (GRAPHICS_STARTUP.titleCompleted === 0) {
+    await waitForTitleVisibility();
+    graphicsAssertActive();
+    if (GRAPHICS_STARTUP.stopped) throw new Error('Title graphics are stopped.');
+    await renderTitleFrame();
+    // A visibility change between wake and submission may defer this draw.
+    // Wait for the next visible event rather than polling or declaring Ready.
+    if (!document.hidden && GRAPHICS_STARTUP.titleCompleted === 0) throw new Error('The first title draw did not complete.');
+  }
+}
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
 });
@@ -189,7 +214,7 @@ async function boot() {
     }
   });
   if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
-  await loadStep(0.97, 'Drawing the first view', () => renderTitleFrame());
+  await loadStep(0.97, 'Drawing the first view', () => renderFirstTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
