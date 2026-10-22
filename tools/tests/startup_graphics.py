@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Direct-page graphics startup regression. Software WebGL is not GPU compatibility evidence."""
-import asyncio, json, pathlib, sys, traceback
+import asyncio, io, json, math, pathlib, sys, traceback
+from PIL import Image, ImageStat
 from urllib.parse import parse_qsl, urlencode, urlsplit
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
@@ -173,6 +174,8 @@ async def context_loss(page, errors, console_errors, navigations):
           'context loss offers manual recovery with safe URL')
     await page.wait_for_timeout(1000)
     stopped = await page.evaluate(SNAPSHOT)
+    check(await page.evaluate('JSON.parse(localStorage.getItem("hallowmarch.graphics.recovery.v1")).enabled === true'),
+          'actual context loss remembers recovery for later browser launches')
     check(stopped['lost'] and stopped['startup']['lost'] and stopped['startup']['stopped'],
           'actual context loss latches stopped state')
     check(not stopped['ready'] and not stopped['gameReady'],
@@ -213,6 +216,37 @@ async def context_loss(page, errors, console_errors, navigations):
     check(later['stored'] == stored_after_loss, 'restoration preserves the loss-handler save')
 
 
+
+async def title_canvas_pixels(page):
+    startup = await page.evaluate('({...window.__hmStartup})')
+    check(startup['titleSubmitted'] > 0 and
+          startup['titleCompleted'] == startup['titleSubmitted'] and
+          math.isfinite(startup['titleFenceWaitMs']) and startup['titleFenceWaitMs'] >= 0,
+          'title readiness follows completed scene and post GPU fence')
+    # Inspect the composited canvas itself, with all DOM text and panels hidden.
+    # Render counts can belong to maps/offscreen targets; title UI can otherwise
+    # make a black canvas screenshot look like a successful rendered world.
+    style = await page.add_style_tag(content='body * { visibility: hidden !important; } #scene { visibility: visible !important; }')
+    try:
+        png = await page.locator('#scene').screenshot(
+            path=str(hm.OUT / 'startup-safe-title-canvas.png'), timeout=120000)
+    finally:
+        await style.evaluate('node => node.remove()')
+    image = Image.open(io.BytesIO(png)).convert('RGB')
+    sample = image.resize((96, 54))
+    stats = ImageStat.Stat(sample)
+    colors = len(set(sample.getdata()))
+    lit = sum(max(pixel) > 8 for pixel in sample.getdata()) / (sample.width * sample.height)
+    check(lit > 0.1 and max(stats.stddev) > 2 and colors > 32,
+          'actual title canvas contains nonblack spatially varied world pixels')
+    (hm.OUT / 'startup-safe-title-pixels.json').write_text(json.dumps({
+        'width': image.width, 'height': image.height, 'litFraction': lit,
+        'sampleColors': colors, 'channelStddev': stats.stddev,
+        'titleSubmitted': startup['titleSubmitted'],
+        'titleCompleted': startup['titleCompleted'],
+        'titleFenceWaitMs': startup['titleFenceWaitMs'],
+    }, indent=2), encoding='utf-8')
+
 async def safe_boot(browser):
     saved = {'v':1, 'char':None, 'settings':{'quality':'high', 'auto':True}, 'world':None,
              'startupRegression':'preserve-this-existing-save'}
@@ -234,13 +268,22 @@ async def safe_boot(browser):
         check(st['level']=='low' and st['auto'] is False and st['msaa']==0, 'safe startup selects low without MSAA')
         check(st['savedQuality']=='high', 'real save loader reads previous high preference')
         check(st['stored']==text, 'safe startup preserves stored save')
-        check(st['webgl2'] and st['calls']>0, 'safe startup renders with software WebGL 2')
+        check(st['webgl2'], 'safe startup creates a software WebGL 2 context')
         check(not st['errors'] and not errors and not console_errors, 'safe startup has no runtime errors')
         bounded_recovery(st, 'initial safe startup')
         check(st['startup']['phase'] == 'Ready' and bool(st['startup']['events']),
               'startup trace reports successful boot checkpoints')
         await expect(page.locator('#title')).to_be_visible()
         await page.wait_for_function("document.getElementById('loading').hidden || getComputedStyle(document.getElementById('loading')).display === 'none'", timeout=30000)
+        await title_canvas_pixels(page)
+        notice = page.locator('#graphics-recovery')
+        await expect(notice).to_be_visible()
+        standard = urlsplit(await notice.locator('a').evaluate('el => el.href'))
+        check(('safe', '0') in parse_qsl(standard.query, keep_blank_values=True) and
+              not any(k == 'gpuDiag' for k, _ in parse_qsl(standard.query)),
+              'remembered recovery offers an explicit standard retry without diagnostic mode')
+        check(await page.evaluate('JSON.parse(localStorage.getItem("hallowmarch.graphics.recovery.v1")).enabled === true'),
+              'explicit reduced startup remembers the browser recovery choice')
         await page.screenshot(path=str(hm.OUT / 'startup-safe-title-4k.png'), timeout=120000)
         idle_before = await page.evaluate(SNAPSHOT)
         await page.wait_for_timeout(30000)
