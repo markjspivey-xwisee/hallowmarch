@@ -92,7 +92,7 @@ async function fixture(t, { worlds = { march: world }, season = seedSeason(), co
           connect: async ({ live = false } = {}) => {
             const ws = new WebSocket('ws://127.0.0.1:' + port + '/ws'); sockets.push(ws); await once(ws, 'open');
             const messages = []; ws.on('message', bytes => messages.push(JSON.parse(String(bytes))));
-            async function receive(type) { const end = Date.now() + 3000; while (Date.now() < end) { const index = messages.findIndex(m => m.t === type); if (index >= 0) return messages.splice(index, 1)[0]; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('No ' + type); }
+            async function receive(type, matches = () => true) { const end = Date.now() + 3000; while (Date.now() < end) { const index = messages.findIndex(m => m.t === type && matches(m)); if (index >= 0) return messages.splice(index, 1)[0]; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('No ' + type); }
             ws.send(JSON.stringify({ t: 'hello' })); const welcome = await receive('welcome');
             const send = value => ws.send(JSON.stringify(value)); let humanActivity = 0;
             const actor = { ws, welcome, receive, send, async play() {
@@ -253,4 +253,45 @@ for (const [fault, errorCode] of [
   assert.equal((await server.admin('keep&i=0&r=2')).status, 200);
   assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
   assert.equal((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.season.keeps[0].h, 2);
+});
+
+test('cold world admission rejects retained private worlds and accepts only initialized same-season host reports', async t => {
+  const f = await fixture(t, { worlds: {} }), server = await f.start();
+  const actor = await server.connect({ live: true }), observer = await server.connect({ live: true });
+  const admission = actor.welcome.worldAdmission;
+  assert.deepEqual(admission, { origin: 'https://game.example', epoch: 7 });
+  assert.deepEqual((await (await fetch(server.base + '/gaming/manifest')).json()).worldAdmission, admission);
+  assert.equal(actor.welcome.world.cn, 1);
+  assert.deepEqual(actor.welcome.world.cl, [[0, 0], [0, 0], [0, 0]]);
+  assert.deepEqual(actor.welcome.world.g, new Array(6).fill(1));
+  const initialKeeps = (await (await fetch(server.base + '/season')).json()).keeps.map(k => k.r);
+  assert.deepEqual(actor.welcome.world.k, initialKeeps);
+  const stale = { ...world, k: new Array(6).fill(2), g: new Array(6).fill(0), cn: 99, cl: [[99, 99], [99, 99], [99, 99]] };
+  let activity = 1;
+  for (const binding of [undefined, { ...admission, epoch: 6 }, { ...admission, origin: 'https://other.example' }]) {
+    const label = 'admission-' + ++activity;
+    actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: activity, n: label, c: 'warrior', l: 3,
+      w: stale, worldAdmission: binding, wx: { v: 1, c: [] } } });
+    const forwarded = await observer.receive('peer', m => m.slow?.n === label);
+    assert.equal(forwarded.slow.w, undefined, 'rejected private world is not forwarded to current peers');
+    assert.equal(forwarded.slow.wx, undefined, 'unbound weather is not forwarded');
+    await server.admin('world-checkpoint');
+    assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.worlds, {});
+    assert.deepEqual((await (await fetch(server.base + '/season')).json()).keeps.map(k => k.r), initialKeeps);
+  }
+  const legitimate = { ...stale, k: initialKeeps, cn: 1, cl: [[2, 3], [4, 5], [6, 7]] };
+  actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++activity, n: 'current-host', c: 'warrior', l: 3,
+    w: legitimate, worldAdmission: admission } });
+  const accepted = await observer.receive('peer', m => m.slow?.n === 'current-host');
+  assert.deepEqual(accepted.slow.w, legitimate, 'same-epoch initialized host keeps legitimate elected authority');
+  await server.admin('world-checkpoint');
+  const persisted = (await f.readDurable()).streams['hallowmarch-world-season-v1'].state.value.worlds.march;
+  assert.deepEqual(persisted.k, initialKeeps); assert.equal(persisted.cn, 1); assert.deepEqual(persisted.cl, legitimate.cl);
+  assert.deepEqual(persisted.g, legitimate.g);
+  await server.admin('reset');
+  actor.send({ t: 'slow', d: { r: 0, on: 1, humanLive: 1, humanActivity: ++activity, n: 'old-season', c: 'warrior', l: 3,
+    w: stale, worldAdmission: admission } });
+  const rejected = await observer.receive('peer', m => m.slow?.n === 'old-season');
+  assert.equal(rejected.slow.w, undefined, 'a previously initialized old epoch is fenced after reset');
+  assert.equal((await (await fetch(server.base + '/season')).json()).n, 8);
 });
