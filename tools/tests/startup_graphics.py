@@ -218,11 +218,28 @@ async def context_loss(page, errors, console_errors, navigations):
 
 
 async def title_canvas_pixels(page):
-    startup = await page.evaluate('({...window.__hmStartup})')
-    check(startup['titleSubmitted'] > 0 and
+    snapshot = '({...window.__hmStartup, hidden:document.hidden, gameReady:__hm.GAME.ready})'
+    before = await page.evaluate(snapshot)
+    receipt_path = hm.OUT / 'startup-safe-title-receipt.json'
+    receipt_path.write_text(json.dumps({'before':before}, indent=2), encoding='utf-8')
+    print('title receipt before settling', json.dumps(before), flush=True)
+    check(before['titleCompleted'] > 0,
+          'Ready requires the first completed title GPU fence: '+json.dumps(before))
+    # Showing/resizing the page may request another explicit frozen title draw
+    # after Ready. Wait for that receipt too before inspecting canvas pixels.
+    try:
+        await page.wait_for_function("""() => {
+          const s=window.__hmStartup;
+          return s && (s.stopped || (s.titleCompleted>0 && s.titleCompleted===s.titleSubmitted));
+        }""", timeout=30000)
+    finally:
+        startup = await page.evaluate(snapshot)
+        receipt_path.write_text(json.dumps({'before':before,'settled':startup}, indent=2), encoding='utf-8')
+        print('title receipt after settling', json.dumps(startup), flush=True)
+    check(not startup['stopped'] and startup['titleSubmitted'] > 0 and
           startup['titleCompleted'] == startup['titleSubmitted'] and
           math.isfinite(startup['titleFenceWaitMs']) and startup['titleFenceWaitMs'] >= 0,
-          'title readiness follows completed scene and post GPU fence')
+          'title pixels follow completed scene and post GPU fence: '+json.dumps(startup))
     # Inspect the composited canvas itself, with all DOM text and panels hidden.
     # Render counts can belong to maps/offscreen targets; title UI can otherwise
     # make a black canvas screenshot look like a successful rendered world.
