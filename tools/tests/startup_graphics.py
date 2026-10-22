@@ -273,6 +273,11 @@ async def safe_boot(browser):
     try:
         await page.goto(ORIGIN + '/?safe=1&server=', wait_until='commit', timeout=120000)
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
+        ready_receipt = await page.evaluate('({...window.__hmStartup, hidden:document.hidden})')
+        (hm.OUT / 'startup-safe-first-ready.json').write_text(json.dumps(ready_receipt, indent=2), encoding='utf-8')
+        print('first Ready title receipt', json.dumps(ready_receipt), flush=True)
+        check(ready_receipt['titleCompleted'] > 0 and not ready_receipt['stopped'],
+              'first Ready follows at least one completed title GPU fence: '+json.dumps(ready_receipt))
         await page.evaluate("""() => {
           const renderer = __hm.dbg.renderer, render = renderer.render;
           renderer.render = function(...args) {
