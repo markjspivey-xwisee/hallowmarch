@@ -3,10 +3,54 @@
 /* ================================================================== */
 // The save's early request and the multiplayer pump share one attempt. A failed
 // boot request is retryable after GAME.ready; reconnecting never reloads a save.
-const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
 // World/season admission and the owner's character save are separate. Keep a
 // pause visible across disconnects; only a fresh server status can clear it.
+function netWorldAdmissionRead(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || typeof value.origin !== 'string' || !Number.isSafeInteger(value.epoch) || value.epoch < 1) return null;
+  try {
+    const origin = new URL(value.origin), server = new URL(NETWS.url || netServerUrl());
+    const expected = (server.protocol === 'wss:' ? 'https:' : 'http:') + '//' + server.host;
+    if (origin.origin !== value.origin || origin.origin !== expected
+      || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) return null;
+    return { origin: origin.origin, epoch: value.epoch };
+  } catch { return null; }
+}
+function netSameWorldAdmission(a, b) {
+  return !!a && !!b && a.origin === b.origin && a.epoch === b.epoch;
+}
+function netCurrentWorldAdmission() {
+  return netWorldAdmissionRead(NETWS.worldAdmission || window.__HM_GAMING?.worldAdmission);
+}
+function netSharedWorldRequired() {
+  return NETWS.worldAdmissionRequired || !!window.__HM_GAMING?.worldAdmission
+    || window.__HM_GAMING?.worldAuthority?.mode === 'native';
+}
+function netWorldAdmissionNotice(message) {
+  if (NETWS.worldPauseReason === message) return;
+  NETWS.worldPauseReason = message;
+  if (GAME.started && GAME.player) { uiLog(message, 'sys'); uiToast(message, 'hint'); }
+  if (typeof NETUI !== 'undefined' && NETUI.open) netSheetRender();
+}
+function netReceiveWorldAdmission(value, world) {
+  NETWS.worldInitialized = false; NETWS.worldInit = null;
+  const admission = netWorldAdmissionRead(value);
+  if (!admission) return false;
+  NETWS.worldAdmissionRequired = true;
+  if (GAME.started && NETWS.activeWorldAdmission && !netSameWorldAdmission(NETWS.activeWorldAdmission, admission)) {
+    NETWS.worldReloadRequired = true;
+    netWorldAdmissionNotice('The shared world has a new season. Reload this page to join it; your private character is preserved.');
+    if (typeof netHumanSync === 'function') netHumanSync();
+    return false;
+  }
+  NETWS.worldAdmission = admission;
+  NETWS.worldInit = world;
+  return true;
+}
 function netWsWorldStatus(value, entry = false) {
+  if (value?.mode === 'native') NETWS.worldAdmissionRequired = true;
+  if (NETWS.worldReloadRequired) return;
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.scope !== 'world-and-season') return;
   const paused = value.fenced === true || ['conflict', 'recovering', 'closing', 'closed', 'closed-unconfirmed'].includes(value.state);
   const running = value.fenced === false && value.mode === 'native' && value.enabled === true
@@ -226,6 +270,8 @@ function netWsOpen() {
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
         netWsWorldStatus(m.worldAuthority, true);
         NET.self = m.peer; NETWS.worldRoom = m.room; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
+        netReceiveWorldAdmission(m.worldAdmission, m.world);
+        if (typeof netSharedWorldReady === 'function') netSharedWorldReady();
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(host, m.token); }
         NET.slowKey = ''; NET.fastKey = '';
         // Profile precedes a reconnecting player's first company/season action.
@@ -250,7 +296,16 @@ function netWsOpen() {
         for (const k of Object.keys(m.h).slice(0, 12)) if (/^[fhb][0-2]?$/.test(k) && typeof m.h[k] === 'string') h[k] = m.h[k].slice(0, 32);
         NET.regions = { h, kr: m.kr.slice(0, 16).map((x) => netStr(x, 3)), you: netStr(m.you, 3) };
         NET.stats.regions = (NET.stats.regions || 0) + 1;
-      } else if (m.t === 'world' && m.w && typeof m.w === 'object') { netWorldTake(netWorldRead(m.w), m.init ? 'keepsall' : 'keeps'); NET.stats.worldIn = (NET.stats.worldIn || 0) + 1; }
+      } else if (m.t === 'world' && m.w && typeof m.w === 'object') {
+        if (m.init && netSharedWorldRequired()) {
+          if (!netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission))) return;
+          netReceiveWorldAdmission(m.worldAdmission, m.w);
+          if (typeof netSharedWorldReady === 'function') netSharedWorldReady();
+        } else if (!netSharedWorldRequired() || NETWS.worldInitialized && !NETWS.worldReloadRequired) {
+          netWorldTake(netWorldRead(m.w), m.init ? 'keepsall' : 'keeps');
+        }
+        NET.stats.worldIn = (NET.stats.worldIn || 0) + 1;
+      }
     };
     ws.onclose = (ev) => {
       if (!current()) return;
