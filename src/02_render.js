@@ -46,7 +46,7 @@ function graphicsRecoveryNotice() {
   const notice = document.createElement('p'); notice.id = 'graphics-recovery'; notice.className = 'fineprint';
   notice.setAttribute('role', 'status');
   const text = document.createElement('span');
-  text.textContent = 'Reduced graphics are remembered for this browser. Your saved graphics preferences are unchanged. ';
+  text.textContent = 'Reduced graphics are active. Your saved graphics preferences are unchanged. ';
   const retry = document.createElement('a'); retry.href = graphicsRecoveryURL(false);
   retry.textContent = 'Try standard graphics';
   notice.appendChild(text); notice.appendChild(retry); title.appendChild(notice);
