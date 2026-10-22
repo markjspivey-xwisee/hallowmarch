@@ -1,0 +1,46 @@
+name: Desktop graphics recovery
+on:
+  pull_request:
+    paths:
+      - src/02_render.js
+      - src/13_main.js
+      - src/13y_gpu_diagnostic.js
+      - tools/tests/startup_graphics.mjs
+      - tools/tests/startup_graphics.py
+      - tools/tests/gpu_diagnostic.mjs
+      - .github/workflows/desktop-graphics.yml
+permissions:
+  contents: read
+concurrency:
+  group: desktop-graphics-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  desktop-graphics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install graphics test dependencies
+        run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and lint the actual page
+        run: bash tools/lint.sh 80
+      - name: Verify recovery choice and frozen title isolation
+        run: node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/idle_client_network.test.mjs
+      - name: Verify visible title pixels, GPU completion and context loss in software rendering
+        run: python tools/tests/startup_graphics.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-graphics-evidence
+          path: tools/out/
+          retention-days: 14
