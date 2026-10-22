@@ -17,7 +17,7 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
 function resize() {
-  if (GRAPHICS_CONTEXT_LOST || graphicsDiagnosticActive()) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || graphicsDiagnosticActive()) return;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
@@ -100,11 +100,13 @@ function renderTitleFrame() {
         renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
         GRAPHICS_STARTUP.titleSubmitted++;
         renderer.render(scene, camera); renderPost();
-        const receipt = await gpuDiagWaitForFence(gl);
-        graphicsAssertActive();
-        GRAPHICS_STARTUP.titleCompleted++;
-        GRAPHICS_STARTUP.titleFenceWaitMs = receipt.waitMs;
       } finally { U.uTrail.value = oldTrail; }
+      // Restore shared CPU state before yielding; a real user may start play
+      // while this bounded completion receipt is pending.
+      const receipt = await gpuDiagWaitForFence(gl);
+      graphicsAssertActive();
+      GRAPHICS_STARTUP.titleCompleted++;
+      GRAPHICS_STARTUP.titleFenceWaitMs = receipt.waitMs;
     }
     return true;
   })().catch(error => {
@@ -460,7 +462,7 @@ function simStep(dt) {
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   if (typeof netHumanSync === 'function') netHumanSync();
   if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
@@ -569,7 +571,7 @@ function tick(dt) {
   adaptQuality(dt);
 }
 function frame(now) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   requestAnimationFrame(frame);
   let dt = (now - lastNow) / 1000;
   lastNow = now;
