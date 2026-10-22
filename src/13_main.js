@@ -92,26 +92,41 @@ function renderTitleFrame() {
         TITLE_NEUTRAL_TRAIL.minFilter = TITLE_NEUTRAL_TRAIL.magFilter = THREE.NearestFilter;
         TITLE_NEUTRAL_TRAIL.needsUpdate = true;
       }
-      const oldTrail = U.uTrail.value;
+      const oldTrail = U.uTrail.value, debug = renderer.debug;
+      const oldShaderError = debug && debug.onShaderError, oldShaderCheck = debug && debug.checkShaderErrors;
       U.uTrail.value = TITLE_NEUTRAL_TRAIL;
       try {
+        const priorErrors = gpuDiagGlErrors(gl);
+        if (priorErrors.length) throw new Error('GL errors before the title draw: ' + priorErrors.join(', '));
+        if (debug) {
+          debug.checkShaderErrors = true;
+          debug.onShaderError = (context, program) => {
+            const detail = context.isContextLost() ? 'Context lost.' : String(context.getProgramInfoLog(program) || '').slice(0, 600);
+            throw new Error('Title shader could not link. ' + detail);
+          };
+        }
         gpuDiagPrepareView({ weatherGpu: false });
         renderer.info.reset();
         renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
         GRAPHICS_STARTUP.titleSubmitted++;
         renderer.render(scene, camera); renderPost();
-      } finally { U.uTrail.value = oldTrail; }
+      } finally {
+        U.uTrail.value = oldTrail;
+        if (debug) { debug.onShaderError = oldShaderError; debug.checkShaderErrors = oldShaderCheck; }
+      }
       // Restore shared CPU state before yielding; a real user may start play
       // while this bounded completion receipt is pending.
       const receipt = await gpuDiagWaitForFence(gl);
       graphicsAssertActive();
+      const errors = gpuDiagGlErrors(gl);
+      if (errors.length) throw new Error('GL errors after the title draw: ' + errors.join(', '));
       GRAPHICS_STARTUP.titleCompleted++;
       GRAPHICS_STARTUP.titleFenceWaitMs = receipt.waitMs;
     }
     return true;
   })().catch(error => {
     TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
-    GRAPHICS_STARTUP.stopped = true; GAME.ready = false;
+    GRAPHICS_STARTUP.stopped = true; GRAPHICS_STARTUP.titleError = String(error.message || error); GAME.ready = false;
     if (window.__hm) window.__hm.ready = false;
     graphicsRememberRecovery();
     graphicsCheckpoint('Title graphics stopped', error.message || error);
