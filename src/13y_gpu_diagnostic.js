@@ -32,10 +32,12 @@ function gpuDiagWaitForFence(context, timeout = GPU_DIAG_TIMEOUT_MS) {
     };
     const poll = () => {
       if (GRAPHICS_CONTEXT_LOST || context.isContextLost()) { finish(new Error('Graphics context was lost while waiting for the batch.')); return; }
-      if (performance.now() - start >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms. No further stage will run.')); return; }
       const status = context.clientWaitSync(sync, 0, 0);
       if (status === context.ALREADY_SIGNALED || status === context.CONDITION_SATISFIED) { finish(); return; }
       if (status === context.WAIT_FAILED) { finish(new Error('The browser rejected the GPU completion wait.')); return; }
+      // A background tab may resume after its deadline with an already-signaled
+      // fence. Observe completion first; only still-pending work times out.
+      if (performance.now() - start >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms. No further stage will run.')); return; }
       setTimeout(poll, GPU_DIAG_POLL_MS);
     };
     // Yield first: context-loss notifications must be able to reach the latch.
