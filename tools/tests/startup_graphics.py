@@ -20,6 +20,7 @@ async def direct_page(browser, w, h, touch=False, init=None):
     page = await ctx.new_page()
     page.set_default_timeout(30000)
     await page.add_init_script(TEST_LIFECYCLE)
+    await page.add_init_script(TEST_TITLE_ISOLATION)
     if init: await page.add_init_script(init)
     errors, console_errors, navigations = [], [], []
     page.on('crash', lambda: errors.append('PAGE CRASHED'))
@@ -56,6 +57,64 @@ TEST_LIFECYCLE = r"""(() => {
    return callback(time);
   });
  };
+})();"""
+
+
+TEST_TITLE_ISOLATION = r"""(() => {
+ const phaseName='Drawing the first view';
+ const data=window.__hmTitleIsolation={titleRandom:0,wholePhaseRandom:0,randomStacks:[],before:null,after:null};
+ const scalarState=value => {
+  if(!value || typeof value!=='object')return value ?? null;
+  const out={};
+  for(const key of Object.keys(value).sort()) {
+   const item=value[key];
+   if(item===null || ['number','string','boolean'].includes(typeof item))out[key]=item;
+   else if(Array.isArray(item) && item.every(x=>x===null || ['number','string','boolean'].includes(typeof x)))out[key]=item.slice();
+  }
+  return out;
+ };
+ const snapshot=()=>{
+  const h=window.__hm;
+  if(!h)return {unavailable:true};
+  const summary=h.summary(), animals=h.animals && h.animals.A, nature=h.nature && h.nature.NATURE;
+  return {
+   game:scalarState(h.GAME),progress:scalarState(h.GAME.prog),tod:scalarState(h.tod),
+   entities:h.ENT.map(e=>({state:scalarState(e),ai:scalarState(e.ai),tame:scalarState(e.tame)})),
+   later:summary.later,projectiles:summary.proj,warStats:summary.stats,
+   fires:h.dbg.FIRES.map(scalarState),weather:scalarState(h.dbg.WEATHER),
+   nature:nature?{clock:scalarState(nature.clock),emit:scalarState(nature.emit),lights:nature.lights.map(scalarState)}:null,
+   animals:animals?{state:scalarState(animals),list:animals.list.map(scalarState),pens:animals.pens.map(scalarState)}:null,
+  };
+ };
+ const random=Math.random;
+ Math.random=function(){
+  const trace=window.__hmStartup;
+  if(trace && trace.phase===phaseName) {
+   data.wholePhaseRandom++;
+   if(trace.titleCompleted===0) {
+    data.titleRandom++;
+    if(data.randomStacks.length<8)data.randomStacks.push(String(new Error('First-title randomness').stack));
+   }
+  }
+  return random.call(Math);
+ };
+ let current;
+ Object.defineProperty(window,'__hmStartup',{
+  configurable:true,enumerable:true,get:()=>current,
+  set(trace){
+   current=trace;
+   if(!trace || typeof trace!=='object')return;
+   let phase=trace.phase,completed=trace.titleCompleted;
+   Object.defineProperty(trace,'phase',{configurable:true,enumerable:true,get:()=>phase,set(value){
+    phase=value;
+    if(value===phaseName && completed===0 && data.before===null)data.before=snapshot();
+   }});
+   Object.defineProperty(trace,'titleCompleted',{configurable:true,enumerable:true,get:()=>completed,set(value){
+    const prior=completed;completed=value;
+    if(prior===0 && value>0 && data.after===null)data.after=snapshot();
+   }});
+  },
+ });
 })();"""
 
 FAIL_CONTEXT = r"""(() => {
@@ -264,6 +323,28 @@ async def title_canvas_pixels(page):
         'titleFenceWaitMs': startup['titleFenceWaitMs'],
     }, indent=2), encoding='utf-8')
 
+
+async def title_state_isolation(page):
+    data = await page.evaluate('window.__hmTitleIsolation')
+    (hm.OUT / 'startup-title-state-isolation.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+    before, after = data['before'], data['after']
+    metrics = {
+        'titleRandom': data['titleRandom'], 'wholePhaseRandom': data['wholePhaseRandom'],
+        'capturedBefore': before is not None, 'capturedAfter': after is not None,
+        'entityCountBefore': len(before['entities']) if before and 'entities' in before else None,
+        'entityCountAfter': len(after['entities']) if after and 'entities' in after else None,
+        'stateUnchanged': before == after,
+        'changedRegions': [key for key in before if before.get(key) != after.get(key)] if before and after else [],
+        'randomStacks': data['randomStacks'],
+    }
+    print('first-title state isolation', json.dumps(metrics), flush=True)
+    check(before is not None and after is not None and not before.get('unavailable') and not after.get('unavailable'),
+          'actual first title captures state before preparation and after its completed fence')
+    check(data['titleRandom'] == 0,
+          'actual first-title preparation submission and GPU fence consume zero Math.random calls: '+json.dumps(metrics))
+    check(before == after,
+          'actual first title preserves NPC ambient animal fire and scheduled world state: '+json.dumps(metrics))
+
 async def safe_boot(browser):
     saved = {'v':1, 'char':None, 'settings':{'quality':'high', 'auto':True}, 'world':None,
              'startupRegression':'preserve-this-existing-save'}
@@ -279,6 +360,7 @@ async def safe_boot(browser):
         check(ready_receipt['titleCompleted'] > 0 and not ready_receipt['stopped'] and
               math.isfinite(ready_receipt['titleFenceWaitMs']) and ready_receipt['titleFenceWaitMs'] >= 0,
               'first Ready follows at least one completed title GPU fence: '+json.dumps(ready_receipt))
+        await title_state_isolation(page)
         await page.evaluate("""() => {
           const renderer = __hm.dbg.renderer, render = renderer.render;
           renderer.render = function(...args) {
