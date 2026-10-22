@@ -570,7 +570,10 @@ function onSlow(c, d) {
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
   if (d.w && !worldReport(c, d.w, d.worldAdmission)) delete d.w;
-  if (d.wx && sameWorldAdmission(d.worldAdmission, worldAdmission()) && sameWorldAdmission(c.worldAdmission, d.worldAdmission) && roomHost(R) === c) keepWx(R, d.wx); // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
+  if (d.wx) {
+    if (sameWorldAdmission(d.worldAdmission, worldAdmission()) && sameWorldAdmission(c.worldAdmission, d.worldAdmission) && roomHost(R) === c) keepWx(R, d.wx);
+    else delete d.wx;
+  } // [perf3] the shard's sky, kept with its war (src/14r_netwx.js)
   if (c.realm >= 0 && !R.diagnostic) {
     SEASON.seen(c.acct.id, { name: cleanName(d.dn || d.n) || c.acct.name, r: c.realm, c: typeof d.c === 'string' ? d.c.slice(0, 10) : '', l: Number.isFinite(d.l) ? Math.max(1, Math.min(60, d.l | 0)) : 1, rk: Number.isFinite(d.rr) ? Math.max(0, Math.min(20, d.rr | 0)) : 0 });
     c.rank = Number.isFinite(d.rr) ? d.rr | 0 : 0;
