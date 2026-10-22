@@ -43,7 +43,7 @@ function gpuDiagWaitForFence(context, timeout = GPU_DIAG_TIMEOUT_MS) {
   });
 }
 
-function gpuDiagPrepareView() {
+function gpuDiagPrepareView({ weatherGpu = true } = {}) {
   // The preparation half of tick, with a frozen simulation. These functions
   // populate the actual crowds/LOD/grass/props; there is no tick or simStep, no
   // weather GPU pass, and no trail/decal submission here.
@@ -52,7 +52,8 @@ function gpuDiagPrepareView() {
   applyWeather();
   applyIndoor();
   updateNightSky(dt);
-  wxCloudsFrame(dt); // safe mode returns before allocating or drawing clouds
+  if (weatherGpu) wxCloudsFrame(dt); // safe diagnostics return before allocating/drawing clouds
+  else { U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; U.uCloudScrP.value.z = 0; }
   camera.updateMatrixWorld();
   projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);
