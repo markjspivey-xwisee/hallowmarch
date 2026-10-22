@@ -5,12 +5,53 @@ const canvas = document.getElementById('scene');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 const REDUCE_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const BOOT_SAFE = new URLSearchParams(location.search).get('safe') === '1';
 const GRAPHICS_TRACE_KEY = 'hallowmarch.graphics.trace.v1';
+const GRAPHICS_RECOVERY_KEY = 'hallowmarch.graphics.recovery.v1';
 let GRAPHICS_CONTEXT_LOST = false;
 let graphicsPrevious = null;
 try { graphicsPrevious = JSON.parse(sessionStorage.getItem(GRAPHICS_TRACE_KEY) || 'null'); } catch (e) { /* diagnostics never gate startup */ }
-const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
+function graphicsRememberRecovery() {
+  try { localStorage.setItem(GRAPHICS_RECOVERY_KEY, JSON.stringify({ v: 1, enabled: true })); } catch (e) { /* browser storage may be unavailable */ }
+}
+let GRAPHICS_RECOVERY_SOURCE = 'standard';
+function graphicsRecoverySelection() {
+  const choice = new URLSearchParams(location.search).get('safe');
+  if (choice === '0') {
+    try { localStorage.removeItem(GRAPHICS_RECOVERY_KEY); } catch (e) { /* explicit override still works */ }
+    return false;
+  }
+  if (choice === '1') { GRAPHICS_RECOVERY_SOURCE = 'explicit'; graphicsRememberRecovery(); return true; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(GRAPHICS_RECOVERY_KEY) || 'null');
+    if (saved && saved.v === 1 && saved.enabled === true) { GRAPHICS_RECOVERY_SOURCE = 'remembered'; return true; }
+  } catch (e) { /* invalid or blocked storage never prevents startup */ }
+  // Migrate this browser tab's previous failure/reduced launch. This preference
+  // stays on this device/browser origin; it never enters an owned character save.
+  if (graphicsPrevious && (graphicsPrevious.recovery === true || graphicsPrevious.lost > 0 || graphicsPrevious.stopped === true)) {
+    GRAPHICS_RECOVERY_SOURCE = 'previous-session'; graphicsRememberRecovery(); return true;
+  }
+  return false;
+}
+const BOOT_SAFE = graphicsRecoverySelection();
+function graphicsRecoveryURL(reduced) {
+  const target = new URL(location.href);
+  target.searchParams.set('safe', reduced ? '1' : '0');
+  target.searchParams.delete('gpuDiag');
+  return target.href;
+}
+function graphicsRecoveryNotice() {
+  if (!BOOT_SAFE) return;
+  const title = document.getElementById('title');
+  if (!title || document.getElementById('graphics-recovery')) return;
+  const notice = document.createElement('p'); notice.id = 'graphics-recovery'; notice.className = 'fineprint';
+  notice.setAttribute('role', 'status');
+  const text = document.createElement('span');
+  text.textContent = 'Reduced graphics are remembered for this browser. Your saved graphics preferences are unchanged. ';
+  const retry = document.createElement('a'); retry.href = graphicsRecoveryURL(false);
+  retry.textContent = 'Try standard graphics';
+  notice.appendChild(text); notice.appendChild(retry); title.appendChild(notice);
+}
+const GRAPHICS_STARTUP = window.__hmStartup = { recovery: BOOT_SAFE, recoverySource: GRAPHICS_RECOVERY_SOURCE, titleSubmitted: 0, titleCompleted: 0, phase: 'Creating graphics context', events: [], lost: 0, restored: 0, stopped: false, previous: graphicsPrevious };
 function graphicsCheckpoint(phase, message = '') {
   GRAPHICS_STARTUP.phase = phase;
   GRAPHICS_STARTUP.events.push({ phase, message: String(message).slice(0, 500), at: Math.round(performance.now()) });
@@ -39,9 +80,8 @@ function graphicsStartFailure(error, title = 'Graphics could not start') {
   detail.textContent = GRAPHICS_START_MESSAGE || String(error && error.message || error);
   const help = document.createElement('span');
   help.textContent = GRAPHICS_CONTEXT_LOST ? 'The browser stopped graphics. Close this game tab and restart the browser before trying the reduced graphics launch. Your saved character is kept.' : 'Hallowmarch needs WebGL 2. Try reduced graphics. If the browser still blocks graphics, close and reopen it before trying again.';
-  const retry = document.createElement('a'), target = new URL(location.href);
-  target.searchParams.set('safe', '1');
-  retry.href = target.href;
+  const retry = document.createElement('a');
+  retry.href = graphicsRecoveryURL(true);
   retry.textContent = 'Reload with low graphics';
   notice.replaceChildren(heading, detail, help, retry);
 }
@@ -53,6 +93,7 @@ canvas.addEventListener('webglcontextlost', (event) => {
   GRAPHICS_CONTEXT_LOST = true;
   GRAPHICS_STARTUP.lost++;
   GRAPHICS_STARTUP.stopped = true;
+  graphicsRememberRecovery();
   GRAPHICS_START_MESSAGE = 'Graphics stopped during ' + stage + (event.statusMessage ? ': ' + event.statusMessage : '.');
   graphicsCheckpoint(stage, GRAPHICS_START_MESSAGE);
   const state = window.__hm;
