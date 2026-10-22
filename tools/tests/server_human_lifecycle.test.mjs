@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../../server/server.js', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('function liveTask('), source.indexOf('let closing = false;'));
+const worldInitSource = source.slice(source.indexOf('function sendWorldInit('), source.indexOf('const gamingManifest ='));
 const shutdownSource = source.slice(source.indexOf('let closing = false;'), source.indexOf("process.on('SIGTERM'"));
 function fixture({ monitor = '1' } = {}) {
   let now = 1000, nextId = 1, humans = 0;
@@ -30,6 +31,7 @@ function fixture({ monitor = '1' } = {}) {
     worldAgentTransport: { close: record('agent-stop') },
     worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a), close: async () => record('agent-close')() },
     nativeAgentHost: { setActive: record('native-agent-active'), close: record('native-agent-close') },
+    worldAdmission: () => ({origin:'https://game.example',epoch:2}),
     send: record('send'), regionsTell: record('regions'), worldNow: () => ({k:[0,1,2]}),
     CFG: { seasonStep: 5000, seasonPush: 10000 }, ROOMS: new Map(),
     publishGamingCapabilities: record('publish-gaming'), publishPlayerCapabilities: record('publish-player'),
@@ -39,7 +41,7 @@ function fixture({ monitor = '1' } = {}) {
     setInterval: (fn, ms) => add(fn, ms, ms), setTimeout: (fn, ms) => add(fn, ms),
     clearInterval: timer => timers.delete(timer), clearTimeout: timer => timers.delete(timer),
   });
-  vm.runInContext('const liveWorkAllowed = () => humanWorkRunning && hasLiveHumans();\n' + lifecycle +
+  vm.runInContext('const liveWorkAllowed = () => humanWorkRunning && hasLiveHumans();\n' + worldInitSource + '\n' + lifecycle +
     '\n' + shutdownSource + '\nglobalThis.api = { setHumanWorkActive, endHumanSession, resumeHumanSession, shutdown };', context);
   async function advance(ms) {
     const target = now + ms;
@@ -126,6 +128,8 @@ test('live resume clears omitted departed peers then sends one current snapshot 
   assert.equal(messages.find(m=>m.t==='peer').peer,'still-live');
   assert.equal(messages.find(m=>m.t==='peer').fast.ev.length,0);
   assert.equal(messages.filter(m=>m.t==='world').length,1);
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.find(m=>m.t==='world').worldAdmission)), {origin:'https://game.example',epoch:2});
+  assert.equal(owner.worldAdmission.epoch,2);
   assert.equal(owner.pausedPeerIds,null);assert.equal(f.timers.size,0);
 });
 
