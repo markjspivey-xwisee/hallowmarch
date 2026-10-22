@@ -38,6 +38,8 @@ export async function configuredGamingStore(env) {
       const fault = control();
       if (id === WORLD && fault.holdMs) await new Promise(resolve => setTimeout(resolve, fault.holdMs));
       if (id === WORLD && fault.commitError) throw new Error('private test transport');
+      if (id === WORLD && fault.corruptAck) return {version: input.expectedVersion + 1,
+        state: {...input.state, digest: 'sha256:corrupt-test-acknowledgement'}};
       const data = read(), key = id + ':' + input.idempotencyKey, previous = data.operations[key];
       if (previous) return structuredClone(previous);
       const current = data.streams[id] || {version: 0, state: null};
@@ -211,15 +213,18 @@ test('real server rejects an invalid confirmed native world without falling back
   assert.equal(JSON.parse(await readFile(path.join(f.data, 'worlds.json'), 'utf8')).march.cn, 3);
 });
 
-test('real server fences known checkpoint outages before accepting further season mutations and recovers natively', async t => {
+for (const [fault, errorCode] of [
+  [{ commitError: true }, 'CHECKPOINT_UNCONFIRMED'],
+  [{ corruptAck: true }, 'CORRUPT_DURABLE_STATE'],
+]) test('real server fences ' + errorCode + ' before accepting further season mutations and recovers natively', async t => {
   const f = await fixture(t), server = await f.start(), actor = await server.connect({ live: true });
   await server.admin('world-checkpoint');
   const before = (await f.readDurable()).streams['hallowmarch-world-season-v1'];
-  await f.setControl({ commitError: true });
+  await f.setControl(fault);
   assert.equal((await server.admin('keep&i=0&r=1')).status, 200);
   assert.equal((await server.admin('world-checkpoint')).status, 503);
   const blocked = await server.status();
-  assert.equal(blocked.error, 'CHECKPOINT_UNCONFIRMED');
+  assert.equal(blocked.error, errorCode);
   assert.equal(blocked.fenced, true);
   assert.equal(blocked.durable, false);
   assert.equal((await server.admin('keep&i=0&r=2')).status, 503);
@@ -233,8 +238,17 @@ test('real server fences known checkpoint outages before accepting further seaso
   assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'], before,
     'failed storage never advances the confirmed native snapshot');
   await f.setControl({});
+  const disconnected = once(actor.ws, 'close');
   const recovered = await server.admin('world-recover');
   assert.equal(recovered.status, 200); assert.equal(recovered.body.persistence.fenced, false);
+  await disconnected;
+  // Recovery closes old sessions. Wait for the last human withdrawal before
+  // admitting a fresh socket, which standby intentionally closes otherwise.
+  const idleDeadline = Date.now() + 3000;
+  while ((await (await fetch(server.base + '/health')).json()).players !== 0) {
+    assert(Date.now() < idleDeadline, 'Recovered session did not withdraw');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
   await server.connect({ live: true });
   assert.equal((await server.admin('keep&i=0&r=2')).status, 200);
   assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);

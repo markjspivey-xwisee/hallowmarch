@@ -84,7 +84,7 @@ export async function openHallowmarchWorldState({ nativeStore, files, dataDir, k
     ...(backgroundCaptureDeferred ? { durable: false } : {}), enabled: true, mode: 'native', scope: 'world-and-season',
     snapshotOwnershipMigrated: true, realtimeAuthority: 'elected-page-region-keepers', authoritativeCombat: false,
     teamsAndRealmPermissionsMigrated: false, personalSavesIncluded: false, credentialsIncluded: false,
-    fenced: rollingBack || captureFailure || bridge.status().error === 'CHECKPOINT_UNCONFIRMED'
+    fenced: rollingBack || captureFailure || bridge.status().error != null
       || ['conflict', 'recovering'].includes(bridge.status().state),
     ...(captureFailure ? { durable: false, error: 'WORLD_SNAPSHOT_REJECTED' } : {}) });
   const canMutate = () => !closing && !status().fenced;
