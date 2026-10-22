@@ -9,7 +9,7 @@ const NET_HUMAN_PLAY = { activity: 0, pendingAt: null, acceptedAt: null, player:
   reportedLive: false, reportedActivity: 0, renewedAt: -Infinity };
 
 function netHumanEligible() {
-  return !!(GAME.started && GAME.player && !document.hidden && NET_HUMAN_PLAY.focused
+  return !!(GAME.started && GAME.player && !(typeof NETWS !== 'undefined' && NETWS.worldReloadRequired) && !document.hidden && NET_HUMAN_PLAY.focused
     && typeof document.hasFocus === 'function' && document.hasFocus()
     && UI.modal !== 'menu' && UI.modal !== 'prologue');
 }
