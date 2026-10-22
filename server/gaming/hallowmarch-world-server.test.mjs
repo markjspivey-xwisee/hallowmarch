@@ -238,8 +238,17 @@ for (const [fault, errorCode] of [
   assert.deepEqual((await f.readDurable()).streams['hallowmarch-world-season-v1'], before,
     'failed storage never advances the confirmed native snapshot');
   await f.setControl({});
+  const disconnected = once(actor.ws, 'close');
   const recovered = await server.admin('world-recover');
   assert.equal(recovered.status, 200); assert.equal(recovered.body.persistence.fenced, false);
+  await disconnected;
+  // Recovery closes old sessions. Wait for the last human withdrawal before
+  // admitting a fresh socket, which standby intentionally closes otherwise.
+  const idleDeadline = Date.now() + 3000;
+  while ((await (await fetch(server.base + '/health')).json()).players !== 0) {
+    assert(Date.now() < idleDeadline, 'Recovered session did not withdraw');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
   await server.connect({ live: true });
   assert.equal((await server.admin('keep&i=0&r=2')).status, 200);
   assert.equal((await server.admin('world-checkpoint')).body.persistence.durable, true);
