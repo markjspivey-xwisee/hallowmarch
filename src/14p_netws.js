@@ -298,7 +298,7 @@ function netWsOpen() {
         NET.stats.regions = (NET.stats.regions || 0) + 1;
       } else if (m.t === 'world' && m.w && typeof m.w === 'object') {
         if (m.init && netSharedWorldRequired()) {
-          if (!netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission))) return;
+          if (!netWorldAdmissionRead(m.worldAdmission)) return;
           netReceiveWorldAdmission(m.worldAdmission, m.w);
           if (typeof netSharedWorldReady === 'function') netSharedWorldReady();
         } else if (!netSharedWorldRequired() || NETWS.worldInitialized && !NETWS.worldReloadRequired) {
