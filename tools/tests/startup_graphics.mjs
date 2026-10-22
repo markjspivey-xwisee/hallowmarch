@@ -449,6 +449,42 @@ test('a real title resize requests one frozen redraw while play and stopped stat
   assert.equal(redraws,1); assert.equal(allocations,2);
 });
 
+function wrappedTitleStepFixture() {
+  const f=titleFixture(), main=read('13_main.js'), perf=read('13p_perf.js');
+  const start=perf.indexOf('{\n  const ls0 = loadStep;'), end=perf.indexOf('\n}',start);
+  assert.ok(start>=0 && end>start,'test installs the actual profiling wrapper used by the combined page');
+  f.ctx.BOOT_STEPS=[]; f.ctx.PERFX={boot:[]};
+  f.ctx.performance={now:()=>100};
+  f.ctx.nextPaint=async()=>{};
+  f.ctx.$=()=>({style:{}});
+  vm.runInContext(extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
+  f.step=()=>vm.runInContext("loadStep(0.97,'Drawing the first view',renderFirstTitleFrame)",f.ctx);
+  return f;
+}
+test('the actual profiling wrapper preserves asynchronous title GPU completion before boot finishes',async()=>{
+  const f=wrappedTitleStepFixture(), pending=f.step();
+  for(let n=0;n<8&&f.fences.length===0;n++)await Promise.resolve();
+  assert.equal(f.fences.length,1);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  assert.equal(f.ctx.BOOT_STEPS.length,0,'base step cannot finish before the GPU fence');
+  assert.equal(f.ctx.PERFX.boot.length,0,'profiling wrapper cannot mark pending async work complete');
+  f.fences[0].resolve({waitMs:8}); await pending;
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  assert.equal(f.ctx.BOOT_STEPS.length,1);
+  assert.equal(f.ctx.PERFX.boot.length,1);
+});
+test('the actual profiling wrapper propagates an asynchronous title failure instead of finishing boot',async()=>{
+  const f=wrappedTitleStepFixture(), pending=f.step();
+  const rejected=assert.rejects(pending,/controlled profiled title timeout/);
+  for(let n=0;n<8&&f.fences.length===0;n++)await Promise.resolve();
+  f.fences[0].reject(Error('controlled profiled title timeout'));
+  await rejected;
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.BOOT_STEPS.length,0);
+  assert.equal(f.ctx.PERFX.boot.length,0);
+});
+
 function selectedSky(safe) {
   const source=read('02_render.js');
   const start=source.indexOf('const RECOVERY_SKY_FRAGMENT');
