@@ -3,6 +3,7 @@
 /* ================================================================== */
 quality.auto = !BOOT_SAFE;
 GAME.ready = false;
+let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false, TITLE_NEUTRAL_TRAIL = null;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -33,6 +34,7 @@ function resize() {
   U.uFoliageCut.value = quality.msaa > 0 ? 0.01 : 0.5;
   const focal = (view.h * quality.dprActual) / (2 * Math.tan((camera.fov * DEG) / 2));
   for (const m of [fxAdd.mesh.material, fxAlpha.mesh.material, glowMesh.material, fireflyMat]) m.uniforms.uFocal.value = focal;
+  if (!GAME.started && (GAME.ready || GRAPHICS_STARTUP.titleSubmitted > 0)) void renderTitleFrame().catch(reportError);
 }
 function setQuality(level, auto = false) {
   if (!QUALITY_PRESETS[level]) return;
@@ -75,6 +77,50 @@ function adaptQuality(dt) {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
+// A title is a frozen view, not a live player. Submit it once per explicit
+// layout request; no simulation, time advance, save, network or human lease.
+function renderTitleFrame() {
+  if (!GAME.built || GAME.started || GRAPHICS_CONTEXT_LOST || TITLE_FRAME_FAILED || document.hidden || graphicsDiagnosticActive()) return Promise.resolve(false);
+  TITLE_FRAME_DIRTY = true;
+  if (TITLE_FRAME_PROMISE) return TITLE_FRAME_PROMISE;
+  TITLE_FRAME_PROMISE = (async () => {
+    while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !document.hidden && !graphicsDiagnosticActive()) {
+      TITLE_FRAME_DIRTY = false;
+      graphicsAssertActive();
+      if (!TITLE_NEUTRAL_TRAIL) {
+        TITLE_NEUTRAL_TRAIL = new THREE.DataTexture(new Uint8Array([128, 128, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+        TITLE_NEUTRAL_TRAIL.minFilter = TITLE_NEUTRAL_TRAIL.magFilter = THREE.NearestFilter;
+        TITLE_NEUTRAL_TRAIL.needsUpdate = true;
+      }
+      const oldTrail = U.uTrail.value;
+      U.uTrail.value = TITLE_NEUTRAL_TRAIL;
+      try {
+        gpuDiagPrepareView({ weatherGpu: false });
+        renderer.info.reset();
+        renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
+        GRAPHICS_STARTUP.titleSubmitted++;
+        renderer.render(scene, camera); renderPost();
+        const receipt = await gpuDiagWaitForFence(gl);
+        graphicsAssertActive();
+        GRAPHICS_STARTUP.titleCompleted++;
+        GRAPHICS_STARTUP.titleFenceWaitMs = receipt.waitMs;
+      } finally { U.uTrail.value = oldTrail; }
+    }
+    return true;
+  })().catch(error => {
+    TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
+    GRAPHICS_STARTUP.stopped = true; GAME.ready = false;
+    if (window.__hm) window.__hm.ready = false;
+    graphicsRememberRecovery();
+    graphicsCheckpoint('Title graphics stopped', error.message || error);
+    graphicsStartFailure(error, 'Graphics stopped');
+    throw error;
+  }).finally(() => { TITLE_FRAME_PROMISE = null; });
+  return TITLE_FRAME_PROMISE;
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
+});
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
@@ -126,11 +172,12 @@ async function boot() {
     }
   });
   if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
-  await loadStep(0.97, 'Drawing the first view', () => tick(0.016));
+  await loadStep(0.97, 'Drawing the first view', () => renderTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
   setupTitle(save);
+  graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');
   L.style.opacity = 0;
@@ -144,7 +191,7 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   $('title').hidden = true;
   const P = createPlayer(save);
   savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
