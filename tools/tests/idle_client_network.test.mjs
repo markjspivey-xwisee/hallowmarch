@@ -332,3 +332,134 @@ test('a native save held in the queue past the final window stays pending until 
   assert.equal(writes.length, 1); assert.equal(writes[0], pending);
   assert.equal(SAVE.pending, null);
 });
+
+function sharedWorldAdmissionFixture() {
+  const net = read('14n_net.js'), save = read('12_save.js');
+  const source = read('14p_netws.js') +
+    between(net, 'function netSharedWorldReady()', '/* ------------------------------------------------------------------ */\n/* test and debug hooks') +
+    between(net, 'function netSlowObj()', 'function netFastObj(') +
+    between(save, 'function validSave(s)', 'function saveLoadOwned(') +
+    between(save, 'function buildSave()', 'function packItem(') +
+    between(save, 'function applyWorldSave(w)', 'function applySettings(') +
+    between(read('14m_liveplay.js'), 'function netHumanEligible()', 'function netHumanLive()');
+  const sockets = [], sent = [], notices = [], privateWorldReads = [];
+  const admission = { origin: 'https://march.test', epoch: 2 };
+  const authority = { scope: 'world-and-season', mode: 'native', enabled: true, state: 'confirmed', fenced: false, confirmedVersion: 8 };
+  const fresh = { k: [0, 1], g: [1, 1], td: 0, tm: 0, cn: 1, cl: [[0, 0], [0, 0], [0, 0]] };
+  class Socket {
+    constructor() { this.readyState = 0; sockets.push(this); }
+    send(value) { sent.push(JSON.parse(value)); }
+    open() { this.readyState = 1; this.onopen?.(); }
+    message(value) { this.onmessage?.({ data: JSON.stringify(value) }); }
+    close() { this.readyState = 3; this.onclose?.({ code: 1012, reason: 'test reconnect' }); }
+  }
+  const NET = { state: 'on', link: {}, self: 'p', since: 1, linkedAt: 100, peers: new Map(), regions: null, stats: {}, slowKey: '', worldKey: '' };
+  const player = { name: 'Retained owner', faction: 0, cls: 'warrior', alive: true, x: 0, z: 0,
+    look: { tabard: [], armor: [], skin: 0, hair: 0, mask: 0 } };
+  const GAME = { ready: true, started: false, player, t: 0,
+    prog: { level: 12, xp: 123, rp: 8, kills: 2, realmKills: 1, deaths: 0, played: 99 } };
+  const WAR = { keeps: [0, 1].map(realm => ({ realm, guards: new Set(), lord: null, site: {}, door: { alive: true } })), relics: [] };
+  const CAMPAIGN = { n: 1, claims: [0, 1, 2].map(() => ({ k: 0, h: 0 })) };
+  const context = vm.createContext({
+    URL, URLSearchParams, Map, Set, Object, Array, JSON, Math, Number, Promise, NET, GAME, WAR, CAMPAIGN,
+    NET_HUMAN_PLAY: { activity: 1, focused: true }, SAVE: { native: true },
+    window: { __HM_NET_SERVER: 'wss://march.test/ws', __HM_GAMING: { worldAuthority: authority, worldAdmission: admission } },
+    location: { search: '' }, localStorage: { getItem: () => 'real-shaped-test-token', setItem() {} },
+    WebSocket: Socket, performance: { now: () => 100 }, document: { hidden: false, hasFocus: () => true }, UI: { modal: null },
+    setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {}, queueMicrotask,
+    netNote() {}, netHumanLive: () => true, netHumanSync() {}, netSheetRender() {}, NETUI: { open: false },
+    netStr: (v, n) => typeof v === 'string' ? v.slice(0, n) : '',
+    netNum: (v, lo, hi, d = 0) => typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d,
+    NET_REALM_OK: r => r === 0 || r === 1 || r === 2, netKeepsMine: () => false,
+    clamp: (v, lo, hi) => Math.max(lo, Math.min(hi, v)), packItem: value => value,
+    netKeepMine: () => true, netR3: v => v, late2Named: p => p.name, realmRank: () => 1,
+    late3MantleCode: () => 0, WB: {}, netWxObj: () => ({ v: 1 }), netWxTake() {}, netWxResume() {},
+    uiLog: value => notices.push(value), uiToast: value => notices.push(value),
+    captureKeep: (K, realm) => { K.realm = realm; }, setDoorState: (door, alive) => { door.alive = alive; },
+    getEnt: () => null, removeEnt() {}, setSiteBanners() {}, fillGarrison() {}, updateRelicBonuses() {},
+    applyCampaignSave: c => { CAMPAIGN.n = c.n; CAMPAIGN.claims.forEach(cl => { cl.k = 77; cl.h = 88; }); },
+    landApply: value => privateWorldReads.push(value), savePartsLoad: (kind, value) => privateWorldReads.push(value),
+    graphicsSaveSettings: () => ({ quality: 'low' }), AUDIO: { on: false, lvl: { master: 1, sfx: 1, amb: 1 } },
+    MUSIC: { vol: 1 }, WEATHER: { mode: 'auto' }, tod: { p: 0, mode: 'cycle' },
+    campaignSaveData: () => ({ n: CAMPAIGN.n }), landSave: () => null, savePartsData: () => null,
+    inDungeon: () => false, INV: { gold: 42, potions: 2, bag: [], eq: {} }, SLOTS: [],
+    loreSaveData: () => ({}), giftSaveData: () => ({}), CLASSES: { warrior: {} }, LEVEL_CAP: 60,
+  });
+  vm.runInContext(source + '\nglobalThis.H={NETWS,netWsOpen,netReceiveWorldAdmission,netSharedWorldReady,netHostElect,netSlowObj,applyWorldSave,buildSave,validSave,netHumanEligible};', context);
+  context.H.NETWS.url = 'wss://march.test/ws'; context.H.NETWS.host = 'march.test';
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const oldSave = binding => ({ v: 1, char: { name: 'Retained owner', realm: 0, cls: 'warrior', level: 12, xp: 123 },
+    settings: { quality: 'low' }, world: { keeps: [2, 2], campaign: { n: 9 }, land: { v: 1 }, ...(binding ? { sharedWorld: binding } : {}) } });
+  async function welcome(binding = admission, world = fresh) {
+    const opening = context.H.netWsOpen(); for (let i = 0; i < 10; i++) await Promise.resolve();
+    const socket = sockets.at(-1); socket.open();
+    socket.message({ t: 'welcome', peer: 'p', acct: { id: 'owner' }, world, worldAuthority: authority, worldAdmission: binding });
+    assert.equal(await opening, true); return socket;
+  }
+  return { context, H: context.H, NET, GAME, WAR, CAMPAIGN, admission, fresh, oldSave, welcome, copy, sent, notices, privateWorldReads };
+}
+
+test('shared world admission replaces a retained same-season private world before the first cold host report', async () => {
+  const f = sharedWorldAdmissionFixture(), socket = await f.welcome();
+  const saved = f.oldSave(f.admission);
+  f.H.applyWorldSave(saved.world); assert.equal(f.CAMPAIGN.n, 9);
+  f.WAR.keeps.forEach(K => { K.door.alive = false; });
+  f.GAME.started = true;
+  f.H.netHostElect(); // linkedAt is still 100: the former three-second bootstrap delay has not elapsed.
+  const first = f.H.netSlowObj();
+  assert.deepEqual(f.copy(first.worldAdmission), f.admission);
+  assert.deepEqual(f.copy(first.w), { ...f.fresh, tm: 1 }); // keep the owner's cycle setting
+  assert.equal(f.H.NETWS.worldInitialized, true); assert.equal(f.NET.srvWorldDone, true);
+  assert.equal(saved.char.name, 'Retained owner'); assert.equal(saved.char.xp, 123);
+  f.H.applyWorldSave(saved.world);
+  assert.equal(f.CAMPAIGN.n, 1, 'late private reads cannot replace authoritative initialization');
+  socket.message({ t: 'world', init: 1, w: { ...f.fresh, cn: 3 }, worldAdmission: f.admission });
+  assert.equal(f.H.netSlowObj().w.cn, 3);
+});
+
+test('private world admission ignores missing, old and foreign bindings while preserving character and settings', () => {
+  const f = sharedWorldAdmissionFixture();
+  for (const binding of [null, { ...f.admission, epoch: 1 }, { ...f.admission, origin: 'https://elsewhere.test' }]) {
+    const saved = f.oldSave(binding), retained = f.copy(saved);
+    f.H.applyWorldSave(saved.world);
+    assert.equal(f.CAMPAIGN.n, 1); assert.deepEqual(f.WAR.keeps.map(K => K.realm), [0, 1]);
+    assert.deepEqual(f.copy(f.H.validSave(saved)), retained);
+  }
+  assert.equal(f.privateWorldReads.length, 0);
+  f.NET.link = null; f.NET.state = 'off'; f.GAME.started = true;
+  assert.equal(f.H.netHumanEligible(), true, 'initial networking must remain able to establish the first live connection');
+});
+
+test('shared world admission omits world and weather for missing or incomplete initialization and accepts only full initialization', async () => {
+  const f = sharedWorldAdmissionFixture(), socket = await f.welcome(f.admission, { k: [0, 1] });
+  f.GAME.started = true; f.NET.isHost = true;
+  let report = f.H.netSlowObj();
+  assert.equal(report.w, undefined); assert.equal(report.wx, undefined); assert.equal(f.H.NETWS.worldInitialized, false);
+  socket.message({ t: 'world', init: 1, w: f.fresh });
+  assert.equal(f.H.netSlowObj().w, undefined, 'unbound initialization cannot authorize publication');
+  socket.message({ t: 'world', init: 1, w: f.fresh, worldAdmission: f.admission });
+  report = f.H.netSlowObj(); assert.deepEqual(f.copy(report.w), { ...f.fresh, tm: 1 });
+});
+
+test('shared world admission resets readiness on same-season reconnect and fences an active epoch change', async () => {
+  const f = sharedWorldAdmissionFixture(); await f.welcome(); f.GAME.started = true;
+  assert.equal(f.H.netSharedWorldReady(), true);
+  f.H.netReceiveWorldAdmission(f.admission, { k: [0, 1] });
+  assert.equal(f.H.NETWS.worldInitialized, false); f.NET.isHost = true;
+  assert.equal(f.H.netSlowObj().w, undefined);
+  f.H.netReceiveWorldAdmission(f.admission, f.fresh); assert.equal(f.H.netSharedWorldReady(), true);
+  f.H.netReceiveWorldAdmission({ ...f.admission, epoch: 3 }, f.fresh);
+  assert.equal(f.H.NETWS.worldReloadRequired, true); assert.equal(f.H.netHumanEligible(), false);
+  assert.equal(f.H.netSlowObj().w, undefined);
+  assert.match(f.H.NETWS.worldPauseReason, /Reload this page/);
+  assert.equal(f.GAME.player.name, 'Retained owner');
+});
+
+test('private world saves carry only a verified initialized shared-world binding', async () => {
+  const f = sharedWorldAdmissionFixture();
+  assert.equal(f.H.buildSave().world.sharedWorld, undefined);
+  await f.welcome(); f.GAME.started = true; assert.equal(f.H.netSharedWorldReady(), true);
+  const saved = f.copy(f.H.buildSave());
+  assert.deepEqual(saved.world.sharedWorld, f.admission);
+  assert.equal(saved.char.name, 'Retained owner'); assert.equal(saved.char.xp, 123); assert.equal(saved.char.gold, 42);
+});
