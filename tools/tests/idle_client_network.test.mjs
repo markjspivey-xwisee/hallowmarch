@@ -463,3 +463,18 @@ test('private world saves carry only a verified initialized shared-world binding
   assert.deepEqual(saved.world.sharedWorld, f.admission);
   assert.equal(saved.char.name, 'Retained owner'); assert.equal(saved.char.xp, 123); assert.equal(saved.char.gold, 42);
 });
+
+test('shared world admission initializes before the immediate already-playing welcome profile', async () => {
+  const f = sharedWorldAdmissionFixture(), saved = f.oldSave(f.admission);
+  f.NET.link = null; f.NET.state = 'off';
+  f.H.applyWorldSave(saved.world); assert.equal(f.CAMPAIGN.n, 9);
+  f.WAR.keeps.forEach(K => { K.door.alive = false; });
+  f.GAME.started = true; f.NET.isHost = true;
+  await f.welcome();
+  const first = f.sent.find(message => message.t === 'slow');
+  assert.ok(first, 'the actual welcome dispatcher sent its immediate profile');
+  assert.deepEqual(f.copy(first.d.worldAdmission), f.admission);
+  assert.deepEqual(f.copy(first.d.w), { ...f.fresh, tm: 1 });
+  assert.equal(f.H.NETWS.worldInitialized, true);
+  assert.equal(saved.char.name, 'Retained owner'); assert.equal(saved.char.xp, 123);
+});
