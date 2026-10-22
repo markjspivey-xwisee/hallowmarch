@@ -128,6 +128,9 @@ function buildSave() {
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
     campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired() && NETWS.worldInitialized) {
+    const admission = netCurrentWorldAdmission(); if (admission) world.sharedWorld = { ...admission };
+  }
   const land = landSave(); // [worldstate] felled trees, burnt ground, craters, burnt houses, breached walls (12b_worldstate.js)
   if (land) world.land = land;
   const wx = savePartsData('world'); // other systems' records of the world (06d_goods.js)
@@ -268,6 +271,10 @@ function wipeSave() {
 /* restores the state of the war from a save (keep owners, hallows at rest) */
 function applyWorldSave(w) {
   if (!w || !Array.isArray(w.keeps)) return;
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired()) {
+    const admission = netCurrentWorldAdmission();
+    if (NETWS.worldInitialized || !netSameWorldAdmission(netWorldAdmissionRead(w.sharedWorld), admission)) return;
+  }
   WAR.keeps.forEach((K, i) => {
     const r = w.keeps[i];
     if (!(r >= 0 && r <= 2) || r === K.realm) return;
