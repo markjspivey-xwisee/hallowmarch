@@ -270,7 +270,8 @@ function titleFixture({autoPaint=false}={}) {
   const main=read('13_main.js'), declarations=main.split('\n').filter(line=>line.startsWith('let TITLE_')).join('\n');
   assert.ok(declarations,'test executes the actual staged title state');
   const events=[],staticCalls=[],fences=[],paints=[],glErrors=[],sizeCalls=[],originalTrail={name:'live-trail'},originalShaderError=()=>{};
-  const documentListeners=new Map(),canvasListeners=new Map();
+  const documentListeners=new Map(),canvasListeners=new Map(),windowListeners=new Map(),resizeTimers=new Map();
+  let nextResizeTimer=1;
   const listeners=map=>({
     addEventListener(name,fn){if(!map.has(name))map.set(name,new Set());map.get(name).add(fn);},
     removeEventListener(name,fn){map.get(name)?.delete(fn);},
@@ -305,7 +306,7 @@ function titleFixture({autoPaint=false}={}) {
     GAME:{built:true,started:false,ready:false,t:27,player:null},
     GRAPHICS_CONTEXT_LOST:false,GRAPHICS_STARTUP:{stopped:false,titleSubmitted:0,titleCompleted:0},
     document:{hidden:false,...listeners(documentListeners),getElementById:id=>nodes[id],createElement:()=>element('')},
-    canvas:listeners(canvasListeners),window:{__hm:{ready:false},innerWidth:1024,innerHeight:768,devicePixelRatio:1},
+    canvas:listeners(canvasListeners),window:{__hm:{ready:false},innerWidth:1024,innerHeight:768,devicePixelRatio:1,...listeners(windowListeners)},
     diagnostic:false,graphicsDiagnosticActive(){return ctx.diagnostic;},
     graphicsAssertActive(){if(ctx.GRAPHICS_CONTEXT_LOST)throw Error('Graphics context was lost');},
     THREE:{DataTexture:class {constructor(){throw Error('title must not allocate a texture');}}},
@@ -365,17 +366,22 @@ function titleFixture({autoPaint=false}={}) {
     netHumanSync(){throw Error('stopped title must not activate a human');},netHumanLive(){return false;},
     createPlayer(){throw Error('stopped graphics must not create a character');},
     requestAnimationFrame(){throw Error('stopped graphics must not schedule a frame');},
+    setTimeout(fn,delay){const id=nextResizeTimer++;resizeTimers.set(id,{fn,delay});return id;},
+    clearTimeout(id){resizeTimers.delete(id);},
     reportError(error){throw error;},
   };
   for(const name of ['updateAmbientLife','drawTownLife','drawAnimals','drawActors','drawFires','drawNature','drawHouses','updateFireflies',
     'updateNearTrees','updateGrassCenters','gatherLights','stepTrail','renderDecals','updateWeather','simStep','netPump','saveNow','fetch'])
     ctx[name]=()=>{throw Error('title must not invoke dynamic helper '+name);};
+  const resizeStart=main.indexOf('let resizeTimer = 0;'),resizeEnd=main.indexOf('\n\n',resizeStart);
+  assert.ok(resizeStart>=0 && resizeEnd>resizeStart,'test installs the actual resize timer declaration and listener');
   vm.createContext(ctx);
-  vm.runInContext(declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+  vm.runInContext(main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
   const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
-    grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,
+    grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,
     run:()=>vm.runInContext('renderTitleFrame()',ctx),resize:()=>vm.runInContext('resize()',ctx),
+    dispatchResize(){for(const fn of [...(windowListeners.get('resize')||[])])fn();},
     async flush(){for(let n=0;n<20;n++)await Promise.resolve();},
     async fence(index=fences.findIndex(x=>!x.settled),error=null){
       const receipt=fences[index];assert.ok(receipt && !receipt.settled,'one pending real stage receipt');
@@ -577,6 +583,25 @@ test('actual debug start returns a deferred ID through all title fences and coal
   assert.equal(immediate,'player-2','idle debug character replacement keeps its immediate ID result');assert.equal(typeof immediate.then,'undefined');
   assert.equal(created.length,2);
 });
+test('actual Play before the resize timer drains one latest-size request and awaits every fence',async()=>{
+  const f=titleFixture(),created=allowPlayerCreation(f);
+  await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
+  f.ctx.window.innerWidth=800;f.ctx.window.innerHeight=400;f.dispatchResize();
+  f.ctx.window.innerWidth=900;f.ctx.window.innerHeight=500;f.dispatchResize();
+  assert.equal(f.resizeTimers.size,1);assert.equal([...f.resizeTimers.values()][0].delay,80);
+  assert.equal(f.sizeCalls.length,0,'the actual debounced callback has not fired');
+  const first=f.ctx.debug.start({name:'Owner'}),second=f.ctx.debug.start({name:'Owner'});
+  assert.equal(typeof first.then,'function');assert.equal(typeof second.then,'function');
+  assert.equal(f.resizeTimers.size,0);assert.equal(vm.runInContext('resizeTimer',f.ctx),0);
+  assert.deepEqual(f.sizeCalls,[[900,500]],'Play drains only the latest queued layout');
+  assert.equal(created.length,0);assert.equal(f.ctx.GAME.started,false);
+  const pending=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx);await f.flush();
+  assert.equal(f.fences.at(-1).stage,'post');assert.equal(created.length,0);
+  await f.finish(pending);assert.equal(await first,'player-1');assert.equal(await second,'player-1');
+  assert.equal(created.length,1);assert.equal(f.resizeTimers.size,0);assert.deepEqual(f.sizeCalls,[[900,500]]);
+  assert.deepEqual(f.fences.slice(-11).map(x=>x.stage),[...titleStages,'combined']);
+});
+
 test('actual deferred debug start rejects failed title graphics and never creates a player',async()=>{
   const f=titleFixture(),created=allowPlayerCreation(f),reported=[];f.ctx.reportError=error=>reported.push(error.message);
   await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
