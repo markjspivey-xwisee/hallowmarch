@@ -19,9 +19,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Bound Ubuntu package download retries
+      - name: Use bounded Ubuntu archive downloads
         run: |
-          printf 'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99-hallowmarch-smoke >/dev/null
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+                  print('Using the official Ubuntu archive in', source)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
       - name: Install locked browser dependencies
         run: |
           npm ci --prefix tools
