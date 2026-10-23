@@ -239,6 +239,7 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     return found;
   }
   const checkpoints = createOwnerCheckpointStore({ ownerDid, podUrl, vault, crypto, now, active,
+    isProvisional: () => currentCredential.method === 'provisional',
     validateRecord: jsonRecord, nativeHead: head, readBinding: readAt,
     registered() { if (!registered) fail('key_registration_required', 'Register this browser’s public encryption key before saving.'); },
     resourceClient(resourceUrl) {
@@ -371,3 +372,4 @@ export function createNativePodClient({ relayUrl, credential, ownerDid, podUrl, 
     close() { closed = true; connected = false; registered = false; tx.setCredential?.({ kind: 'relay-oauth-bearer', accessToken: '', method: credential?.method || 'webauthn', expiresAt: now(), refreshToken: null, clientId: null }); },
   });
 }
+

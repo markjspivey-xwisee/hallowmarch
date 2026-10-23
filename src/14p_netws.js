@@ -4,6 +4,8 @@
 // The save's early request and the multiplayer pump share one attempt. A failed
 // boot request is retryable after GAME.ready; reconnecting never reloads a save.
 const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+// Only a recognized refusal of this exact opening can offer explicit recovery.
+NETWS.sessionRefusal = null;
 // World/season admission and the owner's character save are separate. Keep a
 // pause visible across disconnects; only a fresh server status can clear it.
 function netWorldAdmissionRead(value) {
@@ -223,6 +225,7 @@ function netWsOpen() {
   if (NETWS.state === 'on' && NETWS.ws && NETWS.ws.readyState === 1) return Promise.resolve(true);
   if (NETWS.openP) return NETWS.openP;
   const generation = ++NETWS.generation, host = NETWS.host, url = NETWS.url;
+  NETWS.sessionRefusal = null;
   // Retire a closing socket before replacing it. Its queued callbacks remain
   // harmless because every handler checks both this generation and identity.
   const old = NETWS.ws; NETWS.ws = null; NETWS.state = 'opening';
@@ -267,6 +270,7 @@ function netWsOpen() {
       if (!m || typeof m.t !== 'string') return;
       if (m.t === 'welcome') {
         if (settled || NETWS.state !== 'opening') return;
+        NETWS.sessionRefusal = null;
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
         netWsWorldStatus(m.worldAuthority, true);
         NET.self = m.peer; NETWS.worldRoom = m.room; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
@@ -277,7 +281,12 @@ function netWsOpen() {
         // Profile precedes a reconnecting player's first company/season action.
         if (GAME.ready && GAME.started && GAME.player) netWsSend({ t: 'slow', d: netSlowObj() }, ws);
         finish(true);
-      } else if (m.t === 'denied') { netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied'); }
+      } else if (m.t === 'denied') {
+        if (!settled && NETWS.state === 'opening' && m.code === 'native_signin_required' && tok) {
+          NETWS.sessionRefusal = { host, token: tok, code: m.code, generation };
+        }
+        netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied');
+      }
       else if (NETWS.state !== 'on') return;
       else if (m.t === 'world-status') netWsWorldStatus(m.persistence);
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });

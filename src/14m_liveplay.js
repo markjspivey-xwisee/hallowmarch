@@ -10,6 +10,7 @@ const NET_HUMAN_PLAY = { activity: 0, pendingAt: null, acceptedAt: null, player:
 
 function netHumanEligible() {
   return !!(GAME.started && GAME.player && !(typeof NETWS !== 'undefined' && NETWS.worldReloadRequired) && !document.hidden && NET_HUMAN_PLAY.focused
+    && !(typeof NATIVE_PLAYER !== 'undefined' && (NATIVE_PLAYER.switching || NATIVE_PLAYER.claimConfirmationPending || NATIVE_PLAYER.openExistingPending))
     && typeof document.hasFocus === 'function' && document.hasFocus()
     && UI.modal !== 'menu' && UI.modal !== 'prologue');
 }
@@ -85,3 +86,4 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('blur', () => { NET_HUMAN_PLAY.focused = false; netHumanSuspend(); });
 window.addEventListener('focus', () => { NET_HUMAN_PLAY.focused = true; netHumanSync(); });
 window.addEventListener('pagehide', netHumanSuspend);
+

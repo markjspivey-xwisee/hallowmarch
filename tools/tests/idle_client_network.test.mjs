@@ -70,7 +70,7 @@ test('scheduled and periodic private autosaves stop at idle while retaining an e
 
 test('a native final save cannot drain additional queued character snapshots after the human pauses', async () => {
   const s = read('12_save.js');
-  const source = between(s, 'function nativeSavePending()', 'function saveNow()');
+  const source = between(s, 'function nativeSavePending(', 'function saveNow()');
   let writes = 0;
   const SAVE = { nativeFlight: null, nativePaused: false, pending: { n: 1 }, chain: Promise.resolve(),
     ref: { async set() { writes++; SAVE.pending = { n: 2 }; } } };
@@ -317,7 +317,7 @@ test('cold initial villager search is bounded and does not place a body when no 
 
 
 test('a native save held in the queue past the final window stays pending until live resume', async () => {
-  const source = between(read('12_save.js'), 'function nativeSavePending()', 'function saveNow()');
+  const source = between(read('12_save.js'), 'function nativeSavePending(', 'function saveNow()');
   let now = 0, live = false, release;
   const writes = [], pending = { character: 'accepted-history' };
   const SAVE = { nativeFlight: null, nativePaused: false, pending,
@@ -482,3 +482,4 @@ test('shared world admission initializes before the immediate already-playing we
   assert.equal(f.H.NETWS.worldInitialized, true);
   assert.equal(saved.char.name, 'Retained owner'); assert.equal(saved.char.xp, 123);
 });
+

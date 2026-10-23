@@ -14,7 +14,7 @@ function gate() { let release, entered; return { ready: new Promise(resolve => {
   hold: new Promise(resolve => { release = resolve; }), entered: () => entered(), release: () => release() }; }
 function fixture({ pointer = null, initial = null, initialGraph = null, ownerIndex = null, sharedRecords = null,
   keyPresent = true, mode = 'saved', indexMode = 'saved', indexFailures = 0, forked = false, metadataError = null,
-  linkFailures = 0, createGate = null, linkGate = null, loadGate = null } = {}) {
+  linkFailures = 0, createGate = null, linkGate = null, loadGate = null, deferRelationship = false } = {}) {
   const calls = [], requests = [], states = [], records = sharedRecords || new Map(), operations = new Map();
   let clientClosed = false, confirms = 0, indexConfirms = 0;
   const observed = (graphIri, record) => ({ saved: true, status: 'saved', graphIri, head: {
@@ -72,6 +72,7 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
     close: () => { clientClosed = true; calls.push({ op: 'close' }); },
   };
   const profile = createPlayerPodProfile({ binding, credential: { kind: 'fixture-only' }, relayUrl: 'https://relay.example', pointer,
+    deferRelationship,
     createClient: () => native, crypto: webcrypto, onState: next => states.push(next),
     request: async (url, options) => {
       requests.push({ url, ...copy(options) });
@@ -106,6 +107,22 @@ test('character opt-in is explicit while the one-time owner index remains immuta
   assert.equal(f.calls.find(call => call.op === 'create').graphIri, graphIri);
   for (const call of f.calls.filter(call => ['create', 'save', 'load'].includes(call.op) && call.graphIri !== INDEX)) assert.equal(call.checkpoint, 'hallowmarch-character/v1');
   for (const call of f.calls.filter(call => call.graphIri === INDEX)) assert.equal(call.checkpoint, undefined);
+});
+test('claim target confirms private record and index before an explicit game relationship', async () => {
+  const f = fixture({ deferRelationship: true }); await f.profile.connect();
+  assert.equal(f.profile.reference(), null); await f.profile.get();
+  await f.profile.set({ v: 1, char: { name: 'private claimed hero' } });
+  assert.equal(f.requests.length, 0); assert(f.profile.reference()); assert.equal(f.profile.status().state, 'private_saved');
+  const writes = f.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length;
+  await f.profile.confirmRelationship(); assert.equal(f.requests.length, 1);
+  assert.equal(f.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length, writes);
+});
+test('ordinary game saves retain native logical-character provenance after claim', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.get();
+  const nativePlay = { schema: 'hallowmarch.provisional-character/v1', characterId: 'durable-character-id' };
+  await f.profile.set({ v: 1, char: { level: 1 }, nativePlay });
+  await f.profile.set({ v: 1, char: { level: 2 } });
+  assert.deepEqual((await f.profile.get()).data().nativePlay, nativePlay);
 });
 
 test('fresh browser discovers the first deterministic character after an index publication failed without creating another character', async () => {
@@ -417,3 +434,4 @@ test('reconnecting invalidates a cached index body when its native head changed'
   assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
   assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
 });
+

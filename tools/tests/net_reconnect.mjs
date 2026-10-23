@@ -73,6 +73,19 @@ function harness(options = {}) {
   const binding = { subjectDid: 'did:web:identity.test:users:u-owner', podUrl: 'https://pod.test/u-owner/' };
   const nativeProfile = options.nativeProfile || { connect: async () => {}, get: async () => ({ exists: false }),
     status: () => ({ keyPresent: true, hasRecord: false }), set: async () => {}, close() {} };
+  const provisionalCalls = { peek: 0, bootstrap: 0, resume: 0, close: 0 };
+  const makeProvisional = () => ({
+    async peek() { provisionalCalls.peek++; return typeof options.provisionalMetadata === 'function' ? options.provisionalMetadata() : options.provisionalMetadata; },
+    async bootstrap() { provisionalCalls.bootstrap++; }, async resume() { provisionalCalls.resume++; },
+    profile: () => null, claimProfile: () => null, status: () => ({ provisional: false }), close() { provisionalCalls.close++; },
+  });
+  const node = (tag, className = '') => ({ tagName: tag, className, children: [], style: {}, textContent: '',
+    classList: { contains: value => className.split(' ').includes(value) },
+    appendChild(child) { this.children.push(child); }, prepend(child) { this.children.unshift(child); },
+    replaceChildren() { this.children = []; }, setAttribute() {},
+    querySelector(selector) { return selector === '.native-player' ? this.children.find(child => child.className === 'native-player') : null; },
+  });
+  const titleBody = node('div', 'card-body');
   const requests = [], titleUpdates = [], settingUpdates = [], worldUpdates = [];
   const context = vm.createContext({
     // This transport fixture represents an already live human; lease/idle behavior has dedicated integration tests.
@@ -92,7 +105,8 @@ function harness(options = {}) {
     },
     location: { search: '?server=' + encodeURIComponent(URL_WS) + '&shard=regression', reload: () => failures.push('unexpected reload') },
     window: { claude: options.claude, addEventListener() {} },
-    document: { addEventListener() {}, querySelector: () => null, hidden: false },
+    document: { addEventListener() {}, querySelector: selector => options.renderNative && selector === '#create .card-body' ? titleBody : null,
+      createElement: tag => node(tag), hidden: false },
     $: id => buttons.get(id) || null,
     fetch: async (url, init) => {
       requests.push({ url, init });
@@ -125,6 +139,11 @@ function harness(options = {}) {
   if (options.nativePolicy) {
     context.fixtureNativeProfile = nativeProfile; context.fixtureNativeBinding = binding;
     vm.runInContext('NATIVE_PLAYER.module=Promise.resolve({createPlayerPodProfile:()=>fixtureNativeProfile}); NATIVE_PLAYER.cache={list:async()=>[{...fixtureNativeBinding,ownerDid:fixtureNativeBinding.subjectDid,relayUrl:"https://relay.test"}],get:async()=>({credential:{kind:"relay-oauth-bearer",accessToken:"browser-only-fixture-token"}})}; H.NATIVE_PLAYER=NATIVE_PLAYER;', context);
+    vm.runInContext('Object.assign(H,{nativePlayerCanPlayNow,nativePlayerNewAdventureAllowed,nativePlayerNewAdventure});', context);
+    if (Object.hasOwn(options, 'provisionalMetadata')) {
+      context.fixtureProvisionalFactory = makeProvisional;
+      vm.runInContext('nativePlayerProvisionalSession=async()=>{if(NATIVE_PLAYER.provisional)return NATIVE_PLAYER.provisional; NATIVE_PLAYER.provisionalContext={host:NETWS.host,accountId:NETWS.acct?.id}; return NATIVE_PLAYER.provisional=fixtureProvisionalFactory();};', context);
+    }
   }
   const H = context.H;
   if (options.nativeSave) H.SAVE.native = true;
@@ -153,7 +172,7 @@ function harness(options = {}) {
     assert.equal(sockets.length, count + 1, 'one new socket opens within capped retry delay');
     return sockets.at(-1);
   }
-  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, titleUpdates, settingUpdates, worldUpdates, earlyLoading: context.earlyLoading };
+  return { H, clock, sockets, failures, storage, context, welcome, healthy, drive, nextSocket, buttons, requests, nativeProfile, titleUpdates, settingUpdates, worldUpdates, provisionalCalls, titleBody, earlyLoading: context.earlyLoading };
 }
 
 test('cold handshake failure is shared, clears its promise, and reconnects after a stalled boot', async () => {
@@ -738,13 +757,26 @@ for (const changed of ['account', 'host', 'started']) test('a late private read 
   assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
-test('a confirmed absent native character needs its encryption key before entry', async () => {
-  let keyPresent = false;
+test('a confirmed absent native character offers Play while deferring recovery setup', async () => {
+  let keyPresent = false, keyCreations = 0;
   const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: async () => ({ exists: false }),
-    status: () => ({ keyPresent, hasRecord: false }), close() {} } });
+    status: () => ({ keyPresent, hasRecord: false }), createKey() { keyCreations++; keyPresent = true; }, close() {} } });
   const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
-  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true);
+  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+  assert.equal(keyCreations, 0, 'title discovery must not create a replacement encryption key');
   keyPresent = true; h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+});
+
+test('an existing encrypted native character remains closed without its original key', async () => {
+  let keyCreations = 0;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {},
+    get: async () => { throw Object.assign(Error('Original owner key required'), { code: 'key_required' }); },
+    status: () => ({ keyPresent: false, hasRecord: true }), createKey() { keyCreations++; }, close() {} } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
+  assert.equal(h.H.SAVE.readConfirmed, false); h.H.nativePlayerRender();
+  assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+  assert.equal(keyCreations, 0); assert.equal(h.H.SAVE.native, true);
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
 test('a native reference refuses account switches before any owner-pod write', async () => {
@@ -821,3 +853,122 @@ test('private recovery stops when gameplay progress appears during its storage r
   reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await rejected;
   assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
 });
+
+const progressivePolicy = { enabled: true, relayUrl: 'https://relay.test', audience: 'https://' + HOST };
+function progressiveOptions(extra = {}) {
+  return { nativePolicy: true, provisionalMetadata: null, renderNative: true,
+    manifest: { playerIdentity: { enabled: true, provisionalPlay: progressivePolicy } },
+    nativeStatus: { enabled: true, bound: false, verified: false, provisionalPlay: progressivePolicy,
+      account: { id: 'account-one', guest: true }, recordLinks: {} },
+    storage: { ['hallowmarch.token.' + HOST]: 'refused-proof', 'native-key-fixture': 'keep-key',
+      'native-credential-fixture': 'keep-credential', 'hallowmarch.save.v1': JSON.stringify(previousLocal) }, ...extra };
+}
+async function refusedProgressiveTitle(extra = {}, denial = { t: 'denied', code: 'native_signin_required', why: 'Sign-in expired' }) {
+  const h = harness(progressiveOptions(extra)), loading = h.H.loadSave();
+  await flush(); await h.sockets[0].open(); await flush(); h.sockets[0].message(denial);
+  await loading; h.H.GAME.ready = true; h.H.nativePlayerRender(); return h;
+}
+const titleActions = h => h.titleBody.children.flatMap(box => box.children).filter(child => child.tagName === 'button');
+
+test('a first-time anonymous welcome and advertised status offer Play now without provisioning on discovery', async () => {
+  const h = harness(progressiveOptions({ storage: {} })), loading = h.H.loadSave();
+  await nativeWelcome(h); await loading; h.H.nativePlayerRender();
+  assert.equal(h.sockets[0].sent[0].token, undefined);
+  assert.equal(h.H.NETWS.state, 'on'); assert.equal(h.H.NETWS.sessionRefusal, null);
+  assert.equal(h.H.nativePlayerCanPlayNow(), true); assert.equal(h.H.nativePlayerNewAdventureAllowed(), false);
+  assert.equal(h.buttons.get('btn-begin').disabled, false); assert.equal(h.buttons.get('btn-begin').textContent, 'Play now');
+  assert.equal(h.provisionalCalls.peek, 1); assert.equal(h.provisionalCalls.bootstrap, 0); assert.equal(h.provisionalCalls.resume, 0);
+  assert.equal(h.H.SAVE.loaded, null); assert.equal(h.H.SAVE.readConfirmed, false);
+  assert(titleActions(h).some(button => button.textContent === 'I already have an identity'));
+});
+
+test('an exact expired game proof offers explicit new-character recovery, then an anonymous welcome and normal Play now', async () => {
+  const h = await refusedProgressiveTitle();
+  assert.equal(h.H.NETWS.sessionRefusal.host, HOST); assert.equal(h.H.NETWS.sessionRefusal.code, 'native_signin_required');
+  assert.equal(h.H.NETWS.sessionRefusal.token, 'refused-proof');
+  assert.equal(h.H.nativePlayerNewAdventureAllowed(), true); assert.equal(h.H.nativePlayerCanPlayNow(), false);
+  assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.sockets.length, 1);
+  assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof', 'discovery never removes the refused session');
+  assert(titleActions(h).some(button => button.textContent === 'I already have an identity'), 'canonical reconnection stays available');
+  const action = titleActions(h).find(button => button.textContent === 'Play with a new character');
+  assert(action); const opening = action.onclick(); await flush();
+  assert.equal(h.sockets.length, 2); assert.equal(h.provisionalCalls.bootstrap, 0); assert.equal(h.provisionalCalls.resume, 0);
+  assert.equal(h.provisionalCalls.close, 1, 'detach the empty session context without erasing native storage');
+  assert.equal(h.storage.get('native-key-fixture'), 'keep-key'); assert.equal(h.storage.get('native-credential-fixture'), 'keep-credential');
+  assert.equal(h.storage.get('hallowmarch.save.v1'), JSON.stringify(previousLocal));
+  const current = h.sockets[1]; await current.open(); await flush();
+  assert.equal(current.sent[0].token, undefined, 'only the explicit choice opens an anonymous transport');
+  h.welcome(current); await opening;
+  assert.equal(h.H.NETWS.sessionRefusal, null); assert.equal(h.H.nativePlayerNewAdventureAllowed(), false);
+  assert.equal(h.H.nativePlayerCanPlayNow(), true); assert.equal(h.buttons.get('btn-begin').disabled, false);
+  assert.equal(h.buttons.get('btn-begin').textContent, 'Play now');
+  assert.equal(h.provisionalCalls.bootstrap, 0, 'a later actual Play click creates the new encrypted character');
+  assert.equal(h.H.SAVE.loaded, null); assert.deepEqual(h.failures, []);
+});
+
+test('unknown denials, anonymous refusals, missing public policy and existing guest metadata cannot offer new-character recovery', async () => {
+  for (const [extra, denial] of [
+    [{}, { t: 'denied', code: 'other_refusal', why: 'Sign-in expired' }],
+    [{}, { t: 'denied', why: 'Sign-in expired' }],
+    [{ storage: {} }, { t: 'denied', code: 'native_signin_required' }],
+    [{ manifest: { playerIdentity: { enabled: true } } }, { t: 'denied', code: 'native_signin_required' }],
+    [{ provisionalMetadata: { ownerDid: 'did:fixture:guest' } }, { t: 'denied', code: 'native_signin_required' }],
+    [{ provisionalMetadata: { ownerDid: 'did:fixture:guest', claimedOwnerDid: 'did:fixture:owner' } }, { t: 'denied', code: 'native_signin_required' }],
+  ]) {
+    const h = await refusedProgressiveTitle(extra, denial);
+    assert.equal(!!h.H.nativePlayerNewAdventureAllowed(), false); assert.equal(h.sockets.length, 1);
+    assert(!titleActions(h).some(button => button.textContent === 'Play with a new character'));
+    assert.equal(h.provisionalCalls.bootstrap, 0);
+    if (!extra.storage) assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
+  }
+  const h = harness(progressiveOptions()), loading = h.H.loadSave();
+  await flush(); await h.sockets[0].open(); await flush(); h.sockets[0].emitClose(); await loading;
+  assert.equal(h.H.NETWS.sessionRefusal, null); assert.equal(!!h.H.nativePlayerNewAdventureAllowed(), false);
+  assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof'); assert.equal(h.sockets.length, 1);
+});
+
+test('active progress or any newer connection invalidates an offered new-character action before clearing its app proof', async () => {
+  for (const change of [
+    h => { h.H.GAME.started = true; }, h => { h.H.SAVE.pending = ownNative; },
+    h => { h.H.SAVE.nativeFlight = Promise.resolve(); }, h => { h.H.SAVE.loaded = ownNative; },
+    h => { h.H.NATIVE_PLAYER.profile = h.nativeProfile; }, h => { h.H.NATIVE_PLAYER.claimPendingResume = true; },
+    h => { h.H.NETWS.token = 'new-session'; }, h => { h.H.NETWS.acct = { id: 'another-account' }; },
+    h => { h.H.NETWS.host = 'another.test'; }, h => { h.H.NETWS.generation++; }, h => { h.H.NETWS.reload = true; },
+  ]) {
+    const h = await refusedProgressiveTitle(); assert.equal(h.H.nativePlayerNewAdventureAllowed(), true);
+    change(h); await h.H.nativePlayerNewAdventure();
+    assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof'); assert.equal(h.sockets.length, 1);
+    assert.equal(h.provisionalCalls.bootstrap, 0); assert.equal(h.provisionalCalls.close, 0);
+  }
+});
+
+test('a device character arriving before or during the explicit click keeps its original refused session', async () => {
+  let metadata = null;
+  const h = await refusedProgressiveTitle({ provisionalMetadata: () => metadata });
+  const reading = deferred(); metadata = reading.promise;
+  const action = h.H.nativePlayerNewAdventure(); await flush();
+  reading.resolve({ ownerDid: 'did:fixture:newly-arrived' }); await action;
+  assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof'); assert.equal(h.sockets.length, 1);
+  assert.equal(h.provisionalCalls.close, 0); assert.equal(h.provisionalCalls.bootstrap, 0);
+  assert.match(h.H.NATIVE_PLAYER.message, /character connection changed/);
+});
+
+test('a fresh socket attempt invalidates a prior refusal and its queued late denial cannot revive recovery', async () => {
+  const h = await refusedProgressiveTitle(), old = h.sockets[0], oldMessage = old.onmessage;
+  const reconnect = h.H.netLinkWS(); await flush();
+  assert.equal(h.H.NETWS.sessionRefusal, null); assert.equal(h.H.nativePlayerNewAdventureAllowed(), false);
+  oldMessage({ data: JSON.stringify({ t: 'denied', code: 'native_signin_required' }) });
+  assert.equal(h.H.NETWS.sessionRefusal, null);
+  const current = h.sockets[1]; await current.open(); await flush(); h.welcome(current); await reconnect;
+  assert.equal(h.H.NETWS.sessionRefusal, null); assert.equal(h.H.NETWS.state, 'on');
+});
+
+test('failed anonymous reconnect after an explicit new-character choice stays blocked without provisioning', async () => {
+  const h = await refusedProgressiveTitle(), opening = h.H.nativePlayerNewAdventure(); await flush();
+  const current = h.sockets[1]; await current.open(); await flush(); current.emitClose(); await opening;
+  assert.equal(h.H.nativePlayerCanPlayNow(), false); assert.equal(h.buttons.get('btn-begin').disabled, true);
+  assert.equal(h.provisionalCalls.bootstrap, 0); assert.equal(h.provisionalCalls.resume, 0);
+  assert.equal(h.storage.get('native-key-fixture'), 'keep-key'); assert.equal(h.storage.get('native-credential-fixture'), 'keep-credential');
+  assert.equal(h.H.SAVE.loaded, null); assert.match(h.H.NATIVE_PLAYER.message, /new game connection is unavailable/);
+});
+

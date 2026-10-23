@@ -27,7 +27,7 @@ const vaultScope = (id, revision) => JSON.stringify([PURPOSE, 'credential-custod
 function credentialOf(value, now) {
   if (!object(value) || Object.keys(value).some(key => !['kind', 'accessToken', 'method', 'expiresAt', 'refreshToken', 'clientId'].includes(key))
     || value.kind !== 'relay-oauth-bearer' || typeof value.accessToken !== 'string' || value.accessToken.length < 16 || value.accessToken.length > 16384
-    || /[\s\x00-\x1f\x7f]/.test(value.accessToken) || !['siwe', 'webauthn'].includes(value.method)
+    || /[\s\x00-\x1f\x7f]/.test(value.accessToken) || !['siwe', 'webauthn', 'provisional'].includes(value.method)
     || !Number.isSafeInteger(value.expiresAt) || value.expiresAt <= now || (value.refreshToken !== undefined && value.refreshToken !== null)
     || (value.clientId !== undefined && value.clientId !== null && (typeof value.clientId !== 'string' || value.clientId.length > 512))) fail('invalid_credential');
   return { kind: value.kind, accessToken: value.accessToken, method: value.method, expiresAt: value.expiresAt,
@@ -183,3 +183,4 @@ export function createBrowserAccessCache({ indexedDB = globalThis.indexedDB, cry
     async close() { closed = true; if (opening) (await opening).close(); opening = null; },
   });
 }
+

@@ -62,7 +62,11 @@ async function fixturePage(view) {
     .replace('<div id="title" hidden>', '<div id="title">');
   const native = await fs.readFile(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
   const saves = await fs.readFile(path.join(root, 'src/12_save.js'), 'utf8');
-  const nativeSaves = saves.slice(saves.indexOf('function nativeSavePending()'), saves.indexOf('// a slow heartbeat:'));
+  const nativeSaveStart = saves.indexOf('function nativeSavePending(');
+  const nativeSaveEnd = saves.indexOf('// a slow heartbeat:', nativeSaveStart);
+  assert(nativeSaveStart >= 0 && nativeSaveEnd > nativeSaveStart, 'The UI fixture must include the real native save functions.');
+  const nativeSaves = saves.slice(nativeSaveStart, nativeSaveEnd);
+  assert.match(nativeSaves, /function saveNow\(/, 'Live UI progress must exercise the real saveNow implementation.');
   const websocket = await fs.readFile(path.join(root, 'src/14p_netws.js'), 'utf8');
   const logout = websocket.slice(websocket.indexOf('async function netAcctOut()'), websocket.indexOf('// A remote reference'));
   // The footer registers world lore/debug globals outside this isolated UI host.
@@ -286,7 +290,7 @@ try {
       const key='hallowmarch.identity.ceremony.v1',ceremony=JSON.parse(sessionStorage.getItem(key));
       ceremony[field]=field==='expiresAt'?0:field==='host'?'other-game.example':'x'.repeat(43);sessionStorage.setItem(key,JSON.stringify(ceremony));
     }},field);
-    const before=broadcastMessages.length,opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();const popup=await opening;
+    const before=broadcastMessages.length,opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();const popup=await opening;
     await popup.waitForFunction(()=>document.querySelector('#status')?.textContent.includes('expired'));
     assert.match(await popup.locator('#status').innerText(),/expired/);
     assert.equal(popup.url(),CALLBACK_ORIGIN+'/gaming/identity/finish');
@@ -386,7 +390,7 @@ try {
     assert.equal(await page.locator('button').filter({hasText:'Start a fresh sign-in'}).count(),0);
     assert.equal(await page.evaluate(token=>identityTest.coldBoot(token),previous),null);
     const refusedPopup=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refusedPopup;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refusedPopup;
     const fresh=page.locator('#title .native-player button').filter({hasText:'Start a fresh sign-in'});await fresh.waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),previous);
     assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
@@ -425,7 +429,7 @@ try {
     claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
     await page.evaluate(()=>identityTest.coldBoot());
     const refused=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refused;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refused;
     for(const blocked of ['loading','pending','nativeFlight','profilePending','wiping','started']){
       await page.evaluate(blocked=>{
         nativePlayerRender();
@@ -458,7 +462,7 @@ try {
     claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
     await page.evaluate(()=>{NETWS.token='';NETWS.acct=null});await page.evaluate(()=>identityTest.coldBoot());
     const refused=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refused;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refused;
     await page.clock.install();
     await page.evaluate(()=>{window.privateReads=0;window.privateWrites=0;window.claude={use:async name=>name==='db'?{doc:()=>({
       get:()=>{privateReads++;return new Promise(resolve=>{window.releasePrivateRead=()=>resolve({exists:true,data:()=>({tokens:{[location.host]:'fixture-initiating-game-account-token'}})})})},
@@ -503,7 +507,8 @@ try {
   });
   for(const view of ['title','players'])await check(view+' mobile native controls fit with 44px buttons, 16px input and retained entry',async()=>{
     const context=await contextForMobile(),page=await openFixture(context,view),selector=view==='title'?'#title .native-player':'#netsheet .native-player';
-    const box=page.locator(selector);await box.locator('input[type=password]').fill('a private recovery phrase');
+    const box=page.locator(selector);assert.equal(await box.locator('input[type=password]').count(),0,'recovery setup is deferred until explicitly opened');
+    await box.getByRole('button',{name:'Recovery options',exact:true}).click();await box.locator('input[type=password]').fill('a private recovery phrase');
     const geometry=await box.evaluate(node=>({width:innerWidth,scroll:document.documentElement.scrollWidth,box:node.getBoundingClientRect().width,
       buttons:[...node.querySelectorAll('button')].map(button=>({height:button.getBoundingClientRect().height,width:button.getBoundingClientRect().width})),
       inputSize:parseFloat(getComputedStyle(node.querySelector('input[type=password]')).fontSize)}));
@@ -518,7 +523,7 @@ try {
     assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
     assert.equal(await page.locator('#title .native-player button').filter({hasText:'Retry connection'}).count(),1);
     const before=await page.evaluate(()=>identityCalls.reloadMarker);
-    await page.locator('#title .native-player button').filter({hasText:'Retry pod save'}).click();
+    await page.locator('#title .native-player').getByRole('button',{name:'Retry connection',exact:true}).click();
     await page.waitForFunction(()=>identityCalls.load===1);
     assert.equal(await page.evaluate(()=>identityCalls.reloadMarker),before,'startup retry must retain the browser and its held key');
     assert.deepEqual(await page.evaluate(()=>({retry:identityCalls.retry,save:identityCalls.save,load:identityCalls.load})),{retry:0,save:0,load:1});
@@ -527,7 +532,9 @@ try {
   await check('playing retry preserves pending progress and never reloads the page',async()=>{
     const context=await contextForMobile(),page=await openFixture(context,'players');
     await page.evaluate(()=>{GAME.started=true;GAME.player={};SAVE.pending={privateProgress:'retained-in-memory'};NATIVE_PLAYER.state='pod_pending';nativePlayerRender()});
-    const url=page.url();await page.locator('#netsheet .native-player button').filter({hasText:'Retry pod save'}).click();
+    const url=page.url(),box=page.locator('#netsheet .native-player');
+    await box.getByRole('button',{name:'Recovery options',exact:true}).click();
+    await box.getByRole('button',{name:'Retry pod save',exact:true}).click();
     await page.waitForFunction(()=>identityCalls.retry===1&&identityCalls.save===1);
     assert.equal(page.url(),url);assert.equal(await page.evaluate(()=>SAVE.pending.privateProgress),'retained-in-memory');
     await context.close();
