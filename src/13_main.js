@@ -18,6 +18,9 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
 function applyGraphicsSize() {
+  // A changed frustum/quality can expose a previously culled shader variant.
+  // Rewarm this explicit title view; unchanged redraws reuse completed work.
+  if (!GAME.started) TITLE_WARMED = false;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
@@ -191,7 +194,6 @@ function renderTitleFrame() {
       if (TITLE_RESIZE_PENDING) {
         TITLE_RESIZE_PENDING = false;
         applyGraphicsSize();
-        if (!GAME.ready) TITLE_WARMED = false;
       }
       prepareTitleView();
       const inventory = gpuDiagFamilies();
