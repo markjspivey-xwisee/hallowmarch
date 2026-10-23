@@ -298,7 +298,7 @@ async def mode_boot():
           const W = __hm.fn.W; let hh = 0; for (let i = 0; i < W.H.length; i += 7) hh = (hh * 31 + Math.round(W.H[i] * 1000)) >>> 0;
           return { mapHash: h, heightHash: hh, trees: W.trees.length, colliders: __hm.build ? __hm.build.COLL.boxes.length + __hm.build.COLL.circles.length : null }; })()""")
         # a game started and a minute of it (the world comes alive: the war, the towns), at low as a test runs
-        await page.evaluate("(() => { __hm.fn.setQuality(%r); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()" % OPT.get('q', 'low'))
+        await page.evaluate("(async () => { __hm.fn.setQuality(%r); await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()" % OPT.get('q', 'low'))
         await active_eval(page, "(() => { for (let i = 0; i < 6; i++) { __hm.simulate(10); __hm.frame(0.05); } return 0; })()")
         res['heapPlay'] = await heap(cdp)
         res['memPlay'] = await page.evaluate(MEM_JS)
@@ -496,7 +496,7 @@ async def mode_views():
         res['wall'] = round(wall, 1)
         await page.evaluate("window.__rafHold = true; 0")
         await page.evaluate(VIEWS_JS)
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 30 }); PV2.calm(); __hm.setTod(0.55); __hm.UI.modal = null; return 0; })()")
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); PV2.calm(); __hm.setTod(0.55); __hm.UI.modal = null; return 0; })()")
         await active_eval(page, "__hm.simulate(40); 0" if 'profile' in ARGS else "__hm.simulate(40); __hm.perf.timers(); 0")
         for q in quals:
             await active_eval(page, f"__hm.fn.setQuality('{q}'); 0")
@@ -601,7 +601,7 @@ async def mode_long():
         b, page, cdp, logs, wall = await open_page(p, W, H)
         page.set_default_timeout(3000000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate(f"(() => {{ __hm.fn.setQuality('{OPT.get('q', 'low')}'); __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); __hm.UI.modal = null; return 0; }})()")
+        await page.evaluate(f"(async () => {{ __hm.fn.setQuality('{OPT.get('q', 'low')}'); await __hm.start({{ realm: 0, cls: 'warrior', level: 20 }}); __hm.UI.modal = null; return 0; }})()")
         res['boot'] = {'wall': round(wall, 1)}
         t0 = time.time()
         for k in range(mins // every + 1):
@@ -779,7 +779,7 @@ async def mode_ab():
         b, page, cdp, logs, wall = await open_page(p, 320, 180)
         page.set_default_timeout(3000000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
         await active_eval(page, "__hm.simulate(60); 0")
         r = await active_eval(page, AB_JS)
         # in a keep under siege: the bodies at the gate and on the walls
@@ -799,7 +799,7 @@ async def mode_ctx():
     async with async_playwright() as p:
         b, page, cdp, logs, wall = await open_page(p, 480, 270)
         page.set_default_timeout(900000)
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.UI.modal = null; return 0; })()")
+        await page.evaluate("(async () => { __hm.fn.setQuality('low'); await __hm.start({ realm: 0, cls: 'warrior', level: 12 }); __hm.UI.modal = null; return 0; })()")
         await active_eval(page, "__hm.simulate(2); window.__perf2mark = 1; for (let i = 0; i < 3; i++) __hm.frame(1 / 30); 0")
         m0 = await page.evaluate("__hm.perf2.mem()")
         nav = asyncio.ensure_future(page.wait_for_event('framenavigated', timeout=900000))
