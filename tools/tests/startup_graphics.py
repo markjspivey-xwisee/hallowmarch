@@ -438,8 +438,16 @@ async def safe_boot(browser):
         (hm.OUT / 'startup-safe-30s.json').write_text(json.dumps(stable, indent=2), encoding='utf-8')
         admission = await page.evaluate("""async () => {
           const H=__hm, before=H.GAME.player, completed=H.startup().titleCompleted;
+          const title=document.getElementById('title');
+          const began=new Promise(resolve=>{
+            const observer=new MutationObserver(()=>{
+              if(title.getAttribute('aria-busy')==='true') { observer.disconnect(); resolve(); }
+            });
+            observer.observe(title,{attributes:true,attributeFilter:['aria-busy']});
+          });
           window.dispatchEvent(new Event('resize'));
-          const busy=document.getElementById('title').getAttribute('aria-busy')==='true';
+          await began;
+          const busy=title.getAttribute('aria-busy')==='true';
           const first=H.start({name:'Recovery Test'}), second=H.start({name:'Recovery Test'});
           const awaitable=!!first && typeof first.then==='function' && !!second && typeof second.then==='function';
           const playerBefore=!!H.GAME.player;
