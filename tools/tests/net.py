@@ -88,7 +88,7 @@ async def boot(ctx, cfg, name):
     return page
 
 async def start(page, realm, cls, level, name, x=None, z=None):
-    await page.evaluate(f"""(() => {{ __hm.start({{ realm: {realm}, cls: '{cls}', level: {level}, name: '{name}' }}); __hm.UI.modal = null; for (const id of ['prologue', 'menu', 'dialog']) {{ const el = document.getElementById(id); if (el) el.hidden = true; }} return 0; }})()""")
+    await page.evaluate(f"""(async () => {{ await __hm.start({{ realm: {realm}, cls: '{cls}', level: {level}, name: '{name}' }}); __hm.UI.modal = null; for (const id of ['prologue', 'menu', 'dialog']) {{ const el = document.getElementById(id); if (el) el.hidden = true; }} return 0; }})()""")
     await human_play(page)
     if x is not None: await page.evaluate(f'__hm.teleport({x}, {z}); NT.calm(); 0')
 

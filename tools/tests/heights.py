@@ -119,7 +119,7 @@ async def main():
         await page.goto('http://hm.test/', wait_until='commit')
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
         print(f'booted [{time.time() - T0:.0f}s]', flush=True)
-        await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
+        await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); return 0; })()")
         await page.evaluate("(() => { const P = __hm.GAME.player, S = __hm.REALMS[0].town; P.x = P.prevX = S.x; P.z = P.prevZ = S.z; P.hp = P.maxHp; document.getElementById('hud').hidden = true; return 0; })()")
         if True:
             r = await page.evaluate(CHECKS)

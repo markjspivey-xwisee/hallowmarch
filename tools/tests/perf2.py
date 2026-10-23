@@ -694,7 +694,7 @@ async def mode_phone():
         # the title's own frames for a few seconds (the hidden things' shaders are asked for meanwhile), then the game
         await page.wait_for_timeout(3000)
         await page.evaluate("window.__rafHold = true; 0")
-        await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 1 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 1 }); __hm.UI.modal = null; const P = __hm.GAME.player; P.hp = P.maxHp = 1e7; return 0; })()")
         # the first minute: a frame each 1/30 s of the world for the first 3 s, then one each half second (as a phone
         # draws at about 30 a second, the world between the frames simulated)
         fr = (await active_eval(page, FRAMES_JS + "(90, 1 / 30, 0)"))[:-1]
@@ -808,7 +808,7 @@ async def mode_ctx():
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=900000, polling=500)
         r = await page.evaluate("({ mark: window.__perf2mark || null, errors: __hm.errors.slice(0, 3), title: !!(__hm.UI.titleSave && __hm.UI.titleSave.char), name: __hm.UI.titleSave && __hm.UI.titleSave.char ? __hm.UI.titleSave.char.name : null })")
         # and it plays on from the save
-        await page.evaluate("(() => { const s = __hm.UI.titleSave; __hm.start({ ...s.char }); __hm.UI.modal = null; return 0; })()")
+        await page.evaluate("(async () => { const s = __hm.UI.titleSave; await __hm.start({ ...s.char }); __hm.UI.modal = null; return 0; })()")
         r2 = await active_eval(page, "(() => { __hm.simulate(2); for (let i = 0; i < 3; i++) __hm.frame(1 / 30); return { errors: __hm.errors.slice(0, 3), lvl: __hm.GAME.player.level }; })()")
         await b.close()
     print('before the loss:', json.dumps({k: m0[k] for k in ('released', 'freedGeos', 'releasedMB')}), flush=True)

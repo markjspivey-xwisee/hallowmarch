@@ -40,8 +40,8 @@ def check(cond, what):
 def log(*a): print(f'[{time.time() - T0:6.1f}s]', *a, flush=True)
 
 # what film.py's character has done: level 50, a name, the standard made, the Hollow King down, the seal broken
-START = """(() => { const H = __hm;
-  H.start({ realm: 0, cls: 'warrior', level: 50, name: 'Aldric' });
+START = """(async () => { const H = __hm;
+  await H.start({ realm: 0, cls: 'warrior', level: 50, name: 'Aldric' });
   const P = H.GAME.player; P.hp = P.maxHp = 1e7;
   const L = H.late.LATE2; H.GAME.prog.realmKills = 40; L.d.king = 1; H.GAME.prog.kingKills = 1; L.vet = 4;
   H.late.late2CheckNames(true); if (!L.worn && L.names.length) H.late.late2Wear(L.names[L.names.length - 1]);

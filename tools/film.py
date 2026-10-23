@@ -73,8 +73,8 @@ async def setup(p):
     return b, page, logs
 
 # a veteran of 50 who has done what the late shots ask of a character
-START = """(() => { const H = __hm, F = H.fn;
-  H.start({ realm: 0, cls: 'warrior', level: 50, name: 'Aldric' });
+START = """(async () => { const H = __hm, F = H.fn;
+  await H.start({ realm: 0, cls: 'warrior', level: 50, name: 'Aldric' });
   const P = H.GAME.player; H.bal.applyFairGear(P, 50); P.hp = P.maxHp = 1e7;
   const L = H.late.LATE2; H.GAME.prog.realmKills = Math.max(H.GAME.prog.realmKills || 0, 40); L.d.king = Math.max(1, L.d.king || 0); H.GAME.prog.kingKills = 1;
   L.vet = Math.max(L.vet || 0, 4); H.late.late2CheckNames(true); if (!L.worn && L.names.length) H.late.late2Wear(L.names[L.names.length - 1]);

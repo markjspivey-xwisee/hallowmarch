@@ -58,7 +58,7 @@ async def main():
         W, Hh = (960, 540) if SHOTS and 'small' not in sys.argv else (640, 360)
         b, page, logs = await setup(p, w=W, h=Hh)
         await page.evaluate(HELPERS)
-        r = await ev(page, 'boot', """(() => { const H = __hm; H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
+        r = await ev(page, 'boot', """(async () => { const H = __hm; await H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
           return { errors: H.errors.slice(0, 3), finds: H.water.dive.finds().length, kinds: [...new Set(H.water.dive.finds().map((f) => f.kind))], boats: H.water.boats.list().length, jetties: H.water.boats.jetties().length, drifts: H.water.tracks.drifts(), where: { jetties: H.water.boats.jetties().map((j) => [j.realm, Math.round(j.x0), Math.round(j.z0), Math.round(j.end.x), Math.round(j.end.z)]), boats: H.water.boats.list().map((q) => [q.realm, Math.round(q.x), Math.round(q.z), q.st]) } }; })()""")
         check(not r['errors'], 'boots without errors')
         check(r['finds'] >= 12 and 'chest' in r['kinds'], 'finds lie on the beds (%d, %s)' % (r['finds'], r['kinds']))
