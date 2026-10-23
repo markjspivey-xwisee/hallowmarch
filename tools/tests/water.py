@@ -72,13 +72,13 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
         if 'river' in sys.argv[1:]:
-            await page.evaluate("(() => { __hm.fn.setQuality('high'); __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return 0; })()")
+            await page.evaluate("(async () => { __hm.fn.setQuality('high'); await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return 0; })()")
             await human_play(page)
             await river_shots(page)
             print('errors', json.dumps(await page.evaluate("__hm.errors.slice(0, 3)")))
             await b.close()
             return
-        r = await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return { errors: __hm.errors.slice(0, 3), programs: __hm.renderInfo().programs }; })()")
+        r = await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); return { errors: __hm.errors.slice(0, 3), programs: __hm.renderInfo().programs }; })()")
         await human_play(page)
         print('boot', json.dumps(r))
         check(not r['errors'], 'boots without errors')
