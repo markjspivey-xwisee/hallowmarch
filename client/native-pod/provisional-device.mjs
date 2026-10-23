@@ -77,7 +77,7 @@ export function indexedDbProvisionalStorage({ indexedDB = globalThis.indexedDB, 
 }
 
 const METADATA_FIELDS = new Set(['ownerDid', 'podUrl', 'issuer', 'relayUrl', 'provisionalEndpoint', 'attestation',
-  'guestExpiresAt', 'proofKeyThumbprint', 'characterId', 'credentialExpiresAt', 'claimedOwnerDid', 'targetClaim', 'lastConfirmedClaim']);
+  'guestExpiresAt', 'proofKeyThumbprint', 'characterId', 'credentialExpiresAt', 'claimedOwnerDid', 'targetClaim', 'lastConfirmedClaim', 'gameAdmitted']);
 function metadataOf(value) {
   if (value === null || value === undefined) return null;
   if (!object(value) || Object.keys(value).some(key => !METADATA_FIELDS.has(key))
@@ -92,6 +92,7 @@ function metadataOf(value) {
     || value.claimedOwnerDid !== undefined && !/^did:[a-z0-9]+:[^\s]+$/.test(value.claimedOwnerDid)) fail('invalid_device_metadata', 'The public play-session metadata is invalid.');
   originOf(value.issuer); originOf(value.relayUrl);
   if (value.lastConfirmedClaim !== undefined && typeof value.lastConfirmedClaim !== 'boolean') fail('invalid_device_metadata', 'The last-confirmed claim choice is invalid.');
+  if (value.gameAdmitted !== undefined && typeof value.gameAdmitted !== 'boolean') fail('invalid_device_metadata', 'The game admission hint is invalid.');
   const pod = new URL(value.podUrl), endpoint = new URL(value.provisionalEndpoint);
   if (pod.protocol !== 'https:' || pod.username || pod.password || pod.search || pod.hash
     || !pod.pathname.endsWith('/') || endpoint.origin !== originOf(value.issuer)

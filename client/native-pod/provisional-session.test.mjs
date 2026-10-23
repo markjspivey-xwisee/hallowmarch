@@ -67,7 +67,7 @@ function fixture() {
     mcpUrl: relayUrl + '/mcp', expiresAt: NOW + 3600000 }, appSession: { purpose: 'character-claim-target',
       claimOperationId: 'claim-operation-one', guestOwnerDid: guest.subjectDid, targetOwnerDid: binding.subjectDid,
       audience: origin, sourceChallenge: 'claim-completion-challenge', expiresAt: NOW + 600000 } }; };
-  return { make, target, device, records, requests, calls, sessions, credentials,
+  return { make, target, device, records, requests, calls, sessions, credentials, nativeFetch: fetch,
     get metadata() { return clone(metadata); }, loseFinalize() { finalizeLost = true; }, corruptReadback() { failReadback = true; },
     exhaustQuota() { quota = true; }, failPersistence() { persistenceFails = true; } };
 }
@@ -86,6 +86,29 @@ test('first Play confirms a private checkpoint; reload resumes it without provis
   assert.equal(f.requests.filter(call => call.path.endsWith('/play/challenge')).length, 2);
   assert(f.calls.some(call => call.op === 'reauthenticate'));
 });
+test('failed first relay exchange reload retries incomplete bootstrap with the same browser key, owner, pod and deadline', async () => {
+  const f = fixture(); let refuseExchange = true;
+  const first = await f.make({ fetch: async (url, options) => {
+    if (refuseExchange && url.endsWith('/exchange')) { refuseExchange = false; return Response.json({ error: 'native_unavailable' }, { status: 503 }); }
+    return f.nativeFetch(url, options);
+  } });
+  await assert.rejects(first.bootstrap(), { code: 'native_unavailable' });
+  const prior = f.metadata, key = await f.device.publicDescription();
+  assert(prior.ownerDid); assert.equal(prior.gameAdmitted, undefined); assert.equal(prior.characterId, undefined);
+  assert.equal(f.sessions.length, 0); assert.equal(f.records.size, 0);
+  const next = await f.make(); await next.resume({ requireGameSession: true });
+  const challenges = f.requests.filter(call => call.path.endsWith('/play/challenge'));
+  assert.equal(challenges[0].bootstrapRecovery, false); assert.equal(challenges[1].bootstrapRecovery, true);
+  assert.deepEqual(challenges[0].body.publicKeyJwk, challenges[1].body.publicKeyJwk);
+  assert.equal(f.metadata.ownerDid, prior.ownerDid); assert.equal(f.metadata.podUrl, prior.podUrl);
+  assert.equal(f.metadata.guestExpiresAt, prior.guestExpiresAt); assert.equal(f.metadata.gameAdmitted, true);
+  assert.deepEqual(await f.device.publicDescription(), key); assert.equal(f.records.size, 1);
+  assert.equal((await next.get()).exists, true); assert.equal(next.status().provisional, true);
+  await next.resume({ requireGameSession: true });
+  assert.equal(f.requests.filter(call => call.path.endsWith('/play/challenge')).at(-1).bootstrapRecovery, false,
+    'admitted characters cannot request disposable bootstrap transport recovery');
+});
+
 test('OAuth reload recovers staged sealed target credential and durable own-pod claim intent', async () => {
   const f = fixture(), session = await f.make(); await session.bootstrap();
   await session.set({ v: 1, char: { name: 'private hero', level: 5 } });

@@ -29,6 +29,9 @@ test('boot peek does not create a browser key; reload retains the same nonextrac
   const second = createProvisionalDevice({ origin, crypto: webcrypto, storage: store });
   assert.deepEqual(await second.peekMetadata(), metadata);
   assert.deepEqual(await second.publicDescription(), publicKey); assert.equal(store.creates, 1);
+  await second.remember({ ...metadata, gameAdmitted: true });
+  assert.equal((await second.peekMetadata()).gameAdmitted, true);
+  await assert.rejects(second.remember({ ...metadata, gameAdmitted: 'yes' }), { code: 'invalid_device_metadata' });
   const verifier = await webcrypto.subtle.importKey('jwk', publicKey.publicKeyJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
   const grant = { _signed_payload: 'native-payload', _signature: 'native-signature' };
   const proof = await second.signBootstrap(grant);
