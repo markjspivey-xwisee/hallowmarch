@@ -1,0 +1,38 @@
+name: Temporary release browser smoke
+on:
+  push:
+    branches: ['test/release-browser-smoke-20261023']
+    paths:
+      - '.github/workflows/release-browser-smoke.yml'
+      - 'tools/manual/release-browser-smoke.mjs'
+permissions:
+  contents: read
+concurrency:
+  group: release-browser-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  deployed-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bound Ubuntu package download retries
+        run: |
+          printf 'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99-hallowmarch-smoke >/dev/null
+      - name: Install locked browser dependencies
+        run: |
+          npm ci --prefix tools
+          node tools/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Check script syntax
+        run: node --check tools/manual/release-browser-smoke.mjs
+      - name: Exercise actual deployed guest UI
+        run: node tools/manual/release-browser-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: release-browser-smoke-public-evidence
+          path: tools/out/release-browser-smoke/
+          retention-days: 7
