@@ -91,14 +91,25 @@ TEST_TITLE_ISOLATION = r"""(() => {
   const trace=window.__hmStartup;
   if(trace && trace.phase===phaseName)data.wholePhaseRandom++;
   // The interval includes every warmup progress phase, GPU fence and paint,
-  // ending only when the combined title increments its completion receipt.
-  if(trace && data.before!==null && data.after===null && trace.titleCompleted===0) {
+  // ending only when the complete title promise settles its busy state.
+  if(trace && data.before!==null && data.after===null) {
    data.titleRandom++;
    if(data.randomStacks.length<8)data.randomStacks.push(String(new Error('First-title randomness').stack));
   }
   return random.call(Math);
  };
  let current;
+ const setAttribute=Element.prototype.setAttribute;
+ Element.prototype.setAttribute=function(name,value){
+  const result=setAttribute.call(this,name,value);
+  // Observe the actual promise-finally boundary. A hidden completed fence can
+  // require another visible combined draw before this pipeline settles.
+  if(this.id==='title' && name==='aria-busy' && String(value)==='false' &&
+     data.before!==null && data.after===null && current && current.titleCompleted>0 && !current.stopped) {
+   data.after=snapshot();
+  }
+  return result;
+ };
  Object.defineProperty(window,'__hmStartup',{
   configurable:true,enumerable:true,get:()=>current,
   set(trace){
@@ -110,8 +121,7 @@ TEST_TITLE_ISOLATION = r"""(() => {
     if(value===phaseName && completed===0 && data.before===null)data.before=snapshot();
    }});
    Object.defineProperty(trace,'titleCompleted',{configurable:true,enumerable:true,get:()=>completed,set(value){
-    const prior=completed;completed=value;
-    if(prior===0 && value>0 && data.after===null)data.after=snapshot();
+    completed=value;
    }});
   },
  });
@@ -360,7 +370,7 @@ async def title_state_isolation(page):
     }
     print('first-title state isolation', json.dumps(metrics), flush=True)
     check(before is not None and after is not None and not before.get('unavailable') and not after.get('unavailable'),
-          'actual first title captures state before preparation and after its completed fence')
+          'actual first title captures state before preparation and after its complete fenced pipeline')
     check(data['titleRandom'] == 0,
           'actual first-title preparation submission and GPU fence consume zero Math.random calls: '+json.dumps(metrics))
     check(before == after,
