@@ -361,7 +361,7 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
-  if (GAME.started || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  if (!GAME.ready || GAME.started || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   // A click during an explicit title resize keeps its intent, but cannot create
   // a player or start live work alongside an unfinished cold shader batch.
   if (TITLE_FRAME_PROMISE) {
