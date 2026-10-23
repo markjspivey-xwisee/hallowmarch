@@ -436,7 +436,22 @@ async def safe_boot(browser):
         check(not stable['errors'] and not errors and not console_errors,
               '30-second safe startup observation has no runtime errors')
         (hm.OUT / 'startup-safe-30s.json').write_text(json.dumps(stable, indent=2), encoding='utf-8')
-        await page.evaluate("__hm.start()")
+        admission = await page.evaluate("""async () => {
+          const H=__hm, before=H.GAME.player, completed=H.startup().titleCompleted;
+          window.dispatchEvent(new Event('resize'));
+          const busy=document.getElementById('title').getAttribute('aria-busy')==='true';
+          const first=H.start({name:'Recovery Test'}), second=H.start({name:'Recovery Test'});
+          const awaitable=!!first && typeof first.then==='function' && !!second && typeof second.then==='function';
+          const playerBefore=!!H.GAME.player;
+          const [a,b]=await Promise.all([first,second]), after=H.startup();
+          return {busy,awaitable,playerBefore,hadPlayer:!!before,samePlayer:a===b && !!H.GAME.player && a===H.GAME.player.id,
+                  started:H.GAME.started,stopped:after.stopped,completedMore:after.titleCompleted>completed,
+                  finalWarm:after.titleFinal.newPrograms===0,finalFenced:after.titleFinal.fenceComplete};
+        }""")
+        check(admission['busy'] and admission['awaitable'] and not admission['hadPlayer'] and not admission['playerBefore'] and
+              admission['samePlayer'] and admission['started'] and not admission['stopped'] and admission['completedMore'] and
+              admission['finalWarm'] and admission['finalFenced'],
+              'actual debug start awaits resized title graphics and coalesces one player after the idle proof')
         await page.bring_to_front()
         await page.keyboard.press('Shift')
         await page.evaluate("__hm.fn.openMenu('settings')")
