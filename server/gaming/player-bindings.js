@@ -316,10 +316,26 @@ export function createPlayerBindingLedger({ store, now = Date.now, streamId = 'p
           && equal(persisted.bindings.find(entry => entry.accountId === targetAccountId)?.records.character, pointer) };
     });
   }
+  /** Read-only reconciliation of an already confirmed claim. It never replays
+   * a promotion or depends on a process-local OAuth ceremony. */
+  async function recoverProvisionalClaim(operationId, record, checkpointDigest) {
+    operation(operationId);
+    if (!/^[a-f0-9]{64}$/.test(checkpointDigest || '')) fail('Invalid checkpoint acknowledgement.');
+    const current = await refresh();
+    const source = current.state.bindings.find(entry => entry.claim?.operationId === operationId);
+    if (!source) return null;
+    const marker = source.claim;
+    const target = current.state.bindings.find(entry => entry.accountId === marker.targetAccountId);
+    if (!target || target.binding.provisional || target.binding.subjectDid !== marker.targetDid) fail('Claim target changed.', 'IDEMPOTENCY_CONFLICT', 409);
+    const pointer = pointerOf(record, target.binding);
+    if (hash(canonical(pointer) + ':' + checkpointDigest) !== marker.pointerDigest) fail('Claim operation changed.', 'IDEMPOTENCY_CONFLICT', 409);
+    return { accountId: target.accountId, binding: copy(target.binding), pointer: copy(pointer),
+      sourceAccountId: source.accountId, marker: copy(marker), version: current.version };
+  }
   return Object.freeze({ ready, get enabled() { return configured && healthy; }, refresh,
     status: () => ({ configured, ready: healthy, version: healthy ? snapshot.version : null,
       bindings: healthy ? snapshot.state.bindings.length : 0, error: lastError?.code ?? null }),
     bindingForAccount: accountId => lookup(entry => entry.accountId === accountId),
-    bindingForDid: did => lookup(entry => entry.binding.subjectDid === did), bindVerified, linkRecord, promoteProvisional });
+    bindingForDid: did => lookup(entry => entry.binding.subjectDid === did), bindVerified, linkRecord, promoteProvisional, recoverProvisionalClaim });
 }
 

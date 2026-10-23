@@ -354,6 +354,70 @@ test('an uncertain native claim commit recovers by exact operation readback with
   assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
 });
 
+test('committed claim receipt survives host restart, lease expiry and expired source token without another native write', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target);
+  const initial = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(initial.status, 200); const claimed = await initial.json(), baseline = structuredClone(f.store.commits);
+  f.host.close();
+  const restarted = await provisionalFixture(t, { realTokens: true, store: f.store, accounts: f.accounts,
+    provisionalProofVerifier: async input => {
+      assert.match(input.challenge, /^[A-Za-z0-9_-]{43}$/);
+      if (input.proof !== input.challenge + input.challenge || input.attestation !== 'provider-attestation') throw Error('refused');
+      const owner = nativeOwner('u-play-player');
+      return { valid: true, provisional: true, issuer: 'https://identity.interego.xwisee.com', ownerDid: owner.subjectDid,
+        userId: owner.userId, webId: owner.webId, podUrl: owner.podUrl, authenticatedAgentDid: owner.authenticatedAgentDid,
+        publicKeyJwk: f.publicKeyJwk, expiresAt: Math.floor(Date.parse(play.result.binding.expiresAt) / 1000), capabilities: ['human-play', 'own-pod-checkpoint'] };
+    } });
+  restarted.advance(3_600_001);
+  assert.equal(restarted.gameTokens.read(session), null);
+  assert.equal((await restarted.request('/gaming/identity/status', { session })).status, 401);
+  const challengeBody = { claimOperationId: body.claimOperationId, targetRecord: body.targetRecord, readConfirmed: true };
+  const reads = f.store.loadCalls;
+  assert.equal((await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session: 'forged', body: challengeBody })).status, 401);
+  assert.equal(f.store.loadCalls, reads, 'unauthenticated recovery cannot trigger native reads');
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body })).status, 409,
+    'the captured original completion packet cannot mint another canonical session');
+  assert.equal(restarted.issued.length, 0);
+  const challengeResponse = await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session, body: challengeBody });
+  assert.equal(challengeResponse.status, 200); const nonce = await challengeResponse.json();
+  assert.notEqual(nonce.challenge, target.appSession.sourceChallenge);
+  const recoveryBody = { ...body, recoveryChallenge: nonce.challenge, proof: nonce.challenge + nonce.challenge };
+  assert.notEqual((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, proof: body.proof } })).status, 200, 'a captured signature does not prove the new nonce');
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session: restarted.bobToken, body: recoveryBody })).status, 409);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, claimOperationId: 'different-claim-operation' } })).status, 409);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, targetRecord: { ...body.targetRecord, recordCid: 'sha256:changed' } } })).status, 409);
+  const response = await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody });
+  assert.equal(response.status, 200); const recovered = await response.json();
+  assert.equal(recovered.binding.subjectDid, claimed.binding.subjectDid); assert.equal(recovered.appSession.acct.id, claimed.appSession.acct.id);
+  assert.equal(restarted.gameTokens.read(recovered.appSession.token).provisional, undefined);
+  const duplicate = await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody });
+  assert.equal(duplicate.status, 200); assert.deepEqual(await duplicate.json(), recovered);
+  assert.equal(restarted.issued.length, 1, 'a consumed nonce returns its original session without minting another');
+  restarted.advance(120001);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body: recoveryBody })).status, 409);
+  const freshNonce = await (await restarted.request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', session, body: challengeBody })).json();
+  assert.notEqual(freshNonce.challenge, nonce.challenge);
+  assert.notEqual((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...recoveryBody, recoveryChallenge: freshNonce.challenge } })).status, 200, 'another nonce requires another key signature');
+  assert.equal(restarted.issued.length, 1);
+  assert.deepEqual(f.store.commits, baseline, 'receipt recovery must never repeat promotion or mutate a private/public save');
+  assert.equal((await restarted.request('/gaming/identity/play/challenge', { method: 'POST', session,
+    body: { publicKeyJwk: f.publicKeyJwk } })).status, 401, 'reconciliation does not revive the retired guest');
+});
+
+test('expired uncommitted claim lease cannot create ownership through receipt recovery', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target), baseline = structuredClone(f.store.commits);
+  f.advance(300_001);
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(response.status, 409); assert.deepEqual(f.store.commits, baseline);
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true);
+});
+
 test('explicit use-existing readback preserves canonical character and does not merge guest participation', async t => {
   const f = await provisionalFixture(t), existing = await f.connect(f.bobToken), canonicalToken = existing.payload.appSession.token;
   const reference = targetReference();
@@ -687,7 +751,7 @@ test('public owner capability documents remain discoverable without bearer or na
   const f = await fixture(t, { store: null });
   const response = await f.request('/gaming/identity/affordances', { session: null }); assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /application\/ld\+json/);
-  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 10);
+  const document = await response.json(); assert.equal(document['hydra:supportedOperation'].length, 11);
   const schemas = await f.request('/gaming/identity/schemas', { session: null }); assert.equal(schemas.status, 200);
   assert.match(schemas.headers.get('content-type'), /application\/schema\+json/);
   assert((await schemas.json()).$defs.RecordLinkRequest);

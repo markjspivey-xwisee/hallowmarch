@@ -143,12 +143,12 @@ async function coldProofFixture() {
   return { ...f, requests };
 }
 
-test('the retired game proof is available only to the three same-origin POST proof controls', async () => {
+test('the retired game proof is available only to the four same-origin POST proof controls', async () => {
   const f = await coldProofFixture();
-  for (const path of ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete']) {
+  for (const path of ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete', '/gaming/identity/play/claim-recovery-challenge']) {
     await f.nativePlayerGuestRequest(path, { method: 'POST', body: { fixture: 'public-proof' } });
   }
-  assert.equal(f.requests.length, 3); assert(f.requests.every(request => request.headers.Authorization === 'Bearer retired-game-proof'));
+  assert.equal(f.requests.length, 4); assert(f.requests.every(request => request.headers.Authorization === 'Bearer retired-game-proof'));
   assert.equal(f.NETWS.token, ''); assert.equal(f.NETWS.acct, null);
   for (const [url, method] of [
     ['/gaming/identity/status', 'GET'], ['/gaming/identity/record-link', 'POST'], ['/gaming/identity/claim-owner/start', 'POST'],
@@ -156,7 +156,7 @@ test('the retired game proof is available only to the three same-origin POST pro
     ['https://user@game.example/gaming/identity/play/complete', 'POST'], ['/gaming/identity/play/complete?other=1', 'POST'],
     ['/gaming/identity/play/complete#fragment', 'POST'],
   ]) await assert.rejects(f.nativePlayerGuestRequest(url, { method }), 'a retained proof cannot authorize ' + url);
-  assert.equal(f.requests.length, 3, 'denied controls never receive a retained game proof');
+  assert.equal(f.requests.length, 4, 'denied controls never receive a retained game proof');
 });
 
 test('host, account, context or navigation changes revoke cold proof recovery before another request', async () => {

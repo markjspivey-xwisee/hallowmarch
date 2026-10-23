@@ -40,7 +40,7 @@ async function nativePlayerGuestRequest(url, options = {}, context = NATIVE_PLAY
   const current = context && NATIVE_PLAYER.provisionalContext === context && NETWS.host === context.host
     && NETWS.acct?.id === context.accountId && !NETWS.reload;
   if (!current) throw nativePlayerError('owner_mismatch', 'The character connection changed. Retry its connection.');
-  const proofOnly = options.method === 'POST' && ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete'].includes(target.pathname);
+  const proofOnly = options.method === 'POST' && ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete', '/gaming/identity/play/claim-recovery-challenge'].includes(target.pathname);
   const token = NETWS.token || (proofOnly && NATIVE_PLAYER.provisionalProofContext === context ? NATIVE_PLAYER.provisionalProofToken : '');
   return nativePlayerRequest(url, { ...options, token });
 }

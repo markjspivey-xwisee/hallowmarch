@@ -118,13 +118,13 @@ function metadataOf(value) {
     if (target.confirmation !== undefined) {
       const confirmation = target.confirmation, reference = confirmation?.targetRecord;
       if (!object(confirmation) || Object.keys(confirmation).some(key => !['targetRecord', 'selection'].includes(key))
-        || confirmation.selection !== 'copy-guest' || !object(reference) || reference.kind !== 'character'
+        || !['copy-guest', 'use-existing'].includes(confirmation.selection) || !object(reference) || reference.kind !== 'character'
         || Object.keys(reference).some(key => !['kind', 'graphIri', 'descriptorUrl', 'cid', 'bindingCid', 'nativeRevision', 'recordCid', 'proofKind', 'digest'].includes(key))
         || Object.values(reference).some(item => typeof item !== 'string' || !item || item.length > 2048)
         || reference.proofKind !== 'owner-key-authenticated-checkpoint'
         || !/^sha256:[a-f0-9]{64}$/.test(reference.nativeRevision || '')
         || !reference.graphIri || !reference.descriptorUrl || !reference.cid || !reference.recordCid || !reference.digest) {
-        fail('invalid_device_metadata', 'The durable in-place claim confirmation must contain only its exact public native receipt.');
+        fail('invalid_device_metadata', 'The durable claim confirmation must contain only its exact public native receipt.');
       }
     }
   }
