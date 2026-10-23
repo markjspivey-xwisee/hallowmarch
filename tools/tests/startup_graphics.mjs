@@ -376,7 +376,7 @@ function titleFixture({autoPaint=false}={}) {
   const resizeStart=main.indexOf('let resizeTimer = 0;'),resizeEnd=main.indexOf('\n\n',resizeStart);
   assert.ok(resizeStart>=0 && resizeEnd>resizeStart,'test installs the actual resize timer declaration and listener');
   vm.createContext(ctx);
-  vm.runInContext(main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+  vm.runInContext(main.slice(resizeStart,resizeEnd)+'\n'+declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','captureTitleResizeRequest','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
     'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
   const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
     grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,windowListeners,resizeTimers,
@@ -491,6 +491,26 @@ test('hiding during the final combined fence keeps the pipeline pending until a 
   assert.equal(done,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,10,'visibility redraw reuses completed warming');
   await f.fence(11);await pending;assert.equal(done,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,2);
   assert.equal(f.documentListeners.get('visibilitychange').size,0);assert.equal(f.nodes.title.attributes['aria-busy'],'false');f.restored();
+});
+
+test('an actual raw resize during the final fence keeps readiness pending for the latest generation',async()=>{
+  const f=titleFixture(),pending=f.run();let done=false;pending.then(()=>{done=true;});
+  for(let n=0;n<titleStages.length;n++){await f.flush();await f.fence(n);await f.paint();}
+  assert.equal(f.fences[10].stage,'combined');
+  f.ctx.window.innerWidth=850;f.ctx.window.innerHeight=500;f.dispatchResize();
+  f.ctx.window.innerWidth=950;f.ctx.window.innerHeight=550;f.dispatchResize();
+  assert.equal(f.resizeTimers.size,1);assert.equal(f.sizeCalls.length,0,'no debounced callback or target replacement has run');
+  await f.fence(10);
+  assert.equal(done,false,'a completed old-size fence cannot settle the requested latest view');
+  assert.equal(f.resizeTimers.size,0);assert.equal(vm.runInContext('resizeTimer',f.ctx),0);
+  assert.deepEqual(f.sizeCalls,[[950,550]]);assert.equal(f.fences[11].stage,'post');
+  assert.equal(f.nodes.title.attributes['aria-busy'],'true');assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  await f.finish(pending);
+  assert.equal(done,true);assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined',...titleStages,'combined']);
+  assert.deepEqual(f.sizeCalls,[[950,550]]);assert.equal(f.resizeTimers.size,0);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,2);assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,2);
+  assert.ok(Array.from(f.ctx.GRAPHICS_STARTUP.titleWarmup).every(row=>row.generation===2 && row.fenceComplete));
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFinal.newPrograms,0);assert.equal(f.nodes.title.attributes['aria-busy'],'false');f.restored();
 });
 
 test('hidden first title waits event-driven and context loss removes listeners without readiness',async()=>{
