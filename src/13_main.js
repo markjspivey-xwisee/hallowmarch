@@ -243,7 +243,9 @@ function renderTitleFrame() {
       GRAPHICS_STARTUP.titleFinal = result;
       GRAPHICS_STARTUP.titleCompleted++;
       GRAPHICS_STARTUP.titleFenceWaitMs = result.fenceWaitMs;
-      if (TITLE_RESIZE_PENDING) TITLE_FRAME_DIRTY = true;
+      // A completed hidden submission is not the first visible title. Keep the
+      // same pipeline pending until visibility returns and a fresh fence wins.
+      if (TITLE_RESIZE_PENDING || document.hidden) TITLE_FRAME_DIRTY = true;
     }
     return true;
   })().catch(error => {
