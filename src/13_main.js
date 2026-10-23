@@ -117,6 +117,10 @@ function prepareTitleView() {
   updateTreeVisibility(x, z);
   updateMountains();
 }
+function titleAssertActive() {
+  graphicsAssertActive();
+  if (GRAPHICS_STARTUP.stopped || gl.isContextLost()) throw new Error('Title graphics context is unavailable.');
+}
 function titleGraphicsBusy(active) {
   const title = document.getElementById('title');
   if (!title) return;
@@ -133,7 +137,8 @@ function titleGraphicsBusy(active) {
 // Submit only existing production resources. Unlike renderer.compile(), a
 // restricted render does not traverse invisible families and link their shaders.
 async function submitTitleStage(id, members, inventory, combined = false) {
-  graphicsAssertActive();
+  titleAssertActive();
+  const programsBefore = renderer.info.programs.length;
   const started = performance.now(), visibility = inventory.renderables.map(object => [object, object.visible]);
   const saved = gpuDiagCaptureRenderer(), oldTrail = U.uTrail.value;
   const direct = renderer.renderBufferDirect, debug = renderer.debug;
@@ -184,12 +189,13 @@ async function submitTitleStage(id, members, inventory, combined = false) {
     gpuDiagRestoreRenderer(saved, false);
   }
   const receipt = await gpuDiagWaitForFence(gl);
-  graphicsAssertActive();
+  titleAssertActive();
   const errors = gpuDiagGlErrors(gl);
   if (errors.length) throw new Error('GL errors after title ' + id + ': ' + errors.join(', '));
   return { id, generation: TITLE_WARM_GENERATION, completed: true, fenceComplete: true,
     exercised: workCalls > 0, workCalls, workTriangles,
-    totalMs: Math.round(performance.now() - started), fenceWaitMs: receipt.waitMs };
+    totalMs: Math.round(performance.now() - started), fenceWaitMs: receipt.waitMs,
+    programsBefore, programsAfter: renderer.info.programs.length, newPrograms: renderer.info.programs.length - programsBefore };
 }
 // A title is a frozen view, not a live player. Warm existing shader families in
 // bounded, separately fenced submissions before the first combined view. Empty
@@ -204,7 +210,7 @@ function renderTitleFrame() {
     while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !graphicsDiagnosticActive()) {
       TITLE_FRAME_DIRTY = false;
       await waitForTitleVisibility();
-      graphicsAssertActive();
+      titleAssertActive();
       if (TITLE_RESIZE_PENDING) {
         TITLE_RESIZE_PENDING = false;
         applyGraphicsSize();
@@ -218,22 +224,23 @@ function renderTitleFrame() {
         let resized = false;
         for (const [id, members] of stages) {
           await waitForTitleVisibility();
-          graphicsAssertActive();
+          titleAssertActive();
           if (GAME.started) return false;
           const result = await submitTitleStage(id, members, inventory);
           GRAPHICS_STARTUP.titleWarmup.push(result);
           // A real event-loop/paint opportunity separates cold submissions.
           await nextPaint();
-          graphicsAssertActive();
+          titleAssertActive();
           if (TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
         }
         if (resized) continue; // explicit resize, never retry a failed shader
         TITLE_WARMED = true;
       }
       await waitForTitleVisibility();
-      graphicsAssertActive();
+      titleAssertActive();
       if (GAME.started) return false;
       const result = await submitTitleStage('combined', null, inventory, true);
+      GRAPHICS_STARTUP.titleFinal = result;
       GRAPHICS_STARTUP.titleCompleted++;
       GRAPHICS_STARTUP.titleFenceWaitMs = result.fenceWaitMs;
       if (TITLE_RESIZE_PENDING) TITLE_FRAME_DIRTY = true;
