@@ -191,7 +191,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
         page.on('console', lambda m: logs.append(f'[{m.type}] {m.text[:300]}') if m.type == 'error' else None)
-        await ev(page, "window.requestAnimationFrame = () => 0; __hm.fn.setQuality('" + OPT.get('q', 'low') + "'); __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.setTod(0.45); 0")
+        await ev(page, "(async () => { window.requestAnimationFrame = () => 0; __hm.fn.setQuality('" + OPT.get('q', 'low') + "'); await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.setTod(0.45); return 0; })()")
         await ev(page, HELP)
         await ev(page, AJS)
         await ev(page, "(() => { MO.quiet(); MO.calm(); AC.quiet(); const W = __hm.dbg.WEATHER; W.mode = 'fixed'; W.kind = 'clear'; W.raining = 0; W.wet = 0; W.next = 1e9; const R = __hm.REALMS[0], S = R.musterSite, a = Math.atan2(S.x, S.z); MO.cx = S.x + Math.sin(a) * 40; MO.cz = S.z + Math.cos(a) * 40; __hm.simulate(0.5); return 0; })()")

@@ -417,7 +417,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960 if 'big' in ARGS else 640, h=540 if 'big' in ARGS else 360)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate("__hm.start({ realm: 2, cls: 'mage', level: 30 }); 0")
+        await page.evaluate("(async () => { await __hm.start({ realm: 2, cls: 'mage', level: 30 }); return 0; })()")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         await page.evaluate("__hm.simulate(1); 0")
         r = await ev(page, 'boot', "(() => ({ errors: __hm.errors.slice(0, 5), ready: !!__hm.blaze && __hm.blaze.BLAZE.ready, decks: __hm.blaze ? __hm.blaze.BLAZE.list.length : 0, gates: __hm.blaze ? __hm.blaze.BLAZE.gates.length : 0 }))()")

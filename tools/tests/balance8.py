@@ -40,10 +40,10 @@ def check(cond, what):
 B8_JS = r"""
 window.B8 = {
   H: __hm, F: __hm.fn, L: __hm.late,
-  fresh(cls, lvl, realm = 0) {
+  async fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm, cls, level: lvl });
+    await H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
     H.bal.applyFairGear(P, lvl); P.hp = P.maxHp; P.power = P.maxPower;
     H.UI.modal = 'menu'; H.CAM.mode = 'fixed';
@@ -54,8 +54,8 @@ window.B8 = {
   risen() { return this.H.CAMPS.filter((c) => this.L.late2RiseK(c) >= 0); },
   clearAround(x, z, r, keep) { for (const e of this.H.ENT) if (e.alive && e.role !== 'player' && e.kind !== 'door' && !(keep && keep.has(e.id)) && Math.hypot(e.x - x, e.z - z) < r) { e.damagers = null; this.F.killEnt(e, null); this.F.removeEnt(e); } },
   // a fight: the player as a bot of this kind against the top risen camp of its homeland
-  fight(cls, lvl, realm, kind) {
-    const P = this.fresh(cls, lvl, realm), H = this.H, F = this.F, L = this.L.LATE2;
+  async fight(cls, lvl, realm, kind) {
+    const P = await this.fresh(cls, lvl, realm), H = this.H, F = this.F, L = this.L.LATE2;
     const camp = this.risen().filter((c) => c.realm === P.faction).sort((a, b) => this.L.late2RiseK(b) - this.L.late2RiseK(a))[0];
     // the camp as it stands for a fighter of this level: its champion whole and its pack about it
     // (taken over afresh as late2Retake does: every fight meets the camp whole, its champion and its pack)
@@ -201,7 +201,7 @@ async def main():
 
         if 'vet' in ARGS:
             lvl = 50
-            await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")
+            await page.evaluate(f"(async () => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); await H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")
             specs = [[c, v, n] for c in CLS for v in ('', 'boons', 'name') for n in range(VREPS)]
             await page.evaluate(f"B8.queue({lvl}, {json.dumps(specs)})")
             last = 0
@@ -236,7 +236,7 @@ async def main():
             # [balance8] the skilled warrior's pairings at 50 in fresh arenas, then after a run of simple duels at 50 in the
             # same arenas, with a look at what the run left behind in each arena and in the world
             lvl = 50
-            await page.evaluate(f"(() => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")
+            await page.evaluate(f"(async () => {{ const H = __hm; if (H.GAME.player) H.fn.newCharacter(); await H.start({{ realm: 0, cls: 'warrior', level: {lvl} }}); H.UI.modal = 'menu'; H.CAM.mode = 'fixed'; H.GAME.player.hp = 1e9; H.GAME.player.maxHp = 1e9; const W = H.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; H.fn.weatherAdvance(60); return 0; }})()")
             await page.evaluate("CB.arenas(9); window.B8H0 = B8.heights(); 0")
             D = int(arg('dreps', '48'))
             war = [[a, 'skilled', b, 'skilled', n] for (a, b) in (('warrior', 'archer'), ('warrior', 'mage'), ('warrior', 'priest')) for n in range(D)]

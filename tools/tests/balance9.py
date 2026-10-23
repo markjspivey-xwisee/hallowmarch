@@ -33,7 +33,7 @@ async def main():
         await page.evaluate("window.requestAnimationFrame = () => 0; 0")
         await page.evaluate("() => {" + MECH_JS + "; return 0; }")
 
-        r = await ev(page, 'blunt', """(() => { const H = T.H, F = T.F; const P = T.fresh('archer', 30, 0);
+        r = await ev(page, 'blunt', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('archer', 30, 0);
           const a = T.ahead(P, 12); const pr = T.foe(1, a.x, a.z, 30, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9; H.simulate(0.1);
           const out = {};
           const shot = (name, opts, steady, dead) => {
@@ -50,9 +50,9 @@ async def main():
         check(r['steadyFull'] != 'broken', f"a steadfast priest keeps its spell from a full draw's blunt head ({r['steadyFull']})")
         check(r['quickDead'] == 'broken', f"the spells of the dead (a spell of their own: the Ash-Crowned's Word) break from a quick shot's blunt head, as before ({r['quickDead']})")
 
-        r = await ev(page, 'steady', """(() => { const H = T.H, F = T.F; const out = {};
+        r = await ev(page, 'steady', """(async () => { const H = T.H, F = T.F; const out = {};
           for (const [k, pl, steady] of [['l10', 10, true], ['l10bare', 10, false], ['l20', 20, true]]) {
-            const P = T.fresh('warrior', pl, 0); const a = T.ahead(P, 2.2); const pr = T.foe(1, a.x, a.z, pl, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9;
+            const P = await T.fresh('warrior', pl, 0); const a = T.ahead(P, 2.2); const pr = T.foe(1, a.x, a.z, pl, 'priest', 0); pr.ai.nextAbility = 1e9; pr.swingAt = 1e9;
             H.simulate(0.1); pr.hp = pr.maxHp * 0.4; pr.power = pr.maxPower;
             if (steady) F.addBuff(pr, 'steadfast', 1, 4, 'steadfast');
             pr.casting = { id: 'mend', t: 0.5, total: 1.5, targetId: pr.id, gx: pr.x, gz: pr.z };
@@ -71,14 +71,14 @@ async def main():
         check(not r['l10bare']['kept'], f"unsteadied, the bash breaks its spell ({r['l10bare']})")
         check(not r['l20']['kept'], f"once Divine Shield is learned (14), a stun breaks a steadied spell as before ({r['l20']})")
 
-        r = await ev(page, 'bots', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 20, 0); const a = T.ahead(P, 30);
+        r = await ev(page, 'bots', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('warrior', 20, 0); const a = T.ahead(P, 30);
           const bot = F.spawnRealmUnit(0, 'priest', 20, 'bot', a.x, a.z), war = F.spawnRealmUnit(0, 'priest', 20, 'guard', a.x + 3, a.z);
           const out = { t: Math.round(H.GAME.t), bot: Math.round(H.cls.csOf(bot).dev), war: Math.round(H.cls.devOf(war)) };
           for (const e of [bot, war]) { e.damagers = null; F.killEnt(e, null); F.removeEnt(e); }
           return out; })()""")
         check(r['bot'] == 0 and 20 <= r['war'] <= 50, f"a priest bot comes with no devotion at any hour, a war priest with its 20 to 50 ({r})")
 
-        r = await ev(page, 'mace', """(() => { const H = T.H, F = T.F; const P = T.fresh('warrior', 10, 0); const a = T.ahead(P, 2.2);
+        r = await ev(page, 'mace', """(async () => { const H = T.H, F = T.F; const P = await T.fresh('warrior', 10, 0); const a = T.ahead(P, 2.2);
           const pr = T.foe(1, a.x, a.z, 10, 'priest', 0); H.bal.botMake(pr, 'skilled', { x: a.x, z: a.z, r: 18 }); pr.target = P.id;
           const hold = () => H.bal9.priestMaceHold(pr);
           const out = { bare: hold() };

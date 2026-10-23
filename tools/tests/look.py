@@ -85,7 +85,7 @@ async def grab(page, path, frames=2):
     else: pathlib.Path(path).write_bytes(data)
 
 async def start(page):
-    await page.evaluate("__hm.start({realm:0, cls:'warrior', level:30}); 0")
+    await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); return 0; })()")
     await human_play(page)
     await page.evaluate(VIEWS_JS.read_text() + '\n;0')
     # the war gets going and the towns wake up, then the world holds still between the views

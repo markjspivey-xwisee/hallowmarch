@@ -33,10 +33,10 @@ async def ev(page, label, js):
 HELPERS = r"""
 window.T = {
   H: __hm, F: __hm.fn, L: __hm.late,
-  fresh(cls, lvl, realm = 0) {
+  async fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm, cls, level: lvl });
+    await H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
     H.bal.applyFairGear(P, lvl); P.hp = P.maxHp; P.power = P.maxPower;
     H.simulate(0.3); // (the late game's watcher has had its first look: an older character's deeds are taken from its path)
@@ -74,7 +74,7 @@ async def main():
 
         # ---- the risen of the borderlands: none under 40, nine from 40, keeping pace to 50 ----
         if want('rise') or want('fight') or want('shots'):
-            r = await ev(page, 'at 39', "(() => { const P = T.fresh('warrior', 39); return { war: T.F.warLevel(), camps: T.risen().map((c) => T.campInfo(c)) }; })()")
+            r = await ev(page, 'at 39', "(async () => { const P = await T.fresh('warrior', 39); return { war: T.F.warLevel(), camps: T.risen().map((c) => T.campInfo(c)) }; })()")
             check(len(r['camps']) == 9 and all(c['k'] in (0, 1, 2) for c in r['camps']), 'nine camps can rise: the three farthest of each homeland')
             check(not any(c['risen'] or (c['champ'] and c['champ'][2]) for c in r['camps']), 'at 39 none has risen')
             names39 = [c['champ'][0] for c in r['camps'] if c['champ']]
@@ -86,15 +86,15 @@ async def main():
             check(ok, 'each led by a risen champion one to three levels above you, its camp a few round yours')
             check(all(c['champ'][0] not in names39 for c in r['camps']), 'the risen have names of their own')
             check(all(c['champ'] and not c['champ'][2] for c in r['others']), 'the nearer borderland camps keep their champions')
-            r = await ev(page, 'at 50', "(() => { const P = T.fresh('warrior', 50); return { camps: T.risen().map((c) => T.campInfo(c)) }; })()")
+            r = await ev(page, 'at 50', "(async () => { const P = await T.fresh('warrior', 50); return { camps: T.risen().map((c) => T.campInfo(c)) }; })()")
             check(all(c['champ'] and c['champ'][1] == 51 + c['k'] for c in r['camps']), 'a level 50 meets risen champions of 51 to 53')
-            r = await ev(page, 'back to 30', "(() => { const P = T.fresh('mage', 30); return { camps: T.risen().map((c) => T.campInfo(c)) }; })()")
+            r = await ev(page, 'back to 30', "(async () => { const P = await T.fresh('mage', 30); return { camps: T.risen().map((c) => T.campInfo(c)) }; })()")
             check(all(not c['risen'] and c['champ'] and not c['champ'][2] for c in r['camps']), 'a new character of 30 finds the old champions again')
 
         # ---- a fight: each calling at 50 in fair gear, played by the skilled bot, against a risen camp ----
         if want('fight'):
             for cls in CLS:
-                r = await ev(page, f'fight {cls} of {REALM_NAMES[REALM]}', """((cls, realm) => { const P = T.fresh(cls, 50, realm), H = T.H, F = T.F, L = T.L.LATE2, prog = H.GAME.prog;
+                r = await ev(page, f'fight {cls} of {REALM_NAMES[REALM]}', """(async (cls, realm) => { const P = await T.fresh(cls, 50, realm), H = T.H, F = T.F, L = T.L.LATE2, prog = H.GAME.prog;
                   const camp = T.risen().filter((c) => c.realm === P.faction).sort((a, b) => T.L.late2RiseK(b) - T.L.late2RiseK(a))[0];
                   let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
                   const keep = new Set(camp.members); T.clearAround(camp.x, camp.z, 60, keep);
@@ -121,7 +121,7 @@ async def main():
 
         # ---- a risen champion's ways, by number: the ring and its blow, a stun that breaks it off, each kind its own ----
         if want('wrath'):
-            r = await ev(page, 'wrath', """(() => { const P = T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L, St = L.LATE2.stats;
+            r = await ev(page, 'wrath', """(async () => { const P = await T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L, St = L.LATE2.stats;
               const camp = T.risen().find((c) => c.realm === 0 && c.type === 'bandit'); let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
               const keep = new Set(camp.members); T.clearAround(camp.x, camp.z, 60, keep); for (const id of camp.members) { const m = F.getEnt(id); if (m && m !== C) { m.damagers = null; F.killEnt(m, null); F.removeEnt(m); } }
               H.bal6.cleanArena(camp.x, camp.z, 45, new Set()); // (what the fights before left about the camp: runes, snares, ice, fire; after them the champion here once never thought through the scene)
@@ -159,7 +159,7 @@ async def main():
 
         # ---- deeds and names ----
         if want('names'):
-            r = await ev(page, 'blooded', """(() => { const P = T.fresh('warrior', 45), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
+            r = await ev(page, 'blooded', """(async () => { const P = await T.fresh('warrior', 45), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
               const n0 = L.LATE2.names.length; prog.realmKills = 24; const rp0 = prog.rp;
               const foe = F.spawnRealmUnit(1, 'warrior', 40, 'soldier', P.x + 3, P.z + 3); foe.damagers = new Map([[P.id, 1]]); F.killEnt(foe, P); H.simulate(0.3);
               return { names: L.LATE2.names.slice(), worn: L.LATE2.worn, named: L.late2Named(P), rp: Math.round(prog.rp - rp0), foes: prog.realmKills,
@@ -208,7 +208,7 @@ async def main():
 
         # ---- veterancy and boons ----
         if want('vet'):
-            r = await ev(page, 'veterancy', """(() => { const P = T.fresh('priest', 50), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog; const need = L.late2VetNeed(0);
+            r = await ev(page, 'veterancy', """(async () => { const P = await T.fresh('priest', 50), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog; const need = L.late2VetNeed(0);
               const hp0 = P.maxHp, xp0 = prog.xp; F.addXP(need + 120);
               const out = { vet: L.LATE2.vet, vxp: L.LATE2.vxp, level: prog.level, xp: prog.xp, free: L.late2Free(), bar: L.late2XpBar(), need0: need, need1: L.late2VetNeed(1), aims: H.guide.guideAims().map((a) => a.t).slice(0, 3) };
               out.learn = L.late2Learn('hide'); out.hp = +(P.maxHp / hp0).toFixed(4); out.hideV = L.LATE2_BOONS.find((B) => B.id === 'hide').v; out.again = L.late2Learn('edge'); out.free2 = L.late2Free();
@@ -230,7 +230,7 @@ async def main():
 
         # ---- the Deeds page: names, boons and the risen, worn and learned by a click (or a tap) ----
         if want('page'):
-            r = await ev(page, 'page', """(() => { const P = T.fresh('archer', 50), H = T.H, F = T.F, L = T.L; H.GAME.prog.realmKills = 300; L.late2CheckNames(true); L.late2Deed('king'); F.addXP(L.late2VetNeed(0) + 5);
+            r = await ev(page, 'page', """(async () => { const P = await T.fresh('archer', 50), H = T.H, F = T.F, L = T.L; H.GAME.prog.realmKills = 300; L.late2CheckNames(true); L.late2Deed('king'); F.addXP(L.late2VetNeed(0) + 5);
               H.LORE.openChronicle('deeds'); const body = document.getElementById('menu-body');
               const btns = [...body.querySelectorAll('[data-l2]')].map((b) => b.dataset.l2);
               const tall = body.querySelector('.chron-body').scrollHeight, wide = body.querySelector('.chron-body').scrollWidth > body.querySelector('.chron-body').clientWidth + 1;
@@ -255,7 +255,7 @@ async def main():
 
         # ---- the standard of your name: made, planted, rallying, taken up ----
         if want('std'):
-            r = await ev(page, 'standard', """(() => { const P = T.fresh('warrior', 45), H = T.H, F = T.F, L = T.L, S = L.LATE2;
+            r = await ev(page, 'standard', """(async () => { const P = await T.fresh('warrior', 45), H = T.H, F = T.F, L = T.L, S = L.LATE2;
               const out = { okBefore: L.late2StdMake() };
               H.GAME.prog.realmKills = 30; H.simulate(0.3); H.INV.gold = 2500;
               out.made = L.late2StdMake(); out.gold = H.INV.gold; out.again = L.late2StdMake();
@@ -299,7 +299,7 @@ async def main():
 
         # ---- the herald's bounty on a risen champion, and the March hailing you by your name ----
         if want('herald'):
-            r = await ev(page, 'herald', """(() => { const P = T.fresh('archer', 46), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
+            r = await ev(page, 'herald', """(async () => { const P = await T.fresh('archer', 46), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
               const out = {}; const o = L.late2HeraldBounty(); out.offered = !!o; if (!o) return out;
               o.accept(); const b = prog.bounty; out.bounty = { name: b.name, camp: b.camp, risen: b.risen, need: b.need };
               const camp = H.CAMPS[b.camp], other = T.risen().find((c) => c !== camp && c.realm === P.faction);
@@ -328,7 +328,7 @@ async def main():
 
         # ---- the save ----
         if want('save') or want('reload'):
-            r = await ev(page, 'save', """(() => { const P = T.fresh('mage', 50), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
+            r = await ev(page, 'save', """(async () => { const P = await T.fresh('mage', 50), H = T.H, F = T.F, L = T.L, prog = H.GAME.prog;
               prog.realmKills = 260; L.late2CheckNames(true); L.late2Deed('high'); L.late2Deed('high'); L.late2Deed('high'); F.addXP(L.late2VetNeed(0) + L.late2VetNeed(1) + 777); L.late2Learn('wells'); L.late2Learn('skin'); L.late2Wear('wastebane');
               const s = F.buildSave(), x = s.char.x.late; const keep = JSON.stringify(x);
               // a scramble, then the part read back
@@ -351,14 +351,20 @@ async def main():
             check(r['old']['seeded'] and set(r['old']['names']) >= {'kingsbane', 'dragonfoe'} and r['old']['d']['champ'] >= 1, f"an older character's deeds are taken from its path: {r['old']}")
             check(not r['errors'], 'no errors')
         if want('reload'):
-            await page.evaluate("""(() => { const H = T.H, F = T.F, L = T.L; const P = T.fresh('warrior', 50); H.GAME.prog.realmKills = 30; L.late2CheckNames(true); L.late2Deed('king'); F.addXP(L.late2VetNeed(0) + 1234); L.late2Learn('edge'); L.late2Wear('kingsbane'); F.saveNow(); return 0; })()""")
+            await page.evaluate("""(async () => { const H = T.H, F = T.F, L = T.L; const P = await T.fresh('warrior', 50); H.GAME.prog.realmKills = 30; L.late2CheckNames(true); L.late2Deed('king'); F.addXP(L.late2VetNeed(0) + 1234); L.late2Learn('edge'); L.late2Wear('kingsbane'); F.saveNow(); return 0; })()""")
             await page.wait_for_timeout(1500)
             stored = await page.evaluate("(localStorage.getItem('hallowmarch.save.v1') || '').length")
             await page.goto('http://hm.test/', wait_until='commit', timeout=300000)
             await page.wait_for_function("window.__hm && window.__hm.ready", timeout=240000, polling=500)
             await page.evaluate("__hm.fn.setQuality('low')")
             await page.evaluate("() => {" + HELPERS + "; return 0; }")
-            r = await ev(page, 'continued', """(() => { document.getElementById('btn-continue').click(); const H = T.H, L = T.L; H.simulate(1); H.frame(1/30);
+            await page.evaluate("document.getElementById('btn-continue').click()")
+            await page.wait_for_function("""() => {
+              const H = window.__hm, S = window.__hmStartup;
+              if (S?.stopped || S?.titleError || H?.errors?.length) throw new Error(S?.titleError || H?.errors?.join('; ') || 'Title graphics stopped');
+              return !!(H?.GAME.started && H.GAME.player);
+            }""", timeout=180000, polling=100)
+            r = await ev(page, 'continued', """(() => { const H = T.H, L = T.L; H.simulate(1); H.frame(1/30);
               return { started: H.GAME.started, lvl: H.GAME.prog && H.GAME.prog.level, names: L.LATE2.names.slice().sort(), worn: L.LATE2.worn, vet: L.LATE2.vet, vxp: L.LATE2.vxp, edge: L.LATE2.boons.edge, frame: document.getElementById('pf-name').textContent, xpt: document.getElementById('pf-xpt').textContent,
                 risen: T.risen().filter((c) => T.L.late2Risen(c)).length, errors: H.errors.slice(0, 3) }; })()""")
             check(r['started'] and r['lvl'] == 50 and r['vet'] == 1 and r['vxp'] == 1234 and r['edge'] == 1 and r['worn'] == 'kingsbane' and set(r['names']) >= {'blooded', 'kingsbane'}, f"reloaded ({stored} bytes stored): the character continues with its names, veterancy and boons")
@@ -367,7 +373,7 @@ async def main():
 
         # ---- pictures: a risen champion's warning ring and its blow, by day and by night ----
         if want('shots') and SHOTS:
-            r = await ev(page, 'scene', """(() => { const P = T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L;
+            r = await ev(page, 'scene', """(async () => { const P = await T.fresh('warrior', 50), H = T.H, F = T.F, L = T.L;
               const camp = T.risen().filter((c) => c.realm === 0 && c.type === 'bandit')[0] || T.risen()[0];
               let C = F.getEnt(camp.eliteId); if (!C || !C.alive) { F.spawnMob(camp, true); C = F.getEnt(camp.eliteId); }
               H.bal6.cleanArena(camp.x, camp.z, 45, new Set()); T.camp = camp.id; T.C = C.id; H.teleport(C.x + 3.2, C.z + 2.4); P.hp = P.maxHp;

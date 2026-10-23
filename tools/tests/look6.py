@@ -38,9 +38,9 @@ def check(ok, msg):
     if not ok: FAILS.append(msg)
 async def ev(page, js): return await page.evaluate(js)
 
-PREP = r"""(() => {
+PREP = r"""(async () => {
   const H = __hm, F = H.fn, Lt = H.late.LATE2;
-  H.start({ realm: 0, cls: 'warrior', level: 50 });
+  await H.start({ realm: 0, cls: 'warrior', level: 50 });
   const P = H.GAME.player; P.hp = P.maxHp = 1e7;
   Lt.d.king = Math.max(1, Lt.d.king || 0); H.GAME.prog.kingKills = 1;
   if (!H.deep.DEEP.opened) H.deep.late3SealOpen(true);

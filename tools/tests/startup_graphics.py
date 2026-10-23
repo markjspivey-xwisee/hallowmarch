@@ -89,16 +89,27 @@ TEST_TITLE_ISOLATION = r"""(() => {
  const random=Math.random;
  Math.random=function(){
   const trace=window.__hmStartup;
-  if(trace && trace.phase===phaseName) {
-   data.wholePhaseRandom++;
-   if(trace.titleCompleted===0) {
-    data.titleRandom++;
-    if(data.randomStacks.length<8)data.randomStacks.push(String(new Error('First-title randomness').stack));
-   }
+  if(trace && trace.phase===phaseName)data.wholePhaseRandom++;
+  // The interval includes every warmup progress phase, GPU fence and paint,
+  // ending only when the complete title promise settles its busy state.
+  if(trace && data.before!==null && data.after===null) {
+   data.titleRandom++;
+   if(data.randomStacks.length<8)data.randomStacks.push(String(new Error('First-title randomness').stack));
   }
   return random.call(Math);
  };
  let current;
+ const setAttribute=Element.prototype.setAttribute;
+ Element.prototype.setAttribute=function(name,value){
+  const result=setAttribute.call(this,name,value);
+  // Observe the actual promise-finally boundary. A hidden completed fence can
+  // require another visible combined draw before this pipeline settles.
+  if(this.id==='title' && name==='aria-busy' && String(value)==='false' &&
+     data.before!==null && data.after===null && current && current.titleCompleted>0 && !current.stopped) {
+   data.after=snapshot();
+  }
+  return result;
+ };
  Object.defineProperty(window,'__hmStartup',{
   configurable:true,enumerable:true,get:()=>current,
   set(trace){
@@ -110,8 +121,7 @@ TEST_TITLE_ISOLATION = r"""(() => {
     if(value===phaseName && completed===0 && data.before===null)data.before=snapshot();
    }});
    Object.defineProperty(trace,'titleCompleted',{configurable:true,enumerable:true,get:()=>completed,set(value){
-    const prior=completed;completed=value;
-    if(prior===0 && value>0 && data.after===null)data.after=snapshot();
+    completed=value;
    }});
   },
  });
@@ -276,6 +286,27 @@ async def context_loss(page, errors, console_errors, navigations):
 
 
 
+
+def title_warmup_receipts(startup):
+    rows = startup.get('titleWarmup', [])
+    expected = ['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other']
+    check([row['id'] for row in rows] == expected,
+          'first Ready follows the complete ordered post and material-family warmup')
+    check(all(row['completed'] and row['fenceComplete'] and
+              math.isfinite(row['fenceWaitMs']) and row['fenceWaitMs'] >= 0 and
+              row['exercised'] == (row['workCalls'] > 0) and row['workTriangles'] >= 0 and
+              row['programsAfter'] >= row['programsBefore'] and
+              row['newPrograms'] == row['programsAfter'] - row['programsBefore']
+              for row in rows),
+          'every actual warmup batch has an honest completed GPU receipt')
+    check(rows[0]['exercised'] and len({row['generation'] for row in rows}) == 1,
+          'composite warmup exercises work and all receipts match the current projection generation')
+    final = startup.get('titleFinal', {})
+    check(final.get('id') == 'combined' and final.get('completed') and final.get('fenceComplete') and
+          final.get('exercised') and final.get('newPrograms') == 0,
+          'final combined title uses only warmed shader programs and completes its GPU fence')
+    print('title warmup receipts', json.dumps({'warmup':rows,'final':final}), flush=True)
+
 async def title_canvas_pixels(page):
     snapshot = '({...window.__hmStartup, hidden:document.hidden, gameReady:__hm.GAME.ready, errors:[...__hm.errors]})'
     before = await page.evaluate(snapshot)
@@ -339,7 +370,7 @@ async def title_state_isolation(page):
     }
     print('first-title state isolation', json.dumps(metrics), flush=True)
     check(before is not None and after is not None and not before.get('unavailable') and not after.get('unavailable'),
-          'actual first title captures state before preparation and after its completed fence')
+          'actual first title captures state before preparation and after its complete fenced pipeline')
     check(data['titleRandom'] == 0,
           'actual first-title preparation submission and GPU fence consume zero Math.random calls: '+json.dumps(metrics))
     check(before == after,
@@ -360,6 +391,7 @@ async def safe_boot(browser):
         check(ready_receipt['titleCompleted'] > 0 and not ready_receipt['stopped'] and
               math.isfinite(ready_receipt['titleFenceWaitMs']) and ready_receipt['titleFenceWaitMs'] >= 0,
               'first Ready follows at least one completed title GPU fence: '+json.dumps(ready_receipt))
+        title_warmup_receipts(ready_receipt)
         await title_state_isolation(page)
         await page.evaluate("""() => {
           const renderer = __hm.dbg.renderer, render = renderer.render;
@@ -404,7 +436,25 @@ async def safe_boot(browser):
         check(not stable['errors'] and not errors and not console_errors,
               '30-second safe startup observation has no runtime errors')
         (hm.OUT / 'startup-safe-30s.json').write_text(json.dumps(stable, indent=2), encoding='utf-8')
-        await page.evaluate("__hm.start()")
+        admission = await page.evaluate("""async () => {
+          const H=__hm, before=H.GAME.player, completed=H.startup().titleCompleted;
+          const title=document.getElementById('title'), beforeBusy=title.getAttribute('aria-busy')==='true';
+          window.dispatchEvent(new Event('resize'));
+          // Both calls beat the real 80 ms timer. Play must drain the queued
+          // resize and inherit its fenced pipeline before creating a player.
+          const first=H.start({name:'Recovery Test'}), second=H.start({name:'Recovery Test'});
+          const busy=title.getAttribute('aria-busy')==='true';
+          const awaitable=!!first && typeof first.then==='function' && !!second && typeof second.then==='function';
+          const playerBefore=!!H.GAME.player;
+          const [a,b]=await Promise.all([first,second]), after=H.startup();
+          return {beforeBusy,busy,awaitable,playerBefore,hadPlayer:!!before,samePlayer:a===b && !!H.GAME.player && a===H.GAME.player.id,
+                  started:H.GAME.started,stopped:after.stopped,completedMore:after.titleCompleted>completed,
+                  finalWarm:after.titleFinal.newPrograms===0,finalFenced:after.titleFinal.fenceComplete};
+        }""")
+        check(not admission['beforeBusy'] and admission['busy'] and admission['awaitable'] and not admission['hadPlayer'] and not admission['playerBefore'] and
+              admission['samePlayer'] and admission['started'] and not admission['stopped'] and admission['completedMore'] and
+              admission['finalWarm'] and admission['finalFenced'],
+              'actual debug start drains queued resize before its timer and coalesces one player after the idle proof')
         await page.bring_to_front()
         await page.keyboard.press('Shift')
         await page.evaluate("__hm.fn.openMenu('settings')")

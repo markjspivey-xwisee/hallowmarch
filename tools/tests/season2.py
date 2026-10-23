@@ -47,7 +47,7 @@ HELP = r"""(() => {
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
-        await page.evaluate("(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
         idle = await page.evaluate("""() => { const H = __hm, t = H.GAME.t;
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
           H.simulate(1); return { before: t, after: H.GAME.t }; }""")
@@ -170,7 +170,7 @@ async def main():
             await b.close()
             b, page, logs2 = await setup(p, w=960, h=540)
             logs += logs2
-            await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
             await ev(page, r"""(() => { const H = __hm, S = H.season; H.fn.setQuality('medium'); S.away(8 * 86400); __s2.town(); H.simulate(2); const RS = __s2.rs(); RS.keeps.forEach((K) => { K.h = K.home; K.siege = null; K.g = 8; }); S.apply(); RS.armies.length = 0; RS.offs.length = 0; __s2.calm(); RS.realms[2].lev = 40; RS.realms[2].aim = 0; S.realmSimOrder(RS, 2, { type: 'muster' }, { name: 'test', rank: 9 }); __s2.keepNear(0, 70); __s2.step(3); return 0; })()""")
             # the band marching in, seen from behind the player toward it

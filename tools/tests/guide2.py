@@ -90,7 +90,7 @@ async def phone(p):
     cdp = await page.context.new_cdp_session(page)
     await ev(page, HELP)
     await ev(page, HOLD)
-    await ev(page, "__hm.start({ realm: 1, cls: 'priest', level: 24 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); 0")
+    await ev(page, "(async () => { await __hm.start({ realm: 1, cls: 'priest', level: 24 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.GAME.prog.lore.seen.push('start'); __hm.LORE.state.queue.length = 0; __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); return 0; })()")
     print(f'  started ({time.time() - T0:.0f}s)', flush=True)
 
     # ---- every page of the Chronicle, on three phones ----
@@ -275,7 +275,7 @@ async def desk(p):
     page.set_default_timeout(300000)
     await ev(page, HELP)
     await ev(page, HOLD)
-    await ev(page, "__hm.start({ realm: 0, cls: 'warrior', level: 22 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); 0")
+    await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 22 }); __hm.setTod(0.45); __hm.dbg.WEATHER.mode = 'clear'; G2T.calm(); __hm.simulate(0.3); __hm.LORE.state.noteUntil = performance.now() + 1e9; __hm.frame(1/30); return 0; })()")
     await page.keyboard.press('KeyJ')
     await ev(page, "document.querySelector('.chron-nav [data-grp=\"you\"]').click(); document.querySelector('.chron-nav [data-sec=\"callings\"]').click(); 0")
     r = await ev(page, "(() => { const st = __hm.guide2.G2.stats.pages.callings; return { st, folds: document.querySelectorAll('.chron-body details.cf').length, all: !!document.querySelector('.chron-body .cf-all') }; })()")

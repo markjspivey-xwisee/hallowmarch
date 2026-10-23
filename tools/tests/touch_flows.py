@@ -138,7 +138,7 @@ async def company_flow(p):
             except Exception: await asyncio.sleep(0.25)
         url = f'ws://127.0.0.1:{port}/ws'
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tfco", user: "uTouchCo", noRoom: true, server: "' + url + '" };')
-        await page.evaluate("__hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate("(async () => { await __hm.start({realm:1, cls:'mage', level:30}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; return 0; })()")
         await human_play(page)
         await page.evaluate(HELP)
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)
@@ -206,7 +206,7 @@ async def main():
         # [net] the stand-in for the artifact's room (src/00n_netstub.js): the March shared, for the party and chat flow
         b, page, logs = await setup(p, touch=True, w=390, h=780, init='window.__HM_NET = { room: "tf-' + str(int(time.time())) + '", user: "uTouch", noDb: true };' if want('net') else None)
         cdp = await page.context.new_cdp_session(page)
-        await page.evaluate("__hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; 0")
+        await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:24}); __hm.setTod(0.5); __hm.dbg.WEATHER.mode = 'clear'; return 0; })()")
         await page.evaluate(HELP)
         # the loading veil fades on the wall clock: the first tap waits for it
         await page.wait_for_function("() => { const l = document.getElementById('loading'); return !l || l.hidden || getComputedStyle(l).pointerEvents === 'none'; }", timeout=60000)

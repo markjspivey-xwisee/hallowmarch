@@ -204,7 +204,7 @@ async def main():
         if 'audio' in ARGS:  # [audio2] a click first, so the sound runs in what is measured (no gesture, no AudioContext: updateAudio does nothing)
             await page.mouse.click(8, 8); await page.wait_for_timeout(1500)
             res['boot']['audio'] = await ev(page, "__hm.fn.AUDIO.ctx ? __hm.fn.AUDIO.ctx.state : 'none'")
-        await ev(page, "__hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); 0")
+        await ev(page, "(async () => { await __hm.start({realm:0, cls:'warrior', level:30}); PV.calm(); __hm.setTod(0.55); return 0; })()")
         # let the war get going and the town wake up
         await ev(page, "__hm.simulate(40); 0")
         # [war4] war=MIN: the war MIN minutes on (its engines, wrecks, scaffolds and fires where it fought), the player kept

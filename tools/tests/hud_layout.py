@@ -29,9 +29,9 @@ HELP = r"""
 window.HL = {
   H: window.__hm,
   // a quiet place by a wild herb in Logres, with every panel up
-  setup(cls) {
+  async setup(cls) {
     const H = this.H, F = H.fn;
-    if (!H.GAME.player || H.GAME.player.cls !== cls) H.start({ realm: 0, cls, level: 32, rp: 60000 });
+    if (!H.GAME.player || H.GAME.player.cls !== cls) await H.start({ realm: 0, cls, level: 32, rp: 60000 });
     const P = H.GAME.player;
     const herbs = H.farm.herbs().filter((h) => Math.hypot(h.x - P.x, h.z - P.z) < 400 && !h.gone).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z));
     const hb = herbs[0];
@@ -149,7 +149,7 @@ async def run_mode(p, mode):
         # every calling's class panel at the first size of each kind of screen, one calling (in turn) at the others
         for ci, cls in enumerate(clsl):
             if si > 0 and ci != si % len(clsl) and 'all' not in ARGS: continue
-            await page.evaluate(f"HL.setup('{cls}'); __hm.simulate(0.6); 0")
+            await page.evaluate(f"(async () => {{ await HL.setup('{cls}'); __hm.simulate(0.6); return 0; }})()")
             await frames(page, 4)
             await page.evaluate("HL.notes(); 0")
             await frames(page, 3)

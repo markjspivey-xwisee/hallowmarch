@@ -107,6 +107,7 @@ async def phone(p):
     for sel in ['#realm-pick [data-realm="1"]', '#class-pick [data-cls="mage"]', '#btn-begin']:
         r = await page.evaluate("(sel) => { const el = document.querySelector(sel), r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }", sel)
         await page.touchscreen.tap(r['x'], r['y'])
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await page.wait_for_timeout(600)
     check(await ev(page, "__hm.UI.modal") == 'prologue', 'tapping a realm, a calling and Enter the realm opens the prologue')
     # ---- the prologue, turned by swipes; Begin on the last page ----
@@ -277,6 +278,7 @@ async def desk(p):
     await ev(page, HOLD)
     await ev(page, "document.querySelector('#realm-pick [data-realm=\"0\"]').click(); document.querySelector('#class-pick [data-cls=\"warrior\"]').click(); 0")
     await page.click('#btn-begin')
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await page.wait_for_timeout(400)
     await page.keyboard.press('Escape')
     await ev(page, "GD.calm(); __hm.simulate(0.3); __hm.frame(1/30); __hm.frame(1/30); 0")

@@ -52,7 +52,7 @@ async def shot(page, name, js, frames=1):
 async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=960 if SHOTS else 640, h=540 if SHOTS else 360)
-        await page.evaluate("__hm.start({ realm: 0, cls: 'archer', level: 12 }); __hm.UI.modal = null; 0")
+        await page.evaluate("(async () => { await __hm.start({ realm: 0, cls: 'archer', level: 12 }); __hm.UI.modal = null; return 0; })()")
         await page.evaluate(HELPERS)
         # currentInteraction is not exported: read the prompt the HUD shows (updateHUD runs in frame())
         await page.evaluate("window.__hmCI = () => __hm.surv.ci();0")
@@ -380,7 +380,7 @@ async def phone(p):
             # The crafting book and food/water controls reached through More on a phone.
             b, page, logs = await setup(p, touch=True, w=390, h=844)
             await page.evaluate(SLOW_RAF)
-            await page.evaluate("__hm.start({ realm: 1, cls: 'mage', level: 14 }); __hm.UI.modal = null; 0")
+            await page.evaluate("(async () => { await __hm.start({ realm: 1, cls: 'mage', level: 14 }); __hm.UI.modal = null; return 0; })()")
             await page.evaluate(HELPERS)
             await page.evaluate("""(() => { const S = T.S, H = T.H; const t = H.REALMS[1].town; const st = S.CRAFT.stations.filter((s) => s.kind === 'loom').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0]; T.stand(st.fx, st.fz, st.x, st.z); S.SURV.hunger = 0.7; S.SURV.thirst = 0.18; T.F.goodsAdd('fibre', 9, true); T.F.goodsAdd('linen', 2, true); H.fn.setQuality('low'); })();0""")
             for _ in range(3): await page.evaluate('__hm.frame(0.1);0') # the path tracker settles under the taller player frame

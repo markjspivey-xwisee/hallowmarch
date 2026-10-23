@@ -18,8 +18,8 @@ def check(cond, what):
 
 HOLD = """(() => { let s = 1234567; Math.random = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })();"""
 
-MAKE = r"""(() => { const F = __hm.fn, W = F.W, N = __hm.nature, H = __hm;
-  H.start({ realm: 0, cls: 'warrior', level: 30 }); H.UI.modal = 'menu';
+MAKE = r"""(async () => { const F = __hm.fn, W = F.W, N = __hm.nature, H = __hm;
+  await H.start({ realm: 0, cls: 'warrior', level: 30 }); H.UI.modal = 'menu';
   // trees on the foot of the mountains (the mountain's weight from __hm.mtn) and two ordinary ones
   const M = H.mtn.MTN, mk = (t) => M.mount[Math.round((t.z + 512) / 2) * 513 + Math.round((t.x + 512) / 2)];
   const foot = W.trees.filter((t) => mk(t) > 0.04 && mk(t) < 0.5).slice(0, 2), plain = W.trees.filter((t) => mk(t) === 0 && Math.hypot(t.x, t.z) > 300).slice(0, 3);
@@ -83,7 +83,9 @@ async def main():
         print('crater', json.dumps(r), flush=True)
         check(r['found'], 'the crater on the mountain slope is back')
         # the character continues and the world runs on
-        r = await page.evaluate("(() => { document.getElementById('btn-continue').click(); __hm.UI.modal = 'menu'; const s = __hm.simulate(15); let bad = 0; for (const e of __hm.ENT) if (!Number.isFinite(e.x + e.y + e.z)) bad++; return { started: __hm.GAME.started, errors: __hm.errors.slice(0, 3), bad }; })()")
+        await page.evaluate("document.getElementById('btn-continue').click()")
+        await page.wait_for_function("window.__hm && (__hm.GAME.started || window.__hmStartup?.stopped || __hm.errors.length)", timeout=300000, polling=100)
+        r = await page.evaluate("(() => { if (!__hm.GAME.started) throw new Error('Continue did not start: ' + (__hmStartup?.titleError || __hm.errors.join('; '))); __hm.UI.modal = 'menu'; const s = __hm.simulate(15); let bad = 0; for (const e of __hm.ENT) if (!Number.isFinite(e.x + e.y + e.z)) bad++; return { started: __hm.GAME.started, errors: __hm.errors.slice(0, 3), bad }; })()")
         print('continue', json.dumps(r), flush=True)
         check(r['started'] and not r['errors'] and r['bad'] == 0, 'the character continues and the world runs on (15 s, nothing non-finite)')
         if logs: print('logs', logs[:4])

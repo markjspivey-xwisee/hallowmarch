@@ -33,10 +33,10 @@ async def ev(page, label, js):
 HELPERS = r"""
 window.T4 = {
   H: __hm, F: __hm.fn, L: __hm.late, X: __hm.late4,
-  fresh(cls, lvl, realm = 0) {
+  async fresh(cls, lvl, realm = 0) {
     const H = this.H, F = this.F;
     if (H.GAME.player) F.newCharacter();
-    H.start({ realm, cls, level: lvl });
+    await H.start({ realm, cls, level: lvl });
     const P = H.GAME.player;
     H.bal.applyFairGear(P, Math.min(50, lvl)); P.hp = P.maxHp; P.power = P.maxPower;
     H.simulate(0.3);
@@ -96,7 +96,7 @@ async def main():
 
         # ---- the marks of a risen champion ----
         if want('marks'):
-            r = await ev(page, 'marks', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, X = T4.X, out = {};
+            r = await ev(page, 'marks', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, X = T4.X, out = {};
               for (const [type, realm] of [['bear', 1], ['bandit', 0], ['skeleton', 0], ['wolf', 1], ['troll', 2]]) {
                 const R = T4.champ(type, realm); if (!R) { out[type] = null; continue; }
                 const C = R.C; out[type] = { risen: !!C.l2risen, marked: X.LATE4.marked.has(C), flags: C.look.flags || 0, g: C.look.colB ? +C.look.colB[1].toFixed(2) : null };
@@ -118,7 +118,7 @@ async def main():
 
         # ---- a long name on the frame: on a phone the deed whole and your own shortened (with `phone`, or only=frame) ----
         if (phone and want('frame')) or (ONLY is not None and 'frame' in ONLY):
-            r = await ev(page, 'frame', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, L = T4.L, X = T4.X, out = {};
+            r = await ev(page, 'frame', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, L = T4.L, X = T4.X, out = {};
               P.name = 'Wilhelmina'; if (!L.LATE2.names.includes('rr8')) L.LATE2.names.push('rr8'); L.late2Wear('rr8'); H.simulate(0.2); H.frame(1/30);
               const el = document.getElementById('pf-name'); out.text = el.textContent; out.full = L.late2Named(P); out.over = el.scrollWidth - el.clientWidth; out.small = el.classList.contains('l4-long');
               P.name = 'Aldric'; H.frame(1/30); out.text2 = el.textContent; out.full2 = L.late2Named(P); out.over2 = el.scrollWidth - el.clientWidth;
@@ -136,7 +136,7 @@ async def main():
 
         # ---- the wind-ups ----
         if want('windup'):
-            r = await ev(page, 'windup', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, out = {};
+            r = await ev(page, 'windup', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, out = {};
               for (const [type, realm] of [['bear', 1], ['wolf', 1], ['boar', 1], ['bandit', 0], ['troll', 2]]) {
                 const R = T4.champ(type, realm); if (!R) { out[type] = null; continue; }
                 const C = R.C; T4.clearAround(C.x, C.z, 30, new Set([C.id]));
@@ -159,7 +159,7 @@ async def main():
 
         # ---- the wind-ups as bodies: feet planted, the bear's forepaws up ----
         if want('motion'):
-            r = await ev(page, 'motion', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, M = H.motion, out = {};
+            r = await ev(page, 'motion', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, M = H.motion, out = {};
               H.fn.setQuality('low');
               for (const [type, realm, act, dur] of [['bear', 1, 20, 1.6], ['wolf', 1, 22, 1.6], ['boar', 1, 22, 1.6]]) {
                 const R = T4.champ(type, realm, true); if (!R) { out[type] = null; continue; }
@@ -199,7 +199,7 @@ async def main():
 
         # ---- the second moves ----
         if want('second'):
-            r = await ev(page, 'second', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, St = X.LATE4.stats, out = {};
+            r = await ev(page, 'second', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, St = X.LATE4.stats, out = {};
               for (const [type, realm, d, wait] of [['bear', 1, 2.6, 1.2], ['wolf', 1, 10, 2.0], ['boar', 1, 10, 2.4], ['skeleton', 0, 8, 1.6], ['bandit', 0, 12, 1.5], ['troll', 2, 15, 2.0], ['wisp', 1, 12, 2.6]]) {
                 const R = T4.champ(type, realm); if (!R) { out[type] = null; continue; }
                 const C = R.C; T4.clearAround(C.x, C.z, 40, new Set([C.id]));
@@ -231,7 +231,7 @@ async def main():
 
         # ---- the roaming risen ----
         if want('host'):
-            r = await ev(page, 'host', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, out = {};
+            r = await ev(page, 'host', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, X = T4.X, out = {};
               const t = H.REALMS[0].town; H.teleport(t.x, t.z); H.simulate(0.5);
               X.late4HostsFresh();
               H.simulate(6);
@@ -266,7 +266,7 @@ async def main():
 
         # ---- the standard of your name ----
         if want('std'):
-            r = await ev(page, 'std', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, V = H.vet3, X = T4.X, out = {};
+            r = await ev(page, 'std', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, L = T4.L, V = H.vet3, X = T4.X, out = {};
               L.LATE2.d.king = 1; L.late2CheckNames(true); L.late2Wear('kingsbane');
               const t = H.REALMS[0].town; H.INV.gold = 5000; L.late2StdMake();
               let planted = false; for (let r = 30; r < 140 && !planted; r += 6) for (let k = 0; k < 12 && !planted; k++) { const x = t.x + Math.cos(k * 0.52) * r, z = t.z + Math.sin(k * 0.52) * r; if (!F.isWalkable(x, z)) continue; H.teleport(x, z); P.yaw = k; H.simulate(0.1); planted = L.late2StdPlant(); }
@@ -305,7 +305,7 @@ async def main():
 
         # ---- the deep remembers ----
         if want('deep') or want('reload'):
-            r = await ev(page, 'deep', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, out = {};
+            r = await ev(page, 'deep', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, out = {};
               H.deep.deepPacksFresh(); H.deep.deepPitchOut();
               // two of the pyres' dead and a hound fall, a gallery slab falls, the pitch burns and one cell is charred, the cistern floods
               const pk = D.DEEP_PACKS[1], hk = D.DEEP_PACKS[2]; let killed = 0;
@@ -337,7 +337,7 @@ async def main():
 
         # ---- the deep after a reload: saved as it lay, the page loaded again with the same storage, the character continued ----
         if want('reload'):
-            r = await ev(page, 'before reload', """(() => { const P = T4.fresh('warrior', 50), H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X, out = {};
+            r = await ev(page, 'before reload', """(async () => { const P = await T4.fresh('warrior', 50), H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X, out = {};
               H.deep.deepPacksFresh(); H.deep.deepPitchOut();
               const pk = D.DEEP_PACKS[1]; for (const id of [...pk.members].slice(0, 2)) { const e = F.getEnt(id); if (e && e.alive) { e.damagers = null; F.killEnt(e, null); } }
               const S = DP.slabs.filter((s) => s.hall === 'crack')[2]; D.deepSlabFall(S); H.simulate(1.5); window.__l4slab = DP.slabs.indexOf(S);
@@ -351,7 +351,13 @@ async def main():
             await page.wait_for_function("window.__hm && window.__hm.ready", timeout=240000, polling=500)
             await page.evaluate(f"__hm.fn.setQuality('{Q}')")
             await page.evaluate(HELPERS)
-            r2 = await ev(page, 'after reload', """(() => { document.getElementById('btn-continue').click(); const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X; H.simulate(0.5);
+            await page.evaluate("document.getElementById('btn-continue').click()")
+            await page.wait_for_function("""() => {
+              const H = window.__hm, S = window.__hmStartup;
+              if (S?.stopped || S?.titleError || H?.errors?.length) throw new Error(S?.titleError || H?.errors?.join('; ') || 'Title graphics stopped');
+              return !!(H?.GAME.started && H.GAME.player);
+            }""", timeout=180000, polling=100)
+            r2 = await ev(page, 'after reload', """(() => { const H = T4.H, F = T4.F, D = H.deep, DP = D.DEEP, X = T4.X; H.simulate(0.5);
               const S = DP.slabs[%d];
               return { started: H.GAME.started, slab: S ? S.st : null, burning: DP.cells.filter((c) => c.st === 1).length, charred: DP.cells.filter((c) => c.st === 2).length, pk: D.DEEP_PACKS[1].members.size, waiting: D.DEEP_PACKS[1].respawn.length,
                 hosts: X.LATE4.hosts.map((h) => h.px != null ? [Math.round(h.px), Math.round(h.pz)] : null), loaded: X.LATE4.stats.deepLoaded, errors: H.errors.slice(0, 3) }; })()""" % r['slab'])
@@ -376,7 +382,7 @@ async def main():
             await page.mouse.click(W // 2, Hh // 2)
             await asyncio.sleep(1.0)
             r = await ev(page, 'air', """(async () => { const H = __hm, F = H.fn, D = H.deep, X = T4.X, out = {};
-              if (!H.GAME.player) T4.fresh('warrior', 50);
+              if (!H.GAME.player) await T4.fresh('warrior', 50);
               D.DEEP.opened = true; D.late3SealOpen(true);
               const p = F.dunPoint(168, 48); const P = H.GAME.player; P.x = P.prevX = p.x; P.z = P.prevZ = p.z; P.y = p.y; F.setIndoor(true);
               for (let i = 0; i < 30; i++) { H.simulate(0.1); H.frame(1/30); }
@@ -397,7 +403,7 @@ async def main():
 
         # ---- the pictures ----
         if want('shots') and SHOTS:
-            await ev(page, 'prep', "(() => { T4.X.LATE4.off = true; T4.fresh('warrior', 50); __hm.fn.setQuality('" + Q + "'); __hm.setTod(0.75); return 0; })()")  # (no host walks into the champions' pictures)
+            await ev(page, 'prep', "(async () => { T4.X.LATE4.off = true; await T4.fresh('warrior', 50); __hm.fn.setQuality('" + Q + "'); __hm.setTod(0.75); return 0; })()")  # (no host walks into the champions' pictures)
             for name, type, realm, act in (('bear', 'bear', 1, 20), ('wolf', 'wolf', 1, 22), ('boar', 'boar', 1, 22), ('bandit', 'bandit', 0, 8), ('troll', 'troll', 2, 8)):
                 await ev(page, name, """(() => { const H = T4.H, F = T4.F, P = H.GAME.player; const R = T4.champ('%s', %d); const C = R.C;
                   T4.clearAround(C.x, C.z, 30, new Set([C.id])); C.ai.tameHold = H.GAME.t + 999; C.target = null; C.threat = null;

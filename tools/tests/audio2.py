@@ -109,7 +109,7 @@ async def main():
             await ev("__hm.fn.AUDIO.ctx.resume().then(() => 0)"); await page.wait_for_timeout(600)
         st = await ev("__hm.snd ? __hm.snd.state() : { ctx: __hm.fn.AUDIO.ctx.state, ready: true }")
         check(st['ctx'] == 'running' and st['ready'], f"a click starts the audio and the placed sounds ({st['ctx']}, ready {st['ready']})")
-        await ev("""(() => { const H = __hm; H.fn.setQuality('low'); H.start({ realm: 0, cls: 'warrior', level: 20 }); H.setTod(0.3); H.fn.applyTimeOfDay(0.3); A2.clear(); A2.calm(); A2.safe(); H.UI.modal = null; H.CAM.mode = 'play'; for (let i = 0; i < 4; i++) H.frame(1 / 30); return 0; })()""")
+        await ev("""(async () => { const H = __hm; H.fn.setQuality('low'); await H.start({ realm: 0, cls: 'warrior', level: 20 }); H.setTod(0.3); H.fn.applyTimeOfDay(0.3); A2.clear(); A2.calm(); A2.safe(); H.UI.modal = null; H.CAM.mode = 'play'; for (let i = 0; i < 4; i++) H.frame(1 / 30); return 0; })()""")
 
         if want('listen'):
             r = await ev("""(() => { const H = __hm, S = H.snd, P = H.GAME.player; H.frame(1 / 30); const L = S.SND.L;
