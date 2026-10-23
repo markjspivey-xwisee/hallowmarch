@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright
 
 HOOK = r"""
 window.__mainAgentFixture = {
+  humanPlaying(){return netHumanLive()},
   renderParty(){UI.frame=0;netUiOn();netUiFrame();return document.querySelector('#netparty')?.textContent||'';},
   openPlayers(){netUiOn();netSheetToggle(true)},
   staleCoachAlias(){LORE.chronSec='coach';openChronicle('coach')},
@@ -119,6 +120,8 @@ async def main():
             first_connect=page.locator('#netsheet-acct .native-player button').first
             assert await first_connect.is_visible()
             assert await first_connect.evaluate('(e)=>e===document.activeElement')
+            await human_play(page)
+            assert not await page.evaluate('__mainAgentFixture.humanPlaying()'), 'identity settings cannot renew live world activity'
             assert await page.evaluate('!!__hm&&document.querySelectorAll("#netsheet").length===1&&__fixtureAgentRuns===0&&__fixtureNativeConnections===0')
             assert len(page.context.pages)==1
             assert not port_requests,port_requests

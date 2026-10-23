@@ -755,6 +755,8 @@ function openPlayerIdentity() {
   if (typeof netSheetToggle !== 'function') return;
   netSheetToggle(true);
   if ($('netsheet')?.hidden) return;
+  UI.identitySettings = true;
+  if (typeof netHumanSync === 'function') netHumanSync();
   const connect = $('netsheet-acct')?.querySelector('.native-player button');
   if (connect) { connect.scrollIntoView({ block: 'nearest' }); connect.focus({ preventScroll: true }); }
 }

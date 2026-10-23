@@ -40,7 +40,7 @@
     },
     {
       "path": "src/10_ui.js",
-      "digest": "sha256:bbddbcff548c0e2b3414b297bef55766d82a0ec05efb980f0308408aef373d43"
+      "digest": "sha256:10895f307ba2f5500a1a58133f34971d20219dfc2364f64b19d59d74dff72b56"
     },
     {
       "path": "src/10c_lore.js",
@@ -84,7 +84,7 @@
     },
     {
       "path": "src/14o_netui.js",
-      "digest": "sha256:373567c2e00f4811eca3c09834cf131f775fda6a2d7803e458084d18b2844c44"
+      "digest": "sha256:5de970e9fe09810fc07f4a14e71ffa192d1b19642a3c9ccfbc1294b27ad6245a"
     },
     {
       "path": "src/14q_netseason.js",
@@ -2020,11 +2020,11 @@
       ],
       "source": {
         "path": "src/14o_netui.js",
-        "digest": "sha256:373567c2e00f4811eca3c09834cf131f775fda6a2d7803e458084d18b2844c44",
+        "digest": "sha256:5de970e9fe09810fc07f4a14e71ffa192d1b19642a3c9ccfbc1294b27ad6245a",
         "selector": "FIELD_NOTES.netothers",
         "lines": {
-          "start": 431,
-          "end": 431
+          "start": 432,
+          "end": 432
         }
       },
       "requiresContext": true,
@@ -2036,7 +2036,7 @@
         "note": "netothers",
         "availability": "Collected in the game when relevant"
       },
-      "revisionDigest": "sha256:d929053ef51b6e259263f54a330f8e6cb6abfed41e27bc0a31517b5f79054cba"
+      "revisionDigest": "sha256:a1a43f7a8b50867cad5df19747c3531c0d53a74f2ed0abb0df8e694052a7e181"
     },
     {
       "id": "field-note:netseason",
@@ -3055,7 +3055,7 @@
       ],
       "source": {
         "path": "src/10_ui.js",
-        "digest": "sha256:bbddbcff548c0e2b3414b297bef55766d82a0ec05efb980f0308408aef373d43",
+        "digest": "sha256:10895f307ba2f5500a1a58133f34971d20219dfc2364f64b19d59d74dff72b56",
         "selector": "drawWorldMap(): .legend",
         "lines": {
           "start": 524,
@@ -3070,7 +3070,7 @@
       "ui": {
         "destination": "Map"
       },
-      "revisionDigest": "sha256:3d60c6256cd869d1f21fca3db60450c40eb1d1ed9936185d8b1a11378d38bd86"
+      "revisionDigest": "sha256:8fcf21f3534b4866f2d96002d6c341f7fd23e81dea52e04328877a423a476817"
     }
   ],
   "courses": [
@@ -3093,5 +3093,5 @@
       "assessment": null
     }
   ],
-  "revisionDigest": "sha256:505e0ee0883a2cdb34f8307b3e8862621635d44a97ed1d95d713bfd69ab0aa42"
+  "revisionDigest": "sha256:687df83615c6f08c90b6dc1711a71c7e5090ac1cba592fad0b5716a604cd6391"
 }
