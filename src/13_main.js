@@ -235,7 +235,15 @@ function renderTitleFrame() {
     graphicsCheckpoint('Title graphics stopped', error.message || error);
     graphicsStartFailure(error, 'Graphics stopped');
     throw error;
-  }).finally(() => { TITLE_FRAME_PROMISE = null; });
+  }).finally(() => {
+    TITLE_FRAME_PROMISE = null;
+    // Play may begin during a later title redraw. Its successful fence still
+    // owns a coalesced resize; hand the latest dimensions to the live renderer.
+    if (TITLE_RESIZE_PENDING && GAME.started && !GRAPHICS_CONTEXT_LOST && !GRAPHICS_STARTUP.stopped) {
+      TITLE_RESIZE_PENDING = false;
+      applyGraphicsSize();
+    }
+  });
   return TITLE_FRAME_PROMISE;
 }
 function waitForTitleVisibility() {
