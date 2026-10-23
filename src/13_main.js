@@ -120,6 +120,14 @@ function prepareTitleView() {
   updateTreeVisibility(x, z);
   updateMountains();
 }
+function captureTitleResizeRequest() {
+  // A resize event is a request immediately, even while its 80 ms callback is
+  // queued. At a GPU-safe boundary coalesce it into the current pipeline.
+  if (resizeTimer) {
+    clearTimeout(resizeTimer); resizeTimer = 0;
+    TITLE_RESIZE_PENDING = true;
+  }
+}
 function titleAssertActive() {
   graphicsAssertActive();
   if (GRAPHICS_STARTUP.stopped || gl.isContextLost()) throw new Error('Title graphics context is unavailable.');
@@ -210,6 +218,7 @@ function renderTitleFrame() {
   if (TITLE_FRAME_PROMISE) return TITLE_FRAME_PROMISE;
   TITLE_FRAME_PROMISE = (async () => {
     titleGraphicsBusy(true);
+    captureTitleResizeRequest();
     while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !graphicsDiagnosticActive()) {
       TITLE_FRAME_DIRTY = false;
       await waitForTitleVisibility();
@@ -234,6 +243,7 @@ function renderTitleFrame() {
           // A real event-loop/paint opportunity separates cold submissions.
           await nextPaint();
           titleAssertActive();
+          captureTitleResizeRequest();
           if (TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
         }
         if (resized) continue; // explicit resize, never retry a failed shader
@@ -243,6 +253,7 @@ function renderTitleFrame() {
       titleAssertActive();
       if (GAME.started) return false;
       const result = await submitTitleStage('combined', null, inventory, true);
+      captureTitleResizeRequest();
       GRAPHICS_STARTUP.titleFinal = result;
       GRAPHICS_STARTUP.titleCompleted++;
       GRAPHICS_STARTUP.titleFenceWaitMs = result.fenceWaitMs;
