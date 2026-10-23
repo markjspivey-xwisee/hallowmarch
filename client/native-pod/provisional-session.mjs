@@ -273,6 +273,13 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
       throw cause;
     }
   }
+  async function persistSourceJournal(value) {
+    try { await sourceProfile.set(value); }
+    catch (cause) {
+      if (cause.code === 'guest_quota_exhausted') { sourceQuota = true; change('guest_quota_exhausted'); }
+      throw cause;
+    }
+  }
   async function prepareClaim({ lastConfirmed = false } = {}) {
     checkLifetime();
     if (!sourceProfile || claimed || !save) fail('not_connected', 'Open the provisional character before keeping it.');
@@ -408,7 +415,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     }
     journal = { ...journal, claim: { ...journal.claim, phase: 'copying', targetOwnerDid: target.subjectDid,
       claimOperationId: lease.claimOperationId, sourceDigest } };
-    if (!metadata.lastConfirmedClaim) { await sourceProfile.set(stamped(save)); save = stamped(save); }
+    if (!metadata.lastConfirmedClaim) { await persistSourceJournal(stamped(save)); save = stamped(save); }
     if (!sameIntent || refreshCopy) {
       if (!targetProfile.status().keyPresent) await targetProfile.createKey();
       await targetProfile.set(stamped(save));
@@ -423,7 +430,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     // A later explicit retry may refresh only this claim's unchanged copy using
     // its loaded CAS predecessor; independent canonical edits are a conflict.
     journal = { ...journal, claim: { ...journal.claim, targetRecord: targetProfile.reference(), targetSourceDigest: sourceDigest } };
-    if (!metadata.lastConfirmedClaim) { await sourceProfile.set(stamped(save)); save = stamped(save); }
+    if (!metadata.lastConfirmedClaim) { await persistSourceJournal(stamped(save)); save = stamped(save); }
     return promote(handoff, confirmed.data(), 'copy-guest');
   }
   async function promote(handoff, confirmedSave, selection, latestGuestSave = null, confirmedRecord = null) {

@@ -261,6 +261,26 @@ test('explicit last-confirmed claim works at hard quota without another guest wr
   assert.equal(f.records.get(owner.subjectDid).save.char.level, 2);
   assert.equal(f.calls.filter(call => call.op === 'set' && call.id === guest.subjectDid).length, count);
 });
+
+test('hard quota while staging a claim journal exposes explicit last-confirmed recovery without changing the guest key or source', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim();
+  const original = clone(f.records.get(guest.subjectDid)), key = await f.device.publicDescription();
+  f.exhaustQuota();
+  await assert.rejects(session.claimTarget(f.target()), { code: 'guest_quota_exhausted' });
+  assert.equal(session.status().quota, true); assert.equal(session.status().state, 'guest_quota_exhausted');
+  assert.equal(session.status().provisional, true); assert.equal(f.metadata.claimedOwnerDid, undefined);
+  assert.deepEqual(f.records.get(guest.subjectDid), original); assert.deepEqual(await f.device.publicDescription(), key);
+  assert.equal(f.records.has(owner.subjectDid), false);
+  assert.equal(f.requests.filter(call => call.path.endsWith('/claim-complete')).length, 0);
+  await assert.rejects(session.prepareClaim(), { code: 'guest_quota_exhausted' });
+  await session.prepareClaim({ lastConfirmed: true });
+  const result = await session.resumeClaim(); assert.equal(result.claimed, true);
+  assert.deepEqual(f.records.get(guest.subjectDid), original, 'explicit fallback never retries a refused source write');
+  assert.deepEqual(await f.device.publicDescription(), key);
+  assert.equal(f.records.get(owner.subjectDid).save.char.level, 5);
+  assert.equal(f.records.get(owner.subjectDid).save.nativePlay.characterId, original.save.nativePlay.characterId);
+});
 test('lost completion plus continued progress retries original receipt before canonical CAS of latest progress', async () => {
   const f = fixture(), session = await f.make(); await session.bootstrap();
   await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim(); f.loseFinalize();
