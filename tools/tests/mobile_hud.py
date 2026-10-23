@@ -46,10 +46,10 @@ window.MH = {
     H.hud.HUDL.k = 0; H.hud.HUDL.t = 0; H.hud.hudLayout(1);
     return 0;
   },
-  scene(cls, level) {
+  async scene(cls, level) {
     const H = __hm;
     if (H.GAME.player) H.fn.removeEnt(H.GAME.player);
-    H.start({realm: 2, cls, level, name: 'Mobile Tester', rp: level > 1 ? 60000 : 0});
+    await H.start({realm: 2, cls, level, name: 'Mobile Tester', rp: level > 1 ? 60000 : 0});
     H.UI.modal = null;
     const pro = document.getElementById('lore-pro'); if (pro) pro.hidden = true;
     H.LORE.state.noteUntil = performance.now() + 120000;
