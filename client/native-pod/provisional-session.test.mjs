@@ -187,6 +187,44 @@ test('lost completion acknowledgement reload reuses the same owner copy and exac
   assert.equal(f.calls.filter(call => call.op === 'set' && call.id === owner.subjectDid).length, 1);
   assert.equal(next.status().provisional, false);
 });
+
+test('expired lease reload reconciles the frozen copied receipt without another private write', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim(); f.loseFinalize();
+  await assert.rejects(session.claimTarget(f.target()), /lost final response/);
+  const original = clone(f.requests.at(-1).body.targetRecord), records = clone([...f.records]);
+  const next = await f.make({ now: () => NOW + 660000 }); await next.resume({ binding: guest, recoverPendingClaim: true });
+  const count = f.calls.length, result = await next.resumeClaim();
+  assert.equal(result.claimed, true); assert.deepEqual(f.requests.at(-1).body.targetRecord, original);
+  assert.deepEqual([...f.records], records);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
+});
+
+test('expired use-existing receipt recovery preserves both private characters and repeats only the original choice', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim();
+  f.records.set(owner.subjectDid, { save: { v: 1, char: { name: 'older canonical hero', level: 20 } }, revision: 1 });
+  assert.equal((await session.claimTarget(f.target())).conflict, true); f.loseFinalize();
+  await assert.rejects(session.useExistingTarget(), /lost final response/);
+  assert.equal(f.metadata.targetClaim.confirmation.selection, 'use-existing');
+  const original = clone(f.requests.at(-1).body.targetRecord), records = clone([...f.records]);
+  const next = await f.make({ now: () => NOW + 660000 }); await next.resume({ binding: guest, recoverPendingClaim: true });
+  const count = f.calls.length, result = await next.resumeClaim();
+  assert.equal(result.claimed, true); assert.equal(f.requests.at(-1).body.selection, 'use-existing');
+  assert.deepEqual(f.requests.at(-1).body.targetRecord, original); assert.deepEqual([...f.records], records);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
+});
+
+test('an expired lease without an original completion receipt cannot create a target checkpoint', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim(); await session.stageClaimTarget(f.target());
+  const next = await f.make({ now: () => NOW + 660000 }); await next.resume({ binding: guest });
+  const count = f.calls.length;
+  await assert.rejects(next.resumeClaim(), { code: 'claim_expired' });
+  assert.equal(f.records.has(owner.subjectDid), false);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
+  assert.equal(f.requests.filter(call => call.path.endsWith('/claim-complete')).length, 0);
+});
 test('quota refusal preserves the previous durable checkpoint and does not provision another owner', async () => {
   const f = fixture(), session = await f.make(); await session.bootstrap();
   await session.set({ v: 1, char: { name: 'private hero', level: 2 } }); f.exhaustQuota();

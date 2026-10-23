@@ -49,6 +49,8 @@ test('boot peek does not create a browser key; reload retains the same nonextrac
   await second.remember({ ...metadata, targetClaim });
   const reloaded = createProvisionalDevice({ origin, crypto: webcrypto, storage: store });
   assert.deepEqual((await reloaded.peekMetadata()).targetClaim.confirmation.targetRecord, receipt);
+  await second.remember({ ...metadata, targetClaim: { ...targetClaim, confirmation: { selection: 'use-existing', targetRecord: receipt } } });
+  assert.equal((await second.peekMetadata()).targetClaim.confirmation.selection, 'use-existing');
   await assert.rejects(second.remember({ ...metadata, targetClaim: { ...targetClaim,
     confirmation: { selection: 'copy-guest', targetRecord: { ...receipt, body: 'private character body' } } } }), { code: 'invalid_device_metadata' });
   await assert.rejects(second.remember({ ...metadata, ownerDid: 'did:web:other.example:other' }), { code: 'guest_identity_changed' });

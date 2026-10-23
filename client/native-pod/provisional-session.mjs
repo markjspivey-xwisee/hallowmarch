@@ -309,7 +309,8 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     metadata = await device.peekMetadata(); checkLifetime();
     const handoff = metadata.targetClaim;
     if (!handoff) fail('claim_target_missing', 'Connect the owner identity before completing this character claim.');
-    if (expiry(handoff.appSession.expiresAt) <= now()) fail('claim_expired', 'The owner connection expired. Keep playing this provisional character or reconnect its owner.');
+    const leaseExpired = expiry(handoff.appSession.expiresAt) <= now();
+    if (leaseExpired && !handoff.confirmation) fail('claim_expired', 'The owner connection expired. Keep playing this provisional character or reconnect its owner.');
     if (!journal.claim) fail('claim_intent_missing', 'The provisional pod has not confirmed the original Keep my character intent.');
     const target = handoff.binding, lease = handoff.appSession;
     const cached = await accessCache.get({ relayUrl: metadata.relayUrl, ownerDid: target.subjectDid, podUrl: target.podUrl });
@@ -319,6 +320,17 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     const existing = await targetProfile.get();
     const body = existing.exists ? existing.data() : null;
     const inPlace = sameBinding(target, { subjectDid: metadata.ownerDid, podUrl: metadata.podUrl });
+    if (handoff.confirmation && (leaseExpired || handoff.confirmation.selection === 'use-existing')) {
+      // An expired ceremony permits reconciliation of the frozen receipt only.
+      // It must never authorize a fresh copy, key, or source-journal mutation.
+      if (!existing.exists || handoff.confirmation.selection === 'copy-guest'
+        && (body.nativePlay?.characterId !== journal.characterId || body.nativePlay?.claim?.intentId !== journal.claim.intentId)) {
+        fail('claim_readback_failed', 'The original kept character is no longer confirmed. Reconnect its owner without changing either save.');
+      }
+      const sameHead = canonical(handoff.confirmation.targetRecord) === canonical(targetProfile.reference());
+      return promote(handoff, body, handoff.confirmation.selection,
+        !inPlace && sameHead && handoff.confirmation.selection === 'copy-guest' ? copy(save) : null, handoff.confirmation.targetRecord);
+    }
     if (inPlace) {
       // Same-pod passkey enrollment changes authentication, not ownership. Read
       // the character with the canonical grant and require the exact confirmed
@@ -407,6 +419,11 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     const target = handoff.binding, lease = handoff.appSession;
     const targetRecord = confirmedRecord || targetProfile.reference();
     if (!targetRecord?.nativeRevision || !targetRecord.digest || !targetRecord.recordCid) fail('claim_readback_failed', 'The canonical native checkpoint receipt is incomplete.');
+    const original = metadata.targetClaim?.confirmation;
+    if (original && (original.selection !== selection || canonical(original.targetRecord) !== canonical(targetRecord))) {
+      fail('claim_operation_changed', 'Retry the original character choice before changing the claim.');
+    }
+    if (!original) await remember({ targetClaim: { ...handoff, confirmation: { selection, targetRecord } } });
     change('claim_confirming');
     const result = await request('/gaming/identity/play/claim-complete', { method: 'POST', body: {
       claimOperationId: lease.claimOperationId, attestation: metadata.attestation, readConfirmed: true, targetRecord, selection,
@@ -445,7 +462,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     metadata = await device.peekMetadata();
     if (!metadata?.targetClaim) fail('claim_target_missing', 'Connect the owner identity before opening its saved character.');
     const handoff = metadata.targetClaim;
-    if (expiry(handoff.appSession.expiresAt) <= now()) fail('claim_expired', 'Reconnect the canonical owner to open its saved character.');
+    if (expiry(handoff.appSession.expiresAt) <= now() && handoff.confirmation?.selection !== 'use-existing') fail('claim_expired', 'Reconnect the canonical owner to open its saved character.');
     const target = handoff.binding;
     const cached = await accessCache.get({ relayUrl: metadata.relayUrl, ownerDid: target.subjectDid, podUrl: target.podUrl });
     if (!cached) fail('credential_expired', 'Reconnect the canonical owner to open its saved character.');
@@ -453,7 +470,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     await targetProfile.connect();
     const confirmed = await targetProfile.get();
     if (!confirmed.exists) fail('missing_record', 'The canonical owner has no saved character to open.');
-    return promote(handoff, confirmed.data(), 'use-existing');
+    return promote(handoff, confirmed.data(), 'use-existing', null, handoff.confirmation?.targetRecord || null);
   }
   async function retrySession() {
     if (!claimed || !acknowledgedPromotion) fail('claim_unconfirmed', 'The canonical owner admission has not been acknowledged. Retry the original character claim.');

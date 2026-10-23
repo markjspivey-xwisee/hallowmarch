@@ -354,6 +354,48 @@ test('an uncertain native claim commit recovers by exact operation readback with
   assert.equal(f.host.humanPrincipalFor({ acct: f.accounts.get('guest-a'), authClaims: f.claims.get(session) }), null);
 });
 
+test('committed claim receipt survives host restart, lease expiry and expired source token without another native write', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target);
+  const initial = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(initial.status, 200); const claimed = await initial.json(), baseline = structuredClone(f.store.commits);
+  f.host.close();
+  const restarted = await provisionalFixture(t, { realTokens: true, store: f.store, accounts: f.accounts,
+    provisionalProofVerifier: async input => {
+      assert.equal(input.challenge, target.appSession.sourceChallenge);
+      if (input.proof !== proofFixture || input.attestation !== 'provider-attestation') throw Error('refused');
+      const owner = nativeOwner('u-play-player');
+      return { valid: true, provisional: true, issuer: 'https://identity.interego.xwisee.com', ownerDid: owner.subjectDid,
+        userId: owner.userId, webId: owner.webId, podUrl: owner.podUrl, authenticatedAgentDid: owner.authenticatedAgentDid,
+        publicKeyJwk: f.publicKeyJwk, expiresAt: Math.floor(Date.parse(play.result.binding.expiresAt) / 1000), capabilities: ['human-play', 'own-pod-checkpoint'] };
+    } });
+  restarted.advance(3_600_001);
+  assert.equal(restarted.gameTokens.read(session), null);
+  assert.equal((await restarted.request('/gaming/identity/status', { session })).status, 401);
+  assert.notEqual((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...body, proof: 'C'.repeat(86) } })).status, 200);
+  assert.equal(restarted.issued.length, 0);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session: restarted.bobToken, body })).status, 409);
+  assert.equal((await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session,
+    body: { ...body, targetRecord: { ...body.targetRecord, recordCid: 'sha256:changed' } } })).status, 409);
+  const response = await restarted.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(response.status, 200); const recovered = await response.json();
+  assert.equal(recovered.binding.subjectDid, claimed.binding.subjectDid); assert.equal(recovered.appSession.acct.id, claimed.appSession.acct.id);
+  assert.equal(restarted.gameTokens.read(recovered.appSession.token).provisional, undefined);
+  assert.deepEqual(f.store.commits, baseline, 'receipt recovery must never repeat promotion or mutate a private/public save');
+  assert.equal((await restarted.request('/gaming/identity/play/challenge', { method: 'POST', session,
+    body: { publicKeyJwk: f.publicKeyJwk } })).status, 401, 'reconciliation does not revive the retired guest');
+});
+
+test('expired uncommitted claim lease cannot create ownership through receipt recovery', async t => {
+  const f = await provisionalFixture(t, { realTokens: true }), play = await f.begin(), session = play.result.appSession.token;
+  const target = (await f.target(session)).result, body = finalizeBody(target), baseline = structuredClone(f.store.commits);
+  f.advance(300_001);
+  const response = await f.request('/gaming/identity/play/claim-complete', { method: 'POST', session, body });
+  assert.equal(response.status, 409); assert.deepEqual(f.store.commits, baseline);
+  assert.equal(f.host.bindingForAccount('guest-a').provisional, true);
+});
+
 test('explicit use-existing readback preserves canonical character and does not merge guest participation', async t => {
   const f = await provisionalFixture(t), existing = await f.connect(f.bobToken), canonicalToken = existing.payload.appSession.token;
   const reference = targetReference();

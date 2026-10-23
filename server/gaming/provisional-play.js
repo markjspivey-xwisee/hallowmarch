@@ -146,6 +146,14 @@ export function createProvisionalPlayAdmission({ publicOrigin, identityOrigin = 
       proofKeyThumbprint: key.thumbprint, capabilities: ['human-play', 'own-pod-checkpoint'] };
   }
   return Object.freeze({
+    async verifyClaimSource(marker, input, challenge) {
+      if (closed || !safeChallenge(challenge) || !exactFields(input, ['attestation', 'proof'])
+        || typeof marker?.sourceDid !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(marker.sourceKeyThumbprint || '')) fail('provisional_owner_required', 403);
+      const verified = await verifyProof({ attestation: input.attestation, audience, challenge, proof: input.proof });
+      const binding = bindingFor(verified, marker.sourceKeyThumbprint);
+      if (binding.subjectDid !== marker.sourceDid) fail('play_owner_mismatch', 403);
+      return binding;
+    },
     async verifySource(auth, input, challenge) {
       if (closed || auth?.binding?.provisional !== true || !safeChallenge(challenge)
         || !exactFields(input, ['attestation', 'proof'])) fail('provisional_owner_required', 403);

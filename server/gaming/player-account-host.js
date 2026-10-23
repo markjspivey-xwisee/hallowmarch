@@ -198,12 +198,14 @@ export function createPlayerAccountHost(options = {}) {
     if (record?.binding.provisional && record.claim) fail('provisional_owner_claimed', 409);
     return { ...auth, binding: record?.binding };
   }
-  async function playProofAuth(req) {
-    // Only Play challenge/complete may recover an expired signed guest. The
-    // returned purpose is unusable by freshDid, ordinary auth, OAuth or claim.
+  async function playProofAuth(req, { claimRecovery = false } = {}) {
+    // Expired guest signatures identify only a Play proof ceremony or a
+    // previously committed claim receipt. They never confer ordinary game,
+    // OAuth, new-claim, or pod authority without the separate key proof.
     try { return playAuth(req); }
     catch (error) {
-      if (!(error instanceof HostError) || error.code !== 'game_account_required' || error.status !== 401) throw error;
+      if (!(error instanceof HostError) || !(error.code === 'game_account_required' && error.status === 401
+        || claimRecovery && error.code === 'provisional_owner_claimed')) throw error;
     }
     const authorization = req.headers.authorization;
     if (typeof authorization !== 'string' || authorization.length > 8192) fail('game_account_required', 401);
@@ -219,6 +221,9 @@ export function createPlayerAccountHost(options = {}) {
       || claims.provisionalProofUntil > claims.exp + 86_400_000) fail('game_account_required', 401);
     const account = options.getAccount(claims.id);
     if (!account || account.id !== claims.id) fail('game_account_required', 401);
+    // This hint is accepted only by completed-claim reconciliation, after the
+    // durable marker and a fresh proof from its source key have been checked.
+    if (claimRecovery) return { claims, account, sessionId: hash(match[1]) };
     // Reread confirmed native ownership; a retired source on another host
     // must not be recovered from this process's earlier disposable view.
     await ledger.refresh();
@@ -336,7 +341,8 @@ export function createPlayerAccountHost(options = {}) {
       const target = ledger.bindingForDid(binding.subjectDid);
       if (target?.binding.provisional && target.accountId !== accountId) fail('canonical_native_owner_required', 403);
       if (claimsPending.size >= MAX_SESSION_PROOFS) fail('identity_ceremony_limit', 429);
-      const claimOperationId = 'character-claim:' + randomBytes(32).toString('base64url'), sourceChallenge = randomBytes(32).toString('base64url');
+      const claimOperationId = 'character-claim:' + randomBytes(32).toString('base64url');
+      const sourceChallenge = hash('hallowmarch-claim-source-v1:' + claimOperationId);
       const expiresAt = Math.min(authorization.expiresAt, now() + PROOF_TTL_MS, Date.parse(source.binding.expiresAt));
       const existingRecord = target?.records.character ?? null;
       claimsPending.set(claimOperationId, { accountId, sessionId: authorization.sessionId, sourceBinding: structuredClone(source.binding),
@@ -348,14 +354,7 @@ export function createPlayerAccountHost(options = {}) {
         expiresAt: new Date(expiresAt).toISOString(), existingRecord } };
     } });
   async function finalizeClaim(req, body) {
-    pruneClaims(); const auth = authenticated(req), pending = claimsPending.get(body.claimOperationId);
-    const originalSession = pending && pending.sessionId === auth.sessionId && pending.accountId === auth.account.id;
-    // Only the exact session issued by this completed operation can recover its
-    // receipt after a reload has already persisted the canonical game token.
-    const completedSession = pending?.answer && hash(pending.answer.appSession.token) === auth.sessionId
-      && pending.answer.appSession.acct.id === auth.account.id && auth.claims.provisional !== true
-      && freshDid(auth.claims, auth.account.id) === pending.targetBinding.subjectDid;
-    if (!pending || (!originalSession && !completedSession) || pending.expiresAt <= now()) fail('claim_operation_unavailable', 409);
+    pruneClaims(); const pending = claimsPending.get(body.claimOperationId);
     if (Object.keys(body).some(key => !['claimOperationId', 'attestation', 'proof', 'targetRecord', 'readConfirmed', 'selection'].includes(key))
       || (body.selection !== undefined && !['copy-guest', 'use-existing'].includes(body.selection))
       || body.readConfirmed !== true || !plain(body.targetRecord)) fail('invalid_claim_readback');
@@ -368,6 +367,36 @@ export function createPlayerAccountHost(options = {}) {
     const frozenReference = Object.fromEntries(Object.keys(reference).sort().map(key => [key, reference[key]]));
     const requestDigest = hash(JSON.stringify({ claimOperationId: body.claimOperationId, targetRecord: frozenReference,
       selection: body.selection ?? 'copy-guest', readConfirmed: true }));
+    if (!pending) {
+      // A response may be lost after native CAS. A restart or OAuth lease
+      // expiry cannot erase that committed transition. Reconcile its immutable
+      // receipt and source-key proof; never revive guest play or replay writes.
+      const result = await ledger.recoverProvisionalClaim(body.claimOperationId, reference, hash(JSON.stringify(frozenReference)));
+      if (!result) fail('claim_operation_unavailable', 409);
+      let auth;
+      try { auth = authenticated(req); }
+      catch (error) {
+        if (!(error instanceof HostError) || error.code !== 'game_account_required') throw error;
+        auth = await playProofAuth(req, { claimRecovery: true });
+      }
+      const sourceSession = auth.account.id === result.sourceAccountId && auth.claims.provisional === true
+        && auth.claims.nativeDid === result.marker.sourceDid;
+      const targetSession = auth.account.id === result.accountId && auth.claims.provisional !== true
+        && freshDid(auth.claims, auth.account.id) === result.marker.targetDid;
+      if (!sourceSession && !targetSession) fail('claim_operation_unavailable', 409);
+      await play.verifyClaimSource(result.marker, { attestation: body.attestation, proof: body.proof },
+        hash('hallowmarch-claim-source-v1:' + body.claimOperationId));
+      return { ...await issueBoundSession(result), binding: publicBinding(result.binding), provisional: false,
+        claimed: true, claimOperationId: body.claimOperationId, pointer: result.pointer };
+    }
+    const auth = authenticated(req);
+    const originalSession = pending.sessionId === auth.sessionId && pending.accountId === auth.account.id;
+    // While the lease is live, only its original session or exact issued answer
+    // can recover the process-local receipt.
+    const completedSession = pending.answer && hash(pending.answer.appSession.token) === auth.sessionId
+      && pending.answer.appSession.acct.id === auth.account.id && auth.claims.provisional !== true
+      && freshDid(auth.claims, auth.account.id) === pending.targetBinding.subjectDid;
+    if ((!originalSession && !completedSession) || pending.expiresAt <= now()) fail('claim_operation_unavailable', 409);
     if ((!completedSession && (auth.claims.provisional !== true || auth.claims.nativeDid !== pending.sourceBinding.subjectDid)) || !Number.isFinite(auth.claims.nativeVerifiedAt)
       || auth.claims.nativeVerifiedAt <= now() - FRESH_NATIVE_MS || Date.parse(pending.sourceBinding.expiresAt) <= now()) fail('native_signin_required', 403);
     // ECDSA proofs can change on retry. Verify each fresh source proof, while
@@ -381,7 +410,7 @@ export function createPlayerAccountHost(options = {}) {
     pending.flight = (async () => {
       if (pending.expiresAt <= now()) fail('claim_operation_unavailable', 409);
       const result = await ledger.promoteProvisional(pending.accountId, pending.sourceBinding.subjectDid, pending.targetBinding, reference,
-        { operationId: body.claimOperationId, expectedTargetRecord: pending.existingRecord, checkpointDigest: hash(JSON.stringify(reference)) });
+        { operationId: body.claimOperationId, expectedTargetRecord: pending.existingRecord, checkpointDigest: hash(JSON.stringify(frozenReference)) });
       pending.answer = { ...await issueBoundSession(result), binding: publicBinding(result.binding), provisional: false,
         claimed: true, claimOperationId: body.claimOperationId, pointer: result.pointer };
       return structuredClone(pending.answer);
