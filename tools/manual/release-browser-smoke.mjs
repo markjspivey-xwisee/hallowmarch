@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';
 import { chromium } from '../node_modules/playwright/index.mjs';
 
-const preview = 'https://march-native-preview-production.up.railway.app/?safe=1';
+const preview = 'https://march-production-f6d9.up.railway.app/?safe=1';
 const relayHealth = 'https://relay.interego.xwisee.com/health';
 const expectedRelay = '0fe5e953769b316cb0dcf4f3650cdb162f446976';
 const out = 'tools/out/release-browser-smoke';
