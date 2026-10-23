@@ -100,7 +100,7 @@ function metadataOf(value) {
   }
   if (value.targetClaim !== undefined && value.targetClaim !== null) {
     const target = value.targetClaim;
-    if (!object(target) || Object.keys(target).some(key => !['binding', 'appSession'].includes(key))
+    if (!object(target) || Object.keys(target).some(key => !['binding', 'appSession', 'confirmation'].includes(key))
       || !object(target.binding) || !object(target.appSession)
       || Object.keys(target.binding).some(key => !['subjectDid', 'podUrl', 'userId', 'webId', 'authenticatedAgentDid', 'verifiedAt', 'issuer', 'verificationMethod'].includes(key))
       || Object.keys(target.appSession).some(key => !['purpose', 'claimOperationId', 'guestOwnerDid', 'targetOwnerDid', 'audience', 'sourceChallenge', 'expiresAt', 'existingRecord'].includes(key))
@@ -114,6 +114,18 @@ function metadataOf(value) {
       || Object.keys(existing).some(key => !['kind', 'graphIri', 'descriptorUrl', 'cid', 'bindingCid', 'nativeRevision', 'recordCid', 'proofKind', 'digest'].includes(key))
       || Object.values(existing).some(item => typeof item !== 'string' || item.length > 2048))) {
       fail('invalid_device_metadata', 'Only the public saved-character reference belongs in a claim lease.');
+    }
+    if (target.confirmation !== undefined) {
+      const confirmation = target.confirmation, reference = confirmation?.targetRecord;
+      if (!object(confirmation) || Object.keys(confirmation).some(key => !['targetRecord', 'selection'].includes(key))
+        || confirmation.selection !== 'copy-guest' || !object(reference) || reference.kind !== 'character'
+        || Object.keys(reference).some(key => !['kind', 'graphIri', 'descriptorUrl', 'cid', 'bindingCid', 'nativeRevision', 'recordCid', 'proofKind', 'digest'].includes(key))
+        || Object.values(reference).some(item => typeof item !== 'string' || !item || item.length > 2048)
+        || reference.proofKind !== 'owner-key-authenticated-checkpoint'
+        || !/^sha256:[a-f0-9]{64}$/.test(reference.nativeRevision || '')
+        || !reference.graphIri || !reference.descriptorUrl || !reference.cid || !reference.recordCid || !reference.digest) {
+        fail('invalid_device_metadata', 'The durable in-place claim confirmation must contain only its exact public native receipt.');
+      }
     }
   }
   return clone(value);

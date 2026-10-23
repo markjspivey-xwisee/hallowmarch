@@ -1,5 +1,4 @@
 import { createBrowserAccessCache } from './access-cache.mjs';
-import { createProvisionalPlayerSession } from './provisional-session.mjs';
 const status = document.querySelector('#status'), button = document.querySelector('#return');
 const key = 'hallowmarch.identity.ceremony.v1';
 const failure = document.querySelector('meta[name="hallowmarch-identity-error"]');
@@ -36,6 +35,7 @@ try {
   if (!response.ok) throw new Error('The connection could not be confirmed. Return to the game and connect again.');
   const result = await response.json();
   if (characterClaim) {
+    const { createProvisionalPlayerSession } = await import('./provisional-session.mjs');
     if (result.appSession?.purpose !== 'character-claim-target' || !result.nativeSession?.accessToken
       || !result.binding?.subjectDid || result.appSession.guestOwnerDid !== ceremony.expectedOwnerDid) {
       throw new Error('The character claim does not match the original provisional identity. Return to the game and try again.');

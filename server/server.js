@@ -271,6 +271,7 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   playRelayCatalog: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG,
   tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
   reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
+  provisionalProofClaims: token => GAME_SESSIONS.readForProvisionalProof(token),
   restoreAccount: record => {
     if (!record?.accountId) return null;
     if (!ACCOUNTS[record.accountId]) {

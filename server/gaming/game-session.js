@@ -52,6 +52,15 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
         || time >= claims.exp + reauthenticationTtlMs) return null;
       return { ...claims, purpose: 'native-reauthentication-only', reauthenticationUntil: claims.exp + reauthenticationTtlMs };
     },
+    /** Identifies a signed guest ONLY for a fresh browser-key Play proof.
+     * The host must reread its native ledger and enforce the fixed guest
+     * deadline before accepting this context. Never game/OAuth authority. */
+    readForProvisionalProof(token) {
+      const time = now(), claims = signedClaims(token, time);
+      if (!claims?.nativeDid || claims.provisional !== true || !Number.isSafeInteger(claims.exp + reauthenticationTtlMs)
+        || time >= claims.exp + reauthenticationTtlMs) return null;
+      return { ...claims, purpose: 'provisional-play-proof-only', provisionalProofUntil: claims.exp + reauthenticationTtlMs };
+    },
   });
 }
 

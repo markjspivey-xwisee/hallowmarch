@@ -32,6 +32,18 @@ function nativePlayerCanPlayNow() {
 function nativePlayerQuotaExhausted() {
   return nativePlayerIsProvisional() && (NATIVE_PLAYER.provisional?.status().quota === true || /quota|budget/.test(NATIVE_PLAYER.state));
 }
+async function nativePlayerGuestRequest(url, options = {}, context = NATIVE_PLAYER.provisionalContext) {
+  const target = new URL(url, location.origin);
+  if (target.origin !== location.origin || target.username || target.password || target.search || target.hash) {
+    throw nativePlayerError('owner_mismatch', 'The character proof destination changed. Retry its connection.');
+  }
+  const current = context && NATIVE_PLAYER.provisionalContext === context && NETWS.host === context.host
+    && NETWS.acct?.id === context.accountId && !NETWS.reload;
+  if (!current) throw nativePlayerError('owner_mismatch', 'The character connection changed. Retry its connection.');
+  const proofOnly = options.method === 'POST' && ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete'].includes(target.pathname);
+  const token = NETWS.token || (proofOnly && NATIVE_PLAYER.provisionalProofContext === context ? NATIVE_PLAYER.provisionalProofToken : '');
+  return nativePlayerRequest(url, { ...options, token });
+}
 async function nativePlayerAcceptSession(result, context) {
   const session = result?.appSession, account = session?.acct, binding = result?.binding;
   const current = () => NATIVE_PLAYER.provisionalContext === context && NETWS.host === context.host
@@ -46,6 +58,7 @@ async function nativePlayerAcceptSession(result, context) {
   if (localStorage.getItem('hallowmarch.token.' + context.host) !== session.token) {
     throw nativePlayerError('storage_unavailable', 'This browser could not keep the character connection. Enable private storage and retry.');
   }
+  NATIVE_PLAYER.provisionalProofToken = ''; NATIVE_PLAYER.provisionalProofContext = null;
   NETWS.token = session.token; NETWS.acct = account; context.accountId = account.id;
   if (NETWS.ws) netWsRetire(NETWS.ws, 'character identity confirmed');
   clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
@@ -67,7 +80,7 @@ async function nativePlayerProvisionalSession(status = NATIVE_PLAYER.status) {
   const opening = (async () => {
     const module = await import('/gaming/identity/assets/provisional-session.mjs');
     const session = await module.createProvisionalPlayerSession({ origin: location.origin,
-      relayUrl: status?.provisionalPlay?.relayUrl, request: nativePlayerRequest,
+      relayUrl: status?.provisionalPlay?.relayUrl, request: (url, options) => nativePlayerGuestRequest(url, options, context),
       onSession: result => nativePlayerAcceptSession(result, context), onState: nativePlayerChanged });
     if (NATIVE_PLAYER.provisionalContext !== context || NETWS.host !== context.host || NETWS.acct?.id !== context.accountId) {
       session.close(); throw nativePlayerError('owner_mismatch', 'The game connection changed. Retry opening the character.');
@@ -147,6 +160,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
   NATIVE_PLAYER.status = { enabled: true, bound: false, verified: false, recordLinks: {} };
   NATIVE_PLAYER.state = 'identity_unconfirmed';
   const active = () => initialization.active;
+  let provisionalContract = null;
   const blocked = { native: true, blocked: true,
     get: async () => { throw nativePlayerError('native_signin_required', 'Connect your identity to open this private character.'); },
     set: async () => { throw nativePlayerError('native_signin_required', 'Reconnect your identity to save this character.'); },
@@ -161,6 +175,7 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
       const manifest = await response.json();
       if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw nativePlayerError('identity_unconfirmed', 'The game identity contract is unreadable.');
       legacy = !Object.hasOwn(manifest, 'playerIdentity');
+      if (manifest.playerIdentity?.provisionalPlay?.enabled === true) provisionalContract = manifest.playerIdentity.provisionalPlay;
     }
     if (!active()) return null;
     // Once the bounded boot wait exposed a native-blocked title, a late
@@ -173,7 +188,40 @@ async function nativePlayerSaveRef(initialization = { active: true }) {
       return null;
     }
   } catch (error) { return active() ? blocked : null; }
-  if (!await netLinkWS()) return active() ? blocked : null;
+  if (!await netLinkWS()) {
+    // A retired/expired game bearer is never a socket session. A known browser
+    // key may still recover its bounded proof ceremony or exact pending claim.
+    if (active() && provisionalContract && NETWS.host && !NETWS.reload) {
+      try {
+        const host = NETWS.host, accountId = NETWS.acct?.id, socketToken = NETWS.token;
+        const current = () => active() && NETWS.host === host && NETWS.acct?.id === accountId && NETWS.token === socketToken && !NETWS.reload;
+        const token = await netWsToken(host);
+        if (!current()) return active() ? blocked : null;
+        if (typeof token === 'string' && token) {
+          const status = { enabled: true, bound: true, verified: false, provisional: true,
+            provisionalPlay: provisionalContract, recordLinks: {} };
+          const session = await nativePlayerProvisionalSession(status), metadata = await session.peek();
+          if (!current()) return active() ? blocked : null;
+          if (metadata && !metadata.claimedOwnerDid) {
+            NATIVE_PLAYER.status = status; NATIVE_PLAYER.claimLastConfirmed = metadata.lastConfirmedClaim === true;
+            NATIVE_PLAYER.provisionalProofToken = token;
+            NATIVE_PLAYER.provisionalProofContext = NATIVE_PLAYER.provisionalContext;
+            const resumed = await session.resume({ requireGameSession: true });
+            initialization.owner = NETWS.acct?.id; initialization.host = NETWS.host;
+            if (!active()) return null;
+            NATIVE_PLAYER.claimPendingResume = resumed?.pendingClaimResume === true;
+            NATIVE_PLAYER.profile = session.profile();
+            NATIVE_PLAYER.message = NATIVE_PLAYER.claimPendingResume ? 'A character claim is awaiting confirmation. Choose Retry keeping character to recover it.' : '';
+            return nativePlayerProvisionalRef(session);
+          }
+        }
+      } catch (error) {
+        NATIVE_PLAYER.state = error.code || 'unavailable';
+        NATIVE_PLAYER.message = 'Your saved character is still intact. Retry its connection or complete the pending identity claim.';
+      }
+    }
+    return active() ? blocked : null;
+  }
   if (!active()) return null;
   const owner = NETWS.acct?.id, host = NETWS.host;
   initialization.owner = owner; initialization.host = host;
@@ -436,14 +484,28 @@ async function nativePlayerFinishClaim(target) {
     }
     if (!result.claimed) throw nativePlayerError('claim_unconfirmed', 'The claim is still awaiting confirmation. Retry keeping this character.');
     NATIVE_PLAYER.promoted = true;
+    NATIVE_PLAYER.claimPendingResume = false;
     NATIVE_PLAYER.claimConfirmationPending = !!(result.localSessionPending || result.localPersistencePending || result.latestProgressPending);
     NATIVE_PLAYER.profile = session.profile(); SAVE.ref = nativePlayerProvisionalRef(session);
     SAVE.nativePaused = false; SAVE.lastBody = ''; NATIVE_PLAYER.conflict = null;
     await saveNow({ final: true });
+    if (!GAME.started && !NATIVE_PLAYER.claimConfirmationPending) await nativePlayerClaimTitle();
     NATIVE_PLAYER.message = NATIVE_PLAYER.claimConfirmationPending || SAVE.pending
       ? 'Your identity accepted this character. Connection or latest-save confirmation is still pending. Keep this game open and choose Confirm kept character.'
       : 'Character kept with Interego. Your progress and place in the world are unchanged. Recovery options are available when you need them.';
   } finally { SAVE.nativePaused = false; NATIVE_PLAYER.switching = false; nativePlayerRender(); }
+}
+async function nativePlayerClaimTitle() {
+  NATIVE_PLAYER.claimConfirmationPending = true;
+  const found = await SAVE.ref.get();
+  if (!found?.exists) throw nativePlayerError('claim_readback_failed', 'The kept character is awaiting readback. Keep this game open and confirm its connection.');
+  const save = validSave(found.data());
+  if (!save) throw nativePlayerError('claim_readback_failed', 'The kept character could not be opened. Keep this game open and retry.');
+  SAVE.loaded = save; SAVE.readConfirmed = true;
+  SAVE.lastBody = JSON.stringify({ ...save, savedAt: 0 }); SAVE.lastCore = coreKey(save);
+  if (SAVE.loading) { SAVE.loading.owner = NETWS.acct?.id; SAVE.loading.host = NETWS.host; SAVE.loading.ref = SAVE.ref; }
+  setupTitle(save);
+  NATIVE_PLAYER.claimConfirmationPending = false;
 }
 async function nativePlayerConfirmClaim() {
   const session = NATIVE_PLAYER.provisional;
@@ -455,6 +517,7 @@ async function nativePlayerConfirmClaim() {
     NATIVE_PLAYER.profile = session.profile(); SAVE.ref = nativePlayerProvisionalRef(session);
     if (!NATIVE_PLAYER.openExistingPending) { SAVE.nativePaused = false; await saveNow({ final: true }); }
     NATIVE_PLAYER.claimConfirmationPending = !!(result.localSessionPending || result.localPersistencePending || result.latestProgressPending || !NATIVE_PLAYER.openExistingPending && SAVE.pending);
+    if (!GAME.started && !NATIVE_PLAYER.openExistingPending && !NATIVE_PLAYER.claimConfirmationPending) await nativePlayerClaimTitle();
     if (NATIVE_PLAYER.openExistingPending && !NATIVE_PLAYER.claimConfirmationPending) { NETWS.reload = true; location.reload(); return; }
     NATIVE_PLAYER.message = NATIVE_PLAYER.claimConfirmationPending ? 'Confirmation is still pending. Keep this game open and retry.' : 'Character kept and its latest save confirmed with Interego.';
   } finally { SAVE.nativePaused = !!NATIVE_PLAYER.openExistingPending; NATIVE_PLAYER.switching = false; nativePlayerRender(); }
@@ -629,6 +692,7 @@ async function nativePlayerForget() {
   if (typeof gamingNativeForget === 'function') gamingNativeForget();
   NATIVE_PLAYER.profile?.close();
   NATIVE_PLAYER.provisional?.close(); NATIVE_PLAYER.provisional = null; NATIVE_PLAYER.provisionalContext = null;
+  NATIVE_PLAYER.provisionalProofToken = ''; NATIVE_PLAYER.provisionalProofContext = null;
   clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0;
   if (!NATIVE_PLAYER.cache) {
     try { NATIVE_PLAYER.cache = (await import('/gaming/identity/assets/access-cache.mjs')).createBrowserAccessCache(); }

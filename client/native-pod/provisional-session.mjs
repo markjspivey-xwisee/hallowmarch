@@ -291,11 +291,17 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     for (const key of ['purpose', 'claimOperationId', 'guestOwnerDid', 'targetOwnerDid', 'audience', 'sourceChallenge', 'expiresAt', 'existingRecord']) {
       if (input[key] !== undefined) appSession[key] = copy(input[key]);
     }
-    const method = binding.userId?.startsWith('u-pk-') ? 'webauthn' : binding.userId?.startsWith('u-eth-') ? 'siwe' : null;
+    // Enrolling a passkey on the provisional pod retains its original DID and
+    // u-try-play namespace. This canonical OAuth handoff proves that enrollment;
+    // the namespace must not force a new owner, key, or private character.
+    const enrolledSource = sameBinding(binding, { subjectDid: metadata.ownerDid, podUrl: metadata.podUrl });
+    const method = binding.userId?.startsWith('u-pk-') || enrolledSource ? 'webauthn' : binding.userId?.startsWith('u-eth-') ? 'siwe' : null;
     if (!method) fail('invalid_credential', 'This canonical owner needs a compatible browser credential bridge.');
     const credential = credentialFrom(result.nativeSession, metadata.relayUrl, method, now());
     await accessCache.put({ relayUrl: metadata.relayUrl, ownerDid: binding.subjectDid, podUrl: binding.podUrl, credential });
-    await remember({ targetClaim: { binding, appSession } });
+    const confirmation = metadata.targetClaim?.appSession.claimOperationId === appSession.claimOperationId
+      && sameBinding(metadata.targetClaim.binding, binding) ? metadata.targetClaim.confirmation : null;
+    await remember({ targetClaim: { binding, appSession, ...(confirmation ? { confirmation } : {}) } });
     change('claim_target_available'); return { targetAvailable: true, targetOwnerDid: binding.subjectDid };
   }
   async function finalizeClaim() {
@@ -312,6 +318,32 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     await targetProfile.connect();
     const existing = await targetProfile.get();
     const body = existing.exists ? existing.data() : null;
+    const inPlace = sameBinding(target, { subjectDid: metadata.ownerDid, podUrl: metadata.podUrl });
+    if (inPlace) {
+      // Same-pod passkey enrollment changes authentication, not ownership. Read
+      // the character with the canonical grant and require the exact confirmed
+      // source receipt and gameplay before promoting that same native pointer.
+      // A prepared intent has no targetOwnerDid yet and is valid in this path.
+      const sourceRecord = sourceProfile.reference(), targetRecord = targetProfile.reference();
+      const sourceGameplay = copy(save); delete sourceGameplay.nativePlay;
+      const targetGameplay = body && copy(body); if (targetGameplay) delete targetGameplay.nativePlay;
+      if (!existing.exists || body.nativePlay?.characterId !== journal.characterId
+        || body.nativePlay?.claim?.intentId !== journal.claim.intentId || !sourceRecord || !targetRecord
+        || canonical(sourceRecord) !== canonical(targetRecord)
+        || await digest(sourceGameplay) !== await digest(targetGameplay)) {
+        fail('claim_readback_failed', 'The enrolled owner did not confirm this exact existing character. Its private checkpoint has not been changed.');
+      }
+      const original = handoff.confirmation?.targetRecord;
+      if (original && ['kind', 'graphIri', 'descriptorUrl', 'cid'].some(key => original[key] !== targetRecord[key])) {
+        fail('claim_readback_failed', 'The enrolled character no longer has the original native binding. Its private checkpoint has not been changed.');
+      }
+      if (!original) await remember({ targetClaim: { ...handoff, confirmation: { selection: 'copy-guest', targetRecord } } });
+      // The browser retains only this public immutable receipt. The private
+      // character remains solely in its existing pod, including later progress.
+      // Retry the original operation receipt even if that same resource advanced
+      // after a successful response was lost.
+      return promote(handoff, body, 'copy-guest', null, original || targetRecord);
+    }
     const sameIntent = body?.nativePlay?.characterId === journal.characterId
       && body.nativePlay.claim?.intentId === journal.claim.intentId
       && body.nativePlay.claim?.targetOwnerDid === target.subjectDid;
@@ -371,9 +403,9 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     if (!metadata.lastConfirmedClaim) { await sourceProfile.set(stamped(save)); save = stamped(save); }
     return promote(handoff, confirmed.data(), 'copy-guest');
   }
-  async function promote(handoff, confirmedSave, selection, latestGuestSave = null) {
+  async function promote(handoff, confirmedSave, selection, latestGuestSave = null, confirmedRecord = null) {
     const target = handoff.binding, lease = handoff.appSession;
-    const targetRecord = targetProfile.reference();
+    const targetRecord = confirmedRecord || targetProfile.reference();
     if (!targetRecord?.nativeRevision || !targetRecord.digest || !targetRecord.recordCid) fail('claim_readback_failed', 'The canonical native checkpoint receipt is incomplete.');
     change('claim_confirming');
     const result = await request('/gaming/identity/play/claim-complete', { method: 'POST', body: {

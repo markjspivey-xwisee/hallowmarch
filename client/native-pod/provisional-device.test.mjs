@@ -39,6 +39,18 @@ test('boot peek does not create a browser key; reload retains the same nonextrac
     new TextEncoder().encode('interego-play-proof-v1\npublic-attestation\nhttps://game.example\none-use-challenge')), true);
   assert.equal(await provisionalKeyThumbprint(publicKey.publicKeyJwk, webcrypto), publicKey.proofKeyThumbprint);
   await assert.rejects(second.signProof({ attestation: 'a', audience: 'https://other.example', challenge: 'b' }), { code: 'invalid_proof' });
+  const receipt = { kind: 'character', graphIri: 'urn:graph:hallowmarch:fixture', descriptorUrl: metadata.podUrl + 'context-graphs/binding.ttl',
+    cid: 'native-binding-cid', nativeRevision: 'sha256:' + 'a'.repeat(64), recordCid: 'graph-nquads-sha256:' + 'b'.repeat(64),
+    digest: 'graph-nquads-sha256:' + 'b'.repeat(64), proofKind: 'owner-key-authenticated-checkpoint' };
+  const targetClaim = { binding: { subjectDid: metadata.ownerDid, podUrl: metadata.podUrl },
+    appSession: { purpose: 'character-claim-target', claimOperationId: 'same-pod-operation', guestOwnerDid: metadata.ownerDid,
+      targetOwnerDid: metadata.ownerDid, audience: origin, sourceChallenge: 'fresh-source-proof-challenge', expiresAt: Date.now() + 60000 },
+    confirmation: { selection: 'copy-guest', targetRecord: receipt } };
+  await second.remember({ ...metadata, targetClaim });
+  const reloaded = createProvisionalDevice({ origin, crypto: webcrypto, storage: store });
+  assert.deepEqual((await reloaded.peekMetadata()).targetClaim.confirmation.targetRecord, receipt);
+  await assert.rejects(second.remember({ ...metadata, targetClaim: { ...targetClaim,
+    confirmation: { selection: 'copy-guest', targetRecord: { ...receipt, body: 'private character body' } } } }), { code: 'invalid_device_metadata' });
   await assert.rejects(second.remember({ ...metadata, ownerDid: 'did:web:other.example:other' }), { code: 'guest_identity_changed' });
   await assert.rejects(second.remember(null), { code: 'invalid_device_metadata' });
 });

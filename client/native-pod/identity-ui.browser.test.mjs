@@ -286,7 +286,7 @@ try {
       const key='hallowmarch.identity.ceremony.v1',ceremony=JSON.parse(sessionStorage.getItem(key));
       ceremony[field]=field==='expiresAt'?0:field==='host'?'other-game.example':'x'.repeat(43);sessionStorage.setItem(key,JSON.stringify(ceremony));
     }},field);
-    const before=broadcastMessages.length,opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();const popup=await opening;
+    const before=broadcastMessages.length,opening=page.waitForEvent('popup');await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();const popup=await opening;
     await popup.waitForFunction(()=>document.querySelector('#status')?.textContent.includes('expired'));
     assert.match(await popup.locator('#status').innerText(),/expired/);
     assert.equal(popup.url(),CALLBACK_ORIGIN+'/gaming/identity/finish');
@@ -386,7 +386,7 @@ try {
     assert.equal(await page.locator('button').filter({hasText:'Start a fresh sign-in'}).count(),0);
     assert.equal(await page.evaluate(token=>identityTest.coldBoot(token),previous),null);
     const refusedPopup=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refusedPopup;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refusedPopup;
     const fresh=page.locator('#title .native-player button').filter({hasText:'Start a fresh sign-in'});await fresh.waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('hallowmarch.token.'+location.host)),previous);
     assert.equal((await cached(page)).result.credential.accessToken,'previous-browser-only-access');
@@ -425,7 +425,7 @@ try {
     claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
     await page.evaluate(()=>identityTest.coldBoot());
     const refused=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refused;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refused;
     for(const blocked of ['loading','pending','nativeFlight','profilePending','wiping','started']){
       await page.evaluate(blocked=>{
         nativePlayerRender();
@@ -458,7 +458,7 @@ try {
     claimMode='fresh-expired';const context=await contextForMobile(),page=await openFixture(context,'connect-expired');await prepareLive(page);
     await page.evaluate(()=>{NETWS.token='';NETWS.acct=null});await page.evaluate(()=>identityTest.coldBoot());
     const refused=page.waitForEvent('popup').then(popup=>popup.isClosed()?null:popup.waitForEvent('close'));
-    await page.locator('#title .native-player button').filter({hasText:'Connect identity'}).click();await refused;
+    await page.locator('#title .native-player button').filter({hasText:'I already have an identity'}).click();await refused;
     await page.clock.install();
     await page.evaluate(()=>{window.privateReads=0;window.privateWrites=0;window.claude={use:async name=>name==='db'?{doc:()=>({
       get:()=>{privateReads++;return new Promise(resolve=>{window.releasePrivateRead=()=>resolve({exists:true,data:()=>({tokens:{[location.host]:'fixture-initiating-game-account-token'}})})})},
@@ -503,7 +503,8 @@ try {
   });
   for(const view of ['title','players'])await check(view+' mobile native controls fit with 44px buttons, 16px input and retained entry',async()=>{
     const context=await contextForMobile(),page=await openFixture(context,view),selector=view==='title'?'#title .native-player':'#netsheet .native-player';
-    const box=page.locator(selector);await box.locator('input[type=password]').fill('a private recovery phrase');
+    const box=page.locator(selector);assert.equal(await box.locator('input[type=password]').count(),0,'recovery setup is deferred until explicitly opened');
+    await box.getByRole('button',{name:'Recovery options',exact:true}).click();await box.locator('input[type=password]').fill('a private recovery phrase');
     const geometry=await box.evaluate(node=>({width:innerWidth,scroll:document.documentElement.scrollWidth,box:node.getBoundingClientRect().width,
       buttons:[...node.querySelectorAll('button')].map(button=>({height:button.getBoundingClientRect().height,width:button.getBoundingClientRect().width})),
       inputSize:parseFloat(getComputedStyle(node.querySelector('input[type=password]')).fontSize)}));

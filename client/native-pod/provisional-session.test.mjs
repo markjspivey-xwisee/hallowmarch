@@ -8,7 +8,7 @@ const guest = { subjectDid: 'did:web:identity.example:users:u-try-play-one', pod
 const owner = { subjectDid: 'did:web:identity.example:users:alice', podUrl: 'https://pod.example/alice/', userId: 'u-pk-alice' };
 const clone = value => structuredClone(value);
 function fixture() {
-  let metadata = null, finalizeLost = false, failReadback = false, quota = false, persistenceFails = false;
+  let metadata = null, finalizeLost = false, failReadback = false, quota = false, persistenceFails = false, completionBinding = owner;
   const records = new Map(), credentials = new Map(), calls = [], requests = [], sessions = [];
   const device = { async peekMetadata() { return clone(metadata); },
     async publicDescription() { return { publicKeyJwk: { kty: 'EC', crv: 'P-256', x: 'x'.repeat(43), y: 'y'.repeat(43) }, proofKeyThumbprint: 't'.repeat(43) }; },
@@ -49,7 +49,7 @@ function fixture() {
       assert.equal(options.body.readConfirmed, true); assert(options.body.targetRecord.nativeRevision);
       assert(!JSON.stringify(options.body).includes('private hero'));
       if (finalizeLost) { finalizeLost = false; throw Error('lost final response'); }
-      return { binding: owner, appSession: { token: 'canonical-game-session' } };
+      return { binding: completionBinding, appSession: { token: 'canonical-game-session' } };
     }
     throw Error(path);
   };
@@ -62,10 +62,10 @@ function fixture() {
   };
   const make = async extra => createProvisionalPlayerSession({ origin, relayUrl, request, fetch, crypto: webcrypto, now: () => NOW,
     device, accessCache: cache, createProfile, onSession: async result => { sessions.push(result); }, ...extra });
-  const target = () => ({ binding: owner, nativeSession: { accessToken: 'canonical-relay-secret', tokenType: 'Bearer',
+  const target = (binding = owner) => { completionBinding = binding; return { binding, nativeSession: { accessToken: 'canonical-relay-secret', tokenType: 'Bearer',
     mcpUrl: relayUrl + '/mcp', expiresAt: NOW + 3600000 }, appSession: { purpose: 'character-claim-target',
-      claimOperationId: 'claim-operation-one', guestOwnerDid: guest.subjectDid, targetOwnerDid: owner.subjectDid,
-      audience: origin, sourceChallenge: 'claim-completion-challenge', expiresAt: NOW + 600000 } });
+      claimOperationId: 'claim-operation-one', guestOwnerDid: guest.subjectDid, targetOwnerDid: binding.subjectDid,
+      audience: origin, sourceChallenge: 'claim-completion-challenge', expiresAt: NOW + 600000 } }; };
   return { make, target, device, records, requests, calls, sessions, credentials,
     get metadata() { return clone(metadata); }, loseFinalize() { finalizeLost = true; }, corruptReadback() { failReadback = true; },
     exhaustQuota() { quota = true; }, failPersistence() { persistenceFails = true; } };
@@ -115,6 +115,48 @@ test('existing owner is an explicit conflict and use-existing never copies over 
   const chosen = await session.useExistingTarget(); assert.equal(chosen.claimed, true);
   assert.deepEqual(f.records.get(guest.subjectDid), source); assert.equal((await session.get()).data().char.level, 20);
   assert.equal(f.requests.at(-1).body.selection, 'use-existing');
+});
+test('same-DID passkey enrollment promotes the exact existing pod pointer without copying or replacing its key', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim();
+  const original = clone(f.records.get(guest.subjectDid)), reference = session.profile().reference();
+  assert.equal(original.save.nativePlay.claim.phase, 'prepared');
+  assert.equal(original.save.nativePlay.claim.targetOwnerDid, undefined);
+  const enrolled = { ...guest, userId: 'u-try-play-one' }, handoff = f.target(enrolled);
+  handoff.appSession.existingRecord = Object.fromEntries(['kind', 'graphIri', 'descriptorUrl', 'cid'].map(key => [key, reference[key]]));
+  const count = f.calls.length, result = await session.claimTarget(handoff);
+  assert.equal(result.claimed, true); assert.equal(session.status().provisional, false);
+  assert.equal(session.status().ownerDid, guest.subjectDid);
+  assert.deepEqual(f.records.get(guest.subjectDid), original); assert.equal(f.records.size, 1);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
+  assert.deepEqual(f.requests.at(-1).body.targetRecord, reference);
+  assert.equal(f.credentials.get(guest.subjectDid).credential.method, 'webauthn');
+});
+test('same-DID enrollment refuses a different latest native character without writing or finalizing', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim();
+  const changed = clone(f.records.get(guest.subjectDid)); changed.save.char.level = 6; changed.revision++;
+  f.records.set(guest.subjectDid, changed);
+  const count = f.calls.length;
+  await assert.rejects(session.claimTarget(f.target({ ...guest, userId: 'u-try-play-one' })), { code: 'claim_readback_failed' });
+  assert.equal(session.status().provisional, true); assert.deepEqual(f.records.get(guest.subjectDid), changed);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
+  assert.equal(f.requests.filter(call => call.path.endsWith('/claim-complete')).length, 0);
+});
+test('same-pod lost completion retains original public receipt and later progress through reload without private rewrites', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim();
+  const handoff = f.target({ ...guest, userId: 'u-try-play-one' });
+  f.loseFinalize(); await assert.rejects(session.claimTarget(handoff), /lost final response/);
+  const original = clone(f.requests.at(-1).body.targetRecord);
+  assert.deepEqual(f.metadata.targetClaim.confirmation.targetRecord, original);
+  assert(!JSON.stringify(f.metadata).includes('private hero'));
+  await session.set({ v: 1, char: { name: 'private hero', level: 6 } });
+  const next = await f.make(); await next.resume({ binding: guest, recoverPendingClaim: true });
+  const before = f.calls.length, result = await next.resumeClaim();
+  assert.equal(result.claimed, true); assert.deepEqual(f.requests.at(-1).body.targetRecord, original);
+  assert.equal(f.records.get(guest.subjectDid).save.char.level, 6);
+  assert.equal(f.calls.slice(before).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
 });
 test('canonical-token reload reads pending guest source without game re-admission or source relationship writes', async () => {
   const f = fixture(), session = await f.make(); await session.bootstrap();

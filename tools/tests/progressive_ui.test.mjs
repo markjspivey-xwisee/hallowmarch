@@ -17,8 +17,9 @@ const flush = async () => { for (let n = 0; n < 12; n++) await Promise.resolve()
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 
 function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate, readGate, keyGate,
-  bootstrapFailure = false, canonical = false, keyPresent = true, hasRecord = false, statusOverride = {} } = {}) {
-  const calls = { bootstrap: 0, resume: 0, resumeInputs: [], peek: 0, reads: 0, keys: 0, starts: [], settings: 0, world: 0, renders: 0, finalSaves: 0 };
+  bootstrapFailure = false, canonical = false, keyPresent = true, hasRecord = false, statusOverride = {},
+  linked = true, manifestPlay = false, gameProof = 'retired-game-proof', resumePending = false, tokenGate, peekGate } = {}) {
+  const calls = { bootstrap: 0, resume: 0, resumeInputs: [], peek: 0, reads: 0, keys: 0, starts: [], settings: 0, world: 0, renders: 0, finalSaves: 0, titles: [] };
   const profileState = { keyPresent, hasRecord, pending: false };
   const initialStatus = { ...(canonical
     ? { enabled: true, bound: true, verified: true, provisional: false, account: { id: 'owner' }, recordLinks: {}, binding: { subjectDid: 'did:fixture:owner', podUrl: 'https://pod.example/owner/' } }
@@ -30,10 +31,13 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
     SAVE: { native: true, readConfirmed: canonical, loaded: null, pending: null, nativeFlight: null, loading: null },
     CLASSES: { warrior: {} }, LEVEL_CAP: 60,
     localStorage: { getItem() { throw Error('Title entry cannot read a browser character'); } },
-    netServerUrl: () => 'wss://game.example/ws', netLinkWS: async () => true,
-    fetch: async () => ({ ok: true, status: 200, json: async () => ({ playerIdentity: {} }) }),
+    netServerUrl: () => 'wss://game.example/ws', netLinkWS: async () => linked,
+    netWsToken: async () => { if (tokenGate) await tokenGate.promise; return gameProof; },
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ playerIdentity: manifestPlay
+      ? { provisionalPlay: { enabled: true, relayUrl: 'https://relay.example', audience: 'https://game.example' } } : {} }) }),
     applySettings: () => calls.settings++, applyWorldSave: () => calls.world++, coreKey: value => JSON.stringify(value),
     saveNow: async () => { calls.finalSaves++; },
+    setupTitle: value => calls.titles.push(clone(value)),
     async startGame(value) {
       assert.equal(context.SAVE.readConfirmed, true, 'native checkpoint read must precede graphics/game start');
       assert.equal(context.fixture.NATIVE_PLAYER.status.verified, true);
@@ -43,13 +47,15 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
   const profile = { status: () => ({ ...profileState }),
     async createKey() { calls.keys++; if (keyGate) await keyGate.promise; profileState.keyPresent = true; }, close() {}, delete: async () => {} };
   const session = {
-    async peek() { calls.peek++; return prior; },
+    async peek() { calls.peek++; if (peekGate) await peekGate.promise; return prior; },
     async bootstrap() {
       calls.bootstrap++; if (bootstrapGate) await bootstrapGate.promise;
       if (bootstrapFailure) throw Object.assign(Error('Native checkpoint unavailable'), { code: 'native_unavailable' });
       context.fixture.NATIVE_PLAYER.status = { ...initialStatus, bound: true, verified: true, provisional: true };
     },
-    async resume(input) { calls.resume++; calls.resumeInputs.push(clone(input)); context.fixture.NATIVE_PLAYER.status = { ...initialStatus, bound: true, verified: true, provisional: true }; },
+    async resume(input) { calls.resume++; calls.resumeInputs.push(clone(input));
+      if (!resumePending) context.fixture.NATIVE_PLAYER.status = { ...initialStatus, bound: true, verified: true, provisional: true };
+      return { pendingClaimResume: resumePending }; },
     async get() { calls.reads++; if (readGate) await readGate.promise; return snapshot === false ? { exists: false } : { exists: true, data: () => clone(snapshot) }; },
     set: async () => {}, profile: () => profile, status: () => ({ provisional: true }),
   };
@@ -61,11 +67,12 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
     nativePlayerRequest = async () => fixtureStatus;
     nativePlayerProvisionalSession = async () => {
       NATIVE_PLAYER.provisional = fixtureSession;
-      NATIVE_PLAYER.provisionalContext = { host: NETWS.host, accountId: NETWS.acct.id };
+      NATIVE_PLAYER.provisionalContext = { host: NETWS.host, accountId: NETWS.acct?.id };
       return fixtureSession;
     };
     globalThis.fixture = { NATIVE_PLAYER, nativePlayerBegin, nativePlayerSaveRef, nativePlayerProvisionalRef,
-      nativePlayerFinishClaim, nativePlayerConfirmClaim, nativePlayerClaimConnect, nativePlayerUseExistingTarget };
+      nativePlayerFinishClaim, nativePlayerConfirmClaim, nativePlayerClaimConnect, nativePlayerUseExistingTarget,
+      nativePlayerGuestRequest, nativePlayerCanPlayNow, nativePlayerAcceptSession };
   `, context);
   return { ...context.fixture, context, calls, session, profile, profileState, SAVE: context.SAVE, NETWS: context.NETWS, GAME: context.GAME };
 }
@@ -83,6 +90,114 @@ test('a bound guest whose game proof is stale requests fresh proof admission whi
   await f.nativePlayerSaveRef({ active: true });
   assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.resume, 1);
   assert.equal(f.calls.resumeInputs[0].requireGameSession, true);
+});
+
+test('a cold retired guest can reopen only its staged native claim while multiplayer admission stays closed', async () => {
+  const f = fixture({ linked: false, manifestPlay: true, resumePending: true,
+    prior: { ownerDid: 'did:fixture:guest', targetAvailable: true, targetOwnerDid: 'did:fixture:owner', lastConfirmedClaim: true } });
+  f.NETWS.token = ''; f.NETWS.acct = null;
+  const ref = await f.nativePlayerSaveRef({ active: true });
+  assert.equal(ref.native, true); assert.equal(ref.blocked, undefined);
+  assert.equal(f.calls.peek, 1); assert.equal(f.calls.resume, 1); assert.equal(f.calls.resumeInputs[0].requireGameSession, true);
+  assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.keys, 0); assert.equal(f.calls.starts.length, 0);
+  assert.equal(f.NETWS.token, ''); assert.equal(f.NETWS.acct, null); assert.equal(f.SAVE.loaded, null); assert.equal(f.SAVE.readConfirmed, false);
+  assert.equal(f.NATIVE_PLAYER.claimPendingResume, true); assert.equal(f.NATIVE_PLAYER.claimLastConfirmed, true);
+  assert.equal(f.NATIVE_PLAYER.profile, f.profile); assert.equal(f.nativePlayerCanPlayNow(), false);
+});
+
+test('cold connection failure never provisions a guest from absent, canonical, or unadvertised metadata', async () => {
+  for (const options of [
+    { prior: null, manifestPlay: true },
+    { prior: { ownerDid: 'did:fixture:guest', claimedOwnerDid: 'did:fixture:owner' }, manifestPlay: true },
+    { prior: { ownerDid: 'did:fixture:guest', targetAvailable: true }, manifestPlay: false },
+    { prior: { ownerDid: 'did:fixture:guest', targetAvailable: true }, manifestPlay: true, gameProof: null },
+  ]) {
+    const f = fixture({ linked: false, ...options }); f.NETWS.token = ''; f.NETWS.acct = null;
+    const ref = await f.nativePlayerSaveRef({ active: true });
+    assert.equal(ref.blocked, true); assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.resume, 0);
+    assert.equal(f.calls.keys, 0); assert.equal(f.calls.starts.length, 0); assert.equal(f.NETWS.token, ''); assert.equal(f.NETWS.acct, null);
+  }
+});
+
+test('late token and metadata reads cannot retain proof recovery after the current connection changes', async () => {
+  for (const phase of ['token', 'metadata']) for (const change of [
+    f => { f.NETWS.host = 'foreign.example'; }, f => { f.NETWS.acct = { id: 'other-owner' }; },
+    f => { f.NETWS.token = 'newer-game-session'; }, f => { f.NETWS.reload = true; },
+  ]) {
+    const gate = deferred(), f = fixture({ linked: false, manifestPlay: true, resumePending: true,
+      prior: { ownerDid: 'did:fixture:guest', targetAvailable: true }, ...(phase === 'token' ? { tokenGate: gate } : { peekGate: gate }) });
+    f.NETWS.token = ''; f.NETWS.acct = null; const opening = f.nativePlayerSaveRef({ active: true }); await flush();
+    change(f); gate.resolve(); const ref = await opening;
+    assert.equal(ref.blocked, true); assert.equal(f.calls.resume, 0); assert.equal(f.calls.bootstrap, 0);
+    assert.equal(!!f.NATIVE_PLAYER.provisionalProofToken, false); assert.equal(f.calls.starts.length, 0);
+  }
+});
+
+async function coldProofFixture() {
+  const f = fixture({ linked: false, manifestPlay: true, resumePending: true, prior: { ownerDid: 'did:fixture:guest', targetAvailable: true } });
+  f.NETWS.token = ''; f.NETWS.acct = null; await f.nativePlayerSaveRef({ active: true });
+  const requests = [];
+  f.context.fetch = async (url, init) => { requests.push({ url, ...init }); return { ok: true, json: async () => ({ ok: true }) }; };
+  const requestSource = identity.slice(identity.indexOf('async function nativePlayerRequest('), identity.indexOf('async function nativePlayerModules('));
+  vm.runInContext(requestSource, f.context);
+  return { ...f, requests };
+}
+
+test('the retired game proof is available only to the three same-origin POST proof controls', async () => {
+  const f = await coldProofFixture();
+  for (const path of ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete']) {
+    await f.nativePlayerGuestRequest(path, { method: 'POST', body: { fixture: 'public-proof' } });
+  }
+  assert.equal(f.requests.length, 3); assert(f.requests.every(request => request.headers.Authorization === 'Bearer retired-game-proof'));
+  assert.equal(f.NETWS.token, ''); assert.equal(f.NETWS.acct, null);
+  for (const [url, method] of [
+    ['/gaming/identity/status', 'GET'], ['/gaming/identity/record-link', 'POST'], ['/gaming/identity/claim-owner/start', 'POST'],
+    ['/gaming/identity/play/challenge', 'GET'], ['https://foreign.example/gaming/identity/play/complete', 'POST'],
+    ['https://user@game.example/gaming/identity/play/complete', 'POST'], ['/gaming/identity/play/complete?other=1', 'POST'],
+    ['/gaming/identity/play/complete#fragment', 'POST'],
+  ]) await assert.rejects(f.nativePlayerGuestRequest(url, { method }), 'a retained proof cannot authorize ' + url);
+  assert.equal(f.requests.length, 3, 'denied controls never receive a retained game proof');
+});
+
+test('host, account, context or navigation changes revoke cold proof recovery before another request', async () => {
+  for (const change of [f => { f.NETWS.host = 'foreign.example'; }, f => { f.NETWS.acct = { id: 'other-owner' }; },
+    f => { f.NATIVE_PLAYER.provisionalContext = { ...f.NATIVE_PLAYER.provisionalContext }; }, f => { f.NETWS.reload = true; }]) {
+    const f = await coldProofFixture(); change(f);
+    await assert.rejects(f.nativePlayerGuestRequest('/gaming/identity/play/claim-complete', { method: 'POST' }));
+    assert.equal(f.requests.length, 0); assert.equal(f.NETWS.token, '');
+  }
+});
+
+test('the cold retired-guest claim reconciles its original receipt before opening the canonical character on the title', async () => {
+  const f = await coldProofFixture(), browserTokens = new Map();
+  const binding = { subjectDid: 'did:fixture:owner', podUrl: 'https://pod.example/owner/' };
+  const promoted = { provisional: false, binding, appSession: { token: 'canonical-game-session', acct: { id: 'canonical-account', nativeBound: true } } };
+  const kept = { v: 1, char: { name: 'Original guest hero', realm: 0, cls: 'warrior', level: 7, xp: 432, bag: [{ id: 'original-loot' }] } };
+  const target = { status: () => ({ keyPresent: true, hasRecord: true, pending: false }) };
+  f.context.localStorage = { getItem: key => browserTokens.get(key), setItem: (key, value) => browserTokens.set(key, value) };
+  f.context.netLinkWS = async () => true;
+  f.context.fetch = async (url, init) => {
+    f.requests.push({ url, ...init });
+    return { ok: true, json: async () => url === '/gaming/identity/play/claim-complete' ? promoted
+      : { enabled: true, bound: true, verified: true, binding, account: { id: 'canonical-account' } } };
+  };
+  f.session.get = async () => ({ exists: true, data: () => clone(kept) });
+  f.session.resumeClaim = async () => {
+    const result = await f.nativePlayerGuestRequest('/gaming/identity/play/claim-complete', { method: 'POST', body: { fixture: 'exact-original-operation' } });
+    f.session.profile = () => target;
+    await f.nativePlayerAcceptSession(result, f.NATIVE_PLAYER.provisionalContext);
+    return { ...result, claimed: true };
+  };
+  assert.equal(f.NATIVE_PLAYER.claimPendingResume, true); assert.equal(f.SAVE.loaded, null);
+  await f.nativePlayerFinishClaim();
+  assert.equal(f.requests[0].headers.Authorization, 'Bearer retired-game-proof');
+  assert.equal(f.requests[1].headers.Authorization, 'Bearer canonical-game-session');
+  assert.equal(f.NETWS.token, 'canonical-game-session'); assert.equal(f.NETWS.acct.id, 'canonical-account');
+  assert.equal(browserTokens.get('hallowmarch.token.game.example'), 'canonical-game-session');
+  assert.equal(f.NATIVE_PLAYER.claimPendingResume, false); assert.equal(f.NATIVE_PLAYER.promoted, true);
+  assert.equal(f.NATIVE_PLAYER.provisionalProofToken, ''); assert.equal(f.NATIVE_PLAYER.provisionalProofContext, null);
+  assert.equal(f.SAVE.readConfirmed, true); assert.deepEqual(clone(f.SAVE.loaded), kept); assert.deepEqual(f.calls.titles, [kept]);
+  assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.starts.length, 0); assert.equal(f.GAME.started, false);
 });
 
 test('concurrent Play clicks coalesce provisioning and wait for confirmed native read before starting', async () => {

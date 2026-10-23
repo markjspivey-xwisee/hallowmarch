@@ -738,13 +738,26 @@ for (const changed of ['account', 'host', 'started']) test('a late private read 
   assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
-test('a confirmed absent native character needs its encryption key before entry', async () => {
-  let keyPresent = false;
+test('a confirmed absent native character offers Play while deferring recovery setup', async () => {
+  let keyPresent = false, keyCreations = 0;
   const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {}, get: async () => ({ exists: false }),
-    status: () => ({ keyPresent, hasRecord: false }), close() {} } });
+    status: () => ({ keyPresent, hasRecord: false }), createKey() { keyCreations++; keyPresent = true; }, close() {} } });
   const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
-  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, true);
+  assert.equal(h.H.SAVE.readConfirmed, true); h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+  assert.equal(keyCreations, 0, 'title discovery must not create a replacement encryption key');
   keyPresent = true; h.H.nativePlayerRender(); assert.equal(h.buttons.get('btn-begin').disabled, false);
+});
+
+test('an existing encrypted native character remains closed without its original key', async () => {
+  let keyCreations = 0;
+  const h = harness({ nativePolicy: true, nativeProfile: { connect: async () => {},
+    get: async () => { throw Object.assign(Error('Original owner key required'), { code: 'key_required' }); },
+    status: () => ({ keyPresent: false, hasRecord: true }), createKey() { keyCreations++; }, close() {} } });
+  const loading = h.H.loadSave(); await nativeWelcome(h); assert.equal(await loading, null);
+  assert.equal(h.H.SAVE.readConfirmed, false); h.H.nativePlayerRender();
+  assert.equal(h.buttons.get('btn-begin').disabled, true); assert.equal(h.buttons.get('btn-continue').disabled, true);
+  assert.equal(keyCreations, 0); assert.equal(h.H.SAVE.native, true);
+  assert(!h.sockets[0].sent.some(message => ['load', 'save', 'wipe'].includes(message.t)));
 });
 
 test('a native reference refuses account switches before any owner-pod write', async () => {
@@ -821,3 +834,4 @@ test('private recovery stops when gameplay progress appears during its storage r
   reading.resolve({ exists: true, data: () => ({ tokens: { [HOST]: 'refused-proof' } }) }); await rejected;
   assert.equal(writes, 0); assert.equal(h.storage.get('hallowmarch.token.' + HOST), 'refused-proof');
 });
+

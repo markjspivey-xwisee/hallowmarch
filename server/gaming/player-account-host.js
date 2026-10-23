@@ -198,6 +198,36 @@ export function createPlayerAccountHost(options = {}) {
     if (record?.binding.provisional && record.claim) fail('provisional_owner_claimed', 409);
     return { ...auth, binding: record?.binding };
   }
+  async function playProofAuth(req) {
+    // Only Play challenge/complete may recover an expired signed guest. The
+    // returned purpose is unusable by freshDid, ordinary auth, OAuth or claim.
+    try { return playAuth(req); }
+    catch (error) {
+      if (!(error instanceof HostError) || error.code !== 'game_account_required' || error.status !== 401) throw error;
+    }
+    const authorization = req.headers.authorization;
+    if (typeof authorization !== 'string' || authorization.length > 8192) fail('game_account_required', 401);
+    const match = /^Bearer ([^\s]+)$/.exec(authorization);
+    if (!match || typeof options.provisionalProofClaims !== 'function') fail('game_account_required', 401);
+    let claims;
+    try { claims = options.provisionalProofClaims(match[1]); } catch { fail('game_account_required', 401); }
+    if (!plain(claims) || claims.purpose !== 'provisional-play-proof-only' || claims.provisional !== true
+      || typeof claims.id !== 'string' || !claims.id || claims.id.length > 256 || typeof claims.nativeDid !== 'string'
+      || !Number.isSafeInteger(claims.exp) || !Number.isSafeInteger(claims.nativeVerifiedAt) || claims.nativeVerifiedAt < 0
+      || claims.nativeVerifiedAt > now() || claims.exp <= claims.nativeVerifiedAt || claims.exp > claims.nativeVerifiedAt + FRESH_NATIVE_MS
+      || !Number.isSafeInteger(claims.provisionalProofUntil) || claims.provisionalProofUntil <= now()
+      || claims.provisionalProofUntil > claims.exp + 86_400_000) fail('game_account_required', 401);
+    const account = options.getAccount(claims.id);
+    if (!account || account.id !== claims.id) fail('game_account_required', 401);
+    // Reread confirmed native ownership; a retired source on another host
+    // must not be recovered from this process's earlier disposable view.
+    await ledger.refresh();
+    const record = recordFor(account.id), expiresAt = Date.parse(record?.binding.expiresAt);
+    if (record?.binding.provisional !== true || record.claim || record.binding.subjectDid !== claims.nativeDid
+      || !Number.isSafeInteger(expiresAt) || expiresAt <= now()) fail('game_account_required', 401);
+    return { claims, account, binding: record.binding, sessionId: hash(match[1]),
+      authorizationUntil: Math.min(expiresAt, claims.provisionalProofUntil) };
+  }
   async function issueBoundSession(result) {
     let account = options.getAccount(result.accountId);
     if (!account) account = await options.restoreAccount(recordFor(result.accountId));
@@ -426,8 +456,8 @@ export function createPlayerAccountHost(options = {}) {
         if (route === 'status') await statusResponse(req, res);
         else if (route === 'playChallenge') {
           if (!playConfigured) fail('play_service_identity_unavailable', 503);
-          json(res, 200, await play.challenge(playAuth(req), await readBody(req, 32768)));
-        } else if (route === 'playComplete') json(res, 200, await play.complete(playAuth(req), await readBody(req, 32768)));
+          json(res, 200, await play.challenge(await playProofAuth(req), await readBody(req, 32768)));
+        } else if (route === 'playComplete') json(res, 200, await play.complete(await playProofAuth(req), await readBody(req, 32768)));
         else if (route === 'claimChallenge') {
           const auth = playAuth(req, { fresh: true });
           if (auth.binding?.provisional !== true) fail('provisional_owner_required', 403);

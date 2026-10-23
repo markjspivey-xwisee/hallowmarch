@@ -19,6 +19,26 @@ test('legacy transport credentials remain compatible without acquiring native id
   assert.equal(tokens.read(tokens.issueLegacy('guest-a')).nativeDid, undefined);
 });
 
+test('expired guest proof context is HMAC-bound, guest-only and never ordinary or OAuth authority', () => {
+  let clock = 1000;
+  const tokens = createGameSessionTokens({ secret: 'synthetic-provisional-proof-secret', now: () => clock });
+  const guest = tokens.issueNative('guest-a', 'did:example:guest', { provisional: true, expiresAt: clock + 86400000 });
+  const canonical = tokens.issueNative('guest-a', 'did:example:guest');
+  assert.equal(tokens.readForProvisionalProof(canonical.token), null);
+  assert.equal(tokens.readForProvisionalProof(tokens.issueLegacy('guest-a')), null);
+  clock += 3_600_001;
+  assert.equal(tokens.read(guest.token), null); assert.equal(tokens.readForReauthentication(guest.token), null);
+  const proof = tokens.readForProvisionalProof(guest.token);
+  assert.equal(proof.purpose, 'provisional-play-proof-only'); assert.equal(proof.provisional, true);
+  assert.equal(proof.id, 'guest-a'); assert.equal(proof.nativeDid, 'did:example:guest');
+  assert.equal(proof.provisionalProofUntil, guest.expiresAt + 86_400_000);
+  for (const invalid of [null, guest.token + '.extra', guest.token.slice(0, -1) + '!', guest.token.replace(/^./, 'X')]) {
+    assert.equal(tokens.readForProvisionalProof(invalid), null);
+  }
+  clock = proof.provisionalProofUntil;
+  assert.equal(tokens.readForProvisionalProof(guest.token), null);
+});
+
 test('native proof is game-signed, bounded, tamper resistant and cannot be extended by legacy tokens', () => {
   let clock = 1000;
   const tokens = createGameSessionTokens({ secret: 'ephemeral-test-secret', now: () => clock });
