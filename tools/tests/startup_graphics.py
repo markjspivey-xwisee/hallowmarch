@@ -438,28 +438,23 @@ async def safe_boot(browser):
         (hm.OUT / 'startup-safe-30s.json').write_text(json.dumps(stable, indent=2), encoding='utf-8')
         admission = await page.evaluate("""async () => {
           const H=__hm, before=H.GAME.player, completed=H.startup().titleCompleted;
-          const title=document.getElementById('title');
-          const began=new Promise(resolve=>{
-            const observer=new MutationObserver(()=>{
-              if(title.getAttribute('aria-busy')==='true') { observer.disconnect(); resolve(); }
-            });
-            observer.observe(title,{attributes:true,attributeFilter:['aria-busy']});
-          });
+          const title=document.getElementById('title'), beforeBusy=title.getAttribute('aria-busy')==='true';
           window.dispatchEvent(new Event('resize'));
-          await began;
-          const busy=title.getAttribute('aria-busy')==='true';
+          // Both calls beat the real 80 ms timer. Play must drain the queued
+          // resize and inherit its fenced pipeline before creating a player.
           const first=H.start({name:'Recovery Test'}), second=H.start({name:'Recovery Test'});
+          const busy=title.getAttribute('aria-busy')==='true';
           const awaitable=!!first && typeof first.then==='function' && !!second && typeof second.then==='function';
           const playerBefore=!!H.GAME.player;
           const [a,b]=await Promise.all([first,second]), after=H.startup();
-          return {busy,awaitable,playerBefore,hadPlayer:!!before,samePlayer:a===b && !!H.GAME.player && a===H.GAME.player.id,
+          return {beforeBusy,busy,awaitable,playerBefore,hadPlayer:!!before,samePlayer:a===b && !!H.GAME.player && a===H.GAME.player.id,
                   started:H.GAME.started,stopped:after.stopped,completedMore:after.titleCompleted>completed,
                   finalWarm:after.titleFinal.newPrograms===0,finalFenced:after.titleFinal.fenceComplete};
         }""")
-        check(admission['busy'] and admission['awaitable'] and not admission['hadPlayer'] and not admission['playerBefore'] and
+        check(not admission['beforeBusy'] and admission['busy'] and admission['awaitable'] and not admission['hadPlayer'] and not admission['playerBefore'] and
               admission['samePlayer'] and admission['started'] and not admission['stopped'] and admission['completedMore'] and
               admission['finalWarm'] and admission['finalFenced'],
-              'actual debug start awaits resized title graphics and coalesces one player after the idle proof')
+              'actual debug start drains queued resize before its timer and coalesces one player after the idle proof')
         await page.bring_to_front()
         await page.keyboard.press('Shift')
         await page.evaluate("__hm.fn.openMenu('settings')")
