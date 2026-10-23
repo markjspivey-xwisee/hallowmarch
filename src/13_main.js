@@ -64,7 +64,10 @@ function setTimeMode(mode) {
   tod.mode = mode;
 }
 let resizeTimer = 0;
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => GAME.built && resize(), 80); });
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { resizeTimer = 0; if (GAME.built) resize(); }, 80);
+});
 
 /* adaptive detail: step down when frames run long for a while */
 const PERF = { acc: 0, n: 0, window: 0, grace: 6 };
@@ -371,6 +374,9 @@ async function boot() {
 /* ------------------------------------------------------------------ */
 function startGame(save) {
   if (!GAME.ready || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  // A real click can beat the resize debounce timer. Drain that requested
+  // layout now, before player creation, so its cold batches own the start too.
+  if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = 0; resize(); }
   // Coalesce the existing Play intent until graphics settle. Return completion
   // to debug callers too; no player or live work overlaps a cold title batch.
   if (TITLE_FRAME_PROMISE) {
