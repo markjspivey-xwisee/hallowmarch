@@ -266,33 +266,57 @@ test('standard recovery link drops diagnostic mode and preserves URL and native 
   assert.match(notice.children[0].textContent,/saved graphics preferences are unchanged/);
 });
 
-function titleFixture() {
-  const main=read('13_main.js');
-  const declaration=main.split('\n').find(line=>line.startsWith('let TITLE_FRAME_PROMISE ='));
-  assert.ok(declaration,'test executes the actual title helper state');
-  const events=[], staticCalls=[], fences=[], glErrors=[], originalTrail={name:'live-trail'}, originalShaderError=()=>{};
+function titleFixture({autoPaint=false}={}) {
+  const main=read('13_main.js'), declarations=main.split('\n').filter(line=>line.startsWith('let TITLE_')).join('\n');
+  assert.ok(declarations,'test executes the actual staged title state');
+  const events=[],staticCalls=[],fences=[],paints=[],glErrors=[],sizeCalls=[],originalTrail={name:'live-trail'},originalShaderError=()=>{};
   const documentListeners=new Map(),canvasListeners=new Map();
   const listeners=map=>({
     addEventListener(name,fn){if(!map.has(name))map.set(name,new Set());map.get(name).add(fn);},
     removeEventListener(name,fn){map.get(name)?.delete(fn);},
   });
-  const titleMath=Object.create(Math);
-  titleMath.random=()=>{throw Error('title must not consume gameplay randomness');};
+  const titleMath=Object.create(Math); titleMath.random=()=>{throw Error('title must not consume gameplay randomness');};
   const point=()=>({x:0,y:0,set(x,y){this.x=x;this.y=y;}});
   const grassCenter=point(),grassCamera=point(),flowerCenter=point(),flowerCamera=point();
-  const ctx={
-    Promise,Uint8Array,Math:titleMath,
-    GAME:{built:true,started:false,ready:true,t:27,player:null},
+  const familyNames=['sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
+  const objects=familyNames.map((name,index)=>({name,type:'Mesh',id:index+1,visible:true,
+    geometry:{id:index+101},material:{name:name+' material',type:'ShaderMaterial',id:index+201}}));
+  const hidden={name:'hidden',type:'Mesh',id:50,visible:false,geometry:{id:150},material:{name:'hidden material',type:'ShaderMaterial',id:250}};
+  const inventory={renderables:[...objects,hidden],sets:Object.fromEntries(familyNames.map((name,index)=>[name,new Set([objects[index]])]))};
+  inventory.sets.other.add(hidden);
+  const postObject={name:'composite',type:'Mesh',id:99,geometry:{id:199},material:{name:'composite material',type:'ShaderMaterial',id:299}};
+  const postState={material:'original-post',uniform:'original-texture'};
+  const nodes={};
+  const element=id=>({id,attributes:{},hidden:false,textContent:'',style:{},
+    setAttribute(key,value){this.attributes[key]=value;},
+    appendChild(child){nodes[child.id]=child;},
+    remove(){delete nodes[this.id];}});
+  nodes.title=element('title');nodes.loadmsg=element('loadmsg');
+  let ctx;
+  const direct=function(cam,scn,geo,material,object){
+    events.push('direct:'+ctx.GRAPHICS_STARTUP.titleStage+':'+object.name);
+    if(ctx.failShaderStage===ctx.GRAPHICS_STARTUP.titleStage) this.debug.onShaderError(ctx.gl,{},'vertex','fragment');
+    if(!this.info.programs.some(x=>x.id===material.id))this.info.programs.push({id:material.id});
+    this.info.render.calls++;this.info.render.triangles+=12;
+  };
+  const focalMaterial=()=>({uniforms:{uFocal:{value:0}}});
+  ctx={
+    Promise,Uint8Array,Math:titleMath,performance:{now:()=>100},
+    GAME:{built:true,started:false,ready:false,t:27,player:null},
     GRAPHICS_CONTEXT_LOST:false,GRAPHICS_STARTUP:{stopped:false,titleSubmitted:0,titleCompleted:0},
-    document:{hidden:false,...listeners(documentListeners)},canvas:listeners(canvasListeners),window:{__hm:{ready:true}},
+    document:{hidden:false,...listeners(documentListeners),getElementById:id=>nodes[id],createElement:()=>element('')},
+    canvas:listeners(canvasListeners),window:{__hm:{ready:false},innerWidth:1024,innerHeight:768,devicePixelRatio:1},
     diagnostic:false,graphicsDiagnosticActive(){return ctx.diagnostic;},
-    graphicsAssertActive(){if(ctx.GRAPHICS_CONTEXT_LOST)throw Error('lost');},
+    graphicsAssertActive(){if(ctx.GRAPHICS_CONTEXT_LOST)throw Error('Graphics context was lost');},
     THREE:{DataTexture:class {constructor(){throw Error('title must not allocate a texture');}}},
-    U:{uTrail:{value:originalTrail},uCloudDomeOn:{value:{x:1}},uCloudSh:{value:{w:1}},uCloudScrP:{value:{z:1}}},
-    trailA:{texture:{name:'already-cleared-neutral-trail'}},
-    sceneRT:{name:'scene-target'},scene:{name:'world-scene'},gl:{},
+    U:{uTrail:{value:originalTrail},uCloudDomeOn:{value:{x:1}},uCloudSh:{value:{w:1}},uCloudScrP:{value:{z:1}},uFoliageCut:{value:0}},
+    trailA:{texture:{name:'already-cleared-neutral-trail'}},sceneRT:{name:'scene-target'},scene:{name:'world-scene'},
+    view:{w:1024,h:768},quality:{dpr:1,scale:1,msaa:0,level:'low'},BOOT_SAFE:true,DEG:Math.PI/180,
+    makeTargets(){events.push('targets');sizeCalls.push([ctx.view.w,ctx.view.h]);},setupShadows(){},
+    flowerMat:{uniforms:{uAlphaCut:{value:0}}},fxAdd:{mesh:{material:focalMaterial()}},fxAlpha:{mesh:{material:focalMaterial()}},
+    glowMesh:{material:focalMaterial()},fireflyMat:focalMaterial(),
     tod:{p:0.3},_fwd:{x:0,z:0},direction:{x:3,z:4},
-    camera:{name:'title-camera',position:{x:10,z:20},projectionMatrix:{},matrixWorldInverse:{},
+    camera:{name:'title-camera',position:{x:10,z:20},projectionMatrix:{},matrixWorldInverse:{},updateProjectionMatrix(){},
       updateMatrixWorld(){staticCalls.push('camera');},
       getWorldDirection(out){Object.assign(out,ctx.direction);staticCalls.push('direction');}},
     projView:{multiplyMatrices(a,b){assert.equal(a,ctx.camera.projectionMatrix);assert.equal(b,ctx.camera.matrixWorldInverse);staticCalls.push('projection');}},
@@ -302,214 +326,264 @@ function titleFixture() {
     flowerMeshes:[{material:{uniforms:{uCenter:{value:flowerCenter},uCam2:{value:flowerCamera}}}}],
     applyTimeOfDay(value){assert.equal(value,0.3);events.push('prepare');staticCalls.push('time');},
     applyWeather(){staticCalls.push('weather');},applyIndoor(){staticCalls.push('indoor');},
-    updateTreeVisibility(x,z){assert.equal(x,10);assert.equal(z,20);staticCalls.push('trees');},
-    updateMountains(){staticCalls.push('mountains');},
+    updateTreeVisibility(x,z){assert.equal(x,10);assert.equal(z,20);staticCalls.push('trees');},updateMountains(){staticCalls.push('mountains');},
+    gl:{LINK_STATUS:1,COMPILE_STATUS:2,isContextLost:()=>ctx.GRAPHICS_CONTEXT_LOST || !!ctx.directLost,
+      getProgramParameter:()=>false,getShaderParameter:()=>false,
+      getProgramInfoLog:()=>ctx.shaderLog ?? 'program detail',getShaderInfoLog:shader=>shader+' detail'},
     renderer:{
       debug:{onShaderError:originalShaderError,checkShaderErrors:false},
-      info:{reset(){events.push('reset');}},
-      setRenderTarget(target){assert.equal(target,ctx.sceneRT);events.push('target');},
-      setClearColor(){},clear(){events.push('clear');},
+      info:{programs:[],render:{calls:0,triangles:0},reset(){this.render.calls=0;this.render.triangles=0;}},
+      setRenderTarget(target){assert.equal(target,ctx.sceneRT);events.push('target:'+ctx.GRAPHICS_STARTUP.titleStage);},
+      setClearColor(){},clear(){},setPixelRatio(){},setSize(){},
+      renderBufferDirect:direct,
       render(scene,camera){
-        assert.equal(scene,ctx.scene); assert.equal(camera,ctx.camera);
-        assert.equal(ctx.U.uTrail.value,ctx.trailA.texture,'reuse the neutral boot texture without allocation');
-        events.push('scene');
-        if(ctx.failShader) ctx.renderer.debug.onShaderError({isContextLost:()=>false,getProgramInfoLog:()=> 'controlled link failure'},{});
+        assert.equal(scene,ctx.scene);assert.equal(camera,ctx.camera);
+        assert.equal(ctx.U.uTrail.value,ctx.trailA.texture);
+        events.push('scene:'+ctx.GRAPHICS_STARTUP.titleStage);
+        for(const object of inventory.renderables)if(object.visible)this.renderBufferDirect(camera,scene,object.geometry,object.material,object,null);
       },
     },
+    gpuDiagFamilies(){events.push('inventory');return inventory;},
+    gpuDiagCaptureRenderer(){return {...postState};},
+    gpuDiagRestoreRenderer(saved,restoreGl){assert.equal(restoreGl,false);Object.assign(postState,saved);events.push('restore:'+ctx.GRAPHICS_STARTUP.titleStage);},
     gpuDiagGlErrors(){return glErrors.shift() || [];},
     gpuDiagPrepareView(){throw Error('title must not prepare the dynamic diagnostic scene');},
-    renderPost(){events.push('post');},
-    gpuDiagWaitForFence(){events.push('fence');return new Promise((resolve,reject)=>fences.push({resolve,reject}));},
-    graphicsRememberRecovery(){events.push('remember');},
-    graphicsCheckpoint(){events.push('checkpoint');},
-    graphicsStartFailure(){events.push('failure');},
-    netHumanSync(){throw Error('title must not activate a human');},
-    netHumanLive(){return false;},
-    netPump(){throw Error('title must not pump network');},
-    simStep(){throw Error('title must not simulate');},
-    saveNow(){throw Error('title must not save');},
-    fetch(){throw Error('title must not fetch');},
+    renderPost(){
+      postState.material='temporary-post';postState.uniform='temporary-texture';
+      events.push('post:'+ctx.GRAPHICS_STARTUP.titleStage);
+      ctx.renderer.renderBufferDirect(ctx.camera,{},postObject.geometry,postObject.material,postObject,null);
+    },
+    gpuDiagWaitForFence(){
+      const stage=ctx.GRAPHICS_STARTUP.titleStage;events.push('fence:'+stage);
+      return new Promise((resolve,reject)=>fences.push({stage,resolve,reject,settled:false}));
+    },
+    nextPaint(){
+      events.push('paint');
+      return autoPaint?Promise.resolve():new Promise(resolve=>paints.push({resolve,settled:false}));
+    },
+    graphicsRememberRecovery(){events.push('remember');},graphicsCheckpoint(){events.push('checkpoint');},graphicsStartFailure(){events.push('failure');},
+    netHumanSync(){throw Error('stopped title must not activate a human');},netHumanLive(){return false;},
     createPlayer(){throw Error('stopped graphics must not create a character');},
     requestAnimationFrame(){throw Error('stopped graphics must not schedule a frame');},
     reportError(error){throw error;},
   };
-  for(const name of [
-    'updateAmbientLife','drawTownLife','drawAnimals','drawActors','drawFires','drawNature',
-    'drawHouses','updateFireflies','updateNearTrees','updateGrassCenters','gatherLights',
-    'stepTrail','renderDecals','updateWeather','simStep','netPump','saveNow',
-  ]) ctx[name]=()=>{throw Error('title must not invoke dynamic helper '+name);};
+  for(const name of ['updateAmbientLife','drawTownLife','drawAnimals','drawActors','drawFires','drawNature','drawHouses','updateFireflies',
+    'updateNearTrees','updateGrassCenters','gatherLights','stepTrail','renderDecals','updateWeather','simStep','netPump','saveNow','fetch'])
+    ctx[name]=()=>{throw Error('title must not invoke dynamic helper '+name);};
   vm.createContext(ctx);
-  vm.runInContext(declaration+'\n'+['prepareTitleView','renderTitleFrame','waitForTitleVisibility','renderFirstTitleFrame','tick','frame','resize','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
-  return {ctx,events,staticCalls,grassCenter,grassCamera,flowerCenter,flowerCamera,fences,glErrors,documentListeners,canvasListeners,originalTrail,originalShaderError,run:()=>vm.runInContext('renderTitleFrame()',ctx)};
+  vm.runInContext(declarations+'\n'+['prepareTitleView','applyGraphicsSize','resize','titleAssertActive','titleGraphicsBusy','submitTitleStage','renderTitleFrame','waitForTitleVisibility',
+    'renderFirstTitleFrame','tick','frame','startGame'].map(name=>extract(main,name)).join('\n'),ctx);
+  const f={ctx,nodes,events,staticCalls,fences,paints,glErrors,sizeCalls,inventory,objects,hidden,postState,originalTrail,originalShaderError,direct,
+    grassCenter,grassCamera,flowerCenter,flowerCamera,documentListeners,canvasListeners,
+    run:()=>vm.runInContext('renderTitleFrame()',ctx),resize:()=>vm.runInContext('resize()',ctx),
+    async flush(){for(let n=0;n<20;n++)await Promise.resolve();},
+    async fence(index=fences.findIndex(x=>!x.settled),error=null){
+      const receipt=fences[index];assert.ok(receipt && !receipt.settled,'one pending real stage receipt');
+      receipt.settled=true;if(error)receipt.reject(error);else receipt.resolve({waitMs:12});await this.flush();
+    },
+    async paint(){const receipt=paints.find(x=>!x.settled);assert.ok(receipt,'one pending paint opportunity');receipt.settled=true;receipt.resolve();await this.flush();},
+    async finish(pending){
+      let done=false,error;pending.then(()=>{done=true;},e=>{done=true;error=e;});
+      for(let n=0;n<200&&!done;n++){
+        await this.flush();
+        if(fences.some(x=>!x.settled))await this.fence();
+        else if(paints.some(x=>!x.settled))await this.paint();
+      }
+      assert.equal(done,true,'bounded staged title completion');if(error)throw error;return pending;
+    },
+    restored(){
+      assert.equal(ctx.U.uTrail.value,originalTrail);assert.equal(ctx.renderer.renderBufferDirect,direct);
+      assert.equal(ctx.renderer.debug.onShaderError,originalShaderError);assert.equal(ctx.renderer.debug.checkShaderErrors,false);
+      assert.deepEqual(postState,{material:'original-post',uniform:'original-texture'});
+      assert.deepEqual(inventory.renderables.map(o=>o.visible),[...objects.map(()=>true),false]);
+    },
+    visible(){ctx.document.hidden=false;for(const fn of [...(documentListeners.get('visibilitychange')||[])])fn();},
+    lose(){ctx.GRAPHICS_CONTEXT_LOST=true;for(const fn of [...(canvasListeners.get('webglcontextlost')||[])])fn();},
+  };
+  return f;
 }
-test('actual frozen title submits one scene and post frame and waits for completion without play',async()=>{
-  const f=titleFixture(), pending=f.run();
-  assert.deepEqual(f.events,['prepare','reset','target','clear','scene','post','fence']);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,1);
+const titleStages=['post','sky','terrain','grass','flowers','trees','water','structures','crowds','other'];
+
+test('actual static title preparation changes only existing view uniforms without randomness or simulation',()=>{
+  const f=titleFixture();vm.runInContext('prepareTitleView()',f.ctx);
   assert.deepEqual(f.staticCalls,['time','weather','indoor','camera','projection','frustum','inverse','direction','trees','mountains']);
   assert.deepEqual([f.grassCenter.x,f.grassCenter.y,f.grassCamera.x,f.grassCamera.y],[16,28,10,20]);
   assert.ok(Math.abs(f.flowerCenter.x-18.4)<1e-9);assert.ok(Math.abs(f.flowerCenter.y-31.2)<1e-9);
-  assert.deepEqual([f.flowerCamera.x,f.flowerCamera.y],[10,20]);
+  assert.equal(f.ctx.GAME.t,27);assert.equal(f.ctx.GAME.player,null);
   assert.equal(f.ctx.U.uCloudDomeOn.value.x,0);assert.equal(f.ctx.U.uCloudSh.value.w,0);assert.equal(f.ctx.U.uCloudScrP.value.z,0);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0,'submission is not GPU completion');
-  assert.equal(f.ctx.U.uTrail.value,f.originalTrail,'shared uniform is restored before the asynchronous fence');
-  assert.equal(f.ctx.renderer.debug.onShaderError,f.originalShaderError);
-  assert.equal(f.ctx.renderer.debug.checkShaderErrors,false);
-  assert.equal(f.ctx.GAME.t,27); assert.equal(f.ctx.GAME.started,false);
-  f.fences[0].resolve({waitMs:12});
-  assert.equal(await pending,true);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFenceWaitMs,12);
-  await Promise.resolve(); await Promise.resolve();
-  assert.equal(f.events.filter(value=>value==='scene').length,1,'standby does not resubmit title frames');
-  assert.equal(f.ctx.GAME.t,27); assert.equal(f.ctx.GAME.player,null);
 });
-test('concurrent explicit title redraw requests coalesce while the first GPU fence is pending',async()=>{
-  const f=titleFixture(), first=f.run();
-  assert.equal(f.run(),first); assert.equal(f.run(),first);
-  assert.equal(f.fences.length,1);
-  f.fences[0].resolve({waitMs:3});
-  for(let n=0;n<4&&f.fences.length<2;n++)await Promise.resolve();
-  assert.equal(f.fences.length,2,'one follow-up frame covers all requests during the first draw');
-  f.fences[1].resolve({waitMs:4});
-  await first;
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,2);
+test('actual title stages require a completed fence and paint before advancing to combined readiness',async()=>{
+  const f=titleFixture(),pending=f.run();await f.flush();
+  assert.deepEqual(f.fences.map(x=>x.stage),['post']);assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,0);f.restored();
+  await f.fence();assert.deepEqual(f.fences.map(x=>x.stage),['post']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,1);assert.equal(f.paints.length,1);f.restored();
+  await f.paint();assert.deepEqual(f.fences.map(x=>x.stage),['post','sky']);f.restored();
+  await f.finish(pending);
+  assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined']);
+  assert.deepEqual(Array.from(f.ctx.GRAPHICS_STARTUP.titleWarmup,x=>x.id),titleStages);
+  for(const row of f.ctx.GRAPHICS_STARTUP.titleWarmup){
+    assert.equal(row.completed,true);assert.equal(row.fenceComplete,true);assert.equal(row.exercised,true);assert.ok(row.workCalls>0);assert.equal(row.fenceWaitMs,12);
+  }
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,1);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFenceWaitMs,12);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFinal.newPrograms,0,'combined draw reuses warmed programs');assert.equal(f.ctx.GAME.t,27);assert.equal(f.ctx.GAME.started,false);f.restored();
+  const calls=f.events.length;await f.flush();assert.equal(f.events.length,calls,'standby creates no automatic batch, frame or timer');
+});
+test('family warming preserves hidden objects and reports empty families without claiming exercised work',async()=>{
+  const f=titleFixture();f.inventory.sets.flowers.clear();const pending=f.run();await f.finish(pending);
+  assert.equal(f.hidden.visible,false);
+  assert.equal(f.events.some(x=>x==='direct:other:hidden'),false);
+  const flowers=f.ctx.GRAPHICS_STARTUP.titleWarmup.find(x=>x.id==='flowers');
+  assert.equal(flowers.completed,true);assert.equal(flowers.fenceComplete,true);assert.equal(flowers.exercised,false);assert.equal(flowers.workCalls,0);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup[0].exercised,true,'post batch counts its actual composite draw');
+  f.restored();
+});
+test('unchanged concurrent title redraw requests coalesce and reuse completed warming',async()=>{
+  const f=titleFixture(),first=f.run();assert.equal(f.run(),first);assert.equal(f.run(),first);await f.finish(first);
+  assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined','combined']);
   assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,2);
-  assert.equal(f.ctx.U.uTrail.value,f.originalTrail);
+  const next=f.run();await f.finish(next);
+  assert.deepEqual(f.fences.slice(-1).map(x=>x.stage),['combined']);assert.equal(f.fences.length,13);f.restored();
 });
-test('hidden playing diagnostic unbuilt or lost title never submits a frame',async()=>{
-  for(const mutate of [
-    c=>{c.document.hidden=true;},c=>{c.GAME.started=true;},
-    c=>{c.diagnostic=true;},c=>{c.GAME.built=false;},c=>{c.GRAPHICS_CONTEXT_LOST=true;},
-  ]) {
-    const f=titleFixture(); mutate(f.ctx);
-    assert.equal(await f.run(),false); assert.equal(f.events.length,0); assert.equal(f.fences.length,0);
+test('explicit resize waits for the pending fence and rewarms once at the latest projection',async()=>{
+  const f=titleFixture(),pending=f.run();await f.flush();
+  f.ctx.window.innerWidth=800;f.ctx.window.innerHeight=400;f.resize();
+  f.ctx.window.innerWidth=900;f.ctx.window.innerHeight=500;f.resize();
+  assert.equal(f.sizeCalls.length,0,'pending GPU targets cannot be disposed by resize');
+  await f.fence();assert.equal(f.sizeCalls.length,0);await f.paint();
+  assert.deepEqual(f.sizeCalls,[[900,500]]);assert.deepEqual(f.fences.map(x=>x.stage),['post','post']);
+  await f.finish(pending);assert.deepEqual(f.fences.map(x=>x.stage),['post',...titleStages,'combined']);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,10);
+  assert.ok(Array.from(f.ctx.GRAPHICS_STARTUP.titleWarmup).every(x=>x.generation===2));
+  f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
+  f.ctx.window.innerWidth=1200;f.resize();await f.flush();
+  const current=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx);await f.finish(current);
+  assert.deepEqual(f.fences.slice(-11).map(x=>x.stage),[...titleStages,'combined'],'new targets/frustum must warm newly visible variants');
+  assert.deepEqual(f.sizeCalls,[[900,500],[1200,500]]);
+});
+test('a real play start during a successful pending fence applies queued size without more title work',async()=>{
+  const f=titleFixture(),pending=f.run();await f.flush();
+  f.ctx.window.innerWidth=700;f.ctx.window.innerHeight=900;f.resize();f.ctx.GAME.started=true;
+  await f.fence();if(f.paints.some(x=>!x.settled))await f.paint();await pending;
+  assert.deepEqual(f.sizeCalls,[[700,900]]);assert.deepEqual(f.fences.map(x=>x.stage),['post']);f.restored();
+});
+test('hidden title pauses between completed stages until a visible event without polling',async()=>{
+  const f=titleFixture(),pending=f.run();await f.flush();f.ctx.document.hidden=true;
+  await f.fence();await f.paint();assert.equal(f.fences.length,1);
+  assert.equal(f.documentListeners.get('visibilitychange').size,1);await f.flush();assert.equal(f.fences.length,1);
+  f.visible();await f.finish(pending);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  assert.equal(f.documentListeners.get('visibilitychange').size,0);assert.equal(f.canvasListeners.get('webglcontextlost').size,0);
+});
+test('hidden first title waits event-driven and context loss removes listeners without readiness',async()=>{
+  const f=titleFixture();f.ctx.document.hidden=true;
+  const pending=vm.runInContext('renderFirstTitleFrame()',f.ctx);const rejected=assert.rejects(pending,/Graphics stopped before the title became visible/);
+  assert.equal(f.fences.length,0);f.lose();await rejected;
+  assert.equal(f.fences.length,0);assert.equal(f.documentListeners.get('visibilitychange').size,0);
+  assert.equal(f.canvasListeners.get('webglcontextlost').size,0);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+});
+test('hidden playing diagnostic unbuilt and lost title never submits work',async()=>{
+  for(const mutate of [c=>{c.document.hidden=true;},c=>{c.GAME.started=true;},c=>{c.diagnostic=true;},c=>{c.GAME.built=false;},c=>{c.GRAPHICS_CONTEXT_LOST=true;}]) {
+    const f=titleFixture();mutate(f.ctx);assert.equal(await f.run(),false);assert.equal(f.fences.length,0);assert.equal(f.events.length,0);
   }
 });
-test('title fence failure latches stopped graphics and blocks title play tick resize and RAF',async()=>{
-  const f=titleFixture(), pending=f.run();
-  f.fences[0].reject(Error('controlled title fence timeout'));
-  await assert.rejects(pending,/controlled title fence timeout/);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleSubmitted,1);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
-  assert.equal(f.ctx.GAME.ready,false); assert.equal(f.ctx.window.__hm.ready,false);
-  assert.equal(f.ctx.U.uTrail.value,f.originalTrail);
-  assert.equal(f.events.filter(value=>value==='remember').length,1);
-  assert.equal(await f.run(),false);
-  const before=[...f.events];
-  vm.runInContext('startGame({}); tick(0.1); frame(1000); resize();',f.ctx);
-  assert.deepEqual(f.events,before);
-  assert.equal(f.ctx.GAME.started,false); assert.equal(f.ctx.GAME.t,27);
+test('title fence failure permanently stops stages play tick resizing and RAF with stage evidence',async()=>{
+  const f=titleFixture(),pending=f.run(),rejected=assert.rejects(pending,/controlled title fence timeout/);await f.flush();
+  f.ctx.window.innerWidth=900;f.resize();await f.fence(0,Error('controlled title fence timeout'));await rejected;
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GAME.ready,false);assert.equal(f.ctx.window.__hm.ready,false);
+  const before=[...f.events];assert.equal(await f.run(),false);vm.runInContext('startGame({});tick(0.1);frame(1000);resize();',f.ctx);
+  assert.deepEqual(f.events,before);assert.equal(f.sizeCalls.length,0);f.restored();
 });
-test('title shader and GL errors never produce a successful completion or permit play',async()=>{
-  for(const mode of ['shader','prior-gl','after-gl']) {
-    const f=titleFixture();
-    if(mode==='shader')f.ctx.failShader=true;
-    if(mode==='prior-gl')f.glErrors.push(['0x0502']);
-    if(mode==='after-gl')f.glErrors.push([],['0x0502']);
-    const pending=f.run();
-    if(mode==='after-gl')f.fences[0].resolve({waitMs:1});
-    await assert.rejects(pending,mode==='shader'?/Title shader could not link/:/GL errors/);
-    assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
-    assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
-    assert.match(f.ctx.GRAPHICS_STARTUP.titleError,mode==='shader'?/controlled link failure/:/0x0502/);
-    assert.equal(f.ctx.renderer.debug.onShaderError,f.originalShaderError);
-    assert.equal(f.ctx.renderer.debug.checkShaderErrors,false);
-    assert.equal(f.ctx.U.uTrail.value,f.originalTrail);
-    assert.equal(await f.run(),false);
-    vm.runInContext('startGame({}); tick(0.1); frame(1000); resize();',f.ctx);
-    assert.equal(f.ctx.GAME.started,false);
+test('context loss during a stage fence issues no later stage or resize commands',async()=>{
+  const f=titleFixture(),pending=f.run(),rejected=assert.rejects(pending,/context was lost/);await f.flush();f.lose();
+  await f.fence(0,Error('Graphics context was lost'));await rejected;
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.contextLost,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  assert.deepEqual(f.fences.map(x=>x.stage),['post']);assert.equal(f.sizeCalls.length,0);f.restored();
+});
+test('a lost GL context before its browser event cannot advance to another stage',async()=>{
+  const f=titleFixture(),pending=f.run(),rejected=assert.rejects(pending,/context is unavailable/);await f.flush();
+  f.ctx.directLost=true;await f.fence();await rejected;
+  assert.equal(f.ctx.GRAPHICS_CONTEXT_LOST,false,'the global context-loss event has not arrived');
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.contextLost,true);
+  assert.deepEqual(f.fences.map(x=>x.stage),['post']);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);f.restored();
+});
+
+test('shader failure retains bounded exact stage material geometry and compiler diagnostics',async()=>{
+  const f=titleFixture();f.ctx.failShaderStage='sky';f.ctx.shaderLog='X'.repeat(1000);
+  const pending=f.run(),rejected=assert.rejects(pending,/Title shader could not link/);await f.flush();await f.fence();await f.paint();await rejected;
+  const failure=f.ctx.GRAPHICS_STARTUP.titleFailure;
+  assert.equal(failure.stage,'sky');assert.equal(failure.material,'sky material');assert.equal(failure.materialId,201);
+  assert.equal(failure.object,'sky');assert.equal(failure.objectId,1);assert.equal(failure.geometryId,101);
+  assert.equal(failure.contextLost,false);assert.equal(failure.linked,'false');assert.equal(failure.vertexCompiled,'false');assert.equal(failure.fragmentCompiled,'false');
+  assert.equal(failure.programLog.length,600);assert.equal(failure.vertexLog,'vertex detail');assert.equal(failure.fragmentLog,'fragment detail');
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,1);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+  assert.equal(await f.run(),false);f.restored();
+});
+test('pre-draw and post-fence GL errors never become successful warmup or combined receipts',async()=>{
+  for(const mode of ['prior','after']) {
+    const f=titleFixture();f.glErrors.push(...(mode==='prior'?[['0x0502']]:[[],['0x0502']]));
+    const pending=f.run(),rejected=assert.rejects(pending,/GL errors/);await f.flush();
+    if(mode==='after')await f.fence();await rejected;
+    assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,0);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
+    assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleFailure.stage,'post');f.restored();
   }
 });
-
-test('hidden first title waits for visibility and a completed GPU fence without polling',async()=>{
-  const f=titleFixture(); f.ctx.document.hidden=true; f.ctx.GAME.ready=false; f.ctx.window.__hm.ready=false;
-  const pending=vm.runInContext('renderFirstTitleFrame()',f.ctx);
-  assert.equal(f.events.length,0); assert.equal(f.fences.length,0);
-  assert.equal(f.documentListeners.get('visibilitychange').size,1);
-  for(const fn of f.documentListeners.get('visibilitychange'))fn();
-  await Promise.resolve(); assert.equal(f.fences.length,0,'hidden events cannot submit a frame');
-  f.ctx.document.hidden=false;
-  for(const fn of [...f.documentListeners.get('visibilitychange')])fn();
-  for(let n=0;n<5&&f.fences.length===0;n++)await Promise.resolve();
-  assert.equal(f.fences.length,1);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
-  assert.equal(f.ctx.GAME.ready,false);
-  assert.equal(f.documentListeners.get('visibilitychange').size,0);
-  assert.equal(f.canvasListeners.get('webglcontextlost').size,0);
-  f.fences[0].resolve({waitMs:5}); await pending;
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
-  assert.equal(f.ctx.GAME.t,27); assert.equal(f.ctx.GAME.started,false);
+function allowPlayerCreation(f) {
+  const created=[];f.ctx.GAME.prog={level:1,rp:0};f.ctx.INPUT={keys:new Set()};
+  f.ctx.$=id=>f.nodes[id];f.ctx.CLASSES={warrior:{name:'Warrior'}};
+  f.ctx.zoneAt=()=>({name:'Fresh Season'});f.ctx.realmRank=()=>1;
+  f.ctx.createPlayer=save=>{
+    created.push(save);const player={x:0,z:0,name:'Owner',cls:'warrior',faction:0};
+    f.ctx.GAME.player=player;return player;
+  };
+  for(const name of ['savePartsLoad','rescaleWar','buildHUD','uiLog','sfx','loreOnStart','giftsOnStart','buildOnStart','survivalOnStart','depthOnStart'])
+    f.ctx[name]=()=>{};
+  f.ctx.intent={name:'Owner',realm:0,cls:'warrior',level:1,gold:0};
+  return created;
+}
+test('only post-Ready play intent waits for every resized stage and combined fence, then starts once',async()=>{
+  const f=titleFixture(),created=allowPlayerCreation(f);
+  vm.runInContext('startGame(intent)',f.ctx);assert.equal(created.length,0,'pre-Ready calls cannot create a player');
+  await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
+  f.ctx.window.innerWidth=1200;f.resize();await f.flush();
+  const pending=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx);
+  assert.equal(f.nodes.title.attributes['aria-busy'],'true');
+  assert.equal(f.nodes['title-graphics-status'].attributes.role,'status');
+  vm.runInContext('startGame(intent);startGame(intent);',f.ctx);
+  assert.equal(created.length,0);assert.equal(f.ctx.GAME.started,false);
+  await f.finish(pending);await f.flush();
+  assert.equal(created.length,1);assert.equal(f.ctx.GAME.started,true);
+  assert.equal(f.nodes.title.attributes['aria-busy'],'false');assert.equal(f.nodes['title-graphics-status'],undefined);
 });
-test('context loss while a hidden first title waits removes listeners and refuses readiness',async()=>{
-  const f=titleFixture(); f.ctx.document.hidden=true; f.ctx.GAME.ready=false;
-  const pending=vm.runInContext('renderFirstTitleFrame()',f.ctx);
-  f.ctx.GRAPHICS_CONTEXT_LOST=true;
-  for(const fn of [...f.canvasListeners.get('webglcontextlost')])fn();
-  await assert.rejects(pending,/Graphics stopped before the title became visible/);
-  assert.equal(f.events.length,0); assert.equal(f.fences.length,0);
-  assert.equal(f.documentListeners.get('visibilitychange').size,0);
-  assert.equal(f.canvasListeners.get('webglcontextlost').size,0);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0); assert.equal(f.ctx.GAME.ready,false);
-});
-
-test('a real title resize requests one frozen redraw while play and stopped states do not',()=>{
-  const f=titleFixture(), ctx=f.ctx;
-  let redraws=0, allocations=0;
-  const focalMaterial=()=>({uniforms:{uFocal:{value:0}}});
-  Object.assign(ctx,{
-    view:{w:0,h:0},quality:{dpr:1,scale:1,msaa:0,level:'low'},BOOT_SAFE:true,DEG:Math.PI/180,
-    makeTargets(){allocations++;},setupShadows(){},
-    flowerMat:{uniforms:{uAlphaCut:{value:0}}},fxAdd:{mesh:{material:focalMaterial()}},
-    fxAlpha:{mesh:{material:focalMaterial()}},glowMesh:{material:focalMaterial()},fireflyMat:focalMaterial(),
-  });
-  ctx.window.innerWidth=1920;ctx.window.innerHeight=1080;ctx.window.devicePixelRatio=1;
-  ctx.camera.updateProjectionMatrix=()=>{};
-  ctx.renderer.setPixelRatio=()=>{};ctx.renderer.setSize=()=>{};
-  ctx.U.uFoliageCut={value:0};
-  ctx.redraw=()=>{redraws++;return Promise.resolve(true);};
-  vm.runInContext('renderTitleFrame = redraw; resize();',ctx);
-  assert.equal(redraws,1); assert.equal(allocations,1);
-  ctx.GAME.started=true;vm.runInContext('resize()',ctx);assert.equal(redraws,1);
-  ctx.GRAPHICS_STARTUP.stopped=true;vm.runInContext('resize()',ctx);
-  assert.equal(redraws,1); assert.equal(allocations,2);
+test('failed resized warming never fulfills a deferred play intent',async()=>{
+  const f=titleFixture(),created=allowPlayerCreation(f),reported=[];f.ctx.reportError=error=>reported.push(error.message);
+  await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
+  f.ctx.window.innerWidth=1200;f.resize();await f.flush();
+  const pending=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx),rejected=assert.rejects(pending,/controlled deferred-play fence timeout/);
+  vm.runInContext('startGame(intent)',f.ctx);await f.fence(f.fences.length-1,Error('controlled deferred-play fence timeout'));await rejected;await f.flush();
+  assert.equal(created.length,0);assert.equal(f.ctx.GAME.started,false);assert.equal(f.ctx.GAME.ready,false);
+  assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.ok(reported.some(x=>x.includes('controlled deferred-play fence timeout')));
+  assert.equal(f.nodes.title.attributes['aria-busy'],'false');assert.equal(f.nodes['title-graphics-status'],undefined);
 });
 
 function wrappedTitleStepFixture() {
-  const f=titleFixture(), main=read('13_main.js'), perf=read('13p_perf.js');
-  const start=perf.indexOf('{\n  const ls0 = loadStep;'), end=perf.indexOf('\n}',start);
-  assert.ok(start>=0 && end>start,'test installs the actual profiling wrapper used by the combined page');
-  f.ctx.BOOT_STEPS=[]; f.ctx.PERFX={boot:[]};
-  f.ctx.performance={now:()=>100};
-  f.ctx.nextPaint=async()=>{};
-  f.ctx.$=()=>({style:{}});
+  const f=titleFixture({autoPaint:true}),main=read('13_main.js'),perf=read('13p_perf.js');
+  const start=perf.indexOf('{\n  const ls0 = loadStep;'),end=perf.indexOf('\n}',start);
+  assert.ok(start>=0 && end>start);f.ctx.BOOT_STEPS=[];f.ctx.PERFX={boot:[]};f.ctx.$=()=>({style:{}});
   vm.runInContext(extract(main,'loadStep')+'\n'+perf.slice(start,end+2),f.ctx);
   f.step=()=>vm.runInContext("loadStep(0.97,'Drawing the first view',renderFirstTitleFrame)",f.ctx);
   return f;
 }
-test('the actual profiling wrapper preserves asynchronous title GPU completion before boot finishes',async()=>{
-  const f=wrappedTitleStepFixture(), pending=f.step();
-  for(let n=0;n<8&&f.fences.length===0;n++)await Promise.resolve();
-  assert.equal(f.fences.length,1);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
-  assert.equal(f.ctx.BOOT_STEPS.length,0,'base step cannot finish before the GPU fence');
-  assert.equal(f.ctx.PERFX.boot.length,0,'profiling wrapper cannot mark pending async work complete');
-  f.fences[0].resolve({waitMs:8}); await pending;
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
-  assert.equal(f.ctx.BOOT_STEPS.length,1);
-  assert.equal(f.ctx.PERFX.boot.length,1);
+test('actual profiled boot cannot finish until every warmup and the combined title fence completes',async()=>{
+  const f=wrappedTitleStepFixture(),pending=f.step();await f.flush();
+  assert.equal(f.fences.length,1);assert.equal(f.ctx.BOOT_STEPS.length,0);assert.equal(f.ctx.PERFX.boot.length,0);
+  await f.finish(pending);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  assert.equal(f.ctx.BOOT_STEPS.length,1);assert.equal(f.ctx.PERFX.boot.length,1);
 });
-test('the actual profiling wrapper propagates an asynchronous title failure instead of finishing boot',async()=>{
-  const f=wrappedTitleStepFixture(), pending=f.step();
-  const rejected=assert.rejects(pending,/controlled profiled title timeout/);
-  for(let n=0;n<8&&f.fences.length===0;n++)await Promise.resolve();
-  f.fences[0].reject(Error('controlled profiled title timeout'));
-  await rejected;
-  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);
-  assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
-  assert.equal(f.ctx.BOOT_STEPS.length,0);
-  assert.equal(f.ctx.PERFX.boot.length,0);
+test('actual profiling propagates a failed warmup instead of declaring boot complete',async()=>{
+  const f=wrappedTitleStepFixture(),pending=f.step(),rejected=assert.rejects(pending,/controlled profiled title timeout/);await f.flush();
+  await f.fence(0,Error('controlled profiled title timeout'));await rejected;
+  assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,0);assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);
+  assert.equal(f.ctx.BOOT_STEPS.length,0);assert.equal(f.ctx.PERFX.boot.length,0);
 });
 
 function selectedSky(safe) {
