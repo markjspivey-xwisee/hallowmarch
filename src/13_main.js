@@ -117,6 +117,19 @@ function prepareTitleView() {
   updateTreeVisibility(x, z);
   updateMountains();
 }
+function titleGraphicsBusy(active) {
+  const title = document.getElementById('title');
+  if (!title) return;
+  title.setAttribute('aria-busy', String(active));
+  let status = document.getElementById('title-graphics-status');
+  if (active && GAME.ready) {
+    if (!status) {
+      status = document.createElement('p'); status.id = 'title-graphics-status';
+      status.setAttribute('role', 'status'); title.appendChild(status);
+    }
+    status.textContent = 'Preparing the resized view. Please wait.';
+  } else if (status) status.remove();
+}
 // Submit only existing production resources. Unlike renderer.compile(), a
 // restricted render does not traverse invisible families and link their shaders.
 async function submitTitleStage(id, members, inventory, combined = false) {
@@ -187,6 +200,7 @@ function renderTitleFrame() {
   TITLE_FRAME_DIRTY = true;
   if (TITLE_FRAME_PROMISE) return TITLE_FRAME_PROMISE;
   TITLE_FRAME_PROMISE = (async () => {
+    titleGraphicsBusy(true);
     while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !graphicsDiagnosticActive()) {
       TITLE_FRAME_DIRTY = false;
       await waitForTitleVisibility();
@@ -239,6 +253,7 @@ function renderTitleFrame() {
     throw error;
   }).finally(() => {
     TITLE_FRAME_PROMISE = null;
+    titleGraphicsBusy(false);
     // Play may begin during a later title redraw. Its successful fence still
     // owns a coalesced resize; hand the latest dimensions to the live renderer.
     if (TITLE_RESIZE_PENDING && GAME.started && !GRAPHICS_CONTEXT_LOST && !GRAPHICS_STARTUP.stopped) {
@@ -346,7 +361,13 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
-  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  if (GAME.started || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  // A click during an explicit title resize keeps its intent, but cannot create
+  // a player or start live work alongside an unfinished cold shader batch.
+  if (TITLE_FRAME_PROMISE) {
+    void TITLE_FRAME_PROMISE.then(() => startGame(save)).catch(reportError);
+    return;
+  }
   $('title').hidden = true;
   const P = createPlayer(save);
   savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
