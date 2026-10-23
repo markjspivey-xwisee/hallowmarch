@@ -6,7 +6,17 @@ const preview = 'https://march-native-preview-production.up.railway.app/?safe=1'
 const relayHealth = 'https://relay.interego.xwisee.com/health';
 const expectedRelay = '0fe5e953769b316cb0dcf4f3650cdb162f446976';
 const out = 'tools/out/release-browser-smoke';
-const reports = [];
+const reports = [], network = [];
+const noteNetwork = value => { if (network.length < 48) network.push(value); };
+function endpoint(url) {
+  try {
+    const u = new URL(url);
+    if (u.origin === new URL(preview).origin && u.pathname.startsWith('/gaming/identity/')) return u.pathname;
+    if (u.origin === 'https://identity.interego.xwisee.com') return 'native-identity';
+    if (u.origin === 'https://relay.interego.xwisee.com') return 'native-relay';
+  } catch { /* not a relevant endpoint */ }
+  return null;
+}
 let stage = 'relay-readiness', browser, page;
 const ensure = (ok, code) => { if (!ok) throw new Error(code); };
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -66,6 +76,21 @@ try {
   let popups = 0, pageErrors = 0;
   context.on('page', candidate => { if (candidate !== page) popups++; });
   page.on('pageerror', () => { pageErrors++; });
+  page.on('response', async response => {
+    const label = endpoint(response.url()); if (!label) return;
+    const entry = { endpoint: label, method: response.request().method(), status: response.status() };
+    noteNetwork(entry);
+    if (entry.status >= 400) {
+      try {
+        const body = await response.json(), candidate = body?.error?.code || body?.error || body?.code;
+        if (typeof candidate === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(candidate)) entry.code = candidate;
+      } catch { /* never retain response bodies */ }
+    }
+  });
+  page.on('requestfailed', request => {
+    const label = endpoint(request.url());
+    if (label) noteNetwork({ endpoint: label, method: request.method(), code: 'network_request_failed' });
+  });
   await page.goto(preview, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await page.waitForFunction(() => window.__hm?.ready
     && document.querySelector('#btn-begin')?.textContent.trim() === 'Play now'
@@ -84,6 +109,16 @@ try {
   // Ordinary trusted gameplay input; no calls to game hooks or hidden state writes.
   await page.locator('#scene').click({ position: { x: 650, y: 430 } });
   await page.keyboard.down('w'); await pause(500); await page.keyboard.up('w');
+  stage = 'active-shared-world';
+  await page.waitForFunction(() => {
+    const h = window.__hm, n = h?.net, w = n?.NETWS;
+    return n?.NET.state === 'on' && n.NET.link?.connected?.() === true
+      && w?.state === 'on' && w.ws?.readyState === 1 && w.acct?.nativeBound === true
+      && w.humanSuspended === false && w.worldInitialized === true
+      && !!w.activeWorldAdmission && !w.worldReloadRequired && !w.worldPauseReason
+      && w.worldPersistence?.mode === 'native' && w.worldPersistence.confirmedVersion > 0;
+  }, undefined, { timeout: 90_000 });
+  pass('trusted gameplay input joined the authenticated live native shared world');
   stage = 'save-and-idle';
   await pauseAndSave();
   const sent = await page.evaluate(() => window.__hm.net.NETWS.stats.sent);
@@ -124,11 +159,21 @@ try {
 } catch (error) {
   // Never print exception stacks, request headers, response bodies or browser storage.
   const code = /^[a-z0-9_]+$/.test(error?.message || '') ? error.message : 'browser_step_failed';
-  let status = null;
-  try { status = await page?.evaluate(() => window.__hm?.nativePlayerStatus?.() || null); } catch { /* browser closed */ }
+  let status = null, transport = null;
+  try {
+    status = await page?.evaluate(() => window.__hm?.nativePlayerStatus?.() || null);
+    transport = await page?.evaluate(() => {
+      const n = window.__hm?.net, w = n?.NETWS;
+      return { state: w?.state, roomState: n?.NET.state, welcomed: !!w?.acct?.nativeBound,
+        socketOpen: w?.ws?.readyState === 1, suspended: w?.humanSuspended === true,
+        worldInitialized: w?.worldInitialized === true, admissionPresent: !!w?.activeWorldAdmission,
+        worldPaused: !!w?.worldPauseReason, reloadRequired: w?.worldReloadRequired === true,
+        worldMode: w?.worldPersistence?.mode, worldState: w?.worldPersistence?.state };
+    });
+  } catch { /* browser closed */ }
   await fs.mkdir(out, { recursive: true });
-  await fs.writeFile(out + '/result.json', JSON.stringify({ passed: false, stage, code, status, checks: reports }, null, 2));
-  console.error(JSON.stringify({ failed: true, stage, code, status }));
+  await fs.writeFile(out + '/result.json', JSON.stringify({ passed: false, stage, code, status, transport, network, checks: reports }, null, 2));
+  console.error(JSON.stringify({ failed: true, stage, code, status, transport, network }));
   process.exitCode = 1;
 } finally {
   await browser?.close();
