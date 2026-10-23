@@ -473,6 +473,20 @@ test('hidden title pauses between completed stages until a visible event without
   f.visible();await f.finish(pending);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
   assert.equal(f.documentListeners.get('visibilitychange').size,0);assert.equal(f.canvasListeners.get('webglcontextlost').size,0);
 });
+test('hiding during the final combined fence keeps the pipeline pending until a visible redraw is fenced',async()=>{
+  const f=titleFixture(),pending=f.run();let done=false;pending.then(()=>{done=true;});
+  for(let n=0;n<titleStages.length;n++){
+    await f.flush();assert.equal(f.fences[n].stage,titleStages[n]);await f.fence(n);await f.paint();
+  }
+  assert.equal(f.fences[10].stage,'combined');f.ctx.document.hidden=true;await f.fence(10);
+  assert.equal(done,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,1);
+  assert.equal(f.documentListeners.get('visibilitychange').size,1);assert.equal(f.fences.length,11);
+  f.visible();await f.flush();assert.deepEqual(f.fences.map(x=>x.stage),[...titleStages,'combined','combined']);
+  assert.equal(done,false);assert.equal(f.ctx.GRAPHICS_STARTUP.titleWarmup.length,10,'visibility redraw reuses completed warming');
+  await f.fence(11);await pending;assert.equal(done,true);assert.equal(f.ctx.GRAPHICS_STARTUP.titleCompleted,2);
+  assert.equal(f.documentListeners.get('visibilitychange').size,0);assert.equal(f.nodes.title.attributes['aria-busy'],'false');f.restored();
+});
+
 test('hidden first title waits event-driven and context loss removes listeners without readiness',async()=>{
   const f=titleFixture();f.ctx.document.hidden=true;
   const pending=vm.runInContext('renderFirstTitleFrame()',f.ctx);const rejected=assert.rejects(pending,/Graphics stopped before the title became visible/);
