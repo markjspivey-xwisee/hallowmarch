@@ -4,7 +4,7 @@
 quality.auto = !BOOT_SAFE;
 GAME.ready = false;
 let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false;
-let TITLE_RESIZE_PENDING = false, TITLE_WARMED = false, TITLE_WARM_GENERATION = 0;
+let TITLE_RESIZE_PENDING = false, TITLE_WARMED = false, TITLE_WARM_GENERATION = 0, TITLE_START_PROMISE = null;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -370,12 +370,18 @@ async function boot() {
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
 function startGame(save) {
-  if (!GAME.ready || GAME.started || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
-  // A click during an explicit title resize keeps its intent, but cannot create
-  // a player or start live work alongside an unfinished cold shader batch.
+  if (!GAME.ready || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  // Coalesce the existing Play intent until graphics settle. Return completion
+  // to debug callers too; no player or live work overlaps a cold title batch.
   if (TITLE_FRAME_PROMISE) {
-    void TITLE_FRAME_PROMISE.then(() => startGame(save)).catch(reportError);
-    return;
+    if (!TITLE_START_PROMISE) {
+      TITLE_START_PROMISE = TITLE_FRAME_PROMISE.then(() => {
+        TITLE_START_PROMISE = null;
+        if (!GAME.started) return startGame(save);
+      }, error => { TITLE_START_PROMISE = null; throw error; });
+      void TITLE_START_PROMISE.catch(reportError);
+    }
+    return TITLE_START_PROMISE;
   }
   $('title').hidden = true;
   const P = createPlayer(save);
@@ -788,8 +794,9 @@ window.__hm = {
   dbg: { grassMeshes, scene, SHADOW, U, renderer, DBG, LAKES, skyU, FIRES, CAMPS, WEATHER, strikeLightning, spawnSlash, slashGeo, slashMesh, DRAGON, setDragonState, COVER, addFire, BRAND },
   start(o = {}) {
     const realm = o.realm ?? 0, cls = o.cls ?? 'warrior';
-    startGame({ v: 1, name: o.name || randomName(realm), realm, cls, level: o.level || 1, xp: 0, rp: o.rp || 0, fresh: true });
-    return GAME.player.id;
+    const completion = startGame({ v: 1, name: o.name || randomName(realm), realm, cls, level: o.level || 1, xp: 0, rp: o.rp || 0, fresh: true });
+    const playerId = () => GAME.player ? GAME.player.id : null;
+    return completion && typeof completion.then === 'function' ? completion.then(playerId) : playerId();
   },
   simulate(sec, dt = 0.05) {
     const n = Math.round(sec / dt);
