@@ -62,7 +62,11 @@ async function fixturePage(view) {
     .replace('<div id="title" hidden>', '<div id="title">');
   const native = await fs.readFile(path.join(root, 'src/14v_nativeidentity.js'), 'utf8');
   const saves = await fs.readFile(path.join(root, 'src/12_save.js'), 'utf8');
-  const nativeSaves = saves.slice(saves.indexOf('function nativeSavePending()'), saves.indexOf('// a slow heartbeat:'));
+  const nativeSaveStart = saves.indexOf('function nativeSavePending(');
+  const nativeSaveEnd = saves.indexOf('// a slow heartbeat:', nativeSaveStart);
+  assert(nativeSaveStart >= 0 && nativeSaveEnd > nativeSaveStart, 'The UI fixture must include the real native save functions.');
+  const nativeSaves = saves.slice(nativeSaveStart, nativeSaveEnd);
+  assert.match(nativeSaves, /function saveNow\(/, 'Live UI progress must exercise the real saveNow implementation.');
   const websocket = await fs.readFile(path.join(root, 'src/14p_netws.js'), 'utf8');
   const logout = websocket.slice(websocket.indexOf('async function netAcctOut()'), websocket.indexOf('// A remote reference'));
   // The footer registers world lore/debug globals outside this isolated UI host.
@@ -519,7 +523,7 @@ try {
     assert(await page.locator('#btn-begin').isDisabled());assert(await page.locator('#btn-continue').isDisabled());
     assert.equal(await page.locator('#title .native-player button').filter({hasText:'Retry connection'}).count(),1);
     const before=await page.evaluate(()=>identityCalls.reloadMarker);
-    await page.locator('#title .native-player button').filter({hasText:'Retry pod save'}).click();
+    await page.locator('#title .native-player').getByRole('button',{name:'Retry connection',exact:true}).click();
     await page.waitForFunction(()=>identityCalls.load===1);
     assert.equal(await page.evaluate(()=>identityCalls.reloadMarker),before,'startup retry must retain the browser and its held key');
     assert.deepEqual(await page.evaluate(()=>({retry:identityCalls.retry,save:identityCalls.save,load:identityCalls.load})),{retry:0,save:0,load:1});
@@ -528,7 +532,9 @@ try {
   await check('playing retry preserves pending progress and never reloads the page',async()=>{
     const context=await contextForMobile(),page=await openFixture(context,'players');
     await page.evaluate(()=>{GAME.started=true;GAME.player={};SAVE.pending={privateProgress:'retained-in-memory'};NATIVE_PLAYER.state='pod_pending';nativePlayerRender()});
-    const url=page.url();await page.locator('#netsheet .native-player button').filter({hasText:'Retry pod save'}).click();
+    const url=page.url(),box=page.locator('#netsheet .native-player');
+    await box.getByRole('button',{name:'Recovery options',exact:true}).click();
+    await box.getByRole('button',{name:'Retry pod save',exact:true}).click();
     await page.waitForFunction(()=>identityCalls.retry===1&&identityCalls.save===1);
     assert.equal(page.url(),url);assert.equal(await page.evaluate(()=>SAVE.pending.privateProgress),'retained-in-memory');
     await context.close();
