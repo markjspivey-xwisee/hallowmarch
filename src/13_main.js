@@ -157,6 +157,7 @@ async function submitTitleStage(id, members, inventory, combined = false) {
     if (id !== 'post') renderer.render(scene, camera);
     workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles;
     renderPost();
+    if (id === 'post') { workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles; }
   } finally {
     // Restore every shared CPU value before the fence yields. No further GL
     // calls are made here, including when a shader or context has failed.
