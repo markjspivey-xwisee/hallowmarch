@@ -546,34 +546,44 @@ function allowPlayerCreation(f) {
   f.ctx.$=id=>f.nodes[id];f.ctx.CLASSES={warrior:{name:'Warrior'}};
   f.ctx.zoneAt=()=>({name:'Fresh Season'});f.ctx.realmRank=()=>1;
   f.ctx.createPlayer=save=>{
-    created.push(save);const player={x:0,z:0,name:'Owner',cls:'warrior',faction:0};
+    created.push(save);const player={id:'player-'+created.length,x:0,z:0,name:save.name,cls:'warrior',faction:0};
     f.ctx.GAME.player=player;return player;
   };
   for(const name of ['savePartsLoad','rescaleWar','buildHUD','uiLog','sfx','loreOnStart','giftsOnStart','buildOnStart','survivalOnStart','depthOnStart'])
     f.ctx[name]=()=>{};
   f.ctx.intent={name:'Owner',realm:0,cls:'warrior',level:1,gold:0};
+  f.ctx.INV={potions:0,gold:0,eq:{}};f.ctx.SAVE={chain:Promise.resolve()};f.ctx.saveNow=()=>{};
+  const main=read('13_main.js'),start=main.indexOf('  start(o = {}) {'),end=main.indexOf('\n  simulate(',start);
+  assert.ok(start>=0 && end>start,'test executes the actual debug start facade');
+  vm.runInContext('globalThis.debug={'+main.slice(start,end)+'};',f.ctx);
   return created;
 }
-test('only post-Ready play intent waits for every resized stage and combined fence, then starts once',async()=>{
+test('actual debug start returns a deferred ID through all title fences and coalesces one player',async()=>{
   const f=titleFixture(),created=allowPlayerCreation(f);
-  vm.runInContext('startGame(intent)',f.ctx);assert.equal(created.length,0,'pre-Ready calls cannot create a player');
+  assert.equal(f.ctx.debug.start({name:'Owner'}),null);assert.equal(created.length,0,'pre-Ready calls cannot create a player');
   await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
   f.ctx.window.innerWidth=1200;f.resize();await f.flush();
   const pending=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx);
-  assert.equal(f.nodes.title.attributes['aria-busy'],'true');
-  assert.equal(f.nodes['title-graphics-status'].attributes.role,'status');
-  vm.runInContext('startGame(intent);startGame(intent);',f.ctx);
+  assert.equal(f.nodes.title.attributes['aria-busy'],'true');assert.equal(f.nodes['title-graphics-status'].attributes.role,'status');
+  const first=f.ctx.debug.start({name:'Owner'}),second=f.ctx.debug.start({name:'Owner'});
+  assert.equal(typeof first.then,'function');assert.equal(typeof second.then,'function');
+  const coalesced=vm.runInContext('TITLE_START_PROMISE',f.ctx);
+  assert.equal(vm.runInContext('startGame(intent)',f.ctx),coalesced,'underlying pending Play intent shares one promise');
   assert.equal(created.length,0);assert.equal(f.ctx.GAME.started,false);
-  await f.finish(pending);await f.flush();
+  await f.finish(pending);assert.equal(await first,'player-1');assert.equal(await second,'player-1');await f.flush();
   assert.equal(created.length,1);assert.equal(f.ctx.GAME.started,true);
   assert.equal(f.nodes.title.attributes['aria-busy'],'false');assert.equal(f.nodes['title-graphics-status'],undefined);
+  const immediate=f.ctx.debug.start({name:'Replacement'});
+  assert.equal(immediate,'player-2','idle debug character replacement keeps its immediate ID result');assert.equal(typeof immediate.then,'undefined');
+  assert.equal(created.length,2);
 });
-test('failed resized warming never fulfills a deferred play intent',async()=>{
+test('actual deferred debug start rejects failed title graphics and never creates a player',async()=>{
   const f=titleFixture(),created=allowPlayerCreation(f),reported=[];f.ctx.reportError=error=>reported.push(error.message);
   await f.finish(f.run());f.ctx.GAME.ready=true;f.ctx.window.__hm.ready=true;
   f.ctx.window.innerWidth=1200;f.resize();await f.flush();
   const pending=vm.runInContext('TITLE_FRAME_PROMISE',f.ctx),rejected=assert.rejects(pending,/controlled deferred-play fence timeout/);
-  vm.runInContext('startGame(intent)',f.ctx);await f.fence(f.fences.length-1,Error('controlled deferred-play fence timeout'));await rejected;await f.flush();
+  const deferred=f.ctx.debug.start({name:'Owner'}),startRejected=assert.rejects(deferred,/controlled deferred-play fence timeout/);
+  await f.fence(f.fences.length-1,Error('controlled deferred-play fence timeout'));await rejected;await startRejected;await f.flush();
   assert.equal(created.length,0);assert.equal(f.ctx.GAME.started,false);assert.equal(f.ctx.GAME.ready,false);
   assert.equal(f.ctx.GRAPHICS_STARTUP.stopped,true);assert.ok(reported.some(x=>x.includes('controlled deferred-play fence timeout')));
   assert.equal(f.nodes.title.attributes['aria-busy'],'false');assert.equal(f.nodes['title-graphics-status'],undefined);
