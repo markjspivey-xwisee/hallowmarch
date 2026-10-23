@@ -42,7 +42,36 @@ async function nativePlayerGuestRequest(url, options = {}, context = NATIVE_PLAY
   if (!current) throw nativePlayerError('owner_mismatch', 'The character connection changed. Retry its connection.');
   const proofOnly = options.method === 'POST' && ['/gaming/identity/play/challenge', '/gaming/identity/play/complete', '/gaming/identity/play/claim-complete', '/gaming/identity/play/claim-recovery-challenge'].includes(target.pathname);
   const token = NETWS.token || (proofOnly && NATIVE_PLAYER.provisionalProofContext === context ? NATIVE_PLAYER.provisionalProofToken : '');
-  return nativePlayerRequest(url, { ...options, token });
+  try { return await nativePlayerRequest(url, { ...options, token }); }
+  catch (cause) {
+    if (options.bootstrapRecovery !== true || options.method !== 'POST' || target.pathname !== '/gaming/identity/play/challenge'
+      || cause.httpStatus !== 401 || cause.code !== 'game_account_required') throw cause;
+    await nativePlayerRefreshBootstrapTransport(context, token);
+    return nativePlayerRequest(url, { ...options, token: NETWS.token });
+  }
+}
+async function nativePlayerRefreshBootstrapTransport(context, refusedToken) {
+  const session = NATIVE_PLAYER.provisional, host = context.host;
+  const allowed = () => NATIVE_PLAYER.provisionalContext === context && NATIVE_PLAYER.provisional === session
+    && NETWS.host === host && NETWS.acct?.id === context.accountId && !NETWS.reload
+    && !GAME.started && !SAVE.readConfirmed && !SAVE.loaded?.char && !SAVE.pending && !SAVE.nativeFlight
+    && !NATIVE_PLAYER.profile && !NATIVE_PLAYER.claimPendingResume && !NATIVE_PLAYER.claimConfirmationPending;
+  if (!session || !refusedToken || !allowed()) throw nativePlayerError('owner_mismatch', 'The temporary character connection changed. Retry without starting over.');
+  const metadata = await session.peek();
+  if (!allowed() || !metadata || metadata.gameAdmitted || metadata.credentialExpiresAt || metadata.characterId || metadata.targetAvailable || metadata.claimedOwnerDid) {
+    throw nativePlayerError('owner_mismatch', 'The existing character requires its original connection. Nothing was changed.');
+  }
+  // Only this refused disposable game proof is replaced. The browser proof
+  // key, native owner, pod and pending bootstrap metadata stay untouched.
+  await netWsTokenForget(host, refusedToken, allowed);
+  if (!allowed()) throw nativePlayerError('owner_mismatch', 'The game connection changed before its temporary proof could be refreshed.');
+  if (NETWS.link) NETWS.link.close(); else netWsRetire(NETWS.ws, 'retry incomplete character bootstrap');
+  NETWS.token = ''; NETWS.acct = null; context.accountId = undefined; NETWS.sessionRefusal = null;
+  if (!await netLinkWS() || NATIVE_PLAYER.provisionalContext !== context || NATIVE_PLAYER.provisional !== session
+    || NETWS.host !== host || NETWS.reload || GAME.started || SAVE.pending || SAVE.nativeFlight || !NETWS.acct?.id || !NETWS.token) {
+    throw nativePlayerError('account_required', 'The fresh temporary game connection is unavailable. Retry without creating another owner.');
+  }
+  context.accountId = NETWS.acct.id;
 }
 async function nativePlayerAcceptSession(result, context) {
   const session = result?.appSession, account = session?.acct, binding = result?.binding;
@@ -542,6 +571,11 @@ async function nativePlayerRefreshGuest() {
     await session.resume({ binding: NATIVE_PLAYER.status.binding, requireGameSession: true });
     NATIVE_PLAYER.profile = session.profile(); SAVE.ref = nativePlayerProvisionalRef(session);
     SAVE.nativePaused = false;
+    if (!GAME.started) {
+      await loadSave({ retry: true });
+      NATIVE_PLAYER.message = SAVE.readConfirmed ? 'Temporary character confirmed. Enter the realm when ready.' : 'The temporary connection is refreshed. Retry opening its private checkpoint.';
+      return;
+    }
     await saveNow({ final: true });
     NATIVE_PLAYER.message = SAVE.pending ? 'Connection refreshed. Your latest save is still awaiting confirmation.' : 'Temporary connection refreshed. Your current character stayed in this game.';
   } finally { SAVE.nativePaused = false; NATIVE_PLAYER.switching = false; nativePlayerRender(); }

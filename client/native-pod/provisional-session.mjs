@@ -195,7 +195,9 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     if (prior?.claimedOwnerDid) fail('already_claimed', 'This character belongs to its connected owner. Open that identity to continue.');
     if (prior && prior.guestExpiresAt <= now()) fail('guest_expired', 'This provisional character has expired.');
     const publicKey = await device.publicDescription();
-    const challenge = await request('/gaming/identity/play/challenge', { method: 'POST', body: { publicKeyJwk: publicKey.publicKeyJwk } });
+    const bootstrapRecovery = !!prior && prior.gameAdmitted !== true && !prior.credentialExpiresAt && !prior.characterId && !prior.targetClaim;
+    const challenge = await request('/gaming/identity/play/challenge', { method: 'POST', bootstrapRecovery,
+      body: { publicKeyJwk: publicKey.publicKeyJwk } });
     active();
     const issuer = secureOrigin(challenge.issuer), relay = secureOrigin(challenge.relayUrl || configuredRelay);
     if (configuredRelay && relay !== configuredRelay || challenge.audience && secureOrigin(challenge.audience) !== gameOrigin) fail('invalid_binding', 'The native play challenge belongs to another game or relay.');
@@ -225,6 +227,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     active();
     if (!sameBinding(complete.binding, binding)) fail('invalid_binding', 'The game did not confirm this provisional native owner.');
     await onSession(complete);
+    await remember({ gameAdmitted: true });
     await readGuest(bindingOf(complete.binding), credential);
     return { ...complete, profile: current, status: status() };
   }
@@ -543,6 +546,7 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
       return metadata ? { ownerDid: metadata.ownerDid, podUrl: metadata.podUrl, guestExpiresAt: metadata.guestExpiresAt,
         characterId: metadata.characterId || null, credentialExpiresAt: metadata.credentialExpiresAt || null,
         claimedOwnerDid: metadata.claimedOwnerDid || null, expired: metadata.guestExpiresAt <= now(),
+        gameAdmitted: metadata.gameAdmitted === true,
         targetAvailable: !!metadata.targetClaim, targetOwnerDid: metadata.targetClaim?.binding.subjectDid || null,
         lastConfirmedClaim: metadata.lastConfirmedClaim === true } : null;
     },

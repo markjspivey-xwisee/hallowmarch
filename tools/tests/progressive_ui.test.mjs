@@ -72,7 +72,7 @@ function fixture({ prior = null, snapshot = { v: 1, char: null }, bootstrapGate,
     };
     globalThis.fixture = { NATIVE_PLAYER, nativePlayerBegin, nativePlayerSaveRef, nativePlayerProvisionalRef,
       nativePlayerFinishClaim, nativePlayerConfirmClaim, nativePlayerClaimConnect, nativePlayerUseExistingTarget,
-      nativePlayerGuestRequest, nativePlayerCanPlayNow, nativePlayerAcceptSession };
+      nativePlayerGuestRequest, nativePlayerCanPlayNow, nativePlayerAcceptSession, nativePlayerRefreshGuest };
   `, context);
   return { ...context.fixture, context, calls, session, profile, profileState, SAVE: context.SAVE, NETWS: context.NETWS, GAME: context.GAME };
 }
@@ -157,6 +157,48 @@ test('the retired game proof is available only to the four same-origin POST proo
     ['/gaming/identity/play/complete#fragment', 'POST'],
   ]) await assert.rejects(f.nativePlayerGuestRequest(url, { method }), 'a retained proof cannot authorize ' + url);
   assert.equal(f.requests.length, 4, 'denied controls never receive a retained game proof');
+});
+
+test('an incomplete bootstrap may replace only its refused disposable game transport before retrying the same public key', async () => {
+  const f = await coldProofFixture(), prior = { ownerDid: 'did:fixture:guest', gameAdmitted: false };
+  f.session.peek = async () => prior; f.session.profile = () => null;
+  f.NATIVE_PLAYER.profile = null; f.NATIVE_PLAYER.claimPendingResume = false;
+  f.NETWS.token = 'stale-disposable'; let forgotten = 0, linked = 0;
+  f.context.netWsTokenForget = async (host, token, allowed) => { assert.equal(host, 'game.example'); assert.equal(token, 'stale-disposable'); assert.equal(allowed(), true); forgotten++; };
+  f.context.netWsRetire = () => {};
+  f.context.netLinkWS = async () => { linked++; f.NETWS.token = 'fresh-disposable'; f.NETWS.acct = { id: 'fresh-transport' }; return true; };
+  f.context.fetch = async (url, init) => { f.requests.push({ url, ...init }); return f.requests.length === 1
+    ? { ok: false, status: 401, json: async () => ({ error: 'game_account_required' }) }
+    : { ok: true, json: async () => ({ challenge: 'same-key-bootstrap' }) }; };
+  const result = await f.nativePlayerGuestRequest('/gaming/identity/play/challenge', { method: 'POST', bootstrapRecovery: true,
+    body: { publicKeyJwk: { fixture: 'same-public-key' } } });
+  assert.equal(result.challenge, 'same-key-bootstrap'); assert.equal(forgotten, 1); assert.equal(linked, 1);
+  assert.equal(f.requests[0].headers.Authorization, 'Bearer stale-disposable');
+  assert.equal(f.requests[1].headers.Authorization, 'Bearer fresh-disposable');
+  assert.equal(f.requests[0].body, f.requests[1].body); assert.equal(f.NATIVE_PLAYER.provisionalContext.accountId, 'fresh-transport');
+  assert.deepEqual(await f.session.peek(), prior); assert.equal(f.calls.bootstrap, 0); assert.equal(f.calls.starts.length, 0);
+});
+
+test('admitted, saved and claiming guests never clear their app proof through incomplete-bootstrap recovery', async () => {
+  for (const metadata of [{ gameAdmitted: true }, { credentialExpiresAt: Date.now() + 60000 }, { characterId: 'existing-character' }, { targetAvailable: true }, { claimedOwnerDid: 'did:fixture:owner' }]) {
+    const f = await coldProofFixture(); f.session.peek = async () => ({ ownerDid: 'did:fixture:guest', ...metadata });
+    f.NATIVE_PLAYER.profile = null; f.NATIVE_PLAYER.claimPendingResume = false; f.NETWS.token = 'existing-proof';
+    let forgotten = 0; f.context.netWsTokenForget = async () => { forgotten++; };
+    f.context.fetch = async () => ({ ok: false, status: 401, json: async () => ({ error: 'game_account_required' }) });
+    await assert.rejects(f.nativePlayerGuestRequest('/gaming/identity/play/challenge', { method: 'POST', bootstrapRecovery: true, body: {} }), { code: 'owner_mismatch' });
+    assert.equal(forgotten, 0); assert.equal(f.NETWS.token, 'existing-proof');
+  }
+});
+
+test('refreshing an incomplete title bootstrap confirms its private read before enabling entry', async () => {
+  const f = fixture({ prior: { ownerDid: 'did:fixture:guest', gameAdmitted: false } });
+  await f.nativePlayerSaveRef({ active: true }); f.SAVE.chain = Promise.resolve();
+  f.context.withTimeout = async promise => promise; let reads = 0;
+  f.context.loadSave = async options => { assert.equal(options.retry, true); reads++; f.SAVE.readConfirmed = true; };
+  await f.nativePlayerRefreshGuest();
+  assert.equal(reads, 1); assert.equal(f.SAVE.readConfirmed, true);
+  assert.equal(f.calls.finalSaves, 0, 'a title refresh reads the saved character instead of writing unstarted gameplay');
+  assert.match(f.NATIVE_PLAYER.message, /character confirmed/); assert.equal(f.NATIVE_PLAYER.switching, false);
 });
 
 test('host, account, context or navigation changes revoke cold proof recovery before another request', async () => {
