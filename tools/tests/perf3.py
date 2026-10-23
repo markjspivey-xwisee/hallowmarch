@@ -12,7 +12,7 @@ Writes tools/out/perf3_<tag>.json."""
 import asyncio, json, sys, time, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
-from hmlib import human_play
+from hmlib import human_play, wait_title_settled
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -77,7 +77,9 @@ async def main():
         await page.goto('http://hm.test/', wait_until='commit')
         await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
         await page.evaluate(HELP)
-        await page.evaluate("(() => { __hm.fn.setQuality('low'); __hm.start({ realm: 0, cls: 'warrior', level: 30 }); P3.calm(); __hm.setTod(0.55); __hm.UI.modal = null; const E = __hm.dbg.WEATHER; E.mode = 'auto'; if (E.next > 1e6) E.next = 60; return 0; })()")
+        await page.evaluate("__hm.fn.setQuality('low')")
+        await wait_title_settled(page)
+        await page.evaluate("async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 30 }); P3.calm(); __hm.setTod(0.55); __hm.UI.modal = null; const E = __hm.dbg.WEATHER; E.mode = 'auto'; if (E.next > 1e6) E.next = 60; return 0; }")
         log('ready; a war run on 60 s')
         advanced = await active_eval(page, "() => { const t = __hm.GAME.t; __hm.simulate(60); return __hm.GAME.t - t; }")
         check(advanced > 59, 'trusted browser input runs the active war benchmark')
