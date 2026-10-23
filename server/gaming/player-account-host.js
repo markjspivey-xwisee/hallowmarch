@@ -68,6 +68,20 @@ async function readBody(req, maxBytes = 4096) {
   if (!plain(body)) fail('invalid_request_body');
   return body;
 }
+function claimReadback(body) {
+  if (Object.keys(body).some(key => !['claimOperationId', 'attestation', 'proof', 'targetRecord', 'readConfirmed', 'selection', 'recoveryChallenge'].includes(key))
+    || (body.selection !== undefined && !['copy-guest', 'use-existing'].includes(body.selection))
+    || body.readConfirmed !== true || !plain(body.targetRecord)) fail('invalid_claim_readback');
+  const reference = body.targetRecord;
+  if (Object.keys(reference).some(key => !['kind', 'graphIri', 'descriptorUrl', 'cid', 'bindingCid', 'nativeRevision', 'recordCid', 'proofKind', 'digest'].includes(key))
+    || reference.proofKind !== 'owner-key-authenticated-checkpoint' || typeof reference.cid !== 'string' || !reference.cid
+    || typeof reference.recordCid !== 'string' || !reference.recordCid || typeof reference.digest !== 'string' || !reference.digest
+    || typeof reference.nativeRevision !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(reference.nativeRevision)
+    || Buffer.byteLength(JSON.stringify(reference)) > 8192) fail('invalid_claim_readback');
+  const frozenReference = Object.fromEntries(Object.keys(reference).sort().map(key => [key, reference[key]]));
+  return { reference, frozenReference, requestDigest: hash(JSON.stringify({ claimOperationId: body.claimOperationId,
+    targetRecord: frozenReference, selection: body.selection ?? 'copy-guest', readConfirmed: true })) };
+}
 
 export function createPlayerAccountHost(options = {}) {
   for (const port of ['tokenClaims', 'issueAppSession', 'getAccount', 'restoreAccount', 'readLegacySave']) {
@@ -103,13 +117,14 @@ export function createPlayerAccountHost(options = {}) {
     .finally(() => { initialReadySettled = true; });
   const routes = Object.freeze({ status: '/gaming/identity/status', legacyImport: '/gaming/identity/legacy-import', recordLink: '/gaming/identity/record-link',
     playChallenge: '/gaming/identity/play/challenge', playComplete: '/gaming/identity/play/complete',
-    claimChallenge: '/gaming/identity/play/claim-challenge', claimComplete: '/gaming/identity/play/claim-complete' });
+    claimChallenge: '/gaming/identity/play/claim-challenge', claimComplete: '/gaming/identity/play/claim-complete',
+    claimRecoveryChallenge: '/gaming/identity/play/claim-recovery-challenge' });
   const playRelayUrl = new URL(options.playRelayCatalog ?? 'https://relay.interego.xwisee.com/tools').origin;
   const playConfigured = typeof options.playGrantSigner === 'function' || typeof options.store?.publicationIdentity === 'function';
   const playDescription = () => ({ enabled: enabled() && playConfigured, relayUrl: playRelayUrl, audience: publicUrl.origin });
-  const claimChallenges = new Map(), claimAuthorizations = new Map(), claimsPending = new Map();
+  const claimChallenges = new Map(), claimAuthorizations = new Map(), claimsPending = new Map(), claimRecoveries = new Map();
   function pruneClaims() {
-    for (const map of [claimChallenges, claimAuthorizations, claimsPending]) for (const [key, value] of map) if (value.expiresAt <= now()) map.delete(key);
+    for (const map of [claimChallenges, claimAuthorizations, claimsPending, claimRecoveries]) for (const [key, value] of map) if (value.expiresAt <= now()) map.delete(key);
   }
   const prune = () => { for (const [key, proof] of proofs) if (proof.expiresAt <= now()) proofs.delete(key); };
   const recordFor = accountId => ledger.bindingForAccount(accountId);
@@ -341,8 +356,7 @@ export function createPlayerAccountHost(options = {}) {
       const target = ledger.bindingForDid(binding.subjectDid);
       if (target?.binding.provisional && target.accountId !== accountId) fail('canonical_native_owner_required', 403);
       if (claimsPending.size >= MAX_SESSION_PROOFS) fail('identity_ceremony_limit', 429);
-      const claimOperationId = 'character-claim:' + randomBytes(32).toString('base64url');
-      const sourceChallenge = hash('hallowmarch-claim-source-v1:' + claimOperationId);
+      const claimOperationId = 'character-claim:' + randomBytes(32).toString('base64url'), sourceChallenge = randomBytes(32).toString('base64url');
       const expiresAt = Math.min(authorization.expiresAt, now() + PROOF_TTL_MS, Date.parse(source.binding.expiresAt));
       const existingRecord = target?.records.character ?? null;
       claimsPending.set(claimOperationId, { accountId, sessionId: authorization.sessionId, sourceBinding: structuredClone(source.binding),
@@ -353,41 +367,55 @@ export function createPlayerAccountHost(options = {}) {
         guestOwnerDid: source.binding.subjectDid, targetOwnerDid: binding.subjectDid, sourceChallenge,
         expiresAt: new Date(expiresAt).toISOString(), existingRecord } };
     } });
+  async function completedClaim(req, body, readback) {
+    // Authenticate before native reads; expired signatures confer only a
+    // source hint, never completion or gameplay authority without a new proof.
+    let auth;
+    try { auth = authenticated(req); }
+    catch (error) {
+      if (!(error instanceof HostError) || error.code !== 'game_account_required') throw error;
+      auth = await playProofAuth(req, { claimRecovery: true });
+    }
+    const result = await ledger.recoverProvisionalClaim(body.claimOperationId, readback.reference, hash(JSON.stringify(readback.frozenReference)));
+    if (!result) fail('claim_operation_unavailable', 409);
+    const sourceSession = auth.account.id === result.sourceAccountId && auth.claims.provisional === true
+      && auth.claims.nativeDid === result.marker.sourceDid;
+    const targetSession = auth.account.id === result.accountId && auth.claims.provisional !== true
+      && freshDid(auth.claims, auth.account.id) === result.marker.targetDid;
+    if (!sourceSession && !targetSession) fail('claim_operation_unavailable', 409);
+    return { auth, result };
+  }
+  async function recoveryChallenge(req, body) {
+    pruneClaims();
+    if (claimRecoveries.size >= MAX_SESSION_PROOFS) fail('identity_ceremony_limit', 429);
+    if (Object.keys(body).some(key => !['claimOperationId', 'targetRecord', 'readConfirmed', 'selection'].includes(key))) fail('invalid_claim_readback');
+    const readback = claimReadback(body), { auth } = await completedClaim(req, body, readback);
+    if (claimRecoveries.size >= MAX_SESSION_PROOFS || [...claimRecoveries.values()].filter(value => value.sessionId === auth.sessionId).length >= 4) fail('identity_ceremony_limit', 429);
+    const challenge = randomBytes(32).toString('base64url'), expiresAt = now() + 120000;
+    claimRecoveries.set(challenge, { sessionId: auth.sessionId, accountId: auth.account.id, operationId: body.claimOperationId,
+      requestDigest: readback.requestDigest, expiresAt, flight: null, answer: null });
+    return { challenge, audience: publicUrl.origin, expiresAt: new Date(expiresAt).toISOString() };
+  }
   async function finalizeClaim(req, body) {
     pruneClaims(); const pending = claimsPending.get(body.claimOperationId);
-    if (Object.keys(body).some(key => !['claimOperationId', 'attestation', 'proof', 'targetRecord', 'readConfirmed', 'selection'].includes(key))
-      || (body.selection !== undefined && !['copy-guest', 'use-existing'].includes(body.selection))
-      || body.readConfirmed !== true || !plain(body.targetRecord)) fail('invalid_claim_readback');
-    const reference = body.targetRecord;
-    if (Object.keys(reference).some(key => !['kind', 'graphIri', 'descriptorUrl', 'cid', 'bindingCid', 'nativeRevision', 'recordCid', 'proofKind', 'digest'].includes(key))
-      || reference.proofKind !== 'owner-key-authenticated-checkpoint' || typeof reference.cid !== 'string' || !reference.cid
-      || typeof reference.recordCid !== 'string' || !reference.recordCid || typeof reference.digest !== 'string' || !reference.digest
-      || typeof reference.nativeRevision !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(reference.nativeRevision)
-      || Buffer.byteLength(JSON.stringify(reference)) > 8192) fail('invalid_claim_readback');
-    const frozenReference = Object.fromEntries(Object.keys(reference).sort().map(key => [key, reference[key]]));
-    const requestDigest = hash(JSON.stringify({ claimOperationId: body.claimOperationId, targetRecord: frozenReference,
-      selection: body.selection ?? 'copy-guest', readConfirmed: true }));
-    if (!pending) {
-      // A response may be lost after native CAS. A restart or OAuth lease
-      // expiry cannot erase that committed transition. Reconcile its immutable
-      // receipt and source-key proof; never revive guest play or replay writes.
-      const result = await ledger.recoverProvisionalClaim(body.claimOperationId, reference, hash(JSON.stringify(frozenReference)));
-      if (!result) fail('claim_operation_unavailable', 409);
-      let auth;
-      try { auth = authenticated(req); }
-      catch (error) {
-        if (!(error instanceof HostError) || error.code !== 'game_account_required') throw error;
-        auth = await playProofAuth(req, { claimRecovery: true });
-      }
-      const sourceSession = auth.account.id === result.sourceAccountId && auth.claims.provisional === true
-        && auth.claims.nativeDid === result.marker.sourceDid;
-      const targetSession = auth.account.id === result.accountId && auth.claims.provisional !== true
-        && freshDid(auth.claims, auth.account.id) === result.marker.targetDid;
-      if (!sourceSession && !targetSession) fail('claim_operation_unavailable', 409);
-      await play.verifyClaimSource(result.marker, { attestation: body.attestation, proof: body.proof },
-        hash('hallowmarch-claim-source-v1:' + body.claimOperationId));
-      return { ...await issueBoundSession(result), binding: publicBinding(result.binding), provisional: false,
-        claimed: true, claimOperationId: body.claimOperationId, pointer: result.pointer };
+    const { reference, frozenReference, requestDigest } = claimReadback(body);
+    if (!pending || body.recoveryChallenge !== undefined) {
+      const recovery = claimRecoveries.get(body.recoveryChallenge);
+      if (!recovery || recovery.expiresAt <= now() || recovery.operationId !== body.claimOperationId || recovery.requestDigest !== requestDigest) fail('claim_recovery_challenge_required', 409);
+      const { auth, result } = await completedClaim(req, body, { reference, frozenReference, requestDigest });
+      if (recovery.sessionId !== auth.sessionId || recovery.accountId !== auth.account.id) fail('claim_recovery_challenge_required', 409);
+      await play.verifyClaimSource(result.marker, { attestation: body.attestation, proof: body.proof }, body.recoveryChallenge);
+      if (recovery.expiresAt <= now()) fail('claim_recovery_challenge_required', 409);
+      // A consumed nonce returns only its original answer. It can never mint
+      // another token; a new nonce requires another signature from the key.
+      if (recovery.answer) return structuredClone(recovery.answer);
+      if (recovery.flight) return recovery.flight;
+      recovery.flight = (async () => {
+        recovery.answer = { ...await issueBoundSession(result), binding: publicBinding(result.binding), provisional: false,
+          claimed: true, claimOperationId: body.claimOperationId, pointer: result.pointer };
+        return structuredClone(recovery.answer);
+      })();
+      try { return await recovery.flight; } finally { recovery.flight = null; }
     }
     const auth = authenticated(req);
     const originalSession = pending.sessionId === auth.sessionId && pending.accountId === auth.account.id;
@@ -459,7 +487,7 @@ export function createPlayerAccountHost(options = {}) {
     },
     close() {
       closed = true; readyOk = false; proofs.clear(); bridge.close(); claimBridge.close(); play.close();
-      claimChallenges.clear(); claimAuthorizations.clear(); claimsPending.clear();
+      claimChallenges.clear(); claimAuthorizations.clear(); claimsPending.clear(); claimRecoveries.clear();
       clearInterval(recoveryTimer);
       if (recoveryFlight) { clearTimeout(recoveryFlight.timer); recoveryFlight.stop(); }
     },
@@ -497,6 +525,7 @@ export function createPlayerAccountHost(options = {}) {
           claimChallenges.set(challenge, { accountId: auth.account.id, sessionId: auth.sessionId, expiresAt });
           json(res, 200, { challenge, audience: publicUrl.origin, expiresAt: new Date(expiresAt).toISOString() });
         } else if (route === 'claimComplete') json(res, 200, await finalizeClaim(req, await readBody(req, 32768)));
+        else if (route === 'claimRecoveryChallenge') json(res, 200, await recoveryChallenge(req, await readBody(req, 32768)));
         else {
           const auth = authenticated(req), subjectDid = freshDid(auth.claims, auth.account.id, { human: true });
           if (!subjectDid) fail('native_signin_required', 403);

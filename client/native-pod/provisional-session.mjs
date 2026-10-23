@@ -246,6 +246,17 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     if (input.requireGameSession === true && !pendingClaimResume) return provision(binding);
     let credential = input.nativeSession ? credentialFrom(input.nativeSession, metadata.relayUrl, 'provisional', now()) :
       (await accessCache.get({ relayUrl: metadata.relayUrl, ownerDid: metadata.ownerDid, podUrl: metadata.podUrl }))?.credential;
+    if (!credential && pendingClaimResume && metadata.targetClaim.confirmation) {
+      // A durable completed admission can be recovered with public receipt +
+      // a fresh key proof even when both pod grants expired. Confirming a game
+      // assignment is not permission to read a private save: normal canonical
+      // sign-in must renew that grant before loading or writing the character.
+      const result = await recoverReceipt(metadata.targetClaim);
+      await onSession(result); active(); claimed = true; currentBinding = metadata.targetClaim.binding;
+      await remember({ claimedOwnerDid: currentBinding.subjectDid, targetClaim: null });
+      change('native_signin_required');
+      fail('credential_expired', 'Your kept character connection is recovered. Reconnect its Interego identity to renew private pod access.');
+    }
     if (!credential && pendingClaimResume) fail('credential_expired', 'Reconnect the canonical owner to recover the pending character claim. The original private checkpoints remain available.');
     if (!credential) return provision(binding);
     await readGuest(binding, credential, { deferRelationship: pendingClaimResume });
@@ -425,9 +436,16 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
     }
     if (!original) await remember({ targetClaim: { ...handoff, confirmation: { selection, targetRecord } } });
     change('claim_confirming');
-    const result = await request('/gaming/identity/play/claim-complete', { method: 'POST', body: {
-      claimOperationId: lease.claimOperationId, attestation: metadata.attestation, readConfirmed: true, targetRecord, selection,
-      proof: await device.signProof({ attestation: metadata.attestation, audience: gameOrigin, challenge: lease.sourceChallenge }) } });
+    let result;
+    if (expiry(lease.expiresAt) <= now()) result = await recoverReceipt(metadata.targetClaim);
+    else try {
+      result = await request('/gaming/identity/play/claim-complete', { method: 'POST', body: {
+        claimOperationId: lease.claimOperationId, attestation: metadata.attestation, readConfirmed: true, targetRecord, selection,
+        proof: await device.signProof({ attestation: metadata.attestation, audience: gameOrigin, challenge: lease.sourceChallenge }) } });
+    } catch (cause) {
+      if (!['claim_operation_unavailable', 'claim_recovery_challenge_required'].includes(cause.code)) throw cause;
+      result = await recoverReceipt(metadata.targetClaim);
+    }
     active();
     if (!sameBinding(result.binding, target)) fail('invalid_binding', 'The game did not confirm the canonical owner promotion.');
     // The game admission is established before either the active save target or
@@ -457,6 +475,21 @@ export async function createProvisionalPlayerSession({ origin = globalThis.locat
       try { await current.confirmRelationship(); } catch (cause) { change('link_pending', { detail: cause.message }); }
     }
     return { ...result, claimed: true, localPersistencePending, localSessionPending, latestProgressPending, profile: current, status: status() };
+  }
+  async function recoverReceipt(handoff) {
+    const confirmation = handoff.confirmation;
+    if (!confirmation) fail('claim_unconfirmed', 'The original character completion receipt is required.');
+    const body = { claimOperationId: handoff.appSession.claimOperationId, readConfirmed: true,
+      targetRecord: confirmation.targetRecord, selection: confirmation.selection };
+    const nonce = await request('/gaming/identity/play/claim-recovery-challenge', { method: 'POST', body });
+    if (secureOrigin(nonce.audience) !== gameOrigin || !/^[A-Za-z0-9_-]{43}$/.test(nonce.challenge || '')
+      || expiry(nonce.expiresAt) <= now() || expiry(nonce.expiresAt) > now() + 120000) fail('invalid_claim', 'The fresh character recovery challenge is invalid.');
+    const result = await request('/gaming/identity/play/claim-complete', { method: 'POST', body: { ...body,
+      recoveryChallenge: nonce.challenge, attestation: metadata.attestation,
+      proof: await device.signProof({ attestation: metadata.attestation, audience: gameOrigin, challenge: nonce.challenge }) } });
+    active();
+    if (!sameBinding(result.binding, handoff.binding)) fail('invalid_binding', 'The recovered character belongs to another canonical owner.');
+    return result;
   }
   async function useExistingTarget() {
     metadata = await device.peekMetadata();

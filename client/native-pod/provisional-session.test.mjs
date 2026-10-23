@@ -8,7 +8,7 @@ const guest = { subjectDid: 'did:web:identity.example:users:u-try-play-one', pod
 const owner = { subjectDid: 'did:web:identity.example:users:alice', podUrl: 'https://pod.example/alice/', userId: 'u-pk-alice' };
 const clone = value => structuredClone(value);
 function fixture() {
-  let metadata = null, finalizeLost = false, failReadback = false, quota = false, persistenceFails = false, completionBinding = owner;
+  let metadata = null, finalizeLost = false, failReadback = false, quota = false, persistenceFails = false, completionBinding = owner, clock = NOW;
   const records = new Map(), credentials = new Map(), calls = [], requests = [], sessions = [];
   const device = { async peekMetadata() { return clone(metadata); },
     async publicDescription() { return { publicKeyJwk: { kty: 'EC', crv: 'P-256', x: 'x'.repeat(43), y: 'y'.repeat(43) }, proofKeyThumbprint: 't'.repeat(43) }; },
@@ -45,6 +45,7 @@ function fixture() {
     if (path.endsWith('/play/complete')) return { binding: guest, appSession: { token: 'guest-game-session' }, provisional: true };
     if (path.endsWith('/play/claim-challenge')) return { audience: origin, challenge: 'claim-start-challenge' };
     if (path.endsWith('/claim-owner/start')) return { authorizationUrl: 'https://identity.example/authorize', browserCeremony: 'popup' };
+    if (path.endsWith('/play/claim-recovery-challenge')) return { audience: origin, challenge: 'r'.repeat(43), expiresAt: clock + 120000 };
     if (path.endsWith('/play/claim-complete')) {
       assert.equal(options.body.readConfirmed, true); assert(options.body.targetRecord.nativeRevision);
       assert(!JSON.stringify(options.body).includes('private hero'));
@@ -60,8 +61,8 @@ function fixture() {
         proofKeyThumbprint: 't'.repeat(43), attestation: 'public-attestation', guestExpiresAt: new Date(NOW + 86400000).toISOString(), expiresAt: new Date(NOW + 3600000).toISOString() };
     assert.equal(options.credentials, 'omit'); return new Response(JSON.stringify(data), { status: 200 });
   };
-  const make = async extra => createProvisionalPlayerSession({ origin, relayUrl, request, fetch, crypto: webcrypto, now: () => NOW,
-    device, accessCache: cache, createProfile, onSession: async result => { sessions.push(result); }, ...extra });
+  const make = async extra => { if (extra?.now) clock = extra.now(); return createProvisionalPlayerSession({ origin, relayUrl, request, fetch, crypto: webcrypto, now: () => clock,
+    device, accessCache: cache, createProfile, onSession: async result => { sessions.push(result); }, ...extra }); };
   const target = (binding = owner) => { completionBinding = binding; return { binding, nativeSession: { accessToken: 'canonical-relay-secret', tokenType: 'Bearer',
     mcpUrl: relayUrl + '/mcp', expiresAt: NOW + 3600000 }, appSession: { purpose: 'character-claim-target',
       claimOperationId: 'claim-operation-one', guestOwnerDid: guest.subjectDid, targetOwnerDid: binding.subjectDid,
@@ -224,6 +225,23 @@ test('an expired lease without an original completion receipt cannot create a ta
   assert.equal(f.records.has(owner.subjectDid), false);
   assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey'].includes(call.op)).length, 0);
   assert.equal(f.requests.filter(call => call.path.endsWith('/claim-complete')).length, 0);
+});
+
+test('both expired native grants recover only confirmed game admission and require normal canonical pod sign-in', async () => {
+  const f = fixture(), session = await f.make(); await session.bootstrap();
+  await session.set({ v: 1, char: { name: 'private hero', level: 5 } }); await session.prepareClaim(); f.loseFinalize();
+  await assert.rejects(session.claimTarget(f.target()), /lost final response/);
+  const records = clone([...f.records]), original = clone(f.metadata.targetClaim.confirmation.targetRecord);
+  f.credentials.clear();
+  const next = await f.make({ now: () => NOW + 3600001 }), count = f.calls.length;
+  await assert.rejects(next.resume({ binding: guest, requireGameSession: true }), { code: 'credential_expired' });
+  assert.equal(next.status().provisional, false); assert.equal(next.status().ownerDid, owner.subjectDid);
+  assert.equal(next.profile(), null, 'game admission does not masquerade as a confirmed private character read');
+  assert.equal(f.metadata.claimedOwnerDid, owner.subjectDid); assert.equal(f.metadata.targetClaim, null);
+  assert.deepEqual(f.requests.at(-1).body.targetRecord, original); assert.equal(f.requests.at(-1).body.recoveryChallenge, 'r'.repeat(43));
+  assert.deepEqual([...f.records], records);
+  assert.equal(f.calls.slice(count).filter(call => ['set', 'createKey', 'get', 'connect', 'nativePost'].includes(call.op)).length, 0);
+  assert.equal(f.sessions.at(-1).appSession.token, 'canonical-game-session');
 });
 test('quota refusal preserves the previous durable checkpoint and does not provision another owner', async () => {
   const f = fixture(), session = await f.make(); await session.bootstrap();

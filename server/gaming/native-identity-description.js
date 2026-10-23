@@ -8,6 +8,7 @@ const DEFAULT_PATHS = Object.freeze({ start: '/gaming/identity/start', status: '
   callback: '/gaming/identity/callback', clientMetadata: '/gaming/identity/client.json',
   playChallenge: '/gaming/identity/play/challenge', playComplete: '/gaming/identity/play/complete',
   claimChallenge: '/gaming/identity/play/claim-challenge', claimComplete: '/gaming/identity/play/claim-complete',
+  claimRecoveryChallenge: '/gaming/identity/play/claim-recovery-challenge',
   claimOwnerStart: '/gaming/identity/claim-owner/start', claimOwnerClaim: '/gaming/identity/claim-owner/claim',
   affordances: '/gaming/identity/affordances', schemas: '/gaming/identity/schemas' });
 const literal = value => JSON.stringify(value);
@@ -64,7 +65,7 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
         purpose: { const: 'character-claim-target' }, claimOperationId: text(128), guestOwnerDid: text(), targetOwnerDid: text(), audience: text(),
         sourceChallenge: text(128), expiresAt: { type: 'string', format: 'date-time' }, existingRecord: { anyOf: [pointer, { type: 'null' }] } }, additionalProperties: false } }, additionalProperties: false },
     ClaimCompleteRequest: { type: 'object', required: ['claimOperationId', 'attestation', 'proof', 'targetRecord', 'readConfirmed'], properties: {
-      claimOperationId: text(128), attestation: text(16384), proof: text(86), readConfirmed: { const: true },
+      claimOperationId: text(128), attestation: text(16384), proof: text(86), readConfirmed: { const: true }, recoveryChallenge: text(128),
       selection: { enum: ['copy-guest', 'use-existing'] }, targetRecord: { type: 'object', required: ['kind', 'graphIri', 'descriptorUrl', 'cid', 'nativeRevision', 'recordCid', 'digest', 'proofKind'],
         properties: { ...pointer.properties, bindingCid: text(256), nativeRevision: { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }, recordCid: text(256), digest: text(256),
           proofKind: { const: 'owner-key-authenticated-checkpoint' } }, additionalProperties: false } }, additionalProperties: false },
@@ -95,6 +96,9 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       ok: { const: true }, pointer, version: { type: 'integer', minimum: 0 } }, additionalProperties: false },
     ErrorResponse: { type: 'object', required: ['error'], properties: { error: text(128) }, additionalProperties: false },
   };
+  rawSchemas.ClaimRecoveryChallengeRequest = { type: 'object', required: ['claimOperationId', 'targetRecord', 'readConfirmed'],
+    properties: Object.fromEntries(['claimOperationId', 'targetRecord', 'readConfirmed', 'selection']
+      .map(key => [key, rawSchemas.ClaimCompleteRequest.properties[key]])), additionalProperties: false };
   const schemas = { $schema: DRAFT, $id: uri('schemas'), $defs: Object.fromEntries(Object.entries(rawSchemas)
     .map(([name, value]) => [name, { $anchor: name, ...value }])) };
   const requirements = {
@@ -122,6 +126,8 @@ export function nativeIdentityDescription({ publicOrigin, paths: supplied = {}, 
       'Consume a purpose-limited canonical target grant. Its public claim lease contains no game token; provisional play authority is not upgraded here.'),
     operation('claimComplete', 'POST', 'ClaimCompleteRequest', 'ClaimCompleteResponse', ['account', 'origin', 'native'],
       'Require fresh guest proof bound to the canonical target and owner-key target checkpoint readback acknowledgement. Atomically retire provisional participation after native ledger readback. This personal-save acknowledgement is not proof for authoritative rewards or loot.'),
+    operation('claimRecoveryChallenge', 'POST', 'ClaimRecoveryChallengeRequest', 'ClaimChallengeResponse', ['account', 'origin'],
+      'Read the exact completed native claim marker and issue a two-minute random challenge bound to this host session and immutable receipt. A fresh source-key signature may recover only its canonical game admission; it creates no checkpoint, key or native mutation. Replaying a consumed nonce returns only its original answer.'),
     operation('start', 'POST', 'StartRequest', 'StartResponse', ['account', 'origin'],
       'Begin a new, non-idempotent hosted owner authentication ceremony. Default scope is mcp:read and that native grant is discarded after owner verification. An enabled ownerPodWriteAccess:true request asks the provider for mcp:write; this is not learning consent.'),
     operation('status', 'GET', null, 'StatusResponse', ['account'],
