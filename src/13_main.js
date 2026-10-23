@@ -383,7 +383,8 @@ async function boot() {
 /* ------------------------------------------------------------------ */
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
-function startGame(save) {
+function startGame(save, mayStart = () => true) {
+  if (!mayStart()) return;
   if (!GAME.ready || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   // A real click can beat the resize debounce timer. Drain that requested
   // layout now, before player creation, so its cold batches own the start too.
@@ -394,7 +395,7 @@ function startGame(save) {
     if (!TITLE_START_PROMISE) {
       TITLE_START_PROMISE = TITLE_FRAME_PROMISE.then(() => {
         TITLE_START_PROMISE = null;
-        if (!GAME.started) return startGame(save);
+        if (!GAME.started) return startGame(save, mayStart);
       }, error => { TITLE_START_PROMISE = null; throw error; });
       void TITLE_START_PROMISE.catch(reportError);
     }
@@ -853,3 +854,4 @@ boot().catch((err) => {
   reportError(err);
   $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
 });
+

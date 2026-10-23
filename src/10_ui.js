@@ -35,13 +35,13 @@ function bindTitle() {
     if (GAME.started) return;
     const name = ($('name-input').value || '').trim().replace(/\s+/g, ' ').slice(0, 18) || randomName(UI.realm);
     audioUnlock();
-    startGame({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
+    void nativePlayerBegin({ v: 1, name, realm: UI.realm, cls: UI.cls, level: UI.start === 'veteran' ? 15 : 1, xp: 0, rp: 0, fresh: true });
   };
   $('btn-continue').onclick = () => {
     const s = UI.titleSave;
     if (GAME.started || !s || !s.char) return;
     audioUnlock();
-    startGame({ ...s.char });
+    void nativePlayerBegin({ ...s.char });
   };
   UI.titleBound = true;
 }
@@ -873,3 +873,4 @@ function openHerald() {
 }
 function closeDialog() { $('dialog').hidden = true; UI.modal = null; }
 bgClose('dialog', () => closeDialog());
+

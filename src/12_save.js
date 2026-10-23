@@ -1,7 +1,7 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null, guestWriteAt: 0, guestTimer: 0, guestFlush: false };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
@@ -182,7 +182,8 @@ function saveSoon(delay = 2500) {
 }
 // Native saves retain one active publication and the latest unsaved state. A
 // stalled grant cannot queue an unbounded list of complete character copies.
-function nativeSavePending() {
+function nativeSavePending({ immediate = false } = {}) {
+  if (immediate) { SAVE.guestFlush = true; clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0; }
   if (SAVE.nativeFlight) return SAVE.nativeFlight;
   if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
   const now = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -194,11 +195,22 @@ function nativeSavePending() {
       // A queued explicit/final save cannot become a fresh idle write long
       // after its request. Keep the exact pending body for the next live session.
       if (first && typeof netHumanLive === 'function' && !netHumanLive() && now() >= idleUntil) break;
+      const provisional = typeof nativePlayerIsProvisional === 'function' && nativePlayerIsProvisional();
+      const wait = provisional && !SAVE.guestFlush ? SAVE.guestWriteAt - Date.now() : 0;
+      if (wait > 0) {
+        if (!SAVE.guestTimer) SAVE.guestTimer = setTimeout(() => {
+          SAVE.guestTimer = 0;
+          if (typeof netHumanLive !== 'function' || netHumanLive()) void nativeSavePending();
+        }, Math.min(wait, 30000));
+        break; // Keep the latest dirty character; a paced save is not an acknowledgement.
+      }
       first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
       try {
         if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
         await SAVE.ref.set(s);
+        if (provisional) SAVE.guestWriteAt = Date.now() + 30000;
+        SAVE.guestFlush = false;
         SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
         if (SAVE.pending === s) SAVE.pending = null;
       } catch (error) {
@@ -223,7 +235,7 @@ function saveNow() {
   if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
   else SAVE.pending = s;
   s.savedAt = Date.now();
-  if (SAVE.native) return nativeSavePending();
+  if (SAVE.native) return nativeSavePending({ immediate: final });
   // One departing legacy save may follow its withdrawal, within the same bounded
   // final-save window. An old queue must never dispatch it later from standby.
   const finalUntil = final ? Date.now() + 10000 : 0;
@@ -318,3 +330,4 @@ function applySettings(st) {
   soundApplySettings(st); // [audio2] Volume, Effects, Ambience: older saves have none, Medium stays (11c_sound.js)
   if (st.weather === 'clear' || st.weather === 'auto') setWeatherMode(st.weather);
 }
+

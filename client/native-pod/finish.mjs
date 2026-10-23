@@ -1,4 +1,5 @@
 import { createBrowserAccessCache } from './access-cache.mjs';
+import { createProvisionalPlayerSession } from './provisional-session.mjs';
 const status = document.querySelector('#status'), button = document.querySelector('#return');
 const key = 'hallowmarch.identity.ceremony.v1';
 const failure = document.querySelector('meta[name="hallowmarch-identity-error"]');
@@ -29,10 +30,33 @@ try {
     setTimeout(() => channel.close(), 1000);
     throw new Error(messages[failure.content]);
   }
-  const response = await fetch('/gaming/identity/claim', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+  const characterClaim = ceremony.purpose === 'character-claim-target';
+  const response = await fetch(characterClaim ? '/gaming/identity/claim-owner/claim' : '/gaming/identity/claim', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
     headers: { Authorization: 'Bearer ' + ceremony.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerPodWriteAccess: true }) });
   if (!response.ok) throw new Error('The connection could not be confirmed. Return to the game and connect again.');
   const result = await response.json();
+  if (characterClaim) {
+    if (result.appSession?.purpose !== 'character-claim-target' || !result.nativeSession?.accessToken
+      || !result.binding?.subjectDid || result.appSession.guestOwnerDid !== ceremony.expectedOwnerDid) {
+      throw new Error('The character claim does not match the original provisional identity. Return to the game and try again.');
+    }
+    const mcp = new URL(result.nativeSession.mcpUrl);
+    if (mcp.protocol !== 'https:' || mcp.href !== mcp.origin + '/mcp') throw new Error('The canonical native relay grant is invalid.');
+    const session = await createProvisionalPlayerSession({ origin: location.origin, relayUrl: mcp.origin,
+      request: async () => { throw new Error('The sign-in window cannot change active game participation.'); } });
+    // Durable custody precedes notification, so a reloaded/closed opener can
+    // recover this bounded handoff without another OAuth ceremony. The target
+    // grant is a copy/read capability and never replaces the guest game token.
+    try { await session.stageClaimTarget(result); } finally { session.close(); }
+    const channel = new BroadcastChannel(ceremony.channel);
+    channel.postMessage({ type: 'hallowmarch-native-claim-target', ownerDid: result.binding.subjectDid,
+      podUrl: result.binding.podUrl, claimOperationId: result.appSession.claimOperationId,
+      browserCeremony: ceremony.browserCeremony, host: ceremony.host });
+    setTimeout(() => channel.close(), 1000);
+    status.textContent = 'Owner connected. Return to the game to keep your character.';
+    button.hidden = false; button.onclick = () => { window.close(); location.replace('/'); };
+    setTimeout(() => window.close(), 600);
+  } else {
   if (!result.binding?.subjectDid || !result.appSession?.token || !result.nativeSession?.accessToken
     || typeof result.appSession.acct?.id !== 'string' || !result.appSession.acct.id
     || result.appSession.acct.id.length > 256) throw new Error('The owner pod grant is incomplete. Return to the game and connect again.');
@@ -66,7 +90,9 @@ try {
   status.textContent = 'Connected. Your game can now open your private pod.';
   button.hidden = false; button.onclick = () => { window.close(); location.replace('/'); };
   setTimeout(() => window.close(), 600);
+  }
 } catch (error) {
   status.textContent = error.message || 'Return to the game and try connecting again.';
   button.hidden = false; button.onclick = () => { window.close(); location.replace('/'); };
 }
+

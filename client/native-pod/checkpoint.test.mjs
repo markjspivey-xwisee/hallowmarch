@@ -8,12 +8,13 @@ const OWNER = 'did:web:identity.example:users:alice', POD = 'https://pod.example
 const GRAPH = 'urn:graph:fixture:character', MODE = 'hallowmarch-character/v1';
 function keyStorage() { const map = new Map(); return { load: async key => map.get(key) || null,
   create: async (key, value) => { if (!map.has(key)) map.set(key, value); return map.get(key); } }; }
-async function fixture() {
+async function fixture({ provisional = false } = {}) {
   const storage = keyStorage(), vault = new ClientKeyVault('fixture-owner', storage, webcrypto);
   await vault.create(); let clock = Date.parse('2026-10-17T12:00:00Z'), revision = 0, writeMode = 'normal', publishMode = 'normal';
   const resources = new Map(), heads = new Map(), bindings = new Map(), writes = [], publications = [];
   function store(usingVault = vault) {
     return createOwnerCheckpointStore({ ownerDid: OWNER, podUrl: POD, vault: usingVault, crypto: webcrypto, now: () => clock,
+      isProvisional: () => provisional,
       active() {}, registered() {}, validateRecord: value => structuredClone(value),
       resourceClient: resourceUrl => ({
         async ready() {},
@@ -21,6 +22,7 @@ async function fixture() {
         async write(value) {
           writes.push({ resourceUrl, ...value, body: value.body.slice() });
           if (writeMode === 'before') throw Object.assign(Error('dropped before commit'), { code: 'TIMEOUT', writeMayHaveCommitted: true });
+          if (writeMode === 'quota' || writeMode === 'busy') throw Object.assign(Error('native refusal'), { code: 'HTTP', status: writeMode === 'quota' ? 507 : 429, writeMayHaveCommitted: true });
           const prior = resources.get(resourceUrl);
           if ((prior?.revision || null) !== value.expectedRevision) throw Object.assign(Error('CAS conflict'), { code: 'CONFLICT', writeMayHaveCommitted: false });
           const saved = { body: value.body.slice(), revision: 'native-revision-' + (++revision), contentType: value.contentType };
@@ -54,6 +56,18 @@ async function fixture() {
   return { store, vault, storage, resources, heads, bindings, writes, publications,
     advance: ms => { clock += ms; }, writeMode: mode => { writeMode = mode; }, publishMode: mode => { publishMode = mode; } };
 }
+
+test('only provisional hard quota is visible as guest quota; original operation and prior checkpoint remain fenced', async () => {
+  for (const [provisional, mode, expected] of [[true, 'quota', 'guest_quota_exhausted'], [false, 'quota', undefined], [true, 'busy', undefined]]) {
+    const f = await fixture({ provisional }), store = f.store();
+    const initial = await store.save({ graphIri: GRAPH, mode: MODE, creating: true, record: { v: 1, count: 0 } });
+    f.writeMode(mode);
+    const pending = await store.save({ graphIri: GRAPH, mode: MODE, expectedHead: initial.head, record: { v: 1, count: 1 } });
+    assert.equal(pending.saved, false); assert.equal(pending.reason, expected); assert.equal(store.pendingCount(), 1);
+    const confirmed = await store.confirm(pending.operationId); assert.equal(confirmed.reason, expected);
+    assert.equal((await store.load(GRAPH, MODE)).record.count, 0);
+  }
+});
 
 test('600 realistic character saves keep one binding and one fixed encrypted resource with bounded rolling history', async () => {
   const f = await fixture(), s = f.store();

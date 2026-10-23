@@ -20,7 +20,9 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
       if (typeof claims.nativeDid !== 'string' || !/^did:[a-z0-9]+:[^\s<>"'\\]{1,400}$/.test(claims.nativeDid)
         || !Number.isSafeInteger(claims.nativeVerifiedAt) || claims.nativeVerifiedAt < 0 || claims.nativeVerifiedAt > time
         || claims.exp <= claims.nativeVerifiedAt || claims.exp > claims.nativeVerifiedAt + nativeTtlMs) return null;
-      return { id: claims.id, exp: claims.exp, nativeDid: claims.nativeDid, nativeVerifiedAt: claims.nativeVerifiedAt };
+      if (claims.provisional !== undefined && claims.provisional !== true) return null;
+      return { id: claims.id, exp: claims.exp, nativeDid: claims.nativeDid, nativeVerifiedAt: claims.nativeVerifiedAt,
+        ...(claims.provisional ? { provisional: true } : {}) };
     }
     return { id: claims.id, exp: claims.exp };
   }
@@ -29,12 +31,13 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
       if (!validId(id)) throw new TypeError('Invalid game account.');
       return encode({ id, exp: now() + 1000 * 3600 * 24 * 180 });
     },
-    issueNative(id, nativeDid) {
+    issueNative(id, nativeDid, { provisional = false, expiresAt: ownerExpiresAt } = {}) {
       if (!validId(id) || typeof nativeDid !== 'string' || !/^did:[a-z0-9]+:[^\s<>"'\\]{1,400}$/.test(nativeDid)) {
         throw new TypeError('Verified native owner and canonical game account required.');
       }
-      const verifiedAt = now(), expiresAt = verifiedAt + nativeTtlMs;
-      return { token: encode({ id, exp: expiresAt, nativeDid, nativeVerifiedAt: verifiedAt }), expiresAt };
+      const verifiedAt = now(), expiresAt = Math.min(verifiedAt + nativeTtlMs, ownerExpiresAt ?? Infinity);
+      if (typeof provisional !== 'boolean' || !Number.isSafeInteger(expiresAt) || expiresAt <= verifiedAt) throw new TypeError('Live native owner expiry required.');
+      return { token: encode({ id, exp: expiresAt, nativeDid, nativeVerifiedAt: verifiedAt, ...(provisional ? { provisional: true } : {}) }), expiresAt };
     },
     read(token) {
       const time = now(), claims = signedClaims(token, time);
@@ -45,9 +48,10 @@ export function createGameSessionTokens({ secret, now = Date.now, nativeTtlMs = 
      * this separate result as a game session, pod grant, or native verification. */
     readForReauthentication(token) {
       const time = now(), claims = signedClaims(token, time);
-      if (!claims?.nativeDid || !Number.isSafeInteger(claims.exp + reauthenticationTtlMs)
+      if (!claims?.nativeDid || claims.provisional || !Number.isSafeInteger(claims.exp + reauthenticationTtlMs)
         || time >= claims.exp + reauthenticationTtlMs) return null;
       return { ...claims, purpose: 'native-reauthentication-only', reauthenticationUntil: claims.exp + reauthenticationTtlMs };
     },
   });
 }
+

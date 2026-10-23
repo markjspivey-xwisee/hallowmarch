@@ -76,7 +76,7 @@ jobs:
             headless)
               python3 -m unittest discover -s tools/tests -p ci_runner_regression.py
               node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/net_social_delivery.mjs
-              node --test tools/tests/gameplay_activity_profile.test.mjs
+              node --test tools/tests/gameplay_activity_profile.test.mjs tools/tests/progressive_ui.test.mjs
               node --test tools/tests/party_companion.mjs tools/tests/party_companion_network.mjs tools/tests/party_companion_transport.mjs tools/tests/season_connection_ui.mjs
               node --test tools/tests/companies_regression.mjs tools/tests/fieldarmies_regression.mjs tools/tests/fisher_liveness.mjs
               node tools/tests/net_companies.mjs
@@ -87,7 +87,7 @@ jobs:
             networking)
               node --test server/gaming/*.test.mjs tools/tests/gaming_live.test.mjs
               node --test client/native-pod/client.test.mjs client/native-pod/profile.test.mjs client/native-pod/public-record.test.mjs client/native-pod/owner-agent-grant.test.mjs client/native-pod/native-load.test.mjs client/native-pod/performance-consultation.test.mjs client/native-pod/foxxi-consulting*.test.mjs client/native-pod/agent-own-session.test.mjs
-              node --test client/native-pod/checkpoint*.test.mjs
+              node --test client/native-pod/checkpoint*.test.mjs client/native-pod/provisional-*.test.mjs
               node --test client/native-pod/signing-delegation.test.mjs client/native-pod/agent-gameplay-performance.test.mjs
               node --test client/native-pod/agent-directory.test.mjs
               node --test client/native-pod/gameplay-activity*.test.mjs
@@ -149,3 +149,4 @@ jobs:
             tools/out/
             hallowmarch.html
           retention-days: 14
+

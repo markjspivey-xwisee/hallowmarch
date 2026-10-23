@@ -268,6 +268,7 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
   // Binding shares the native head with world checkpoints. Allow its queued
   // commit and verified readback to settle; provider requests retain 15s.
   bindingTimeoutMs: 30_000,
+  playRelayCatalog: gamingEnvironment.HM_INTEREGO_RELAY_CATALOG,
   tokenClaims: token => GAME_SESSIONS.read(token), getAccount: id => ACCOUNTS[id] || null,
   reauthenticationClaims: token => GAME_SESSIONS.readForReauthentication(token),
   restoreAccount: record => {
@@ -286,7 +287,8 @@ const PLAYER_ACCOUNTS = createPlayerAccountHost({ store: gamingStore,
     // Disposable participation marker protects old personal files during a pod
     // outage; no DID, native credential or new personal save is written here.
     account.nativeBound = true; accountsSave();
-    const session = GAME_SESSIONS.issueNative(accountId, binding.subjectDid);
+    const session = GAME_SESSIONS.issueNative(accountId, binding.subjectDid, { provisional: binding.provisional === true,
+      ...(binding.provisional ? { expiresAt: Date.parse(binding.expiresAt) } : {}) });
     return { token: session.token, acct: { id: account.id, name: account.name, guest: account.guest, nativeBound: true }, nativeVerifiedUntil: session.expiresAt };
   },
   readLegacySave: accountId => store.read(path.join('saves', accountId + '.json'), null) });
@@ -773,7 +775,7 @@ function onMsg(c, raw) {
   if (m.t === 'hello') { if (!c.acct) onHello(c, m); return; }
   if (!c.acct) return;
   if (m.t === 'slow') {
-    const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.principalFor(c);
+    const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
     const playing = HUMAN_PLAY.update(c, principalVerified ? m.d : null);
     if (!playing) {
       c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };
@@ -794,14 +796,14 @@ function onMsg(c, raw) {
     // Explicit writes receive one bounded refusal; an idle save never becomes
     // an ambiguous timeout or a durable side effect.
     if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false,
-      error: nativePlayersRequired && !PLAYER_ACCOUNTS.principalFor(c) ? 'native_identity_required' : 'human_play_required' });
+      error: nativePlayersRequired && !PLAYER_ACCOUNTS.humanPrincipalFor(c) ? 'native_identity_required' : 'human_play_required' });
     return;
   }
   if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
     send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
       why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
   }
-  if (nativePlayersRequired && !PLAYER_ACCOUNTS.principalFor(c) && !['acct', 'ping'].includes(m.t)) {
+  if (nativePlayersRequired && !PLAYER_ACCOUNTS.humanPrincipalFor(c) && !['acct', 'ping'].includes(m.t)) {
     if (m.t === 'load') send(c, { t: 'save', d: null, error: 'native_identity_required' });
     else if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false, error: 'native_identity_required' });
     return;
@@ -1092,3 +1094,4 @@ const shutdown = async () => {
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
 export { server, STATS, CFG, SEASON, COMP, WORLD_STATE, HUMAN_PLAY };
+

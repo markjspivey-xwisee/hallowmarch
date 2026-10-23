@@ -1,5 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+test('provisional game credentials retain their purpose, expire with the guest and cannot use canonical reauthentication', () => {
+  let clock = 100000;
+  const sessions = createGameSessionTokens({ secret: 'provisional-session-test-secret', now: () => clock });
+  const session = sessions.issueNative('guest-a', 'did:web:identity.example:users:u-play', { provisional: true, expiresAt: clock + 2000 });
+  assert.equal(sessions.read(session.token).provisional, true);
+  assert.equal(sessions.readForReauthentication(session.token), null);
+  clock += 2000; assert.equal(sessions.read(session.token), null);
+});
 import { createHmac } from 'node:crypto';
 import { createGameSessionTokens } from './game-session.js';
 
@@ -63,3 +71,4 @@ test('recovery rejects impossible native claims even when their envelope has a v
     assert.throws(() => createGameSessionTokens({ secret, reauthenticationTtlMs }), /bounded/);
   }
 });
+
