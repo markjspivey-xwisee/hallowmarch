@@ -3,10 +3,12 @@ on:
   pull_request:
     paths:
       - src/02_render.js
+      - src/05i_aurora.js
       - src/13_main.js
       - src/13p_perf.js
       - src/13y_gpu_diagnostic.js
       - tools/tests/startup_graphics.mjs
+      - tools/tests/aurora_visibility.mjs
       - tools/tests/startup_graphics.py
       - tools/tests/gpu_diagnostic.mjs
       - .github/workflows/desktop-graphics.yml
@@ -58,7 +60,7 @@ jobs:
       - name: Build and lint the actual page
         run: bash tools/lint.sh 80
       - name: Verify recovery choice and frozen title isolation
-        run: node --test tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/idle_client_network.test.mjs
+        run: node --test tools/tests/aurora_visibility.mjs tools/tests/startup_graphics.mjs tools/tests/gpu_diagnostic.mjs tools/tests/idle_client_network.test.mjs
       - name: Verify visible title pixels, GPU completion and context loss in software rendering
         run: python tools/tests/startup_graphics.py
       - uses: actions/upload-artifact@v4
