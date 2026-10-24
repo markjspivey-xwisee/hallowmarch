@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
 import { webcrypto } from 'node:crypto';
 import { createPlayerPodProfile, validatePlayerProfile, validatePlayerProfileIndex, playerProfileIndexGraphIri, playerProfileGraphIri } from './profile.mjs';
 
@@ -14,7 +16,7 @@ function gate() { let release, entered; return { ready: new Promise(resolve => {
   hold: new Promise(resolve => { release = resolve; }), entered: () => entered(), release: () => release() }; }
 function fixture({ pointer = null, initial = null, initialGraph = null, ownerIndex = null, sharedRecords = null,
   keyPresent = true, mode = 'saved', indexMode = 'saved', indexFailures = 0, forked = false, metadataError = null,
-  linkFailures = 0, createGate = null, linkGate = null, loadGate = null } = {}) {
+  linkFailures = 0, createGate = null, linkGate = null, loadGate = null, deferRelationship = false, bridgeRequest = null } = {}) {
   const calls = [], requests = [], states = [], records = sharedRecords || new Map(), operations = new Map();
   let clientClosed = false, confirms = 0, indexConfirms = 0;
   const observed = (graphIri, record) => ({ saved: true, status: 'saved', graphIri, head: {
@@ -72,6 +74,7 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
     close: () => { clientClosed = true; calls.push({ op: 'close' }); },
   };
   const profile = createPlayerPodProfile({ binding, credential: { kind: 'fixture-only' }, relayUrl: 'https://relay.example', pointer,
+    deferRelationship,
     createClient: () => native, crypto: webcrypto, onState: next => states.push(next),
     request: async (url, options) => {
       requests.push({ url, ...copy(options) });
@@ -80,6 +83,7 @@ function fixture({ pointer = null, initial = null, initialGraph = null, ownerInd
       assert(!JSON.stringify(options.body).includes('private fixture save'));
       if (linkGate) { linkGate.entered(); await linkGate.hold; }
       if (linkFailures-- > 0) throw Error('Fixture pointer link unavailable');
+      if (bridgeRequest) return bridgeRequest(url, options);
       return { linked: true };
     } });
   return { profile, calls, requests, states, records, isClosed: () => clientClosed };
@@ -106,6 +110,22 @@ test('character opt-in is explicit while the one-time owner index remains immuta
   assert.equal(f.calls.find(call => call.op === 'create').graphIri, graphIri);
   for (const call of f.calls.filter(call => ['create', 'save', 'load'].includes(call.op) && call.graphIri !== INDEX)) assert.equal(call.checkpoint, 'hallowmarch-character/v1');
   for (const call of f.calls.filter(call => call.graphIri === INDEX)) assert.equal(call.checkpoint, undefined);
+});
+test('claim target confirms private record and index before an explicit game relationship', async () => {
+  const f = fixture({ deferRelationship: true }); await f.profile.connect();
+  assert.equal(f.profile.reference(), null); await f.profile.get();
+  await f.profile.set({ v: 1, char: { name: 'private claimed hero' } });
+  assert.equal(f.requests.length, 0); assert(f.profile.reference()); assert.equal(f.profile.status().state, 'private_saved');
+  const writes = f.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length;
+  await f.profile.confirmRelationship(); assert.equal(f.requests.length, 1);
+  assert.equal(f.calls.filter(call => ['create', 'createAt', 'save'].includes(call.op)).length, writes);
+});
+test('ordinary game saves retain native logical-character provenance after claim', async () => {
+  const f = fixture(); await f.profile.connect(); await f.profile.get();
+  const nativePlay = { schema: 'hallowmarch.provisional-character/v1', characterId: 'durable-character-id' };
+  await f.profile.set({ v: 1, char: { level: 1 }, nativePlay });
+  await f.profile.set({ v: 1, char: { level: 2 } });
+  assert.deepEqual((await f.profile.get()).data().nativePlay, nativePlay);
 });
 
 test('fresh browser discovers the first deterministic character after an index publication failed without creating another character', async () => {
@@ -414,6 +434,103 @@ test('reconnecting invalidates a cached index body when its native head changed'
     record: indexRecord('urn:graph:fixture:replacement-profile') });
   await f.profile.connect(); assert.equal(f.profile.status().indexed, false);
   await assert.rejects(f.profile.get(), { code: 'profile_index_conflict' });
+  assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
+});
+
+
+function actualGameBridge(fetchImpl, deadlineSignal = AbortSignal) {
+  const client = readFileSync(new URL('../../src/14v_nativeidentity.js', import.meta.url), 'utf8');
+  const first = client.indexOf('async function nativePlayerRequest('), last = client.indexOf('async function nativePlayerModules(', first);
+  assert(first >= 0 && last > first, 'execute the production game request adapter');
+  const context = vm.createContext({ NETWS: { token: 'explicit-fixture-app-proof' }, fetch: fetchImpl, AbortSignal: deadlineSignal,
+    nativePlayerError: (code, message) => Object.assign(Error(message), { code }) });
+  vm.runInContext(client.slice(first, last) + '\nglobalThis.request = nativePlayerRequest;', context);
+  return context.request;
+}
+const acknowledged = () => ({ ok: true, json: async () => ({ linked: true }) });
+function delayedAcknowledgement(ms, signal) {
+  return new Promise((resolve, reject) => {
+    let timer;
+    const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason); };
+    if (signal.aborted) { abort(); return; }
+    signal.addEventListener('abort', abort, { once: true });
+    timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(acknowledged()); }, ms);
+  });
+}
+function guestFixtureSave() {
+  return { v: 1, char: { name: 'Native deadline fixture', level: 1 },
+    nativePlay: { schema: 'hallowmarch.provisional-character/v1',
+      characterId: 'urn:uuid:4dab27a4-9d1b-4e88-948c-082b78300a62', guestOwnerDid: OWNER,
+      guestExpiresAt: Date.now() + 86400000 } };
+}
+test('the actual game adapter scopes 60s only to durable lifecycle POSTs and retains short/explicit bounds', async () => {
+  const deadlines = [];
+  const request = actualGameBridge(async () => acknowledged(), { timeout(ms) { deadlines.push(ms); return AbortSignal.timeout(ms); } });
+  const cases = [
+    ['/gaming/identity/play/complete', { method: 'POST' }, 60000],
+    ['/gaming/identity/record-link', { method: 'POST' }, 60000],
+    ['/gaming/identity/play/challenge', { method: 'POST' }, 18000],
+    ['/gaming/identity/status', {}, 18000],
+    ['/gaming/identity/record-link', {}, 18000],
+    ['/gaming/identity/record-link?unrelated=1', { method: 'POST' }, 18000],
+    ['/gaming/identity/play/claim-complete', { method: 'POST' }, 18000],
+    ['/gaming/identity/record-link', { method: 'POST', timeoutMs: 25 }, 25],
+  ];
+  for (const [url, options, expected] of cases) { await request(url, options); assert.equal(deadlines.at(-1), expected); }
+});
+test('a real profile registration lasting over 18s confirms one private checkpoint with the actual request adapter',
+  { timeout: 45000 }, async () => {
+    let links = 0;
+    const request = actualGameBridge(async (url, options) => {
+      assert.equal(url, '/gaming/identity/record-link'); links++;
+      return delayedAcknowledgement(19100, options.signal);
+    });
+    const f = fixture({ bridgeRequest: request }), save = guestFixtureSave(), started = Date.now();
+    await f.profile.connect(); await f.profile.set(save);
+    assert(Date.now() - started >= 19000, 'exercise a healthy registration beyond the former deadline');
+    assert.equal(links, 1); assert.equal(f.profile.status().linked, true);
+    assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+    assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+    assert.equal(f.calls.filter(call => call.op === 'save' || call.op === 'createKey').length, 0);
+    assert.deepEqual((await f.profile.get()).data().nativePlay, save.nativePlay, 'owner, character ID and fixed guest expiry are unchanged');
+    assert.equal(f.calls.find(call => call.op === 'create').record.ownerDid, OWNER);
+  });
+test('an explicit short lifecycle deadline still aborts a live request', { timeout: 2000 }, async () => {
+  const request = actualGameBridge(async (url, options) => delayedAcknowledgement(1000, options.signal));
+  const started = Date.now();
+  await assert.rejects(request('/gaming/identity/record-link', { method: 'POST', timeoutMs: 25 }), { name: 'TimeoutError' });
+  assert(Date.now() - started < 500, 'an explicit bound must not inherit the longer lifecycle window');
+});
+test('a lost registration acknowledgement repairs the identical owned pointer without publishing another checkpoint', async () => {
+  let links = 0; const registrations = new Map(), submitted = [], selectedDeadlines = [];
+  const request = actualGameBridge(async (url, options) => {
+    assert.equal(url, '/gaming/identity/record-link'); const pointer = JSON.parse(options.body); submitted.push(pointer); links++;
+    registrations.set(JSON.stringify(pointer), true); // This exact relationship committed before its response was lost.
+    return links === 1 ? delayedAcknowledgement(250, options.signal) : acknowledged();
+  }, { timeout(ms) { selectedDeadlines.push(ms); return AbortSignal.timeout(links === 0 ? 25 : ms); } });
+  const f = fixture({ bridgeRequest: request }), save = guestFixtureSave();
+  await f.profile.connect();
+  await assert.rejects(f.profile.set(save), { code: 'pod_link_pending' });
+  const reference = f.profile.reference();
+  assert.equal(f.profile.status().hasRecord, true); assert(f.profile.reference(), 'the original private checkpoint and index remain confirmed');
+  assert.equal(f.profile.status().linked, false);
+  await f.profile.retry();
+  assert.equal(f.profile.status().linked, true); assert.deepEqual(f.profile.reference(), reference);
+  assert.deepEqual(submitted[0], submitted[1]); assert.deepEqual(selectedDeadlines, [60000, 60000]);
+  assert.equal(registrations.size, 1); assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'createAt').length, 1);
+  assert.equal(f.calls.filter(call => call.op === 'save' || call.op === 'createKey').length, 0);
+  assert.deepEqual((await f.profile.get()).data().nativePlay, save.nativePlay);
+});
+test('closing a profile during the longer lifecycle request keeps ownership closed when its late acknowledgement arrives', async () => {
+  const held = gate();
+  const request = actualGameBridge(async () => { held.entered(); await held.hold; return acknowledged(); });
+  const f = fixture({ bridgeRequest: request }); await f.profile.connect();
+  const saving = f.profile.set(guestFixtureSave()); await held.ready; f.profile.close();
+  assert.equal(f.profile.status().state, 'closed'); held.release();
+  await assert.rejects(saving, { code: 'revoked' });
+  assert.equal(f.profile.status().state, 'closed'); assert.equal(f.profile.status().linked, false);
   assert.equal(f.calls.filter(call => call.op === 'create').length, 1);
   assert.equal(f.calls.filter(call => call.op === 'save').length, 0);
 });

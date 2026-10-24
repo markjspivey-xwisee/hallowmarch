@@ -238,3 +238,39 @@ test('durable learning acknowledgements also replay after a strict rollback rese
   assert.equal(replayed.durable, true); assert(replayed.version <= restarted.durableSequence);
   assert.equal(restarted.persistenceStatus().pendingCommands, 0);
 });
+
+test('idle suspension deadline never dispatches a newer checkpoint after a late native success', async t => {
+  const f = await fixture(t); f.advance();
+  await f.room.execute(person, command('move', { x: 0, z: 1 }));
+  const before = f.store.requests.length, block = f.store.blockNext();
+  const activeFlush = f.room.flushPersistence(); await block.started;
+  f.advance(); await f.room.execute(person, command('move', { x: 0, z: 2 }));
+  await Promise.all([
+    assert.rejects(f.room.suspend({ timeoutMs: 10 }), { code: 'durability_pending' }),
+    new Promise(resolve => setTimeout(resolve, 20)), // keep this isolated fixture alive beyond the unref deadline
+  ]);
+  block.release(); await activeFlush;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.store.requests.length, before + 1, 'Late acknowledgement cannot launch another idle write');
+  assert.equal(f.room.persistenceStatus().pendingCommands, 1);
+  assert.equal(f.room.current.entities.alice.z, 2, 'The accepted newer action remains live and pending');
+  f.room.setActive(true); await f.room.flushPersistence();
+  assert.equal(f.store.requests.length, before + 2);
+  assert.equal(f.room.persistenceStatus().status, 'saved');
+  assert.equal(f.store.saved.state.entities.alice.z, 2);
+});
+
+test('an active flush waiting for the accepted command queue stops when play pauses', async t => {
+  const f = await fixture(t); f.advance();
+  await f.room.execute(person, command('move', { x: 0, z: 1 }));
+  const before = f.store.requests.length;
+  let release;
+  const queued = new Promise(resolve => { release = resolve; });
+  f.room.queue = f.room.queue.then(() => queued);
+  const flushing = f.room.flushPersistence();
+  f.room.setActive(false); release(); await flushing;
+  assert.equal(f.store.requests.length, before, 'A queued active flush cannot start native work after pause');
+  assert.equal(f.room.persistenceStatus().pendingCommands, 1);
+  f.room.setActive(true); await f.room.flushPersistence();
+  assert.equal(f.store.requests.length, before + 1);
+});

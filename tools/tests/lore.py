@@ -38,6 +38,7 @@ async def begin(page, realm, cls):
     """Pick a realm and a calling on the title screen and enter the realm, as a player would."""
     await ev(page, f"document.querySelector('#realm-pick [data-realm=\"{realm}\"]').click(); document.querySelector('#class-pick [data-cls=\"{cls}\"]').click()")
     await page.click('#btn-begin')
+    await page.wait_for_function("() => { const H=__hm, S=window.__hmStartup; if(S?.stopped || S?.titleError || H.errors.length) throw new Error(S?.titleError || H.errors.join('; ') || 'Graphics stopped before entry'); return H.GAME.started && H.GAME.player; }", timeout=180000, polling=100)
     await frames(page, 2)
 
 async def desktop(p):

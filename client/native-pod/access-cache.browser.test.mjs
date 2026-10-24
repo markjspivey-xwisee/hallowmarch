@@ -13,7 +13,9 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/') {
     res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<!doctype html><title>Browser access cache verification</title><script type="module">
 import {createBrowserAccessCache} from './access-cache.mjs';
+import {createProvisionalDevice} from './provisional-device.mjs';
 window.createBrowserAccessCache=createBrowserAccessCache;
+window.createProvisionalDevice=createProvisionalDevice;
 window.clock=1800000000000;
 window.binding={relayUrl:'https://relay.example',ownerDid:'did:web:identity.example:users:alice',podUrl:'https://pod.example/alice/'};
 window.cache=createBrowserAccessCache({now:()=>clock});
@@ -106,6 +108,44 @@ try {
     const preserved=(await cache.get(binding)).credential.accessToken===newer.accessToken;await slow.close();return rejected&&preserved;
   }), true);
   console.log('PASS a superseded write cannot replace or delete a newer cached grant.');
+
+  assert.equal(await page.evaluate(async () => {
+    const native = { ...credential(), method: 'provisional' };
+    await cache.put({ ...binding, credential: native });
+    return (await cache.get(binding)).credential.method;
+  }), 'provisional');
+  console.log('PASS provisional relay grants retain their explicit credential method in sealed custody.');
+
+  const playKey = await page.evaluate(async () => {
+    const device = createProvisionalDevice({ origin: 'https://game.example' });
+    if (await device.peekMetadata() !== null) throw Error('Read-only play peek unexpectedly provisioned an identity.');
+    const description = await device.publicDescription();
+    await device.remember({ ownerDid: 'did:web:identity.example:users:u-try-play-browser',
+      podUrl: 'https://pod.example/u-try-play-browser/', issuer: 'https://identity.example', relayUrl: 'https://relay.example',
+      provisionalEndpoint: 'https://identity.example/play/provisional', guestExpiresAt: Date.now() + 86400000,
+      attestation: 'public-attestation', proofKeyThumbprint: description.proofKeyThumbprint });
+    device.close(); return description;
+  });
+  await page.reload(); await page.waitForFunction(() => window.loaded);
+  const restoredPlayKey = await page.evaluate(async () => {
+    const device = createProvisionalDevice({ origin: 'https://game.example' }), metadata = await device.peekMetadata();
+    const description = await device.publicDescription();
+    const records = await db('hallowmarch-provisional-device-v1', ['devices'], 'readonly', (tx, done) => {
+      const request = tx.objectStore('devices').getAll(); request.onsuccess = () => done(request.result);
+    });
+    if (records.length !== 1 || !(records[0].privateKey instanceof CryptoKey) || records[0].privateKey.extractable) throw Error('Play proof key custody changed.');
+    let exportRefused = false;
+    try { await crypto.subtle.exportKey('jwk', records[0].privateKey); } catch { exportRefused = true; }
+    if (!exportRefused || Object.hasOwn(records[0].publicKeyJwk, 'd')) throw Error('Play private key was extractable.');
+    const proof = await device.signProof({ attestation: metadata.attestation, audience: 'https://game.example', challenge: 'reload-challenge' });
+    const publicKey = await crypto.subtle.importKey('jwk', description.publicKeyJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const signature = Uint8Array.from(atob(proof.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, signature,
+      new TextEncoder().encode('interego-play-proof-v1\npublic-attestation\nhttps://game.example\nreload-challenge'))) throw Error('Reloaded play proof did not verify.');
+    device.close(); return description;
+  });
+  assert.deepEqual(restoredPlayKey, playKey);
+  console.log('PASS provisional P-256 CryptoKey survives real IndexedDB/page reload without private-key serialization.');
 
   assert.deepEqual(await page.evaluate(async () => {
     await cache.forgetAll();const empty=(await cache.list()).length===0;await cache.close();let closed=false;

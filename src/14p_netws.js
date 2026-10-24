@@ -3,10 +3,56 @@
 /* ================================================================== */
 // The save's early request and the multiplayer pump share one attempt. A failed
 // boot request is retryable after GAME.ready; reconnecting never reloads a save.
-const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+const NETWS = { ws: null, url: '', host: '', state: 'off', acct: null, token: '', world: null, worldPauseReason: '', worldPersistence: null, worldAdmission: null, activeWorldAdmission: null, worldInit: null, worldInitialized: false, worldAdmissionRequired: false, worldReloadRequired: false, link: null, linkP: null, openP: null, generation: 0, cancelOpen: null, retryTimer: 0, pingTimer: 0, closed: false, waits: [], backoff: 1, lastFailure: '', lastClose: null, stats: { opens: 0, drops: 0, sent: 0, recv: 0, bytesUp: 0, bytesDown: 0, rtt: 0 } };
+// Only a recognized refusal of this exact opening can offer explicit recovery.
+NETWS.sessionRefusal = null;
 // World/season admission and the owner's character save are separate. Keep a
 // pause visible across disconnects; only a fresh server status can clear it.
+function netWorldAdmissionRead(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || typeof value.origin !== 'string' || !Number.isSafeInteger(value.epoch) || value.epoch < 1) return null;
+  try {
+    const origin = new URL(value.origin), server = new URL(NETWS.url || netServerUrl());
+    const expected = (server.protocol === 'wss:' ? 'https:' : 'http:') + '//' + server.host;
+    if (origin.origin !== value.origin || origin.origin !== expected
+      || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) return null;
+    return { origin: origin.origin, epoch: value.epoch };
+  } catch { return null; }
+}
+function netSameWorldAdmission(a, b) {
+  return !!a && !!b && a.origin === b.origin && a.epoch === b.epoch;
+}
+function netCurrentWorldAdmission() {
+  return netWorldAdmissionRead(NETWS.worldAdmission || window.__HM_GAMING?.worldAdmission);
+}
+function netSharedWorldRequired() {
+  return NETWS.worldAdmissionRequired || !!window.__HM_GAMING?.worldAdmission
+    || window.__HM_GAMING?.worldAuthority?.mode === 'native';
+}
+function netWorldAdmissionNotice(message) {
+  if (NETWS.worldPauseReason === message) return;
+  NETWS.worldPauseReason = message;
+  if (GAME.started && GAME.player) { uiLog(message, 'sys'); uiToast(message, 'hint'); }
+  if (typeof NETUI !== 'undefined' && NETUI.open) netSheetRender();
+}
+function netReceiveWorldAdmission(value, world) {
+  NETWS.worldInitialized = false; NETWS.worldInit = null;
+  const admission = netWorldAdmissionRead(value);
+  if (!admission) return false;
+  NETWS.worldAdmissionRequired = true;
+  if (GAME.started && NETWS.activeWorldAdmission && !netSameWorldAdmission(NETWS.activeWorldAdmission, admission)) {
+    NETWS.worldReloadRequired = true;
+    netWorldAdmissionNotice('The shared world has a new season. Reload this page to join it; your private character is preserved.');
+    if (typeof netHumanSync === 'function') netHumanSync();
+    return false;
+  }
+  NETWS.worldAdmission = admission;
+  NETWS.worldInit = world;
+  return true;
+}
 function netWsWorldStatus(value, entry = false) {
+  if (value?.mode === 'native') NETWS.worldAdmissionRequired = true;
+  if (NETWS.worldReloadRequired) return;
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.scope !== 'world-and-season') return;
   const paused = value.fenced === true || ['conflict', 'recovering', 'closing', 'closed', 'closed-unconfirmed'].includes(value.state);
   const running = value.fenced === false && value.mode === 'native' && value.enabled === true
@@ -112,6 +158,9 @@ async function netWsTokenForget(host, rejectedToken, allowed = () => false) {
 }
 function netWsSend(o, ws = NETWS.ws) {
   if (!ws || ws !== NETWS.ws || NETWS.state === 'off' || ws.readyState !== 1) return false;
+  if (o?.t === 'activity' && (o.kind === 'boats' && o.op !== 'snapshot'
+    || ['worldparts', 'entities'].includes(o.kind) && o.op === 'command')
+    && typeof netActivityPosition === 'function' && !netActivityPosition()) return false;
   try {
     const s = JSON.stringify(o);
     ws.send(s);
@@ -124,23 +173,55 @@ function netWsPendingFail() {
   const w = NETWS.acctWait; NETWS.acctWait = null;
   if (w) w({ ok: false, why: 'The server disconnected' });
 }
+function netWsSuspendHuman() {
+  clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
+  clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
+  // An established owner transport can remain completely silent. Keeping its
+  // generation preserves private owner contexts while a menu is open; it grants
+  // no live-play lease and sends no keepalive or reconnect traffic in standby.
+  if (NETWS.state === 'on' && NETWS.ws?.readyState === 1 && NETWS.acct?.id && NETWS.token) {
+    NETWS.humanSuspended = true;
+    return true;
+  }
+  // An unconfirmed opening has no established owner context to preserve.
+  NETWS.humanSuspended = false;
+  netWsRetire(NETWS.ws, 'human session paused');
+  return false;
+}
+function netWsStartHumanPing() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
+  NETWS.humanSuspended = false;
+  if (NETWS.pingTimer) return;
+  NETWS.pingTimer = setInterval(() => {
+    if (typeof netHumanLive === 'function' && !netHumanLive()) {
+      netWsSuspendHuman(); return;
+    }
+    if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() });
+  }, 10000);
+}
 function netWsRetryLater() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.retryTimer || NETWS.closed || NETWS.reload || !NETWS.link) return;
   NETWS.retryTimer = setTimeout(() => { NETWS.retryTimer = 0; netWsReconnect(); }, NETWS.backoff * 1000);
 }
 // A timed-out FIFO request makes every outstanding reply ambiguous. Retire the
 // identity before closing: native close events may arrive after queued messages.
 function netWsRetire(ws, why) {
-  if (!ws || NETWS.ws !== ws) return false;
+  if (NETWS.ws !== ws || (!ws && !NETWS.openP)) return false;
   const was = NETWS.state;
+  if (NETWS.cancelOpen) NETWS.cancelOpen();
+  // A caller may request a fresh transport in this same turn, before the old
+  // link promise's cleanup microtask runs. It must not inherit that attempt.
+  NETWS.linkP = null;
   ++NETWS.generation; NETWS.ws = null; NETWS.state = 'off'; NETWS.lastFailure = why;
+  if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
   netWsPendingFail();
   if (was === 'on') {
     NETWS.stats.drops++;
     for (const peer of [...NET.peers.keys()]) netPeerLeft(peer);
     netWsRetryLater();
   }
-  try { ws.close(); } catch (e) { /* already retired */ }
+  if (ws) try { ws.close(); } catch (e) { /* already retired */ }
   return true;
 }
 function netWsOpen() {
@@ -148,6 +229,7 @@ function netWsOpen() {
   if (NETWS.state === 'on' && NETWS.ws && NETWS.ws.readyState === 1) return Promise.resolve(true);
   if (NETWS.openP) return NETWS.openP;
   const generation = ++NETWS.generation, host = NETWS.host, url = NETWS.url;
+  NETWS.sessionRefusal = null;
   // Retire a closing socket before replacing it. Its queued callbacks remain
   // harmless because every handler checks both this generation and identity.
   const old = NETWS.ws; NETWS.ws = null; NETWS.state = 'opening';
@@ -192,20 +274,30 @@ function netWsOpen() {
       if (!m || typeof m.t !== 'string') return;
       if (m.t === 'welcome') {
         if (settled || NETWS.state !== 'opening') return;
+        NETWS.sessionRefusal = null;
         NETWS.state = 'on'; NETWS.backoff = 1; NETWS.lastFailure = ''; NETWS.acct = m.acct; NETWS.world = m.world || null;
         netWsWorldStatus(m.worldAuthority, true);
         NET.self = m.peer; NETWS.worldRoom = m.room; NET.srvWorld = m.world || null; NET.srvWorldDone = false; NETWS.season = m.season || null;
+        netReceiveWorldAdmission(m.worldAdmission, m.world);
+        if (typeof netSharedWorldReady === 'function') netSharedWorldReady();
         if (typeof m.token === 'string' && m.token !== NETWS.token) { NETWS.token = m.token; netWsTokenKeep(host, m.token); }
         NET.slowKey = ''; NET.fastKey = '';
         // Profile precedes a reconnecting player's first company/season action.
         if (GAME.ready && GAME.started && GAME.player) netWsSend({ t: 'slow', d: netSlowObj() }, ws);
         finish(true);
-      } else if (m.t === 'denied') { netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied'); }
+      } else if (m.t === 'denied') {
+        if (!settled && NETWS.state === 'opening' && m.code === 'native_signin_required' && tok) {
+          NETWS.sessionRefusal = { host, token: tok, code: m.code, generation };
+        }
+        netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied');
+      }
       else if (NETWS.state !== 'on') return;
+      else if (m.t === 'reload-required') netSceneReloadRequired(m.why);
       else if (m.t === 'world-status') netWsWorldStatus(m.persistence);
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
+      else if (m.t === 'activity') netSharedSceneMessage(m);
       else if (m.t === 'gaming') gamingMsg(m);
       else if (m.t === 'world-agent' && typeof mainWorldAgentMessage === 'function') mainWorldAgentMessage(m);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
@@ -219,15 +311,31 @@ function netWsOpen() {
         for (const k of Object.keys(m.h).slice(0, 12)) if (/^[fhb][0-2]?$/.test(k) && typeof m.h[k] === 'string') h[k] = m.h[k].slice(0, 32);
         NET.regions = { h, kr: m.kr.slice(0, 16).map((x) => netStr(x, 3)), you: netStr(m.you, 3) };
         NET.stats.regions = (NET.stats.regions || 0) + 1;
-      } else if (m.t === 'world' && m.w && typeof m.w === 'object') { netWorldTake(netWorldRead(m.w), m.init ? 'keepsall' : 'keeps'); NET.stats.worldIn = (NET.stats.worldIn || 0) + 1; }
+      } else if (m.t === 'world' && m.w && typeof m.w === 'object') {
+        if (m.init && netSharedWorldRequired()) {
+          if (!netWorldAdmissionRead(m.worldAdmission)) return;
+          netReceiveWorldAdmission(m.worldAdmission, m.w);
+          if (typeof netSharedWorldReady === 'function') netSharedWorldReady();
+        } else if (!netSharedWorldRequired() || NETWS.worldInitialized && !NETWS.worldReloadRequired) {
+          netWorldTake(netWorldRead(m.w), m.init ? 'keepsall' : 'keeps');
+        }
+        NET.stats.worldIn = (NET.stats.worldIn || 0) + 1;
+      }
     };
     ws.onclose = (ev) => {
       if (!current()) return;
+      if (ev && ev.code === 4006) {
+        if (typeof netSceneReloadRequired === 'function') netSceneReloadRequired(ev.reason);
+        else { NETWS.reload = true; NETWS.lastFailure = 'Reload Hallowmarch to join the updated shared world.'; }
+        if (!settled) finish(false, 'game update required');
+        return;
+      }
       const was = NETWS.state;
       NETWS.lastClose = { code: ev && ev.code || 0, reason: netStr(ev && ev.reason, 80) };
       if (!settled) finish(false, 'socket closed');
       else { NETWS.state = 'off'; NETWS.ws = null; }
       netWsPendingFail();
+      if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
       if (was === 'on') {
         NETWS.stats.drops++;
         for (const peer of [...NET.peers.keys()]) netPeerLeft(peer);
@@ -238,8 +346,10 @@ function netWsOpen() {
   return p;
 }
 async function netWsReconnect() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (NETWS.state !== 'off' || !NETWS.link || NETWS.closed || NETWS.reload) return;
   const ok = await netWsOpen();
+  if (ok && (typeof netHumanLive !== 'function' || netHumanLive())) netWsStartHumanPing();
   if (!ok && !NETWS.closed && !NETWS.reload) { NETWS.backoff = Math.min(15, NETWS.backoff * 2); netWsRetryLater(); }
 }
 // Only pending requests are shared: a rejected or null result must not be cached.
@@ -253,8 +363,10 @@ function netLinkWS(url) {
     if (NETWS.url && NETWS.url !== u && NETWS.link) NETWS.link.close();
     if (NETWS.host && NETWS.host !== host) { NETWS.token = ''; NETWS.acct = null; }
     NETWS.url = u; NETWS.host = host; NETWS.closed = false;
-    const ok = await netWsOpen();
-    if (!ok) { netNote('server unreachable'); return null; }
+    const opening = netWsOpen(), generation = NETWS.generation;
+    const ok = await opening;
+    if (!ok || generation !== NETWS.generation || NETWS.closed || NETWS.reload
+      || NETWS.state !== 'on' || NETWS.ws?.readyState !== 1) { netNote('server unreachable'); return null; }
     if (NETWS.link) return NETWS.link;
     const L = NETWS.link = {
       kind: 'ws',
@@ -267,14 +379,17 @@ function netLinkWS(url) {
         clearTimeout(NETWS.retryTimer); NETWS.retryTimer = 0;
         clearInterval(NETWS.pingTimer); NETWS.pingTimer = 0;
         if (NETWS.cancelOpen) NETWS.cancelOpen();
+        NETWS.linkP = null;
         ++NETWS.generation;
+        if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
         const ws = NETWS.ws; NETWS.ws = null; NETWS.state = 'off';
         if (ws) try { ws.close(); } catch (e) { /* gone */ }
         netWsPendingFail();
+      if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
         if (NET.link === L) { NET.link = null; NET.state = 'alone'; }
       },
     };
-    if (!NETWS.pingTimer) NETWS.pingTimer = setInterval(() => { if (NETWS.state === 'on' && !NETWS.reload) netWsSend({ t: 'ping', c: performance.now() }); }, 10000);
+    netWsStartHumanPing();
     return L;
   })();
   NETWS.linkP = p;
@@ -337,7 +452,33 @@ async function netServerSaveRef() {
   });
   return {
     get: async () => { const m = await ask({ t: 'load' }); if (!m) throw { code: 'unavailable' }; return { exists: !!m.d, data: () => m.d }; },
-    set: async (s) => { const m = await ask({ t: 'save', d: s }); if (!m || !m.ok) throw { code: 'unavailable' }; },
+    set: async (s, { final = false } = {}) => { const m = await ask({ t: 'save', d: s, ...(final ? { final: 1 } : {}) }); if (!m || !m.ok) throw { code: 'unavailable' }; },
     delete: async () => { const m = await ask({ t: 'wipe' }); if (!m || !m.ok) throw { code: 'unavailable' }; },
   };
+}
+
+
+// Each authority message is scoped to this live socket and its admitted world.
+function netSharedSceneMessage(m) {
+  if (m?.kind === 'authority' && typeof m.peer === 'string' && m.peer.length <= 128
+    && typeof netCurrentWorldAdmission === 'function' && netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission)))
+    NET.serverSceneHost = m.peer;
+  if (typeof netBoatMessage === 'function') netBoatMessage(m);
+  if (typeof netNpcMessage === 'function') netNpcMessage(m);
+  if (typeof netEntityMessage === 'function') netEntityMessage(m);
+  if (typeof netWorldPartsMessage === 'function') netWorldPartsMessage(m);
+}
+function netSharedSceneReset() {
+  NET.serverSceneHost = '';
+  if (typeof netBoatReset === 'function') netBoatReset();
+  if (typeof netNpcReset === 'function') netNpcReset();
+  if (typeof netEntityReset === 'function') netEntityReset();
+  if (typeof netWorldPartsReset === 'function') netWorldPartsReset();
+}
+function netSceneReloadRequired(reason) {
+  const message = netStr(reason, 180) || 'Reload Hallowmarch to join the updated shared world. Your saved character is preserved.';
+  NETWS.reload = true; NETWS.worldReloadRequired = true; NETWS.worldPauseReason = message; NETWS.lastFailure = message;
+  if (typeof netHumanSuspend === 'function') netHumanSuspend();
+  if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
+  if (GAME.started && GAME.player) { uiLog(message, 'sys'); uiToast(message, 'hint'); }
 }

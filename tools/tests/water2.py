@@ -8,7 +8,7 @@ in snow (water2_*.png).
 usage: python3 tools/tests/water2.py [noshots] [shotsonly] [only=dive,ice,finds,boats,fisher,tracks] [shots=under,boat,river,tracks,drift,ice] [medium] [small]"""
 import json, asyncio, sys, pathlib, time, math
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 FAILS = []
 T0 = time.time()
@@ -24,6 +24,7 @@ def check(cond, what):
     if not cond: FAILS.append(what)
 
 async def ev(page, label, js):
+    await human_play(page)
     r = await page.evaluate(js)
     print(f'{label} [{time.time() - T0:.0f}s]', json.dumps(r)[:1800], flush=True)
     return r
@@ -57,7 +58,7 @@ async def main():
         W, Hh = (960, 540) if SHOTS and 'small' not in sys.argv else (640, 360)
         b, page, logs = await setup(p, w=W, h=Hh)
         await page.evaluate(HELPERS)
-        r = await ev(page, 'boot', """(() => { const H = __hm; H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
+        r = await ev(page, 'boot', """(async () => { const H = __hm; await H.start({ realm: 0, cls: 'warrior', level: 24 }); W2.safe();
           return { errors: H.errors.slice(0, 3), finds: H.water.dive.finds().length, kinds: [...new Set(H.water.dive.finds().map((f) => f.kind))], boats: H.water.boats.list().length, jetties: H.water.boats.jetties().length, drifts: H.water.tracks.drifts(), where: { jetties: H.water.boats.jetties().map((j) => [j.realm, Math.round(j.x0), Math.round(j.z0), Math.round(j.end.x), Math.round(j.end.z)]), boats: H.water.boats.list().map((q) => [q.realm, Math.round(q.x), Math.round(q.z), q.st]) } }; })()""")
         check(not r['errors'], 'boots without errors')
         check(r['finds'] >= 12 and 'chest' in r['kinds'], 'finds lie on the beds (%d, %s)' % (r['finds'], r['kinds']))
@@ -386,6 +387,7 @@ async def main():
     print('FAILS', FAILS, flush=True)
 
 async def snap(page, name):
+    await human_play(page)
     # one frame rendered and read straight off the canvas (a page screenshot waits on the compositor, which under
     # SwiftShader on a busy machine can take longer than any timeout)
     import base64

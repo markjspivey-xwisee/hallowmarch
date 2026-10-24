@@ -1,0 +1,50 @@
+name: Shared world regression
+on:
+  push:
+    branches: [fix/shared-world-state-20261023, fix/shared-world-state-recovery-20261024]
+  pull_request:
+    paths: ['src/**', 'server/**', 'tools/tests/shared_world.py', '.github/workflows/shared-world.yml']
+permissions:
+  contents: read
+concurrency:
+  group: shared-world-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  shared-world:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix tools
+          npm ci --prefix server
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and lint
+        run: bash tools/lint.sh 100
+      - name: Shared scene, ownership and checkpoint regressions
+        if: ${{ !cancelled() }}
+        run: |
+          node --test server/shared-scene.test.mjs server/gaming/hallowmarch-world-state.test.mjs server/gaming/progressive-owned-state.test.mjs
+          node --test tools/shared-resource-jobs.test.mjs tools/shared-hatch-ownership.test.mjs tools/tests/net_animals_client.mjs tools/tests/shared_combat_fields.mjs tools/tests/shared_world_tls.test.mjs tools/tests/net_boats_client.mjs tools/net-npcs.test.mjs tools/tests/shared_entities.mjs tools/tests/net_worldparts.mjs tools/tests/net_dungeons.mjs tools/tests/shared_world_proximity.mjs tools/tests/shared_dungeon_handoff.mjs tools/tests/shared_dungeon_fall.mjs
+          node --test tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/server_human_lifecycle.test.mjs
+          node --test tools/tests/shared_scene_protocol.mjs
+      - name: Actual WebSocket clients
+        if: ${{ !cancelled() }}
+        run: node tools/tests/shared_scene_transport.mjs
+      - name: Independent phone and desktop worlds
+        if: ${{ !cancelled() }}
+        run: python tools/tests/shared_world.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shared-world-evidence
+          path: tools/out/
+          retention-days: 7

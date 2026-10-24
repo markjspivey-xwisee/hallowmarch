@@ -953,6 +953,7 @@ function stepArrows(dt) {
     }
   }
   // arrows lying about: the player walks over the special ones and takes them back
+  if (typeof netCombatFieldsActive === 'function' && netCombatFieldsActive() && !netEntityCanSimulateWorld()) return;
   const P = GAME.player;
   for (let i = CLS.stuck.length - 1; i >= 0; i--) {
     const S = CLS.stuck[i];
@@ -1437,6 +1438,9 @@ function updateClasses(dt) {
   for (const id of CLS.frozen) { const e = getEnt(id); if (!e || !e.alive || !frozenOf(e)) { CLS.frozen.delete(id); if (e && e.alive) iceBurst(e.x, e.y + 1, e.z, 0.5); } }
   stepDazzle(); // [balance3] the dazzled who are no longer (07c_balance3.js)
   stepArrows(dt);
+  if (typeof netCombatFieldsActive === 'function' && netCombatFieldsActive() && !netEntityCanSimulateWorld()) {
+    netCombatFieldsVisual(dt); return; // canonical projections draw here; only the keeper triggers public effects
+  }
   stepSnares(dt);
   stepGrounds(dt);
   // runes wait for a foe
@@ -1585,3 +1589,4 @@ setTimeout(() => {
     state: (e = GAME.player) => { if (!e) return null; const cs = csOf(e); return { stance: STANCES[cs.stance].id, mom: +momOf(e).toFixed(2), block: cs.blockOn, focus: cs.focus, att: { fire: Math.round(attOf(e, 'fire')), frost: Math.round(attOf(e, 'frost')), storm: Math.round(attOf(e, 'storm')) }, dev: Math.round(devOf(e)), praying: cs.praying, draw: +drawK(e).toFixed(2), arrow: cs.arrow, hidden: cs.hidden, cover: +cs.cover.toFixed(2) }; },
   };
 }, 0);
+

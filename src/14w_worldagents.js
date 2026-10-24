@@ -23,7 +23,7 @@ function mainWorldAgentPause() {
   partyCompanionStop(); mainWorldAgentFrame(true); mainWorldAgentRender();
 }
 function mainWorldAgentCanRun() {
-  return GAME.started && !!GAME.player?.alive && NETWS.state === 'on' && !NETWS.worldPauseReason
+  return (typeof netHumanLive !== 'function' || netHumanLive()) && GAME.started && !!GAME.player?.alive && NETWS.state === 'on' && !NETWS.worldPauseReason
     && !NETWS.reload && NATIVE_PLAYER.status?.verified && !MAIN_WORLD_AGENTS.paused && !UI.modal;
 }
 function mainWorldAgentMovement() {
@@ -32,6 +32,9 @@ function mainWorldAgentMovement() {
   return null;
 }
 function mainWorldAgentTick() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) {
+    mainWorldAgentStop(); partyCompanionStop(); return;
+  }
   const state = MAIN_WORLD_AGENTS;
   if (!mainWorldAgentCanRun()) {
     mainWorldAgentStop();
@@ -542,6 +545,7 @@ function mainWorldAgentRender() {
   }
 }
 setInterval(() => {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   if (MAIN_WORLD_AGENTS.lastGeneration !== NETWS.generation) {
     mainWorldAgentDirectoryClose();
     MAIN_WORLD_AGENTS.lastGeneration = NETWS.generation; MAIN_WORLD_AGENTS.paused = true; MAIN_WORLD_AGENTS.companionPaused = true; mainWorldAgentStop(); partyCompanionStop();

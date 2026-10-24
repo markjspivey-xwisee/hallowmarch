@@ -485,6 +485,7 @@ function marchConsultingRender() {
   } finally { s.rendering = false; }
 }
 function marchConsultingStep() {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   const s = MARCH_CONSULTING, key = marchConsultingOwnerKey(), now = Date.now();
   if (s.ownerKey && s.ownerKey !== key) { marchConsultingClose(); s.note = 'The player connection changed. Live sharing is stopped.'; }
   s.ownerKey = key;

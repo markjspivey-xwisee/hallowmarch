@@ -5,6 +5,7 @@ No integration encounter is entered and no native/production write is made.
 import asyncio, json, os, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 HOOK = r"""
@@ -124,10 +125,16 @@ async def main():
             await page.evaluate('__mainAgentFixture.finishInitialIdentity()')
             print('PASS first Progress identity CTA initializes Players from the WebSocket account, focuses its existing identity button and performs no sign-in or service call',flush=True)
 
-            result=await page.evaluate(r"""() => {
-              const H=__hm,P=H.GAME.player; window.__holdFrame=true; H.UI.modal=null;
+            # A programmatic menu close does not renew the human input lease.
+            # Resume through a real trusted key before testing delegated motion.
+            await page.evaluate(r"""() => {
+              __hm.UI.modal=null;
               for(const id of ['prologue','menu','dialog']){const e=document.getElementById(id);if(e)e.hidden=true}
               __mainAgentFixture.bind();
+            }""")
+            await human_play(page)
+            result=await page.evaluate(r"""() => {
+              const H=__hm,P=H.GAME.player; window.__holdFrame=true;
               const C=window.__fixtureCompanion,body=window.__fixtureBodyId;
               const before={x:C.x,y:C.y,z:C.z},humanBefore={x:P.x,z:P.z};
               H.worldAgents.message({op:'command',requestId:'fixture-input',grantId:'fixture-grant',expiresAt:Date.now()+1500,

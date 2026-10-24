@@ -3,6 +3,8 @@
 /* ================================================================== */
 quality.auto = !BOOT_SAFE;
 GAME.ready = false;
+let TITLE_FRAME_PROMISE = null, TITLE_FRAME_DIRTY = false, TITLE_FRAME_FAILED = false;
+let TITLE_RESIZE_PENDING = false, TITLE_WARMED = false, TITLE_WARM_GENERATION = 0, TITLE_START_PROMISE = null;
 renderer.info.autoReset = false;
 const HM_ERRORS = [];
 function reportError(err) {
@@ -15,8 +17,10 @@ window.addEventListener('unhandledrejection', (e) => reportError(e.reason));
 /* ------------------------------------------------------------------ */
 /* sizing and quality                                                  */
 /* ------------------------------------------------------------------ */
-function resize() {
-  if (GRAPHICS_CONTEXT_LOST || graphicsDiagnosticActive()) return;
+function applyGraphicsSize() {
+  // A changed frustum/quality can expose a previously culled shader variant.
+  // Rewarm this explicit title view; unchanged redraws reuse completed work.
+  if (!GAME.started) TITLE_WARMED = false;
   view.w = Math.max(1, window.innerWidth);
   view.h = Math.max(1, window.innerHeight);
   quality.dprActual = Math.max(0.5, Math.min(window.devicePixelRatio || 1, quality.dpr) * (quality.scale || 1));
@@ -33,6 +37,14 @@ function resize() {
   U.uFoliageCut.value = quality.msaa > 0 ? 0.01 : 0.5;
   const focal = (view.h * quality.dprActual) / (2 * Math.tan((camera.fov * DEG) / 2));
   for (const m of [fxAdd.mesh.material, fxAlpha.mesh.material, glowMesh.material, fireflyMat]) m.uniforms.uFocal.value = focal;
+}
+function resize() {
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped || graphicsDiagnosticActive()) return;
+  // Never dispose targets or replace the drawing buffer while a title batch is
+  // pending on the GPU. One flag coalesces all requests to the latest size.
+  if (TITLE_FRAME_PROMISE) { TITLE_RESIZE_PENDING = true; return; }
+  applyGraphicsSize();
+  if (!GAME.started && (GAME.ready || GRAPHICS_STARTUP.titleSubmitted > 0)) void renderTitleFrame().catch(reportError);
 }
 function setQuality(level, auto = false) {
   if (!QUALITY_PRESETS[level]) return;
@@ -52,7 +64,10 @@ function setTimeMode(mode) {
   tod.mode = mode;
 }
 let resizeTimer = 0;
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => GAME.built && resize(), 80); });
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { resizeTimer = 0; if (GAME.built) resize(); }, 80);
+});
 
 /* adaptive detail: step down when frames run long for a while */
 const PERF = { acc: 0, n: 0, window: 0, grace: 6 };
@@ -75,6 +90,230 @@ function adaptQuality(dt) {
 /* boot                                                                */
 /* ------------------------------------------------------------------ */
 const nextPaint = () => new Promise((r) => { let done = false; const go = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 60); });
+// A title prepares existing environment meshes and uniforms only. Even dt=0
+// gameplay draw helpers can move ambient actors, advance timer state or consume
+// the shared random stream; leave those paths for actual human play.
+function prepareTitleView() {
+  applyTimeOfDay(tod.p);
+  applyWeather();
+  applyIndoor();
+  U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; U.uCloudScrP.value.z = 0;
+  camera.updateMatrixWorld();
+  projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(projView);
+  skyU.uInvVP.value.copy(projView).invert();
+  camera.getWorldDirection(_fwd);
+  const length = Math.hypot(_fwd.x, _fwd.z) || 1;
+  const fx = _fwd.x / length, fz = _fwd.z / length;
+  const x = camera.position.x, z = camera.position.z;
+  // updateGrassCenters also builds canopy/AO textures lazily. Position only the
+  // already-built grass/flower uniforms here, without allocating new resources.
+  for (const mesh of grassMeshes) {
+    const ahead = mesh.userData.layer.ahead;
+    mesh.material.uniforms.uCenter.value.set(x + fx * ahead, z + fz * ahead);
+    mesh.material.uniforms.uCam2.value.set(x, z);
+  }
+  for (const mesh of flowerMeshes) {
+    mesh.material.uniforms.uCenter.value.set(x + fx * 14, z + fz * 14);
+    mesh.material.uniforms.uCam2.value.set(x, z);
+  }
+  updateTreeVisibility(x, z);
+  updateMountains();
+}
+function captureTitleResizeRequest() {
+  // A resize event is a request immediately, even while its 80 ms callback is
+  // queued. At a GPU-safe boundary coalesce it into the current pipeline.
+  if (resizeTimer) {
+    clearTimeout(resizeTimer); resizeTimer = 0;
+    TITLE_RESIZE_PENDING = true;
+  }
+}
+function titleAssertActive() {
+  graphicsAssertActive();
+  if (GRAPHICS_STARTUP.stopped || gl.isContextLost()) throw new Error('Title graphics context is unavailable.');
+}
+function titleGraphicsBusy(active) {
+  const title = document.getElementById('title');
+  if (!title) return;
+  title.setAttribute('aria-busy', String(active));
+  let status = document.getElementById('title-graphics-status');
+  if (active && GAME.ready) {
+    if (!status) {
+      status = document.createElement('p'); status.id = 'title-graphics-status';
+      status.setAttribute('role', 'status'); title.appendChild(status);
+    }
+    status.textContent = 'Preparing the resized view. Please wait.';
+  } else if (status) status.remove();
+}
+// Submit only existing production resources. Unlike renderer.compile(), a
+// restricted render does not traverse invisible families and link their shaders.
+async function submitTitleStage(id, members, inventory, combined = false) {
+  titleAssertActive();
+  const programsBefore = renderer.info.programs.length;
+  const started = performance.now(), visibility = inventory.renderables.map(object => [object, object.visible]);
+  const saved = gpuDiagCaptureRenderer(), oldTrail = U.uTrail.value;
+  const direct = renderer.renderBufferDirect, debug = renderer.debug;
+  const oldShaderError = debug && debug.onShaderError, oldShaderCheck = debug && debug.checkShaderErrors;
+  let current = null, workCalls = 0, workTriangles = 0;
+  GRAPHICS_STARTUP.titleStage = id;
+  const message = document.getElementById('loadmsg');
+  if (message && !GAME.ready) message.textContent = 'Preparing title graphics: ' + id;
+  try {
+    const priorErrors = gpuDiagGlErrors(gl);
+    if (priorErrors.length) throw new Error('GL errors before title ' + id + ': ' + priorErrors.join(', '));
+    renderer.renderBufferDirect = function (cam, scn, geo, material, object, group) {
+      const label = value => String(value || '').slice(0, 100);
+      current = { material: label(material.name || material.type), materialId: material.id,
+        object: label(object.name || object.type), objectId: object.id, geometryId: geo.id };
+      return direct.call(this, cam, scn, geo, material, object, group);
+    };
+    if (!debug) throw new Error('Title shader diagnostics are unavailable.');
+    debug.checkShaderErrors = true;
+    debug.onShaderError = (context, program, vertex, fragment) => {
+      const lost = context.isContextLost();
+      const read = fn => { if (lost) return 'Context lost.'; try { return String(fn() ?? '').slice(0, 600); } catch { return 'Unavailable.'; } };
+      const failure = { stage: id, ...current, contextLost: lost,
+        linked: read(() => context.getProgramParameter(program, context.LINK_STATUS)),
+        vertexCompiled: read(() => context.getShaderParameter(vertex, context.COMPILE_STATUS)),
+        fragmentCompiled: read(() => context.getShaderParameter(fragment, context.COMPILE_STATUS)),
+        programLog: read(() => context.getProgramInfoLog(program)),
+        vertexLog: read(() => context.getShaderInfoLog(vertex)), fragmentLog: read(() => context.getShaderInfoLog(fragment)) };
+      GRAPHICS_STARTUP.titleFailure = failure;
+      throw new Error('Title shader could not link: ' + JSON.stringify(failure));
+    };
+    if (members) for (const [object, visible] of visibility) object.visible = visible && members.has(object);
+    U.uTrail.value = trailA.texture; // neutral, already cleared during ordinary boot
+    renderer.info.reset();
+    renderer.setRenderTarget(sceneRT); renderer.setClearColor(0x000000, 1); renderer.clear(true, true, false);
+    if (combined) GRAPHICS_STARTUP.titleSubmitted++;
+    if (id !== 'post') renderer.render(scene, camera);
+    workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles;
+    renderPost();
+    if (id === 'post') { workCalls = renderer.info.render.calls; workTriangles = renderer.info.render.triangles; }
+  } finally {
+    // Restore every shared CPU value before the fence yields. No further GL
+    // calls are made here, including when a shader or context has failed.
+    for (const [object, visible] of visibility) object.visible = visible;
+    U.uTrail.value = oldTrail;
+    renderer.renderBufferDirect = direct;
+    if (debug) { debug.onShaderError = oldShaderError; debug.checkShaderErrors = oldShaderCheck; }
+    gpuDiagRestoreRenderer(saved, false);
+  }
+  const receipt = await gpuDiagWaitForFence(gl);
+  titleAssertActive();
+  const errors = gpuDiagGlErrors(gl);
+  if (errors.length) throw new Error('GL errors after title ' + id + ': ' + errors.join(', '));
+  return { id, generation: TITLE_WARM_GENERATION, completed: true, fenceComplete: true,
+    exercised: workCalls > 0, workCalls, workTriangles,
+    totalMs: Math.round(performance.now() - started), fenceWaitMs: receipt.waitMs,
+    programsBefore, programsAfter: renderer.info.programs.length, newPrograms: renderer.info.programs.length - programsBefore };
+}
+// A title is a frozen view, not a live player. Warm existing shader families in
+// bounded, separately fenced submissions before the first combined view. Empty
+// instances still belong to a family: Three links their programs before checking
+// instance counts. The final combined fence alone can release the loading veil.
+function renderTitleFrame() {
+  if (!GAME.built || GAME.started || GRAPHICS_CONTEXT_LOST || TITLE_FRAME_FAILED || document.hidden || graphicsDiagnosticActive()) return Promise.resolve(false);
+  TITLE_FRAME_DIRTY = true;
+  if (TITLE_FRAME_PROMISE) return TITLE_FRAME_PROMISE;
+  TITLE_FRAME_PROMISE = (async () => {
+    titleGraphicsBusy(true);
+    captureTitleResizeRequest();
+    while (TITLE_FRAME_DIRTY && !GAME.started && !GRAPHICS_CONTEXT_LOST && !graphicsDiagnosticActive()) {
+      TITLE_FRAME_DIRTY = false;
+      await waitForTitleVisibility();
+      titleAssertActive();
+      if (TITLE_RESIZE_PENDING) {
+        TITLE_RESIZE_PENDING = false;
+        applyGraphicsSize();
+      }
+      prepareTitleView();
+      const inventory = gpuDiagFamilies();
+      if (!TITLE_WARMED) {
+        TITLE_WARM_GENERATION++;
+        GRAPHICS_STARTUP.titleWarmup = [];
+        const stages = [['post', new Set()], ...Object.entries(inventory.sets)];
+        let resized = false;
+        for (const [id, members] of stages) {
+          await waitForTitleVisibility();
+          titleAssertActive();
+          if (GAME.started) return false;
+          const result = await submitTitleStage(id, members, inventory);
+          GRAPHICS_STARTUP.titleWarmup.push(result);
+          // A real event-loop/paint opportunity separates cold submissions.
+          await nextPaint();
+          titleAssertActive();
+          captureTitleResizeRequest();
+          if (TITLE_RESIZE_PENDING) { TITLE_FRAME_DIRTY = true; resized = true; break; }
+        }
+        if (resized) continue; // explicit resize, never retry a failed shader
+        TITLE_WARMED = true;
+      }
+      await waitForTitleVisibility();
+      titleAssertActive();
+      if (GAME.started) return false;
+      const result = await submitTitleStage('combined', null, inventory, true);
+      captureTitleResizeRequest();
+      GRAPHICS_STARTUP.titleFinal = result;
+      GRAPHICS_STARTUP.titleCompleted++;
+      GRAPHICS_STARTUP.titleFenceWaitMs = result.fenceWaitMs;
+      // A completed hidden submission is not the first visible title. Keep the
+      // same pipeline pending until visibility returns and a fresh fence wins.
+      if (TITLE_RESIZE_PENDING || document.hidden) TITLE_FRAME_DIRTY = true;
+    }
+    return true;
+  })().catch(error => {
+    TITLE_FRAME_DIRTY = false; TITLE_FRAME_FAILED = true;
+    GRAPHICS_STARTUP.stopped = true; GRAPHICS_STARTUP.titleError = String(error.message || error); GAME.ready = false;
+    if (!GRAPHICS_STARTUP.titleFailure) GRAPHICS_STARTUP.titleFailure = {
+      stage: GRAPHICS_STARTUP.titleStage, contextLost: GRAPHICS_CONTEXT_LOST || gl.isContextLost(),
+      error: GRAPHICS_STARTUP.titleError,
+    };
+    if (window.__hm) window.__hm.ready = false;
+    graphicsRememberRecovery();
+    graphicsCheckpoint('Title graphics stopped', error.message || error);
+    graphicsStartFailure(error, 'Graphics stopped');
+    throw error;
+  }).finally(() => {
+    TITLE_FRAME_PROMISE = null;
+    titleGraphicsBusy(false);
+    // Play may begin during a later title redraw. Its successful fence still
+    // owns a coalesced resize; hand the latest dimensions to the live renderer.
+    if (TITLE_RESIZE_PENDING && GAME.started && !GRAPHICS_CONTEXT_LOST && !GRAPHICS_STARTUP.stopped) {
+      TITLE_RESIZE_PENDING = false;
+      applyGraphicsSize();
+    }
+  });
+  return TITLE_FRAME_PROMISE;
+}
+function waitForTitleVisibility() {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      document.removeEventListener('visibilitychange', visible);
+      canvas.removeEventListener('webglcontextlost', lost);
+    };
+    const visible = () => { if (!document.hidden) { cleanup(); resolve(); } };
+    const lost = () => { cleanup(); reject(new Error('Graphics stopped before the title became visible.')); };
+    document.addEventListener('visibilitychange', visible);
+    canvas.addEventListener('webglcontextlost', lost);
+    if (GRAPHICS_CONTEXT_LOST) lost(); else visible();
+  });
+}
+async function renderFirstTitleFrame() {
+  while (GRAPHICS_STARTUP.titleCompleted === 0) {
+    await waitForTitleVisibility();
+    graphicsAssertActive();
+    if (GRAPHICS_STARTUP.stopped) throw new Error('Title graphics are stopped.');
+    await renderTitleFrame();
+    // A visibility change between wake and submission may defer this draw.
+    // Wait for the next visible event rather than polling or declaring Ready.
+    if (!document.hidden && GRAPHICS_STARTUP.titleCompleted === 0) throw new Error('The first title draw did not complete.');
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && GAME.ready && !GAME.started) void renderTitleFrame().catch(reportError);
+});
 const BOOT_STEPS = []; // [perf2] every step's time, the first too (13x_perf2.js)
 async function loadStep(frac, msg, fn) {
   graphicsAssertActive();
@@ -126,11 +365,12 @@ async function boot() {
     }
   });
   if (!BOOT_SAFE) await perf2Shaders(0.9, 0.97); // [perf2] the veil counts the shaders as they are ready (13x_perf2.js)
-  await loadStep(0.97, 'Drawing the first view', () => tick(0.016));
+  await loadStep(0.97, 'Drawing the first view', () => renderFirstTitleFrame());
   graphicsAssertActive();
   GAME.ready = true;
   window.__hm.ready = true;
   setupTitle(save);
+  graphicsRecoveryNotice();
   graphicsCheckpoint('Ready');
   const L = $('loading');
   L.style.opacity = 0;
@@ -143,8 +383,24 @@ async function boot() {
 /* ------------------------------------------------------------------ */
 /* starting, leaving                                                   */
 /* ------------------------------------------------------------------ */
-function startGame(save) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+function startGame(save, mayStart = () => true) {
+  if (!mayStart()) return;
+  if (!GAME.ready || GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  // A real click can beat the resize debounce timer. Drain that requested
+  // layout now, before player creation, so its cold batches own the start too.
+  if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = 0; resize(); }
+  // Coalesce the existing Play intent until graphics settle. Return completion
+  // to debug callers too; no player or live work overlaps a cold title batch.
+  if (TITLE_FRAME_PROMISE) {
+    if (!TITLE_START_PROMISE) {
+      TITLE_START_PROMISE = TITLE_FRAME_PROMISE.then(() => {
+        TITLE_START_PROMISE = null;
+        if (!GAME.started) return startGame(save, mayStart);
+      }, error => { TITLE_START_PROMISE = null; throw error; });
+      void TITLE_START_PROMISE.catch(reportError);
+    }
+    return TITLE_START_PROMISE;
+  }
   $('title').hidden = true;
   const P = createPlayer(save);
   savePartsLoad('char', save.x); // goods and every other system's records for the character (06d_goods.js)
@@ -225,6 +481,7 @@ function drawActors(fx, fz) {
   const camX = camera.position.x, camZ = camera.position.z;
   const maxD2 = 175 * 175;
   for (const e of ENT) {
+    if (typeof netNpcVisible === 'function' && !netNpcVisible(e) || typeof netEntityVisible === 'function' && !netEntityVisible(e)) continue;
     if (e.removed || e.kind === 'door' || e.kind === 'dragon' || e.capHide) continue; // [capture] the player kept out of the frame (14_capture.js)
     const dx = e.x - camX, dz = e.z - camZ;
     if (dx * dx + dz * dz > maxD2) continue;
@@ -374,24 +631,29 @@ function drawRelicsAndPortals() {
 /* ------------------------------------------------------------------ */
 let lastNow = 0, renderTime = 0, treeTick = 0, treeCamX = 0, treeCamZ = 0;
 function simStep(dt) {
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   GAME.t += dt;
   GAME.dt = dt;
   rebuildGrid();
   runLater();
   if (typeof mainWorldAgentTick === 'function') mainWorldAgentTick();
   if (GAME.player) updatePlayer(dt);
+  if (typeof netWorldPartsLocalStep === 'function') netWorldPartsLocalStep(dt);
   updateNPCs(dt);
-  updateWar(dt);
+  const sharedSim = (typeof netEntityCanSimulateWorld !== 'function' || netEntityCanSimulateWorld())
+    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate());
+  if (sharedSim) updateWar(dt);
   updateProjectiles(dt);
   updateWalls(dt); // [walls] arrows glancing off stone, stuck ones falling with what held them (07g_walls.js)
-  updateDragonWorld(dt);
+  if (sharedSim) updateDragonWorld(dt);
   updateLoot(dt);
-  updateGates(dt);
-  updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
-  updateBarrow(dt);
-  updateHouses(dt);
+  if (sharedSim) updateGates(dt);
+  if (sharedSim) updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
+  if (sharedSim) updateBarrow(dt);
+  updateBarrowLocal(dt);
+  if (sharedSim) updateHouses(dt);
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
-  updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
+  if (sharedSim) updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
@@ -402,17 +664,19 @@ function simStep(dt) {
   updateSurvival(dt); // [survival] hunger and thirst, work, fishing, regrowth (09s_survival.js)
   updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
   updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
-  updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
-  updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
+  if (sharedSim) updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
+  if (sharedSim) updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
-  updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
+  if (sharedSim) updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
   updateWeather2(dt); // [weather2] the weather systems: fronts, showers and storms carried across the March (12c_weather2.js)
-  updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
+  if (sharedSim) updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
   updateSeason(dt); // [loops] the season of weeks: its clock, points, projects and offensives (08n_season.js)
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
 function tick(dt) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
+  if (typeof netHumanSync === 'function') netHumanSync();
+  if (typeof netHumanLive === 'function' && !netHumanLive()) return;
   dt = captureDt(dt); // [capture] the capture build's clock: the world frozen or slowed, a shot's own step (14_capture.js)
   renderer.info.reset();
   renderTime += dt;
@@ -519,7 +783,7 @@ function tick(dt) {
   adaptQuality(dt);
 }
 function frame(now) {
-  if (GRAPHICS_CONTEXT_LOST) return;
+  if (GRAPHICS_CONTEXT_LOST || GRAPHICS_STARTUP.stopped) return;
   requestAnimationFrame(frame);
   let dt = (now - lastNow) / 1000;
   lastNow = now;
@@ -553,8 +817,9 @@ window.__hm = {
   dbg: { grassMeshes, scene, SHADOW, U, renderer, DBG, LAKES, skyU, FIRES, CAMPS, WEATHER, strikeLightning, spawnSlash, slashGeo, slashMesh, DRAGON, setDragonState, COVER, addFire, BRAND },
   start(o = {}) {
     const realm = o.realm ?? 0, cls = o.cls ?? 'warrior';
-    startGame({ v: 1, name: o.name || randomName(realm), realm, cls, level: o.level || 1, xp: 0, rp: o.rp || 0, fresh: true });
-    return GAME.player.id;
+    const completion = startGame({ v: 1, name: o.name || randomName(realm), realm, cls, level: o.level || 1, xp: 0, rp: o.rp || 0, fresh: true });
+    const playerId = () => GAME.player ? GAME.player.id : null;
+    return completion && typeof completion.then === 'function' ? completion.then(playerId) : playerId();
   },
   simulate(sec, dt = 0.05) {
     const n = Math.round(sec / dt);
@@ -594,3 +859,5 @@ boot().catch((err) => {
   reportError(err);
   $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
 });
+
+

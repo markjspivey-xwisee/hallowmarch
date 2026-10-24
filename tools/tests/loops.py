@@ -72,7 +72,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640, h=360)
         await ev(page, f"__hm.fn.setQuality('{QUALITY}'); 0")
-        await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; return 0; })()")
+        await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; return 0; })()")
         await ev(page, HELP)
         await ev(page, "__hm.simulate(1); 0")
         info = await ev(page, "(() => { const L = __hm.loops.LOOPS; return { inited: L.inited, workers: L.workers.length, r: L.r.map((S) => Math.round(S.food)), qm: __hm.REALMS.map((R) => !!R.quartermaster) }; })()")
@@ -589,7 +589,7 @@ async def main():
             print('PHONE (390x780, touch)', flush=True)
             await b.close()
             b, page, logs = await setup(p, touch=True, w=390, h=780)
-            await ev(page, "(() => { __hm.start({ realm: 0, cls: 'priest', level: 14 }); __hm.UI.modal = null; return 0; })()")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'priest', level: 14 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
             await ev(page, r"""(() => { const H = __hm, L = H.loops, LO = L.LOOPS, fn = H.fn, P = H.GAME.player, Q = H.REALMS[0].quartermaster; __lt.calm(); __lt.quiet();
               P.x = P.prevX = Q.x + 1.5; P.z = P.prevZ = Q.z; P.y = fn.heightAt(P.x, P.z);
@@ -621,7 +621,7 @@ async def main():
             # the page's own frames held (each picture draws its own: a frame of the loop at medium over a new town took minutes)
             await ev(page, r"""(() => { if (window.__rafWrapped) { window.__rafHold = true; return 0; } window.__rafWrapped = true; window.__rafHold = true; const raf = window.requestAnimationFrame.bind(window);
               window.requestAnimationFrame = (cb) => raf((t) => { if (window.__rafHold) window.requestAnimationFrame(cb); else cb(t); }); return 0; })()""")
-            await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; return 0; })()")
+            await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 20 }); __hm.UI.modal = null; return 0; })()")
             await ev(page, HELP)
             await ev(page, "(() => { __lt.calm(); __lt.full(); const K = __hm.WAR.keeps[0], S = __hm.loops.keep(0); S.timber = 2; S.food = 8; S.stone = 2; window.__lc = __hm.loops.loopsCarSend(0, K, true); __hm.setTod(0.95); __hm.dbg.WEATHER.mode = 'clear'; __hm.simulate(40); return 0; })()")
             async def shot(name, js):
@@ -656,7 +656,7 @@ async def main():
                 b, page, logs = await setup(p, touch=touch, w=w, h=h)
                 await page.emulate_media(reduced_motion='reduce') # (the Chronicle's sheet fades in by a CSS animation that a loaded headless page may not run)
                 await ev(page, "__hm.fn.setQuality('low'); 0")
-                await ev(page, "(() => { __hm.start({ realm: 0, cls: 'warrior', level: 24 }); __hm.UI.modal = null; return 0; })()")
+                await ev(page, "(async () => { await __hm.start({ realm: 0, cls: 'warrior', level: 24 }); __hm.UI.modal = null; return 0; })()")
                 await ev(page, HELP)
                 await ev(page, "(() => { __lt.quiet(); __lt.calm(); __hm.simulate(2); __hm.season.away(9 * 86400); __hm.GAME.prog.rp = 60000; __hm.simulate(2); for (let i = 0; i < 4; i++) __hm.frame(1/30); return 0; })()")
                 await page.wait_for_timeout(1500)

@@ -94,10 +94,10 @@ function harness({ requested = true, safe = true, statuses = [], defaultStatus =
     get state() { return ctx.window.__hmGpuDiagnostic; },
     lose() { lost = true; ctx.GRAPHICS_CONTEXT_LOST = true; },
     notifyLoss() { for (const fn of canvas.listeners.webglcontextlost || []) fn({ preventDefault() {} }); },
-    async timer() {
+    async timer({lateBy=0}={}) {
       assert.ok(timers.length, 'an explicit fence poll was scheduled');
       timers.sort((a,b) => a.due-b.due);
-      const next = timers.shift(); now = next.due; next.fn();
+      const next = timers.shift(); now = next.due + lateBy; next.fn();
       await Promise.resolve(); await Promise.resolve();
     },
     async drain() {
@@ -124,8 +124,24 @@ test('fence timeout rejects and cleans up without a false completion receipt', a
   const rejected = assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)', h.ctx), /timed out after 50 ms/);
   await h.drain();
   await rejected;
-  assert.equal(h.calls.filter(x => x === 'wait').length, 2);
+  assert.equal(h.calls.filter(x => x === 'wait').length, 3,'the deadline poll checks actual GPU status before rejecting');
   assert.equal(h.calls.filter(x => x === 'delete').length, 1);
+});
+
+test('a late fence poll accepts actual completion before applying the wall-clock deadline',async()=>{
+  const h=harness({statuses:[3]});
+  const pending=vm.runInContext('gpuDiagWaitForFence(gl,50)',h.ctx);
+  await h.timer({lateBy:1000});
+  const receipt=await pending;
+  assert.ok(receipt.waitMs>=1000,'background throttling delayed observation');
+  assert.deepEqual(h.calls,['fence','flush','wait','delete']);
+});
+test('a late fence poll still rejects a pending GPU fence beyond the deadline',async()=>{
+  const h=harness({defaultStatus:4});
+  const rejected=assert.rejects(vm.runInContext('gpuDiagWaitForFence(gl,50)',h.ctx),/timed out after 50 ms/);
+  await h.timer({lateBy:1000}); await rejected;
+  assert.deepEqual(h.calls,['fence','flush','wait','delete']);
+  assert.equal(h.timers.length,0);
 });
 
 test('loss while waiting stops further GL polling or cleanup commands', async () => {
@@ -256,7 +272,9 @@ function bootHarness({ diagnostic = true, safe = true } = {}) {
     perf2Shaders: async () => calls.push('shader-wait'),
     buildMapImage: () => calls.push('map'),
     buildDungeonMap: () => calls.push('dungeon-map'),
-    tick: () => calls.push('tick'),
+    renderFirstTitleFrame: async () => calls.push('title-draw'),
+    graphicsRecoveryNotice: () => calls.push('recovery-notice'),
+    tick: () => {throw Error('boot must not simulate a title frame');},
     setupTitle: () => calls.push('title'),
     requestAnimationFrame: () => calls.push('raf'),
     frame() {}, setTimeout() {}, reportError(error) { throw error; },
@@ -290,7 +308,7 @@ test('diagnostic boot returns before compilation, map, first tick, title and nor
 test('ordinary safe boot still renders its first view and enters the normal loop', async () => {
   const h = bootHarness({diagnostic:false,safe:true});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic','map','dungeon-map','tick','title','raf']);
+  assert.deepEqual(h.calls,['diagnostic','map','dungeon-map','title-draw','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
   assert.equal(h.ctx.window.__hm.ready,true);
 });
@@ -298,7 +316,7 @@ test('ordinary safe boot still renders its first view and enters the normal loop
 test('ordinary high quality boot still follows its existing shader and frame pipeline', async () => {
   const h = bootHarness({diagnostic:false,safe:false});
   await vm.runInContext('boot()',h.ctx);
-  assert.deepEqual(h.calls,['diagnostic','compile','map','dungeon-map','renderer.compile','shader-wait','tick','title','raf']);
+  assert.deepEqual(h.calls,['diagnostic','compile','map','dungeon-map','renderer.compile','shader-wait','title-draw','title','recovery-notice','raf']);
   assert.equal(h.ctx.GAME.ready,true);
 });
 

@@ -6,6 +6,26 @@ import hm
 from playwright.async_api import async_playwright
 OUT = str(hm.OUT) + '/'
 
+
+async def wait_title_settled(page, timeout=180000):
+    """Wait for the real staged title boundary; report a stopped pipeline immediately."""
+    handle = await page.wait_for_function("""() => {
+      const H=window.__hm, S=window.__hmStartup, title=document.getElementById('title');
+      if(!H || !S)return false;
+      if(S.stopped || S.titleError || H.errors.length) {
+        return {error:S.titleError || H.errors.join('; ') || 'Title graphics stopped',
+                stage:S.titleStage, failure:S.titleFailure || null};
+      }
+      if(!H.ready || !H.GAME.ready || (title && title.getAttribute('aria-busy')==='true'))return false;
+      if(!(S.titleCompleted>0) || S.titleCompleted!==S.titleSubmitted ||
+         !S.titleFinal || !S.titleFinal.completed || !S.titleFinal.fenceComplete)return false;
+      return {error:null};
+    }""", timeout=timeout, polling=100)
+    state = await handle.json_value()
+    await handle.dispose()
+    if state['error']:
+        raise RuntimeError('Title graphics did not settle: '+json.dumps(state))
+
 async def setup(p, touch=False, w=800, h=450, init=None):
     b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
     ctx = await b.new_context(viewport={'width': w, 'height': h}, has_touch=touch, is_mobile=touch)
@@ -23,4 +43,16 @@ async def setup(p, touch=False, w=800, h=450, init=None):
     await page.goto('http://hm.test/', wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=180000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
+    await wait_title_settled(page)
     return b, page, logs
+
+async def human_play(page):
+    """Give an active-play fixture one real, trusted browser interaction.
+
+    Call this after programmatic character/scene setup and before active simulation
+    workloads. Pressing and releasing Shift provides real input without moving or attacking. There
+    is no repeating input or product override: title, menu, hidden and idle checks
+    should keep using page.evaluate without this explicit test-operator action.
+    """
+    await page.bring_to_front()
+    await page.keyboard.press('Shift')

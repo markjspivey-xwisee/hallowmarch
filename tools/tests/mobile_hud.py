@@ -9,7 +9,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from hmlib import setup, OUT
+from hmlib import setup, OUT, human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -46,10 +46,10 @@ window.MH = {
     H.hud.HUDL.k = 0; H.hud.HUDL.t = 0; H.hud.hudLayout(1);
     return 0;
   },
-  scene(cls, level) {
+  async scene(cls, level) {
     const H = __hm;
     if (H.GAME.player) H.fn.removeEnt(H.GAME.player);
-    H.start({realm: 2, cls, level, name: 'Mobile Tester', rp: level > 1 ? 60000 : 0});
+    await H.start({realm: 2, cls, level, name: 'Mobile Tester', rp: level > 1 ? 60000 : 0});
     H.UI.modal = null;
     const pro = document.getElementById('lore-pro'); if (pro) pro.hidden = true;
     H.LORE.state.noteUntil = performance.now() + 120000;
@@ -111,6 +111,8 @@ if (!window.__mobileRafWrapped) {
 
 
 async def frame(page):
+    # Scene setup alone must not authorize simulation; use a real operator input.
+    await human_play(page)
     # The scene target and the camera both settle after a viewport/orientation change.
     for _ in range(2):
         await page.evaluate('__hm.frame(1/30); MH.lay(); 0')

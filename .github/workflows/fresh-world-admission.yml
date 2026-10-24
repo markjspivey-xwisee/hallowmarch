@@ -1,0 +1,36 @@
+name: Fresh world admission
+on:
+  pull_request:
+    paths:
+      - server/server.js
+      - server/gaming/hallowmarch-world-server.test.mjs
+      - src/12_save.js
+      - src/14m_liveplay.js
+      - src/14n_net.js
+      - src/14p_netws.js
+      - tools/tests/idle_client_network.test.mjs
+      - tools/tests/server_human_lifecycle.test.mjs
+      - .github/workflows/fresh-world-admission.yml
+permissions:
+  contents: read
+concurrency:
+  group: fresh-world-admission-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fresh-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --prefix tools && npm ci --prefix server
+      - name: Build and lint the actual page
+        run: bash tools/lint.sh 80
+      - name: Verify actual cold client admission and real server fencing
+        run: |
+          node --test tools/tests/idle_client_network.test.mjs tools/tests/net_reconnect.mjs tools/tests/net_world_pause.mjs tools/tests/server_human_lifecycle.test.mjs server/gaming/hallowmarch-world-server.test.mjs client/native-pod/profile.test.mjs

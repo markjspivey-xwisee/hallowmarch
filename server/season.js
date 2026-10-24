@@ -108,7 +108,7 @@ export function makeSeason(cfg, store, stats) {
     console.log(`season: a new season (${M.file}, ${Math.round(cfg.seasonLen / 86400)} days)`);
   } else {
     // the time the server was down: the realms lived on (at most a week at once)
-    const away = Math.max(0, Math.min(7 * 86400, ((Date.now() - (kept.savedAt || Date.now())) / 1000) * S.speed));
+    const away = cfg.seasonLiveOnly === true ? 0 : Math.max(0, Math.min(7 * 86400, ((Date.now() - (kept.savedAt || Date.now())) / 1000) * S.speed));
     if (away > 1) { const t0 = performance.now(); M.realmSimStep(S.RS, away); console.log(`season: ${Math.round(away)} s caught up in ${Math.round(performance.now() - t0)} ms`); }
     console.log(`season: kept (${M.file}), day ${Math.floor(S.RS.t / 86400) + 1}`);
   }

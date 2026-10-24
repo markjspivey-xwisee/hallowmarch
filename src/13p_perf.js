@@ -29,7 +29,7 @@ function perfCaller() {
 // the boot's steps: how long each took (loadStep is wrapped after the first one has started)
 {
   const ls0 = loadStep;
-  loadStep = async (frac, msg, fn) => ls0(frac, msg, fn && (() => { const t = performance.now(); fn(); PERFX.boot.push([msg || '', +(performance.now() - t).toFixed(1)]); }));
+  loadStep = async (frac, msg, fn) => ls0(frac, msg, fn && (async () => { const t = performance.now(); await fn(); PERFX.boot.push([msg || '', +(performance.now() - t).toFixed(1)]); }));
 }
 // a readable name for a drawn object
 function perfLabel(o) {

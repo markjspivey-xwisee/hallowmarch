@@ -382,8 +382,8 @@ const late4HostOn = () => GAME.started && !!GAME.prog && warLevel() >= LATE4_HOS
 function late4HostSpawn(H) {
   late4Route(H);
   if (!H.route.length || H.px == null) return false;
-  const D = H.D, w = warLevel(), P = GAME.player;
-  if (P && dist2(P.x, P.z, H.px, H.pz) < 55 * 55) return false; // (not under your eyes)
+  const D = H.D, w = warLevel();
+  if (netEntityLivePlayers().some(p => dist2(p.x, p.z, H.px, H.pz) < 55 * 55)) return false; // not under anyone's eyes
   // a stand-in camp for spawnMob (08_ai.js) and the risen's band: the host stands one step up the risen's ladder
   const camp = { id: D.realm, realm: D.realm, type: D.type, x: H.px, z: H.pz, r: 3, count: D.n, members: new Set(), respawnAt: [], eliteAt: 0, eliteId: null, l2k: 1, l2on: true, l4host: H };
   H.camp = camp; H.ids = [];
@@ -464,9 +464,9 @@ function late4HostStep(dt) {
     const fighting = alive.some((o) => { const t = getEnt(o.target); return (t && t.alive) || GAME.t < (o.combatUntil || 0) || o.ai.evade; });
     if (fighting) { H.fight = GAME.t; continue; } // (the bodies' home stands where the fight began: the leash holds them)
     if (GAME.t - H.fight < 3) continue;
-    const r = H.route, nx = r[H.ri % r.length], d = Math.hypot(nx.x - H.px, nx.z - H.pz), P = GAME.player;
+    const r = H.route, nx = r[H.ri % r.length], d = Math.hypot(nx.x - H.px, nx.z - H.pz);
     // far from you its bodies rest (updateNPCs: no mob thinks 170 m off), so they go on with it out of sight
-    if (P && dist2(P.x, P.z, H.px, H.pz) > 160 * 160 && alive.every((o) => dist2(P.x, P.z, o.x, o.z) > 165 * 165)) {
+    if (netEntityLivePlayers().every(p => dist2(p.x, p.z, H.px, H.pz) > 160 * 160 && alive.every(o => dist2(p.x, p.z, o.x, o.z) > 165 * 165))) {
       if (d < 0.6) { H.ri = (H.ri + 1) % r.length; continue; }
       const sp = Math.min(d, 2.4 * dt);
       H.px += ((nx.x - H.px) / d) * sp; H.pz += ((nx.z - H.pz) / d) * sp; H.home.x = H.px; H.home.z = H.pz;

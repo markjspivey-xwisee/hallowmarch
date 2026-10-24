@@ -2,11 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nativeIdentityDescription } from './native-identity-description.js';
 
-test('the owned capability exports all four native-discoverable actions with matching HTTP and schema references', () => {
+test('the owned capability exports all eleven native-discoverable owner, guest and claim actions with matching HTTP and schema references', () => {
   const value = nativeIdentityDescription({ publicOrigin: 'https://app.example', allowOwnerBrowserHandoff: true });
   const operations = value.description['hydra:supportedOperation'];
-  assert.equal(operations.length, 4);
+  assert.equal(operations.length, 11);
   assert.deepEqual(operations.map(op => [op['iep:action']['@id'], op['hydra:method'], op['hydra:target']]), [
+    ['urn:interego:identity:owner:playChallenge', 'POST', 'https://app.example/gaming/identity/play/challenge'],
+    ['urn:interego:identity:owner:playComplete', 'POST', 'https://app.example/gaming/identity/play/complete'],
+    ['urn:interego:identity:owner:claimChallenge', 'POST', 'https://app.example/gaming/identity/play/claim-challenge'],
+    ['urn:interego:identity:owner:claimOwnerStart', 'POST', 'https://app.example/gaming/identity/claim-owner/start'],
+    ['urn:interego:identity:owner:claimOwnerClaim', 'POST', 'https://app.example/gaming/identity/claim-owner/claim'],
+    ['urn:interego:identity:owner:claimComplete', 'POST', 'https://app.example/gaming/identity/play/claim-complete'],
+    ['urn:interego:identity:owner:claimRecoveryChallenge', 'POST', 'https://app.example/gaming/identity/play/claim-recovery-challenge'],
     ['urn:interego:identity:owner:start', 'POST', 'https://app.example/gaming/identity/start'],
     ['urn:interego:identity:owner:status', 'GET', 'https://app.example/gaming/identity/status'],
     ['urn:interego:identity:owner:claim', 'POST', 'https://app.example/gaming/identity/claim'],
@@ -24,6 +31,19 @@ test('the owned capability exports all four native-discoverable actions with mat
   assert.equal(value.manifest.capability, value.id); assert.equal(value.manifest.ownerBrowserWriteHandoff, true);
   assert.equal(value.manifest.nativePublication, 'requires-verified-owned-descriptor');
   assert(value.graphContent.includes('sh:name "ownerPodWriteAccess" ; sh:datatype xsd:boolean'));
+  const defs = value.schemas.$defs;
+  assert.equal(defs.PlayCompleteResponse.properties.provisional.const, true);
+  assert.equal(defs.ClaimOwnerResponse.properties.appSession.properties.purpose.const, 'character-claim-target');
+  assert.equal(defs.ClaimOwnerResponse.properties.appSession.properties.token, undefined);
+  assert.equal(defs.ClaimCompleteRequest.properties.readConfirmed.const, true);
+  assert.equal(defs.ClaimCompleteRequest.properties.recoveryChallenge.maxLength, 128);
+  assert.equal(defs.ClaimRecoveryChallengeRequest.additionalProperties, false);
+  assert.equal(defs.ClaimRecoveryChallengeRequest.properties.attestation, undefined);
+  assert.match(operations.find(op => op['iep:action']['@id'].endsWith(':claimRecoveryChallenge'))['hydra:description'], /two-minute random challenge/);
+  assert.deepEqual(defs.ClaimCompleteRequest.properties.selection.enum, ['copy-guest', 'use-existing']);
+  assert.equal(defs.ClaimCompleteResponse.properties.provisional.const, false);
+  assert.match(operations.find(op => op['iep:action']['@id'].endsWith(':playComplete'))['hydra:description'], /human-only/);
+  assert.match(operations.find(op => op['iep:action']['@id'].endsWith(':claimComplete'))['hydra:description'], /not proof for authoritative rewards or loot/);
 });
 
 test('schemas preserve explicit browser write consent and permit no refresh token in handoff output', () => {

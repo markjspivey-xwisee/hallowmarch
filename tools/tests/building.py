@@ -401,7 +401,7 @@ async def main():
     async with async_playwright() as p:
         b, page, logs = await setup(p, w=640 if not SHOTS else 960, h=360 if not SHOTS else 540)
         await page.evaluate(f"__hm.fn.setQuality('{QUALITY}')")
-        await page.evaluate("__hm.start({realm:0, cls:'warrior', level:1}); const P = __hm.GAME.player; P.maxHp = P.hp = 1e8; 0")
+        await page.evaluate("(async () => { await __hm.start({realm:0, cls:'warrior', level:1}); const P = __hm.GAME.player; P.maxHp = P.hp = 1e8; return 0; })()")
         await page.evaluate("() => {" + HELPERS + "; return 0; }")
         await page.evaluate("() => { const W = __hm.dbg.WEATHER; W.mode = 'clear'; W.kind = 'clear'; W.storm = 0; W.raining = 0; W.overcast = 0; W.nextBolt = 1e9; T.H.setTod(0.42); return 0; }")
         await page.evaluate("document.getElementById('hud').hidden = true")

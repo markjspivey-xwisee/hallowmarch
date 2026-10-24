@@ -19,6 +19,7 @@ usage: python3 tools/tests/net.py [room] [three] [lossy] [phone] [server] [compa
 import asyncio, json, sys, pathlib, time, os, random, subprocess, socket
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import hm
+from hmlib import human_play
 from playwright.async_api import async_playwright
 
 ARGS = sys.argv[1:]
@@ -57,8 +58,13 @@ window.NT = {
 };
 0"""
 
-async def boot(ctx, cfg, name):
+async def boot(ctx, cfg, name, *, page_url=None):
     page = await ctx.new_page()
+    # Each multiplayer fixture page represents a different person's foreground
+    # browser. Keep that focus model local to these pages; trusted input is still
+    # required, and idle/diagnostic clients receive no automatic live lease.
+    page._hm_human_focus = await ctx.new_cdp_session(page)
+    await page._hm_human_focus.send('Emulation.setFocusEmulationEnabled', {'enabled': True})
     logs = []
     page.on('pageerror', lambda e: logs.append(f'[pageerror] {e}'))
     page.on('console', lambda m: logs.append(f'[{m.type}] {m.text}') if m.type in ('error',) else (print('   ', name, m.text, flush=True) if m.text.startswith('NETLOG') else None))
@@ -70,8 +76,13 @@ async def boot(ctx, cfg, name):
     await page.route('https://fonts.googleapis.com/**', font_route)
     await page.route('https://fonts.gstatic.com/**', font_route)
     async def doc_route(route): await route.fulfill(status=200, content_type='text/html', body=hm.SKELETON.replace('%s', hm.HTML.read_text()))
-    await page.route('http://hm.test/**', doc_route)
-    await page.goto('http://hm.test/' + cfg.get('q', ''), wait_until='commit')
+    document_origin = cfg.get('origin', 'http://hm.test')
+    # A supplied real origin leaves APIs/assets on their actual server and gives
+    # secure-only browser APIs the same context as the deployed HTTPS game.
+    if page_url is None:
+        await page.route(document_origin + ('/' if cfg.get('origin') else '/**'), doc_route)
+    target = page_url if page_url is not None else document_origin + '/' + cfg.get('q', '')
+    await page.goto(target, wait_until='commit')
     await page.wait_for_function('window.__hm && window.__hm.ready', timeout=300000, polling=500)
     await page.evaluate("__hm.fn.setQuality('low')")
     await page.evaluate(HOLD)
@@ -82,13 +93,15 @@ async def boot(ctx, cfg, name):
     return page
 
 async def start(page, realm, cls, level, name, x=None, z=None):
-    await page.evaluate(f"""(() => {{ __hm.start({{ realm: {realm}, cls: '{cls}', level: {level}, name: '{name}' }}); __hm.UI.modal = null; for (const id of ['prologue', 'menu', 'dialog']) {{ const el = document.getElementById(id); if (el) el.hidden = true; }} return 0; }})()""")
+    await page.evaluate(f"""(async () => {{ await __hm.start({{ realm: {realm}, cls: '{cls}', level: {level}, name: '{name}' }}); __hm.UI.modal = null; for (const id of ['prologue', 'menu', 'dialog']) {{ const el = document.getElementById(id); if (el) el.hidden = true; }} return 0; }})()""")
+    await human_play(page)
     if x is not None: await page.evaluate(f'__hm.teleport({x}, {z}); NT.calm(); 0')
 
 async def step(pages, sec=0.1, n=1, frame=False):
     """each page a step at a time, in turn: the room's messages pass between the evaluates as in play"""
     for _ in range(n):
         for p in pages:
+            await human_play(p)
             await p.evaluate(f'__hm.simulate({sec}); {"__hm.frame(" + str(sec) + ");" if frame else ""} 0')
         await asyncio.sleep(0.02)
 
@@ -102,6 +115,7 @@ async def until(pages, js_page, js, limit=20.0, sec=0.1):
     return bool(await js_page.evaluate(js))
 
 async def shot(page, name):
+    await human_play(page)
     await page.evaluate('__hm.UI.modal = __hm.UI.modal; __hm.frame(1/30); __hm.frame(1/30); 0')
     path = OUT / f'net_{name}.png'
     await page.screenshot(path=str(path), timeout=300000)
@@ -317,7 +331,7 @@ async def room_part(p):
     await b.close()
 
 class NodeClient:
-    """a headless player (net_client.mjs) driven by JSON lines"""
+    """A scripted human protocol actor; diagnostic clients stay inactive by default."""
     def __init__(self, name): self.name = name; self.lines = []; self.proc = None
     async def start(self, url, token=''):
         self.proc = await asyncio.create_subprocess_exec('node', str(pathlib.Path(__file__).parent / 'net_client.mjs'), url, token, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
@@ -329,6 +343,7 @@ class NodeClient:
             try: self.lines.append(json.loads(l))
             except Exception: pass
     async def cmd(self, o):
+        if o.get('cmd') == 'hello': o = {**o, 'human': True}
         self.proc.stdin.write((json.dumps(o) + '\n').encode()); await self.proc.stdin.drain()
     async def wait(self, key, limit=8.0):
         t = time.time()
@@ -647,7 +662,9 @@ async def companies_part(p):
         await srv_up()
         b = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
         ctx = await b.new_context(viewport={'width': W, 'height': H})
-        tctx = await b.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # Edda plays on a phone: her taps are taps
+        # Separate browser instances represent two humans with independent focus.
+        phone_browser = await p.chromium.launch(args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'])
+        tctx = await phone_browser.new_context(viewport={'width': 390, 'height': 780}, has_touch=True, is_mobile=True)  # Edda plays on a phone: her taps are taps
         A = await boot(ctx, {'room': 'srv', 'user': 'uCoA', 'noRoom': True, 'server': url}, 'A')
         town = await A.evaluate('(() => { const T = __hm.REALMS[0].town; return [T.x, T.z]; })()')
         await start(A, 0, 'warrior', 30, 'Corwen', town[0] + 4, town[1] + 10)
@@ -802,6 +819,7 @@ async def companies_part(p):
             errs = await pg.evaluate('__hm.errors.slice()')
             check(not errs, f'{pg._name}: no errors ({errs[:2]})')
         await N1.quit(); await G.quit()
+        await phone_browser.close()
         await b.close()
     finally:
         srv.terminate()
@@ -849,6 +867,7 @@ async def perf_part(p):
     # each frame's JS apart from SwiftShader's drawing: the GPU drained first by a readPixels (as perf2.py does)
     ONE = "(() => { const H = __hm, gl = H.dbg.renderer.getContext(), px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); const t0 = performance.now(); H.simulate(0.05); const t1 = performance.now(); H.frame(1/30); const t2 = performance.now(); return [t1 - t0, t2 - t1]; })()"
     async def MEAS_RUN():
+        await human_play(A)
         await A.evaluate("(() => { const H = __hm; H.CAM.yaw = 0; H.CAM.pitch = 0.3; H.CAM.dist = H.CAM.targetDist = 9; return 0; })()")
         for _ in range(8): await A.evaluate(ONE); await asyncio.sleep(0.03)
         sims, frs, ri = [], [], []

@@ -249,7 +249,7 @@ async def menu_flows(page):
     await page.wait_for_function('window.__hm && __hm.ready', timeout=180000, polling=500)
     # Mobile controls initialize when a character enters the world, after the title screen.
     await page.evaluate(hud.HELP)
-    await page.evaluate("MH.scene('warrior',1);0")
+    await page.evaluate("(async () => { await MH.scene('warrior',1); return 0; })()")
     await hud.frame(page)
     restored = await page.evaluate(r"""()=>({
       hand:document.body.classList.contains('mobile-left-handed'),
@@ -267,7 +267,7 @@ async def notch_cases(page):
     """Both conservative host insets and a landscape home-indicator viewport."""
     await page.set_viewport_size({'width':844,'height':390})
     await wait_for_viewport(page)
-    await page.evaluate("MH.scene('priest',50);0")
+    await page.evaluate("(async () => { await MH.scene('priest',50); return 0; })()")
     patterns=[('t24_b20_l44_r44',{'t':24,'b':20,'l':44,'r':44}),
               ('t0_b34_l44_r44',{'t':0,'b':34,'l':44,'r':44})]
     for name,insets in patterns:
@@ -318,7 +318,7 @@ async def main():
                 scenes=[s for s in scenes if s[0] in OPT['classes'].split(',')]
             if 'flowsonly' in ARGS or 'notchonly' in ARGS:
                 sizes=[]
-                await page.evaluate("MH.scene('warrior',50);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
+                await page.evaluate("(async () => { await MH.scene('warrior',50);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'}); return 0; })()")
                 await hud.frame(page)
             for w,h in sizes:
                 await page.set_viewport_size({'width':w,'height':h})
@@ -361,7 +361,7 @@ async def main():
                 await page.set_viewport_size({'width':393,'height':660})
                 await page.evaluate("const s=document.documentElement.style;for(const k of ['t','b','l','r'])s.setProperty('--safe-'+k,'0px');dispatchEvent(new Event('resize'));0")
                 await wait_for_viewport(page)
-                await page.evaluate("MH.scene('warrior',1);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'});0")
+                await page.evaluate("(async () => { await MH.scene('warrior',1);ME.prefs({hand:'right',size:'standard',text:'standard',names:'relevant'}); return 0; })()")
                 await hud.frame(page)
                 await touch_move_and_hold(page,False)
                 await touch_camera(page,False)

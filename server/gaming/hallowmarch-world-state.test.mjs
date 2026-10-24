@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadRealmModule } from '../season.js';
 import { openHallowmarchWorldState, checkedWorldSnapshot, hallowmarchWorldDescription } from './hallowmarch-world-state.js';
 
-const root = new URL('../../', import.meta.url).pathname;
+const root = fileURLToPath(new URL('../../', import.meta.url));
 const realmModule = loadRealmModule(root + 'src', root + 'server');
 const season = () => ({ ...realmModule.realmSimInit(19, { season: 1 }), savedAt: Date.now() });
 const options = { keepCount: 6, realmModule };
@@ -111,4 +111,19 @@ test('shared rollback pauses mutations, restores every room through recovery and
   failRestore = true;
   await assert.rejects(bridge.rollback(1000, { idempotencyKey: 'uncertain-command' }));
   assert.equal(bridge.canMutate(), false);
+});
+
+
+test('public shared scene survives the owned world checkpoint without admitting private character state', () => {
+  const activity = { v: 1, worldAdmission: { origin: 'https://game.example', epoch: 1 },
+    boats: [], npcs: [], entities: { v: 1, full: true, rows: [], remove: [] },
+    worldparts: { v: 1, full: true, parts: { build: { pieces: [] } }, remove: [], receipts: [] } };
+  const value = checkedWorldSnapshot({ worlds: { march: { activity } }, season: season() }, options);
+  assert.equal(value.worlds.march.activity.v, 1);
+  assert.equal(value.worlds.march.activity.worldparts.parts.build.pieces.length, 0);
+  for (const bad of [{ ...activity, v: 2 }, { ...activity, npcs: [{ id: 'private-character' }] },
+    { ...activity, boats: [{ id: 1, x: Infinity }] }, { ...activity, worldAdmission: { origin: 'bad', epoch: 0 } }]) {
+    assert.throws(() => checkedWorldSnapshot({ worlds: { march: { activity: bad } }, season: season() }, options),
+      { code: 'INVALID_WORLD_STATE' });
+  }
 });

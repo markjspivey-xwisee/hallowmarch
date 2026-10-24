@@ -1,13 +1,16 @@
 /* ================================================================== */
 /* saves: a private per-player document, or this browser as fallback   */
 /* ================================================================== */
-const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, loading: null };
+const SAVE = { ref: null, backend: 'local', lsKey: 'hallowmarch.save.v1', timer: 0, chain: Promise.resolve(), lastBody: '', lastCore: '', loaded: null, wiping: false, native: false, pending: null, readConfirmed: false, nativeFlight: null, nativePaused: false, nativeFinal: null, loading: null, guestWriteAt: 0, guestTimer: 0 };
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), ms))]);
 async function initSaveBackend(initialization) {
   const native = await nativePlayerSaveRef(initialization);
   if (!initialization.active) return null;
   if (native) return native;
+  // A confirmed legacy policy must not open a presence socket merely to probe
+  // another account when this browser already has a valid local character.
+  if (validSave(readLocal())?.char) return null;
   try { const srv = await netServerSaveRef(); if (!initialization.active) return null; if (srv) return { ...srv, server: true }; } catch (e) { /* no server: the artifact's db, or this browser */ } // [net] the March's own server holds the save when the page is linked to one (14p_netws.js)
   try {
     const C = window.claude;
@@ -125,6 +128,9 @@ function buildSave() {
     relics: WAR.relics.map((r) => (r.state === 'temple' ? { at: r.at, slot: r.slot } : null)),
     campaign: campaignSaveData(), // [campaign] the campaign's number, clock and history (08g_campaign.js)
   };
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired() && NETWS.worldInitialized) {
+    const admission = netCurrentWorldAdmission(); if (admission) world.sharedWorld = { ...admission };
+  }
   const land = landSave(); // [worldstate] felled trees, burnt ground, craters, burnt houses, breached walls (12b_worldstate.js)
   if (land) world.land = land;
   const wx = savePartsData('world'); // other systems' records of the world (06d_goods.js)
@@ -170,23 +176,53 @@ function coreKey(s) {
   return JSON.stringify([c && [c.name, c.realm, c.cls, c.level, c.xp, c.rp, c.kills, c.realmKills, c.deaths, c.bounty, c.gold, c.potions, (c.bag || []).map((i) => i.id + (i.n || '')), Object.values(c.eq || {}).map((i) => i.id + ':' + Math.ceil((i.dur ?? 100) / 10)), c.lore, savePartsKey(c.x, 'char')], s.settings, w]);
 }
 function saveSoon(delay = 2500) {
-  if (SAVE.wiping) return;
+  if (SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   clearTimeout(SAVE.timer);
-  SAVE.timer = setTimeout(() => saveNow(), delay);
+  SAVE.timer = setTimeout(() => { if (typeof netHumanLive !== 'function' || netHumanLive()) void saveNow(); }, delay);
 }
 // Native saves retain one active publication and the latest unsaved state. A
 // stalled grant cannot queue an unbounded list of complete character copies.
-function nativeSavePending() {
+function nativeSavePending({ immediate = false } = {}) {
+  const now = () => typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now() : Date.now();
+  if (immediate) {
+    // A final request authorizes this exact body and owner reference, including
+    // when an older publication is still in flight. It never drains later idle work.
+    SAVE.nativeFinal = SAVE.pending ? { body: SAVE.pending, ref: SAVE.ref, until: now() + 10000 } : null;
+    clearTimeout(SAVE.guestTimer); SAVE.guestTimer = 0;
+  }
   if (SAVE.nativeFlight) return SAVE.nativeFlight;
   if (SAVE.nativePaused || !SAVE.pending) return SAVE.chain;
+  const finalReady = () => !!SAVE.nativeFinal && SAVE.nativeFinal.body === SAVE.pending && SAVE.nativeFinal.ref === SAVE.ref
+    && now() < SAVE.nativeFinal.until;
+  const idleUntil = now() + 10000;
+  const initialBody = SAVE.pending, initialRef = SAVE.ref;
   const flight = SAVE.chain.catch(() => {}).then(async () => {
-    while (SAVE.pending && !SAVE.nativePaused) {
+    let first = true;
+    while (SAVE.pending && !SAVE.nativePaused && (first || typeof netHumanLive !== 'function' || netHumanLive() || finalReady())) {
+      // A queued explicit/final save cannot become a fresh idle write long
+      // after its request. Keep the exact pending body for the next live session.
+      if (first && typeof netHumanLive === 'function' && !netHumanLive() && !finalReady()
+        && (SAVE.pending !== initialBody || SAVE.ref !== initialRef || now() >= idleUntil)) break;
+      const provisional = typeof nativePlayerIsProvisional === 'function' && nativePlayerIsProvisional();
+      const wait = provisional && !finalReady() ? SAVE.guestWriteAt - Date.now() : 0;
+      if (wait > 0) {
+        if (!SAVE.guestTimer) SAVE.guestTimer = setTimeout(() => {
+          SAVE.guestTimer = 0;
+          if (typeof netHumanLive !== 'function' || netHumanLive()) void nativeSavePending();
+        }, Math.min(wait, 30000));
+        break; // Keep the latest dirty character; a paced save is not an acknowledgement.
+      }
+      first = false;
       const s = SAVE.pending, body = JSON.stringify({ ...s, savedAt: 0 });
+      if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       try {
         if (!SAVE.ref) throw nativePlayerError('native_signin_required', 'Reconnect your identity before saving.');
         await SAVE.ref.set(s);
+        if (provisional) SAVE.guestWriteAt = Date.now() + 30000;
         SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
         if (SAVE.pending === s) SAVE.pending = null;
+        if (SAVE.nativeFinal?.body === s) SAVE.nativeFinal = null;
       } catch (error) {
         NATIVE_PLAYER.state = error.code || 'uncertain'; nativePlayerRender();
         break; // Keep the latest progress; a later explicit retry resumes it.
@@ -198,22 +234,26 @@ function nativeSavePending() {
   return flight;
 }
 function saveNow() {
+  const final = arguments[0]?.final === true;
   clearTimeout(SAVE.timer);
   // nothing to keep until a character is in the world (and never overwrite one from the title screen)
   if (SAVE.wiping || !GAME.ready || !GAME.player) return Promise.resolve();
   if (CAPTURE.on) return Promise.resolve(); // [capture] nothing is saved while the capture build stages its shots (14_capture.js)
   const s = buildSave();
   const body = JSON.stringify({ ...s, savedAt: 0 });
-  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending)) return Promise.resolve();
+  if (body === SAVE.lastBody && !(SAVE.native && SAVE.pending) && !(final && SAVE.server)) return Promise.resolve();
   if (!SAVE.native) { SAVE.lastBody = body; SAVE.lastCore = coreKey(s); }
-  else SAVE.pending = s;
+  else { SAVE.pending = s; SAVE.nativeFinal = null; }
   s.savedAt = Date.now();
-  if (SAVE.native) return nativeSavePending();
+  if (SAVE.native) return nativeSavePending({ immediate: final });
+  // One departing legacy save may follow its withdrawal, within the same bounded
+  // final-save window. An old queue must never dispatch it later from standby.
+  const finalUntil = final ? Date.now() + 10000 : 0;
   // one write at a time: queue behind any write still in flight
   SAVE.chain = SAVE.chain.then(async () => {
-    if (SAVE.ref) {
+    if (SAVE.ref && (final ? Date.now() <= finalUntil : typeof netHumanLive !== 'function' || netHumanLive())) {
       try {
-        await SAVE.ref.set(s);
+        await SAVE.ref.set(s, { final });
         if (SAVE.native) {
           SAVE.lastBody = body; SAVE.lastCore = coreKey(s);
           if (SAVE.pending === s) SAVE.pending = null;
@@ -225,7 +265,7 @@ function saveNow() {
           return;
         }
         if (e && (e.code === 'revoked' || e.code === 'not_granted' || e.code === 'invalid_argument' || e.code === 'capability_disabled')) { SAVE.ref = null; SAVE.backend = 'local'; }
-        else { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
+        else if (!final && (typeof netHumanLive !== 'function' || netHumanLive())) { await new Promise((r) => setTimeout(r, 600 + Math.random() * 600)); if (typeof netHumanLive !== 'function' || netHumanLive()) try { await SAVE.ref.set(s); return; } catch (e2) { /* fall through */ } }
       }
     }
     if (SAVE.native) { NATIVE_PLAYER.state = 'native_signin_required'; nativePlayerRender(); return; }
@@ -235,12 +275,11 @@ function saveNow() {
 }
 // a slow heartbeat: writes only when something meaningful changed since the last write
 setInterval(() => {
-  if (!GAME.ready || !GAME.player || SAVE.wiping) return;
+  if (!GAME.ready || !GAME.player || SAVE.wiping || typeof netHumanLive === 'function' && !netHumanLive()) return;
   const s = buildSave();
   if (coreKey(s) !== SAVE.lastCore) saveNow();
 }, 40000);
-window.addEventListener('pagehide', () => { if (GAME.player) saveNow(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && GAME.player) saveNow(); });
+// netHumanPublish owns the single final save when a live session pauses.
 
 function wipeSave() {
   SAVE.wiping = true;
@@ -254,6 +293,10 @@ function wipeSave() {
 /* restores the state of the war from a save (keep owners, hallows at rest) */
 function applyWorldSave(w) {
   if (!w || !Array.isArray(w.keeps)) return;
+  if (typeof netSharedWorldRequired === 'function' && netSharedWorldRequired()) {
+    const admission = netCurrentWorldAdmission();
+    if (NETWS.worldInitialized || !netSameWorldAdmission(netWorldAdmissionRead(w.sharedWorld), admission)) return;
+  }
   WAR.keeps.forEach((K, i) => {
     const r = w.keeps[i];
     if (!(r >= 0 && r <= 2) || r === K.realm) return;
@@ -297,3 +340,4 @@ function applySettings(st) {
   soundApplySettings(st); // [audio2] Volume, Effects, Ambience: older saves have none, Medium stays (11c_sound.js)
   if (st.weather === 'clear' || st.weather === 'auto') setWeatherMode(st.weather);
 }
+

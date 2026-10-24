@@ -40,20 +40,32 @@ export async function playerProfileGraphIri(ownerDid, crypto = globalThis.crypto
 
 /** Neither a local cache nor a game-owned pointer is the discovery primary. */
 export function createPlayerPodProfile({ binding, credential, relayUrl, request,
-  pointer = null, onState = () => {}, createClient = createNativePodClient, crypto = globalThis.crypto } = {}) {
+  pointer = null, onState = () => {}, createClient = createNativePodClient, crypto = globalThis.crypto,
+  deferRelationship = false } = {}) {
   if (!binding?.subjectDid || !binding?.podUrl || typeof request !== 'function') throw new TypeError('A verified owner and game bridge are required.');
   const ownerDid = binding.subjectDid;
   const client = createClient({ relayUrl, credential, ownerDid, podUrl: binding.podUrl });
   let current = null, pending = null, pendingIndex = null, latest = null, state = 'connecting', keyPresent = false;
   let chain = Promise.resolve(), linked = !!pointer, closed = false, connected = false, readConfirmed = false;
+  let relationshipDeferred = deferRelationship === true;
   let indexGraphIri = null, indexHead = null, indexSeen = false, indexVerified = false, profileGraphIri = null, defaultProfileGraphIri = null, checkpointSeen = false;
   const hasRecord = () => !!(indexSeen || checkpointSeen || current || pointer || pending || pendingIndex);
   const change = (next, detail = '') => { state = next; onState({ state, detail, keyPresent,
     hasRecord: hasRecord(), pending: !!(pending || pendingIndex) }); };
   const active = () => { if (closed) throw error('revoked', 'This identity connection is closed.'); };
   const ready = () => { active(); if (!connected) throw error('not_connected', 'Connect your identity before opening its character.'); };
+  const normalizedSave = save => {
+    const value = copy(save);
+    // The game builds its ordinary save from registered game parts. Preserve
+    // native claim provenance when a later ordinary save omits that metadata.
+    // An explicit supplied value is still checked by the provisional adapter.
+    if (current?.record?.save?.nativePlay && !Object.hasOwn(value, 'nativePlay')) {
+      value.nativePlay = copy(current.record.save.nativePlay);
+    }
+    return value;
+  };
   const record = save => ({ schema: PROFILE_SCHEMA, ownerDid, game: GAME,
-    provenance: { authority: 'player-authored', importedProgressIsAuthoritative: false }, save: copy(save) });
+    provenance: { authority: 'player-authored', importedProgressIsAuthoritative: false }, save: normalizedSave(save) });
   const indexRecord = () => ({ schema: INDEX_SCHEMA, ownerDid, game: GAME, profileGraphIri: current.graphIri });
   const keyRequired = () => { change('key_required'); throw error('key_required', 'Restore your recovery key to open this character.'); };
   async function probeIndex() {
@@ -107,6 +119,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       if (result?.status === 'conflict') { pending = null; throw error('conflict', 'The native character has competing versions.'); }
       pending = result?.operationId ? result : pending;
       change(result?.status || 'uncertain');
+      if (result?.reason === 'guest_quota_exhausted') throw error('guest_quota_exhausted', 'The provisional pod save allowance is full. Keep the last confirmed character with your identity to continue.');
       throw error('pod_pending', 'Your pod has not confirmed this save yet.');
     }
     validatePlayerProfile(result.record, ownerDid);
@@ -142,6 +155,11 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
     acceptedIndex(await client.createAt({ graphIri: indexGraphIri, record: indexRecord() }));
   }
   async function finishRelationship() {
+    // A provisional-to-owner claim confirms the private owner-pod copy before
+    // the game changes its participation session. Linking it through the old
+    // guest session would confuse the two owners. The claim host explicitly
+    // enables the normal relationship only after its own admission readback.
+    if (relationshipDeferred) { change('private_saved'); return; }
     try { if (!linked) await link(current); }
     catch (cause) {
       active(); linked = false; change('link_pending');
@@ -168,7 +186,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
       // readback verifies its owner/schema/game. An unread index always wins.
       await ensureIndexed(); active();
       linked = pointer?.graphIri === target && pointer?.cid === found.head.cid;
-      change(linked ? 'ready' : 'link_pending');
+      change(linked ? 'ready' : relationshipDeferred ? 'private_ready' : 'link_pending');
       return { exists: true, data: () => copy(save) };
     } catch (cause) {
       if (cause.code === 'checkpoint_binding_pending') {
@@ -212,7 +230,25 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
     }
   }
   function serialized(run) { const next = chain.then(run); chain = next.catch(() => {}); return next; }
+  function reference() {
+    active();
+    if (!current || !readConfirmed || !indexVerified || pending || pendingIndex) return null;
+    return copy({ kind: 'character', graphIri: current.graphIri,
+      descriptorUrl: current.head.descriptorUrl, cid: current.head.cid,
+      ...(current.head.nativeRevision ? { bindingCid: current.head.bindingCid || current.head.cid,
+        nativeRevision: current.head.nativeRevision, recordCid: current.head.recordCid,
+        proofKind: current.head.proofKind, digest: current.digest } : {}) });
+  }
   return Object.freeze({ connect, get: () => serialized(read), native: true,
+    reference,
+    deferRelationship() { return serialized(async () => { ready(); relationshipDeferred = true; }); },
+    confirmRelationship() { return serialized(async () => {
+      ready();
+      if (!reference()) throw error('unread_record', 'Confirm the private character before linking it to the game.');
+      relationshipDeferred = false;
+      await finishRelationship();
+      return reference();
+    }); },
     reauthenticate({ credential } = {}) { return serialized(async () => {
       active();
       if (!readConfirmed && !current && !pending) throw error('unread_record', 'Open this private character before resuming it.');
@@ -246,7 +282,7 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
         change('ready'); return { keyPresent, readConfirmed: true, hasRecord: hasRecord() };
       } catch (cause) { if (!closed) change(cause.code || 'unavailable'); throw cause; }
     }); },
-    set(save) { validatePlayerProfile(record(save), ownerDid); latest = copy(save); return serialized(persist); },
+    set(save) { latest = validatePlayerProfile(record(save), ownerDid); return serialized(persist); },
     retry() { return serialized(() => persist(true)); },
     createKey() { return serialized(async () => {
       ready(); await probeIndex();
@@ -269,3 +305,4 @@ export function createPlayerPodProfile({ binding, credential, relayUrl, request,
     close() { closed = true; client.close(); change('closed'); },
   });
 }
+

@@ -32,10 +32,12 @@ function gpuDiagWaitForFence(context, timeout = GPU_DIAG_TIMEOUT_MS) {
     };
     const poll = () => {
       if (GRAPHICS_CONTEXT_LOST || context.isContextLost()) { finish(new Error('Graphics context was lost while waiting for the batch.')); return; }
-      if (performance.now() - start >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms. No further stage will run.')); return; }
       const status = context.clientWaitSync(sync, 0, 0);
       if (status === context.ALREADY_SIGNALED || status === context.CONDITION_SATISFIED) { finish(); return; }
       if (status === context.WAIT_FAILED) { finish(new Error('The browser rejected the GPU completion wait.')); return; }
+      // A background tab may resume after its deadline with an already-signaled
+      // fence. Observe completion first; only still-pending work times out.
+      if (performance.now() - start >= timeout) { finish(new Error('GPU completion timed out after ' + timeout + ' ms. No further stage will run.')); return; }
       setTimeout(poll, GPU_DIAG_POLL_MS);
     };
     // Yield first: context-loss notifications must be able to reach the latch.
@@ -43,7 +45,7 @@ function gpuDiagWaitForFence(context, timeout = GPU_DIAG_TIMEOUT_MS) {
   });
 }
 
-function gpuDiagPrepareView() {
+function gpuDiagPrepareView({ weatherGpu = true } = {}) {
   // The preparation half of tick, with a frozen simulation. These functions
   // populate the actual crowds/LOD/grass/props; there is no tick or simStep, no
   // weather GPU pass, and no trail/decal submission here.
@@ -52,7 +54,8 @@ function gpuDiagPrepareView() {
   applyWeather();
   applyIndoor();
   updateNightSky(dt);
-  wxCloudsFrame(dt); // safe mode returns before allocating or drawing clouds
+  if (weatherGpu) wxCloudsFrame(dt); // safe diagnostics return before allocating/drawing clouds
+  else { U.uCloudDomeOn.value.x = 0; U.uCloudSh.value.w = 0; U.uCloudScrP.value.z = 0; }
   camera.updateMatrixWorld();
   projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);

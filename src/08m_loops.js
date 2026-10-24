@@ -561,7 +561,7 @@ function loopsCarHome(c) {
   for (const id of c.esc) { const e = getEnt(id); if (e && e.alive) e.lCar = null; }
 }
 // is a place in sight of the player (near enough that a body there should not simply be gone)?
-function loopsSeenBy(x, z, r = 95) { const P = GAME.player; return !!P && dist2(P.x, P.z, x, z) < r * r; }
+function loopsSeenBy(x, z, r = 95) { return netEntityLivePlayers().some(p => dist2(p.x, p.z, x, z) < r * r); }
 function loopsCarGone(c) {
   c.state = 'gone';
   for (const id of [c.horse, c.carter, ...c.esc]) { const e = getEnt(id); if (e && !e.removed) { if (e.alive) { e.alive = false; e.removeAt = GAME.t; } e.lCar = null; } }
@@ -807,7 +807,9 @@ function loopsDraw(dt) {
 function loopsSpawnWorkers() {
   for (const R of REALMS) {
     const S = R.town;
-    for (const job of ['wood', 'wood', 'stone']) {
+    for (const [jobIndex, job] of ['wood', 'wood', 'stone'].entries()) {
+      const existing = typeof netNpcFind === 'function' && netNpcFind(`town:${R.id}:villager:${6 + jobIndex}`);
+      if (existing) { if (!LOOPS.workers.includes(existing.id)) LOOPS.workers.push(existing.id); continue; }
       const a = Math.random() * TAU, rr = 8 + Math.random() * 10;
       const x = S.x + Math.cos(a) * rr, z = S.z + Math.sin(a) * rr;
       if (!isWalkable(x, z)) continue;
@@ -816,7 +818,8 @@ function loopsSpawnWorkers() {
       const v = makeEnt({ kind: 'humanoid', faction: FACTION_NEUTRAL, role: 'villager', level: 5, name: `${pick(Math.random, VILLAGER_NAMES)} the ${job === 'wood' ? 'woodcutter' : 'quarryman'}`, x, z, y: heightAt(x, z), look, home: { x: S.x, z: S.z, r: 20 }, speed: 2.2 });
       v.maxHp = v.hp = 300;
       v.ai.lj = { job, realm: R.id, look: look.mask, next: GAME.t + 20 + Math.random() * 40 };
-      LOOPS.workers.push(v.id);
+      if (typeof netNpcRegister === 'function') netNpcRegister(v, `town:${R.id}:villager:${6 + jobIndex}`);
+      if (!LOOPS.workers.includes(v.id)) LOOPS.workers.push(v.id);
     }
   }
 }
@@ -1198,6 +1201,8 @@ function loopsLadenHTML() {
 /* ------------------------------------------------------------------ */
 function loopsSpawnQuartermasters() {
   for (const R of REALMS) {
+    const existing = typeof netNpcFind === 'function' && netNpcFind(`town:${R.id}:merchant:1`);
+    if (existing) { R.quartermaster = existing; continue; }
     const S = R.town, lx = 11, lz = 8.5;
     const c = siteToWorld(S, lx, lz), yaw = S.yaw + Math.atan2(-lx, -lz);
     let x = c.x - Math.sin(yaw) * 1.05, z = c.z - Math.cos(yaw) * 1.05;
@@ -1214,6 +1219,7 @@ function loopsSpawnQuartermasters() {
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };
     R.quartermaster = m;
+    if (typeof netNpcRegister === 'function') netNpcRegister(m, `town:${R.id}:merchant:1`);
   }
 }
 // E beside the quartermaster: the realm's stores; and a cart of yours: walk with it
@@ -1431,3 +1437,4 @@ queueMicrotask(() => { // (CHRON, FIELD_NOTES, GUIDE_WATCH, GUIDE_HELP, LOADING_
   }
   PATH_STEPS.forEach((S, i) => { S.idx = i; });
 });
+

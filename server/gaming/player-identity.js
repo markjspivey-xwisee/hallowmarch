@@ -281,6 +281,9 @@ export function createPlayerIdentityBridge(options = {}) {
   }
   function verifyOwner(status, provider) {
     const identity = status.identity, agent = status.sessionAgent;
+    // A character claim requires an independently authenticated permanent owner.
+    // Missing lifecycle metadata fails closed only for this explicit ceremony.
+    if (options.requireCanonicalOwner === true && identity?.provisionalPlay !== false) fail('canonical_native_owner_required', 403);
     const userId = identity?.userId;
     if (typeof userId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(userId)) fail('unverified_native_owner', 502);
     const didHost = identityUrl.host.replace(/:/g, '%3A');
@@ -451,3 +454,4 @@ export function createPlayerIdentityBridge(options = {}) {
 }
 
 function hashBase64(value) { return createHash('sha256').update(value).digest('base64url'); }
+
