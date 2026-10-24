@@ -1,0 +1,61 @@
+name: Audio-isolated original rendering budgets
+on:
+  push:
+    branches: [test/perf-audio-isolation-20261024]
+    paths: [.github/workflows/perf-audio-all-budgets.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: perf-audio-all-budgets-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  all-budget-views:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Use bounded Ubuntu archive downloads
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
+      - name: Install browser dependencies
+        run: |
+          npm ci --prefix tools
+          python -m pip install playwright==1.55.0 Pillow==11.3.0
+          python -m playwright install --with-deps chromium
+      - name: Build and check fixture syntax
+        run: |
+          python build.py
+          python -m py_compile tools/tests/perf.py tools/tests/perf_audio_isolation.py
+      - name: Run unchanged draw budgets at every quality and view
+        run: python3 tools/tests/perf.py low medium high render budget tag=audio-isolated-all-views
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: perf-audio-all-budget-evidence
+          path: tools/out/perf_*.json
+          retention-days: 14
