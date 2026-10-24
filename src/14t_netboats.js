@@ -78,9 +78,25 @@ function netBoatRebuildRequest(B) {
   if (!netBoatEnabled()) return false;
   if (!B || B.st !== 'burnt' || !netBoatLive() || !NET_BOATS.frames.has(B.id)
     || typeof netWorldPartsRequest !== 'function') {
-    uiToast('Waiting for the shared boat before rebuilding.'); return true;
+    uiError('Waiting for the shared boat before rebuilding.'); return true;
   }
+  // The server commits the hull and this command's receipt in one candidate.
+  // The private journal owns the six reserved planks until that receipt settles.
   return netWorldPartsRequest('boat.rebuild', { id: B.id }, [['plank', 6]], true);
+}
+function netBoatReplaceRequest(B) {
+  if (!netBoatLive() || NET_BOATS.host !== NET.self) return true;
+  const berth = B.home && BOATS.jetties[B.home.j]?.berths[B.home.b];
+  if (!berth) return true;
+  const now = performance.now(), key = 'replace:' + B.id;
+  if (now - (NET_BOATS.actions.get(key) ?? -Infinity) < 1000) return true;
+  const row = { ...netBoatRow(B), x: berth.x, z: berth.z, yaw: berth.yaw,
+    st: 'moored', char: 0, vx: 0, vz: 0, wr: 0, ph: 0, eff: 0, grounded: 0,
+    rider: null, launch: null, still: false };
+  // Only the server can confirm unattended replacement. A keeper snapshot
+  // must never revive a burnt hull or race a nearby player's paid rebuild.
+  if (netBoatSend('replace', { id: B.id, boats: [row], ambient: true })) NET_BOATS.actions.set(key, now);
+  return true;
 }
 function netBoatAction(B, op, by = null) {
   if (!netBoatEnabled() || NET_BOATS.applying) return false;
@@ -91,7 +107,7 @@ function netBoatAction(B, op, by = null) {
       return true;
     }
     if (op === 'restore' && B.rebuildAt && GAME.t > B.rebuildAt
-      && GAME.player && Math.hypot(B.x - GAME.player.x, B.z - GAME.player.z) > 30) return false;
+      && GAME.player && Math.hypot(B.x - GAME.player.x, B.z - GAME.player.z) > 30) return netBoatReplaceRequest(B);
   }
   if (!netBoatLive() || !NET_BOATS.frames.has(B.id)) return true;
   const now = performance.now(), key = op + ':' + B.id;
@@ -121,7 +137,6 @@ function netBoatTake(row, force = false) {
   Object.assign(B, { x: row.x, z: row.z, yaw: row.yaw, vx: row.vx, vz: row.vz, wr: row.wr,
     st: row.st, ph: row.ph, eff: row.eff, grounded: row.grounded, char: row.char,
     still: row.still, home: row.home, launch: row.launch ? { ...row.launch } : null });
-  if (row.st !== 'burning' && row.st !== 'burnt') { B.burnT = 0; B.rebuildAt = 0; B.fireT = 0; }
   if (row.rider && row.rider !== NET.self) B.rider = netGhost(row.rider)?.id ?? 'net:' + row.rider;
   else if (row.rider === NET.self) B.rider = mine ? P.id : null;
   else if (oldRider && oldRider !== P && oldRider.role !== 'remote' && netBoatAmbient()) B.rider = oldRider.id;
@@ -211,16 +226,21 @@ function netBoatReset() {
   NET_BOATS.lastSnapshot = ''; NET_BOATS.lastSend = -Infinity; NET_BOATS.seq = 0;
 }
 queueMicrotask(() => {
-  if (typeof netWorldPartsRegisterCommand === 'function') {
-    netWorldPartsRegisterCommand('boat.rebuild', {
-      durable: true, tools: ['tool_hammer'],
-      // The server owns the hull and receipt together. A server without this
-      // operation refunds rather than running a second local restore.
-      run: () => ({ ok: false, why: 'This server cannot confirm a shared boat rebuild yet.' }),
-    });
-    netWorldPartsRegisterResult('boat.rebuild', () =>
-      uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys'));
-  }
   if (typeof window.__hm === 'object') window.__hm.netboats = { NET_BOATS, read: netBoatRead,
     row: netBoatRow, message: netBoatMessage, pump: netBoatPump, reset: netBoatReset, canSimulate: netBoatCanSimulate };
+});
+
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('boat.rebuild', {
+    durable: true, tools: ['tool_hammer'],
+    point: args => { const B = BOATS.list.find(b => b.id === args.id); return B ? { x: B.x, z: B.z } : null; },
+    range: 18,
+    // This operation is intercepted by the server-owned boat authority. An
+    // older server must refund the reservation rather than restoring for free.
+    run: () => ({ ok: false, why: 'This server cannot safely settle the boat rebuild yet.' }),
+  });
+  netWorldPartsRegisterResult('boat.rebuild', () => {
+    uiLog('The boat is sound again: new strakes where the old ones burnt.', 'sys');
+  });
 });

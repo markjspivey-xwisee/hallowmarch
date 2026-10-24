@@ -27,6 +27,44 @@ REPORT = {"cases": [], "wire": {}, "errors": [], "diagnostics": []}
 WIRES = []
 BOOT_PAGES = []
 
+PRIVATE_COMMAND_DIAGNOSTIC_JS = """(() => {
+  const H=window.__hm,S=H?.SAVE,p=H?.worldparts?.NETPARTS;
+  if(!H || !S || !p) return {available:false};
+  const account=H.net?.NETWS?.acct?.id;
+  const scope=row=>{
+    const hasAccount=typeof row?.ownerAccount==='string' && !!row.ownerAccount;
+    const accountMatch=hasAccount && row.ownerAccount===account;
+    const refMatch=row?.profileRef===S.ref,playerMatch=row?.playerRef===H.GAME.player;
+    return {hasAccount,accountMatch,refMatch,playerMatch,notWiping:!S.wiping,
+      valid:hasAccount && accountMatch && refMatch && playerMatch && !S.wiping};
+  };
+  const pending=[...p.pending].slice(0,8);
+  const journal=save=>{
+    const value=save?.char?.x?.sharedWorldReservations;
+    const reservations=Array.isArray(value)?value:Array.isArray(value?.pending)?value.pending:[];
+    const settled=Array.isArray(value?.settled)?value.settled:[];
+    return {savePresent:!!save,journalPresent:!!value,pending:reservations.length,settled:settled.length,
+      matchingPending:pending.filter(([id])=>reservations.some(row=>row?.id===id)).length};
+  };
+  let lastBody=null,lastBodyParsed=false,local=null,localParsed=false;
+  try {lastBody=JSON.parse(S.lastBody || 'null');lastBodyParsed=true;}catch{}
+  if(!S.native && S.backend==='local') try {
+    local=JSON.parse(localStorage.getItem(S.lsKey) || 'null');localParsed=true;
+  }catch{}
+  return {available:true,
+    pending:pending.map(([id,row])=>({id:String(id).slice(0,100),op:String(row.op).slice(0,80),
+      phase:String(row.phase).slice(0,24),durable:!!row.durable,privateConfirmed:!!row.privateConfirmed,
+      lastSent:Number.isFinite(row.lastSent)?row.lastSent:null,ownerScope:scope(row)})),
+    privateError:String(p.privateError || '').slice(0,120),privateFlight:!!p.privateFlight,
+    privateAttempt:p.privateAttempt,privateScope:p.privateScope?scope(p.privateScope):null,
+    save:{backend:String(S.backend || '').slice(0,24),native:!!S.native,server:!!S.server,refPresent:!!S.ref,
+      nativeFlight:!!S.nativeFlight,readConfirmed:!!S.readConfirmed,nativePaused:!!S.nativePaused,wiping:!!S.wiping,
+      lastError:typeof S.lastError==='string'?S.lastError.slice(0,120)
+        :typeof S.lastError?.code==='string'?S.lastError.code.slice(0,120):null,
+      lastBody:{parsed:lastBodyParsed,...journal(lastBody)},loaded:journal(S.loaded),
+      local:{parsed:localParsed,...journal(local)}}};
+})()"""
+
 
 def require(ok, message, **detail):
     REPORT["cases"].append({"ok": bool(ok), "message": message, **detail})
@@ -86,9 +124,10 @@ async def diagnose(pages, label):
                 worldparts:p?{authority:p.authority,peer:p.peer,ready:p.ready,seq:p.seq,readSeq:p.readSeq,
                   sent:p.sent,received:p.received,refused:p.refused,pending:p.pending.size,
                   privateError:p.privateError,privateFlight:!!p.privateFlight,
-                  pendingRows:[...p.pending].map(([id,row])=>({id,op:row.op,phase:row.phase,durable:row.durable,
+                  pendingRows:[...p.pending].slice(0,8).map(([id,row])=>({id,op:row.op,phase:row.phase,durable:row.durable,
                     privateConfirmed:row.privateConfirmed,refMatches:row.profileRef===H.SAVE.ref,playerMatches:row.playerRef===H.GAME.player})),
-                  receipts:p.receipts.slice(-6).map(row=>({id:row.id,ok:row.ok,reason:row.reason,result:row.result,settled:row.settled})),
+                  receipts:p.receipts.slice(-6).map(row=>({id:String(row.id).slice(0,100),ok:row.ok,reason:String(row.reason||'').slice(0,120),
+                    result:row.result?{pieceId:row.result.pieceId??null,boatId:row.result.boatId??null}:null,settled:row.settled})),
                   outbox:p.outbox?{seq:p.outbox.seq,part:p.outbox.part,total:p.outbox.total}:null,
                   adapters:take(()=>H.worldparts.adapters())}:null,
                 fields:take(()=>H.combatfields.state()),
@@ -100,6 +139,7 @@ async def diagnose(pages, label):
                 errors:(H.errors||[]).slice(-8),log:[...document.querySelectorAll('#log>div')].slice(-8).map(e=>e.textContent),
                 sceneBytes:take(()=>JSON.stringify(H.worldparts.capture()).length)};
             })()""")
+            state["privateCommands"] = await page.evaluate(PRIVATE_COMMAND_DIAGNOSTIC_JS)
             record["pages"].append({"name": getattr(page, "_name", "booting"), "state": state,
                                     "errors": getattr(page, "_shared_errors", [])[-8:]})
         except Exception as error:
@@ -151,11 +191,12 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
         page.on("websocket", socket_open)
     context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
-                              "user": name, "noRoom": True, "server": url,
-                              "origin": url.replace("wss://", "https://").removesuffix("/ws")}, name)
-    security = await page.evaluate("({origin:location.origin,secure:isSecureContext,randomUUID:typeof crypto.randomUUID==='function'})")
-    require(security["secure"] and security["randomUUID"],
-            "each independent browser uses a secure origin with native UUID support", security=security)
+                              "user": name, "noRoom": True, "server": url}, name,
+                              page_url=origin + "/?safe=1")
+    secure = await page.evaluate("""({secure:window.isSecureContext,origin:location.origin,
+      randomUUID:typeof crypto.randomUUID})""")
+    require(secure["secure"] and secure["origin"] == origin and secure["randomUUID"] == "function",
+            "the browser uses the real HTTPS world origin with native cryptography", document=secure)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context
@@ -233,7 +274,7 @@ async def boat_case(pages):
       const boats = __hm.water.boats;
       for (const row of boats.list().filter(b => b.realm === 0 && b.st === 'moored' && b.home)) {
         const B = boats.BOATS.list[row.i], J = B.home && boats.BOATS.jetties[B.home.j];
-        if (!J || B.rider != null) continue;
+        if (!J || B.rider != null || __hm.netboats.NET_BOATS.frames.get(row.id)?.rider != null) continue;
         const sign = Math.sin(B.yaw) * J.dx + Math.cos(B.yaw) * J.dz >= 0 ? 1 : -1;
         const clear = [0, .5, 1, 2, 3, 4, 5, 6, 7, 8].every(d =>
           boats.hit(row.i, B.x + Math.sin(B.yaw) * sign * d,
@@ -256,6 +297,12 @@ async def boat_case(pages):
     rider = pages[occupied.index(True)]
     observer = pages[occupied.index(False)]
     before = await rider.evaluate("i=>__hm.water.boats.state(i)", index)
+    navigation = await rider.evaluate("""([i,key])=>{const boats=__hm.water.boats,b=boats.state(i);
+      const sign=key==='KeyW'?1:-1;
+      return {jetty:b.home?boats.jetties()[b.home.j]:null,strokeKey:key,
+        departure:[0,.5,1,2,3,4,5,6,7,8].map(d=>({distance:d,
+          hit:boats.hit(i,b.x+Math.sin(b.yaw)*sign*d,
+            b.z+Math.cos(b.yaw)*sign*d,b.yaw)}))}; }""", [index, candidate["strokeKey"]])
     await rider.evaluate("key=>{__hm.INPUT.keys.add(key); return 0;}", candidate["strokeKey"])
     try:
         await pulse(pages, 5)
@@ -264,8 +311,10 @@ async def boat_case(pages):
     await pulse(pages, 0.8)
     a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
     moved = math.hypot(a["x"]-before["x"], a["z"]-before["z"])
+    canonical = [await p.evaluate("id=>__hm.netboats.NET_BOATS.frames.get(id)", a["id"]) for p in pages]
     require(moved > 0.75, "a boarded boat really rows away from its berth", distance=moved,
-            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b)
+            stroke=candidate["strokeKey"], before=before, desktop=a, phone=b,
+            canonical=canonical, navigation=navigation)
     async def boat_views_converge():
         one, two = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", index) for p in pages))
         return math.hypot(one["x"]-two["x"], one["z"]-two["z"]) < 1.25
@@ -405,7 +454,7 @@ async def combat_case(pages):
     follower_position = await follower.evaluate("({x:NT.P.x,z:NT.P.z})")
     candidate = await host.evaluate("""at=>{const H=__hm,out=[];for(const r of H.entities.rows()) {
       const e=H.entities.find(r.id);if(e&&e.alive&&e.role==='mob'
-        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<20000)
+        &&H.fn.isEnemy(H.GAME.player,e)&&e.hp>40&&e.hp<=600)
         out.push({id:r.id,x:e.x,z:e.z,hp:e.hp,d:Math.hypot(e.x-at.x,e.z-at.z)});}
       out.sort((a,b)=>a.d-b.d);return out[0]||null;}""", follower_position)
     require(candidate is not None, "the authoritative world exposes an ordinary hostile creature", rows=len(rows))
@@ -419,11 +468,18 @@ async def combat_case(pages):
         values = [await p.evaluate("id=>__hm.entities.find(id)?.hp", candidate["id"]) for p in pages]
         return all(v is not None and v < hp_before for v in values) and abs(values[0]-values[1]) < 0.01
     require(await eventually(pages, damaged), "a follower's actual attack changes the same creature's health on both devices")
-    await follower.evaluate("id=>__hm.entities.attack(id,9999)", candidate["id"])
+    last_attack = -math.inf
     async def died():
-        return all([await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
-                    for p in pages])
-    require(await eventually(pages, died), "the same creature's death is visible on both devices")
+        nonlocal last_attack
+        dead = [await p.evaluate("id=>{const e=__hm.entities.find(id);return !e || !e.alive;}", candidate["id"])
+                for p in pages]
+        if all(dead):
+            return True
+        if time.monotonic() - last_attack >= 0.65:
+            await follower.evaluate("id=>__hm.entities.attack(id,40)", candidate["id"])
+            last_attack = time.monotonic()
+        return False
+    require(await eventually(pages, died, 90), "repeated legal attacks produce the same creature's death on both devices")
 
 
 async def terrain_case(pages):
@@ -490,12 +546,12 @@ async def run():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(args=["--use-angle=swiftshader",
                        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ignore-certificate-errors"])
-            desktop = await boot(browser, origin, url, "DesktopKeeper", 0, "mage", 30)
+            desktop = await boot(browser, public_origin, url, "DesktopKeeper", 0, "mage", 30)
             # A created page has not necessarily joined the server yet. Establish
             # its real admission before another page can win the keeper election.
             pages = [desktop]
             await readiness(pages)
-            phone = await join_while_playing(pages, browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
+            phone = await join_while_playing(pages, browser, public_origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
             pages = [desktop, phone]
             await readiness(pages)
             private_before = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
@@ -522,7 +578,7 @@ async def run():
             require(await eventually(pages, took_over), "the surviving character takes authority after the keeper leaves")
             require(await survivor.evaluate(piece_signature_js()) == pieces,
                     "host handoff preserves constructed structures")
-            late = await join_while_playing(pages, browser, origin, url, "LatePhone" if late_phone else "LateDesktop",
+            late = await join_while_playing(pages, browser, public_origin, url, "LatePhone" if late_phone else "LateDesktop",
                                           0, "priest", 17, phone=late_phone)
             pages = [survivor, late]
             await readiness(pages)
@@ -534,8 +590,9 @@ async def run():
             a, b = await asyncio.gather(*(p.evaluate("i=>__hm.water.boats.state(i)", boat_index) for p in pages))
             require(math.hypot(a["x"]-b["x"], a["z"]-b["z"]) < 1.25,
                     "late join preserves the shared boat position after host handoff")
+            for page in BOOT_PAGES:
+                REPORT["errors"].extend(getattr(page, "_shared_errors", []))
             for i, page in enumerate(pages):
-                REPORT["errors"].extend(page._logs)
                 await page.evaluate("__hm.frame(1/30); 0")
                 await page.screenshot(path=str(OUT/f"shared_world_{i}.png"), timeout=60000)
             require(not REPORT["errors"], "both browsers completed the shared-world scenarios without page errors",

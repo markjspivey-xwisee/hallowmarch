@@ -84,7 +84,7 @@ function netWorldPartsOutcomeFits(delta, items) {
     const have = INV.goods[id] || 0;
     if (n > 0 && have + n > GOODS[id].stack || n < 0 && have < -n) return false;
   }
-  // Match bagAdd's stacking without changing a pack until the whole outcome fits.
+  // Match bagAdd's junk stacking on copies before accepting any reward.
   const bag = INV.bag.map(item => ({ ...item }));
   for (const item of items) {
     const stack = item.slot === 'junk' && bag.find(other => other.slot === 'junk' && other.name === item.name
@@ -106,7 +106,7 @@ function netWorldPartsResult(m) {
   const items = m.ok && Array.isArray(m.items) ? m.items.filter(item => item && typeof item.id === 'string') : [];
   if (!netWorldPartsOutcomeFits(delta, items)) {
     p.owedReceipt = netPartsClone(m);
-    if (!p.capacityBlocked) uiError('Make room in your packs to receive the waiting shared action. Its outcome is kept for you.');
+    if (!p.capacityBlocked) uiError('Make room in your packs to receive the waiting shared action. Its reward is kept for you.');
     p.capacityBlocked = true; return;
   }
   delete p.owedReceipt; p.capacityBlocked = false;
@@ -142,7 +142,8 @@ function netWorldPartsExecute(m) {
     else NETPARTS.resultQueue.set(key, { ...prior, to: m.from });
     return;
   }
-  if (NETPARTS.receipts.filter(r => !r.settled).length >= 24) return;
+  // One slot remains available for a server-created canonical outcome.
+  if (NETPARTS.receipts.filter(r => !r.settled).length >= 23) return;
   const peer = NET.peers.get(m.from), actor = m.from === NET.self ? GAME.player : peer?.ghost;
   const position = m.position;
   const location = spec.point?.(c.args);
@@ -184,7 +185,7 @@ function netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
   if (netWorldPartsCanSimulate() && !forceOwner && !durable) return false;
   if (!netWorldPartsConnected() || !NETPARTS.ready || !NETWS.acct?.id
     || [...NETPARTS.pending.values()].filter(netWorldPartsOwnerScope).length >= 8 || NETPARTS.receipts.filter(r => !r.settled).length >= 24) {
-    uiError('Waiting for the shared world or a private checkpoint.'); return true;
+    uiError("Waiting for this world and your character's save. Try again shortly."); return true;
   }
   // Reserve the exact JSON command that both persistence and transport carry.
   // Optional undefined properties must not make a valid readback look different.
@@ -205,6 +206,33 @@ function netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
   else netWorldPartsDispatch(id, pending);
   return true;
 }
+function netWorldPartsCanonicalReceipt(m) {
+  if (typeof m.id !== 'string' || !m.id || m.id.length > 100 || typeof m.ownerAccount !== 'string'
+    || !m.ownerAccount || m.ownerAccount.length > 160 || typeof m.digest !== 'string' || !m.digest
+    || m.digest.length > 160 || typeof m.ok !== 'boolean') return;
+  // Strip transport fields: a later deduplicated result must keep op:'result'.
+  const receipt = {
+    id: m.id, ownerAccount: m.ownerAccount, digest: m.digest, to: m.to, durable: m.durable !== false,
+    action: typeof m.action === 'string' ? m.action.slice(0, 80) : undefined,
+    ok: m.ok, reason: typeof m.reason === 'string' ? m.reason : '',
+    goods: Array.isArray(m.goods) ? netPartsClone(m.goods) : [], gold: Number.isFinite(m.gold) ? m.gold : 0,
+    items: Array.isArray(m.items) ? netPartsClone(m.items) : [],
+    notes: Array.isArray(m.notes) ? netPartsClone(m.notes) : [],
+    skills: Array.isArray(m.skills) ? netPartsClone(m.skills) : [],
+    result: m.result == null ? null : netPartsClone(m.result), settled: !!m.settled,
+  };
+  const existing = NETPARTS.receipts.find(r => r.id === receipt.id && r.ownerAccount === receipt.ownerAccount);
+  if (existing) {
+    if (existing.digest && existing.digest !== receipt.digest) return;
+    receipt.settled = receipt.settled || !!existing.settled; Object.assign(existing, receipt);
+  } else NETPARTS.receipts.push(receipt);
+  netWorldPartsPruneReceipts();
+  NETPARTS.confirmedReceipts.add(receipt.ownerAccount + ':' + receipt.id);
+  netWorldPartsConfirmSettled([receipt]);
+  NETPARTS.paused = ''; // This outcome confirms the server's waiting world save.
+  const pending = NETPARTS.pending.get(receipt.id);
+  if (pending && pending.ownerAccount === receipt.ownerAccount) netWorldPartsResult(receipt);
+}
 function netWorldPartsMessage(m) {
   if (!m || m.t !== 'activity') return;
   if (m.kind === 'authority') {
@@ -222,26 +250,12 @@ function netWorldPartsMessage(m) {
   if (m.kind !== 'worldparts' || m.authority !== NETPARTS.authority || !netPartsEqualAdmission(m.worldAdmission)) return;
   if (m.ok === false && m.op === 'snapshot') {
     NETPARTS.paused = m.reason || 'snapshot_refused'; NETPARTS.outbox = null; NETPARTS.awaiting = null;
-    NETPARTS.refused++; uiError('Shared world synchronization paused: ' + NETPARTS.paused); return;
+    NETPARTS.refused++; uiError('Shared world updates are paused. Please wait and try again.'); return;
   }
+  if (m.op === 'receipt') { netWorldPartsCanonicalReceipt(m); return; }
   if (m.op === 'result') {
     const pending = NETPARTS.pending.get(m.id);
     if (pending && m.ownerAccount === pending.ownerAccount) netWorldPartsResult(m); return;
-  }
-  if (m.op === 'receipt') {
-    // Server-owned operations such as boat rebuilding do not pass through a
-    // keeper's snapshot sequence. Retain their confirmed receipts on every
-    // page so a later keeper cannot replay the action or erase its outcome.
-    const receipt = m.receipt;
-    if (!receipt || typeof receipt.id !== 'string' || typeof receipt.ownerAccount !== 'string'
-      || typeof receipt.digest !== 'string') return;
-    const prior = NETPARTS.receipts.find(r => r.id === receipt.id && r.ownerAccount === receipt.ownerAccount);
-    if (prior && prior.digest !== receipt.digest) return;
-    if (prior) Object.assign(prior, receipt, { settled: !!prior.settled || !!receipt.settled });
-    else NETPARTS.receipts.push(netPartsClone(receipt));
-    netWorldPartsPruneReceipts();
-    NETPARTS.confirmedReceipts.add(receipt.ownerAccount + ':' + receipt.id);
-    netWorldPartsResult(receipt); return;
   }
   if (m.op === 'settled') { netWorldPartsTakeSettled(m); return; }
   if (m.op === 'command') { if (NETPARTS.peer === NET.self && NETPARTS.ready && netWorldPartsConnected()) netWorldPartsExecute(m); return; }
@@ -257,6 +271,8 @@ function netWorldPartsMessage(m) {
   const serial = Array.from({ length: a.total }, (_, i) => a.chunks.get(i)).join('');
   NETPARTS.assembly = null;
   let frame; try { frame = JSON.parse(serial); } catch { return; }
+  if (!frame || frame.v !== 1 || !frame.parts || typeof frame.parts !== 'object' || Array.isArray(frame.parts)) return;
+  NETPARTS.paused = ''; // A canonical retry confirms the waiting world save.
   if (NETPARTS.peer === NET.self && NETPARTS.ready) {
     const ack = NETPARTS.awaiting;
     if (ack && ack.seq === m.seq) {
@@ -304,6 +320,7 @@ function netWorldPartsPump(now) {
   }
   if (NETPARTS.journalLoaded) { NETPARTS.journalLoaded = false; void netWorldPartsFlushJournal(); }
   if (NETPARTS.ready) for (const [id, p] of NETPARTS.pending) {
+    if (!netWorldPartsOwnerScope(p)) continue;
     if (p.owedReceipt) netWorldPartsResult(p.owedReceipt);
     if (NETPARTS.pending.get(id) === p) netWorldPartsDispatch(id, p);
   }
@@ -688,7 +705,7 @@ async function netWorldPartsFlushJournal() {
     if (!ok && sameProfile()) {
       NETPARTS.privateError = NETPARTS.privateError || 'private_checkpoint_pending';
       NETPARTS.privateObservedBody = SAVE.lastBody;
-      uiError('Your private checkpoint is not confirmed. The shared action is waiting; keep this character open and retry saving.');
+      uiError('Your save has not been confirmed. This action will wait; keep this character open and try saving again.');
     }
     return ok;
   }).finally(() => {

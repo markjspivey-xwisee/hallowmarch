@@ -14,7 +14,7 @@ function fixture(saved, options = {}) {
   };
   const a = add('a'), b = add('b');
   const scene = createSharedScene({ hostFor: () => room.clients.get(host), live: c => c.live,
-    admission, stateFor: () => state, canMutate: () => mutable, validatePersist: options.validatePersist, confirm: options.confirm, changed: () => changes++, now: () => time,
+    admission, stateFor: () => state, canMutate: () => mutable, validatePersist: options.validatePersist, confirm: options.confirm, confirmPersist: options.confirmPersist || options.confirm, changed: () => changes++, now: () => time,
     send: (c, m) => out.get(c.peer).push(structuredClone(m)) });
   scene.sync(room);
   const authority = c => [...out.get(c.peer)].reverse().find(m => m.kind === 'authority');
@@ -168,7 +168,7 @@ test('latest-state persistence coalesces live frames and flushes final state wit
   assert.equal(f.send(f.b, {kind:'npcs',op:'snapshot',seq:11,npcs:[]}), false);
 });
 
-test('ignition ejects a granted occupant; legacy unpaid restore requests are refused', () => {
+test('ignition ejects a granted occupant and direct player restoration requires the durable command', () => {
   const f = fixture();
   f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [boat()] });
   f.send(f.b, { kind: 'boats', op: 'board', id: 1 });
@@ -354,13 +354,12 @@ test('actual keep reporting follows the shared host even when another player sta
   room.clients.set('a',a);room.clients.set('b',b);
   let seasonal=[0];
   const context={isHumanPlaying:c=>c.live,Date,WORLD_STATE:null,WORLD:{keepCount:1},KEEP_REGION:['f1'],WORLDS:worlds,
-    worldCheck:w=>w,worldAdmission:()=>admission,sameWorldAdmission:(x,y)=>x?.origin===y?.origin&&x?.epoch===y?.epoch,
+    worldCheck:w=>w,worldNow:()=>worlds.march,worldAdmission:()=>admission,sameWorldAdmission:(x,y)=>x?.origin===y?.origin&&x?.epoch===y?.epoch,
     SEASON:{keepsOf:()=>seasonal,capture:(id,r,who)=>{calls.push({id,r,who});seasonal=[r]}},
     coCaptured(){},worldsSave(){},STATS:{worldTold:0},send(){}};
   vm.createContext(context);vm.runInContext(
     cut('function roomHost(R) {','const send =')+
     cut('function regionHosts(R) {','function regionsTell(')+
-    cut('function worldNow(R) {','function worldReport(')+
     cut('function worldReport(c, raw, admission) {','// [perf3] the host'),context);
   room.regions=context.regionHosts(room);
   assert.equal(room.regions.f1,'a');assert.equal(room.regions.h1,'a');
@@ -402,14 +401,29 @@ test('canonical receipts retain all unsettled outcomes and apply backpressure at
   assert.equal(f.state.activity.worldparts.receipts.filter(r=>!r.settled).length,24);
 });
 
-test('verified old production pages receive a reload notice without acquiring a human lease', async () => {
-  const f=fixture(), sent=[],closed=[];let leases=0;
+test('verified old production pages receive a reload notice before a human lease and retain identity', async () => {
+  for (const sharedScene of [undefined,0,1]) {
+    const f=fixture(), sent=[],closed=[];let leases=0;
+    const account=f.a.acct;
+    const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
+      HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
+    f.a.ws.close=(code,reason)=>closed.push({code,reason});
+    onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene}}));
+    assert.equal(leases,0);assert.equal(closed[0].code,4006);
+    assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
+    assert.equal(f.a.acct,account);
+  }
+});
+
+test('verified version-two scene pages acquire the ordinary human lease without an upgrade notice', async () => {
+  const f=fixture(),sent=[],closed=[];let leases=0,profile=null,slow=null;
   const {onMsg}=await ingress(f,{nativePlayersRequired:true,PLAYER_ACCOUNTS:{humanPrincipalFor:()=>({subject:'owner'})},
-    HUMAN_PLAY:{update(){leases++;return true}},send:(c,m)=>sent.push(m)});
+    HUMAN_PLAY:{update(c,p){leases++;profile=p;return true}},send:(c,m)=>sent.push(m),clearTimeout(){},
+    onSlow(c,p){slow=p}});
   f.a.ws.close=(code,reason)=>closed.push({code,reason});
-  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1}}));
-  assert.equal(leases,0);assert.equal(closed[0].code,4006);
-  assert.equal(sent[0].code,'shared_scene_upgrade_required');assert.match(sent[0].why,/saved character is preserved/);
+  onMsg(f.a,JSON.stringify({t:'slow',d:{on:1,humanLive:1,humanActivity:1,sharedScene:2}}));
+  assert.equal(leases,1);assert.equal(profile.sharedScene,2);assert.equal(slow.sharedScene,2);
+  assert.equal(f.a.hasPlayedLive,true);assert.equal(sent.length,0);assert.equal(closed.length,0);
 });
 
 test('unauthenticated legacy identity refusal is preserved before a protocol-upgrade notice', async () => {
@@ -429,7 +443,7 @@ test('capable room hosts are preferred over older legacy pages without breaking 
   const old={peer:'old',live:true,since:1,slow:{on:1}}, fresh={peer:'new',live:true,since:2,slow:{on:1}};
   const room={clients:new Map([['old',old],['new',fresh]])};
   assert.equal(context.roomHost(room).peer,'old','legacy-only protocol fixtures retain the previous host rule');
-  fresh.slow.sharedScene=1;
+  old.slow.sharedScene=1;fresh.slow.sharedScene=2;
   assert.equal(context.roomHost(room).peer,'new','updated actor authority is never held by an earlier old page');
   fresh.live=false;assert.equal(context.roomHost(room).peer,'old');
 });
@@ -470,116 +484,6 @@ test('private settlement reaches only the keeper after an exact canonical owner 
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
 const economicReceipt = () => ({ id: 'b:economic', ownerAccount: 'account-b', digest: 'native-proof', ok: true, goods: [['stone', 2]] });
-const rebuild = (id = 'rebuild-1') => ({ kind: 'worldparts', op: 'command', command: {
-  id, op: 'boat.rebuild', args: { id: 1 }, goods: { plank: 6, tool_hammer: 1 }, capacity: 0,
-} });
-function burntFixture(options = {}) {
-  const f = fixture(undefined, options);
-  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 1, boats: [{ ...boat(), st: 'burnt', char: 1 }] });
-  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { build: [] }, remove: [], receipts: [] });
-  return f;
-}
-test('a rebuild publishes one hull and cost receipt only after the owned candidate confirms', async () => {
-  let release, calls = 0;
-  const f = burntFixture({ confirm: () => { calls++; return new Promise(resolve => { release = resolve; }); } });
-  assert.equal(f.send(f.b, rebuild()), true);
-  assert.equal(f.state.activity.boats[0].st, 'free', 'the captured candidate includes the rebuilt hull');
-  assert.deepEqual(f.state.activity.worldparts.receipts[0].goods, [['plank', -6]]);
-  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'burnt', 'the unconfirmed hull remains private to persistence');
-  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
-  await Promise.resolve(); release(); await turn();
-  assert.equal(calls, 1);
-  const result = f.out.get('b').find(m => m.op === 'receipt').receipt;
-  assert.equal(result.ok, true); assert.equal(result.ownerAccount, 'account-b');
-  assert.equal(f.out.get('a').find(m => m.op === 'restore').boats[0].st, 'free');
-  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'free');
-  f.tick(3000);
-  assert.equal(f.send(f.b, rebuild()), true);
-  assert.equal(calls, 1, 'an identical retry replays its receipt without rebuilding or charging twice');
-  assert.equal(f.state.activity.worldparts.receipts.length, 1);
-  assert.equal(f.out.get('b').at(-1).receipt.digest, result.digest);
-  // A queued ambient snapshot from before the reply cannot undo the new hull.
-  f.send(f.a, { kind: 'boats', op: 'snapshot', seq: 2, boats: [{ ...boat(), st: 'burnt', char: 1 }] });
-  assert.equal(f.state.activity.boats[0].st, 'free');
-  const resumed = fixture(structuredClone(f.state), { confirm: () => { throw Error('a confirmed rebuild must not repeat'); } });
-  assert.equal(resumed.send(resumed.b, rebuild()), true);
-  assert.equal(resumed.out.get('b').at(-1).receipt.digest, result.digest, 'restart replays the same owned receipt');
-  assert.equal(resumed.state.activity.boats[0].st, 'free');
-});
-test('racing rebuilders charge one owner and confirm a refund receipt for the loser', async () => {
-  const f = burntFixture({ confirm: async () => {} });
-  assert.equal(f.send(f.a, rebuild('a:rebuild')), true);
-  assert.equal(f.send(f.b, rebuild('b:rebuild')), false, 'a racing command waits while the first candidate confirms');
-  await turn(); f.tick(3000);
-  assert.equal(f.send(f.b, rebuild('b:rebuild')), true);
-  await turn();
-  const receipts = f.state.activity.worldparts.receipts;
-  assert.equal(receipts.length, 2);
-  assert.deepEqual(receipts.find(r => r.ownerAccount === 'account-a').goods, [['plank', -6]]);
-  const refused = receipts.find(r => r.ownerAccount === 'account-b');
-  assert.equal(refused.ok, false); assert.deepEqual(refused.goods, [], 'no consumption leaves all reserved planks refundable');
-  assert.equal(f.send(f.b, { kind: 'boats', op: 'restore', id: 1, boats: [boat()] }), false);
-});
-test('rebuild interruption cannot reveal a hull or spend receipt from a discarded world', async () => {
-  let release;
-  const f = burntFixture({ confirm: () => new Promise(resolve => { release = resolve; }) });
-  const before = structuredClone(f.state.activity);
-  f.send(f.b, rebuild()); await Promise.resolve();
-  f.state.activity = before; f.scene.sync(f.room);
-  release(); await turn();
-  assert.equal(f.state.activity.boats[0].st, 'burnt');
-  assert.equal(f.state.activity.worldparts.receipts.length, 0);
-  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
-});
-test('an unconfirmed rebuild fences the candidate without publicly acknowledging private costs', async () => {
-  const f = burntFixture({ confirm: async () => { throw Error('native storage unavailable'); } });
-  f.send(f.b, rebuild()); await turn();
-  assert.equal(f.scene.publicActivity(f.room).boats[0].st, 'burnt');
-  assert.equal(f.scene.publicActivity(f.room).worldparts.receipts.length, 0);
-  assert.equal(f.out.get('b').some(m => m.op === 'receipt' || m.op === 'restore'), false);
-  assert.equal(f.out.get('b').at(-1).reason, 'world_checkpoint_unconfirmed');
-});
-test('native confirmation gates economic echoes, late joins, results and authority handoff', async () => {
-  let release;
-  const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });
-  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: { resource: { available: true } }, remove: [], receipts: [] });
-  const before = f.out.get('b').length, receipt = economicReceipt();
-  assert.equal(f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { resource: { available: false } }, remove: [], receipts: [receipt] }, 2), true);
-  assert.equal(f.state.activity.worldparts.parts.resource.available, false, 'the staged native snapshot contains the consumption');
-  assert.equal(f.out.get('b').length, before, 'no unconfirmed public echo');
-  assert.equal(f.scene.publicActivity(f.room).worldparts.parts.resource.available, true);
-  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...receipt }), false);
-  f.send(f.a, { kind: 'npcs', op: 'snapshot', seq: 1, npcs: [npc()] });
-  assert.equal(f.state.activity.worldparts.parts.resource.available, false, 'other persisted motion retains the staged economic mutation');
-  const c = f.add('late'); f.scene.sync(f.room, c);
-  assert.equal(f.authority(c).worldpartsReady, true);
-  assert.equal(reconstruct(f.out.get('late').filter(m => m.kind === 'worldparts')).receipts.length, 0);
-  const oldAuthority = f.authority(f.b).authority;
-  f.a.live = false; f.host('b'); f.scene.leave(f.a);
-  assert.equal(f.authority(f.b).authority, oldAuthority, 'new keeper cannot replay the old resource while the commit is pending');
-  await Promise.resolve(); release(); await turn();
-  assert.notEqual(f.authority(f.b).authority, oldAuthority);
-  const canonical = reconstruct(f.out.get('b').filter(m => m.kind === 'worldparts' && m.authority === f.authority(f.b).authority));
-  assert.equal(canonical.parts.resource.available, false);
-  assert.equal(canonical.receipts[0].digest, receipt.digest);
-  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'result', to: 'b', ...receipt, goods: [['stone', 999]] }), true);
-  assert.deepEqual(f.out.get('b').at(-1).goods, [['stone', 2]]);
-});
-
-test('failed native confirmation fences economic changes without revealing a receipt', async () => {
-  const f = fixture(undefined, { confirm: async () => { throw Error('native storage unavailable'); } });
-  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [economicReceipt()] });
-  await turn();
-  const packets = f.out.get('b').filter(m => m.kind === 'worldparts');
-  assert.equal(packets.length, 1); assert.equal(packets[0].ok, false);
-  assert.equal(packets[0].reason, 'world_checkpoint_unconfirmed');
-  assert.equal(f.scene.publicActivity(f.room).worldparts, null);
-  assert.equal(f.send(f.a, { kind: 'worldparts', op: 'result', to: 'b', ...economicReceipt() }), false);
-  const c = f.add('late'); f.scene.sync(f.room, c);
-  assert.equal(f.authority(c).worldpartsReady, true);
-  assert.equal(f.out.get('late').some(m => m.kind === 'worldparts'), false);
-});
-
 test('late native completion cannot revive a recovered scene in the same world epoch', async () => {
   let release;
   const f = fixture(undefined, { confirm: () => new Promise(resolve => { release = resolve; }) });
@@ -605,25 +509,6 @@ test('owned confirmation drains an older in-flight checkpoint and proves the cap
   assert.equal(calls, 3);
   world.status = () => ({ confirmedLiveVersion: 3, error: 'CHECKPOINT_UNCONFIRMED' });
   await assert.rejects(confirmOwnedSceneCheckpoint(world), /fenced/);
-});
-
-test('an authenticated settlement stays settled across another native commit and keeper departure', async () => {
-  let hold = false, release;
-  const f = fixture(undefined, { confirm: () => hold ? new Promise(resolve => { release = resolve; }) : Promise.resolve() });
-  const first = economicReceipt(), second = { ...economicReceipt(), id: 'b:second', digest: 'second-proof' };
-  f.publish(f.a, 'worldparts', { v: 1, full: true, parts: {}, remove: [], receipts: [first] });
-  await turn(); hold = true;
-  f.publish(f.a, 'worldparts', { v: 1, full: false, parts: { resource: false }, remove: [], receipts: [first, second] }, 2);
-  await Promise.resolve();
-  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'settled', id: first.id, digest: first.digest }), true);
-  assert.equal(f.state.activity.worldparts.receipts.find(r => r.id === first.id).settled, true);
-  const late = f.add('late'); f.scene.sync(f.room, late);
-  f.a.live = false; f.b.live = false; f.host('late'); f.scene.leave(f.a); f.scene.leave(f.b);
-  release(); await turn();
-  const authority = f.authority(late).authority;
-  const value = reconstruct(f.out.get('late').filter(m => m.kind === 'worldparts' && m.authority === authority));
-  assert.equal(value.receipts.find(r => r.id === first.id).settled, true);
-  assert.equal(value.receipts.find(r => r.id === second.id).digest, second.digest);
 });
 
 test('ordinary public work does not force an economic native checkpoint', () => {
@@ -662,6 +547,233 @@ test('live scene discovery reads are pure until a validated scene is actually pu
   assert.equal(scene.handle(client, { t: 'activity', kind: 'boats', op: 'snapshot', seq: 1,
     authority: current.authority, worldAdmission: current.worldAdmission, boats: [boat()] }), true);
   assert.equal(writes, 1); assert.equal(worlds.march.activity.boats[0].id, 1);
+});
+
+
+const deferredScene=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}};
+const flushScene=async()=>{for(let i=0;i<30;i++)await Promise.resolve()};
+const receiptScene=(id='one',extra={})=>({id:'b:'+id,to:'b',ownerAccount:'account-b',digest:'outcome-'+id,ok:true,goods:[['timber',-1]],gold:0,items:[],skills:[],result:{pieceId:1},...extra});
+test('new resource receipts wait for owned confirmation across retry, join and host handoff',async()=>{
+  const gate=deferredScene();let commits=0;const f=fixture(null,{confirmPersist:()=>{commits++;return gate.promise}});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{build:{pieces:[]},farm:{resource:3}},remove:[],receipts:[]},1);
+  const receipt=receiptScene(), mark=f.out.get('b').length;
+  const pending=f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{resource:2}},remove:[],receipts:[receipt]},2);
+  await flushScene();assert.equal(commits,1);
+  assert.equal(f.out.get('b').slice(mark).some(m=>m.kind==='worldparts'),false);
+  assert.equal(f.send(f.a,{kind:'worldparts',op:'result',to:'b',...receipt}),false);
+  f.tick(6000); // the real host may time out and retry while native storage is slow
+  assert.equal(f.publish(f.a,'worldparts',{v:1,full:true,parts:{build:{pieces:[]},farm:{resource:2}},remove:[],receipts:[receipt]},3),false);
+  assert.equal(commits,1,'a retry must not indefinitely retarget the checkpoint');
+  f.send(f.a,{kind:'npcs',op:'snapshot',seq:1,npcs:[npc()]});
+  assert.equal(f.out.get('b').at(-1).kind,'npcs');
+  const c=f.add('c');f.scene.sync(f.room,c);
+  assert.equal(f.authority(c).worldpartsReady,true);assert.equal(f.out.get('c').some(m=>m.kind==='worldparts'),false);
+  f.host('b');f.a.live=false;f.scene.leave(f.a);const after=f.out.get('b').length,token=f.authority(f.b).authority;
+  gate.resolve();assert.equal(await pending,true);
+  const full=reconstruct(f.out.get('b').slice(after).filter(m=>m.kind==='worldparts'&&m.authority===token));
+  assert.equal(full.full,true);assert.deepEqual(full.parts.build,{pieces:[]});assert.equal(full.parts.farm.resource,2);
+  assert.equal(full.receipts[0].digest,receipt.digest);
+});
+test('failed native confirmation never exposes an implicit receipt or an explicit owner result',async()=>{
+  const gate=deferredScene(),f=fixture(null,{confirmPersist:()=>gate.promise});
+  const pending=f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{resource:2}},remove:[],receipts:[receiptScene()]});
+  gate.reject(new Error('checkpoint unavailable'));assert.equal(await pending,false);
+  assert.equal(f.out.get('b').some(m=>m.kind==='worldparts'),false);
+  const c=f.add('c');f.scene.sync(f.room,c);assert.equal(f.out.get('c').some(m=>m.kind==='worldparts'),false);
+  assert.equal(f.out.get('a').at(-1).reason,'checkpoint_unconfirmed');
+  assert.equal(f.send(f.a,{kind:'worldparts',op:'result',to:'b',...receiptScene()}),false);
+});
+test('settlement waits for its own native barrier; pure hammer receipts do not force checkpoints',async()=>{
+  const gates=[deferredScene(),deferredScene()];let count=0;const f=fixture(null,{confirmPersist:()=>gates[count++].promise});
+  const receipt=receiptScene(),pending=f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{resource:2}},remove:[],receipts:[receipt]});
+  await flushScene();gates[0].resolve();await pending;
+  const mark=f.out.get('b').length,settling=f.send(f.b,{kind:'worldparts',op:'settled',id:receipt.id,digest:receipt.digest});
+  await flushScene();assert.equal(count,2);assert.equal(f.out.get('b').slice(mark).some(m=>m.op==='settled'),false);
+  gates[1].resolve();assert.equal(await settling,true);assert.equal(f.out.get('b').at(-1).op,'settled');
+  let writes=0;const pure=fixture(null,{confirmPersist:()=>{writes++;return Promise.resolve()}});
+  const hammer=receiptScene('hammer',{durable:false,goods:[],gold:0,items:[],skills:[]});
+  assert.equal(pure.publish(pure.a,'worldparts',{v:1,full:true,parts:{build:{stroke:1}},remove:[],receipts:[hammer]}),true);
+  assert.equal(pure.send(pure.b,{kind:'worldparts',op:'settled',id:hammer.id,digest:hammer.digest}),true);assert.equal(writes,0);
+  const unsafe=deferredScene(),spent=fixture(null,{confirmPersist:()=>unsafe.promise});
+  const spending=spent.publish(spent.a,'worldparts',{v:1,full:true,parts:{farm:{resource:2}},remove:[],receipts:[receiptScene('spoof',{durable:false})]});
+  await flushScene();assert.equal(spent.out.get('b').some(m=>m.kind==='worldparts'),false);
+  unsafe.resolve();assert.equal(await spending,true,'durable:false cannot bypass an actual resource outcome');
+});
+test('actual native-store barrier waits beyond an older in-flight commit and verifies the resource receipt',async t=>{
+  const {openHallowmarchWorldState}=await import('./gaming/hallowmarch-world-state.js'),{loadRealmModule}=await import('./season.js');
+  const {fileURLToPath}=await import('node:url'),{mkdtempSync,rmSync,readFileSync}=await import('node:fs'),{tmpdir}=await import('node:os'),path=await import('node:path');
+  const {isDeepStrictEqual}=await import('node:util'),vm=await import('node:vm');
+  const dir=mkdtempSync(path.join(tmpdir(),'scene-confirmed-receipt-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const older=deferredScene(),target=deferredScene();let saved={version:0,state:null},commits=0;
+  const store={owner:'urn:game:barrier-test',async load(){return structuredClone(saved)},async commit(id,input){
+    commits++;if(commits===2)await older.promise;if(commits===3)await target.promise;
+    assert.equal(input.expectedVersion,saved.version);saved={version:saved.version+1,state:structuredClone(input.state)};return structuredClone(saved)}};
+  let confirm;const f=fixture(null,{confirmPersist:(...args)=>confirm(...args)});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{resource:3}},remove:[],receipts:[]});
+  const realmModule=loadRealmModule(fileURLToPath(new URL('../src',import.meta.url)),fileURLToPath(new URL('.',import.meta.url)));
+  const bridge=await openHallowmarchWorldState({nativeStore:store,dataDir:dir,files:{read:(n,d)=>d,write(){}},keepCount:6,realmModule,active:false});
+  t.after(()=>bridge.shutdown({checkpoint:false}));
+  const worlds={march:f.state},season={RS:realmModule.realmSimInit(19,{season:1}),M:realmModule,lastStep:Date.now(),step(){},capture(){},contribute(){},order(){}};
+  bridge.attach({worlds,season,field:{held:new Map(),step(){},report(){},left(){}},rooms:new Map([['march',f.room]])});
+  bridge.setActive(true);await bridge.checkpoint();
+  const source=readFileSync(new URL('./server.js',import.meta.url),'utf8'),start=source.indexOf('async function confirmSharedSceneOutcome('),end=source.indexOf('const SHARED_SCENE =',start);
+  const context={WORLD_STATE:bridge,gamingStore:store,checkedSharedScene,isDeepStrictEqual,sameWorldAdmission:(a,b)=>a?.origin===b?.origin&&a?.epoch===b?.epoch,Number,Error};
+  vm.createContext(context);vm.runInContext(source.slice(start,end)+'\nglobalThis.confirm = confirmSharedSceneOutcome;',context);confirm=context.confirm;
+  season.RS.t+=1;bridge.capture();const oldCheckpoint=bridge.checkpoint();await flushScene();assert.equal(commits,2);
+  const mark=f.out.get('b').length,receipt=receiptScene('native');
+  const result=f.publish(f.a,'worldparts',{v:1,full:false,parts:{farm:{resource:2}},remove:[],receipts:[receipt]},2);
+  await flushScene();assert.equal(f.out.get('b').slice(mark).some(m=>m.kind==='worldparts'),false);
+  older.resolve();await oldCheckpoint;await flushScene();assert.equal(commits,3);
+  assert.equal(saved.state.value.worlds.march.activity.worldparts.parts.farm.resource,3);
+  assert.equal(f.out.get('b').slice(mark).some(m=>m.kind==='worldparts'),false);
+  f.send(f.a,{kind:'npcs',op:'snapshot',seq:1,npcs:[npc()]});bridge.capture();
+  target.resolve();assert.equal(await result,true);
+  assert.equal(saved.state.value.worlds.march.activity.worldparts.parts.farm.resource,2);
+  assert.equal(saved.state.value.worlds.march.activity.worldparts.receipts[0].digest,receipt.digest);
+  assert.ok(f.out.get('b').slice(mark).some(m=>m.kind==='worldparts'));
+});
+
+
+test('failed outcome confirmation retries only on a healthy live sync, without reexecuting the action',async()=>{
+  const gates=[deferredScene(),deferredScene()];let confirmations=0;const candidates=[];
+  const f=fixture(null,{confirmPersist:(room,candidate)=>{candidates.push(candidate.worldparts);return gates[confirmations++].promise}});
+  const receipt=receiptScene('retry'),pending=f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{resource:2}},remove:[],receipts:[receipt]});
+  await flushScene();gates[0].reject(new Error('temporary native failure'));assert.equal(await pending,false);
+  f.tick(2000);f.scene.sync(f.room);await flushScene();assert.equal(confirmations,1,'retry is paced');
+  f.mutable(false);f.tick(2000);f.scene.sync(f.room);await flushScene();assert.equal(confirmations,1,'a fenced world cannot retry');
+  f.mutable(true);f.a.live=false;f.b.live=false;f.tick(4000);f.scene.sync(f.room);
+  await flushScene();assert.equal(confirmations,1,'standby does not start durable work');
+  f.a.live=true;const state=f.scene.sync(f.room,f.a);await flushScene();assert.equal(confirmations,2);
+  f.scene.sync(f.room,f.a);await flushScene();assert.equal(confirmations,2,'one retry operation is in flight');
+  gates[1].resolve();assert.equal(await state.worldBarrier.promise,true);
+  assert.equal(candidates[0],candidates[1],'the same accepted outcome is confirmed, never executed again');
+  assert.equal(f.state.activity.worldparts.parts.farm.resource,2);
+  const full=reconstruct(f.out.get('a').filter(m=>m.kind==='worldparts'&&m.op==='snapshot'&&m.data));
+  assert.equal(full.receipts[0].digest,receipt.digest);
+});
+
+test('immutable command retries ignore object key order and reject logical edits', () => {
+  const f = fixture(), command = { id: 'b:ordered', op: 'resource.take', args: { a: 1, b: 2 }, goods: { plank: 6, tool_hammer: 1 } };
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command }), true);
+  f.tick(3000);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command: { goods: { tool_hammer: 1, plank: 6 }, args: { b: 2, a: 1 }, op: command.op, id: command.id } }), true);
+  f.tick(3000);
+  assert.equal(f.send(f.b, { kind: 'worldparts', op: 'command', command: { ...command, args: { a: 1, b: 3 } } }), false);
+});
+
+test('public world bootstrap hides cold and pending economic outcomes', async () => {
+  const gate=deferredScene(), f=fixture(null,{confirmPersist:()=>gate.promise});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{resource:3},remove:[],receipts:[]});
+  const pending=f.publish(f.a,'worldparts',{v:1,full:false,parts:{resource:2},remove:[],receipts:[receiptScene('bootstrap')]},2);
+  assert.equal(f.scene.publicActivity(f.room).worldparts.parts.resource,3);
+  const saved=structuredClone(f.state);
+  const cold=fixture(saved,{confirmPersist:()=>new Promise(()=>{})});
+  assert.equal(cold.scene.publicActivity(cold.room).worldparts,null);
+  gate.resolve();await pending;
+  assert.equal(f.scene.publicActivity(f.room).worldparts.parts.resource,2);
+});
+
+const boatRebuildCommand = (id = 'b:rebuild', boatId = 1) => ({ id, op: 'boat.rebuild', args: { id: boatId }, goods: { plank: 6, tool_hammer: 1 }, capacity: 0 });
+test('boat rebuild atomically stages six planks and a hull while every public view waits for native readback', async () => {
+  const gate=deferredScene();let checks=0,context;
+  const f=fixture(null,{confirmPersist:(_,candidate,c)=>{checks++;context=c;assert.equal(candidate.boats[0].st,'beached');return gate.promise}});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{farm:{resource:3}},remove:[],receipts:[]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:'burnt',char:1,grounded:.7}]});
+  const mark=f.out.get('b').length, pending=f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand()});
+  await flushScene();assert.equal(checks,1);assert.deepEqual(context.boatIds,[1]);
+  assert.equal(f.state.activity.boats[0].st,'beached');assert.equal(f.scene.publicActivity(f.room).boats[0].st,'burnt');
+  assert.equal(f.state.activity.worldparts.receipts[0].ok,true);assert.deepEqual(f.state.activity.worldparts.receipts[0].goods,[['plank',-6]]);
+  assert.equal(f.out.get('b').slice(mark).some(m=>m.op==='receipt'||m.op==='rebuild'),false);
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:2,boats:[{...boat(),st:'free'}]});
+  assert.equal(f.out.get('b').at(-1).boats[0].st,'burnt','a keeper snapshot cannot unlock a staged hull');
+  const late=f.add('late');f.scene.sync(f.room,late);assert.equal(f.authority(late).boats[0].st,'burnt');
+  f.a.live=false;f.host('b');f.scene.leave(f.a);
+  gate.resolve();assert.equal(await pending,true);
+  const receipt=f.out.get('b').filter(m=>m.op==='receipt').at(-1);
+  assert.equal(receipt.ownerAccount,'account-b');assert.deepEqual(receipt.goods,[['plank',-6]]);
+  assert.equal(f.out.get('b').filter(m=>m.op==='rebuild').at(-1).boats[0].st,'beached');
+  const ready=reconstruct(f.out.get('b').filter(m=>m.kind==='worldparts'&&m.data&&m.authority===f.authority(f.b).authority));
+  assert.equal(ready.receipts[0].digest,receipt.digest);assert.equal(ready.full,true);
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand()}),true);
+  assert.equal(f.out.get('b').at(-1).digest,receipt.digest);assert.equal(checks,1,'a retried immutable command cannot consume twice');
+});
+test('invalid rebuilds yield canonical reservation refunds and raw restore cannot bypass materials or reach', () => {
+  for(const mode of ['far','planks','hammer','healthy']) {
+    const f=fixture();f.publish(f.a,'worldparts',{v:1,full:true,parts:{},remove:[],receipts:[]});
+    f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:mode==='healthy'?'free':'burnt'}]});
+    const command=boatRebuildCommand('b:'+mode);
+    if(mode==='far')f.b.pos={x:100,z:100};
+    if(mode==='planks')command.goods.plank=5;
+    if(mode==='hammer')command.goods.tool_hammer=0;
+    assert.equal(f.send(f.b,{kind:'worldparts',op:'command',command}),true);
+    const result=f.out.get('b').at(-1);assert.equal(result.op,'receipt');assert.equal(result.ok,false);assert.deepEqual(result.goods,[]);
+    assert.equal(f.state.activity.boats[0].st,mode==='healthy'?'free':'burnt');
+    assert.equal(f.send(f.b,{kind:'boats',op:'restore',id:1,boats:[boat()]}),false);
+  }
+});
+test('failed rebuild confirmation leaves the public hull burnt until the same native outcome is retried', async () => {
+  const gates=[deferredScene(),deferredScene()];let count=0;
+  const f=fixture(null,{confirmPersist:()=>gates[count++].promise});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{},remove:[],receipts:[]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:'burnt'}]});
+  const pending=f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand()});await flushScene();
+  gates[0].reject(Error('native unavailable'));assert.equal(await pending,false);
+  assert.equal(f.scene.publicActivity(f.room).boats[0].st,'burnt');assert.equal(f.out.get('b').some(m=>m.op==='receipt'),false);
+  f.tick(3100);const state=f.scene.sync(f.room);await flushScene();gates[1].resolve();assert.equal(await state.worldBarrier.promise,true);
+  assert.equal(f.out.get('b').filter(m=>m.op==='receipt').length,1);
+  assert.equal(f.out.get('b').filter(m=>m.op==='rebuild').at(-1).boats[0].st,'free');
+});
+
+test('one server-injected rebuild receipt reserves its budget until a complete keeper frame includes it', () => {
+  const f=fixture();f.publish(f.a,'worldparts',{v:1,full:true,parts:{},remove:[],receipts:[]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(1),st:'free'},{...boat(2),st:'free'}]});
+  // An invalid attempt still owns a canonical refund receipt and one bounded slot.
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand('b:one',1)}),true);
+  const one=f.state.activity.worldparts.receipts[0];f.tick(3000);
+  assert.equal(f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand('b:two',2)}),false);
+  f.publish(f.a,'worldparts',{v:1,full:false,parts:{},remove:[],receipts:[one]},2);
+  f.tick(3000);assert.equal(f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand('b:two',2)}),true);
+  assert.equal(f.state.activity.worldparts.receipts.length,2);
+});
+
+test('malformed pure receipt resource fields are rejected before mutation or durability classification', () => {
+  for (const bad of [{goods:{}},{goods:[['plank','six']]},{items:{}},{skills:'craft'},{gold:'one'},{durable:'false'},{settled:'yes'}]) {
+    const f=fixture(),receipt=receiptScene('malformed',{durable:false,goods:[],...bad});
+    assert.equal(f.publish(f.a,'worldparts',{v:1,full:true,parts:{resource:0},remove:[],receipts:[receipt]}),false);
+    assert.equal(f.state.activity,undefined);
+    assert.equal(f.out.get('b').some(m=>m.kind==='worldparts'),false);
+  }
+});
+
+test('ordinary boat snapshots and launch cannot bypass the canonical burnt hull or its paid rebuild', () => {
+  const f=fixture();f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:'burning'}]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:2,boats:[boat()]});assert.equal(f.state.activity.boats[0].st,'burning');
+  assert.equal(f.send(f.b,{kind:'boats',op:'launch',id:1,boats:[boat()]}),false);
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:3,boats:[{...boat(),st:'burnt'}]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:4,boats:[boat()]});assert.equal(f.state.activity.boats[0].st,'burnt');
+  assert.equal(f.send(f.b,{kind:'boats',op:'launch',id:1,boats:[boat()]}),false);
+});
+test('unattended town replacement needs the selected keeper, canonical berth, five minutes and every player away', () => {
+  const f=fixture();f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:'burnt'}]});
+  const message={kind:'boats',op:'replace',ambient:true,id:1,boats:[{...boat(),st:'moored'}]};
+  assert.equal(f.send(f.a,message),false);
+  f.tick(300001);assert.equal(f.send(f.a,message),false,'a nearby live character keeps the hull available for manual rebuilding');
+  f.a.pos=f.b.pos={x:100,z:100};
+  assert.equal(f.send(f.b,message),false,'only the selected keeper reports ambient replacement');
+  assert.equal(f.send(f.a,{...message,boats:[{...boat(),st:'moored',home:{j:1,b:0}}]}),false);
+  assert.equal(f.send(f.a,message),true);
+  assert.equal(f.state.activity.boats[0].st,'moored');assert.equal(f.out.get('b').at(-1).op,'replace');
+});
+test('a stale pre-confirmation keeper snapshot cannot burn the newly rebuilt hull again', async () => {
+  const gate=deferredScene(),f=fixture(null,{confirmPersist:()=>gate.promise});
+  f.publish(f.a,'worldparts',{v:1,full:true,parts:{},remove:[],receipts:[]});
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:1,boats:[{...boat(),st:'burnt'}]});
+  const pending=f.send(f.b,{kind:'worldparts',op:'command',command:boatRebuildCommand()});await flushScene();gate.resolve();await pending;
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:2,boats:[{...boat(),st:'burnt'}]});
+  assert.equal(f.state.activity.boats[0].st,'free');
+  f.send(f.a,{kind:'boats',op:'snapshot',seq:3,boats:[boat()]});
+  assert.equal(f.send(f.a,{kind:'boats',op:'ignite',id:1,ambient:true}),true,'a new deliberate ambient fire remains authoritative');
+  assert.equal(f.state.activity.boats[0].st,'burning');
 });
 
 test('public stats keep bounded war metadata without exposing a staged checkpoint or character body', async () => {
