@@ -578,3 +578,18 @@ test('cold discovery and withdrawal do not allocate or persist a world before a 
   active = true; scene.sync(room, client);
   assert.ok(reads > 0); assert.equal(writes, 0);
 });
+
+test('live scene discovery reads are pure until a validated scene is actually published', () => {
+  const worlds = {}, room = { name: 'march', clients: new Map() }, client = { peer: 'owner', room, worldAdmission: { origin: 'https://game.test', epoch: 1 } };
+  room.clients.set(client.peer, client);
+  let writes = 0;
+  const scene = createSharedScene({ hostFor: () => client, live: () => true,
+    admission: () => ({ origin: 'https://game.test', epoch: 1 }),
+    stateFor: () => worlds.march || {}, writeState: (_, value) => { worlds.march = { activity: value }; writes++; },
+    send() {} });
+  const current = scene.sync(room, client);
+  assert.deepEqual(worlds, {}); assert.equal(writes, 0);
+  assert.equal(scene.handle(client, { t: 'activity', kind: 'boats', op: 'snapshot', seq: 1,
+    authority: current.authority, worldAdmission: current.worldAdmission, boats: [boat()] }), true);
+  assert.equal(writes, 1); assert.equal(worlds.march.activity.boats[0].id, 1);
+});

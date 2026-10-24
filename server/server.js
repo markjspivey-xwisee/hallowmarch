@@ -319,7 +319,11 @@ const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIG
 const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
 const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying, admission: worldAdmission, send,
   canMutate: () => !WORLD_STATE || WORLD_STATE.canMutate(),
-  stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {}),
+  stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] || {}),
+  writeState: (R, candidate) => {
+    const world = R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {});
+    world.activity = candidate;
+  },
   changed: R => { if (!R.diagnostic) worldsSave(); },
   confirm: R => R.diagnostic || !WORLD_STATE ? undefined : confirmOwnedSceneCheckpoint(WORLD_STATE),
   validatePersist: (R, candidate) => {

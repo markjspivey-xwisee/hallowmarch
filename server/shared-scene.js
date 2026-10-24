@@ -122,7 +122,7 @@ export async function confirmOwnedSceneCheckpoint(world) {
   if (state.fenced || state.error || state.confirmedLiveVersion < target) throw Error('Owned world checkpoint was not confirmed');
 }
 
-export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true, confirm = null }) {
+export function createSharedScene({ hostFor, live, admission, stateFor, send, changed = () => {}, now = Date.now, canMutate = () => true, validatePersist = () => true, confirm = null, writeState = null }) {
   const sessions = new WeakMap();
   function session(room) {
     const worldAdmission = admission(), persisted = stateFor(room).activity; let s = sessions.get(room);
@@ -155,7 +155,8 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
         streams: { ...s.accepted.streams }, seq: { ...s.accepted.seq }, streamSeq: { ...s.accepted.streamSeq } });
       return false;
     }
-    stateFor(room).activity = candidate; s.persistedRef = candidate; s.accepted = accepted(s); s.dirty = true;
+    if (writeState) writeState(room, candidate); else stateFor(room).activity = candidate;
+    s.persistedRef = candidate; s.accepted = accepted(s); s.dirty = true;
     if (force || now() - s.lastPersist >= 10000) { s.lastPersist = now(); s.dirty = false; changed(room); }
     return true;
   }
