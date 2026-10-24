@@ -732,3 +732,74 @@ test('ordinary world broadcasts hide pending economic state until native confirm
   assert.equal(wire.at(-1).w.activity.worldparts.parts.resource.available, false);
   assert.equal(wire.at(-1).w.activity.worldparts.receipts.length, 1);
 });
+
+
+test('a buffered pre-pause snapshot cannot fence the resumed same-page worldparts client', async () => {
+  const fs = await import('node:fs'), vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('../src/14z_networldparts.js', import.meta.url), 'utf8');
+  const f = fixture(), sent = [], errors = [];
+  f.b.live = false;
+  let clock = 1000, cursor = 0;
+  const context = {
+    console, performance: { now: () => clock }, queueMicrotask() {},
+    NETWS: { url: 'wss://game.test/ws', state: 'on', acct: { id: 'account-a' } },
+    NET: { self: 'a', peers: new Map() }, GAME: { player: { x: 0, y: 0, z: 0 }, prog: {}, t: 0 },
+    SAVE: { wiping: false, ref: null, lastBody: '' },
+    netOn: () => true, netHumanLive: () => true, netSharedWorldReady: () => true,
+    netWorldAdmissionRead: value => value,
+    netWsSend: message => { sent.push(structuredClone(message)); return true; },
+    uiError: message => errors.push(message), reportError: error => { throw error; },
+  };
+  vm.createContext(context);
+  vm.runInContext(source + '\nglobalThis.parts={state:NETPARTS,message:netWorldPartsMessage,'
+    + 'register:netWorldPartsRegister,pump:netWorldPartsPump,publish:netWorldPartsPublish};', context);
+  const deliver = () => { for (const message of f.out.get('a').slice(cursor)) context.parts.message(message);
+    cursor = f.out.get('a').length; };
+  deliver();
+  context.parts.register('farm', { save: () => ({ beds: 1 }), apply() {} });
+  context.parts.pump(clock);
+  const buffered = sent.find(m => m.op === 'snapshot');
+  assert.ok(buffered, 'the actual client produced a snapshot before pausing');
+  const retiredAuthority = buffered.authority;
+  f.a.live = false; f.host(''); f.scene.sync(f.room);
+  f.a.live = true; f.host('a'); f.scene.sync(f.room); deliver();
+  const current = f.authority(f.a);
+  assert.notEqual(current.authority, retiredAuthority);
+  assert.equal(context.parts.state.authority, current.authority);
+  assert.equal(context.parts.state.paused, '');
+  const before = structuredClone(f.state), writes = f.changes;
+  assert.equal(f.scene.handle(f.a, buffered), false, 'the retired snapshot is rejected');
+  deliver();
+  assert.deepEqual(f.state, before, 'retired chunks cannot mutate the canonical scene');
+  assert.equal(f.changes, writes);
+  assert.equal(context.parts.state.paused, '',
+    'rejecting old input must not manufacture a refusal in the resumed scope');
+  assert.deepEqual(errors, []);
+  clock += 2000;
+  context.parts.pump(clock);
+  const resumed = sent.filter(m => m.op === 'snapshot' && m.authority === current.authority);
+  assert.ok(resumed.length, 'the current client continues normal publication without clearing a fence');
+  for (const message of resumed) assert.equal(f.scene.handle(f.a, message), true);
+  deliver();
+  assert.equal(f.state.activity.worldparts.parts.farm.beds, 1);
+  assert.equal(context.parts.state.paused, '');
+});
+
+test('stale request or connection admissions cannot manufacture current snapshot refusals', () => {
+  for (const staleConnection of [false, true]) {
+    const f = fixture(), oldAdmission = f.a.worldAdmission;
+    f.epoch(2);
+    f.a.worldAdmission = { ...oldAdmission, epoch: 2 };
+    f.b.worldAdmission = { ...oldAdmission, epoch: 2 };
+    f.scene.sync(f.room);
+    const current = f.authority(f.a);
+    if (staleConnection) f.a.worldAdmission = oldAdmission;
+    const before = f.out.get('a').length, state = structuredClone(f.state), writes = f.changes;
+    assert.equal(f.send(f.a, { kind: 'worldparts', op: 'snapshot', seq: 1, part: 0, total: 1,
+      worldAdmission: staleConnection ? current.worldAdmission : oldAdmission,
+      data: JSON.stringify({ v: 1, full: true, parts: {}, remove: [], receipts: [] }) }), false);
+    assert.equal(f.out.get('a').length, before, 'retired scope rejection has no current-scope response');
+    assert.deepEqual(f.state, state);
+    assert.equal(f.changes, writes);
+  }
+});
