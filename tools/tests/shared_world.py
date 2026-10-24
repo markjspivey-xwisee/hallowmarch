@@ -142,7 +142,12 @@ async def boot(browser, origin, url, name, realm, cls, level, phone=False):
         page.on("websocket", socket_open)
     context.on("page", page_open)
     page = await fixture.boot(context, {"room": "shared-world", "shard": "shared-world",
-                              "user": name, "noRoom": True, "server": url}, name)
+                              "user": name, "noRoom": True, "server": url}, name,
+                              page_url=origin + "/?safe=1")
+    secure = await page.evaluate("""({secure:window.isSecureContext,origin:location.origin,
+      randomUUID:typeof crypto.randomUUID})""")
+    require(secure["secure"] and secure["origin"] == origin and secure["randomUUID"] == "function",
+            "the browser uses the real HTTPS world origin with native cryptography", document=secure)
     await fixture.start(page, realm, cls, level, name)
     await page.evaluate("NT.P.maxHp=100000; NT.P.hp=100000; 0")
     page._context = context
@@ -261,9 +266,11 @@ async def boat_case(pages):
 
 
 async def combat_fields_case(pages):
-    caster = next((page for page in pages if getattr(page, "_name", "") == "PhoneFarmer"), pages[1])
-    require(await caster.evaluate("NT.P.cls==='mage' && !__hm.entities.canSimulate()"),
-            "the phone casts persistent fields as a follower, rather than as world authority")
+    roles = [await page.evaluate("__hm.entities.canSimulate()") for page in pages]
+    require(sum(roles) == 1, "one shared keeper and one follower are active", roles=roles)
+    caster = pages[roles.index(False)]
+    require(await caster.evaluate("NT.P.cls==='mage'"),
+            "an independent follower casts persistent fields as a mage")
     peer = await caster.evaluate("NT.st().self")
     before = await caster.evaluate("__hm.combatfields.save().runes.map(r=>r.id)")
     await caster.evaluate("__hm.combatfields.rune('frost'); 0")
@@ -314,7 +321,7 @@ def piece_signature_js():
 async def construction_case(pages):
     host = pages[0]
     follower = pages[1]
-    if not await host.evaluate("NT.st().isHost"):
+    if not await host.evaluate("__hm.entities.canSimulate()"):
         host, follower = follower, host
     await follower.evaluate("""['tool_hammer','tool_hoe'].forEach(id=>__hm.fn.goodsAdd(id,1));
       for(const id of ['plank','stone','nails','iron']) __hm.fn.goodsAdd(id,100); 0""")
@@ -462,8 +469,8 @@ async def run():
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(args=["--use-angle=swiftshader",
                        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--ignore-certificate-errors"])
-            desktop = await boot(browser, origin, url, "DesktopKeeper", 0, "warrior", 30)
-            phone = await boot(browser, origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
+            desktop = await boot(browser, public_origin, url, "DesktopKeeper", 0, "mage", 30)
+            phone = await boot(browser, public_origin, url, "PhoneFarmer", 0, "mage", 27, phone=True)
             pages = [desktop, phone]
             await readiness(pages)
             private_before = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
@@ -478,17 +485,21 @@ async def run():
             await combat_case(pages)
             private_after = [await p.evaluate("({name:NT.P.name,level:__hm.GAME.prog.level})") for p in pages]
             require(private_before == private_after, "shared scene updates preserve each character's own identity and level")
-            old = await phone.evaluate("__hm.netboats.NET_BOATS.authority")
-            boat_before = await phone.evaluate("i=>__hm.water.boats.state(i)", boat_index)
-            await desktop.close()
-            pages = [phone]
+            roles = [await page.evaluate("__hm.entities.canSimulate()") for page in pages]
+            require(sum(roles) == 1, "one canonical keeper is selected before handoff", roles=roles)
+            departing, survivor = pages[roles.index(True)], pages[roles.index(False)]
+            late_phone = departing is phone
+            old = await survivor.evaluate("__hm.netboats.NET_BOATS.authority")
+            await departing.close()
+            pages = [survivor]
             async def took_over():
-                return await phone.evaluate("old=>__hm.netboats.NET_BOATS.host===NT.st().self && __hm.netboats.NET_BOATS.authority!==old", old)
-            require(await eventually(pages, took_over), "the surviving phone takes authority after the desktop leaves")
-            require(await phone.evaluate(piece_signature_js()) == pieces,
+                return await survivor.evaluate("old=>__hm.netboats.NET_BOATS.host===NT.st().self && __hm.netboats.NET_BOATS.authority!==old", old)
+            require(await eventually(pages, took_over), "the surviving character takes authority after the keeper leaves")
+            require(await survivor.evaluate(piece_signature_js()) == pieces,
                     "host handoff preserves constructed structures")
-            late = await boot(browser, origin, url, "LateDesktop", 0, "priest", 17)
-            pages = [phone, late]
+            late = await boot(browser, public_origin, url, "LatePhone" if late_phone else "LateDesktop",
+                              0, "priest", 17, phone=late_phone)
+            pages = [survivor, late]
             await readiness(pages)
             await diagnose(pages, "late join after authority handoff")
             await town_case(pages)
