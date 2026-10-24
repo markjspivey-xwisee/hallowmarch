@@ -1,0 +1,23 @@
+name: Native worker proof
+on:
+  push:
+    branches: ['test/native-worker-20261024']
+permissions:
+  contents: read
+jobs:
+  storage-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix server && npm ci --prefix tools
+      - name: Build pinned native SDK
+        env:
+          INTEREGO_SDK_TEST_ROOT: ${{ runner.temp }}/native-worker-sdk
+        run: |
+          node tools/setup-native-sdk.mjs
+          echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
+      - run: node --test server/gaming/rolling*.test.mjs
