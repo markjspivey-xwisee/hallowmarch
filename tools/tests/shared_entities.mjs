@@ -62,7 +62,8 @@ function hostRows(host) { return host.json('window.__hm.entities.rows()'); }
 const rewardSources = new Map();
 function realRewards(p) {
   const functions = {
-    '07_entities.js': ['killEnt', 'grantKillRewards', 'addXP', 'addRP'],
+    '07_entities.js': ['dealDamage', 'killEnt', 'grantKillRewards', 'addXP', 'addRP'],
+    '06c_gifts.js': ['giftHunt'],
     '09c_loot.js': ['rollLoot', 'dropItem', 'addGold', 'makeJunk'],
     '06d_goods.js': ['dropGood'],
     '09s_survival.js': ['huntOnKill'],
@@ -85,6 +86,13 @@ function realRewards(p) {
     const late2Deed=()=>{}, bountyOnKill=()=>{}, late2VetXP=()=>{}, late2RpMult=()=>1;
     const xpToNext=()=>1e9, realmRank=()=>1, fmtInt=String, capFirst=String;
     const uiLog=()=>{}, uiToast=()=>{}, uiFloatAt=()=>{}, sfx=()=>{};
+    const towerSightBlocked=()=>false,giftHarmMult=()=>1,gearLateHarm=()=>1,late2HarmMult=()=>1,
+      loopsHarmMult=()=>1,classHarm=(_src,_dst,amount)=>amount,survivalHarmMult=()=>1,buffMax=()=>0;
+    const onDamageFeedback=()=>{},onImpact=()=>{},wearOnHit=()=>{},brandOnHit=()=>{},classOnHit=()=>{},
+      setAct=()=>{},BAL={tap:null};
+    const GIFT_DEF=[{}, {ult:{n:1,dur:12}}],GIFT={hounds:[]},DISC_KIND={renew:1};
+    const giftSfx=()=>{},sfxAtE=()=>{},isWalkable=()=>true,spellDisc=()=>{},lightFlash=()=>{},
+      fxAlpha={emit(){}};
   `);
   for (const [file, names] of Object.entries(functions)) {
     if (!rewardSources.has(file)) {
@@ -163,6 +171,47 @@ test('standalone kills still produce their ordinary personal gold, experience an
   const p = page('solo', false); realRewards(p);
   p.run('makeEnt({kind:"humanoid",mobType:"skeleton"});ENT[1].damagers=new Set([GAME.player.id]);killEnt(ENT[1],GAME.player)');
   assert.ok(p.run('INV.gold') > 0); assert.ok(p.run('GAME.prog.xp') > 0); assert.ok(p.run('LOOT.length') > 0);
+});
+
+test('actual Grey Hunt damage and death keep spirits rewardless before and after keeper handoff', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority(); realRewards(a); realRewards(b);
+  a.run('giftHunt(GAME.player,1);GIFT.hounds[0].drBase=0;');
+  const rows = hostRows(a);
+  assert.equal(rows[0].role, 'hound');
+  snapshot(b, { v: 1, full: true, rows, remove: [] });
+  assert.equal(a.run('typeof GIFT.hounds[0].damagers[Symbol.iterator]'), 'undefined',
+    'the real gift creates its intentional no-credit sentinel');
+  assert.doesNotThrow(() => a.run('dealDamage(GAME.player,GIFT.hounds[0],1000,{dot:true})'));
+  assert.equal(a.run('GIFT.hounds[0].alive'), false);
+  assert.equal(a.run('LOOT.length+INV.gold+GAME.prog.xp+GAME.prog.rp'), 0);
+  assert.equal(a.json('packets').some(p => p.result?.kind === 'reward'), false);
+  b.authority('b', 'after-handoff', true);
+  snapshot(b, { v: 1, full: true, rows, remove: [], replay: true }, 0, 'after-handoff');
+  assert.equal(b.run('netEntityCanSimulateWorld()'), true);
+  assert.doesNotThrow(() => b.run('const spirit=netEntityFind(' + JSON.stringify(rows[0].id)
+    + ');spirit.drBase=0;dealDamage(GAME.player,spirit,1000,{dot:true})'));
+  assert.equal(b.run('spirit.alive'), false);
+  assert.equal(b.run('spirit.damagers instanceof Set'), true,
+    'a materialized spirit still cannot become a bounty when normal damage bookkeeping resumes');
+  assert.equal(b.run('LOOT.length+INV.gold+GAME.prog.xp+GAME.prog.rp'), 0);
+  assert.equal(b.json('packets').some(p => p.result?.kind === 'reward'), false);
+});
+
+test('the actual damage chain retains ordinary Set credit and sends the participating remote one reward', () => {
+  const a = page('a'), b = page('b'); a.authority(); b.authority(); realRewards(a); realRewards(b);
+  a.run('const enemy=makeEnt({kind:"humanoid",mobType:"skeleton",drBase:0});'
+    + 'const hitter=makeEnt({role:"remote",faction:0,netPeer:"b",level:3});'
+    + 'NET.peers.set("b",{ghost:hitter,slow:{on:1}});');
+  snapshot(b, { v: 1, full: true, rows: hostRows(a), remove: [] });
+  a.run('dealDamage(hitter,enemy,1000,{dot:true});');
+  assert.equal(a.run('enemy.alive'), false);
+  assert.equal(a.run('enemy.damagers instanceof Set && enemy.damagers.has(hitter.id)'), true);
+  const rewards = a.json('packets').filter(p => p.result?.kind === 'reward');
+  assert.equal(rewards.length, 1);
+  b.message(rewards[0]); b.message(rewards[0]);
+  assert.ok(b.run('GAME.prog.xp') > 0); assert.ok(b.run('INV.gold') > 0);
+  assert.equal(b.run('GAME.prog.kills'), 1);
+  assert.equal(a.run('GAME.prog.xp+INV.gold'), 0);
 });
 
 test('standalone simulation is preserved, connected scene waits for authority and owns no private character', () => {

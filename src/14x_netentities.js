@@ -425,7 +425,10 @@ function netEntityBuff(dst, kind, value, dur, src, extra) {
   return true;
 }
 function netEntityKilled(e) {
-  if (!netEntityShared() || !netEntityMine() || !e.damagers || e.kind === 'door' || netEntityTown(e)) return;
+  // Grey Hunt spirits deliberately use a no-credit add/has sentinel, rather
+  // than a Set. Their public role also retains that rule after keeper handoff.
+  if (!netEntityShared() || !netEntityMine() || e.role === 'hound' || !(e.damagers instanceof Set)
+    || e.kind === 'door' || netEntityTown(e)) return;
   if (!e.netEntityLootMade && !e.damagers.has(GAME.player?.id)
     && [...e.damagers].some(id => getEnt(id)?.role === 'remote') && typeof rollLoot === 'function') {
     // Ground spoils belong to the shared scene. A keeper who did not take part
