@@ -1,8 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { gunzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync, brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from 'node:zlib';
 import { RollingMultiplayerStore, MULTIPLAYER_HISTORY_MS } from './rolling-multiplayer-store.js';
+import { decodeRollingHistory } from './rolling-history-codec.js';
+import { realisticRollingWindow } from './rolling-history-scale-fixture.mjs';
+
+const decodedDocument = artifact => artifact.contentType.endsWith('+gzip') ? JSON.parse(gunzipSync(artifact.bytes))
+  : decodeRollingHistory(JSON.parse(brotliDecompressSync(artifact.bytes)));
 
 // Application contract fixture: CAS and uncertain acknowledgements are modeled;
 // real encryption and native transport are covered by the separate SDK tests.
@@ -158,15 +163,113 @@ test('ciphertext from a foreign resource URL cannot become this multiplayer stat
 });
 
 test('compressed history overflow preserves the previously confirmed head', async () => {
-  const f = fixture(), store = f.make(), firstState = { payload: randomBytes(150 * 1024).toString('base64') };
+  const f = fixture(), store = f.make(), firstState = { payload: randomBytes(220 * 1024).toString('base64') };
   await store.commit(WORLD, { expectedVersion: 0, state: firstState, idempotencyKey: 'first' });
   const before = await f.client.readAtomicCheckpoint();
   f.advance(60000);
   await assert.rejects(store.commit(WORLD, { expectedVersion: 1,
-    state: { payload: randomBytes(150 * 1024).toString('base64') }, idempotencyKey: 'overflow' }), { code: 'PAYLOAD_TOO_LARGE', status: 413 });
+    state: { payload: randomBytes(220 * 1024).toString('base64') }, idempotencyKey: 'overflow' }), { code: 'PAYLOAD_TOO_LARGE', status: 413 });
   const after = await f.client.readAtomicCheckpoint();
   assert.equal(after.revision, before.revision); assert.deepEqual(after.artifact, before.artifact);
   assert.deepEqual((await f.make().load(WORLD)).state, firstState); assert.equal(f.control.commits, 1);
+  const size = store.performanceStatus().lastCommitSizeFailure;
+  assert.equal(size.phase, 'document-compressed-limit');
+  assert.ok(size.compressedBytes > 384 * 1024); assert.ok(size.rawBytes < 64 * 1024 * 1024);
+  assert.ok(size.stateBytes < 512 * 1024); assert.equal(size.eventBytes, 4);
+  assert.equal(size.streams, 1); assert.equal(size.checkpoints, 2); assert.equal(size.receipts, 2);
+  assert.equal(size.bindings, 0);
+});
+
+test('native size diagnostics are detached numeric metadata and idle polling performs no encoding or native reads', async () => {
+  const f = fixture(), store = f.make();
+  const marker = 'PRIVATE_OWNER_CONTENT_NOT_FOR_SIZE_STATUS';
+  await store.commit('private-stream-name', { expectedVersion: 0, state: { marker }, idempotencyKey: 'private-operation' });
+  const status = store.performanceStatus(), size = status.lastCommitSize;
+  assert.equal(size.phase, 'confirmed'); assert.ok(size.stateBytes > marker.length);
+  assert.ok(size.rawBytes > size.stateBytes); assert.ok(size.compressedBytes > 0);
+  assert.ok(size.encryptedEstimateBytes > 0); assert.ok(size.reservedBytes > 0);
+  assert.equal(size.streams, 1); assert.equal(size.checkpoints, 0); assert.equal(size.receipts, 1);
+  assert.equal(status.lastCommitSizeFailure, null);
+  assert(!JSON.stringify(status).includes(marker)); assert(!JSON.stringify(status).includes('private-stream-name'));
+  assert(!JSON.stringify(status).includes('private-operation'));
+  const expected = structuredClone(size);
+  size.phase = marker; size.rawBytes = -1;
+  f.client.readAtomicCheckpoint = () => { throw new Error('Status polling must not read native state'); };
+  f.client.atomicCheckpointSize = () => { throw new Error('Status polling must not encode native state'); };
+  store.artifact = () => { throw new Error('Status polling must not compress or serialize'); };
+  for (let i = 0; i < 20; i++) assert.deepEqual(store.performanceStatus().lastCommitSize, expected);
+});
+
+test('legacy gzip cold-loads and a normal commit upgrades encoding without changing history, bindings or receipts', async () => {
+  const f = fixture(), store = f.make();
+  await store.commit(WORLD, { expectedVersion: 0, state: worldState('original'), idempotencyKey: 'world-original' });
+  f.advance(60000);
+  await store.commit(WORLD, { expectedVersion: 1, state: worldState('later', 2), idempotencyKey: 'world-later' });
+  await store.commit('player-bindings-v1', { expectedVersion: 0, state: { bindings: [{ account: 'same-account', owner: 'same-owner' }] },
+    idempotencyKey: 'binding-original' });
+  const saved = await f.client.readAtomicCheckpoint(), original = decodedDocument(saved.artifact);
+  const legacy = f.codec.createNativeByteArtifact({ owner: OWNER, contentType: 'application/vnd.interego.rolling-checkpoint+gzip',
+    bytes: gzipSync(Buffer.from(JSON.stringify(original))) });
+  await f.client.commitAtomicCheckpoint(saved.revision, legacy);
+  const cold = f.make();
+  assert.deepEqual((await cold.read()).doc, original);
+  assert.deepEqual((await cold.load('player-bindings-v1')).state, original.streams.find(row => row.streamId === 'player-bindings-v1').state);
+  await cold.commit('new-participation', { expectedVersion: 0, state: { admitted: true }, idempotencyKey: 'new-participation' });
+  const upgraded = await f.client.readAtomicCheckpoint(), next = (await f.make().read()).doc;
+  assert.equal(upgraded.artifact.contentType, 'application/vnd.interego.rolling-checkpoint-delta-v1+br');
+  assert.deepEqual(next.checkpoints, original.checkpoints);
+  assert.deepEqual(next.receipts.slice(0, original.receipts.length), original.receipts);
+  for (const row of original.streams) assert.deepEqual(next.streams.find(entry => entry.streamId === row.streamId), row);
+  const writes = f.control.commits;
+  const replay = await f.make().commit(WORLD, { expectedVersion: 0, state: worldState('original'), idempotencyKey: 'world-original' });
+  assert.equal(replay.replayed, true); assert.equal(replay.version, 1); assert.equal(f.control.commits, writes);
+  assert.equal((await f.make().load(WORLD)).state.value.worlds.label, 'later');
+});
+
+test('delta storage rejects a larger Brotli window before native mutation', async () => {
+  const f = fixture(), store = f.make();
+  await store.commit('room-one', { expectedVersion: 0, state: { score: 1 }, idempotencyKey: 'first' });
+  const saved = await f.client.readAtomicCheckpoint(), wire = brotliDecompressSync(saved.artifact.bytes);
+  for (const bits of [23, 24]) {
+    const bytes = brotliCompressSync(wire, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 6, [zlibConstants.BROTLI_PARAM_LGWIN]: bits } });
+    await f.client.commitAtomicCheckpoint((await f.client.readAtomicCheckpoint()).revision,
+      f.codec.createNativeByteArtifact({ owner: OWNER, contentType: saved.artifact.contentType, bytes }));
+    const writes = f.control.commits;
+    await assert.rejects(f.make().load('room-one'), { code: 'CORRUPT_DURABLE_STATE' });
+    assert.equal(f.control.commits, writes);
+  }
+});
+
+test('the production carrier retains a full authored moving hour and 500 bindings inside unchanged storage ceilings', async t => {
+  const f = fixture(); f.now = 10000000;
+  const store = f.make(), logical = realisticRollingWindow({ owner: OWNER, namespace: store.namespace,
+    resourceUrl: store.resourceUrl, now: f.now });
+  assert.equal(logical.checkpoints.length, 61);
+  assert.equal(logical.streams.find(row => row.streamId === 'player-bindings-v1').state.bindings.length, 500);
+  assert.ok(gzipSync(Buffer.from(canonical(logical))).length > 384 * 1024, 'the prior encoding reproduces capacity rejection');
+  const preparedDocument = structuredClone(logical), began = performance.now();
+  store.checked(preparedDocument);
+  const prepared = store.prepareWrite(preparedDocument);
+  assert.ok(prepared.artifact.bytes.length < 384 * 1024);
+  assert.ok(prepared.maxEncryptedBytes <= 1024 * 1024);
+  assert.equal(store.performanceStatus().maxCompressedBytes, 384 * 1024);
+  assert.equal(store.performanceStatus().maxLogicalBytes, 64 * 1024 * 1024);
+  await f.client.commitAtomicCheckpoint(null, prepared.artifact);
+  const cold = f.make(), readback = await cold.read();
+  assert.equal(canonical(readback.doc), canonical(preparedDocument));
+  const preparationAndReadMs = performance.now() - began;
+  assert.ok(preparationAndReadMs < 20000, 'full-window preparation and cold read stay inside the browser operation deadline');
+  const oldWorld = structuredClone(readback.doc.checkpoints), oldBindings = structuredClone((await cold.load('player-bindings-v1')).state);
+  const admissionStarted = performance.now();
+  await cold.commit('participation-proof', { expectedVersion: 0, state: { confirmed: true }, idempotencyKey: 'full-hour-admission' });
+  const admissionMs = performance.now() - admissionStarted;
+  assert.ok(admissionMs < 20000, 'a subsequent unrelated admission remains inside the browser operation deadline');
+  const final = await f.make().read();
+  assert.deepEqual(final.doc.checkpoints, oldWorld);
+  assert.deepEqual((await f.make().load('player-bindings-v1')).state, oldBindings);
+  assert.equal(final.doc.receipts.length, logical.receipts.length + 1);
+  t.diagnostic(JSON.stringify({ compressedBytes: prepared.artifact.bytes.length, rawBytes: store.lastCommitSize.rawBytes,
+    wireBytes: store.lastCommitSize.wireBytes, preparationAndReadMs: Math.round(preparationAndReadMs), admissionMs: Math.round(admissionMs) }));
 });
 
 test('malformed compressed checkpoint fails closed without an empty-state write', async () => {
@@ -230,7 +333,7 @@ test('hundreds of permanent grant tombstones survive expiry, cold restart and wo
   assert.equal((await f.make().load(WORLD)).state.value.worlds.label, 'retained-world');
   assert.deepEqual((await f.make().load(before.streamId)).state, before.state);
   assert.deepEqual((await f.make().load(last.streamId)).state, last.state);
-  const saved = await f.client.readAtomicCheckpoint(), doc = JSON.parse(gunzipSync(saved.artifact.bytes));
+  const saved = await f.client.readAtomicCheckpoint(), doc = decodedDocument(saved.artifact);
   assert.equal(doc.streams.length, 302);
   assert.ok(doc.checkpoints.length > 0);
   assert.ok(doc.checkpoints.every(p => p.streams.length === 1 && p.streams[0].streamId === WORLD));
@@ -256,7 +359,7 @@ test('encrypted write budget survives restart and lost acknowledgement, replays 
   for (let i = 1; i < 64; i++) await f.make().commit('budget', { expectedVersion: i, state: { n: i }, idempotencyKey: 'budget-' + i });
   const before = await f.client.readAtomicCheckpoint();
   assert.equal((await f.make().commit('budget', first)).replayed, true);
-  assert.equal(f.make().checked(JSON.parse(gunzipSync(before.artifact.bytes))).writeBudget[0].bytes, 64 * 1024 * 1024);
+  assert.equal(f.make().checked(decodedDocument(before.artifact)).writeBudget[0].bytes, 64 * 1024 * 1024);
   const next = { expectedVersion: 64, state: { n: 64 }, idempotencyKey: 'budget-next' };
   await assert.rejects(f.make().commit('budget', next), { code: 'NATIVE_WRITE_BUDGET' });
   assert.equal((await f.client.readAtomicCheckpoint()).revision, before.revision);

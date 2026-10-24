@@ -97,7 +97,7 @@ function addGold(n, x, y, z) {
 }
 
 /* ---- what falls when something dies ---- */
-function rollLoot(e) {
+function rollLoot(e, personalGold = true) {
   const P = GAME.player, prog = GAME.prog;
   if (!P || !prog || e.kind === 'door') return;
   const ci = conIndex(e.level, prog.level);
@@ -126,10 +126,13 @@ function rollLoot(e) {
     else if (Math.random() < 0.05) items.push(gearFor(DROP_WEIGHTS.soldier));
     gold = e.level * (0.5 + Math.random() * 0.7) * (e.role === 'lord' ? 6 : 1);
   }
-  if (gold > 0) addGold(gold, e.x, e.y + 2.3 * (e.scale || 1), e.z);
+  if (personalGold && gold > 0) addGold(gold, e.x, e.y + 2.3 * (e.scale || 1), e.z);
   for (const it of items) dropItem(it, e.x, e.z, e.y + 1.0 * (e.scale || 1));
 }
 function dropItem(it, x, z, y) {
+  // A kill result awards this character's own gold and progress. Its physical
+  // spoils were already rolled by the scene keeper and arrive through LOOT.
+  if (typeof NET_ENTITIES !== 'undefined' && NET_ENTITIES.rewarding) return null;
   if (LOOT.length >= LOOT_MAX) LOOT.shift();
   const a = Math.random() * TAU, r = 0.5 + Math.random() * 0.9;
   const lx = x + Math.cos(a) * r, lz = z + Math.sin(a) * r;
@@ -159,6 +162,7 @@ function updateLoot(dt) {
       }
     }
     if (!P || !P.alive || GAME.t - L.t0 < 0.45) continue;
+    if (typeof netWorldPartsActive === 'function' && netWorldPartsActive()) continue;
     const d2 = dist2(P.x, P.z, L.x, L.z);
     if (d2 < 1.7 * 1.7 && Math.abs(P.y - L.y) < 2.5) {
       if (L.item.goods) {
@@ -220,6 +224,7 @@ function initMerchants() {
     m.maxHp = m.hp = 500;
     m.ai.post = { x, z, yaw };
     R.merchant = m;
+    if (typeof netNpcRegister === 'function') netNpcRegister(m, `town:${R.id}:merchant:0`);
     R.stock = null;
   }
 }
@@ -407,3 +412,4 @@ function drawLoot() {
   sg.instanceCount = ns; bg.instanceCount = nb;
   for (const a of [sg.attributes.iPos, sg.attributes.iCol, bg.attributes.iPos, bg.attributes.iCol]) a.needsUpdate = true;
 }
+

@@ -29,6 +29,13 @@ function fixture({ monitor = '1' } = {}) {
     store: { write: record('file-save') }, COMP: { dirty: false, save() { record('company-save')(); this.dirty = false; } },
     WORLD_STATE: world, GAMING: gaming, SEASON: season, FIELD: { step: record('field-step'), left: record('field-left') },
     worldAgentTransport: { close: record('agent-stop') },
+    SHARED_SCENE: {
+      sync: record('scene-sync'),
+      leave(c) {
+        record('scene-leave')(c, { dormant: c.humanDormant, profileOn: c.slow?.on,
+          hasPosition: c.pos != null, authority: c.sceneAuthority });
+      },
+    },
     worldAgentHost: { setActive: record('agent-active'), suspend: async (...a) => record('agent-final')(...a), close: async () => record('agent-close')() },
     nativeAgentHost: { setActive: record('native-agent-active'), close: record('native-agent-close') },
     worldAdmission: () => ({origin:'https://game.example',epoch:2}),
@@ -96,7 +103,7 @@ test('monitor disabled by deployment never initializes or flushes during play', 
 
 test('departure releases region ownership and tells active peers once without retiring the owner socket', () => {
   const f = fixture(), other = { live: true, nearAt: new Map([['owner-peer', 1]]), farAt: new Map([['owner-peer', 1]]) };
-  const owner = { peer: 'owner-peer', slow: {on:1}, region:'h0', regionTold:true, fast:{}, pos:{},
+  const owner = { peer: 'owner-peer', slow: {on:1}, region:'h0', regionTold:true, fast:{}, pos:{}, sceneAuthority:'old-scene',
     ws:{ close() { throw new Error('Dormant owner transport must remain established'); } } };
   owner.room = {clients:new Map([['owner-peer', owner], ['other', other]])};
   f.context.api.endHumanSession(owner);
@@ -104,6 +111,14 @@ test('departure releases region ownership and tells active peers once without re
   assert.equal(owner.region, null); assert.equal(owner.pos, null);
   assert.equal(other.nearAt.has('owner-peer'), false); assert.equal(other.farAt.has('owner-peer'), false);
   assert.equal(f.counts('send'), 1); assert.equal(f.counts('regions'), 1);
+  assert.equal(f.counts('scene-leave'), 1, 'the departing player releases shared scene occupancy exactly once');
+  const released = f.calls.find(call => call.name === 'scene-leave');
+  assert.equal(released.args[0], owner);
+  assert.deepEqual(released.args[1], { dormant: true, profileOn: 0, hasPosition: false, authority: 'old-scene' },
+    'shared scene departure sees the retired player state before relinquishing its old authority');
+  assert.equal(owner.sceneAuthority, '', 'a sleeping socket cannot resume its prior scene authority');
+  assert.ok(f.calls.indexOf(released) < f.calls.findIndex(call => call.name === 'send'),
+    'scene occupancy is released before active peers are told the player left');
 });
 test('standby HTTP exceptions name only explicit owner relationship controls', () => {
   const definition = source.split('\n').find(line => line.includes('const explicitOwnerControl = '));
@@ -130,6 +145,11 @@ test('live resume clears omitted departed peers then sends one current snapshot 
   assert.equal(messages.filter(m=>m.t==='world').length,1);
   assert.deepEqual(JSON.parse(JSON.stringify(messages.find(m=>m.t==='world').worldAdmission)), {origin:'https://game.example',epoch:2});
   assert.equal(owner.worldAdmission.epoch,2);
+  assert.equal(f.counts('scene-sync'),1,'resume replays one current shared scene after world initialization');
+  const synced=f.calls.find(call=>call.name==='scene-sync');
+  assert.equal(synced.args[0],owner.room);assert.equal(synced.args[1],owner);
+  assert.ok(f.calls.indexOf(synced)>f.calls.findIndex(call=>call.name==='send'&&call.args[1].t==='world'),
+    'the admission-tagged world arrives before shared scene authority');
   assert.equal(owner.pausedPeerIds,null);assert.equal(f.timers.size,0);
 });
 

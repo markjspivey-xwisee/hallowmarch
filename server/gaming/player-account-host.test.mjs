@@ -201,6 +201,61 @@ test('native provisional admission confirms a durable owner before granting huma
   assert.equal(staleStatus.binding, null); assert.deepEqual(staleStatus.recordLinks, {});
 });
 
+test('provisional binding diagnostics distinguish a refused native commit and its exact-operation retry', async t => {
+  const f = await provisionalFixture(t), commit = f.store.commit.bind(f.store);
+  f.store.commit = async () => {
+    throw Object.assign(new Error('PRIVATE_PROVISIONAL_STORE_MESSAGE'), { code: 'NATIVE_COMMIT_CAPACITY' });
+  };
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  assert.equal(f.issued.length, 0); assert.equal(f.store.commits.length, 0);
+  const failed = f.host.status().verificationDiagnostics;
+  assert.deepEqual(failed.lastFailure, { stage: 'ledger-bind', code: 'NATIVE_COMMIT_CAPACITY' });
+  assert.equal(failed.attempts, 1); assert.equal(failed.failed, 1); assert.equal(failed.inFlight, 0);
+  assert.deepEqual(failed.ledger, { configured: true, ready: true });
+  assert(!JSON.stringify(failed).includes('PRIVATE_PROVISIONAL'));
+  f.store.commit = commit;
+  const retry = await f.request('/gaming/identity/play/complete', { method: 'POST', body: first.completeBody });
+  assert.equal(retry.status, 200);
+  const answer = await retry.json();
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+  const replay = await f.request('/gaming/identity/play/complete', { method: 'POST', body: first.completeBody });
+  assert.equal(replay.status, 200); assert.deepEqual(await replay.json(), answer);
+  const completed = f.host.status().verificationDiagnostics;
+  assert.equal(completed.attempts, 2); assert.equal(completed.succeeded, 1); assert.equal(completed.failed, 1);
+  assert.equal(completed.stages['issue-app-session'].entered, 1);
+  assert.equal(f.store.commits.length, 1); assert.equal(f.issued.length, 1);
+});
+
+test('provisional binding diagnostics never expose foreign exception details', async t => {
+  const f = await provisionalFixture(t);
+  const secret = 'PRIVATE_PROVISIONAL_TOKEN_OWNER_OPERATION';
+  f.store.commit = async () => { throw Object.assign(new Error(secret), { code: secret, token: secret, owner: secret }); };
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  const diagnostic = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostic.lastFailure, { stage: 'ledger-bind', code: 'other' });
+  assert.equal(diagnostic.inFlight, 0); assert.equal(diagnostic.failed, 1);
+  assert(!JSON.stringify([first.result, diagnostic]).includes(secret));
+});
+
+test('provisional diagnostics distinguish session issuance after an already confirmed native binding', async t => {
+  const f = await provisionalFixture(t, { issueAppSession: async () => {
+    throw Object.assign(new Error('PRIVATE_SESSION_ISSUER_DETAILS'), { code: 'DURABILITY_UNAVAILABLE' });
+  } });
+  const first = await f.begin();
+  assert.equal(first.response.status, 503);
+  assert.deepEqual(first.result, { error: 'native_identity_unavailable' });
+  assert.equal(f.store.commits.length, 1);
+  const diagnostic = f.host.status().verificationDiagnostics;
+  assert.deepEqual(diagnostic.lastFailure, { stage: 'issue-app-session', code: 'DURABILITY_UNAVAILABLE' });
+  assert.equal(diagnostic.stages['ledger-bind'].entered, 1);
+  assert.equal(diagnostic.stages['account-restore'].entered, 1);
+  assert(!JSON.stringify(diagnostic).includes('PRIVATE_SESSION'));
+});
+
 test('hour-two guest renewal needs fresh key proof and retains the exact owner, pod and fixed deadline', async t => {
   const f = await provisionalFixture(t, { realTokens: true }), first = await f.begin();
   const old = first.result.appSession.token, originalBinding = f.host.bindingForAccount('guest-a');

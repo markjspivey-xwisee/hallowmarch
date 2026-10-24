@@ -248,10 +248,12 @@ export function createPlayerAccountHost(options = {}) {
     return { claims, account, binding: record.binding, sessionId: hash(match[1]),
       authorizationUntil: Math.min(expiresAt, claims.provisionalProofUntil) };
   }
-  async function issueBoundSession(result) {
+  async function issueBoundSession(result, enter = () => {}) {
+    enter('account-restore');
     let account = options.getAccount(result.accountId);
     if (!account) account = await options.restoreAccount(recordFor(result.accountId));
     if (!account || account.id !== result.accountId) fail('account_restore_failed', 503);
+    enter('issue-app-session');
     const appSession = await options.issueAppSession(result.accountId, result.binding);
     if (!plain(appSession) || typeof appSession.token !== 'string' || !appSession.token || appSession.token.length > 8192
       || appSession.acct?.id !== result.accountId || Buffer.byteLength(JSON.stringify(appSession)) > 16384) fail('app_session_unavailable', 503);
@@ -265,10 +267,25 @@ export function createPlayerAccountHost(options = {}) {
     }, catalogUrl: options.playRelayCatalog, fetch: options.fetch }),
     verifyProof: options.provisionalProofVerifier ?? createProvisionalProofVerifier({ identityOrigin: options.identityOrigin, fetch: options.fetch }),
     bindOwner: async (binding, accountId, operationId) => {
-      await requireReady();
-      const account = options.getAccount(accountId); if (!account) fail('game_account_required', 401);
-      const result = await ledger.bindVerified(binding, accountId, { operationId, accountSummary: accountSummary(account) });
-      return issueBoundSession(result);
+      // Provisional admission has the same durable binding/session stages as
+      // canonical sign-in. Expose only fixed stages and allowlisted error codes.
+      let stage = 'ready-proof';
+      const enter = next => { stage = next; increment(verificationDiagnostics.stages[stage], 'entered'); };
+      increment(verificationDiagnostics, 'attempts'); increment(verificationDiagnostics, 'inFlight'); enter(stage);
+      try {
+        await requireReady();
+        const account = options.getAccount(accountId); if (!account) fail('game_account_required', 401);
+        enter('ledger-bind');
+        const result = await ledger.bindVerified(binding, accountId, { operationId, accountSummary: accountSummary(account) });
+        const answer = await issueBoundSession(result, enter);
+        increment(verificationDiagnostics, 'succeeded');
+        return answer;
+      } catch (error) {
+        const code = failureCode(error), counters = verificationDiagnostics.stages[stage];
+        increment(verificationDiagnostics, 'failed'); increment(counters, 'failed'); increment(counters.codes, code);
+        verificationDiagnostics.lastFailure = { stage, code };
+        throw error;
+      } finally { verificationDiagnostics.inFlight = Math.max(0, verificationDiagnostics.inFlight - 1); }
     } });
   async function authorizeGameAccount(req, body) {
     await requireReady(); prune();

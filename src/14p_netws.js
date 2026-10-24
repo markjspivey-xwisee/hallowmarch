@@ -158,6 +158,9 @@ async function netWsTokenForget(host, rejectedToken, allowed = () => false) {
 }
 function netWsSend(o, ws = NETWS.ws) {
   if (!ws || ws !== NETWS.ws || NETWS.state === 'off' || ws.readyState !== 1) return false;
+  if (o?.t === 'activity' && (o.kind === 'boats' && o.op !== 'snapshot'
+    || ['worldparts', 'entities'].includes(o.kind) && o.op === 'command')
+    && typeof netActivityPosition === 'function' && !netActivityPosition()) return false;
   try {
     const s = JSON.stringify(o);
     ws.send(s);
@@ -211,6 +214,7 @@ function netWsRetire(ws, why) {
   // link promise's cleanup microtask runs. It must not inherit that attempt.
   NETWS.linkP = null;
   ++NETWS.generation; NETWS.ws = null; NETWS.state = 'off'; NETWS.lastFailure = why;
+  if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
   netWsPendingFail();
   if (was === 'on') {
     NETWS.stats.drops++;
@@ -288,10 +292,12 @@ function netWsOpen() {
         netNote('denied ' + netStr(m.why, 80)); finish(false, 'denied');
       }
       else if (NETWS.state !== 'on') return;
+      else if (m.t === 'reload-required') netSceneReloadRequired(m.why);
       else if (m.t === 'world-status') netWsWorldStatus(m.persistence);
       else if (m.t === 'peer' && typeof m.peer === 'string') netPeerUpdate(m.peer, { by: m.by || null, kind: 'viewer', slow: m.slow, fast: m.fast });
       else if (m.t === 'left' && typeof m.peer === 'string') netPeerLeft(m.peer);
       else if (m.t === 'ev' && typeof m.peer === 'string') netPeerEvents(m.peer, m.ev);
+      else if (m.t === 'activity') netSharedSceneMessage(m);
       else if (m.t === 'gaming') gamingMsg(m);
       else if (m.t === 'world-agent' && typeof mainWorldAgentMessage === 'function') mainWorldAgentMessage(m);
       else if (m.t === 'pong') NETWS.stats.rtt = Math.round(performance.now() - m.c);
@@ -318,11 +324,18 @@ function netWsOpen() {
     };
     ws.onclose = (ev) => {
       if (!current()) return;
+      if (ev && ev.code === 4006) {
+        if (typeof netSceneReloadRequired === 'function') netSceneReloadRequired(ev.reason);
+        else { NETWS.reload = true; NETWS.lastFailure = 'Reload Hallowmarch to join the updated shared world.'; }
+        if (!settled) finish(false, 'game update required');
+        return;
+      }
       const was = NETWS.state;
       NETWS.lastClose = { code: ev && ev.code || 0, reason: netStr(ev && ev.reason, 80) };
       if (!settled) finish(false, 'socket closed');
       else { NETWS.state = 'off'; NETWS.ws = null; }
       netWsPendingFail();
+      if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
       if (was === 'on') {
         NETWS.stats.drops++;
         for (const peer of [...NET.peers.keys()]) netPeerLeft(peer);
@@ -368,9 +381,11 @@ function netLinkWS(url) {
         if (NETWS.cancelOpen) NETWS.cancelOpen();
         NETWS.linkP = null;
         ++NETWS.generation;
+        if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
         const ws = NETWS.ws; NETWS.ws = null; NETWS.state = 'off';
         if (ws) try { ws.close(); } catch (e) { /* gone */ }
         netWsPendingFail();
+      if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
         if (NET.link === L) { NET.link = null; NET.state = 'alone'; }
       },
     };
@@ -440,4 +455,30 @@ async function netServerSaveRef() {
     set: async (s, { final = false } = {}) => { const m = await ask({ t: 'save', d: s, ...(final ? { final: 1 } : {}) }); if (!m || !m.ok) throw { code: 'unavailable' }; },
     delete: async () => { const m = await ask({ t: 'wipe' }); if (!m || !m.ok) throw { code: 'unavailable' }; },
   };
+}
+
+
+// Each authority message is scoped to this live socket and its admitted world.
+function netSharedSceneMessage(m) {
+  if (m?.kind === 'authority' && typeof m.peer === 'string' && m.peer.length <= 128
+    && typeof netCurrentWorldAdmission === 'function' && netSameWorldAdmission(netCurrentWorldAdmission(), netWorldAdmissionRead(m.worldAdmission)))
+    NET.serverSceneHost = m.peer;
+  if (typeof netBoatMessage === 'function') netBoatMessage(m);
+  if (typeof netNpcMessage === 'function') netNpcMessage(m);
+  if (typeof netEntityMessage === 'function') netEntityMessage(m);
+  if (typeof netWorldPartsMessage === 'function') netWorldPartsMessage(m);
+}
+function netSharedSceneReset() {
+  NET.serverSceneHost = '';
+  if (typeof netBoatReset === 'function') netBoatReset();
+  if (typeof netNpcReset === 'function') netNpcReset();
+  if (typeof netEntityReset === 'function') netEntityReset();
+  if (typeof netWorldPartsReset === 'function') netWorldPartsReset();
+}
+function netSceneReloadRequired(reason) {
+  const message = netStr(reason, 180) || 'Reload Hallowmarch to join the updated shared world. Your saved character is preserved.';
+  NETWS.reload = true; NETWS.worldReloadRequired = true; NETWS.worldPauseReason = message; NETWS.lastFailure = message;
+  if (typeof netHumanSuspend === 'function') netHumanSuspend();
+  if (typeof netSharedSceneReset === 'function') netSharedSceneReset();
+  if (GAME.started && GAME.player) { uiLog(message, 'sys'); uiToast(message, 'hint'); }
 }

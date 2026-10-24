@@ -478,7 +478,7 @@ function dragonAnimate(dt) {
 function drawDragon(dt) {
   const D = DRAGON, e = D.e;
   if (!D.mesh) return;
-  if (!e || e.removed) { D.mesh.visible = false; return; }
+  if (!e || e.removed || (typeof netEntityVisible === 'function' && !netEntityVisible(e))) { D.mesh.visible = false; return; }
   const d2 = dist2(e.x, e.z, camera.position.x, camera.position.z);
   _dSph.center.set(e.x, e.y + 3, e.z); _dSph.radius = 13;
   const vis = d2 < 520 * 520 && frustum.intersectsSphere(_dSph);
@@ -522,3 +522,4 @@ function drawDragon(dt) {
   // ground shadow when it stands
   if (!e.flying && Math.abs(e.x - (GAME.player ? GAME.player.x : e.x)) < 46 && Math.abs(e.z - (GAME.player ? GAME.player.z : e.z)) < 46) decalAdd(e.x, e.z, 4.2, 0);
 }
+

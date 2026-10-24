@@ -17,6 +17,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { makeSeason, loadRealmModule, seasonRoomPolicy } from './season.js';
@@ -37,8 +38,9 @@ import { createMainWorldAgentTransport } from './gaming/main-world-agent-transpo
 import { makeCompanies, reservedNames, coPledgeApply, coText } from './companies.js'; // [companies]
 import { makeField } from './fieldarmies.js'; // [season2] the season's armies on the pages' fields
 import { createHumanPlayGate } from './human-play.js';
+import { createSharedScene, confirmOwnedSceneCheckpoint } from './shared-scene.js';
 
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const CFG = {
   port: +process.env.PORT || 8787,
@@ -227,7 +229,12 @@ function roomFor(policy) {
 }
 function roomHost(R) {
   let best = null;
-  for (const c of R.clients.values()) if (isHumanPlaying(c) && c.slow && c.slow.on === 1 && (!best || c.since < best.since || (c.since === best.since && c.peer < best.peer))) best = c;
+  for (const c of R.clients.values()) {
+    if (!isHumanPlaying(c) || !c.slow || c.slow.on !== 1) continue;
+    const capable = c.slow.sharedScene === 1, previous = best?.slow?.sharedScene === 1;
+    if (!best || capable && !previous || capable === previous
+      && (c.since < best.since || c.since === best.since && c.peer < best.peer)) best = c;
+  }
   return best;
 }
 const send = (c, o) => { if (c.ws.readyState !== 1 || (c.humanDormant && !['world-status', 'acct', 'save', 'saved'].includes(o.t))) return; const s = JSON.stringify(o); STATS.bytesOut += s.length; c.ws.send(s); };
@@ -310,10 +317,24 @@ const worldAgentHost = await configuredNativeAgentHost({ gaming: GAMING, account
   environment: gamingEnvironment, active: false, worldControl: { store: gamingStore, active: false, ...worldAgentTransport } });
 const worldAdmission = () => ({ origin: new URL(gamingEnvironment.HM_PUBLIC_ORIGIN || ('https://' + (gamingEnvironment.RAILWAY_PUBLIC_DOMAIN || 'march-production-f6d9.up.railway.app'))).origin, epoch: Number.isSafeInteger(SEASON.RS?.n) && SEASON.RS.n > 0 ? SEASON.RS.n : 1 });
 const sameWorldAdmission = (a, b) => a && b && a.origin === b.origin && Number.isSafeInteger(a.epoch) && a.epoch === b.epoch;
+const SHARED_SCENE = createSharedScene({ hostFor: roomHost, live: isHumanPlaying, admission: worldAdmission, send,
+  canMutate: () => !WORLD_STATE || WORLD_STATE.canMutate(),
+  stateFor: R => R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] || {}),
+  writeState: (R, candidate) => {
+    const world = R.diagnostic ? (R.diagnosticWorld ||= {}) : (WORLDS[R.name] ||= {});
+    world.activity = candidate;
+  },
+  changed: R => { if (!R.diagnostic) worldsSave(); },
+  confirm: R => R.diagnostic || !WORLD_STATE ? undefined : confirmOwnedSceneCheckpoint(WORLD_STATE),
+  validatePersist: (R, candidate) => {
+    const worlds = R.diagnostic ? WORLDS : { ...WORLDS, [R.name]: { ...(WORLDS[R.name] || {}), activity: candidate } };
+    return Buffer.byteLength(JSON.stringify({ worlds, season: SEASON.RS || null })) <= 440 * 1024;
+  } });
 function sendWorldInit(c) {
   const w = worldNow(c.room); if (!w) return;
   c.worldAdmission = worldAdmission();
   send(c, { t: 'world', w, init: 1, worldAdmission: c.worldAdmission });
+  SHARED_SCENE.sync(c.room, c);
 }
 const gamingManifest = () => ({ ...GAMING.manifest(), nativeDiscovery: gamingCapabilityStatus(), worldAdmission: worldAdmission(),
   mainWorldAgents: { ...worldAgentHost.manifest(), scope: 'main-world', nativePublication: playerCapabilityStatus() },
@@ -429,13 +450,11 @@ async function sampleGamingService() {
 }
 // Monitoring is scheduled only while a human is live.
 function regionHosts(R) {
-  const h = {};
-  for (const c of R.clients.values()) {
-    if (!isHumanPlaying(c) || !c.region || !c.slow || c.slow.on !== 1) continue;
-    const o = h[c.region] && R.clients.get(h[c.region]);
-    if (!o || c.since < o.since || (c.since === o.since && c.peer < o.peer)) h[c.region] = c.peer;
-  }
-  return h;
+  // The shared scene has one simulation owner. A follower standing in another
+  // region must never publish its mirrored keep or gate back over that owner's state.
+  const host = roomHost(R);
+  if (!host) return {};
+  return Object.fromEntries(['f0', 'f1', 'f2', 'h0', 'h1', 'h2', 'b'].map(region => [region, host.peer]));
 }
 function regionsTell(R, force) {
   const h = regionHosts(R), key = JSON.stringify(h);
@@ -449,7 +468,8 @@ function regionsTell(R, force) {
 // the shard's war now: its kept word with the season's keeps (the season decides who holds them while nobody keeps them)
 function worldNow(R) {
   if (WORLD_STATE && !WORLD_STATE.canMutate()) return null;
-  const kept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null, sk = SEASON.keepsOf();
+  const rawKept = (R.diagnostic ? R.diagnosticWorld : null) || WORLDS[R.name] || null;
+  const kept = rawKept?.activity ? { ...rawKept, activity: SHARED_SCENE.publicActivity(R) } : rawKept, sk = SEASON.keepsOf();
   // A new room has a complete authoritative baseline; a retained private save
   // must never supply its first keep, gate or campaign state.
   const w = { k: sk?.slice() || (WORLD.keeps?.map(k => k.home) || new Array(WORLD.keepCount).fill(0)), g: new Array(WORLD.keepCount).fill(1),
@@ -485,7 +505,7 @@ function worldReport(c, raw, admission) {
   merged.at = Date.now();
   if (R.diagnostic) R.diagnosticWorld = merged;
   else { WORLDS[R.name] = merged; worldsSave(); }
-  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: merged, worldAdmission: worldAdmission() }); }
+  if (changed) { STATS.worldTold++; for (const o of R.clients.values()) if (o !== c) send(o, { t: 'world', w: worldNow(R), worldAdmission: worldAdmission() }); }
   return true;
 }
 // [perf3] the host's word on the sky: kept with the shard's war (a later session's first host takes it up), on disk once a minute
@@ -572,6 +592,8 @@ function onSlow(c, d) {
   { const tag = c.realm >= 0 && COMP.canParticipate(companyAccount(c)) ? COMP.tag(c.acct.id, c.realm) : null; if (tag) d.co = tag; else delete d.co; } // [companies] a member's company, stamped here: a page cannot claim one
   c.party = typeof d.pt === 'string' ? d.pt.slice(0, 24) : '';
   const R = c.room;
+  regionsTell(R);
+  SHARED_SCENE.sync(R, c);
   if (d.w && !worldReport(c, d.w, d.worldAdmission)) delete d.w;
   if (d.wx) {
     if (sameWorldAdmission(d.worldAdmission, worldAdmission()) && sameWorldAdmission(c.worldAdmission, d.worldAdmission) && roomHost(R) === c) keepWx(R, d.wx);
@@ -603,7 +625,7 @@ function onFast(c, d) {
   if (evs.length) c.evSeq = evs[evs.length - 1][0];
   for (const e of evs) if (!c.room.diagnostic && e[1] === 'say' && Array.isArray(e[3]) && e[3][0] === 'r' && typeof e[3][1] === 'string' && c.realm >= 0) { SEASON.chatIn(c.realm, c.acct.name === 'Guest' && c.slow ? cleanName(c.slow.n) || 'Guest' : c.acct.name, e[3][1].replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '')); STATS.chatKept++; }
   c.fast = { ...d, ev: [] };
-  const R = c.room;
+  const R = c.room, sceneKeeper = roomHost(c.room);
   for (const o of R.clients.values()) {
     if (o === c) continue;
     const mine = evs.filter((e) => {
@@ -613,10 +635,12 @@ function onFast(c, d) {
     });
     STATS.evDropped += evs.length - mine.length;
     const dd = o.pos ? dist(o.pos, c.pos) : 0, mate = c.party && o.party === c.party;
-    const near = !o.pos || dd < CFG.interest || mate;
+    // The simulation keeper must see every admitted player, including distant AI targets.
+    // Other viewers keep the normal render-interest budget.
+    const keeper = o === sceneKeeper, near = keeper || !o.pos || dd < CFG.interest || mate;
     // a phone's budget: a body near at the sender's own pace (10 a second), farther ones less often (60 m: 5, 140 m: 2.5),
     // a moment always at once; the reader's own interpolation draws them between
-    let gap = mate || dd < 60 ? 0 : dd < 140 ? 190 : 390;
+    let gap = keeper || mate || dd < 60 ? 0 : dd < 140 ? 190 : 390;
     if (near && gap && !mine.length) { o.nearAt = o.nearAt || new Map(); if (now - (o.nearAt.get(c.peer) || 0) < gap) { STATS.thinned++; continue; } o.nearAt.set(c.peer, now); }
     if (near) { send(o, { t: 'peer', peer: c.peer, fast: { ...d, ev: mine } }); STATS.relayed++; }
     else {
@@ -758,12 +782,29 @@ function onCo(c, m) {
 }
 function onMsg(c, raw) {
   STATS.msgs++; STATS.bytesIn += raw.length;
-  if (raw.length > CFG.maxMsg && !(raw.length <= CFG.maxSave + 64 && raw.slice(0, 20).includes('"save"'))) { STATS.badMsgs++; return; }
+  let admittedNpcFrame = null;
+  if (raw.length > CFG.maxMsg && raw.length <= 32768) {
+    try {
+      const q = JSON.parse(raw);
+      if (q.t === 'activity' && q.kind === 'npcs' && q.op === 'snapshot'
+        && Array.isArray(q.npcs) && q.npcs.length <= 64 && SHARED_SCENE.acceptsChunk(c, q)) admittedNpcFrame = q;
+    } catch { /* Keep the ordinary bounded refusal. */ }
+  }
+  if (raw.length > CFG.maxMsg && !admittedNpcFrame
+    && !(raw.length <= CFG.maxSave + 64 && raw.slice(0, 20).includes('"save"'))) { STATS.badMsgs++; return; }
   const now = Date.now();
   if (now - c.winT > 1000) { c.winT = now; c.winN = 0; }
-  if (++c.winN > 60) { STATS.rateDropped++; if (c.winN > 240) { STATS.kicked++; c.ws.close(4008, 'too many messages'); } return; }
+  if (now - (c.sceneByteAt || 0) > 1000) { c.sceneByteAt = now; c.sceneBytes = 0; c.sceneChunks = 0; }
+  let chunk = false;
+  if (raw.includes('"activity"') && raw.includes('"snapshot"')) {
+    try { const q = JSON.parse(raw); chunk = q.t === 'activity' && q.op === 'snapshot'
+      && ['entities', 'worldparts'].includes(q.kind) && typeof q.data === 'string' && q.data.length <= 3500 && SHARED_SCENE.acceptsChunk(c, q); } catch { /* normal malformed-message check follows */ }
+  }
+  if (chunk) { c.sceneBytes += Buffer.byteLength(raw); c.sceneChunks++; if (c.sceneBytes > 640 * 1024 || c.sceneChunks > 160) { STATS.rateDropped++; return; } }
+  c.winN += chunk ? 0.125 : 1;
+  if (c.winN > 60) { STATS.rateDropped++; if (c.winN > 240) { STATS.kicked++; c.ws.close(4008, 'too many messages'); } return; }
   let m;
-  try { m = JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
+  try { m = admittedNpcFrame || JSON.parse(raw); } catch (e) { STATS.badMsgs++; return; }
   if (!m || typeof m.t !== 'string') return;
   if (m.t === 'gaming') {
     if (['agent.command', 'agent.observe'].includes(m.op)) {
@@ -777,6 +818,11 @@ function onMsg(c, raw) {
   if (!c.acct) return;
   if (m.t === 'slow') {
     const principalVerified = !nativePlayersRequired || !!PLAYER_ACCOUNTS.humanPrincipalFor(c);
+    if (nativePlayersRequired && principalVerified && m.d?.on === 1 && m.d.sharedScene !== 1) {
+      const why = 'Reload Hallowmarch to join the shared world. Your saved character is preserved.';
+      send(c, { t: 'reload-required', code: 'shared_scene_upgrade_required', why });
+      c.ws.close(4006, why); return;
+    }
     const playing = HUMAN_PLAY.update(c, principalVerified ? m.d : null);
     if (!playing) {
       c.slow = { ...(m.d && typeof m.d === 'object' ? m.d : {}), on: 0, humanLive: 0 };
@@ -793,14 +839,14 @@ function onMsg(c, raw) {
     if (resuming) resumeHumanSession(c);
   }
   const departingSave = m.t === 'save' && m.final === 1 && c.hasPlayedLive && c.finalSaveUntil > now;
-  if (['fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c) && !departingSave) {
+  if (['activity', 'fast', 'contrib', 'order', 'sarmyrep', 'world-agent', 'co', 'save', 'wipe', 'season'].includes(m.t) && !isHumanPlaying(c) && !departingSave) {
     // Explicit writes receive one bounded refusal; an idle save never becomes
     // an ambiguous timeout or a durable side effect.
     if (m.t === 'save' || m.t === 'wipe') send(c, { t: 'saved', ok: false,
       error: nativePlayersRequired && !PLAYER_ACCOUNTS.humanPrincipalFor(c) ? 'native_identity_required' : 'human_play_required' });
     return;
   }
-  if (WORLD_STATE && !WORLD_STATE.canMutate() && ['slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
+  if (WORLD_STATE && !WORLD_STATE.canMutate() && ['activity', 'slow', 'contrib', 'order', 'sarmyrep'].includes(m.t)) {
     send(c, { t: ['contrib', 'order'].includes(m.t) ? m.t : 'world-status', q: m.q, ok: false,
       why: 'The world is paused while its owned state is recovered.', persistence: worldPersistenceStatus() }); return;
   }
@@ -816,7 +862,8 @@ function onMsg(c, raw) {
     }
     return;
   }
-  if (m.t === 'slow') onSlow(c, m.d);
+  if (m.t === 'activity') SHARED_SCENE.handle(c, m);
+  else if (m.t === 'slow') onSlow(c, m.d);
   else if (m.t === 'acct') onAcct(c, m);
   else if (m.t === 'fast') onFast(c, m.d);
   else if (m.t === 'ping') send(c, { t: 'pong', c: m.c, s: now });
@@ -923,7 +970,7 @@ const server = http.createServer(async (req, res) => {
     give(400, { ok: false }); return;
   }
   if (u.pathname === '/season') { const fenced = WORLD_STATE && !WORLD_STATE.canMutate(); res.writeHead(fenced ? 503 : 200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(fenced ? { ok: false, persistence: worldPersistenceStatus() } : SEASON.summary(-1, (SEASON.RS ? SEASON.RS.t : 0) - 86400))); return; }
-  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: WORLDS[R.name] || null })), accounts: Object.keys(ACCOUNTS).length })); return; }
+  if (u.pathname === '/stats') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ...STATS, proc: { mem: process.memoryUsage(), cpu: process.cpuUsage(), up: process.uptime() }, season: SEASON.RS ? { file: SEASON.M.file, t: SEASON.RS.t, phase: SEASON.RS.phase, stepMs: SEASON.stepMs.length ? { last: SEASON.stepMs[SEASON.stepMs.length - 1], max: Math.max(...SEASON.stepMs), mean: SEASON.stepMs.reduce((a, b) => a + b, 0) / SEASON.stepMs.length } : null, roster: Object.keys(SEASON.roster).length } : null, companies: { n: Object.keys(COMP.D.list).length, ...COMP.stats }, rooms: [...ROOMS.values()].map((R) => ({ regions: R.regions || {}, name: R.name, players: R.clients.size, host: roomHost(R)?.peer || null, world: worldCheck(WORLDS[R.name]) })), accounts: Object.keys(ACCOUNTS).length })); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     let html;
     try { html = fs.readFileSync(CFG.page, 'utf8'); } catch (e) { res.writeHead(404); res.end('The game is not built here (python3 build.py)'); return; }
@@ -949,6 +996,7 @@ wss.on('connection', (ws) => {
     const R = c.room;
     if (!R) return;
     R.clients.delete(c.peer);
+    SHARED_SCENE.sync(R);
     // Human session departure already returned its field armies before suspension.
     for (const o of R.clients.values()) { send(o, { t: 'left', peer: c.peer }); if (o.nearAt) o.nearAt.delete(c.peer); if (o.farAt) o.farAt.delete(c.peer); }
     regionsTell(R);
@@ -1002,6 +1050,7 @@ function endHumanSession(c) {
   worldAgentTransport.close(c);
   if (c.slow) c.slow = { ...c.slow, on: 0, humanLive: 0 };
   c.humanDormant = true; c.fast = null; c.pos = null; c.region = null; c.regionTold = false;
+  SHARED_SCENE.leave(c); c.sceneAuthority = '';
   if (c.room) {
     c.pausedPeerIds = [...c.room.clients.keys()].filter(peer => peer !== c.peer);
     c.nearAt?.clear(); c.farAt?.clear();
@@ -1095,4 +1144,5 @@ const shutdown = async () => {
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 server.listen(CFG.port, () => console.log(`The Hallowmarch server on :${CFG.port} (data ${CFG.data})`));
 export { server, STATS, CFG, SEASON, COMP, WORLD_STATE, HUMAN_PLAY };
+
 

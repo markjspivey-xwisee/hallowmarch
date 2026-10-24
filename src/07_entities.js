@@ -23,9 +23,11 @@ function makeEnt(o) {
   e.prevX = e.x; e.prevZ = e.z;
   ENT.push(e);
   ENT_BY_ID.set(e.id, e);
+  if (typeof netEntityRegister === 'function') netEntityRegister(e);
   return e;
 }
 function removeEnt(e) {
+  if (typeof netEntityForget === 'function') netEntityForget(e);
   e.removed = true;
   ENT_BY_ID.delete(e.id);
   const i = ENT.indexOf(e);
@@ -68,6 +70,8 @@ function nearestWhere(x, z, r, pred) {
 
 function isEnemy(a, b) {
   if (!a || !b || a === b) return false;
+  if (typeof netEntityVisible === 'function' && (!netEntityVisible(a) || !netEntityVisible(b))) return false;
+  if (typeof netEntityRemoteEnemy === 'function') { const shared = netEntityRemoteEnemy(a, b); if (shared !== null) return shared; }
   if (a.capHide || b.capHide) return false; // [capture] the player out of the frame is no one's foe (14_capture.js)
   if (a.role === 'remote' || b.role === 'remote') return netIsEnemy(a, b); // [net] another page's player: a foe only to you, of another realm (14n_net.js)
   if (a.faction === FACTION_NEUTRAL || b.faction === FACTION_NEUTRAL) return !!((a.game && b.role === 'player') || (b.game && a.role === 'player')); // [survival] the player hunts deer
@@ -144,6 +148,7 @@ function setupStats(e, keepRatio = false) {
 /* buffs                                                               */
 /* ------------------------------------------------------------------ */
 function addBuff(e, kind, value, dur, src = null, extra = null) {
+  if (typeof netEntityBuff === 'function' && netEntityBuff(e, kind, value, dur, src, extra)) return { kind, value, until: GAME.t + dur, src, tick: GAME.t };
   if (e.role === 'remote') return netOutBuff(e, kind, value, dur, src, extra); // [net] told to its own page, which lays it (14n_net.js)
   const now = GAME.t;
   if (kind === 'stun' || kind === 'snare' || kind === 'root') { const g = giftBuffAdjust(e, kind, value, dur); value = g.value; dur = g.dur; } // [gifts] Unbroken, Cold-blooded (06c_gifts.js)
@@ -217,6 +222,7 @@ function computeDamage(src, dst, mult) {
 }
 function dealDamage(src, dst, amount, opts = {}) {
   if (!dst || !dst.alive || !(amount > 0)) return 0;
+  if (typeof netEntityDamage === 'function') { const shared = netEntityDamage(src, dst, amount, opts); if (shared !== null) return shared; }
   if (dst.role === 'remote') return netOutHit(src, dst, amount, opts); // [net] a blow on another page's player is settled by that page (14n_net.js)
   if (dst.kind === 'door') {
     if (!doorVulnerable(dst)) { if (src.role === 'player') uiFloatAt(dst.x, dst.y + 3, dst.z, 'Immune', 'immune'); return 0; }
@@ -265,6 +271,7 @@ function dealDamage(src, dst, amount, opts = {}) {
 }
 function healEnt(src, dst, amount, quiet = false) {
   if (!dst || !dst.alive || dst.kind === 'door') return 0;
+  if (typeof netEntityHeal === 'function') { const shared = netEntityHeal(src, dst, amount); if (shared !== null) return shared; }
   if (dst.role === 'remote') return netOutHeal(src, dst, amount); // [net] (14n_net.js)
   const before = dst.hp;
   amount *= healWound(dst); // [balance2] a broadhead's wound mends slowly (07c_balance.js)
@@ -283,6 +290,8 @@ function healEnt(src, dst, amount, quiet = false) {
   return h;
 }
 function killEnt(e, killer) {
+  if (typeof netEntityCanSimulateWorld === 'function' && typeof netEntityOwned === 'function'
+    && (netEntityOwned(e) || netEntityTown(e)) && !netEntityOwnPet(e) && netEntityShared() && !netEntityCanSimulateWorld() && !NET_ENTITIES.applying) return;
   if (!e.alive || e.role === 'remote') return; // [net] another page's player dies on its own page (14n_net.js)
   if (e !== GAME.player) activityEntityEvent('combat.died', e, killer, 1, { success: false });
   e.alive = false;
@@ -300,6 +309,7 @@ function killEnt(e, killer) {
   if (killer !== P && !(P && e.damagers?.has(P.id))) activityEntityEvent('combat.defeated', killer, e, 1, { success: true });
   if (P && e !== P && e.damagers && e.damagers.has(P.id)) grantKillRewards(e);
   onEntityKilled(e, killer);
+  if (typeof netEntityKilled === 'function') netEntityKilled(e, killer);
 }
 
 /* ------------------------------------------------------------------ */
@@ -356,6 +366,8 @@ function updateAnim(e, dt) {
 }
 function animActValue(e) {
   if (e.role === 'remote') return e.netAct || 0; // [net] what its own page draws it doing (14n_net.js)
+  if (e.netNpcPose != null) return e.netNpcPose; // the world's admitted town worker pose
+  if (e.netEntityPose != null) return e.netEntityPose;
   const wa = water2ActValue(e); if (wa) return wa; // [water2] the stroke under the water, the oars (07d_dive.js)
   const ca = classActValue(e); if (ca) return ca; // [classes] a raised shield, a drawn bow, prayer (07b_classes.js)
   const m5 = motion5ActValue(e); if (m5) return m5; // [motion5] a boat shoved off: the gunwale's height with the progress (13y_motion5.js)
@@ -1000,7 +1012,7 @@ function drawProjectiles() {
 function grantKillRewards(e) {
   const prog = GAME.prog, P = GAME.player;
   if (!prog || !P) return;
-  if (e.kind === 'door') return;
+  if (e.kind === 'door' || e.role === 'hound') return;
   activityEntityEvent('combat.defeated', P, e, 1, { success: true });
   const ci = conIndex(e.level, prog.level);
   rollLoot(e);
@@ -1076,3 +1088,4 @@ function onLevelUp() {
   if (prog.level > 20) rescaleWar();
   saveSoon();
 }
+

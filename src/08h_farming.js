@@ -636,7 +636,8 @@ function farmStepTown(dt) {
 function farmAssignFarmers() {
   FARM.farmers = [];
   for (const R of REALMS) {
-    const vs = ENT.filter((e) => e.role === 'villager' && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
+    const vs = ENT.filter((e) => e.role === 'villager' && e.alive && !e.removed && !e.netNpcMissing
+      && e.home && dist2(e.home.x, e.home.z, R.town.x, R.town.z) < 10);
     const tends = R.id === 0 || FARM.plots.some((P) => P.own === 't' && P.stand.town === R.id); // [seasons] the gardens of Ériu and Thule are tended too
     vs.slice(0, tends ? 2 : 1).forEach((e, i) => { e.ai.farmer = true; e.ai.fieldHand = tends; e.farmTown = R.id; if (i === 0) e.ai.seedSeller = true; FARM.farmers.push(e.id); });
   }
@@ -934,6 +935,9 @@ function farmEatAt(x, z, r = 0.8, bites = 1) {
 /* ------------------------------------------------------------------ */
 function updateFarming(dt) {
   if (!FARM.built) return;
+  if (typeof netWorldPartsCanSimulate === 'function' && !netWorldPartsCanSimulate()) {
+    stepFarmJob(dt); farmNotices(dt); return;
+  }
   const before = SEASON.idx;
   SEASON.t += dt * FARM.speed;
   seasonCalc();
@@ -1030,6 +1034,11 @@ function stepFarmJob(dt) {
   }
 }
 function farmFinishJob(kind, J) {
+  if (kind !== 'study' && typeof netWorldPartsRequest === 'function') {
+    const cost = kind === 'sow' && J.gid ? [[J.gid, goodsCount(J.gid)]] : kind === 'manure' ? [['manure', 1]] : [];
+    if (netWorldPartsRequest('farm.job', { kind, plot: J.plot ? { x: J.plot.x, z: J.plot.z } : null,
+      slot: J.slot, gid: J.gid, herb: J.herb && J.herb.i }, cost)) return;
+  }
   const P = J.plot;
   if (kind === 'till' || kind === 'tillHand') {
     const spot = farmTillSpot(GAME.player);
@@ -1471,3 +1480,39 @@ function buildFarming() {
     };
   }
 }
+
+
+function farmSharedSave() { return farmSaveData(); }
+function farmSharedApply(d) {
+  if (!d) return;
+  const job = FARM.job, plot = job && job.plot, herbal = FARM.herbal;
+  for (const herb of FARM.herbs) { herb.gone = 0; herb.regrow = 0; }
+  farmLoadData(d);
+  FARM.herbal = herbal;
+  if (job && plot) {
+    const replacement = FARM.plots.find(p => Math.hypot(p.x - plot.x, p.z - plot.z) < 0.2);
+    FARM.job = replacement ? { ...job, plot: replacement } : null;
+  } else FARM.job = job;
+}
+queueMicrotask(() => {
+  if (typeof netWorldPartsRegisterCommand !== 'function') return;
+  netWorldPartsRegisterCommand('farm.job', {
+    point: a => {
+      const herb = Number.isInteger(a.herb) && FARM.herbs[a.herb];
+      return a.plot || (herb ? { x: herb.x, z: herb.z } : null);
+    },
+    range: 7,
+    run: a => {
+      const allowed = ['till', 'tillHand', 'sow', 'weed', 'harvest', 'saveseed', 'clear', 'manure', 'gather', 'dig'];
+      if (!allowed.includes(a.kind)) return false;
+      const plot = a.plot && FARM.plots.find(p => Math.hypot(p.x - a.plot.x, p.z - a.plot.z) < 0.2);
+      const herb = Number.isInteger(a.herb) ? FARM.herbs[a.herb] : null;
+      if (!['till', 'tillHand', 'gather', 'dig'].includes(a.kind) && (!plot || plot.own !== 'p')) return false;
+      if (['gather', 'dig'].includes(a.kind) && !herb) return false;
+      if (a.kind === 'sow' && (!GOODS[a.gid] || !goodsCount(a.gid))) return false;
+      if (a.kind === 'manure' && !goodsHave('manure')) return false;
+      farmFinishJob(a.kind, { plot, herb, slot: a.slot, gid: a.gid });
+      return { ok: true };
+    },
+  });
+});

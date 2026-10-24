@@ -481,6 +481,7 @@ function drawActors(fx, fz) {
   const camX = camera.position.x, camZ = camera.position.z;
   const maxD2 = 175 * 175;
   for (const e of ENT) {
+    if (typeof netNpcVisible === 'function' && !netNpcVisible(e) || typeof netEntityVisible === 'function' && !netEntityVisible(e)) continue;
     if (e.removed || e.kind === 'door' || e.kind === 'dragon' || e.capHide) continue; // [capture] the player kept out of the frame (14_capture.js)
     const dx = e.x - camX, dz = e.z - camZ;
     if (dx * dx + dz * dz > maxD2) continue;
@@ -637,18 +638,21 @@ function simStep(dt) {
   runLater();
   if (typeof mainWorldAgentTick === 'function') mainWorldAgentTick();
   if (GAME.player) updatePlayer(dt);
+  if (typeof netWorldPartsLocalStep === 'function') netWorldPartsLocalStep(dt);
   updateNPCs(dt);
-  updateWar(dt);
+  const sharedSim = (typeof netEntityCanSimulateWorld !== 'function' || netEntityCanSimulateWorld())
+    && (typeof netWorldPartsCanSimulate !== 'function' || netWorldPartsCanSimulate());
+  if (sharedSim) updateWar(dt);
   updateProjectiles(dt);
   updateWalls(dt); // [walls] arrows glancing off stone, stuck ones falling with what held them (07g_walls.js)
-  updateDragonWorld(dt);
+  if (sharedSim) updateDragonWorld(dt);
   updateLoot(dt);
-  updateGates(dt);
-  updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
-  updateBarrow(dt);
-  updateHouses(dt);
+  if (sharedSim) updateGates(dt);
+  if (sharedSim) updateCastles(dt); // castles: gates swing for their own side, walls are repaired (04g_castles.js)
+  if (sharedSim) updateBarrow(dt);
+  if (sharedSim) updateHouses(dt);
   updateWear(dt); // feature/weather: soaking, snow, mud, blood and lightning on the ground (05h_wear.js)
-  updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
+  if (sharedSim) updateNature(dt); // nature (05h_nature.js): falling and burning trees, grass fire, regrowth, craters
   updateBrand(dt); // a burning brand in hand (09d_brand.js)
   updateLand(dt); // [worldstate] loot settles into craters, the woodcutter's axe in hand (12b_worldstate.js)
   updateGifts(dt); // [gifts] realm gifts: passives, the realm ultimate, champions (06c_gifts.js)
@@ -659,12 +663,12 @@ function simStep(dt) {
   updateSurvival(dt); // [survival] hunger and thirst, work, fishing, regrowth (09s_survival.js)
   updateFarming(dt); // [farming] the season, beds and crops, the town fields, herbs (08h_farming.js)
   updateAnimals(dt); // [animals] taming, companions, pens, breeding (08h_animals.js)
-  updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
-  updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
+  if (sharedSim) updateSeasons(dt); // [seasons] the snow lying on the land, the lakes freezing and thawing (05k_seasons.js)
+  if (sharedSim) updateDepth(dt); // [depth] burning and felled plants, stumps, game birds, built doors, wells, hatching, herding (09u_depth.js)
   updateLate2(dt); // [late2] deeds done with you there (10l_late.js)
-  updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
+  if (sharedSim) updateLate4(dt); // [late4] the roaming risen, the gore rushes, the deep's own air (10o_late4.js)
   updateWeather2(dt); // [weather2] the weather systems: fronts, showers and storms carried across the March (12c_weather2.js)
-  updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
+  if (sharedSim) updateLoops(dt); // [loops] the realms' stores: the land's work, the war's draw, the caravans (08m_loops.js)
   updateSeason(dt); // [loops] the season of weeks: its clock, points, projects and offensives (08n_season.js)
   netPump(dt); // [net] the others in the March: heard, told (14n_net.js)
 }
@@ -854,4 +858,5 @@ boot().catch((err) => {
   reportError(err);
   $('loadmsg').textContent = 'Something went wrong while building the world. Reloading may help.';
 });
+
 
