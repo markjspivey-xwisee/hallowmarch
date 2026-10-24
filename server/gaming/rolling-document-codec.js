@@ -1,7 +1,8 @@
 // Pure storage transforms; this module never receives SDK keys or performs I/O.
 import { gunzipSync, brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from 'node:zlib';
 import { InteregoGamingStore, DurableStoreError } from './interego-store.js';
-import { encodeRollingHistory, decodeRollingHistory } from './rolling-history-codec.js';
+import { decodeRollingHistory } from './rolling-history-codec.js';
+import { encodeRollingHistoryColumns } from './rolling-history-columns.js';
 export const ROLLING_TYPE = 'application/vnd.interego.rolling-checkpoint-delta-v1+br';
 export const ROLLING_LEGACY_TYPE = 'application/vnd.interego.rolling-checkpoint+gzip';
 const TYPE=ROLLING_TYPE, LEGACY_TYPE=ROLLING_LEGACY_TYPE;
@@ -101,7 +102,7 @@ export function encodeRollingDocument(doc,configuration) {
     const raw=Buffer.from(canonical(doc));
     Object.assign(measured,{rawBytes:raw.length,phase:'document-raw-limit'});
     if(raw.length>MAX_JSON) error('Rollback window exceeds its uncompressed budget.','PAYLOAD_TOO_LARGE',413);
-    const wire=encodeRollingHistory(doc),compressed=compress(wire,measured);
+    const wire=encodeRollingHistoryColumns(doc),compressed=compress(wire,measured);
     return {wire,compressed,measured};
   } catch(e) { e.measured=measured; throw e; }
 }

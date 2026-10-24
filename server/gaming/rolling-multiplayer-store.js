@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { InteregoGamingStore, createNativeTransport, DurableStoreError, DurableStoreConflictError } from './interego-store.js';
-import { encodeRollingHistory } from './rolling-history-codec.js';
+import { encodeRollingHistoryColumns } from './rolling-history-columns.js';
 import { validateRollingDocument } from './rolling-document-codec.js';
 import { rollingStorageWorker } from './rolling-storage-worker-client.js';
 
@@ -95,7 +95,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
     if (bytes.length > MAX_JSON) error('Rollback window exceeds its uncompressed budget.', 'PAYLOAD_TOO_LARGE', 413);
     // The logical document keeps its original schema and byte/depth bounds.
     // Storage-only delta tags require more nesting than the reconstructed JSON.
-    const encoded = preparedHistory?.wire ?? encodeRollingHistory(doc);
+    const encoded = preparedHistory?.wire ?? encodeRollingHistoryColumns(doc);
     if (preparedHistory) preparedHistory.wire = encoded;
     const wire = Buffer.from(canonical(encoded, 0, WIRE_DEPTH));
     if (measured) { measured.wireBytes = wire.length; measured.phase = 'document-wire-limit'; }
@@ -291,7 +291,7 @@ export class RollingMultiplayerStore extends InteregoGamingStore {
   }
   performanceStatus() { return { ...super.performanceStatus(), snapshotMode: 'bounded-rolling-hour', retentionMs: MULTIPLAYER_HISTORY_MS,
     checkpointResolutionMs: 60000, maxEncryptedBytes: 1024 * 1024, writeBudgetBytes: MULTIPLAYER_WRITE_BYTES,
-    storageCodec: 'lossless-history-delta-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
+    storageCodec: 'lossless-history-columns-v1+brotli', maxLogicalBytes: MAX_JSON, maxCompressedBytes: MAX_COMPRESSED,
     brotliWindowBits: BROTLI_WINDOW_BITS,
     lastCommitSize: this.lastCommitSize ? { ...this.lastCommitSize } : null,
     lastCommitSizeFailure: this.lastCommitSizeFailure ? { ...this.lastCommitSizeFailure } : null,

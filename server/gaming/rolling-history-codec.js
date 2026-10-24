@@ -1,3 +1,4 @@
+import { ROLLING_COLUMNS_CODEC, decodeRollingHistoryColumns } from './rolling-history-columns.js';
 /** Lossless JSON history deltas. The logical ownership/CAS document is unchanged. */
 export const ROLLING_HISTORY_CODEC = 'urn:hallowmarch:rolling-history-delta:v1';
 export const ROLLING_HISTORY_MAX_BYTES = 64 * 1024 * 1024;
@@ -198,6 +199,7 @@ export function encodeRollingHistory(doc) {
     changes: checkpoints.slice(1).map((next, i) => changed(checkpoints[i], next, ctx)) };
 }
 export function decodeRollingHistory(wire) {
+  if (wire?.schema === ROLLING_COLUMNS_CODEC) return decodeRollingHistoryColumns(wire);
   if (!plain(wire) || wire.schema !== ROLLING_HISTORY_CODEC || !plain(wire.current) || own(wire.current, 'checkpoints')
     || Object.keys(wire).some(key => !['schema', 'current', 'first', 'changes'].includes(key))
     || !Array.isArray(wire.changes) || wire.changes.length >= MAX_HISTORY || wire.first === null && wire.changes.length) fail();
