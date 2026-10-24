@@ -370,8 +370,10 @@ export function createSharedScene({ hostFor, live, admission, stateFor, send, ch
     if (!c.room || !live(c) || !canMutate()) return false;
     const room = c.room, s = sync(room);
     if (s.fenced) return false;
+    // Buffered input from a retired scope must not manufacture a refusal in
+    // the current scope: that would fence a client which has already resumed.
     if (!sameAdmission(m.worldAdmission, s.worldAdmission) || !sameAdmission(c.worldAdmission, s.worldAdmission)
-      || m.authority !== s.authority) return refuse(c, s, m, 'stale_authority');
+      || m.authority !== s.authority) return false;
     if (['entities', 'worldparts'].includes(m.kind)) return streamHandle(c, m, s);
     if (!['boats', 'npcs'].includes(m.kind)) return false;
     if (m.op === 'snapshot') {
