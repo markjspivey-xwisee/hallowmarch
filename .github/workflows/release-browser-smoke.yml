@@ -12,7 +12,82 @@ concurrency:
   group: release-browser-smoke-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  wait-for-isolated-native-acceptance:
+  deployed-preview:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - run: echo 'Economic acceptance held while the isolated desktop and phone run finishes.'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Use bounded Ubuntu archive downloads
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          apt_root = Path('/etc/apt')
+          sources = [apt_root / 'sources.list']
+          sources += list((apt_root / 'sources.list.d').glob('*.list'))
+          sources += list((apt_root / 'sources.list.d').glob('*.sources'))
+          sources += list(apt_root.glob('apt-mirrors*.txt'))
+          azure = re.compile(r'https?://azure\.archive\.ubuntu\.com/ubuntu(?=/|\s|$)')
+          for source in sources:
+              if not source.is_file():
+                  continue
+              original = source.read_text()
+              updated = azure.sub('https://archive.ubuntu.com/ubuntu', original)
+              if updated != original:
+                  source.write_text(updated)
+                  print('Using the official Ubuntu archive in', source)
+          (apt_root / 'apt.conf.d' / '99-hallowmarch-ci').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n')
+          PY
+      - name: Install locked browser dependencies
+        run: |
+          npm ci --prefix tools
+          node tools/node_modules/playwright/cli.js install --with-deps chromium
+      - uses: actions/checkout@v4
+        with:
+          ref: 95856e48efe9755172600e97c6d2d8a55bad9856
+          path: candidate
+      - name: Build exact candidate page
+        run: python3 candidate/build.py
+      - name: Verify deployed page and public native status
+        env:
+          GAME_ORIGIN: https://march-native-preview-production.up.railway.app
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const origin = process.env.GAME_ORIGIN;
+          const expected = await fs.readFile('candidate/hallowmarch.html', 'utf8');
+          const response = await fetch(origin + '/', { signal: AbortSignal.timeout(30000) });
+          if (!response.ok || !(await response.text()).endsWith(expected + '</body></html>'))
+            throw Error('deployed_page_differs_from_exact_candidate');
+          const healthResponse = await fetch(origin + '/health', { signal: AbortSignal.timeout(30000) });
+          const health = await healthResponse.json(), world = health.worldAuthority;
+          if (!healthResponse.ok || !health.ok || world?.mode !== 'native' || world.fenced || world.error
+            || !(world.confirmedVersion > 0)) throw Error('native_world_not_confirmed');
+          const statsResponse = await fetch(origin + '/stats', { signal: AbortSignal.timeout(30000) });
+          const stats = await statsResponse.json();
+          const allowed = new Set(['k', 'g', 'td', 'tm', 'cn', 'cl', 'at']);
+          if (!statsResponse.ok || !Array.isArray(stats.rooms)
+            || stats.rooms.some(room => room.world && Object.keys(room.world).some(key => !allowed.has(key))))
+            throw Error('public_stats_exposes_checkpoint');
+          console.log(JSON.stringify({ passed: true, pageSha256: createHash('sha256').update(expected).digest('hex'),
+            native: true, confirmed: true, publicStatsBounded: true }));
+          JS
+      - name: Check script syntax
+        run: |
+          node --check tools/manual/release-browser-smoke.mjs
+          node --check tools/manual/live-economic-smoke.mjs
+      - name: Confirm a real native mining receipt on preview
+        run: node tools/manual/live-economic-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: release-browser-smoke-public-evidence
+          path: |
+            tools/out/release-browser-smoke/
+            tools/out/live-economic-smoke/
+          retention-days: 7
