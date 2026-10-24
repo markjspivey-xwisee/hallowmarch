@@ -20,4 +20,6 @@ jobs:
         run: |
           node tools/setup-native-sdk.mjs
           echo "INTEREGO_SDK_TEST_ROOT=$INTEREGO_SDK_TEST_ROOT" >> "$GITHUB_ENV"
-      - run: node --test server/gaming/rolling*.test.mjs
+      - run: python3 build.py
+      - name: Verify every native gaming contract
+        run: node --test server/gaming/*.test.mjs
