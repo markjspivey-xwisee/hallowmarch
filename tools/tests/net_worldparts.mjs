@@ -671,3 +671,30 @@ test('standalone placement retains default camera yaw and build commands reject 
   assert.equal(keeper.context.BUILD.pieces.length, 0);
   assert.equal(keeper.context.CAM.yaw, Math.PI/4);
 });
+
+test('durable reservations normalize optional arguments to the exact JSON save and wire command', async () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [], receipts: [] });
+  c.api.command('farm.job', { durable: true });
+  const args = { kind: 'till', plot: null, slot: undefined, gid: undefined, herb: undefined };
+  c.api.request('farm.job', args, [['stone', 2]]);
+  args.kind = 'mutated after reservation';
+  await c.api.flushPrivate();
+  const requests = c.sent.filter(m => m.op === 'command');
+  assert.equal(requests.length, 1, 'native readback confirms optional fields before dispatch');
+  assert.deepEqual(requests[0].command.args, { kind: 'till', plot: null });
+  const pending = c.api.state.pending.get(requests[0].command.id);
+  assert.equal(pending.privateConfirmed, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(pending.args)), { kind: 'till', plot: null });
+  const saved = c.getPersisted().char.x.sharedWorldReservations.pending[0];
+  assert.deepEqual(saved.args, requests[0].command.args);
+  assert.equal(c.context.INV.goods.stone, 18, 'materials are reserved exactly once');
+});
+
+test('an unserializable action cannot reserve materials or enter the private journal', () => {
+  const c = client(); frame(c, { v: 1, full: true, parts: {}, remove: [], receipts: [] });
+  const args = { kind: 'till' }; args.circular = args;
+  assert.equal(c.api.request('farm.job', args, [['stone', 2]]), true);
+  assert.equal(c.context.INV.goods.stone, 20);
+  assert.equal(c.api.state.pending.size, 0);
+  assert.equal(c.sent.some(m => m.op === 'command'), false);
+});

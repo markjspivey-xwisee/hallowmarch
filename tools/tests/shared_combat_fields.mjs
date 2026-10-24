@@ -230,7 +230,8 @@ test('follower fields dispatch through the real request path while inventory rec
     "const netWorldPartsFlushJournal=()=>{privateFlushes++;return Promise.resolve(false)};" +
     "const netWsSend=message=>{sends.push(message);return true};const uiError=()=>{};"
   );
-  b.run(section('function netWorldPartsOwnerScope(', 'function netWorldPartsReset(') +
+  b.run(section('const netPartsClone =', 'const netPartsEqualAdmission =') +
+    section('function netWorldPartsOwnerScope(', 'function netWorldPartsReset(') +
     section('function netWorldPartsRequest(', 'function netWorldPartsMessage(') +
     section('function netWorldPartsDispatch(', 'function netWorldPartsSendSettled('));
   b.run('freezeWater(4,6,5,GAME.player);layRune(GAME.player,0,0,"frost")');

@@ -186,13 +186,18 @@ function netWorldPartsRequest(op, args, cost = [], forceOwner = false) {
     || [...NETPARTS.pending.values()].filter(netWorldPartsOwnerScope).length >= 8 || NETPARTS.receipts.filter(r => !r.settled).length >= 24) {
     uiError('Waiting for the shared world or a private checkpoint.'); return true;
   }
+  // Reserve the exact JSON command that both persistence and transport carry.
+  // Optional undefined properties must not make a valid readback look different.
+  let requestArgs;
+  try { requestArgs = netPartsClone(args); }
+  catch { uiError('The shared action could not be prepared.'); return true; }
   const declared = {};
   for (const [id, n] of cost) if (GOODS[id] && n > 0) declared[id] = n;
   for (const id of spec?.tools || []) if (goodsHave(id)) declared[id] = Math.max(declared[id] || 0, 1);
   if (!goodsTakeAll(cost)) { uiError('You do not have the materials for that action.'); return true; }
   const id = NET.self + ':' + crypto.randomUUID();
   NETPARTS.next++;
-  const pending = netWorldPartsBindOwner({ op, args, cost, declared, forceOwner, durable, phase: 'reserved',
+  const pending = netWorldPartsBindOwner({ op, args: requestArgs, cost, declared, forceOwner, durable, phase: 'reserved',
     privateConfirmed: !durable, owner: NET.self, ownerAccount: NETWS.acct?.id,
     capacity: INV.bag.length, at: performance.now(), lastSent: -Infinity, authority: NETPARTS.authority });
   NETPARTS.pending.set(id, pending);
